@@ -57,6 +57,80 @@ pub const OfflineBackend = struct {
     }
 };
 
+/// Real-time pacing without a sound card: a thread calls the render
+/// callback at wall-clock block rate and discards the audio. Keeps the
+/// transport and meters honest until a native device backend lands —
+/// which will replace only the inside of `run`.
+pub const NullBackend = struct {
+    config: Config,
+    render: RenderFn,
+    ctx: *anyopaque,
+    io: std.Io = undefined,
+    thread: ?std.Thread = null,
+    running: std.atomic.Value(bool) = .init(false),
+    buffer: [types.max_block_frames * max_channels]types.Sample = undefined,
+
+    const max_channels = 2;
+
+    pub fn start(self: *NullBackend, io: std.Io) !void {
+        std.debug.assert(self.config.channels <= max_channels);
+        std.debug.assert(self.config.block_frames <= types.max_block_frames);
+        self.io = io;
+        self.running.store(true, .release);
+        self.thread = try std.Thread.spawn(.{}, run, .{self});
+    }
+
+    pub fn stop(self: *NullBackend) void {
+        self.running.store(false, .release);
+        if (self.thread) |thread| {
+            thread.join();
+            self.thread = null;
+        }
+    }
+
+    fn run(self: *NullBackend) void {
+        const block_samples = @as(usize, self.config.block_frames) * self.config.channels;
+        const block_ns: i96 = @intFromFloat(@as(f64, @floatFromInt(self.config.block_frames)) /
+            @as(f64, @floatFromInt(self.config.sample_rate)) * std.time.ns_per_s);
+        while (self.running.load(.acquire)) {
+            self.render(self.ctx, self.buffer[0..block_samples]);
+            // Sleeping the full block duration ignores render time, so
+            // this drifts slightly slow — fine for a stand-in clock.
+            self.io.sleep(.fromNanoseconds(block_ns), .awake) catch return;
+        }
+    }
+};
+
+test "null backend drives the render callback in real time" {
+    const Counter = struct {
+        calls: std.atomic.Value(u32) = .init(0),
+        fn render(ctx: *anyopaque, out: []types.Sample) void {
+            const self: *@This() = @ptrCast(@alignCast(ctx));
+            _ = self.calls.fetchAdd(1, .monotonic);
+            @memset(out, 0.0);
+        }
+    };
+
+    var threaded: std.Io.Threaded = .init(std.testing.allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    var counter: Counter = .{};
+    var backend = NullBackend{
+        .config = .{ .block_frames = 64 }, // ~1.3 ms blocks
+        .render = Counter.render,
+        .ctx = &counter,
+    };
+    try backend.start(io);
+    defer backend.stop();
+
+    var waited: u32 = 0;
+    while (counter.calls.load(.monotonic) < 2 and waited < 200) : (waited += 1) {
+        try io.sleep(.fromMilliseconds(5), .awake);
+    }
+    try std.testing.expect(counter.calls.load(.monotonic) >= 2);
+}
+
 test "offline backend delivers every frame exactly once" {
     const Counter = struct {
         calls: u32 = 0,

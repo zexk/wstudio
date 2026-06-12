@@ -15,6 +15,8 @@ pub const Key = union(enum) {
     escape,
     enter,
     backspace,
+    /// Intercepted by the frontend (quit); modal layer ignores it.
+    ctrl_c,
 };
 
 pub const Action = union(enum) {
@@ -24,6 +26,7 @@ pub const Action = union(enum) {
     goto_start,
     goto_end,
     toggle_play,
+    toggle_mute,
     octave_down,
     octave_up,
     /// Insert-mode key mapped through the piano layout.
@@ -149,6 +152,7 @@ pub const ModalInput = struct {
                 return self.setMode(.command);
             },
             ' ' => return .toggle_play,
+            'm' => return .toggle_mute,
             else => return .none,
         }
     }
@@ -195,6 +199,7 @@ pub const ModalInput = struct {
                 }
                 return .none;
             },
+            .ctrl_c => return .none,
         }
     }
 };
@@ -245,6 +250,7 @@ test "command mode collects text until enter" {
 test "space toggles transport, escape cancels count" {
     var input: ModalInput = .{};
     try std.testing.expectEqual(Action.toggle_play, press(&input, " "));
+    try std.testing.expectEqual(Action.toggle_mute, press(&input, "m"));
     _ = press(&input, "42");
     _ = input.handle(.escape);
     try std.testing.expectEqual(Action{ .move = .{ .dy = 1 } }, press(&input, "j"));

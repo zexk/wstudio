@@ -22,9 +22,11 @@ hunting before the first note.
 
 ## Status
 
-Foundation. The pipeline works end to end — modal input → engine →
-device chain → WAV on disk — driven by an offline backend and a small
-built-in device rack (polysynth, compressor, delay, reverb).
+Early but live. `wstudio` opens a TUI: three synth tracks, vim-style
+modal control, live keyboard playing with real-time meters (paced by a
+null backend until a native audio device backend lands — the clock is
+real, the sound card is not yet). `wstudio render` runs the offline
+pipeline demo to a WAV.
 
 ## Architecture
 
@@ -39,6 +41,9 @@ src/
 ├── input/
 │   └── modal.zig       vim-style modal input: modes, counts, sequences,
 │                       piano key layout — pure state machine, UI-agnostic
+├── tui/
+│   ├── terminal.zig    raw mode, ANSI frames, input decoding (zero deps)
+│   └── app.zig         TUI app: action dispatch, drawing, run loop
 ├── transport.zig       playhead, tempo, musical time
 ├── project.zig         the document: tracks, settings (control side)
 ├── dsp.zig             device rack namespace
@@ -50,8 +55,9 @@ src/
 │   └── reverb.zig      Freeverb-style reverb
 └── audio/
     ├── engine.zig      RT engine: command queue, track device chains,
-    │                   mixing, metering
-    └── backend.zig     backend interface + offline renderer
+    │                   mixing, metering, atomic UI snapshots
+    └── backend.zig     backend interface, offline renderer,
+                        real-time-paced null backend
 ```
 
 Three rules hold everything together:
@@ -69,15 +75,17 @@ Three rules hold everything together:
 
 ```sh
 nix develop          # zig, zls, audio libs
-zig build run        # plays a melody through the device chain -> out.wav
+zig build run        # launch the TUI (space = play, i = piano mode, :q = quit)
+zig build run -- render  # offline demo: melody through the chain -> out.wav
 zig build test       # all tests
 nix build            # packaged build via zig.hook
 ```
 
 ## Roadmap
 
-- [ ] TUI frontend wiring the modal input layer to a real terminal
+- [x] TUI frontend wiring the modal input layer to a real terminal
 - [ ] Native audio backends (PipeWire/ALSA, JACK) behind the existing interface
+      (replaces the null backend's sleep loop — the TUI then makes sound)
 - [ ] Note clips + sequencing on the timeline (record from insert mode)
 - [ ] Audio clips: WAV reading, clip playback on tracks
 - [ ] More devices: filters, EQ, chorus, sampler, drum synth

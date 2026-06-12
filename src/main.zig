@@ -1,9 +1,20 @@
-//! CLI frontend. Proves the pitch end to end: keystrokes go through
-//! the modal input layer, become note events, and play through a
-//! synth -> compressor -> delay -> reverb chain, bounced to a WAV.
+//! CLI frontend. `wstudio` launches the TUI; `wstudio render` runs the
+//! offline pipeline demo: keystrokes -> modal input -> note events ->
+//! synth -> compressor -> delay -> reverb, bounced to a WAV.
 
 const std = @import("std");
 const ws = @import("wstudio");
+
+pub fn main(init: std.process.Init) !void {
+    var args = std.process.Args.Iterator.init(init.minimal.args);
+    _ = args.skip(); // argv0
+    if (args.next()) |cmd| {
+        if (std.mem.eql(u8, cmd, "render")) return renderDemo(init.gpa, init.io);
+        std.debug.print("unknown command: {s}\nusage: wstudio [render]\n", .{cmd});
+        return error.UnknownCommand;
+    }
+    return ws.tui.run(init.gpa, init.io);
+}
 
 const out_path = "out.wav";
 /// Played on the z-row piano layout in insert mode (octave 4).
@@ -11,15 +22,7 @@ const melody = "zcb,bc";
 const note_seconds = 0.25; // eighth notes at 120 bpm
 const tail_seconds = 2.0;
 
-pub fn main() !void {
-    var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
-    defer _ = debug_allocator.deinit();
-    const allocator = debug_allocator.allocator();
-
-    var threaded: std.Io.Threaded = .init(allocator, .{});
-    defer threaded.deinit();
-    const io = threaded.io();
-
+fn renderDemo(allocator: std.mem.Allocator, io: std.Io) !void {
     var stdout_buffer: [1024]u8 = undefined;
     var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buffer);
     const stdout = &stdout_writer.interface;

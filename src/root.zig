@@ -20,6 +20,12 @@ pub const dsp = @import("dsp.zig");
 pub const input = @import("input/modal.zig");
 pub const ModalInput = input.ModalInput;
 
+pub const tui = struct {
+    pub const terminal = @import("tui/terminal.zig");
+    pub const App = @import("tui/app.zig").App;
+    pub const run = @import("tui/app.zig").run;
+};
+
 // Reference every namespace so `zig build test` picks up their tests.
 test {
     _ = types;
@@ -31,4 +37,6 @@ test {
     _ = backend;
     _ = dsp;
     _ = input;
+    _ = tui.terminal;
+    _ = tui.App;
 }

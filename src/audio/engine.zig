@@ -46,6 +46,13 @@ const TrackState = struct {
     chain_len: usize = 0,
 };
 
+/// Engine state published for UI threads, read via `uiSnapshot`.
+pub const UiSnapshot = struct {
+    playing: bool,
+    position_frames: u64,
+    peak: [channels]f32,
+};
+
 pub const Engine = struct {
     transport: Transport,
     commands: Spsc(Command, 256) = .{},
@@ -54,6 +61,15 @@ pub const Engine = struct {
     scratch: [types.max_block_frames * channels]Sample = undefined,
     /// Per-channel peak of the last block, for metering.
     peak: [channels]f32 = .{ 0.0, 0.0 },
+    shared: Shared = .{},
+
+    /// Atomic mirror of RT state so UI threads can read it without
+    /// touching the audio thread's data.
+    const Shared = struct {
+        playing: std.atomic.Value(bool) = .init(false),
+        position_frames: std.atomic.Value(u64) = .init(0),
+        peak_bits: [channels]std.atomic.Value(u32) = .{ .init(0), .init(0) },
+    };
 
     pub fn init(sample_rate: u32) Engine {
         return .{ .transport = .{ .sample_rate = sample_rate } };
@@ -114,6 +130,25 @@ pub const Engine = struct {
         }
 
         self.transport.advance(frames);
+
+        self.shared.playing.store(self.transport.playing, .monotonic);
+        self.shared.position_frames.store(self.transport.position_frames, .monotonic);
+        inline for (0..channels) |ch| {
+            self.shared.peak_bits[ch].store(@bitCast(self.peak[ch]), .monotonic);
+        }
+    }
+
+    /// Safe to call from any thread while the audio thread runs.
+    pub fn uiSnapshot(self: *const Engine) UiSnapshot {
+        var snap: UiSnapshot = .{
+            .playing = self.shared.playing.load(.monotonic),
+            .position_frames = self.shared.position_frames.load(.monotonic),
+            .peak = undefined,
+        };
+        inline for (0..channels) |ch| {
+            snap.peak[ch] = @bitCast(self.shared.peak_bits[ch].load(.monotonic));
+        }
+        return snap;
     }
 
     fn drainCommands(self: *Engine) void {
@@ -211,6 +246,23 @@ test "mute command silences a track" {
     var block: [512]Sample = undefined;
     engine.process(&block);
     try std.testing.expectEqual(@as(f32, 0.0), engine.peak[0]);
+}
+
+test "uiSnapshot publishes transport and meter state" {
+    var synth = PolySynth.init(48_000);
+    var engine = Engine.init(48_000);
+    engine.tracks[0] = .{ .active = true };
+    engine.setTrackChain(0, &.{synth.device()});
+    _ = engine.send(.play);
+    _ = engine.send(.{ .note_on = .{ .track = 0, .note = 60, .velocity = 1.0 } });
+
+    var block: [512]Sample = undefined;
+    engine.process(&block);
+
+    const snap = engine.uiSnapshot();
+    try std.testing.expect(snap.playing);
+    try std.testing.expectEqual(@as(u64, 256), snap.position_frames);
+    try std.testing.expect(snap.peak[0] > 0.01);
 }
 
 test "loadProject mirrors track settings" {
