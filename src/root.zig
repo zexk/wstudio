@@ -14,6 +14,10 @@ pub const Track = @import("project.zig").Track;
 pub const engine = @import("audio/engine.zig");
 pub const Engine = engine.Engine;
 pub const backend = @import("audio/backend.zig");
+pub const alsa = if (@import("builtin").os.tag == .linux)
+    @import("audio/alsa.zig")
+else
+    struct {};
 
 pub const dsp = @import("dsp.zig");
 
@@ -35,6 +39,7 @@ test {
     _ = Project;
     _ = engine;
     _ = backend;
+    _ = alsa;
     _ = dsp;
     _ = input;
     _ = tui.terminal;

@@ -37,7 +37,11 @@
           pname = "wstudio";
           version = "0.1.0";
           src = self;
-          nativeBuildInputs = [ pkgs.zig.hook ];
+          nativeBuildInputs = [
+            pkgs.zig.hook
+            pkgs.pkg-config
+          ];
+          buildInputs = pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.alsa-lib ];
         };
       });
 

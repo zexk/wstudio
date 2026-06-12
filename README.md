@@ -22,11 +22,11 @@ hunting before the first note.
 
 ## Status
 
-Early but live. `wstudio` opens a TUI: three synth tracks, vim-style
-modal control, live keyboard playing with real-time meters (paced by a
-null backend until a native audio device backend lands — the clock is
-real, the sound card is not yet). `wstudio render` runs the offline
-pipeline demo to a WAV.
+Early but live — and audible. `wstudio` opens a TUI: three synth
+tracks, vim-style modal control, live keyboard playing through ALSA
+(PipeWire/PulseAudio serve its `default` device, so any desktop works;
+a silent wall-clock backend takes over when no device exists).
+`wstudio render` runs the offline pipeline demo to a WAV.
 
 ## Architecture
 
@@ -56,8 +56,9 @@ src/
 └── audio/
     ├── engine.zig      RT engine: command queue, track device chains,
     │                   mixing, metering, atomic UI snapshots
-    └── backend.zig     backend interface, offline renderer,
-                        real-time-paced null backend
+    ├── backend.zig     backend interface, offline renderer,
+    │                   real-time-paced null backend
+    └── alsa.zig        ALSA playback backend (device-clock paced)
 ```
 
 Three rules hold everything together:
@@ -84,8 +85,8 @@ nix build            # packaged build via zig.hook
 ## Roadmap
 
 - [x] TUI frontend wiring the modal input layer to a real terminal
-- [ ] Native audio backends (PipeWire/ALSA, JACK) behind the existing interface
-      (replaces the null backend's sleep loop — the TUI then makes sound)
+- [x] Native audio backend (ALSA; PipeWire serves it on modern systems)
+- [ ] Native PipeWire and JACK backends behind the same interface
 - [ ] Note clips + sequencing on the timeline (record from insert mode)
 - [ ] Audio clips: WAV reading, clip playback on tracks
 - [ ] More devices: filters, EQ, chorus, sampler, drum synth

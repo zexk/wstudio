@@ -3,6 +3,7 @@
 //! dispatch are separated from the terminal so both are testable.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const types = @import("../core/types.zig");
 const engine_mod = @import("../audio/engine.zig");
 const backend_mod = @import("../audio/backend.zig");
@@ -58,6 +59,7 @@ pub const App = struct {
     racks: []Rack,
     modal: modal_mod.ModalInput = .{},
     cursor: usize = 0,
+    audio_label: []const u8 = "off",
     should_quit: bool = false,
     status_buf: [80]u8 = undefined,
     status_len: usize = 0,
@@ -215,10 +217,11 @@ pub const App = struct {
 
         // header
         try w.print(" wstudio - {s}", .{self.project.name});
-        try w.print("   bpm {d:.0}  {d}/{d}", .{
+        try w.print("   bpm {d:.0}  {d}/{d}   audio: {s}", .{
             self.project.tempo_bpm,
             self.engine.transport.time_signature.beats_per_bar,
             self.engine.transport.time_signature.beat_unit,
+            self.audio_label,
         });
         try endLine(w);
         try hr(w, size.cols);
@@ -318,13 +321,29 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io) !void {
     var app = try App.init(allocator);
     defer app.deinit();
 
-    var backend = backend_mod.NullBackend{
-        .config = .{ .sample_rate = app.project.sample_rate },
+    const config: backend_mod.Config = .{ .sample_rate = app.project.sample_rate };
+
+    // Prefer the real device; fall back to the wall-clock null backend
+    // so the TUI still runs (silently) without audio hardware.
+    const has_alsa = builtin.os.tag == .linux;
+    const AlsaBackend = if (has_alsa) @import("../audio/alsa.zig").AlsaBackend else void;
+    var alsa_backend: AlsaBackend = undefined;
+    var null_backend = backend_mod.NullBackend{
+        .config = config,
         .render = renderTrampoline,
         .ctx = app.engine,
     };
-    try backend.start(io);
-    defer backend.stop();
+
+    var using_alsa = false;
+    if (has_alsa) {
+        alsa_backend = .{ .config = config, .render = renderTrampoline, .ctx = app.engine };
+        if (alsa_backend.start()) {
+            using_alsa = true;
+        } else |_| {}
+    }
+    if (!using_alsa) try null_backend.start(io);
+    defer if (using_alsa) alsa_backend.stop() else null_backend.stop();
+    app.audio_label = if (using_alsa) "alsa" else "none (silent)";
 
     var frame_buf: [32 * 1024]u8 = undefined;
     var input_buf: [128]u8 = undefined;

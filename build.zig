@@ -11,6 +11,13 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    if (target.result.os.tag == .linux) {
+        wstudio_mod.link_libc = true;
+        wstudio_mod.linkSystemLibrary("asound", .{});
+        // glibc's fortified wrappers (active when optimizing) break
+        // zig's translate-c on @cImport of alsa headers
+        wstudio_mod.addCMacro("_FORTIFY_SOURCE", "0");
+    }
 
     const exe = b.addExecutable(.{
         .name = "wstudio",
