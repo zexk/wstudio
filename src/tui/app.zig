@@ -16,15 +16,14 @@ const PolySynth = @import("../dsp/synth.zig").PolySynth;
 const Compressor = @import("../dsp/compressor.zig").Compressor;
 const StereoDelay = @import("../dsp/delay.zig").StereoDelay;
 const Reverb = @import("../dsp/reverb.zig").Reverb;
+const DrumMachine = @import("../dsp/drum_sampler.zig").DrumMachine;
+const wav = @import("../core/wav.zig");
 
 const Engine = engine_mod.Engine;
 
-/// How long a previewed note rings before its note-off (terminals
-/// cannot report key release).
 const note_ms = 220;
 const frame_poll_ms = 30;
 
-/// One track's devices, heap-stable so the engine can point at them.
 const Rack = struct {
     synth: PolySynth,
     comp: ?Compressor = null,
@@ -52,14 +51,23 @@ const Rack = struct {
     }
 };
 
+const AppView = enum { tracks, drum_grid };
+
 pub const App = struct {
     allocator: std.mem.Allocator,
+    io: std.Io,
     project: Project,
     engine: *Engine,
     racks: []Rack,
+    drum: DrumMachine,
+    drum_track: u16, // engine track index for the drum machine
     modal: modal_mod.ModalInput = .{},
     cursor: usize = 0,
+    view: AppView = .tracks,
+    /// Cursor within the drum grid: [pad_idx, step_idx]
+    drum_cursor: [2]u8 = .{ 0, 0 },
     audio_label: []const u8 = "off",
+    master_gain_db: f32 = 0.0,
     should_quit: bool = false,
     status_buf: [80]u8 = undefined,
     status_len: usize = 0,
@@ -68,12 +76,13 @@ pub const App = struct {
 
     const NoteOff = struct { at_ns: i96, track: u16, note: u7 };
 
-    pub fn init(allocator: std.mem.Allocator) !App {
+    pub fn init(allocator: std.mem.Allocator, io: std.Io) !App {
         var project = Project.init(allocator);
         errdefer project.deinit();
         _ = try project.addTrack(.{ .name = "lead" });
         _ = try project.addTrack(.{ .name = "pad", .gain_db = -6.0 });
         _ = try project.addTrack(.{ .name = "bass", .gain_db = -3.0 });
+        _ = try project.addTrack(.{ .name = "drums" });
         const sr = project.sample_rate;
 
         const engine = try allocator.create(Engine);
@@ -81,7 +90,8 @@ pub const App = struct {
         engine.* = Engine.init(sr);
         engine.loadProject(&project);
 
-        const racks = try allocator.alloc(Rack, project.tracks.items.len);
+        // Synth racks for tracks 0–2
+        const racks = try allocator.alloc(Rack, 3);
         errdefer allocator.free(racks);
 
         racks[0] = .{ .synth = PolySynth.init(sr), .label = "synth+comp+dly+rev" };
@@ -101,26 +111,35 @@ pub const App = struct {
         racks[2].synth.waveform = .square;
         racks[2].synth.gain = 0.25;
 
+        // DrumMachine for track 3; transport pointer is stable (engine is heap)
+        var drum = try DrumMachine.init(allocator, sr, &engine.transport);
+        errdefer drum.deinit();
+        const drum_track: u16 = @intCast(project.tracks.items.len - 1);
+
         var self: App = .{
             .allocator = allocator,
+            .io = io,
             .project = project,
             .engine = engine,
             .racks = racks,
+            .drum = drum,
+            .drum_track = drum_track,
         };
         for (self.racks, 0..) |*rack, i| {
             var buf: [4]dsp.Device = undefined;
             self.engine.setTrackChain(@intCast(i), rack.chain(&buf));
         }
+        self.engine.setTrackChain(drum_track, &.{self.drum.device()});
         return self;
     }
 
-    /// The audio thread must be stopped before calling this.
     pub fn deinit(self: *App) void {
         for (self.racks) |*rack| {
             if (rack.delay) |*d| d.deinit(self.allocator);
             if (rack.reverb) |*r| r.deinit(self.allocator);
         }
         self.allocator.free(self.racks);
+        self.drum.deinit();
         self.allocator.destroy(self.engine);
         self.project.deinit();
     }
@@ -130,12 +149,58 @@ pub const App = struct {
             self.should_quit = true;
             return;
         }
-        self.applyAction(self.modal.handle(key), now_ns);
+
+        switch (self.view) {
+            .drum_grid => self.handleDrumKey(key),
+            .tracks => {
+                // Enter on the drum track opens the grid
+                if (key == .enter and self.cursor == self.drum_track) {
+                    self.view = .drum_grid;
+                    return;
+                }
+                self.applyAction(self.modal.handle(key), now_ns);
+            },
+        }
+    }
+
+    fn handleDrumKey(self: *App, key: modal_mod.Key) void {
+        const pad = &self.drum_cursor[0];
+        const step = &self.drum_cursor[1];
+        switch (key) {
+            .escape => self.view = .tracks,
+            .char => |c| switch (c) {
+                'h' => step.* = if (step.* == 0) DrumMachine.max_steps - 1 else step.* - 1,
+                'l' => step.* = (step.* + 1) % DrumMachine.max_steps,
+                'k' => if (pad.* > 0) {
+                    pad.* -= 1;
+                },
+                'j' => if (pad.* < DrumMachine.max_pads - 1) {
+                    pad.* += 1;
+                },
+                ' ' => self.drum.toggleStep(pad.*, step.*),
+                // Quick pad preview in grid view
+                'p' => _ = self.engine.send(.{ .note_on = .{
+                    .track = self.drum_track,
+                    .note = @intCast(pad.*),
+                    .velocity = 0.9,
+                } }),
+                else => {},
+            },
+            else => {},
+        }
     }
 
     pub fn applyAction(self: *App, action: modal_mod.Action, now_ns: i96) void {
         switch (action) {
             .none, .octave_up, .octave_down, .goto_end => {},
+            .volume_delta => |delta| {
+                self.master_gain_db = std.math.clamp(
+                    self.master_gain_db + @as(f32, @floatFromInt(delta)),
+                    -40.0,
+                    6.0,
+                );
+                _ = self.engine.send(.{ .set_master_gain = types.dbToGain(self.master_gain_db) });
+            },
             .mode_changed => self.status_len = 0,
             .move => |m| {
                 const count: i64 = @as(i64, @intCast(self.cursor)) + m.dy;
@@ -155,7 +220,19 @@ pub const App = struct {
                     .muted = track.muted,
                 } });
             },
-            .note => |n| self.playNote(n.pitch, now_ns),
+            .note => |n| {
+                // Don't play notes on the drum track from the piano keyboard;
+                // notes on drum tracks trigger pads directly via engine events
+                if (self.cursor != self.drum_track) {
+                    self.playNote(n.pitch, now_ns);
+                } else {
+                    _ = self.engine.send(.{ .note_on = .{
+                        .track = self.drum_track,
+                        .note = @intCast(n.pitch % DrumMachine.max_pads),
+                        .velocity = 0.9,
+                    } });
+                }
+            },
             .command_submit => |text| self.runCommand(text),
         }
     }
@@ -164,7 +241,6 @@ pub const App = struct {
         const track: u16 = @intCast(self.cursor);
         _ = self.engine.send(.{ .note_on = .{ .track = track, .note = pitch, .velocity = 0.85 } });
         if (self.note_off_len == self.note_offs.len) {
-            // queue full: release the oldest immediately
             const oldest = self.note_offs[0];
             _ = self.engine.send(.{ .note_off = .{ .track = oldest.track, .note = oldest.note } });
             std.mem.copyForwards(NoteOff, self.note_offs[0 .. self.note_off_len - 1], self.note_offs[1..self.note_off_len]);
@@ -178,7 +254,6 @@ pub const App = struct {
         self.note_off_len += 1;
     }
 
-    /// Releases notes whose preview time has elapsed.
     pub fn tick(self: *App, now_ns: i96) void {
         var i: usize = 0;
         while (i < self.note_off_len) {
@@ -196,9 +271,73 @@ pub const App = struct {
     fn runCommand(self: *App, text: []const u8) void {
         if (std.mem.eql(u8, text, "q") or std.mem.eql(u8, text, "quit")) {
             self.should_quit = true;
+        } else if (std.mem.startsWith(u8, text, "load-pad ")) {
+            self.cmdLoadPad(text["load-pad ".len..]);
+        } else if (std.mem.startsWith(u8, text, "vol")) {
+            self.cmdVol(text["vol".len..]);
         } else {
             self.setStatus("not a command: {s}", .{text});
         }
+    }
+
+    /// :load-pad <pad 0-7> <path/to/file.wav>
+    fn cmdLoadPad(self: *App, args: []const u8) void {
+        var it = std.mem.splitScalar(u8, args, ' ');
+        const pad_str = it.next() orelse {
+            self.setStatus("usage: load-pad <0-7> <file.wav>", .{});
+            return;
+        };
+        const path = it.rest();
+        const pad_idx = std.fmt.parseInt(u8, pad_str, 10) catch {
+            self.setStatus("load-pad: bad pad index '{s}'", .{pad_str});
+            return;
+        };
+        if (pad_idx >= DrumMachine.max_pads) {
+            self.setStatus("load-pad: pad index must be 0-7", .{});
+            return;
+        }
+
+        const data = std.Io.Dir.cwd().readFileAlloc(
+            self.io,
+            path,
+            self.allocator,
+            .limited(64 * 1024 * 1024),
+        ) catch |e| {
+            self.setStatus("load-pad: cannot read '{s}': {s}", .{ path, @errorName(e) });
+            return;
+        };
+        defer self.allocator.free(data);
+
+        // Derive name from filename (last path component, no extension)
+        const basename = std.fs.path.basename(path);
+        const stem = if (std.mem.lastIndexOf(u8, basename, ".")) |dot|
+            basename[0..dot]
+        else
+            basename;
+
+        self.drum.loadPadWav(pad_idx, data, stem) catch |e| {
+            self.setStatus("load-pad: parse error: {s}", .{@errorName(e)});
+            return;
+        };
+        self.setStatus("pad {d} loaded: {s}", .{ pad_idx, stem });
+    }
+
+    /// :vol [<dB>]  — set or query master gain. E.g. `:vol -6`, `:vol +3`, `:vol`
+    fn cmdVol(self: *App, args: []const u8) void {
+        const trimmed = std.mem.trim(u8, args, " ");
+        if (trimmed.len == 0) {
+            const sign: []const u8 = if (self.master_gain_db >= 0) "+" else "";
+            self.setStatus("master vol: {s}{d:.1}dB  ([ / ] to adjust)", .{ sign, self.master_gain_db });
+            return;
+        }
+        const db = std.fmt.parseFloat(f32, trimmed) catch {
+            self.setStatus("vol: expected a dB value, e.g. :vol -6", .{});
+            return;
+        };
+        self.master_gain_db = std.math.clamp(db, -40.0, 6.0);
+        _ = self.engine.send(.{ .set_master_gain = types.dbToGain(self.master_gain_db) });
+        const sign: []const u8 = if (self.master_gain_db >= 0) "+" else "";
+        self.setStatus("master vol: {s}{d:.1}dB", .{ sign, self.master_gain_db });
     }
 
     fn setStatus(self: *App, comptime fmt: []const u8, args: anytype) void {
@@ -207,43 +346,22 @@ pub const App = struct {
     }
 
     // ------------------------------------------------------------------
-    // drawing
+    // Drawing
 
     pub fn draw(self: *App, w: *std.Io.Writer, size: terminal_mod.Size) !void {
         const snap = self.engine.uiSnapshot();
-        const rows: usize = @max(size.rows, 8);
+        const rows: usize = @max(size.rows, 10);
 
         try w.writeAll("\x1b[H");
-
-        // header
-        try w.print(" wstudio - {s}", .{self.project.name});
-        try w.print("   bpm {d:.0}  {d}/{d}   audio: {s}", .{
-            self.project.tempo_bpm,
-            self.engine.transport.time_signature.beats_per_bar,
-            self.engine.transport.time_signature.beat_unit,
-            self.audio_label,
-        });
-        try endLine(w);
+        try drawHeader(w, &self.project, &self.engine.transport, self.audio_label, self.master_gain_db);
         try hr(w, size.cols);
 
-        // track list
-        try w.writeAll(" TRACKS");
-        try endLine(w);
-        for (self.project.tracks.items, 0..) |track, i| {
-            const marker: []const u8 = if (i == self.cursor) ">" else " ";
-            const invert: []const u8 = if (i == self.cursor) "\x1b[7m" else "";
-            const mute: []const u8 = if (track.muted) "M" else " ";
-            try w.print(" {s}{s} {d} {s: <8} {s} [{s}]\x1b[0m", .{
-                invert, marker, i + 1, track.name, mute, self.racks[i].label,
-            });
-            try endLine(w);
+        switch (self.view) {
+            .tracks => try self.drawTracks(w, rows, snap),
+            .drum_grid => try self.drawDrumGrid(w, rows, snap),
         }
 
-        // pad the middle so transport/status sit at the bottom
-        const used = 4 + self.project.tracks.items.len;
-        for (used..rows - 3) |_| try endLine(w);
-
-        // transport + meters
+        // Transport + meters
         var transport: Transport = .{
             .sample_rate = self.project.sample_rate,
             .tempo_bpm = self.project.tempo_bpm,
@@ -265,7 +383,91 @@ pub const App = struct {
         try endLine(w);
         try hr(w, size.cols);
 
-        // status line
+        // Status line
+        switch (self.view) {
+            .tracks => try self.drawTracksStatus(w),
+            .drum_grid => try self.drawDrumStatus(w),
+        }
+        try w.writeAll("\x1b[K");
+    }
+
+    fn drawHeader(w: *std.Io.Writer, project: *const Project, transport: *const Transport, audio_label: []const u8, master_gain_db: f32) !void {
+        const vol_sign: []const u8 = if (master_gain_db >= 0) "+" else "";
+        try w.print(" wstudio - {s}", .{project.name});
+        try w.print("   bpm {d:.0}  {d}/{d}   vol: {s}{d:.0}dB   audio: {s}", .{
+            project.tempo_bpm,
+            transport.time_signature.beats_per_bar,
+            transport.time_signature.beat_unit,
+            vol_sign,
+            master_gain_db,
+            audio_label,
+        });
+        try endLine(w);
+    }
+
+    fn drawTracks(self: *App, w: *std.Io.Writer, rows: usize, snap: engine_mod.UiSnapshot) !void {
+        _ = snap;
+        try w.writeAll(" TRACKS\r\n");
+        for (self.project.tracks.items, 0..) |track, i| {
+            const is_drum = (i == self.drum_track);
+            const label: []const u8 = if (is_drum) "drum machine" else self.racks[i].label;
+            const hint: []const u8 = if (is_drum) " [enter:open grid]" else "";
+            const marker: []const u8 = if (i == self.cursor) ">" else " ";
+            const inv: []const u8 = if (i == self.cursor) "\x1b[7m" else "";
+            const mute: []const u8 = if (track.muted) "M" else " ";
+            try w.print(" {s}{s} {d} {s: <8} {s} [{s}]{s}\x1b[0m", .{
+                inv, marker, i + 1, track.name, mute, label, hint,
+            });
+            try endLine(w);
+        }
+        const used = 3 + self.project.tracks.items.len;
+        for (used..rows - 3) |_| try endLine(w);
+    }
+
+    fn drawDrumGrid(self: *App, w: *std.Io.Writer, rows: usize, snap: engine_mod.UiSnapshot) !void {
+        _ = snap;
+        const playing_step = self.drum.currentStep();
+        const is_playing = self.engine.uiSnapshot().playing;
+        const cur_pad = self.drum_cursor[0];
+        const cur_step = self.drum_cursor[1];
+
+        const track_name = self.project.tracks.items[self.drum_track].name;
+        try w.print(" DRUMS \"{s}\"  [hjkl:move  spc:toggle  p:preview  esc:back]\r\n", .{track_name});
+
+        // Step header
+        try w.writeAll("      ");
+        for (0..DrumMachine.max_steps) |s| {
+            if (s % 4 == 0) try w.writeByte('|');
+            try w.print("{d:>2} ", .{s + 1});
+        }
+        try endLine(w);
+
+        // Pad rows
+        for (0..DrumMachine.max_pads) |p| {
+            const name = self.drum.padName(@intCast(p));
+            try w.print(" {s: <4} ", .{name[0..@min(name.len, 4)]});
+            for (0..DrumMachine.max_steps) |s| {
+                if (s % 4 == 0) try w.writeByte('|');
+                const active = self.drum.stepActive(@intCast(p), @intCast(s));
+                const is_cursor = (p == cur_pad and s == cur_step);
+                const is_play = is_playing and (s == playing_step);
+
+                if (is_cursor) try w.writeAll("\x1b[7m");
+                if (is_play and !is_cursor) try w.writeAll("\x1b[1m");
+
+                try w.writeAll(if (active) "[X]" else "[ ]");
+
+                if (is_cursor or is_play) try w.writeAll("\x1b[0m");
+            }
+            try endLine(w);
+        }
+
+        // Padding
+        const used = 4 + DrumMachine.max_pads;
+        for (used..rows - 3) |_| try endLine(w);
+    }
+
+    fn drawTracksStatus(self: *App, w: *std.Io.Writer) !void {
         switch (self.modal.mode) {
             .command => try w.print(" :{s}_", .{self.modal.cmd_buf[0..self.modal.cmd_len]}),
             else => {
@@ -280,7 +482,17 @@ pub const App = struct {
                 if (self.status_len > 0) try w.print("  {s}", .{self.status_buf[0..self.status_len]});
             },
         }
-        try w.writeAll("\x1b[K");
+    }
+
+    fn drawDrumStatus(self: *App, w: *std.Io.Writer) !void {
+        const p = self.drum_cursor[0];
+        const s = self.drum_cursor[1];
+        try w.print(" \x1b[7m DRUM \x1b[0m  pad {d}/8  step {d}/16  {s}", .{
+            p + 1,
+            s + 1,
+            self.drum.padName(p),
+        });
+        if (self.status_len > 0) try w.print("  {s}", .{self.status_buf[0..self.status_len]});
     }
 
     fn endLine(w: *std.Io.Writer) !void {
@@ -318,13 +530,11 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io) !void {
     };
     defer term.deinit();
 
-    var app = try App.init(allocator);
+    var app = try App.init(allocator, io);
     defer app.deinit();
 
     const config: backend_mod.Config = .{ .sample_rate = app.project.sample_rate };
 
-    // Prefer the real device; fall back to the wall-clock null backend
-    // so the TUI still runs (silently) without audio hardware.
     const has_alsa = builtin.os.tag == .linux;
     const AlsaBackend = if (has_alsa) @import("../audio/alsa.zig").AlsaBackend else void;
     var alsa_backend: AlsaBackend = undefined;
@@ -357,25 +567,25 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io) !void {
         app.tick(now);
 
         var w = std.Io.Writer.fixed(&frame_buf);
-        app.draw(&w, term.size()) catch {}; // frame too large: draw what fits
+        app.draw(&w, term.size()) catch {};
         term.write(w.buffered());
     }
 }
 
 test "cursor movement clamps to track range" {
-    var app = try App.init(std.testing.allocator);
+    var app = try App.init(std.testing.allocator, std.Io.failing);
     defer app.deinit();
 
     app.applyAction(.{ .move = .{ .dy = 10 } }, 0);
-    try std.testing.expectEqual(@as(usize, 2), app.cursor);
+    try std.testing.expectEqual(@as(usize, 3), app.cursor); // now 4 tracks
     app.applyAction(.{ .move = .{ .dy = -1 } }, 0);
-    try std.testing.expectEqual(@as(usize, 1), app.cursor);
+    try std.testing.expectEqual(@as(usize, 2), app.cursor);
     app.applyAction(.{ .move = .{ .dy = -10 } }, 0);
     try std.testing.expectEqual(@as(usize, 0), app.cursor);
 }
 
 test "toggle_mute flips project state and reaches the engine" {
-    var app = try App.init(std.testing.allocator);
+    var app = try App.init(std.testing.allocator, std.Io.failing);
     defer app.deinit();
 
     app.applyAction(.toggle_mute, 0);
@@ -387,7 +597,7 @@ test "toggle_mute flips project state and reaches the engine" {
 }
 
 test "notes queue their own release" {
-    var app = try App.init(std.testing.allocator);
+    var app = try App.init(std.testing.allocator, std.Io.failing);
     defer app.deinit();
 
     app.applyAction(.{ .note = .{ .pitch = 60 } }, 0);
@@ -400,7 +610,7 @@ test "notes queue their own release" {
 }
 
 test "typed :q quits via the modal layer" {
-    var app = try App.init(std.testing.allocator);
+    var app = try App.init(std.testing.allocator, std.Io.failing);
     defer app.deinit();
 
     for (":q") |c| app.handleKey(.{ .char = c }, 0);
@@ -408,8 +618,49 @@ test "typed :q quits via the modal layer" {
     try std.testing.expect(app.should_quit);
 }
 
-test "draw renders a frame without overflowing" {
-    var app = try App.init(std.testing.allocator);
+test "enter on drum track switches to drum_grid view" {
+    var app = try App.init(std.testing.allocator, std.Io.failing);
+    defer app.deinit();
+
+    // Navigate to drum track (index 3)
+    app.applyAction(.{ .move = .{ .dy = 10 } }, 0);
+    try std.testing.expectEqual(app.drum_track, @as(u16, @intCast(app.cursor)));
+
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqual(AppView.drum_grid, app.view);
+
+    app.handleKey(.escape, 0);
+    try std.testing.expectEqual(AppView.tracks, app.view);
+}
+
+test "drum grid step toggle" {
+    var app = try App.init(std.testing.allocator, std.Io.failing);
+    defer app.deinit();
+
+    // Kick (pad 0) step 0 should be active from default pattern
+    try std.testing.expect(app.drum.stepActive(0, 0));
+
+    // Toggle it off
+    app.drum_cursor = .{ 0, 0 };
+    app.handleDrumKey(.{ .char = ' ' });
+    try std.testing.expect(!app.drum.stepActive(0, 0));
+}
+
+test "draw renders drum_grid view without overflowing" {
+    var app = try App.init(std.testing.allocator, std.Io.failing);
+    defer app.deinit();
+
+    app.view = .drum_grid;
+    var buf: [32 * 1024]u8 = undefined;
+    var w = std.Io.Writer.fixed(&buf);
+    try app.draw(&w, .{ .cols = 80, .rows = 24 });
+    const frame = w.buffered();
+    try std.testing.expect(std.mem.indexOf(u8, frame, "DRUMS") != null);
+    try std.testing.expect(std.mem.indexOf(u8, frame, "kick") != null);
+}
+
+test "draw renders tracks view without overflowing" {
+    var app = try App.init(std.testing.allocator, std.Io.failing);
     defer app.deinit();
 
     var buf: [32 * 1024]u8 = undefined;
@@ -418,4 +669,5 @@ test "draw renders a frame without overflowing" {
     const frame = w.buffered();
     try std.testing.expect(std.mem.indexOf(u8, frame, "NORMAL") != null);
     try std.testing.expect(std.mem.indexOf(u8, frame, "lead") != null);
+    try std.testing.expect(std.mem.indexOf(u8, frame, "drums") != null);
 }

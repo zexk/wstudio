@@ -1,5 +1,5 @@
-//! Minimal WAV (RIFF) writer — enough to bounce the engine's output to
-//! disk and hear it. Reading and other formats come later.
+//! WAV (RIFF) I/O: write 16-bit PCM for export, parse PCM/float WAVs for
+//! sample loading.
 
 const std = @import("std");
 const types = @import("types.zig");
@@ -38,6 +38,111 @@ pub fn write(
     }
 }
 
+// ---------------------------------------------------------------------------
+// Reader
+
+pub const ParseError = error{
+    NotWav,
+    BadFmt,
+    UnsupportedFormat,
+    UnsupportedBitDepth,
+    DataBeforeFmt,
+    NoData,
+    Truncated,
+};
+
+pub const ReadResult = struct {
+    /// Mono f32 samples, regardless of the WAV's channel count.
+    /// Caller must free with the same allocator.
+    samples: []f32,
+    sample_rate: u32,
+};
+
+/// Parse a WAV file from raw bytes. Handles 16-bit PCM (format 1) and
+/// 32-bit IEEE float (format 3), mono or stereo. Stereo is mixed to mono.
+pub fn parseAlloc(
+    allocator: std.mem.Allocator,
+    data: []const u8,
+) (ParseError || std.mem.Allocator.Error)!ReadResult {
+    if (data.len < 12) return error.Truncated;
+    if (!std.mem.eql(u8, data[0..4], "RIFF")) return error.NotWav;
+    if (!std.mem.eql(u8, data[8..12], "WAVE")) return error.NotWav;
+
+    var pos: usize = 12;
+    var fmt_ok = false;
+    var audio_format: u16 = 0;
+    var num_channels: u16 = 0;
+    var sample_rate: u32 = 0;
+    var bits_per_sample: u16 = 0;
+    var out: ?[]f32 = null;
+    errdefer if (out) |s| allocator.free(s);
+
+    while (pos + 8 <= data.len) {
+        const id = data[pos..][0..4];
+        const chunk_size = std.mem.readInt(u32, data[pos + 4 ..][0..4], .little);
+        pos += 8;
+        if (pos + chunk_size > data.len) return error.Truncated;
+        const chunk = data[pos .. pos + chunk_size];
+
+        if (std.mem.eql(u8, id, "fmt ")) {
+            if (chunk_size < 16) return error.BadFmt;
+            audio_format = std.mem.readInt(u16, chunk[0..2], .little);
+            num_channels = std.mem.readInt(u16, chunk[2..4], .little);
+            sample_rate = std.mem.readInt(u32, chunk[4..8], .little);
+            bits_per_sample = std.mem.readInt(u16, chunk[14..16], .little);
+            if (audio_format != 1 and audio_format != 3) return error.UnsupportedFormat;
+            if (bits_per_sample != 16 and bits_per_sample != 24 and bits_per_sample != 32)
+                return error.UnsupportedBitDepth;
+            fmt_ok = true;
+        } else if (std.mem.eql(u8, id, "data")) {
+            if (!fmt_ok) return error.DataBeforeFmt;
+            const bytes_per_sample = bits_per_sample / 8;
+            const total_samples = chunk_size / bytes_per_sample;
+            const frame_count = total_samples / num_channels;
+            const buf = try allocator.alloc(f32, frame_count);
+            errdefer allocator.free(buf);
+            for (0..frame_count) |i| {
+                if (num_channels == 1) {
+                    buf[i] = decodeSample(chunk[i * bytes_per_sample ..], bits_per_sample, audio_format);
+                } else {
+                    const stride = num_channels * bytes_per_sample;
+                    var sum: f32 = 0;
+                    for (0..num_channels) |ch| {
+                        sum += decodeSample(chunk[i * stride + ch * bytes_per_sample ..], bits_per_sample, audio_format);
+                    }
+                    buf[i] = sum / @as(f32, @floatFromInt(num_channels));
+                }
+            }
+            out = buf;
+        }
+
+        pos += chunk_size;
+        if (chunk_size & 1 != 0) pos += 1; // WAV chunks are word-aligned
+    }
+
+    return .{
+        .samples = out orelse return error.NoData,
+        .sample_rate = sample_rate,
+    };
+}
+
+fn decodeSample(data: []const u8, bits: u16, format: u16) f32 {
+    return switch (bits) {
+        16 => @as(f32, @floatFromInt(std.mem.readInt(i16, data[0..2], .little))) / 32768.0,
+        24 => blk: {
+            const raw: u32 = @as(u32, data[0]) | (@as(u32, data[1]) << 8) | (@as(u32, data[2]) << 16);
+            // sign-extend 24-bit
+            const signed: i32 = @as(i32, @bitCast(raw << 8)) >> 8;
+            break :blk @as(f32, @floatFromInt(signed)) / 8_388_608.0;
+        },
+        32 => if (format == 3)
+            @bitCast(std.mem.readInt(u32, data[0..4], .little))
+        else
+            @as(f32, @floatFromInt(std.mem.readInt(i32, data[0..4], .little))) / 2_147_483_648.0,
+        else => 0.0,
+    };
+}
+
 test "header and sample encoding" {
     var buf: [128]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
@@ -56,4 +161,20 @@ test "header and sample encoding" {
     try std.testing.expectEqual(@as(i16, 32767), std.mem.readInt(i16, out[46..48], .little));
     try std.testing.expectEqual(@as(i16, -32767), std.mem.readInt(i16, out[48..50], .little));
     try std.testing.expectEqual(@as(i16, 32767), std.mem.readInt(i16, out[50..52], .little));
+}
+
+test "round-trip: write then parse" {
+    var raw: [512]u8 = undefined;
+    var w = std.Io.Writer.fixed(&raw);
+    const src = [_]types.Sample{ 0.5, -0.5, 0.25 };
+    try write(&w, 44_100, 1, &src);
+
+    const result = try parseAlloc(std.testing.allocator, w.buffered());
+    defer std.testing.allocator.free(result.samples);
+
+    try std.testing.expectEqual(@as(u32, 44_100), result.sample_rate);
+    try std.testing.expectEqual(@as(usize, 3), result.samples.len);
+    // 16-bit round-trip introduces at most 1/32768 error
+    try std.testing.expectApproxEqAbs(@as(f32, 0.5), result.samples[0], 1.0 / 32768.0 + 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, -0.5), result.samples[1], 1.0 / 32768.0 + 1e-6);
 }

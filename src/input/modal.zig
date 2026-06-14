@@ -33,6 +33,8 @@ pub const Action = union(enum) {
     note: struct { pitch: u7 },
     /// Slice is valid until command mode is entered again.
     command_submit: []const u8,
+    /// Signed dB steps to apply to master volume (+n = louder, −n = quieter).
+    volume_delta: i32,
 
     pub const Move = struct { dx: i32 = 0, dy: i32 = 0 };
 };
@@ -153,6 +155,8 @@ pub const ModalInput = struct {
             },
             ' ' => return .toggle_play,
             'm' => return .toggle_mute,
+            '[' => return .{ .volume_delta = -self.takeCount() },
+            ']' => return .{ .volume_delta = self.takeCount() },
             else => return .none,
         }
     }

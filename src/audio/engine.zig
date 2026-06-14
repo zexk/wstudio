@@ -205,6 +205,7 @@ pub const Engine = struct {
 };
 
 const PolySynth = @import("../dsp/synth.zig").PolySynth;
+const DrumMachine = @import("../dsp/drum_sampler.zig").DrumMachine;
 
 test "notes sound even while transport is stopped (live preview)" {
     var synth = PolySynth.init(48_000);
@@ -263,6 +264,21 @@ test "uiSnapshot publishes transport and meter state" {
     try std.testing.expect(snap.playing);
     try std.testing.expectEqual(@as(u64, 256), snap.position_frames);
     try std.testing.expect(snap.peak[0] > 0.01);
+}
+
+test "drum machine fires through engine on first block" {
+    var engine = Engine.init(48_000);
+    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &engine.transport);
+    defer dm.deinit();
+    engine.tracks[0] = .{ .active = true };
+    engine.setTrackChain(0, &.{dm.device()});
+
+    _ = engine.send(.play);
+    var block: [512]Sample = undefined;
+    engine.process(&block);
+
+    // Default pattern: kick (pad 0) and hihat (pad 2) fire on step 0.
+    try std.testing.expect(engine.peak[0] > 0.01);
 }
 
 test "loadProject mirrors track settings" {
