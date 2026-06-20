@@ -93,6 +93,7 @@ pub fn parseAlloc(
             if (audio_format != 1 and audio_format != 3) return error.UnsupportedFormat;
             if (bits_per_sample != 16 and bits_per_sample != 24 and bits_per_sample != 32)
                 return error.UnsupportedBitDepth;
+            if (num_channels == 0 or sample_rate == 0) return error.BadFmt;
             fmt_ok = true;
         } else if (std.mem.eql(u8, id, "data")) {
             if (!fmt_ok) return error.DataBeforeFmt;

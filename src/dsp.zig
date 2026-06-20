@@ -1,6 +1,3 @@
-//! Built-in device rack: instruments and effects that ship with the
-//! app. All implement the `Device` interface in `dsp/device.zig`.
-
 pub const device = @import("dsp/device.zig");
 pub const Device = device.Device;
 pub const Event = device.Event;
@@ -12,6 +9,12 @@ pub const Reverb = @import("dsp/reverb.zig").Reverb;
 pub const Compressor = @import("dsp/compressor.zig").Compressor;
 pub const DrumMachine = @import("dsp/drum_sampler.zig").DrumMachine;
 
+pub const fft = @import("dsp/fft.zig");
+pub const SpectrumAnalyzer = @import("dsp/spectrum.zig").SpectrumAnalyzer;
+pub const spectrum = @import("dsp/spectrum.zig");
+pub const GraphicEq = @import("dsp/eq.zig").GraphicEq;
+pub const eq = @import("dsp/eq.zig");
+
 test {
     _ = device;
     _ = PolySynth;
@@ -19,4 +22,7 @@ test {
     _ = Reverb;
     _ = Compressor;
     _ = DrumMachine;
+    _ = fft;
+    _ = SpectrumAnalyzer;
+    _ = GraphicEq;
 }

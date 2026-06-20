@@ -33,7 +33,8 @@ fn renderDemo(allocator: std.mem.Allocator, io: std.Io) !void {
     _ = try project.addTrack(.{ .name = "lead", .gain_db = -3.0 });
     const sr = project.sample_rate;
 
-    var engine = ws.Engine.init(sr);
+    var engine = try ws.Engine.init(allocator, sr);
+    defer engine.deinit();
     engine.loadProject(&project);
 
     // --- device chain: synth -> compressor -> delay -> reverb ------------
@@ -118,7 +119,8 @@ fn renderDemo(allocator: std.mem.Allocator, io: std.Io) !void {
 }
 
 test "frontend links against the engine library" {
-    var engine = ws.Engine.init(ws.types.default_sample_rate);
+    var engine = try ws.Engine.init(std.testing.allocator, ws.types.default_sample_rate);
+    defer engine.deinit();
     _ = engine.send(.play);
     var block: [64]ws.types.Sample = undefined;
     engine.process(&block);

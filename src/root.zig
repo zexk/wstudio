@@ -1,6 +1,3 @@
-//! wstudio engine library. Frontends import this module; nothing else
-//! in src/ is public API.
-
 pub const types = @import("core/types.zig");
 pub const ring_buffer = @import("core/ring_buffer.zig");
 pub const wav = @import("core/wav.zig");
@@ -30,7 +27,6 @@ pub const tui = struct {
     pub const run = @import("tui/app.zig").run;
 };
 
-// Reference every namespace so `zig build test` picks up their tests.
 test {
     _ = types;
     _ = ring_buffer;
