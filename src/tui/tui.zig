@@ -16,8 +16,8 @@ const engine_mod = @import("../audio/engine.zig");
 
 pub const spectrum_rows: usize = 18;
 pub const spectrum_band_count: usize = 80;
-/// Number of editable synth parameters (waveform, detune, ADSR, filter, gain).
-pub const synth_param_count: u8 = 9;
+/// Number of editable synth parameters (waveform, detune, unison, ADSR, filter, gain).
+pub const synth_param_count: u8 = 11;
 
 // ---------------------------------------------------------------------------
 // Primitive helpers
@@ -367,15 +367,18 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, snap: engin
     }
 
     // Detune + ADSR + gain rows
+    const uf: f32 = @floatFromInt(synth.unison);
     const rows_data = [_]struct { label: []const u8, idx: u8, bar: f32, bar_max: f32, disp: f32 }{
-        .{ .label = "detune",  .idx = 1, .bar = synth.detune_cents + 100.0, .bar_max = 200.0, .disp = synth.detune_cents },
-        .{ .label = "attack",  .idx = 2, .bar = synth.attack_s,  .bar_max = 5.0,  .disp = synth.attack_s  },
-        .{ .label = "decay",   .idx = 3, .bar = synth.decay_s,   .bar_max = 5.0,  .disp = synth.decay_s   },
-        .{ .label = "sustain", .idx = 4, .bar = synth.sustain,   .bar_max = 1.0,  .disp = synth.sustain   },
-        .{ .label = "release", .idx = 5, .bar = synth.release_s,   .bar_max = 10.0,  .disp = synth.release_s   },
-        .{ .label = "cutoff",  .idx = 6, .bar = synth.filter_cutoff, .bar_max = 20_000.0, .disp = synth.filter_cutoff },
-        .{ .label = "res",     .idx = 7, .bar = synth.filter_res, .bar_max = 1.0,  .disp = synth.filter_res  },
-        .{ .label = "gain",    .idx = 8, .bar = synth.gain,       .bar_max = 1.0,  .disp = synth.gain        },
+        .{ .label = "detune",  .idx = 1,  .bar = synth.detune_cents + 100.0, .bar_max = 200.0,    .disp = synth.detune_cents    },
+        .{ .label = "unison",  .idx = 2,  .bar = uf,                          .bar_max = 8.0,      .disp = uf                    },
+        .{ .label = "uni.det", .idx = 3,  .bar = synth.unison_detune,         .bar_max = 100.0,    .disp = synth.unison_detune   },
+        .{ .label = "attack",  .idx = 4,  .bar = synth.attack_s,              .bar_max = 5.0,      .disp = synth.attack_s        },
+        .{ .label = "decay",   .idx = 5,  .bar = synth.decay_s,               .bar_max = 5.0,      .disp = synth.decay_s         },
+        .{ .label = "sustain", .idx = 6,  .bar = synth.sustain,               .bar_max = 1.0,      .disp = synth.sustain         },
+        .{ .label = "release", .idx = 7,  .bar = synth.release_s,             .bar_max = 10.0,     .disp = synth.release_s       },
+        .{ .label = "cutoff",  .idx = 8,  .bar = synth.filter_cutoff,         .bar_max = 20_000.0, .disp = synth.filter_cutoff   },
+        .{ .label = "res",     .idx = 9,  .bar = synth.filter_res,            .bar_max = 1.0,      .disp = synth.filter_res      },
+        .{ .label = "gain",    .idx = 10, .bar = synth.gain,                  .bar_max = 1.0,      .disp = synth.gain            },
     };
     for (rows_data, 0..) |p, ri| {
         const sel = app.synth_cursor == p.idx;
@@ -383,10 +386,12 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, snap: engin
         try w.print("  {s: <9}", .{p.label});
         try synthBar(w, p.bar, p.bar_max);
         switch (ri) {
-            0       => try w.print("  {d:.0} ct", .{p.disp}),  // detune
-            1, 2, 4 => try w.print("  {d:.3} s",  .{p.disp}),  // attack/decay/release
-            5       => try w.print("  {d:.0} Hz", .{p.disp}),  // cutoff
-            else    => try w.print("  {d:.3}",    .{p.disp}),  // sustain/res/gain
+            0       => try w.print("  {d:.0} ct", .{p.disp}),   // detune
+            1       => try w.print("  {d:.0}",    .{p.disp}),   // unison count
+            2       => try w.print("  {d:.1} ct", .{p.disp}),   // unison detune
+            3, 4, 6 => try w.print("  {d:.3} s",  .{p.disp}),   // attack/decay/release
+            7       => try w.print("  {d:.0} Hz", .{p.disp}),   // cutoff
+            else    => try w.print("  {d:.3}",    .{p.disp}),   // sustain/res/gain
         }
         if (sel) try w.writeAll("\x1b[0m");
         try endLine(w);
@@ -402,21 +407,27 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer) !void {
     switch (rack.instrument) { .poly_synth => {}, else => return }
     const synth = &rack.instrument.poly_synth;
 
-    const labels = [_][]const u8{ "waveform", "detune", "attack", "decay", "sustain", "release", "cutoff", "res", "gain" };
+    const labels = [_][]const u8{
+        "waveform", "detune", "unison", "uni.det",
+        "attack", "decay", "sustain", "release",
+        "cutoff", "res", "gain",
+    };
     const cur = @min(@as(usize, app.synth_cursor), labels.len - 1);
     try w.print(" \x1b[7m SYNTH \x1b[0m  {s}: ", .{labels[cur]});
     switch (app.synth_cursor) {
-        0 => try w.writeAll(switch (synth.waveform) {
+        0  => try w.writeAll(switch (synth.waveform) {
             .sine => "sine", .saw => "saw", .triangle => "tri", .square => "sqr",
         }),
-        1 => try w.print("{d:.0} ct",  .{synth.detune_cents}),
-        2 => try w.print("{d:.3} s",   .{synth.attack_s}),
-        3 => try w.print("{d:.3} s",   .{synth.decay_s}),
-        4 => try w.print("{d:.3}",     .{synth.sustain}),
-        5 => try w.print("{d:.3} s",   .{synth.release_s}),
-        6 => try w.print("{d:.0} Hz",  .{synth.filter_cutoff}),
-        7 => try w.print("{d:.3}",     .{synth.filter_res}),
-        8 => try w.print("{d:.3}",     .{synth.gain}),
+        1  => try w.print("{d:.0} ct",  .{synth.detune_cents}),
+        2  => try w.print("{d}",         .{synth.unison}),
+        3  => try w.print("{d:.1} ct",  .{synth.unison_detune}),
+        4  => try w.print("{d:.3} s",   .{synth.attack_s}),
+        5  => try w.print("{d:.3} s",   .{synth.decay_s}),
+        6  => try w.print("{d:.3}",     .{synth.sustain}),
+        7  => try w.print("{d:.3} s",   .{synth.release_s}),
+        8  => try w.print("{d:.0} Hz",  .{synth.filter_cutoff}),
+        9  => try w.print("{d:.3}",     .{synth.filter_res}),
+        10 => try w.print("{d:.3}",     .{synth.gain}),
         else => {},
     }
     if (app.status_len > 0) try w.print("  {s}", .{app.status_buf[0..app.status_len]});

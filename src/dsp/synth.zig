@@ -15,6 +15,10 @@ pub const PolySynth = struct {
     waveform: Waveform = .saw,
     /// Global pitch offset in cents. ±100 = ±1 semitone.
     detune_cents: f32 = 0.0,
+    /// Unison oscillator count (1 = off, 2–8 = stacked).
+    unison: u8 = 1,
+    /// Total spread between the outermost unison voices, in cents.
+    unison_detune: f32 = 15.0,
     attack_s: f32 = 0.005,
     decay_s: f32 = 0.08,
     sustain: f32 = 0.7,
@@ -30,6 +34,7 @@ pub const PolySynth = struct {
     filt_a1: f32 = 0.0, filt_a2: f32 = 0.0,
 
     pub const max_voices = 8;
+    pub const max_unison = 8;
 
     const Stage = enum { attack, decay, sustain, release };
 
@@ -37,7 +42,8 @@ pub const PolySynth = struct {
         active: bool = false,
         note: u7 = 0,
         velocity: f32 = 0.0,
-        phase: f32 = 0.0,
+        /// One phase accumulator per unison sub-oscillator.
+        phases: [max_unison]f32 = [_]f32{0.0} ** max_unison,
         env: f32 = 0.0,
         stage: Stage = .attack,
         /// Per-voice DF1 biquad state (x = input history, y = output history).
@@ -101,17 +107,35 @@ pub const PolySynth = struct {
 
         for (&self.voices) |*v| {
             if (!v.active) continue;
-            const freq = noteToFreq(v.note) *
+            const base_freq = noteToFreq(v.note) *
                 std.math.pow(f32, 2.0, self.detune_cents / 1200.0);
-            const phase_inc = freq / self.sample_rate;
+            const n: usize = @min(@max(self.unison, 1), max_unison);
+
+            // Precompute per-unison-voice frequency increments.
+            var phase_incs: [max_unison]f32 = undefined;
+            for (0..n) |ui| {
+                const spread_cents: f32 = if (n > 1) blk: {
+                    const t = @as(f32, @floatFromInt(ui)) /
+                              @as(f32, @floatFromInt(n - 1)); // 0..1
+                    break :blk (t * 2.0 - 1.0) * self.unison_detune * 0.5;
+                } else 0.0;
+                const freq = base_freq * std.math.pow(f32, 2.0, spread_cents / 1200.0);
+                phase_incs[ui] = freq / self.sample_rate;
+            }
+            // Amplitude scale: power-preserving normalisation.
+            const osc_scale = 1.0 / @sqrt(@as(f32, @floatFromInt(n)));
 
             for (0..frames) |i| {
-                // Oscillator
-                const osc = self.oscSample(v.phase);
-                v.phase += phase_inc;
-                if (v.phase >= 1.0) v.phase -= 1.0;
+                // Sum all unison oscillators.
+                var osc_sum: f32 = 0.0;
+                for (0..n) |ui| {
+                    osc_sum += self.oscSample(v.phases[ui]);
+                    v.phases[ui] += phase_incs[ui];
+                    if (v.phases[ui] >= 1.0) v.phases[ui] -= 1.0;
+                }
+                const osc = osc_sum * osc_scale;
 
-                // LP filter — signal flow: OSC → FILTER → AMP
+                // LP filter (OSC → FILTER → AMP)
                 const filt = self.filt_b0 * osc
                            + self.filt_b1 * v.x1 + self.filt_b2 * v.x2
                            - self.filt_a1 * v.y1 - self.filt_a2 * v.y2;
