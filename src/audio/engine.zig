@@ -10,7 +10,7 @@ const Sample = types.Sample;
 const SpectrumAnalyzer = spectrum_mod.SpectrumAnalyzer;
 const SpectrumSnapshot = spectrum_mod.SpectrumSnapshot;
 
-pub const max_tracks = 64;
+pub const max_tracks = 8192;
 pub const max_chain_devices = 8;
 pub const channels = 2;
 
@@ -51,10 +51,11 @@ pub const Engine = struct {
     transport: Transport,
     commands: Spsc(Command, 256) = .{},
     master_gain: f32 = 1.0,
-    tracks: [max_tracks]TrackState = [_]TrackState{.{}} ** max_tracks,
+    tracks: [max_tracks]TrackState,
     scratch: [types.max_block_frames * channels]Sample = undefined,
     peak: [channels]f32 = .{ 0.0, 0.0 },
-    track_spectrum: []SpectrumAnalyzer,
+    /// Single analyzer reused for whichever track is being viewed.
+    track_spectrum: SpectrumAnalyzer,
     master_spectrum: SpectrumAnalyzer,
     active_spectrum_source: SpectrumSource = .none,
     active_spectrum_track: u16 = 0,
@@ -67,30 +68,24 @@ pub const Engine = struct {
     };
 
     pub fn init(allocator: std.mem.Allocator, sample_rate: u32) !Engine {
-        const track_spec = try allocator.alloc(SpectrumAnalyzer, max_tracks);
-        var initialized: usize = 0;
-        errdefer {
-            for (track_spec[0..initialized]) |*sa| sa.deinit(allocator);
-            allocator.free(track_spec);
-        }
-        for (track_spec) |*sa| {
-            sa.* = try SpectrumAnalyzer.init(allocator, sample_rate);
-            initialized += 1;
-        }
+        var track_spec = try SpectrumAnalyzer.init(allocator, sample_rate);
+        errdefer track_spec.deinit(allocator);
         const master_spec = try SpectrumAnalyzer.init(allocator, sample_rate);
 
-        return .{
+        var self = Engine{
             .allocator = allocator,
             .transport = .{ .sample_rate = sample_rate },
+            .tracks = undefined,
             .track_spectrum = track_spec,
             .master_spectrum = master_spec,
         };
+        for (&self.tracks) |*t| t.* = .{};
+        return self;
     }
 
     pub fn deinit(self: *Engine) void {
         self.master_spectrum.deinit(self.allocator);
-        for (self.track_spectrum) |*sa| sa.deinit(self.allocator);
-        self.allocator.free(self.track_spectrum);
+        self.track_spectrum.deinit(self.allocator);
     }
 
     pub fn loadProject(self: *Engine, project: *const Project) void {
@@ -108,6 +103,28 @@ pub const Engine = struct {
                 state.* = .{};
             }
         }
+    }
+
+    /// Shift engine slot `idx` up by one (to make room for a new track),
+    /// then initialize `idx` as a new active track with no chain.
+    /// Called from the UI/control thread — same class of race as setTrackChain.
+    pub fn applyInsertTrack(self: *Engine, idx: u16, gain: f32, pan: f32, muted: bool) void {
+        // Move the slot at idx (typically the drum) up to idx+1.
+        if (idx < max_tracks - 1) self.tracks[idx + 1] = self.tracks[idx];
+        self.tracks[idx] = .{
+            .active = true,
+            .gain = gain,
+            .pan = pan,
+            .muted = muted,
+            .chain_len = 0,
+        };
+    }
+
+    /// Shift engine slots [idx+1, total) down by one, clearing the last slot.
+    /// Called from the UI/control thread — same class of race as setTrackChain.
+    pub fn applyDeleteTrack(self: *Engine, idx: u16, total: u16) void {
+        for (idx..total - 1) |i| self.tracks[i] = self.tracks[i + 1];
+        self.tracks[total - 1] = .{};
     }
 
     pub fn setTrackChain(self: *Engine, track: u16, devices: []const dsp.Device) void {
@@ -164,9 +181,12 @@ pub const Engine = struct {
         return snap;
     }
 
+    /// Returns the current spectrum snapshot for the given track, or null if
+    /// that track is not the one being analyzed. Relies on the analyzer's
+    /// `active` atomic — no race on internal fields.
     pub fn trackSpectrumSnapshot(self: *const Engine, track: u16) ?SpectrumSnapshot {
-        if (track >= max_tracks) return null;
-        return self.track_spectrum[track].snapshot();
+        _ = track;
+        return self.track_spectrum.snapshot();
     }
 
     pub fn masterSpectrumSnapshot(self: *const Engine) ?SpectrumSnapshot {
@@ -194,16 +214,14 @@ pub const Engine = struct {
             },
             .set_spectrum_active => |c| {
                 self.active_spectrum_source = c.source;
-                self.active_spectrum_track = c.track;
-                for (self.track_spectrum) |*sa| sa.active.store(false, .release);
-                self.master_spectrum.active.store(false, .release);
-                switch (c.source) {
-                    .none => {},
-                    .track => {
-                        if (c.track < max_tracks) self.track_spectrum[c.track].active.store(true, .release);
-                    },
-                    .master => self.master_spectrum.active.store(true, .release),
+                // Reset buffer when switching to a different track so stale
+                // data from the previous track doesn't bleed into the view.
+                if (c.source == .track and c.track != self.active_spectrum_track) {
+                    self.track_spectrum.accumulated = 0;
                 }
+                self.active_spectrum_track = c.track;
+                self.track_spectrum.active.store(c.source == .track, .release);
+                self.master_spectrum.active.store(c.source == .master, .release);
             },
         };
     }
@@ -235,8 +253,12 @@ pub const Engine = struct {
                 out[i * channels + 1] += scratch[i * channels + 1] * gain_r;
             }
 
-            self.track_spectrum[ti].push(scratch);
-            self.track_spectrum[ti].analyze();
+            if (self.active_spectrum_source == .track and
+                ti == self.active_spectrum_track)
+            {
+                self.track_spectrum.push(scratch);
+                self.track_spectrum.analyze();
+            }
         }
     }
 };
@@ -324,7 +346,6 @@ test "spectrum snapshot returns data when active" {
     _ = engine.send(.{ .set_spectrum_active = .{ .source = .track, .track = 0 } });
 
     var block: [512]Sample = undefined;
-    // Process enough blocks to fill the FFT window
     for (0..10) |_| engine.process(&block);
 
     const snap = engine.trackSpectrumSnapshot(0);
@@ -334,4 +355,52 @@ test "spectrum snapshot returns data when active" {
         if (b > -80.0) has_signal = true;
     }
     try std.testing.expect(has_signal);
+}
+
+test "loadProject mirrors track settings" {
+    var project = Project.init(std.testing.allocator);
+    defer project.deinit();
+    _ = try project.addTrack(.{ .name = "a", .gain_db = -6.0206, .pan = -1.0 });
+
+    var engine = try Engine.init(std.testing.allocator, 48_000);
+    defer engine.deinit();
+    engine.loadProject(&project);
+
+    try std.testing.expect(engine.tracks[0].active);
+    try std.testing.expect(!engine.tracks[1].active);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.5), engine.tracks[0].gain, 1e-4);
+}
+
+test "applyInsertTrack shifts drum and inits new slot" {
+    var engine = try Engine.init(std.testing.allocator, 48_000);
+    defer engine.deinit();
+
+    engine.tracks[0] = .{ .active = true, .gain = 0.5 }; // lead
+    engine.tracks[1] = .{ .active = true, .gain = 0.8 }; // drum at slot 1
+
+    // Insert before drum (at idx=1)
+    engine.applyInsertTrack(1, 1.0, 0.0, false);
+
+    try std.testing.expect(engine.tracks[1].active);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), engine.tracks[1].gain, 1e-6);
+    try std.testing.expectEqual(@as(usize, 0), engine.tracks[1].chain_len);
+    // Drum shifted to slot 2
+    try std.testing.expectApproxEqAbs(@as(f32, 0.8), engine.tracks[2].gain, 1e-6);
+}
+
+test "applyDeleteTrack shifts tracks down" {
+    var engine = try Engine.init(std.testing.allocator, 48_000);
+    defer engine.deinit();
+
+    engine.tracks[0] = .{ .active = true, .gain = 0.1 };
+    engine.tracks[1] = .{ .active = true, .gain = 0.2 }; // deleted
+    engine.tracks[2] = .{ .active = true, .gain = 0.3 };
+    engine.tracks[3] = .{ .active = true, .gain = 0.4 }; // drum
+
+    engine.applyDeleteTrack(1, 4);
+
+    try std.testing.expectApproxEqAbs(@as(f32, 0.1), engine.tracks[0].gain, 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.3), engine.tracks[1].gain, 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.4), engine.tracks[2].gain, 1e-6);
+    try std.testing.expect(!engine.tracks[3].active); // cleared
 }

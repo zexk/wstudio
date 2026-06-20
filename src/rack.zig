@@ -1,3 +1,4 @@
+const std = @import("std");
 const dsp = @import("dsp/device.zig");
 const PolySynth = @import("dsp/synth.zig").PolySynth;
 const Compressor = @import("dsp/compressor.zig").Compressor;
@@ -12,6 +13,11 @@ pub const Rack = struct {
     delay: ?StereoDelay = null,
     reverb: ?Reverb = null,
     label: []const u8,
+
+    pub fn deinit(self: *Rack, allocator: std.mem.Allocator) void {
+        if (self.delay) |*d| d.deinit(allocator);
+        if (self.reverb) |*r| r.deinit(allocator);
+    }
 
     pub fn chain(self: *Rack, buf: *[5]dsp.Device) []const dsp.Device {
         var len: usize = 0;

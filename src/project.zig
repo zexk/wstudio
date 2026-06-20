@@ -30,16 +30,40 @@ pub const Project = struct {
     }
 
     pub fn deinit(self: *Project) void {
+        for (self.tracks.items) |t| self.allocator.free(t.name);
         self.tracks.deinit(self.allocator);
     }
 
+    /// Appends a track. Duplicates the name so the caller's string need not
+    /// outlive the project.
     pub fn addTrack(self: *Project, track: Track) !usize {
-        try self.tracks.append(self.allocator, track);
+        const name = try self.allocator.dupe(u8, track.name);
+        errdefer self.allocator.free(name);
+        var t = track;
+        t.name = name;
+        try self.tracks.append(self.allocator, t);
         return self.tracks.items.len - 1;
     }
 
+    /// Inserts a track at `index`, shifting later tracks right. Duplicates
+    /// the name.
+    pub fn insertTrack(self: *Project, index: usize, track: Track) !void {
+        const name = try self.allocator.dupe(u8, track.name);
+        errdefer self.allocator.free(name);
+        var t = track;
+        t.name = name;
+        try self.tracks.insert(self.allocator, index, t);
+    }
+
     pub fn removeTrack(self: *Project, index: usize) void {
-        _ = self.tracks.orderedRemove(index);
+        const t = self.tracks.orderedRemove(index);
+        self.allocator.free(t.name);
+    }
+
+    pub fn renameTrack(self: *Project, index: usize, new_name: []const u8) !void {
+        const name = try self.allocator.dupe(u8, new_name);
+        self.allocator.free(self.tracks.items[index].name);
+        self.tracks.items[index].name = name;
     }
 };
 
@@ -55,4 +79,24 @@ test "add and remove tracks" {
 
     p.removeTrack(0);
     try std.testing.expectEqualStrings("bass", p.tracks.items[0].name);
+}
+
+test "insert track" {
+    var p = Project.init(std.testing.allocator);
+    defer p.deinit();
+
+    _ = try p.addTrack(.{ .name = "a" });
+    _ = try p.addTrack(.{ .name = "c" });
+    try p.insertTrack(1, .{ .name = "b" });
+    try std.testing.expectEqualStrings("b", p.tracks.items[1].name);
+    try std.testing.expectEqualStrings("c", p.tracks.items[2].name);
+}
+
+test "rename track" {
+    var p = Project.init(std.testing.allocator);
+    defer p.deinit();
+
+    _ = try p.addTrack(.{ .name = "old" });
+    try p.renameTrack(0, "new");
+    try std.testing.expectEqualStrings("new", p.tracks.items[0].name);
 }

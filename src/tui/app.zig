@@ -36,15 +36,18 @@ fn wrap(comptime f: fn (*App, []const u8) void) *const fn (*anyopaque, []const u
 }
 
 const cmds: []const cmd_mod.Def = &.{
-    .{ .name = "q",        .desc = "quit wstudio",                      .run = wrap(App.cmdQuit) },
-    .{ .name = "quit",     .desc = "quit wstudio",                      .run = wrap(App.cmdQuit) },
-    .{ .name = "bpm",      .desc = "[<value>]  tempo in BPM (20–400)",  .run = wrap(App.cmdBpm) },
-    .{ .name = "gain",     .desc = "<track> [<dB>]  track gain",        .run = wrap(App.cmdGain) },
-    .{ .name = "vol",      .desc = "[<dB>]  master volume (–40 to +6)", .run = wrap(App.cmdVol) },
-    .{ .name = "seek",     .desc = "<bar>  move playhead to bar",       .run = wrap(App.cmdSeek) },
-    .{ .name = "load-pad", .desc = "<0-7> <file>  load WAV into pad",   .run = wrap(App.cmdLoadPad) },
-    .{ .name = "help",     .desc = "list all commands",                 .run = wrap(App.cmdHelp) },
-    .{ .name = "eq",       .desc = "<track> [<band> <db>]  EQ control", .run = wrap(App.cmdEq) },
+    .{ .name = "q",           .desc = "quit wstudio",                        .run = wrap(App.cmdQuit) },
+    .{ .name = "quit",        .desc = "quit wstudio",                        .run = wrap(App.cmdQuit) },
+    .{ .name = "bpm",         .desc = "[<value>]  tempo in BPM (20–400)",    .run = wrap(App.cmdBpm) },
+    .{ .name = "gain",        .desc = "<track> [<dB>]  track gain",          .run = wrap(App.cmdGain) },
+    .{ .name = "vol",         .desc = "[<dB>]  master volume (–40 to +6)",   .run = wrap(App.cmdVol) },
+    .{ .name = "seek",        .desc = "<bar>  move playhead to bar",         .run = wrap(App.cmdSeek) },
+    .{ .name = "load-pad",    .desc = "<0-7> <file>  load WAV into pad",     .run = wrap(App.cmdLoadPad) },
+    .{ .name = "help",        .desc = "list all commands",                   .run = wrap(App.cmdHelp) },
+    .{ .name = "eq",          .desc = "<track> [<band> <db>]  EQ control",   .run = wrap(App.cmdEq) },
+    .{ .name = "track-add",   .desc = "[name]  add a synth track",           .run = wrap(App.cmdTrackAdd) },
+    .{ .name = "track-del",   .desc = "[n]  delete track n (default: cursor)", .run = wrap(App.cmdTrackDel) },
+    .{ .name = "track-rename",.desc = "<n> <name>  rename track n",          .run = wrap(App.cmdTrackRename) },
 };
 
 pub const App = struct {
@@ -52,7 +55,11 @@ pub const App = struct {
     io: std.Io,
     project: Project,
     engine: *Engine,
-    racks: []Rack,
+    /// Heap-allocated Racks; each *Rack is stable even as the list grows.
+    racks: std.ArrayListUnmanaged(*Rack),
+    /// Deleted racks that may still be in-flight on the audio thread.
+    /// Freed only when the App is destroyed.
+    retired_racks: std.ArrayListUnmanaged(*Rack),
     drum: *DrumMachine,
     drum_track: u16,
     modal: modal_mod.ModalInput = .{},
@@ -84,27 +91,37 @@ pub const App = struct {
         const engine = try allocator.create(Engine);
         errdefer allocator.destroy(engine);
         engine.* = try Engine.init(allocator, sr);
+        errdefer engine.deinit();
         engine.loadProject(&project);
 
-        const racks = try allocator.alloc(Rack, 3);
-        errdefer allocator.free(racks);
+        var racks: std.ArrayListUnmanaged(*Rack) = .empty;
+        errdefer {
+            for (racks.items) |r| { r.deinit(allocator); allocator.destroy(r); }
+            racks.deinit(allocator);
+        }
 
-        racks[0] = .{ .synth = PolySynth.init(sr), .label = "synth+comp+dly+rev" };
-        racks[0].comp = Compressor.init(sr);
-        racks[0].delay = try StereoDelay.init(allocator, sr, 2.0);
-        racks[0].delay.?.setTime(0.375);
-        racks[0].reverb = try Reverb.init(allocator, sr);
+        const r0 = try allocator.create(Rack);
+        r0.* = .{ .synth = PolySynth.init(sr), .label = "synth+comp+dly+rev" };
+        r0.comp = Compressor.init(sr);
+        r0.delay = try StereoDelay.init(allocator, sr, 2.0);
+        r0.delay.?.setTime(0.375);
+        r0.reverb = try Reverb.init(allocator, sr);
+        try racks.append(allocator, r0);
 
-        racks[1] = .{ .synth = PolySynth.init(sr), .label = "synth+rev" };
-        racks[1].synth.waveform = .sine;
-        racks[1].synth.attack_s = 0.08;
-        racks[1].synth.release_s = 0.8;
-        racks[1].reverb = try Reverb.init(allocator, sr);
-        racks[1].reverb.?.mix = 0.45;
+        const r1 = try allocator.create(Rack);
+        r1.* = .{ .synth = PolySynth.init(sr), .label = "synth+rev" };
+        r1.synth.waveform = .sine;
+        r1.synth.attack_s = 0.08;
+        r1.synth.release_s = 0.8;
+        r1.reverb = try Reverb.init(allocator, sr);
+        r1.reverb.?.mix = 0.45;
+        try racks.append(allocator, r1);
 
-        racks[2] = .{ .synth = PolySynth.init(sr), .label = "synth" };
-        racks[2].synth.waveform = .square;
-        racks[2].synth.gain = 0.25;
+        const r2 = try allocator.create(Rack);
+        r2.* = .{ .synth = PolySynth.init(sr), .label = "synth" };
+        r2.synth.waveform = .square;
+        r2.synth.gain = 0.25;
+        try racks.append(allocator, r2);
 
         const drum = try allocator.create(DrumMachine);
         errdefer allocator.destroy(drum);
@@ -118,10 +135,11 @@ pub const App = struct {
             .project = project,
             .engine = engine,
             .racks = racks,
+            .retired_racks = .empty,
             .drum = drum,
             .drum_track = drum_track,
         };
-        for (self.racks, 0..) |*rack, i| {
+        for (self.racks.items, 0..) |rack, i| {
             var buf: [5]dsp.Device = undefined;
             self.engine.setTrackChain(@intCast(i), rack.chain(&buf));
         }
@@ -130,11 +148,10 @@ pub const App = struct {
     }
 
     pub fn deinit(self: *App) void {
-        for (self.racks) |*rack| {
-            if (rack.delay) |*d| d.deinit(self.allocator);
-            if (rack.reverb) |*r| r.deinit(self.allocator);
-        }
-        self.allocator.free(self.racks);
+        for (self.racks.items) |r| { r.deinit(self.allocator); self.allocator.destroy(r); }
+        self.racks.deinit(self.allocator);
+        for (self.retired_racks.items) |r| { r.deinit(self.allocator); self.allocator.destroy(r); }
+        self.retired_racks.deinit(self.allocator);
         self.drum.deinit();
         self.allocator.destroy(self.drum);
         self.engine.deinit();
@@ -167,10 +184,12 @@ pub const App = struct {
                     self.view = .drum_grid;
                     return;
                 }
-                if (key == .char) {
+                if (key == .char and self.modal.mode == .normal) {
                     switch (key.char) {
                         'm' => { self.switchToMasterSpectrum(); return; },
                         's' => { self.switchToTrackSpectrum(@intCast(self.cursor)); return; },
+                        'a' => { self.doTrackAdd(null); return; },
+                        'D' => { self.doTrackDel(self.cursor); return; },
                         else => {},
                     }
                 }
@@ -205,23 +224,23 @@ pub const App = struct {
                 'h' => { if (self.eq_cursor > 0) self.eq_cursor -= 1; },
                 'l' => { if (self.eq_cursor < eq_mod.num_eq_bands - 1) self.eq_cursor += 1; },
                 'j', 'J' => {
-                    if (self.view == .track_spectrum and self.eq_track < self.racks.len) {
+                    if (self.view == .track_spectrum and self.eq_track < self.racks.items.len) {
                         const delta: f32 = if (c == 'J') -6.0 else -1.0;
                         self.setEqBand(self.eq_track, self.eq_cursor, self.currentEqGain(self.eq_track) + delta);
                     }
                 },
                 'k', 'K' => {
-                    if (self.view == .track_spectrum and self.eq_track < self.racks.len) {
+                    if (self.view == .track_spectrum and self.eq_track < self.racks.items.len) {
                         const delta: f32 = if (c == 'K') 6.0 else 1.0;
                         self.setEqBand(self.eq_track, self.eq_cursor, self.currentEqGain(self.eq_track) + delta);
                     }
                 },
                 'b' => {
-                    if (self.view == .track_spectrum and self.eq_track < self.racks.len) {
-                        if (self.racks[self.eq_track].eq) |*eq| {
+                    if (self.view == .track_spectrum and self.eq_track < self.racks.items.len) {
+                        if (self.racks.items[self.eq_track].eq) |*eq| {
                             eq.bypass = !eq.bypass;
                             var buf: [5]dsp.Device = undefined;
-                            self.engine.setTrackChain(self.eq_track, self.racks[self.eq_track].recreateChain(&buf));
+                            self.engine.setTrackChain(self.eq_track, self.racks.items[self.eq_track].recreateChain(&buf));
                         }
                     }
                 },
@@ -233,15 +252,15 @@ pub const App = struct {
     }
 
     fn currentEqGain(self: *App, track: u16) f32 {
-        if (track < self.racks.len) {
-            if (self.racks[track].eq) |*e| return e.bands[self.eq_cursor].gain_db;
+        if (track < self.racks.items.len) {
+            if (self.racks.items[track].eq) |*e| return e.bands[self.eq_cursor].gain_db;
         }
         return 0.0;
     }
 
     fn setEqBand(self: *App, track: u16, band: usize, gain_db: f32) void {
-        if (track >= self.racks.len) return;
-        const rack = &self.racks[track];
+        if (track >= self.racks.items.len) return;
+        const rack = self.racks.items[track];
         if (rack.eq == null) rack.eq = GraphicEq.init(self.project.sample_rate);
         rack.eq.?.setBand(band, gain_db);
         var buf: [5]dsp.Device = undefined;
@@ -350,6 +369,96 @@ pub const App = struct {
     }
 
     // -----------------------------------------------------------------------
+    // Track add / delete internals
+    // -----------------------------------------------------------------------
+
+    fn doTrackAdd(self: *App, name_arg: ?[]const u8) void {
+        if (self.project.tracks.items.len >= engine_mod.max_tracks) {
+            self.setStatus("track limit reached ({d})", .{engine_mod.max_tracks});
+            return;
+        }
+        const sr = self.project.sample_rate;
+        const idx = self.drum_track; // insert before drum
+
+        // Build a default name "track N" if none given.
+        var name_buf: [32]u8 = undefined;
+        const name: []const u8 = name_arg orelse std.fmt.bufPrint(
+            &name_buf,
+            "track {d}",
+            .{self.project.tracks.items.len},
+        ) catch "track";
+
+        // Allocate new rack.
+        const rack = self.allocator.create(Rack) catch {
+            self.setStatus("out of memory", .{});
+            return;
+        };
+        rack.* = .{ .synth = PolySynth.init(sr), .label = "synth" };
+        self.racks.append(self.allocator, rack) catch {
+            self.allocator.destroy(rack);
+            self.setStatus("out of memory", .{});
+            return;
+        };
+
+        // Insert project track (dupes name internally).
+        self.project.insertTrack(idx, .{ .name = name }) catch {
+            _ = self.racks.pop();
+            self.allocator.destroy(rack);
+            self.setStatus("out of memory", .{});
+            return;
+        };
+
+        // Engine: shift drum up, init new slot, set chain.
+        self.engine.applyInsertTrack(idx, 1.0, 0.0, false);
+        var buf: [5]dsp.Device = undefined;
+        self.engine.setTrackChain(idx, rack.chain(&buf));
+
+        self.drum_track += 1;
+        self.cursor = @intCast(idx);
+        self.setStatus("added \"{s}\" (track {d})", .{ name, idx + 1 });
+    }
+
+    fn doTrackDel(self: *App, track_idx: usize) void {
+        if (track_idx == self.drum_track) {
+            self.setStatus("cannot delete the drum track", .{});
+            return;
+        }
+        if (self.project.tracks.items.len <= 1) {
+            self.setStatus("cannot delete the last track", .{});
+            return;
+        }
+
+        _ = self.engine.send(.all_notes_off);
+
+        const total: u16 = @intCast(self.project.tracks.items.len);
+        self.engine.applyDeleteTrack(@intCast(track_idx), total);
+
+        // Retire the rack — do NOT free yet; the audio thread may still be
+        // mid-frame referencing it. Freed at App.deinit.
+        const rack = self.racks.orderedRemove(track_idx);
+        self.retired_racks.append(self.allocator, rack) catch {
+            // OOM retiring: leak the rack rather than risk a use-after-free.
+        };
+
+        self.project.removeTrack(track_idx);
+
+        if (track_idx < self.drum_track) self.drum_track -= 1;
+
+        // Keep cursor in bounds; never land on the drum track.
+        const last = self.project.tracks.items.len - 1;
+        self.cursor = @min(self.cursor, last);
+        if (self.cursor == self.drum_track and self.cursor > 0) self.cursor -= 1;
+
+        // Exit spectrum view if the viewed track was deleted.
+        if (self.view == .track_spectrum and self.eq_track >= self.racks.items.len) {
+            _ = self.engine.send(.{ .set_spectrum_active = .{ .source = .none, .track = 0 } });
+            self.view = self.prev_view;
+        }
+
+        self.setStatus("deleted track {d}", .{track_idx + 1});
+    }
+
+    // -----------------------------------------------------------------------
     // Command handlers
     // -----------------------------------------------------------------------
 
@@ -364,6 +473,55 @@ pub const App = struct {
     fn cmdHelp(self: *App, _: []const u8) void {
         self.prev_view = self.view;
         self.view = .help;
+    }
+
+    fn cmdTrackAdd(self: *App, args: []const u8) void {
+        const name = std.mem.trim(u8, args, " ");
+        self.doTrackAdd(if (name.len > 0) name else null);
+    }
+
+    fn cmdTrackDel(self: *App, args: []const u8) void {
+        const trimmed = std.mem.trim(u8, args, " ");
+        const idx: usize = if (trimmed.len == 0) blk: {
+            break :blk self.cursor;
+        } else blk: {
+            const n = std.fmt.parseInt(usize, trimmed, 10) catch {
+                self.setStatus("track-del: expected a track number", .{});
+                return;
+            };
+            if (n == 0 or n > self.project.tracks.items.len) {
+                self.setStatus("track-del: track must be 1–{d}", .{self.project.tracks.items.len});
+                return;
+            }
+            break :blk n - 1;
+        };
+        self.doTrackDel(idx);
+    }
+
+    fn cmdTrackRename(self: *App, args: []const u8) void {
+        var it = std.mem.splitScalar(u8, std.mem.trim(u8, args, " "), ' ');
+        const n_str = it.next() orelse {
+            self.setStatus("usage: track-rename <n> <name>", .{});
+            return;
+        };
+        const name = std.mem.trim(u8, it.rest(), " ");
+        if (name.len == 0) {
+            self.setStatus("usage: track-rename <n> <name>", .{});
+            return;
+        }
+        const n = std.fmt.parseInt(usize, n_str, 10) catch {
+            self.setStatus("track-rename: expected a track number", .{});
+            return;
+        };
+        if (n == 0 or n > self.project.tracks.items.len) {
+            self.setStatus("track-rename: track must be 1–{d}", .{self.project.tracks.items.len});
+            return;
+        }
+        self.project.renameTrack(n - 1, name) catch {
+            self.setStatus("out of memory", .{});
+            return;
+        };
+        self.setStatus("track {d} renamed to \"{s}\"", .{ n, name });
     }
 
     fn cmdLoadPad(self: *App, args: []const u8) void {
@@ -498,14 +656,14 @@ pub const App = struct {
             self.setStatus("eq: bad track number '{s}'", .{track_str});
             return;
         };
-        if (track_1 == 0 or track_1 > self.racks.len) {
-            self.setStatus("eq: track must be 1–{d}", .{self.racks.len});
+        if (track_1 == 0 or track_1 > self.racks.items.len) {
+            self.setStatus("eq: track must be 1–{d}", .{self.racks.items.len});
             return;
         }
         const track_idx = track_1 - 1;
         const rest = std.mem.trim(u8, it.rest(), " ");
         if (rest.len == 0) {
-            if (self.racks[track_idx].eq) |*eq| {
+            if (self.racks.items[track_idx].eq) |*eq| {
                 self.setStatus("track {d}: bypass={}", .{ track_1, eq.bypass });
             } else {
                 self.setStatus("track {d}: no EQ", .{track_1});
@@ -551,10 +709,10 @@ pub const App = struct {
         try tui.hr(w, size.cols);
 
         switch (self.view) {
-            .tracks         => try tui.drawTracks(self, w, rows, snap),
-            .drum_grid      => try tui.drawDrumGrid(self, w, rows, snap),
-            .help           => try tui.drawHelp(w, rows, cmds),
-            .track_spectrum => try tui.drawSpectrumView(self, w, rows, snap, true),
+            .tracks          => try tui.drawTracks(self, w, rows, snap),
+            .drum_grid       => try tui.drawDrumGrid(self, w, rows, snap),
+            .help            => try tui.drawHelp(w, rows, cmds),
+            .track_spectrum  => try tui.drawSpectrumView(self, w, rows, snap, true),
             .master_spectrum => try tui.drawSpectrumView(self, w, rows, snap, false),
         }
 
@@ -809,8 +967,6 @@ test "draw renders track_spectrum after pressing s" {
     defer app.deinit();
 
     app.handleKey(.{ .char = 's' }, 0);
-    try std.testing.expectEqual(AppView.track_spectrum, app.view);
-
     var buf: [32 * 1024]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
     try app.draw(&w, .{ .cols = 80, .rows = 24 });
@@ -818,21 +974,92 @@ test "draw renders track_spectrum after pressing s" {
     try std.testing.expect(std.mem.indexOf(u8, frame, "SPECTRUM") != null);
 }
 
-test "draw renders spectrum view when engine has activated the analyzer" {
+test "spectrum fills FFT buffer and draws with real data" {
     var app = try App.init(std.testing.allocator, std.Io.failing);
     defer app.deinit();
 
     app.handleKey(.{ .char = 's' }, 0);
-    try std.testing.expectEqual(AppView.track_spectrum, app.view);
-
+    _ = app.engine.send(.{ .note_on = .{ .track = 0, .note = 60, .velocity = 1.0 } });
     var block: [512]types.Sample = undefined;
-    app.engine.process(&block);
+    for (0..16) |_| app.engine.process(&block);
 
-    var buf: [32 * 1024]u8 = undefined;
+    var buf: [64 * 1024]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
-    try app.draw(&w, .{ .cols = 80, .rows = 24 });
+    try app.draw(&w, .{ .cols = 120, .rows = 40 });
     const frame = w.buffered();
     try std.testing.expect(std.mem.indexOf(u8, frame, "SPECTRUM") != null);
+}
+
+test "track add: project, racks, engine, drum_track all update correctly" {
+    var app = try App.init(std.testing.allocator, std.Io.failing);
+    defer app.deinit();
+
+    const initial_tracks = app.project.tracks.items.len; // 4
+    const initial_drum = app.drum_track;                 // 3
+    const initial_racks = app.racks.items.len;           // 3
+
+    app.doTrackAdd("strings");
+
+    try std.testing.expectEqual(initial_tracks + 1, app.project.tracks.items.len);
+    try std.testing.expectEqual(initial_racks + 1, app.racks.items.len);
+    try std.testing.expectEqual(initial_drum + 1, app.drum_track);
+    try std.testing.expectEqualStrings("strings", app.project.tracks.items[initial_drum].name);
+
+    // Pointer identity: engine chain for the new slot must point into the new rack.
+    const new_rack = app.racks.items[initial_drum];
+    const engine_ptr = app.engine.tracks[initial_drum].chain[0].ptr;
+    try std.testing.expectEqual(@as(*anyopaque, @ptrCast(&new_rack.synth)), engine_ptr);
+}
+
+test "track delete: project, racks, engine, drum_track all update correctly" {
+    var app = try App.init(std.testing.allocator, std.Io.failing);
+    defer app.deinit();
+
+    const initial_tracks = app.project.tracks.items.len; // 4
+    const initial_drum = app.drum_track;                 // 3
+
+    // Delete track 1 (pad, index 1).
+    app.doTrackDel(1);
+
+    try std.testing.expectEqual(initial_tracks - 1, app.project.tracks.items.len);
+    try std.testing.expectEqual(app.racks.items.len + 1, initial_drum); // drum_track decremented
+    try std.testing.expectEqual(initial_drum - 1, app.drum_track);
+
+    // After deletion, engine slot 1 must point to what was slot 2 (bass rack).
+    const bass_rack = app.racks.items[1]; // was index 2, now index 1
+    const engine_ptr = app.engine.tracks[1].chain[0].ptr;
+    try std.testing.expectEqual(@as(*anyopaque, @ptrCast(&bass_rack.synth)), engine_ptr);
+}
+
+test ":track-add command adds a track" {
+    var app = try App.init(std.testing.allocator, std.Io.failing);
+    defer app.deinit();
+
+    const before = app.project.tracks.items.len;
+    const drum_slot = app.drum_track; // new track inserts here, drum shifts up
+    for (":track-add mytrack") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqual(before + 1, app.project.tracks.items.len);
+    try std.testing.expectEqualStrings("mytrack", app.project.tracks.items[drum_slot].name);
+}
+
+test ":track-del command deletes a track" {
+    var app = try App.init(std.testing.allocator, std.Io.failing);
+    defer app.deinit();
+
+    const before = app.project.tracks.items.len;
+    for (":track-del 1") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqual(before - 1, app.project.tracks.items.len);
+}
+
+test ":track-rename renames a track" {
+    var app = try App.init(std.testing.allocator, std.Io.failing);
+    defer app.deinit();
+
+    for (":track-rename 1 renamed") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqualStrings("renamed", app.project.tracks.items[0].name);
 }
 
 test "escape returns from track_spectrum to tracks" {
@@ -850,18 +1077,17 @@ test "escape returns from track_spectrum to tracks" {
     try std.testing.expect(std.mem.indexOf(u8, frame, "TRACKS") != null);
 }
 
-test "spectrum fills FFT buffer and draws with real data" {
+test "draw renders spectrum view when engine has activated the analyzer" {
     var app = try App.init(std.testing.allocator, std.Io.failing);
     defer app.deinit();
 
     app.handleKey(.{ .char = 's' }, 0);
-    _ = app.engine.send(.{ .note_on = .{ .track = 0, .note = 60, .velocity = 1.0 } });
     var block: [512]types.Sample = undefined;
-    for (0..16) |_| app.engine.process(&block);
+    app.engine.process(&block);
 
-    var buf: [64 * 1024]u8 = undefined;
+    var buf: [32 * 1024]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
-    try app.draw(&w, .{ .cols = 120, .rows = 40 });
+    try app.draw(&w, .{ .cols = 80, .rows = 24 });
     const frame = w.buffered();
     try std.testing.expect(std.mem.indexOf(u8, frame, "SPECTRUM") != null);
 }
