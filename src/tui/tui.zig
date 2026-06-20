@@ -85,7 +85,7 @@ pub fn drawTracks(app: anytype, w: *std.Io.Writer, rows: usize, snap: engine_mod
     for (app.project.tracks.items, 0..) |track, i| {
         const is_drum = (i == app.drum_track);
         const label: []const u8 = if (is_drum) "drum machine" else app.racks.items[i].label;
-        const has_eq: []const u8 = if (i < app.racks.items.len and app.racks.items[i].eq != null) " EQ" else "   ";
+        const has_eq: []const u8 = if (i < app.racks.items.len and app.racks.items[i].fx.eq != null) " EQ" else "   ";
         const hint: []const u8 = if (is_drum) " [enter:open grid]" else "";
         const marker: []const u8 = if (i == app.cursor) ">" else " ";
         const inv: []const u8 = if (i == app.cursor) "\x1b[7m" else "";
@@ -255,7 +255,7 @@ pub fn drawSpectrumView(
     try endLine(w);
 
     if (is_track and app.eq_track < app.racks.items.len) {
-        if (app.racks.items[app.eq_track].eq) |*e| {
+        if (app.racks.items[app.eq_track].fx.eq) |*e| {
             const bypass_str: []const u8 = if (e.bypass) " [BYPASS]" else "";
             try w.print(" EQ{s}  ", .{bypass_str});
             for (0..eq_mod.num_eq_bands) |b| {
@@ -306,7 +306,7 @@ pub fn drawDrumStatus(app: anytype, w: *std.Io.Writer) !void {
 
 pub fn drawSpectrumStatus(app: anytype, w: *std.Io.Writer, is_track: bool) !void {
     if (is_track and app.eq_track < app.racks.items.len) {
-        if (app.racks.items[app.eq_track].eq) |*e| {
+        if (app.racks.items[app.eq_track].fx.eq) |*e| {
             const freq = eq_mod.iso_frequencies[app.eq_cursor];
             const gain = e.bands[app.eq_cursor].gain_db;
             const sign: []const u8 = if (gain >= 0) "+" else "";

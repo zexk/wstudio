@@ -101,26 +101,26 @@ pub const App = struct {
         }
 
         const r0 = try allocator.create(Rack);
-        r0.* = .{ .synth = PolySynth.init(sr), .label = "synth+comp+dly+rev" };
-        r0.comp = Compressor.init(sr);
-        r0.delay = try StereoDelay.init(allocator, sr, 2.0);
-        r0.delay.?.setTime(0.375);
-        r0.reverb = try Reverb.init(allocator, sr);
+        r0.* = .{ .instrument = .{ .poly_synth = PolySynth.init(sr) }, .label = "synth+comp+dly+rev" };
+        r0.fx.comp = Compressor.init(sr);
+        r0.fx.delay = try StereoDelay.init(allocator, sr, 2.0);
+        r0.fx.delay.?.setTime(0.375);
+        r0.fx.reverb = try Reverb.init(allocator, sr);
         try racks.append(allocator, r0);
 
         const r1 = try allocator.create(Rack);
-        r1.* = .{ .synth = PolySynth.init(sr), .label = "synth+rev" };
-        r1.synth.waveform = .sine;
-        r1.synth.attack_s = 0.08;
-        r1.synth.release_s = 0.8;
-        r1.reverb = try Reverb.init(allocator, sr);
-        r1.reverb.?.mix = 0.45;
+        r1.* = .{ .instrument = .{ .poly_synth = PolySynth.init(sr) }, .label = "synth+rev" };
+        r1.instrument.poly_synth.waveform = .sine;
+        r1.instrument.poly_synth.attack_s = 0.08;
+        r1.instrument.poly_synth.release_s = 0.8;
+        r1.fx.reverb = try Reverb.init(allocator, sr);
+        r1.fx.reverb.?.mix = 0.45;
         try racks.append(allocator, r1);
 
         const r2 = try allocator.create(Rack);
-        r2.* = .{ .synth = PolySynth.init(sr), .label = "synth" };
-        r2.synth.waveform = .square;
-        r2.synth.gain = 0.25;
+        r2.* = .{ .instrument = .{ .poly_synth = PolySynth.init(sr) }, .label = "synth" };
+        r2.instrument.poly_synth.waveform = .square;
+        r2.instrument.poly_synth.gain = 0.25;
         try racks.append(allocator, r2);
 
         const drum = try allocator.create(DrumMachine);
@@ -237,10 +237,10 @@ pub const App = struct {
                 },
                 'b' => {
                     if (self.view == .track_spectrum and self.eq_track < self.racks.items.len) {
-                        if (self.racks.items[self.eq_track].eq) |*eq| {
+                        if (self.racks.items[self.eq_track].fx.eq) |*eq| {
                             eq.bypass = !eq.bypass;
                             var buf: [5]dsp.Device = undefined;
-                            self.engine.setTrackChain(self.eq_track, self.racks.items[self.eq_track].recreateChain(&buf));
+                            self.engine.setTrackChain(self.eq_track, self.racks.items[self.eq_track].chain(&buf));
                         }
                     }
                 },
@@ -253,7 +253,7 @@ pub const App = struct {
 
     fn currentEqGain(self: *App, track: u16) f32 {
         if (track < self.racks.items.len) {
-            if (self.racks.items[track].eq) |*e| return e.bands[self.eq_cursor].gain_db;
+            if (self.racks.items[track].fx.eq) |*e| return e.bands[self.eq_cursor].gain_db;
         }
         return 0.0;
     }
@@ -261,10 +261,10 @@ pub const App = struct {
     fn setEqBand(self: *App, track: u16, band: usize, gain_db: f32) void {
         if (track >= self.racks.items.len) return;
         const rack = self.racks.items[track];
-        if (rack.eq == null) rack.eq = GraphicEq.init(self.project.sample_rate);
-        rack.eq.?.setBand(band, gain_db);
+        if (rack.fx.eq == null) rack.fx.eq = GraphicEq.init(self.project.sample_rate);
+        rack.fx.eq.?.setBand(band, gain_db);
         var buf: [5]dsp.Device = undefined;
-        self.engine.setTrackChain(track, rack.recreateChain(&buf));
+        self.engine.setTrackChain(track, rack.chain(&buf));
     }
 
     pub fn handleDrumKey(self: *App, key: modal_mod.Key) bool {
@@ -393,7 +393,7 @@ pub const App = struct {
             self.setStatus("out of memory", .{});
             return;
         };
-        rack.* = .{ .synth = PolySynth.init(sr), .label = "synth" };
+        rack.* = .{ .instrument = .{ .poly_synth = PolySynth.init(sr) }, .label = "synth" };
         self.racks.append(self.allocator, rack) catch {
             self.allocator.destroy(rack);
             self.setStatus("out of memory", .{});
@@ -663,7 +663,7 @@ pub const App = struct {
         const track_idx = track_1 - 1;
         const rest = std.mem.trim(u8, it.rest(), " ");
         if (rest.len == 0) {
-            if (self.racks.items[track_idx].eq) |*eq| {
+            if (self.racks.items[track_idx].fx.eq) |*eq| {
                 self.setStatus("track {d}: bypass={}", .{ track_1, eq.bypass });
             } else {
                 self.setStatus("track {d}: no EQ", .{track_1});
@@ -1008,7 +1008,7 @@ test "track add: project, racks, engine, drum_track all update correctly" {
     // Pointer identity: engine chain for the new slot must point into the new rack.
     const new_rack = app.racks.items[initial_drum];
     const engine_ptr = app.engine.tracks[initial_drum].chain[0].ptr;
-    try std.testing.expectEqual(@as(*anyopaque, @ptrCast(&new_rack.synth)), engine_ptr);
+    try std.testing.expectEqual(@as(*anyopaque, @ptrCast(&new_rack.instrument.poly_synth)), engine_ptr);
 }
 
 test "track delete: project, racks, engine, drum_track all update correctly" {
@@ -1028,7 +1028,7 @@ test "track delete: project, racks, engine, drum_track all update correctly" {
     // After deletion, engine slot 1 must point to what was slot 2 (bass rack).
     const bass_rack = app.racks.items[1]; // was index 2, now index 1
     const engine_ptr = app.engine.tracks[1].chain[0].ptr;
-    try std.testing.expectEqual(@as(*anyopaque, @ptrCast(&bass_rack.synth)), engine_ptr);
+    try std.testing.expectEqual(@as(*anyopaque, @ptrCast(&bass_rack.instrument.poly_synth)), engine_ptr);
 }
 
 test ":track-add command adds a track" {
