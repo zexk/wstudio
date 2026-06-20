@@ -17,49 +17,15 @@ const GraphicEq = @import("../dsp/eq.zig").GraphicEq;
 const eq_mod = @import("../dsp/eq.zig");
 const wav = @import("../core/wav.zig");
 const cmd_mod = @import("cmd.zig");
+const draw_mod = @import("draw.zig");
+pub const Rack = @import("rack.zig").Rack;
 
 const Engine = engine_mod.Engine;
 
 const note_ms = 220;
 const frame_poll_ms = 30;
 
-const Rack = struct {
-    synth: PolySynth,
-    eq: ?GraphicEq = null,
-    comp: ?Compressor = null,
-    delay: ?StereoDelay = null,
-    reverb: ?Reverb = null,
-    label: []const u8,
-
-    fn chain(self: *Rack, buf: *[5]dsp.Device) []const dsp.Device {
-        var len: usize = 0;
-        buf[len] = self.synth.device();
-        len += 1;
-        if (self.comp) |*c| {
-            buf[len] = c.device();
-            len += 1;
-        }
-        if (self.eq) |*e| {
-            buf[len] = e.device();
-            len += 1;
-        }
-        if (self.delay) |*d| {
-            buf[len] = d.device();
-            len += 1;
-        }
-        if (self.reverb) |*r| {
-            buf[len] = r.device();
-            len += 1;
-        }
-        return buf[0..len];
-    }
-
-    fn recreateChain(self: *Rack, buf: *[5]dsp.Device) []const dsp.Device {
-        return self.chain(buf);
-    }
-};
-
-const AppView = enum { tracks, drum_grid, help, track_spectrum, master_spectrum };
+pub const AppView = enum { tracks, drum_grid, help, track_spectrum, master_spectrum };
 
 fn wrap(comptime f: fn (*App, []const u8) void) *const fn (*anyopaque, []const u8) void {
     return struct {
@@ -80,21 +46,6 @@ const cmds: []const cmd_mod.Def = &.{
     .{ .name = "help",     .desc = "list all commands",                 .run = wrap(App.cmdHelp) },
     .{ .name = "eq",       .desc = "<track> [<band> <db>]  EQ control", .run = wrap(App.cmdEq) },
 };
-
-const spectrum_rows = 18;
-const spectrum_band_count = 80;
-
-fn brailleBar(rem: usize) u21 {
-    const bits: u8 = switch (rem) {
-        0 => 0b00000000,
-        1 => 0b11000000,
-        2 => 0b11100100,
-        3 => 0b11110110,
-        4 => 0b11111111,
-        else => 0b11111111,
-    };
-    return @as(u21, 0x2800) | @as(u21, bits);
-}
 
 pub const App = struct {
     allocator: std.mem.Allocator,
@@ -191,6 +142,10 @@ pub const App = struct {
         self.project.deinit();
     }
 
+    // -----------------------------------------------------------------------
+    // Input handling
+    // -----------------------------------------------------------------------
+
     pub fn handleKey(self: *App, key: modal_mod.Key, now_ns: i96) void {
         if (key == .ctrl_c) {
             self.should_quit = true;
@@ -204,10 +159,7 @@ pub const App = struct {
                     self.applyAction(self.modal.handle(key), now_ns);
                 }
             },
-            .track_spectrum => if (!self.handleSpectrumKey(key)) {
-                self.applyAction(self.modal.handle(key), now_ns);
-            },
-            .master_spectrum => if (!self.handleSpectrumKey(key)) {
+            .track_spectrum, .master_spectrum => if (!self.handleSpectrumKey(key)) {
                 self.applyAction(self.modal.handle(key), now_ns);
             },
             .tracks => {
@@ -217,14 +169,8 @@ pub const App = struct {
                 }
                 if (key == .char) {
                     switch (key.char) {
-                        'm' => {
-                            self.switchToMasterSpectrum();
-                            return;
-                        },
-                        's' => {
-                            self.switchToTrackSpectrum(@intCast(self.cursor));
-                            return;
-                        },
+                        'm' => { self.switchToMasterSpectrum(); return; },
+                        's' => { self.switchToTrackSpectrum(@intCast(self.cursor)); return; },
                         else => {},
                     }
                 }
@@ -256,57 +202,26 @@ pub const App = struct {
                 return true;
             },
             .char => |c| switch (c) {
-                'h' => {
-                    if (self.eq_cursor > 0) self.eq_cursor -= 1;
-                },
-                'l' => {
-                    if (self.eq_cursor < eq_mod.num_eq_bands - 1) self.eq_cursor += 1;
-                },
-                'j' => {
-                    if (self.view == .track_spectrum) {
-                        const track = self.eq_track;
-                        if (track < self.racks.len) {
-                            const current = self.currentEqGain(track);
-                            self.setEqBand(track, self.eq_cursor, current - 1.0);
-                        }
+                'h' => { if (self.eq_cursor > 0) self.eq_cursor -= 1; },
+                'l' => { if (self.eq_cursor < eq_mod.num_eq_bands - 1) self.eq_cursor += 1; },
+                'j', 'J' => {
+                    if (self.view == .track_spectrum and self.eq_track < self.racks.len) {
+                        const delta: f32 = if (c == 'J') -6.0 else -1.0;
+                        self.setEqBand(self.eq_track, self.eq_cursor, self.currentEqGain(self.eq_track) + delta);
                     }
                 },
-                'k' => {
-                    if (self.view == .track_spectrum) {
-                        const track = self.eq_track;
-                        if (track < self.racks.len) {
-                            const current = self.currentEqGain(track);
-                            self.setEqBand(track, self.eq_cursor, current + 1.0);
-                        }
-                    }
-                },
-                'J' => {
-                    if (self.view == .track_spectrum) {
-                        const track = self.eq_track;
-                        if (track < self.racks.len) {
-                            const current = self.currentEqGain(track);
-                            self.setEqBand(track, self.eq_cursor, current - 6.0);
-                        }
-                    }
-                },
-                'K' => {
-                    if (self.view == .track_spectrum) {
-                        const track = self.eq_track;
-                        if (track < self.racks.len) {
-                            const current = self.currentEqGain(track);
-                            self.setEqBand(track, self.eq_cursor, current + 6.0);
-                        }
+                'k', 'K' => {
+                    if (self.view == .track_spectrum and self.eq_track < self.racks.len) {
+                        const delta: f32 = if (c == 'K') 6.0 else 1.0;
+                        self.setEqBand(self.eq_track, self.eq_cursor, self.currentEqGain(self.eq_track) + delta);
                     }
                 },
                 'b' => {
-                    if (self.view == .track_spectrum) {
-                        const track = self.eq_track;
-                        if (track < self.racks.len) {
-                            if (self.racks[track].eq) |*eq| {
-                                eq.bypass = !eq.bypass;
-                                var buf: [5]dsp.Device = undefined;
-                                self.engine.setTrackChain(@intCast(track), self.racks[track].recreateChain(&buf));
-                            }
+                    if (self.view == .track_spectrum and self.eq_track < self.racks.len) {
+                        if (self.racks[self.eq_track].eq) |*eq| {
+                            eq.bypass = !eq.bypass;
+                            var buf: [5]dsp.Device = undefined;
+                            self.engine.setTrackChain(self.eq_track, self.racks[self.eq_track].recreateChain(&buf));
                         }
                     }
                 },
@@ -319,9 +234,7 @@ pub const App = struct {
 
     fn currentEqGain(self: *App, track: u16) f32 {
         if (track < self.racks.len) {
-            if (self.racks[track].eq) |*e| {
-                return e.bands[self.eq_cursor].gain_db;
-            }
+            if (self.racks[track].eq) |*e| return e.bands[self.eq_cursor].gain_db;
         }
         return 0.0;
     }
@@ -329,22 +242,17 @@ pub const App = struct {
     fn setEqBand(self: *App, track: u16, band: usize, gain_db: f32) void {
         if (track >= self.racks.len) return;
         const rack = &self.racks[track];
-        if (rack.eq == null) {
-            rack.eq = GraphicEq.init(self.project.sample_rate);
-        }
+        if (rack.eq == null) rack.eq = GraphicEq.init(self.project.sample_rate);
         rack.eq.?.setBand(band, gain_db);
         var buf: [5]dsp.Device = undefined;
         self.engine.setTrackChain(track, rack.recreateChain(&buf));
     }
 
-    fn handleDrumKey(self: *App, key: modal_mod.Key) bool {
+    pub fn handleDrumKey(self: *App, key: modal_mod.Key) bool {
         const pad = &self.drum_cursor[0];
         const step = &self.drum_cursor[1];
         switch (key) {
-            .escape => {
-                self.view = .tracks;
-                return true;
-            },
+            .escape => { self.view = .tracks; return true; },
             .char => |c| {
                 switch (c) {
                     'h' => step.* = if (step.* == 0) DrumMachine.max_steps - 1 else step.* - 1,
@@ -441,6 +349,10 @@ pub const App = struct {
         }
     }
 
+    // -----------------------------------------------------------------------
+    // Command handlers
+    // -----------------------------------------------------------------------
+
     fn runCommand(self: *App, text: []const u8) void {
         if (!cmd_mod.dispatch(cmds, self, text)) {
             self.setStatus("not a command: {s}  (try :help)", .{text});
@@ -469,7 +381,6 @@ pub const App = struct {
             self.setStatus("load-pad: pad index must be 0-7", .{});
             return;
         }
-
         const data = std.Io.Dir.cwd().readFileAlloc(
             self.io,
             path,
@@ -480,13 +391,8 @@ pub const App = struct {
             return;
         };
         defer self.allocator.free(data);
-
         const basename = std.fs.path.basename(path);
-        const stem = if (std.mem.lastIndexOf(u8, basename, ".")) |dot|
-            basename[0..dot]
-        else
-            basename;
-
+        const stem = if (std.mem.lastIndexOf(u8, basename, ".")) |dot| basename[0..dot] else basename;
         self.drum.loadPadWav(pad_idx, data, stem) catch |e| {
             self.setStatus("load-pad: parse error: {s}", .{@errorName(e)});
             return;
@@ -561,8 +467,7 @@ pub const App = struct {
         const bpm = @max(self.project.tempo_bpm, 1.0);
         const beats_per_bar: f64 = @floatFromInt(self.engine.transport.time_signature.beats_per_bar);
         const frames_per_bar: u64 = @intFromFloat(sr * 60.0 / bpm * beats_per_bar);
-        const frame: u64 = (bar_1 - 1) * frames_per_bar;
-        _ = self.engine.send(.{ .seek_frames = frame });
+        _ = self.engine.send(.{ .seek_frames = (bar_1 - 1) * frames_per_bar });
         self.setStatus("seek → bar {d}", .{bar_1});
     }
 
@@ -612,7 +517,6 @@ pub const App = struct {
             self.setStatus("eq: usage eq <track> <band> <db>", .{});
             return;
         };
-        const db_str = rit.rest();
         const band = std.fmt.parseInt(usize, band_str, 10) catch {
             self.setStatus("eq: bad band number", .{});
             return;
@@ -621,7 +525,7 @@ pub const App = struct {
             self.setStatus("eq: band must be 0–{d}", .{eq_mod.num_eq_bands - 1});
             return;
         }
-        const db = std.fmt.parseFloat(f32, db_str) catch {
+        const db = std.fmt.parseFloat(f32, rit.rest()) catch {
             self.setStatus("eq: expected dB value", .{});
             return;
         };
@@ -634,20 +538,24 @@ pub const App = struct {
         self.status_len = msg.len;
     }
 
+    // -----------------------------------------------------------------------
+    // Rendering (delegates to draw.zig)
+    // -----------------------------------------------------------------------
+
     pub fn draw(self: *App, w: *std.Io.Writer, size: terminal_mod.Size) !void {
         const snap = self.engine.uiSnapshot();
         const rows: usize = @max(size.rows, 10);
 
         try w.writeAll("\x1b[H");
-        try drawHeader(w, &self.project, &self.engine.transport, self.audio_label, self.master_gain_db);
-        try hr(w, size.cols);
+        try draw_mod.drawHeader(w, &self.project, &self.engine.transport, self.audio_label, self.master_gain_db);
+        try draw_mod.hr(w, size.cols);
 
         switch (self.view) {
-            .tracks => try self.drawTracks(w, rows, snap),
-            .drum_grid => try self.drawDrumGrid(w, rows, snap),
-            .help => try drawHelp(w, rows),
-            .track_spectrum => try self.drawSpectrumView(w, rows, snap, true),
-            .master_spectrum => try self.drawSpectrumView(w, rows, snap, false),
+            .tracks         => try draw_mod.drawTracks(self, w, rows, snap),
+            .drum_grid      => try draw_mod.drawDrumGrid(self, w, rows, snap),
+            .help           => try draw_mod.drawHelp(w, rows, cmds),
+            .track_spectrum => try draw_mod.drawSpectrumView(self, w, rows, snap, true),
+            .master_spectrum => try draw_mod.drawSpectrumView(self, w, rows, snap, false),
         }
 
         var transport: Transport = .{
@@ -665,287 +573,20 @@ pub const App = struct {
             @as(u64, @intFromFloat(secs / 60.0)),
             @mod(secs, 60.0),
         });
-        try meter(w, snap.peak[0]);
+        try draw_mod.meter(w, snap.peak[0]);
         try w.writeAll(" R");
-        try meter(w, snap.peak[1]);
-        try endLine(w);
-        try hr(w, size.cols);
+        try draw_mod.meter(w, snap.peak[1]);
+        try draw_mod.endLine(w);
+        try draw_mod.hr(w, size.cols);
 
         switch (self.view) {
-            .tracks => try self.drawTracksStatus(w),
-            .drum_grid => try self.drawDrumStatus(w),
-            .help => try w.writeAll(" esc: close"),
-            .track_spectrum => try self.drawSpectrumStatus(w, true),
-            .master_spectrum => try self.drawSpectrumStatus(w, false),
+            .tracks          => try draw_mod.drawTracksStatus(self, w),
+            .drum_grid       => try draw_mod.drawDrumStatus(self, w),
+            .help            => try w.writeAll(" esc: close"),
+            .track_spectrum  => try draw_mod.drawSpectrumStatus(self, w, true),
+            .master_spectrum => try draw_mod.drawSpectrumStatus(self, w, false),
         }
         try w.writeAll("\x1b[K");
-    }
-
-    fn drawSpectrumView(self: *App, w: *std.Io.Writer, rows: usize, snap: engine_mod.UiSnapshot, is_track: bool) !void {
-        _ = snap;
-
-        const title: []const u8 = if (is_track) blk: {
-            const name = if (self.eq_track < self.project.tracks.items.len)
-                self.project.tracks.items[self.eq_track].name
-            else
-                "?";
-            break :blk name;
-        } else "MASTER";
-
-        const spectrum_snap = if (is_track)
-            self.engine.trackSpectrumSnapshot(self.eq_track)
-        else
-            self.engine.masterSpectrumSnapshot();
-
-        try w.print(" SPECTRUM \"{s}\"  [jk:gain  hl:select  b:bypass  esc:back]\r\n", .{title});
-
-        const visual_rows = @min(spectrum_rows, rows -| 5);
-        const db_range: f32 = 70.0;
-        const db_offset: f32 = -60.0;
-
-        for (0..visual_rows) |visual_row_inv| {
-            const visual_row = visual_rows - 1 - visual_row_inv;
-
-            try w.writeAll("   ");
-
-            if (visual_row == visual_rows - 1) {
-                try w.writeAll(" 0dB\r\n");
-                continue;
-            }
-            if (visual_row == visual_rows - 2) {
-                try w.writeAll(" -6dB\r\n");
-                continue;
-            }
-            if (visual_row == visual_rows - 3) {
-                try w.writeAll("-12dB\r\n");
-                continue;
-            }
-
-            if (spectrum_snap) |ssnap| {
-                for (0..spectrum_band_count) |band| {
-                    const db_val = ssnap.bins[band];
-                    const raw = (db_val - db_offset) / db_range;
-                    const norm = if (std.math.isNan(raw)) 0.0 else std.math.clamp(raw, 0.0, 1.0);
-                    const total_pixels = @as(u32, @intCast(visual_rows)) * 4;
-                    const pixel_height = @as(usize, @intFromFloat(norm * @as(f32, @floatFromInt(total_pixels))));
-
-                    const pixel_start = (visual_rows - 1 - visual_row) * 4;
-                    const rem = if (pixel_height > pixel_start)
-                        @min(pixel_height - pixel_start, 4)
-                    else
-                        0;
-
-                    const ch = brailleBar(rem);
-                    var utf8_buf: [4]u8 = undefined;
-                    const utf8_len = std.unicode.utf8Encode(ch, &utf8_buf) catch unreachable;
-                    try w.writeAll(utf8_buf[0..utf8_len]);
-                }
-            } else {
-                for (0..spectrum_band_count) |_| {
-                    var utf8_buf: [4]u8 = undefined;
-                    const utf8_len = std.unicode.utf8Encode(brailleBar(0), &utf8_buf) catch unreachable;
-                    try w.writeAll(utf8_buf[0..utf8_len]);
-                }
-            }
-            try endLine(w);
-        }
-
-        try w.writeAll("Hz   ");
-        const freq_labels = [_]struct{ idx: usize, label: []const u8 }{
-            .{ .idx = 0, .label = "20" },
-            .{ .idx = 12, .label = "40" },
-            .{ .idx = 24, .label = "80" },
-            .{ .idx = 36, .label = "160" },
-            .{ .idx = 48, .label = "320" },
-            .{ .idx = 55, .label = "640" },
-            .{ .idx = 61, .label = "1.2k" },
-            .{ .idx = 67, .label = "2.5k" },
-            .{ .idx = 72, .label = "5k" },
-            .{ .idx = 76, .label = "10k" },
-            .{ .idx = 78, .label = "20k" },
-        };
-
-        var fi: usize = 0;
-        for (0..spectrum_band_count) |band| {
-            if (fi < freq_labels.len and band == freq_labels[fi].idx) {
-                const label = freq_labels[fi].label;
-                if (band + label.len < spectrum_band_count) {
-                    try w.writeAll(label);
-                    fi += 1;
-                } else {
-                    try w.writeAll(" ");
-                }
-            } else {
-                try w.writeAll(" ");
-            }
-        }
-        try endLine(w);
-
-        if (is_track and self.eq_track < self.racks.len) {
-            if (self.racks[self.eq_track].eq) |*e| {
-                const bypass_str: []const u8 = if (e.bypass) " [BYPASS]" else "";
-                try w.print(" EQ{s}  ", .{bypass_str});
-                for (0..eq_mod.num_eq_bands) |b| {
-                    const marker: []const u8 = if (b == self.eq_cursor) ">" else " ";
-                    const val = e.bands[b].gain_db;
-                    try w.print("{s}{d: <4.0}", .{ marker, val });
-                }
-                try endLine(w);
-            }
-        }
-    }
-
-    fn drawSpectrumStatus(self: *App, w: *std.Io.Writer, is_track: bool) !void {
-        if (is_track and self.eq_track < self.racks.len) {
-            if (self.racks[self.eq_track].eq) |*e| {
-                const freq = eq_mod.iso_frequencies[self.eq_cursor];
-                const gain = e.bands[self.eq_cursor].gain_db;
-                const sign: []const u8 = if (gain >= 0) "+" else "";
-                try w.print(" \x1b[7m EQ \x1b[0m  {d:.0}Hz  {s}{d:.1}dB  [{d}/{d}]", .{
-                    freq, sign, gain, self.eq_cursor + 1, eq_mod.num_eq_bands,
-                });
-                if (e.bypass) try w.print("  BYPASS", .{});
-                if (self.status_len > 0) try w.print("  {s}", .{self.status_buf[0..self.status_len]});
-                return;
-            }
-        }
-        if (self.status_len > 0) {
-            try w.print(" {s}", .{self.status_buf[0..self.status_len]});
-        }
-    }
-
-    fn drawHeader(w: *std.Io.Writer, project: *const Project, transport: *const Transport, audio_label: []const u8, master_gain_db: f32) !void {
-        const vol_sign: []const u8 = if (master_gain_db >= 0) "+" else "";
-        try w.print(" wstudio - {s}", .{project.name});
-        try w.print("   bpm {d:.0}  {d}/{d}   vol: {s}{d:.0}dB   audio: {s}", .{
-            project.tempo_bpm,
-            transport.time_signature.beats_per_bar,
-            transport.time_signature.beat_unit,
-            vol_sign,
-            master_gain_db,
-            audio_label,
-        });
-        try endLine(w);
-    }
-
-    fn drawTracks(self: *App, w: *std.Io.Writer, rows: usize, snap: engine_mod.UiSnapshot) !void {
-        _ = snap;
-        try w.writeAll(" TRACKS   [s:spectrum  m:master  enter:drum-grid]\r\n");
-        for (self.project.tracks.items, 0..) |track, i| {
-            const is_drum = (i == self.drum_track);
-            const label: []const u8 = if (is_drum) "drum machine" else self.racks[i].label;
-            const has_eq: []const u8 = if (i < self.racks.len and self.racks[i].eq != null) " EQ" else "   ";
-            const hint: []const u8 = if (is_drum) " [enter:open grid]" else "";
-            const marker: []const u8 = if (i == self.cursor) ">" else " ";
-            const inv: []const u8 = if (i == self.cursor) "\x1b[7m" else "";
-            const mute: []const u8 = if (track.muted) "M" else " ";
-            try w.print(" {s}{s} {d} {s: <8} {s}[{s}]{s}{s}\x1b[0m", .{
-                inv, marker, i + 1, track.name, mute, label, has_eq, hint,
-            });
-            try endLine(w);
-        }
-        const used = 3 + self.project.tracks.items.len;
-        for (used..@max(used, rows -| 3)) |_| try endLine(w);
-    }
-
-    fn drawDrumGrid(self: *App, w: *std.Io.Writer, rows: usize, snap: engine_mod.UiSnapshot) !void {
-        _ = snap;
-        const playing_step = self.drum.currentStep();
-        const is_playing = self.engine.uiSnapshot().playing;
-        const cur_pad = self.drum_cursor[0];
-        const cur_step = self.drum_cursor[1];
-
-        const track_name = self.project.tracks.items[self.drum_track].name;
-        try w.print(" DRUMS \"{s}\"  [hjkl:move  spc:toggle  p:preview  esc:back]\r\n", .{track_name});
-
-        try w.writeAll("      ");
-        for (0..DrumMachine.max_steps) |s| {
-            if (s % 4 == 0) try w.writeByte('|');
-            try w.print("{d:>2} ", .{s + 1});
-        }
-        try endLine(w);
-
-        for (0..DrumMachine.max_pads) |p| {
-            const name = self.drum.padName(@intCast(p));
-            try w.print(" {s: <4} ", .{name[0..@min(name.len, 4)]});
-            for (0..DrumMachine.max_steps) |s| {
-                if (s % 4 == 0) try w.writeByte('|');
-                const active = self.drum.stepActive(@intCast(p), @intCast(s));
-                const is_cursor = (p == cur_pad and s == cur_step);
-                const is_play = is_playing and (s == playing_step);
-
-                if (is_cursor) try w.writeAll("\x1b[7m");
-                if (is_play and !is_cursor) try w.writeAll("\x1b[1m");
-
-                try w.writeAll(if (active) "[X]" else "[ ]");
-
-                if (is_cursor or is_play) try w.writeAll("\x1b[0m");
-            }
-            try endLine(w);
-        }
-
-        const used = 4 + DrumMachine.max_pads;
-        for (used..@max(used, rows -| 3)) |_| try endLine(w);
-    }
-
-    fn drawHelp(w: *std.Io.Writer, rows: usize) !void {
-        try w.writeAll(" COMMANDS\r\n\r\n");
-        for (cmds) |c| {
-            try w.print("  :{s: <10}  {s}\r\n", .{ c.name, c.desc });
-        }
-        const used = 2 + cmds.len + 2;
-        for (used..@max(used, rows -| 3)) |_| try endLine(w);
-    }
-
-    fn drawTracksStatus(self: *App, w: *std.Io.Writer) !void {
-        switch (self.modal.mode) {
-            .command => try w.print(" :{s}_", .{self.modal.cmd_buf[0..self.modal.cmd_len]}),
-            else => {
-                const mode_name = switch (self.modal.mode) {
-                    .normal => "NORMAL",
-                    .insert => "INSERT",
-                    .visual => "VISUAL",
-                    .command => unreachable,
-                };
-                try w.print(" \x1b[7m {s} \x1b[0m oct {d}", .{ mode_name, self.modal.octave });
-                if (self.modal.count > 0) try w.print("  {d}", .{self.modal.count});
-                if (self.status_len > 0) try w.print("  {s}", .{self.status_buf[0..self.status_len]});
-            },
-        }
-    }
-
-    fn drawDrumStatus(self: *App, w: *std.Io.Writer) !void {
-        if (self.modal.mode == .command) {
-            try w.print(" :{s}_", .{self.modal.cmd_buf[0..self.modal.cmd_len]});
-            return;
-        }
-        const p = self.drum_cursor[0];
-        const s = self.drum_cursor[1];
-        try w.print(" \x1b[7m DRUM \x1b[0m  pad {d}/8  step {d}/16  {s}", .{
-            p + 1,
-            s + 1,
-            self.drum.padName(p),
-        });
-        if (self.status_len > 0) try w.print("  {s}", .{self.status_buf[0..self.status_len]});
-    }
-
-    fn endLine(w: *std.Io.Writer) !void {
-        try w.writeAll("\x1b[K\r\n");
-    }
-
-    fn hr(w: *std.Io.Writer, cols: u16) !void {
-        for (0..@min(cols, 100)) |_| try w.writeByte('-');
-        try endLine(w);
-    }
-
-    fn meter(w: *std.Io.Writer, peak: f32) !void {
-        const cells = 10;
-        const db = types.gainToDb(peak);
-        const norm = std.math.clamp((db + 50.0) / 50.0, 0.0, 1.0);
-        const filled: usize = @intFromFloat(norm * cells);
-        try w.writeByte('[');
-        for (0..cells) |i| try w.writeByte(if (i < filled) '#' else '-');
-        try w.writeByte(']');
     }
 };
 
@@ -1005,6 +646,10 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io) !void {
         term.write(w.buffered());
     }
 }
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
 
 test "cursor movement clamps to track range" {
     var app = try App.init(std.testing.allocator, std.Io.failing);
@@ -1180,29 +825,12 @@ test "draw renders spectrum view when engine has activated the analyzer" {
     app.handleKey(.{ .char = 's' }, 0);
     try std.testing.expectEqual(AppView.track_spectrum, app.view);
 
-    // Activate spectrum by processing engine commands
     var block: [512]types.Sample = undefined;
     app.engine.process(&block);
 
     var buf: [32 * 1024]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
     try app.draw(&w, .{ .cols = 80, .rows = 24 });
-    const frame = w.buffered();
-    try std.testing.expect(std.mem.indexOf(u8, frame, "SPECTRUM") != null);
-}
-
-test "spectrum fills FFT buffer and draws with real data" {
-    var app = try App.init(std.testing.allocator, std.Io.failing);
-    defer app.deinit();
-
-    app.handleKey(.{ .char = 's' }, 0);
-    _ = app.engine.send(.{ .note_on = .{ .track = 0, .note = 60, .velocity = 1.0 } });
-    var block: [512]types.Sample = undefined;
-    for (0..16) |_| app.engine.process(&block);
-
-    var buf: [64 * 1024]u8 = undefined;
-    var w = std.Io.Writer.fixed(&buf);
-    try app.draw(&w, .{ .cols = 120, .rows = 40 });
     const frame = w.buffered();
     try std.testing.expect(std.mem.indexOf(u8, frame, "SPECTRUM") != null);
 }
@@ -1220,4 +848,20 @@ test "escape returns from track_spectrum to tracks" {
     try app.draw(&w, .{ .cols = 80, .rows = 24 });
     const frame = w.buffered();
     try std.testing.expect(std.mem.indexOf(u8, frame, "TRACKS") != null);
+}
+
+test "spectrum fills FFT buffer and draws with real data" {
+    var app = try App.init(std.testing.allocator, std.Io.failing);
+    defer app.deinit();
+
+    app.handleKey(.{ .char = 's' }, 0);
+    _ = app.engine.send(.{ .note_on = .{ .track = 0, .note = 60, .velocity = 1.0 } });
+    var block: [512]types.Sample = undefined;
+    for (0..16) |_| app.engine.process(&block);
+
+    var buf: [64 * 1024]u8 = undefined;
+    var w = std.Io.Writer.fixed(&buf);
+    try app.draw(&w, .{ .cols = 120, .rows = 40 });
+    const frame = w.buffered();
+    try std.testing.expect(std.mem.indexOf(u8, frame, "SPECTRUM") != null);
 }
