@@ -340,15 +340,16 @@ pub const App = struct {
         const s: f32 = @floatFromInt(steps);
         switch (self.synth_cursor) {
             0 => synth.waveform = if (steps > 0) switch (synth.waveform) {
-                .sine => .saw, .saw => .square, .square => .sine,
+                .sine => .saw, .saw => .triangle, .triangle => .square, .square => .sine,
             } else switch (synth.waveform) {
-                .sine => .square, .saw => .sine, .square => .saw,
+                .sine => .square, .saw => .sine, .triangle => .saw, .square => .triangle,
             },
-            1 => synth.attack_s  = std.math.clamp(synth.attack_s  + s * 0.001, 0.001, 5.0),
-            2 => synth.decay_s   = std.math.clamp(synth.decay_s   + s * 0.005, 0.001, 5.0),
-            3 => synth.sustain   = std.math.clamp(synth.sustain   + s * 0.01,  0.0,   1.0),
-            4 => synth.release_s = std.math.clamp(synth.release_s + s * 0.005, 0.001, 10.0),
-            5 => synth.gain      = std.math.clamp(synth.gain      + s * 0.01,  0.01,  1.0),
+            1 => synth.detune_cents = std.math.clamp(synth.detune_cents + s * 1.0, -100.0, 100.0),
+            2 => synth.attack_s  = std.math.clamp(synth.attack_s  + s * 0.001, 0.001, 5.0),
+            3 => synth.decay_s   = std.math.clamp(synth.decay_s   + s * 0.005, 0.001, 5.0),
+            4 => synth.sustain   = std.math.clamp(synth.sustain   + s * 0.01,  0.0,   1.0),
+            5 => synth.release_s = std.math.clamp(synth.release_s + s * 0.005, 0.001, 10.0),
+            6 => synth.gain      = std.math.clamp(synth.gain      + s * 0.01,  0.01,  1.0),
             else => {},
         }
     }
@@ -1165,8 +1166,10 @@ test "synth editor jk moves cursor, hl adjusts waveform" {
     const synth = &app.racks.items[0].instrument.poly_synth;
     try std.testing.expect(synth.waveform != .saw); // was saw by default → now square
 
-    app.handleKey(.{ .char = 'j' }, 0); // move to attack
+    app.handleKey(.{ .char = 'j' }, 0); // move to detune (idx 1)
     try std.testing.expectEqual(@as(u8, 1), app.synth_cursor);
+    app.handleKey(.{ .char = 'j' }, 0); // move to attack (idx 2)
+    try std.testing.expectEqual(@as(u8, 2), app.synth_cursor);
 
     const old_attack = synth.attack_s;
     app.handleKey(.{ .char = 'l' }, 0); // increase attack

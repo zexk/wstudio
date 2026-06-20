@@ -8,11 +8,13 @@ const dsp = @import("device.zig");
 
 const Sample = types.Sample;
 
-pub const Waveform = enum { sine, saw, square };
+pub const Waveform = enum { sine, saw, triangle, square };
 
 pub const PolySynth = struct {
     sample_rate: f32,
     waveform: Waveform = .saw,
+    /// Global pitch offset in cents. ±100 = ±1 semitone.
+    detune_cents: f32 = 0.0,
     attack_s: f32 = 0.005,
     decay_s: f32 = 0.08,
     sustain: f32 = 0.7,
@@ -81,13 +83,15 @@ pub const PolySynth = struct {
 
     pub fn processBlock(self: *PolySynth, buf: []Sample) void {
         const frames = buf.len / 2;
-        const attack_inc = 1.0 / (self.attack_s * self.sample_rate);
-        const decay_inc = (1.0 - self.sustain) / (self.decay_s * self.sample_rate);
-        const release_inc = 1.0 / (self.release_s * self.sample_rate);
+        const attack_inc = 1.0 / @max(self.attack_s * self.sample_rate, 1.0);
+        const decay_inc = (1.0 - self.sustain) / @max(self.decay_s * self.sample_rate, 1.0);
+        const release_inc = 1.0 / @max(self.release_s * self.sample_rate, 1.0);
 
         for (&self.voices) |*v| {
             if (!v.active) continue;
-            const phase_inc = noteToFreq(v.note) / self.sample_rate;
+            const freq = noteToFreq(v.note) *
+                std.math.pow(f32, 2.0, self.detune_cents / 1200.0);
+            const phase_inc = freq / self.sample_rate;
             for (0..frames) |i| {
                 const s = self.oscSample(v.phase) * v.env * v.velocity * self.gain;
                 buf[i * 2] += s;
@@ -126,9 +130,10 @@ pub const PolySynth = struct {
 
     fn oscSample(self: *const PolySynth, phase: f32) Sample {
         return switch (self.waveform) {
-            .sine => @sin(2.0 * std.math.pi * phase),
-            .saw => 2.0 * phase - 1.0,
-            .square => if (phase < 0.5) 1.0 else -1.0,
+            .sine     => @sin(2.0 * std.math.pi * phase),
+            .saw      => 2.0 * phase - 1.0,
+            .triangle => 1.0 - 4.0 * @abs(phase - 0.5),
+            .square   => if (phase < 0.5) 1.0 else -1.0,
         };
     }
 

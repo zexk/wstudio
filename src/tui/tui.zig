@@ -16,8 +16,8 @@ const engine_mod = @import("../audio/engine.zig");
 
 pub const spectrum_rows: usize = 18;
 pub const spectrum_band_count: usize = 80;
-/// Number of editable synth parameters (waveform + ADSR + gain).
-pub const synth_param_count: u8 = 6;
+/// Number of editable synth parameters (waveform, detune, ADSR, gain).
+pub const synth_param_count: u8 = 7;
 
 // ---------------------------------------------------------------------------
 // Primitive helpers
@@ -355,32 +355,37 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, snap: engin
         const sel = app.synth_cursor == 0;
         if (sel) try w.writeAll("\x1b[7m");
         try w.writeAll("  waveform   ");
-        const wf_names = [_][]const u8{ "sine", "saw", "square" };
-        const wf_idx: usize = switch (synth.waveform) { .sine => 0, .saw => 1, .square => 2 };
+        const wf_names = [_][]const u8{ "sine", "saw", "tri", "sqr" };
+        const wf_idx: usize = switch (synth.waveform) {
+            .sine => 0, .saw => 1, .triangle => 2, .square => 3,
+        };
         for (wf_names, 0..) |nm, i| {
-            if (i == wf_idx) try w.print("[{s: <6}]", .{nm}) else try w.print(" {s: <6} ", .{nm});
+            if (i == wf_idx) try w.print("[{s: <5}]", .{nm}) else try w.print(" {s: <5} ", .{nm});
         }
         if (sel) try w.writeAll("\x1b[0m");
         try endLine(w);
     }
 
-    // ADSR + gain rows
-    const rows_data = [_]struct { label: []const u8, idx: u8, value: f32, max: f32, unit: []const u8 }{
-        .{ .label = "attack",  .idx = 1, .value = synth.attack_s,  .max = 5.0,  .unit = "s" },
-        .{ .label = "decay",   .idx = 2, .value = synth.decay_s,   .max = 5.0,  .unit = "s" },
-        .{ .label = "sustain", .idx = 3, .value = synth.sustain,   .max = 1.0,  .unit = ""  },
-        .{ .label = "release", .idx = 4, .value = synth.release_s, .max = 10.0, .unit = "s" },
-        .{ .label = "gain",    .idx = 5, .value = synth.gain,      .max = 1.0,  .unit = ""  },
+    // Detune + ADSR + gain rows
+    const rows_data = [_]struct { label: []const u8, idx: u8, bar: f32, bar_max: f32, disp: f32 }{
+        .{ .label = "detune",  .idx = 1, .bar = synth.detune_cents + 100.0, .bar_max = 200.0, .disp = synth.detune_cents },
+        .{ .label = "attack",  .idx = 2, .bar = synth.attack_s,  .bar_max = 5.0,  .disp = synth.attack_s  },
+        .{ .label = "decay",   .idx = 3, .bar = synth.decay_s,   .bar_max = 5.0,  .disp = synth.decay_s   },
+        .{ .label = "sustain", .idx = 4, .bar = synth.sustain,   .bar_max = 1.0,  .disp = synth.sustain   },
+        .{ .label = "release", .idx = 5, .bar = synth.release_s, .bar_max = 10.0, .disp = synth.release_s },
+        .{ .label = "gain",    .idx = 6, .bar = synth.gain,      .bar_max = 1.0,  .disp = synth.gain      },
     };
-    for (rows_data) |p| {
+    for (rows_data, 0..) |p, ri| {
         const sel = app.synth_cursor == p.idx;
         if (sel) try w.writeAll("\x1b[7m");
         try w.print("  {s: <9}", .{p.label});
-        try synthBar(w, p.value, p.max);
-        if (p.unit.len > 0)
-            try w.print("  {d:.3} {s}", .{ p.value, p.unit })
-        else
-            try w.print("  {d:.3}", .{p.value});
+        try synthBar(w, p.bar, p.bar_max);
+        // detune in cents (int), time in s (3dp), ratios (3dp)
+        switch (ri) {
+            0 => try w.print("  {d:.0} ct", .{p.disp}),
+            1, 2, 4 => try w.print("  {d:.3} s", .{p.disp}),
+            else  => try w.print("  {d:.3}", .{p.disp}),
+        }
         if (sel) try w.writeAll("\x1b[0m");
         try endLine(w);
     }
@@ -395,16 +400,19 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer) !void {
     switch (rack.instrument) { .poly_synth => {}, else => return }
     const synth = &rack.instrument.poly_synth;
 
-    const labels = [_][]const u8{ "waveform", "attack", "decay", "sustain", "release", "gain" };
+    const labels = [_][]const u8{ "waveform", "detune", "attack", "decay", "sustain", "release", "gain" };
     const cur = @min(@as(usize, app.synth_cursor), labels.len - 1);
     try w.print(" \x1b[7m SYNTH \x1b[0m  {s}: ", .{labels[cur]});
     switch (app.synth_cursor) {
-        0 => try w.writeAll(switch (synth.waveform) { .sine => "sine", .saw => "saw", .square => "square" }),
-        1 => try w.print("{d:.3} s", .{synth.attack_s}),
-        2 => try w.print("{d:.3} s", .{synth.decay_s}),
-        3 => try w.print("{d:.3}", .{synth.sustain}),
-        4 => try w.print("{d:.3} s", .{synth.release_s}),
-        5 => try w.print("{d:.3}", .{synth.gain}),
+        0 => try w.writeAll(switch (synth.waveform) {
+            .sine => "sine", .saw => "saw", .triangle => "tri", .square => "sqr",
+        }),
+        1 => try w.print("{d:.0} ct", .{synth.detune_cents}),
+        2 => try w.print("{d:.3} s", .{synth.attack_s}),
+        3 => try w.print("{d:.3} s", .{synth.decay_s}),
+        4 => try w.print("{d:.3}", .{synth.sustain}),
+        5 => try w.print("{d:.3} s", .{synth.release_s}),
+        6 => try w.print("{d:.3}", .{synth.gain}),
         else => {},
     }
     if (app.status_len > 0) try w.print("  {s}", .{app.status_buf[0..app.status_len]});
