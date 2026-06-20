@@ -15,7 +15,6 @@ const Reverb = @import("../dsp/reverb.zig").Reverb;
 const DrumMachine = @import("../dsp/drum_sampler.zig").DrumMachine;
 const GraphicEq = @import("../dsp/eq.zig").GraphicEq;
 const eq_mod = @import("../dsp/eq.zig");
-const wav = @import("../core/wav.zig");
 const cmd_mod = @import("cmd.zig");
 const tui = @import("tui.zig");
 pub const Rack = @import("../rack.zig").Rack;
@@ -60,7 +59,6 @@ pub const App = struct {
     /// Deleted racks that may still be in-flight on the audio thread.
     /// Freed only when the App is destroyed.
     retired_racks: std.ArrayListUnmanaged(*Rack),
-    drum: *DrumMachine,
     drum_track: u16,
     modal: modal_mod.ModalInput = .{},
     cursor: usize = 0,
@@ -123,11 +121,13 @@ pub const App = struct {
         r2.instrument.poly_synth.gain = 0.25;
         try racks.append(allocator, r2);
 
-        const drum = try allocator.create(DrumMachine);
-        errdefer allocator.destroy(drum);
-        drum.* = try DrumMachine.init(allocator, sr, &engine.transport);
-        errdefer drum.deinit();
-        const drum_track: u16 = @intCast(project.tracks.items.len - 1);
+        const drum_rack = try allocator.create(Rack);
+        drum_rack.* = .{
+            .instrument = .{ .drum_machine = try DrumMachine.init(allocator, sr, &engine.transport) },
+            .label = "drums",
+        };
+        try racks.append(allocator, drum_rack);
+        const drum_track: u16 = @intCast(racks.items.len - 1);
 
         var self: App = .{
             .allocator = allocator,
@@ -136,14 +136,12 @@ pub const App = struct {
             .engine = engine,
             .racks = racks,
             .retired_racks = .empty,
-            .drum = drum,
             .drum_track = drum_track,
         };
         for (self.racks.items, 0..) |rack, i| {
             var buf: [5]dsp.Device = undefined;
             self.engine.setTrackChain(@intCast(i), rack.chain(&buf));
         }
-        self.engine.setTrackChain(drum_track, &.{self.drum.device()});
         return self;
     }
 
@@ -152,11 +150,13 @@ pub const App = struct {
         self.racks.deinit(self.allocator);
         for (self.retired_racks.items) |r| { r.deinit(self.allocator); self.allocator.destroy(r); }
         self.retired_racks.deinit(self.allocator);
-        self.drum.deinit();
-        self.allocator.destroy(self.drum);
         self.engine.deinit();
         self.allocator.destroy(self.engine);
         self.project.deinit();
+    }
+
+    pub fn drumMachine(self: *App) *DrumMachine {
+        return &self.racks.items[self.drum_track].instrument.drum_machine;
     }
 
     // -----------------------------------------------------------------------
@@ -278,7 +278,7 @@ pub const App = struct {
                     'l' => step.* = (step.* + 1) % DrumMachine.max_steps,
                     'k' => if (pad.* > 0) { pad.* -= 1; },
                     'j' => if (pad.* < DrumMachine.max_pads - 1) { pad.* += 1; },
-                    ' ' => self.drum.toggleStep(pad.*, step.*),
+                    ' ' => self.drumMachine().toggleStep(pad.*, step.*),
                     'p' => _ = self.engine.send(.{ .note_on = .{
                         .track = self.drum_track,
                         .note = @intCast(pad.*),
@@ -394,7 +394,7 @@ pub const App = struct {
             return;
         };
         rack.* = .{ .instrument = .{ .poly_synth = PolySynth.init(sr) }, .label = "synth" };
-        self.racks.append(self.allocator, rack) catch {
+        self.racks.insert(self.allocator, idx, rack) catch {
             self.allocator.destroy(rack);
             self.setStatus("out of memory", .{});
             return;
@@ -551,7 +551,7 @@ pub const App = struct {
         defer self.allocator.free(data);
         const basename = std.fs.path.basename(path);
         const stem = if (std.mem.lastIndexOf(u8, basename, ".")) |dot| basename[0..dot] else basename;
-        self.drum.loadPadWav(pad_idx, data, stem) catch |e| {
+        self.drumMachine().loadPadWav(pad_idx, data, stem) catch |e| {
             self.setStatus("load-pad: parse error: {s}", .{@errorName(e)});
             return;
         };
@@ -873,11 +873,11 @@ test "drum grid step toggle" {
     var app = try App.init(std.testing.allocator, std.Io.failing);
     defer app.deinit();
 
-    try std.testing.expect(app.drum.stepActive(0, 0));
+    try std.testing.expect(app.drumMachine().stepActive(0, 0));
 
     app.drum_cursor = .{ 0, 0 };
     _ = app.handleDrumKey(.{ .char = ' ' });
-    try std.testing.expect(!app.drum.stepActive(0, 0));
+    try std.testing.expect(!app.drumMachine().stepActive(0, 0));
 }
 
 test "draw renders drum_grid view without overflowing" {
@@ -1022,7 +1022,7 @@ test "track delete: project, racks, engine, drum_track all update correctly" {
     app.doTrackDel(1);
 
     try std.testing.expectEqual(initial_tracks - 1, app.project.tracks.items.len);
-    try std.testing.expectEqual(app.racks.items.len + 1, initial_drum); // drum_track decremented
+    try std.testing.expectEqual(initial_tracks - 1, app.racks.items.len); // racks == project tracks
     try std.testing.expectEqual(initial_drum - 1, app.drum_track);
 
     // After deletion, engine slot 1 must point to what was slot 2 (bass rack).

@@ -101,7 +101,7 @@ pub fn drawTracks(app: anytype, w: *std.Io.Writer, rows: usize, snap: engine_mod
 
 pub fn drawDrumGrid(app: anytype, w: *std.Io.Writer, rows: usize, snap: engine_mod.UiSnapshot) !void {
     _ = snap;
-    const playing_step = app.drum.currentStep();
+    const playing_step = app.drumMachine().currentStep();
     const is_playing = app.engine.uiSnapshot().playing;
     const cur_pad = app.drum_cursor[0];
     const cur_step = app.drum_cursor[1];
@@ -117,11 +117,11 @@ pub fn drawDrumGrid(app: anytype, w: *std.Io.Writer, rows: usize, snap: engine_m
     try endLine(w);
 
     for (0..DrumMachine.max_pads) |p| {
-        const name = app.drum.padName(@intCast(p));
+        const name = app.drumMachine().padName(@intCast(p));
         try w.print(" {s: <4} ", .{name[0..@min(name.len, 4)]});
         for (0..DrumMachine.max_steps) |s| {
             if (s % 4 == 0) try w.writeByte('|');
-            const active = app.drum.stepActive(@intCast(p), @intCast(s));
+            const active = app.drumMachine().stepActive(@intCast(p), @intCast(s));
             const is_cursor = (p == cur_pad and s == cur_step);
             const is_play = is_playing and (s == playing_step);
 
@@ -299,7 +299,7 @@ pub fn drawDrumStatus(app: anytype, w: *std.Io.Writer) !void {
     try w.print(" \x1b[7m DRUM \x1b[0m  pad {d}/8  step {d}/16  {s}", .{
         p + 1,
         s + 1,
-        app.drum.padName(p),
+        app.drumMachine().padName(p),
     });
     if (app.status_len > 0) try w.print("  {s}", .{app.status_buf[0..app.status_len]});
 }
