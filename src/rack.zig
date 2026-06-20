@@ -1,9 +1,9 @@
-const dsp = @import("../dsp/device.zig");
-const PolySynth = @import("../dsp/synth.zig").PolySynth;
-const Compressor = @import("../dsp/compressor.zig").Compressor;
-const StereoDelay = @import("../dsp/delay.zig").StereoDelay;
-const Reverb = @import("../dsp/reverb.zig").Reverb;
-const GraphicEq = @import("../dsp/eq.zig").GraphicEq;
+const dsp = @import("dsp/device.zig");
+const PolySynth = @import("dsp/synth.zig").PolySynth;
+const Compressor = @import("dsp/compressor.zig").Compressor;
+const StereoDelay = @import("dsp/delay.zig").StereoDelay;
+const Reverb = @import("dsp/reverb.zig").Reverb;
+const GraphicEq = @import("dsp/eq.zig").GraphicEq;
 
 pub const Rack = struct {
     synth: PolySynth,

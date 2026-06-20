@@ -17,8 +17,8 @@ const GraphicEq = @import("../dsp/eq.zig").GraphicEq;
 const eq_mod = @import("../dsp/eq.zig");
 const wav = @import("../core/wav.zig");
 const cmd_mod = @import("cmd.zig");
-const draw_mod = @import("draw.zig");
-pub const Rack = @import("rack.zig").Rack;
+const tui = @import("tui.zig");
+pub const Rack = @import("../rack.zig").Rack;
 
 const Engine = engine_mod.Engine;
 
@@ -539,7 +539,7 @@ pub const App = struct {
     }
 
     // -----------------------------------------------------------------------
-    // Rendering (delegates to draw.zig)
+    // Rendering (delegates to tui.zig)
     // -----------------------------------------------------------------------
 
     pub fn draw(self: *App, w: *std.Io.Writer, size: terminal_mod.Size) !void {
@@ -547,15 +547,15 @@ pub const App = struct {
         const rows: usize = @max(size.rows, 10);
 
         try w.writeAll("\x1b[H");
-        try draw_mod.drawHeader(w, &self.project, &self.engine.transport, self.audio_label, self.master_gain_db);
-        try draw_mod.hr(w, size.cols);
+        try tui.drawHeader(w, &self.project, &self.engine.transport, self.audio_label, self.master_gain_db);
+        try tui.hr(w, size.cols);
 
         switch (self.view) {
-            .tracks         => try draw_mod.drawTracks(self, w, rows, snap),
-            .drum_grid      => try draw_mod.drawDrumGrid(self, w, rows, snap),
-            .help           => try draw_mod.drawHelp(w, rows, cmds),
-            .track_spectrum => try draw_mod.drawSpectrumView(self, w, rows, snap, true),
-            .master_spectrum => try draw_mod.drawSpectrumView(self, w, rows, snap, false),
+            .tracks         => try tui.drawTracks(self, w, rows, snap),
+            .drum_grid      => try tui.drawDrumGrid(self, w, rows, snap),
+            .help           => try tui.drawHelp(w, rows, cmds),
+            .track_spectrum => try tui.drawSpectrumView(self, w, rows, snap, true),
+            .master_spectrum => try tui.drawSpectrumView(self, w, rows, snap, false),
         }
 
         var transport: Transport = .{
@@ -573,18 +573,18 @@ pub const App = struct {
             @as(u64, @intFromFloat(secs / 60.0)),
             @mod(secs, 60.0),
         });
-        try draw_mod.meter(w, snap.peak[0]);
+        try tui.meter(w, snap.peak[0]);
         try w.writeAll(" R");
-        try draw_mod.meter(w, snap.peak[1]);
-        try draw_mod.endLine(w);
-        try draw_mod.hr(w, size.cols);
+        try tui.meter(w, snap.peak[1]);
+        try tui.endLine(w);
+        try tui.hr(w, size.cols);
 
         switch (self.view) {
-            .tracks          => try draw_mod.drawTracksStatus(self, w),
-            .drum_grid       => try draw_mod.drawDrumStatus(self, w),
+            .tracks          => try tui.drawTracksStatus(self, w),
+            .drum_grid       => try tui.drawDrumStatus(self, w),
             .help            => try w.writeAll(" esc: close"),
-            .track_spectrum  => try draw_mod.drawSpectrumStatus(self, w, true),
-            .master_spectrum => try draw_mod.drawSpectrumStatus(self, w, false),
+            .track_spectrum  => try tui.drawSpectrumStatus(self, w, true),
+            .master_spectrum => try tui.drawSpectrumStatus(self, w, false),
         }
         try w.writeAll("\x1b[K");
     }
