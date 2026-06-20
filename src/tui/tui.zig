@@ -16,6 +16,8 @@ const engine_mod = @import("../audio/engine.zig");
 
 pub const spectrum_rows: usize = 18;
 pub const spectrum_band_count: usize = 80;
+/// Number of editable synth parameters (waveform + ADSR + gain).
+pub const synth_param_count: u8 = 6;
 
 // ---------------------------------------------------------------------------
 // Primitive helpers
@@ -81,12 +83,12 @@ pub fn drawHeader(
 
 pub fn drawTracks(app: anytype, w: *std.Io.Writer, rows: usize, snap: engine_mod.UiSnapshot) !void {
     _ = snap;
-    try w.writeAll(" TRACKS   [s:spectrum  m:master  enter:drum-grid]\r\n");
+    try w.writeAll(" TRACKS   [enter:edit  s:spectrum  m:master  a:add  D:del]\r\n");
     for (app.project.tracks.items, 0..) |track, i| {
         const is_drum = (i == app.drum_track);
         const label: []const u8 = if (is_drum) "drum machine" else app.racks.items[i].label;
         const has_eq: []const u8 = if (i < app.racks.items.len and app.racks.items[i].fx.eq != null) " EQ" else "   ";
-        const hint: []const u8 = if (is_drum) " [enter:open grid]" else "";
+        const hint: []const u8 = if (is_drum) " [enter:grid]" else " [enter:edit]";
         const marker: []const u8 = if (i == app.cursor) ">" else " ";
         const inv: []const u8 = if (i == app.cursor) "\x1b[7m" else "";
         const mute: []const u8 = if (track.muted) "M" else " ";
@@ -321,4 +323,89 @@ pub fn drawSpectrumStatus(app: anytype, w: *std.Io.Writer, is_track: bool) !void
     if (app.status_len > 0) {
         try w.print(" {s}", .{app.status_buf[0..app.status_len]});
     }
+}
+
+// ---------------------------------------------------------------------------
+// Synth editor
+// ---------------------------------------------------------------------------
+
+fn synthBar(w: *std.Io.Writer, value: f32, max_val: f32) !void {
+    const bar_w: usize = 22;
+    const n: usize = @intFromFloat(std.math.clamp(value / max_val, 0.0, 1.0) * @as(f32, @floatFromInt(bar_w)));
+    try w.writeByte('[');
+    for (0..bar_w) |i| try w.writeByte(if (i < n) '#' else '-');
+    try w.writeByte(']');
+}
+
+pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, snap: engine_mod.UiSnapshot) !void {
+    _ = snap;
+    if (app.synth_track >= app.racks.items.len) return;
+    const rack = app.racks.items[app.synth_track];
+    switch (rack.instrument) { .poly_synth => {}, else => return }
+    const synth = &rack.instrument.poly_synth;
+
+    const name = if (app.synth_track < app.project.tracks.items.len)
+        app.project.tracks.items[app.synth_track].name
+    else "?";
+
+    try w.print(" SYNTH \"{s}\"  [jk:move  hl:adjust  HL:coarse  esc:back]\r\n", .{name});
+
+    // Waveform row
+    {
+        const sel = app.synth_cursor == 0;
+        if (sel) try w.writeAll("\x1b[7m");
+        try w.writeAll("  waveform   ");
+        const wf_names = [_][]const u8{ "sine", "saw", "square" };
+        const wf_idx: usize = switch (synth.waveform) { .sine => 0, .saw => 1, .square => 2 };
+        for (wf_names, 0..) |nm, i| {
+            if (i == wf_idx) try w.print("[{s: <6}]", .{nm}) else try w.print(" {s: <6} ", .{nm});
+        }
+        if (sel) try w.writeAll("\x1b[0m");
+        try endLine(w);
+    }
+
+    // ADSR + gain rows
+    const rows_data = [_]struct { label: []const u8, idx: u8, value: f32, max: f32, unit: []const u8 }{
+        .{ .label = "attack",  .idx = 1, .value = synth.attack_s,  .max = 5.0,  .unit = "s" },
+        .{ .label = "decay",   .idx = 2, .value = synth.decay_s,   .max = 5.0,  .unit = "s" },
+        .{ .label = "sustain", .idx = 3, .value = synth.sustain,   .max = 1.0,  .unit = ""  },
+        .{ .label = "release", .idx = 4, .value = synth.release_s, .max = 10.0, .unit = "s" },
+        .{ .label = "gain",    .idx = 5, .value = synth.gain,      .max = 1.0,  .unit = ""  },
+    };
+    for (rows_data) |p| {
+        const sel = app.synth_cursor == p.idx;
+        if (sel) try w.writeAll("\x1b[7m");
+        try w.print("  {s: <9}", .{p.label});
+        try synthBar(w, p.value, p.max);
+        if (p.unit.len > 0)
+            try w.print("  {d:.3} {s}", .{ p.value, p.unit })
+        else
+            try w.print("  {d:.3}", .{p.value});
+        if (sel) try w.writeAll("\x1b[0m");
+        try endLine(w);
+    }
+
+    const used = 2 + synth_param_count;
+    for (used..@max(used, rows -| 3)) |_| try endLine(w);
+}
+
+pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer) !void {
+    if (app.synth_track >= app.racks.items.len) return;
+    const rack = app.racks.items[app.synth_track];
+    switch (rack.instrument) { .poly_synth => {}, else => return }
+    const synth = &rack.instrument.poly_synth;
+
+    const labels = [_][]const u8{ "waveform", "attack", "decay", "sustain", "release", "gain" };
+    const cur = @min(@as(usize, app.synth_cursor), labels.len - 1);
+    try w.print(" \x1b[7m SYNTH \x1b[0m  {s}: ", .{labels[cur]});
+    switch (app.synth_cursor) {
+        0 => try w.writeAll(switch (synth.waveform) { .sine => "sine", .saw => "saw", .square => "square" }),
+        1 => try w.print("{d:.3} s", .{synth.attack_s}),
+        2 => try w.print("{d:.3} s", .{synth.decay_s}),
+        3 => try w.print("{d:.3}", .{synth.sustain}),
+        4 => try w.print("{d:.3} s", .{synth.release_s}),
+        5 => try w.print("{d:.3}", .{synth.gain}),
+        else => {},
+    }
+    if (app.status_len > 0) try w.print("  {s}", .{app.status_buf[0..app.status_len]});
 }

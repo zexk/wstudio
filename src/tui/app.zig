@@ -24,7 +24,7 @@ const Engine = engine_mod.Engine;
 const note_ms = 220;
 const frame_poll_ms = 30;
 
-pub const AppView = enum { tracks, drum_grid, help, track_spectrum, master_spectrum };
+pub const AppView = enum { tracks, drum_grid, synth_editor, help, track_spectrum, master_spectrum };
 
 fn wrap(comptime f: fn (*App, []const u8) void) *const fn (*anyopaque, []const u8) void {
     return struct {
@@ -74,6 +74,8 @@ pub const App = struct {
     note_off_len: usize = 0,
     eq_cursor: usize = 0,
     eq_track: u16 = 0,
+    synth_track: u16 = 0,
+    synth_cursor: u8 = 0,
 
     const NoteOff = struct { at_ns: i96, track: u16, note: u7 };
 
@@ -176,12 +178,26 @@ pub const App = struct {
                     self.applyAction(self.modal.handle(key), now_ns);
                 }
             },
+            .synth_editor => if (!self.handleSynthKey(key)) {
+                self.applyAction(self.modal.handle(key), now_ns);
+            },
             .track_spectrum, .master_spectrum => if (!self.handleSpectrumKey(key)) {
                 self.applyAction(self.modal.handle(key), now_ns);
             },
             .tracks => {
-                if (key == .enter and self.cursor == self.drum_track) {
-                    self.view = .drum_grid;
+                if (key == .enter and self.modal.mode == .normal) {
+                    if (self.cursor == self.drum_track) {
+                        self.view = .drum_grid;
+                    } else if (self.cursor < self.racks.items.len) {
+                        switch (self.racks.items[self.cursor].instrument) {
+                            .poly_synth => {
+                                self.synth_track = @intCast(self.cursor);
+                                self.synth_cursor = 0;
+                                self.view = .synth_editor;
+                            },
+                            else => {},
+                        }
+                    }
                     return;
                 }
                 if (key == .char and self.modal.mode == .normal) {
@@ -289,6 +305,51 @@ pub const App = struct {
                 return true;
             },
             else => return false,
+        }
+    }
+
+    fn handleSynthKey(self: *App, key: modal_mod.Key) bool {
+        switch (key) {
+            .escape => { self.view = .tracks; return true; },
+            .char => |c| switch (c) {
+                'j' => {
+                    if (self.synth_cursor < tui.synth_param_count - 1) self.synth_cursor += 1;
+                    return true;
+                },
+                'k' => {
+                    if (self.synth_cursor > 0) self.synth_cursor -= 1;
+                    return true;
+                },
+                'h' => { self.adjustSynthParam(-1); return true; },
+                'l' => { self.adjustSynthParam(1); return true; },
+                'H' => { self.adjustSynthParam(-10); return true; },
+                'L' => { self.adjustSynthParam(10); return true; },
+                else => return false,
+            },
+            else => return false,
+        }
+    }
+
+    fn adjustSynthParam(self: *App, steps: i32) void {
+        if (self.synth_track >= self.racks.items.len) return;
+        const rack = self.racks.items[self.synth_track];
+        const synth = switch (rack.instrument) {
+            .poly_synth => |*s| s,
+            else => return,
+        };
+        const s: f32 = @floatFromInt(steps);
+        switch (self.synth_cursor) {
+            0 => synth.waveform = if (steps > 0) switch (synth.waveform) {
+                .sine => .saw, .saw => .square, .square => .sine,
+            } else switch (synth.waveform) {
+                .sine => .square, .saw => .sine, .square => .saw,
+            },
+            1 => synth.attack_s  = std.math.clamp(synth.attack_s  + s * 0.001, 0.001, 5.0),
+            2 => synth.decay_s   = std.math.clamp(synth.decay_s   + s * 0.005, 0.001, 5.0),
+            3 => synth.sustain   = std.math.clamp(synth.sustain   + s * 0.01,  0.0,   1.0),
+            4 => synth.release_s = std.math.clamp(synth.release_s + s * 0.005, 0.001, 10.0),
+            5 => synth.gain      = std.math.clamp(synth.gain      + s * 0.01,  0.01,  1.0),
+            else => {},
         }
     }
 
@@ -443,11 +504,21 @@ pub const App = struct {
         self.project.removeTrack(track_idx);
 
         if (track_idx < self.drum_track) self.drum_track -= 1;
+        if (track_idx < self.synth_track and self.synth_track > 0) self.synth_track -= 1;
 
         // Keep cursor in bounds; never land on the drum track.
         const last = self.project.tracks.items.len - 1;
         self.cursor = @min(self.cursor, last);
         if (self.cursor == self.drum_track and self.cursor > 0) self.cursor -= 1;
+
+        // Exit synth editor if the edited track no longer exists or is not a poly_synth.
+        if (self.view == .synth_editor) {
+            const bad = self.synth_track >= self.racks.items.len or
+                switch (self.racks.items[self.synth_track].instrument) {
+                    .poly_synth => false, else => true,
+                };
+            if (bad) self.view = .tracks;
+        }
 
         // Exit spectrum view if the viewed track was deleted.
         if (self.view == .track_spectrum and self.eq_track >= self.racks.items.len) {
@@ -711,6 +782,7 @@ pub const App = struct {
         switch (self.view) {
             .tracks          => try tui.drawTracks(self, w, rows, snap),
             .drum_grid       => try tui.drawDrumGrid(self, w, rows, snap),
+            .synth_editor    => try tui.drawSynthEditor(self, w, rows, snap),
             .help            => try tui.drawHelp(w, rows, cmds),
             .track_spectrum  => try tui.drawSpectrumView(self, w, rows, snap, true),
             .master_spectrum => try tui.drawSpectrumView(self, w, rows, snap, false),
@@ -740,6 +812,7 @@ pub const App = struct {
         switch (self.view) {
             .tracks          => try tui.drawTracksStatus(self, w),
             .drum_grid       => try tui.drawDrumStatus(self, w),
+            .synth_editor    => try tui.drawSynthStatus(self, w),
             .help            => try w.writeAll(" esc: close"),
             .track_spectrum  => try tui.drawSpectrumStatus(self, w, true),
             .master_spectrum => try tui.drawSpectrumStatus(self, w, false),
@@ -1060,6 +1133,60 @@ test ":track-rename renames a track" {
     for (":track-rename 1 renamed") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.enter, 0);
     try std.testing.expectEqualStrings("renamed", app.project.tracks.items[0].name);
+}
+
+test "enter on synth track opens synth editor" {
+    var app = try App.init(std.testing.allocator, std.Io.failing);
+    defer app.deinit();
+
+    // cursor starts at 0 (lead track, poly_synth)
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqual(AppView.synth_editor, app.view);
+    try std.testing.expectEqual(@as(u16, 0), app.synth_track);
+}
+
+test "synth editor esc returns to tracks" {
+    var app = try App.init(std.testing.allocator, std.Io.failing);
+    defer app.deinit();
+
+    app.handleKey(.enter, 0);
+    app.handleKey(.escape, 0);
+    try std.testing.expectEqual(AppView.tracks, app.view);
+}
+
+test "synth editor jk moves cursor, hl adjusts waveform" {
+    var app = try App.init(std.testing.allocator, std.Io.failing);
+    defer app.deinit();
+
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqual(@as(u8, 0), app.synth_cursor); // on waveform
+
+    app.handleKey(.{ .char = 'l' }, 0); // next waveform
+    const synth = &app.racks.items[0].instrument.poly_synth;
+    try std.testing.expect(synth.waveform != .saw); // was saw by default → now square
+
+    app.handleKey(.{ .char = 'j' }, 0); // move to attack
+    try std.testing.expectEqual(@as(u8, 1), app.synth_cursor);
+
+    const old_attack = synth.attack_s;
+    app.handleKey(.{ .char = 'l' }, 0); // increase attack
+    try std.testing.expect(synth.attack_s > old_attack);
+}
+
+test "draw renders synth editor without errors" {
+    var app = try App.init(std.testing.allocator, std.Io.failing);
+    defer app.deinit();
+
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqual(AppView.synth_editor, app.view);
+
+    var buf: [32 * 1024]u8 = undefined;
+    var w = std.Io.Writer.fixed(&buf);
+    try app.draw(&w, .{ .cols = 80, .rows = 24 });
+    const frame = w.buffered();
+    try std.testing.expect(std.mem.indexOf(u8, frame, "SYNTH") != null);
+    try std.testing.expect(std.mem.indexOf(u8, frame, "attack") != null);
+    try std.testing.expect(std.mem.indexOf(u8, frame, "sustain") != null);
 }
 
 test "escape returns from track_spectrum to tracks" {
