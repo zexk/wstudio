@@ -348,8 +348,10 @@ pub const App = struct {
             2 => synth.attack_s  = std.math.clamp(synth.attack_s  + s * 0.001, 0.001, 5.0),
             3 => synth.decay_s   = std.math.clamp(synth.decay_s   + s * 0.005, 0.001, 5.0),
             4 => synth.sustain   = std.math.clamp(synth.sustain   + s * 0.01,  0.0,   1.0),
-            5 => synth.release_s = std.math.clamp(synth.release_s + s * 0.005, 0.001, 10.0),
-            6 => synth.gain      = std.math.clamp(synth.gain      + s * 0.01,  0.01,  1.0),
+            5 => synth.release_s    = std.math.clamp(synth.release_s    + s * 0.005,  0.001, 10.0),
+            6 => synth.filter_cutoff = std.math.clamp(synth.filter_cutoff + s * 100.0, 20.0, 20_000.0),
+            7 => synth.filter_res    = std.math.clamp(synth.filter_res    + s * 0.01,  0.0,  1.0),
+            8 => synth.gain          = std.math.clamp(synth.gain          + s * 0.01,  0.01, 1.0),
             else => {},
         }
     }
