@@ -9,6 +9,8 @@ const Sample = types.Sample;
 
 pub const Waveform   = enum { sine, saw, triangle, square };
 pub const FilterType = enum { lp, hp, bp, notch };
+pub const LfoShape   = enum { sine, triangle, saw, square };
+pub const LfoTarget  = enum { none, filter, pitch, amp };
 
 pub const PolySynth = struct {
     sample_rate: f32,
@@ -44,6 +46,16 @@ pub const PolySynth = struct {
     fenv_decay_s:   f32 = 0.5,
     fenv_sustain:   f32 = 0.0,
     fenv_release_s: f32 = 0.3,
+
+    // ── LFO ─────────────────────────────────────────────────────────────────
+    lfo_shape:  LfoShape  = .sine,
+    /// Rate in Hz (0.01–20 Hz).
+    lfo_rate_hz: f32 = 1.0,
+    /// Depth 0..1. Modulation range depends on target (see processBlock).
+    lfo_depth: f32 = 0.0,
+    lfo_target: LfoTarget = .none,
+    /// Synth-global LFO phase (0..1). Advanced once per block.
+    lfo_phase: f32 = 0.0,
 
     // ── OUT ─────────────────────────────────────────────────────────────────
     gain: f32 = 0.35,
@@ -128,6 +140,10 @@ pub const PolySynth = struct {
     pub fn processBlock(self: *PolySynth, buf: []Sample) void {
         const frames = buf.len / 2;
 
+        // Block-rate LFO: sample once before the voice loop so all voices
+        // receive the same value, avoiding inter-voice phase desync.
+        const lfo_val = lfoSample(self.lfo_shape, self.lfo_phase);
+
         // Precompute per-block envelope increments.
         const attack_inc  = 1.0 / @max(self.attack_s  * self.sample_rate, 1.0);
         const decay_inc   = (1.0 - self.sustain)       / @max(self.decay_s   * self.sample_rate, 1.0);
@@ -140,16 +156,30 @@ pub const PolySynth = struct {
         for (&self.voices) |*v| {
             if (!v.active) continue;
 
-            // Compute effective cutoff from filter envelope at block start.
-            // fenv_amount in octaves: cutoff * 2^(amount * env2).
+            // Cutoff = base × filter-env mod × LFO (±2 oct at full depth).
             const fenv_mod = std.math.pow(f32, 2.0, self.fenv_amount * v.env2);
+            const lfo_filter_mod = if (self.lfo_target == .filter)
+                std.math.pow(f32, 2.0, self.lfo_depth * 2.0 * lfo_val)
+            else 1.0;
             const effective_cutoff = std.math.clamp(
-                self.filter_cutoff * fenv_mod, 20.0, self.sample_rate * 0.49,
+                self.filter_cutoff * fenv_mod * lfo_filter_mod, 20.0, self.sample_rate * 0.49,
             );
             const fc = self.computeFilterCoeffs(effective_cutoff);
 
+            // Pitch vibrato: ±1 oct at full depth.
+            const lfo_pitch_mod = if (self.lfo_target == .pitch)
+                std.math.pow(f32, 2.0, self.lfo_depth * lfo_val)
+            else 1.0;
             const base_freq = noteToFreq(v.note) *
-                std.math.pow(f32, 2.0, self.detune_cents / 1200.0);
+                std.math.pow(f32, 2.0, self.detune_cents / 1200.0) * lfo_pitch_mod;
+
+            // Tremolo: LFO converted to [0,1]; depth controls dip depth.
+            // At depth=1, lfo trough → amp_mod=0; lfo peak → amp_mod=1.
+            const amp_mod: f32 = if (self.lfo_target == .amp) blk: {
+                const lfo_uni = (lfo_val + 1.0) * 0.5;
+                break :blk 1.0 - self.lfo_depth * (1.0 - lfo_uni);
+            } else 1.0;
+
             const n: usize = @min(@max(self.unison, 1), max_unison);
 
             var phase_incs: [max_unison]f32 = undefined;
@@ -181,7 +211,7 @@ pub const PolySynth = struct {
                 v.x2 = v.x1; v.x1 = osc;
                 v.y2 = v.y1; v.y1 = filt;
 
-                const s = filt * v.env * v.velocity * self.gain;
+                const s = filt * v.env * v.velocity * self.gain * amp_mod;
                 buf[i * 2]     += s;
                 buf[i * 2 + 1] += s;
 
@@ -220,6 +250,10 @@ pub const PolySynth = struct {
                 }
             }
         }
+
+        // Advance LFO once per block after all voices are done.
+        self.lfo_phase += self.lfo_rate_hz * @as(f32, @floatFromInt(frames)) / self.sample_rate;
+        self.lfo_phase -= @floor(self.lfo_phase);
     }
 
     fn computeFilterCoeffs(self: *const PolySynth, cutoff: f32) FilterCoeffs {
@@ -261,6 +295,15 @@ pub const PolySynth = struct {
                 .a1 = neg2cos * a0_inv,
                 .a2 = (1.0 - alpha) * a0_inv,
             },
+        };
+    }
+
+    fn lfoSample(shape: LfoShape, phase: f32) f32 {
+        return switch (shape) {
+            .sine     => @sin(2.0 * std.math.pi * phase),
+            .triangle => 1.0 - 4.0 * @abs(phase - 0.5),
+            .saw      => 2.0 * phase - 1.0,
+            .square   => if (phase < 0.5) 1.0 else -1.0,
         };
     }
 
@@ -455,4 +498,64 @@ test "pulse width: narrow pulse is quieter than 50% duty cycle" {
     var rms_n: f32 = 0.0;
     for (buf_wide, buf_narrow) |w, n| { rms_w += w * w; rms_n += n * n; }
     try std.testing.expect(rms_n < rms_w);
+}
+
+test "LFO: phase advances by rate×frames/sr each block" {
+    var synth = PolySynth.init(48_000);
+    synth.lfo_rate_hz = 10.0;
+    synth.noteOn(60, 1.0);
+    var buf: [256]Sample = undefined;
+    @memset(&buf, 0.0);
+    synth.processBlock(&buf); // 128 frames
+    const expected_phase = 10.0 * 128.0 / 48_000.0;
+    try std.testing.expectApproxEqAbs(expected_phase, synth.lfo_phase, 1e-5);
+}
+
+test "LFO tremolo: square wave at 0 Hz halves amplitude at depth=1 (trough)" {
+    // LFO square at phase=0.75 → value = -1 (trough). Trough + depth=1 → amp_mod=0.
+    // To get trough reliably: start phase at 0.5 (square goes low) so first block sees val=-1.
+    var with_lfo = PolySynth.init(48_000);
+    with_lfo.lfo_shape  = .square;
+    with_lfo.lfo_rate_hz = 0.0; // frozen
+    with_lfo.lfo_depth  = 1.0;
+    with_lfo.lfo_target = .amp;
+    with_lfo.lfo_phase  = 0.75; // square trough → lfo_val = -1 → amp_mod = 0
+    with_lfo.noteOn(60, 1.0);
+
+    var without_lfo = PolySynth.init(48_000);
+    without_lfo.lfo_target = .none;
+    without_lfo.noteOn(60, 1.0);
+
+    var buf_lfo: [256]Sample = undefined;
+    var buf_dry: [256]Sample = undefined;
+    // Warm up past attack
+    for (0..20) |_| {
+        @memset(&buf_lfo, 0.0); with_lfo.processBlock(&buf_lfo);
+        @memset(&buf_dry, 0.0); without_lfo.processBlock(&buf_dry);
+    }
+    var rms_lfo: f32 = 0.0;
+    for (buf_lfo) |s| rms_lfo += s * s;
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), rms_lfo, 1e-6);
+}
+
+test "LFO: all shapes stay finite under filter modulation" {
+    const shapes = [_]LfoShape{ .sine, .triangle, .saw, .square };
+    for (shapes) |shape| {
+        var synth = PolySynth.init(48_000);
+        synth.lfo_shape   = shape;
+        synth.lfo_rate_hz = 5.0;
+        synth.lfo_depth   = 1.0;
+        synth.lfo_target  = .filter;
+        synth.filter_cutoff = 2_000.0;
+        synth.noteOn(60, 1.0);
+        var buf: [512]Sample = undefined;
+        for (0..32) |_| {
+            @memset(&buf, 0.0);
+            synth.processBlock(&buf);
+            for (buf) |s| {
+                try std.testing.expect(!std.math.isNan(s));
+                try std.testing.expect(!std.math.isInf(s));
+            }
+        }
+    }
 }

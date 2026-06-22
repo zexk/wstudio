@@ -371,7 +371,19 @@ pub const App = struct {
             14 => synth.fenv_decay_s   = std.math.clamp(synth.fenv_decay_s   + s * 0.005, 0.001, 5.0),
             15 => synth.fenv_sustain   = std.math.clamp(synth.fenv_sustain   + s * 0.01,  0.0,   1.0),
             16 => synth.fenv_release_s = std.math.clamp(synth.fenv_release_s + s * 0.005, 0.001, 10.0),
-            17 => synth.gain           = std.math.clamp(synth.gain           + s * 0.01,  0.01,  1.0),
+            17 => synth.lfo_shape = if (steps > 0) switch (synth.lfo_shape) {
+                .sine => .triangle, .triangle => .saw, .saw => .square, .square => .sine,
+            } else switch (synth.lfo_shape) {
+                .sine => .square, .triangle => .sine, .saw => .triangle, .square => .saw,
+            },
+            18 => synth.lfo_rate_hz = std.math.clamp(synth.lfo_rate_hz + s * 0.1,  0.01, 20.0),
+            19 => synth.lfo_depth   = std.math.clamp(synth.lfo_depth   + s * 0.01, 0.0,  1.0),
+            20 => synth.lfo_target = if (steps > 0) switch (synth.lfo_target) {
+                .none => .filter, .filter => .pitch, .pitch => .amp, .amp => .none,
+            } else switch (synth.lfo_target) {
+                .none => .amp, .filter => .none, .pitch => .filter, .amp => .pitch,
+            },
+            21 => synth.gain = std.math.clamp(synth.gain + s * 0.01, 0.01, 1.0),
             else => {},
         }
     }

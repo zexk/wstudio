@@ -21,8 +21,9 @@ pub const spectrum_band_count: usize = 80;
 /// 5:attack 6:decay 7:sustain 8:release
 /// 9:filter_type 10:cutoff 11:res 12:fenv_amount
 /// 13:fenv_attack 14:fenv_decay 15:fenv_sustain 16:fenv_release
-/// 17:gain
-pub const synth_param_count: u8 = 18;
+/// 17:lfo_shape 18:lfo_rate 19:lfo_depth 20:lfo_target
+/// 21:gain
+pub const synth_param_count: u8 = 22;
 
 // ---------------------------------------------------------------------------
 // Palette — all colour codes go here; never raw \x1b sequences elsewhere
@@ -746,11 +747,76 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, snap: engin
         try endLine(w);
     }
 
+    // ── LFO ──────────────────────────────────────
+    try synthSection(w, "LFO");
+
+    // param 17: lfo_shape
+    {
+        const is_sel = (app.synth_cursor == 17);
+        if (is_sel) try w.writeAll(sel);
+        try w.writeAll("  shape      ");
+        const lfo_names = [_][]const u8{ "sine", "tri", "saw", "sqr" };
+        const lfo_idx: usize = switch (synth.lfo_shape) {
+            .sine => 0, .triangle => 1, .saw => 2, .square => 3,
+        };
+        for (lfo_names, 0..) |nm, i| {
+            if (i == lfo_idx) {
+                if (!is_sel) try w.writeAll(acc ++ bold);
+                try w.print("[{s: <5}]", .{nm});
+                if (!is_sel) try w.writeAll(rst);
+            } else {
+                if (!is_sel) try w.writeAll(dim);
+                try w.print(" {s: <5} ", .{nm});
+                if (!is_sel) try w.writeAll(rst);
+            }
+        }
+        try endLine(w);
+    }
+
+    // params 18–19: rate, depth
+    {
+        const lfo_bar_rows = [_]struct { label: []const u8, idx: u8, bar: f32, bar_max: f32, disp: f32, unit: []const u8 }{
+            .{ .label = "rate",  .idx = 18, .bar = synth.lfo_rate_hz, .bar_max = 20.0, .disp = synth.lfo_rate_hz, .unit = " Hz" },
+            .{ .label = "depth", .idx = 19, .bar = synth.lfo_depth,   .bar_max = 1.0,  .disp = synth.lfo_depth,   .unit = ""    },
+        };
+        for (lfo_bar_rows) |p| {
+            const is_sel = (app.synth_cursor == p.idx);
+            if (is_sel) try w.writeAll(sel);
+            try w.print("  {s: <9}", .{p.label});
+            try synthBar(w, p.bar, p.bar_max);
+            try w.print("  {d:.2}{s}", .{ p.disp, p.unit });
+            try endLine(w);
+        }
+    }
+
+    // param 20: lfo_target
+    {
+        const is_sel = (app.synth_cursor == 20);
+        if (is_sel) try w.writeAll(sel);
+        try w.writeAll("  target     ");
+        const tgt_names = [_][]const u8{ "off", "filt", "pitch", "amp" };
+        const tgt_idx: usize = switch (synth.lfo_target) {
+            .none => 0, .filter => 1, .pitch => 2, .amp => 3,
+        };
+        for (tgt_names, 0..) |nm, i| {
+            if (i == tgt_idx) {
+                if (!is_sel) try w.writeAll(acc ++ bold);
+                try w.print("[{s: <5}]", .{nm});
+                if (!is_sel) try w.writeAll(rst);
+            } else {
+                if (!is_sel) try w.writeAll(dim);
+                try w.print(" {s: <5} ", .{nm});
+                if (!is_sel) try w.writeAll(rst);
+            }
+        }
+        try endLine(w);
+    }
+
     // ── OUT ──────────────────────────────────────
     try synthSection(w, "OUT");
 
     {
-        const is_sel = (app.synth_cursor == 17);
+        const is_sel = (app.synth_cursor == 21);
         if (is_sel) try w.writeAll(sel);
         try w.writeAll("  gain     ");
         try synthBar(w, synth.gain, 1.0);
@@ -758,8 +824,8 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, snap: engin
         try endLine(w);
     }
 
-    // 1 title + 5 sections + 18 params = 24 content rows
-    const used: usize = 24;
+    // 1 title + 6 sections + 22 params = 29 content rows
+    const used: usize = 29;
     for (used..@max(used, rows -| 3)) |_| try endLine(w);
 }
 
@@ -774,6 +840,7 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer) !void {
         "attack", "decay", "sustain", "release",
         "filt.type", "cutoff", "res", "f.env.amt",
         "f.attack", "f.decay", "f.sustain", "f.release",
+        "lfo.shape", "lfo.rate", "lfo.depth", "lfo.target",
         "gain",
     };
     const cur = @min(@as(usize, app.synth_cursor), labels.len - 1);
@@ -807,7 +874,15 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer) !void {
         14 => try w.print("{d:.3} s",    .{synth.fenv_decay_s}),
         15 => try w.print("{d:.3}",      .{synth.fenv_sustain}),
         16 => try w.print("{d:.3} s",    .{synth.fenv_release_s}),
-        17 => try w.print("{d:.3}",      .{synth.gain}),
+        17 => try w.writeAll(switch (synth.lfo_shape) {
+            .sine => "sine", .triangle => "tri", .saw => "saw", .square => "sqr",
+        }),
+        18 => try w.print("{d:.2} Hz",   .{synth.lfo_rate_hz}),
+        19 => try w.print("{d:.2}",      .{synth.lfo_depth}),
+        20 => try w.writeAll(switch (synth.lfo_target) {
+            .none => "off", .filter => "filter", .pitch => "pitch", .amp => "amp",
+        }),
+        21 => try w.print("{d:.3}",      .{synth.gain}),
         else => {},
     }
     try w.writeAll(rst);
