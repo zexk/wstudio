@@ -106,6 +106,7 @@ pub const App = struct {
         r0.instrument.poly_synth.waveform       = .saw;
         r0.instrument.poly_synth.unison         = 7;
         r0.instrument.poly_synth.unison_detune  = 35.0;
+        r0.instrument.poly_synth.unison_spread  = 0.7;
         r0.instrument.poly_synth.osc_b_on              = true;
         r0.instrument.poly_synth.osc_b_waveform        = .saw;
         r0.instrument.poly_synth.osc_b_semi            = -12.0; // one octave below
@@ -368,62 +369,63 @@ pub const App = struct {
             1  => synth.pulse_width        = std.math.clamp(synth.pulse_width        + s * 0.01,   0.01,   0.99),
             2  => synth.detune_cents        = std.math.clamp(synth.detune_cents        + s * 1.0,  -100.0, 100.0),
             3  => synth.unison              = @intCast(std.math.clamp(@as(i32, synth.unison) + steps, 1, 16)),
-            4  => synth.unison_detune       = std.math.clamp(synth.unison_detune       + s * 1.0,   0.0,  100.0),
-            5  => synth.osc_b_on            = (steps > 0),
-            6  => synth.osc_b_waveform = if (steps > 0) switch (synth.osc_b_waveform) {
+            4  => synth.unison_detune        = std.math.clamp(synth.unison_detune        + s * 1.0,   0.0,  100.0),
+            5  => synth.unison_spread        = std.math.clamp(synth.unison_spread        + s * 0.01,  0.0,    1.0),
+            6  => synth.osc_b_on             = (steps > 0),
+            7  => synth.osc_b_waveform = if (steps > 0) switch (synth.osc_b_waveform) {
                 .sine => .saw, .saw => .triangle, .triangle => .square, .square => .sine,
             } else switch (synth.osc_b_waveform) {
                 .sine => .square, .saw => .sine, .triangle => .saw, .square => .triangle,
             },
-            7  => synth.osc_b_pulse_width  = std.math.clamp(synth.osc_b_pulse_width  + s * 0.01,   0.01,   0.99),
-            8  => synth.osc_b_semi         = std.math.clamp(synth.osc_b_semi         + s * 1.0,  -24.0,   24.0),
-            9  => synth.osc_b_detune_cents = std.math.clamp(synth.osc_b_detune_cents + s * 1.0, -100.0,  100.0),
-            10 => synth.osc_b_level        = std.math.clamp(synth.osc_b_level        + s * 0.01,   0.0,    1.0),
-            11 => synth.osc_b_unison       = @intCast(std.math.clamp(@as(i32, synth.osc_b_unison) + steps, 1, 16)),
-            12 => synth.osc_b_unison_detune = std.math.clamp(synth.osc_b_unison_detune + s * 1.0,  0.0,  100.0),
-            13 => synth.attack_s            = std.math.clamp(synth.attack_s            + s * 0.001, 0.001,  5.0),
-            14 => synth.decay_s             = std.math.clamp(synth.decay_s             + s * 0.005, 0.001,  5.0),
-            15 => synth.sustain             = std.math.clamp(synth.sustain             + s * 0.01,  0.0,    1.0),
-            16 => synth.release_s           = std.math.clamp(synth.release_s           + s * 0.005, 0.001, 10.0),
-            17 => synth.filter_type = if (steps > 0) switch (synth.filter_type) {
+            8  => synth.osc_b_pulse_width   = std.math.clamp(synth.osc_b_pulse_width   + s * 0.01,   0.01,   0.99),
+            9  => synth.osc_b_semi          = std.math.clamp(synth.osc_b_semi          + s * 1.0,  -24.0,   24.0),
+            10 => synth.osc_b_detune_cents  = std.math.clamp(synth.osc_b_detune_cents  + s * 1.0, -100.0,  100.0),
+            11 => synth.osc_b_level         = std.math.clamp(synth.osc_b_level         + s * 0.01,   0.0,    1.0),
+            12 => synth.osc_b_unison        = @intCast(std.math.clamp(@as(i32, synth.osc_b_unison) + steps, 1, 16)),
+            13 => synth.osc_b_unison_detune = std.math.clamp(synth.osc_b_unison_detune + s * 1.0,    0.0,  100.0),
+            14 => synth.attack_s             = std.math.clamp(synth.attack_s             + s * 0.001, 0.001,  5.0),
+            15 => synth.decay_s              = std.math.clamp(synth.decay_s              + s * 0.005, 0.001,  5.0),
+            16 => synth.sustain              = std.math.clamp(synth.sustain              + s * 0.01,  0.0,    1.0),
+            17 => synth.release_s            = std.math.clamp(synth.release_s            + s * 0.005, 0.001, 10.0),
+            18 => synth.filter_type = if (steps > 0) switch (synth.filter_type) {
                 .lp => .hp, .hp => .bp, .bp => .notch, .notch => .lp,
             } else switch (synth.filter_type) {
                 .lp => .notch, .hp => .lp, .bp => .hp, .notch => .bp,
             },
-            18 => synth.filter_cutoff       = std.math.clamp(synth.filter_cutoff       + s * 100.0, 20.0, 20_000.0),
-            19 => synth.filter_res          = std.math.clamp(synth.filter_res          + s * 0.01,  0.0,    1.0),
-            20 => synth.fenv_amount         = std.math.clamp(synth.fenv_amount         + s * 0.1,  -4.0,    4.0),
-            21 => synth.fenv_attack_s       = std.math.clamp(synth.fenv_attack_s       + s * 0.001, 0.001,  5.0),
-            22 => synth.fenv_decay_s        = std.math.clamp(synth.fenv_decay_s        + s * 0.005, 0.001,  5.0),
-            23 => synth.fenv_sustain        = std.math.clamp(synth.fenv_sustain        + s * 0.01,  0.0,    1.0),
-            24 => synth.fenv_release_s      = std.math.clamp(synth.fenv_release_s      + s * 0.005, 0.001, 10.0),
-            25 => synth.lfo_shape = if (steps > 0) switch (synth.lfo_shape) {
+            19 => synth.filter_cutoff        = std.math.clamp(synth.filter_cutoff        + s * 100.0, 20.0, 20_000.0),
+            20 => synth.filter_res           = std.math.clamp(synth.filter_res           + s * 0.01,   0.0,    1.0),
+            21 => synth.fenv_amount          = std.math.clamp(synth.fenv_amount          + s * 0.1,   -4.0,    4.0),
+            22 => synth.fenv_attack_s        = std.math.clamp(synth.fenv_attack_s        + s * 0.001, 0.001,  5.0),
+            23 => synth.fenv_decay_s         = std.math.clamp(synth.fenv_decay_s         + s * 0.005, 0.001,  5.0),
+            24 => synth.fenv_sustain         = std.math.clamp(synth.fenv_sustain         + s * 0.01,   0.0,    1.0),
+            25 => synth.fenv_release_s       = std.math.clamp(synth.fenv_release_s       + s * 0.005, 0.001, 10.0),
+            26 => synth.lfo_shape = if (steps > 0) switch (synth.lfo_shape) {
                 .sine => .triangle, .triangle => .saw, .saw => .square, .square => .sine,
             } else switch (synth.lfo_shape) {
                 .sine => .square, .triangle => .sine, .saw => .triangle, .square => .saw,
             },
-            26 => synth.lfo_rate_hz         = std.math.clamp(synth.lfo_rate_hz         + s * 0.1,  0.01,  20.0),
-            27 => synth.lfo_depth           = std.math.clamp(synth.lfo_depth           + s * 0.01, 0.0,    1.0),
-            28 => synth.lfo_target = if (steps > 0) switch (synth.lfo_target) {
+            27 => synth.lfo_rate_hz          = std.math.clamp(synth.lfo_rate_hz          + s * 0.1,  0.01,  20.0),
+            28 => synth.lfo_depth            = std.math.clamp(synth.lfo_depth            + s * 0.01,  0.0,    1.0),
+            29 => synth.lfo_target = if (steps > 0) switch (synth.lfo_target) {
                 .none => .filter, .filter => .pitch, .pitch => .amp, .amp => .none,
             } else switch (synth.lfo_target) {
                 .none => .amp, .filter => .none, .pitch => .filter, .amp => .pitch,
             },
-            29 => synth.voice_mode = if (steps > 0) switch (synth.voice_mode) {
+            30 => synth.voice_mode = if (steps > 0) switch (synth.voice_mode) {
                 .poly => .mono, .mono => .legato, .legato => .poly,
             } else switch (synth.voice_mode) {
                 .poly => .legato, .mono => .poly, .legato => .mono,
             },
-            30 => synth.glide_s     = std.math.clamp(synth.glide_s     + s * 0.01, 0.0,  10.0),
-            31 => synth.sub_level   = std.math.clamp(synth.sub_level   + s * 0.01, 0.0,   1.0),
-            32 => synth.sub_shape   = if (steps > 0) switch (synth.sub_shape) {
+            31 => synth.glide_s              = std.math.clamp(synth.glide_s              + s * 0.01,  0.0,  10.0),
+            32 => synth.sub_level            = std.math.clamp(synth.sub_level            + s * 0.01,  0.0,   1.0),
+            33 => synth.sub_shape   = if (steps > 0) switch (synth.sub_shape) {
                 .sine => .square, .square => .sine,
             } else switch (synth.sub_shape) {
                 .sine => .square, .square => .sine,
             },
-            33 => synth.noise_level = std.math.clamp(synth.noise_level + s * 0.01, 0.0,   1.0),
-            34 => synth.noise_color = std.math.clamp(synth.noise_color + s * 0.01, 0.0,   1.0),
-            35 => synth.gain        = std.math.clamp(synth.gain        + s * 0.01, 0.01,  1.0),
+            34 => synth.noise_level          = std.math.clamp(synth.noise_level          + s * 0.01,  0.0,   1.0),
+            35 => synth.noise_color          = std.math.clamp(synth.noise_color          + s * 0.01,  0.0,   1.0),
+            36 => synth.gain                 = std.math.clamp(synth.gain                 + s * 0.01,  0.01,  1.0),
             else => {},
         }
     }
@@ -1243,9 +1245,9 @@ test "synth editor jk moves cursor, hl adjusts waveform" {
     const synth = &app.racks.items[0].instrument.poly_synth;
     try std.testing.expect(synth.waveform != .saw); // was saw by default → now triangle
 
-    // j×13: →pls.width(1)→…→uni.det(4)→b.on(5)→…→b.uni.det(12)→attack(13)
-    for (0..13) |_| app.handleKey(.{ .char = 'j' }, 0);
-    try std.testing.expectEqual(@as(u8, 13), app.synth_cursor);
+    // j×14: →pls.width(1)→…→spread(5)→b.on(6)→…→b.uni.det(13)→attack(14)
+    for (0..14) |_| app.handleKey(.{ .char = 'j' }, 0);
+    try std.testing.expectEqual(@as(u8, 14), app.synth_cursor);
 
     const old_attack = synth.attack_s;
     app.handleKey(.{ .char = 'l' }, 0); // increase attack

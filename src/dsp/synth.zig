@@ -27,6 +27,8 @@ pub const PolySynth = struct {
     unison: u8 = 1,
     /// Total spread between the outermost unison voices, in cents.
     unison_detune: f32 = 15.0,
+    /// Stereo width: 0 = mono, 1 = full L/R spread across unison voices.
+    unison_spread: f32 = 0.0,
 
     // ── OSC B ────────────────────────────────────────────────────────────────
     osc_b_on:           bool     = false,
@@ -123,9 +125,12 @@ pub const PolySynth = struct {
         // Filter envelope
         env2:   f32   = 0.0,
         stage2: Stage = .attack,
-        /// Per-voice DF1 biquad state (x = input history, y = output history).
+        /// Per-voice DF1 biquad state — left channel.
         x1: f32 = 0.0, x2: f32 = 0.0,
         y1: f32 = 0.0, y2: f32 = 0.0,
+        /// Right channel biquad state (same coefficients, independent history).
+        x1_r: f32 = 0.0, x2_r: f32 = 0.0,
+        y1_r: f32 = 0.0, y2_r: f32 = 0.0,
         // Glide: current log2(freq) sliding toward log2(noteToFreq(note)).
         glide_log_freq: f32 = 0.0,
         /// log2(freq) change per sample. 0 when glide is off or complete.
@@ -387,36 +392,67 @@ pub const PolySynth = struct {
             const noise_lp_a = (1.0 - self.noise_color) * 0.99;
 
             // Power-preserving normalisation across all sources.
-            const b_pow   = self.osc_b_level * self.osc_b_level * @as(f32, if (self.osc_b_on) 1.0 else 0.0);
-            const sub_pow = self.sub_level * self.sub_level;
-            const nse_pow = self.noise_level * self.noise_level;
-            const mix_norm = 1.0 / @sqrt(1.0 + b_pow + sub_pow + nse_pow);
-
             const scale_a = 1.0 / @sqrt(@as(f32, @floatFromInt(n_a)));
             const scale_b = if (n_b > 0) 1.0 / @sqrt(@as(f32, @floatFromInt(n_b))) else 0.0;
+            const b_pow   = self.osc_b_level * self.osc_b_level * @as(f32, if (self.osc_b_on) 1.0 else 0.0);
+            const mix_norm = 1.0 / @sqrt(1.0 + b_pow
+                + self.sub_level * self.sub_level
+                + self.noise_level * self.noise_level);
+
+            // Stereo pan gains per unison voice — constant-power, √2-compensated so
+            // spread=0 gives the same per-channel amplitude as the original mono path.
+            const pan_scale = std.math.sqrt2;
+            var pan_l_a: [max_unison]f32 = undefined;
+            var pan_r_a: [max_unison]f32 = undefined;
+            for (0..n_a) |ui| {
+                const raw: f32 = if (n_a > 1 and self.unison_spread > 0.0)
+                    ((@as(f32, @floatFromInt(ui)) / @as(f32, @floatFromInt(n_a - 1))) * 2.0 - 1.0)
+                    * self.unison_spread
+                else 0.0;
+                const angle = (raw + 1.0) * std.math.pi * 0.25;
+                pan_l_a[ui] = pan_scale * @cos(angle);
+                pan_r_a[ui] = pan_scale * @sin(angle);
+            }
+            var pan_l_b: [max_unison]f32 = undefined;
+            var pan_r_b: [max_unison]f32 = undefined;
+            if (self.osc_b_on) {
+                for (0..n_b) |ui| {
+                    const raw: f32 = if (n_b > 1 and self.unison_spread > 0.0)
+                        ((@as(f32, @floatFromInt(ui)) / @as(f32, @floatFromInt(n_b - 1))) * 2.0 - 1.0)
+                        * self.unison_spread
+                    else 0.0;
+                    const angle = (raw + 1.0) * std.math.pi * 0.25;
+                    pan_l_b[ui] = pan_scale * @cos(angle);
+                    pan_r_b[ui] = pan_scale * @sin(angle);
+                }
+            }
 
             for (0..frames) |i| {
-                // OSC A: sum detuned unison voices.
-                var a_out: f32 = 0.0;
+                // OSC A: accumulate L/R from each panned unison voice.
+                var a_l: f32 = 0.0;
+                var a_r: f32 = 0.0;
                 for (0..n_a) |ui| {
-                    a_out += self.oscSampleA(v.phases[ui]);
+                    const samp = self.oscSampleA(v.phases[ui]);
+                    a_l += samp * pan_l_a[ui];
+                    a_r += samp * pan_r_a[ui];
                     v.phases[ui] += phase_incs_a[ui];
                     if (v.phases[ui] >= 1.0) v.phases[ui] -= 1.0;
                 }
 
-                // OSC B: sum detuned unison voices.
-                var b_out: f32 = 0.0;
+                // OSC B: accumulate L/R from each panned unison voice.
+                var b_l: f32 = 0.0;
+                var b_r: f32 = 0.0;
                 if (self.osc_b_on) {
-                    var sum_b: f32 = 0.0;
                     for (0..n_b) |ui| {
-                        sum_b += self.oscSampleB(v.phases_b[ui]);
+                        const samp = self.oscSampleB(v.phases_b[ui]);
+                        b_l += samp * pan_l_b[ui];
+                        b_r += samp * pan_r_b[ui];
                         v.phases_b[ui] += phase_incs_b[ui];
                         if (v.phases_b[ui] >= 1.0) v.phases_b[ui] -= 1.0;
                     }
-                    b_out = sum_b * scale_b * self.osc_b_level;
                 }
 
-                // Sub oscillator: sine or square at -1 octave, no unison.
+                // Sub: always centre (mono → both channels).
                 var sub_out: f32 = 0.0;
                 if (self.sub_level > 0.0) {
                     sub_out = (switch (self.sub_shape) {
@@ -427,7 +463,7 @@ pub const PolySynth = struct {
                     if (v.sub_phase >= 1.0) v.sub_phase -= 1.0;
                 }
 
-                // Noise oscillator: xorshift32 → one-pole LP for color.
+                // Noise: always centre.
                 var nse_out: f32 = 0.0;
                 if (self.noise_level > 0.0) {
                     const raw = nextNoise(&v.noise_rand_state);
@@ -435,18 +471,20 @@ pub const PolySynth = struct {
                     nse_out = v.noise_lp * self.noise_level;
                 }
 
-                const osc = (a_out * scale_a + b_out + sub_out + nse_out) * mix_norm;
+                // Stereo mix (sub and noise fold into both channels equally).
+                const osc_l = (a_l * scale_a + b_l * scale_b * self.osc_b_level + sub_out + nse_out) * mix_norm;
+                const osc_r = (a_r * scale_a + b_r * scale_b * self.osc_b_level + sub_out + nse_out) * mix_norm;
 
-                // Filter (OSC → FILTER → AMP)
-                const filt = fc.b0 * osc
-                           + fc.b1 * v.x1 + fc.b2 * v.x2
-                           - fc.a1 * v.y1 - fc.a2 * v.y2;
-                v.x2 = v.x1; v.x1 = osc;
-                v.y2 = v.y1; v.y1 = filt;
+                // Stereo filter: same coefficients, independent L/R biquad histories.
+                const filt_l = fc.b0*osc_l + fc.b1*v.x1   + fc.b2*v.x2   - fc.a1*v.y1   - fc.a2*v.y2;
+                v.x2 = v.x1; v.x1 = osc_l; v.y2 = v.y1; v.y1 = filt_l;
 
-                const s = filt * v.env * v.velocity * self.gain * amp_mod;
-                buf[i * 2]     += s;
-                buf[i * 2 + 1] += s;
+                const filt_r = fc.b0*osc_r + fc.b1*v.x1_r + fc.b2*v.x2_r - fc.a1*v.y1_r - fc.a2*v.y2_r;
+                v.x2_r = v.x1_r; v.x1_r = osc_r; v.y2_r = v.y1_r; v.y1_r = filt_r;
+
+                const sg = v.env * v.velocity * self.gain * amp_mod;
+                buf[i * 2]     += filt_l * sg;
+                buf[i * 2 + 1] += filt_r * sg;
 
                 // Amplitude envelope
                 switch (v.stage) {
