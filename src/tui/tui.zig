@@ -22,8 +22,9 @@ pub const spectrum_band_count: usize = 80;
 /// 9:filter_type 10:cutoff 11:res 12:fenv_amount
 /// 13:fenv_attack 14:fenv_decay 15:fenv_sustain 16:fenv_release
 /// 17:lfo_shape 18:lfo_rate 19:lfo_depth 20:lfo_target
-/// 21:gain
-pub const synth_param_count: u8 = 22;
+/// 21:voice_mode 22:glide
+/// 23:gain
+pub const synth_param_count: u8 = 24;
 
 // ---------------------------------------------------------------------------
 // Palette — all colour codes go here; never raw \x1b sequences elsewhere
@@ -812,11 +813,51 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, snap: engin
         try endLine(w);
     }
 
+    // ── VOICE ────────────────────────────────────
+    try synthSection(w, "VOICE");
+
+    // param 21: voice_mode
+    {
+        const is_sel = (app.synth_cursor == 21);
+        if (is_sel) try w.writeAll(sel);
+        try w.writeAll("  mode       ");
+        const mode_names = [_][]const u8{ "poly", "mono", "lgto" };
+        const mode_idx: usize = switch (synth.voice_mode) {
+            .poly => 0, .mono => 1, .legato => 2,
+        };
+        for (mode_names, 0..) |nm, i| {
+            if (i == mode_idx) {
+                if (!is_sel) try w.writeAll(acc ++ bold);
+                try w.print("[{s: <5}]", .{nm});
+                if (!is_sel) try w.writeAll(rst);
+            } else {
+                if (!is_sel) try w.writeAll(dim);
+                try w.print(" {s: <5} ", .{nm});
+                if (!is_sel) try w.writeAll(rst);
+            }
+        }
+        try endLine(w);
+    }
+
+    // param 22: glide
+    {
+        const is_sel = (app.synth_cursor == 22);
+        if (is_sel) try w.writeAll(sel);
+        try w.writeAll("  glide    ");
+        try synthBar(w, synth.glide_s, 10.0);
+        if (synth.glide_s == 0.0) {
+            try w.writeAll("  off");
+        } else {
+            try w.print("  {d:.3} s", .{synth.glide_s});
+        }
+        try endLine(w);
+    }
+
     // ── OUT ──────────────────────────────────────
     try synthSection(w, "OUT");
 
     {
-        const is_sel = (app.synth_cursor == 21);
+        const is_sel = (app.synth_cursor == 23);
         if (is_sel) try w.writeAll(sel);
         try w.writeAll("  gain     ");
         try synthBar(w, synth.gain, 1.0);
@@ -824,8 +865,8 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, snap: engin
         try endLine(w);
     }
 
-    // 1 title + 6 sections + 22 params = 29 content rows
-    const used: usize = 29;
+    // 1 title + 7 sections + 24 params = 32 content rows
+    const used: usize = 32;
     for (used..@max(used, rows -| 3)) |_| try endLine(w);
 }
 
@@ -841,6 +882,7 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer) !void {
         "filt.type", "cutoff", "res", "f.env.amt",
         "f.attack", "f.decay", "f.sustain", "f.release",
         "lfo.shape", "lfo.rate", "lfo.depth", "lfo.target",
+        "voice.mode", "glide",
         "gain",
     };
     const cur = @min(@as(usize, app.synth_cursor), labels.len - 1);
@@ -882,7 +924,12 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer) !void {
         20 => try w.writeAll(switch (synth.lfo_target) {
             .none => "off", .filter => "filter", .pitch => "pitch", .amp => "amp",
         }),
-        21 => try w.print("{d:.3}",      .{synth.gain}),
+        21 => try w.writeAll(switch (synth.voice_mode) {
+            .poly => "poly", .mono => "mono", .legato => "legato",
+        }),
+        22 => if (synth.glide_s == 0.0) try w.writeAll("off")
+              else try w.print("{d:.3} s", .{synth.glide_s}),
+        23 => try w.print("{d:.3}",      .{synth.gain}),
         else => {},
     }
     try w.writeAll(rst);

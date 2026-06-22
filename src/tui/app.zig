@@ -383,7 +383,13 @@ pub const App = struct {
             } else switch (synth.lfo_target) {
                 .none => .amp, .filter => .none, .pitch => .filter, .amp => .pitch,
             },
-            21 => synth.gain = std.math.clamp(synth.gain + s * 0.01, 0.01, 1.0),
+            21 => synth.voice_mode = if (steps > 0) switch (synth.voice_mode) {
+                .poly => .mono, .mono => .legato, .legato => .poly,
+            } else switch (synth.voice_mode) {
+                .poly => .legato, .mono => .poly, .legato => .mono,
+            },
+            22 => synth.glide_s = std.math.clamp(synth.glide_s + s * 0.01, 0.0, 10.0),
+            23 => synth.gain    = std.math.clamp(synth.gain    + s * 0.01, 0.01, 1.0),
             else => {},
         }
     }
@@ -1203,7 +1209,7 @@ test "synth editor jk moves cursor, hl adjusts waveform" {
     const synth = &app.racks.items[0].instrument.poly_synth;
     try std.testing.expect(synth.waveform != .saw); // was saw by default → now triangle
 
-    // j×5 → pls.width(1) → detune(2) → unison(3) → uni.det(4) → attack(5)
+    // j×5: pls.width(1)→detune(2)→unison(3)→uni.det(4)→attack(5)
     for (0..5) |_| app.handleKey(.{ .char = 'j' }, 0);
     try std.testing.expectEqual(@as(u8, 5), app.synth_cursor);
 

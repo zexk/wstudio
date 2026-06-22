@@ -11,6 +11,7 @@ pub const Waveform   = enum { sine, saw, triangle, square };
 pub const FilterType = enum { lp, hp, bp, notch };
 pub const LfoShape   = enum { sine, triangle, saw, square };
 pub const LfoTarget  = enum { none, filter, pitch, amp };
+pub const VoiceMode  = enum { poly, mono, legato };
 
 pub const PolySynth = struct {
     sample_rate: f32,
@@ -57,13 +58,25 @@ pub const PolySynth = struct {
     /// Synth-global LFO phase (0..1). Advanced once per block.
     lfo_phase: f32 = 0.0,
 
+    // ── VOICE ────────────────────────────────────────────────────────────────
+    voice_mode: VoiceMode = .poly,
+    /// Portamento time in seconds. 0 = off (snap).
+    glide_s: f32 = 0.0,
+    /// Note stack for mono/legato: last-in, first-out.
+    held_notes:      [16]u7  = [_]u7{0}  ** 16,
+    held_velocities: [16]f32 = [_]f32{0} ** 16,
+    held_count: u8 = 0,
+
     // ── OUT ─────────────────────────────────────────────────────────────────
     gain: f32 = 0.35,
 
     voices: [max_voices]Voice = [_]Voice{.{}} ** max_voices,
 
-    pub const max_voices = 8;
-    pub const max_unison = 8;
+    pub const max_voices = 16;
+    pub const max_unison = 16;
+    /// Hard cap on simultaneous oscillators across all active voices.
+    /// With e.g. 8 active voices, unison is capped at 4 each → 32 total.
+    pub const osc_budget: usize = 32;
 
     const Stage = enum { attack, decay, sustain, release };
 
@@ -87,6 +100,10 @@ pub const PolySynth = struct {
         /// Per-voice DF1 biquad state (x = input history, y = output history).
         x1: f32 = 0.0, x2: f32 = 0.0,
         y1: f32 = 0.0, y2: f32 = 0.0,
+        // Glide: current log2(freq) sliding toward log2(noteToFreq(note)).
+        glide_log_freq: f32 = 0.0,
+        /// log2(freq) change per sample. 0 when glide is off or complete.
+        glide_rate: f32 = 0.0,
     };
 
     pub fn init(sample_rate: u32) PolySynth {
@@ -109,21 +126,124 @@ pub const PolySynth = struct {
     }
 
     pub fn noteOn(self: *PolySynth, note: u7, velocity: f32) void {
-        const voice = self.allocVoice();
-        voice.* = .{
-            .active   = true,
-            .note     = note,
-            .velocity = velocity,
-            .stage    = .attack,
-            .stage2   = .attack,
-        };
+        switch (self.voice_mode) {
+            .poly   => self.noteOnPoly(note, velocity),
+            .mono   => { self.pushHeld(note, velocity); self.noteOnMono(note, velocity, true); },
+            .legato => {
+                const was_active = self.voices[0].active;
+                self.pushHeld(note, velocity);
+                self.noteOnMono(note, velocity, !was_active);
+            },
+        }
     }
 
     pub fn noteOff(self: *PolySynth, note: u7) void {
-        for (&self.voices) |*v| {
-            if (v.active and v.note == note and v.stage != .release) {
-                v.stage  = .release;
-                v.stage2 = .release;
+        switch (self.voice_mode) {
+            .poly => {
+                for (&self.voices) |*v| {
+                    if (v.active and v.note == note and v.stage != .release) {
+                        v.stage  = .release;
+                        v.stage2 = .release;
+                    }
+                }
+            },
+            .mono => {
+                self.popHeld(note);
+                if (self.held_count > 0) {
+                    const i = self.held_count - 1;
+                    self.noteOnMono(self.held_notes[i], self.held_velocities[i], true);
+                } else {
+                    const v = &self.voices[0];
+                    if (v.active and v.note == note) { v.stage = .release; v.stage2 = .release; }
+                }
+            },
+            .legato => {
+                self.popHeld(note);
+                if (self.held_count > 0) {
+                    const i = self.held_count - 1;
+                    self.noteOnMono(self.held_notes[i], self.held_velocities[i], false);
+                } else {
+                    const v = &self.voices[0];
+                    if (v.active) { v.stage = .release; v.stage2 = .release; }
+                }
+            },
+        }
+    }
+
+    fn noteOnPoly(self: *PolySynth, note: u7, velocity: f32) void {
+        const v = self.allocVoice();
+        const was_active  = v.active;
+        const prev_log    = v.glide_log_freq;
+        const target_log  = std.math.log2(noteToFreq(note));
+        const start_log   = if (was_active and self.glide_s > 0.0) prev_log else target_log;
+        v.* = .{
+            .active         = true,
+            .note           = note,
+            .velocity       = velocity,
+            .stage          = .attack,
+            .stage2         = .attack,
+            .glide_log_freq = start_log,
+            .glide_rate     = if (was_active and self.glide_s > 0.0)
+                (target_log - start_log) / @max(self.glide_s * self.sample_rate, 1.0)
+            else 0.0,
+        };
+    }
+
+    /// Activate or update the single mono/legato voice.
+    /// retrigger=true → reset amplitude envelope from attack.
+    fn noteOnMono(self: *PolySynth, note: u7, velocity: f32, retrigger: bool) void {
+        const v          = &self.voices[0];
+        const was_active = v.active;
+        const target_log = std.math.log2(noteToFreq(note));
+        if (retrigger or !was_active) {
+            const start_log = if (was_active and self.glide_s > 0.0) v.glide_log_freq else target_log;
+            v.* = .{
+                .active         = true,
+                .note           = note,
+                .velocity       = velocity,
+                .stage          = .attack,
+                .stage2         = .attack,
+                .glide_log_freq = start_log,
+                .glide_rate     = if (was_active and self.glide_s > 0.0)
+                    (target_log - start_log) / @max(self.glide_s * self.sample_rate, 1.0)
+                else 0.0,
+            };
+        } else {
+            // Legato: update pitch only, envelope continues.
+            v.note = note;
+            if (self.glide_s > 0.0) {
+                v.glide_rate = (target_log - v.glide_log_freq) /
+                    @max(self.glide_s * self.sample_rate, 1.0);
+            } else {
+                v.glide_log_freq = target_log;
+                v.glide_rate     = 0.0;
+            }
+        }
+    }
+
+    fn pushHeld(self: *PolySynth, note: u7, velocity: f32) void {
+        for (0..self.held_count) |i| {
+            if (self.held_notes[i] == note) {
+                self.held_velocities[i] = velocity;
+                return;
+            }
+        }
+        if (self.held_count < self.held_notes.len) {
+            self.held_notes[self.held_count]      = note;
+            self.held_velocities[self.held_count] = velocity;
+            self.held_count += 1;
+        }
+    }
+
+    fn popHeld(self: *PolySynth, note: u7) void {
+        for (0..self.held_count) |i| {
+            if (self.held_notes[i] == note) {
+                self.held_count -= 1;
+                for (i..self.held_count) |j| {
+                    self.held_notes[j]      = self.held_notes[j + 1];
+                    self.held_velocities[j] = self.held_velocities[j + 1];
+                }
+                return;
             }
         }
     }
@@ -153,8 +273,25 @@ pub const PolySynth = struct {
         const fenv_decay_inc   = (1.0 - self.fenv_sustain)       / @max(self.fenv_decay_s   * self.sample_rate, 1.0);
         const fenv_release_inc = 1.0                              / @max(self.fenv_release_s  * self.sample_rate, 1.0);
 
+        // osc_budget: cap unison per voice so total simultaneous oscillators ≤ 32.
+        var active_count: usize = 0;
+        for (self.voices) |v| if (v.active) { active_count += 1; };
+        const unison_cap: usize = if (active_count > 0) @max(osc_budget / active_count, 1) else max_unison;
+
         for (&self.voices) |*v| {
             if (!v.active) continue;
+
+            // Glide: advance current log-freq toward target at block rate.
+            const target_log = std.math.log2(noteToFreq(v.note));
+            if (self.glide_s > 0.0 and v.glide_rate != 0.0) {
+                v.glide_log_freq += v.glide_rate * @as(f32, @floatFromInt(frames));
+                const overshot = (v.glide_rate > 0.0 and v.glide_log_freq >= target_log) or
+                                 (v.glide_rate < 0.0 and v.glide_log_freq <= target_log);
+                if (overshot) { v.glide_log_freq = target_log; v.glide_rate = 0.0; }
+            } else {
+                v.glide_log_freq = target_log;
+                v.glide_rate     = 0.0;
+            }
 
             // Cutoff = base × filter-env mod × LFO (±2 oct at full depth).
             const fenv_mod = std.math.pow(f32, 2.0, self.fenv_amount * v.env2);
@@ -166,12 +303,10 @@ pub const PolySynth = struct {
             );
             const fc = self.computeFilterCoeffs(effective_cutoff);
 
-            // Pitch vibrato: ±1 oct at full depth.
-            const lfo_pitch_mod = if (self.lfo_target == .pitch)
-                std.math.pow(f32, 2.0, self.lfo_depth * lfo_val)
-            else 1.0;
-            const base_freq = noteToFreq(v.note) *
-                std.math.pow(f32, 2.0, self.detune_cents / 1200.0) * lfo_pitch_mod;
+            // Pitch vibrato: ±1 oct at full depth. Glide is in log-freq space.
+            const lfo_pitch_log = if (self.lfo_target == .pitch) self.lfo_depth * lfo_val else 0.0;
+            const base_freq = std.math.pow(f32, 2.0,
+                v.glide_log_freq + self.detune_cents / 1200.0 + lfo_pitch_log);
 
             // Tremolo: LFO converted to [0,1]; depth controls dip depth.
             // At depth=1, lfo trough → amp_mod=0; lfo peak → amp_mod=1.
@@ -180,7 +315,7 @@ pub const PolySynth = struct {
                 break :blk 1.0 - self.lfo_depth * (1.0 - lfo_uni);
             } else 1.0;
 
-            const n: usize = @min(@max(self.unison, 1), max_unison);
+            const n: usize = @min(@min(@as(usize, @max(self.unison, 1)), max_unison), unison_cap);
 
             var phase_incs: [max_unison]f32 = undefined;
             for (0..n) |ui| {
@@ -318,6 +453,7 @@ pub const PolySynth = struct {
 
     pub fn resetAll(self: *PolySynth) void {
         for (&self.voices) |*v| v.* = .{};
+        self.held_count = 0;
     }
 
     fn processOpaque(ptr: *anyopaque, buf: []Sample) void {
@@ -536,6 +672,95 @@ test "LFO tremolo: square wave at 0 Hz halves amplitude at depth=1 (trough)" {
     var rms_lfo: f32 = 0.0;
     for (buf_lfo) |s| rms_lfo += s * s;
     try std.testing.expectApproxEqAbs(@as(f32, 0.0), rms_lfo, 1e-6);
+}
+
+test "polyphony: up to max_voices voices" {
+    var synth = PolySynth.init(48_000);
+    for (0..PolySynth.max_voices) |i| synth.noteOn(@intCast(60 + i), 1.0);
+    var active: usize = 0;
+    for (synth.voices) |v| if (v.active) { active += 1; };
+    try std.testing.expectEqual(PolySynth.max_voices, active);
+}
+
+test "osc_budget: unison capped when many voices active" {
+    var synth = PolySynth.init(48_000);
+    synth.unison = 16;
+    // With 16 active voices, unison_cap = 32/16 = 2 per voice.
+    for (0..16) |i| synth.noteOn(@intCast(48 + i), 1.0);
+    var buf: [512]Sample = undefined;
+    for (0..4) |_| { @memset(&buf, 0.0); synth.processBlock(&buf); }
+    for (buf) |s| {
+        try std.testing.expect(!std.math.isNan(s));
+        try std.testing.expect(!std.math.isInf(s));
+    }
+}
+
+test "glide: pitch slides over time (log-linear)" {
+    var synth = PolySynth.init(48_000);
+    synth.voice_mode = .mono;
+    synth.glide_s    = 0.5; // half-second glide
+    synth.noteOn(60, 1.0); // C4
+    // Trigger glide to A4 — voice was active so glide applies.
+    synth.noteOn(69, 1.0); // A4
+    // glide_log_freq should still be at C4 (not yet advanced)
+    const c4_log = std.math.log2(PolySynth.noteToFreq(60));
+    try std.testing.expectApproxEqAbs(c4_log, synth.voices[0].glide_log_freq, 1e-4);
+    // After processing, frequency should have moved toward A4 but not arrived.
+    var buf: [512]Sample = undefined;
+    @memset(&buf, 0.0); synth.processBlock(&buf);
+    const a4_log = std.math.log2(PolySynth.noteToFreq(69));
+    try std.testing.expect(synth.voices[0].glide_log_freq > c4_log);
+    try std.testing.expect(synth.voices[0].glide_log_freq < a4_log);
+}
+
+test "glide: snaps immediately when glide_s=0" {
+    var synth = PolySynth.init(48_000);
+    synth.voice_mode = .mono;
+    synth.glide_s    = 0.0;
+    synth.noteOn(60, 1.0);
+    synth.noteOn(69, 1.0);
+    const a4_log = std.math.log2(PolySynth.noteToFreq(69));
+    var buf: [512]Sample = undefined;
+    @memset(&buf, 0.0); synth.processBlock(&buf);
+    try std.testing.expectApproxEqAbs(a4_log, synth.voices[0].glide_log_freq, 1e-4);
+}
+
+test "mono mode: only one voice active" {
+    var synth = PolySynth.init(48_000);
+    synth.voice_mode = .mono;
+    synth.noteOn(60, 1.0);
+    synth.noteOn(64, 1.0);
+    synth.noteOn(67, 1.0);
+    var active: usize = 0;
+    for (synth.voices) |v| if (v.active) { active += 1; };
+    try std.testing.expectEqual(@as(usize, 1), active);
+    try std.testing.expectEqual(@as(u7, 67), synth.voices[0].note);
+}
+
+test "mono mode: note-off retrieves last held note" {
+    var synth = PolySynth.init(48_000);
+    synth.voice_mode = .mono;
+    synth.noteOn(60, 1.0);
+    synth.noteOn(64, 1.0);
+    synth.noteOff(64);
+    try std.testing.expectEqual(@as(u7, 60), synth.voices[0].note);
+    try std.testing.expect(synth.voices[0].active);
+    try std.testing.expect(synth.voices[0].stage != .release);
+}
+
+test "legato mode: no envelope retrigger on second note" {
+    var synth = PolySynth.init(48_000);
+    synth.voice_mode = .legato;
+    synth.noteOn(60, 1.0);
+    var buf: [512]Sample = undefined;
+    // Warm up past attack so we're in sustain
+    for (0..100) |_| { @memset(&buf, 0.0); synth.processBlock(&buf); }
+    const env_before = synth.voices[0].env;
+    // Second note in legato — should not retrigger (env stays in sustain, not reset to 0)
+    synth.noteOn(64, 1.0);
+    try std.testing.expectEqual(@as(u7, 64), synth.voices[0].note);
+    try std.testing.expect(synth.voices[0].stage != .attack); // still in sustain
+    try std.testing.expectApproxEqAbs(env_before, synth.voices[0].env, 0.01);
 }
 
 test "LFO: all shapes stay finite under filter modulation" {
