@@ -202,10 +202,11 @@ pub const App = struct {
                 }
                 if (key == .char and self.modal.mode == .normal) {
                     switch (key.char) {
-                        'm' => { self.switchToMasterSpectrum(); return; },
+                        'M' => { self.switchToMasterSpectrum(); return; },
                         's' => { self.switchToTrackSpectrum(@intCast(self.cursor)); return; },
                         'a' => { self.doTrackAdd(null); return; },
                         'D' => { self.doTrackDel(self.cursor); return; },
+                        '?' => { self.cmdHelp(""); return; },
                         else => {},
                     }
                 }
@@ -290,8 +291,8 @@ pub const App = struct {
             .escape => { self.view = .tracks; return true; },
             .char => |c| {
                 switch (c) {
-                    'h' => step.* = if (step.* == 0) DrumMachine.max_steps - 1 else step.* - 1,
-                    'l' => step.* = (step.* + 1) % DrumMachine.max_steps,
+                    'h' => step.* = if (step.* == 0) self.drumMachine().step_count - 1 else step.* - 1,
+                    'l' => step.* = (step.* + 1) % self.drumMachine().step_count,
                     'k' => if (pad.* > 0) { pad.* -= 1; },
                     'j' => if (pad.* < DrumMachine.max_pads - 1) { pad.* += 1; },
                     ' ' => self.drumMachine().toggleStep(pad.*, step.*),
@@ -300,6 +301,12 @@ pub const App = struct {
                         .note = @intCast(pad.*),
                         .velocity = 0.9,
                     } }),
+                    '<' => {
+                        const dm = self.drumMachine();
+                        dm.setStepCount(dm.step_count - 1);
+                        if (step.* >= dm.step_count) step.* = dm.step_count - 1;
+                    },
+                    '>' => self.drumMachine().setStepCount(self.drumMachine().step_count + 1),
                     else => return false,
                 }
                 return true;
@@ -800,16 +807,19 @@ pub const App = struct {
         };
         const pos = transport.positionBarBeat();
         const secs = transport.positionSeconds();
-        const icon: []const u8 = if (snap.playing) "|>" else "[]";
-        try w.print(" {s} {d:0>3}.{d}  {d:0>2}:{d:0>4.1}  L", .{
-            icon,
+        if (snap.playing) {
+            try w.writeAll("\x1b[32m\x1b[1m |>\x1b[0m");
+        } else {
+            try w.writeAll("\x1b[2m []\x1b[0m");
+        }
+        try w.print(" {d:0>3}.{d}  {d:0>2}:{d:0>4.1}  \x1b[2mL\x1b[0m", .{
             pos.bar + 1,
             pos.beat + 1,
             @as(u64, @intFromFloat(secs / 60.0)),
             @mod(secs, 60.0),
         });
         try tui.meter(w, snap.peak[0]);
-        try w.writeAll(" R");
+        try w.writeAll("\x1b[2m R\x1b[0m");
         try tui.meter(w, snap.peak[1]);
         try tui.endLine(w);
         try tui.hr(w, size.cols);
@@ -1015,7 +1025,7 @@ test "m key switches to master spectrum view" {
     var app = try App.init(std.testing.allocator, std.Io.failing);
     defer app.deinit();
 
-    app.handleKey(.{ .char = 'm' }, 0);
+    app.handleKey(.{ .char = 'M' }, 0);
     try std.testing.expectEqual(AppView.master_spectrum, app.view);
 }
 

@@ -109,6 +109,10 @@ pub const DrumMachine = struct {
     // -----------------------------------------------------------------------
     // Pattern editing (UI thread)
 
+    pub fn setStepCount(self: *DrumMachine, n: u8) void {
+        self.step_count = std.math.clamp(n, 1, max_steps);
+    }
+
     pub fn toggleStep(self: *DrumMachine, pad: u8, step: u8) void {
         if (pad >= max_pads or step >= max_steps) return;
         _ = self.pattern[pad].fetchXor(@as(u32, 1) << @intCast(step), .acq_rel);
