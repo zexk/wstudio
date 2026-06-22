@@ -27,6 +27,19 @@ pub const PolySynth = struct {
     /// Total spread between the outermost unison voices, in cents.
     unison_detune: f32 = 15.0,
 
+    // ── OSC B ────────────────────────────────────────────────────────────────
+    osc_b_on:           bool     = false,
+    osc_b_waveform:     Waveform = .saw,
+    osc_b_pulse_width:  f32      = 0.5,
+    /// Coarse pitch offset in semitones (–24..+24). Integer steps in the editor.
+    osc_b_semi:         f32      = 0.0,
+    /// Fine pitch offset in cents (–100..+100).
+    osc_b_detune_cents: f32      = 0.0,
+    /// Mix level of OSC B relative to OSC A (0..1).
+    osc_b_level:        f32      = 1.0,
+    osc_b_unison:       u8       = 1,
+    osc_b_unison_detune: f32     = 15.0,
+
     // ── AMP ENVELOPE ────────────────────────────────────────────────────────
     attack_s:  f32 = 0.005,
     decay_s:   f32 = 0.08,
@@ -89,8 +102,9 @@ pub const PolySynth = struct {
         active: bool = false,
         note:   u7   = 0,
         velocity: f32 = 0.0,
-        /// One phase accumulator per unison sub-oscillator.
-        phases: [max_unison]f32 = [_]f32{0.0} ** max_unison,
+        /// Phase accumulators for OSC A and OSC B unison voices.
+        phases:   [max_unison]f32 = [_]f32{0.0} ** max_unison,
+        phases_b: [max_unison]f32 = [_]f32{0.0} ** max_unison,
         // Amplitude envelope
         env:   f32   = 0.0,
         stage: Stage = .attack,
@@ -273,10 +287,13 @@ pub const PolySynth = struct {
         const fenv_decay_inc   = (1.0 - self.fenv_sustain)       / @max(self.fenv_decay_s   * self.sample_rate, 1.0);
         const fenv_release_inc = 1.0                              / @max(self.fenv_release_s  * self.sample_rate, 1.0);
 
-        // osc_budget: cap unison per voice so total simultaneous oscillators ≤ 32.
+        // osc_budget: split evenly between OSC A and B so total ≤ 32.
         var active_count: usize = 0;
         for (self.voices) |v| if (v.active) { active_count += 1; };
-        const unison_cap: usize = if (active_count > 0) @max(osc_budget / active_count, 1) else max_unison;
+        const osc_count: usize = 1 + @as(usize, if (self.osc_b_on) 1 else 0);
+        const per_osc_cap: usize = if (active_count > 0)
+            @max(osc_budget / active_count / osc_count, 1)
+        else max_unison;
 
         for (&self.voices) |*v| {
             if (!v.active) continue;
@@ -315,29 +332,62 @@ pub const PolySynth = struct {
                 break :blk 1.0 - self.lfo_depth * (1.0 - lfo_uni);
             } else 1.0;
 
-            const n: usize = @min(@min(@as(usize, @max(self.unison, 1)), max_unison), unison_cap);
+            const n_a: usize = @min(@min(@as(usize, @max(self.unison,     1)), max_unison), per_osc_cap);
+            const n_b: usize = if (self.osc_b_on)
+                @min(@min(@as(usize, @max(self.osc_b_unison, 1)), max_unison), per_osc_cap)
+            else 0;
 
-            var phase_incs: [max_unison]f32 = undefined;
-            for (0..n) |ui| {
-                const spread_cents: f32 = if (n > 1) blk: {
-                    const t = @as(f32, @floatFromInt(ui)) /
-                              @as(f32, @floatFromInt(n - 1));
+            // Precompute per-unison phase increments for OSC A.
+            var phase_incs_a: [max_unison]f32 = undefined;
+            for (0..n_a) |ui| {
+                const spread: f32 = if (n_a > 1) blk: {
+                    const t = @as(f32, @floatFromInt(ui)) / @as(f32, @floatFromInt(n_a - 1));
                     break :blk (t * 2.0 - 1.0) * self.unison_detune * 0.5;
                 } else 0.0;
-                const freq = base_freq * std.math.pow(f32, 2.0, spread_cents / 1200.0);
-                phase_incs[ui] = freq / self.sample_rate;
+                phase_incs_a[ui] = base_freq * std.math.pow(f32, 2.0, spread / 1200.0) / self.sample_rate;
             }
-            const osc_scale = 1.0 / @sqrt(@as(f32, @floatFromInt(n)));
+
+            // Precompute per-unison phase increments for OSC B.
+            var phase_incs_b: [max_unison]f32 = undefined;
+            if (self.osc_b_on) {
+                const b_freq = base_freq * std.math.pow(f32, 2.0,
+                    self.osc_b_semi / 12.0 + self.osc_b_detune_cents / 1200.0);
+                for (0..n_b) |ui| {
+                    const spread: f32 = if (n_b > 1) blk: {
+                        const t = @as(f32, @floatFromInt(ui)) / @as(f32, @floatFromInt(n_b - 1));
+                        break :blk (t * 2.0 - 1.0) * self.osc_b_unison_detune * 0.5;
+                    } else 0.0;
+                    phase_incs_b[ui] = b_freq * std.math.pow(f32, 2.0, spread / 1200.0) / self.sample_rate;
+                }
+            }
+
+            // Combined amplitude normalisation: power-preserving across A+B mix.
+            const scale_a = 1.0 / @sqrt(@as(f32, @floatFromInt(n_a)));
+            const scale_b = if (n_b > 0) 1.0 / @sqrt(@as(f32, @floatFromInt(n_b))) else 0.0;
+            // At osc_b_level=0 → norm=1; at osc_b_level=1 → norm=1/√2.
+            const mix_norm = 1.0 / @sqrt(1.0 + self.osc_b_level * self.osc_b_level *
+                @as(f32, if (self.osc_b_on) 1.0 else 0.0));
 
             for (0..frames) |i| {
-                // Sum unison oscillators.
+                // OSC A: sum unison.
                 var osc_sum: f32 = 0.0;
-                for (0..n) |ui| {
-                    osc_sum += self.oscSample(v.phases[ui]);
-                    v.phases[ui] += phase_incs[ui];
+                for (0..n_a) |ui| {
+                    osc_sum += self.oscSampleA(v.phases[ui]);
+                    v.phases[ui] += phase_incs_a[ui];
                     if (v.phases[ui] >= 1.0) v.phases[ui] -= 1.0;
                 }
-                const osc = osc_sum * osc_scale;
+                var osc = osc_sum * scale_a;
+
+                // OSC B: sum unison, add into mix.
+                if (self.osc_b_on) {
+                    var sum_b: f32 = 0.0;
+                    for (0..n_b) |ui| {
+                        sum_b += self.oscSampleB(v.phases_b[ui]);
+                        v.phases_b[ui] += phase_incs_b[ui];
+                        if (v.phases_b[ui] >= 1.0) v.phases_b[ui] -= 1.0;
+                    }
+                    osc = (osc + sum_b * scale_b * self.osc_b_level) * mix_norm;
+                }
 
                 // Filter (OSC → FILTER → AMP)
                 const filt = fc.b0 * osc
@@ -442,12 +492,20 @@ pub const PolySynth = struct {
         };
     }
 
-    fn oscSample(self: *const PolySynth, phase: f32) Sample {
-        return switch (self.waveform) {
+    fn oscSampleA(self: *const PolySynth, phase: f32) Sample {
+        return oscWave(self.waveform, phase, self.pulse_width);
+    }
+
+    fn oscSampleB(self: *const PolySynth, phase: f32) Sample {
+        return oscWave(self.osc_b_waveform, phase, self.osc_b_pulse_width);
+    }
+
+    fn oscWave(wf: Waveform, phase: f32, pw: f32) Sample {
+        return switch (wf) {
             .sine     => @sin(2.0 * std.math.pi * phase),
             .saw      => 2.0 * phase - 1.0,
             .triangle => 1.0 - 4.0 * @abs(phase - 0.5),
-            .square   => if (phase < self.pulse_width) 1.0 else -1.0,
+            .square   => if (phase < pw) 1.0 else -1.0,
         };
     }
 
