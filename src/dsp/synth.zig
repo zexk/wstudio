@@ -12,6 +12,7 @@ pub const FilterType = enum { lp, hp, bp, notch };
 pub const LfoShape   = enum { sine, triangle, saw, square };
 pub const LfoTarget  = enum { none, filter, pitch, amp };
 pub const VoiceMode  = enum { poly, mono, legato };
+pub const SubShape   = enum { sine, square };
 
 pub const PolySynth = struct {
     sample_rate: f32,
@@ -80,6 +81,17 @@ pub const PolySynth = struct {
     held_velocities: [16]f32 = [_]f32{0} ** 16,
     held_count: u8 = 0,
 
+    // ── SUB ─────────────────────────────────────────────────────────────────
+    /// Level 0 = off. Sine or square at -1 octave.
+    sub_level: f32      = 0.0,
+    sub_shape: SubShape = .sine,
+
+    // ── NOISE ────────────────────────────────────────────────────────────────
+    /// Level 0 = off.
+    noise_level: f32 = 0.0,
+    /// Color 0 = dark (heavily LP-filtered), 1 = white (unfiltered).
+    noise_color: f32 = 1.0,
+
     // ── OUT ─────────────────────────────────────────────────────────────────
     gain: f32 = 0.35,
 
@@ -118,6 +130,11 @@ pub const PolySynth = struct {
         glide_log_freq: f32 = 0.0,
         /// log2(freq) change per sample. 0 when glide is off or complete.
         glide_rate: f32 = 0.0,
+        // Sub oscillator
+        sub_phase: f32 = 0.0,
+        // Noise oscillator — xorshift32 (must never be 0)
+        noise_rand_state: u32 = 1,
+        noise_lp: f32 = 0.0,
     };
 
     pub fn init(sample_rate: u32) PolySynth {
@@ -191,15 +208,16 @@ pub const PolySynth = struct {
         const target_log  = std.math.log2(noteToFreq(note));
         const start_log   = if (was_active and self.glide_s > 0.0) prev_log else target_log;
         v.* = .{
-            .active         = true,
-            .note           = note,
-            .velocity       = velocity,
-            .stage          = .attack,
-            .stage2         = .attack,
-            .glide_log_freq = start_log,
-            .glide_rate     = if (was_active and self.glide_s > 0.0)
+            .active           = true,
+            .note             = note,
+            .velocity         = velocity,
+            .stage            = .attack,
+            .stage2           = .attack,
+            .glide_log_freq   = start_log,
+            .glide_rate       = if (was_active and self.glide_s > 0.0)
                 (target_log - start_log) / @max(self.glide_s * self.sample_rate, 1.0)
             else 0.0,
+            .noise_rand_state = (@as(u32, note) *% 0x9E3779B9) | 1,
         };
     }
 
@@ -212,15 +230,16 @@ pub const PolySynth = struct {
         if (retrigger or !was_active) {
             const start_log = if (was_active and self.glide_s > 0.0) v.glide_log_freq else target_log;
             v.* = .{
-                .active         = true,
-                .note           = note,
-                .velocity       = velocity,
-                .stage          = .attack,
-                .stage2         = .attack,
-                .glide_log_freq = start_log,
-                .glide_rate     = if (was_active and self.glide_s > 0.0)
+                .active           = true,
+                .note             = note,
+                .velocity         = velocity,
+                .stage            = .attack,
+                .stage2           = .attack,
+                .glide_log_freq   = start_log,
+                .glide_rate       = if (was_active and self.glide_s > 0.0)
                     (target_log - start_log) / @max(self.glide_s * self.sample_rate, 1.0)
                 else 0.0,
+                .noise_rand_state = (@as(u32, note) *% 0x9E3779B9) | 1,
             };
         } else {
             // Legato: update pitch only, envelope continues.
@@ -361,24 +380,32 @@ pub const PolySynth = struct {
                 }
             }
 
-            // Combined amplitude normalisation: power-preserving across A+B mix.
+            // Per-voice sub phase increment (half-frequency = one octave below).
+            const sub_phase_inc = base_freq * 0.5 / self.sample_rate;
+
+            // Noise color: one-pole LP pole coefficient. color=1 → white, color=0 → dark.
+            const noise_lp_a = (1.0 - self.noise_color) * 0.99;
+
+            // Power-preserving normalisation across all sources.
+            const b_pow   = self.osc_b_level * self.osc_b_level * @as(f32, if (self.osc_b_on) 1.0 else 0.0);
+            const sub_pow = self.sub_level * self.sub_level;
+            const nse_pow = self.noise_level * self.noise_level;
+            const mix_norm = 1.0 / @sqrt(1.0 + b_pow + sub_pow + nse_pow);
+
             const scale_a = 1.0 / @sqrt(@as(f32, @floatFromInt(n_a)));
             const scale_b = if (n_b > 0) 1.0 / @sqrt(@as(f32, @floatFromInt(n_b))) else 0.0;
-            // At osc_b_level=0 → norm=1; at osc_b_level=1 → norm=1/√2.
-            const mix_norm = 1.0 / @sqrt(1.0 + self.osc_b_level * self.osc_b_level *
-                @as(f32, if (self.osc_b_on) 1.0 else 0.0));
 
             for (0..frames) |i| {
-                // OSC A: sum unison.
-                var osc_sum: f32 = 0.0;
+                // OSC A: sum detuned unison voices.
+                var a_out: f32 = 0.0;
                 for (0..n_a) |ui| {
-                    osc_sum += self.oscSampleA(v.phases[ui]);
+                    a_out += self.oscSampleA(v.phases[ui]);
                     v.phases[ui] += phase_incs_a[ui];
                     if (v.phases[ui] >= 1.0) v.phases[ui] -= 1.0;
                 }
-                var osc = osc_sum * scale_a;
 
-                // OSC B: sum unison, add into mix.
+                // OSC B: sum detuned unison voices.
+                var b_out: f32 = 0.0;
                 if (self.osc_b_on) {
                     var sum_b: f32 = 0.0;
                     for (0..n_b) |ui| {
@@ -386,8 +413,29 @@ pub const PolySynth = struct {
                         v.phases_b[ui] += phase_incs_b[ui];
                         if (v.phases_b[ui] >= 1.0) v.phases_b[ui] -= 1.0;
                     }
-                    osc = (osc + sum_b * scale_b * self.osc_b_level) * mix_norm;
+                    b_out = sum_b * scale_b * self.osc_b_level;
                 }
+
+                // Sub oscillator: sine or square at -1 octave, no unison.
+                var sub_out: f32 = 0.0;
+                if (self.sub_level > 0.0) {
+                    sub_out = (switch (self.sub_shape) {
+                        .sine   => @sin(2.0 * std.math.pi * v.sub_phase),
+                        .square => if (v.sub_phase < 0.5) @as(f32, 1.0) else @as(f32, -1.0),
+                    }) * self.sub_level;
+                    v.sub_phase += sub_phase_inc;
+                    if (v.sub_phase >= 1.0) v.sub_phase -= 1.0;
+                }
+
+                // Noise oscillator: xorshift32 → one-pole LP for color.
+                var nse_out: f32 = 0.0;
+                if (self.noise_level > 0.0) {
+                    const raw = nextNoise(&v.noise_rand_state);
+                    v.noise_lp = (1.0 - noise_lp_a) * raw + noise_lp_a * v.noise_lp;
+                    nse_out = v.noise_lp * self.noise_level;
+                }
+
+                const osc = (a_out * scale_a + b_out + sub_out + nse_out) * mix_norm;
 
                 // Filter (OSC → FILTER → AMP)
                 const filt = fc.b0 * osc
@@ -481,6 +529,15 @@ pub const PolySynth = struct {
                 .a2 = (1.0 - alpha) * a0_inv,
             },
         };
+    }
+
+    /// Xorshift32 white noise, returns [-1, 1).
+    fn nextNoise(state: *u32) f32 {
+        state.* ^= state.* << 13;
+        state.* ^= state.* >> 17;
+        state.* ^= state.* << 5;
+        const i: i32 = @bitCast(state.*);
+        return @as(f32, @floatFromInt(i)) * (1.0 / 2147483648.0);
     }
 
     fn lfoSample(shape: LfoShape, phase: f32) f32 {

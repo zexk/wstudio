@@ -414,8 +414,16 @@ pub const App = struct {
             } else switch (synth.voice_mode) {
                 .poly => .legato, .mono => .poly, .legato => .mono,
             },
-            30 => synth.glide_s             = std.math.clamp(synth.glide_s             + s * 0.01, 0.0,   10.0),
-            31 => synth.gain                = std.math.clamp(synth.gain                + s * 0.01, 0.01,   1.0),
+            30 => synth.glide_s     = std.math.clamp(synth.glide_s     + s * 0.01, 0.0,  10.0),
+            31 => synth.sub_level   = std.math.clamp(synth.sub_level   + s * 0.01, 0.0,   1.0),
+            32 => synth.sub_shape   = if (steps > 0) switch (synth.sub_shape) {
+                .sine => .square, .square => .sine,
+            } else switch (synth.sub_shape) {
+                .sine => .square, .square => .sine,
+            },
+            33 => synth.noise_level = std.math.clamp(synth.noise_level + s * 0.01, 0.0,   1.0),
+            34 => synth.noise_color = std.math.clamp(synth.noise_color + s * 0.01, 0.0,   1.0),
+            35 => synth.gain        = std.math.clamp(synth.gain        + s * 0.01, 0.01,  1.0),
             else => {},
         }
     }

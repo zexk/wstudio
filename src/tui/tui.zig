@@ -24,8 +24,10 @@ pub const spectrum_band_count: usize = 80;
 /// FENV  : 21:fenv_attack 22:fenv_decay 23:fenv_sustain 24:fenv_release
 /// LFO   : 25:lfo_shape 26:lfo_rate 27:lfo_depth 28:lfo_target
 /// VOICE : 29:voice_mode 30:glide
-/// OUT   : 31:gain
-pub const synth_param_count: u8 = 32;
+/// SUB   : 31:sub_level 32:sub_shape
+/// NOISE : 33:noise_level 34:noise_color
+/// OUT   : 35:gain
+pub const synth_param_count: u8 = 36;
 
 // ---------------------------------------------------------------------------
 // Palette — all colour codes go here; never raw \x1b sequences elsewhere
@@ -928,11 +930,84 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, snap: engin
         try endLine(w);
     }
 
+    // ── SUB ──────────────────────────────────────
+    try synthSection(w, "SUB");
+
+    // param 31: sub_level
+    {
+        const is_sel  = (app.synth_cursor == 31);
+        const active  = synth.sub_level > 0.0;
+        if (is_sel) try w.writeAll(sel);
+        if (!is_sel and !active) try w.writeAll(dim);
+        try w.writeAll("  level    ");
+        try synthBar(w, synth.sub_level, 1.0);
+        if (synth.sub_level == 0.0) try w.writeAll("  off")
+        else try w.print("  {d:.2}", .{synth.sub_level});
+        if (!is_sel and !active) try w.writeAll(rst);
+        try endLine(w);
+    }
+
+    // param 32: sub_shape
+    {
+        const is_sel  = (app.synth_cursor == 32);
+        const b_active = synth.sub_level > 0.0;
+        if (is_sel) try w.writeAll(sel);
+        if (!is_sel and !b_active) try w.writeAll(dim);
+        try w.writeAll("  shape      ");
+        const sh_names = [_][]const u8{ "sine", "sqr" };
+        const sh_idx: usize = switch (synth.sub_shape) { .sine => 0, .square => 1 };
+        for (sh_names, 0..) |nm, i| {
+            if (i == sh_idx) {
+                if (!is_sel and b_active) try w.writeAll(acc ++ bold);
+                try w.print("[{s: <5}]", .{nm});
+                if (!is_sel and b_active) try w.writeAll(rst);
+            } else {
+                try w.print(" {s: <5} ", .{nm});
+            }
+        }
+        if (!is_sel and !b_active) try w.writeAll(rst);
+        try endLine(w);
+    }
+
+    // ── NOISE ────────────────────────────────────
+    try synthSection(w, "NOISE");
+
+    // param 33: noise_level
+    {
+        const is_sel = (app.synth_cursor == 33);
+        const active = synth.noise_level > 0.0;
+        if (is_sel) try w.writeAll(sel);
+        if (!is_sel and !active) try w.writeAll(dim);
+        try w.writeAll("  level    ");
+        try synthBar(w, synth.noise_level, 1.0);
+        if (synth.noise_level == 0.0) try w.writeAll("  off")
+        else try w.print("  {d:.2}", .{synth.noise_level});
+        if (!is_sel and !active) try w.writeAll(rst);
+        try endLine(w);
+    }
+
+    // param 34: noise_color
+    {
+        const is_sel = (app.synth_cursor == 34);
+        const active = synth.noise_level > 0.0;
+        if (is_sel) try w.writeAll(sel);
+        if (!is_sel and !active) try w.writeAll(dim);
+        try w.writeAll("  color    ");
+        try synthBar(w, synth.noise_color, 1.0);
+        try w.print("  {d:.2}", .{synth.noise_color});
+        const hint: []const u8 = if (synth.noise_color < 0.33) "  dark"
+            else if (synth.noise_color > 0.66) "  white"
+            else "  warm";
+        try w.writeAll(hint);
+        if (!is_sel and !active) try w.writeAll(rst);
+        try endLine(w);
+    }
+
     // ── OUT ──────────────────────────────────────
     try synthSection(w, "OUT");
 
     {
-        const is_sel = (app.synth_cursor == 31);
+        const is_sel = (app.synth_cursor == 35);
         if (is_sel) try w.writeAll(sel);
         try w.writeAll("  gain     ");
         try synthBar(w, synth.gain, 1.0);
@@ -940,8 +1015,8 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, snap: engin
         try endLine(w);
     }
 
-    // 1 title + 8 sections + 32 params = 41 content rows
-    const used: usize = 41;
+    // 1 title + 10 sections + 36 params = 47 content rows
+    const used: usize = 47;
     for (used..@max(used, rows -| 3)) |_| try endLine(w);
 }
 
@@ -959,6 +1034,8 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer) !void {
         "f.attack", "f.decay", "f.sustain", "f.release",
         "lfo.shape", "lfo.rate", "lfo.depth", "lfo.target",
         "voice.mode", "glide",
+        "sub.level", "sub.shape",
+        "noise.level", "noise.color",
         "gain",
     };
     const cur = @min(@as(usize, app.synth_cursor), labels.len - 1);
@@ -1015,7 +1092,13 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer) !void {
         }),
         30 => if (synth.glide_s == 0.0) try w.writeAll("off")
               else try w.print("{d:.3} s",  .{synth.glide_s}),
-        31 => try w.print("{d:.3}",        .{synth.gain}),
+        31 => if (synth.sub_level == 0.0) try w.writeAll("off")
+              else try w.print("{d:.2}",    .{synth.sub_level}),
+        32 => try w.writeAll(switch (synth.sub_shape) { .sine => "sine", .square => "sqr" }),
+        33 => if (synth.noise_level == 0.0) try w.writeAll("off")
+              else try w.print("{d:.2}",    .{synth.noise_level}),
+        34 => try w.print("{d:.2}",        .{synth.noise_color}),
+        35 => try w.print("{d:.3}",        .{synth.gain}),
         else => {},
     }
     try w.writeAll(rst);
