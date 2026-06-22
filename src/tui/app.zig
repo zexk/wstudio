@@ -351,16 +351,27 @@ pub const App = struct {
             } else switch (synth.waveform) {
                 .sine => .square, .saw => .sine, .triangle => .saw, .square => .triangle,
             },
-            1  => synth.detune_cents  = std.math.clamp(synth.detune_cents  + s * 1.0,   -100.0, 100.0),
-            2  => synth.unison        = @intCast(std.math.clamp(@as(i32, synth.unison) + steps, 1, 8)),
-            3  => synth.unison_detune = std.math.clamp(synth.unison_detune + s * 1.0,    0.0,  100.0),
-            4  => synth.attack_s      = std.math.clamp(synth.attack_s      + s * 0.001,  0.001, 5.0),
-            5  => synth.decay_s       = std.math.clamp(synth.decay_s       + s * 0.005,  0.001, 5.0),
-            6  => synth.sustain       = std.math.clamp(synth.sustain       + s * 0.01,   0.0,   1.0),
-            7  => synth.release_s     = std.math.clamp(synth.release_s     + s * 0.005,  0.001, 10.0),
-            8  => synth.filter_cutoff = std.math.clamp(synth.filter_cutoff + s * 100.0,  20.0,  20_000.0),
-            9  => synth.filter_res    = std.math.clamp(synth.filter_res    + s * 0.01,   0.0,   1.0),
-            10 => synth.gain          = std.math.clamp(synth.gain          + s * 0.01,   0.01,  1.0),
+            1  => synth.pulse_width   = std.math.clamp(synth.pulse_width   + s * 0.01,   0.01,  0.99),
+            2  => synth.detune_cents  = std.math.clamp(synth.detune_cents  + s * 1.0,   -100.0, 100.0),
+            3  => synth.unison        = @intCast(std.math.clamp(@as(i32, synth.unison) + steps, 1, 8)),
+            4  => synth.unison_detune = std.math.clamp(synth.unison_detune + s * 1.0,    0.0,  100.0),
+            5  => synth.attack_s      = std.math.clamp(synth.attack_s      + s * 0.001,  0.001, 5.0),
+            6  => synth.decay_s       = std.math.clamp(synth.decay_s       + s * 0.005,  0.001, 5.0),
+            7  => synth.sustain       = std.math.clamp(synth.sustain       + s * 0.01,   0.0,   1.0),
+            8  => synth.release_s     = std.math.clamp(synth.release_s     + s * 0.005,  0.001, 10.0),
+            9 => synth.filter_type = if (steps > 0) switch (synth.filter_type) {
+                .lp => .hp, .hp => .bp, .bp => .notch, .notch => .lp,
+            } else switch (synth.filter_type) {
+                .lp => .notch, .hp => .lp, .bp => .hp, .notch => .bp,
+            },
+            10 => synth.filter_cutoff = std.math.clamp(synth.filter_cutoff + s * 100.0,  20.0,  20_000.0),
+            11 => synth.filter_res    = std.math.clamp(synth.filter_res    + s * 0.01,   0.0,   1.0),
+            12 => synth.fenv_amount   = std.math.clamp(synth.fenv_amount   + s * 0.1,   -4.0,   4.0),
+            13 => synth.fenv_attack_s  = std.math.clamp(synth.fenv_attack_s  + s * 0.001, 0.001, 5.0),
+            14 => synth.fenv_decay_s   = std.math.clamp(synth.fenv_decay_s   + s * 0.005, 0.001, 5.0),
+            15 => synth.fenv_sustain   = std.math.clamp(synth.fenv_sustain   + s * 0.01,  0.0,   1.0),
+            16 => synth.fenv_release_s = std.math.clamp(synth.fenv_release_s + s * 0.005, 0.001, 10.0),
+            17 => synth.gain           = std.math.clamp(synth.gain           + s * 0.01,  0.01,  1.0),
             else => {},
         }
     }
@@ -1178,11 +1189,11 @@ test "synth editor jk moves cursor, hl adjusts waveform" {
 
     app.handleKey(.{ .char = 'l' }, 0); // next waveform
     const synth = &app.racks.items[0].instrument.poly_synth;
-    try std.testing.expect(synth.waveform != .saw); // was saw by default → now square
+    try std.testing.expect(synth.waveform != .saw); // was saw by default → now triangle
 
-    // jj → detune(1), jj → unison(2), jj → uni.det(3), jj → attack(4)
-    for (0..4) |_| app.handleKey(.{ .char = 'j' }, 0);
-    try std.testing.expectEqual(@as(u8, 4), app.synth_cursor);
+    // j×5 → pls.width(1) → detune(2) → unison(3) → uni.det(4) → attack(5)
+    for (0..5) |_| app.handleKey(.{ .char = 'j' }, 0);
+    try std.testing.expectEqual(@as(u8, 5), app.synth_cursor);
 
     const old_attack = synth.attack_s;
     app.handleKey(.{ .char = 'l' }, 0); // increase attack

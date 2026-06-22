@@ -16,8 +16,13 @@ const engine_mod = @import("../audio/engine.zig");
 
 pub const spectrum_rows: usize = 18;
 pub const spectrum_band_count: usize = 80;
-/// Number of editable synth parameters (waveform, detune, unison, ADSR, filter, gain).
-pub const synth_param_count: u8 = 11;
+/// Number of editable synth parameters.
+/// 0:waveform 1:pulse_width 2:detune 3:unison 4:uni.det
+/// 5:attack 6:decay 7:sustain 8:release
+/// 9:filter_type 10:cutoff 11:res 12:fenv_amount
+/// 13:fenv_attack 14:fenv_decay 15:fenv_sustain 16:fenv_release
+/// 17:gain
+pub const synth_param_count: u8 = 18;
 
 // ---------------------------------------------------------------------------
 // Palette — all colour codes go here; never raw \x1b sequences elsewhere
@@ -589,7 +594,7 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, snap: engin
     // ── OSC ──────────────────────────────────────
     try synthSection(w, "OSC");
 
-    // Waveform row (param 0)
+    // param 0: waveform
     {
         const is_sel = (app.synth_cursor == 0);
         if (is_sel) try w.writeAll(sel);
@@ -612,11 +617,24 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, snap: engin
         try endLine(w);
     }
 
-    // Detune + unison rows (params 1–3)
+    // param 1: pulse width (only meaningful for square)
+    {
+        const is_sel = (app.synth_cursor == 1);
+        if (is_sel) try w.writeAll(sel);
+        const active_sqr = synth.waveform == .square;
+        if (!is_sel and !active_sqr) try w.writeAll(dim);
+        try w.writeAll("  pls.width ");
+        try synthBar(w, synth.pulse_width, 1.0);
+        try w.print("  {d:.2}", .{synth.pulse_width});
+        if (!is_sel and !active_sqr) try w.writeAll(rst);
+        try endLine(w);
+    }
+
+    // params 2–4: detune, unison, uni.det
     const osc_rows = [_]struct { label: []const u8, idx: u8, bar: f32, bar_max: f32, disp: f32 }{
-        .{ .label = "detune",  .idx = 1, .bar = synth.detune_cents + 100.0, .bar_max = 200.0,  .disp = synth.detune_cents  },
-        .{ .label = "unison",  .idx = 2, .bar = @floatFromInt(synth.unison),.bar_max = 8.0,    .disp = @floatFromInt(synth.unison) },
-        .{ .label = "uni.det", .idx = 3, .bar = synth.unison_detune,        .bar_max = 100.0,  .disp = synth.unison_detune },
+        .{ .label = "detune",  .idx = 2, .bar = synth.detune_cents + 100.0, .bar_max = 200.0,  .disp = synth.detune_cents  },
+        .{ .label = "unison",  .idx = 3, .bar = @floatFromInt(synth.unison),.bar_max = 8.0,    .disp = @floatFromInt(synth.unison) },
+        .{ .label = "uni.det", .idx = 4, .bar = synth.unison_detune,        .bar_max = 100.0,  .disp = synth.unison_detune },
     };
     for (osc_rows, 0..) |p, ri| {
         const is_sel = (app.synth_cursor == p.idx);
@@ -636,10 +654,10 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, snap: engin
     try synthSection(w, "ENV");
 
     const env_rows = [_]struct { label: []const u8, idx: u8, bar: f32, bar_max: f32, disp: f32 }{
-        .{ .label = "attack",  .idx = 4, .bar = synth.attack_s,  .bar_max = 5.0,  .disp = synth.attack_s  },
-        .{ .label = "decay",   .idx = 5, .bar = synth.decay_s,   .bar_max = 5.0,  .disp = synth.decay_s   },
-        .{ .label = "sustain", .idx = 6, .bar = synth.sustain,   .bar_max = 1.0,  .disp = synth.sustain   },
-        .{ .label = "release", .idx = 7, .bar = synth.release_s, .bar_max = 10.0, .disp = synth.release_s },
+        .{ .label = "attack",  .idx = 5, .bar = synth.attack_s,  .bar_max = 5.0,  .disp = synth.attack_s  },
+        .{ .label = "decay",   .idx = 6, .bar = synth.decay_s,   .bar_max = 5.0,  .disp = synth.decay_s   },
+        .{ .label = "sustain", .idx = 7, .bar = synth.sustain,   .bar_max = 1.0,  .disp = synth.sustain   },
+        .{ .label = "release", .idx = 8, .bar = synth.release_s, .bar_max = 10.0, .disp = synth.release_s },
     };
     for (env_rows, 0..) |p, ri| {
         const is_sel = (app.synth_cursor == p.idx);
@@ -656,9 +674,33 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, snap: engin
     // ── FILTER ───────────────────────────────────
     try synthSection(w, "FILTER");
 
+    // param 9: filter type
+    {
+        const is_sel = (app.synth_cursor == 9);
+        if (is_sel) try w.writeAll(sel);
+        try w.writeAll("  type       ");
+        const ft_names = [_][]const u8{ "lp", "hp", "bp", "ntch" };
+        const ft_idx: usize = switch (synth.filter_type) {
+            .lp => 0, .hp => 1, .bp => 2, .notch => 3,
+        };
+        for (ft_names, 0..) |nm, i| {
+            if (i == ft_idx) {
+                if (!is_sel) try w.writeAll(acc ++ bold);
+                try w.print("[{s: <5}]", .{nm});
+                if (!is_sel) try w.writeAll(rst);
+            } else {
+                if (!is_sel) try w.writeAll(dim);
+                try w.print(" {s: <5} ", .{nm});
+                if (!is_sel) try w.writeAll(rst);
+            }
+        }
+        try endLine(w);
+    }
+
+    // params 10–11: cutoff, res
     const flt_rows = [_]struct { label: []const u8, idx: u8, bar: f32, bar_max: f32, disp: f32 }{
-        .{ .label = "cutoff", .idx = 8, .bar = synth.filter_cutoff, .bar_max = 20_000.0, .disp = synth.filter_cutoff },
-        .{ .label = "res",    .idx = 9, .bar = synth.filter_res,    .bar_max = 1.0,      .disp = synth.filter_res    },
+        .{ .label = "cutoff", .idx = 10, .bar = synth.filter_cutoff, .bar_max = 20_000.0, .disp = synth.filter_cutoff },
+        .{ .label = "res",    .idx = 11, .bar = synth.filter_res,    .bar_max = 1.0,      .disp = synth.filter_res    },
     };
     for (flt_rows, 0..) |p, ri| {
         const is_sel = (app.synth_cursor == p.idx);
@@ -672,11 +714,43 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, snap: engin
         try endLine(w);
     }
 
+    // param 12: fenv amount (bipolar; centre bar = 0)
+    {
+        const is_sel = (app.synth_cursor == 12);
+        if (is_sel) try w.writeAll(sel);
+        try w.writeAll("  f.env.amt ");
+        try synthBar(w, synth.fenv_amount + 4.0, 8.0);
+        const sign: []const u8 = if (synth.fenv_amount >= 0.0) "+" else "";
+        try w.print("  {s}{d:.1} oct", .{ sign, synth.fenv_amount });
+        try endLine(w);
+    }
+
+    // ── FENV ─────────────────────────────────────
+    try synthSection(w, "FENV");
+
+    const fenv_rows = [_]struct { label: []const u8, idx: u8, bar: f32, bar_max: f32, disp: f32 }{
+        .{ .label = "f.attack",  .idx = 13, .bar = synth.fenv_attack_s,  .bar_max = 5.0,  .disp = synth.fenv_attack_s  },
+        .{ .label = "f.decay",   .idx = 14, .bar = synth.fenv_decay_s,   .bar_max = 5.0,  .disp = synth.fenv_decay_s   },
+        .{ .label = "f.sustain", .idx = 15, .bar = synth.fenv_sustain,   .bar_max = 1.0,  .disp = synth.fenv_sustain   },
+        .{ .label = "f.release", .idx = 16, .bar = synth.fenv_release_s, .bar_max = 10.0, .disp = synth.fenv_release_s },
+    };
+    for (fenv_rows, 0..) |p, ri| {
+        const is_sel = (app.synth_cursor == p.idx);
+        if (is_sel) try w.writeAll(sel);
+        try w.print("  {s: <9}", .{p.label});
+        try synthBar(w, p.bar, p.bar_max);
+        switch (ri) {
+            2 => try w.print("  {d:.3}", .{p.disp}),
+            else => try w.print("  {d:.3} s", .{p.disp}),
+        }
+        try endLine(w);
+    }
+
     // ── OUT ──────────────────────────────────────
     try synthSection(w, "OUT");
 
     {
-        const is_sel = (app.synth_cursor == 10);
+        const is_sel = (app.synth_cursor == 17);
         if (is_sel) try w.writeAll(sel);
         try w.writeAll("  gain     ");
         try synthBar(w, synth.gain, 1.0);
@@ -684,8 +758,8 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, snap: engin
         try endLine(w);
     }
 
-    // 1 title + 4 sections + 11 params = 16 content rows
-    const used: usize = 16;
+    // 1 title + 5 sections + 18 params = 24 content rows
+    const used: usize = 24;
     for (used..@max(used, rows -| 3)) |_| try endLine(w);
 }
 
@@ -696,9 +770,11 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer) !void {
     const synth = &rack.instrument.poly_synth;
 
     const labels = [_][]const u8{
-        "waveform", "detune", "unison", "uni.det",
+        "waveform", "pls.width", "detune", "unison", "uni.det",
         "attack", "decay", "sustain", "release",
-        "cutoff", "res", "gain",
+        "filt.type", "cutoff", "res", "f.env.amt",
+        "f.attack", "f.decay", "f.sustain", "f.release",
+        "gain",
     };
     const cur = @min(@as(usize, app.synth_cursor), labels.len - 1);
     try w.writeAll(grn ++ sel ++ " SYNTH " ++ rst);
@@ -710,16 +786,28 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer) !void {
         0  => try w.writeAll(switch (synth.waveform) {
             .sine => "sine", .saw => "saw", .triangle => "tri", .square => "sqr",
         }),
-        1  => try w.print("{d:.0} ct",  .{synth.detune_cents}),
-        2  => try w.print("{d}",         .{synth.unison}),
-        3  => try w.print("{d:.1} ct",  .{synth.unison_detune}),
-        4  => try w.print("{d:.3} s",   .{synth.attack_s}),
-        5  => try w.print("{d:.3} s",   .{synth.decay_s}),
-        6  => try w.print("{d:.3}",     .{synth.sustain}),
-        7  => try w.print("{d:.3} s",   .{synth.release_s}),
-        8  => try w.print("{d:.0} Hz",  .{synth.filter_cutoff}),
-        9  => try w.print("{d:.3}",     .{synth.filter_res}),
-        10 => try w.print("{d:.3}",     .{synth.gain}),
+        1  => try w.print("{d:.2}",      .{synth.pulse_width}),
+        2  => try w.print("{d:.0} ct",   .{synth.detune_cents}),
+        3  => try w.print("{d}",          .{synth.unison}),
+        4  => try w.print("{d:.1} ct",   .{synth.unison_detune}),
+        5  => try w.print("{d:.3} s",    .{synth.attack_s}),
+        6  => try w.print("{d:.3} s",    .{synth.decay_s}),
+        7  => try w.print("{d:.3}",      .{synth.sustain}),
+        8  => try w.print("{d:.3} s",    .{synth.release_s}),
+        9  => try w.writeAll(switch (synth.filter_type) {
+            .lp => "lp", .hp => "hp", .bp => "bp", .notch => "notch",
+        }),
+        10 => try w.print("{d:.0} Hz",   .{synth.filter_cutoff}),
+        11 => try w.print("{d:.3}",      .{synth.filter_res}),
+        12 => {
+            const sign: []const u8 = if (synth.fenv_amount >= 0.0) "+" else "";
+            try w.print("{s}{d:.1} oct",  .{ sign, synth.fenv_amount });
+        },
+        13 => try w.print("{d:.3} s",    .{synth.fenv_attack_s}),
+        14 => try w.print("{d:.3} s",    .{synth.fenv_decay_s}),
+        15 => try w.print("{d:.3}",      .{synth.fenv_sustain}),
+        16 => try w.print("{d:.3} s",    .{synth.fenv_release_s}),
+        17 => try w.print("{d:.3}",      .{synth.gain}),
         else => {},
     }
     try w.writeAll(rst);
