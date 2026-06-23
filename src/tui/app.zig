@@ -717,7 +717,7 @@ pub const App = struct {
             .none, .octave_up, .octave_down => {},
             .goto_end => {
                 var max_beats: f64 = 0;
-                for (self.racks.items) |*rack| {
+                for (self.racks.items) |rack| {
                     if (rack.pattern_player) |pp| max_beats = @max(max_beats, pp.length_beats);
                 }
                 const dm_beats = @as(f64, @floatFromInt(self.drumMachine().step_count)) / 4.0;
@@ -1222,8 +1222,8 @@ pub const App = struct {
             .synth_editor    => try tui.drawSynthEditor(self, w, rows, snap),
             .piano_roll      => try tui.drawPianoRoll(self, w, rows, snap),
             .help            => try tui.drawHelp(w, rows, cmds),
-            .track_spectrum  => try tui.drawSpectrumView(self, w, rows, snap, true),
-            .master_spectrum => try tui.drawSpectrumView(self, w, rows, snap, false),
+            .track_spectrum  => try tui.drawSpectrumView(self, w, rows, size.cols, snap, true),
+            .master_spectrum => try tui.drawSpectrumView(self, w, rows, size.cols, snap, false),
         }
 
         var transport: Transport = .{
@@ -1407,7 +1407,7 @@ test "drum grid step toggle" {
     try std.testing.expect(app.drumMachine().stepActive(0, 0));
 
     app.drum_cursor = .{ 0, 0 };
-    _ = app.handleDrumKey(.{ .char = ' ' });
+    _ = app.handleDrumKey(.enter);
     try std.testing.expect(!app.drumMachine().stepActive(0, 0));
 }
 

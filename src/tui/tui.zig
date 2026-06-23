@@ -207,7 +207,7 @@ pub fn drawTracks(app: anytype, w: *std.Io.Writer, rows: usize, snap: engine_mod
         try endLine(w);
     }
 
-    const used = 2 + app.project.tracks.items.len;
+    const used = 3 + app.project.tracks.items.len;
     for (used..@max(used, rows -| 3)) |_| try endLine(w);
 }
 
@@ -372,6 +372,7 @@ pub fn drawSpectrumView(
     app: anytype,
     w: *std.Io.Writer,
     rows: usize,
+    cols: usize,
     snap: engine_mod.UiSnapshot,
     is_track: bool,
 ) !void {
@@ -390,14 +391,24 @@ pub fn drawSpectrumView(
     else
         app.engine.masterSpectrumSnapshot();
 
+    // Pre-check whether the EQ row will be drawn so visual_rows can be sized correctly.
+    const has_eq = is_track and
+        app.eq_track < app.racks.items.len and
+        app.racks.items[app.eq_track].fx.eq != null;
+    const eq_row: usize = if (has_eq) 1 else 0;
+
+    // 1 header + visual_rows spectrum + 1 hz label + eq_row must fit in rows-5.
+    const visual_rows = @min(spectrum_rows, rows -| (7 + eq_row));
+    // Limit band count to available horizontal space (3-char indent + bands).
+    const draw_bands = @min(spectrum_band_count, cols -| 5);
+
+    const db_range: f32 = 70.0;
+    const db_offset: f32 = -60.0;
+
     try w.writeAll(bold ++ " SPECTRUM" ++ rst);
     try w.print(" \"{s}\"", .{title});
     try w.writeAll(dim ++ "  [jk:gain  hl:select  b:bypass  esc:back]");
     try endLine(w);
-
-    const visual_rows = @min(spectrum_rows, rows -| 5);
-    const db_range: f32 = 70.0;
-    const db_offset: f32 = -60.0;
 
     for (0..visual_rows) |visual_row_inv| {
         const visual_row = visual_rows - 1 - visual_row_inv;
@@ -421,7 +432,7 @@ pub fn drawSpectrumView(
         }
 
         if (spectrum_snap) |ssnap| {
-            for (0..spectrum_band_count) |band| {
+            for (0..draw_bands) |band| {
                 const db_val = ssnap.bins[band];
                 const raw = (db_val - db_offset) / db_range;
                 const norm = if (std.math.isNan(raw)) 0.0 else std.math.clamp(raw, 0.0, 1.0);
@@ -450,7 +461,7 @@ pub fn drawSpectrumView(
             }
         } else {
             try w.writeAll(dim);
-            for (0..spectrum_band_count) |_| {
+            for (0..draw_bands) |_| {
                 var utf8_buf: [4]u8 = undefined;
                 const utf8_len = std.unicode.utf8Encode(brailleBarInv(0), &utf8_buf) catch unreachable;
                 try w.writeAll(utf8_buf[0..utf8_len]);
@@ -475,10 +486,10 @@ pub fn drawSpectrumView(
     };
 
     var fi: usize = 0;
-    for (0..spectrum_band_count) |band| {
+    for (0..draw_bands) |band| {
         if (fi < freq_labels.len and band == freq_labels[fi].idx) {
             const label = freq_labels[fi].label;
-            if (band + label.len < spectrum_band_count) {
+            if (band + label.len < draw_bands) {
                 try w.writeAll(label);
                 fi += 1;
             } else {
@@ -490,24 +501,28 @@ pub fn drawSpectrumView(
     }
     try endLine(w);
 
-    if (is_track and app.eq_track < app.racks.items.len) {
-        if (app.racks.items[app.eq_track].fx.eq) |*e| {
-            const bypass_str: []const u8 = if (e.bypass) " [BYPASS]" else "";
-            try w.writeAll(bold ++ " EQ" ++ rst);
-            try w.writeAll(red);
-            try w.writeAll(bypass_str);
-            try w.writeAll(rst ++ "  ");
-            for (0..eq_mod.num_eq_bands) |b| {
-                const is_cur = (b == app.eq_cursor);
-                const val = e.bands[b].gain_db;
-                if (is_cur) try w.writeAll(acc ++ bold);
-                const marker: []const u8 = if (is_cur) ">" else " ";
-                try w.print("{s}{d: <4.0}", .{ marker, val });
-                if (is_cur) try w.writeAll(rst);
-            }
-            try endLine(w);
+    if (has_eq) {
+        const e = &app.racks.items[app.eq_track].fx.eq.?;
+        const bypass_str: []const u8 = if (e.bypass) " [BYPASS]" else "";
+        try w.writeAll(bold ++ " EQ" ++ rst);
+        try w.writeAll(red);
+        try w.writeAll(bypass_str);
+        try w.writeAll(rst ++ "  ");
+        for (0..eq_mod.num_eq_bands) |b| {
+            const is_cur = (b == app.eq_cursor);
+            const val = e.bands[b].gain_db;
+            if (is_cur) try w.writeAll(acc ++ bold);
+            const marker: []const u8 = if (is_cur) ">" else " ";
+            try w.print("{s}{d: <4.0}", .{ marker, val });
+            if (is_cur) try w.writeAll(rst);
         }
+        try endLine(w);
     }
+
+    // Pad to fill the view's row budget (rows-5) so the footer stays pinned.
+    // lines written: 1 (header) + visual_rows + 1 (hz label) + eq_row = 2 + visual_rows + eq_row
+    const used = 4 + visual_rows + eq_row; // "+2 over lines-written" matches other views
+    for (used..@max(used, rows -| 3)) |_| try endLine(w);
 }
 
 // ---------------------------------------------------------------------------
