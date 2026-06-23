@@ -377,11 +377,14 @@ pub const App = struct {
                     'l' => { if (step.* + 1 < self.drumMachine().step_count) step.* += 1; },
                     'k' => if (pad.* > 0) { pad.* -= 1; },
                     'j' => if (pad.* < DrumMachine.max_pads - 1) { pad.* += 1; },
-                    'p' => _ = self.engine.send(.{ .note_on = .{
-                        .track = self.drum_track,
-                        .note = @intCast(pad.*),
-                        .velocity = 0.9,
-                    } }),
+                    'p' => {
+                        _ = self.engine.send(.{ .note_on = .{
+                            .track = self.drum_track,
+                            .note = @intCast(pad.*),
+                            .velocity = 0.9,
+                        } });
+                        self.setStatus("preview: pad {d}", .{pad.* + 1});
+                    },
                     '<' => {
                         const dm = self.drumMachine();
                         dm.setStepCount(dm.step_count - 1);
@@ -410,6 +413,7 @@ pub const App = struct {
             .char => |c| switch (c) {
                 // Block insert mode — piano keys conflict with parameter navigation.
                 'i' => return true,
+                's' => { self.switchToTrackSpectrum(self.synth_track); return true; },
                 'j' => {
                     if (self.synth_cursor < tui.synth_param_count - 1) self.synth_cursor += 1;
                     self.synthUpdateScroll();
@@ -529,6 +533,7 @@ pub const App = struct {
                     self.pianoEnsureVisible();
                     return true;
                 },
+                's' => { self.switchToTrackSpectrum(self.piano_track); return true; },
                 'n' => { self.pianoInsertNote(); return true; },
                 'd' => { self.pianoDeleteNote(); return true; },
                 'e' => {

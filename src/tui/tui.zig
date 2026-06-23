@@ -178,21 +178,27 @@ pub fn drawTracks(app: anytype, w: *std.Io.Writer, rows: usize, snap: engine_mod
                 if (!is_sel and !faded) try w.writeAll(rst);
             }
         }
-        // Gain / pan (dim when unselected; only rendered when non-default)
+        // Gain / pan — always shown; dim at defaults, accented when non-default.
         {
             const gdb = track.gain_db;
             const pan = track.pan;
-            if (gdb != 0.0 or pan != 0.0) {
+            // gain
+            if (gdb == 0.0) {
                 if (!is_sel and !faded) try w.writeAll(dim);
-                if (gdb != 0.0) {
-                    const sign: []const u8 = if (gdb >= 0.0) "+" else "";
-                    try w.print("  {s}{d:.0}dB", .{ sign, gdb });
-                }
-                if (pan != 0.0) {
-                    const pct: i32 = @intFromFloat(@abs(pan) * 100.0);
-                    try w.print("  {s}{d}%", .{ if (pan < 0.0) "L" else "R", pct });
-                }
+                try w.writeAll("  0dB");
                 if (!is_sel and !faded) try w.writeAll(rst);
+            } else {
+                const sign: []const u8 = if (gdb >= 0.0) "+" else "";
+                try w.print("  {s}{d:.0}dB", .{ sign, gdb });
+            }
+            // pan
+            if (pan == 0.0) {
+                if (!is_sel and !faded) try w.writeAll(dim);
+                try w.writeAll("  C");
+                if (!is_sel and !faded) try w.writeAll(rst);
+            } else {
+                const pct: i32 = @intFromFloat(@abs(pan) * 100.0);
+                try w.print("  {s}{d}%", .{ if (pan < 0.0) "L" else "R", pct });
             }
         }
         // keybind hint — dim only when not already faded/selected
@@ -340,12 +346,14 @@ pub fn drawHelp(w: *std.Io.Writer, rows: usize, cmds: []const cmd_mod.Def) !void
     try helpKey(w, "{ / }",        "prev / next section");
     try helpKey(w, "h / l",        "adjust value (fine)");
     try helpKey(w, "H / L",        "adjust value (coarse ×10)");
+    try helpKey(w, "s",            "spectrum + EQ for this track");
 
     try helpSection(w, "PIANO ROLL");
     try helpKey(w, "h / j / k / l","move cursor left/down/up/right");
     try helpKey(w, "n",            "insert note at cursor");
     try helpKey(w, "d",            "delete note at cursor");
     try helpKey(w, "e",            "open synth editor for this track");
+    try helpKey(w, "s",            "spectrum + EQ for this track");
     try helpKey(w, "[ / ]",        "decrease / increase note length");
     try helpKey(w, "+ / -",        "add / remove 1 bar from loop");
 
