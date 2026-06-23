@@ -389,7 +389,8 @@ pub const App = struct {
                     'X' => self.drumMachine().pattern[pad.*].store(0, .release),
                     'F' => {
                         const dm = self.drumMachine();
-                        const mask: u32 = (@as(u32, 1) << @intCast(dm.step_count)) - 1;
+                        const sc = dm.step_count;
+                        const mask: u32 = if (sc >= 32) ~@as(u32, 0) else (@as(u32, 1) << @intCast(sc)) - 1;
                         dm.pattern[pad.*].store(mask, .release);
                     },
                     else => return false,

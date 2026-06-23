@@ -32,7 +32,7 @@ const Voice = struct {
 
 pub const DrumMachine = struct {
     pub const max_pads: u8 = 8;
-    pub const max_steps: u8 = 16;
+    pub const max_steps: u8 = 32;
 
     allocator: std.mem.Allocator,
     sample_rate: u32,
@@ -65,7 +65,8 @@ pub const DrumMachine = struct {
             .transport = transport,
             .pads = [_]?Pad{null} ** max_pads,
             .pattern = undefined,
-            .step_count = max_steps,
+            .step_count = 16, // default 1 bar; user can extend to max_steps with >
+
             .voices = [_]Voice{.{}} ** max_pads,
             .next_step_k = 0,
             .current_step = .init(0),
