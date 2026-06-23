@@ -483,7 +483,10 @@ pub const App = struct {
         if (track >= self.racks.items.len) return;
         switch (self.racks.items[track].instrument) {
             .poly_synth => {},
-            else => return,
+            else => {
+                self.setStatus("piano roll: synth tracks only", .{});
+                return;
+            },
         }
         self.piano_track = track;
         self.piano_cursor_step = 0;
@@ -693,7 +696,17 @@ pub const App = struct {
 
     pub fn applyAction(self: *App, action: modal_mod.Action, now_ns: i96) void {
         switch (action) {
-            .none, .octave_up, .octave_down, .goto_end => {},
+            .none, .octave_up, .octave_down => {},
+            .goto_end => {
+                var max_beats: f64 = 0;
+                for (self.racks.items) |*rack| {
+                    if (rack.pattern_player) |pp| max_beats = @max(max_beats, pp.length_beats);
+                }
+                const dm_beats = @as(f64, @floatFromInt(self.drumMachine().step_count)) / 4.0;
+                max_beats = @max(max_beats, dm_beats);
+                const end_frames: u64 = @intFromFloat(self.engine.transport.framesPerBeat() * max_beats);
+                _ = self.engine.send(.{ .seek_frames = end_frames });
+            },
             .volume_delta => |delta| {
                 self.master_gain_db = std.math.clamp(
                     self.master_gain_db + @as(f32, @floatFromInt(delta)),

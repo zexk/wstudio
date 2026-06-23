@@ -146,7 +146,6 @@ pub const ModalInput = struct {
             },
             'G' => return .goto_end,
             'i' => return self.setMode(.insert),
-            'v' => return self.setMode(if (self.mode == .visual) .normal else .visual),
             ':' => {
                 self.cmd_len = 0;
                 return self.setMode(.command);
