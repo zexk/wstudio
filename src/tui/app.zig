@@ -11,9 +11,6 @@ const Project = ws.Project;
 const Transport = ws.Transport;
 const PolySynth = ws.dsp.PolySynth;
 const PatternPlayer = ws.dsp.PatternPlayer;
-const Compressor = ws.dsp.Compressor;
-const StereoDelay = ws.dsp.StereoDelay;
-const Reverb = ws.dsp.Reverb;
 const DrumMachine = ws.dsp.DrumMachine;
 const GraphicEq = ws.dsp.GraphicEq;
 const eq_mod = ws.dsp.eq;
@@ -92,132 +89,16 @@ pub const App = struct {
     const NoteOff = struct { at_ns: i96, track: u16, note: u7 };
 
     pub fn init(allocator: std.mem.Allocator, io: std.Io) !App {
-        var project = Project.init(allocator);
-        errdefer project.deinit();
-        _ = try project.addTrack(.{ .name = "lead" });
-        _ = try project.addTrack(.{ .name = "e-piano", .gain_db = -3.0 });
-        _ = try project.addTrack(.{ .name = "bass", .gain_db = -3.0 });
-        _ = try project.addTrack(.{ .name = "drums" });
-        const sr = project.sample_rate;
-
-        const engine = try allocator.create(Engine);
-        errdefer allocator.destroy(engine);
-        engine.* = try Engine.init(allocator, sr);
-        errdefer engine.deinit();
-        engine.loadProject(&project);
-
-        var racks: std.ArrayListUnmanaged(*Rack) = .empty;
-        errdefer {
-            for (racks.items) |r| { r.deinit(allocator); allocator.destroy(r); }
-            racks.deinit(allocator);
-        }
-
-        const r0 = try allocator.create(Rack);
-        r0.* = .{ .instrument = .{ .poly_synth = PolySynth.init(sr) }, .label = "supersaw+comp+dly+rev" };
-        // Supersaw: OSC A (7-voice detuned saw) + OSC B (saw sub-layer, -12 st)
-        r0.instrument.poly_synth.waveform       = .saw;
-        r0.instrument.poly_synth.unison         = 7;
-        r0.instrument.poly_synth.unison_detune  = 35.0;
-        r0.instrument.poly_synth.unison_spread  = 0.7;
-        r0.instrument.poly_synth.osc_b_on              = true;
-        r0.instrument.poly_synth.osc_b_waveform        = .saw;
-        r0.instrument.poly_synth.osc_b_semi            = -12.0; // one octave below
-        r0.instrument.poly_synth.osc_b_detune_cents    = 5.0;   // slight detune
-        r0.instrument.poly_synth.osc_b_level           = 0.55;
-        r0.instrument.poly_synth.osc_b_unison          = 2;
-        r0.instrument.poly_synth.osc_b_unison_detune   = 10.0;
-        r0.instrument.poly_synth.filter_cutoff         = 9_000.0;
-        r0.instrument.poly_synth.attack_s              = 0.012;
-        r0.instrument.poly_synth.release_s             = 0.4;
-        r0.fx.comp = Compressor.init(sr);
-        r0.fx.delay = try StereoDelay.init(allocator, sr, 2.0);
-        r0.fx.delay.?.setTime(0.375);
-        r0.fx.reverb = try Reverb.init(allocator, sr);
-        try racks.append(allocator, r0);
-        // PatternPlayer after rack is at final heap address
-        r0.pattern_player = PatternPlayer.init(&r0.instrument.poly_synth, &engine.transport);
-
-        // FM electric piano: sine carrier (A) + sine operator (B, ratio 1:1, fm_b_to_a).
-        // osc_b_level=0 keeps operator out of the mix — it only drives FM.
-        // Fast decay / zero sustain = tine-style.  Small noise = hammer transient.
-        const r1 = try allocator.create(Rack);
-        r1.* = .{ .instrument = .{ .poly_synth = PolySynth.init(sr) }, .label = "fm e-piano" };
-        r1.instrument.poly_synth.waveform         = .sine;
-        r1.instrument.poly_synth.osc_b_on         = true;
-        r1.instrument.poly_synth.osc_b_waveform   = .sine;
-        r1.instrument.poly_synth.osc_b_semi       = 0.0;  // ratio 1:1 operator
-        r1.instrument.poly_synth.osc_b_level      = 0.0;  // operator only, not in mix
-        r1.instrument.poly_synth.mod_mode         = .fm_b_to_a;
-        r1.instrument.poly_synth.mod_amount       = 2.5;  // FM index β
-        r1.instrument.poly_synth.attack_s         = 0.003;
-        r1.instrument.poly_synth.decay_s          = 1.8;
-        r1.instrument.poly_synth.sustain          = 0.0;
-        r1.instrument.poly_synth.release_s        = 0.3;
-        r1.instrument.poly_synth.filter_cutoff    = 8_000.0;
-        r1.instrument.poly_synth.fenv_amount      = 1.2;  // filter opens bright on attack
-        r1.instrument.poly_synth.fenv_attack_s    = 0.005;
-        r1.instrument.poly_synth.fenv_decay_s     = 0.35;
-        r1.instrument.poly_synth.fenv_sustain     = 0.0;
-        r1.instrument.poly_synth.noise_level      = 0.06; // white noise hammer click
-        r1.instrument.poly_synth.noise_color      = 1.0;
-        r1.instrument.poly_synth.gain             = 0.32;
-        r1.fx.reverb = try Reverb.init(allocator, sr);
-        r1.fx.reverb.?.mix = 0.22;
-        try racks.append(allocator, r1);
-        r1.pattern_player = PatternPlayer.init(&r1.instrument.poly_synth, &engine.transport);
-
-        // FM bass: saw carrier (A) + sine operator (B, ratio 1:1, fm_b_to_a).
-        // β=3.5 gives rich harmonics; sine sub anchors the low end; LP filter shapes the growl.
-        const r2 = try allocator.create(Rack);
-        r2.* = .{ .instrument = .{ .poly_synth = PolySynth.init(sr) }, .label = "fm bass" };
-        r2.instrument.poly_synth.waveform         = .saw;
-        r2.instrument.poly_synth.voice_mode       = .mono;
-        r2.instrument.poly_synth.glide_s          = 0.05;
-        r2.instrument.poly_synth.osc_b_on         = true;
-        r2.instrument.poly_synth.osc_b_waveform   = .sine;
-        r2.instrument.poly_synth.osc_b_semi       = 0.0;
-        r2.instrument.poly_synth.osc_b_level      = 0.0;  // operator only
-        r2.instrument.poly_synth.mod_mode         = .fm_b_to_a;
-        r2.instrument.poly_synth.mod_amount       = 3.5;  // high β = growly harmonics
-        r2.instrument.poly_synth.sub_level        = 0.45;
-        r2.instrument.poly_synth.sub_shape        = .sine;
-        r2.instrument.poly_synth.attack_s         = 0.006;
-        r2.instrument.poly_synth.decay_s          = 0.28;
-        r2.instrument.poly_synth.sustain          = 0.6;
-        r2.instrument.poly_synth.release_s        = 0.15;
-        r2.instrument.poly_synth.filter_cutoff    = 1_100.0;
-        r2.instrument.poly_synth.filter_res       = 0.2;
-        r2.instrument.poly_synth.fenv_amount      = 2.2;
-        r2.instrument.poly_synth.fenv_attack_s    = 0.004;
-        r2.instrument.poly_synth.fenv_decay_s     = 0.22;
-        r2.instrument.poly_synth.fenv_sustain     = 0.0;
-        r2.instrument.poly_synth.gain             = 0.40;
-        r2.fx.comp = Compressor.init(sr);
-        try racks.append(allocator, r2);
-        r2.pattern_player = PatternPlayer.init(&r2.instrument.poly_synth, &engine.transport);
-
-        const drum_rack = try allocator.create(Rack);
-        drum_rack.* = .{
-            .instrument = .{ .drum_machine = try DrumMachine.init(allocator, sr, &engine.transport) },
-            .label = "drums",
-        };
-        try racks.append(allocator, drum_rack);
-        const drum_track: u16 = @intCast(racks.items.len - 1);
-
-        var self: App = .{
+        const session = try ws.Session.initDefault(allocator);
+        return .{
             .allocator = allocator,
             .io = io,
-            .project = project,
-            .engine = engine,
-            .racks = racks,
+            .project = session.project,
+            .engine = session.engine,
+            .racks = session.racks,
             .retired_racks = .empty,
-            .drum_track = drum_track,
+            .drum_track = session.drum_track,
         };
-        for (self.racks.items, 0..) |rack, i| {
-            var buf: [6]dsp.Device = undefined;
-            self.engine.setTrackChain(@intCast(i), rack.chain(&buf));
-        }
-        return self;
     }
 
     pub fn deinit(self: *App) void {
