@@ -1,25 +1,26 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const types = @import("../core/types.zig");
-const engine_mod = @import("../audio/engine.zig");
-const backend_mod = @import("../audio/backend.zig");
-const modal_mod = @import("../input/modal.zig");
+const ws = @import("wstudio");
+const types = ws.types;
+const engine_mod = ws.engine;
+const backend_mod = ws.backend;
+const modal_mod = ws.input;
 const terminal_mod = @import("terminal.zig");
-const dsp = @import("../dsp/device.zig");
-const Project = @import("../project.zig").Project;
-const Transport = @import("../transport.zig").Transport;
-const PolySynth = @import("../dsp/synth.zig").PolySynth;
-const PatternPlayer = @import("../dsp/pattern.zig").PatternPlayer;
-const Compressor = @import("../dsp/compressor.zig").Compressor;
-const StereoDelay = @import("../dsp/delay.zig").StereoDelay;
-const Reverb = @import("../dsp/reverb.zig").Reverb;
-const DrumMachine = @import("../dsp/drum_sampler.zig").DrumMachine;
-const GraphicEq = @import("../dsp/eq.zig").GraphicEq;
-const eq_mod = @import("../dsp/eq.zig");
+const dsp = ws.dsp.device;
+const Project = ws.Project;
+const Transport = ws.Transport;
+const PolySynth = ws.dsp.PolySynth;
+const PatternPlayer = ws.dsp.PatternPlayer;
+const Compressor = ws.dsp.Compressor;
+const StereoDelay = ws.dsp.StereoDelay;
+const Reverb = ws.dsp.Reverb;
+const DrumMachine = ws.dsp.DrumMachine;
+const GraphicEq = ws.dsp.GraphicEq;
+const eq_mod = ws.dsp.eq;
 const cmd_mod = @import("cmd.zig");
 const tui = @import("tui.zig");
-const midi = @import("../midi.zig");
-pub const Rack = @import("../rack.zig").Rack;
+const midi = ws.midi;
+pub const Rack = ws.Rack;
 
 const Engine = engine_mod.Engine;
 
@@ -1286,8 +1287,8 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io) !void {
     const config: backend_mod.Config = .{ .sample_rate = app.project.sample_rate };
 
     const has_alsa = builtin.os.tag == .linux;
-    const AlsaBackend = if (has_alsa) @import("../audio/alsa.zig").AlsaBackend else void;
-    const MidiIn     = if (has_alsa) @import("../audio/midi_in.zig").MidiIn else void;
+    const AlsaBackend = if (has_alsa) ws.alsa.AlsaBackend else void;
+    const MidiIn     = if (has_alsa) ws.midi_in.MidiIn else void;
     var alsa_backend: AlsaBackend = undefined;
     var midi_in:     MidiIn       = undefined;
     var null_backend = backend_mod.NullBackend{

@@ -6,14 +6,15 @@
 //! the field accesses there.
 
 const std = @import("std");
-const types = @import("../core/types.zig");
-const Project = @import("../project.zig").Project;
-const Transport = @import("../transport.zig").Transport;
-const DrumMachine = @import("../dsp/drum_sampler.zig").DrumMachine;
-const eq_mod = @import("../dsp/eq.zig");
+const ws = @import("wstudio");
+const types = ws.types;
+const Project = ws.Project;
+const Transport = ws.Transport;
+const DrumMachine = ws.dsp.DrumMachine;
+const eq_mod = ws.dsp.eq;
 const cmd_mod = @import("cmd.zig");
-const engine_mod = @import("../audio/engine.zig");
-const pattern_mod = @import("../dsp/pattern.zig");
+const engine_mod = ws.engine;
+const pattern_mod = ws.dsp.pattern;
 
 pub const spectrum_rows: usize = 18;
 pub const spectrum_band_count: usize = 80;
@@ -648,7 +649,7 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, snap: engin
     // Available rows for the view body (excludes outer header+hr + transport+hr+status).
     const max_rows = rows -| 5;
     // Clamp scroll so cursor row is visible.
-    const cursor_row = @import("../tui/app.zig").App.synthParamRow(app.synth_cursor);
+    const cursor_row = @import("app.zig").App.synthParamRow(app.synth_cursor);
     var scroll = app.synth_scroll;
     if (cursor_row < scroll) scroll = cursor_row;
     if (cursor_row >= scroll + max_rows) scroll = cursor_row -| max_rows + 1;

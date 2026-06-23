@@ -30,12 +30,6 @@ pub const midi = @import("midi.zig");
 pub const input = @import("input/modal.zig");
 pub const ModalInput = input.ModalInput;
 
-pub const tui = struct {
-    pub const terminal = @import("tui/terminal.zig");
-    pub const App = @import("tui/app.zig").App;
-    pub const run = @import("tui/app.zig").run;
-};
-
 test {
     _ = midi;
     _ = midi_in;
@@ -49,6 +43,4 @@ test {
     _ = alsa;
     _ = dsp;
     _ = input;
-    _ = tui.terminal;
-    _ = tui.App;
 }

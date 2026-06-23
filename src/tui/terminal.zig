@@ -3,7 +3,7 @@
 //! std.posix and ANSI escape sequences.
 
 const std = @import("std");
-const Key = @import("../input/modal.zig").Key;
+const Key = @import("wstudio").input.Key;
 
 const esc = "\x1b";
 const enter_alt_screen = esc ++ "[?1049h";

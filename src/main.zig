@@ -13,7 +13,7 @@ pub fn main(init: std.process.Init) !void {
         std.debug.print("unknown command: {s}\nusage: wstudio [render]\n", .{cmd});
         return error.UnknownCommand;
     }
-    return ws.tui.run(init.gpa, init.io);
+    return @import("tui/app.zig").run(init.gpa, init.io);
 }
 
 const out_path = "out.wav";
@@ -117,6 +117,12 @@ fn renderDemo(allocator: std.mem.Allocator, io: std.Io) !void {
         },
     );
     try stdout.flush();
+}
+
+test {
+    _ = @import("tui/app.zig");
+    _ = @import("tui/tui.zig");
+    _ = @import("tui/terminal.zig");
 }
 
 test "frontend links against the engine library" {
