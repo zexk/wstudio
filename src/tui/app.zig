@@ -368,13 +368,14 @@ pub const App = struct {
         const step = &self.drum_cursor[1];
         switch (key) {
             .escape => { self.view = .tracks; return true; },
+            // enter toggles the step; space falls through to transport play/pause.
+            .enter => { self.drumMachine().toggleStep(pad.*, step.*); return true; },
             .char => |c| {
                 switch (c) {
                     'h' => { if (step.* > 0) step.* -= 1; },
                     'l' => { if (step.* + 1 < self.drumMachine().step_count) step.* += 1; },
                     'k' => if (pad.* > 0) { pad.* -= 1; },
                     'j' => if (pad.* < DrumMachine.max_pads - 1) { pad.* += 1; },
-                    ' ' => self.drumMachine().toggleStep(pad.*, step.*),
                     'p' => _ = self.engine.send(.{ .note_on = .{
                         .track = self.drum_track,
                         .note = @intCast(pad.*),
@@ -405,6 +406,8 @@ pub const App = struct {
         switch (key) {
             .escape => { self.view = .tracks; return true; },
             .char => |c| switch (c) {
+                // Block insert mode — piano keys conflict with parameter navigation.
+                'i' => return true,
                 'j' => {
                     if (self.synth_cursor < tui.synth_param_count - 1) self.synth_cursor += 1;
                     self.synthUpdateScroll();

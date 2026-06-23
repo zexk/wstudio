@@ -322,13 +322,13 @@ pub fn drawHelp(w: *std.Io.Writer, rows: usize, cmds: []const cmd_mod.Def) !void
     try helpKey(w, "? / :help",    "this help");
 
     try helpSection(w, "INSERT MODE  (piano keyboard)");
-    try helpKey(w, "z s x d c v g b h n j m",  "white keys, lower octave");
-    try helpKey(w, "q 2 w 3 e r 5 t 6 y 7 u",  "white+black keys, upper octave");
-    try helpKey(w, "z< / x>",      "octave down / up");
+    try helpKey(w, "a s d f g h j k l ;",  "white keys  C D E F G A B C D E");
+    try helpKey(w, "q w r t y i o p",       "black keys  C# D# F# G# A# C# D# F#");
+    try helpKey(w, "z / x",                 "octave down / up");
 
     try helpSection(w, "DRUM GRID");
     try helpKey(w, "h / j / k / l","move cursor left/down/up/right");
-    try helpKey(w, "space",        "toggle step on/off");
+    try helpKey(w, "enter",        "toggle step on/off");
     try helpKey(w, "p",            "preview pad sound");
     try helpKey(w, "< / >",        "shorten / lengthen loop (1–16 steps)");
     try helpKey(w, "X",            "clear all steps on current pad");
