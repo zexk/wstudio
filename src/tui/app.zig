@@ -395,6 +395,7 @@ pub const App = struct {
                         const mask: u32 = if (sc >= 32) ~@as(u32, 0) else (@as(u32, 1) << @intCast(sc)) - 1;
                         dm.pattern[pad.*].store(mask, .release);
                     },
+                    's' => { self.switchToTrackSpectrum(self.drum_track); return true; },
                     else => return false,
                 }
                 return true;
@@ -505,6 +506,8 @@ pub const App = struct {
         switch (key) {
             .escape => { self.view = .tracks; return true; },
             .char => |c| switch (c) {
+                // Block insert mode — piano keys collide with roll navigation (j/k/h/d/…).
+                'i' => return true,
                 'h' => {
                     if (self.piano_cursor_step > 0) self.piano_cursor_step -= 1;
                     self.pianoEnsureVisible();
@@ -541,7 +544,7 @@ pub const App = struct {
                     return true;
                 },
                 ']' => {
-                    self.piano_note_len = @min(4.0, self.piano_note_len + 0.25);
+                    self.piano_note_len = @min(pp.length_beats, self.piano_note_len + 0.25);
                     self.setStatus("note len: {d:.2} beats", .{self.piano_note_len});
                     return true;
                 },

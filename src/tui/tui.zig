@@ -330,6 +330,7 @@ pub fn drawHelp(w: *std.Io.Writer, rows: usize, cmds: []const cmd_mod.Def) !void
     try helpKey(w, "h / j / k / l","move cursor left/down/up/right");
     try helpKey(w, "enter",        "toggle step on/off");
     try helpKey(w, "p",            "preview pad sound");
+    try helpKey(w, "s",            "spectrum + EQ for drum track");
     try helpKey(w, "< / >",        "shorten / lengthen loop (1–16 steps)");
     try helpKey(w, "X",            "clear all steps on current pad");
     try helpKey(w, "F",            "fill all steps on current pad");
