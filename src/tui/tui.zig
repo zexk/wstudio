@@ -344,6 +344,7 @@ pub fn drawHelp(w: *std.Io.Writer, rows: usize, cmds: []const cmd_mod.Def) !void
     try helpKey(w, "h / j / k / l","move cursor left/down/up/right");
     try helpKey(w, "n",            "insert note at cursor");
     try helpKey(w, "d",            "delete note at cursor");
+    try helpKey(w, "e",            "open synth editor for this track");
     try helpKey(w, "[ / ]",        "decrease / increase note length");
     try helpKey(w, "+ / -",        "add / remove 1 bar from loop");
 

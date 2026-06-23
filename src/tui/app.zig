@@ -18,6 +18,7 @@ const GraphicEq = @import("../dsp/eq.zig").GraphicEq;
 const eq_mod = @import("../dsp/eq.zig");
 const cmd_mod = @import("cmd.zig");
 const tui = @import("tui.zig");
+const midi = @import("../midi.zig");
 pub const Rack = @import("../rack.zig").Rack;
 
 const Engine = engine_mod.Engine;
@@ -527,6 +528,13 @@ pub const App = struct {
                 },
                 'n' => { self.pianoInsertNote(); return true; },
                 'd' => { self.pianoDeleteNote(); return true; },
+                'e' => {
+                    self.synth_track = self.piano_track;
+                    self.synth_cursor = 0;
+                    self.synthUpdateScroll();
+                    self.view = .synth_editor;
+                    return true;
+                },
                 '[' => {
                     self.piano_note_len = @max(0.25, self.piano_note_len - 0.25);
                     self.setStatus("note len: {d:.2} beats", .{self.piano_note_len});
@@ -584,7 +592,8 @@ pub const App = struct {
             .start_beat   = start_beat,
             .duration_beat = self.piano_note_len,
         });
-        self.setStatus("note on: {d}", .{self.piano_cursor_pitch});
+        var nbuf: [5]u8 = undefined;
+        self.setStatus("added {s}", .{midi.noteName(self.piano_cursor_pitch, &nbuf)});
     }
 
     fn pianoDeleteNote(self: *App) void {
@@ -594,7 +603,8 @@ pub const App = struct {
         else return;
         const start_beat = @as(f64, @floatFromInt(self.piano_cursor_step)) * 0.25;
         pp.removeNote(self.piano_cursor_pitch, start_beat);
-        self.setStatus("note off: {d}", .{self.piano_cursor_pitch});
+        var nbuf: [5]u8 = undefined;
+        self.setStatus("removed {s}", .{midi.noteName(self.piano_cursor_pitch, &nbuf)});
     }
 
     fn adjustSynthParam(self: *App, steps: i32) void {
@@ -727,10 +737,16 @@ pub const App = struct {
                 _ = self.engine.send(cmd);
             },
             .toggle_mute => {
-                const track = &self.project.tracks.items[self.cursor];
+                const track_idx: u16 = switch (self.view) {
+                    .synth_editor => self.synth_track,
+                    .piano_roll   => self.piano_track,
+                    .drum_grid    => self.drum_track,
+                    else          => @intCast(self.cursor),
+                };
+                const track = &self.project.tracks.items[track_idx];
                 track.muted = !track.muted;
                 _ = self.engine.send(.{ .set_track_mute = .{
-                    .track = @intCast(self.cursor),
+                    .track = track_idx,
                     .muted = track.muted,
                 } });
             },
