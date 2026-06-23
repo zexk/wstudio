@@ -1213,7 +1213,7 @@ fn isBlackKey(pitch: u7) bool {
     };
 }
 
-pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, snap: engine_mod.UiSnapshot) !void {
+pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, snap: engine_mod.UiSnapshot) !void {
     if (app.piano_track >= app.racks.items.len) return;
     const rack = app.racks.items[app.piano_track];
     const pp = if (rack.pattern_player != null)
@@ -1237,11 +1237,16 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, snap: engine_
     try w.writeAll(dim ++ "  [hjkl:move  n:note  d:del  []:len  +/-:bars  esc:back]");
     try endLine(w);
 
-    const vis_cols: usize = 16;
     // 3 internal header rows (title + col labels + loop marker) + vis_rows note rows
     // + outer header(2) + footer(3) must fit within `rows`, so max note rows = rows - 8.
     const vis_rows: usize = @min(rows -| 8, 24);
     const left: u16 = app.piano_scroll_step;
+
+    // Show the full loop (+ end-marker column) up to what fits on screen.
+    // Prefix = 6 chars (" C4  │"), each step cell = 3 chars.
+    const loop_step: u16 = @intFromFloat(pp.length_beats * 4.0);
+    const max_step_cols: usize = (cols -| 6) / 3;
+    const vis_cols: usize = @min(@as(usize, loop_step) + 1, max_step_cols);
 
     // Column header: beat markers (prefix = 5-char label + 1-char │ = 6 visual cols)
     try w.writeAll(dim ++ "      " ++ rst);
@@ -1258,7 +1263,6 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, snap: engine_
     try endLine(w);
 
     // Loop-end / playhead marker row (between header and notes)
-    const loop_step: u16 = @intFromFloat(pp.length_beats * 4.0);
     try w.writeAll(dim ++ "      " ++ rst);
     for (0..vis_cols) |col| {
         const step = left + @as(u16, @intCast(col));
