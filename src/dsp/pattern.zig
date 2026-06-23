@@ -131,7 +131,8 @@ pub const PatternPlayer = struct {
             return;
         }
 
-        while (!self.notes_lock.tryLock()) std.atomic.spinLoopHint();
+        // Non-blocking: skip this block rather than spin-waiting and starving the audio thread.
+        if (!self.notes_lock.tryLock()) return;
         defer self.notes_lock.unlock();
 
         const frames: u64 = @intCast(buf.len / 2);
@@ -161,7 +162,7 @@ pub const PatternPlayer = struct {
         if (e >= loop) {
             // Block spans the loop boundary: two non-wrapping scans.
             scanRange(self.notes[0..self.note_count], loop, &self.sounding, self.synth, s, loop);
-            scanRange(self.notes[0..self.note_count], loop, &self.sounding, self.synth, 0.0, e - loop);
+            scanRange(self.notes[0..self.note_count], loop, &self.sounding, self.synth, 0.0, @min(e - loop, loop));
         } else {
             scanRange(self.notes[0..self.note_count], loop, &self.sounding, self.synth, s, e);
         }

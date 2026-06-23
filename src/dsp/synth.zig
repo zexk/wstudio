@@ -169,8 +169,7 @@ pub const PolySynth = struct {
     };
 
     pub fn noteToFreq(note: u7) f32 {
-        const n: f32 = @floatFromInt(note);
-        return 440.0 * std.math.pow(f32, 2.0, (n - 69.0) / 12.0);
+        return midi.noteToFreq(note);
     }
 
     pub fn noteOn(self: *PolySynth, note: u7, velocity: f32) void {
@@ -507,13 +506,14 @@ pub const PolySynth = struct {
                 }
 
                 // AM: post-hoc amplitude scaling — (1 + m·mod) / (1 + m) keeps peak = 1.
+                // Clamped to [0,1]: mod_amount up to 8 can drive the formula negative otherwise.
                 if (self.osc_b_on) switch (self.mod_mode) {
                     .am_a_to_b => {
-                        const g = (1.0 + self.mod_amount * a_mono) / (1.0 + self.mod_amount);
+                        const g = std.math.clamp((1.0 + self.mod_amount * a_mono) / (1.0 + self.mod_amount), 0.0, 1.0);
                         b_l *= g; b_r *= g;
                     },
                     .am_b_to_a => {
-                        const g = (1.0 + self.mod_amount * b_mono) / (1.0 + self.mod_amount);
+                        const g = std.math.clamp((1.0 + self.mod_amount * b_mono) / (1.0 + self.mod_amount), 0.0, 1.0);
                         a_l *= g; a_r *= g;
                     },
                     else => {},
@@ -539,17 +539,20 @@ pub const PolySynth = struct {
                 }
 
                 // Stereo mix.
-                // Ring: A × B with blend — at depth=0, A unmodulated; at depth=1, A·b_mono.
+                // Ring: dry↔ring crossfade — depth=0 → A unmodulated; depth=1 → A·b_mono.
+                // Formula: (1-d) + d·b_mono stays in [-1,1] for d∈[0,1], b_mono∈[-1,1].
                 // FM/AM/none: standard A + B mix (B contribution already modulated above).
-                const osc_l: f32 = if (self.osc_b_on and self.mod_mode == .ring) blk: {
-                    const ring_factor = 1.0 - self.mod_amount * (1.0 - b_mono);
-                    break :blk (a_l * scale_a * ring_factor + sub_out + nse_out) * ring_mix_norm;
-                } else
+                const ring_factor: f32 = if (self.osc_b_on and self.mod_mode == .ring) blk: {
+                    const depth = std.math.clamp(self.mod_amount, 0.0, 1.0);
+                    break :blk (1.0 - depth) + depth * b_mono;
+                } else 0.0;
+                const osc_l: f32 = if (self.osc_b_on and self.mod_mode == .ring)
+                    (a_l * scale_a * ring_factor + sub_out + nse_out) * ring_mix_norm
+                else
                     (a_l * scale_a + b_l * scale_b * self.osc_b_level + sub_out + nse_out) * mix_norm;
-                const osc_r: f32 = if (self.osc_b_on and self.mod_mode == .ring) blk: {
-                    const ring_factor = 1.0 - self.mod_amount * (1.0 - b_mono);
-                    break :blk (a_r * scale_a * ring_factor + sub_out + nse_out) * ring_mix_norm;
-                } else
+                const osc_r: f32 = if (self.osc_b_on and self.mod_mode == .ring)
+                    (a_r * scale_a * ring_factor + sub_out + nse_out) * ring_mix_norm
+                else
                     (a_r * scale_a + b_r * scale_b * self.osc_b_level + sub_out + nse_out) * mix_norm;
 
                 // Stereo filter: same coefficients, independent L/R biquad histories.

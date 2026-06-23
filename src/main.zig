@@ -64,6 +64,7 @@ fn renderDemo(allocator: std.mem.Allocator, io: std.Io) !void {
     const note_frames = ws.types.secondsToFrames(note_seconds, sr);
     for (melody, 0..) |key, i| {
         const action = modal.handle(.{ .char = key });
+        if (action != .note) continue;
         const pitch = action.note.pitch;
         const start = note_frames * i;
         try score.append(allocator, .{ .frame = start, .cmd = .{

@@ -419,27 +419,25 @@ pub const App = struct {
                 'l' => { self.adjustSynthParam(1); return true; },
                 'H' => { self.adjustSynthParam(-10); return true; },
                 'L' => { self.adjustSynthParam(10); return true; },
-                '}' => {
-                    const starts = [_]u8{ 0, 6, 14, 16, 20, 24, 28, 32, 34, 36, 38 };
-                    for (starts) |s| {
-                        if (s > self.synth_cursor) {
-                            self.synth_cursor = s;
-                            break;
+                '}', '{' => {
+                    const section_starts = [_]u8{ 0, 6, 14, 16, 20, 24, 28, 32, 34, 36, 38 };
+                    if (c == '}') {
+                        for (section_starts) |s| {
+                            if (s > self.synth_cursor) {
+                                self.synth_cursor = s;
+                                break;
+                            }
                         }
-                    }
-                    self.synthUpdateScroll();
-                    return true;
-                },
-                '{' => {
-                    const starts = [_]u8{ 0, 6, 14, 16, 20, 24, 28, 32, 34, 36, 38 };
-                    var sec_idx: usize = 0;
-                    for (starts, 0..) |s, idx| {
-                        if (s <= self.synth_cursor) sec_idx = idx;
-                    }
-                    if (self.synth_cursor == starts[sec_idx] and sec_idx > 0) {
-                        self.synth_cursor = starts[sec_idx - 1];
                     } else {
-                        self.synth_cursor = starts[sec_idx];
+                        var sec_idx: usize = 0;
+                        for (section_starts, 0..) |s, idx| {
+                            if (s <= self.synth_cursor) sec_idx = idx;
+                        }
+                        if (self.synth_cursor == section_starts[sec_idx] and sec_idx > 0) {
+                            self.synth_cursor = section_starts[sec_idx - 1];
+                        } else {
+                            self.synth_cursor = section_starts[sec_idx];
+                        }
                     }
                     self.synthUpdateScroll();
                     return true;
