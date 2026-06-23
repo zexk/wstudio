@@ -9,8 +9,6 @@ const terminal_mod = @import("terminal.zig");
 const dsp = ws.dsp.device;
 const Project = ws.Project;
 const Transport = ws.Transport;
-const PolySynth = ws.dsp.PolySynth;
-const PatternPlayer = ws.dsp.PatternPlayer;
 const DrumMachine = ws.dsp.DrumMachine;
 const GraphicEq = ws.dsp.GraphicEq;
 const eq_mod = ws.dsp.eq;
@@ -53,14 +51,7 @@ const cmds: []const cmd_mod.Def = &.{
 pub const App = struct {
     allocator: std.mem.Allocator,
     io: std.Io,
-    project: Project,
-    engine: *Engine,
-    /// Heap-allocated Racks; each *Rack is stable even as the list grows.
-    racks: std.ArrayListUnmanaged(*Rack),
-    /// Deleted racks that may still be in-flight on the audio thread.
-    /// Freed only when the App is destroyed.
-    retired_racks: std.ArrayListUnmanaged(*Rack),
-    drum_track: u16,
+    session: ws.Session,
     modal: modal_mod.ModalInput = .{},
     cursor: usize = 0,
     view: AppView = .tracks,
@@ -89,30 +80,19 @@ pub const App = struct {
     const NoteOff = struct { at_ns: i96, track: u16, note: u7 };
 
     pub fn init(allocator: std.mem.Allocator, io: std.Io) !App {
-        const session = try ws.Session.initDefault(allocator);
         return .{
             .allocator = allocator,
             .io = io,
-            .project = session.project,
-            .engine = session.engine,
-            .racks = session.racks,
-            .retired_racks = .empty,
-            .drum_track = session.drum_track,
+            .session = try ws.Session.initDefault(allocator),
         };
     }
 
     pub fn deinit(self: *App) void {
-        for (self.racks.items) |r| { r.deinit(self.allocator); self.allocator.destroy(r); }
-        self.racks.deinit(self.allocator);
-        for (self.retired_racks.items) |r| { r.deinit(self.allocator); self.allocator.destroy(r); }
-        self.retired_racks.deinit(self.allocator);
-        self.engine.deinit();
-        self.allocator.destroy(self.engine);
-        self.project.deinit();
+        self.session.deinit();
     }
 
     pub fn drumMachine(self: *App) *DrumMachine {
-        return &self.racks.items[self.drum_track].instrument.drum_machine;
+        return &self.session.racks.items[self.session.drum_track].instrument.drum_machine;
     }
 
     // -----------------------------------------------------------------------
@@ -143,10 +123,10 @@ pub const App = struct {
             },
             .tracks => {
                 if (key == .enter and self.modal.mode == .normal) {
-                    if (self.cursor == self.drum_track) {
+                    if (self.cursor == self.session.drum_track) {
                         self.view = .drum_grid;
-                    } else if (self.cursor < self.racks.items.len) {
-                        switch (self.racks.items[self.cursor].instrument) {
+                    } else if (self.cursor < self.session.racks.items.len) {
+                        switch (self.session.racks.items[self.cursor].instrument) {
                             .poly_synth => {
                                 self.synth_track = @intCast(self.cursor);
                                 self.synth_cursor = 0;
@@ -182,20 +162,20 @@ pub const App = struct {
         self.view = .track_spectrum;
         self.eq_track = track;
         self.eq_cursor = 0;
-        _ = self.engine.send(.{ .set_spectrum_active = .{ .source = .track, .track = track } });
+        _ = self.session.engine.send(.{ .set_spectrum_active = .{ .source = .track, .track = track } });
     }
 
     fn switchToMasterSpectrum(self: *App) void {
         self.prev_view = self.view;
         self.view = .master_spectrum;
         self.eq_cursor = 0;
-        _ = self.engine.send(.{ .set_spectrum_active = .{ .source = .master, .track = 0 } });
+        _ = self.session.engine.send(.{ .set_spectrum_active = .{ .source = .master, .track = 0 } });
     }
 
     fn handleSpectrumKey(self: *App, key: modal_mod.Key) bool {
         switch (key) {
             .escape => {
-                _ = self.engine.send(.{ .set_spectrum_active = .{ .source = .none, .track = 0 } });
+                _ = self.session.engine.send(.{ .set_spectrum_active = .{ .source = .none, .track = 0 } });
                 self.view = self.prev_view;
                 return true;
             },
@@ -203,23 +183,23 @@ pub const App = struct {
                 'h' => { if (self.eq_cursor > 0) self.eq_cursor -= 1; },
                 'l' => { if (self.eq_cursor < eq_mod.num_eq_bands - 1) self.eq_cursor += 1; },
                 'j', 'J' => {
-                    if (self.view == .track_spectrum and self.eq_track < self.racks.items.len) {
+                    if (self.view == .track_spectrum and self.eq_track < self.session.racks.items.len) {
                         const delta: f32 = if (c == 'J') -6.0 else -1.0;
                         self.setEqBand(self.eq_track, self.eq_cursor, self.currentEqGain(self.eq_track) + delta);
                     }
                 },
                 'k', 'K' => {
-                    if (self.view == .track_spectrum and self.eq_track < self.racks.items.len) {
+                    if (self.view == .track_spectrum and self.eq_track < self.session.racks.items.len) {
                         const delta: f32 = if (c == 'K') 6.0 else 1.0;
                         self.setEqBand(self.eq_track, self.eq_cursor, self.currentEqGain(self.eq_track) + delta);
                     }
                 },
                 'b' => {
-                    if (self.view == .track_spectrum and self.eq_track < self.racks.items.len) {
-                        if (self.racks.items[self.eq_track].fx.eq) |*eq| {
+                    if (self.view == .track_spectrum and self.eq_track < self.session.racks.items.len) {
+                        if (self.session.racks.items[self.eq_track].fx.eq) |*eq| {
                             eq.bypass = !eq.bypass;
                             var buf: [6]dsp.Device = undefined;
-                            self.engine.setTrackChain(self.eq_track, self.racks.items[self.eq_track].chain(&buf));
+                            self.session.engine.setTrackChain(self.eq_track, self.session.racks.items[self.eq_track].chain(&buf));
                         }
                     }
                 },
@@ -231,19 +211,19 @@ pub const App = struct {
     }
 
     fn currentEqGain(self: *App, track: u16) f32 {
-        if (track < self.racks.items.len) {
-            if (self.racks.items[track].fx.eq) |*e| return e.bands[self.eq_cursor].gain_db;
+        if (track < self.session.racks.items.len) {
+            if (self.session.racks.items[track].fx.eq) |*e| return e.bands[self.eq_cursor].gain_db;
         }
         return 0.0;
     }
 
     fn setEqBand(self: *App, track: u16, band: usize, gain_db: f32) void {
-        if (track >= self.racks.items.len) return;
-        const rack = self.racks.items[track];
-        if (rack.fx.eq == null) rack.fx.eq = GraphicEq.init(self.project.sample_rate);
+        if (track >= self.session.racks.items.len) return;
+        const rack = self.session.racks.items[track];
+        if (rack.fx.eq == null) rack.fx.eq = GraphicEq.init(self.session.project.sample_rate);
         rack.fx.eq.?.setBand(band, gain_db);
         var buf: [6]dsp.Device = undefined;
-        self.engine.setTrackChain(track, rack.chain(&buf));
+        self.session.engine.setTrackChain(track, rack.chain(&buf));
     }
 
     pub fn handleDrumKey(self: *App, key: modal_mod.Key) bool {
@@ -260,8 +240,8 @@ pub const App = struct {
                     'k' => if (pad.* > 0) { pad.* -= 1; },
                     'j' => if (pad.* < DrumMachine.max_pads - 1) { pad.* += 1; },
                     'p' => {
-                        _ = self.engine.send(.{ .note_on = .{
-                            .track = self.drum_track,
+                        _ = self.session.engine.send(.{ .note_on = .{
+                            .track = self.session.drum_track,
                             .note = @intCast(pad.*),
                             .velocity = 0.9,
                         } });
@@ -280,7 +260,7 @@ pub const App = struct {
                         const mask: u32 = if (sc >= 32) ~@as(u32, 0) else (@as(u32, 1) << @intCast(sc)) - 1;
                         dm.pattern[pad.*].store(mask, .release);
                     },
-                    's' => { self.switchToTrackSpectrum(self.drum_track); return true; },
+                    's' => { self.switchToTrackSpectrum(self.session.drum_track); return true; },
                     else => return false,
                 }
                 return true;
@@ -368,8 +348,8 @@ pub const App = struct {
     }
 
     fn switchToPianoRoll(self: *App, track: u16) void {
-        if (track >= self.racks.items.len) return;
-        switch (self.racks.items[track].instrument) {
+        if (track >= self.session.racks.items.len) return;
+        switch (self.session.racks.items[track].instrument) {
             .poly_synth => {},
             else => {
                 self.setStatus("piano roll: synth tracks only", .{});
@@ -385,9 +365,9 @@ pub const App = struct {
     }
 
     fn handlePianoRollKey(self: *App, key: modal_mod.Key) bool {
-        if (self.piano_track >= self.racks.items.len) return false;
-        const rack = self.racks.items[self.piano_track];
-        const pp = if (rack.pattern_player != null) &self.racks.items[self.piano_track].pattern_player.? else return false;
+        if (self.piano_track >= self.session.racks.items.len) return false;
+        const rack = self.session.racks.items[self.piano_track];
+        const pp = if (rack.pattern_player != null) &self.session.racks.items[self.piano_track].pattern_player.? else return false;
 
         switch (key) {
             .escape => { self.view = .tracks; return true; },
@@ -470,9 +450,9 @@ pub const App = struct {
     }
 
     fn pianoInsertNote(self: *App) void {
-        if (self.piano_track >= self.racks.items.len) return;
-        const pp = if (self.racks.items[self.piano_track].pattern_player != null)
-            &self.racks.items[self.piano_track].pattern_player.?
+        if (self.piano_track >= self.session.racks.items.len) return;
+        const pp = if (self.session.racks.items[self.piano_track].pattern_player != null)
+            &self.session.racks.items[self.piano_track].pattern_player.?
         else return;
         const start_beat = @as(f64, @floatFromInt(self.piano_cursor_step)) * 0.25;
         // Don't insert if a note already starts here on this pitch
@@ -487,9 +467,9 @@ pub const App = struct {
     }
 
     fn pianoDeleteNote(self: *App) void {
-        if (self.piano_track >= self.racks.items.len) return;
-        const pp = if (self.racks.items[self.piano_track].pattern_player != null)
-            &self.racks.items[self.piano_track].pattern_player.?
+        if (self.piano_track >= self.session.racks.items.len) return;
+        const pp = if (self.session.racks.items[self.piano_track].pattern_player != null)
+            &self.session.racks.items[self.piano_track].pattern_player.?
         else return;
         const start_beat = @as(f64, @floatFromInt(self.piano_cursor_step)) * 0.25;
         pp.removeNote(self.piano_cursor_pitch, start_beat);
@@ -498,8 +478,8 @@ pub const App = struct {
     }
 
     fn adjustSynthParam(self: *App, steps: i32) void {
-        if (self.synth_track >= self.racks.items.len) return;
-        const rack = self.racks.items[self.synth_track];
+        if (self.synth_track >= self.session.racks.items.len) return;
+        const rack = self.session.racks.items[self.synth_track];
         const synth = switch (rack.instrument) {
             .poly_synth => |*s| s,
             else => return,
@@ -599,13 +579,13 @@ pub const App = struct {
             .none, .octave_up, .octave_down => {},
             .goto_end => {
                 var max_beats: f64 = 0;
-                for (self.racks.items) |rack| {
+                for (self.session.racks.items) |rack| {
                     if (rack.pattern_player) |pp| max_beats = @max(max_beats, pp.length_beats);
                 }
                 const dm_beats = @as(f64, @floatFromInt(self.drumMachine().step_count)) / 4.0;
                 max_beats = @max(max_beats, dm_beats);
-                const end_frames: u64 = @intFromFloat(self.engine.transport.framesPerBeat() * max_beats);
-                _ = self.engine.send(.{ .seek_frames = end_frames });
+                const end_frames: u64 = @intFromFloat(self.session.engine.transport.framesPerBeat() * max_beats);
+                _ = self.session.engine.send(.{ .seek_frames = end_frames });
             },
             .volume_delta => |delta| {
                 self.master_gain_db = std.math.clamp(
@@ -613,39 +593,39 @@ pub const App = struct {
                     -40.0,
                     6.0,
                 );
-                _ = self.engine.send(.{ .set_master_gain = types.dbToGain(self.master_gain_db) });
+                _ = self.session.engine.send(.{ .set_master_gain = types.dbToGain(self.master_gain_db) });
             },
             .mode_changed => self.status_len = 0,
             .move => |m| {
                 const count: i64 = @as(i64, @intCast(self.cursor)) + m.dy;
-                const last: i64 = @intCast(self.project.tracks.items.len - 1);
+                const last: i64 = @intCast(self.session.project.tracks.items.len - 1);
                 self.cursor = @intCast(std.math.clamp(count, 0, last));
             },
-            .goto_start => _ = self.engine.send(.{ .seek_frames = 0 }),
+            .goto_start => _ = self.session.engine.send(.{ .seek_frames = 0 }),
             .toggle_play => {
-                const cmd: engine_mod.Command = if (self.engine.uiSnapshot().playing) .stop else .play;
-                _ = self.engine.send(cmd);
+                const cmd: engine_mod.Command = if (self.session.engine.uiSnapshot().playing) .stop else .play;
+                _ = self.session.engine.send(cmd);
             },
             .toggle_mute => {
                 const track_idx: u16 = switch (self.view) {
                     .synth_editor => self.synth_track,
                     .piano_roll   => self.piano_track,
-                    .drum_grid    => self.drum_track,
+                    .drum_grid    => self.session.drum_track,
                     else          => @intCast(self.cursor),
                 };
-                const track = &self.project.tracks.items[track_idx];
+                const track = &self.session.project.tracks.items[track_idx];
                 track.muted = !track.muted;
-                _ = self.engine.send(.{ .set_track_mute = .{
+                _ = self.session.engine.send(.{ .set_track_mute = .{
                     .track = track_idx,
                     .muted = track.muted,
                 } });
             },
             .note => |n| {
-                if (self.cursor != self.drum_track) {
+                if (self.cursor != self.session.drum_track) {
                     self.playNote(n.pitch, now_ns);
                 } else {
-                    _ = self.engine.send(.{ .note_on = .{
-                        .track = self.drum_track,
+                    _ = self.session.engine.send(.{ .note_on = .{
+                        .track = self.session.drum_track,
                         .note = @intCast(n.pitch % DrumMachine.max_pads),
                         .velocity = 0.9,
                     } });
@@ -657,10 +637,10 @@ pub const App = struct {
 
     fn playNote(self: *App, pitch: u7, now_ns: i96) void {
         const track: u16 = @intCast(self.cursor);
-        _ = self.engine.send(.{ .note_on = .{ .track = track, .note = pitch, .velocity = 0.85 } });
+        _ = self.session.engine.send(.{ .note_on = .{ .track = track, .note = pitch, .velocity = 0.85 } });
         if (self.note_off_len == self.note_offs.len) {
             const oldest = self.note_offs[0];
-            _ = self.engine.send(.{ .note_off = .{ .track = oldest.track, .note = oldest.note } });
+            _ = self.session.engine.send(.{ .note_off = .{ .track = oldest.track, .note = oldest.note } });
             std.mem.copyForwards(NoteOff, self.note_offs[0 .. self.note_off_len - 1], self.note_offs[1..self.note_off_len]);
             self.note_off_len -= 1;
         }
@@ -681,7 +661,7 @@ pub const App = struct {
         while (i < self.note_off_len) {
             const off = self.note_offs[i];
             if (off.at_ns <= now_ns) {
-                _ = self.engine.send(.{ .note_off = .{ .track = off.track, .note = off.note } });
+                _ = self.session.engine.send(.{ .note_off = .{ .track = off.track, .note = off.note } });
                 std.mem.copyForwards(NoteOff, self.note_offs[i .. self.note_off_len - 1], self.note_offs[i + 1 .. self.note_off_len]);
                 self.note_off_len -= 1;
             } else {
@@ -695,96 +675,50 @@ pub const App = struct {
     // -----------------------------------------------------------------------
 
     fn doTrackAdd(self: *App, name_arg: ?[]const u8) void {
-        if (self.project.tracks.items.len >= engine_mod.max_tracks) {
-            self.setStatus("track limit reached ({d})", .{engine_mod.max_tracks});
-            return;
-        }
-        const sr = self.project.sample_rate;
-        const idx = self.drum_track; // insert before drum
-
-        // Build a default name "track N" if none given.
         var name_buf: [32]u8 = undefined;
         const name: []const u8 = name_arg orelse std.fmt.bufPrint(
-            &name_buf,
-            "track {d}",
-            .{self.project.tracks.items.len},
+            &name_buf, "track {d}", .{self.session.project.tracks.items.len},
         ) catch "track";
 
-        // Allocate new rack.
-        const rack = self.allocator.create(Rack) catch {
-            self.setStatus("out of memory", .{});
+        const idx = self.session.addTrack(name) catch |err| {
+            if (err == error.TrackLimitReached)
+                self.setStatus("track limit reached", .{})
+            else
+                self.setStatus("out of memory", .{});
             return;
         };
-        rack.* = .{ .instrument = .{ .poly_synth = PolySynth.init(sr) }, .label = "synth" };
-        rack.pattern_player = PatternPlayer.init(&rack.instrument.poly_synth, &self.engine.transport);
-        self.racks.insert(self.allocator, idx, rack) catch {
-            self.allocator.destroy(rack);
-            self.setStatus("out of memory", .{});
-            return;
-        };
-
-        // Insert project track (dupes name internally).
-        self.project.insertTrack(idx, .{ .name = name }) catch {
-            _ = self.racks.pop();
-            self.allocator.destroy(rack);
-            self.setStatus("out of memory", .{});
-            return;
-        };
-
-        // Engine: shift drum up, init new slot, set chain.
-        self.engine.applyInsertTrack(idx, 1.0, 0.0, false);
-        var buf: [6]dsp.Device = undefined;
-        self.engine.setTrackChain(idx, rack.chain(&buf));
-
-        self.drum_track += 1;
         self.cursor = @intCast(idx);
         self.setStatus("added \"{s}\" (track {d})", .{ name, idx + 1 });
     }
 
     fn doTrackDel(self: *App, track_idx: usize) void {
-        if (track_idx == self.drum_track) {
-            self.setStatus("cannot delete the drum track", .{});
+        self.session.deleteTrack(track_idx) catch |err| {
+            if (err == error.CannotDeleteDrumTrack)
+                self.setStatus("cannot delete the drum track", .{})
+            else
+                self.setStatus("cannot delete the last track", .{});
             return;
-        }
-        if (self.project.tracks.items.len <= 1) {
-            self.setStatus("cannot delete the last track", .{});
-            return;
-        }
-
-        _ = self.engine.send(.all_notes_off);
-
-        const total: u16 = @intCast(self.project.tracks.items.len);
-        self.engine.applyDeleteTrack(@intCast(track_idx), total);
-
-        // Retire the rack — do NOT free yet; the audio thread may still be
-        // mid-frame referencing it. Freed at App.deinit.
-        const rack = self.racks.orderedRemove(track_idx);
-        self.retired_racks.append(self.allocator, rack) catch {
-            // OOM retiring: leak the rack rather than risk a use-after-free.
         };
 
-        self.project.removeTrack(track_idx);
-
-        if (track_idx < self.drum_track) self.drum_track -= 1;
         if (track_idx < self.synth_track and self.synth_track > 0) self.synth_track -= 1;
 
         // Keep cursor in bounds; never land on the drum track.
-        const last = self.project.tracks.items.len - 1;
+        const last = self.session.project.tracks.items.len - 1;
         self.cursor = @min(self.cursor, last);
-        if (self.cursor == self.drum_track and self.cursor > 0) self.cursor -= 1;
+        if (self.cursor == self.session.drum_track and self.cursor > 0) self.cursor -= 1;
 
         // Exit synth editor if the edited track no longer exists or is not a poly_synth.
         if (self.view == .synth_editor) {
-            const bad = self.synth_track >= self.racks.items.len or
-                switch (self.racks.items[self.synth_track].instrument) {
+            const bad = self.synth_track >= self.session.racks.items.len or
+                switch (self.session.racks.items[self.synth_track].instrument) {
                     .poly_synth => false, else => true,
                 };
             if (bad) self.view = .tracks;
         }
 
         // Exit spectrum view if the viewed track was deleted.
-        if (self.view == .track_spectrum and self.eq_track >= self.racks.items.len) {
-            _ = self.engine.send(.{ .set_spectrum_active = .{ .source = .none, .track = 0 } });
+        if (self.view == .track_spectrum and self.eq_track >= self.session.racks.items.len) {
+            _ = self.session.engine.send(.{ .set_spectrum_active = .{ .source = .none, .track = 0 } });
             self.view = self.prev_view;
         }
 
@@ -792,10 +726,10 @@ pub const App = struct {
     }
 
     fn doTrackPan(self: *App, track: u16, delta: f32) void {
-        if (track >= self.project.tracks.items.len) return;
-        const t = &self.project.tracks.items[track];
+        if (track >= self.session.project.tracks.items.len) return;
+        const t = &self.session.project.tracks.items[track];
         t.pan = std.math.clamp(t.pan + delta, -1.0, 1.0);
-        _ = self.engine.send(.{ .set_track_pan = .{ .track = track, .pan = t.pan } });
+        _ = self.session.engine.send(.{ .set_track_pan = .{ .track = track, .pan = t.pan } });
         const pct: i32 = @intFromFloat(@abs(t.pan) * 100.0);
         if (pct == 0) self.setStatus("track {d} pan: center", .{track + 1})
         else if (t.pan < 0) self.setStatus("track {d} pan: L{d}%", .{ track + 1, pct })
@@ -803,10 +737,10 @@ pub const App = struct {
     }
 
     fn doTrackGainStep(self: *App, track: u16, delta_db: f32) void {
-        if (track >= self.project.tracks.items.len) return;
-        const t = &self.project.tracks.items[track];
+        if (track >= self.session.project.tracks.items.len) return;
+        const t = &self.session.project.tracks.items[track];
         t.gain_db = std.math.clamp(t.gain_db + delta_db, -60.0, 12.0);
-        _ = self.engine.send(.{ .set_track_gain = .{ .track = track, .gain = types.dbToGain(t.gain_db) } });
+        _ = self.session.engine.send(.{ .set_track_gain = .{ .track = track, .gain = types.dbToGain(t.gain_db) } });
         const sign: []const u8 = if (t.gain_db >= 0) "+" else "";
         self.setStatus("track {d} gain: {s}{d:.1}dB", .{ track + 1, sign, t.gain_db });
     }
@@ -842,8 +776,8 @@ pub const App = struct {
                 self.setStatus("track-del: expected a track number", .{});
                 return;
             };
-            if (n == 0 or n > self.project.tracks.items.len) {
-                self.setStatus("track-del: track must be 1–{d}", .{self.project.tracks.items.len});
+            if (n == 0 or n > self.session.project.tracks.items.len) {
+                self.setStatus("track-del: track must be 1–{d}", .{self.session.project.tracks.items.len});
                 return;
             }
             break :blk n - 1;
@@ -866,11 +800,11 @@ pub const App = struct {
             self.setStatus("track-rename: expected a track number", .{});
             return;
         };
-        if (n == 0 or n > self.project.tracks.items.len) {
-            self.setStatus("track-rename: track must be 1–{d}", .{self.project.tracks.items.len});
+        if (n == 0 or n > self.session.project.tracks.items.len) {
+            self.setStatus("track-rename: track must be 1–{d}", .{self.session.project.tracks.items.len});
             return;
         }
-        self.project.renameTrack(n - 1, name) catch {
+        self.session.project.renameTrack(n - 1, name) catch {
             self.setStatus("out of memory", .{});
             return;
         };
@@ -914,7 +848,7 @@ pub const App = struct {
     fn cmdBpm(self: *App, args: []const u8) void {
         const trimmed = std.mem.trim(u8, args, " ");
         if (trimmed.len == 0) {
-            self.setStatus("bpm: {d:.1}", .{self.project.tempo_bpm});
+            self.setStatus("bpm: {d:.1}", .{self.session.project.tempo_bpm});
             return;
         }
         const bpm = std.fmt.parseFloat(f64, trimmed) catch {
@@ -925,8 +859,8 @@ pub const App = struct {
             self.setStatus("bpm: must be between 20 and 400", .{});
             return;
         }
-        self.project.tempo_bpm = bpm;
-        _ = self.engine.send(.{ .set_tempo = bpm });
+        self.session.project.tempo_bpm = bpm;
+        _ = self.session.engine.send(.{ .set_tempo = bpm });
         self.setStatus("bpm: {d:.1}", .{bpm});
     }
 
@@ -940,12 +874,12 @@ pub const App = struct {
             self.setStatus("gain: bad track number '{s}'", .{track_str});
             return;
         };
-        if (track_1 == 0 or track_1 > self.project.tracks.items.len) {
-            self.setStatus("gain: track must be 1–{d}", .{self.project.tracks.items.len});
+        if (track_1 == 0 or track_1 > self.session.project.tracks.items.len) {
+            self.setStatus("gain: track must be 1–{d}", .{self.session.project.tracks.items.len});
             return;
         }
         const track_idx = track_1 - 1;
-        const track = &self.project.tracks.items[track_idx];
+        const track = &self.session.project.tracks.items[track_idx];
         const db_str = std.mem.trim(u8, it.rest(), " ");
         if (db_str.len == 0) {
             self.setStatus("track {d} gain: {d:.1}dB", .{ track_1, track.gain_db });
@@ -957,7 +891,7 @@ pub const App = struct {
         };
         const clamped = std.math.clamp(db, -60.0, 12.0);
         track.gain_db = clamped;
-        _ = self.engine.send(.{ .set_track_gain = .{
+        _ = self.session.engine.send(.{ .set_track_gain = .{
             .track = @intCast(track_idx),
             .gain = types.dbToGain(clamped),
         } });
@@ -974,12 +908,12 @@ pub const App = struct {
             self.setStatus("pan: bad track number '{s}'", .{track_str});
             return;
         };
-        if (track_1 == 0 or track_1 > self.project.tracks.items.len) {
-            self.setStatus("pan: track must be 1–{d}", .{self.project.tracks.items.len});
+        if (track_1 == 0 or track_1 > self.session.project.tracks.items.len) {
+            self.setStatus("pan: track must be 1–{d}", .{self.session.project.tracks.items.len});
             return;
         }
         const track_idx = track_1 - 1;
-        const track = &self.project.tracks.items[track_idx];
+        const track = &self.session.project.tracks.items[track_idx];
         const val_str = std.mem.trim(u8, it.rest(), " ");
         if (val_str.len == 0) {
             const pct: i32 = @intFromFloat(@abs(track.pan) * 100.0);
@@ -993,7 +927,7 @@ pub const App = struct {
             return;
         };
         track.pan = std.math.clamp(val, -1.0, 1.0);
-        _ = self.engine.send(.{ .set_track_pan = .{ .track = @intCast(track_idx), .pan = track.pan } });
+        _ = self.session.engine.send(.{ .set_track_pan = .{ .track = @intCast(track_idx), .pan = track.pan } });
         const pct: i32 = @intFromFloat(@abs(track.pan) * 100.0);
         if (pct == 0) self.setStatus("track {d} pan: center", .{track_1})
         else if (track.pan < 0) self.setStatus("track {d} pan: L{d}%", .{ track_1, pct })
@@ -1010,11 +944,11 @@ pub const App = struct {
             self.setStatus("seek: bar number starts at 1", .{});
             return;
         }
-        const sr = @as(f64, @floatFromInt(self.project.sample_rate));
-        const bpm = @max(self.project.tempo_bpm, 1.0);
-        const beats_per_bar: f64 = @floatFromInt(self.engine.transport.time_signature.beats_per_bar);
+        const sr = @as(f64, @floatFromInt(self.session.project.sample_rate));
+        const bpm = @max(self.session.project.tempo_bpm, 1.0);
+        const beats_per_bar: f64 = @floatFromInt(self.session.engine.transport.time_signature.beats_per_bar);
         const frames_per_bar: u64 = @intFromFloat(sr * 60.0 / bpm * beats_per_bar);
-        _ = self.engine.send(.{ .seek_frames = (bar_1 - 1) * frames_per_bar });
+        _ = self.session.engine.send(.{ .seek_frames = (bar_1 - 1) * frames_per_bar });
         self.setStatus("seek → bar {d}", .{bar_1});
     }
 
@@ -1030,7 +964,7 @@ pub const App = struct {
             return;
         };
         self.master_gain_db = std.math.clamp(db, -40.0, 6.0);
-        _ = self.engine.send(.{ .set_master_gain = types.dbToGain(self.master_gain_db) });
+        _ = self.session.engine.send(.{ .set_master_gain = types.dbToGain(self.master_gain_db) });
         const sign: []const u8 = if (self.master_gain_db >= 0) "+" else "";
         self.setStatus("master vol: {s}{d:.1}dB", .{ sign, self.master_gain_db });
     }
@@ -1045,14 +979,14 @@ pub const App = struct {
             self.setStatus("eq: bad track number '{s}'", .{track_str});
             return;
         };
-        if (track_1 == 0 or track_1 > self.racks.items.len) {
-            self.setStatus("eq: track must be 1–{d}", .{self.racks.items.len});
+        if (track_1 == 0 or track_1 > self.session.racks.items.len) {
+            self.setStatus("eq: track must be 1–{d}", .{self.session.racks.items.len});
             return;
         }
         const track_idx = track_1 - 1;
         const rest = std.mem.trim(u8, it.rest(), " ");
         if (rest.len == 0) {
-            if (self.racks.items[track_idx].fx.eq) |*eq| {
+            if (self.session.racks.items[track_idx].fx.eq) |*eq| {
                 self.setStatus("track {d}: bypass={}", .{ track_1, eq.bypass });
             } else {
                 self.setStatus("track {d}: no EQ", .{track_1});
@@ -1091,11 +1025,11 @@ pub const App = struct {
     // -----------------------------------------------------------------------
 
     pub fn draw(self: *App, w: *std.Io.Writer, size: terminal_mod.Size) !void {
-        const snap = self.engine.uiSnapshot();
+        const snap = self.session.engine.uiSnapshot();
         const rows: usize = @max(size.rows, 10);
 
         try w.writeAll("\x1b[H");
-        try tui.drawHeader(w, &self.project, &self.engine.transport, self.audio_label, self.master_gain_db);
+        try tui.drawHeader(w, &self.session.project, &self.session.engine.transport, self.audio_label, self.master_gain_db);
         try tui.hr(w, size.cols);
 
         switch (self.view) {
@@ -1109,8 +1043,8 @@ pub const App = struct {
         }
 
         var transport: Transport = .{
-            .sample_rate = self.project.sample_rate,
-            .tempo_bpm = self.project.tempo_bpm,
+            .sample_rate = self.session.project.sample_rate,
+            .tempo_bpm = self.session.project.tempo_bpm,
             .position_frames = snap.position_frames,
         };
         const pos = transport.positionBarBeat();
@@ -1165,7 +1099,7 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io) !void {
     var app = try App.init(allocator, io);
     defer app.deinit();
 
-    const config: backend_mod.Config = .{ .sample_rate = app.project.sample_rate };
+    const config: backend_mod.Config = .{ .sample_rate = app.session.project.sample_rate };
 
     const has_alsa = builtin.os.tag == .linux;
     const AlsaBackend = if (has_alsa) ws.alsa.AlsaBackend else void;
@@ -1175,18 +1109,18 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io) !void {
     var null_backend = backend_mod.NullBackend{
         .config = config,
         .render = renderTrampoline,
-        .ctx = app.engine,
+        .ctx = app.session.engine,
     };
 
     var using_alsa = false;
     var using_midi = false;
     if (has_alsa) {
-        alsa_backend = .{ .config = config, .render = renderTrampoline, .ctx = app.engine };
+        alsa_backend = .{ .config = config, .render = renderTrampoline, .ctx = app.session.engine };
         if (alsa_backend.start()) {
             using_alsa = true;
         } else |_| {}
 
-        midi_in = .{ .engine = app.engine };
+        midi_in = .{ .engine = app.session.engine };
         if (midi_in.start()) {
             using_midi = true;
         } else |_| {}
@@ -1239,11 +1173,11 @@ test "toggle_mute flips project state and reaches the engine" {
     defer app.deinit();
 
     app.applyAction(.toggle_mute, 0);
-    try std.testing.expect(app.project.tracks.items[0].muted);
+    try std.testing.expect(app.session.project.tracks.items[0].muted);
 
     var block: [64]types.Sample = undefined;
-    app.engine.process(&block);
-    try std.testing.expect(app.engine.tracks[0].muted);
+    app.session.engine.process(&block);
+    try std.testing.expect(app.session.engine.tracks[0].muted);
 }
 
 test "notes queue their own release" {
@@ -1273,7 +1207,7 @@ test "enter on drum track switches to drum_grid view" {
     defer app.deinit();
 
     app.applyAction(.{ .move = .{ .dy = 10 } }, 0);
-    try std.testing.expectEqual(app.drum_track, @as(u16, @intCast(app.cursor)));
+    try std.testing.expectEqual(app.session.drum_track, @as(u16, @intCast(app.cursor)));
 
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(AppView.drum_grid, app.view);
@@ -1392,9 +1326,9 @@ test "spectrum fills FFT buffer and draws with real data" {
     defer app.deinit();
 
     app.handleKey(.{ .char = 's' }, 0);
-    _ = app.engine.send(.{ .note_on = .{ .track = 0, .note = 60, .velocity = 1.0 } });
+    _ = app.session.engine.send(.{ .note_on = .{ .track = 0, .note = 60, .velocity = 1.0 } });
     var block: [512]types.Sample = undefined;
-    for (0..16) |_| app.engine.process(&block);
+    for (0..16) |_| app.session.engine.process(&block);
 
     var buf: [64 * 1024]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
@@ -1407,20 +1341,20 @@ test "track add: project, racks, engine, drum_track all update correctly" {
     var app = try App.init(std.testing.allocator, std.Io.failing);
     defer app.deinit();
 
-    const initial_tracks = app.project.tracks.items.len; // 4
-    const initial_drum = app.drum_track;                 // 3
-    const initial_racks = app.racks.items.len;           // 3
+    const initial_tracks = app.session.project.tracks.items.len; // 4
+    const initial_drum = app.session.drum_track;                 // 3
+    const initial_racks = app.session.racks.items.len;           // 3
 
     app.doTrackAdd("strings");
 
-    try std.testing.expectEqual(initial_tracks + 1, app.project.tracks.items.len);
-    try std.testing.expectEqual(initial_racks + 1, app.racks.items.len);
-    try std.testing.expectEqual(initial_drum + 1, app.drum_track);
-    try std.testing.expectEqualStrings("strings", app.project.tracks.items[initial_drum].name);
+    try std.testing.expectEqual(initial_tracks + 1, app.session.project.tracks.items.len);
+    try std.testing.expectEqual(initial_racks + 1, app.session.racks.items.len);
+    try std.testing.expectEqual(initial_drum + 1, app.session.drum_track);
+    try std.testing.expectEqualStrings("strings", app.session.project.tracks.items[initial_drum].name);
 
     // Pointer identity: synth is at chain[1] (pattern player at [0]).
-    const new_rack = app.racks.items[initial_drum];
-    const engine_ptr = app.engine.tracks[initial_drum].chain[1].ptr;
+    const new_rack = app.session.racks.items[initial_drum];
+    const engine_ptr = app.session.engine.tracks[initial_drum].chain[1].ptr;
     try std.testing.expectEqual(@as(*anyopaque, @ptrCast(&new_rack.instrument.poly_synth)), engine_ptr);
 }
 
@@ -1428,20 +1362,20 @@ test "track delete: project, racks, engine, drum_track all update correctly" {
     var app = try App.init(std.testing.allocator, std.Io.failing);
     defer app.deinit();
 
-    const initial_tracks = app.project.tracks.items.len; // 4
-    const initial_drum = app.drum_track;                 // 3
+    const initial_tracks = app.session.project.tracks.items.len; // 4
+    const initial_drum = app.session.drum_track;                 // 3
 
     // Delete track 1 (pad, index 1).
     app.doTrackDel(1);
 
-    try std.testing.expectEqual(initial_tracks - 1, app.project.tracks.items.len);
-    try std.testing.expectEqual(initial_tracks - 1, app.racks.items.len); // racks == project tracks
-    try std.testing.expectEqual(initial_drum - 1, app.drum_track);
+    try std.testing.expectEqual(initial_tracks - 1, app.session.project.tracks.items.len);
+    try std.testing.expectEqual(initial_tracks - 1, app.session.racks.items.len); // racks == project tracks
+    try std.testing.expectEqual(initial_drum - 1, app.session.drum_track);
 
     // After deletion, engine slot 1 must point to what was slot 2 (bass rack).
     // Synth is at chain[1]; pattern player at chain[0].
-    const bass_rack = app.racks.items[1]; // was index 2, now index 1
-    const engine_ptr = app.engine.tracks[1].chain[1].ptr;
+    const bass_rack = app.session.racks.items[1]; // was index 2, now index 1
+    const engine_ptr = app.session.engine.tracks[1].chain[1].ptr;
     try std.testing.expectEqual(@as(*anyopaque, @ptrCast(&bass_rack.instrument.poly_synth)), engine_ptr);
 }
 
@@ -1449,22 +1383,22 @@ test ":track-add command adds a track" {
     var app = try App.init(std.testing.allocator, std.Io.failing);
     defer app.deinit();
 
-    const before = app.project.tracks.items.len;
-    const drum_slot = app.drum_track; // new track inserts here, drum shifts up
+    const before = app.session.project.tracks.items.len;
+    const drum_slot = app.session.drum_track; // new track inserts here, drum shifts up
     for (":track-add mytrack") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.enter, 0);
-    try std.testing.expectEqual(before + 1, app.project.tracks.items.len);
-    try std.testing.expectEqualStrings("mytrack", app.project.tracks.items[drum_slot].name);
+    try std.testing.expectEqual(before + 1, app.session.project.tracks.items.len);
+    try std.testing.expectEqualStrings("mytrack", app.session.project.tracks.items[drum_slot].name);
 }
 
 test ":track-del command deletes a track" {
     var app = try App.init(std.testing.allocator, std.Io.failing);
     defer app.deinit();
 
-    const before = app.project.tracks.items.len;
+    const before = app.session.project.tracks.items.len;
     for (":track-del 1") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.enter, 0);
-    try std.testing.expectEqual(before - 1, app.project.tracks.items.len);
+    try std.testing.expectEqual(before - 1, app.session.project.tracks.items.len);
 }
 
 test ":track-rename renames a track" {
@@ -1473,7 +1407,7 @@ test ":track-rename renames a track" {
 
     for (":track-rename 1 renamed") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.enter, 0);
-    try std.testing.expectEqualStrings("renamed", app.project.tracks.items[0].name);
+    try std.testing.expectEqualStrings("renamed", app.session.project.tracks.items[0].name);
 }
 
 test "enter on synth track opens synth editor" {
@@ -1503,7 +1437,7 @@ test "synth editor jk moves cursor, hl adjusts waveform" {
     try std.testing.expectEqual(@as(u8, 0), app.synth_cursor); // on waveform
 
     app.handleKey(.{ .char = 'l' }, 0); // next waveform
-    const synth = &app.racks.items[0].instrument.poly_synth;
+    const synth = &app.session.racks.items[0].instrument.poly_synth;
     try std.testing.expect(synth.waveform != .saw); // was saw by default → now triangle
 
     // j×16: →pls.width(1)→…→spread(5)→b.on(6)→…→b.uni.det(13)→mod.mode(14)→mod.amt(15)→attack(16)
@@ -1553,7 +1487,7 @@ test "draw renders spectrum view when engine has activated the analyzer" {
 
     app.handleKey(.{ .char = 's' }, 0);
     var block: [512]types.Sample = undefined;
-    app.engine.process(&block);
+    app.session.engine.process(&block);
 
     var buf: [32 * 1024]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
@@ -1582,7 +1516,7 @@ test "p key opens piano roll for synth track" {
     app.piano_cursor_step = 0;
     app.piano_cursor_pitch = 60;
     app.handleKey(.{ .char = 'n' }, 0);
-    const pp = &app.racks.items[0].pattern_player.?;
+    const pp = &app.session.racks.items[0].pattern_player.?;
     try std.testing.expectEqual(@as(u16, 1), pp.note_count);
     try std.testing.expectEqual(@as(u7, 60), pp.notes[0].pitch);
 
@@ -1601,7 +1535,7 @@ test "piano roll p does not open for drum track" {
 
     // move cursor to drum track
     app.applyAction(.{ .move = .{ .dy = 10 } }, 0);
-    try std.testing.expectEqual(app.drum_track, @as(u16, @intCast(app.cursor)));
+    try std.testing.expectEqual(app.session.drum_track, @as(u16, @intCast(app.cursor)));
 
     app.handleKey(.{ .char = 'p' }, 0);
     try std.testing.expectEqual(AppView.tracks, app.view);

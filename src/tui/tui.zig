@@ -135,9 +135,9 @@ pub fn drawTracks(app: anytype, w: *std.Io.Writer, rows: usize, snap: engine_mod
     try w.writeAll(dim ++ "   [enter:edit  p:piano  s:spectrum  m:mute  M:master  a:add  D:del  ?:help]");
     try endLine(w);
 
-    for (app.project.tracks.items, 0..) |track, i| {
-        const is_drum = (i == app.drum_track);
-        const label: []const u8 = if (is_drum) "drum machine" else app.racks.items[i].label;
+    for (app.session.project.tracks.items, 0..) |track, i| {
+        const is_drum = (i == app.session.drum_track);
+        const label: []const u8 = if (is_drum) "drum machine" else app.session.racks.items[i].label;
         const hint: []const u8 = if (is_drum) " [enter:grid]" else " [enter:edit]";
         const is_sel = (i == app.cursor);
         // muted-but-not-selected rows get a dim wash over everything
@@ -167,8 +167,8 @@ pub fn drawTracks(app: anytype, w: *std.Io.Writer, rows: usize, snap: engine_mod
         try w.print(" [{s}]", .{label});
         if (!is_sel and !faded) try w.writeAll(rst);
         // FX badges
-        if (!is_drum and i < app.racks.items.len) {
-            const rfx = app.racks.items[i].fx;
+        if (!is_drum and i < app.session.racks.items.len) {
+            const rfx = app.session.racks.items[i].fx;
             const any = rfx.comp != null or rfx.eq != null or rfx.delay != null or rfx.reverb != null;
             if (any) {
                 if (!is_sel and !faded) try w.writeAll(acc);
@@ -208,20 +208,20 @@ pub fn drawTracks(app: anytype, w: *std.Io.Writer, rows: usize, snap: engine_mod
         try endLine(w);
     }
 
-    const used = 3 + app.project.tracks.items.len;
+    const used = 3 + app.session.project.tracks.items.len;
     for (used..@max(used, rows -| 3)) |_| try endLine(w);
 }
 
 pub fn drawDrumGrid(app: anytype, w: *std.Io.Writer, rows: usize, snap: engine_mod.UiSnapshot) !void {
     _ = snap;
     const playing_step = app.drumMachine().currentStep();
-    const is_playing = app.engine.uiSnapshot().playing;
+    const is_playing = app.session.engine.uiSnapshot().playing;
     const cur_pad = app.drum_cursor[0];
     const cur_step = app.drum_cursor[1];
 
     const dm = app.drumMachine();
     const step_count = dm.step_count;
-    const track_name = app.project.tracks.items[app.drum_track].name;
+    const track_name = app.session.project.tracks.items[app.session.drum_track].name;
     try w.writeAll(bold ++ " DRUMS" ++ rst);
     try w.print(" \"{s}\"", .{track_name});
     try w.writeAll(dim ++ "  [hjkl:move  spc:toggle  p:preview  <>:length  X:clear  F:fill  esc:back]");
@@ -380,22 +380,22 @@ pub fn drawSpectrumView(
     _ = snap;
 
     const title: []const u8 = if (is_track) blk: {
-        const name = if (app.eq_track < app.project.tracks.items.len)
-            app.project.tracks.items[app.eq_track].name
+        const name = if (app.eq_track < app.session.project.tracks.items.len)
+            app.session.project.tracks.items[app.eq_track].name
         else
             "?";
         break :blk name;
     } else "MASTER";
 
     const spectrum_snap = if (is_track)
-        app.engine.trackSpectrumSnapshot(app.eq_track)
+        app.session.engine.trackSpectrumSnapshot(app.eq_track)
     else
-        app.engine.masterSpectrumSnapshot();
+        app.session.engine.masterSpectrumSnapshot();
 
     // Pre-check whether the EQ row will be drawn so visual_rows can be sized correctly.
     const has_eq = is_track and
-        app.eq_track < app.racks.items.len and
-        app.racks.items[app.eq_track].fx.eq != null;
+        app.eq_track < app.session.racks.items.len and
+        app.session.racks.items[app.eq_track].fx.eq != null;
     const eq_row: usize = if (has_eq) 1 else 0;
 
     // 1 header + visual_rows spectrum + 1 hz label + eq_row must fit in rows-5.
@@ -503,7 +503,7 @@ pub fn drawSpectrumView(
     try endLine(w);
 
     if (has_eq) {
-        const e = &app.racks.items[app.eq_track].fx.eq.?;
+        const e = &app.session.racks.items[app.eq_track].fx.eq.?;
         const bypass_str: []const u8 = if (e.bypass) " [BYPASS]" else "";
         try w.writeAll(bold ++ " EQ" ++ rst);
         try w.writeAll(red);
@@ -553,7 +553,7 @@ pub fn drawTracksStatus(app: anytype, w: *std.Io.Writer) !void {
             try w.writeAll(rst);
             // track position
             try w.writeAll(dim ++ "  " ++ rst);
-            try w.print("{d}/{d}", .{ app.cursor + 1, app.project.tracks.items.len });
+            try w.print("{d}/{d}", .{ app.cursor + 1, app.session.project.tracks.items.len });
             try w.writeAll(dim ++ "  oct " ++ rst);
             try w.print("{d}", .{app.modal.octave});
             if (app.modal.count > 0) try w.print("  {d}", .{app.modal.count});
@@ -594,8 +594,8 @@ pub fn drawDrumStatus(app: anytype, w: *std.Io.Writer) !void {
 }
 
 pub fn drawSpectrumStatus(app: anytype, w: *std.Io.Writer, is_track: bool) !void {
-    if (is_track and app.eq_track < app.racks.items.len) {
-        if (app.racks.items[app.eq_track].fx.eq) |*e| {
+    if (is_track and app.eq_track < app.session.racks.items.len) {
+        if (app.session.racks.items[app.eq_track].fx.eq) |*e| {
             const freq = eq_mod.iso_frequencies[app.eq_cursor];
             const gain = e.bands[app.eq_cursor].gain_db;
             const sign: []const u8 = if (gain >= 0) "+" else "";
@@ -686,13 +686,13 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, snap: engin
 
 fn drawSynthEditorFull(app: anytype, w: *std.Io.Writer, snap: engine_mod.UiSnapshot) !void {
     _ = snap;
-    if (app.synth_track >= app.racks.items.len) return;
-    const rack = app.racks.items[app.synth_track];
+    if (app.synth_track >= app.session.racks.items.len) return;
+    const rack = app.session.racks.items[app.synth_track];
     switch (rack.instrument) { .poly_synth => {}, else => return }
     const synth = &rack.instrument.poly_synth;
 
-    const name = if (app.synth_track < app.project.tracks.items.len)
-        app.project.tracks.items[app.synth_track].name
+    const name = if (app.synth_track < app.session.project.tracks.items.len)
+        app.session.project.tracks.items[app.synth_track].name
     else "?";
 
     try w.writeAll(bold ++ " SYNTH" ++ rst);
@@ -1215,22 +1215,22 @@ fn isBlackKey(pitch: u7) bool {
 }
 
 pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, snap: engine_mod.UiSnapshot) !void {
-    if (app.piano_track >= app.racks.items.len) return;
-    const rack = app.racks.items[app.piano_track];
+    if (app.piano_track >= app.session.racks.items.len) return;
+    const rack = app.session.racks.items[app.piano_track];
     const pp = if (rack.pattern_player != null)
-        &app.racks.items[app.piano_track].pattern_player.?
+        &app.session.racks.items[app.piano_track].pattern_player.?
     else return;
 
     // Playhead step within the loop (maxInt when stopped — never matches a visible step).
     const play_step: u16 = if (snap.playing) blk: {
-        const sr: f64 = @floatFromInt(app.project.sample_rate);
-        const bpm: f64 = app.project.tempo_bpm;
+        const sr: f64 = @floatFromInt(app.session.project.sample_rate);
+        const bpm: f64 = app.session.project.tempo_bpm;
         const raw_beats: f64 = @as(f64, @floatFromInt(snap.position_frames)) / (sr * 60.0 / bpm);
         break :blk @intFromFloat(@mod(raw_beats, pp.length_beats) * 4.0);
     } else std.math.maxInt(u16);
 
-    const name = if (app.piano_track < app.project.tracks.items.len)
-        app.project.tracks.items[app.piano_track].name
+    const name = if (app.piano_track < app.session.project.tracks.items.len)
+        app.session.project.tracks.items[app.piano_track].name
     else "?";
 
     try w.writeAll(bold ++ " PIANO ROLL" ++ rst);
@@ -1332,10 +1332,10 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
 }
 
 pub fn drawPianoRollStatus(app: anytype, w: *std.Io.Writer) !void {
-    if (app.piano_track >= app.racks.items.len) return;
-    const rack = app.racks.items[app.piano_track];
+    if (app.piano_track >= app.session.racks.items.len) return;
+    const rack = app.session.racks.items[app.piano_track];
     const pp = if (rack.pattern_player != null)
-        &app.racks.items[app.piano_track].pattern_player.?
+        &app.session.racks.items[app.piano_track].pattern_player.?
     else return;
 
     var lbuf: [5]u8 = undefined;
@@ -1368,8 +1368,8 @@ pub fn drawPianoRollStatus(app: anytype, w: *std.Io.Writer) !void {
 }
 
 pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer) !void {
-    if (app.synth_track >= app.racks.items.len) return;
-    const rack = app.racks.items[app.synth_track];
+    if (app.synth_track >= app.session.racks.items.len) return;
+    const rack = app.session.racks.items[app.synth_track];
     switch (rack.instrument) { .poly_synth => {}, else => return }
     const synth = &rack.instrument.poly_synth;
 
