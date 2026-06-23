@@ -7,7 +7,6 @@ const backend_mod = ws.backend;
 const modal_mod = ws.input;
 const terminal_mod = @import("terminal.zig");
 const dsp = ws.dsp.device;
-const Project = ws.Project;
 const Transport = ws.Transport;
 const DrumMachine = ws.dsp.DrumMachine;
 const GraphicEq = ws.dsp.GraphicEq;
@@ -15,7 +14,6 @@ const eq_mod = ws.dsp.eq;
 const cmd_mod = @import("cmd.zig");
 const tui = @import("tui.zig");
 const midi = ws.midi;
-pub const Rack = ws.Rack;
 
 const Engine = engine_mod.Engine;
 
