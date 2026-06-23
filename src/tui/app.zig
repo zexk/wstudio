@@ -9,6 +9,7 @@ const dsp = @import("../dsp/device.zig");
 const Project = @import("../project.zig").Project;
 const Transport = @import("../transport.zig").Transport;
 const PolySynth = @import("../dsp/synth.zig").PolySynth;
+const PatternPlayer = @import("../dsp/pattern.zig").PatternPlayer;
 const Compressor = @import("../dsp/compressor.zig").Compressor;
 const StereoDelay = @import("../dsp/delay.zig").StereoDelay;
 const Reverb = @import("../dsp/reverb.zig").Reverb;
@@ -24,7 +25,7 @@ const Engine = engine_mod.Engine;
 const note_ms = 220;
 const frame_poll_ms = 30;
 
-pub const AppView = enum { tracks, drum_grid, synth_editor, help, track_spectrum, master_spectrum };
+pub const AppView = enum { tracks, drum_grid, synth_editor, help, track_spectrum, master_spectrum, piano_roll };
 
 fn wrap(comptime f: fn (*App, []const u8) void) *const fn (*anyopaque, []const u8) void {
     return struct {
@@ -39,6 +40,7 @@ const cmds: []const cmd_mod.Def = &.{
     .{ .name = "quit",        .desc = "quit wstudio",                        .run = wrap(App.cmdQuit) },
     .{ .name = "bpm",         .desc = "[<value>]  tempo in BPM (20–400)",    .run = wrap(App.cmdBpm) },
     .{ .name = "gain",        .desc = "<track> [<dB>]  track gain",          .run = wrap(App.cmdGain) },
+    .{ .name = "pan",         .desc = "<track> [<-1..1>]  track pan",        .run = wrap(App.cmdPan) },
     .{ .name = "vol",         .desc = "[<dB>]  master volume (–40 to +6)",   .run = wrap(App.cmdVol) },
     .{ .name = "seek",        .desc = "<bar>  move playhead to bar",         .run = wrap(App.cmdSeek) },
     .{ .name = "load-pad",    .desc = "<0-7> <file>  load WAV into pad",     .run = wrap(App.cmdLoadPad) },
@@ -70,12 +72,20 @@ pub const App = struct {
     should_quit: bool = false,
     status_buf: [80]u8 = undefined,
     status_len: usize = 0,
+    status_ttl: u32 = 0,
     note_offs: [32]NoteOff = undefined,
     note_off_len: usize = 0,
     eq_cursor: usize = 0,
     eq_track: u16 = 0,
     synth_track: u16 = 0,
     synth_cursor: u8 = 0,
+    synth_scroll: usize = 0,
+    piano_track: u16 = 0,
+    piano_cursor_step: u16 = 0,
+    piano_cursor_pitch: u7 = 60,
+    piano_scroll_step: u16 = 0,
+    piano_scroll_pitch: u7 = 72,
+    piano_note_len: f64 = 0.25,
 
     const NoteOff = struct { at_ns: i96, track: u16, note: u7 };
 
@@ -83,7 +93,7 @@ pub const App = struct {
         var project = Project.init(allocator);
         errdefer project.deinit();
         _ = try project.addTrack(.{ .name = "lead" });
-        _ = try project.addTrack(.{ .name = "pad", .gain_db = -6.0 });
+        _ = try project.addTrack(.{ .name = "e-piano", .gain_db = -3.0 });
         _ = try project.addTrack(.{ .name = "bass", .gain_db = -3.0 });
         _ = try project.addTrack(.{ .name = "drums" });
         const sr = project.sample_rate;
@@ -122,21 +132,67 @@ pub const App = struct {
         r0.fx.delay.?.setTime(0.375);
         r0.fx.reverb = try Reverb.init(allocator, sr);
         try racks.append(allocator, r0);
+        // PatternPlayer after rack is at final heap address
+        r0.pattern_player = PatternPlayer.init(&r0.instrument.poly_synth, &engine.transport);
 
+        // FM electric piano: sine carrier (A) + sine operator (B, ratio 1:1, fm_b_to_a).
+        // osc_b_level=0 keeps operator out of the mix — it only drives FM.
+        // Fast decay / zero sustain = tine-style.  Small noise = hammer transient.
         const r1 = try allocator.create(Rack);
-        r1.* = .{ .instrument = .{ .poly_synth = PolySynth.init(sr) }, .label = "synth+rev" };
-        r1.instrument.poly_synth.waveform = .sine;
-        r1.instrument.poly_synth.attack_s = 0.08;
-        r1.instrument.poly_synth.release_s = 0.8;
+        r1.* = .{ .instrument = .{ .poly_synth = PolySynth.init(sr) }, .label = "fm e-piano" };
+        r1.instrument.poly_synth.waveform         = .sine;
+        r1.instrument.poly_synth.osc_b_on         = true;
+        r1.instrument.poly_synth.osc_b_waveform   = .sine;
+        r1.instrument.poly_synth.osc_b_semi       = 0.0;  // ratio 1:1 operator
+        r1.instrument.poly_synth.osc_b_level      = 0.0;  // operator only, not in mix
+        r1.instrument.poly_synth.mod_mode         = .fm_b_to_a;
+        r1.instrument.poly_synth.mod_amount       = 2.5;  // FM index β
+        r1.instrument.poly_synth.attack_s         = 0.003;
+        r1.instrument.poly_synth.decay_s          = 1.8;
+        r1.instrument.poly_synth.sustain          = 0.0;
+        r1.instrument.poly_synth.release_s        = 0.3;
+        r1.instrument.poly_synth.filter_cutoff    = 8_000.0;
+        r1.instrument.poly_synth.fenv_amount      = 1.2;  // filter opens bright on attack
+        r1.instrument.poly_synth.fenv_attack_s    = 0.005;
+        r1.instrument.poly_synth.fenv_decay_s     = 0.35;
+        r1.instrument.poly_synth.fenv_sustain     = 0.0;
+        r1.instrument.poly_synth.noise_level      = 0.06; // white noise hammer click
+        r1.instrument.poly_synth.noise_color      = 1.0;
+        r1.instrument.poly_synth.gain             = 0.32;
         r1.fx.reverb = try Reverb.init(allocator, sr);
-        r1.fx.reverb.?.mix = 0.45;
+        r1.fx.reverb.?.mix = 0.22;
         try racks.append(allocator, r1);
+        r1.pattern_player = PatternPlayer.init(&r1.instrument.poly_synth, &engine.transport);
 
+        // FM bass: saw carrier (A) + sine operator (B, ratio 1:1, fm_b_to_a).
+        // β=3.5 gives rich harmonics; sine sub anchors the low end; LP filter shapes the growl.
         const r2 = try allocator.create(Rack);
-        r2.* = .{ .instrument = .{ .poly_synth = PolySynth.init(sr) }, .label = "synth" };
-        r2.instrument.poly_synth.waveform = .square;
-        r2.instrument.poly_synth.gain = 0.25;
+        r2.* = .{ .instrument = .{ .poly_synth = PolySynth.init(sr) }, .label = "fm bass" };
+        r2.instrument.poly_synth.waveform         = .saw;
+        r2.instrument.poly_synth.voice_mode       = .mono;
+        r2.instrument.poly_synth.glide_s          = 0.05;
+        r2.instrument.poly_synth.osc_b_on         = true;
+        r2.instrument.poly_synth.osc_b_waveform   = .sine;
+        r2.instrument.poly_synth.osc_b_semi       = 0.0;
+        r2.instrument.poly_synth.osc_b_level      = 0.0;  // operator only
+        r2.instrument.poly_synth.mod_mode         = .fm_b_to_a;
+        r2.instrument.poly_synth.mod_amount       = 3.5;  // high β = growly harmonics
+        r2.instrument.poly_synth.sub_level        = 0.45;
+        r2.instrument.poly_synth.sub_shape        = .sine;
+        r2.instrument.poly_synth.attack_s         = 0.006;
+        r2.instrument.poly_synth.decay_s          = 0.28;
+        r2.instrument.poly_synth.sustain          = 0.6;
+        r2.instrument.poly_synth.release_s        = 0.15;
+        r2.instrument.poly_synth.filter_cutoff    = 1_100.0;
+        r2.instrument.poly_synth.filter_res       = 0.2;
+        r2.instrument.poly_synth.fenv_amount      = 2.2;
+        r2.instrument.poly_synth.fenv_attack_s    = 0.004;
+        r2.instrument.poly_synth.fenv_decay_s     = 0.22;
+        r2.instrument.poly_synth.fenv_sustain     = 0.0;
+        r2.instrument.poly_synth.gain             = 0.40;
+        r2.fx.comp = Compressor.init(sr);
         try racks.append(allocator, r2);
+        r2.pattern_player = PatternPlayer.init(&r2.instrument.poly_synth, &engine.transport);
 
         const drum_rack = try allocator.create(Rack);
         drum_rack.* = .{
@@ -156,7 +212,7 @@ pub const App = struct {
             .drum_track = drum_track,
         };
         for (self.racks.items, 0..) |rack, i| {
-            var buf: [5]dsp.Device = undefined;
+            var buf: [6]dsp.Device = undefined;
             self.engine.setTrackChain(@intCast(i), rack.chain(&buf));
         }
         return self;
@@ -199,6 +255,9 @@ pub const App = struct {
             .track_spectrum, .master_spectrum => if (!self.handleSpectrumKey(key)) {
                 self.applyAction(self.modal.handle(key), now_ns);
             },
+            .piano_roll => if (!self.handlePianoRollKey(key)) {
+                self.applyAction(self.modal.handle(key), now_ns);
+            },
             .tracks => {
                 if (key == .enter and self.modal.mode == .normal) {
                     if (self.cursor == self.drum_track) {
@@ -219,9 +278,14 @@ pub const App = struct {
                     switch (key.char) {
                         'M' => { self.switchToMasterSpectrum(); return; },
                         's' => { self.switchToTrackSpectrum(@intCast(self.cursor)); return; },
+                        'p' => { self.switchToPianoRoll(@intCast(self.cursor)); return; },
                         'a' => { self.doTrackAdd(null); return; },
                         'D' => { self.doTrackDel(self.cursor); return; },
                         '?' => { self.cmdHelp(""); return; },
+                        '<' => { self.doTrackPan(@intCast(self.cursor), -0.05); return; },
+                        '>' => { self.doTrackPan(@intCast(self.cursor), 0.05); return; },
+                        '-' => { self.doTrackGainStep(@intCast(self.cursor), -1.0); return; },
+                        '=' => { self.doTrackGainStep(@intCast(self.cursor), 1.0); return; },
                         else => {},
                     }
                 }
@@ -271,7 +335,7 @@ pub const App = struct {
                     if (self.view == .track_spectrum and self.eq_track < self.racks.items.len) {
                         if (self.racks.items[self.eq_track].fx.eq) |*eq| {
                             eq.bypass = !eq.bypass;
-                            var buf: [5]dsp.Device = undefined;
+                            var buf: [6]dsp.Device = undefined;
                             self.engine.setTrackChain(self.eq_track, self.racks.items[self.eq_track].chain(&buf));
                         }
                     }
@@ -295,7 +359,7 @@ pub const App = struct {
         const rack = self.racks.items[track];
         if (rack.fx.eq == null) rack.fx.eq = GraphicEq.init(self.project.sample_rate);
         rack.fx.eq.?.setBand(band, gain_db);
-        var buf: [5]dsp.Device = undefined;
+        var buf: [6]dsp.Device = undefined;
         self.engine.setTrackChain(track, rack.chain(&buf));
     }
 
@@ -306,8 +370,8 @@ pub const App = struct {
             .escape => { self.view = .tracks; return true; },
             .char => |c| {
                 switch (c) {
-                    'h' => step.* = if (step.* == 0) self.drumMachine().step_count - 1 else step.* - 1,
-                    'l' => step.* = (step.* + 1) % self.drumMachine().step_count,
+                    'h' => { if (step.* > 0) step.* -= 1; },
+                    'l' => { if (step.* + 1 < self.drumMachine().step_count) step.* += 1; },
                     'k' => if (pad.* > 0) { pad.* -= 1; },
                     'j' => if (pad.* < DrumMachine.max_pads - 1) { pad.* += 1; },
                     ' ' => self.drumMachine().toggleStep(pad.*, step.*),
@@ -322,6 +386,12 @@ pub const App = struct {
                         if (step.* >= dm.step_count) step.* = dm.step_count - 1;
                     },
                     '>' => self.drumMachine().setStepCount(self.drumMachine().step_count + 1),
+                    'X' => self.drumMachine().pattern[pad.*].store(0, .release),
+                    'F' => {
+                        const dm = self.drumMachine();
+                        const mask: u32 = (@as(u32, 1) << @intCast(dm.step_count)) - 1;
+                        dm.pattern[pad.*].store(mask, .release);
+                    },
                     else => return false,
                 }
                 return true;
@@ -336,20 +406,190 @@ pub const App = struct {
             .char => |c| switch (c) {
                 'j' => {
                     if (self.synth_cursor < tui.synth_param_count - 1) self.synth_cursor += 1;
+                    self.synthUpdateScroll();
                     return true;
                 },
                 'k' => {
                     if (self.synth_cursor > 0) self.synth_cursor -= 1;
+                    self.synthUpdateScroll();
                     return true;
                 },
                 'h' => { self.adjustSynthParam(-1); return true; },
                 'l' => { self.adjustSynthParam(1); return true; },
                 'H' => { self.adjustSynthParam(-10); return true; },
                 'L' => { self.adjustSynthParam(10); return true; },
+                '}' => {
+                    const starts = [_]u8{ 0, 6, 14, 16, 20, 24, 28, 32, 34, 36, 38 };
+                    for (starts) |s| {
+                        if (s > self.synth_cursor) {
+                            self.synth_cursor = s;
+                            break;
+                        }
+                    }
+                    self.synthUpdateScroll();
+                    return true;
+                },
+                '{' => {
+                    const starts = [_]u8{ 0, 6, 14, 16, 20, 24, 28, 32, 34, 36, 38 };
+                    var sec_idx: usize = 0;
+                    for (starts, 0..) |s, idx| {
+                        if (s <= self.synth_cursor) sec_idx = idx;
+                    }
+                    if (self.synth_cursor == starts[sec_idx] and sec_idx > 0) {
+                        self.synth_cursor = starts[sec_idx - 1];
+                    } else {
+                        self.synth_cursor = starts[sec_idx];
+                    }
+                    self.synthUpdateScroll();
+                    return true;
+                },
                 else => return false,
             },
             else => return false,
         }
+    }
+
+    /// Row index of `synth_cursor` within drawSynthEditor's output (0-based).
+    /// Must stay in sync with the layout in tui.drawSynthEditor.
+    pub fn synthParamRow(cursor: u8) usize {
+        return switch (cursor) {
+            0...5  => 2 + @as(usize, cursor),          // OSC A section (header at row 1)
+            6...13 => 9 + @as(usize, cursor - 6),      // OSC B (header at row 8)
+            14...15 => 18 + @as(usize, cursor - 14),   // MOD (header at 17)
+            16...19 => 21 + @as(usize, cursor - 16),   // ENV (header at 20)
+            20...23 => 26 + @as(usize, cursor - 20),   // FILTER (header at 25)
+            24...27 => 31 + @as(usize, cursor - 24),   // FENV (header at 30)
+            28...31 => 36 + @as(usize, cursor - 28),   // LFO (header at 35)
+            32...33 => 41 + @as(usize, cursor - 32),   // VOICE (header at 40)
+            34...35 => 44 + @as(usize, cursor - 34),   // SUB (header at 43)
+            36...37 => 47 + @as(usize, cursor - 36),   // NOISE (header at 46)
+            38      => 50,                              // OUT (header at 49)
+            else    => 0,
+        };
+    }
+
+    fn synthUpdateScroll(self: *App) void {
+        // Will be called with an actual max_rows at draw time; use 20 as a safe
+        // minimum so the scroll is kept reasonable even before the first draw.
+        const max_rows: usize = 20;
+        const row = synthParamRow(self.synth_cursor);
+        if (row < self.synth_scroll) self.synth_scroll = row;
+        if (row >= self.synth_scroll + max_rows) self.synth_scroll = row - max_rows + 1;
+    }
+
+    fn switchToPianoRoll(self: *App, track: u16) void {
+        if (track >= self.racks.items.len) return;
+        switch (self.racks.items[track].instrument) {
+            .poly_synth => {},
+            else => return,
+        }
+        self.piano_track = track;
+        self.piano_cursor_step = 0;
+        self.piano_scroll_step = 0;
+        // Center the 16-row viewport on the cursor pitch.
+        self.piano_scroll_pitch = @intCast(@min(@as(u32, self.piano_cursor_pitch) + 8, 127));
+        self.view = .piano_roll;
+    }
+
+    fn handlePianoRollKey(self: *App, key: modal_mod.Key) bool {
+        if (self.piano_track >= self.racks.items.len) return false;
+        const rack = self.racks.items[self.piano_track];
+        const pp = if (rack.pattern_player != null) &self.racks.items[self.piano_track].pattern_player.? else return false;
+
+        switch (key) {
+            .escape => { self.view = .tracks; return true; },
+            .char => |c| switch (c) {
+                'h' => {
+                    if (self.piano_cursor_step > 0) self.piano_cursor_step -= 1;
+                    self.pianoEnsureVisible();
+                    return true;
+                },
+                'l' => {
+                    const max_step: u16 = @intFromFloat(pp.length_beats * 4.0);
+                    if (self.piano_cursor_step + 1 < max_step) self.piano_cursor_step += 1;
+                    self.pianoEnsureVisible();
+                    return true;
+                },
+                'j' => {
+                    if (self.piano_cursor_pitch > 0) self.piano_cursor_pitch -= 1;
+                    self.pianoEnsureVisible();
+                    return true;
+                },
+                'k' => {
+                    if (self.piano_cursor_pitch < 127) self.piano_cursor_pitch += 1;
+                    self.pianoEnsureVisible();
+                    return true;
+                },
+                'n' => { self.pianoInsertNote(); return true; },
+                'd' => { self.pianoDeleteNote(); return true; },
+                '[' => {
+                    self.piano_note_len = @max(0.25, self.piano_note_len - 0.25);
+                    self.setStatus("note len: {d:.2} beats", .{self.piano_note_len});
+                    return true;
+                },
+                ']' => {
+                    self.piano_note_len = @min(4.0, self.piano_note_len + 0.25);
+                    self.setStatus("note len: {d:.2} beats", .{self.piano_note_len});
+                    return true;
+                },
+                '+' => {
+                    pp.length_beats += 4.0;
+                    self.setStatus("loop: {d:.0} beats", .{pp.length_beats});
+                    return true;
+                },
+                '-' => {
+                    pp.length_beats = @max(4.0, pp.length_beats - 4.0);
+                    self.setStatus("loop: {d:.0} beats", .{pp.length_beats});
+                    return true;
+                },
+                else => return false,
+            },
+            else => return false,
+        }
+    }
+
+    fn pianoEnsureVisible(self: *App) void {
+        const vis_cols: u16 = 16;
+        const vis_rows: u8  = 16;
+        // horizontal
+        if (self.piano_cursor_step < self.piano_scroll_step) {
+            self.piano_scroll_step = self.piano_cursor_step;
+        }
+        if (self.piano_cursor_step >= self.piano_scroll_step + vis_cols) {
+            self.piano_scroll_step = self.piano_cursor_step - vis_cols + 1;
+        }
+        // vertical (pitch)
+        const top: i32 = @intCast(self.piano_scroll_pitch);
+        const bot: i32 = top - @as(i32, vis_rows) + 1;
+        const cur: i32 = @intCast(self.piano_cursor_pitch);
+        if (cur > top) self.piano_scroll_pitch = @intCast(cur);
+        if (cur < bot) self.piano_scroll_pitch = @intCast(cur + @as(i32, vis_rows) - 1);
+    }
+
+    fn pianoInsertNote(self: *App) void {
+        if (self.piano_track >= self.racks.items.len) return;
+        const pp = if (self.racks.items[self.piano_track].pattern_player != null)
+            &self.racks.items[self.piano_track].pattern_player.?
+        else return;
+        const start_beat = @as(f64, @floatFromInt(self.piano_cursor_step)) * 0.25;
+        // Don't insert if a note already starts here on this pitch
+        if (pp.noteStartsAt(self.piano_cursor_pitch, start_beat)) return;
+        pp.addNote(.{
+            .pitch        = self.piano_cursor_pitch,
+            .start_beat   = start_beat,
+            .duration_beat = self.piano_note_len,
+        });
+        self.setStatus("note on: {d}", .{self.piano_cursor_pitch});
+    }
+
+    fn pianoDeleteNote(self: *App) void {
+        if (self.piano_track >= self.racks.items.len) return;
+        const pp = if (self.racks.items[self.piano_track].pattern_player != null)
+            &self.racks.items[self.piano_track].pattern_player.?
+        else return;
+        const start_beat = @as(f64, @floatFromInt(self.piano_cursor_step)) * 0.25;
+        pp.removeNote(self.piano_cursor_pitch, start_beat);
+        self.setStatus("note off: {d}", .{self.piano_cursor_pitch});
     }
 
     fn adjustSynthParam(self: *App, steps: i32) void {
@@ -366,66 +606,85 @@ pub const App = struct {
             } else switch (synth.waveform) {
                 .sine => .square, .saw => .sine, .triangle => .saw, .square => .triangle,
             },
-            1  => synth.pulse_width        = std.math.clamp(synth.pulse_width        + s * 0.01,   0.01,   0.99),
-            2  => synth.detune_cents        = std.math.clamp(synth.detune_cents        + s * 1.0,  -100.0, 100.0),
-            3  => synth.unison              = @intCast(std.math.clamp(@as(i32, synth.unison) + steps, 1, 16)),
-            4  => synth.unison_detune        = std.math.clamp(synth.unison_detune        + s * 1.0,   0.0,  100.0),
-            5  => synth.unison_spread        = std.math.clamp(synth.unison_spread        + s * 0.01,  0.0,    1.0),
-            6  => synth.osc_b_on             = (steps > 0),
+            1  => synth.pulse_width         = std.math.clamp(synth.pulse_width        + s * 0.01,   0.01,   0.99),
+            2  => synth.detune_cents         = std.math.clamp(synth.detune_cents       + s * 1.0,  -100.0, 100.0),
+            3  => synth.unison               = @intCast(std.math.clamp(@as(i32, synth.unison) + steps, 1, 16)),
+            4  => synth.unison_detune        = std.math.clamp(synth.unison_detune      + s * 1.0,    0.0,  100.0),
+            5  => synth.unison_spread        = std.math.clamp(synth.unison_spread      + s * 0.01,   0.0,    1.0),
+            6  => synth.osc_b_on             = !synth.osc_b_on,
             7  => synth.osc_b_waveform = if (steps > 0) switch (synth.osc_b_waveform) {
                 .sine => .saw, .saw => .triangle, .triangle => .square, .square => .sine,
             } else switch (synth.osc_b_waveform) {
                 .sine => .square, .saw => .sine, .triangle => .saw, .square => .triangle,
             },
-            8  => synth.osc_b_pulse_width   = std.math.clamp(synth.osc_b_pulse_width   + s * 0.01,   0.01,   0.99),
-            9  => synth.osc_b_semi          = std.math.clamp(synth.osc_b_semi          + s * 1.0,  -24.0,   24.0),
-            10 => synth.osc_b_detune_cents  = std.math.clamp(synth.osc_b_detune_cents  + s * 1.0, -100.0,  100.0),
-            11 => synth.osc_b_level         = std.math.clamp(synth.osc_b_level         + s * 0.01,   0.0,    1.0),
-            12 => synth.osc_b_unison        = @intCast(std.math.clamp(@as(i32, synth.osc_b_unison) + steps, 1, 16)),
-            13 => synth.osc_b_unison_detune = std.math.clamp(synth.osc_b_unison_detune + s * 1.0,    0.0,  100.0),
-            14 => synth.attack_s             = std.math.clamp(synth.attack_s             + s * 0.001, 0.001,  5.0),
-            15 => synth.decay_s              = std.math.clamp(synth.decay_s              + s * 0.005, 0.001,  5.0),
-            16 => synth.sustain              = std.math.clamp(synth.sustain              + s * 0.01,  0.0,    1.0),
-            17 => synth.release_s            = std.math.clamp(synth.release_s            + s * 0.005, 0.001, 10.0),
-            18 => synth.filter_type = if (steps > 0) switch (synth.filter_type) {
+            8  => synth.osc_b_pulse_width    = std.math.clamp(synth.osc_b_pulse_width  + s * 0.01,   0.01,   0.99),
+            9  => synth.osc_b_semi           = std.math.clamp(synth.osc_b_semi         + s * 1.0,  -24.0,   24.0),
+            10 => synth.osc_b_detune_cents   = std.math.clamp(synth.osc_b_detune_cents + s * 1.0, -100.0,  100.0),
+            11 => synth.osc_b_level          = std.math.clamp(synth.osc_b_level        + s * 0.01,   0.0,    1.0),
+            12 => synth.osc_b_unison         = @intCast(std.math.clamp(@as(i32, synth.osc_b_unison) + steps, 1, 16)),
+            13 => synth.osc_b_unison_detune  = std.math.clamp(synth.osc_b_unison_detune + s * 1.0,   0.0,  100.0),
+            // MOD (14–15)
+            14 => synth.mod_mode = if (steps > 0) switch (synth.mod_mode) {
+                .none => .ring, .ring => .am_a_to_b, .am_a_to_b => .am_b_to_a,
+                .am_b_to_a => .fm_a_to_b, .fm_a_to_b => .fm_b_to_a, .fm_b_to_a => .none,
+            } else switch (synth.mod_mode) {
+                .none => .fm_b_to_a, .ring => .none, .am_a_to_b => .ring,
+                .am_b_to_a => .am_a_to_b, .fm_a_to_b => .am_b_to_a, .fm_b_to_a => .fm_a_to_b,
+            },
+            15 => synth.mod_amount           = std.math.clamp(synth.mod_amount         + s * 0.05,   0.0,    8.0),
+            // ENV (16–19)
+            16 => synth.attack_s             = std.math.clamp(synth.attack_s           + s * 0.001, 0.001,   5.0),
+            17 => synth.decay_s              = std.math.clamp(synth.decay_s            + s * 0.005, 0.001,   5.0),
+            18 => synth.sustain              = std.math.clamp(synth.sustain            + s * 0.01,   0.0,    1.0),
+            19 => synth.release_s            = std.math.clamp(synth.release_s          + s * 0.005, 0.001,  10.0),
+            // FILTER (20–23)
+            20 => synth.filter_type = if (steps > 0) switch (synth.filter_type) {
                 .lp => .hp, .hp => .bp, .bp => .notch, .notch => .lp,
             } else switch (synth.filter_type) {
                 .lp => .notch, .hp => .lp, .bp => .hp, .notch => .bp,
             },
-            19 => synth.filter_cutoff        = std.math.clamp(synth.filter_cutoff        + s * 100.0, 20.0, 20_000.0),
-            20 => synth.filter_res           = std.math.clamp(synth.filter_res           + s * 0.01,   0.0,    1.0),
-            21 => synth.fenv_amount          = std.math.clamp(synth.fenv_amount          + s * 0.1,   -4.0,    4.0),
-            22 => synth.fenv_attack_s        = std.math.clamp(synth.fenv_attack_s        + s * 0.001, 0.001,  5.0),
-            23 => synth.fenv_decay_s         = std.math.clamp(synth.fenv_decay_s         + s * 0.005, 0.001,  5.0),
-            24 => synth.fenv_sustain         = std.math.clamp(synth.fenv_sustain         + s * 0.01,   0.0,    1.0),
-            25 => synth.fenv_release_s       = std.math.clamp(synth.fenv_release_s       + s * 0.005, 0.001, 10.0),
-            26 => synth.lfo_shape = if (steps > 0) switch (synth.lfo_shape) {
+            // Log-scale cutoff: 1 semitone per step (h/l), ~minor-7th per H/L.
+            21 => synth.filter_cutoff        = std.math.clamp(
+                synth.filter_cutoff * std.math.pow(f32, 2.0, s / 12.0), 20.0, 20_000.0),
+            22 => synth.filter_res           = std.math.clamp(synth.filter_res         + s * 0.01,   0.0,    1.0),
+            23 => synth.fenv_amount          = std.math.clamp(synth.fenv_amount        + s * 0.1,   -4.0,    4.0),
+            // FENV (24–27)
+            24 => synth.fenv_attack_s        = std.math.clamp(synth.fenv_attack_s      + s * 0.001, 0.001,   5.0),
+            25 => synth.fenv_decay_s         = std.math.clamp(synth.fenv_decay_s       + s * 0.005, 0.001,   5.0),
+            26 => synth.fenv_sustain         = std.math.clamp(synth.fenv_sustain       + s * 0.01,   0.0,    1.0),
+            27 => synth.fenv_release_s       = std.math.clamp(synth.fenv_release_s     + s * 0.005, 0.001,  10.0),
+            // LFO (28–31)
+            28 => synth.lfo_shape = if (steps > 0) switch (synth.lfo_shape) {
                 .sine => .triangle, .triangle => .saw, .saw => .square, .square => .sine,
             } else switch (synth.lfo_shape) {
                 .sine => .square, .triangle => .sine, .saw => .triangle, .square => .saw,
             },
-            27 => synth.lfo_rate_hz          = std.math.clamp(synth.lfo_rate_hz          + s * 0.1,  0.01,  20.0),
-            28 => synth.lfo_depth            = std.math.clamp(synth.lfo_depth            + s * 0.01,  0.0,    1.0),
-            29 => synth.lfo_target = if (steps > 0) switch (synth.lfo_target) {
+            29 => synth.lfo_rate_hz          = std.math.clamp(synth.lfo_rate_hz        + s * 0.1,   0.01,   20.0),
+            30 => synth.lfo_depth            = std.math.clamp(synth.lfo_depth          + s * 0.01,   0.0,    1.0),
+            31 => synth.lfo_target = if (steps > 0) switch (synth.lfo_target) {
                 .none => .filter, .filter => .pitch, .pitch => .amp, .amp => .none,
             } else switch (synth.lfo_target) {
                 .none => .amp, .filter => .none, .pitch => .filter, .amp => .pitch,
             },
-            30 => synth.voice_mode = if (steps > 0) switch (synth.voice_mode) {
+            // VOICE (32–33)
+            32 => synth.voice_mode = if (steps > 0) switch (synth.voice_mode) {
                 .poly => .mono, .mono => .legato, .legato => .poly,
             } else switch (synth.voice_mode) {
                 .poly => .legato, .mono => .poly, .legato => .mono,
             },
-            31 => synth.glide_s              = std.math.clamp(synth.glide_s              + s * 0.01,  0.0,  10.0),
-            32 => synth.sub_level            = std.math.clamp(synth.sub_level            + s * 0.01,  0.0,   1.0),
-            33 => synth.sub_shape   = if (steps > 0) switch (synth.sub_shape) {
+            33 => synth.glide_s              = std.math.clamp(synth.glide_s            + s * 0.01,   0.0,   10.0),
+            // SUB (34–35)
+            34 => synth.sub_level            = std.math.clamp(synth.sub_level          + s * 0.01,   0.0,    1.0),
+            35 => synth.sub_shape = if (steps > 0) switch (synth.sub_shape) {
                 .sine => .square, .square => .sine,
             } else switch (synth.sub_shape) {
                 .sine => .square, .square => .sine,
             },
-            34 => synth.noise_level          = std.math.clamp(synth.noise_level          + s * 0.01,  0.0,   1.0),
-            35 => synth.noise_color          = std.math.clamp(synth.noise_color          + s * 0.01,  0.0,   1.0),
-            36 => synth.gain                 = std.math.clamp(synth.gain                 + s * 0.01,  0.01,  1.0),
+            // NOISE (36–37)
+            36 => synth.noise_level          = std.math.clamp(synth.noise_level        + s * 0.01,   0.0,    1.0),
+            37 => synth.noise_color          = std.math.clamp(synth.noise_color        + s * 0.01,   0.0,    1.0),
+            // OUT (38)
+            38 => synth.gain                 = std.math.clamp(synth.gain               + s * 0.01,  0.01,    1.0),
             else => {},
         }
     }
@@ -493,6 +752,10 @@ pub const App = struct {
     }
 
     pub fn tick(self: *App, now_ns: i96) void {
+        if (self.status_ttl > 0) {
+            self.status_ttl -= 1;
+            if (self.status_ttl == 0) self.status_len = 0;
+        }
         var i: usize = 0;
         while (i < self.note_off_len) {
             const off = self.note_offs[i];
@@ -532,6 +795,7 @@ pub const App = struct {
             return;
         };
         rack.* = .{ .instrument = .{ .poly_synth = PolySynth.init(sr) }, .label = "synth" };
+        rack.pattern_player = PatternPlayer.init(&rack.instrument.poly_synth, &self.engine.transport);
         self.racks.insert(self.allocator, idx, rack) catch {
             self.allocator.destroy(rack);
             self.setStatus("out of memory", .{});
@@ -548,7 +812,7 @@ pub const App = struct {
 
         // Engine: shift drum up, init new slot, set chain.
         self.engine.applyInsertTrack(idx, 1.0, 0.0, false);
-        var buf: [5]dsp.Device = undefined;
+        var buf: [6]dsp.Device = undefined;
         self.engine.setTrackChain(idx, rack.chain(&buf));
 
         self.drum_track += 1;
@@ -604,6 +868,26 @@ pub const App = struct {
         }
 
         self.setStatus("deleted track {d}", .{track_idx + 1});
+    }
+
+    fn doTrackPan(self: *App, track: u16, delta: f32) void {
+        if (track >= self.project.tracks.items.len) return;
+        const t = &self.project.tracks.items[track];
+        t.pan = std.math.clamp(t.pan + delta, -1.0, 1.0);
+        _ = self.engine.send(.{ .set_track_pan = .{ .track = track, .pan = t.pan } });
+        const pct: i32 = @intFromFloat(@abs(t.pan) * 100.0);
+        if (pct == 0) self.setStatus("track {d} pan: center", .{track + 1})
+        else if (t.pan < 0) self.setStatus("track {d} pan: L{d}%", .{ track + 1, pct })
+        else self.setStatus("track {d} pan: R{d}%", .{ track + 1, pct });
+    }
+
+    fn doTrackGainStep(self: *App, track: u16, delta_db: f32) void {
+        if (track >= self.project.tracks.items.len) return;
+        const t = &self.project.tracks.items[track];
+        t.gain_db = std.math.clamp(t.gain_db + delta_db, -60.0, 12.0);
+        _ = self.engine.send(.{ .set_track_gain = .{ .track = track, .gain = types.dbToGain(t.gain_db) } });
+        const sign: []const u8 = if (t.gain_db >= 0) "+" else "";
+        self.setStatus("track {d} gain: {s}{d:.1}dB", .{ track + 1, sign, t.gain_db });
     }
 
     // -----------------------------------------------------------------------
@@ -759,6 +1043,42 @@ pub const App = struct {
         self.setStatus("track {d} gain: {d:.1}dB", .{ track_1, clamped });
     }
 
+    fn cmdPan(self: *App, args: []const u8) void {
+        var it = std.mem.splitScalar(u8, std.mem.trim(u8, args, " "), ' ');
+        const track_str = it.next() orelse {
+            self.setStatus("usage: pan <track> [<-1..1>]", .{});
+            return;
+        };
+        const track_1 = std.fmt.parseInt(usize, track_str, 10) catch {
+            self.setStatus("pan: bad track number '{s}'", .{track_str});
+            return;
+        };
+        if (track_1 == 0 or track_1 > self.project.tracks.items.len) {
+            self.setStatus("pan: track must be 1–{d}", .{self.project.tracks.items.len});
+            return;
+        }
+        const track_idx = track_1 - 1;
+        const track = &self.project.tracks.items[track_idx];
+        const val_str = std.mem.trim(u8, it.rest(), " ");
+        if (val_str.len == 0) {
+            const pct: i32 = @intFromFloat(@abs(track.pan) * 100.0);
+            if (pct == 0) self.setStatus("track {d} pan: center", .{track_1})
+            else if (track.pan < 0) self.setStatus("track {d} pan: L{d}%", .{ track_1, pct })
+            else self.setStatus("track {d} pan: R{d}%", .{ track_1, pct });
+            return;
+        }
+        const val = std.fmt.parseFloat(f32, val_str) catch {
+            self.setStatus("pan: expected a value between -1.0 and 1.0", .{});
+            return;
+        };
+        track.pan = std.math.clamp(val, -1.0, 1.0);
+        _ = self.engine.send(.{ .set_track_pan = .{ .track = @intCast(track_idx), .pan = track.pan } });
+        const pct: i32 = @intFromFloat(@abs(track.pan) * 100.0);
+        if (pct == 0) self.setStatus("track {d} pan: center", .{track_1})
+        else if (track.pan < 0) self.setStatus("track {d} pan: L{d}%", .{ track_1, pct })
+        else self.setStatus("track {d} pan: R{d}%", .{ track_1, pct });
+    }
+
     fn cmdSeek(self: *App, args: []const u8) void {
         const trimmed = std.mem.trim(u8, args, " ");
         const bar_1 = std.fmt.parseInt(u64, trimmed, 10) catch {
@@ -842,6 +1162,7 @@ pub const App = struct {
     fn setStatus(self: *App, comptime fmt: []const u8, args: anytype) void {
         const msg = std.fmt.bufPrint(&self.status_buf, fmt, args) catch &self.status_buf;
         self.status_len = msg.len;
+        self.status_ttl = 100;
     }
 
     // -----------------------------------------------------------------------
@@ -860,6 +1181,7 @@ pub const App = struct {
             .tracks          => try tui.drawTracks(self, w, rows, snap),
             .drum_grid       => try tui.drawDrumGrid(self, w, rows, snap),
             .synth_editor    => try tui.drawSynthEditor(self, w, rows, snap),
+            .piano_roll      => try tui.drawPianoRoll(self, w, rows, snap),
             .help            => try tui.drawHelp(w, rows, cmds),
             .track_spectrum  => try tui.drawSpectrumView(self, w, rows, snap, true),
             .master_spectrum => try tui.drawSpectrumView(self, w, rows, snap, false),
@@ -893,11 +1215,14 @@ pub const App = struct {
             .tracks          => try tui.drawTracksStatus(self, w),
             .drum_grid       => try tui.drawDrumStatus(self, w),
             .synth_editor    => try tui.drawSynthStatus(self, w),
+            .piano_roll      => try tui.drawPianoRollStatus(self, w),
             .help            => try w.writeAll(" esc: close"),
             .track_spectrum  => try tui.drawSpectrumStatus(self, w, true),
             .master_spectrum => try tui.drawSpectrumStatus(self, w, false),
         }
-        try w.writeAll("\x1b[K");
+        // Erase from cursor to end of screen so stale content from taller
+        // previous frames never bleeds through.
+        try w.writeAll("\x1b[K\x1b[J");
     }
 };
 
@@ -923,7 +1248,9 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io) !void {
 
     const has_alsa = builtin.os.tag == .linux;
     const AlsaBackend = if (has_alsa) @import("../audio/alsa.zig").AlsaBackend else void;
+    const MidiIn     = if (has_alsa) @import("../audio/midi_in.zig").MidiIn else void;
     var alsa_backend: AlsaBackend = undefined;
+    var midi_in:     MidiIn       = undefined;
     var null_backend = backend_mod.NullBackend{
         .config = config,
         .render = renderTrampoline,
@@ -931,14 +1258,21 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io) !void {
     };
 
     var using_alsa = false;
+    var using_midi = false;
     if (has_alsa) {
         alsa_backend = .{ .config = config, .render = renderTrampoline, .ctx = app.engine };
         if (alsa_backend.start()) {
             using_alsa = true;
         } else |_| {}
+
+        midi_in = .{ .engine = app.engine };
+        if (midi_in.start()) {
+            using_midi = true;
+        } else |_| {}
     }
     if (!using_alsa) try null_backend.start(io);
     defer if (using_alsa) alsa_backend.stop() else null_backend.stop();
+    defer if (using_midi) midi_in.stop();
     app.audio_label = if (using_alsa) "alsa" else "none (silent)";
 
     var frame_buf: [32 * 1024]u8 = undefined;
@@ -951,6 +1285,11 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io) !void {
         const n = terminal_mod.decode(bytes, &keys);
         for (keys[0..n]) |key| app.handleKey(key, now);
         app.tick(now);
+
+        // MIDI input follows the TUI cursor so live playing always targets the
+        // currently selected track. Written from the UI thread, read (monotonic)
+        // in the MIDI reader thread.
+        if (using_midi) midi_in.active_track.store(@intCast(app.cursor), .monotonic);
 
         var w = std.Io.Writer.fixed(&frame_buf);
         app.draw(&w, term.size()) catch {};
@@ -1158,9 +1497,9 @@ test "track add: project, racks, engine, drum_track all update correctly" {
     try std.testing.expectEqual(initial_drum + 1, app.drum_track);
     try std.testing.expectEqualStrings("strings", app.project.tracks.items[initial_drum].name);
 
-    // Pointer identity: engine chain for the new slot must point into the new rack.
+    // Pointer identity: synth is at chain[1] (pattern player at [0]).
     const new_rack = app.racks.items[initial_drum];
-    const engine_ptr = app.engine.tracks[initial_drum].chain[0].ptr;
+    const engine_ptr = app.engine.tracks[initial_drum].chain[1].ptr;
     try std.testing.expectEqual(@as(*anyopaque, @ptrCast(&new_rack.instrument.poly_synth)), engine_ptr);
 }
 
@@ -1179,8 +1518,9 @@ test "track delete: project, racks, engine, drum_track all update correctly" {
     try std.testing.expectEqual(initial_drum - 1, app.drum_track);
 
     // After deletion, engine slot 1 must point to what was slot 2 (bass rack).
+    // Synth is at chain[1]; pattern player at chain[0].
     const bass_rack = app.racks.items[1]; // was index 2, now index 1
-    const engine_ptr = app.engine.tracks[1].chain[0].ptr;
+    const engine_ptr = app.engine.tracks[1].chain[1].ptr;
     try std.testing.expectEqual(@as(*anyopaque, @ptrCast(&bass_rack.instrument.poly_synth)), engine_ptr);
 }
 
@@ -1245,9 +1585,9 @@ test "synth editor jk moves cursor, hl adjusts waveform" {
     const synth = &app.racks.items[0].instrument.poly_synth;
     try std.testing.expect(synth.waveform != .saw); // was saw by default → now triangle
 
-    // j×14: →pls.width(1)→…→spread(5)→b.on(6)→…→b.uni.det(13)→attack(14)
-    for (0..14) |_| app.handleKey(.{ .char = 'j' }, 0);
-    try std.testing.expectEqual(@as(u8, 14), app.synth_cursor);
+    // j×16: →pls.width(1)→…→spread(5)→b.on(6)→…→b.uni.det(13)→mod.mode(14)→mod.amt(15)→attack(16)
+    for (0..16) |_| app.handleKey(.{ .char = 'j' }, 0);
+    try std.testing.expectEqual(@as(u8, 16), app.synth_cursor);
 
     const old_attack = synth.attack_s;
     app.handleKey(.{ .char = 'l' }, 0); // increase attack
@@ -1261,9 +1601,10 @@ test "draw renders synth editor without errors" {
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(AppView.synth_editor, app.view);
 
+    // Use a tall terminal so all 51 rows are visible (synth editor scrolls to fit).
     var buf: [32 * 1024]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
-    try app.draw(&w, .{ .cols = 80, .rows = 24 });
+    try app.draw(&w, .{ .cols = 80, .rows = 60 });
     const frame = w.buffered();
     try std.testing.expect(std.mem.indexOf(u8, frame, "SYNTH") != null);
     try std.testing.expect(std.mem.indexOf(u8, frame, "attack") != null);
@@ -1298,4 +1639,49 @@ test "draw renders spectrum view when engine has activated the analyzer" {
     try app.draw(&w, .{ .cols = 80, .rows = 24 });
     const frame = w.buffered();
     try std.testing.expect(std.mem.indexOf(u8, frame, "SPECTRUM") != null);
+}
+
+test "p key opens piano roll for synth track" {
+    var app = try App.init(std.testing.allocator, std.Io.failing);
+    defer app.deinit();
+
+    // cursor at track 0 (lead, poly_synth)
+    app.handleKey(.{ .char = 'p' }, 0);
+    try std.testing.expectEqual(AppView.piano_roll, app.view);
+    try std.testing.expectEqual(@as(u16, 0), app.piano_track);
+
+    // draw must not crash and must show PIANO ROLL
+    var buf: [64 * 1024]u8 = undefined;
+    var w = std.Io.Writer.fixed(&buf);
+    try app.draw(&w, .{ .cols = 120, .rows = 36 });
+    const frame = w.buffered();
+    try std.testing.expect(std.mem.indexOf(u8, frame, "PIANO ROLL") != null);
+
+    // insert a note, verify it appears in the frame
+    app.piano_cursor_step = 0;
+    app.piano_cursor_pitch = 60;
+    app.handleKey(.{ .char = 'n' }, 0);
+    const pp = &app.racks.items[0].pattern_player.?;
+    try std.testing.expectEqual(@as(u16, 1), pp.note_count);
+    try std.testing.expectEqual(@as(u7, 60), pp.notes[0].pitch);
+
+    // delete it
+    app.handleKey(.{ .char = 'd' }, 0);
+    try std.testing.expectEqual(@as(u16, 0), pp.note_count);
+
+    // esc returns to tracks
+    app.handleKey(.escape, 0);
+    try std.testing.expectEqual(AppView.tracks, app.view);
+}
+
+test "piano roll p does not open for drum track" {
+    var app = try App.init(std.testing.allocator, std.Io.failing);
+    defer app.deinit();
+
+    // move cursor to drum track
+    app.applyAction(.{ .move = .{ .dy = 10 } }, 0);
+    try std.testing.expectEqual(app.drum_track, @as(u16, @intCast(app.cursor)));
+
+    app.handleKey(.{ .char = 'p' }, 0);
+    try std.testing.expectEqual(AppView.tracks, app.view);
 }
