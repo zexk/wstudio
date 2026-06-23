@@ -25,6 +25,7 @@ test {
     _ = Reverb;
     _ = Compressor;
     _ = DrumMachine;
+    _ = pattern;
     _ = fft;
     _ = SpectrumAnalyzer;
     _ = GraphicEq;
