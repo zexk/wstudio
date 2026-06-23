@@ -10,6 +10,8 @@ pub const Event = union(enum) {
     note_on: struct { note: u7, velocity: f32 },
     note_off: struct { note: u7 },
     all_off,
+    cc: struct { cc: u7, value: u7 },
+    pitch_bend: struct { bend: i16 },
 };
 
 pub const Device = struct {

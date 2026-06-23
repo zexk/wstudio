@@ -39,37 +39,35 @@ pub const Action = union(enum) {
     pub const Move = struct { dx: i32 = 0, dy: i32 = 0 };
 };
 
-/// Tracker-style piano layout: the z-row is the lower octave's white
-/// and black keys, the q-row sits one octave above. With octave 4,
-/// 'z' is middle C (MIDI 60).
+/// Piano-style layout: a-row = white notes, q-row = black notes.
+/// z = octave down, x = octave up. With octave 4, 'a' = middle C (MIDI 60).
+///
+///   q  w     r  t  y     i  o     p
+///  C# D#    F# G# A#    C# D#    F#
+///   a  s  d  f  g  h  j  k  l  ;
+///   C  D  E  F  G  A  B  C  D  E
 pub fn noteForChar(c: u8, octave: u4) ?u7 {
     const semi: u8 = switch (c) {
-        'z' => 0,
-        's' => 1,
-        'x' => 2,
-        'd' => 3,
-        'c' => 4,
-        'v' => 5,
-        'g' => 6,
-        'b' => 7,
-        'h' => 8,
-        'n' => 9,
-        'j' => 10,
-        'm' => 11,
-        ',' => 12,
-        'q' => 12,
-        '2' => 13,
-        'w' => 14,
-        '3' => 15,
-        'e' => 16,
-        'r' => 17,
-        '5' => 18,
-        't' => 19,
-        '6' => 20,
-        'y' => 21,
-        '7' => 22,
-        'u' => 23,
-        'i' => 24,
+        // a-row — white notes
+        'a' => 0,   // C
+        's' => 2,   // D
+        'd' => 4,   // E
+        'f' => 5,   // F
+        'g' => 7,   // G
+        'h' => 9,   // A
+        'j' => 11,  // B
+        'k' => 12,  // C'
+        'l' => 14,  // D'
+        ';' => 16,  // E'
+        // q-row — black notes (e and u are gaps: E-F and B-C have no black key)
+        'q' => 1,   // C#
+        'w' => 3,   // D#
+        'r' => 6,   // F#
+        't' => 8,   // G#
+        'y' => 10,  // A#
+        'i' => 13,  // C#'
+        'o' => 15,  // D#'
+        'p' => 18,  // F#'
         else => return null,
     };
     const midi = (@as(u8, octave) + 1) * 12 + semi;
@@ -168,11 +166,11 @@ pub const ModalInput = struct {
             else => return .none,
         };
         switch (c) {
-            '-' => {
+            'z' => {
                 if (self.octave > 0) self.octave -= 1;
                 return .octave_down;
             },
-            '=' => {
+            'x' => {
                 if (self.octave < 8) self.octave += 1;
                 return .octave_up;
             },
@@ -231,13 +229,14 @@ test "multi-key sequences" {
 test "insert mode plays the keyboard as a piano" {
     var input: ModalInput = .{};
     try std.testing.expectEqual(Action{ .mode_changed = .insert }, press(&input, "i"));
-    try std.testing.expectEqual(Action{ .note = .{ .pitch = 60 } }, press(&input, "z")); // middle C
-    try std.testing.expectEqual(Action{ .note = .{ .pitch = 64 } }, press(&input, "c")); // E
-    try std.testing.expectEqual(Action{ .note = .{ .pitch = 72 } }, press(&input, "q")); // C5
-
-    _ = press(&input, "-"); // octave down
-    try std.testing.expectEqual(Action{ .note = .{ .pitch = 48 } }, press(&input, "z"));
-
+    try std.testing.expectEqual(Action{ .note = .{ .pitch = 60 } }, press(&input, "a")); // C4 (middle C)
+    try std.testing.expectEqual(Action{ .note = .{ .pitch = 64 } }, press(&input, "d")); // E4
+    try std.testing.expectEqual(Action{ .note = .{ .pitch = 72 } }, press(&input, "k")); // C5
+    try std.testing.expectEqual(Action{ .note = .{ .pitch = 61 } }, press(&input, "q")); // C#4 (black key)
+    try std.testing.expectEqual(Action{ .note = .{ .pitch = 66 } }, press(&input, "r")); // F#4
+    try std.testing.expectEqual(Action.octave_down, press(&input, "z")); // z = oct down
+    try std.testing.expectEqual(Action{ .note = .{ .pitch = 48 } }, press(&input, "a")); // C3
+    try std.testing.expectEqual(Action.octave_up, press(&input, "x")); // x = oct up
     try std.testing.expectEqual(Action{ .mode_changed = .normal }, input.handle(.escape));
 }
 

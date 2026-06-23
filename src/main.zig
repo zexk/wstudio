@@ -17,8 +17,8 @@ pub fn main(init: std.process.Init) !void {
 }
 
 const out_path = "out.wav";
-/// Played on the z-row piano layout in insert mode (octave 4).
-const melody = "zcb,bc";
+/// Played on the a-row piano layout in insert mode (octave 4).
+const melody = "asdfds";
 const note_seconds = 0.25; // eighth notes at 120 bpm
 const tail_seconds = 2.0;
 

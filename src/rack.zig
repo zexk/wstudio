@@ -6,6 +6,7 @@ const Compressor = @import("dsp/compressor.zig").Compressor;
 const StereoDelay = @import("dsp/delay.zig").StereoDelay;
 const Reverb = @import("dsp/reverb.zig").Reverb;
 const GraphicEq = @import("dsp/eq.zig").GraphicEq;
+pub const PatternPlayer = @import("dsp/pattern.zig").PatternPlayer;
 
 /// A signal source: generates audio from MIDI events.
 /// Add new synthesiser/sampler variants here as the engine grows.
@@ -51,28 +52,32 @@ pub const Rack = struct {
     instrument: Instrument,
     fx: Fx = .{},
     label: []const u8,
+    /// Piano-roll sequencer. Set after the Rack lands on the heap so the
+    /// self-referential synth pointer is stable.
+    pattern_player: ?PatternPlayer = null,
 
     pub fn deinit(self: *Rack, allocator: std.mem.Allocator) void {
         self.instrument.deinit();
         self.fx.deinit(allocator);
     }
 
-    /// Fills `buf` with [instrument, ...fx] in signal-flow order and returns
-    /// the used slice. Caller must keep `buf` alive for as long as the slice
-    /// is passed to the engine.
-    pub fn chain(self: *Rack, buf: *[5]dsp.Device) []const dsp.Device {
+    /// Fills `buf` with [pattern_player?, instrument, ...fx] in signal-flow
+    /// order and returns the used slice. Caller must keep `buf` alive for as
+    /// long as the slice is passed to the engine.
+    pub fn chain(self: *Rack, buf: *[6]dsp.Device) []const dsp.Device {
         var len: usize = 0;
+        if (self.pattern_player) |*pp| { buf[len] = pp.device(); len += 1; }
         buf[len] = self.instrument.device();
         len += 1;
-        if (self.fx.comp)  |*c| { buf[len] = c.device(); len += 1; }
-        if (self.fx.eq)    |*e| { buf[len] = e.device(); len += 1; }
-        if (self.fx.delay) |*d| { buf[len] = d.device(); len += 1; }
-        if (self.fx.reverb)|*r| { buf[len] = r.device(); len += 1; }
+        if (self.fx.comp)   |*c| { buf[len] = c.device(); len += 1; }
+        if (self.fx.eq)     |*e| { buf[len] = e.device(); len += 1; }
+        if (self.fx.delay)  |*d| { buf[len] = d.device(); len += 1; }
+        if (self.fx.reverb) |*r| { buf[len] = r.device(); len += 1; }
         return buf[0..len];
     }
 };
 
-test "chain order is instrument → comp → eq → delay → reverb" {
+test "chain order is instrument → comp → eq → delay → reverb (no pattern player)" {
     var rack = Rack{
         .instrument = .{ .poly_synth = PolySynth.init(48_000) },
         .fx = .{
@@ -81,9 +86,10 @@ test "chain order is instrument → comp → eq → delay → reverb" {
         },
         .label = "test",
     };
-    var buf: [5]dsp.Device = undefined;
+    var buf: [6]dsp.Device = undefined;
     const ch = rack.chain(&buf);
 
+    // No pattern_player → synth at [0], comp at [1], eq at [2].
     try std.testing.expectEqual(@as(usize, 3), ch.len);
     try std.testing.expectEqual(
         @as(*anyopaque, @ptrCast(&rack.instrument.poly_synth)), ch[0].ptr,
@@ -110,7 +116,7 @@ test "drum_machine Instrument variant: device ptr stable inside heap Rack" {
         .label = "drums",
     };
 
-    var buf: [5]dsp.Device = undefined;
+    var buf: [6]dsp.Device = undefined;
     const ch = rack.chain(&buf);
 
     try std.testing.expectEqual(@as(usize, 1), ch.len);

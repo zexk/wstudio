@@ -4,6 +4,7 @@
 const std = @import("std");
 const types = @import("../core/types.zig");
 const dsp = @import("device.zig");
+const midi = @import("../midi.zig");
 
 const Sample = types.Sample;
 
@@ -13,6 +14,7 @@ pub const LfoShape   = enum { sine, triangle, saw, square };
 pub const LfoTarget  = enum { none, filter, pitch, amp };
 pub const VoiceMode  = enum { poly, mono, legato };
 pub const SubShape   = enum { sine, square };
+pub const ModMode    = enum { none, ring, am_a_to_b, am_b_to_a, fm_a_to_b, fm_b_to_a };
 
 pub const PolySynth = struct {
     sample_rate: f32,
@@ -93,6 +95,16 @@ pub const PolySynth = struct {
     noise_level: f32 = 0.0,
     /// Color 0 = dark (heavily LP-filtered), 1 = white (unfiltered).
     noise_color: f32 = 1.0,
+
+    // ── MOD (A←→B) ──────────────────────────────────────────────────────────
+    mod_mode: ModMode = .none,
+    /// FM modes: modulation index β (0..8). AM / ring: depth 0..1.
+    mod_amount: f32 = 0.0,
+
+    // ── PITCH BEND ──────────────────────────────────────────────────────────
+    /// Applied to all active voices. Set via midi.applyPitchBend.
+    /// Range controlled by the caller (default ±2 semitones at ±1.0).
+    pitch_bend_semitones: f32 = 0.0,
 
     // ── OUT ─────────────────────────────────────────────────────────────────
     gain: f32 = 0.35,
@@ -347,7 +359,8 @@ pub const PolySynth = struct {
             // Pitch vibrato: ±1 oct at full depth. Glide is in log-freq space.
             const lfo_pitch_log = if (self.lfo_target == .pitch) self.lfo_depth * lfo_val else 0.0;
             const base_freq = std.math.pow(f32, 2.0,
-                v.glide_log_freq + self.detune_cents / 1200.0 + lfo_pitch_log);
+                v.glide_log_freq + self.detune_cents / 1200.0 + lfo_pitch_log +
+                self.pitch_bend_semitones / 12.0);
 
             // Tremolo: LFO converted to [0,1]; depth controls dip depth.
             // At depth=1, lfo trough → amp_mod=0; lfo peak → amp_mod=1.
@@ -398,6 +411,10 @@ pub const PolySynth = struct {
             const mix_norm = 1.0 / @sqrt(1.0 + b_pow
                 + self.sub_level * self.sub_level
                 + self.noise_level * self.noise_level);
+            // ring_mix_norm: B acts as modulator only, so exclude b_pow.
+            const ring_mix_norm = 1.0 / @sqrt(1.0
+                + self.sub_level * self.sub_level
+                + self.noise_level * self.noise_level);
 
             // Stereo pan gains per unison voice — constant-power, √2-compensated so
             // spread=0 gives the same per-channel amplitude as the original mono path.
@@ -428,29 +445,79 @@ pub const PolySynth = struct {
             }
 
             for (0..frames) |i| {
-                // OSC A: accumulate L/R from each panned unison voice.
                 var a_l: f32 = 0.0;
                 var a_r: f32 = 0.0;
-                for (0..n_a) |ui| {
-                    const samp = self.oscSampleA(v.phases[ui]);
-                    a_l += samp * pan_l_a[ui];
-                    a_r += samp * pan_r_a[ui];
-                    v.phases[ui] += phase_incs_a[ui];
-                    if (v.phases[ui] >= 1.0) v.phases[ui] -= 1.0;
-                }
-
-                // OSC B: accumulate L/R from each panned unison voice.
+                var a_mono: f32 = 0.0; // arithmetic mean of A voices — used by mod modes
                 var b_l: f32 = 0.0;
                 var b_r: f32 = 0.0;
-                if (self.osc_b_on) {
+                var b_mono: f32 = 0.0;
+
+                // FM B→A: render B first so b_mono is ready when A phases advance.
+                if (self.osc_b_on and self.mod_mode == .fm_b_to_a) {
                     for (0..n_b) |ui| {
                         const samp = self.oscSampleB(v.phases_b[ui]);
                         b_l += samp * pan_l_b[ui];
                         b_r += samp * pan_r_b[ui];
+                        b_mono += samp;
                         v.phases_b[ui] += phase_incs_b[ui];
-                        if (v.phases_b[ui] >= 1.0) v.phases_b[ui] -= 1.0;
+                        v.phases_b[ui] -= @floor(v.phases_b[ui]);
+                    }
+                    b_mono /= @as(f32, @floatFromInt(n_b));
+                }
+
+                // OSC A: phase is FM-modulated by b_mono when mod_mode == fm_b_to_a.
+                for (0..n_a) |ui| {
+                    const samp = self.oscSampleA(v.phases[ui]);
+                    a_l += samp * pan_l_a[ui];
+                    a_r += samp * pan_r_a[ui];
+                    a_mono += samp;
+                    const inc: f32 = if (self.mod_mode == .fm_b_to_a)
+                        phase_incs_a[ui] * (1.0 + self.mod_amount * b_mono)
+                    else
+                        phase_incs_a[ui];
+                    v.phases[ui] += inc;
+                    if (self.mod_mode == .fm_b_to_a) {
+                        v.phases[ui] -= @floor(v.phases[ui]);
+                    } else {
+                        if (v.phases[ui] >= 1.0) v.phases[ui] -= 1.0;
                     }
                 }
+                a_mono /= @as(f32, @floatFromInt(n_a));
+
+                // OSC B: skip if already rendered above for fm_b_to_a.
+                if (self.osc_b_on and self.mod_mode != .fm_b_to_a) {
+                    for (0..n_b) |ui| {
+                        const samp = self.oscSampleB(v.phases_b[ui]);
+                        b_l += samp * pan_l_b[ui];
+                        b_r += samp * pan_r_b[ui];
+                        b_mono += samp;
+                        // FM A→B: advance B's phase modulated by a_mono.
+                        const inc: f32 = if (self.mod_mode == .fm_a_to_b)
+                            phase_incs_b[ui] * (1.0 + self.mod_amount * a_mono)
+                        else
+                            phase_incs_b[ui];
+                        v.phases_b[ui] += inc;
+                        if (self.mod_mode == .fm_a_to_b) {
+                            v.phases_b[ui] -= @floor(v.phases_b[ui]);
+                        } else {
+                            if (v.phases_b[ui] >= 1.0) v.phases_b[ui] -= 1.0;
+                        }
+                    }
+                    b_mono /= @as(f32, @floatFromInt(n_b));
+                }
+
+                // AM: post-hoc amplitude scaling — (1 + m·mod) / (1 + m) keeps peak = 1.
+                if (self.osc_b_on) switch (self.mod_mode) {
+                    .am_a_to_b => {
+                        const g = (1.0 + self.mod_amount * a_mono) / (1.0 + self.mod_amount);
+                        b_l *= g; b_r *= g;
+                    },
+                    .am_b_to_a => {
+                        const g = (1.0 + self.mod_amount * b_mono) / (1.0 + self.mod_amount);
+                        a_l *= g; a_r *= g;
+                    },
+                    else => {},
+                };
 
                 // Sub: always centre (mono → both channels).
                 var sub_out: f32 = 0.0;
@@ -471,9 +538,19 @@ pub const PolySynth = struct {
                     nse_out = v.noise_lp * self.noise_level;
                 }
 
-                // Stereo mix (sub and noise fold into both channels equally).
-                const osc_l = (a_l * scale_a + b_l * scale_b * self.osc_b_level + sub_out + nse_out) * mix_norm;
-                const osc_r = (a_r * scale_a + b_r * scale_b * self.osc_b_level + sub_out + nse_out) * mix_norm;
+                // Stereo mix.
+                // Ring: A × B with blend — at depth=0, A unmodulated; at depth=1, A·b_mono.
+                // FM/AM/none: standard A + B mix (B contribution already modulated above).
+                const osc_l: f32 = if (self.osc_b_on and self.mod_mode == .ring) blk: {
+                    const ring_factor = 1.0 - self.mod_amount * (1.0 - b_mono);
+                    break :blk (a_l * scale_a * ring_factor + sub_out + nse_out) * ring_mix_norm;
+                } else
+                    (a_l * scale_a + b_l * scale_b * self.osc_b_level + sub_out + nse_out) * mix_norm;
+                const osc_r: f32 = if (self.osc_b_on and self.mod_mode == .ring) blk: {
+                    const ring_factor = 1.0 - self.mod_amount * (1.0 - b_mono);
+                    break :blk (a_r * scale_a * ring_factor + sub_out + nse_out) * ring_mix_norm;
+                } else
+                    (a_r * scale_a + b_r * scale_b * self.osc_b_level + sub_out + nse_out) * mix_norm;
 
                 // Stereo filter: same coefficients, independent L/R biquad histories.
                 const filt_l = fc.b0*osc_l + fc.b1*v.x1   + fc.b2*v.x2   - fc.a1*v.y1   - fc.a2*v.y2;
@@ -609,6 +686,61 @@ pub const PolySynth = struct {
         self.held_count = 0;
     }
 
+    /// Apply a raw MIDI CC. Safe to call on the audio thread (field writes only).
+    pub fn applyCC(self: *PolySynth, cc: u7, value: u7) void {
+        const v01 = @as(f32, @floatFromInt(value)) / 127.0;
+        switch (@as(midi.CC, @enumFromInt(cc))) {
+            .mod_wheel         => self.lfo_depth = v01,
+            .glide_time        => self.glide_s   = v01 * 4.0,
+            .gain              => self.gain       = v01,
+            .osc_a_waveform    => self.waveform         = ccWaveform(value),
+            .osc_a_pulse_width => self.pulse_width       = 0.01 + v01 * 0.98,
+            .osc_a_unison      => self.unison            = @intCast(1 + @as(u8, @intFromFloat(@round(v01 * 15.0)))),
+            .osc_a_unison_det  => self.unison_detune     = v01 * 100.0,
+            .osc_a_spread      => self.unison_spread     = v01,
+            .osc_b_on          => self.osc_b_on           = value > 63,
+            .osc_b_waveform    => self.osc_b_waveform     = ccWaveform(value),
+            .osc_b_semi        => self.osc_b_semi         = v01 * 48.0 - 24.0,
+            .osc_b_detune      => self.osc_b_detune_cents = v01 * 200.0 - 100.0,
+            .osc_b_level       => self.osc_b_level        = v01,
+            .sub_level         => self.sub_level    = v01,
+            .noise_level       => self.noise_level  = v01,
+            .noise_color       => self.noise_color  = v01,
+            .lfo_rate          => self.lfo_rate_hz  = 0.01 * std.math.pow(f32, 2000.0, v01),
+            .lfo_depth_cc      => self.lfo_depth    = v01,
+            .mod_amount        => self.mod_amount   = v01 * 8.0,
+            .filter_res        => self.filter_res    = v01,
+            .amp_release       => self.release_s     = v01 * 4.0,
+            .amp_attack        => self.attack_s      = v01 * 4.0,
+            .filter_cutoff     => self.filter_cutoff = ccCutoff(value),
+            .amp_decay         => self.decay_s       = v01 * 4.0,
+            .amp_sustain       => self.sustain       = v01,
+            .fenv_amount       => self.fenv_amount   = v01 * 8.0 - 4.0,
+            .fenv_attack       => self.fenv_attack_s  = v01 * 4.0,
+            .fenv_decay        => self.fenv_decay_s   = v01 * 4.0,
+            .fenv_sustain      => self.fenv_sustain   = v01,
+            .fenv_release      => self.fenv_release_s = v01 * 4.0,
+            .all_sound_off     => self.resetAll(),
+            .all_notes_off     => { for (0..128) |n| self.noteOff(@intCast(n)); },
+            .reset_all_ctrls   => {},
+            _                  => {},
+        }
+    }
+
+    /// Apply a MIDI pitch bend. `bend` is −8192..+8191; `range_semitones` = ±range.
+    pub fn applyPitchBend(self: *PolySynth, bend: i16, range_semitones: f32) void {
+        self.pitch_bend_semitones = @as(f32, @floatFromInt(bend)) / 8192.0 * range_semitones;
+    }
+
+    fn ccWaveform(value: u7) Waveform {
+        return @enumFromInt(@min(3, value >> 5));
+    }
+
+    fn ccCutoff(value: u7) f32 {
+        // Logarithmic: 0 → 20 Hz, 127 → 18 000 Hz.
+        return 20.0 * std.math.pow(f32, 900.0, @as(f32, @floatFromInt(value)) / 127.0);
+    }
+
     fn processOpaque(ptr: *anyopaque, buf: []Sample) void {
         const self: *PolySynth = @ptrCast(@alignCast(ptr));
         self.processBlock(buf);
@@ -617,9 +749,11 @@ pub const PolySynth = struct {
     fn eventOpaque(ptr: *anyopaque, ev: dsp.Event) void {
         const self: *PolySynth = @ptrCast(@alignCast(ptr));
         switch (ev) {
-            .note_on  => |e| self.noteOn(e.note, e.velocity),
-            .note_off => |e| self.noteOff(e.note),
-            .all_off  => self.resetAll(),
+            .note_on    => |e| self.noteOn(e.note, e.velocity),
+            .note_off   => |e| self.noteOff(e.note),
+            .all_off    => self.resetAll(),
+            .cc         => |e| self.applyCC(e.cc, e.value),
+            .pitch_bend => |e| self.applyPitchBend(e.bend, 2.0),
         }
     }
 
@@ -936,4 +1070,32 @@ test "LFO: all shapes stay finite under filter modulation" {
             }
         }
     }
+}
+
+test "applyCC: cutoff logarithmic scaling" {
+    var synth = PolySynth.init(48_000);
+    synth.applyCC(@intFromEnum(midi.CC.filter_cutoff), 0);
+    try std.testing.expectApproxEqAbs(@as(f32, 20.0), synth.filter_cutoff, 1.0);
+    synth.applyCC(@intFromEnum(midi.CC.filter_cutoff), 127);
+    try std.testing.expect(synth.filter_cutoff > 17_000.0);
+}
+
+test "applyCC: waveform steps" {
+    var synth = PolySynth.init(48_000);
+    synth.applyCC(@intFromEnum(midi.CC.osc_a_waveform), 0);
+    try std.testing.expectEqual(Waveform.sine, synth.waveform);
+    synth.applyCC(@intFromEnum(midi.CC.osc_a_waveform), 32);
+    try std.testing.expectEqual(Waveform.saw, synth.waveform);
+    synth.applyCC(@intFromEnum(midi.CC.osc_a_waveform), 127);
+    try std.testing.expectEqual(Waveform.square, synth.waveform);
+}
+
+test "applyPitchBend: range at ±2 semitones" {
+    var synth = PolySynth.init(48_000);
+    synth.applyPitchBend(8191, 2.0);
+    try std.testing.expect(synth.pitch_bend_semitones > 1.9);
+    synth.applyPitchBend(-8192, 2.0);
+    try std.testing.expect(synth.pitch_bend_semitones < -1.9);
+    synth.applyPitchBend(0, 2.0);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), synth.pitch_bend_semitones, 1e-4);
 }

@@ -18,8 +18,14 @@ pub const alsa = if (@import("builtin").os.tag == .linux)
     @import("audio/alsa.zig")
 else
     struct {};
+pub const midi_in = if (@import("builtin").os.tag == .linux)
+    @import("audio/midi_in.zig")
+else
+    struct {};
 
 pub const dsp = @import("dsp.zig");
+
+pub const midi = @import("midi.zig");
 
 pub const input = @import("input/modal.zig");
 pub const ModalInput = input.ModalInput;
@@ -31,6 +37,8 @@ pub const tui = struct {
 };
 
 test {
+    _ = midi;
+    _ = midi_in;
     _ = types;
     _ = ring_buffer;
     _ = wav;

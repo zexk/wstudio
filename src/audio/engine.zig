@@ -28,6 +28,8 @@ pub const Command = union(enum) {
     note_on: struct { track: u16, note: u7, velocity: f32 },
     note_off: struct { track: u16, note: u7 },
     all_notes_off,
+    cc: struct { track: u16, cc: u7, value: u7 },
+    pitch_bend: struct { track: u16, bend: i16 },
     set_spectrum_active: struct { source: SpectrumSource, track: u16 },
 };
 
@@ -212,6 +214,8 @@ pub const Engine = struct {
             .all_notes_off => for (&self.tracks) |*t| {
                 for (t.chain[0..t.chain_len]) |dev| dev.sendEvent(.all_off);
             },
+            .cc         => |c| self.sendTrackEvent(c.track, .{ .cc         = .{ .cc   = c.cc,   .value = c.value } }),
+            .pitch_bend => |c| self.sendTrackEvent(c.track, .{ .pitch_bend = .{ .bend = c.bend } }),
             .set_spectrum_active => |c| {
                 self.active_spectrum_source = c.source;
                 // Reset buffer when switching to a different track so stale

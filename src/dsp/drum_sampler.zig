@@ -281,9 +281,9 @@ pub const DrumMachine = struct {
     fn eventOpaque(ptr: *anyopaque, ev: dsp.Event) void {
         const self: *DrumMachine = @ptrCast(@alignCast(ptr));
         switch (ev) {
-            .note_on => |e| self.triggerPad(e.note % max_pads),
-            .note_off => {},
-            .all_off => self.resetAll(),
+            .note_on  => |e| self.triggerPad(e.note % max_pads),
+            .note_off, .cc, .pitch_bend => {},
+            .all_off  => self.resetAll(),
         }
     }
 
