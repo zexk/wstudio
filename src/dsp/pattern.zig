@@ -71,6 +71,25 @@ pub const PatternPlayer = struct {
         }
     }
 
+    /// Remove every note (UI thread). Used by :clear.
+    pub fn clearNotes(self: *PatternPlayer) void {
+        while (!self.notes_lock.tryLock()) std.atomic.spinLoopHint();
+        defer self.notes_lock.unlock();
+        self.note_count = 0;
+    }
+
+    /// Mutable pointer to the note starting at pitch/start_beat, or null.
+    /// Caller mutates fields in place (pitch/start_beat unchanged), so no lock
+    /// is needed: the audio thread reads a consistent note either way.
+    pub fn noteAt(self: *PatternPlayer, pitch: u7, start_beat: f64) ?*Note {
+        var i: usize = 0;
+        while (i < self.note_count) : (i += 1) {
+            const n = &self.notes[i];
+            if (n.pitch == pitch and @abs(n.start_beat - start_beat) < 1e-9) return n;
+        }
+        return null;
+    }
+
     /// True if any note with the given pitch covers beat_pos (for the view).
     pub fn noteCovers(self: *const PatternPlayer, pitch: u7, beat_pos: f64) bool {
         for (self.notes[0..self.note_count]) |n| {
@@ -79,6 +98,15 @@ pub const PatternPlayer = struct {
                 return true;
         }
         return false;
+    }
+
+    /// Velocity of the note starting at pitch/beat_pos, or null (for shading).
+    pub fn velocityAt(self: *const PatternPlayer, pitch: u7, beat_pos: f64) ?f32 {
+        for (self.notes[0..self.note_count]) |n| {
+            if (n.pitch != pitch) continue;
+            if (@abs(n.start_beat - beat_pos) < 1e-9) return n.velocity;
+        }
+        return null;
     }
 
     /// True if any note starts exactly at beat_pos ± epsilon.

@@ -48,6 +48,7 @@ const cmds: []const cmd_mod.Def = &.{
     .{ .name = "w",           .desc = "[file]  save project (alias for :save)",      .run = wrap(App.cmdSave) },
     .{ .name = "bounce",      .desc = "[file]  render session to WAV (default: bounce.wav)", .run = wrap(App.cmdBounce) },
     .{ .name = "export",      .desc = "[file]  render session to WAV (alias for :bounce)",   .run = wrap(App.cmdBounce) },
+    .{ .name = "clear",       .desc = "erase all notes in the piano-roll pattern",          .run = wrap(App.cmdClear) },
 };
 
 pub const App = struct {
@@ -422,6 +423,31 @@ pub const App = struct {
                     self.pianoEnsureVisible();
                     return true;
                 },
+                // J/K jump an octave (mirrors h/l → H/L coarse-move pattern).
+                'J' => {
+                    self.piano_cursor_pitch = @intCast(self.piano_cursor_pitch -| 12);
+                    self.pianoEnsureVisible();
+                    return true;
+                },
+                'K' => {
+                    self.piano_cursor_pitch = @intCast(@min(@as(u32, self.piano_cursor_pitch) + 12, 127));
+                    self.pianoEnsureVisible();
+                    return true;
+                },
+                // g/G jump the cursor to loop start / last step.
+                'g' => {
+                    self.piano_cursor_step = 0;
+                    self.pianoEnsureVisible();
+                    return true;
+                },
+                'G' => {
+                    if (max_step > 0) self.piano_cursor_step = max_step - 1;
+                    self.pianoEnsureVisible();
+                    return true;
+                },
+                // </> nudge the velocity of the note under the cursor.
+                '<' => { self.pianoNudgeVelocity(-0.1); return true; },
+                '>' => { self.pianoNudgeVelocity(0.1); return true; },
                 's' => { self.switchToTrackSpectrum(self.piano_track); return true; },
                 // n/d kept as aliases for muscle memory; enter is the canonical toggle.
                 'n' => { self.pianoInsertNote(); return true; },
@@ -439,16 +465,10 @@ pub const App = struct {
                     self.view = .synth_editor;
                     return true;
                 },
-                '[' => {
-                    self.piano_note_len = @max(0.25, self.piano_note_len - 0.25);
-                    self.setStatus("note len: {d:.2} beats", .{self.piano_note_len});
-                    return true;
-                },
-                ']' => {
-                    self.piano_note_len = @min(pp.length_beats, self.piano_note_len + 0.25);
-                    self.setStatus("note len: {d:.2} beats", .{self.piano_note_len});
-                    return true;
-                },
+                // [/] resize the note under the cursor if one starts here;
+                // otherwise they set the default length for newly placed notes.
+                '[' => { self.pianoResizeOrLen(-0.25); return true; },
+                ']' => { self.pianoResizeOrLen(0.25); return true; },
                 '+' => {
                     pp.length_beats += 4.0;
                     self.setStatus("loop: {d:.0} beats", .{pp.length_beats});
@@ -514,6 +534,39 @@ pub const App = struct {
         });
         var nbuf: [5]u8 = undefined;
         self.setStatus("added {s}", .{midi.noteName(self.piano_cursor_pitch, &nbuf)});
+    }
+
+    /// Resize the note starting under the cursor by `delta` beats (clamped to
+    /// the loop length), or — if no note starts here — change the default length
+    /// applied to newly placed notes.
+    fn pianoResizeOrLen(self: *App, delta: f64) void {
+        if (self.piano_track >= self.session.racks.items.len) return;
+        const pp = if (self.session.racks.items[self.piano_track].pattern_player != null)
+            &self.session.racks.items[self.piano_track].pattern_player.?
+        else return;
+        const start_beat = @as(f64, @floatFromInt(self.piano_cursor_step)) * 0.25;
+        if (pp.noteAt(self.piano_cursor_pitch, start_beat)) |n| {
+            n.duration_beat = std.math.clamp(n.duration_beat + delta, 0.25, pp.length_beats);
+            self.setStatus("note len: {d:.2} beats", .{n.duration_beat});
+        } else {
+            self.piano_note_len = std.math.clamp(self.piano_note_len + delta, 0.25, pp.length_beats);
+            self.setStatus("default len: {d:.2} beats", .{self.piano_note_len});
+        }
+    }
+
+    /// Nudge the velocity of the note under the cursor by `delta` (clamped 0.05–1).
+    fn pianoNudgeVelocity(self: *App, delta: f32) void {
+        if (self.piano_track >= self.session.racks.items.len) return;
+        const pp = if (self.session.racks.items[self.piano_track].pattern_player != null)
+            &self.session.racks.items[self.piano_track].pattern_player.?
+        else return;
+        const start_beat = @as(f64, @floatFromInt(self.piano_cursor_step)) * 0.25;
+        if (pp.noteAt(self.piano_cursor_pitch, start_beat)) |n| {
+            n.velocity = std.math.clamp(n.velocity + delta, 0.05, 1.0);
+            self.setStatus("velocity: {d:.0}%", .{n.velocity * 100.0});
+        } else {
+            self.setStatus("no note under cursor", .{});
+        }
     }
 
     fn pianoDeleteNote(self: *App) void {
@@ -726,6 +779,19 @@ pub const App = struct {
     }
 
     fn cmdQuit(self: *App, _: []const u8) void { self.should_quit = true; }
+
+    fn cmdClear(self: *App, _: []const u8) void {
+        if (self.piano_track >= self.session.racks.items.len or
+            self.session.racks.items[self.piano_track].pattern_player == null)
+        {
+            self.setStatus("clear: no piano-roll pattern", .{});
+            return;
+        }
+        const pp = &self.session.racks.items[self.piano_track].pattern_player.?;
+        const n = pp.note_count;
+        pp.clearNotes();
+        self.setStatus("cleared {d} notes", .{n});
+    }
 
     fn cmdHelp(self: *App, _: []const u8) void {
         self.prev_view = self.view;

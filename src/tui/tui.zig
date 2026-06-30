@@ -355,13 +355,17 @@ pub fn drawHelp(w: *std.Io.Writer, rows: usize, cmds: []const cmd_mod.Def) !void
     try helpKey(w, "h / l",        "move cursor left / right (one step)");
     try helpKey(w, "H / L",        "move cursor left / right (one beat, coarse)");
     try helpKey(w, "j / k",        "move cursor down / up (pitch)");
+    try helpKey(w, "J / K",        "move cursor down / up (one octave)");
+    try helpKey(w, "g / G",        "jump cursor to loop start / end");
     try helpKey(w, "enter",        "toggle note at cursor");
     try helpKey(w, "n / d",        "insert / delete note at cursor (aliases)");
     try helpKey(w, "p",            "preview note at cursor");
+    try helpKey(w, "< / >",        "decrease / increase velocity of note at cursor");
     try helpKey(w, "e",            "open synth editor for this track");
     try helpKey(w, "s",            "spectrum + EQ for this track");
-    try helpKey(w, "[ / ]",        "decrease / increase note length");
+    try helpKey(w, "[ / ]",        "resize note at cursor (else set default length)");
     try helpKey(w, "+ / -",        "lengthen / shorten loop (1 bar)");
+    try helpKey(w, ":clear",       "erase all notes in the pattern");
 
     try helpSection(w, "SPECTRUM / EQ");
     try helpKey(w, "h / l",        "select EQ band");
@@ -1059,7 +1063,7 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
 
     try w.writeAll(bold ++ " PIANO ROLL" ++ rst);
     try w.print(" \"{s}\"", .{name});
-    try w.writeAll(dim ++ "  [hjkl:move  HL:beat  enter:toggle  p:preview  []:notelen  +-:length  esc:back]");
+    try w.writeAll(dim ++ "  [hjkl:move  HL:beat  JK:oct  gG:ends  enter:toggle  <>:vel  []:resize  esc:back]");
     try endLine(w);
 
     // 3 internal header rows (title + col labels + loop marker) + vis_rows note rows
@@ -1136,7 +1140,12 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
                 else try w.writeAll("·  ");
                 try w.writeAll(rst);
             } else if (starts) {
-                try w.writeAll(acc ++ bold ++ "[" ++ rst ++ acc ++ "= " ++ rst);
+                // Shade the note head by velocity: loud = bold, soft = dim.
+                const vel = pp.velocityAt(pitch, beat_pos) orelse 0.85;
+                const head = if (vel >= 0.8) bold else if (vel < 0.45) dim else "";
+                try w.writeAll(acc);
+                try w.writeAll(head);
+                try w.writeAll("[" ++ rst ++ acc ++ "= " ++ rst);
             } else if (covers) {
                 try w.writeAll(acc ++ "=  " ++ rst);
             } else if (step % 4 == 0) {
