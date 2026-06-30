@@ -50,7 +50,7 @@ pub const Pad = struct {
     release_s: f32 = 0.005,
 };
 
-const Voice = struct {
+pub const Voice = struct {
     active: bool = false,
     /// Source frames consumed since the trigger, as a fractional count that
     /// advances by the pitch rate each output frame. Read position within the
@@ -337,7 +337,7 @@ pub const DrumMachine = struct {
     /// Play one pad voice into `buf`: fractional pitched read with linear
     /// interpolation, region trim, optional reverse, amp ADSR + release fade,
     /// and a linear pan law (center = unity in both channels).
-    fn renderVoice(
+    pub fn renderVoice(
         voice: *Voice,
         pad: *const Pad,
         buf: []Sample,
@@ -458,7 +458,7 @@ fn releaseFade(left: f64, release_s: f32) f32 {
 // -----------------------------------------------------------------------
 // Linear resampler (control-side, allocates)
 
-fn resampleLinear(
+pub fn resampleLinear(
     allocator: std.mem.Allocator,
     src: []const f32,
     src_rate: u32,
