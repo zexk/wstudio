@@ -55,6 +55,23 @@ pub fn build(b: *std.Build) void {
     const genkit_step = b.step("genkit", "Render the drum kit to assets/kit/*.wav");
     genkit_step.dependOn(&run_genkit.step);
 
+    // `zig build gendemo` writes the curated starter project to demo.wsj. Run
+    // once after editing tools/gendemo.zig, then commit the refreshed demo.wsj.
+    const gendemo = b.addExecutable(.{
+        .name = "gendemo",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/gendemo.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "wstudio", .module = wstudio_mod },
+            },
+        }),
+    });
+    const run_gendemo = b.addRunArtifact(gendemo);
+    const gendemo_step = b.step("gendemo", "Write the demo project to demo.wsj");
+    gendemo_step.dependOn(&run_gendemo.step);
+
     const mod_tests = b.addTest(.{ .root_module = wstudio_mod });
     const run_mod_tests = b.addRunArtifact(mod_tests);
     const exe_tests = b.addTest(.{ .root_module = exe.root_module });

@@ -22,11 +22,22 @@ hunting before the first note.
 
 ## Status
 
-Early but live — and audible. `wstudio` opens a TUI: three synth
-tracks, vim-style modal control, live keyboard playing through ALSA
-(PipeWire/PulseAudio serve its `default` device, so any desktop works;
-a silent wall-clock backend takes over when no device exists).
-`wstudio render` runs the offline pipeline demo to a WAV.
+Early but live — and audible. `wstudio` opens a TUI with a single blank
+track; press `enter` to pick an instrument (synth, sampler, or drum
+machine) and a per-track FX rack. Vim-style modal control drives it,
+with live keyboard playing through ALSA (PipeWire/PulseAudio serve its
+`default` device, so any desktop works; a silent wall-clock backend
+takes over when no device exists).
+
+- `wstudio` — new, empty session (one blank track)
+- `wstudio demo.wsj` — the curated four-track demo (lead, e-piano, bass, drums)
+- `wstudio render` — the offline pipeline demo rendered to a WAV
+
+Tracks start blank: `enter` on a blank track opens the instrument
+picker. Synth and sampler tracks are piano-roll sequenceable (`p`);
+drum-machine tracks open the step grid (`enter`), and `e` there opens
+the per-pad sampler editor. `:load-sample <file>` swaps a sampler's
+clip; `:load-pad <0-7> <file>` swaps a drum pad.
 
 ## Architecture
 
@@ -77,8 +88,11 @@ Three rules hold everything together:
 ```sh
 nix develop          # zig, zls, audio libs
 zig build run        # launch the TUI (space = play, i = piano mode, :q = quit)
+zig build run -- demo.wsj  # open the curated four-track demo project
 zig build run -- render  # offline demo: melody through the chain -> out.wav
 zig build test       # all tests
+zig build genkit     # re-render the embedded drum kit (after editing drum_kit.zig)
+zig build gendemo    # re-write demo.wsj (after editing tools/gendemo.zig)
 nix build            # packaged build via zig.hook
 ```
 
@@ -88,8 +102,9 @@ nix build            # packaged build via zig.hook
 - [x] Native audio backend (ALSA; PipeWire serves it on modern systems)
 - [ ] Native PipeWire and JACK backends behind the same interface
 - [ ] Note clips + sequencing on the timeline (record from insert mode)
+- [x] Per-track instrument insertion (synth / sampler / drum machine)
 - [ ] Audio clips: WAV reading, clip playback on tracks
-- [ ] More devices: filters, EQ, chorus, sampler, drum synth
-- [ ] RT-safe parameter changes (device params over the command queue)
-- [ ] Project save/load
+- [x] More devices: EQ, sampler, drum machine (filters, chorus to come)
+- [x] RT-safe parameter changes (device params over the command queue)
+- [x] Project save/load
 - [ ] Plugin hosting (CLAP first)
