@@ -88,7 +88,8 @@ fn normalize(buf: []f32, target: f32) void {
 /// noise+click transient at the attack.
 fn kick(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
     const srf: f32 = @floatFromInt(sr);
-    const buf = try allocator.alloc(f32, frames(sr, 0.55));
+    // Short buffer — no long sub tail.
+    const buf = try allocator.alloc(f32, frames(sr, 0.30));
     var prng = std.Random.DefaultPrng.init(0x4b1c);
     const rand = prng.random();
     var phase: f32 = 0;
@@ -96,16 +97,17 @@ fn kick(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
     const click_a = cutoffAlpha(1200.0, srf);
     for (buf, 0..) |*s, i| {
         const t = @as(f32, @floatFromInt(i)) / srf;
-        // Body: fast exponential pitch drop 153 → 48 Hz.
-        const freq = 48.0 + 105.0 * expEnv(t, 36.0);
-        const body = @sin(tau * phase) * expEnv(t, 6.5);
+        // Body: fast, deep pitch drop 188 → 58 Hz — punch, not a held sub tone.
+        const freq = 58.0 + 130.0 * expEnv(t, 55.0);
+        // Punchy amp env: sharp transient, quick decay (snappy, no ring-out).
+        const body = @sin(tau * phase) * expEnv(t, 14.0);
         phase += freq / srf;
         if (phase >= 1.0) phase -= 1.0;
         // Click: highpassed noise + bright sine, gone in a few ms.
         const click_env = expEnv(t, 320.0);
         const click_raw = (rand.float(f32) * 2.0 - 1.0) * 0.6 + @sin(tau * 1700.0 * t) * 0.4;
-        const click = click_hp.hp(click_raw, click_a) * click_env * 0.45;
-        s.* = saturate(body * 2.2, 1.0) * 0.9 + click;
+        const click = click_hp.hp(click_raw, click_a) * click_env * 0.6;
+        s.* = saturate(body * 2.6, 1.0) * 0.9 + click;
     }
     normalize(buf, 0.97);
     return buf;
