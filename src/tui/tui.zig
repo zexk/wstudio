@@ -314,119 +314,151 @@ pub fn drawDrumGrid(app: anytype, w: *std.Io.Writer, rows: usize, snap: engine_m
     for (used..@max(used, rows -| 3)) |_| try endLine(w);
 }
 
-fn helpKey(w: *std.Io.Writer, keys: []const u8, desc: []const u8) !void {
-    try w.writeAll(acc);
-    try w.print("  {s: <16}", .{keys});
-    try w.writeAll(rst ++ dim);
-    try w.writeAll(desc);
-    try endLine(w);
+/// Collects pre-rendered help lines into a fixed buffer so the view can show
+/// an arbitrary scroll window instead of spilling off the bottom of the screen.
+const HelpText = struct {
+    buf: [16384]u8 = undefined,
+    len: usize = 0,
+    ends: [512]usize = undefined,
+    count: usize = 0,
+
+    fn push(self: *HelpText, comptime fmt: []const u8, args: anytype) void {
+        const s = std.fmt.bufPrint(self.buf[self.len..], fmt, args) catch self.buf[self.len..self.len];
+        self.len += s.len;
+        if (self.count < self.ends.len) {
+            self.ends[self.count] = self.len;
+            self.count += 1;
+        }
+    }
+
+    fn section(self: *HelpText, title: []const u8) void {
+        self.push("", .{}); // blank spacer
+        self.push(bold ++ "  {s}", .{title});
+    }
+
+    fn key(self: *HelpText, keys: []const u8, desc: []const u8) void {
+        self.push(acc ++ "  {s: <16}" ++ rst ++ dim ++ "{s}", .{ keys, desc });
+    }
+
+    fn line(self: *const HelpText, i: usize) []const u8 {
+        const start = if (i == 0) 0 else self.ends[i - 1];
+        return self.buf[start..self.ends[i]];
+    }
+};
+
+fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
+    t.section("COMMANDS");
+    for (cmds) |c| t.push(acc ++ "  :{s: <14}" ++ rst ++ dim ++ "{s}", .{ c.name, c.desc });
+
+    t.section("ALL VIEWS");
+    t.key("[ / ]",        "master volume down / up  (except piano roll)");
+    t.key("space",        "play / pause");
+    t.key("gg",           "rewind to start");
+    t.key("i",            "enter INSERT mode (play notes)");
+    t.key("esc",          "back / return to NORMAL mode");
+    t.key(":",            "open command prompt");
+    t.key("ctrl-c",       "quit");
+
+    t.section("TRACKS");
+    t.key("j / k",        "move cursor down / up");
+    t.key("enter",        "edit track (synth or drum grid)");
+    t.key("p",            "piano roll for synth tracks");
+    t.key("s",            "spectrum + EQ for selected track");
+    t.key("m",            "mute / unmute selected track");
+    t.key("M",            "master spectrum");
+    t.key("< / >",        "pan left / right  (5% per step)");
+    t.key("- / +",        "track gain −1 dB / +1 dB  (= also works)");
+    t.key("a",            "add synth track");
+    t.key("D",            "delete selected track");
+    t.key("? / :help",    "this help");
+
+    t.section("INSERT MODE  (piano keyboard)");
+    t.key("a s d f g h j k l ;",  "white keys  C D E F G A B C D E");
+    t.key("q w r t y i o p",       "black keys  C# D# F# G# A# C# D# F#");
+    t.key("z / x",                 "octave down / up");
+
+    t.section("DRUM GRID");
+    t.key("h / l",        "move cursor left / right (one step)");
+    t.key("H / L",        "move cursor left / right (one beat, coarse)");
+    t.key("j / k",        "move cursor down / up (pad)");
+    t.key("enter",        "toggle step on/off");
+    t.key("p",            "preview pad sound");
+    t.key("e",            "open sampler editor for current pad");
+    t.key("s",            "spectrum + EQ for drum track");
+    t.key("+ / -",        "lengthen / shorten loop (1–16 steps)");
+    t.key("X",            "clear all steps on current pad");
+    t.key("F",            "fill all steps on current pad");
+
+    t.section("SAMPLER EDITOR");
+    t.key("j / k",        "select parameter");
+    t.key("h / l",        "adjust value (fine)");
+    t.key("H / L",        "adjust value (coarse ×10)");
+    t.key("1–8",          "switch to pad 1–8");
+    t.key("p",            "audition current pad");
+    t.key(":load-pad",    "<0-7> <file.wav>  load a sample into a pad");
+
+    t.section("SYNTH EDITOR");
+    t.key("j / k",        "select parameter");
+    t.key("{ / }",        "prev / next section");
+    t.key("h / l",        "adjust value (fine)");
+    t.key("H / L",        "adjust value (coarse ×10)");
+    t.key("p",            "open piano roll for this track");
+    t.key("s",            "spectrum + EQ for this track");
+
+    t.section("PIANO ROLL");
+    t.key("h / l",        "move cursor left / right (one step)");
+    t.key("H / L",        "move cursor left / right (one beat, coarse)");
+    t.key("j / k",        "move cursor down / up (pitch)");
+    t.key("J / K",        "move cursor down / up (one octave)");
+    t.key("g / G",        "jump cursor to loop start / end");
+    t.key("enter",        "toggle note at cursor");
+    t.key("n / d",        "insert / delete note at cursor (aliases)");
+    t.key("p",            "preview note at cursor");
+    t.key("< / >",        "decrease / increase velocity of note at cursor");
+    t.key("e",            "open synth editor for this track");
+    t.key("s",            "spectrum + EQ for this track");
+    t.key("[ / ]",        "resize note at cursor (else set default length)");
+    t.key("+ / -",        "lengthen / shorten loop (1 bar)");
+    t.key(":clear",       "erase all notes in the pattern");
+
+    t.section("SPECTRUM / EQ");
+    t.key("h / l",        "select EQ band");
+    t.key("j / k",        "decrease / increase band gain (1 dB)");
+    t.key("J / K",        "decrease / increase band gain (6 dB)");
+    t.key("b",            "bypass EQ toggle");
 }
 
-fn helpSection(w: *std.Io.Writer, title: []const u8) !void {
-    try endLine(w);
-    try w.writeAll(bold);
-    try w.writeAll("  ");
-    try w.writeAll(title);
-    try endLine(w);
-}
+/// Renders a scroll window of the help text. `scroll` is clamped in place so
+/// the caller's stored offset can never run past the last screenful.
+pub fn drawHelp(w: *std.Io.Writer, rows: usize, cmds: []const cmd_mod.Def, scroll: *usize) !void {
+    var t = HelpText{};
+    buildHelp(&t, cmds);
 
-pub fn drawHelp(w: *std.Io.Writer, rows: usize, cmds: []const cmd_mod.Def) !void {
+    const body = rows -| 3; // lines available between the rules
+    const visible = body -| 1; // one row reserved for the sticky title
+    const max_scroll = t.count -| visible;
+    if (scroll.* > max_scroll) scroll.* = max_scroll;
+    const off = scroll.*;
+    const end = @min(off + visible, t.count);
+
+    // Sticky title with a position indicator.
     try w.writeAll(bold ++ " HELP" ++ rst);
-    try w.writeAll(dim ++ "   esc: close");
+    try w.writeAll(dim ++ "   esc: close   j/k: scroll");
+    if (t.count > visible) {
+        try w.print("   {d}–{d}/{d}", .{ off + 1, end, t.count });
+        if (off < max_scroll) try w.writeAll("  ↓");
+        if (off > 0) try w.writeAll("  ↑");
+    }
     try endLine(w);
 
-    // ── Commands ─────────────────────────────────
-    try helpSection(w, "COMMANDS");
-    try endLine(w);
-    for (cmds) |c| {
-        try w.writeAll(acc);
-        try w.print("  :{s: <14}", .{c.name});
-        try w.writeAll(rst ++ dim);
-        try w.writeAll(c.desc);
+    var i = off;
+    while (i < end) : (i += 1) {
+        try w.writeAll(t.line(i));
         try endLine(w);
     }
 
-    // ── Keyboard reference ────────────────────────
-    try helpSection(w, "ALL VIEWS");
-    try helpKey(w, "[ / ]",        "master volume down / up  (except piano roll)");
-    try helpKey(w, "space",        "play / pause");
-    try helpKey(w, "gg",           "rewind to start");
-    try helpKey(w, "i",            "enter INSERT mode (play notes)");
-    try helpKey(w, "esc",          "back / return to NORMAL mode");
-    try helpKey(w, ":",            "open command prompt");
-    try helpKey(w, "ctrl-c",       "quit");
-
-    try helpSection(w, "TRACKS");
-    try helpKey(w, "j / k",        "move cursor down / up");
-    try helpKey(w, "enter",        "edit track (synth or drum grid)");
-    try helpKey(w, "p",            "piano roll for synth tracks");
-    try helpKey(w, "s",            "spectrum + EQ for selected track");
-    try helpKey(w, "m",            "mute / unmute selected track");
-    try helpKey(w, "M",            "master spectrum");
-    try helpKey(w, "< / >",        "pan left / right  (5% per step)");
-    try helpKey(w, "- / +",        "track gain −1 dB / +1 dB  (= also works)");
-    try helpKey(w, "a",            "add synth track");
-    try helpKey(w, "D",            "delete selected track");
-    try helpKey(w, "? / :help",    "this help");
-
-    try helpSection(w, "INSERT MODE  (piano keyboard)");
-    try helpKey(w, "a s d f g h j k l ;",  "white keys  C D E F G A B C D E");
-    try helpKey(w, "q w r t y i o p",       "black keys  C# D# F# G# A# C# D# F#");
-    try helpKey(w, "z / x",                 "octave down / up");
-
-    try helpSection(w, "DRUM GRID");
-    try helpKey(w, "h / l",        "move cursor left / right (one step)");
-    try helpKey(w, "H / L",        "move cursor left / right (one beat, coarse)");
-    try helpKey(w, "j / k",        "move cursor down / up (pad)");
-    try helpKey(w, "enter",        "toggle step on/off");
-    try helpKey(w, "p",            "preview pad sound");
-    try helpKey(w, "e",            "open sampler editor for current pad");
-    try helpKey(w, "s",            "spectrum + EQ for drum track");
-    try helpKey(w, "+ / -",        "lengthen / shorten loop (1–16 steps)");
-    try helpKey(w, "X",            "clear all steps on current pad");
-    try helpKey(w, "F",            "fill all steps on current pad");
-
-    try helpSection(w, "SAMPLER EDITOR");
-    try helpKey(w, "j / k",        "select parameter");
-    try helpKey(w, "h / l",        "adjust value (fine)");
-    try helpKey(w, "H / L",        "adjust value (coarse ×10)");
-    try helpKey(w, "1–8",          "switch to pad 1–8");
-    try helpKey(w, "p",            "audition current pad");
-    try helpKey(w, ":load-pad",    "<0-7> <file.wav>  load a sample into a pad");
-
-    try helpSection(w, "SYNTH EDITOR");
-    try helpKey(w, "j / k",        "select parameter");
-    try helpKey(w, "{ / }",        "prev / next section");
-    try helpKey(w, "h / l",        "adjust value (fine)");
-    try helpKey(w, "H / L",        "adjust value (coarse ×10)");
-    try helpKey(w, "p",            "open piano roll for this track");
-    try helpKey(w, "s",            "spectrum + EQ for this track");
-
-    try helpSection(w, "PIANO ROLL");
-    try helpKey(w, "h / l",        "move cursor left / right (one step)");
-    try helpKey(w, "H / L",        "move cursor left / right (one beat, coarse)");
-    try helpKey(w, "j / k",        "move cursor down / up (pitch)");
-    try helpKey(w, "J / K",        "move cursor down / up (one octave)");
-    try helpKey(w, "g / G",        "jump cursor to loop start / end");
-    try helpKey(w, "enter",        "toggle note at cursor");
-    try helpKey(w, "n / d",        "insert / delete note at cursor (aliases)");
-    try helpKey(w, "p",            "preview note at cursor");
-    try helpKey(w, "< / >",        "decrease / increase velocity of note at cursor");
-    try helpKey(w, "e",            "open synth editor for this track");
-    try helpKey(w, "s",            "spectrum + EQ for this track");
-    try helpKey(w, "[ / ]",        "resize note at cursor (else set default length)");
-    try helpKey(w, "+ / -",        "lengthen / shorten loop (1 bar)");
-    try helpKey(w, ":clear",       "erase all notes in the pattern");
-
-    try helpSection(w, "SPECTRUM / EQ");
-    try helpKey(w, "h / l",        "select EQ band");
-    try helpKey(w, "j / k",        "decrease / increase band gain (1 dB)");
-    try helpKey(w, "J / K",        "decrease / increase band gain (6 dB)");
-    try helpKey(w, "b",            "bypass EQ toggle");
-
-    // content comfortably exceeds one screen; padding loop handles short terminals
-    const used = 60;
-    for (used..@max(used, rows -| 3)) |_| try endLine(w);
+    // Pad any remaining body rows so short windows don't leave stale content.
+    for (1 + (end - off)..body) |_| try endLine(w);
 }
 
 pub fn drawSpectrumView(

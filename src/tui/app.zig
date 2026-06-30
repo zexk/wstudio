@@ -111,6 +111,8 @@ pub const App = struct {
     now_ns: i96 = 0,
     eq_cursor: usize = 0,
     eq_track: u16 = 0,
+    /// Scroll offset (in lines) of the help view; clamped by tui.drawHelp.
+    help_scroll: usize = 0,
     synth_track: u16 = 0,
     synth_cursor: u8 = 0,
     synth_scroll: usize = 0,
@@ -178,7 +180,21 @@ pub const App = struct {
         }
 
         switch (self.view) {
-            .help => if (key == .escape) { self.view = self.prev_view; },
+            .help => switch (key) {
+                .escape => self.view = self.prev_view,
+                // j/k scroll one line, d/u half-page, g/G jump to ends.
+                // draw clamps help_scroll, so over-scrolling just pins to the edge.
+                .char => |c| switch (c) {
+                    'j' => self.help_scroll += 1,
+                    'k' => self.help_scroll -|= 1,
+                    'd' => self.help_scroll += 10,
+                    'u' => self.help_scroll -|= 10,
+                    'G' => self.help_scroll = std.math.maxInt(usize),
+                    'g' => self.help_scroll = 0,
+                    else => {},
+                },
+                else => {},
+            },
             .drum_grid => {
                 if (self.modal.mode != .normal or !self.handleDrumKey(key)) {
                     self.applyAction(self.modal.handle(key), now_ns);
@@ -1009,6 +1025,7 @@ pub const App = struct {
 
     fn cmdHelp(self: *App, _: []const u8) void {
         self.prev_view = self.view;
+        self.help_scroll = 0;
         self.view = .help;
     }
 
@@ -1466,7 +1483,7 @@ pub const App = struct {
             .synth_editor    => try tui.drawSynthEditor(self, w, rows, snap),
             .sampler_editor  => try tui.drawSamplerEditor(self, w, rows, size.cols, snap),
             .piano_roll      => try tui.drawPianoRoll(self, w, rows, size.cols, snap),
-            .help            => try tui.drawHelp(w, rows, cmds),
+            .help            => try tui.drawHelp(w, rows, cmds, &self.help_scroll),
             .track_spectrum  => try tui.drawSpectrumView(self, w, rows, size.cols, snap, true),
             .master_spectrum => try tui.drawSpectrumView(self, w, rows, size.cols, snap, false),
             .instrument_picker => try tui.drawInstrumentPicker(self, w, rows),
@@ -1502,7 +1519,7 @@ pub const App = struct {
             .synth_editor    => try tui.drawSynthStatus(self, w),
             .sampler_editor  => try tui.drawSamplerStatus(self, w),
             .piano_roll      => try tui.drawPianoRollStatus(self, w),
-            .help            => try w.writeAll(" esc: close"),
+            .help            => try w.writeAll(" j/k: scroll   d/u: page   g/G: top/bottom   esc: close"),
             .track_spectrum  => try tui.drawSpectrumStatus(self, w, true),
             .master_spectrum => try tui.drawSpectrumStatus(self, w, false),
             .instrument_picker => try w.writeAll(" j/k: move   enter: insert   esc: cancel"),
