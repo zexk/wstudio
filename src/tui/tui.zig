@@ -44,6 +44,10 @@ const grn  = "\x1b[32m";   // green – playing / active steps
 const yel  = "\x1b[33m";   // yellow – INSERT mode / muted
 const red  = "\x1b[31m";   // red   – clip / error
 const sel  = "\x1b[7m";    // reverse-video – selected row / cursor
+const blu  = "\x1b[34m";   // blue   – voice / routing
+const mag  = "\x1b[35m";   // magenta – modulation / movement
+const bcyn = "\x1b[96m";   // bright cyan – cursor / selected row
+const bwht = "\x1b[97m";   // bright white – selected value
 
 // ---------------------------------------------------------------------------
 // Primitive helpers
@@ -626,19 +630,130 @@ pub fn drawSpectrumStatus(app: anytype, w: *std.Io.Writer, is_track: bool) !void
 // Synth editor
 // ---------------------------------------------------------------------------
 
-fn synthBar(w: *std.Io.Writer, value: f32, max_val: f32) !void {
-    const bar_w: usize = 20;
-    const n: usize = @intFromFloat(std.math.clamp(value / max_val, 0.0, 1.0) * @as(f32, @floatFromInt(bar_w)));
-    try w.writeAll(acc);
+/// Smooth horizontal level bar. `color` tints the filled portion; the track is
+/// always dim. Fractional fill is rendered with a partial block for the last
+/// cell so small changes are visible.
+fn synthBar(w: *std.Io.Writer, value: f32, max_val: f32, is_sel: bool, color: []const u8) !void {
+    const bar_w: usize = 18;
+    const frac = std.math.clamp(value / max_val, 0.0, 1.0) * @as(f32, @floatFromInt(bar_w));
+    const full: usize = @intFromFloat(@floor(frac));
+    const rem = frac - @floor(frac);
+    // U+258F..U+2589 — 1/8 .. 7/8 left blocks.
+    const eighths = [_][]const u8{ "", "\u{258F}", "\u{258E}", "\u{258D}", "\u{258C}", "\u{258B}", "\u{258A}", "\u{2589}" };
+    const e: usize = @intFromFloat(rem * 8.0);
+    const has_part = full < bar_w and e > 0;
+
+    try w.writeAll(dim);
     try w.writeByte('[');
-    for (0..bar_w) |i| try w.writeAll(if (i < n) "█" else "░");
+    try w.writeAll(rst);
+    // filled cells
+    try w.writeAll(color);
+    if (is_sel) try w.writeAll(bold);
+    for (0..full) |_| try w.writeAll("\u{2588}");
+    if (has_part) try w.writeAll(eighths[std.math.clamp(e, 1, 7)]);
+    try w.writeAll(rst);
+    // empty track
+    try w.writeAll(dim);
+    const used = full + @as(usize, if (has_part) 1 else 0);
+    for (used..bar_w) |_| try w.writeAll("\u{2591}");
     try w.writeByte(']');
     try w.writeAll(rst);
 }
 
-fn synthSection(w: *std.Io.Writer, label: []const u8) !void {
-    try w.writeAll(dim ++ "  ─ ");
+/// Colored section divider: `▌ LABEL ─────────` filling to a fixed width.
+fn synthSection(w: *std.Io.Writer, label: []const u8, color: []const u8) !void {
+    try w.writeAll("  ");
+    try w.writeAll(color);
+    try w.writeAll(bold);
+    try w.writeAll("\u{258C} ");
     try w.writeAll(label);
+    try w.writeByte(' ');
+    try w.writeAll(rst);
+    try w.writeAll(dim);
+    const used = 5 + label.len; // "  " + "▌ " + label + " "
+    const total = 42;
+    if (used < total) for (used..total) |_| try w.writeAll("\u{2500}");
+    try endLine(w);
+}
+
+/// Left gutter + padded label. Selected rows get a bright `▸` cursor; inactive
+/// (dimmed) rows are rendered dim.
+fn rowHead(w: *std.Io.Writer, is_sel: bool, dimmed: bool, label: []const u8) !void {
+    if (is_sel) {
+        try w.writeAll(bcyn);
+        try w.writeAll(bold);
+        try w.print("\u{25B8} {s: <9}", .{label});
+        try w.writeAll(rst);
+    } else if (dimmed) {
+        try w.writeAll(dim);
+        try w.print("  {s: <9}", .{label});
+        try w.writeAll(rst);
+    } else {
+        try w.print("  {s: <9}", .{label});
+    }
+}
+
+/// Trailing value readout, brightened when selected, dimmed when inactive.
+fn rowVal(w: *std.Io.Writer, is_sel: bool, dimmed: bool, s: []const u8) !void {
+    try w.writeAll("  ");
+    if (is_sel) {
+        try w.writeAll(bwht);
+        try w.writeAll(bold);
+        try w.writeAll(s);
+        try w.writeAll(rst);
+    } else if (dimmed) {
+        try w.writeAll(dim);
+        try w.writeAll(s);
+        try w.writeAll(rst);
+    } else {
+        try w.writeAll(s);
+    }
+}
+
+/// One bar parameter row: `▸ label  [bar]  value`.
+fn barRow(
+    w: *std.Io.Writer,
+    is_sel: bool,
+    dimmed: bool,
+    color: []const u8,
+    label: []const u8,
+    value: f32,
+    max_val: f32,
+    val_str: []const u8,
+) !void {
+    try rowHead(w, is_sel, dimmed, label);
+    try w.writeByte(' ');
+    const bc = if (is_sel) bcyn else if (dimmed) dim else color;
+    try synthBar(w, value, max_val, is_sel, bc);
+    try rowVal(w, is_sel, dimmed, val_str);
+    try endLine(w);
+}
+
+/// One enum/toggle row: label followed by bracketed options, the active one
+/// highlighted in the section color (bright when the row is selected).
+fn enumRow(
+    w: *std.Io.Writer,
+    is_sel: bool,
+    dimmed: bool,
+    color: []const u8,
+    label: []const u8,
+    names: []const []const u8,
+    idx: usize,
+) !void {
+    try rowHead(w, is_sel, dimmed, label);
+    try w.writeByte(' ');
+    for (names, 0..) |nm, i| {
+        if (i == idx) {
+            try w.writeAll(if (is_sel) bcyn else if (dimmed) dim else color);
+            try w.writeAll(bold);
+            try w.print("[{s: <5}]", .{nm});
+            try w.writeAll(rst);
+        } else {
+            try w.writeAll(dim);
+            try w.print(" {s: <5} ", .{nm});
+            try w.writeAll(rst);
+        }
+    }
     try endLine(w);
 }
 
@@ -695,487 +810,195 @@ fn drawSynthEditorFull(app: anytype, w: *std.Io.Writer, snap: engine_mod.UiSnaps
         app.session.project.tracks.items[app.synth_track].name
     else "?";
 
-    try w.writeAll(bold ++ " SYNTH" ++ rst);
-    try w.print(" \"{s}\"", .{name});
-    try w.writeAll(dim ++ "  [jk:move  hl:adjust  HL:coarse  {}:section  esc:back]");
+    // Title.
+    try w.writeAll(bcyn ++ bold ++ " \u{2593} SYNTH " ++ rst);
+    try w.writeAll(acc);
+    try w.print("\"{s}\"", .{name});
+    try w.writeAll(rst);
+    try w.writeAll(dim ++ "   jk move \u{00B7} hl adjust \u{00B7} HL coarse \u{00B7} {} section \u{00B7} esc back");
     try endLine(w);
 
-    // ── OSC ──────────────────────────────────────
-    try synthSection(w, "OSC");
+    var buf: [40]u8 = undefined;
+    const c = app.synth_cursor;
 
-    // param 0: waveform
-    {
-        const is_sel = (app.synth_cursor == 0);
-        if (is_sel) try w.writeAll(sel);
-        try w.writeAll("  waveform   ");
-        const wf_names = [_][]const u8{ "sine", "saw", "tri", "sqr" };
-        const wf_idx: usize = switch (synth.waveform) {
-            .sine => 0, .saw => 1, .triangle => 2, .square => 3,
-        };
-        for (wf_names, 0..) |nm, i| {
-            if (i == wf_idx) {
-                if (!is_sel) try w.writeAll(acc ++ bold);
-                try w.print("[{s: <5}]", .{nm});
-                if (!is_sel) try w.writeAll(rst);
-            } else {
-                if (!is_sel) try w.writeAll(dim);
-                try w.print(" {s: <5} ", .{nm});
-                if (!is_sel) try w.writeAll(rst);
-            }
-        }
-        try endLine(w);
-    }
+    // ── OSC A ────────────────────────────────────
+    try synthSection(w, "OSC A", acc);
+
+    const wf_names = [_][]const u8{ "sine", "saw", "tri", "sqr" };
+    const wf_idx: usize = switch (synth.waveform) {
+        .sine => 0, .saw => 1, .triangle => 2, .square => 3,
+    };
+    try enumRow(w, c == 0, false, acc, "waveform", &wf_names, wf_idx);
 
     // param 1: pulse width (only meaningful for square)
-    {
-        const is_sel = (app.synth_cursor == 1);
-        if (is_sel) try w.writeAll(sel);
-        const active_sqr = synth.waveform == .square;
-        if (!is_sel and !active_sqr) try w.writeAll(dim);
-        try w.writeAll("  pls.width ");
-        try synthBar(w, synth.pulse_width, 1.0);
-        try w.print("  {d:.2}", .{synth.pulse_width});
-        if (!is_sel and !active_sqr) try w.writeAll(rst);
-        try endLine(w);
-    }
+    try barRow(w, c == 1, synth.waveform != .square, acc, "pls.width", synth.pulse_width, 1.0,
+        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.pulse_width}));
 
     // params 2–5: detune, unison, uni.det, spread
-    const osc_rows = [_]struct { label: []const u8, idx: u8, bar: f32, bar_max: f32, disp: f32 }{
-        .{ .label = "detune",   .idx = 2, .bar = synth.detune_cents + 100.0, .bar_max = 200.0, .disp = synth.detune_cents   },
-        .{ .label = "unison",   .idx = 3, .bar = @floatFromInt(synth.unison),.bar_max = 16.0,  .disp = @floatFromInt(synth.unison) },
-        .{ .label = "uni.det",  .idx = 4, .bar = synth.unison_detune,        .bar_max = 100.0, .disp = synth.unison_detune  },
-        .{ .label = "spread",   .idx = 5, .bar = synth.unison_spread,        .bar_max = 1.0,   .disp = synth.unison_spread  },
-    };
-    for (osc_rows, 0..) |p, ri| {
-        const is_sel = (app.synth_cursor == p.idx);
-        if (is_sel) try w.writeAll(sel);
-        try w.print("  {s: <9}", .{p.label});
-        try synthBar(w, p.bar, p.bar_max);
-        switch (ri) {
-            0 => try w.print("  {d:.0} ct", .{p.disp}),
-            1 => try w.print("  {d:.0}",    .{p.disp}),
-            2 => try w.print("  {d:.1} ct", .{p.disp}),
-            3 => try w.print("  {d:.2}",    .{p.disp}),
-            else => {},
-        }
-        try endLine(w);
-    }
+    try barRow(w, c == 2, false, acc, "detune", synth.detune_cents + 100.0, 200.0,
+        try std.fmt.bufPrint(&buf, "{d:.0} ct", .{synth.detune_cents}));
+    try barRow(w, c == 3, false, acc, "unison", @floatFromInt(synth.unison), 16.0,
+        try std.fmt.bufPrint(&buf, "{d}", .{synth.unison}));
+    try barRow(w, c == 4, false, acc, "uni.det", synth.unison_detune, 100.0,
+        try std.fmt.bufPrint(&buf, "{d:.1} ct", .{synth.unison_detune}));
+    try barRow(w, c == 5, false, acc, "spread", synth.unison_spread, 1.0,
+        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.unison_spread}));
 
     // ── OSC B ────────────────────────────────────
-    try synthSection(w, "OSC B");
+    try synthSection(w, "OSC B", acc);
 
-    // param 6: osc_b_on (b_on moved to 6, was 5)
-    {
-        const is_sel = (app.synth_cursor == 6);
-        if (is_sel) try w.writeAll(sel);
-        const active = synth.osc_b_on;
-        if (!is_sel and !active) try w.writeAll(dim);
-        try w.writeAll("  on/off     ");
-        if (active) {
-            if (!is_sel) try w.writeAll(acc ++ bold);
-            try w.writeAll("[on  ]  off  ");
-            if (!is_sel) try w.writeAll(rst);
-        } else {
-            try w.writeAll(" on    [off ]");
-        }
-        if (!is_sel and !active) try w.writeAll(rst);
-        try endLine(w);
-    }
+    const b_on = synth.osc_b_on;
+    const on_names = [_][]const u8{ "on", "off" };
+    try enumRow(w, c == 6, false, acc, "on/off", &on_names, if (b_on) 0 else 1);
 
-    // param 7: osc_b_waveform
-    {
-        const is_sel  = (app.synth_cursor == 7);
-        const b_active = synth.osc_b_on;
-        if (is_sel) try w.writeAll(sel);
-        if (!is_sel and !b_active) try w.writeAll(dim);
-        try w.writeAll("  waveform   ");
-        const wf_names = [_][]const u8{ "sine", "saw", "tri", "sqr" };
-        const wf_idx: usize = switch (synth.osc_b_waveform) {
-            .sine => 0, .saw => 1, .triangle => 2, .square => 3,
-        };
-        for (wf_names, 0..) |nm, i| {
-            if (i == wf_idx) {
-                if (!is_sel and b_active) try w.writeAll(acc ++ bold);
-                try w.print("[{s: <5}]", .{nm});
-                if (!is_sel and b_active) try w.writeAll(rst);
-            } else {
-                try w.print(" {s: <5} ", .{nm});
-            }
-        }
-        if (!is_sel and !b_active) try w.writeAll(rst);
-        try endLine(w);
-    }
+    const wfb_idx: usize = switch (synth.osc_b_waveform) {
+        .sine => 0, .saw => 1, .triangle => 2, .square => 3,
+    };
+    try enumRow(w, c == 7, !b_on, acc, "waveform", &wf_names, wfb_idx);
 
-    // params 8–13: pulse width, semi, detune, level, unison, uni.det
-    {
-        const b_rows = [_]struct { label: []const u8, idx: u8, bar: f32, bar_max: f32, disp: f32, fmt: u8 }{
-            .{ .label = "pls.width", .idx = 8,  .bar = synth.osc_b_pulse_width,           .bar_max = 1.0,   .disp = synth.osc_b_pulse_width,  .fmt = 2 },
-            .{ .label = "semi",      .idx = 9,  .bar = synth.osc_b_semi + 24.0,           .bar_max = 48.0,  .disp = synth.osc_b_semi,         .fmt = 0 },
-            .{ .label = "detune",    .idx = 10, .bar = synth.osc_b_detune_cents + 100.0,  .bar_max = 200.0, .disp = synth.osc_b_detune_cents, .fmt = 1 },
-            .{ .label = "level",     .idx = 11, .bar = synth.osc_b_level,                 .bar_max = 1.0,   .disp = synth.osc_b_level,        .fmt = 2 },
-            .{ .label = "unison",    .idx = 12, .bar = @floatFromInt(synth.osc_b_unison), .bar_max = 16.0,  .disp = @floatFromInt(synth.osc_b_unison), .fmt = 0 },
-            .{ .label = "uni.det",   .idx = 13, .bar = synth.osc_b_unison_detune,        .bar_max = 100.0, .disp = synth.osc_b_unison_detune, .fmt = 3 },
-        };
-        for (b_rows) |p| {
-            const is_sel  = (app.synth_cursor == p.idx);
-            const b_active = synth.osc_b_on;
-            if (is_sel) try w.writeAll(sel);
-            if (!is_sel and !b_active) try w.writeAll(dim);
-            try w.print("  {s: <9}", .{p.label});
-            try synthBar(w, p.bar, p.bar_max);
-            switch (p.fmt) {
-                0 => try w.print("  {d:.0}", .{p.disp}),
-                1 => try w.print("  {d:.0} ct", .{p.disp}),
-                2 => try w.print("  {d:.2}", .{p.disp}),
-                3 => try w.print("  {d:.1} ct", .{p.disp}),
-                else => {},
-            }
-            if (!is_sel and !b_active) try w.writeAll(rst);
-            try endLine(w);
-        }
-    }
+    try barRow(w, c == 8, !b_on, acc, "pls.width", synth.osc_b_pulse_width, 1.0,
+        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.osc_b_pulse_width}));
+    try barRow(w, c == 9, !b_on, acc, "semi", synth.osc_b_semi + 24.0, 48.0,
+        try std.fmt.bufPrint(&buf, "{d:.0}", .{synth.osc_b_semi}));
+    try barRow(w, c == 10, !b_on, acc, "detune", synth.osc_b_detune_cents + 100.0, 200.0,
+        try std.fmt.bufPrint(&buf, "{d:.0} ct", .{synth.osc_b_detune_cents}));
+    try barRow(w, c == 11, !b_on, acc, "level", synth.osc_b_level, 1.0,
+        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.osc_b_level}));
+    try barRow(w, c == 12, !b_on, acc, "unison", @floatFromInt(synth.osc_b_unison), 16.0,
+        try std.fmt.bufPrint(&buf, "{d}", .{synth.osc_b_unison}));
+    try barRow(w, c == 13, !b_on, acc, "uni.det", synth.osc_b_unison_detune, 100.0,
+        try std.fmt.bufPrint(&buf, "{d:.1} ct", .{synth.osc_b_unison_detune}));
 
     // ── MOD ──────────────────────────────────────
-    try synthSection(w, "MOD  (A \u{2194} B)");
+    try synthSection(w, "MOD  (A \u{2194} B)", mag);
 
-    // param 14: mod_mode
-    {
-        const is_sel = (app.synth_cursor == 14);
-        const active = synth.mod_mode != .none;
-        if (is_sel) try w.writeAll(sel);
-        if (!is_sel and !active) try w.writeAll(dim);
-        try w.writeAll("  mode       ");
-        const mod_names = [_][]const u8{ "off", "ring", "AM>B", "AM>A", "FM>B", "FM>A" };
-        const mod_idx: usize = switch (synth.mod_mode) {
-            .none => 0, .ring => 1, .am_a_to_b => 2, .am_b_to_a => 3,
-            .fm_a_to_b => 4, .fm_b_to_a => 5,
-        };
-        for (mod_names, 0..) |nm, i| {
-            if (i == mod_idx) {
-                if (!is_sel) try w.writeAll(acc ++ bold);
-                try w.print("[{s: <5}]", .{nm});
-                if (!is_sel) try w.writeAll(rst);
-            } else {
-                if (!is_sel) try w.writeAll(dim);
-                try w.print(" {s: <5} ", .{nm});
-                if (!is_sel) try w.writeAll(rst);
-            }
-        }
-        if (!is_sel and !active) try w.writeAll(rst);
-        try endLine(w);
-    }
+    const mod_on = synth.mod_mode != .none;
+    const mod_names = [_][]const u8{ "off", "ring", "AM>B", "AM>A", "FM>B", "FM>A" };
+    const mod_idx: usize = switch (synth.mod_mode) {
+        .none => 0, .ring => 1, .am_a_to_b => 2, .am_b_to_a => 3,
+        .fm_a_to_b => 4, .fm_b_to_a => 5,
+    };
+    try enumRow(w, c == 14, false, mag, "mode", &mod_names, mod_idx);
 
-    // param 15: mod_amount
     {
-        const is_sel = (app.synth_cursor == 15);
-        const active = synth.mod_mode != .none;
-        if (is_sel) try w.writeAll(sel);
-        if (!is_sel and !active) try w.writeAll(dim);
-        try w.writeAll("  amount   ");
-        // FM max is 8; AM/ring max is 1 — display bar against max=8 but show actual value.
-        try synthBar(w, synth.mod_amount, 8.0);
-        const unit: []const u8 = switch (synth.mod_mode) {
-            .fm_a_to_b, .fm_b_to_a => "  β=",
-            else                    => "    ",
-        };
-        try w.print("{s}{d:.2}", .{ unit, synth.mod_amount });
-        if (!is_sel and !active) try w.writeAll(rst);
-        try endLine(w);
+        const is_fm = switch (synth.mod_mode) { .fm_a_to_b, .fm_b_to_a => true, else => false };
+        const vs = if (is_fm)
+            try std.fmt.bufPrint(&buf, "\u{03B2}={d:.2}", .{synth.mod_amount})
+        else
+            try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.mod_amount});
+        try barRow(w, c == 15, !mod_on, mag, "amount", synth.mod_amount, 8.0, vs);
     }
 
     // ── ENV ──────────────────────────────────────
-    try synthSection(w, "ENV");
+    try synthSection(w, "ENV", grn);
 
-    const env_rows = [_]struct { label: []const u8, idx: u8, bar: f32, bar_max: f32, disp: f32 }{
-        .{ .label = "attack",  .idx = 16, .bar = synth.attack_s,  .bar_max = 5.0,  .disp = synth.attack_s  },
-        .{ .label = "decay",   .idx = 17, .bar = synth.decay_s,   .bar_max = 5.0,  .disp = synth.decay_s   },
-        .{ .label = "sustain", .idx = 18, .bar = synth.sustain,   .bar_max = 1.0,  .disp = synth.sustain   },
-        .{ .label = "release", .idx = 19, .bar = synth.release_s, .bar_max = 10.0, .disp = synth.release_s },
-    };
-    for (env_rows, 0..) |p, ri| {
-        const is_sel = (app.synth_cursor == p.idx);
-        if (is_sel) try w.writeAll(sel);
-        try w.print("  {s: <9}", .{p.label});
-        try synthBar(w, p.bar, p.bar_max);
-        switch (ri) {
-            2 => try w.print("  {d:.3}", .{p.disp}),
-            else => try w.print("  {d:.3} s", .{p.disp}),
-        }
-        try endLine(w);
-    }
+    try barRow(w, c == 16, false, grn, "attack", synth.attack_s, 5.0,
+        try std.fmt.bufPrint(&buf, "{d:.3} s", .{synth.attack_s}));
+    try barRow(w, c == 17, false, grn, "decay", synth.decay_s, 5.0,
+        try std.fmt.bufPrint(&buf, "{d:.3} s", .{synth.decay_s}));
+    try barRow(w, c == 18, false, grn, "sustain", synth.sustain, 1.0,
+        try std.fmt.bufPrint(&buf, "{d:.3}", .{synth.sustain}));
+    try barRow(w, c == 19, false, grn, "release", synth.release_s, 10.0,
+        try std.fmt.bufPrint(&buf, "{d:.3} s", .{synth.release_s}));
 
     // ── FILTER ───────────────────────────────────
-    try synthSection(w, "FILTER");
+    try synthSection(w, "FILTER", yel);
 
-    // param 20: filter type
-    {
-        const is_sel = (app.synth_cursor == 20);
-        if (is_sel) try w.writeAll(sel);
-        try w.writeAll("  type       ");
-        const ft_names = [_][]const u8{ "lp", "hp", "bp", "ntch" };
-        const ft_idx: usize = switch (synth.filter_type) {
-            .lp => 0, .hp => 1, .bp => 2, .notch => 3,
-        };
-        for (ft_names, 0..) |nm, i| {
-            if (i == ft_idx) {
-                if (!is_sel) try w.writeAll(acc ++ bold);
-                try w.print("[{s: <5}]", .{nm});
-                if (!is_sel) try w.writeAll(rst);
-            } else {
-                if (!is_sel) try w.writeAll(dim);
-                try w.print(" {s: <5} ", .{nm});
-                if (!is_sel) try w.writeAll(rst);
-            }
-        }
-        try endLine(w);
-    }
+    const ft_names = [_][]const u8{ "lp", "hp", "bp", "ntch" };
+    const ft_idx: usize = switch (synth.filter_type) {
+        .lp => 0, .hp => 1, .bp => 2, .notch => 3,
+    };
+    try enumRow(w, c == 20, false, yel, "type", &ft_names, ft_idx);
 
-    // param 21: cutoff — log-scale bar, kHz display above 1000 Hz
     {
-        const is_sel = (app.synth_cursor == 21);
-        if (is_sel) try w.writeAll(sel);
-        try w.writeAll("  cutoff   ");
         const log_norm = std.math.log2(synth.filter_cutoff / 20.0) /
-                         std.math.log2(20_000.0 / 20.0);
-        try synthBar(w, log_norm, 1.0);
-        if (synth.filter_cutoff >= 1_000.0)
-            try w.print("  {d:.2} kHz", .{synth.filter_cutoff / 1_000.0})
+            std.math.log2(20_000.0 / 20.0);
+        const vs = if (synth.filter_cutoff >= 1_000.0)
+            try std.fmt.bufPrint(&buf, "{d:.2} kHz", .{synth.filter_cutoff / 1_000.0})
         else
-            try w.print("  {d:.0} Hz", .{synth.filter_cutoff});
-        try endLine(w);
+            try std.fmt.bufPrint(&buf, "{d:.0} Hz", .{synth.filter_cutoff});
+        try barRow(w, c == 21, false, yel, "cutoff", log_norm, 1.0, vs);
     }
-
-    // param 22: res
+    try barRow(w, c == 22, false, yel, "res", synth.filter_res, 1.0,
+        try std.fmt.bufPrint(&buf, "{d:.3}", .{synth.filter_res}));
     {
-        const is_sel = (app.synth_cursor == 22);
-        if (is_sel) try w.writeAll(sel);
-        try w.writeAll("  res      ");
-        try synthBar(w, synth.filter_res, 1.0);
-        try w.print("  {d:.3}", .{synth.filter_res});
-        try endLine(w);
-    }
-
-    // param 23: fenv amount (bipolar)
-    {
-        const is_sel = (app.synth_cursor == 23);
-        if (is_sel) try w.writeAll(sel);
-        try w.writeAll("  f.env.amt ");
-        try synthBar(w, synth.fenv_amount + 4.0, 8.0);
         const sign: []const u8 = if (synth.fenv_amount >= 0.0) "+" else "";
-        try w.print("  {s}{d:.1} oct", .{ sign, synth.fenv_amount });
-        try endLine(w);
+        try barRow(w, c == 23, false, yel, "f.env.amt", synth.fenv_amount + 4.0, 8.0,
+            try std.fmt.bufPrint(&buf, "{s}{d:.1} oct", .{ sign, synth.fenv_amount }));
     }
 
     // ── FENV ─────────────────────────────────────
-    try synthSection(w, "FENV");
+    try synthSection(w, "FENV", grn);
 
-    const fenv_rows = [_]struct { label: []const u8, idx: u8, bar: f32, bar_max: f32, disp: f32 }{
-        .{ .label = "f.attack",  .idx = 24, .bar = synth.fenv_attack_s,  .bar_max = 5.0,  .disp = synth.fenv_attack_s  },
-        .{ .label = "f.decay",   .idx = 25, .bar = synth.fenv_decay_s,   .bar_max = 5.0,  .disp = synth.fenv_decay_s   },
-        .{ .label = "f.sustain", .idx = 26, .bar = synth.fenv_sustain,   .bar_max = 1.0,  .disp = synth.fenv_sustain   },
-        .{ .label = "f.release", .idx = 27, .bar = synth.fenv_release_s, .bar_max = 10.0, .disp = synth.fenv_release_s },
-    };
-    for (fenv_rows, 0..) |p, ri| {
-        const is_sel = (app.synth_cursor == p.idx);
-        if (is_sel) try w.writeAll(sel);
-        try w.print("  {s: <9}", .{p.label});
-        try synthBar(w, p.bar, p.bar_max);
-        switch (ri) {
-            2 => try w.print("  {d:.3}", .{p.disp}),
-            else => try w.print("  {d:.3} s", .{p.disp}),
-        }
-        try endLine(w);
-    }
+    try barRow(w, c == 24, false, grn, "f.attack", synth.fenv_attack_s, 5.0,
+        try std.fmt.bufPrint(&buf, "{d:.3} s", .{synth.fenv_attack_s}));
+    try barRow(w, c == 25, false, grn, "f.decay", synth.fenv_decay_s, 5.0,
+        try std.fmt.bufPrint(&buf, "{d:.3} s", .{synth.fenv_decay_s}));
+    try barRow(w, c == 26, false, grn, "f.sustain", synth.fenv_sustain, 1.0,
+        try std.fmt.bufPrint(&buf, "{d:.3}", .{synth.fenv_sustain}));
+    try barRow(w, c == 27, false, grn, "f.release", synth.fenv_release_s, 10.0,
+        try std.fmt.bufPrint(&buf, "{d:.3} s", .{synth.fenv_release_s}));
 
     // ── LFO ──────────────────────────────────────
-    try synthSection(w, "LFO");
+    try synthSection(w, "LFO", mag);
 
-    // param 28: lfo_shape
-    {
-        const is_sel = (app.synth_cursor == 28);
-        if (is_sel) try w.writeAll(sel);
-        try w.writeAll("  shape      ");
-        const lfo_names = [_][]const u8{ "sine", "tri", "saw", "sqr" };
-        const lfo_idx: usize = switch (synth.lfo_shape) {
-            .sine => 0, .triangle => 1, .saw => 2, .square => 3,
-        };
-        for (lfo_names, 0..) |nm, i| {
-            if (i == lfo_idx) {
-                if (!is_sel) try w.writeAll(acc ++ bold);
-                try w.print("[{s: <5}]", .{nm});
-                if (!is_sel) try w.writeAll(rst);
-            } else {
-                if (!is_sel) try w.writeAll(dim);
-                try w.print(" {s: <5} ", .{nm});
-                if (!is_sel) try w.writeAll(rst);
-            }
-        }
-        try endLine(w);
-    }
+    const lfo_names = [_][]const u8{ "sine", "tri", "saw", "sqr" };
+    const lfo_idx: usize = switch (synth.lfo_shape) {
+        .sine => 0, .triangle => 1, .saw => 2, .square => 3,
+    };
+    try enumRow(w, c == 28, false, mag, "shape", &lfo_names, lfo_idx);
 
-    // params 29–30: rate, depth
-    {
-        const lfo_bar_rows = [_]struct { label: []const u8, idx: u8, bar: f32, bar_max: f32, disp: f32, unit: []const u8 }{
-            .{ .label = "rate",  .idx = 29, .bar = synth.lfo_rate_hz, .bar_max = 20.0, .disp = synth.lfo_rate_hz, .unit = " Hz" },
-            .{ .label = "depth", .idx = 30, .bar = synth.lfo_depth,   .bar_max = 1.0,  .disp = synth.lfo_depth,   .unit = ""    },
-        };
-        for (lfo_bar_rows) |p| {
-            const is_sel = (app.synth_cursor == p.idx);
-            if (is_sel) try w.writeAll(sel);
-            try w.print("  {s: <9}", .{p.label});
-            try synthBar(w, p.bar, p.bar_max);
-            try w.print("  {d:.2}{s}", .{ p.disp, p.unit });
-            try endLine(w);
-        }
-    }
+    try barRow(w, c == 29, false, mag, "rate", synth.lfo_rate_hz, 20.0,
+        try std.fmt.bufPrint(&buf, "{d:.2} Hz", .{synth.lfo_rate_hz}));
+    try barRow(w, c == 30, false, mag, "depth", synth.lfo_depth, 1.0,
+        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.lfo_depth}));
 
-    // param 31: lfo_target
-    {
-        const is_sel = (app.synth_cursor == 31);
-        if (is_sel) try w.writeAll(sel);
-        try w.writeAll("  target     ");
-        const tgt_names = [_][]const u8{ "off", "filt", "pitch", "amp" };
-        const tgt_idx: usize = switch (synth.lfo_target) {
-            .none => 0, .filter => 1, .pitch => 2, .amp => 3,
-        };
-        for (tgt_names, 0..) |nm, i| {
-            if (i == tgt_idx) {
-                if (!is_sel) try w.writeAll(acc ++ bold);
-                try w.print("[{s: <5}]", .{nm});
-                if (!is_sel) try w.writeAll(rst);
-            } else {
-                if (!is_sel) try w.writeAll(dim);
-                try w.print(" {s: <5} ", .{nm});
-                if (!is_sel) try w.writeAll(rst);
-            }
-        }
-        try endLine(w);
-    }
+    const tgt_names = [_][]const u8{ "off", "filt", "pitch", "amp" };
+    const tgt_idx: usize = switch (synth.lfo_target) {
+        .none => 0, .filter => 1, .pitch => 2, .amp => 3,
+    };
+    try enumRow(w, c == 31, false, mag, "target", &tgt_names, tgt_idx);
 
     // ── VOICE ────────────────────────────────────
-    try synthSection(w, "VOICE");
+    try synthSection(w, "VOICE", blu);
 
-    // param 32: voice_mode
-    {
-        const is_sel = (app.synth_cursor == 32);
-        if (is_sel) try w.writeAll(sel);
-        try w.writeAll("  mode       ");
-        const mode_names = [_][]const u8{ "poly", "mono", "lgto" };
-        const mode_idx: usize = switch (synth.voice_mode) {
-            .poly => 0, .mono => 1, .legato => 2,
-        };
-        for (mode_names, 0..) |nm, i| {
-            if (i == mode_idx) {
-                if (!is_sel) try w.writeAll(acc ++ bold);
-                try w.print("[{s: <5}]", .{nm});
-                if (!is_sel) try w.writeAll(rst);
-            } else {
-                if (!is_sel) try w.writeAll(dim);
-                try w.print(" {s: <5} ", .{nm});
-                if (!is_sel) try w.writeAll(rst);
-            }
-        }
-        try endLine(w);
-    }
+    const vm_names = [_][]const u8{ "poly", "mono", "lgto" };
+    const vm_idx: usize = switch (synth.voice_mode) {
+        .poly => 0, .mono => 1, .legato => 2,
+    };
+    try enumRow(w, c == 32, false, blu, "mode", &vm_names, vm_idx);
 
-    // param 33: glide
-    {
-        const is_sel = (app.synth_cursor == 33);
-        if (is_sel) try w.writeAll(sel);
-        try w.writeAll("  glide    ");
-        try synthBar(w, synth.glide_s, 10.0);
-        if (synth.glide_s == 0.0) {
-            try w.writeAll("  off");
-        } else {
-            try w.print("  {d:.3} s", .{synth.glide_s});
-        }
-        try endLine(w);
-    }
+    try barRow(w, c == 33, false, blu, "glide", synth.glide_s, 10.0,
+        if (synth.glide_s == 0.0) "off" else try std.fmt.bufPrint(&buf, "{d:.3} s", .{synth.glide_s}));
 
     // ── SUB ──────────────────────────────────────
-    try synthSection(w, "SUB");
+    try synthSection(w, "SUB", acc);
 
-    // param 34: sub_level
+    try barRow(w, c == 34, false, acc, "level", synth.sub_level, 1.0,
+        if (synth.sub_level == 0.0) "off" else try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.sub_level}));
     {
-        const is_sel  = (app.synth_cursor == 34);
-        const active  = synth.sub_level > 0.0;
-        if (is_sel) try w.writeAll(sel);
-        if (!is_sel and !active) try w.writeAll(dim);
-        try w.writeAll("  level    ");
-        try synthBar(w, synth.sub_level, 1.0);
-        if (synth.sub_level == 0.0) try w.writeAll("  off")
-        else try w.print("  {d:.2}", .{synth.sub_level});
-        if (!is_sel and !active) try w.writeAll(rst);
-        try endLine(w);
-    }
-
-    // param 35: sub_shape
-    {
-        const is_sel  = (app.synth_cursor == 35);
-        const b_active = synth.sub_level > 0.0;
-        if (is_sel) try w.writeAll(sel);
-        if (!is_sel and !b_active) try w.writeAll(dim);
-        try w.writeAll("  shape      ");
         const sh_names = [_][]const u8{ "sine", "sqr" };
         const sh_idx: usize = switch (synth.sub_shape) { .sine => 0, .square => 1 };
-        for (sh_names, 0..) |nm, i| {
-            if (i == sh_idx) {
-                if (!is_sel and b_active) try w.writeAll(acc ++ bold);
-                try w.print("[{s: <5}]", .{nm});
-                if (!is_sel and b_active) try w.writeAll(rst);
-            } else {
-                try w.print(" {s: <5} ", .{nm});
-            }
-        }
-        if (!is_sel and !b_active) try w.writeAll(rst);
-        try endLine(w);
+        try enumRow(w, c == 35, synth.sub_level == 0.0, acc, "shape", &sh_names, sh_idx);
     }
 
     // ── NOISE ────────────────────────────────────
-    try synthSection(w, "NOISE");
+    try synthSection(w, "NOISE", acc);
 
-    // param 36: noise_level
+    try barRow(w, c == 36, false, acc, "level", synth.noise_level, 1.0,
+        if (synth.noise_level == 0.0) "off" else try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.noise_level}));
     {
-        const is_sel = (app.synth_cursor == 36);
-        const active = synth.noise_level > 0.0;
-        if (is_sel) try w.writeAll(sel);
-        if (!is_sel and !active) try w.writeAll(dim);
-        try w.writeAll("  level    ");
-        try synthBar(w, synth.noise_level, 1.0);
-        if (synth.noise_level == 0.0) try w.writeAll("  off")
-        else try w.print("  {d:.2}", .{synth.noise_level});
-        if (!is_sel and !active) try w.writeAll(rst);
-        try endLine(w);
-    }
-
-    // param 37: noise_color
-    {
-        const is_sel = (app.synth_cursor == 37);
-        const active = synth.noise_level > 0.0;
-        if (is_sel) try w.writeAll(sel);
-        if (!is_sel and !active) try w.writeAll(dim);
-        try w.writeAll("  color    ");
-        try synthBar(w, synth.noise_color, 1.0);
-        try w.print("  {d:.2}", .{synth.noise_color});
-        const hint: []const u8 = if (synth.noise_color < 0.33) "  dark"
-            else if (synth.noise_color > 0.66) "  white"
-            else "  warm";
-        try w.writeAll(hint);
-        if (!is_sel and !active) try w.writeAll(rst);
-        try endLine(w);
+        const hint: []const u8 = if (synth.noise_color < 0.33) "dark"
+            else if (synth.noise_color > 0.66) "white" else "warm";
+        try barRow(w, c == 37, synth.noise_level == 0.0, acc, "color", synth.noise_color, 1.0,
+            try std.fmt.bufPrint(&buf, "{d:.2}  {s}", .{ synth.noise_color, hint }));
     }
 
     // ── OUT ──────────────────────────────────────
-    try synthSection(w, "OUT");
+    try synthSection(w, "OUT", bcyn);
 
-    {
-        const is_sel = (app.synth_cursor == 38);
-        if (is_sel) try w.writeAll(sel);
-        try w.writeAll("  gain     ");
-        try synthBar(w, synth.gain, 1.0);
-        try w.print("  {d:.3}", .{synth.gain});
-        try endLine(w);
-    }
+    try barRow(w, c == 38, false, bcyn, "gain", synth.gain, 1.0,
+        try std.fmt.bufPrint(&buf, "{d:.3}", .{synth.gain}));
 
     // drawSynthEditorFull renders exactly 51 rows; the caller (drawSynthEditor)
     // is responsible for slicing and padding to fit the terminal height.
