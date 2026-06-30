@@ -9,6 +9,7 @@ pub const Reverb = @import("dsp/reverb.zig").Reverb;
 pub const Compressor = @import("dsp/compressor.zig").Compressor;
 pub const DrumMachine = @import("dsp/drum_sampler.zig").DrumMachine;
 pub const Pad = @import("dsp/drum_sampler.zig").Pad;
+pub const drum_kit = @import("dsp/drum_kit.zig");
 
 pub const pattern = @import("dsp/pattern.zig");
 pub const PatternPlayer = pattern.PatternPlayer;
@@ -26,6 +27,7 @@ test {
     _ = Reverb;
     _ = Compressor;
     _ = DrumMachine;
+    _ = drum_kit;
     _ = pattern;
     _ = fft;
     _ = SpectrumAnalyzer;

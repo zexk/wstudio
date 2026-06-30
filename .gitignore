@@ -3,3 +3,6 @@ zig-out/
 result
 result-*
 *.wav
+# ...but the shipped drum kit is a committed, embedded asset.
+!src/assets/kit/
+!src/assets/kit/*.wav

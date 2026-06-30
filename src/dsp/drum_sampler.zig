@@ -61,6 +61,21 @@ const Voice = struct {
     block_start: u32 = 0,
 };
 
+/// The shipped 8-pad kit: WAVs embedded from src/assets/kit/ (rendered by the
+/// `genkit` build tool from dsp/drum_kit.zig). `data` is raw WAV bytes decoded
+/// at init; `gain` is the pad's default mixer level.
+const KitSlot = struct { data: []const u8, name: []const u8, gain: f32 };
+const default_kit = [_]KitSlot{
+    .{ .data = @embedFile("../assets/kit/kick.wav"),  .name = "kick",  .gain = 1.00 },
+    .{ .data = @embedFile("../assets/kit/snare.wav"), .name = "snare", .gain = 0.85 },
+    .{ .data = @embedFile("../assets/kit/hihat.wav"), .name = "hihat", .gain = 0.50 },
+    .{ .data = @embedFile("../assets/kit/open.wav"),  .name = "open",  .gain = 0.50 },
+    .{ .data = @embedFile("../assets/kit/clap.wav"),  .name = "clap",  .gain = 0.70 },
+    .{ .data = @embedFile("../assets/kit/tom1.wav"),  .name = "tom-1", .gain = 0.80 },
+    .{ .data = @embedFile("../assets/kit/tom2.wav"),  .name = "tom-2", .gain = 0.80 },
+    .{ .data = @embedFile("../assets/kit/rim.wav"),   .name = "rim",   .gain = 0.65 },
+};
+
 pub const DrumMachine = struct {
     pub const max_pads: u8 = 8;
     pub const max_steps: u8 = 32;
@@ -109,15 +124,14 @@ pub const DrumMachine = struct {
         };
         for (&self.pattern) |*p| p.* = .init(0);
 
-        // Synthesise default pads
-        try self.synthKick(0, "kick    ");
-        try self.synthSnare(1, "snare   ");
-        try self.synthHihat(2, "hihat   ", false);
-        try self.synthHihat(3, "open    ", true);
-        try self.synthClap(4, "clap    ");
-        try self.synthTom(5, "tom-1   ", 150, 60, 0.45);
-        try self.synthTom(6, "tom-2   ", 200, 80, 0.35);
-        try self.synthRim(7, "rim     ");
+        // Load the shipped kit: WAVs rendered from dsp/drum_kit.zig by the
+        // `genkit` build tool and embedded in the binary. Per-pad default gains
+        // give a balanced out-of-the-box mix (the user can retune each in the
+        // sampler editor).
+        for (default_kit, 0..) |slot, i| {
+            try self.loadPadWav(@intCast(i), slot.data, slot.name);
+            if (self.pads[i]) |*p| p.gain = slot.gain;
+        }
 
         // Default groove: 4-on-the-floor house pattern
         self.pattern[0].store(0x1111, .monotonic); // kick: every beat
@@ -403,122 +417,6 @@ pub const DrumMachine = struct {
         const self: *DrumMachine = @ptrCast(@alignCast(ptr));
         self.resetAll();
     }
-
-    // -----------------------------------------------------------------------
-    // Synthesised default pads
-
-    fn allocFrames(self: *DrumMachine, duration_s: f32) ![]f32 {
-        const n: usize = @as(usize, @intFromFloat(
-            duration_s * @as(f32, @floatFromInt(self.sample_rate)),
-        )) + 1;
-        return self.allocator.alloc(f32, n);
-    }
-
-    fn setPad(self: *DrumMachine, idx: u8, samples: []f32, name: *const [8]u8) void {
-        if (self.pads[idx]) |old| self.allocator.free(old.samples);
-        self.pads[idx] = .{ .samples = samples, .name = name.* };
-    }
-
-    fn synthKick(self: *DrumMachine, idx: u8, comptime name: *const [8]u8) !void {
-        const sr = @as(f32, @floatFromInt(self.sample_rate));
-        const buf = try self.allocFrames(0.4);
-        var phase: f32 = 0;
-        for (buf, 0..) |*s, i| {
-            const t = @as(f32, @floatFromInt(i)) / sr;
-            const freq = 170.0 * std.math.exp(-t * 22.0) + 40.0;
-            const amp = std.math.exp(-t * 9.0) * 0.9;
-            s.* = @sin(2.0 * std.math.pi * phase) * amp;
-            phase += freq / sr;
-            if (phase >= 1.0) phase -= 1.0;
-        }
-        self.setPad(idx, buf, name);
-    }
-
-    fn synthSnare(self: *DrumMachine, idx: u8, comptime name: *const [8]u8) !void {
-        const sr = @as(f32, @floatFromInt(self.sample_rate));
-        var prng = std.Random.DefaultPrng.init(0x1337);
-        const rand = prng.random();
-        const buf = try self.allocFrames(0.28);
-        var phase: f32 = 0;
-        for (buf, 0..) |*s, i| {
-            const t = @as(f32, @floatFromInt(i)) / sr;
-            const noise = rand.float(f32) * 2.0 - 1.0;
-            const tone = @sin(2.0 * std.math.pi * phase) * 0.25;
-            s.* = (noise * 0.75 + tone) * std.math.exp(-t * 14.0) * 0.75;
-            phase += 180.0 / sr;
-            if (phase >= 1.0) phase -= 1.0;
-        }
-        self.setPad(idx, buf, name);
-    }
-
-    fn synthHihat(self: *DrumMachine, idx: u8, comptime name: *const [8]u8, open: bool) !void {
-        const sr = @as(f32, @floatFromInt(self.sample_rate));
-        var prng = std.Random.DefaultPrng.init(0x2468);
-        const rand = prng.random();
-        const duration: f32 = if (open) 0.4 else 0.07;
-        const decay: f32 = if (open) 10.0 else 70.0;
-        const buf = try self.allocFrames(duration);
-        for (buf, 0..) |*s, i| {
-            const t = @as(f32, @floatFromInt(i)) / sr;
-            s.* = (rand.float(f32) * 2.0 - 1.0) * std.math.exp(-t * decay) * 0.55;
-        }
-        self.setPad(idx, buf, name);
-    }
-
-    fn synthClap(self: *DrumMachine, idx: u8, comptime name: *const [8]u8) !void {
-        const sr = @as(f32, @floatFromInt(self.sample_rate));
-        var prng = std.Random.DefaultPrng.init(0x9ABC);
-        const rand = prng.random();
-        const buf = try self.allocFrames(0.18);
-        for (buf, 0..) |*s, i| {
-            const t = @as(f32, @floatFromInt(i)) / sr;
-            const noise = rand.float(f32) * 2.0 - 1.0;
-            // Clap texture: fast transient + slower body
-            const env = std.math.exp(-t * 80.0) + std.math.exp(-t * 18.0) * 0.35;
-            s.* = noise * env * 0.6;
-        }
-        self.setPad(idx, buf, name);
-    }
-
-    fn synthTom(
-        self: *DrumMachine,
-        idx: u8,
-        comptime name: *const [8]u8,
-        f_start: f32,
-        f_end: f32,
-        duration: f32,
-    ) !void {
-        const sr = @as(f32, @floatFromInt(self.sample_rate));
-        const buf = try self.allocFrames(duration);
-        const log_ratio = @log(f_end / f_start);
-        var phase: f32 = 0;
-        for (buf, 0..) |*s, i| {
-            const t = @as(f32, @floatFromInt(i)) / sr;
-            const norm = t / duration;
-            const freq = f_start * std.math.exp(log_ratio * norm);
-            s.* = @sin(2.0 * std.math.pi * phase) * std.math.exp(-t * 7.0) * 0.8;
-            phase += freq / sr;
-            if (phase >= 1.0) phase -= 1.0;
-        }
-        self.setPad(idx, buf, name);
-    }
-
-    fn synthRim(self: *DrumMachine, idx: u8, comptime name: *const [8]u8) !void {
-        const sr = @as(f32, @floatFromInt(self.sample_rate));
-        var prng = std.Random.DefaultPrng.init(0x7777);
-        const rand = prng.random();
-        const buf = try self.allocFrames(0.14);
-        var phase: f32 = 0;
-        for (buf, 0..) |*s, i| {
-            const t = @as(f32, @floatFromInt(i)) / sr;
-            const noise = rand.float(f32) * 2.0 - 1.0;
-            const tone = @sin(2.0 * std.math.pi * phase) * 0.35;
-            s.* = (noise * 0.65 + tone) * std.math.exp(-t * 28.0) * 0.65;
-            phase += 400.0 / sr;
-            if (phase >= 1.0) phase -= 1.0;
-        }
-        self.setPad(idx, buf, name);
-    }
 };
 
 // -----------------------------------------------------------------------
@@ -590,20 +488,23 @@ fn resampleLinear(
 // -----------------------------------------------------------------------
 // Tests
 
-test "synthesised pads produce non-silent output" {
+test "embedded kit loads non-silent pads with default gains" {
     var transport: Transport = .{ .sample_rate = 48_000 };
     var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
     defer dm.deinit();
 
-    // All 8 pads should exist and have samples
+    // All 8 kit pads should decode and have samples + their default gain.
     for (0..DrumMachine.max_pads) |p| {
         try std.testing.expect(dm.pads[p] != null);
         try std.testing.expect(dm.pads[p].?.samples.len > 0);
+        try std.testing.expect(dm.pads[p].?.gain > 0.0);
     }
-    // Kick should have a non-zero peak
+    // Kick should have a non-zero peak.
     var peak: f32 = 0;
     for (dm.pads[0].?.samples) |s| peak = @max(peak, @abs(s));
     try std.testing.expect(peak > 0.01);
+    // Hihat ships quieter than the kick by default.
+    try std.testing.expect(dm.pads[2].?.gain < dm.pads[0].?.gain);
 }
 
 test "step sequencer fires pads at correct boundaries" {
