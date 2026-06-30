@@ -120,7 +120,7 @@ pub const App = struct {
             .track_spectrum, .master_spectrum => if (!self.handleSpectrumKey(key)) {
                 self.applyAction(self.modal.handle(key), now_ns);
             },
-            .piano_roll => if (!self.handlePianoRollKey(key)) {
+            .piano_roll => if (self.modal.mode != .normal or !self.handlePianoRollKey(key)) {
                 self.applyAction(self.modal.handle(key), now_ns);
             },
             .tracks => {
@@ -252,12 +252,12 @@ pub const App = struct {
                         } });
                         self.setStatus("preview: pad {d}", .{pad.* + 1});
                     },
-                    '<' => {
+                    '-' => {
                         const dm = self.drumMachine();
                         dm.setStepCount(dm.step_count - 1);
                         if (step.* >= dm.step_count) step.* = dm.step_count - 1;
                     },
-                    '>' => self.drumMachine().setStepCount(self.drumMachine().step_count + 1),
+                    '+' => self.drumMachine().setStepCount(self.drumMachine().step_count + 1),
                     'X' => self.drumMachine().pattern[pad.*].store(0, .release),
                     'F' => {
                         const dm = self.drumMachine();
@@ -374,18 +374,32 @@ pub const App = struct {
         const rack = self.session.racks.items[self.piano_track];
         const pp = if (rack.pattern_player != null) &self.session.racks.items[self.piano_track].pattern_player.? else return false;
 
+        const max_step: u16 = @intFromFloat(pp.length_beats * 4.0);
         switch (key) {
             .escape => { self.view = .tracks; return true; },
+            // enter toggles the note; space falls through to transport play/pause.
+            .enter => { self.pianoToggleNote(); return true; },
             .char => |c| switch (c) {
                 // Block insert mode — piano keys collide with roll navigation (j/k/h/d/…).
                 'i' => return true,
+                // coarse move by one beat (4 steps); shift (HL) moves one step
                 'h' => {
-                    if (self.piano_cursor_step > 0) self.piano_cursor_step -= 1;
+                    self.piano_cursor_step -|= 4;
                     self.pianoEnsureVisible();
                     return true;
                 },
                 'l' => {
-                    const max_step: u16 = @intFromFloat(pp.length_beats * 4.0);
+                    if (max_step > 0)
+                        self.piano_cursor_step = @min(self.piano_cursor_step + 4, max_step - 1);
+                    self.pianoEnsureVisible();
+                    return true;
+                },
+                'H' => {
+                    if (self.piano_cursor_step > 0) self.piano_cursor_step -= 1;
+                    self.pianoEnsureVisible();
+                    return true;
+                },
+                'L' => {
                     if (self.piano_cursor_step + 1 < max_step) self.piano_cursor_step += 1;
                     self.pianoEnsureVisible();
                     return true;
@@ -401,6 +415,7 @@ pub const App = struct {
                     return true;
                 },
                 's' => { self.switchToTrackSpectrum(self.piano_track); return true; },
+                // n/d kept as aliases for muscle memory; enter is the canonical toggle.
                 'n' => { self.pianoInsertNote(); return true; },
                 'd' => { self.pianoDeleteNote(); return true; },
                 'e' => {
@@ -452,6 +467,22 @@ pub const App = struct {
         const cur: i32 = @intCast(self.piano_cursor_pitch);
         if (cur > top) self.piano_scroll_pitch = @intCast(cur);
         if (cur < bot) self.piano_scroll_pitch = @intCast(cur + @as(i32, vis_rows) - 1);
+    }
+
+    /// Toggle the note at the cursor: remove it if one starts here on this pitch,
+    /// otherwise add one with the current note length. Mirrors the drum grid's
+    /// enter-to-toggle so both grid editors share the same place/erase gesture.
+    fn pianoToggleNote(self: *App) void {
+        if (self.piano_track >= self.session.racks.items.len) return;
+        const pp = if (self.session.racks.items[self.piano_track].pattern_player != null)
+            &self.session.racks.items[self.piano_track].pattern_player.?
+        else return;
+        const start_beat = @as(f64, @floatFromInt(self.piano_cursor_step)) * 0.25;
+        if (pp.noteStartsAt(self.piano_cursor_pitch, start_beat)) {
+            self.pianoDeleteNote();
+        } else {
+            self.pianoInsertNote();
+        }
     }
 
     fn pianoInsertNote(self: *App) void {

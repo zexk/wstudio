@@ -228,7 +228,7 @@ pub fn drawDrumGrid(app: anytype, w: *std.Io.Writer, rows: usize, snap: engine_m
     const track_name = app.session.project.tracks.items[app.session.drum_track].name;
     try w.writeAll(bold ++ " DRUMS" ++ rst);
     try w.print(" \"{s}\"", .{track_name});
-    try w.writeAll(dim ++ "  [hjkl:move  HL:fine  spc:toggle  p:preview  <>:length  X:clear  F:fill  esc:back]");
+    try w.writeAll(dim ++ "  [hjkl:move  HL:fine  enter:toggle  p:preview  +-:length  X:clear  F:fill  esc:back]");
     try endLine(w);
 
     // step header — only the active range (step_count) is shown
@@ -333,11 +333,13 @@ pub fn drawHelp(w: *std.Io.Writer, rows: usize, cmds: []const cmd_mod.Def) !void
     try helpKey(w, "z / x",                 "octave down / up");
 
     try helpSection(w, "DRUM GRID");
-    try helpKey(w, "h / j / k / l","move cursor left/down/up/right");
+    try helpKey(w, "h / l",        "move cursor left / right (one beat)");
+    try helpKey(w, "H / L",        "move cursor left / right (one step, fine)");
+    try helpKey(w, "j / k",        "move cursor down / up (pad)");
     try helpKey(w, "enter",        "toggle step on/off");
     try helpKey(w, "p",            "preview pad sound");
     try helpKey(w, "s",            "spectrum + EQ for drum track");
-    try helpKey(w, "< / >",        "shorten / lengthen loop (1–16 steps)");
+    try helpKey(w, "+ / -",        "lengthen / shorten loop (1–16 steps)");
     try helpKey(w, "X",            "clear all steps on current pad");
     try helpKey(w, "F",            "fill all steps on current pad");
 
@@ -349,13 +351,15 @@ pub fn drawHelp(w: *std.Io.Writer, rows: usize, cmds: []const cmd_mod.Def) !void
     try helpKey(w, "s",            "spectrum + EQ for this track");
 
     try helpSection(w, "PIANO ROLL");
-    try helpKey(w, "h / j / k / l","move cursor left/down/up/right");
-    try helpKey(w, "n",            "insert note at cursor");
-    try helpKey(w, "d",            "delete note at cursor");
+    try helpKey(w, "h / l",        "move cursor left / right (one beat)");
+    try helpKey(w, "H / L",        "move cursor left / right (one step, fine)");
+    try helpKey(w, "j / k",        "move cursor down / up (pitch)");
+    try helpKey(w, "enter",        "toggle note at cursor");
+    try helpKey(w, "n / d",        "insert / delete note at cursor (aliases)");
     try helpKey(w, "e",            "open synth editor for this track");
     try helpKey(w, "s",            "spectrum + EQ for this track");
     try helpKey(w, "[ / ]",        "decrease / increase note length");
-    try helpKey(w, "+ / -",        "add / remove 1 bar from loop");
+    try helpKey(w, "+ / -",        "lengthen / shorten loop (1 bar)");
 
     try helpSection(w, "SPECTRUM / EQ");
     try helpKey(w, "h / l",        "select EQ band");
@@ -1053,7 +1057,7 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
 
     try w.writeAll(bold ++ " PIANO ROLL" ++ rst);
     try w.print(" \"{s}\"", .{name});
-    try w.writeAll(dim ++ "  [hjkl:move  n:note  d:del  []:len  +/-:bars  esc:back]");
+    try w.writeAll(dim ++ "  [hjkl:move  HL:fine  enter:toggle  []:notelen  +-:length  esc:back]");
     try endLine(w);
 
     // 3 internal header rows (title + col labels + loop marker) + vis_rows note rows
