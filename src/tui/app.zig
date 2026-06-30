@@ -44,6 +44,8 @@ const cmds: []const cmd_mod.Def = &.{
     .{ .name = "track-add",   .desc = "[name]  add a synth track",           .run = wrap(App.cmdTrackAdd) },
     .{ .name = "track-del",   .desc = "[n]  delete track n (default: cursor)", .run = wrap(App.cmdTrackDel) },
     .{ .name = "track-rename",.desc = "<n> <name>  rename track n",          .run = wrap(App.cmdTrackRename) },
+    .{ .name = "save",        .desc = "[file]  save project (default: project.wsj)", .run = wrap(App.cmdSave) },
+    .{ .name = "w",           .desc = "[file]  save project (alias for :save)",      .run = wrap(App.cmdSave) },
 };
 
 pub const App = struct {
@@ -843,6 +845,18 @@ pub const App = struct {
         self.setStatus("pad {d} loaded: {s}", .{ pad_idx, stem });
     }
 
+    fn cmdSave(self: *App, args: []const u8) void {
+        const path = if (std.mem.trim(u8, args, " ").len > 0)
+            std.mem.trim(u8, args, " ")
+        else
+            "project.wsj";
+        ws.persist.save(self.allocator, &self.session, self.io, path) catch |e| {
+            self.setStatus("save: {s}: {s}", .{ path, @errorName(e) });
+            return;
+        };
+        self.setStatus("saved: {s}", .{path});
+    }
+
     fn cmdBpm(self: *App, args: []const u8) void {
         const trimmed = std.mem.trim(u8, args, " ");
         if (trimmed.len == 0) {
@@ -1084,7 +1098,7 @@ fn renderTrampoline(ctx: *anyopaque, out: []types.Sample) void {
     engine.process(out);
 }
 
-pub fn run(allocator: std.mem.Allocator, io: std.Io) !void {
+pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8) !void {
     var term = terminal_mod.Terminal.init(io) catch {
         std.debug.print(
             "wstudio: stdin is not a terminal (try `wstudio render` for the offline demo)\n",
@@ -1096,6 +1110,17 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io) !void {
 
     var app = try App.init(allocator, io);
     defer app.deinit();
+
+    // Load project file before backends start — the backend captures the engine
+    // pointer at init, so the swap must happen here.
+    if (init_path) |p| {
+        if (ws.persist.load(allocator, io, p)) |loaded| {
+            app.session.deinit();
+            app.session = loaded;
+        } else |e| {
+            std.debug.print("wstudio: cannot load '{s}': {s}\n", .{ p, @errorName(e) });
+        }
+    }
 
     const config: backend_mod.Config = .{ .sample_rate = app.session.project.sample_rate };
 

@@ -8,12 +8,12 @@ const ws = @import("wstudio");
 pub fn main(init: std.process.Init) !void {
     var args = std.process.Args.Iterator.init(init.minimal.args);
     _ = args.skip(); // argv0
+    var init_path: ?[]const u8 = null;
     if (args.next()) |cmd| {
         if (std.mem.eql(u8, cmd, "render")) return renderDemo(init.gpa, init.io);
-        std.debug.print("unknown command: {s}\nusage: wstudio [render]\n", .{cmd});
-        return error.UnknownCommand;
+        init_path = cmd; // treat as project file
     }
-    return @import("tui/app.zig").run(init.gpa, init.io);
+    return @import("tui/app.zig").run(init.gpa, init.io, init_path);
 }
 
 const out_path = "out.wav";
