@@ -1,10 +1,13 @@
 //! Piano-roll pattern sequencer.
 //!
-//! PatternPlayer sits at chain[0] for poly_synth racks. Its process() fires
-//! note_on / note_off into the PolySynth at chain[1] every block, driven by
-//! the transport exactly like the drum machine. Notes are stored in beats
-//! (1 beat = 1 quarter note); the view layer converts steps to beats via
-//! step / 4.0.
+//! PatternPlayer sits at chain[0] for melodic racks (synth or sampler). Its
+//! process() fires note_on / note_off events into the instrument device at
+//! chain[1] every block, driven by the transport exactly like the drum
+//! machine. Notes are stored in beats (1 beat = 1 quarter note); the view
+//! layer converts steps to beats via step / 4.0.
+//!
+//! The target is a plain `dsp.Device`, so any note-driven instrument can be
+//! sequenced — note events go through the same vtable the live keyboard uses.
 
 const std = @import("std");
 const types = @import("../core/types.zig");
@@ -22,7 +25,9 @@ pub const Note = struct {
 };
 
 pub const PatternPlayer = struct {
-    synth:     *PolySynth,
+    /// Instrument fed note events (synth, sampler, …). Stable for the rack's
+    /// lifetime because the rack is heap-allocated.
+    target:    dsp.Device,
     transport: *const Transport,
 
     notes_lock: std.atomic.Mutex = .unlocked,
@@ -38,8 +43,8 @@ pub const PatternPlayer = struct {
     /// 0 = first block or after a reset.
     last_pos_frames: u64 = 0,
 
-    pub fn init(synth: *PolySynth, transport: *const Transport) PatternPlayer {
-        return .{ .synth = synth, .transport = transport };
+    pub fn init(target: dsp.Device, transport: *const Transport) PatternPlayer {
+        return .{ .target = target, .transport = transport };
     }
 
     pub fn device(self: *PatternPlayer) dsp.Device {
@@ -126,7 +131,7 @@ pub const PatternPlayer = struct {
         notes: []const Note,
         loop_beats: f64,
         sounding: *[128]bool,
-        synth: *PolySynth,
+        target: dsp.Device,
         lo: f64,
         hi: f64,
     ) void {
@@ -134,13 +139,13 @@ pub const PatternPlayer = struct {
         for (notes) |n| {
             const off = @mod(n.start_beat + n.duration_beat, loop_beats);
             if (sounding[n.pitch] and off >= lo and off < hi) {
-                synth.noteOff(n.pitch);
+                target.sendEvent(.{ .note_off = .{ .note = n.pitch } });
                 sounding[n.pitch] = false;
             }
         }
         for (notes) |n| {
             if (n.start_beat >= lo and n.start_beat < hi) {
-                synth.noteOn(n.pitch, n.velocity);
+                target.sendEvent(.{ .note_on = .{ .note = n.pitch, .velocity = n.velocity } });
                 sounding[n.pitch] = true;
             }
         }
@@ -151,7 +156,7 @@ pub const PatternPlayer = struct {
             // Silence any notes that were left sounding.
             for (0..128) |p| {
                 if (self.sounding[p]) {
-                    self.synth.noteOff(@intCast(p));
+                    self.target.sendEvent(.{ .note_off = .{ .note = @intCast(p) } });
                     self.sounding[p] = false;
                 }
             }
@@ -170,7 +175,7 @@ pub const PatternPlayer = struct {
         if (self.last_pos_frames != 0 and pos != self.last_pos_frames) {
             for (0..128) |p| {
                 if (self.sounding[p]) {
-                    self.synth.noteOff(@intCast(p));
+                    self.target.sendEvent(.{ .note_off = .{ .note = @intCast(p) } });
                     self.sounding[p] = false;
                 }
             }
@@ -189,10 +194,10 @@ pub const PatternPlayer = struct {
 
         if (e >= loop) {
             // Block spans the loop boundary: two non-wrapping scans.
-            scanRange(self.notes[0..self.note_count], loop, &self.sounding, self.synth, s, loop);
-            scanRange(self.notes[0..self.note_count], loop, &self.sounding, self.synth, 0.0, @min(e - loop, loop));
+            scanRange(self.notes[0..self.note_count], loop, &self.sounding, self.target, s, loop);
+            scanRange(self.notes[0..self.note_count], loop, &self.sounding, self.target, 0.0, @min(e - loop, loop));
         } else {
-            scanRange(self.notes[0..self.note_count], loop, &self.sounding, self.synth, s, e);
+            scanRange(self.notes[0..self.note_count], loop, &self.sounding, self.target, s, e);
         }
     }
 
@@ -213,7 +218,7 @@ pub const PatternPlayer = struct {
         const self: *PatternPlayer = @ptrCast(@alignCast(ptr));
         for (0..128) |p| {
             if (self.sounding[p]) {
-                self.synth.noteOff(@intCast(p));
+                self.target.sendEvent(.{ .note_off = .{ .note = @intCast(p) } });
                 self.sounding[p] = false;
             }
         }
@@ -235,17 +240,17 @@ test "scanRange fires note_on then note_off across loop boundary" {
     var synth = PolySynth.init(48_000);
     var transport: Transport = .{ .sample_rate = 48_000 };
 
-    var pp = PatternPlayer.init(&synth, &transport);
+    var pp = PatternPlayer.init(synth.device(), &transport);
     pp.notes[0] = .{ .pitch = 60, .start_beat = 0.5, .duration_beat = 0.5 };
     pp.note_count = 1;
     const loop: f64 = 4.0;
 
     // Note should fire at beat 0.5
-    PatternPlayer.scanRange(pp.notes[0..1], loop, &pp.sounding, &synth, 0.0, 1.0);
+    PatternPlayer.scanRange(pp.notes[0..1], loop, &pp.sounding, synth.device(), 0.0, 1.0);
     try std.testing.expect(pp.sounding[60]);
 
     // Note off fires at beat 1.0 (start of next scan)
-    PatternPlayer.scanRange(pp.notes[0..1], loop, &pp.sounding, &synth, 1.0, 2.0);
+    PatternPlayer.scanRange(pp.notes[0..1], loop, &pp.sounding, synth.device(), 1.0, 2.0);
     try std.testing.expect(!pp.sounding[60]);
 }
 
@@ -254,7 +259,7 @@ test "PatternPlayer sequences note against transport" {
     transport.play();
 
     var synth = PolySynth.init(48_000);
-    var pp = PatternPlayer.init(&synth, &transport);
+    var pp = PatternPlayer.init(synth.device(), &transport);
     // Quarter-note C4 at beat 0
     pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 1.0 });
 

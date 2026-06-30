@@ -1,6 +1,7 @@
 const std = @import("std");
 const dsp = @import("dsp/device.zig");
 const PolySynth = @import("dsp/synth.zig").PolySynth;
+const Sampler = @import("dsp/sampler.zig").Sampler;
 const DrumMachine = @import("dsp/drum_sampler.zig").DrumMachine;
 const Compressor = @import("dsp/compressor.zig").Compressor;
 const StereoDelay = @import("dsp/delay.zig").StereoDelay;
@@ -10,29 +11,42 @@ const PatternPlayer = @import("dsp/pattern.zig").PatternPlayer;
 
 /// A signal source: generates audio from MIDI events.
 /// Add new synthesiser/sampler variants here as the engine grows.
+/// `empty` is a track with no instrument inserted yet — it produces no
+/// device, so `chain()` omits it and the engine renders the track silent.
 pub const Instrument = union(enum) {
+    empty,
     poly_synth: PolySynth,
+    /// Single-clip chromatic sampler. Owns its clip; deinit frees it.
+    sampler: Sampler,
     /// DrumMachine stores its own allocator; deinit() needs no external one.
     /// The DrumMachine's internal `transport` pointer stays valid because the
     /// engine (and therefore its Transport) is heap-allocated.
     drum_machine: DrumMachine,
 
     /// Returns a dsp.Device fat-pointer whose `.ptr` is stable as long as
-    /// the parent Rack (heap-allocated) is alive.
-    pub fn device(self: *Instrument) dsp.Device {
+    /// the parent Rack (heap-allocated) is alive, or null for `empty`.
+    pub fn device(self: *Instrument) ?dsp.Device {
         switch (self.*) {
+            .empty         => return null,
             .poly_synth    => |*s|  return s.device(),
+            .sampler       => |*s|  return s.device(),
             .drum_machine  => |*dm| return dm.device(),
         }
     }
 
     pub fn deinit(self: *Instrument) void {
         switch (self.*) {
+            .empty        => {},
             .poly_synth   => {},           // no heap allocations
+            .sampler      => |*s|  s.deinit(),
             .drum_machine => |*dm| dm.deinit(),
         }
     }
 };
+
+/// The instrument variants, as a plain enum — used by the instrument picker
+/// and `Session.setInstrument` to name a kind without a payload.
+pub const InstrumentKind = std.meta.Tag(Instrument);
 
 /// Fixed set of optional signal processors applied in series after the
 /// instrument. Order in chain(): comp → eq → delay → reverb.
@@ -71,8 +85,7 @@ pub const Rack = struct {
     pub fn chain(self: *Rack, buf: *[6]dsp.Device) []const dsp.Device {
         var len: usize = 0;
         if (self.pattern_player) |*pp| { buf[len] = pp.device(); len += 1; }
-        buf[len] = self.instrument.device();
-        len += 1;
+        if (self.instrument.device()) |dev| { buf[len] = dev; len += 1; }
         if (self.fx.comp)   |*c| { buf[len] = c.device(); len += 1; }
         if (self.fx.eq)     |*e| { buf[len] = e.device(); len += 1; }
         if (self.fx.delay)  |*d| { buf[len] = d.device(); len += 1; }

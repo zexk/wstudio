@@ -21,6 +21,7 @@ const PolySynth = synth_mod.PolySynth;
 const pattern_mod = @import("dsp/pattern.zig");
 const PatternPlayer = pattern_mod.PatternPlayer;
 const DrumMachine = @import("dsp/drum_sampler.zig").DrumMachine;
+const Sampler = @import("dsp/sampler.zig").Sampler;
 const Compressor = @import("dsp/compressor.zig").Compressor;
 const StereoDelay = @import("dsp/delay.zig").StereoDelay;
 const Reverb = @import("dsp/reverb.zig").Reverb;
@@ -150,12 +151,23 @@ pub const FxSnap = struct {
     eq: ?EqSnap = null,
 };
 
-pub const InstrumentKind = enum { poly_synth, drum_machine };
+pub const InstrumentKind = enum { empty, poly_synth, sampler, drum_machine };
+
+/// A single-clip sampler: the pad's params, its root note, and the piano-roll
+/// pattern. The clip audio itself is not persisted (same gap as user-loaded
+/// drum samples) — the default clip is regenerated on load.
+pub const SamplerSnap = struct {
+    pad: PadSnap = .{},
+    root_note: u8 = 60,
+    notes: []const NoteSnap = &.{},
+    length_beats: f64 = 4.0,
+};
 
 pub const RackSnap = struct {
     label: []const u8 = "synth",
     kind: InstrumentKind,
     synth: ?SynthSnap = null,
+    sampler: ?SamplerSnap = null,
     drum: ?DrumSnap = null,
     fx: FxSnap = .{},
 };
@@ -223,23 +235,34 @@ fn rackToSnap(aa: std.mem.Allocator, rack: *Rack, sample_rate: u32) !RackSnap {
     var rs: RackSnap = .{ .label = rack.label, .kind = undefined };
 
     switch (rack.instrument) {
+        .empty => {
+            rs.kind = .empty;
+        },
         .poly_synth => |*s| {
             rs.kind = .poly_synth;
             var ss = synthToSnap(s);
             if (rack.pattern_player) |*pp| {
                 ss.length_beats = pp.length_beats;
-                // Copy notes under the lock into a stack buffer, then release
-                // before touching the allocator — avoids leaking the lock on OOM.
-                var tmp: [pattern_mod.max_notes]NoteSnap = undefined;
-                while (!pp.notes_lock.tryLock()) std.atomic.spinLoopHint();
-                const count = pp.note_count;
-                for (pp.notes[0..@as(usize, count)], tmp[0..@as(usize, count)]) |n, *ns| {
-                    ns.* = .{ .pitch = n.pitch, .start_beat = n.start_beat, .duration_beat = n.duration_beat, .velocity = n.velocity };
-                }
-                pp.notes_lock.unlock();
-                ss.notes = try aa.dupe(NoteSnap, tmp[0..@as(usize, count)]);
+                ss.notes = try notesToSnap(aa, pp);
             }
             rs.synth = ss;
+        },
+        .sampler => |*s| {
+            rs.kind = .sampler;
+            var smp: SamplerSnap = .{
+                .pad = .{
+                    .gain = s.pad.gain, .pan = s.pad.pan, .pitch_semitones = s.pad.pitch_semitones,
+                    .start_norm = s.pad.start_norm, .end_norm = s.pad.end_norm, .reverse = s.pad.reverse,
+                    .attack_s = s.pad.attack_s, .decay_s = s.pad.decay_s,
+                    .sustain = s.pad.sustain, .release_s = s.pad.release_s,
+                },
+                .root_note = s.root_note,
+            };
+            if (rack.pattern_player) |*pp| {
+                smp.length_beats = pp.length_beats;
+                smp.notes = try notesToSnap(aa, pp);
+            }
+            rs.sampler = smp;
         },
         .drum_machine => |*dm| {
             rs.kind = .drum_machine;
@@ -274,6 +297,20 @@ fn rackToSnap(aa: std.mem.Allocator, rack: *Rack, sample_rate: u32) !RackSnap {
     }
 
     return rs;
+}
+
+/// Copy a pattern player's notes into freshly allocated NoteSnaps. Notes are
+/// read under the lock into a stack buffer, then the lock is released before
+/// the allocator runs — avoids leaking the lock on OOM.
+fn notesToSnap(aa: std.mem.Allocator, pp: *PatternPlayer) ![]const NoteSnap {
+    var tmp: [pattern_mod.max_notes]NoteSnap = undefined;
+    while (!pp.notes_lock.tryLock()) std.atomic.spinLoopHint();
+    const count = pp.note_count;
+    for (pp.notes[0..@as(usize, count)], tmp[0..@as(usize, count)]) |n, *ns| {
+        ns.* = .{ .pitch = n.pitch, .start_beat = n.start_beat, .duration_beat = n.duration_beat, .velocity = n.velocity };
+    }
+    pp.notes_lock.unlock();
+    return aa.dupe(NoteSnap, tmp[0..@as(usize, count)]);
 }
 
 fn synthToSnap(s: *const PolySynth) SynthSnap {
@@ -366,13 +403,11 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
         racks.deinit(allocator);
     }
 
-    var drum_track: u16 = 0;
-    for (snap.racks, 0..) |rs, i| {
-        // Initialise with a no-op instrument so the errdefer below is safe
-        // (PolySynth has no heap; owned_label=false means no free).
+    for (snap.racks) |rs| {
+        // Start blank so the errdefer below is always safe (empty has no heap).
         const rack = try allocator.create(Rack);
         rack.* = .{
-            .instrument = .{ .poly_synth = PolySynth.init(sr) },
+            .instrument = .empty,
             .label = "",
             .owned_label = false,
         };
@@ -383,31 +418,40 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
         rack.owned_label = true;
 
         switch (rs.kind) {
+            .empty => {},
             .poly_synth => {
+                rack.instrument = .{ .poly_synth = PolySynth.init(sr) };
+                // PatternPlayer holds a pointer into the heap-allocated Rack —
+                // must be set AFTER the instrument lands in the rack.
+                rack.pattern_player = PatternPlayer.init(rack.instrument.device().?, &engine.transport);
                 if (rs.synth) |ss| {
                     applyToSynth(&rack.instrument.poly_synth, &ss);
-                    // PatternPlayer holds a self-referential pointer into the
-                    // heap-allocated Rack — must be set AFTER rack is on the heap.
-                    rack.pattern_player = PatternPlayer.init(&rack.instrument.poly_synth, &engine.transport);
                     rack.pattern_player.?.length_beats = ss.length_beats;
-                    const count = @min(ss.notes.len, @as(usize, pattern_mod.max_notes));
-                    rack.pattern_player.?.note_count = @intCast(count);
-                    for (ss.notes[0..count], 0..) |n, j| {
-                        rack.pattern_player.?.notes[j] = .{
-                            .pitch = @intCast(@min(n.pitch, 127)),
-                            .start_beat = n.start_beat,
-                            .duration_beat = n.duration_beat,
-                            .velocity = n.velocity,
-                        };
-                    }
-                } else {
-                    rack.pattern_player = PatternPlayer.init(&rack.instrument.poly_synth, &engine.transport);
+                    loadNotes(&rack.pattern_player.?, ss.notes);
+                }
+            },
+            .sampler => {
+                rack.instrument = .{ .sampler = try Sampler.init(allocator, sr) };
+                rack.pattern_player = PatternPlayer.init(rack.instrument.device().?, &engine.transport);
+                if (rs.sampler) |smp| {
+                    const s = &rack.instrument.sampler;
+                    s.pad.gain = smp.pad.gain;
+                    s.pad.pan = smp.pad.pan;
+                    s.pad.pitch_semitones = smp.pad.pitch_semitones;
+                    s.pad.start_norm = smp.pad.start_norm;
+                    s.pad.end_norm = smp.pad.end_norm;
+                    s.pad.reverse = smp.pad.reverse;
+                    s.pad.attack_s = smp.pad.attack_s;
+                    s.pad.decay_s = smp.pad.decay_s;
+                    s.pad.sustain = smp.pad.sustain;
+                    s.pad.release_s = smp.pad.release_s;
+                    s.root_note = @intCast(@min(smp.root_note, 127));
+                    rack.pattern_player.?.length_beats = smp.length_beats;
+                    loadNotes(&rack.pattern_player.?, smp.notes);
                 }
             },
             .drum_machine => {
-                // Replace the placeholder instrument. PolySynth.deinit is a no-op.
                 rack.instrument = .{ .drum_machine = try DrumMachine.init(allocator, sr, &engine.transport) };
-                drum_track = @intCast(i);
                 if (rs.drum) |ds| {
                     const dmp = &rack.instrument.drum_machine;
                     dmp.setStepCount(ds.step_count);
@@ -441,7 +485,6 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
         .project = project,
         .engine = engine,
         .racks = racks,
-        .drum_track = drum_track,
         .retired_racks = .empty,
     };
     for (self.racks.items, 0..) |rack, i| {
@@ -450,6 +493,20 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
     }
 
     return self;
+}
+
+/// Load saved notes into a pattern player (control thread, before audio runs).
+fn loadNotes(pp: *PatternPlayer, notes: []const NoteSnap) void {
+    const count = @min(notes.len, @as(usize, pattern_mod.max_notes));
+    pp.note_count = @intCast(count);
+    for (notes[0..count], 0..) |n, j| {
+        pp.notes[j] = .{
+            .pitch = @intCast(@min(n.pitch, 127)),
+            .start_beat = n.start_beat,
+            .duration_beat = n.duration_beat,
+            .velocity = n.velocity,
+        };
+    }
 }
 
 fn applyToSynth(s: *PolySynth, ss: *const SynthSnap) void {
@@ -649,7 +706,6 @@ test "buildSession: constructs valid Session from snapshot" {
     try testing.expectApproxEqAbs(@as(f64, 140.0), session.project.tempo_bpm, 0.001);
     try testing.expectEqual(@as(usize, 2), session.project.tracks.items.len);
     try testing.expectEqual(@as(usize, 2), session.racks.items.len);
-    try testing.expectEqual(@as(u16, 1), session.drum_track);
 
     try testing.expectEqualStrings("supersaw+comp", session.racks.items[0].label);
     try testing.expect(session.racks.items[0].owned_label);
@@ -668,10 +724,50 @@ test "buildSession: constructs valid Session from snapshot" {
     try testing.expectApproxEqAbs(@as(f32, -24.0), comp.threshold_db, 1e-4);
     try testing.expectApproxEqAbs(@as(f32, 6.0), comp.ratio, 1e-4);
 
-    const dm = &session.racks.items[session.drum_track].instrument.drum_machine;
+    const dm = &session.racks.items[1].instrument.drum_machine;
     try testing.expect(dm.stepActive(0, 5));
     try testing.expect(!dm.stepActive(0, 0));
     try testing.expectApproxEqAbs(@as(f32, 7.0), dm.pads[0].?.pitch_semitones, 1e-4);
     try testing.expect(dm.pads[0].?.reverse);
     try testing.expectApproxEqAbs(@as(f32, 0.5), dm.pads[0].?.end_norm, 1e-4);
+}
+
+test "buildSession: empty and sampler racks round-trip" {
+    const testing = std.testing;
+
+    const snap: Snapshot = .{
+        .tracks = &.{ .{ .name = "blank" }, .{ .name = "keys" } },
+        .racks = &.{
+            .{ .label = "empty", .kind = .empty },
+            .{
+                .label = "sampler",
+                .kind = .sampler,
+                .sampler = .{
+                    .pad = .{ .pitch_semitones = 3.0, .gain = 0.8, .reverse = true },
+                    .root_note = 48,
+                    .notes = &.{
+                        .{ .pitch = 64, .start_beat = 0.0, .duration_beat = 0.5, .velocity = 0.7 },
+                    },
+                    .length_beats = 2.0,
+                },
+            },
+        },
+    };
+
+    var session = try buildSession(testing.allocator, &snap);
+    defer session.deinit();
+
+    try testing.expectEqual(std.meta.Tag(@import("rack.zig").Instrument).empty, std.meta.activeTag(session.racks.items[0].instrument));
+    try testing.expect(session.racks.items[0].pattern_player == null);
+
+    const smp = &session.racks.items[1].instrument.sampler;
+    try testing.expectApproxEqAbs(@as(f32, 3.0), smp.pad.pitch_semitones, 1e-4);
+    try testing.expectApproxEqAbs(@as(f32, 0.8), smp.pad.gain, 1e-4);
+    try testing.expect(smp.pad.reverse);
+    try testing.expectEqual(@as(u7, 48), smp.root_note);
+
+    const pp = &session.racks.items[1].pattern_player.?;
+    try testing.expectEqual(@as(u16, 1), pp.note_count);
+    try testing.expectEqual(@as(u7, 64), pp.notes[0].pitch);
+    try testing.expectApproxEqAbs(@as(f64, 2.0), pp.length_beats, 1e-9);
 }

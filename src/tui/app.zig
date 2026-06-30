@@ -16,11 +16,28 @@ const tui = @import("tui.zig");
 const midi = ws.midi;
 
 const Engine = engine_mod.Engine;
+const Sampler = ws.dsp.Sampler;
+const InstrumentKind = ws.InstrumentKind;
 
 const note_ms = 220;
 const frame_poll_ms = 30;
 
-pub const AppView = enum { tracks, drum_grid, synth_editor, sampler_editor, help, track_spectrum, master_spectrum, piano_roll };
+pub const AppView = enum { tracks, drum_grid, synth_editor, sampler_editor, help, track_spectrum, master_spectrum, piano_roll, instrument_picker };
+
+/// What the shared sampler_editor view is currently editing: one pad of a drum
+/// machine, or a standalone Sampler instrument. Holds the track index.
+pub const SamplerTarget = union(enum) {
+    drum: u16,
+    sampler: u16,
+
+    pub fn track(self: SamplerTarget) u16 {
+        return switch (self) { .drum => |t| t, .sampler => |t| t };
+    }
+};
+
+/// The instruments the picker offers, in display order.
+pub const picker_kinds = [_]InstrumentKind{ .poly_synth, .sampler, .drum_machine };
+pub const picker_labels = [_][]const u8{ "Synth", "Sampler", "Drum Machine" };
 
 fn wrap(comptime f: fn (*App, []const u8) void) *const fn (*anyopaque, []const u8) void {
     return struct {
@@ -39,6 +56,7 @@ const cmds: []const cmd_mod.Def = &.{
     .{ .name = "vol",         .desc = "[<dB>]  master volume (–40 to +6)",   .run = wrap(App.cmdVol) },
     .{ .name = "seek",        .desc = "<bar>  move playhead to bar",         .run = wrap(App.cmdSeek) },
     .{ .name = "load-pad",    .desc = "<0-7> <file>  load WAV into pad",     .run = wrap(App.cmdLoadPad) },
+    .{ .name = "load-sample", .desc = "<file>  load WAV into sampler track",  .run = wrap(App.cmdLoadSample) },
     .{ .name = "help",        .desc = "list all commands",                   .run = wrap(App.cmdHelp) },
     .{ .name = "eq",          .desc = "<track> [<band> <db>]  EQ control",   .run = wrap(App.cmdEq) },
     .{ .name = "track-add",   .desc = "[name]  add a synth track",           .run = wrap(App.cmdTrackAdd) },
@@ -60,9 +78,15 @@ pub const App = struct {
     view: AppView = .tracks,
     prev_view: AppView = .tracks,
     drum_cursor: [2]u8 = .{ 0, 0 },
-    /// Selected param row in the sampler editor (0..pad_param_count-1). The
-    /// edited pad is `drum_cursor[0]`, shared with the drum grid.
+    /// Track currently shown in the drum_grid view (a drum_machine rack).
+    drum_track: u16 = 0,
+    /// What the sampler_editor view edits: a drum pad or a standalone Sampler.
+    sampler_target: SamplerTarget = .{ .drum = 0 },
+    /// Selected param row in the sampler editor (0..param_count-1). For a drum
+    /// pad the edited pad is `drum_cursor[0]`, shared with the drum grid.
     sampler_param: u8 = 0,
+    /// Highlighted row in the instrument picker.
+    picker_cursor: u8 = 0,
     audio_label: []const u8 = "off",
     master_gain_db: f32 = 0.0,
     should_quit: bool = false,
@@ -100,8 +124,35 @@ pub const App = struct {
         self.session.deinit();
     }
 
+    /// The drum machine currently open in the drum_grid view. Valid only while
+    /// `drum_track` points at a drum_machine rack — guaranteed by view entry and
+    /// the view-exit guards in `doTrackDel`.
     pub fn drumMachine(self: *App) *DrumMachine {
-        return &self.session.racks.items[self.session.drum_track].instrument.drum_machine;
+        return &self.session.racks.items[self.drum_track].instrument.drum_machine;
+    }
+
+    /// The sampler currently open in the sampler_editor view (when targeting a
+    /// standalone Sampler).
+    pub fn editingSampler(self: *App) ?*Sampler {
+        const t = switch (self.sampler_target) { .sampler => |x| x, .drum => return null };
+        if (t >= self.session.racks.items.len) return null;
+        return switch (self.session.racks.items[t].instrument) {
+            .sampler => |*s| s, else => null,
+        };
+    }
+
+    /// Total content length in beats: the longest piano-roll loop and the
+    /// longest drum-machine pattern across all tracks.
+    fn contentBeats(self: *App) f64 {
+        var max_beats: f64 = 0;
+        for (self.session.racks.items) |rack| {
+            if (rack.pattern_player) |pp| max_beats = @max(max_beats, pp.length_beats);
+            switch (rack.instrument) {
+                .drum_machine => |*dm| max_beats = @max(max_beats, @as(f64, @floatFromInt(dm.step_count)) / 4.0),
+                else => {},
+            }
+        }
+        return max_beats;
     }
 
     // -----------------------------------------------------------------------
@@ -134,20 +185,10 @@ pub const App = struct {
             .piano_roll => if (self.modal.mode != .normal or !self.handlePianoRollKey(key)) {
                 self.applyAction(self.modal.handle(key), now_ns);
             },
+            .instrument_picker => self.handlePickerKey(key),
             .tracks => {
                 if (key == .enter and self.modal.mode == .normal) {
-                    if (self.cursor == self.session.drum_track) {
-                        self.view = .drum_grid;
-                    } else if (self.cursor < self.session.racks.items.len) {
-                        switch (self.session.racks.items[self.cursor].instrument) {
-                            .poly_synth => {
-                                self.synth_track = @intCast(self.cursor);
-                                self.synth_cursor = 0;
-                                self.view = .synth_editor;
-                            },
-                            else => {},
-                        }
-                    }
+                    self.openTrack(self.cursor);
                     return;
                 }
                 if (key == .char and self.modal.mode == .normal) {
@@ -169,6 +210,58 @@ pub const App = struct {
                 self.applyAction(self.modal.handle(key), now_ns);
             },
         }
+    }
+
+    /// Open the editor matching the track's instrument, or the instrument
+    /// picker if the track is blank.
+    fn openTrack(self: *App, cursor: usize) void {
+        if (cursor >= self.session.racks.items.len) return;
+        switch (self.session.racks.items[cursor].instrument) {
+            .empty => { self.picker_cursor = 0; self.view = .instrument_picker; },
+            .poly_synth => {
+                self.synth_track = @intCast(cursor);
+                self.synth_cursor = 0;
+                self.view = .synth_editor;
+            },
+            .sampler => {
+                self.sampler_target = .{ .sampler = @intCast(cursor) };
+                self.sampler_param = 0;
+                self.view = .sampler_editor;
+            },
+            .drum_machine => {
+                self.drum_track = @intCast(cursor);
+                self.view = .drum_grid;
+            },
+        }
+    }
+
+    /// Instrument picker: j/k move, enter/space insert the highlighted kind on
+    /// the cursor track and jump to its editor, esc cancels back to tracks.
+    fn handlePickerKey(self: *App, key: modal_mod.Key) void {
+        switch (key) {
+            .escape => self.view = .tracks,
+            .enter => self.pickerInsert(),
+            .char => |c| switch (c) {
+                'k' => { if (self.picker_cursor > 0) self.picker_cursor -= 1; },
+                'j' => { if (self.picker_cursor + 1 < picker_kinds.len) self.picker_cursor += 1; },
+                ' ' => self.pickerInsert(),
+                'q' => self.view = .tracks,
+                else => {},
+            },
+            else => {},
+        }
+    }
+
+    fn pickerInsert(self: *App) void {
+        const kind = picker_kinds[self.picker_cursor];
+        self.session.setInstrument(self.cursor, kind) catch {
+            self.setStatus("insert failed (out of memory)", .{});
+            self.view = .tracks;
+            return;
+        };
+        self.setStatus("inserted {s}", .{picker_labels[self.picker_cursor]});
+        self.view = .tracks;
+        self.openTrack(self.cursor);
     }
 
     fn switchToTrackSpectrum(self: *App, track: u16) void {
@@ -258,7 +351,7 @@ pub const App = struct {
                     'j' => if (pad.* < DrumMachine.max_pads - 1) { pad.* += 1; },
                     'p' => {
                         _ = self.session.engine.send(.{ .note_on = .{
-                            .track = self.session.drum_track,
+                            .track = self.drum_track,
                             .note = @intCast(pad.*),
                             .velocity = 0.9,
                         } });
@@ -277,8 +370,13 @@ pub const App = struct {
                         const mask: u32 = if (sc >= 32) ~@as(u32, 0) else (@as(u32, 1) << @intCast(sc)) - 1;
                         dm.pattern[pad.*].store(mask, .release);
                     },
-                    's' => { self.switchToTrackSpectrum(self.session.drum_track); return true; },
-                    'e' => { self.sampler_param = 0; self.view = .sampler_editor; return true; },
+                    's' => { self.switchToTrackSpectrum(self.drum_track); return true; },
+                    'e' => {
+                        self.sampler_target = .{ .drum = self.drum_track };
+                        self.sampler_param = 0;
+                        self.view = .sampler_editor;
+                        return true;
+                    },
                     else => return false,
                 }
                 return true;
@@ -287,18 +385,28 @@ pub const App = struct {
         }
     }
 
-    /// Sampler editor: j/k pick a param row, h/l/H/L nudge it, 1–8 jump pads,
-    /// p auditions the pad, e/esc return to the drum grid. Pad selection is the
-    /// shared `drum_cursor[0]` so the grid and editor stay in sync.
+    /// Number of editable params for the sampler editor's current target.
+    fn samplerParamCount(self: *App) u8 {
+        return switch (self.sampler_target) {
+            .drum => DrumMachine.pad_param_count,
+            .sampler => Sampler.param_count,
+        };
+    }
+
+    /// Sampler editor: j/k pick a param row, h/l/H/L nudge it. For a drum pad,
+    /// 1–8 jump pads (shared `drum_cursor[0]`) and esc/e return to the drum
+    /// grid; for a standalone Sampler, esc/e return to the tracks view. p
+    /// auditions the current pad / the sampler's root note.
     fn handleSamplerKey(self: *App, key: modal_mod.Key) bool {
+        const is_drum = self.sampler_target == .drum;
         switch (key) {
-            .escape => { self.view = .drum_grid; return true; },
+            .escape => { self.view = if (is_drum) .drum_grid else .tracks; return true; },
             .char => |c| switch (c) {
                 // Block insert mode — piano keys conflict with param navigation.
                 'i' => return true,
-                'e' => { self.view = .drum_grid; return true; },
+                'e' => { self.view = if (is_drum) .drum_grid else .tracks; return true; },
                 'j' => {
-                    if (self.sampler_param + 1 < DrumMachine.pad_param_count) self.sampler_param += 1;
+                    if (self.sampler_param + 1 < self.samplerParamCount()) self.sampler_param += 1;
                     return true;
                 },
                 'k' => { if (self.sampler_param > 0) self.sampler_param -= 1; return true; },
@@ -307,34 +415,47 @@ pub const App = struct {
                 'H' => { self.adjustSamplerParam(-10); return true; },
                 'L' => { self.adjustSamplerParam(10); return true; },
                 '1'...'8' => {
-                    const pad: u8 = c - '1';
-                    if (pad < DrumMachine.max_pads) self.drum_cursor[0] = pad;
+                    if (is_drum) {
+                        const pad: u8 = c - '1';
+                        if (pad < DrumMachine.max_pads) self.drum_cursor[0] = pad;
+                    }
                     return true;
                 },
-                'p' => {
-                    _ = self.session.engine.send(.{ .note_on = .{
-                        .track = self.session.drum_track,
-                        .note = @intCast(self.drum_cursor[0]),
-                        .velocity = 0.9,
-                    } });
-                    return true;
-                },
+                'p' => { self.samplerPreview(); return true; },
                 else => return false,
             },
             else => return false,
         }
     }
 
+    /// Audition the sampler editor's current target.
+    fn samplerPreview(self: *App) void {
+        switch (self.sampler_target) {
+            .drum => |t| {
+                _ = self.session.engine.send(.{ .note_on = .{
+                    .track = t, .note = @intCast(self.drum_cursor[0]), .velocity = 0.9,
+                } });
+            },
+            .sampler => |t| {
+                const root: u7 = if (self.editingSampler()) |s| s.root_note else 60;
+                self.playNote(t, root, self.now_ns);
+            },
+        }
+    }
+
     /// Nudge the selected sampler param. Routed over the command queue so the
-    /// edit lands on the audio thread (DrumMachine.adjustParam), never racing
-    /// the block reader — mirrors adjustSynthParam.
+    /// edit lands on the audio thread (DrumMachine/Sampler.adjustParam), never
+    /// racing the block reader — mirrors adjustSynthParam.
     fn adjustSamplerParam(self: *App, steps: i32) void {
-        const id = DrumMachine.paramId(self.drum_cursor[0], self.sampler_param);
-        _ = self.session.engine.send(.{ .set_track_param = .{
-            .track = self.session.drum_track,
-            .id    = id,
-            .steps = steps,
-        } });
+        switch (self.sampler_target) {
+            .drum => |t| {
+                const id = DrumMachine.paramId(self.drum_cursor[0], self.sampler_param);
+                _ = self.session.engine.send(.{ .set_track_param = .{ .track = t, .id = id, .steps = steps } });
+            },
+            .sampler => |t| {
+                _ = self.session.engine.send(.{ .set_track_param = .{ .track = t, .id = self.sampler_param, .steps = steps } });
+            },
+        }
     }
 
     fn handleSynthKey(self: *App, key: modal_mod.Key) bool {
@@ -421,9 +542,9 @@ pub const App = struct {
     fn switchToPianoRoll(self: *App, track: u16) void {
         if (track >= self.session.racks.items.len) return;
         switch (self.session.racks.items[track].instrument) {
-            .poly_synth => {},
+            .poly_synth, .sampler => {},
             else => {
-                self.setStatus("piano roll: synth tracks only", .{});
+                self.setStatus("piano roll: melodic tracks only", .{});
                 return;
             },
         }
@@ -516,10 +637,20 @@ pub const App = struct {
                     return true;
                 },
                 'e' => {
-                    self.synth_track = self.piano_track;
-                    self.synth_cursor = 0;
-                    self.synthUpdateScroll();
-                    self.view = .synth_editor;
+                    // Jump to the instrument editor for this track (synth or sampler).
+                    switch (self.session.racks.items[self.piano_track].instrument) {
+                        .sampler => {
+                            self.sampler_target = .{ .sampler = self.piano_track };
+                            self.sampler_param = 0;
+                            self.view = .sampler_editor;
+                        },
+                        else => {
+                            self.synth_track = self.piano_track;
+                            self.synth_cursor = 0;
+                            self.synthUpdateScroll();
+                            self.view = .synth_editor;
+                        },
+                    }
                     return true;
                 },
                 // [/] resize the note under the cursor if one starts here;
@@ -659,13 +790,7 @@ pub const App = struct {
         switch (action) {
             .none, .octave_up, .octave_down => {},
             .goto_end => {
-                var max_beats: f64 = 0;
-                for (self.session.racks.items) |rack| {
-                    if (rack.pattern_player) |pp| max_beats = @max(max_beats, pp.length_beats);
-                }
-                const dm_beats = @as(f64, @floatFromInt(self.drumMachine().step_count)) / 4.0;
-                max_beats = @max(max_beats, dm_beats);
-                const end_frames: u64 = @intFromFloat(self.session.engine.transport.framesPerBeat() * max_beats);
+                const end_frames: u64 = @intFromFloat(self.session.engine.transport.framesPerBeat() * self.contentBeats());
                 _ = self.session.engine.send(.{ .seek_frames = end_frames });
             },
             .volume_delta => |delta| {
@@ -689,10 +814,11 @@ pub const App = struct {
             },
             .toggle_mute => {
                 const track_idx: u16 = switch (self.view) {
-                    .synth_editor  => self.synth_track,
-                    .piano_roll    => self.piano_track,
-                    .drum_grid, .sampler_editor => self.session.drum_track,
-                    else           => @intCast(self.cursor),
+                    .synth_editor   => self.synth_track,
+                    .piano_roll     => self.piano_track,
+                    .drum_grid      => self.drum_track,
+                    .sampler_editor => self.sampler_target.track(),
+                    else            => @intCast(self.cursor),
                 };
                 const track = &self.session.project.tracks.items[track_idx];
                 track.muted = !track.muted;
@@ -702,14 +828,15 @@ pub const App = struct {
                 } });
             },
             .note => |n| {
-                if (self.cursor != self.session.drum_track) {
-                    self.playNote(@intCast(self.cursor), n.pitch, now_ns);
-                } else {
-                    _ = self.session.engine.send(.{ .note_on = .{
-                        .track = self.session.drum_track,
+                if (self.cursor >= self.session.racks.items.len) return;
+                switch (self.session.racks.items[self.cursor].instrument) {
+                    .drum_machine => _ = self.session.engine.send(.{ .note_on = .{
+                        .track = @intCast(self.cursor),
                         .note = @intCast(n.pitch % DrumMachine.max_pads),
                         .velocity = 0.9,
-                    } });
+                    } }),
+                    .poly_synth, .sampler => self.playNote(@intCast(self.cursor), n.pitch, now_ns),
+                    .empty => {},
                 }
             },
             .command_submit => |text| self.runCommand(text),
@@ -772,37 +899,56 @@ pub const App = struct {
     }
 
     fn doTrackDel(self: *App, track_idx: usize) void {
-        self.session.deleteTrack(track_idx) catch |err| {
-            if (err == error.CannotDeleteDrumTrack)
-                self.setStatus("cannot delete the drum track", .{})
-            else
-                self.setStatus("cannot delete the last track", .{});
+        self.session.deleteTrack(track_idx) catch {
+            self.setStatus("cannot delete the last track", .{});
             return;
         };
 
+        // Shift the editor-target indices that sit after the removed track.
         if (track_idx < self.synth_track and self.synth_track > 0) self.synth_track -= 1;
+        if (track_idx < self.drum_track and self.drum_track > 0) self.drum_track -= 1;
 
-        // Keep cursor in bounds; never land on the drum track.
+        // Keep cursor in bounds.
         const last = self.session.project.tracks.items.len - 1;
         self.cursor = @min(self.cursor, last);
-        if (self.cursor == self.session.drum_track and self.cursor > 0) self.cursor -= 1;
 
-        // Exit synth editor if the edited track no longer exists or is not a poly_synth.
-        if (self.view == .synth_editor) {
-            const bad = self.synth_track >= self.session.racks.items.len or
-                switch (self.session.racks.items[self.synth_track].instrument) {
-                    .poly_synth => false, else => true,
-                };
-            if (bad) self.view = .tracks;
-        }
-
-        // Exit spectrum view if the viewed track was deleted.
-        if (self.view == .track_spectrum and self.eq_track >= self.session.racks.items.len) {
-            _ = self.session.engine.send(.{ .set_spectrum_active = .{ .source = .none, .track = 0 } });
-            self.view = self.prev_view;
-        }
+        // Exit any editor whose target track no longer holds the expected kind.
+        self.exitStaleEditors();
 
         self.setStatus("deleted track {d}", .{track_idx + 1});
+    }
+
+    /// After a structural change (delete), bail out of any per-instrument editor
+    /// whose target track is gone or holds a different instrument.
+    fn exitStaleEditors(self: *App) void {
+        const racks = self.session.racks.items;
+        const kindIs = struct {
+            fn f(rs: []const *@import("wstudio").Rack, t: u16, comptime tag: anytype) bool {
+                return t < rs.len and std.meta.activeTag(rs[t].instrument) == tag;
+            }
+        }.f;
+
+        switch (self.view) {
+            .synth_editor => if (!kindIs(racks, self.synth_track, .poly_synth)) { self.view = .tracks; },
+            .drum_grid => if (!kindIs(racks, self.drum_track, .drum_machine)) { self.view = .tracks; },
+            .sampler_editor => {
+                const ok = switch (self.sampler_target) {
+                    .drum => |t| kindIs(racks, t, .drum_machine),
+                    .sampler => |t| kindIs(racks, t, .sampler),
+                };
+                if (!ok) self.view = .tracks;
+            },
+            .piano_roll => if (self.piano_track >= racks.len or
+                switch (racks[self.piano_track].instrument) { .poly_synth, .sampler => false, else => true })
+            {
+                self.view = .tracks;
+            },
+            .track_spectrum => if (self.eq_track >= racks.len) {
+                _ = self.session.engine.send(.{ .set_spectrum_active = .{ .source = .none, .track = 0 } });
+                self.view = self.prev_view;
+            },
+            else => {},
+        }
     }
 
     fn doTrackPan(self: *App, track: u16, delta: f32) void {
@@ -929,13 +1075,72 @@ pub const App = struct {
             return;
         };
         defer self.allocator.free(data);
+        const dm = self.cursorDrumMachine() orelse {
+            self.setStatus("load-pad: select a drum-machine track first", .{});
+            return;
+        };
         const basename = std.fs.path.basename(path);
         const stem = if (std.mem.lastIndexOf(u8, basename, ".")) |dot| basename[0..dot] else basename;
-        self.drumMachine().loadPadWav(pad_idx, data, stem) catch |e| {
+        dm.loadPadWav(pad_idx, data, stem) catch |e| {
             self.setStatus("load-pad: parse error: {s}", .{@errorName(e)});
             return;
         };
         self.setStatus("pad {d} loaded: {s}", .{ pad_idx, stem });
+    }
+
+    /// The drum machine on the cursor's track, or — if the drum grid is open —
+    /// the one being edited. Null when neither is a drum machine.
+    fn cursorDrumMachine(self: *App) ?*DrumMachine {
+        if (self.cursor < self.session.racks.items.len) {
+            switch (self.session.racks.items[self.cursor].instrument) {
+                .drum_machine => |*dm| return dm,
+                else => {},
+            }
+        }
+        if (self.view == .drum_grid and self.drum_track < self.session.racks.items.len) {
+            switch (self.session.racks.items[self.drum_track].instrument) {
+                .drum_machine => |*dm| return dm,
+                else => {},
+            }
+        }
+        return null;
+    }
+
+    /// The standalone Sampler on the cursor's track, or null.
+    fn cursorSampler(self: *App) ?*Sampler {
+        if (self.cursor >= self.session.racks.items.len) return null;
+        return switch (self.session.racks.items[self.cursor].instrument) {
+            .sampler => |*s| s, else => null,
+        };
+    }
+
+    fn cmdLoadSample(self: *App, args: []const u8) void {
+        const path = std.mem.trim(u8, args, " ");
+        if (path.len == 0) {
+            self.setStatus("usage: load-sample <file.wav>", .{});
+            return;
+        }
+        const s = self.cursorSampler() orelse {
+            self.setStatus("load-sample: select a sampler track first", .{});
+            return;
+        };
+        const data = std.Io.Dir.cwd().readFileAlloc(
+            self.io,
+            path,
+            self.allocator,
+            .limited(64 * 1024 * 1024),
+        ) catch |e| {
+            self.setStatus("load-sample: cannot read '{s}': {s}", .{ path, @errorName(e) });
+            return;
+        };
+        defer self.allocator.free(data);
+        const basename = std.fs.path.basename(path);
+        const stem = if (std.mem.lastIndexOf(u8, basename, ".")) |dot| basename[0..dot] else basename;
+        s.loadWav(data, stem) catch |e| {
+            self.setStatus("load-sample: parse error: {s}", .{@errorName(e)});
+            return;
+        };
+        self.setStatus("sample loaded: {s}", .{stem});
     }
 
     fn cmdSave(self: *App, args: []const u8) void {
@@ -963,13 +1168,7 @@ pub const App = struct {
         const engine = self.session.engine;
         const sr = self.session.project.sample_rate;
 
-        var max_beats: f64 = 1.0;
-        for (self.session.racks.items) |rack| {
-            if (rack.pattern_player) |pp| max_beats = @max(max_beats, pp.length_beats);
-        }
-        const dm_beats = @as(f64, @floatFromInt(self.drumMachine().step_count)) / 4.0;
-        max_beats = @max(max_beats, dm_beats);
-
+        const max_beats = @max(1.0, self.contentBeats());
         const content_frames: u64 = @intFromFloat(engine.transport.framesPerBeat() * max_beats);
         const total_frames = content_frames + types.secondsToFrames(2.0, sr);
         const buffer = self.allocator.alloc(
@@ -1245,6 +1444,7 @@ pub const App = struct {
             .help            => try tui.drawHelp(w, rows, cmds),
             .track_spectrum  => try tui.drawSpectrumView(self, w, rows, size.cols, snap, true),
             .master_spectrum => try tui.drawSpectrumView(self, w, rows, size.cols, snap, false),
+            .instrument_picker => try tui.drawInstrumentPicker(self, w, rows),
         }
 
         var transport: Transport = .{
@@ -1280,6 +1480,7 @@ pub const App = struct {
             .help            => try w.writeAll(" esc: close"),
             .track_spectrum  => try tui.drawSpectrumStatus(self, w, true),
             .master_spectrum => try tui.drawSpectrumStatus(self, w, false),
+            .instrument_picker => try w.writeAll(" j/k: move   enter: insert   esc: cancel"),
         }
         // Erase from cursor to end of screen so stale content from taller
         // previous frames never bleeds through.
@@ -1380,24 +1581,61 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8) !vo
 // Tests
 // ---------------------------------------------------------------------------
 
-test "cursor movement clamps to track range" {
+/// Build a deterministic 3-track app for tests: synth(0), sampler(1), drums(2).
+fn testApp() !App {
     var app = try App.init(std.testing.allocator, std.Io.failing);
+    errdefer app.deinit();
+    try app.session.setInstrument(0, .poly_synth);
+    _ = try app.session.addTrack("samp");
+    try app.session.setInstrument(1, .sampler);
+    _ = try app.session.addTrack("drums");
+    try app.session.setInstrument(2, .drum_machine);
+    return app;
+}
+
+test "cursor movement clamps to track range" {
+    var app = try testApp();
     defer app.deinit();
 
     app.applyAction(.{ .move = .{ .dy = 10 } }, 0);
-    try std.testing.expectEqual(@as(usize, 3), app.cursor);
-    app.applyAction(.{ .move = .{ .dy = -1 } }, 0);
     try std.testing.expectEqual(@as(usize, 2), app.cursor);
+    app.applyAction(.{ .move = .{ .dy = -1 } }, 0);
+    try std.testing.expectEqual(@as(usize, 1), app.cursor);
     app.applyAction(.{ .move = .{ .dy = -10 } }, 0);
     try std.testing.expectEqual(@as(usize, 0), app.cursor);
 }
 
-test "renderBounce sequences notes offline and restores transport" {
+test "default session starts with one blank track" {
+    var app = try App.init(std.testing.allocator, std.Io.failing);
+    defer app.deinit();
+    try std.testing.expectEqual(@as(usize, 1), app.session.racks.items.len);
+    try std.testing.expectEqual(InstrumentKind.empty, std.meta.activeTag(app.session.racks.items[0].instrument));
+}
+
+test "enter on a blank track opens the instrument picker" {
+    var app = try App.init(std.testing.allocator, std.Io.failing);
+    defer app.deinit();
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqual(AppView.instrument_picker, app.view);
+}
+
+test "picker inserts the highlighted instrument and opens its editor" {
     var app = try App.init(std.testing.allocator, std.Io.failing);
     defer app.deinit();
 
-    // Sequence a note at beat 0 on the lead track and leave the transport
-    // stopped — the bounce must drive playback itself.
+    app.handleKey(.enter, 0); // open picker on the blank track
+    app.handleKey(.{ .char = 'j' }, 0); // move to Sampler (index 1)
+    try std.testing.expectEqual(@as(u8, 1), app.picker_cursor);
+    app.handleKey(.enter, 0); // insert
+    try std.testing.expectEqual(InstrumentKind.sampler, std.meta.activeTag(app.session.racks.items[0].instrument));
+    try std.testing.expectEqual(AppView.sampler_editor, app.view);
+}
+
+test "renderBounce sequences notes offline and restores transport" {
+    var app = try testApp();
+    defer app.deinit();
+
+    // Sequence a note at beat 0 on the synth track; leave the transport stopped.
     app.session.racks.items[0].pattern_player.?.addNote(
         .{ .pitch = 60, .start_beat = 0.0, .duration_beat = 1.0 },
     );
@@ -1410,13 +1648,12 @@ test "renderBounce sequences notes offline and restores transport" {
     for (buffer) |s| peak = @max(peak, @abs(s));
     try std.testing.expect(peak > 0.001);
 
-    // Transport restored to its pre-bounce state (stopped, at 0).
     try std.testing.expect(!app.session.engine.transport.playing);
     try std.testing.expectEqual(@as(u64, 0), app.session.engine.transport.position_frames);
 }
 
 test "toggle_mute flips project state and reaches the engine" {
-    var app = try App.init(std.testing.allocator, std.Io.failing);
+    var app = try testApp();
     defer app.deinit();
 
     app.applyAction(.toggle_mute, 0);
@@ -1427,10 +1664,11 @@ test "toggle_mute flips project state and reaches the engine" {
     try std.testing.expect(app.session.engine.tracks[0].muted);
 }
 
-test "notes queue their own release" {
-    var app = try App.init(std.testing.allocator, std.Io.failing);
+test "notes route to a synth track and queue their own release" {
+    var app = try testApp();
     defer app.deinit();
 
+    // cursor 0 is a synth → note plays and schedules a release.
     app.applyAction(.{ .note = .{ .pitch = 60 } }, 0);
     try std.testing.expectEqual(@as(usize, 1), app.note_off_len);
 
@@ -1438,6 +1676,14 @@ test "notes queue their own release" {
     try std.testing.expectEqual(@as(usize, 1), app.note_off_len);
     app.tick(note_ms * std.time.ns_per_ms + 1);
     try std.testing.expectEqual(@as(usize, 0), app.note_off_len);
+}
+
+test "notes on a sampler track schedule a release too" {
+    var app = try testApp();
+    defer app.deinit();
+    app.cursor = 1; // sampler
+    app.applyAction(.{ .note = .{ .pitch = 67 } }, 0);
+    try std.testing.expectEqual(@as(usize, 1), app.note_off_len);
 }
 
 test "typed :q quits via the modal layer" {
@@ -1449,35 +1695,35 @@ test "typed :q quits via the modal layer" {
     try std.testing.expect(app.should_quit);
 }
 
-test "enter on drum track switches to drum_grid view" {
-    var app = try App.init(std.testing.allocator, std.Io.failing);
+test "enter on a drum track switches to drum_grid view" {
+    var app = try testApp();
     defer app.deinit();
 
-    app.applyAction(.{ .move = .{ .dy = 10 } }, 0);
-    try std.testing.expectEqual(app.session.drum_track, @as(u16, @intCast(app.cursor)));
-
+    app.cursor = 2; // drum machine
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(AppView.drum_grid, app.view);
+    try std.testing.expectEqual(@as(u16, 2), app.drum_track);
 
     app.handleKey(.escape, 0);
     try std.testing.expectEqual(AppView.tracks, app.view);
 }
 
 test "drum grid step toggle" {
-    var app = try App.init(std.testing.allocator, std.Io.failing);
+    var app = try testApp();
     defer app.deinit();
+    app.drum_track = 2;
 
     try std.testing.expect(app.drumMachine().stepActive(0, 0));
-
     app.drum_cursor = .{ 0, 0 };
     _ = app.handleDrumKey(.enter);
     try std.testing.expect(!app.drumMachine().stepActive(0, 0));
 }
 
 test "draw renders drum_grid view without overflowing" {
-    var app = try App.init(std.testing.allocator, std.Io.failing);
+    var app = try testApp();
     defer app.deinit();
 
+    app.drum_track = 2;
     app.view = .drum_grid;
     var buf: [32 * 1024]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
@@ -1487,16 +1733,17 @@ test "draw renders drum_grid view without overflowing" {
     try std.testing.expect(std.mem.indexOf(u8, frame, "kick") != null);
 }
 
-test "e opens sampler editor from drum grid; esc returns" {
-    var app = try App.init(std.testing.allocator, std.Io.failing);
+test "e opens drum-pad sampler editor from drum grid; esc returns" {
+    var app = try testApp();
     defer app.deinit();
 
+    app.drum_track = 2;
     app.view = .drum_grid;
     app.drum_cursor = .{ 2, 0 };
     _ = app.handleDrumKey(.{ .char = 'e' });
     try std.testing.expectEqual(AppView.sampler_editor, app.view);
+    try std.testing.expect(app.sampler_target == .drum);
 
-    // j/k move the param cursor; 1-8 pick a pad.
     _ = app.handleSamplerKey(.{ .char = 'j' });
     try std.testing.expectEqual(@as(u8, 1), app.sampler_param);
     _ = app.handleSamplerKey(.{ .char = '5' });
@@ -1506,12 +1753,26 @@ test "e opens sampler editor from drum grid; esc returns" {
     try std.testing.expectEqual(AppView.drum_grid, app.view);
 }
 
-test "draw renders sampler editor without overflowing" {
-    var app = try App.init(std.testing.allocator, std.Io.failing);
+test "enter on a sampler track opens the standalone sampler editor" {
+    var app = try testApp();
+    defer app.deinit();
+    app.cursor = 1; // sampler
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqual(AppView.sampler_editor, app.view);
+    try std.testing.expect(app.sampler_target == .sampler);
+    // esc returns to the tracks view (not the drum grid) for a standalone sampler.
+    app.handleKey(.escape, 0);
+    try std.testing.expectEqual(AppView.tracks, app.view);
+}
+
+test "draw renders drum-pad sampler editor without overflowing" {
+    var app = try testApp();
     defer app.deinit();
 
-    app.view = .sampler_editor;
+    app.drum_track = 2;
+    app.sampler_target = .{ .drum = 2 };
     app.drum_cursor = .{ 0, 0 };
+    app.view = .sampler_editor;
     var buf: [64 * 1024]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
     try app.draw(&w, .{ .cols = 80, .rows = 30 });
@@ -1520,22 +1781,48 @@ test "draw renders sampler editor without overflowing" {
     try std.testing.expect(std.mem.indexOf(u8, frame, "attack") != null);
 }
 
-test "sampler param edit routes to drum machine over the queue" {
-    var app = try App.init(std.testing.allocator, std.Io.failing);
+test "draw renders standalone sampler editor with root row" {
+    var app = try testApp();
     defer app.deinit();
 
+    app.sampler_target = .{ .sampler = 1 };
     app.view = .sampler_editor;
+    var buf: [64 * 1024]u8 = undefined;
+    var w = std.Io.Writer.fixed(&buf);
+    try app.draw(&w, .{ .cols = 80, .rows = 34 });
+    const frame = w.buffered();
+    try std.testing.expect(std.mem.indexOf(u8, frame, "SAMPLER") != null);
+    try std.testing.expect(std.mem.indexOf(u8, frame, "root") != null);
+}
+
+test "drum-pad sampler param edit routes to the drum machine" {
+    var app = try testApp();
+    defer app.deinit();
+
+    app.drum_track = 2;
+    app.sampler_target = .{ .drum = 2 };
     app.drum_cursor = .{ 0, 0 };
     app.sampler_param = 2; // pitch
     app.adjustSamplerParam(5);
-    // Drain the command queue (no audio thread in tests) so the edit applies.
     var block: [128]types.Sample = undefined;
     app.session.engine.process(&block);
-    try std.testing.expect(app.drumMachine().pads[0].?.pitch_semitones > 0.0);
+    try std.testing.expect(app.session.racks.items[2].instrument.drum_machine.pads[0].?.pitch_semitones > 0.0);
+}
+
+test "standalone sampler param edit routes to the sampler" {
+    var app = try testApp();
+    defer app.deinit();
+
+    app.sampler_target = .{ .sampler = 1 };
+    app.sampler_param = 2; // pitch
+    app.adjustSamplerParam(5);
+    var block: [128]types.Sample = undefined;
+    app.session.engine.process(&block);
+    try std.testing.expect(app.session.racks.items[1].instrument.sampler.pad.pitch_semitones > 0.0);
 }
 
 test "draw renders tracks view without overflowing" {
-    var app = try App.init(std.testing.allocator, std.Io.failing);
+    var app = try testApp();
     defer app.deinit();
 
     var buf: [32 * 1024]u8 = undefined;
@@ -1543,8 +1830,17 @@ test "draw renders tracks view without overflowing" {
     try app.draw(&w, .{ .cols = 80, .rows = 24 });
     const frame = w.buffered();
     try std.testing.expect(std.mem.indexOf(u8, frame, "NORMAL") != null);
-    try std.testing.expect(std.mem.indexOf(u8, frame, "lead") != null);
+    try std.testing.expect(std.mem.indexOf(u8, frame, "synth") != null);
     try std.testing.expect(std.mem.indexOf(u8, frame, "drums") != null);
+}
+
+test "blank track row shows the empty hint" {
+    var app = try App.init(std.testing.allocator, std.Io.failing);
+    defer app.deinit();
+    var buf: [32 * 1024]u8 = undefined;
+    var w = std.Io.Writer.fixed(&buf);
+    try app.draw(&w, .{ .cols = 80, .rows = 24 });
+    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "empty") != null);
 }
 
 test ":help opens help view; draw shows command table; esc closes" {
@@ -1569,7 +1865,6 @@ test ":help opens help view; draw shows command table; esc closes" {
 test "s key switches to track spectrum view" {
     var app = try App.init(std.testing.allocator, std.Io.failing);
     defer app.deinit();
-
     app.handleKey(.{ .char = 's' }, 0);
     try std.testing.expectEqual(AppView.track_spectrum, app.view);
 }
@@ -1577,7 +1872,6 @@ test "s key switches to track spectrum view" {
 test "m key switches to master spectrum view" {
     var app = try App.init(std.testing.allocator, std.Io.failing);
     defer app.deinit();
-
     app.handleKey(.{ .char = 'M' }, 0);
     try std.testing.expectEqual(AppView.master_spectrum, app.view);
 }
@@ -1585,7 +1879,6 @@ test "m key switches to master spectrum view" {
 test "spectrum view esc returns to tracks" {
     var app = try App.init(std.testing.allocator, std.Io.failing);
     defer app.deinit();
-
     app.handleKey(.{ .char = 's' }, 0);
     app.handleKey(.escape, 0);
     try std.testing.expectEqual(AppView.tracks, app.view);
@@ -1599,24 +1892,21 @@ test "draw renders spectrum view without errors" {
     var buf: [32 * 1024]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
     try app.draw(&w, .{ .cols = 80, .rows = 24 });
-    const frame = w.buffered();
-    try std.testing.expect(std.mem.indexOf(u8, frame, "SPECTRUM") != null);
+    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "SPECTRUM") != null);
 }
 
 test "draw renders track_spectrum after pressing s" {
-    var app = try App.init(std.testing.allocator, std.Io.failing);
+    var app = try testApp();
     defer app.deinit();
-
     app.handleKey(.{ .char = 's' }, 0);
     var buf: [32 * 1024]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
     try app.draw(&w, .{ .cols = 80, .rows = 24 });
-    const frame = w.buffered();
-    try std.testing.expect(std.mem.indexOf(u8, frame, "SPECTRUM") != null);
+    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "SPECTRUM") != null);
 }
 
 test "spectrum fills FFT buffer and draws with real data" {
-    var app = try App.init(std.testing.allocator, std.Io.failing);
+    var app = try testApp();
     defer app.deinit();
 
     app.handleKey(.{ .char = 's' }, 0);
@@ -1627,66 +1917,51 @@ test "spectrum fills FFT buffer and draws with real data" {
     var buf: [64 * 1024]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
     try app.draw(&w, .{ .cols = 120, .rows = 40 });
-    const frame = w.buffered();
-    try std.testing.expect(std.mem.indexOf(u8, frame, "SPECTRUM") != null);
+    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "SPECTRUM") != null);
 }
 
-test "track add: project, racks, engine, drum_track all update correctly" {
-    var app = try App.init(std.testing.allocator, std.Io.failing);
+test "track add appends a blank track at the end" {
+    var app = try testApp();
     defer app.deinit();
 
-    const initial_tracks = app.session.project.tracks.items.len; // 4
-    const initial_drum = app.session.drum_track;                 // 3
-    const initial_racks = app.session.racks.items.len;           // 3
-
+    const initial_tracks = app.session.project.tracks.items.len;
     app.doTrackAdd("strings");
 
     try std.testing.expectEqual(initial_tracks + 1, app.session.project.tracks.items.len);
-    try std.testing.expectEqual(initial_racks + 1, app.session.racks.items.len);
-    try std.testing.expectEqual(initial_drum + 1, app.session.drum_track);
-    try std.testing.expectEqualStrings("strings", app.session.project.tracks.items[initial_drum].name);
-
-    // Pointer identity: synth is at chain[1] (pattern player at [0]).
-    const new_rack = app.session.racks.items[initial_drum];
-    const engine_ptr = app.session.engine.tracks[initial_drum].chain[1].ptr;
-    try std.testing.expectEqual(@as(*anyopaque, @ptrCast(&new_rack.instrument.poly_synth)), engine_ptr);
+    try std.testing.expectEqual(initial_tracks + 1, app.session.racks.items.len);
+    const last = app.session.racks.items.len - 1;
+    try std.testing.expectEqualStrings("strings", app.session.project.tracks.items[last].name);
+    try std.testing.expectEqual(InstrumentKind.empty, std.meta.activeTag(app.session.racks.items[last].instrument));
+    try std.testing.expectEqual(@as(usize, last), app.cursor);
 }
 
-test "track delete: project, racks, engine, drum_track all update correctly" {
-    var app = try App.init(std.testing.allocator, std.Io.failing);
+test "track delete removes the rack and shifts later tracks down" {
+    var app = try testApp();
     defer app.deinit();
 
-    const initial_tracks = app.session.project.tracks.items.len; // 4
-    const initial_drum = app.session.drum_track;                 // 3
-
-    // Delete track 1 (pad, index 1).
-    app.doTrackDel(1);
+    const initial_tracks = app.session.project.tracks.items.len;
+    app.doTrackDel(1); // remove the sampler
 
     try std.testing.expectEqual(initial_tracks - 1, app.session.project.tracks.items.len);
-    try std.testing.expectEqual(initial_tracks - 1, app.session.racks.items.len); // racks == project tracks
-    try std.testing.expectEqual(initial_drum - 1, app.session.drum_track);
-
-    // After deletion, engine slot 1 must point to what was slot 2 (bass rack).
-    // Synth is at chain[1]; pattern player at chain[0].
-    const bass_rack = app.session.racks.items[1]; // was index 2, now index 1
-    const engine_ptr = app.session.engine.tracks[1].chain[1].ptr;
-    try std.testing.expectEqual(@as(*anyopaque, @ptrCast(&bass_rack.instrument.poly_synth)), engine_ptr);
+    try std.testing.expectEqual(initial_tracks - 1, app.session.racks.items.len);
+    // The drum machine that was at index 2 is now index 1.
+    try std.testing.expectEqual(InstrumentKind.drum_machine, std.meta.activeTag(app.session.racks.items[1].instrument));
 }
 
-test ":track-add command adds a track" {
-    var app = try App.init(std.testing.allocator, std.Io.failing);
+test ":track-add command adds a blank track" {
+    var app = try testApp();
     defer app.deinit();
 
     const before = app.session.project.tracks.items.len;
-    const drum_slot = app.session.drum_track; // new track inserts here, drum shifts up
     for (":track-add mytrack") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(before + 1, app.session.project.tracks.items.len);
-    try std.testing.expectEqualStrings("mytrack", app.session.project.tracks.items[drum_slot].name);
+    const last = app.session.project.tracks.items.len - 1;
+    try std.testing.expectEqualStrings("mytrack", app.session.project.tracks.items[last].name);
 }
 
 test ":track-del command deletes a track" {
-    var app = try App.init(std.testing.allocator, std.Io.failing);
+    var app = try testApp();
     defer app.deinit();
 
     const before = app.session.project.tracks.items.len;
@@ -1705,17 +1980,16 @@ test ":track-rename renames a track" {
 }
 
 test "enter on synth track opens synth editor" {
-    var app = try App.init(std.testing.allocator, std.Io.failing);
+    var app = try testApp();
     defer app.deinit();
 
-    // cursor starts at 0 (lead track, poly_synth)
-    app.handleKey(.enter, 0);
+    app.handleKey(.enter, 0); // cursor 0 = synth
     try std.testing.expectEqual(AppView.synth_editor, app.view);
     try std.testing.expectEqual(@as(u16, 0), app.synth_track);
 }
 
 test "synth editor esc returns to tracks" {
-    var app = try App.init(std.testing.allocator, std.Io.failing);
+    var app = try testApp();
     defer app.deinit();
 
     app.handleKey(.enter, 0);
@@ -1724,38 +1998,34 @@ test "synth editor esc returns to tracks" {
 }
 
 test "synth editor jk moves cursor, hl adjusts waveform" {
-    var app = try App.init(std.testing.allocator, std.Io.failing);
+    var app = try testApp();
     defer app.deinit();
 
     app.handleKey(.enter, 0);
-    try std.testing.expectEqual(@as(u8, 0), app.synth_cursor); // on waveform
+    try std.testing.expectEqual(@as(u8, 0), app.synth_cursor);
 
-    // Edits route over the engine command queue and apply on the audio thread,
-    // so drive a process() block after each key to realize the change.
     var block: [64]types.Sample = undefined;
-    app.handleKey(.{ .char = 'l' }, 0); // next waveform
+    app.handleKey(.{ .char = 'l' }, 0);
     app.session.engine.process(&block);
     const synth = &app.session.racks.items[0].instrument.poly_synth;
-    try std.testing.expect(synth.waveform != .saw); // was saw by default → now triangle
+    try std.testing.expect(synth.waveform != .saw);
 
-    // j×16: →pls.width(1)→…→spread(5)→b.on(6)→…→b.uni.det(13)→mod.mode(14)→mod.amt(15)→attack(16)
     for (0..16) |_| app.handleKey(.{ .char = 'j' }, 0);
     try std.testing.expectEqual(@as(u8, 16), app.synth_cursor);
 
     const old_attack = synth.attack_s;
-    app.handleKey(.{ .char = 'l' }, 0); // increase attack
+    app.handleKey(.{ .char = 'l' }, 0);
     app.session.engine.process(&block);
     try std.testing.expect(synth.attack_s > old_attack);
 }
 
 test "draw renders synth editor without errors" {
-    var app = try App.init(std.testing.allocator, std.Io.failing);
+    var app = try testApp();
     defer app.deinit();
 
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(AppView.synth_editor, app.view);
 
-    // Use a tall terminal so all 51 rows are visible (synth editor scrolls to fit).
     var buf: [32 * 1024]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
     try app.draw(&w, .{ .cols = 80, .rows = 60 });
@@ -1776,42 +2046,22 @@ test "escape returns from track_spectrum to tracks" {
     var buf: [32 * 1024]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
     try app.draw(&w, .{ .cols = 80, .rows = 24 });
-    const frame = w.buffered();
-    try std.testing.expect(std.mem.indexOf(u8, frame, "TRACKS") != null);
-}
-
-test "draw renders spectrum view when engine has activated the analyzer" {
-    var app = try App.init(std.testing.allocator, std.Io.failing);
-    defer app.deinit();
-
-    app.handleKey(.{ .char = 's' }, 0);
-    var block: [512]types.Sample = undefined;
-    app.session.engine.process(&block);
-
-    var buf: [32 * 1024]u8 = undefined;
-    var w = std.Io.Writer.fixed(&buf);
-    try app.draw(&w, .{ .cols = 80, .rows = 24 });
-    const frame = w.buffered();
-    try std.testing.expect(std.mem.indexOf(u8, frame, "SPECTRUM") != null);
+    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "TRACKS") != null);
 }
 
 test "p key opens piano roll for synth track" {
-    var app = try App.init(std.testing.allocator, std.Io.failing);
+    var app = try testApp();
     defer app.deinit();
 
-    // cursor at track 0 (lead, poly_synth)
-    app.handleKey(.{ .char = 'p' }, 0);
+    app.handleKey(.{ .char = 'p' }, 0); // cursor 0 = synth
     try std.testing.expectEqual(AppView.piano_roll, app.view);
     try std.testing.expectEqual(@as(u16, 0), app.piano_track);
 
-    // draw must not crash and must show PIANO ROLL
     var buf: [64 * 1024]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
     try app.draw(&w, .{ .cols = 120, .rows = 36 });
-    const frame = w.buffered();
-    try std.testing.expect(std.mem.indexOf(u8, frame, "PIANO ROLL") != null);
+    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "PIANO ROLL") != null);
 
-    // insert a note, verify it appears in the frame
     app.piano_cursor_step = 0;
     app.piano_cursor_pitch = 60;
     app.handleKey(.{ .char = 'n' }, 0);
@@ -1819,23 +2069,27 @@ test "p key opens piano roll for synth track" {
     try std.testing.expectEqual(@as(u16, 1), pp.note_count);
     try std.testing.expectEqual(@as(u7, 60), pp.notes[0].pitch);
 
-    // delete it
     app.handleKey(.{ .char = 'd' }, 0);
     try std.testing.expectEqual(@as(u16, 0), pp.note_count);
 
-    // esc returns to tracks
     app.handleKey(.escape, 0);
     try std.testing.expectEqual(AppView.tracks, app.view);
 }
 
+test "p key opens piano roll for sampler track" {
+    var app = try testApp();
+    defer app.deinit();
+    app.cursor = 1; // sampler
+    app.handleKey(.{ .char = 'p' }, 0);
+    try std.testing.expectEqual(AppView.piano_roll, app.view);
+    try std.testing.expectEqual(@as(u16, 1), app.piano_track);
+}
+
 test "piano roll p does not open for drum track" {
-    var app = try App.init(std.testing.allocator, std.Io.failing);
+    var app = try testApp();
     defer app.deinit();
 
-    // move cursor to drum track
-    app.applyAction(.{ .move = .{ .dy = 10 } }, 0);
-    try std.testing.expectEqual(app.session.drum_track, @as(u16, @intCast(app.cursor)));
-
+    app.cursor = 2; // drum machine
     app.handleKey(.{ .char = 'p' }, 0);
     try std.testing.expectEqual(AppView.tracks, app.view);
 }
