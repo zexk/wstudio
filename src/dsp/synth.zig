@@ -730,6 +730,101 @@ pub const PolySynth = struct {
         }
     }
 
+    /// Nudge the editor parameter at `id` by `steps` (h/l = ±1, H/L = ±10).
+    /// Runs on the audio thread (via the `set_param` event) so it never races
+    /// the block reader — the editor sends edits over the command queue rather
+    /// than writing these fields directly.
+    pub fn adjustParam(self: *PolySynth, id: u8, steps: i32) void {
+        const s: f32 = @floatFromInt(steps);
+        switch (id) {
+            0  => self.waveform = if (steps > 0) switch (self.waveform) {
+                .sine => .saw, .saw => .triangle, .triangle => .square, .square => .sine,
+            } else switch (self.waveform) {
+                .sine => .square, .saw => .sine, .triangle => .saw, .square => .triangle,
+            },
+            1  => self.pulse_width         = std.math.clamp(self.pulse_width        + s * 0.01,   0.01,   0.99),
+            2  => self.detune_cents         = std.math.clamp(self.detune_cents       + s * 1.0,  -100.0, 100.0),
+            3  => self.unison               = @intCast(std.math.clamp(@as(i32, self.unison) + steps, 1, 16)),
+            4  => self.unison_detune        = std.math.clamp(self.unison_detune      + s * 1.0,    0.0,  100.0),
+            5  => self.unison_spread        = std.math.clamp(self.unison_spread      + s * 0.01,   0.0,    1.0),
+            6  => self.osc_b_on             = !self.osc_b_on,
+            7  => self.osc_b_waveform = if (steps > 0) switch (self.osc_b_waveform) {
+                .sine => .saw, .saw => .triangle, .triangle => .square, .square => .sine,
+            } else switch (self.osc_b_waveform) {
+                .sine => .square, .saw => .sine, .triangle => .saw, .square => .triangle,
+            },
+            8  => self.osc_b_pulse_width    = std.math.clamp(self.osc_b_pulse_width  + s * 0.01,   0.01,   0.99),
+            9  => self.osc_b_semi           = std.math.clamp(self.osc_b_semi         + s * 1.0,  -24.0,   24.0),
+            10 => self.osc_b_detune_cents   = std.math.clamp(self.osc_b_detune_cents + s * 1.0, -100.0,  100.0),
+            11 => self.osc_b_level          = std.math.clamp(self.osc_b_level        + s * 0.01,   0.0,    1.0),
+            12 => self.osc_b_unison         = @intCast(std.math.clamp(@as(i32, self.osc_b_unison) + steps, 1, 16)),
+            13 => self.osc_b_unison_detune  = std.math.clamp(self.osc_b_unison_detune + s * 1.0,   0.0,  100.0),
+            // MOD (14–15)
+            14 => self.mod_mode = if (steps > 0) switch (self.mod_mode) {
+                .none => .ring, .ring => .am_a_to_b, .am_a_to_b => .am_b_to_a,
+                .am_b_to_a => .fm_a_to_b, .fm_a_to_b => .fm_b_to_a, .fm_b_to_a => .none,
+            } else switch (self.mod_mode) {
+                .none => .fm_b_to_a, .ring => .none, .am_a_to_b => .ring,
+                .am_b_to_a => .am_a_to_b, .fm_a_to_b => .am_b_to_a, .fm_b_to_a => .fm_a_to_b,
+            },
+            15 => self.mod_amount           = std.math.clamp(self.mod_amount         + s * 0.05,   0.0,    8.0),
+            // ENV (16–19)
+            16 => self.attack_s             = std.math.clamp(self.attack_s           + s * 0.001, 0.001,   5.0),
+            17 => self.decay_s              = std.math.clamp(self.decay_s            + s * 0.005, 0.001,   5.0),
+            18 => self.sustain              = std.math.clamp(self.sustain            + s * 0.01,   0.0,    1.0),
+            19 => self.release_s            = std.math.clamp(self.release_s          + s * 0.005, 0.001,  10.0),
+            // FILTER (20–23)
+            20 => self.filter_type = if (steps > 0) switch (self.filter_type) {
+                .lp => .hp, .hp => .bp, .bp => .notch, .notch => .lp,
+            } else switch (self.filter_type) {
+                .lp => .notch, .hp => .lp, .bp => .hp, .notch => .bp,
+            },
+            // Log-scale cutoff: 1 semitone per step (h/l), ~minor-7th per H/L.
+            21 => self.filter_cutoff        = std.math.clamp(
+                self.filter_cutoff * std.math.pow(f32, 2.0, s / 12.0), 20.0, 20_000.0),
+            22 => self.filter_res           = std.math.clamp(self.filter_res         + s * 0.01,   0.0,    1.0),
+            23 => self.fenv_amount          = std.math.clamp(self.fenv_amount        + s * 0.1,   -4.0,    4.0),
+            // FENV (24–27)
+            24 => self.fenv_attack_s        = std.math.clamp(self.fenv_attack_s      + s * 0.001, 0.001,   5.0),
+            25 => self.fenv_decay_s         = std.math.clamp(self.fenv_decay_s       + s * 0.005, 0.001,   5.0),
+            26 => self.fenv_sustain         = std.math.clamp(self.fenv_sustain       + s * 0.01,   0.0,    1.0),
+            27 => self.fenv_release_s       = std.math.clamp(self.fenv_release_s     + s * 0.005, 0.001,  10.0),
+            // LFO (28–31)
+            28 => self.lfo_shape = if (steps > 0) switch (self.lfo_shape) {
+                .sine => .triangle, .triangle => .saw, .saw => .square, .square => .sine,
+            } else switch (self.lfo_shape) {
+                .sine => .square, .triangle => .sine, .saw => .triangle, .square => .saw,
+            },
+            29 => self.lfo_rate_hz          = std.math.clamp(self.lfo_rate_hz        + s * 0.1,   0.01,   20.0),
+            30 => self.lfo_depth            = std.math.clamp(self.lfo_depth          + s * 0.01,   0.0,    1.0),
+            31 => self.lfo_target = if (steps > 0) switch (self.lfo_target) {
+                .none => .filter, .filter => .pitch, .pitch => .amp, .amp => .none,
+            } else switch (self.lfo_target) {
+                .none => .amp, .filter => .none, .pitch => .filter, .amp => .pitch,
+            },
+            // VOICE (32–33)
+            32 => self.voice_mode = if (steps > 0) switch (self.voice_mode) {
+                .poly => .mono, .mono => .legato, .legato => .poly,
+            } else switch (self.voice_mode) {
+                .poly => .legato, .mono => .poly, .legato => .mono,
+            },
+            33 => self.glide_s              = std.math.clamp(self.glide_s            + s * 0.01,   0.0,   10.0),
+            // SUB (34–35)
+            34 => self.sub_level            = std.math.clamp(self.sub_level          + s * 0.01,   0.0,    1.0),
+            35 => self.sub_shape = if (steps > 0) switch (self.sub_shape) {
+                .sine => .square, .square => .sine,
+            } else switch (self.sub_shape) {
+                .sine => .square, .square => .sine,
+            },
+            // NOISE (36–37)
+            36 => self.noise_level          = std.math.clamp(self.noise_level        + s * 0.01,   0.0,    1.0),
+            37 => self.noise_color          = std.math.clamp(self.noise_color        + s * 0.01,   0.0,    1.0),
+            // OUT (38)
+            38 => self.gain                 = std.math.clamp(self.gain               + s * 0.01,  0.01,    1.0),
+            else => {},
+        }
+    }
+
     /// Apply a MIDI pitch bend. `bend` is −8192..+8191; `range_semitones` = ±range.
     pub fn applyPitchBend(self: *PolySynth, bend: i16, range_semitones: f32) void {
         self.pitch_bend_semitones = @as(f32, @floatFromInt(bend)) / 8192.0 * range_semitones;
@@ -757,6 +852,7 @@ pub const PolySynth = struct {
             .all_off    => self.resetAll(),
             .cc         => |e| self.applyCC(e.cc, e.value),
             .pitch_bend => |e| self.applyPitchBend(e.bend, 2.0),
+            .set_param  => |e| self.adjustParam(e.id, e.steps),
         }
     }
 

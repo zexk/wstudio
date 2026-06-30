@@ -477,101 +477,22 @@ pub const App = struct {
         self.setStatus("removed {s}", .{midi.noteName(self.piano_cursor_pitch, &nbuf)});
     }
 
+    /// Nudge the selected synth-editor parameter. The change is routed over the
+    /// engine command queue and applied on the audio thread (PolySynth.adjustParam)
+    /// so it never races the block reader — the editor view reflects it on the
+    /// next frame. See engine.Command.set_track_param.
     fn adjustSynthParam(self: *App, steps: i32) void {
         if (self.synth_track >= self.session.racks.items.len) return;
         const rack = self.session.racks.items[self.synth_track];
-        const synth = switch (rack.instrument) {
-            .poly_synth => |*s| s,
+        switch (rack.instrument) {
+            .poly_synth => {},
             else => return,
-        };
-        const s: f32 = @floatFromInt(steps);
-        switch (self.synth_cursor) {
-            0  => synth.waveform = if (steps > 0) switch (synth.waveform) {
-                .sine => .saw, .saw => .triangle, .triangle => .square, .square => .sine,
-            } else switch (synth.waveform) {
-                .sine => .square, .saw => .sine, .triangle => .saw, .square => .triangle,
-            },
-            1  => synth.pulse_width         = std.math.clamp(synth.pulse_width        + s * 0.01,   0.01,   0.99),
-            2  => synth.detune_cents         = std.math.clamp(synth.detune_cents       + s * 1.0,  -100.0, 100.0),
-            3  => synth.unison               = @intCast(std.math.clamp(@as(i32, synth.unison) + steps, 1, 16)),
-            4  => synth.unison_detune        = std.math.clamp(synth.unison_detune      + s * 1.0,    0.0,  100.0),
-            5  => synth.unison_spread        = std.math.clamp(synth.unison_spread      + s * 0.01,   0.0,    1.0),
-            6  => synth.osc_b_on             = !synth.osc_b_on,
-            7  => synth.osc_b_waveform = if (steps > 0) switch (synth.osc_b_waveform) {
-                .sine => .saw, .saw => .triangle, .triangle => .square, .square => .sine,
-            } else switch (synth.osc_b_waveform) {
-                .sine => .square, .saw => .sine, .triangle => .saw, .square => .triangle,
-            },
-            8  => synth.osc_b_pulse_width    = std.math.clamp(synth.osc_b_pulse_width  + s * 0.01,   0.01,   0.99),
-            9  => synth.osc_b_semi           = std.math.clamp(synth.osc_b_semi         + s * 1.0,  -24.0,   24.0),
-            10 => synth.osc_b_detune_cents   = std.math.clamp(synth.osc_b_detune_cents + s * 1.0, -100.0,  100.0),
-            11 => synth.osc_b_level          = std.math.clamp(synth.osc_b_level        + s * 0.01,   0.0,    1.0),
-            12 => synth.osc_b_unison         = @intCast(std.math.clamp(@as(i32, synth.osc_b_unison) + steps, 1, 16)),
-            13 => synth.osc_b_unison_detune  = std.math.clamp(synth.osc_b_unison_detune + s * 1.0,   0.0,  100.0),
-            // MOD (14–15)
-            14 => synth.mod_mode = if (steps > 0) switch (synth.mod_mode) {
-                .none => .ring, .ring => .am_a_to_b, .am_a_to_b => .am_b_to_a,
-                .am_b_to_a => .fm_a_to_b, .fm_a_to_b => .fm_b_to_a, .fm_b_to_a => .none,
-            } else switch (synth.mod_mode) {
-                .none => .fm_b_to_a, .ring => .none, .am_a_to_b => .ring,
-                .am_b_to_a => .am_a_to_b, .fm_a_to_b => .am_b_to_a, .fm_b_to_a => .fm_a_to_b,
-            },
-            15 => synth.mod_amount           = std.math.clamp(synth.mod_amount         + s * 0.05,   0.0,    8.0),
-            // ENV (16–19)
-            16 => synth.attack_s             = std.math.clamp(synth.attack_s           + s * 0.001, 0.001,   5.0),
-            17 => synth.decay_s              = std.math.clamp(synth.decay_s            + s * 0.005, 0.001,   5.0),
-            18 => synth.sustain              = std.math.clamp(synth.sustain            + s * 0.01,   0.0,    1.0),
-            19 => synth.release_s            = std.math.clamp(synth.release_s          + s * 0.005, 0.001,  10.0),
-            // FILTER (20–23)
-            20 => synth.filter_type = if (steps > 0) switch (synth.filter_type) {
-                .lp => .hp, .hp => .bp, .bp => .notch, .notch => .lp,
-            } else switch (synth.filter_type) {
-                .lp => .notch, .hp => .lp, .bp => .hp, .notch => .bp,
-            },
-            // Log-scale cutoff: 1 semitone per step (h/l), ~minor-7th per H/L.
-            21 => synth.filter_cutoff        = std.math.clamp(
-                synth.filter_cutoff * std.math.pow(f32, 2.0, s / 12.0), 20.0, 20_000.0),
-            22 => synth.filter_res           = std.math.clamp(synth.filter_res         + s * 0.01,   0.0,    1.0),
-            23 => synth.fenv_amount          = std.math.clamp(synth.fenv_amount        + s * 0.1,   -4.0,    4.0),
-            // FENV (24–27)
-            24 => synth.fenv_attack_s        = std.math.clamp(synth.fenv_attack_s      + s * 0.001, 0.001,   5.0),
-            25 => synth.fenv_decay_s         = std.math.clamp(synth.fenv_decay_s       + s * 0.005, 0.001,   5.0),
-            26 => synth.fenv_sustain         = std.math.clamp(synth.fenv_sustain       + s * 0.01,   0.0,    1.0),
-            27 => synth.fenv_release_s       = std.math.clamp(synth.fenv_release_s     + s * 0.005, 0.001,  10.0),
-            // LFO (28–31)
-            28 => synth.lfo_shape = if (steps > 0) switch (synth.lfo_shape) {
-                .sine => .triangle, .triangle => .saw, .saw => .square, .square => .sine,
-            } else switch (synth.lfo_shape) {
-                .sine => .square, .triangle => .sine, .saw => .triangle, .square => .saw,
-            },
-            29 => synth.lfo_rate_hz          = std.math.clamp(synth.lfo_rate_hz        + s * 0.1,   0.01,   20.0),
-            30 => synth.lfo_depth            = std.math.clamp(synth.lfo_depth          + s * 0.01,   0.0,    1.0),
-            31 => synth.lfo_target = if (steps > 0) switch (synth.lfo_target) {
-                .none => .filter, .filter => .pitch, .pitch => .amp, .amp => .none,
-            } else switch (synth.lfo_target) {
-                .none => .amp, .filter => .none, .pitch => .filter, .amp => .pitch,
-            },
-            // VOICE (32–33)
-            32 => synth.voice_mode = if (steps > 0) switch (synth.voice_mode) {
-                .poly => .mono, .mono => .legato, .legato => .poly,
-            } else switch (synth.voice_mode) {
-                .poly => .legato, .mono => .poly, .legato => .mono,
-            },
-            33 => synth.glide_s              = std.math.clamp(synth.glide_s            + s * 0.01,   0.0,   10.0),
-            // SUB (34–35)
-            34 => synth.sub_level            = std.math.clamp(synth.sub_level          + s * 0.01,   0.0,    1.0),
-            35 => synth.sub_shape = if (steps > 0) switch (synth.sub_shape) {
-                .sine => .square, .square => .sine,
-            } else switch (synth.sub_shape) {
-                .sine => .square, .square => .sine,
-            },
-            // NOISE (36–37)
-            36 => synth.noise_level          = std.math.clamp(synth.noise_level        + s * 0.01,   0.0,    1.0),
-            37 => synth.noise_color          = std.math.clamp(synth.noise_color        + s * 0.01,   0.0,    1.0),
-            // OUT (38)
-            38 => synth.gain                 = std.math.clamp(synth.gain               + s * 0.01,  0.01,    1.0),
-            else => {},
         }
+        _ = self.session.engine.send(.{ .set_track_param = .{
+            .track = self.synth_track,
+            .id    = self.synth_cursor,
+            .steps = steps,
+        } });
     }
 
     pub fn applyAction(self: *App, action: modal_mod.Action, now_ns: i96) void {
@@ -1459,7 +1380,11 @@ test "synth editor jk moves cursor, hl adjusts waveform" {
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(@as(u8, 0), app.synth_cursor); // on waveform
 
+    // Edits route over the engine command queue and apply on the audio thread,
+    // so drive a process() block after each key to realize the change.
+    var block: [64]types.Sample = undefined;
     app.handleKey(.{ .char = 'l' }, 0); // next waveform
+    app.session.engine.process(&block);
     const synth = &app.session.racks.items[0].instrument.poly_synth;
     try std.testing.expect(synth.waveform != .saw); // was saw by default → now triangle
 
@@ -1469,6 +1394,7 @@ test "synth editor jk moves cursor, hl adjusts waveform" {
 
     const old_attack = synth.attack_s;
     app.handleKey(.{ .char = 'l' }, 0); // increase attack
+    app.session.engine.process(&block);
     try std.testing.expect(synth.attack_s > old_attack);
 }
 

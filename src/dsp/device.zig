@@ -12,6 +12,9 @@ pub const Event = union(enum) {
     all_off,
     cc: struct { cc: u7, value: u7 },
     pitch_bend: struct { bend: i16 },
+    /// Nudge editor parameter `id` by `steps` (signed). Applied on the audio
+    /// thread so UI edits never race the reader — see PolySynth.adjustParam.
+    set_param: struct { id: u8, steps: i32 },
 };
 
 pub const Device = struct {

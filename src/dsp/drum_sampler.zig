@@ -283,7 +283,7 @@ pub const DrumMachine = struct {
         const self: *DrumMachine = @ptrCast(@alignCast(ptr));
         switch (ev) {
             .note_on  => |e| self.triggerPad(e.note % max_pads),
-            .note_off, .cc, .pitch_bend => {},
+            .note_off, .cc, .pitch_bend, .set_param => {},
             .all_off  => self.resetAll(),
         }
     }

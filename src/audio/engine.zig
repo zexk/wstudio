@@ -30,6 +30,9 @@ pub const Command = union(enum) {
     all_notes_off,
     cc: struct { track: u16, cc: u7, value: u7 },
     pitch_bend: struct { track: u16, bend: i16 },
+    /// Nudge synth editor parameter `id` by `steps` on track `track`. Applied
+    /// on the audio thread so editor edits don't race the block reader.
+    set_track_param: struct { track: u16, id: u8, steps: i32 },
     set_spectrum_active: struct { source: SpectrumSource, track: u16 },
 };
 
@@ -216,6 +219,7 @@ pub const Engine = struct {
             },
             .cc         => |c| self.sendTrackEvent(c.track, .{ .cc         = .{ .cc   = c.cc,   .value = c.value } }),
             .pitch_bend => |c| self.sendTrackEvent(c.track, .{ .pitch_bend = .{ .bend = c.bend } }),
+            .set_track_param => |c| self.sendTrackEvent(c.track, .{ .set_param = .{ .id = c.id, .steps = c.steps } }),
             .set_spectrum_active => |c| {
                 self.active_spectrum_source = c.source;
                 // Reset buffer when switching to a different track so stale
