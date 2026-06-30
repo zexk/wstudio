@@ -67,6 +67,9 @@ pub const App = struct {
     status_ttl: u32 = 0,
     note_offs: [32]NoteOff = undefined,
     note_off_len: usize = 0,
+    // Last timestamp seen by handleKey; lets sub-view handlers schedule note-offs
+    // (e.g. piano-roll preview) without threading now_ns through every signature.
+    now_ns: i96 = 0,
     eq_cursor: usize = 0,
     eq_track: u16 = 0,
     synth_track: u16 = 0,
@@ -102,6 +105,7 @@ pub const App = struct {
     // -----------------------------------------------------------------------
 
     pub fn handleKey(self: *App, key: modal_mod.Key, now_ns: i96) void {
+        self.now_ns = now_ns;
         if (key == .ctrl_c) {
             self.should_quit = true;
             return;
@@ -150,7 +154,8 @@ pub const App = struct {
                         '<' => { self.doTrackPan(@intCast(self.cursor), -0.05); return; },
                         '>' => { self.doTrackPan(@intCast(self.cursor), 0.05); return; },
                         '-' => { self.doTrackGainStep(@intCast(self.cursor), -1.0); return; },
-                        '=' => { self.doTrackGainStep(@intCast(self.cursor), 1.0); return; },
+                        // + is the canonical "increase" (matches pattern length); = kept as alias.
+                        '+', '=' => { self.doTrackGainStep(@intCast(self.cursor), 1.0); return; },
                         else => {},
                     }
                 }
@@ -237,11 +242,11 @@ pub const App = struct {
             .enter => { self.drumMachine().toggleStep(pad.*, step.*); return true; },
             .char => |c| {
                 switch (c) {
-                    // coarse move by one beat (4 steps); shift (HL) moves one step
-                    'h' => { step.* -|= 4; },
-                    'l' => { step.* = @intCast(@min(@as(u16, step.*) + 4, self.drumMachine().step_count - 1)); },
-                    'H' => { if (step.* > 0) step.* -= 1; },
-                    'L' => { if (step.* + 1 < self.drumMachine().step_count) step.* += 1; },
+                    // fine move by one step; shift (HL) jumps one beat (4 steps)
+                    'h' => { if (step.* > 0) step.* -= 1; },
+                    'l' => { if (step.* + 1 < self.drumMachine().step_count) step.* += 1; },
+                    'H' => { step.* -|= 4; },
+                    'L' => { step.* = @intCast(@min(@as(u16, step.*) + 4, self.drumMachine().step_count - 1)); },
                     'k' => if (pad.* > 0) { pad.* -= 1; },
                     'j' => if (pad.* < DrumMachine.max_pads - 1) { pad.* += 1; },
                     'p' => {
@@ -281,6 +286,9 @@ pub const App = struct {
                 // Block insert mode — piano keys conflict with parameter navigation.
                 'i' => return true,
                 's' => { self.switchToTrackSpectrum(self.synth_track); return true; },
+                // p opens the piano roll for this track (matches p in the tracks view);
+                // e in the piano roll comes back here, so synth <-> roll is bidirectional.
+                'p' => { self.switchToPianoRoll(self.synth_track); return true; },
                 'j' => {
                     if (self.synth_cursor < tui.synth_param_count - 1) self.synth_cursor += 1;
                     self.synthUpdateScroll();
@@ -382,25 +390,25 @@ pub const App = struct {
             .char => |c| switch (c) {
                 // Block insert mode — piano keys collide with roll navigation (j/k/h/d/…).
                 'i' => return true,
-                // coarse move by one beat (4 steps); shift (HL) moves one step
+                // fine move by one step; shift (HL) jumps one beat (4 steps)
                 'h' => {
-                    self.piano_cursor_step -|= 4;
-                    self.pianoEnsureVisible();
-                    return true;
-                },
-                'l' => {
-                    if (max_step > 0)
-                        self.piano_cursor_step = @min(self.piano_cursor_step + 4, max_step - 1);
-                    self.pianoEnsureVisible();
-                    return true;
-                },
-                'H' => {
                     if (self.piano_cursor_step > 0) self.piano_cursor_step -= 1;
                     self.pianoEnsureVisible();
                     return true;
                 },
-                'L' => {
+                'l' => {
                     if (self.piano_cursor_step + 1 < max_step) self.piano_cursor_step += 1;
+                    self.pianoEnsureVisible();
+                    return true;
+                },
+                'H' => {
+                    self.piano_cursor_step -|= 4;
+                    self.pianoEnsureVisible();
+                    return true;
+                },
+                'L' => {
+                    if (max_step > 0)
+                        self.piano_cursor_step = @min(self.piano_cursor_step + 4, max_step - 1);
                     self.pianoEnsureVisible();
                     return true;
                 },
@@ -418,6 +426,12 @@ pub const App = struct {
                 // n/d kept as aliases for muscle memory; enter is the canonical toggle.
                 'n' => { self.pianoInsertNote(); return true; },
                 'd' => { self.pianoDeleteNote(); return true; },
+                'p' => {
+                    self.playNote(self.piano_track, self.piano_cursor_pitch, self.now_ns);
+                    var nbuf: [5]u8 = undefined;
+                    self.setStatus("preview: {s}", .{midi.noteName(self.piano_cursor_pitch, &nbuf)});
+                    return true;
+                },
                 'e' => {
                     self.synth_track = self.piano_track;
                     self.synth_cursor = 0;
@@ -579,7 +593,7 @@ pub const App = struct {
             },
             .note => |n| {
                 if (self.cursor != self.session.drum_track) {
-                    self.playNote(n.pitch, now_ns);
+                    self.playNote(@intCast(self.cursor), n.pitch, now_ns);
                 } else {
                     _ = self.session.engine.send(.{ .note_on = .{
                         .track = self.session.drum_track,
@@ -592,8 +606,7 @@ pub const App = struct {
         }
     }
 
-    fn playNote(self: *App, pitch: u7, now_ns: i96) void {
-        const track: u16 = @intCast(self.cursor);
+    fn playNote(self: *App, track: u16, pitch: u7, now_ns: i96) void {
         _ = self.session.engine.send(.{ .note_on = .{ .track = track, .note = pitch, .velocity = 0.85 } });
         if (self.note_off_len == self.note_offs.len) {
             const oldest = self.note_offs[0];

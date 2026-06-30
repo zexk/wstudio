@@ -228,7 +228,7 @@ pub fn drawDrumGrid(app: anytype, w: *std.Io.Writer, rows: usize, snap: engine_m
     const track_name = app.session.project.tracks.items[app.session.drum_track].name;
     try w.writeAll(bold ++ " DRUMS" ++ rst);
     try w.print(" \"{s}\"", .{track_name});
-    try w.writeAll(dim ++ "  [hjkl:move  HL:fine  enter:toggle  p:preview  +-:length  X:clear  F:fill  esc:back]");
+    try w.writeAll(dim ++ "  [hjkl:move  HL:beat  enter:toggle  p:preview  +-:length  X:clear  F:fill  esc:back]");
     try endLine(w);
 
     // step header — only the active range (step_count) is shown
@@ -322,7 +322,7 @@ pub fn drawHelp(w: *std.Io.Writer, rows: usize, cmds: []const cmd_mod.Def) !void
     try helpKey(w, "m",            "mute / unmute selected track");
     try helpKey(w, "M",            "master spectrum");
     try helpKey(w, "< / >",        "pan left / right  (5% per step)");
-    try helpKey(w, "- / =",        "track gain −1 dB / +1 dB");
+    try helpKey(w, "- / +",        "track gain −1 dB / +1 dB  (= also works)");
     try helpKey(w, "a",            "add synth track");
     try helpKey(w, "D",            "delete selected track");
     try helpKey(w, "? / :help",    "this help");
@@ -333,8 +333,8 @@ pub fn drawHelp(w: *std.Io.Writer, rows: usize, cmds: []const cmd_mod.Def) !void
     try helpKey(w, "z / x",                 "octave down / up");
 
     try helpSection(w, "DRUM GRID");
-    try helpKey(w, "h / l",        "move cursor left / right (one beat)");
-    try helpKey(w, "H / L",        "move cursor left / right (one step, fine)");
+    try helpKey(w, "h / l",        "move cursor left / right (one step)");
+    try helpKey(w, "H / L",        "move cursor left / right (one beat, coarse)");
     try helpKey(w, "j / k",        "move cursor down / up (pad)");
     try helpKey(w, "enter",        "toggle step on/off");
     try helpKey(w, "p",            "preview pad sound");
@@ -348,14 +348,16 @@ pub fn drawHelp(w: *std.Io.Writer, rows: usize, cmds: []const cmd_mod.Def) !void
     try helpKey(w, "{ / }",        "prev / next section");
     try helpKey(w, "h / l",        "adjust value (fine)");
     try helpKey(w, "H / L",        "adjust value (coarse ×10)");
+    try helpKey(w, "p",            "open piano roll for this track");
     try helpKey(w, "s",            "spectrum + EQ for this track");
 
     try helpSection(w, "PIANO ROLL");
-    try helpKey(w, "h / l",        "move cursor left / right (one beat)");
-    try helpKey(w, "H / L",        "move cursor left / right (one step, fine)");
+    try helpKey(w, "h / l",        "move cursor left / right (one step)");
+    try helpKey(w, "H / L",        "move cursor left / right (one beat, coarse)");
     try helpKey(w, "j / k",        "move cursor down / up (pitch)");
     try helpKey(w, "enter",        "toggle note at cursor");
     try helpKey(w, "n / d",        "insert / delete note at cursor (aliases)");
+    try helpKey(w, "p",            "preview note at cursor");
     try helpKey(w, "e",            "open synth editor for this track");
     try helpKey(w, "s",            "spectrum + EQ for this track");
     try helpKey(w, "[ / ]",        "decrease / increase note length");
@@ -814,7 +816,7 @@ fn drawSynthEditorFull(app: anytype, w: *std.Io.Writer, snap: engine_mod.UiSnaps
     try w.writeAll(acc);
     try w.print("\"{s}\"", .{name});
     try w.writeAll(rst);
-    try w.writeAll(dim ++ "   jk move \u{00B7} hl adjust \u{00B7} HL coarse \u{00B7} {} section \u{00B7} esc back");
+    try w.writeAll(dim ++ "   jk move \u{00B7} hl adjust \u{00B7} HL coarse \u{00B7} {} section \u{00B7} p piano \u{00B7} esc back");
     try endLine(w);
 
     var buf: [40]u8 = undefined;
@@ -1057,7 +1059,7 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
 
     try w.writeAll(bold ++ " PIANO ROLL" ++ rst);
     try w.print(" \"{s}\"", .{name});
-    try w.writeAll(dim ++ "  [hjkl:move  HL:fine  enter:toggle  []:notelen  +-:length  esc:back]");
+    try w.writeAll(dim ++ "  [hjkl:move  HL:beat  enter:toggle  p:preview  []:notelen  +-:length  esc:back]");
     try endLine(w);
 
     // 3 internal header rows (title + col labels + loop marker) + vis_rows note rows
