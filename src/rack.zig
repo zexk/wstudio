@@ -52,11 +52,15 @@ pub const Rack = struct {
     instrument: Instrument,
     fx: Fx = .{},
     label: []const u8,
+    /// True when `label` was heap-allocated (e.g. loaded from a project file)
+    /// and must be freed in deinit. False for string-literal labels.
+    owned_label: bool = false,
     /// Piano-roll sequencer. Set after the Rack lands on the heap so the
     /// self-referential synth pointer is stable.
     pattern_player: ?PatternPlayer = null,
 
     pub fn deinit(self: *Rack, allocator: std.mem.Allocator) void {
+        if (self.owned_label) allocator.free(self.label);
         self.instrument.deinit();
         self.fx.deinit(allocator);
     }
