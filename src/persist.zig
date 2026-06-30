@@ -203,7 +203,7 @@ pub fn save(
     try fw.interface.flush();
 }
 
-fn rackToSnap(aa: std.mem.Allocator, rack: *const Rack, sample_rate: u32) !RackSnap {
+fn rackToSnap(aa: std.mem.Allocator, rack: *Rack, sample_rate: u32) !RackSnap {
     var rs: RackSnap = .{ .label = rack.label, .kind = undefined };
 
     switch (rack.instrument) {
