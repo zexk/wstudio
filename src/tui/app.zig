@@ -237,8 +237,11 @@ pub const App = struct {
             .enter => { self.drumMachine().toggleStep(pad.*, step.*); return true; },
             .char => |c| {
                 switch (c) {
-                    'h' => { if (step.* > 0) step.* -= 1; },
-                    'l' => { if (step.* + 1 < self.drumMachine().step_count) step.* += 1; },
+                    // coarse move by one beat (4 steps); shift (HL) moves one step
+                    'h' => { step.* -|= 4; },
+                    'l' => { step.* = @intCast(@min(@as(u16, step.*) + 4, self.drumMachine().step_count - 1)); },
+                    'H' => { if (step.* > 0) step.* -= 1; },
+                    'L' => { if (step.* + 1 < self.drumMachine().step_count) step.* += 1; },
                     'k' => if (pad.* > 0) { pad.* -= 1; },
                     'j' => if (pad.* < DrumMachine.max_pads - 1) { pad.* += 1; },
                     'p' => {

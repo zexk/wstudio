@@ -228,14 +228,13 @@ pub fn drawDrumGrid(app: anytype, w: *std.Io.Writer, rows: usize, snap: engine_m
     const track_name = app.session.project.tracks.items[app.session.drum_track].name;
     try w.writeAll(bold ++ " DRUMS" ++ rst);
     try w.print(" \"{s}\"", .{track_name});
-    try w.writeAll(dim ++ "  [hjkl:move  spc:toggle  p:preview  <>:length  X:clear  F:fill  esc:back]");
+    try w.writeAll(dim ++ "  [hjkl:move  HL:fine  spc:toggle  p:preview  <>:length  X:clear  F:fill  esc:back]");
     try endLine(w);
 
-    // step header — active range normal, inactive range dim
+    // step header — only the active range (step_count) is shown
     try w.writeAll(dim ++ "      ");
-    for (0..DrumMachine.max_steps) |s| {
+    for (0..step_count) |s| {
         if (s % 4 == 0) try w.writeAll("│");
-        if (s == step_count) try w.writeAll("\x1b[2m"); // already dim; mark boundary
         try w.print("{d:>2} ", .{s + 1});
     }
     try endLine(w);
@@ -245,19 +244,15 @@ pub fn drawDrumGrid(app: anytype, w: *std.Io.Writer, rows: usize, snap: engine_m
         try w.writeAll(dim);
         try w.print(" {s: <4} ", .{name[0..@min(name.len, 4)]});
         try w.writeAll(rst);
-        for (0..DrumMachine.max_steps) |s| {
+        for (0..step_count) |s| {
             if (s % 4 == 0) {
                 try w.writeAll(dim ++ "│" ++ rst);
             }
-            const beyond = (s >= step_count);
             const active = dm.stepActive(@intCast(p), @intCast(s));
             const is_cursor = (p == cur_pad and s == cur_step);
             const is_play = is_playing and (s == playing_step);
 
-            if (beyond) {
-                // steps outside the loop — always dim, cursor still shown
-                if (is_cursor) try w.writeAll(sel) else try w.writeAll(dim);
-            } else if (is_cursor) {
+            if (is_cursor) {
                 try w.writeAll(sel);
             } else if (is_play) {
                 try w.writeAll(grn ++ bold);
