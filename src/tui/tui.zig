@@ -1383,7 +1383,7 @@ pub fn drawSamplerEditor(
     const pad_idx = app.drum_cursor[0];
     const pad: *const ws.dsp.Pad = if (is_drum) padOf(app.drumMachine(), pad_idx) else blk: {
         if (app.editingSampler()) |s| break :blk &s.pad;
-        break :blk padOf(app.drumMachine(), pad_idx); // unreachable in practice
+        break :blk placeholderPad();
     };
 
     // Body budget: outer header(2) + transport/hr/status(3) = 5 lines reserved.
@@ -1482,14 +1482,19 @@ pub fn drawSamplerEditor(
     while (written < body) : (written += 1) try endLine(w);
 }
 
-/// Return a const pointer to pad `idx`, or a zero-length placeholder pad when
-/// the slot is empty (keeps the editor renderable without optionals).
-fn padOf(dm: anytype, idx: u8) *const ws.dsp.Pad {
-    const placeholder = struct {
+/// A shared zero-length pad used when an editor has no real pad to show — keeps
+/// drawing renderable without optionals or unreachable branches.
+fn placeholderPad() *const ws.dsp.Pad {
+    const holder = struct {
         var p: ws.dsp.Pad = .{ .samples = &[_]f32{} };
     };
+    return &holder.p;
+}
+
+/// Return a const pointer to pad `idx`, or the placeholder when empty.
+fn padOf(dm: anytype, idx: u8) *const ws.dsp.Pad {
     if (dm.pads[idx]) |*pad| return pad;
-    return &placeholder.p;
+    return placeholderPad();
 }
 
 /// Render a centered, filled waveform of `pad` over `wave_rows` rows. Samples
@@ -1563,7 +1568,7 @@ pub fn drawSamplerStatus(app: anytype, w: *std.Io.Writer) !void {
     const pad_idx = app.drum_cursor[0];
     const pad: *const ws.dsp.Pad = if (is_drum) padOf(app.drumMachine(), pad_idx) else blk: {
         if (app.editingSampler()) |s| break :blk &s.pad;
-        break :blk padOf(app.drumMachine(), pad_idx);
+        break :blk placeholderPad();
     };
     const cur = @min(@as(usize, app.sampler_param), sampler_param_labels.len - 1);
 
