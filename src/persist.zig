@@ -5,7 +5,7 @@
 //!
 //! Round-trip guarantees:
 //!   - All 38 PolySynth params + piano-roll notes + loop length
-//!   - Drum step-count + per-pad bitmask patterns
+//!   - Drum step-count + per-pad bitmask patterns + per-pad sampler params
 //!   - Per-track gain / pan / mute / solo + project tempo
 //!   - FX: compressor, delay, reverb, EQ
 //!   - Rack labels
@@ -97,9 +97,25 @@ pub const SynthSnap = struct {
     length_beats: f64 = 4.0,
 };
 
+/// Per-pad sampler params. Defaults mirror `dsp.Pad` so projects saved before
+/// the sampler existed (no `pads` array) deserialize to the original behaviour.
+pub const PadSnap = struct {
+    gain: f32 = 1.0,
+    pan: f32 = 0.0,
+    pitch_semitones: f32 = 0.0,
+    start_norm: f32 = 0.0,
+    end_norm: f32 = 1.0,
+    reverse: bool = false,
+    attack_s: f32 = 0.001,
+    decay_s: f32 = 0.0,
+    sustain: f32 = 1.0,
+    release_s: f32 = 0.005,
+};
+
 pub const DrumSnap = struct {
     step_count: u8 = 16,
     pattern: [DrumMachine.max_pads]u32 = [_]u32{0} ** DrumMachine.max_pads,
+    pads: [DrumMachine.max_pads]PadSnap = [_]PadSnap{.{}} ** DrumMachine.max_pads,
 };
 
 pub const CompSnap = struct {
@@ -229,6 +245,14 @@ fn rackToSnap(aa: std.mem.Allocator, rack: *Rack, sample_rate: u32) !RackSnap {
             rs.kind = .drum_machine;
             var ds: DrumSnap = .{ .step_count = dm.step_count };
             for (&ds.pattern, 0..) |*p, i| p.* = dm.pattern[i].load(.acquire);
+            for (&ds.pads, 0..) |*ps, i| {
+                if (dm.pads[i]) |*p| ps.* = .{
+                    .gain = p.gain, .pan = p.pan, .pitch_semitones = p.pitch_semitones,
+                    .start_norm = p.start_norm, .end_norm = p.end_norm, .reverse = p.reverse,
+                    .attack_s = p.attack_s, .decay_s = p.decay_s,
+                    .sustain = p.sustain, .release_s = p.release_s,
+                };
+            }
             rs.drum = ds;
         },
     }
@@ -385,9 +409,24 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
                 rack.instrument = .{ .drum_machine = try DrumMachine.init(allocator, sr, &engine.transport) };
                 drum_track = @intCast(i);
                 if (rs.drum) |ds| {
-                    rack.instrument.drum_machine.setStepCount(ds.step_count);
+                    const dmp = &rack.instrument.drum_machine;
+                    dmp.setStepCount(ds.step_count);
                     for (ds.pattern, 0..) |bits, pi| {
-                        rack.instrument.drum_machine.pattern[pi].store(bits, .monotonic);
+                        dmp.pattern[pi].store(bits, .monotonic);
+                    }
+                    for (ds.pads, 0..) |ps, pi| {
+                        if (dmp.pads[pi]) |*p| {
+                            p.gain = ps.gain;
+                            p.pan = ps.pan;
+                            p.pitch_semitones = ps.pitch_semitones;
+                            p.start_norm = ps.start_norm;
+                            p.end_norm = ps.end_norm;
+                            p.reverse = ps.reverse;
+                            p.attack_s = ps.attack_s;
+                            p.decay_s = ps.decay_s;
+                            p.sustain = ps.sustain;
+                            p.release_s = ps.release_s;
+                        }
                     }
                 }
             },
@@ -591,7 +630,15 @@ test "buildSession: constructs valid Session from snapshot" {
             .{
                 .label = "drums",
                 .kind = .drum_machine,
-                .drum = .{ .step_count = 16, .pattern = drum_pattern },
+                .drum = .{
+                    .step_count = 16,
+                    .pattern = drum_pattern,
+                    .pads = blk: {
+                        var ps = [_]PadSnap{.{}} ** DrumMachine.max_pads;
+                        ps[0] = .{ .pitch_semitones = 7.0, .reverse = true, .end_norm = 0.5 };
+                        break :blk ps;
+                    },
+                },
             },
         },
     };
@@ -624,4 +671,7 @@ test "buildSession: constructs valid Session from snapshot" {
     const dm = &session.racks.items[session.drum_track].instrument.drum_machine;
     try testing.expect(dm.stepActive(0, 5));
     try testing.expect(!dm.stepActive(0, 0));
+    try testing.expectApproxEqAbs(@as(f32, 7.0), dm.pads[0].?.pitch_semitones, 1e-4);
+    try testing.expect(dm.pads[0].?.reverse);
+    try testing.expectApproxEqAbs(@as(f32, 0.5), dm.pads[0].?.end_norm, 1e-4);
 }
