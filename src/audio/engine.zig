@@ -65,6 +65,11 @@ pub const Engine = struct {
     active_spectrum_source: SpectrumSource = .none,
     active_spectrum_track: u16 = 0,
     shared: Shared = .{},
+    /// Offline-bounce handshake. When the UI thread sets `bounce_active`, the
+    /// realtime backend parks (outputs silence, sets `bounce_parked`) so the UI
+    /// thread can drive process() into a file without racing the audio thread.
+    bounce_active: std.atomic.Value(bool) = .init(false),
+    bounce_parked: std.atomic.Value(bool) = .init(false),
 
     const Shared = struct {
         playing: std.atomic.Value(bool) = .init(false),

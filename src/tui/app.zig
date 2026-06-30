@@ -46,6 +46,8 @@ const cmds: []const cmd_mod.Def = &.{
     .{ .name = "track-rename",.desc = "<n> <name>  rename track n",          .run = wrap(App.cmdTrackRename) },
     .{ .name = "save",        .desc = "[file]  save project (default: project.wsj)", .run = wrap(App.cmdSave) },
     .{ .name = "w",           .desc = "[file]  save project (alias for :save)",      .run = wrap(App.cmdSave) },
+    .{ .name = "bounce",      .desc = "[file]  render session to WAV (default: bounce.wav)", .run = wrap(App.cmdBounce) },
+    .{ .name = "export",      .desc = "[file]  render session to WAV (alias for :bounce)",   .run = wrap(App.cmdBounce) },
 };
 
 pub const App = struct {
@@ -778,6 +780,105 @@ pub const App = struct {
         self.setStatus("saved: {s}", .{path});
     }
 
+    /// Render the live session (patterns + synth params + drum grid) offline to
+    /// a 16-bit PCM WAV. Length = the longest loop plus a 2s tail for reverb and
+    /// release. The realtime backend is parked for the duration so the UI thread
+    /// can drive the engine without racing the audio thread.
+    fn cmdBounce(self: *App, args: []const u8) void {
+        const path = if (std.mem.trim(u8, args, " ").len > 0)
+            std.mem.trim(u8, args, " ")
+        else
+            "bounce.wav";
+
+        const engine = self.session.engine;
+        const sr = self.session.project.sample_rate;
+
+        var max_beats: f64 = 1.0;
+        for (self.session.racks.items) |rack| {
+            if (rack.pattern_player) |pp| max_beats = @max(max_beats, pp.length_beats);
+        }
+        const dm_beats = @as(f64, @floatFromInt(self.drumMachine().step_count)) / 4.0;
+        max_beats = @max(max_beats, dm_beats);
+
+        const content_frames: u64 = @intFromFloat(engine.transport.framesPerBeat() * max_beats);
+        const total_frames = content_frames + types.secondsToFrames(2.0, sr);
+        const buffer = self.allocator.alloc(
+            types.Sample,
+            @as(usize, @intCast(total_frames)) * engine_mod.channels,
+        ) catch {
+            self.setStatus("bounce: out of memory", .{});
+            return;
+        };
+        defer self.allocator.free(buffer);
+
+        self.parkAudio();
+        self.renderBounce(buffer);
+        engine.bounce_active.store(false, .release);
+        engine.bounce_parked.store(false, .release);
+
+        const file = std.Io.Dir.cwd().createFile(self.io, path, .{}) catch |e| {
+            self.setStatus("bounce: {s}: {s}", .{ path, @errorName(e) });
+            return;
+        };
+        defer file.close(self.io);
+        var fbuf: [8192]u8 = undefined;
+        var fw = file.writer(self.io, &fbuf);
+        ws.wav.write(&fw.interface, sr, engine_mod.channels, buffer) catch |e| {
+            self.setStatus("bounce: write failed: {s}", .{@errorName(e)});
+            return;
+        };
+        fw.interface.flush() catch {};
+
+        self.setStatus("bounced {d:.1}s -> {s}", .{ types.framesToSeconds(total_frames, sr), path });
+    }
+
+    /// Signal the realtime backend to park, then wait until it confirms (or time
+    /// out — in tests no audio thread is running, so there is nothing to wait on).
+    fn parkAudio(self: *App) void {
+        const engine = self.session.engine;
+        engine.bounce_parked.store(false, .release);
+        engine.bounce_active.store(true, .release);
+        const start = std.Io.Timestamp.now(self.io, .awake).nanoseconds;
+        while (!engine.bounce_parked.load(.acquire)) {
+            const elapsed = std.Io.Timestamp.now(self.io, .awake).nanoseconds - start;
+            if (elapsed > 100 * std.time.ns_per_ms) break;
+            std.atomic.spinLoopHint();
+        }
+    }
+
+    /// Render the session from beat 0 into `buffer` (interleaved stereo), then
+    /// restore the live transport position and playing state. Assumes the caller
+    /// owns the engine (audio thread parked).
+    fn renderBounce(self: *App, buffer: []types.Sample) void {
+        const engine = self.session.engine;
+        const was_playing = engine.transport.playing;
+        const saved_pos = engine.transport.position_frames;
+
+        self.resetDevices();
+        engine.transport.seekFrames(0);
+        engine.transport.play();
+
+        const block = types.default_block_frames * engine_mod.channels;
+        var offset: usize = 0;
+        while (offset < buffer.len) {
+            const end = @min(offset + block, buffer.len);
+            engine.process(buffer[offset..end]);
+            offset = end;
+        }
+
+        self.resetDevices();
+        engine.transport.seekFrames(saved_pos);
+        if (was_playing) engine.transport.play() else engine.transport.stop();
+    }
+
+    /// Clear every device's tails/voices/sequencer state across all racks.
+    fn resetDevices(self: *App) void {
+        var buf: [6]dsp.Device = undefined;
+        for (self.session.racks.items) |rack| {
+            for (rack.chain(&buf)) |dev| dev.reset();
+        }
+    }
+
     fn cmdBpm(self: *App, args: []const u8) void {
         const trimmed = std.mem.trim(u8, args, " ");
         if (trimmed.len == 0) {
@@ -1016,6 +1117,13 @@ pub const App = struct {
 
 fn renderTrampoline(ctx: *anyopaque, out: []types.Sample) void {
     const engine: *Engine = @ptrCast(@alignCast(ctx));
+    // During an offline bounce the UI thread owns the engine: park here so the
+    // two threads never call process() concurrently. See App.cmdBounce.
+    if (engine.bounce_active.load(.acquire)) {
+        @memset(out, 0.0);
+        engine.bounce_parked.store(true, .release);
+        return;
+    }
     engine.process(out);
 }
 
@@ -1110,6 +1218,29 @@ test "cursor movement clamps to track range" {
     try std.testing.expectEqual(@as(usize, 2), app.cursor);
     app.applyAction(.{ .move = .{ .dy = -10 } }, 0);
     try std.testing.expectEqual(@as(usize, 0), app.cursor);
+}
+
+test "renderBounce sequences notes offline and restores transport" {
+    var app = try App.init(std.testing.allocator, std.Io.failing);
+    defer app.deinit();
+
+    // Sequence a note at beat 0 on the lead track and leave the transport
+    // stopped — the bounce must drive playback itself.
+    app.session.racks.items[0].pattern_player.?.addNote(
+        .{ .pitch = 60, .start_beat = 0.0, .duration_beat = 1.0 },
+    );
+    try std.testing.expect(!app.session.engine.transport.playing);
+
+    var buffer: [4096 * engine_mod.channels]types.Sample = undefined;
+    app.renderBounce(&buffer);
+
+    var peak: f32 = 0.0;
+    for (buffer) |s| peak = @max(peak, @abs(s));
+    try std.testing.expect(peak > 0.001);
+
+    // Transport restored to its pre-bounce state (stopped, at 0).
+    try std.testing.expect(!app.session.engine.transport.playing);
+    try std.testing.expectEqual(@as(u64, 0), app.session.engine.transport.position_frames);
 }
 
 test "toggle_mute flips project state and reaches the engine" {
