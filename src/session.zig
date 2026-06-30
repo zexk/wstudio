@@ -17,6 +17,7 @@ const Sampler = @import("dsp/sampler.zig").Sampler;
 const PatternPlayer = @import("dsp/pattern.zig").PatternPlayer;
 const DrumMachine = @import("dsp/drum_sampler.zig").DrumMachine;
 const dsp = @import("dsp/device.zig");
+const Arrangement = @import("arrangement.zig").Arrangement;
 
 pub const Session = struct {
     allocator: std.mem.Allocator,
@@ -28,6 +29,8 @@ pub const Session = struct {
     /// Racks removed from active use but not yet freed — the audio thread may
     /// still be mid-frame referencing them. Freed at deinit.
     retired_racks: std.ArrayListUnmanaged(*Rack),
+    /// Song-mode clip timeline, one lane per track (parallel to `racks`).
+    arrangement: Arrangement,
 
     /// Build the default session: a single blank track. Instruments are added
     /// per-track via `setInstrument`; the shipped `demo.wsj` is the curated
@@ -54,12 +57,17 @@ pub const Session = struct {
         r0.* = .{ .instrument = .empty, .label = "empty" };
         try racks.append(allocator, r0);
 
+        var arrangement: Arrangement = .{};
+        errdefer arrangement.deinit(allocator);
+        try arrangement.addLane(allocator); // one lane for the blank track
+
         var self: Session = .{
             .allocator = allocator,
             .project = project,
             .engine = engine,
             .racks = racks,
             .retired_racks = .empty,
+            .arrangement = arrangement,
         };
         for (self.racks.items, 0..) |rack, i| {
             var buf: [6]dsp.Device = undefined;
@@ -83,6 +91,9 @@ pub const Session = struct {
         try self.racks.append(self.allocator, rack);
         errdefer _ = self.racks.pop();
 
+        try self.arrangement.addLane(self.allocator);
+        errdefer self.arrangement.removeLane(self.allocator, self.arrangement.lanes.items.len - 1);
+
         _ = try self.project.addTrack(.{ .name = name });
 
         self.engine.applyInsertTrack(idx, 1.0, 0.0, false);
@@ -103,6 +114,10 @@ pub const Session = struct {
         const sr = self.project.sample_rate;
 
         _ = self.engine.send(.all_notes_off);
+
+        // Clips captured the old instrument's pattern; drop them so song mode
+        // never plays a melodic clip into a drum track or vice versa.
+        if (self.arrangement.lane(track_idx)) |lane| lane.clear(self.allocator);
 
         rack.instrument.deinit();
         rack.pattern_player = null;
@@ -148,10 +163,12 @@ pub const Session = struct {
         const rack = self.racks.orderedRemove(track_idx);
         self.retired_racks.append(self.allocator, rack) catch {};
 
+        self.arrangement.removeLane(self.allocator, track_idx);
         self.project.removeTrack(track_idx);
     }
 
     pub fn deinit(self: *Session) void {
+        self.arrangement.deinit(self.allocator);
         for (self.racks.items) |r| { r.deinit(self.allocator); self.allocator.destroy(r); }
         self.racks.deinit(self.allocator);
         for (self.retired_racks.items) |r| { r.deinit(self.allocator); self.allocator.destroy(r); }

@@ -13,6 +13,7 @@
 const std = @import("std");
 const Session = @import("session.zig").Session;
 const Project = @import("project.zig").Project;
+const ws_arrangement = @import("arrangement.zig");
 const Rack = @import("rack.zig").Rack;
 const engine_mod = @import("audio/engine.zig");
 const Engine = engine_mod.Engine;
@@ -480,12 +481,19 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
         try racks.append(allocator, rack);
     }
 
+    // One blank lane per track keeps the arrangement parallel to racks/tracks.
+    // Clip data is not yet persisted, so loaded projects start with empty lanes.
+    var arrangement: ws_arrangement.Arrangement = .{};
+    errdefer arrangement.deinit(allocator);
+    for (racks.items) |_| try arrangement.addLane(allocator);
+
     var self: Session = .{
         .allocator = allocator,
         .project = project,
         .engine = engine,
         .racks = racks,
         .retired_racks = .empty,
+        .arrangement = arrangement,
     };
     for (self.racks.items, 0..) |rack, i| {
         var buf: [6]dsp.Device = undefined;
