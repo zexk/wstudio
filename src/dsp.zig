@@ -8,6 +8,7 @@ pub const StereoDelay = @import("dsp/delay.zig").StereoDelay;
 pub const Reverb = @import("dsp/reverb.zig").Reverb;
 pub const Compressor = @import("dsp/compressor.zig").Compressor;
 pub const DrumMachine = @import("dsp/drum_sampler.zig").DrumMachine;
+pub const Pad = @import("dsp/drum_sampler.zig").Pad;
 
 pub const pattern = @import("dsp/pattern.zig");
 pub const PatternPlayer = pattern.PatternPlayer;

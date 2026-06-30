@@ -20,7 +20,7 @@ const Engine = engine_mod.Engine;
 const note_ms = 220;
 const frame_poll_ms = 30;
 
-pub const AppView = enum { tracks, drum_grid, synth_editor, help, track_spectrum, master_spectrum, piano_roll };
+pub const AppView = enum { tracks, drum_grid, synth_editor, sampler_editor, help, track_spectrum, master_spectrum, piano_roll };
 
 fn wrap(comptime f: fn (*App, []const u8) void) *const fn (*anyopaque, []const u8) void {
     return struct {
@@ -60,6 +60,9 @@ pub const App = struct {
     view: AppView = .tracks,
     prev_view: AppView = .tracks,
     drum_cursor: [2]u8 = .{ 0, 0 },
+    /// Selected param row in the sampler editor (0..pad_param_count-1). The
+    /// edited pad is `drum_cursor[0]`, shared with the drum grid.
+    sampler_param: u8 = 0,
     audio_label: []const u8 = "off",
     master_gain_db: f32 = 0.0,
     should_quit: bool = false,
@@ -120,6 +123,9 @@ pub const App = struct {
                 }
             },
             .synth_editor => if (!self.handleSynthKey(key)) {
+                self.applyAction(self.modal.handle(key), now_ns);
+            },
+            .sampler_editor => if (self.modal.mode != .normal or !self.handleSamplerKey(key)) {
                 self.applyAction(self.modal.handle(key), now_ns);
             },
             .track_spectrum, .master_spectrum => if (!self.handleSpectrumKey(key)) {
@@ -272,12 +278,63 @@ pub const App = struct {
                         dm.pattern[pad.*].store(mask, .release);
                     },
                     's' => { self.switchToTrackSpectrum(self.session.drum_track); return true; },
+                    'e' => { self.sampler_param = 0; self.view = .sampler_editor; return true; },
                     else => return false,
                 }
                 return true;
             },
             else => return false,
         }
+    }
+
+    /// Sampler editor: j/k pick a param row, h/l/H/L nudge it, 1–8 jump pads,
+    /// p auditions the pad, e/esc return to the drum grid. Pad selection is the
+    /// shared `drum_cursor[0]` so the grid and editor stay in sync.
+    fn handleSamplerKey(self: *App, key: modal_mod.Key) bool {
+        switch (key) {
+            .escape => { self.view = .drum_grid; return true; },
+            .char => |c| switch (c) {
+                // Block insert mode — piano keys conflict with param navigation.
+                'i' => return true,
+                'e' => { self.view = .drum_grid; return true; },
+                'j' => {
+                    if (self.sampler_param + 1 < DrumMachine.pad_param_count) self.sampler_param += 1;
+                    return true;
+                },
+                'k' => { if (self.sampler_param > 0) self.sampler_param -= 1; return true; },
+                'h' => { self.adjustSamplerParam(-1); return true; },
+                'l' => { self.adjustSamplerParam(1); return true; },
+                'H' => { self.adjustSamplerParam(-10); return true; },
+                'L' => { self.adjustSamplerParam(10); return true; },
+                '1'...'8' => {
+                    const pad: u8 = c - '1';
+                    if (pad < DrumMachine.max_pads) self.drum_cursor[0] = pad;
+                    return true;
+                },
+                'p' => {
+                    _ = self.session.engine.send(.{ .note_on = .{
+                        .track = self.session.drum_track,
+                        .note = @intCast(self.drum_cursor[0]),
+                        .velocity = 0.9,
+                    } });
+                    return true;
+                },
+                else => return false,
+            },
+            else => return false,
+        }
+    }
+
+    /// Nudge the selected sampler param. Routed over the command queue so the
+    /// edit lands on the audio thread (DrumMachine.adjustParam), never racing
+    /// the block reader — mirrors adjustSynthParam.
+    fn adjustSamplerParam(self: *App, steps: i32) void {
+        const id = DrumMachine.paramId(self.drum_cursor[0], self.sampler_param);
+        _ = self.session.engine.send(.{ .set_track_param = .{
+            .track = self.session.drum_track,
+            .id    = id,
+            .steps = steps,
+        } });
     }
 
     fn handleSynthKey(self: *App, key: modal_mod.Key) bool {
@@ -632,10 +689,10 @@ pub const App = struct {
             },
             .toggle_mute => {
                 const track_idx: u16 = switch (self.view) {
-                    .synth_editor => self.synth_track,
-                    .piano_roll   => self.piano_track,
-                    .drum_grid    => self.session.drum_track,
-                    else          => @intCast(self.cursor),
+                    .synth_editor  => self.synth_track,
+                    .piano_roll    => self.piano_track,
+                    .drum_grid, .sampler_editor => self.session.drum_track,
+                    else           => @intCast(self.cursor),
                 };
                 const track = &self.session.project.tracks.items[track_idx];
                 track.muted = !track.muted;
@@ -1183,6 +1240,7 @@ pub const App = struct {
             .tracks          => try tui.drawTracks(self, w, rows, snap),
             .drum_grid       => try tui.drawDrumGrid(self, w, rows, snap),
             .synth_editor    => try tui.drawSynthEditor(self, w, rows, snap),
+            .sampler_editor  => try tui.drawSamplerEditor(self, w, rows, size.cols, snap),
             .piano_roll      => try tui.drawPianoRoll(self, w, rows, size.cols, snap),
             .help            => try tui.drawHelp(w, rows, cmds),
             .track_spectrum  => try tui.drawSpectrumView(self, w, rows, size.cols, snap, true),
@@ -1217,6 +1275,7 @@ pub const App = struct {
             .tracks          => try tui.drawTracksStatus(self, w),
             .drum_grid       => try tui.drawDrumStatus(self, w),
             .synth_editor    => try tui.drawSynthStatus(self, w),
+            .sampler_editor  => try tui.drawSamplerStatus(self, w),
             .piano_roll      => try tui.drawPianoRollStatus(self, w),
             .help            => try w.writeAll(" esc: close"),
             .track_spectrum  => try tui.drawSpectrumStatus(self, w, true),
@@ -1426,6 +1485,53 @@ test "draw renders drum_grid view without overflowing" {
     const frame = w.buffered();
     try std.testing.expect(std.mem.indexOf(u8, frame, "DRUMS") != null);
     try std.testing.expect(std.mem.indexOf(u8, frame, "kick") != null);
+}
+
+test "e opens sampler editor from drum grid; esc returns" {
+    var app = try App.init(std.testing.allocator, std.Io.failing);
+    defer app.deinit();
+
+    app.view = .drum_grid;
+    app.drum_cursor = .{ 2, 0 };
+    _ = app.handleDrumKey(.{ .char = 'e' });
+    try std.testing.expectEqual(AppView.sampler_editor, app.view);
+
+    // j/k move the param cursor; 1-8 pick a pad.
+    _ = app.handleSamplerKey(.{ .char = 'j' });
+    try std.testing.expectEqual(@as(u8, 1), app.sampler_param);
+    _ = app.handleSamplerKey(.{ .char = '5' });
+    try std.testing.expectEqual(@as(u8, 4), app.drum_cursor[0]);
+
+    app.handleKey(.escape, 0);
+    try std.testing.expectEqual(AppView.drum_grid, app.view);
+}
+
+test "draw renders sampler editor without overflowing" {
+    var app = try App.init(std.testing.allocator, std.Io.failing);
+    defer app.deinit();
+
+    app.view = .sampler_editor;
+    app.drum_cursor = .{ 0, 0 };
+    var buf: [64 * 1024]u8 = undefined;
+    var w = std.Io.Writer.fixed(&buf);
+    try app.draw(&w, .{ .cols = 80, .rows = 30 });
+    const frame = w.buffered();
+    try std.testing.expect(std.mem.indexOf(u8, frame, "SAMPLER") != null);
+    try std.testing.expect(std.mem.indexOf(u8, frame, "attack") != null);
+}
+
+test "sampler param edit routes to drum machine over the queue" {
+    var app = try App.init(std.testing.allocator, std.Io.failing);
+    defer app.deinit();
+
+    app.view = .sampler_editor;
+    app.drum_cursor = .{ 0, 0 };
+    app.sampler_param = 2; // pitch
+    app.adjustSamplerParam(5);
+    // Drain the command queue (no audio thread in tests) so the edit applies.
+    var block: [128]types.Sample = undefined;
+    app.session.engine.process(&block);
+    try std.testing.expect(app.drumMachine().pads[0].?.pitch_semitones > 0.0);
 }
 
 test "draw renders tracks view without overflowing" {

@@ -228,7 +228,7 @@ pub fn drawDrumGrid(app: anytype, w: *std.Io.Writer, rows: usize, snap: engine_m
     const track_name = app.session.project.tracks.items[app.session.drum_track].name;
     try w.writeAll(bold ++ " DRUMS" ++ rst);
     try w.print(" \"{s}\"", .{track_name});
-    try w.writeAll(dim ++ "  [hjkl:move  HL:beat  enter:toggle  p:preview  +-:length  X:clear  F:fill  esc:back]");
+    try w.writeAll(dim ++ "  [hjkl:move  HL:beat  enter:toggle  p:preview  e:sampler  +-:length  X:clear  F:fill  esc:back]");
     try endLine(w);
 
     // step header — only the active range (step_count) is shown
@@ -338,10 +338,19 @@ pub fn drawHelp(w: *std.Io.Writer, rows: usize, cmds: []const cmd_mod.Def) !void
     try helpKey(w, "j / k",        "move cursor down / up (pad)");
     try helpKey(w, "enter",        "toggle step on/off");
     try helpKey(w, "p",            "preview pad sound");
+    try helpKey(w, "e",            "open sampler editor for current pad");
     try helpKey(w, "s",            "spectrum + EQ for drum track");
     try helpKey(w, "+ / -",        "lengthen / shorten loop (1–16 steps)");
     try helpKey(w, "X",            "clear all steps on current pad");
     try helpKey(w, "F",            "fill all steps on current pad");
+
+    try helpSection(w, "SAMPLER EDITOR");
+    try helpKey(w, "j / k",        "select parameter");
+    try helpKey(w, "h / l",        "adjust value (fine)");
+    try helpKey(w, "H / L",        "adjust value (coarse ×10)");
+    try helpKey(w, "1–8",          "switch to pad 1–8");
+    try helpKey(w, "p",            "audition current pad");
+    try helpKey(w, ":load-pad",    "<0-7> <file.wav>  load a sample into a pad");
 
     try helpSection(w, "SYNTH EDITOR");
     try helpKey(w, "j / k",        "select parameter");
@@ -1293,6 +1302,219 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer) !void {
               else try w.print("{d:.2}",   .{synth.noise_level}),
         37 => try w.print("{d:.2}",       .{synth.noise_color}),
         38 => try w.print("{d:.3}",       .{synth.gain}),
+        else => {},
+    }
+    try w.writeAll(rst);
+    if (app.status_len > 0) {
+        try w.writeAll(dim ++ "  " ++ rst);
+        try w.writeAll(app.status_buf[0..app.status_len]);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Sampler editor (per-pad)
+// ---------------------------------------------------------------------------
+
+/// Names for the sampler param rows, indexed by `app.sampler_param`.
+const sampler_param_labels = [_][]const u8{
+    "start", "end", "pitch", "attack", "decay", "sustain", "release", "gain", "pan", "reverse",
+};
+
+pub fn drawSamplerEditor(
+    app: anytype,
+    w: *std.Io.Writer,
+    rows: usize,
+    cols: usize,
+    snap: engine_mod.UiSnapshot,
+) !void {
+    _ = snap;
+    const dm = app.drumMachine();
+    const pad_idx = app.drum_cursor[0];
+    const c = app.sampler_param;
+
+    const track_name = app.session.project.tracks.items[app.session.drum_track].name;
+    const pad_name = dm.padName(pad_idx);
+
+    // Body budget: outer header(2) + transport/hr/status(3) = 5 lines reserved.
+    const body = rows -| 5;
+    var written: usize = 0;
+
+    // ── Title ────────────────────────────────────
+    try w.writeAll(bcyn ++ bold ++ " \u{2593} SAMPLER " ++ rst);
+    try w.writeAll(acc);
+    try w.print("\"{s}\"", .{track_name});
+    try w.writeAll(rst ++ dim);
+    try w.print("  pad {d}/{d} ", .{ pad_idx + 1, DrumMachine.max_pads });
+    try w.writeAll(rst ++ acc);
+    try w.print("\"{s}\"", .{pad_name});
+    try w.writeAll(dim ++ "   jk param \u{00B7} hl adjust \u{00B7} 1-8 pad \u{00B7} p audition \u{00B7} esc back" ++ rst);
+    try endLine(w);
+    written += 1;
+
+    // ── Waveform panel ───────────────────────────
+    // 13 lines are needed below for the 3 section headers + 10 param rows; give
+    // the waveform whatever vertical space remains, capped for readability.
+    const param_lines: usize = 13;
+    const wave_rows: usize = @min(@as(usize, 8), body -| (written + param_lines));
+    if (wave_rows >= 2) {
+        try drawWaveform(w, dm, pad_idx, cols, wave_rows);
+        written += wave_rows;
+    }
+
+    var buf: [40]u8 = undefined;
+
+    // ── SAMPLE ───────────────────────────────────
+    try synthSection(w, "SAMPLE", acc);
+    written += 1;
+    try barRow(w, c == 0, false, acc, "start", padOf(dm, pad_idx).start_norm, 1.0,
+        try std.fmt.bufPrint(&buf, "{d:.2}", .{padOf(dm, pad_idx).start_norm}));
+    try barRow(w, c == 1, false, acc, "end", padOf(dm, pad_idx).end_norm, 1.0,
+        try std.fmt.bufPrint(&buf, "{d:.2}", .{padOf(dm, pad_idx).end_norm}));
+    {
+        const semi = padOf(dm, pad_idx).pitch_semitones;
+        try barRow(w, c == 2, false, acc, "pitch", semi + 24.0, 48.0,
+            try std.fmt.bufPrint(&buf, "{s}{d:.0} st", .{ if (semi >= 0) "+" else "", semi }));
+    }
+    written += 3;
+
+    // ── AMP ENV ──────────────────────────────────
+    try synthSection(w, "AMP ENV", grn);
+    written += 1;
+    try barRow(w, c == 3, false, grn, "attack", padOf(dm, pad_idx).attack_s, 1.0,
+        try std.fmt.bufPrint(&buf, "{d:.3} s", .{padOf(dm, pad_idx).attack_s}));
+    try barRow(w, c == 4, false, grn, "decay", padOf(dm, pad_idx).decay_s, 1.0,
+        try std.fmt.bufPrint(&buf, "{d:.3} s", .{padOf(dm, pad_idx).decay_s}));
+    try barRow(w, c == 5, false, grn, "sustain", padOf(dm, pad_idx).sustain, 1.0,
+        try std.fmt.bufPrint(&buf, "{d:.3}", .{padOf(dm, pad_idx).sustain}));
+    try barRow(w, c == 6, false, grn, "release", padOf(dm, pad_idx).release_s, 1.0,
+        try std.fmt.bufPrint(&buf, "{d:.3} s", .{padOf(dm, pad_idx).release_s}));
+    written += 4;
+
+    // ── OUT ──────────────────────────────────────
+    try synthSection(w, "OUT", bcyn);
+    written += 1;
+    try barRow(w, c == 7, false, bcyn, "gain", padOf(dm, pad_idx).gain, 2.0,
+        try std.fmt.bufPrint(&buf, "{d:.2}", .{padOf(dm, pad_idx).gain}));
+    {
+        const pan = padOf(dm, pad_idx).pan;
+        const lab = if (@abs(pan) < 0.005)
+            try std.fmt.bufPrint(&buf, "C", .{})
+        else if (pan < 0)
+            try std.fmt.bufPrint(&buf, "L{d:.0}", .{-pan * 100})
+        else
+            try std.fmt.bufPrint(&buf, "R{d:.0}", .{pan * 100});
+        try barRow(w, c == 8, false, bcyn, "pan", pan + 1.0, 2.0, lab);
+    }
+    {
+        const rev_names = [_][]const u8{ "off", "on" };
+        try enumRow(w, c == 9, false, bcyn, "reverse", &rev_names, if (padOf(dm, pad_idx).reverse) 1 else 0);
+    }
+    written += 3;
+
+    while (written < body) : (written += 1) try endLine(w);
+}
+
+/// Return a const pointer to pad `idx`, or a zero-length placeholder pad when
+/// the slot is empty (keeps the editor renderable without optionals).
+fn padOf(dm: anytype, idx: u8) *const ws.dsp.Pad {
+    const placeholder = struct {
+        var p: ws.dsp.Pad = .{ .samples = &[_]f32{} };
+    };
+    if (dm.pads[idx]) |*pad| return pad;
+    return &placeholder.p;
+}
+
+/// Render a centered, filled waveform of pad `idx` over `wave_rows` rows.
+/// Samples inside the play region are drawn in accent; outside is dim. The
+/// start/end markers are drawn as bright vertical bars.
+fn drawWaveform(
+    w: *std.Io.Writer,
+    dm: anytype,
+    idx: u8,
+    cols: usize,
+    wave_rows: usize,
+) !void {
+    const gutter = 2;
+    const width = @min(cols -| gutter, @as(usize, 120));
+    const pad = if (dm.pads[idx]) |*p| p else {
+        for (0..wave_rows) |_| {
+            try w.writeAll(dim ++ "  (no sample)" ++ rst);
+            try endLine(w);
+        }
+        return;
+    };
+    const len = pad.samples.len;
+
+    // Per-column peak amplitude over the column's sample bucket.
+    var amp: [120]f32 = undefined;
+    var peak: f32 = 1e-6;
+    for (0..width) |x| {
+        var a: f32 = 0;
+        if (len > 0) {
+            const lo = x * len / width;
+            const hi = @max(lo + 1, (x + 1) * len / width);
+            var j = lo;
+            while (j < hi and j < len) : (j += 1) a = @max(a, @abs(pad.samples[j]));
+        }
+        amp[x] = a;
+        peak = @max(peak, a);
+    }
+    // Normalise to the loudest column so quiet samples are still visible.
+    const inv_peak = 1.0 / peak;
+
+    const start_col: usize = @intFromFloat(@as(f32, @floatCast(pad.start_norm)) * @as(f32, @floatFromInt(width)));
+    const end_col: usize = @intFromFloat(@as(f32, @floatCast(pad.end_norm)) * @as(f32, @floatFromInt(width)));
+
+    const center = @as(f32, @floatFromInt(wave_rows)) / 2.0;
+    for (0..wave_rows) |row| {
+        try w.writeAll("  ");
+        const d_from_center = @abs(@as(f32, @floatFromInt(row)) + 0.5 - center);
+        for (0..width) |x| {
+            const is_marker = (x == start_col or x == end_col);
+            const in_region = x >= start_col and x <= end_col;
+            const radius = amp[x] * inv_peak * center;
+            const filled = d_from_center <= radius;
+
+            if (is_marker) {
+                try w.writeAll(bcyn ++ bold ++ "\u{2503}" ++ rst); // ┃
+            } else if (filled) {
+                try w.writeAll(if (in_region) acc else dim);
+                try w.writeAll("\u{2588}"); // █
+                try w.writeAll(rst);
+            } else if (row == @as(usize, @intFromFloat(center))) {
+                try w.writeAll(dim ++ "\u{2500}" ++ rst); // ─ zero axis
+            } else {
+                try w.writeByte(' ');
+            }
+        }
+        try endLine(w);
+    }
+}
+
+pub fn drawSamplerStatus(app: anytype, w: *std.Io.Writer) !void {
+    const dm = app.drumMachine();
+    const pad_idx = app.drum_cursor[0];
+    const pad = padOf(dm, pad_idx);
+    const cur = @min(@as(usize, app.sampler_param), sampler_param_labels.len - 1);
+
+    try w.writeAll(grn ++ sel ++ " SAMPLER " ++ rst);
+    try w.writeAll(dim ++ "  pad " ++ rst);
+    try w.print("{d}", .{pad_idx + 1});
+    try w.writeAll(dim ++ "  " ++ rst);
+    try w.writeAll(sampler_param_labels[cur]);
+    try w.writeAll(dim ++ ": " ++ rst);
+    try w.writeAll(acc);
+    switch (app.sampler_param) {
+        0 => try w.print("{d:.2}", .{pad.start_norm}),
+        1 => try w.print("{d:.2}", .{pad.end_norm}),
+        2 => try w.print("{s}{d:.0} st", .{ if (pad.pitch_semitones >= 0) "+" else "", pad.pitch_semitones }),
+        3 => try w.print("{d:.3} s", .{pad.attack_s}),
+        4 => try w.print("{d:.3} s", .{pad.decay_s}),
+        5 => try w.print("{d:.3}", .{pad.sustain}),
+        6 => try w.print("{d:.3} s", .{pad.release_s}),
+        7 => try w.print("{d:.2}", .{pad.gain}),
+        8 => try w.writeAll(if (@abs(pad.pan) < 0.005) "C" else if (pad.pan < 0) "L" else "R"),
+        9 => try w.writeAll(if (pad.reverse) "on" else "off"),
         else => {},
     }
     try w.writeAll(rst);
