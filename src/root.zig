@@ -26,6 +26,7 @@ else
 pub const dsp = @import("dsp.zig");
 
 pub const Session = @import("session.zig").Session;
+pub const persist = @import("persist.zig");
 
 pub const midi = @import("midi.zig");
 
@@ -45,5 +46,6 @@ test {
     _ = alsa;
     _ = dsp;
     _ = Session;
+    _ = persist;
     _ = input;
 }
