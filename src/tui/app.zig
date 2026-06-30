@@ -12,6 +12,7 @@ const DrumMachine = ws.dsp.DrumMachine;
 const GraphicEq = ws.dsp.GraphicEq;
 const eq_mod = ws.dsp.eq;
 const cmd_mod = @import("cmd.zig");
+const commands = @import("commands.zig");
 const tui = @import("tui.zig");
 const midi = ws.midi;
 
@@ -38,47 +39,6 @@ pub const SamplerTarget = union(enum) {
 /// The instruments the picker offers, in display order.
 pub const picker_kinds = [_]InstrumentKind{ .poly_synth, .sampler, .drum_machine };
 pub const picker_labels = [_][]const u8{ "Synth", "Sampler", "Drum Machine" };
-
-fn wrap(comptime f: fn (*App, []const u8) void) *const fn (*anyopaque, []const u8) void {
-    return struct {
-        fn call(ctx: *anyopaque, args: []const u8) void {
-            f(@ptrCast(@alignCast(ctx)), args);
-        }
-    }.call;
-}
-
-const cmds: []const cmd_mod.Def = &.{
-    .{ .name = "q",           .desc = "quit wstudio",                        .run = wrap(App.cmdQuit) },
-    .{ .name = "q!",          .desc = "quit wstudio (alias for :q)",         .run = wrap(App.cmdQuit) },
-    .{ .name = "quit",        .desc = "quit wstudio",                        .run = wrap(App.cmdQuit) },
-    .{ .name = "qa",          .desc = "quit wstudio (alias for :q)",         .run = wrap(App.cmdQuit) },
-    .{ .name = "qa!",         .desc = "quit wstudio (alias for :q)",         .run = wrap(App.cmdQuit) },
-    .{ .name = "bpm",         .desc = "[<value>]  tempo in BPM (20–400)",    .run = wrap(App.cmdBpm) },
-    .{ .name = "gain",        .desc = "<track> [<dB>]  track gain",          .run = wrap(App.cmdGain) },
-    .{ .name = "pan",         .desc = "<track> [<-1..1>]  track pan",        .run = wrap(App.cmdPan) },
-    .{ .name = "vol",         .desc = "[<dB>]  master volume (–40 to +6)",   .run = wrap(App.cmdVol) },
-    .{ .name = "seek",        .desc = "<bar>  move playhead to bar",         .run = wrap(App.cmdSeek) },
-    .{ .name = "load-pad",    .desc = "<0-7> <file>  load WAV into pad",     .run = wrap(App.cmdLoadPad) },
-    .{ .name = "load-sample", .desc = "<file>  load WAV into sampler track",  .run = wrap(App.cmdLoadSample) },
-    .{ .name = "help",        .desc = "list all commands",                   .run = wrap(App.cmdHelp) },
-    .{ .name = "h",           .desc = "list all commands (alias for :help)", .run = wrap(App.cmdHelp) },
-    .{ .name = "eq",          .desc = "<track> [<band> <db>]  EQ control",   .run = wrap(App.cmdEq) },
-    .{ .name = "track-add",   .desc = "[name]  add a synth track",           .run = wrap(App.cmdTrackAdd) },
-    .{ .name = "track-del",   .desc = "[n]  delete track n (default: cursor)", .run = wrap(App.cmdTrackDel) },
-    .{ .name = "d",           .desc = "[n]  delete track n (alias for :track-del)", .run = wrap(App.cmdTrackDel) },
-    .{ .name = "track-rename",.desc = "<n> <name>  rename track n",          .run = wrap(App.cmdTrackRename) },
-    .{ .name = "save",        .desc = "[file]  save project (default: project.wsj)", .run = wrap(App.cmdSave) },
-    .{ .name = "w",           .desc = "[file]  save project (alias for :save)",      .run = wrap(App.cmdSave) },
-    .{ .name = "wa",          .desc = "[file]  save project (alias for :save)",      .run = wrap(App.cmdSave) },
-    .{ .name = "wq",          .desc = "[file]  save project and quit",               .run = wrap(App.cmdWriteQuit) },
-    .{ .name = "x",           .desc = "[file]  save project and quit (alias for :wq)", .run = wrap(App.cmdWriteQuit) },
-    .{ .name = "wq!",         .desc = "[file]  save project and quit (alias for :wq)", .run = wrap(App.cmdWriteQuit) },
-    .{ .name = "xa",          .desc = "[file]  save project and quit (alias for :wq)", .run = wrap(App.cmdWriteQuit) },
-    .{ .name = "bounce",      .desc = "[file]  render session to WAV (default: bounce.wav)", .run = wrap(App.cmdBounce) },
-    .{ .name = "export",      .desc = "[file]  render session to WAV (alias for :bounce)",   .run = wrap(App.cmdBounce) },
-    .{ .name = "clear",       .desc = "erase all notes in the piano-roll pattern",          .run = wrap(App.cmdClear) },
-    .{ .name = "%d",          .desc = "erase all notes in the pattern (alias for :clear)",  .run = wrap(App.cmdClear) },
-};
 
 pub const App = struct {
     allocator: std.mem.Allocator,
@@ -156,7 +116,7 @@ pub const App = struct {
 
     /// Total content length in beats: the longest piano-roll loop and the
     /// longest drum-machine pattern across all tracks.
-    fn contentBeats(self: *App) f64 {
+    pub fn contentBeats(self: *App) f64 {
         var max_beats: f64 = 0;
         for (self.session.racks.items) |rack| {
             if (rack.pattern_player) |pp| max_beats = @max(max_beats, pp.length_beats);
@@ -225,7 +185,7 @@ pub const App = struct {
                         'p' => { self.switchToPianoRoll(@intCast(self.cursor)); return; },
                         'a' => { self.doTrackAdd(null); return; },
                         'D' => { self.doTrackDel(self.cursor); return; },
-                        '?' => { self.cmdHelp(""); return; },
+                        '?' => { commands.cmdHelp(self, ""); return; },
                         '<' => { self.doTrackPan(@intCast(self.cursor), -0.05); return; },
                         '>' => { self.doTrackPan(@intCast(self.cursor), 0.05); return; },
                         '-' => { self.doTrackGainStep(@intCast(self.cursor), -1.0); return; },
@@ -351,7 +311,7 @@ pub const App = struct {
         return 0.0;
     }
 
-    fn setEqBand(self: *App, track: u16, band: usize, gain_db: f32) void {
+    pub fn setEqBand(self: *App, track: u16, band: usize, gain_db: f32) void {
         if (track >= self.session.racks.items.len) return;
         const rack = self.session.racks.items[track];
         if (rack.fx.eq == null) rack.fx.eq = GraphicEq.init(self.session.project.sample_rate);
@@ -866,7 +826,7 @@ pub const App = struct {
                     .empty => {},
                 }
             },
-            .command_submit => |text| self.runCommand(text),
+            .command_submit => |text| commands.run(self, text),
         }
     }
 
@@ -908,7 +868,7 @@ pub const App = struct {
     // Track add / delete internals
     // -----------------------------------------------------------------------
 
-    fn doTrackAdd(self: *App, name_arg: ?[]const u8) void {
+    pub fn doTrackAdd(self: *App, name_arg: ?[]const u8) void {
         var name_buf: [32]u8 = undefined;
         const name: []const u8 = name_arg orelse std.fmt.bufPrint(
             &name_buf, "track {d}", .{self.session.project.tracks.items.len},
@@ -925,7 +885,7 @@ pub const App = struct {
         self.setStatus("added \"{s}\" (track {d})", .{ name, idx + 1 });
     }
 
-    fn doTrackDel(self: *App, track_idx: usize) void {
+    pub fn doTrackDel(self: *App, track_idx: usize) void {
         self.session.deleteTrack(track_idx) catch {
             self.setStatus("cannot delete the last track", .{});
             return;
@@ -1002,464 +962,7 @@ pub const App = struct {
     // Command handlers
     // -----------------------------------------------------------------------
 
-    fn runCommand(self: *App, text: []const u8) void {
-        if (!cmd_mod.dispatch(cmds, self, text)) {
-            self.setStatus("not a command: {s}  (try :help)", .{text});
-        }
-    }
-
-    fn cmdQuit(self: *App, _: []const u8) void { self.should_quit = true; }
-
-    fn cmdClear(self: *App, _: []const u8) void {
-        if (self.piano_track >= self.session.racks.items.len or
-            self.session.racks.items[self.piano_track].pattern_player == null)
-        {
-            self.setStatus("clear: no piano-roll pattern", .{});
-            return;
-        }
-        const pp = &self.session.racks.items[self.piano_track].pattern_player.?;
-        const n = pp.note_count;
-        pp.clearNotes();
-        self.setStatus("cleared {d} notes", .{n});
-    }
-
-    fn cmdHelp(self: *App, _: []const u8) void {
-        self.prev_view = self.view;
-        self.help_scroll = 0;
-        self.view = .help;
-    }
-
-    fn cmdTrackAdd(self: *App, args: []const u8) void {
-        const name = std.mem.trim(u8, args, " ");
-        self.doTrackAdd(if (name.len > 0) name else null);
-    }
-
-    fn cmdTrackDel(self: *App, args: []const u8) void {
-        const trimmed = std.mem.trim(u8, args, " ");
-        const idx: usize = if (trimmed.len == 0) blk: {
-            break :blk self.cursor;
-        } else blk: {
-            const n = std.fmt.parseInt(usize, trimmed, 10) catch {
-                self.setStatus("track-del: expected a track number", .{});
-                return;
-            };
-            if (n == 0 or n > self.session.project.tracks.items.len) {
-                self.setStatus("track-del: track must be 1–{d}", .{self.session.project.tracks.items.len});
-                return;
-            }
-            break :blk n - 1;
-        };
-        self.doTrackDel(idx);
-    }
-
-    fn cmdTrackRename(self: *App, args: []const u8) void {
-        var it = std.mem.splitScalar(u8, std.mem.trim(u8, args, " "), ' ');
-        const n_str = it.next() orelse {
-            self.setStatus("usage: track-rename <n> <name>", .{});
-            return;
-        };
-        const name = std.mem.trim(u8, it.rest(), " ");
-        if (name.len == 0) {
-            self.setStatus("usage: track-rename <n> <name>", .{});
-            return;
-        }
-        const n = std.fmt.parseInt(usize, n_str, 10) catch {
-            self.setStatus("track-rename: expected a track number", .{});
-            return;
-        };
-        if (n == 0 or n > self.session.project.tracks.items.len) {
-            self.setStatus("track-rename: track must be 1–{d}", .{self.session.project.tracks.items.len});
-            return;
-        }
-        self.session.project.renameTrack(n - 1, name) catch {
-            self.setStatus("out of memory", .{});
-            return;
-        };
-        self.setStatus("track {d} renamed to \"{s}\"", .{ n, name });
-    }
-
-    fn cmdLoadPad(self: *App, args: []const u8) void {
-        var it = std.mem.splitScalar(u8, args, ' ');
-        const pad_str = it.next() orelse {
-            self.setStatus("usage: load-pad <0-7> <file.wav>", .{});
-            return;
-        };
-        const path = it.rest();
-        const pad_idx = std.fmt.parseInt(u8, pad_str, 10) catch {
-            self.setStatus("load-pad: bad pad index '{s}'", .{pad_str});
-            return;
-        };
-        if (pad_idx >= DrumMachine.max_pads) {
-            self.setStatus("load-pad: pad index must be 0-7", .{});
-            return;
-        }
-        const data = std.Io.Dir.cwd().readFileAlloc(
-            self.io,
-            path,
-            self.allocator,
-            .limited(64 * 1024 * 1024),
-        ) catch |e| {
-            self.setStatus("load-pad: cannot read '{s}': {s}", .{ path, @errorName(e) });
-            return;
-        };
-        defer self.allocator.free(data);
-        const dm = self.cursorDrumMachine() orelse {
-            self.setStatus("load-pad: select a drum-machine track first", .{});
-            return;
-        };
-        const basename = std.fs.path.basename(path);
-        const stem = if (std.mem.lastIndexOf(u8, basename, ".")) |dot| basename[0..dot] else basename;
-        dm.loadPadWav(pad_idx, data, stem) catch |e| {
-            self.setStatus("load-pad: parse error: {s}", .{@errorName(e)});
-            return;
-        };
-        self.setStatus("pad {d} loaded: {s}", .{ pad_idx, stem });
-    }
-
-    /// The drum machine on the cursor's track, or — if the drum grid is open —
-    /// the one being edited. Null when neither is a drum machine.
-    fn cursorDrumMachine(self: *App) ?*DrumMachine {
-        if (self.cursor < self.session.racks.items.len) {
-            switch (self.session.racks.items[self.cursor].instrument) {
-                .drum_machine => |*dm| return dm,
-                else => {},
-            }
-        }
-        if (self.view == .drum_grid and self.drum_track < self.session.racks.items.len) {
-            switch (self.session.racks.items[self.drum_track].instrument) {
-                .drum_machine => |*dm| return dm,
-                else => {},
-            }
-        }
-        return null;
-    }
-
-    /// The standalone Sampler on the cursor's track, or null.
-    fn cursorSampler(self: *App) ?*Sampler {
-        if (self.cursor >= self.session.racks.items.len) return null;
-        return switch (self.session.racks.items[self.cursor].instrument) {
-            .sampler => |*s| s, else => null,
-        };
-    }
-
-    fn cmdLoadSample(self: *App, args: []const u8) void {
-        const path = std.mem.trim(u8, args, " ");
-        if (path.len == 0) {
-            self.setStatus("usage: load-sample <file.wav>", .{});
-            return;
-        }
-        const s = self.cursorSampler() orelse {
-            self.setStatus("load-sample: select a sampler track first", .{});
-            return;
-        };
-        const data = std.Io.Dir.cwd().readFileAlloc(
-            self.io,
-            path,
-            self.allocator,
-            .limited(64 * 1024 * 1024),
-        ) catch |e| {
-            self.setStatus("load-sample: cannot read '{s}': {s}", .{ path, @errorName(e) });
-            return;
-        };
-        defer self.allocator.free(data);
-        const basename = std.fs.path.basename(path);
-        const stem = if (std.mem.lastIndexOf(u8, basename, ".")) |dot| basename[0..dot] else basename;
-        s.loadWav(data, stem) catch |e| {
-            self.setStatus("load-sample: parse error: {s}", .{@errorName(e)});
-            return;
-        };
-        self.setStatus("sample loaded: {s}", .{stem});
-    }
-
-    fn cmdSave(self: *App, args: []const u8) void {
-        const path = if (std.mem.trim(u8, args, " ").len > 0)
-            std.mem.trim(u8, args, " ")
-        else
-            "project.wsj";
-        ws.persist.save(self.allocator, &self.session, self.io, path) catch |e| {
-            self.setStatus("save: {s}: {s}", .{ path, @errorName(e) });
-            return;
-        };
-        self.setStatus("saved: {s}", .{path});
-    }
-
-    /// Vim-style write-and-quit: save the project, then exit. Only quits when
-    /// the save succeeds so a failed write leaves the session intact.
-    fn cmdWriteQuit(self: *App, args: []const u8) void {
-        const path = if (std.mem.trim(u8, args, " ").len > 0)
-            std.mem.trim(u8, args, " ")
-        else
-            "project.wsj";
-        ws.persist.save(self.allocator, &self.session, self.io, path) catch |e| {
-            self.setStatus("save: {s}: {s}", .{ path, @errorName(e) });
-            return;
-        };
-        self.should_quit = true;
-    }
-
-    /// Render the live session (patterns + synth params + drum grid) offline to
-    /// a 16-bit PCM WAV. Length = the longest loop plus a 2s tail for reverb and
-    /// release. The realtime backend is parked for the duration so the UI thread
-    /// can drive the engine without racing the audio thread.
-    fn cmdBounce(self: *App, args: []const u8) void {
-        const path = if (std.mem.trim(u8, args, " ").len > 0)
-            std.mem.trim(u8, args, " ")
-        else
-            "bounce.wav";
-
-        const engine = self.session.engine;
-        const sr = self.session.project.sample_rate;
-
-        const max_beats = @max(1.0, self.contentBeats());
-        const content_frames: u64 = @intFromFloat(engine.transport.framesPerBeat() * max_beats);
-        const total_frames = content_frames + types.secondsToFrames(2.0, sr);
-        const buffer = self.allocator.alloc(
-            types.Sample,
-            @as(usize, @intCast(total_frames)) * engine_mod.channels,
-        ) catch {
-            self.setStatus("bounce: out of memory", .{});
-            return;
-        };
-        defer self.allocator.free(buffer);
-
-        self.parkAudio();
-        self.renderBounce(buffer);
-        engine.bounce_active.store(false, .release);
-        engine.bounce_parked.store(false, .release);
-
-        const file = std.Io.Dir.cwd().createFile(self.io, path, .{}) catch |e| {
-            self.setStatus("bounce: {s}: {s}", .{ path, @errorName(e) });
-            return;
-        };
-        defer file.close(self.io);
-        var fbuf: [8192]u8 = undefined;
-        var fw = file.writer(self.io, &fbuf);
-        ws.wav.write(&fw.interface, sr, engine_mod.channels, buffer) catch |e| {
-            self.setStatus("bounce: write failed: {s}", .{@errorName(e)});
-            return;
-        };
-        fw.interface.flush() catch {};
-
-        self.setStatus("bounced {d:.1}s -> {s}", .{ types.framesToSeconds(total_frames, sr), path });
-    }
-
-    /// Signal the realtime backend to park, then wait until it confirms (or time
-    /// out — in tests no audio thread is running, so there is nothing to wait on).
-    fn parkAudio(self: *App) void {
-        const engine = self.session.engine;
-        engine.bounce_parked.store(false, .release);
-        engine.bounce_active.store(true, .release);
-        const start = std.Io.Timestamp.now(self.io, .awake).nanoseconds;
-        while (!engine.bounce_parked.load(.acquire)) {
-            const elapsed = std.Io.Timestamp.now(self.io, .awake).nanoseconds - start;
-            if (elapsed > 100 * std.time.ns_per_ms) break;
-            std.atomic.spinLoopHint();
-        }
-    }
-
-    /// Render the session from beat 0 into `buffer` (interleaved stereo), then
-    /// restore the live transport position and playing state. Assumes the caller
-    /// owns the engine (audio thread parked).
-    fn renderBounce(self: *App, buffer: []types.Sample) void {
-        const engine = self.session.engine;
-        const was_playing = engine.transport.playing;
-        const saved_pos = engine.transport.position_frames;
-
-        self.resetDevices();
-        engine.transport.seekFrames(0);
-        engine.transport.play();
-
-        const block = types.default_block_frames * engine_mod.channels;
-        var offset: usize = 0;
-        while (offset < buffer.len) {
-            const end = @min(offset + block, buffer.len);
-            engine.process(buffer[offset..end]);
-            offset = end;
-        }
-
-        self.resetDevices();
-        engine.transport.seekFrames(saved_pos);
-        if (was_playing) engine.transport.play() else engine.transport.stop();
-    }
-
-    /// Clear every device's tails/voices/sequencer state across all racks.
-    fn resetDevices(self: *App) void {
-        var buf: [6]dsp.Device = undefined;
-        for (self.session.racks.items) |rack| {
-            for (rack.chain(&buf)) |dev| dev.reset();
-        }
-    }
-
-    fn cmdBpm(self: *App, args: []const u8) void {
-        const trimmed = std.mem.trim(u8, args, " ");
-        if (trimmed.len == 0) {
-            self.setStatus("bpm: {d:.1}", .{self.session.project.tempo_bpm});
-            return;
-        }
-        const bpm = std.fmt.parseFloat(f64, trimmed) catch {
-            self.setStatus("bpm: expected a number, e.g. :bpm 140", .{});
-            return;
-        };
-        if (bpm < 20.0 or bpm > 400.0) {
-            self.setStatus("bpm: must be between 20 and 400", .{});
-            return;
-        }
-        self.session.project.tempo_bpm = bpm;
-        _ = self.session.engine.send(.{ .set_tempo = bpm });
-        self.setStatus("bpm: {d:.1}", .{bpm});
-    }
-
-    fn cmdGain(self: *App, args: []const u8) void {
-        var it = std.mem.splitScalar(u8, args, ' ');
-        const track_str = it.next() orelse {
-            self.setStatus("usage: gain <track> [<dB>]", .{});
-            return;
-        };
-        const track_1 = std.fmt.parseInt(usize, track_str, 10) catch {
-            self.setStatus("gain: bad track number '{s}'", .{track_str});
-            return;
-        };
-        if (track_1 == 0 or track_1 > self.session.project.tracks.items.len) {
-            self.setStatus("gain: track must be 1–{d}", .{self.session.project.tracks.items.len});
-            return;
-        }
-        const track_idx = track_1 - 1;
-        const track = &self.session.project.tracks.items[track_idx];
-        const db_str = std.mem.trim(u8, it.rest(), " ");
-        if (db_str.len == 0) {
-            self.setStatus("track {d} gain: {d:.1}dB", .{ track_1, track.gain_db });
-            return;
-        }
-        const db = std.fmt.parseFloat(f32, db_str) catch {
-            self.setStatus("gain: expected a dB value, e.g. :gain 2 -6", .{});
-            return;
-        };
-        const clamped = std.math.clamp(db, -60.0, 12.0);
-        track.gain_db = clamped;
-        _ = self.session.engine.send(.{ .set_track_gain = .{
-            .track = @intCast(track_idx),
-            .gain = types.dbToGain(clamped),
-        } });
-        self.setStatus("track {d} gain: {d:.1}dB", .{ track_1, clamped });
-    }
-
-    fn cmdPan(self: *App, args: []const u8) void {
-        var it = std.mem.splitScalar(u8, std.mem.trim(u8, args, " "), ' ');
-        const track_str = it.next() orelse {
-            self.setStatus("usage: pan <track> [<-1..1>]", .{});
-            return;
-        };
-        const track_1 = std.fmt.parseInt(usize, track_str, 10) catch {
-            self.setStatus("pan: bad track number '{s}'", .{track_str});
-            return;
-        };
-        if (track_1 == 0 or track_1 > self.session.project.tracks.items.len) {
-            self.setStatus("pan: track must be 1–{d}", .{self.session.project.tracks.items.len});
-            return;
-        }
-        const track_idx = track_1 - 1;
-        const track = &self.session.project.tracks.items[track_idx];
-        const val_str = std.mem.trim(u8, it.rest(), " ");
-        if (val_str.len == 0) {
-            const pct: i32 = @intFromFloat(@abs(track.pan) * 100.0);
-            if (pct == 0) self.setStatus("track {d} pan: center", .{track_1})
-            else if (track.pan < 0) self.setStatus("track {d} pan: L{d}%", .{ track_1, pct })
-            else self.setStatus("track {d} pan: R{d}%", .{ track_1, pct });
-            return;
-        }
-        const val = std.fmt.parseFloat(f32, val_str) catch {
-            self.setStatus("pan: expected a value between -1.0 and 1.0", .{});
-            return;
-        };
-        track.pan = std.math.clamp(val, -1.0, 1.0);
-        _ = self.session.engine.send(.{ .set_track_pan = .{ .track = @intCast(track_idx), .pan = track.pan } });
-        const pct: i32 = @intFromFloat(@abs(track.pan) * 100.0);
-        if (pct == 0) self.setStatus("track {d} pan: center", .{track_1})
-        else if (track.pan < 0) self.setStatus("track {d} pan: L{d}%", .{ track_1, pct })
-        else self.setStatus("track {d} pan: R{d}%", .{ track_1, pct });
-    }
-
-    fn cmdSeek(self: *App, args: []const u8) void {
-        const trimmed = std.mem.trim(u8, args, " ");
-        const bar_1 = std.fmt.parseInt(u64, trimmed, 10) catch {
-            self.setStatus("seek: expected a bar number, e.g. :seek 5", .{});
-            return;
-        };
-        if (bar_1 == 0) {
-            self.setStatus("seek: bar number starts at 1", .{});
-            return;
-        }
-        const sr = @as(f64, @floatFromInt(self.session.project.sample_rate));
-        const bpm = @max(self.session.project.tempo_bpm, 1.0);
-        const beats_per_bar: f64 = @floatFromInt(self.session.engine.transport.time_signature.beats_per_bar);
-        const frames_per_bar: u64 = @intFromFloat(sr * 60.0 / bpm * beats_per_bar);
-        _ = self.session.engine.send(.{ .seek_frames = (bar_1 - 1) * frames_per_bar });
-        self.setStatus("seek → bar {d}", .{bar_1});
-    }
-
-    fn cmdVol(self: *App, args: []const u8) void {
-        const trimmed = std.mem.trim(u8, args, " ");
-        if (trimmed.len == 0) {
-            const sign: []const u8 = if (self.master_gain_db >= 0) "+" else "";
-            self.setStatus("master vol: {s}{d:.1}dB  ([ / ] to adjust)", .{ sign, self.master_gain_db });
-            return;
-        }
-        const db = std.fmt.parseFloat(f32, trimmed) catch {
-            self.setStatus("vol: expected a dB value, e.g. :vol -6", .{});
-            return;
-        };
-        self.master_gain_db = std.math.clamp(db, -40.0, 6.0);
-        _ = self.session.engine.send(.{ .set_master_gain = types.dbToGain(self.master_gain_db) });
-        const sign: []const u8 = if (self.master_gain_db >= 0) "+" else "";
-        self.setStatus("master vol: {s}{d:.1}dB", .{ sign, self.master_gain_db });
-    }
-
-    fn cmdEq(self: *App, args: []const u8) void {
-        var it = std.mem.splitScalar(u8, args, ' ');
-        const track_str = it.next() orelse {
-            self.setStatus("usage: eq <track> [<band> <db>]", .{});
-            return;
-        };
-        const track_1 = std.fmt.parseInt(usize, track_str, 10) catch {
-            self.setStatus("eq: bad track number '{s}'", .{track_str});
-            return;
-        };
-        if (track_1 == 0 or track_1 > self.session.racks.items.len) {
-            self.setStatus("eq: track must be 1–{d}", .{self.session.racks.items.len});
-            return;
-        }
-        const track_idx = track_1 - 1;
-        const rest = std.mem.trim(u8, it.rest(), " ");
-        if (rest.len == 0) {
-            if (self.session.racks.items[track_idx].fx.eq) |*eq| {
-                self.setStatus("track {d}: bypass={}", .{ track_1, eq.bypass });
-            } else {
-                self.setStatus("track {d}: no EQ", .{track_1});
-            }
-            return;
-        }
-        var rit = std.mem.splitScalar(u8, rest, ' ');
-        const band_str = rit.next() orelse {
-            self.setStatus("eq: usage eq <track> <band> <db>", .{});
-            return;
-        };
-        const band = std.fmt.parseInt(usize, band_str, 10) catch {
-            self.setStatus("eq: bad band number", .{});
-            return;
-        };
-        if (band >= eq_mod.num_eq_bands) {
-            self.setStatus("eq: band must be 0–{d}", .{eq_mod.num_eq_bands - 1});
-            return;
-        }
-        const db = std.fmt.parseFloat(f32, rit.rest()) catch {
-            self.setStatus("eq: expected dB value", .{});
-            return;
-        };
-        self.setEqBand(@intCast(track_idx), band, db);
-        self.setStatus("track {d} eq band {d}: {d:.1}dB", .{ track_1, band, db });
-    }
-
-    fn setStatus(self: *App, comptime fmt: []const u8, args: anytype) void {
+    pub fn setStatus(self: *App, comptime fmt: []const u8, args: anytype) void {
         const msg = std.fmt.bufPrint(&self.status_buf, fmt, args) catch &self.status_buf;
         self.status_len = msg.len;
         self.status_ttl = 100;
@@ -1483,7 +986,7 @@ pub const App = struct {
             .synth_editor    => try tui.drawSynthEditor(self, w, rows, snap),
             .sampler_editor  => try tui.drawSamplerEditor(self, w, rows, size.cols, snap),
             .piano_roll      => try tui.drawPianoRoll(self, w, rows, size.cols, snap),
-            .help            => try tui.drawHelp(w, rows, cmds, &self.help_scroll),
+            .help            => try tui.drawHelp(w, rows, commands.cmds, &self.help_scroll),
             .track_spectrum  => try tui.drawSpectrumView(self, w, rows, size.cols, snap, true),
             .master_spectrum => try tui.drawSpectrumView(self, w, rows, size.cols, snap, false),
             .instrument_picker => try tui.drawInstrumentPicker(self, w, rows),
@@ -1684,7 +1187,7 @@ test "renderBounce sequences notes offline and restores transport" {
     try std.testing.expect(!app.session.engine.transport.playing);
 
     var buffer: [4096 * engine_mod.channels]types.Sample = undefined;
-    app.renderBounce(&buffer);
+    commands.renderBounce(&app, &buffer);
 
     var peak: f32 = 0.0;
     for (buffer) |s| peak = @max(peak, @abs(s));
