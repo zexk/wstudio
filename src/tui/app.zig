@@ -814,6 +814,21 @@ pub const App = struct {
                     .muted = track.muted,
                 } });
             },
+            .toggle_solo => {
+                const track_idx: u16 = switch (self.view) {
+                    .synth_editor   => self.synth_track,
+                    .piano_roll     => self.piano_track,
+                    .drum_grid      => self.drum_track,
+                    .sampler_editor => self.sampler_target.track(),
+                    else            => @intCast(self.cursor),
+                };
+                const track = &self.session.project.tracks.items[track_idx];
+                track.soloed = !track.soloed;
+                _ = self.session.engine.send(.{ .set_track_solo = .{
+                    .track = track_idx,
+                    .soloed = track.soloed,
+                } });
+            },
             .note => |n| {
                 if (self.cursor >= self.session.racks.items.len) return;
                 switch (self.session.racks.items[self.cursor].instrument) {
@@ -1207,6 +1222,18 @@ test "toggle_mute flips project state and reaches the engine" {
     var block: [64]types.Sample = undefined;
     app.session.engine.process(&block);
     try std.testing.expect(app.session.engine.tracks[0].muted);
+}
+
+test "toggle_solo flips project state and reaches the engine" {
+    var app = try testApp();
+    defer app.deinit();
+
+    app.applyAction(.toggle_solo, 0);
+    try std.testing.expect(app.session.project.tracks.items[0].soloed);
+
+    var block: [64]types.Sample = undefined;
+    app.session.engine.process(&block);
+    try std.testing.expect(app.session.engine.tracks[0].soloed);
 }
 
 test "notes route to a synth track and queue their own release" {

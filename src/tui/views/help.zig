@@ -91,6 +91,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("p",            "piano roll for synth tracks");
     t.key("s",            "spectrum + EQ for selected track");
     t.key("m",            "mute / unmute selected track");
+    t.key("S",            "solo / unsolo selected track");
     t.key("M",            "master spectrum");
     t.key("< / >",        "pan left / right  (5% per step)");
     t.key("- / +",        "track gain −1 dB / +1 dB  (= also works)");

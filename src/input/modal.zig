@@ -27,6 +27,7 @@ pub const Action = union(enum) {
     goto_end,
     toggle_play,
     toggle_mute,
+    toggle_solo,
     octave_down,
     octave_up,
     /// Insert-mode key mapped through the piano layout.
@@ -152,6 +153,7 @@ pub const ModalInput = struct {
             },
             ' ' => return .toggle_play,
             'm' => return .toggle_mute,
+            'S' => return .toggle_solo,
             '[' => return .{ .volume_delta = -self.takeCount() },
             ']' => return .{ .volume_delta = self.takeCount() },
             else => return .none,
@@ -253,6 +255,7 @@ test "space toggles transport, escape cancels count" {
     var input: ModalInput = .{};
     try std.testing.expectEqual(Action.toggle_play, press(&input, " "));
     try std.testing.expectEqual(Action.toggle_mute, press(&input, "m"));
+    try std.testing.expectEqual(Action.toggle_solo, press(&input, "S"));
     _ = press(&input, "42");
     _ = input.handle(.escape);
     try std.testing.expectEqual(Action{ .move = .{ .dy = 1 } }, press(&input, "j"));

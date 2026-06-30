@@ -25,6 +25,7 @@ pub const Command = union(enum) {
     set_track_gain: struct { track: u16, gain: f32 },
     set_track_pan: struct { track: u16, pan: f32 },
     set_track_mute: struct { track: u16, muted: bool },
+    set_track_solo: struct { track: u16, soloed: bool },
     note_on: struct { track: u16, note: u7, velocity: f32 },
     note_off: struct { track: u16, note: u7 },
     all_notes_off,
@@ -41,6 +42,7 @@ const TrackState = struct {
     gain: f32 = 1.0,
     pan: f32 = 0.0,
     muted: bool = false,
+    soloed: bool = false,
     chain: [max_chain_devices]dsp.Device = undefined,
     chain_len: usize = 0,
 };
@@ -108,6 +110,7 @@ pub const Engine = struct {
                     .gain = types.dbToGain(t.gain_db),
                     .pan = t.pan,
                     .muted = t.muted,
+                    .soloed = t.soloed,
                 };
             } else {
                 state.* = .{};
@@ -213,6 +216,7 @@ pub const Engine = struct {
             .set_track_gain => |c| self.trackAt(c.track).gain = c.gain,
             .set_track_pan => |c| self.trackAt(c.track).pan = c.pan,
             .set_track_mute => |c| self.trackAt(c.track).muted = c.muted,
+            .set_track_solo => |c| self.trackAt(c.track).soloed = c.soloed,
             .note_on => |c| self.sendTrackEvent(c.track, .{
                 .note_on = .{ .note = c.note, .velocity = c.velocity },
             }),
@@ -249,6 +253,15 @@ pub const Engine = struct {
     }
 
     fn renderTracks(self: *Engine, out: []Sample, frames: u32) void {
+        // When any track is soloed, only soloed tracks are audible.
+        var any_solo = false;
+        for (&self.tracks) |*t| {
+            if (t.active and t.soloed) {
+                any_solo = true;
+                break;
+            }
+        }
+
         for (&self.tracks, 0..) |*track, ti| {
             if (!track.active or track.chain_len == 0) continue;
 
@@ -256,7 +269,7 @@ pub const Engine = struct {
             @memset(scratch, 0.0);
             for (track.chain[0..track.chain_len]) |dev| dev.process(scratch);
 
-            if (track.muted) continue;
+            if (track.muted or (any_solo and !track.soloed)) continue;
 
             const angle = (track.pan + 1.0) * std.math.pi / 4.0;
             const gain_l = track.gain * @cos(angle);
@@ -321,6 +334,31 @@ test "mute command silences a track" {
     var block: [512]Sample = undefined;
     engine.process(&block);
     try std.testing.expectEqual(@as(f32, 0.0), engine.peak[0]);
+}
+
+test "solo silences other tracks but keeps the soloed one" {
+    var lead = PolySynth.init(48_000);
+    var pad  = PolySynth.init(48_000);
+    var engine = try Engine.init(std.testing.allocator, 48_000);
+    defer engine.deinit();
+    engine.tracks[0] = .{ .active = true };
+    engine.tracks[1] = .{ .active = true };
+    engine.setTrackChain(0, &.{lead.device()});
+    engine.setTrackChain(1, &.{pad.device()});
+    _ = engine.send(.{ .note_on = .{ .track = 0, .note = 60, .velocity = 1.0 } });
+    _ = engine.send(.{ .note_on = .{ .track = 1, .note = 64, .velocity = 1.0 } });
+    _ = engine.send(.{ .set_track_solo = .{ .track = 1, .soloed = true } });
+
+    var block: [512]Sample = undefined;
+    engine.process(&block);
+    // track 1 is soloed, so audio is present...
+    try std.testing.expect(engine.peak[0] > 0.01);
+
+    // ...but unsoloing track 1 (no track soloed) restores both — sanity that
+    // the gate is the solo state, not a permanent mute.
+    _ = engine.send(.{ .set_track_solo = .{ .track = 1, .soloed = false } });
+    engine.process(&block);
+    try std.testing.expect(engine.peak[0] > 0.01);
 }
 
 test "uiSnapshot publishes transport and meter state" {

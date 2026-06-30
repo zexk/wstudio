@@ -43,7 +43,7 @@ const enumRow = style.enumRow;
 pub fn drawTracks(app: anytype, w: *std.Io.Writer, rows: usize, snap: engine_mod.UiSnapshot) !void {
     _ = snap;
     try w.writeAll(bold ++ " TRACKS" ++ rst);
-    try w.writeAll(dim ++ "   [enter:edit  p:piano  s:spectrum  m:mute  M:master  a:add  D:del  ?:help]");
+    try w.writeAll(dim ++ "   [enter:edit  p:piano  s:spectrum  m:mute  S:solo  M:master  a:add  D:del  ?:help]");
     try endLine(w);
 
     for (app.session.project.tracks.items, 0..) |track, i| {
@@ -73,6 +73,15 @@ pub fn drawTracks(app: anytype, w: *std.Io.Writer, rows: usize, snap: engine_mod
         if (track.muted) {
             if (!faded) try w.writeAll(yel);
             try w.writeByte('M');
+            if (!faded) try w.writeAll(rst);
+            if (is_sel) try w.writeAll(sel);
+        } else {
+            try w.writeByte(' ');
+        }
+        // solo indicator: green
+        if (track.soloed) {
+            if (!faded) try w.writeAll(grn);
+            try w.writeByte('S');
             if (!faded) try w.writeAll(rst);
             if (is_sel) try w.writeAll(sel);
         } else {
