@@ -49,6 +49,7 @@ fn wrap(comptime f: fn (*App, []const u8) void) *const fn (*anyopaque, []const u
 
 const cmds: []const cmd_mod.Def = &.{
     .{ .name = "q",           .desc = "quit wstudio",                        .run = wrap(App.cmdQuit) },
+    .{ .name = "q!",          .desc = "quit wstudio (alias for :q)",         .run = wrap(App.cmdQuit) },
     .{ .name = "quit",        .desc = "quit wstudio",                        .run = wrap(App.cmdQuit) },
     .{ .name = "bpm",         .desc = "[<value>]  tempo in BPM (20–400)",    .run = wrap(App.cmdBpm) },
     .{ .name = "gain",        .desc = "<track> [<dB>]  track gain",          .run = wrap(App.cmdGain) },
@@ -66,9 +67,11 @@ const cmds: []const cmd_mod.Def = &.{
     .{ .name = "w",           .desc = "[file]  save project (alias for :save)",      .run = wrap(App.cmdSave) },
     .{ .name = "wq",          .desc = "[file]  save project and quit",               .run = wrap(App.cmdWriteQuit) },
     .{ .name = "x",           .desc = "[file]  save project and quit (alias for :wq)", .run = wrap(App.cmdWriteQuit) },
+    .{ .name = "wq!",         .desc = "[file]  save project and quit (alias for :wq)", .run = wrap(App.cmdWriteQuit) },
     .{ .name = "bounce",      .desc = "[file]  render session to WAV (default: bounce.wav)", .run = wrap(App.cmdBounce) },
     .{ .name = "export",      .desc = "[file]  render session to WAV (alias for :bounce)",   .run = wrap(App.cmdBounce) },
     .{ .name = "clear",       .desc = "erase all notes in the piano-roll pattern",          .run = wrap(App.cmdClear) },
+    .{ .name = "%d",          .desc = "erase all notes in the pattern (alias for :clear)",  .run = wrap(App.cmdClear) },
 };
 
 pub const App = struct {
