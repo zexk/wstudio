@@ -64,6 +64,8 @@ const cmds: []const cmd_mod.Def = &.{
     .{ .name = "track-rename",.desc = "<n> <name>  rename track n",          .run = wrap(App.cmdTrackRename) },
     .{ .name = "save",        .desc = "[file]  save project (default: project.wsj)", .run = wrap(App.cmdSave) },
     .{ .name = "w",           .desc = "[file]  save project (alias for :save)",      .run = wrap(App.cmdSave) },
+    .{ .name = "wq",          .desc = "[file]  save project and quit",               .run = wrap(App.cmdWriteQuit) },
+    .{ .name = "x",           .desc = "[file]  save project and quit (alias for :wq)", .run = wrap(App.cmdWriteQuit) },
     .{ .name = "bounce",      .desc = "[file]  render session to WAV (default: bounce.wav)", .run = wrap(App.cmdBounce) },
     .{ .name = "export",      .desc = "[file]  render session to WAV (alias for :bounce)",   .run = wrap(App.cmdBounce) },
     .{ .name = "clear",       .desc = "erase all notes in the piano-roll pattern",          .run = wrap(App.cmdClear) },
@@ -1153,6 +1155,20 @@ pub const App = struct {
             return;
         };
         self.setStatus("saved: {s}", .{path});
+    }
+
+    /// Vim-style write-and-quit: save the project, then exit. Only quits when
+    /// the save succeeds so a failed write leaves the session intact.
+    fn cmdWriteQuit(self: *App, args: []const u8) void {
+        const path = if (std.mem.trim(u8, args, " ").len > 0)
+            std.mem.trim(u8, args, " ")
+        else
+            "project.wsj";
+        ws.persist.save(self.allocator, &self.session, self.io, path) catch |e| {
+            self.setStatus("save: {s}: {s}", .{ path, @errorName(e) });
+            return;
+        };
+        self.should_quit = true;
     }
 
     /// Render the live session (patterns + synth params + drum grid) offline to
