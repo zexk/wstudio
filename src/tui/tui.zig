@@ -67,6 +67,7 @@ const spectrum = @import("views/spectrum.zig");
 const synth = @import("views/synth.zig");
 const piano = @import("views/piano.zig");
 const sampler = @import("views/sampler.zig");
+const arrangement = @import("views/arrangement.zig");
 
 pub const drawTracks = tracks.drawTracks;
 pub const drawTracksStatus = tracks.drawTracksStatus;
@@ -82,3 +83,6 @@ pub const drawPianoRoll = piano.drawPianoRoll;
 pub const drawPianoRollStatus = piano.drawPianoRollStatus;
 pub const drawSamplerEditor = sampler.drawSamplerEditor;
 pub const drawSamplerStatus = sampler.drawSamplerStatus;
+pub const drawArrangement = arrangement.drawArrangement;
+pub const drawArrangementStatus = arrangement.drawArrangementStatus;
+pub const arr_visibleBars = arrangement.visibleBars;

@@ -14,10 +14,14 @@ const Rack = rack_mod.Rack;
 const InstrumentKind = rack_mod.InstrumentKind;
 const PolySynth = @import("dsp/synth.zig").PolySynth;
 const Sampler = @import("dsp/sampler.zig").Sampler;
-const PatternPlayer = @import("dsp/pattern.zig").PatternPlayer;
+const pattern_mod = @import("dsp/pattern.zig");
+const PatternPlayer = pattern_mod.PatternPlayer;
+const Note = pattern_mod.Note;
 const DrumMachine = @import("dsp/drum_sampler.zig").DrumMachine;
 const dsp = @import("dsp/device.zig");
-const Arrangement = @import("arrangement.zig").Arrangement;
+const arr_mod = @import("arrangement.zig");
+const Arrangement = arr_mod.Arrangement;
+const Clip = arr_mod.Clip;
 
 pub const Session = struct {
     allocator: std.mem.Allocator,
@@ -31,6 +35,10 @@ pub const Session = struct {
     retired_racks: std.ArrayListUnmanaged(*Rack),
     /// Song-mode clip timeline, one lane per track (parallel to `racks`).
     arrangement: Arrangement,
+    /// When true, playback follows the arrangement timeline; when false, each
+    /// track loops its single live pattern (the original behavior). Honored by
+    /// the engine in song-mode playback.
+    song_mode: bool = false,
 
     /// Build the default session: a single blank track. Instruments are added
     /// per-track via `setInstrument`; the shipped `demo.wsj` is the curated
@@ -167,6 +175,48 @@ pub const Session = struct {
         self.project.removeTrack(track_idx);
     }
 
+    /// Capture `track_idx`'s current live pattern as a clip at `start_bar`.
+    /// Melodic tracks copy their piano-roll notes; drum tracks copy the step
+    /// bitmask. The clip's bar length is derived from the pattern length. No-op
+    /// for empty tracks. Replaces any clips it overlaps (see `Lane.place`).
+    pub fn stampClip(self: *Session, track_idx: usize, start_bar: u32) !void {
+        if (track_idx >= self.racks.items.len) return;
+        const lane = self.arrangement.lane(track_idx) orelse return;
+        const rack = self.racks.items[track_idx];
+        const bpb: f64 = @floatFromInt(self.engine.transport.time_signature.beats_per_bar);
+
+        switch (rack.instrument) {
+            .empty => return,
+            .drum_machine => |*dm| {
+                var pat: [DrumMachine.max_pads]u32 = undefined;
+                for (&pat, 0..) |*p, i| p.* = dm.pattern[i].load(.acquire);
+                const len_beats = @as(f64, @floatFromInt(dm.step_count)) / 4.0;
+                try lane.place(self.allocator, Clip.initDrum(
+                    start_bar, barsFor(len_beats, bpb), pat, dm.step_count,
+                ));
+            },
+            else => {
+                const pp = if (rack.pattern_player) |*p| p else return;
+                // Snapshot the notes under the player's lock (UI thread).
+                while (!pp.notes_lock.tryLock()) std.atomic.spinLoopHint();
+                const count = pp.note_count;
+                const len_beats = pp.length_beats;
+                var tmp: [pattern_mod.max_notes]Note = undefined;
+                for (pp.notes[0..count], tmp[0..count]) |n, *t| t.* = n;
+                pp.notes_lock.unlock();
+                try lane.place(self.allocator, try Clip.initMelodic(
+                    self.allocator, start_bar, barsFor(len_beats, bpb), tmp[0..count], len_beats,
+                ));
+            },
+        }
+    }
+
+    /// Whole bars needed to hold `len_beats`, at least one.
+    fn barsFor(len_beats: f64, beats_per_bar: f64) u32 {
+        if (len_beats <= 0 or beats_per_bar <= 0) return 1;
+        return @max(1, @as(u32, @intFromFloat(@ceil(len_beats / beats_per_bar))));
+    }
+
     pub fn deinit(self: *Session) void {
         self.arrangement.deinit(self.allocator);
         for (self.racks.items) |r| { r.deinit(self.allocator); self.allocator.destroy(r); }
@@ -241,4 +291,28 @@ test "deleteTrack rejects last track" {
     var s = try Session.initDefault(std.testing.allocator);
     defer s.deinit();
     try std.testing.expectError(error.CannotDeleteLastTrack, s.deleteTrack(0));
+}
+
+test "stampClip captures the live melodic pattern as a clip" {
+    var s = try Session.initDefault(std.testing.allocator);
+    defer s.deinit();
+    try s.setInstrument(0, .poly_synth);
+    const pp = &s.racks.items[0].pattern_player.?;
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 1.0 });
+    pp.length_beats = 8.0; // two bars in 4/4
+
+    try s.stampClip(0, 2);
+    const lane = s.arrangement.lane(0).?;
+    try std.testing.expectEqual(@as(usize, 1), lane.clips.items.len);
+    const clip = lane.clips.items[0];
+    try std.testing.expectEqual(@as(u32, 2), clip.start_bar);
+    try std.testing.expectEqual(@as(u32, 2), clip.length_bars);
+    try std.testing.expectEqual(@as(usize, 1), clip.content.melodic.notes.len);
+}
+
+test "stampClip on empty track is a no-op" {
+    var s = try Session.initDefault(std.testing.allocator);
+    defer s.deinit();
+    try s.stampClip(0, 0);
+    try std.testing.expectEqual(@as(usize, 0), s.arrangement.lane(0).?.clips.items.len);
 }

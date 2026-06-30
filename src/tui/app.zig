@@ -23,7 +23,7 @@ const InstrumentKind = ws.InstrumentKind;
 const note_ms = 220;
 const frame_poll_ms = 30;
 
-pub const AppView = enum { tracks, drum_grid, synth_editor, sampler_editor, help, track_spectrum, master_spectrum, piano_roll, instrument_picker };
+pub const AppView = enum { tracks, drum_grid, synth_editor, sampler_editor, help, track_spectrum, master_spectrum, piano_roll, instrument_picker, arrangement };
 
 /// What the shared sampler_editor view is currently editing: one pad of a drum
 /// machine, or a standalone Sampler instrument. Holds the track index.
@@ -82,6 +82,9 @@ pub const App = struct {
     piano_scroll_step: u16 = 0,
     piano_scroll_pitch: u7 = 72,
     piano_note_len: f64 = 0.25,
+    /// Arrangement view: bar cursor and horizontal scroll (lane = `cursor`).
+    arr_cursor_bar: u32 = 0,
+    arr_scroll_bar: u32 = 0,
 
     const NoteOff = struct { at_ns: i96, track: u16, note: u7 };
 
@@ -173,6 +176,9 @@ pub const App = struct {
                 self.applyAction(self.modal.handle(key), now_ns);
             },
             .instrument_picker => self.handlePickerKey(key),
+            .arrangement => if (self.modal.mode != .normal or !self.handleArrangementKey(key)) {
+                self.applyAction(self.modal.handle(key), now_ns);
+            },
             .tracks => {
                 if (key == .enter and self.modal.mode == .normal) {
                     self.openTrack(self.cursor);
@@ -181,6 +187,7 @@ pub const App = struct {
                 if (key == .char and self.modal.mode == .normal) {
                     switch (key.char) {
                         'M' => { self.switchToMasterSpectrum(); return; },
+                        'A' => { self.view = .arrangement; return; },
                         's' => { self.switchToTrackSpectrum(@intCast(self.cursor)); return; },
                         'p' => { self.switchToPianoRoll(@intCast(self.cursor)); return; },
                         'a' => { self.doTrackAdd(null); return; },
@@ -987,6 +994,74 @@ pub const App = struct {
     // Rendering (delegates to tui.zig)
     // -----------------------------------------------------------------------
 
+    // -----------------------------------------------------------------------
+    // Arrangement view
+    // -----------------------------------------------------------------------
+
+    /// h/l move ±1 bar, H/L ±4 bars (one phrase), j/k change lane (shared
+    /// `cursor`), enter stamps the live pattern as a clip, x deletes, T toggles
+    /// song/pattern mode. Returns false for unhandled keys (space, `:`, …) so
+    /// the transport and command line still work. Scroll is clamped at draw.
+    fn handleArrangementKey(self: *App, key: modal_mod.Key) bool {
+        const lane_count = self.session.project.tracks.items.len;
+        switch (key) {
+            .escape => { self.view = .tracks; return true; },
+            .enter => { self.arrStampClip(); return true; },
+            .char => |c| switch (c) {
+                // Block insert mode — piano keys would collide with navigation.
+                'i' => return true,
+                'h' => { self.arrMoveBar(-1); return true; },
+                'l' => { self.arrMoveBar(1); return true; },
+                'H' => { self.arrMoveBar(-4); return true; },
+                'L' => { self.arrMoveBar(4); return true; },
+                '0' => { self.arr_cursor_bar = 0; return true; },
+                'j' => { if (self.cursor + 1 < lane_count) self.cursor += 1; return true; },
+                'k' => { if (self.cursor > 0) self.cursor -= 1; return true; },
+                'x' => { self.arrDeleteClip(); return true; },
+                'T' => {
+                    self.session.song_mode = !self.session.song_mode;
+                    self.setStatus("{s} mode", .{if (self.session.song_mode) "song" else "pattern"});
+                    return true;
+                },
+                else => return false,
+            },
+            else => return false,
+        }
+    }
+
+    fn arrMoveBar(self: *App, delta: i64) void {
+        const nb = @as(i64, self.arr_cursor_bar) + delta;
+        self.arr_cursor_bar = @intCast(@max(@as(i64, 0), nb));
+    }
+
+    /// Capture the cursor track's live pattern as a clip at the cursor bar,
+    /// then jump the cursor to the clip's end for quick sequential placing.
+    fn arrStampClip(self: *App) void {
+        if (self.cursor >= self.session.racks.items.len) return;
+        if (std.meta.activeTag(self.session.racks.items[self.cursor].instrument) == .empty) {
+            self.setStatus("empty track — insert an instrument first", .{});
+            return;
+        }
+        self.session.stampClip(self.cursor, self.arr_cursor_bar) catch {
+            self.setStatus("stamp failed (out of memory)", .{});
+            return;
+        };
+        if (self.session.arrangement.lane(self.cursor)) |lane| {
+            if (lane.clipAt(self.arr_cursor_bar)) |clip| {
+                self.setStatus("stamped {d}-bar clip", .{clip.length_bars});
+                self.arr_cursor_bar = clip.endBar();
+            }
+        }
+    }
+
+    fn arrDeleteClip(self: *App) void {
+        const lane = self.session.arrangement.lane(self.cursor) orelse return;
+        if (lane.removeAt(self.allocator, self.arr_cursor_bar))
+            self.setStatus("deleted clip", .{})
+        else
+            self.setStatus("no clip here", .{});
+    }
+
     pub fn draw(self: *App, w: *std.Io.Writer, size: terminal_mod.Size) !void {
         const snap = self.session.engine.uiSnapshot();
         const rows: usize = @max(size.rows, 10);
@@ -1005,6 +1080,7 @@ pub const App = struct {
             .track_spectrum  => try tui.drawSpectrumView(self, w, rows, size.cols, snap, true),
             .master_spectrum => try tui.drawSpectrumView(self, w, rows, size.cols, snap, false),
             .instrument_picker => try tui.drawInstrumentPicker(self, w, rows),
+            .arrangement     => try tui.drawArrangement(self, w, rows, size.cols, snap),
         }
 
         var transport: Transport = .{
@@ -1041,6 +1117,7 @@ pub const App = struct {
             .track_spectrum  => try tui.drawSpectrumStatus(self, w, true),
             .master_spectrum => try tui.drawSpectrumStatus(self, w, false),
             .instrument_picker => try w.writeAll(" j/k: move   enter: insert   esc: cancel"),
+            .arrangement     => try tui.drawArrangementStatus(self, w),
         }
         // Erase from cursor to end of screen so stale content from taller
         // previous frames never bleeds through.
