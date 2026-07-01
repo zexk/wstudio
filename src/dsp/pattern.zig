@@ -36,6 +36,19 @@ pub const PatternPlayer = struct {
     /// Loop length in beats (default 4 = 1 bar in 4/4).
     length_beats: f64 = 4.0,
 
+    // ── Song-mode playback ───────────────────────────────────────────────────
+    /// When true, process() plays `song_notes` (the arrangement's clips
+    /// flattened to absolute beats) instead of the live loop above. Set by the
+    /// control thread via Session.setSongMode; read on the audio thread.
+    song_mode:        bool = false,
+    /// The lane's clips flattened into one timeline: each note carries its
+    /// absolute start_beat (clip start + note offset). Guarded by `notes_lock`.
+    song_notes:       [max_notes]Note = undefined,
+    song_note_count:  u16 = 0,
+    /// Loop length of the whole arrangement in beats. The song plays through
+    /// then repeats, mirroring the live loop's wrap behaviour.
+    song_length_beats: f64 = 0.0,
+
     // ── Audio-thread-only state ──────────────────────────────────────────────
     /// Which MIDI pitches are currently sounding (audio thread only).
     sounding:        [128]bool = [_]bool{false} ** 128,
@@ -74,6 +87,19 @@ pub const PatternPlayer = struct {
                 return;
             }
         }
+    }
+
+    /// Replace the song-mode note timeline (UI thread). `notes` hold absolute
+    /// beat positions; `length` is the whole-arrangement loop length in beats.
+    /// Taken under the same lock the audio thread tries, so a rebuild never
+    /// tears a block that is mid-scan.
+    pub fn setSongNotes(self: *PatternPlayer, notes: []const Note, length_beats: f64) void {
+        while (!self.notes_lock.tryLock()) std.atomic.spinLoopHint();
+        defer self.notes_lock.unlock();
+        const count = @min(notes.len, @as(usize, max_notes));
+        for (notes[0..count], self.song_notes[0..count]) |n, *dst| dst.* = n;
+        self.song_note_count = @intCast(count);
+        self.song_length_beats = length_beats;
     }
 
     /// Remove every note (UI thread). Used by :clear.
@@ -182,22 +208,25 @@ pub const PatternPlayer = struct {
         }
         self.last_pos_frames = pos + frames;
 
-        if (self.note_count == 0) return;
+        // In song mode the arrangement's flattened clips drive playback and the
+        // loop length is the whole song; otherwise the live one-bar-ish loop.
+        const notes = if (self.song_mode) self.song_notes[0..self.song_note_count] else self.notes[0..self.note_count];
+        const loop = if (self.song_mode) self.song_length_beats else self.length_beats;
+        if (notes.len == 0 or loop <= 0) return;
 
         const fpb = self.transport.framesPerBeat();
         const start_beat = @as(f64, @floatFromInt(pos)) / fpb;
         const end_beat = @as(f64, @floatFromInt(pos + frames)) / fpb;
 
-        const loop = self.length_beats;
         const s = @mod(start_beat, loop);
         const e = s + (end_beat - start_beat);
 
         if (e >= loop) {
             // Block spans the loop boundary: two non-wrapping scans.
-            scanRange(self.notes[0..self.note_count], loop, &self.sounding, self.target, s, loop);
-            scanRange(self.notes[0..self.note_count], loop, &self.sounding, self.target, 0.0, @min(e - loop, loop));
+            scanRange(notes, loop, &self.sounding, self.target, s, loop);
+            scanRange(notes, loop, &self.sounding, self.target, 0.0, @min(e - loop, loop));
         } else {
-            scanRange(self.notes[0..self.note_count], loop, &self.sounding, self.target, s, e);
+            scanRange(notes, loop, &self.sounding, self.target, s, e);
         }
     }
 

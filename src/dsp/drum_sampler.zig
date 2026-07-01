@@ -79,6 +79,19 @@ const default_kit = [_]KitSlot{
 pub const DrumMachine = struct {
     pub const max_pads: u8 = 8;
     pub const max_steps: u8 = 32;
+    /// Max clips one lane can hold for song-mode playback (see `song_clips`).
+    pub const max_song_clips: u16 = 256;
+
+    /// A drum clip flattened onto the arrangement's step timeline. `pattern` is
+    /// a plain snapshot of the source bitmask (no atomics — the audio thread
+    /// reads it under `pad_lock`). The clip's own `step_count`-long pattern
+    /// repeats to fill `span_steps` (its whole-bar length on the timeline).
+    pub const SongClip = struct {
+        start_step: u32,
+        span_steps: u32,
+        step_count: u8,
+        pattern: [max_pads]u32,
+    };
     /// Number of editable params per pad (see `adjustParam`).
     pub const pad_param_count: u8 = 10;
     /// Id-space stride per pad. `set_param` ids are `pad << 4 | param`, so the
@@ -96,6 +109,17 @@ pub const DrumMachine = struct {
     /// Bitmask: bit k == 1 means step k is active. u32 for atomic compat.
     pattern: [max_pads]std.atomic.Value(u32),
     step_count: u8,
+
+    // ── Song-mode playback (control thread writes, audio thread reads under
+    //    pad_lock) ──────────────────────────────────────────────────────────
+    /// When true, processBlock fires from `song_clips` under the playhead
+    /// instead of the live `pattern`. Set via Session.setSongMode.
+    song_mode: bool = false,
+    /// The lane's clips placed on the arrangement's step timeline.
+    song_clips: [max_song_clips]SongClip = undefined,
+    song_clip_count: u16 = 0,
+    /// Whole-arrangement length in steps; the song loops at this boundary.
+    song_length_steps: u32 = 0,
 
     // Audio-thread-only state:
     voices: [max_pads]Voice,
@@ -162,6 +186,17 @@ pub const DrumMachine = struct {
 
     pub fn setStepCount(self: *DrumMachine, n: u8) void {
         self.step_count = std.math.clamp(n, 1, max_steps);
+    }
+
+    /// Replace the song-mode clip timeline (control thread). Taken under
+    /// `pad_lock` so the audio thread never reads a half-written array.
+    pub fn setSongClips(self: *DrumMachine, clips: []const SongClip, length_steps: u32) void {
+        while (!self.pad_lock.tryLock()) std.atomic.spinLoopHint();
+        defer self.pad_lock.unlock();
+        const count = @min(clips.len, @as(usize, max_song_clips));
+        for (clips[0..count], self.song_clips[0..count]) |src, *dst| dst.* = src;
+        self.song_clip_count = @intCast(count);
+        self.song_length_steps = length_steps;
     }
 
     pub fn toggleStep(self: *DrumMachine, pad: u8, step: u8) void {
@@ -307,18 +342,22 @@ pub const DrumMachine = struct {
                         @as(u64, frames - 1),
                     ));
 
-                const step_idx: u8 = @intCast(step_k % self.step_count);
-                for (0..max_pads) |p| {
-                    if (self.pads[p] == null) continue;
-                    if ((self.pattern[p].load(.acquire) >> @intCast(step_idx)) & 1 == 1) {
-                        self.voices[p] = .{
-                            .active = true,
-                            .played = 0,
-                            .block_start = fire_frame,
-                        };
+                if (self.song_mode) {
+                    self.fireSongStep(step_k, fire_frame);
+                } else {
+                    const step_idx: u8 = @intCast(step_k % self.step_count);
+                    for (0..max_pads) |p| {
+                        if (self.pads[p] == null) continue;
+                        if ((self.pattern[p].load(.acquire) >> @intCast(step_idx)) & 1 == 1) {
+                            self.voices[p] = .{
+                                .active = true,
+                                .played = 0,
+                                .block_start = fire_frame,
+                            };
+                        }
                     }
+                    self.current_step.store(step_idx, .monotonic);
                 }
-                self.current_step.store(step_idx, .monotonic);
                 step_k += 1;
             }
 
@@ -386,6 +425,27 @@ pub const DrumMachine = struct {
             voice.played += rate;
         }
         voice.block_start = 0;
+    }
+
+    /// Fire pads for absolute step `step_k` from the song timeline. The whole
+    /// arrangement loops at `song_length_steps`; the clip covering the wrapped
+    /// step drives the pads, repeating its own pattern to fill its span.
+    fn fireSongStep(self: *DrumMachine, step_k: u64, fire_frame: u32) void {
+        if (self.song_length_steps == 0) return;
+        const lk: u32 = @intCast(step_k % self.song_length_steps);
+        for (self.song_clips[0..self.song_clip_count]) |*clip| {
+            if (lk < clip.start_step or lk >= clip.start_step + clip.span_steps) continue;
+            if (clip.step_count == 0) return;
+            const local: u32 = (lk - clip.start_step) % clip.step_count;
+            for (0..max_pads) |p| {
+                if (self.pads[p] == null) continue;
+                if ((clip.pattern[p] >> @intCast(local)) & 1 == 1) {
+                    self.voices[p] = .{ .active = true, .played = 0, .block_start = fire_frame };
+                }
+            }
+            self.current_step.store(@intCast(local), .monotonic);
+            return; // clips never overlap
+        }
     }
 
     fn triggerPad(self: *DrumMachine, pad_idx: u8) void {
@@ -549,6 +609,44 @@ test "step sequencer fires pads at correct boundaries" {
         dm.processBlock(&buf);
         transport.advance(256);
     }
+    @memset(&buf, 0.0);
+    dm.processBlock(&buf);
+    peak = 0;
+    for (buf) |s| peak = @max(peak, @abs(s));
+    try std.testing.expect(peak > 0.01);
+}
+
+test "song mode fires the clip covering the playhead" {
+    var transport: Transport = .{ .sample_rate = 48_000, .tempo_bpm = 120.0 };
+    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    defer dm.deinit();
+
+    // Clear the default groove; song mode reads only song_clips.
+    for (&dm.pattern) |*p| p.store(0, .monotonic);
+
+    // Two bars long. A single clip in bar 1 (steps 16..31) fires pad 0 on its
+    // first step; bar 0 is empty.
+    var pat = [_]u32{0} ** DrumMachine.max_pads;
+    pat[0] = 1; // local step 0
+    const clips = [_]DrumMachine.SongClip{.{
+        .start_step = 16, .span_steps = 16, .step_count = 16, .pattern = pat,
+    }};
+    dm.setSongClips(&clips, 32);
+    dm.song_mode = true;
+    transport.play();
+
+    var buf: [512]Sample = undefined; // 256 frames
+
+    // At frame 0 (bar 0) nothing should sound.
+    @memset(&buf, 0.0);
+    dm.processBlock(&buf);
+    var peak: f32 = 0;
+    for (buf) |s| peak = @max(peak, @abs(s));
+    try std.testing.expect(peak < 0.01);
+
+    // Jump to bar 1's downbeat: step 16 = 16 * 6000 frames = 96_000.
+    dm.resetAll();
+    transport.seekFrames(96_000);
     @memset(&buf, 0.0);
     dm.processBlock(&buf);
     peak = 0;

@@ -1019,7 +1019,7 @@ pub const App = struct {
                 'k' => { if (self.cursor > 0) self.cursor -= 1; return true; },
                 'x' => { self.arrDeleteClip(); return true; },
                 'T' => {
-                    self.session.song_mode = !self.session.song_mode;
+                    self.session.setSongMode(!self.session.song_mode);
                     self.setStatus("{s} mode", .{if (self.session.song_mode) "song" else "pattern"});
                     return true;
                 },
@@ -1052,6 +1052,8 @@ pub const App = struct {
                 self.arr_cursor_bar = clip.endBar();
             }
         }
+        // Keep song playback in sync with the edit if it's driving the transport.
+        if (self.session.song_mode) self.session.rebuildSongData();
     }
 
     fn arrDeleteClip(self: *App) void {
@@ -1060,6 +1062,7 @@ pub const App = struct {
             self.setStatus("deleted clip", .{})
         else
             self.setStatus("no clip here", .{});
+        if (self.session.song_mode) self.session.rebuildSongData();
     }
 
     pub fn draw(self: *App, w: *std.Io.Writer, size: terminal_mod.Size) !void {

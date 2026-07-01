@@ -211,6 +211,82 @@ pub const Session = struct {
         }
     }
 
+    /// Toggle song mode. Rebuilds each device's song buffer first (so the audio
+    /// thread never sees the flag flip ahead of valid data), flips the per-device
+    /// flags, and silences anything left hanging from the previous mode.
+    pub fn setSongMode(self: *Session, on: bool) void {
+        self.song_mode = on;
+        if (on) self.rebuildSongData();
+        _ = self.engine.send(.all_notes_off);
+        for (self.racks.items) |rack| {
+            if (rack.pattern_player) |*pp| pp.song_mode = on;
+            switch (rack.instrument) {
+                .drum_machine => |*dm| dm.song_mode = on,
+                else => {},
+            }
+        }
+    }
+
+    /// Flatten the arrangement's clips into each track's device song buffer.
+    /// Melodic lanes become one absolute-beat note timeline; drum lanes become a
+    /// list of step-placed clips. The whole arrangement loops as one unit, so all
+    /// devices share the same total length. Call after any clip edit while in
+    /// song mode. Control thread only.
+    pub fn rebuildSongData(self: *Session) void {
+        const bpb_u = self.engine.transport.time_signature.beats_per_bar;
+        const bpb: f64 = @floatFromInt(bpb_u);
+        const total_bars = self.arrangement.lengthBars();
+        const song_len_beats = @as(f64, @floatFromInt(total_bars)) * bpb;
+        const steps_per_bar: u32 = @as(u32, bpb_u) * 4;
+        const song_len_steps = total_bars * steps_per_bar;
+
+        for (self.racks.items, 0..) |rack, i| {
+            const lane = self.arrangement.lane(i) orelse continue;
+            switch (rack.instrument) {
+                .drum_machine => |*dm| {
+                    var clips: [DrumMachine.max_song_clips]DrumMachine.SongClip = undefined;
+                    var n: usize = 0;
+                    for (lane.clips.items) |c| {
+                        if (n >= clips.len) break;
+                        const drum = switch (c.content) { .drum => |d| d, .melodic => continue };
+                        clips[n] = .{
+                            .start_step = c.start_bar * steps_per_bar,
+                            .span_steps = c.length_bars * steps_per_bar,
+                            .step_count = drum.step_count,
+                            .pattern = drum.pattern,
+                        };
+                        n += 1;
+                    }
+                    dm.setSongClips(clips[0..n], song_len_steps);
+                },
+                .poly_synth, .sampler => {
+                    const pp = if (rack.pattern_player) |*p| p else continue;
+                    var notes: [pattern_mod.max_notes]Note = undefined;
+                    var n: usize = 0;
+                    for (lane.clips.items) |c| {
+                        const mel = switch (c.content) { .melodic => |m| m, .drum => continue };
+                        const clip_start_beat = @as(f64, @floatFromInt(c.start_bar)) * bpb;
+                        for (mel.notes) |note| {
+                            if (n >= notes.len) break;
+                            // The clip plays its captured pattern once at its
+                            // start; notes past the loop length are ignored.
+                            if (note.start_beat >= mel.length_beats) continue;
+                            notes[n] = .{
+                                .pitch = note.pitch,
+                                .start_beat = clip_start_beat + note.start_beat,
+                                .duration_beat = note.duration_beat,
+                                .velocity = note.velocity,
+                            };
+                            n += 1;
+                        }
+                    }
+                    pp.setSongNotes(notes[0..n], song_len_beats);
+                },
+                .empty => {},
+            }
+        }
+    }
+
     /// Whole bars needed to hold `len_beats`, at least one.
     fn barsFor(len_beats: f64, beats_per_bar: f64) u32 {
         if (len_beats <= 0 or beats_per_bar <= 0) return 1;
@@ -315,4 +391,44 @@ test "stampClip on empty track is a no-op" {
     defer s.deinit();
     try s.stampClip(0, 0);
     try std.testing.expectEqual(@as(usize, 0), s.arrangement.lane(0).?.clips.items.len);
+}
+
+test "song mode flattens a melodic clip to absolute beats" {
+    var s = try Session.initDefault(std.testing.allocator);
+    defer s.deinit();
+    try s.setInstrument(0, .poly_synth);
+    const pp = &s.racks.items[0].pattern_player.?;
+    pp.addNote(.{ .pitch = 60, .start_beat = 1.0, .duration_beat = 1.0 });
+    pp.length_beats = 4.0; // one bar in 4/4
+    try s.stampClip(0, 2); // place the clip at bar 2
+
+    s.setSongMode(true);
+    try std.testing.expect(pp.song_mode);
+    try std.testing.expectEqual(@as(u16, 1), pp.song_note_count);
+    // bar 2 = beat 8, plus the note's 1-beat offset → absolute beat 9.
+    try std.testing.expectApproxEqAbs(@as(f64, 9.0), pp.song_notes[0].start_beat, 1e-9);
+    // Arrangement spans bars 0..3 (the clip covers bar 2) → 12 beats.
+    try std.testing.expectApproxEqAbs(@as(f64, 12.0), pp.song_length_beats, 1e-9);
+
+    s.setSongMode(false);
+    try std.testing.expect(!pp.song_mode);
+}
+
+test "song mode places a drum clip on the step timeline" {
+    var s = try Session.initDefault(std.testing.allocator);
+    defer s.deinit();
+    try s.setInstrument(0, .drum_machine);
+    const dm = &s.racks.items[0].instrument.drum_machine;
+    dm.pattern[0].store(1, .monotonic); // pad 0, step 0
+    try s.stampClip(0, 1); // bar 1
+
+    s.setSongMode(true);
+    try std.testing.expect(dm.song_mode);
+    try std.testing.expectEqual(@as(u16, 1), dm.song_clip_count);
+    // 4/4, 16th-note steps → 16 steps per bar, so bar 1 starts at step 16.
+    try std.testing.expectEqual(@as(u32, 16), dm.song_clips[0].start_step);
+    try std.testing.expectEqual(@as(u32, 16), dm.song_clips[0].span_steps);
+    try std.testing.expectEqual(@as(u32, 1), dm.song_clips[0].pattern[0]);
+    // Arrangement spans bars 0..2 (clip covers bar 1) → 32 steps.
+    try std.testing.expectEqual(@as(u32, 32), dm.song_length_steps);
 }
