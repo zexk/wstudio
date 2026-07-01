@@ -31,6 +31,9 @@ takes over when no device exists).
 
 - `wstudio` — new, empty session (one blank track)
 - `wstudio demo.wsj` — the curated four-track demo (lead, e-piano, bass, drums)
+- `wstudio song-demo.wsj` — the same tracks arranged into a 16-bar song; opens
+  in song mode, so `space` sweeps the timeline (press `A`, then `T` to compare
+  with pattern mode)
 - `wstudio render` — the offline pipeline demo rendered to a WAV
 
 Tracks start blank: `enter` on a blank track opens the instrument
@@ -93,6 +96,7 @@ zig build run -- render  # offline demo: melody through the chain -> out.wav
 zig build test       # all tests
 zig build genkit     # re-render the embedded drum kit (after editing drum_kit.zig)
 zig build gendemo    # re-write demo.wsj (after editing tools/gendemo.zig)
+zig build gensongdemo # re-write song-demo.wsj (arranges demo.wsj into a song)
 nix build            # packaged build via zig.hook
 ```
 

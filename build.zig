@@ -72,6 +72,23 @@ pub fn build(b: *std.Build) void {
     const gendemo_step = b.step("gendemo", "Write the demo project to demo.wsj");
     gendemo_step.dependOn(&run_gendemo.step);
 
+    // `zig build gensongdemo` arranges demo.wsj's loops into song-demo.wsj. Run
+    // after gendemo if the base demo changed, then commit the refreshed file.
+    const gensongdemo = b.addExecutable(.{
+        .name = "gensongdemo",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/gensongdemo.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "wstudio", .module = wstudio_mod },
+            },
+        }),
+    });
+    const run_gensongdemo = b.addRunArtifact(gensongdemo);
+    const gensongdemo_step = b.step("gensongdemo", "Write the song-mode demo to song-demo.wsj");
+    gensongdemo_step.dependOn(&run_gensongdemo.step);
+
     const mod_tests = b.addTest(.{ .root_module = wstudio_mod });
     const run_mod_tests = b.addRunArtifact(mod_tests);
     const exe_tests = b.addTest(.{ .root_module = exe.root_module });
