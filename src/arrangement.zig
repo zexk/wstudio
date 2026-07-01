@@ -8,8 +8,9 @@
 //! one never touches another.
 //!
 //! Control-side only. The audio thread never touches an Arrangement directly;
-//! song-mode playback is driven by translating the active clip into the same
-//! per-track devices used in pattern mode.
+//! song-mode playback is driven by flattening each lane's clips into the same
+//! per-track devices used in pattern mode (Session.rebuildSongData) — the
+//! device replays that timeline against the transport.
 
 const std = @import("std");
 const Note = @import("dsp/pattern.zig").Note;

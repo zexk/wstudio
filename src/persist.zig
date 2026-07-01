@@ -30,7 +30,9 @@ const eq_mod = @import("dsp/eq.zig");
 const GraphicEq = eq_mod.GraphicEq;
 const dsp = @import("dsp/device.zig");
 
-pub const file_version: u32 = 1;
+/// v2 adds the arrangement (song timeline) and `song_mode`. v1 files omit both
+/// and deserialize to an empty arrangement in pattern mode — the prior behaviour.
+pub const file_version: u32 = 2;
 
 // ---------------------------------------------------------------------------
 // Snapshot types — plain data, JSON-serialisable
@@ -181,12 +183,37 @@ pub const TrackSnap = struct {
     soloed: bool = false,
 };
 
+pub const ClipKind = enum { melodic, drum };
+
+/// One placed clip. Melodic clips carry a private note copy + loop length; drum
+/// clips carry a step-count and per-pad bitmask. Mirrors `arrangement.Clip`.
+pub const ClipSnap = struct {
+    start_bar: u32,
+    length_bars: u32,
+    kind: ClipKind = .melodic,
+    // melodic
+    notes: []const NoteSnap = &.{},
+    length_beats: f64 = 4.0,
+    // drum
+    drum_pattern: [DrumMachine.max_pads]u32 = [_]u32{0} ** DrumMachine.max_pads,
+    step_count: u8 = 16,
+};
+
+/// One track's lane of clips. Lanes are parallel to `racks`/`tracks`.
+pub const LaneSnap = struct {
+    clips: []const ClipSnap = &.{},
+};
+
 pub const Snapshot = struct {
     version: u32 = file_version,
     tempo_bpm: f64 = 120.0,
     sample_rate: u32 = 48_000,
     tracks: []const TrackSnap,
     racks: []const RackSnap,
+    /// Song timeline, one lane per track. Empty for v1 files.
+    arrangement: []const LaneSnap = &.{},
+    /// Whether the loaded project plays the arrangement (true) or live loops.
+    song_mode: bool = false,
 };
 
 // ---------------------------------------------------------------------------
@@ -215,11 +242,20 @@ pub fn save(
         rs.* = try rackToSnap(aa, rack, session.project.sample_rate);
     }
 
+    const lanes = try aa.alloc(LaneSnap, session.arrangement.lanes.items.len);
+    for (session.arrangement.lanes.items, lanes) |*lane, *ls| {
+        const clips = try aa.alloc(ClipSnap, lane.clips.items.len);
+        for (lane.clips.items, clips) |clip, *c| c.* = try clipToSnap(aa, clip);
+        ls.* = .{ .clips = clips };
+    }
+
     const snap: Snapshot = .{
         .tempo_bpm = session.project.tempo_bpm,
         .sample_rate = session.project.sample_rate,
         .tracks = tracks,
         .racks = racks,
+        .arrangement = lanes,
+        .song_mode = session.song_mode,
     };
 
     const json_bytes = try std.json.Stringify.valueAlloc(aa, snap, .{ .whitespace = .indent_2 });
@@ -312,6 +348,30 @@ fn notesToSnap(aa: std.mem.Allocator, pp: *PatternPlayer) ![]const NoteSnap {
     }
     pp.notes_lock.unlock();
     return aa.dupe(NoteSnap, tmp[0..@as(usize, count)]);
+}
+
+/// Serialise one arrangement clip. Melodic clips duplicate their notes into
+/// freshly allocated NoteSnaps; drum clips copy the bitmask by value.
+fn clipToSnap(aa: std.mem.Allocator, clip: ws_arrangement.Clip) !ClipSnap {
+    var c: ClipSnap = .{ .start_bar = clip.start_bar, .length_bars = clip.length_bars };
+    switch (clip.content) {
+        .melodic => |m| {
+            c.kind = .melodic;
+            c.length_beats = m.length_beats;
+            const ns = try aa.alloc(NoteSnap, m.notes.len);
+            for (m.notes, ns) |n, *o| o.* = .{
+                .pitch = n.pitch, .start_beat = n.start_beat,
+                .duration_beat = n.duration_beat, .velocity = n.velocity,
+            };
+            c.notes = ns;
+        },
+        .drum => |d| {
+            c.kind = .drum;
+            c.drum_pattern = d.pattern;
+            c.step_count = d.step_count;
+        },
+    }
+    return c;
 }
 
 fn synthToSnap(s: *const PolySynth) SynthSnap {
@@ -481,8 +541,8 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
         try racks.append(allocator, rack);
     }
 
-    // One blank lane per track keeps the arrangement parallel to racks/tracks.
-    // Clip data is not yet persisted, so loaded projects start with empty lanes.
+    // One blank lane per track keeps the arrangement parallel to racks/tracks;
+    // clips (if any) are placed below once the Session owns the arrangement.
     var arrangement: ws_arrangement.Arrangement = .{};
     errdefer arrangement.deinit(allocator);
     for (racks.items) |_| try arrangement.addLane(allocator);
@@ -500,7 +560,38 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
         self.engine.setTrackChain(@intCast(i), rack.chain(&buf));
     }
 
+    // Restore placed clips, then the song/pattern mode (setSongMode rebuilds the
+    // device song buffers from the clips just placed).
+    for (snap.arrangement, 0..) |ls, li| {
+        const lane = self.arrangement.lane(li) orelse break;
+        for (ls.clips) |cs| try lane.place(allocator, try clipFromSnap(allocator, cs));
+    }
+    self.setSongMode(snap.song_mode);
+
     return self;
+}
+
+/// Rebuild an arrangement clip from its snapshot. Melodic clips copy notes
+/// through a stack buffer into a fresh owned allocation; drum clips are inline.
+fn clipFromSnap(allocator: std.mem.Allocator, cs: ClipSnap) !ws_arrangement.Clip {
+    return switch (cs.kind) {
+        .melodic => blk: {
+            var tmp: [pattern_mod.max_notes]pattern_mod.Note = undefined;
+            const count = @min(cs.notes.len, @as(usize, pattern_mod.max_notes));
+            for (cs.notes[0..count], tmp[0..count]) |n, *o| o.* = .{
+                .pitch = @intCast(@min(n.pitch, 127)),
+                .start_beat = n.start_beat,
+                .duration_beat = n.duration_beat,
+                .velocity = n.velocity,
+            };
+            break :blk try ws_arrangement.Clip.initMelodic(
+                allocator, cs.start_bar, cs.length_bars, tmp[0..count], cs.length_beats,
+            );
+        },
+        .drum => ws_arrangement.Clip.initDrum(
+            cs.start_bar, cs.length_bars, cs.drum_pattern, cs.step_count,
+        ),
+    };
 }
 
 /// Load saved notes into a pattern player (control thread, before audio runs).
@@ -738,6 +829,59 @@ test "buildSession: constructs valid Session from snapshot" {
     try testing.expectApproxEqAbs(@as(f32, 7.0), dm.pads[0].?.pitch_semitones, 1e-4);
     try testing.expect(dm.pads[0].?.reverse);
     try testing.expectApproxEqAbs(@as(f32, 0.5), dm.pads[0].?.end_norm, 1e-4);
+}
+
+test "buildSession: arrangement clips and song_mode round-trip" {
+    const testing = std.testing;
+
+    const drum_pattern: [DrumMachine.max_pads]u32 = blk: {
+        var p = [_]u32{0} ** DrumMachine.max_pads;
+        p[0] = 1;
+        break :blk p;
+    };
+
+    const snap: Snapshot = .{
+        .tracks = &.{ .{ .name = "keys" }, .{ .name = "drums" } },
+        .racks = &.{
+            .{ .label = "synth", .kind = .poly_synth, .synth = .{} },
+            .{ .label = "drums", .kind = .drum_machine, .drum = .{ .step_count = 16, .pattern = drum_pattern } },
+        },
+        .song_mode = true,
+        .arrangement = &.{
+            .{ .clips = &.{
+                .{ .start_bar = 2, .length_bars = 1, .kind = .melodic, .length_beats = 4.0, .notes = &.{
+                    .{ .pitch = 64, .start_beat = 1.0, .duration_beat = 0.5, .velocity = 0.8 },
+                } },
+            } },
+            .{ .clips = &.{
+                .{ .start_bar = 0, .length_bars = 1, .kind = .drum, .step_count = 16, .drum_pattern = drum_pattern },
+            } },
+        },
+    };
+
+    var session = try buildSession(testing.allocator, &snap);
+    defer session.deinit();
+
+    try testing.expect(session.song_mode);
+
+    // Melodic clip restored on lane 0.
+    const lane0 = session.arrangement.lane(0).?;
+    try testing.expectEqual(@as(usize, 1), lane0.clips.items.len);
+    const c0 = lane0.clips.items[0];
+    try testing.expectEqual(@as(u32, 2), c0.start_bar);
+    try testing.expectEqual(@as(usize, 1), c0.content.melodic.notes.len);
+    try testing.expectEqual(@as(u7, 64), c0.content.melodic.notes[0].pitch);
+
+    // Drum clip restored on lane 1.
+    const lane1 = session.arrangement.lane(1).?;
+    try testing.expectEqual(@as(usize, 1), lane1.clips.items.len);
+    try testing.expectEqual(@as(u32, 1), lane1.clips.items[0].content.drum.pattern[0]);
+
+    // song_mode = true means the devices were handed their song buffers.
+    try testing.expect(session.racks.items[0].pattern_player.?.song_mode);
+    try testing.expectEqual(@as(u16, 1), session.racks.items[0].pattern_player.?.song_note_count);
+    try testing.expect(session.racks.items[1].instrument.drum_machine.song_mode);
+    try testing.expectEqual(@as(u16, 1), session.racks.items[1].instrument.drum_machine.song_clip_count);
 }
 
 test "buildSession: empty and sampler racks round-trip" {
