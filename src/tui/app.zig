@@ -85,6 +85,10 @@ pub const App = struct {
     /// Arrangement view: bar cursor and horizontal scroll (lane = `cursor`).
     arr_cursor_bar: u32 = 0,
     arr_scroll_bar: u32 = 0,
+    /// Path of the current project file — the default for :w / :wq. Set when
+    /// a project is loaded at startup and updated on every successful save.
+    project_path_buf: [256]u8 = undefined,
+    project_path_len: usize = 0,
 
     const NoteOff = struct { at_ns: i96, track: u16, note: u7 };
 
@@ -916,6 +920,12 @@ pub const App = struct {
         // Shift the editor-target indices that sit after the removed track.
         if (track_idx < self.synth_track and self.synth_track > 0) self.synth_track -= 1;
         if (track_idx < self.drum_track and self.drum_track > 0) self.drum_track -= 1;
+        if (track_idx < self.piano_track and self.piano_track > 0) self.piano_track -= 1;
+        if (track_idx < self.eq_track and self.eq_track > 0) self.eq_track -= 1;
+        switch (self.sampler_target) {
+            .drum    => |*t| if (track_idx < t.* and t.* > 0) { t.* -= 1; },
+            .sampler => |*t| if (track_idx < t.* and t.* > 0) { t.* -= 1; },
+        }
 
         // Keep cursor in bounds.
         const last = self.session.project.tracks.items.len - 1;
@@ -983,6 +993,18 @@ pub const App = struct {
     // -----------------------------------------------------------------------
     // Command handlers
     // -----------------------------------------------------------------------
+
+    /// The remembered project file path, or null when nothing was loaded or
+    /// saved yet (`:w` then falls back to "project.wsj").
+    pub fn projectPath(self: *const App) ?[]const u8 {
+        return if (self.project_path_len > 0) self.project_path_buf[0..self.project_path_len] else null;
+    }
+
+    pub fn setProjectPath(self: *App, path: []const u8) void {
+        const len = @min(path.len, self.project_path_buf.len);
+        @memcpy(self.project_path_buf[0..len], path[0..len]);
+        self.project_path_len = len;
+    }
 
     pub fn setStatus(self: *App, comptime fmt: []const u8, args: anytype) void {
         const msg = std.fmt.bufPrint(&self.status_buf, fmt, args) catch &self.status_buf;
@@ -1159,6 +1181,7 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8) !vo
         if (ws.persist.load(allocator, io, p)) |loaded| {
             app.session.deinit();
             app.session = loaded;
+            app.setProjectPath(p);
         } else |e| {
             std.debug.print("wstudio: cannot load '{s}': {s}\n", .{ p, @errorName(e) });
         }

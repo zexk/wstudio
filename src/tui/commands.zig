@@ -67,13 +67,16 @@ pub fn run(app: *App, text: []const u8) void {
 fn cmdQuit(app: *App, _: []const u8) void { app.should_quit = true; }
 
 fn cmdClear(app: *App, _: []const u8) void {
-    if (app.piano_track >= app.session.racks.items.len or
-        app.session.racks.items[app.piano_track].pattern_player == null)
+    // In the piano roll, clear the pattern being edited; elsewhere, the
+    // cursor track's pattern.
+    const track: usize = if (app.view == .piano_roll) app.piano_track else app.cursor;
+    if (track >= app.session.racks.items.len or
+        app.session.racks.items[track].pattern_player == null)
     {
         app.setStatus("clear: no piano-roll pattern", .{});
         return;
     }
-    const pp = &app.session.racks.items[app.piano_track].pattern_player.?;
+    const pp = &app.session.racks.items[track].pattern_player.?;
     const n = pp.note_count;
     pp.clearNotes();
     app.setStatus("cleared {d} notes", .{n});
@@ -227,29 +230,33 @@ fn cmdLoadSample(app: *App, args: []const u8) void {
     app.setStatus("sample loaded: {s}", .{stem});
 }
 
+/// Explicit :save argument, else the file the session was loaded from /
+/// last saved to, else "project.wsj".
+fn savePath(app: *App, args: []const u8) []const u8 {
+    const arg = std.mem.trim(u8, args, " ");
+    if (arg.len > 0) return arg;
+    return app.projectPath() orelse "project.wsj";
+}
+
 fn cmdSave(app: *App, args: []const u8) void {
-    const path = if (std.mem.trim(u8, args, " ").len > 0)
-        std.mem.trim(u8, args, " ")
-    else
-        "project.wsj";
+    const path = savePath(app, args);
     ws.persist.save(app.allocator, &app.session, app.io, path) catch |e| {
         app.setStatus("save: {s}: {s}", .{ path, @errorName(e) });
         return;
     };
+    app.setProjectPath(path);
     app.setStatus("saved: {s}", .{path});
 }
 
 /// Vim-style write-and-quit: save the project, then exit. Only quits when
 /// the save succeeds so a failed write leaves the session intact.
 fn cmdWriteQuit(app: *App, args: []const u8) void {
-    const path = if (std.mem.trim(u8, args, " ").len > 0)
-        std.mem.trim(u8, args, " ")
-    else
-        "project.wsj";
+    const path = savePath(app, args);
     ws.persist.save(app.allocator, &app.session, app.io, path) catch |e| {
         app.setStatus("save: {s}: {s}", .{ path, @errorName(e) });
         return;
     };
+    app.setProjectPath(path);
     app.should_quit = true;
 }
 
@@ -266,7 +273,11 @@ fn cmdBounce(app: *App, args: []const u8) void {
     const engine = app.session.engine;
     const sr = app.session.project.sample_rate;
 
-    const max_beats = @max(1.0, app.contentBeats());
+    // Song mode renders the whole arrangement; pattern mode the longest loop.
+    const max_beats = if (app.session.song_mode) blk: {
+        const bpb: f64 = @floatFromInt(engine.transport.time_signature.beats_per_bar);
+        break :blk @max(1.0, @as(f64, @floatFromInt(app.session.arrangement.lengthBars())) * bpb);
+    } else @max(1.0, app.contentBeats());
     const content_frames: u64 = @intFromFloat(engine.transport.framesPerBeat() * max_beats);
     const total_frames = content_frames + types.secondsToFrames(2.0, sr);
     const buffer = app.allocator.alloc(
@@ -278,7 +289,11 @@ fn cmdBounce(app: *App, args: []const u8) void {
     };
     defer app.allocator.free(buffer);
 
-    parkAudio(app);
+    if (!parkAudio(app)) {
+        engine.bounce_active.store(false, .release);
+        app.setStatus("bounce: audio thread did not park", .{});
+        return;
+    }
     renderBounce(app, buffer);
     engine.bounce_active.store(false, .release);
     engine.bounce_parked.store(false, .release);
@@ -299,18 +314,21 @@ fn cmdBounce(app: *App, args: []const u8) void {
     app.setStatus("bounced {d:.1}s -> {s}", .{ types.framesToSeconds(total_frames, sr), path });
 }
 
-/// Signal the realtime backend to park, then wait until it confirms (or time
-/// out — in tests no audio thread is running, so there is nothing to wait on).
-fn parkAudio(app: *App) void {
+/// Signal the realtime backend to park and wait until it confirms. Returns
+/// false on timeout — the caller must NOT touch the engine then, or the two
+/// threads would call process() concurrently. (The TUI always runs a backend
+/// — ALSA or Null — so the timeout only fires if that thread is wedged.)
+fn parkAudio(app: *App) bool {
     const engine = app.session.engine;
     engine.bounce_parked.store(false, .release);
     engine.bounce_active.store(true, .release);
     const start = std.Io.Timestamp.now(app.io, .awake).nanoseconds;
     while (!engine.bounce_parked.load(.acquire)) {
         const elapsed = std.Io.Timestamp.now(app.io, .awake).nanoseconds - start;
-        if (elapsed > 100 * std.time.ns_per_ms) break;
+        if (elapsed > 100 * std.time.ns_per_ms) return false;
         std.atomic.spinLoopHint();
     }
+    return true;
 }
 
 /// Render the session from beat 0 into `buffer` (interleaved stereo), then
