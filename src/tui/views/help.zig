@@ -115,6 +115,9 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("+ / -",        "lengthen / shorten loop (1–16 steps)");
     t.key("X",            "clear all steps on current pad");
     t.key("F",            "fill all steps on current pad");
+    t.key("[ / ]",        "prev / next pattern variant (A–H)");
+    t.key("N",            "new pattern variant (copy of current)");
+    t.key("D",            "delete current pattern variant");
 
     t.section("SAMPLER EDITOR");
     t.key("j / k",        "select parameter");
@@ -147,6 +150,15 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("[ / ]",        "resize note at cursor (else set default length)");
     t.key("+ / -",        "lengthen / shorten loop (1 bar)");
     t.key(":clear",       "erase all notes in the pattern");
+
+    t.section("ARRANGEMENT");
+    t.key("h / l",        "move cursor left / right (one bar)");
+    t.key("H / L",        "move cursor left / right (4 bars)");
+    t.key("j / k",        "move between track lanes");
+    t.key("enter",        "stamp the live pattern as a clip");
+    t.key("[ / ]",        "cycle drum pattern variant to stamp");
+    t.key("x",            "delete clip at cursor");
+    t.key("T",            "toggle song / pattern mode");
 
     t.section("SPECTRUM / EQ");
     t.key("h / l",        "select EQ band");

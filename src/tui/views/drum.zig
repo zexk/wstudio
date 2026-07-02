@@ -52,7 +52,11 @@ pub fn drawDrumGrid(app: anytype, w: *std.Io.Writer, rows: usize, snap: engine_m
     const track_name = app.session.project.tracks.items[app.drum_track].name;
     try w.writeAll(bold ++ " DRUMS" ++ rst);
     try w.print(" \"{s}\"", .{track_name});
-    try w.writeAll(dim ++ "  [hjkl:move  HL:beat  enter:toggle  p:preview  e:sampler  +-:length  X:clear  F:fill  esc:back]");
+    try w.writeAll("  " ++ acc);
+    try w.print("pat {c}", .{DrumMachine.variantLetter(dm.variant)});
+    try w.writeAll(rst ++ dim);
+    try w.print(" {d}/{d}", .{ dm.variant + 1, dm.variant_count });
+    try w.writeAll(dim ++ "  [hjkl:move  enter:toggle  []:pattern  N:new  D:del  p:preview  e:sampler  +-:length  X:clear  F:fill  esc:back]");
     try endLine(w);
 
     // step header — only the active range (step_count) is shown
@@ -106,6 +110,10 @@ pub fn drawDrumStatus(app: anytype, w: *std.Io.Writer) !void {
     const s = app.drum_cursor[1];
     const dm = app.drumMachine();
     try w.writeAll(acc ++ sel ++ " DRUM " ++ rst);
+    try w.writeAll(dim ++ "  pat " ++ rst);
+    try w.print("{c}", .{DrumMachine.variantLetter(dm.variant)});
+    try w.writeAll(dim ++ "/" ++ rst);
+    try w.print("{d}", .{dm.variant_count});
     try w.writeAll(dim ++ "  pad " ++ rst);
     try w.print("{d}/{d}", .{ p + 1, DrumMachine.max_pads });
     try w.writeAll(dim ++ "  step " ++ rst);

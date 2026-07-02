@@ -212,7 +212,7 @@ pub const Session = struct {
                 for (&pat, 0..) |*p, i| p.* = dm.pattern[i].load(.acquire);
                 const len_beats = @as(f64, @floatFromInt(dm.step_count)) / 4.0;
                 try lane.place(self.allocator, Clip.initDrum(
-                    start_bar, barsFor(len_beats, bpb), pat, dm.step_count,
+                    start_bar, barsFor(len_beats, bpb), pat, dm.step_count, dm.variant,
                 ));
             },
             else => {
@@ -456,6 +456,32 @@ test "song mode flattens a melodic clip to absolute beats" {
 
     s.setSongMode(false);
     try std.testing.expect(!pp.song_mode);
+}
+
+test "stampClip captures the active drum variant" {
+    var s = try Session.initDefault(std.testing.allocator);
+    defer s.deinit();
+    try s.setInstrument(0, .drum_machine);
+    const dm = &s.racks.items[0].instrument.drum_machine;
+    for (&dm.pattern) |*p| p.store(0, .monotonic);
+    dm.toggleStep(0, 0); // variant A: pad 0 step 0
+
+    _ = dm.addVariant(); // variant B, copy of A
+    dm.toggleStep(0, 0);
+    dm.toggleStep(1, 2); // variant B: pad 1 step 2 only
+
+    try s.stampClip(0, 0); // stamps B (active)
+    dm.selectVariant(0);
+    try s.stampClip(0, 1); // stamps A
+
+    const lane = s.arrangement.lane(0).?;
+    const b = lane.clips.items[0].content.drum;
+    const a = lane.clips.items[1].content.drum;
+    try std.testing.expectEqual(@as(u8, 1), b.variant);
+    try std.testing.expectEqual(@as(u32, 1 << 2), b.pattern[1]);
+    try std.testing.expectEqual(@as(u32, 0), b.pattern[0]);
+    try std.testing.expectEqual(@as(u8, 0), a.variant);
+    try std.testing.expectEqual(@as(u32, 1), a.pattern[0]);
 }
 
 test "song mode places a drum clip on the step timeline" {

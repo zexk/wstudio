@@ -38,11 +38,14 @@ takes over when no device exists).
 
 Tracks start blank: `enter` on a blank track opens the instrument
 picker. Synth and sampler tracks are piano-roll sequenceable (`p`);
-drum-machine tracks open the step grid (`enter`), and `e` there opens
-the per-pad sampler editor. `A` opens the arrangement view, where clips
-stamped from the live patterns are placed on a bar timeline and `T`
-toggles between pattern and song playback. `:load-sample <file>` swaps
-a sampler's clip; `:load-pad <0-7> <file>` swaps a drum pad.
+drum-machine tracks open the step grid (`enter`), where `e` opens the
+per-pad sampler editor and `[`/`]`/`N` manage up to 8 pattern variants
+(A to H) per machine. `A` opens the arrangement view, where clips
+stamped from the live patterns are placed on a bar timeline; on drum
+lanes `[`/`]` pick which variant to stamp (clips show their letter),
+and `T` toggles between pattern and song playback. `:load-sample
+<file>` swaps a sampler's clip; `:load-pad <0-7> <file>` swaps a drum
+pad.
 
 ## Architecture
 

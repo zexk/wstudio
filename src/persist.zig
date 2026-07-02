@@ -33,7 +33,11 @@ const dsp = @import("dsp/device.zig");
 
 /// v2 adds the arrangement (song timeline) and `song_mode`. v1 files omit both
 /// and deserialize to an empty arrangement in pattern mode — the prior behaviour.
-pub const file_version: u32 = 2;
+/// v3 adds drum pattern variants (`DrumSnap.variants` + active index) and the
+/// variant label on drum clips. v2 files omit them and load as a single
+/// variant built from the legacy `pattern`/`step_count` fields, which v3 keeps
+/// writing (mirroring the active variant) so files stay hand-editable.
+pub const file_version: u32 = 3;
 
 // ---------------------------------------------------------------------------
 // Snapshot types — plain data, JSON-serialisable
@@ -117,10 +121,23 @@ pub const PadSnap = struct {
     release_s: f32 = 0.005,
 };
 
+/// One drum pattern variant. Mirrors `DrumMachine.Variant`.
+pub const VariantSnap = struct {
+    step_count: u8 = 16,
+    pattern: [DrumMachine.max_pads]u32 = [_]u32{0} ** DrumMachine.max_pads,
+};
+
 pub const DrumSnap = struct {
+    /// Legacy live-pattern fields: always the active variant's data, so v2
+    /// readers (and hand edits) see a coherent single pattern.
     step_count: u8 = 16,
     pattern: [DrumMachine.max_pads]u32 = [_]u32{0} ** DrumMachine.max_pads,
     pads: [DrumMachine.max_pads]PadSnap = [_]PadSnap{.{}} ** DrumMachine.max_pads,
+    /// v3: the whole variant bank. Empty in v2 files — the machine then gets a
+    /// single variant from the legacy fields above.
+    variants: []const VariantSnap = &.{},
+    /// v3: index of the active variant within `variants`.
+    variant: u8 = 0,
 };
 
 pub const CompSnap = struct {
@@ -198,6 +215,8 @@ pub const ClipSnap = struct {
     // drum
     drum_pattern: [DrumMachine.max_pads]u32 = [_]u32{0} ** DrumMachine.max_pads,
     step_count: u8 = 16,
+    /// v3: variant letter label (index) the clip was stamped from.
+    variant: u8 = 0,
 };
 
 /// One track's lane of clips. Lanes are parallel to `racks`/`tracks`.
@@ -310,8 +329,15 @@ fn rackToSnap(aa: std.mem.Allocator, rack: *Rack, sample_rate: u32) !RackSnap {
         },
         .drum_machine => |*dm| {
             rs.kind = .drum_machine;
-            var ds: DrumSnap = .{ .step_count = dm.step_count };
+            var ds: DrumSnap = .{ .step_count = dm.step_count, .variant = dm.variant };
             for (&ds.pattern, 0..) |*p, i| p.* = dm.pattern[i].load(.acquire);
+            const variants = try aa.alloc(VariantSnap, dm.variant_count);
+            for (variants, 0..) |*vs, vi| {
+                // variantData reads the active slot from the live atomics.
+                const v = dm.variantData(@intCast(vi));
+                vs.* = .{ .step_count = v.step_count, .pattern = v.pattern };
+            }
+            ds.variants = variants;
             for (&ds.pads, 0..) |*ps, i| {
                 if (dm.pads[i]) |*p| ps.* = .{
                     .gain = p.gain, .pan = p.pan, .pitch_semitones = p.pitch_semitones,
@@ -376,6 +402,7 @@ fn clipToSnap(aa: std.mem.Allocator, clip: ws_arrangement.Clip) !ClipSnap {
             c.kind = .drum;
             c.drum_pattern = d.pattern;
             c.step_count = d.step_count;
+            c.variant = d.variant;
         },
     }
     return c;
@@ -520,12 +547,33 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
                 rack.instrument = .{ .drum_machine = try DrumMachine.init(allocator, sr, &engine.transport) };
                 if (rs.drum) |ds| {
                     const dmp = &rack.instrument.drum_machine;
-                    // Bits first: setStepCount masks off any pattern bits the
-                    // file left above its own step count.
-                    for (ds.pattern, 0..) |bits, pi| {
-                        dmp.pattern[pi].store(bits, .monotonic);
+                    if (ds.variants.len > 0) {
+                        // v3: restore the bank, masking each slot's stray bits
+                        // the same way setStepCount does for the live pattern.
+                        const count: u8 = @intCast(@min(ds.variants.len, DrumMachine.max_variants));
+                        for (ds.variants[0..count], dmp.variants[0..count]) |vs, *slot| {
+                            const sc = std.math.clamp(vs.step_count, 1, DrumMachine.max_steps);
+                            slot.step_count = sc;
+                            const mask = DrumMachine.stepMask(sc);
+                            for (vs.pattern, &slot.pattern) |bits, *p| p.* = bits & mask;
+                        }
+                        dmp.variant_count = count;
+                        dmp.variant = @min(ds.variant, count - 1);
+                        // The legacy pattern/step_count fields mirror the
+                        // active variant; the bank is the source of truth.
+                        for (dmp.variants[dmp.variant].pattern, 0..) |bits, pi| {
+                            dmp.pattern[pi].store(bits, .monotonic);
+                        }
+                        dmp.setStepCount(dmp.variants[dmp.variant].step_count);
+                    } else {
+                        // v2: one variant from the legacy fields. Bits first:
+                        // setStepCount masks off any pattern bits the file
+                        // left above its own step count.
+                        for (ds.pattern, 0..) |bits, pi| {
+                            dmp.pattern[pi].store(bits, .monotonic);
+                        }
+                        dmp.setStepCount(ds.step_count);
                     }
-                    dmp.setStepCount(ds.step_count);
                     for (ds.pads, 0..) |ps, pi| {
                         if (dmp.pads[pi]) |*p| applyPadSnap(p, ps);
                     }
@@ -581,6 +629,7 @@ fn clipFromSnap(allocator: std.mem.Allocator, cs: ClipSnap) !ws_arrangement.Clip
         },
         .drum => ws_arrangement.Clip.initDrum(
             cs.start_bar, cs.length_bars, cs.drum_pattern, cs.step_count,
+            @min(cs.variant, DrumMachine.max_variants - 1),
         ),
     };
 }
@@ -895,6 +944,85 @@ test "buildSession: arrangement clips and song_mode round-trip" {
     try testing.expectEqual(@as(u16, 1), session.racks.items[0].pattern_player.?.song_note_count);
     try testing.expect(session.racks.items[1].instrument.drum_machine.song_mode);
     try testing.expectEqual(@as(u16, 1), session.racks.items[1].instrument.drum_machine.song_clip_count);
+}
+
+test "buildSession: drum variant bank round-trips; v2 files get one variant" {
+    const testing = std.testing;
+
+    // v3: two variants, B active, with stray bits above each step count that
+    // the loader must mask off.
+    const variants = [_]VariantSnap{
+        .{ .step_count = 16, .pattern = blk: {
+            var p = [_]u32{0} ** DrumMachine.max_pads;
+            p[0] = 1 | (1 << 20); // bit 20 is past 16 steps — stray
+            break :blk p;
+        } },
+        .{ .step_count = 32, .pattern = blk: {
+            var p = [_]u32{0} ** DrumMachine.max_pads;
+            p[1] = 1 << 31;
+            break :blk p;
+        } },
+    };
+    const snap: Snapshot = .{
+        .tracks = &.{.{ .name = "drums" }},
+        .racks = &.{.{
+            .label = "drums",
+            .kind = .drum_machine,
+            .drum = .{ .variants = &variants, .variant = 1 },
+        }},
+    };
+
+    var session = try buildSession(testing.allocator, &snap);
+    defer session.deinit();
+
+    const dm = &session.racks.items[0].instrument.drum_machine;
+    try testing.expectEqual(@as(u8, 2), dm.variant_count);
+    try testing.expectEqual(@as(u8, 1), dm.variant);
+    try testing.expectEqual(@as(u8, 32), dm.step_count);
+    try testing.expect(dm.stepActive(1, 31)); // live = variant B
+    dm.selectVariant(0);
+    try testing.expectEqual(@as(u8, 16), dm.step_count);
+    try testing.expect(dm.stepActive(0, 0));
+    try testing.expect(!dm.stepActive(0, 20)); // stray bit was masked
+
+    // v2 file shape: no `variants` — a single variant from the legacy fields.
+    const legacy: Snapshot = .{
+        .tracks = &.{.{ .name = "drums" }},
+        .racks = &.{.{
+            .label = "drums",
+            .kind = .drum_machine,
+            .drum = .{ .step_count = 16, .pattern = blk: {
+                var p = [_]u32{0} ** DrumMachine.max_pads;
+                p[0] = 1 << 5;
+                break :blk p;
+            } },
+        }},
+    };
+    var old = try buildSession(testing.allocator, &legacy);
+    defer old.deinit();
+    const odm = &old.racks.items[0].instrument.drum_machine;
+    try testing.expectEqual(@as(u8, 1), odm.variant_count);
+    try testing.expect(odm.stepActive(0, 5));
+}
+
+test "clip snapshots carry the drum variant label" {
+    const testing = std.testing;
+
+    var session = try Session.initDefault(testing.allocator);
+    defer session.deinit();
+    try session.setInstrument(0, .drum_machine);
+    const dm = &session.racks.items[0].instrument.drum_machine;
+    _ = dm.addVariant(); // B active
+    try session.stampClip(0, 0);
+
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const cs = try clipToSnap(arena.allocator(), session.arrangement.lane(0).?.clips.items[0]);
+    try testing.expectEqual(@as(u8, 1), cs.variant);
+
+    var clip = try clipFromSnap(testing.allocator, cs);
+    defer clip.deinit(testing.allocator);
+    try testing.expectEqual(@as(u8, 1), clip.content.drum.variant);
 }
 
 test "buildSession: rejects malformed and future files" {

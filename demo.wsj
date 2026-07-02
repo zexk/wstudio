@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 3,
   "tempo_bpm": 120,
   "sample_rate": 48000,
   "tracks": [
@@ -471,7 +471,23 @@
             "sustain": 1,
             "release_s": 0.004999999888241291
           }
-        ]
+        ],
+        "variants": [
+          {
+            "step_count": 16,
+            "pattern": [
+              4369,
+              4112,
+              21845,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        ],
+        "variant": 0
       },
       "fx": {
         "comp": null,
@@ -480,5 +496,20 @@
         "eq": null
       }
     }
-  ]
+  ],
+  "arrangement": [
+    {
+      "clips": []
+    },
+    {
+      "clips": []
+    },
+    {
+      "clips": []
+    },
+    {
+      "clips": []
+    }
+  ],
+  "song_mode": false
 }

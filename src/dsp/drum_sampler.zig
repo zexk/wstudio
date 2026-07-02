@@ -79,8 +79,18 @@ const default_kit = [_]KitSlot{
 pub const DrumMachine = struct {
     pub const max_pads: u8 = 8;
     pub const max_steps: u8 = 32;
+    /// Max pattern variants (A..H) one machine can hold.
+    pub const max_variants: u8 = 8;
     /// Max clips one lane can hold for song-mode playback (see `song_clips`).
     pub const max_song_clips: u16 = 256;
+
+    /// One pattern variant: a bank slot for the step grid. The active variant
+    /// lives in the atomic `pattern`/`step_count` fields; inactive ones rest
+    /// here as plain data (control thread only).
+    pub const Variant = struct {
+        pattern: [max_pads]u32 = [_]u32{0} ** max_pads,
+        step_count: u8 = 16,
+    };
 
     /// A drum clip flattened onto the arrangement's step timeline. `pattern` is
     /// a plain snapshot of the source bitmask (no atomics — the audio thread
@@ -107,8 +117,18 @@ pub const DrumMachine = struct {
     pad_lock: std.atomic.Mutex = .unlocked,
     pads: [max_pads]?Pad,
     /// Bitmask: bit k == 1 means step k is active. u32 for atomic compat.
+    /// Always mirrors the active variant; edits land here and are synced back
+    /// to `variants[variant]` when switching away.
     pattern: [max_pads]std.atomic.Value(u32),
     step_count: u8,
+
+    // ── Pattern variants (control thread only) ──────────────────────────────
+    /// Bank slots. Slot `variant` is stale while active — read it through
+    /// `variantData`, which pulls the live atomics instead.
+    variants: [max_variants]Variant = [_]Variant{.{}} ** max_variants,
+    variant_count: u8 = 1,
+    /// Index of the active variant (the one in the live `pattern`).
+    variant: u8 = 0,
 
     // ── Song-mode playback (control thread writes, audio thread reads under
     //    pad_lock) ──────────────────────────────────────────────────────────
@@ -184,15 +204,91 @@ pub const DrumMachine = struct {
     // -----------------------------------------------------------------------
     // Pattern editing (UI thread)
 
+    /// Bitmask covering steps 0..n — the valid bits for an n-step pattern.
+    pub fn stepMask(n: u8) u32 {
+        if (n >= 32) return ~@as(u32, 0);
+        return (@as(u32, 1) << @intCast(n)) - 1;
+    }
+
     pub fn setStepCount(self: *DrumMachine, n: u8) void {
         self.step_count = std.math.clamp(n, 1, max_steps);
         // Discard bits beyond the new count — otherwise they'd silently
         // survive a shrink, reappear on grow, and be saved to disk.
-        const mask: u32 = if (self.step_count >= 32)
-            ~@as(u32, 0)
-        else
-            (@as(u32, 1) << @intCast(self.step_count)) - 1;
+        const mask = stepMask(self.step_count);
         for (&self.pattern) |*p| _ = p.fetchAnd(mask, .acq_rel);
+    }
+
+    // -----------------------------------------------------------------------
+    // Pattern variants (control thread)
+
+    /// Sync the live pattern back into its bank slot.
+    fn storeActiveVariant(self: *DrumMachine) void {
+        const slot = &self.variants[self.variant];
+        for (&slot.pattern, &self.pattern) |*bank, *live| bank.* = live.load(.acquire);
+        slot.step_count = self.step_count;
+    }
+
+    /// Load bank slot `v` into the live pattern. setStepCount masks off any
+    /// stray bits a hand-edited file may have left above the step count.
+    fn loadVariantLive(self: *DrumMachine, v: u8) void {
+        const slot = self.variants[v];
+        for (&self.pattern, slot.pattern) |*live, bits| live.store(bits, .release);
+        self.setStepCount(slot.step_count);
+    }
+
+    /// Switch the active variant to `v`, saving the live pattern first.
+    pub fn selectVariant(self: *DrumMachine, v: u8) void {
+        if (v >= self.variant_count or v == self.variant) return;
+        self.storeActiveVariant();
+        self.variant = v;
+        self.loadVariantLive(v);
+    }
+
+    /// Step the active variant by `delta`, wrapping within the bank.
+    pub fn cycleVariant(self: *DrumMachine, delta: i32) void {
+        const n: i32 = self.variant_count;
+        if (n <= 1) return;
+        self.selectVariant(@intCast(@mod(@as(i32, self.variant) + delta, n)));
+    }
+
+    /// Duplicate the active variant into a new slot and switch to it — the
+    /// live pattern already matches the copy. False when the bank is full.
+    pub fn addVariant(self: *DrumMachine) bool {
+        if (self.variant_count >= max_variants) return false;
+        self.storeActiveVariant();
+        self.variants[self.variant_count] = self.variants[self.variant];
+        self.variant = self.variant_count;
+        self.variant_count += 1;
+        return true;
+    }
+
+    /// Remove the active variant, shifting later slots down. The slot that
+    /// takes its index (or the new last) becomes active. False when it's the
+    /// only one left.
+    pub fn removeVariant(self: *DrumMachine) bool {
+        if (self.variant_count <= 1) return false;
+        var i = self.variant;
+        while (i + 1 < self.variant_count) : (i += 1) self.variants[i] = self.variants[i + 1];
+        self.variant_count -= 1;
+        if (self.variant >= self.variant_count) self.variant = self.variant_count - 1;
+        self.loadVariantLive(self.variant);
+        return true;
+    }
+
+    /// Variant `v`'s pattern data. The active one is read from the live
+    /// atomics (its bank slot is stale until the next switch).
+    pub fn variantData(self: *const DrumMachine, v: u8) Variant {
+        if (v == self.variant) {
+            var out: Variant = .{ .step_count = self.step_count };
+            for (&out.pattern, &self.pattern) |*dst, *live| dst.* = live.load(.acquire);
+            return out;
+        }
+        return self.variants[@min(v, max_variants - 1)];
+    }
+
+    /// Display letter for variant `v`: A, B, C, …
+    pub fn variantLetter(v: u8) u8 {
+        return 'A' + @as(u8, @min(v, max_variants - 1));
     }
 
     /// Replace the song-mode clip timeline (control thread). Taken under
@@ -692,6 +788,94 @@ test "toggleStep flips pattern bit" {
     try std.testing.expect(dm.stepActive(0, 3));
     dm.toggleStep(0, 3);
     try std.testing.expect(!dm.stepActive(0, 3));
+}
+
+test "variants: add copies, edits stay isolated, select round-trips" {
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    defer dm.deinit();
+
+    for (&dm.pattern) |*p| p.store(0, .monotonic);
+    dm.toggleStep(0, 0); // variant A: pad 0 step 0
+
+    // New variant starts as a copy of A, then diverges.
+    try std.testing.expect(dm.addVariant());
+    try std.testing.expectEqual(@as(u8, 1), dm.variant);
+    try std.testing.expect(dm.stepActive(0, 0));
+    dm.toggleStep(0, 0);
+    dm.toggleStep(1, 4); // variant B: pad 1 step 4 only
+
+    // Back to A: the original pattern, untouched by B's edits.
+    dm.selectVariant(0);
+    try std.testing.expect(dm.stepActive(0, 0));
+    try std.testing.expect(!dm.stepActive(1, 4));
+
+    // Forward to B again: its own edits survived the switch.
+    dm.selectVariant(1);
+    try std.testing.expect(!dm.stepActive(0, 0));
+    try std.testing.expect(dm.stepActive(1, 4));
+}
+
+test "variants: step count is per-variant" {
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    defer dm.deinit();
+
+    try std.testing.expect(dm.addVariant());
+    dm.setStepCount(32);
+    dm.selectVariant(0);
+    try std.testing.expectEqual(@as(u8, 16), dm.step_count);
+    dm.selectVariant(1);
+    try std.testing.expectEqual(@as(u8, 32), dm.step_count);
+}
+
+test "variants: cycle wraps and remove shifts the bank down" {
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    defer dm.deinit();
+
+    try std.testing.expect(!dm.removeVariant()); // can't drop the only one
+    dm.cycleVariant(1); // single variant: no-op
+    try std.testing.expectEqual(@as(u8, 0), dm.variant);
+
+    _ = dm.addVariant(); // B
+    _ = dm.addVariant(); // C — mark it
+    for (&dm.pattern) |*p| p.store(0, .monotonic);
+    dm.toggleStep(7, 7);
+
+    dm.cycleVariant(1); // wraps C → A
+    try std.testing.expectEqual(@as(u8, 0), dm.variant);
+    dm.cycleVariant(-1); // wraps A → C
+    try std.testing.expectEqual(@as(u8, 2), dm.variant);
+
+    // Remove B: C shifts into slot 1 and stays findable.
+    dm.selectVariant(1);
+    try std.testing.expect(dm.removeVariant());
+    try std.testing.expectEqual(@as(u8, 2), dm.variant_count);
+    dm.selectVariant(1);
+    try std.testing.expect(dm.stepActive(7, 7));
+}
+
+test "variants: bank fills at max_variants" {
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    defer dm.deinit();
+
+    var added: u8 = 0;
+    while (dm.addVariant()) added += 1;
+    try std.testing.expectEqual(DrumMachine.max_variants - 1, added);
+    try std.testing.expectEqual(DrumMachine.max_variants, dm.variant_count);
+}
+
+test "variantData reads the active variant from the live atomics" {
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    defer dm.deinit();
+
+    for (&dm.pattern) |*p| p.store(0, .monotonic);
+    dm.toggleStep(3, 9); // edit after the bank slot was last synced
+    const active = dm.variantData(dm.variant);
+    try std.testing.expectEqual(@as(u32, 1 << 9), active.pattern[3]);
 }
 
 test "setStepCount discards bits beyond the new count" {

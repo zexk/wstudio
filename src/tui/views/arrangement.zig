@@ -65,7 +65,7 @@ pub fn drawArrangement(
     const mode_tag: []const u8 = if (app.session.song_mode) grn ++ "SONG" ++ rst else dim ++ "PATTERN" ++ rst;
     try w.writeAll(bold ++ " ARRANGEMENT" ++ rst ++ "  ");
     try w.writeAll(mode_tag);
-    try w.writeAll(dim ++ "   [hjkl:move  enter:stamp  x:del  T:mode  space:play  esc:back]" ++ rst);
+    try w.writeAll(dim ++ "   [hjkl:move  enter:stamp  []:pattern  x:del  T:mode  space:play  esc:back]" ++ rst);
     try endLine(w);
 
     // Bar ruler.
@@ -102,22 +102,27 @@ pub fn drawArrangement(
             const is_cursor = is_sel_lane and bar == cur_bar;
             const is_play = playhead == bar;
 
-            const glyph: []const u8 = if (!covered) "   " else if (is_start) "▌██" else "███";
+            // Drum clips wear their variant letter on the start cell.
+            const letter: ?u8 = if (is_start) switch (clip.?.content) {
+                .drum => |d| ws.dsp.DrumMachine.variantLetter(d.variant),
+                .melodic => null,
+            } else null;
+
             if (is_cursor) {
                 try w.writeAll(sel);
-                try w.writeAll(glyph);
-                try w.writeAll(rst);
             } else if (is_play) {
                 try w.writeAll(grn ++ bold);
-                try w.writeAll(if (covered) glyph else " ‖ ");
-                try w.writeAll(rst);
             } else if (covered) {
                 try w.writeAll(acc);
-                try w.writeAll(glyph);
-                try w.writeAll(rst);
-            } else {
-                try w.writeAll(glyph);
             }
+            if (!covered) {
+                try w.writeAll(if (is_play and !is_cursor) " ‖ " else "   ");
+            } else if (letter) |ch| {
+                try w.print("▌{c}█", .{ch});
+            } else {
+                try w.writeAll(if (is_start) "▌██" else "███");
+            }
+            if (is_cursor or is_play or covered) try w.writeAll(rst);
         }
         try endLine(w);
     }
@@ -144,10 +149,29 @@ pub fn drawArrangementStatus(app: anytype, w: *std.Io.Writer) !void {
     try w.writeAll(dim ++ "  track " ++ rst);
     try w.print("{d}/{d}", .{ app.cursor + 1, app.session.project.tracks.items.len });
 
+    // On a drum lane, show which pattern variant enter would stamp.
+    if (app.cursor < app.session.racks.items.len) {
+        switch (app.session.racks.items[app.cursor].instrument) {
+            .drum_machine => |*dm| {
+                try w.writeAll(dim ++ "  pat " ++ rst);
+                try w.print("{c}", .{ws.dsp.DrumMachine.variantLetter(dm.variant)});
+                try w.writeAll(dim ++ "/" ++ rst);
+                try w.print("{d}", .{dm.variant_count});
+            },
+            else => {},
+        }
+    }
+
     if (app.session.arrangement.lane(app.cursor)) |lane| {
         if (lane.clipAt(app.arr_cursor_bar)) |clip| {
             try w.writeAll(dim ++ "  clip " ++ rst);
             try w.print("{d}\u{2192}{d}", .{ clip.start_bar + 1, clip.endBar() });
+            switch (clip.content) {
+                .drum => |d| try w.print(" {s}pat{s} {c}", .{
+                    dim, rst, ws.dsp.DrumMachine.variantLetter(d.variant),
+                }),
+                .melodic => {},
+            }
         }
     }
 

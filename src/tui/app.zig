@@ -364,9 +364,27 @@ pub const App = struct {
                     'X' => self.drumMachine().pattern[pad.*].store(0, .release),
                     'F' => {
                         const dm = self.drumMachine();
-                        const sc = dm.step_count;
-                        const mask: u32 = if (sc >= 32) ~@as(u32, 0) else (@as(u32, 1) << @intCast(sc)) - 1;
-                        dm.pattern[pad.*].store(mask, .release);
+                        dm.pattern[pad.*].store(DrumMachine.stepMask(dm.step_count), .release);
+                    },
+                    '[' => { self.drumCycleVariant(-1); },
+                    ']' => { self.drumCycleVariant(1); },
+                    'N' => {
+                        const dm = self.drumMachine();
+                        const src = dm.variant;
+                        if (dm.addVariant())
+                            self.setStatus("new pattern {c} (copy of {c})", .{
+                                DrumMachine.variantLetter(dm.variant),
+                                DrumMachine.variantLetter(src),
+                            })
+                        else
+                            self.setStatus("pattern bank full ({d} max)", .{DrumMachine.max_variants});
+                    },
+                    'D' => {
+                        const dm = self.drumMachine();
+                        if (dm.removeVariant()) {
+                            if (step.* >= dm.step_count) step.* = dm.step_count - 1;
+                            self.setStatus("deleted pattern — now on {c}", .{DrumMachine.variantLetter(dm.variant)});
+                        } else self.setStatus("can't delete the only pattern", .{});
                     },
                     's' => { self.switchToTrackSpectrum(self.drum_track); return true; },
                     'e' => {
@@ -381,6 +399,21 @@ pub const App = struct {
             },
             else => return false,
         }
+    }
+
+    /// Cycle the drum grid's active pattern variant, keeping the step cursor
+    /// inside the new variant's step count.
+    fn drumCycleVariant(self: *App, delta: i32) void {
+        const dm = self.drumMachine();
+        if (dm.variant_count <= 1) {
+            self.setStatus("one pattern — N creates another", .{});
+            return;
+        }
+        dm.cycleVariant(delta);
+        if (self.drum_cursor[1] >= dm.step_count) self.drum_cursor[1] = dm.step_count - 1;
+        self.setStatus("pattern {c} ({d}/{d})", .{
+            DrumMachine.variantLetter(dm.variant), dm.variant + 1, dm.variant_count,
+        });
     }
 
     /// Number of editable params for the sampler editor's current target.
@@ -1021,9 +1054,10 @@ pub const App = struct {
     // -----------------------------------------------------------------------
 
     /// h/l move ±1 bar, H/L ±4 bars (one phrase), j/k change lane (shared
-    /// `cursor`), enter stamps the live pattern as a clip, x deletes, T toggles
-    /// song/pattern mode. Returns false for unhandled keys (space, `:`, …) so
-    /// the transport and command line still work. Scroll is clamped at draw.
+    /// `cursor`), enter stamps the live pattern as a clip, x deletes, [/]
+    /// cycle a drum lane's pattern variant, T toggles song/pattern mode.
+    /// Returns false for unhandled keys (space, `:`, …) so the transport and
+    /// command line still work. Scroll is clamped at draw.
     fn handleArrangementKey(self: *App, key: modal_mod.Key) bool {
         const lane_count = self.session.project.tracks.items.len;
         switch (key) {
@@ -1040,6 +1074,8 @@ pub const App = struct {
                 'j' => { if (self.cursor + 1 < lane_count) self.cursor += 1; return true; },
                 'k' => { if (self.cursor > 0) self.cursor -= 1; return true; },
                 'x' => { self.arrDeleteClip(); return true; },
+                '[' => { self.arrCycleDrumVariant(-1); return true; },
+                ']' => { self.arrCycleDrumVariant(1); return true; },
                 'T' => {
                     self.session.setSongMode(!self.session.song_mode);
                     self.setStatus("{s} mode", .{if (self.session.song_mode) "song" else "pattern"});
@@ -1056,6 +1092,26 @@ pub const App = struct {
         self.arr_cursor_bar = @intCast(@max(@as(i64, 0), nb));
     }
 
+    /// On a drum lane, cycle which pattern variant `enter` will stamp. This is
+    /// the machine's active variant — the same one the drum grid edits and
+    /// pattern mode plays — so there is only one notion of "selected pattern".
+    fn arrCycleDrumVariant(self: *App, delta: i32) void {
+        if (self.cursor >= self.session.racks.items.len) return;
+        switch (self.session.racks.items[self.cursor].instrument) {
+            .drum_machine => |*dm| {
+                if (dm.variant_count <= 1) {
+                    self.setStatus("one pattern — create variants in the drum grid (N)", .{});
+                    return;
+                }
+                dm.cycleVariant(delta);
+                self.setStatus("pattern {c} ({d}/{d})", .{
+                    DrumMachine.variantLetter(dm.variant), dm.variant + 1, dm.variant_count,
+                });
+            },
+            else => self.setStatus("not a drum track", .{}),
+        }
+    }
+
     /// Capture the cursor track's live pattern as a clip at the cursor bar,
     /// then jump the cursor to the clip's end for quick sequential placing.
     fn arrStampClip(self: *App) void {
@@ -1070,7 +1126,12 @@ pub const App = struct {
         };
         if (self.session.arrangement.lane(self.cursor)) |lane| {
             if (lane.clipAt(self.arr_cursor_bar)) |clip| {
-                self.setStatus("stamped {d}-bar clip", .{clip.length_bars});
+                switch (clip.content) {
+                    .drum => |d| self.setStatus("stamped {d}-bar clip (pat {c})", .{
+                        clip.length_bars, DrumMachine.variantLetter(d.variant),
+                    }),
+                    .melodic => self.setStatus("stamped {d}-bar clip", .{clip.length_bars}),
+                }
                 self.arr_cursor_bar = clip.endBar();
             }
         }

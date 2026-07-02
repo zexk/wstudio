@@ -14,7 +14,10 @@
 //!   14–15 drums + e-piano         (outro; lead & bass drop out)
 //!
 //! Melodic loops are two bars (8 beats) so their clips span two bars; the drum
-//! loop is one bar (16 steps) so it is stamped bar by bar.
+//! loop is one bar (16 steps) so it is stamped bar by bar. The drums carry two
+//! pattern variants: A is the main groove, B adds a snare/tom fill on the last
+//! beat and is stamped on every 4th bar (3, 7, 11, 15) — the same flow as
+//! cycling patterns with `[`/`]` in the arrangement view.
 
 const std = @import("std");
 const ws = @import("wstudio");
@@ -51,9 +54,21 @@ pub fn main(init: std.process.Init) !void {
     for ([_]u32{ 2, 4, 6, 8, 10, 12, 14 }) |bar| try session.stampClip(epiano, bar);
     for ([_]u32{ 2, 4, 6, 8, 10, 12 }) |bar| try session.stampClip(bass, bar);
 
-    // The one-bar drum loop underpins the whole song, stamped bar by bar.
+    // Variant B: the main groove plus a snare/tom fill on beat 4.
+    const dm = &session.racks.items[drums].instrument.drum_machine;
+    std.debug.assert(dm.addVariant());
+    _ = dm.pattern[1].fetchOr(0b1010 << 12, .acq_rel); // snare on steps 13, 15
+    _ = dm.pattern[5].fetchOr(1 << 12, .acq_rel); // tom-1 on step 13
+    _ = dm.pattern[6].fetchOr(1 << 14, .acq_rel); // tom-2 on step 15
+
+    // The one-bar drum loop underpins the whole song: groove (A) bar by bar,
+    // with the fill (B) closing every 4-bar phrase.
     var bar: u32 = 0;
-    while (bar < song_bars) : (bar += 1) try session.stampClip(drums, bar);
+    while (bar < song_bars) : (bar += 1) {
+        dm.selectVariant(if (bar % 4 == 3) 1 else 0);
+        try session.stampClip(drums, bar);
+    }
+    dm.selectVariant(0); // leave the groove live for pattern mode
 
     // Ship it in song mode so the arrangement drives playback on open.
     session.setSongMode(true);
