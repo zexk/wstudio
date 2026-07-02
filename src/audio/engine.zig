@@ -22,6 +22,8 @@ pub const Command = union(enum) {
     stop,
     seek_frames: u64,
     set_tempo: f64,
+    /// Beats per bar; the beat unit stays /4 (a beat is always a quarter).
+    set_time_signature: u8,
     set_master_gain: f32,
     set_track_gain: struct { track: u16, gain: f32 },
     set_track_pan: struct { track: u16, pan: f32 },
@@ -107,6 +109,7 @@ pub const Engine = struct {
 
     pub fn loadProject(self: *Engine, project: *const Project) void {
         self.transport.tempo_bpm = project.tempo_bpm;
+        self.transport.time_signature.beats_per_bar = project.beats_per_bar;
         for (&self.tracks, 0..) |*state, i| {
             if (i < project.tracks.items.len) {
                 const t = project.tracks.items[i];
@@ -224,6 +227,7 @@ pub const Engine = struct {
             .stop => self.transport.stop(),
             .seek_frames => |f| self.transport.seekFrames(f),
             .set_tempo => |bpm| self.transport.tempo_bpm = bpm,
+            .set_time_signature => |bpb| self.transport.time_signature.beats_per_bar = bpb,
             .set_master_gain => |g| self.master_gain = g,
             .set_track_gain => |c| self.trackAt(c.track).gain = c.gain,
             .set_track_pan => |c| self.trackAt(c.track).pan = c.pan,

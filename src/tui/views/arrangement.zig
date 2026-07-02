@@ -39,7 +39,7 @@ fn playheadBar(app: anytype, snap: engine_mod.UiSnapshot) ?u32 {
         .tempo_bpm = app.session.project.tempo_bpm,
         .position_frames = snap.position_frames,
     };
-    const bpb: f64 = @floatFromInt(app.session.engine.transport.time_signature.beats_per_bar);
+    const bpb: f64 = @floatFromInt(app.session.project.beats_per_bar);
     return @intFromFloat(t.positionBeats() / bpb);
 }
 
@@ -50,7 +50,7 @@ pub fn drawArrangement(
     cols: usize,
     snap: engine_mod.UiSnapshot,
 ) !void {
-    const bpb: u32 = app.session.engine.transport.time_signature.beats_per_bar;
+    const bpb: u32 = app.session.project.beats_per_bar;
     const visible = visibleBars(cols);
 
     // Keep the bar cursor inside the visible window.

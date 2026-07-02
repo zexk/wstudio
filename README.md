@@ -134,13 +134,13 @@ a full song:
 - [ ] Undo
 - [ ] Live recording from insert mode (play a take into the pattern)
 - [ ] Parameter automation on the timeline
-- [ ] Time signature setting (everything currently assumes 4/4)
 - [ ] Audio clips: WAV clip playback on tracks
 - [ ] Native PipeWire and JACK backends behind the same interface
 - [ ] Plugin hosting (CLAP first)
 
 Done:
 
+- [x] Time signature setting (`:sig <n>`, any /4 meter, persisted)
 - [x] Master bus limiter (always on; hot mixes duck instead of clipping)
 - [x] Pattern copy/paste across tracks (`y`/`P` in piano roll and drum grid)
 - [x] Play-from-cursor in the arrangement view (`g`)

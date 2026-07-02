@@ -23,6 +23,10 @@ pub const Project = struct {
     name: []const u8 = "untitled",
     sample_rate: u32 = types.default_sample_rate,
     tempo_bpm: f64 = 120.0,
+    /// Beats per bar (the time signature's numerator; the unit stays /4).
+    /// Control-side source of truth — the transport mirrors it, exactly
+    /// like `tempo_bpm`.
+    beats_per_bar: u8 = 4,
     tracks: std.ArrayList(Track) = .empty,
 
     pub fn init(allocator: std.mem.Allocator) Project {

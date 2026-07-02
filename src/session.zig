@@ -203,7 +203,7 @@ pub const Session = struct {
         if (track_idx >= self.racks.items.len) return;
         const lane = self.arrangement.lane(track_idx) orelse return;
         const rack = self.racks.items[track_idx];
-        const bpb: f64 = @floatFromInt(self.engine.transport.time_signature.beats_per_bar);
+        const bpb: f64 = @floatFromInt(self.project.beats_per_bar);
 
         switch (rack.instrument) {
             .empty => return,
@@ -261,7 +261,7 @@ pub const Session = struct {
     /// devices share the same total length. Call after any clip edit while in
     /// song mode. Control thread only.
     pub fn rebuildSongData(self: *Session) void {
-        const bpb_u = self.engine.transport.time_signature.beats_per_bar;
+        const bpb_u = self.project.beats_per_bar;
         const bpb: f64 = @floatFromInt(bpb_u);
         const total_bars = self.arrangement.lengthBars();
         const song_len_beats = @as(f64, @floatFromInt(total_bars)) * bpb;

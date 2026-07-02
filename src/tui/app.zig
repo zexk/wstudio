@@ -729,12 +729,14 @@ pub const App = struct {
                 '[' => { self.pianoResizeOrLen(-0.25); return true; },
                 ']' => { self.pianoResizeOrLen(0.25); return true; },
                 '+' => {
-                    pp.length_beats += 4.0;
+                    const bar: f64 = @floatFromInt(self.session.project.beats_per_bar);
+                    pp.length_beats += bar;
                     self.setStatus("loop: {d:.0} beats", .{pp.length_beats});
                     return true;
                 },
                 '-' => {
-                    pp.length_beats = @max(4.0, pp.length_beats - 4.0);
+                    const bar: f64 = @floatFromInt(self.session.project.beats_per_bar);
+                    pp.length_beats = @max(bar, pp.length_beats - bar);
                     self.setStatus("loop: {d:.0} beats", .{pp.length_beats});
                     return true;
                 },
@@ -1164,7 +1166,7 @@ pub const App = struct {
     fn arrPlayFromCursor(self: *App) void {
         const sr = @as(f64, @floatFromInt(self.session.project.sample_rate));
         const bpm = @max(self.session.project.tempo_bpm, 1.0);
-        const bpb: f64 = @floatFromInt(self.session.engine.transport.time_signature.beats_per_bar);
+        const bpb: f64 = @floatFromInt(self.session.project.beats_per_bar);
         const frames_per_bar: u64 = @intFromFloat(sr * 60.0 / bpm * bpb);
         _ = self.session.engine.send(.{ .seek_frames = self.arr_cursor_bar * frames_per_bar });
         if (!self.session.engine.uiSnapshot().playing) _ = self.session.engine.send(.play);
@@ -1835,6 +1837,30 @@ test "track delete removes the rack and shifts later tracks down" {
     try std.testing.expectEqual(initial_tracks - 1, app.session.racks.items.len);
     // The drum machine that was at index 2 is now index 1.
     try std.testing.expectEqual(InstrumentKind.drum_machine, std.meta.activeTag(app.session.racks.items[1].instrument));
+}
+
+test ":sig sets beats per bar and reshapes bar math" {
+    var app = try testApp();
+    defer app.deinit();
+
+    for (":sig 3") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqual(@as(u8, 3), app.session.project.beats_per_bar);
+
+    // The transport mirrors it once the audio thread drains the command.
+    var block: [512]ws.types.Sample = undefined;
+    app.session.engine.process(&block);
+    try std.testing.expectEqual(@as(u8, 3), app.session.engine.transport.time_signature.beats_per_bar);
+
+    // A 16-step (4-beat) drum pattern now spans 2 bars of 3/4 when stamped.
+    try app.session.stampClip(2, 0);
+    const clip = app.session.arrangement.lane(2).?.clips.items[0];
+    try std.testing.expectEqual(@as(u32, 2), clip.length_bars);
+
+    // Bad input is rejected and leaves the setting alone.
+    for (":sig 3/8") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqual(@as(u8, 3), app.session.project.beats_per_bar);
 }
 
 test ":track-add command adds a blank track" {

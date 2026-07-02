@@ -38,8 +38,9 @@ const dsp = @import("dsp/device.zig");
 /// variant built from the legacy `pattern`/`step_count` fields, which v3 keeps
 /// writing (mirroring the active variant) so files stay hand-editable.
 /// v4 adds per-step drum velocity (the `vel_lo`/`vel_hi` bitplanes on variants
-/// and drum clips) and per-machine swing. Older files omit them and load with
-/// every step at full velocity and swing 50 (straight) — the prior behaviour.
+/// and drum clips), per-machine swing, and the time signature numerator
+/// (`beats_per_bar`). Older files omit them and load with every step at full
+/// velocity, swing 50 (straight), and 4/4 — the prior behaviour.
 pub const file_version: u32 = 4;
 
 // ---------------------------------------------------------------------------
@@ -238,6 +239,9 @@ pub const LaneSnap = struct {
 pub const Snapshot = struct {
     version: u32 = file_version,
     tempo_bpm: f64 = 120.0,
+    /// v4: time signature numerator (the unit is always /4). Older files
+    /// omit it and load as 4/4 — the prior behaviour.
+    beats_per_bar: u8 = 4,
     sample_rate: u32 = 48_000,
     tracks: []const TrackSnap,
     racks: []const RackSnap,
@@ -284,6 +288,7 @@ pub fn save(
 
     const snap: Snapshot = .{
         .tempo_bpm = session.project.tempo_bpm,
+        .beats_per_bar = session.project.beats_per_bar,
         .sample_rate = session.project.sample_rate,
         .tracks = tracks,
         .racks = racks,
@@ -506,6 +511,7 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
     errdefer project.deinit();
     project.sample_rate = snap.sample_rate;
     project.tempo_bpm = std.math.clamp(snap.tempo_bpm, 20.0, 400.0);
+    project.beats_per_bar = std.math.clamp(snap.beats_per_bar, 1, 16);
 
     for (snap.tracks) |t| {
         _ = try project.addTrack(.{ .name = t.name, .gain_db = t.gain_db, .pan = t.pan, .muted = t.muted, .soloed = t.soloed });
@@ -1035,6 +1041,19 @@ test "buildSession: drum variant bank round-trips; v2 files get one variant" {
     const odm = &old.racks.items[0].instrument.drum_machine;
     try testing.expectEqual(@as(u8, 1), odm.variant_count);
     try testing.expect(odm.stepActive(0, 5));
+}
+
+test "buildSession: time signature lands in project and transport" {
+    const testing = std.testing;
+    const snap: Snapshot = .{
+        .beats_per_bar = 3,
+        .tracks = &.{.{ .name = "t" }},
+        .racks = &.{.{ .label = "t", .kind = .empty }},
+    };
+    var session = try buildSession(testing.allocator, &snap);
+    defer session.deinit();
+    try testing.expectEqual(@as(u8, 3), session.project.beats_per_bar);
+    try testing.expectEqual(@as(u8, 3), session.engine.transport.time_signature.beats_per_bar);
 }
 
 test "buildSession: per-step velocity and swing round-trip" {

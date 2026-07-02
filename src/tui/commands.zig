@@ -30,6 +30,7 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "qa",          .desc = "quit wstudio (alias for :q)",         .run = wrap(cmdQuit) },
     .{ .name = "qa!",         .desc = "quit wstudio (alias for :q)",         .run = wrap(cmdQuit) },
     .{ .name = "bpm",         .desc = "[<value>]  tempo in BPM (20–400)",    .run = wrap(cmdBpm) },
+    .{ .name = "sig",         .desc = "[<n>[/4]]  time signature (1–16 beats per bar)", .run = wrap(cmdSig) },
     .{ .name = "gain",        .desc = "<track> [<dB>]  track gain",          .run = wrap(cmdGain) },
     .{ .name = "pan",         .desc = "<track> [<-1..1>]  track pan",        .run = wrap(cmdPan) },
     .{ .name = "vol",         .desc = "[<dB>]  master volume (–40 to +6)",   .run = wrap(cmdVol) },
@@ -275,7 +276,7 @@ fn cmdBounce(app: *App, args: []const u8) void {
 
     // Song mode renders the whole arrangement; pattern mode the longest loop.
     const max_beats = if (app.session.song_mode) blk: {
-        const bpb: f64 = @floatFromInt(engine.transport.time_signature.beats_per_bar);
+        const bpb: f64 = @floatFromInt(app.session.project.beats_per_bar);
         break :blk @max(1.0, @as(f64, @floatFromInt(app.session.arrangement.lengthBars())) * bpb);
     } else @max(1.0, app.contentBeats());
     const content_frames: u64 = @intFromFloat(engine.transport.framesPerBeat() * max_beats);
@@ -385,6 +386,36 @@ fn cmdBpm(app: *App, args: []const u8) void {
     app.setStatus("bpm: {d:.1}", .{bpm});
 }
 
+/// `:sig [<n>[/4]]` — beats per bar. The beat unit is fixed at /4 (a beat is
+/// always a quarter note, matching the 16th-note step grid everywhere).
+fn cmdSig(app: *App, args: []const u8) void {
+    const trimmed = std.mem.trim(u8, args, " ");
+    if (trimmed.len == 0) {
+        app.setStatus("sig: {d}/4", .{app.session.project.beats_per_bar});
+        return;
+    }
+    var it = std.mem.splitScalar(u8, trimmed, '/');
+    const n = std.fmt.parseInt(u8, it.first(), 10) catch {
+        app.setStatus("sig: expected beats per bar, e.g. :sig 3", .{});
+        return;
+    };
+    if (it.next()) |unit| {
+        if (!std.mem.eql(u8, unit, "4")) {
+            app.setStatus("sig: only /4 signatures are supported", .{});
+            return;
+        }
+    }
+    if (n < 1 or n > 16) {
+        app.setStatus("sig: beats per bar must be 1–16", .{});
+        return;
+    }
+    app.session.project.beats_per_bar = n;
+    _ = app.session.engine.send(.{ .set_time_signature = n });
+    // Bar boundaries moved; refit the song timeline if it's driving playback.
+    if (app.session.song_mode) app.session.rebuildSongData();
+    app.setStatus("sig: {d}/4", .{n});
+}
+
 fn cmdGain(app: *App, args: []const u8) void {
     var it = std.mem.splitScalar(u8, args, ' ');
     const track_str = it.next() orelse {
@@ -467,7 +498,7 @@ fn cmdSeek(app: *App, args: []const u8) void {
     }
     const sr = @as(f64, @floatFromInt(app.session.project.sample_rate));
     const bpm = @max(app.session.project.tempo_bpm, 1.0);
-    const beats_per_bar: f64 = @floatFromInt(app.session.engine.transport.time_signature.beats_per_bar);
+    const beats_per_bar: f64 = @floatFromInt(app.session.project.beats_per_bar);
     const frames_per_bar: u64 = @intFromFloat(sr * 60.0 / bpm * beats_per_bar);
     _ = app.session.engine.send(.{ .seek_frames = (bar_1 - 1) * frames_per_bar });
     app.setStatus("seek → bar {d}", .{bar_1});
