@@ -118,12 +118,13 @@ pub const Engine = struct {
         }
     }
 
-    /// Shift engine slot `idx` up by one (to make room for a new track),
-    /// then initialize `idx` as a new active track with no chain.
+    /// Shift engine slots [idx, total) up by one (to make room for a new
+    /// track), then initialize `idx` as a new active track with no chain.
+    /// `total` is the track count before the insert.
     /// Called from the UI/control thread — same class of race as setTrackChain.
-    pub fn applyInsertTrack(self: *Engine, idx: u16, gain: f32, pan: f32, muted: bool) void {
-        // Move the slot at idx (typically the drum) up to idx+1.
-        if (idx < max_tracks - 1) self.tracks[idx + 1] = self.tracks[idx];
+    pub fn applyInsertTrack(self: *Engine, idx: u16, total: u16, gain: f32, pan: f32, muted: bool) void {
+        var i: usize = @min(total, max_tracks - 1);
+        while (i > idx) : (i -= 1) self.tracks[i] = self.tracks[i - 1];
         self.tracks[idx] = .{
             .active = true,
             .gain = gain,
@@ -195,10 +196,12 @@ pub const Engine = struct {
     }
 
     /// Returns the current spectrum snapshot for the given track, or null if
-    /// that track is not the one being analyzed. Relies on the analyzer's
-    /// `active` atomic — no race on internal fields.
+    /// that track is not the one being analyzed (so a just-switched view never
+    /// shows the previous track's bins). Relies on the analyzer's `active`
+    /// atomic — no race on internal fields.
     pub fn trackSpectrumSnapshot(self: *const Engine, track: u16) ?SpectrumSnapshot {
-        _ = track;
+        if (self.active_spectrum_source != .track or track != self.active_spectrum_track)
+            return null;
         return self.track_spectrum.snapshot();
     }
 
@@ -429,14 +432,30 @@ test "applyInsertTrack shifts drum and inits new slot" {
     engine.tracks[0] = .{ .active = true, .gain = 0.5 }; // lead
     engine.tracks[1] = .{ .active = true, .gain = 0.8 }; // drum at slot 1
 
-    // Insert before drum (at idx=1)
-    engine.applyInsertTrack(1, 1.0, 0.0, false);
+    // Insert before drum (at idx=1, 2 tracks present)
+    engine.applyInsertTrack(1, 2, 1.0, 0.0, false);
 
     try std.testing.expect(engine.tracks[1].active);
     try std.testing.expectApproxEqAbs(@as(f32, 1.0), engine.tracks[1].gain, 1e-6);
     try std.testing.expectEqual(@as(usize, 0), engine.tracks[1].chain_len);
     // Drum shifted to slot 2
     try std.testing.expectApproxEqAbs(@as(f32, 0.8), engine.tracks[2].gain, 1e-6);
+}
+
+test "applyInsertTrack in the middle shifts every later slot" {
+    var engine = try Engine.init(std.testing.allocator, 48_000);
+    defer engine.deinit();
+
+    engine.tracks[0] = .{ .active = true, .gain = 0.1 };
+    engine.tracks[1] = .{ .active = true, .gain = 0.2 };
+    engine.tracks[2] = .{ .active = true, .gain = 0.3 };
+
+    engine.applyInsertTrack(1, 3, 1.0, 0.0, false);
+
+    try std.testing.expectApproxEqAbs(@as(f32, 0.1), engine.tracks[0].gain, 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), engine.tracks[1].gain, 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.2), engine.tracks[2].gain, 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.3), engine.tracks[3].gain, 1e-6);
 }
 
 test "applyDeleteTrack shifts tracks down" {

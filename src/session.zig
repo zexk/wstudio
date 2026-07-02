@@ -104,22 +104,52 @@ pub const Session = struct {
 
         _ = try self.project.addTrack(.{ .name = name });
 
-        self.engine.applyInsertTrack(idx, 1.0, 0.0, false);
+        self.engine.applyInsertTrack(idx, idx, 1.0, 0.0, false);
         var buf: [6]dsp.Device = undefined;
         self.engine.setTrackChain(idx, rack.chain(&buf));
 
         return idx;
     }
 
-    /// Replace the instrument on `track_idx` with a fresh instance of `kind`,
-    /// tearing down whatever was there. Melodic kinds (synth, sampler) get a
-    /// PatternPlayer so they are piano-roll sequenceable. Rebuilds the engine
-    /// chain. The rack is heap-allocated, so the new instrument's device and
-    /// any self-referential PatternPlayer pointer stay valid.
+    /// Replace the instrument on `track_idx` with a fresh instance of `kind`.
+    /// The replacement is built in a brand-new heap rack; the old rack is moved
+    /// to `retired_racks` rather than torn down in place — the audio thread may
+    /// still be mid-block inside its devices (same policy as deleteTrack).
+    /// Melodic kinds (synth, sampler) get a PatternPlayer so they are
+    /// piano-roll sequenceable. Rebuilds the engine chain. Any allocation
+    /// failure leaves the session untouched.
     pub fn setInstrument(self: *Session, track_idx: usize, kind: InstrumentKind) !void {
         if (track_idx >= self.racks.items.len) return;
-        const rack = self.racks.items[track_idx];
         const sr = self.project.sample_rate;
+
+        const rack = try self.allocator.create(Rack);
+        errdefer self.allocator.destroy(rack);
+        rack.* = .{ .instrument = .empty, .label = "empty" };
+        errdefer rack.instrument.deinit();
+
+        switch (kind) {
+            .empty => {},
+            .poly_synth => {
+                rack.instrument = .{ .poly_synth = PolySynth.init(sr) };
+                rack.label = "synth";
+            },
+            .sampler => {
+                rack.instrument = .{ .sampler = try Sampler.init(self.allocator, sr) };
+                rack.label = "sampler";
+            },
+            .drum_machine => {
+                rack.instrument = .{ .drum_machine = try DrumMachine.init(self.allocator, sr, &self.engine.transport) };
+                rack.label = "drums";
+            },
+        }
+        // Set AFTER the instrument lands in the heap rack — the player holds a
+        // pointer into it.
+        switch (kind) {
+            .poly_synth, .sampler => rack.pattern_player = PatternPlayer.init(rack.instrument.device().?, &self.engine.transport),
+            else => {},
+        }
+
+        try self.retired_racks.append(self.allocator, self.racks.items[track_idx]);
 
         _ = self.engine.send(.all_notes_off);
 
@@ -127,32 +157,22 @@ pub const Session = struct {
         // never plays a melodic clip into a drum track or vice versa.
         if (self.arrangement.lane(track_idx)) |lane| lane.clear(self.allocator);
 
-        rack.instrument.deinit();
-        rack.pattern_player = null;
-
-        switch (kind) {
-            .empty => {
-                rack.instrument = .empty;
-                rack.label = "empty";
-            },
-            .poly_synth => {
-                rack.instrument = .{ .poly_synth = PolySynth.init(sr) };
-                rack.label = "synth";
-                rack.pattern_player = PatternPlayer.init(rack.instrument.device().?, &self.engine.transport);
-            },
-            .sampler => {
-                rack.instrument = .{ .sampler = try Sampler.init(self.allocator, sr) };
-                rack.label = "sampler";
-                rack.pattern_player = PatternPlayer.init(rack.instrument.device().?, &self.engine.transport);
-            },
-            .drum_machine => {
-                rack.instrument = .{ .drum_machine = try DrumMachine.init(self.allocator, sr, &self.engine.transport) };
-                rack.label = "drums";
-            },
-        }
+        self.racks.items[track_idx] = rack;
 
         var buf: [6]dsp.Device = undefined;
         self.engine.setTrackChain(@intCast(track_idx), rack.chain(&buf));
+
+        // Keep the new device coherent with the current playback mode: its
+        // lane is empty now, so in song mode it must follow the (empty) song
+        // buffer rather than looping its live pattern over the arrangement.
+        if (self.song_mode) {
+            self.rebuildSongData();
+            if (rack.pattern_player) |*pp| pp.song_mode = true;
+            switch (rack.instrument) {
+                .drum_machine => |*dm| dm.song_mode = true,
+                else => {},
+            }
+        }
     }
 
     pub const DeleteTrackError = error{CannotDeleteLastTrack};
@@ -351,6 +371,30 @@ test "setInstrument swaps instrument and wires pattern player" {
     _ = s.engine.send(.play);
     var block: [128]@import("core/types.zig").Sample = undefined;
     s.engine.process(&block);
+}
+
+test "setInstrument retires the old rack instead of freeing it" {
+    var s = try Session.initDefault(std.testing.allocator);
+    defer s.deinit();
+
+    const old_rack = s.racks.items[0];
+    try s.setInstrument(0, .poly_synth);
+    try std.testing.expectEqual(@as(usize, 1), s.retired_racks.items.len);
+    try std.testing.expectEqual(old_rack, s.retired_racks.items[0]);
+    try std.testing.expect(s.racks.items[0] != old_rack);
+}
+
+test "setInstrument keeps the new device in the current song mode" {
+    var s = try Session.initDefault(std.testing.allocator);
+    defer s.deinit();
+    try s.setInstrument(0, .poly_synth);
+    s.setSongMode(true);
+
+    try s.setInstrument(0, .drum_machine);
+    try std.testing.expect(s.racks.items[0].instrument.drum_machine.song_mode);
+
+    try s.setInstrument(0, .sampler);
+    try std.testing.expect(s.racks.items[0].pattern_player.?.song_mode);
 }
 
 test "deleteTrack removes project+rack and retires it" {
