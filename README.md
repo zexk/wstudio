@@ -129,8 +129,8 @@ a full song:
 - [ ] Melodic pattern variants or clip-to-pattern recall (drums have
       variants A-H; synth/sampler tracks still have a single live
       pattern, and stamped clips can't be edited or pulled back)
-- [ ] Master bus FX: limiter/compressor/EQ on the mix (bounce hard-clips
-      at 0 dBFS, so hot mixes distort on export)
+- [ ] Master bus compressor/EQ (the limiter is in; glue and tone shaping
+      on the mix are not)
 - [ ] Undo
 - [ ] Live recording from insert mode (play a take into the pattern)
 - [ ] Parameter automation on the timeline
@@ -141,6 +141,7 @@ a full song:
 
 Done:
 
+- [x] Master bus limiter (always on; hot mixes duck instead of clipping)
 - [x] Pattern copy/paste across tracks (`y`/`P` in piano roll and drum grid)
 - [x] Play-from-cursor in the arrangement view (`g`)
 - [x] Drum grid per-step velocity (100/75/50/25%) and swing (50–75%)

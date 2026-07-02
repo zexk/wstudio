@@ -3,6 +3,7 @@ const types = @import("../core/types.zig");
 const dsp = @import("../dsp/device.zig");
 const spectrum_mod = @import("../dsp/spectrum.zig");
 const Spsc = @import("../core/ring_buffer.zig").Spsc;
+const Limiter = @import("../dsp/limiter.zig").Limiter;
 const Transport = @import("../transport.zig").Transport;
 const Project = @import("../project.zig").Project;
 
@@ -58,6 +59,9 @@ pub const Engine = struct {
     transport: Transport,
     commands: Spsc(Command, 256) = .{},
     master_gain: f32 = 1.0,
+    /// Always-on master-bus limiter: catches hot mixes before the WAV
+    /// writer's ±1 clamp (and the DAC) turns them into hard-clip distortion.
+    limiter: Limiter,
     tracks: [max_tracks]TrackState,
     scratch: [types.max_block_frames * channels]Sample = undefined,
     peak: [channels]f32 = .{ 0.0, 0.0 },
@@ -87,6 +91,7 @@ pub const Engine = struct {
         var self = Engine{
             .allocator = allocator,
             .transport = .{ .sample_rate = sample_rate },
+            .limiter = Limiter.init(sample_rate),
             .tracks = undefined,
             .track_spectrum = track_spec,
             .master_spectrum = master_spec,
@@ -161,11 +166,15 @@ pub const Engine = struct {
         @memset(out, 0.0);
         self.renderTracks(out, frames);
 
+        for (out) |*s| s.* *= self.master_gain;
+        self.limiter.processBlock(out);
+
+        // Peaks measured post-limiter, so the meters show what actually
+        // reaches the output.
         self.peak = .{ 0.0, 0.0 };
         var i: usize = 0;
         while (i < out.len) : (i += channels) {
             inline for (0..channels) |ch| {
-                out[i + ch] *= self.master_gain;
                 const mag = @abs(out[i + ch]);
                 if (mag > self.peak[ch]) self.peak[ch] = mag;
             }
@@ -337,6 +346,25 @@ test "mute command silences a track" {
     var block: [512]Sample = undefined;
     engine.process(&block);
     try std.testing.expectEqual(@as(f32, 0.0), engine.peak[0]);
+}
+
+test "master limiter keeps a hot mix under the ceiling" {
+    var synth = PolySynth.init(48_000);
+    var engine = try Engine.init(std.testing.allocator, 48_000);
+    defer engine.deinit();
+    engine.tracks[0] = .{ .active = true };
+    engine.setTrackChain(0, &.{synth.device()});
+    _ = engine.send(.{ .set_master_gain = 16.0 }); // way past clipping
+    _ = engine.send(.{ .note_on = .{ .track = 0, .note = 60, .velocity = 1.0 } });
+
+    var block: [512]Sample = undefined;
+    var loudest: f32 = 0.0;
+    for (0..8) |_| {
+        engine.process(&block);
+        for (block) |s| loudest = @max(loudest, @abs(s));
+    }
+    try std.testing.expect(loudest > 0.5); // audible…
+    try std.testing.expect(loudest <= engine.limiter.ceiling + 1e-4); // …not clipped
 }
 
 test "solo silences other tracks but keeps the soloed one" {

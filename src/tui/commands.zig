@@ -340,6 +340,7 @@ pub fn renderBounce(app: *App, buffer: []types.Sample) void {
     const saved_pos = engine.transport.position_frames;
 
     resetDevices(app);
+    engine.limiter.reset();
     engine.transport.seekFrames(0);
     engine.transport.play();
 
@@ -352,6 +353,7 @@ pub fn renderBounce(app: *App, buffer: []types.Sample) void {
     }
 
     resetDevices(app);
+    engine.limiter.reset();
     engine.transport.seekFrames(saved_pos);
     if (was_playing) engine.transport.play() else engine.transport.stop();
 }

@@ -7,6 +7,7 @@ pub const Waveform = @import("dsp/synth.zig").Waveform;
 pub const StereoDelay = @import("dsp/delay.zig").StereoDelay;
 pub const Reverb = @import("dsp/reverb.zig").Reverb;
 pub const Compressor = @import("dsp/compressor.zig").Compressor;
+pub const Limiter = @import("dsp/limiter.zig").Limiter;
 pub const DrumMachine = @import("dsp/drum_sampler.zig").DrumMachine;
 pub const Pad = @import("dsp/drum_sampler.zig").Pad;
 pub const Sampler = @import("dsp/sampler.zig").Sampler;
@@ -27,6 +28,7 @@ test {
     _ = StereoDelay;
     _ = Reverb;
     _ = Compressor;
+    _ = Limiter;
     _ = DrumMachine;
     _ = Sampler;
     _ = drum_kit;
