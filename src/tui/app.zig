@@ -1087,6 +1087,7 @@ pub const App = struct {
                 'j' => { if (self.cursor + 1 < lane_count) self.cursor += 1; return true; },
                 'k' => { if (self.cursor > 0) self.cursor -= 1; return true; },
                 'x' => { self.arrDeleteClip(); return true; },
+                'g' => { self.arrPlayFromCursor(); return true; },
                 '[' => { self.arrCycleDrumVariant(-1); return true; },
                 ']' => { self.arrCycleDrumVariant(1); return true; },
                 'T' => {
@@ -1103,6 +1104,19 @@ pub const App = struct {
     fn arrMoveBar(self: *App, delta: i64) void {
         const nb = @as(i64, self.arr_cursor_bar) + delta;
         self.arr_cursor_bar = @intCast(@max(@as(i64, 0), nb));
+    }
+
+    /// Seek the playhead to the cursor bar, starting playback if stopped —
+    /// audition the song from the point being arranged (same bar math as
+    /// `:seek`, minus the 1-based parsing).
+    fn arrPlayFromCursor(self: *App) void {
+        const sr = @as(f64, @floatFromInt(self.session.project.sample_rate));
+        const bpm = @max(self.session.project.tempo_bpm, 1.0);
+        const bpb: f64 = @floatFromInt(self.session.engine.transport.time_signature.beats_per_bar);
+        const frames_per_bar: u64 = @intFromFloat(sr * 60.0 / bpm * bpb);
+        _ = self.session.engine.send(.{ .seek_frames = self.arr_cursor_bar * frames_per_bar });
+        if (!self.session.engine.uiSnapshot().playing) _ = self.session.engine.send(.play);
+        self.setStatus("play from bar {d}", .{self.arr_cursor_bar + 1});
     }
 
     /// On a drum lane, cycle which pattern variant `enter` will stamp. This is
@@ -1466,6 +1480,23 @@ test "drum grid step toggle" {
     app.drum_cursor = .{ 0, 0 };
     _ = app.handleDrumKey(.enter);
     try std.testing.expect(!app.drumMachine().stepActive(0, 0));
+}
+
+test "arrangement g plays from the cursor bar" {
+    var app = try testApp();
+    defer app.deinit();
+
+    app.view = .arrangement;
+    app.arr_cursor_bar = 2;
+    app.handleKey(.{ .char = 'g' }, 0);
+
+    // Commands land on the audio thread; run one block to apply them.
+    var block: [512]ws.types.Sample = undefined;
+    app.session.engine.process(&block);
+    // 120 bpm 4/4 at 48kHz → 96_000 frames per bar; the seek lands at bar 2
+    // and the block advances 256 frames because playback started.
+    try std.testing.expect(app.session.engine.transport.playing);
+    try std.testing.expectEqual(@as(u64, 192_256), app.session.engine.transport.position_frames);
 }
 
 test "draw renders drum_grid view without overflowing" {

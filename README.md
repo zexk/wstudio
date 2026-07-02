@@ -133,8 +133,6 @@ a full song:
       at 0 dBFS, so hot mixes distort on export)
 - [ ] Undo
 - [ ] Live recording from insert mode (play a take into the pattern)
-- [ ] Play-from-cursor in the arrangement view (`:seek <bar>` exists but
-      is slow while arranging)
 - [ ] Copy/paste for piano-roll notes and patterns
 - [ ] Parameter automation on the timeline
 - [ ] Time signature setting (everything currently assumes 4/4)
@@ -144,6 +142,7 @@ a full song:
 
 Done:
 
+- [x] Play-from-cursor in the arrangement view (`g`)
 - [x] Drum grid per-step velocity (100/75/50/25%) and swing (50–75%)
 - [x] TUI frontend wiring the modal input layer to a real terminal
 - [x] Native audio backend (ALSA; PipeWire serves it on modern systems)

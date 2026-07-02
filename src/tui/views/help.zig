@@ -160,6 +160,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("enter",        "stamp the live pattern as a clip");
     t.key("[ / ]",        "cycle drum pattern variant to stamp");
     t.key("x",            "delete clip at cursor");
+    t.key("g",            "play from cursor bar");
     t.key("T",            "toggle song / pattern mode");
 
     t.section("SPECTRUM / EQ");
