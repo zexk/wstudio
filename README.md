@@ -121,17 +121,39 @@ nix build            # packaged build via zig.hook
 
 ## Roadmap
 
+Open items, sorted by what most blocks an artist finishing (and keeping)
+a full song:
+
+- [ ] Persist user-loaded sample audio in .wsj (today only the params
+      survive a save; projects built on your own WAVs can't be reopened)
+- [ ] Melodic pattern variants or clip-to-pattern recall (drums have
+      variants A-H; synth/sampler tracks still have a single live
+      pattern, and stamped clips can't be edited or pulled back)
+- [ ] Master bus FX: limiter/compressor/EQ on the mix (bounce hard-clips
+      at 0 dBFS, so hot mixes distort on export)
+- [ ] Drum grid accents (per-step velocity) and swing
+- [ ] Undo
+- [ ] Live recording from insert mode (play a take into the pattern)
+- [ ] Play-from-cursor in the arrangement view (`:seek <bar>` exists but
+      is slow while arranging)
+- [ ] Copy/paste for piano-roll notes and patterns
+- [ ] Parameter automation on the timeline
+- [ ] Time signature setting (everything currently assumes 4/4)
+- [ ] Audio clips: WAV clip playback on tracks
+- [ ] Native PipeWire and JACK backends behind the same interface
+- [ ] Plugin hosting (CLAP first)
+
+Done:
+
 - [x] TUI frontend wiring the modal input layer to a real terminal
 - [x] Native audio backend (ALSA; PipeWire serves it on modern systems)
-- [ ] Native PipeWire and JACK backends behind the same interface
 - [x] Song mode: arrangement timeline with per-track clips
+- [x] Drum machine pattern variants (A-H), stampable per clip
 - [x] Per-track instrument insertion (synth / sampler / drum machine)
-- [ ] Audio clips: WAV clip playback on tracks
 - [x] More devices: EQ, sampler, drum machine (filters, chorus to come)
 - [x] RT-safe parameter changes (device params over the command queue)
-- [x] Project save/load
-- [ ] Persist user-loaded sample audio in .wsj
-- [ ] Plugin hosting (CLAP first)
+- [x] Project save/load, WAV bounce/export
+- [x] Track solo/mute, per-note velocity, scrollable help
 
 ## License
 
