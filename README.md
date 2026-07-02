@@ -128,7 +128,6 @@ a full song:
       survive a save; projects built on your own WAVs can't be reopened)
 - [ ] Master bus compressor/EQ (the limiter is in; glue and tone shaping
       on the mix are not)
-- [ ] Undo
 - [ ] Live recording from insert mode (play a take into the pattern)
 - [ ] Parameter automation on the timeline
 - [ ] Audio clips: WAV clip playback on tracks
@@ -137,6 +136,8 @@ a full song:
 
 Done:
 
+- [x] Undo/redo (`u`/`U`) for content edits: notes, drum patterns/variants,
+      arrangement clips — including clips evicted by a stamp
 - [x] Melodic clip editing, Ableton-style: clips own their notes; `e` on a
       clip opens it in the piano roll and edits write back into the clip
 - [x] Time signature setting (`:sig <n>`, any /4 meter, persisted)

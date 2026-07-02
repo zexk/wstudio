@@ -97,6 +97,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("- / +",        "track gain −1 dB / +1 dB  (= also works)");
     t.key("a",            "add synth track");
     t.key("D",            "delete selected track");
+    t.key("u / U",        "undo / redo content edits (notes, drums, clips)");
     t.key("? / :help",    "this help");
 
     t.section("INSERT MODE  (piano keyboard)");

@@ -13,6 +13,7 @@ const GraphicEq = ws.dsp.GraphicEq;
 const eq_mod = ws.dsp.eq;
 const cmd_mod = @import("cmd.zig");
 const commands = @import("commands.zig");
+const undo_mod = @import("undo.zig");
 const tui = @import("tui.zig");
 const midi = ws.midi;
 
@@ -107,6 +108,8 @@ pub const App = struct {
     /// the track's live pattern (see `ClipLink`). Set by `e` on a clip in the
     /// arrangement; cleared when the roll opens on a live pattern instead.
     piano_clip_link: ?ClipLink = null,
+    /// Undo/redo history for content edits (u / U in the editing views).
+    history: undo_mod.History = .{},
     /// Path of the current project file — the default for :w / :wq. Set when
     /// a project is loaded at startup and updated on every successful save.
     project_path_buf: [256]u8 = undefined,
@@ -123,6 +126,7 @@ pub const App = struct {
     }
 
     pub fn deinit(self: *App) void {
+        self.history.deinit(self.allocator);
         self.session.deinit();
     }
 
@@ -224,6 +228,8 @@ pub const App = struct {
                         '-' => { self.doTrackGainStep(@intCast(self.cursor), -1.0); return; },
                         // + is the canonical "increase" (matches pattern length); = kept as alias.
                         '+', '=' => { self.doTrackGainStep(@intCast(self.cursor), 1.0); return; },
+                        'u' => { self.doUndo(); return; },
+                        'U' => { self.doRedo(); return; },
                         else => {},
                     }
                 }
@@ -353,13 +359,178 @@ pub const App = struct {
         self.session.engine.setTrackChain(track, rack.chain(&buf));
     }
 
+    // -----------------------------------------------------------------------
+    // Undo/redo (see undo.zig for the model)
+
+    /// Record a pre-edit snapshot; null (capture failed / target invalid)
+    /// simply records nothing — undo is best-effort, never blocks the edit.
+    fn undoPush(self: *App, entry: ?undo_mod.Entry) void {
+        if (entry) |e| self.history.push(self.allocator, e);
+    }
+
+    /// Snapshot one track's live melodic pattern, remembering an active
+    /// clip link on that track so undo restores the clip as well.
+    fn captureMelodic(self: *App, track: u16) ?undo_mod.Entry {
+        if (track >= self.session.racks.items.len or
+            self.session.racks.items[track].pattern_player == null) return null;
+        const pp = &self.session.racks.items[track].pattern_player.?;
+        var buf: [pattern_mod.max_notes]pattern_mod.Note = undefined;
+        const count = pp.copyNotes(&buf);
+        const notes = self.allocator.dupe(pattern_mod.Note, buf[0..count]) catch return null;
+        const link_bar: ?u32 = if (self.piano_clip_link) |l|
+            (if (l.track == track) l.start_bar else null)
+        else
+            null;
+        return .{ .melodic = .{
+            .track = track,
+            .length_beats = pp.length_beats,
+            .notes = notes,
+            .clip_start_bar = link_bar,
+        } };
+    }
+
+    /// Pre-edit wrapper for command-layer callers (`:clear`).
+    pub fn undoCaptureMelodic(self: *App, track: u16) void {
+        self.undoPush(self.captureMelodic(track));
+    }
+
+    /// Snapshot one drum machine's whole pattern bank.
+    fn captureDrum(self: *App, track: u16) ?undo_mod.Entry {
+        if (track >= self.session.racks.items.len) return null;
+        const dm = switch (self.session.racks.items[track].instrument) {
+            .drum_machine => |*d| d,
+            else => return null,
+        };
+        var st: undo_mod.DrumState = .{
+            .track = track,
+            .variants = dm.variants,
+            .variant_count = dm.variant_count,
+            .variant = dm.variant,
+        };
+        // The active slot in the bank is stale; read the live atomics.
+        st.variants[dm.variant] = dm.variantData(dm.variant);
+        return .{ .drum = st };
+    }
+
+    /// Snapshot one arrangement lane's clips (deep copies).
+    fn captureLane(self: *App, track: u16) ?undo_mod.Entry {
+        const lane = self.session.arrangement.lane(track) orelse return null;
+        const clips = self.allocator.alloc(ws.Clip, lane.clips.items.len) catch return null;
+        for (lane.clips.items, 0..) |c, i| {
+            clips[i] = self.dupClip(c) catch {
+                for (clips[0..i]) |*done| done.deinit(self.allocator);
+                self.allocator.free(clips);
+                return null;
+            };
+        }
+        return .{ .lane = .{ .track = @intCast(track), .clips = clips } };
+    }
+
+    fn dupClip(self: *App, c: ws.Clip) !ws.Clip {
+        return switch (c.content) {
+            .melodic => |m| try ws.Clip.initMelodic(
+                self.allocator, c.start_bar, c.length_bars, m.notes, m.length_beats,
+            ),
+            .drum => c, // plain value, no owned memory
+        };
+    }
+
+    /// Swap `entry`'s state with the live one. On success the entry is
+    /// consumed and the displaced state is returned for the opposite stack;
+    /// null means the target no longer accepts it (track gone, kind changed)
+    /// and the entry was left untouched for the caller to free.
+    fn applyHistoryEntry(self: *App, entry: undo_mod.Entry) ?undo_mod.Entry {
+        switch (entry) {
+            .melodic => |m| {
+                const displaced = self.captureMelodic(m.track) orelse return null;
+                const pp = &self.session.racks.items[m.track].pattern_player.?;
+                pp.setNotes(m.notes, m.length_beats);
+                self.allocator.free(m.notes);
+                if (m.clip_start_bar) |bar| {
+                    // The edit lived in a clip: re-link and write it back.
+                    self.piano_track = m.track;
+                    self.piano_clip_link = .{ .track = m.track, .start_bar = bar };
+                    self.pianoSyncLinkedClip();
+                } else if (self.piano_clip_link) |link| {
+                    // Restored an unlinked state over an active link: drop the
+                    // link so the next edit can't clobber the clip.
+                    if (link.track == m.track) self.piano_clip_link = null;
+                }
+                return displaced;
+            },
+            .drum => |d| {
+                const displaced = self.captureDrum(d.track) orelse return null;
+                const dm = &self.session.racks.items[d.track].instrument.drum_machine;
+                dm.variants = d.variants;
+                dm.variant_count = d.variant_count;
+                dm.variant = @min(d.variant, d.variant_count - 1);
+                dm.applyVariant(d.variants[dm.variant]);
+                if (self.drum_cursor[1] >= dm.step_count) self.drum_cursor[1] = dm.step_count - 1;
+                return displaced;
+            },
+            .lane => |l| {
+                const displaced = self.captureLane(l.track) orelse return null;
+                const lane = self.session.arrangement.lane(l.track).?;
+                lane.clear(self.allocator);
+                for (l.clips, 0..) |c, i| {
+                    // Ownership moves into the lane (captured order is sorted).
+                    lane.clips.append(self.allocator, c) catch {
+                        for (l.clips[i..]) |*rest| rest.deinit(self.allocator);
+                        break;
+                    };
+                }
+                self.allocator.free(l.clips);
+                // A linked clip may have been replaced or removed.
+                if (self.piano_clip_link) |link| {
+                    if (link.track == l.track) self.piano_clip_link = null;
+                }
+                if (self.session.song_mode) self.session.rebuildSongData();
+                return displaced;
+            },
+        }
+    }
+
+    pub fn doUndo(self: *App) void {
+        var entry = self.history.popUndo() orelse {
+            self.setStatus("nothing to undo", .{});
+            return;
+        };
+        const what = entry.label();
+        if (self.applyHistoryEntry(entry)) |displaced| {
+            self.history.parkRedo(self.allocator, displaced);
+            self.setStatus("undid {s} edit ({d} left)", .{ what, self.history.undo_stack.items.len });
+        } else {
+            entry.deinit(self.allocator);
+            self.setStatus("undo target is gone — skipped", .{});
+        }
+    }
+
+    pub fn doRedo(self: *App) void {
+        var entry = self.history.popRedo() orelse {
+            self.setStatus("nothing to redo", .{});
+            return;
+        };
+        const what = entry.label();
+        if (self.applyHistoryEntry(entry)) |displaced| {
+            self.history.parkUndo(self.allocator, displaced);
+            self.setStatus("redid {s} edit", .{what});
+        } else {
+            entry.deinit(self.allocator);
+            self.setStatus("redo target is gone — skipped", .{});
+        }
+    }
+
     pub fn handleDrumKey(self: *App, key: modal_mod.Key) bool {
         const pad = &self.drum_cursor[0];
         const step = &self.drum_cursor[1];
         switch (key) {
             .escape => { self.view = .tracks; return true; },
             // enter toggles the step; space falls through to transport play/pause.
-            .enter => { self.drumMachine().toggleStep(pad.*, step.*); return true; },
+            .enter => {
+                self.undoPush(self.captureDrum(self.drum_track));
+                self.drumMachine().toggleStep(pad.*, step.*);
+                return true;
+            },
             .char => |c| {
                 switch (c) {
                     // fine move by one step; shift (HL) jumps one beat (4 steps)
@@ -379,21 +550,34 @@ pub const App = struct {
                     },
                     '-' => {
                         const dm = self.drumMachine();
+                        self.undoPush(self.captureDrum(self.drum_track));
                         dm.setStepCount(dm.step_count - 1);
                         if (step.* >= dm.step_count) step.* = dm.step_count - 1;
                     },
-                    '+' => self.drumMachine().setStepCount(self.drumMachine().step_count + 1),
+                    '+' => {
+                        self.undoPush(self.captureDrum(self.drum_track));
+                        self.drumMachine().setStepCount(self.drumMachine().step_count + 1);
+                    },
                     'v' => {
                         const dm = self.drumMachine();
                         if (dm.stepActive(pad.*, step.*)) {
+                            self.undoPush(self.captureDrum(self.drum_track));
                             dm.cycleStepVel(pad.*, step.*);
                             self.setStatus("vel {d}%", .{DrumMachine.velPercent(dm.stepVel(pad.*, step.*))});
                         } else self.setStatus("no step here — enter places one", .{});
                     },
                     '<' => self.drumAdjustSwing(-1.0),
                     '>' => self.drumAdjustSwing(1.0),
-                    'X' => self.drumMachine().clearPad(pad.*),
-                    'F' => self.drumMachine().fillPad(pad.*),
+                    'X' => {
+                        self.undoPush(self.captureDrum(self.drum_track));
+                        self.drumMachine().clearPad(pad.*);
+                    },
+                    'F' => {
+                        self.undoPush(self.captureDrum(self.drum_track));
+                        self.drumMachine().fillPad(pad.*);
+                    },
+                    'u' => self.doUndo(),
+                    'U' => self.doRedo(),
                     'y' => {
                         const dm = self.drumMachine();
                         self.drum_clip = dm.variantData(dm.variant);
@@ -402,6 +586,7 @@ pub const App = struct {
                     'P' => {
                         if (self.drum_clip) |clip| {
                             const dm = self.drumMachine();
+                            self.undoPush(self.captureDrum(self.drum_track));
                             dm.applyVariant(clip);
                             if (step.* >= dm.step_count) step.* = dm.step_count - 1;
                             self.setStatus("pasted into pattern {c}", .{DrumMachine.variantLetter(dm.variant)});
@@ -412,6 +597,8 @@ pub const App = struct {
                     'N' => {
                         const dm = self.drumMachine();
                         const src = dm.variant;
+                        if (dm.variant_count < DrumMachine.max_variants)
+                            self.undoPush(self.captureDrum(self.drum_track));
                         if (dm.addVariant())
                             self.setStatus("new pattern {c} (copy of {c})", .{
                                 DrumMachine.variantLetter(dm.variant),
@@ -422,6 +609,8 @@ pub const App = struct {
                     },
                     'D' => {
                         const dm = self.drumMachine();
+                        if (dm.variant_count > 1)
+                            self.undoPush(self.captureDrum(self.drum_track));
                         if (dm.removeVariant()) {
                             if (step.* >= dm.step_count) step.* = dm.step_count - 1;
                             self.setStatus("deleted pattern — now on {c}", .{DrumMachine.variantLetter(dm.variant)});
@@ -742,6 +931,7 @@ pub const App = struct {
                 ']' => { self.pianoResizeOrLen(0.25); return true; },
                 '+' => {
                     const bar: f64 = @floatFromInt(self.session.project.beats_per_bar);
+                    self.undoPush(self.captureMelodic(self.piano_track));
                     pp.length_beats += bar;
                     self.setStatus("loop: {d:.0} beats", .{pp.length_beats});
                     self.pianoSyncLinkedClip();
@@ -749,11 +939,14 @@ pub const App = struct {
                 },
                 '-' => {
                     const bar: f64 = @floatFromInt(self.session.project.beats_per_bar);
+                    self.undoPush(self.captureMelodic(self.piano_track));
                     pp.length_beats = @max(bar, pp.length_beats - bar);
                     self.setStatus("loop: {d:.0} beats", .{pp.length_beats});
                     self.pianoSyncLinkedClip();
                     return true;
                 },
+                'u' => { self.doUndo(); return true; },
+                'U' => { self.doRedo(); return true; },
                 else => return false,
             },
             else => return false,
@@ -802,6 +995,7 @@ pub const App = struct {
         const start_beat = @as(f64, @floatFromInt(self.piano_cursor_step)) * 0.25;
         // Don't insert if a note already starts here on this pitch
         if (pp.noteStartsAt(self.piano_cursor_pitch, start_beat)) return;
+        self.undoPush(self.captureMelodic(self.piano_track));
         pp.addNote(.{
             .pitch        = self.piano_cursor_pitch,
             .start_beat   = start_beat,
@@ -822,6 +1016,7 @@ pub const App = struct {
         else return;
         const start_beat = @as(f64, @floatFromInt(self.piano_cursor_step)) * 0.25;
         if (pp.noteAt(self.piano_cursor_pitch, start_beat)) |n| {
+            self.undoPush(self.captureMelodic(self.piano_track));
             n.duration_beat = std.math.clamp(n.duration_beat + delta, 0.25, pp.length_beats);
             self.setStatus("note len: {d:.2} beats", .{n.duration_beat});
             self.pianoSyncLinkedClip();
@@ -839,6 +1034,7 @@ pub const App = struct {
         else return;
         const start_beat = @as(f64, @floatFromInt(self.piano_cursor_step)) * 0.25;
         if (pp.noteAt(self.piano_cursor_pitch, start_beat)) |n| {
+            self.undoPush(self.captureMelodic(self.piano_track));
             n.velocity = std.math.clamp(n.velocity + delta, 0.05, 1.0);
             self.setStatus("velocity: {d:.0}%", .{n.velocity * 100.0});
             self.pianoSyncLinkedClip();
@@ -909,6 +1105,7 @@ pub const App = struct {
             &self.session.racks.items[self.piano_track].pattern_player.?
         else return;
         if (self.piano_clip) |*clip| {
+            self.undoPush(self.captureMelodic(self.piano_track));
             pp.setNotes(clip.notes[0..clip.count], clip.length_beats);
             self.setStatus("pasted {d} notes ({d:.0} beats)", .{ clip.count, clip.length_beats });
             self.pianoSyncLinkedClip();
@@ -921,6 +1118,8 @@ pub const App = struct {
             &self.session.racks.items[self.piano_track].pattern_player.?
         else return;
         const start_beat = @as(f64, @floatFromInt(self.piano_cursor_step)) * 0.25;
+        if (!pp.noteStartsAt(self.piano_cursor_pitch, start_beat)) return;
+        self.undoPush(self.captureMelodic(self.piano_track));
         pp.removeNote(self.piano_cursor_pitch, start_beat);
         var nbuf: [5]u8 = undefined;
         self.setStatus("removed {s}", .{midi.noteName(self.piano_cursor_pitch, &nbuf)});
@@ -1090,6 +1289,10 @@ pub const App = struct {
                 self.piano_clip_link.?.track -= 1;
             }
         }
+        // Track indices shifted: history entries would restore into the
+        // wrong track. Starting fresh beats remapping every entry.
+        self.history.deinit(self.allocator);
+        self.history = .{};
         switch (self.sampler_target) {
             .drum    => |*t| if (track_idx < t.* and t.* > 0) { t.* -= 1; },
             .sampler => |*t| if (track_idx < t.* and t.* > 0) { t.* -= 1; },
@@ -1211,6 +1414,8 @@ pub const App = struct {
                 'x' => { self.arrDeleteClip(); return true; },
                 'e' => { self.arrEditClip(); return true; },
                 'g' => { self.arrPlayFromCursor(); return true; },
+                'u' => { self.doUndo(); return true; },
+                'U' => { self.doRedo(); return true; },
                 '[' => { self.arrCycleDrumVariant(-1); return true; },
                 ']' => { self.arrCycleDrumVariant(1); return true; },
                 'T' => {
@@ -1270,6 +1475,8 @@ pub const App = struct {
             self.setStatus("empty track — insert an instrument first", .{});
             return;
         }
+        // Stamping may evict overlapped clips; the lane snapshot covers both.
+        self.undoPush(self.captureLane(@intCast(self.cursor)));
         self.session.stampClip(self.cursor, self.arr_cursor_bar) catch {
             self.setStatus("stamp failed (out of memory)", .{});
             return;
@@ -1304,8 +1511,16 @@ pub const App = struct {
             .melodic => |m| {
                 const track: u16 = @intCast(self.cursor);
                 if (self.session.racks.items[track].pattern_player == null) return;
+                // The load clobbers the working buffer; make it undoable.
+                // Captured before the switch so a previous clip link (if the
+                // buffer held another clip) is part of the snapshot.
+                const pre = self.captureMelodic(track);
                 self.switchToPianoRoll(track);
-                if (self.view != .piano_roll) return;
+                if (self.view != .piano_roll) {
+                    if (pre) |p| { var e = p; e.deinit(self.allocator); }
+                    return;
+                }
+                self.undoPush(pre);
                 self.session.racks.items[track].pattern_player.?.setNotes(m.notes, m.length_beats);
                 self.piano_clip_link = .{ .track = track, .start_bar = clip.start_bar };
                 self.setStatus("editing clip @ bar {d} — edits land in the clip", .{clip.start_bar + 1});
@@ -1316,10 +1531,13 @@ pub const App = struct {
 
     fn arrDeleteClip(self: *App) void {
         const lane = self.session.arrangement.lane(self.cursor) orelse return;
-        if (lane.removeAt(self.allocator, self.arr_cursor_bar))
-            self.setStatus("deleted clip", .{})
-        else
+        if (lane.clipAt(self.arr_cursor_bar) == null) {
             self.setStatus("no clip here", .{});
+            return;
+        }
+        self.undoPush(self.captureLane(@intCast(self.cursor)));
+        _ = lane.removeAt(self.allocator, self.arr_cursor_bar);
+        self.setStatus("deleted clip", .{});
         if (self.session.song_mode) self.session.rebuildSongData();
     }
 
@@ -1685,6 +1903,103 @@ test "paste with an empty clipboard is a no-op" {
     app.piano_track = 0;
     _ = app.handlePianoRollKey(.{ .char = 'P' });
     try std.testing.expectEqual(@as(u16, 0), app.session.racks.items[0].pattern_player.?.note_count);
+}
+
+test "undo/redo round-trips a piano-roll edit" {
+    var app = try testApp();
+    defer app.deinit();
+    app.piano_track = 0;
+    const pp = &app.session.racks.items[0].pattern_player.?;
+
+    app.piano_cursor_pitch = 60;
+    app.piano_cursor_step = 0;
+    _ = app.handlePianoRollKey(.enter); // insert
+    try std.testing.expectEqual(@as(u16, 1), pp.note_count);
+
+    _ = app.handlePianoRollKey(.{ .char = 'u' });
+    try std.testing.expectEqual(@as(u16, 0), pp.note_count);
+    _ = app.handlePianoRollKey(.{ .char = 'U' });
+    try std.testing.expectEqual(@as(u16, 1), pp.note_count);
+    try std.testing.expectEqual(@as(u7, 60), pp.notes[0].pitch);
+}
+
+test "undo/redo round-trips a drum edit including velocity and variants" {
+    var app = try testApp();
+    defer app.deinit();
+    app.drum_track = 2;
+    const dm = app.drumMachine();
+    const kick_before = dm.pattern[0].load(.acquire);
+
+    app.drum_cursor = .{ 0, 2 };
+    _ = app.handleDrumKey(.enter); // toggle a step
+    _ = app.handleDrumKey(.{ .char = 'N' }); // new variant (B)
+    try std.testing.expectEqual(@as(u8, 2), dm.variant_count);
+
+    _ = app.handleDrumKey(.{ .char = 'u' }); // undo variant add
+    try std.testing.expectEqual(@as(u8, 1), dm.variant_count);
+    _ = app.handleDrumKey(.{ .char = 'u' }); // undo the toggle
+    try std.testing.expectEqual(kick_before, dm.pattern[0].load(.acquire));
+
+    _ = app.handleDrumKey(.{ .char = 'U' }); // redo the toggle
+    try std.testing.expectEqual(kick_before ^ (1 << 2), dm.pattern[0].load(.acquire));
+    _ = app.handleDrumKey(.{ .char = 'U' }); // redo the variant add
+    try std.testing.expectEqual(@as(u8, 2), dm.variant_count);
+}
+
+test "undo restores clips a stamp evicted" {
+    var app = try testApp();
+    defer app.deinit();
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.5 });
+
+    // Stamp at bar 0, then stamp over it (evicting the original).
+    app.view = .arrangement;
+    app.cursor = 0;
+    app.arr_cursor_bar = 0;
+    app.handleKey(.enter, 0);
+    pp.notes[0].pitch = 72; // different content for the second stamp
+    app.arr_cursor_bar = 0;
+    app.handleKey(.enter, 0);
+    const lane = app.session.arrangement.lane(0).?;
+    try std.testing.expectEqual(@as(usize, 1), lane.clips.items.len);
+    try std.testing.expectEqual(@as(u7, 72), lane.clips.items[0].content.melodic.notes[0].pitch);
+
+    // Undo the second stamp: the evicted original comes back.
+    app.handleKey(.{ .char = 'u' }, 0);
+    try std.testing.expectEqual(@as(usize, 1), lane.clips.items.len);
+    try std.testing.expectEqual(@as(u7, 60), lane.clips.items[0].content.melodic.notes[0].pitch);
+
+    // Undo the first stamp: empty lane. Redo brings it back.
+    app.handleKey(.{ .char = 'u' }, 0);
+    try std.testing.expectEqual(@as(usize, 0), lane.clips.items.len);
+    app.handleKey(.{ .char = 'U' }, 0);
+    try std.testing.expectEqual(@as(usize, 1), lane.clips.items.len);
+}
+
+test "undo of a linked clip edit restores the clip too" {
+    var app = try testApp();
+    defer app.deinit();
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.5 });
+    try app.session.stampClip(0, 0);
+
+    app.view = .arrangement;
+    app.cursor = 0;
+    app.arr_cursor_bar = 0;
+    app.handleKey(.{ .char = 'e' }, 0); // clip editing mode
+
+    app.piano_cursor_pitch = 64;
+    app.piano_cursor_step = 4;
+    _ = app.handlePianoRollKey(.enter); // insert into the clip
+    const lane = app.session.arrangement.lane(0).?;
+    try std.testing.expectEqual(@as(usize, 2), lane.clipAt(0).?.content.melodic.notes.len);
+
+    _ = app.handlePianoRollKey(.{ .char = 'u' }); // undo the clip edit
+    try std.testing.expectEqual(@as(usize, 1), lane.clipAt(0).?.content.melodic.notes.len);
+    try std.testing.expect(app.piano_clip_link != null); // still editing the clip
+
+    _ = app.handlePianoRollKey(.{ .char = 'U' }); // redo it
+    try std.testing.expectEqual(@as(usize, 2), lane.clipAt(0).?.content.melodic.notes.len);
 }
 
 test "arrangement e edits a melodic clip in place" {

@@ -79,6 +79,7 @@ fn cmdClear(app: *App, _: []const u8) void {
     }
     const pp = &app.session.racks.items[track].pattern_player.?;
     const n = pp.note_count;
+    app.undoCaptureMelodic(@intCast(track));
     pp.clearNotes();
     app.setStatus("cleared {d} notes", .{n});
     app.pianoSyncLinkedClip();
