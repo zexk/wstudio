@@ -56,7 +56,7 @@ pub fn drawDrumGrid(app: anytype, w: *std.Io.Writer, rows: usize, snap: engine_m
     try w.print("pat {c}", .{DrumMachine.variantLetter(dm.variant)});
     try w.writeAll(rst ++ dim);
     try w.print(" {d}/{d}", .{ dm.variant + 1, dm.variant_count });
-    try w.writeAll(dim ++ "  [hjkl:move  enter:toggle  []:pattern  N:new  D:del  p:preview  e:sampler  +-:length  X:clear  F:fill  esc:back]");
+    try w.writeAll(dim ++ "  [hjkl:move  enter:toggle  v:vel  <>:swing  []:pattern  N:new  D:del  p:preview  e:sampler  +-:length  X:clear  F:fill  esc:back]");
     try endLine(w);
 
     // step header — only the active range (step_count) is shown
@@ -90,7 +90,13 @@ pub fn drawDrumGrid(app: anytype, w: *std.Io.Writer, rows: usize, snap: engine_m
                 try w.writeAll(dim);
             }
 
-            try w.writeAll(if (active) "[X]" else "[ ]");
+            // Glyph tracks the step's velocity level: full → quietest.
+            try w.writeAll(if (!active) "[ ]" else switch (dm.stepVel(@intCast(p), @intCast(s))) {
+                0 => "[X]",
+                1 => "[x]",
+                2 => "[o]",
+                3 => "[.]",
+            });
             try w.writeAll(rst);
         }
         try endLine(w);
@@ -122,6 +128,12 @@ pub fn drawDrumStatus(app: anytype, w: *std.Io.Writer) !void {
     try w.print("{d}", .{dm.step_count});
     try w.writeAll(dim ++ "/" ++ rst);
     try w.print("{d}", .{DrumMachine.max_steps});
+    try w.writeAll(dim ++ "  swing " ++ rst);
+    try w.print("{d:.0}%", .{dm.swing.load(.monotonic)});
+    if (dm.stepActive(p, s)) {
+        try w.writeAll(dim ++ "  vel " ++ rst);
+        try w.print("{d}%", .{DrumMachine.velPercent(dm.stepVel(p, s))});
+    }
     try w.writeAll("  ");
     try w.writeAll(bold);
     try w.writeAll(dm.padName(p));

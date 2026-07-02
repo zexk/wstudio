@@ -109,6 +109,8 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("H / L",        "move cursor left / right (one beat, coarse)");
     t.key("j / k",        "move cursor down / up (pad)");
     t.key("enter",        "toggle step on/off");
+    t.key("v",            "cycle step velocity (100/75/50/25%)");
+    t.key("< / >",        "less / more swing (50–75%)");
     t.key("p",            "preview pad sound");
     t.key("e",            "open sampler editor for current pad");
     t.key("s",            "spectrum + EQ for drum track");

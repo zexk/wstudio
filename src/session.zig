@@ -208,11 +208,19 @@ pub const Session = struct {
         switch (rack.instrument) {
             .empty => return,
             .drum_machine => |*dm| {
-                var pat: [DrumMachine.max_pads]u32 = undefined;
-                for (&pat, 0..) |*p, i| p.* = dm.pattern[i].load(.acquire);
+                var drum: Clip.Drum = .{
+                    .pattern = undefined,
+                    .step_count = dm.step_count,
+                    .variant = dm.variant,
+                };
+                for (&drum.pattern, &drum.vel_lo, &drum.vel_hi, 0..) |*p, *lo, *hi, i| {
+                    p.*  = dm.pattern[i].load(.acquire);
+                    lo.* = dm.vel_lo[i].load(.acquire);
+                    hi.* = dm.vel_hi[i].load(.acquire);
+                }
                 const len_beats = @as(f64, @floatFromInt(dm.step_count)) / 4.0;
                 try lane.place(self.allocator, Clip.initDrum(
-                    start_bar, barsFor(len_beats, bpb), pat, dm.step_count, dm.variant,
+                    start_bar, barsFor(len_beats, bpb), drum,
                 ));
             },
             else => {
@@ -274,6 +282,8 @@ pub const Session = struct {
                             .span_steps = c.length_bars * steps_per_bar,
                             .step_count = drum.step_count,
                             .pattern = drum.pattern,
+                            .vel_lo = drum.vel_lo,
+                            .vel_hi = drum.vel_hi,
                         };
                         n += 1;
                     }
@@ -469,6 +479,7 @@ test "stampClip captures the active drum variant" {
     _ = dm.addVariant(); // variant B, copy of A
     dm.toggleStep(0, 0);
     dm.toggleStep(1, 2); // variant B: pad 1 step 2 only
+    dm.setStepVel(1, 2, 2); // at 50% velocity
 
     try s.stampClip(0, 0); // stamps B (active)
     dm.selectVariant(0);
@@ -479,6 +490,8 @@ test "stampClip captures the active drum variant" {
     const a = lane.clips.items[1].content.drum;
     try std.testing.expectEqual(@as(u8, 1), b.variant);
     try std.testing.expectEqual(@as(u32, 1 << 2), b.pattern[1]);
+    try std.testing.expectEqual(@as(u32, 1 << 2), b.vel_hi[1]); // 50% carried
+    try std.testing.expectEqual(@as(u32, 0), b.vel_lo[1]);
     try std.testing.expectEqual(@as(u32, 0), b.pattern[0]);
     try std.testing.expectEqual(@as(u8, 0), a.variant);
     try std.testing.expectEqual(@as(u32, 1), a.pattern[0]);

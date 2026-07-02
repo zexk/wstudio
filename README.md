@@ -131,7 +131,6 @@ a full song:
       pattern, and stamped clips can't be edited or pulled back)
 - [ ] Master bus FX: limiter/compressor/EQ on the mix (bounce hard-clips
       at 0 dBFS, so hot mixes distort on export)
-- [ ] Drum grid accents (per-step velocity) and swing
 - [ ] Undo
 - [ ] Live recording from insert mode (play a take into the pattern)
 - [ ] Play-from-cursor in the arrangement view (`:seek <bar>` exists but
@@ -145,6 +144,7 @@ a full song:
 
 Done:
 
+- [x] Drum grid per-step velocity (100/75/50/25%) and swing (50–75%)
 - [x] TUI frontend wiring the modal input layer to a real terminal
 - [x] Native audio backend (ALSA; PipeWire serves it on modern systems)
 - [x] Song mode: arrangement timeline with per-track clips

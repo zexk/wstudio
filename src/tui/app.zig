@@ -361,11 +361,17 @@ pub const App = struct {
                         if (step.* >= dm.step_count) step.* = dm.step_count - 1;
                     },
                     '+' => self.drumMachine().setStepCount(self.drumMachine().step_count + 1),
-                    'X' => self.drumMachine().pattern[pad.*].store(0, .release),
-                    'F' => {
+                    'v' => {
                         const dm = self.drumMachine();
-                        dm.pattern[pad.*].store(DrumMachine.stepMask(dm.step_count), .release);
+                        if (dm.stepActive(pad.*, step.*)) {
+                            dm.cycleStepVel(pad.*, step.*);
+                            self.setStatus("vel {d}%", .{DrumMachine.velPercent(dm.stepVel(pad.*, step.*))});
+                        } else self.setStatus("no step here — enter places one", .{});
                     },
+                    '<' => self.drumAdjustSwing(-1.0),
+                    '>' => self.drumAdjustSwing(1.0),
+                    'X' => self.drumMachine().clearPad(pad.*),
+                    'F' => self.drumMachine().fillPad(pad.*),
                     '[' => { self.drumCycleVariant(-1); },
                     ']' => { self.drumCycleVariant(1); },
                     'N' => {
@@ -399,6 +405,13 @@ pub const App = struct {
             },
             else => return false,
         }
+    }
+
+    /// Nudge the drum machine's swing and echo the new value.
+    fn drumAdjustSwing(self: *App, delta: f32) void {
+        const dm = self.drumMachine();
+        dm.adjustSwing(delta);
+        self.setStatus("swing {d:.0}%", .{dm.swing.load(.monotonic)});
     }
 
     /// Cycle the drum grid's active pattern variant, keeping the step cursor

@@ -5,10 +5,12 @@
 //! sample start/end trim, pitch (playback transpose), an amplitude ADSR,
 //! gain, pan, and a reverse toggle.  A 16-step bitmask per pad stores the
 //! pattern; each bit is a u32 atomic so the UI thread can flip bits safely
-//! while the audio thread reads them.  The sequencer fires on step
-//! boundaries derived from the transport, using a monotonic step counter
-//! to avoid the double-fire and float-truncation bugs that arise from
-//! recomputing the boundary position every block.
+//! while the audio thread reads them.  Two more bitplanes per pad hold a
+//! 2-bit per-step velocity level (100/75/50/25%).  The sequencer fires on
+//! step boundaries derived from the transport, using a monotonic step
+//! counter to avoid the double-fire and float-truncation bugs that arise
+//! from recomputing the boundary position every block; MPC-style swing
+//! (50–75%) delays each off-beat 16th within its 8th-note pair.
 //!
 //! Per-pad params are plain scalar fields read by the audio thread and
 //! nudged on the audio thread (via the `set_param` device event, with the
@@ -59,6 +61,9 @@ pub const Voice = struct {
     /// Frame offset within the current block where this voice starts.
     /// 0 for voices continuing from a previous block.
     block_start: u32 = 0,
+    /// Trigger velocity applied on top of the pad gain. 1.0 = full hit;
+    /// sequencer steps fire at their per-step level (see `velGain`).
+    vel: f32 = 1.0,
 };
 
 /// The shipped 8-pad kit: WAVs embedded from src/assets/kit/ (rendered by the
@@ -84,11 +89,34 @@ pub const DrumMachine = struct {
     /// Max clips one lane can hold for song-mode playback (see `song_clips`).
     pub const max_song_clips: u16 = 256;
 
+    /// Swing bounds, MPC-style percent: 50 = straight, 66.7 = triplet feel,
+    /// 75 = the hardest shuffle. Position of the off-beat 16th within its
+    /// 8th-note pair.
+    pub const swing_min: f32 = 50.0;
+    pub const swing_max: f32 = 75.0;
+
+    /// Gain for a step's 2-bit velocity level. Level 0 (both plane bits
+    /// clear) is full volume, so untouched steps and pre-v4 files play
+    /// exactly as before; each level above attenuates by 25%:
+    /// 0 → 100%, 1 → 75%, 2 → 50%, 3 → 25%.
+    pub fn velGain(level: u2) f32 {
+        return 1.0 - 0.25 * @as(f32, @floatFromInt(level));
+    }
+
+    /// Display percent for a 2-bit velocity level (100/75/50/25).
+    pub fn velPercent(level: u2) u8 {
+        return 100 - 25 * @as(u8, level);
+    }
+
     /// One pattern variant: a bank slot for the step grid. The active variant
     /// lives in the atomic `pattern`/`step_count` fields; inactive ones rest
     /// here as plain data (control thread only).
     pub const Variant = struct {
         pattern: [max_pads]u32 = [_]u32{0} ** max_pads,
+        /// Per-step velocity bitplanes: bit k holds the low/high bit of
+        /// step k's 2-bit level (see `velGain`).
+        vel_lo:  [max_pads]u32 = [_]u32{0} ** max_pads,
+        vel_hi:  [max_pads]u32 = [_]u32{0} ** max_pads,
         step_count: u8 = 16,
     };
 
@@ -101,6 +129,9 @@ pub const DrumMachine = struct {
         span_steps: u32,
         step_count: u8,
         pattern: [max_pads]u32,
+        /// Per-step velocity bitplanes, same encoding as the live grid.
+        vel_lo: [max_pads]u32 = [_]u32{0} ** max_pads,
+        vel_hi: [max_pads]u32 = [_]u32{0} ** max_pads,
     };
     /// Number of editable params per pad (see `adjustParam`).
     pub const pad_param_count: u8 = 10;
@@ -120,7 +151,15 @@ pub const DrumMachine = struct {
     /// Always mirrors the active variant; edits land here and are synced back
     /// to `variants[variant]` when switching away.
     pattern: [max_pads]std.atomic.Value(u32),
+    /// Per-step velocity bitplanes (see `velGain`): bit k of `vel_lo`/`vel_hi`
+    /// is the low/high bit of step k's 2-bit level. Atomic for the same
+    /// UI-edits-while-audio-reads reason as `pattern`.
+    vel_lo: [max_pads]std.atomic.Value(u32),
+    vel_hi: [max_pads]std.atomic.Value(u32),
     step_count: u8,
+    /// Swing percent (see `swing_min`/`swing_max`): where the off-beat 16th
+    /// sits within its 8th-note pair. UI writes, audio thread reads.
+    swing: std.atomic.Value(f32) = .init(50.0),
 
     // ── Pattern variants (control thread only) ──────────────────────────────
     /// Bank slots. Slot `variant` is stale while active — read it through
@@ -160,6 +199,8 @@ pub const DrumMachine = struct {
             .transport = transport,
             .pads = [_]?Pad{null} ** max_pads,
             .pattern = undefined,
+            .vel_lo = undefined,
+            .vel_hi = undefined,
             .step_count = 16, // default 1 bar; user can extend to max_steps with >
 
             .voices = [_]Voice{.{}} ** max_pads,
@@ -167,6 +208,8 @@ pub const DrumMachine = struct {
             .current_step = .init(0),
         };
         for (&self.pattern) |*p| p.* = .init(0);
+        for (&self.vel_lo)  |*p| p.* = .init(0);
+        for (&self.vel_hi)  |*p| p.* = .init(0);
 
         // Load the shipped kit: WAVs rendered from dsp/drum_kit.zig by the
         // `genkit` build tool and embedded in the binary. Per-pad default gains
@@ -216,6 +259,15 @@ pub const DrumMachine = struct {
         // survive a shrink, reappear on grow, and be saved to disk.
         const mask = stepMask(self.step_count);
         for (&self.pattern) |*p| _ = p.fetchAnd(mask, .acq_rel);
+        for (&self.vel_lo)  |*p| _ = p.fetchAnd(mask, .acq_rel);
+        for (&self.vel_hi)  |*p| _ = p.fetchAnd(mask, .acq_rel);
+    }
+
+    /// Nudge swing by `delta` percent, clamped to [swing_min, swing_max].
+    /// Control thread; the audio thread picks it up next block.
+    pub fn adjustSwing(self: *DrumMachine, delta: f32) void {
+        const s = std.math.clamp(self.swing.load(.monotonic) + delta, swing_min, swing_max);
+        self.swing.store(s, .monotonic);
     }
 
     // -----------------------------------------------------------------------
@@ -225,6 +277,8 @@ pub const DrumMachine = struct {
     fn storeActiveVariant(self: *DrumMachine) void {
         const slot = &self.variants[self.variant];
         for (&slot.pattern, &self.pattern) |*bank, *live| bank.* = live.load(.acquire);
+        for (&slot.vel_lo,  &self.vel_lo)  |*bank, *live| bank.* = live.load(.acquire);
+        for (&slot.vel_hi,  &self.vel_hi)  |*bank, *live| bank.* = live.load(.acquire);
         slot.step_count = self.step_count;
     }
 
@@ -233,6 +287,8 @@ pub const DrumMachine = struct {
     fn loadVariantLive(self: *DrumMachine, v: u8) void {
         const slot = self.variants[v];
         for (&self.pattern, slot.pattern) |*live, bits| live.store(bits, .release);
+        for (&self.vel_lo,  slot.vel_lo)  |*live, bits| live.store(bits, .release);
+        for (&self.vel_hi,  slot.vel_hi)  |*live, bits| live.store(bits, .release);
         self.setStepCount(slot.step_count);
     }
 
@@ -281,6 +337,8 @@ pub const DrumMachine = struct {
         if (v == self.variant) {
             var out: Variant = .{ .step_count = self.step_count };
             for (&out.pattern, &self.pattern) |*dst, *live| dst.* = live.load(.acquire);
+            for (&out.vel_lo,  &self.vel_lo)  |*dst, *live| dst.* = live.load(.acquire);
+            for (&out.vel_hi,  &self.vel_hi)  |*dst, *live| dst.* = live.load(.acquire);
             return out;
         }
         return self.variants[@min(v, max_variants - 1)];
@@ -304,12 +362,60 @@ pub const DrumMachine = struct {
 
     pub fn toggleStep(self: *DrumMachine, pad: u8, step: u8) void {
         if (pad >= max_pads or step >= max_steps) return;
-        _ = self.pattern[pad].fetchXor(@as(u32, 1) << @intCast(step), .acq_rel);
+        const bit = @as(u32, 1) << @intCast(step);
+        _ = self.pattern[pad].fetchXor(bit, .acq_rel);
+        // A toggled step always (re)starts at full velocity.
+        _ = self.vel_lo[pad].fetchAnd(~bit, .acq_rel);
+        _ = self.vel_hi[pad].fetchAnd(~bit, .acq_rel);
     }
 
     pub fn stepActive(self: *const DrumMachine, pad: u8, step: u8) bool {
         if (pad >= max_pads or step >= max_steps) return false;
         return (self.pattern[pad].load(.acquire) >> @intCast(step)) & 1 == 1;
+    }
+
+    /// 2-bit velocity level of one step: 0 = full, 3 = quietest (see velGain).
+    pub fn stepVel(self: *const DrumMachine, pad: u8, step: u8) u2 {
+        if (pad >= max_pads or step >= max_steps) return 0;
+        const lo: u2 = @intCast((self.vel_lo[pad].load(.acquire) >> @intCast(step)) & 1);
+        const hi: u2 = @intCast((self.vel_hi[pad].load(.acquire) >> @intCast(step)) & 1);
+        return (hi << 1) | lo;
+    }
+
+    pub fn setStepVel(self: *DrumMachine, pad: u8, step: u8, level: u2) void {
+        if (pad >= max_pads or step >= max_steps) return;
+        const bit = @as(u32, 1) << @intCast(step);
+        if (level & 1 != 0) {
+            _ = self.vel_lo[pad].fetchOr(bit, .acq_rel);
+        } else {
+            _ = self.vel_lo[pad].fetchAnd(~bit, .acq_rel);
+        }
+        if (level & 2 != 0) {
+            _ = self.vel_hi[pad].fetchOr(bit, .acq_rel);
+        } else {
+            _ = self.vel_hi[pad].fetchAnd(~bit, .acq_rel);
+        }
+    }
+
+    /// Step one step's velocity down a level, wrapping 100 → 75 → 50 → 25 → 100.
+    pub fn cycleStepVel(self: *DrumMachine, pad: u8, step: u8) void {
+        self.setStepVel(pad, step, self.stepVel(pad, step) +% 1);
+    }
+
+    /// Wipe one pad's row: no steps, all velocities back to full.
+    pub fn clearPad(self: *DrumMachine, pad: u8) void {
+        if (pad >= max_pads) return;
+        self.pattern[pad].store(0, .release);
+        self.vel_lo[pad].store(0, .release);
+        self.vel_hi[pad].store(0, .release);
+    }
+
+    /// Fill one pad's row with full-velocity steps across the active length.
+    pub fn fillPad(self: *DrumMachine, pad: u8) void {
+        if (pad >= max_pads) return;
+        self.pattern[pad].store(stepMask(self.step_count), .release);
+        self.vel_lo[pad].store(0, .release);
+        self.vel_hi[pad].store(0, .release);
     }
 
     pub fn padName(self: *const DrumMachine, pad: u8) []const u8 {
@@ -424,6 +530,11 @@ pub const DrumMachine = struct {
         if (self.transport.playing) {
             const pos_f = @as(f64, @floatFromInt(self.transport.position_frames));
             const fps = self.framesPerStep();
+            // Swing: off-beat 16ths (odd step_k) fire late by up to half a
+            // step (75% = hardest shuffle). Even steps stay on the grid, so
+            // the boundary positions remain strictly increasing.
+            const swing_pct = self.swing.load(.monotonic);
+            const swing_delay: f64 = fps * @as(f64, swing_pct - 50.0) / 50.0;
             var step_k = self.next_step_k;
 
             // Resync on discontinuity (seek, loop, first play after stop)
@@ -434,7 +545,8 @@ pub const DrumMachine = struct {
 
             // Fire every step whose boundary falls inside [pos_f, pos_f+frames)
             while (true) {
-                const fire_pos = @as(f64, @floatFromInt(step_k)) * fps;
+                var fire_pos = @as(f64, @floatFromInt(step_k)) * fps;
+                if (step_k & 1 == 1) fire_pos += swing_delay;
                 if (fire_pos >= pos_f + @as(f64, @floatFromInt(frames))) break;
 
                 const fire_frame: u32 = if (fire_pos <= pos_f)
@@ -456,6 +568,7 @@ pub const DrumMachine = struct {
                                 .active = true,
                                 .played = 0,
                                 .block_start = fire_frame,
+                                .vel = velGain(self.stepVel(@intCast(p), step_idx)),
                             };
                         }
                     }
@@ -502,8 +615,8 @@ pub const DrumMachine = struct {
 
         // Linear pan: center keeps unity in both channels (matches the prior
         // mono-to-both behaviour at pan = 0).
-        const gl: f32 = pad.gain * @min(1.0, 1.0 - pad.pan);
-        const gr: f32 = pad.gain * @min(1.0, 1.0 + pad.pan);
+        const gl: f32 = pad.gain * voice.vel * @min(1.0, 1.0 - pad.pan);
+        const gr: f32 = pad.gain * voice.vel * @min(1.0, 1.0 + pad.pan);
 
         const start = voice.block_start;
         var i: usize = start;
@@ -543,7 +656,12 @@ pub const DrumMachine = struct {
             for (0..max_pads) |p| {
                 if (self.pads[p] == null) continue;
                 if ((clip.pattern[p] >> @intCast(local)) & 1 == 1) {
-                    self.voices[p] = .{ .active = true, .played = 0, .block_start = fire_frame };
+                    const lo: u2 = @intCast((clip.vel_lo[p] >> @intCast(local)) & 1);
+                    const hi: u2 = @intCast((clip.vel_hi[p] >> @intCast(local)) & 1);
+                    self.voices[p] = .{
+                        .active = true, .played = 0, .block_start = fire_frame,
+                        .vel = velGain((hi << 1) | lo),
+                    };
                 }
             }
             self.current_step.store(@intCast(local), .monotonic);
@@ -554,9 +672,9 @@ pub const DrumMachine = struct {
         self.current_step.store(@intCast(lk % self.step_count), .monotonic);
     }
 
-    fn triggerPad(self: *DrumMachine, pad_idx: u8) void {
+    fn triggerPad(self: *DrumMachine, pad_idx: u8, vel: f32) void {
         if (pad_idx >= max_pads or self.pads[pad_idx] == null) return;
-        self.voices[pad_idx] = .{ .active = true, .played = 0, .block_start = 0 };
+        self.voices[pad_idx] = .{ .active = true, .played = 0, .block_start = 0, .vel = vel };
     }
 
     pub fn resetAll(self: *DrumMachine) void {
@@ -572,7 +690,7 @@ pub const DrumMachine = struct {
     fn eventOpaque(ptr: *anyopaque, ev: dsp.Event) void {
         const self: *DrumMachine = @ptrCast(@alignCast(ptr));
         switch (ev) {
-            .note_on  => |e| self.triggerPad(e.note % max_pads),
+            .note_on  => |e| self.triggerPad(e.note % max_pads, e.velocity),
             .set_param => |e| self.adjustParam(e.id, e.steps),
             .note_off, .cc, .pitch_bend => {},
             .all_off  => self.resetAll(),
@@ -776,6 +894,117 @@ test "note_on triggers pad directly" {
     var peak: f32 = 0;
     for (buf) |s| peak = @max(peak, @abs(s));
     try std.testing.expect(peak > 0.01);
+}
+
+test "step velocity: cycles levels, toggling resets, shrink masks" {
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    defer dm.deinit();
+
+    dm.pattern[0].store(0, .monotonic);
+    dm.toggleStep(0, 5);
+    try std.testing.expectEqual(@as(u2, 0), dm.stepVel(0, 5)); // new steps are full
+
+    // v walks 100 → 75 → 50 → 25 and wraps back to 100.
+    dm.cycleStepVel(0, 5);
+    try std.testing.expectEqual(@as(u2, 1), dm.stepVel(0, 5));
+    dm.cycleStepVel(0, 5);
+    dm.cycleStepVel(0, 5);
+    try std.testing.expectEqual(@as(u2, 3), dm.stepVel(0, 5));
+    dm.cycleStepVel(0, 5);
+    try std.testing.expectEqual(@as(u2, 0), dm.stepVel(0, 5));
+
+    // Level → gain mapping.
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0),  DrumMachine.velGain(0), 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.25), DrumMachine.velGain(3), 1e-6);
+
+    // Retoggling a step brings it back at full velocity.
+    dm.setStepVel(0, 5, 3);
+    dm.toggleStep(0, 5); // off
+    dm.toggleStep(0, 5); // on again
+    try std.testing.expectEqual(@as(u2, 0), dm.stepVel(0, 5));
+
+    // Velocity bits past a shrink don't survive a re-grow.
+    dm.setStepCount(32);
+    dm.toggleStep(0, 20);
+    dm.setStepVel(0, 20, 2);
+    dm.setStepCount(16);
+    dm.setStepCount(32);
+    try std.testing.expectEqual(@as(u2, 0), dm.stepVel(0, 20));
+}
+
+test "voice velocity scales the rendered level" {
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    defer dm.deinit();
+
+    var buf: [512]Sample = undefined;
+
+    dm.voices[0] = .{ .active = true, .played = 0, .block_start = 0, .vel = 1.0 };
+    @memset(&buf, 0.0);
+    DrumMachine.renderVoice(&dm.voices[0], &dm.pads[0].?, &buf, 2, 256, 48_000.0);
+    var peak_full: f32 = 0;
+    for (buf) |s| peak_full = @max(peak_full, @abs(s));
+
+    dm.voices[0] = .{ .active = true, .played = 0, .block_start = 0, .vel = 0.25 };
+    @memset(&buf, 0.0);
+    DrumMachine.renderVoice(&dm.voices[0], &dm.pads[0].?, &buf, 2, 256, 48_000.0);
+    var peak_quiet: f32 = 0;
+    for (buf) |s| peak_quiet = @max(peak_quiet, @abs(s));
+
+    try std.testing.expect(peak_full > 0.01);
+    try std.testing.expectApproxEqAbs(peak_full * 0.25, peak_quiet, 1e-4);
+}
+
+test "swing delays the off-beat step" {
+    var transport: Transport = .{ .sample_rate = 48_000, .tempo_bpm = 120.0 };
+    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    defer dm.deinit();
+
+    // Only pad 0 on step 1 (an off-beat 16th). At 120bpm a step is 6000
+    // frames; swing 75% pushes step 1's hit from 6000 to 9000.
+    for (&dm.pattern) |*p| p.store(0, .monotonic);
+    dm.pattern[0].store(1 << 1, .monotonic);
+    dm.adjustSwing(100.0); // clamps at swing_max = 75
+    try std.testing.expectApproxEqAbs(DrumMachine.swing_max, dm.swing.load(.monotonic), 1e-6);
+
+    transport.play();
+    var buf: [512]Sample = undefined; // 256 frames
+
+    // Silent through the straight boundary (6000) up to just before 9000.
+    while (transport.position_frames < 8960) {
+        @memset(&buf, 0.0);
+        dm.processBlock(&buf);
+        var peak: f32 = 0;
+        for (buf) |s| peak = @max(peak, @abs(s));
+        try std.testing.expect(peak < 0.01);
+        transport.advance(256);
+    }
+    // The block covering frame 9000 fires the swung step.
+    @memset(&buf, 0.0);
+    dm.processBlock(&buf);
+    var peak: f32 = 0;
+    for (buf) |s| peak = @max(peak, @abs(s));
+    try std.testing.expect(peak > 0.01);
+}
+
+test "variants keep per-step velocity" {
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    defer dm.deinit();
+
+    for (&dm.pattern) |*p| p.store(0, .monotonic);
+    dm.toggleStep(0, 0);
+    dm.setStepVel(0, 0, 2); // variant A: 50%
+
+    _ = dm.addVariant(); // B copies A, then diverges
+    try std.testing.expectEqual(@as(u2, 2), dm.stepVel(0, 0));
+    dm.setStepVel(0, 0, 3);
+
+    dm.selectVariant(0);
+    try std.testing.expectEqual(@as(u2, 2), dm.stepVel(0, 0));
+    dm.selectVariant(1);
+    try std.testing.expectEqual(@as(u2, 3), dm.stepVel(0, 0));
 }
 
 test "toggleStep flips pattern bit" {

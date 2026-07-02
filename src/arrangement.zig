@@ -40,6 +40,10 @@ pub const Clip = struct {
     /// A private copy of a drum-machine pattern.
     pub const Drum = struct {
         pattern: [DrumMachine.max_pads]u32,
+        /// Per-step velocity bitplanes (see DrumMachine.velGain). All-zero =
+        /// every step at full velocity.
+        vel_lo: [DrumMachine.max_pads]u32 = [_]u32{0} ** DrumMachine.max_pads,
+        vel_hi: [DrumMachine.max_pads]u32 = [_]u32{0} ** DrumMachine.max_pads,
         step_count: u8,
         /// Which variant (A..H) this was stamped from — display label only;
         /// the pattern above is the payload, so bank edits never reach clips.
@@ -62,20 +66,12 @@ pub const Clip = struct {
         };
     }
 
-    /// Build a drum clip from a copied bitmask. No allocation.
-    pub fn initDrum(
-        start_bar: u32,
-        length_bars: u32,
-        pattern: [DrumMachine.max_pads]u32,
-        step_count: u8,
-        variant: u8,
-    ) Clip {
+    /// Build a drum clip from a copied payload. No allocation.
+    pub fn initDrum(start_bar: u32, length_bars: u32, drum: Drum) Clip {
         return .{
             .start_bar = start_bar,
             .length_bars = length_bars,
-            .content = .{ .drum = .{
-                .pattern = pattern, .step_count = step_count, .variant = variant,
-            } },
+            .content = .{ .drum = drum },
         };
     }
 
@@ -217,9 +213,9 @@ test "place inserts sorted and reports lane length" {
     var lane: Lane = .{};
     defer lane.deinit(a);
 
-    try lane.place(a, Clip.initDrum(4, 2, [_]u32{0} ** DrumMachine.max_pads, 16, 0));
-    try lane.place(a, Clip.initDrum(0, 2, [_]u32{0} ** DrumMachine.max_pads, 16, 0));
-    try lane.place(a, Clip.initDrum(2, 2, [_]u32{0} ** DrumMachine.max_pads, 16, 0));
+    try lane.place(a, Clip.initDrum(4, 2, .{ .pattern = [_]u32{0} ** DrumMachine.max_pads, .step_count = 16 }));
+    try lane.place(a, Clip.initDrum(0, 2, .{ .pattern = [_]u32{0} ** DrumMachine.max_pads, .step_count = 16 }));
+    try lane.place(a, Clip.initDrum(2, 2, .{ .pattern = [_]u32{0} ** DrumMachine.max_pads, .step_count = 16 }));
 
     try testing.expectEqual(@as(usize, 3), lane.clips.items.len);
     try testing.expectEqual(@as(u32, 0), lane.clips.items[0].start_bar);
@@ -234,8 +230,8 @@ test "place evicts overlapping clips" {
     defer lane.deinit(a);
 
     // A 4-bar clip at 0, then a 2-bar clip at 2 must evict the first.
-    try lane.place(a, Clip.initDrum(0, 4, [_]u32{0} ** DrumMachine.max_pads, 16, 0));
-    try lane.place(a, Clip.initDrum(2, 2, [_]u32{0} ** DrumMachine.max_pads, 16, 0));
+    try lane.place(a, Clip.initDrum(0, 4, .{ .pattern = [_]u32{0} ** DrumMachine.max_pads, .step_count = 16 }));
+    try lane.place(a, Clip.initDrum(2, 2, .{ .pattern = [_]u32{0} ** DrumMachine.max_pads, .step_count = 16 }));
 
     try testing.expectEqual(@as(usize, 1), lane.clips.items.len);
     try testing.expectEqual(@as(u32, 2), lane.clips.items[0].start_bar);
@@ -246,7 +242,7 @@ test "clipAt and removeAt cover the clip's whole span" {
     var lane: Lane = .{};
     defer lane.deinit(a);
 
-    try lane.place(a, Clip.initDrum(1, 3, [_]u32{0} ** DrumMachine.max_pads, 16, 0));
+    try lane.place(a, Clip.initDrum(1, 3, .{ .pattern = [_]u32{0} ** DrumMachine.max_pads, .step_count = 16 }));
     try testing.expect(lane.clipAt(0) == null);
     try testing.expect(lane.clipAt(1) != null);
     try testing.expect(lane.clipAt(3) != null);
@@ -274,7 +270,7 @@ test "arrangement adds and removes lanes" {
 
     try arr.addLane(a);
     try arr.addLane(a);
-    try arr.lane(0).?.place(a, Clip.initDrum(0, 5, [_]u32{0} ** DrumMachine.max_pads, 16, 0));
+    try arr.lane(0).?.place(a, Clip.initDrum(0, 5, .{ .pattern = [_]u32{0} ** DrumMachine.max_pads, .step_count = 16 }));
     try testing.expectEqual(@as(u32, 5), arr.lengthBars());
 
     arr.removeLane(a, 0);

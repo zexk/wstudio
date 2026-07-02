@@ -37,7 +37,10 @@ const dsp = @import("dsp/device.zig");
 /// variant label on drum clips. v2 files omit them and load as a single
 /// variant built from the legacy `pattern`/`step_count` fields, which v3 keeps
 /// writing (mirroring the active variant) so files stay hand-editable.
-pub const file_version: u32 = 3;
+/// v4 adds per-step drum velocity (the `vel_lo`/`vel_hi` bitplanes on variants
+/// and drum clips) and per-machine swing. Older files omit them and load with
+/// every step at full velocity and swing 50 (straight) — the prior behaviour.
+pub const file_version: u32 = 4;
 
 // ---------------------------------------------------------------------------
 // Snapshot types — plain data, JSON-serialisable
@@ -125,6 +128,9 @@ pub const PadSnap = struct {
 pub const VariantSnap = struct {
     step_count: u8 = 16,
     pattern: [DrumMachine.max_pads]u32 = [_]u32{0} ** DrumMachine.max_pads,
+    /// v4: per-step velocity bitplanes. Zero (or absent) = full velocity.
+    vel_lo: [DrumMachine.max_pads]u32 = [_]u32{0} ** DrumMachine.max_pads,
+    vel_hi: [DrumMachine.max_pads]u32 = [_]u32{0} ** DrumMachine.max_pads,
 };
 
 pub const DrumSnap = struct {
@@ -138,6 +144,8 @@ pub const DrumSnap = struct {
     variants: []const VariantSnap = &.{},
     /// v3: index of the active variant within `variants`.
     variant: u8 = 0,
+    /// v4: swing percent (50 = straight … 75 = hardest shuffle).
+    swing: f32 = 50.0,
 };
 
 pub const CompSnap = struct {
@@ -214,6 +222,9 @@ pub const ClipSnap = struct {
     length_beats: f64 = 4.0,
     // drum
     drum_pattern: [DrumMachine.max_pads]u32 = [_]u32{0} ** DrumMachine.max_pads,
+    /// v4: per-step velocity bitplanes. Zero (or absent) = full velocity.
+    drum_vel_lo: [DrumMachine.max_pads]u32 = [_]u32{0} ** DrumMachine.max_pads,
+    drum_vel_hi: [DrumMachine.max_pads]u32 = [_]u32{0} ** DrumMachine.max_pads,
     step_count: u8 = 16,
     /// v3: variant letter label (index) the clip was stamped from.
     variant: u8 = 0,
@@ -329,13 +340,20 @@ fn rackToSnap(aa: std.mem.Allocator, rack: *Rack, sample_rate: u32) !RackSnap {
         },
         .drum_machine => |*dm| {
             rs.kind = .drum_machine;
-            var ds: DrumSnap = .{ .step_count = dm.step_count, .variant = dm.variant };
+            var ds: DrumSnap = .{
+                .step_count = dm.step_count,
+                .variant = dm.variant,
+                .swing = dm.swing.load(.monotonic),
+            };
             for (&ds.pattern, 0..) |*p, i| p.* = dm.pattern[i].load(.acquire);
             const variants = try aa.alloc(VariantSnap, dm.variant_count);
             for (variants, 0..) |*vs, vi| {
                 // variantData reads the active slot from the live atomics.
                 const v = dm.variantData(@intCast(vi));
-                vs.* = .{ .step_count = v.step_count, .pattern = v.pattern };
+                vs.* = .{
+                    .step_count = v.step_count, .pattern = v.pattern,
+                    .vel_lo = v.vel_lo, .vel_hi = v.vel_hi,
+                };
             }
             ds.variants = variants;
             for (&ds.pads, 0..) |*ps, i| {
@@ -401,6 +419,8 @@ fn clipToSnap(aa: std.mem.Allocator, clip: ws_arrangement.Clip) !ClipSnap {
         .drum => |d| {
             c.kind = .drum;
             c.drum_pattern = d.pattern;
+            c.drum_vel_lo = d.vel_lo;
+            c.drum_vel_hi = d.vel_hi;
             c.step_count = d.step_count;
             c.variant = d.variant;
         },
@@ -556,15 +576,20 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
                             slot.step_count = sc;
                             const mask = DrumMachine.stepMask(sc);
                             for (vs.pattern, &slot.pattern) |bits, *p| p.* = bits & mask;
+                            for (vs.vel_lo,  &slot.vel_lo)  |bits, *p| p.* = bits & mask;
+                            for (vs.vel_hi,  &slot.vel_hi)  |bits, *p| p.* = bits & mask;
                         }
                         dmp.variant_count = count;
                         dmp.variant = @min(ds.variant, count - 1);
                         // The legacy pattern/step_count fields mirror the
                         // active variant; the bank is the source of truth.
-                        for (dmp.variants[dmp.variant].pattern, 0..) |bits, pi| {
+                        const active = dmp.variants[dmp.variant];
+                        for (active.pattern, active.vel_lo, active.vel_hi, 0..) |bits, lo, hi, pi| {
                             dmp.pattern[pi].store(bits, .monotonic);
+                            dmp.vel_lo[pi].store(lo, .monotonic);
+                            dmp.vel_hi[pi].store(hi, .monotonic);
                         }
-                        dmp.setStepCount(dmp.variants[dmp.variant].step_count);
+                        dmp.setStepCount(active.step_count);
                     } else {
                         // v2: one variant from the legacy fields. Bits first:
                         // setStepCount masks off any pattern bits the file
@@ -574,6 +599,10 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
                         }
                         dmp.setStepCount(ds.step_count);
                     }
+                    dmp.swing.store(
+                        std.math.clamp(ds.swing, DrumMachine.swing_min, DrumMachine.swing_max),
+                        .monotonic,
+                    );
                     for (ds.pads, 0..) |ps, pi| {
                         if (dmp.pads[pi]) |*p| applyPadSnap(p, ps);
                     }
@@ -627,10 +656,13 @@ fn clipFromSnap(allocator: std.mem.Allocator, cs: ClipSnap) !ws_arrangement.Clip
                 allocator, cs.start_bar, cs.length_bars, tmp[0..count], cs.length_beats,
             );
         },
-        .drum => ws_arrangement.Clip.initDrum(
-            cs.start_bar, cs.length_bars, cs.drum_pattern, cs.step_count,
-            @min(cs.variant, DrumMachine.max_variants - 1),
-        ),
+        .drum => ws_arrangement.Clip.initDrum(cs.start_bar, cs.length_bars, .{
+            .pattern = cs.drum_pattern,
+            .vel_lo = cs.drum_vel_lo,
+            .vel_hi = cs.drum_vel_hi,
+            .step_count = cs.step_count,
+            .variant = @min(cs.variant, DrumMachine.max_variants - 1),
+        }),
     };
 }
 
@@ -1003,6 +1035,52 @@ test "buildSession: drum variant bank round-trips; v2 files get one variant" {
     const odm = &old.racks.items[0].instrument.drum_machine;
     try testing.expectEqual(@as(u8, 1), odm.variant_count);
     try testing.expect(odm.stepActive(0, 5));
+}
+
+test "buildSession: per-step velocity and swing round-trip" {
+    const testing = std.testing;
+
+    const variants = [_]VariantSnap{.{
+        .step_count = 16,
+        .pattern = blk: {
+            var p = [_]u32{0} ** DrumMachine.max_pads;
+            p[0] = 0b11;
+            break :blk p;
+        },
+        // Step 1 at level 3 (25%); a stray plane bit above the step count.
+        .vel_lo = blk: {
+            var p = [_]u32{0} ** DrumMachine.max_pads;
+            p[0] = (1 << 1) | (1 << 20);
+            break :blk p;
+        },
+        .vel_hi = blk: {
+            var p = [_]u32{0} ** DrumMachine.max_pads;
+            p[0] = 1 << 1;
+            break :blk p;
+        },
+    }};
+    const snap: Snapshot = .{
+        .tracks = &.{.{ .name = "drums" }},
+        .racks = &.{.{
+            .label = "drums",
+            .kind = .drum_machine,
+            .drum = .{ .variants = &variants, .swing = 62.0 },
+        }},
+    };
+
+    var session = try buildSession(testing.allocator, &snap);
+    defer session.deinit();
+
+    const dm = &session.racks.items[0].instrument.drum_machine;
+    try testing.expectEqual(@as(u2, 0), dm.stepVel(0, 0));
+    try testing.expectEqual(@as(u2, 3), dm.stepVel(0, 1));
+    try testing.expectEqual(@as(u2, 0), dm.stepVel(0, 20)); // stray bit masked
+    try testing.expectApproxEqAbs(@as(f32, 62.0), dm.swing.load(.monotonic), 1e-6);
+
+    // And back out through save-shaped snapshots.
+    const v = dm.variantData(0);
+    try testing.expectEqual(@as(u32, 1 << 1), v.vel_lo[0]);
+    try testing.expectEqual(@as(u32, 1 << 1), v.vel_hi[0]);
 }
 
 test "clip snapshots carry the drum variant label" {
