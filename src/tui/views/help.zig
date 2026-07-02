@@ -120,6 +120,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("[ / ]",        "prev / next pattern variant (A–H)");
     t.key("N",            "new pattern variant (copy of current)");
     t.key("D",            "delete current pattern variant");
+    t.key("y / P",        "yank / paste pattern (works across tracks)");
 
     t.section("SAMPLER EDITOR");
     t.key("j / k",        "select parameter");
@@ -151,6 +152,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("s",            "spectrum + EQ for this track");
     t.key("[ / ]",        "resize note at cursor (else set default length)");
     t.key("+ / -",        "lengthen / shorten loop (1 bar)");
+    t.key("y / P",        "yank / paste pattern (works across tracks)");
     t.key(":clear",       "erase all notes in the pattern");
 
     t.section("ARRANGEMENT");

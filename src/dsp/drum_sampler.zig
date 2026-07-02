@@ -282,14 +282,19 @@ pub const DrumMachine = struct {
         slot.step_count = self.step_count;
     }
 
-    /// Load bank slot `v` into the live pattern. setStepCount masks off any
-    /// stray bits a hand-edited file may have left above the step count.
-    fn loadVariantLive(self: *DrumMachine, v: u8) void {
-        const slot = self.variants[v];
+    /// Replace the live pattern with `slot`'s data (control thread). Used to
+    /// activate a bank variant and to paste a yanked pattern; setStepCount
+    /// masks off any stray bits above the step count.
+    pub fn applyVariant(self: *DrumMachine, slot: Variant) void {
         for (&self.pattern, slot.pattern) |*live, bits| live.store(bits, .release);
         for (&self.vel_lo,  slot.vel_lo)  |*live, bits| live.store(bits, .release);
         for (&self.vel_hi,  slot.vel_hi)  |*live, bits| live.store(bits, .release);
         self.setStepCount(slot.step_count);
+    }
+
+    /// Load bank slot `v` into the live pattern.
+    fn loadVariantLive(self: *DrumMachine, v: u8) void {
+        self.applyVariant(self.variants[v]);
     }
 
     /// Switch the active variant to `v`, saving the live pattern first.

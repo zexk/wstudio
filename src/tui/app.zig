@@ -19,6 +19,7 @@ const midi = ws.midi;
 const Engine = engine_mod.Engine;
 const Sampler = ws.dsp.Sampler;
 const InstrumentKind = ws.InstrumentKind;
+const pattern_mod = ws.dsp.pattern;
 
 const note_ms = 220;
 const frame_poll_ms = 30;
@@ -39,6 +40,13 @@ pub const SamplerTarget = union(enum) {
 /// The instruments the picker offers, in display order.
 pub const picker_kinds = [_]InstrumentKind{ .poly_synth, .sampler, .drum_machine };
 pub const picker_labels = [_][]const u8{ "Synth", "Sampler", "Drum Machine" };
+
+/// One yanked piano-roll pattern: a private copy of the notes + loop length.
+const PianoClip = struct {
+    notes: [pattern_mod.max_notes]pattern_mod.Note,
+    count: u16,
+    length_beats: f64,
+};
 
 pub const App = struct {
     allocator: std.mem.Allocator,
@@ -85,6 +93,10 @@ pub const App = struct {
     /// Arrangement view: bar cursor and horizontal scroll (lane = `cursor`).
     arr_cursor_bar: u32 = 0,
     arr_scroll_bar: u32 = 0,
+    /// Pattern clipboards (y yank / P paste), app-wide so patterns can move
+    /// between tracks. Whole-pattern granularity; one slot per editor kind.
+    piano_clip: ?PianoClip = null,
+    drum_clip: ?DrumMachine.Variant = null,
     /// Path of the current project file — the default for :w / :wq. Set when
     /// a project is loaded at startup and updated on every successful save.
     project_path_buf: [256]u8 = undefined,
@@ -372,6 +384,19 @@ pub const App = struct {
                     '>' => self.drumAdjustSwing(1.0),
                     'X' => self.drumMachine().clearPad(pad.*),
                     'F' => self.drumMachine().fillPad(pad.*),
+                    'y' => {
+                        const dm = self.drumMachine();
+                        self.drum_clip = dm.variantData(dm.variant);
+                        self.setStatus("yanked pattern {c}", .{DrumMachine.variantLetter(dm.variant)});
+                    },
+                    'P' => {
+                        if (self.drum_clip) |clip| {
+                            const dm = self.drumMachine();
+                            dm.applyVariant(clip);
+                            if (step.* >= dm.step_count) step.* = dm.step_count - 1;
+                            self.setStatus("pasted into pattern {c}", .{DrumMachine.variantLetter(dm.variant)});
+                        } else self.setStatus("nothing yanked — y copies the pattern", .{});
+                    },
                     '[' => { self.drumCycleVariant(-1); },
                     ']' => { self.drumCycleVariant(1); },
                     'N' => {
@@ -670,6 +695,8 @@ pub const App = struct {
                 // </> nudge the velocity of the note under the cursor.
                 '<' => { self.pianoNudgeVelocity(-0.1); return true; },
                 '>' => { self.pianoNudgeVelocity(0.1); return true; },
+                'y' => { self.pianoYank(); return true; },
+                'P' => { self.pianoPaste(); return true; },
                 's' => { self.switchToTrackSpectrum(self.piano_track); return true; },
                 // n/d kept as aliases for muscle memory; enter is the canonical toggle.
                 'n' => { self.pianoInsertNote(); return true; },
@@ -799,6 +826,31 @@ pub const App = struct {
         } else {
             self.setStatus("no note under cursor", .{});
         }
+    }
+
+    /// Yank the piano roll's whole pattern (notes + loop length) to the
+    /// app clipboard.
+    fn pianoYank(self: *App) void {
+        if (self.piano_track >= self.session.racks.items.len) return;
+        const pp = if (self.session.racks.items[self.piano_track].pattern_player != null)
+            &self.session.racks.items[self.piano_track].pattern_player.?
+        else return;
+        var clip: PianoClip = .{ .notes = undefined, .count = 0, .length_beats = pp.length_beats };
+        clip.count = pp.copyNotes(&clip.notes);
+        self.piano_clip = clip;
+        self.setStatus("yanked {d} notes ({d:.0} beats)", .{ clip.count, clip.length_beats });
+    }
+
+    /// Replace this track's pattern with the yanked one.
+    fn pianoPaste(self: *App) void {
+        if (self.piano_track >= self.session.racks.items.len) return;
+        const pp = if (self.session.racks.items[self.piano_track].pattern_player != null)
+            &self.session.racks.items[self.piano_track].pattern_player.?
+        else return;
+        if (self.piano_clip) |*clip| {
+            pp.setNotes(clip.notes[0..clip.count], clip.length_beats);
+            self.setStatus("pasted {d} notes ({d:.0} beats)", .{ clip.count, clip.length_beats });
+        } else self.setStatus("nothing yanked — y copies the pattern", .{});
     }
 
     fn pianoDeleteNote(self: *App) void {
@@ -1480,6 +1532,63 @@ test "drum grid step toggle" {
     app.drum_cursor = .{ 0, 0 };
     _ = app.handleDrumKey(.enter);
     try std.testing.expect(!app.drumMachine().stepActive(0, 0));
+}
+
+test "piano roll yank/paste moves a pattern across tracks" {
+    var app = try testApp();
+    defer app.deinit();
+
+    // Track 0 (synth): one note, 8-beat loop. Yank it.
+    app.piano_track = 0;
+    const src = &app.session.racks.items[0].pattern_player.?;
+    src.addNote(.{ .pitch = 72, .start_beat = 1.0, .duration_beat = 0.5 });
+    src.length_beats = 8.0;
+    _ = app.handlePianoRollKey(.{ .char = 'y' });
+
+    // Paste replaces track 1's (sampler) pattern wholesale.
+    app.piano_track = 1;
+    const dst = &app.session.racks.items[1].pattern_player.?;
+    dst.addNote(.{ .pitch = 30, .start_beat = 0.0, .duration_beat = 1.0 });
+    _ = app.handlePianoRollKey(.{ .char = 'P' });
+    try std.testing.expectEqual(@as(u16, 1), dst.note_count);
+    try std.testing.expectEqual(@as(u7, 72), dst.notes[0].pitch);
+    try std.testing.expectApproxEqAbs(@as(f64, 8.0), dst.length_beats, 1e-9);
+}
+
+test "drum grid yank/paste carries pattern, velocity, and length" {
+    var app = try testApp();
+    defer app.deinit();
+    app.drum_track = 2;
+    const dm = app.drumMachine();
+
+    for (&dm.pattern) |*p| p.store(0, .monotonic);
+    dm.setStepCount(32);
+    dm.toggleStep(0, 7);
+    dm.setStepVel(0, 7, 2);
+    _ = app.handleDrumKey(.{ .char = 'y' });
+
+    // A fresh variant wipes the grid; paste restores the yanked pattern.
+    _ = app.handleDrumKey(.{ .char = 'N' });
+    dm.clearPad(0);
+    dm.setStepCount(16);
+    _ = app.handleDrumKey(.{ .char = 'P' });
+    try std.testing.expect(dm.stepActive(0, 7));
+    try std.testing.expectEqual(@as(u2, 2), dm.stepVel(0, 7));
+    try std.testing.expectEqual(@as(u8, 32), dm.step_count);
+}
+
+test "paste with an empty clipboard is a no-op" {
+    var app = try testApp();
+    defer app.deinit();
+    app.drum_track = 2;
+
+    const before = app.drumMachine().pattern[0].load(.acquire);
+    _ = app.handleDrumKey(.{ .char = 'P' });
+    try std.testing.expectEqual(before, app.drumMachine().pattern[0].load(.acquire));
+
+    app.piano_track = 0;
+    _ = app.handlePianoRollKey(.{ .char = 'P' });
+    try std.testing.expectEqual(@as(u16, 0), app.session.racks.items[0].pattern_player.?.note_count);
 }
 
 test "arrangement g plays from the cursor bar" {

@@ -102,6 +102,27 @@ pub const PatternPlayer = struct {
         self.song_length_beats = length_beats;
     }
 
+    /// Copy the live notes into `out` (UI thread). Returns the count copied.
+    /// The yank half of the pattern clipboard.
+    pub fn copyNotes(self: *PatternPlayer, out: []Note) u16 {
+        while (!self.notes_lock.tryLock()) std.atomic.spinLoopHint();
+        defer self.notes_lock.unlock();
+        const count: u16 = @intCast(@min(self.note_count, out.len));
+        for (self.notes[0..count], out[0..count]) |n, *dst| dst.* = n;
+        return count;
+    }
+
+    /// Replace the live notes and loop length wholesale (UI thread). The
+    /// paste half of the pattern clipboard.
+    pub fn setNotes(self: *PatternPlayer, notes: []const Note, length_beats: f64) void {
+        while (!self.notes_lock.tryLock()) std.atomic.spinLoopHint();
+        defer self.notes_lock.unlock();
+        const count = @min(notes.len, @as(usize, max_notes));
+        for (notes[0..count], self.notes[0..count]) |n, *dst| dst.* = n;
+        self.note_count = @intCast(count);
+        self.length_beats = @max(1.0, length_beats);
+    }
+
     /// Remove every note (UI thread). Used by :clear.
     pub fn clearNotes(self: *PatternPlayer) void {
         while (!self.notes_lock.tryLock()) std.atomic.spinLoopHint();
@@ -281,6 +302,28 @@ test "scanRange fires note_on then note_off across loop boundary" {
     // Note off fires at beat 1.0 (start of next scan)
     PatternPlayer.scanRange(pp.notes[0..1], loop, &pp.sounding, synth.device(), 1.0, 2.0);
     try std.testing.expect(!pp.sounding[60]);
+}
+
+test "copyNotes/setNotes round-trip a pattern between players" {
+    var synth = PolySynth.init(48_000);
+    var transport: Transport = .{ .sample_rate = 48_000 };
+
+    var src = PatternPlayer.init(synth.device(), &transport);
+    src.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.5 });
+    src.addNote(.{ .pitch = 64, .start_beat = 2.0, .duration_beat = 1.0, .velocity = 0.5 });
+    src.length_beats = 8.0;
+
+    var buf: [max_notes]Note = undefined;
+    const count = src.copyNotes(&buf);
+    try std.testing.expectEqual(@as(u16, 2), count);
+
+    var dst = PatternPlayer.init(synth.device(), &transport);
+    dst.addNote(.{ .pitch = 30, .start_beat = 1.0, .duration_beat = 1.0 }); // replaced
+    dst.setNotes(buf[0..count], src.length_beats);
+    try std.testing.expectEqual(@as(u16, 2), dst.note_count);
+    try std.testing.expectEqual(@as(u7, 64), dst.notes[1].pitch);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.5), dst.notes[1].velocity, 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f64, 8.0), dst.length_beats, 1e-9);
 }
 
 test "PatternPlayer sequences note against transport" {

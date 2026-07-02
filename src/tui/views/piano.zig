@@ -90,7 +90,7 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
 
     try w.writeAll(bold ++ " PIANO ROLL" ++ rst);
     try w.print(" \"{s}\"", .{name});
-    try w.writeAll(dim ++ "  [hjkl:move  HL:beat  JK:oct  gG:ends  enter:toggle  <>:vel  []:resize  esc:back]");
+    try w.writeAll(dim ++ "  [hjkl:move  HL:beat  JK:oct  gG:ends  enter:toggle  <>:vel  []:resize  yP:copy  esc:back]");
     try endLine(w);
 
     // 3 internal header rows (title + col labels + loop marker) + vis_rows note rows
