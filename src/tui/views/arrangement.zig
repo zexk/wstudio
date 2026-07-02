@@ -65,7 +65,7 @@ pub fn drawArrangement(
     const mode_tag: []const u8 = if (app.session.song_mode) grn ++ "SONG" ++ rst else dim ++ "PATTERN" ++ rst;
     try w.writeAll(bold ++ " ARRANGEMENT" ++ rst ++ "  ");
     try w.writeAll(mode_tag);
-    try w.writeAll(dim ++ "   [hjkl:move  enter:stamp  []:pattern  x:del  g:play-here  T:mode  space:play  esc:back]" ++ rst);
+    try w.writeAll(dim ++ "   [hjkl:move  enter:stamp  e:edit-clip  []:pattern  x:del  g:play-here  T:mode  space:play  esc:back]" ++ rst);
     try endLine(w);
 
     // Bar ruler.

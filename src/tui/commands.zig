@@ -81,6 +81,7 @@ fn cmdClear(app: *App, _: []const u8) void {
     const n = pp.note_count;
     pp.clearNotes();
     app.setStatus("cleared {d} notes", .{n});
+    app.pianoSyncLinkedClip();
 }
 
 pub fn cmdHelp(app: *App, _: []const u8) void {

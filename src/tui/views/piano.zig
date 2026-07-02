@@ -90,6 +90,12 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
 
     try w.writeAll(bold ++ " PIANO ROLL" ++ rst);
     try w.print(" \"{s}\"", .{name});
+    // Clip-editing mode: show which arrangement clip the edits land in.
+    if (app.piano_clip_link) |link| {
+        try w.writeAll("  " ++ acc);
+        try w.print("clip@bar {d}", .{link.start_bar + 1});
+        try w.writeAll(rst);
+    }
     try w.writeAll(dim ++ "  [hjkl:move  HL:beat  JK:oct  gG:ends  enter:toggle  <>:vel  []:resize  yP:copy  esc:back]");
     try endLine(w);
 

@@ -48,6 +48,12 @@ const PianoClip = struct {
     length_beats: f64,
 };
 
+/// Ableton-style clip editing: while set, the piano roll's pattern player
+/// holds a working copy of this arrangement clip and every edit is written
+/// straight back into it — the clip owns the data. Identified by track +
+/// start bar because clip pointers shift as lanes are edited.
+const ClipLink = struct { track: u16, start_bar: u32 };
+
 pub const App = struct {
     allocator: std.mem.Allocator,
     io: std.Io,
@@ -97,6 +103,10 @@ pub const App = struct {
     /// between tracks. Whole-pattern granularity; one slot per editor kind.
     piano_clip: ?PianoClip = null,
     drum_clip: ?DrumMachine.Variant = null,
+    /// The arrangement clip the piano roll is editing, or null when it edits
+    /// the track's live pattern (see `ClipLink`). Set by `e` on a clip in the
+    /// arrangement; cleared when the roll opens on a live pattern instead.
+    piano_clip_link: ?ClipLink = null,
     /// Path of the current project file — the default for :w / :wq. Set when
     /// a project is loaded at startup and updated on every successful save.
     project_path_buf: [256]u8 = undefined,
@@ -622,6 +632,8 @@ pub const App = struct {
         self.piano_scroll_step = 0;
         // Center the 16-row viewport on the cursor pitch.
         self.piano_scroll_pitch = @intCast(@min(@as(u32, self.piano_cursor_pitch) + 8, 127));
+        // A plain open edits the live pattern; arrEditClip re-links after.
+        self.piano_clip_link = null;
         self.view = .piano_roll;
     }
 
@@ -732,12 +744,14 @@ pub const App = struct {
                     const bar: f64 = @floatFromInt(self.session.project.beats_per_bar);
                     pp.length_beats += bar;
                     self.setStatus("loop: {d:.0} beats", .{pp.length_beats});
+                    self.pianoSyncLinkedClip();
                     return true;
                 },
                 '-' => {
                     const bar: f64 = @floatFromInt(self.session.project.beats_per_bar);
                     pp.length_beats = @max(bar, pp.length_beats - bar);
                     self.setStatus("loop: {d:.0} beats", .{pp.length_beats});
+                    self.pianoSyncLinkedClip();
                     return true;
                 },
                 else => return false,
@@ -795,6 +809,7 @@ pub const App = struct {
         });
         var nbuf: [5]u8 = undefined;
         self.setStatus("added {s}", .{midi.noteName(self.piano_cursor_pitch, &nbuf)});
+        self.pianoSyncLinkedClip();
     }
 
     /// Resize the note starting under the cursor by `delta` beats (clamped to
@@ -809,6 +824,7 @@ pub const App = struct {
         if (pp.noteAt(self.piano_cursor_pitch, start_beat)) |n| {
             n.duration_beat = std.math.clamp(n.duration_beat + delta, 0.25, pp.length_beats);
             self.setStatus("note len: {d:.2} beats", .{n.duration_beat});
+            self.pianoSyncLinkedClip();
         } else {
             self.piano_note_len = std.math.clamp(self.piano_note_len + delta, 0.25, pp.length_beats);
             self.setStatus("default len: {d:.2} beats", .{self.piano_note_len});
@@ -825,9 +841,52 @@ pub const App = struct {
         if (pp.noteAt(self.piano_cursor_pitch, start_beat)) |n| {
             n.velocity = std.math.clamp(n.velocity + delta, 0.05, 1.0);
             self.setStatus("velocity: {d:.0}%", .{n.velocity * 100.0});
+            self.pianoSyncLinkedClip();
         } else {
             self.setStatus("no note under cursor", .{});
         }
+    }
+
+    /// Clip-editing writeback: copy the pattern player's notes into the
+    /// linked arrangement clip (the clip owns the data; the player is its
+    /// working copy). Cheap no-op when nothing is linked; drops the link if
+    /// the clip vanished from under us (deleted, evicted, lane cleared).
+    pub fn pianoSyncLinkedClip(self: *App) void {
+        const link = self.piano_clip_link orelse return;
+        if (link.track != self.piano_track) return;
+        if (link.track >= self.session.racks.items.len or
+            self.session.racks.items[link.track].pattern_player == null)
+        {
+            self.piano_clip_link = null;
+            return;
+        }
+        const pp = &self.session.racks.items[link.track].pattern_player.?;
+        const lane = self.session.arrangement.lane(link.track) orelse {
+            self.piano_clip_link = null;
+            return;
+        };
+        const clip = lane.clipAt(link.start_bar) orelse {
+            self.piano_clip_link = null;
+            self.setStatus("clip gone — editing the live pattern now", .{});
+            return;
+        };
+        if (std.meta.activeTag(clip.content) != .melodic) {
+            self.piano_clip_link = null;
+            return;
+        }
+        const mel = &clip.content.melodic;
+
+        var buf: [pattern_mod.max_notes]pattern_mod.Note = undefined;
+        const count = pp.copyNotes(&buf);
+        const owned = self.allocator.dupe(pattern_mod.Note, buf[0..count]) catch {
+            self.setStatus("clip sync failed (out of memory)", .{});
+            return;
+        };
+        self.allocator.free(mel.notes);
+        mel.notes = owned;
+        mel.length_beats = pp.length_beats;
+        // Hear the edit if the song timeline is what's playing.
+        if (self.session.song_mode) self.session.rebuildSongData();
     }
 
     /// Yank the piano roll's whole pattern (notes + loop length) to the
@@ -852,6 +911,7 @@ pub const App = struct {
         if (self.piano_clip) |*clip| {
             pp.setNotes(clip.notes[0..clip.count], clip.length_beats);
             self.setStatus("pasted {d} notes ({d:.0} beats)", .{ clip.count, clip.length_beats });
+            self.pianoSyncLinkedClip();
         } else self.setStatus("nothing yanked — y copies the pattern", .{});
     }
 
@@ -864,6 +924,7 @@ pub const App = struct {
         pp.removeNote(self.piano_cursor_pitch, start_beat);
         var nbuf: [5]u8 = undefined;
         self.setStatus("removed {s}", .{midi.noteName(self.piano_cursor_pitch, &nbuf)});
+        self.pianoSyncLinkedClip();
     }
 
     /// Nudge the selected synth-editor parameter. The change is routed over the
@@ -1022,6 +1083,13 @@ pub const App = struct {
         if (track_idx < self.drum_track and self.drum_track > 0) self.drum_track -= 1;
         if (track_idx < self.piano_track and self.piano_track > 0) self.piano_track -= 1;
         if (track_idx < self.eq_track and self.eq_track > 0) self.eq_track -= 1;
+        if (self.piano_clip_link) |link| {
+            if (link.track == track_idx) {
+                self.piano_clip_link = null;
+            } else if (link.track > track_idx) {
+                self.piano_clip_link.?.track -= 1;
+            }
+        }
         switch (self.sampler_target) {
             .drum    => |*t| if (track_idx < t.* and t.* > 0) { t.* -= 1; },
             .sampler => |*t| if (track_idx < t.* and t.* > 0) { t.* -= 1; },
@@ -1141,6 +1209,7 @@ pub const App = struct {
                 'j' => { if (self.cursor + 1 < lane_count) self.cursor += 1; return true; },
                 'k' => { if (self.cursor > 0) self.cursor -= 1; return true; },
                 'x' => { self.arrDeleteClip(); return true; },
+                'e' => { self.arrEditClip(); return true; },
                 'g' => { self.arrPlayFromCursor(); return true; },
                 '[' => { self.arrCycleDrumVariant(-1); return true; },
                 ']' => { self.arrCycleDrumVariant(1); return true; },
@@ -1218,6 +1287,31 @@ pub const App = struct {
         }
         // Keep song playback in sync with the edit if it's driving the transport.
         if (self.session.song_mode) self.session.rebuildSongData();
+    }
+
+    /// Open the melodic clip under the cursor in the piano roll, Ableton
+    /// style: its notes load into the pattern player as a working copy and
+    /// every edit writes back into the clip itself (see pianoSyncLinkedClip).
+    /// The live pattern is replaced by the loaded clip — the clip is the
+    /// data; the player is just the surface it's edited and played on.
+    fn arrEditClip(self: *App) void {
+        const lane = self.session.arrangement.lane(self.cursor) orelse return;
+        const clip = lane.clipAt(self.arr_cursor_bar) orelse {
+            self.setStatus("no clip here — enter stamps one", .{});
+            return;
+        };
+        switch (clip.content) {
+            .melodic => |m| {
+                const track: u16 = @intCast(self.cursor);
+                if (self.session.racks.items[track].pattern_player == null) return;
+                self.switchToPianoRoll(track);
+                if (self.view != .piano_roll) return;
+                self.session.racks.items[track].pattern_player.?.setNotes(m.notes, m.length_beats);
+                self.piano_clip_link = .{ .track = track, .start_bar = clip.start_bar };
+                self.setStatus("editing clip @ bar {d} — edits land in the clip", .{clip.start_bar + 1});
+            },
+            .drum => self.setStatus("drum clips play the pattern bank — edit variants in the grid", .{}),
+        }
     }
 
     fn arrDeleteClip(self: *App) void {
@@ -1591,6 +1685,83 @@ test "paste with an empty clipboard is a no-op" {
     app.piano_track = 0;
     _ = app.handlePianoRollKey(.{ .char = 'P' });
     try std.testing.expectEqual(@as(u16, 0), app.session.racks.items[0].pattern_player.?.note_count);
+}
+
+test "arrangement e edits a melodic clip in place" {
+    var app = try testApp();
+    defer app.deinit();
+
+    // Track 0 (synth): one note in the live pattern, stamped at bar 0.
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.5 });
+    try app.session.stampClip(0, 0);
+
+    // Diverge the live pattern afterwards — the clip keeps its own copy.
+    pp.addNote(.{ .pitch = 65, .start_beat = 1.0, .duration_beat = 0.5 });
+
+    // e on the clip: the piano roll opens with the clip's single note loaded.
+    app.view = .arrangement;
+    app.cursor = 0;
+    app.arr_cursor_bar = 0;
+    app.handleKey(.{ .char = 'e' }, 0);
+    try std.testing.expectEqual(AppView.piano_roll, app.view);
+    try std.testing.expect(app.piano_clip_link != null);
+    try std.testing.expectEqual(@as(u16, 1), pp.note_count);
+
+    // Insert a note; the clip itself gains it.
+    app.piano_cursor_pitch = 64;
+    app.piano_cursor_step = 4; // beat 1
+    _ = app.handlePianoRollKey(.enter);
+    const clip = app.session.arrangement.lane(0).?.clipAt(0).?;
+    try std.testing.expectEqual(@as(usize, 2), clip.content.melodic.notes.len);
+    try std.testing.expectEqual(@as(u7, 64), clip.content.melodic.notes[1].pitch);
+
+    // Loop-length changes land in the clip too.
+    _ = app.handlePianoRollKey(.{ .char = '+' });
+    try std.testing.expectApproxEqAbs(@as(f64, 8.0), clip.content.melodic.length_beats, 1e-9);
+}
+
+test "clip link drops when the clip vanishes; plain open is unlinked" {
+    var app = try testApp();
+    defer app.deinit();
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.5 });
+    try app.session.stampClip(0, 0);
+
+    app.view = .arrangement;
+    app.cursor = 0;
+    app.arr_cursor_bar = 0;
+    app.handleKey(.{ .char = 'e' }, 0);
+    try std.testing.expect(app.piano_clip_link != null);
+
+    // Clip removed behind the editor's back: the next edit unlinks, no crash.
+    _ = app.session.arrangement.lane(0).?.removeAt(app.allocator, 0);
+    _ = app.handlePianoRollKey(.enter);
+    try std.testing.expect(app.piano_clip_link == null);
+
+    // Re-link, then a plain open from the tracks view targets the live
+    // pattern again — no link.
+    try app.session.stampClip(0, 0);
+    app.view = .arrangement;
+    app.handleKey(.{ .char = 'e' }, 0);
+    try std.testing.expect(app.piano_clip_link != null);
+    app.view = .tracks;
+    app.handleKey(.{ .char = 'p' }, 0);
+    try std.testing.expectEqual(AppView.piano_roll, app.view);
+    try std.testing.expect(app.piano_clip_link == null);
+}
+
+test "arrangement e on a drum clip stays put" {
+    var app = try testApp();
+    defer app.deinit();
+    try app.session.stampClip(2, 0); // drum track's default groove
+
+    app.view = .arrangement;
+    app.cursor = 2;
+    app.arr_cursor_bar = 0;
+    app.handleKey(.{ .char = 'e' }, 0);
+    try std.testing.expectEqual(AppView.arrangement, app.view);
+    try std.testing.expect(app.piano_clip_link == null);
 }
 
 test "arrangement g plays from the cursor bar" {

@@ -126,9 +126,6 @@ a full song:
 
 - [ ] Persist user-loaded sample audio in .wsj (today only the params
       survive a save; projects built on your own WAVs can't be reopened)
-- [ ] Melodic pattern variants or clip-to-pattern recall (drums have
-      variants A-H; synth/sampler tracks still have a single live
-      pattern, and stamped clips can't be edited or pulled back)
 - [ ] Master bus compressor/EQ (the limiter is in; glue and tone shaping
       on the mix are not)
 - [ ] Undo
@@ -140,6 +137,8 @@ a full song:
 
 Done:
 
+- [x] Melodic clip editing, Ableton-style: clips own their notes; `e` on a
+      clip opens it in the piano roll and edits write back into the clip
 - [x] Time signature setting (`:sig <n>`, any /4 meter, persisted)
 - [x] Master bus limiter (always on; hot mixes duck instead of clipping)
 - [x] Pattern copy/paste across tracks (`y`/`P` in piano roll and drum grid)
