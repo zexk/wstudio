@@ -22,6 +22,7 @@ const PolySynth = synth_mod.PolySynth;
 const pattern_mod = @import("dsp/pattern.zig");
 const PatternPlayer = pattern_mod.PatternPlayer;
 const DrumMachine = @import("dsp/drum_sampler.zig").DrumMachine;
+const Pad = @import("dsp/drum_sampler.zig").Pad;
 const Sampler = @import("dsp/sampler.zig").Sampler;
 const Compressor = @import("dsp/compressor.zig").Compressor;
 const StereoDelay = @import("dsp/delay.zig").StereoDelay;
@@ -220,8 +221,10 @@ pub const Snapshot = struct {
 // Save
 // ---------------------------------------------------------------------------
 
-/// Serialise `session` as pretty-printed JSON to `path`. Creates or truncates.
-/// Safe to call while the audio thread is running.
+/// Serialise `session` as pretty-printed JSON to `path`. Writes to
+/// `<path>.tmp` and renames over the target so a crash mid-write never
+/// corrupts an existing project file. Safe to call while the audio thread is
+/// running.
 pub fn save(
     allocator: std.mem.Allocator,
     session: *const Session,
@@ -260,12 +263,16 @@ pub fn save(
 
     const json_bytes = try std.json.Stringify.valueAlloc(aa, snap, .{ .whitespace = .indent_2 });
 
-    const file = try std.Io.Dir.cwd().createFile(io, path, .{});
-    defer file.close(io);
-    var buf: [8192]u8 = undefined;
-    var fw = file.writer(io, &buf);
-    try fw.interface.writeAll(json_bytes);
-    try fw.interface.flush();
+    const tmp_path = try std.fmt.allocPrint(aa, "{s}.tmp", .{path});
+    {
+        const file = try std.Io.Dir.cwd().createFile(io, tmp_path, .{});
+        defer file.close(io);
+        var buf: [8192]u8 = undefined;
+        var fw = file.writer(io, &buf);
+        try fw.interface.writeAll(json_bytes);
+        try fw.interface.flush();
+    }
+    try std.Io.Dir.cwd().rename(tmp_path, std.Io.Dir.cwd(), path, io);
 }
 
 fn rackToSnap(aa: std.mem.Allocator, rack: *Rack, sample_rate: u32) !RackSnap {
@@ -441,10 +448,17 @@ pub fn load(allocator: std.mem.Allocator, io: std.Io, path: []const u8) !Session
 }
 
 fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
+    // Reject files this build cannot represent; clamp what can be clamped.
+    // Racks, tracks, and lanes are parallel arrays everywhere downstream
+    // (engine slots, editor indices), so a mismatch is a malformed file.
+    if (snap.version > file_version) return error.UnsupportedVersion;
+    if (snap.tracks.len != snap.racks.len) return error.MalformedProject;
+    if (snap.sample_rate < 8_000 or snap.sample_rate > 384_000) return error.InvalidSampleRate;
+
     var project = Project.init(allocator);
     errdefer project.deinit();
     project.sample_rate = snap.sample_rate;
-    project.tempo_bpm = snap.tempo_bpm;
+    project.tempo_bpm = std.math.clamp(snap.tempo_bpm, 20.0, 400.0);
 
     for (snap.tracks) |t| {
         _ = try project.addTrack(.{ .name = t.name, .gain_db = t.gain_db, .pan = t.pan, .muted = t.muted, .soloed = t.soloed });
@@ -496,16 +510,7 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
                 rack.pattern_player = PatternPlayer.init(rack.instrument.device().?, &engine.transport);
                 if (rs.sampler) |smp| {
                     const s = &rack.instrument.sampler;
-                    s.pad.gain = smp.pad.gain;
-                    s.pad.pan = smp.pad.pan;
-                    s.pad.pitch_semitones = smp.pad.pitch_semitones;
-                    s.pad.start_norm = smp.pad.start_norm;
-                    s.pad.end_norm = smp.pad.end_norm;
-                    s.pad.reverse = smp.pad.reverse;
-                    s.pad.attack_s = smp.pad.attack_s;
-                    s.pad.decay_s = smp.pad.decay_s;
-                    s.pad.sustain = smp.pad.sustain;
-                    s.pad.release_s = smp.pad.release_s;
+                    applyPadSnap(&s.pad, smp.pad);
                     s.root_note = @intCast(@min(smp.root_note, 127));
                     rack.pattern_player.?.length_beats = smp.length_beats;
                     loadNotes(&rack.pattern_player.?, smp.notes);
@@ -515,23 +520,14 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
                 rack.instrument = .{ .drum_machine = try DrumMachine.init(allocator, sr, &engine.transport) };
                 if (rs.drum) |ds| {
                     const dmp = &rack.instrument.drum_machine;
-                    dmp.setStepCount(ds.step_count);
+                    // Bits first: setStepCount masks off any pattern bits the
+                    // file left above its own step count.
                     for (ds.pattern, 0..) |bits, pi| {
                         dmp.pattern[pi].store(bits, .monotonic);
                     }
+                    dmp.setStepCount(ds.step_count);
                     for (ds.pads, 0..) |ps, pi| {
-                        if (dmp.pads[pi]) |*p| {
-                            p.gain = ps.gain;
-                            p.pan = ps.pan;
-                            p.pitch_semitones = ps.pitch_semitones;
-                            p.start_norm = ps.start_norm;
-                            p.end_norm = ps.end_norm;
-                            p.reverse = ps.reverse;
-                            p.attack_s = ps.attack_s;
-                            p.decay_s = ps.decay_s;
-                            p.sustain = ps.sustain;
-                            p.release_s = ps.release_s;
-                        }
+                        if (dmp.pads[pi]) |*p| applyPadSnap(p, ps);
                     }
                 }
             },
@@ -578,12 +574,7 @@ fn clipFromSnap(allocator: std.mem.Allocator, cs: ClipSnap) !ws_arrangement.Clip
         .melodic => blk: {
             var tmp: [pattern_mod.max_notes]pattern_mod.Note = undefined;
             const count = @min(cs.notes.len, @as(usize, pattern_mod.max_notes));
-            for (cs.notes[0..count], tmp[0..count]) |n, *o| o.* = .{
-                .pitch = @intCast(@min(n.pitch, 127)),
-                .start_beat = n.start_beat,
-                .duration_beat = n.duration_beat,
-                .velocity = n.velocity,
-            };
+            for (cs.notes[0..count], tmp[0..count]) |n, *o| o.* = sanitizeNote(n);
             break :blk try ws_arrangement.Clip.initMelodic(
                 allocator, cs.start_bar, cs.length_bars, tmp[0..count], cs.length_beats,
             );
@@ -594,17 +585,39 @@ fn clipFromSnap(allocator: std.mem.Allocator, cs: ClipSnap) !ws_arrangement.Clip
     };
 }
 
+/// Apply a pad snapshot onto a live Pad, clamping every field to the same
+/// ranges `adjustParam` enforces. Unclamped values from a hand-edited file
+/// would otherwise trip adjustParam's clamp bounds (lower > upper) on the
+/// audio thread, or index past buffers in the waveform view.
+fn applyPadSnap(p: *Pad, ps: PadSnap) void {
+    p.gain            = std.math.clamp(ps.gain, 0.0, 2.0);
+    p.pan             = std.math.clamp(ps.pan, -1.0, 1.0);
+    p.pitch_semitones = std.math.clamp(ps.pitch_semitones, -24.0, 24.0);
+    p.start_norm      = std.math.clamp(ps.start_norm, 0.0, 0.99);
+    p.end_norm        = std.math.clamp(ps.end_norm, p.start_norm + 0.01, 1.0);
+    p.reverse         = ps.reverse;
+    p.attack_s        = std.math.clamp(ps.attack_s, 0.0, 5.0);
+    p.decay_s         = std.math.clamp(ps.decay_s, 0.0, 5.0);
+    p.sustain         = std.math.clamp(ps.sustain, 0.0, 1.0);
+    p.release_s       = std.math.clamp(ps.release_s, 0.001, 5.0);
+}
+
+/// A NoteSnap with pitch/velocity/times forced into playable ranges.
+fn sanitizeNote(n: NoteSnap) pattern_mod.Note {
+    return .{
+        .pitch = @intCast(@min(n.pitch, 127)),
+        .start_beat = @max(0.0, n.start_beat),
+        .duration_beat = @max(0.0, n.duration_beat),
+        .velocity = std.math.clamp(n.velocity, 0.0, 1.0),
+    };
+}
+
 /// Load saved notes into a pattern player (control thread, before audio runs).
 fn loadNotes(pp: *PatternPlayer, notes: []const NoteSnap) void {
     const count = @min(notes.len, @as(usize, pattern_mod.max_notes));
     pp.note_count = @intCast(count);
     for (notes[0..count], 0..) |n, j| {
-        pp.notes[j] = .{
-            .pitch = @intCast(@min(n.pitch, 127)),
-            .start_beat = n.start_beat,
-            .duration_beat = n.duration_beat,
-            .velocity = n.velocity,
-        };
+        pp.notes[j] = sanitizeNote(n);
     }
 }
 
@@ -882,6 +895,60 @@ test "buildSession: arrangement clips and song_mode round-trip" {
     try testing.expectEqual(@as(u16, 1), session.racks.items[0].pattern_player.?.song_note_count);
     try testing.expect(session.racks.items[1].instrument.drum_machine.song_mode);
     try testing.expectEqual(@as(u16, 1), session.racks.items[1].instrument.drum_machine.song_clip_count);
+}
+
+test "buildSession: rejects malformed and future files" {
+    const testing = std.testing;
+
+    // Newer file version than this build understands.
+    try testing.expectError(error.UnsupportedVersion, buildSession(testing.allocator, &.{
+        .version = file_version + 1,
+        .tracks = &.{.{ .name = "a" }},
+        .racks = &.{.{ .label = "e", .kind = .empty }},
+    }));
+
+    // Track/rack count mismatch.
+    try testing.expectError(error.MalformedProject, buildSession(testing.allocator, &.{
+        .tracks = &.{ .{ .name = "a" }, .{ .name = "b" } },
+        .racks = &.{.{ .label = "e", .kind = .empty }},
+    }));
+
+    // Nonsense sample rate.
+    try testing.expectError(error.InvalidSampleRate, buildSession(testing.allocator, &.{
+        .sample_rate = 0,
+        .tracks = &.{.{ .name = "a" }},
+        .racks = &.{.{ .label = "e", .kind = .empty }},
+    }));
+}
+
+test "buildSession: clamps out-of-range pad and note values" {
+    const testing = std.testing;
+
+    const snap: Snapshot = .{
+        .tracks = &.{.{ .name = "drums" }},
+        .racks = &.{.{
+            .label = "drums",
+            .kind = .drum_machine,
+            .drum = .{
+                .pads = blk: {
+                    var ps = [_]PadSnap{.{}} ** DrumMachine.max_pads;
+                    // end < start and both far out of range.
+                    ps[0] = .{ .start_norm = 7.0, .end_norm = -3.0, .gain = 99.0 };
+                    break :blk ps;
+                },
+            },
+        }},
+    };
+
+    var session = try buildSession(testing.allocator, &snap);
+    defer session.deinit();
+
+    const pad = &session.racks.items[0].instrument.drum_machine.pads[0].?;
+    try testing.expect(pad.start_norm < pad.end_norm);
+    try testing.expect(pad.gain <= 2.0);
+    // The invariant adjustParam relies on: clamp bounds stay ordered.
+    session.racks.items[0].instrument.drum_machine.adjustParam(DrumMachine.paramId(0, 0), 1);
+    session.racks.items[0].instrument.drum_machine.adjustParam(DrumMachine.paramId(0, 1), -1);
 }
 
 test "buildSession: empty and sampler racks round-trip" {

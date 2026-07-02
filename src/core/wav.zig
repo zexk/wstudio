@@ -95,7 +95,8 @@ pub fn parseAlloc(
                 return error.UnsupportedBitDepth;
             if (num_channels == 0 or sample_rate == 0) return error.BadFmt;
             fmt_ok = true;
-        } else if (std.mem.eql(u8, id, "data")) {
+        } else if (std.mem.eql(u8, id, "data") and out == null) {
+            // First data chunk wins; decoding a second would leak the first.
             if (!fmt_ok) return error.DataBeforeFmt;
             const bytes_per_sample = bits_per_sample / 8;
             const total_samples = chunk_size / bytes_per_sample;

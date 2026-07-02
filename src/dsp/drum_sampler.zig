@@ -186,6 +186,13 @@ pub const DrumMachine = struct {
 
     pub fn setStepCount(self: *DrumMachine, n: u8) void {
         self.step_count = std.math.clamp(n, 1, max_steps);
+        // Discard bits beyond the new count — otherwise they'd silently
+        // survive a shrink, reappear on grow, and be saved to disk.
+        const mask: u32 = if (self.step_count >= 32)
+            ~@as(u32, 0)
+        else
+            (@as(u32, 1) << @intCast(self.step_count)) - 1;
+        for (&self.pattern) |*p| _ = p.fetchAnd(mask, .acq_rel);
     }
 
     /// Replace the song-mode clip timeline (control thread). Taken under
@@ -446,6 +453,9 @@ pub const DrumMachine = struct {
             self.current_step.store(@intCast(local), .monotonic);
             return; // clips never overlap
         }
+        // No clip under the playhead: keep the UI step indicator moving
+        // through the gap instead of freezing on the last clip's step.
+        self.current_step.store(@intCast(lk % self.step_count), .monotonic);
     }
 
     fn triggerPad(self: *DrumMachine, pad_idx: u8) void {
@@ -682,6 +692,18 @@ test "toggleStep flips pattern bit" {
     try std.testing.expect(dm.stepActive(0, 3));
     dm.toggleStep(0, 3);
     try std.testing.expect(!dm.stepActive(0, 3));
+}
+
+test "setStepCount discards bits beyond the new count" {
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    defer dm.deinit();
+
+    dm.setStepCount(32);
+    dm.pattern[0].store(1 << 20, .monotonic);
+    dm.setStepCount(16); // shrink: bit 20 must not survive
+    dm.setStepCount(32); // grow back
+    try std.testing.expect(!dm.stepActive(0, 20));
 }
 
 test "adjustParam decodes pad/param and clamps" {

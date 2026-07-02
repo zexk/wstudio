@@ -105,7 +105,8 @@ pub const Lane = struct {
     }
 
     /// Insert `clip`, first removing any existing clip it overlaps. Keeps the
-    /// list sorted by `start_bar`. Takes ownership of the clip's content.
+    /// list sorted by `start_bar`. Takes ownership of the clip's content —
+    /// including on failure, when the content is freed.
     pub fn place(self: *Lane, allocator: std.mem.Allocator, clip: Clip) !void {
         const start = clip.start_bar;
         const end = clip.endBar();
@@ -124,7 +125,11 @@ pub const Lane = struct {
                 break;
             }
         }
-        try self.clips.insert(allocator, idx, clip);
+        self.clips.insert(allocator, idx, clip) catch |err| {
+            var owned = clip;
+            owned.deinit(allocator);
+            return err;
+        };
     }
 
     /// Remove the clip covering `bar`, if any. Returns true if one was removed.
