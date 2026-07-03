@@ -119,6 +119,10 @@ pub const App = struct {
     piano_clip_link: ?ClipLink = null,
     /// Undo/redo history for content edits (u / U in the editing views).
     history: undo_mod.History = .{},
+    /// True when the session holds edits the project file doesn't. Set at
+    /// every persisted mutation (content edits via history.push, param
+    /// nudges, track/mix changes); cleared on save. `:q` refuses while set.
+    dirty: bool = false,
     /// Path of the current project file — the default for :w / :wq. Set when
     /// a project is loaded at startup and updated on every successful save.
     project_path_buf: [256]u8 = undefined,
@@ -294,6 +298,7 @@ pub const App = struct {
             self.view = .tracks;
             return;
         };
+        self.dirty = true;
         self.setStatus("inserted {s}", .{picker_labels[self.picker_cursor]});
         self.view = .tracks;
         self.openTrack(self.cursor);
@@ -335,6 +340,7 @@ pub const App = struct {
                 };
                 const track = &self.session.project.tracks.items[track_idx];
                 track.muted = !track.muted;
+                self.dirty = true;
                 _ = self.session.engine.send(.{ .set_track_mute = .{
                     .track = track_idx,
                     .muted = track.muted,
@@ -350,6 +356,7 @@ pub const App = struct {
                 };
                 const track = &self.session.project.tracks.items[track_idx];
                 track.soloed = !track.soloed;
+                self.dirty = true;
                 _ = self.session.engine.send(.{ .set_track_solo = .{
                     .track = track_idx,
                     .soloed = track.soloed,
@@ -425,6 +432,7 @@ pub const App = struct {
             return;
         };
         self.cursor = @intCast(idx);
+        self.dirty = true;
         self.setStatus("added \"{s}\" (track {d})", .{ name, idx + 1 });
     }
 
@@ -462,6 +470,7 @@ pub const App = struct {
         // Exit any editor whose target track no longer holds the expected kind.
         self.exitStaleEditors();
 
+        self.dirty = true;
         self.setStatus("deleted track {d}", .{track_idx + 1});
     }
 
@@ -502,6 +511,7 @@ pub const App = struct {
         if (track >= self.session.project.tracks.items.len) return;
         const t = &self.session.project.tracks.items[track];
         t.pan = std.math.clamp(t.pan + delta, -1.0, 1.0);
+        self.dirty = true;
         _ = self.session.engine.send(.{ .set_track_pan = .{ .track = track, .pan = t.pan } });
         const pct: i32 = @intFromFloat(@abs(t.pan) * 100.0);
         if (pct == 0) self.setStatus("track {d} pan: center", .{track + 1})
@@ -513,6 +523,7 @@ pub const App = struct {
         if (track >= self.session.project.tracks.items.len) return;
         const t = &self.session.project.tracks.items[track];
         t.gain_db = std.math.clamp(t.gain_db + delta_db, -60.0, 12.0);
+        self.dirty = true;
         _ = self.session.engine.send(.{ .set_track_gain = .{ .track = track, .gain = types.dbToGain(t.gain_db) } });
         const sign: []const u8 = if (t.gain_db >= 0) "+" else "";
         self.setStatus("track {d} gain: {s}{d:.1}dB", .{ track + 1, sign, t.gain_db });

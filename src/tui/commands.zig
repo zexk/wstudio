@@ -27,11 +27,11 @@ fn wrap(comptime f: fn (*App, []const u8) void) *const fn (*anyopaque, []const u
 }
 
 pub const cmds: []const cmd_mod.Def = &.{
-    .{ .name = "q",           .desc = "quit wstudio",                        .run = wrap(cmdQuit) },
-    .{ .name = "q!",          .desc = "quit wstudio (alias for :q)",         .run = wrap(cmdQuit) },
-    .{ .name = "quit",        .desc = "quit wstudio",                        .run = wrap(cmdQuit) },
-    .{ .name = "qa",          .desc = "quit wstudio (alias for :q)",         .run = wrap(cmdQuit) },
-    .{ .name = "qa!",         .desc = "quit wstudio (alias for :q)",         .run = wrap(cmdQuit) },
+    .{ .name = "q",           .desc = "quit (refuses if unsaved changes)",   .run = wrap(cmdQuit) },
+    .{ .name = "q!",          .desc = "quit, discarding unsaved changes",    .run = wrap(cmdQuitForce) },
+    .{ .name = "quit",        .desc = "quit (alias for :q)",                 .run = wrap(cmdQuit) },
+    .{ .name = "qa",          .desc = "quit (alias for :q)",                 .run = wrap(cmdQuit) },
+    .{ .name = "qa!",         .desc = "quit, discarding changes (alias for :q!)", .run = wrap(cmdQuitForce) },
     .{ .name = "bpm",         .desc = "[<value>]  tempo in BPM (20–400)",    .run = wrap(cmdBpm) },
     .{ .name = "sig",         .desc = "[<n>[/4]]  time signature (1–16 beats per bar)", .run = wrap(cmdSig) },
     .{ .name = "gain",        .desc = "<track> [<dB>]  track gain",          .run = wrap(cmdGain) },
@@ -68,7 +68,17 @@ pub fn run(app: *App, text: []const u8) void {
     }
 }
 
-fn cmdQuit(app: *App, _: []const u8) void { app.should_quit = true; }
+/// Vim-style quit guard: refuse while the session holds edits the project
+/// file doesn't (`App.dirty`). :q! / :qa! force, ctrl-c always exits.
+fn cmdQuit(app: *App, _: []const u8) void {
+    if (app.dirty) {
+        app.setStatus("unsaved changes — :w to save, :q! to discard", .{});
+        return;
+    }
+    app.should_quit = true;
+}
+
+fn cmdQuitForce(app: *App, _: []const u8) void { app.should_quit = true; }
 
 fn cmdClear(app: *App, _: []const u8) void {
     // In the piano roll, clear the pattern being edited; elsewhere, the
@@ -140,6 +150,7 @@ fn cmdTrackRename(app: *App, args: []const u8) void {
         app.setStatus("out of memory", .{});
         return;
     };
+    app.dirty = true;
     app.setStatus("track {d} renamed to \"{s}\"", .{ n, name });
 }
 
@@ -179,6 +190,7 @@ fn cmdLoadPad(app: *App, args: []const u8) void {
         return;
     };
     if (dm.pads[pad_idx]) |*p| p.user_sample = true;
+    app.dirty = true;
     app.setStatus("pad {d} loaded: {s}", .{ pad_idx, stem });
 }
 
@@ -235,6 +247,7 @@ fn cmdLoadSample(app: *App, args: []const u8) void {
         return;
     };
     s.pad.user_sample = true;
+    app.dirty = true;
     app.setStatus("sample loaded: {s}", .{stem});
 }
 
@@ -253,6 +266,7 @@ fn cmdSave(app: *App, args: []const u8) void {
         return;
     };
     app.setProjectPath(path);
+    app.dirty = false;
     app.setStatus("saved: {s}", .{path});
 }
 
@@ -265,6 +279,7 @@ fn cmdWriteQuit(app: *App, args: []const u8) void {
         return;
     };
     app.setProjectPath(path);
+    app.dirty = false;
     app.should_quit = true;
 }
 
@@ -390,6 +405,7 @@ fn cmdBpm(app: *App, args: []const u8) void {
     }
     app.session.project.tempo_bpm = bpm;
     _ = app.session.engine.send(.{ .set_tempo = bpm });
+    app.dirty = true;
     app.setStatus("bpm: {d:.1}", .{bpm});
 }
 
@@ -420,6 +436,7 @@ fn cmdSig(app: *App, args: []const u8) void {
     _ = app.session.engine.send(.{ .set_time_signature = n });
     // Bar boundaries moved; refit the song timeline if it's driving playback.
     if (app.session.song_mode) app.session.rebuildSongData();
+    app.dirty = true;
     app.setStatus("sig: {d}/4", .{n});
 }
 
@@ -454,6 +471,7 @@ fn cmdGain(app: *App, args: []const u8) void {
         .track = @intCast(track_idx),
         .gain = types.dbToGain(clamped),
     } });
+    app.dirty = true;
     app.setStatus("track {d} gain: {d:.1}dB", .{ track_1, clamped });
 }
 
@@ -487,6 +505,7 @@ fn cmdPan(app: *App, args: []const u8) void {
     };
     track.pan = std.math.clamp(val, -1.0, 1.0);
     _ = app.session.engine.send(.{ .set_track_pan = .{ .track = @intCast(track_idx), .pan = track.pan } });
+    app.dirty = true;
     const pct: i32 = @intFromFloat(@abs(track.pan) * 100.0);
     if (pct == 0) app.setStatus("track {d} pan: center", .{track_1})
     else if (track.pan < 0) app.setStatus("track {d} pan: L{d}%", .{ track_1, pct })

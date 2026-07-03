@@ -50,6 +50,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 if (app.view == .track_spectrum and app.eq_track < app.session.racks.items.len) {
                     if (app.session.racks.items[app.eq_track].fx.eq) |*eq| {
                         eq.bypass = !eq.bypass;
+                        app.dirty = true;
                         var buf: [6]dsp.Device = undefined;
                         app.session.engine.setTrackChain(app.eq_track, app.session.racks.items[app.eq_track].chain(&buf));
                     }
@@ -74,6 +75,7 @@ pub fn setEqBand(app: *App, track: u16, band: usize, gain_db: f32) void {
     const rack = app.session.racks.items[track];
     if (rack.fx.eq == null) rack.fx.eq = GraphicEq.init(app.session.project.sample_rate);
     rack.fx.eq.?.setBand(band, gain_db);
+    app.dirty = true;
     var buf: [6]dsp.Device = undefined;
     app.session.engine.setTrackChain(track, rack.chain(&buf));
 }

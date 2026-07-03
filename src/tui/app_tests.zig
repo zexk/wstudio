@@ -812,3 +812,43 @@ test "piano roll p does not open for drum track" {
     app.handleKey(.{ .char = 'p' }, 0);
     try std.testing.expectEqual(AppView.tracks, app.view);
 }
+
+test ":q refuses to quit while dirty; :q! discards" {
+    var app = try testApp();
+    defer app.deinit();
+
+    // A clean session quits.
+    for (":q") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expect(app.should_quit);
+    app.should_quit = false;
+
+    // A drum edit marks the session dirty; :q now refuses.
+    app.drum_track = 2;
+    _ = drum_ed.handleKey(&app, .enter);
+    try std.testing.expect(app.dirty);
+    for (":q") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expect(!app.should_quit);
+
+    // :q! force-quits.
+    for (":q!") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expect(app.should_quit);
+}
+
+test "saving clears the dirty flag" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    var app = try App.init(std.testing.allocator, std.testing.io);
+    defer app.deinit();
+    app.applyAction(.toggle_mute, 0);
+    try std.testing.expect(app.dirty);
+
+    var cmd_buf: [96]u8 = undefined;
+    const cmd = try std.fmt.bufPrint(&cmd_buf, ":w .zig-cache/tmp/{s}/p.wsj", .{&tmp.sub_path});
+    for (cmd) |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expect(!app.dirty);
+}

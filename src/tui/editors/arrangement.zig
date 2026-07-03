@@ -40,6 +40,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             ']' => { cycleDrumVariant(app, 1); return true; },
             'T' => {
                 app.session.setSongMode(!app.session.song_mode);
+                app.dirty = true;
                 app.setStatus("{s} mode", .{if (app.session.song_mode) "song" else "pattern"});
                 return true;
             },
@@ -79,6 +80,7 @@ fn cycleDrumVariant(app: *App, delta: i32) void {
                 return;
             }
             dm.cycleVariant(delta);
+            app.dirty = true;
             app.setStatus("pattern {c} ({d}/{d})", .{
                 DrumMachine.variantLetter(dm.variant), dm.variant + 1, dm.variant_count,
             });

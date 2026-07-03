@@ -11,7 +11,9 @@ const piano = @import("editors/piano.zig");
 
 /// Record a pre-edit snapshot; null (capture failed / target invalid)
 /// simply records nothing — undo is best-effort, never blocks the edit.
+/// The edit that follows happens either way, so the session goes dirty here.
 pub fn push(app: *App, entry: ?undo_mod.Entry) void {
+    app.dirty = true;
     if (entry) |e| app.history.push(app.allocator, e);
 }
 
@@ -145,6 +147,7 @@ pub fn doUndo(app: *App) void {
     const what = entry.label();
     if (applyEntry(app, entry)) |displaced| {
         app.history.parkRedo(app.allocator, displaced);
+        app.dirty = true;
         app.setStatus("undid {s} edit ({d} left)", .{ what, app.history.undo_stack.items.len });
     } else {
         entry.deinit(app.allocator);
@@ -160,6 +163,7 @@ pub fn doRedo(app: *App) void {
     const what = entry.label();
     if (applyEntry(app, entry)) |displaced| {
         app.history.parkUndo(app.allocator, displaced);
+        app.dirty = true;
         app.setStatus("redid {s} edit", .{what});
     } else {
         entry.deinit(app.allocator);

@@ -70,6 +70,7 @@ fn preview(app: *App) void {
 /// edit lands on the audio thread (DrumMachine/Sampler.adjustParam), never
 /// racing the block reader — mirrors the synth editor's adjustParam.
 pub fn adjustParam(app: *App, steps: i32) void {
+    app.dirty = true;
     switch (app.sampler_target) {
         .drum => |t| {
             const id = DrumMachine.paramId(app.drum_cursor[0], app.sampler_param);

@@ -124,6 +124,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
 fn adjustSwing(app: *App, delta: f32) void {
     const dm = app.drumMachine();
     dm.adjustSwing(delta);
+    app.dirty = true;
     app.setStatus("swing {d:.0}%", .{dm.swing.load(.monotonic)});
 }
 
@@ -136,6 +137,7 @@ fn cycleVariant(app: *App, delta: i32) void {
         return;
     }
     dm.cycleVariant(delta);
+    app.dirty = true;
     if (app.drum_cursor[1] >= dm.step_count) app.drum_cursor[1] = dm.step_count - 1;
     app.setStatus("pattern {c} ({d}/{d})", .{
         DrumMachine.variantLetter(dm.variant), dm.variant + 1, dm.variant_count,

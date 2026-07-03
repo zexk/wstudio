@@ -101,6 +101,7 @@ fn adjustParam(app: *App, steps: i32) void {
         .poly_synth => {},
         else => return,
     }
+    app.dirty = true;
     _ = app.session.engine.send(.{ .set_track_param = .{
         .track = app.synth_track,
         .id    = app.synth_cursor,
