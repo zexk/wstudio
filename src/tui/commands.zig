@@ -26,6 +26,21 @@ fn wrap(comptime f: fn (*App, []const u8) void) *const fn (*anyopaque, []const u
     }.call;
 }
 
+/// Big enough for any real filesystem path; see `expandHome`.
+const path_buf_len: usize = 1024;
+
+/// Expand a leading `~` — the shell does this for CLI args, but paths typed
+/// into the `:` prompt never pass through a shell. Handles bare `~` and
+/// `~/rest`; `~otheruser` is left alone (not worth the /etc/passwd lookup for
+/// a single-user TUI). Returns `path` unchanged when there's nothing to
+/// expand, when $HOME isn't set, or when the expansion wouldn't fit `buf`.
+fn expandHome(buf: []u8, path: []const u8) []const u8 {
+    if (path.len == 0 or path[0] != '~') return path;
+    if (path.len > 1 and path[1] != '/') return path;
+    const home = std.c.getenv("HOME") orelse return path;
+    return std.fmt.bufPrint(buf, "{s}{s}", .{ std.mem.sliceTo(home, 0), path[1..] }) catch path;
+}
+
 pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "q",           .desc = "quit (refuses if unsaved changes)",   .run = wrap(cmdQuit) },
     .{ .name = "q!",          .desc = "quit, discarding unsaved changes",    .run = wrap(cmdQuitForce) },
@@ -160,7 +175,8 @@ fn cmdLoadPad(app: *App, args: []const u8) void {
         app.setStatus("usage: load-pad <0-7> <file.wav>", .{});
         return;
     };
-    const path = it.rest();
+    var path_buf: [path_buf_len]u8 = undefined;
+    const path = expandHome(&path_buf, it.rest());
     const pad_idx = std.fmt.parseInt(u8, pad_str, 10) catch {
         app.setStatus("load-pad: bad pad index '{s}'", .{pad_str});
         return;
@@ -221,11 +237,13 @@ fn cursorSampler(app: *App) ?*Sampler {
 }
 
 fn cmdLoadSample(app: *App, args: []const u8) void {
-    const path = std.mem.trim(u8, args, " ");
-    if (path.len == 0) {
+    const trimmed = std.mem.trim(u8, args, " ");
+    if (trimmed.len == 0) {
         app.setStatus("usage: load-sample <file.wav>", .{});
         return;
     }
+    var path_buf: [path_buf_len]u8 = undefined;
+    const path = expandHome(&path_buf, trimmed);
     const s = cursorSampler(app) orelse {
         app.setStatus("load-sample: select a sampler track first", .{});
         return;
@@ -251,16 +269,18 @@ fn cmdLoadSample(app: *App, args: []const u8) void {
     app.setStatus("sample loaded: {s}", .{stem});
 }
 
-/// Explicit :save argument, else the file the session was loaded from /
-/// last saved to, else "project.wsj".
-fn savePath(app: *App, args: []const u8) []const u8 {
+/// Explicit :save argument (with `~` expanded), else the file the session
+/// was loaded from / last saved to (already resolved — see `setProjectPath`),
+/// else "project.wsj".
+fn savePath(app: *App, args: []const u8, buf: []u8) []const u8 {
     const arg = std.mem.trim(u8, args, " ");
-    if (arg.len > 0) return arg;
+    if (arg.len > 0) return expandHome(buf, arg);
     return app.projectPath() orelse "project.wsj";
 }
 
 fn cmdSave(app: *App, args: []const u8) void {
-    const path = savePath(app, args);
+    var path_buf: [path_buf_len]u8 = undefined;
+    const path = savePath(app, args, &path_buf);
     ws.persist.save(app.allocator, &app.session, app.io, path) catch |e| {
         app.setStatus("save: {s}: {s}", .{ path, @errorName(e) });
         return;
@@ -273,7 +293,8 @@ fn cmdSave(app: *App, args: []const u8) void {
 /// Vim-style write-and-quit: save the project, then exit. Only quits when
 /// the save succeeds so a failed write leaves the session intact.
 fn cmdWriteQuit(app: *App, args: []const u8) void {
-    const path = savePath(app, args);
+    var path_buf: [path_buf_len]u8 = undefined;
+    const path = savePath(app, args, &path_buf);
     ws.persist.save(app.allocator, &app.session, app.io, path) catch |e| {
         app.setStatus("save: {s}: {s}", .{ path, @errorName(e) });
         return;
@@ -288,10 +309,9 @@ fn cmdWriteQuit(app: *App, args: []const u8) void {
 /// release. The realtime backend is parked for the duration so the UI thread
 /// can drive the engine without racing the audio thread.
 fn cmdBounce(app: *App, args: []const u8) void {
-    const path = if (std.mem.trim(u8, args, " ").len > 0)
-        std.mem.trim(u8, args, " ")
-    else
-        "bounce.wav";
+    var path_buf: [path_buf_len]u8 = undefined;
+    const trimmed = std.mem.trim(u8, args, " ");
+    const path = if (trimmed.len > 0) expandHome(&path_buf, trimmed) else "bounce.wav";
 
     const engine = app.session.engine;
     const sr = app.session.project.sample_rate;
@@ -598,4 +618,64 @@ fn cmdEq(app: *App, args: []const u8) void {
     };
     spectrum_ed.setEqBand(app, @intCast(track_idx), band, db);
     app.setStatus("track {d} eq band {d}: {d:.1}dB", .{ track_1, band, db });
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+test "expandHome expands ~ and ~/rest via $HOME; leaves other forms alone" {
+    const testing = std.testing;
+    const home_c = std.c.getenv("HOME") orelse return error.SkipZigTest;
+    const home = std.mem.sliceTo(home_c, 0);
+
+    var buf: [path_buf_len]u8 = undefined;
+    try testing.expectEqualStrings(home, expandHome(&buf, "~"));
+
+    const expected = try std.fmt.allocPrint(testing.allocator, "{s}/song.wsj", .{home});
+    defer testing.allocator.free(expected);
+    try testing.expectEqualStrings(expected, expandHome(&buf, "~/song.wsj"));
+
+    // Another user's home, and paths without a leading ~, pass through.
+    try testing.expectEqualStrings("~otheruser/x", expandHome(&buf, "~otheruser/x"));
+    try testing.expectEqualStrings("relative/path.wav", expandHome(&buf, "relative/path.wav"));
+    try testing.expectEqualStrings("/abs/path.wav", expandHome(&buf, "/abs/path.wav"));
+    try testing.expectEqualStrings("", expandHome(&buf, ""));
+
+    // A buffer too small to hold the expansion falls back to the original.
+    var tiny: [1]u8 = undefined;
+    try testing.expectEqualStrings("~/song.wsj", expandHome(&tiny, "~/song.wsj"));
+}
+
+test ":save reports the expanded path, not the literal ~, on failure" {
+    var app = try App.init(std.testing.allocator, std.testing.io);
+    defer app.deinit();
+    const home_c = std.c.getenv("HOME") orelse return error.SkipZigTest;
+    const home = std.mem.sliceTo(home_c, 0);
+
+    // A directory that doesn't exist under $HOME — save fails, but the
+    // status must show where it actually tried to write.
+    var cmd_buf: [80]u8 = undefined;
+    const cmd = try std.fmt.bufPrint(&cmd_buf, ":save ~/__wstudio_missing__/p.wsj", .{});
+    for (cmd) |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    const status = app.status_buf[0..app.status_len];
+    try std.testing.expect(std.mem.indexOf(u8, status, home) != null);
+    try std.testing.expect(std.mem.indexOf(u8, status, "~") == null);
+}
+
+test ":load-pad reports the expanded path on a missing file" {
+    var app = try App.init(std.testing.allocator, std.testing.io);
+    defer app.deinit();
+    try app.session.setInstrument(0, .drum_machine);
+    const home_c = std.c.getenv("HOME") orelse return error.SkipZigTest;
+    const home = std.mem.sliceTo(home_c, 0);
+
+    var cmd_buf: [80]u8 = undefined;
+    const cmd = try std.fmt.bufPrint(&cmd_buf, ":load-pad 0 ~/__wstudio_missing__.wav", .{});
+    for (cmd) |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    const status = app.status_buf[0..app.status_len];
+    try std.testing.expect(std.mem.indexOf(u8, status, home) != null);
+    try std.testing.expect(std.mem.indexOf(u8, status, "~") == null);
 }
