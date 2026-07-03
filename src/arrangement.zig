@@ -82,6 +82,17 @@ pub const Clip = struct {
         }
     }
 
+    /// Deep copy: melodic notes get a fresh allocation, drum payloads are
+    /// plain values. Used by clip yank/paste and the undo lane snapshots.
+    pub fn dupe(self: Clip, allocator: std.mem.Allocator) !Clip {
+        return switch (self.content) {
+            .melodic => |m| try initMelodic(
+                allocator, self.start_bar, self.length_bars, m.notes, m.length_beats,
+            ),
+            .drum => self,
+        };
+    }
+
     /// First bar past the clip (exclusive end).
     pub fn endBar(self: Clip) u32 {
         return self.start_bar + self.length_bars;

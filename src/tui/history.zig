@@ -66,22 +66,13 @@ pub fn captureLane(app: *App, track: u16) ?undo_mod.Entry {
     const lane = app.session.arrangement.lane(track) orelse return null;
     const clips = app.allocator.alloc(ws.Clip, lane.clips.items.len) catch return null;
     for (lane.clips.items, 0..) |c, i| {
-        clips[i] = dupClip(app, c) catch {
+        clips[i] = c.dupe(app.allocator) catch {
             for (clips[0..i]) |*done| done.deinit(app.allocator);
             app.allocator.free(clips);
             return null;
         };
     }
     return .{ .lane = .{ .track = @intCast(track), .clips = clips } };
-}
-
-fn dupClip(app: *App, c: ws.Clip) !ws.Clip {
-    return switch (c.content) {
-        .melodic => |m| try ws.Clip.initMelodic(
-            app.allocator, c.start_bar, c.length_bars, m.notes, m.length_beats,
-        ),
-        .drum => c, // plain value, no owned memory
-    };
 }
 
 /// Swap `entry`'s state with the live one. On success the entry is

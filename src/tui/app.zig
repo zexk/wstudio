@@ -113,6 +113,9 @@ pub const App = struct {
     /// between tracks. Whole-pattern granularity; one slot per editor kind.
     piano_clip: ?PianoClip = null,
     drum_clip: ?DrumMachine.Variant = null,
+    /// Arrangement clip clipboard (y/P in the arrangement view). Owns a deep
+    /// copy; its start_bar is meaningless — paste re-targets the cursor bar.
+    arr_clip: ?ws.Clip = null,
     /// The arrangement clip the piano roll is editing, or null when it edits
     /// the track's live pattern (see `ClipLink`). Set by `e` on a clip in the
     /// arrangement; cleared when the roll opens on a live pattern instead.
@@ -139,6 +142,7 @@ pub const App = struct {
     }
 
     pub fn deinit(self: *App) void {
+        if (self.arr_clip) |*c| c.deinit(self.allocator);
         self.history.deinit(self.allocator);
         self.session.deinit();
     }

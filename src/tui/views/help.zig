@@ -165,6 +165,8 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("e",            "edit melodic clip in the piano roll (edits save into the clip)");
     t.key("[ / ]",        "cycle drum pattern variant to stamp");
     t.key("x",            "delete clip at cursor");
+    t.key("y / P",        "yank / paste clip (matching track kind)");
+    t.key("< / >",        "move clip left / right by a bar");
     t.key("g",            "play from cursor bar");
     t.key("T",            "toggle song / pattern mode");
 

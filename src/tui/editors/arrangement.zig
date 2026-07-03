@@ -12,8 +12,9 @@ const history = @import("../history.zig");
 const piano = @import("piano.zig");
 
 /// h/l move ±1 bar, H/L ±4 bars (one phrase), j/k change lane (shared
-/// `cursor`), enter stamps the live pattern as a clip, x deletes, [/]
-/// cycle a drum lane's pattern variant, T toggles song/pattern mode.
+/// `cursor`), enter stamps the live pattern as a clip, x deletes, y/P
+/// yank/paste a clip, </> shift it by bars, [/] cycle a drum lane's
+/// pattern variant, T toggles song/pattern mode.
 /// Returns false for unhandled keys (space, `:`, …) so the transport and
 /// command line still work. Scroll is clamped at draw.
 pub fn handleKey(app: *App, key: modal_mod.Key) bool {
@@ -33,6 +34,10 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             'j' => { moveLane(app, lane_count, app.takeCount()); return true; },
             'k' => { moveLane(app, lane_count, -app.takeCount()); return true; },
             'x' => { deleteClip(app); return true; },
+            'y' => { yankClip(app); return true; },
+            'P' => { pasteClip(app); return true; },
+            '<' => { moveClip(app, -app.takeCount()); return true; },
+            '>' => { moveClip(app, app.takeCount()); return true; },
             'e' => { editClip(app); return true; },
             'g' => { playFromCursor(app); return true; },
             'u' => { history.doUndo(app); return true; },
@@ -156,6 +161,85 @@ fn editClip(app: *App) void {
         },
         .drum => app.setStatus("drum clips play the pattern bank — edit variants in the grid", .{}),
     }
+}
+
+/// Yank the clip under the cursor into the app-wide clip clipboard.
+fn yankClip(app: *App) void {
+    const lane = app.session.arrangement.lane(app.cursor) orelse return;
+    const clip = lane.clipAt(app.arr_cursor_bar) orelse {
+        app.setStatus("no clip here — enter stamps one", .{});
+        return;
+    };
+    const copy = clip.dupe(app.allocator) catch {
+        app.setStatus("yank failed (out of memory)", .{});
+        return;
+    };
+    if (app.arr_clip) |*old| old.deinit(app.allocator);
+    app.arr_clip = copy;
+    app.setStatus("yanked {d}-bar clip", .{copy.length_bars});
+}
+
+/// Place a copy of the yanked clip at the cursor bar — evicting whatever it
+/// overlaps, like stamping — then jump the cursor past it for quick
+/// sequential pasting. Clip kind must match the lane's instrument.
+fn pasteClip(app: *App) void {
+    const src = app.arr_clip orelse {
+        app.setStatus("nothing yanked — y copies a clip", .{});
+        return;
+    };
+    if (app.cursor >= app.session.racks.items.len) return;
+    const rack = app.session.racks.items[app.cursor];
+    const kind_ok = switch (src.content) {
+        .melodic => rack.pattern_player != null,
+        .drum    => std.meta.activeTag(rack.instrument) == .drum_machine,
+    };
+    if (!kind_ok) {
+        app.setStatus("clip kind doesn't match this track", .{});
+        return;
+    }
+    const lane = app.session.arrangement.lane(app.cursor) orelse return;
+    var copy = src.dupe(app.allocator) catch {
+        app.setStatus("paste failed (out of memory)", .{});
+        return;
+    };
+    copy.start_bar = app.arr_cursor_bar;
+    history.push(app, history.captureLane(app, @intCast(app.cursor)));
+    lane.place(app.allocator, copy) catch {
+        app.setStatus("paste failed (out of memory)", .{});
+        return;
+    };
+    app.arr_cursor_bar = copy.endBar();
+    if (app.session.song_mode) app.session.rebuildSongData();
+    app.setStatus("pasted {d}-bar clip", .{copy.length_bars});
+}
+
+/// Shift the clip under the cursor by `delta` bars (clamped at bar 0). Clips
+/// it lands on are evicted — the same overwrite rule as stamping and pasting.
+fn moveClip(app: *App, delta: i32) void {
+    const lane = app.session.arrangement.lane(app.cursor) orelse return;
+    const clip = lane.clipAt(app.arr_cursor_bar) orelse {
+        app.setStatus("no clip here", .{});
+        return;
+    };
+    const new_start: u32 = @intCast(@max(@as(i64, clip.start_bar) + delta, 0));
+    if (new_start == clip.start_bar) return;
+    history.push(app, history.captureLane(app, @intCast(app.cursor)));
+    // Detach the clip (keeping ownership of its content), retarget, re-place.
+    var moved: ws.Clip = undefined;
+    for (lane.clips.items, 0..) |c, i| {
+        if (c.covers(app.arr_cursor_bar)) {
+            moved = lane.clips.orderedRemove(i);
+            break;
+        }
+    }
+    moved.start_bar = new_start;
+    lane.place(app.allocator, moved) catch {
+        app.setStatus("move failed (out of memory)", .{});
+        return;
+    };
+    app.arr_cursor_bar = new_start;
+    if (app.session.song_mode) app.session.rebuildSongData();
+    app.setStatus("clip → bar {d}", .{new_start + 1});
 }
 
 fn deleteClip(app: *App) void {

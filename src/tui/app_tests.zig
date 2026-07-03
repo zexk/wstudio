@@ -885,3 +885,42 @@ test "count prefixes multiply editor motions and die with the next key" {
     for ("3l") |c| app.handleKey(.{ .char = c }, 0);
     try std.testing.expectEqual(@as(u32, 3), app.arr_cursor_bar);
 }
+
+test "arrangement clips: yank/paste, count-move, kind guard, undo" {
+    var app = try testApp();
+    defer app.deinit();
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.5 });
+    try app.session.stampClip(0, 0);
+
+    app.view = .arrangement;
+    app.cursor = 0;
+    app.arr_cursor_bar = 0;
+
+    // Yank, paste at bar 4; the cursor jumps past the pasted clip.
+    app.handleKey(.{ .char = 'y' }, 0);
+    app.arr_cursor_bar = 4;
+    app.handleKey(.{ .char = 'P' }, 0);
+    const lane = app.session.arrangement.lane(0).?;
+    try std.testing.expectEqual(@as(usize, 2), lane.clips.items.len);
+    try std.testing.expect(lane.clipAt(4) != null);
+    try std.testing.expectEqual(@as(u32, 5), app.arr_cursor_bar);
+
+    // Move the pasted clip right two bars with a count; cursor follows.
+    app.arr_cursor_bar = 4;
+    for ("2>") |c| app.handleKey(.{ .char = c }, 0);
+    try std.testing.expect(lane.clipAt(4) == null);
+    try std.testing.expect(lane.clipAt(6) != null);
+    try std.testing.expectEqual(@as(u32, 6), app.arr_cursor_bar);
+
+    // Kind guard: the melodic clip won't paste onto the drum lane.
+    app.cursor = 2;
+    app.arr_cursor_bar = 0;
+    app.handleKey(.{ .char = 'P' }, 0);
+    try std.testing.expectEqual(@as(usize, 0), app.session.arrangement.lane(2).?.clips.items.len);
+
+    // Undo restores the pre-move layout (entry targets lane 0).
+    app.handleKey(.{ .char = 'u' }, 0);
+    try std.testing.expect(lane.clipAt(4) != null);
+    try std.testing.expect(lane.clipAt(6) == null);
+}
