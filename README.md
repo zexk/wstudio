@@ -155,6 +155,10 @@ a full song:
 
 Done:
 
+- [x] Track duplicate (`Y`) and reorder (`J`/`K`): duplicate deep-copies the
+      instrument, its params, FX, pattern/pad audio, and arrangement clips
+      into a new track appended at the end; reorder swaps two tracks in
+      place across the project, engine, and arrangement
 - [x] TUI icons: a 16-glyph Nerd Font subset (embedded, `zig build
       install-font` to see them) decorates instrument kinds, transport
       state, and view titles — additive, never replacing the ASCII/text

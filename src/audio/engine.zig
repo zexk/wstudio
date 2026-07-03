@@ -156,6 +156,13 @@ pub const Engine = struct {
         self.tracks[total - 1] = .{};
     }
 
+    /// Swap two tracks' engine slots (state + chain) in place. Same race
+    /// class as applyInsertTrack/applyDeleteTrack — called from the UI/control
+    /// thread while the audio thread may be mid-block.
+    pub fn swapTracks(self: *Engine, a: u16, b: u16) void {
+        std.mem.swap(TrackState, &self.tracks[a], &self.tracks[b]);
+    }
+
     pub fn setTrackChain(self: *Engine, track: u16, devices: []const dsp.Device) void {
         const state = self.trackAt(track);
         state.chain_len = @min(devices.len, max_chain_devices);

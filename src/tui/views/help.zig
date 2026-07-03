@@ -101,6 +101,8 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("- / +",        "track gain −1 dB / +1 dB  (= also works)");
     t.key("a",            "add synth track");
     t.key("D",            "delete selected track");
+    t.key("Y",            "duplicate selected track (instrument, FX, clips) at the end");
+    t.key("J / K",        "move selected track down / up");
     t.key("R",            "rename selected track (opens :track-rename <n>)");
     t.key("t",            "tap tempo (tap a few times to set bpm)");
     t.key("u / U",        "undo / redo content edits (notes, drums, clips)");

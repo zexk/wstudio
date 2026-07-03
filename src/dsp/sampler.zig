@@ -67,6 +67,18 @@ pub const Sampler = struct {
         self.allocator.free(self.pad.samples);
     }
 
+    /// Deep copy for track duplication: the clip audio gets a fresh
+    /// allocation so the two samplers share no memory. Voice state resets —
+    /// there are no mid-flight notes worth carrying over.
+    pub fn dupe(self: *const Sampler) !Sampler {
+        var copy = self.*;
+        copy.pad.samples = try self.allocator.dupe(f32, self.pad.samples);
+        copy.pad_lock = .unlocked;
+        copy.voices = [_]NoteVoice{.{}} ** max_voices;
+        copy.next_age = 0;
+        return copy;
+    }
+
     pub fn device(self: *Sampler) dsp.Device {
         return .{ .ptr = self, .vtable = &vtable };
     }

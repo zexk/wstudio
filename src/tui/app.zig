@@ -310,6 +310,9 @@ pub const App = struct {
                         'p' => { piano_ed.switchTo(self, @intCast(self.cursor)); return; },
                         'a' => { self.doTrackAdd(null); return; },
                         'D' => { self.doTrackDel(self.cursor); return; },
+                        'Y' => { self.doTrackDup(self.cursor); return; },
+                        'J' => { self.doTrackMove(1); return; },
+                        'K' => { self.doTrackMove(-1); return; },
                         '?' => { commands.cmdHelp(self, ""); return; },
                         '<' => { self.doTrackPan(@intCast(self.cursor), -0.05); return; },
                         '>' => { self.doTrackPan(@intCast(self.cursor), 0.05); return; },
@@ -729,6 +732,64 @@ pub const App = struct {
             },
             else => {},
         }
+    }
+
+    /// Deep-copy the track under the cursor into a new track appended at the
+    /// end (see Session.duplicateTrack) and jump the cursor to it. Appending
+    /// means no existing track's index shifts, so unlike delete this never
+    /// needs to touch history or editor-target indices.
+    pub fn doTrackDup(self: *App, track_idx: usize) void {
+        const idx = self.session.duplicateTrack(track_idx) catch |err| {
+            if (err == error.TrackLimitReached)
+                self.setStatus("track limit reached", .{})
+            else
+                self.setStatus("out of memory", .{});
+            return;
+        };
+        self.cursor = idx;
+        self.dirty = true;
+        self.setStatus("duplicated track {d} -> {d}", .{ track_idx + 1, idx + 1 });
+    }
+
+    /// Swap the cursor's track with its neighbor (`dir` < 0 = up, > 0 =
+    /// down) and follow the cursor along. A swap silently changes what
+    /// absolute index every per-instrument editor target and undo entry
+    /// refers to, so remap the former and — same call as doTrackDel — drop
+    /// the latter rather than risk restoring content into the wrong track.
+    pub fn doTrackMove(self: *App, dir: i32) void {
+        const len = self.session.project.tracks.items.len;
+        if (len < 2) return;
+        const cur = self.cursor;
+        const other: usize = if (dir < 0)
+            (if (cur == 0) return else cur - 1)
+        else
+            (if (cur + 1 >= len) return else cur + 1);
+
+        self.session.swapTracks(cur, other);
+
+        const swap = struct {
+            fn f(idx: *u16, a: usize, b: usize) void {
+                if (idx.* == a) idx.* = @intCast(b) else if (idx.* == b) idx.* = @intCast(a);
+            }
+        }.f;
+        swap(&self.synth_track, cur, other);
+        swap(&self.drum_track, cur, other);
+        swap(&self.piano_track, cur, other);
+        swap(&self.eq_track, cur, other);
+        switch (self.sampler_target) {
+            .drum => |*t| swap(t, cur, other),
+            .sampler => |*t| swap(t, cur, other),
+        }
+        if (self.piano_clip_link) |*link| {
+            if (link.track == cur) link.track = @intCast(other)
+            else if (link.track == other) link.track = @intCast(cur);
+        }
+        self.history.deinit(self.allocator);
+        self.history = .{};
+
+        self.cursor = other;
+        self.dirty = true;
+        self.setStatus("moved track {d} {s}", .{ cur + 1, if (dir < 0) "up" else "down" });
     }
 
     fn doTrackPan(self: *App, track: u16, delta: f32) void {

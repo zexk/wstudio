@@ -205,6 +205,11 @@ pub const Arrangement = struct {
         return &self.lanes.items[index];
     }
 
+    /// Swap two lanes' positions (mirrors Session.swapTracks). No allocation.
+    pub fn swapLanes(self: *Arrangement, a: usize, b: usize) void {
+        std.mem.swap(Lane, &self.lanes.items[a], &self.lanes.items[b]);
+    }
+
     /// Song length in bars: the longest lane.
     pub fn lengthBars(self: *const Arrangement) u32 {
         var end: u32 = 0;

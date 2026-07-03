@@ -8,6 +8,7 @@ const StereoDelay = @import("dsp/delay.zig").StereoDelay;
 const Reverb = @import("dsp/reverb.zig").Reverb;
 const GraphicEq = @import("dsp/eq.zig").GraphicEq;
 const PatternPlayer = @import("dsp/pattern.zig").PatternPlayer;
+const Transport = @import("transport.zig").Transport;
 
 /// A signal source: generates audio from MIDI events.
 /// Add new synthesiser/sampler variants here as the engine grows.
@@ -79,6 +80,57 @@ pub const Rack = struct {
         self.fx.deinit(allocator);
     }
 
+    /// Deep-copies this rack for track duplication: fresh heap allocations
+    /// for every owned buffer (pad audio, delay/reverb lines) so the two
+    /// racks share no memory and can be torn down independently. FX buffer
+    /// *contents* (reverb tail, delay line) aren't preserved — only their
+    /// parameters — matching what project save/load already does.
+    pub fn dupe(self: *const Rack, allocator: std.mem.Allocator, sr: u32, transport: *const Transport) !*Rack {
+        const rack = try allocator.create(Rack);
+        errdefer allocator.destroy(rack);
+        rack.* = .{
+            .instrument = .empty,
+            .label = try allocator.dupe(u8, self.label),
+            .owned_label = true,
+        };
+        errdefer rack.deinit(allocator);
+
+        switch (self.instrument) {
+            .empty => {},
+            .poly_synth => |s| rack.instrument = .{ .poly_synth = s },
+            .sampler => |*s| rack.instrument = .{ .sampler = try s.dupe() },
+            .drum_machine => |*dm| rack.instrument = .{ .drum_machine = try dm.dupe() },
+        }
+        // Set AFTER the instrument lands in the heap rack — the player holds
+        // a pointer into it (same rule as Session.setInstrument).
+        if (self.pattern_player) |*pp| {
+            var new_pp = PatternPlayer.init(rack.instrument.device().?, transport);
+            new_pp.note_count = pp.note_count;
+            new_pp.notes = pp.notes;
+            new_pp.length_beats = pp.length_beats;
+            rack.pattern_player = new_pp;
+        }
+
+        if (self.fx.comp) |c| rack.fx.comp = c;
+        if (self.fx.eq) |e| rack.fx.eq = e;
+        if (self.fx.delay) |d| {
+            var nd = try StereoDelay.init(allocator, sr, 2.0);
+            nd.delay_frames = d.delay_frames;
+            nd.feedback = d.feedback;
+            nd.mix = d.mix;
+            rack.fx.delay = nd;
+        }
+        if (self.fx.reverb) |r| {
+            var nr = try Reverb.init(allocator, sr);
+            nr.mix = r.mix;
+            nr.room = r.room;
+            nr.damp = r.damp;
+            rack.fx.reverb = nr;
+        }
+
+        return rack;
+    }
+
     /// Fills `buf` with [pattern_player?, instrument, ...fx] in signal-flow
     /// order and returns the used slice. Caller must keep `buf` alive for as
     /// long as the slice is passed to the engine.
@@ -120,7 +172,6 @@ test "chain order is instrument → comp → eq → delay → reverb (no pattern
 }
 
 test "drum_machine Instrument variant: device ptr stable inside heap Rack" {
-    const Transport = @import("transport.zig").Transport;
     var transport: Transport = .{ .sample_rate = 48_000 };
 
     const rack = try std.testing.allocator.create(Rack);

@@ -199,6 +199,37 @@ pub const DrumMachine = struct {
         }
     }
 
+    /// Deep copy for track duplication: starts from a fresh `init` (which
+    /// loads the embedded kit) so every buffer is uniquely allocated, then
+    /// overwrites each pad with a dupe of this machine's actual clip audio
+    /// and copies the pattern bank, step count, and swing. Song-mode state
+    /// isn't carried — the caller rebuilds it from the arrangement if needed.
+    pub fn dupe(self: *const DrumMachine) !DrumMachine {
+        var out = try DrumMachine.init(self.allocator, self.sample_rate, self.transport);
+        errdefer out.deinit();
+
+        for (&out.pads, 0..) |*dst, i| {
+            if (dst.*) |old| self.allocator.free(old.samples);
+            if (self.pads[i]) |src| {
+                var copy = src;
+                copy.samples = try self.allocator.dupe(f32, src.samples);
+                dst.* = copy;
+            } else {
+                dst.* = null;
+            }
+        }
+        for (&out.pattern, 0..) |*p, i| p.store(self.pattern[i].load(.acquire), .monotonic);
+        for (&out.vel_lo, 0..) |*p, i| p.store(self.vel_lo[i].load(.acquire), .monotonic);
+        for (&out.vel_hi, 0..) |*p, i| p.store(self.vel_hi[i].load(.acquire), .monotonic);
+        out.step_count = self.step_count;
+        out.swing.store(self.swing.load(.monotonic), .monotonic);
+        out.variants = self.variants;
+        out.variant_count = self.variant_count;
+        out.variant = self.variant;
+
+        return out;
+    }
+
     pub fn device(self: *DrumMachine) dsp.Device {
         return .{ .ptr = self, .vtable = &vtable };
     }

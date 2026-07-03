@@ -82,6 +82,11 @@ pub const Project = struct {
         self.allocator.free(self.tracks.items[index].name);
         self.tracks.items[index].name = name;
     }
+
+    /// Swap two tracks' positions. No allocation, cannot fail.
+    pub fn swapTracks(self: *Project, a: usize, b: usize) void {
+        std.mem.swap(Track, &self.tracks.items[a], &self.tracks.items[b]);
+    }
 };
 
 test "add and remove tracks" {

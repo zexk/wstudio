@@ -683,6 +683,44 @@ test "track delete removes the rack and shifts later tracks down" {
     try std.testing.expectEqual(InstrumentKind.drum_machine, std.meta.activeTag(app.session.racks.items[1].instrument));
 }
 
+test "Y duplicates the selected track and jumps the cursor to the copy" {
+    var app = try testApp();
+    defer app.deinit();
+
+    const initial_tracks = app.session.project.tracks.items.len;
+    app.cursor = 1; // the sampler
+    app.handleKey(.{ .char = 'Y' }, 0);
+
+    try std.testing.expectEqual(initial_tracks + 1, app.session.project.tracks.items.len);
+    const last = app.session.racks.items.len - 1;
+    try std.testing.expectEqual(@as(usize, last), app.cursor);
+    try std.testing.expectEqual(InstrumentKind.sampler, std.meta.activeTag(app.session.racks.items[last].instrument));
+    try std.testing.expect(app.dirty);
+}
+
+test "J/K swap the selected track with its neighbor and follow the cursor" {
+    var app = try testApp();
+    defer app.deinit();
+
+    app.cursor = 1; // the sampler
+    app.handleKey(.{ .char = 'J' }, 0); // swap with the drum machine at 2
+
+    try std.testing.expectEqual(@as(usize, 2), app.cursor);
+    try std.testing.expectEqual(InstrumentKind.drum_machine, std.meta.activeTag(app.session.racks.items[1].instrument));
+    try std.testing.expectEqual(InstrumentKind.sampler, std.meta.activeTag(app.session.racks.items[2].instrument));
+
+    app.handleKey(.{ .char = 'K' }, 0); // swap back up
+
+    try std.testing.expectEqual(@as(usize, 1), app.cursor);
+    try std.testing.expectEqual(InstrumentKind.sampler, std.meta.activeTag(app.session.racks.items[1].instrument));
+    try std.testing.expectEqual(InstrumentKind.drum_machine, std.meta.activeTag(app.session.racks.items[2].instrument));
+
+    // Moving the first track up, or the last track down, is a no-op.
+    app.cursor = 0;
+    app.handleKey(.{ .char = 'K' }, 0);
+    try std.testing.expectEqual(@as(usize, 0), app.cursor);
+}
+
 test ":sig sets beats per bar and reshapes bar math" {
     var app = try testApp();
     defer app.deinit();

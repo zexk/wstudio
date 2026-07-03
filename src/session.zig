@@ -6,6 +6,7 @@
 //! frontend struct.
 
 const std = @import("std");
+const types = @import("core/types.zig");
 const Project = @import("project.zig").Project;
 const engine_mod = @import("audio/engine.zig");
 const Engine = engine_mod.Engine;
@@ -193,6 +194,66 @@ pub const Session = struct {
 
         self.arrangement.removeLane(self.allocator, track_idx);
         self.project.removeTrack(track_idx);
+    }
+
+    /// Deep-copy `track_idx` — instrument, params, FX, pattern/pad audio, and
+    /// its arrangement clips — into a new track appended at the end. Appending
+    /// (rather than inserting right after the source) never reindexes an
+    /// existing track, so undo history and editor-target indices stay valid,
+    /// same rule as `addTrack`. Returns the new track's index.
+    pub fn duplicateTrack(self: *Session, track_idx: usize) !u16 {
+        if (track_idx >= self.racks.items.len) return error.TrackLimitReached;
+        if (self.project.tracks.items.len >= engine_mod.max_tracks)
+            return error.TrackLimitReached;
+
+        const src = self.project.tracks.items[track_idx];
+        var name_buf: [40]u8 = undefined;
+        const name = std.fmt.bufPrint(&name_buf, "{s} copy", .{src.name}) catch src.name;
+
+        const new_rack = try self.racks.items[track_idx].dupe(
+            self.allocator, self.project.sample_rate, &self.engine.transport,
+        );
+        errdefer { new_rack.deinit(self.allocator); self.allocator.destroy(new_rack); }
+
+        const idx: u16 = @intCast(self.project.tracks.items.len);
+
+        try self.racks.append(self.allocator, new_rack);
+        errdefer _ = self.racks.pop();
+
+        try self.arrangement.addLane(self.allocator);
+        errdefer self.arrangement.removeLane(self.allocator, self.arrangement.lanes.items.len - 1);
+        if (self.arrangement.lane(track_idx)) |src_lane| {
+            const dst_lane = self.arrangement.lane(idx).?;
+            for (src_lane.clips.items) |c| try dst_lane.clips.append(self.allocator, try c.dupe(self.allocator));
+        }
+
+        _ = try self.project.addTrack(.{
+            .name = name, .kind = src.kind, .gain_db = src.gain_db,
+            .pan = src.pan, .muted = src.muted, .soloed = src.soloed,
+        });
+
+        self.engine.applyInsertTrack(idx, idx, types.dbToGain(src.gain_db), src.pan, src.muted);
+        var buf: [6]dsp.Device = undefined;
+        self.engine.setTrackChain(idx, new_rack.chain(&buf));
+        if (src.soloed) _ = self.engine.send(.{ .set_track_solo = .{ .track = idx, .soloed = true } });
+
+        if (self.song_mode) self.rebuildSongData();
+
+        return idx;
+    }
+
+    /// Swap two tracks' positions across every parallel structure (project,
+    /// racks, arrangement lanes, engine state+chain). No allocation, cannot
+    /// fail. A rack's own song-mode data travels with it, so no rebuild is
+    /// needed. Callers should reset any per-instrument editor-target/undo
+    /// state tied to an absolute track index — a swap silently changes what
+    /// index `a`/`b` mean, same rule as `deleteTrack`.
+    pub fn swapTracks(self: *Session, a: usize, b: usize) void {
+        if (a == b or a >= self.racks.items.len or b >= self.racks.items.len) return;
+        self.project.swapTracks(a, b);
+        std.mem.swap(*Rack, &self.racks.items[a], &self.racks.items[b]);
+        self.arrangement.swapLanes(a, b);
+        self.engine.swapTracks(@intCast(a), @intCast(b));
     }
 
     /// Capture `track_idx`'s current live pattern as a clip at `start_bar`.
@@ -434,6 +495,97 @@ test "deleteTrack rejects last track" {
     var s = try Session.initDefault(std.testing.allocator);
     defer s.deinit();
     try std.testing.expectError(error.CannotDeleteLastTrack, s.deleteTrack(0));
+}
+
+test "duplicateTrack copies params and appends at the end" {
+    var s = try Session.initDefault(std.testing.allocator);
+    defer s.deinit();
+    try s.setInstrument(0, .poly_synth);
+    s.project.tracks.items[0].gain_db = -6.0;
+    s.project.tracks.items[0].pan = 0.5;
+    s.project.tracks.items[0].muted = true;
+
+    const idx = try s.duplicateTrack(0);
+    try std.testing.expectEqual(@as(u16, 1), idx);
+    try std.testing.expectEqual(@as(usize, 2), s.project.tracks.items.len);
+    try std.testing.expectEqual(@as(usize, 2), s.racks.items.len);
+
+    const dup = s.project.tracks.items[1];
+    try std.testing.expectEqualStrings("track 1 copy", dup.name);
+    try std.testing.expectApproxEqAbs(@as(f32, -6.0), dup.gain_db, 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.5), dup.pan, 1e-6);
+    try std.testing.expect(dup.muted);
+    try std.testing.expect(s.racks.items[0] != s.racks.items[1]);
+    try std.testing.expectEqual(rack_mod.InstrumentKind.poly_synth, std.meta.activeTag(s.racks.items[1].instrument));
+
+    // Chains stay live and renderable after the duplicate.
+    _ = s.engine.send(.play);
+    var block: [128]@import("core/types.zig").Sample = undefined;
+    s.engine.process(&block);
+}
+
+test "duplicateTrack deep-copies sampler audio and drum kit pads" {
+    var s = try Session.initDefault(std.testing.allocator);
+    defer s.deinit();
+    try s.setInstrument(0, .sampler);
+    const idx = try s.duplicateTrack(0);
+
+    const orig_samples = s.racks.items[0].instrument.sampler.pad.samples;
+    const dup_samples = s.racks.items[idx].instrument.sampler.pad.samples;
+    try std.testing.expect(orig_samples.ptr != dup_samples.ptr);
+    try std.testing.expectEqualSlices(f32, orig_samples, dup_samples);
+
+    try s.setInstrument(0, .drum_machine);
+    const drum_idx = try s.duplicateTrack(0);
+    const orig_pad = s.racks.items[0].instrument.drum_machine.pads[0].?;
+    const dup_pad = s.racks.items[drum_idx].instrument.drum_machine.pads[0].?;
+    try std.testing.expect(orig_pad.samples.ptr != dup_pad.samples.ptr);
+    try std.testing.expectEqualSlices(f32, orig_pad.samples, dup_pad.samples);
+}
+
+test "duplicateTrack copies arrangement clips into a new lane" {
+    var s = try Session.initDefault(std.testing.allocator);
+    defer s.deinit();
+    try s.setInstrument(0, .poly_synth);
+    const pp = &s.racks.items[0].pattern_player.?;
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 1.0 });
+    try s.stampClip(0, 0);
+
+    const idx = try s.duplicateTrack(0);
+    const dst_lane = s.arrangement.lane(idx).?;
+    try std.testing.expectEqual(@as(usize, 1), dst_lane.clips.items.len);
+    try std.testing.expectEqual(@as(usize, 1), dst_lane.clips.items[0].content.melodic.notes.len);
+    // Independent allocation: mutating the source doesn't touch the copy.
+    try std.testing.expect(
+        dst_lane.clips.items[0].content.melodic.notes.ptr !=
+            s.arrangement.lane(0).?.clips.items[0].content.melodic.notes.ptr,
+    );
+}
+
+test "swapTracks exchanges project, rack, lane, and engine state" {
+    var s = try Session.initDefault(std.testing.allocator);
+    defer s.deinit();
+    _ = try s.addTrack("second");
+    try s.setInstrument(0, .poly_synth);
+    s.project.tracks.items[0].gain_db = -3.0;
+    try s.stampClip(0, 0);
+
+    const rack_a = s.racks.items[0];
+    const rack_b = s.racks.items[1];
+
+    s.swapTracks(0, 1);
+
+    try std.testing.expectEqual(rack_b, s.racks.items[0]);
+    try std.testing.expectEqual(rack_a, s.racks.items[1]);
+    try std.testing.expectEqualStrings("second", s.project.tracks.items[0].name);
+    try std.testing.expectApproxEqAbs(@as(f32, -3.0), s.project.tracks.items[1].gain_db, 1e-6);
+    try std.testing.expectEqual(@as(usize, 0), s.arrangement.lane(0).?.clips.items.len);
+    try std.testing.expectEqual(@as(usize, 1), s.arrangement.lane(1).?.clips.items.len);
+
+    // Engine still renders after the swap.
+    _ = s.engine.send(.play);
+    var block: [128]@import("core/types.zig").Sample = undefined;
+    s.engine.process(&block);
 }
 
 test "stampClip captures the live melodic pattern as a clip" {
