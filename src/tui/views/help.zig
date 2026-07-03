@@ -105,6 +105,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("J / K",        "move selected track down / up");
     t.key("R",            "rename selected track (opens :track-rename <n>)");
     t.key("t",            "tap tempo (tap a few times to set bpm)");
+    t.key("c",            "toggle the click track (also :metronome [on|off])");
     t.key("u / U",        "undo / redo content edits (notes, drums, clips)");
     t.key("? / :help",    "this help");
 

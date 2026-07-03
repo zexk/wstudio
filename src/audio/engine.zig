@@ -4,6 +4,7 @@ const dsp = @import("../dsp/device.zig");
 const spectrum_mod = @import("../dsp/spectrum.zig");
 const Spsc = @import("../core/ring_buffer.zig").Spsc;
 const Limiter = @import("../dsp/limiter.zig").Limiter;
+const Metronome = @import("../dsp/metronome.zig").Metronome;
 const Transport = @import("../transport.zig").Transport;
 const Project = @import("../project.zig").Project;
 
@@ -40,6 +41,7 @@ pub const Command = union(enum) {
     set_spectrum_active: struct { source: SpectrumSource, track: u16 },
     /// A/B loop region (frames). See Transport.advance for the wrap.
     set_loop: struct { enabled: bool, start_frames: u64, end_frames: u64 },
+    set_metronome: bool,
 };
 
 const TrackState = struct {
@@ -66,6 +68,11 @@ pub const Engine = struct {
     /// Always-on master-bus limiter: catches hot mixes before the WAV
     /// writer's ±1 clamp (and the DAC) turns them into hard-clip distortion.
     limiter: Limiter,
+    metronome: Metronome,
+    metronome_enabled: bool = false,
+    /// Monotonic count of beats fired so far — same resync-on-discontinuity
+    /// technique as DrumMachine.next_step_k, one level up (beats, not steps).
+    metronome_next_beat: u64 = 0,
     tracks: [max_tracks]TrackState,
     scratch: [types.max_block_frames * channels]Sample = undefined,
     peak: [channels]f32 = .{ 0.0, 0.0 },
@@ -90,12 +97,16 @@ pub const Engine = struct {
     pub fn init(allocator: std.mem.Allocator, sample_rate: u32) !Engine {
         var track_spec = try SpectrumAnalyzer.init(allocator, sample_rate);
         errdefer track_spec.deinit(allocator);
-        const master_spec = try SpectrumAnalyzer.init(allocator, sample_rate);
+        var master_spec = try SpectrumAnalyzer.init(allocator, sample_rate);
+        errdefer master_spec.deinit(allocator);
+        var metronome = try Metronome.init(allocator, sample_rate);
+        errdefer metronome.deinit();
 
         var self = Engine{
             .allocator = allocator,
             .transport = .{ .sample_rate = sample_rate },
             .limiter = Limiter.init(sample_rate),
+            .metronome = metronome,
             .tracks = undefined,
             .track_spectrum = track_spec,
             .master_spectrum = master_spec,
@@ -105,6 +116,7 @@ pub const Engine = struct {
     }
 
     pub fn deinit(self: *Engine) void {
+        self.metronome.deinit();
         self.master_spectrum.deinit(self.allocator);
         self.track_spectrum.deinit(self.allocator);
     }
@@ -163,6 +175,43 @@ pub const Engine = struct {
         std.mem.swap(TrackState, &self.tracks[a], &self.tracks[b]);
     }
 
+    /// Fire the metronome click at every beat boundary inside this block
+    /// (same monotonic-counter, resync-on-discontinuity technique as
+    /// DrumMachine.processBlock's step firing, one level up: beats instead
+    /// of steps), then mix whatever's in flight into `out`.
+    fn fireMetronome(self: *Engine, out: []Sample, frames: u32) void {
+        if (self.transport.playing) {
+            const pos_f = @as(f64, @floatFromInt(self.transport.position_frames));
+            const fpb = self.transport.framesPerBeat();
+            var beat_k = self.metronome_next_beat;
+
+            const expected = @as(f64, @floatFromInt(beat_k)) * fpb;
+            if (@abs(expected - pos_f) > fpb * 2.0) {
+                beat_k = @intFromFloat(@ceil(pos_f / fpb));
+            }
+
+            while (true) {
+                const fire_pos = @as(f64, @floatFromInt(beat_k)) * fpb;
+                if (fire_pos >= pos_f + @as(f64, @floatFromInt(frames))) break;
+
+                const fire_frame: u32 = if (fire_pos <= pos_f)
+                    0
+                else
+                    @intCast(@min(
+                        @as(u64, @intFromFloat(fire_pos - pos_f)),
+                        @as(u64, frames - 1),
+                    ));
+
+                const bpb: u64 = self.transport.time_signature.beats_per_bar;
+                self.metronome.trigger(beat_k % bpb == 0, fire_frame);
+                beat_k += 1;
+            }
+            self.metronome_next_beat = beat_k;
+        }
+
+        self.metronome.render(out, channels, frames);
+    }
+
     pub fn setTrackChain(self: *Engine, track: u16, devices: []const dsp.Device) void {
         const state = self.trackAt(track);
         state.chain_len = @min(devices.len, max_chain_devices);
@@ -182,6 +231,7 @@ pub const Engine = struct {
         self.drainCommands();
         @memset(out, 0.0);
         self.renderTracks(out, frames);
+        if (self.metronome_enabled) self.fireMetronome(out, frames);
 
         for (out) |*s| s.* *= self.master_gain;
         self.limiter.processBlock(out);
@@ -264,6 +314,7 @@ pub const Engine = struct {
                 self.transport.loop_start_frames = c.start_frames;
                 self.transport.loop_end_frames = c.end_frames;
             },
+            .set_metronome => |v| self.metronome_enabled = v,
             .set_spectrum_active => |c| {
                 self.active_spectrum_source = c.source;
                 // Reset buffer when switching to a different track so stale
@@ -355,6 +406,31 @@ test "transport advances only while playing" {
     _ = engine.send(.play);
     engine.process(&block);
     try std.testing.expectEqual(@as(u64, 256), engine.transport.position_frames);
+}
+
+test "metronome only clicks while enabled and playing" {
+    var engine = try Engine.init(std.testing.allocator, 48_000);
+    defer engine.deinit();
+    var block: [512]Sample = undefined;
+
+    _ = engine.send(.play);
+    engine.process(&block); // enabled = false: silent
+    try std.testing.expectEqual(@as(f32, 0.0), engine.peak[0]);
+
+    _ = engine.send(.{ .set_metronome = true });
+    engine.process(&block); // first block always crosses beat 0
+    try std.testing.expect(engine.peak[0] > 0.0);
+}
+
+test "metronome accents beat 1 of every bar" {
+    var engine = try Engine.init(std.testing.allocator, 48_000);
+    defer engine.deinit();
+    _ = engine.send(.{ .set_metronome = true });
+    _ = engine.send(.play);
+
+    var block: [64]Sample = undefined;
+    engine.process(&block); // fires beat 0 (the downbeat) at frame 0
+    try std.testing.expect(engine.metronome.is_accent);
 }
 
 test "mute command silences a track" {

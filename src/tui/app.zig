@@ -313,6 +313,7 @@ pub const App = struct {
                         'Y' => { self.doTrackDup(self.cursor); return; },
                         'J' => { self.doTrackMove(1); return; },
                         'K' => { self.doTrackMove(-1); return; },
+                        'c' => { self.toggleMetronome(); return; },
                         '?' => { commands.cmdHelp(self, ""); return; },
                         '<' => { self.doTrackPan(@intCast(self.cursor), -0.05); return; },
                         '>' => { self.doTrackPan(@intCast(self.cursor), 0.05); return; },
@@ -340,6 +341,13 @@ pub const App = struct {
         self.cmd_history_pos = self.cmd_history.items.len;
         const text = std.fmt.bufPrint(&self.modal.cmd_buf, "track-rename {d} ", .{self.cursor + 1}) catch return;
         self.modal.cmd_len = text.len;
+    }
+
+    /// c toggles the click track (also `:metronome [on|off]`).
+    fn toggleMetronome(self: *App) void {
+        const on = !self.session.metronome_enabled;
+        self.session.setMetronome(on);
+        self.setStatus("metronome {s}", .{if (on) "on" else "off"});
     }
 
     /// t taps the tempo: each tap after the first sets the BPM from the
@@ -889,6 +897,9 @@ pub const App = struct {
             try w.writeAll("\x1b[32m\x1b[1m |> " ++ icons.play ++ "\x1b[0m");
         } else {
             try w.writeAll("\x1b[2m [] " ++ icons.stop ++ "\x1b[0m");
+        }
+        if (self.session.metronome_enabled) {
+            try w.writeAll(" \x1b[33m" ++ icons.tempo ++ " click\x1b[0m");
         }
         try w.print(" {d:0>3}.{d}  {d:0>2}:{d:0>4.1}  \x1b[2mL\x1b[0m", .{
             pos.bar + 1,

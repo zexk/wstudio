@@ -155,6 +155,9 @@ a full song:
 
 Done:
 
+- [x] Click track (`c` / `:metronome [on|off]`): a synthesised tick on every
+      beat, accented on beat 1 of each bar, mixed straight into the master
+      bus in sync with the transport
 - [x] Track duplicate (`Y`) and reorder (`J`/`K`): duplicate deep-copies the
       instrument, its params, FX, pattern/pad audio, and arrangement clips
       into a new track appended at the end; reorder swaps two tracks in

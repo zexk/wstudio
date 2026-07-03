@@ -77,6 +77,7 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "export",      .desc = "[file]  render session to WAV (alias for :bounce)",   .run = wrap(cmdBounce) },
     .{ .name = "clear",       .desc = "erase all notes in the piano-roll pattern",          .run = wrap(cmdClear) },
     .{ .name = "%d",          .desc = "erase all notes in the pattern (alias for :clear)",  .run = wrap(cmdClear) },
+    .{ .name = "metronome",   .desc = "[on|off]  toggle the click track",                   .run = wrap(cmdMetronome) },
 };
 
 /// Look up `text` in the command table and run it, reporting unknown commands
@@ -162,6 +163,18 @@ pub fn cmdHelp(app: *App, _: []const u8) void {
     app.prev_view = app.view;
     app.help_scroll = 0;
     app.view = .help;
+}
+
+fn cmdMetronome(app: *App, args: []const u8) void {
+    const trimmed = std.mem.trim(u8, args, " ");
+    const on = if (std.mem.eql(u8, trimmed, "on"))
+        true
+    else if (std.mem.eql(u8, trimmed, "off"))
+        false
+    else
+        !app.session.metronome_enabled;
+    app.session.setMetronome(on);
+    app.setStatus("metronome {s}", .{if (on) "on" else "off"});
 }
 
 fn cmdTrackAdd(app: *App, args: []const u8) void {

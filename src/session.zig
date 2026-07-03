@@ -40,6 +40,10 @@ pub const Session = struct {
     /// track loops its single live pattern (the original behavior). Honored by
     /// the engine in song-mode playback.
     song_mode: bool = false,
+    /// Click track on/off. Control-side source of truth, mirrored to the
+    /// engine via `set_metronome` — same pattern as `loop_enabled`/`song_mode`.
+    /// A monitoring aid, not song content, so it isn't persisted.
+    metronome_enabled: bool = false,
 
     /// Build the default session: a single blank track. Instruments are added
     /// per-track via `setInstrument`; the shipped `demo.wsj` is the curated
@@ -314,6 +318,12 @@ pub const Session = struct {
                 else => {},
             }
         }
+    }
+
+    /// Toggle the click track.
+    pub fn setMetronome(self: *Session, on: bool) void {
+        self.metronome_enabled = on;
+        _ = self.engine.send(.{ .set_metronome = on });
     }
 
     /// Push the project's A/B loop region (bars) to the audio thread as
@@ -679,4 +689,20 @@ test "song mode places a drum clip on the step timeline" {
     try std.testing.expectEqual(@as(u32, 1), dm.song_clips[0].pattern[0]);
     // Arrangement spans bars 0..2 (clip covers bar 1) → 32 steps.
     try std.testing.expectEqual(@as(u32, 32), dm.song_length_steps);
+}
+
+test "setMetronome mirrors to the engine" {
+    var s = try Session.initDefault(std.testing.allocator);
+    defer s.deinit();
+    try std.testing.expect(!s.metronome_enabled);
+
+    s.setMetronome(true);
+    try std.testing.expect(s.metronome_enabled);
+    _ = s.engine.send(.play);
+    var block: [128]@import("core/types.zig").Sample = undefined;
+    s.engine.process(&block);
+    try std.testing.expect(s.engine.metronome_enabled);
+
+    s.setMetronome(false);
+    try std.testing.expect(!s.metronome_enabled);
 }

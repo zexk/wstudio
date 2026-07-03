@@ -721,6 +721,33 @@ test "J/K swap the selected track with its neighbor and follow the cursor" {
     try std.testing.expectEqual(@as(usize, 0), app.cursor);
 }
 
+test "c toggles the click track" {
+    var app = try testApp();
+    defer app.deinit();
+
+    app.handleKey(.{ .char = 'c' }, 0);
+    try std.testing.expect(app.session.metronome_enabled);
+    app.handleKey(.{ .char = 'c' }, 0);
+    try std.testing.expect(!app.session.metronome_enabled);
+}
+
+test ":metronome toggles, and on/off set it explicitly" {
+    var app = try testApp();
+    defer app.deinit();
+
+    for (":metronome") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expect(app.session.metronome_enabled);
+
+    for (":metronome off") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expect(!app.session.metronome_enabled);
+
+    for (":metronome on") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expect(app.session.metronome_enabled);
+}
+
 test ":sig sets beats per bar and reshapes bar math" {
     var app = try testApp();
     defer app.deinit();

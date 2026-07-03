@@ -44,7 +44,7 @@ const enumRow = style.enumRow;
 pub fn drawTracks(app: anytype, w: *std.Io.Writer, rows: usize, snap: engine_mod.UiSnapshot) !void {
     _ = snap;
     try w.writeAll(bold ++ " TRACKS" ++ rst);
-    try w.writeAll(dim ++ "   [enter:edit  p:piano  A:arrange  s:spectrum  m:mute  S:solo  M:master  a:add  D:del  Y:dup  J/K:move  ?:help]");
+    try w.writeAll(dim ++ "   [enter:edit  p:piano  A:arrange  s:spectrum  m:mute  S:solo  M:master  a:add  D:del  Y:dup  J/K:move  c:click  ?:help]");
     try endLine(w);
 
     for (app.session.project.tracks.items, 0..) |track, i| {
