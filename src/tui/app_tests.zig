@@ -15,6 +15,7 @@ const commands = @import("commands.zig");
 const drum_ed = @import("editors/drum.zig");
 const piano_ed = @import("editors/piano.zig");
 const sampler_ed = @import("editors/sampler.zig");
+const icons = @import("icons.zig");
 
 /// Build a deterministic 3-track app for tests: synth(0), sampler(1), drums(2).
 fn testApp() !App {
@@ -527,6 +528,45 @@ test "draw renders tracks view without overflowing" {
     try std.testing.expect(std.mem.indexOf(u8, frame, "NORMAL") != null);
     try std.testing.expect(std.mem.indexOf(u8, frame, "synth") != null);
     try std.testing.expect(std.mem.indexOf(u8, frame, "drums") != null);
+    // Per-track instrument-kind icons (synth, sampler, drum) are present.
+    try std.testing.expect(std.mem.indexOf(u8, frame, icons.synth) != null);
+    try std.testing.expect(std.mem.indexOf(u8, frame, icons.sampler) != null);
+    try std.testing.expect(std.mem.indexOf(u8, frame, icons.drum) != null);
+}
+
+test "draw shows a dirty-flag warning icon in the header once edited" {
+    var app = try testApp();
+    defer app.deinit();
+
+    var buf: [32 * 1024]u8 = undefined;
+    var w = std.Io.Writer.fixed(&buf);
+    try app.draw(&w, .{ .cols = 80, .rows = 24 });
+    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), icons.warn) == null);
+
+    app.applyAction(.toggle_mute, 0);
+    try std.testing.expect(app.dirty);
+    w = std.Io.Writer.fixed(&buf);
+    try app.draw(&w, .{ .cols = 80, .rows = 24 });
+    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), icons.warn) != null);
+}
+
+test "transport indicator carries a play/stop icon alongside the ascii glyph" {
+    var app = try testApp();
+    defer app.deinit();
+    var buf: [32 * 1024]u8 = undefined;
+
+    var w = std.Io.Writer.fixed(&buf);
+    try app.draw(&w, .{ .cols = 80, .rows = 24 });
+    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "[]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), icons.stop) != null);
+
+    _ = app.session.engine.send(.play);
+    var block: [64]types.Sample = undefined;
+    app.session.engine.process(&block);
+    w = std.Io.Writer.fixed(&buf);
+    try app.draw(&w, .{ .cols = 80, .rows = 24 });
+    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "|>") != null);
+    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), icons.play) != null);
 }
 
 test "blank track row shows the empty hint" {

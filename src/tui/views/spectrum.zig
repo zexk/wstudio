@@ -12,6 +12,7 @@ const engine_mod = ws.engine;
 const pattern_mod = ws.dsp.pattern;
 const midi = ws.midi;
 const style = @import("../style.zig");
+const icons = @import("../icons.zig");
 
 // Aliases so the moved render bodies reference the shared palette/primitives
 // by their original bare names.
@@ -88,6 +89,9 @@ pub fn drawSpectrumView(
     const db_range: f32 = 70.0;
     const db_offset: f32 = -60.0;
 
+    const title_icon = if (is_track) icons.eq else icons.master;
+    try w.writeAll(bold ++ " " ++ rst);
+    try w.writeAll(title_icon);
     try w.writeAll(bold ++ " SPECTRUM" ++ rst);
     try w.print(" \"{s}\"", .{title});
     try w.writeAll(dim ++ "  [jk:gain  hl:select  b:bypass  esc:back]");

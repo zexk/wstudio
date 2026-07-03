@@ -89,6 +89,23 @@ pub fn build(b: *std.Build) void {
     const gensongdemo_step = b.step("gensongdemo", "Write the song-mode demo to song-demo.wsj");
     gensongdemo_step.dependOn(&run_gensongdemo.step);
 
+    // `zig build install-font` writes the TUI's bundled icon font to the
+    // user's font directory (see tools/install_font.zig for why it's needed).
+    const install_font = b.addExecutable(.{
+        .name = "install-font",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/install_font.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "wstudio", .module = wstudio_mod },
+            },
+        }),
+    });
+    const run_install_font = b.addRunArtifact(install_font);
+    const install_font_step = b.step("install-font", "Install the TUI's icon font for your user");
+    install_font_step.dependOn(&run_install_font.step);
+
     const mod_tests = b.addTest(.{ .root_module = wstudio_mod });
     const run_mod_tests = b.addRunArtifact(mod_tests);
     const exe_tests = b.addTest(.{ .root_module = exe.root_module });

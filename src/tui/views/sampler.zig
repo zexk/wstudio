@@ -12,6 +12,7 @@ const engine_mod = ws.engine;
 const pattern_mod = ws.dsp.pattern;
 const midi = ws.midi;
 const style = @import("../style.zig");
+const icons = @import("../icons.zig");
 
 // Aliases so the moved render bodies reference the shared palette/primitives
 // by their original bare names.
@@ -74,7 +75,9 @@ pub fn drawSamplerEditor(
     var written: usize = 0;
 
     // ── Title ────────────────────────────────────
-    try w.writeAll(bcyn ++ bold ++ " \u{2593} SAMPLER " ++ rst);
+    try w.writeAll(bcyn ++ bold ++ " \u{2593} " ++ rst);
+    try w.writeAll(if (is_drum) icons.drum else icons.sampler);
+    try w.writeAll(bcyn ++ bold ++ " SAMPLER " ++ rst);
     try w.writeAll(acc);
     try w.print("\"{s}\"", .{track_name});
     try w.writeAll(rst ++ dim);

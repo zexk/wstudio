@@ -12,6 +12,7 @@ const engine_mod = ws.engine;
 const pattern_mod = ws.dsp.pattern;
 const midi = ws.midi;
 const style = @import("../style.zig");
+const icons = @import("../icons.zig");
 
 // Aliases so the moved render bodies reference the shared palette/primitives
 // by their original bare names.
@@ -88,7 +89,7 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
         app.session.project.tracks.items[app.piano_track].name
     else "?";
 
-    try w.writeAll(bold ++ " PIANO ROLL" ++ rst);
+    try w.writeAll(bold ++ " " ++ icons.synth ++ " PIANO ROLL" ++ rst);
     try w.print(" \"{s}\"", .{name});
     // Clip-editing mode: show which arrangement clip the edits land in.
     if (app.piano_clip_link) |link| {

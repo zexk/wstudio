@@ -11,11 +11,13 @@ const ws = @import("wstudio");
 const Project = ws.Project;
 const Transport = ws.Transport;
 const style = @import("style.zig");
+const icons = @import("icons.zig");
 
 const rst = style.rst;
 const bold = style.bold;
 const dim = style.dim;
 const acc = style.acc;
+const yel = style.yel;
 
 // Shared palette consts / primitives re-exported for callers.
 pub const spectrum_rows = style.spectrum_rows;
@@ -35,19 +37,21 @@ pub fn drawHeader(
     transport: *const Transport,
     audio_label: []const u8,
     master_gain_db: f32,
+    dirty: bool,
 ) !void {
     const vol_sign: []const u8 = if (master_gain_db >= 0) "+" else "";
-    try w.writeAll(bold ++ " wstudio" ++ rst);
+    try w.writeAll(bold ++ " " ++ icons.logo ++ " wstudio" ++ rst);
     try w.writeAll(dim ++ "  " ++ rst);
     try w.writeAll(project.name);
-    try w.writeAll(dim ++ "   bpm " ++ rst);
+    if (dirty) try w.writeAll(" " ++ yel ++ icons.warn ++ rst);
+    try w.writeAll(dim ++ "   " ++ icons.tempo ++ " " ++ rst);
     try w.print("{d:.0}", .{transport.tempo_bpm});
     try w.writeAll(dim ++ "  " ++ rst);
     try w.print("{d}/{d}", .{
         transport.time_signature.beats_per_bar,
         transport.time_signature.beat_unit,
     });
-    try w.writeAll(dim ++ "   vol " ++ rst);
+    try w.writeAll(dim ++ "   " ++ icons.master ++ " " ++ rst);
     try w.print("{s}{d:.0}dB", .{ vol_sign, master_gain_db });
     try w.writeAll(dim ++ "   " ++ rst);
     try w.writeAll(acc);

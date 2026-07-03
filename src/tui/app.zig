@@ -18,6 +18,7 @@ const commands = @import("commands.zig");
 const undo_mod = @import("undo.zig");
 const history = @import("history.zig");
 const tui = @import("tui.zig");
+const icons = @import("icons.zig");
 // Per-view input handlers; the render halves live in views/<name>.zig.
 const drum_ed = @import("editors/drum.zig");
 const synth_ed = @import("editors/synth.zig");
@@ -800,7 +801,7 @@ pub const App = struct {
         const rows: usize = @max(size.rows, 10);
 
         try w.writeAll("\x1b[H");
-        try tui.drawHeader(w, &self.session.project, &self.session.engine.transport, self.audio_label, self.master_gain_db);
+        try tui.drawHeader(w, &self.session.project, &self.session.engine.transport, self.audio_label, self.master_gain_db, self.dirty);
         try tui.hr(w, size.cols);
 
         switch (self.view) {
@@ -824,9 +825,9 @@ pub const App = struct {
         const pos = transport.positionBarBeat();
         const secs = transport.positionSeconds();
         if (snap.playing) {
-            try w.writeAll("\x1b[32m\x1b[1m |>\x1b[0m");
+            try w.writeAll("\x1b[32m\x1b[1m |> " ++ icons.play ++ "\x1b[0m");
         } else {
-            try w.writeAll("\x1b[2m []\x1b[0m");
+            try w.writeAll("\x1b[2m [] " ++ icons.stop ++ "\x1b[0m");
         }
         try w.print(" {d:0>3}.{d}  {d:0>2}:{d:0>4.1}  \x1b[2mL\x1b[0m", .{
             pos.bar + 1,

@@ -12,6 +12,7 @@ const engine_mod = ws.engine;
 const pattern_mod = ws.dsp.pattern;
 const midi = ws.midi;
 const style = @import("../style.zig");
+const icons = @import("../icons.zig");
 
 // Aliases so the moved render bodies reference the shared palette/primitives
 // by their original bare names.
@@ -50,7 +51,7 @@ pub fn drawDrumGrid(app: anytype, w: *std.Io.Writer, rows: usize, snap: engine_m
     const dm = app.drumMachine();
     const step_count = dm.step_count;
     const track_name = app.session.project.tracks.items[app.drum_track].name;
-    try w.writeAll(bold ++ " DRUMS" ++ rst);
+    try w.writeAll(bold ++ " " ++ icons.drum ++ " DRUMS" ++ rst);
     try w.print(" \"{s}\"", .{track_name});
     try w.writeAll("  " ++ acc);
     try w.print("pat {c}", .{DrumMachine.variantLetter(dm.variant)});

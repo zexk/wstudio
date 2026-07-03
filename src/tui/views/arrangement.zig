@@ -10,6 +10,7 @@ const ws = @import("wstudio");
 const engine_mod = ws.engine;
 const Transport = ws.Transport;
 const style = @import("../style.zig");
+const icons = @import("../icons.zig");
 
 const rst = style.rst;
 const bold = style.bold;
@@ -63,7 +64,7 @@ pub fn drawArrangement(
     const playhead = playheadBar(app, snap);
 
     const mode_tag: []const u8 = if (app.session.song_mode) grn ++ "SONG" ++ rst else dim ++ "PATTERN" ++ rst;
-    try w.writeAll(bold ++ " ARRANGEMENT" ++ rst ++ "  ");
+    try w.writeAll(bold ++ " " ++ icons.arrangement ++ " ARRANGEMENT" ++ rst ++ "  ");
     try w.writeAll(mode_tag);
     try w.writeAll(dim ++ "   [hjkl:move  enter:stamp  e:edit  y/P/<>:clip  ()b:loop  []:pattern  x:del  g:play-here  T:mode  esc:back]" ++ rst);
     try endLine(w);
@@ -156,7 +157,7 @@ pub fn drawArrangementStatus(app: anytype, w: *std.Io.Writer) !void {
 
     const p = &app.session.project;
     if (p.loop_enabled and p.loop_end_bar > p.loop_start_bar) {
-        try w.writeAll(dim ++ "  loop " ++ rst ++ yel);
+        try w.writeAll(dim ++ "  " ++ rst ++ yel ++ icons.loop ++ " loop " ++ rst ++ yel);
         try w.print("{d}\u{2192}{d}", .{ p.loop_start_bar + 1, p.loop_end_bar });
         try w.writeAll(rst);
     }

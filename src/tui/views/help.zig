@@ -12,6 +12,7 @@ const engine_mod = ws.engine;
 const pattern_mod = ws.dsp.pattern;
 const midi = ws.midi;
 const style = @import("../style.zig");
+const icons = @import("../icons.zig");
 
 // Aliases so the moved render bodies reference the shared palette/primitives
 // by their original bare names.
@@ -198,7 +199,7 @@ pub fn drawHelp(w: *std.Io.Writer, rows: usize, cmds: []const cmd_mod.Def, scrol
     const end = @min(off + visible, t.count);
 
     // Sticky title with a position indicator.
-    try w.writeAll(bold ++ " HELP" ++ rst);
+    try w.writeAll(bold ++ " " ++ icons.help ++ " HELP" ++ rst);
     try w.writeAll(dim ++ "   esc: close   j/k: scroll");
     if (t.count > visible) {
         try w.print("   {d}–{d}/{d}", .{ off + 1, end, t.count });

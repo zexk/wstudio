@@ -12,6 +12,7 @@ const engine_mod = ws.engine;
 const pattern_mod = ws.dsp.pattern;
 const midi = ws.midi;
 const style = @import("../style.zig");
+const icons = @import("../icons.zig");
 
 // Aliases so the moved render bodies reference the shared palette/primitives
 // by their original bare names.
@@ -68,6 +69,16 @@ pub fn drawTracks(app: anytype, w: *std.Io.Writer, rows: usize, snap: engine_mod
         try w.print("{d} ", .{i + 1});
         // name padded — no escape codes inside the padded field
         try w.print("{s: <8}", .{track.name});
+        try w.writeByte(' ');
+        // instrument-kind icon — a single Mono-font cell either way, so
+        // blank tracks' plain space keeps every row's columns aligned.
+        const kind_icon: []const u8 = switch (inst_tag) {
+            .empty => " ",
+            .poly_synth => icons.synth,
+            .sampler => icons.sampler,
+            .drum_machine => icons.drum,
+        };
+        try w.writeAll(kind_icon);
         try w.writeByte(' ');
         // muted indicator: yellow only when row isn't already faded
         if (track.muted) {

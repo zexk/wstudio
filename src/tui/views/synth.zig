@@ -12,6 +12,7 @@ const engine_mod = ws.engine;
 const pattern_mod = ws.dsp.pattern;
 const midi = ws.midi;
 const style = @import("../style.zig");
+const icons = @import("../icons.zig");
 
 // Aliases so the moved render bodies reference the shared palette/primitives
 // by their original bare names.
@@ -94,7 +95,7 @@ fn drawSynthEditorFull(app: anytype, w: *std.Io.Writer, snap: engine_mod.UiSnaps
     else "?";
 
     // Title.
-    try w.writeAll(bcyn ++ bold ++ " \u{2593} SYNTH " ++ rst);
+    try w.writeAll(bcyn ++ bold ++ " \u{2593} " ++ icons.synth ++ " SYNTH " ++ rst);
     try w.writeAll(acc);
     try w.print("\"{s}\"", .{name});
     try w.writeAll(rst);

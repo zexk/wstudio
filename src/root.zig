@@ -37,6 +37,14 @@ pub const midi = @import("midi.zig");
 pub const input = @import("input/modal.zig");
 pub const ModalInput = input.ModalInput;
 
+/// A 16-glyph subset of "Symbols Nerd Font Mono" (MIT; see
+/// assets/fonts/LICENSE) used for the TUI's icons (tui/icons.zig). Exposed
+/// here — rather than embedded directly in tui/icons.zig — so the
+/// `install-font` build tool can reach it too: @embedFile can't cross a
+/// module's root, and tools only import this "wstudio" module, not raw
+/// paths under src/tui/.
+pub const icon_font_ttf: []const u8 = @embedFile("assets/fonts/wstudio-icons.ttf");
+
 test {
     _ = midi;
     _ = midi_in;

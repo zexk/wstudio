@@ -12,6 +12,7 @@ const engine_mod = ws.engine;
 const pattern_mod = ws.dsp.pattern;
 const midi = ws.midi;
 const style = @import("../style.zig");
+const icons = @import("../icons.zig");
 
 // Aliases so the moved render bodies reference the shared palette/primitives
 // by their original bare names.
@@ -42,10 +43,10 @@ const enumRow = style.enumRow;
 
 /// Names + one-line descriptions for the instrument picker. Order must match
 /// `app.picker_kinds`.
-const picker_menu = [_]struct { name: []const u8, desc: []const u8 }{
-    .{ .name = "Synth",        .desc = "subtractive/FM polysynth — piano-roll sequenceable" },
-    .{ .name = "Sampler",      .desc = "one clip played chromatically — :load-sample to swap" },
-    .{ .name = "Drum Machine", .desc = "8-pad step sequencer with per-pad sampler" },
+const picker_menu = [_]struct { name: []const u8, desc: []const u8, icon: []const u8 }{
+    .{ .name = "Synth",        .desc = "subtractive/FM polysynth — piano-roll sequenceable",   .icon = icons.synth },
+    .{ .name = "Sampler",      .desc = "one clip played chromatically — :load-sample to swap", .icon = icons.sampler },
+    .{ .name = "Drum Machine", .desc = "8-pad step sequencer with per-pad sampler",             .icon = icons.drum },
 };
 
 pub fn drawInstrumentPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void {
@@ -65,6 +66,8 @@ pub fn drawInstrumentPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void 
         const is_sel = (i == app.picker_cursor);
         if (is_sel) try w.writeAll(sel);
         try w.writeAll(if (is_sel) "  > " else "    ");
+        try w.writeAll(item.icon);
+        try w.writeByte(' ');
         try w.print("{s: <14}", .{item.name});
         if (!is_sel) try w.writeAll(dim);
         try w.print(" {s}", .{item.desc});

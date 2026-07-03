@@ -69,6 +69,7 @@ src/
 │   ├── app.zig         TUI app: action dispatch, run loop
 │   ├── commands.zig    the `:command` layer (table-driven via cmd.zig)
 │   ├── style.zig       shared palette and output primitives
+│   ├── icons.zig       Nerd Font icon glyphs (see assets/fonts/LICENSE)
 │   └── views/          one renderer per view: tracks, piano roll, drum
 │                       grid, sampler editor, arrangement, spectrum, ...
 ├── transport.zig       playhead, tempo, musical time
@@ -120,8 +121,24 @@ zig build test       # all tests
 zig build genkit     # re-render the embedded drum kit (after editing drum_kit.zig)
 zig build gendemo    # re-write demo.wsj (after editing tools/gendemo.zig)
 zig build gensongdemo # re-write song-demo.wsj (arranges demo.wsj into a song)
+zig build install-font # install the TUI's icon font (see below)
 nix build            # packaged build via zig.hook
 ```
+
+### Icons
+
+The TUI decorates a few views — instrument-kind markers, transport
+play/stop, loop/help/EQ/timeline titles, an unsaved-changes warning —
+with icons from a 16-glyph subset of [Symbols Nerd Font
+Mono](https://github.com/ryanoasis/nerd-fonts) (MIT; see
+`src/assets/fonts/LICENSE`), embedded in the binary and defined in
+`src/tui/icons.zig`. They're additive: every icon sits next to existing
+text/ASCII, never replacing it, so the TUI stays fully legible without
+the font. To see them rendered, run `zig build install-font` (writes
+`wstudio-icons.ttf` to your font directory), then `fc-cache -f` and add
+it as a fallback font in your terminal — it only needs to cover a
+handful of Private Use Area codepoints, so it layers cleanly under
+whatever font you already use.
 
 ## Roadmap
 
@@ -138,6 +155,9 @@ a full song:
 
 Done:
 
+- [x] TUI icons: a 16-glyph Nerd Font subset (embedded, `zig build
+      install-font` to see them) decorates instrument kinds, transport
+      state, and view titles — additive, never replacing the ASCII/text
 - [x] UX round: `:q` refuses on unsaved changes (`:q!` discards), vim count
       prefixes in every editor (`3l`, `12h`), clip yank/paste/move in the
       arrangement (`y`/`P`/`<`/`>`), piano-roll note grab-and-drag (`M`),
@@ -170,3 +190,6 @@ Done:
 ## License
 
 MIT
+
+`src/assets/fonts/wstudio-icons.ttf` is a subset of Symbols Nerd Font
+Mono (MIT); see `src/assets/fonts/LICENSE`.

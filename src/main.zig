@@ -123,6 +123,7 @@ test {
     _ = @import("tui/app.zig");
     _ = @import("tui/tui.zig");
     _ = @import("tui/terminal.zig");
+    _ = @import("tui/icons.zig");
 }
 
 test "frontend links against the engine library" {
