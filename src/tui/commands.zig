@@ -175,6 +175,7 @@ fn cmdLoadPad(app: *App, args: []const u8) void {
         app.setStatus("load-pad: parse error: {s}", .{@errorName(e)});
         return;
     };
+    if (dm.pads[pad_idx]) |*p| p.user_sample = true;
     app.setStatus("pad {d} loaded: {s}", .{ pad_idx, stem });
 }
 
@@ -230,6 +231,7 @@ fn cmdLoadSample(app: *App, args: []const u8) void {
         app.setStatus("load-sample: parse error: {s}", .{@errorName(e)});
         return;
     };
+    s.pad.user_sample = true;
     app.setStatus("sample loaded: {s}", .{stem});
 }
 

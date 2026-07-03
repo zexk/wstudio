@@ -124,8 +124,6 @@ nix build            # packaged build via zig.hook
 Open items, sorted by what most blocks an artist finishing (and keeping)
 a full song:
 
-- [ ] Persist user-loaded sample audio in .wsj (today only the params
-      survive a save; projects built on your own WAVs can't be reopened)
 - [ ] Master bus compressor/EQ (the limiter is in; glue and tone shaping
       on the mix are not)
 - [ ] Live recording from insert mode (play a take into the pattern)
@@ -136,6 +134,8 @@ a full song:
 
 Done:
 
+- [x] User-loaded sample audio persists across saves: WAVs are exported to a
+      `<name>_samples/` directory next to the .wsj and reloaded with the project
 - [x] Undo/redo (`u`/`U`) for content edits: notes, drum patterns/variants,
       arrangement clips — including clips evicted by a stamp
 - [x] Melodic clip editing, Ableton-style: clips own their notes; `e` on a

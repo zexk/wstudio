@@ -9,9 +9,12 @@
 //!   - Per-track gain / pan / mute / solo + project tempo
 //!   - FX: compressor, delay, reverb, EQ
 //!   - Rack labels
+//!   - User-loaded sample audio (drum pads + sampler clips), exported as mono
+//!     WAVs into the "<stem>_samples" sidecar directory next to the .wsj
 
 const std = @import("std");
 const Session = @import("session.zig").Session;
+const wav = @import("core/wav.zig");
 const Project = @import("project.zig").Project;
 const ws_arrangement = @import("arrangement.zig");
 const Rack = @import("rack.zig").Rack;
@@ -41,7 +44,11 @@ const dsp = @import("dsp/device.zig");
 /// and drum clips), per-machine swing, and the time signature numerator
 /// (`beats_per_bar`). Older files omit them and load with every step at full
 /// velocity, swing 50 (straight), and 4/4 — the prior behaviour.
-pub const file_version: u32 = 4;
+/// v5 adds user sample persistence: pads whose audio was loaded by the user
+/// carry `sample_file`/`name` refs to mono WAVs exported into the project's
+/// sample sidecar directory ("<stem>_samples" next to the .wsj). Older files
+/// omit them and keep the shipped kit / generated clip — the prior behaviour.
+pub const file_version: u32 = 5;
 
 // ---------------------------------------------------------------------------
 // Snapshot types — plain data, JSON-serialisable
@@ -123,6 +130,11 @@ pub const PadSnap = struct {
     decay_s: f32 = 0.0,
     sustain: f32 = 1.0,
     release_s: f32 = 0.005,
+    /// v5: user-loaded audio, exported to the project's sample sidecar on
+    /// save. Path relative to the .wsj; empty = shipped/generated audio.
+    sample_file: []const u8 = "",
+    /// v5: display name of a user-loaded sample ("" = keep the default).
+    name: []const u8 = "",
 };
 
 /// One drum pattern variant. Mirrors `DrumMachine.Variant`.
@@ -184,8 +196,8 @@ pub const FxSnap = struct {
 pub const InstrumentKind = enum { empty, poly_synth, sampler, drum_machine };
 
 /// A single-clip sampler: the pad's params, its root note, and the piano-roll
-/// pattern. The clip audio itself is not persisted (same gap as user-loaded
-/// drum samples) — the default clip is regenerated on load.
+/// pattern. User-loaded clip audio rides along via `pad.sample_file` (v5);
+/// without it the default clip is regenerated on load.
 pub const SamplerSnap = struct {
     pad: PadSnap = .{},
     root_note: u8 = 60,
@@ -257,8 +269,9 @@ pub const Snapshot = struct {
 
 /// Serialise `session` as pretty-printed JSON to `path`. Writes to
 /// `<path>.tmp` and renames over the target so a crash mid-write never
-/// corrupts an existing project file. Safe to call while the audio thread is
-/// running.
+/// corrupts an existing project file. User-loaded sample audio is exported
+/// alongside into the "<stem>_samples" sidecar directory (see
+/// `exportSamples`). Safe to call while the audio thread is running.
 pub fn save(
     allocator: std.mem.Allocator,
     session: *const Session,
@@ -278,6 +291,7 @@ pub fn save(
     for (session.racks.items, racks) |rack, *rs| {
         rs.* = try rackToSnap(aa, rack, session.project.sample_rate);
     }
+    try exportSamples(aa, session, io, path, racks);
 
     const lanes = try aa.alloc(LaneSnap, session.arrangement.lanes.items.len);
     for (session.arrangement.lanes.items, lanes) |*lane, *ls| {
@@ -392,6 +406,92 @@ fn rackToSnap(aa: std.mem.Allocator, rack: *Rack, sample_rate: u32) !RackSnap {
     return rs;
 }
 
+// ---------------------------------------------------------------------------
+// Sample sidecar — user-loaded audio lives in "<stem>_samples/" next to the
+// .wsj as mono 16-bit WAVs; PadSnap.sample_file holds the .wsj-relative path.
+// ---------------------------------------------------------------------------
+
+/// Write every user-loaded pad's audio (`Pad.user_sample`) into the sample
+/// sidecar directory and point the matching pad snapshots at the files. The
+/// directory is only created when the session actually holds user samples.
+/// Control thread only: pad buffers are stable while the audio thread runs
+/// (they are replaced only by other control-thread calls).
+fn exportSamples(
+    aa: std.mem.Allocator,
+    session: *const Session,
+    io: std.Io,
+    path: []const u8,
+    racks: []RackSnap,
+) !void {
+    const sidecar = try std.fmt.allocPrint(aa, "{s}_samples", .{std.fs.path.stem(path)});
+    const sr = session.project.sample_rate;
+    var dir_ready = false;
+    for (session.racks.items, racks, 0..) |rack, *rs, ti| {
+        switch (rack.instrument) {
+            .drum_machine => |*dm| for (0..DrumMachine.max_pads) |pi| {
+                if (dm.pads[pi]) |*p| {
+                    if (!p.user_sample) continue;
+                    const rel = try std.fmt.allocPrint(aa, "{s}/t{d}p{d}.wav", .{ sidecar, ti, pi });
+                    try writeSampleWav(aa, io, path, rel, &dir_ready, sr, p.samples);
+                    rs.drum.?.pads[pi].sample_file = rel;
+                    rs.drum.?.pads[pi].name = try aa.dupe(u8, trimmedName(&p.name));
+                }
+            },
+            .sampler => |*s| if (s.pad.user_sample) {
+                const rel = try std.fmt.allocPrint(aa, "{s}/t{d}clip.wav", .{ sidecar, ti });
+                try writeSampleWav(aa, io, path, rel, &dir_ready, sr, s.pad.samples);
+                rs.sampler.?.pad.sample_file = rel;
+                rs.sampler.?.pad.name = try aa.dupe(u8, trimmedName(&s.pad.name));
+            },
+            else => {},
+        }
+    }
+}
+
+/// Write one mono clip as a 16-bit WAV at `rel` (a .wsj-relative path),
+/// creating the sidecar directory on first use. Same .tmp + rename dance as
+/// the project file, so a crash never leaves a truncated sample behind.
+fn writeSampleWav(
+    aa: std.mem.Allocator,
+    io: std.Io,
+    wsj_path: []const u8,
+    rel: []const u8,
+    dir_ready: *bool,
+    sample_rate: u32,
+    samples: []const f32,
+) !void {
+    const full = try joinWsjRel(aa, wsj_path, rel);
+    if (!dir_ready.*) {
+        try std.Io.Dir.cwd().createDirPath(io, std.fs.path.dirname(full).?);
+        dir_ready.* = true;
+    }
+    const tmp = try std.fmt.allocPrint(aa, "{s}.tmp", .{full});
+    {
+        const file = try std.Io.Dir.cwd().createFile(io, tmp, .{});
+        defer file.close(io);
+        var buf: [8192]u8 = undefined;
+        var fw = file.writer(io, &buf);
+        try wav.write(&fw.interface, sample_rate, 1, samples);
+        try fw.interface.flush();
+    }
+    try std.Io.Dir.cwd().rename(tmp, std.Io.Dir.cwd(), full, io);
+}
+
+/// Resolve a path stored relative to the .wsj against the .wsj's directory.
+/// Always returns an owned allocation.
+fn joinWsjRel(allocator: std.mem.Allocator, wsj_path: []const u8, rel: []const u8) ![]const u8 {
+    if (std.fs.path.dirname(wsj_path)) |d|
+        return std.fmt.allocPrint(allocator, "{s}/{s}", .{ d, rel });
+    return allocator.dupe(u8, rel);
+}
+
+/// A pad's fixed 8-byte name buffer with the space padding trimmed.
+fn trimmedName(name: *const [8]u8) []const u8 {
+    var end: usize = name.len;
+    while (end > 0 and name[end - 1] == ' ') end -= 1;
+    return name[0..end];
+}
+
 /// Copy a pattern player's notes into freshly allocated NoteSnaps. Notes are
 /// read under the lock into a stack buffer, then the lock is released before
 /// the allocator runs — avoids leaking the lock on OOM.
@@ -496,7 +596,63 @@ pub fn load(allocator: std.mem.Allocator, io: std.Io, path: []const u8) !Session
     );
     defer parsed.deinit();
 
-    return buildSession(allocator, &parsed.value);
+    var session = try buildSession(allocator, &parsed.value);
+    restoreSamples(allocator, io, path, &parsed.value, &session);
+    return session;
+}
+
+/// Load the sidecar WAVs referenced by pad snapshots back into the session's
+/// pads. Failures are per-pad and non-fatal: a missing or unreadable sample
+/// file leaves that pad on its shipped/generated audio, params intact.
+fn restoreSamples(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    path: []const u8,
+    snap: *const Snapshot,
+    session: *Session,
+) void {
+    for (snap.racks, session.racks.items) |rs, rack| {
+        switch (rack.instrument) {
+            .drum_machine => |*dm| {
+                const ds = rs.drum orelse continue;
+                for (ds.pads, 0..) |ps, pi| {
+                    if (ps.sample_file.len == 0) continue;
+                    const data = readWsjRel(allocator, io, path, ps.sample_file) orelse continue;
+                    defer allocator.free(data);
+                    dm.loadPadWav(@intCast(pi), data, sampleName(ps)) catch continue;
+                    // setPadSamples resets the pad to defaults — re-apply the
+                    // saved params on top of the fresh audio.
+                    if (dm.pads[pi]) |*p| {
+                        applyPadSnap(p, ps);
+                        p.user_sample = true;
+                    }
+                }
+            },
+            .sampler => |*s| {
+                const smp = rs.sampler orelse continue;
+                if (smp.pad.sample_file.len == 0) continue;
+                const data = readWsjRel(allocator, io, path, smp.pad.sample_file) orelse continue;
+                defer allocator.free(data);
+                // loadWav swaps audio + name under the pad lock and keeps the
+                // params applied by buildSession.
+                s.loadWav(data, sampleName(smp.pad)) catch continue;
+                s.pad.user_sample = true;
+            },
+            else => {},
+        }
+    }
+}
+
+/// Read a sample file stored relative to the .wsj. Null on any error.
+fn readWsjRel(allocator: std.mem.Allocator, io: std.Io, wsj_path: []const u8, rel: []const u8) ?[]u8 {
+    const full = joinWsjRel(allocator, wsj_path, rel) catch return null;
+    defer allocator.free(full);
+    return std.Io.Dir.cwd().readFileAlloc(io, full, allocator, .limited(64 * 1024 * 1024)) catch null;
+}
+
+/// Display name for a restored sample: the saved name, else the file stem.
+fn sampleName(ps: PadSnap) []const u8 {
+    return if (ps.name.len > 0) ps.name else std.fs.path.stem(ps.sample_file);
 }
 
 fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
@@ -1214,4 +1370,73 @@ test "buildSession: empty and sampler racks round-trip" {
     try testing.expectEqual(@as(u16, 1), pp.note_count);
     try testing.expectEqual(@as(u7, 64), pp.notes[0].pitch);
     try testing.expectApproxEqAbs(@as(f64, 2.0), pp.length_beats, 1e-9);
+}
+
+// 16-bit WAV round-trip quantisation error bound.
+const wav_eps: f32 = 1.0 / 32768.0 + 1e-6;
+
+test "save/load round-trip persists user-loaded drum pad samples" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [64]u8 = undefined;
+    const wsj_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/proj.wsj", .{&tmp.sub_path});
+
+    var session = try Session.initDefault(testing.allocator);
+    defer session.deinit();
+    try session.setInstrument(0, .drum_machine);
+    const dm = &session.racks.items[0].instrument.drum_machine;
+
+    // Emulate :load-pad — user audio on pad 3, with a tweaked param.
+    const clip = try testing.allocator.dupe(f32, &[_]f32{ 0.5, -0.5, 0.25, -0.125 });
+    dm.setPadSamples(3, clip, "usr");
+    dm.pads[3].?.user_sample = true;
+    dm.pads[3].?.pitch_semitones = 5.0;
+
+    try save(testing.allocator, &session, testing.io, wsj_path);
+
+    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    defer loaded.deinit();
+    const ldm = &loaded.racks.items[0].instrument.drum_machine;
+    const pad = &ldm.pads[3].?;
+    try testing.expect(pad.user_sample);
+    try testing.expectEqualStrings("usr", ldm.padName(3));
+    try testing.expectEqual(@as(usize, 4), pad.samples.len);
+    try testing.expectApproxEqAbs(@as(f32, 0.5), pad.samples[0], wav_eps);
+    try testing.expectApproxEqAbs(@as(f32, -0.125), pad.samples[3], wav_eps);
+    // Params survive the loadPadWav reset on restore.
+    try testing.expectApproxEqAbs(@as(f32, 5.0), pad.pitch_semitones, 1e-4);
+    // Shipped-kit pads stay shipped: no sidecar ref, no flag.
+    try testing.expect(!ldm.pads[0].?.user_sample);
+}
+
+test "save/load round-trip persists a user-loaded sampler clip" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [64]u8 = undefined;
+    const wsj_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/proj.wsj", .{&tmp.sub_path});
+
+    var session = try Session.initDefault(testing.allocator);
+    defer session.deinit();
+    try session.setInstrument(0, .sampler);
+    const s = &session.racks.items[0].instrument.sampler;
+
+    // Emulate :load-sample — swap the generated clip for user audio.
+    testing.allocator.free(s.pad.samples);
+    s.pad.samples = try testing.allocator.dupe(f32, &[_]f32{ 0.25, -0.25 });
+    s.pad.name = [_]u8{ 'v', 'o', 'x', ' ', ' ', ' ', ' ', ' ' };
+    s.pad.user_sample = true;
+    s.pad.gain = 0.8;
+
+    try save(testing.allocator, &session, testing.io, wsj_path);
+
+    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    defer loaded.deinit();
+    const ls = &loaded.racks.items[0].instrument.sampler;
+    try testing.expect(ls.pad.user_sample);
+    try testing.expectEqualStrings("vox", trimmedName(&ls.pad.name));
+    try testing.expectEqual(@as(usize, 2), ls.pad.samples.len);
+    try testing.expectApproxEqAbs(@as(f32, 0.25), ls.pad.samples[0], wav_eps);
+    try testing.expectApproxEqAbs(@as(f32, 0.8), ls.pad.gain, 1e-4);
 }
