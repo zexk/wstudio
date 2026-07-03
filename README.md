@@ -157,6 +157,14 @@ a full song:
 
 Done:
 
+- [x] Scale highlighting + chord stamp in the piano roll: `:scale [<root>
+      [<type>]|off]` dims out-of-scale rows; `c`/`C` stamp a diatonic
+      triad/seventh at the cursor, harmonized to the active scale (a plain
+      major shape with no scale set)
+- [x] `.` repeats the last compound edit: count-scaled nudges/resizes, the
+      piano-roll note grab-and-drag, and visual-mode range delete/paste
+- [x] Visual mode (`v`): select a range (steps in the piano roll/drum grid,
+      bars in the arrangement) and act on it with `y`/`d`/`P`
 - [x] Click track (`c` / `:metronome [on|off]`): a synthesised tick on every
       beat, accented on beat 1 of each bar, mixed straight into the master
       bus in sync with the transport
