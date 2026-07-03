@@ -134,6 +134,10 @@ a full song:
 
 Done:
 
+- [x] UX round: `:q` refuses on unsaved changes (`:q!` discards), vim count
+      prefixes in every editor (`3l`, `12h`), clip yank/paste/move in the
+      arrangement (`y`/`P`/`<`/`>`), piano-roll note grab-and-drag (`M`),
+      A/B loop region (`(`/`)`/`b`, persisted)
 - [x] User-loaded sample audio persists across saves: WAVs are exported to a
       `<name>_samples/` directory next to the .wsj and reloaded with the project
 - [x] Undo/redo (`u`/`U`) for content edits: notes, drum patterns/variants,
