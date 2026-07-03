@@ -47,7 +47,7 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, snap: engin
     // Available rows for the view body (excludes outer header+hr + transport+hr+status).
     const max_rows = rows -| 5;
     // Clamp scroll so cursor row is visible.
-    const cursor_row = @import("../app.zig").App.synthParamRow(app.synth_cursor);
+    const cursor_row = @import("../editors/synth.zig").paramRow(app.synth_cursor);
     var scroll = app.synth_scroll;
     if (cursor_row < scroll) scroll = cursor_row;
     if (cursor_row >= scroll + max_rows) scroll = cursor_row -| max_rows + 1;

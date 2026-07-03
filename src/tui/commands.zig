@@ -14,6 +14,9 @@ const DrumMachine = ws.dsp.DrumMachine;
 const Sampler = ws.dsp.Sampler;
 const cmd_mod = @import("cmd.zig");
 const App = @import("app.zig").App;
+const history = @import("history.zig");
+const piano_ed = @import("editors/piano.zig");
+const spectrum_ed = @import("editors/spectrum.zig");
 
 fn wrap(comptime f: fn (*App, []const u8) void) *const fn (*anyopaque, []const u8) void {
     return struct {
@@ -79,10 +82,10 @@ fn cmdClear(app: *App, _: []const u8) void {
     }
     const pp = &app.session.racks.items[track].pattern_player.?;
     const n = pp.note_count;
-    app.undoCaptureMelodic(@intCast(track));
+    history.recordMelodic(app, @intCast(track));
     pp.clearNotes();
     app.setStatus("cleared {d} notes", .{n});
-    app.pianoSyncLinkedClip();
+    piano_ed.syncLinkedClip(app);
 }
 
 pub fn cmdHelp(app: *App, _: []const u8) void {
@@ -566,6 +569,6 @@ fn cmdEq(app: *App, args: []const u8) void {
         app.setStatus("eq: expected dB value", .{});
         return;
     };
-    app.setEqBand(@intCast(track_idx), band, db);
+    spectrum_ed.setEqBand(app, @intCast(track_idx), band, db);
     app.setStatus("track {d} eq band {d}: {d:.1}dB", .{ track_1, band, db });
 }
