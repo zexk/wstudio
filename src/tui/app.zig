@@ -83,6 +83,27 @@ pub const ArrRangeClip = struct {
     clips: []ws.Clip,
 };
 
+/// `.` repeats the last "compound" edit — one where replaying it at a new
+/// cursor position is actually worth a shortcut, as opposed to single-key
+/// edits (insert note, toggle step, stamp/delete clip) that are already
+/// trivially repeatable by pressing the same key again. Each editor only
+/// recognizes its own variants; `.` is a no-op ("nothing to repeat") for
+/// variants left over from a different editor. See editors/{piano,drum,
+/// arrangement}.zig's repeatLastEdit.
+pub const RepeatOp = union(enum) {
+    none,
+    piano_nudge_velocity: struct { delta: f32 },
+    piano_resize: struct { delta: f64 },
+    piano_drag: struct { dstep: i32, dpitch: i32 },
+    piano_range_delete: struct { width: u16 },
+    piano_range_paste,
+    drum_range_delete: struct { width: u8 },
+    drum_range_paste,
+    arr_move_clip: struct { delta: i32 },
+    arr_range_delete: struct { width: u32 },
+    arr_range_paste,
+};
+
 /// Ableton-style clip editing: while set, the piano roll's pattern player
 /// holds a working copy of this arrangement clip and every edit is written
 /// straight back into it — the clip owns the data. Identified by track +
@@ -157,6 +178,11 @@ pub const App = struct {
     piano_range_clip: ?PianoClip = null,
     drum_range_clip: ?DrumRangeClip = null,
     arr_range_clip: ?ArrRangeClip = null,
+    /// `.` repeat target — the last compound edit, app-wide (see RepeatOp).
+    last_edit: RepeatOp = .none,
+    /// Cumulative (dstep, dpitch) of the current note-drag session (M grab),
+    /// reset when the grab starts, committed to `last_edit` when it drops.
+    piano_grab_delta: struct { dstep: i32 = 0, dpitch: i32 = 0 } = .{},
     /// The arrangement clip the piano roll is editing, or null when it edits
     /// the track's live pattern (see `ClipLink`). Set by `e` on a clip in the
     /// arrangement; cleared when the roll opens on a live pattern instead.

@@ -67,7 +67,7 @@ pub fn drawArrangement(
     const mode_tag: []const u8 = if (app.session.song_mode) grn ++ "SONG" ++ rst else dim ++ "PATTERN" ++ rst;
     try w.writeAll(bold ++ " " ++ icons.arrangement ++ " ARRANGEMENT" ++ rst ++ "  ");
     try w.writeAll(mode_tag);
-    try w.writeAll(dim ++ "   [hjkl:move  enter:stamp  e:edit  y/P/<>:clip  v:select  ()b:loop  []:pattern  x:del  g:play-here  T:mode  esc:back]" ++ rst);
+    try w.writeAll(dim ++ "   [hjkl:move  enter:stamp  e:edit  y/P/<>:clip  v:select  .:repeat  ()b:loop  []:pattern  x:del  g:play-here  T:mode  esc:back]" ++ rst);
     try endLine(w);
 
     // Bar ruler. Bars inside an armed loop region wear the accent colour.

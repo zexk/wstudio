@@ -63,7 +63,7 @@ pub fn drawDrumGrid(app: anytype, w: *std.Io.Writer, rows: usize, snap: engine_m
     try w.print("pat {c}", .{DrumMachine.variantLetter(dm.variant)});
     try w.writeAll(rst ++ dim);
     try w.print(" {d}/{d}", .{ dm.variant + 1, dm.variant_count });
-    try w.writeAll(dim ++ "  [hjkl:move  enter:toggle  c:vel  v:select  <>:swing  []:pattern  N:new  D:del  yP:copy  p:preview  e:sampler  +-:length  X:clear  F:fill  esc:back]");
+    try w.writeAll(dim ++ "  [hjkl:move  enter:toggle  c:vel  v:select  .:repeat  <>:swing  []:pattern  N:new  D:del  yP:copy  p:preview  e:sampler  +-:length  X:clear  F:fill  esc:back]");
     try endLine(w);
 
     // step header — only the active range (step_count) is shown

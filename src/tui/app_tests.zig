@@ -1204,6 +1204,168 @@ test "piano roll M grabs a note; h/l/j/k drag it as one undo step" {
     try std.testing.expect(!app.piano_grab);
 }
 
+test "piano roll . repeats the last drag on whatever note sits under the new cursor" {
+    var app = try testApp();
+    defer app.deinit();
+    app.view = .piano_roll;
+    app.piano_track = 0;
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    app.piano_cursor_step = 0;
+    app.piano_cursor_pitch = 60;
+    app.handleKey(.enter, 0); // C4 @ step 0
+    app.piano_cursor_step = 4;
+    app.handleKey(.enter, 0); // C4 @ step 4 (a second note to repeat onto)
+
+    // Drag the first note: step 0 → 1, pitch 60 → 61 (one semitone up).
+    app.piano_cursor_step = 0;
+    app.piano_cursor_pitch = 60;
+    app.handleKey(.{ .char = 'M' }, 0);
+    app.handleKey(.{ .char = 'l' }, 0);
+    app.handleKey(.{ .char = 'k' }, 0);
+    app.handleKey(.escape, 0);
+    try std.testing.expectEqual(@as(u7, 61), pp.noteAt(61, 0.25).?.pitch);
+
+    // Repeat on the second note (cursor still needs to land on it).
+    app.piano_cursor_step = 4;
+    app.piano_cursor_pitch = 60;
+    app.handleKey(.{ .char = '.' }, 0);
+    try std.testing.expect(pp.noteAt(60, 1.0) == null); // moved away from step4/pitch60
+    try std.testing.expect(pp.noteAt(61, 1.25) != null); // to step5/pitch61 — same (Δstep,Δpitch)
+
+    // Undo unwinds just the repeat, leaving the first drag intact.
+    app.handleKey(.{ .char = 'u' }, 0);
+    try std.testing.expect(pp.noteAt(60, 1.0) != null);
+    try std.testing.expect(pp.noteAt(61, 0.25) != null); // first drag untouched
+}
+
+test "piano roll . repeats a count-scaled velocity nudge and a resize" {
+    var app = try testApp();
+    defer app.deinit();
+    app.view = .piano_roll;
+    app.piano_track = 0;
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    app.piano_cursor_step = 0;
+    app.piano_cursor_pitch = 60;
+    app.handleKey(.enter, 0);
+    app.piano_cursor_step = 4;
+    app.piano_cursor_pitch = 60;
+    app.handleKey(.enter, 0);
+
+    app.piano_cursor_step = 0;
+    for ("3<") |c| app.handleKey(.{ .char = c }, 0); // -0.3 velocity (default is 0.85)
+    try std.testing.expectApproxEqAbs(@as(f32, 0.85 - 0.3), pp.noteAt(60, 0.0).?.velocity, 1e-6);
+
+    app.piano_cursor_step = 4;
+    app.handleKey(.{ .char = '.' }, 0); // repeat the same -0.3 on the other note
+    try std.testing.expectApproxEqAbs(@as(f32, 0.85 - 0.3), pp.noteAt(60, 1.0).?.velocity, 1e-6);
+
+    app.piano_cursor_step = 0;
+    for ("2]") |c| app.handleKey(.{ .char = c }, 0); // +0.5 beats length
+    try std.testing.expectApproxEqAbs(@as(f64, 0.25 + 0.5), pp.noteAt(60, 0.0).?.duration_beat, 1e-9);
+    app.piano_cursor_step = 4;
+    app.handleKey(.{ .char = '.' }, 0);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.25 + 0.5), pp.noteAt(60, 1.0).?.duration_beat, 1e-9);
+}
+
+test "piano/drum/arrangement . repeats a visual range delete/paste at the new cursor" {
+    var app = try testApp();
+    defer app.deinit();
+
+    // Piano roll: yank isn't repeatable, but delete+paste are.
+    app.view = .piano_roll;
+    app.piano_track = 0;
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.25 });
+    pp.addNote(.{ .pitch = 60, .start_beat = 1.0, .duration_beat = 0.25 }); // step 4
+    app.piano_cursor_step = 0;
+    app.handleKey(.{ .char = 'v' }, 0);
+    app.handleKey(.{ .char = 'l' }, 0); // select steps 0-1
+    app.handleKey(.{ .char = 'd' }, 0);
+    try std.testing.expect(pp.noteAt(60, 0.0) == null);
+    app.piano_cursor_step = 4;
+    app.handleKey(.{ .char = '.' }, 0); // repeat: delete a 2-step range at step 4
+    try std.testing.expect(pp.noteAt(60, 1.0) == null);
+
+    // Drum grid: same idea, across pads.
+    app.view = .drum_grid;
+    app.drum_track = 2;
+    const dm = app.drumMachine();
+    for (&dm.pattern) |*p| p.store(0, .monotonic);
+    dm.setStepCount(16);
+    dm.toggleStep(0, 0);
+    dm.toggleStep(0, 8);
+    app.drum_cursor = .{ 0, 0 };
+    app.handleKey(.{ .char = 'v' }, 0);
+    app.handleKey(.{ .char = 'l' }, 0); // select steps 0-1
+    app.handleKey(.{ .char = 'd' }, 0);
+    try std.testing.expect(!dm.stepActive(0, 0));
+    app.drum_cursor[1] = 8;
+    app.handleKey(.{ .char = '.' }, 0); // repeat: clear steps 8-9
+    try std.testing.expect(!dm.stepActive(0, 8));
+
+    // Arrangement: current lane only.
+    const mel = &app.session.racks.items[0].pattern_player.?;
+    mel.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.25 });
+    try app.session.stampClip(0, 0);
+    try app.session.stampClip(0, 10);
+    app.view = .arrangement;
+    app.cursor = 0;
+    app.arr_cursor_bar = 0;
+    app.handleKey(.{ .char = 'v' }, 0);
+    app.handleKey(.{ .char = 'l' }, 0); // select bars 0-1
+    app.handleKey(.{ .char = 'd' }, 0);
+    const lane = app.session.arrangement.lane(0).?;
+    try std.testing.expect(lane.clipAt(0) == null);
+    app.arr_cursor_bar = 10;
+    app.handleKey(.{ .char = '.' }, 0); // repeat: delete bars 10-11
+    try std.testing.expect(lane.clipAt(10) == null);
+}
+
+test "arrangement . repeats the last clip move at the new cursor" {
+    var app = try testApp();
+    defer app.deinit();
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.5 });
+    try app.session.stampClip(0, 0);
+    try app.session.stampClip(0, 5);
+
+    app.view = .arrangement;
+    app.cursor = 0;
+    app.arr_cursor_bar = 0;
+    for ("2>") |c| app.handleKey(.{ .char = c }, 0); // move the bar-0 clip to bar 2
+    const lane = app.session.arrangement.lane(0).?;
+    try std.testing.expect(lane.clipAt(2) != null);
+    try std.testing.expect(lane.clipAt(0) == null);
+
+    app.arr_cursor_bar = 5;
+    app.handleKey(.{ .char = '.' }, 0); // repeat: move the bar-5 clip by +2 too
+    try std.testing.expect(lane.clipAt(7) != null);
+    try std.testing.expect(lane.clipAt(5) == null);
+}
+
+test "\".\" is a no-op with nothing to repeat, or after switching to a different editor" {
+    var app = try testApp();
+    defer app.deinit();
+    app.view = .piano_roll;
+    app.piano_track = 0;
+    app.handleKey(.{ .char = '.' }, 0); // nothing yet
+    try std.testing.expectEqual(app_mod.RepeatOp.none, app.last_edit);
+
+    // A drum-grid edit shouldn't be replayable from the piano roll.
+    app.view = .drum_grid;
+    app.drum_track = 2;
+    app.drum_cursor = .{ 0, 0 };
+    app.handleKey(.{ .char = 'v' }, 0);
+    app.handleKey(.{ .char = 'l' }, 0);
+    app.handleKey(.{ .char = 'd' }, 0);
+    app.view = .piano_roll;
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.25 });
+    const before = pp.note_count;
+    app.handleKey(.{ .char = '.' }, 0);
+    try std.testing.expectEqual(before, pp.note_count); // no-op, not a stray delete
+}
+
 test "A/B loop: ( ) b arm the region and the transport wraps inside it" {
     var app = try testApp();
     defer app.deinit();

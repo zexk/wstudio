@@ -53,6 +53,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             },
             '<' => { moveClip(app, -app.takeCount()); return true; },
             '>' => { moveClip(app, app.takeCount()); return true; },
+            '.' => { repeatLastEdit(app); return true; },
             'e' => { editClip(app); return true; },
             'g' => { playFromCursor(app); return true; },
             'u' => { history.doUndo(app); return true; },
@@ -167,6 +168,7 @@ fn deleteSelection(app: *App) void {
             removed += 1;
         } else i += 1;
     }
+    app.last_edit = .{ .arr_range_delete = .{ .width = r.hi - r.lo + 1 } };
     app.setStatus("deleted {d} clip(s)", .{removed});
     if (app.session.song_mode) app.session.rebuildSongData();
     exitVisual(app);
@@ -200,9 +202,25 @@ fn pasteSelection(app: *App) void {
         };
         pasted += 1;
     }
+    app.last_edit = .arr_range_paste;
     if (app.session.song_mode) app.session.rebuildSongData();
     app.setStatus("pasted {d} clip(s)", .{pasted});
     exitVisual(app);
+}
+
+/// `.`: replay the last compound edit (a clip move, or a visual range
+/// delete/paste) at the current cursor. No-op ("nothing to repeat") if the
+/// last edit came from a different editor or there wasn't one.
+fn repeatLastEdit(app: *App) void {
+    switch (app.last_edit) {
+        .arr_move_clip => |v| moveClip(app, v.delta),
+        .arr_range_delete => |v| {
+            app.arr_visual_anchor = app.arr_cursor_bar + (v.width - 1);
+            deleteSelection(app);
+        },
+        .arr_range_paste => pasteSelection(app),
+        else => app.setStatus("nothing to repeat", .{}),
+    }
 }
 
 fn moveBar(app: *App, delta: i64) void {
@@ -418,6 +436,7 @@ fn moveClip(app: *App, delta: i32) void {
     const new_start: u32 = @intCast(@max(@as(i64, clip.start_bar) + delta, 0));
     if (new_start == clip.start_bar) return;
     history.push(app, history.captureLane(app, @intCast(app.cursor)));
+    app.last_edit = .{ .arr_move_clip = .{ .delta = delta } };
     // Detach the clip (keeping ownership of its content), retarget, re-place.
     var moved: ws.Clip = undefined;
     for (lane.clips.items, 0..) |c, i| {

@@ -133,6 +133,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("D",            "delete current pattern variant");
     t.key("y / P",        "yank / paste pattern (works across tracks)");
     t.key("(visual) y/d/P", "range yank / clear / paste (v to enter, hjkl to extend)");
+    t.key(".",            "repeat last visual-mode range delete/paste at the cursor");
 
     t.section("SAMPLER EDITOR");
     t.key("j / k",        "select parameter");
@@ -160,13 +161,14 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("M",            "grab note at cursor — h/l/j/k drag it, esc drops");
     t.key("n / d",        "insert / delete note at cursor (aliases)");
     t.key("p",            "preview note at cursor");
-    t.key("< / >",        "decrease / increase velocity of note at cursor");
+    t.key("< / >",        "decrease / increase velocity of note at cursor (count-scaled)");
     t.key("e",            "open synth editor for this track");
     t.key("s",            "spectrum + EQ for this track");
-    t.key("[ / ]",        "resize note at cursor (else set default length)");
+    t.key("[ / ]",        "resize note at cursor, else set default length (count-scaled)");
     t.key("+ / -",        "lengthen / shorten loop (1 bar)");
     t.key("y / P",        "yank / paste pattern (works across tracks)");
     t.key("v",            "visual mode: select a step range (all pitches) — y/d/P");
+    t.key(".",            "repeat the last nudge, drag, or visual range delete/paste");
     t.key(":clear",       "erase all notes in the pattern");
 
     t.section("ARRANGEMENT");
@@ -180,6 +182,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("y / P",        "yank / paste clip (matching track kind)");
     t.key("v",            "visual mode: select a bar range on this lane — y/d/P");
     t.key("< / >",        "move clip left / right by a bar");
+    t.key(".",            "repeat the last clip move or visual range delete/paste");
     t.key("( / )",        "set loop start / end at cursor bar");
     t.key("b",            "toggle A/B loop on/off");
     t.key("g",            "play from cursor bar");

@@ -97,6 +97,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                         app.setStatus("pasted into pattern {c}", .{DrumMachine.variantLetter(dm.variant)});
                     } else app.setStatus("nothing yanked — y copies the pattern", .{});
                 },
+                '.' => repeatLastEdit(app),
                 '[' => { cycleVariant(app, -1); },
                 ']' => { cycleVariant(app, 1); },
                 'N' => {
@@ -226,6 +227,7 @@ fn deleteSelection(app: *App) void {
         var s: u8 = r.lo;
         while (s <= r.hi) : (s += 1) setStep(dm, @intCast(pad), s, false, 0);
     }
+    app.last_edit = .{ .drum_range_delete = .{ .width = r.hi - r.lo + 1 } };
     app.setStatus("cleared {d} steps", .{r.hi - r.lo + 1});
     exitVisual(app);
 }
@@ -253,8 +255,25 @@ fn pasteSelection(app: *App) void {
             setStep(dm, @intCast(pad), target, active, vel);
         }
     }
+    app.last_edit = .drum_range_paste;
     app.setStatus("pasted {d} steps", .{i});
     exitVisual(app);
+}
+
+/// `.`: replay the last compound edit (a visual range delete/paste) at the
+/// current cursor. No-op ("nothing to repeat") if the last edit came from a
+/// different editor or there wasn't one.
+fn repeatLastEdit(app: *App) void {
+    switch (app.last_edit) {
+        .drum_range_delete => |v| {
+            const dm = app.drumMachine();
+            const hi: u8 = @min(dm.step_count -| 1, app.drum_cursor[1] +| (v.width - 1));
+            app.drum_visual_anchor = hi;
+            deleteSelection(app);
+        },
+        .drum_range_paste => pasteSelection(app),
+        else => app.setStatus("nothing to repeat", .{}),
+    }
 }
 
 /// Nudge the drum machine's swing and echo the new value.

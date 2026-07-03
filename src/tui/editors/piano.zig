@@ -52,16 +52,16 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
     // and is then handled normally below.
     if (app.piano_grab) {
         switch (key) {
-            .escape => { app.piano_grab = false; app.setStatus("note dropped", .{}); return true; },
+            .escape => { dropGrab(app); app.setStatus("note dropped", .{}); return true; },
             .char => |c| switch (c) {
                 'h' => { dragNote(app, pp, max_step, -1, 0); return true; },
                 'l' => { dragNote(app, pp, max_step, 1, 0); return true; },
                 'j' => { dragNote(app, pp, max_step, 0, -1); return true; },
                 'k' => { dragNote(app, pp, max_step, 0, 1); return true; },
-                'M' => { app.piano_grab = false; app.setStatus("note dropped", .{}); return true; },
-                else => app.piano_grab = false,
+                'M' => { dropGrab(app); app.setStatus("note dropped", .{}); return true; },
+                else => dropGrab(app),
             },
-            else => app.piano_grab = false,
+            else => dropGrab(app),
         }
     }
 
@@ -104,12 +104,14 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 // One grab = one undo entry, however far the drag goes.
                 history.push(app, history.captureMelodic(app, app.piano_track));
                 app.piano_grab = true;
+                app.piano_grab_delta = .{};
                 app.setStatus("moving note — h/l/j/k drag, esc drops", .{});
                 return true;
             },
-            // </> nudge the velocity of the note under the cursor.
-            '<' => { nudgeVelocity(app, -0.1); return true; },
-            '>' => { nudgeVelocity(app, 0.1); return true; },
+            // </> nudge the velocity of the note under the cursor (count-scaled).
+            '<' => { nudgeVelocity(app, -0.1 * @as(f32, @floatFromInt(app.takeCount()))); return true; },
+            '>' => { nudgeVelocity(app, 0.1 * @as(f32, @floatFromInt(app.takeCount()))); return true; },
+            '.' => { repeatLastEdit(app, pp, max_step); return true; },
             'y' => { yank(app); return true; },
             'P' => { paste(app); return true; },
             'v' => {
@@ -147,8 +149,9 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             },
             // [/] resize the note under the cursor if one starts here;
             // otherwise they set the default length for newly placed notes.
-            '[' => { resizeOrLen(app, -0.25); return true; },
-            ']' => { resizeOrLen(app, 0.25); return true; },
+            // Count-scaled, like </>.
+            '[' => { resizeOrLen(app, -0.25 * @as(f64, @floatFromInt(app.takeCount()))); return true; },
+            ']' => { resizeOrLen(app, 0.25 * @as(f64, @floatFromInt(app.takeCount()))); return true; },
             '+' => {
                 const bar: f64 = @floatFromInt(app.session.project.beats_per_bar);
                 history.push(app, history.captureMelodic(app, app.piano_track));
@@ -176,6 +179,8 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
 /// Drag the grabbed note by `dstep` steps / `dpitch` semitones, cursor in
 /// tow, and write the edit through to a linked clip. Ends the grab if the
 /// note vanished from under the cursor (shouldn't happen — belt and braces).
+/// Accumulates the session's total offset in `piano_grab_delta` so `.` can
+/// repeat the whole drag (as one transformation) once it's dropped.
 fn dragNote(app: *App, pp: *pattern_mod.PatternPlayer, max_step: u16, dstep: i32, dpitch: i32) void {
     const start_beat = @as(f64, @floatFromInt(app.piano_cursor_step)) * 0.25;
     const n = pp.noteAt(app.piano_cursor_pitch, start_beat) orelse {
@@ -190,10 +195,63 @@ fn dragNote(app: *App, pp: *pattern_mod.PatternPlayer, max_step: u16, dstep: i32
     n.pitch = new_pitch;
     app.piano_cursor_step = new_step;
     app.piano_cursor_pitch = new_pitch;
+    app.piano_grab_delta.dstep += dstep;
+    app.piano_grab_delta.dpitch += dpitch;
     ensureVisible(app);
     var nbuf: [5]u8 = undefined;
     app.setStatus("moving {s} @ step {d}", .{ midi.noteName(new_pitch, &nbuf), new_step + 1 });
     syncLinkedClip(app);
+}
+
+/// Drop the grabbed note, committing the session's total offset as the
+/// repeatable edit if the note actually moved.
+fn dropGrab(app: *App) void {
+    app.piano_grab = false;
+    if (app.piano_grab_delta.dstep != 0 or app.piano_grab_delta.dpitch != 0) {
+        app.last_edit = .{ .piano_drag = .{
+            .dstep = app.piano_grab_delta.dstep,
+            .dpitch = app.piano_grab_delta.dpitch,
+        } };
+    }
+}
+
+/// `.` after a drag: move whichever note sits under the CURRENT cursor by
+/// the same (dstep, dpitch) offset the last drag ended with.
+fn repeatDrag(app: *App, pp: *pattern_mod.PatternPlayer, max_step: u16, dstep: i32, dpitch: i32) void {
+    const start_beat = @as(f64, @floatFromInt(app.piano_cursor_step)) * 0.25;
+    const n = pp.noteAt(app.piano_cursor_pitch, start_beat) orelse {
+        app.setStatus("no note under cursor to repeat the move on", .{});
+        return;
+    };
+    history.push(app, history.captureMelodic(app, app.piano_track));
+    const top = @max(@as(i32, max_step) - 1, 0);
+    const new_step: u16 = @intCast(std.math.clamp(@as(i32, app.piano_cursor_step) + dstep, 0, top));
+    const new_pitch: u7 = @intCast(std.math.clamp(@as(i32, app.piano_cursor_pitch) + dpitch, 0, 127));
+    n.start_beat = @as(f64, @floatFromInt(new_step)) * 0.25;
+    n.pitch = new_pitch;
+    app.piano_cursor_step = new_step;
+    app.piano_cursor_pitch = new_pitch;
+    ensureVisible(app);
+    syncLinkedClip(app);
+    app.setStatus("repeated move", .{});
+}
+
+/// `.`: replay the last compound edit (nudge, resize, drag, or a visual
+/// range delete/paste) at the current cursor. No-op ("nothing to repeat")
+/// if the last edit came from a different editor or there wasn't one.
+fn repeatLastEdit(app: *App, pp: *pattern_mod.PatternPlayer, max_step: u16) void {
+    switch (app.last_edit) {
+        .piano_nudge_velocity => |v| nudgeVelocity(app, v.delta),
+        .piano_resize => |v| resizeOrLen(app, v.delta),
+        .piano_drag => |v| repeatDrag(app, pp, max_step, v.dstep, v.dpitch),
+        .piano_range_delete => |v| {
+            const hi: u16 = @min(if (max_step > 0) max_step - 1 else 0, app.piano_cursor_step + v.width - 1);
+            app.piano_visual_anchor = hi;
+            deleteSelection(app, pp);
+        },
+        .piano_range_paste => pasteSelection(app, pp),
+        else => app.setStatus("nothing to repeat", .{}),
+    }
 }
 
 /// Move the step cursor by `delta` steps, clamped to the loop.
@@ -271,6 +329,7 @@ fn resizeOrLen(app: *App, delta: f64) void {
         &app.session.racks.items[app.piano_track].pattern_player.?
     else return;
     const start_beat = @as(f64, @floatFromInt(app.piano_cursor_step)) * 0.25;
+    app.last_edit = .{ .piano_resize = .{ .delta = delta } };
     if (pp.noteAt(app.piano_cursor_pitch, start_beat)) |n| {
         history.push(app, history.captureMelodic(app, app.piano_track));
         n.duration_beat = std.math.clamp(n.duration_beat + delta, 0.25, pp.length_beats);
@@ -292,6 +351,7 @@ fn nudgeVelocity(app: *App, delta: f32) void {
     if (pp.noteAt(app.piano_cursor_pitch, start_beat)) |n| {
         history.push(app, history.captureMelodic(app, app.piano_track));
         n.velocity = std.math.clamp(n.velocity + delta, 0.05, 1.0);
+        app.last_edit = .{ .piano_nudge_velocity = .{ .delta = delta } };
         app.setStatus("velocity: {d:.0}%", .{n.velocity * 100.0});
         syncLinkedClip(app);
     } else {
@@ -419,6 +479,7 @@ fn deleteSelection(app: *App, pp: *pattern_mod.PatternPlayer) void {
     const hi_beat = @as(f64, @floatFromInt(r.hi)) * 0.25 + 0.25;
     history.push(app, history.captureMelodic(app, app.piano_track));
     const removed = pp.removeNotesInRange(lo_beat, hi_beat);
+    app.last_edit = .{ .piano_range_delete = .{ .width = r.hi - r.lo + 1 } };
     app.setStatus("deleted {d} notes", .{removed});
     syncLinkedClip(app);
     exitVisual(app);
@@ -440,6 +501,7 @@ fn pasteSelection(app: *App, pp: *pattern_mod.PatternPlayer) void {
         pp.removeNote(note.pitch, note.start_beat);
         pp.addNote(note);
     }
+    app.last_edit = .piano_range_paste;
     app.setStatus("pasted {d} notes", .{clip.count});
     syncLinkedClip(app);
     exitVisual(app);
