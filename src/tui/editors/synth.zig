@@ -2,6 +2,7 @@
 //! routed over the engine command queue to the audio thread, and the
 //! cursor-row/scroll math shared with the renderer in views/synth.zig.
 
+const std = @import("std");
 const ws = @import("wstudio");
 const modal_mod = ws.input;
 const style = @import("../style.zig");
@@ -19,20 +20,13 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             // p opens the piano roll for this track (matches p in the tracks view);
             // e in the piano roll comes back here, so synth <-> roll is bidirectional.
             'p' => { piano.switchTo(app, app.synth_track); return true; },
-            'j' => {
-                if (app.synth_cursor < style.synth_param_count - 1) app.synth_cursor += 1;
-                updateScroll(app);
-                return true;
-            },
-            'k' => {
-                if (app.synth_cursor > 0) app.synth_cursor -= 1;
-                updateScroll(app);
-                return true;
-            },
-            'h' => { adjustParam(app, -1); return true; },
-            'l' => { adjustParam(app, 1); return true; },
-            'H' => { adjustParam(app, -10); return true; },
-            'L' => { adjustParam(app, 10); return true; },
+            // j/k rows and h/l nudges take a vim count prefix (3j, 5l, …).
+            'j' => { moveCursor(app, app.takeCount()); return true; },
+            'k' => { moveCursor(app, -app.takeCount()); return true; },
+            'h' => { adjustParam(app, -app.takeCount()); return true; },
+            'l' => { adjustParam(app, app.takeCount()); return true; },
+            'H' => { adjustParam(app, -10 * app.takeCount()); return true; },
+            'L' => { adjustParam(app, 10 * app.takeCount()); return true; },
             '}', '{' => {
                 const section_starts = [_]u8{ 0, 6, 14, 16, 20, 24, 28, 32, 34, 36, 38 };
                 if (c == '}') {
@@ -60,6 +54,14 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
         },
         else => return false,
     }
+}
+
+/// Move the param cursor by `delta` rows, clamped to the param list.
+fn moveCursor(app: *App, delta: i32) void {
+    app.synth_cursor = @intCast(std.math.clamp(
+        @as(i32, app.synth_cursor) + delta, 0, style.synth_param_count - 1,
+    ));
+    updateScroll(app);
 }
 
 /// Row index of `synth_cursor` within drawSynthEditor's output (0-based).

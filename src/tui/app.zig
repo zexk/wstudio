@@ -178,6 +178,14 @@ pub const App = struct {
     // Input handling
     // -----------------------------------------------------------------------
 
+    /// Consume the vim-style count prefix typed before the current key
+    /// (default 1), clamped to a sane motion size. Editors call this for
+    /// their motions; `handleKey` discards any count a handled key left
+    /// unused, so a stale prefix never multiplies a later motion.
+    pub fn takeCount(self: *App) i32 {
+        return @min(self.modal.takeCount(), 4096);
+    }
+
     pub fn handleKey(self: *App, key: modal_mod.Key, now_ns: i96) void {
         self.now_ns = now_ns;
         if (key == .ctrl_c) {
@@ -201,27 +209,29 @@ pub const App = struct {
                 },
                 else => {},
             },
+            // Editor-handled keys discard any unused count prefix (vim: a
+            // count binds to the command it precedes, then dies with it).
             .drum_grid => {
                 if (self.modal.mode != .normal or !drum_ed.handleKey(self, key)) {
                     self.applyAction(self.modal.handle(key), now_ns);
-                }
+                } else self.modal.count = 0;
             },
             .synth_editor => if (!synth_ed.handleKey(self, key)) {
                 self.applyAction(self.modal.handle(key), now_ns);
-            },
+            } else { self.modal.count = 0; },
             .sampler_editor => if (self.modal.mode != .normal or !sampler_ed.handleKey(self, key)) {
                 self.applyAction(self.modal.handle(key), now_ns);
-            },
+            } else { self.modal.count = 0; },
             .track_spectrum, .master_spectrum => if (!spectrum_ed.handleKey(self, key)) {
                 self.applyAction(self.modal.handle(key), now_ns);
-            },
+            } else { self.modal.count = 0; },
             .piano_roll => if (self.modal.mode != .normal or !piano_ed.handleKey(self, key)) {
                 self.applyAction(self.modal.handle(key), now_ns);
-            },
+            } else { self.modal.count = 0; },
             .instrument_picker => self.handlePickerKey(key),
             .arrangement => if (self.modal.mode != .normal or !arrangement_ed.handleKey(self, key)) {
                 self.applyAction(self.modal.handle(key), now_ns);
-            },
+            } else { self.modal.count = 0; },
             .tracks => {
                 if (key == .enter and self.modal.mode == .normal) {
                     self.openTrack(self.cursor);

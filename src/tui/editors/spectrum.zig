@@ -32,17 +32,20 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             return true;
         },
         .char => |c| switch (c) {
-            'h' => { if (app.eq_cursor > 0) app.eq_cursor -= 1; },
-            'l' => { if (app.eq_cursor < eq_mod.num_eq_bands - 1) app.eq_cursor += 1; },
+            // Band moves and gain nudges take a vim count prefix (3l, 4j, …).
+            'h' => { app.eq_cursor -|= @intCast(app.takeCount()); },
+            'l' => { app.eq_cursor = @min(app.eq_cursor + @as(usize, @intCast(app.takeCount())), eq_mod.num_eq_bands - 1); },
             'j', 'J' => {
                 if (app.view == .track_spectrum and app.eq_track < app.session.racks.items.len) {
-                    const delta: f32 = if (c == 'J') -6.0 else -1.0;
+                    const n: f32 = @floatFromInt(app.takeCount());
+                    const delta: f32 = n * if (c == 'J') @as(f32, -6.0) else -1.0;
                     setEqBand(app, app.eq_track, app.eq_cursor, currentEqGain(app, app.eq_track) + delta);
                 }
             },
             'k', 'K' => {
                 if (app.view == .track_spectrum and app.eq_track < app.session.racks.items.len) {
-                    const delta: f32 = if (c == 'K') 6.0 else 1.0;
+                    const n: f32 = @floatFromInt(app.takeCount());
+                    const delta: f32 = n * if (c == 'K') @as(f32, 6.0) else 1.0;
                     setEqBand(app, app.eq_track, app.eq_cursor, currentEqGain(app, app.eq_track) + delta);
                 }
             },

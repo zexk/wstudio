@@ -852,3 +852,36 @@ test "saving clears the dirty flag" {
     app.handleKey(.enter, 0);
     try std.testing.expect(!app.dirty);
 }
+
+test "count prefixes multiply editor motions and die with the next key" {
+    var app = try testApp();
+    defer app.deinit();
+
+    // Piano roll: 3l moves three steps; 2K jumps two octaves.
+    app.view = .piano_roll;
+    app.piano_track = 0;
+    app.session.racks.items[0].pattern_player.?.length_beats = 8.0; // 32 steps
+    for ("3l") |c| app.handleKey(.{ .char = c }, 0);
+    try std.testing.expectEqual(@as(u16, 3), app.piano_cursor_step);
+    for ("2K") |c| app.handleKey(.{ .char = c }, 0);
+    try std.testing.expectEqual(@as(u7, 84), app.piano_cursor_pitch);
+
+    // Drum grid: counts clamp at the pattern edge.
+    app.view = .drum_grid;
+    app.drum_track = 2;
+    for ("4l") |c| app.handleKey(.{ .char = c }, 0);
+    try std.testing.expectEqual(@as(u8, 4), app.drum_cursor[1]);
+    for ("99l") |c| app.handleKey(.{ .char = c }, 0);
+    try std.testing.expectEqual(@as(u8, 15), app.drum_cursor[1]); // 16 steps
+
+    // An unused count is discarded by the handled key it preceded ('p'
+    // previews, no count) — the following motion moves 1, not 5.
+    for ("5p") |c| app.handleKey(.{ .char = c }, 0);
+    for ("h") |c| app.handleKey(.{ .char = c }, 0);
+    try std.testing.expectEqual(@as(u8, 14), app.drum_cursor[1]);
+
+    // Arrangement: 3l = three bars.
+    app.view = .arrangement;
+    for ("3l") |c| app.handleKey(.{ .char = c }, 0);
+    try std.testing.expectEqual(@as(u32, 3), app.arr_cursor_bar);
+}

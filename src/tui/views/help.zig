@@ -77,6 +77,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     for (cmds) |c| t.push(acc ++ "  :{s: <14}" ++ rst ++ dim ++ "{s}", .{ c.name, c.desc });
 
     t.section("ALL VIEWS");
+    t.key("1–9",          "count prefix repeats a motion (3l, 12h, 2j …)");
     t.key("[ / ]",        "master volume down / up  (except piano roll)");
     t.key("space",        "play / pause");
     t.key("gg",           "rewind to start");

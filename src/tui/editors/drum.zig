@@ -2,6 +2,7 @@
 //! variants, swing, yank/paste. The render half lives in views/drum.zig;
 //! the machine itself in dsp/drum_sampler.zig.
 
+const std = @import("std");
 const ws = @import("wstudio");
 const modal_mod = ws.input;
 const DrumMachine = ws.dsp.DrumMachine;
@@ -22,13 +23,14 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
         },
         .char => |c| {
             switch (c) {
-                // fine move by one step; shift (HL) jumps one beat (4 steps)
-                'h' => { if (step.* > 0) step.* -= 1; },
-                'l' => { if (step.* + 1 < app.drumMachine().step_count) step.* += 1; },
-                'H' => { step.* -|= 4; },
-                'L' => { step.* = @intCast(@min(@as(u16, step.*) + 4, app.drumMachine().step_count - 1)); },
-                'k' => if (pad.* > 0) { pad.* -= 1; },
-                'j' => if (pad.* < DrumMachine.max_pads - 1) { pad.* += 1; },
+                // fine move by one step; shift (HL) jumps one beat (4 steps).
+                // All motions take a vim count prefix (3l, 2j, …).
+                'h' => moveStep(app, -app.takeCount()),
+                'l' => moveStep(app, app.takeCount()),
+                'H' => moveStep(app, -4 * app.takeCount()),
+                'L' => moveStep(app, 4 * app.takeCount()),
+                'k' => movePad(app, -app.takeCount()),
+                'j' => movePad(app, app.takeCount()),
                 'p' => {
                     _ = app.session.engine.send(.{ .note_on = .{
                         .track = app.drum_track,
@@ -118,6 +120,17 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
         },
         else => return false,
     }
+}
+
+/// Move the step cursor by `delta` steps, clamped to the pattern length.
+fn moveStep(app: *App, delta: i32) void {
+    const top = @as(i32, app.drumMachine().step_count) - 1;
+    app.drum_cursor[1] = @intCast(std.math.clamp(@as(i32, app.drum_cursor[1]) + delta, 0, top));
+}
+
+/// Move the pad cursor by `delta` rows, clamped to the pad count.
+fn movePad(app: *App, delta: i32) void {
+    app.drum_cursor[0] = @intCast(std.math.clamp(@as(i32, app.drum_cursor[0]) + delta, 0, DrumMachine.max_pads - 1));
 }
 
 /// Nudge the drum machine's swing and echo the new value.

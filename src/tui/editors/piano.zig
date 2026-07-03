@@ -47,49 +47,17 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
         .char => |c| switch (c) {
             // Block insert mode — piano keys collide with roll navigation (j/k/h/d/…).
             'i' => return true,
-            // fine move by one step; shift (HL) jumps one beat (4 steps)
-            'h' => {
-                if (app.piano_cursor_step > 0) app.piano_cursor_step -= 1;
-                ensureVisible(app);
-                return true;
-            },
-            'l' => {
-                if (app.piano_cursor_step + 1 < max_step) app.piano_cursor_step += 1;
-                ensureVisible(app);
-                return true;
-            },
-            'H' => {
-                app.piano_cursor_step -|= 4;
-                ensureVisible(app);
-                return true;
-            },
-            'L' => {
-                if (max_step > 0)
-                    app.piano_cursor_step = @min(app.piano_cursor_step + 4, max_step - 1);
-                ensureVisible(app);
-                return true;
-            },
-            'j' => {
-                if (app.piano_cursor_pitch > 0) app.piano_cursor_pitch -= 1;
-                ensureVisible(app);
-                return true;
-            },
-            'k' => {
-                if (app.piano_cursor_pitch < 127) app.piano_cursor_pitch += 1;
-                ensureVisible(app);
-                return true;
-            },
+            // fine move by one step; shift (HL) jumps one beat (4 steps).
+            // All motions take a vim count prefix (3l, 12h, …).
+            'h' => { moveStep(app, max_step, -app.takeCount()); return true; },
+            'l' => { moveStep(app, max_step, app.takeCount()); return true; },
+            'H' => { moveStep(app, max_step, -4 * app.takeCount()); return true; },
+            'L' => { moveStep(app, max_step, 4 * app.takeCount()); return true; },
+            'j' => { movePitch(app, -app.takeCount()); return true; },
+            'k' => { movePitch(app, app.takeCount()); return true; },
             // J/K jump an octave (mirrors h/l → H/L coarse-move pattern).
-            'J' => {
-                app.piano_cursor_pitch = @intCast(app.piano_cursor_pitch -| 12);
-                ensureVisible(app);
-                return true;
-            },
-            'K' => {
-                app.piano_cursor_pitch = @intCast(@min(@as(u32, app.piano_cursor_pitch) + 12, 127));
-                ensureVisible(app);
-                return true;
-            },
+            'J' => { movePitch(app, -12 * app.takeCount()); return true; },
+            'K' => { movePitch(app, 12 * app.takeCount()); return true; },
             // g/G jump the cursor to loop start / last step.
             'g' => {
                 app.piano_cursor_step = 0;
@@ -159,6 +127,19 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
         },
         else => return false,
     }
+}
+
+/// Move the step cursor by `delta` steps, clamped to the loop.
+fn moveStep(app: *App, max_step: u16, delta: i32) void {
+    const top = @max(@as(i32, max_step) - 1, 0);
+    app.piano_cursor_step = @intCast(std.math.clamp(@as(i32, app.piano_cursor_step) + delta, 0, top));
+    ensureVisible(app);
+}
+
+/// Move the pitch cursor by `delta` semitones, clamped to the MIDI range.
+fn movePitch(app: *App, delta: i32) void {
+    app.piano_cursor_pitch = @intCast(std.math.clamp(@as(i32, app.piano_cursor_pitch) + delta, 0, 127));
+    ensureVisible(app);
 }
 
 fn ensureVisible(app: *App) void {

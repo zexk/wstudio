@@ -24,13 +24,14 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
         .char => |c| switch (c) {
             // Block insert mode — piano keys would collide with navigation.
             'i' => return true,
-            'h' => { moveBar(app, -1); return true; },
-            'l' => { moveBar(app, 1); return true; },
-            'H' => { moveBar(app, -4); return true; },
-            'L' => { moveBar(app, 4); return true; },
+            // Motions take a vim count prefix (3l, 2j, …).
+            'h' => { moveBar(app, -app.takeCount()); return true; },
+            'l' => { moveBar(app, app.takeCount()); return true; },
+            'H' => { moveBar(app, -4 * app.takeCount()); return true; },
+            'L' => { moveBar(app, 4 * app.takeCount()); return true; },
             '0' => { app.arr_cursor_bar = 0; return true; },
-            'j' => { if (app.cursor + 1 < lane_count) app.cursor += 1; return true; },
-            'k' => { if (app.cursor > 0) app.cursor -= 1; return true; },
+            'j' => { moveLane(app, lane_count, app.takeCount()); return true; },
+            'k' => { moveLane(app, lane_count, -app.takeCount()); return true; },
             'x' => { deleteClip(app); return true; },
             'e' => { editClip(app); return true; },
             'g' => { playFromCursor(app); return true; },
@@ -53,6 +54,12 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
 fn moveBar(app: *App, delta: i64) void {
     const nb = @as(i64, app.arr_cursor_bar) + delta;
     app.arr_cursor_bar = @intCast(@max(@as(i64, 0), nb));
+}
+
+/// Move the lane cursor by `delta`, clamped to the track list.
+fn moveLane(app: *App, lane_count: usize, delta: i32) void {
+    const top = @max(@as(i64, @intCast(lane_count)) - 1, 0);
+    app.cursor = @intCast(std.math.clamp(@as(i64, @intCast(app.cursor)) + delta, 0, top));
 }
 
 /// Seek the playhead to the cursor bar, starting playback if stopped —

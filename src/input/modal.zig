@@ -104,7 +104,7 @@ pub const ModalInput = struct {
     }
 
     /// Consumes the accumulated count (default 1).
-    fn takeCount(self: *ModalInput) i32 {
+    pub fn takeCount(self: *ModalInput) i32 {
         const n: u32 = if (self.count == 0) 1 else self.count;
         self.count = 0;
         return @intCast(n);
