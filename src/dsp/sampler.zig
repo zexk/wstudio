@@ -5,7 +5,7 @@
 //! ignored); the amp ADSR and region trim shape the tail.
 //!
 //! The heavy lifting — fractional pitched reads, region trim, reverse, ADSR,
-//! pan — is shared with the drum machine via `DrumMachine.renderVoice`, so a
+//! pan — is shared with the drum machine via `pad.renderVoice`, so a
 //! Sampler is effectively a thin shim over the same Pad/Voice engine. Per-clip
 //! params are plain scalars nudged on the audio thread via the `set_param`
 //! device event (race-free, same path the synth and drum editors use).
@@ -14,9 +14,9 @@ const std = @import("std");
 const types = @import("../core/types.zig");
 const wav = @import("../core/wav.zig");
 const dsp = @import("device.zig");
-const drum = @import("drum_sampler.zig");
-const Pad = drum.Pad;
-const Voice = drum.Voice;
+const pad_dsp = @import("pad.zig");
+const Pad = pad_dsp.Pad;
+const Voice = pad_dsp.Voice;
 
 const Sample = types.Sample;
 
@@ -121,7 +121,7 @@ pub const Sampler = struct {
         const samples = if (result.sample_rate == self.sample_rate)
             result.samples
         else blk: {
-            const resampled = try drum.resampleLinear(
+            const resampled = try pad_dsp.resampleLinear(
                 self.allocator,
                 result.samples,
                 result.sample_rate,
@@ -177,7 +177,7 @@ pub const Sampler = struct {
             // The value copy shares the `samples` slice (no allocation).
             var eff = self.pad;
             eff.pitch_semitones = std.math.clamp(self.pad.pitch_semitones + nv.semis, -60.0, 60.0);
-            drum.DrumMachine.renderVoice(&nv.v, &eff, buf, channels, frames, sr);
+            pad_dsp.renderVoice(&nv.v, &eff, buf, channels, frames, sr);
             if (!nv.v.active) nv.active = false;
         }
     }

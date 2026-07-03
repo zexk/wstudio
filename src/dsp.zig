@@ -9,7 +9,8 @@ pub const Reverb = @import("dsp/reverb.zig").Reverb;
 pub const Compressor = @import("dsp/compressor.zig").Compressor;
 pub const Limiter = @import("dsp/limiter.zig").Limiter;
 pub const DrumMachine = @import("dsp/drum_sampler.zig").DrumMachine;
-pub const Pad = @import("dsp/drum_sampler.zig").Pad;
+pub const Pad = @import("dsp/pad.zig").Pad;
+pub const pad = @import("dsp/pad.zig");
 pub const Sampler = @import("dsp/sampler.zig").Sampler;
 pub const drum_kit = @import("dsp/drum_kit.zig");
 
@@ -30,6 +31,7 @@ test {
     _ = Compressor;
     _ = Limiter;
     _ = DrumMachine;
+    _ = pad;
     _ = Sampler;
     _ = drum_kit;
     _ = pattern;

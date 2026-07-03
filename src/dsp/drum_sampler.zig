@@ -3,7 +3,9 @@
 //! Eight pads hold mono f32 clips (synthesised by default; replaceable
 //! with WAV data).  Each pad is a small Sampler with its own settings:
 //! sample start/end trim, pitch (playback transpose), an amplitude ADSR,
-//! gain, pan, and a reverse toggle.  A 16-step bitmask per pad stores the
+//! gain, pan, and a reverse toggle — the Pad/Voice types and the voice
+//! renderer live in pad.zig, shared with the standalone melodic Sampler.
+//! A 16-step bitmask per pad stores the
 //! pattern; each bit is a u32 atomic so the UI thread can flip bits safely
 //! while the audio thread reads them.  Two more bitplanes per pad hold a
 //! 2-bit per-step velocity level (100/75/50/25%).  The sequencer fires on
@@ -23,52 +25,11 @@ const types = @import("../core/types.zig");
 const wav = @import("../core/wav.zig");
 const dsp = @import("device.zig");
 const Transport = @import("../transport.zig").Transport;
+const pad_mod = @import("pad.zig");
 
 const Sample = types.Sample;
-
-pub const Pad = struct {
-    samples: []f32,
-    name: [8]u8 = [_]u8{' '} ** 8,
-    /// True when the audio was loaded by the user (`:load-pad` /
-    /// `:load-sample`) rather than shipped/generated — only user audio is
-    /// exported to the project's sample sidecar on save.
-    user_sample: bool = false,
-
-    // ── Sampler params (audio-thread reads; nudged via adjustParam) ──────────
-    /// Output level multiplier (0..2). 1.0 = unity.
-    gain: f32 = 1.0,
-    /// Stereo balance: -1 hard left, 0 center, +1 hard right.
-    pan: f32 = 0.0,
-    /// Playback transpose in semitones (-24..+24). rate = 2^(semi/12).
-    pitch_semitones: f32 = 0.0,
-    /// Region start as a fraction of the clip (0..1).
-    start_norm: f32 = 0.0,
-    /// Region end as a fraction of the clip (0..1). Must exceed start_norm.
-    end_norm: f32 = 1.0,
-    /// Play the region back to front when true.
-    reverse: bool = false,
-    // Amplitude ADSR. For one-shots (no note-off) attack/decay/sustain shape
-    // the body and `release_s` fades the tail at the region end (see Voice
-    // rendering). Defaults reproduce an unshaped, instant-on one-shot.
-    attack_s: f32 = 0.001,
-    decay_s: f32 = 0.0,
-    sustain: f32 = 1.0,
-    release_s: f32 = 0.005,
-};
-
-pub const Voice = struct {
-    active: bool = false,
-    /// Source frames consumed since the trigger, as a fractional count that
-    /// advances by the pitch rate each output frame. Read position within the
-    /// clip is derived from this plus the pad's region start (or end, reversed).
-    played: f64 = 0,
-    /// Frame offset within the current block where this voice starts.
-    /// 0 for voices continuing from a previous block.
-    block_start: u32 = 0,
-    /// Trigger velocity applied on top of the pad gain. 1.0 = full hit;
-    /// sequencer steps fire at their per-step level (see `velGain`).
-    vel: f32 = 1.0,
-};
+const Pad = pad_mod.Pad;
+const Voice = pad_mod.Voice;
 
 /// The shipped 8-pad kit: WAVs embedded from src/assets/kit/ (rendered by the
 /// `genkit` build tool from dsp/drum_kit.zig). `data` is raw WAV bytes decoded
@@ -501,7 +462,7 @@ pub const DrumMachine = struct {
         const samples = if (result.sample_rate == self.sample_rate)
             result.samples
         else blk: {
-            const resampled = try resampleLinear(
+            const resampled = try pad_mod.resampleLinear(
                 self.allocator,
                 result.samples,
                 result.sample_rate,
@@ -594,62 +555,8 @@ pub const DrumMachine = struct {
         for (&self.voices, 0..) |*voice, p| {
             if (!voice.active) continue;
             const pad = self.pads[p] orelse continue;
-            renderVoice(voice, &pad, buf, channels, frames, sr);
+            pad_mod.renderVoice(voice, &pad, buf, channels, frames, sr);
         }
-    }
-
-    /// Play one pad voice into `buf`: fractional pitched read with linear
-    /// interpolation, region trim, optional reverse, amp ADSR + release fade,
-    /// and a linear pan law (center = unity in both channels).
-    pub fn renderVoice(
-        voice: *Voice,
-        pad: *const Pad,
-        buf: []Sample,
-        channels: usize,
-        frames: u32,
-        sr: f64,
-    ) void {
-        const len = pad.samples.len;
-        if (len == 0) { voice.active = false; return; }
-        const len_f: f64 = @floatFromInt(len);
-
-        // Resolve the play region in source frames. Guard against an inverted
-        // or empty selection.
-        const lo = std.math.clamp(@as(f64, pad.start_norm), 0.0, 1.0) * len_f;
-        const hi = std.math.clamp(@as(f64, pad.end_norm), 0.0, 1.0) * len_f;
-        const region_len = hi - lo;
-        if (region_len <= 1.0) { voice.active = false; return; }
-
-        const rate: f64 = std.math.pow(f64, 2.0, @as(f64, pad.pitch_semitones) / 12.0);
-
-        // Linear pan: center keeps unity in both channels (matches the prior
-        // mono-to-both behaviour at pan = 0).
-        const gl: f32 = pad.gain * voice.vel * @min(1.0, 1.0 - pad.pan);
-        const gr: f32 = pad.gain * voice.vel * @min(1.0, 1.0 + pad.pan);
-
-        const start = voice.block_start;
-        var i: usize = start;
-        while (i < frames) : (i += 1) {
-            if (voice.played >= region_len) { voice.active = false; break; }
-
-            // Read position within the clip for this voice's progress.
-            const rp: f64 = if (pad.reverse) (hi - 1.0 - voice.played) else (lo + voice.played);
-            const s = sampleAt(pad.samples, rp);
-
-            // Envelope (output time): attack/decay/sustain on the body, plus a
-            // release fade over the final `release_s` of the region.
-            const t_out = voice.played / rate / sr;
-            const left_out = (region_len - voice.played) / rate / sr;
-            const env = adsrLevel(t_out, pad.attack_s, pad.decay_s, pad.sustain) *
-                releaseFade(left_out, pad.release_s);
-
-            const v = s * env;
-            buf[i * channels] += v * gl;
-            buf[i * channels + 1] += v * gr;
-
-            voice.played += rate;
-        }
-        voice.block_start = 0;
     }
 
     /// Fire pads for absolute step `step_k` from the song timeline. The whole
@@ -711,72 +618,6 @@ pub const DrumMachine = struct {
         self.resetAll();
     }
 };
-
-// -----------------------------------------------------------------------
-// Voice-render math (audio thread, allocation-free)
-
-/// Linearly interpolate `samples` at fractional position `p`. Returns 0 past
-/// the ends so a voice fades out cleanly rather than reading garbage.
-fn sampleAt(samples: []const f32, p: f64) f32 {
-    if (p < 0.0) return 0.0;
-    const idx: usize = @intFromFloat(p);
-    if (idx + 1 < samples.len) {
-        const frac: f32 = @floatCast(p - @as(f64, @floatFromInt(idx)));
-        return samples[idx] * (1.0 - frac) + samples[idx + 1] * frac;
-    }
-    if (idx < samples.len) return samples[idx];
-    return 0.0;
-}
-
-/// Attack → decay → sustain level at output time `t` seconds. With the default
-/// params (attack≈0, decay 0, sustain 1) this is unity after the first sample.
-fn adsrLevel(t: f64, attack_s: f32, decay_s: f32, sustain: f32) f32 {
-    const a: f64 = @floatCast(attack_s);
-    const d: f64 = @floatCast(decay_s);
-    const sus: f64 = @floatCast(sustain);
-    if (a > 0.0 and t < a) return @floatCast(t / a);
-    const td = t - a;
-    if (d > 0.0 and td < d) return @floatCast(1.0 - (1.0 - sus) * (td / d));
-    return @floatCast(sus);
-}
-
-/// Release fade in the final `release_s` seconds of the region. `left` is the
-/// remaining output time. Returns 1 outside the release window.
-fn releaseFade(left: f64, release_s: f32) f32 {
-    const r: f64 = @floatCast(release_s);
-    if (r <= 0.0 or left >= r) return 1.0;
-    return @floatCast(std.math.clamp(left / r, 0.0, 1.0));
-}
-
-// -----------------------------------------------------------------------
-// Linear resampler (control-side, allocates)
-
-pub fn resampleLinear(
-    allocator: std.mem.Allocator,
-    src: []const f32,
-    src_rate: u32,
-    dst_rate: u32,
-) ![]f32 {
-    if (src_rate == dst_rate) return allocator.dupe(f32, src);
-    const ratio: f64 = @as(f64, @floatFromInt(src_rate)) / @as(f64, @floatFromInt(dst_rate));
-    const dst_len: usize = @as(usize, @intFromFloat(
-        @ceil(@as(f64, @floatFromInt(src.len)) / ratio),
-    ));
-    const out = try allocator.alloc(f32, dst_len);
-    for (out, 0..) |*s, i| {
-        const sp: f64 = @as(f64, @floatFromInt(i)) * ratio;
-        const si: usize = @intFromFloat(sp);
-        const frac: f32 = @floatCast(sp - @as(f64, @floatFromInt(si)));
-        if (si + 1 < src.len) {
-            s.* = src[si] * (1.0 - frac) + src[si + 1] * frac;
-        } else if (si < src.len) {
-            s.* = src[si];
-        } else {
-            s.* = 0.0;
-        }
-    }
-    return out;
-}
 
 // -----------------------------------------------------------------------
 // Tests
@@ -951,13 +792,13 @@ test "voice velocity scales the rendered level" {
 
     dm.voices[0] = .{ .active = true, .played = 0, .block_start = 0, .vel = 1.0 };
     @memset(&buf, 0.0);
-    DrumMachine.renderVoice(&dm.voices[0], &dm.pads[0].?, &buf, 2, 256, 48_000.0);
+    pad_mod.renderVoice(&dm.voices[0], &dm.pads[0].?, &buf, 2, 256, 48_000.0);
     var peak_full: f32 = 0;
     for (buf) |s| peak_full = @max(peak_full, @abs(s));
 
     dm.voices[0] = .{ .active = true, .played = 0, .block_start = 0, .vel = 0.25 };
     @memset(&buf, 0.0);
-    DrumMachine.renderVoice(&dm.voices[0], &dm.pads[0].?, &buf, 2, 256, 48_000.0);
+    pad_mod.renderVoice(&dm.voices[0], &dm.pads[0].?, &buf, 2, 256, 48_000.0);
     var peak_quiet: f32 = 0;
     for (buf) |s| peak_quiet = @max(peak_quiet, @abs(s));
 
@@ -1163,7 +1004,7 @@ test "region trim shortens the voice" {
     var rendered: usize = 0;
     while (dm.voices[0].active and rendered < dm.pads[0].?.samples.len) : (rendered += buf.len / 2) {
         @memset(&buf, 0.0);
-        DrumMachine.renderVoice(&dm.voices[0], &dm.pads[0].?, &buf, 2, buf.len / 2, 48_000.0);
+        pad_mod.renderVoice(&dm.voices[0], &dm.pads[0].?, &buf, 2, buf.len / 2, 48_000.0);
     }
     try std.testing.expect(!dm.voices[0].active);
     // It stopped near the region length, well before the full clip.
@@ -1184,7 +1025,7 @@ test "pitch up plays the region faster" {
     var unity_frames: usize = 0;
     while (dm.voices[0].active and unity_frames < 1_000_000) : (unity_frames += 128) {
         @memset(&buf, 0.0);
-        DrumMachine.renderVoice(&dm.voices[0], &dm.pads[0].?, &buf, 2, 128, 48_000.0);
+        pad_mod.renderVoice(&dm.voices[0], &dm.pads[0].?, &buf, 2, 128, 48_000.0);
     }
 
     // Pitched up an octave should consume the region in roughly half the frames.
@@ -1193,16 +1034,7 @@ test "pitch up plays the region faster" {
     var fast_frames: usize = 0;
     while (dm.voices[0].active and fast_frames < 1_000_000) : (fast_frames += 128) {
         @memset(&buf, 0.0);
-        DrumMachine.renderVoice(&dm.voices[0], &dm.pads[0].?, &buf, 2, 128, 48_000.0);
+        pad_mod.renderVoice(&dm.voices[0], &dm.pads[0].?, &buf, 2, 128, 48_000.0);
     }
     try std.testing.expect(fast_frames < unity_frames);
-}
-
-test "resampleLinear preserves amplitude" {
-    const src = [_]f32{ 0.0, 0.5, 1.0, 0.5, 0.0 };
-    const out = try resampleLinear(std.testing.allocator, &src, 44_100, 48_000);
-    defer std.testing.allocator.free(out);
-    // Output should be longer and all values in [-1, 1]
-    try std.testing.expect(out.len > src.len);
-    for (out) |s| try std.testing.expect(@abs(s) <= 1.0 + 1e-6);
 }
