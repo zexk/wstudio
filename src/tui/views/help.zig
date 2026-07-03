@@ -168,6 +168,8 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("x",            "delete clip at cursor");
     t.key("y / P",        "yank / paste clip (matching track kind)");
     t.key("< / >",        "move clip left / right by a bar");
+    t.key("( / )",        "set loop start / end at cursor bar");
+    t.key("b",            "toggle A/B loop on/off");
     t.key("g",            "play from cursor bar");
     t.key("T",            "toggle song / pattern mode");
 

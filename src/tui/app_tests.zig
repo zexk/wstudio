@@ -955,3 +955,38 @@ test "piano roll M grabs a note; h/l/j/k drag it as one undo step" {
     app.handleKey(.{ .char = 'M' }, 0);
     try std.testing.expect(!app.piano_grab);
 }
+
+test "A/B loop: ( ) b arm the region and the transport wraps inside it" {
+    var app = try testApp();
+    defer app.deinit();
+    app.view = .arrangement;
+
+    // ( at bar 1, ) at bar 2 → loop bars 2–3 (region [1, 3)), armed.
+    app.arr_cursor_bar = 1;
+    app.handleKey(.{ .char = '(' }, 0);
+    app.arr_cursor_bar = 2;
+    app.handleKey(.{ .char = ')' }, 0);
+    const p = &app.session.project;
+    try std.testing.expect(p.loop_enabled);
+    try std.testing.expectEqual(@as(u32, 1), p.loop_start_bar);
+    try std.testing.expectEqual(@as(u32, 3), p.loop_end_bar);
+    try std.testing.expect(app.dirty);
+
+    // The engine picked the region up in frames (120 bpm 4/4 @48k = 96k/bar)
+    // and playback wraps at the loop end.
+    const engine = app.session.engine;
+    _ = engine.send(.{ .seek_frames = 287_000 }); // just before bar 4
+    _ = engine.send(.play);
+    var block: [512]ws.types.Sample = undefined;
+    for (0..8) |_| engine.process(&block); // crosses 288_000
+    try std.testing.expect(engine.transport.position_frames < 288_000);
+    try std.testing.expect(engine.transport.position_frames >= 96_000);
+
+    // b toggles it off; playback then runs past the old loop end.
+    app.handleKey(.{ .char = 'b' }, 0);
+    try std.testing.expect(!p.loop_enabled);
+    _ = engine.send(.{ .seek_frames = 287_744 });
+    engine.process(&block);
+    engine.process(&block);
+    try std.testing.expect(engine.transport.position_frames >= 288_000);
+}

@@ -27,10 +27,23 @@ pub const Project = struct {
     /// Control-side source of truth — the transport mirrors it, exactly
     /// like `tempo_bpm`.
     beats_per_bar: u8 = 4,
+    /// A/B loop region in bars (`loop_end_bar` exclusive; empty = no region).
+    /// Control-side source of truth — Session.syncLoop pushes it to the
+    /// transport as frames whenever it (or the bar math) changes.
+    loop_enabled: bool = false,
+    loop_start_bar: u32 = 0,
+    loop_end_bar: u32 = 0,
     tracks: std.ArrayList(Track) = .empty,
 
     pub fn init(allocator: std.mem.Allocator) Project {
         return .{ .allocator = allocator };
+    }
+
+    /// Frames in one bar at the current tempo and time signature.
+    pub fn framesPerBar(self: *const Project) u64 {
+        const sr = @as(f64, @floatFromInt(self.sample_rate));
+        const bpm = @max(self.tempo_bpm, 1.0);
+        return @intFromFloat(sr * 60.0 / bpm * @as(f64, @floatFromInt(self.beats_per_bar)));
     }
 
     pub fn deinit(self: *Project) void {

@@ -38,6 +38,8 @@ pub const Command = union(enum) {
     /// on the audio thread so editor edits don't race the block reader.
     set_track_param: struct { track: u16, id: u8, steps: i32 },
     set_spectrum_active: struct { source: SpectrumSource, track: u16 },
+    /// A/B loop region (frames). See Transport.advance for the wrap.
+    set_loop: struct { enabled: bool, start_frames: u64, end_frames: u64 },
 };
 
 const TrackState = struct {
@@ -110,6 +112,11 @@ pub const Engine = struct {
     pub fn loadProject(self: *Engine, project: *const Project) void {
         self.transport.tempo_bpm = project.tempo_bpm;
         self.transport.time_signature.beats_per_bar = project.beats_per_bar;
+        const fpb = project.framesPerBar();
+        self.transport.loop_enabled = project.loop_enabled and
+            project.loop_end_bar > project.loop_start_bar;
+        self.transport.loop_start_frames = @as(u64, project.loop_start_bar) * fpb;
+        self.transport.loop_end_frames = @as(u64, project.loop_end_bar) * fpb;
         for (&self.tracks, 0..) |*state, i| {
             if (i < project.tracks.items.len) {
                 const t = project.tracks.items[i];
@@ -245,6 +252,11 @@ pub const Engine = struct {
             .cc         => |c| self.sendTrackEvent(c.track, .{ .cc         = .{ .cc   = c.cc,   .value = c.value } }),
             .pitch_bend => |c| self.sendTrackEvent(c.track, .{ .pitch_bend = .{ .bend = c.bend } }),
             .set_track_param => |c| self.sendTrackEvent(c.track, .{ .set_param = .{ .id = c.id, .steps = c.steps } }),
+            .set_loop => |c| {
+                self.transport.loop_enabled = c.enabled;
+                self.transport.loop_start_frames = c.start_frames;
+                self.transport.loop_end_frames = c.end_frames;
+            },
             .set_spectrum_active => |c| {
                 self.active_spectrum_source = c.source;
                 // Reset buffer when switching to a different track so stale

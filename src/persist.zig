@@ -48,6 +48,8 @@ const dsp = @import("dsp/device.zig");
 /// carry `sample_file`/`name` refs to mono WAVs exported into the project's
 /// sample sidecar directory ("<stem>_samples" next to the .wsj). Older files
 /// omit them and keep the shipped kit / generated clip — the prior behaviour.
+/// v5 also adds the A/B loop region (`loop_enabled`/`loop_start_bar`/
+/// `loop_end_bar`); older files load with no loop.
 pub const file_version: u32 = 5;
 
 // ---------------------------------------------------------------------------
@@ -254,6 +256,11 @@ pub const Snapshot = struct {
     /// v4: time signature numerator (the unit is always /4). Older files
     /// omit it and load as 4/4 — the prior behaviour.
     beats_per_bar: u8 = 4,
+    /// v5: A/B loop region in bars (`loop_end_bar` exclusive). Older files
+    /// omit it and load with no loop — the prior behaviour.
+    loop_enabled: bool = false,
+    loop_start_bar: u32 = 0,
+    loop_end_bar: u32 = 0,
     sample_rate: u32 = 48_000,
     tracks: []const TrackSnap,
     racks: []const RackSnap,
@@ -303,6 +310,9 @@ pub fn save(
     const snap: Snapshot = .{
         .tempo_bpm = session.project.tempo_bpm,
         .beats_per_bar = session.project.beats_per_bar,
+        .loop_enabled = session.project.loop_enabled,
+        .loop_start_bar = session.project.loop_start_bar,
+        .loop_end_bar = session.project.loop_end_bar,
         .sample_rate = session.project.sample_rate,
         .tracks = tracks,
         .racks = racks,
@@ -668,6 +678,9 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
     project.sample_rate = snap.sample_rate;
     project.tempo_bpm = std.math.clamp(snap.tempo_bpm, 20.0, 400.0);
     project.beats_per_bar = std.math.clamp(snap.beats_per_bar, 1, 16);
+    project.loop_start_bar = snap.loop_start_bar;
+    project.loop_end_bar = snap.loop_end_bar;
+    project.loop_enabled = snap.loop_enabled and snap.loop_end_bar > snap.loop_start_bar;
 
     for (snap.tracks) |t| {
         _ = try project.addTrack(.{ .name = t.name, .gain_db = t.gain_db, .pan = t.pan, .muted = t.muted, .soloed = t.soloed });
@@ -1439,4 +1452,34 @@ test "save/load round-trip persists a user-loaded sampler clip" {
     try testing.expectEqual(@as(usize, 2), ls.pad.samples.len);
     try testing.expectApproxEqAbs(@as(f32, 0.25), ls.pad.samples[0], wav_eps);
     try testing.expectApproxEqAbs(@as(f32, 0.8), ls.pad.gain, 1e-4);
+}
+
+test "buildSession: A/B loop region lands in project and transport" {
+    const testing = std.testing;
+    const snap: Snapshot = .{
+        .loop_enabled = true,
+        .loop_start_bar = 2,
+        .loop_end_bar = 4,
+        .tracks = &.{.{ .name = "t" }},
+        .racks = &.{.{ .label = "t", .kind = .empty }},
+    };
+    var session = try buildSession(testing.allocator, &snap);
+    defer session.deinit();
+    try testing.expect(session.project.loop_enabled);
+    try testing.expectEqual(@as(u32, 2), session.project.loop_start_bar);
+    // 120 bpm 4/4 @ 48k → 96_000 frames per bar.
+    try testing.expect(session.engine.transport.loop_enabled);
+    try testing.expectEqual(@as(u64, 192_000), session.engine.transport.loop_start_frames);
+    try testing.expectEqual(@as(u64, 384_000), session.engine.transport.loop_end_frames);
+
+    // An inverted region deserialises disabled.
+    var bad = try buildSession(testing.allocator, &.{
+        .loop_enabled = true,
+        .loop_start_bar = 4,
+        .loop_end_bar = 2,
+        .tracks = &.{.{ .name = "t" }},
+        .racks = &.{.{ .label = "t", .kind = .empty }},
+    });
+    defer bad.deinit();
+    try testing.expect(!bad.engine.transport.loop_enabled);
 }

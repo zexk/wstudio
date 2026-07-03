@@ -65,17 +65,22 @@ pub fn drawArrangement(
     const mode_tag: []const u8 = if (app.session.song_mode) grn ++ "SONG" ++ rst else dim ++ "PATTERN" ++ rst;
     try w.writeAll(bold ++ " ARRANGEMENT" ++ rst ++ "  ");
     try w.writeAll(mode_tag);
-    try w.writeAll(dim ++ "   [hjkl:move  enter:stamp  e:edit-clip  []:pattern  x:del  g:play-here  T:mode  space:play  esc:back]" ++ rst);
+    try w.writeAll(dim ++ "   [hjkl:move  enter:stamp  e:edit  y/P/<>:clip  ()b:loop  []:pattern  x:del  g:play-here  T:mode  esc:back]" ++ rst);
     try endLine(w);
 
-    // Bar ruler.
+    // Bar ruler. Bars inside an armed loop region wear the accent colour.
+    const p = &app.session.project;
+    const loop_on = p.loop_enabled and p.loop_end_bar > p.loop_start_bar;
     for (0..gutter - 1) |_| try w.writeByte(' ');
     for (0..visible) |c| {
         const bar = scroll + @as(u32, @intCast(c));
         const downbeat = bar % bpb == 0;
-        try w.writeAll(if (downbeat) blu ++ "│" ++ rst else dim ++ "│" ++ rst);
+        const in_loop = loop_on and bar >= p.loop_start_bar and bar < p.loop_end_bar;
+        try w.writeAll(if (in_loop) yel ++ "│" ++ rst else if (downbeat) blu ++ "│" ++ rst else dim ++ "│" ++ rst);
         if (downbeat) {
-            try w.print("{s}{d: >3}{s}", .{ dim, bar + 1, rst });
+            try w.print("{s}{d: >3}{s}", .{ if (in_loop) yel else dim, bar + 1, rst });
+        } else if (in_loop) {
+            try w.writeAll(yel ++ "···" ++ rst);
         } else {
             try w.writeAll("   ");
         }
@@ -148,6 +153,13 @@ pub fn drawArrangementStatus(app: anytype, w: *std.Io.Writer) !void {
     try w.print("{d}", .{app.arr_cursor_bar + 1});
     try w.writeAll(dim ++ "  track " ++ rst);
     try w.print("{d}/{d}", .{ app.cursor + 1, app.session.project.tracks.items.len });
+
+    const p = &app.session.project;
+    if (p.loop_enabled and p.loop_end_bar > p.loop_start_bar) {
+        try w.writeAll(dim ++ "  loop " ++ rst ++ yel);
+        try w.print("{d}\u{2192}{d}", .{ p.loop_start_bar + 1, p.loop_end_bar });
+        try w.writeAll(rst);
+    }
 
     // On a drum lane, show which pattern variant enter would stamp.
     if (app.cursor < app.session.racks.items.len) {

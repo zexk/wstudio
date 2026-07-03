@@ -13,8 +13,9 @@ const piano = @import("piano.zig");
 
 /// h/l move ±1 bar, H/L ±4 bars (one phrase), j/k change lane (shared
 /// `cursor`), enter stamps the live pattern as a clip, x deletes, y/P
-/// yank/paste a clip, </> shift it by bars, [/] cycle a drum lane's
-/// pattern variant, T toggles song/pattern mode.
+/// yank/paste a clip, </> shift it by bars, ( ) b set/toggle the A/B
+/// loop, [/] cycle a drum lane's pattern variant, T toggles song/pattern
+/// mode.
 /// Returns false for unhandled keys (space, `:`, …) so the transport and
 /// command line still work. Scroll is clamped at draw.
 pub fn handleKey(app: *App, key: modal_mod.Key) bool {
@@ -44,6 +45,9 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             'U' => { history.doRedo(app); return true; },
             '[' => { cycleDrumVariant(app, -1); return true; },
             ']' => { cycleDrumVariant(app, 1); return true; },
+            '(' => { setLoopStart(app); return true; },
+            ')' => { setLoopEnd(app); return true; },
+            'b' => { toggleLoop(app); return true; },
             'T' => {
                 app.session.setSongMode(!app.session.song_mode);
                 app.dirty = true;
@@ -161,6 +165,51 @@ fn editClip(app: *App) void {
         },
         .drum => app.setStatus("drum clips play the pattern bank — edit variants in the grid", .{}),
     }
+}
+
+/// A/B loop brace: ( sets the start at the cursor bar. Setting a valid
+/// region arms the loop immediately (b toggles it after).
+fn setLoopStart(app: *App) void {
+    const p = &app.session.project;
+    p.loop_start_bar = app.arr_cursor_bar;
+    if (p.loop_end_bar > p.loop_start_bar) {
+        p.loop_enabled = true;
+        app.setStatus("loop: bars {d}–{d}", .{ p.loop_start_bar + 1, p.loop_end_bar });
+    } else {
+        app.setStatus("loop start: bar {d} — ) sets the end", .{p.loop_start_bar + 1});
+    }
+    app.dirty = true;
+    app.session.syncLoop();
+}
+
+/// ) sets the loop end after the cursor bar (the bar is included).
+fn setLoopEnd(app: *App) void {
+    const p = &app.session.project;
+    p.loop_end_bar = app.arr_cursor_bar + 1;
+    if (p.loop_end_bar > p.loop_start_bar) {
+        p.loop_enabled = true;
+        app.setStatus("loop: bars {d}–{d}", .{ p.loop_start_bar + 1, p.loop_end_bar });
+    } else {
+        app.setStatus("loop end: bar {d} — ( sets the start", .{p.loop_end_bar});
+    }
+    app.dirty = true;
+    app.session.syncLoop();
+}
+
+/// b toggles the loop on/off once a region exists.
+fn toggleLoop(app: *App) void {
+    const p = &app.session.project;
+    if (p.loop_end_bar <= p.loop_start_bar) {
+        app.setStatus("no loop region — ( and ) set one", .{});
+        return;
+    }
+    p.loop_enabled = !p.loop_enabled;
+    if (p.loop_enabled)
+        app.setStatus("loop on: bars {d}–{d}", .{ p.loop_start_bar + 1, p.loop_end_bar })
+    else
+        app.setStatus("loop off", .{});
+    app.dirty = true;
+    app.session.syncLoop();
 }
 
 /// Yank the clip under the cursor into the app-wide clip clipboard.

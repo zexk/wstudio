@@ -361,6 +361,9 @@ pub fn renderBounce(app: *App, buffer: []types.Sample) void {
     const engine = app.session.engine;
     const was_playing = engine.transport.playing;
     const saved_pos = engine.transport.position_frames;
+    // An armed A/B loop would render the region forever; bounce the song.
+    const was_looping = engine.transport.loop_enabled;
+    engine.transport.loop_enabled = false;
 
     resetDevices(app);
     engine.limiter.reset();
@@ -378,6 +381,7 @@ pub fn renderBounce(app: *App, buffer: []types.Sample) void {
     resetDevices(app);
     engine.limiter.reset();
     engine.transport.seekFrames(saved_pos);
+    engine.transport.loop_enabled = was_looping;
     if (was_playing) engine.transport.play() else engine.transport.stop();
 }
 
@@ -405,6 +409,8 @@ fn cmdBpm(app: *App, args: []const u8) void {
     }
     app.session.project.tempo_bpm = bpm;
     _ = app.session.engine.send(.{ .set_tempo = bpm });
+    // The loop region is stored in bars; its frame mirror just moved.
+    app.session.syncLoop();
     app.dirty = true;
     app.setStatus("bpm: {d:.1}", .{bpm});
 }
@@ -434,8 +440,10 @@ fn cmdSig(app: *App, args: []const u8) void {
     }
     app.session.project.beats_per_bar = n;
     _ = app.session.engine.send(.{ .set_time_signature = n });
-    // Bar boundaries moved; refit the song timeline if it's driving playback.
+    // Bar boundaries moved; refit the song timeline if it's driving playback,
+    // and re-derive the loop region's frame mirror.
     if (app.session.song_mode) app.session.rebuildSongData();
+    app.session.syncLoop();
     app.dirty = true;
     app.setStatus("sig: {d}/4", .{n});
 }

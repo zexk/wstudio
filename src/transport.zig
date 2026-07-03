@@ -17,6 +17,12 @@ pub const Transport = struct {
     playing: bool = false,
     /// Absolute position in frames since project start.
     position_frames: u64 = 0,
+    /// A/B loop region in frames. While enabled (and the region is non-empty),
+    /// `advance` wraps positions reaching `loop_end_frames` back into the
+    /// region — devices resync off the position jump like they do for a seek.
+    loop_enabled: bool = false,
+    loop_start_frames: u64 = 0,
+    loop_end_frames: u64 = 0,
 
     pub fn framesPerBeat(self: *const Transport) f64 {
         return @as(f64, @floatFromInt(self.sample_rate)) * 60.0 / self.tempo_bpm;
@@ -39,7 +45,15 @@ pub const Transport = struct {
 
     /// Called once per processed block, after rendering it.
     pub fn advance(self: *Transport, frames: u32) void {
-        if (self.playing) self.position_frames += frames;
+        if (!self.playing) return;
+        self.position_frames += frames;
+        if (self.loop_enabled and self.loop_end_frames > self.loop_start_frames and
+            self.position_frames >= self.loop_end_frames)
+        {
+            const span = self.loop_end_frames - self.loop_start_frames;
+            self.position_frames = self.loop_start_frames +
+                (self.position_frames - self.loop_start_frames) % span;
+        }
     }
 
     pub fn play(self: *Transport) void {
@@ -65,6 +79,23 @@ test "advance only moves while playing" {
     t.stop();
     t.advance(256);
     try std.testing.expectEqual(@as(u64, 256), t.position_frames);
+}
+
+test "advance wraps inside an enabled loop region" {
+    var t: Transport = .{ .sample_rate = 48_000 };
+    t.loop_start_frames = 1_000;
+    t.loop_end_frames = 2_000;
+    t.loop_enabled = true;
+    t.play();
+    t.seekFrames(1_900);
+    t.advance(256); // 2_156 → wraps to 1_000 + 156
+    try std.testing.expectEqual(@as(u64, 1_156), t.position_frames);
+
+    // Disabled loop plays straight through.
+    t.loop_enabled = false;
+    t.seekFrames(1_900);
+    t.advance(256);
+    try std.testing.expectEqual(@as(u64, 2_156), t.position_frames);
 }
 
 test "musical time at 120 bpm" {

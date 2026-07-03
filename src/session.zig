@@ -255,6 +255,19 @@ pub const Session = struct {
         }
     }
 
+    /// Push the project's A/B loop region (bars) to the audio thread as
+    /// frames. Call after editing the loop or anything its bar math depends
+    /// on (tempo, time signature).
+    pub fn syncLoop(self: *Session) void {
+        const fpb = self.project.framesPerBar();
+        _ = self.engine.send(.{ .set_loop = .{
+            .enabled = self.project.loop_enabled and
+                self.project.loop_end_bar > self.project.loop_start_bar,
+            .start_frames = @as(u64, self.project.loop_start_bar) * fpb,
+            .end_frames = @as(u64, self.project.loop_end_bar) * fpb,
+        } });
+    }
+
     /// Flatten the arrangement's clips into each track's device song buffer.
     /// Melodic lanes become one absolute-beat note timeline; drum lanes become a
     /// list of step-placed clips. The whole arrangement loops as one unit, so all
