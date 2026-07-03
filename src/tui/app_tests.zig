@@ -1045,3 +1045,64 @@ test "arrow keys act as hjkl outside command mode" {
     app.handleKey(.arrow_up, 0);
     try std.testing.expectEqual(@as(usize, 0), app.cursor);
 }
+
+test ":e refuses on unsaved changes; :e! forces and stages the reload" {
+    var app = try testApp();
+    defer app.deinit();
+
+    app.applyAction(.toggle_mute, 0); // dirty
+    try std.testing.expect(app.dirty);
+
+    for (":e some/project.wsj") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqual(App.ReloadRequest.none, app.pending_reload);
+
+    for (":e! some/project.wsj") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqual(App.ReloadRequest.load, app.pending_reload);
+    try std.testing.expectEqualStrings("some/project.wsj", app.pendingReloadPath());
+}
+
+test ":e expands ~ in the requested path" {
+    var app = try App.init(std.testing.allocator, std.Io.failing);
+    defer app.deinit();
+    const home_c = std.c.getenv("HOME") orelse return error.SkipZigTest;
+    const home = std.mem.sliceTo(home_c, 0);
+
+    for (":e ~/song.wsj") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqual(App.ReloadRequest.load, app.pending_reload);
+    try std.testing.expect(std.mem.startsWith(u8, app.pendingReloadPath(), home));
+    try std.testing.expect(std.mem.indexOf(u8, app.pendingReloadPath(), "~") == null);
+}
+
+test ":e! with no path reverts to the current project path" {
+    var app = try App.init(std.testing.allocator, std.Io.failing);
+    defer app.deinit();
+
+    // No project loaded yet: revert has nothing to revert to.
+    app.handleKey(.{ .char = ':' }, 0);
+    for ("e!") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqual(App.ReloadRequest.none, app.pending_reload);
+
+    app.setProjectPath("song.wsj");
+    for (":e!") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqual(App.ReloadRequest.load, app.pending_reload);
+    try std.testing.expectEqualStrings("song.wsj", app.pendingReloadPath());
+}
+
+test ":new refuses on unsaved changes; :new! forces a blank-session request" {
+    var app = try testApp();
+    defer app.deinit();
+    app.applyAction(.toggle_mute, 0);
+
+    for (":new") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqual(App.ReloadRequest.none, app.pending_reload);
+
+    for (":new!") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqual(App.ReloadRequest.blank, app.pending_reload);
+}

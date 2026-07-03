@@ -34,6 +34,8 @@ const pattern_mod = ws.dsp.pattern;
 pub const note_ms = 220;
 const frame_poll_ms = 30;
 const cmd_history_cap: usize = 50;
+/// Big enough for any real filesystem path; mirrors commands.path_buf_len.
+const reload_path_buf_len: usize = 1024;
 
 pub const AppView = enum { tracks, drum_grid, synth_editor, sampler_editor, help, track_spectrum, master_spectrum, piano_roll, instrument_picker, arrangement };
 
@@ -141,6 +143,18 @@ pub const App = struct {
     /// Position while recalling: `cmd_history.items.len` means "not
     /// recalling — the prompt holds a fresh, unsubmitted line".
     cmd_history_pos: usize = 0,
+    /// Set by `:e`/`:new` (see `requestReload`) to ask `run()` to swap the
+    /// session on the next loop iteration. `run()` — not App — owns the
+    /// audio backend handles, and those hold a raw `*Engine` pointer
+    /// captured at start, so the swap has to stop the backend, replace
+    /// `session.engine`, and restart it; that can't happen from inside a
+    /// key handler. Untestable below `run()` itself; the request side
+    /// (dirty-flag guard, path expansion) is what App-level tests cover.
+    pending_reload: ReloadRequest = .none,
+    pending_reload_buf: [reload_path_buf_len]u8 = undefined,
+    pending_reload_len: usize = 0,
+
+    pub const ReloadRequest = enum { none, blank, load };
 
     const NoteOff = struct { at_ns: i96, track: u16, note: u7 };
 
@@ -648,6 +662,23 @@ pub const App = struct {
         self.project_path_len = len;
     }
 
+    /// Ask `run()` to load `path` (or start a blank session when null) on
+    /// its next loop iteration — see the field doc on `pending_reload`.
+    pub fn requestReload(self: *App, path: ?[]const u8) void {
+        if (path) |p| {
+            const len = @min(p.len, self.pending_reload_buf.len);
+            @memcpy(self.pending_reload_buf[0..len], p[0..len]);
+            self.pending_reload_len = len;
+            self.pending_reload = .load;
+        } else {
+            self.pending_reload = .blank;
+        }
+    }
+
+    pub fn pendingReloadPath(self: *const App) []const u8 {
+        return self.pending_reload_buf[0..self.pending_reload_len];
+    }
+
     pub fn setStatus(self: *App, comptime fmt: []const u8, args: anytype) void {
         const msg = std.fmt.bufPrint(&self.status_buf, fmt, args) catch &self.status_buf;
         self.status_len = msg.len;
@@ -758,7 +789,7 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8) !vo
         }
     }
 
-    const config: backend_mod.Config = .{ .sample_rate = app.session.project.sample_rate };
+    var config: backend_mod.Config = .{ .sample_rate = app.session.project.sample_rate };
 
     const has_alsa = builtin.os.tag == .linux;
     const AlsaBackend = if (has_alsa) ws.alsa.AlsaBackend else void;
@@ -799,6 +830,65 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8) !vo
         const n = terminal_mod.decode(bytes, &keys);
         for (keys[0..n]) |key| app.handleKey(key, now);
         app.tick(now);
+
+        // :e / :new asked for a session swap. Build the replacement first
+        // (control-thread only, no backend involved) so a bad path or OOM
+        // just reports an error and leaves the running session untouched;
+        // only stop the backend once we actually have something to swap in
+        // — it holds a raw *Engine pointer captured at start (or the last
+        // reload), which the swap would otherwise dangle.
+        if (app.pending_reload != .none) {
+            const kind = app.pending_reload;
+            app.pending_reload = .none;
+            const new_session: ?ws.Session = switch (kind) {
+                .none => unreachable,
+                .blank => ws.Session.initDefault(allocator) catch |e| blk: {
+                    app.setStatus("new: {s}", .{@errorName(e)});
+                    break :blk null;
+                },
+                .load => blk: {
+                    const path = app.pendingReloadPath();
+                    if (ws.persist.load(allocator, io, path)) |loaded| {
+                        break :blk loaded;
+                    } else |e| {
+                        app.setStatus("e: cannot load '{s}': {s}", .{ path, @errorName(e) });
+                        break :blk null;
+                    }
+                },
+            };
+            if (new_session) |loaded| {
+                if (using_alsa) alsa_backend.stop() else null_backend.stop();
+                if (using_midi) midi_in.stop();
+
+                app.session.deinit();
+                app.session = loaded;
+                switch (kind) {
+                    .load => app.setProjectPath(app.pendingReloadPath()),
+                    .blank => app.project_path_len = 0,
+                    .none => unreachable,
+                }
+
+                config = .{ .sample_rate = app.session.project.sample_rate };
+                null_backend = .{ .config = config, .render = renderTrampoline, .ctx = app.session.engine };
+                using_alsa = false;
+                using_midi = false;
+                if (has_alsa) {
+                    alsa_backend = .{ .config = config, .render = renderTrampoline, .ctx = app.session.engine };
+                    if (alsa_backend.start()) { using_alsa = true; } else |_| {}
+                    midi_in = .{ .engine = app.session.engine };
+                    if (midi_in.start()) { using_midi = true; } else |_| {}
+                }
+                // A restart failure here just leaves the session silent
+                // rather than tearing down the whole running app.
+                if (!using_alsa) null_backend.start(io) catch {};
+                app.audio_label = if (using_alsa) "alsa" else "none (silent)";
+                switch (kind) {
+                    .load => app.setStatus("loaded: {s}", .{app.projectPath().?}),
+                    .blank => app.setStatus("new project", .{}),
+                    .none => unreachable,
+                }
+            }
+        }
 
         // MIDI input follows the TUI cursor so live playing always targets the
         // currently selected track. Written from the UI thread, read (monotonic)

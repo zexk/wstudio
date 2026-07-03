@@ -55,6 +55,10 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "seek",        .desc = "<bar>  move playhead to bar",         .run = wrap(cmdSeek) },
     .{ .name = "load-pad",    .desc = "<0-7> <file>  load WAV into pad",     .run = wrap(cmdLoadPad) },
     .{ .name = "load-sample", .desc = "<file>  load WAV into sampler track",  .run = wrap(cmdLoadSample) },
+    .{ .name = "e",           .desc = "<file>  open a project (refuses if unsaved changes)", .run = wrap(cmdEdit) },
+    .{ .name = "e!",          .desc = "[file]  open a project, discarding changes; no file reverts the current one", .run = wrap(cmdEditForce) },
+    .{ .name = "new",         .desc = "start a blank project (refuses if unsaved changes)", .run = wrap(cmdNew) },
+    .{ .name = "new!",        .desc = "start a blank project, discarding unsaved changes", .run = wrap(cmdNewForce) },
     .{ .name = "help",        .desc = "list all commands",                   .run = wrap(cmdHelp) },
     .{ .name = "h",           .desc = "list all commands (alias for :help)", .run = wrap(cmdHelp) },
     .{ .name = "eq",          .desc = "<track> [<band> <db>]  EQ control",   .run = wrap(cmdEq) },
@@ -94,6 +98,47 @@ fn cmdQuit(app: *App, _: []const u8) void {
 }
 
 fn cmdQuitForce(app: *App, _: []const u8) void { app.should_quit = true; }
+
+fn cmdEdit(app: *App, args: []const u8) void { editOrRevert(app, args, false); }
+fn cmdEditForce(app: *App, args: []const u8) void { editOrRevert(app, args, true); }
+
+/// `:e <file>` swaps in a different project (refusing on unsaved changes,
+/// like `:q`). `:e!` forces it; `:e!` alone (no path) reverts the current
+/// project to its last-saved state, vim's plain-`:e!` convention. The actual
+/// swap happens in `run()` — see `App.requestReload`.
+fn editOrRevert(app: *App, args: []const u8, force: bool) void {
+    const trimmed = std.mem.trim(u8, args, " ");
+    if (trimmed.len == 0 and !force) {
+        app.setStatus("usage: e <file>  (:e! reverts unsaved changes)", .{});
+        return;
+    }
+    if (!force and app.dirty) {
+        app.setStatus("unsaved changes — :w to save, :e! to discard", .{});
+        return;
+    }
+    var path_buf: [path_buf_len]u8 = undefined;
+    const path: []const u8 = if (trimmed.len > 0)
+        expandHome(&path_buf, trimmed)
+    else
+        app.projectPath() orelse {
+            app.setStatus("e!: no project loaded yet — :e! needs a path", .{});
+            return;
+        };
+    app.requestReload(path);
+}
+
+fn cmdNew(app: *App, _: []const u8) void { newOrForce(app, false); }
+fn cmdNewForce(app: *App, _: []const u8) void { newOrForce(app, true); }
+
+/// `:new` starts a blank session (refusing on unsaved changes); `:new!` forces
+/// it. Same reload path as `:e` — see `App.requestReload`.
+fn newOrForce(app: *App, force: bool) void {
+    if (!force and app.dirty) {
+        app.setStatus("unsaved changes — :w to save, :new! to discard", .{});
+        return;
+    }
+    app.requestReload(null);
+}
 
 fn cmdClear(app: *App, _: []const u8) void {
     // In the piano roll, clear the pattern being edited; elsewhere, the

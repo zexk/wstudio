@@ -46,7 +46,10 @@ lanes `[`/`]` pick which variant to stamp (clips show their letter),
 and `T` toggles between pattern and song playback. `:load-sample
 <file>` swaps a sampler's clip; `:load-pad <0-7> <file>` swaps a drum
 pad. File paths given to `:load-pad`, `:load-sample`, `:save`/`:w`, and
-`:bounce`/`:export` expand a leading `~` to `$HOME`.
+`:bounce`/`:export` expand a leading `~` to `$HOME`. `:e <file>` opens
+a different project without restarting wstudio (refusing on unsaved
+changes; `:e!` forces it, and `:e!` alone reverts to the last save);
+`:new`/`:new!` start a blank project the same way.
 
 ## Architecture
 
@@ -140,7 +143,7 @@ Done:
       arrangement (`y`/`P`/`<`/`>`), piano-roll note grab-and-drag (`M`),
       A/B loop region (`(`/`)`/`b`, persisted), `:` prompt history recall
       (up/down, arrow keys no longer leak into typed text), `~` expansion
-      in file paths
+      in file paths, `:e`/`:new` to switch or start a project mid-session
 - [x] User-loaded sample audio persists across saves: WAVs are exported to a
       `<name>_samples/` directory next to the .wsj and reloaded with the project
 - [x] Undo/redo (`u`/`U`) for content edits: notes, drum patterns/variants,
