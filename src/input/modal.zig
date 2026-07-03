@@ -15,6 +15,15 @@ pub const Key = union(enum) {
     escape,
     enter,
     backspace,
+    /// Arrow keys, decoded from terminal CSI sequences as their own variants
+    /// (not aliased to hjkl chars) so command mode can tell a real arrow
+    /// press from someone typing 'h'/'j'/'k'/'l' into a command. The
+    /// frontend (App.handleKey) aliases them to hjkl outside command mode,
+    /// matching the vim convention that arrows are a motion synonym.
+    arrow_up,
+    arrow_down,
+    arrow_left,
+    arrow_right,
     /// Intercepted by the frontend (quit); modal layer ignores it.
     ctrl_c,
 };
@@ -202,7 +211,9 @@ pub const ModalInput = struct {
                 }
                 return .none;
             },
-            .ctrl_c => return .none,
+            // Handled by App.handleKey before it reaches here (history
+            // recall on up/down); nothing left to do at this layer.
+            .arrow_up, .arrow_down, .arrow_left, .arrow_right, .ctrl_c => return .none,
         }
     }
 };

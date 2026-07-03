@@ -990,3 +990,58 @@ test "A/B loop: ( ) b arm the region and the transport wraps inside it" {
     engine.process(&block);
     try std.testing.expect(engine.transport.position_frames >= 288_000);
 }
+
+test "command prompt: up/down recall history without corrupting the buffer" {
+    var app = try App.init(std.testing.allocator, std.Io.failing);
+    defer app.deinit();
+
+    // Submit two commands.
+    for (":bpm 100") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    for (":bpm 140") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expectApproxEqAbs(@as(f64, 140.0), app.session.project.tempo_bpm, 0.001);
+
+    // Enter the prompt fresh, then arrow-up twice recalls oldest-first from the end.
+    app.handleKey(.{ .char = ':' }, 0);
+    app.handleKey(.arrow_up, 0);
+    try std.testing.expectEqualStrings("bpm 140", app.modal.cmd_buf[0..app.modal.cmd_len]);
+    app.handleKey(.arrow_up, 0);
+    try std.testing.expectEqualStrings("bpm 100", app.modal.cmd_buf[0..app.modal.cmd_len]);
+    // Past the oldest entry, up is a no-op.
+    app.handleKey(.arrow_up, 0);
+    try std.testing.expectEqualStrings("bpm 100", app.modal.cmd_buf[0..app.modal.cmd_len]);
+
+    // Down steps forward; past the newest it blanks the line.
+    app.handleKey(.arrow_down, 0);
+    try std.testing.expectEqualStrings("bpm 140", app.modal.cmd_buf[0..app.modal.cmd_len]);
+    app.handleKey(.arrow_down, 0);
+    try std.testing.expectEqual(@as(usize, 0), app.modal.cmd_len);
+
+    // Arrow left/right don't leak 'h'/'l' into the buffer.
+    app.handleKey(.arrow_up, 0); // recall "bpm 140"
+    app.handleKey(.arrow_left, 0);
+    app.handleKey(.arrow_right, 0);
+    try std.testing.expectEqualStrings("bpm 140", app.modal.cmd_buf[0..app.modal.cmd_len]);
+
+    app.handleKey(.escape, 0);
+}
+
+test "arrow keys act as hjkl outside command mode" {
+    var app = try testApp();
+    defer app.deinit();
+
+    app.view = .arrangement;
+    app.arr_cursor_bar = 5;
+    app.handleKey(.arrow_left, 0);
+    try std.testing.expectEqual(@as(u32, 4), app.arr_cursor_bar);
+    app.handleKey(.arrow_right, 0);
+    try std.testing.expectEqual(@as(u32, 5), app.arr_cursor_bar);
+
+    app.view = .tracks;
+    app.cursor = 0;
+    app.handleKey(.arrow_down, 0);
+    try std.testing.expectEqual(@as(usize, 1), app.cursor);
+    app.handleKey(.arrow_up, 0);
+    try std.testing.expectEqual(@as(usize, 0), app.cursor);
+}

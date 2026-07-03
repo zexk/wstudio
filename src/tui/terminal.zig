@@ -86,10 +86,11 @@ pub const Terminal = struct {
     }
 };
 
-/// Decodes a batch of raw input bytes into keys. A lone 0x1b in the
-/// batch is the escape key; 0x1b followed by '[' is a CSI sequence
-/// (arrows map onto hjkl, everything else is dropped). Returns the
-/// number of keys written to `out`.
+/// Decodes a batch of raw input bytes into keys. A lone 0x1b in the batch is
+/// the escape key; 0x1b followed by '[' is a CSI sequence — arrows decode to
+/// their own Key variants (not hjkl chars, so the modal layer can tell a real
+/// arrow press from someone typing those letters — see App.handleKey), other
+/// CSI sequences are dropped. Returns the number of keys written to `out`.
 pub fn decode(bytes: []const u8, out: []Key) usize {
     var count: usize = 0;
     var i: usize = 0;
@@ -104,15 +105,15 @@ pub fn decode(bytes: []const u8, out: []Key) usize {
                     if (i < bytes.len) {
                         const final = bytes[i];
                         i += 1;
-                        const mapped: ?u8 = switch (final) {
-                            'A' => 'k',
-                            'B' => 'j',
-                            'C' => 'l',
-                            'D' => 'h',
+                        const mapped: ?Key = switch (final) {
+                            'A' => .arrow_up,
+                            'B' => .arrow_down,
+                            'C' => .arrow_right,
+                            'D' => .arrow_left,
                             else => null,
                         };
-                        if (mapped) |c| {
-                            out[count] = .{ .char = c };
+                        if (mapped) |k| {
+                            out[count] = k;
                             count += 1;
                         }
                     }
@@ -164,11 +165,14 @@ test "lone escape vs CSI arrow sequences" {
     try std.testing.expectEqual(@as(usize, 1), decode("\x1b", &keys));
     try std.testing.expectEqual(Key.escape, keys[0]);
 
-    // up arrow becomes k, down arrow becomes j
-    const n = decode("\x1b[A\x1b[B", &keys);
-    try std.testing.expectEqual(@as(usize, 2), n);
-    try std.testing.expectEqual(Key{ .char = 'k' }, keys[0]);
-    try std.testing.expectEqual(Key{ .char = 'j' }, keys[1]);
+    // arrows decode to their own variants (App.handleKey aliases them to
+    // hjkl outside command mode; see modal.zig's doc comment)
+    const n = decode("\x1b[A\x1b[B\x1b[C\x1b[D", &keys);
+    try std.testing.expectEqual(@as(usize, 4), n);
+    try std.testing.expectEqual(Key.arrow_up, keys[0]);
+    try std.testing.expectEqual(Key.arrow_down, keys[1]);
+    try std.testing.expectEqual(Key.arrow_right, keys[2]);
+    try std.testing.expectEqual(Key.arrow_left, keys[3]);
 
     // unknown CSI (e.g. F1 variants) is dropped, not misread
     try std.testing.expectEqual(@as(usize, 0), decode("\x1b[15~", &keys));

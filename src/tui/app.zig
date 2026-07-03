@@ -33,6 +33,7 @@ const pattern_mod = ws.dsp.pattern;
 
 pub const note_ms = 220;
 const frame_poll_ms = 30;
+const cmd_history_cap: usize = 50;
 
 pub const AppView = enum { tracks, drum_grid, synth_editor, sampler_editor, help, track_spectrum, master_spectrum, piano_roll, instrument_picker, arrangement };
 
@@ -134,6 +135,12 @@ pub const App = struct {
     /// a project is loaded at startup and updated on every successful save.
     project_path_buf: [256]u8 = undefined,
     project_path_len: usize = 0,
+    /// Submitted `:` commands, oldest first, for up/down recall in the
+    /// command prompt. Capped at `cmd_history_cap`; oldest drops when full.
+    cmd_history: std.ArrayListUnmanaged([]const u8) = .empty,
+    /// Position while recalling: `cmd_history.items.len` means "not
+    /// recalling — the prompt holds a fresh, unsubmitted line".
+    cmd_history_pos: usize = 0,
 
     const NoteOff = struct { at_ns: i96, track: u16, note: u7 };
 
@@ -147,6 +154,8 @@ pub const App = struct {
 
     pub fn deinit(self: *App) void {
         if (self.arr_clip) |*c| c.deinit(self.allocator);
+        for (self.cmd_history.items) |s| self.allocator.free(s);
+        self.cmd_history.deinit(self.allocator);
         self.history.deinit(self.allocator);
         self.session.deinit();
     }
@@ -194,12 +203,33 @@ pub const App = struct {
         return @min(self.modal.takeCount(), 4096);
     }
 
-    pub fn handleKey(self: *App, key: modal_mod.Key, now_ns: i96) void {
+    pub fn handleKey(self: *App, key_in: modal_mod.Key, now_ns: i96) void {
         self.now_ns = now_ns;
-        if (key == .ctrl_c) {
+        if (key_in == .ctrl_c) {
             self.should_quit = true;
             return;
         }
+
+        // Command mode: up/down recall history; left/right are dropped
+        // rather than aliased below (no cursor-in-buffer exists yet, and
+        // aliasing them to h/l would corrupt the line being typed).
+        if (self.modal.mode == .command) {
+            switch (key_in) {
+                .arrow_up => { self.commandHistoryPrev(); return; },
+                .arrow_down => { self.commandHistoryNext(); return; },
+                .arrow_left, .arrow_right => return,
+                else => {},
+            }
+        }
+        // Everywhere else, arrows are a plain hjkl alias (vim convention) —
+        // every view already navigates on h/l/j/k, so this is transparent.
+        const key: modal_mod.Key = switch (key_in) {
+            .arrow_up => .{ .char = 'k' },
+            .arrow_down => .{ .char = 'j' },
+            .arrow_left => .{ .char = 'h' },
+            .arrow_right => .{ .char = 'l' },
+            else => key_in,
+        };
 
         switch (self.view) {
             .help => switch (key) {
@@ -337,7 +367,11 @@ pub const App = struct {
                 );
                 _ = self.session.engine.send(.{ .set_master_gain = types.dbToGain(self.master_gain_db) });
             },
-            .mode_changed => self.status_len = 0,
+            .mode_changed => |m| {
+                self.status_len = 0;
+                // Fresh entry into the prompt starts recall from the newest.
+                if (m == .command) self.cmd_history_pos = self.cmd_history.items.len;
+            },
             .move => |m| {
                 const count: i64 = @as(i64, @intCast(self.cursor)) + m.dy;
                 const last: i64 = @intCast(self.session.project.tracks.items.len - 1);
@@ -392,8 +426,59 @@ pub const App = struct {
                     .empty => {},
                 }
             },
-            .command_submit => |text| commands.run(self, text),
+            .command_submit => |text| {
+                self.pushCommandHistory(text);
+                commands.run(self, text);
+            },
         }
+    }
+
+    /// Record a submitted `:` command for later up/down recall. Skips blanks
+    /// and immediate repeats (shell-history convention); drops the oldest
+    /// entry once at capacity.
+    fn pushCommandHistory(self: *App, text: []const u8) void {
+        if (text.len == 0) return;
+        if (self.cmd_history.items.len > 0 and
+            std.mem.eql(u8, self.cmd_history.items[self.cmd_history.items.len - 1], text))
+        {
+            self.cmd_history_pos = self.cmd_history.items.len;
+            return;
+        }
+        const owned = self.allocator.dupe(u8, text) catch return;
+        if (self.cmd_history.items.len >= cmd_history_cap) {
+            self.allocator.free(self.cmd_history.orderedRemove(0));
+        }
+        self.cmd_history.append(self.allocator, owned) catch {
+            self.allocator.free(owned);
+            return;
+        };
+        self.cmd_history_pos = self.cmd_history.items.len;
+    }
+
+    /// Step back to the previous history entry.
+    fn commandHistoryPrev(self: *App) void {
+        if (self.cmd_history.items.len == 0 or self.cmd_history_pos == 0) return;
+        self.cmd_history_pos -= 1;
+        self.loadCommandHistory();
+    }
+
+    /// Step forward through history; past the newest entry, blank the
+    /// prompt (mirrors shell history — you're back to a fresh line).
+    fn commandHistoryNext(self: *App) void {
+        if (self.cmd_history_pos >= self.cmd_history.items.len) return;
+        self.cmd_history_pos += 1;
+        if (self.cmd_history_pos == self.cmd_history.items.len) {
+            self.modal.cmd_len = 0;
+        } else {
+            self.loadCommandHistory();
+        }
+    }
+
+    fn loadCommandHistory(self: *App) void {
+        const text = self.cmd_history.items[self.cmd_history_pos];
+        const len = @min(text.len, self.modal.cmd_buf.len);
+        @memcpy(self.modal.cmd_buf[0..len], text[0..len]);
+        self.modal.cmd_len = len;
     }
 
     /// Fire a preview note and schedule its release ~220ms later (see `tick`).

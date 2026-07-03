@@ -84,6 +84,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("i",            "enter INSERT mode (play notes)");
     t.key("esc",          "back / return to NORMAL mode");
     t.key(":",            "open command prompt");
+    t.key("(in :) up/down","recall previous / next command");
     t.key("ctrl-c",       "quit");
 
     t.section("TRACKS");
