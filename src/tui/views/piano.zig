@@ -97,7 +97,7 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
         try w.print("clip@bar {d}", .{link.start_bar + 1});
         try w.writeAll(rst);
     }
-    try w.writeAll(dim ++ "  [hjkl:move  HL:beat  JK:oct  gG:ends  enter:toggle  <>:vel  []:resize  yP:copy  esc:back]");
+    try w.writeAll(dim ++ "  [hjkl:move  HL:beat  JK:oct  gG:ends  enter:toggle  <>:vel  []:resize  yP:copy  v:select  esc:back]");
     try endLine(w);
 
     // 3 internal header rows (title + col labels + loop marker) + vis_rows note rows
@@ -141,6 +141,12 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
     }
     try endLine(w);
 
+    // Visual-mode selection: a step range spanning every pitch row.
+    const visual_active = app.modal.mode == .visual;
+    const sel_anchor = app.piano_visual_anchor orelse app.piano_cursor_step;
+    const sel_lo: u16 = @min(sel_anchor, app.piano_cursor_step);
+    const sel_hi: u16 = @max(sel_anchor, app.piano_cursor_step);
+
     // Note rows (top of view = high pitch)
     const top: u7 = app.piano_scroll_pitch;
     for (0..vis_rows) |row| {
@@ -164,6 +170,7 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
             const step = left + @as(u16, @intCast(col));
             const beat_pos = @as(f64, @floatFromInt(step)) * 0.25;
             const is_cur = is_cur_row and (step == app.piano_cursor_step);
+            const in_sel = visual_active and step >= sel_lo and step <= sel_hi;
             const starts = pp.noteStartsAt(pitch, beat_pos);
             const covers = pp.noteCovers(pitch, beat_pos);
 
@@ -175,15 +182,23 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
                 try w.writeAll(rst);
             } else if (starts) {
                 // Shade the note head by velocity: loud = bold, soft = dim.
+                // Selected notes (visual mode) swap the accent for yellow.
                 const vel = pp.velocityAt(pitch, beat_pos) orelse 0.85;
                 const head = if (vel >= 0.8) bold else if (vel < 0.45) dim else "";
-                try w.writeAll(acc);
+                const note_color = if (in_sel) yel else acc;
+                try w.writeAll(note_color);
                 try w.writeAll(head);
-                try w.writeAll("[" ++ rst ++ acc ++ "= " ++ rst);
+                try w.writeAll("[" ++ rst);
+                try w.writeAll(note_color);
+                try w.writeAll("= " ++ rst);
             } else if (covers) {
-                try w.writeAll(acc ++ "=  " ++ rst);
+                try w.writeAll(if (in_sel) yel else acc);
+                try w.writeAll("=  " ++ rst);
             } else if (step % 4 == 0) {
-                try w.writeAll(dim ++ "│  " ++ rst);
+                try w.writeAll(if (in_sel) yel else dim);
+                try w.writeAll("│  " ++ rst);
+            } else if (in_sel) {
+                try w.writeAll(yel ++ "·  " ++ rst);
             } else {
                 if (black) try w.writeAll(dim);
                 try w.writeAll("·  ");
@@ -211,7 +226,11 @@ pub fn drawPianoRollStatus(app: anytype, w: *std.Io.Writer) !void {
     const bar = app.piano_cursor_step / 4 + 1;
     const sub = app.piano_cursor_step % 4 + 1;
 
-    try w.writeAll(acc ++ sel ++ " PIANO " ++ rst);
+    if (app.modal.mode == .visual) {
+        try w.writeAll(yel ++ sel ++ " VISUAL " ++ rst);
+    } else {
+        try w.writeAll(acc ++ sel ++ " PIANO " ++ rst);
+    }
     try w.writeAll(dim ++ "  " ++ rst);
     try w.print("{s}", .{label});
     try w.writeAll(dim ++ "  bar " ++ rst);

@@ -119,7 +119,8 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("H / L",        "move cursor left / right (one beat, coarse)");
     t.key("j / k",        "move cursor down / up (pad)");
     t.key("enter",        "toggle step on/off");
-    t.key("v",            "cycle step velocity (100/75/50/25%)");
+    t.key("c",            "cycle step velocity (100/75/50/25%)");
+    t.key("v",            "visual mode: select a step range (all pads) — y/d/P");
     t.key("< / >",        "less / more swing (50–75%)");
     t.key("p",            "preview pad sound");
     t.key("e",            "open sampler editor for current pad");
@@ -131,6 +132,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("N",            "new pattern variant (copy of current)");
     t.key("D",            "delete current pattern variant");
     t.key("y / P",        "yank / paste pattern (works across tracks)");
+    t.key("(visual) y/d/P", "range yank / clear / paste (v to enter, hjkl to extend)");
 
     t.section("SAMPLER EDITOR");
     t.key("j / k",        "select parameter");
@@ -164,6 +166,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("[ / ]",        "resize note at cursor (else set default length)");
     t.key("+ / -",        "lengthen / shorten loop (1 bar)");
     t.key("y / P",        "yank / paste pattern (works across tracks)");
+    t.key("v",            "visual mode: select a step range (all pitches) — y/d/P");
     t.key(":clear",       "erase all notes in the pattern");
 
     t.section("ARRANGEMENT");
@@ -175,6 +178,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("[ / ]",        "cycle drum pattern variant to stamp");
     t.key("x",            "delete clip at cursor");
     t.key("y / P",        "yank / paste clip (matching track kind)");
+    t.key("v",            "visual mode: select a bar range on this lane — y/d/P");
     t.key("< / >",        "move clip left / right by a bar");
     t.key("( / )",        "set loop start / end at cursor bar");
     t.key("b",            "toggle A/B loop on/off");

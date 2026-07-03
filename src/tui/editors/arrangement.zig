@@ -1,7 +1,8 @@
 //! Arrangement (song timeline) input: bar/lane cursor, clip stamping and
 //! deletion, play-from-cursor, drum-variant cycling, clip editing via the
-//! piano roll, and the song/pattern mode toggle. The render half lives in
-//! views/arrangement.zig.
+//! piano roll, the song/pattern mode toggle, and visual-mode range select
+//! (v, then y/d/P — a bar-range on the current lane only). The render half
+//! lives in views/arrangement.zig.
 
 const std = @import("std");
 const ws = @import("wstudio");
@@ -15,11 +16,18 @@ const piano = @import("piano.zig");
 /// `cursor`), enter stamps the live pattern as a clip, x deletes, y/P
 /// yank/paste a clip, </> shift it by bars, ( ) b set/toggle the A/B
 /// loop, [/] cycle a drum lane's pattern variant, T toggles song/pattern
-/// mode.
+/// mode, v starts a bar-range selection on the current lane.
 /// Returns false for unhandled keys (space, `:`, …) so the transport and
 /// command line still work. Scroll is clamped at draw.
 pub fn handleKey(app: *App, key: modal_mod.Key) bool {
     const lane_count = app.session.project.tracks.items.len;
+
+    // Visual mode: a bar-range selection on the current lane only (lanes are
+    // tracks, and undo snapshots one lane at a time — see captureLane).
+    // Motions and range y/d/P live in handleVisual; everything else is
+    // swallowed so a stray keypress can't jump views mid-selection.
+    if (app.modal.mode == .visual) return handleVisual(app, key, lane_count);
+
     switch (key) {
         .escape => { app.view = .tracks; return true; },
         .enter => { stampClip(app); return true; },
@@ -37,6 +45,12 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             'x' => { deleteClip(app); return true; },
             'y' => { yankClip(app); return true; },
             'P' => { pasteClip(app); return true; },
+            'v' => {
+                app.arr_visual_anchor = app.arr_cursor_bar;
+                app.modal.mode = .visual;
+                app.setStatus("visual: hjkl extend, y/d/P act on the range, esc cancels", .{});
+                return true;
+            },
             '<' => { moveClip(app, -app.takeCount()); return true; },
             '>' => { moveClip(app, app.takeCount()); return true; },
             'e' => { editClip(app); return true; },
@@ -58,6 +72,137 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
         },
         else => return false,
     }
+}
+
+/// Visual mode's reduced key set: motions extend the selection, y/d/P act
+/// on it and return to normal, escape cancels. Everything else is
+/// swallowed (returns true) so it can't jump views or open another editor
+/// mid-selection; digits fall through (return false) so modal.handleNormal
+/// keeps accumulating the count prefix.
+fn handleVisual(app: *App, key: modal_mod.Key, lane_count: usize) bool {
+    switch (key) {
+        .escape => { exitVisual(app); app.setStatus("selection cancelled", .{}); return true; },
+        .char => |c| switch (c) {
+            'h' => { moveBar(app, -app.takeCount()); return true; },
+            'l' => { moveBar(app, app.takeCount()); return true; },
+            'H' => { moveBar(app, -4 * app.takeCount()); return true; },
+            'L' => { moveBar(app, 4 * app.takeCount()); return true; },
+            'j' => { moveLane(app, lane_count, app.takeCount()); return true; },
+            'k' => { moveLane(app, lane_count, -app.takeCount()); return true; },
+            'y' => { yankSelection(app); return true; },
+            'd' => { deleteSelection(app); return true; },
+            'P' => { pasteSelection(app); return true; },
+            '0'...'9' => return false,
+            else => return true,
+        },
+        else => return true,
+    }
+}
+
+/// Leave visual mode, clearing the anchor so the selection can't linger.
+fn exitVisual(app: *App) void {
+    app.modal.mode = .normal;
+    app.modal.count = 0;
+    app.modal.pending = null;
+    app.arr_visual_anchor = null;
+}
+
+const BarRange = struct { lo: u32, hi: u32 };
+
+fn selectionRange(app: *App) BarRange {
+    const anchor = app.arr_visual_anchor orelse app.arr_cursor_bar;
+    return .{ .lo = @min(anchor, app.arr_cursor_bar), .hi = @max(anchor, app.arr_cursor_bar) };
+}
+
+/// Yank every clip on the current lane whose start_bar falls within the
+/// selected range, rebased so the range's first bar becomes bar 0.
+fn yankSelection(app: *App) void {
+    const lane = app.session.arrangement.lane(app.cursor) orelse return;
+    const r = selectionRange(app);
+    var list: std.ArrayListUnmanaged(ws.Clip) = .empty;
+    for (lane.clips.items) |c| {
+        if (c.start_bar < r.lo or c.start_bar > r.hi) continue;
+        var copy = c.dupe(app.allocator) catch {
+            for (list.items) |*done| done.deinit(app.allocator);
+            list.deinit(app.allocator);
+            app.setStatus("yank failed (out of memory)", .{});
+            return;
+        };
+        copy.start_bar -= r.lo;
+        list.append(app.allocator, copy) catch {
+            copy.deinit(app.allocator);
+            for (list.items) |*done| done.deinit(app.allocator);
+            list.deinit(app.allocator);
+            app.setStatus("yank failed (out of memory)", .{});
+            return;
+        };
+    }
+    const owned = list.toOwnedSlice(app.allocator) catch {
+        for (list.items) |*c| c.deinit(app.allocator);
+        list.deinit(app.allocator);
+        app.setStatus("yank failed (out of memory)", .{});
+        return;
+    };
+    if (app.arr_range_clip) |old| {
+        for (old.clips) |*c| c.deinit(app.allocator);
+        app.allocator.free(old.clips);
+    }
+    app.arr_range_clip = .{ .clips = owned };
+    app.setStatus("yanked {d} clip(s) over {d} bars", .{ owned.len, r.hi - r.lo + 1 });
+    exitVisual(app);
+}
+
+/// Delete every clip on the current lane whose start_bar falls within the
+/// selected range.
+fn deleteSelection(app: *App) void {
+    const lane = app.session.arrangement.lane(app.cursor) orelse return;
+    history.push(app, history.captureLane(app, @intCast(app.cursor)));
+    const r = selectionRange(app);
+    var removed: u32 = 0;
+    var i: usize = 0;
+    while (i < lane.clips.items.len) {
+        if (lane.clips.items[i].start_bar >= r.lo and lane.clips.items[i].start_bar <= r.hi) {
+            var c = lane.clips.orderedRemove(i);
+            c.deinit(app.allocator);
+            removed += 1;
+        } else i += 1;
+    }
+    app.setStatus("deleted {d} clip(s)", .{removed});
+    if (app.session.song_mode) app.session.rebuildSongData();
+    exitVisual(app);
+}
+
+/// Paste the range clipboard onto the current lane starting at the cursor
+/// bar, evicting whatever it overlaps (same rule as stamping/pasting a
+/// single clip). Skips clips whose kind doesn't match the lane's instrument.
+fn pasteSelection(app: *App) void {
+    const clip = app.arr_range_clip orelse {
+        app.setStatus("nothing yanked — select a range and y first", .{});
+        exitVisual(app);
+        return;
+    };
+    if (app.cursor >= app.session.racks.items.len) { exitVisual(app); return; }
+    const rack = app.session.racks.items[app.cursor];
+    const lane = app.session.arrangement.lane(app.cursor) orelse { exitVisual(app); return; };
+    history.push(app, history.captureLane(app, @intCast(app.cursor)));
+    var pasted: u32 = 0;
+    for (clip.clips) |c| {
+        const kind_ok = switch (c.content) {
+            .melodic => rack.pattern_player != null,
+            .drum => std.meta.activeTag(rack.instrument) == .drum_machine,
+        };
+        if (!kind_ok) continue;
+        var copy = c.dupe(app.allocator) catch continue;
+        copy.start_bar += app.arr_cursor_bar;
+        lane.place(app.allocator, copy) catch {
+            copy.deinit(app.allocator);
+            continue;
+        };
+        pasted += 1;
+    }
+    if (app.session.song_mode) app.session.rebuildSongData();
+    app.setStatus("pasted {d} clip(s)", .{pasted});
+    exitVisual(app);
 }
 
 fn moveBar(app: *App, delta: i64) void {

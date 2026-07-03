@@ -51,13 +51,19 @@ pub fn drawDrumGrid(app: anytype, w: *std.Io.Writer, rows: usize, snap: engine_m
     const dm = app.drumMachine();
     const step_count = dm.step_count;
     const track_name = app.session.project.tracks.items[app.drum_track].name;
+
+    // Visual-mode selection: a step range spanning every pad row.
+    const visual_active = app.modal.mode == .visual;
+    const sel_anchor = app.drum_visual_anchor orelse cur_step;
+    const sel_lo: u8 = @min(sel_anchor, cur_step);
+    const sel_hi: u8 = @max(sel_anchor, cur_step);
     try w.writeAll(bold ++ " " ++ icons.drum ++ " DRUMS" ++ rst);
     try w.print(" \"{s}\"", .{track_name});
     try w.writeAll("  " ++ acc);
     try w.print("pat {c}", .{DrumMachine.variantLetter(dm.variant)});
     try w.writeAll(rst ++ dim);
     try w.print(" {d}/{d}", .{ dm.variant + 1, dm.variant_count });
-    try w.writeAll(dim ++ "  [hjkl:move  enter:toggle  v:vel  <>:swing  []:pattern  N:new  D:del  yP:copy  p:preview  e:sampler  +-:length  X:clear  F:fill  esc:back]");
+    try w.writeAll(dim ++ "  [hjkl:move  enter:toggle  c:vel  v:select  <>:swing  []:pattern  N:new  D:del  yP:copy  p:preview  e:sampler  +-:length  X:clear  F:fill  esc:back]");
     try endLine(w);
 
     // step header — only the active range (step_count) is shown
@@ -80,11 +86,14 @@ pub fn drawDrumGrid(app: anytype, w: *std.Io.Writer, rows: usize, snap: engine_m
             const active = dm.stepActive(@intCast(p), @intCast(s));
             const is_cursor = (p == cur_pad and s == cur_step);
             const is_play = is_playing and (s == playing_step);
+            const in_sel = visual_active and s >= sel_lo and s <= sel_hi;
 
             if (is_cursor) {
                 try w.writeAll(sel);
             } else if (is_play) {
                 try w.writeAll(grn ++ bold);
+            } else if (in_sel) {
+                try w.writeAll(if (active) yel ++ bold else yel);
             } else if (active) {
                 try w.writeAll(acc);
             } else {
@@ -116,7 +125,11 @@ pub fn drawDrumStatus(app: anytype, w: *std.Io.Writer) !void {
     const p = app.drum_cursor[0];
     const s = app.drum_cursor[1];
     const dm = app.drumMachine();
-    try w.writeAll(acc ++ sel ++ " DRUM " ++ rst);
+    if (app.modal.mode == .visual) {
+        try w.writeAll(yel ++ sel ++ " VISUAL " ++ rst);
+    } else {
+        try w.writeAll(acc ++ sel ++ " DRUM " ++ rst);
+    }
     try w.writeAll(dim ++ "  pat " ++ rst);
     try w.print("{c}", .{DrumMachine.variantLetter(dm.variant)});
     try w.writeAll(dim ++ "/" ++ rst);

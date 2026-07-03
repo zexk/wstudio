@@ -66,6 +66,23 @@ pub const PianoClip = struct {
     length_beats: f64,
 };
 
+/// A visual-mode range yank from the drum grid: one step-range's worth of
+/// active/velocity bits across every pad, rebased so the selection's first
+/// step becomes bit 0. Paste places it starting at the cursor step.
+pub const DrumRangeClip = struct {
+    width: u8,
+    active: [DrumMachine.max_pads]u32 = [_]u32{0} ** DrumMachine.max_pads,
+    vel_lo: [DrumMachine.max_pads]u32 = [_]u32{0} ** DrumMachine.max_pads,
+    vel_hi: [DrumMachine.max_pads]u32 = [_]u32{0} ** DrumMachine.max_pads,
+};
+
+/// A visual-mode range yank from the arrangement: deep-copied clips from one
+/// lane, with start_bar rebased relative to the selection's first bar. Paste
+/// re-targets the cursor bar on the same lane it was copied from.
+pub const ArrRangeClip = struct {
+    clips: []ws.Clip,
+};
+
 /// Ableton-style clip editing: while set, the piano roll's pattern player
 /// holds a working copy of this arrangement clip and every edit is written
 /// straight back into it — the clip owns the data. Identified by track +
@@ -128,6 +145,18 @@ pub const App = struct {
     /// Arrangement clip clipboard (y/P in the arrangement view). Owns a deep
     /// copy; its start_bar is meaningless — paste re-targets the cursor bar.
     arr_clip: ?ws.Clip = null,
+    /// Visual-mode anchors: set to the cursor position when `v` is pressed,
+    /// null outside visual mode. The selection is [min(anchor,cursor),
+    /// max(anchor,cursor)] on the view's time axis (step / step / bar); see
+    /// editors/{piano,drum,arrangement}.zig's handleVisual.
+    piano_visual_anchor: ?u16 = null,
+    drum_visual_anchor: ?u8 = null,
+    arr_visual_anchor: ?u32 = null,
+    /// Visual-mode range clipboards (y/d/P while `.visual`), separate from
+    /// the whole-pattern/single-clip clipboards above.
+    piano_range_clip: ?PianoClip = null,
+    drum_range_clip: ?DrumRangeClip = null,
+    arr_range_clip: ?ArrRangeClip = null,
     /// The arrangement clip the piano roll is editing, or null when it edits
     /// the track's live pattern (see `ClipLink`). Set by `e` on a clip in the
     /// arrangement; cleared when the roll opens on a live pattern instead.
@@ -179,6 +208,10 @@ pub const App = struct {
 
     pub fn deinit(self: *App) void {
         if (self.arr_clip) |*c| c.deinit(self.allocator);
+        if (self.arr_range_clip) |r| {
+            for (r.clips) |*c| c.deinit(self.allocator);
+            self.allocator.free(r.clips);
+        }
         for (self.cmd_history.items) |s| self.allocator.free(s);
         self.cmd_history.deinit(self.allocator);
         self.history.deinit(self.allocator);
@@ -276,8 +309,11 @@ pub const App = struct {
             },
             // Editor-handled keys discard any unused count prefix (vim: a
             // count binds to the command it precedes, then dies with it).
+            // Normal and visual both route through the editor first (visual
+            // reuses its motions and adds range y/d/P); only command mode
+            // bypasses it entirely.
             .drum_grid => {
-                if (self.modal.mode != .normal or !drum_ed.handleKey(self, key)) {
+                if (self.modal.mode == .command or !drum_ed.handleKey(self, key)) {
                     self.applyAction(self.modal.handle(key), now_ns);
                 } else self.modal.count = 0;
             },
@@ -290,11 +326,11 @@ pub const App = struct {
             .track_spectrum, .master_spectrum => if (!spectrum_ed.handleKey(self, key)) {
                 self.applyAction(self.modal.handle(key), now_ns);
             } else { self.modal.count = 0; },
-            .piano_roll => if (self.modal.mode != .normal or !piano_ed.handleKey(self, key)) {
+            .piano_roll => if (self.modal.mode == .command or !piano_ed.handleKey(self, key)) {
                 self.applyAction(self.modal.handle(key), now_ns);
             } else { self.modal.count = 0; },
             .instrument_picker => self.handlePickerKey(key),
-            .arrangement => if (self.modal.mode != .normal or !arrangement_ed.handleKey(self, key)) {
+            .arrangement => if (self.modal.mode == .command or !arrangement_ed.handleKey(self, key)) {
                 self.applyAction(self.modal.handle(key), now_ns);
             } else { self.modal.count = 0; },
             .tracks => {

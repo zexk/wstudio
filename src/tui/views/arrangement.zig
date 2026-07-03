@@ -20,6 +20,7 @@ const grn = style.grn;
 const yel = style.yel;
 const sel = style.sel;
 const blu = style.blu;
+const mag = style.mag;
 const endLine = style.endLine;
 
 /// Total chars per bar column: a 1-char separator plus 3-char content.
@@ -66,7 +67,7 @@ pub fn drawArrangement(
     const mode_tag: []const u8 = if (app.session.song_mode) grn ++ "SONG" ++ rst else dim ++ "PATTERN" ++ rst;
     try w.writeAll(bold ++ " " ++ icons.arrangement ++ " ARRANGEMENT" ++ rst ++ "  ");
     try w.writeAll(mode_tag);
-    try w.writeAll(dim ++ "   [hjkl:move  enter:stamp  e:edit  y/P/<>:clip  ()b:loop  []:pattern  x:del  g:play-here  T:mode  esc:back]" ++ rst);
+    try w.writeAll(dim ++ "   [hjkl:move  enter:stamp  e:edit  y/P/<>:clip  v:select  ()b:loop  []:pattern  x:del  g:play-here  T:mode  esc:back]" ++ rst);
     try endLine(w);
 
     // Bar ruler. Bars inside an armed loop region wear the accent colour.
@@ -88,6 +89,12 @@ pub fn drawArrangement(
     }
     try endLine(w);
 
+    // Visual-mode selection: a bar range on the current lane only.
+    const visual_active = app.modal.mode == .visual;
+    const sel_anchor = app.arr_visual_anchor orelse cur_bar;
+    const sel_lo: u32 = @min(sel_anchor, cur_bar);
+    const sel_hi: u32 = @max(sel_anchor, cur_bar);
+
     // Lanes.
     for (app.session.project.tracks.items, 0..) |track, li| {
         const lane = app.session.arrangement.lane(li);
@@ -107,6 +114,7 @@ pub fn drawArrangement(
             const is_start = covered and clip.?.start_bar == bar;
             const is_cursor = is_sel_lane and bar == cur_bar;
             const is_play = playhead == bar;
+            const in_sel = visual_active and is_sel_lane and bar >= sel_lo and bar <= sel_hi;
 
             // Drum clips wear their variant letter on the start cell.
             const letter: ?u8 = if (is_start) switch (clip.?.content) {
@@ -118,17 +126,19 @@ pub fn drawArrangement(
                 try w.writeAll(sel);
             } else if (is_play) {
                 try w.writeAll(grn ++ bold);
+            } else if (in_sel) {
+                try w.writeAll(yel);
             } else if (covered) {
                 try w.writeAll(acc);
             }
             if (!covered) {
-                try w.writeAll(if (is_play and !is_cursor) " ‖ " else "   ");
+                try w.writeAll(if (in_sel) " · " else if (is_play and !is_cursor) " ‖ " else "   ");
             } else if (letter) |ch| {
                 try w.print("▌{c}█", .{ch});
             } else {
                 try w.writeAll(if (is_start) "▌██" else "███");
             }
-            if (is_cursor or is_play or covered) try w.writeAll(rst);
+            if (is_cursor or is_play or covered or in_sel) try w.writeAll(rst);
         }
         try endLine(w);
     }
@@ -143,8 +153,9 @@ pub fn drawArrangementStatus(app: anytype, w: *std.Io.Writer) !void {
         try w.print("{s}_", .{app.modal.cmd_buf[0..app.modal.cmd_len]});
         return;
     }
-    const mode_name: []const u8 = if (app.session.song_mode) "SONG" else "PATTERN";
-    const mode_colour: []const u8 = if (app.session.song_mode) grn else yel;
+    const visual_active = app.modal.mode == .visual;
+    const mode_name: []const u8 = if (visual_active) "VISUAL" else if (app.session.song_mode) "SONG" else "PATTERN";
+    const mode_colour: []const u8 = if (visual_active) mag else if (app.session.song_mode) grn else yel;
     try w.writeAll(mode_colour);
     try w.writeAll(sel);
     try w.print(" {s} ", .{mode_name});

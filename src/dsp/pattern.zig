@@ -130,6 +130,42 @@ pub const PatternPlayer = struct {
         self.note_count = 0;
     }
 
+    /// Copy notes whose start_beat falls in [lo_beat, hi_beat) into `out`,
+    /// rebased so `lo_beat` becomes 0 (UI thread). Returns the count copied —
+    /// the yank half of the piano roll's visual-mode range clipboard.
+    pub fn copyNotesInRange(self: *PatternPlayer, lo_beat: f64, hi_beat: f64, out: []Note) u16 {
+        while (!self.notes_lock.tryLock()) std.atomic.spinLoopHint();
+        defer self.notes_lock.unlock();
+        var n: u16 = 0;
+        for (self.notes[0..self.note_count]) |note| {
+            if (note.start_beat >= lo_beat and note.start_beat < hi_beat and n < out.len) {
+                out[n] = note;
+                out[n].start_beat -= lo_beat;
+                n += 1;
+            }
+        }
+        return n;
+    }
+
+    /// Remove every note whose start_beat falls in [lo_beat, hi_beat) (UI
+    /// thread). Returns the count removed — the delete half of the piano
+    /// roll's visual-mode range selection.
+    pub fn removeNotesInRange(self: *PatternPlayer, lo_beat: f64, hi_beat: f64) u16 {
+        while (!self.notes_lock.tryLock()) std.atomic.spinLoopHint();
+        defer self.notes_lock.unlock();
+        var removed: u16 = 0;
+        var i: usize = 0;
+        while (i < self.note_count) {
+            const n = self.notes[i];
+            if (n.start_beat >= lo_beat and n.start_beat < hi_beat) {
+                self.notes[i] = self.notes[self.note_count - 1];
+                self.note_count -= 1;
+                removed += 1;
+            } else i += 1;
+        }
+        return removed;
+    }
+
     /// Mutable pointer to the note starting at pitch/start_beat, or null.
     /// Caller mutates fields in place (pitch/start_beat unchanged), so no lock
     /// is needed: the audio thread reads a consistent note either way.

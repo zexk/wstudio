@@ -1,7 +1,7 @@
 //! Piano-roll input: note cursor, insert/delete/resize, velocity, yank/paste,
-//! loop length, and the Ableton-style clip-link writeback (edits on a linked
-//! arrangement clip land in the clip itself). The render half lives in
-//! views/piano.zig.
+//! loop length, visual-mode range select (v, then y/d/P), and the
+//! Ableton-style clip-link writeback (edits on a linked arrangement clip
+//! land in the clip itself). The render half lives in views/piano.zig.
 
 const std = @import("std");
 const ws = @import("wstudio");
@@ -41,6 +41,11 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
     const pp = if (rack.pattern_player != null) &app.session.racks.items[app.piano_track].pattern_player.? else return false;
 
     const max_step: u16 = @intFromFloat(pp.length_beats * 4.0);
+
+    // Visual mode: a step-range selection spanning every pitch. Motions and
+    // range y/d/P live in handleVisual; everything else is swallowed so a
+    // stray keypress can't jump views mid-selection.
+    if (app.modal.mode == .visual) return handleVisual(app, key, pp, max_step);
 
     // Note-grab mode: M holds the note under the cursor and h/l/j/k drag it
     // (the cursor follows). esc or M drop it; any other key drops it first
@@ -107,6 +112,12 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             '>' => { nudgeVelocity(app, 0.1); return true; },
             'y' => { yank(app); return true; },
             'P' => { paste(app); return true; },
+            'v' => {
+                app.piano_visual_anchor = app.piano_cursor_step;
+                app.modal.mode = .visual;
+                app.setStatus("visual: hjkl extend, y/d/P act on the range, esc cancels", .{});
+                return true;
+            },
             's' => { spectrum.switchToTrack(app, app.piano_track); return true; },
             // n/d kept as aliases for muscle memory; enter is the canonical toggle.
             'n' => { insertNote(app); return true; },
@@ -341,6 +352,97 @@ fn yank(app: *App) void {
     clip.count = pp.copyNotes(&clip.notes);
     app.piano_clip = clip;
     app.setStatus("yanked {d} notes ({d:.0} beats)", .{ clip.count, clip.length_beats });
+}
+
+/// Visual mode's reduced key set: motions extend the selection, y/d/P act
+/// on it and return to normal, escape cancels. Everything else is
+/// swallowed (returns true) so it can't jump views or open another editor
+/// mid-selection; digits fall through (return false) so modal.handleNormal
+/// keeps accumulating the count prefix.
+fn handleVisual(app: *App, key: modal_mod.Key, pp: *pattern_mod.PatternPlayer, max_step: u16) bool {
+    switch (key) {
+        .escape => { exitVisual(app); app.setStatus("selection cancelled", .{}); return true; },
+        .char => |c| switch (c) {
+            'h' => { moveStep(app, max_step, -app.takeCount()); return true; },
+            'l' => { moveStep(app, max_step, app.takeCount()); return true; },
+            'H' => { moveStep(app, max_step, -4 * app.takeCount()); return true; },
+            'L' => { moveStep(app, max_step, 4 * app.takeCount()); return true; },
+            'j' => { movePitch(app, -app.takeCount()); return true; },
+            'k' => { movePitch(app, app.takeCount()); return true; },
+            'J' => { movePitch(app, -12 * app.takeCount()); return true; },
+            'K' => { movePitch(app, 12 * app.takeCount()); return true; },
+            'g' => { app.piano_cursor_step = 0; ensureVisible(app); return true; },
+            'G' => { if (max_step > 0) app.piano_cursor_step = max_step - 1; ensureVisible(app); return true; },
+            'y' => { yankSelection(app, pp); return true; },
+            'd' => { deleteSelection(app, pp); return true; },
+            'P' => { pasteSelection(app, pp); return true; },
+            '0'...'9' => return false,
+            else => return true,
+        },
+        else => return true,
+    }
+}
+
+/// Leave visual mode, clearing the anchor so the selection can't linger.
+fn exitVisual(app: *App) void {
+    app.modal.mode = .normal;
+    app.modal.count = 0;
+    app.modal.pending = null;
+    app.piano_visual_anchor = null;
+}
+
+/// The selected step range, inclusive both ends.
+const StepRange = struct { lo: u16, hi: u16 };
+
+fn selectionRange(app: *App) StepRange {
+    const anchor = app.piano_visual_anchor orelse app.piano_cursor_step;
+    return .{ .lo = @min(anchor, app.piano_cursor_step), .hi = @max(anchor, app.piano_cursor_step) };
+}
+
+/// Yank every note starting within the selected step range (any pitch) into
+/// the range clipboard, rebased so the range's first step is beat 0.
+fn yankSelection(app: *App, pp: *pattern_mod.PatternPlayer) void {
+    const r = selectionRange(app);
+    const lo_beat = @as(f64, @floatFromInt(r.lo)) * 0.25;
+    const hi_beat = @as(f64, @floatFromInt(r.hi)) * 0.25 + 0.25;
+    var clip: PianoClip = .{ .notes = undefined, .count = 0, .length_beats = hi_beat - lo_beat };
+    clip.count = pp.copyNotesInRange(lo_beat, hi_beat, &clip.notes);
+    app.piano_range_clip = clip;
+    app.setStatus("yanked {d} notes ({d} steps)", .{ clip.count, r.hi - r.lo + 1 });
+    exitVisual(app);
+}
+
+/// Delete every note starting within the selected step range (any pitch).
+fn deleteSelection(app: *App, pp: *pattern_mod.PatternPlayer) void {
+    const r = selectionRange(app);
+    const lo_beat = @as(f64, @floatFromInt(r.lo)) * 0.25;
+    const hi_beat = @as(f64, @floatFromInt(r.hi)) * 0.25 + 0.25;
+    history.push(app, history.captureMelodic(app, app.piano_track));
+    const removed = pp.removeNotesInRange(lo_beat, hi_beat);
+    app.setStatus("deleted {d} notes", .{removed});
+    syncLinkedClip(app);
+    exitVisual(app);
+}
+
+/// Paste the range clipboard starting at the cursor step, overwriting
+/// whatever already sits at each destination pitch/step.
+fn pasteSelection(app: *App, pp: *pattern_mod.PatternPlayer) void {
+    const clip = app.piano_range_clip orelse {
+        app.setStatus("nothing yanked — select a range and y first", .{});
+        exitVisual(app);
+        return;
+    };
+    history.push(app, history.captureMelodic(app, app.piano_track));
+    const base_beat = @as(f64, @floatFromInt(app.piano_cursor_step)) * 0.25;
+    for (clip.notes[0..clip.count]) |n| {
+        var note = n;
+        note.start_beat = std.math.clamp(base_beat + n.start_beat, 0, @max(0, pp.length_beats - 0.25));
+        pp.removeNote(note.pitch, note.start_beat);
+        pp.addNote(note);
+    }
+    app.setStatus("pasted {d} notes", .{clip.count});
+    syncLinkedClip(app);
+    exitVisual(app);
 }
 
 /// Replace this track's pattern with the yanked one.

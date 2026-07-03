@@ -188,6 +188,66 @@ test "piano roll yank/paste moves a pattern across tracks" {
     try std.testing.expectApproxEqAbs(@as(f64, 8.0), dst.length_beats, 1e-9);
 }
 
+test "piano roll visual mode selects a step range for y/d/P" {
+    var app = try testApp();
+    defer app.deinit();
+    app.view = .piano_roll;
+    app.piano_track = 0;
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    pp.length_beats = 8.0;
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.25 }); // step 0
+    pp.addNote(.{ .pitch = 64, .start_beat = 0.25, .duration_beat = 0.25 }); // step 1
+    pp.addNote(.{ .pitch = 72, .start_beat = 2.0, .duration_beat = 0.25 }); // step 8, outside the selection
+
+    app.piano_cursor_step = 0;
+    app.handleKey(.{ .char = 'v' }, 0);
+    try std.testing.expectEqual(ws.input.Mode.visual, app.modal.mode);
+    for ("3l") |c| app.handleKey(.{ .char = c }, 0); // extend the selection to step 3
+
+    app.handleKey(.{ .char = 'y' }, 0);
+    try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
+    try std.testing.expectEqual(@as(u16, 2), app.piano_range_clip.?.count);
+
+    // Paste at step 8: P is a visual-mode action, so re-enter visual first
+    // (v establishes the cursor as the paste point; no need to extend it).
+    app.piano_cursor_step = 8;
+    app.handleKey(.{ .char = 'v' }, 0);
+    app.handleKey(.{ .char = 'P' }, 0);
+    try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
+    try std.testing.expectEqual(@as(u16, 5), pp.note_count);
+    try std.testing.expect(pp.noteAt(60, 2.0) != null);
+    try std.testing.expect(pp.noteAt(64, 2.25) != null);
+
+    // Select the same range again and delete it — only the untouched note remains.
+    app.piano_cursor_step = 0;
+    app.handleKey(.{ .char = 'v' }, 0);
+    for ("3l") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.{ .char = 'd' }, 0);
+    try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
+    try std.testing.expectEqual(@as(u16, 3), pp.note_count);
+    try std.testing.expect(pp.noteAt(60, 0.0) == null);
+    try std.testing.expect(pp.noteAt(72, 2.0) != null);
+}
+
+test "visual mode escape cancels the selection without editing" {
+    var app = try testApp();
+    defer app.deinit();
+    app.view = .piano_roll;
+    app.piano_track = 0;
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.25 });
+
+    app.piano_cursor_step = 0;
+    app.handleKey(.{ .char = 'v' }, 0);
+    for ("3l") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.escape, 0);
+    try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
+    try std.testing.expectEqual(@as(?u16, null), app.piano_visual_anchor);
+    // Still in the piano roll (escape cancelled the selection, not the view).
+    try std.testing.expectEqual(AppView.piano_roll, app.view);
+    try std.testing.expectEqual(@as(u16, 1), pp.note_count);
+}
+
 test "drum grid yank/paste carries pattern, velocity, and length" {
     var app = try testApp();
     defer app.deinit();
@@ -208,6 +268,49 @@ test "drum grid yank/paste carries pattern, velocity, and length" {
     try std.testing.expect(dm.stepActive(0, 7));
     try std.testing.expectEqual(@as(u2, 2), dm.stepVel(0, 7));
     try std.testing.expectEqual(@as(u8, 32), dm.step_count);
+}
+
+test "drum grid visual mode selects a step range across pads for y/d/P" {
+    var app = try testApp();
+    defer app.deinit();
+    app.view = .drum_grid;
+    app.drum_track = 2;
+    const dm = app.drumMachine();
+    for (&dm.pattern) |*p| p.store(0, .monotonic);
+    dm.setStepCount(16);
+    dm.toggleStep(0, 0);
+    dm.setStepVel(0, 0, 3);
+    dm.toggleStep(1, 2);
+    dm.toggleStep(3, 14); // outside both the selection and the paste target below
+
+    app.drum_cursor = .{ 0, 0 };
+    app.handleKey(.{ .char = 'v' }, 0);
+    try std.testing.expectEqual(ws.input.Mode.visual, app.modal.mode);
+    for ("3l") |c| app.handleKey(.{ .char = c }, 0); // extend to step 3
+    app.handleKey(.{ .char = 'y' }, 0);
+    try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
+    try std.testing.expectEqual(@as(u8, 4), app.drum_range_clip.?.width);
+
+    // Paste at step 8 (all pads): P is a visual-mode action, so re-enter
+    // visual first (v establishes the cursor as the paste point).
+    app.drum_cursor[1] = 8;
+    app.handleKey(.{ .char = 'v' }, 0);
+    app.handleKey(.{ .char = 'P' }, 0);
+    try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
+    try std.testing.expect(dm.stepActive(0, 8));
+    try std.testing.expectEqual(@as(u2, 3), dm.stepVel(0, 8));
+    try std.testing.expect(dm.stepActive(1, 10));
+    // Untouched original steps and the step outside the paste range survive.
+    try std.testing.expect(dm.stepActive(0, 0));
+    try std.testing.expect(dm.stepActive(3, 14));
+
+    // Select again and clear it.
+    app.drum_cursor = .{ 0, 0 };
+    app.handleKey(.{ .char = 'v' }, 0);
+    for ("3l") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.{ .char = 'd' }, 0);
+    try std.testing.expect(!dm.stepActive(0, 0));
+    try std.testing.expect(!dm.stepActive(1, 2));
 }
 
 test "paste with an empty clipboard is a no-op" {
@@ -1028,6 +1131,46 @@ test "arrangement clips: yank/paste, count-move, kind guard, undo" {
     app.handleKey(.{ .char = 'u' }, 0);
     try std.testing.expect(lane.clipAt(4) != null);
     try std.testing.expect(lane.clipAt(6) == null);
+}
+
+test "arrangement visual mode selects a bar range on the current lane for y/d/P" {
+    var app = try testApp();
+    defer app.deinit();
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.5 });
+    try app.session.stampClip(0, 0); // 1-bar clip at bar 0
+    try app.session.stampClip(0, 1); // 1-bar clip at bar 1
+    try app.session.stampClip(0, 5); // outside the selection below
+
+    app.view = .arrangement;
+    app.cursor = 0;
+    app.arr_cursor_bar = 0;
+    app.handleKey(.{ .char = 'v' }, 0);
+    try std.testing.expectEqual(ws.input.Mode.visual, app.modal.mode);
+    app.handleKey(.{ .char = 'l' }, 0); // extend to bar 1 — covers both stamped clips
+
+    app.handleKey(.{ .char = 'y' }, 0);
+    try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
+    try std.testing.expectEqual(@as(usize, 2), app.arr_range_clip.?.clips.len);
+
+    const lane = app.session.arrangement.lane(0).?;
+    app.arr_cursor_bar = 10;
+    app.handleKey(.{ .char = 'v' }, 0);
+    app.handleKey(.{ .char = 'P' }, 0);
+    try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
+    try std.testing.expect(lane.clipAt(10) != null);
+    try std.testing.expect(lane.clipAt(11) != null);
+    try std.testing.expect(lane.clipAt(5) != null); // untouched by the paste
+
+    // Select the original range again and delete it.
+    app.arr_cursor_bar = 0;
+    app.handleKey(.{ .char = 'v' }, 0);
+    app.handleKey(.{ .char = 'l' }, 0);
+    app.handleKey(.{ .char = 'd' }, 0);
+    try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
+    try std.testing.expect(lane.clipAt(0) == null);
+    try std.testing.expect(lane.clipAt(1) == null);
+    try std.testing.expect(lane.clipAt(5) != null);
 }
 
 test "piano roll M grabs a note; h/l/j/k drag it as one undo step" {

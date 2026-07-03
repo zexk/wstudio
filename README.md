@@ -13,7 +13,9 @@ model from vim:
 - **insert**: the keyboard becomes a piano, tracker-style layout where
   the z-row is one octave (`z` = C, `s` = C#, `x` = D, ...) and the q-row
   the next; `-`/`=` shift octaves
-- **visual**: select clips and ranges
+- **visual**: `v` selects a range (steps in the piano roll/drum grid,
+  bars in the arrangement); `y`/`d`/`P` yank, clear, or paste it, `esc`
+  cancels
 - **command**: ex-style `:` commands
 
 And it ships batteries included: synths, samplers, a drum machine, and a
