@@ -31,6 +31,7 @@ pub fn switchTo(app: *App, track: u16) void {
     app.piano_scroll_pitch = @intCast(@min(@as(u32, app.piano_cursor_pitch) + 8, 127));
     // A plain open edits the live pattern; the arrangement's editClip re-links after.
     app.piano_clip_link = null;
+    app.piano_grab = false;
     app.view = .piano_roll;
 }
 
@@ -40,6 +41,25 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
     const pp = if (rack.pattern_player != null) &app.session.racks.items[app.piano_track].pattern_player.? else return false;
 
     const max_step: u16 = @intFromFloat(pp.length_beats * 4.0);
+
+    // Note-grab mode: M holds the note under the cursor and h/l/j/k drag it
+    // (the cursor follows). esc or M drop it; any other key drops it first
+    // and is then handled normally below.
+    if (app.piano_grab) {
+        switch (key) {
+            .escape => { app.piano_grab = false; app.setStatus("note dropped", .{}); return true; },
+            .char => |c| switch (c) {
+                'h' => { dragNote(app, pp, max_step, -1, 0); return true; },
+                'l' => { dragNote(app, pp, max_step, 1, 0); return true; },
+                'j' => { dragNote(app, pp, max_step, 0, -1); return true; },
+                'k' => { dragNote(app, pp, max_step, 0, 1); return true; },
+                'M' => { app.piano_grab = false; app.setStatus("note dropped", .{}); return true; },
+                else => app.piano_grab = false,
+            },
+            else => app.piano_grab = false,
+        }
+    }
+
     switch (key) {
         .escape => { app.view = .tracks; return true; },
         // enter toggles the note; space falls through to transport play/pause.
@@ -67,6 +87,19 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             'G' => {
                 if (max_step > 0) app.piano_cursor_step = max_step - 1;
                 ensureVisible(app);
+                return true;
+            },
+            // M grabs the note under the cursor for dragging (see above).
+            'M' => {
+                const start_beat = @as(f64, @floatFromInt(app.piano_cursor_step)) * 0.25;
+                if (pp.noteAt(app.piano_cursor_pitch, start_beat) == null) {
+                    app.setStatus("no note under cursor", .{});
+                    return true;
+                }
+                // One grab = one undo entry, however far the drag goes.
+                history.push(app, history.captureMelodic(app, app.piano_track));
+                app.piano_grab = true;
+                app.setStatus("moving note — h/l/j/k drag, esc drops", .{});
                 return true;
             },
             // </> nudge the velocity of the note under the cursor.
@@ -127,6 +160,29 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
         },
         else => return false,
     }
+}
+
+/// Drag the grabbed note by `dstep` steps / `dpitch` semitones, cursor in
+/// tow, and write the edit through to a linked clip. Ends the grab if the
+/// note vanished from under the cursor (shouldn't happen — belt and braces).
+fn dragNote(app: *App, pp: *pattern_mod.PatternPlayer, max_step: u16, dstep: i32, dpitch: i32) void {
+    const start_beat = @as(f64, @floatFromInt(app.piano_cursor_step)) * 0.25;
+    const n = pp.noteAt(app.piano_cursor_pitch, start_beat) orelse {
+        app.piano_grab = false;
+        app.setStatus("no note under cursor", .{});
+        return;
+    };
+    const top = @max(@as(i32, max_step) - 1, 0);
+    const new_step: u16 = @intCast(std.math.clamp(@as(i32, app.piano_cursor_step) + dstep, 0, top));
+    const new_pitch: u7 = @intCast(std.math.clamp(@as(i32, app.piano_cursor_pitch) + dpitch, 0, 127));
+    n.start_beat = @as(f64, @floatFromInt(new_step)) * 0.25;
+    n.pitch = new_pitch;
+    app.piano_cursor_step = new_step;
+    app.piano_cursor_pitch = new_pitch;
+    ensureVisible(app);
+    var nbuf: [5]u8 = undefined;
+    app.setStatus("moving {s} @ step {d}", .{ midi.noteName(new_pitch, &nbuf), new_step + 1 });
+    syncLinkedClip(app);
 }
 
 /// Move the step cursor by `delta` steps, clamped to the loop.

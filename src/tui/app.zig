@@ -106,6 +106,10 @@ pub const App = struct {
     piano_scroll_step: u16 = 0,
     piano_scroll_pitch: u7 = 72,
     piano_note_len: f64 = 0.25,
+    /// True while `M` holds the piano-roll note under the cursor — h/l/j/k
+    /// then drag the note instead of the cursor; esc/M (or any other key)
+    /// drop it. See editors/piano.zig.
+    piano_grab: bool = false,
     /// Arrangement view: bar cursor and horizontal scroll (lane = `cursor`).
     arr_cursor_bar: u32 = 0,
     arr_scroll_bar: u32 = 0,

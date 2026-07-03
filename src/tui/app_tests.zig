@@ -924,3 +924,34 @@ test "arrangement clips: yank/paste, count-move, kind guard, undo" {
     try std.testing.expect(lane.clipAt(4) != null);
     try std.testing.expect(lane.clipAt(6) == null);
 }
+
+test "piano roll M grabs a note; h/l/j/k drag it as one undo step" {
+    var app = try testApp();
+    defer app.deinit();
+    app.view = .piano_roll;
+    app.piano_track = 0;
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    app.piano_cursor_step = 0;
+    app.piano_cursor_pitch = 60;
+    app.handleKey(.enter, 0); // insert C4 at step 0
+
+    app.handleKey(.{ .char = 'M' }, 0); // grab
+    app.handleKey(.{ .char = 'l' }, 0); // step 1
+    app.handleKey(.{ .char = 'k' }, 0); // C#4
+    app.handleKey(.escape, 0); // drop — stays in the roll
+    try std.testing.expectEqual(AppView.piano_roll, app.view);
+    try std.testing.expectEqual(@as(u16, 1), pp.note_count);
+    try std.testing.expectEqual(@as(u7, 61), pp.notes[0].pitch);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.25), pp.notes[0].start_beat, 1e-9);
+    try std.testing.expectEqual(@as(u16, 1), app.piano_cursor_step); // cursor followed
+
+    // The whole drag undoes as one step, back to the grab point.
+    app.handleKey(.{ .char = 'u' }, 0);
+    try std.testing.expectEqual(@as(u7, 60), pp.notes[0].pitch);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.0), pp.notes[0].start_beat, 1e-9);
+
+    // M on empty space refuses to grab.
+    app.piano_cursor_step = 8;
+    app.handleKey(.{ .char = 'M' }, 0);
+    try std.testing.expect(!app.piano_grab);
+}
