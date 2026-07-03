@@ -187,6 +187,11 @@ pub const App = struct {
     /// the track's live pattern (see `ClipLink`). Set by `e` on a clip in the
     /// arrangement; cleared when the roll opens on a live pattern instead.
     piano_clip_link: ?ClipLink = null,
+    /// Active `:scale` for the piano roll's scale highlighting and `c`/`C`
+    /// chord stamp; null = no scale (dims nothing, chord stamp defaults to a
+    /// plain major shape). A monitoring/writing aid, not song content — not
+    /// persisted, mirroring `Session.metronome_enabled`.
+    piano_scale: ?ws.theory.Scale = null,
     /// Undo/redo history for content edits (u / U in the editing views).
     history: undo_mod.History = .{},
     /// True when the session holds edits the project file doesn't. Set at

@@ -17,6 +17,7 @@ const App = @import("app.zig").App;
 const history = @import("history.zig");
 const piano_ed = @import("editors/piano.zig");
 const spectrum_ed = @import("editors/spectrum.zig");
+const theory = ws.theory;
 
 fn wrap(comptime f: fn (*App, []const u8) void) *const fn (*anyopaque, []const u8) void {
     return struct {
@@ -78,6 +79,7 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "clear",       .desc = "erase all notes in the piano-roll pattern",          .run = wrap(cmdClear) },
     .{ .name = "%d",          .desc = "erase all notes in the pattern (alias for :clear)",  .run = wrap(cmdClear) },
     .{ .name = "metronome",   .desc = "[on|off]  toggle the click track",                   .run = wrap(cmdMetronome) },
+    .{ .name = "scale",       .desc = "[<root> [<type>]|off]  piano-roll scale highlight + chord-stamp key", .run = wrap(cmdScale) },
 };
 
 /// Look up `text` in the command table and run it, reporting unknown commands
@@ -175,6 +177,49 @@ fn cmdMetronome(app: *App, args: []const u8) void {
         !app.session.metronome_enabled;
     app.session.setMetronome(on);
     app.setStatus("metronome {s}", .{if (on) "on" else "off"});
+}
+
+/// `:scale [<root> [<type>]|off]` — sets or clears the piano roll's active
+/// scale (see `App.piano_scale`). With no args, reports the current setting.
+/// `<type>` alone (root omitted) keeps the existing root, defaulting to C.
+fn cmdScale(app: *App, args: []const u8) void {
+    const trimmed = std.mem.trim(u8, args, " ");
+    if (trimmed.len == 0) {
+        if (app.piano_scale) |s|
+            app.setStatus("scale: {s} {s}", .{ theory.pitchClassName(s.root), s.kind.label() })
+        else
+            app.setStatus("scale: off", .{});
+        return;
+    }
+    if (std.ascii.eqlIgnoreCase(trimmed, "off")) {
+        app.piano_scale = null;
+        app.setStatus("scale: off", .{});
+        return;
+    }
+    var it = std.mem.splitScalar(u8, trimmed, ' ');
+    const first = it.next().?;
+    const rest = std.mem.trim(u8, it.rest(), " ");
+    // A bare type name (e.g. `:scale dorian`) keeps the existing root.
+    var root: u4 = if (app.piano_scale) |s| s.root else 0;
+    var type_str: []const u8 = first;
+    if (theory.ScaleType.parse(first) == null) {
+        root = theory.parsePitchClass(first) orelse {
+            app.setStatus("scale: unknown root or type '{s}'", .{first});
+            return;
+        };
+        type_str = rest;
+    }
+    const kind: theory.ScaleType = if (type_str.len > 0)
+        theory.ScaleType.parse(type_str) orelse {
+            app.setStatus("scale: unknown type '{s}' (try major/minor/dorian/…)", .{type_str});
+            return;
+        }
+    else if (app.piano_scale) |s|
+        s.kind
+    else
+        .major;
+    app.piano_scale = .{ .root = root, .kind = kind };
+    app.setStatus("scale: {s} {s}", .{ theory.pitchClassName(root), kind.label() });
 }
 
 fn cmdTrackAdd(app: *App, args: []const u8) void {

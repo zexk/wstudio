@@ -14,6 +14,7 @@ const PianoClip = app_mod.PianoClip;
 const history = @import("../history.zig");
 const spectrum = @import("spectrum.zig");
 const synth = @import("synth.zig");
+const theory = ws.theory;
 
 pub fn switchTo(app: *App, track: u16) void {
     if (track >= app.session.racks.items.len) return;
@@ -112,6 +113,8 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             '<' => { nudgeVelocity(app, -0.1 * @as(f32, @floatFromInt(app.takeCount()))); return true; },
             '>' => { nudgeVelocity(app, 0.1 * @as(f32, @floatFromInt(app.takeCount()))); return true; },
             '.' => { repeatLastEdit(app, pp, max_step); return true; },
+            'c' => { stampChord(app, false); return true; },
+            'C' => { stampChord(app, true); return true; },
             'y' => { yank(app); return true; },
             'P' => { paste(app); return true; },
             'v' => {
@@ -299,6 +302,30 @@ fn toggleNote(app: *App) void {
     } else {
         insertNote(app);
     }
+}
+
+/// `c`/`C`: stamp a diatonic triad (`c`) or seventh chord (`C`) rooted at the
+/// cursor pitch, using the active `:scale` to harmonize it correctly (e.g.
+/// `c` on the 2nd degree of C major stacks D-F-A). With no scale set,
+/// defaults to a plain major shape rooted at the cursor note. A single-key
+/// edit — like insert/toggle/delete — so it's not part of `.` repeat; press
+/// it again at a new cursor.
+fn stampChord(app: *App, seventh: bool) void {
+    if (app.piano_track >= app.session.racks.items.len) return;
+    const pp = if (app.session.racks.items[app.piano_track].pattern_player != null)
+        &app.session.racks.items[app.piano_track].pattern_player.?
+    else return;
+    const scale = app.piano_scale orelse
+        theory.Scale{ .root = @intCast(app.piano_cursor_pitch % 12), .kind = .major };
+    const chord = scale.chordAt(app.piano_cursor_pitch, seventh);
+    history.push(app, history.captureMelodic(app, app.piano_track));
+    const start_beat = @as(f64, @floatFromInt(app.piano_cursor_step)) * 0.25;
+    for (chord.pitches[0..chord.count]) |pitch| {
+        pp.removeNote(pitch, start_beat);
+        pp.addNote(.{ .pitch = pitch, .start_beat = start_beat, .duration_beat = app.piano_note_len });
+    }
+    app.setStatus("chord: {d} notes", .{chord.count});
+    syncLinkedClip(app);
 }
 
 fn insertNote(app: *App) void {

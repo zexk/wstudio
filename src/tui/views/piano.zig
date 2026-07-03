@@ -13,6 +13,7 @@ const pattern_mod = ws.dsp.pattern;
 const midi = ws.midi;
 const style = @import("../style.zig");
 const icons = @import("../icons.zig");
+const theory = ws.theory;
 
 // Aliases so the moved render bodies reference the shared palette/primitives
 // by their original bare names.
@@ -97,7 +98,12 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
         try w.print("clip@bar {d}", .{link.start_bar + 1});
         try w.writeAll(rst);
     }
-    try w.writeAll(dim ++ "  [hjkl:move  HL:beat  JK:oct  gG:ends  enter:toggle  <>:vel  []:resize  yP:copy  v:select  .:repeat  esc:back]");
+    if (app.piano_scale) |s| {
+        try w.writeAll("  " ++ mag);
+        try w.print("scale {s} {s}", .{ theory.pitchClassName(s.root), s.kind.label() });
+        try w.writeAll(rst);
+    }
+    try w.writeAll(dim ++ "  [hjkl:move  HL:beat  JK:oct  gG:ends  enter:toggle  <>:vel  []:resize  yP:copy  cC:chord  v:select  .:repeat  esc:back]");
     try endLine(w);
 
     // 3 internal header rows (title + col labels + loop marker) + vis_rows note rows
@@ -158,12 +164,17 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
         const pitch: u7 = @intCast(pitch_i);
         const black = isBlackKey(pitch);
         const is_cur_row = (pitch == app.piano_cursor_pitch);
+        // Out-of-scale rows are dimmed like a black key so the eye can find
+        // the current scale/mode at a glance; off (no `:scale` set) dims
+        // nothing, matching the pre-scale-highlighting look.
+        const in_scale = if (app.piano_scale) |s| s.contains(pitch) else true;
+        const row_dim = black or !in_scale;
 
         var lbuf: [5]u8 = undefined;
         const label = pitchLabel(@intCast(pitch), &lbuf);
-        if (black) try w.writeAll(dim);
+        if (row_dim) try w.writeAll(dim);
         try w.print(" {s: <4}", .{label});
-        if (black) try w.writeAll(rst);
+        if (row_dim) try w.writeAll(rst);
         try w.writeAll(dim ++ "│" ++ rst);
 
         for (0..vis_cols) |col| {
@@ -200,9 +211,9 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
             } else if (in_sel) {
                 try w.writeAll(yel ++ "·  " ++ rst);
             } else {
-                if (black) try w.writeAll(dim);
+                if (row_dim) try w.writeAll(dim);
                 try w.writeAll("·  ");
-                if (black) try w.writeAll(rst);
+                if (row_dim) try w.writeAll(rst);
             }
         }
         try endLine(w);

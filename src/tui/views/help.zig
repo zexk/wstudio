@@ -169,7 +169,9 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("y / P",        "yank / paste pattern (works across tracks)");
     t.key("v",            "visual mode: select a step range (all pitches) — y/d/P");
     t.key(".",            "repeat the last nudge, drag, or visual range delete/paste");
+    t.key("c / C",        "stamp a triad / 7th chord at cursor (:scale-aware)");
     t.key(":clear",       "erase all notes in the pattern");
+    t.key(":scale",       "[<root> [<type>]|off]  scale highlight + chord-stamp key");
 
     t.section("ARRANGEMENT");
     t.key("h / l",        "move cursor left / right (one bar)");

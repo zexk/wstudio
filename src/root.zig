@@ -34,6 +34,8 @@ pub const persist = @import("persist.zig");
 
 pub const midi = @import("midi.zig");
 
+pub const theory = @import("theory.zig");
+
 pub const input = @import("input/modal.zig");
 pub const ModalInput = input.ModalInput;
 
@@ -59,5 +61,6 @@ test {
     _ = dsp;
     _ = Session;
     _ = persist;
+    _ = theory;
     _ = input;
 }
