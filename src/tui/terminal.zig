@@ -138,6 +138,11 @@ pub fn decode(bytes: []const u8, out: []Key) usize {
                 count += 1;
                 i += 1;
             },
+            0x09 => {
+                out[count] = .tab;
+                count += 1;
+                i += 1;
+            },
             0x20...0x7e => {
                 out[count] = .{ .char = b };
                 count += 1;
@@ -149,15 +154,16 @@ pub fn decode(bytes: []const u8, out: []Key) usize {
     return count;
 }
 
-test "decode printable, enter, backspace, ctrl-c" {
+test "decode printable, enter, backspace, ctrl-c, tab" {
     var keys: [8]Key = undefined;
-    const n = decode("ab\r\x7f\x03", &keys);
-    try std.testing.expectEqual(@as(usize, 5), n);
+    const n = decode("ab\r\x7f\x03\t", &keys);
+    try std.testing.expectEqual(@as(usize, 6), n);
     try std.testing.expectEqual(Key{ .char = 'a' }, keys[0]);
     try std.testing.expectEqual(Key{ .char = 'b' }, keys[1]);
     try std.testing.expectEqual(Key.enter, keys[2]);
     try std.testing.expectEqual(Key.backspace, keys[3]);
     try std.testing.expectEqual(Key.ctrl_c, keys[4]);
+    try std.testing.expectEqual(Key.tab, keys[5]);
 }
 
 test "lone escape vs CSI arrow sequences" {

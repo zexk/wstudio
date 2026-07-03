@@ -85,6 +85,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("esc",          "back / return to NORMAL mode");
     t.key(":",            "open command prompt");
     t.key("(in :) up/down","recall previous / next command");
+    t.key("(in :) tab",   "complete the command name");
     t.key("ctrl-c",       "quit");
 
     t.section("TRACKS");
@@ -99,6 +100,8 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("- / +",        "track gain −1 dB / +1 dB  (= also works)");
     t.key("a",            "add synth track");
     t.key("D",            "delete selected track");
+    t.key("R",            "rename selected track (opens :track-rename <n>)");
+    t.key("t",            "tap tempo (tap a few times to set bpm)");
     t.key("u / U",        "undo / redo content edits (notes, drums, clips)");
     t.key("? / :help",    "this help");
 

@@ -36,6 +36,10 @@ const frame_poll_ms = 30;
 const cmd_history_cap: usize = 50;
 /// Big enough for any real filesystem path; mirrors commands.path_buf_len.
 const reload_path_buf_len: usize = 1024;
+/// A pause longer than this between taps starts a fresh tap-tempo run.
+const tap_timeout_ns: i96 = 2 * std.time.ns_per_s;
+/// Minimum gap between silent `<path>~` backups; see `maybeAutosave`.
+const autosave_interval_ns: i96 = 30 * std.time.ns_per_s;
 
 pub const AppView = enum { tracks, drum_grid, synth_editor, sampler_editor, help, track_spectrum, master_spectrum, piano_roll, instrument_picker, arrangement };
 
@@ -153,6 +157,12 @@ pub const App = struct {
     pending_reload: ReloadRequest = .none,
     pending_reload_buf: [reload_path_buf_len]u8 = undefined,
     pending_reload_len: usize = 0,
+    /// Tap-tempo ring (`t` in the tracks view; see `tapTempo`).
+    tap_times: [8]i96 = undefined,
+    tap_count: u8 = 0,
+    /// Wall-clock ns of the last autosave backup attempt (0 = never tried).
+    /// See `maybeAutosave`.
+    last_autosave_ns: i96 = 0,
 
     pub const ReloadRequest = enum { none, blank, load };
 
@@ -224,14 +234,16 @@ pub const App = struct {
             return;
         }
 
-        // Command mode: up/down recall history; left/right are dropped
-        // rather than aliased below (no cursor-in-buffer exists yet, and
-        // aliasing them to h/l would corrupt the line being typed).
+        // Command mode: up/down recall history, tab completes the command
+        // name; left/right are dropped rather than aliased below (no
+        // cursor-in-buffer exists yet, and aliasing them to h/l would
+        // corrupt the line being typed).
         if (self.modal.mode == .command) {
             switch (key_in) {
                 .arrow_up => { self.commandHistoryPrev(); return; },
                 .arrow_down => { self.commandHistoryNext(); return; },
                 .arrow_left, .arrow_right => return,
+                .tab => { self.completeCommand(); return; },
                 else => {},
             }
         }
@@ -305,12 +317,55 @@ pub const App = struct {
                         '+', '=' => { self.doTrackGainStep(@intCast(self.cursor), 1.0); return; },
                         'u' => { history.doUndo(self); return; },
                         'U' => { history.doRedo(self); return; },
+                        'R' => { self.startRenamePrompt(); return; },
+                        't' => { self.tapTempo(now_ns); return; },
                         else => {},
                     }
                 }
                 self.applyAction(self.modal.handle(key), now_ns);
             },
         }
+    }
+
+    /// R opens the command prompt pre-filled with `:track-rename <n> ` for
+    /// the cursor track — type the new name and hit enter (`esc` cancels,
+    /// same as any other command-mode entry).
+    fn startRenamePrompt(self: *App) void {
+        if (self.cursor >= self.session.project.tracks.items.len) return;
+        self.modal.mode = .command;
+        self.cmd_history_pos = self.cmd_history.items.len;
+        const text = std.fmt.bufPrint(&self.modal.cmd_buf, "track-rename {d} ", .{self.cursor + 1}) catch return;
+        self.modal.cmd_len = text.len;
+    }
+
+    /// t taps the tempo: each tap after the first sets the BPM from the
+    /// average interval since the start of the current tap run. A gap
+    /// longer than `tap_timeout_ns` starts a fresh run instead of averaging
+    /// across it.
+    fn tapTempo(self: *App, now_ns: i96) void {
+        if (self.tap_count > 0 and now_ns - self.tap_times[self.tap_count - 1] > tap_timeout_ns) {
+            self.tap_count = 0;
+        }
+        if (self.tap_count == self.tap_times.len) {
+            std.mem.copyForwards(i96, self.tap_times[0 .. self.tap_times.len - 1], self.tap_times[1..]);
+            self.tap_count -= 1;
+        }
+        self.tap_times[self.tap_count] = now_ns;
+        self.tap_count += 1;
+
+        if (self.tap_count < 2) {
+            self.setStatus("tap tempo: tap again to set bpm", .{});
+            return;
+        }
+        const span_ns = self.tap_times[self.tap_count - 1] - self.tap_times[0];
+        const intervals: f64 = @floatFromInt(self.tap_count - 1);
+        const avg_s = @as(f64, @floatFromInt(span_ns)) / intervals / @as(f64, std.time.ns_per_s);
+        const bpm = std.math.clamp(60.0 / avg_s, 20.0, 400.0);
+        self.session.project.tempo_bpm = bpm;
+        _ = self.session.engine.send(.{ .set_tempo = bpm });
+        self.session.syncLoop(); // loop region is stored in bars; its frame mirror just moved
+        self.dirty = true;
+        self.setStatus("tap tempo: {d:.1} bpm ({d} taps)", .{ bpm, self.tap_count });
     }
 
     /// Open the editor matching the track's instrument, or the instrument
@@ -495,6 +550,39 @@ pub const App = struct {
         self.modal.cmd_len = len;
     }
 
+    /// Tab-complete the command name being typed — only while no space has
+    /// been typed yet; arguments aren't completed. A single match completes
+    /// to the full name plus a trailing space (ready for its argument);
+    /// several matches complete to their longest common prefix instead
+    /// (readline-style); no matches is a no-op.
+    fn completeCommand(self: *App) void {
+        const buf = self.modal.cmd_buf[0..self.modal.cmd_len];
+        if (buf.len == 0 or std.mem.indexOfScalar(u8, buf, ' ') != null) return;
+
+        var match_count: usize = 0;
+        var common: []const u8 = "";
+        for (commands.cmds) |c| {
+            if (!std.mem.startsWith(u8, c.name, buf)) continue;
+            match_count += 1;
+            common = if (match_count == 1) c.name else commonPrefix(common, c.name);
+        }
+        if (match_count == 0 or common.len <= buf.len) return;
+
+        @memcpy(self.modal.cmd_buf[buf.len..common.len], common[buf.len..]);
+        self.modal.cmd_len = common.len;
+        if (match_count == 1 and self.modal.cmd_len < self.modal.cmd_buf.len) {
+            self.modal.cmd_buf[self.modal.cmd_len] = ' ';
+            self.modal.cmd_len += 1;
+        }
+    }
+
+    fn commonPrefix(a: []const u8, b: []const u8) []const u8 {
+        var i: usize = 0;
+        const n = @min(a.len, b.len);
+        while (i < n and a[i] == b[i]) : (i += 1) {}
+        return a[0..i];
+    }
+
     /// Fire a preview note and schedule its release ~220ms later (see `tick`).
     /// Pub for the editor modules' audition keys.
     pub fn playNote(self: *App, track: u16, pitch: u7, now_ns: i96) void {
@@ -529,6 +617,24 @@ pub const App = struct {
                 i += 1;
             }
         }
+        self.maybeAutosave(now_ns);
+    }
+
+    /// Every `autosave_interval_ns`, if there are unsaved changes and the
+    /// project has a known path, silently write a `<path>~` backup — a
+    /// safety net, not a real save: it doesn't clear `dirty` or touch the
+    /// primary file, so `:q` still guards the actual edits. A brand-new
+    /// project with no path yet has nowhere natural to back up next to, so
+    /// it's skipped until the first `:w`. Failures are silent (best-effort);
+    /// a status message every 30s would just be noise during active work.
+    fn maybeAutosave(self: *App, now_ns: i96) void {
+        if (!self.dirty) return;
+        if (now_ns - self.last_autosave_ns < autosave_interval_ns) return;
+        self.last_autosave_ns = now_ns;
+        const path = self.projectPath() orelse return;
+        var buf: [reload_path_buf_len]u8 = undefined;
+        const backup = std.fmt.bufPrint(&buf, "{s}~", .{path}) catch return;
+        ws.persist.save(self.allocator, &self.session, self.io, backup) catch {};
     }
 
     // -----------------------------------------------------------------------

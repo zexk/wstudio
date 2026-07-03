@@ -141,9 +141,11 @@ Done:
 - [x] UX round: `:q` refuses on unsaved changes (`:q!` discards), vim count
       prefixes in every editor (`3l`, `12h`), clip yank/paste/move in the
       arrangement (`y`/`P`/`<`/`>`), piano-roll note grab-and-drag (`M`),
-      A/B loop region (`(`/`)`/`b`, persisted), `:` prompt history recall
-      (up/down, arrow keys no longer leak into typed text), `~` expansion
-      in file paths, `:e`/`:new` to switch or start a project mid-session
+      A/B loop region (`(`/`)`/`b`, persisted), `:` prompt history recall +
+      tab-completion (arrow keys no longer leak into typed text), `~`
+      expansion in file paths, `:e`/`:new` to switch or start a project
+      mid-session, track rename key (`R`), tap tempo (`t`), and a silent
+      `<project>~` autosave backup while there are unsaved changes
 - [x] User-loaded sample audio persists across saves: WAVs are exported to a
       `<name>_samples/` directory next to the .wsj and reloaded with the project
 - [x] Undo/redo (`u`/`U`) for content edits: notes, drum patterns/variants,

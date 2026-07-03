@@ -1106,3 +1106,121 @@ test ":new refuses on unsaved changes; :new! forces a blank-session request" {
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(App.ReloadRequest.blank, app.pending_reload);
 }
+
+test "R opens the command prompt pre-filled with :track-rename <n> " {
+    var app = try testApp();
+    defer app.deinit();
+    app.cursor = 1;
+
+    app.handleKey(.{ .char = 'R' }, 0);
+    try std.testing.expectEqual(ws.input.Mode.command, app.modal.mode);
+    try std.testing.expectEqualStrings("track-rename 2 ", app.modal.cmd_buf[0..app.modal.cmd_len]);
+
+    for ("keys") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqualStrings("keys", app.session.project.tracks.items[1].name);
+}
+
+test "t taps the tempo from the average interval; a long gap restarts it" {
+    var app = try testApp();
+    defer app.deinit();
+
+    const tap_ns: i96 = 500 * std.time.ns_per_ms; // 500ms/tap -> 120bpm
+    app.handleKey(.{ .char = 't' }, 0);
+    try std.testing.expect(!app.dirty); // one tap alone doesn't set anything yet
+    app.handleKey(.{ .char = 't' }, tap_ns);
+    try std.testing.expectApproxEqAbs(@as(f64, 120.0), app.session.project.tempo_bpm, 0.5);
+    try std.testing.expect(app.dirty);
+
+    // A third tap at the same spacing keeps the average locked in.
+    app.handleKey(.{ .char = 't' }, tap_ns * 2);
+    try std.testing.expectApproxEqAbs(@as(f64, 120.0), app.session.project.tempo_bpm, 0.5);
+
+    // A gap past the 2s timeout starts a fresh run: the first tap after it
+    // just restarts the count (tempo untouched), and a second at 1s spacing
+    // proves the average didn't include the huge gap (which would otherwise
+    // read as an absurdly slow bpm).
+    const after_timeout = tap_ns * 2 + 3 * std.time.ns_per_s;
+    app.handleKey(.{ .char = 't' }, after_timeout);
+    try std.testing.expectApproxEqAbs(@as(f64, 120.0), app.session.project.tempo_bpm, 0.5);
+    app.handleKey(.{ .char = 't' }, after_timeout + std.time.ns_per_s);
+    try std.testing.expectApproxEqAbs(@as(f64, 60.0), app.session.project.tempo_bpm, 0.5);
+}
+
+test ":e Tab completes an unambiguous command name and adds a trailing space" {
+    var app = try App.init(std.testing.allocator, std.Io.failing);
+    defer app.deinit();
+
+    for (":boun") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.tab, 0);
+    try std.testing.expectEqualStrings("bounce ", app.modal.cmd_buf[0..app.modal.cmd_len]);
+}
+
+test ":q Tab completes ambiguous names to their longest common prefix" {
+    var app = try App.init(std.testing.allocator, std.Io.failing);
+    defer app.deinit();
+
+    // "q" alone matches q, q!, quit, qa, qa! — common prefix is just "q".
+    for (":q") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.tab, 0);
+    try std.testing.expectEqualStrings("q", app.modal.cmd_buf[0..app.modal.cmd_len]);
+
+    // "track" only matches the track-* commands — common prefix "track-".
+    app.modal.cmd_len = 0;
+    for ("track") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.tab, 0);
+    try std.testing.expectEqualStrings("track-", app.modal.cmd_buf[0..app.modal.cmd_len]);
+}
+
+test "Tab does nothing past the command word or with no matches" {
+    var app = try App.init(std.testing.allocator, std.Io.failing);
+    defer app.deinit();
+
+    for (":bpm 1") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.tab, 0);
+    try std.testing.expectEqualStrings("bpm 1", app.modal.cmd_buf[0..app.modal.cmd_len]);
+
+    app.modal.cmd_len = 0;
+    for ("zzz") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.tab, 0);
+    try std.testing.expectEqualStrings("zzz", app.modal.cmd_buf[0..app.modal.cmd_len]);
+}
+
+test "autosave writes a silent <path>~ backup on a timer, without clearing dirty" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    var app = try App.init(std.testing.allocator, std.testing.io);
+    defer app.deinit();
+    var path_buf: [64]u8 = undefined;
+    const path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/p.wsj", .{&tmp.sub_path});
+    app.setProjectPath(path);
+
+    app.applyAction(.toggle_mute, 0); // dirty, no path-having save yet
+    try std.testing.expect(app.dirty);
+
+    // now_ns starts far enough past 0 that the interval check isn't trivially
+    // satisfied by the zero-valued default (see maybeAutosave's doc comment).
+    const base: i96 = 10_000 * std.time.ns_per_s;
+    app.tick(base);
+    var backup_buf: [96]u8 = undefined;
+    const backup_path = try std.fmt.bufPrint(&backup_buf, "{s}~", .{path});
+    var loaded = try ws.persist.load(std.testing.allocator, std.testing.io, backup_path);
+    defer loaded.deinit();
+    try std.testing.expect(app.dirty); // autosave never clears it
+
+    // A second tick soon after doesn't re-attempt (throttled to the interval).
+    app.tick(base + std.time.ns_per_s);
+    try std.testing.expectEqual(base, app.last_autosave_ns);
+}
+
+test "autosave is a no-op when clean or when no project path is known" {
+    var app = try App.init(std.testing.allocator, std.Io.failing);
+    defer app.deinit();
+    app.tick(10_000 * std.time.ns_per_s); // not dirty: nothing to do
+    try std.testing.expectEqual(@as(i96, 0), app.last_autosave_ns);
+
+    app.applyAction(.toggle_mute, 0); // dirty, but never saved anywhere
+    app.tick(10_000 * std.time.ns_per_s);
+    try std.testing.expectEqual(@as(i96, 10_000 * std.time.ns_per_s), app.last_autosave_ns);
+}

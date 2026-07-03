@@ -24,6 +24,9 @@ pub const Key = union(enum) {
     arrow_down,
     arrow_left,
     arrow_right,
+    /// Command-mode completion (App.handleKey completes the typed command
+    /// name against the command table); ignored elsewhere.
+    tab,
     /// Intercepted by the frontend (quit); modal layer ignores it.
     ctrl_c,
 };
@@ -212,8 +215,8 @@ pub const ModalInput = struct {
                 return .none;
             },
             // Handled by App.handleKey before it reaches here (history
-            // recall on up/down); nothing left to do at this layer.
-            .arrow_up, .arrow_down, .arrow_left, .arrow_right, .ctrl_c => return .none,
+            // recall on up/down, tab-completion); nothing left to do here.
+            .arrow_up, .arrow_down, .arrow_left, .arrow_right, .tab, .ctrl_c => return .none,
         }
     }
 };
