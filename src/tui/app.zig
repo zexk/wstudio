@@ -386,7 +386,7 @@ pub const App = struct {
                     self.applyAction(self.modal.handle(key), now_ns);
                 } else self.modal.count = 0;
             },
-            .synth_editor => if (!synth_ed.handleKey(self, key)) {
+            .synth_editor => if (self.modal.mode == .command or !synth_ed.handleKey(self, key)) {
                 self.applyAction(self.modal.handle(key), now_ns);
             } else { self.modal.count = 0; },
             .sampler_editor => if (self.modal.mode != .normal or !sampler_ed.handleKey(self, key)) {
