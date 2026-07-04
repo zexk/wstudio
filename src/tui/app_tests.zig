@@ -305,6 +305,31 @@ test "Z toggles piano roll zoom and compacts the rendered grid" {
     try std.testing.expectEqual(@as(usize, 3), app.pianoCellWidth());
 }
 
+test "Z toggles arrangement zoom and compacts the rendered timeline" {
+    var app = try testApp();
+    defer app.deinit();
+    app.view = .arrangement;
+    try app.session.stampClip(0, 0);
+
+    try std.testing.expectEqual(@as(usize, 4), app.arrCellWidth());
+    var buf: [32 * 1024]u8 = undefined;
+    var w = std.Io.Writer.fixed(&buf);
+    try app.draw(&w, .{ .cols = 80, .rows = 24 });
+    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "zoom") == null);
+
+    app.handleKey(.{ .char = 'Z' }, 0);
+    try std.testing.expectEqual(@as(usize, 2), app.arrCellWidth());
+
+    w = std.Io.Writer.fixed(&buf);
+    try app.draw(&w, .{ .cols = 80, .rows = 24 });
+    const frame = w.buffered();
+    try std.testing.expect(std.mem.indexOf(u8, frame, "ARRANGEMENT") != null);
+    try std.testing.expect(std.mem.indexOf(u8, frame, "zoom") != null);
+
+    app.handleKey(.{ .char = 'Z' }, 0);
+    try std.testing.expectEqual(@as(usize, 4), app.arrCellWidth());
+}
+
 test "automation editor: nudge, `.` repeat, and visual range yank/delete/paste" {
     var app = try testApp();
     defer app.deinit();

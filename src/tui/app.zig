@@ -234,6 +234,11 @@ pub const App = struct {
     /// `App.track_scroll` in the tracks view — no pinned row here, since
     /// arrangement lanes have no master-bus equivalent).
     arr_scroll_lane: usize = 0,
+    /// Arrangement horizontal zoom, toggled by `Z`: `normal` is the original
+    /// 4-col-per-bar layout (1-char separator + 3-char content), `compact`
+    /// packs 2 cols/bar so long songs fit on screen without scrolling.
+    /// Mirrors `App.piano_zoom`. Not persisted — a display aid.
+    arr_zoom: enum { normal, compact } = .normal,
     /// Pattern clipboards (y yank / P paste), app-wide so patterns can move
     /// between tracks. Whole-pattern granularity; one slot per editor kind.
     piano_clip: ?PianoClip = null,
@@ -429,6 +434,14 @@ pub const App = struct {
     /// and views/piano.zig goes through this.
     pub fn pianoCellWidth(self: *const App) usize {
         return if (self.piano_zoom == .compact) 1 else 3;
+    }
+
+    /// Terminal columns per bar under the current zoom — 4 (normal, 1-char
+    /// separator + 3-char content) or 2 (compact, `Z`: separator + 1-char
+    /// content). Every column-width computation in editors/arrangement.zig
+    /// and views/arrangement.zig goes through this.
+    pub fn arrCellWidth(self: *const App) usize {
+        return if (self.arr_zoom == .compact) 2 else 4;
     }
 
     pub fn handleKey(self: *App, key_in: modal_mod.Key, now_ns: i96) void {

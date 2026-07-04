@@ -206,6 +206,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("b",            "toggle A/B loop on/off");
     t.key("g",            "play from cursor bar");
     t.key("T",            "toggle song / pattern mode");
+    t.key("Z",            "toggle zoom: normal <-> compact (see more of a long song)");
     t.key("a",            "open gain/pan automation editor for the clip at cursor");
 
     t.section("AUTOMATION  (per-clip gain/pan breakpoints — opened via 'a' in the arrangement)");

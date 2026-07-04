@@ -22,17 +22,17 @@ const yel = style.yel;
 const sel = style.sel;
 const blu = style.blu;
 const mag = style.mag;
+const bcyn = style.bcyn;
 const endLine = style.endLine;
 
-/// Total chars per bar column: a 1-char separator plus 3-char content.
-pub const cell_w: usize = 4;
 /// Left gutter: " NN name " then the lane's leading separator.
 pub const gutter: usize = 11;
 
-/// Bars that fit in the timeline area for a terminal `cols` wide.
-pub fn visibleBars(cols: usize) usize {
-    if (cols <= gutter + cell_w) return 1;
-    return (cols - gutter) / cell_w;
+/// Bars that fit in the timeline area for a terminal `cols` wide, at cell
+/// width `cw` (`App.arrCellWidth()` — 4 normal, 2 compact).
+pub fn visibleBars(cols: usize, cw: usize) usize {
+    if (cols <= gutter + cw) return 1;
+    return (cols - gutter) / cw;
 }
 
 fn playheadBar(app: anytype, snap: engine_mod.UiSnapshot) ?u32 {
@@ -54,7 +54,8 @@ pub fn drawArrangement(
     snap: engine_mod.UiSnapshot,
 ) !void {
     const bpb: u32 = app.session.project.beats_per_bar;
-    const visible = visibleBars(cols);
+    const cw: usize = app.arrCellWidth();
+    const visible = visibleBars(cols, cw);
 
     // Keep the bar cursor inside the visible window.
     const vis: u32 = @intCast(visible);
@@ -68,6 +69,7 @@ pub fn drawArrangement(
     const mode_tag: []const u8 = if (app.session.song_mode) grn ++ "SONG" ++ rst else dim ++ "PATTERN" ++ rst;
     try w.writeAll(bold ++ " " ++ icons.arrangement ++ " ARRANGEMENT" ++ rst ++ "  ");
     try w.writeAll(mode_tag);
+    if (app.arr_zoom == .compact) try w.writeAll("  " ++ bcyn ++ "zoom" ++ rst);
     try endLine(w);
 
     // Bar ruler. Bars inside an armed loop region wear the accent colour.
@@ -79,7 +81,11 @@ pub fn drawArrangement(
         const downbeat = bar % bpb == 0;
         const in_loop = loop_on and bar >= p.loop_start_bar and bar < p.loop_end_bar;
         try w.writeAll(if (in_loop) yel ++ "│" ++ rst else if (downbeat) blu ++ "│" ++ rst else dim ++ "│" ++ rst);
-        if (downbeat) {
+        if (cw == 2) {
+            // Compact: no room for a bar number without corrupting column
+            // alignment — the separator's colour already marks downbeat/loop.
+            try w.writeAll(if (in_loop) yel ++ "·" ++ rst else " ");
+        } else if (downbeat) {
             try w.print("{s}{d: >3}{s}", .{ if (in_loop) yel else dim, bar + 1, rst });
         } else if (in_loop) {
             try w.writeAll(yel ++ "···" ++ rst);
@@ -144,7 +150,15 @@ pub fn drawArrangement(
             } else if (covered) {
                 try w.writeAll(acc);
             }
-            if (!covered) {
+            if (cw == 2) {
+                if (!covered) {
+                    try w.writeAll(if (in_sel) "·" else if (is_play and !is_cursor) "‖" else " ");
+                } else if (letter) |ch| {
+                    try w.print("{c}", .{ch});
+                } else {
+                    try w.writeAll(if (is_start) "▌" else "█");
+                }
+            } else if (!covered) {
                 try w.writeAll(if (in_sel) " · " else if (is_play and !is_cursor) " ‖ " else "   ");
             } else if (letter) |ch| {
                 try w.print("▌{c}█", .{ch});
@@ -172,6 +186,9 @@ pub fn drawArrangementStatus(app: anytype, w: *std.Io.Writer, cmds: []const cmd_
     try w.writeAll(sel);
     try w.print(" {s} ", .{mode_name});
     try w.writeAll(rst);
+    if (app.arr_zoom == .compact) {
+        try w.writeAll(dim ++ "  " ++ rst ++ bcyn ++ "zoom" ++ rst);
+    }
 
     try w.writeAll(dim ++ "  bar " ++ rst);
     try w.print("{d}", .{app.arr_cursor_bar + 1});

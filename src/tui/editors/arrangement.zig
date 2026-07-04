@@ -73,6 +73,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 app.setStatus("{s} mode", .{if (app.session.song_mode) "song" else "pattern"});
                 return true;
             },
+            'Z' => { toggleZoom(app); return true; },
             else => return false,
         },
         else => return false,
@@ -230,6 +231,14 @@ fn repeatLastEdit(app: *App) void {
 fn moveBar(app: *App, delta: i64) void {
     const nb = @as(i64, app.arr_cursor_bar) + delta;
     app.arr_cursor_bar = @intCast(@max(@as(i64, 0), nb));
+}
+
+/// `Z`: toggle horizontal zoom between normal (4 cols/bar) and compact
+/// (2 cols/bar) — see `App.arr_zoom`. Purely a render/scroll setting, like
+/// the piano roll's `toggleZoom`: no bar indices move.
+fn toggleZoom(app: *App) void {
+    app.arr_zoom = if (app.arr_zoom == .normal) .compact else .normal;
+    app.setStatus("zoom: {s}", .{if (app.arr_zoom == .compact) "compact" else "normal"});
 }
 
 /// Move the lane cursor by `delta`, clamped to the track list.
@@ -472,12 +481,11 @@ fn deleteClip(app: *App) void {
 }
 
 /// Bar at column `x`, or null if `x` falls in the lane-name gutter. Mirrors
-/// views/arrangement.zig's `gutter`/`cell_w` — each bar column is a 1-char
-/// separator + 3-char cell, so no per-column bookkeeping is needed beyond
-/// those two constants.
-fn barAt(scroll_bar: u32, x: usize) ?u32 {
+/// views/arrangement.zig's `gutter`/`App.arrCellWidth()` — each bar column
+/// is a 1-char separator + content cell (3 chars normal, 1 compact).
+fn barAt(scroll_bar: u32, x: usize, cw: usize) ?u32 {
     if (x < view.gutter) return null;
-    const col: u32 = @intCast((x - view.gutter) / view.cell_w);
+    const col: u32 = @intCast((x - view.gutter) / cw);
     return scroll_bar + col;
 }
 
@@ -488,8 +496,9 @@ fn barAt(scroll_bar: u32, x: usize) ?u32 {
 /// over the lane-name gutter — the lane cursor, regardless of which row the
 /// mouse sits on.
 pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16) void {
-    _ = cols; // column width here is fixed (view.cell_w), not terminal-width-dependent
+    _ = cols; // column count is derived from scroll + cell width, not terminal-width-dependent
     const lane_count = app.session.project.tracks.items.len;
+    const cw = app.arrCellWidth();
 
     switch (ev.kind) {
         .scroll_up => { if (ev.x < view.gutter) moveLane(app, lane_count, -1) else moveBar(app, -1); return; },
@@ -507,7 +516,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16) v
     switch (ev.kind) {
         .press => {
             app.cursor = lane;
-            if (barAt(app.arr_scroll_bar, ev.x)) |bar| app.arr_cursor_bar = bar;
+            if (barAt(app.arr_scroll_bar, ev.x, cw)) |bar| app.arr_cursor_bar = bar;
             const has_clip = if (app.session.arrangement.lane(lane)) |l|
                 l.clipAt(app.arr_cursor_bar) != null
             else
@@ -516,7 +525,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16) v
         },
         .drag => {
             const last = app.arr_drag_bar orelse return;
-            const new_bar = barAt(app.arr_scroll_bar, ev.x) orelse return;
+            const new_bar = barAt(app.arr_scroll_bar, ev.x, cw) orelse return;
             if (new_bar == last) return;
             // moveClip looks up the clip at the CURRENT cursor bar and
             // leaves the cursor on wherever it lands.
