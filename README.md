@@ -151,6 +151,20 @@ a full song:
 
 Done:
 
+- [x] Drum pad rename (`R` in the drum grid, `:pad-rename <n> <name>`):
+      a shipped-kit pad ("kick") can become "808" without loading a new
+      sample — persists independent of the loaded audio
+- [x] `g`/`G` jump to the first/last param in the synth and sampler editors
+      (and `g` jumps the drum grid's step cursor to the pattern start);
+      fixed the sampler's `j`/`k` silently ignoring a typed count (`5j`)
+- [x] `:scale` tab-completion (root pitch classes + scale-type names)
+- [x] Tracks view scrolls when there are more tracks than fit the terminal —
+      the master row stays pinned at the bottom of the list
+- [x] Automation editor visual mode (`v`), range `y`/`d`/`P`, and `.` repeat —
+      parity with the piano roll/drum grid/arrangement
+- [x] Piano-roll horizontal zoom (`Z`): toggles between the normal
+      3-char-per-step layout and a compact 1-char-per-step one so a long
+      pattern's whole loop fits on screen without scrolling
 - [x] Triplet grid in the piano roll (`T`): toggles the step grid between
       straight sixteenths (4 steps/beat) and sixteenth-note triplets (6
       steps/beat) — every step<->beat conversion (cursor, notes, resize,
