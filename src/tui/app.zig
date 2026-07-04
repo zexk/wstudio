@@ -167,7 +167,10 @@ pub const App = struct {
     // Last timestamp seen by handleKey; lets sub-view handlers schedule note-offs
     // (e.g. piano-roll preview) without threading now_ns through every signature.
     now_ns: i96 = 0,
-    eq_cursor: usize = 0,
+    /// Selected param row within the focused FX unit (EQ's are its bands).
+    fx_param: usize = 0,
+    /// Which chain unit the spectrum/FX view is focused on — Tab cycles it.
+    fx_focus: spectrum_ed.FxUnit = .eq,
     eq_track: u16 = 0,
     /// Scroll offset (in lines) of the help view; clamped by tui.drawHelp.
     help_scroll: usize = 0,
@@ -407,33 +410,56 @@ pub const App = struct {
                 self.applyAction(self.modal.handle(key), now_ns);
             } else { self.modal.count = 0; },
             .tracks => {
+                // The master row lives one slot past the last real track —
+                // same list, same cursor, but it can't be deleted/duplicated/
+                // moved/renamed/muted/soloed and has no piano roll or pan.
+                const on_master = self.cursor == self.session.project.tracks.items.len;
                 if (key == .enter and self.modal.mode == .normal) {
-                    self.openTrack(self.cursor);
+                    if (on_master) spectrum_ed.switchToMaster(self) else self.openTrack(self.cursor);
                     return;
                 }
                 if (key == .char and self.modal.mode == .normal) {
-                    switch (key.char) {
-                        'M' => { spectrum_ed.switchToMaster(self); return; },
-                        'A' => { self.view = .arrangement; return; },
-                        's' => { spectrum_ed.switchToTrack(self, @intCast(self.cursor)); return; },
-                        'p' => { piano_ed.switchTo(self, @intCast(self.cursor)); return; },
-                        'a' => { self.doTrackAdd(null); return; },
-                        'D' => { self.doTrackDel(self.cursor); return; },
-                        'Y' => { self.doTrackDup(self.cursor); return; },
-                        'J' => { self.doTrackMove(1); return; },
-                        'K' => { self.doTrackMove(-1); return; },
-                        'c' => { self.toggleMetronome(); return; },
-                        '?' => { commands.cmdHelp(self, ""); return; },
-                        '<' => { self.doTrackPan(@intCast(self.cursor), -0.05); return; },
-                        '>' => { self.doTrackPan(@intCast(self.cursor), 0.05); return; },
-                        '-' => { self.doTrackGainStep(@intCast(self.cursor), -1.0); return; },
-                        // + is the canonical "increase" (matches pattern length); = kept as alias.
-                        '+', '=' => { self.doTrackGainStep(@intCast(self.cursor), 1.0); return; },
-                        'u' => { history.doUndo(self); return; },
-                        'U' => { history.doRedo(self); return; },
-                        'R' => { self.startRenamePrompt(); return; },
-                        't' => { self.tapTempo(now_ns); return; },
-                        else => {},
+                    if (on_master) {
+                        switch (key.char) {
+                            's', 'M' => { spectrum_ed.switchToMaster(self); return; },
+                            'a' => { self.doTrackAdd(null); return; },
+                            'c' => { self.toggleMetronome(); return; },
+                            '?' => { commands.cmdHelp(self, ""); return; },
+                            '-' => { self.doMasterGainStep(-1.0); return; },
+                            '+', '=' => { self.doMasterGainStep(1.0); return; },
+                            'u' => { history.doUndo(self); return; },
+                            'U' => { history.doRedo(self); return; },
+                            't' => { self.tapTempo(now_ns); return; },
+                            'D', 'Y', 'J', 'K', 'R', 'p', '<', '>' => {
+                                self.setStatus("master bus: n/a", .{});
+                                return;
+                            },
+                            else => {},
+                        }
+                    } else {
+                        switch (key.char) {
+                            'M' => { spectrum_ed.switchToMaster(self); self.cursor = self.session.project.tracks.items.len; return; },
+                            'A' => { self.view = .arrangement; return; },
+                            's' => { spectrum_ed.switchToTrack(self, @intCast(self.cursor)); return; },
+                            'p' => { piano_ed.switchTo(self, @intCast(self.cursor)); return; },
+                            'a' => { self.doTrackAdd(null); return; },
+                            'D' => { self.doTrackDel(self.cursor); return; },
+                            'Y' => { self.doTrackDup(self.cursor); return; },
+                            'J' => { self.doTrackMove(1); return; },
+                            'K' => { self.doTrackMove(-1); return; },
+                            'c' => { self.toggleMetronome(); return; },
+                            '?' => { commands.cmdHelp(self, ""); return; },
+                            '<' => { self.doTrackPan(@intCast(self.cursor), -0.05); return; },
+                            '>' => { self.doTrackPan(@intCast(self.cursor), 0.05); return; },
+                            '-' => { self.doTrackGainStep(@intCast(self.cursor), -1.0); return; },
+                            // + is the canonical "increase" (matches pattern length); = kept as alias.
+                            '+', '=' => { self.doTrackGainStep(@intCast(self.cursor), 1.0); return; },
+                            'u' => { history.doUndo(self); return; },
+                            'U' => { history.doRedo(self); return; },
+                            'R' => { self.startRenamePrompt(); return; },
+                            't' => { self.tapTempo(now_ns); return; },
+                            else => {},
+                        }
                     }
                 }
                 self.applyAction(self.modal.handle(key), now_ns);
@@ -709,7 +735,8 @@ pub const App = struct {
             },
             .move => |m| {
                 const count: i64 = @as(i64, @intCast(self.cursor)) + m.dy;
-                const last: i64 = @intCast(self.session.project.tracks.items.len - 1);
+                // One extra slot past the last real track — the master row.
+                const last: i64 = @intCast(self.session.project.tracks.items.len);
                 self.cursor = @intCast(std.math.clamp(count, 0, last));
             },
             .goto_start => _ = self.session.engine.send(.{ .seek_frames = 0 }),
@@ -719,6 +746,12 @@ pub const App = struct {
             },
             .toggle_mute => {
                 const track_idx = self.currentTrack();
+                // currentTrack() falls back to the tracks-view cursor, which
+                // can now be the master row (one past the last real track).
+                if (track_idx >= self.session.project.tracks.items.len) {
+                    self.setStatus("master bus has no mute", .{});
+                    return;
+                }
                 const track = &self.session.project.tracks.items[track_idx];
                 track.muted = !track.muted;
                 self.dirty = true;
@@ -729,6 +762,10 @@ pub const App = struct {
             },
             .toggle_solo => {
                 const track_idx = self.currentTrack();
+                if (track_idx >= self.session.project.tracks.items.len) {
+                    self.setStatus("master bus has no solo", .{});
+                    return;
+                }
                 const track = &self.session.project.tracks.items[track_idx];
                 track.soloed = !track.soloed;
                 self.dirty = true;
@@ -1179,6 +1216,15 @@ pub const App = struct {
         _ = self.session.engine.send(.{ .set_track_gain = .{ .track = track, .gain = types.dbToGain(t.gain_db) } });
         const sign: []const u8 = if (t.gain_db >= 0) "+" else "";
         self.setStatus("track {d} gain: {s}{d:.1}dB", .{ track + 1, sign, t.gain_db });
+    }
+
+    /// `-`/`+` on the master row — same gesture as a track's gain step, but
+    /// against `master_gain_db` (same range/behaviour as `:vol`/`[`/`]`).
+    fn doMasterGainStep(self: *App, delta_db: f32) void {
+        self.master_gain_db = std.math.clamp(self.master_gain_db + delta_db, -40.0, 6.0);
+        _ = self.session.engine.send(.{ .set_master_gain = types.dbToGain(self.master_gain_db) });
+        const sign: []const u8 = if (self.master_gain_db >= 0) "+" else "";
+        self.setStatus("master gain: {s}{d:.1}dB", .{ sign, self.master_gain_db });
     }
 
     // -----------------------------------------------------------------------

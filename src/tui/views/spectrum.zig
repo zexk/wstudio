@@ -8,6 +8,7 @@ const Transport = ws.Transport;
 const DrumMachine = ws.dsp.DrumMachine;
 const eq_mod = ws.dsp.eq;
 const cmd_mod = @import("../cmd.zig");
+const spectrum_ed = @import("../editors/spectrum.zig");
 const engine_mod = ws.engine;
 const pattern_mod = ws.dsp.pattern;
 const midi = ws.midi;
@@ -102,26 +103,22 @@ pub fn drawSpectrumView(
     else
         app.session.engine.masterSpectrumSnapshot();
 
-    // Pre-check whether the EQ row will be drawn so visual_rows can be sized correctly.
-    const eq_ptr: ?*eq_mod.GraphicEq = blk: {
-        if (is_track) {
-            if (app.eq_track >= app.session.racks.items.len) break :blk null;
-            if (app.session.racks.items[app.eq_track].fx.eq) |*e| break :blk e;
-            break :blk null;
-        }
-        if (app.session.master_fx.eq) |*e| break :blk e;
-        break :blk null;
+    // Pre-check the FX section's height so visual_rows can be sized
+    // correctly — it's the same chain view (tab strip + focused unit's
+    // body) for a track's rack or the master bus.
+    const fx = spectrum_ed.fxPtr(app, is_track);
+    const body_rows: usize = if (fx == null) 0 else switch (app.fx_focus) {
+        .eq => 3, // bar row + value row + freq row
+        .comp => if (fx.?.comp != null) 5 else 1,
+        .delay => if (fx.?.delay != null) 3 else 1,
+        .reverb => if (fx.?.reverb != null) 3 else 1,
     };
-    const has_eq = eq_ptr != null;
-    // header + bar row + value row + freq-label row.
-    const eq_row: usize = if (has_eq) 4 else 0;
-    // Master-only read-only compressor readout (no visual editor yet — see
-    // `:master-comp`).
-    const has_comp = !is_track and app.session.master_fx.comp != null;
-    const comp_row: usize = if (has_comp) 2 else 0;
+    // Tab strip + body; 0 when there's no chain to show at all (e.g. the
+    // track_spectrum view's track was deleted out from under it).
+    const eq_row: usize = if (fx == null) 0 else 1 + body_rows;
 
-    // 1 header + visual_rows spectrum + 1 hz label + eq_row/comp_row must fit in rows-5.
-    const visual_rows = @min(spectrum_rows, rows -| (7 + eq_row + comp_row));
+    // 1 header + visual_rows spectrum + 1 hz label + eq_row must fit in rows-5.
+    const visual_rows = @min(spectrum_rows, rows -| (7 + eq_row));
     // Limit band count to available horizontal space (3-char indent + bands).
     const draw_bands = @min(spectrum_band_count, cols -| 5);
 
@@ -233,63 +230,108 @@ pub fn drawSpectrumView(
     }
     try endLine(w);
 
-    if (eq_ptr) |e| {
-        const bypass_str: []const u8 = if (e.bypass) " [BYPASS]" else "";
-        try w.writeAll(bold ++ " EQ" ++ rst);
-        try w.writeAll(red);
-        try w.writeAll(bypass_str);
-        try w.writeAll(rst);
-        try w.writeAll(dim ++ "  10-band graphic  \u{00b1}18dB" ++ rst);
-        try endLine(w);
-
-        // Bar row: one glyph per band, its height tracking gain (▄ = flat,
-        // taller = boost, shorter = cut), coloured by direction/magnitude.
-        // The selected band is bracketed so the cursor reads at a glance.
-        try w.writeAll("   ");
-        for (0..eq_mod.num_eq_bands) |b| {
-            const is_cur = (b == app.eq_cursor);
-            const gain = e.bands[b].gain_db;
-            if (is_cur) try w.writeAll(bold ++ acc ++ " [" ++ rst) else try w.writeAll("  ");
-            try w.writeAll(if (is_cur) bwht else eqColor(gain));
-            if (is_cur) try w.writeAll(bold);
-            try w.writeAll(eqGlyph(gain));
+    if (fx) |chain| {
+        // Tab strip: all 4 chain units, focused one bracketed; present
+        // units are green (red if EQ is bypassed), absent ones dim.
+        try w.writeAll(bold ++ " FX " ++ rst);
+        inline for (.{ spectrum_ed.FxUnit.eq, .comp, .delay, .reverb }) |u| {
+            const is_focus = u == app.fx_focus;
+            const present = spectrum_ed.isPresent(chain, u);
+            if (is_focus) try w.writeAll(bold ++ acc ++ " [" ++ rst) else try w.writeAll("  ");
+            if (present) {
+                const bypassed = u == .eq and chain.eq.?.bypass;
+                try w.writeAll(if (bypassed) red else if (is_focus) bwht ++ bold else grn);
+            } else {
+                try w.writeAll(dim);
+            }
+            try w.writeAll(spectrum_ed.unitLabel(u));
             try w.writeAll(rst);
-            if (is_cur) try w.writeAll(bold ++ acc ++ "] " ++ rst) else try w.writeAll("  ");
+            if (is_focus) try w.writeAll(bold ++ acc ++ "]" ++ rst);
         }
+        try w.writeAll(dim ++ "   tab:focus  a:add/remove  h/l+j/k:edit" ++ rst);
         try endLine(w);
 
-        // Value row: signed dB under each bar.
-        try w.writeAll("   ");
-        for (0..eq_mod.num_eq_bands) |b| {
-            const is_cur = (b == app.eq_cursor);
-            const val = e.bands[b].gain_db;
-            if (is_cur) try w.writeAll(acc ++ bold);
-            try w.print("{d: ^5.0}", .{val});
-            if (is_cur) try w.writeAll(rst);
+        switch (app.fx_focus) {
+            .eq => if (chain.eq) |*e| {
+                // Bar row: one glyph per band, its height tracking gain (▄ =
+                // flat, taller = boost, shorter = cut), coloured by
+                // direction/magnitude. The selected band is bracketed.
+                try w.writeAll("   ");
+                for (0..eq_mod.num_eq_bands) |b| {
+                    const is_cur = (b == app.fx_param);
+                    const gain = e.bands[b].gain_db;
+                    if (is_cur) try w.writeAll(bold ++ acc ++ " [" ++ rst) else try w.writeAll("  ");
+                    try w.writeAll(if (is_cur) bwht else eqColor(gain));
+                    if (is_cur) try w.writeAll(bold);
+                    try w.writeAll(eqGlyph(gain));
+                    try w.writeAll(rst);
+                    if (is_cur) try w.writeAll(bold ++ acc ++ "] " ++ rst) else try w.writeAll("  ");
+                }
+                try endLine(w);
+
+                // Value row: signed dB under each bar.
+                try w.writeAll("   ");
+                for (0..eq_mod.num_eq_bands) |b| {
+                    const is_cur = (b == app.fx_param);
+                    const val = e.bands[b].gain_db;
+                    if (is_cur) try w.writeAll(acc ++ bold);
+                    try w.print("{d: ^5.0}", .{val});
+                    if (is_cur) try w.writeAll(rst);
+                }
+                try endLine(w);
+
+                // Frequency row — matches eq_mod.iso_frequencies' order.
+                try w.writeAll(dim ++ "   ");
+                for (eq_freq_labels) |lbl| try w.print("{s: ^5}", .{lbl});
+                try w.writeAll(rst);
+                try endLine(w);
+            } else {
+                try w.writeAll(dim ++ "   no EQ — press 'a' to add" ++ rst);
+                try endLine(w);
+            },
+            else => |u| {
+                if (spectrum_ed.isPresent(chain, u)) {
+                    for (0..spectrum_ed.paramCount(u)) |i| {
+                        const is_sel = (i == app.fx_param);
+                        try rowHead(w, is_sel, false, spectrum_ed.paramName(u, i));
+                        var vbuf: [16]u8 = undefined;
+                        try rowVal(w, is_sel, false, formatFxValue(&vbuf, u, i, chain));
+                        try endLine(w);
+                    }
+                } else {
+                    try w.writeAll(dim);
+                    try w.print("   no {s} — press 'a' to add", .{spectrum_ed.unitLabel(u)});
+                    try w.writeAll(rst);
+                    try endLine(w);
+                }
+            },
         }
-        try endLine(w);
-
-        // Frequency row — matches the band order in eq_mod.iso_frequencies.
-        try w.writeAll(dim ++ "   ");
-        for (eq_freq_labels) |lbl| try w.print("{s: ^5}", .{lbl});
-        try w.writeAll(rst);
-        try endLine(w);
-    }
-
-    if (has_comp) {
-        const c = &app.session.master_fx.comp.?;
-        try w.writeAll(bold ++ " COMP" ++ rst ++ dim ++ "  (:master-comp to adjust)" ++ rst);
-        try endLine(w);
-        try w.print("   thresh {d: <5.0}dB  ratio {d: <4.1}:1  atk {d: <4.0}ms  rel {d: <4.0}ms  makeup {d: <4.1}dB", .{
-            c.threshold_db, c.ratio, c.attack_ms, c.release_ms, c.makeup_db,
-        });
-        try endLine(w);
     }
 
     // Pad to fill the view's row budget (rows-5) so the footer stays pinned.
-    // lines written: 1 (header) + visual_rows + 1 (hz label) + eq_row + comp_row
-    const used = 4 + visual_rows + eq_row + comp_row; // "+2 over lines-written" matches other views
+    // lines written: 1 (header) + visual_rows + 1 (hz label) + eq_row
+    const used = 4 + visual_rows + eq_row; // "+2 over lines-written" matches other views
     for (used..@max(used, rows -| 3)) |_| try endLine(w);
+}
+
+/// Formats param `idx` of unit `u` with a unit-appropriate suffix, e.g.
+/// "-6.0dB", "4.0:1", "120ms", "35%".
+fn formatFxValue(buf: []u8, u: spectrum_ed.FxUnit, idx: usize, fx: *const ws.Fx) []const u8 {
+    const v = spectrum_ed.getParam(fx, u, idx);
+    return switch (u) {
+        .eq => std.fmt.bufPrint(buf, "{d:.1}dB", .{v}) catch "?",
+        .comp => switch (idx) {
+            0, 4 => std.fmt.bufPrint(buf, "{d:.1}dB", .{v}) catch "?",
+            1 => std.fmt.bufPrint(buf, "{d:.1}:1", .{v}) catch "?",
+            2, 3 => std.fmt.bufPrint(buf, "{d:.0}ms", .{v}) catch "?",
+            else => "?",
+        },
+        .delay => switch (idx) {
+            0 => std.fmt.bufPrint(buf, "{d:.0}ms", .{v * 1000.0}) catch "?",
+            else => std.fmt.bufPrint(buf, "{d:.0}%", .{v * 100.0}) catch "?",
+        },
+        .reverb => std.fmt.bufPrint(buf, "{d:.0}%", .{v * 100.0}) catch "?",
+    };
 }
 
 pub fn drawSpectrumStatus(app: anytype, w: *std.Io.Writer, is_track: bool, cmds: []const cmd_mod.Def) !void {
@@ -297,38 +339,39 @@ pub fn drawSpectrumStatus(app: anytype, w: *std.Io.Writer, is_track: bool, cmds:
         try cmd_mod.writePrompt(w, cmds, app.modal.cmd_buf[0..app.modal.cmd_len], app.modal.cmd_cursor, 60);
         return;
     }
-    const eq_ptr: ?*eq_mod.GraphicEq = blk: {
-        if (is_track) {
-            if (app.eq_track >= app.session.racks.items.len) break :blk null;
-            if (app.session.racks.items[app.eq_track].fx.eq) |*e| break :blk e;
-            break :blk null;
-        }
-        if (app.session.master_fx.eq) |*e| break :blk e;
-        break :blk null;
-    };
-    if (eq_ptr) |e| {
-        const freq = eq_mod.iso_frequencies[app.eq_cursor];
-        const gain = e.bands[app.eq_cursor].gain_db;
-        const sign: []const u8 = if (gain >= 0) "+" else "";
-        try w.writeAll(acc ++ sel ++ " EQ " ++ rst);
-        try w.writeAll(dim ++ "  " ++ rst);
-        try w.print("{d:.0}Hz", .{freq});
-        try w.writeAll("  ");
-        try w.print("{s}{d:.1}dB", .{ sign, gain });
-        try w.writeAll(dim ++ "  [" ++ rst);
-        try w.print("{d}/{d}", .{app.eq_cursor + 1, eq_mod.num_eq_bands});
-        try w.writeAll(dim ++ "]" ++ rst);
-        if (e.bypass) {
-            try w.writeAll("  " ++ red ++ "BYPASS" ++ rst);
-        }
-        if (app.status_len > 0) {
-            try w.writeAll(dim ++ "  " ++ rst);
-            try w.writeAll(app.status_buf[0..app.status_len]);
-        }
+    const fx = spectrum_ed.fxPtr(app, is_track) orelse {
+        if (app.status_len > 0) try w.print(" {s}", .{app.status_buf[0..app.status_len]});
         return;
+    };
+    const u = app.fx_focus;
+    try w.writeAll(acc ++ sel);
+    try w.print(" {s} ", .{spectrum_ed.unitLabel(u)});
+    try w.writeAll(rst ++ dim ++ "  " ++ rst);
+    if (spectrum_ed.isPresent(fx, u)) {
+        switch (u) {
+            .eq => {
+                const freq = eq_mod.iso_frequencies[app.fx_param];
+                const gain = spectrum_ed.getParam(fx, u, app.fx_param);
+                const sign: []const u8 = if (gain >= 0) "+" else "";
+                try w.print("{d:.0}Hz", .{freq});
+                try w.writeAll("  ");
+                try w.print("{s}{d:.1}dB", .{ sign, gain });
+                if (fx.eq.?.bypass) try w.writeAll("  " ++ red ++ "BYPASS" ++ rst);
+            },
+            else => {
+                var vbuf: [16]u8 = undefined;
+                try w.print("{s} {s}", .{ spectrum_ed.paramName(u, app.fx_param), formatFxValue(&vbuf, u, app.fx_param, fx) });
+            },
+        }
+        try w.writeAll(dim ++ "  [" ++ rst);
+        try w.print("{d}/{d}", .{ app.fx_param + 1, spectrum_ed.paramCount(u) });
+        try w.writeAll(dim ++ "]" ++ rst);
+    } else {
+        try w.writeAll(dim ++ "not added — press 'a'" ++ rst);
     }
     if (app.status_len > 0) {
-        try w.print(" {s}", .{app.status_buf[0..app.status_len]});
+        try w.writeAll(dim ++ "  " ++ rst);
+        try w.writeAll(app.status_buf[0..app.status_len]);
     }
 }
 

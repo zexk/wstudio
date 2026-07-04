@@ -143,7 +143,53 @@ pub fn drawTracks(app: anytype, w: *std.Io.Writer, rows: usize, snap: engine_mod
         try endLine(w);
     }
 
-    const used = 3 + app.session.project.tracks.items.len;
+    // Master row — same shape as a track row (icon, FX badges, gain) but
+    // fixed at the end, unnamed, un-deletable, and with no pan/mute/solo/
+    // piano-roll (see the on_master branch in App.handleKey).
+    {
+        const track_count = app.session.project.tracks.items.len;
+        const is_sel = (track_count == app.cursor);
+        const marker: []const u8 = if (is_sel) ">" else " ";
+        if (is_sel) try w.writeAll(sel);
+        try w.writeByte(' ');
+        try w.writeAll(marker);
+        try w.writeAll("   ");
+        try w.print("{s: <8}", .{"MASTER"});
+        try w.writeByte(' ');
+        try w.writeAll(icons.master);
+        try w.writeAll("   ");
+        if (!is_sel) try w.writeAll(acc);
+        try w.writeAll(" [bus]");
+        if (!is_sel) try w.writeAll(rst);
+        {
+            const mfx = app.session.master_fx;
+            const any = mfx.comp != null or mfx.eq != null or mfx.delay != null or mfx.reverb != null;
+            if (any) {
+                if (!is_sel) try w.writeAll(acc);
+                if (mfx.comp   != null) try w.writeAll(" cmp");
+                if (mfx.eq     != null) try w.writeAll(" eq");
+                if (mfx.delay  != null) try w.writeAll(" dly");
+                if (mfx.reverb != null) try w.writeAll(" rev");
+                if (!is_sel) try w.writeAll(rst);
+            }
+        }
+        {
+            const gdb = app.master_gain_db;
+            if (gdb == 0.0) {
+                if (!is_sel) try w.writeAll(dim);
+                try w.writeAll("  0dB");
+                if (!is_sel) try w.writeAll(rst);
+            } else {
+                const sign: []const u8 = if (gdb >= 0.0) "+" else "";
+                try w.print("  {s}{d:.0}dB", .{ sign, gdb });
+            }
+        }
+        if (!is_sel) try w.writeAll(dim);
+        try w.writeAll(" [enter:fx]");
+        try endLine(w);
+    }
+
+    const used = 4 + app.session.project.tracks.items.len;
     for (used..@max(used, rows -| 3)) |_| try endLine(w);
 }
 
@@ -167,7 +213,7 @@ pub fn drawTracksStatus(app: anytype, w: *std.Io.Writer, cmds: []const cmd_mod.D
             try w.writeAll(rst);
             // track position
             try w.writeAll(dim ++ "  " ++ rst);
-            try w.print("{d}/{d}", .{ app.cursor + 1, app.session.project.tracks.items.len });
+            try w.print("{d}/{d}", .{ app.cursor + 1, app.session.project.tracks.items.len + 1 });
             try w.writeAll(dim ++ "  oct " ++ rst);
             try w.print("{d}", .{app.modal.octave});
             if (app.modal.count > 0) try w.print("  {d}", .{app.modal.count});

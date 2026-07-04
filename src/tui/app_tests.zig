@@ -29,14 +29,15 @@ fn testApp() !App {
     return app;
 }
 
-test "cursor movement clamps to track range" {
+test "cursor movement clamps to track range, plus one for the master row" {
     var app = try testApp();
     defer app.deinit();
 
+    // 3 tracks (indices 0-2) + the master row at index 3.
     app.applyAction(.{ .move = .{ .dy = 10 } }, 0);
-    try std.testing.expectEqual(@as(usize, 2), app.cursor);
+    try std.testing.expectEqual(@as(usize, 3), app.cursor);
     app.applyAction(.{ .move = .{ .dy = -1 } }, 0);
-    try std.testing.expectEqual(@as(usize, 1), app.cursor);
+    try std.testing.expectEqual(@as(usize, 2), app.cursor);
     app.applyAction(.{ .move = .{ .dy = -10 } }, 0);
     try std.testing.expectEqual(@as(usize, 0), app.cursor);
 }

@@ -90,17 +90,17 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("ctrl-c",       "quit");
 
     t.section("TRACKS");
-    t.key("j / k",        "move cursor down / up");
-    t.key("enter",        "edit track (synth or drum grid)");
+    t.key("j / k",        "move cursor down / up — one slot past the last track is MASTER");
+    t.key("enter",        "edit track (synth or drum grid) — on MASTER: open its FX rack");
     t.key("p",            "piano roll for synth tracks");
-    t.key("s",            "spectrum + EQ for selected track");
+    t.key("s",            "spectrum + FX rack for selected track — on MASTER: same for the bus");
     t.key("m",            "mute / unmute selected track");
     t.key("S",            "solo / unsolo selected track");
-    t.key("M",            "master spectrum");
+    t.key("M",            "jump to the master row and open its spectrum + FX rack");
     t.key("< / >",        "pan left / right  (5% per step)");
-    t.key("- / +",        "track gain −1 dB / +1 dB  (= also works)");
+    t.key("- / +",        "track gain −1 dB / +1 dB  (= also works) — on MASTER: master gain");
     t.key("a",            "add synth track");
-    t.key("D",            "delete selected track");
+    t.key("D",            "delete selected track  (n/a on MASTER — it can't be removed)");
     t.key("Y",            "duplicate selected track (instrument, FX, clips) at the end");
     t.key("J / K",        "move selected track down / up");
     t.key("R",            "rename selected track (opens :track-rename <n>)");
@@ -190,11 +190,14 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("g",            "play from cursor bar");
     t.key("T",            "toggle song / pattern mode");
 
-    t.section("SPECTRUM / EQ");
-    t.key("h / l",        "select EQ band");
-    t.key("j / k",        "decrease / increase band gain (1 dB)");
-    t.key("J / K",        "decrease / increase band gain (6 dB)");
-    t.key("b",            "bypass EQ toggle");
+    t.section("SPECTRUM / FX RACK  (same rack view for a track or the master bus)");
+    t.key("tab",          "cycle focus: EQ -> comp -> delay -> reverb -> EQ");
+    t.key("a",            "add the focused unit with defaults, or remove it if present");
+    t.key("h / l",        "select a param within the focused unit (EQ: its 10 bands)");
+    t.key("j / k",        "decrease / increase the selected param (fine step)");
+    t.key("J / K",        "decrease / increase the selected param (coarse step)");
+    t.key("b",            "bypass toggle (EQ only — comp/delay/reverb use a/add-remove instead)");
+    t.key(":eq",          "<track> [<band> <db>]  same, from the : prompt");
     t.key(":master-eq",   "[<band> <db>]  same, from the : prompt (M opens the live editor)");
     t.key(":master-comp", "on|off|thresh|ratio|attack|release|makeup <value>  master bus compressor");
 

@@ -153,6 +153,14 @@ a full song:
 
 Done:
 
+- [x] Interactive per-track FX rack, and a `MASTER` row in the tracks view:
+      a track's spectrum view (`s`) is now an FX rack — `tab` cycles
+      EQ/comp/delay/reverb, `a` adds the focused unit with defaults or
+      removes it, `h`/`l` pick a param (EQ: its 10 bands), `j`/`k`
+      (`J`/`K` coarse) nudge it. The tracks view gains a `MASTER` row one
+      slot past the last track, sharing this exact rack UI against the
+      master bus — non-removable, no pan/mute/solo/piano-roll, `-`/`+`
+      steps its gain instead of a track's.
 - [x] Procedural synth/drum presets: `:synth-preset [name]` applies a factory
       `PolySynth.Patch` (pad/bass/lead/pluck/FM-bell/etc.) to the cursor
       track's synth; `:drum-kit [name]` regenerates a drum machine's 8 pads

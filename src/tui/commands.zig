@@ -234,6 +234,10 @@ fn cmdTrackAdd(app: *App, args: []const u8) void {
 fn cmdTrackDel(app: *App, args: []const u8) void {
     const trimmed = std.mem.trim(u8, args, " ");
     const idx: usize = if (trimmed.len == 0) blk: {
+        if (app.cursor >= app.session.project.tracks.items.len) {
+            app.setStatus("track-del: cursor is on the master row — give a track number", .{});
+            return;
+        }
         break :blk app.cursor;
     } else blk: {
         const n = std.fmt.parseInt(usize, trimmed, 10) catch {
