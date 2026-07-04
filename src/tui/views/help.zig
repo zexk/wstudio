@@ -199,6 +199,16 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("b",            "toggle A/B loop on/off");
     t.key("g",            "play from cursor bar");
     t.key("T",            "toggle song / pattern mode");
+    t.key("a",            "open gain/pan automation editor for the clip at cursor");
+
+    t.section("AUTOMATION  (per-clip gain/pan breakpoints — opened via 'a' in the arrangement)");
+    t.key("h / l",        "move cursor along the clip's beat axis");
+    t.key("H / L",        "move cursor by a bar");
+    t.key("j / k",        "nudge the value at cursor (fine step) — adds a point if none exists");
+    t.key("J / K",        "nudge the value at cursor (coarse step)");
+    t.key("x",            "delete the point at cursor exactly");
+    t.key("tab",          "switch between editing the gain curve and the pan curve");
+    t.key("esc",          "back to the arrangement");
 
     t.section("SPECTRUM / FX RACK  (same rack view for a track or the master bus)");
     t.key("tab",          "cycle focus: EQ -> comp -> delay -> reverb -> EQ");

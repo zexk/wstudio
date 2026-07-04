@@ -73,6 +73,7 @@ const piano = @import("views/piano.zig");
 const sampler = @import("views/sampler.zig");
 const arrangement = @import("views/arrangement.zig");
 const browser = @import("views/browser.zig");
+const automation = @import("views/automation.zig");
 
 pub const drawTracks = tracks.drawTracks;
 pub const drawTracksStatus = tracks.drawTracksStatus;
@@ -93,3 +94,5 @@ pub const drawArrangementStatus = arrangement.drawArrangementStatus;
 pub const arr_visibleBars = arrangement.visibleBars;
 pub const drawFileBrowser = browser.drawFileBrowser;
 pub const drawFileBrowserStatus = browser.drawFileBrowserStatus;
+pub const drawAutomation = automation.drawAutomation;
+pub const drawAutomationStatus = automation.drawAutomationStatus;

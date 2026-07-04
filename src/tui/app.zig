@@ -27,6 +27,7 @@ const sampler_ed = @import("editors/sampler.zig");
 const piano_ed = @import("editors/piano.zig");
 const spectrum_ed = @import("editors/spectrum.zig");
 const arrangement_ed = @import("editors/arrangement.zig");
+const automation_ed = @import("editors/automation.zig");
 
 const Engine = engine_mod.Engine;
 const Sampler = ws.dsp.Sampler;
@@ -47,7 +48,7 @@ const tap_timeout_ns: i96 = 2 * std.time.ns_per_s;
 /// Minimum gap between silent `<path>~` backups; see `maybeAutosave`.
 const autosave_interval_ns: i96 = 30 * std.time.ns_per_s;
 
-pub const AppView = enum { tracks, drum_grid, synth_editor, sampler_editor, help, track_spectrum, master_spectrum, piano_roll, instrument_picker, arrangement, file_browser };
+pub const AppView = enum { tracks, drum_grid, synth_editor, sampler_editor, help, track_spectrum, master_spectrum, piano_roll, instrument_picker, arrangement, file_browser, automation };
 
 /// Which waveform marker a sampler-editor mouse drag is moving — see
 /// `App.sampler_drag_marker` and editors/sampler.zig's handleMouse.
@@ -242,6 +243,21 @@ pub const App = struct {
     /// the track's live pattern (see `ClipLink`). Set by `e` on a clip in the
     /// arrangement; cleared when the roll opens on a live pattern instead.
     piano_clip_link: ?ClipLink = null,
+    /// The arrangement clip the automation view is editing, relocated by
+    /// (track, start_bar) the same way `piano_clip_link` is — set by `a` on
+    /// a clip in the arrangement view. See editors/automation.zig.
+    automation_clip: ?ClipLink = null,
+    /// Track shown in the automation view — mirrors `piano_track`/
+    /// `drum_track` etc. so `currentTrack()` can find it.
+    automation_track: u16 = 0,
+    /// Which curve h/l + j/k currently edit; tab toggles.
+    automation_target: engine_mod.AutomationTarget = .gain,
+    /// Cursor position within the clip, in 16th-note steps (0 = clip start,
+    /// same unit the piano roll/drum grid use — beat = step / 4.0).
+    automation_cursor_step: u32 = 0,
+    /// Horizontal scroll (in steps), kept in sync with the cursor by
+    /// views/automation.zig, mirroring `arr_scroll_bar`.
+    automation_scroll: u32 = 0,
     /// Active `:scale` for the piano roll's scale highlighting and `c`/`C`
     /// chord stamp; null = no scale (dims nothing, chord stamp defaults to a
     /// plain major shape). A monitoring/writing aid, not song content — not
@@ -437,6 +453,9 @@ pub const App = struct {
             .arrangement => if (self.modal.mode == .command or !arrangement_ed.handleKey(self, key)) {
                 self.applyAction(self.modal.handle(key), now_ns);
             } else { self.modal.count = 0; },
+            .automation => if (self.modal.mode == .command or !automation_ed.handleKey(self, key)) {
+                self.applyAction(self.modal.handle(key), now_ns);
+            } else { self.modal.count = 0; },
             .tracks => {
                 // The master row lives one slot past the last real track —
                 // same list, same cursor, but it can't be deleted/duplicated/
@@ -519,6 +538,8 @@ pub const App = struct {
             .instrument_picker => self.pickerMouse(ev, row),
             .file_browser => self.browserMouse(ev, row),
             .help => self.helpMouse(ev),
+            // Mouse support not implemented yet for this view.
+            .automation => {},
         }
     }
 
@@ -824,6 +845,7 @@ pub const App = struct {
             .drum_grid      => self.drum_track,
             .sampler_editor => self.sampler_target.track(),
             .track_spectrum => self.eq_track,
+            .automation     => self.automation_track,
             else            => @intCast(self.cursor),
         };
     }
@@ -1285,6 +1307,7 @@ pub const App = struct {
                 _ = self.session.engine.send(.{ .set_spectrum_active = .{ .source = .none, .track = 0 } });
                 self.view = self.prev_view;
             },
+            .automation => if (automation_ed.currentClip(self) == null) { self.view = .arrangement; },
             else => {},
         }
     }
@@ -1452,6 +1475,7 @@ pub const App = struct {
             .instrument_picker => try tui.drawInstrumentPicker(self, w, content_rows),
             .arrangement     => try tui.drawArrangement(self, w, content_rows, size.cols, snap),
             .file_browser    => try tui.drawFileBrowser(self, w, content_rows),
+            .automation      => try tui.drawAutomation(self, w, content_rows, size.cols, snap),
         }
 
         var transport: Transport = .{
@@ -1515,6 +1539,7 @@ pub const App = struct {
             .instrument_picker => try w.writeAll(" j/k: move   enter: insert   esc: cancel"),
             .arrangement     => try tui.drawArrangementStatus(self, w, commands.cmds),
             .file_browser    => try tui.drawFileBrowserStatus(self, w),
+            .automation      => try tui.drawAutomationStatus(self, w, commands.cmds),
         }
         // Erase from cursor to end of screen so stale content from taller
         // previous frames never bleeds through.

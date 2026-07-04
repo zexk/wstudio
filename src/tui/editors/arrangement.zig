@@ -11,13 +11,15 @@ const DrumMachine = ws.dsp.DrumMachine;
 const App = @import("../app.zig").App;
 const history = @import("../history.zig");
 const piano = @import("piano.zig");
+const automation = @import("automation.zig");
 const view = @import("../views/arrangement.zig");
 
 /// h/l move ±1 bar, H/L ±4 bars (one phrase), j/k change lane (shared
 /// `cursor`), enter stamps the live pattern as a clip, x deletes, y/P
 /// yank/paste a clip, </> shift it by bars, ( ) b set/toggle the A/B
 /// loop, [/] cycle a drum lane's pattern variant, T toggles song/pattern
-/// mode, v starts a bar-range selection on the current lane.
+/// mode, v starts a bar-range selection on the current lane, a opens the
+/// gain/pan automation editor on the clip under the cursor.
 /// Returns false for unhandled keys (space, `:`, …) so the transport and
 /// command line still work. Scroll is clamped at draw.
 pub fn handleKey(app: *App, key: modal_mod.Key) bool {
@@ -61,6 +63,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             'U' => { history.doRedo(app); return true; },
             '[' => { cycleDrumVariant(app, -1); return true; },
             ']' => { cycleDrumVariant(app, 1); return true; },
+            'a' => { automation.switchTo(app, @intCast(app.cursor), app.arr_cursor_bar); return true; },
             '(' => { setLoopStart(app); return true; },
             ')' => { setLoopEnd(app); return true; },
             'b' => { toggleLoop(app); return true; },
