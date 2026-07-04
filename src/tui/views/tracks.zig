@@ -46,7 +46,25 @@ pub fn drawTracks(app: anytype, w: *std.Io.Writer, rows: usize, snap: engine_mod
     try w.writeAll(bold ++ " TRACKS" ++ rst);
     try endLine(w);
 
-    for (app.session.project.tracks.items, 0..) |track, i| {
+    // Vertical scroll over the track rows — the master row below is always
+    // pinned/visible (like a fixed footer channel), so only plain tracks
+    // need a window. Budget: title(1) + master(1) + footer(3) are always
+    // spoken for; `rows` is exact here (unlike editors/piano.zig's
+    // ensureVisible, called before render, which has to approximate),
+    // so clamp directly against it — same pattern as drawArrangement's
+    // `arr_scroll_bar`.
+    const track_count = app.session.project.tracks.items.len;
+    const vis_rows: usize = rows -| 5;
+    if (app.cursor < track_count) {
+        if (app.cursor < app.track_scroll) app.track_scroll = app.cursor;
+        if (vis_rows > 0 and app.cursor >= app.track_scroll + vis_rows) app.track_scroll = app.cursor - vis_rows + 1;
+    }
+    app.track_scroll = if (track_count > vis_rows) @min(app.track_scroll, track_count - vis_rows) else 0;
+    const scroll = app.track_scroll;
+    const last_visible = @min(track_count, scroll + vis_rows);
+    app.track_rows_shown = last_visible - scroll;
+
+    for (app.session.project.tracks.items[scroll..last_visible], scroll..) |track, i| {
         const inst_tag = std.meta.activeTag(app.session.racks.items[i].instrument);
         const is_empty = inst_tag == .empty;
         const label: []const u8 = if (is_empty) "-- empty --" else app.session.racks.items[i].label;
@@ -147,7 +165,6 @@ pub fn drawTracks(app: anytype, w: *std.Io.Writer, rows: usize, snap: engine_mod
     // fixed at the end, unnamed, un-deletable, and with no pan/mute/solo/
     // piano-roll (see the on_master branch in App.handleKey).
     {
-        const track_count = app.session.project.tracks.items.len;
         const is_sel = (track_count == app.cursor);
         const marker: []const u8 = if (is_sel) ">" else " ";
         if (is_sel) try w.writeAll(sel);
@@ -189,7 +206,7 @@ pub fn drawTracks(app: anytype, w: *std.Io.Writer, rows: usize, snap: engine_mod
         try endLine(w);
     }
 
-    const used = 4 + app.session.project.tracks.items.len;
+    const used = 4 + (last_visible - scroll);
     for (used..@max(used, rows -| 3)) |_| try endLine(w);
 }
 

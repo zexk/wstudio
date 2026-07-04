@@ -154,6 +154,14 @@ pub const App = struct {
     /// Tab-cycle state for command-mode completion; see `TabCycle`/`cycleCompletion`.
     tab_cycle: ?TabCycle = null,
     cursor: usize = 0,
+    /// Tracks view vertical scroll — first visible row index. Clamped to
+    /// keep `cursor` in view directly in `drawTracks` (exact `rows` is known
+    /// there), same pattern as `arr_scroll_bar` in drawArrangement.
+    track_scroll: usize = 0,
+    /// How many track rows `drawTracks` actually rendered last frame — lets
+    /// `tracksMouse` (which isn't handed the row budget) know where the
+    /// pinned master row landed on screen.
+    track_rows_shown: usize = 0,
     view: AppView = .tracks,
     prev_view: AppView = .tracks,
     drum_cursor: [2]u8 = .{ 0, 0 },
@@ -574,10 +582,17 @@ pub const App = struct {
         switch (ev.kind) {
             .press => {
                 const track_count = self.session.project.tracks.items.len;
-                if (row == 0 or row > track_count + 1) return; // title row / out of range
-                const idx = row - 1;
+                // Rows 1..track_rows_shown are the (possibly scrolled) track
+                // window; the row right after is the pinned master row.
+                if (row == 0 or row > self.track_rows_shown + 1) return; // title row / out of range
+                if (row - 1 == self.track_rows_shown) {
+                    self.cursor = track_count;
+                    spectrum_ed.switchToMaster(self);
+                    return;
+                }
+                const idx = self.track_scroll + (row - 1);
                 self.cursor = idx;
-                if (idx == track_count) spectrum_ed.switchToMaster(self) else self.openTrack(idx);
+                self.openTrack(idx);
             },
             .scroll_up => self.applyAction(.{ .move = .{ .dy = -1 } }, self.now_ns),
             .scroll_down => self.applyAction(.{ .move = .{ .dy = 1 } }, self.now_ns),

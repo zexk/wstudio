@@ -2085,6 +2085,13 @@ test "mouse click on a tracks-view row selects and opens it" {
     var app = try testApp();
     defer app.deinit();
 
+    // A real run loop always draws before dispatching input, which is what
+    // populates `track_rows_shown` (needed to locate the pinned master row
+    // under scrolling — see App.tracksMouse).
+    var buf: [8 * 1024]u8 = undefined;
+    var w = std.Io.Writer.fixed(&buf);
+    try app.draw(&w, .{ .cols = 80, .rows = 24 });
+
     // row 0 = "TRACKS" title; track i sits at row i+1 (see App.tracksMouse).
     app.handleMouse(.{ .x = 5, .y = app_mod.content_top + 3, .button = .left, .kind = .press }, 80, 24, 0);
     try std.testing.expectEqual(@as(usize, 2), app.cursor); // track 2 = drum machine
@@ -2099,6 +2106,35 @@ test "mouse scroll in tracks view moves the cursor like j/k" {
     try std.testing.expectEqual(@as(usize, 1), app.cursor);
     app.handleMouse(.{ .x = 5, .y = app_mod.content_top, .button = .none, .kind = .scroll_up }, 80, 24, 0);
     try std.testing.expectEqual(@as(usize, 0), app.cursor);
+}
+
+test "tracks view scrolls to keep the cursor visible with many tracks" {
+    var app = try testApp();
+    defer app.deinit();
+
+    // testApp() ships 4 tracks; add enough more that a small terminal can't
+    // show them all at once alongside the pinned master row.
+    for (0..20) |_| app.doTrackAdd(null);
+    const track_count = app.session.project.tracks.items.len;
+    try std.testing.expect(track_count > 20);
+
+    var buf: [16 * 1024]u8 = undefined;
+    var w = std.Io.Writer.fixed(&buf);
+
+    app.cursor = track_count - 1;
+    w = std.Io.Writer.fixed(&buf);
+    try app.draw(&w, .{ .cols = 80, .rows = 15 });
+    const frame = w.buffered();
+    // The cursor's track must actually be drawn on screen...
+    try std.testing.expect(std.mem.indexOf(u8, frame, ">") != null);
+    // ...and the pinned master row must still be visible alongside it.
+    try std.testing.expect(std.mem.indexOf(u8, frame, "MASTER") != null);
+
+    // Scrolling back to the top must bring track 1 back into view.
+    app.cursor = 0;
+    w = std.Io.Writer.fixed(&buf);
+    try app.draw(&w, .{ .cols = 80, .rows = 15 });
+    try std.testing.expectEqual(@as(usize, 0), app.track_scroll);
 }
 
 test "mouse click toggles a drum step and drag paints a run of them" {
