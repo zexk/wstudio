@@ -263,6 +263,34 @@ test "T toggles the piano roll grid between straight and triplet" {
     try std.testing.expectApproxEqAbs(@as(f64, 0.25), app.piano_note_len, 1e-9);
 }
 
+test "Z toggles piano roll zoom and compacts the rendered grid" {
+    var app = try testApp();
+    defer app.deinit();
+    app.view = .piano_roll;
+    app.piano_track = 0;
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    pp.length_beats = 16.0;
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.25 });
+
+    try std.testing.expectEqual(@as(usize, 3), app.pianoCellWidth());
+    var buf: [32 * 1024]u8 = undefined;
+    var w = std.Io.Writer.fixed(&buf);
+    try app.draw(&w, .{ .cols = 80, .rows = 24 });
+    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "zoom") == null);
+
+    _ = piano_ed.handleKey(&app, .{ .char = 'Z' });
+    try std.testing.expectEqual(@as(usize, 1), app.pianoCellWidth());
+
+    w = std.Io.Writer.fixed(&buf);
+    try app.draw(&w, .{ .cols = 80, .rows = 24 });
+    const frame = w.buffered();
+    try std.testing.expect(std.mem.indexOf(u8, frame, "PIANO ROLL") != null);
+    try std.testing.expect(std.mem.indexOf(u8, frame, "zoom") != null);
+
+    _ = piano_ed.handleKey(&app, .{ .char = 'Z' });
+    try std.testing.expectEqual(@as(usize, 3), app.pianoCellWidth());
+}
+
 test "visual mode escape cancels the selection without editing" {
     var app = try testApp();
     defer app.deinit();

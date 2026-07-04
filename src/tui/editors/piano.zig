@@ -189,6 +189,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             'u' => { history.doUndo(app); return true; },
             'U' => { history.doRedo(app); return true; },
             'T' => { toggleGrid(app); return true; },
+            'Z' => { toggleZoom(app); return true; },
             else => return false,
         },
         else => return false,
@@ -301,8 +302,20 @@ fn toggleGrid(app: *App) void {
     app.setStatus("grid: {s}", .{if (app.piano_grid == .triplet) "triplet (6/beat)" else "straight (4/beat)"});
 }
 
+/// `Z`: toggle horizontal zoom between normal (3 chars/step) and compact
+/// (1 char/step, no note-head/tail distinction) — see `App.piano_zoom`.
+/// Purely a render/scroll setting, like `toggleGrid`: no step indices move.
+fn toggleZoom(app: *App) void {
+    app.piano_zoom = if (app.piano_zoom == .normal) .compact else .normal;
+    ensureVisible(app);
+    app.setStatus("zoom: {s}", .{if (app.piano_zoom == .compact) "compact" else "normal"});
+}
+
 fn ensureVisible(app: *App) void {
-    const vis_cols: u16 = 16;
+    // Compact packs 3x the steps into the same screen width, so widen the
+    // autoscroll window to match (both are rough approximations, independent
+    // of the real terminal width like the pre-existing `16` was).
+    const vis_cols: u16 = if (app.piano_zoom == .compact) 48 else 16;
     const vis_rows: u8  = 16;
     // horizontal
     if (app.piano_cursor_step < app.piano_scroll_step) {
@@ -624,16 +637,16 @@ fn deleteNote(app: *App) void {
 }
 
 // Column/row layout mirrors views/piano.zig's drawPianoRoll exactly: a
-// 6-char prefix (pitch label + "│"), then one 3-char cell per step (no
-// interleaved separators inside the cell width, unlike the drum grid — every
-// column, downbeat or not, is exactly 3 chars). 3 header rows (title, beat
-// ruler, loop/playhead marker) precede the note rows.
+// 6-char prefix (pitch label + "│"), then one cell per step, `App.pianoCellWidth()`
+// chars wide (no interleaved separators inside the cell width, unlike the
+// drum grid). 3 header rows (title, beat ruler, loop/playhead marker)
+// precede the note rows.
 const gutter: usize = 6;
 const header_rows: usize = 3;
 
-fn stepAt(scroll_step: u16, x: usize) ?u16 {
+fn stepAt(scroll_step: u16, x: usize, cw: usize) ?u16 {
     if (x < gutter) return null;
-    const col: u16 = @intCast((x - gutter) / 3);
+    const col: u16 = @intCast((x - gutter) / cw);
     return scroll_step + col;
 }
 
@@ -643,7 +656,7 @@ fn stepAt(scroll_step: u16, x: usize) ?u16 {
 /// and toggles the note off instead (matching enter's toggle). Scroll moves
 /// the pitch cursor; **shift**+scroll moves the step cursor instead.
 pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16) void {
-    _ = cols; // column width here is fixed (3 chars/step), not terminal-width-dependent
+    _ = cols; // column count is derived from scroll + cell width, not terminal-width-dependent
     if (app.piano_track >= app.session.racks.items.len) return;
     const rack = app.session.racks.items[app.piano_track];
     const pp = if (rack.pattern_player != null) &app.session.racks.items[app.piano_track].pattern_player.? else return;
@@ -660,7 +673,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16) v
     const pitch_i: i32 = @as(i32, app.piano_scroll_pitch) - @as(i32, @intCast(r));
     if (pitch_i < 0 or pitch_i > 127) return;
     const pitch: u7 = @intCast(pitch_i);
-    const step = stepAt(app.piano_scroll_step, ev.x) orelse return;
+    const step = stepAt(app.piano_scroll_step, ev.x, app.pianoCellWidth()) orelse return;
     if (step >= max_step) return;
 
     switch (ev.kind) {

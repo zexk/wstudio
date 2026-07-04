@@ -111,6 +111,9 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
     if (app.piano_grid == .triplet) {
         try w.writeAll("  " ++ yel ++ "triplet" ++ rst);
     }
+    if (app.piano_zoom == .compact) {
+        try w.writeAll("  " ++ bcyn ++ "zoom" ++ rst);
+    }
     try endLine(w);
 
     // 3 internal header rows (title + col labels + loop marker) + vis_rows note rows
@@ -119,16 +122,22 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
     const left: u16 = app.piano_scroll_step;
 
     // Show the full loop (+ end-marker column) up to what fits on screen.
-    // Prefix = 6 chars (" C4  │"), each step cell = 3 chars.
+    // Prefix = 6 chars (" C4  │"), each step cell is `cw` chars (App.pianoCellWidth,
+    // toggled by `Z`: 3 normal, 1 compact).
+    const cw: usize = app.pianoCellWidth();
     const loop_step: u16 = @intFromFloat(pp.length_beats * spbf);
-    const max_step_cols: usize = (cols -| 6) / 3;
+    const max_step_cols: usize = (cols -| 6) / cw;
     const vis_cols: usize = @min(@as(usize, loop_step) + 1, max_step_cols);
 
-    // Column header: beat markers (prefix = 5-char label + 1-char │ = 6 visual cols)
+    // Column header: beat markers (prefix = 5-char label + 1-char │ = 6 visual cols).
+    // Compact (cw==1) has no room for multi-digit numbers without corrupting
+    // column alignment, so it falls back to a plain beat tick.
     try w.writeAll(dim ++ "      " ++ rst);
     for (0..vis_cols) |col| {
         const step = left + @as(u16, @intCast(col));
-        if (step % spb == 0) {
+        if (cw == 1) {
+            if (step % spb == 0) try w.writeAll(dim ++ "|" ++ rst) else try w.writeAll(" ");
+        } else if (step % spb == 0) {
             try w.writeAll(dim);
             try w.print("{d:<3}", .{step / spb + 1});
             try w.writeAll(rst);
@@ -143,14 +152,15 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
     for (0..vis_cols) |col| {
         const step = left + @as(u16, @intCast(col));
         if (step == play_step) {
-            try w.writeAll(grn ++ bold ++ "▾  " ++ rst);
+            try w.writeAll(grn ++ bold ++ "▾" ++ rst);
         } else if (step == loop_step) {
-            try w.writeAll(acc ++ "┤  " ++ rst);
+            try w.writeAll(acc ++ "┤" ++ rst);
         } else if (step % spb == 0) {
-            try w.writeAll(dim ++ "│  " ++ rst);
+            try w.writeAll(dim ++ "│" ++ rst);
         } else {
-            try w.writeAll("   ");
+            try w.writeAll(" ");
         }
+        if (cw > 1) try w.splatByteAll(' ', cw - 1);
     }
     try endLine(w);
 
@@ -194,33 +204,43 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
 
             if (is_cur) {
                 try w.writeAll(sel);
-                if (starts) try w.writeAll("[  ")
-                else if (covers) try w.writeAll("=  ")
-                else try w.writeAll("·  ");
+                if (starts) try w.writeAll("[")
+                else if (covers) try w.writeAll("=")
+                else try w.writeAll("·");
                 try w.writeAll(rst);
+                try w.splatByteAll(' ', cw -| 1);
             } else if (starts) {
                 // Shade the note head by velocity: loud = bold, soft = dim.
                 // Selected notes (visual mode) swap the accent for yellow.
+                // Compact (cw==1) has room for only the head glyph, dropping
+                // the "=" tail segment normal width shows alongside it.
                 const vel = pp.velocityAt(pitch, beat_pos) orelse 0.85;
                 const head = if (vel >= 0.8) bold else if (vel < 0.45) dim else "";
                 const note_color = if (in_sel) yel else acc;
                 try w.writeAll(note_color);
                 try w.writeAll(head);
                 try w.writeAll("[" ++ rst);
-                try w.writeAll(note_color);
-                try w.writeAll("= " ++ rst);
+                if (cw > 1) {
+                    try w.writeAll(note_color);
+                    try w.writeAll("=" ++ rst);
+                    try w.splatByteAll(' ', cw -| 2);
+                }
             } else if (covers) {
                 try w.writeAll(if (in_sel) yel else acc);
-                try w.writeAll("=  " ++ rst);
+                try w.writeAll("=" ++ rst);
+                try w.splatByteAll(' ', cw -| 1);
             } else if (step % spb == 0) {
                 try w.writeAll(if (in_sel) yel else dim);
-                try w.writeAll("│  " ++ rst);
+                try w.writeAll("│" ++ rst);
+                try w.splatByteAll(' ', cw -| 1);
             } else if (in_sel) {
-                try w.writeAll(yel ++ "·  " ++ rst);
+                try w.writeAll(yel ++ "·" ++ rst);
+                try w.splatByteAll(' ', cw -| 1);
             } else {
                 if (row_dim) try w.writeAll(dim);
-                try w.writeAll("·  ");
+                try w.writeAll("·");
                 if (row_dim) try w.writeAll(rst);
+                try w.splatByteAll(' ', cw -| 1);
             }
         }
         try endLine(w);
@@ -264,6 +284,9 @@ pub fn drawPianoRollStatus(app: anytype, w: *std.Io.Writer, cmds: []const cmd_mo
     try w.print("{d:.0}b", .{pp.length_beats});
     try w.writeAll(dim ++ "  grid " ++ rst);
     try w.writeAll(if (app.piano_grid == .triplet) "1/16T" else "1/16");
+    if (app.piano_zoom == .compact) {
+        try w.writeAll(dim ++ "  " ++ rst ++ bcyn ++ "zoom" ++ rst);
+    }
     // Note count at cursor pitch
     var n_here: usize = 0;
     _ = beat_pos;

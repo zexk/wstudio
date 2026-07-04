@@ -197,6 +197,11 @@ pub const App = struct {
     /// sixteenth-note triplets (6 steps/beat), toggled by `T`. Global, not
     /// persisted — a display/editing aid like `piano_scale`.
     piano_grid: enum { straight, triplet } = .straight,
+    /// Piano-roll horizontal zoom, toggled by `Z`: `normal` is the original
+    /// 3-char-per-step layout, `compact` packs 1 char/step so long patterns
+    /// fit on screen without scrolling. Global, not persisted — same bucket
+    /// as `piano_grid`/`piano_scale`.
+    piano_zoom: enum { normal, compact } = .normal,
     /// True while `M` holds the piano-roll note under the cursor — h/l/j/k
     /// then drag the note instead of the cursor; esc/M (or any other key)
     /// drop it. See editors/piano.zig.
@@ -385,6 +390,13 @@ pub const App = struct {
     /// this so `T` can retune the whole grid in one place.
     pub fn pianoStepsPerBeat(self: *const App) u16 {
         return if (self.piano_grid == .triplet) 6 else 4;
+    }
+
+    /// Terminal columns per step under the current zoom — 3 (normal) or
+    /// 1 (compact, `Z`). Every column-width computation in editors/piano.zig
+    /// and views/piano.zig goes through this.
+    pub fn pianoCellWidth(self: *const App) usize {
+        return if (self.piano_zoom == .compact) 1 else 3;
     }
 
     pub fn handleKey(self: *App, key_in: modal_mod.Key, now_ns: i96) void {

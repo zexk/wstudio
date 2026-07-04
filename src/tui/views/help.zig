@@ -182,6 +182,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key(".",            "repeat the last nudge, drag, or visual range delete/paste");
     t.key("c / C",        "stamp a triad / 7th chord at cursor (:scale-aware)");
     t.key("T",            "toggle grid: straight 1/16 <-> 1/16 triplet");
+    t.key("Z",            "toggle zoom: normal <-> compact (see more of a long pattern)");
     t.key(":clear",       "erase all notes in the pattern");
     t.key(":scale",       "[<root> [<type>]|off]  scale highlight + chord-stamp key");
 
