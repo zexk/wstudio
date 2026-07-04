@@ -105,7 +105,6 @@ pub fn drawSpectrumView(
     try w.writeAll(title_icon);
     try w.writeAll(bold ++ " SPECTRUM" ++ rst);
     try w.print(" \"{s}\"", .{title});
-    try w.writeAll(dim ++ "  [jk:gain  hl:select  b:bypass  esc:back]");
     try endLine(w);
 
     for (0..visual_rows) |visual_row_inv| {

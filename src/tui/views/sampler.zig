@@ -85,11 +85,11 @@ pub fn drawSamplerEditor(
         try w.print("  pad {d}/{d} ", .{ pad_idx + 1, DrumMachine.max_pads });
         try w.writeAll(rst ++ acc);
         try w.print("\"{s}\"", .{app.drumMachine().padName(pad_idx)});
-        try w.writeAll(dim ++ "   jk param \u{00B7} hl adjust \u{00B7} 1-8 pad \u{00B7} p audition \u{00B7} esc back" ++ rst);
+        try w.writeAll(rst);
     } else {
         try w.writeAll(rst ++ acc);
         try w.print("\"{s}\"", .{if (app.editingSampler()) |s| s.clipName() else "clip"});
-        try w.writeAll(dim ++ "   jk param \u{00B7} hl adjust \u{00B7} p audition \u{00B7} :load-sample \u{00B7} esc back" ++ rst);
+        try w.writeAll(rst);
     }
     try endLine(w);
     written += 1;

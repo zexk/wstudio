@@ -99,7 +99,6 @@ fn drawSynthEditorFull(app: anytype, w: *std.Io.Writer, snap: engine_mod.UiSnaps
     try w.writeAll(acc);
     try w.print("\"{s}\"", .{name});
     try w.writeAll(rst);
-    try w.writeAll(dim ++ "   jk move \u{00B7} hl adjust \u{00B7} HL coarse \u{00B7} {} section \u{00B7} p piano \u{00B7} esc back");
     try endLine(w);
 
     var buf: [40]u8 = undefined;

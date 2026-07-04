@@ -103,7 +103,6 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
         try w.print("scale {s} {s}", .{ theory.pitchClassName(s.root), s.kind.label() });
         try w.writeAll(rst);
     }
-    try w.writeAll(dim ++ "  [hjkl:move  HL:beat  JK:oct  gG:ends  enter:toggle  <>:vel  []:resize  yP:copy  cC:chord  v:select  .:repeat  esc:back]");
     try endLine(w);
 
     // 3 internal header rows (title + col labels + loop marker) + vis_rows note rows
