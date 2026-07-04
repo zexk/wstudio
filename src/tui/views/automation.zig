@@ -31,6 +31,11 @@ fn valueGlyph(val: ?f32, range: [2]f32) []const u8 {
     return level_glyphs[@min(lvl, level_glyphs.len - 1)];
 }
 
+/// Left indent before the step columns start — shared with
+/// editors/automation.zig's mouse handler so a click/scroll's column maps to
+/// the same step the bar graph/caret row actually draw it at.
+pub const gutter: usize = 3;
+
 fn hasPointAt(points: []const AutomationPoint, beat: f64) bool {
     for (points) |p| {
         if (@abs(p.beat - beat) < 1e-9) return true;
@@ -97,7 +102,6 @@ pub fn drawAutomation(
     const bpb = app.session.project.beats_per_bar;
     const steps_per_bar: u32 = @as(u32, bpb) * 4;
     const total_steps = clip.length_bars * steps_per_bar;
-    const gutter: usize = 3;
     const visible: u32 = @intCast(@max(1, cols -| gutter));
 
     if (app.automation_cursor_step < app.automation_scroll) app.automation_scroll = app.automation_cursor_step;

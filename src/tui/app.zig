@@ -538,8 +538,7 @@ pub const App = struct {
             .instrument_picker => self.pickerMouse(ev, row),
             .file_browser => self.browserMouse(ev, row),
             .help => self.helpMouse(ev),
-            // Mouse support not implemented yet for this view.
-            .automation => {},
+            .automation => automation_ed.handleMouse(self, ev, row),
         }
     }
 

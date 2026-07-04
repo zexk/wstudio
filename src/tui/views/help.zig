@@ -208,6 +208,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("J / K",        "nudge the value at cursor (coarse step)");
     t.key("x",            "delete the point at cursor exactly");
     t.key("tab",          "switch between editing the gain curve and the pan curve");
+    t.key("u / U",        "undo / redo (whole-lane, same as the arrangement's)");
     t.key("esc",          "back to the arrangement");
 
     t.section("SPECTRUM / FX RACK  (same rack view for a track or the master bus)");

@@ -15,6 +15,8 @@ const automation_mod = ws.dsp.automation;
 const AutomationPoint = automation_mod.AutomationPoint;
 const engine_mod = ws.engine;
 const App = @import("../app.zig").App;
+const history = @import("../history.zig");
+const view = @import("../views/automation.zig");
 
 /// Gain (dB, matches `:gain`/`Track.gain_db`) and pan (-1..1, matches
 /// `Track.pan`) ranges — same clamps `persist.zig`'s loader enforces.
@@ -99,9 +101,42 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             'J' => { nudgeValue(app, clip, -10 * app.takeCount()); return true; },
             'K' => { nudgeValue(app, clip, 10 * app.takeCount()); return true; },
             'x' => { deletePoint(app, clip); return true; },
+            'u' => { history.doUndo(app); return true; },
+            'U' => { history.doRedo(app); return true; },
             else => return false,
         },
         else => return false,
+    }
+}
+
+/// The step under screen column `x`, or null if `x` falls in the left
+/// gutter or past the clip's own end. Shared logic for click and scroll.
+fn stepAt(app: *App, clip: *const ws.Clip, x: u16) ?u32 {
+    const g: u32 = @intCast(view.gutter);
+    if (x < g) return null;
+    const step = app.automation_scroll + (@as(u32, x) - g);
+    if (step > maxStep(app, clip)) return null;
+    return step;
+}
+
+/// Row 0 is the title; any row below it (ruler, bar graph, or caret) picks a
+/// column the same way — clicking the ruler works just as well as clicking
+/// the bars. Click moves the cursor there; scroll moves it and nudges the
+/// value (matching the synth editor's scroll convention — ctrl = coarse).
+pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize) void {
+    const clip = currentClip(app) orelse return;
+    if (row == 0) return;
+    switch (ev.kind) {
+        .press => {
+            if (stepAt(app, clip, ev.x)) |step| app.automation_cursor_step = step;
+        },
+        .scroll_up, .scroll_down => {
+            const step = stepAt(app, clip, ev.x) orelse return;
+            app.automation_cursor_step = step;
+            const dir: i32 = if (ev.kind == .scroll_up) 1 else -1;
+            nudgeValue(app, clip, dir * (if (ev.ctrl) @as(i32, 10) else 1));
+        },
+        else => {},
     }
 }
 
@@ -127,11 +162,13 @@ fn nudgeValue(app: *App, clip: *ws.Clip, steps: i32) void {
         cur + @as(f32, @floatFromInt(steps)) * curveStep(target),
         range[0], range[1],
     );
+    // Captured before the mutation — the whole lane, same granularity the
+    // arrangement's own clip edits (move/delete) undo at.
+    history.push(app, history.captureLane(app, app.automation_track));
     automation_mod.setPoint(app.allocator, points, beat, new_val) catch {
         app.setStatus("automation edit failed (out of memory)", .{});
         return;
     };
-    app.dirty = true;
     if (app.session.song_mode) app.session.rebuildSongData();
 }
 
@@ -139,11 +176,19 @@ fn deletePoint(app: *App, clip: *ws.Clip) void {
     const target = app.automation_target;
     const beat = @as(f64, @floatFromInt(app.automation_cursor_step)) * 0.25;
     const points = curvePoints(clip, target);
-    if (automation_mod.removePoint(app.allocator, points, beat)) {
-        app.dirty = true;
-        if (app.session.song_mode) app.session.rebuildSongData();
-        app.setStatus("point removed", .{});
-    } else {
+    if (!hasPointAt(points.*, beat)) {
         app.setStatus("no point exactly here", .{});
+        return;
     }
+    history.push(app, history.captureLane(app, app.automation_track));
+    _ = automation_mod.removePoint(app.allocator, points, beat);
+    if (app.session.song_mode) app.session.rebuildSongData();
+    app.setStatus("point removed", .{});
+}
+
+fn hasPointAt(points: []const AutomationPoint, beat: f64) bool {
+    for (points) |p| {
+        if (@abs(p.beat - beat) < 1e-9) return true;
+    }
+    return false;
 }
