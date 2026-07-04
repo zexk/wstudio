@@ -18,6 +18,7 @@ const history = @import("history.zig");
 const piano_ed = @import("editors/piano.zig");
 const spectrum_ed = @import("editors/spectrum.zig");
 const theory = ws.theory;
+const user_presets = @import("user_presets.zig");
 
 fn wrap(comptime f: fn (*App, []const u8) void) *const fn (*anyopaque, []const u8) void {
     return struct {
@@ -83,7 +84,8 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "scale",       .desc = "[<root> [<type>]|off]  piano-roll scale highlight + chord-stamp key", .run = wrap(cmdScale) },
     .{ .name = "master-eq",   .desc = "[<band> <db>]  master bus EQ (see M in the tracks view)", .run = wrap(cmdMasterEq) },
     .{ .name = "master-comp", .desc = "[on|off|thresh|ratio|attack|release|makeup <value>]  master bus compressor", .run = wrap(cmdMasterComp) },
-    .{ .name = "synth-preset", .desc = "[name]  apply a factory synth patch to the cursor track (no args: list names)", .run = wrap(cmdSynthPreset) },
+    .{ .name = "synth-preset", .desc = "[name]  apply a factory or saved synth patch to the cursor track (no args: list names)", .run = wrap(cmdSynthPreset) },
+    .{ .name = "synth-preset-save", .desc = "<name>  save the cursor track's current synth params as a reusable preset", .run = wrap(cmdSynthPresetSave) },
     .{ .name = "drum-kit",    .desc = "[name]  regenerate the cursor drum machine's pads from a kit variant (no args: list names)", .run = wrap(cmdDrumKit) },
 };
 
@@ -412,25 +414,34 @@ fn writeGenres(w: *std.Io.Writer, tags: []const []const u8) std.Io.Writer.Error!
 }
 
 /// `:synth-preset [name]` — apply a factory patch (see `dsp/synth_presets.zig`)
-/// to the cursor track's synth. No args, or an unknown name, lists the
-/// available preset names instead of guessing.
+/// or a user-saved one (see `tui/user_presets.zig`) to the cursor track's
+/// synth. No args, or an unknown name, lists the available preset names
+/// instead of guessing. User presets are checked first, so saving under a
+/// factory name overrides it for `:synth-preset` (the factory list itself
+/// is compiled-in and never touched).
 fn cmdSynthPreset(app: *App, args: []const u8) void {
     const trimmed = std.mem.trim(u8, args, " ");
     if (trimmed.len == 0) {
-        var buf: [256]u8 = undefined;
+        var buf: [512]u8 = undefined;
         var w: std.Io.Writer = .fixed(&buf);
-        for (ws.dsp.synth_presets.presets, 0..) |p, i| {
+        for (app.user_synth_presets.items, 0..) |p, i| {
             if (i > 0) w.writeAll(", ") catch break;
+            w.print("{s}*", .{p.name}) catch break;
+        }
+        for (ws.dsp.synth_presets.presets, 0..) |p, i| {
+            if (i > 0 or app.user_synth_presets.items.len > 0) w.writeAll(", ") catch break;
             w.writeAll(p.name) catch break;
             writeGenres(&w, p.tags) catch break;
         }
-        app.setStatus("synth presets: {s}", .{w.buffered()});
+        const marker: []const u8 = if (app.user_synth_presets.items.len > 0) " (* = saved)" else "";
+        app.setStatus("synth presets{s}: {s}", .{ marker, w.buffered() });
         return;
     }
-    const patch = ws.dsp.synth_presets.find(trimmed) orelse {
-        app.setStatus("synth-preset: unknown '{s}' — :synth-preset lists names", .{trimmed});
-        return;
-    };
+    const patch = user_presets.find(app.user_synth_presets.items, trimmed) orelse
+        ws.dsp.synth_presets.find(trimmed) orelse {
+            app.setStatus("synth-preset: unknown '{s}' — :synth-preset lists names", .{trimmed});
+            return;
+        };
     const s = cursorSynth(app) orelse {
         app.setStatus("synth-preset: select a synth track first", .{});
         return;
@@ -438,6 +449,26 @@ fn cmdSynthPreset(app: *App, args: []const u8) void {
     s.applyPatch(patch);
     app.dirty = true;
     app.setStatus("synth preset: {s}", .{trimmed});
+}
+
+/// `:synth-preset-save <name>` — snapshot the cursor track's current synth
+/// params (`PolySynth.toPatch`) and persist them under `name`, overwriting
+/// any existing saved preset of the same name (case-insensitive).
+fn cmdSynthPresetSave(app: *App, args: []const u8) void {
+    const name = std.mem.trim(u8, args, " ");
+    if (name.len == 0) {
+        app.setStatus("usage: synth-preset-save <name>", .{});
+        return;
+    }
+    const s = cursorSynth(app) orelse {
+        app.setStatus("synth-preset-save: select a synth track first", .{});
+        return;
+    };
+    user_presets.upsert(app.allocator, app.io, &app.user_synth_presets, name, s.toPatch()) catch |e| {
+        app.setStatus("synth-preset-save: failed to save ({s})", .{@errorName(e)});
+        return;
+    };
+    app.setStatus("saved synth preset: {s}", .{name});
 }
 
 /// `:drum-kit [name]` — regenerate all 8 pads of the cursor track's drum
@@ -1036,6 +1067,51 @@ test ":synth-preset with no args lists names without touching the synth" {
     const status = app.status_buf[0..app.status_len];
     try std.testing.expect(std.mem.indexOf(u8, status, "init") != null);
     try std.testing.expect(!app.dirty);
+}
+
+// Not exposed by std.c on this target; declared directly (libc is already
+// linked). Redirects $HOME at a scratch dir so :synth-preset-save's test
+// never writes to the real ~/.config/wstudio/synth_presets.json.
+extern "c" fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
+
+test ":synth-preset-save persists a hand-tuned patch, then :synth-preset re-applies it" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var home_buf: [128]u8 = undefined;
+    const home = try std.fmt.bufPrintZ(&home_buf, ".zig-cache/tmp/{s}", .{&tmp.sub_path});
+    _ = setenv("HOME", home.ptr, 1);
+
+    var app = try App.init(std.testing.allocator, std.testing.io);
+    defer app.deinit();
+    try app.session.setInstrument(0, .poly_synth);
+
+    // Hand-tune a param, then save it under a new name.
+    const s = &app.session.racks.items[0].instrument.poly_synth;
+    s.gain = 0.77;
+    s.filter_cutoff = 1234.0;
+
+    var save_buf: [64]u8 = undefined;
+    const save_cmd = try std.fmt.bufPrint(&save_buf, ":synth-preset-save my-lead", .{});
+    for (save_cmd) |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqual(@as(usize, 1), app.user_synth_presets.items.len);
+    try std.testing.expectEqualStrings("my-lead", app.user_synth_presets.items[0].name);
+
+    // Reset the live synth, then re-apply the saved preset by name.
+    s.gain = 0.1;
+    s.filter_cutoff = 99.0;
+    var apply_buf: [64]u8 = undefined;
+    const apply_cmd = try std.fmt.bufPrint(&apply_buf, ":synth-preset my-lead", .{});
+    for (apply_cmd) |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.77), s.gain, 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 1234.0), s.filter_cutoff, 1e-3);
+
+    // A fresh App reloads it from disk (persisted across "restarts").
+    var app2 = try App.init(std.testing.allocator, std.testing.io);
+    defer app2.deinit();
+    try std.testing.expectEqual(@as(usize, 1), app2.user_synth_presets.items.len);
+    try std.testing.expectEqualStrings("my-lead", app2.user_synth_presets.items[0].name);
 }
 
 test ":drum-kit regenerates the cursor drum machine's pads" {

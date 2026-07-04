@@ -238,6 +238,17 @@ pub const PolySynth = struct {
         }
     }
 
+    /// The inverse of `applyPatch`: snapshot this synth's current params into
+    /// a `Patch` (e.g. to save a hand-tuned sound as a reusable preset — see
+    /// `tui/user_presets.zig`).
+    pub fn toPatch(self: *const PolySynth) Patch {
+        var patch: Patch = .{};
+        inline for (@typeInfo(Patch).@"struct".fields) |f| {
+            @field(patch, f.name) = @field(self, f.name);
+        }
+        return patch;
+    }
+
     pub fn noteOn(self: *PolySynth, note: u7, velocity: f32) void {
         switch (self.voice_mode) {
             .poly   => self.noteOnPoly(note, velocity),

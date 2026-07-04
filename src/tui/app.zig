@@ -28,6 +28,7 @@ const piano_ed = @import("editors/piano.zig");
 const spectrum_ed = @import("editors/spectrum.zig");
 const arrangement_ed = @import("editors/arrangement.zig");
 const automation_ed = @import("editors/automation.zig");
+const user_presets = @import("user_presets.zig");
 
 const Engine = engine_mod.Engine;
 const Sampler = ws.dsp.Sampler;
@@ -310,6 +311,11 @@ pub const App = struct {
     piano_scale: ?ws.theory.Scale = null,
     /// Undo/redo history for content edits (u / U in the editing views).
     history: undo_mod.History = .{},
+    /// User-saved synth presets (`:synth-preset-save <name>`), loaded once
+    /// at startup from `~/.config/wstudio/synth_presets.json` and rewritten
+    /// wholesale on every save. Complements the compiled-in, read-only
+    /// factory list in `dsp/synth_presets.zig`.
+    user_synth_presets: std.ArrayListUnmanaged(user_presets.UserPreset) = .empty,
     /// True when the session holds edits the project file doesn't. Set at
     /// every persisted mutation (content edits via history.push, param
     /// nudges, track/mix changes); cleared on save. `:q` refuses while set.
@@ -359,10 +365,12 @@ pub const App = struct {
             .allocator = allocator,
             .io = io,
             .session = try ws.Session.initDefault(allocator),
+            .user_synth_presets = user_presets.load(allocator, io),
         };
     }
 
     pub fn deinit(self: *App) void {
+        user_presets.deinit(self.allocator, &self.user_synth_presets);
         if (self.arr_clip) |*c| c.deinit(self.allocator);
         if (self.arr_range_clip) |r| {
             for (r.clips) |*c| c.deinit(self.allocator);
@@ -1132,7 +1140,7 @@ pub const App = struct {
         const arg = buf[name_end + 1 ..];
         if (std.mem.indexOfScalar(u8, arg, ' ') != null) return;
 
-        var name_buf: [24][]const u8 = undefined;
+        var name_buf: [48][]const u8 = undefined;
         if (std.mem.eql(u8, name, "drum-kit")) {
             var n: usize = 0;
             for (ws.dsp.drum_kit.variants) |v| {
@@ -1142,7 +1150,13 @@ pub const App = struct {
             self.cycleCompletion(name_end + 1, arg, .drum_kit, name_buf[0..n]);
         } else if (std.mem.eql(u8, name, "synth-preset")) {
             var n: usize = 0;
+            for (self.user_synth_presets.items) |p| {
+                if (n >= name_buf.len) break;
+                name_buf[n] = p.name;
+                n += 1;
+            }
             for (ws.dsp.synth_presets.presets) |p| {
+                if (n >= name_buf.len) break;
                 name_buf[n] = p.name;
                 n += 1;
             }

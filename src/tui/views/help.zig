@@ -162,6 +162,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("H / L",        "adjust value (coarse ×10)");
     t.key("p",            "open piano roll for this track");
     t.key("s",            "spectrum + EQ for this track");
+    t.key(":synth-preset-save", "<name>  save the current params as a reusable preset");
 
     t.section("PIANO ROLL");
     t.key("h / l",        "move cursor left / right (one step)");
