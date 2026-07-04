@@ -1603,7 +1603,7 @@ test ":q Tab completes ambiguous names to their longest common prefix" {
     try std.testing.expectEqualStrings("track-", app.modal.cmd_buf[0..app.modal.cmd_len]);
 }
 
-test "Tab does nothing past the command word or with no matches" {
+test "Tab does nothing past the command word for commands with no fixed argument set" {
     var app = try App.init(std.testing.allocator, std.Io.failing);
     defer app.deinit();
 
@@ -1615,6 +1615,54 @@ test "Tab does nothing past the command word or with no matches" {
     for ("zzz") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.tab, 0);
     try std.testing.expectEqualStrings("zzz", app.modal.cmd_buf[0..app.modal.cmd_len]);
+}
+
+test ":drum-kit Tab completes the kit-name argument from the fixed variant list" {
+    var app = try App.init(std.testing.allocator, std.Io.failing);
+    defer app.deinit();
+
+    // "a" matches both "analog" and "acoustic" — common prefix is just "a".
+    for (":drum-kit a") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.tab, 0);
+    try std.testing.expectEqualStrings("drum-kit a", app.modal.cmd_buf[0..app.modal.cmd_len]);
+
+    // "an" only matches "analog" — completes in full plus a trailing space.
+    for ("n") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.tab, 0);
+    try std.testing.expectEqualStrings("drum-kit analog ", app.modal.cmd_buf[0..app.modal.cmd_len]);
+}
+
+test ":synth-preset Tab completes the preset-name argument from the fixed preset list" {
+    var app = try App.init(std.testing.allocator, std.Io.failing);
+    defer app.deinit();
+
+    for (":synth-preset sub") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.tab, 0);
+    try std.testing.expectEqualStrings("synth-preset sub-bass ", app.modal.cmd_buf[0..app.modal.cmd_len]);
+}
+
+test ":metronome Tab completes on/off; :master-comp Tab completes its sub-keywords" {
+    var app = try App.init(std.testing.allocator, std.Io.failing);
+    defer app.deinit();
+
+    // No argument typed yet — "on"/"off" share only the leading "o".
+    for (":metronome ") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.tab, 0);
+    try std.testing.expectEqualStrings("metronome o", app.modal.cmd_buf[0..app.modal.cmd_len]);
+
+    app.modal.cmd_len = 0;
+    for ("master-comp thr") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.tab, 0);
+    try std.testing.expectEqualStrings("master-comp thresh ", app.modal.cmd_buf[0..app.modal.cmd_len]);
+}
+
+test "Tab does not complete a second argument token" {
+    var app = try App.init(std.testing.allocator, std.Io.failing);
+    defer app.deinit();
+
+    for (":drum-kit an ") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.tab, 0);
+    try std.testing.expectEqualStrings("drum-kit an ", app.modal.cmd_buf[0..app.modal.cmd_len]);
 }
 
 test "autosave writes a silent <path>~ backup on a timer, without clearing dirty" {

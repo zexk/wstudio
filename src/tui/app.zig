@@ -796,14 +796,20 @@ pub const App = struct {
         self.modal.cmd_len = len;
     }
 
-    /// Tab-complete the command name being typed — only while no space has
-    /// been typed yet; arguments aren't completed. A single match completes
-    /// to the full name plus a trailing space (ready for its argument);
-    /// several matches complete to their longest common prefix instead
+    /// Tab-completes the command name (before the first space), or — for a
+    /// handful of commands whose values come from a small fixed set — the
+    /// first argument token after it. A single match completes to the full
+    /// value plus a trailing space (ready for the next token); several
+    /// matches complete to their longest common prefix instead
     /// (readline-style); no matches is a no-op.
     fn completeCommand(self: *App) void {
         const buf = self.modal.cmd_buf[0..self.modal.cmd_len];
-        if (buf.len == 0 or std.mem.indexOfScalar(u8, buf, ' ') != null) return;
+        if (buf.len == 0) return;
+
+        if (std.mem.indexOfScalar(u8, buf, ' ')) |sp| {
+            self.completeArgument(buf, sp);
+            return;
+        }
 
         var match_count: usize = 0;
         var common: []const u8 = "";
@@ -812,10 +818,65 @@ pub const App = struct {
             match_count += 1;
             common = if (match_count == 1) c.name else commonPrefix(common, c.name);
         }
-        if (match_count == 0 or common.len <= buf.len) return;
+        self.applyCompletion(0, buf.len, match_count, common);
+    }
 
-        @memcpy(self.modal.cmd_buf[buf.len..common.len], common[buf.len..]);
-        self.modal.cmd_len = common.len;
+    /// Tab-completes the argument after `buf[0..name_end]` against a small
+    /// fixed value set — drum-kit/synth-preset names, and metronome/
+    /// master-comp's on/off (and sub-parameter) keywords. Only fires for the
+    /// *first* argument token (a trailing space means a second argument is
+    /// being typed, which has no fixed candidate list here); every other
+    /// command's arguments (track numbers, dB values, paths, ...) aren't
+    /// completable from a fixed list, so this is a no-op for those.
+    fn completeArgument(self: *App, buf: []const u8, name_end: usize) void {
+        const name = buf[0..name_end];
+        const arg = buf[name_end + 1 ..];
+        if (std.mem.indexOfScalar(u8, arg, ' ') != null) return;
+
+        var name_buf: [24][]const u8 = undefined;
+        const values: []const []const u8 = blk: {
+            if (std.mem.eql(u8, name, "drum-kit")) {
+                var n: usize = 0;
+                for (ws.dsp.drum_kit.variants) |v| {
+                    name_buf[n] = v.name;
+                    n += 1;
+                }
+                break :blk name_buf[0..n];
+            }
+            if (std.mem.eql(u8, name, "synth-preset")) {
+                var n: usize = 0;
+                for (ws.dsp.synth_presets.presets) |p| {
+                    name_buf[n] = p.name;
+                    n += 1;
+                }
+                break :blk name_buf[0..n];
+            }
+            if (std.mem.eql(u8, name, "metronome")) break :blk &.{ "on", "off" };
+            if (std.mem.eql(u8, name, "master-comp"))
+                break :blk &.{ "on", "off", "thresh", "ratio", "attack", "release", "makeup" };
+            return;
+        };
+
+        var match_count: usize = 0;
+        var common: []const u8 = "";
+        for (values) |v| {
+            if (!std.mem.startsWith(u8, v, arg)) continue;
+            match_count += 1;
+            common = if (match_count == 1) v else commonPrefix(common, v);
+        }
+        self.applyCompletion(name_end + 1, arg.len, match_count, common);
+    }
+
+    /// Splices `common` into `cmd_buf` at `insert_at`, replacing the
+    /// `typed_len` characters already there (shared by command-name and
+    /// argument-value completion — see `completeCommand`/`completeArgument`).
+    fn applyCompletion(self: *App, insert_at: usize, typed_len: usize, match_count: usize, common: []const u8) void {
+        if (match_count == 0 or common.len <= typed_len) return;
+        const new_end = insert_at + common.len;
+        if (new_end > self.modal.cmd_buf.len) return;
+
+        @memcpy(self.modal.cmd_buf[insert_at + typed_len .. new_end], common[typed_len..]);
+        self.modal.cmd_len = new_end;
         if (match_count == 1 and self.modal.cmd_len < self.modal.cmd_buf.len) {
             self.modal.cmd_buf[self.modal.cmd_len] = ' ';
             self.modal.cmd_len += 1;
