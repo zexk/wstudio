@@ -1043,6 +1043,56 @@ test "piano roll p does not open for drum track" {
     try std.testing.expectEqual(AppView.tracks, app.view);
 }
 
+test "piano roll insert mode records a take at the playhead while playing" {
+    var app = try testApp();
+    defer app.deinit();
+
+    app.handleKey(.{ .char = 'p' }, 0); // open piano roll on the synth track
+    try std.testing.expectEqual(AppView.piano_roll, app.view);
+
+    // 120 bpm @ 48k => 24_000 frames/beat; seek to beat 0.75 (step 3).
+    _ = app.session.engine.send(.{ .seek_frames = 18_000 });
+    _ = app.session.engine.send(.play);
+    var block: [64]types.Sample = undefined;
+    app.session.engine.process(&block); // flushes commands, publishes the snapshot
+
+    app.handleKey(.{ .char = 'i' }, 0);
+    try std.testing.expectEqual(ws.input.Mode.insert, app.modal.mode);
+
+    app.handleKey(.{ .char = 'a' }, 0); // middle C (octave 4)
+    try std.testing.expectEqual(ws.input.Mode.insert, app.modal.mode); // still recording
+
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    try std.testing.expectEqual(@as(u16, 1), pp.note_count);
+    try std.testing.expectEqual(@as(u7, 60), pp.notes[0].pitch);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.75), pp.notes[0].start_beat, 1e-9);
+    // Cursor follows the take so the roll shows where it landed.
+    try std.testing.expectEqual(@as(u16, 3), app.piano_cursor_step);
+    try std.testing.expectEqual(@as(u7, 60), app.piano_cursor_pitch);
+
+    // Escape drops back to normal without leaving the roll, and roll
+    // navigation (not note-play) owns h/j/k/l again.
+    app.handleKey(.escape, 0);
+    try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
+    try std.testing.expectEqual(AppView.piano_roll, app.view);
+    app.handleKey(.{ .char = 'h' }, 0);
+    try std.testing.expectEqual(@as(u16, 2), app.piano_cursor_step);
+    try std.testing.expectEqual(@as(u16, 1), pp.note_count); // 'h' didn't record another note
+}
+
+test "piano roll insert mode previews without recording while the transport is stopped" {
+    var app = try testApp();
+    defer app.deinit();
+
+    app.handleKey(.{ .char = 'p' }, 0);
+    app.handleKey(.{ .char = 'i' }, 0);
+    try std.testing.expectEqual(ws.input.Mode.insert, app.modal.mode);
+    app.handleKey(.{ .char = 'a' }, 0);
+
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    try std.testing.expectEqual(@as(u16, 0), pp.note_count);
+}
+
 test ":q refuses to quit while dirty; :q! discards" {
     var app = try testApp();
     defer app.deinit();

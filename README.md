@@ -145,7 +145,6 @@ whatever font you already use.
 Open items, sorted by what most blocks an artist finishing (and keeping)
 a full song:
 
-- [ ] Live recording from insert mode (play a take into the pattern)
 - [ ] Parameter automation on the timeline
 - [ ] Audio clips: WAV clip playback on tracks
 - [ ] Native PipeWire and JACK backends behind the same interface
@@ -153,6 +152,13 @@ a full song:
 
 Done:
 
+- [x] Live recording from insert mode: `i` in the piano roll now enters
+      insert mode instead of being blocked — while the transport is
+      rolling, every note played on the qwerty piano layout is written
+      into the pattern at the current playhead, quantized to the same
+      16th-note grid as step-edit; stopped, it's pure audition like
+      everywhere else `i` works. `esc` drops back to normal without
+      leaving the roll.
 - [x] Interactive per-track FX rack, and a `MASTER` row in the tracks view:
       a track's spectrum view (`s`) is now an FX rack — `tab` cycles
       EQ/comp/delay/reverb, `a` adds the focused unit with defaults or

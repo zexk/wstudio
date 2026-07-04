@@ -71,8 +71,13 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
         // enter toggles the note; space falls through to transport play/pause.
         .enter => { toggleNote(app); return true; },
         .char => |c| switch (c) {
-            // Block insert mode — piano keys collide with roll navigation (j/k/h/d/…).
-            'i' => return true,
+            // 'i' falls through to modal.handle below, which enters insert
+            // mode — App.handleKey then stops routing keys through this
+            // switch at all (see the piano_roll case) so the piano-keyboard
+            // layout owns h/j/k/l instead of roll navigation. That's what
+            // makes recordNote below reachable: play a take while the
+            // transport rolls and it's written into the pattern, quantized
+            // to the same grid as every other roll edit.
             // fine move by one step; shift (HL) jumps one beat (4 steps).
             // All motions take a vim count prefix (3l, 12h, …).
             'h' => { moveStep(app, max_step, -app.takeCount()); return true; },
@@ -325,6 +330,36 @@ fn stampChord(app: *App, seventh: bool) void {
         pp.addNote(.{ .pitch = pitch, .start_beat = start_beat, .duration_beat = app.piano_note_len });
     }
     app.setStatus("chord: {d} notes", .{chord.count});
+    syncLinkedClip(app);
+}
+
+/// Live recording: called from `App.applyAction`'s `.note` handler whenever
+/// insert mode plays a note on `app.piano_track`. Only writes something if
+/// the transport is actually rolling — a stopped transport has no playhead
+/// to quantize against, so insert mode is pure audition in that case, same
+/// as everywhere else it's used. Quantizes to the playhead's current 16th
+/// step (the same grid `insertNote`/step-edit use) and skips a step that
+/// already has a note starting on this pitch rather than stacking a
+/// duplicate. Cursor follows the recorded note so the roll shows where the
+/// take is landing in real time.
+pub fn recordNote(app: *App, pitch: u7) void {
+    if (app.piano_track >= app.session.racks.items.len) return;
+    const pp = if (app.session.racks.items[app.piano_track].pattern_player != null)
+        &app.session.racks.items[app.piano_track].pattern_player.?
+    else return;
+    const snap = app.session.engine.uiSnapshot();
+    if (!snap.playing) return;
+    const sr: f64 = @floatFromInt(app.session.project.sample_rate);
+    const bpm: f64 = app.session.project.tempo_bpm;
+    const raw_beats: f64 = @as(f64, @floatFromInt(snap.position_frames)) / (sr * 60.0 / bpm);
+    const step: u16 = @intFromFloat(@mod(raw_beats, pp.length_beats) * 4.0);
+    const start_beat = @as(f64, @floatFromInt(step)) * 0.25;
+    if (pp.noteStartsAt(pitch, start_beat)) return;
+    history.push(app, history.captureMelodic(app, app.piano_track));
+    pp.addNote(.{ .pitch = pitch, .start_beat = start_beat, .duration_beat = app.piano_note_len });
+    app.piano_cursor_step = step;
+    app.piano_cursor_pitch = pitch;
+    ensureVisible(app);
     syncLinkedClip(app);
 }
 

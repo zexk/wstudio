@@ -401,7 +401,11 @@ pub const App = struct {
             .track_spectrum, .master_spectrum => if (self.modal.mode == .command or !spectrum_ed.handleKey(self, key)) {
                 self.applyAction(self.modal.handle(key), now_ns);
             } else { self.modal.count = 0; },
-            .piano_roll => if (self.modal.mode == .command or !piano_ed.handleKey(self, key)) {
+            // Insert mode bypasses the roll's own switch entirely — once
+            // inserted, the piano-keyboard layout needs h/j/k/l as notes,
+            // not roll navigation, so modal.handle owns every key until
+            // escape drops back to normal (see recordNote in editors/piano.zig).
+            .piano_roll => if (self.modal.mode == .command or self.modal.mode == .insert or !piano_ed.handleKey(self, key)) {
                 self.applyAction(self.modal.handle(key), now_ns);
             } else { self.modal.count = 0; },
             .instrument_picker => self.handlePickerKey(key),
@@ -783,7 +787,10 @@ pub const App = struct {
                         .note = @intCast(n.pitch % DrumMachine.max_pads),
                         .velocity = 0.9,
                     } }),
-                    .poly_synth, .sampler => self.playNote(track_idx, n.pitch, now_ns),
+                    .poly_synth, .sampler => {
+                        self.playNote(track_idx, n.pitch, now_ns);
+                        if (self.view == .piano_roll) piano_ed.recordNote(self, n.pitch);
+                    },
                     .empty => {},
                 }
             },
