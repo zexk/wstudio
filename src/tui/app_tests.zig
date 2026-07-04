@@ -15,7 +15,9 @@ const commands = @import("commands.zig");
 const drum_ed = @import("editors/drum.zig");
 const piano_ed = @import("editors/piano.zig");
 const sampler_ed = @import("editors/sampler.zig");
+const spectrum_ed = @import("editors/spectrum.zig");
 const icons = @import("icons.zig");
+const modal_mod = ws.input;
 
 /// Build a deterministic 3-track app for tests: synth(0), sampler(1), drums(2).
 fn testApp() !App {
@@ -1957,4 +1959,193 @@ test ":e with no path browses when clean, refuses when dirty" {
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(AppView.tracks, app.view);
     try std.testing.expectStringStartsWith(app.status_buf[0..app.status_len], "unsaved changes");
+}
+
+// ---------------------------------------------------------------------------
+// Mouse — one representative test per view; each replays the exact row/col
+// math its handleMouse (see editors/*.zig) derives from the view's own
+// render layout, driven straight through App.handleMouse (bypassing
+// terminal.decode, same as handleKey's tests bypass raw byte parsing).
+// ---------------------------------------------------------------------------
+
+test "mouse click on a tracks-view row selects and opens it" {
+    var app = try testApp();
+    defer app.deinit();
+
+    // row 0 = "TRACKS" title; track i sits at row i+1 (see App.tracksMouse).
+    app.handleMouse(.{ .x = 5, .y = app_mod.content_top + 3, .button = .left, .kind = .press }, 80, 24, 0);
+    try std.testing.expectEqual(@as(usize, 2), app.cursor); // track 2 = drum machine
+    try std.testing.expectEqual(AppView.drum_grid, app.view);
+}
+
+test "mouse scroll in tracks view moves the cursor like j/k" {
+    var app = try testApp();
+    defer app.deinit();
+
+    app.handleMouse(.{ .x = 5, .y = app_mod.content_top, .button = .none, .kind = .scroll_down }, 80, 24, 0);
+    try std.testing.expectEqual(@as(usize, 1), app.cursor);
+    app.handleMouse(.{ .x = 5, .y = app_mod.content_top, .button = .none, .kind = .scroll_up }, 80, 24, 0);
+    try std.testing.expectEqual(@as(usize, 0), app.cursor);
+}
+
+test "mouse click toggles a drum step and drag paints a run of them" {
+    var app = try testApp();
+    defer app.deinit();
+    app.drum_track = 2;
+    app.view = .drum_grid;
+
+    // Pad 0's default groove (kick, 0x1111) has steps 1-3 inactive.
+    try std.testing.expect(!app.drumMachine().stepActive(0, 1));
+    try std.testing.expect(!app.drumMachine().stepActive(0, 2));
+    try std.testing.expect(!app.drumMachine().stepActive(0, 3));
+
+    // row 0 = title, row 1 = step header, row 2 = pad 0. Cell columns (6-char
+    // gutter, 1-char "│" every 4 steps, 3-char cells): step1 x in [10,13),
+    // step2 x in [13,16), step3 x in [16,19) — see editors/drum.zig's stepAt.
+    const row = app_mod.content_top + 2;
+    app.handleMouse(.{ .x = 11, .y = row, .button = .left, .kind = .press }, 80, 24, 0);
+    try std.testing.expect(app.drumMachine().stepActive(0, 1));
+
+    app.handleMouse(.{ .x = 14, .y = row, .button = .left, .kind = .drag }, 80, 24, 0);
+    try std.testing.expect(app.drumMachine().stepActive(0, 2));
+
+    app.handleMouse(.{ .x = 17, .y = row, .button = .left, .kind = .drag }, 80, 24, 0);
+    try std.testing.expect(app.drumMachine().stepActive(0, 3));
+
+    app.handleMouse(.{ .x = 17, .y = row, .button = .left, .kind = .release }, 80, 24, 0);
+    try std.testing.expect(app.drum_paint_state == null);
+}
+
+test "mouse click on an empty piano-roll cell inserts a note" {
+    var app = try testApp();
+    defer app.deinit();
+    app.piano_track = 0;
+    app.view = .piano_roll;
+    app.piano_scroll_step = 0;
+    app.piano_scroll_pitch = 72;
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    try std.testing.expectEqual(@as(u16, 0), pp.note_count);
+
+    // 3 header rows; row 3 = pitch 72 (scroll_pitch - 0). Step 0's 3-char
+    // cell starts right after the 6-char gutter.
+    app.handleMouse(.{ .x = 7, .y = app_mod.content_top + 3, .button = .left, .kind = .press }, 80, 24, 0);
+    try std.testing.expectEqual(@as(u16, 1), pp.note_count);
+    try std.testing.expectEqual(@as(u7, 72), pp.notes[0].pitch);
+}
+
+test "mouse drag moves an existing piano-roll note; a plain click-release toggles it off" {
+    var app = try testApp();
+    defer app.deinit();
+    app.piano_track = 0;
+    app.view = .piano_roll;
+    app.piano_scroll_step = 0;
+    app.piano_scroll_pitch = 72;
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    pp.addNote(.{ .pitch = 72, .start_beat = 0.0, .duration_beat = 0.25 });
+
+    const row0 = app_mod.content_top + 3; // pitch 72, step 0
+    app.handleMouse(.{ .x = 7, .y = row0, .button = .left, .kind = .press }, 80, 24, 0);
+    try std.testing.expect(app.piano_grab);
+
+    // Drag to step 1 (x in [9,12)), pitch 71 (one row down).
+    app.handleMouse(.{ .x = 10, .y = app_mod.content_top + 4, .button = .left, .kind = .drag }, 80, 24, 0);
+    try std.testing.expectEqual(@as(u7, 71), pp.notes[0].pitch);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.25), pp.notes[0].start_beat, 1e-9);
+
+    app.handleMouse(.{ .x = 10, .y = app_mod.content_top + 4, .button = .left, .kind = .release }, 80, 24, 0);
+    try std.testing.expect(!app.piano_grab);
+    try std.testing.expectEqual(@as(u16, 1), pp.note_count); // moved, not duplicated
+
+    // A fresh press-then-release with no drag in between toggles it off
+    // (matches enter's toggle) rather than leaving a no-op grab behind.
+    app.handleMouse(.{ .x = 10, .y = app_mod.content_top + 4, .button = .left, .kind = .press }, 80, 24, 0);
+    app.handleMouse(.{ .x = 10, .y = app_mod.content_top + 4, .button = .left, .kind = .release }, 80, 24, 0);
+    try std.testing.expectEqual(@as(u16, 0), pp.note_count);
+}
+
+test "mouse drag moves an arrangement clip" {
+    var app = try testApp();
+    defer app.deinit();
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.5 });
+    try app.session.stampClip(0, 0); // 1-bar clip at bar 0, lane 0
+
+    app.view = .arrangement;
+    app.cursor = 0;
+    app.arr_scroll_bar = 0;
+    const lane = app.session.arrangement.lane(0).?;
+    try std.testing.expect(lane.clipAt(0) != null);
+
+    // row 0 = title, row 1 = ruler, row 2 = lane 0. gutter=11, cell_w=4 —
+    // bar 0's cell is x in [11,15), bar 2's is x in [19,23).
+    const row = app_mod.content_top + 2;
+    app.handleMouse(.{ .x = 12, .y = row, .button = .left, .kind = .press }, 80, 24, 0);
+    try std.testing.expectEqual(@as(u32, 0), app.arr_drag_bar.?);
+
+    app.handleMouse(.{ .x = 20, .y = row, .button = .left, .kind = .drag }, 80, 24, 0);
+    try std.testing.expect(lane.clipAt(0) == null);
+    try std.testing.expect(lane.clipAt(2) != null);
+
+    app.handleMouse(.{ .x = 20, .y = row, .button = .left, .kind = .release }, 80, 24, 0);
+    try std.testing.expect(app.arr_drag_bar == null);
+}
+
+test "mouse scroll over a synth param row selects and nudges it" {
+    var app = try testApp();
+    defer app.deinit();
+    app.handleKey(.enter, 0); // opens the synth editor for track 0
+    try std.testing.expectEqual(AppView.synth_editor, app.view);
+
+    const old_attack = app.session.racks.items[0].instrument.poly_synth.attack_s;
+
+    // paramRow(16) == 21 (attack — see editors/synth.zig); synth_scroll
+    // starts at 0, so content row 21 lands on it directly.
+    const row = app_mod.content_top + 21;
+    app.handleMouse(.{ .x = 20, .y = row, .button = .none, .kind = .scroll_up }, 80, 24, 0);
+    try std.testing.expectEqual(@as(u8, 16), app.synth_cursor);
+
+    var block: [64]types.Sample = undefined;
+    app.session.engine.process(&block);
+    try std.testing.expect(app.session.racks.items[0].instrument.poly_synth.attack_s > old_attack);
+}
+
+test "mouse click/drag on a sampler waveform moves the nearer marker" {
+    var app = try testApp();
+    defer app.deinit();
+    app.drum_track = 2;
+    app.sampler_target = .{ .drum = 2 };
+    app.drum_cursor[0] = 0;
+    app.view = .sampler_editor;
+
+    try std.testing.expectEqual(@as(f32, 0.0), app.drumMachine().pads[0].pad.start_norm);
+    try std.testing.expectEqual(@as(f32, 1.0), app.drumMachine().pads[0].pad.end_norm);
+
+    // rows=30 gives the waveform its full 8-row cap (rows [1,9)); gutter=2,
+    // width=min(cols-2,120)=78 for cols=80. x=10 -> norm ~0.10, nearer the
+    // start marker (0.0) than the end (1.0).
+    var block: [64]types.Sample = undefined;
+    app.handleMouse(.{ .x = 10, .y = app_mod.content_top + 3, .button = .left, .kind = .press }, 80, 30, 0);
+    app.session.engine.process(&block);
+    try std.testing.expect(app.drumMachine().pads[0].pad.start_norm > 0.0);
+    try std.testing.expectEqual(@as(f32, 1.0), app.drumMachine().pads[0].pad.end_norm); // untouched
+
+    app.handleMouse(.{ .x = 20, .y = app_mod.content_top + 3, .button = .left, .kind = .drag }, 80, 30, 0);
+    app.session.engine.process(&block);
+    try std.testing.expect(app.drumMachine().pads[0].pad.start_norm > 0.1);
+
+    app.handleMouse(.{ .x = 20, .y = app_mod.content_top + 3, .button = .left, .kind = .release }, 80, 30, 0);
+    try std.testing.expect(app.sampler_drag_marker == null);
+}
+
+test "mouse click on the FX tab strip cycles chain-unit focus" {
+    var app = try testApp();
+    defer app.deinit();
+    spectrum_ed.switchToTrack(&app, 0);
+    try std.testing.expectEqual(spectrum_ed.FxUnit.eq, app.fx_focus);
+
+    // title(1) + spectrum bars(min(18, 24-11)=13) + hz label(1) -> tab strip
+    // at row 15 (see editors/spectrum.zig's handleMouse).
+    const row = app_mod.content_top + 15;
+    app.handleMouse(.{ .x = 5, .y = row, .button = .left, .kind = .press }, 80, 24, 0);
+    try std.testing.expectEqual(spectrum_ed.FxUnit.comp, app.fx_focus);
 }

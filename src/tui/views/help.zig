@@ -89,6 +89,13 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("(in :) tab",   "complete the command name");
     t.key("ctrl-c",       "quit");
 
+    t.section("MOUSE  (additive — every gesture below has a keyboard equivalent)");
+    t.key("click",        "select / activate — same as enter (tracks, drum steps, piano notes, list rows)");
+    t.key("scroll",       "move the cursor — pitch in the piano roll, value in synth/sampler/FX (ctrl: coarse)");
+    t.key("drag",         "paint drum steps, move a piano note or arrangement clip, drag a sampler marker");
+    t.key("shift+scroll", "piano roll only: move the step cursor instead of pitch");
+    t.key("shift+drag",   "bypass wstudio — your terminal's native text selection (for copy/paste)");
+
     t.section("TRACKS");
     t.key("j / k",        "move cursor down / up — one slot past the last track is MASTER");
     t.key("enter",        "edit track (synth or drum grid) — on MASTER: open its FX rack");

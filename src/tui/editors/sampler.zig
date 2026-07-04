@@ -206,6 +206,5 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16, v
             const dir: i32 = if (ev.kind == .scroll_up) 1 else -1;
             adjustParam(app, dir * (if (ev.ctrl) @as(i32, 10) else 1));
         },
-        else => {},
     }
 }

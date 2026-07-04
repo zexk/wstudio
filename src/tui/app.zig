@@ -37,7 +37,7 @@ pub const note_ms = 220;
 /// Rows every view's content starts after in `App.draw`: the header line +
 /// the `hr` divider beneath it. Mouse hit-testing subtracts this before
 /// handing a row to a view's own handler — see `App.handleMouse`.
-const content_top: u16 = 2;
+pub const content_top: u16 = 2;
 const frame_poll_ms = 30;
 const cmd_history_cap: usize = 50;
 /// Big enough for any real filesystem path; mirrors commands.path_buf_len.
