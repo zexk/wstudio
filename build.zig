@@ -55,8 +55,9 @@ pub fn build(b: *std.Build) void {
     const genkit_step = b.step("genkit", "Render the drum kit to assets/kit/*.wav");
     genkit_step.dependOn(&run_genkit.step);
 
-    // `zig build gendemo` writes the curated starter project to demo.wsj. Run
-    // once after editing tools/gendemo.zig, then commit the refreshed demo.wsj.
+    // `zig build gendemo` writes the curated, fully arranged demo song to
+    // demo.wsj. Run once after editing tools/gendemo.zig, then commit the
+    // refreshed demo.wsj.
     const gendemo = b.addExecutable(.{
         .name = "gendemo",
         .root_module = b.createModule(.{
@@ -71,23 +72,6 @@ pub fn build(b: *std.Build) void {
     const run_gendemo = b.addRunArtifact(gendemo);
     const gendemo_step = b.step("gendemo", "Write the demo project to demo.wsj");
     gendemo_step.dependOn(&run_gendemo.step);
-
-    // `zig build gensongdemo` arranges demo.wsj's loops into song-demo.wsj. Run
-    // after gendemo if the base demo changed, then commit the refreshed file.
-    const gensongdemo = b.addExecutable(.{
-        .name = "gensongdemo",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("tools/gensongdemo.zig"),
-            .target = target,
-            .optimize = optimize,
-            .imports = &.{
-                .{ .name = "wstudio", .module = wstudio_mod },
-            },
-        }),
-    });
-    const run_gensongdemo = b.addRunArtifact(gensongdemo);
-    const gensongdemo_step = b.step("gensongdemo", "Write the song-mode demo to song-demo.wsj");
-    gensongdemo_step.dependOn(&run_gensongdemo.step);
 
     // `zig build install-font` writes the TUI's bundled icon font to the
     // user's font directory (see tools/install_font.zig for why it's needed).
