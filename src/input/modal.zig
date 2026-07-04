@@ -24,6 +24,12 @@ pub const Key = union(enum) {
     arrow_down,
     arrow_left,
     arrow_right,
+    /// Command-mode line-editing: jump to the start/end of the buffer, or
+    /// (ctrl_w) delete the word behind the cursor. No meaning outside
+    /// command mode (see handleCommand).
+    home,
+    end,
+    ctrl_w,
     /// Command-mode completion (App.handleKey completes the typed command
     /// name against the command table); ignored elsewhere.
     tab,
@@ -97,6 +103,9 @@ pub const ModalInput = struct {
     octave: u4 = 4,
     cmd_buf: [max_cmd_len]u8 = undefined,
     cmd_len: usize = 0,
+    /// Insertion point within `cmd_buf[0..cmd_len]`. Chars insert and
+    /// backspace deletes at this position rather than only at the end.
+    cmd_cursor: usize = 0,
 
     pub const max_cmd_len = 64;
 
@@ -161,6 +170,7 @@ pub const ModalInput = struct {
             'i' => return self.setMode(.insert),
             ':' => {
                 self.cmd_len = 0;
+                self.cmd_cursor = 0;
                 return self.setMode(.command);
             },
             ' ' => return .toggle_play,
@@ -204,19 +214,63 @@ pub const ModalInput = struct {
                 return .{ .command_submit = self.cmd_buf[0..self.cmd_len] };
             },
             .backspace => {
-                if (self.cmd_len > 0) self.cmd_len -= 1;
+                if (self.cmd_cursor == 0) return .none;
+                std.mem.copyForwards(
+                    u8,
+                    self.cmd_buf[self.cmd_cursor - 1 .. self.cmd_len - 1],
+                    self.cmd_buf[self.cmd_cursor..self.cmd_len],
+                );
+                self.cmd_len -= 1;
+                self.cmd_cursor -= 1;
                 return .none;
             },
             .char => |c| {
-                if (self.cmd_len < max_cmd_len) {
-                    self.cmd_buf[self.cmd_len] = c;
-                    self.cmd_len += 1;
-                }
+                if (self.cmd_len >= max_cmd_len) return .none;
+                std.mem.copyBackwards(
+                    u8,
+                    self.cmd_buf[self.cmd_cursor + 1 .. self.cmd_len + 1],
+                    self.cmd_buf[self.cmd_cursor..self.cmd_len],
+                );
+                self.cmd_buf[self.cmd_cursor] = c;
+                self.cmd_len += 1;
+                self.cmd_cursor += 1;
+                return .none;
+            },
+            .arrow_left => {
+                self.cmd_cursor -|= 1;
+                return .none;
+            },
+            .arrow_right => {
+                if (self.cmd_cursor < self.cmd_len) self.cmd_cursor += 1;
+                return .none;
+            },
+            .home => {
+                self.cmd_cursor = 0;
+                return .none;
+            },
+            .end => {
+                self.cmd_cursor = self.cmd_len;
+                return .none;
+            },
+            // bash/readline ctrl-w: eat trailing spaces, then the word
+            // behind the cursor.
+            .ctrl_w => {
+                var i = self.cmd_cursor;
+                while (i > 0 and self.cmd_buf[i - 1] == ' ') i -= 1;
+                while (i > 0 and self.cmd_buf[i - 1] != ' ') i -= 1;
+                const removed = self.cmd_cursor - i;
+                std.mem.copyForwards(
+                    u8,
+                    self.cmd_buf[i .. self.cmd_len - removed],
+                    self.cmd_buf[self.cmd_cursor..self.cmd_len],
+                );
+                self.cmd_len -= removed;
+                self.cmd_cursor = i;
                 return .none;
             },
             // Handled by App.handleKey before it reaches here (history
             // recall on up/down, tab-completion); nothing left to do here.
-            .arrow_up, .arrow_down, .arrow_left, .arrow_right, .tab, .ctrl_c => return .none,
+            .arrow_up, .arrow_down, .tab, .ctrl_c => return .none,
         }
     }
 };
@@ -263,6 +317,42 @@ test "command mode collects text until enter" {
     const action = input.handle(.enter);
     try std.testing.expectEqualStrings("wq", action.command_submit);
     try std.testing.expectEqual(Mode.normal, input.mode);
+}
+
+test "command mode: left/right move the cursor, chars and backspace act at it" {
+    var input: ModalInput = .{};
+    _ = press(&input, ":");
+    _ = press(&input, "bpm"); // "bpm", cursor at 3
+    _ = input.handle(.arrow_left);
+    _ = input.handle(.arrow_left); // cursor at 1, between 'b' and 'pm'
+    _ = press(&input, "X"); // insert mid-line -> "bXpm"
+    try std.testing.expectEqualStrings("bXpm", input.cmd_buf[0..input.cmd_len]);
+
+    _ = input.handle(.backspace); // deletes the 'X' just inserted -> "bpm"
+    try std.testing.expectEqualStrings("bpm", input.cmd_buf[0..input.cmd_len]);
+    try std.testing.expectEqual(@as(usize, 1), input.cmd_cursor);
+
+    // Right past the end clamps instead of overflowing.
+    for (0..10) |_| _ = input.handle(.arrow_right);
+    try std.testing.expectEqual(@as(usize, 3), input.cmd_cursor);
+    // Left past the start clamps at 0.
+    for (0..10) |_| _ = input.handle(.arrow_left);
+    try std.testing.expectEqual(@as(usize, 0), input.cmd_cursor);
+}
+
+test "command mode: home/end jump the cursor, ctrl-w deletes the word behind it" {
+    var input: ModalInput = .{};
+    _ = press(&input, ":");
+    _ = press(&input, "gain 1 -6");
+    _ = input.handle(.home);
+    try std.testing.expectEqual(@as(usize, 0), input.cmd_cursor);
+    _ = input.handle(.end);
+    try std.testing.expectEqual(@as(usize, 9), input.cmd_cursor);
+
+    _ = input.handle(.ctrl_w); // deletes "-6" -> "gain 1 "
+    try std.testing.expectEqualStrings("gain 1 ", input.cmd_buf[0..input.cmd_len]);
+    _ = input.handle(.ctrl_w); // eats the trailing space, then "1" -> "gain "
+    try std.testing.expectEqualStrings("gain ", input.cmd_buf[0..input.cmd_len]);
 }
 
 test "space toggles transport, escape cancels count" {

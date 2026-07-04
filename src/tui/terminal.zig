@@ -87,10 +87,12 @@ pub const Terminal = struct {
 };
 
 /// Decodes a batch of raw input bytes into keys. A lone 0x1b in the batch is
-/// the escape key; 0x1b followed by '[' is a CSI sequence — arrows decode to
-/// their own Key variants (not hjkl chars, so the modal layer can tell a real
-/// arrow press from someone typing those letters — see App.handleKey), other
-/// CSI sequences are dropped. Returns the number of keys written to `out`.
+/// the escape key; 0x1b followed by '[' is a CSI sequence — arrows, Home
+/// (xterm/alacritty's plain `ESC [ H`, not the `1~` form) and End (`ESC [ F`)
+/// decode to their own Key variants (not hjkl chars, so the modal layer can
+/// tell a real arrow press from someone typing those letters — see
+/// App.handleKey), other CSI sequences are dropped. Returns the number of
+/// keys written to `out`.
 pub fn decode(bytes: []const u8, out: []Key) usize {
     var count: usize = 0;
     var i: usize = 0;
@@ -110,6 +112,8 @@ pub fn decode(bytes: []const u8, out: []Key) usize {
                             'B' => .arrow_down,
                             'C' => .arrow_right,
                             'D' => .arrow_left,
+                            'H' => .home,
+                            'F' => .end,
                             else => null,
                         };
                         if (mapped) |k| {
@@ -138,6 +142,11 @@ pub fn decode(bytes: []const u8, out: []Key) usize {
                 count += 1;
                 i += 1;
             },
+            0x17 => {
+                out[count] = .ctrl_w;
+                count += 1;
+                i += 1;
+            },
             0x09 => {
                 out[count] = .tab;
                 count += 1;
@@ -154,16 +163,17 @@ pub fn decode(bytes: []const u8, out: []Key) usize {
     return count;
 }
 
-test "decode printable, enter, backspace, ctrl-c, tab" {
+test "decode printable, enter, backspace, ctrl-c, ctrl-w, tab" {
     var keys: [8]Key = undefined;
-    const n = decode("ab\r\x7f\x03\t", &keys);
-    try std.testing.expectEqual(@as(usize, 6), n);
+    const n = decode("ab\r\x7f\x03\x17\t", &keys);
+    try std.testing.expectEqual(@as(usize, 7), n);
     try std.testing.expectEqual(Key{ .char = 'a' }, keys[0]);
     try std.testing.expectEqual(Key{ .char = 'b' }, keys[1]);
     try std.testing.expectEqual(Key.enter, keys[2]);
     try std.testing.expectEqual(Key.backspace, keys[3]);
     try std.testing.expectEqual(Key.ctrl_c, keys[4]);
-    try std.testing.expectEqual(Key.tab, keys[5]);
+    try std.testing.expectEqual(Key.ctrl_w, keys[5]);
+    try std.testing.expectEqual(Key.tab, keys[6]);
 }
 
 test "lone escape vs CSI arrow sequences" {
@@ -182,4 +192,12 @@ test "lone escape vs CSI arrow sequences" {
 
     // unknown CSI (e.g. F1 variants) is dropped, not misread
     try std.testing.expectEqual(@as(usize, 0), decode("\x1b[15~", &keys));
+}
+
+test "decode Home/End CSI sequences" {
+    var keys: [8]Key = undefined;
+    const n = decode("\x1b[H\x1b[F", &keys);
+    try std.testing.expectEqual(@as(usize, 2), n);
+    try std.testing.expectEqual(Key.home, keys[0]);
+    try std.testing.expectEqual(Key.end, keys[1]);
 }
