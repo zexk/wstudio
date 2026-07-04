@@ -210,19 +210,26 @@ pub fn drawSpectrumView(
         .{ .idx = 78, .label = "20k" },
     };
 
-    var fi: usize = 0;
-    for (0..draw_bands) |band| {
-        if (fi < freq_labels.len and band == freq_labels[fi].idx) {
-            const label = freq_labels[fi].label;
-            if (band + label.len < draw_bands) {
-                try w.writeAll(label);
-                fi += 1;
-            } else {
-                try w.writeByte(' ');
-            }
-        } else {
-            try w.writeByte(' ');
-        }
+    // Pad each label out to its target bin (`idx`) by tracked column, not
+    // by looping one char per bin — a previous version wrote each label in
+    // a single step without advancing the loop past its extra characters,
+    // so every label after the first drifted right of its bin and the top
+    // "20k" (human hearing's upper edge) always landed past the terminal
+    // width and got dropped, even on normal-width terminals with room to
+    // spare.
+    var col: usize = 0;
+    for (freq_labels) |lbl| {
+        if (lbl.idx >= draw_bands) continue;
+        // Never start before one space past the previous label — "10k"/
+        // "20k" sit only two bins apart at the top of the range, closer
+        // than "10k" is wide, so clamp forward instead of dropping the
+        // tick entirely (still shows, just nudged off its exact bin).
+        const min_start = if (col == 0) lbl.idx else col + 1;
+        const start = @max(lbl.idx, min_start);
+        if (5 + start + lbl.label.len > cols) break;
+        for (col..start) |_| try w.writeByte(' ');
+        try w.writeAll(lbl.label);
+        col = start + lbl.label.len;
     }
     try endLine(w);
 
