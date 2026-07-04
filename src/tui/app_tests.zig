@@ -1848,6 +1848,22 @@ test ":metronome Tab cycles on/off; :master-comp Tab completes its sub-keywords"
     try std.testing.expectEqualStrings("master-comp thresh ", app.modal.cmd_buf[0..app.modal.cmd_len]);
 }
 
+test ":scale Tab cycles off, root pitch classes, then scale-type names" {
+    var app = try App.init(std.testing.allocator, std.Io.failing);
+    defer app.deinit();
+
+    for (":scale ") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.tab, 0);
+    try std.testing.expectEqualStrings("scale off", app.modal.cmd_buf[0..app.modal.cmd_len]);
+    app.handleKey(.tab, 0);
+    try std.testing.expectEqualStrings("scale C", app.modal.cmd_buf[0..app.modal.cmd_len]);
+    app.handleKey(.tab, 0);
+    try std.testing.expectEqualStrings("scale C#", app.modal.cmd_buf[0..app.modal.cmd_len]);
+    // Cycle through the remaining 10 pitch classes (D..B) to reach the scale-type names.
+    for (0..11) |_| app.handleKey(.tab, 0);
+    try std.testing.expectEqualStrings("scale major", app.modal.cmd_buf[0..app.modal.cmd_len]);
+}
+
 test "Tab does not complete a second argument token" {
     var app = try App.init(std.testing.allocator, std.Io.failing);
     defer app.deinit();
