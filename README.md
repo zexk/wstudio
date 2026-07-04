@@ -145,12 +145,24 @@ whatever font you already use.
 Open items, sorted by what most blocks an artist finishing (and keeping)
 a full song:
 
-- [ ] Parameter automation on the timeline
 - [ ] Audio clips: WAV clip playback on tracks
 - [ ] Native PipeWire and JACK backends behind the same interface
 - [ ] Plugin hosting (CLAP first)
 
 Done:
+
+- [x] Parameter automation on the timeline: track gain/pan, per arrangement
+      clip (Ableton-style envelopes, not one project-wide curve) — a new
+      breakpoint-grid view opened with `a` on a clip. `h`/`l` move the cursor
+      along the clip's own beat axis, `j`/`k` (`J`/`K` coarse) nudge the
+      value at the cursor (creating a point if none exists there), `x`
+      deletes a point, `tab` switches between the gain and pan curves.
+      Playback flattens every clip's points into a whole-song curve per
+      track and applies it live in song mode (falls back to the track's
+      manual gain/pan in pattern mode). Undo (`u`/`U`), mouse (click to move,
+      scroll to nudge), and yank/paste all work — the last two reuse the
+      arrangement's existing whole-lane snapshot and clip clipboard, since a
+      clip's automation now travels with it wherever the clip goes.
 
 - [x] Live recording from insert mode: `i` in the piano roll now enters
       insert mode instead of being blocked — while the transport is
