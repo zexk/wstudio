@@ -392,7 +392,7 @@ pub const App = struct {
             .sampler_editor => if (self.modal.mode != .normal or !sampler_ed.handleKey(self, key)) {
                 self.applyAction(self.modal.handle(key), now_ns);
             } else { self.modal.count = 0; },
-            .track_spectrum, .master_spectrum => if (!spectrum_ed.handleKey(self, key)) {
+            .track_spectrum, .master_spectrum => if (self.modal.mode == .command or !spectrum_ed.handleKey(self, key)) {
                 self.applyAction(self.modal.handle(key), now_ns);
             } else { self.modal.count = 0; },
             .piano_roll => if (self.modal.mode == .command or !piano_ed.handleKey(self, key)) {
