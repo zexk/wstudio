@@ -38,14 +38,11 @@ pub fn dispatch(cmds: []const Def, ctx: *anyopaque, text: []const u8) bool {
 /// Renders the `:` prompt shared by every view's status line: the typed
 /// buffer with a reverse-video block at `cursor` (mid-line when the user's
 /// moved it there with left/right/Home/End, otherwise a trailing blank cell
-/// like a real line cursor at the end). Before the first space, appends a
-/// dimmed, space-separated list of every command name still matching what's
-/// been typed so far — a single match already gets spelled out in full by
-/// Tab's completion, so the list only kicks in at 2+ matches (otherwise
-/// it'd just echo back the buffer). Once a space is typed and the name
-/// before it is an exact command, appends that command's usage `desc`
-/// instead (a reminder of argument order/shape while you type args). Both
-/// are capped at `max_chars` so they can't overflow the line.
+/// like a real line cursor at the end). Once a space is typed and the name
+/// before it is an exact command, appends that command's usage `desc` (a
+/// reminder of argument order/shape while you type args), capped at
+/// `max_chars`. The command-name match list lives in `writeSuggestionBox`
+/// instead of on this line — see that doc comment.
 pub fn writePrompt(w: *std.Io.Writer, cmds: []const Def, buf: []const u8, cursor: usize, max_chars: usize) !void {
     try w.writeAll(style.dim ++ " :" ++ style.rst);
     try w.writeAll(buf[0..cursor]);
@@ -59,35 +56,58 @@ pub fn writePrompt(w: *std.Io.Writer, cmds: []const Def, buf: []const u8, cursor
     }
 
     if (buf.len == 0) return;
-    if (std.mem.indexOfScalar(u8, buf, ' ')) |sp| {
-        const name = buf[0..sp];
-        for (cmds) |c| {
-            if (!std.mem.eql(u8, c.name, name)) continue;
-            try w.writeAll(style.dim ++ "  ");
-            try w.writeAll(c.desc[0..@min(c.desc.len, max_chars)]);
-            try w.writeAll(style.rst);
-            return;
-        }
+    const sp = std.mem.indexOfScalar(u8, buf, ' ') orelse return;
+    const name = buf[0..sp];
+    for (cmds) |c| {
+        if (!std.mem.eql(u8, c.name, name)) continue;
+        try w.writeAll(style.dim ++ "  ");
+        try w.writeAll(c.desc[0..@min(c.desc.len, max_chars)]);
+        try w.writeAll(style.rst);
         return;
     }
+}
 
-    var match_count: usize = 0;
+/// Number of command names starting with `buf` — 0 once a space has been
+/// typed (there's no fixed name list for arguments here). Below 2, Tab
+/// already spells the single match out in full, so no popup is needed.
+pub fn suggestionCount(cmds: []const Def, buf: []const u8) usize {
+    if (std.mem.indexOfScalar(u8, buf, ' ') != null) return 0;
+    var n: usize = 0;
     for (cmds) |c| {
-        if (std.mem.startsWith(u8, c.name, buf)) match_count += 1;
+        if (std.mem.startsWith(u8, c.name, buf)) n += 1;
     }
-    if (match_count < 2) return;
+    return n;
+}
 
-    try w.writeAll(style.dim ++ "  ");
-    var written: usize = 0;
+/// Rows `writeSuggestionBox` will actually draw for this `buf`, capped at
+/// `max_rows` — callers carve exactly this many rows out of the content
+/// area's budget before drawing it, so the popup never pushes the frame
+/// taller than the terminal.
+pub fn suggestionRows(cmds: []const Def, buf: []const u8, max_rows: usize) usize {
+    const n = suggestionCount(cmds, buf);
+    if (n < 2) return 0;
+    return @min(n, max_rows);
+}
+
+/// Neovim-wildmenu-style popup: every command name starting with `buf`,
+/// one per line, `selected` drawn as a solid reverse-video bar (index into
+/// the match list, not `cmds` — clamp/compare against `suggestionCount`).
+/// Truncates silently past `max_rows` (matching what `suggestionRows`
+/// reserved) rather than showing a "N more" line — narrowing the typed
+/// prefix is how the rest becomes reachable, same as Tab-cycling already
+/// requires for large match sets.
+pub fn writeSuggestionBox(w: *std.Io.Writer, cmds: []const Def, buf: []const u8, selected: usize, max_rows: usize) !void {
+    var idx: usize = 0;
     for (cmds) |c| {
         if (!std.mem.startsWith(u8, c.name, buf)) continue;
-        const sep_len: usize = if (written == 0) 0 else 2;
-        if (written + sep_len + c.name.len > max_chars) break;
-        if (written != 0) try w.writeAll("  ");
-        try w.writeAll(c.name);
-        written += sep_len + c.name.len;
+        if (idx >= max_rows) break;
+        const is_sel = idx == selected;
+        if (is_sel) try w.writeAll(style.sel);
+        try w.print("  {s: <16}", .{c.name});
+        if (is_sel) try w.writeAll(style.rst);
+        try style.endLine(w);
+        idx += 1;
     }
-    try w.writeAll(style.rst);
 }
 
 const test_cmds: []const Def = &.{
@@ -103,26 +123,40 @@ fn promptText(buf: []const u8, max_chars: usize, out: []u8) []const u8 {
     return w.buffered();
 }
 
-test "writePrompt lists 2+ matches but not a single match" {
-    var out: [128]u8 = undefined;
-    // "bpm" matches only itself — no list, just the echoed buffer.
-    try std.testing.expect(std.mem.indexOf(u8, promptText("bpm", 60, &out), "  bpm") == null);
-    // "q" matches q / qa / qa! — all three should appear.
-    const text = promptText("q", 60, &out);
-    try std.testing.expect(std.mem.indexOf(u8, text, "qa!") != null);
+test "suggestionCount/suggestionRows gate on 2+ matches and a space" {
+    // "bpm" matches only itself — no popup.
+    try std.testing.expectEqual(@as(usize, 1), suggestionCount(test_cmds, "bpm"));
+    try std.testing.expectEqual(@as(usize, 0), suggestionRows(test_cmds, "bpm", 10));
+    // "q" matches q / qa / qa!.
+    try std.testing.expectEqual(@as(usize, 3), suggestionCount(test_cmds, "q"));
+    try std.testing.expectEqual(@as(usize, 3), suggestionRows(test_cmds, "q", 10));
+    // Capped by max_rows.
+    try std.testing.expectEqual(@as(usize, 2), suggestionRows(test_cmds, "q", 2));
+    // A space means we're past the command name — no popup at all.
+    try std.testing.expectEqual(@as(usize, 0), suggestionCount(test_cmds, "q "));
+}
+
+test "writeSuggestionBox lists every match, one per line, highlighting `selected`" {
+    var out: [256]u8 = undefined;
+    var w: std.Io.Writer = .fixed(&out);
+    try writeSuggestionBox(&w, test_cmds, "q", 1, 10);
+    const text = w.buffered();
+    try std.testing.expect(std.mem.indexOf(u8, text, "q") != null);
     try std.testing.expect(std.mem.indexOf(u8, text, "qa") != null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "qa!") != null);
+    // Exactly one selected row (the reverse-video style appears once).
+    try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, text, style.sel));
+    // Selected row (index 1 = "qa") comes right after the reverse-video code.
+    const sel_at = std.mem.indexOf(u8, text, style.sel).?;
+    try std.testing.expect(std.mem.startsWith(u8, text[sel_at + style.sel.len ..], "  qa "));
 }
 
-test "writePrompt skips completion once a space is typed" {
-    var out: [128]u8 = undefined;
-    const text = promptText("q ", 60, &out);
+test "writeSuggestionBox truncates at max_rows" {
+    var out: [256]u8 = undefined;
+    var w: std.Io.Writer = .fixed(&out);
+    try writeSuggestionBox(&w, test_cmds, "q", 0, 1);
+    const text = w.buffered();
     try std.testing.expect(std.mem.indexOf(u8, text, "qa") == null);
-}
-
-test "writePrompt truncates to max_chars" {
-    var out: [128]u8 = undefined;
-    const text = promptText("q", 5, &out);
-    try std.testing.expect(std.mem.indexOf(u8, text, "qa!") == null);
 }
 
 test "writePrompt shows the usage hint once a space follows an exact command name" {

@@ -15,6 +15,7 @@ const terminal_mod = @import("terminal.zig");
 const Transport = ws.Transport;
 const DrumMachine = ws.dsp.DrumMachine;
 const commands = @import("commands.zig");
+const cmd_mod = @import("cmd.zig");
 const undo_mod = @import("undo.zig");
 const history = @import("history.zig");
 const tui = @import("tui.zig");
@@ -998,6 +999,23 @@ pub const App = struct {
         self.tab_cycle = tc;
     }
 
+    /// Which match `draw`'s command-name suggestion popup should highlight:
+    /// the in-progress Tab-cycle's index if `cmd_buf` still holds exactly
+    /// what that cycle last wrote there (same check `cycleCompletion` uses
+    /// to decide whether to continue a cycle), otherwise 0 — the top match,
+    /// matching Neovim's wildmenu highlighting the first candidate before
+    /// Tab has ever been pressed.
+    fn suggestionSelected(self: *const App) usize {
+        if (self.tab_cycle) |tc| {
+            if (tc.insert_at == 0 and tc.source == .command_name and
+                std.mem.eql(u8, tc.last_written, self.modal.cmd_buf[0..self.modal.cmd_len]))
+            {
+                return tc.index;
+            }
+        }
+        return 0;
+    }
+
     /// Fire a preview note and schedule its release ~220ms later (see `tick`).
     /// Pub for the editor modules' audition keys.
     pub fn playNote(self: *App, track: u16, pitch: u7, now_ns: i96) void {
@@ -1281,22 +1299,33 @@ pub const App = struct {
         const snap = self.session.engine.uiSnapshot();
         const rows: usize = @max(size.rows, 10);
 
+        // Command-mode's Tab-completion popup (see cmd.writeSuggestionBox)
+        // sits directly above the `:` prompt, drawn after the transport
+        // line's closing hr below. Carve its rows out of the content area's
+        // budget up front so the frame never grows taller than the terminal.
+        const max_suggestion_rows = 10;
+        const suggestion_rows: usize = if (self.modal.mode == .command)
+            cmd_mod.suggestionRows(commands.cmds, self.modal.cmd_buf[0..self.modal.cmd_len], max_suggestion_rows)
+        else
+            0;
+        const content_rows = rows -| suggestion_rows;
+
         try w.writeAll("\x1b[H");
         try tui.drawHeader(w, &self.session.project, &self.session.engine.transport, self.audio_label, self.master_gain_db, self.dirty);
         try tui.hr(w, size.cols);
 
         switch (self.view) {
-            .tracks          => try tui.drawTracks(self, w, rows, snap),
-            .drum_grid       => try tui.drawDrumGrid(self, w, rows, snap),
-            .synth_editor    => try tui.drawSynthEditor(self, w, rows, snap),
-            .sampler_editor  => try tui.drawSamplerEditor(self, w, rows, size.cols, snap),
-            .piano_roll      => try tui.drawPianoRoll(self, w, rows, size.cols, snap),
-            .help            => try tui.drawHelp(w, rows, commands.cmds, &self.help_scroll),
-            .track_spectrum  => try tui.drawSpectrumView(self, w, rows, size.cols, snap, true),
-            .master_spectrum => try tui.drawSpectrumView(self, w, rows, size.cols, snap, false),
-            .instrument_picker => try tui.drawInstrumentPicker(self, w, rows),
-            .arrangement     => try tui.drawArrangement(self, w, rows, size.cols, snap),
-            .file_browser    => try tui.drawFileBrowser(self, w, rows),
+            .tracks          => try tui.drawTracks(self, w, content_rows, snap),
+            .drum_grid       => try tui.drawDrumGrid(self, w, content_rows, snap),
+            .synth_editor    => try tui.drawSynthEditor(self, w, content_rows, snap),
+            .sampler_editor  => try tui.drawSamplerEditor(self, w, content_rows, size.cols, snap),
+            .piano_roll      => try tui.drawPianoRoll(self, w, content_rows, size.cols, snap),
+            .help            => try tui.drawHelp(w, content_rows, commands.cmds, &self.help_scroll),
+            .track_spectrum  => try tui.drawSpectrumView(self, w, content_rows, size.cols, snap, true),
+            .master_spectrum => try tui.drawSpectrumView(self, w, content_rows, size.cols, snap, false),
+            .instrument_picker => try tui.drawInstrumentPicker(self, w, content_rows),
+            .arrangement     => try tui.drawArrangement(self, w, content_rows, size.cols, snap),
+            .file_browser    => try tui.drawFileBrowser(self, w, content_rows),
         }
 
         var transport: Transport = .{
@@ -1333,6 +1362,16 @@ pub const App = struct {
         try tui.meter(w, snap.peak[1]);
         try tui.endLine(w);
         try tui.hr(w, size.cols);
+
+        if (suggestion_rows > 0) {
+            try cmd_mod.writeSuggestionBox(
+                w,
+                commands.cmds,
+                self.modal.cmd_buf[0..self.modal.cmd_len],
+                self.suggestionSelected(),
+                max_suggestion_rows,
+            );
+        }
 
         switch (self.view) {
             .tracks          => try tui.drawTracksStatus(self, w, commands.cmds),
