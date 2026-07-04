@@ -62,7 +62,9 @@ const AutomationPoint = automation_mod.AutomationPoint;
 /// and Session.rebuildSongData). Older files omit them and load with no
 /// automation — clips play at the track's manual gain/pan, the prior
 /// behaviour.
-pub const file_version: u32 = 7;
+/// v8 adds per-pad choke groups (`DrumSnap.choke_group`). Older files omit
+/// it and every pad loads ungrouped (group 0) — the prior behaviour.
+pub const file_version: u32 = 8;
 
 pub const AutomationPointSnap = struct {
     beat: f64,
@@ -178,6 +180,8 @@ pub const DrumSnap = struct {
     variant: u8 = 0,
     /// v4: swing percent (50 = straight … 75 = hardest shuffle).
     swing: f32 = 50.0,
+    /// v8: per-pad choke group (0 = none — see DrumMachine.chokeTrigger).
+    choke_group: [DrumMachine.max_pads]u8 = [_]u8{0} ** DrumMachine.max_pads,
 };
 
 pub const CompSnap = struct {
@@ -397,6 +401,7 @@ fn rackToSnap(aa: std.mem.Allocator, rack: *Rack, sample_rate: u32) !RackSnap {
                 .step_count = dm.step_count,
                 .variant = dm.variant,
                 .swing = dm.swing.load(.monotonic),
+                .choke_group = dm.choke_group,
             };
             for (&ds.pattern, 0..) |*p, i| p.* = dm.pattern[i].load(.acquire);
             const variants = try aa.alloc(VariantSnap, dm.variant_count);
@@ -814,6 +819,9 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
                         std.math.clamp(ds.swing, DrumMachine.swing_min, DrumMachine.swing_max),
                         .monotonic,
                     );
+                    for (ds.choke_group, &dmp.choke_group) |g, *dst| {
+                        dst.* = @min(g, DrumMachine.max_choke_groups);
+                    }
                     for (ds.pads, 0..) |ps, pi| {
                         applyPadSnap(&dmp.pads[pi].pad, ps);
                     }
@@ -1449,6 +1457,40 @@ test "buildSession: per-step velocity and swing round-trip" {
     const v = dm.variantData(0);
     try testing.expectEqual(@as(u32, 1 << 1), v.vel_lo[0]);
     try testing.expectEqual(@as(u32, 1 << 1), v.vel_hi[0]);
+}
+
+test "choke groups round-trip through DrumSnap; older files load ungrouped" {
+    const testing = std.testing;
+
+    var groups = [_]u8{0} ** DrumMachine.max_pads;
+    groups[2] = 1;
+    groups[3] = 1;
+    const snap: Snapshot = .{
+        .tracks = &.{.{ .name = "drums" }},
+        .racks = &.{.{
+            .label = "drums",
+            .kind = .drum_machine,
+            .drum = .{ .choke_group = groups },
+        }},
+    };
+    var session = try buildSession(testing.allocator, &snap);
+    defer session.deinit();
+    const dm = &session.racks.items[0].instrument.drum_machine;
+    try testing.expectEqual(@as(u8, 1), dm.choke_group[2]);
+    try testing.expectEqual(@as(u8, 1), dm.choke_group[3]);
+    try testing.expectEqual(@as(u8, 0), dm.choke_group[0]);
+
+    // A pre-v8 snapshot (default DrumSnap, no choke_group field set) must
+    // leave every pad ungrouped even though DrumMachine.init seeds a default
+    // hihat/open pairing — the load path is the source of truth.
+    const legacy: Snapshot = .{
+        .tracks = &.{.{ .name = "drums" }},
+        .racks = &.{.{ .label = "drums", .kind = .drum_machine, .drum = .{} }},
+    };
+    var legacy_session = try buildSession(testing.allocator, &legacy);
+    defer legacy_session.deinit();
+    const legacy_dm = &legacy_session.racks.items[0].instrument.drum_machine;
+    for (legacy_dm.choke_group) |g| try testing.expectEqual(@as(u8, 0), g);
 }
 
 test "clip snapshots carry the drum variant label" {

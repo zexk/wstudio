@@ -73,9 +73,13 @@ pub fn drawDrumGrid(app: anytype, w: *std.Io.Writer, rows: usize, snap: engine_m
     }
     try endLine(w);
 
+    // One tint per choke group so paired pads (e.g. closed/open hihat) read
+    // at a glance; ungrouped pads stay dim as before.
+    const choke_colors = [_][]const u8{ yel, mag, blu, red };
     for (0..DrumMachine.max_pads) |p| {
         const name = dm.padName(@intCast(p));
-        try w.writeAll(dim);
+        const group = dm.choke_group[p];
+        try w.writeAll(if (group != 0) choke_colors[(group - 1) % choke_colors.len] else dim);
         try w.print(" {s: <4} ", .{name[0..@min(name.len, 4)]});
         try w.writeAll(rst);
         for (0..step_count) |s| {
@@ -145,6 +149,10 @@ pub fn drawDrumStatus(app: anytype, w: *std.Io.Writer, cmds: []const cmd_mod.Def
     if (dm.stepActive(p, s)) {
         try w.writeAll(dim ++ "  vel " ++ rst);
         try w.print("{d}%", .{DrumMachine.velPercent(dm.stepVel(p, s))});
+    }
+    if (dm.choke_group[p] != 0) {
+        try w.writeAll(dim ++ "  choke " ++ rst);
+        try w.print("{d}", .{dm.choke_group[p]});
     }
     try w.writeAll("  ");
     try w.writeAll(bold);

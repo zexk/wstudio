@@ -24,6 +24,12 @@
 //! pad index encoded in the high nibble of the id) — same race-free path
 //! the synth editor uses.  The UI reads them for display without locking,
 //! matching the synth editor's convention.
+//!
+//! Pads can also be assigned to a choke group (0 = none, 1..max_choke_groups):
+//! triggering a pad silences every other pad sharing its group, the classic
+//! closed/open-hihat behaviour. `choke_group` is a plain per-pad array (same
+//! race-tolerant convention as `step_count` — control thread writes, audio
+//! thread reads, no atomics) nudged only by the rare `cycleChokeGroup` key.
 
 const std = @import("std");
 const types = @import("../core/types.zig");
@@ -55,6 +61,8 @@ pub const DrumMachine = struct {
     pub const max_steps: u8 = 32;
     /// Max pattern variants (A..H) one machine can hold.
     pub const max_variants: u8 = 8;
+    /// Max choke groups a pad can belong to (0 = no group, ungated).
+    pub const max_choke_groups: u8 = 4;
     /// Max clips one lane can hold for song-mode playback (see `song_clips`).
     pub const max_song_clips: u16 = 256;
 
@@ -133,6 +141,8 @@ pub const DrumMachine = struct {
     /// Swing percent (see `swing_min`/`swing_max`): where the off-beat 16th
     /// sits within its 8th-note pair. UI writes, audio thread reads.
     swing: std.atomic.Value(f32) = .init(50.0),
+    /// Per-pad choke group (0 = none). See `chokeTrigger`.
+    choke_group: [max_pads]u8 = [_]u8{0} ** max_pads,
 
     // ── Pattern variants (control thread only) ──────────────────────────────
     /// Bank slots. Slot `variant` is stale while active — read it through
@@ -192,6 +202,12 @@ pub const DrumMachine = struct {
             self.pads[i].pad.gain = slot.gain;
         }
 
+        // Default kit pads 2/3 (hihat/open) share choke group 1 — the
+        // classic pairing where an open hat ringing out gets cut by the
+        // next closed-hat hit.
+        self.choke_group[2] = 1;
+        self.choke_group[3] = 1;
+
         // Default groove: 4-on-the-floor house pattern
         self.pattern[0].store(0x1111, .monotonic); // kick: every beat
         self.pattern[1].store((1 << 4) | (1 << 12), .monotonic); // snare: beats 2, 4
@@ -222,6 +238,7 @@ pub const DrumMachine = struct {
         for (&out.vel_hi, 0..) |*p, i| p.store(self.vel_hi[i].load(.acquire), .monotonic);
         out.step_count = self.step_count;
         out.swing.store(self.swing.load(.monotonic), .monotonic);
+        out.choke_group = self.choke_group;
         out.variants = self.variants;
         out.variant_count = self.variant_count;
         out.variant = self.variant;
@@ -263,6 +280,13 @@ pub const DrumMachine = struct {
     pub fn adjustSwing(self: *DrumMachine, delta: f32) void {
         const s = std.math.clamp(self.swing.load(.monotonic) + delta, swing_min, swing_max);
         self.swing.store(s, .monotonic);
+    }
+
+    /// Step pad `pad`'s choke group forward: none → 1 → 2 → … → max → none.
+    /// Control thread; a mixer-style param, not undo-tracked (like swing).
+    pub fn cycleChokeGroup(self: *DrumMachine, pad: u8) void {
+        if (pad >= max_pads) return;
+        self.choke_group[pad] = (self.choke_group[pad] + 1) % (max_choke_groups + 1);
     }
 
     // -----------------------------------------------------------------------
@@ -580,8 +604,16 @@ pub const DrumMachine = struct {
     /// Trigger pad `p` at its own root (no chromatic shift) after clearing any
     /// voice already in flight — a retrigger always chokes the previous hit,
     /// the classic drum-machine convention, even though the underlying
-    /// Sampler is itself polyphonic.
+    /// Sampler is itself polyphonic. If `p` belongs to a choke group (nonzero
+    /// `choke_group`), every other pad sharing that group is silenced too
+    /// (e.g. a closed-hat hit cutting an open hat's ring-out).
     fn chokeTrigger(self: *DrumMachine, p: u8, vel: f32, block_start: u32) void {
+        const group = self.choke_group[p];
+        if (group != 0) {
+            for (&self.pads, 0..) |*other, i| {
+                if (i != p and self.choke_group[i] == group) other.resetAll();
+            }
+        }
         const pad = &self.pads[p];
         pad.resetAll();
         pad.trigger(pad.root_note, vel, block_start);
@@ -802,6 +834,44 @@ test "voice velocity scales the rendered level" {
 
     try std.testing.expect(peak_full > 0.01);
     try std.testing.expectApproxEqAbs(peak_full * 0.25, peak_quiet, 1e-4);
+}
+
+test "choke group silences other pads sharing it" {
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    defer dm.deinit();
+    dm.resetAll();
+
+    // Pads 4 and 5 share a fresh choke group; pad 6 is unrelated.
+    dm.choke_group[4] = 2;
+    dm.choke_group[5] = 2;
+
+    const dev = dm.device();
+    dev.sendEvent(.{ .note_on = .{ .note = 4, .velocity = 1.0 } });
+    try std.testing.expect(dm.pads[4].voices[0].active);
+
+    dev.sendEvent(.{ .note_on = .{ .note = 5, .velocity = 1.0 } });
+    try std.testing.expect(!dm.pads[4].voices[0].active); // choked by pad 5
+    try std.testing.expect(dm.pads[5].voices[0].active);
+
+    // An unrelated pad (no group) doesn't touch pad 5's still-ringing voice.
+    dev.sendEvent(.{ .note_on = .{ .note = 6, .velocity = 1.0 } });
+    try std.testing.expect(dm.pads[5].voices[0].active);
+}
+
+test "cycleChokeGroup wraps through none..max" {
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    defer dm.deinit();
+
+    try std.testing.expectEqual(@as(u8, 0), dm.choke_group[0]);
+    var i: u8 = 0;
+    while (i < DrumMachine.max_choke_groups) : (i += 1) {
+        dm.cycleChokeGroup(0);
+        try std.testing.expectEqual(i + 1, dm.choke_group[0]);
+    }
+    dm.cycleChokeGroup(0); // one more step wraps max → none
+    try std.testing.expectEqual(@as(u8, 0), dm.choke_group[0]);
 }
 
 test "swing delays the off-beat step" {

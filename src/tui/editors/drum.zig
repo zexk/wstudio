@@ -1,7 +1,7 @@
 //! Drum-grid input: step/pad cursor, step + velocity toggles, pattern
-//! variants, swing, yank/paste, visual-mode range select (v, then y/d/P).
-//! The render half lives in views/drum.zig; the machine itself in
-//! dsp/drum_sampler.zig.
+//! variants, swing, choke groups, yank/paste, visual-mode range select
+//! (v, then y/d/P). The render half lives in views/drum.zig; the machine
+//! itself in dsp/drum_sampler.zig.
 
 const std = @import("std");
 const ws = @import("wstudio");
@@ -75,6 +75,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 },
                 '<' => adjustSwing(app, -1.0),
                 '>' => adjustSwing(app, 1.0),
+                'G' => cycleChokeGroup(app, pad.*),
                 'X' => {
                     history.push(app, history.captureDrum(app, app.drum_track));
                     app.drumMachine().clearPad(pad.*);
@@ -285,6 +286,16 @@ fn adjustSwing(app: *App, delta: f32) void {
     dm.adjustSwing(delta);
     app.dirty = true;
     app.setStatus("swing {d:.0}%", .{dm.swing.load(.monotonic)});
+}
+
+/// Step the cursor pad's choke group forward (none → 1..max → none). A
+/// mixer-style param like swing — not undo-tracked.
+fn cycleChokeGroup(app: *App, pad: u8) void {
+    const dm = app.drumMachine();
+    dm.cycleChokeGroup(pad);
+    app.dirty = true;
+    const g = dm.choke_group[pad];
+    if (g == 0) app.setStatus("choke group: none", .{}) else app.setStatus("choke group: {d}", .{g});
 }
 
 /// Cycle the drum grid's active pattern variant, keeping the step cursor

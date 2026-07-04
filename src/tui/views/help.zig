@@ -129,6 +129,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("c",            "cycle step velocity (100/75/50/25%)");
     t.key("v",            "visual mode: select a step range (all pads) — y/d/P");
     t.key("< / >",        "less / more swing (50–75%)");
+    t.key("G",            "cycle current pad's choke group (none/1-4) — same-group pads cut each other off");
     t.key("p",            "preview pad sound");
     t.key("e",            "open sampler editor for current pad");
     t.key("s",            "spectrum + EQ for drum track");

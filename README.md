@@ -234,6 +234,7 @@ Done:
 - [x] Pattern copy/paste across tracks (`y`/`P` in piano roll and drum grid)
 - [x] Play-from-cursor in the arrangement view (`g`)
 - [x] Drum grid per-step velocity (100/75/50/25%) and swing (50–75%)
+- [x] Per-pad choke groups (`G` in the drum grid) — same-group pads cut each other off
 - [x] TUI frontend wiring the modal input layer to a real terminal
 - [x] Native audio backend (ALSA; PipeWire serves it on modern systems)
 - [x] Song mode: arrangement timeline with per-track clips
