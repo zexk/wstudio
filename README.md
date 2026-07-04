@@ -27,9 +27,9 @@ plugin hunting before the first note.
 Early but live, and audible. `wstudio` opens a TUI with a single blank
 track; press `enter` to pick an instrument (synth, sampler, or drum
 machine) and a per-track FX rack. Vim-style modal control drives it,
-with live keyboard playing through ALSA (PipeWire/PulseAudio serve its
-`default` device, so any desktop works; a silent wall-clock backend
-takes over when no device exists).
+with live keyboard playing through ALSA on Linux (PipeWire/PulseAudio
+serve its `default` device, so any desktop works) or WASAPI on Windows;
+a silent wall-clock backend takes over when no device exists.
 
 - `wstudio`: new, empty session (one blank track)
 - `wstudio demo.wsj`: the curated four-track demo (lead, e-piano, bass, drums),
@@ -66,7 +66,9 @@ src/
 │   └── modal.zig       vim-style modal input: modes, counts, sequences,
 │                       piano key layout; pure state machine, UI-agnostic
 ├── tui/
-│   ├── terminal.zig    raw mode, ANSI frames, input decoding (zero deps)
+│   ├── terminal.zig    raw mode + ANSI frames (POSIX termios)
+│   ├── terminal_windows.zig  same, via the Windows Console VT100 mode
+│   ├── input_decode.zig  ANSI/VT byte decoding shared by both terminals
 │   ├── app.zig         TUI app: action dispatch, run loop
 │   ├── commands.zig    the `:command` layer (table-driven via cmd.zig)
 │   ├── style.zig       shared palette and output primitives
@@ -97,6 +99,7 @@ src/
     ├── backend.zig     backend interface, offline renderer,
     │                   real-time-paced null backend
     ├── alsa.zig        ALSA playback backend (device-clock paced)
+    ├── wasapi.zig      WASAPI playback backend (Windows, event-driven)
     └── midi_in.zig     ALSA sequencer MIDI input (virtual port)
 ```
 
@@ -123,6 +126,7 @@ zig build genkit     # re-render the embedded drum kit (after editing drum_kit.z
 zig build gendemo    # re-write demo.wsj (after editing tools/gendemo.zig)
 zig build install-font # install the TUI's icon font (see below)
 nix build            # packaged build via zig.hook
+zig build -Dtarget=x86_64-windows-gnu  # cross-compile the Windows build
 ```
 
 ### Icons
@@ -151,6 +155,8 @@ a full song:
 
 Done:
 
+- [x] Windows build: WASAPI playback backend and a Windows Console
+      (VT100) terminal, cross-compiled with `-Dtarget=x86_64-windows-gnu`
 - [x] Drum pad rename (`R` in the drum grid, `:pad-rename <n> <name>`):
       a shipped-kit pad ("kick") can become "808" without loading a new
       sample — persists independent of the loaded audio

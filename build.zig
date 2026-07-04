@@ -18,6 +18,12 @@ pub fn build(b: *std.Build) void {
         // zig's translate-c on @cImport of alsa headers
         wstudio_mod.addCMacro("_FORTIFY_SOURCE", "0");
     }
+    if (target.result.os.tag == .windows) {
+        wstudio_mod.link_libc = true;
+        // CoCreateInstance/CoInitializeEx/CoUninitialize for the WASAPI
+        // backend; kernel32/user32 are linked by default.
+        wstudio_mod.linkSystemLibrary("ole32", .{});
+    }
 
     const exe = b.addExecutable(.{
         .name = "wstudio",

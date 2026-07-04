@@ -3,15 +3,24 @@
 //! synth -> compressor -> delay -> reverb, bounced to a WAV.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const ws = @import("wstudio");
 
 pub fn main(init: std.process.Init) !void {
-    var args = std.process.Args.Iterator.init(init.minimal.args);
+    var args = try std.process.Args.Iterator.initAllocator(init.minimal.args, init.gpa);
+    defer args.deinit();
     _ = args.skip(); // argv0
+
+    // Copied out of the iterator's own buffer (freed by defer above, and
+    // owned by the OS on POSIX) rather than borrowed, so it stays valid
+    // for the life of the run below.
+    var path_buf: [256]u8 = undefined;
     var init_path: ?[]const u8 = null;
     if (args.next()) |cmd| {
         if (std.mem.eql(u8, cmd, "render")) return renderDemo(init.gpa, init.io);
-        init_path = cmd; // treat as project file
+        const len = @min(cmd.len, path_buf.len);
+        @memcpy(path_buf[0..len], cmd[0..len]);
+        init_path = path_buf[0..len];
     }
     return @import("tui/app.zig").run(init.gpa, init.io, init_path);
 }
@@ -122,7 +131,12 @@ fn renderDemo(allocator: std.mem.Allocator, io: std.Io) !void {
 test {
     _ = @import("tui/app.zig");
     _ = @import("tui/tui.zig");
-    _ = @import("tui/terminal.zig");
+    _ = @import("tui/input_decode.zig");
+    if (builtin.os.tag == .windows) {
+        _ = @import("tui/terminal_windows.zig");
+    } else {
+        _ = @import("tui/terminal.zig");
+    }
     _ = @import("tui/icons.zig");
 }
 

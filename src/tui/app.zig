@@ -11,7 +11,7 @@ const types = ws.types;
 const engine_mod = ws.engine;
 const backend_mod = ws.backend;
 const modal_mod = ws.input;
-const terminal_mod = @import("terminal.zig");
+const terminal_mod = if (builtin.os.tag == .windows) @import("terminal_windows.zig") else @import("terminal.zig");
 const Transport = ws.Transport;
 const DrumMachine = ws.dsp.DrumMachine;
 const commands = @import("commands.zig");
@@ -1692,33 +1692,39 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8) !vo
     var config: backend_mod.Config = .{ .sample_rate = app.session.project.sample_rate };
 
     const has_alsa = builtin.os.tag == .linux;
-    const AlsaBackend = if (has_alsa) ws.alsa.AlsaBackend else void;
-    const MidiIn     = if (has_alsa) ws.midi_in.MidiIn else void;
-    var alsa_backend: AlsaBackend = undefined;
-    var midi_in:     MidiIn       = undefined;
+    const has_wasapi = builtin.os.tag == .windows;
+    const NativeBackend = if (has_alsa) ws.alsa.AlsaBackend else if (has_wasapi) ws.wasapi.WasapiBackend else void;
+    const MidiIn        = if (has_alsa) ws.midi_in.MidiIn else void;
+    var native_backend: NativeBackend = undefined;
+    var midi_in:        MidiIn        = undefined;
     var null_backend = backend_mod.NullBackend{
         .config = config,
         .render = renderTrampoline,
         .ctx = app.session.engine,
     };
 
-    var using_alsa = false;
+    var using_native = false;
     var using_midi = false;
     if (has_alsa) {
-        alsa_backend = .{ .config = config, .render = renderTrampoline, .ctx = app.session.engine };
-        if (alsa_backend.start()) {
-            using_alsa = true;
+        native_backend = .{ .config = config, .render = renderTrampoline, .ctx = app.session.engine };
+        if (native_backend.start()) {
+            using_native = true;
         } else |_| {}
 
         midi_in = .{ .engine = app.session.engine };
         if (midi_in.start()) {
             using_midi = true;
         } else |_| {}
+    } else if (has_wasapi) {
+        native_backend = .{ .config = config, .render = renderTrampoline, .ctx = app.session.engine };
+        if (native_backend.start()) {
+            using_native = true;
+        } else |_| {}
     }
-    if (!using_alsa) try null_backend.start(io);
-    defer if (using_alsa) alsa_backend.stop() else null_backend.stop();
-    defer if (using_midi) midi_in.stop();
-    app.audio_label = if (using_alsa) "alsa" else "none (silent)";
+    if (!using_native) try null_backend.start(io);
+    defer if (using_native) native_backend.stop() else null_backend.stop();
+    defer if (has_alsa) { if (using_midi) midi_in.stop(); };
+    app.audio_label = if (using_native) (if (has_alsa) "alsa" else "wasapi") else "none (silent)";
 
     var frame_buf: [32 * 1024]u8 = undefined;
     var input_buf: [128]u8 = undefined;
@@ -1763,8 +1769,8 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8) !vo
                 },
             };
             if (new_session) |loaded| {
-                if (using_alsa) alsa_backend.stop() else null_backend.stop();
-                if (using_midi) midi_in.stop();
+                if (using_native) native_backend.stop() else null_backend.stop();
+                if (has_alsa) { if (using_midi) midi_in.stop(); }
 
                 app.session.deinit();
                 app.session = loaded;
@@ -1776,18 +1782,21 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8) !vo
 
                 config = .{ .sample_rate = app.session.project.sample_rate };
                 null_backend = .{ .config = config, .render = renderTrampoline, .ctx = app.session.engine };
-                using_alsa = false;
+                using_native = false;
                 using_midi = false;
                 if (has_alsa) {
-                    alsa_backend = .{ .config = config, .render = renderTrampoline, .ctx = app.session.engine };
-                    if (alsa_backend.start()) { using_alsa = true; } else |_| {}
+                    native_backend = .{ .config = config, .render = renderTrampoline, .ctx = app.session.engine };
+                    if (native_backend.start()) { using_native = true; } else |_| {}
                     midi_in = .{ .engine = app.session.engine };
                     if (midi_in.start()) { using_midi = true; } else |_| {}
+                } else if (has_wasapi) {
+                    native_backend = .{ .config = config, .render = renderTrampoline, .ctx = app.session.engine };
+                    if (native_backend.start()) { using_native = true; } else |_| {}
                 }
                 // A restart failure here just leaves the session silent
                 // rather than tearing down the whole running app.
-                if (!using_alsa) null_backend.start(io) catch {};
-                app.audio_label = if (using_alsa) "alsa" else "none (silent)";
+                if (!using_native) null_backend.start(io) catch {};
+                app.audio_label = if (using_native) (if (has_alsa) "alsa" else "wasapi") else "none (silent)";
                 switch (kind) {
                     .load => app.setStatus("loaded: {s}", .{app.projectPath().?}),
                     .blank => app.setStatus("new project", .{}),
@@ -1799,7 +1808,7 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8) !vo
         // MIDI input follows the TUI cursor so live playing always targets the
         // currently selected track. Written from the UI thread, read (monotonic)
         // in the MIDI reader thread.
-        if (using_midi) midi_in.active_track.store(@intCast(app.cursor), .monotonic);
+        if (has_alsa) { if (using_midi) midi_in.active_track.store(@intCast(app.cursor), .monotonic); }
 
         var w = std.Io.Writer.fixed(&frame_buf);
         app.draw(&w, term.size()) catch {};

@@ -22,6 +22,10 @@ pub const alsa = if (@import("builtin").os.tag == .linux)
     @import("audio/alsa.zig")
 else
     struct {};
+pub const wasapi = if (@import("builtin").os.tag == .windows)
+    @import("audio/wasapi.zig")
+else
+    struct {};
 pub const midi_in = if (@import("builtin").os.tag == .linux)
     @import("audio/midi_in.zig")
 else
@@ -58,6 +62,7 @@ test {
     _ = engine;
     _ = backend;
     _ = alsa;
+    _ = wasapi;
     _ = dsp;
     _ = Session;
     _ = persist;
