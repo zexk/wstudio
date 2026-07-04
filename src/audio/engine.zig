@@ -528,6 +528,68 @@ test "metronome accents beat 1 of every bar" {
     try std.testing.expect(engine.metronome.is_accent);
 }
 
+test "record count-in clicks immediately, keeps the transport stopped, then starts on the beat" {
+    var engine = try Engine.init(std.testing.allocator, 48_000);
+    defer engine.deinit();
+    _ = engine.send(.record);
+
+    // 512-Sample blocks are stereo-interleaved -> 256 frames/block. 120bpm
+    // 4/4 at 48kHz is 96_000 frames (375 blocks) per bar.
+    var block: [512]Sample = undefined;
+    engine.process(&block); // clicks the downbeat immediately
+    try std.testing.expect(engine.peak[0] > 0.0);
+    try std.testing.expect(!engine.transport.playing);
+
+    for (0..98) |_| engine.process(&block); // 99 blocks total = 25_344 frames — well short
+    try std.testing.expect(!engine.transport.playing);
+
+    for (0..300) |_| engine.process(&block); // +76_800 frames — comfortably past the bar
+    try std.testing.expect(engine.transport.playing);
+    try std.testing.expectEqual(@as(u64, 0), engine.pre_roll_frames_remaining);
+}
+
+test "record count-in clicks even when the regular metronome is off" {
+    var engine = try Engine.init(std.testing.allocator, 48_000);
+    defer engine.deinit();
+    try std.testing.expect(!engine.metronome_enabled);
+
+    _ = engine.send(.record);
+    var block: [512]Sample = undefined;
+    engine.process(&block);
+    try std.testing.expect(engine.peak[0] > 0.0);
+}
+
+test "stop cancels an in-flight record count-in" {
+    var engine = try Engine.init(std.testing.allocator, 48_000);
+    defer engine.deinit();
+    _ = engine.send(.record);
+    var block: [512]Sample = undefined;
+    engine.process(&block);
+    try std.testing.expect(engine.pre_roll_frames_remaining > 0);
+
+    _ = engine.send(.stop);
+    engine.process(&block);
+    try std.testing.expectEqual(@as(u64, 0), engine.pre_roll_frames_remaining);
+    try std.testing.expect(!engine.transport.playing);
+}
+
+test "uiSnapshot reports pre_rolling during count-in, then playing once it completes" {
+    var engine = try Engine.init(std.testing.allocator, 48_000);
+    defer engine.deinit();
+    _ = engine.send(.record);
+
+    var block: [512]Sample = undefined;
+    engine.process(&block);
+    var snap = engine.uiSnapshot();
+    try std.testing.expect(snap.pre_rolling);
+    try std.testing.expect(!snap.playing);
+
+    for (0..400) |_| engine.process(&block); // well past the one-bar count-in (375 blocks)
+    snap = engine.uiSnapshot();
+    try std.testing.expect(!snap.pre_rolling);
+    try std.testing.expect(snap.playing);
+}
+
 test "mute command silences a track" {
     var synth = PolySynth.init(48_000);
     var engine = try Engine.init(std.testing.allocator, 48_000);

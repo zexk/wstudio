@@ -169,6 +169,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("n / d",        "insert / delete note at cursor (aliases)");
     t.key("p",            "preview note at cursor");
     t.key("i",            "insert mode: play the qwerty piano (a-row/q-row, z/x octave)");
+    t.key("(insert) space","start recording — clicks a one-bar count-in first if stopped");
     t.key("(insert) esc", "back to normal — while playing, notes recorded at the playhead");
     t.key("< / >",        "decrease / increase velocity of note at cursor (count-scaled)");
     t.key("e",            "open synth editor for this track");

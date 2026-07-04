@@ -217,6 +217,12 @@ pub const ModalInput = struct {
                 if (self.octave < 8) self.octave += 1;
                 return .octave_up;
             },
+            // Not a piano key (space is never mapped in noteForChar, unlike
+            // z/x carved out above) — free to double as the same transport
+            // toggle normal mode uses, so starting/stopping playback (and,
+            // in the piano roll, arming a recording) doesn't need dropping
+            // out of insert mode first.
+            ' ' => return .toggle_play,
             else => {
                 if (noteForChar(c, self.octave)) |pitch| {
                     return .{ .note = .{ .pitch = pitch } };
@@ -328,6 +334,14 @@ test "insert mode plays the keyboard as a piano" {
     try std.testing.expectEqual(Action{ .note = .{ .pitch = 48 } }, press(&input, "a")); // C3
     try std.testing.expectEqual(Action.octave_up, press(&input, "x")); // x = oct up
     try std.testing.expectEqual(Action{ .mode_changed = .normal }, input.handle(.escape));
+}
+
+test "space toggles the transport in insert mode too, without leaving it" {
+    var input: ModalInput = .{};
+    _ = press(&input, "i");
+    try std.testing.expectEqual(Action.toggle_play, press(&input, " "));
+    try std.testing.expectEqual(Mode.insert, input.mode); // still playable afterward
+    try std.testing.expectEqual(Action{ .note = .{ .pitch = 60 } }, press(&input, "a"));
 }
 
 test "command mode collects text until enter" {

@@ -1082,6 +1082,44 @@ test "piano roll insert mode records a take at the playhead while playing" {
     try std.testing.expectEqual(@as(u16, 1), pp.note_count); // 'h' didn't record another note
 }
 
+test "space in piano-roll insert mode arms a count-in instead of recording from beat one" {
+    var app = try testApp();
+    defer app.deinit();
+    app.handleKey(.{ .char = 'p' }, 0); // open piano roll on the synth track
+    app.handleKey(.{ .char = 'i' }, 0);
+    try std.testing.expectEqual(ws.input.Mode.insert, app.modal.mode);
+
+    app.handleKey(.{ .char = ' ' }, 0); // space, stopped -> arms the count-in
+    var block: [64]types.Sample = undefined;
+    app.session.engine.process(&block);
+    var snap = app.session.engine.uiSnapshot();
+    try std.testing.expect(snap.pre_rolling);
+    try std.testing.expect(!snap.playing);
+
+    // A second space cancels it rather than stacking another count-in.
+    app.handleKey(.{ .char = ' ' }, 0);
+    app.session.engine.process(&block);
+    snap = app.session.engine.uiSnapshot();
+    try std.testing.expect(!snap.pre_rolling);
+    try std.testing.expect(!snap.playing);
+}
+
+test "space in piano-roll insert mode just stops when already playing (no count-in)" {
+    var app = try testApp();
+    defer app.deinit();
+    app.handleKey(.{ .char = 'p' }, 0);
+    _ = app.session.engine.send(.play);
+    var block: [64]types.Sample = undefined;
+    app.session.engine.process(&block); // flushes + publishes playing=true
+    app.handleKey(.{ .char = 'i' }, 0);
+
+    app.handleKey(.{ .char = ' ' }, 0); // already playing -> plain stop
+    app.session.engine.process(&block);
+    const snap = app.session.engine.uiSnapshot();
+    try std.testing.expect(!snap.playing);
+    try std.testing.expect(!snap.pre_rolling);
+}
+
 test "piano roll insert mode previews without recording while the transport is stopped" {
     var app = try testApp();
     defer app.deinit();
