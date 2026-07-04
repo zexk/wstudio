@@ -44,6 +44,12 @@ pub const Session = struct {
     /// engine via `set_metronome` — same pattern as `loop_enabled`/`song_mode`.
     /// A monitoring aid, not song content, so it isn't persisted.
     metronome_enabled: bool = false,
+    /// Master bus FX (comp/eq/delay/reverb), applied to the summed mix before
+    /// the master gain and always-on limiter — same `Fx` shape as a track's
+    /// rack, so any of the four stages plugs in the same way. Persisted
+    /// (`Snapshot.master_fx`, see persist.zig). Push param/membership changes
+    /// to the audio thread with `syncMasterChain`.
+    master_fx: rack_mod.Fx = .{},
 
     /// Build the default session: a single blank track. Instruments are added
     /// per-track via `setInstrument`; the shipped `demo.wsj` is the curated
@@ -326,6 +332,15 @@ pub const Session = struct {
         _ = self.engine.send(.{ .set_metronome = on });
     }
 
+    /// Push the master bus's active FX stages (in signal-flow order) to the
+    /// audio thread. Call after adding, removing, or toggling a master FX
+    /// module — same idea as `setTrackChain`, but the master bus has no
+    /// instrument slot, just `master_fx`.
+    pub fn syncMasterChain(self: *Session) void {
+        var buf: [4]dsp.Device = undefined;
+        self.engine.setMasterChain(self.master_fx.chain(&buf));
+    }
+
     /// Push the project's A/B loop region (bars) to the audio thread as
     /// frames. Call after editing the loop or anything its bar math depends
     /// on (tempo, time signature).
@@ -408,6 +423,7 @@ pub const Session = struct {
     }
 
     pub fn deinit(self: *Session) void {
+        self.master_fx.deinit(self.allocator);
         self.arrangement.deinit(self.allocator);
         for (self.racks.items) |r| { r.deinit(self.allocator); self.allocator.destroy(r); }
         self.racks.deinit(self.allocator);
@@ -705,4 +721,19 @@ test "setMetronome mirrors to the engine" {
 
     s.setMetronome(false);
     try std.testing.expect(!s.metronome_enabled);
+}
+
+test "syncMasterChain pushes master_fx's active stages to the engine" {
+    var s = try Session.initDefault(std.testing.allocator);
+    defer s.deinit();
+    try std.testing.expectEqual(@as(usize, 0), s.engine.master_chain_len);
+
+    s.master_fx.comp = @import("dsp/compressor.zig").Compressor.init(s.project.sample_rate);
+    s.master_fx.eq = @import("dsp/eq.zig").GraphicEq.init(s.project.sample_rate);
+    s.syncMasterChain();
+    try std.testing.expectEqual(@as(usize, 2), s.engine.master_chain_len);
+
+    s.master_fx.comp = null;
+    s.syncMasterChain();
+    try std.testing.expectEqual(@as(usize, 1), s.engine.master_chain_len);
 }

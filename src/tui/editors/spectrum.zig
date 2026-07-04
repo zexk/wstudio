@@ -36,17 +36,21 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             'h' => { app.eq_cursor -|= @intCast(app.takeCount()); },
             'l' => { app.eq_cursor = @min(app.eq_cursor + @as(usize, @intCast(app.takeCount())), eq_mod.num_eq_bands - 1); },
             'j', 'J' => {
+                const n: f32 = @floatFromInt(app.takeCount());
+                const delta: f32 = n * if (c == 'J') @as(f32, -6.0) else -1.0;
                 if (app.view == .track_spectrum and app.eq_track < app.session.racks.items.len) {
-                    const n: f32 = @floatFromInt(app.takeCount());
-                    const delta: f32 = n * if (c == 'J') @as(f32, -6.0) else -1.0;
                     setEqBand(app, app.eq_track, app.eq_cursor, currentEqGain(app, app.eq_track) + delta);
+                } else if (app.view == .master_spectrum) {
+                    setMasterEqBand(app, app.eq_cursor, currentMasterEqGain(app) + delta);
                 }
             },
             'k', 'K' => {
+                const n: f32 = @floatFromInt(app.takeCount());
+                const delta: f32 = n * if (c == 'K') @as(f32, 6.0) else 1.0;
                 if (app.view == .track_spectrum and app.eq_track < app.session.racks.items.len) {
-                    const n: f32 = @floatFromInt(app.takeCount());
-                    const delta: f32 = n * if (c == 'K') @as(f32, 6.0) else 1.0;
                     setEqBand(app, app.eq_track, app.eq_cursor, currentEqGain(app, app.eq_track) + delta);
+                } else if (app.view == .master_spectrum) {
+                    setMasterEqBand(app, app.eq_cursor, currentMasterEqGain(app) + delta);
                 }
             },
             'b' => {
@@ -56,6 +60,12 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                         app.dirty = true;
                         var buf: [6]dsp.Device = undefined;
                         app.session.engine.setTrackChain(app.eq_track, app.session.racks.items[app.eq_track].chain(&buf));
+                    }
+                } else if (app.view == .master_spectrum) {
+                    if (app.session.master_fx.eq) |*eq| {
+                        eq.bypass = !eq.bypass;
+                        app.dirty = true;
+                        app.session.syncMasterChain();
                     }
                 }
             },
@@ -81,4 +91,19 @@ pub fn setEqBand(app: *App, track: u16, band: usize, gain_db: f32) void {
     app.dirty = true;
     var buf: [6]dsp.Device = undefined;
     app.session.engine.setTrackChain(track, rack.chain(&buf));
+}
+
+fn currentMasterEqGain(app: *App) f32 {
+    if (app.session.master_fx.eq) |*e| return e.bands[app.eq_cursor].gain_db;
+    return 0.0;
+}
+
+/// Same as `setEqBand` but for the master bus — no track index, and pushes
+/// the change through `Session.syncMasterChain` instead of `setTrackChain`.
+pub fn setMasterEqBand(app: *App, band: usize, gain_db: f32) void {
+    if (app.session.master_fx.eq == null)
+        app.session.master_fx.eq = GraphicEq.init(app.session.project.sample_rate);
+    app.session.master_fx.eq.?.setBand(band, gain_db);
+    app.dirty = true;
+    app.session.syncMasterChain();
 }

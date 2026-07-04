@@ -68,6 +68,11 @@ pub const Engine = struct {
     /// Always-on master-bus limiter: catches hot mixes before the WAV
     /// writer's ±1 clamp (and the DAC) turns them into hard-clip distortion.
     limiter: Limiter,
+    /// User-configurable master bus FX (comp/eq/delay/reverb), applied to the
+    /// summed mix before `master_gain` and the always-on limiter. Devices are
+    /// fat pointers into `Session.master_fx` — see `setMasterChain`.
+    master_chain: [4]dsp.Device = undefined,
+    master_chain_len: usize = 0,
     metronome: Metronome,
     metronome_enabled: bool = false,
     /// Monotonic count of beats fired so far — same resync-on-discontinuity
@@ -220,6 +225,15 @@ pub const Engine = struct {
         }
     }
 
+    /// Same shape as `setTrackChain` but for the master bus — no instrument
+    /// slot, just whichever FX stages `Session.master_fx` has active.
+    pub fn setMasterChain(self: *Engine, devices: []const dsp.Device) void {
+        self.master_chain_len = @min(devices.len, self.master_chain.len);
+        for (devices[0..self.master_chain_len], self.master_chain[0..self.master_chain_len]) |src, *dst| {
+            dst.* = src;
+        }
+    }
+
     pub fn send(self: *Engine, cmd: Command) bool {
         return self.commands.push(cmd);
     }
@@ -232,6 +246,8 @@ pub const Engine = struct {
         @memset(out, 0.0);
         self.renderTracks(out, frames);
         if (self.metronome_enabled) self.fireMetronome(out, frames);
+
+        for (self.master_chain[0..self.master_chain_len]) |dev| dev.process(out);
 
         for (out) |*s| s.* *= self.master_gain;
         self.limiter.processBlock(out);
@@ -377,6 +393,7 @@ pub const Engine = struct {
 
 const PolySynth = @import("../dsp/synth.zig").PolySynth;
 const DrumMachine = @import("../dsp/drum_sampler.zig").DrumMachine;
+const Compressor = @import("../dsp/compressor.zig").Compressor;
 
 test "notes sound even while transport is stopped (live preview)" {
     var synth = PolySynth.init(48_000);
@@ -464,6 +481,37 @@ test "master limiter keeps a hot mix under the ceiling" {
     }
     try std.testing.expect(loudest > 0.5); // audible…
     try std.testing.expect(loudest <= engine.limiter.ceiling + 1e-4); // …not clipped
+}
+
+test "master FX chain processes the summed mix before gain/limiter" {
+    var synth = PolySynth.init(48_000);
+    var engine = try Engine.init(std.testing.allocator, 48_000);
+    defer engine.deinit();
+    engine.tracks[0] = .{ .active = true };
+    engine.setTrackChain(0, &.{synth.device()});
+    _ = engine.send(.{ .note_on = .{ .track = 0, .note = 60, .velocity = 1.0 } });
+
+    var block: [512]Sample = undefined;
+    for (0..4) |_| engine.process(&block); // let the synth's envelope settle in
+    var loud: f32 = 0.0;
+    for (block) |s| loud = @max(loud, @abs(s));
+
+    // A master compressor riding near-instantly on a very low threshold and
+    // steep ratio should crush the level well below the uncompressed pass.
+    var comp = Compressor.init(48_000);
+    comp.threshold_db = -60.0;
+    comp.ratio = 20.0;
+    comp.attack_ms = 0.1;
+    comp.release_ms = 0.1;
+    engine.setMasterChain(&.{comp.device()});
+
+    var block2: [512]Sample = undefined;
+    for (0..4) |_| engine.process(&block2);
+    var quiet: f32 = 0.0;
+    for (block2) |s| quiet = @max(quiet, @abs(s));
+
+    try std.testing.expect(loud > 0.05);
+    try std.testing.expect(quiet < loud * 0.5);
 }
 
 test "solo silences other tracks but keeps the soloed one" {

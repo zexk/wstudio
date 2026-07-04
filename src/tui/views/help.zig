@@ -195,6 +195,8 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("j / k",        "decrease / increase band gain (1 dB)");
     t.key("J / K",        "decrease / increase band gain (6 dB)");
     t.key("b",            "bypass EQ toggle");
+    t.key(":master-eq",   "[<band> <db>]  same, from the : prompt (M opens the live editor)");
+    t.key(":master-comp", "on|off|thresh|ratio|attack|release|makeup <value>  master bus compressor");
 }
 
 /// Renders a scroll window of the help text. `scroll` is clamped in place so

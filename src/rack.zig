@@ -50,7 +50,9 @@ pub const Instrument = union(enum) {
 pub const InstrumentKind = std.meta.Tag(Instrument);
 
 /// Fixed set of optional signal processors applied in series after the
-/// instrument. Order in chain(): comp → eq → delay → reverb.
+/// instrument. Order in chain(): comp → eq → delay → reverb. Shared by every
+/// track's Rack and the engine's master bus (Session.master_fx) — the same
+/// four stages plug into either one the same way, in the same order.
 pub const Fx = struct {
     eq: ?GraphicEq = null,
     comp: ?Compressor = null,
@@ -60,6 +62,17 @@ pub const Fx = struct {
     pub fn deinit(self: *Fx, allocator: std.mem.Allocator) void {
         if (self.delay)  |*d| d.deinit(allocator);
         if (self.reverb) |*r| r.deinit(allocator);
+    }
+
+    /// Fills `buf` with the active stages in signal-flow order and returns
+    /// the used slice.
+    pub fn chain(self: *Fx, buf: *[4]dsp.Device) []const dsp.Device {
+        var len: usize = 0;
+        if (self.comp)   |*c| { buf[len] = c.device(); len += 1; }
+        if (self.eq)     |*e| { buf[len] = e.device(); len += 1; }
+        if (self.delay)  |*d| { buf[len] = d.device(); len += 1; }
+        if (self.reverb) |*r| { buf[len] = r.device(); len += 1; }
+        return buf[0..len];
     }
 };
 
@@ -138,10 +151,8 @@ pub const Rack = struct {
         var len: usize = 0;
         if (self.pattern_player) |*pp| { buf[len] = pp.device(); len += 1; }
         if (self.instrument.device()) |dev| { buf[len] = dev; len += 1; }
-        if (self.fx.comp)   |*c| { buf[len] = c.device(); len += 1; }
-        if (self.fx.eq)     |*e| { buf[len] = e.device(); len += 1; }
-        if (self.fx.delay)  |*d| { buf[len] = d.device(); len += 1; }
-        if (self.fx.reverb) |*r| { buf[len] = r.device(); len += 1; }
+        var fx_buf: [4]dsp.Device = undefined;
+        for (self.fx.chain(&fx_buf)) |dev| { buf[len] = dev; len += 1; }
         return buf[0..len];
     }
 };

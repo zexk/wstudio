@@ -76,13 +76,24 @@ pub fn drawSpectrumView(
         app.session.engine.masterSpectrumSnapshot();
 
     // Pre-check whether the EQ row will be drawn so visual_rows can be sized correctly.
-    const has_eq = is_track and
-        app.eq_track < app.session.racks.items.len and
-        app.session.racks.items[app.eq_track].fx.eq != null;
+    const eq_ptr: ?*eq_mod.GraphicEq = blk: {
+        if (is_track) {
+            if (app.eq_track >= app.session.racks.items.len) break :blk null;
+            if (app.session.racks.items[app.eq_track].fx.eq) |*e| break :blk e;
+            break :blk null;
+        }
+        if (app.session.master_fx.eq) |*e| break :blk e;
+        break :blk null;
+    };
+    const has_eq = eq_ptr != null;
     const eq_row: usize = if (has_eq) 1 else 0;
+    // Master-only read-only compressor readout (no visual editor yet — see
+    // `:master-comp`).
+    const has_comp = !is_track and app.session.master_fx.comp != null;
+    const comp_row: usize = if (has_comp) 2 else 0;
 
-    // 1 header + visual_rows spectrum + 1 hz label + eq_row must fit in rows-5.
-    const visual_rows = @min(spectrum_rows, rows -| (7 + eq_row));
+    // 1 header + visual_rows spectrum + 1 hz label + eq_row/comp_row must fit in rows-5.
+    const visual_rows = @min(spectrum_rows, rows -| (7 + eq_row + comp_row));
     // Limit band count to available horizontal space (3-char indent + bands).
     const draw_bands = @min(spectrum_band_count, cols -| 5);
 
@@ -188,8 +199,7 @@ pub fn drawSpectrumView(
     }
     try endLine(w);
 
-    if (has_eq) {
-        const e = &app.session.racks.items[app.eq_track].fx.eq.?;
+    if (eq_ptr) |e| {
         const bypass_str: []const u8 = if (e.bypass) " [BYPASS]" else "";
         try w.writeAll(bold ++ " EQ" ++ rst);
         try w.writeAll(red);
@@ -206,35 +216,52 @@ pub fn drawSpectrumView(
         try endLine(w);
     }
 
+    if (has_comp) {
+        const c = &app.session.master_fx.comp.?;
+        try w.writeAll(bold ++ " COMP" ++ rst ++ dim ++ "  (:master-comp to adjust)" ++ rst);
+        try endLine(w);
+        try w.print("   thresh {d: <5.0}dB  ratio {d: <4.1}:1  atk {d: <4.0}ms  rel {d: <4.0}ms  makeup {d: <4.1}dB", .{
+            c.threshold_db, c.ratio, c.attack_ms, c.release_ms, c.makeup_db,
+        });
+        try endLine(w);
+    }
+
     // Pad to fill the view's row budget (rows-5) so the footer stays pinned.
-    // lines written: 1 (header) + visual_rows + 1 (hz label) + eq_row = 2 + visual_rows + eq_row
-    const used = 4 + visual_rows + eq_row; // "+2 over lines-written" matches other views
+    // lines written: 1 (header) + visual_rows + 1 (hz label) + eq_row + comp_row
+    const used = 4 + visual_rows + eq_row + comp_row; // "+2 over lines-written" matches other views
     for (used..@max(used, rows -| 3)) |_| try endLine(w);
 }
 
 pub fn drawSpectrumStatus(app: anytype, w: *std.Io.Writer, is_track: bool) !void {
-    if (is_track and app.eq_track < app.session.racks.items.len) {
-        if (app.session.racks.items[app.eq_track].fx.eq) |*e| {
-            const freq = eq_mod.iso_frequencies[app.eq_cursor];
-            const gain = e.bands[app.eq_cursor].gain_db;
-            const sign: []const u8 = if (gain >= 0) "+" else "";
-            try w.writeAll(acc ++ sel ++ " EQ " ++ rst);
-            try w.writeAll(dim ++ "  " ++ rst);
-            try w.print("{d:.0}Hz", .{freq});
-            try w.writeAll("  ");
-            try w.print("{s}{d:.1}dB", .{ sign, gain });
-            try w.writeAll(dim ++ "  [" ++ rst);
-            try w.print("{d}/{d}", .{app.eq_cursor + 1, eq_mod.num_eq_bands});
-            try w.writeAll(dim ++ "]" ++ rst);
-            if (e.bypass) {
-                try w.writeAll("  " ++ red ++ "BYPASS" ++ rst);
-            }
-            if (app.status_len > 0) {
-                try w.writeAll(dim ++ "  " ++ rst);
-                try w.writeAll(app.status_buf[0..app.status_len]);
-            }
-            return;
+    const eq_ptr: ?*eq_mod.GraphicEq = blk: {
+        if (is_track) {
+            if (app.eq_track >= app.session.racks.items.len) break :blk null;
+            if (app.session.racks.items[app.eq_track].fx.eq) |*e| break :blk e;
+            break :blk null;
         }
+        if (app.session.master_fx.eq) |*e| break :blk e;
+        break :blk null;
+    };
+    if (eq_ptr) |e| {
+        const freq = eq_mod.iso_frequencies[app.eq_cursor];
+        const gain = e.bands[app.eq_cursor].gain_db;
+        const sign: []const u8 = if (gain >= 0) "+" else "";
+        try w.writeAll(acc ++ sel ++ " EQ " ++ rst);
+        try w.writeAll(dim ++ "  " ++ rst);
+        try w.print("{d:.0}Hz", .{freq});
+        try w.writeAll("  ");
+        try w.print("{s}{d:.1}dB", .{ sign, gain });
+        try w.writeAll(dim ++ "  [" ++ rst);
+        try w.print("{d}/{d}", .{app.eq_cursor + 1, eq_mod.num_eq_bands});
+        try w.writeAll(dim ++ "]" ++ rst);
+        if (e.bypass) {
+            try w.writeAll("  " ++ red ++ "BYPASS" ++ rst);
+        }
+        if (app.status_len > 0) {
+            try w.writeAll(dim ++ "  " ++ rst);
+            try w.writeAll(app.status_buf[0..app.status_len]);
+        }
+        return;
     }
     if (app.status_len > 0) {
         try w.print(" {s}", .{app.status_buf[0..app.status_len]});

@@ -17,7 +17,9 @@ const Session = @import("session.zig").Session;
 const wav = @import("core/wav.zig");
 const Project = @import("project.zig").Project;
 const ws_arrangement = @import("arrangement.zig");
-const Rack = @import("rack.zig").Rack;
+const rack_mod = @import("rack.zig");
+const Rack = rack_mod.Rack;
+const Fx = rack_mod.Fx;
 const engine_mod = @import("audio/engine.zig");
 const Engine = engine_mod.Engine;
 const synth_mod = @import("dsp/synth.zig");
@@ -50,7 +52,10 @@ const dsp = @import("dsp/device.zig");
 /// omit them and keep the shipped kit / generated clip — the prior behaviour.
 /// v5 also adds the A/B loop region (`loop_enabled`/`loop_start_bar`/
 /// `loop_end_bar`); older files load with no loop.
-pub const file_version: u32 = 5;
+/// v6 adds the master bus FX rack (`Snapshot.master_fx`, the same `FxSnap`
+/// shape as a track's). Older files omit it and load with no master FX —
+/// the prior behaviour.
+pub const file_version: u32 = 6;
 
 // ---------------------------------------------------------------------------
 // Snapshot types — plain data, JSON-serialisable
@@ -268,6 +273,8 @@ pub const Snapshot = struct {
     arrangement: []const LaneSnap = &.{},
     /// Whether the loaded project plays the arrangement (true) or live loops.
     song_mode: bool = false,
+    /// v6: master bus FX, applied to the summed mix before gain/limiter.
+    master_fx: FxSnap = .{},
 };
 
 // ---------------------------------------------------------------------------
@@ -318,6 +325,7 @@ pub fn save(
         .racks = racks,
         .arrangement = lanes,
         .song_mode = session.song_mode,
+        .master_fx = fxToSnap(&session.master_fx, session.project.sample_rate),
     };
 
     const json_bytes = try std.json.Stringify.valueAlloc(aa, snap, .{ .whitespace = .indent_2 });
@@ -397,23 +405,30 @@ fn rackToSnap(aa: std.mem.Allocator, rack: *Rack, sample_rate: u32) !RackSnap {
         },
     }
 
-    if (rack.fx.comp) |*c| {
-        rs.fx.comp = .{ .threshold_db = c.threshold_db, .ratio = c.ratio, .attack_ms = c.attack_ms, .release_ms = c.release_ms, .makeup_db = c.makeup_db };
-    }
-    if (rack.fx.delay) |*d| {
-        const sr_f: f32 = @floatFromInt(sample_rate);
-        rs.fx.delay = .{ .time_s = @as(f32, @floatFromInt(d.delay_frames)) / sr_f, .feedback = d.feedback, .mix = d.mix };
-    }
-    if (rack.fx.reverb) |*r| {
-        rs.fx.reverb = .{ .mix = r.mix, .room = r.room, .damp = r.damp };
-    }
-    if (rack.fx.eq) |*e| {
-        var gains: [eq_mod.num_eq_bands]f32 = undefined;
-        for (&e.bands, 0..) |*b, i| gains[i] = b.gain_db;
-        rs.fx.eq = .{ .band_gains = gains, .bypass = e.bypass };
-    }
+    rs.fx = fxToSnap(&rack.fx, sample_rate);
 
     return rs;
+}
+
+/// Shared by track racks and the master bus — both hold a plain `Fx`.
+fn fxToSnap(fx: *const Fx, sample_rate: u32) FxSnap {
+    var out: FxSnap = .{};
+    if (fx.comp) |*c| {
+        out.comp = .{ .threshold_db = c.threshold_db, .ratio = c.ratio, .attack_ms = c.attack_ms, .release_ms = c.release_ms, .makeup_db = c.makeup_db };
+    }
+    if (fx.delay) |*d| {
+        const sr_f: f32 = @floatFromInt(sample_rate);
+        out.delay = .{ .time_s = @as(f32, @floatFromInt(d.delay_frames)) / sr_f, .feedback = d.feedback, .mix = d.mix };
+    }
+    if (fx.reverb) |*r| {
+        out.reverb = .{ .mix = r.mix, .room = r.room, .damp = r.damp };
+    }
+    if (fx.eq) |*e| {
+        var gains: [eq_mod.num_eq_bands]f32 = undefined;
+        for (&e.bands, 0..) |*b, i| gains[i] = b.gain_db;
+        out.eq = .{ .band_gains = gains, .bypass = e.bypass };
+    }
+    return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -785,7 +800,7 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
             },
         }
 
-        try applyFx(allocator, rack, rs.fx, sr);
+        try applyFx(allocator, &rack.fx, rs.fx, sr);
         try racks.append(allocator, rack);
     }
 
@@ -807,6 +822,9 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
         var buf: [6]dsp.Device = undefined;
         self.engine.setTrackChain(@intCast(i), rack.chain(&buf));
     }
+
+    try applyFx(allocator, &self.master_fx, snap.master_fx, sr);
+    self.syncMasterChain();
 
     // Restore placed clips, then the song/pattern mode (setSongMode rebuilds the
     // device song buffers from the clips just placed).
@@ -919,7 +937,8 @@ fn applyToSynth(s: *PolySynth, ss: *const SynthSnap) void {
     s.gain = ss.gain;
 }
 
-fn applyFx(allocator: std.mem.Allocator, rack: *Rack, fx: FxSnap, sr: u32) !void {
+/// Shared by track racks and the master bus — both hold a plain `Fx`.
+fn applyFx(allocator: std.mem.Allocator, fx_out: *Fx, fx: FxSnap, sr: u32) !void {
     if (fx.comp) |cs| {
         var c = Compressor.init(sr);
         c.threshold_db = cs.threshold_db;
@@ -927,27 +946,27 @@ fn applyFx(allocator: std.mem.Allocator, rack: *Rack, fx: FxSnap, sr: u32) !void
         c.attack_ms = cs.attack_ms;
         c.release_ms = cs.release_ms;
         c.makeup_db = cs.makeup_db;
-        rack.fx.comp = c;
+        fx_out.comp = c;
     }
     if (fx.delay) |ds| {
         var d = try StereoDelay.init(allocator, sr, 2.0);
         d.setTime(ds.time_s);
         d.feedback = ds.feedback;
         d.mix = ds.mix;
-        rack.fx.delay = d;
+        fx_out.delay = d;
     }
     if (fx.reverb) |rs| {
         var r = try Reverb.init(allocator, sr);
         r.mix = rs.mix;
         r.room = rs.room;
         r.damp = rs.damp;
-        rack.fx.reverb = r;
+        fx_out.reverb = r;
     }
     if (fx.eq) |es| {
         var eq = GraphicEq.init(sr);
         eq.setAllBands(es.band_gains);
         eq.bypass = es.bypass;
-        rack.fx.eq = eq;
+        fx_out.eq = eq;
     }
 }
 
@@ -1098,6 +1117,53 @@ test "buildSession: constructs valid Session from snapshot" {
     try testing.expectApproxEqAbs(@as(f32, 7.0), dm.pads[0].?.pitch_semitones, 1e-4);
     try testing.expect(dm.pads[0].?.reverse);
     try testing.expectApproxEqAbs(@as(f32, 0.5), dm.pads[0].?.end_norm, 1e-4);
+}
+
+test "buildSession: master FX round-trips and reaches the engine chain" {
+    const testing = std.testing;
+
+    const snap: Snapshot = .{
+        .sample_rate = 48_000,
+        .tracks = &.{.{ .name = "lead" }},
+        .racks = &.{.{ .label = "lead", .kind = .empty }},
+        .master_fx = .{
+            .comp = .{ .threshold_db = -12.0, .ratio = 3.0, .attack_ms = 5.0, .release_ms = 60.0, .makeup_db = 1.5 },
+            .eq = .{ .band_gains = [_]f32{2.0} ** eq_mod.num_eq_bands, .bypass = false },
+        },
+    };
+
+    var session = try buildSession(testing.allocator, &snap);
+    defer session.deinit();
+
+    const comp = &session.master_fx.comp.?;
+    try testing.expectApproxEqAbs(@as(f32, -12.0), comp.threshold_db, 1e-4);
+    try testing.expectApproxEqAbs(@as(f32, 3.0), comp.ratio, 1e-4);
+    const eq = &session.master_fx.eq.?;
+    try testing.expectApproxEqAbs(@as(f32, 2.0), eq.bands[0].gain_db, 1e-4);
+    // No delay/reverb in the snapshot — only comp + eq should have reached
+    // the engine's master chain.
+    try testing.expectEqual(@as(usize, 2), session.engine.master_chain_len);
+}
+
+test "save/load round-trip persists master FX" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [64]u8 = undefined;
+    const wsj_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/proj.wsj", .{&tmp.sub_path});
+
+    var session = try Session.initDefault(testing.allocator);
+    defer session.deinit();
+    session.master_fx.comp = Compressor.init(session.project.sample_rate);
+    session.master_fx.comp.?.threshold_db = -9.0;
+    session.syncMasterChain();
+
+    try save(testing.allocator, &session, testing.io, wsj_path);
+    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    defer loaded.deinit();
+
+    try testing.expectApproxEqAbs(@as(f32, -9.0), loaded.master_fx.comp.?.threshold_db, 1e-4);
+    try testing.expectEqual(@as(usize, 1), loaded.engine.master_chain_len);
 }
 
 test "buildSession: arrangement clips and song_mode round-trip" {

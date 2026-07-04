@@ -147,8 +147,6 @@ whatever font you already use.
 Open items, sorted by what most blocks an artist finishing (and keeping)
 a full song:
 
-- [ ] Master bus compressor/EQ (the limiter is in; glue and tone shaping
-      on the mix are not)
 - [ ] Live recording from insert mode (play a take into the pattern)
 - [ ] Parameter automation on the timeline
 - [ ] Audio clips: WAV clip playback on tracks
@@ -157,6 +155,12 @@ a full song:
 
 Done:
 
+- [x] Master bus FX: a pluggable comp/EQ/delay/reverb chain (same `Fx` shape
+      as a track's rack) applied to the summed mix before the master gain
+      and always-on limiter. `M` in the tracks view opens the master EQ's
+      live spectrum + band editor (`:master-eq` from the `:` prompt); the
+      compressor is `:master-comp on|off|thresh|ratio|attack|release|makeup
+      <value>`. Persisted (`Snapshot.master_fx`, .wsj v6)
 - [x] Scale highlighting + chord stamp in the piano roll: `:scale [<root>
       [<type>]|off]` dims out-of-scale rows; `c`/`C` stamp a diatonic
       triad/seventh at the cursor, harmonized to the active scale (a plain
