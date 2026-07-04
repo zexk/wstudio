@@ -233,7 +233,7 @@ pub fn drawSpectrumView(
 
 pub fn drawSpectrumStatus(app: anytype, w: *std.Io.Writer, is_track: bool, cmds: []const cmd_mod.Def) !void {
     if (app.modal.mode == .command) {
-        try cmd_mod.writePrompt(w, cmds, app.modal.cmd_buf[0..app.modal.cmd_len], 60);
+        try cmd_mod.writePrompt(w, cmds, app.modal.cmd_buf[0..app.modal.cmd_len], app.modal.cmd_cursor, 60);
         return;
     }
     const eq_ptr: ?*eq_mod.GraphicEq = blk: {

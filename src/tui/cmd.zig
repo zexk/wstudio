@@ -35,18 +35,28 @@ pub fn dispatch(cmds: []const Def, ctx: *anyopaque, text: []const u8) bool {
     return false;
 }
 
-/// Renders the `:` prompt (typed buffer + cursor block) shared by every
-/// view's status line. Before the first space, appends a dimmed,
-/// space-separated list of every command name still matching what's been
-/// typed so far — a single match already gets spelled out in full by Tab's
-/// completion, so the list only kicks in at 2+ matches (otherwise it'd just
-/// echo back the buffer). Once a space is typed and the name before it is
-/// an exact command, appends that command's usage `desc` instead (a
-/// reminder of argument order/shape while you type args). Both are capped
-/// at `max_chars` so they can't overflow the line.
-pub fn writePrompt(w: *std.Io.Writer, cmds: []const Def, buf: []const u8, max_chars: usize) !void {
+/// Renders the `:` prompt shared by every view's status line: the typed
+/// buffer with a reverse-video block at `cursor` (mid-line when the user's
+/// moved it there with left/right/Home/End, otherwise a trailing blank cell
+/// like a real line cursor at the end). Before the first space, appends a
+/// dimmed, space-separated list of every command name still matching what's
+/// been typed so far — a single match already gets spelled out in full by
+/// Tab's completion, so the list only kicks in at 2+ matches (otherwise
+/// it'd just echo back the buffer). Once a space is typed and the name
+/// before it is an exact command, appends that command's usage `desc`
+/// instead (a reminder of argument order/shape while you type args). Both
+/// are capped at `max_chars` so they can't overflow the line.
+pub fn writePrompt(w: *std.Io.Writer, cmds: []const Def, buf: []const u8, cursor: usize, max_chars: usize) !void {
     try w.writeAll(style.dim ++ " :" ++ style.rst);
-    try w.print("{s}_", .{buf});
+    try w.writeAll(buf[0..cursor]);
+    if (cursor < buf.len) {
+        try w.writeAll(style.sel);
+        try w.writeByte(buf[cursor]);
+        try w.writeAll(style.rst);
+        try w.writeAll(buf[cursor + 1 ..]);
+    } else {
+        try w.writeAll(style.sel ++ " " ++ style.rst);
+    }
 
     if (buf.len == 0) return;
     if (std.mem.indexOfScalar(u8, buf, ' ')) |sp| {
@@ -89,7 +99,7 @@ const test_cmds: []const Def = &.{
 
 fn promptText(buf: []const u8, max_chars: usize, out: []u8) []const u8 {
     var w: std.Io.Writer = .fixed(out);
-    writePrompt(&w, test_cmds, buf, max_chars) catch unreachable;
+    writePrompt(&w, test_cmds, buf, buf.len, max_chars) catch unreachable;
     return w.buffered();
 }
 
@@ -124,5 +134,19 @@ test "writePrompt shows the usage hint once a space follows an exact command nam
 test "writePrompt shows no hint for an unrecognized command name" {
     var out: [128]u8 = undefined;
     const text = promptText("nope ", 60, &out);
-    try std.testing.expectEqualStrings(style.dim ++ " :" ++ style.rst ++ "nope _", text);
+    try std.testing.expectEqualStrings(
+        style.dim ++ " :" ++ style.rst ++ "nope " ++ style.sel ++ " " ++ style.rst,
+        text,
+    );
+}
+
+test "writePrompt draws the cursor mid-line over the character it sits on" {
+    var out: [128]u8 = undefined;
+    var w: std.Io.Writer = .fixed(&out);
+    // Cursor at index 1 of "bpm " sits on the 'p'.
+    try writePrompt(&w, test_cmds, "bpm ", 1, 60);
+    try std.testing.expectEqualStrings(
+        style.dim ++ " :" ++ style.rst ++ "b" ++ style.sel ++ "p" ++ style.rst ++ "m " ++ style.dim ++ "  " ++ "[<value>]  tempo in BPM (20-400)" ++ style.rst,
+        w.buffered(),
+    );
 }

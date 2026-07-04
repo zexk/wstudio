@@ -1587,20 +1587,55 @@ test ":e Tab completes an unambiguous command name and adds a trailing space" {
     try std.testing.expectEqualStrings("bounce ", app.modal.cmd_buf[0..app.modal.cmd_len]);
 }
 
-test ":q Tab completes ambiguous names to their longest common prefix" {
+test "Tab cycles through multiple command-name matches instead of stalling at a common prefix" {
     var app = try App.init(std.testing.allocator, std.Io.failing);
     defer app.deinit();
 
-    // "q" alone matches q, q!, quit, qa, qa! — common prefix is just "q".
+    // "q" matches q / q! / quit / qa / qa! (table order) — Tab steps
+    // through all five in turn and wraps back to the first.
     for (":q") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.tab, 0);
     try std.testing.expectEqualStrings("q", app.modal.cmd_buf[0..app.modal.cmd_len]);
+    app.handleKey(.tab, 0);
+    try std.testing.expectEqualStrings("q!", app.modal.cmd_buf[0..app.modal.cmd_len]);
+    app.handleKey(.tab, 0);
+    try std.testing.expectEqualStrings("quit", app.modal.cmd_buf[0..app.modal.cmd_len]);
+    app.handleKey(.tab, 0);
+    try std.testing.expectEqualStrings("qa", app.modal.cmd_buf[0..app.modal.cmd_len]);
+    app.handleKey(.tab, 0);
+    try std.testing.expectEqualStrings("qa!", app.modal.cmd_buf[0..app.modal.cmd_len]);
+    app.handleKey(.tab, 0);
+    try std.testing.expectEqualStrings("q", app.modal.cmd_buf[0..app.modal.cmd_len]);
 
-    // "track" only matches the track-* commands — common prefix "track-".
+    // "track" matches only the track-* commands (table order: add/del/rename).
     app.modal.cmd_len = 0;
+    app.modal.cmd_cursor = 0;
     for ("track") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.tab, 0);
-    try std.testing.expectEqualStrings("track-", app.modal.cmd_buf[0..app.modal.cmd_len]);
+    try std.testing.expectEqualStrings("track-add", app.modal.cmd_buf[0..app.modal.cmd_len]);
+    app.handleKey(.tab, 0);
+    try std.testing.expectEqualStrings("track-del", app.modal.cmd_buf[0..app.modal.cmd_len]);
+    app.handleKey(.tab, 0);
+    try std.testing.expectEqualStrings("track-rename", app.modal.cmd_buf[0..app.modal.cmd_len]);
+}
+
+test "typing after a Tab-cycle starts a fresh cycle instead of continuing the old one" {
+    var app = try App.init(std.testing.allocator, std.Io.failing);
+    defer app.deinit();
+
+    for (":q") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.tab, 0); // -> "q"
+    app.handleKey(.tab, 0); // -> "q!"
+    try std.testing.expectEqualStrings("q!", app.modal.cmd_buf[0..app.modal.cmd_len]);
+
+    // Clearing back to "q" and typing "uit" makes "quit" — an unambiguous
+    // command name, so Tab completes it in full (+ trailing space) instead
+    // of resuming the stale q!/quit/qa/qa! cycle at its old index.
+    app.handleKey(.backspace, 0);
+    app.handleKey(.backspace, 0);
+    for ("quit") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.tab, 0);
+    try std.testing.expectEqualStrings("quit ", app.modal.cmd_buf[0..app.modal.cmd_len]);
 }
 
 test "Tab does nothing past the command word for commands with no fixed argument set" {
@@ -1612,45 +1647,52 @@ test "Tab does nothing past the command word for commands with no fixed argument
     try std.testing.expectEqualStrings("bpm 1", app.modal.cmd_buf[0..app.modal.cmd_len]);
 
     app.modal.cmd_len = 0;
+    app.modal.cmd_cursor = 0;
     for ("zzz") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.tab, 0);
     try std.testing.expectEqualStrings("zzz", app.modal.cmd_buf[0..app.modal.cmd_len]);
 }
 
-test ":drum-kit Tab completes the kit-name argument from the fixed variant list" {
+test ":drum-kit Tab cycles the kit-name argument from the fixed variant list" {
     var app = try App.init(std.testing.allocator, std.Io.failing);
     defer app.deinit();
 
-    // "a" matches both "analog" and "acoustic" — common prefix is just "a".
+    // "a" matches "analog" and "acoustic" (variant-table order) — Tab
+    // steps between the two full names instead of stalling at "a".
     for (":drum-kit a") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.tab, 0);
-    try std.testing.expectEqualStrings("drum-kit a", app.modal.cmd_buf[0..app.modal.cmd_len]);
-
-    // "an" only matches "analog" — completes in full plus a trailing space.
-    for ("n") |c| app.handleKey(.{ .char = c }, 0);
+    try std.testing.expectEqualStrings("drum-kit analog", app.modal.cmd_buf[0..app.modal.cmd_len]);
     app.handleKey(.tab, 0);
-    try std.testing.expectEqualStrings("drum-kit analog ", app.modal.cmd_buf[0..app.modal.cmd_len]);
+    try std.testing.expectEqualStrings("drum-kit acoustic", app.modal.cmd_buf[0..app.modal.cmd_len]);
+    app.handleKey(.tab, 0);
+    try std.testing.expectEqualStrings("drum-kit analog", app.modal.cmd_buf[0..app.modal.cmd_len]);
 }
 
 test ":synth-preset Tab completes the preset-name argument from the fixed preset list" {
     var app = try App.init(std.testing.allocator, std.Io.failing);
     defer app.deinit();
 
+    // "sub" uniquely matches "sub-bass" — completes in full plus a
+    // trailing space, same single-match behavior as command names.
     for (":synth-preset sub") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.tab, 0);
     try std.testing.expectEqualStrings("synth-preset sub-bass ", app.modal.cmd_buf[0..app.modal.cmd_len]);
 }
 
-test ":metronome Tab completes on/off; :master-comp Tab completes its sub-keywords" {
+test ":metronome Tab cycles on/off; :master-comp Tab completes its sub-keywords" {
     var app = try App.init(std.testing.allocator, std.Io.failing);
     defer app.deinit();
 
-    // No argument typed yet — "on"/"off" share only the leading "o".
+    // No argument typed yet — Tab steps between "on" and "off" directly
+    // rather than stalling at their shared leading "o".
     for (":metronome ") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.tab, 0);
-    try std.testing.expectEqualStrings("metronome o", app.modal.cmd_buf[0..app.modal.cmd_len]);
+    try std.testing.expectEqualStrings("metronome on", app.modal.cmd_buf[0..app.modal.cmd_len]);
+    app.handleKey(.tab, 0);
+    try std.testing.expectEqualStrings("metronome off", app.modal.cmd_buf[0..app.modal.cmd_len]);
 
     app.modal.cmd_len = 0;
+    app.modal.cmd_cursor = 0;
     for ("master-comp thr") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.tab, 0);
     try std.testing.expectEqualStrings("master-comp thresh ", app.modal.cmd_buf[0..app.modal.cmd_len]);
@@ -1663,6 +1705,16 @@ test "Tab does not complete a second argument token" {
     for (":drum-kit an ") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.tab, 0);
     try std.testing.expectEqualStrings("drum-kit an ", app.modal.cmd_buf[0..app.modal.cmd_len]);
+}
+
+test "Tab is a no-op when the cursor isn't at the end of the buffer" {
+    var app = try App.init(std.testing.allocator, std.Io.failing);
+    defer app.deinit();
+
+    for (":boun") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.arrow_left, 0); // cursor now mid-line, not at the end
+    app.handleKey(.tab, 0);
+    try std.testing.expectEqualStrings("boun", app.modal.cmd_buf[0..app.modal.cmd_len]);
 }
 
 test "autosave writes a silent <path>~ backup on a timer, without clearing dirty" {

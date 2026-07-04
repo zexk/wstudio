@@ -149,7 +149,7 @@ pub fn drawTracks(app: anytype, w: *std.Io.Writer, rows: usize, snap: engine_mod
 
 pub fn drawTracksStatus(app: anytype, w: *std.Io.Writer, cmds: []const cmd_mod.Def) !void {
     switch (app.modal.mode) {
-        .command => try cmd_mod.writePrompt(w, cmds, app.modal.cmd_buf[0..app.modal.cmd_len], 60),
+        .command => try cmd_mod.writePrompt(w, cmds, app.modal.cmd_buf[0..app.modal.cmd_len], app.modal.cmd_cursor, 60),
         else => {
             const mode_colour: []const u8 = switch (app.modal.mode) {
                 .insert => yel,

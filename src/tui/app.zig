@@ -141,6 +141,8 @@ pub const App = struct {
     io: std.Io,
     session: ws.Session,
     modal: modal_mod.ModalInput = .{},
+    /// Tab-cycle state for command-mode completion; see `TabCycle`/`cycleCompletion`.
+    tab_cycle: ?TabCycle = null,
     cursor: usize = 0,
     view: AppView = .tracks,
     prev_view: AppView = .tracks,
@@ -338,14 +340,15 @@ pub const App = struct {
         }
 
         // Command mode: up/down recall history, tab completes the command
-        // name; left/right are dropped rather than aliased below (no
-        // cursor-in-buffer exists yet, and aliasing them to h/l would
-        // corrupt the line being typed).
+        // name. Left/right/home/end/ctrl-w edit the cmd_buf cursor in place
+        // (modal.handle owns that state) — passed through as their own
+        // variants rather than the hjkl aliasing below, which would insert
+        // literal 'h'/'l' characters into the line instead of moving through it.
         if (self.modal.mode == .command) {
             switch (key_in) {
                 .arrow_up => { self.commandHistoryPrev(); return; },
                 .arrow_down => { self.commandHistoryNext(); return; },
-                .arrow_left, .arrow_right => return,
+                .arrow_left, .arrow_right, .home, .end, .ctrl_w => { _ = self.modal.handle(key_in); return; },
                 .tab => { self.completeCommand(); return; },
                 else => {},
             }
@@ -447,6 +450,7 @@ pub const App = struct {
         self.cmd_history_pos = self.cmd_history.items.len;
         const text = std.fmt.bufPrint(&self.modal.cmd_buf, "track-rename {d} ", .{self.cursor + 1}) catch return;
         self.modal.cmd_len = text.len;
+        self.modal.cmd_cursor = text.len;
     }
 
     /// c toggles the click track (also `:metronome [on|off]`).
@@ -794,31 +798,53 @@ pub const App = struct {
         const len = @min(text.len, self.modal.cmd_buf.len);
         @memcpy(self.modal.cmd_buf[0..len], text[0..len]);
         self.modal.cmd_len = len;
+        self.modal.cmd_cursor = len;
     }
+
+    /// Remembers a Tab-cycle in progress: which value list was last
+    /// filtered (`source`), the exact prefix it was filtered against
+    /// (`stem` — the text the user actually typed, *not* whatever
+    /// candidate is currently sitting in cmd_buf), where the completed
+    /// value starts (`insert_at`), and the exact candidate text last
+    /// written there (`last_written`, always a static string from a
+    /// command/preset/kit table, so storing the slice directly rather than
+    /// copying it is safe across calls). `cycleCompletion` only continues
+    /// the cycle — advancing `index` and reusing `stem` — when cmd_buf
+    /// still holds exactly `last_written`; any other edit (typing more,
+    /// backspacing, moving to a different command) makes the next Tab
+    /// press start fresh instead.
+    const TabCycle = struct {
+        insert_at: usize,
+        stem_buf: [modal_mod.ModalInput.max_cmd_len]u8 = undefined,
+        stem_len: usize,
+        source: Source,
+        index: usize,
+        last_written: []const u8,
+
+        const Source = enum { command_name, drum_kit, synth_preset, metronome, master_comp };
+
+        fn stem(self: *const TabCycle) []const u8 {
+            return self.stem_buf[0..self.stem_len];
+        }
+    };
 
     /// Tab-completes the command name (before the first space), or — for a
     /// handful of commands whose values come from a small fixed set — the
-    /// first argument token after it. A single match completes to the full
-    /// value plus a trailing space (ready for the next token); several
-    /// matches complete to their longest common prefix instead
-    /// (readline-style); no matches is a no-op.
+    /// first argument token after it. Requires the cursor to be at the end
+    /// of the buffer: completing a token with more already typed after it
+    /// has no obvious insertion point, so mid-line Tab is a no-op.
     fn completeCommand(self: *App) void {
         const buf = self.modal.cmd_buf[0..self.modal.cmd_len];
-        if (buf.len == 0) return;
+        if (buf.len == 0 or self.modal.cmd_cursor != self.modal.cmd_len) return;
 
         if (std.mem.indexOfScalar(u8, buf, ' ')) |sp| {
             self.completeArgument(buf, sp);
             return;
         }
 
-        var match_count: usize = 0;
-        var common: []const u8 = "";
-        for (commands.cmds) |c| {
-            if (!std.mem.startsWith(u8, c.name, buf)) continue;
-            match_count += 1;
-            common = if (match_count == 1) c.name else commonPrefix(common, c.name);
-        }
-        self.applyCompletion(0, buf.len, match_count, common);
+        var name_buf: [commands.cmds.len][]const u8 = undefined;
+        for (commands.cmds, 0..) |c, i| name_buf[i] = c.name;
+        self.cycleCompletion(0, buf, .command_name, &name_buf);
     }
 
     /// Tab-completes the argument after `buf[0..name_end]` against a small
@@ -834,60 +860,93 @@ pub const App = struct {
         if (std.mem.indexOfScalar(u8, arg, ' ') != null) return;
 
         var name_buf: [24][]const u8 = undefined;
-        const values: []const []const u8 = blk: {
-            if (std.mem.eql(u8, name, "drum-kit")) {
-                var n: usize = 0;
-                for (ws.dsp.drum_kit.variants) |v| {
-                    name_buf[n] = v.name;
-                    n += 1;
-                }
-                break :blk name_buf[0..n];
+        if (std.mem.eql(u8, name, "drum-kit")) {
+            var n: usize = 0;
+            for (ws.dsp.drum_kit.variants) |v| {
+                name_buf[n] = v.name;
+                n += 1;
             }
-            if (std.mem.eql(u8, name, "synth-preset")) {
-                var n: usize = 0;
-                for (ws.dsp.synth_presets.presets) |p| {
-                    name_buf[n] = p.name;
-                    n += 1;
-                }
-                break :blk name_buf[0..n];
+            self.cycleCompletion(name_end + 1, arg, .drum_kit, name_buf[0..n]);
+        } else if (std.mem.eql(u8, name, "synth-preset")) {
+            var n: usize = 0;
+            for (ws.dsp.synth_presets.presets) |p| {
+                name_buf[n] = p.name;
+                n += 1;
             }
-            if (std.mem.eql(u8, name, "metronome")) break :blk &.{ "on", "off" };
-            if (std.mem.eql(u8, name, "master-comp"))
-                break :blk &.{ "on", "off", "thresh", "ratio", "attack", "release", "makeup" };
-            return;
-        };
+            self.cycleCompletion(name_end + 1, arg, .synth_preset, name_buf[0..n]);
+        } else if (std.mem.eql(u8, name, "metronome")) {
+            self.cycleCompletion(name_end + 1, arg, .metronome, &.{ "on", "off" });
+        } else if (std.mem.eql(u8, name, "master-comp")) {
+            self.cycleCompletion(name_end + 1, arg, .master_comp, &.{ "on", "off", "thresh", "ratio", "attack", "release", "makeup" });
+        }
+    }
 
+    /// Shared by `completeCommand`/`completeArgument`. `current_text` is
+    /// whatever `values`-completable text is in cmd_buf right now (may
+    /// already be a candidate from a previous cycle step, not necessarily
+    /// what the user typed). If it matches an in-progress cycle's
+    /// `last_written` exactly, we're continuing that cycle: keep filtering
+    /// on its original `stem` and advance to the next candidate. Otherwise
+    /// `current_text` itself is treated as a fresh stem (typing, deleting,
+    /// or switching commands all fail that check, so the next Tab starts
+    /// over — no separate reset wiring needed). A single match always
+    /// completes in full plus a trailing space, cycle or not.
+    fn cycleCompletion(self: *App, insert_at: usize, current_text: []const u8, source: TabCycle.Source, values: []const []const u8) void {
+        var stem_buf: [modal_mod.ModalInput.max_cmd_len]u8 = undefined;
+        var stem: []const u8 = undefined;
+        var prev_index: ?usize = null;
+
+        if (self.tab_cycle) |tc| {
+            if (tc.insert_at == insert_at and tc.source == source and std.mem.eql(u8, tc.last_written, current_text)) {
+                prev_index = tc.index;
+                @memcpy(stem_buf[0..tc.stem_len], tc.stem());
+                stem = stem_buf[0..tc.stem_len];
+            }
+        }
+        if (prev_index == null) {
+            // Fresh stem — snapshot `current_text` before cmd_buf gets
+            // overwritten below (it may alias cmd_buf directly).
+            const len = @min(current_text.len, stem_buf.len);
+            @memcpy(stem_buf[0..len], current_text[0..len]);
+            stem = stem_buf[0..len];
+        }
+
+        var match_idx: [64]usize = undefined;
         var match_count: usize = 0;
-        var common: []const u8 = "";
-        for (values) |v| {
-            if (!std.mem.startsWith(u8, v, arg)) continue;
+        for (values, 0..) |v, i| {
+            if (!std.mem.startsWith(u8, v, stem)) continue;
+            if (match_count < match_idx.len) match_idx[match_count] = i;
             match_count += 1;
-            common = if (match_count == 1) v else commonPrefix(common, v);
         }
-        self.applyCompletion(name_end + 1, arg.len, match_count, common);
-    }
+        if (match_count == 0) return;
 
-    /// Splices `common` into `cmd_buf` at `insert_at`, replacing the
-    /// `typed_len` characters already there (shared by command-name and
-    /// argument-value completion — see `completeCommand`/`completeArgument`).
-    fn applyCompletion(self: *App, insert_at: usize, typed_len: usize, match_count: usize, common: []const u8) void {
-        if (match_count == 0 or common.len <= typed_len) return;
-        const new_end = insert_at + common.len;
+        if (match_count == 1) {
+            self.tab_cycle = null;
+            const candidate = values[match_idx[0]];
+            const new_end = insert_at + candidate.len;
+            if (new_end > self.modal.cmd_buf.len) return;
+            @memcpy(self.modal.cmd_buf[insert_at..new_end], candidate);
+            self.modal.cmd_len = new_end;
+            self.modal.cmd_cursor = new_end;
+            if (self.modal.cmd_len < self.modal.cmd_buf.len) {
+                self.modal.cmd_buf[self.modal.cmd_len] = ' ';
+                self.modal.cmd_len += 1;
+                self.modal.cmd_cursor += 1;
+            }
+            return;
+        }
+
+        const index = if (prev_index) |pi| (pi + 1) % match_count else 0;
+        const candidate = values[match_idx[index]];
+        const new_end = insert_at + candidate.len;
         if (new_end > self.modal.cmd_buf.len) return;
-
-        @memcpy(self.modal.cmd_buf[insert_at + typed_len .. new_end], common[typed_len..]);
+        @memcpy(self.modal.cmd_buf[insert_at..new_end], candidate);
         self.modal.cmd_len = new_end;
-        if (match_count == 1 and self.modal.cmd_len < self.modal.cmd_buf.len) {
-            self.modal.cmd_buf[self.modal.cmd_len] = ' ';
-            self.modal.cmd_len += 1;
-        }
-    }
+        self.modal.cmd_cursor = new_end;
 
-    fn commonPrefix(a: []const u8, b: []const u8) []const u8 {
-        var i: usize = 0;
-        const n = @min(a.len, b.len);
-        while (i < n and a[i] == b[i]) : (i += 1) {}
-        return a[0..i];
+        var tc: TabCycle = .{ .insert_at = insert_at, .stem_len = stem.len, .source = source, .index = index, .last_written = candidate };
+        @memcpy(tc.stem_buf[0..stem.len], stem);
+        self.tab_cycle = tc;
     }
 
     /// Fire a preview note and schedule its release ~220ms later (see `tick`).
