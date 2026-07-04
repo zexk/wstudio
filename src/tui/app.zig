@@ -671,6 +671,22 @@ pub const App = struct {
         self.view = self.prev_view;
     }
 
+    /// Track that mute/solo/note-preview act on outside the tracks view —
+    /// the track whose editor is actually open, not the (possibly stale)
+    /// tracks-view cursor. Keep this in sync with every per-track editor;
+    /// missing a view here means mute/solo/preview silently hit the wrong
+    /// track whenever that view's own track diverges from `self.cursor`.
+    fn currentTrack(self: *App) u16 {
+        return switch (self.view) {
+            .synth_editor   => self.synth_track,
+            .piano_roll     => self.piano_track,
+            .drum_grid      => self.drum_track,
+            .sampler_editor => self.sampler_target.track(),
+            .track_spectrum => self.eq_track,
+            else            => @intCast(self.cursor),
+        };
+    }
+
     pub fn applyAction(self: *App, action: modal_mod.Action, now_ns: i96) void {
         switch (action) {
             .none, .octave_up, .octave_down => {},
@@ -702,13 +718,7 @@ pub const App = struct {
                 _ = self.session.engine.send(cmd);
             },
             .toggle_mute => {
-                const track_idx: u16 = switch (self.view) {
-                    .synth_editor   => self.synth_track,
-                    .piano_roll     => self.piano_track,
-                    .drum_grid      => self.drum_track,
-                    .sampler_editor => self.sampler_target.track(),
-                    else            => @intCast(self.cursor),
-                };
+                const track_idx = self.currentTrack();
                 const track = &self.session.project.tracks.items[track_idx];
                 track.muted = !track.muted;
                 self.dirty = true;
@@ -718,13 +728,7 @@ pub const App = struct {
                 } });
             },
             .toggle_solo => {
-                const track_idx: u16 = switch (self.view) {
-                    .synth_editor   => self.synth_track,
-                    .piano_roll     => self.piano_track,
-                    .drum_grid      => self.drum_track,
-                    .sampler_editor => self.sampler_target.track(),
-                    else            => @intCast(self.cursor),
-                };
+                const track_idx = self.currentTrack();
                 const track = &self.session.project.tracks.items[track_idx];
                 track.soloed = !track.soloed;
                 self.dirty = true;
@@ -734,14 +738,15 @@ pub const App = struct {
                 } });
             },
             .note => |n| {
-                if (self.cursor >= self.session.racks.items.len) return;
-                switch (self.session.racks.items[self.cursor].instrument) {
+                const track_idx = self.currentTrack();
+                if (track_idx >= self.session.racks.items.len) return;
+                switch (self.session.racks.items[track_idx].instrument) {
                     .drum_machine => _ = self.session.engine.send(.{ .note_on = .{
-                        .track = @intCast(self.cursor),
+                        .track = track_idx,
                         .note = @intCast(n.pitch % DrumMachine.max_pads),
                         .velocity = 0.9,
                     } }),
-                    .poly_synth, .sampler => self.playNote(@intCast(self.cursor), n.pitch, now_ns),
+                    .poly_synth, .sampler => self.playNote(track_idx, n.pitch, now_ns),
                     .empty => {},
                 }
             },
