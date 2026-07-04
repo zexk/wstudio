@@ -466,3 +466,10 @@ fn deleteClip(app: *App) void {
     app.setStatus("deleted clip", .{});
     if (app.session.song_mode) app.session.rebuildSongData();
 }
+
+pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16) void {
+    _ = app;
+    _ = ev;
+    _ = row;
+    _ = cols;
+}

@@ -35,6 +35,26 @@ pub const Key = union(enum) {
     tab,
     /// Intercepted by the frontend (quit); modal layer ignores it.
     ctrl_c,
+    /// Intercepted by App.handleKey before it reaches the modal layer at all
+    /// (mouse events aren't part of the vim state machine — they're routed
+    /// straight to the active view's own handler). Still a Key variant so
+    /// terminal.decode() can hand them back through the same buffer as
+    /// keyboard input.
+    mouse: MouseEvent,
+};
+
+pub const MouseButton = enum { left, middle, right, none };
+pub const MouseKind = enum { press, release, drag, scroll_up, scroll_down };
+
+/// A decoded SGR mouse report. Coordinates are 0-based terminal cells
+/// (SGR's own Cx/Cy are 1-based; terminal.decode subtracts 1).
+pub const MouseEvent = struct {
+    x: u16,
+    y: u16,
+    button: MouseButton,
+    kind: MouseKind,
+    ctrl: bool = false,
+    shift: bool = false,
 };
 
 pub const Action = union(enum) {
@@ -269,8 +289,9 @@ pub const ModalInput = struct {
                 return .none;
             },
             // Handled by App.handleKey before it reaches here (history
-            // recall on up/down, tab-completion); nothing left to do here.
-            .arrow_up, .arrow_down, .tab, .ctrl_c => return .none,
+            // recall on up/down, tab-completion, mouse routing); nothing
+            // left to do here.
+            .arrow_up, .arrow_down, .tab, .ctrl_c, .mouse => return .none,
         }
     }
 };

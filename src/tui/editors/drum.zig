@@ -301,3 +301,9 @@ fn cycleVariant(app: *App, delta: i32) void {
         DrumMachine.variantLetter(dm.variant), dm.variant + 1, dm.variant_count,
     });
 }
+
+pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize) void {
+    _ = app;
+    _ = ev;
+    _ = row;
+}

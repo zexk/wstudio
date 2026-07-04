@@ -110,3 +110,9 @@ fn adjustParam(app: *App, steps: i32) void {
         .steps = steps,
     } });
 }
+
+pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize) void {
+    _ = app;
+    _ = ev;
+    _ = row;
+}

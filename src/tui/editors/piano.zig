@@ -596,3 +596,10 @@ fn deleteNote(app: *App) void {
     app.setStatus("removed {s}", .{midi.noteName(app.piano_cursor_pitch, &nbuf)});
     syncLinkedClip(app);
 }
+
+pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16) void {
+    _ = app;
+    _ = ev;
+    _ = row;
+    _ = cols;
+}

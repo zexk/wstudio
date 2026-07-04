@@ -3,13 +3,20 @@
 //! std.posix and ANSI escape sequences.
 
 const std = @import("std");
-const Key = @import("wstudio").input.Key;
+const modal_mod = @import("wstudio").input;
+const Key = modal_mod.Key;
 
 const esc = "\x1b";
 const enter_alt_screen = esc ++ "[?1049h";
 const leave_alt_screen = esc ++ "[?1049l";
 const hide_cursor = esc ++ "[?25l";
 const show_cursor = esc ++ "[?25h";
+// Button-event tracking (press/release + motion while a button is held) with
+// SGR extended coordinates (unambiguous past column/row 223, and easy to
+// parse back out — see `decode`'s SGR branch). Terminals conventionally let
+// the user hold Shift to bypass this for native text selection.
+const enable_mouse = esc ++ "[?1002h" ++ esc ++ "[?1006h";
+const disable_mouse = esc ++ "[?1002l" ++ esc ++ "[?1006l";
 
 pub const Size = struct { cols: u16, rows: u16 };
 
@@ -45,12 +52,12 @@ pub const Terminal = struct {
             .stdout_fd = stdout_fd,
             .original = original,
         };
-        self.write(enter_alt_screen ++ hide_cursor);
+        self.write(enter_alt_screen ++ hide_cursor ++ enable_mouse);
         return self;
     }
 
     pub fn deinit(self: *Terminal) void {
-        self.write(show_cursor ++ leave_alt_screen);
+        self.write(disable_mouse ++ show_cursor ++ leave_alt_screen);
         std.posix.tcsetattr(self.stdin_fd, .FLUSH, self.original) catch {};
     }
 
@@ -86,13 +93,55 @@ pub const Terminal = struct {
     }
 };
 
+/// Parses the parameter block of an SGR mouse report (everything between the
+/// leading `<` and the final `M`/`m`): `Cb;Cx;Cy`. `is_press` is true when the
+/// sequence's final byte was `M` (press or motion), false for `m` (release —
+/// see `Key.mouse`'s doc comment for the byte layout this decodes).
+fn parseSgrMouse(params: []const u8, is_press: bool) ?Key {
+    var it = std.mem.splitScalar(u8, params, ';');
+    const cb = std.fmt.parseInt(u16, it.next() orelse return null, 10) catch return null;
+    const cx = std.fmt.parseInt(u16, it.next() orelse return null, 10) catch return null;
+    const cy = std.fmt.parseInt(u16, it.next() orelse return null, 10) catch return null;
+
+    const is_wheel = cb & 0x40 != 0;
+    const is_motion = cb & 0x20 != 0;
+    const btn_bits = cb & 0x3;
+    const ctrl = cb & 0x10 != 0;
+    const shift = cb & 0x4 != 0;
+
+    const button: modal_mod.MouseButton = if (is_wheel) .none else switch (btn_bits) {
+        0 => .left,
+        1 => .middle,
+        2 => .right,
+        else => .none,
+    };
+    const kind: modal_mod.MouseKind = if (is_wheel)
+        (if (btn_bits == 0) .scroll_up else .scroll_down)
+    else if (is_motion)
+        .drag
+    else if (is_press)
+        .press
+    else
+        .release;
+
+    return .{ .mouse = .{
+        .x = cx -| 1,
+        .y = cy -| 1,
+        .button = button,
+        .kind = kind,
+        .ctrl = ctrl,
+        .shift = shift,
+    } };
+}
+
 /// Decodes a batch of raw input bytes into keys. A lone 0x1b in the batch is
 /// the escape key; 0x1b followed by '[' is a CSI sequence — arrows, Home
-/// (xterm/alacritty's plain `ESC [ H`, not the `1~` form) and End (`ESC [ F`)
-/// decode to their own Key variants (not hjkl chars, so the modal layer can
-/// tell a real arrow press from someone typing those letters — see
-/// App.handleKey), other CSI sequences are dropped. Returns the number of
-/// keys written to `out`.
+/// (xterm/alacritty's plain `ESC [ H`, not the `1~` form), End (`ESC [ F`),
+/// and SGR mouse reports (`ESC [ < Cb ; Cx ; Cy M`/`m`) decode to their own
+/// Key variants (arrows/Home/End not aliased to hjkl chars, so the modal
+/// layer can tell a real arrow press from someone typing those letters —
+/// see App.handleKey), other CSI sequences are dropped. Returns the number
+/// of keys written to `out`.
 pub fn decode(bytes: []const u8, out: []Key) usize {
     var count: usize = 0;
     var i: usize = 0;
@@ -101,13 +150,17 @@ pub fn decode(bytes: []const u8, out: []Key) usize {
         switch (b) {
             0x1b => {
                 if (i + 1 < bytes.len and bytes[i + 1] == '[') {
-                    i += 2;
+                    const param_start = i + 2;
+                    i = param_start;
                     // skip CSI parameters, keep the final byte
                     while (i < bytes.len and (bytes[i] < 0x40 or bytes[i] > 0x7e)) i += 1;
                     if (i < bytes.len) {
                         const final = bytes[i];
+                        const params = bytes[param_start..i];
                         i += 1;
-                        const mapped: ?Key = switch (final) {
+                        const mapped: ?Key = if (params.len > 0 and params[0] == '<' and (final == 'M' or final == 'm'))
+                            parseSgrMouse(params[1..], final == 'M')
+                        else switch (final) {
                             'A' => .arrow_up,
                             'B' => .arrow_down,
                             'C' => .arrow_right,
@@ -200,4 +253,38 @@ test "decode Home/End CSI sequences" {
     try std.testing.expectEqual(@as(usize, 2), n);
     try std.testing.expectEqual(Key.home, keys[0]);
     try std.testing.expectEqual(Key.end, keys[1]);
+}
+
+test "decode SGR mouse press/release/drag" {
+    var keys: [8]Key = undefined;
+    // left press at col 5, row 3 (1-based on the wire -> 0-based decoded)
+    var n = decode("\x1b[<0;5;3M", &keys);
+    try std.testing.expectEqual(@as(usize, 1), n);
+    try std.testing.expectEqual(modal_mod.MouseEvent{
+        .x = 4, .y = 2, .button = .left, .kind = .press,
+    }, keys[0].mouse);
+
+    // left release, same cell
+    n = decode("\x1b[<0;5;3m", &keys);
+    try std.testing.expectEqual(modal_mod.MouseKind.release, keys[0].mouse.kind);
+
+    // motion with the left button held (bit 0x20) — a drag
+    n = decode("\x1b[<32;6;3M", &keys);
+    try std.testing.expectEqual(modal_mod.MouseKind.drag, keys[0].mouse.kind);
+    try std.testing.expectEqual(@as(u16, 5), keys[0].mouse.x);
+}
+
+test "decode SGR mouse wheel and modifiers" {
+    var keys: [8]Key = undefined;
+    // wheel up (Cb bit 0x40 set, button bits 0) and wheel down (bits 1)
+    var n = decode("\x1b[<64;1;1M", &keys);
+    try std.testing.expectEqual(modal_mod.MouseKind.scroll_up, keys[0].mouse.kind);
+    n = decode("\x1b[<65;1;1M", &keys);
+    try std.testing.expectEqual(modal_mod.MouseKind.scroll_down, keys[0].mouse.kind);
+
+    // ctrl+left press (Cb bit 0x10) and shift+left press (Cb bit 0x4)
+    n = decode("\x1b[<16;1;1M", &keys);
+    try std.testing.expect(keys[0].mouse.ctrl);
+    n = decode("\x1b[<4;1;1M", &keys);
+    try std.testing.expect(keys[0].mouse.shift);
 }

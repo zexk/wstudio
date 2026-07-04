@@ -34,6 +34,10 @@ const InstrumentKind = ws.InstrumentKind;
 const pattern_mod = ws.dsp.pattern;
 
 pub const note_ms = 220;
+/// Rows every view's content starts after in `App.draw`: the header line +
+/// the `hr` divider beneath it. Mouse hit-testing subtracts this before
+/// handing a row to a view's own handler — see `App.handleMouse`.
+const content_top: u16 = 2;
 const frame_poll_ms = 30;
 const cmd_history_cap: usize = 50;
 /// Big enough for any real filesystem path; mirrors commands.path_buf_len.
@@ -215,6 +219,18 @@ pub const App = struct {
     /// Cumulative (dstep, dpitch) of the current note-drag session (M grab),
     /// reset when the grab starts, committed to `last_edit` when it drops.
     piano_grab_delta: struct { dstep: i32 = 0, dpitch: i32 = 0 } = .{},
+    /// In-progress drum-grid mouse paint stroke: the state being painted
+    /// (true = activating, false = clearing). Null when no drag is active.
+    /// See editors/drum.zig's handleMouse.
+    drum_paint_state: ?bool = null,
+    /// In-progress arrangement clip drag: the bar last reported by the
+    /// mouse, so each motion event can compute an incremental delta for
+    /// `moveClip`. Null when no drag is active. See editors/arrangement.zig's
+    /// handleMouse.
+    arr_drag_bar: ?u32 = null,
+    /// In-progress sampler-waveform marker drag. Null when no drag is
+    /// active. See editors/sampler.zig's handleMouse.
+    sampler_drag_marker: ?enum { start, end } = null,
     /// The arrangement clip the piano roll is editing, or null when it edits
     /// the track's live pattern (see `ClipLink`). Set by `e` on a clip in the
     /// arrangement; cleared when the roll opens on a live pattern instead.
@@ -469,6 +485,90 @@ pub const App = struct {
                 }
                 self.applyAction(self.modal.handle(key), now_ns);
             },
+        }
+    }
+
+    /// Mouse entry point — routed here directly by `run()` rather than
+    /// through `handleKey`/the modal state machine (mouse isn't part of the
+    /// vim mode grammar; it's a second way to trigger the same actions keys
+    /// already trigger). `cols` is the current terminal width, needed by
+    /// views whose column math depends on it (piano roll, arrangement,
+    /// sampler waveform, spectrum bands).
+    pub fn handleMouse(self: *App, ev: modal_mod.MouseEvent, cols: u16, now_ns: i96) void {
+        self.now_ns = now_ns;
+        if (ev.y < content_top) return;
+        const row: usize = ev.y - content_top;
+        switch (self.view) {
+            .tracks => self.tracksMouse(ev, row),
+            .drum_grid => drum_ed.handleMouse(self, ev, row),
+            .synth_editor => synth_ed.handleMouse(self, ev, row),
+            .sampler_editor => sampler_ed.handleMouse(self, ev, row, cols),
+            .piano_roll => piano_ed.handleMouse(self, ev, row, cols),
+            .track_spectrum, .master_spectrum => spectrum_ed.handleMouse(self, ev, row, cols),
+            .arrangement => arrangement_ed.handleMouse(self, ev, row, cols),
+            .instrument_picker => self.pickerMouse(ev, row),
+            .file_browser => self.browserMouse(ev, row),
+            .help => self.helpMouse(ev),
+        }
+    }
+
+    /// Tracks view: click a row to select + open it (same as Enter); scroll
+    /// moves the cursor like j/k. Row-level only: track names are unbounded
+    /// width (`"{s: <8}"` pads but never truncates), so a mute/solo column
+    /// click zone can't be derived reliably from the track index alone.
+    fn tracksMouse(self: *App, ev: modal_mod.MouseEvent, row: usize) void {
+        switch (ev.kind) {
+            .press => {
+                const track_count = self.session.project.tracks.items.len;
+                if (row == 0 or row > track_count + 1) return; // title row / out of range
+                const idx = row - 1;
+                self.cursor = idx;
+                if (idx == track_count) spectrum_ed.switchToMaster(self) else self.openTrack(idx);
+            },
+            .scroll_up => self.applyAction(.{ .move = .{ .dy = -1 } }, self.now_ns),
+            .scroll_down => self.applyAction(.{ .move = .{ .dy = 1 } }, self.now_ns),
+            else => {},
+        }
+    }
+
+    /// Instrument picker: click a row to select + insert it (same as
+    /// enter/space); scroll moves the highlight.
+    fn pickerMouse(self: *App, ev: modal_mod.MouseEvent, row: usize) void {
+        switch (ev.kind) {
+            .press => {
+                if (row < 2 or row - 2 >= picker_kinds.len) return;
+                self.picker_cursor = @intCast(row - 2);
+                self.pickerInsert();
+            },
+            .scroll_up => { if (self.picker_cursor > 0) self.picker_cursor -= 1; },
+            .scroll_down => { if (self.picker_cursor + 1 < picker_kinds.len) self.picker_cursor += 1; },
+            else => {},
+        }
+    }
+
+    /// File browser: click a row to descend into it or activate it (same as
+    /// enter/l/space); scroll moves the highlight.
+    fn browserMouse(self: *App, ev: modal_mod.MouseEvent, row: usize) void {
+        switch (ev.kind) {
+            .press => {
+                if (row < 2) return;
+                const idx = self.browser_scroll + (row - 2);
+                if (idx >= self.browser_entries.items.len) return;
+                self.browser_cursor = idx;
+                self.browserActivate();
+            },
+            .scroll_up => { if (self.browser_cursor > 0) self.browser_cursor -= 1; },
+            .scroll_down => { if (self.browser_cursor + 1 < self.browser_entries.items.len) self.browser_cursor += 1; },
+            else => {},
+        }
+    }
+
+    /// Help view: scroll wheel scrolls content (same as j/k). No click behavior.
+    fn helpMouse(self: *App, ev: modal_mod.MouseEvent) void {
+        switch (ev.kind) {
+            .scroll_up => self.help_scroll -|= 1,
+            .scroll_down => self.help_scroll += 1,
+            else => {},
         }
     }
 
@@ -1469,7 +1569,10 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8) !vo
         const bytes = try term.readInput(&input_buf, frame_poll_ms);
         const now = std.Io.Timestamp.now(io, .awake).nanoseconds;
         const n = terminal_mod.decode(bytes, &keys);
-        for (keys[0..n]) |key| app.handleKey(key, now);
+        for (keys[0..n]) |key| switch (key) {
+            .mouse => |ev| app.handleMouse(ev, term.size().cols, now),
+            else => app.handleKey(key, now),
+        };
         app.tick(now);
 
         // :e / :new asked for a session swap. Build the replacement first

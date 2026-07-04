@@ -334,3 +334,10 @@ pub fn setMasterEqBand(app: *App, band: usize, gain_db: f32) void {
     app.dirty = true;
     app.session.syncMasterChain();
 }
+
+pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16) void {
+    _ = app;
+    _ = ev;
+    _ = row;
+    _ = cols;
+}

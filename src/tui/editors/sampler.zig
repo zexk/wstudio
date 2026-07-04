@@ -81,3 +81,10 @@ pub fn adjustParam(app: *App, steps: i32) void {
         },
     }
 }
+
+pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16) void {
+    _ = app;
+    _ = ev;
+    _ = row;
+    _ = cols;
+}
