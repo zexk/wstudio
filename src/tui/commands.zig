@@ -365,6 +365,19 @@ fn cursorSynth(app: *App) ?*ws.dsp.PolySynth {
     };
 }
 
+/// Appends " (genre1/genre2)" for the genre tags in `tags` (everything past
+/// the always-present "wstudio" tag at index 0). Writes nothing if there are
+/// no genre tags (e.g. the "init" preset).
+fn writeGenres(w: *std.Io.Writer, tags: []const []const u8) std.Io.Writer.Error!void {
+    if (tags.len <= 1) return;
+    try w.writeAll(" (");
+    for (tags[1..], 0..) |t, i| {
+        if (i > 0) try w.writeAll("/");
+        try w.writeAll(t);
+    }
+    try w.writeAll(")");
+}
+
 /// `:synth-preset [name]` — apply a factory patch (see `dsp/synth_presets.zig`)
 /// to the cursor track's synth. No args, or an unknown name, lists the
 /// available preset names instead of guessing.
@@ -376,6 +389,7 @@ fn cmdSynthPreset(app: *App, args: []const u8) void {
         for (ws.dsp.synth_presets.presets, 0..) |p, i| {
             if (i > 0) w.writeAll(", ") catch break;
             w.writeAll(p.name) catch break;
+            writeGenres(&w, p.tags) catch break;
         }
         app.setStatus("synth presets: {s}", .{w.buffered()});
         return;
@@ -405,6 +419,7 @@ fn cmdDrumKit(app: *App, args: []const u8) void {
         for (ws.dsp.drum_kit.variants, 0..) |v, i| {
             if (i > 0) w.writeAll(", ") catch break;
             w.writeAll(v.name) catch break;
+            writeGenres(&w, v.tags) catch break;
         }
         app.setStatus("drum kits: {s}", .{w.buffered()});
         return;

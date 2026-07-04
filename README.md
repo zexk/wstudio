@@ -160,7 +160,8 @@ Done:
       plain parameter tables run through the existing synthesis code at
       select time, so extra presets/kits cost no shipped bytes; each preset
       carries a `category` (sound role/character) and `tags` (always
-      `wstudio` + a genre) for future browsing
+      `wstudio` + a genre) — the no-args listing shows each name's genre
+      alongside it, e.g. `acid-bass (acid), wobble-bass (dubstep)`
 - [x] Minimal netrw-style file browser: `:e`, `:load-sample`, and `:load-pad`
       open it when called with no path — `j`/`k` move, `enter`/`l` open a
       directory or pick a file, `h`/backspace go up, `~` jumps home
