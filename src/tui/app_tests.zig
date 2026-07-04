@@ -1794,6 +1794,24 @@ test "R opens the command prompt pre-filled with :track-rename <n> " {
     try std.testing.expectEqualStrings("keys", app.session.project.tracks.items[1].name);
 }
 
+test "R opens the command prompt pre-filled with :pad-rename <n> in the drum grid" {
+    var app = try testApp();
+    defer app.deinit();
+    app.drum_track = 2;
+    app.view = .drum_grid;
+    app.drum_cursor = .{ 3, 0 }; // pad 3 = "open"
+
+    _ = drum_ed.handleKey(&app, .{ .char = 'R' });
+    try std.testing.expectEqual(ws.input.Mode.command, app.modal.mode);
+    try std.testing.expectEqualStrings("pad-rename 3 ", app.modal.cmd_buf[0..app.modal.cmd_len]);
+
+    for ("808oh") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqualStrings("808oh", app.drumMachine().padName(3));
+    // Renaming doesn't touch the actual sample.
+    try std.testing.expect(!app.drumMachine().pads[3].pad.user_sample);
+}
+
 test "t taps the tempo from the average interval; a long gap restarts it" {
     var app = try testApp();
     defer app.deinit();

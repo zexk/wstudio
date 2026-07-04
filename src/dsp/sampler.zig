@@ -95,6 +95,18 @@ pub const Sampler = struct {
         return self.pad.name[0..end];
     }
 
+    /// Set the display name directly, independent of the loaded audio —
+    /// unlike `loadWav`/`setSamples`, doesn't touch `pad.samples` or
+    /// `user_sample`. Truncated to 8 chars like every other name setter here.
+    pub fn rename(self: *Sampler, name: []const u8) void {
+        while (!self.pad_lock.tryLock()) std.atomic.spinLoopHint();
+        defer self.pad_lock.unlock();
+        var n: [8]u8 = [_]u8{' '} ** 8;
+        const len = @min(name.len, 8);
+        @memcpy(n[0..len], name[0..len]);
+        self.pad.name = n;
+    }
+
     // -----------------------------------------------------------------------
     // Param editing — `id` is the param index (single pad, no pad nibble).
 

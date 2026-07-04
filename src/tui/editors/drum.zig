@@ -131,6 +131,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                     } else app.setStatus("can't delete the only pattern", .{});
                 },
                 's' => { spectrum.switchToTrack(app, app.drum_track); return true; },
+                'R' => { startPadRenamePrompt(app); return true; },
                 'e' => {
                     app.sampler_target = .{ .drum = app.drum_track };
                     app.sampler_param = 0;
@@ -283,6 +284,18 @@ fn repeatLastEdit(app: *App) void {
         .drum_range_paste => pasteSelection(app),
         else => app.setStatus("nothing to repeat", .{}),
     }
+}
+
+/// R opens the command prompt pre-filled with `:pad-rename <n> ` for the
+/// cursor pad — type the new name and hit enter (esc cancels), same
+/// mechanism as the tracks view's own rename prompt. Pad index is 0-based,
+/// matching `:load-pad`'s convention (not the 1–8 direct pad-select keys).
+fn startPadRenamePrompt(app: *App) void {
+    app.modal.mode = .command;
+    app.cmd_history_pos = app.cmd_history.items.len;
+    const text = std.fmt.bufPrint(&app.modal.cmd_buf, "pad-rename {d} ", .{app.drum_cursor[0]}) catch return;
+    app.modal.cmd_len = text.len;
+    app.modal.cmd_cursor = text.len;
 }
 
 /// Nudge the drum machine's swing and echo the new value.

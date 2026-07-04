@@ -386,6 +386,8 @@ fn rackToSnap(aa: std.mem.Allocator, rack: *Rack, sample_rate: u32) !RackSnap {
                     .start_norm = s.pad.start_norm, .end_norm = s.pad.end_norm, .reverse = s.pad.reverse,
                     .attack_s = s.pad.attack_s, .decay_s = s.pad.decay_s,
                     .sustain = s.pad.sustain, .release_s = s.pad.release_s,
+                    // Always saved — see the drum pad loop's comment above.
+                    .name = try aa.dupe(u8, s.clipName()),
                 },
                 .root_note = s.root_note,
             };
@@ -421,6 +423,12 @@ fn rackToSnap(aa: std.mem.Allocator, rack: *Rack, sample_rate: u32) !RackSnap {
                     .start_norm = p.start_norm, .end_norm = p.end_norm, .reverse = p.reverse,
                     .attack_s = p.attack_s, .decay_s = p.decay_s,
                     .sustain = p.sustain, .release_s = p.release_s,
+                    // Always saved (like a track name), independent of
+                    // whether the pad has user-loaded audio — a `:pad-rename`
+                    // on a shipped-kit pad has no sample_file to carry the
+                    // name through otherwise. exportSamples overwrites this
+                    // with the same value for user-sample pads.
+                    .name = try aa.dupe(u8, dm.pads[i].clipName()),
                 };
             }
             rs.drum = ds;
@@ -481,13 +489,13 @@ fn exportSamples(
                 const rel = try std.fmt.allocPrint(aa, "{s}/t{d}p{d}.wav", .{ sidecar, ti, pi });
                 try writeSampleWav(aa, io, path, rel, &dir_ready, sr, p.samples);
                 rs.drum.?.pads[pi].sample_file = rel;
-                rs.drum.?.pads[pi].name = try aa.dupe(u8, trimmedName(&p.name));
+                // .name already set by rackToSnap (unconditionally, for every pad).
             },
             .sampler => |*s| if (s.pad.user_sample) {
                 const rel = try std.fmt.allocPrint(aa, "{s}/t{d}clip.wav", .{ sidecar, ti });
                 try writeSampleWav(aa, io, path, rel, &dir_ready, sr, s.pad.samples);
                 rs.sampler.?.pad.sample_file = rel;
-                rs.sampler.?.pad.name = try aa.dupe(u8, trimmedName(&s.pad.name));
+                // .name already set by rackToSnap (unconditionally).
             },
             else => {},
         }
@@ -670,7 +678,12 @@ fn restoreSamples(
             .drum_machine => |*dm| {
                 const ds = rs.drum orelse continue;
                 for (ds.pads, 0..) |ps, pi| {
-                    if (ps.sample_file.len == 0) continue;
+                    if (ps.sample_file.len == 0) {
+                        // No user sample to load, but a `:pad-rename` on a
+                        // shipped-kit pad still needs its name restored.
+                        if (ps.name.len > 0) dm.pads[pi].rename(ps.name);
+                        continue;
+                    }
                     const data = readWsjRel(allocator, io, path, ps.sample_file) orelse continue;
                     defer allocator.free(data);
                     // loadPadWav swaps audio + name under the pad lock and
@@ -681,7 +694,10 @@ fn restoreSamples(
             },
             .sampler => |*s| {
                 const smp = rs.sampler orelse continue;
-                if (smp.pad.sample_file.len == 0) continue;
+                if (smp.pad.sample_file.len == 0) {
+                    if (smp.pad.name.len > 0) s.rename(smp.pad.name);
+                    continue;
+                }
                 const data = readWsjRel(allocator, io, path, smp.pad.sample_file) orelse continue;
                 defer allocator.free(data);
                 // loadWav swaps audio + name under the pad lock and keeps the
@@ -1642,6 +1658,33 @@ test "save/load round-trip persists user-loaded drum pad samples" {
     // Params applied by buildSession survive loadPadWav's sample swap.
     try testing.expectApproxEqAbs(@as(f32, 5.0), pad.pitch_semitones, 1e-4);
     // Shipped-kit pads stay shipped: no sidecar ref, no flag.
+    try testing.expect(!ldm.pads[0].pad.user_sample);
+}
+
+test "save/load round-trip persists a pad rename with no sample change" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [64]u8 = undefined;
+    const wsj_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/proj.wsj", .{&tmp.sub_path});
+
+    var session = try Session.initDefault(testing.allocator);
+    defer session.deinit();
+    try session.setInstrument(0, .drum_machine);
+    const dm = &session.racks.items[0].instrument.drum_machine;
+
+    // A plain :pad-rename — no new sample, still the shipped kick sample.
+    dm.pads[0].rename("808");
+    try testing.expectEqualStrings("snare", dm.padName(1)); // untouched pad unaffected
+
+    try save(testing.allocator, &session, testing.io, wsj_path);
+
+    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    defer loaded.deinit();
+    const ldm = &loaded.racks.items[0].instrument.drum_machine;
+    try testing.expectEqualStrings("808", ldm.padName(0));
+    try testing.expectEqualStrings("snare", ldm.padName(1));
+    // Still the shipped-kit sample — renaming alone doesn't flag user_sample.
     try testing.expect(!ldm.pads[0].pad.user_sample);
 }
 

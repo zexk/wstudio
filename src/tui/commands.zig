@@ -55,6 +55,7 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "vol",         .desc = "[<dB>]  master volume (–40 to +6)",   .run = wrap(cmdVol) },
     .{ .name = "seek",        .desc = "<bar>  move playhead to bar",         .run = wrap(cmdSeek) },
     .{ .name = "load-pad",    .desc = "<0-7> [file]  load WAV into pad (omit the file to browse)",     .run = wrap(cmdLoadPad) },
+    .{ .name = "pad-rename",  .desc = "<0-7> <name>  rename a drum pad (up to 8 chars)", .run = wrap(cmdPadRename) },
     .{ .name = "load-sample", .desc = "[file]  load WAV into sampler track (omit the file to browse)",  .run = wrap(cmdLoadSample) },
     .{ .name = "e",           .desc = "[file]  open a project (refuses if unsaved changes; omit the file to browse)", .run = wrap(cmdEdit) },
     .{ .name = "e!",          .desc = "[file]  open a project, discarding changes; no file reverts the current one", .run = wrap(cmdEditForce) },
@@ -305,6 +306,34 @@ fn cmdLoadPad(app: *App, args: []const u8) void {
     }
     var path_buf: [path_buf_len]u8 = undefined;
     loadPadFromPath(app, pad_idx, expandHome(&path_buf, rest));
+}
+
+fn cmdPadRename(app: *App, args: []const u8) void {
+    var it = std.mem.splitScalar(u8, std.mem.trim(u8, args, " "), ' ');
+    const pad_str = it.next() orelse {
+        app.setStatus("usage: pad-rename <0-7> <name>", .{});
+        return;
+    };
+    const name = std.mem.trim(u8, it.rest(), " ");
+    if (name.len == 0) {
+        app.setStatus("usage: pad-rename <0-7> <name>", .{});
+        return;
+    }
+    const pad_idx = std.fmt.parseInt(u8, pad_str, 10) catch {
+        app.setStatus("pad-rename: bad pad index '{s}'", .{pad_str});
+        return;
+    };
+    if (pad_idx >= DrumMachine.max_pads) {
+        app.setStatus("pad-rename: pad index must be 0-7", .{});
+        return;
+    }
+    const dm = cursorDrumMachine(app) orelse {
+        app.setStatus("pad-rename: select a drum-machine track first", .{});
+        return;
+    };
+    dm.pads[pad_idx].rename(name);
+    app.dirty = true;
+    app.setStatus("pad {d} renamed: {s}", .{ pad_idx, dm.pads[pad_idx].clipName() });
 }
 
 /// Shared by `:load-pad <n> <file>` and the file browser's pad-load purpose
