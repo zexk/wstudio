@@ -210,6 +210,8 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("j / k",        "nudge the value at cursor (fine step) — adds a point if none exists");
     t.key("J / K",        "nudge the value at cursor (coarse step)");
     t.key("x",            "delete the point at cursor exactly");
+    t.key("v",            "visual mode: select a step range on the current curve — y/d/P");
+    t.key(".",            "repeat the last nudge or visual range delete/paste");
     t.key("tab",          "switch between editing the gain curve and the pan curve");
     t.key("u / U",        "undo / redo (whole-lane, same as the arrangement's)");
     t.key("esc",          "back to the arrangement");

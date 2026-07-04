@@ -119,6 +119,14 @@ pub const ArrRangeClip = struct {
     clips: []ws.Clip,
 };
 
+/// A visual-mode range yank from the automation editor: breakpoints from
+/// whichever curve (gain or pan) was selected when `y` was pressed, rebased
+/// so the selection's first step becomes beat 0. Paste places them on the
+/// curve active at paste time, which may differ if `tab` was pressed since.
+pub const AutomationRangeClip = struct {
+    points: []ws.dsp.automation.AutomationPoint,
+};
+
 /// `.` repeats the last "compound" edit — one where replaying it at a new
 /// cursor position is actually worth a shortcut, as opposed to single-key
 /// edits (insert note, toggle step, stamp/delete clip) that are already
@@ -138,6 +146,9 @@ pub const RepeatOp = union(enum) {
     arr_move_clip: struct { delta: i32 },
     arr_range_delete: struct { width: u32 },
     arr_range_paste,
+    automation_range_delete: struct { width: u32 },
+    automation_range_paste,
+    automation_nudge: struct { delta: i32 },
 };
 
 /// Ableton-style clip editing: while set, the piano roll's pattern player
@@ -275,6 +286,12 @@ pub const App = struct {
     /// Horizontal scroll (in steps), kept in sync with the cursor by
     /// views/automation.zig, mirroring `arr_scroll_bar`.
     automation_scroll: u32 = 0,
+    /// Visual-mode step-range selection anchor on the currently-edited curve
+    /// (`automation_target`) — mirrors `piano_visual_anchor`/`arr_visual_anchor`.
+    automation_visual_anchor: ?u32 = null,
+    /// A visual-mode range yank of breakpoints from the current curve,
+    /// rebased so the selection's first step becomes beat 0.
+    automation_range_clip: ?AutomationRangeClip = null,
     /// Active `:scale` for the piano roll's scale highlighting and `c`/`C`
     /// chord stamp; null = no scale (dims nothing, chord stamp defaults to a
     /// plain major shape). A monitoring/writing aid, not song content — not
@@ -340,6 +357,7 @@ pub const App = struct {
             for (r.clips) |*c| c.deinit(self.allocator);
             self.allocator.free(r.clips);
         }
+        if (self.automation_range_clip) |r| self.allocator.free(r.points);
         self.freeBrowserEntries();
         self.browser_entries.deinit(self.allocator);
         if (self.browser_dir.len > 0) self.allocator.free(self.browser_dir);

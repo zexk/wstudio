@@ -15,6 +15,7 @@ const dim = style.dim;
 const acc = style.acc;
 const sel = style.sel;
 const blu = style.blu;
+const yel = style.yel;
 const endLine = style.endLine;
 
 // Lower-eighths block glyphs, shortest to tallest — same idea as
@@ -112,6 +113,12 @@ pub fn drawAutomation(
     const points = curvePoints(clip, target);
     const range = curveRange(target);
 
+    // Visual-mode selection: a step range on the current curve only.
+    const visual_active = app.modal.mode == .visual;
+    const sel_anchor = app.automation_visual_anchor orelse app.automation_cursor_step;
+    const sel_lo: u32 = @min(sel_anchor, app.automation_cursor_step);
+    const sel_hi: u32 = @max(sel_anchor, app.automation_cursor_step);
+
     // Ruler: bar boundaries.
     try w.writeAll(dim ++ "   " ++ rst);
     var col: u32 = 0;
@@ -122,7 +129,9 @@ pub fn drawAutomation(
     try endLine(w);
 
     // Bar graph: one glyph per step. Explicit points are bold+accent,
-    // interpolated-only steps are dim, the cursor is reverse-video.
+    // interpolated-only steps are dim, the cursor is reverse-video, a
+    // visual-mode selection tints its range yellow (matching the piano
+    // roll's `in_sel` convention).
     try w.writeAll("   ");
     col = 0;
     while (col < visible and scroll + col <= total_steps) : (col += 1) {
@@ -130,16 +139,20 @@ pub fn drawAutomation(
         const beat = @as(f64, @floatFromInt(step)) * 0.25;
         const is_cursor = step == app.automation_cursor_step;
         const is_point = hasPointAt(points, beat);
+        const in_sel = visual_active and step >= sel_lo and step <= sel_hi;
         const val = automation_mod.interpolate(points, beat);
         if (is_cursor) {
             try w.writeAll(sel);
         } else if (is_point) {
-            try w.writeAll(bold ++ acc);
+            try w.writeAll(bold);
+            try w.writeAll(if (in_sel) yel else acc);
+        } else if (in_sel) {
+            try w.writeAll(yel);
         } else {
             try w.writeAll(dim);
         }
         try w.writeAll(valueGlyph(val, range));
-        if (is_cursor or is_point) try w.writeAll(rst);
+        if (is_cursor or is_point or in_sel) try w.writeAll(rst);
     }
     try endLine(w);
 
@@ -171,6 +184,9 @@ pub fn drawAutomationStatus(app: anytype, w: *std.Io.Writer, cmds: []const cmd_m
     const step_in_bar = app.automation_cursor_step % steps_per_bar;
     const beat = @as(f64, @floatFromInt(app.automation_cursor_step)) * 0.25;
 
+    if (app.modal.mode == .visual) {
+        try w.writeAll(yel ++ sel ++ " VISUAL " ++ rst ++ " ");
+    }
     try w.writeAll(acc ++ sel);
     try w.print(" {d}.{d} ", .{ bar + 1, step_in_bar + 1 });
     try w.writeAll(rst);
@@ -195,7 +211,7 @@ pub fn drawAutomationStatus(app: anytype, w: *std.Io.Writer, cmds: []const cmd_m
         try w.writeAll(dim ++ "  no automation yet — j/k adds a point" ++ rst);
     }
 
-    try w.writeAll(dim ++ "  h/l:move  j/k:nudge  x:delete  tab:curve  esc:back" ++ rst);
+    try w.writeAll(dim ++ "  h/l:move  j/k:nudge  x:delete  v:select  .:repeat  tab:curve  esc:back" ++ rst);
 
     if (app.status_len > 0) {
         try w.writeAll(dim ++ "  " ++ rst);

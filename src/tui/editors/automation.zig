@@ -6,7 +6,11 @@
 //! none exists yet (starting from whatever the curve currently interpolates
 //! to, so a nudge on a bare stretch doesn't jump to an arbitrary default);
 //! x deletes the point at the cursor exactly; tab switches between editing
-//! the gain and pan curves. The render half lives in views/automation.zig.
+//! the gain and pan curves; v starts a step-range selection on the current
+//! curve — y/d/P act on it (breakpoints only, not the interpolated curve
+//! shape in between); `.` repeats the last nudge or visual range op. Same
+//! shapes as the piano roll's visual mode/`.` repeat, one axis instead of
+//! two. The render half lives in views/automation.zig.
 
 const std = @import("std");
 const ws = @import("wstudio");
@@ -85,6 +89,13 @@ fn curveStep(target: engine_mod.AutomationTarget) f32 {
 
 pub fn handleKey(app: *App, key: modal_mod.Key) bool {
     const clip = currentClip(app) orelse return false;
+
+    // Visual mode: a step-range selection on the currently-edited curve.
+    // Motions and range y/d/P live in handleVisual; everything else is
+    // swallowed so a stray keypress can't jump views or switch curves
+    // mid-selection.
+    if (app.modal.mode == .visual) return handleVisual(app, key, clip);
+
     switch (key) {
         .escape => { app.view = .arrangement; return true; },
         .tab => {
@@ -101,11 +112,146 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             'J' => { nudgeValue(app, clip, -10 * app.takeCount()); return true; },
             'K' => { nudgeValue(app, clip, 10 * app.takeCount()); return true; },
             'x' => { deletePoint(app, clip); return true; },
+            'v' => {
+                app.automation_visual_anchor = app.automation_cursor_step;
+                app.modal.mode = .visual;
+                app.setStatus("visual: hjkl extend, y/d/P act on the range, esc cancels", .{});
+                return true;
+            },
+            '.' => { repeatLastEdit(app, clip); return true; },
             'u' => { history.doUndo(app); return true; },
             'U' => { history.doRedo(app); return true; },
             else => return false,
         },
         else => return false,
+    }
+}
+
+/// Visual mode's reduced key set: motions extend the selection, y/d/P act
+/// on it and return to normal, escape cancels. Everything else is
+/// swallowed (returns true) so it can't jump views or switch curves
+/// mid-selection; digits fall through (return false) so modal.handleNormal
+/// keeps accumulating the count prefix.
+fn handleVisual(app: *App, key: modal_mod.Key, clip: *ws.Clip) bool {
+    switch (key) {
+        .escape => { exitVisual(app); app.setStatus("selection cancelled", .{}); return true; },
+        .char => |c| switch (c) {
+            'h' => { moveCursor(app, clip, -app.takeCount()); return true; },
+            'l' => { moveCursor(app, clip, app.takeCount()); return true; },
+            'H' => { moveCursor(app, clip, -4 * app.takeCount()); return true; },
+            'L' => { moveCursor(app, clip, 4 * app.takeCount()); return true; },
+            'y' => { yankSelection(app, clip); return true; },
+            'd' => { deleteSelection(app, clip); return true; },
+            'P' => { pasteSelection(app, clip); return true; },
+            '0'...'9' => return false,
+            else => return true,
+        },
+        else => return true,
+    }
+}
+
+/// Leave visual mode, clearing the anchor so the selection can't linger.
+fn exitVisual(app: *App) void {
+    app.modal.mode = .normal;
+    app.modal.count = 0;
+    app.modal.pending = null;
+    app.automation_visual_anchor = null;
+}
+
+const StepRange = struct { lo: u32, hi: u32 };
+
+fn selectionRange(app: *App) StepRange {
+    const anchor = app.automation_visual_anchor orelse app.automation_cursor_step;
+    return .{ .lo = @min(anchor, app.automation_cursor_step), .hi = @max(anchor, app.automation_cursor_step) };
+}
+
+/// Yank every breakpoint on the current curve whose beat falls within the
+/// selected step range, rebased so the range's first step becomes beat 0.
+fn yankSelection(app: *App, clip: *ws.Clip) void {
+    const r = selectionRange(app);
+    const lo_beat = @as(f64, @floatFromInt(r.lo)) * 0.25;
+    const hi_beat = @as(f64, @floatFromInt(r.hi)) * 0.25 + 0.25;
+    const points = curvePoints(clip, app.automation_target).*;
+    var list: std.ArrayListUnmanaged(AutomationPoint) = .empty;
+    for (points) |p| {
+        if (p.beat < lo_beat or p.beat >= hi_beat) continue;
+        list.append(app.allocator, .{ .beat = p.beat - lo_beat, .value = p.value }) catch {
+            list.deinit(app.allocator);
+            app.setStatus("yank failed (out of memory)", .{});
+            return;
+        };
+    }
+    const owned = list.toOwnedSlice(app.allocator) catch {
+        list.deinit(app.allocator);
+        app.setStatus("yank failed (out of memory)", .{});
+        return;
+    };
+    if (app.automation_range_clip) |old| app.allocator.free(old.points);
+    app.automation_range_clip = .{ .points = owned };
+    app.setStatus("yanked {d} point(s) ({d} steps)", .{ owned.len, r.hi - r.lo + 1 });
+    exitVisual(app);
+}
+
+/// Delete every breakpoint on the current curve whose beat falls within the
+/// selected step range.
+fn deleteSelection(app: *App, clip: *ws.Clip) void {
+    const r = selectionRange(app);
+    const lo_beat = @as(f64, @floatFromInt(r.lo)) * 0.25;
+    const hi_beat = @as(f64, @floatFromInt(r.hi)) * 0.25 + 0.25;
+    history.push(app, history.captureLane(app, app.automation_track));
+    const points = curvePoints(clip, app.automation_target);
+    var removed: usize = 0;
+    var i: usize = 0;
+    while (i < points.len) {
+        if (points.*[i].beat >= lo_beat and points.*[i].beat < hi_beat) {
+            _ = automation_mod.removePoint(app.allocator, points, points.*[i].beat);
+            removed += 1;
+        } else i += 1;
+    }
+    app.last_edit = .{ .automation_range_delete = .{ .width = r.hi - r.lo + 1 } };
+    app.setStatus("deleted {d} point(s)", .{removed});
+    if (app.session.song_mode) app.session.rebuildSongData();
+    exitVisual(app);
+}
+
+/// Paste the range clipboard's breakpoints onto the curve active *now*
+/// (`automation_target`, which may differ from the one yanked if `tab` was
+/// pressed since), starting at the cursor step.
+fn pasteSelection(app: *App, clip: *ws.Clip) void {
+    const rc = app.automation_range_clip orelse {
+        app.setStatus("nothing yanked — select a range and y first", .{});
+        exitVisual(app);
+        return;
+    };
+    history.push(app, history.captureLane(app, app.automation_track));
+    const points = curvePoints(clip, app.automation_target);
+    const base_beat = @as(f64, @floatFromInt(app.automation_cursor_step)) * 0.25;
+    const max_beat: f64 = @as(f64, @floatFromInt(maxStep(app, clip))) * 0.25;
+    for (rc.points) |p| {
+        const beat = std.math.clamp(base_beat + p.beat, 0, max_beat);
+        automation_mod.setPoint(app.allocator, points, beat, p.value) catch {
+            app.setStatus("paste failed (out of memory)", .{});
+            return;
+        };
+    }
+    app.last_edit = .automation_range_paste;
+    if (app.session.song_mode) app.session.rebuildSongData();
+    app.setStatus("pasted {d} point(s)", .{rc.points.len});
+    exitVisual(app);
+}
+
+/// `.`: replay the last nudge or visual range delete/paste at the current
+/// cursor. No-op ("nothing to repeat") if the last edit came from a
+/// different editor or there wasn't one.
+fn repeatLastEdit(app: *App, clip: *ws.Clip) void {
+    switch (app.last_edit) {
+        .automation_nudge => |v| nudgeValue(app, clip, v.delta),
+        .automation_range_delete => |v| {
+            app.automation_visual_anchor = app.automation_cursor_step + (v.width - 1);
+            deleteSelection(app, clip);
+        },
+        .automation_range_paste => pasteSelection(app, clip),
+        else => app.setStatus("nothing to repeat", .{}),
     }
 }
 
@@ -169,6 +315,7 @@ fn nudgeValue(app: *App, clip: *ws.Clip, steps: i32) void {
         app.setStatus("automation edit failed (out of memory)", .{});
         return;
     };
+    app.last_edit = .{ .automation_nudge = .{ .delta = steps } };
     if (app.session.song_mode) app.session.rebuildSongData();
 }
 

@@ -13,6 +13,7 @@ const AppView = app_mod.AppView;
 const note_ms = app_mod.note_ms;
 const commands = @import("commands.zig");
 const drum_ed = @import("editors/drum.zig");
+const automation_ed = @import("editors/automation.zig");
 const piano_ed = @import("editors/piano.zig");
 const sampler_ed = @import("editors/sampler.zig");
 const spectrum_ed = @import("editors/spectrum.zig");
@@ -289,6 +290,51 @@ test "Z toggles piano roll zoom and compacts the rendered grid" {
 
     _ = piano_ed.handleKey(&app, .{ .char = 'Z' });
     try std.testing.expectEqual(@as(usize, 3), app.pianoCellWidth());
+}
+
+test "automation editor: nudge, `.` repeat, and visual range yank/delete/paste" {
+    var app = try testApp();
+    defer app.deinit();
+
+    try app.session.stampClip(0, 0); // 1-bar clip at bar 0 on the synth track
+    automation_ed.switchTo(&app, 0, 0);
+    try std.testing.expectEqual(AppView.automation, app.view);
+
+    // j nudges gain down by one fine step, creating a point at the cursor.
+    _ = automation_ed.handleKey(&app, .{ .char = 'j' });
+    const clip = automation_ed.currentClip(&app).?;
+    try std.testing.expectEqual(@as(usize, 1), clip.automation.gain.len);
+    try std.testing.expectApproxEqAbs(@as(f32, -1.0), clip.automation.gain[0].value, 1e-6);
+
+    // `.` at a new cursor position repeats the same nudge there.
+    _ = automation_ed.handleKey(&app, .{ .char = 'l' });
+    _ = automation_ed.handleKey(&app, .{ .char = '.' });
+    try std.testing.expectEqual(@as(usize, 2), clip.automation.gain.len);
+
+    // Visual mode: select the range covering both points and yank it.
+    app.automation_cursor_step = 0;
+    _ = automation_ed.handleKey(&app, .{ .char = 'v' });
+    for ("3l") |c| _ = automation_ed.handleKey(&app, .{ .char = c });
+    _ = automation_ed.handleKey(&app, .{ .char = 'y' });
+    try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
+    try std.testing.expect(app.automation_range_clip != null);
+    try std.testing.expectEqual(@as(usize, 2), app.automation_range_clip.?.points.len);
+
+    // Select the same range again and delete it — the curve goes bare.
+    app.automation_cursor_step = 0;
+    _ = automation_ed.handleKey(&app, .{ .char = 'v' });
+    for ("3l") |c| _ = automation_ed.handleKey(&app, .{ .char = c });
+    _ = automation_ed.handleKey(&app, .{ .char = 'd' });
+    try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
+    try std.testing.expectEqual(@as(usize, 0), clip.automation.gain.len);
+
+    // Paste the yanked points back — like piano/arrangement, range-paste only
+    // lives inside visual mode (a plain normal-mode `P` is a different,
+    // whole-content clipboard that automation doesn't have).
+    _ = automation_ed.handleKey(&app, .{ .char = 'v' });
+    _ = automation_ed.handleKey(&app, .{ .char = 'P' });
+    try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
+    try std.testing.expectEqual(@as(usize, 2), clip.automation.gain.len);
 }
 
 test "visual mode escape cancels the selection without editing" {
