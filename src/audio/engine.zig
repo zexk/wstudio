@@ -42,6 +42,11 @@ pub const Command = union(enum) {
     /// A/B loop region (frames). See Transport.advance for the wrap.
     set_loop: struct { enabled: bool, start_frames: u64, end_frames: u64 },
     set_metronome: bool,
+    /// Arms a one-bar count-in at the current position: the metronome
+    /// clicks through a bar (regardless of `set_metronome`'s on/off state)
+    /// while the transport stays stopped, then playback starts for real
+    /// exactly on the downbeat. See Engine.firePreRoll.
+    record,
 };
 
 const TrackState = struct {
@@ -56,6 +61,11 @@ const TrackState = struct {
 
 pub const UiSnapshot = struct {
     playing: bool,
+    /// True while a `.record` count-in is clicking through its bar — the
+    /// transport itself is still stopped (`playing` is false) until it
+    /// finishes. Lets the UI show a distinct "counting in" state and lets
+    /// space cancel it instead of arming a second one.
+    pre_rolling: bool,
     position_frames: u64,
     peak: [channels]f32,
 };
@@ -78,6 +88,14 @@ pub const Engine = struct {
     /// Monotonic count of beats fired so far — same resync-on-discontinuity
     /// technique as DrumMachine.next_step_k, one level up (beats, not steps).
     metronome_next_beat: u64 = 0,
+    /// Record count-in: frames left in the armed bar (0 = no pre-roll in
+    /// flight). `pre_roll_elapsed` is a virtual clock — the transport itself
+    /// hasn't started yet — driving the same beat-boundary click math
+    /// `fireMetronome` uses, via its own `pre_roll_next_beat` counter. See
+    /// `firePreRoll`.
+    pre_roll_frames_remaining: u64 = 0,
+    pre_roll_elapsed: u64 = 0,
+    pre_roll_next_beat: u64 = 0,
     tracks: [max_tracks]TrackState,
     scratch: [types.max_block_frames * channels]Sample = undefined,
     peak: [channels]f32 = .{ 0.0, 0.0 },
@@ -95,6 +113,7 @@ pub const Engine = struct {
 
     const Shared = struct {
         playing: std.atomic.Value(bool) = .init(false),
+        pre_rolling: std.atomic.Value(bool) = .init(false),
         position_frames: std.atomic.Value(u64) = .init(0),
         peak_bits: [channels]std.atomic.Value(u32) = .{ .init(0), .init(0) },
     };
@@ -217,6 +236,47 @@ pub const Engine = struct {
         self.metronome.render(out, channels, frames);
     }
 
+    /// Clicks through the armed count-in bar and, once it's fully elapsed,
+    /// starts the transport for real — recording begins exactly on the
+    /// downbeat. Same beat-boundary-crossing loop as `fireMetronome`, just
+    /// driven by `pre_roll_elapsed` (a virtual clock) instead of the real
+    /// transport position, since the transport hasn't started yet. Clicks
+    /// unconditionally — count-in isn't gated by `metronome_enabled`; it's
+    /// the only timing cue you have while nothing else is playing.
+    fn firePreRoll(self: *Engine, out: []Sample, frames: u32) void {
+        const fpb = self.transport.framesPerBeat();
+        const bpb: u64 = self.transport.time_signature.beats_per_bar;
+        const pos_f: f64 = @floatFromInt(self.pre_roll_elapsed);
+        var beat_k = self.pre_roll_next_beat;
+
+        while (true) {
+            const fire_pos = @as(f64, @floatFromInt(beat_k)) * fpb;
+            if (fire_pos >= pos_f + @as(f64, @floatFromInt(frames))) break;
+
+            const fire_frame: u32 = if (fire_pos <= pos_f)
+                0
+            else
+                @intCast(@min(
+                    @as(u64, @intFromFloat(fire_pos - pos_f)),
+                    @as(u64, frames - 1),
+                ));
+
+            self.metronome.trigger(beat_k % bpb == 0, fire_frame);
+            beat_k += 1;
+        }
+        self.pre_roll_next_beat = beat_k;
+        self.metronome.render(out, channels, frames);
+
+        if (frames >= self.pre_roll_frames_remaining) {
+            self.pre_roll_frames_remaining = 0;
+            self.pre_roll_next_beat = 0;
+            self.transport.play();
+        } else {
+            self.pre_roll_frames_remaining -= frames;
+            self.pre_roll_elapsed += frames;
+        }
+    }
+
     pub fn setTrackChain(self: *Engine, track: u16, devices: []const dsp.Device) void {
         const state = self.trackAt(track);
         state.chain_len = @min(devices.len, max_chain_devices);
@@ -244,8 +304,15 @@ pub const Engine = struct {
 
         self.drainCommands();
         @memset(out, 0.0);
-        self.renderTracks(out, frames);
-        if (self.metronome_enabled) self.fireMetronome(out, frames);
+
+        if (self.pre_roll_frames_remaining > 0) {
+            // Count-in: click through the armed bar, no track audio, and
+            // the transport itself stays stopped until it's done.
+            self.firePreRoll(out, frames);
+        } else {
+            self.renderTracks(out, frames);
+            if (self.metronome_enabled) self.fireMetronome(out, frames);
+        }
 
         for (self.master_chain[0..self.master_chain_len]) |dev| dev.process(out);
 
@@ -269,6 +336,7 @@ pub const Engine = struct {
         self.transport.advance(frames);
 
         self.shared.playing.store(self.transport.playing, .monotonic);
+        self.shared.pre_rolling.store(self.pre_roll_frames_remaining > 0, .monotonic);
         self.shared.position_frames.store(self.transport.position_frames, .monotonic);
         inline for (0..channels) |ch| {
             self.shared.peak_bits[ch].store(@bitCast(self.peak[ch]), .monotonic);
@@ -278,6 +346,7 @@ pub const Engine = struct {
     pub fn uiSnapshot(self: *const Engine) UiSnapshot {
         var snap: UiSnapshot = .{
             .playing = self.shared.playing.load(.monotonic),
+            .pre_rolling = self.shared.pre_rolling.load(.monotonic),
             .position_frames = self.shared.position_frames.load(.monotonic),
             .peak = undefined,
         };
@@ -304,7 +373,10 @@ pub const Engine = struct {
     fn drainCommands(self: *Engine) void {
         while (self.commands.pop()) |cmd| switch (cmd) {
             .play => self.transport.play(),
-            .stop => self.transport.stop(),
+            .stop => {
+                self.transport.stop();
+                self.pre_roll_frames_remaining = 0; // cancel an in-flight count-in too
+            },
             .seek_frames => |f| self.transport.seekFrames(f),
             .set_tempo => |bpm| self.transport.tempo_bpm = bpm,
             .set_time_signature => |bpb| self.transport.time_signature.beats_per_bar = bpb,
@@ -331,6 +403,12 @@ pub const Engine = struct {
                 self.transport.loop_end_frames = c.end_frames;
             },
             .set_metronome => |v| self.metronome_enabled = v,
+            .record => {
+                const bpb: f64 = @floatFromInt(self.transport.time_signature.beats_per_bar);
+                self.pre_roll_frames_remaining = @intFromFloat(bpb * self.transport.framesPerBeat());
+                self.pre_roll_elapsed = 0;
+                self.pre_roll_next_beat = 0;
+            },
             .set_spectrum_active => |c| {
                 self.active_spectrum_source = c.source;
                 // Reset buffer when switching to a different track so stale

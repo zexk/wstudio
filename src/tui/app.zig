@@ -856,8 +856,24 @@ pub const App = struct {
             },
             .goto_start => _ = self.session.engine.send(.{ .seek_frames = 0 }),
             .toggle_play => {
-                const cmd: engine_mod.Command = if (self.session.engine.uiSnapshot().playing) .stop else .play;
-                _ = self.session.engine.send(cmd);
+                const snap = self.session.engine.uiSnapshot();
+                if (snap.pre_rolling) {
+                    // A second press while the count-in is clicking cancels
+                    // it instead of arming another one on top.
+                    _ = self.session.engine.send(.stop);
+                    self.setStatus("count-in cancelled", .{});
+                } else if (!snap.playing and self.view == .piano_roll and self.modal.mode == .insert) {
+                    // Starting playback to record (insert mode, piano roll,
+                    // currently stopped) clicks a one-bar count-in first so
+                    // there's a cue to come in on. Already-rolling playback
+                    // (jumping into insert mode mid-song) needs none of
+                    // this — recordNote just quantizes to the live playhead.
+                    _ = self.session.engine.send(.record);
+                    self.setStatus("count-in...", .{});
+                } else {
+                    const cmd: engine_mod.Command = if (snap.playing) .stop else .play;
+                    _ = self.session.engine.send(cmd);
+                }
             },
             .toggle_mute => {
                 const track_idx = self.currentTrack();
@@ -1445,7 +1461,11 @@ pub const App = struct {
         };
         const pos = transport.positionBarBeat();
         const secs = transport.positionSeconds();
-        if (snap.playing) {
+        if (snap.pre_rolling) {
+            // No dedicated glyph for this — it's a brief, rare state, so
+            // plain text beats adding another icon just for it.
+            try w.writeAll("\x1b[33m\x1b[1m count-in\x1b[0m");
+        } else if (snap.playing) {
             if (icons.font_installed) {
                 try w.writeAll("\x1b[32m\x1b[1m " ++ icons.play ++ "\x1b[0m");
             } else {
