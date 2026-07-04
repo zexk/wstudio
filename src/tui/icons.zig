@@ -8,13 +8,12 @@
 //! These are Private Use Area codepoints: a terminal only renders them as
 //! icons if its font actually has glyphs there, otherwise they show as
 //! tofu/placeholder boxes. `zig build install-font` writes the embedded
-//! font to the user's font directory; until it's installed and selected in
-//! the terminal, icons are harmless but won't look like anything in
-//! particular — every call site below adds an icon as a decoration next to
-//! existing text/ASCII, never in place of it, so the TUI stays legible
-//! either way. The Mono variant guarantees each glyph is exactly one
-//! terminal cell wide, so it never throws off the hand-aligned columns
-//! elsewhere in the TUI.
+//! font to the user's font directory; sites that also have an ASCII
+//! rendering (see `font_installed` below) show only the icon once it's
+//! installed, and only the ASCII otherwise, so a missing font never shows
+//! as a stray tofu box next to text that already says the same thing. The
+//! Mono variant guarantees each glyph is exactly one terminal cell wide, so
+//! it never throws off the hand-aligned columns elsewhere in the TUI.
 
 pub const play = "\u{f04b}"; // fa-play
 pub const stop = "\u{f04d}"; // fa-stop
@@ -35,6 +34,40 @@ pub const logo = "\u{f1de}"; // fa-sliders
 
 const std = @import("std");
 const ws = @import("wstudio");
+
+/// True once `zig build install-font` has written the bundled font to the
+/// user's font directory (checked by `detectFontInstalled`, cached here by
+/// `tui/app.zig:run` at startup). Call sites that also have an ASCII
+/// fallback branch on this so exactly one of the two ever renders — without
+/// it, an uninstalled font just means a stray tofu box next to the ASCII
+/// glyph that already said the same thing.
+pub var font_installed: bool = false;
+
+/// Checks whether the embedded icon font (see `ws.icon_font_ttf`) is present
+/// in the user's font directory. Does real filesystem I/O, so call it once
+/// with the process's real `std.Io` (not a test double) and cache the result
+/// in `font_installed` rather than calling it per frame.
+pub fn detectFontInstalled(io: std.Io) bool {
+    var path_buf: [1024]u8 = undefined;
+    const dir = fontDir(&path_buf) catch return false;
+    var full_buf: [1024]u8 = undefined;
+    const full_path = std.fmt.bufPrint(&full_buf, "{s}/wstudio-icons.ttf", .{dir}) catch return false;
+    std.Io.Dir.cwd().access(io, full_path, .{}) catch return false;
+    return true;
+}
+
+/// `$XDG_DATA_HOME/fonts`, falling back to `$HOME/.local/share/fonts` —
+/// mirrors tools/install_font.zig's fontDir (kept separate since tools/ only
+/// imports the wstudio library module, not this one).
+fn fontDir(buf: []u8) ![]const u8 {
+    if (std.c.getenv("XDG_DATA_HOME")) |xdg| {
+        return std.fmt.bufPrint(buf, "{s}/fonts", .{std.mem.sliceTo(xdg, 0)});
+    }
+    if (std.c.getenv("HOME")) |home| {
+        return std.fmt.bufPrint(buf, "{s}/.local/share/fonts", .{std.mem.sliceTo(home, 0)});
+    }
+    return error.NoFontDir;
+}
 
 test "every icon decodes to exactly one codepoint" {
     const all = [_][]const u8{

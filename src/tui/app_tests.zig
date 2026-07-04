@@ -653,23 +653,44 @@ test "draw shows a dirty-flag warning icon in the header once edited" {
     try std.testing.expect(std.mem.indexOf(u8, w.buffered(), icons.warn) != null);
 }
 
-test "transport indicator carries a play/stop icon alongside the ascii glyph" {
+test "transport indicator shows the ascii glyph without the font, the icon with it, never both" {
     var app = try testApp();
     defer app.deinit();
     var buf: [32 * 1024]u8 = undefined;
+    defer icons.font_installed = false;
 
+    icons.font_installed = false;
     var w = std.Io.Writer.fixed(&buf);
     try app.draw(&w, .{ .cols = 80, .rows = 24 });
     try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "[]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), icons.stop) == null);
+
+    icons.font_installed = true;
+    w = std.Io.Writer.fixed(&buf);
+    try app.draw(&w, .{ .cols = 80, .rows = 24 });
+    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "[]") == null);
     try std.testing.expect(std.mem.indexOf(u8, w.buffered(), icons.stop) != null);
 
     _ = app.session.engine.send(.play);
     var block: [64]types.Sample = undefined;
     app.session.engine.process(&block);
+
+    w = std.Io.Writer.fixed(&buf);
+    try app.draw(&w, .{ .cols = 80, .rows = 24 });
+    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "|>") == null);
+    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), icons.play) != null);
+
+    icons.font_installed = false;
     w = std.Io.Writer.fixed(&buf);
     try app.draw(&w, .{ .cols = 80, .rows = 24 });
     try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "|>") != null);
-    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), icons.play) != null);
+    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), icons.play) == null);
+}
+
+test "icons.detectFontInstalled reports false when the font isn't in the user's font dir" {
+    // testApp()/App.init never call this (it needs a real std.Io, not the
+    // std.Io.failing used by the fake IO in tests) — exercise it directly.
+    try std.testing.expect(icons.detectFontInstalled(std.testing.io) == false);
 }
 
 test "blank track row shows the empty hint" {

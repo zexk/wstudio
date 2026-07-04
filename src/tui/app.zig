@@ -1129,9 +1129,17 @@ pub const App = struct {
         const pos = transport.positionBarBeat();
         const secs = transport.positionSeconds();
         if (snap.playing) {
-            try w.writeAll("\x1b[32m\x1b[1m |> " ++ icons.play ++ "\x1b[0m");
+            if (icons.font_installed) {
+                try w.writeAll("\x1b[32m\x1b[1m " ++ icons.play ++ "\x1b[0m");
+            } else {
+                try w.writeAll("\x1b[32m\x1b[1m |>\x1b[0m");
+            }
         } else {
-            try w.writeAll("\x1b[2m [] " ++ icons.stop ++ "\x1b[0m");
+            if (icons.font_installed) {
+                try w.writeAll("\x1b[2m " ++ icons.stop ++ "\x1b[0m");
+            } else {
+                try w.writeAll("\x1b[2m []\x1b[0m");
+            }
         }
         if (self.session.metronome_enabled) {
             try w.writeAll(" \x1b[33m" ++ icons.tempo ++ " click\x1b[0m");
@@ -1191,6 +1199,7 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8) !vo
 
     var app = try App.init(allocator, io);
     defer app.deinit();
+    icons.font_installed = icons.detectFontInstalled(io);
 
     // Load project file before backends start — the backend captures the engine
     // pointer at init, so the swap must happen here.

@@ -4,9 +4,11 @@
 //! with icons from a bundled 16-glyph subset of "Symbols Nerd Font Mono"
 //! (see src/tui/icons.zig and src/assets/fonts/LICENSE) — those codepoints
 //! only render as icons once this font (or any Nerd Font) is on the
-//! system and selected as (or falls back to) the terminal's font. Icons
-//! degrade gracefully without it: every use sits alongside existing
-//! text/ASCII, never replacing it, so the TUI stays legible either way.
+//! system and selected as (or falls back to) the terminal's font. The TUI
+//! detects whether this file exists (see icons.detectFontInstalled) and,
+//! at sites that also have an ASCII rendering, shows the icon once it's
+//! installed and the ASCII otherwise — so a missing font degrades to
+//! plain ASCII rather than a stray tofu box next to it.
 
 const std = @import("std");
 const ws = @import("wstudio");
