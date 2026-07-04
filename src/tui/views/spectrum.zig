@@ -41,6 +41,33 @@ const rowVal = style.rowVal;
 const barRow = style.barRow;
 const enumRow = style.enumRow;
 
+// Short frequency labels for the EQ band row, in eq_mod.iso_frequencies order.
+const eq_freq_labels = [_][]const u8{ "31", "62", "125", "250", "500", "1k", "2k", "4k", "8k", "16k" };
+
+// Lower-eighths block glyphs, shortest (cut) to tallest (boost). 0dB lands
+// on the middle glyph so a flat band still reads as a visible bar.
+const eq_glyphs = [_][]const u8{
+    "\u{2581}", "\u{2582}", "\u{2583}", "\u{2584}",
+    "\u{2585}", "\u{2586}", "\u{2587}", "\u{2588}",
+};
+
+fn eqGlyph(gain_db: f32) []const u8 {
+    const norm = std.math.clamp((gain_db + 18.0) / 36.0, 0.0, 1.0);
+    const lvl: usize = @intFromFloat(@round(norm * @as(f32, @floatFromInt(eq_glyphs.len - 1))));
+    return eq_glyphs[@min(lvl, eq_glyphs.len - 1)];
+}
+
+// Colour by direction and how far a band has been pushed: a near-flat band
+// stays dim, mild boost/cut are green/blue, and pushing past ±9dB escalates
+// to red/magenta so a hot band is visible at a glance.
+fn eqColor(gain_db: f32) []const u8 {
+    if (gain_db >= 9.0) return red;
+    if (gain_db > 0.3) return grn;
+    if (gain_db <= -9.0) return mag;
+    if (gain_db < -0.3) return blu;
+    return dim;
+}
+
 fn brailleBarInv(rem: usize) u21 {
     const bits: u8 = switch (rem) {
         0 => 0b11111111,
@@ -86,7 +113,8 @@ pub fn drawSpectrumView(
         break :blk null;
     };
     const has_eq = eq_ptr != null;
-    const eq_row: usize = if (has_eq) 1 else 0;
+    // header + bar row + value row + freq-label row.
+    const eq_row: usize = if (has_eq) 4 else 0;
     // Master-only read-only compressor readout (no visual editor yet — see
     // `:master-comp`).
     const has_comp = !is_track and app.session.master_fx.comp != null;
@@ -203,15 +231,41 @@ pub fn drawSpectrumView(
         try w.writeAll(bold ++ " EQ" ++ rst);
         try w.writeAll(red);
         try w.writeAll(bypass_str);
-        try w.writeAll(rst ++ "  ");
+        try w.writeAll(rst);
+        try w.writeAll(dim ++ "  10-band graphic  \u{00b1}18dB" ++ rst);
+        try endLine(w);
+
+        // Bar row: one glyph per band, its height tracking gain (▄ = flat,
+        // taller = boost, shorter = cut), coloured by direction/magnitude.
+        // The selected band is bracketed so the cursor reads at a glance.
+        try w.writeAll("   ");
+        for (0..eq_mod.num_eq_bands) |b| {
+            const is_cur = (b == app.eq_cursor);
+            const gain = e.bands[b].gain_db;
+            if (is_cur) try w.writeAll(bold ++ acc ++ " [" ++ rst) else try w.writeAll("  ");
+            try w.writeAll(if (is_cur) bwht else eqColor(gain));
+            if (is_cur) try w.writeAll(bold);
+            try w.writeAll(eqGlyph(gain));
+            try w.writeAll(rst);
+            if (is_cur) try w.writeAll(bold ++ acc ++ "] " ++ rst) else try w.writeAll("  ");
+        }
+        try endLine(w);
+
+        // Value row: signed dB under each bar.
+        try w.writeAll("   ");
         for (0..eq_mod.num_eq_bands) |b| {
             const is_cur = (b == app.eq_cursor);
             const val = e.bands[b].gain_db;
             if (is_cur) try w.writeAll(acc ++ bold);
-            const marker: []const u8 = if (is_cur) ">" else " ";
-            try w.print("{s}{d: <4.0}", .{ marker, val });
+            try w.print("{d: ^5.0}", .{val});
             if (is_cur) try w.writeAll(rst);
         }
+        try endLine(w);
+
+        // Frequency row — matches the band order in eq_mod.iso_frequencies.
+        try w.writeAll(dim ++ "   ");
+        for (eq_freq_labels) |lbl| try w.print("{s: ^5}", .{lbl});
+        try w.writeAll(rst);
         try endLine(w);
     }
 
