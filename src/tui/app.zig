@@ -216,9 +216,12 @@ pub const App = struct {
     arr_range_clip: ?ArrRangeClip = null,
     /// `.` repeat target — the last compound edit, app-wide (see RepeatOp).
     last_edit: RepeatOp = .none,
-    /// Cumulative (dstep, dpitch) of the current note-drag session (M grab),
-    /// reset when the grab starts, committed to `last_edit` when it drops.
-    piano_grab_delta: struct { dstep: i32 = 0, dpitch: i32 = 0 } = .{},
+    /// Cumulative (dstep, dpitch) of the current note-drag session (M grab
+    /// or a mouse drag), reset when the grab starts, committed to
+    /// `last_edit` when it drops. `moved` distinguishes a mouse drag that
+    /// never actually left its starting cell (a plain click) from one that
+    /// did — see editors/piano.zig's handleMouse.
+    piano_grab_delta: struct { dstep: i32 = 0, dpitch: i32 = 0, moved: bool = false } = .{},
     /// In-progress drum-grid mouse paint stroke: the state being painted
     /// (true = activating, false = clearing). Null when no drag is active.
     /// See editors/drum.zig's handleMouse.

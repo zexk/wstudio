@@ -597,9 +597,81 @@ fn deleteNote(app: *App) void {
     syncLinkedClip(app);
 }
 
+// Column/row layout mirrors views/piano.zig's drawPianoRoll exactly: a
+// 6-char prefix (pitch label + "│"), then one 3-char cell per step (no
+// interleaved separators inside the cell width, unlike the drum grid — every
+// column, downbeat or not, is exactly 3 chars). 3 header rows (title, beat
+// ruler, loop/playhead marker) precede the note rows.
+const gutter: usize = 6;
+const header_rows: usize = 3;
+
+fn stepAt(scroll_step: u16, x: usize) ?u16 {
+    if (x < gutter) return null;
+    const col: u16 = @intCast((x - gutter) / 3);
+    return scroll_step + col;
+}
+
+/// Click an empty cell to insert a note there (same as enter); click an
+/// existing note to grab it, same as pressing `M` — dragging then moves it
+/// (reusing `dragNote`), releasing without ever dragging is a plain click
+/// and toggles the note off instead (matching enter's toggle). Scroll moves
+/// the pitch cursor; **shift**+scroll moves the step cursor instead.
 pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16) void {
-    _ = app;
-    _ = ev;
-    _ = row;
-    _ = cols;
+    _ = cols; // column width here is fixed (3 chars/step), not terminal-width-dependent
+    if (app.piano_track >= app.session.racks.items.len) return;
+    const rack = app.session.racks.items[app.piano_track];
+    const pp = if (rack.pattern_player != null) &app.session.racks.items[app.piano_track].pattern_player.? else return;
+    const max_step: u16 = @intFromFloat(pp.length_beats * 4.0);
+
+    switch (ev.kind) {
+        .scroll_up => { if (ev.shift) moveStep(app, max_step, -1) else movePitch(app, 1); return; },
+        .scroll_down => { if (ev.shift) moveStep(app, max_step, 1) else movePitch(app, -1); return; },
+        else => {},
+    }
+
+    if (row < header_rows) return;
+    const r = row - header_rows;
+    const pitch_i: i32 = @as(i32, app.piano_scroll_pitch) - @as(i32, @intCast(r));
+    if (pitch_i < 0 or pitch_i > 127) return;
+    const pitch: u7 = @intCast(pitch_i);
+    const step = stepAt(app.piano_scroll_step, ev.x) orelse return;
+    if (step >= max_step) return;
+
+    switch (ev.kind) {
+        .press => {
+            app.piano_cursor_step = step;
+            app.piano_cursor_pitch = pitch;
+            const start_beat = @as(f64, @floatFromInt(step)) * 0.25;
+            if (pp.noteAt(pitch, start_beat) != null) {
+                app.piano_grab = true;
+                app.piano_grab_delta = .{};
+            } else {
+                insertNote(app);
+            }
+        },
+        .drag => {
+            if (!app.piano_grab) return;
+            const dstep: i32 = @as(i32, step) - @as(i32, app.piano_cursor_step);
+            const dpitch: i32 = @as(i32, pitch) - @as(i32, app.piano_cursor_pitch);
+            if (dstep == 0 and dpitch == 0) return;
+            if (!app.piano_grab_delta.moved) {
+                // First real motion of this grab — one undo entry covers
+                // the whole drag, same as the keyboard `M` path.
+                history.push(app, history.captureMelodic(app, app.piano_track));
+                app.piano_grab_delta.moved = true;
+            }
+            dragNote(app, pp, max_step, dstep, dpitch);
+        },
+        .release => {
+            if (!app.piano_grab) return;
+            if (app.piano_grab_delta.moved) {
+                dropGrab(app);
+            } else {
+                app.piano_grab = false;
+                const start_beat = @as(f64, @floatFromInt(app.piano_cursor_step)) * 0.25;
+                if (pp.noteStartsAt(app.piano_cursor_pitch, start_beat)) deleteNote(app);
+            }
+        },
+        else => {},
+    }
 }

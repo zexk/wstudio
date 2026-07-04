@@ -192,8 +192,9 @@ fn selectionRange(app: *App) StepRange {
 
 /// Force one step to a given active/velocity state via the public toggle +
 /// velocity API (no direct bitmask poking, so this stays in step with
-/// whatever DrumMachine does internally on toggle).
-fn setStep(dm: *DrumMachine, pad: u8, step: u8, active: bool, vel: u2) void {
+/// whatever DrumMachine does internally on toggle). Also used by handleMouse
+/// to paint a drag stroke.
+pub fn setStep(dm: *DrumMachine, pad: u8, step: u8, active: bool, vel: u2) void {
     if (dm.stepActive(pad, step) != active) dm.toggleStep(pad, step);
     if (active) dm.setStepVel(pad, step, vel);
 }
@@ -302,8 +303,68 @@ fn cycleVariant(app: *App, delta: i32) void {
     });
 }
 
+/// Left-gutter width before the step grid starts — matches views/drum.zig's
+/// `" {s: <4} "` pad-name column in drawDrumGrid.
+const gutter: usize = 6;
+
+/// Step index at column `x` within a pad row, or null if `x` falls in the
+/// gutter or past the last visible step. Replays the exact column math
+/// views/drum.zig's render loop uses (a 1-char "│" every 4 steps, then a
+/// 3-char cell) rather than deriving a closed form.
+fn stepAt(step_count: u8, x: usize) ?u8 {
+    if (x < gutter) return null;
+    var col = gutter;
+    var s: u8 = 0;
+    while (s < step_count) : (s += 1) {
+        if (s % 4 == 0) col += 1;
+        if (x < col + 3) return if (x < col) null else s; // `x < col`: landed on the separator itself
+        col += 3;
+    }
+    return null;
+}
+
+/// Click a step cell to toggle it (same as enter); click the pad-name
+/// gutter to just select that pad row. Dragging with the button held paints
+/// (rather than toggles) every newly-entered cell to the state the initial
+/// click produced — `setStep` is idempotent, so repeated motion events over
+/// the same cell are harmless. Scroll moves the step cursor, or — over the
+/// gutter — the pad cursor, regardless of which row the mouse sits on.
 pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize) void {
-    _ = app;
-    _ = ev;
-    _ = row;
+    switch (ev.kind) {
+        .scroll_up, .scroll_down => {
+            const delta: i32 = if (ev.kind == .scroll_up) -1 else 1;
+            if (ev.x < gutter) movePad(app, delta) else moveStep(app, delta);
+            return;
+        },
+        else => {},
+    }
+
+    if (row < 2) return; // title / step-number header rows — see views/drum.zig
+    const pad = row - 2;
+    if (pad >= DrumMachine.max_pads) return;
+
+    switch (ev.kind) {
+        .press => {
+            app.drum_cursor[0] = @intCast(pad);
+            const dm = app.drumMachine();
+            const step = stepAt(dm.step_count, ev.x) orelse {
+                app.drum_paint_state = null;
+                return;
+            };
+            app.drum_cursor[1] = step;
+            history.push(app, history.captureDrum(app, app.drum_track));
+            dm.toggleStep(@intCast(pad), step);
+            app.drum_paint_state = dm.stepActive(@intCast(pad), step);
+        },
+        .drag => {
+            const state = app.drum_paint_state orelse return;
+            const dm = app.drumMachine();
+            const step = stepAt(dm.step_count, ev.x) orelse return;
+            app.drum_cursor[0] = @intCast(pad);
+            app.drum_cursor[1] = step;
+            setStep(dm, @intCast(pad), step, state, 0);
+        },
+        .release => app.drum_paint_state = null,
+        else => {},
+    }
 }

@@ -11,6 +11,7 @@ const DrumMachine = ws.dsp.DrumMachine;
 const App = @import("../app.zig").App;
 const history = @import("../history.zig");
 const piano = @import("piano.zig");
+const view = @import("../views/arrangement.zig");
 
 /// h/l move ±1 bar, H/L ±4 bars (one phrase), j/k change lane (shared
 /// `cursor`), enter stamps the live pattern as a clip, x deletes, y/P
@@ -467,9 +468,58 @@ fn deleteClip(app: *App) void {
     if (app.session.song_mode) app.session.rebuildSongData();
 }
 
+/// Bar at column `x`, or null if `x` falls in the lane-name gutter. Mirrors
+/// views/arrangement.zig's `gutter`/`cell_w` — each bar column is a 1-char
+/// separator + 3-char cell, so no per-column bookkeeping is needed beyond
+/// those two constants.
+fn barAt(scroll_bar: u32, x: usize) ?u32 {
+    if (x < view.gutter) return null;
+    const col: u32 = @intCast((x - view.gutter) / view.cell_w);
+    return scroll_bar + col;
+}
+
+/// Click a cell to move the (lane, bar) cursor there — no auto-stamp;
+/// stamping a clip stays a deliberate `enter`. Press on a cell covered by a
+/// clip starts tracking a drag; each motion event feeds the incremental bar
+/// delta into the existing `moveClip`. Scroll moves the bar cursor, or —
+/// over the lane-name gutter — the lane cursor, regardless of which row the
+/// mouse sits on.
 pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16) void {
-    _ = app;
-    _ = ev;
-    _ = row;
-    _ = cols;
+    _ = cols; // column width here is fixed (view.cell_w), not terminal-width-dependent
+    const lane_count = app.session.project.tracks.items.len;
+
+    switch (ev.kind) {
+        .scroll_up => { if (ev.x < view.gutter) moveLane(app, lane_count, -1) else moveBar(app, -1); return; },
+        .scroll_down => { if (ev.x < view.gutter) moveLane(app, lane_count, 1) else moveBar(app, 1); return; },
+        else => {},
+    }
+
+    if (row < 2) return; // title / bar-ruler rows — see views/arrangement.zig
+    const lane = row - 2;
+    if (lane >= lane_count) return;
+
+    switch (ev.kind) {
+        .press => {
+            app.cursor = lane;
+            if (barAt(app.arr_scroll_bar, ev.x)) |bar| app.arr_cursor_bar = bar;
+            const has_clip = if (app.session.arrangement.lane(lane)) |l|
+                l.clipAt(app.arr_cursor_bar) != null
+            else
+                false;
+            app.arr_drag_bar = if (has_clip) app.arr_cursor_bar else null;
+        },
+        .drag => {
+            const last = app.arr_drag_bar orelse return;
+            const new_bar = barAt(app.arr_scroll_bar, ev.x) orelse return;
+            if (new_bar == last) return;
+            // moveClip looks up the clip at the CURRENT cursor bar and
+            // leaves the cursor on wherever it lands.
+            app.arr_cursor_bar = last;
+            const delta: i32 = @as(i32, @intCast(new_bar)) - @as(i32, @intCast(last));
+            moveClip(app, delta);
+            app.arr_drag_bar = app.arr_cursor_bar;
+        },
+        .release => app.arr_drag_bar = null,
+        else => {},
+    }
 }
