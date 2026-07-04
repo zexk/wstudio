@@ -49,6 +49,10 @@ const autosave_interval_ns: i96 = 30 * std.time.ns_per_s;
 
 pub const AppView = enum { tracks, drum_grid, synth_editor, sampler_editor, help, track_spectrum, master_spectrum, piano_roll, instrument_picker, arrangement, file_browser };
 
+/// Which waveform marker a sampler-editor mouse drag is moving — see
+/// `App.sampler_drag_marker` and editors/sampler.zig's handleMouse.
+pub const SamplerMarker = enum { start, end };
+
 /// What the shared sampler_editor view is currently editing: one pad of a drum
 /// machine, or a standalone Sampler instrument. Holds the track index.
 pub const SamplerTarget = union(enum) {
@@ -233,7 +237,7 @@ pub const App = struct {
     arr_drag_bar: ?u32 = null,
     /// In-progress sampler-waveform marker drag. Null when no drag is
     /// active. See editors/sampler.zig's handleMouse.
-    sampler_drag_marker: ?enum { start, end } = null,
+    sampler_drag_marker: ?SamplerMarker = null,
     /// The arrangement clip the piano roll is editing, or null when it edits
     /// the track's live pattern (see `ClipLink`). Set by `e` on a clip in the
     /// arrangement; cleared when the roll opens on a live pattern instead.
@@ -494,20 +498,23 @@ pub const App = struct {
     /// Mouse entry point — routed here directly by `run()` rather than
     /// through `handleKey`/the modal state machine (mouse isn't part of the
     /// vim mode grammar; it's a second way to trigger the same actions keys
-    /// already trigger). `cols` is the current terminal width, needed by
-    /// views whose column math depends on it (piano roll, arrangement,
-    /// sampler waveform, spectrum bands).
-    pub fn handleMouse(self: *App, ev: modal_mod.MouseEvent, cols: u16, now_ns: i96) void {
+    /// already trigger). `cols`/`rows` are the current terminal size, needed
+    /// by views whose layout depends on it: `cols` for column math (piano
+    /// roll, arrangement, sampler waveform, spectrum bands), `rows` for the
+    /// sampler/spectrum views' variable-height waveform/FX panels (mirrors
+    /// the `content_rows` App.draw computes for the same views).
+    pub fn handleMouse(self: *App, ev: modal_mod.MouseEvent, cols: u16, rows: u16, now_ns: i96) void {
         self.now_ns = now_ns;
         if (ev.y < content_top) return;
         const row: usize = ev.y - content_top;
+        const view_rows: usize = @max(rows, 10);
         switch (self.view) {
             .tracks => self.tracksMouse(ev, row),
             .drum_grid => drum_ed.handleMouse(self, ev, row),
             .synth_editor => synth_ed.handleMouse(self, ev, row),
-            .sampler_editor => sampler_ed.handleMouse(self, ev, row, cols),
+            .sampler_editor => sampler_ed.handleMouse(self, ev, row, cols, view_rows),
             .piano_roll => piano_ed.handleMouse(self, ev, row, cols),
-            .track_spectrum, .master_spectrum => spectrum_ed.handleMouse(self, ev, row, cols),
+            .track_spectrum, .master_spectrum => spectrum_ed.handleMouse(self, ev, row, cols, view_rows),
             .arrangement => arrangement_ed.handleMouse(self, ev, row, cols),
             .instrument_picker => self.pickerMouse(ev, row),
             .file_browser => self.browserMouse(ev, row),
@@ -1573,7 +1580,10 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8) !vo
         const now = std.Io.Timestamp.now(io, .awake).nanoseconds;
         const n = terminal_mod.decode(bytes, &keys);
         for (keys[0..n]) |key| switch (key) {
-            .mouse => |ev| app.handleMouse(ev, term.size().cols, now),
+            .mouse => |ev| {
+                const sz = term.size();
+                app.handleMouse(ev, sz.cols, sz.rows, now);
+            },
             else => app.handleKey(key, now),
         };
         app.tick(now);

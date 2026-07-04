@@ -13,6 +13,7 @@ const ws = @import("wstudio");
 const modal_mod = ws.input;
 const dsp = ws.dsp.device;
 const eq_mod = ws.dsp.eq;
+const style = @import("../style.zig");
 const GraphicEq = ws.dsp.GraphicEq;
 const Compressor = ws.dsp.Compressor;
 const StereoDelay = ws.dsp.StereoDelay;
@@ -335,9 +336,88 @@ pub fn setMasterEqBand(app: *App, band: usize, gain_db: f32) void {
     app.session.syncMasterChain();
 }
 
-pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16) void {
-    _ = app;
-    _ = ev;
-    _ = row;
-    _ = cols;
+// Row layout mirrors views/spectrum.zig's drawSpectrumView exactly: title,
+// `visual_rows` spectrum-bar rows, an Hz-label row, then — only when a chain
+// exists — a tab-strip row and the focused unit's body. `bodyRows` replays
+// the same body-height precheck the view uses to size `visual_rows`
+// (comp/delay/reverb reserve less room when absent; EQ always reserves 3).
+
+fn bodyRows(fx: *const ws.Fx, focus: FxUnit) usize {
+    return switch (focus) {
+        .eq => 3,
+        .comp => if (fx.comp != null) @as(usize, 5) else 1,
+        .delay => if (fx.delay != null) @as(usize, 3) else 1,
+        .reverb => if (fx.reverb != null) @as(usize, 3) else 1,
+    };
+}
+
+// EQ band row: a 3-char gutter, then a 5-char cell per band (bracket/glyph/
+// bracket on the bar row; a 5-wide centered field on the value/freq rows) —
+// see drawSpectrumView's EQ branch.
+const eq_gutter: usize = 3;
+const eq_band_w: usize = 5;
+
+fn eqBandAt(x: usize) ?usize {
+    if (x < eq_gutter) return null;
+    const col = (x - eq_gutter) / eq_band_w;
+    if (col >= eq_mod.num_eq_bands) return null;
+    return col;
+}
+
+/// Nudge the current param one wheel-notch (**ctrl** = coarse), reusing the
+/// same `nudge` the keyboard's j/J/k/K use — scroll up = increase (k/K),
+/// scroll down = decrease (j/J).
+fn nudgeMouse(app: *App, is_track: bool, ev: modal_mod.MouseEvent) void {
+    const up = ev.kind == .scroll_up;
+    const key: u8 = if (up) (if (ev.ctrl) @as(u8, 'K') else 'k') else (if (ev.ctrl) @as(u8, 'J') else 'j');
+    nudge(app, is_track, key);
+}
+
+/// Click the tab strip to cycle chain-unit focus (same as `tab`); click an
+/// EQ band or a comp/delay/reverb param row to select it; scroll over
+/// either nudges it (**ctrl**+scroll = coarse).
+pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16, view_rows: usize) void {
+    _ = cols; // band/param columns here are fixed-width, not terminal-width-dependent
+    const is_track = app.view == .track_spectrum;
+    const fx = fxPtr(app, is_track) orelse return;
+    const body = bodyRows(fx, app.fx_focus);
+    const eq_row = 1 + body;
+    const visual_rows = @min(style.spectrum_rows, view_rows -| (7 + eq_row));
+    const tab_row = 1 + visual_rows + 1; // title(1) + bars(visual_rows) + hz label(1)
+    const content_row0 = tab_row + 1;
+
+    if (row == tab_row) {
+        if (ev.kind == .press) {
+            app.fx_focus = nextUnit(app.fx_focus);
+            app.fx_param = 0;
+        }
+        return;
+    }
+    if (row < content_row0) return; // title / spectrum bars / hz label — not interactive
+    const rel = row - content_row0;
+    if (rel >= body) return;
+
+    if (app.fx_focus == .eq) {
+        if (fx.eq == null) return;
+        const band = eqBandAt(ev.x) orelse return;
+        switch (ev.kind) {
+            .press => app.fx_param = band,
+            .scroll_up, .scroll_down => {
+                app.fx_param = band;
+                nudgeMouse(app, is_track, ev);
+            },
+            else => {},
+        }
+        return;
+    }
+
+    if (!isPresent(fx, app.fx_focus)) return;
+    switch (ev.kind) {
+        .press => app.fx_param = rel,
+        .scroll_up, .scroll_down => {
+            app.fx_param = rel;
+            nudgeMouse(app, is_track, ev);
+        },
+        else => {},
+    }
 }

@@ -111,8 +111,37 @@ fn adjustParam(app: *App, steps: i32) void {
     } });
 }
 
+/// The param index whose row (in the *scrolled* on-screen layout) is `row`,
+/// or null for the title row / a row that doesn't land on any param (a
+/// section-header line). Scans `paramRow` — cheap (39 params) and it's
+/// already the exact row math the renderer uses, so no new layout logic.
+fn paramAtRow(app: *App, row: usize) ?u8 {
+    if (row == 0) return null; // title
+    const full_row = app.synth_scroll + row;
+    var i: u8 = 0;
+    while (i < style.synth_param_count) : (i += 1) {
+        if (paramRow(i) == full_row) return i;
+    }
+    return null;
+}
+
+/// Click a param row to select it. Scroll over a param row nudges it via
+/// the existing `adjustParam` (same step `h`/`l` use); **ctrl**+scroll is
+/// the coarse step (matches `H`/`L`).
 pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize) void {
-    _ = app;
-    _ = ev;
-    _ = row;
+    switch (ev.kind) {
+        .press => {
+            const p = paramAtRow(app, row) orelse return;
+            app.synth_cursor = p;
+            updateScroll(app);
+        },
+        .scroll_up, .scroll_down => {
+            const p = paramAtRow(app, row) orelse return;
+            app.synth_cursor = p;
+            updateScroll(app);
+            const dir: i32 = if (ev.kind == .scroll_up) 1 else -1;
+            adjustParam(app, dir * (if (ev.ctrl) @as(i32, 10) else 1));
+        },
+        else => {},
+    }
 }

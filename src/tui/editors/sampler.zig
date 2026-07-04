@@ -2,11 +2,14 @@
 //! Sampler: param row navigation, h/l nudges (routed to the audio thread),
 //! pad jumps and audition. The render half lives in views/sampler.zig.
 
+const std = @import("std");
 const ws = @import("wstudio");
 const modal_mod = ws.input;
 const DrumMachine = ws.dsp.DrumMachine;
 const Sampler = ws.dsp.Sampler;
-const App = @import("../app.zig").App;
+const app_mod = @import("../app.zig");
+const App = app_mod.App;
+const SamplerMarker = app_mod.SamplerMarker;
 
 /// Number of editable params for the sampler editor's current target.
 fn paramCount(app: *App) u8 {
@@ -82,9 +85,127 @@ pub fn adjustParam(app: *App, steps: i32) void {
     }
 }
 
-pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16) void {
-    _ = app;
-    _ = ev;
-    _ = row;
-    _ = cols;
+// Row layout mirrors views/sampler.zig's drawSamplerEditor exactly: title,
+// then (if there's room) a variable-height waveform panel, then fixed
+// section-header/param rows in a constant order. `waveRows` and
+// `paramRelRow` replicate that sizing/ordering rather than re-deriving it.
+
+/// Rows the waveform panel actually occupies (0 if there isn't room for
+/// one — drawSamplerEditor skips it below 2 rows). `body` is the view's
+/// content-row budget (`rows -| 5`, matching drawSamplerEditor).
+fn waveRows(is_drum: bool, body: usize) usize {
+    const param_lines: usize = if (is_drum) 13 else 16;
+    const wr = @min(@as(usize, 8), body -| (1 + param_lines));
+    return if (wr >= 2) wr else 0;
+}
+
+/// Row of param `idx` relative to right after the waveform panel (title +
+/// waveform rows already excluded) — one row per section header, matching
+/// drawSamplerEditor's emission order (SAMPLE's 3 params, AMP ENV's 4, OUT's
+/// 3, then KEY's 1 for a standalone sampler).
+fn paramRelRow(idx: u8) usize {
+    return switch (idx) {
+        0 => 1, 1 => 2, 2 => 3, // SAMPLE (header at 0): start, end, pitch
+        3 => 5, 4 => 6, 5 => 7, 6 => 8, // AMP ENV (header at 4): attack..release
+        7 => 10, 8 => 11, 9 => 12, // OUT (header at 9): gain, pan, reverse
+        10 => 14, // KEY (header at 13): root — standalone sampler only
+        else => 0,
+    };
+}
+
+/// The param row (in view-content-relative rows) at `row`, or null for the
+/// title/waveform rows or a section-header line.
+fn paramAtRow(app: *App, row: usize, view_rows: usize) ?u8 {
+    const is_drum = app.sampler_target == .drum;
+    const w_rows = waveRows(is_drum, view_rows -| 5);
+    if (row < 1 + w_rows) return null;
+    const rel = row - (1 + w_rows);
+    const count: u8 = if (is_drum) 10 else 11;
+    var i: u8 = 0;
+    while (i < count) : (i += 1) {
+        if (paramRelRow(i) == rel) return i;
+    }
+    return null;
+}
+
+/// Normalized 0..1 position at column `x` within the waveform panel (which
+/// starts after drawWaveformPad's 2-column indent), or null outside it.
+/// Mirrors drawWaveformPad's own `gutter`/`width`.
+fn waveformNorm(x: usize, cols: u16) ?f32 {
+    const gutter = 2;
+    if (x < gutter) return null;
+    const width = @min(@as(usize, cols) -| gutter, 120);
+    if (width == 0) return null;
+    const rel = x - gutter;
+    if (rel >= width) return null;
+    return std.math.clamp(@as(f32, @floatFromInt(rel)) / @as(f32, @floatFromInt(width)), 0.0, 1.0);
+}
+
+/// The current target's start/end markers, read straight off its Pad —
+/// same values views/sampler.zig's drawWaveformPad renders.
+fn currentNorms(app: *App) ?struct { start: f32, end: f32 } {
+    switch (app.sampler_target) {
+        .drum => {
+            const p = app.drumMachine().pads[app.drum_cursor[0]].pad;
+            return .{ .start = p.start_norm, .end = p.end_norm };
+        },
+        .sampler => {
+            const s = app.editingSampler() orelse return null;
+            return .{ .start = s.pad.start_norm, .end = s.pad.end_norm };
+        },
+    }
+}
+
+/// Move `marker` to `target_norm` via the same discrete steps the keyboard
+/// uses — start/end move in exactly 0.01 increments (dsp/sampler.zig's
+/// Sampler.adjustParam) — so a click/drag never bypasses that clamping.
+fn moveMarkerTo(app: *App, marker: SamplerMarker, target_norm: f32) void {
+    const norms = currentNorms(app) orelse return;
+    const current: f32 = if (marker == .start) norms.start else norms.end;
+    const steps: i32 = @intFromFloat(@round((target_norm - current) / 0.01));
+    if (steps == 0) return;
+    app.sampler_param = if (marker == .start) 0 else 1;
+    adjustParam(app, steps);
+}
+
+/// Press inside the waveform: grab whichever marker (start/end) is nearer to
+/// the clicked position and move it there immediately.
+fn startWaveformDrag(app: *App, x: usize, cols: u16) void {
+    const norm = waveformNorm(x, cols) orelse return;
+    const norms = currentNorms(app) orelse return;
+    const marker: SamplerMarker = if (@abs(norm - norms.start) <= @abs(norm - norms.end)) .start else .end;
+    app.sampler_drag_marker = marker;
+    moveMarkerTo(app, marker, norm);
+}
+
+/// Click a param row to select it (like j/k landing there); click inside the
+/// waveform panel to grab and move the nearer start/end marker, continuing
+/// to follow the mouse while the button stays held. Scroll over a param row
+/// nudges it via `adjustParam` (**ctrl**+scroll = coarse, matching H/L).
+pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16, view_rows: usize) void {
+    const is_drum = app.sampler_target == .drum;
+    const w_rows = waveRows(is_drum, view_rows -| 5);
+    const in_waveform = w_rows > 0 and row >= 1 and row < 1 + w_rows;
+
+    switch (ev.kind) {
+        .press => {
+            if (in_waveform) {
+                startWaveformDrag(app, ev.x, cols);
+            } else if (paramAtRow(app, row, view_rows)) |p| {
+                app.sampler_param = p;
+            }
+        },
+        .drag => {
+            const marker = app.sampler_drag_marker orelse return;
+            const norm = waveformNorm(ev.x, cols) orelse return;
+            moveMarkerTo(app, marker, norm);
+        },
+        .release => app.sampler_drag_marker = null,
+        .scroll_up, .scroll_down => {
+            if (paramAtRow(app, row, view_rows)) |p| app.sampler_param = p else return;
+            const dir: i32 = if (ev.kind == .scroll_up) 1 else -1;
+            adjustParam(app, dir * (if (ev.ctrl) @as(i32, 10) else 1));
+        },
+        else => {},
+    }
 }
