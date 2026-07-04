@@ -32,6 +32,8 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
         },
         .char => |c| {
             switch (c) {
+                // Block insert mode — piano keys conflict with grid navigation.
+                'i' => {},
                 // fine move by one step; shift (HL) jumps one beat (4 steps).
                 // All motions take a vim count prefix (3l, 2j, …).
                 'h' => moveStep(app, -app.takeCount()),
