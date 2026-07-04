@@ -23,6 +23,9 @@ pub fn build(b: *std.Build) void {
         // CoCreateInstance/CoInitializeEx/CoUninitialize for the WASAPI
         // backend; kernel32/user32 are linked by default.
         wstudio_mod.linkSystemLibrary("ole32", .{});
+        // mingw's fortified wrappers (active when optimizing) break zig's
+        // translate-c on @cImport of windows.h, same as glibc's above.
+        wstudio_mod.addCMacro("_FORTIFY_SOURCE", "0");
     }
 
     const exe = b.addExecutable(.{
@@ -36,6 +39,13 @@ pub fn build(b: *std.Build) void {
             },
         }),
     });
+    // The frontend's own module reaches OS-specific code too (the terminal
+    // backend, tui/terminal_windows.zig on Windows) via tui/app.zig — not
+    // through the wstudio import — so it needs the same linking/macros.
+    if (target.result.os.tag == .windows) {
+        exe.root_module.link_libc = true;
+        exe.root_module.addCMacro("_FORTIFY_SOURCE", "0");
+    }
     b.installArtifact(exe);
 
     const run_cmd = b.addRunArtifact(exe);
