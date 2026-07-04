@@ -153,6 +153,9 @@ a full song:
 
 Done:
 
+- [x] Minimal netrw-style file browser: `:e`, `:load-sample`, and `:load-pad`
+      open it when called with no path — `j`/`k` move, `enter`/`l` open a
+      directory or pick a file, `h`/backspace go up, `~` jumps home
 - [x] Master bus FX: a pluggable comp/EQ/delay/reverb chain (same `Fx` shape
       as a track's rack) applied to the summed mix before the master gain
       and always-on limiter. `M` in the tracks view opens the master EQ's

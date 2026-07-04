@@ -1634,3 +1634,155 @@ test "autosave is a no-op when clean or when no project path is known" {
     app.tick(10_000 * std.time.ns_per_s);
     try std.testing.expectEqual(@as(i96, 10_000 * std.time.ns_per_s), app.last_autosave_ns);
 }
+
+// ---------------------------------------------------------------------------
+// File browser
+// ---------------------------------------------------------------------------
+
+/// Points a fresh App's project path at `tmp` (without a real project file
+/// there — `openBrowser` only needs the directory) so `:e`/`:load-sample`/
+/// `:load-pad`'s no-arg browse starts inside the sandbox instead of the repo
+/// root.
+fn appRootedAt(tmp: *std.testing.TmpDir) !App {
+    var app = try App.init(std.testing.allocator, std.testing.io);
+    errdefer app.deinit();
+    var buf: [96]u8 = undefined;
+    const dummy = try std.fmt.bufPrint(&buf, ".zig-cache/tmp/{s}/dummy.wsj", .{&tmp.sub_path});
+    app.setProjectPath(dummy);
+    return app;
+}
+
+test "file browser lists dirs first, then extension-filtered files, hiding dotfiles" {
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.createDirPath(std.testing.io, "zzz_sub");
+    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "b.wav", .data = "x" });
+    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "a.wav", .data = "x" });
+    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "notes.txt", .data = "x" });
+    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = ".hidden.wav", .data = "x" });
+
+    var app = try appRootedAt(&tmp);
+    defer app.deinit();
+    try app.session.setInstrument(0, .sampler);
+    app.openBrowser(.load_sample);
+
+    try std.testing.expectEqual(AppView.file_browser, app.view);
+    const entries = app.browser_entries.items;
+    try std.testing.expectEqual(@as(usize, 3), entries.len); // dir + 2 .wav, txt and dotfile excluded
+    try std.testing.expect(entries[0].is_dir);
+    try std.testing.expectEqualStrings("zzz_sub", entries[0].name);
+    try std.testing.expect(!entries[1].is_dir);
+    try std.testing.expectEqualStrings("a.wav", entries[1].name);
+    try std.testing.expectEqualStrings("b.wav", entries[2].name);
+}
+
+test "file browser: enter descends into a directory, h/backspace returns" {
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.createDirPath(std.testing.io, "kit");
+    var sub = try tmp.dir.openDir(std.testing.io, "kit", .{ .iterate = true });
+    defer sub.close(std.testing.io);
+    try sub.writeFile(std.testing.io, .{ .sub_path = "snare.wav", .data = "x" });
+
+    var app = try appRootedAt(&tmp);
+    defer app.deinit();
+    try app.session.setInstrument(0, .sampler);
+    app.openBrowser(.load_sample);
+    try std.testing.expectEqual(@as(usize, 1), app.browser_entries.items.len); // just "kit/"
+
+    app.handleKey(.enter, 0); // descend into kit/
+    try std.testing.expectEqual(AppView.file_browser, app.view);
+    try std.testing.expectEqual(@as(usize, 1), app.browser_entries.items.len);
+    try std.testing.expectEqualStrings("snare.wav", app.browser_entries.items[0].name);
+
+    for ("h") |c| app.handleKey(.{ .char = c }, 0); // back up to the parent
+    try std.testing.expectEqual(@as(usize, 1), app.browser_entries.items.len);
+    try std.testing.expect(app.browser_entries.items[0].is_dir);
+}
+
+test "file browser: enter on a file loads a sample and closes the browser" {
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    var app = try appRootedAt(&tmp);
+    defer app.deinit();
+    try app.session.setInstrument(0, .sampler);
+
+    // Written at the project's own sample rate so loadWav doesn't resample
+    // (which would change the sample count we assert below).
+    var wav_buf: [64]u8 = undefined;
+    var fw = std.Io.Writer.fixed(&wav_buf);
+    try ws.wav.write(&fw, app.session.project.sample_rate, 1, &[_]f32{ 0.5, -0.5 });
+    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "vox.wav", .data = fw.buffered() });
+
+    app.view = .sampler_editor;
+    app.sampler_target = .{ .sampler = 0 };
+    app.openBrowser(.load_sample);
+    try std.testing.expectEqual(@as(usize, 1), app.browser_entries.items.len);
+
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqual(AppView.sampler_editor, app.view); // back to the caller's view
+    try std.testing.expect(app.session.racks.items[0].instrument.sampler.pad.user_sample);
+    try std.testing.expectEqual(@as(usize, 2), app.session.racks.items[0].instrument.sampler.pad.samples.len);
+}
+
+test "file browser: esc/q cancels without picking, restoring the previous view" {
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "a.wav", .data = "x" });
+
+    var app = try appRootedAt(&tmp);
+    defer app.deinit();
+    try app.session.setInstrument(0, .sampler);
+    app.openBrowser(.load_sample);
+    app.handleKey(.escape, 0);
+    try std.testing.expectEqual(AppView.tracks, app.view);
+    try std.testing.expectEqual(@as(usize, 0), app.browser_entries.items.len); // freed on close
+    try std.testing.expect(!app.session.racks.items[0].instrument.sampler.pad.user_sample);
+}
+
+test ":load-sample/:load-pad with no path browse; refuse first with no matching track" {
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    var app = try appRootedAt(&tmp);
+    defer app.deinit();
+
+    // Blank track 0: no sampler/drum-machine to receive the load.
+    for (":load-sample") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqual(AppView.tracks, app.view);
+    try std.testing.expectStringStartsWith(app.status_buf[0..app.status_len], "load-sample: select");
+
+    for (":load-pad 0") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqual(AppView.tracks, app.view);
+    try std.testing.expectStringStartsWith(app.status_buf[0..app.status_len], "load-pad: select");
+
+    // With a sampler track selected, :load-sample opens the browser.
+    try app.session.setInstrument(0, .sampler);
+    for (":load-sample") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqual(AppView.file_browser, app.view);
+}
+
+test ":e with no path browses when clean, refuses when dirty" {
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "song.wsj", .data = "x" });
+
+    var app = try appRootedAt(&tmp);
+    defer app.deinit();
+    for (":e") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqual(AppView.file_browser, app.view);
+    try std.testing.expectEqual(@as(usize, 1), app.browser_entries.items.len);
+    try std.testing.expectEqualStrings("song.wsj", app.browser_entries.items[0].name);
+    app.handleKey(.escape, 0);
+
+    app.applyAction(.toggle_mute, 0); // dirty
+    for (":e") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqual(AppView.tracks, app.view);
+    try std.testing.expectStringStartsWith(app.status_buf[0..app.status_len], "unsaved changes");
+}

@@ -42,7 +42,7 @@ const tap_timeout_ns: i96 = 2 * std.time.ns_per_s;
 /// Minimum gap between silent `<path>~` backups; see `maybeAutosave`.
 const autosave_interval_ns: i96 = 30 * std.time.ns_per_s;
 
-pub const AppView = enum { tracks, drum_grid, synth_editor, sampler_editor, help, track_spectrum, master_spectrum, piano_roll, instrument_picker, arrangement };
+pub const AppView = enum { tracks, drum_grid, synth_editor, sampler_editor, help, track_spectrum, master_spectrum, piano_roll, instrument_picker, arrangement, file_browser };
 
 /// What the shared sampler_editor view is currently editing: one pad of a drum
 /// machine, or a standalone Sampler instrument. Holds the track index.
@@ -58,6 +58,32 @@ pub const SamplerTarget = union(enum) {
 /// The instruments the picker offers, in display order.
 pub const picker_kinds = [_]InstrumentKind{ .poly_synth, .sampler, .drum_machine };
 pub const picker_labels = [_][]const u8{ "Synth", "Sampler", "Drum Machine" };
+
+/// What a file picked in the netrw-style file browser (`file_browser` view)
+/// resolves to once selected. Set by `App.openBrowser`; read by
+/// `App.browserActivate`.
+pub const BrowserPurpose = union(enum) {
+    open_project,
+    load_sample,
+    load_pad: u8,
+
+    /// The extension the browser filters non-directory entries to (case
+    /// insensitive); directories are always shown regardless.
+    fn ext(self: BrowserPurpose) []const u8 {
+        return switch (self) {
+            .open_project => ".wsj",
+            .load_sample, .load_pad => ".wav",
+        };
+    }
+};
+
+/// One directory entry as listed by the file browser. `name` is owned
+/// (allocator-dup'd from the raw `Io.Dir.Entry`, which is only valid until
+/// the next iterator step).
+pub const BrowserEntry = struct {
+    name: []u8,
+    is_dir: bool,
+};
 
 /// One yanked piano-roll pattern: a private copy of the notes + loop length.
 pub const PianoClip = struct {
@@ -224,6 +250,15 @@ pub const App = struct {
     /// Wall-clock ns of the last autosave backup attempt (0 = never tried).
     /// See `maybeAutosave`.
     last_autosave_ns: i96 = 0,
+    /// Minimal netrw/dired-style file browser: `:e`, `:load-sample`, and
+    /// `:load-pad` open it when called with no path. `browser_dir` is the
+    /// canonical (realpath'd) directory currently listed in `browser_entries`
+    /// — both are owned and freed together (see `closeBrowser`).
+    browser_dir: [:0]const u8 = "",
+    browser_entries: std.ArrayListUnmanaged(BrowserEntry) = .empty,
+    browser_cursor: usize = 0,
+    browser_scroll: usize = 0,
+    browser_purpose: BrowserPurpose = .load_sample,
 
     pub const ReloadRequest = enum { none, blank, load };
 
@@ -243,6 +278,9 @@ pub const App = struct {
             for (r.clips) |*c| c.deinit(self.allocator);
             self.allocator.free(r.clips);
         }
+        self.freeBrowserEntries();
+        self.browser_entries.deinit(self.allocator);
+        if (self.browser_dir.len > 0) self.allocator.free(self.browser_dir);
         for (self.cmd_history.items) |s| self.allocator.free(s);
         self.cmd_history.deinit(self.allocator);
         self.history.deinit(self.allocator);
@@ -361,6 +399,7 @@ pub const App = struct {
                 self.applyAction(self.modal.handle(key), now_ns);
             } else { self.modal.count = 0; },
             .instrument_picker => self.handlePickerKey(key),
+            .file_browser => self.handleBrowserKey(key),
             .arrangement => if (self.modal.mode == .command or !arrangement_ed.handleKey(self, key)) {
                 self.applyAction(self.modal.handle(key), now_ns);
             } else { self.modal.count = 0; },
@@ -498,6 +537,134 @@ pub const App = struct {
         self.setStatus("inserted {s}", .{picker_labels[self.picker_cursor]});
         self.view = .tracks;
         self.openTrack(self.cursor);
+    }
+
+    // -----------------------------------------------------------------------
+    // File browser (netrw/dired-style; `:e`, `:load-sample`, `:load-pad` with
+    // no path open it — see commands.zig)
+    // -----------------------------------------------------------------------
+
+    /// Enter the browser for `purpose`, starting in the current project's
+    /// directory (or cwd if none is set yet). Leaves the view untouched if
+    /// that starting directory can't be listed.
+    pub fn openBrowser(self: *App, purpose: BrowserPurpose) void {
+        self.browser_purpose = purpose;
+        const start: []const u8 = if (self.projectPath()) |p|
+            (std.fs.path.dirname(p) orelse ".")
+        else
+            ".";
+        self.setBrowserDir(start) catch |e| {
+            self.setStatus("browse: cannot open '{s}': {s}", .{ start, @errorName(e) });
+            return;
+        };
+        self.prev_view = self.view;
+        self.view = .file_browser;
+    }
+
+    /// Free the current entry list's owned names (keeps the list's capacity).
+    fn freeBrowserEntries(self: *App) void {
+        for (self.browser_entries.items) |e| self.allocator.free(e.name);
+        self.browser_entries.clearRetainingCapacity();
+    }
+
+    /// Resolve `path` to a canonical absolute directory and (re)list it into
+    /// `browser_entries`. Builds the new listing before touching any existing
+    /// state, so a bad path (deleted dir, permission error, …) leaves the
+    /// browser exactly where it was.
+    fn setBrowserDir(self: *App, path: []const u8) !void {
+        const canon = try std.Io.Dir.cwd().realPathFileAlloc(self.io, path, self.allocator);
+        errdefer self.allocator.free(canon);
+
+        var dir = try std.Io.Dir.cwd().openDir(self.io, canon, .{ .iterate = true });
+        defer dir.close(self.io);
+
+        var new_entries: std.ArrayListUnmanaged(BrowserEntry) = .empty;
+        errdefer {
+            for (new_entries.items) |e| self.allocator.free(e.name);
+            new_entries.deinit(self.allocator);
+        }
+        var it = dir.iterate();
+        while (try it.next(self.io)) |entry| {
+            if (entry.name.len == 0 or entry.name[0] == '.') continue; // hidden, netrw-style
+            const is_dir = entry.kind == .directory;
+            if (!is_dir and !std.ascii.endsWithIgnoreCase(entry.name, self.browser_purpose.ext())) continue;
+            const name = try self.allocator.dupe(u8, entry.name);
+            errdefer self.allocator.free(name);
+            try new_entries.append(self.allocator, .{ .name = name, .is_dir = is_dir });
+        }
+        std.mem.sort(BrowserEntry, new_entries.items, {}, browserEntryLess);
+
+        self.freeBrowserEntries();
+        self.browser_entries.deinit(self.allocator);
+        if (self.browser_dir.len > 0) self.allocator.free(self.browser_dir);
+        self.browser_dir = canon;
+        self.browser_entries = new_entries;
+        self.browser_cursor = 0;
+        self.browser_scroll = 0;
+    }
+
+    /// Directories first, then alphabetical (case-insensitive) within each
+    /// group — matches `ls`/netrw ordering.
+    fn browserEntryLess(_: void, a: BrowserEntry, b: BrowserEntry) bool {
+        if (a.is_dir != b.is_dir) return a.is_dir;
+        return std.ascii.lessThanIgnoreCase(a.name, b.name);
+    }
+
+    /// j/k move, enter/l/space descend into a dir or pick a file, h/backspace
+    /// go to the parent dir, g/G jump to the list ends, `~` jumps home,
+    /// esc/q cancel back to the view that opened the browser.
+    fn handleBrowserKey(self: *App, key: modal_mod.Key) void {
+        switch (key) {
+            .escape => self.closeBrowser(),
+            .enter => self.browserActivate(),
+            .backspace => self.browserGoUp(),
+            .char => |c| switch (c) {
+                'j' => { if (self.browser_cursor + 1 < self.browser_entries.items.len) self.browser_cursor += 1; },
+                'k' => { if (self.browser_cursor > 0) self.browser_cursor -= 1; },
+                'g' => self.browser_cursor = 0,
+                'G' => self.browser_cursor = self.browser_entries.items.len -| 1,
+                'l', ' ' => self.browserActivate(),
+                'h' => self.browserGoUp(),
+                '~' => {
+                    const home = std.mem.sliceTo(std.c.getenv("HOME") orelse return, 0);
+                    self.setBrowserDir(home) catch |e| self.setStatus("browse: {s}", .{@errorName(e)});
+                },
+                'q' => self.closeBrowser(),
+                else => {},
+            },
+            else => {},
+        }
+    }
+
+    /// Parent of `browser_dir` (root's parent is itself — nothing to go up to).
+    fn browserGoUp(self: *App) void {
+        const parent = std.fs.path.dirname(self.browser_dir) orelse return;
+        self.setBrowserDir(parent) catch |e| self.setStatus("browse: {s}", .{@errorName(e)});
+    }
+
+    /// Enter/l/space on the highlighted entry: descend into a directory, or
+    /// resolve a file against the browser's purpose and close.
+    fn browserActivate(self: *App) void {
+        if (self.browser_cursor >= self.browser_entries.items.len) return;
+        const entry = self.browser_entries.items[self.browser_cursor];
+        const joined = std.fs.path.join(self.allocator, &.{ self.browser_dir, entry.name }) catch return;
+        defer self.allocator.free(joined);
+
+        if (entry.is_dir) {
+            self.setBrowserDir(joined) catch |e| self.setStatus("browse: {s}", .{@errorName(e)});
+            return;
+        }
+        switch (self.browser_purpose) {
+            .open_project => self.requestReload(joined),
+            .load_sample => commands.loadSampleFromPath(self, joined),
+            .load_pad => |pad| commands.loadPadFromPath(self, pad, joined),
+        }
+        self.closeBrowser();
+    }
+
+    fn closeBrowser(self: *App) void {
+        self.freeBrowserEntries();
+        self.view = self.prev_view;
     }
 
     pub fn applyAction(self: *App, action: modal_mod.Action, now_ns: i96) void {
@@ -951,6 +1118,7 @@ pub const App = struct {
             .master_spectrum => try tui.drawSpectrumView(self, w, rows, size.cols, snap, false),
             .instrument_picker => try tui.drawInstrumentPicker(self, w, rows),
             .arrangement     => try tui.drawArrangement(self, w, rows, size.cols, snap),
+            .file_browser    => try tui.drawFileBrowser(self, w, rows),
         }
 
         var transport: Transport = .{
@@ -991,6 +1159,7 @@ pub const App = struct {
             .master_spectrum => try tui.drawSpectrumStatus(self, w, false),
             .instrument_picker => try w.writeAll(" j/k: move   enter: insert   esc: cancel"),
             .arrangement     => try tui.drawArrangementStatus(self, w),
+            .file_browser    => try tui.drawFileBrowserStatus(self, w),
         }
         // Erase from cursor to end of screen so stale content from taller
         // previous frames never bleeds through.

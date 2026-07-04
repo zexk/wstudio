@@ -54,9 +54,9 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "pan",         .desc = "<track> [<-1..1>]  track pan",        .run = wrap(cmdPan) },
     .{ .name = "vol",         .desc = "[<dB>]  master volume (–40 to +6)",   .run = wrap(cmdVol) },
     .{ .name = "seek",        .desc = "<bar>  move playhead to bar",         .run = wrap(cmdSeek) },
-    .{ .name = "load-pad",    .desc = "<0-7> <file>  load WAV into pad",     .run = wrap(cmdLoadPad) },
-    .{ .name = "load-sample", .desc = "<file>  load WAV into sampler track",  .run = wrap(cmdLoadSample) },
-    .{ .name = "e",           .desc = "<file>  open a project (refuses if unsaved changes)", .run = wrap(cmdEdit) },
+    .{ .name = "load-pad",    .desc = "<0-7> [file]  load WAV into pad (omit the file to browse)",     .run = wrap(cmdLoadPad) },
+    .{ .name = "load-sample", .desc = "[file]  load WAV into sampler track (omit the file to browse)",  .run = wrap(cmdLoadSample) },
+    .{ .name = "e",           .desc = "[file]  open a project (refuses if unsaved changes; omit the file to browse)", .run = wrap(cmdEdit) },
     .{ .name = "e!",          .desc = "[file]  open a project, discarding changes; no file reverts the current one", .run = wrap(cmdEditForce) },
     .{ .name = "new",         .desc = "start a blank project (refuses if unsaved changes)", .run = wrap(cmdNew) },
     .{ .name = "new!",        .desc = "start a blank project, discarding unsaved changes", .run = wrap(cmdNewForce) },
@@ -113,12 +113,12 @@ fn cmdEditForce(app: *App, args: []const u8) void { editOrRevert(app, args, true
 /// swap happens in `run()` — see `App.requestReload`.
 fn editOrRevert(app: *App, args: []const u8, force: bool) void {
     const trimmed = std.mem.trim(u8, args, " ");
-    if (trimmed.len == 0 and !force) {
-        app.setStatus("usage: e <file>  (:e! reverts unsaved changes)", .{});
-        return;
-    }
     if (!force and app.dirty) {
         app.setStatus("unsaved changes — :w to save, :e! to discard", .{});
+        return;
+    }
+    if (trimmed.len == 0 and !force) {
+        app.openBrowser(.open_project);
         return;
     }
     var path_buf: [path_buf_len]u8 = undefined;
@@ -277,11 +277,9 @@ fn cmdTrackRename(app: *App, args: []const u8) void {
 fn cmdLoadPad(app: *App, args: []const u8) void {
     var it = std.mem.splitScalar(u8, args, ' ');
     const pad_str = it.next() orelse {
-        app.setStatus("usage: load-pad <0-7> <file.wav>", .{});
+        app.setStatus("usage: load-pad <0-7> [file.wav]  (omit the file to browse)", .{});
         return;
     };
-    var path_buf: [path_buf_len]u8 = undefined;
-    const path = expandHome(&path_buf, it.rest());
     const pad_idx = std.fmt.parseInt(u8, pad_str, 10) catch {
         app.setStatus("load-pad: bad pad index '{s}'", .{pad_str});
         return;
@@ -290,6 +288,22 @@ fn cmdLoadPad(app: *App, args: []const u8) void {
         app.setStatus("load-pad: pad index must be 0-7", .{});
         return;
     }
+    const rest = std.mem.trim(u8, it.rest(), " ");
+    if (rest.len == 0) {
+        if (cursorDrumMachine(app) == null) {
+            app.setStatus("load-pad: select a drum-machine track first", .{});
+            return;
+        }
+        app.openBrowser(.{ .load_pad = pad_idx });
+        return;
+    }
+    var path_buf: [path_buf_len]u8 = undefined;
+    loadPadFromPath(app, pad_idx, expandHome(&path_buf, rest));
+}
+
+/// Shared by `:load-pad <n> <file>` and the file browser's pad-load purpose
+/// (the browser hands over an already-resolved path — no `~` to expand).
+pub fn loadPadFromPath(app: *App, pad_idx: u8, path: []const u8) void {
     const data = std.Io.Dir.cwd().readFileAlloc(
         app.io,
         path,
@@ -344,11 +358,21 @@ fn cursorSampler(app: *App) ?*Sampler {
 fn cmdLoadSample(app: *App, args: []const u8) void {
     const trimmed = std.mem.trim(u8, args, " ");
     if (trimmed.len == 0) {
-        app.setStatus("usage: load-sample <file.wav>", .{});
+        if (cursorSampler(app) == null) {
+            app.setStatus("load-sample: select a sampler track first", .{});
+            return;
+        }
+        app.openBrowser(.load_sample);
         return;
     }
     var path_buf: [path_buf_len]u8 = undefined;
-    const path = expandHome(&path_buf, trimmed);
+    loadSampleFromPath(app, expandHome(&path_buf, trimmed));
+}
+
+/// Shared by `:load-sample <file>` and the file browser's sample-load
+/// purpose (the browser hands over an already-resolved path — no `~` to
+/// expand).
+pub fn loadSampleFromPath(app: *App, path: []const u8) void {
     const s = cursorSampler(app) orelse {
         app.setStatus("load-sample: select a sampler track first", .{});
         return;

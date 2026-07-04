@@ -141,7 +141,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("H / L",        "adjust value (coarse ×10)");
     t.key("1–8",          "switch to pad 1–8");
     t.key("p",            "audition current pad");
-    t.key(":load-pad",    "<0-7> <file.wav>  load a sample into a pad");
+    t.key(":load-pad",    "<0-7> [file.wav]  load a sample into a pad (omit the file to browse)");
 
     t.section("SYNTH EDITOR");
     t.key("j / k",        "select parameter");
@@ -197,6 +197,14 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("b",            "bypass EQ toggle");
     t.key(":master-eq",   "[<band> <db>]  same, from the : prompt (M opens the live editor)");
     t.key(":master-comp", "on|off|thresh|ratio|attack|release|makeup <value>  master bus compressor");
+
+    t.section("FILE BROWSER  (netrw-style; opens on :e, :load-sample, :load-pad with no path)");
+    t.key("j / k",        "move cursor");
+    t.key("enter / l",    "open directory / pick file");
+    t.key("h / backspace","up to the parent directory");
+    t.key("g / G",        "jump to first / last entry");
+    t.key("~",            "jump to $HOME");
+    t.key("esc / q",      "cancel back to the previous view");
 }
 
 /// Renders a scroll window of the help text. `scroll` is clamped in place so
