@@ -394,7 +394,8 @@ fn rackToSnap(aa: std.mem.Allocator, rack: *Rack, sample_rate: u32) !RackSnap {
             }
             ds.variants = variants;
             for (&ds.pads, 0..) |*ps, i| {
-                if (dm.pads[i]) |*p| ps.* = .{
+                const p = &dm.pads[i].pad;
+                ps.* = .{
                     .gain = p.gain, .pan = p.pan, .pitch_semitones = p.pitch_semitones,
                     .start_norm = p.start_norm, .end_norm = p.end_norm, .reverse = p.reverse,
                     .attack_s = p.attack_s, .decay_s = p.decay_s,
@@ -454,13 +455,12 @@ fn exportSamples(
     for (session.racks.items, racks, 0..) |rack, *rs, ti| {
         switch (rack.instrument) {
             .drum_machine => |*dm| for (0..DrumMachine.max_pads) |pi| {
-                if (dm.pads[pi]) |*p| {
-                    if (!p.user_sample) continue;
-                    const rel = try std.fmt.allocPrint(aa, "{s}/t{d}p{d}.wav", .{ sidecar, ti, pi });
-                    try writeSampleWav(aa, io, path, rel, &dir_ready, sr, p.samples);
-                    rs.drum.?.pads[pi].sample_file = rel;
-                    rs.drum.?.pads[pi].name = try aa.dupe(u8, trimmedName(&p.name));
-                }
+                const p = &dm.pads[pi].pad;
+                if (!p.user_sample) continue;
+                const rel = try std.fmt.allocPrint(aa, "{s}/t{d}p{d}.wav", .{ sidecar, ti, pi });
+                try writeSampleWav(aa, io, path, rel, &dir_ready, sr, p.samples);
+                rs.drum.?.pads[pi].sample_file = rel;
+                rs.drum.?.pads[pi].name = try aa.dupe(u8, trimmedName(&p.name));
             },
             .sampler => |*s| if (s.pad.user_sample) {
                 const rel = try std.fmt.allocPrint(aa, "{s}/t{d}clip.wav", .{ sidecar, ti });
@@ -644,13 +644,10 @@ fn restoreSamples(
                     if (ps.sample_file.len == 0) continue;
                     const data = readWsjRel(allocator, io, path, ps.sample_file) orelse continue;
                     defer allocator.free(data);
+                    // loadPadWav swaps audio + name under the pad lock and
+                    // keeps the params already applied by buildSession.
                     dm.loadPadWav(@intCast(pi), data, sampleName(ps)) catch continue;
-                    // setPadSamples resets the pad to defaults — re-apply the
-                    // saved params on top of the fresh audio.
-                    if (dm.pads[pi]) |*p| {
-                        applyPadSnap(p, ps);
-                        p.user_sample = true;
-                    }
+                    dm.pads[pi].pad.user_sample = true;
                 }
             },
             .sampler => |*s| {
@@ -794,7 +791,7 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
                         .monotonic,
                     );
                     for (ds.pads, 0..) |ps, pi| {
-                        if (dmp.pads[pi]) |*p| applyPadSnap(p, ps);
+                        applyPadSnap(&dmp.pads[pi].pad, ps);
                     }
                 }
             },
@@ -1114,9 +1111,9 @@ test "buildSession: constructs valid Session from snapshot" {
     const dm = &session.racks.items[1].instrument.drum_machine;
     try testing.expect(dm.stepActive(0, 5));
     try testing.expect(!dm.stepActive(0, 0));
-    try testing.expectApproxEqAbs(@as(f32, 7.0), dm.pads[0].?.pitch_semitones, 1e-4);
-    try testing.expect(dm.pads[0].?.reverse);
-    try testing.expectApproxEqAbs(@as(f32, 0.5), dm.pads[0].?.end_norm, 1e-4);
+    try testing.expectApproxEqAbs(@as(f32, 7.0), dm.pads[0].pad.pitch_semitones, 1e-4);
+    try testing.expect(dm.pads[0].pad.reverse);
+    try testing.expectApproxEqAbs(@as(f32, 0.5), dm.pads[0].pad.end_norm, 1e-4);
 }
 
 test "buildSession: master FX round-trips and reaches the engine chain" {
@@ -1403,7 +1400,7 @@ test "buildSession: clamps out-of-range pad and note values" {
     var session = try buildSession(testing.allocator, &snap);
     defer session.deinit();
 
-    const pad = &session.racks.items[0].instrument.drum_machine.pads[0].?;
+    const pad = &session.racks.items[0].instrument.drum_machine.pads[0].pad;
     try testing.expect(pad.start_norm < pad.end_norm);
     try testing.expect(pad.gain <= 2.0);
     // The invariant adjustParam relies on: clamp bounds stay ordered.
@@ -1469,24 +1466,24 @@ test "save/load round-trip persists user-loaded drum pad samples" {
     // Emulate :load-pad — user audio on pad 3, with a tweaked param.
     const clip = try testing.allocator.dupe(f32, &[_]f32{ 0.5, -0.5, 0.25, -0.125 });
     dm.setPadSamples(3, clip, "usr");
-    dm.pads[3].?.user_sample = true;
-    dm.pads[3].?.pitch_semitones = 5.0;
+    dm.pads[3].pad.user_sample = true;
+    dm.pads[3].pad.pitch_semitones = 5.0;
 
     try save(testing.allocator, &session, testing.io, wsj_path);
 
     var loaded = try load(testing.allocator, testing.io, wsj_path);
     defer loaded.deinit();
     const ldm = &loaded.racks.items[0].instrument.drum_machine;
-    const pad = &ldm.pads[3].?;
+    const pad = &ldm.pads[3].pad;
     try testing.expect(pad.user_sample);
     try testing.expectEqualStrings("usr", ldm.padName(3));
     try testing.expectEqual(@as(usize, 4), pad.samples.len);
     try testing.expectApproxEqAbs(@as(f32, 0.5), pad.samples[0], wav_eps);
     try testing.expectApproxEqAbs(@as(f32, -0.125), pad.samples[3], wav_eps);
-    // Params survive the loadPadWav reset on restore.
+    // Params applied by buildSession survive loadPadWav's sample swap.
     try testing.expectApproxEqAbs(@as(f32, 5.0), pad.pitch_semitones, 1e-4);
     // Shipped-kit pads stay shipped: no sidecar ref, no flag.
-    try testing.expect(!ldm.pads[0].?.user_sample);
+    try testing.expect(!ldm.pads[0].pad.user_sample);
 }
 
 test "save/load round-trip persists a user-loaded sampler clip" {

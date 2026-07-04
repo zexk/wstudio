@@ -326,7 +326,7 @@ pub fn loadPadFromPath(app: *App, pad_idx: u8, path: []const u8) void {
         app.setStatus("load-pad: parse error: {s}", .{@errorName(e)});
         return;
     };
-    if (dm.pads[pad_idx]) |*p| p.user_sample = true;
+    dm.pads[pad_idx].pad.user_sample = true;
     app.dirty = true;
     app.setStatus("pad {d} loaded: {s}", .{ pad_idx, stem });
 }
@@ -1016,8 +1016,7 @@ test ":drum-kit regenerates the cursor drum machine's pads" {
     app.handleKey(.enter, 0);
 
     const dm = &app.session.racks.items[0].instrument.drum_machine;
-    try std.testing.expect(dm.pads[0] != null);
-    try std.testing.expect(!dm.pads[0].?.user_sample);
+    try std.testing.expect(!dm.pads[0].pad.user_sample);
     try std.testing.expect(app.dirty);
     const status = app.status_buf[0..app.status_len];
     try std.testing.expect(std.mem.indexOf(u8, status, "analog") != null);

@@ -605,7 +605,7 @@ test "drum-pad sampler param edit routes to the drum machine" {
     sampler_ed.adjustParam(&app, 5);
     var block: [128]types.Sample = undefined;
     app.session.engine.process(&block);
-    try std.testing.expect(app.session.racks.items[2].instrument.drum_machine.pads[0].?.pitch_semitones > 0.0);
+    try std.testing.expect(app.session.racks.items[2].instrument.drum_machine.pads[0].pad.pitch_semitones > 0.0);
 }
 
 test "standalone sampler param edit routes to the sampler" {

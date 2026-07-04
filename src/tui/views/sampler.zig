@@ -177,10 +177,9 @@ fn placeholderPad() *const ws.dsp.Pad {
     return &holder.p;
 }
 
-/// Return a const pointer to pad `idx`, or the placeholder when empty.
+/// Return a const pointer to pad `idx`'s underlying Pad.
 fn padOf(dm: anytype, idx: u8) *const ws.dsp.Pad {
-    if (dm.pads[idx]) |*pad| return pad;
-    return placeholderPad();
+    return &dm.pads[idx].pad;
 }
 
 /// Render a centered, filled waveform of `pad` over `wave_rows` rows. Samples

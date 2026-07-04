@@ -125,7 +125,8 @@ pub const Sampler = struct {
     // -----------------------------------------------------------------------
     // Sample loading (call from control side only, not while audio thread runs)
 
-    /// Parse raw WAV bytes into the clip. Resamples to engine rate if needed.
+    /// Parse raw WAV bytes into the clip, keeping every other pad param as-is.
+    /// Resamples to engine rate if needed.
     pub fn loadWav(self: *Sampler, wav_data: []const u8, name: []const u8) !void {
         const result = try wav.parseAlloc(self.allocator, wav_data);
         errdefer self.allocator.free(result.samples);
@@ -153,10 +154,29 @@ pub const Sampler = struct {
         self.pad.name = n;
     }
 
+    /// Replace the clip with already-decoded samples, resetting every other
+    /// pad param to its default (gain 1.0, unity trim, flat ADSR, etc). Used
+    /// when a caller wants a clean slate rather than `loadWav`'s in-place swap
+    /// — e.g. procedurally generated kit pads.
+    pub fn setSamples(self: *Sampler, samples: []f32, name: []const u8) void {
+        while (!self.pad_lock.tryLock()) std.atomic.spinLoopHint();
+        defer self.pad_lock.unlock();
+        self.allocator.free(self.pad.samples);
+        var n: [8]u8 = [_]u8{' '} ** 8;
+        const len = @min(name.len, 8);
+        @memcpy(n[0..len], name[0..len]);
+        self.pad = .{ .samples = samples, .gain = 1.0, .name = n };
+    }
+
     // -----------------------------------------------------------------------
     // Audio thread processing
 
-    fn trigger(self: *Sampler, note: u7) void {
+    /// Trigger a one-shot voice at `note` (chromatic offset from `root_note`),
+    /// `vel` (0..1, applied on top of the pad gain) starting `block_start`
+    /// frames into the next `processBlock` call. Runs on the audio thread via
+    /// the `note_on` device event; also called directly by DrumMachine, whose
+    /// pads are plain embedded Samplers.
+    pub fn trigger(self: *Sampler, note: u7, vel: f32, block_start: u32) void {
         // Reuse a free voice, else steal the oldest active one.
         var slot: usize = 0;
         var oldest_age: u64 = std.math.maxInt(u64);
@@ -169,7 +189,7 @@ pub const Sampler = struct {
             .note = note,
             .semis = @as(f32, @floatFromInt(@as(i16, note) - @as(i16, self.root_note))),
             .age = self.next_age,
-            .v = .{ .active = true, .played = 0, .block_start = 0 },
+            .v = .{ .active = true, .played = 0, .block_start = block_start, .vel = vel },
         };
         self.next_age +%= 1;
     }
@@ -206,7 +226,7 @@ pub const Sampler = struct {
     fn eventOpaque(ptr: *anyopaque, ev: dsp.Event) void {
         const self: *Sampler = @ptrCast(@alignCast(ptr));
         switch (ev) {
-            .note_on   => |e| self.trigger(e.note),
+            .note_on   => |e| self.trigger(e.note, e.velocity, 0),
             .set_param => |e| self.adjustParam(e.id, e.steps),
             .note_off, .cc, .pitch_bend => {},
             .all_off   => self.resetAll(),
@@ -266,7 +286,7 @@ test "higher note plays back faster (chromatic transpose)" {
     const blocks_to_finish = struct {
         fn run(smp: *Sampler, note: u7) usize {
             smp.resetAll();
-            smp.trigger(note);
+            smp.trigger(note, 1.0, 0);
             var buf: [512]Sample = undefined;
             var n: usize = 0;
             while (smp.voices[0].active and n < 10_000) : (n += 1) {
@@ -285,7 +305,7 @@ test "higher note plays back faster (chromatic transpose)" {
 test "all_off clears voices" {
     var s = try Sampler.init(std.testing.allocator, 48_000);
     defer s.deinit();
-    s.trigger(64);
+    s.trigger(64, 1.0, 0);
     try std.testing.expect(s.voices[0].active);
     s.device().sendEvent(.all_off);
     try std.testing.expect(!s.voices[0].active);
