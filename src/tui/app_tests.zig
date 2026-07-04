@@ -14,6 +14,7 @@ const note_ms = app_mod.note_ms;
 const commands = @import("commands.zig");
 const drum_ed = @import("editors/drum.zig");
 const automation_ed = @import("editors/automation.zig");
+const style = @import("style.zig");
 const piano_ed = @import("editors/piano.zig");
 const sampler_ed = @import("editors/sampler.zig");
 const spectrum_ed = @import("editors/spectrum.zig");
@@ -169,6 +170,18 @@ test "drum grid step toggle" {
     app.drum_cursor = .{ 0, 0 };
     _ = drum_ed.handleKey(&app, .enter);
     try std.testing.expect(!app.drumMachine().stepActive(0, 0));
+}
+
+test "drum grid g jumps the step cursor to the pattern start" {
+    var app = try testApp();
+    defer app.deinit();
+    app.drum_track = 2;
+    app.drum_cursor = .{ 0, 5 };
+
+    _ = drum_ed.handleKey(&app, .{ .char = 'g' });
+    try std.testing.expectEqual(@as(u8, 0), app.drum_cursor[1]);
+    // Pad cursor and 'G' (choke group cycle) are untouched by 'g'.
+    try std.testing.expectEqual(@as(u8, 0), app.drum_cursor[0]);
 }
 
 test "piano roll yank/paste moves a pattern across tracks" {
@@ -660,6 +673,25 @@ test "e opens drum-pad sampler editor from drum grid; esc returns" {
     try std.testing.expectEqual(AppView.drum_grid, app.view);
 }
 
+test "sampler editor j/k honor a vim count prefix; g/G jump to first/last param" {
+    var app = try testApp();
+    defer app.deinit();
+    app.cursor = 1; // sampler
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqual(AppView.sampler_editor, app.view);
+    try std.testing.expectEqual(@as(u8, 0), app.sampler_param);
+
+    for ("3j") |c| app.handleKey(.{ .char = c }, 0);
+    try std.testing.expectEqual(@as(u8, 3), app.sampler_param);
+    for ("2k") |c| app.handleKey(.{ .char = c }, 0);
+    try std.testing.expectEqual(@as(u8, 1), app.sampler_param);
+
+    app.handleKey(.{ .char = 'G' }, 0);
+    try std.testing.expectEqual(@as(u8, ws.dsp.Sampler.param_count - 1), app.sampler_param);
+    app.handleKey(.{ .char = 'g' }, 0);
+    try std.testing.expectEqual(@as(u8, 0), app.sampler_param);
+}
+
 test "enter on a sampler track opens the standalone sampler editor" {
     var app = try testApp();
     defer app.deinit();
@@ -1089,6 +1121,20 @@ test "draw renders synth editor without errors" {
     try std.testing.expect(std.mem.indexOf(u8, frame, "SYNTH") != null);
     try std.testing.expect(std.mem.indexOf(u8, frame, "attack") != null);
     try std.testing.expect(std.mem.indexOf(u8, frame, "sustain") != null);
+}
+
+test "synth editor g/G jump to the first/last parameter" {
+    var app = try testApp();
+    defer app.deinit();
+
+    app.handleKey(.enter, 0);
+    for (0..10) |_| app.handleKey(.{ .char = 'j' }, 0);
+    try std.testing.expectEqual(@as(u8, 10), app.synth_cursor);
+
+    app.handleKey(.{ .char = 'g' }, 0);
+    try std.testing.expectEqual(@as(u8, 0), app.synth_cursor);
+    app.handleKey(.{ .char = 'G' }, 0);
+    try std.testing.expectEqual(@as(u8, style.synth_param_count - 1), app.synth_cursor);
 }
 
 test "escape returns from track_spectrum to tracks" {

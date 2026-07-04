@@ -125,6 +125,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("h / l",        "move cursor left / right (one step)");
     t.key("H / L",        "move cursor left / right (one beat, coarse)");
     t.key("j / k",        "move cursor down / up (pad)");
+    t.key("g",            "jump step cursor to pattern start (no G — see below)");
     t.key("enter",        "toggle step on/off");
     t.key("c",            "cycle step velocity (100/75/50/25%)");
     t.key("v",            "visual mode: select a step range (all pads) — y/d/P");
@@ -145,6 +146,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
 
     t.section("SAMPLER EDITOR");
     t.key("j / k",        "select parameter");
+    t.key("g / G",        "jump to first / last parameter");
     t.key("h / l",        "adjust value (fine)");
     t.key("H / L",        "adjust value (coarse ×10)");
     t.key("1–8",          "switch to pad 1–8");
@@ -153,6 +155,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
 
     t.section("SYNTH EDITOR");
     t.key("j / k",        "select parameter");
+    t.key("g / G",        "jump to first / last parameter");
     t.key("{ / }",        "prev / next section");
     t.key("h / l",        "adjust value (fine)");
     t.key("H / L",        "adjust value (coarse ×10)");

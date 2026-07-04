@@ -42,6 +42,11 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 'L' => moveStep(app, 4 * app.takeCount()),
                 'k' => movePad(app, -app.takeCount()),
                 'j' => movePad(app, app.takeCount()),
+                // Step-cursor jump to pattern start, matching the piano
+                // roll's 'g'. No 'G' counterpart here — 'G' already cycles
+                // the cursor pad's choke group (see below); the step-end
+                // jump was dropped rather than overwrite a shipped binding.
+                'g' => app.drum_cursor[1] = 0,
                 'p' => {
                     _ = app.session.engine.send(.{ .note_on = .{
                         .track = app.drum_track,

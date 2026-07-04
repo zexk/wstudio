@@ -27,6 +27,8 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             'l' => { adjustParam(app, app.takeCount()); return true; },
             'H' => { adjustParam(app, -10 * app.takeCount()); return true; },
             'L' => { adjustParam(app, 10 * app.takeCount()); return true; },
+            'g' => { app.synth_cursor = 0; updateScroll(app); return true; },
+            'G' => { app.synth_cursor = style.synth_param_count - 1; updateScroll(app); return true; },
             '}', '{' => {
                 const section_starts = [_]u8{ 0, 6, 14, 16, 20, 24, 28, 32, 34, 36, 38 };
                 if (c == '}') {

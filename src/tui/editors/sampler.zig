@@ -31,20 +31,24 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             // Block insert mode — piano keys conflict with param navigation.
             'i' => return true,
             'e' => { app.view = if (is_drum) .drum_grid else .tracks; return true; },
-            'j' => {
-                if (app.sampler_param + 1 < paramCount(app)) app.sampler_param += 1;
-                return true;
-            },
-            'k' => { if (app.sampler_param > 0) app.sampler_param -= 1; return true; },
-            'h' => { adjustParam(app, -1); return true; },
-            'l' => { adjustParam(app, 1); return true; },
-            'H' => { adjustParam(app, -10); return true; },
-            'L' => { adjustParam(app, 10); return true; },
+            // j/k rows and h/l nudges take a vim count prefix (3j, 5l, …),
+            // matching the synth editor's equivalent.
+            'j' => { moveCursor(app, app.takeCount()); return true; },
+            'k' => { moveCursor(app, -app.takeCount()); return true; },
+            'h' => { adjustParam(app, -app.takeCount()); return true; },
+            'l' => { adjustParam(app, app.takeCount()); return true; },
+            'H' => { adjustParam(app, -10 * app.takeCount()); return true; },
+            'L' => { adjustParam(app, 10 * app.takeCount()); return true; },
+            'g' => { app.sampler_param = 0; return true; },
+            'G' => { app.sampler_param = paramCount(app) - 1; return true; },
             '1'...'8' => {
-                if (is_drum) {
-                    const pad: u8 = c - '1';
-                    if (pad < DrumMachine.max_pads) app.drum_cursor[0] = pad;
-                }
+                // Only a meaningful pad-jump on a drum pad's sampler — a
+                // standalone Sampler has no pads, so let the digit fall
+                // through to become a count prefix instead (matches j/k
+                // now honoring `app.takeCount()` above).
+                if (!is_drum) return false;
+                const pad: u8 = c - '1';
+                if (pad < DrumMachine.max_pads) app.drum_cursor[0] = pad;
                 return true;
             },
             'p' => { preview(app); return true; },
@@ -52,6 +56,14 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
         },
         else => return false,
     }
+}
+
+/// Move the param cursor by `delta` rows, clamped to the param list —
+/// mirrors the synth editor's equivalent.
+fn moveCursor(app: *App, delta: i32) void {
+    app.sampler_param = @intCast(std.math.clamp(
+        @as(i32, app.sampler_param) + delta, 0, @as(i32, paramCount(app)) - 1,
+    ));
 }
 
 /// Audition the sampler editor's current target.
