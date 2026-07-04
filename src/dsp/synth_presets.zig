@@ -90,6 +90,32 @@ pub const presets = [_]Preset{
         .lfo_shape = .sine, .lfo_rate_hz = 0.15, .lfo_depth = 0.5, .lfo_target = .filter,
         .gain = 0.28,
     } },
+
+    .{ .name = "rhodes-keys", .category = "keys", .tags = &.{ "wstudio", "hip-hop" }, .patch = .{
+        .waveform = .sine, .osc_b_on = true, .osc_b_waveform = .sine, .osc_b_semi = 14.0, .osc_b_detune_cents = 3.0,
+        .mod_mode = .fm_b_to_a, .mod_amount = 1.8,
+        .attack_s = 0.002, .decay_s = 1.4, .sustain = 0.25, .release_s = 0.9,
+        .filter_type = .lp, .filter_cutoff = 3800.0, .filter_res = 0.05,
+        .gain = 0.3,
+    } },
+
+    .{ .name = "upright-bass", .category = "bass", .tags = &.{ "wstudio", "hip-hop" }, .patch = .{
+        .waveform = .triangle, .voice_mode = .mono, .glide_s = 0.0,
+        .attack_s = 0.005, .decay_s = 0.12, .sustain = 0.6, .release_s = 0.25,
+        .filter_type = .lp, .filter_cutoff = 650.0, .filter_res = 0.05,
+        .sub_level = 0.6, .sub_shape = .sine,
+        .gain = 0.4,
+    } },
+
+    .{ .name = "dusty-pad", .category = "pad", .tags = &.{ "wstudio", "hip-hop" }, .patch = .{
+        .waveform = .saw, .unison = 4, .unison_detune = 10.0, .unison_spread = 0.5,
+        .osc_b_on = true, .osc_b_waveform = .triangle, .osc_b_level = 0.5,
+        .noise_level = 0.08, .noise_color = 0.5,
+        .attack_s = 1.2, .decay_s = 0.8, .sustain = 0.6, .release_s = 1.6,
+        .filter_type = .lp, .filter_cutoff = 1800.0, .filter_res = 0.1,
+        .lfo_shape = .sine, .lfo_rate_hz = 0.2, .lfo_depth = 0.08, .lfo_target = .filter,
+        .gain = 0.25,
+    } },
 };
 
 /// Case-insensitive lookup by name.

@@ -478,6 +478,46 @@ fn rimIndustrial(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error!
     });
 }
 
+fn kickBoombap(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return kickGen(allocator, sr, .{
+        .freq_end = 52.0, .freq_start_add = 70.0, .pitch_decay = 45.0, .body_decay = 10.0,
+        .click_decay = 500.0, .click_freq = 1200.0, .click_mix = 0.15, .drive = 3.0, .dur_s = 0.4,
+    });
+}
+fn snareBoombap(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return snareGen(allocator, sr, .{
+        .tone1_hz = 165.0, .tone2_hz = 245.0, .tone_decay = 20.0, .noise_decay = 13.0, .drive = 2.0, .dur_s = 0.24,
+    });
+}
+fn hihatBoombapClosed(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return metalHat(allocator, sr, .{ .dur_s = 0.045, .decay = 140.0, .body_hz = 5800.0, .air_hz = 8000.0, .air_mix = 0.15 });
+}
+fn hihatBoombapOpen(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return metalHat(allocator, sr, .{ .dur_s = 0.28, .decay = 12.0, .body_hz = 5800.0, .air_hz = 8000.0, .air_mix = 0.15 });
+}
+fn clapBoombap(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return clapGen(allocator, sr, .{
+        .lp_hz = 2600.0, .hp_hz = 1000.0, .burst_decay = 200.0, .tail_decay = 14.0, .tail_mix = 0.4, .dur_s = 0.28,
+    });
+}
+fn tomBoombap1(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return tomGen(allocator, sr, .{
+        .freq_start = 200.0, .freq_end = 100.0, .dur_s = 0.35, .body_decay = 7.0,
+        .attack_decay = 110.0, .drive = 2.0, .attack_mix = 0.15, .seed = 0x741,
+    });
+}
+fn tomBoombap2(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return tomGen(allocator, sr, .{
+        .freq_start = 140.0, .freq_end = 70.0, .dur_s = 0.42, .body_decay = 6.0,
+        .attack_decay = 110.0, .drive = 2.0, .attack_mix = 0.15, .seed = 0x742,
+    });
+}
+fn rimBoombap(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return rimGen(allocator, sr, .{
+        .tone1_hz = 1550.0, .tone2_hz = 1000.0, .tone_decay = 140.0, .click_decay = 280.0, .drive = 2.2, .dur_s = 0.07,
+    });
+}
+
 /// One pad slot in a runtime kit variant: display name, generator, and
 /// default mixer gain — the same shape as `PadDef` minus the WAV filename
 /// (these are never written to disk).
@@ -536,6 +576,16 @@ pub const variants = [_]KitVariant{
         .{ .name = "tom-1", .gen = tomIndustrial1, .gain = 0.85 },
         .{ .name = "tom-2", .gen = tomIndustrial2, .gain = 0.85 },
         .{ .name = "rim", .gen = rimIndustrial, .gain = 0.65 },
+    } },
+    .{ .name = "boombap", .category = "vinyl", .tags = &.{ "wstudio", "hip-hop" }, .pads = .{
+        .{ .name = "kick", .gen = kickBoombap, .gain = 1.00 },
+        .{ .name = "snare", .gen = snareBoombap, .gain = 0.85 },
+        .{ .name = "hihat", .gen = hihatBoombapClosed, .gain = 0.45 },
+        .{ .name = "open", .gen = hihatBoombapOpen, .gain = 0.45 },
+        .{ .name = "clap", .gen = clapBoombap, .gain = 0.65 },
+        .{ .name = "tom-1", .gen = tomBoombap1, .gain = 0.80 },
+        .{ .name = "tom-2", .gen = tomBoombap2, .gain = 0.80 },
+        .{ .name = "rim", .gen = rimBoombap, .gain = 0.60 },
     } },
 };
 
