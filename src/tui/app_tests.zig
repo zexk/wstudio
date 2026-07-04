@@ -2247,6 +2247,40 @@ test "tracks view scrolls to keep the cursor visible with many tracks" {
     try std.testing.expectEqual(@as(usize, 0), app.track_scroll);
 }
 
+test "arrangement view scrolls lanes to keep the cursor visible with many tracks" {
+    var app = try testApp();
+    defer app.deinit();
+    app.view = .arrangement;
+
+    for (0..20) |_| app.doTrackAdd(null);
+    const lane_count = app.session.project.tracks.items.len;
+    try std.testing.expect(lane_count > 20);
+
+    var buf: [16 * 1024]u8 = undefined;
+    var w = std.Io.Writer.fixed(&buf);
+
+    app.cursor = lane_count - 1;
+    try app.draw(&w, .{ .cols = 80, .rows = 15 });
+    const frame = w.buffered();
+    // The cursor's lane must actually be on screen — every auto-added
+    // track's name truncates to the same "track " (6 chars, digits cut
+    // off), so check the lane-number column instead of the name.
+    var num_buf: [4]u8 = undefined;
+    const last_num = try std.fmt.bufPrint(&num_buf, "{d}", .{lane_count});
+    try std.testing.expect(std.mem.indexOf(u8, frame, last_num) != null);
+
+    // A click at the scrolled window's first lane row must resolve to the
+    // scrolled-in lane, not lane 0 (see App.arr_scroll_lane's mouse fix).
+    app.handleMouse(.{ .x = 2, .y = app_mod.content_top + 2, .button = .left, .kind = .press }, 80, 15, 0);
+    try std.testing.expectEqual(app.arr_scroll_lane, app.cursor);
+
+    // Scrolling back to the top must bring lane 0 back into view.
+    app.cursor = 0;
+    w = std.Io.Writer.fixed(&buf);
+    try app.draw(&w, .{ .cols = 80, .rows = 15 });
+    try std.testing.expectEqual(@as(usize, 0), app.arr_scroll_lane);
+}
+
 test "mouse click toggles a drum step and drag paints a run of them" {
     var app = try testApp();
     defer app.deinit();

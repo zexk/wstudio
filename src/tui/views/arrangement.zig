@@ -95,8 +95,21 @@ pub fn drawArrangement(
     const sel_lo: u32 = @min(sel_anchor, cur_bar);
     const sel_hi: u32 = @max(sel_anchor, cur_bar);
 
-    // Lanes.
-    for (app.session.project.tracks.items, 0..) |track, li| {
+    // Lanes: vertical scroll over tracks, same window-clamp technique the
+    // horizontal bar scroll above uses (exact `rows` is known here, unlike
+    // editors/piano.zig's ensureVisible which has to approximate). Budget:
+    // title(1) + ruler(1) + footer(3) = 5 are always spoken for.
+    const lane_count = app.session.project.tracks.items.len;
+    const vis_lanes: usize = rows -| 5;
+    if (app.cursor < lane_count) {
+        if (app.cursor < app.arr_scroll_lane) app.arr_scroll_lane = app.cursor;
+        if (vis_lanes > 0 and app.cursor >= app.arr_scroll_lane + vis_lanes) app.arr_scroll_lane = app.cursor - vis_lanes + 1;
+    }
+    app.arr_scroll_lane = if (lane_count > vis_lanes) @min(app.arr_scroll_lane, lane_count - vis_lanes) else 0;
+    const lane_scroll = app.arr_scroll_lane;
+    const last_lane = @min(lane_count, lane_scroll + vis_lanes);
+
+    for (app.session.project.tracks.items[lane_scroll..last_lane], lane_scroll..) |track, li| {
         const lane = app.session.arrangement.lane(li);
         const is_sel_lane = li == app.cursor;
 
@@ -143,7 +156,7 @@ pub fn drawArrangement(
         try endLine(w);
     }
 
-    const used = 3 + app.session.project.tracks.items.len;
+    const used = 3 + (last_lane - lane_scroll);
     for (used..@max(used, rows -| 3)) |_| try endLine(w);
 }
 

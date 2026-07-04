@@ -228,6 +228,12 @@ pub const App = struct {
     /// Arrangement view: bar cursor and horizontal scroll (lane = `cursor`).
     arr_cursor_bar: u32 = 0,
     arr_scroll_bar: u32 = 0,
+    /// Arrangement view: vertical scroll over lanes — first visible lane
+    /// index. Clamped directly in drawArrangement against the exact `rows`
+    /// budget, same pattern as `arr_scroll_bar`'s horizontal clamp (and
+    /// `App.track_scroll` in the tracks view — no pinned row here, since
+    /// arrangement lanes have no master-bus equivalent).
+    arr_scroll_lane: usize = 0,
     /// Pattern clipboards (y yank / P paste), app-wide so patterns can move
     /// between tracks. Whole-pattern granularity; one slot per editor kind.
     piano_clip: ?PianoClip = null,

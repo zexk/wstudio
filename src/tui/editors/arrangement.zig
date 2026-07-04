@@ -498,7 +498,10 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16) v
     }
 
     if (row < 2) return; // title / bar-ruler rows — see views/arrangement.zig
-    const lane = row - 2;
+    // Offset by the vertical scroll drawArrangement clamped last frame —
+    // row 2 is the *first visible* lane, not lane 0, once the lane list
+    // scrolls (see App.arr_scroll_lane).
+    const lane = app.arr_scroll_lane + (row - 2);
     if (lane >= lane_count) return;
 
     switch (ev.kind) {
