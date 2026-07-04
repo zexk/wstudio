@@ -223,7 +223,11 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
     for (used..@max(used, rows -| 3)) |_| try endLine(w);
 }
 
-pub fn drawPianoRollStatus(app: anytype, w: *std.Io.Writer) !void {
+pub fn drawPianoRollStatus(app: anytype, w: *std.Io.Writer, cmds: []const cmd_mod.Def) !void {
+    if (app.modal.mode == .command) {
+        try cmd_mod.writePrompt(w, cmds, app.modal.cmd_buf[0..app.modal.cmd_len], 60);
+        return;
+    }
     if (app.piano_track >= app.session.racks.items.len) return;
     const rack = app.session.racks.items[app.piano_track];
     const pp = if (rack.pattern_player != null)

@@ -147,12 +147,9 @@ pub fn drawTracks(app: anytype, w: *std.Io.Writer, rows: usize, snap: engine_mod
     for (used..@max(used, rows -| 3)) |_| try endLine(w);
 }
 
-pub fn drawTracksStatus(app: anytype, w: *std.Io.Writer) !void {
+pub fn drawTracksStatus(app: anytype, w: *std.Io.Writer, cmds: []const cmd_mod.Def) !void {
     switch (app.modal.mode) {
-        .command => {
-            try w.writeAll(dim ++ " :" ++ rst);
-            try w.print("{s}_", .{app.modal.cmd_buf[0..app.modal.cmd_len]});
-        },
+        .command => try cmd_mod.writePrompt(w, cmds, app.modal.cmd_buf[0..app.modal.cmd_len], 60),
         else => {
             const mode_colour: []const u8 = switch (app.modal.mode) {
                 .insert => yel,

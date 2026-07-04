@@ -1157,16 +1157,16 @@ pub const App = struct {
         try tui.hr(w, size.cols);
 
         switch (self.view) {
-            .tracks          => try tui.drawTracksStatus(self, w),
-            .drum_grid       => try tui.drawDrumStatus(self, w),
-            .synth_editor    => try tui.drawSynthStatus(self, w),
-            .sampler_editor  => try tui.drawSamplerStatus(self, w),
-            .piano_roll      => try tui.drawPianoRollStatus(self, w),
+            .tracks          => try tui.drawTracksStatus(self, w, commands.cmds),
+            .drum_grid       => try tui.drawDrumStatus(self, w, commands.cmds),
+            .synth_editor    => try tui.drawSynthStatus(self, w, commands.cmds),
+            .sampler_editor  => try tui.drawSamplerStatus(self, w, commands.cmds),
+            .piano_roll      => try tui.drawPianoRollStatus(self, w, commands.cmds),
             .help            => try w.writeAll(" j/k: scroll   d/u: page   g/G: top/bottom   esc: close"),
-            .track_spectrum  => try tui.drawSpectrumStatus(self, w, true),
-            .master_spectrum => try tui.drawSpectrumStatus(self, w, false),
+            .track_spectrum  => try tui.drawSpectrumStatus(self, w, true, commands.cmds),
+            .master_spectrum => try tui.drawSpectrumStatus(self, w, false, commands.cmds),
             .instrument_picker => try w.writeAll(" j/k: move   enter: insert   esc: cancel"),
-            .arrangement     => try tui.drawArrangementStatus(self, w),
+            .arrangement     => try tui.drawArrangementStatus(self, w, commands.cmds),
             .file_browser    => try tui.drawFileBrowserStatus(self, w),
         }
         // Erase from cursor to end of screen so stale content from taller

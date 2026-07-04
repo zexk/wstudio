@@ -248,7 +248,11 @@ fn drawWaveformPad(
     }
 }
 
-pub fn drawSamplerStatus(app: anytype, w: *std.Io.Writer) !void {
+pub fn drawSamplerStatus(app: anytype, w: *std.Io.Writer, cmds: []const cmd_mod.Def) !void {
+    if (app.modal.mode == .command) {
+        try cmd_mod.writePrompt(w, cmds, app.modal.cmd_buf[0..app.modal.cmd_len], 60);
+        return;
+    }
     const is_drum = app.sampler_target == .drum;
     const pad_idx = app.drum_cursor[0];
     const pad: *const ws.dsp.Pad = if (is_drum) padOf(app.drumMachine(), pad_idx) else blk: {

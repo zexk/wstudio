@@ -231,7 +231,11 @@ pub fn drawSpectrumView(
     for (used..@max(used, rows -| 3)) |_| try endLine(w);
 }
 
-pub fn drawSpectrumStatus(app: anytype, w: *std.Io.Writer, is_track: bool) !void {
+pub fn drawSpectrumStatus(app: anytype, w: *std.Io.Writer, is_track: bool, cmds: []const cmd_mod.Def) !void {
+    if (app.modal.mode == .command) {
+        try cmd_mod.writePrompt(w, cmds, app.modal.cmd_buf[0..app.modal.cmd_len], 60);
+        return;
+    }
     const eq_ptr: ?*eq_mod.GraphicEq = blk: {
         if (is_track) {
             if (app.eq_track >= app.session.racks.items.len) break :blk null;

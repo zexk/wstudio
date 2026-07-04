@@ -11,6 +11,7 @@ const engine_mod = ws.engine;
 const Transport = ws.Transport;
 const style = @import("../style.zig");
 const icons = @import("../icons.zig");
+const cmd_mod = @import("../cmd.zig");
 
 const rst = style.rst;
 const bold = style.bold;
@@ -146,10 +147,9 @@ pub fn drawArrangement(
     for (used..@max(used, rows -| 3)) |_| try endLine(w);
 }
 
-pub fn drawArrangementStatus(app: anytype, w: *std.Io.Writer) !void {
+pub fn drawArrangementStatus(app: anytype, w: *std.Io.Writer, cmds: []const cmd_mod.Def) !void {
     if (app.modal.mode == .command) {
-        try w.writeAll(dim ++ " :" ++ rst);
-        try w.print("{s}_", .{app.modal.cmd_buf[0..app.modal.cmd_len]});
+        try cmd_mod.writePrompt(w, cmds, app.modal.cmd_buf[0..app.modal.cmd_len], 60);
         return;
     }
     const visual_active = app.modal.mode == .visual;

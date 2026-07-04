@@ -287,7 +287,11 @@ fn drawSynthEditorFull(app: anytype, w: *std.Io.Writer, snap: engine_mod.UiSnaps
     // is responsible for slicing and padding to fit the terminal height.
 }
 
-pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer) !void {
+pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, cmds: []const cmd_mod.Def) !void {
+    if (app.modal.mode == .command) {
+        try cmd_mod.writePrompt(w, cmds, app.modal.cmd_buf[0..app.modal.cmd_len], 60);
+        return;
+    }
     if (app.synth_track >= app.session.racks.items.len) return;
     const rack = app.session.racks.items[app.synth_track];
     switch (rack.instrument) { .poly_synth => {}, else => return }

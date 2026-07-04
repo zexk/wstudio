@@ -115,10 +115,9 @@ pub fn drawDrumGrid(app: anytype, w: *std.Io.Writer, rows: usize, snap: engine_m
     for (used..@max(used, rows -| 3)) |_| try endLine(w);
 }
 
-pub fn drawDrumStatus(app: anytype, w: *std.Io.Writer) !void {
+pub fn drawDrumStatus(app: anytype, w: *std.Io.Writer, cmds: []const cmd_mod.Def) !void {
     if (app.modal.mode == .command) {
-        try w.writeAll(dim ++ " :" ++ rst);
-        try w.print("{s}_", .{app.modal.cmd_buf[0..app.modal.cmd_len]});
+        try cmd_mod.writePrompt(w, cmds, app.modal.cmd_buf[0..app.modal.cmd_len], 60);
         return;
     }
     const p = app.drum_cursor[0];
