@@ -15,6 +15,8 @@
 const std = @import("std");
 const Note = @import("dsp/pattern.zig").Note;
 const DrumMachine = @import("dsp/drum_sampler.zig").DrumMachine;
+const automation_mod = @import("dsp/automation.zig");
+const AutomationPoint = automation_mod.AutomationPoint;
 
 /// A clip placed on a track lane. Spans whole bars; owns its content.
 pub const Clip = struct {
@@ -23,6 +25,32 @@ pub const Clip = struct {
     /// Length in whole bars (>= 1).
     length_bars: u32,
     content: Content,
+    /// Gain/pan automation for this clip's span, in clip-relative beats (0 =
+    /// clip start). Independent of `content` — every clip kind (melodic or
+    /// drum) can carry it, since gain/pan are track-level, not instrument
+    /// params. Empty = no automation (the track plays at its manual gain/pan
+    /// for this clip's whole span). See `Session.rebuildSongData`, which
+    /// flattens every clip's points into one whole-song curve per track.
+    automation: Automation = .{},
+
+    /// Gain (dB, same range as `:gain`/`Track.gain_db`) and pan (-1..1, same
+    /// range as `Track.pan`) breakpoints, each independently optional.
+    pub const Automation = struct {
+        gain: []AutomationPoint = &.{},
+        pan: []AutomationPoint = &.{},
+
+        pub fn deinit(self: *Automation, allocator: std.mem.Allocator) void {
+            allocator.free(self.gain);
+            allocator.free(self.pan);
+        }
+
+        pub fn dupe(self: Automation, allocator: std.mem.Allocator) !Automation {
+            const gain = try allocator.dupe(AutomationPoint, self.gain);
+            errdefer allocator.free(gain);
+            const pan = try allocator.dupe(AutomationPoint, self.pan);
+            return .{ .gain = gain, .pan = pan };
+        }
+    };
 
     /// The musical payload, mirroring the two sequenceable instrument families.
     pub const Content = union(enum) {
@@ -80,17 +108,22 @@ pub const Clip = struct {
             .melodic => |m| allocator.free(m.notes),
             .drum => {},
         }
+        self.automation.deinit(allocator);
     }
 
     /// Deep copy: melodic notes get a fresh allocation, drum payloads are
-    /// plain values. Used by clip yank/paste and the undo lane snapshots.
+    /// plain values, automation points get a fresh allocation either way.
+    /// Used by clip yank/paste and the undo lane snapshots.
     pub fn dupe(self: Clip, allocator: std.mem.Allocator) !Clip {
-        return switch (self.content) {
+        var out: Clip = switch (self.content) {
             .melodic => |m| try initMelodic(
                 allocator, self.start_bar, self.length_bars, m.notes, m.length_beats,
             ),
-            .drum => self,
+            .drum => |d| initDrum(self.start_bar, self.length_bars, d),
         };
+        errdefer out.deinit(allocator);
+        out.automation = try self.automation.dupe(allocator);
+        return out;
     }
 
     /// First bar past the clip (exclusive end).
@@ -267,6 +300,25 @@ test "clipAt and removeAt cover the clip's whole span" {
     try testing.expect(!lane.removeAt(a, 0));
     try testing.expect(lane.removeAt(a, 3));
     try testing.expectEqual(@as(usize, 0), lane.clips.items.len);
+}
+
+test "clip dupe deep-copies automation independently of content kind" {
+    const a = testing.allocator;
+    var src = Clip.initDrum(0, 2, .{ .pattern = [_]u32{0} ** DrumMachine.max_pads, .step_count = 16 });
+    var gain: []AutomationPoint = &.{};
+    try automation_mod.setPoint(a, &gain, 0.0, -6.0);
+    src.automation.gain = gain;
+    defer src.deinit(a);
+
+    var copy = try src.dupe(a);
+    defer copy.deinit(a);
+
+    try testing.expect(copy.automation.gain.ptr != src.automation.gain.ptr);
+    try testing.expectApproxEqAbs(@as(f32, -6.0), copy.automation.gain[0].value, 1e-6);
+
+    // Mutating the source's points must not affect the copy.
+    src.automation.gain[0].value = 0.0;
+    try testing.expectApproxEqAbs(@as(f32, -6.0), copy.automation.gain[0].value, 1e-6);
 }
 
 test "melodic clip owns a private note copy" {

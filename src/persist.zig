@@ -35,6 +35,8 @@ const Reverb = @import("dsp/reverb.zig").Reverb;
 const eq_mod = @import("dsp/eq.zig");
 const GraphicEq = eq_mod.GraphicEq;
 const dsp = @import("dsp/device.zig");
+const automation_mod = @import("dsp/automation.zig");
+const AutomationPoint = automation_mod.AutomationPoint;
 
 /// v2 adds the arrangement (song timeline) and `song_mode`. v1 files omit both
 /// and deserialize to an empty arrangement in pattern mode — the prior behaviour.
@@ -55,7 +57,17 @@ const dsp = @import("dsp/device.zig");
 /// v6 adds the master bus FX rack (`Snapshot.master_fx`, the same `FxSnap`
 /// shape as a track's). Older files omit it and load with no master FX —
 /// the prior behaviour.
-pub const file_version: u32 = 6;
+/// v7 adds per-clip gain/pan automation (`ClipSnap.gain_automation`/
+/// `pan_automation`, clip-relative-beat breakpoints — see dsp/automation.zig
+/// and Session.rebuildSongData). Older files omit them and load with no
+/// automation — clips play at the track's manual gain/pan, the prior
+/// behaviour.
+pub const file_version: u32 = 7;
+
+pub const AutomationPointSnap = struct {
+    beat: f64,
+    value: f32,
+};
 
 // ---------------------------------------------------------------------------
 // Snapshot types — plain data, JSON-serialisable
@@ -248,6 +260,10 @@ pub const ClipSnap = struct {
     step_count: u8 = 16,
     /// v3: variant letter label (index) the clip was stamped from.
     variant: u8 = 0,
+    /// v7: gain (dB) / pan (-1..1) automation breakpoints, clip-relative
+    /// beats. Independent of `kind` — either clip type can carry them.
+    gain_automation: []const AutomationPointSnap = &.{},
+    pan_automation: []const AutomationPointSnap = &.{},
 };
 
 /// One track's lane of clips. Lanes are parallel to `racks`/`tracks`.
@@ -555,7 +571,15 @@ fn clipToSnap(aa: std.mem.Allocator, clip: ws_arrangement.Clip) !ClipSnap {
             c.variant = d.variant;
         },
     }
+    c.gain_automation = try automationToSnap(aa, clip.automation.gain);
+    c.pan_automation = try automationToSnap(aa, clip.automation.pan);
     return c;
+}
+
+fn automationToSnap(aa: std.mem.Allocator, points: []const AutomationPoint) ![]const AutomationPointSnap {
+    const out = try aa.alloc(AutomationPointSnap, points.len);
+    for (points, out) |p, *o| o.* = .{ .beat = p.beat, .value = p.value };
+    return out;
 }
 
 fn synthToSnap(s: *const PolySynth) SynthSnap {
@@ -837,7 +861,7 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
 /// Rebuild an arrangement clip from its snapshot. Melodic clips copy notes
 /// through a stack buffer into a fresh owned allocation; drum clips are inline.
 fn clipFromSnap(allocator: std.mem.Allocator, cs: ClipSnap) !ws_arrangement.Clip {
-    return switch (cs.kind) {
+    var out: ws_arrangement.Clip = switch (cs.kind) {
         .melodic => blk: {
             var tmp: [pattern_mod.max_notes]pattern_mod.Note = undefined;
             const count = @min(cs.notes.len, @as(usize, pattern_mod.max_notes));
@@ -854,6 +878,33 @@ fn clipFromSnap(allocator: std.mem.Allocator, cs: ClipSnap) !ws_arrangement.Clip
             .variant = @min(cs.variant, DrumMachine.max_variants - 1),
         }),
     };
+    errdefer out.deinit(allocator);
+    out.automation.gain = try automationFromSnap(allocator, cs.gain_automation, -60.0, 12.0);
+    out.automation.pan = try automationFromSnap(allocator, cs.pan_automation, -1.0, 1.0);
+    return out;
+}
+
+/// Load automation breakpoints, clamping values to the same range the live
+/// editor will enforce and sorting by beat — a hand-edited file has no
+/// guarantee the points arrived in order, and `automation.interpolate` relies
+/// on that.
+fn automationFromSnap(
+    allocator: std.mem.Allocator,
+    snaps: []const AutomationPointSnap,
+    lo: f32,
+    hi: f32,
+) ![]AutomationPoint {
+    const out = try allocator.alloc(AutomationPoint, snaps.len);
+    for (snaps, out) |s, *o| o.* = .{
+        .beat = @max(0.0, s.beat),
+        .value = std.math.clamp(s.value, lo, hi),
+    };
+    std.mem.sort(AutomationPoint, out, {}, struct {
+        fn lessThan(_: void, a: AutomationPoint, b: AutomationPoint) bool {
+            return a.beat < b.beat;
+        }
+    }.lessThan);
+    return out;
 }
 
 /// Apply a pad snapshot onto a live Pad, clamping every field to the same
@@ -1214,6 +1265,72 @@ test "buildSession: arrangement clips and song_mode round-trip" {
     try testing.expectEqual(@as(u16, 1), session.racks.items[0].pattern_player.?.song_note_count);
     try testing.expect(session.racks.items[1].instrument.drum_machine.song_mode);
     try testing.expectEqual(@as(u16, 1), session.racks.items[1].instrument.drum_machine.song_clip_count);
+}
+
+test "clipToSnap/clipFromSnap round-trip gain/pan automation" {
+    const testing = std.testing;
+    var clip = ws_arrangement.Clip.initDrum(0, 1, .{
+        .pattern = [_]u32{0} ** DrumMachine.max_pads, .step_count = 16,
+    });
+    try automation_mod.setPoint(testing.allocator, &clip.automation.gain, 0.0, -6.0);
+    try automation_mod.setPoint(testing.allocator, &clip.automation.gain, 2.0, 0.0);
+    try automation_mod.setPoint(testing.allocator, &clip.automation.pan, 0.0, -1.0);
+    defer clip.deinit(testing.allocator);
+
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const snap = try clipToSnap(arena.allocator(), clip);
+    try testing.expectEqual(@as(usize, 2), snap.gain_automation.len);
+    try testing.expectApproxEqAbs(@as(f32, -6.0), snap.gain_automation[0].value, 1e-6);
+    try testing.expectEqual(@as(usize, 1), snap.pan_automation.len);
+
+    var restored = try clipFromSnap(testing.allocator, snap);
+    defer restored.deinit(testing.allocator);
+    try testing.expectEqual(@as(usize, 2), restored.automation.gain.len);
+    try testing.expectApproxEqAbs(@as(f64, 0.0), restored.automation.gain[0].beat, 1e-9);
+    try testing.expectApproxEqAbs(@as(f32, -6.0), restored.automation.gain[0].value, 1e-6);
+    try testing.expectApproxEqAbs(@as(f32, 0.0), restored.automation.gain[1].value, 1e-6);
+    try testing.expectEqual(@as(usize, 1), restored.automation.pan.len);
+    try testing.expectApproxEqAbs(@as(f32, -1.0), restored.automation.pan[0].value, 1e-6);
+}
+
+test "automationFromSnap sorts unsorted points and clamps out-of-range values" {
+    const testing = std.testing;
+    const snaps = [_]AutomationPointSnap{
+        .{ .beat = 3.0, .value = 100.0 }, // out of gain range — clamps to 12
+        .{ .beat = 1.0, .value = -999.0 }, // clamps to -60
+    };
+    const pts = try automationFromSnap(testing.allocator, &snaps, -60.0, 12.0);
+    defer testing.allocator.free(pts);
+    try testing.expectEqual(@as(usize, 2), pts.len);
+    try testing.expectApproxEqAbs(@as(f64, 1.0), pts[0].beat, 1e-9);
+    try testing.expectApproxEqAbs(@as(f32, -60.0), pts[0].value, 1e-6);
+    try testing.expectApproxEqAbs(@as(f64, 3.0), pts[1].beat, 1e-9);
+    try testing.expectApproxEqAbs(@as(f32, 12.0), pts[1].value, 1e-6);
+}
+
+test "buildSession: clip automation round-trips" {
+    const testing = std.testing;
+    const snap: Snapshot = .{
+        .tracks = &.{.{ .name = "keys" }},
+        .racks = &.{.{ .label = "synth", .kind = .poly_synth, .synth = .{} }},
+        .arrangement = &.{
+            .{ .clips = &.{
+                .{
+                    .start_bar = 0, .length_bars = 1, .kind = .melodic, .length_beats = 4.0,
+                    .gain_automation = &.{.{ .beat = 0.0, .value = -6.0 }},
+                    .pan_automation = &.{.{ .beat = 0.0, .value = 0.5 }},
+                },
+            } },
+        },
+    };
+    var session = try buildSession(testing.allocator, &snap);
+    defer session.deinit();
+    const clip = session.arrangement.lane(0).?.clips.items[0];
+    try testing.expectEqual(@as(usize, 1), clip.automation.gain.len);
+    try testing.expectApproxEqAbs(@as(f32, -6.0), clip.automation.gain[0].value, 1e-6);
+    try testing.expectEqual(@as(usize, 1), clip.automation.pan.len);
+    try testing.expectApproxEqAbs(@as(f32, 0.5), clip.automation.pan[0].value, 1e-6);
 }
 
 test "buildSession: drum variant bank round-trips; v2 files get one variant" {

@@ -18,6 +18,10 @@ pub const drum_kit = @import("dsp/drum_kit.zig");
 pub const pattern = @import("dsp/pattern.zig");
 pub const PatternPlayer = pattern.PatternPlayer;
 
+pub const automation = @import("dsp/automation.zig");
+pub const AutomationPoint = automation.AutomationPoint;
+pub const AutomationCurve = automation.AutomationCurve;
+
 pub const fft = @import("dsp/fft.zig");
 pub const SpectrumAnalyzer = @import("dsp/spectrum.zig").SpectrumAnalyzer;
 pub const spectrum = @import("dsp/spectrum.zig");
@@ -37,6 +41,7 @@ test {
     _ = Sampler;
     _ = drum_kit;
     _ = pattern;
+    _ = automation;
     _ = fft;
     _ = SpectrumAnalyzer;
     _ = GraphicEq;

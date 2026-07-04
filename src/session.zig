@@ -23,6 +23,8 @@ const dsp = @import("dsp/device.zig");
 const arr_mod = @import("arrangement.zig");
 const Arrangement = arr_mod.Arrangement;
 const Clip = arr_mod.Clip;
+const automation_mod = @import("dsp/automation.zig");
+const AutomationPoint = automation_mod.AutomationPoint;
 
 pub const Session = struct {
     allocator: std.mem.Allocator,
@@ -315,7 +317,18 @@ pub const Session = struct {
     /// flags, and silences anything left hanging from the previous mode.
     pub fn setSongMode(self: *Session, on: bool) void {
         self.song_mode = on;
-        if (on) self.rebuildSongData();
+        if (on) {
+            self.rebuildSongData();
+        } else {
+            // Automation is meaningless off the arrangement timeline — leave
+            // it armed and a stray transport position from live jamming
+            // could yank a track's gain/pan. Clearing falls back to the
+            // manual value, same as before automation existed.
+            for (0..self.racks.items.len) |i| {
+                self.engine.setTrackAutomation(@intCast(i), .gain, &.{});
+                self.engine.setTrackAutomation(@intCast(i), .pan, &.{});
+            }
+        }
         _ = self.engine.send(.all_notes_off);
         for (self.racks.items) |rack| {
             if (rack.pattern_player) |*pp| pp.song_mode = on;
@@ -413,7 +426,39 @@ pub const Session = struct {
                 },
                 .empty => {},
             }
+            self.flattenClipAutomation(@intCast(i), lane, bpb);
         }
+    }
+
+    /// Flatten one track's clips' gain/pan breakpoints (clip-relative beats)
+    /// into absolute-song-beat curves and push them to the engine. Runs for
+    /// every instrument kind — gain/pan are track-level, not instrument
+    /// params, so this is independent of the note/drum switch above. Clips
+    /// are already stored start_bar-ascending (`Lane.place`) and each clip's
+    /// own points are beat-ascending (`automation.setPoint`), so appending in
+    /// clip order needs no extra sort.
+    fn flattenClipAutomation(self: *Session, track: u16, lane: *arr_mod.Lane, bpb: f64) void {
+        var gain_pts: [automation_mod.max_points]AutomationPoint = undefined;
+        var gain_n: usize = 0;
+        var pan_pts: [automation_mod.max_points]AutomationPoint = undefined;
+        var pan_n: usize = 0;
+        for (lane.clips.items) |c| {
+            const clip_start_beat = @as(f64, @floatFromInt(c.start_bar)) * bpb;
+            for (c.automation.gain) |p| {
+                if (gain_n >= gain_pts.len) break;
+                // Points are edited in dB; the engine curve stores linear
+                // gain, the same unit `TrackState.gain` already uses.
+                gain_pts[gain_n] = .{ .beat = clip_start_beat + p.beat, .value = types.dbToGain(p.value) };
+                gain_n += 1;
+            }
+            for (c.automation.pan) |p| {
+                if (pan_n >= pan_pts.len) break;
+                pan_pts[pan_n] = .{ .beat = clip_start_beat + p.beat, .value = p.value };
+                pan_n += 1;
+            }
+        }
+        self.engine.setTrackAutomation(track, .gain, gain_pts[0..gain_n]);
+        self.engine.setTrackAutomation(track, .pan, pan_pts[0..pan_n]);
     }
 
     /// Whole bars needed to hold `len_beats`, at least one.
@@ -736,4 +781,51 @@ test "syncMasterChain pushes master_fx's active stages to the engine" {
     s.master_fx.comp = null;
     s.syncMasterChain();
     try std.testing.expectEqual(@as(usize, 1), s.engine.master_chain_len);
+}
+
+test "song-mode gain automation ramps a track's level down over the clip" {
+    var s = try Session.initDefault(std.testing.allocator);
+    defer s.deinit();
+    try s.setInstrument(0, .poly_synth);
+
+    // A held note spanning the whole clip so the synth's own envelope stays
+    // at sustain level throughout — any amplitude change we measure comes
+    // from the automation curve, not the note's own attack/release.
+    const lane = s.arrangement.lane(0).?;
+    const notes = [_]Note{.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 4.0, .velocity = 1.0 }};
+    try lane.place(s.allocator, try Clip.initMelodic(s.allocator, 0, 1, &notes, 4.0));
+    const clip = lane.clipAt(0).?;
+    try automation_mod.setPoint(s.allocator, &clip.automation.gain, 0.0, 0.0); // 0 dB
+    try automation_mod.setPoint(s.allocator, &clip.automation.gain, 1.0, -40.0); // -40 dB by beat 1
+
+    s.setSongMode(true);
+    _ = s.engine.send(.play);
+
+    var block: [512]@import("core/types.zig").Sample = undefined;
+    var loud: f32 = 0.0;
+    for (0..4) |_| { // let the envelope settle in, still near beat 0
+        s.engine.process(&block);
+        for (block) |v| loud = @max(loud, @abs(v));
+    }
+    try std.testing.expect(loud > 0.02);
+
+    // 120bpm/48kHz = 24_000 frames/beat; 256 frames/block (512 interleaved
+    // stereo samples) → ~94 blocks to clear beat 1. Run comfortably past it.
+    for (0..120) |_| s.engine.process(&block);
+    var quiet: f32 = 0.0;
+    for (0..4) |_| {
+        s.engine.process(&block);
+        for (block) |v| quiet = @max(quiet, @abs(v));
+    }
+    try std.testing.expect(quiet < loud * 0.05); // -40dB ≈ 1% amplitude
+
+    // Seeking back to the start re-evaluates the curve from scratch — proves
+    // it's a live function of transport position, not a one-way latch.
+    _ = s.engine.send(.{ .seek_frames = 0 });
+    var back_loud: f32 = 0.0;
+    for (0..4) |_| {
+        s.engine.process(&block);
+        for (block) |v| back_loud = @max(back_loud, @abs(v));
+    }
+    try std.testing.expect(back_loud > loud * 0.5);
 }

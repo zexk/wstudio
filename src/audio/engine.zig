@@ -7,6 +7,9 @@ const Limiter = @import("../dsp/limiter.zig").Limiter;
 const Metronome = @import("../dsp/metronome.zig").Metronome;
 const Transport = @import("../transport.zig").Transport;
 const Project = @import("../project.zig").Project;
+const automation_mod = @import("../dsp/automation.zig");
+const AutomationPoint = automation_mod.AutomationPoint;
+const AutomationCurve = automation_mod.AutomationCurve;
 
 const Sample = types.Sample;
 const SpectrumAnalyzer = spectrum_mod.SpectrumAnalyzer;
@@ -49,6 +52,9 @@ pub const Command = union(enum) {
     record,
 };
 
+/// Which absolute value an `AutomationCurve` overrides.
+pub const AutomationTarget = enum { gain, pan };
+
 const TrackState = struct {
     active: bool = false,
     gain: f32 = 1.0,
@@ -57,6 +63,23 @@ const TrackState = struct {
     soloed: bool = false,
     chain: [max_chain_devices]dsp.Device = undefined,
     chain_len: usize = 0,
+};
+
+/// A track slot's song-mode gain/pan automation, flattened from the
+/// arrangement's clips by `Session.rebuildSongData` (see dsp/automation.zig).
+/// Empty (the default) means no override — the track plays at its manual
+/// `TrackState.gain`/`.pan`, same as before automation existed.
+///
+/// Deliberately NOT a field on `TrackState`: that struct is embedded inline
+/// in a `[max_tracks]TrackState` array (max_tracks = 8192), so every byte
+/// added there is multiplied 8192x. `AutomationCurve`'s fixed point buffer
+/// is far too big for that — it once pushed `Engine` past 100MB and crashed
+/// on construction (the struct is built up on the stack before landing on
+/// the heap). Kept as its own heap-allocated slice instead, sized once at
+/// `Engine.init` and indexed the same as `tracks`.
+const AutomationPair = struct {
+    gain: AutomationCurve = .{},
+    pan: AutomationCurve = .{},
 };
 
 pub const UiSnapshot = struct {
@@ -110,6 +133,10 @@ pub const Engine = struct {
     /// thread can drive process() into a file without racing the audio thread.
     bounce_active: std.atomic.Value(bool) = .init(false),
     bounce_parked: std.atomic.Value(bool) = .init(false),
+    /// One gain/pan automation pair per track slot — see `AutomationPair`'s
+    /// doc comment for why this is a separate heap allocation rather than a
+    /// field on `TrackState`. Indexed the same as `tracks`.
+    automation: []AutomationPair,
 
     const Shared = struct {
         playing: std.atomic.Value(bool) = .init(false),
@@ -125,6 +152,9 @@ pub const Engine = struct {
         errdefer master_spec.deinit(allocator);
         var metronome = try Metronome.init(allocator, sample_rate);
         errdefer metronome.deinit();
+        const automation = try allocator.alloc(AutomationPair, max_tracks);
+        errdefer allocator.free(automation);
+        for (automation) |*a| a.* = .{};
 
         var self = Engine{
             .allocator = allocator,
@@ -134,6 +164,7 @@ pub const Engine = struct {
             .tracks = undefined,
             .track_spectrum = track_spec,
             .master_spectrum = master_spec,
+            .automation = automation,
         };
         for (&self.tracks) |*t| t.* = .{};
         return self;
@@ -143,6 +174,7 @@ pub const Engine = struct {
         self.metronome.deinit();
         self.master_spectrum.deinit(self.allocator);
         self.track_spectrum.deinit(self.allocator);
+        self.allocator.free(self.automation);
     }
 
     pub fn loadProject(self: *Engine, project: *const Project) void {
@@ -282,6 +314,20 @@ pub const Engine = struct {
         state.chain_len = @min(devices.len, max_chain_devices);
         for (devices[0..state.chain_len], state.chain[0..state.chain_len]) |src, *dst| {
             dst.* = src;
+        }
+    }
+
+    /// Replace a track's flattened gain or pan automation curve wholesale
+    /// (control thread). Called by `Session.rebuildSongData` whenever the
+    /// arrangement's clips change; an empty `points` clears it, falling back
+    /// to the track's manual gain/pan (e.g. when leaving song mode). Safe to
+    /// call while the audio thread is running — `AutomationCurve.set` takes
+    /// its own lock, same discipline as `PatternPlayer.setSongNotes`.
+    pub fn setTrackAutomation(self: *Engine, track: u16, target: AutomationTarget, points: []const AutomationPoint) void {
+        const pair = &self.automation[@min(track, max_tracks - 1)];
+        switch (target) {
+            .gain => pair.gain.set(points),
+            .pan => pair.pan.set(points),
         }
     }
 
@@ -442,6 +488,11 @@ pub const Engine = struct {
             }
         }
 
+        // Block-start beat position, for gain/pan automation below. One
+        // evaluation per block (not per sample) — plenty of resolution for a
+        // parameter curve, same granularity the metronome's beat math uses.
+        const beat_pos = @as(f64, @floatFromInt(self.transport.position_frames)) / self.transport.framesPerBeat();
+
         for (&self.tracks, 0..) |*track, ti| {
             if (!track.active or track.chain_len == 0) continue;
 
@@ -451,9 +502,12 @@ pub const Engine = struct {
 
             if (track.muted or (any_solo and !track.soloed)) continue;
 
-            const angle = (track.pan + 1.0) * std.math.pi / 4.0;
-            const gain_l = track.gain * @cos(angle);
-            const gain_r = track.gain * @sin(angle);
+            const auto = &self.automation[ti];
+            const gain = auto.gain.valueAt(beat_pos) orelse track.gain;
+            const pan = auto.pan.valueAt(beat_pos) orelse track.pan;
+            const angle = (pan + 1.0) * std.math.pi / 4.0;
+            const gain_l = gain * @cos(angle);
+            const gain_r = gain * @sin(angle);
             for (0..frames) |i| {
                 out[i * channels] += scratch[i * channels] * gain_l;
                 out[i * channels + 1] += scratch[i * channels + 1] * gain_r;
