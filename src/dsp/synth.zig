@@ -172,6 +172,72 @@ pub const PolySynth = struct {
         return midi.noteToFreq(note);
     }
 
+    /// A full synth patch: every parameter `adjustParam`/`applyCC` can touch,
+    /// minus per-instance state (sample_rate, voices, held-note stack, pitch
+    /// bend, LFO phase). Presets in `synth_presets.zig` are just values of
+    /// this type — no audio is rendered or embedded to define one.
+    pub const Patch = struct {
+        waveform: Waveform = .saw,
+        pulse_width: f32 = 0.5,
+        detune_cents: f32 = 0.0,
+        unison: u8 = 1,
+        unison_detune: f32 = 15.0,
+        unison_spread: f32 = 0.0,
+
+        osc_b_on: bool = false,
+        osc_b_waveform: Waveform = .saw,
+        osc_b_pulse_width: f32 = 0.5,
+        osc_b_semi: f32 = 0.0,
+        osc_b_detune_cents: f32 = 0.0,
+        osc_b_level: f32 = 1.0,
+        osc_b_unison: u8 = 1,
+        osc_b_unison_detune: f32 = 15.0,
+
+        attack_s: f32 = 0.005,
+        decay_s: f32 = 0.08,
+        sustain: f32 = 0.7,
+        release_s: f32 = 0.25,
+
+        filter_type: FilterType = .lp,
+        filter_cutoff: f32 = 18_000.0,
+        filter_res: f32 = 0.0,
+        fenv_amount: f32 = 0.0,
+
+        fenv_attack_s: f32 = 0.005,
+        fenv_decay_s: f32 = 0.5,
+        fenv_sustain: f32 = 0.0,
+        fenv_release_s: f32 = 0.3,
+
+        lfo_shape: LfoShape = .sine,
+        lfo_rate_hz: f32 = 1.0,
+        lfo_depth: f32 = 0.0,
+        lfo_target: LfoTarget = .none,
+
+        voice_mode: VoiceMode = .poly,
+        glide_s: f32 = 0.0,
+
+        sub_level: f32 = 0.0,
+        sub_shape: SubShape = .sine,
+
+        noise_level: f32 = 0.0,
+        noise_color: f32 = 1.0,
+
+        mod_mode: ModMode = .none,
+        mod_amount: f32 = 0.0,
+
+        gain: f32 = 0.35,
+    };
+
+    /// Load a patch onto this synth. Field-by-field so per-instance state
+    /// (sample_rate, voices, glide/held-note tracking) is untouched — notes
+    /// already sounding pick up the new params on their next block, same as
+    /// a single `adjustParam` nudge.
+    pub fn applyPatch(self: *PolySynth, patch: Patch) void {
+        inline for (@typeInfo(Patch).@"struct".fields) |f| {
+            @field(self, f.name) = @field(patch, f.name);
+        }
+    }
+
     pub fn noteOn(self: *PolySynth, note: u7, velocity: f32) void {
         switch (self.voice_mode) {
             .poly   => self.noteOnPoly(note, velocity),

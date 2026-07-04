@@ -82,6 +82,8 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "scale",       .desc = "[<root> [<type>]|off]  piano-roll scale highlight + chord-stamp key", .run = wrap(cmdScale) },
     .{ .name = "master-eq",   .desc = "[<band> <db>]  master bus EQ (see M in the tracks view)", .run = wrap(cmdMasterEq) },
     .{ .name = "master-comp", .desc = "[on|off|thresh|ratio|attack|release|makeup <value>]  master bus compressor", .run = wrap(cmdMasterComp) },
+    .{ .name = "synth-preset", .desc = "[name]  apply a factory synth patch to the cursor track (no args: list names)", .run = wrap(cmdSynthPreset) },
+    .{ .name = "drum-kit",    .desc = "[name]  regenerate the cursor drum machine's pads from a kit variant (no args: list names)", .run = wrap(cmdDrumKit) },
 };
 
 /// Look up `text` in the command table and run it, reporting unknown commands
@@ -353,6 +355,76 @@ fn cursorSampler(app: *App) ?*Sampler {
     return switch (app.session.racks.items[app.cursor].instrument) {
         .sampler => |*s| s, else => null,
     };
+}
+
+/// The PolySynth on the cursor's track, or null.
+fn cursorSynth(app: *App) ?*ws.dsp.PolySynth {
+    if (app.cursor >= app.session.racks.items.len) return null;
+    return switch (app.session.racks.items[app.cursor].instrument) {
+        .poly_synth => |*s| s, else => null,
+    };
+}
+
+/// `:synth-preset [name]` — apply a factory patch (see `dsp/synth_presets.zig`)
+/// to the cursor track's synth. No args, or an unknown name, lists the
+/// available preset names instead of guessing.
+fn cmdSynthPreset(app: *App, args: []const u8) void {
+    const trimmed = std.mem.trim(u8, args, " ");
+    if (trimmed.len == 0) {
+        var buf: [256]u8 = undefined;
+        var w: std.Io.Writer = .fixed(&buf);
+        for (ws.dsp.synth_presets.presets, 0..) |p, i| {
+            if (i > 0) w.writeAll(", ") catch break;
+            w.writeAll(p.name) catch break;
+        }
+        app.setStatus("synth presets: {s}", .{w.buffered()});
+        return;
+    }
+    const patch = ws.dsp.synth_presets.find(trimmed) orelse {
+        app.setStatus("synth-preset: unknown '{s}' — :synth-preset lists names", .{trimmed});
+        return;
+    };
+    const s = cursorSynth(app) orelse {
+        app.setStatus("synth-preset: select a synth track first", .{});
+        return;
+    };
+    s.applyPatch(patch);
+    app.dirty = true;
+    app.setStatus("synth preset: {s}", .{trimmed});
+}
+
+/// `:drum-kit [name]` — regenerate all 8 pads of the cursor track's drum
+/// machine from a procedural kit variant (see `dsp/drum_kit.zig`'s
+/// `variants` table). No args, or an unknown name, lists the available kit
+/// names. Overwrites any user-loaded pad samples on that track.
+fn cmdDrumKit(app: *App, args: []const u8) void {
+    const trimmed = std.mem.trim(u8, args, " ");
+    if (trimmed.len == 0) {
+        var buf: [256]u8 = undefined;
+        var w: std.Io.Writer = .fixed(&buf);
+        for (ws.dsp.drum_kit.variants, 0..) |v, i| {
+            if (i > 0) w.writeAll(", ") catch break;
+            w.writeAll(v.name) catch break;
+        }
+        app.setStatus("drum kits: {s}", .{w.buffered()});
+        return;
+    }
+    const variant = for (&ws.dsp.drum_kit.variants) |*v| {
+        if (std.ascii.eqlIgnoreCase(v.name, trimmed)) break v;
+    } else {
+        app.setStatus("drum-kit: unknown '{s}' — :drum-kit lists names", .{trimmed});
+        return;
+    };
+    const dm = cursorDrumMachine(app) orelse {
+        app.setStatus("drum-kit: select a drum-machine track first", .{});
+        return;
+    };
+    dm.loadKitVariant(variant) catch |e| {
+        app.setStatus("drum-kit: {s}", .{@errorName(e)});
+        return;
+    };
+    app.dirty = true;
+    app.setStatus("drum kit: {s}", .{trimmed});
 }
 
 fn cmdLoadSample(app: *App, args: []const u8) void {
@@ -884,6 +956,56 @@ test ":save reports the expanded path, not the literal ~, on failure" {
     const status = app.status_buf[0..app.status_len];
     try std.testing.expect(std.mem.indexOf(u8, status, home) != null);
     try std.testing.expect(std.mem.indexOf(u8, status, "~") == null);
+}
+
+test ":synth-preset applies a factory patch to the cursor track's synth" {
+    var app = try App.init(std.testing.allocator, std.testing.io);
+    defer app.deinit();
+    try app.session.setInstrument(0, .poly_synth);
+
+    var cmd_buf: [80]u8 = undefined;
+    const cmd = try std.fmt.bufPrint(&cmd_buf, ":synth-preset acid-bass", .{});
+    for (cmd) |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+
+    const s = &app.session.racks.items[0].instrument.poly_synth;
+    const expected = ws.dsp.synth_presets.find("acid-bass").?;
+    try std.testing.expectEqual(expected.voice_mode, s.voice_mode);
+    try std.testing.expectApproxEqAbs(expected.filter_res, s.filter_res, 1e-6);
+    try std.testing.expect(app.dirty);
+}
+
+test ":synth-preset with no args lists names without touching the synth" {
+    var app = try App.init(std.testing.allocator, std.testing.io);
+    defer app.deinit();
+    try app.session.setInstrument(0, .poly_synth);
+
+    var cmd_buf: [40]u8 = undefined;
+    const cmd = try std.fmt.bufPrint(&cmd_buf, ":synth-preset", .{});
+    for (cmd) |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+
+    const status = app.status_buf[0..app.status_len];
+    try std.testing.expect(std.mem.indexOf(u8, status, "init") != null);
+    try std.testing.expect(!app.dirty);
+}
+
+test ":drum-kit regenerates the cursor drum machine's pads" {
+    var app = try App.init(std.testing.allocator, std.testing.io);
+    defer app.deinit();
+    try app.session.setInstrument(0, .drum_machine);
+
+    var cmd_buf: [40]u8 = undefined;
+    const cmd = try std.fmt.bufPrint(&cmd_buf, ":drum-kit analog", .{});
+    for (cmd) |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+
+    const dm = &app.session.racks.items[0].instrument.drum_machine;
+    try std.testing.expect(dm.pads[0] != null);
+    try std.testing.expect(!dm.pads[0].?.user_sample);
+    try std.testing.expect(app.dirty);
+    const status = app.status_buf[0..app.status_len];
+    try std.testing.expect(std.mem.indexOf(u8, status, "analog") != null);
 }
 
 test ":load-pad reports the expanded path on a missing file" {

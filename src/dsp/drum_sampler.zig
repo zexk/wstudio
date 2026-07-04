@@ -26,6 +26,7 @@ const wav = @import("../core/wav.zig");
 const dsp = @import("device.zig");
 const Transport = @import("../transport.zig").Transport;
 const pad_mod = @import("pad.zig");
+const drum_kit = @import("drum_kit.zig");
 
 const Sample = types.Sample;
 const Pad = pad_mod.Pad;
@@ -483,6 +484,19 @@ pub const DrumMachine = struct {
         const len = @min(name.len, 8);
         @memcpy(n[0..len], name[0..len]);
         self.pads[idx] = .{ .samples = samples, .gain = 1.0, .name = n };
+    }
+
+    /// Regenerate all 8 pads from a procedural kit variant (see
+    /// `dsp/drum_kit.zig`'s `variants` table). Runs the generators directly
+    /// into fresh pad buffers — nothing is read from disk or the binary's
+    /// embedded assets, so extra kit flavours cost no shipped bytes. Marks
+    /// every pad as non-user so it isn't exported to the sample sidecar.
+    pub fn loadKitVariant(self: *DrumMachine, variant: *const drum_kit.KitVariant) !void {
+        for (variant.pads, 0..) |slot, i| {
+            const samples = try slot.gen(self.allocator, self.sample_rate);
+            self.setPadSamples(@intCast(i), samples, slot.name);
+            if (self.pads[i]) |*p| p.gain = slot.gain;
+        }
     }
 
     /// Parse raw WAV bytes into pad `idx`. Resamples to engine rate if needed.

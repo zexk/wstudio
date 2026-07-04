@@ -4,6 +4,7 @@ pub const Event = device.Event;
 
 pub const PolySynth = @import("dsp/synth.zig").PolySynth;
 pub const Waveform = @import("dsp/synth.zig").Waveform;
+pub const synth_presets = @import("dsp/synth_presets.zig");
 pub const StereoDelay = @import("dsp/delay.zig").StereoDelay;
 pub const Reverb = @import("dsp/reverb.zig").Reverb;
 pub const Compressor = @import("dsp/compressor.zig").Compressor;
@@ -26,6 +27,7 @@ pub const eq = @import("dsp/eq.zig");
 test {
     _ = device;
     _ = PolySynth;
+    _ = synth_presets;
     _ = StereoDelay;
     _ = Reverb;
     _ = Compressor;

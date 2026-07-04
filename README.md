@@ -153,6 +153,14 @@ a full song:
 
 Done:
 
+- [x] Procedural synth/drum presets: `:synth-preset [name]` applies a factory
+      `PolySynth.Patch` (pad/bass/lead/pluck/FM-bell/etc.) to the cursor
+      track's synth; `:drum-kit [name]` regenerates a drum machine's 8 pads
+      from an alternate kit flavour (analog/acoustic/industrial) — both are
+      plain parameter tables run through the existing synthesis code at
+      select time, so extra presets/kits cost no shipped bytes; each preset
+      carries a `category` (sound role/character) and `tags` (always
+      `wstudio` + a genre) for future browsing
 - [x] Minimal netrw-style file browser: `:e`, `:load-sample`, and `:load-pad`
       open it when called with no path — `j`/`k` move, `enter`/`l` open a
       directory or pick a file, `h`/backspace go up, `~` jumps home
