@@ -78,12 +78,17 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
         &app.session.racks.items[app.piano_track].pattern_player.?
     else return;
 
+    // Steps per beat under the current grid (4 = straight 16ths, 6 = 16th
+    // triplets, toggled by `T` — see App.pianoStepsPerBeat).
+    const spb: u16 = app.pianoStepsPerBeat();
+    const spbf: f64 = @floatFromInt(spb);
+
     // Playhead step within the loop (maxInt when stopped — never matches a visible step).
     const play_step: u16 = if (snap.playing) blk: {
         const sr: f64 = @floatFromInt(app.session.project.sample_rate);
         const bpm: f64 = app.session.project.tempo_bpm;
         const raw_beats: f64 = @as(f64, @floatFromInt(snap.position_frames)) / (sr * 60.0 / bpm);
-        break :blk @intFromFloat(@mod(raw_beats, pp.length_beats) * 4.0);
+        break :blk @intFromFloat(@mod(raw_beats, pp.length_beats) * spbf);
     } else std.math.maxInt(u16);
 
     const name = if (app.piano_track < app.session.project.tracks.items.len)
@@ -103,6 +108,9 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
         try w.print("scale {s} {s}", .{ theory.pitchClassName(s.root), s.kind.label() });
         try w.writeAll(rst);
     }
+    if (app.piano_grid == .triplet) {
+        try w.writeAll("  " ++ yel ++ "triplet" ++ rst);
+    }
     try endLine(w);
 
     // 3 internal header rows (title + col labels + loop marker) + vis_rows note rows
@@ -112,7 +120,7 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
 
     // Show the full loop (+ end-marker column) up to what fits on screen.
     // Prefix = 6 chars (" C4  │"), each step cell = 3 chars.
-    const loop_step: u16 = @intFromFloat(pp.length_beats * 4.0);
+    const loop_step: u16 = @intFromFloat(pp.length_beats * spbf);
     const max_step_cols: usize = (cols -| 6) / 3;
     const vis_cols: usize = @min(@as(usize, loop_step) + 1, max_step_cols);
 
@@ -120,9 +128,9 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
     try w.writeAll(dim ++ "      " ++ rst);
     for (0..vis_cols) |col| {
         const step = left + @as(u16, @intCast(col));
-        if (step % 4 == 0) {
+        if (step % spb == 0) {
             try w.writeAll(dim);
-            try w.print("{d:<3}", .{step / 4 + 1});
+            try w.print("{d:<3}", .{step / spb + 1});
             try w.writeAll(rst);
         } else {
             try w.writeAll(dim ++ "·  " ++ rst);
@@ -138,7 +146,7 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
             try w.writeAll(grn ++ bold ++ "▾  " ++ rst);
         } else if (step == loop_step) {
             try w.writeAll(acc ++ "┤  " ++ rst);
-        } else if (step % 4 == 0) {
+        } else if (step % spb == 0) {
             try w.writeAll(dim ++ "│  " ++ rst);
         } else {
             try w.writeAll("   ");
@@ -178,7 +186,7 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
 
         for (0..vis_cols) |col| {
             const step = left + @as(u16, @intCast(col));
-            const beat_pos = @as(f64, @floatFromInt(step)) * 0.25;
+            const beat_pos = @as(f64, @floatFromInt(step)) / spbf;
             const is_cur = is_cur_row and (step == app.piano_cursor_step);
             const in_sel = visual_active and step >= sel_lo and step <= sel_hi;
             const starts = pp.noteStartsAt(pitch, beat_pos);
@@ -204,7 +212,7 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
             } else if (covers) {
                 try w.writeAll(if (in_sel) yel else acc);
                 try w.writeAll("=  " ++ rst);
-            } else if (step % 4 == 0) {
+            } else if (step % spb == 0) {
                 try w.writeAll(if (in_sel) yel else dim);
                 try w.writeAll("│  " ++ rst);
             } else if (in_sel) {
@@ -236,9 +244,10 @@ pub fn drawPianoRollStatus(app: anytype, w: *std.Io.Writer, cmds: []const cmd_mo
 
     var lbuf: [5]u8 = undefined;
     const label = pitchLabel(@intCast(app.piano_cursor_pitch), &lbuf);
-    const beat_pos = @as(f64, @floatFromInt(app.piano_cursor_step)) * 0.25;
-    const bar = app.piano_cursor_step / 4 + 1;
-    const sub = app.piano_cursor_step % 4 + 1;
+    const spb: u16 = app.pianoStepsPerBeat();
+    const beat_pos = @as(f64, @floatFromInt(app.piano_cursor_step)) / @as(f64, @floatFromInt(spb));
+    const bar = app.piano_cursor_step / spb + 1;
+    const sub = app.piano_cursor_step % spb + 1;
 
     if (app.modal.mode == .visual) {
         try w.writeAll(yel ++ sel ++ " VISUAL " ++ rst);
@@ -253,6 +262,8 @@ pub fn drawPianoRollStatus(app: anytype, w: *std.Io.Writer, cmds: []const cmd_mo
     try w.print("{d:.2}b", .{app.piano_note_len});
     try w.writeAll(dim ++ "  loop " ++ rst);
     try w.print("{d:.0}b", .{pp.length_beats});
+    try w.writeAll(dim ++ "  grid " ++ rst);
+    try w.writeAll(if (app.piano_grid == .triplet) "1/16T" else "1/16");
     // Note count at cursor pitch
     var n_here: usize = 0;
     _ = beat_pos;

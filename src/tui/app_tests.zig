@@ -232,6 +232,37 @@ test "piano roll visual mode selects a step range for y/d/P" {
     try std.testing.expect(pp.noteAt(72, 2.0) != null);
 }
 
+test "T toggles the piano roll grid between straight and triplet" {
+    var app = try testApp();
+    defer app.deinit();
+    app.view = .piano_roll;
+    app.piano_track = 0;
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    pp.length_beats = 4.0;
+
+    try std.testing.expectEqual(@as(u16, 4), app.pianoStepsPerBeat());
+    _ = piano_ed.handleKey(&app, .{ .char = 'T' });
+    try std.testing.expectEqual(@as(u16, 6), app.pianoStepsPerBeat());
+    try std.testing.expectApproxEqAbs(@as(f64, 1.0 / 6.0), app.piano_note_len, 1e-9);
+
+    // Under the triplet grid, step 6 is a full beat later than step 0.
+    app.piano_cursor_step = 0;
+    app.piano_cursor_pitch = 60;
+    _ = piano_ed.handleKey(&app, .enter);
+    try std.testing.expect(pp.noteAt(60, 0.0) != null);
+
+    app.piano_cursor_step = 6;
+    _ = piano_ed.handleKey(&app, .enter);
+    try std.testing.expect(pp.noteAt(60, 1.0) != null);
+
+    // Toggling back rescales the cursor by its beat position (step 6 @ 6
+    // steps/beat = beat 1 = step 4 @ 4 steps/beat), not a raw index copy.
+    _ = piano_ed.handleKey(&app, .{ .char = 'T' });
+    try std.testing.expectEqual(@as(u16, 4), app.pianoStepsPerBeat());
+    try std.testing.expectEqual(@as(u16, 4), app.piano_cursor_step);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.25), app.piano_note_len, 1e-9);
+}
+
 test "visual mode escape cancels the selection without editing" {
     var app = try testApp();
     defer app.deinit();

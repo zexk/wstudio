@@ -16,6 +16,16 @@ const spectrum = @import("spectrum.zig");
 const synth = @import("synth.zig");
 const theory = ws.theory;
 
+/// Steps per beat as f64, driven by `App.piano_grid` (`T` toggles it).
+fn stepsPerBeatF(app: *App) f64 {
+    return @floatFromInt(app.pianoStepsPerBeat());
+}
+
+/// Convert a step index to a beat position under the current grid.
+fn stepToBeat(app: *App, step: u16) f64 {
+    return @as(f64, @floatFromInt(step)) / stepsPerBeatF(app);
+}
+
 pub fn switchTo(app: *App, track: u16) void {
     if (track >= app.session.racks.items.len) return;
     switch (app.session.racks.items[track].instrument) {
@@ -41,7 +51,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
     const rack = app.session.racks.items[app.piano_track];
     const pp = if (rack.pattern_player != null) &app.session.racks.items[app.piano_track].pattern_player.? else return false;
 
-    const max_step: u16 = @intFromFloat(pp.length_beats * 4.0);
+    const max_step: u16 = @intFromFloat(pp.length_beats * stepsPerBeatF(app));
 
     // Visual mode: a step-range selection spanning every pitch. Motions and
     // range y/d/P live in handleVisual; everything else is swallowed so a
@@ -102,7 +112,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             },
             // M grabs the note under the cursor for dragging (see above).
             'M' => {
-                const start_beat = @as(f64, @floatFromInt(app.piano_cursor_step)) * 0.25;
+                const start_beat = stepToBeat(app, app.piano_cursor_step);
                 if (pp.noteAt(app.piano_cursor_pitch, start_beat) == null) {
                     app.setStatus("no note under cursor", .{});
                     return true;
@@ -158,8 +168,8 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             // [/] resize the note under the cursor if one starts here;
             // otherwise they set the default length for newly placed notes.
             // Count-scaled, like </>.
-            '[' => { resizeOrLen(app, -0.25 * @as(f64, @floatFromInt(app.takeCount()))); return true; },
-            ']' => { resizeOrLen(app, 0.25 * @as(f64, @floatFromInt(app.takeCount()))); return true; },
+            '[' => { resizeOrLen(app, -1.0 / stepsPerBeatF(app) * @as(f64, @floatFromInt(app.takeCount()))); return true; },
+            ']' => { resizeOrLen(app, 1.0 / stepsPerBeatF(app) * @as(f64, @floatFromInt(app.takeCount()))); return true; },
             '+' => {
                 const bar: f64 = @floatFromInt(app.session.project.beats_per_bar);
                 history.push(app, history.captureMelodic(app, app.piano_track));
@@ -178,6 +188,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             },
             'u' => { history.doUndo(app); return true; },
             'U' => { history.doRedo(app); return true; },
+            'T' => { toggleGrid(app); return true; },
             else => return false,
         },
         else => return false,
@@ -190,7 +201,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
 /// Accumulates the session's total offset in `piano_grab_delta` so `.` can
 /// repeat the whole drag (as one transformation) once it's dropped.
 fn dragNote(app: *App, pp: *pattern_mod.PatternPlayer, max_step: u16, dstep: i32, dpitch: i32) void {
-    const start_beat = @as(f64, @floatFromInt(app.piano_cursor_step)) * 0.25;
+    const start_beat = stepToBeat(app, app.piano_cursor_step);
     const n = pp.noteAt(app.piano_cursor_pitch, start_beat) orelse {
         app.piano_grab = false;
         app.setStatus("no note under cursor", .{});
@@ -199,7 +210,7 @@ fn dragNote(app: *App, pp: *pattern_mod.PatternPlayer, max_step: u16, dstep: i32
     const top = @max(@as(i32, max_step) - 1, 0);
     const new_step: u16 = @intCast(std.math.clamp(@as(i32, app.piano_cursor_step) + dstep, 0, top));
     const new_pitch: u7 = @intCast(std.math.clamp(@as(i32, app.piano_cursor_pitch) + dpitch, 0, 127));
-    n.start_beat = @as(f64, @floatFromInt(new_step)) * 0.25;
+    n.start_beat = stepToBeat(app, new_step);
     n.pitch = new_pitch;
     app.piano_cursor_step = new_step;
     app.piano_cursor_pitch = new_pitch;
@@ -226,7 +237,7 @@ fn dropGrab(app: *App) void {
 /// `.` after a drag: move whichever note sits under the CURRENT cursor by
 /// the same (dstep, dpitch) offset the last drag ended with.
 fn repeatDrag(app: *App, pp: *pattern_mod.PatternPlayer, max_step: u16, dstep: i32, dpitch: i32) void {
-    const start_beat = @as(f64, @floatFromInt(app.piano_cursor_step)) * 0.25;
+    const start_beat = stepToBeat(app, app.piano_cursor_step);
     const n = pp.noteAt(app.piano_cursor_pitch, start_beat) orelse {
         app.setStatus("no note under cursor to repeat the move on", .{});
         return;
@@ -235,7 +246,7 @@ fn repeatDrag(app: *App, pp: *pattern_mod.PatternPlayer, max_step: u16, dstep: i
     const top = @max(@as(i32, max_step) - 1, 0);
     const new_step: u16 = @intCast(std.math.clamp(@as(i32, app.piano_cursor_step) + dstep, 0, top));
     const new_pitch: u7 = @intCast(std.math.clamp(@as(i32, app.piano_cursor_pitch) + dpitch, 0, 127));
-    n.start_beat = @as(f64, @floatFromInt(new_step)) * 0.25;
+    n.start_beat = stepToBeat(app, new_step);
     n.pitch = new_pitch;
     app.piano_cursor_step = new_step;
     app.piano_cursor_pitch = new_pitch;
@@ -275,6 +286,21 @@ fn movePitch(app: *App, delta: i32) void {
     ensureVisible(app);
 }
 
+/// `T`: toggle the piano-roll grid between straight sixteenths (4 steps/
+/// beat) and sixteenth-note triplets (6 steps/beat). Rescales the cursor
+/// step by its beat position so the view stays put on the same instant
+/// rather than jumping to an unrelated step index, and resets the default
+/// note length to one step of the new grid. Not undoable — a display/
+/// editing-grid setting, not song content (mirrors `piano_scale`).
+fn toggleGrid(app: *App) void {
+    const old_beat = stepToBeat(app, app.piano_cursor_step);
+    app.piano_grid = if (app.piano_grid == .straight) .triplet else .straight;
+    app.piano_cursor_step = @intFromFloat(@round(old_beat * stepsPerBeatF(app)));
+    app.piano_note_len = 1.0 / stepsPerBeatF(app);
+    ensureVisible(app);
+    app.setStatus("grid: {s}", .{if (app.piano_grid == .triplet) "triplet (6/beat)" else "straight (4/beat)"});
+}
+
 fn ensureVisible(app: *App) void {
     const vis_cols: u16 = 16;
     const vis_rows: u8  = 16;
@@ -301,7 +327,7 @@ fn toggleNote(app: *App) void {
     const pp = if (app.session.racks.items[app.piano_track].pattern_player != null)
         &app.session.racks.items[app.piano_track].pattern_player.?
     else return;
-    const start_beat = @as(f64, @floatFromInt(app.piano_cursor_step)) * 0.25;
+    const start_beat = stepToBeat(app, app.piano_cursor_step);
     if (pp.noteStartsAt(app.piano_cursor_pitch, start_beat)) {
         deleteNote(app);
     } else {
@@ -324,7 +350,7 @@ fn stampChord(app: *App, seventh: bool) void {
         theory.Scale{ .root = @intCast(app.piano_cursor_pitch % 12), .kind = .major };
     const chord = scale.chordAt(app.piano_cursor_pitch, seventh);
     history.push(app, history.captureMelodic(app, app.piano_track));
-    const start_beat = @as(f64, @floatFromInt(app.piano_cursor_step)) * 0.25;
+    const start_beat = stepToBeat(app, app.piano_cursor_step);
     for (chord.pitches[0..chord.count]) |pitch| {
         pp.removeNote(pitch, start_beat);
         pp.addNote(.{ .pitch = pitch, .start_beat = start_beat, .duration_beat = app.piano_note_len });
@@ -352,8 +378,8 @@ pub fn recordNote(app: *App, pitch: u7) void {
     const sr: f64 = @floatFromInt(app.session.project.sample_rate);
     const bpm: f64 = app.session.project.tempo_bpm;
     const raw_beats: f64 = @as(f64, @floatFromInt(snap.position_frames)) / (sr * 60.0 / bpm);
-    const step: u16 = @intFromFloat(@mod(raw_beats, pp.length_beats) * 4.0);
-    const start_beat = @as(f64, @floatFromInt(step)) * 0.25;
+    const step: u16 = @intFromFloat(@mod(raw_beats, pp.length_beats) * stepsPerBeatF(app));
+    const start_beat = stepToBeat(app, step);
     if (pp.noteStartsAt(pitch, start_beat)) return;
     history.push(app, history.captureMelodic(app, app.piano_track));
     pp.addNote(.{ .pitch = pitch, .start_beat = start_beat, .duration_beat = app.piano_note_len });
@@ -368,7 +394,7 @@ fn insertNote(app: *App) void {
     const pp = if (app.session.racks.items[app.piano_track].pattern_player != null)
         &app.session.racks.items[app.piano_track].pattern_player.?
     else return;
-    const start_beat = @as(f64, @floatFromInt(app.piano_cursor_step)) * 0.25;
+    const start_beat = stepToBeat(app, app.piano_cursor_step);
     // Don't insert if a note already starts here on this pitch
     if (pp.noteStartsAt(app.piano_cursor_pitch, start_beat)) return;
     history.push(app, history.captureMelodic(app, app.piano_track));
@@ -390,15 +416,15 @@ fn resizeOrLen(app: *App, delta: f64) void {
     const pp = if (app.session.racks.items[app.piano_track].pattern_player != null)
         &app.session.racks.items[app.piano_track].pattern_player.?
     else return;
-    const start_beat = @as(f64, @floatFromInt(app.piano_cursor_step)) * 0.25;
+    const start_beat = stepToBeat(app, app.piano_cursor_step);
     app.last_edit = .{ .piano_resize = .{ .delta = delta } };
     if (pp.noteAt(app.piano_cursor_pitch, start_beat)) |n| {
         history.push(app, history.captureMelodic(app, app.piano_track));
-        n.duration_beat = std.math.clamp(n.duration_beat + delta, 0.25, pp.length_beats);
+        n.duration_beat = std.math.clamp(n.duration_beat + delta, 1.0 / stepsPerBeatF(app), pp.length_beats);
         app.setStatus("note len: {d:.2} beats", .{n.duration_beat});
         syncLinkedClip(app);
     } else {
-        app.piano_note_len = std.math.clamp(app.piano_note_len + delta, 0.25, pp.length_beats);
+        app.piano_note_len = std.math.clamp(app.piano_note_len + delta, 1.0 / stepsPerBeatF(app), pp.length_beats);
         app.setStatus("default len: {d:.2} beats", .{app.piano_note_len});
     }
 }
@@ -409,7 +435,7 @@ fn nudgeVelocity(app: *App, delta: f32) void {
     const pp = if (app.session.racks.items[app.piano_track].pattern_player != null)
         &app.session.racks.items[app.piano_track].pattern_player.?
     else return;
-    const start_beat = @as(f64, @floatFromInt(app.piano_cursor_step)) * 0.25;
+    const start_beat = stepToBeat(app, app.piano_cursor_step);
     if (pp.noteAt(app.piano_cursor_pitch, start_beat)) |n| {
         history.push(app, history.captureMelodic(app, app.piano_track));
         n.velocity = std.math.clamp(n.velocity + delta, 0.05, 1.0);
@@ -525,8 +551,8 @@ fn selectionRange(app: *App) StepRange {
 /// the range clipboard, rebased so the range's first step is beat 0.
 fn yankSelection(app: *App, pp: *pattern_mod.PatternPlayer) void {
     const r = selectionRange(app);
-    const lo_beat = @as(f64, @floatFromInt(r.lo)) * 0.25;
-    const hi_beat = @as(f64, @floatFromInt(r.hi)) * 0.25 + 0.25;
+    const lo_beat = stepToBeat(app, r.lo);
+    const hi_beat = stepToBeat(app, r.hi) + 1.0 / stepsPerBeatF(app);
     var clip: PianoClip = .{ .notes = undefined, .count = 0, .length_beats = hi_beat - lo_beat };
     clip.count = pp.copyNotesInRange(lo_beat, hi_beat, &clip.notes);
     app.piano_range_clip = clip;
@@ -537,8 +563,8 @@ fn yankSelection(app: *App, pp: *pattern_mod.PatternPlayer) void {
 /// Delete every note starting within the selected step range (any pitch).
 fn deleteSelection(app: *App, pp: *pattern_mod.PatternPlayer) void {
     const r = selectionRange(app);
-    const lo_beat = @as(f64, @floatFromInt(r.lo)) * 0.25;
-    const hi_beat = @as(f64, @floatFromInt(r.hi)) * 0.25 + 0.25;
+    const lo_beat = stepToBeat(app, r.lo);
+    const hi_beat = stepToBeat(app, r.hi) + 1.0 / stepsPerBeatF(app);
     history.push(app, history.captureMelodic(app, app.piano_track));
     const removed = pp.removeNotesInRange(lo_beat, hi_beat);
     app.last_edit = .{ .piano_range_delete = .{ .width = r.hi - r.lo + 1 } };
@@ -556,10 +582,10 @@ fn pasteSelection(app: *App, pp: *pattern_mod.PatternPlayer) void {
         return;
     };
     history.push(app, history.captureMelodic(app, app.piano_track));
-    const base_beat = @as(f64, @floatFromInt(app.piano_cursor_step)) * 0.25;
+    const base_beat = stepToBeat(app, app.piano_cursor_step);
     for (clip.notes[0..clip.count]) |n| {
         var note = n;
-        note.start_beat = std.math.clamp(base_beat + n.start_beat, 0, @max(0, pp.length_beats - 0.25));
+        note.start_beat = std.math.clamp(base_beat + n.start_beat, 0, @max(0, pp.length_beats - 1.0 / stepsPerBeatF(app)));
         pp.removeNote(note.pitch, note.start_beat);
         pp.addNote(note);
     }
@@ -588,7 +614,7 @@ fn deleteNote(app: *App) void {
     const pp = if (app.session.racks.items[app.piano_track].pattern_player != null)
         &app.session.racks.items[app.piano_track].pattern_player.?
     else return;
-    const start_beat = @as(f64, @floatFromInt(app.piano_cursor_step)) * 0.25;
+    const start_beat = stepToBeat(app, app.piano_cursor_step);
     if (!pp.noteStartsAt(app.piano_cursor_pitch, start_beat)) return;
     history.push(app, history.captureMelodic(app, app.piano_track));
     pp.removeNote(app.piano_cursor_pitch, start_beat);
@@ -621,7 +647,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16) v
     if (app.piano_track >= app.session.racks.items.len) return;
     const rack = app.session.racks.items[app.piano_track];
     const pp = if (rack.pattern_player != null) &app.session.racks.items[app.piano_track].pattern_player.? else return;
-    const max_step: u16 = @intFromFloat(pp.length_beats * 4.0);
+    const max_step: u16 = @intFromFloat(pp.length_beats * stepsPerBeatF(app));
 
     switch (ev.kind) {
         .scroll_up => { if (ev.shift) moveStep(app, max_step, -1) else movePitch(app, 1); return; },
@@ -641,7 +667,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16) v
         .press => {
             app.piano_cursor_step = step;
             app.piano_cursor_pitch = pitch;
-            const start_beat = @as(f64, @floatFromInt(step)) * 0.25;
+            const start_beat = stepToBeat(app, step);
             if (pp.noteAt(pitch, start_beat) != null) {
                 app.piano_grab = true;
                 app.piano_grab_delta = .{};
@@ -668,7 +694,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16) v
                 dropGrab(app);
             } else {
                 app.piano_grab = false;
-                const start_beat = @as(f64, @floatFromInt(app.piano_cursor_step)) * 0.25;
+                const start_beat = stepToBeat(app, app.piano_cursor_step);
                 if (pp.noteStartsAt(app.piano_cursor_pitch, start_beat)) deleteNote(app);
             }
         },

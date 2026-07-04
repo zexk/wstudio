@@ -151,6 +151,10 @@ a full song:
 
 Done:
 
+- [x] Triplet grid in the piano roll (`T`): toggles the step grid between
+      straight sixteenths (4 steps/beat) and sixteenth-note triplets (6
+      steps/beat) — every step<->beat conversion (cursor, notes, resize,
+      visual-mode ranges, the ruler) follows the active grid
 - [x] Parameter automation on the timeline: track gain/pan, per arrangement
       clip (Ableton-style envelopes, not one project-wide curve) — a new
       breakpoint-grid view opened with `a` on a clip. `h`/`l` move the cursor

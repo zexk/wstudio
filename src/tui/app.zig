@@ -193,6 +193,10 @@ pub const App = struct {
     piano_scroll_step: u16 = 0,
     piano_scroll_pitch: u7 = 72,
     piano_note_len: f64 = 0.25,
+    /// Piano-roll step grid: straight sixteenths (4 steps/beat) or
+    /// sixteenth-note triplets (6 steps/beat), toggled by `T`. Global, not
+    /// persisted — a display/editing aid like `piano_scale`.
+    piano_grid: enum { straight, triplet } = .straight,
     /// True while `M` holds the piano-roll note under the cursor — h/l/j/k
     /// then drag the note instead of the cursor; esc/M (or any other key)
     /// drop it. See editors/piano.zig.
@@ -373,6 +377,14 @@ pub const App = struct {
     /// unused, so a stale prefix never multiplies a later motion.
     pub fn takeCount(self: *App) i32 {
         return @min(self.modal.takeCount(), 4096);
+    }
+
+    /// Steps per beat for the piano roll's current grid — 4 (straight
+    /// sixteenths) or 6 (sixteenth-note triplets). Every step<->beat
+    /// conversion in editors/piano.zig and views/piano.zig goes through
+    /// this so `T` can retune the whole grid in one place.
+    pub fn pianoStepsPerBeat(self: *const App) u16 {
+        return if (self.piano_grid == .triplet) 6 else 4;
     }
 
     pub fn handleKey(self: *App, key_in: modal_mod.Key, now_ns: i96) void {
