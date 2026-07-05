@@ -27,6 +27,14 @@ pub const Terminal = struct {
     stdout: c.HANDLE,
     original_in_mode: c.DWORD,
     original_out_mode: c.DWORD,
+    original_in_cp: c.UINT,
+    original_out_cp: c.UINT,
+    /// False if the `SetConsoleMode` call below didn't take (rare, but
+    /// silent on failure otherwise) — QuickEdit stays on, so a click can
+    /// still freeze the whole console (input *and* our own redraws) until
+    /// the user presses Escape/Enter to release the selection. `run()`
+    /// surfaces this as a status message once `App` exists.
+    raw_mode_ok: bool,
 
     pub fn init(io: std.Io) !Terminal {
         _ = io;
@@ -40,6 +48,16 @@ pub const Terminal = struct {
         if (c.GetConsoleMode(stdin, &original_in_mode) == 0) return error.NotATerminal;
         if (c.GetConsoleMode(stdout, &original_out_mode) == 0) return error.NotATerminal;
 
+        // The console's active code page decides how ReadFile/WriteFile bytes
+        // get interpreted — without forcing it to UTF-8, non-ASCII bytes (icon
+        // glyphs on output, non-ASCII keystrokes on input) get reinterpreted
+        // through whatever OEM/ANSI code page the system defaults to, unlike
+        // POSIX terminals which are UTF-8 by convention already.
+        const original_in_cp = c.GetConsoleCP();
+        const original_out_cp = c.GetConsoleOutputCP();
+        _ = c.SetConsoleCP(c.CP_UTF8);
+        _ = c.SetConsoleOutputCP(c.CP_UTF8);
+
         // Extended flags must be set for QuickEdit to actually turn off —
         // otherwise the console keeps intercepting clicks for text
         // selection instead of reporting them as VT mouse sequences.
@@ -47,7 +65,7 @@ pub const Terminal = struct {
             c.ENABLE_MOUSE_INPUT | c.ENABLE_EXTENDED_FLAGS) &
             ~@as(c.DWORD, c.ENABLE_ECHO_INPUT | c.ENABLE_LINE_INPUT |
                 c.ENABLE_PROCESSED_INPUT | c.ENABLE_QUICK_EDIT_MODE);
-        _ = c.SetConsoleMode(stdin, raw_in_mode);
+        const raw_mode_ok = c.SetConsoleMode(stdin, raw_in_mode) != 0;
 
         const raw_out_mode: c.DWORD = original_out_mode | c.ENABLE_VIRTUAL_TERMINAL_PROCESSING |
             c.DISABLE_NEWLINE_AUTO_RETURN;
@@ -58,6 +76,9 @@ pub const Terminal = struct {
             .stdout = stdout,
             .original_in_mode = original_in_mode,
             .original_out_mode = original_out_mode,
+            .original_in_cp = original_in_cp,
+            .original_out_cp = original_out_cp,
+            .raw_mode_ok = raw_mode_ok,
         };
         self.write(enter_alt_screen ++ hide_cursor ++ enable_mouse);
         return self;
@@ -67,6 +88,8 @@ pub const Terminal = struct {
         self.write(disable_mouse ++ show_cursor ++ leave_alt_screen);
         _ = c.SetConsoleMode(self.stdin, self.original_in_mode);
         _ = c.SetConsoleMode(self.stdout, self.original_out_mode);
+        _ = c.SetConsoleCP(self.original_in_cp);
+        _ = c.SetConsoleOutputCP(self.original_out_cp);
     }
 
     pub fn write(self: *const Terminal, bytes: []const u8) void {

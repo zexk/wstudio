@@ -1677,6 +1677,13 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8) !vo
     defer app.deinit();
     icons.font_installed = icons.detectFontInstalled(io);
 
+    // Surface a raw-mode setup failure once there's a status line to put it
+    // on — see Terminal.raw_mode_ok's doc comment (Windows only; POSIX raw
+    // mode failing is already fatal via tcsetattr's error return in init()).
+    if (builtin.os.tag == .windows and !term.raw_mode_ok) {
+        app.setStatus("warning: console raw-mode setup failed — quick edit may freeze the display", .{});
+    }
+
     // Load project file before backends start — the backend captures the engine
     // pointer at init, so the swap must happen here.
     if (init_path) |p| {

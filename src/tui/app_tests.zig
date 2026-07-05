@@ -867,16 +867,23 @@ test "blank track row shows the empty hint" {
     try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "empty") != null);
 }
 
-test ":help opens help view; draw shows command table; esc closes" {
+test ":help opens on the current view's section; g jumps to COMMANDS; esc closes" {
     var app = try App.init(std.testing.allocator, std.Io.failing);
     defer app.deinit();
 
+    // Opened from the (default) tracks view: lands on TRACKS, not the top.
     for (":help") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(AppView.help, app.view);
 
     var buf: [32 * 1024]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
+    try app.draw(&w, .{ .cols = 80, .rows = 24 });
+    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "TRACKS") != null);
+
+    // g still jumps all the way back up to the command table.
+    app.handleKey(.{ .char = 'g' }, 0);
+    w = std.Io.Writer.fixed(&buf);
     try app.draw(&w, .{ .cols = 80, .rows = 24 });
     const frame = w.buffered();
     try std.testing.expect(std.mem.indexOf(u8, frame, "COMMANDS") != null);

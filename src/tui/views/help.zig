@@ -41,6 +41,21 @@ const rowVal = style.rowVal;
 const barRow = style.barRow;
 const enumRow = style.enumRow;
 
+/// A view whose keybindings get their own help section — lets `?` jump
+/// straight there instead of always opening on COMMANDS. Views without a
+/// dedicated section (instrument picker) fall back to the top.
+pub const Section = enum {
+    tracks,
+    drum_grid,
+    sampler_editor,
+    synth_editor,
+    piano_roll,
+    arrangement,
+    automation,
+    spectrum,
+    file_browser,
+};
+
 /// Collects pre-rendered help lines into a fixed buffer so the view can show
 /// an arbitrary scroll window instead of spilling off the bottom of the screen.
 const HelpText = struct {
@@ -48,6 +63,7 @@ const HelpText = struct {
     len: usize = 0,
     ends: [512]usize = undefined,
     count: usize = 0,
+    section_start: std.EnumArray(Section, usize) = std.EnumArray(Section, usize).initFill(0),
 
     fn push(self: *HelpText, comptime fmt: []const u8, args: anytype) void {
         const s = std.fmt.bufPrint(self.buf[self.len..], fmt, args) catch self.buf[self.len..self.len];
@@ -61,6 +77,13 @@ const HelpText = struct {
     fn section(self: *HelpText, title: []const u8) void {
         self.push("", .{}); // blank spacer
         self.push(bold ++ "  {s}", .{title});
+    }
+
+    /// Same as `section`, but remembers the spacer line's index under `tag`
+    /// so `scrollForSection` can jump straight to it.
+    fn taggedSection(self: *HelpText, tag: Section, title: []const u8) void {
+        self.section_start.set(tag, self.count);
+        self.section(title);
     }
 
     fn key(self: *HelpText, keys: []const u8, desc: []const u8) void {
@@ -96,7 +119,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("shift+scroll", "piano roll only: move the step cursor instead of pitch");
     t.key("shift+drag",   "bypass wstudio — your terminal's native text selection (for copy/paste)");
 
-    t.section("TRACKS");
+    t.taggedSection(.tracks, "TRACKS");
     t.key("j / k",        "move cursor down / up — one slot past the last track is MASTER");
     t.key("enter",        "edit track (synth or drum grid) — on MASTER: open its FX rack");
     t.key("p",            "piano roll for synth tracks");
@@ -121,7 +144,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("q w r t y i o p",       "black keys  C# D# F# G# A# C# D# F#");
     t.key("z / x",                 "octave down / up");
 
-    t.section("DRUM GRID");
+    t.taggedSection(.drum_grid, "DRUM GRID");
     t.key("h / l",        "move cursor left / right (one step)");
     t.key("H / L",        "move cursor left / right (one beat, coarse)");
     t.key("j / k",        "move cursor down / up (pad)");
@@ -145,7 +168,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("(visual) y/d/P", "range yank / clear / paste (v to enter, hjkl to extend)");
     t.key(".",            "repeat last visual-mode range delete/paste at the cursor");
 
-    t.section("SAMPLER EDITOR");
+    t.taggedSection(.sampler_editor, "SAMPLER EDITOR");
     t.key("j / k",        "select parameter");
     t.key("g / G",        "jump to first / last parameter");
     t.key("h / l",        "adjust value (fine)");
@@ -154,7 +177,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("p",            "audition current pad");
     t.key(":load-pad",    "<0-7> [file.wav]  load a sample into a pad (omit the file to browse)");
 
-    t.section("SYNTH EDITOR");
+    t.taggedSection(.synth_editor, "SYNTH EDITOR");
     t.key("j / k",        "select parameter");
     t.key("g / G",        "jump to first / last parameter");
     t.key("{ / }",        "prev / next section");
@@ -164,7 +187,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("s",            "spectrum + EQ for this track");
     t.key(":synth-preset-save", "<name>  save the current params as a reusable preset");
 
-    t.section("PIANO ROLL");
+    t.taggedSection(.piano_roll, "PIANO ROLL");
     t.key("h / l",        "move cursor left / right (one step)");
     t.key("H / L",        "move cursor left / right (one beat, coarse)");
     t.key("j / k",        "move cursor down / up (pitch)");
@@ -191,7 +214,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key(":clear",       "erase all notes in the pattern");
     t.key(":scale",       "[<root> [<type>]|off]  scale highlight + chord-stamp key");
 
-    t.section("ARRANGEMENT");
+    t.taggedSection(.arrangement, "ARRANGEMENT");
     t.key("h / l",        "move cursor left / right (one bar)");
     t.key("H / L",        "move cursor left / right (4 bars)");
     t.key("j / k",        "move between track lanes");
@@ -210,7 +233,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("Z",            "toggle zoom: normal <-> compact (see more of a long song)");
     t.key("a",            "open gain/pan automation editor for the clip at cursor");
 
-    t.section("AUTOMATION  (per-clip gain/pan breakpoints — opened via 'a' in the arrangement)");
+    t.taggedSection(.automation, "AUTOMATION  (per-clip gain/pan breakpoints — opened via 'a' in the arrangement)");
     t.key("h / l",        "move cursor along the clip's beat axis");
     t.key("H / L",        "move cursor by a bar");
     t.key("j / k",        "nudge the value at cursor (fine step) — adds a point if none exists");
@@ -222,7 +245,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("u / U",        "undo / redo (whole-lane, same as the arrangement's)");
     t.key("esc",          "back to the arrangement");
 
-    t.section("SPECTRUM / FX RACK  (same rack view for a track or the master bus)");
+    t.taggedSection(.spectrum, "SPECTRUM / FX RACK  (same rack view for a track or the master bus)");
     t.key("tab",          "cycle focus: EQ -> comp -> delay -> reverb -> EQ");
     t.key("a",            "add the focused unit with defaults, or remove it if present");
     t.key("h / l",        "select a param within the focused unit (EQ: its 10 bands)");
@@ -233,13 +256,23 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key(":master-eq",   "[<band> <db>]  same, from the : prompt (M opens the live editor)");
     t.key(":master-comp", "on|off|thresh|ratio|attack|release|makeup <value>  master bus compressor");
 
-    t.section("FILE BROWSER  (netrw-style; opens on :e, :load-sample, :load-pad with no path)");
+    t.taggedSection(.file_browser, "FILE BROWSER  (netrw-style; opens on :e, :load-sample, :load-pad with no path)");
     t.key("j / k",        "move cursor");
     t.key("enter / l",    "open directory / pick file");
     t.key("h / backspace","up to the parent directory");
     t.key("g / G",        "jump to first / last entry");
     t.key("~",            "jump to $HOME");
     t.key("esc / q",      "cancel back to the previous view");
+}
+
+/// Line offset where `section`'s content starts, so opening help from a
+/// given view can land on its own keybindings instead of always the top.
+/// `null` (views with no dedicated section, e.g. the instrument picker) opens
+/// on COMMANDS as before.
+pub fn scrollForSection(section: ?Section, cmds: []const cmd_mod.Def) usize {
+    var t = HelpText{};
+    buildHelp(&t, cmds);
+    return if (section) |s| t.section_start.get(s) else 0;
 }
 
 /// Renders a scroll window of the help text. `scroll` is clamped in place so

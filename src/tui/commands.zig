@@ -19,6 +19,7 @@ const piano_ed = @import("editors/piano.zig");
 const spectrum_ed = @import("editors/spectrum.zig");
 const theory = ws.theory;
 const user_presets = @import("user_presets.zig");
+const help_view = @import("views/help.zig");
 
 fn wrap(comptime f: fn (*App, []const u8) void) *const fn (*anyopaque, []const u8) void {
     return struct {
@@ -169,8 +170,20 @@ fn cmdClear(app: *App, _: []const u8) void {
 }
 
 pub fn cmdHelp(app: *App, _: []const u8) void {
+    const section: ?help_view.Section = switch (app.view) {
+        .tracks => .tracks,
+        .drum_grid => .drum_grid,
+        .sampler_editor => .sampler_editor,
+        .synth_editor => .synth_editor,
+        .piano_roll => .piano_roll,
+        .arrangement => .arrangement,
+        .automation => .automation,
+        .track_spectrum, .master_spectrum => .spectrum,
+        .file_browser => .file_browser,
+        .help, .instrument_picker => null,
+    };
     app.prev_view = app.view;
-    app.help_scroll = 0;
+    app.help_scroll = help_view.scrollForSection(section, cmds);
     app.view = .help;
 }
 
