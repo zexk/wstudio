@@ -19,7 +19,9 @@ const view = @import("../views/arrangement.zig");
 /// yank/paste a clip, </> shift it by bars, ( ) b set/toggle the A/B
 /// loop, [/] cycle a drum lane's pattern variant, T toggles song/pattern
 /// mode, v starts a bar-range selection on the current lane, a opens the
-/// gain/pan automation editor on the clip under the cursor.
+/// gain/pan automation editor on the clip under the cursor. Tab (like
+/// escape) returns to the tracks view — tracks' own Tab is the mirror,
+/// switching into arrangement.
 /// Returns false for unhandled keys (space, `:`, …) so the transport and
 /// command line still work. Scroll is clamped at draw.
 pub fn handleKey(app: *App, key: modal_mod.Key) bool {
@@ -32,7 +34,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
     if (app.modal.mode == .visual) return handleVisual(app, key, lane_count);
 
     switch (key) {
-        .escape => { app.view = .tracks; return true; },
+        .escape, .tab => { app.view = .tracks; return true; },
         .enter => { stampClip(app); return true; },
         .char => |c| switch (c) {
             // Block insert mode — piano keys would collide with navigation.

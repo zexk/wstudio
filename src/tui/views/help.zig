@@ -134,6 +134,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("Y",            "duplicate selected track (instrument, FX, clips) at the end");
     t.key("J / K",        "move selected track down / up");
     t.key("R",            "rename selected track (opens :track-rename <n>)");
+    t.key("A / tab",      "open the arrangement (song timeline) — tab there returns here");
     t.key("t",            "tap tempo (tap a few times to set bpm)");
     t.key("c",            "toggle the click track (also :metronome [on|off])");
     t.key("u / U",        "undo / redo content edits (notes, drums, clips)");
@@ -232,6 +233,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("T",            "toggle song / pattern mode");
     t.key("Z",            "toggle zoom: normal <-> compact (see more of a long song)");
     t.key("a",            "open gain/pan automation editor for the clip at cursor");
+    t.key("tab",          "back to the tracks view");
 
     t.taggedSection(.automation, "AUTOMATION  (per-clip gain/pan breakpoints — opened via 'a' in the arrangement)");
     t.key("h / l",        "move cursor along the clip's beat axis");
@@ -239,6 +241,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("j / k",        "nudge the value at cursor (fine step) — adds a point if none exists");
     t.key("J / K",        "nudge the value at cursor (coarse step)");
     t.key("x",            "delete the point at cursor exactly");
+    t.key("g / G",        "jump cursor to clip start / end");
     t.key("v",            "visual mode: select a step range on the current curve — y/d/P");
     t.key(".",            "repeat the last nudge or visual range delete/paste");
     t.key("tab",          "switch between editing the gain curve and the pan curve");

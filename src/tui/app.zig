@@ -538,6 +538,10 @@ pub const App = struct {
                 // same list, same cursor, but it can't be deleted/duplicated/
                 // moved/renamed/muted/soloed and has no piano roll or pan.
                 const on_master = self.cursor == self.session.project.tracks.items.len;
+                if (key == .tab and self.modal.mode == .normal) {
+                    self.view = .arrangement;
+                    return;
+                }
                 if (key == .enter and self.modal.mode == .normal) {
                     if (on_master) spectrum_ed.switchToMaster(self) else self.openTrack(self.cursor);
                     return;

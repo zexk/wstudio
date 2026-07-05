@@ -111,6 +111,10 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             'k' => { nudgeValue(app, clip, app.takeCount()); return true; },
             'J' => { nudgeValue(app, clip, -10 * app.takeCount()); return true; },
             'K' => { nudgeValue(app, clip, 10 * app.takeCount()); return true; },
+            // g/G jump the cursor to the clip start / end, matching the
+            // piano roll and drum grid's convention.
+            'g' => { app.automation_cursor_step = 0; return true; },
+            'G' => { app.automation_cursor_step = maxStep(app, clip); return true; },
             'x' => { deletePoint(app, clip); return true; },
             'v' => {
                 app.automation_visual_anchor = app.automation_cursor_step;
@@ -140,6 +144,8 @@ fn handleVisual(app: *App, key: modal_mod.Key, clip: *ws.Clip) bool {
             'l' => { moveCursor(app, clip, app.takeCount()); return true; },
             'H' => { moveCursor(app, clip, -4 * app.takeCount()); return true; },
             'L' => { moveCursor(app, clip, 4 * app.takeCount()); return true; },
+            'g' => { app.automation_cursor_step = 0; return true; },
+            'G' => { app.automation_cursor_step = maxStep(app, clip); return true; },
             'y' => { yankSelection(app, clip); return true; },
             'd' => { deleteSelection(app, clip); return true; },
             'P' => { pasteSelection(app, clip); return true; },
