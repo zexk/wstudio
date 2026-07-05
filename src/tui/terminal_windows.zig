@@ -23,6 +23,7 @@ const enable_mouse = esc ++ "[?1002h" ++ esc ++ "[?1006h";
 const disable_mouse = esc ++ "[?1002l" ++ esc ++ "[?1006l";
 
 pub const Terminal = struct {
+    io: std.Io,
     stdin: c.HANDLE,
     stdout: c.HANDLE,
     original_in_mode: c.DWORD,
@@ -37,7 +38,6 @@ pub const Terminal = struct {
     raw_mode_ok: bool,
 
     pub fn init(io: std.Io) !Terminal {
-        _ = io;
         const stdin = c.GetStdHandle(c.STD_INPUT_HANDLE);
         const stdout = c.GetStdHandle(c.STD_OUTPUT_HANDLE);
         if (stdin == c.INVALID_HANDLE_VALUE or stdout == c.INVALID_HANDLE_VALUE)
@@ -61,6 +61,14 @@ pub const Terminal = struct {
         // Extended flags must be set for QuickEdit to actually turn off —
         // otherwise the console keeps intercepting clicks for text
         // selection instead of reporting them as VT mouse sequences.
+        // Deliberately NOT setting ENABLE_WINDOW_INPUT: it would queue a
+        // WINDOW_BUFFER_SIZE_EVENT record on resize, which bumps
+        // `GetNumberOfConsoleInputEvents` above zero without ever
+        // producing readable bytes — `readInput` would then call the
+        // blocking `ReadFile` and hang until a real keystroke, right back
+        // to the freeze this file's `readInput` poll loop exists to avoid.
+        // Resize is already handled every frame since `term.size()` is
+        // re-queried unconditionally on each draw.
         const raw_in_mode: c.DWORD = (original_in_mode | c.ENABLE_VIRTUAL_TERMINAL_INPUT |
             c.ENABLE_MOUSE_INPUT | c.ENABLE_EXTENDED_FLAGS) &
             ~@as(c.DWORD, c.ENABLE_ECHO_INPUT | c.ENABLE_LINE_INPUT |
@@ -72,6 +80,7 @@ pub const Terminal = struct {
         _ = c.SetConsoleMode(stdout, raw_out_mode);
 
         const self: Terminal = .{
+            .io = io,
             .stdin = stdin,
             .stdout = stdout,
             .original_in_mode = original_in_mode,
@@ -108,9 +117,27 @@ pub const Terminal = struct {
 
     /// Waits up to `timeout_ms` for input, then reads whatever is
     /// available. Returns the filled prefix of `buf` (empty on timeout).
+    ///
+    /// Polls `GetNumberOfConsoleInputEvents` in short slices instead of a
+    /// single `WaitForSingleObject(stdin, timeout_ms)` — with
+    /// ENABLE_VIRTUAL_TERMINAL_INPUT on, the console handle's wait state
+    /// tracks its internal event queue, not the VT-translated byte stream
+    /// `ReadFile` hands back, and in practice that left the handle
+    /// unsignaled (wait never timing out) for the whole span between real
+    /// keystrokes — freezing every audio-driven redraw (playhead, meters,
+    /// auto-scroll) until the next keypress instead of ticking every frame.
     pub fn readInput(self: *const Terminal, buf: []u8, timeout_ms: i32) ![]const u8 {
-        const wait_ms: c.DWORD = if (timeout_ms < 0) c.INFINITE else @intCast(timeout_ms);
-        if (c.WaitForSingleObject(self.stdin, wait_ms) != c.WAIT_OBJECT_0) return buf[0..0];
+        const slice_ms: i32 = 5;
+        var remaining: i32 = timeout_ms;
+        while (true) {
+            var pending: c.DWORD = 0;
+            if (c.GetNumberOfConsoleInputEvents(self.stdin, &pending) != 0 and pending > 0) break;
+            if (timeout_ms >= 0) {
+                if (remaining <= 0) return buf[0..0];
+                remaining -= slice_ms;
+            }
+            self.io.sleep(.fromMilliseconds(slice_ms), .awake) catch return buf[0..0];
+        }
         var read: c.DWORD = 0;
         if (c.ReadFile(self.stdin, buf.ptr, @intCast(buf.len), &read, null) == 0) return buf[0..0];
         return buf[0..read];
