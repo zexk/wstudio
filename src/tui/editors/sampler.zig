@@ -21,8 +21,10 @@ fn paramCount(app: *App) u8 {
 
 /// Sampler editor: j/k pick a param row, h/l/H/L nudge it. For a drum pad,
 /// 1–8 jump pads (shared `drum_cursor[0]`) and esc/e return to the drum
-/// grid; for a standalone Sampler, esc/e return to the tracks view. p
-/// auditions the current pad / the sampler's root note.
+/// grid; for a standalone Sampler, esc/e return to the tracks view. a
+/// auditions the current pad / the sampler's root note (mirrors the piano
+/// roll/drum grid's own audition key — 'p' is reserved for paste elsewhere,
+/// so it's kept free here rather than meaning something different per view).
 pub fn handleKey(app: *App, key: modal_mod.Key) bool {
     const is_drum = app.sampler_target == .drum;
     switch (key) {
@@ -51,7 +53,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 if (pad < DrumMachine.max_pads) app.drum_cursor[0] = pad;
                 return true;
             },
-            'p' => { preview(app); return true; },
+            'a' => { preview(app); return true; },
             else => return false,
         },
         else => return false,

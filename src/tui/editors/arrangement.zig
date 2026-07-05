@@ -1,7 +1,7 @@
 //! Arrangement (song timeline) input: bar/lane cursor, clip stamping and
 //! deletion, play-from-cursor, drum-variant cycling, clip editing via the
 //! piano roll, the song/pattern mode toggle, and visual-mode range select
-//! (v, then y/d/P — a bar-range on the current lane only). The render half
+//! (v, then y/d/p — a bar-range on the current lane only). The render half
 //! lives in views/arrangement.zig.
 
 const std = @import("std");
@@ -15,7 +15,7 @@ const automation = @import("automation.zig");
 const view = @import("../views/arrangement.zig");
 
 /// h/l move ±1 bar, H/L ±4 bars (one phrase), j/k change lane (shared
-/// `cursor`), enter stamps the live pattern as a clip, x deletes, y/P
+/// `cursor`), enter stamps the live pattern as a clip, x deletes, y/p
 /// yank/paste a clip, </> shift it by bars, ( ) b set/toggle the A/B
 /// loop, [/] cycle a drum lane's pattern variant, T toggles song/pattern
 /// mode, v starts a bar-range selection on the current lane, a opens the
@@ -29,13 +29,14 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
 
     // Visual mode: a bar-range selection on the current lane only (lanes are
     // tracks, and undo snapshots one lane at a time — see captureLane).
-    // Motions and range y/d/P live in handleVisual; everything else is
+    // Motions and range y/d/p live in handleVisual; everything else is
     // swallowed so a stray keypress can't jump views mid-selection.
     if (app.modal.mode == .visual) return handleVisual(app, key, lane_count);
 
     switch (key) {
         .escape, .tab => { app.view = .tracks; return true; },
         .enter => { stampClip(app); return true; },
+        .ctrl_r => { history.doRedo(app); return true; },
         .char => |c| switch (c) {
             // Block insert mode — piano keys would collide with navigation.
             'i' => return true,
@@ -49,11 +50,11 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             'k' => { moveLane(app, lane_count, -app.takeCount()); return true; },
             'x' => { deleteClip(app); return true; },
             'y' => { yankClip(app); return true; },
-            'P' => { pasteClip(app); return true; },
+            'p', 'P' => { pasteClip(app); return true; },
             'v' => {
                 app.arr_visual_anchor = app.arr_cursor_bar;
                 app.modal.mode = .visual;
-                app.setStatus("visual: hjkl extend, y/d/P act on the range, esc cancels", .{});
+                app.setStatus("visual: hjkl extend, y/d/p act on the range, esc cancels", .{});
                 return true;
             },
             '<' => { moveClip(app, -app.takeCount()); return true; },
@@ -82,7 +83,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
     }
 }
 
-/// Visual mode's reduced key set: motions extend the selection, y/d/P act
+/// Visual mode's reduced key set: motions extend the selection, y/d/p act
 /// on it and return to normal, escape cancels. Everything else is
 /// swallowed (returns true) so it can't jump views or open another editor
 /// mid-selection; digits fall through (return false) so modal.handleNormal
@@ -99,7 +100,7 @@ fn handleVisual(app: *App, key: modal_mod.Key, lane_count: usize) bool {
             'k' => { moveLane(app, lane_count, -app.takeCount()); return true; },
             'y' => { yankSelection(app); return true; },
             'd' => { deleteSelection(app); return true; },
-            'P' => { pasteSelection(app); return true; },
+            'p', 'P' => { pasteSelection(app); return true; },
             '0'...'9' => return false,
             else => return true,
         },

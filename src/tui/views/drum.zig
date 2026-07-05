@@ -124,6 +124,10 @@ pub fn drawDrumStatus(app: anytype, w: *std.Io.Writer, cmds: []const cmd_mod.Def
         try cmd_mod.writePrompt(w, cmds, app.modal.cmd_buf[0..app.modal.cmd_len], app.modal.cmd_cursor, 60);
         return;
     }
+    if (app.modal.mode == .search) {
+        try cmd_mod.writeSearchPrompt(w, app.modal.cmd_buf[0..app.modal.cmd_len], app.modal.cmd_cursor);
+        return;
+    }
     const p = app.drum_cursor[0];
     const s = app.drum_cursor[1];
     const dm = app.drumMachine();

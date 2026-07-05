@@ -2,13 +2,15 @@
 //!
 //! Modeled on vim: normal mode navigates and drives the transport,
 //! insert mode turns the keyboard into a piano, visual mode selects,
-//! command mode takes ex-style commands. This layer is pure state
+//! command mode takes ex-style commands, search mode takes a `/` fuzzy
+//! pattern (n/N repeat it — see App.searchTracks/searchBrowser, the only
+//! two views with something to search). This layer is pure state
 //! machine — no terminal, no UI — so every binding is unit-testable
 //! and any frontend (TUI, GUI) can sit on top.
 
 const std = @import("std");
 
-pub const Mode = enum { normal, insert, visual, command };
+pub const Mode = enum { normal, insert, visual, command, search };
 
 pub const Key = union(enum) {
     char: u8,
@@ -30,6 +32,10 @@ pub const Key = union(enum) {
     home,
     end,
     ctrl_w,
+    /// Vim's canonical redo key, alongside `U` — handled by whichever view
+    /// (App.handleKey/editors/*.zig) tracks undo history; no meaning in
+    /// command mode (see handleCommand).
+    ctrl_r,
     /// Command-mode completion (App.handleKey completes the typed command
     /// name against the command table); ignored elsewhere.
     tab,
@@ -72,6 +78,10 @@ pub const Action = union(enum) {
     note: struct { pitch: u7 },
     /// Slice is valid until command mode is entered again.
     command_submit: []const u8,
+    /// A submitted `/` search pattern. Empty means "repeat the last search"
+    /// (vim's `//` convention) — see App.applyAction. Slice is valid until
+    /// search mode is entered again (same buffer as command_submit).
+    search_submit: []const u8,
     /// Signed dB steps to apply to master volume (+n = louder, −n = quieter).
     volume_delta: i32,
 
@@ -134,6 +144,7 @@ pub const ModalInput = struct {
             .normal, .visual => self.handleNormal(key),
             .insert => self.handleInsert(key),
             .command => self.handleCommand(key),
+            .search => self.handleSearch(key),
         };
     }
 
@@ -193,6 +204,11 @@ pub const ModalInput = struct {
                 self.cmd_cursor = 0;
                 return self.setMode(.command);
             },
+            '/' => {
+                self.cmd_len = 0;
+                self.cmd_cursor = 0;
+                return self.setMode(.search);
+            },
             ' ' => return .toggle_play,
             'm' => return .toggle_mute,
             'S' => return .toggle_solo,
@@ -239,6 +255,30 @@ pub const ModalInput = struct {
                 self.mode = .normal;
                 return .{ .command_submit = self.cmd_buf[0..self.cmd_len] };
             },
+            else => return self.editLine(key),
+        }
+    }
+
+    /// Search mode's `.escape`/`.enter` mirror command mode's exactly (cancel
+    /// vs. submit); everything else is the same line-editing, hence sharing
+    /// `editLine` rather than duplicating it.
+    fn handleSearch(self: *ModalInput, key: Key) Action {
+        switch (key) {
+            .escape => return self.setMode(.normal),
+            .enter => {
+                self.mode = .normal;
+                return .{ .search_submit = self.cmd_buf[0..self.cmd_len] };
+            },
+            else => return self.editLine(key),
+        }
+    }
+
+    /// Shared readline-style editing for the `:` and `/` prompts: insert/
+    /// delete chars at the cursor, move it, ctrl-w word-delete. `.escape`/
+    /// `.enter` are mode-specific (submit vs. cancel differently) and always
+    /// intercepted by the caller before this is reached.
+    fn editLine(self: *ModalInput, key: Key) Action {
+        switch (key) {
             .backspace => {
                 if (self.cmd_cursor == 0) return .none;
                 std.mem.copyForwards(
@@ -296,8 +336,10 @@ pub const ModalInput = struct {
             },
             // Handled by App.handleKey before it reaches here (history
             // recall on up/down, tab-completion, mouse routing); nothing
-            // left to do here.
-            .arrow_up, .arrow_down, .tab, .ctrl_c, .mouse => return .none,
+            // left to do here. `.escape`/`.enter` never actually reach this
+            // switch (handleCommand/handleSearch intercept them first) but
+            // still need an arm for exhaustiveness.
+            .escape, .enter, .arrow_up, .arrow_down, .tab, .ctrl_c, .ctrl_r, .mouse => return .none,
         }
     }
 };

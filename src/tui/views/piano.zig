@@ -102,6 +102,14 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
         try w.writeAll("  " ++ acc);
         try w.print("clip@bar {d}", .{link.start_bar + 1});
         try w.writeAll(rst);
+    } else if (app.session.song_mode) {
+        // Unlinked + song mode: this is the scratch pattern buffer, not any
+        // clip already placed in the arrangement — it stays silent in the
+        // song until stamped (arrangement: enter). Flag it so editing here
+        // doesn't get mistaken for editing what's actually playing.
+        try w.writeAll("  " ++ red);
+        try w.writeAll("scratch: not in the song until stamped (arrangement: enter)");
+        try w.writeAll(rst);
     }
     if (app.piano_scale) |s| {
         try w.writeAll("  " ++ mag);
@@ -254,6 +262,10 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
 pub fn drawPianoRollStatus(app: anytype, w: *std.Io.Writer, cmds: []const cmd_mod.Def) !void {
     if (app.modal.mode == .command) {
         try cmd_mod.writePrompt(w, cmds, app.modal.cmd_buf[0..app.modal.cmd_len], app.modal.cmd_cursor, 60);
+        return;
+    }
+    if (app.modal.mode == .search) {
+        try cmd_mod.writeSearchPrompt(w, app.modal.cmd_buf[0..app.modal.cmd_len], app.modal.cmd_cursor);
         return;
     }
     if (app.piano_track >= app.session.racks.items.len) return;

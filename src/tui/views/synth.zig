@@ -292,6 +292,10 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, cmds: []const cmd_mod.De
         try cmd_mod.writePrompt(w, cmds, app.modal.cmd_buf[0..app.modal.cmd_len], app.modal.cmd_cursor, 60);
         return;
     }
+    if (app.modal.mode == .search) {
+        try cmd_mod.writeSearchPrompt(w, app.modal.cmd_buf[0..app.modal.cmd_len], app.modal.cmd_cursor);
+        return;
+    }
     if (app.synth_track >= app.session.racks.items.len) return;
     const rack = app.session.racks.items[app.synth_track];
     switch (rack.instrument) { .poly_synth => {}, else => return }

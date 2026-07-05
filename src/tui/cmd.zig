@@ -35,16 +35,11 @@ pub fn dispatch(cmds: []const Def, ctx: *anyopaque, text: []const u8) bool {
     return false;
 }
 
-/// Renders the `:` prompt shared by every view's status line: the typed
+/// The line-editing part shared by the `:` and `/` prompts: the typed
 /// buffer with a reverse-video block at `cursor` (mid-line when the user's
 /// moved it there with left/right/Home/End, otherwise a trailing blank cell
-/// like a real line cursor at the end). Once a space is typed and the name
-/// before it is an exact command, appends that command's usage `desc` (a
-/// reminder of argument order/shape while you type args), capped at
-/// `max_chars`. The command-name match list lives in `writeSuggestionBox`
-/// instead of on this line — see that doc comment.
-pub fn writePrompt(w: *std.Io.Writer, cmds: []const Def, buf: []const u8, cursor: usize, max_chars: usize) !void {
-    try w.writeAll(style.dim ++ " :" ++ style.rst);
+/// like a real line cursor at the end).
+fn writeCursor(w: *std.Io.Writer, buf: []const u8, cursor: usize) !void {
     try w.writeAll(buf[0..cursor]);
     if (cursor < buf.len) {
         try w.writeAll(style.sel);
@@ -54,6 +49,17 @@ pub fn writePrompt(w: *std.Io.Writer, cmds: []const Def, buf: []const u8, cursor
     } else {
         try w.writeAll(style.sel ++ " " ++ style.rst);
     }
+}
+
+/// Renders the `:` prompt shared by every view's status line — see
+/// `writeCursor` for the typed-buffer/cursor part. Once a space is typed and
+/// the name before it is an exact command, appends that command's usage
+/// `desc` (a reminder of argument order/shape while you type args), capped
+/// at `max_chars`. The command-name match list lives in `writeSuggestionBox`
+/// instead of on this line — see that doc comment.
+pub fn writePrompt(w: *std.Io.Writer, cmds: []const Def, buf: []const u8, cursor: usize, max_chars: usize) !void {
+    try w.writeAll(style.dim ++ " :" ++ style.rst);
+    try writeCursor(w, buf, cursor);
 
     if (buf.len == 0) return;
     const sp = std.mem.indexOfScalar(u8, buf, ' ') orelse return;
@@ -65,6 +71,14 @@ pub fn writePrompt(w: *std.Io.Writer, cmds: []const Def, buf: []const u8, cursor
         try w.writeAll(style.rst);
         return;
     }
+}
+
+/// Renders the `/` fuzzy-search prompt — same line-editing as `writePrompt`
+/// (see `writeCursor`), no command-suggestion box since there's no fixed
+/// candidate list to search against.
+pub fn writeSearchPrompt(w: *std.Io.Writer, buf: []const u8, cursor: usize) !void {
+    try w.writeAll(style.dim ++ " /" ++ style.rst);
+    try writeCursor(w, buf, cursor);
 }
 
 /// Number of command names starting with `buf` — 0 once a space has been

@@ -213,6 +213,7 @@ pub fn drawTracks(app: anytype, w: *std.Io.Writer, rows: usize, snap: engine_mod
 pub fn drawTracksStatus(app: anytype, w: *std.Io.Writer, cmds: []const cmd_mod.Def) !void {
     switch (app.modal.mode) {
         .command => try cmd_mod.writePrompt(w, cmds, app.modal.cmd_buf[0..app.modal.cmd_len], app.modal.cmd_cursor, 60),
+        .search => try cmd_mod.writeSearchPrompt(w, app.modal.cmd_buf[0..app.modal.cmd_len], app.modal.cmd_cursor),
         else => {
             const mode_colour: []const u8 = switch (app.modal.mode) {
                 .insert => yel,
@@ -222,7 +223,7 @@ pub fn drawTracksStatus(app: anytype, w: *std.Io.Writer, cmds: []const cmd_mod.D
                 .normal  => "NORMAL",
                 .insert  => "INSERT",
                 .visual  => "VISUAL",
-                .command => unreachable,
+                .command, .search => unreachable,
             };
             try w.writeAll(mode_colour);
             try w.writeAll(sel);

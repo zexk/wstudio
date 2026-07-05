@@ -339,6 +339,10 @@ pub fn drawSpectrumStatus(app: anytype, w: *std.Io.Writer, is_track: bool, cmds:
         try cmd_mod.writePrompt(w, cmds, app.modal.cmd_buf[0..app.modal.cmd_len], app.modal.cmd_cursor, 60);
         return;
     }
+    if (app.modal.mode == .search) {
+        try cmd_mod.writeSearchPrompt(w, app.modal.cmd_buf[0..app.modal.cmd_len], app.modal.cmd_cursor);
+        return;
+    }
     const fx = spectrum_ed.fxPtr(app, is_track) orelse {
         if (app.status_len > 0) try w.print(" {s}", .{app.status_buf[0..app.status_len]});
         return;

@@ -110,6 +110,8 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key(":",            "open command prompt");
     t.key("(in :) up/down","recall previous / next command");
     t.key("(in :) tab",   "complete the command name");
+    t.key("/",            "fuzzy-search prompt — tracks (names) and the file browser (filenames) only");
+    t.key("n / N",        "repeat last search forward / backward (tracks, file browser)");
     t.key("ctrl-c",       "quit");
 
     t.section("MOUSE  (additive — every gesture below has a keyboard equivalent)");
@@ -134,10 +136,11 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("Y",            "duplicate selected track (instrument, FX, clips) at the end");
     t.key("J / K",        "move selected track down / up");
     t.key("R",            "rename selected track (opens :track-rename <n>)");
-    t.key("A / tab",      "open the arrangement (song timeline) — tab there returns here");
+    t.key("tab",          "open the arrangement (song timeline) — tab there returns here");
     t.key("t",            "tap tempo (tap a few times to set bpm)");
     t.key("c",            "toggle the click track (also :metronome [on|off])");
-    t.key("u / U",        "undo / redo content edits (notes, drums, clips)");
+    t.key("u / U / ^R",   "undo / redo content edits (notes, drums, clips)");
+    t.key("/",            "fuzzy-search track names, n / N repeat forward / backward");
     t.key("? / :help",    "this help");
 
     t.section("INSERT MODE  (piano keyboard)");
@@ -149,13 +152,13 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("h / l",        "move cursor left / right (one step)");
     t.key("H / L",        "move cursor left / right (one beat, coarse)");
     t.key("j / k",        "move cursor down / up (pad)");
-    t.key("g",            "jump step cursor to pattern start (no G — see below)");
+    t.key("g / G",        "jump step cursor to pattern start / end");
     t.key("enter",        "toggle step on/off");
     t.key("c",            "cycle step velocity (100/75/50/25%)");
     t.key("v",            "visual mode: select a step range (all pads) — y/d/P");
     t.key("< / >",        "less / more swing (50–75%)");
-    t.key("G",            "cycle current pad's choke group (none/1-4) — same-group pads cut each other off");
-    t.key("p",            "preview pad sound");
+    t.key("C",            "cycle current pad's choke group (none/1-4) — same-group pads cut each other off");
+    t.key("a",            "preview pad sound");
     t.key("R",            "rename current pad (opens :pad-rename <n>, 8 chars max)");
     t.key("e",            "open sampler editor for current pad");
     t.key("s",            "spectrum + EQ for drum track");
@@ -165,8 +168,8 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("[ / ]",        "prev / next pattern variant (A–H)");
     t.key("N",            "new pattern variant (copy of current)");
     t.key("D",            "delete current pattern variant");
-    t.key("y / P",        "yank / paste pattern (works across tracks)");
-    t.key("(visual) y/d/P", "range yank / clear / paste (v to enter, hjkl to extend)");
+    t.key("y / p",        "yank / paste pattern (works across tracks)");
+    t.key("(visual) y/d/p", "range yank / clear / paste (v to enter, hjkl to extend)");
     t.key(".",            "repeat last visual-mode range delete/paste at the cursor");
 
     t.taggedSection(.sampler_editor, "SAMPLER EDITOR");
@@ -175,7 +178,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("h / l",        "adjust value (fine)");
     t.key("H / L",        "adjust value (coarse ×10)");
     t.key("1–8",          "switch to pad 1–8");
-    t.key("p",            "audition current pad");
+    t.key("a",            "audition current pad");
     t.key(":load-pad",    "<0-7> [file.wav]  load a sample into a pad (omit the file to browse)");
 
     t.taggedSection(.synth_editor, "SYNTH EDITOR");
@@ -197,7 +200,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("enter",        "toggle note at cursor");
     t.key("M",            "grab note at cursor — h/l/j/k drag it, esc drops");
     t.key("n / d",        "insert / delete note at cursor (aliases)");
-    t.key("p",            "preview note at cursor");
+    t.key("a",            "preview note at cursor");
     t.key("i",            "insert mode: play the qwerty piano (a-row/q-row, z/x octave)");
     t.key("(insert) space","start recording — clicks a one-bar count-in first if stopped");
     t.key("(insert) esc", "back to normal — while playing, notes recorded at the playhead");
@@ -206,8 +209,8 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("s",            "spectrum + EQ for this track");
     t.key("[ / ]",        "resize note at cursor, else set default length (count-scaled)");
     t.key("+ / -",        "lengthen / shorten loop (1 bar)");
-    t.key("y / P",        "yank / paste pattern (works across tracks)");
-    t.key("v",            "visual mode: select a step range (all pitches) — y/d/P");
+    t.key("y / p",        "yank / paste pattern (works across tracks)");
+    t.key("v",            "visual mode: select a step range (all pitches) — y/d/p");
     t.key(".",            "repeat the last nudge, drag, or visual range delete/paste");
     t.key("c / C",        "stamp a triad / 7th chord at cursor (:scale-aware)");
     t.key("T",            "toggle grid: straight 1/16 <-> 1/16 triplet");
@@ -223,8 +226,8 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("e",            "edit melodic clip in the piano roll (edits save into the clip)");
     t.key("[ / ]",        "cycle drum pattern variant to stamp");
     t.key("x",            "delete clip at cursor");
-    t.key("y / P",        "yank / paste clip (matching track kind)");
-    t.key("v",            "visual mode: select a bar range on this lane — y/d/P");
+    t.key("y / p",        "yank / paste clip (matching track kind)");
+    t.key("v",            "visual mode: select a bar range on this lane — y/d/p");
     t.key("< / >",        "move clip left / right by a bar");
     t.key(".",            "repeat the last clip move or visual range delete/paste");
     t.key("( / )",        "set loop start / end at cursor bar");
@@ -242,10 +245,10 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("J / K",        "nudge the value at cursor (coarse step)");
     t.key("x",            "delete the point at cursor exactly");
     t.key("g / G",        "jump cursor to clip start / end");
-    t.key("v",            "visual mode: select a step range on the current curve — y/d/P");
+    t.key("v",            "visual mode: select a step range on the current curve — y/d/p");
     t.key(".",            "repeat the last nudge or visual range delete/paste");
     t.key("tab",          "switch between editing the gain curve and the pan curve");
-    t.key("u / U",        "undo / redo (whole-lane, same as the arrangement's)");
+    t.key("u / U / ^R",   "undo / redo (whole-lane, same as the arrangement's)");
     t.key("esc",          "back to the arrangement");
 
     t.taggedSection(.spectrum, "SPECTRUM / FX RACK  (same rack view for a track or the master bus)");
@@ -265,6 +268,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("h / backspace","up to the parent directory");
     t.key("g / G",        "jump to first / last entry");
     t.key("~",            "jump to $HOME");
+    t.key("/",            "fuzzy-search filenames, n / N repeat forward / backward");
     t.key("esc / q",      "cancel back to the previous view");
 }
 

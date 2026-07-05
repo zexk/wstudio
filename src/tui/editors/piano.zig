@@ -1,5 +1,5 @@
 //! Piano-roll input: note cursor, insert/delete/resize, velocity, yank/paste,
-//! loop length, visual-mode range select (v, then y/d/P), and the
+//! loop length, visual-mode range select (v, then y/d/p), and the
 //! Ableton-style clip-link writeback (edits on a linked arrangement clip
 //! land in the clip itself). The render half lives in views/piano.zig.
 
@@ -54,7 +54,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
     const max_step: u16 = @intFromFloat(pp.length_beats * stepsPerBeatF(app));
 
     // Visual mode: a step-range selection spanning every pitch. Motions and
-    // range y/d/P live in handleVisual; everything else is swallowed so a
+    // range y/d/p live in handleVisual; everything else is swallowed so a
     // stray keypress can't jump views mid-selection.
     if (app.modal.mode == .visual) return handleVisual(app, key, pp, max_step);
 
@@ -80,6 +80,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
         .escape => { app.view = .tracks; return true; },
         // enter toggles the note; space falls through to transport play/pause.
         .enter => { toggleNote(app); return true; },
+        .ctrl_r => { history.doRedo(app); return true; },
         .char => |c| switch (c) {
             // 'i' falls through to modal.handle below, which enters insert
             // mode — App.handleKey then stops routing keys through this
@@ -131,18 +132,20 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             'c' => { stampChord(app, false); return true; },
             'C' => { stampChord(app, true); return true; },
             'y' => { yank(app); return true; },
-            'P' => { paste(app); return true; },
+            // p/P both paste (no linewise before/after distinction for a
+            // whole-pattern replace) — p is the canonical vim paste key.
+            'p', 'P' => { paste(app); return true; },
             'v' => {
                 app.piano_visual_anchor = app.piano_cursor_step;
                 app.modal.mode = .visual;
-                app.setStatus("visual: hjkl extend, y/d/P act on the range, esc cancels", .{});
+                app.setStatus("visual: hjkl extend, y/d/p act on the range, esc cancels", .{});
                 return true;
             },
             's' => { spectrum.switchToTrack(app, app.piano_track); return true; },
             // n/d kept as aliases for muscle memory; enter is the canonical toggle.
             'n' => { insertNote(app); return true; },
             'd' => { deleteNote(app); return true; },
-            'p' => {
+            'a' => {
                 app.playNote(app.piano_track, app.piano_cursor_pitch, app.now_ns);
                 var nbuf: [5]u8 = undefined;
                 app.setStatus("preview: {s}", .{midi.noteName(app.piano_cursor_pitch, &nbuf)});
@@ -515,7 +518,7 @@ fn yank(app: *App) void {
     app.setStatus("yanked {d} notes ({d:.0} beats)", .{ clip.count, clip.length_beats });
 }
 
-/// Visual mode's reduced key set: motions extend the selection, y/d/P act
+/// Visual mode's reduced key set: motions extend the selection, y/d/p act
 /// on it and return to normal, escape cancels. Everything else is
 /// swallowed (returns true) so it can't jump views or open another editor
 /// mid-selection; digits fall through (return false) so modal.handleNormal
@@ -536,7 +539,7 @@ fn handleVisual(app: *App, key: modal_mod.Key, pp: *pattern_mod.PatternPlayer, m
             'G' => { if (max_step > 0) app.piano_cursor_step = max_step - 1; ensureVisible(app); return true; },
             'y' => { yankSelection(app, pp); return true; },
             'd' => { deleteSelection(app, pp); return true; },
-            'P' => { pasteSelection(app, pp); return true; },
+            'p', 'P' => { pasteSelection(app, pp); return true; },
             '0'...'9' => return false,
             else => return true,
         },

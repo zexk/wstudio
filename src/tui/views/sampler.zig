@@ -253,6 +253,10 @@ pub fn drawSamplerStatus(app: anytype, w: *std.Io.Writer, cmds: []const cmd_mod.
         try cmd_mod.writePrompt(w, cmds, app.modal.cmd_buf[0..app.modal.cmd_len], app.modal.cmd_cursor, 60);
         return;
     }
+    if (app.modal.mode == .search) {
+        try cmd_mod.writeSearchPrompt(w, app.modal.cmd_buf[0..app.modal.cmd_len], app.modal.cmd_cursor);
+        return;
+    }
     const is_drum = app.sampler_target == .drum;
     const pad_idx = app.drum_cursor[0];
     const pad: *const ws.dsp.Pad = if (is_drum) padOf(app.drumMachine(), pad_idx) else blk: {

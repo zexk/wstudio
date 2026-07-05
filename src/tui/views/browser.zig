@@ -6,6 +6,7 @@ const std = @import("std");
 const ws = @import("wstudio");
 const app_mod = @import("../app.zig");
 const style = @import("../style.zig");
+const cmd_mod = @import("../cmd.zig");
 
 const rst = style.rst;
 const bold = style.bold;
@@ -63,6 +64,10 @@ pub fn drawFileBrowser(app: anytype, w: *std.Io.Writer, rows: usize) !void {
     for (end - off..visible) |_| try endLine(w);
 }
 
-pub fn drawFileBrowserStatus(_: anytype, w: *std.Io.Writer) !void {
-    try w.writeAll(" j/k: move   enter/l: open   h/backspace: up   ~: home   esc/q: cancel");
+pub fn drawFileBrowserStatus(app: anytype, w: *std.Io.Writer) !void {
+    if (app.modal.mode == .search) {
+        try cmd_mod.writeSearchPrompt(w, app.modal.cmd_buf[0..app.modal.cmd_len], app.modal.cmd_cursor);
+        return;
+    }
+    try w.writeAll(" j/k: move   enter/l: open   h/backspace: up   ~: home   /: search   esc/q: cancel");
 }

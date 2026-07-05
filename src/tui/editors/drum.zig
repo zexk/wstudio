@@ -1,6 +1,6 @@
 //! Drum-grid input: step/pad cursor, step + velocity toggles, pattern
 //! variants, swing, choke groups, yank/paste, visual-mode range select
-//! (v, then y/d/P). The render half lives in views/drum.zig; the machine
+//! (v, then y/d/p). The render half lives in views/drum.zig; the machine
 //! itself in dsp/drum_sampler.zig.
 
 const std = @import("std");
@@ -18,7 +18,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
     const step = &app.drum_cursor[1];
 
     // Visual mode: a step-range selection spanning every pad. Motions and
-    // range y/d/P live in handleVisual; everything else is swallowed so a
+    // range y/d/p live in handleVisual; everything else is swallowed so a
     // stray keypress can't jump views mid-selection.
     if (app.modal.mode == .visual) return handleVisual(app, key);
 
@@ -30,6 +30,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             app.drumMachine().toggleStep(pad.*, step.*);
             return true;
         },
+        .ctrl_r => { history.doRedo(app); return true; },
         .char => |c| {
             switch (c) {
                 // Block insert mode — piano keys conflict with grid navigation.
@@ -42,12 +43,15 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 'L' => moveStep(app, 4 * app.takeCount()),
                 'k' => movePad(app, -app.takeCount()),
                 'j' => movePad(app, app.takeCount()),
-                // Step-cursor jump to pattern start, matching the piano
-                // roll's 'g'. No 'G' counterpart here — 'G' already cycles
-                // the cursor pad's choke group (see below); the step-end
-                // jump was dropped rather than overwrite a shipped binding.
+                // g/G jump the step cursor to pattern start/end, matching
+                // the piano roll's convention. Choke-group cycling — that
+                // used to squat on 'G' — lives on 'C' instead (see below).
                 'g' => app.drum_cursor[1] = 0,
-                'p' => {
+                'G' => {
+                    const dm = app.drumMachine();
+                    if (dm.step_count > 0) step.* = dm.step_count - 1;
+                },
+                'a' => {
                     _ = app.session.engine.send(.{ .note_on = .{
                         .track = app.drum_track,
                         .note = @intCast(pad.*),
@@ -76,11 +80,11 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 'v' => {
                     app.drum_visual_anchor = step.*;
                     app.modal.mode = .visual;
-                    app.setStatus("visual: hjkl extend, y/d/P act on the range, esc cancels", .{});
+                    app.setStatus("visual: hjkl extend, y/d/p act on the range, esc cancels", .{});
                 },
                 '<' => adjustSwing(app, -1.0),
                 '>' => adjustSwing(app, 1.0),
-                'G' => cycleChokeGroup(app, pad.*),
+                'C' => cycleChokeGroup(app, pad.*),
                 'X' => {
                     history.push(app, history.captureDrum(app, app.drum_track));
                     app.drumMachine().clearPad(pad.*);
@@ -96,7 +100,9 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                     app.drum_clip = dm.variantData(dm.variant);
                     app.setStatus("yanked pattern {c}", .{DrumMachine.variantLetter(dm.variant)});
                 },
-                'P' => {
+                // p/P both paste (no linewise before/after distinction for a
+                // whole-pattern replace) — p is the canonical vim paste key.
+                'p', 'P' => {
                     if (app.drum_clip) |clip| {
                         const dm = app.drumMachine();
                         history.push(app, history.captureDrum(app, app.drum_track));
@@ -157,7 +163,7 @@ fn movePad(app: *App, delta: i32) void {
     app.drum_cursor[0] = @intCast(std.math.clamp(@as(i32, app.drum_cursor[0]) + delta, 0, DrumMachine.max_pads - 1));
 }
 
-/// Visual mode's reduced key set: motions extend the selection, y/d/P act
+/// Visual mode's reduced key set: motions extend the selection, y/d/p act
 /// on it and return to normal, escape cancels. Everything else is
 /// swallowed (returns true) so it can't jump views or open another editor
 /// mid-selection; digits fall through (return false) so modal.handleNormal
@@ -180,7 +186,7 @@ fn handleVisual(app: *App, key: modal_mod.Key) bool {
             },
             'y' => { yankSelection(app); return true; },
             'd' => { deleteSelection(app); return true; },
-            'P' => { pasteSelection(app); return true; },
+            'p', 'P' => { pasteSelection(app); return true; },
             '0'...'9' => return false,
             else => return true,
         },

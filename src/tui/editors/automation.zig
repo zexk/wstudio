@@ -7,7 +7,7 @@
 //! to, so a nudge on a bare stretch doesn't jump to an arbitrary default);
 //! x deletes the point at the cursor exactly; tab switches between editing
 //! the gain and pan curves; v starts a step-range selection on the current
-//! curve — y/d/P act on it (breakpoints only, not the interpolated curve
+//! curve — y/d/p act on it (breakpoints only, not the interpolated curve
 //! shape in between); `.` repeats the last nudge or visual range op. Same
 //! shapes as the piano roll's visual mode/`.` repeat, one axis instead of
 //! two. The render half lives in views/automation.zig.
@@ -91,13 +91,14 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
     const clip = currentClip(app) orelse return false;
 
     // Visual mode: a step-range selection on the currently-edited curve.
-    // Motions and range y/d/P live in handleVisual; everything else is
+    // Motions and range y/d/p live in handleVisual; everything else is
     // swallowed so a stray keypress can't jump views or switch curves
     // mid-selection.
     if (app.modal.mode == .visual) return handleVisual(app, key, clip);
 
     switch (key) {
         .escape => { app.view = .arrangement; return true; },
+        .ctrl_r => { history.doRedo(app); return true; },
         .tab => {
             app.automation_target = if (app.automation_target == .gain) .pan else .gain;
             return true;
@@ -119,7 +120,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             'v' => {
                 app.automation_visual_anchor = app.automation_cursor_step;
                 app.modal.mode = .visual;
-                app.setStatus("visual: hjkl extend, y/d/P act on the range, esc cancels", .{});
+                app.setStatus("visual: hjkl extend, y/d/p act on the range, esc cancels", .{});
                 return true;
             },
             '.' => { repeatLastEdit(app, clip); return true; },
@@ -131,7 +132,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
     }
 }
 
-/// Visual mode's reduced key set: motions extend the selection, y/d/P act
+/// Visual mode's reduced key set: motions extend the selection, y/d/p act
 /// on it and return to normal, escape cancels. Everything else is
 /// swallowed (returns true) so it can't jump views or switch curves
 /// mid-selection; digits fall through (return false) so modal.handleNormal
@@ -148,7 +149,7 @@ fn handleVisual(app: *App, key: modal_mod.Key, clip: *ws.Clip) bool {
             'G' => { app.automation_cursor_step = maxStep(app, clip); return true; },
             'y' => { yankSelection(app, clip); return true; },
             'd' => { deleteSelection(app, clip); return true; },
-            'P' => { pasteSelection(app, clip); return true; },
+            'p', 'P' => { pasteSelection(app, clip); return true; },
             '0'...'9' => return false,
             else => return true,
         },

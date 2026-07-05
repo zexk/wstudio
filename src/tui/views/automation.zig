@@ -173,6 +173,10 @@ pub fn drawAutomationStatus(app: anytype, w: *std.Io.Writer, cmds: []const cmd_m
         try cmd_mod.writePrompt(w, cmds, app.modal.cmd_buf[0..app.modal.cmd_len], app.modal.cmd_cursor, 60);
         return;
     }
+    if (app.modal.mode == .search) {
+        try cmd_mod.writeSearchPrompt(w, app.modal.cmd_buf[0..app.modal.cmd_len], app.modal.cmd_cursor);
+        return;
+    }
     const clip = currentClip(app) orelse {
         try w.writeAll(dim ++ "clip gone — esc" ++ rst);
         return;

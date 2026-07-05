@@ -29,6 +29,7 @@ const spectrum_ed = @import("editors/spectrum.zig");
 const arrangement_ed = @import("editors/arrangement.zig");
 const automation_ed = @import("editors/automation.zig");
 const user_presets = @import("user_presets.zig");
+const fuzzy = @import("fuzzy.zig");
 
 const Engine = engine_mod.Engine;
 const Sampler = ws.dsp.Sampler;
@@ -355,6 +356,12 @@ pub const App = struct {
     browser_cursor: usize = 0,
     browser_scroll: usize = 0,
     browser_purpose: BrowserPurpose = .load_sample,
+    /// Last submitted `/` search pattern, owned (fixed buffer, same
+    /// convention as `project_path_buf`), shared across views the same way
+    /// vim's search register is global — `n`/`N` repeat it in whichever view
+    /// has something to search (tracks, file browser).
+    search_pattern_buf: [modal_mod.ModalInput.max_cmd_len]u8 = undefined,
+    search_pattern_len: usize = 0,
 
     pub const ReloadRequest = enum { none, blank, load };
 
@@ -459,17 +466,19 @@ pub const App = struct {
             return;
         }
 
-        // Command mode: up/down recall history, tab completes the command
-        // name. Left/right/home/end/ctrl-w edit the cmd_buf cursor in place
-        // (modal.handle owns that state) — passed through as their own
-        // variants rather than the hjkl aliasing below, which would insert
-        // literal 'h'/'l' characters into the line instead of moving through it.
-        if (self.modal.mode == .command) {
+        // Command/search mode: up/down recall history (command only — search
+        // has no history), tab completes the command name (command only).
+        // Left/right/home/end/ctrl-w edit the cmd_buf cursor in place
+        // (modal.handle owns that state, shared by both prompts) — passed
+        // through as their own variants rather than the hjkl aliasing below,
+        // which would insert literal 'h'/'l' characters into the line
+        // instead of moving through it.
+        if (self.modal.mode == .command or self.modal.mode == .search) {
             switch (key_in) {
-                .arrow_up => { self.commandHistoryPrev(); return; },
-                .arrow_down => { self.commandHistoryNext(); return; },
+                .arrow_up => { if (self.modal.mode == .command) self.commandHistoryPrev(); return; },
+                .arrow_down => { if (self.modal.mode == .command) self.commandHistoryNext(); return; },
                 .arrow_left, .arrow_right, .home, .end, .ctrl_w => { _ = self.modal.handle(key_in); return; },
-                .tab => { self.completeCommand(); return; },
+                .tab => { if (self.modal.mode == .command) self.completeCommand(); return; },
                 else => {},
             }
         }
@@ -505,32 +514,35 @@ pub const App = struct {
             // reuses its motions and adds range y/d/P); only command mode
             // bypasses it entirely.
             .drum_grid => {
-                if (self.modal.mode == .command or !drum_ed.handleKey(self, key)) {
+                if (self.modal.mode == .command or self.modal.mode == .search or !drum_ed.handleKey(self, key)) {
                     self.applyAction(self.modal.handle(key), now_ns);
                 } else self.modal.count = 0;
             },
-            .synth_editor => if (self.modal.mode == .command or !synth_ed.handleKey(self, key)) {
+            .synth_editor => if (self.modal.mode == .command or self.modal.mode == .search or !synth_ed.handleKey(self, key)) {
                 self.applyAction(self.modal.handle(key), now_ns);
             } else { self.modal.count = 0; },
+            // `!= .normal` already covers search (and command, insert, visual).
             .sampler_editor => if (self.modal.mode != .normal or !sampler_ed.handleKey(self, key)) {
                 self.applyAction(self.modal.handle(key), now_ns);
             } else { self.modal.count = 0; },
-            .track_spectrum, .master_spectrum => if (self.modal.mode == .command or !spectrum_ed.handleKey(self, key)) {
+            .track_spectrum, .master_spectrum => if (self.modal.mode == .command or self.modal.mode == .search or !spectrum_ed.handleKey(self, key)) {
                 self.applyAction(self.modal.handle(key), now_ns);
             } else { self.modal.count = 0; },
             // Insert mode bypasses the roll's own switch entirely — once
             // inserted, the piano-keyboard layout needs h/j/k/l as notes,
             // not roll navigation, so modal.handle owns every key until
             // escape drops back to normal (see recordNote in editors/piano.zig).
-            .piano_roll => if (self.modal.mode == .command or self.modal.mode == .insert or !piano_ed.handleKey(self, key)) {
+            .piano_roll => if (self.modal.mode == .command or self.modal.mode == .search or self.modal.mode == .insert or !piano_ed.handleKey(self, key)) {
                 self.applyAction(self.modal.handle(key), now_ns);
             } else { self.modal.count = 0; },
             .instrument_picker => self.handlePickerKey(key),
-            .file_browser => self.handleBrowserKey(key),
-            .arrangement => if (self.modal.mode == .command or !arrangement_ed.handleKey(self, key)) {
+            .file_browser => if (self.modal.mode == .search) {
+                self.applyAction(self.modal.handle(key), now_ns);
+            } else self.handleBrowserKey(key),
+            .arrangement => if (self.modal.mode == .command or self.modal.mode == .search or !arrangement_ed.handleKey(self, key)) {
                 self.applyAction(self.modal.handle(key), now_ns);
             } else { self.modal.count = 0; },
-            .automation => if (self.modal.mode == .command or !automation_ed.handleKey(self, key)) {
+            .automation => if (self.modal.mode == .command or self.modal.mode == .search or !automation_ed.handleKey(self, key)) {
                 self.applyAction(self.modal.handle(key), now_ns);
             } else { self.modal.count = 0; },
             .tracks => {
@@ -546,7 +558,16 @@ pub const App = struct {
                     if (on_master) spectrum_ed.switchToMaster(self) else self.openTrack(self.cursor);
                     return;
                 }
+                if (key == .ctrl_r and self.modal.mode == .normal) {
+                    history.doRedo(self);
+                    return;
+                }
                 if (key == .char and self.modal.mode == .normal) {
+                    switch (key.char) {
+                        'n' => { self.searchTracks(1); return; },
+                        'N' => { self.searchTracks(-1); return; },
+                        else => {},
+                    }
                     if (on_master) {
                         switch (key.char) {
                             's', 'M' => { spectrum_ed.switchToMaster(self); return; },
@@ -567,7 +588,6 @@ pub const App = struct {
                     } else {
                         switch (key.char) {
                             'M' => { spectrum_ed.switchToMaster(self); self.cursor = self.session.project.tracks.items.len; return; },
-                            'A' => { self.view = .arrangement; return; },
                             's' => { spectrum_ed.switchToTrack(self, @intCast(self.cursor)); return; },
                             'p' => { piano_ed.switchTo(self, @intCast(self.cursor)); return; },
                             'a' => { self.doTrackAdd(null); return; },
@@ -882,6 +902,13 @@ pub const App = struct {
                     const home = std.mem.sliceTo(std.c.getenv("HOME") orelse return, 0);
                     self.setBrowserDir(home) catch |e| self.setStatus("browse: {s}", .{@errorName(e)});
                 },
+                '/' => {
+                    self.modal.mode = .search;
+                    self.modal.cmd_len = 0;
+                    self.modal.cmd_cursor = 0;
+                },
+                'n' => self.searchBrowser(1),
+                'N' => self.searchBrowser(-1),
                 'q' => self.closeBrowser(),
                 else => {},
             },
@@ -1034,7 +1061,71 @@ pub const App = struct {
                 self.pushCommandHistory(text);
                 commands.run(self, text);
             },
+            .search_submit => |text| {
+                // Empty pattern (bare `/` + enter) repeats the last search,
+                // matching vim's `//` convention.
+                if (text.len > 0) self.setSearchPattern(text);
+                switch (self.view) {
+                    .tracks => self.searchTracks(1),
+                    .file_browser => self.searchBrowser(1),
+                    else => self.setStatus("search not available in this view", .{}),
+                }
+            },
         }
+    }
+
+    fn searchPattern(self: *App) []const u8 {
+        return self.search_pattern_buf[0..self.search_pattern_len];
+    }
+
+    fn setSearchPattern(self: *App, text: []const u8) void {
+        const len = @min(text.len, self.search_pattern_buf.len);
+        @memcpy(self.search_pattern_buf[0..len], text[0..len]);
+        self.search_pattern_len = len;
+    }
+
+    /// `/` search + `n`/`N` repeat over track names, wrapping around the
+    /// list like vim's own search. `dir` is +1 for `n`/a fresh `/`, -1 for
+    /// `N` (repeat in reverse). The master row has no name and is skipped —
+    /// search only ever lands on a real track.
+    pub fn searchTracks(self: *App, dir: i64) void {
+        const pattern = self.searchPattern();
+        if (pattern.len == 0) { self.setStatus("no previous search pattern", .{}); return; }
+        const tracks = self.session.project.tracks.items;
+        const n: i64 = @intCast(tracks.len);
+        if (n == 0) { self.setStatus("no tracks to search", .{}); return; }
+        const start: i64 = @min(@as(i64, @intCast(self.cursor)), n - 1);
+        var step: i64 = 1;
+        while (step <= n) : (step += 1) {
+            const idx: usize = @intCast(@mod(start + dir * step, n));
+            if (fuzzy.matches(pattern, tracks[idx].name)) {
+                self.cursor = idx;
+                self.setStatus("/{s}  [{d}/{d}]", .{ pattern, idx + 1, tracks.len });
+                return;
+            }
+        }
+        self.setStatus("no match for '{s}'", .{pattern});
+    }
+
+    /// `/` search + `n`/`N` repeat over the file browser's current entry
+    /// list, wrapping the same way `searchTracks` does.
+    pub fn searchBrowser(self: *App, dir: i64) void {
+        const pattern = self.searchPattern();
+        if (pattern.len == 0) { self.setStatus("no previous search pattern", .{}); return; }
+        const entries = self.browser_entries.items;
+        const n: i64 = @intCast(entries.len);
+        if (n == 0) { self.setStatus("no entries to search", .{}); return; }
+        const start: i64 = @min(@as(i64, @intCast(self.browser_cursor)), n - 1);
+        var step: i64 = 1;
+        while (step <= n) : (step += 1) {
+            const idx: usize = @intCast(@mod(start + dir * step, n));
+            if (fuzzy.matches(pattern, entries[idx].name)) {
+                self.browser_cursor = idx;
+                self.setStatus("/{s}  [{d}/{d}]", .{ pattern, idx + 1, entries.len });
+                return;
+            }
+        }
+        self.setStatus("no match for '{s}'", .{pattern});
     }
 
     /// Record a submitted `:` command for later up/down recall. Skips blanks

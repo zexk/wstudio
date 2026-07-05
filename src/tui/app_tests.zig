@@ -46,6 +46,76 @@ test "cursor movement clamps to track range, plus one for the master row" {
     try std.testing.expectEqual(@as(usize, 0), app.cursor);
 }
 
+test "/ fuzzy-searches track names; n/N repeat and wrap around" {
+    var app = try testApp();
+    defer app.deinit();
+    // Tracks: 0 "track 1", 1 "samp", 2 "drums" (+ master row at 3).
+    app.cursor = 0;
+
+    for ("/drs") |c| app.handleKey(.{ .char = c }, 0);
+    try std.testing.expectEqual(ws.input.Mode.search, app.modal.mode);
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
+    try std.testing.expectEqual(@as(usize, 2), app.cursor); // "drums"
+
+    for ("/smp") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqual(@as(usize, 1), app.cursor); // "samp"
+
+    // Only "samp" matches "smp" — n/N both just re-land on it (wraparound
+    // with a single hit).
+    app.handleKey(.{ .char = 'n' }, 0);
+    try std.testing.expectEqual(@as(usize, 1), app.cursor);
+    app.handleKey(.{ .char = 'N' }, 0);
+    try std.testing.expectEqual(@as(usize, 1), app.cursor);
+
+    // A pattern matching two tracks ("track 1" and "samp" both have 'a';
+    // "drums" doesn't) cycles between them, skipping the non-match.
+    for ("/a") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqual(@as(usize, 0), app.cursor); // "track 1"
+    app.handleKey(.{ .char = 'n' }, 0);
+    try std.testing.expectEqual(@as(usize, 1), app.cursor); // "samp"
+    app.handleKey(.{ .char = 'n' }, 0);
+    try std.testing.expectEqual(@as(usize, 0), app.cursor); // back to "track 1"
+    app.handleKey(.{ .char = 'N' }, 0);
+    try std.testing.expectEqual(@as(usize, 1), app.cursor); // reverse: "samp"
+}
+
+test "/ search: escape cancels without moving the cursor; no match reports a status" {
+    var app = try testApp();
+    defer app.deinit();
+    app.cursor = 0;
+
+    app.handleKey(.{ .char = '/' }, 0);
+    try std.testing.expectEqual(ws.input.Mode.search, app.modal.mode);
+    for ("zzz") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.escape, 0);
+    try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
+    try std.testing.expectEqual(@as(usize, 0), app.cursor);
+
+    for ("/zzz") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqual(@as(usize, 0), app.cursor); // no match — stays put
+    try std.testing.expect(std.mem.indexOf(u8, app.status_buf[0..app.status_len], "no match") != null);
+}
+
+test "/ search reports unavailable in a view with nothing to search" {
+    var app = try testApp();
+    defer app.deinit();
+    app.view = .drum_grid;
+    app.drum_track = 2;
+    app.drum_cursor = .{ 3, 5 };
+
+    for ("/kick") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqual(AppView.drum_grid, app.view);
+    // Typed pattern chars didn't leak into drum-grid navigation.
+    try std.testing.expectEqual(@as(u8, 3), app.drum_cursor[0]);
+    try std.testing.expectEqual(@as(u8, 5), app.drum_cursor[1]);
+    try std.testing.expect(std.mem.indexOf(u8, app.status_buf[0..app.status_len], "not available") != null);
+}
+
 test "default session starts with one blank track" {
     var app = try App.init(std.testing.allocator, std.Io.failing);
     defer app.deinit();
@@ -180,8 +250,22 @@ test "drum grid g jumps the step cursor to the pattern start" {
 
     _ = drum_ed.handleKey(&app, .{ .char = 'g' });
     try std.testing.expectEqual(@as(u8, 0), app.drum_cursor[1]);
-    // Pad cursor and 'G' (choke group cycle) are untouched by 'g'.
+    // Pad cursor is untouched by 'g'.
     try std.testing.expectEqual(@as(u8, 0), app.drum_cursor[0]);
+}
+
+test "drum grid G jumps the step cursor to the pattern end; C cycles choke group" {
+    var app = try testApp();
+    defer app.deinit();
+    app.drum_track = 2;
+    app.drum_cursor = .{ 0, 0 };
+
+    _ = drum_ed.handleKey(&app, .{ .char = 'G' });
+    try std.testing.expectEqual(app.drumMachine().step_count - 1, app.drum_cursor[1]);
+
+    try std.testing.expectEqual(@as(u8, 0), app.drumMachine().choke_group[0]);
+    _ = drum_ed.handleKey(&app, .{ .char = 'C' });
+    try std.testing.expectEqual(@as(u8, 1), app.drumMachine().choke_group[0]);
 }
 
 test "piano roll yank/paste moves a pattern across tracks" {
@@ -203,6 +287,36 @@ test "piano roll yank/paste moves a pattern across tracks" {
     try std.testing.expectEqual(@as(u16, 1), dst.note_count);
     try std.testing.expectEqual(@as(u7, 72), dst.notes[0].pitch);
     try std.testing.expectApproxEqAbs(@as(f64, 8.0), dst.length_beats, 1e-9);
+}
+
+test "piano roll lowercase p pastes too (vim's canonical paste key)" {
+    var app = try testApp();
+    defer app.deinit();
+
+    app.piano_track = 0;
+    const src = &app.session.racks.items[0].pattern_player.?;
+    src.addNote(.{ .pitch = 72, .start_beat = 0.0, .duration_beat = 0.5 });
+    _ = piano_ed.handleKey(&app, .{ .char = 'y' });
+
+    app.piano_track = 1;
+    const dst = &app.session.racks.items[1].pattern_player.?;
+    _ = piano_ed.handleKey(&app, .{ .char = 'p' });
+    try std.testing.expectEqual(@as(u16, 1), dst.note_count);
+    try std.testing.expectEqual(@as(u7, 72), dst.notes[0].pitch);
+}
+
+test "drum grid lowercase p pastes the yanked pattern too" {
+    var app = try testApp();
+    defer app.deinit();
+    app.drum_track = 2;
+
+    _ = drum_ed.handleKey(&app, .{ .char = 'y' });
+    try std.testing.expect(app.drum_clip != null);
+
+    app.drumMachine().clearPad(0);
+    try std.testing.expect(!app.drumMachine().stepActive(0, 0));
+    _ = drum_ed.handleKey(&app, .{ .char = 'p' });
+    try std.testing.expect(app.drumMachine().stepActive(0, 0));
 }
 
 test "piano roll visual mode selects a step range for y/d/P" {
@@ -303,6 +417,34 @@ test "Z toggles piano roll zoom and compacts the rendered grid" {
 
     _ = piano_ed.handleKey(&app, .{ .char = 'Z' });
     try std.testing.expectEqual(@as(usize, 3), app.pianoCellWidth());
+}
+
+test "piano roll flags an unlinked scratch pattern in song mode, not pattern mode" {
+    var app = try testApp();
+    defer app.deinit();
+    app.view = .piano_roll;
+    app.piano_track = 0;
+    var buf: [32 * 1024]u8 = undefined;
+
+    // Pattern mode: the live pattern IS what plays — no scratch warning.
+    var w = std.Io.Writer.fixed(&buf);
+    try app.draw(&w, .{ .cols = 100, .rows = 24 });
+    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "scratch") == null);
+
+    // Song mode, unlinked to any clip: flagged.
+    app.session.setSongMode(true);
+    w = std.Io.Writer.fixed(&buf);
+    try app.draw(&w, .{ .cols = 100, .rows = 24 });
+    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "scratch: not in the song until stamped") != null);
+
+    // Linked to a clip (arrangement's 'e'): no warning even in song mode.
+    try app.session.stampClip(0, 0);
+    app.view = .arrangement;
+    app.handleKey(.{ .char = 'e' }, 0);
+    try std.testing.expectEqual(AppView.piano_roll, app.view);
+    w = std.Io.Writer.fixed(&buf);
+    try app.draw(&w, .{ .cols = 100, .rows = 24 });
+    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "scratch") == null);
 }
 
 test "Z toggles arrangement zoom and compacts the rendered timeline" {
@@ -489,6 +631,12 @@ test "undo/redo round-trips a piano-roll edit" {
     _ = piano_ed.handleKey(&app, .{ .char = 'U' });
     try std.testing.expectEqual(@as(u16, 1), pp.note_count);
     try std.testing.expectEqual(@as(u7, 60), pp.notes[0].pitch);
+
+    // ctrl-r is vim's canonical redo key — works the same as 'U'.
+    _ = piano_ed.handleKey(&app, .{ .char = 'u' });
+    try std.testing.expectEqual(@as(u16, 0), pp.note_count);
+    _ = piano_ed.handleKey(&app, .ctrl_r);
+    try std.testing.expectEqual(@as(u16, 1), pp.note_count);
 }
 
 test "undo/redo round-trips a drum edit including velocity and variants" {
@@ -2103,6 +2251,42 @@ test "file browser lists dirs first, then extension-filtered files, hiding dotfi
     try std.testing.expect(!entries[1].is_dir);
     try std.testing.expectEqualStrings("a.wav", entries[1].name);
     try std.testing.expectEqualStrings("b.wav", entries[2].name);
+}
+
+test "file browser: / fuzzy-searches filenames; n/N repeat and wrap around" {
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "hihat.wav", .data = "x" });
+    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "kick.wav", .data = "x" });
+    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "snare.wav", .data = "x" });
+
+    var app = try appRootedAt(&tmp);
+    defer app.deinit();
+    try app.session.setInstrument(0, .sampler);
+    app.openBrowser(.load_sample);
+    // Alphabetical: hihat(0), kick(1), snare(2).
+    try std.testing.expectEqual(@as(usize, 3), app.browser_entries.items.len);
+    try std.testing.expectEqual(@as(usize, 0), app.browser_cursor);
+
+    for ("/snr") |c| app.handleKey(.{ .char = c }, 0);
+    try std.testing.expectEqual(ws.input.Mode.search, app.modal.mode);
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
+    try std.testing.expectEqual(@as(usize, 2), app.browser_cursor); // snare.wav
+
+    // "i" matches hihat and kick (both have an 'i' in the basename), not
+    // snare — n/N cycle between the two. (Every name ends in ".wav", so the
+    // pattern has to avoid w/a/v or it'd match all three via the extension.)
+    for ("/i") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqual(@as(usize, 0), app.browser_cursor); // hihat.wav
+
+    app.handleKey(.{ .char = 'n' }, 0);
+    try std.testing.expectEqual(@as(usize, 1), app.browser_cursor); // kick.wav
+    app.handleKey(.{ .char = 'n' }, 0);
+    try std.testing.expectEqual(@as(usize, 0), app.browser_cursor); // wraps to hihat.wav
+    app.handleKey(.{ .char = 'N' }, 0);
+    try std.testing.expectEqual(@as(usize, 1), app.browser_cursor); // reverse: kick.wav
 }
 
 test "file browser: enter descends into a directory, h/backspace returns" {
