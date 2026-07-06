@@ -454,13 +454,9 @@ fn moveClip(app: *App, delta: i32) void {
     history.push(app, history.captureLane(app, @intCast(app.cursor)));
     app.last_edit = .{ .arr_move_clip = .{ .delta = delta } };
     // Detach the clip (keeping ownership of its content), retarget, re-place.
-    var moved: ws.Clip = undefined;
-    for (lane.clips.items, 0..) |c, i| {
-        if (c.covers(app.arr_cursor_bar)) {
-            moved = lane.clips.orderedRemove(i);
-            break;
-        }
-    }
+    var moved: ws.Clip = for (lane.clips.items, 0..) |c, i| {
+        if (c.covers(app.arr_cursor_bar)) break lane.clips.orderedRemove(i);
+    } else unreachable; // clipAt() above proved a covering clip exists
     moved.start_bar = new_start;
     lane.place(app.allocator, moved) catch {
         app.setStatus("move failed (out of memory)", .{});
