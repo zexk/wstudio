@@ -899,7 +899,8 @@ pub const App = struct {
                 'l', ' ' => self.browserActivate(),
                 'h' => self.browserGoUp(),
                 '~' => {
-                    const home = std.mem.sliceTo(std.c.getenv("HOME") orelse return, 0);
+                    const home_z = std.c.getenv("HOME") orelse std.c.getenv("USERPROFILE") orelse return;
+                    const home = std.mem.sliceTo(home_z, 0);
                     self.setBrowserDir(home) catch |e| self.setStatus("browse: {s}", .{@errorName(e)});
                 },
                 '/' => {

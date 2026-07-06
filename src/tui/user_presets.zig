@@ -18,10 +18,11 @@ const FileSnapshot = struct {
     presets: []const UserPreset = &.{},
 };
 
-/// Resolves the presets file path via `$HOME`. Null if unset — presets then
-/// just don't persist across runs rather than blocking startup.
+/// Resolves the presets file path via `$HOME` ($USERPROFILE on Windows,
+/// which has no $HOME). Null if unset — presets then just don't persist
+/// across runs rather than blocking startup.
 fn configPath(buf: []u8) ?[]const u8 {
-    const home = std.c.getenv("HOME") orelse return null;
+    const home = std.c.getenv("HOME") orelse std.c.getenv("USERPROFILE") orelse return null;
     return std.fmt.bufPrint(buf, "{s}/.config/wstudio/synth_presets.json", .{home}) catch null;
 }
 
