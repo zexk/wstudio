@@ -20,6 +20,11 @@ fn ok(hr: c.HRESULT) bool {
     return hr >= 0;
 }
 
+// audiosessiontypes.h defines these as unsuffixed hex literals; the first
+// overflows translate-c's c_int, so both are spelled out here instead.
+const stream_flag_auto_convert_pcm: c.DWORD = 0x80000000; // AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM
+const stream_flag_src_default_quality: c.DWORD = 0x08000000; // AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY
+
 pub const WasapiBackend = struct {
     config: backend_mod.Config,
     render: backend_mod.RenderFn,
@@ -85,10 +90,17 @@ pub const WasapiBackend = struct {
         );
         const buffer_duration = @max(block_hns * 4, 200_000);
 
+        // Shared mode only accepts our rate/layout when it happens to match
+        // the device mix format; AUTOCONVERTPCM has the audio engine resample
+        // instead of rejecting it — a plain 44.1kHz output device would
+        // otherwise fail Initialize and drop the whole app to the silent
+        // NullBackend. Same job as the soft_resample flag in alsa.zig.
         if (!ok(c.IAudioClient_Initialize(
             client,
             c.AUDCLNT_SHAREMODE_SHARED,
-            c.AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
+            @as(c.DWORD, c.AUDCLNT_STREAMFLAGS_EVENTCALLBACK) |
+                stream_flag_auto_convert_pcm |
+                stream_flag_src_default_quality,
             buffer_duration,
             0,
             &fmt,
@@ -152,6 +164,7 @@ pub const WasapiBackend = struct {
         const client = self.client.?;
         const render_client = self.render_client.?;
         const channels = self.config.channels;
+        const block_samples = @as(usize, self.config.block_frames) * channels;
 
         while (self.running.load(.acquire)) {
             if (c.WaitForSingleObject(self.event, 2000) != c.WAIT_OBJECT_0) continue;
@@ -164,8 +177,19 @@ pub const WasapiBackend = struct {
             var data: [*c]c.BYTE = undefined;
             if (!ok(c.IAudioRenderClient_GetBuffer(render_client, available, &data))) continue;
 
+            // `available` spans several blocks (the very first fill is the
+            // whole device buffer), but the RenderFn contract is one block
+            // per call — the engine's scratch buffers are sized to
+            // max_block_frames, and commands/automation are drained per
+            // block. Feed it block-sized slices, same chunking as
+            // OfflineBackend.renderAll.
             const out: []types.Sample = @as([*]types.Sample, @ptrCast(@alignCast(data)))[0 .. available * channels];
-            self.render(self.ctx, out);
+            var offset: usize = 0;
+            while (offset < out.len) {
+                const end = @min(offset + block_samples, out.len);
+                self.render(self.ctx, out[offset..end]);
+                offset = end;
+            }
 
             _ = c.IAudioRenderClient_ReleaseBuffer(render_client, available, 0);
         }
