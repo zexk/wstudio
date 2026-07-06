@@ -256,6 +256,16 @@ pub const App = struct {
     piano_visual_anchor: ?u16 = null,
     drum_visual_anchor: ?u8 = null,
     arr_visual_anchor: ?u32 = null,
+    /// Operator-pending state (normal mode, not `.visual`): set when `d`/`y`
+    /// is pressed without entering visual mode first, holding which operator
+    /// is armed until the next key. A step/bar motion (h/l/H/L/[g/G]) acts on
+    /// the range from the `*_visual_anchor` set at arm-time to wherever the
+    /// motion lands — the vim `d3j`/`y2l` grammar — reusing the exact same
+    /// range delete/yank visual mode uses, just without its UI. See each
+    /// editor's `armOperator`/operator-pending block in handleKey.
+    piano_op_pending: ?u8 = null,
+    drum_op_pending: ?u8 = null,
+    arr_op_pending: ?u8 = null,
     /// Visual-mode range clipboards (y/d/P while `.visual`), separate from
     /// the whole-pattern/single-clip clipboards above.
     piano_range_clip: ?PianoClip = null,

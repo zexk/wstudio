@@ -22,6 +22,44 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
     // stray keypress can't jump views mid-selection.
     if (app.modal.mode == .visual) return handleVisual(app, key);
 
+    // Operator-pending mode: `d`/`y` arm here (armOperator below), then a
+    // step motion (h/l/H/L/g/G) deletes/yanks the range from the arming
+    // point (every pad, matching the visual-mode range) — j/k (pad motion)
+    // aren't valid here, same time-range-only restriction visual mode's own
+    // range select has. The same operator key again (dd/yy) reproduces the
+    // pre-grammar single-key action (clear just this pad's step / yank the
+    // whole pattern) rather than a zero-width range delete, which would
+    // clear every pad at this step instead of just the one under the
+    // cursor. Anything else cancels.
+    if (app.drum_op_pending) |op| {
+        app.drum_op_pending = null;
+        switch (key) {
+            .escape => { app.drum_visual_anchor = null; app.setStatus("cancelled", .{}); return true; },
+            .char => |c| switch (c) {
+                '0'...'9' => { app.drum_op_pending = op; return false; },
+                'd', 'y' => {
+                    if (c == op) {
+                        if (op == 'd') clearCursorStep(app) else yankWholePattern(app);
+                    } else app.setStatus("cancelled", .{});
+                    return true;
+                },
+                'h' => { moveStep(app, -app.takeCount()); finishOperator(app, op); return true; },
+                'l' => { moveStep(app, app.takeCount()); finishOperator(app, op); return true; },
+                'H' => { moveStep(app, -4 * app.takeCount()); finishOperator(app, op); return true; },
+                'L' => { moveStep(app, 4 * app.takeCount()); finishOperator(app, op); return true; },
+                'g' => { app.drum_cursor[1] = 0; finishOperator(app, op); return true; },
+                'G' => {
+                    const dm = app.drumMachine();
+                    if (dm.step_count > 0) step.* = dm.step_count - 1;
+                    finishOperator(app, op);
+                    return true;
+                },
+                else => { app.drum_visual_anchor = null; app.setStatus("cancelled", .{}); return true; },
+            },
+            else => { app.drum_visual_anchor = null; app.setStatus("cancelled", .{}); return true; },
+        }
+    }
+
     switch (key) {
         .escape => { app.view = .tracks; return true; },
         // enter toggles the step; space falls through to transport play/pause.
@@ -82,6 +120,9 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                     app.modal.mode = .visual;
                     app.setStatus("visual: hjkl extend, y/d/p act on the range, esc cancels", .{});
                 },
+                // d is an operator (see armOperator) — dd clears the step
+                // under the cursor, d + a motion clears the range it covers.
+                'd' => armOperator(app, 'd'),
                 '<' => adjustSwing(app, -1.0),
                 '>' => adjustSwing(app, 1.0),
                 'C' => cycleChokeGroup(app, pad.*),
@@ -95,11 +136,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 },
                 'u' => history.doUndo(app),
                 'U' => history.doRedo(app),
-                'y' => {
-                    const dm = app.drumMachine();
-                    app.drum_clip = dm.variantData(dm.variant);
-                    app.setStatus("yanked pattern {c}", .{DrumMachine.variantLetter(dm.variant)});
-                },
+                'y' => armOperator(app, 'y'),
                 // p/P both paste (no linewise before/after distinction for a
                 // whole-pattern replace) — p is the canonical vim paste key.
                 'p', 'P' => {
@@ -161,6 +198,43 @@ fn moveStep(app: *App, delta: i32) void {
 /// Move the pad cursor by `delta` rows, clamped to the pad count.
 fn movePad(app: *App, delta: i32) void {
     app.drum_cursor[0] = @intCast(std.math.clamp(@as(i32, app.drum_cursor[0]) + delta, 0, DrumMachine.max_pads - 1));
+}
+
+/// Arm `d`/`y` as a pending operator (see the operator-pending block in
+/// handleKey): remembers the cursor step as the range anchor, same field
+/// visual mode's `v` sets, so the eventual delete/yank reuses
+/// selectionRange as-is.
+fn armOperator(app: *App, op: u8) void {
+    app.drum_visual_anchor = app.drum_cursor[1];
+    app.drum_op_pending = op;
+    app.setStatus("{c}: h/l/H/L/g/G act on the range, {c}{c} repeats the single-key action", .{ op, op, op });
+}
+
+/// Complete an operator+motion: run the range delete/yank between the
+/// anchor `armOperator` set and the cursor's new position.
+fn finishOperator(app: *App, op: u8) void {
+    if (op == 'd') deleteSelection(app) else yankSelection(app);
+}
+
+/// `dd`: clear just the pad/step under the cursor (the pre-grammar
+/// granularity `enter`'s toggle already works at), as opposed to a range
+/// delete which clears every pad at each step in the range.
+fn clearCursorStep(app: *App) void {
+    const dm = app.drumMachine();
+    const pad = app.drum_cursor[0];
+    const step = app.drum_cursor[1];
+    if (!dm.stepActive(pad, step)) { app.setStatus("no step here", .{}); return; }
+    history.push(app, history.captureDrum(app, app.drum_track));
+    setStep(dm, pad, step, false, 0);
+    app.setStatus("cleared step", .{});
+}
+
+/// `yy`: yank the whole current pattern variant (the pre-grammar instant
+/// `y` action).
+fn yankWholePattern(app: *App) void {
+    const dm = app.drumMachine();
+    app.drum_clip = dm.variantData(dm.variant);
+    app.setStatus("yanked pattern {c}", .{DrumMachine.variantLetter(dm.variant)});
 }
 
 /// Visual mode's reduced key set: motions extend the selection, y/d/p act

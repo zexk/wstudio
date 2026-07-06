@@ -33,6 +33,38 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
     // swallowed so a stray keypress can't jump views mid-selection.
     if (app.modal.mode == .visual) return handleVisual(app, key, lane_count);
 
+    // Operator-pending mode: `d`/`y` arm here (armOperator below), then
+    // h/l/H/L act on the bar range from the arming point (current lane
+    // only) — no j/k or g/G here since visual mode's own range select
+    // doesn't support them either. The same operator key again (dd/yy)
+    // reproduces the pre-grammar single-clip action (delete/yank the clip
+    // under the cursor) rather than a zero-width range: deleteSelection/
+    // yankSelection match on a clip's start_bar falling in range, while the
+    // single-clip actions use clipAt's "covers the cursor bar" rule — a
+    // clip that started earlier and merely overlaps the cursor would be
+    // missed by a zero-width range. Anything else cancels.
+    if (app.arr_op_pending) |op| {
+        app.arr_op_pending = null;
+        switch (key) {
+            .escape => { app.arr_visual_anchor = null; app.setStatus("cancelled", .{}); return true; },
+            .char => |c| switch (c) {
+                '0'...'9' => { app.arr_op_pending = op; return false; },
+                'd', 'y' => {
+                    if (c == op) {
+                        if (op == 'd') deleteClip(app) else yankClip(app);
+                    } else app.setStatus("cancelled", .{});
+                    return true;
+                },
+                'h' => { moveBar(app, -app.takeCount()); finishOperator(app, op); return true; },
+                'l' => { moveBar(app, app.takeCount()); finishOperator(app, op); return true; },
+                'H' => { moveBar(app, -4 * app.takeCount()); finishOperator(app, op); return true; },
+                'L' => { moveBar(app, 4 * app.takeCount()); finishOperator(app, op); return true; },
+                else => { app.arr_visual_anchor = null; app.setStatus("cancelled", .{}); return true; },
+            },
+            else => { app.arr_visual_anchor = null; app.setStatus("cancelled", .{}); return true; },
+        }
+    }
+
     switch (key) {
         .escape, .tab => { app.view = .tracks; return true; },
         .enter => { stampClip(app); return true; },
@@ -49,7 +81,12 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             'j' => { moveLane(app, lane_count, app.takeCount()); return true; },
             'k' => { moveLane(app, lane_count, -app.takeCount()); return true; },
             'x' => { deleteClip(app); return true; },
-            'y' => { yankClip(app); return true; },
+            // y is an operator (see armOperator) — yy yanks the clip under
+            // the cursor, y + a motion yanks the bar range it covers.
+            'y' => { armOperator(app, 'y'); return true; },
+            // d is likewise an operator; dd deletes the clip under the
+            // cursor (same as x), d + a motion deletes the range.
+            'd' => { armOperator(app, 'd'); return true; },
             'p', 'P' => { pasteClip(app); return true; },
             'v' => {
                 app.arr_visual_anchor = app.arr_cursor_bar;
@@ -81,6 +118,22 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
         },
         else => return false,
     }
+}
+
+/// Arm `d`/`y` as a pending operator (see the operator-pending block in
+/// handleKey): remembers the cursor bar as the range anchor, same field
+/// visual mode's `v` sets, so the eventual delete/yank reuses
+/// selectionRange as-is.
+fn armOperator(app: *App, op: u8) void {
+    app.arr_visual_anchor = app.arr_cursor_bar;
+    app.arr_op_pending = op;
+    app.setStatus("{c}: h/l/H/L act on the range, {c}{c} repeats the single-clip action", .{ op, op, op });
+}
+
+/// Complete an operator+motion: run the range delete/yank between the
+/// anchor `armOperator` set and the cursor's new position.
+fn finishOperator(app: *App, op: u8) void {
+    if (op == 'd') deleteSelection(app) else yankSelection(app);
 }
 
 /// Visual mode's reduced key set: motions extend the selection, y/d/p act

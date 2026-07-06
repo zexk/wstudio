@@ -58,6 +58,45 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
     // stray keypress can't jump views mid-selection.
     if (app.modal.mode == .visual) return handleVisual(app, key, pp, max_step);
 
+    // Operator-pending mode: `d`/`y` arm here (armOperator below), then a
+    // step motion (h/l/H/L/g/G) deletes/yanks the range from the arming
+    // point to wherever the motion lands — reuses the exact same
+    // deleteSelection/yankSelection visual mode uses, just without the
+    // visual-mode UI or its j/k pitch motion (time-range-only, like visual
+    // mode). The same operator key again (dd/yy) reproduces the original
+    // single-key action (delete the note under the cursor / yank the whole
+    // pattern) rather than a zero-width range — a range delete acts on
+    // every pitch at that step, so collapsing dd into it would silently
+    // drop other notes in a chord. Anything else cancels.
+    if (app.piano_op_pending) |op| {
+        app.piano_op_pending = null;
+        switch (key) {
+            .escape => { app.piano_visual_anchor = null; app.setStatus("cancelled", .{}); return true; },
+            .char => |c| switch (c) {
+                '0'...'9' => { app.piano_op_pending = op; return false; },
+                'd', 'y' => {
+                    if (c == op) {
+                        if (op == 'd') deleteNote(app) else yank(app);
+                    } else app.setStatus("cancelled", .{});
+                    return true;
+                },
+                'h' => { moveStep(app, max_step, -app.takeCount()); finishOperator(app, pp, op); return true; },
+                'l' => { moveStep(app, max_step, app.takeCount()); finishOperator(app, pp, op); return true; },
+                'H' => { moveStep(app, max_step, -4 * app.takeCount()); finishOperator(app, pp, op); return true; },
+                'L' => { moveStep(app, max_step, 4 * app.takeCount()); finishOperator(app, pp, op); return true; },
+                'g' => { app.piano_cursor_step = 0; ensureVisible(app); finishOperator(app, pp, op); return true; },
+                'G' => {
+                    if (max_step > 0) app.piano_cursor_step = max_step - 1;
+                    ensureVisible(app);
+                    finishOperator(app, pp, op);
+                    return true;
+                },
+                else => { app.piano_visual_anchor = null; app.setStatus("cancelled", .{}); return true; },
+            },
+            else => { app.piano_visual_anchor = null; app.setStatus("cancelled", .{}); return true; },
+        }
+    }
+
     // Note-grab mode: M holds the note under the cursor and h/l/j/k drag it
     // (the cursor follows). esc or M drop it; any other key drops it first
     // and is then handled normally below.
@@ -131,7 +170,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             '.' => { repeatLastEdit(app, pp, max_step); return true; },
             'c' => { stampChord(app, false); return true; },
             'C' => { stampChord(app, true); return true; },
-            'y' => { yank(app); return true; },
+            'y' => { armOperator(app, 'y'); return true; },
             // p/P both paste (no linewise before/after distinction for a
             // whole-pattern replace) — p is the canonical vim paste key.
             'p', 'P' => { paste(app); return true; },
@@ -142,9 +181,11 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 return true;
             },
             's' => { spectrum.switchToTrack(app, app.piano_track); return true; },
-            // n/d kept as aliases for muscle memory; enter is the canonical toggle.
+            // n kept as an alias for muscle memory; enter is the canonical toggle.
             'n' => { insertNote(app); return true; },
-            'd' => { deleteNote(app); return true; },
+            // d is an operator (see armOperator) — dd deletes the note under
+            // the cursor, d + a motion deletes the range it covers.
+            'd' => { armOperator(app, 'd'); return true; },
             'a' => {
                 app.playNote(app.piano_track, app.piano_cursor_pitch, app.now_ns);
                 var nbuf: [5]u8 = undefined;
@@ -516,6 +557,21 @@ fn yank(app: *App) void {
     clip.count = pp.copyNotes(&clip.notes);
     app.piano_clip = clip;
     app.setStatus("yanked {d} notes ({d:.0} beats)", .{ clip.count, clip.length_beats });
+}
+
+/// Arm `d`/`y` as a pending operator (see the operator-pending block in
+/// handleKey): remembers the cursor as the range anchor, same field visual
+/// mode's `v` sets, so the eventual delete/yank reuses selectionRange as-is.
+fn armOperator(app: *App, op: u8) void {
+    app.piano_visual_anchor = app.piano_cursor_step;
+    app.piano_op_pending = op;
+    app.setStatus("{c}: h/l/H/L/g/G act on the range, {c}{c} repeats the single-key action", .{ op, op, op });
+}
+
+/// Complete an operator+motion: run the range delete/yank between the
+/// anchor `armOperator` set and the cursor's new position.
+fn finishOperator(app: *App, pp: *pattern_mod.PatternPlayer, op: u8) void {
+    if (op == 'd') deleteSelection(app, pp) else yankSelection(app, pp);
 }
 
 /// Visual mode's reduced key set: motions extend the selection, y/d/p act
