@@ -115,23 +115,60 @@ pub const Terminal = struct {
         return .{ .cols = @intCast(cols), .rows = @intCast(rows) };
     }
 
+    /// True when the front of the input queue holds at least one record
+    /// `ReadFile` can turn into bytes. Conhost translates input to VT byte
+    /// sequences as events *enter* the queue (synthesized KEY_EVENTs whose
+    /// uChar carries the bytes), so records that arrive untranslated — focus
+    /// events (queued on alt-tab regardless of console mode), key releases,
+    /// bare modifier presses, media/F-keys, mouse motion with no button held
+    /// — will never satisfy a read. Left in place they keep the queue count
+    /// nonzero while the blocking `ReadFile` starves: tap Shift or alt-tab
+    /// during playback and every redraw freezes until the next real
+    /// keystroke. So they're consumed and discarded here instead. Raw
+    /// VK-coded key-downs a console could still translate at read time
+    /// (arrows, Home/End, paging) are kept as readable, just in case some
+    /// host defers translation to the read.
+    fn queueHasReadableInput(stdin: c.HANDLE) bool {
+        var records: [32]c.INPUT_RECORD = undefined;
+        var count: c.DWORD = 0;
+        if (c.PeekConsoleInputW(stdin, &records, records.len, &count) == 0 or count == 0)
+            return false;
+        for (records[0..count]) |rec| {
+            if (rec.EventType != c.KEY_EVENT) continue;
+            const key = rec.Event.KeyEvent;
+            if (key.bKeyDown == 0) continue;
+            if (key.uChar.UnicodeChar != 0) return true;
+            switch (key.wVirtualKeyCode) {
+                c.VK_UP, c.VK_DOWN, c.VK_LEFT, c.VK_RIGHT,
+                c.VK_HOME, c.VK_END, c.VK_PRIOR, c.VK_NEXT,
+                c.VK_INSERT, c.VK_DELETE => return true,
+                else => {},
+            }
+        }
+        var discarded: c.DWORD = 0;
+        _ = c.ReadConsoleInputW(stdin, &records, count, &discarded);
+        return false;
+    }
+
     /// Waits up to `timeout_ms` for input, then reads whatever is
     /// available. Returns the filled prefix of `buf` (empty on timeout).
     ///
-    /// Polls `GetNumberOfConsoleInputEvents` in short slices instead of a
-    /// single `WaitForSingleObject(stdin, timeout_ms)` — with
+    /// Polls the input queue in short slices instead of a single
+    /// `WaitForSingleObject(stdin, timeout_ms)` — with
     /// ENABLE_VIRTUAL_TERMINAL_INPUT on, the console handle's wait state
     /// tracks its internal event queue, not the VT-translated byte stream
     /// `ReadFile` hands back, and in practice that left the handle
     /// unsignaled (wait never timing out) for the whole span between real
     /// keystrokes — freezing every audio-driven redraw (playhead, meters,
     /// auto-scroll) until the next keypress instead of ticking every frame.
+    /// The poll itself must not trust the raw event *count* either — see
+    /// `queueHasReadableInput` for why byte-free records are filtered out
+    /// before committing to the blocking `ReadFile`.
     pub fn readInput(self: *const Terminal, buf: []u8, timeout_ms: i32) ![]const u8 {
         const slice_ms: i32 = 5;
         var remaining: i32 = timeout_ms;
         while (true) {
-            var pending: c.DWORD = 0;
-            if (c.GetNumberOfConsoleInputEvents(self.stdin, &pending) != 0 and pending > 0) break;
+            if (queueHasReadableInput(self.stdin)) break;
             if (timeout_ms >= 0) {
                 if (remaining <= 0) return buf[0..0];
                 remaining -= slice_ms;
