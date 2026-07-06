@@ -584,7 +584,7 @@ fn cmdLoadClip(app: *App, args: []const u8) void {
 /// rather than a bespoke instrument: load the WAV, replace the track's live
 /// pattern with one whole-clip note (Sampler ignores note-off, so the note
 /// just needs to outlast the loop filter in `Session.rebuildSongData`), and
-/// stamp it straight into the arrangement at the cursor bar — a one-command
+/// stamp it straight into the arrangement at the cursor bar, a one-command
 /// "drop this audio on the timeline" instead of hand-placing a note and
 /// stamping separately.
 pub fn loadClipFromPath(app: *App, path: []const u8) void {

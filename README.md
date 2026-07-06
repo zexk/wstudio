@@ -155,7 +155,7 @@ a full song:
 Done:
 
 - [x] Audio clips: `:load-clip [file.wav]` loads a WAV onto a sampler
-      track and stamps it whole into the arrangement at the cursor bar —
+      track and stamps it whole into the arrangement at the cursor bar,
       one command instead of hand-placing a piano-roll note and stamping
       it separately
 - [x] Windows build: WASAPI playback backend and a Windows Console
