@@ -78,13 +78,14 @@ pub const BrowserPurpose = union(enum) {
     open_project,
     load_sample,
     load_pad: u8,
+    load_clip,
 
     /// The extension the browser filters non-directory entries to (case
     /// insensitive); directories are always shown regardless.
     fn ext(self: BrowserPurpose) []const u8 {
         return switch (self) {
             .open_project => ".wsj",
-            .load_sample, .load_pad => ".wav",
+            .load_sample, .load_pad, .load_clip => ".wav",
         };
     }
 };
@@ -939,6 +940,7 @@ pub const App = struct {
             .open_project => self.requestReload(joined),
             .load_sample => commands.loadSampleFromPath(self, joined),
             .load_pad => |pad| commands.loadPadFromPath(self, pad, joined),
+            .load_clip => commands.loadClipFromPath(self, joined),
         }
         self.closeBrowser();
     }

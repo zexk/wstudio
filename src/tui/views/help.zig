@@ -224,6 +224,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("j / k",        "move between track lanes");
     t.key("enter",        "stamp the live pattern as a clip");
     t.key("e",            "edit melodic clip in the piano roll (edits save into the clip)");
+    t.key(":load-clip",   "[file.wav]  load a WAV onto a sampler track and stamp it whole at the cursor bar");
     t.key("[ / ]",        "cycle drum pattern variant to stamp");
     t.key("x",            "delete clip at cursor");
     t.key("y / p",        "yank / paste clip (matching track kind)");
@@ -262,7 +263,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key(":master-eq",   "[<band> <db>]  same, from the : prompt (M opens the live editor)");
     t.key(":master-comp", "on|off|thresh|ratio|attack|release|makeup <value>  master bus compressor");
 
-    t.taggedSection(.file_browser, "FILE BROWSER  (netrw-style; opens on :e, :load-sample, :load-pad with no path)");
+    t.taggedSection(.file_browser, "FILE BROWSER  (netrw-style; opens on :e, :load-sample, :load-pad, :load-clip with no path)");
     t.key("j / k",        "move cursor");
     t.key("enter / l",    "open directory / pick file");
     t.key("h / backspace","up to the parent directory");

@@ -2379,6 +2379,46 @@ test ":load-sample/:load-pad with no path browse; refuse first with no matching 
     try std.testing.expectEqual(AppView.file_browser, app.view);
 }
 
+test ":load-clip refuses without a sampler track, then loads a whole-clip note and stamps it" {
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    var app = try appRootedAt(&tmp);
+    defer app.deinit();
+
+    for (":load-clip") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expectStringStartsWith(app.status_buf[0..app.status_len], "load-clip: select");
+
+    try app.session.setInstrument(0, .sampler);
+    // Contrived tempo so 1 frame = 1 beat exactly (sr*60/bpm == 1), keeping
+    // the wav tiny while the beats math stays exact and easy to assert on.
+    app.session.project.tempo_bpm = @as(f64, @floatFromInt(app.session.project.sample_rate)) * 60.0;
+
+    var wav_buf: [64]u8 = undefined;
+    var fw = std.Io.Writer.fixed(&wav_buf);
+    try ws.wav.write(&fw, app.session.project.sample_rate, 1, &[_]f32{ 0.1, 0.2, 0.3, 0.4, 0.5 });
+    var path_buf: [128]u8 = undefined;
+    const path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/vox.wav", .{&tmp.sub_path});
+    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "vox.wav", .data = fw.buffered() });
+
+    app.arr_cursor_bar = 2;
+    commands.loadClipFromPath(&app, path);
+
+    try std.testing.expect(app.session.racks.items[0].instrument.sampler.pad.user_sample);
+    try std.testing.expectEqual(@as(usize, 5), app.session.racks.items[0].instrument.sampler.pad.samples.len);
+
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    try std.testing.expectEqual(@as(u16, 1), pp.note_count);
+    try std.testing.expectEqual(@as(u7, 60), pp.notes[0].pitch); // default root_note
+    try std.testing.expectApproxEqAbs(@as(f64, 5.0), pp.length_beats, 1e-9);
+
+    const lane = app.session.arrangement.lane(0).?;
+    try std.testing.expectEqual(@as(usize, 1), lane.clips.items.len);
+    try std.testing.expectEqual(@as(u32, 2), lane.clips.items[0].start_bar);
+    try std.testing.expectEqual(@as(u32, 2), lane.clips.items[0].length_bars); // ceil(5 beats / 4 per bar)
+}
+
 test ":e with no path browses when clean, refuses when dirty" {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();

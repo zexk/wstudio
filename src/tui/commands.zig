@@ -18,6 +18,7 @@ const history = @import("history.zig");
 const piano_ed = @import("editors/piano.zig");
 const spectrum_ed = @import("editors/spectrum.zig");
 const theory = ws.theory;
+const pattern_mod = ws.dsp.pattern;
 const user_presets = @import("user_presets.zig");
 const help_view = @import("views/help.zig");
 
@@ -60,6 +61,7 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "load-pad",    .desc = "<0-7> [file]  load WAV into pad (omit the file to browse)",     .run = wrap(cmdLoadPad) },
     .{ .name = "pad-rename",  .desc = "<0-7> <name>  rename a drum pad (up to 8 chars)", .run = wrap(cmdPadRename) },
     .{ .name = "load-sample", .desc = "[file]  load WAV into sampler track (omit the file to browse)",  .run = wrap(cmdLoadSample) },
+    .{ .name = "load-clip",   .desc = "[file]  load a WAV as a whole audio clip and stamp it at the arrangement cursor (sampler track, omit the file to browse)", .run = wrap(cmdLoadClip) },
     .{ .name = "e",           .desc = "[file]  open a project (refuses if unsaved changes; omit the file to browse)", .run = wrap(cmdEdit) },
     .{ .name = "e!",          .desc = "[file]  open a project, discarding changes; no file reverts the current one", .run = wrap(cmdEditForce) },
     .{ .name = "new",         .desc = "start a blank project (refuses if unsaved changes)", .run = wrap(cmdNew) },
@@ -561,6 +563,70 @@ pub fn loadSampleFromPath(app: *App, path: []const u8) void {
     s.pad.user_sample = true;
     app.dirty = true;
     app.setStatus("sample loaded: {s}", .{stem});
+}
+
+fn cmdLoadClip(app: *App, args: []const u8) void {
+    const trimmed = std.mem.trim(u8, args, " ");
+    if (trimmed.len == 0) {
+        if (cursorSampler(app) == null) {
+            app.setStatus("load-clip: select a sampler track first", .{});
+            return;
+        }
+        app.openBrowser(.load_clip);
+        return;
+    }
+    var path_buf: [path_buf_len]u8 = undefined;
+    loadClipFromPath(app, expandHome(&path_buf, trimmed));
+}
+
+/// Shared by `:load-clip <file>` and the file browser's clip-load purpose.
+/// "Audio clips" reuse the standalone Sampler + PatternPlayer wholesale
+/// rather than a bespoke instrument: load the WAV, replace the track's live
+/// pattern with one whole-clip note (Sampler ignores note-off, so the note
+/// just needs to outlast the loop filter in `Session.rebuildSongData`), and
+/// stamp it straight into the arrangement at the cursor bar — a one-command
+/// "drop this audio on the timeline" instead of hand-placing a note and
+/// stamping separately.
+pub fn loadClipFromPath(app: *App, path: []const u8) void {
+    const track = app.cursor;
+    const s = cursorSampler(app) orelse {
+        app.setStatus("load-clip: select a sampler track first", .{});
+        return;
+    };
+    const data = std.Io.Dir.cwd().readFileAlloc(
+        app.io,
+        path,
+        app.allocator,
+        .limited(64 * 1024 * 1024),
+    ) catch |e| {
+        app.setStatus("load-clip: cannot read '{s}': {s}", .{ path, @errorName(e) });
+        return;
+    };
+    defer app.allocator.free(data);
+    const basename = std.fs.path.basename(path);
+    const stem = if (std.mem.lastIndexOf(u8, basename, ".")) |dot| basename[0..dot] else basename;
+    s.loadWav(data, stem) catch |e| {
+        app.setStatus("load-clip: parse error: {s}", .{@errorName(e)});
+        return;
+    };
+    s.pad.user_sample = true;
+
+    const bpm = @max(app.session.project.tempo_bpm, 1.0);
+    const sr: f64 = @floatFromInt(app.session.project.sample_rate);
+    const beats = @as(f64, @floatFromInt(s.pad.samples.len)) * bpm / (sr * 60.0);
+    const length_beats = @max(beats, 1.0);
+    const notes = [_]pattern_mod.Note{.{ .pitch = s.root_note, .start_beat = 0.0, .duration_beat = length_beats }};
+    app.session.racks.items[track].pattern_player.?.setNotes(&notes, length_beats);
+
+    history.push(app, history.captureLane(app, @intCast(track)));
+    app.session.stampClip(track, app.arr_cursor_bar) catch {
+        app.setStatus("load-clip: stamp failed (out of memory)", .{});
+        return;
+    };
+    if (app.session.song_mode) app.session.rebuildSongData();
+
+    app.dirty = true;
+    app.setStatus("clip loaded: {s} ({d:.1} beats, bar {d})", .{ stem, length_beats, app.arr_cursor_bar + 1 });
 }
 
 /// Explicit :save argument (with `~` expanded), else the file the session

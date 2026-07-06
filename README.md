@@ -149,12 +149,15 @@ whatever font you already use.
 Open items, sorted by what most blocks an artist finishing (and keeping)
 a full song:
 
-- [ ] Audio clips: WAV clip playback on tracks
 - [ ] Native PipeWire and JACK backends behind the same interface
 - [ ] Plugin hosting (CLAP first)
 
 Done:
 
+- [x] Audio clips: `:load-clip [file.wav]` loads a WAV onto a sampler
+      track and stamps it whole into the arrangement at the cursor bar —
+      one command instead of hand-placing a piano-roll note and stamping
+      it separately
 - [x] Windows build: WASAPI playback backend and a Windows Console
       (VT100) terminal, cross-compiled with `-Dtarget=x86_64-windows-gnu`
 - [x] Drum pad rename (`R` in the drum grid, `:pad-rename <n> <name>`):

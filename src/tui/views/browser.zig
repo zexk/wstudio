@@ -20,6 +20,7 @@ fn purposeLabel(purpose: app_mod.BrowserPurpose, buf: []u8) []const u8 {
         .open_project => "open project (.wsj)",
         .load_sample => "load sample (.wav)",
         .load_pad => |pad| std.fmt.bufPrint(buf, "load pad {d} (.wav)", .{pad}) catch "load pad (.wav)",
+        .load_clip => "load clip (.wav)",
     };
 }
 
