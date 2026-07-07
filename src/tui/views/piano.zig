@@ -64,6 +64,23 @@ fn pitchLabel(pitch: u7, buf: *[5]u8) []const u8 {
     return buf[0..len];
 }
 
+// Writes the trailing padding after a step's glyph. When `tick` is set the
+// last padding column carries a decorative beat separator instead of a
+// blank — this keeps the separator out of the downbeat step's own cell (see
+// the v1.0.0 tackle-list note on the piano-roll grid: the beat line used to
+// replace the downbeat dot, off-by-one-ing note placement by eye).
+fn writeStepPad(w: *std.Io.Writer, pad: usize, tick: bool, tick_color: []const u8) !void {
+    if (pad == 0) return;
+    if (!tick) {
+        try w.splatByteAll(' ', pad);
+        return;
+    }
+    if (pad > 1) try w.splatByteAll(' ', pad - 1);
+    try w.writeAll(tick_color);
+    try w.writeAll("│");
+    try w.writeAll(rst);
+}
+
 fn isBlackKey(pitch: u7) bool {
     return switch (pitch % 12) {
         1, 3, 6, 8, 10 => true,
@@ -209,6 +226,15 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
             const in_sel = visual_active and step >= sel_lo and step <= sel_hi;
             const starts = pp.noteStartsAt(pitch, beat_pos);
             const covers = pp.noteCovers(pitch, beat_pos);
+            const downbeat = step % spb == 0;
+
+            // The beat separator is purely decorative: at cw>1 it rides in
+            // the trailing padding column of THIS step (so the downbeat's
+            // own cell stays a plain playable dot); at cw==1 there is no
+            // padding to borrow, so the fallback below colours the downbeat
+            // dot itself instead (mirrors arrangement.zig's compact ruler).
+            const next_downbeat = col + 1 < vis_cols and (step + 1) % spb == 0;
+            const tick_color = if (in_sel) yel else dim;
 
             if (is_cur) {
                 try w.writeAll(sel);
@@ -216,7 +242,7 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
                 else if (covers) try w.writeAll("=")
                 else try w.writeAll("·");
                 try w.writeAll(rst);
-                try w.splatByteAll(' ', cw -| 1);
+                try writeStepPad(w, cw -| 1, next_downbeat, tick_color);
             } else if (starts) {
                 // Shade the note head by velocity: loud = bold, soft = dim.
                 // Selected notes (visual mode) swap the accent for yellow.
@@ -231,24 +257,24 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
                 if (cw > 1) {
                     try w.writeAll(note_color);
                     try w.writeAll("=" ++ rst);
-                    try w.splatByteAll(' ', cw -| 2);
+                    try writeStepPad(w, cw -| 2, next_downbeat, tick_color);
                 }
             } else if (covers) {
                 try w.writeAll(if (in_sel) yel else acc);
                 try w.writeAll("=" ++ rst);
-                try w.splatByteAll(' ', cw -| 1);
-            } else if (step % spb == 0) {
-                try w.writeAll(if (in_sel) yel else dim);
-                try w.writeAll("│" ++ rst);
-                try w.splatByteAll(' ', cw -| 1);
+                try writeStepPad(w, cw -| 1, next_downbeat, tick_color);
             } else if (in_sel) {
                 try w.writeAll(yel ++ "·" ++ rst);
-                try w.splatByteAll(' ', cw -| 1);
+                try writeStepPad(w, cw -| 1, next_downbeat, tick_color);
             } else {
-                if (row_dim) try w.writeAll(dim);
+                // cw==1 has no padding column to carry the beat tick, so the
+                // downbeat dot itself borrows a distinct colour instead
+                // (mirrors arrangement.zig's blu downbeat ruler marker).
+                const dot_color = if (cw == 1 and downbeat) blu else if (row_dim) dim else "";
+                if (dot_color.len > 0) try w.writeAll(dot_color);
                 try w.writeAll("·");
-                if (row_dim) try w.writeAll(rst);
-                try w.splatByteAll(' ', cw -| 1);
+                if (dot_color.len > 0) try w.writeAll(rst);
+                try writeStepPad(w, cw -| 1, next_downbeat, tick_color);
             }
         }
         try endLine(w);
