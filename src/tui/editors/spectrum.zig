@@ -1,10 +1,15 @@
-//! Spectrum/FX rack input — shared by a track's view and the master bus.
+//! FX rack input — shared by a track's view and the master bus.
 //!
-//! `Tab` cycles which of the four chain units (EQ, comp, delay, reverb) has
-//! focus; `a` adds it with defaults or removes it; `h`/`l` pick a parameter
-//! within the focused unit (EQ's are its 10 bands); `j`/`k` (`J`/`K` coarse)
-//! nudge the selected parameter. `b` toggles EQ bypass — the only unit with
-//! a bypass flag; comp/delay/reverb are simply present or absent.
+//! The chain strip is the view's centrepiece: four slots in signal-flow
+//! order (comp → eq → delay → reverb), the focused slot's editor filling
+//! the body below. The spectrum analyzer belongs to the EQ slot's editor
+//! and only runs while that slot has focus.
+//!
+//! `Tab`/`L` and `H` walk slot focus along the chain; `a` adds the focused
+//! unit with defaults or removes it; `h`/`l` pick a parameter within the
+//! focused unit (EQ's are its 10 bands); `j`/`k` (`J`/`K` coarse) nudge the
+//! selected parameter. `b` toggles EQ bypass — the only unit with a bypass
+//! flag; comp/delay/reverb are simply present or absent.
 //! `esc` restores the previous view and parks the analyzer.
 //! The render half lives in views/spectrum.zig.
 
@@ -21,26 +26,37 @@ const Reverb = ws.dsp.Reverb;
 const Fx = ws.Fx;
 const App = @import("../app.zig").App;
 
-/// Which chain stage the interactive editor is pointed at. Order matches
-/// signal flow (comp → eq → delay → reverb, see `Fx.chain`) except EQ leads
-/// here since it's the unit most players reach for first.
-pub const FxUnit = enum { eq, comp, delay, reverb };
+/// Which chain slot the interactive editor is pointed at. Order matches
+/// signal flow (comp → eq → delay → reverb, see `Fx.chain`) so walking
+/// focus with H/L/tab moves along the chain the audio actually takes.
+/// Entering the view still lands on .eq — the slot most players reach
+/// for first, and the one whose editor shows the spectrum analyzer.
+pub const FxUnit = enum { comp, eq, delay, reverb };
 
 pub fn nextUnit(u: FxUnit) FxUnit {
     return switch (u) {
-        .eq => .comp,
-        .comp => .delay,
+        .comp => .eq,
+        .eq => .delay,
         .delay => .reverb,
-        .reverb => .eq,
+        .reverb => .comp,
+    };
+}
+
+pub fn prevUnit(u: FxUnit) FxUnit {
+    return switch (u) {
+        .comp => .reverb,
+        .eq => .comp,
+        .delay => .eq,
+        .reverb => .delay,
     };
 }
 
 pub fn unitLabel(u: FxUnit) []const u8 {
     return switch (u) {
-        .eq => "EQ",
         .comp => "COMP",
-        .delay => "DLY",
-        .reverb => "REV",
+        .eq => "EQ",
+        .delay => "DELAY",
+        .reverb => "REVERB",
     };
 }
 
@@ -99,6 +115,32 @@ pub fn getParam(fx: *const Fx, u: FxUnit, idx: usize) f32 {
             0 => r.room, 1 => r.damp, 2 => r.mix,
             else => 0,
         } else 0,
+    };
+}
+
+/// [min, max] of param `idx` in unit `u` — the same bounds `setParam`
+/// clamps to, exported so the view can draw each param as a filled bar
+/// (barRow wants a 0..1-ish normalised value).
+pub fn paramRange(u: FxUnit, idx: usize) [2]f32 {
+    return switch (u) {
+        .eq => .{ -18.0, 18.0 },
+        .comp => switch (idx) {
+            0 => .{ -60.0, 0.0 },
+            1 => .{ 1.0, 20.0 },
+            2 => .{ 0.1, 500.0 },
+            3 => .{ 1.0, 2000.0 },
+            4 => .{ -24.0, 24.0 },
+            else => .{ 0.0, 1.0 },
+        },
+        .delay => switch (idx) {
+            0 => .{ 0.01, 2.0 }, // matches the 2.0s line StereoDelay.init allocates
+            1 => .{ 0.0, 0.95 },
+            else => .{ 0.0, 1.0 },
+        },
+        .reverb => switch (idx) {
+            0 => .{ 0.0, 0.98 },
+            else => .{ 0.0, 1.0 },
+        },
     };
 }
 
@@ -252,6 +294,26 @@ fn toggleEqBypass(app: *App, is_track: bool) void {
     }
 }
 
+/// The spectrum analyzer belongs to the EQ slot's editor: run it only while
+/// that slot has focus, park it otherwise (and on leaving the view) so the
+/// engine skips FFT work nobody is looking at.
+fn syncAnalyzer(app: *App, is_track: bool) void {
+    if (app.fx_focus == .eq) {
+        _ = app.session.engine.send(.{ .set_spectrum_active = .{
+            .source = if (is_track) .track else .master,
+            .track = if (is_track) app.eq_track else 0,
+        } });
+    } else {
+        _ = app.session.engine.send(.{ .set_spectrum_active = .{ .source = .none, .track = 0 } });
+    }
+}
+
+fn setFocus(app: *App, is_track: bool, u: FxUnit) void {
+    app.fx_focus = u;
+    app.fx_param = 0;
+    syncAnalyzer(app, is_track);
+}
+
 pub fn switchToTrack(app: *App, track: u16) void {
     app.prev_view = app.view;
     app.view = .track_spectrum;
@@ -277,12 +339,10 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             app.view = app.prev_view;
             return true;
         },
-        .tab => {
-            app.fx_focus = nextUnit(app.fx_focus);
-            app.fx_param = 0;
-            return true;
-        },
+        .tab => { setFocus(app, is_track, nextUnit(app.fx_focus)); return true; },
         .char => |c| switch (c) {
+            'H' => { setFocus(app, is_track, prevUnit(app.fx_focus)); return true; },
+            'L' => { setFocus(app, is_track, nextUnit(app.fx_focus)); return true; },
             'a' => { toggleUnit(app, is_track); return true; },
             // Param picks take a vim count prefix (3l, 4h, …). EQ clamps at
             // its band ends (unchanged from before); the 3-5 param units
@@ -336,24 +396,55 @@ pub fn setMasterEqBand(app: *App, band: usize, gain_db: f32) void {
     app.session.syncMasterChain();
 }
 
-// Row layout mirrors views/spectrum.zig's drawSpectrumView exactly: title,
-// `visual_rows` spectrum-bar rows, an Hz-label row, then — only when a chain
-// exists — a tab-strip row and the focused unit's body. `bodyRows` replays
-// the same body-height precheck the view uses to size `visual_rows`
-// (comp/delay/reverb reserve less room when absent; EQ always reserves 3).
+// Row layout mirrors views/spectrum.zig's drawFxView exactly: title, the
+// 3-row chain strip, a key-hint row, the focused slot's section divider,
+// then its editor body. For the EQ slot the body is `visual_rows` spectrum
+// rows + an Hz-label row + the band rows; for the other slots it's one
+// barRow per param (or a single hint row while the unit is absent).
 
-fn bodyRows(fx: *const ws.Fx, focus: FxUnit) usize {
-    return switch (focus) {
-        .eq => 3,
-        .comp => if (fx.comp != null) @as(usize, 5) else 1,
-        .delay => if (fx.delay != null) @as(usize, 3) else 1,
-        .reverb => if (fx.reverb != null) @as(usize, 3) else 1,
-    };
+// Chain strip geometry, middle row: " IN ─▶ " gutter, then four 11-wide
+// slot boxes ("┃ COMP   ●┃") joined by 3-wide "─▶ " arrows — slot i starts
+// at column strip_x0 + i*(strip_box_w + strip_gap_w).
+pub const strip_x0: usize = 7;
+pub const strip_box_w: usize = 11;
+pub const strip_gap_w: usize = 3;
+pub const strip_rows_start: usize = 1; // first row after the title
+pub const strip_rows_end: usize = 3;   // inclusive
+pub const body_row0: usize = 6;        // title + strip(3) + hint + section
+
+/// Short terminals can't fit the boxed strip + hint + the biggest editor
+/// body (comp's 5 rows) inside the rows-5 content budget, so below this
+/// the strip collapses to its middle row and the hint line is dropped —
+/// keeping the app header pinned down to 13 rows, same floor as before
+/// the rack revamp. Uniform per-height (not per-focus) so the layout
+/// doesn't jump while tabbing between slots.
+pub fn compactLayout(rows: usize) bool {
+    return rows < 16;
+}
+
+/// First body row below the title/strip/hint/section prelude.
+pub fn bodyRow0(compact: bool) usize {
+    return if (compact) 3 else body_row0;
+}
+
+/// Which chain slot a click at column `x` on the strip rows lands in, if any.
+fn slotAt(x: usize) ?FxUnit {
+    inline for (0..4) |i| {
+        const x0 = strip_x0 + i * (strip_box_w + strip_gap_w);
+        if (x >= x0 and x < x0 + strip_box_w) return @enumFromInt(i);
+    }
+    return null;
+}
+
+/// EQ-body band-row count: bar + value + freq rows when present, one hint
+/// row when absent. The view sizes `visual_rows` off the same number.
+pub fn eqBandRows(fx: *const ws.Fx) usize {
+    return if (fx.eq != null) 3 else 1;
 }
 
 // EQ band row: a 3-char gutter, then a 5-char cell per band (bracket/glyph/
 // bracket on the bar row; a 5-wide centered field on the value/freq rows) —
-// see drawSpectrumView's EQ branch.
+// see drawFxView's EQ branch.
 const eq_gutter: usize = 3;
 const eq_band_w: usize = 5;
 
@@ -373,32 +464,34 @@ fn nudgeMouse(app: *App, is_track: bool, ev: modal_mod.MouseEvent) void {
     nudge(app, is_track, key);
 }
 
-/// Click the tab strip to cycle chain-unit focus (same as `tab`); click an
-/// EQ band or a comp/delay/reverb param row to select it; scroll over
-/// either nudges it (**ctrl**+scroll = coarse).
+/// Click a chain-strip slot box to focus it; click an EQ band or a
+/// comp/delay/reverb param row to select it; scroll over either nudges it
+/// (**ctrl**+scroll = coarse).
 pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16, view_rows: usize) void {
-    _ = cols; // band/param columns here are fixed-width, not terminal-width-dependent
+    _ = cols; // slot/band/param columns here are fixed-width, not terminal-width-dependent
     const is_track = app.view == .track_spectrum;
     const fx = fxPtr(app, is_track) orelse return;
-    const body = bodyRows(fx, app.fx_focus);
-    const eq_row = 1 + body;
-    const visual_rows = @min(style.spectrum_rows, view_rows -| (7 + eq_row));
-    const tab_row = 1 + visual_rows + 1; // title(1) + bars(visual_rows) + hz label(1)
-    const content_row0 = tab_row + 1;
+    const compact = compactLayout(view_rows);
 
-    if (row == tab_row) {
+    if (row >= strip_rows_start and row <= (if (compact) strip_rows_start else strip_rows_end)) {
         if (ev.kind == .press) {
-            app.fx_focus = nextUnit(app.fx_focus);
-            app.fx_param = 0;
+            const u = slotAt(ev.x) orelse return;
+            setFocus(app, is_track, u);
         }
         return;
     }
-    if (row < content_row0) return; // title / spectrum bars / hz label — not interactive
-    const rel = row - content_row0;
-    if (rel >= body) return;
+    const body0 = bodyRow0(compact);
+    if (row < body0) return; // title / hint / section rows — not interactive
+    const rel = row - body0;
 
     if (app.fx_focus == .eq) {
         if (fx.eq == null) return;
+        // Same sizing as drawFxView: spectrum graph, then the Hz-label row,
+        // then the three band rows — only the band rows are interactive.
+        const bands = eqBandRows(fx);
+        const visual_rows: usize = @min(style.spectrum_rows, view_rows -| ((if (compact) @as(usize, 9) else 12) + bands));
+        const band_row0 = visual_rows + 1;
+        if (rel < band_row0 or rel >= band_row0 + bands) return;
         const band = eqBandAt(ev.x) orelse return;
         switch (ev.kind) {
             .press => app.fx_param = band,
@@ -412,6 +505,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16, v
     }
 
     if (!isPresent(fx, app.fx_focus)) return;
+    if (rel >= paramCount(app.fx_focus)) return;
     switch (ev.kind) {
         .press => app.fx_param = rel,
         .scroll_up, .scroll_down => {

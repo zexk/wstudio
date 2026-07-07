@@ -1213,7 +1213,7 @@ test "draw renders spectrum view without errors" {
     var buf: [32 * 1024]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
     try app.draw(&w, .{ .cols = 80, .rows = 24 });
-    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "SPECTRUM") != null);
+    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "FX RACK") != null);
 }
 
 test "draw renders track_spectrum after pressing s" {
@@ -1223,7 +1223,7 @@ test "draw renders track_spectrum after pressing s" {
     var buf: [32 * 1024]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
     try app.draw(&w, .{ .cols = 80, .rows = 24 });
-    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "SPECTRUM") != null);
+    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "FX RACK") != null);
 }
 
 test "spectrum fills FFT buffer and draws with real data" {
@@ -2874,15 +2874,23 @@ test "mouse click/drag on a sampler waveform moves the nearer marker" {
     try std.testing.expect(app.sampler_drag_marker == null);
 }
 
-test "mouse click on the FX tab strip cycles chain-unit focus" {
+test "mouse click on a chain-strip slot box focuses that slot" {
     var app = try testApp();
     defer app.deinit();
     spectrum_ed.switchToTrack(&app, 0);
     try std.testing.expectEqual(spectrum_ed.FxUnit.eq, app.fx_focus);
 
-    // title(1) + spectrum bars(min(18, 24-11)=13) + hz label(1) -> tab strip
-    // at row 15 (see editors/spectrum.zig's handleMouse).
-    const row = app_mod.content_top + 15;
-    app.handleMouse(.{ .x = 5, .y = row, .button = .left, .kind = .press }, 80, 24, 0);
+    // Strip middle row is view row 2; the first slot box (COMP) spans
+    // columns 7..17 (see editors/spectrum.zig's strip geometry).
+    const row = app_mod.content_top + 2;
+    app.handleMouse(.{ .x = 8, .y = row, .button = .left, .kind = .press }, 80, 24, 0);
     try std.testing.expectEqual(spectrum_ed.FxUnit.comp, app.fx_focus);
+
+    // A click in the gap between boxes changes nothing.
+    app.handleMouse(.{ .x = 19, .y = row, .button = .left, .kind = .press }, 80, 24, 0);
+    try std.testing.expectEqual(spectrum_ed.FxUnit.comp, app.fx_focus);
+
+    // Fourth box (REVERB) starts at column 7 + 3*14 = 49.
+    app.handleMouse(.{ .x = 50, .y = row, .button = .left, .kind = .press }, 80, 24, 0);
+    try std.testing.expectEqual(spectrum_ed.FxUnit.reverb, app.fx_focus);
 }

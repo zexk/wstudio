@@ -125,10 +125,10 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("j / k",        "move cursor down / up — one slot past the last track is MASTER");
     t.key("enter",        "edit track (synth or drum grid) — on MASTER: open its FX rack");
     t.key("p",            "piano roll for synth tracks");
-    t.key("s",            "spectrum + FX rack for selected track — on MASTER: same for the bus");
+    t.key("s",            "FX rack for selected track — on MASTER: same for the bus");
     t.key("m",            "mute / unmute selected track");
     t.key("S",            "solo / unsolo selected track");
-    t.key("M",            "jump to the master row and open its spectrum + FX rack");
+    t.key("M",            "jump to the master row and open its FX rack");
     t.key("< / >",        "pan left / right  (5% per step)");
     t.key("- / +",        "track gain −1 dB / +1 dB  (= also works) — on MASTER: master gain");
     t.key("a",            "add synth track");
@@ -161,7 +161,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("a",            "preview pad sound");
     t.key("R",            "rename current pad (opens :pad-rename <n>, 8 chars max)");
     t.key("e",            "open sampler editor for current pad");
-    t.key("s",            "spectrum + EQ for drum track");
+    t.key("s",            "FX rack for drum track");
     t.key("+ / -",        "lengthen / shorten loop (1–16 steps)");
     t.key("X",            "clear all steps on current pad");
     t.key("F",            "fill all steps on current pad");
@@ -188,7 +188,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("h / l",        "adjust value (fine)");
     t.key("H / L",        "adjust value (coarse ×10)");
     t.key("p",            "open piano roll for this track");
-    t.key("s",            "spectrum + EQ for this track");
+    t.key("s",            "FX rack for this track");
     t.key(":synth-preset-save", "<name>  save the current params as a reusable preset");
 
     t.taggedSection(.piano_roll, "PIANO ROLL");
@@ -206,7 +206,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("(insert) esc", "back to normal — while playing, notes recorded at the playhead");
     t.key("< / >",        "decrease / increase velocity of note at cursor (count-scaled)");
     t.key("e",            "open synth editor for this track");
-    t.key("s",            "spectrum + EQ for this track");
+    t.key("s",            "FX rack for this track");
     t.key("[ / ]",        "resize note at cursor, else set default length (count-scaled)");
     t.key("+ / -",        "lengthen / shorten loop (1 bar)");
     t.key("y / p",        "yank / paste pattern (works across tracks)");
@@ -252,8 +252,9 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("u / U / ^R",   "undo / redo (whole-lane, same as the arrangement's)");
     t.key("esc",          "back to the arrangement");
 
-    t.taggedSection(.spectrum, "SPECTRUM / FX RACK  (same rack view for a track or the master bus)");
-    t.key("tab",          "cycle focus: EQ -> comp -> delay -> reverb -> EQ");
+    t.taggedSection(.spectrum, "FX RACK  (same chain view for a track or the master bus)");
+    t.key("tab / H / L",  "walk slot focus along the chain: comp -> EQ -> delay -> reverb");
+    t.key("",             "(the EQ slot's editor doubles as the spectrum analyzer)");
     t.key("a",            "add the focused unit with defaults, or remove it if present");
     t.key("h / l",        "select a param within the focused unit (EQ: its 10 bands)");
     t.key("j / k",        "decrease / increase the selected param (fine step)");
