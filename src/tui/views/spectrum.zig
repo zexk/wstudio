@@ -1,10 +1,11 @@
 //! FX rack view (track and master) + its status bar.
 //!
-//! The FX chain is the view's centrepiece: a boxed strip of the four chain
-//! slots in signal-flow order (comp → eq → delay → reverb), with the
-//! focused slot's editor filling the body below. The spectrum analyzer is
-//! part of the EQ slot's editor — it draws (and runs) only while that slot
-//! has focus. The input half lives in editors/spectrum.zig.
+//! The FX chain is the view's centrepiece: a boxed strip of the nine chain
+//! slots in signal-flow order (gate → comp → eq → sat → crush → chorus →
+//! phaser → delay → reverb), with the focused slot's editor filling the
+//! body below. The spectrum analyzer is part of the EQ slot's editor; it
+//! draws (and runs) only while that slot has focus. The input half lives
+//! in editors/spectrum.zig.
 
 const std = @import("std");
 const ws = @import("wstudio");
@@ -91,8 +92,13 @@ fn brailleBar(rem: usize) u21 {
 /// Section-divider label for the focused slot's editor body.
 fn sectionLabel(u: spectrum_ed.FxUnit) []const u8 {
     return switch (u) {
+        .gate => "GATE",
         .comp => "COMPRESSOR",
         .eq => "EQ + SPECTRUM",
+        .sat => "SATURATOR",
+        .crush => "CRUSHER",
+        .chorus => "CHORUS",
+        .phaser => "PHASER",
         .delay => "DELAY",
         .reverb => "REVERB",
     };
@@ -101,45 +107,51 @@ fn sectionLabel(u: spectrum_ed.FxUnit) []const u8 {
 /// Accent colour per slot — used by its section divider and param bars.
 fn sectionColor(u: spectrum_ed.FxUnit) []const u8 {
     return switch (u) {
+        .gate => bcyn,
         .comp => yel,
         .eq => grn,
+        .sat => red,
+        .crush => mag,
+        .chorus => bcyn,
+        .phaser => yel,
         .delay => blu,
         .reverb => mag,
     };
 }
 
-/// The 3-row chain strip: IN → four slot boxes in signal-flow order → OUT.
+/// The 3-row chain strip: IN → nine slot boxes in signal-flow order → OUT.
 /// The focused slot gets a heavy accent border; present units are green
 /// (red if the EQ is bypassed), absent ones dim with a hollow dot. Geometry
-/// (7-col gutter, 11-wide boxes, 3-wide arrows) is mirrored by the strip
-/// constants in editors/spectrum.zig for mouse hit-testing. In compact
-/// mode (short terminals) only the middle row is drawn — same columns,
-/// just without the box borders.
+/// (3-col gutter, 7-wide boxes, 1-wide arrows; 78 cols total, inside an
+/// 80-col terminal) is mirrored by the strip constants in
+/// editors/spectrum.zig for mouse hit-testing. In compact mode (short
+/// terminals) only the middle row is drawn; same columns, just without
+/// the box borders.
 fn drawChainStrip(app: anytype, w: *std.Io.Writer, chain: *const ws.Fx, compact: bool) !void {
     if (!compact) {
-        try w.writeAll("       ");
-        inline for (0..4) |i| {
+        try w.writeAll("   ");
+        inline for (0..spectrum_ed.unit_count) |i| {
             const u: spectrum_ed.FxUnit = @enumFromInt(i);
             const focused = u == app.fx_focus;
-            if (i > 0) try w.writeAll("   ");
-            try w.writeAll(if (focused) acc ++ bold ++ "\u{250F}\u{2501}\u{2501}\u{2501}\u{2501}\u{2501}\u{2501}\u{2501}\u{2501}\u{2501}\u{2513}"
-                           else dim ++ "\u{250C}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2510}");
+            if (i > 0) try w.writeAll(" ");
+            try w.writeAll(if (focused) acc ++ bold ++ "\u{250F}\u{2501}\u{2501}\u{2501}\u{2501}\u{2501}\u{2513}"
+                           else dim ++ "\u{250C}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2510}");
             try w.writeAll(rst);
         }
         try endLine(w);
     }
 
-    try w.writeAll(dim ++ " IN \u{2500}\u{25B6} " ++ rst);
-    inline for (0..4) |i| {
+    try w.writeAll(dim ++ "IN\u{25B6}" ++ rst);
+    inline for (0..spectrum_ed.unit_count) |i| {
         const u: spectrum_ed.FxUnit = @enumFromInt(i);
         const focused = u == app.fx_focus;
         const present = spectrum_ed.isPresent(chain, u);
         const bypassed = u == .eq and present and chain.eq.?.bypass;
-        if (i > 0) try w.writeAll(dim ++ "\u{2500}\u{25B6} " ++ rst);
+        if (i > 0) try w.writeAll(dim ++ "\u{25B6}" ++ rst);
         try w.writeAll(if (focused) acc ++ bold ++ "\u{2503}" else dim ++ "\u{2502}");
         try w.writeAll(rst);
         try w.writeAll(if (focused) bwht ++ bold else if (bypassed) red else if (present) grn else dim);
-        try w.print(" {s: <7}", .{spectrum_ed.unitLabel(u)});
+        try w.print("{s: <4}", .{spectrum_ed.stripLabel(u)});
         try w.writeAll(rst);
         try w.writeAll(if (bypassed) red else if (present) grn else dim);
         try w.writeAll(if (present) "\u{25CF}" else "\u{25CB}");
@@ -147,17 +159,17 @@ fn drawChainStrip(app: anytype, w: *std.Io.Writer, chain: *const ws.Fx, compact:
         try w.writeAll(if (focused) acc ++ bold ++ "\u{2503}" else dim ++ "\u{2502}");
         try w.writeAll(rst);
     }
-    try w.writeAll(dim ++ "\u{2500}\u{25B6} OUT" ++ rst);
+    try w.writeAll(dim ++ "\u{25B6}OUT" ++ rst);
     try endLine(w);
 
     if (!compact) {
-        try w.writeAll("       ");
-        inline for (0..4) |i| {
+        try w.writeAll("   ");
+        inline for (0..spectrum_ed.unit_count) |i| {
             const u: spectrum_ed.FxUnit = @enumFromInt(i);
             const focused = u == app.fx_focus;
-            if (i > 0) try w.writeAll("   ");
-            try w.writeAll(if (focused) acc ++ bold ++ "\u{2517}\u{2501}\u{2501}\u{2501}\u{2501}\u{2501}\u{2501}\u{2501}\u{2501}\u{2501}\u{251B}"
-                           else dim ++ "\u{2514}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2518}");
+            if (i > 0) try w.writeAll(" ");
+            try w.writeAll(if (focused) acc ++ bold ++ "\u{2517}\u{2501}\u{2501}\u{2501}\u{2501}\u{2501}\u{251B}"
+                           else dim ++ "\u{2514}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2518}");
             try w.writeAll(rst);
         }
         try endLine(w);
@@ -412,6 +424,28 @@ fn formatFxValue(buf: []u8, u: spectrum_ed.FxUnit, idx: usize, fx: *const ws.Fx)
             else => std.fmt.bufPrint(buf, "{d:.0}%", .{v * 100.0}) catch "?",
         },
         .reverb => std.fmt.bufPrint(buf, "{d:.0}%", .{v * 100.0}) catch "?",
+        .gate => switch (idx) {
+            0 => std.fmt.bufPrint(buf, "{d:.1}dB", .{v}) catch "?",
+            else => std.fmt.bufPrint(buf, "{d:.0}ms", .{v}) catch "?",
+        },
+        .sat => switch (idx) {
+            0, 1 => std.fmt.bufPrint(buf, "{d:.1}dB", .{v}) catch "?",
+            else => std.fmt.bufPrint(buf, "{d:.0}%", .{v * 100.0}) catch "?",
+        },
+        .crush => switch (idx) {
+            0 => std.fmt.bufPrint(buf, "{d:.0}bit", .{v}) catch "?",
+            1 => std.fmt.bufPrint(buf, "{d:.0}x", .{v}) catch "?",
+            else => std.fmt.bufPrint(buf, "{d:.0}%", .{v * 100.0}) catch "?",
+        },
+        .chorus => switch (idx) {
+            0 => std.fmt.bufPrint(buf, "{d:.2}Hz", .{v}) catch "?",
+            1 => std.fmt.bufPrint(buf, "{d:.1}ms", .{v}) catch "?",
+            else => std.fmt.bufPrint(buf, "{d:.0}%", .{v * 100.0}) catch "?",
+        },
+        .phaser => switch (idx) {
+            0 => std.fmt.bufPrint(buf, "{d:.2}Hz", .{v}) catch "?",
+            else => std.fmt.bufPrint(buf, "{d:.0}%", .{v * 100.0}) catch "?",
+        },
     };
 }
 

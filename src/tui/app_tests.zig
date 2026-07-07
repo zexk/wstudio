@@ -2880,17 +2880,17 @@ test "mouse click on a chain-strip slot box focuses that slot" {
     spectrum_ed.switchToTrack(&app, 0);
     try std.testing.expectEqual(spectrum_ed.FxUnit.eq, app.fx_focus);
 
-    // Strip middle row is view row 2; the first slot box (COMP) spans
-    // columns 7..17 (see editors/spectrum.zig's strip geometry).
+    // Strip middle row is view row 2; the second slot box (COMP) spans
+    // columns 11..18 (see editors/spectrum.zig's strip geometry).
     const row = app_mod.content_top + 2;
-    app.handleMouse(.{ .x = 8, .y = row, .button = .left, .kind = .press }, 80, 24, 0);
+    app.handleMouse(.{ .x = 12, .y = row, .button = .left, .kind = .press }, 80, 24, 0);
     try std.testing.expectEqual(spectrum_ed.FxUnit.comp, app.fx_focus);
 
-    // A click in the gap between boxes changes nothing.
-    app.handleMouse(.{ .x = 19, .y = row, .button = .left, .kind = .press }, 80, 24, 0);
+    // A click on the arrow between boxes changes nothing.
+    app.handleMouse(.{ .x = 10, .y = row, .button = .left, .kind = .press }, 80, 24, 0);
     try std.testing.expectEqual(spectrum_ed.FxUnit.comp, app.fx_focus);
 
-    // Fourth box (REVERB) starts at column 7 + 3*14 = 49.
-    app.handleMouse(.{ .x = 50, .y = row, .button = .left, .kind = .press }, 80, 24, 0);
+    // Last box (REVERB) starts at column 3 + 8*8 = 67.
+    app.handleMouse(.{ .x = 68, .y = row, .button = .left, .kind = .press }, 80, 24, 0);
     try std.testing.expectEqual(spectrum_ed.FxUnit.reverb, app.fx_focus);
 }

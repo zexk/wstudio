@@ -19,8 +19,9 @@ model from vim:
 - **command**: ex-style `:` commands
 
 And it ships batteries included: synths, samplers, a drum machine, and a
-full effects rack (EQ, compression, reverb, delay) are built in. No
-plugin hunting before the first note.
+full effects rack (gate, compression, EQ, saturation, bitcrush, chorus,
+phaser, delay, reverb) are built in. No plugin hunting before the first
+note.
 
 ## Status
 
@@ -90,6 +91,11 @@ src/
 │   ├── pattern.zig     piano-roll pattern sequencer
 │   ├── eq.zig          3-band EQ
 │   ├── compressor.zig  feed-forward stereo-linked compressor
+│   ├── gate.zig        noise gate
+│   ├── saturator.zig   tanh soft-clip saturator
+│   ├── crusher.zig     bitcrusher (bit depth + sample-rate reduce)
+│   ├── chorus.zig      LFO-modulated-delay stereo chorus
+│   ├── phaser.zig      4-stage allpass stereo phaser
 │   ├── delay.zig       stereo feedback delay
 │   ├── reverb.zig      Freeverb-style reverb
 │   └── spectrum.zig    FFT analyser feeding the spectrum view
@@ -199,10 +205,11 @@ Done:
       everywhere else `i` works. `esc` drops back to normal without
       leaving the roll.
 - [x] Interactive per-track FX rack, and a `MASTER` row in the tracks view:
-      a track's spectrum view (`s`) is now an FX rack — `tab` cycles
-      EQ/comp/delay/reverb, `a` adds the focused unit with defaults or
-      removes it, `h`/`l` pick a param (EQ: its 10 bands), `j`/`k`
-      (`J`/`K` coarse) nudge it. The tracks view gains a `MASTER` row one
+      a track's spectrum view (`s`) is now an FX rack; `tab` cycles the
+      chain slots (gate/comp/EQ/saturator/crusher/chorus/phaser/delay/
+      reverb, in signal-flow order), `a` adds the focused unit with
+      defaults or removes it, `h`/`l` pick a param (EQ: its 10 bands),
+      `j`/`k` (`J`/`K` coarse) nudge it. The tracks view gains a `MASTER` row one
       slot past the last track, sharing this exact rack UI against the
       master bus — non-removable, no pan/mute/solo/piano-roll, `-`/`+`
       steps its gain instead of a track's.
@@ -218,8 +225,8 @@ Done:
 - [x] Minimal netrw-style file browser: `:e`, `:load-sample`, and `:load-pad`
       open it when called with no path — `j`/`k` move, `enter`/`l` open a
       directory or pick a file, `h`/backspace go up, `~` jumps home
-- [x] Master bus FX: a pluggable comp/EQ/delay/reverb chain (same `Fx` shape
-      as a track's rack) applied to the summed mix before the master gain
+- [x] Master bus FX: the same pluggable nine-slot chain as a track's rack
+      (identical `Fx` shape) applied to the summed mix before the master gain
       and always-on limiter. `M` in the tracks view opens the master EQ's
       live spectrum + band editor (`:master-eq` from the `:` prompt); the
       compressor is `:master-comp on|off|thresh|ratio|attack|release|makeup

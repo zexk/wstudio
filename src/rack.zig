@@ -7,6 +7,11 @@ const Compressor = @import("dsp/compressor.zig").Compressor;
 const StereoDelay = @import("dsp/delay.zig").StereoDelay;
 const Reverb = @import("dsp/reverb.zig").Reverb;
 const GraphicEq = @import("dsp/eq.zig").GraphicEq;
+const Gate = @import("dsp/gate.zig").Gate;
+const Saturator = @import("dsp/saturator.zig").Saturator;
+const Crusher = @import("dsp/crusher.zig").Crusher;
+const Chorus = @import("dsp/chorus.zig").Chorus;
+const Phaser = @import("dsp/phaser.zig").Phaser;
 const PatternPlayer = @import("dsp/pattern.zig").PatternPlayer;
 const Transport = @import("transport.zig").Transport;
 
@@ -50,26 +55,42 @@ pub const Instrument = union(enum) {
 pub const InstrumentKind = std.meta.Tag(Instrument);
 
 /// Fixed set of optional signal processors applied in series after the
-/// instrument. Order in chain(): comp → eq → delay → reverb. Shared by every
-/// track's Rack and the engine's master bus (Session.master_fx) — the same
-/// four stages plug into either one the same way, in the same order.
+/// instrument. Order in chain(): gate → comp → eq → sat → crush → chorus →
+/// phaser → delay → reverb; dynamics and tone first, modulation next, time
+/// FX last. Shared by every track's Rack and the engine's master bus
+/// (Session.master_fx), the same stages plug into either one the same way,
+/// in the same order.
 pub const Fx = struct {
     eq: ?GraphicEq = null,
     comp: ?Compressor = null,
     delay: ?StereoDelay = null,
     reverb: ?Reverb = null,
+    gate: ?Gate = null,
+    sat: ?Saturator = null,
+    crush: ?Crusher = null,
+    chorus: ?Chorus = null,
+    phaser: ?Phaser = null,
+
+    /// Number of chain slots; sizes every `chain()` scratch buffer.
+    pub const unit_count = 9;
 
     pub fn deinit(self: *Fx, allocator: std.mem.Allocator) void {
         if (self.delay)  |*d| d.deinit(allocator);
         if (self.reverb) |*r| r.deinit(allocator);
+        if (self.chorus) |*c| c.deinit(allocator);
     }
 
     /// Fills `buf` with the active stages in signal-flow order and returns
     /// the used slice.
-    pub fn chain(self: *Fx, buf: *[4]dsp.Device) []const dsp.Device {
+    pub fn chain(self: *Fx, buf: *[unit_count]dsp.Device) []const dsp.Device {
         var len: usize = 0;
+        if (self.gate)   |*g| { buf[len] = g.device(); len += 1; }
         if (self.comp)   |*c| { buf[len] = c.device(); len += 1; }
         if (self.eq)     |*e| { buf[len] = e.device(); len += 1; }
+        if (self.sat)    |*s| { buf[len] = s.device(); len += 1; }
+        if (self.crush)  |*c| { buf[len] = c.device(); len += 1; }
+        if (self.chorus) |*c| { buf[len] = c.device(); len += 1; }
+        if (self.phaser) |*p| { buf[len] = p.device(); len += 1; }
         if (self.delay)  |*d| { buf[len] = d.device(); len += 1; }
         if (self.reverb) |*r| { buf[len] = r.device(); len += 1; }
         return buf[0..len];
@@ -126,6 +147,17 @@ pub const Rack = struct {
 
         if (self.fx.comp) |c| rack.fx.comp = c;
         if (self.fx.eq) |e| rack.fx.eq = e;
+        if (self.fx.gate) |g| rack.fx.gate = g;
+        if (self.fx.sat) |s| rack.fx.sat = s;
+        if (self.fx.crush) |c| rack.fx.crush = c;
+        if (self.fx.phaser) |p| rack.fx.phaser = p;
+        if (self.fx.chorus) |c| {
+            var nc = try Chorus.init(allocator, sr);
+            nc.rate_hz = c.rate_hz;
+            nc.depth_ms = c.depth_ms;
+            nc.mix = c.mix;
+            rack.fx.chorus = nc;
+        }
         if (self.fx.delay) |d| {
             var nd = try StereoDelay.init(allocator, sr, 2.0);
             nd.delay_frames = d.delay_frames;
@@ -144,20 +176,24 @@ pub const Rack = struct {
         return rack;
     }
 
+    /// Capacity every `chain()` scratch buffer needs: pattern player +
+    /// instrument + the full FX rack.
+    pub const chain_cap = Fx.unit_count + 2;
+
     /// Fills `buf` with [pattern_player?, instrument, ...fx] in signal-flow
     /// order and returns the used slice. Caller must keep `buf` alive for as
     /// long as the slice is passed to the engine.
-    pub fn chain(self: *Rack, buf: *[6]dsp.Device) []const dsp.Device {
+    pub fn chain(self: *Rack, buf: *[chain_cap]dsp.Device) []const dsp.Device {
         var len: usize = 0;
         if (self.pattern_player) |*pp| { buf[len] = pp.device(); len += 1; }
         if (self.instrument.device()) |dev| { buf[len] = dev; len += 1; }
-        var fx_buf: [4]dsp.Device = undefined;
+        var fx_buf: [Fx.unit_count]dsp.Device = undefined;
         for (self.fx.chain(&fx_buf)) |dev| { buf[len] = dev; len += 1; }
         return buf[0..len];
     }
 };
 
-test "chain order is instrument → comp → eq → delay → reverb (no pattern player)" {
+test "chain order is instrument → gate → comp → eq → … (no pattern player)" {
     var rack = Rack{
         .instrument = .{ .poly_synth = PolySynth.init(48_000) },
         .fx = .{
@@ -166,7 +202,7 @@ test "chain order is instrument → comp → eq → delay → reverb (no pattern
         },
         .label = "test",
     };
-    var buf: [6]dsp.Device = undefined;
+    var buf: [Rack.chain_cap]dsp.Device = undefined;
     const ch = rack.chain(&buf);
 
     // No pattern_player → synth at [0], comp at [1], eq at [2].
@@ -195,7 +231,7 @@ test "drum_machine Instrument variant: device ptr stable inside heap Rack" {
         .label = "drums",
     };
 
-    var buf: [6]dsp.Device = undefined;
+    var buf: [Rack.chain_cap]dsp.Device = undefined;
     const ch = rack.chain(&buf);
 
     try std.testing.expectEqual(@as(usize, 1), ch.len);

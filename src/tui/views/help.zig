@@ -253,13 +253,13 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("esc",          "back to the arrangement");
 
     t.taggedSection(.spectrum, "FX RACK  (same chain view for a track or the master bus)");
-    t.key("tab / H / L",  "walk slot focus along the chain: comp -> EQ -> delay -> reverb");
+    t.key("tab / H / L",  "walk slot focus: gate -> comp -> EQ -> sat -> crush -> chorus -> phaser -> delay -> reverb");
     t.key("",             "(the EQ slot's editor doubles as the spectrum analyzer)");
     t.key("a",            "add the focused unit with defaults, or remove it if present");
     t.key("h / l",        "select a param within the focused unit (EQ: its 10 bands)");
     t.key("j / k",        "decrease / increase the selected param (fine step)");
     t.key("J / K",        "decrease / increase the selected param (coarse step)");
-    t.key("b",            "bypass toggle (EQ only — comp/delay/reverb use a/add-remove instead)");
+    t.key("b",            "bypass toggle (EQ only; every other unit uses a/add-remove instead)");
     t.key(":eq",          "<track> [<band> <db>]  same, from the : prompt");
     t.key(":master-eq",   "[<band> <db>]  same, from the : prompt (M opens the live editor)");
     t.key(":master-comp", "on|off|thresh|ratio|attack|release|makeup <value>  master bus compressor");

@@ -767,7 +767,7 @@ pub fn renderBounce(app: *App, buffer: []types.Sample) void {
 
 /// Clear every device's tails/voices/sequencer state across all racks.
 fn resetDevices(app: *App) void {
-    var buf: [6]dsp.Device = undefined;
+    var buf: [ws.Rack.chain_cap]dsp.Device = undefined;
     for (app.session.racks.items) |rack| {
         for (rack.chain(&buf)) |dev| dev.reset();
     }

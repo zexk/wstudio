@@ -91,7 +91,7 @@ pub const Session = struct {
             .arrangement = arrangement,
         };
         for (self.racks.items, 0..) |rack, i| {
-            var buf: [6]dsp.Device = undefined;
+            var buf: [Rack.chain_cap]dsp.Device = undefined;
             self.engine.setTrackChain(@intCast(i), rack.chain(&buf));
         }
         return self;
@@ -118,7 +118,7 @@ pub const Session = struct {
         _ = try self.project.addTrack(.{ .name = name });
 
         self.engine.applyInsertTrack(idx, idx, 1.0, 0.0, false);
-        var buf: [6]dsp.Device = undefined;
+        var buf: [Rack.chain_cap]dsp.Device = undefined;
         self.engine.setTrackChain(idx, rack.chain(&buf));
 
         return idx;
@@ -172,7 +172,7 @@ pub const Session = struct {
 
         self.racks.items[track_idx] = rack;
 
-        var buf: [6]dsp.Device = undefined;
+        var buf: [Rack.chain_cap]dsp.Device = undefined;
         self.engine.setTrackChain(@intCast(track_idx), rack.chain(&buf));
 
         // Keep the new device coherent with the current playback mode: its
@@ -245,7 +245,7 @@ pub const Session = struct {
         });
 
         self.engine.applyInsertTrack(idx, idx, types.dbToGain(src.gain_db), src.pan, src.muted);
-        var buf: [6]dsp.Device = undefined;
+        var buf: [Rack.chain_cap]dsp.Device = undefined;
         self.engine.setTrackChain(idx, new_rack.chain(&buf));
         if (src.soloed) _ = self.engine.send(.{ .set_track_solo = .{ .track = idx, .soloed = true } });
 
@@ -350,7 +350,7 @@ pub const Session = struct {
     /// module — same idea as `setTrackChain`, but the master bus has no
     /// instrument slot, just `master_fx`.
     pub fn syncMasterChain(self: *Session) void {
-        var buf: [4]dsp.Device = undefined;
+        var buf: [rack_mod.Fx.unit_count]dsp.Device = undefined;
         self.engine.setMasterChain(self.master_fx.chain(&buf));
     }
 

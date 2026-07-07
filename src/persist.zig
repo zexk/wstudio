@@ -7,7 +7,7 @@
 //!   - All 38 PolySynth params + piano-roll notes + loop length
 //!   - Drum step-count + per-pad bitmask patterns + per-pad sampler params
 //!   - Per-track gain / pan / mute / solo + project tempo
-//!   - FX: compressor, delay, reverb, EQ
+//!   - FX: gate, compressor, EQ, saturator, crusher, chorus, phaser, delay, reverb
 //!   - Rack labels
 //!   - User-loaded sample audio (drum pads + sampler clips), exported as mono
 //!     WAVs into the "<stem>_samples" sidecar directory next to the .wsj
@@ -34,6 +34,11 @@ const StereoDelay = @import("dsp/delay.zig").StereoDelay;
 const Reverb = @import("dsp/reverb.zig").Reverb;
 const eq_mod = @import("dsp/eq.zig");
 const GraphicEq = eq_mod.GraphicEq;
+const Gate = @import("dsp/gate.zig").Gate;
+const Saturator = @import("dsp/saturator.zig").Saturator;
+const Crusher = @import("dsp/crusher.zig").Crusher;
+const Chorus = @import("dsp/chorus.zig").Chorus;
+const Phaser = @import("dsp/phaser.zig").Phaser;
 const dsp = @import("dsp/device.zig");
 const automation_mod = @import("dsp/automation.zig");
 const AutomationPoint = automation_mod.AutomationPoint;
@@ -64,7 +69,10 @@ const AutomationPoint = automation_mod.AutomationPoint;
 /// behaviour.
 /// v8 adds per-pad choke groups (`DrumSnap.choke_group`). Older files omit
 /// it and every pad loads ungrouped (group 0) — the prior behaviour.
-pub const file_version: u32 = 8;
+/// v9 adds the five new FX units (`FxSnap.gate`/`sat`/`crush`/`chorus`/
+/// `phaser`, see rack.zig's Fx). Older files omit them and load with those
+/// slots empty, the prior behaviour.
+pub const file_version: u32 = 9;
 
 pub const AutomationPointSnap = struct {
     beat: f64,
@@ -209,11 +217,47 @@ pub const EqSnap = struct {
     bypass: bool = false,
 };
 
+pub const GateSnap = struct {
+    threshold_db: f32 = -50.0,
+    attack_ms: f32 = 1.0,
+    release_ms: f32 = 100.0,
+};
+
+pub const SatSnap = struct {
+    drive_db: f32 = 12.0,
+    out_db: f32 = 0.0,
+    mix: f32 = 1.0,
+};
+
+pub const CrushSnap = struct {
+    bits: f32 = 8.0,
+    downsample: f32 = 4.0,
+    mix: f32 = 1.0,
+};
+
+pub const ChorusSnap = struct {
+    rate_hz: f32 = 0.8,
+    depth_ms: f32 = 4.0,
+    mix: f32 = 0.5,
+};
+
+pub const PhaserSnap = struct {
+    rate_hz: f32 = 0.4,
+    depth: f32 = 0.9,
+    feedback: f32 = 0.5,
+    mix: f32 = 0.5,
+};
+
 pub const FxSnap = struct {
     comp: ?CompSnap = null,
     delay: ?DelaySnap = null,
     reverb: ?ReverbSnap = null,
     eq: ?EqSnap = null,
+    gate: ?GateSnap = null,
+    sat: ?SatSnap = null,
+    crush: ?CrushSnap = null,
+    chorus: ?ChorusSnap = null,
+    phaser: ?PhaserSnap = null,
 };
 
 pub const InstrumentKind = enum { empty, poly_synth, sampler, drum_machine };
@@ -457,6 +501,21 @@ fn fxToSnap(fx: *const Fx, sample_rate: u32) FxSnap {
         var gains: [eq_mod.num_eq_bands]f32 = undefined;
         for (&e.bands, 0..) |*b, i| gains[i] = b.gain_db;
         out.eq = .{ .band_gains = gains, .bypass = e.bypass };
+    }
+    if (fx.gate) |*g| {
+        out.gate = .{ .threshold_db = g.threshold_db, .attack_ms = g.attack_ms, .release_ms = g.release_ms };
+    }
+    if (fx.sat) |*s| {
+        out.sat = .{ .drive_db = s.drive_db, .out_db = s.out_db, .mix = s.mix };
+    }
+    if (fx.crush) |*c| {
+        out.crush = .{ .bits = c.bits, .downsample = c.downsample, .mix = c.mix };
+    }
+    if (fx.chorus) |*c| {
+        out.chorus = .{ .rate_hz = c.rate_hz, .depth_ms = c.depth_ms, .mix = c.mix };
+    }
+    if (fx.phaser) |*p| {
+        out.phaser = .{ .rate_hz = p.rate_hz, .depth = p.depth, .feedback = p.feedback, .mix = p.mix };
     }
     return out;
 }
@@ -864,7 +923,7 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
         .arrangement = arrangement,
     };
     for (self.racks.items, 0..) |rack, i| {
-        var buf: [6]dsp.Device = undefined;
+        var buf: [Rack.chain_cap]dsp.Device = undefined;
         self.engine.setTrackChain(@intCast(i), rack.chain(&buf));
     }
 
@@ -1039,6 +1098,34 @@ fn applyFx(allocator: std.mem.Allocator, fx_out: *Fx, fx: FxSnap, sr: u32) !void
         eq.setAllBands(es.band_gains);
         eq.bypass = es.bypass;
         fx_out.eq = eq;
+    }
+    if (fx.gate) |gs| {
+        var g = Gate.init(sr);
+        g.threshold_db = gs.threshold_db;
+        g.attack_ms = gs.attack_ms;
+        g.release_ms = gs.release_ms;
+        fx_out.gate = g;
+    }
+    if (fx.sat) |ss| {
+        fx_out.sat = .{ .drive_db = ss.drive_db, .out_db = ss.out_db, .mix = ss.mix };
+    }
+    if (fx.crush) |cs| {
+        fx_out.crush = .{ .bits = cs.bits, .downsample = cs.downsample, .mix = cs.mix };
+    }
+    if (fx.chorus) |cs| {
+        var c = try Chorus.init(allocator, sr);
+        c.rate_hz = cs.rate_hz;
+        c.depth_ms = cs.depth_ms;
+        c.mix = cs.mix;
+        fx_out.chorus = c;
+    }
+    if (fx.phaser) |ps| {
+        var p = Phaser.init(sr);
+        p.rate_hz = ps.rate_hz;
+        p.depth = ps.depth;
+        p.feedback = ps.feedback;
+        p.mix = ps.mix;
+        fx_out.phaser = p;
     }
 }
 
@@ -1226,8 +1313,17 @@ test "save/load round-trip persists master FX" {
 
     var session = try Session.initDefault(testing.allocator);
     defer session.deinit();
-    session.master_fx.comp = Compressor.init(session.project.sample_rate);
+    const sr = session.project.sample_rate;
+    session.master_fx.comp = Compressor.init(sr);
     session.master_fx.comp.?.threshold_db = -9.0;
+    session.master_fx.gate = Gate.init(sr);
+    session.master_fx.gate.?.threshold_db = -42.0;
+    session.master_fx.sat = .{ .drive_db = 18.0 };
+    session.master_fx.crush = .{ .bits = 6.0, .downsample = 8.0 };
+    session.master_fx.chorus = try Chorus.init(testing.allocator, sr);
+    session.master_fx.chorus.?.rate_hz = 1.5;
+    session.master_fx.phaser = Phaser.init(sr);
+    session.master_fx.phaser.?.feedback = 0.7;
     session.syncMasterChain();
 
     try save(testing.allocator, &session, testing.io, wsj_path);
@@ -1235,7 +1331,13 @@ test "save/load round-trip persists master FX" {
     defer loaded.deinit();
 
     try testing.expectApproxEqAbs(@as(f32, -9.0), loaded.master_fx.comp.?.threshold_db, 1e-4);
-    try testing.expectEqual(@as(usize, 1), loaded.engine.master_chain_len);
+    try testing.expectApproxEqAbs(@as(f32, -42.0), loaded.master_fx.gate.?.threshold_db, 1e-4);
+    try testing.expectApproxEqAbs(@as(f32, 18.0), loaded.master_fx.sat.?.drive_db, 1e-4);
+    try testing.expectApproxEqAbs(@as(f32, 6.0), loaded.master_fx.crush.?.bits, 1e-4);
+    try testing.expectApproxEqAbs(@as(f32, 8.0), loaded.master_fx.crush.?.downsample, 1e-4);
+    try testing.expectApproxEqAbs(@as(f32, 1.5), loaded.master_fx.chorus.?.rate_hz, 1e-4);
+    try testing.expectApproxEqAbs(@as(f32, 0.7), loaded.master_fx.phaser.?.feedback, 1e-4);
+    try testing.expectEqual(@as(usize, 6), loaded.engine.master_chain_len);
 }
 
 test "buildSession: arrangement clips and song_mode round-trip" {

@@ -1,0 +1,103 @@
+//! Noise gate: mutes the signal while it stays under the threshold.
+//! Stereo-linked peak detector with a short fixed decay drives a smoothed
+//! open/close gain; attack sets how fast the gate opens on a transient,
+//! release how fast it falls shut after the input drops away.
+
+const std = @import("std");
+const types = @import("../core/types.zig");
+const dsp = @import("device.zig");
+
+const Sample = types.Sample;
+
+pub const Gate = struct {
+    sample_rate: f32,
+    threshold_db: f32 = -50.0,
+    attack_ms: f32 = 1.0,
+    release_ms: f32 = 100.0,
+    /// Detector state: stereo peak with a fixed ~50ms decay.
+    env: f32 = 0.0,
+    /// Current gain: 0 shut ... 1 open. Starts shut so a track that begins
+    /// under the threshold doesn't leak its first buffer.
+    gain: f32 = 0.0,
+
+    pub fn init(sample_rate: u32) Gate {
+        return .{ .sample_rate = @floatFromInt(sample_rate) };
+    }
+
+    pub fn device(self: *Gate) dsp.Device {
+        return .{ .ptr = self, .vtable = &vtable };
+    }
+
+    const vtable: dsp.Device.VTable = .{
+        .process = processOpaque,
+        .reset = resetOpaque,
+    };
+
+    /// Gate an interleaved stereo buffer in place.
+    pub fn processBlock(self: *Gate, buf: []Sample) void {
+        const thresh    = std.math.pow(f32, 10.0, self.threshold_db / 20.0);
+        const det_decay = @exp(-1.0 / (0.050 * self.sample_rate));
+        const attack    = @exp(-1.0 / (self.attack_ms * 0.001 * self.sample_rate));
+        const release   = @exp(-1.0 / (self.release_ms * 0.001 * self.sample_rate));
+        var i: usize = 0;
+        while (i + 1 < buf.len) : (i += 2) {
+            const peak = @max(@abs(buf[i]), @abs(buf[i + 1]));
+            self.env = @max(peak, self.env * det_decay);
+            const target: f32 = if (self.env >= thresh) 1.0 else 0.0;
+            const coef = if (target > self.gain) attack else release;
+            self.gain = target + coef * (self.gain - target);
+            buf[i]     *= self.gain;
+            buf[i + 1] *= self.gain;
+        }
+    }
+
+    fn processOpaque(ptr: *anyopaque, buf: []Sample) void {
+        const self: *Gate = @ptrCast(@alignCast(ptr));
+        self.processBlock(buf);
+    }
+
+    fn resetOpaque(ptr: *anyopaque) void {
+        const self: *Gate = @ptrCast(@alignCast(ptr));
+        self.env = 0.0;
+        self.gain = 0.0;
+    }
+};
+
+// ---------------------------------------------------------------------------
+// Tests
+
+test "loud input opens the gate to near unity" {
+    var gate = Gate.init(48_000);
+    var buf: [4096]Sample = undefined;
+    for (&buf, 0..) |*s, i| s.* = if (i % 4 < 2) 0.5 else -0.5;
+    gate.processBlock(&buf);
+    try std.testing.expect(gate.gain > 0.99);
+    // Past the 1ms attack the signal passes essentially untouched.
+    try std.testing.expectApproxEqAbs(@as(Sample, 0.5), @abs(buf[4000]), 1e-2);
+}
+
+test "sub-threshold input stays shut" {
+    var gate = Gate.init(48_000);
+    gate.threshold_db = -20.0;
+    var buf: [4096]Sample = undefined;
+    for (&buf, 0..) |*s, i| s.* = 0.01 * @sin(@as(f32, @floatFromInt(i)) * 0.1);
+    gate.processBlock(&buf);
+    for (buf) |s| try std.testing.expectEqual(@as(Sample, 0.0), s);
+}
+
+test "gate falls shut after the input drops away" {
+    var gate = Gate.init(48_000);
+    gate.release_ms = 20.0;
+    var buf: [4096]Sample = undefined;
+    @memset(&buf, 0.5);
+    gate.processBlock(&buf);
+    try std.testing.expect(gate.gain > 0.99);
+
+    // ~0.5s of silence: detector and gain both decay to nothing.
+    var i: usize = 0;
+    while (i < 100) : (i += 1) {
+        @memset(&buf, 0.0);
+        gate.processBlock(&buf);
+    }
+    try std.testing.expect(gate.gain < 1e-3);
+}

@@ -1,0 +1,73 @@
+//! Soft-clip saturator: a tanh waveshaper with input drive, output trim,
+//! and dry/wet mix. The shaper is peak-normalised (tanh(g·x)/tanh(g)) so
+//! cranking the drive adds density and harmonics without also adding
+//! level; the output trim is a plain make-up/duck control on top.
+
+const std = @import("std");
+const types = @import("../core/types.zig");
+const dsp = @import("device.zig");
+
+const Sample = types.Sample;
+
+pub const Saturator = struct {
+    drive_db: f32 = 12.0,
+    out_db: f32 = 0.0,
+    /// 0 = dry only, 1 = wet only.
+    mix: f32 = 1.0,
+
+    pub fn device(self: *Saturator) dsp.Device {
+        return .{ .ptr = self, .vtable = &vtable };
+    }
+
+    const vtable: dsp.Device.VTable = .{
+        .process = processOpaque,
+        .reset = resetOpaque,
+    };
+
+    /// Shape an interleaved stereo buffer in place.
+    pub fn processBlock(self: *Saturator, buf: []Sample) void {
+        const pre  = std.math.pow(f32, 10.0, self.drive_db / 20.0);
+        const post = std.math.pow(f32, 10.0, self.out_db / 20.0);
+        const norm = 1.0 / std.math.tanh(pre); // full-scale in → full-scale out
+        for (buf) |*s| {
+            const wet = std.math.tanh(s.* * pre) * norm * post;
+            s.* = s.* * (1.0 - self.mix) + wet * self.mix;
+        }
+    }
+
+    fn processOpaque(ptr: *anyopaque, buf: []Sample) void {
+        const self: *Saturator = @ptrCast(@alignCast(ptr));
+        self.processBlock(buf);
+    }
+
+    fn resetOpaque(ptr: *anyopaque) void {
+        _ = ptr; // stateless; nothing to clear
+    }
+};
+
+// ---------------------------------------------------------------------------
+// Tests
+
+test "full-scale input maps to full scale at any drive" {
+    var sat = Saturator{ .drive_db = 30.0 };
+    var buf = [_]Sample{ 1.0, -1.0 };
+    sat.processBlock(&buf);
+    try std.testing.expectApproxEqAbs(@as(Sample, 1.0), buf[0], 1e-4);
+    try std.testing.expectApproxEqAbs(@as(Sample, -1.0), buf[1], 1e-4);
+}
+
+test "drive raises the level of small signals" {
+    var sat = Saturator{ .drive_db = 24.0 };
+    var buf = [_]Sample{ 0.1, -0.1 };
+    sat.processBlock(&buf);
+    try std.testing.expect(buf[0] > 0.5);
+    try std.testing.expect(buf[1] < -0.5);
+}
+
+test "mix 0 passes the input untouched" {
+    var sat = Saturator{ .drive_db = 36.0, .mix = 0.0 };
+    var buf = [_]Sample{ 0.3, -0.7, 0.05, 0.9 };
+    const expected = buf;
+    sat.processBlock(&buf);
+    for (buf, expected) |got, want| try std.testing.expectApproxEqAbs(want, got, 1e-6);
+}

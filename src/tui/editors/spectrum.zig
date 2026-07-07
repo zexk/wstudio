@@ -1,15 +1,16 @@
 //! FX rack input — shared by a track's view and the master bus.
 //!
-//! The chain strip is the view's centrepiece: four slots in signal-flow
-//! order (comp → eq → delay → reverb), the focused slot's editor filling
-//! the body below. The spectrum analyzer belongs to the EQ slot's editor
-//! and only runs while that slot has focus.
+//! The chain strip is the view's centrepiece: nine slots in signal-flow
+//! order (gate → comp → eq → sat → crush → chorus → phaser → delay →
+//! reverb), the focused slot's editor filling the body below. The spectrum
+//! analyzer belongs to the EQ slot's editor and only runs while that slot
+//! has focus.
 //!
 //! `Tab`/`L` and `H` walk slot focus along the chain; `a` adds the focused
 //! unit with defaults or removes it; `h`/`l` pick a parameter within the
 //! focused unit (EQ's are its 10 bands); `j`/`k` (`J`/`K` coarse) nudge the
 //! selected parameter. `b` toggles EQ bypass — the only unit with a bypass
-//! flag; comp/delay/reverb are simply present or absent.
+//! flag; every other unit is simply present or absent.
 //! `esc` restores the previous view and parks the analyzer.
 //! The render half lives in views/spectrum.zig.
 
@@ -23,40 +24,59 @@ const GraphicEq = ws.dsp.GraphicEq;
 const Compressor = ws.dsp.Compressor;
 const StereoDelay = ws.dsp.StereoDelay;
 const Reverb = ws.dsp.Reverb;
+const Gate = ws.dsp.Gate;
+const Chorus = ws.dsp.Chorus;
+const Phaser = ws.dsp.Phaser;
+const chorus_mod = ws.dsp.chorus;
 const Fx = ws.Fx;
 const App = @import("../app.zig").App;
 
 /// Which chain slot the interactive editor is pointed at. Order matches
-/// signal flow (comp → eq → delay → reverb, see `Fx.chain`) so walking
-/// focus with H/L/tab moves along the chain the audio actually takes.
-/// Entering the view still lands on .eq — the slot most players reach
-/// for first, and the one whose editor shows the spectrum analyzer.
-pub const FxUnit = enum { comp, eq, delay, reverb };
+/// signal flow (gate → comp → eq → sat → crush → chorus → phaser → delay →
+/// reverb, see `Fx.chain`) so walking focus with H/L/tab moves along the
+/// chain the audio actually takes. Entering the view still lands on .eq,
+/// the slot most players reach for first, and the one whose editor shows
+/// the spectrum analyzer.
+pub const FxUnit = enum { gate, comp, eq, sat, crush, chorus, phaser, delay, reverb };
+
+pub const unit_count = @typeInfo(FxUnit).@"enum".fields.len;
 
 pub fn nextUnit(u: FxUnit) FxUnit {
-    return switch (u) {
-        .comp => .eq,
-        .eq => .delay,
-        .delay => .reverb,
-        .reverb => .comp,
-    };
+    return @enumFromInt((@intFromEnum(u) + 1) % unit_count);
 }
 
 pub fn prevUnit(u: FxUnit) FxUnit {
-    return switch (u) {
-        .comp => .reverb,
-        .eq => .comp,
-        .delay => .eq,
-        .reverb => .delay,
-    };
+    return @enumFromInt((@intFromEnum(u) + unit_count - 1) % unit_count);
 }
 
 pub fn unitLabel(u: FxUnit) []const u8 {
     return switch (u) {
+        .gate => "GATE",
         .comp => "COMP",
         .eq => "EQ",
+        .sat => "SAT",
+        .crush => "CRUSH",
+        .chorus => "CHORUS",
+        .phaser => "PHASER",
         .delay => "DELAY",
         .reverb => "REVERB",
+    };
+}
+
+/// <=4-char label for the chain strip's slot boxes; nine boxes have to
+/// share an 80-col row, so each gets a 7-wide box (see the strip geometry
+/// constants below).
+pub fn stripLabel(u: FxUnit) []const u8 {
+    return switch (u) {
+        .gate => "GATE",
+        .comp => "COMP",
+        .eq => "EQ",
+        .sat => "SAT",
+        .crush => "CRSH",
+        .chorus => "CHOR",
+        .phaser => "PHAS",
+        .delay => "DLY",
+        .reverb => "VERB",
     };
 }
 
@@ -64,8 +84,8 @@ pub fn paramCount(u: FxUnit) usize {
     return switch (u) {
         .eq => eq_mod.num_eq_bands,
         .comp => 5,
-        .delay => 3,
-        .reverb => 3,
+        .phaser => 4,
+        .gate, .sat, .crush, .chorus, .delay, .reverb => 3,
     };
 }
 
@@ -85,6 +105,26 @@ pub fn paramName(u: FxUnit, idx: usize) []const u8 {
             0 => "room", 1 => "damp", 2 => "mix",
             else => "?",
         },
+        .gate => switch (idx) {
+            0 => "thresh", 1 => "attack", 2 => "release",
+            else => "?",
+        },
+        .sat => switch (idx) {
+            0 => "drive", 1 => "output", 2 => "mix",
+            else => "?",
+        },
+        .crush => switch (idx) {
+            0 => "bits", 1 => "downsmp", 2 => "mix",
+            else => "?",
+        },
+        .chorus => switch (idx) {
+            0 => "rate", 1 => "depth", 2 => "mix",
+            else => "?",
+        },
+        .phaser => switch (idx) {
+            0 => "rate", 1 => "depth", 2 => "feedback", 3 => "mix",
+            else => "?",
+        },
     };
 }
 
@@ -94,6 +134,11 @@ pub fn isPresent(fx: *const Fx, u: FxUnit) bool {
         .comp => fx.comp != null,
         .delay => fx.delay != null,
         .reverb => fx.reverb != null,
+        .gate => fx.gate != null,
+        .sat => fx.sat != null,
+        .crush => fx.crush != null,
+        .chorus => fx.chorus != null,
+        .phaser => fx.phaser != null,
     };
 }
 
@@ -113,6 +158,26 @@ pub fn getParam(fx: *const Fx, u: FxUnit, idx: usize) f32 {
         } else 0,
         .reverb => if (fx.reverb) |r| switch (idx) {
             0 => r.room, 1 => r.damp, 2 => r.mix,
+            else => 0,
+        } else 0,
+        .gate => if (fx.gate) |g| switch (idx) {
+            0 => g.threshold_db, 1 => g.attack_ms, 2 => g.release_ms,
+            else => 0,
+        } else 0,
+        .sat => if (fx.sat) |s| switch (idx) {
+            0 => s.drive_db, 1 => s.out_db, 2 => s.mix,
+            else => 0,
+        } else 0,
+        .crush => if (fx.crush) |c| switch (idx) {
+            0 => c.bits, 1 => c.downsample, 2 => c.mix,
+            else => 0,
+        } else 0,
+        .chorus => if (fx.chorus) |c| switch (idx) {
+            0 => c.rate_hz, 1 => c.depth_ms, 2 => c.mix,
+            else => 0,
+        } else 0,
+        .phaser => if (fx.phaser) |p| switch (idx) {
+            0 => p.rate_hz, 1 => p.depth, 2 => p.feedback, 3 => p.mix,
             else => 0,
         } else 0,
     };
@@ -139,6 +204,32 @@ pub fn paramRange(u: FxUnit, idx: usize) [2]f32 {
         },
         .reverb => switch (idx) {
             0 => .{ 0.0, 0.98 },
+            else => .{ 0.0, 1.0 },
+        },
+        .gate => switch (idx) {
+            0 => .{ -80.0, 0.0 },
+            1 => .{ 0.1, 50.0 },
+            2 => .{ 5.0, 1000.0 },
+            else => .{ 0.0, 1.0 },
+        },
+        .sat => switch (idx) {
+            0 => .{ 0.0, 36.0 },
+            1 => .{ -24.0, 24.0 },
+            else => .{ 0.0, 1.0 },
+        },
+        .crush => switch (idx) {
+            0 => .{ 1.0, 16.0 },
+            1 => .{ 1.0, 32.0 },
+            else => .{ 0.0, 1.0 },
+        },
+        .chorus => switch (idx) {
+            0 => .{ 0.05, 5.0 },
+            1 => .{ 0.0, chorus_mod.max_depth_ms },
+            else => .{ 0.0, 1.0 },
+        },
+        .phaser => switch (idx) {
+            0 => .{ 0.05, 5.0 },
+            2 => .{ 0.0, 0.9 },
             else => .{ 0.0, 1.0 },
         },
     };
@@ -172,6 +263,37 @@ pub fn setParam(fx: *Fx, u: FxUnit, idx: usize, value: f32) void {
             2 => r.mix = std.math.clamp(value, 0.0, 1.0),
             else => {},
         },
+        .gate => if (fx.gate) |*g| switch (idx) {
+            0 => g.threshold_db = std.math.clamp(value, -80.0, 0.0),
+            1 => g.attack_ms = std.math.clamp(value, 0.1, 50.0),
+            2 => g.release_ms = std.math.clamp(value, 5.0, 1000.0),
+            else => {},
+        },
+        .sat => if (fx.sat) |*s| switch (idx) {
+            0 => s.drive_db = std.math.clamp(value, 0.0, 36.0),
+            1 => s.out_db = std.math.clamp(value, -24.0, 24.0),
+            2 => s.mix = std.math.clamp(value, 0.0, 1.0),
+            else => {},
+        },
+        .crush => if (fx.crush) |*c| switch (idx) {
+            0 => c.bits = std.math.clamp(@round(value), 1.0, 16.0),
+            1 => c.downsample = std.math.clamp(@round(value), 1.0, 32.0),
+            2 => c.mix = std.math.clamp(value, 0.0, 1.0),
+            else => {},
+        },
+        .chorus => if (fx.chorus) |*c| switch (idx) {
+            0 => c.rate_hz = std.math.clamp(value, 0.05, 5.0),
+            1 => c.depth_ms = std.math.clamp(value, 0.0, chorus_mod.max_depth_ms),
+            2 => c.mix = std.math.clamp(value, 0.0, 1.0),
+            else => {},
+        },
+        .phaser => if (fx.phaser) |*p| switch (idx) {
+            0 => p.rate_hz = std.math.clamp(value, 0.05, 5.0),
+            1 => p.depth = std.math.clamp(value, 0.0, 1.0),
+            2 => p.feedback = std.math.clamp(value, 0.0, 0.9),
+            3 => p.mix = std.math.clamp(value, 0.0, 1.0),
+            else => {},
+        },
     }
 }
 
@@ -197,6 +319,30 @@ fn paramStep(u: FxUnit, idx: usize, coarse: bool) f32 {
             0 => if (coarse) @as(f32, 0.1) else 0.02,
             else => if (coarse) @as(f32, 0.2) else 0.05,
         },
+        .gate => switch (idx) {
+            0 => if (coarse) @as(f32, 6.0) else 1.0,
+            1 => if (coarse) @as(f32, 5.0) else 0.5,
+            2 => if (coarse) @as(f32, 100.0) else 10.0,
+            else => 1.0,
+        },
+        .sat => switch (idx) {
+            0 => if (coarse) @as(f32, 6.0) else 1.0,
+            1 => if (coarse) @as(f32, 3.0) else 0.5,
+            else => if (coarse) @as(f32, 0.2) else 0.05,
+        },
+        .crush => switch (idx) {
+            0, 1 => if (coarse) @as(f32, 4.0) else 1.0,
+            else => if (coarse) @as(f32, 0.2) else 0.05,
+        },
+        .chorus => switch (idx) {
+            0 => if (coarse) @as(f32, 0.5) else 0.05,
+            1 => if (coarse) @as(f32, 2.0) else 0.5,
+            else => if (coarse) @as(f32, 0.2) else 0.05,
+        },
+        .phaser => switch (idx) {
+            0 => if (coarse) @as(f32, 0.5) else 0.05,
+            else => if (coarse) @as(f32, 0.2) else 0.05,
+        },
     };
 }
 
@@ -215,7 +361,7 @@ fn syncChain(app: *App, is_track: bool) void {
     if (is_track) {
         if (app.eq_track >= app.session.racks.items.len) return;
         const rack = app.session.racks.items[app.eq_track];
-        var buf: [6]dsp.Device = undefined;
+        var buf: [ws.Rack.chain_cap]dsp.Device = undefined;
         app.session.engine.setTrackChain(app.eq_track, rack.chain(&buf));
     } else {
         app.session.syncMasterChain();
@@ -224,12 +370,23 @@ fn syncChain(app: *App, is_track: bool) void {
 
 /// Adds unit `u` with defaults if absent; a no-op if already present.
 /// Returns false (and sets a status message) only on allocation failure —
-/// delay/reverb own heap-allocated lines, eq/comp don't.
+/// delay/reverb/chorus own heap-allocated lines, the rest don't.
 fn ensureUnit(app: *App, fx: *Fx, u: FxUnit) bool {
     const sr = app.session.project.sample_rate;
     switch (u) {
         .eq => { if (fx.eq == null) fx.eq = GraphicEq.init(sr); },
         .comp => { if (fx.comp == null) fx.comp = Compressor.init(sr); },
+        .gate => { if (fx.gate == null) fx.gate = Gate.init(sr); },
+        .sat => { if (fx.sat == null) fx.sat = .{}; },
+        .crush => { if (fx.crush == null) fx.crush = .{}; },
+        .phaser => { if (fx.phaser == null) fx.phaser = Phaser.init(sr); },
+        .chorus => {
+            if (fx.chorus != null) return true;
+            fx.chorus = Chorus.init(app.session.allocator, sr) catch {
+                app.setStatus("chorus: out of memory", .{});
+                return false;
+            };
+        },
         .delay => {
             if (fx.delay != null) return true;
             fx.delay = StereoDelay.init(app.session.allocator, sr, 2.0) catch {
@@ -252,6 +409,11 @@ fn removeUnit(app: *App, fx: *Fx, u: FxUnit) void {
     switch (u) {
         .eq => fx.eq = null,
         .comp => fx.comp = null,
+        .gate => fx.gate = null,
+        .sat => fx.sat = null,
+        .crush => fx.crush = null,
+        .phaser => fx.phaser = null,
+        .chorus => if (fx.chorus) |*c| { c.deinit(app.session.allocator); fx.chorus = null; },
         .delay => if (fx.delay) |*d| { d.deinit(app.session.allocator); fx.delay = null; },
         .reverb => if (fx.reverb) |*r| { r.deinit(app.session.allocator); fx.reverb = null; },
     }
@@ -382,7 +544,7 @@ pub fn setEqBand(app: *App, track: u16, band: usize, gain_db: f32) void {
     if (rack.fx.eq == null) rack.fx.eq = GraphicEq.init(app.session.project.sample_rate);
     rack.fx.eq.?.setBand(band, gain_db);
     app.dirty = true;
-    var buf: [6]dsp.Device = undefined;
+    var buf: [ws.Rack.chain_cap]dsp.Device = undefined;
     app.session.engine.setTrackChain(track, rack.chain(&buf));
 }
 
@@ -402,12 +564,13 @@ pub fn setMasterEqBand(app: *App, band: usize, gain_db: f32) void {
 // rows + an Hz-label row + the band rows; for the other slots it's one
 // barRow per param (or a single hint row while the unit is absent).
 
-// Chain strip geometry, middle row: " IN ─▶ " gutter, then four 11-wide
-// slot boxes ("┃ COMP   ●┃") joined by 3-wide "─▶ " arrows — slot i starts
-// at column strip_x0 + i*(strip_box_w + strip_gap_w).
-pub const strip_x0: usize = 7;
-pub const strip_box_w: usize = 11;
-pub const strip_gap_w: usize = 3;
+// Chain strip geometry, middle row: an "IN▶" gutter, then nine 7-wide slot
+// boxes ("┃GATE●┃") joined by 1-wide "▶" arrows; slot i starts at column
+// strip_x0 + i*(strip_box_w + strip_gap_w). Nine boxes + "▶OUT" total 78
+// cols, inside an 80-col terminal.
+pub const strip_x0: usize = 3;
+pub const strip_box_w: usize = 7;
+pub const strip_gap_w: usize = 1;
 pub const strip_rows_start: usize = 1; // first row after the title
 pub const strip_rows_end: usize = 3;   // inclusive
 pub const body_row0: usize = 6;        // title + strip(3) + hint + section
@@ -429,7 +592,7 @@ pub fn bodyRow0(compact: bool) usize {
 
 /// Which chain slot a click at column `x` on the strip rows lands in, if any.
 fn slotAt(x: usize) ?FxUnit {
-    inline for (0..4) |i| {
+    inline for (0..unit_count) |i| {
         const x0 = strip_x0 + i * (strip_box_w + strip_gap_w);
         if (x >= x0 and x < x0 + strip_box_w) return @enumFromInt(i);
     }
