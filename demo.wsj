@@ -1,5 +1,5 @@
 {
-  "version": 6,
+  "version": 10,
   "tempo_bpm": 120,
   "beats_per_bar": 4,
   "loop_enabled": false,
@@ -135,25 +135,71 @@
       "sampler": null,
       "drum": null,
       "fx": {
-        "comp": {
-          "threshold_db": -18,
-          "ratio": 4,
-          "attack_ms": 10,
-          "release_ms": 80,
-          "makeup_db": 0
+        "comp": null,
+        "delay": null,
+        "reverb": null,
+        "eq": null,
+        "gate": null,
+        "sat": null,
+        "crush": null,
+        "chorus": null,
+        "phaser": null
+      },
+      "fx_chain": [
+        {
+          "kind": "comp",
+          "bypassed": false,
+          "comp": {
+            "threshold_db": -18,
+            "ratio": 4,
+            "attack_ms": 10,
+            "release_ms": 80,
+            "makeup_db": 0
+          },
+          "delay": null,
+          "reverb": null,
+          "eq": null,
+          "gate": null,
+          "sat": null,
+          "crush": null,
+          "chorus": null,
+          "phaser": null
         },
-        "delay": {
-          "time_s": 0.375,
-          "feedback": 0.3499999940395355,
-          "mix": 0.25
+        {
+          "kind": "delay",
+          "bypassed": false,
+          "comp": null,
+          "delay": {
+            "time_s": 0.375,
+            "feedback": 0.3499999940395355,
+            "mix": 0.25
+          },
+          "reverb": null,
+          "eq": null,
+          "gate": null,
+          "sat": null,
+          "crush": null,
+          "chorus": null,
+          "phaser": null
         },
-        "reverb": {
-          "mix": 0.30000001192092896,
-          "room": 0.8399999737739563,
-          "damp": 0.25
-        },
-        "eq": null
-      }
+        {
+          "kind": "reverb",
+          "bypassed": false,
+          "comp": null,
+          "delay": null,
+          "reverb": {
+            "mix": 0.30000001192092896,
+            "room": 0.8399999737739563,
+            "damp": 0.25
+          },
+          "eq": null,
+          "gate": null,
+          "sat": null,
+          "crush": null,
+          "chorus": null,
+          "phaser": null
+        }
+      ]
     },
     {
       "label": "synth",
@@ -243,13 +289,33 @@
       "fx": {
         "comp": null,
         "delay": null,
-        "reverb": {
-          "mix": 0.2199999988079071,
-          "room": 0.8399999737739563,
-          "damp": 0.25
-        },
-        "eq": null
-      }
+        "reverb": null,
+        "eq": null,
+        "gate": null,
+        "sat": null,
+        "crush": null,
+        "chorus": null,
+        "phaser": null
+      },
+      "fx_chain": [
+        {
+          "kind": "reverb",
+          "bypassed": false,
+          "comp": null,
+          "delay": null,
+          "reverb": {
+            "mix": 0.2199999988079071,
+            "room": 0.8399999737739563,
+            "damp": 0.25
+          },
+          "eq": null,
+          "gate": null,
+          "sat": null,
+          "crush": null,
+          "chorus": null,
+          "phaser": null
+        }
+      ]
     },
     {
       "label": "synth",
@@ -349,17 +415,37 @@
       "sampler": null,
       "drum": null,
       "fx": {
-        "comp": {
-          "threshold_db": -18,
-          "ratio": 4,
-          "attack_ms": 10,
-          "release_ms": 80,
-          "makeup_db": 0
-        },
+        "comp": null,
         "delay": null,
         "reverb": null,
-        "eq": null
-      }
+        "eq": null,
+        "gate": null,
+        "sat": null,
+        "crush": null,
+        "chorus": null,
+        "phaser": null
+      },
+      "fx_chain": [
+        {
+          "kind": "comp",
+          "bypassed": false,
+          "comp": {
+            "threshold_db": -18,
+            "ratio": 4,
+            "attack_ms": 10,
+            "release_ms": 80,
+            "makeup_db": 0
+          },
+          "delay": null,
+          "reverb": null,
+          "eq": null,
+          "gate": null,
+          "sat": null,
+          "crush": null,
+          "chorus": null,
+          "phaser": null
+        }
+      ]
     },
     {
       "label": "drums",
@@ -391,7 +477,7 @@
             "sustain": 1,
             "release_s": 0.004999999888241291,
             "sample_file": "",
-            "name": ""
+            "name": "kick"
           },
           {
             "gain": 0.8500000238418579,
@@ -405,7 +491,7 @@
             "sustain": 1,
             "release_s": 0.004999999888241291,
             "sample_file": "",
-            "name": ""
+            "name": "snare"
           },
           {
             "gain": 0.5,
@@ -419,7 +505,7 @@
             "sustain": 1,
             "release_s": 0.004999999888241291,
             "sample_file": "",
-            "name": ""
+            "name": "hihat"
           },
           {
             "gain": 0.5,
@@ -433,7 +519,7 @@
             "sustain": 1,
             "release_s": 0.004999999888241291,
             "sample_file": "",
-            "name": ""
+            "name": "open"
           },
           {
             "gain": 0.699999988079071,
@@ -447,7 +533,7 @@
             "sustain": 1,
             "release_s": 0.004999999888241291,
             "sample_file": "",
-            "name": ""
+            "name": "clap"
           },
           {
             "gain": 0.800000011920929,
@@ -461,7 +547,7 @@
             "sustain": 1,
             "release_s": 0.004999999888241291,
             "sample_file": "",
-            "name": ""
+            "name": "tom-1"
           },
           {
             "gain": 0.800000011920929,
@@ -475,7 +561,7 @@
             "sustain": 1,
             "release_s": 0.004999999888241291,
             "sample_file": "",
-            "name": ""
+            "name": "tom-2"
           },
           {
             "gain": 0.6499999761581421,
@@ -489,7 +575,7 @@
             "sustain": 1,
             "release_s": 0.004999999888241291,
             "sample_file": "",
-            "name": ""
+            "name": "rim"
           }
         ],
         "variants": [
@@ -561,14 +647,21 @@
           }
         ],
         "variant": 0,
-        "swing": 50
+        "swing": 50,
+        "choke_group": "\u0000\u0000\u0001\u0001\u0000\u0000\u0000\u0000"
       },
       "fx": {
         "comp": null,
         "delay": null,
         "reverb": null,
-        "eq": null
-      }
+        "eq": null,
+        "gate": null,
+        "sat": null,
+        "crush": null,
+        "chorus": null,
+        "phaser": null
+      },
+      "fx_chain": []
     }
   ],
   "arrangement": [
@@ -660,7 +753,9 @@
             0
           ],
           "step_count": 16,
-          "variant": 0
+          "variant": 0,
+          "gain_automation": [],
+          "pan_automation": []
         },
         {
           "start_bar": 10,
@@ -748,7 +843,9 @@
             0
           ],
           "step_count": 16,
-          "variant": 0
+          "variant": 0,
+          "gain_automation": [],
+          "pan_automation": []
         },
         {
           "start_bar": 12,
@@ -836,7 +933,9 @@
             0
           ],
           "step_count": 16,
-          "variant": 0
+          "variant": 0,
+          "gain_automation": [],
+          "pan_automation": []
         }
       ]
     },
@@ -916,7 +1015,9 @@
             0
           ],
           "step_count": 16,
-          "variant": 0
+          "variant": 0,
+          "gain_automation": [],
+          "pan_automation": []
         },
         {
           "start_bar": 4,
@@ -992,7 +1093,9 @@
             0
           ],
           "step_count": 16,
-          "variant": 0
+          "variant": 0,
+          "gain_automation": [],
+          "pan_automation": []
         },
         {
           "start_bar": 6,
@@ -1068,7 +1171,9 @@
             0
           ],
           "step_count": 16,
-          "variant": 0
+          "variant": 0,
+          "gain_automation": [],
+          "pan_automation": []
         },
         {
           "start_bar": 8,
@@ -1144,7 +1249,9 @@
             0
           ],
           "step_count": 16,
-          "variant": 0
+          "variant": 0,
+          "gain_automation": [],
+          "pan_automation": []
         },
         {
           "start_bar": 10,
@@ -1220,7 +1327,9 @@
             0
           ],
           "step_count": 16,
-          "variant": 0
+          "variant": 0,
+          "gain_automation": [],
+          "pan_automation": []
         },
         {
           "start_bar": 12,
@@ -1296,7 +1405,9 @@
             0
           ],
           "step_count": 16,
-          "variant": 0
+          "variant": 0,
+          "gain_automation": [],
+          "pan_automation": []
         },
         {
           "start_bar": 14,
@@ -1372,7 +1483,9 @@
             0
           ],
           "step_count": 16,
-          "variant": 0
+          "variant": 0,
+          "gain_automation": [],
+          "pan_automation": []
         }
       ]
     },
@@ -1464,7 +1577,9 @@
             0
           ],
           "step_count": 16,
-          "variant": 0
+          "variant": 0,
+          "gain_automation": [],
+          "pan_automation": []
         },
         {
           "start_bar": 4,
@@ -1552,7 +1667,9 @@
             0
           ],
           "step_count": 16,
-          "variant": 0
+          "variant": 0,
+          "gain_automation": [],
+          "pan_automation": []
         },
         {
           "start_bar": 6,
@@ -1640,7 +1757,9 @@
             0
           ],
           "step_count": 16,
-          "variant": 0
+          "variant": 0,
+          "gain_automation": [],
+          "pan_automation": []
         },
         {
           "start_bar": 8,
@@ -1728,7 +1847,9 @@
             0
           ],
           "step_count": 16,
-          "variant": 0
+          "variant": 0,
+          "gain_automation": [],
+          "pan_automation": []
         },
         {
           "start_bar": 10,
@@ -1816,7 +1937,9 @@
             0
           ],
           "step_count": 16,
-          "variant": 0
+          "variant": 0,
+          "gain_automation": [],
+          "pan_automation": []
         },
         {
           "start_bar": 12,
@@ -1904,7 +2027,9 @@
             0
           ],
           "step_count": 16,
-          "variant": 0
+          "variant": 0,
+          "gain_automation": [],
+          "pan_automation": []
         }
       ]
     },
@@ -1947,7 +2072,9 @@
             0
           ],
           "step_count": 16,
-          "variant": 0
+          "variant": 0,
+          "gain_automation": [],
+          "pan_automation": []
         },
         {
           "start_bar": 1,
@@ -1986,7 +2113,9 @@
             0
           ],
           "step_count": 16,
-          "variant": 0
+          "variant": 0,
+          "gain_automation": [],
+          "pan_automation": []
         },
         {
           "start_bar": 2,
@@ -2025,7 +2154,9 @@
             0
           ],
           "step_count": 16,
-          "variant": 0
+          "variant": 0,
+          "gain_automation": [],
+          "pan_automation": []
         },
         {
           "start_bar": 3,
@@ -2064,7 +2195,9 @@
             0
           ],
           "step_count": 16,
-          "variant": 1
+          "variant": 1,
+          "gain_automation": [],
+          "pan_automation": []
         },
         {
           "start_bar": 4,
@@ -2103,7 +2236,9 @@
             0
           ],
           "step_count": 16,
-          "variant": 0
+          "variant": 0,
+          "gain_automation": [],
+          "pan_automation": []
         },
         {
           "start_bar": 5,
@@ -2142,7 +2277,9 @@
             0
           ],
           "step_count": 16,
-          "variant": 0
+          "variant": 0,
+          "gain_automation": [],
+          "pan_automation": []
         },
         {
           "start_bar": 6,
@@ -2181,7 +2318,9 @@
             0
           ],
           "step_count": 16,
-          "variant": 0
+          "variant": 0,
+          "gain_automation": [],
+          "pan_automation": []
         },
         {
           "start_bar": 7,
@@ -2220,7 +2359,9 @@
             0
           ],
           "step_count": 16,
-          "variant": 1
+          "variant": 1,
+          "gain_automation": [],
+          "pan_automation": []
         },
         {
           "start_bar": 8,
@@ -2259,7 +2400,9 @@
             0
           ],
           "step_count": 16,
-          "variant": 0
+          "variant": 0,
+          "gain_automation": [],
+          "pan_automation": []
         },
         {
           "start_bar": 9,
@@ -2298,7 +2441,9 @@
             0
           ],
           "step_count": 16,
-          "variant": 0
+          "variant": 0,
+          "gain_automation": [],
+          "pan_automation": []
         },
         {
           "start_bar": 10,
@@ -2337,7 +2482,9 @@
             0
           ],
           "step_count": 16,
-          "variant": 0
+          "variant": 0,
+          "gain_automation": [],
+          "pan_automation": []
         },
         {
           "start_bar": 11,
@@ -2376,7 +2523,9 @@
             0
           ],
           "step_count": 16,
-          "variant": 1
+          "variant": 1,
+          "gain_automation": [],
+          "pan_automation": []
         },
         {
           "start_bar": 12,
@@ -2415,7 +2564,9 @@
             0
           ],
           "step_count": 16,
-          "variant": 0
+          "variant": 0,
+          "gain_automation": [],
+          "pan_automation": []
         },
         {
           "start_bar": 13,
@@ -2454,7 +2605,9 @@
             0
           ],
           "step_count": 16,
-          "variant": 0
+          "variant": 0,
+          "gain_automation": [],
+          "pan_automation": []
         },
         {
           "start_bar": 14,
@@ -2493,7 +2646,9 @@
             0
           ],
           "step_count": 16,
-          "variant": 0
+          "variant": 0,
+          "gain_automation": [],
+          "pan_automation": []
         },
         {
           "start_bar": 15,
@@ -2532,7 +2687,9 @@
             0
           ],
           "step_count": 16,
-          "variant": 1
+          "variant": 1,
+          "gain_automation": [],
+          "pan_automation": []
         }
       ]
     }
@@ -2542,6 +2699,12 @@
     "comp": null,
     "delay": null,
     "reverb": null,
-    "eq": null
-  }
+    "eq": null,
+    "gate": null,
+    "sat": null,
+    "crush": null,
+    "chorus": null,
+    "phaser": null
+  },
+  "master_fx_chain": []
 }

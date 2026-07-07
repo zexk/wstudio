@@ -18,11 +18,39 @@ pub fn main(init: std.process.Init) !void {
     var init_path: ?[]const u8 = null;
     if (args.next()) |cmd| {
         if (std.mem.eql(u8, cmd, "render")) return renderDemo(init.gpa, init.io);
+        if (std.mem.eql(u8, cmd, "--version") or std.mem.eql(u8, cmd, "-v")) return printVersion(init.io);
+        if (std.mem.eql(u8, cmd, "--help") or std.mem.eql(u8, cmd, "-h")) return printHelp(init.io);
         const len = @min(cmd.len, path_buf.len);
         @memcpy(path_buf[0..len], cmd[0..len]);
         init_path = path_buf[0..len];
     }
     return @import("tui/app.zig").run(init.gpa, init.io, init_path);
+}
+
+const version = "1.0.0";
+
+fn printVersion(io: std.Io) !void {
+    var stdout_buffer: [64]u8 = undefined;
+    var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buffer);
+    const stdout = &stdout_writer.interface;
+    try stdout.print("wstudio {s}\n", .{version});
+    try stdout.flush();
+}
+
+fn printHelp(io: std.Io) !void {
+    var stdout_buffer: [512]u8 = undefined;
+    var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buffer);
+    const stdout = &stdout_writer.interface;
+    try stdout.print(
+        "wstudio {s} — terminal DAW\n\n" ++
+            "Usage:\n" ++
+            "  wstudio [path]     Launch the TUI, optionally opening a .wsj project\n" ++
+            "  wstudio render      Render the built-in demo melody to out.wav\n" ++
+            "  wstudio --version   Print the version\n" ++
+            "  wstudio --help      Print this message\n",
+        .{version},
+    );
+    try stdout.flush();
 }
 
 const out_path = "out.wav";

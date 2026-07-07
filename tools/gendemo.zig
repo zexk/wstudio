@@ -61,10 +61,10 @@ pub fn main(init: std.process.Init) !void {
         s.attack_s = 0.012;
         s.release_s = 0.4;
         const r = session.racks.items[0];
-        r.fx.comp = ws.dsp.Compressor.init(session.project.sample_rate);
-        r.fx.delay = try ws.dsp.StereoDelay.init(gpa, session.project.sample_rate, 2.0);
-        r.fx.delay.?.setTime(0.375);
-        r.fx.reverb = try ws.dsp.Reverb.init(gpa, session.project.sample_rate);
+        const sr = session.project.sample_rate;
+        _ = try r.fx.insert(gpa, r.fx.units.items.len, .comp, sr);
+        (try r.fx.insert(gpa, r.fx.units.items.len, .delay, sr)).payload.delay.setTime(0.375);
+        _ = try r.fx.insert(gpa, r.fx.units.items.len, .reverb, sr);
         const pp = &r.pattern_player.?;
         pp.length_beats = 8.0;
         // A simple two-bar arpeggio over Am.
@@ -100,8 +100,7 @@ pub fn main(init: std.process.Init) !void {
         s.noise_color = 1.0;
         s.gain = 0.32;
         const r = session.racks.items[1];
-        r.fx.reverb = try ws.dsp.Reverb.init(gpa, session.project.sample_rate);
-        r.fx.reverb.?.mix = 0.22;
+        (try r.fx.insert(gpa, r.fx.units.items.len, .reverb, session.project.sample_rate)).payload.reverb.mix = 0.22;
         const pp = &r.pattern_player.?;
         pp.length_beats = 8.0;
         // Am — F chord stabs.
@@ -140,7 +139,7 @@ pub fn main(init: std.process.Init) !void {
         s.fenv_sustain = 0.0;
         s.gain = 0.40;
         const r = session.racks.items[2];
-        r.fx.comp = ws.dsp.Compressor.init(session.project.sample_rate);
+        _ = try r.fx.insert(gpa, r.fx.units.items.len, .comp, session.project.sample_rate);
         const pp = &r.pattern_player.?;
         pp.length_beats = 8.0;
         // Root notes: A1 for the Am bar, F1 for the F bar.

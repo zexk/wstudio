@@ -1,6 +1,6 @@
 .{
     .name = .wstudio,
-    .version = "0.1.0",
+    .version = "1.0.0",
     .fingerprint = 0x4f4a97ceccd8d25d,
     .minimum_zig_version = "0.16.0",
     .dependencies = .{},
