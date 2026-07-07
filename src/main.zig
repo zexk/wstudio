@@ -5,6 +5,20 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const ws = @import("wstudio");
+const app = @import("tui/app.zig");
+
+/// Restore the terminal (cooked mode, mouse tracking off, alternate screen
+/// closed) before handing off to the normal trace printer — otherwise a
+/// panic mid-session leaves raw mode + SGR mouse reporting on, so the shell
+/// reads garbled and the panic message itself never renders straight.
+/// `app.active_terminal` is only set while `App.run`'s raw-mode session is
+/// live, so `render`/`--version`/`--help` panics fall straight through.
+pub const panic = std.debug.FullPanic(panicHandler);
+
+fn panicHandler(msg: []const u8, first_trace_addr: ?usize) noreturn {
+    if (app.active_terminal) |t| t.deinit();
+    std.debug.defaultPanic(msg, first_trace_addr);
+}
 
 pub fn main(init: std.process.Init) !void {
     var args = try std.process.Args.Iterator.initAllocator(init.minimal.args, init.gpa);

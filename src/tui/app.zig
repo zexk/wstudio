@@ -1842,6 +1842,13 @@ fn renderTrampoline(ctx: *anyopaque, out: []types.Sample) void {
     engine.process(out);
 }
 
+/// Set for the lifetime of `run`'s raw-mode session so `main.zig`'s panic
+/// handler can find the terminal to restore before it prints the crash
+/// trace — without this, a panic left the terminal in raw mode with SGR
+/// mouse tracking still on: the shell reads garbled, and the panic message
+/// itself is unreadable (no \r\n translation, alternate screen still up).
+pub var active_terminal: ?*terminal_mod.Terminal = null;
+
 pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8) !void {
     var term = terminal_mod.Terminal.init(io) catch {
         std.debug.print(
@@ -1850,7 +1857,8 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8) !vo
         );
         return;
     };
-    defer term.deinit();
+    active_terminal = &term;
+    defer { term.deinit(); active_terminal = null; }
 
     var app = try App.init(allocator, io);
     defer app.deinit();
