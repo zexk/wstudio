@@ -25,11 +25,15 @@ const level_glyphs = [_][]const u8{
     "\u{2585}", "\u{2586}", "\u{2587}", "\u{2588}",
 };
 
-fn valueGlyph(val: ?f32, range: [2]f32) []const u8 {
-    const v = val orelse return level_glyphs[0];
+/// Sub-cell levels a value fills, out of `graph_rows * 8` eighth-blocks —
+/// the bar graph's whole vertical resolution. A null value (no automation
+/// on the curve yet) sits on the baseline.
+fn valueLevel(val: ?f32, range: [2]f32, graph_rows: usize) usize {
+    const v = val orelse return 1;
     const norm = std.math.clamp((v - range[0]) / (range[1] - range[0]), 0.0, 1.0);
-    const lvl: usize = @intFromFloat(@round(norm * @as(f32, @floatFromInt(level_glyphs.len - 1))));
-    return level_glyphs[@min(lvl, level_glyphs.len - 1)];
+    const total: f32 = @floatFromInt(graph_rows * 8);
+    const lvl: usize = @intFromFloat(@round(norm * total));
+    return @max(lvl, 1); // floor values keep a visible ▁ baseline
 }
 
 /// Left indent before the step columns start — shared with
@@ -128,33 +132,46 @@ pub fn drawAutomation(
     }
     try endLine(w);
 
-    // Bar graph: one glyph per step. Explicit points are bold+accent,
+    // Bar graph: each step is a column rising to its value, drawn over
+    // several rows of eighth-blocks for real vertical resolution (one row
+    // gave gain's 52dB span only 8 levels). Explicit points are bold+accent,
     // interpolated-only steps are dim, the cursor is reverse-video, a
     // visual-mode selection tints its range yellow (matching the piano
     // roll's `in_sel` convention).
-    try w.writeAll("   ");
-    col = 0;
-    while (col < visible and scroll + col <= total_steps) : (col += 1) {
-        const step = scroll + col;
-        const beat = @as(f64, @floatFromInt(step)) * 0.25;
-        const is_cursor = step == app.automation_cursor_step;
-        const is_point = hasPointAt(points, beat);
-        const in_sel = visual_active and step >= sel_lo and step <= sel_hi;
-        const val = automation_mod.interpolate(points, beat);
-        if (is_cursor) {
-            try w.writeAll(sel);
-        } else if (is_point) {
-            try w.writeAll(bold);
-            try w.writeAll(if (in_sel) yel else acc);
-        } else if (in_sel) {
-            try w.writeAll(yel);
-        } else {
-            try w.writeAll(dim);
+    const graph_rows: usize = @max(1, @min(8, rows -| 8));
+    for (0..graph_rows) |line| {
+        const row_base = (graph_rows - 1 - line) * 8; // eighth-blocks below this row
+        try w.writeAll("   ");
+        col = 0;
+        while (col < visible and scroll + col <= total_steps) : (col += 1) {
+            const step = scroll + col;
+            const beat = @as(f64, @floatFromInt(step)) * 0.25;
+            const is_cursor = step == app.automation_cursor_step;
+            const is_point = hasPointAt(points, beat);
+            const in_sel = visual_active and step >= sel_lo and step <= sel_hi;
+            const val = automation_mod.interpolate(points, beat);
+            const rem = @min(valueLevel(val, range, graph_rows) -| row_base, 8);
+            if (rem == 0) {
+                // hairline above the cursor's bar so the column reads at
+                // any height; other empty cells stay blank
+                if (is_cursor) try w.writeAll(dim ++ "\u{2502}" ++ rst) else try w.writeByte(' ');
+                continue;
+            }
+            if (is_cursor) {
+                try w.writeAll(sel);
+            } else if (is_point) {
+                try w.writeAll(bold);
+                try w.writeAll(if (in_sel) yel else acc);
+            } else if (in_sel) {
+                try w.writeAll(yel);
+            } else {
+                try w.writeAll(dim);
+            }
+            try w.writeAll(level_glyphs[rem - 1]);
+            if (is_cursor or is_point or in_sel) try w.writeAll(rst);
         }
-        try w.writeAll(valueGlyph(val, range));
-        if (is_cursor or is_point or in_sel) try w.writeAll(rst);
+        try endLine(w);
     }
-    try endLine(w);
 
     // Caret row marking the cursor column.
     try w.writeAll("   ");
@@ -165,7 +182,7 @@ pub fn drawAutomation(
     try endLine(w);
 
     // used includes the 2 outer rows (header + hr) so padding aligns with drum-grid convention
-    const used = 6;
+    const used = 5 + graph_rows;
     for (used..@max(used, rows -| 3)) |_| try endLine(w);
 }
 
