@@ -72,7 +72,13 @@ const AutomationPoint = automation_mod.AutomationPoint;
 /// v9 adds the five new FX units (`FxSnap.gate`/`sat`/`crush`/`chorus`/
 /// `phaser`, see rack.zig's Fx). Older files omit them and load with those
 /// slots empty, the prior behaviour.
-pub const file_version: u32 = 9;
+/// v10 replaces the fixed nine-slot FX rack with a user-built ordered chain
+/// (`RackSnap.fx_chain`/`Snapshot.master_fx_chain`, a list of `FxUnitSnap` in
+/// signal-flow order — duplicates allowed, per-slot bypass). Older files
+/// carry the struct-of-optionals `fx`/`master_fx` instead; they load as a
+/// chain in the old hard-wired order (gate → comp → eq → sat → crush →
+/// chorus → phaser → delay → reverb), the audible behaviour they had.
+pub const file_version: u32 = 10;
 
 pub const AutomationPointSnap = struct {
     beat: f64,
@@ -248,7 +254,30 @@ pub const PhaserSnap = struct {
     mix: f32 = 0.5,
 };
 
+/// Legacy (v9 and older) fixed nine-slot rack: one optional per slot, order
+/// implied. Read-only on load; v10 files carry `fx_chain` instead.
 pub const FxSnap = struct {
+    comp: ?CompSnap = null,
+    delay: ?DelaySnap = null,
+    reverb: ?ReverbSnap = null,
+    eq: ?EqSnap = null,
+    gate: ?GateSnap = null,
+    sat: ?SatSnap = null,
+    crush: ?CrushSnap = null,
+    chorus: ?ChorusSnap = null,
+    phaser: ?PhaserSnap = null,
+};
+
+/// Mirrors rack.zig's FxKind — persist keeps its own copy so snapshots stay
+/// pure data, same pattern as `InstrumentKind` below.
+pub const FxKind = enum { gate, comp, eq, sat, crush, chorus, phaser, delay, reverb };
+
+/// One chain slot (v10): its kind, bypass flag, and the params for that kind
+/// in the matching optional (the others stay null). A missing params field
+/// loads the unit with its defaults.
+pub const FxUnitSnap = struct {
+    kind: FxKind,
+    bypassed: bool = false,
     comp: ?CompSnap = null,
     delay: ?DelaySnap = null,
     reverb: ?ReverbSnap = null,
@@ -278,7 +307,10 @@ pub const RackSnap = struct {
     synth: ?SynthSnap = null,
     sampler: ?SamplerSnap = null,
     drum: ?DrumSnap = null,
+    /// Legacy fixed rack (v9 and older). Only read when `fx_chain` is null.
     fx: FxSnap = .{},
+    /// v10: the user-built chain in signal-flow order.
+    fx_chain: ?[]const FxUnitSnap = null,
 };
 
 pub const TrackSnap = struct {
@@ -338,7 +370,10 @@ pub const Snapshot = struct {
     /// Whether the loaded project plays the arrangement (true) or live loops.
     song_mode: bool = false,
     /// v6: master bus FX, applied to the summed mix before gain/limiter.
+    /// Legacy fixed rack; only read when `master_fx_chain` is null.
     master_fx: FxSnap = .{},
+    /// v10: the master bus's user-built chain in signal-flow order.
+    master_fx_chain: ?[]const FxUnitSnap = null,
 };
 
 // ---------------------------------------------------------------------------
@@ -389,7 +424,7 @@ pub fn save(
         .racks = racks,
         .arrangement = lanes,
         .song_mode = session.song_mode,
-        .master_fx = fxToSnap(&session.master_fx, session.project.sample_rate),
+        .master_fx_chain = try chainToSnap(aa, &session.master_fx, session.project.sample_rate),
     };
 
     const json_bytes = try std.json.Stringify.valueAlloc(aa, snap, .{ .whitespace = .indent_2 });
@@ -479,43 +514,42 @@ fn rackToSnap(aa: std.mem.Allocator, rack: *Rack, sample_rate: u32) !RackSnap {
         },
     }
 
-    rs.fx = fxToSnap(&rack.fx, sample_rate);
+    rs.fx_chain = try chainToSnap(aa, &rack.fx, sample_rate);
 
     return rs;
 }
 
-/// Shared by track racks and the master bus — both hold a plain `Fx`.
-fn fxToSnap(fx: *const Fx, sample_rate: u32) FxSnap {
-    var out: FxSnap = .{};
-    if (fx.comp) |*c| {
-        out.comp = .{ .threshold_db = c.threshold_db, .ratio = c.ratio, .attack_ms = c.attack_ms, .release_ms = c.release_ms, .makeup_db = c.makeup_db };
-    }
-    if (fx.delay) |*d| {
-        const sr_f: f32 = @floatFromInt(sample_rate);
-        out.delay = .{ .time_s = @as(f32, @floatFromInt(d.delay_frames)) / sr_f, .feedback = d.feedback, .mix = d.mix };
-    }
-    if (fx.reverb) |*r| {
-        out.reverb = .{ .mix = r.mix, .room = r.room, .damp = r.damp };
-    }
-    if (fx.eq) |*e| {
-        var gains: [eq_mod.num_eq_bands]f32 = undefined;
-        for (&e.bands, 0..) |*b, i| gains[i] = b.gain_db;
-        out.eq = .{ .band_gains = gains, .bypass = e.bypass };
-    }
-    if (fx.gate) |*g| {
-        out.gate = .{ .threshold_db = g.threshold_db, .attack_ms = g.attack_ms, .release_ms = g.release_ms };
-    }
-    if (fx.sat) |*s| {
-        out.sat = .{ .drive_db = s.drive_db, .out_db = s.out_db, .mix = s.mix };
-    }
-    if (fx.crush) |*c| {
-        out.crush = .{ .bits = c.bits, .downsample = c.downsample, .mix = c.mix };
-    }
-    if (fx.chorus) |*c| {
-        out.chorus = .{ .rate_hz = c.rate_hz, .depth_ms = c.depth_ms, .mix = c.mix };
-    }
-    if (fx.phaser) |*p| {
-        out.phaser = .{ .rate_hz = p.rate_hz, .depth = p.depth, .feedback = p.feedback, .mix = p.mix };
+/// Shared by track racks and the master bus — both hold a user-built `Fx`
+/// chain. One FxUnitSnap per slot, in chain order.
+fn chainToSnap(aa: std.mem.Allocator, fx: *const Fx, sample_rate: u32) ![]FxUnitSnap {
+    const out = try aa.alloc(FxUnitSnap, fx.units.items.len);
+    for (fx.units.items, out) |u, *us| {
+        us.* = switch (u.payload) {
+            .comp => |c| .{ .kind = .comp, .comp = .{
+                .threshold_db = c.threshold_db, .ratio = c.ratio,
+                .attack_ms = c.attack_ms, .release_ms = c.release_ms, .makeup_db = c.makeup_db,
+            } },
+            .delay => |d| .{ .kind = .delay, .delay = .{
+                .time_s = @as(f32, @floatFromInt(d.delay_frames)) / @as(f32, @floatFromInt(sample_rate)),
+                .feedback = d.feedback, .mix = d.mix,
+            } },
+            .reverb => |r| .{ .kind = .reverb, .reverb = .{ .mix = r.mix, .room = r.room, .damp = r.damp } },
+            .eq => |e| blk: {
+                var gains: [eq_mod.num_eq_bands]f32 = undefined;
+                for (&e.bands, 0..) |*b, i| gains[i] = b.gain_db;
+                break :blk .{ .kind = .eq, .eq = .{ .band_gains = gains } };
+            },
+            .gate => |g| .{ .kind = .gate, .gate = .{
+                .threshold_db = g.threshold_db, .attack_ms = g.attack_ms, .release_ms = g.release_ms,
+            } },
+            .sat => |s| .{ .kind = .sat, .sat = .{ .drive_db = s.drive_db, .out_db = s.out_db, .mix = s.mix } },
+            .crush => |c| .{ .kind = .crush, .crush = .{ .bits = c.bits, .downsample = c.downsample, .mix = c.mix } },
+            .chorus => |c| .{ .kind = .chorus, .chorus = .{ .rate_hz = c.rate_hz, .depth_ms = c.depth_ms, .mix = c.mix } },
+            .phaser => |p| .{ .kind = .phaser, .phaser = .{
+                .rate_hz = p.rate_hz, .depth = p.depth, .feedback = p.feedback, .mix = p.mix,
+            } },
+        };
+        us.bypassed = u.bypassed;
     }
     return out;
 }
@@ -904,7 +938,8 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
             },
         }
 
-        try applyFx(allocator, &rack.fx, rs.fx, sr);
+        if (rs.fx_chain) |fc| try applyFxChain(allocator, &rack.fx, fc, sr)
+        else try applyLegacyFx(allocator, &rack.fx, rs.fx, sr);
         try racks.append(allocator, rack);
     }
 
@@ -927,7 +962,8 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
         self.engine.setTrackChain(@intCast(i), rack.chain(&buf));
     }
 
-    try applyFx(allocator, &self.master_fx, snap.master_fx, sr);
+    if (snap.master_fx_chain) |fc| try applyFxChain(allocator, &self.master_fx, fc, sr)
+    else try applyLegacyFx(allocator, &self.master_fx, snap.master_fx, sr);
     self.syncMasterChain();
 
     // Restore placed clips, then the song/pattern mode (setSongMode rebuilds the
@@ -1068,65 +1104,85 @@ fn applyToSynth(s: *PolySynth, ss: *const SynthSnap) void {
     s.gain = ss.gain;
 }
 
-/// Shared by track racks and the master bus — both hold a plain `Fx`.
-fn applyFx(allocator: std.mem.Allocator, fx_out: *Fx, fx: FxSnap, sr: u32) !void {
-    if (fx.comp) |cs| {
-        var c = Compressor.init(sr);
-        c.threshold_db = cs.threshold_db;
-        c.ratio = cs.ratio;
-        c.attack_ms = cs.attack_ms;
-        c.release_ms = cs.release_ms;
-        c.makeup_db = cs.makeup_db;
-        fx_out.comp = c;
+/// Rebuild a live chain from v10 unit snaps, in file order. Shared by track
+/// racks and the master bus — both hold a user-built `Fx` chain. Snaps past
+/// the chain cap are dropped (only reachable by hand-editing the file).
+/// A unit whose params field is null keeps its defaults.
+fn applyFxChain(allocator: std.mem.Allocator, fx_out: *Fx, chain: []const FxUnitSnap, sr: u32) !void {
+    for (chain) |us| {
+        if (fx_out.units.items.len >= Fx.max_units) break;
+        const kind: rack_mod.FxKind = switch (us.kind) {
+            .gate => .gate, .comp => .comp, .eq => .eq,
+            .sat => .sat, .crush => .crush, .chorus => .chorus,
+            .phaser => .phaser, .delay => .delay, .reverb => .reverb,
+        };
+        const unit = try fx_out.insert(allocator, fx_out.units.items.len, kind, sr);
+        unit.bypassed = us.bypassed;
+        switch (unit.payload) {
+            .comp => |*c| if (us.comp) |cs| {
+                c.threshold_db = cs.threshold_db;
+                c.ratio = cs.ratio;
+                c.attack_ms = cs.attack_ms;
+                c.release_ms = cs.release_ms;
+                c.makeup_db = cs.makeup_db;
+            },
+            .delay => |*d| if (us.delay) |ds| {
+                d.setTime(ds.time_s);
+                d.feedback = ds.feedback;
+                d.mix = ds.mix;
+            },
+            .reverb => |*r| if (us.reverb) |rs| {
+                r.mix = rs.mix;
+                r.room = rs.room;
+                r.damp = rs.damp;
+            },
+            .eq => |*e| if (us.eq) |es| {
+                e.setAllBands(es.band_gains);
+                // Legacy EQ-only bypass maps onto the slot's generic one.
+                if (es.bypass) unit.bypassed = true;
+            },
+            .gate => |*g| if (us.gate) |gs| {
+                g.threshold_db = gs.threshold_db;
+                g.attack_ms = gs.attack_ms;
+                g.release_ms = gs.release_ms;
+            },
+            .sat => |*s| if (us.sat) |ss| {
+                s.* = .{ .drive_db = ss.drive_db, .out_db = ss.out_db, .mix = ss.mix };
+            },
+            .crush => |*c| if (us.crush) |cs| {
+                c.* = .{ .bits = cs.bits, .downsample = cs.downsample, .mix = cs.mix };
+            },
+            .chorus => |*c| if (us.chorus) |cs| {
+                c.rate_hz = cs.rate_hz;
+                c.depth_ms = cs.depth_ms;
+                c.mix = cs.mix;
+            },
+            .phaser => |*p| if (us.phaser) |ps| {
+                p.rate_hz = ps.rate_hz;
+                p.depth = ps.depth;
+                p.feedback = ps.feedback;
+                p.mix = ps.mix;
+            },
+        }
     }
-    if (fx.delay) |ds| {
-        var d = try StereoDelay.init(allocator, sr, 2.0);
-        d.setTime(ds.time_s);
-        d.feedback = ds.feedback;
-        d.mix = ds.mix;
-        fx_out.delay = d;
-    }
-    if (fx.reverb) |rs| {
-        var r = try Reverb.init(allocator, sr);
-        r.mix = rs.mix;
-        r.room = rs.room;
-        r.damp = rs.damp;
-        fx_out.reverb = r;
-    }
-    if (fx.eq) |es| {
-        var eq = GraphicEq.init(sr);
-        eq.setAllBands(es.band_gains);
-        eq.bypass = es.bypass;
-        fx_out.eq = eq;
-    }
-    if (fx.gate) |gs| {
-        var g = Gate.init(sr);
-        g.threshold_db = gs.threshold_db;
-        g.attack_ms = gs.attack_ms;
-        g.release_ms = gs.release_ms;
-        fx_out.gate = g;
-    }
-    if (fx.sat) |ss| {
-        fx_out.sat = .{ .drive_db = ss.drive_db, .out_db = ss.out_db, .mix = ss.mix };
-    }
-    if (fx.crush) |cs| {
-        fx_out.crush = .{ .bits = cs.bits, .downsample = cs.downsample, .mix = cs.mix };
-    }
-    if (fx.chorus) |cs| {
-        var c = try Chorus.init(allocator, sr);
-        c.rate_hz = cs.rate_hz;
-        c.depth_ms = cs.depth_ms;
-        c.mix = cs.mix;
-        fx_out.chorus = c;
-    }
-    if (fx.phaser) |ps| {
-        var p = Phaser.init(sr);
-        p.rate_hz = ps.rate_hz;
-        p.depth = ps.depth;
-        p.feedback = ps.feedback;
-        p.mix = ps.mix;
-        fx_out.phaser = p;
-    }
+}
+
+/// v9-and-older fallback: expand the fixed struct-of-optionals rack into
+/// unit snaps in the order the old `Fx.chain()` hard-wired, then load them
+/// through the same path as v10 chains.
+fn applyLegacyFx(allocator: std.mem.Allocator, fx_out: *Fx, fx: FxSnap, sr: u32) !void {
+    var snaps: [Fx.max_units]FxUnitSnap = undefined;
+    var n: usize = 0;
+    if (fx.gate)   |gs| { snaps[n] = .{ .kind = .gate, .gate = gs };       n += 1; }
+    if (fx.comp)   |cs| { snaps[n] = .{ .kind = .comp, .comp = cs };       n += 1; }
+    if (fx.eq)     |es| { snaps[n] = .{ .kind = .eq, .eq = es };           n += 1; }
+    if (fx.sat)    |ss| { snaps[n] = .{ .kind = .sat, .sat = ss };         n += 1; }
+    if (fx.crush)  |cs| { snaps[n] = .{ .kind = .crush, .crush = cs };     n += 1; }
+    if (fx.chorus) |cs| { snaps[n] = .{ .kind = .chorus, .chorus = cs };   n += 1; }
+    if (fx.phaser) |ps| { snaps[n] = .{ .kind = .phaser, .phaser = ps };   n += 1; }
+    if (fx.delay)  |ds| { snaps[n] = .{ .kind = .delay, .delay = ds };     n += 1; }
+    if (fx.reverb) |rs| { snaps[n] = .{ .kind = .reverb, .reverb = rs };   n += 1; }
+    try applyFxChain(allocator, fx_out, snaps[0..n], sr);
 }
 
 // ---------------------------------------------------------------------------
@@ -1266,7 +1322,8 @@ test "buildSession: constructs valid Session from snapshot" {
     try testing.expectEqual(@as(u7, 69), pp.notes[0].pitch);
     try testing.expectApproxEqAbs(@as(f64, 8.0), pp.length_beats, 1e-9);
 
-    const comp = &session.racks.items[0].fx.comp.?;
+    // Legacy v9 `fx` field: loads as a one-unit chain.
+    const comp = &session.racks.items[0].fx.find(.comp).?.payload.comp;
     try testing.expectApproxEqAbs(@as(f32, -24.0), comp.threshold_db, 1e-4);
     try testing.expectApproxEqAbs(@as(f32, 6.0), comp.ratio, 1e-4);
 
@@ -1278,7 +1335,7 @@ test "buildSession: constructs valid Session from snapshot" {
     try testing.expectApproxEqAbs(@as(f32, 0.5), dm.pads[0].pad.end_norm, 1e-4);
 }
 
-test "buildSession: master FX round-trips and reaches the engine chain" {
+test "buildSession: legacy master FX loads in the old fixed order" {
     const testing = std.testing;
 
     const snap: Snapshot = .{
@@ -1294,14 +1351,48 @@ test "buildSession: master FX round-trips and reaches the engine chain" {
     var session = try buildSession(testing.allocator, &snap);
     defer session.deinit();
 
-    const comp = &session.master_fx.comp.?;
+    // The v9 rack hard-wired comp before eq — the rebuilt chain keeps that.
+    try testing.expectEqual(@as(usize, 2), session.master_fx.units.items.len);
+    const comp = &session.master_fx.units.items[0].payload.comp;
     try testing.expectApproxEqAbs(@as(f32, -12.0), comp.threshold_db, 1e-4);
     try testing.expectApproxEqAbs(@as(f32, 3.0), comp.ratio, 1e-4);
-    const eq = &session.master_fx.eq.?;
+    const eq = &session.master_fx.units.items[1].payload.eq;
     try testing.expectApproxEqAbs(@as(f32, 2.0), eq.bands[0].gain_db, 1e-4);
-    // No delay/reverb in the snapshot — only comp + eq should have reached
-    // the engine's master chain.
+    // Both units should have reached the engine's master chain.
     try testing.expectEqual(@as(usize, 2), session.engine.master_chain_len);
+}
+
+test "buildSession: v10 fx_chain keeps user order, duplicates, and bypass" {
+    const testing = std.testing;
+
+    // Reverb *before* the comp (impossible in the old rack), two saturators,
+    // and a bypassed crusher in the middle.
+    const snap: Snapshot = .{
+        .sample_rate = 48_000,
+        .tracks = &.{.{ .name = "lead" }},
+        .racks = &.{.{ .label = "lead", .kind = .empty }},
+        .master_fx_chain = &.{
+            .{ .kind = .reverb, .reverb = .{ .mix = 0.6, .room = 0.9, .damp = 0.1 } },
+            .{ .kind = .sat, .sat = .{ .drive_db = 6.0, .out_db = 0.0, .mix = 1.0 } },
+            .{ .kind = .crush, .bypassed = true },
+            .{ .kind = .sat, .sat = .{ .drive_db = 24.0, .out_db = -3.0, .mix = 0.5 } },
+            .{ .kind = .comp },
+        },
+    };
+
+    var session = try buildSession(testing.allocator, &snap);
+    defer session.deinit();
+
+    const units = session.master_fx.units.items;
+    try testing.expectEqual(@as(usize, 5), units.len);
+    try testing.expectApproxEqAbs(@as(f32, 0.6), units[0].payload.reverb.mix, 1e-4);
+    try testing.expectApproxEqAbs(@as(f32, 6.0), units[1].payload.sat.drive_db, 1e-4);
+    try testing.expect(units[2].bypassed);
+    try testing.expectApproxEqAbs(@as(f32, 24.0), units[3].payload.sat.drive_db, 1e-4);
+    // Missing params field (.comp) loads with defaults.
+    try testing.expectApproxEqAbs(@as(f32, -18.0), units[4].payload.comp.threshold_db, 1e-4);
+    // The bypassed crusher is skipped by chain(): 4 of 5 reach the engine.
+    try testing.expectEqual(@as(usize, 4), session.engine.master_chain_len);
 }
 
 test "save/load round-trip persists master FX" {
@@ -1314,30 +1405,34 @@ test "save/load round-trip persists master FX" {
     var session = try Session.initDefault(testing.allocator);
     defer session.deinit();
     const sr = session.project.sample_rate;
-    session.master_fx.comp = Compressor.init(sr);
-    session.master_fx.comp.?.threshold_db = -9.0;
-    session.master_fx.gate = Gate.init(sr);
-    session.master_fx.gate.?.threshold_db = -42.0;
-    session.master_fx.sat = .{ .drive_db = 18.0 };
-    session.master_fx.crush = .{ .bits = 6.0, .downsample = 8.0 };
-    session.master_fx.chorus = try Chorus.init(testing.allocator, sr);
-    session.master_fx.chorus.?.rate_hz = 1.5;
-    session.master_fx.phaser = Phaser.init(sr);
-    session.master_fx.phaser.?.feedback = 0.7;
+    const alloc = testing.allocator;
+    // Deliberately un-rack-like order: sat ahead of the gate, comp last.
+    (try session.master_fx.insert(alloc, 0, .sat, sr)).payload.sat.drive_db = 18.0;
+    (try session.master_fx.insert(alloc, 1, .gate, sr)).payload.gate.threshold_db = -42.0;
+    const crush = try session.master_fx.insert(alloc, 2, .crush, sr);
+    crush.payload.crush = .{ .bits = 6.0, .downsample = 8.0 };
+    crush.bypassed = true;
+    (try session.master_fx.insert(alloc, 3, .chorus, sr)).payload.chorus.rate_hz = 1.5;
+    (try session.master_fx.insert(alloc, 4, .phaser, sr)).payload.phaser.feedback = 0.7;
+    (try session.master_fx.insert(alloc, 5, .comp, sr)).payload.comp.threshold_db = -9.0;
     session.syncMasterChain();
 
     try save(testing.allocator, &session, testing.io, wsj_path);
     var loaded = try load(testing.allocator, testing.io, wsj_path);
     defer loaded.deinit();
 
-    try testing.expectApproxEqAbs(@as(f32, -9.0), loaded.master_fx.comp.?.threshold_db, 1e-4);
-    try testing.expectApproxEqAbs(@as(f32, -42.0), loaded.master_fx.gate.?.threshold_db, 1e-4);
-    try testing.expectApproxEqAbs(@as(f32, 18.0), loaded.master_fx.sat.?.drive_db, 1e-4);
-    try testing.expectApproxEqAbs(@as(f32, 6.0), loaded.master_fx.crush.?.bits, 1e-4);
-    try testing.expectApproxEqAbs(@as(f32, 8.0), loaded.master_fx.crush.?.downsample, 1e-4);
-    try testing.expectApproxEqAbs(@as(f32, 1.5), loaded.master_fx.chorus.?.rate_hz, 1e-4);
-    try testing.expectApproxEqAbs(@as(f32, 0.7), loaded.master_fx.phaser.?.feedback, 1e-4);
-    try testing.expectEqual(@as(usize, 6), loaded.engine.master_chain_len);
+    const units = loaded.master_fx.units.items;
+    try testing.expectEqual(@as(usize, 6), units.len);
+    try testing.expectApproxEqAbs(@as(f32, 18.0), units[0].payload.sat.drive_db, 1e-4);
+    try testing.expectApproxEqAbs(@as(f32, -42.0), units[1].payload.gate.threshold_db, 1e-4);
+    try testing.expectApproxEqAbs(@as(f32, 6.0), units[2].payload.crush.bits, 1e-4);
+    try testing.expectApproxEqAbs(@as(f32, 8.0), units[2].payload.crush.downsample, 1e-4);
+    try testing.expect(units[2].bypassed);
+    try testing.expectApproxEqAbs(@as(f32, 1.5), units[3].payload.chorus.rate_hz, 1e-4);
+    try testing.expectApproxEqAbs(@as(f32, 0.7), units[4].payload.phaser.feedback, 1e-4);
+    try testing.expectApproxEqAbs(@as(f32, -9.0), units[5].payload.comp.threshold_db, 1e-4);
+    // The bypassed crusher stays out of the live chain.
+    try testing.expectEqual(@as(usize, 5), loaded.engine.master_chain_len);
 }
 
 test "buildSession: arrangement clips and song_mode round-trip" {

@@ -50,7 +50,7 @@ const tap_timeout_ns: i96 = 2 * std.time.ns_per_s;
 /// Minimum gap between silent `<path>~` backups; see `maybeAutosave`.
 const autosave_interval_ns: i96 = 30 * std.time.ns_per_s;
 
-pub const AppView = enum { tracks, drum_grid, synth_editor, sampler_editor, help, track_spectrum, master_spectrum, piano_roll, instrument_picker, arrangement, file_browser, automation };
+pub const AppView = enum { tracks, drum_grid, synth_editor, sampler_editor, help, track_spectrum, master_spectrum, piano_roll, instrument_picker, fx_picker, arrangement, file_browser, automation };
 
 /// Which waveform marker a sampler-editor mouse drag is moving — see
 /// `App.sampler_drag_marker` and editors/sampler.zig's handleMouse.
@@ -201,8 +201,13 @@ pub const App = struct {
     now_ns: i96 = 0,
     /// Selected param row within the focused FX unit (EQ's are its bands).
     fx_param: usize = 0,
-    /// Which chain unit the spectrum/FX view is focused on — Tab cycles it.
-    fx_focus: spectrum_ed.FxUnit = .eq,
+    /// Chain slot index the FX view is focused on — Tab cycles it. Clamped
+    /// by every chain mutation; out of range only while the chain is empty.
+    fx_focus: usize = 0,
+    /// Highlighted row in the FX picker.
+    fx_picker_cursor: u8 = 0,
+    /// Chain view the FX picker returns to (track_spectrum/master_spectrum).
+    fx_picker_return: AppView = .tracks,
     eq_track: u16 = 0,
     /// Scroll offset (in lines) of the help view; clamped by tui.drawHelp.
     help_scroll: usize = 0,
@@ -543,6 +548,7 @@ pub const App = struct {
                 self.applyAction(self.modal.handle(key), now_ns);
             } else { self.modal.count = 0; },
             .instrument_picker => self.handlePickerKey(key),
+            .fx_picker => self.handleFxPickerKey(key),
             .file_browser => if (self.modal.mode == .search) {
                 self.applyAction(self.modal.handle(key), now_ns);
             } else self.handleBrowserKey(key),
@@ -644,6 +650,7 @@ pub const App = struct {
             .track_spectrum, .master_spectrum => spectrum_ed.handleMouse(self, ev, row, cols, view_rows),
             .arrangement => arrangement_ed.handleMouse(self, ev, row, cols),
             .instrument_picker => self.pickerMouse(ev, row),
+            .fx_picker => self.fxPickerMouse(ev, row),
             .file_browser => self.browserMouse(ev, row),
             .help => self.helpMouse(ev),
             .automation => automation_ed.handleMouse(self, ev, row),
@@ -817,6 +824,39 @@ pub const App = struct {
         self.setStatus("inserted {s}", .{picker_labels[self.picker_cursor]});
         self.view = .tracks;
         self.openTrack(self.cursor);
+    }
+
+    /// FX picker: j/k move, enter/space insert the highlighted effect after
+    /// the focused chain slot, esc cancels back to the chain view. Opened by
+    /// `a` in the FX chain view (see editors/spectrum.zig's openPicker).
+    fn handleFxPickerKey(self: *App, key: modal_mod.Key) void {
+        switch (key) {
+            .escape => spectrum_ed.cancelPicker(self),
+            .enter => spectrum_ed.insertFromPicker(self, spectrum_ed.picker_kinds[self.fx_picker_cursor]),
+            .char => |c| switch (c) {
+                'k' => { if (self.fx_picker_cursor > 0) self.fx_picker_cursor -= 1; },
+                'j' => { if (self.fx_picker_cursor + 1 < spectrum_ed.picker_kinds.len) self.fx_picker_cursor += 1; },
+                ' ' => spectrum_ed.insertFromPicker(self, spectrum_ed.picker_kinds[self.fx_picker_cursor]),
+                'q' => spectrum_ed.cancelPicker(self),
+                else => {},
+            },
+            else => {},
+        }
+    }
+
+    /// FX picker: click a row to select + insert it (same as enter/space);
+    /// scroll moves the highlight.
+    fn fxPickerMouse(self: *App, ev: modal_mod.MouseEvent, row: usize) void {
+        switch (ev.kind) {
+            .press => {
+                if (row < 2 or row - 2 >= spectrum_ed.picker_kinds.len) return;
+                self.fx_picker_cursor = @intCast(row - 2);
+                spectrum_ed.insertFromPicker(self, spectrum_ed.picker_kinds[self.fx_picker_cursor]);
+            },
+            .scroll_up => { if (self.fx_picker_cursor > 0) self.fx_picker_cursor -= 1; },
+            .scroll_down => { if (self.fx_picker_cursor + 1 < spectrum_ed.picker_kinds.len) self.fx_picker_cursor += 1; },
+            else => {},
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -1515,6 +1555,12 @@ pub const App = struct {
                 _ = self.session.engine.send(.{ .set_spectrum_active = .{ .source = .none, .track = 0 } });
                 self.view = self.prev_view;
             },
+            // The picker inserts into eq_track's chain on accept — if that
+            // track vanished, retreat all the way to tracks rather than
+            // into a chain view whose target is gone.
+            .fx_picker => if (self.fx_picker_return == .track_spectrum and self.eq_track >= racks.len) {
+                self.view = .tracks;
+            },
             .automation => if (automation_ed.currentClip(self) == null) { self.view = .arrangement; },
             else => {},
         }
@@ -1684,6 +1730,7 @@ pub const App = struct {
             .track_spectrum  => try tui.drawFxView(self, w, content_rows, size.cols, snap, true),
             .master_spectrum => try tui.drawFxView(self, w, content_rows, size.cols, snap, false),
             .instrument_picker => try tui.drawInstrumentPicker(self, w, content_rows),
+            .fx_picker       => try tui.drawFxPicker(self, w, content_rows),
             .arrangement     => try tui.drawArrangement(self, w, content_rows, size.cols, snap),
             .file_browser    => try tui.drawFileBrowser(self, w, content_rows),
             .automation      => try tui.drawAutomation(self, w, content_rows, size.cols, snap),
@@ -1748,6 +1795,7 @@ pub const App = struct {
             .track_spectrum  => try tui.drawFxStatus(self, w, true, commands.cmds),
             .master_spectrum => try tui.drawFxStatus(self, w, false, commands.cmds),
             .instrument_picker => try w.writeAll(" j/k: move   enter: insert   esc: cancel"),
+            .fx_picker       => try w.writeAll(" j/k: move   enter: insert   esc: cancel"),
             .arrangement     => try tui.drawArrangementStatus(self, w, commands.cmds),
             .file_browser    => try tui.drawFileBrowserStatus(self, w),
             .automation      => try tui.drawAutomationStatus(self, w, commands.cmds),

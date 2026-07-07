@@ -46,11 +46,11 @@ pub const Session = struct {
     /// engine via `set_metronome` — same pattern as `loop_enabled`/`song_mode`.
     /// A monitoring aid, not song content, so it isn't persisted.
     metronome_enabled: bool = false,
-    /// Master bus FX (comp/eq/delay/reverb), applied to the summed mix before
-    /// the master gain and always-on limiter — same `Fx` shape as a track's
-    /// rack, so any of the four stages plugs in the same way. Persisted
-    /// (`Snapshot.master_fx`, see persist.zig). Push param/membership changes
-    /// to the audio thread with `syncMasterChain`.
+    /// Master bus FX chain, applied to the summed mix before the master gain
+    /// and always-on limiter — same user-built `Fx` chain as a track's rack,
+    /// so any unit plugs into either the same way. Persisted
+    /// (`Snapshot.master_fx_chain`, see persist.zig). Push param/membership
+    /// changes to the audio thread with `syncMasterChain`.
     master_fx: rack_mod.Fx = .{},
 
     /// Build the default session: a single blank track. Instruments are added
@@ -345,12 +345,12 @@ pub const Session = struct {
         _ = self.engine.send(.{ .set_metronome = on });
     }
 
-    /// Push the master bus's active FX stages (in signal-flow order) to the
-    /// audio thread. Call after adding, removing, or toggling a master FX
-    /// module — same idea as `setTrackChain`, but the master bus has no
-    /// instrument slot, just `master_fx`.
+    /// Push the master bus's active FX units (in chain order) to the audio
+    /// thread. Call after inserting, removing, reordering, or bypassing a
+    /// master FX unit — same idea as `setTrackChain`, but the master bus has
+    /// no instrument slot, just `master_fx`.
     pub fn syncMasterChain(self: *Session) void {
-        var buf: [rack_mod.Fx.unit_count]dsp.Device = undefined;
+        var buf: [rack_mod.Fx.max_units]dsp.Device = undefined;
         self.engine.setMasterChain(self.master_fx.chain(&buf));
     }
 
@@ -768,17 +768,17 @@ test "setMetronome mirrors to the engine" {
     try std.testing.expect(!s.metronome_enabled);
 }
 
-test "syncMasterChain pushes master_fx's active stages to the engine" {
+test "syncMasterChain pushes master_fx's active units to the engine" {
     var s = try Session.initDefault(std.testing.allocator);
     defer s.deinit();
     try std.testing.expectEqual(@as(usize, 0), s.engine.master_chain_len);
 
-    s.master_fx.comp = @import("dsp/compressor.zig").Compressor.init(s.project.sample_rate);
-    s.master_fx.eq = @import("dsp/eq.zig").GraphicEq.init(s.project.sample_rate);
+    _ = try s.master_fx.insert(s.allocator, 0, .comp, s.project.sample_rate);
+    _ = try s.master_fx.insert(s.allocator, 1, .eq, s.project.sample_rate);
     s.syncMasterChain();
     try std.testing.expectEqual(@as(usize, 2), s.engine.master_chain_len);
 
-    s.master_fx.comp = null;
+    s.master_fx.remove(s.allocator, 0);
     s.syncMasterChain();
     try std.testing.expectEqual(@as(usize, 1), s.engine.master_chain_len);
 }

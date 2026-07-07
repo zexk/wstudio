@@ -181,7 +181,7 @@ pub fn cmdHelp(app: *App, _: []const u8) void {
         .piano_roll => .piano_roll,
         .arrangement => .arrangement,
         .automation => .automation,
-        .track_spectrum, .master_spectrum => .spectrum,
+        .track_spectrum, .master_spectrum, .fx_picker => .spectrum,
         .file_browser => .file_browser,
         .help, .instrument_picker => null,
     };
@@ -952,8 +952,8 @@ fn cmdEq(app: *App, args: []const u8) void {
     const track_idx = track_1 - 1;
     const rest = std.mem.trim(u8, it.rest(), " ");
     if (rest.len == 0) {
-        if (app.session.racks.items[track_idx].fx.eq) |*eq| {
-            app.setStatus("track {d}: bypass={}", .{ track_1, eq.bypass });
+        if (app.session.racks.items[track_idx].fx.find(.eq)) |u| {
+            app.setStatus("track {d}: eq bypass={}", .{ track_1, u.bypassed });
         } else {
             app.setStatus("track {d}: no EQ", .{track_1});
         }
@@ -985,8 +985,8 @@ fn cmdEq(app: *App, args: []const u8) void {
 fn cmdMasterEq(app: *App, args: []const u8) void {
     const rest = std.mem.trim(u8, args, " ");
     if (rest.len == 0) {
-        if (app.session.master_fx.eq) |*eq| {
-            app.setStatus("master eq: bypass={}", .{eq.bypass});
+        if (app.session.master_fx.find(.eq)) |u| {
+            app.setStatus("master eq: bypass={}", .{u.bypassed});
         } else {
             app.setStatus("master: no EQ", .{});
         }
@@ -1013,15 +1013,18 @@ fn cmdMasterEq(app: *App, args: []const u8) void {
     app.setStatus("master eq band {d}: {d:.1}dB", .{ band, db });
 }
 
-/// `:master-comp [on|off|<param> <value>]` — the master bus compressor.
-/// `on` adds it with its defaults if not already present; `off` removes it;
+/// `:master-comp [on|off|<param> <value>]` — the master bus compressor
+/// (targets the chain's first comp unit). `on` inserts one at the chain end
+/// with defaults if not already present; `off` removes it;
 /// `thresh`/`ratio`/`attack`/`release`/`makeup <value>` tweak one field,
-/// creating the compressor with defaults first if needed. No args reports
+/// inserting the compressor with defaults first if needed. No args reports
 /// the current settings.
 fn cmdMasterComp(app: *App, args: []const u8) void {
+    const mfx = &app.session.master_fx;
     const trimmed = std.mem.trim(u8, args, " ");
     if (trimmed.len == 0) {
-        if (app.session.master_fx.comp) |c| {
+        if (mfx.find(.comp)) |u| {
+            const c = &u.payload.comp;
             app.setStatus("master comp: thresh {d:.1}dB  ratio {d:.1}:1  atk {d:.0}ms  rel {d:.0}ms  makeup {d:.1}dB", .{
                 c.threshold_db, c.ratio, c.attack_ms, c.release_ms, c.makeup_db,
             });
@@ -1031,16 +1034,23 @@ fn cmdMasterComp(app: *App, args: []const u8) void {
         return;
     }
     if (std.ascii.eqlIgnoreCase(trimmed, "off")) {
-        app.session.master_fx.comp = null;
-        app.dirty = true;
-        app.session.syncMasterChain();
+        if (mfx.findIdx(.comp)) |idx| {
+            mfx.remove(app.session.allocator, idx);
+            app.dirty = true;
+            app.session.syncMasterChain();
+        }
         app.setStatus("master comp: off", .{});
         return;
     }
     var it = std.mem.splitScalar(u8, trimmed, ' ');
     const first = it.next().?;
     if (std.ascii.eqlIgnoreCase(first, "on")) {
-        app.session.master_fx.comp = ws.dsp.Compressor.init(app.session.project.sample_rate);
+        if (mfx.find(.comp) == null) {
+            _ = mfx.insert(app.session.allocator, mfx.units.items.len, .comp, app.session.project.sample_rate) catch {
+                app.setStatus("master comp: chain full", .{});
+                return;
+            };
+        }
         app.dirty = true;
         app.session.syncMasterChain();
         app.setStatus("master comp: on (defaults)", .{});
@@ -1051,9 +1061,12 @@ fn cmdMasterComp(app: *App, args: []const u8) void {
         app.setStatus("usage: master-comp on|off|thresh|ratio|attack|release|makeup <value>", .{});
         return;
     };
-    if (app.session.master_fx.comp == null)
-        app.session.master_fx.comp = ws.dsp.Compressor.init(app.session.project.sample_rate);
-    const c = &app.session.master_fx.comp.?;
+    const unit = mfx.find(.comp) orelse
+        mfx.insert(app.session.allocator, mfx.units.items.len, .comp, app.session.project.sample_rate) catch {
+            app.setStatus("master comp: chain full", .{});
+            return;
+        };
+    const c = &unit.payload.comp;
     if (std.ascii.eqlIgnoreCase(first, "thresh")) {
         c.threshold_db = std.math.clamp(val, -60.0, 0.0);
     } else if (std.ascii.eqlIgnoreCase(first, "ratio")) {

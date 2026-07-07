@@ -1,16 +1,18 @@
-//! FX rack input — shared by a track's view and the master bus.
+//! FX chain input — shared by a track's view and the master bus.
 //!
-//! The chain strip is the view's centrepiece: nine slots in signal-flow
-//! order (gate → comp → eq → sat → crush → chorus → phaser → delay →
-//! reverb), the focused slot's editor filling the body below. The spectrum
-//! analyzer belongs to the EQ slot's editor and only runs while that slot
-//! has focus.
+//! The chain strip is the view's centrepiece: the units the user has
+//! inserted, drawn in signal-flow order, with a trailing "+" box while
+//! there's room for more. Chains start empty; `a` opens the FX picker
+//! (same idea as the instrument picker) and inserts the chosen unit after
+//! the focused slot, so the user decides what runs and in what order —
+//! duplicates included. The spectrum analyzer belongs to an EQ unit's
+//! editor and only runs while one has focus.
 //!
-//! `Tab`/`L` and `H` walk slot focus along the chain; `a` adds the focused
-//! unit with defaults or removes it; `h`/`l` pick a parameter within the
-//! focused unit (EQ's are its 10 bands); `j`/`k` (`J`/`K` coarse) nudge the
-//! selected parameter. `b` toggles EQ bypass — the only unit with a bypass
-//! flag; every other unit is simply present or absent.
+//! `Tab`/`L` and `H` walk slot focus along the chain; `a` inserts via the
+//! picker; `x` removes the focused unit; `<`/`>` move it along the chain;
+//! `b` toggles its bypass (kept in the chain, skipped by the audio path);
+//! `h`/`l` pick a parameter within the focused unit (EQ's are its 10
+//! bands); `j`/`k` (`J`/`K` coarse) nudge the selected parameter.
 //! `esc` restores the previous view and parks the analyzer.
 //! The render half lives in views/spectrum.zig.
 
@@ -20,37 +22,22 @@ const modal_mod = ws.input;
 const dsp = ws.dsp.device;
 const eq_mod = ws.dsp.eq;
 const style = @import("../style.zig");
-const GraphicEq = ws.dsp.GraphicEq;
-const Compressor = ws.dsp.Compressor;
-const StereoDelay = ws.dsp.StereoDelay;
-const Reverb = ws.dsp.Reverb;
-const Gate = ws.dsp.Gate;
-const Chorus = ws.dsp.Chorus;
-const Phaser = ws.dsp.Phaser;
 const chorus_mod = ws.dsp.chorus;
 const Fx = ws.Fx;
+const FxKind = ws.FxKind;
+const FxUnit = ws.FxUnit;
+const FxPayload = ws.FxPayload;
 const App = @import("../app.zig").App;
 
-/// Which chain slot the interactive editor is pointed at. Order matches
-/// signal flow (gate → comp → eq → sat → crush → chorus → phaser → delay →
-/// reverb, see `Fx.chain`) so walking focus with H/L/tab moves along the
-/// chain the audio actually takes. Entering the view still lands on .eq,
-/// the slot most players reach for first, and the one whose editor shows
-/// the spectrum analyzer.
-pub const FxUnit = enum { gate, comp, eq, sat, crush, chorus, phaser, delay, reverb };
+/// The insertable kinds in picker display order (signal-flow-ish: dynamics,
+/// tone, character, modulation, time). Parallel to `picker_menu` in
+/// views/picker.zig.
+pub const picker_kinds = [_]FxKind{
+    .gate, .comp, .eq, .sat, .crush, .chorus, .phaser, .delay, .reverb,
+};
 
-pub const unit_count = @typeInfo(FxUnit).@"enum".fields.len;
-
-pub fn nextUnit(u: FxUnit) FxUnit {
-    return @enumFromInt((@intFromEnum(u) + 1) % unit_count);
-}
-
-pub fn prevUnit(u: FxUnit) FxUnit {
-    return @enumFromInt((@intFromEnum(u) + unit_count - 1) % unit_count);
-}
-
-pub fn unitLabel(u: FxUnit) []const u8 {
-    return switch (u) {
+pub fn unitLabel(k: FxKind) []const u8 {
+    return switch (k) {
         .gate => "GATE",
         .comp => "COMP",
         .eq => "EQ",
@@ -66,8 +53,8 @@ pub fn unitLabel(u: FxUnit) []const u8 {
 /// <=4-char label for the chain strip's slot boxes; nine boxes have to
 /// share an 80-col row, so each gets a 7-wide box (see the strip geometry
 /// constants below).
-pub fn stripLabel(u: FxUnit) []const u8 {
-    return switch (u) {
+pub fn stripLabel(k: FxKind) []const u8 {
+    return switch (k) {
         .gate => "GATE",
         .comp => "COMP",
         .eq => "EQ",
@@ -80,8 +67,8 @@ pub fn stripLabel(u: FxUnit) []const u8 {
     };
 }
 
-pub fn paramCount(u: FxUnit) usize {
-    return switch (u) {
+pub fn paramCount(k: FxKind) usize {
+    return switch (k) {
         .eq => eq_mod.num_eq_bands,
         .comp => 5,
         .phaser => 4,
@@ -89,9 +76,9 @@ pub fn paramCount(u: FxUnit) usize {
     };
 }
 
-/// Param name at `idx` within unit `u` — bounds match `paramCount`.
-pub fn paramName(u: FxUnit, idx: usize) []const u8 {
-    return switch (u) {
+/// Param name at `idx` within a unit of kind `k` — bounds match `paramCount`.
+pub fn paramName(k: FxKind, idx: usize) []const u8 {
+    return switch (k) {
         .eq => "band",
         .comp => switch (idx) {
             0 => "thresh", 1 => "ratio", 2 => "attack", 3 => "release", 4 => "makeup",
@@ -128,66 +115,51 @@ pub fn paramName(u: FxUnit, idx: usize) []const u8 {
     };
 }
 
-pub fn isPresent(fx: *const Fx, u: FxUnit) bool {
-    return switch (u) {
-        .eq => fx.eq != null,
-        .comp => fx.comp != null,
-        .delay => fx.delay != null,
-        .reverb => fx.reverb != null,
-        .gate => fx.gate != null,
-        .sat => fx.sat != null,
-        .crush => fx.crush != null,
-        .chorus => fx.chorus != null,
-        .phaser => fx.phaser != null,
-    };
-}
-
-/// Current value of param `idx` in unit `u`, or 0 if the unit is absent —
-/// callers gate on `isPresent` before trusting this for display.
-pub fn getParam(fx: *const Fx, u: FxUnit, idx: usize) f32 {
-    return switch (u) {
-        .eq => if (fx.eq) |e| e.bands[idx].gain_db else 0,
-        .comp => if (fx.comp) |c| switch (idx) {
+/// Current value of param `idx` in `p` — bounds match `paramCount`.
+pub fn getParam(p: *const FxPayload, idx: usize) f32 {
+    return switch (p.*) {
+        .eq => |*e| e.bands[idx].gain_db,
+        .comp => |*c| switch (idx) {
             0 => c.threshold_db, 1 => c.ratio, 2 => c.attack_ms, 3 => c.release_ms, 4 => c.makeup_db,
             else => 0,
-        } else 0,
-        .delay => if (fx.delay) |d| switch (idx) {
+        },
+        .delay => |*d| switch (idx) {
             0 => @as(f32, @floatFromInt(d.delay_frames)) / @as(f32, @floatFromInt(d.sample_rate)),
             1 => d.feedback, 2 => d.mix,
             else => 0,
-        } else 0,
-        .reverb => if (fx.reverb) |r| switch (idx) {
+        },
+        .reverb => |*r| switch (idx) {
             0 => r.room, 1 => r.damp, 2 => r.mix,
             else => 0,
-        } else 0,
-        .gate => if (fx.gate) |g| switch (idx) {
+        },
+        .gate => |*g| switch (idx) {
             0 => g.threshold_db, 1 => g.attack_ms, 2 => g.release_ms,
             else => 0,
-        } else 0,
-        .sat => if (fx.sat) |s| switch (idx) {
+        },
+        .sat => |*s| switch (idx) {
             0 => s.drive_db, 1 => s.out_db, 2 => s.mix,
             else => 0,
-        } else 0,
-        .crush => if (fx.crush) |c| switch (idx) {
+        },
+        .crush => |*c| switch (idx) {
             0 => c.bits, 1 => c.downsample, 2 => c.mix,
             else => 0,
-        } else 0,
-        .chorus => if (fx.chorus) |c| switch (idx) {
+        },
+        .chorus => |*c| switch (idx) {
             0 => c.rate_hz, 1 => c.depth_ms, 2 => c.mix,
             else => 0,
-        } else 0,
-        .phaser => if (fx.phaser) |p| switch (idx) {
-            0 => p.rate_hz, 1 => p.depth, 2 => p.feedback, 3 => p.mix,
+        },
+        .phaser => |*p2| switch (idx) {
+            0 => p2.rate_hz, 1 => p2.depth, 2 => p2.feedback, 3 => p2.mix,
             else => 0,
-        } else 0,
+        },
     };
 }
 
-/// [min, max] of param `idx` in unit `u` — the same bounds `setParam`
-/// clamps to, exported so the view can draw each param as a filled bar
-/// (barRow wants a 0..1-ish normalised value).
-pub fn paramRange(u: FxUnit, idx: usize) [2]f32 {
-    return switch (u) {
+/// [min, max] of param `idx` in a unit of kind `k` — the same bounds
+/// `setParam` clamps to, exported so the view can draw each param as a
+/// filled bar (barRow wants a 0..1-ish normalised value).
+pub fn paramRange(k: FxKind, idx: usize) [2]f32 {
+    return switch (k) {
         .eq => .{ -18.0, 18.0 },
         .comp => switch (idx) {
             0 => .{ -60.0, 0.0 },
@@ -235,12 +207,11 @@ pub fn paramRange(u: FxUnit, idx: usize) [2]f32 {
     };
 }
 
-/// Clamped absolute set of param `idx` in unit `u`; a no-op if the unit is
-/// absent (callers add it first via `ensureUnit`/the `a` key).
-pub fn setParam(fx: *Fx, u: FxUnit, idx: usize, value: f32) void {
-    switch (u) {
-        .eq => if (fx.eq) |*e| e.setBand(idx, value),
-        .comp => if (fx.comp) |*c| switch (idx) {
+/// Clamped absolute set of param `idx` in `p` — bounds match `paramRange`.
+pub fn setParam(p: *FxPayload, idx: usize, value: f32) void {
+    switch (p.*) {
+        .eq => |*e| e.setBand(idx, value),
+        .comp => |*c| switch (idx) {
             0 => c.threshold_db = std.math.clamp(value, -60.0, 0.0),
             1 => c.ratio = std.math.clamp(value, 1.0, 20.0),
             2 => c.attack_ms = std.math.clamp(value, 0.1, 500.0),
@@ -248,7 +219,7 @@ pub fn setParam(fx: *Fx, u: FxUnit, idx: usize, value: f32) void {
             4 => c.makeup_db = std.math.clamp(value, -24.0, 24.0),
             else => {},
         },
-        .delay => if (fx.delay) |*d| switch (idx) {
+        .delay => |*d| switch (idx) {
             0 => d.setTime(std.math.clamp(
                 value, 0.01,
                 @as(f32, @floatFromInt(d.lines[0].len)) / @as(f32, @floatFromInt(d.sample_rate)),
@@ -257,41 +228,41 @@ pub fn setParam(fx: *Fx, u: FxUnit, idx: usize, value: f32) void {
             2 => d.mix = std.math.clamp(value, 0.0, 1.0),
             else => {},
         },
-        .reverb => if (fx.reverb) |*r| switch (idx) {
+        .reverb => |*r| switch (idx) {
             0 => r.room = std.math.clamp(value, 0.0, 0.98),
             1 => r.damp = std.math.clamp(value, 0.0, 1.0),
             2 => r.mix = std.math.clamp(value, 0.0, 1.0),
             else => {},
         },
-        .gate => if (fx.gate) |*g| switch (idx) {
+        .gate => |*g| switch (idx) {
             0 => g.threshold_db = std.math.clamp(value, -80.0, 0.0),
             1 => g.attack_ms = std.math.clamp(value, 0.1, 50.0),
             2 => g.release_ms = std.math.clamp(value, 5.0, 1000.0),
             else => {},
         },
-        .sat => if (fx.sat) |*s| switch (idx) {
+        .sat => |*s| switch (idx) {
             0 => s.drive_db = std.math.clamp(value, 0.0, 36.0),
             1 => s.out_db = std.math.clamp(value, -24.0, 24.0),
             2 => s.mix = std.math.clamp(value, 0.0, 1.0),
             else => {},
         },
-        .crush => if (fx.crush) |*c| switch (idx) {
+        .crush => |*c| switch (idx) {
             0 => c.bits = std.math.clamp(@round(value), 1.0, 16.0),
             1 => c.downsample = std.math.clamp(@round(value), 1.0, 32.0),
             2 => c.mix = std.math.clamp(value, 0.0, 1.0),
             else => {},
         },
-        .chorus => if (fx.chorus) |*c| switch (idx) {
+        .chorus => |*c| switch (idx) {
             0 => c.rate_hz = std.math.clamp(value, 0.05, 5.0),
             1 => c.depth_ms = std.math.clamp(value, 0.0, chorus_mod.max_depth_ms),
             2 => c.mix = std.math.clamp(value, 0.0, 1.0),
             else => {},
         },
-        .phaser => if (fx.phaser) |*p| switch (idx) {
-            0 => p.rate_hz = std.math.clamp(value, 0.05, 5.0),
-            1 => p.depth = std.math.clamp(value, 0.0, 1.0),
-            2 => p.feedback = std.math.clamp(value, 0.0, 0.9),
-            3 => p.mix = std.math.clamp(value, 0.0, 1.0),
+        .phaser => |*p2| switch (idx) {
+            0 => p2.rate_hz = std.math.clamp(value, 0.05, 5.0),
+            1 => p2.depth = std.math.clamp(value, 0.0, 1.0),
+            2 => p2.feedback = std.math.clamp(value, 0.0, 0.9),
+            3 => p2.mix = std.math.clamp(value, 0.0, 1.0),
             else => {},
         },
     }
@@ -300,8 +271,8 @@ pub fn setParam(fx: *Fx, u: FxUnit, idx: usize, value: f32) void {
 /// Nudge step for `j`/`k` (`coarse` = `J`/`K`) — sized per param so a single
 /// press is a musically useful move (e.g. 1dB fine / 6dB coarse for EQ and
 /// comp threshold, fractions for the 0..1-ish delay/reverb knobs).
-fn paramStep(u: FxUnit, idx: usize, coarse: bool) f32 {
-    return switch (u) {
+fn paramStep(k: FxKind, idx: usize, coarse: bool) f32 {
+    return switch (k) {
         .eq => if (coarse) @as(f32, 6.0) else 1.0,
         .comp => switch (idx) {
             0 => if (coarse) @as(f32, 6.0) else 1.0,
@@ -357,6 +328,13 @@ pub fn fxPtr(app: *App, is_track: bool) ?*Fx {
     return &app.session.master_fx;
 }
 
+/// The unit under `app.fx_focus`, or null while the chain is empty (the
+/// focus index is clamped by every mutation, so out-of-range means empty).
+pub fn focusedUnit(app: *App, fx: *const Fx) ?*FxUnit {
+    if (app.fx_focus >= fx.units.items.len) return null;
+    return fx.units.items[app.fx_focus];
+}
+
 fn syncChain(app: *App, is_track: bool) void {
     if (is_track) {
         if (app.eq_track >= app.session.racks.items.len) return;
@@ -368,99 +346,15 @@ fn syncChain(app: *App, is_track: bool) void {
     }
 }
 
-/// Adds unit `u` with defaults if absent; a no-op if already present.
-/// Returns false (and sets a status message) only on allocation failure —
-/// delay/reverb/chorus own heap-allocated lines, the rest don't.
-fn ensureUnit(app: *App, fx: *Fx, u: FxUnit) bool {
-    const sr = app.session.project.sample_rate;
-    switch (u) {
-        .eq => { if (fx.eq == null) fx.eq = GraphicEq.init(sr); },
-        .comp => { if (fx.comp == null) fx.comp = Compressor.init(sr); },
-        .gate => { if (fx.gate == null) fx.gate = Gate.init(sr); },
-        .sat => { if (fx.sat == null) fx.sat = .{}; },
-        .crush => { if (fx.crush == null) fx.crush = .{}; },
-        .phaser => { if (fx.phaser == null) fx.phaser = Phaser.init(sr); },
-        .chorus => {
-            if (fx.chorus != null) return true;
-            fx.chorus = Chorus.init(app.session.allocator, sr) catch {
-                app.setStatus("chorus: out of memory", .{});
-                return false;
-            };
-        },
-        .delay => {
-            if (fx.delay != null) return true;
-            fx.delay = StereoDelay.init(app.session.allocator, sr, 2.0) catch {
-                app.setStatus("delay: out of memory", .{});
-                return false;
-            };
-        },
-        .reverb => {
-            if (fx.reverb != null) return true;
-            fx.reverb = Reverb.init(app.session.allocator, sr) catch {
-                app.setStatus("reverb: out of memory", .{});
-                return false;
-            };
-        },
-    }
-    return true;
-}
-
-fn removeUnit(app: *App, fx: *Fx, u: FxUnit) void {
-    switch (u) {
-        .eq => fx.eq = null,
-        .comp => fx.comp = null,
-        .gate => fx.gate = null,
-        .sat => fx.sat = null,
-        .crush => fx.crush = null,
-        .phaser => fx.phaser = null,
-        .chorus => if (fx.chorus) |*c| { c.deinit(app.session.allocator); fx.chorus = null; },
-        .delay => if (fx.delay) |*d| { d.deinit(app.session.allocator); fx.delay = null; },
-        .reverb => if (fx.reverb) |*r| { r.deinit(app.session.allocator); fx.reverb = null; },
-    }
-}
-
-fn toggleUnit(app: *App, is_track: bool) void {
-    const fx = fxPtr(app, is_track) orelse return;
-    const u = app.fx_focus;
-    if (isPresent(fx, u)) {
-        removeUnit(app, fx, u);
-        app.setStatus("{s} removed", .{unitLabel(u)});
-    } else if (ensureUnit(app, fx, u)) {
-        app.setStatus("{s} added", .{unitLabel(u)});
-    } else {
-        return; // ensureUnit already reported why
-    }
-    app.fx_param = 0;
-    app.dirty = true;
-    syncChain(app, is_track);
-}
-
-fn nudge(app: *App, is_track: bool, key: u8) void {
-    const fx = fxPtr(app, is_track) orelse return;
-    if (!isPresent(fx, app.fx_focus)) return;
-    const dir: f32 = if (key == 'j' or key == 'J') -1.0 else 1.0;
-    const coarse = (key == 'J' or key == 'K');
-    const cnt: f32 = @floatFromInt(app.takeCount());
-    const cur = getParam(fx, app.fx_focus, app.fx_param);
-    setParam(fx, app.fx_focus, app.fx_param, cur + dir * cnt * paramStep(app.fx_focus, app.fx_param, coarse));
-    app.dirty = true;
-    syncChain(app, is_track);
-}
-
-fn toggleEqBypass(app: *App, is_track: bool) void {
-    const fx = fxPtr(app, is_track) orelse return;
-    if (fx.eq) |*e| {
-        e.bypass = !e.bypass;
-        app.dirty = true;
-        syncChain(app, is_track);
-    }
-}
-
-/// The spectrum analyzer belongs to the EQ slot's editor: run it only while
-/// that slot has focus, park it otherwise (and on leaving the view) so the
-/// engine skips FFT work nobody is looking at.
+/// The spectrum analyzer belongs to an EQ unit's editor: run it only while
+/// one has focus, park it otherwise (and on leaving the view) so the engine
+/// skips FFT work nobody is looking at.
 fn syncAnalyzer(app: *App, is_track: bool) void {
-    if (app.fx_focus == .eq) {
+    const focused_eq = if (fxPtr(app, is_track)) |fx| blk: {
+        const u = focusedUnit(app, fx) orelse break :blk false;
+        break :blk u.kind() == .eq;
+    } else false;
+    if (focused_eq) {
         _ = app.session.engine.send(.{ .set_spectrum_active = .{
             .source = if (is_track) .track else .master,
             .track = if (is_track) app.eq_track else 0,
@@ -470,8 +364,8 @@ fn syncAnalyzer(app: *App, is_track: bool) void {
     }
 }
 
-fn setFocus(app: *App, is_track: bool, u: FxUnit) void {
-    app.fx_focus = u;
+fn setFocus(app: *App, is_track: bool, idx: usize) void {
+    app.fx_focus = idx;
     app.fx_param = 0;
     syncAnalyzer(app, is_track);
 }
@@ -480,55 +374,161 @@ pub fn switchToTrack(app: *App, track: u16) void {
     app.prev_view = app.view;
     app.view = .track_spectrum;
     app.eq_track = track;
-    app.fx_focus = .eq;
-    app.fx_param = 0;
-    _ = app.session.engine.send(.{ .set_spectrum_active = .{ .source = .track, .track = track } });
+    setFocus(app, true, 0);
 }
 
 pub fn switchToMaster(app: *App) void {
     app.prev_view = app.view;
     app.view = .master_spectrum;
-    app.fx_focus = .eq;
+    setFocus(app, false, 0);
+}
+
+/// Open the FX picker for the chain in view. Inserting lands after the
+/// focused slot (at the front while the chain is empty). Parks the analyzer
+/// — the picker replaces the whole view, so nobody is watching it.
+fn openPicker(app: *App, is_track: bool) void {
+    const fx = fxPtr(app, is_track) orelse return;
+    if (fx.units.items.len >= Fx.max_units) {
+        app.setStatus("chain full ({d} units)", .{Fx.max_units});
+        return;
+    }
+    _ = app.session.engine.send(.{ .set_spectrum_active = .{ .source = .none, .track = 0 } });
+    app.fx_picker_return = app.view;
+    app.fx_picker_cursor = 0;
+    app.view = .fx_picker;
+}
+
+/// Picker accepted: back to the chain view, insert after the focused slot,
+/// focus the new unit. Called by App.handleFxPickerKey.
+pub fn insertFromPicker(app: *App, k: FxKind) void {
+    const is_track = app.fx_picker_return == .track_spectrum;
+    app.view = app.fx_picker_return;
+    const fx = fxPtr(app, is_track) orelse return;
+    const pos = if (fx.units.items.len == 0) 0 else @min(app.fx_focus + 1, fx.units.items.len);
+    _ = fx.insert(app.session.allocator, pos, k, app.session.project.sample_rate) catch |err| {
+        switch (err) {
+            error.ChainFull => app.setStatus("chain full ({d} units)", .{Fx.max_units}),
+            error.OutOfMemory => app.setStatus("{s}: out of memory", .{unitLabel(k)}),
+        }
+        syncAnalyzer(app, is_track);
+        return;
+    };
+    setFocus(app, is_track, pos);
+    app.dirty = true;
+    syncChain(app, is_track);
+    app.setStatus("{s} inserted", .{unitLabel(k)});
+}
+
+/// Picker dismissed: back to the chain view, nothing inserted.
+pub fn cancelPicker(app: *App) void {
+    app.view = app.fx_picker_return;
+    syncAnalyzer(app, app.view == .track_spectrum);
+}
+
+fn removeFocused(app: *App, is_track: bool) void {
+    const fx = fxPtr(app, is_track) orelse return;
+    if (app.fx_focus >= fx.units.items.len) return;
+    // Unlink and push the shortened chain to the audio thread *before*
+    // freeing the unit, so a delay/reverb line can't be torn down while a
+    // freshly-fetched chain still points at it.
+    const unit = fx.units.orderedRemove(app.fx_focus);
+    syncChain(app, is_track);
+    const label = unitLabel(unit.kind());
+    unit.payload.deinit(app.session.allocator);
+    app.session.allocator.destroy(unit);
+    if (app.fx_focus > 0 and app.fx_focus >= fx.units.items.len) app.fx_focus -= 1;
     app.fx_param = 0;
-    _ = app.session.engine.send(.{ .set_spectrum_active = .{ .source = .master, .track = 0 } });
+    app.dirty = true;
+    syncAnalyzer(app, is_track);
+    app.setStatus("{s} removed", .{label});
+}
+
+/// Move the focused unit one slot along the chain; focus follows it.
+fn moveFocused(app: *App, is_track: bool, dir: i2) void {
+    const fx = fxPtr(app, is_track) orelse return;
+    if (focusedUnit(app, fx) == null) return;
+    const other = if (dir < 0) app.fx_focus -% 1 else app.fx_focus + 1;
+    if (other >= fx.units.items.len) return; // already at that end (wraps on 0-%1)
+    fx.swap(app.fx_focus, other);
+    app.fx_focus = other;
+    app.dirty = true;
+    syncChain(app, is_track);
+}
+
+fn toggleBypass(app: *App, is_track: bool) void {
+    const fx = fxPtr(app, is_track) orelse return;
+    const u = focusedUnit(app, fx) orelse return;
+    u.bypassed = !u.bypassed;
+    app.dirty = true;
+    syncChain(app, is_track);
+    app.setStatus("{s} {s}", .{ unitLabel(u.kind()), if (u.bypassed) "bypassed" else "active" });
+}
+
+fn nudge(app: *App, is_track: bool, key: u8) void {
+    const fx = fxPtr(app, is_track) orelse return;
+    const u = focusedUnit(app, fx) orelse return;
+    const dir: f32 = if (key == 'j' or key == 'J') -1.0 else 1.0;
+    const coarse = (key == 'J' or key == 'K');
+    const cnt: f32 = @floatFromInt(app.takeCount());
+    const cur = getParam(&u.payload, app.fx_param);
+    setParam(&u.payload, app.fx_param, cur + dir * cnt * paramStep(u.kind(), app.fx_param, coarse));
+    app.dirty = true;
+    syncChain(app, is_track);
 }
 
 pub fn handleKey(app: *App, key: modal_mod.Key) bool {
     const is_track = app.view == .track_spectrum;
+    const len = if (fxPtr(app, is_track)) |fx| fx.units.items.len else 0;
     switch (key) {
         .escape => {
             _ = app.session.engine.send(.{ .set_spectrum_active = .{ .source = .none, .track = 0 } });
             app.view = app.prev_view;
             return true;
         },
-        .tab => { setFocus(app, is_track, nextUnit(app.fx_focus)); return true; },
+        .tab => {
+            if (len > 0) setFocus(app, is_track, (app.fx_focus + 1) % len);
+            return true;
+        },
         .char => |c| switch (c) {
-            'H' => { setFocus(app, is_track, prevUnit(app.fx_focus)); return true; },
-            'L' => { setFocus(app, is_track, nextUnit(app.fx_focus)); return true; },
-            'a' => { toggleUnit(app, is_track); return true; },
+            'H' => {
+                if (len > 0) setFocus(app, is_track, (app.fx_focus + len - 1) % len);
+                return true;
+            },
+            'L' => {
+                if (len > 0) setFocus(app, is_track, (app.fx_focus + 1) % len);
+                return true;
+            },
+            'a' => { openPicker(app, is_track); return true; },
+            'x' => { removeFocused(app, is_track); return true; },
+            '<' => { moveFocused(app, is_track, -1); return true; },
+            '>' => { moveFocused(app, is_track, 1); return true; },
+            'b' => { toggleBypass(app, is_track); return true; },
             // Param picks take a vim count prefix (3l, 4h, …). EQ clamps at
             // its band ends (unchanged from before); the 3-5 param units
             // wrap, which reads more naturally for such a short list.
             'h' => {
-                const n = paramCount(app.fx_focus);
+                const fx = fxPtr(app, is_track) orelse return true;
+                const u = focusedUnit(app, fx) orelse return true;
+                const n = paramCount(u.kind());
                 const cnt: usize = @intCast(app.takeCount());
-                app.fx_param = if (app.fx_focus == .eq)
+                app.fx_param = if (u.kind() == .eq)
                     app.fx_param -| cnt
                 else
                     (app.fx_param + n - (cnt % n)) % n;
                 return true;
             },
             'l' => {
-                const n = paramCount(app.fx_focus);
+                const fx = fxPtr(app, is_track) orelse return true;
+                const u = focusedUnit(app, fx) orelse return true;
+                const n = paramCount(u.kind());
                 const cnt: usize = @intCast(app.takeCount());
-                app.fx_param = if (app.fx_focus == .eq)
+                app.fx_param = if (u.kind() == .eq)
                     @min(app.fx_param + cnt, n - 1)
                 else
                     (app.fx_param + cnt) % n;
                 return true;
             },
             'j', 'J', 'k', 'K' => { nudge(app, is_track, c); return true; },
-            'b' => { toggleEqBypass(app, is_track); return true; },
             else => return false,
         },
         else => return false,
@@ -536,13 +536,18 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
 }
 
 /// `:eq <track> [<band> <db>]` support — same shape kept for backward
-/// compatibility with the command-line path; auto-creates the EQ (matching
-/// its long-standing behaviour) rather than requiring `a` first.
+/// compatibility with the command-line path; targets the chain's first EQ,
+/// inserting one at the end if there is none (matching the command's
+/// long-standing auto-create behaviour).
 pub fn setEqBand(app: *App, track: u16, band: usize, gain_db: f32) void {
     if (track >= app.session.racks.items.len) return;
     const rack = app.session.racks.items[track];
-    if (rack.fx.eq == null) rack.fx.eq = GraphicEq.init(app.session.project.sample_rate);
-    rack.fx.eq.?.setBand(band, gain_db);
+    const unit = rack.fx.find(.eq) orelse
+        rack.fx.insert(app.session.allocator, rack.fx.units.items.len, .eq, app.session.project.sample_rate) catch {
+            app.setStatus("eq: chain full", .{});
+            return;
+        };
+    unit.payload.eq.setBand(band, gain_db);
     app.dirty = true;
     var buf: [ws.Rack.chain_cap]dsp.Device = undefined;
     app.session.engine.setTrackChain(track, rack.chain(&buf));
@@ -551,23 +556,28 @@ pub fn setEqBand(app: *App, track: u16, band: usize, gain_db: f32) void {
 /// Same as `setEqBand` but for the master bus — no track index, and pushes
 /// the change through `Session.syncMasterChain` instead of `setTrackChain`.
 pub fn setMasterEqBand(app: *App, band: usize, gain_db: f32) void {
-    if (app.session.master_fx.eq == null)
-        app.session.master_fx.eq = GraphicEq.init(app.session.project.sample_rate);
-    app.session.master_fx.eq.?.setBand(band, gain_db);
+    const fx = &app.session.master_fx;
+    const unit = fx.find(.eq) orelse
+        fx.insert(app.session.allocator, fx.units.items.len, .eq, app.session.project.sample_rate) catch {
+            app.setStatus("master-eq: chain full", .{});
+            return;
+        };
+    unit.payload.eq.setBand(band, gain_db);
     app.dirty = true;
     app.session.syncMasterChain();
 }
 
 // Row layout mirrors views/spectrum.zig's drawFxView exactly: title, the
 // 3-row chain strip, a key-hint row, the focused slot's section divider,
-// then its editor body. For the EQ slot the body is `visual_rows` spectrum
-// rows + an Hz-label row + the band rows; for the other slots it's one
-// barRow per param (or a single hint row while the unit is absent).
+// then its editor body. For an EQ unit the body is `visual_rows` spectrum
+// rows + an Hz-label row + the band rows; for the other units it's one
+// barRow per param (or a single hint row while the chain is empty).
 
-// Chain strip geometry, middle row: an "IN▶" gutter, then nine 7-wide slot
-// boxes ("┃GATE●┃") joined by 1-wide "▶" arrows; slot i starts at column
-// strip_x0 + i*(strip_box_w + strip_gap_w). Nine boxes + "▶OUT" total 78
-// cols, inside an 80-col terminal.
+// Chain strip geometry, middle row: an "IN▶" gutter, then up to nine 7-wide
+// slot boxes ("┃GATE●┃") joined by 1-wide "▶" arrows; slot i starts at
+// column strip_x0 + i*(strip_box_w + strip_gap_w). A trailing "+" box (the
+// insert affordance) occupies the next slot position while there's room.
+// Nine boxes + "▶OUT" total 78 cols, inside an 80-col terminal.
 pub const strip_x0: usize = 3;
 pub const strip_box_w: usize = 7;
 pub const strip_gap_w: usize = 1;
@@ -590,20 +600,21 @@ pub fn bodyRow0(compact: bool) usize {
     return if (compact) 3 else body_row0;
 }
 
-/// Which chain slot a click at column `x` on the strip rows lands in, if any.
-fn slotAt(x: usize) ?FxUnit {
-    inline for (0..unit_count) |i| {
-        const x0 = strip_x0 + i * (strip_box_w + strip_gap_w);
-        if (x >= x0 and x < x0 + strip_box_w) return @enumFromInt(i);
-    }
-    return null;
+/// Which strip slot a click at column `x` lands in, if any. `len` is the
+/// unit count; index `len` means the trailing "+" box (only drawn while
+/// the chain has room, so callers gate on that).
+fn slotAt(x: usize, len: usize) ?usize {
+    if (x < strip_x0) return null;
+    const pitch = strip_box_w + strip_gap_w;
+    const i = (x - strip_x0) / pitch;
+    if ((x - strip_x0) % pitch >= strip_box_w) return null; // the arrow gap
+    if (i > len or i >= Fx.max_units) return null;
+    return i;
 }
 
-/// EQ-body band-row count: bar + value + freq rows when present, one hint
-/// row when absent. The view sizes `visual_rows` off the same number.
-pub fn eqBandRows(fx: *const ws.Fx) usize {
-    return if (fx.eq != null) 3 else 1;
-}
+/// EQ-body band-row count: bar + value + freq rows (an EQ unit in focus
+/// always exists — chains only hold inserted units).
+pub const eq_band_rows: usize = 3;
 
 // EQ band row: a 3-char gutter, then a 5-char cell per band (bracket/glyph/
 // bracket on the bar row; a 5-wide centered field on the value/freq rows) —
@@ -627,9 +638,9 @@ fn nudgeMouse(app: *App, is_track: bool, ev: modal_mod.MouseEvent) void {
     nudge(app, is_track, key);
 }
 
-/// Click a chain-strip slot box to focus it; click an EQ band or a
-/// comp/delay/reverb param row to select it; scroll over either nudges it
-/// (**ctrl**+scroll = coarse).
+/// Click a chain-strip slot box to focus it (the trailing "+" box opens the
+/// picker); click an EQ band or a param row to select it; scroll over
+/// either nudges it (**ctrl**+scroll = coarse).
 pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16, view_rows: usize) void {
     _ = cols; // slot/band/param columns here are fixed-width, not terminal-width-dependent
     const is_track = app.view == .track_spectrum;
@@ -638,8 +649,9 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16, v
 
     if (row >= strip_rows_start and row <= (if (compact) strip_rows_start else strip_rows_end)) {
         if (ev.kind == .press) {
-            const u = slotAt(ev.x) orelse return;
-            setFocus(app, is_track, u);
+            const len = fx.units.items.len;
+            const i = slotAt(ev.x, len) orelse return;
+            if (i == len) openPicker(app, is_track) else setFocus(app, is_track, i);
         }
         return;
     }
@@ -647,14 +659,13 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16, v
     if (row < body0) return; // title / hint / section rows — not interactive
     const rel = row - body0;
 
-    if (app.fx_focus == .eq) {
-        if (fx.eq == null) return;
+    const unit = focusedUnit(app, fx) orelse return;
+    if (unit.kind() == .eq) {
         // Same sizing as drawFxView: spectrum graph, then the Hz-label row,
         // then the three band rows — only the band rows are interactive.
-        const bands = eqBandRows(fx);
-        const visual_rows: usize = @min(style.spectrum_rows, view_rows -| ((if (compact) @as(usize, 9) else 12) + bands));
+        const visual_rows: usize = @min(style.spectrum_rows, view_rows -| ((if (compact) @as(usize, 9) else 12) + eq_band_rows));
         const band_row0 = visual_rows + 1;
-        if (rel < band_row0 or rel >= band_row0 + bands) return;
+        if (rel < band_row0 or rel >= band_row0 + eq_band_rows) return;
         const band = eqBandAt(ev.x) orelse return;
         switch (ev.kind) {
             .press => app.fx_param = band,
@@ -667,8 +678,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16, v
         return;
     }
 
-    if (!isPresent(fx, app.fx_focus)) return;
-    if (rel >= paramCount(app.fx_focus)) return;
+    if (rel >= paramCount(unit.kind())) return;
     switch (ev.kind) {
         .press => app.fx_param = rel,
         .scroll_up, .scroll_down => {

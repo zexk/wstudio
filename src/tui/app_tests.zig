@@ -1213,7 +1213,9 @@ test "draw renders spectrum view without errors" {
     var buf: [32 * 1024]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
     try app.draw(&w, .{ .cols = 80, .rows = 24 });
-    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "FX RACK") != null);
+    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "FX CHAIN") != null);
+    // A fresh chain is empty — the body is the insert hint.
+    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "chain empty") != null);
 }
 
 test "draw renders track_spectrum after pressing s" {
@@ -1223,13 +1225,17 @@ test "draw renders track_spectrum after pressing s" {
     var buf: [32 * 1024]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
     try app.draw(&w, .{ .cols = 80, .rows = 24 });
-    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "FX RACK") != null);
+    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "FX CHAIN") != null);
 }
 
 test "spectrum fills FFT buffer and draws with real data" {
     var app = try testApp();
     defer app.deinit();
 
+    // The analyzer belongs to an EQ unit's editor — insert one and focus it.
+    _ = try app.session.racks.items[0].fx.insert(
+        app.session.allocator, 0, .eq, app.session.project.sample_rate,
+    );
     app.handleKey(.{ .char = 's' }, 0);
     _ = app.session.engine.send(.{ .note_on = .{ .track = 0, .note = 60, .velocity = 1.0 } });
     var block: [512]types.Sample = undefined;
@@ -2877,20 +2883,95 @@ test "mouse click/drag on a sampler waveform moves the nearer marker" {
 test "mouse click on a chain-strip slot box focuses that slot" {
     var app = try testApp();
     defer app.deinit();
+    const fx = &app.session.racks.items[0].fx;
+    const alloc = app.session.allocator;
+    const sr = app.session.project.sample_rate;
+    _ = try fx.insert(alloc, 0, .eq, sr);
+    _ = try fx.insert(alloc, 1, .comp, sr);
+    _ = try fx.insert(alloc, 2, .reverb, sr);
     spectrum_ed.switchToTrack(&app, 0);
-    try std.testing.expectEqual(spectrum_ed.FxUnit.eq, app.fx_focus);
+    try std.testing.expectEqual(@as(usize, 0), app.fx_focus);
 
     // Strip middle row is view row 2; the second slot box (COMP) spans
     // columns 11..18 (see editors/spectrum.zig's strip geometry).
     const row = app_mod.content_top + 2;
     app.handleMouse(.{ .x = 12, .y = row, .button = .left, .kind = .press }, 80, 24, 0);
-    try std.testing.expectEqual(spectrum_ed.FxUnit.comp, app.fx_focus);
+    try std.testing.expectEqual(@as(usize, 1), app.fx_focus);
 
     // A click on the arrow between boxes changes nothing.
     app.handleMouse(.{ .x = 10, .y = row, .button = .left, .kind = .press }, 80, 24, 0);
-    try std.testing.expectEqual(spectrum_ed.FxUnit.comp, app.fx_focus);
+    try std.testing.expectEqual(@as(usize, 1), app.fx_focus);
 
-    // Last box (REVERB) starts at column 3 + 8*8 = 67.
-    app.handleMouse(.{ .x = 68, .y = row, .button = .left, .kind = .press }, 80, 24, 0);
-    try std.testing.expectEqual(spectrum_ed.FxUnit.reverb, app.fx_focus);
+    // Third box (REVERB) starts at column 3 + 2*8 = 19.
+    app.handleMouse(.{ .x = 20, .y = row, .button = .left, .kind = .press }, 80, 24, 0);
+    try std.testing.expectEqual(@as(usize, 2), app.fx_focus);
+
+    // The "+" box sits one slot past the last unit — clicking it opens the
+    // FX picker for this track's chain.
+    app.handleMouse(.{ .x = 28, .y = row, .button = .left, .kind = .press }, 80, 24, 0);
+    try std.testing.expectEqual(app_mod.AppView.fx_picker, app.view);
+    try std.testing.expectEqual(app_mod.AppView.track_spectrum, app.fx_picker_return);
+}
+
+test "FX picker inserts after the focused slot and focuses the new unit" {
+    var app = try testApp();
+    defer app.deinit();
+    spectrum_ed.switchToTrack(&app, 0);
+    try std.testing.expectEqual(@as(usize, 0), app.session.racks.items[0].fx.units.items.len);
+
+    // Chain empty: 'a' opens the picker; enter inserts the highlighted kind
+    // (row 0 = gate) as the first unit and returns to the chain view.
+    try std.testing.expect(spectrum_ed.handleKey(&app, .{ .char = 'a' }));
+    try std.testing.expectEqual(app_mod.AppView.fx_picker, app.view);
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqual(app_mod.AppView.track_spectrum, app.view);
+    const fx = &app.session.racks.items[0].fx;
+    try std.testing.expectEqual(@as(usize, 1), fx.units.items.len);
+    try std.testing.expectEqual(ws.FxKind.gate, fx.units.items[0].kind());
+    try std.testing.expectEqual(@as(usize, 0), app.fx_focus);
+
+    // Insert again with the cursor on "Reverb": lands *after* the gate.
+    _ = spectrum_ed.handleKey(&app, .{ .char = 'a' });
+    app.fx_picker_cursor = spectrum_ed.picker_kinds.len - 1;
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqual(@as(usize, 2), fx.units.items.len);
+    try std.testing.expectEqual(ws.FxKind.reverb, fx.units.items[1].kind());
+    try std.testing.expectEqual(@as(usize, 1), app.fx_focus);
+
+    // 'x' removes the focused reverb; focus clamps back to the gate.
+    _ = spectrum_ed.handleKey(&app, .{ .char = 'x' });
+    try std.testing.expectEqual(@as(usize, 1), fx.units.items.len);
+    try std.testing.expectEqual(ws.FxKind.gate, fx.units.items[0].kind());
+    try std.testing.expectEqual(@as(usize, 0), app.fx_focus);
+}
+
+test "FX chain: </> reorder and b bypass reach the engine chain" {
+    var app = try testApp();
+    defer app.deinit();
+    spectrum_ed.switchToMaster(&app);
+    const fx = &app.session.master_fx;
+    const alloc = app.session.allocator;
+    const sr = app.session.project.sample_rate;
+    _ = try fx.insert(alloc, 0, .comp, sr);
+    _ = try fx.insert(alloc, 1, .delay, sr);
+    app.session.syncMasterChain();
+    try std.testing.expectEqual(@as(usize, 2), app.session.engine.master_chain_len);
+
+    // '>' moves the focused comp after the delay; focus follows it.
+    app.fx_focus = 0;
+    _ = spectrum_ed.handleKey(&app, .{ .char = '>' });
+    try std.testing.expectEqual(ws.FxKind.delay, fx.units.items[0].kind());
+    try std.testing.expectEqual(ws.FxKind.comp, fx.units.items[1].kind());
+    try std.testing.expectEqual(@as(usize, 1), app.fx_focus);
+    // At the chain's end '>' is a no-op.
+    _ = spectrum_ed.handleKey(&app, .{ .char = '>' });
+    try std.testing.expectEqual(@as(usize, 1), app.fx_focus);
+
+    // 'b' bypasses the focused comp: kept in the chain, dropped from the
+    // engine's device list.
+    _ = spectrum_ed.handleKey(&app, .{ .char = 'b' });
+    try std.testing.expect(fx.units.items[1].bypassed);
+    try std.testing.expectEqual(@as(usize, 1), app.session.engine.master_chain_len);
+    _ = spectrum_ed.handleKey(&app, .{ .char = 'b' });
+    try std.testing.expectEqual(@as(usize, 2), app.session.engine.master_chain_len);
 }

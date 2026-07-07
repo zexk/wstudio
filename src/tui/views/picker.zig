@@ -1,4 +1,4 @@
-//! Instrument-picker view.
+//! Instrument-picker and FX-picker views.
 
 const std = @import("std");
 const ws = @import("wstudio");
@@ -77,6 +77,51 @@ pub fn drawInstrumentPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void 
 
     // used includes the 2 outer rows (header + hr) so padding aligns with drum-grid convention
     const used = 4 + picker_menu.len;
+    for (used..@max(used, rows -| 3)) |_| try endLine(w);
+}
+
+/// Names + one-line descriptions for the FX picker. Order must match
+/// `editors/spectrum.zig`'s `picker_kinds`.
+const fx_picker_menu = [_]struct { name: []const u8, desc: []const u8 }{
+    .{ .name = "Gate",       .desc = "cuts signal below a threshold: cleans up noise and bleed" },
+    .{ .name = "Compressor", .desc = "evens out dynamics: thresh/ratio/attack/release/makeup" },
+    .{ .name = "EQ",         .desc = "10-band graphic EQ, editor doubles as spectrum analyzer" },
+    .{ .name = "Saturator",  .desc = "soft-clip drive: analog-style warmth through grit" },
+    .{ .name = "Crusher",    .desc = "bitcrusher: lo-fi bit depth + sample-rate reduction" },
+    .{ .name = "Chorus",     .desc = "modulated doubling: width and shimmer" },
+    .{ .name = "Phaser",     .desc = "sweeping notches: slow swirl to fast wobble" },
+    .{ .name = "Delay",      .desc = "stereo echo with feedback and mix" },
+    .{ .name = "Reverb",     .desc = "room to hall tails: room/damp/mix" },
+};
+
+pub fn drawFxPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void {
+    const target: []const u8 = if (app.fx_picker_return == .track_spectrum) blk: {
+        break :blk if (app.eq_track < app.session.project.tracks.items.len)
+            app.session.project.tracks.items[app.eq_track].name
+        else
+            "?";
+    } else "MASTER";
+
+    try w.writeAll(bold ++ " INSERT EFFECT" ++ rst);
+    try w.writeAll(acc);
+    try w.print("  \"{s}\"", .{target});
+    try w.writeAll(rst);
+    try endLine(w);
+    try endLine(w);
+
+    for (fx_picker_menu, 0..) |item, i| {
+        const is_sel = (i == app.fx_picker_cursor);
+        if (is_sel) try w.writeAll(sel);
+        try w.writeAll(if (is_sel) "  > " else "    ");
+        try w.print("{s: <12}", .{item.name});
+        if (!is_sel) try w.writeAll(dim);
+        try w.print(" {s}", .{item.desc});
+        try w.writeAll(rst);
+        try endLine(w);
+    }
+
+    // used includes the 2 outer rows (header + hr) so padding aligns with drum-grid convention
+    const used = 4 + fx_picker_menu.len;
     for (used..@max(used, rows -| 3)) |_| try endLine(w);
 }
 

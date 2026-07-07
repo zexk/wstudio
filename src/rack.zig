@@ -54,45 +54,149 @@ pub const Instrument = union(enum) {
 /// and `Session.setInstrument` to name a kind without a payload.
 pub const InstrumentKind = std.meta.Tag(Instrument);
 
-/// Fixed set of optional signal processors applied in series after the
-/// instrument. Order in chain(): gate → comp → eq → sat → crush → chorus →
-/// phaser → delay → reverb; dynamics and tone first, modulation next, time
-/// FX last. Shared by every track's Rack and the engine's master bus
-/// (Session.master_fx), the same stages plug into either one the same way,
-/// in the same order.
-pub const Fx = struct {
-    eq: ?GraphicEq = null,
-    comp: ?Compressor = null,
-    delay: ?StereoDelay = null,
-    reverb: ?Reverb = null,
-    gate: ?Gate = null,
-    sat: ?Saturator = null,
-    crush: ?Crusher = null,
-    chorus: ?Chorus = null,
-    phaser: ?Phaser = null,
+/// One effect processor a chain slot can hold. Add new unit variants here as
+/// the engine grows — the TUI's picker and persistence key off `FxKind`.
+/// chorus/delay/reverb own heap buffers (mod/delay lines); deinit frees them.
+pub const FxPayload = union(enum) {
+    gate: Gate,
+    comp: Compressor,
+    eq: GraphicEq,
+    sat: Saturator,
+    crush: Crusher,
+    chorus: Chorus,
+    phaser: Phaser,
+    delay: StereoDelay,
+    reverb: Reverb,
 
-    /// Number of chain slots; sizes every `chain()` scratch buffer.
-    pub const unit_count = 9;
-
-    pub fn deinit(self: *Fx, allocator: std.mem.Allocator) void {
-        if (self.delay)  |*d| d.deinit(allocator);
-        if (self.reverb) |*r| r.deinit(allocator);
-        if (self.chorus) |*c| c.deinit(allocator);
+    /// Returns a dsp.Device fat-pointer whose `.ptr` is stable as long as
+    /// the parent FxUnit (heap-allocated by Fx.insert) is alive.
+    pub fn device(self: *FxPayload) dsp.Device {
+        return switch (self.*) {
+            .gate   => |*g| g.device(),
+            .comp   => |*c| c.device(),
+            .eq     => |*e| e.device(),
+            .sat    => |*s| s.device(),
+            .crush  => |*c| c.device(),
+            .chorus => |*c| c.device(),
+            .phaser => |*p| p.device(),
+            .delay  => |*d| d.device(),
+            .reverb => |*r| r.device(),
+        };
     }
 
-    /// Fills `buf` with the active stages in signal-flow order and returns
+    pub fn deinit(self: *FxPayload, allocator: std.mem.Allocator) void {
+        switch (self.*) {
+            .chorus => |*c| c.deinit(allocator),
+            .delay  => |*d| d.deinit(allocator),
+            .reverb => |*r| r.deinit(allocator),
+            else => {},
+        }
+    }
+};
+
+/// The effect variants as a plain enum — names a kind without a payload,
+/// same role InstrumentKind plays for instruments.
+pub const FxKind = std.meta.Tag(FxPayload);
+
+/// One inserted chain slot. Heap-allocated by `Fx.insert` so the device
+/// pointer the engine holds stays stable across chain edits (insert, remove,
+/// reorder only shuffle the pointer list, never move the unit itself).
+pub const FxUnit = struct {
+    payload: FxPayload,
+    /// Bypassed units keep their state but are skipped by `chain()`.
+    bypassed: bool = false,
+
+    pub fn kind(self: *const FxUnit) FxKind {
+        return std.meta.activeTag(self.payload);
+    }
+};
+
+/// User-built effect chain: an ordered list of inserted units, applied in
+/// series after the instrument. Starts empty; the user inserts units where
+/// they want them (duplicates allowed), reorders, bypasses, and removes.
+/// Shared by every track's Rack and the engine's master bus
+/// (Session.master_fx) — the same units plug into either one the same way.
+pub const Fx = struct {
+    units: std.ArrayListUnmanaged(*FxUnit) = .empty,
+
+    /// Chain slot cap; sizes every `chain()` scratch buffer (and keeps the
+    /// TUI's chain strip inside 80 columns).
+    pub const max_units = 9;
+
+    /// A fresh payload of `kind` with its defaults. Only chorus/delay/reverb
+    /// allocate (their mod/delay lines).
+    pub fn initPayload(allocator: std.mem.Allocator, kind: FxKind, sr: u32) !FxPayload {
+        return switch (kind) {
+            .gate   => .{ .gate = Gate.init(sr) },
+            .comp   => .{ .comp = Compressor.init(sr) },
+            .eq     => .{ .eq = GraphicEq.init(sr) },
+            .sat    => .{ .sat = .{} },
+            .crush  => .{ .crush = .{} },
+            .chorus => .{ .chorus = try Chorus.init(allocator, sr) },
+            .phaser => .{ .phaser = Phaser.init(sr) },
+            .delay  => .{ .delay = try StereoDelay.init(allocator, sr, 2.0) },
+            .reverb => .{ .reverb = try Reverb.init(allocator, sr) },
+        };
+    }
+
+    /// Insert a fresh `kind` unit (defaults) at `pos`, clamped to the chain
+    /// end. Fails without touching the chain on `error.ChainFull` / OOM.
+    pub fn insert(self: *Fx, allocator: std.mem.Allocator, pos: usize, kind: FxKind, sr: u32) !*FxUnit {
+        if (self.units.items.len >= max_units) return error.ChainFull;
+        const unit = try allocator.create(FxUnit);
+        errdefer allocator.destroy(unit);
+        unit.* = .{ .payload = try initPayload(allocator, kind, sr) };
+        errdefer unit.payload.deinit(allocator);
+        try self.units.insert(allocator, @min(pos, self.units.items.len), unit);
+        return unit;
+    }
+
+    /// Remove and free the unit at `idx`. Push the new chain to the engine
+    /// (setTrackChain/syncMasterChain) in the same control-thread breath.
+    pub fn remove(self: *Fx, allocator: std.mem.Allocator, idx: usize) void {
+        if (idx >= self.units.items.len) return;
+        const unit = self.units.orderedRemove(idx);
+        unit.payload.deinit(allocator);
+        allocator.destroy(unit);
+    }
+
+    /// Swap two slots' positions. Unit memory never moves, so the engine's
+    /// device pointers stay valid; re-sync the chain to apply the new order.
+    pub fn swap(self: *Fx, a: usize, b: usize) void {
+        if (a == b or a >= self.units.items.len or b >= self.units.items.len) return;
+        std.mem.swap(*FxUnit, &self.units.items[a], &self.units.items[b]);
+    }
+
+    /// First unit of `kind` in chain order, or null — for the `:eq` /
+    /// `:master-comp` command paths that address a unit by name.
+    pub fn find(self: *const Fx, kind: FxKind) ?*FxUnit {
+        const i = self.findIdx(kind) orelse return null;
+        return self.units.items[i];
+    }
+
+    /// Index of the first unit of `kind`, or null.
+    pub fn findIdx(self: *const Fx, kind: FxKind) ?usize {
+        for (self.units.items, 0..) |u, i| if (u.kind() == kind) return i;
+        return null;
+    }
+
+    pub fn deinit(self: *Fx, allocator: std.mem.Allocator) void {
+        for (self.units.items) |u| {
+            u.payload.deinit(allocator);
+            allocator.destroy(u);
+        }
+        self.units.deinit(allocator);
+    }
+
+    /// Fills `buf` with the non-bypassed units in chain order and returns
     /// the used slice.
-    pub fn chain(self: *Fx, buf: *[unit_count]dsp.Device) []const dsp.Device {
+    pub fn chain(self: *Fx, buf: *[max_units]dsp.Device) []const dsp.Device {
         var len: usize = 0;
-        if (self.gate)   |*g| { buf[len] = g.device(); len += 1; }
-        if (self.comp)   |*c| { buf[len] = c.device(); len += 1; }
-        if (self.eq)     |*e| { buf[len] = e.device(); len += 1; }
-        if (self.sat)    |*s| { buf[len] = s.device(); len += 1; }
-        if (self.crush)  |*c| { buf[len] = c.device(); len += 1; }
-        if (self.chorus) |*c| { buf[len] = c.device(); len += 1; }
-        if (self.phaser) |*p| { buf[len] = p.device(); len += 1; }
-        if (self.delay)  |*d| { buf[len] = d.device(); len += 1; }
-        if (self.reverb) |*r| { buf[len] = r.device(); len += 1; }
+        for (self.units.items) |u| {
+            if (u.bypassed) continue;
+            buf[len] = u.payload.device();
+            len += 1;
+        }
         return buf[0..len];
     }
 };
@@ -145,40 +249,50 @@ pub const Rack = struct {
             rack.pattern_player = new_pp;
         }
 
-        if (self.fx.comp) |c| rack.fx.comp = c;
-        if (self.fx.eq) |e| rack.fx.eq = e;
-        if (self.fx.gate) |g| rack.fx.gate = g;
-        if (self.fx.sat) |s| rack.fx.sat = s;
-        if (self.fx.crush) |c| rack.fx.crush = c;
-        if (self.fx.phaser) |p| rack.fx.phaser = p;
-        if (self.fx.chorus) |c| {
-            var nc = try Chorus.init(allocator, sr);
-            nc.rate_hz = c.rate_hz;
-            nc.depth_ms = c.depth_ms;
-            nc.mix = c.mix;
-            rack.fx.chorus = nc;
-        }
-        if (self.fx.delay) |d| {
-            var nd = try StereoDelay.init(allocator, sr, 2.0);
-            nd.delay_frames = d.delay_frames;
-            nd.feedback = d.feedback;
-            nd.mix = d.mix;
-            rack.fx.delay = nd;
-        }
-        if (self.fx.reverb) |r| {
-            var nr = try Reverb.init(allocator, sr);
-            nr.mix = r.mix;
-            nr.room = r.room;
-            nr.damp = r.damp;
-            rack.fx.reverb = nr;
+        for (self.fx.units.items) |u| {
+            const nu = try allocator.create(FxUnit);
+            errdefer allocator.destroy(nu);
+            nu.* = .{ .payload = try dupePayload(&u.payload, allocator, sr), .bypassed = u.bypassed };
+            errdefer nu.payload.deinit(allocator);
+            try rack.fx.units.append(allocator, nu);
         }
 
         return rack;
     }
 
+    /// Deep-copies one FX payload: chorus/delay/reverb get fresh lines (only
+    /// their params carry over, same as save/load); the rest are plain value
+    /// state and copy directly.
+    fn dupePayload(p: *const FxPayload, allocator: std.mem.Allocator, sr: u32) !FxPayload {
+        switch (p.*) {
+            .chorus => |c| {
+                var nc = try Chorus.init(allocator, sr);
+                nc.rate_hz = c.rate_hz;
+                nc.depth_ms = c.depth_ms;
+                nc.mix = c.mix;
+                return .{ .chorus = nc };
+            },
+            .delay => |d| {
+                var nd = try StereoDelay.init(allocator, sr, 2.0);
+                nd.delay_frames = d.delay_frames;
+                nd.feedback = d.feedback;
+                nd.mix = d.mix;
+                return .{ .delay = nd };
+            },
+            .reverb => |r| {
+                var nr = try Reverb.init(allocator, sr);
+                nr.mix = r.mix;
+                nr.room = r.room;
+                nr.damp = r.damp;
+                return .{ .reverb = nr };
+            },
+            else => return p.*,
+        }
+    }
+
     /// Capacity every `chain()` scratch buffer needs: pattern player +
-    /// instrument + the full FX rack.
-    pub const chain_cap = Fx.unit_count + 2;
+    /// instrument + a full FX chain.
+    pub const chain_cap = Fx.max_units + 2;
 
     /// Fills `buf` with [pattern_player?, instrument, ...fx] in signal-flow
     /// order and returns the used slice. Caller must keep `buf` alive for as
@@ -187,21 +301,24 @@ pub const Rack = struct {
         var len: usize = 0;
         if (self.pattern_player) |*pp| { buf[len] = pp.device(); len += 1; }
         if (self.instrument.device()) |dev| { buf[len] = dev; len += 1; }
-        var fx_buf: [Fx.unit_count]dsp.Device = undefined;
+        var fx_buf: [Fx.max_units]dsp.Device = undefined;
         for (self.fx.chain(&fx_buf)) |dev| { buf[len] = dev; len += 1; }
         return buf[0..len];
     }
 };
 
-test "chain order is instrument → gate → comp → eq → … (no pattern player)" {
+test "chain follows insertion order, not a fixed slot order" {
     var rack = Rack{
         .instrument = .{ .poly_synth = PolySynth.init(48_000) },
-        .fx = .{
-            .comp = Compressor.init(48_000),
-            .eq   = GraphicEq.init(48_000),
-        },
         .label = "test",
     };
+    defer rack.fx.deinit(std.testing.allocator);
+
+    // Insert an EQ, then a comp *in front of it* — the old fixed rack would
+    // have forced comp → eq; the chain must play them as ordered.
+    const eq   = try rack.fx.insert(std.testing.allocator, 0, .eq, 48_000);
+    const comp = try rack.fx.insert(std.testing.allocator, 0, .comp, 48_000);
+
     var buf: [Rack.chain_cap]dsp.Device = undefined;
     const ch = rack.chain(&buf);
 
@@ -211,11 +328,50 @@ test "chain order is instrument → gate → comp → eq → … (no pattern pla
         @as(*anyopaque, @ptrCast(&rack.instrument.poly_synth)), ch[0].ptr,
     );
     try std.testing.expectEqual(
-        @as(*anyopaque, @ptrCast(&rack.fx.comp.?)), ch[1].ptr,
+        @as(*anyopaque, @ptrCast(&comp.payload.comp)), ch[1].ptr,
     );
     try std.testing.expectEqual(
-        @as(*anyopaque, @ptrCast(&rack.fx.eq.?)), ch[2].ptr,
+        @as(*anyopaque, @ptrCast(&eq.payload.eq)), ch[2].ptr,
     );
+}
+
+test "Fx: duplicates allowed, bypass skips, remove frees, cap enforced" {
+    const allocator = std.testing.allocator;
+    var fx: Fx = .{};
+    defer fx.deinit(allocator);
+
+    // Two saturators in one chain — impossible with the fixed rack.
+    _ = try fx.insert(allocator, 0, .sat, 48_000);
+    _ = try fx.insert(allocator, 1, .sat, 48_000);
+    var buf: [Fx.max_units]dsp.Device = undefined;
+    try std.testing.expectEqual(@as(usize, 2), fx.chain(&buf).len);
+
+    fx.units.items[0].bypassed = true;
+    try std.testing.expectEqual(@as(usize, 1), fx.chain(&buf).len);
+
+    fx.remove(allocator, 0);
+    try std.testing.expectEqual(@as(usize, 1), fx.units.items.len);
+    try std.testing.expectEqual(FxKind.sat, fx.units.items[0].kind());
+
+    for (fx.units.items.len..Fx.max_units) |_| _ = try fx.insert(allocator, 0, .crush, 48_000);
+    try std.testing.expectError(error.ChainFull, fx.insert(allocator, 0, .gate, 48_000));
+}
+
+test "Fx.swap reorders without moving unit memory" {
+    const allocator = std.testing.allocator;
+    var fx: Fx = .{};
+    defer fx.deinit(allocator);
+
+    const a = try fx.insert(allocator, 0, .comp, 48_000);
+    const b = try fx.insert(allocator, 1, .eq, 48_000);
+    fx.swap(0, 1);
+    try std.testing.expectEqual(b, fx.units.items[0]);
+    try std.testing.expectEqual(a, fx.units.items[1]);
+
+    var buf: [Fx.max_units]dsp.Device = undefined;
+    const ch = fx.chain(&buf);
+    try std.testing.expectEqual(@as(*anyopaque, @ptrCast(&b.payload.eq)), ch[0].ptr);
+    try std.testing.expectEqual(@as(*anyopaque, @ptrCast(&a.payload.comp)), ch[1].ptr);
 }
 
 test "drum_machine Instrument variant: device ptr stable inside heap Rack" {

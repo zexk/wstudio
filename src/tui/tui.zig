@@ -77,6 +77,7 @@ const automation = @import("views/automation.zig");
 pub const drawTracks = tracks.drawTracks;
 pub const drawTracksStatus = tracks.drawTracksStatus;
 pub const drawInstrumentPicker = picker.drawInstrumentPicker;
+pub const drawFxPicker = picker.drawFxPicker;
 pub const drawDrumGrid = drum.drawDrumGrid;
 pub const drawDrumStatus = drum.drawDrumStatus;
 pub const drawHelp = help.drawHelp;

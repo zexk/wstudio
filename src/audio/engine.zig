@@ -16,8 +16,8 @@ const SpectrumAnalyzer = spectrum_mod.SpectrumAnalyzer;
 const SpectrumSnapshot = spectrum_mod.SpectrumSnapshot;
 
 pub const max_tracks = 8192;
-/// Must cover Rack.chain_cap (pattern player + instrument + the 9-slot FX
-/// rack); setTrackChain silently truncates past it.
+/// Must cover Rack.chain_cap (pattern player + instrument + a full 9-unit
+/// FX chain); setTrackChain silently truncates past it.
 pub const max_chain_devices = 12;
 pub const channels = 2;
 
@@ -103,10 +103,10 @@ pub const Engine = struct {
     /// Always-on master-bus limiter: catches hot mixes before the WAV
     /// writer's ±1 clamp (and the DAC) turns them into hard-clip distortion.
     limiter: Limiter,
-    /// User-configurable master bus FX (the full 9-slot rack, see Fx.chain),
-    /// applied to the summed mix before `master_gain` and the always-on
-    /// limiter. Devices are fat pointers into `Session.master_fx`, see
-    /// `setMasterChain`. Sized to Fx.unit_count.
+    /// User-built master bus FX chain (see Fx.chain), applied to the summed
+    /// mix before `master_gain` and the always-on limiter. Devices are fat
+    /// pointers into `Session.master_fx`'s heap units, see `setMasterChain`.
+    /// Sized to Fx.max_units.
     master_chain: [9]dsp.Device = undefined,
     master_chain_len: usize = 0,
     metronome: Metronome,

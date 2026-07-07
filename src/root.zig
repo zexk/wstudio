@@ -14,6 +14,9 @@ pub const Rack = @import("rack.zig").Rack;
 pub const Instrument = @import("rack.zig").Instrument;
 pub const InstrumentKind = @import("rack.zig").InstrumentKind;
 pub const Fx = @import("rack.zig").Fx;
+pub const FxUnit = @import("rack.zig").FxUnit;
+pub const FxPayload = @import("rack.zig").FxPayload;
+pub const FxKind = @import("rack.zig").FxKind;
 
 pub const engine = @import("audio/engine.zig");
 pub const Engine = engine.Engine;

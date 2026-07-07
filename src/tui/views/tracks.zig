@@ -41,6 +41,25 @@ const rowVal = style.rowVal;
 const barRow = style.barRow;
 const enumRow = style.enumRow;
 
+/// Row-badge chips for a rack's FX chain, in signal-flow order. Chains can
+/// hold up to nine units but a track row's width is shared with gain/pan and
+/// the keybind hint, so show the first four and fold the rest into "+n".
+fn writeFxBadges(w: *std.Io.Writer, fx: *const ws.Fx) !void {
+    const max_chips = 4;
+    for (fx.units.items, 0..) |u, n| {
+        if (n == max_chips) {
+            try w.print(" +{d}", .{fx.units.items.len - max_chips});
+            break;
+        }
+        try w.writeByte(' ');
+        try w.writeAll(switch (u.kind()) {
+            .gate => "gate", .comp => "cmp", .eq => "eq",
+            .sat => "sat", .crush => "crs", .chorus => "cho",
+            .phaser => "pha", .delay => "dly", .reverb => "rev",
+        });
+    }
+}
+
 pub fn drawTracks(app: anytype, w: *std.Io.Writer, rows: usize, snap: engine_mod.UiSnapshot) !void {
     _ = snap;
     try w.writeAll(bold ++ " TRACKS" ++ rst);
@@ -119,16 +138,13 @@ pub fn drawTracks(app: anytype, w: *std.Io.Writer, rows: usize, snap: engine_mod
         if (!is_sel and !faded) try w.writeAll(acc);
         try w.print(" [{s}]", .{label});
         if (!is_sel and !faded) try w.writeAll(rst);
-        // FX badges
-        if (!is_empty and i < app.session.racks.items.len) {
-            const rfx = app.session.racks.items[i].fx;
-            const any = rfx.comp != null or rfx.eq != null or rfx.delay != null or rfx.reverb != null;
-            if (any) {
+        // FX badges — the chain's units in signal-flow order. Not gated on
+        // is_empty: a chain can be built before the instrument is picked.
+        if (i < app.session.racks.items.len) {
+            const rfx = &app.session.racks.items[i].fx;
+            if (rfx.units.items.len > 0) {
                 if (!is_sel and !faded) try w.writeAll(acc);
-                if (rfx.comp   != null) try w.writeAll(" cmp");
-                if (rfx.eq     != null) try w.writeAll(" eq");
-                if (rfx.delay  != null) try w.writeAll(" dly");
-                if (rfx.reverb != null) try w.writeAll(" rev");
+                try writeFxBadges(w, rfx);
                 if (!is_sel and !faded) try w.writeAll(rst);
             }
         }
@@ -179,14 +195,10 @@ pub fn drawTracks(app: anytype, w: *std.Io.Writer, rows: usize, snap: engine_mod
         try w.writeAll(" [bus]");
         if (!is_sel) try w.writeAll(rst);
         {
-            const mfx = app.session.master_fx;
-            const any = mfx.comp != null or mfx.eq != null or mfx.delay != null or mfx.reverb != null;
-            if (any) {
+            const mfx = &app.session.master_fx;
+            if (mfx.units.items.len > 0) {
                 if (!is_sel) try w.writeAll(acc);
-                if (mfx.comp   != null) try w.writeAll(" cmp");
-                if (mfx.eq     != null) try w.writeAll(" eq");
-                if (mfx.delay  != null) try w.writeAll(" dly");
-                if (mfx.reverb != null) try w.writeAll(" rev");
+                try writeFxBadges(w, mfx);
                 if (!is_sel) try w.writeAll(rst);
             }
         }
