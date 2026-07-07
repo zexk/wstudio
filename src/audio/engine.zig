@@ -148,7 +148,21 @@ pub const Engine = struct {
         peak_bits: [channels]std.atomic.Value(u32) = .{ .init(0), .init(0) },
     };
 
+    /// By-value init, for tests that keep a small Engine on their own frame.
+    /// Heap-allocated engines (Session, persist.buildSession) must use
+    /// `initInPlace` instead: Engine embeds `max_tracks` TrackStates (~2MB),
+    /// and the by-value error-union return stacks several copies of that in
+    /// Debug builds — deep in the project-load path that overflows the 8MB
+    /// main-thread stack.
     pub fn init(allocator: std.mem.Allocator, sample_rate: u32) !Engine {
+        var self: Engine = undefined;
+        try initInPlace(&self, allocator, sample_rate);
+        return self;
+    }
+
+    /// Construct the Engine directly through `self` (no multi-MB stack
+    /// temporaries — see `init`). On error `self` is left undefined.
+    pub fn initInPlace(self: *Engine, allocator: std.mem.Allocator, sample_rate: u32) !void {
         var track_spec = try SpectrumAnalyzer.init(allocator, sample_rate);
         errdefer track_spec.deinit(allocator);
         var master_spec = try SpectrumAnalyzer.init(allocator, sample_rate);
@@ -159,7 +173,7 @@ pub const Engine = struct {
         errdefer allocator.free(automation);
         for (automation) |*a| a.* = .{};
 
-        var self = Engine{
+        self.* = .{
             .allocator = allocator,
             .transport = .{ .sample_rate = sample_rate },
             .limiter = Limiter.init(sample_rate),
@@ -170,7 +184,6 @@ pub const Engine = struct {
             .automation = automation,
         };
         for (&self.tracks) |*t| t.* = .{};
-        return self;
     }
 
     pub fn deinit(self: *Engine) void {

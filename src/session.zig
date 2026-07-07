@@ -64,7 +64,7 @@ pub const Session = struct {
 
         const engine = try allocator.create(Engine);
         errdefer allocator.destroy(engine);
-        engine.* = try Engine.init(allocator, sr);
+        try engine.initInPlace(allocator, sr);
         errdefer engine.deinit();
         engine.loadProject(&project);
 
