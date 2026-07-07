@@ -64,6 +64,7 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "load-clip",   .desc = "[file]  load a WAV as a whole audio clip and stamp it at the arrangement cursor (sampler track, omit the file to browse)", .run = wrap(cmdLoadClip) },
     .{ .name = "e",           .desc = "[file]  open a project (refuses if unsaved changes; omit the file to browse)", .run = wrap(cmdEdit) },
     .{ .name = "e!",          .desc = "[file]  open a project, discarding changes; no file reverts the current one", .run = wrap(cmdEditForce) },
+    .{ .name = "restore-backup", .desc = "load the <project>~ autosave backup over the current session", .run = wrap(cmdRestoreBackup) },
     .{ .name = "new",         .desc = "start a blank project (refuses if unsaved changes)", .run = wrap(cmdNew) },
     .{ .name = "new!",        .desc = "start a blank project, discarding unsaved changes", .run = wrap(cmdNewForce) },
     .{ .name = "help",        .desc = "list all commands",                   .run = wrap(cmdHelp) },
@@ -108,6 +109,7 @@ fn cmdQuit(app: *App, _: []const u8) void {
         app.setStatus("unsaved changes — :w to save, :q! to discard", .{});
         return;
     }
+    app.deleteBackupIfPresent();
     app.should_quit = true;
 }
 
@@ -139,6 +141,23 @@ fn editOrRevert(app: *App, args: []const u8, force: bool) void {
             return;
         };
     app.requestReload(path);
+}
+
+/// Load the `<project>~` autosave backup over the current session — see
+/// the prompt `run()` sets at startup when it finds one newer than the
+/// project file. Requires a known project path (same requirement the
+/// backup itself has: `maybeAutosave` skips brand-new, path-less projects).
+fn cmdRestoreBackup(app: *App, _: []const u8) void {
+    const path = app.projectPath() orelse {
+        app.setStatus("restore-backup: no project loaded yet", .{});
+        return;
+    };
+    var buf: [path_buf_len]u8 = undefined;
+    const backup = std.fmt.bufPrint(&buf, "{s}~", .{path}) catch {
+        app.setStatus("restore-backup: path too long", .{});
+        return;
+    };
+    app.requestRestoreBackup(backup);
 }
 
 fn cmdNew(app: *App, _: []const u8) void { newOrForce(app, false); }
@@ -645,6 +664,7 @@ fn cmdSave(app: *App, args: []const u8) void {
         app.setStatus("save: {s}: {s}", .{ path, @errorName(e) });
         return;
     };
+    app.deleteBackupIfPresent(); // stale for the path we just moved off of
     app.setProjectPath(path);
     app.dirty = false;
     app.setStatus("saved: {s}", .{path});
@@ -659,6 +679,7 @@ fn cmdWriteQuit(app: *App, args: []const u8) void {
         app.setStatus("save: {s}: {s}", .{ path, @errorName(e) });
         return;
     };
+    app.deleteBackupIfPresent(); // stale for the path we just moved off of
     app.setProjectPath(path);
     app.dirty = false;
     app.should_quit = true;

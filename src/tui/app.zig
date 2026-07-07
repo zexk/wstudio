@@ -377,7 +377,7 @@ pub const App = struct {
     search_pattern_buf: [modal_mod.ModalInput.max_cmd_len]u8 = undefined,
     search_pattern_len: usize = 0,
 
-    pub const ReloadRequest = enum { none, blank, load };
+    pub const ReloadRequest = enum { none, blank, load, restore_backup };
 
     const NoteOff = struct { at_ns: i96, track: u16, note: u7 };
 
@@ -1475,9 +1475,8 @@ pub const App = struct {
         if (!self.dirty) return;
         if (now_ns - self.last_autosave_ns < autosave_interval_ns) return;
         self.last_autosave_ns = now_ns;
-        const path = self.projectPath() orelse return;
         var buf: [reload_path_buf_len]u8 = undefined;
-        const backup = std.fmt.bufPrint(&buf, "{s}~", .{path}) catch return;
+        const backup = self.backupPath(&buf) orelse return;
         ws.persist.save(self.allocator, &self.session, self.io, backup) catch {};
     }
 
@@ -1703,6 +1702,35 @@ pub const App = struct {
         return self.pending_reload_buf[0..self.pending_reload_len];
     }
 
+    /// `:restore-backup` — load `backup_path` (the `<project>~` autosave)
+    /// on the next loop iteration, same swap mechanism as `:e`, but the
+    /// project path stays the original file: the backup's content is newer
+    /// than what's on disk, not a different project, so it lands `dirty`
+    /// rather than re-pointing `:w`'s default target.
+    pub fn requestRestoreBackup(self: *App, backup_path: []const u8) void {
+        const len = @min(backup_path.len, self.pending_reload_buf.len);
+        @memcpy(self.pending_reload_buf[0..len], backup_path[0..len]);
+        self.pending_reload_len = len;
+        self.pending_reload = .restore_backup;
+    }
+
+    /// `<path>~`, or null if no project path is known yet — shared by the
+    /// autosave writer, the startup recovery check, and the post-save/quit
+    /// cleanup.
+    fn backupPath(self: *const App, buf: []u8) ?[]const u8 {
+        const path = self.projectPath() orelse return null;
+        return std.fmt.bufPrint(buf, "{s}~", .{path}) catch null;
+    }
+
+    /// Delete the `<path>~` autosave backup now that it's stale: either its
+    /// content just got saved for real, or the session cleanly matched disk
+    /// already. Best-effort — a missing or unremovable backup is a no-op.
+    pub fn deleteBackupIfPresent(self: *App) void {
+        var buf: [reload_path_buf_len]u8 = undefined;
+        const backup = self.backupPath(&buf) orelse return;
+        std.Io.Dir.cwd().deleteFile(self.io, backup) catch {};
+    }
+
     pub fn setStatus(self: *App, comptime fmt: []const u8, args: anytype) void {
         const msg = std.fmt.bufPrint(&self.status_buf, fmt, args) catch &self.status_buf;
         self.status_len = msg.len;
@@ -1878,6 +1906,19 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8) !vo
             app.session.deinit();
             app.session = loaded;
             app.setProjectPath(p);
+
+            // maybeAutosave leaves `<path>~` behind on a crash/kill — offer
+            // it back rather than letting it sit invisible (the file browser
+            // filters to `.wsj`) until someone types the path by hand.
+            var backup_buf: [reload_path_buf_len]u8 = undefined;
+            if (std.fmt.bufPrint(&backup_buf, "{s}~", .{p}) catch null) |backup| {
+                const project_stat = std.Io.Dir.cwd().statFile(io, p, .{}) catch null;
+                const backup_stat = std.Io.Dir.cwd().statFile(io, backup, .{}) catch null;
+                if (backup_stat) |bs| {
+                    const newer = if (project_stat) |ps| bs.mtime.nanoseconds > ps.mtime.nanoseconds else true;
+                    if (newer) app.setStatus("autosave backup found, newer than '{s}' — :restore-backup to load it", .{p});
+                }
+            }
         } else |e| {
             std.debug.print("wstudio: cannot load '{s}': {s}\n", .{ p, @errorName(e) });
         }
@@ -1952,7 +1993,7 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8) !vo
                     app.setStatus("new: {s}", .{@errorName(e)});
                     break :blk null;
                 },
-                .load => blk: {
+                .load, .restore_backup => blk: {
                     const path = app.pendingReloadPath();
                     if (ws.persist.load(allocator, io, path)) |loaded| {
                         break :blk loaded;
@@ -1970,6 +2011,10 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8) !vo
                 app.session = loaded;
                 switch (kind) {
                     .load => app.setProjectPath(app.pendingReloadPath()),
+                    // Keep the original project path — the backup's content
+                    // replaces the in-memory session but `:w` should still
+                    // write back to the real file, not `<path>~`.
+                    .restore_backup => { app.dirty = true; app.setStatus("restored from autosave backup — :w to keep it", .{}); },
                     .blank => app.project_path_len = 0,
                     .none => unreachable,
                 }
@@ -1994,6 +2039,8 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8) !vo
                 switch (kind) {
                     .load => app.setStatus("loaded: {s}", .{app.projectPath().?}),
                     .blank => app.setStatus("new project", .{}),
+                    // Status already set above ("restored from autosave...").
+                    .restore_backup => {},
                     .none => unreachable,
                 }
             }
