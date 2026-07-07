@@ -87,7 +87,7 @@ pub fn drawArrangement(
             // alignment — the separator's colour already marks downbeat/loop.
             try w.writeAll(if (in_loop) yel ++ "·" ++ rst else " ");
         } else if (downbeat) {
-            try w.print("{s}{d: >3}{s}", .{ if (in_loop) yel else dim, bar + 1, rst });
+            try w.print("{s}{d: <3}{s}", .{ if (in_loop) yel else dim, bar + 1, rst });
         } else if (in_loop) {
             try w.writeAll(yel ++ "···" ++ rst);
         } else {
