@@ -605,7 +605,7 @@ pub const App = struct {
                             's' => { spectrum_ed.switchToTrack(self, @intCast(self.cursor)); return; },
                             'p' => { piano_ed.switchTo(self, @intCast(self.cursor)); return; },
                             'a' => { self.doTrackAdd(null); return; },
-                            'D' => { self.doTrackDel(self.cursor); return; },
+                            'D' => { self.startTrackDelPrompt(); return; },
                             'Y' => { self.doTrackDup(self.cursor); return; },
                             'J' => { self.doTrackMove(1); return; },
                             'K' => { self.doTrackMove(-1); return; },
@@ -733,6 +733,20 @@ pub const App = struct {
         self.modal.mode = .command;
         self.cmd_history_pos = self.cmd_history.items.len;
         const text = std.fmt.bufPrint(&self.modal.cmd_buf, "track-rename {d} ", .{self.cursor + 1}) catch return;
+        self.modal.cmd_len = text.len;
+        self.modal.cmd_cursor = text.len;
+    }
+
+    /// `D` used to call doTrackDel directly — one keystroke, irreversible
+    /// (deleteTrack retires the rack rather than pushing to undo history).
+    /// Drop into the command prompt pre-filled with `:track-del N` instead,
+    /// same pattern as startRenamePrompt, so deleting a track needs an
+    /// explicit Enter (or Esc to back out) rather than a single bare key.
+    fn startTrackDelPrompt(self: *App) void {
+        if (self.cursor >= self.session.project.tracks.items.len) return;
+        self.modal.mode = .command;
+        self.cmd_history_pos = self.cmd_history.items.len;
+        const text = std.fmt.bufPrint(&self.modal.cmd_buf, "track-del {d}", .{self.cursor + 1}) catch return;
         self.modal.cmd_len = text.len;
         self.modal.cmd_cursor = text.len;
     }
