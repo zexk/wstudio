@@ -1,8 +1,10 @@
 //! Arrangement (song timeline) input: bar/lane cursor, clip stamping and
 //! deletion, play-from-cursor, drum-variant cycling, clip editing via the
-//! piano roll, the song/pattern mode toggle, and visual-mode range select
-//! (v, then y/d/p — a bar-range on the current lane only). The render half
-//! lives in views/arrangement.zig.
+//! piano roll, the song/pattern mode toggle, visual-mode range select
+//! (v, then y/d/p — a bar-range on the current lane only), and operator+
+//! motion grammar (x/d/y — a bar is already this editor's atomic unit, so
+//! dd/yy are the tier above it: the whole lane; see the operator-pending
+//! block below). The render half lives in views/arrangement.zig.
 
 const std = @import("std");
 const ws = @import("wstudio");
@@ -15,8 +17,10 @@ const automation = @import("automation.zig");
 const view = @import("../views/arrangement.zig");
 
 /// h/l move ±1 bar, H/L ±4 bars (one phrase), j/k change lane (shared
-/// `cursor`), enter stamps the live pattern as a clip, x deletes, y/p
-/// yank/paste a clip, </> shift it by bars, ( ) b set/toggle the A/B
+/// `cursor`), enter stamps the live pattern as a clip, x deletes the clip
+/// under the cursor, d/y are operators (dd/yy act on the whole lane, d/y +
+/// h/l/H/L act on a bar range), p pastes, </> shift a clip by bars, ( ) b
+/// set/toggle the A/B
 /// loop, [/] cycle a drum lane's pattern variant, T toggles song/pattern
 /// mode, v starts a bar-range selection on the current lane, a opens the
 /// gain/pan automation editor on the clip under the cursor. Tab (like
@@ -35,14 +39,13 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
 
     // Operator-pending mode: `d`/`y` arm here (armOperator below), then
     // h/l/H/L act on the bar range from the arming point (current lane
-    // only) — no j/k or g/G here since visual mode's own range select
-    // doesn't support them either. The same operator key again (dd/yy)
-    // reproduces the pre-grammar single-clip action (delete/yank the clip
-    // under the cursor) rather than a zero-width range: deleteSelection/
-    // yankSelection match on a clip's start_bar falling in range, while the
-    // single-clip actions use clipAt's "covers the cursor bar" rule — a
-    // clip that started earlier and merely overlaps the cursor would be
-    // missed by a zero-width range. Anything else cancels.
+    // only) — no j/k here, same lane-only restriction visual mode's own
+    // range select has. Vim's char/word/line hierarchy collapses a tier in
+    // this editor: a bar already IS the atomic unit (`x` deletes one, h/l
+    // already move one at a time — there's no finer grain to distinguish
+    // "char" from "word" here), so the same operator key again (dd/yy)
+    // clears/yanks the entire lane, the tier above a bar. Anything else
+    // cancels.
     if (app.arr_op_pending) |op| {
         app.arr_op_pending = null;
         switch (key) {
@@ -51,7 +54,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 '0'...'9' => { app.arr_op_pending = op; return false; },
                 'd', 'y' => {
                     if (c == op) {
-                        if (op == 'd') deleteClip(app) else yankClip(app);
+                        if (op == 'd') clearLane(app) else yankWholeLane(app);
                     } else app.setStatus("cancelled", .{});
                     return true;
                 },
@@ -80,14 +83,20 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             '0' => { app.arr_cursor_bar = 0; return true; },
             'j' => { moveLane(app, lane_count, app.takeCount()); return true; },
             'k' => { moveLane(app, lane_count, -app.takeCount()); return true; },
+            // x: vim's char-delete — the clip under the cursor, instantly,
+            // no operator needed (a bar is already this editor's atomic
+            // unit; see the operator-pending block above).
             'x' => { deleteClip(app); return true; },
-            // y is an operator (see armOperator) — yy yanks the clip under
-            // the cursor, y + a motion yanks the bar range it covers.
+            // y is an operator (see armOperator) — yy yanks every clip on
+            // the lane, y + a motion yanks the bar range it covers.
             'y' => { armOperator(app, 'y'); return true; },
-            // d is likewise an operator; dd deletes the clip under the
-            // cursor (same as x), d + a motion deletes the range.
+            // d is likewise an operator; dd clears every clip on the lane,
+            // d + a motion (h/l/H/L) deletes the range.
             'd' => { armOperator(app, 'd'); return true; },
-            'p', 'P' => { pasteClip(app); return true; },
+            // p/P paste the range clipboard at the cursor bar — the same
+            // clipboard yy/y+motion fill, since a single clip is just a
+            // 1-bar range (see pasteSelection).
+            'p', 'P' => { pasteSelection(app); return true; },
             'v' => {
                 app.arr_visual_anchor = app.arr_cursor_bar;
                 app.modal.mode = .visual;
@@ -127,13 +136,44 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
 fn armOperator(app: *App, op: u8) void {
     app.arr_visual_anchor = app.arr_cursor_bar;
     app.arr_op_pending = op;
-    app.setStatus("{c}: h/l/H/L act on the range, {c}{c} repeats the single-clip action", .{ op, op, op });
+    app.setStatus("{c}: h/l/H/L act on the range, {c}{c} acts on the whole lane", .{ op, op, op });
 }
 
 /// Complete an operator+motion: run the range delete/yank between the
 /// anchor `armOperator` set and the cursor's new position.
 fn finishOperator(app: *App, op: u8) void {
     if (op == 'd') deleteSelection(app) else yankSelection(app);
+}
+
+/// `dd`/`yy`'s whole-lane range: bar 0 through the last clip's end (the
+/// widest range that's guaranteed to catch every clip's start_bar, which is
+/// what deleteSelection/yankSelection actually filter on). Saves and
+/// restores `arr_cursor_bar` around the call so clearing/yanking the whole
+/// lane doesn't otherwise move the cursor, like vim's dd/yy don't jump far.
+fn wholeLaneRange(app: *App, lane: *ws.arrangement.Lane, act: *const fn (*App) void) void {
+    var hi: u32 = 0;
+    for (lane.clips.items) |c| hi = @max(hi, c.endBar() -| 1);
+    const saved_cursor = app.arr_cursor_bar;
+    app.arr_visual_anchor = 0;
+    app.arr_cursor_bar = hi;
+    act(app);
+    app.arr_cursor_bar = saved_cursor;
+}
+
+/// `dd`: clear every clip on the current lane — vim's whole-line dd, one
+/// tier coarser than x's single-clip delete and h/l's bar range.
+fn clearLane(app: *App) void {
+    const lane = app.session.arrangement.lane(app.cursor) orelse return;
+    if (lane.clips.items.len == 0) { app.setStatus("lane already empty", .{}); return; }
+    wholeLaneRange(app, lane, deleteSelection);
+}
+
+/// `yy`: yank every clip on the current lane (the tier above a single
+/// clip's `y`+motion range).
+fn yankWholeLane(app: *App) void {
+    const lane = app.session.arrangement.lane(app.cursor) orelse return;
+    if (lane.clips.items.len == 0) { app.setStatus("lane is empty", .{}); return; }
+    wholeLaneRange(app, lane, yankSelection);
 }
 
 /// Visual mode's reduced key set: motions extend the selection, y/d/p act
@@ -237,7 +277,11 @@ fn deleteSelection(app: *App) void {
 
 /// Paste the range clipboard onto the current lane starting at the cursor
 /// bar, evicting whatever it overlaps (same rule as stamping/pasting a
-/// single clip). Skips clips whose kind doesn't match the lane's instrument.
+/// single clip). Skips clips whose kind doesn't match the lane's
+/// instrument. Also the normal-mode `p`/`P` handler — a single clip is just
+/// a 1-bar range, so there's no separate single-clip paste path anymore.
+/// Jumps the cursor past the rightmost pasted clip for quick sequential
+/// pasting (leaves it alone if nothing was actually pasted).
 fn pasteSelection(app: *App) void {
     const clip = app.arr_range_clip orelse {
         app.setStatus("nothing yanked — select a range and y first", .{});
@@ -247,22 +291,39 @@ fn pasteSelection(app: *App) void {
     if (app.cursor >= app.session.racks.items.len) { exitVisual(app); return; }
     const rack = app.session.racks.items[app.cursor];
     const lane = app.session.arrangement.lane(app.cursor) orelse { exitVisual(app); return; };
+    const kind_ok = struct {
+        fn check(r: @TypeOf(rack), c: ws.Clip) bool {
+            return switch (c.content) {
+                .melodic => r.pattern_player != null,
+                .drum => std.meta.activeTag(r.instrument) == .drum_machine,
+            };
+        }
+    }.check;
+    // Skip pushing history (and touching the lane) entirely if nothing in
+    // the clipboard actually matches this lane's instrument — matching the
+    // old single-clip paste's behavior of leaving undo history untouched
+    // on a kind mismatch, rather than recording a no-op entry.
+    const any_kind_ok = for (clip.clips) |c| { if (kind_ok(rack, c)) break true; } else false;
+    if (!any_kind_ok) {
+        app.setStatus("clip kind doesn't match this track", .{});
+        exitVisual(app);
+        return;
+    }
     history.push(app, history.captureLane(app, @intCast(app.cursor)));
     var pasted: u32 = 0;
+    var end_bar = app.arr_cursor_bar;
     for (clip.clips) |c| {
-        const kind_ok = switch (c.content) {
-            .melodic => rack.pattern_player != null,
-            .drum => std.meta.activeTag(rack.instrument) == .drum_machine,
-        };
-        if (!kind_ok) continue;
+        if (!kind_ok(rack, c)) continue;
         var copy = c.dupe(app.allocator) catch continue;
         copy.start_bar += app.arr_cursor_bar;
+        end_bar = @max(end_bar, copy.endBar());
         lane.place(app.allocator, copy) catch {
             copy.deinit(app.allocator);
             continue;
         };
         pasted += 1;
     }
+    if (pasted > 0) app.arr_cursor_bar = end_bar;
     app.last_edit = .arr_range_paste;
     if (app.session.song_mode) app.session.rebuildSongData();
     app.setStatus("pasted {d} clip(s)", .{pasted});
@@ -444,55 +505,6 @@ fn toggleLoop(app: *App) void {
     app.session.syncLoop();
 }
 
-/// Yank the clip under the cursor into the app-wide clip clipboard.
-fn yankClip(app: *App) void {
-    const lane = app.session.arrangement.lane(app.cursor) orelse return;
-    const clip = lane.clipAt(app.arr_cursor_bar) orelse {
-        app.setStatus("no clip here — enter stamps one", .{});
-        return;
-    };
-    const copy = clip.dupe(app.allocator) catch {
-        app.setStatus("yank failed (out of memory)", .{});
-        return;
-    };
-    if (app.arr_clip) |*old| old.deinit(app.allocator);
-    app.arr_clip = copy;
-    app.setStatus("yanked {d}-bar clip", .{copy.length_bars});
-}
-
-/// Place a copy of the yanked clip at the cursor bar — evicting whatever it
-/// overlaps, like stamping — then jump the cursor past it for quick
-/// sequential pasting. Clip kind must match the lane's instrument.
-fn pasteClip(app: *App) void {
-    const src = app.arr_clip orelse {
-        app.setStatus("nothing yanked — y copies a clip", .{});
-        return;
-    };
-    if (app.cursor >= app.session.racks.items.len) return;
-    const rack = app.session.racks.items[app.cursor];
-    const kind_ok = switch (src.content) {
-        .melodic => rack.pattern_player != null,
-        .drum    => std.meta.activeTag(rack.instrument) == .drum_machine,
-    };
-    if (!kind_ok) {
-        app.setStatus("clip kind doesn't match this track", .{});
-        return;
-    }
-    const lane = app.session.arrangement.lane(app.cursor) orelse return;
-    var copy = src.dupe(app.allocator) catch {
-        app.setStatus("paste failed (out of memory)", .{});
-        return;
-    };
-    copy.start_bar = app.arr_cursor_bar;
-    history.push(app, history.captureLane(app, @intCast(app.cursor)));
-    lane.place(app.allocator, copy) catch {
-        app.setStatus("paste failed (out of memory)", .{});
-        return;
-    };
-    app.arr_cursor_bar = copy.endBar();
-    if (app.session.song_mode) app.session.rebuildSongData();
-    app.setStatus("pasted {d}-bar clip", .{copy.length_bars});
-}
 
 /// Shift the clip under the cursor by `delta` bars (clamped at bar 0). Clips
 /// it lands on are evicted — the same overwrite rule as stamping and pasting.

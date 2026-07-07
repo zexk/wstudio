@@ -246,9 +246,6 @@ pub const App = struct {
     /// between tracks. Whole-pattern granularity; one slot per editor kind.
     piano_clip: ?PianoClip = null,
     drum_clip: ?DrumMachine.Variant = null,
-    /// Arrangement clip clipboard (y/P in the arrangement view). Owns a deep
-    /// copy; its start_bar is meaningless — paste re-targets the cursor bar.
-    arr_clip: ?ws.Clip = null,
     /// Visual-mode anchors: set to the cursor position when `v` is pressed,
     /// null outside visual mode. The selection is [min(anchor,cursor),
     /// max(anchor,cursor)] on the view's time axis (step / step / bar); see
@@ -389,7 +386,6 @@ pub const App = struct {
 
     pub fn deinit(self: *App) void {
         user_presets.deinit(self.allocator, &self.user_synth_presets);
-        if (self.arr_clip) |*c| c.deinit(self.allocator);
         if (self.arr_range_clip) |r| {
             for (r.clips) |*c| c.deinit(self.allocator);
             self.allocator.free(r.clips);

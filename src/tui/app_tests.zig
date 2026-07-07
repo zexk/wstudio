@@ -387,16 +387,6 @@ test "piano roll operator+motion: d3l / y3l act on a range without entering visu
     try std.testing.expect(pp.noteAt(72, 2.0) != null); // untouched, outside the range
     try std.testing.expectEqual(@as(u16, 1), pp.note_count);
 
-    // dd/yy still reproduce the pre-grammar single-key action.
-    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.25 });
-    app.piano_cursor_step = 0;
-    for ("dd") |c| app.handleKey(.{ .char = c }, 0);
-    try std.testing.expect(pp.noteAt(60, 0.0) == null);
-
-    app.piano_cursor_step = 8;
-    for ("yy") |c| app.handleKey(.{ .char = c }, 0); // whole-pattern yank
-    try std.testing.expectEqual(@as(u16, 1), app.piano_clip.?.count);
-
     // Escape mid-operator cancels without acting.
     app.piano_cursor_step = 8;
     const before = pp.note_count;
@@ -405,6 +395,44 @@ test "piano roll operator+motion: d3l / y3l act on a range without entering visu
     try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
     try std.testing.expectEqual(before, pp.note_count);
     try std.testing.expect(pp.noteAt(72, 2.0) != null); // note under the cursor survives
+
+    // dd/yy are the tier above w/b's bar range: the whole pattern.
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.25 });
+    for ("yy") |c| app.handleKey(.{ .char = c }, 0);
+    try std.testing.expectEqual(@as(u16, 2), app.piano_clip.?.count); // both remaining notes
+    for ("dd") |c| app.handleKey(.{ .char = c }, 0);
+    try std.testing.expectEqual(@as(u16, 0), pp.note_count);
+}
+
+test "piano roll char/word tiers: x deletes the note under the cursor, w/b jump by bar" {
+    var app = try testApp();
+    defer app.deinit();
+    app.view = .piano_roll;
+    app.piano_track = 0;
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    pp.length_beats = 8.0; // 4 beats/bar, straight grid (4 steps/beat) -> 16 steps/bar
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.25 });
+    pp.addNote(.{ .pitch = 64, .start_beat = 4.0, .duration_beat = 0.25 }); // bar 2, step 16
+
+    // x: instant single-note delete, no operator arming needed.
+    app.piano_cursor_step = 0;
+    app.handleKey(.{ .char = 'x' }, 0);
+    try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
+    try std.testing.expect(pp.noteAt(60, 0.0) == null);
+    try std.testing.expectEqual(@as(u16, 1), pp.note_count);
+
+    // w: jump forward to the next bar boundary (step 16); b: back to bar 0.
+    app.piano_cursor_step = 0;
+    app.handleKey(.{ .char = 'w' }, 0);
+    try std.testing.expectEqual(@as(u16, 16), app.piano_cursor_step);
+    app.handleKey(.{ .char = 'b' }, 0);
+    try std.testing.expectEqual(@as(u16, 0), app.piano_cursor_step);
+
+    // dw: delete exactly the current bar's worth of steps (0-15), leaving
+    // the note at bar 2 (step 16) untouched.
+    for ("dw") |c| app.handleKey(.{ .char = c }, 0);
+    try std.testing.expect(pp.noteAt(64, 4.0) != null);
+    try std.testing.expectEqual(@as(u16, 1), pp.note_count);
 }
 
 test "T toggles the piano roll grid between straight and triplet" {
@@ -673,17 +701,46 @@ test "drum grid operator+motion: d3l / y3l act on a range without entering visua
     try std.testing.expect(!dm.stepActive(1, 2));
     try std.testing.expect(dm.stepActive(3, 14)); // untouched, outside the range
 
-    // dd clears just the cursor's own step (not the whole column).
+    // dd/yy are the tier above w/b's bar range: the whole pattern.
+    dm.toggleStep(2, 5);
+    for ("yy") |c| app.handleKey(.{ .char = c }, 0);
+    try std.testing.expect(app.drum_clip != null);
+    for ("dd") |c| app.handleKey(.{ .char = c }, 0);
+    try std.testing.expect(!dm.stepActive(2, 5));
+    try std.testing.expect(!dm.stepActive(3, 14));
+}
+
+test "drum grid char/word tiers: x clears just this cell, w/b jump by bar" {
+    var app = try testApp();
+    defer app.deinit();
+    app.view = .drum_grid;
+    app.drum_track = 2;
+    const dm = app.drumMachine();
+    for (&dm.pattern) |*p| p.store(0, .monotonic);
+    dm.setStepCount(32); // 2 bars at 16 steps/bar
     dm.toggleStep(0, 5);
     dm.toggleStep(2, 5);
+    dm.toggleStep(1, 20); // bar 2
+
+    // x: instant single-cell clear, no operator arming needed.
     app.drum_cursor = .{ 0, 5 };
-    for ("dd") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.{ .char = 'x' }, 0);
+    try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
     try std.testing.expect(!dm.stepActive(0, 5));
     try std.testing.expect(dm.stepActive(2, 5)); // a different pad's step at the same column survives
 
-    // yy still reproduces the pre-grammar whole-pattern yank.
-    for ("yy") |c| app.handleKey(.{ .char = c }, 0);
-    try std.testing.expect(app.drum_clip != null);
+    // w: jump forward to the next bar boundary (step 16); b: back to bar 0.
+    app.drum_cursor = .{ 0, 0 };
+    app.handleKey(.{ .char = 'w' }, 0);
+    try std.testing.expectEqual(@as(u8, 16), app.drum_cursor[1]);
+    app.handleKey(.{ .char = 'b' }, 0);
+    try std.testing.expectEqual(@as(u8, 0), app.drum_cursor[1]);
+
+    // dw: clear exactly the current bar's steps (0-15), leaving bar 2's
+    // step untouched.
+    for ("dw") |c| app.handleKey(.{ .char = c }, 0);
+    try std.testing.expect(!dm.stepActive(2, 5));
+    try std.testing.expect(dm.stepActive(1, 20));
 }
 
 test "paste with an empty clipboard is a no-op" {
@@ -1634,8 +1691,9 @@ test "arrangement clips: yank/paste, count-move, kind guard, undo" {
     app.cursor = 0;
     app.arr_cursor_bar = 0;
 
-    // Yank, paste at bar 4; the cursor jumps past the pasted clip.
-    app.handleKey(.{ .char = 'y' }, 0); // yy yanks the clip under the cursor
+    // Yank, paste at bar 4; the cursor jumps past the pasted clip. yy
+    // yanks the whole lane, which here is just this one clip.
+    app.handleKey(.{ .char = 'y' }, 0);
     app.handleKey(.{ .char = 'y' }, 0);
     app.arr_cursor_bar = 4;
     app.handleKey(.{ .char = 'P' }, 0);
@@ -1727,15 +1785,23 @@ test "arrangement operator+motion: d3l / y3l act on a bar range without entering
     try std.testing.expect(lane.clipAt(1) == null);
     try std.testing.expect(lane.clipAt(5) != null); // untouched, outside the range
 
-    // dd/yy still reproduce the pre-grammar single-clip action (same as x/y).
+    // dd/yy are the tier above a bar range: the whole lane. x stays the
+    // single-clip instant delete (this editor's "char", one bar).
     try app.session.stampClip(0, 0);
-    app.arr_cursor_bar = 0;
-    for ("dd") |c| app.handleKey(.{ .char = c }, 0);
-    try std.testing.expect(lane.clipAt(0) == null);
-
     app.arr_cursor_bar = 5;
+    app.handleKey(.{ .char = 'x' }, 0);
+    try std.testing.expect(lane.clipAt(5) == null);
+
     for ("yy") |c| app.handleKey(.{ .char = c }, 0);
-    try std.testing.expect(app.arr_clip != null);
+    try std.testing.expectEqual(@as(usize, 1), app.arr_range_clip.?.clips.len); // just bar 0's clip left
+    for ("dd") |c| app.handleKey(.{ .char = c }, 0);
+    try std.testing.expectEqual(@as(usize, 0), lane.clips.items.len);
+
+    // p/P paste from that same whole-lane yank; cursor jumps past it.
+    app.arr_cursor_bar = 10;
+    app.handleKey(.{ .char = 'p' }, 0);
+    try std.testing.expect(lane.clipAt(10) != null);
+    try std.testing.expectEqual(@as(u32, 11), app.arr_cursor_bar);
 }
 
 test "piano roll M grabs a note; h/l/j/k drag it as one undo step" {

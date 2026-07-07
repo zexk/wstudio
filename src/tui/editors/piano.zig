@@ -1,7 +1,9 @@
 //! Piano-roll input: note cursor, insert/delete/resize, velocity, yank/paste,
-//! loop length, visual-mode range select (v, then y/d/p), and the
-//! Ableton-style clip-link writeback (edits on a linked arrangement clip
-//! land in the clip itself). The render half lives in views/piano.zig.
+//! loop length, visual-mode range select (v, then y/d/p), operator+motion
+//! grammar (x/w/b/d/y — see the note/bar/pattern hierarchy on the
+//! operator-pending block below), and the Ableton-style clip-link writeback
+//! (edits on a linked arrangement clip land in the clip itself). The render
+//! half lives in views/piano.zig.
 
 const std = @import("std");
 const ws = @import("wstudio");
@@ -59,15 +61,14 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
     if (app.modal.mode == .visual) return handleVisual(app, key, pp, max_step);
 
     // Operator-pending mode: `d`/`y` arm here (armOperator below), then a
-    // step motion (h/l/H/L/g/G) deletes/yanks the range from the arming
-    // point to wherever the motion lands — reuses the exact same
+    // step motion (h/l/H/L/g/G/w/b) deletes/yanks the range from the
+    // arming point to wherever the motion lands — reuses the exact same
     // deleteSelection/yankSelection visual mode uses, just without the
     // visual-mode UI or its j/k pitch motion (time-range-only, like visual
-    // mode). The same operator key again (dd/yy) reproduces the original
-    // single-key action (delete the note under the cursor / yank the whole
-    // pattern) rather than a zero-width range — a range delete acts on
-    // every pitch at that step, so collapsing dd into it would silently
-    // drop other notes in a chord. Anything else cancels.
+    // mode). Vim's char/word/line hierarchy maps onto this editor as note
+    // (x, below) / bar (w/b, dw/yw) / whole pattern (dd/yy) — the same
+    // operator key again (dd/yy) clears/yanks the entire pattern, the tier
+    // above a bar, rather than a zero-width range. Anything else cancels.
     if (app.piano_op_pending) |op| {
         app.piano_op_pending = null;
         switch (key) {
@@ -76,7 +77,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 '0'...'9' => { app.piano_op_pending = op; return false; },
                 'd', 'y' => {
                     if (c == op) {
-                        if (op == 'd') deleteNote(app) else yank(app);
+                        if (op == 'd') clearPattern(app) else yank(app);
                     } else app.setStatus("cancelled", .{});
                     return true;
                 },
@@ -91,6 +92,17 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                     finishOperator(app, pp, op);
                     return true;
                 },
+                // dw/yw act on exactly the bar(s) from the cursor through
+                // the end of the nth bar forward — not through w's raw
+                // landing step (the *next* bar's first step), which would
+                // bleed one step into it. Mirrors vim's own dw: the motion
+                // still lands past the boundary for plain navigation, but
+                // an operator stops just short of it.
+                'w' => { operatorBarForward(app, max_step, app.takeCount()); finishOperator(app, pp, op); return true; },
+                // db/yb act on the bar(s) from the start of the nth bar
+                // back through the original cursor (inclusive) — the
+                // anchor already holds that original position.
+                'b' => { operatorBarBackward(app, max_step, app.takeCount()); finishOperator(app, pp, op); return true; },
                 else => { app.piano_visual_anchor = null; app.setStatus("cancelled", .{}); return true; },
             },
             else => { app.piano_visual_anchor = null; app.setStatus("cancelled", .{}); return true; },
@@ -150,6 +162,11 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 ensureVisible(app);
                 return true;
             },
+            // w/b: vim's word motion, one tier up from h/l's step ("char")
+            // granularity — jump to the start of the next/current-or-
+            // previous bar.
+            'w' => { jumpBar(app, max_step, app.takeCount()); return true; },
+            'b' => { jumpBar(app, max_step, -app.takeCount()); return true; },
             // M grabs the note under the cursor for dragging (see above).
             'M' => {
                 const start_beat = stepToBeat(app, app.piano_cursor_step);
@@ -183,8 +200,13 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             's' => { spectrum.switchToTrack(app, app.piano_track); return true; },
             // n kept as an alias for muscle memory; enter is the canonical toggle.
             'n' => { insertNote(app); return true; },
-            // d is an operator (see armOperator) — dd deletes the note under
-            // the cursor, d + a motion deletes the range it covers.
+            // x: vim's char-delete — the note under the cursor, instantly,
+            // no operator needed (the "char" tier of the note/bar/pattern
+            // hierarchy; see the operator-pending block above).
+            'x' => { deleteNote(app); return true; },
+            // d is an operator (see armOperator) — dd clears the whole
+            // pattern, d + a motion (h/l/H/L/g/G/w/b) clears the range it
+            // covers.
             'd' => { armOperator(app, 'd'); return true; },
             'a' => {
                 app.playNote(app.piano_track, app.piano_cursor_pitch, app.now_ns);
@@ -559,13 +581,71 @@ fn yank(app: *App) void {
     app.setStatus("yanked {d} notes ({d:.0} beats)", .{ clip.count, clip.length_beats });
 }
 
+/// dd: clear every note in the current pattern — vim's whole-line dd, one
+/// tier coarser than x's single-note delete and w/b's bar range.
+fn clearPattern(app: *App) void {
+    if (app.piano_track >= app.session.racks.items.len) return;
+    const pp = if (app.session.racks.items[app.piano_track].pattern_player != null)
+        &app.session.racks.items[app.piano_track].pattern_player.?
+    else return;
+    history.push(app, history.captureMelodic(app, app.piano_track));
+    const removed = pp.removeNotesInRange(0, pp.length_beats);
+    app.setStatus("cleared {d} notes", .{removed});
+    syncLinkedClip(app);
+}
+
+/// Bar length in steps under the current grid (straight/triplet), so w/b
+/// and operator+w/b track `T`'s grid toggle automatically.
+fn barLenSteps(app: *App) u16 {
+    const bpb: f64 = @floatFromInt(app.session.project.beats_per_bar);
+    return @intFromFloat(bpb * stepsPerBeatF(app));
+}
+
+/// w/b: jump the cursor `delta` bars forward/back (vim's word motion, one
+/// tier up from h/l's step granularity) — snaps to the nearest bar boundary
+/// first, then moves whole bars from there.
+fn jumpBar(app: *App, max_step: u16, delta: i32) void {
+    const bar_len = barLenSteps(app);
+    if (bar_len == 0) return;
+    const cur_bar = @divFloor(@as(i32, app.piano_cursor_step), @as(i32, bar_len));
+    const target_step = (cur_bar + delta) * @as(i32, bar_len);
+    const top = @max(@as(i32, max_step) - 1, 0);
+    app.piano_cursor_step = @intCast(std.math.clamp(target_step, 0, top));
+    ensureVisible(app);
+}
+
+/// dw/yw's range end: the last step of the nth bar forward (inclusive),
+/// not w's own landing step (the *next* bar's first step) — see the
+/// operator-pending block's comment on 'w'.
+fn operatorBarForward(app: *App, max_step: u16, n: i32) void {
+    const bar_len = barLenSteps(app);
+    if (bar_len == 0) return;
+    const cur_bar = @divFloor(@as(i32, app.piano_cursor_step), @as(i32, bar_len));
+    const hi = (cur_bar + n) * @as(i32, bar_len) - 1;
+    const top = @max(@as(i32, max_step) - 1, 0);
+    app.piano_cursor_step = @intCast(std.math.clamp(hi, 0, top));
+}
+
+/// db/yb's range start: the first step of the nth bar back — the anchor
+/// (the cursor's position when `d`/`y` was pressed) stays the range's other
+/// (inclusive) end, so this covers "back to the start of this-or-an-
+/// earlier bar, through where you started."
+fn operatorBarBackward(app: *App, max_step: u16, n: i32) void {
+    const bar_len = barLenSteps(app);
+    if (bar_len == 0) return;
+    const cur_bar = @divFloor(@as(i32, app.piano_cursor_step), @as(i32, bar_len));
+    const lo = (cur_bar - n + 1) * @as(i32, bar_len);
+    const top = @max(@as(i32, max_step) - 1, 0);
+    app.piano_cursor_step = @intCast(std.math.clamp(lo, 0, top));
+}
+
 /// Arm `d`/`y` as a pending operator (see the operator-pending block in
 /// handleKey): remembers the cursor as the range anchor, same field visual
 /// mode's `v` sets, so the eventual delete/yank reuses selectionRange as-is.
 fn armOperator(app: *App, op: u8) void {
     app.piano_visual_anchor = app.piano_cursor_step;
     app.piano_op_pending = op;
-    app.setStatus("{c}: h/l/H/L/g/G act on the range, {c}{c} repeats the single-key action", .{ op, op, op });
+    app.setStatus("{c}: h/l/H/L/g/G/w/b act on the range, {c}{c} acts on the whole pattern", .{ op, op, op });
 }
 
 /// Complete an operator+motion: run the range delete/yank between the

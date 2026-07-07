@@ -1,7 +1,9 @@
 //! Drum-grid input: step/pad cursor, step + velocity toggles, pattern
 //! variants, swing, choke groups, yank/paste, visual-mode range select
-//! (v, then y/d/p). The render half lives in views/drum.zig; the machine
-//! itself in dsp/drum_sampler.zig.
+//! (v, then y/d/p), and operator+motion grammar (x/w/b/d/y — see the
+//! step/bar/pattern hierarchy on the operator-pending block below). The
+//! render half lives in views/drum.zig; the machine itself in
+//! dsp/drum_sampler.zig.
 
 const std = @import("std");
 const ws = @import("wstudio");
@@ -23,14 +25,14 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
     if (app.modal.mode == .visual) return handleVisual(app, key);
 
     // Operator-pending mode: `d`/`y` arm here (armOperator below), then a
-    // step motion (h/l/H/L/g/G) deletes/yanks the range from the arming
-    // point (every pad, matching the visual-mode range) — j/k (pad motion)
-    // aren't valid here, same time-range-only restriction visual mode's own
-    // range select has. The same operator key again (dd/yy) reproduces the
-    // pre-grammar single-key action (clear just this pad's step / yank the
-    // whole pattern) rather than a zero-width range delete, which would
-    // clear every pad at this step instead of just the one under the
-    // cursor. Anything else cancels.
+    // step motion (h/l/H/L/g/G/w/b) deletes/yanks the range from the
+    // arming point (every pad, matching the visual-mode range) — j/k (pad
+    // motion) aren't valid here, same time-range-only restriction visual
+    // mode's own range select has. Vim's char/word/line hierarchy maps onto
+    // this editor as step (x, below) / bar (w/b, dw/yw) / whole pattern
+    // (dd/yy) — the same operator key again (dd/yy) clears/yanks the entire
+    // pattern (every pad) rather than a zero-width range. Anything else
+    // cancels.
     if (app.drum_op_pending) |op| {
         app.drum_op_pending = null;
         switch (key) {
@@ -39,7 +41,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 '0'...'9' => { app.drum_op_pending = op; return false; },
                 'd', 'y' => {
                     if (c == op) {
-                        if (op == 'd') clearCursorStep(app) else yankWholePattern(app);
+                        if (op == 'd') clearWholePattern(app) else yankWholePattern(app);
                     } else app.setStatus("cancelled", .{});
                     return true;
                 },
@@ -54,6 +56,11 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                     finishOperator(app, op);
                     return true;
                 },
+                // dw/yw act on exactly the bar(s) through the end of the
+                // nth bar forward, not w's raw landing step (see
+                // piano.zig's identical comment — same vim dw nuance).
+                'w' => { operatorBarForward(app, app.takeCount()); finishOperator(app, op); return true; },
+                'b' => { operatorBarBackward(app, app.takeCount()); finishOperator(app, op); return true; },
                 else => { app.drum_visual_anchor = null; app.setStatus("cancelled", .{}); return true; },
             },
             else => { app.drum_visual_anchor = null; app.setStatus("cancelled", .{}); return true; },
@@ -89,6 +96,11 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                     const dm = app.drumMachine();
                     if (dm.step_count > 0) step.* = dm.step_count - 1;
                 },
+                // w/b: vim's word motion, one tier up from h/l's step
+                // ("char") granularity — jump to the start of the
+                // next/current-or-previous bar.
+                'w' => jumpBar(app, app.takeCount()),
+                'b' => jumpBar(app, -app.takeCount()),
                 'a' => {
                     _ = app.session.engine.send(.{ .note_on = .{
                         .track = app.drum_track,
@@ -120,8 +132,12 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                     app.modal.mode = .visual;
                     app.setStatus("visual: hjkl extend, y/d/p act on the range, esc cancels", .{});
                 },
-                // d is an operator (see armOperator) — dd clears the step
-                // under the cursor, d + a motion clears the range it covers.
+                // x: vim's char-delete — clears just the (pad, step) under
+                // the cursor, instantly, no operator needed.
+                'x' => clearCursorStep(app),
+                // d is an operator (see armOperator) — dd clears the whole
+                // pattern, d + a motion (h/l/H/L/g/G/w/b) clears the range
+                // it covers.
                 'd' => armOperator(app, 'd'),
                 '<' => adjustSwing(app, -1.0),
                 '>' => adjustSwing(app, 1.0),
@@ -200,6 +216,47 @@ fn movePad(app: *App, delta: i32) void {
     app.drum_cursor[0] = @intCast(std.math.clamp(@as(i32, app.drum_cursor[0]) + delta, 0, DrumMachine.max_pads - 1));
 }
 
+/// Bar length in steps (drum grid has no grid toggle, always 16th notes —
+/// 4 steps/beat).
+fn barLenSteps(app: *App) u8 {
+    return @intCast(@as(u32, app.session.project.beats_per_bar) * 4);
+}
+
+/// w/b: jump the step cursor `delta` bars forward/back (vim's word motion,
+/// one tier up from h/l's step granularity) — snaps to the nearest bar
+/// boundary first, then moves whole bars from there.
+fn jumpBar(app: *App, delta: i32) void {
+    const bar_len = barLenSteps(app);
+    if (bar_len == 0) return;
+    const cur_bar = @divFloor(@as(i32, app.drum_cursor[1]), @as(i32, bar_len));
+    const target_step = (cur_bar + delta) * @as(i32, bar_len);
+    const top = @as(i32, app.drumMachine().step_count) - 1;
+    app.drum_cursor[1] = @intCast(std.math.clamp(target_step, 0, top));
+}
+
+/// dw/yw's range end: the last step of the nth bar forward (inclusive),
+/// not w's own landing step — see piano.zig's `operatorBarForward`.
+fn operatorBarForward(app: *App, n: i32) void {
+    const bar_len = barLenSteps(app);
+    if (bar_len == 0) return;
+    const cur_bar = @divFloor(@as(i32, app.drum_cursor[1]), @as(i32, bar_len));
+    const hi = (cur_bar + n) * @as(i32, bar_len) - 1;
+    const top = @as(i32, app.drumMachine().step_count) - 1;
+    app.drum_cursor[1] = @intCast(std.math.clamp(hi, 0, top));
+}
+
+/// db/yb's range start: the first step of the nth bar back, paired with
+/// the anchor (original cursor) as the range's other end — see piano.zig's
+/// `operatorBarBackward`.
+fn operatorBarBackward(app: *App, n: i32) void {
+    const bar_len = barLenSteps(app);
+    if (bar_len == 0) return;
+    const cur_bar = @divFloor(@as(i32, app.drum_cursor[1]), @as(i32, bar_len));
+    const lo = (cur_bar - n + 1) * @as(i32, bar_len);
+    const top = @as(i32, app.drumMachine().step_count) - 1;
+    app.drum_cursor[1] = @intCast(std.math.clamp(lo, 0, top));
+}
+
 /// Arm `d`/`y` as a pending operator (see the operator-pending block in
 /// handleKey): remembers the cursor step as the range anchor, same field
 /// visual mode's `v` sets, so the eventual delete/yank reuses
@@ -207,7 +264,7 @@ fn movePad(app: *App, delta: i32) void {
 fn armOperator(app: *App, op: u8) void {
     app.drum_visual_anchor = app.drum_cursor[1];
     app.drum_op_pending = op;
-    app.setStatus("{c}: h/l/H/L/g/G act on the range, {c}{c} repeats the single-key action", .{ op, op, op });
+    app.setStatus("{c}: h/l/H/L/g/G/w/b act on the range, {c}{c} acts on the whole pattern", .{ op, op, op });
 }
 
 /// Complete an operator+motion: run the range delete/yank between the
@@ -216,9 +273,8 @@ fn finishOperator(app: *App, op: u8) void {
     if (op == 'd') deleteSelection(app) else yankSelection(app);
 }
 
-/// `dd`: clear just the pad/step under the cursor (the pre-grammar
-/// granularity `enter`'s toggle already works at), as opposed to a range
-/// delete which clears every pad at each step in the range.
+/// `x`: vim's char-delete — clears just the (pad, step) under the cursor,
+/// instantly, no operator needed.
 fn clearCursorStep(app: *App) void {
     const dm = app.drumMachine();
     const pad = app.drum_cursor[0];
@@ -227,6 +283,18 @@ fn clearCursorStep(app: *App) void {
     history.push(app, history.captureDrum(app, app.drum_track));
     setStep(dm, pad, step, false, 0);
     app.setStatus("cleared step", .{});
+}
+
+/// `dd`: clear the whole pattern variant (every pad) — vim's whole-line dd,
+/// one tier coarser than x's single-step delete and w/b's bar range.
+fn clearWholePattern(app: *App) void {
+    const dm = app.drumMachine();
+    history.push(app, history.captureDrum(app, app.drum_track));
+    for (0..DrumMachine.max_pads) |pad_i| {
+        var s: u8 = 0;
+        while (s < dm.step_count) : (s += 1) setStep(dm, @intCast(pad_i), s, false, 0);
+    }
+    app.setStatus("cleared pattern {c}", .{DrumMachine.variantLetter(dm.variant)});
 }
 
 /// `yy`: yank the whole current pattern variant (the pre-grammar instant
