@@ -650,11 +650,17 @@ pub fn loadClipFromPath(app: *App, path: []const u8) void {
 
 /// Explicit :save argument (with `~` expanded), else the file the session
 /// was loaded from / last saved to (already resolved — see `setProjectPath`),
-/// else "project.wsj".
+/// else "project.wsj". Always copies into `buf` rather than returning
+/// `app.projectPath()` directly: callers pass the result straight back into
+/// `setProjectPath`, whose `@memcpy` panics ("arguments alias") if src and
+/// dst are the same backing buffer — which `app.project_path_buf` is.
 fn savePath(app: *App, args: []const u8, buf: []u8) []const u8 {
     const arg = std.mem.trim(u8, args, " ");
     if (arg.len > 0) return expandHome(buf, arg);
-    return app.projectPath() orelse "project.wsj";
+    const p = app.projectPath() orelse "project.wsj";
+    const len = @min(p.len, buf.len);
+    @memcpy(buf[0..len], p[0..len]);
+    return buf[0..len];
 }
 
 fn cmdSave(app: *App, args: []const u8) void {
