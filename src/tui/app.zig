@@ -19,6 +19,7 @@ const cmd_mod = @import("cmd.zig");
 const undo_mod = @import("undo.zig");
 const history = @import("history.zig");
 const tui = @import("tui.zig");
+const style = @import("style.zig");
 const icons = @import("icons.zig");
 // Per-view input handlers; the render halves live in views/<name>.zig.
 const drum_ed = @import("editors/drum.zig");
@@ -1785,21 +1786,30 @@ pub const App = struct {
             );
         }
 
+        // Status lines are assembled from several independent print calls
+        // with no shared width budget, so a verbose message (e.g. the
+        // visual-mode hint) can overflow past the terminal's right edge and
+        // wrap onto a new row, scrolling the header off the top. Render into
+        // a scratch buffer first and clamp to the terminal width before it
+        // ever reaches the real writer.
+        var status_scratch: [1024]u8 = undefined;
+        var status_w = std.Io.Writer.fixed(&status_scratch);
         switch (self.view) {
-            .tracks          => try tui.drawTracksStatus(self, w, commands.cmds),
-            .drum_grid       => try tui.drawDrumStatus(self, w, commands.cmds),
-            .synth_editor    => try tui.drawSynthStatus(self, w, commands.cmds),
-            .sampler_editor  => try tui.drawSamplerStatus(self, w, commands.cmds),
-            .piano_roll      => try tui.drawPianoRollStatus(self, w, commands.cmds),
-            .help            => try w.writeAll(" j/k: scroll   d/u: page   g/G: top/bottom   esc: close"),
-            .track_spectrum  => try tui.drawFxStatus(self, w, true, commands.cmds),
-            .master_spectrum => try tui.drawFxStatus(self, w, false, commands.cmds),
-            .instrument_picker => try w.writeAll(" j/k: move   enter: insert   esc: cancel"),
-            .fx_picker       => try w.writeAll(" j/k: move   enter: insert   esc: cancel"),
-            .arrangement     => try tui.drawArrangementStatus(self, w, commands.cmds),
-            .file_browser    => try tui.drawFileBrowserStatus(self, w),
-            .automation      => try tui.drawAutomationStatus(self, w, commands.cmds),
+            .tracks          => try tui.drawTracksStatus(self, &status_w, commands.cmds),
+            .drum_grid       => try tui.drawDrumStatus(self, &status_w, commands.cmds),
+            .synth_editor    => try tui.drawSynthStatus(self, &status_w, commands.cmds),
+            .sampler_editor  => try tui.drawSamplerStatus(self, &status_w, commands.cmds),
+            .piano_roll      => try tui.drawPianoRollStatus(self, &status_w, commands.cmds),
+            .help            => try status_w.writeAll(" j/k: scroll   d/u: page   g/G: top/bottom   esc: close"),
+            .track_spectrum  => try tui.drawFxStatus(self, &status_w, true, commands.cmds),
+            .master_spectrum => try tui.drawFxStatus(self, &status_w, false, commands.cmds),
+            .instrument_picker => try status_w.writeAll(" j/k: move   enter: insert   esc: cancel"),
+            .fx_picker       => try status_w.writeAll(" j/k: move   enter: insert   esc: cancel"),
+            .arrangement     => try tui.drawArrangementStatus(self, &status_w, commands.cmds),
+            .file_browser    => try tui.drawFileBrowserStatus(self, &status_w),
+            .automation      => try tui.drawAutomationStatus(self, &status_w, commands.cmds),
         }
+        try style.writeClamped(w, status_w.buffered(), size.cols -| 1);
         // Erase from cursor to end of screen so stale content from taller
         // previous frames never bleeds through.
         try w.writeAll("\x1b[K\x1b[J");

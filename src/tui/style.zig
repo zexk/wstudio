@@ -54,6 +54,34 @@ pub fn hr(w: *std.Io.Writer, cols: u16) !void {
     try endLine(w);
 }
 
+/// Write `raw` (a single line, no \r\n, may contain ANSI SGR sequences) to
+/// `w`, clamped to `max_cols` visible columns. ANSI escapes are copied
+/// through verbatim (they cost no width); everything else counts as one
+/// column per UTF-8 lead byte. Footer status lines are built from several
+/// independent `w.print` calls with no shared width budget, so a verbose
+/// status message can silently overflow past the terminal's right edge and
+/// wrap onto a new row — which pushes the whole frame down by one line and
+/// scrolls the header off the top. This is the guard against that.
+pub fn writeClamped(w: *std.Io.Writer, raw: []const u8, max_cols: usize) !void {
+    var i: usize = 0;
+    var col: usize = 0;
+    while (i < raw.len) {
+        if (raw[i] == 0x1b and i + 1 < raw.len and raw[i + 1] == '[') {
+            const start = i;
+            i += 2;
+            while (i < raw.len and !((raw[i] >= 'A' and raw[i] <= 'Z') or (raw[i] >= 'a' and raw[i] <= 'z'))) : (i += 1) {}
+            if (i < raw.len) i += 1; // include the terminator letter
+            try w.writeAll(raw[start..i]);
+            continue;
+        }
+        if (col >= max_cols) break;
+        if (raw[i] & 0xC0 != 0x80) col += 1; // UTF-8 continuation bytes are free
+        try w.writeByte(raw[i]);
+        i += 1;
+    }
+    try w.writeAll(rst);
+}
+
 pub fn meter(w: *std.Io.Writer, peak: f32) !void {
     const cells = 10;
     const db = types.gainToDb(peak);
