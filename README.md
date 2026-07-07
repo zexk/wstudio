@@ -160,6 +160,12 @@ a full song:
 
 Done:
 
+- [x] Mouse support across every view: click to move the cursor/select a
+      row, click-drag to paint drum steps or resize/move arrangement
+      clips, scroll to nudge a focused parameter — a second way to trigger
+      the same actions the keyboard already does, not a replacement for it
+- [x] `/` fuzzy search + `n`/`N` repeat, in the tracks view and the file
+      browser: type a pattern, jump to (and cycle through) matching names
 - [x] Audio clips: `:load-clip [file.wav]` loads a WAV onto a sampler
       track and stamps it whole into the arrangement at the cursor bar,
       one command instead of hand-placing a piano-roll note and stamping
@@ -205,14 +211,17 @@ Done:
       everywhere else `i` works. `esc` drops back to normal without
       leaving the roll.
 - [x] Interactive per-track FX rack, and a `MASTER` row in the tracks view:
-      a track's spectrum view (`s`) is now an FX rack; `tab` cycles the
-      chain slots (gate/comp/EQ/saturator/crusher/chorus/phaser/delay/
-      reverb, in signal-flow order), `a` adds the focused unit with
-      defaults or removes it, `h`/`l` pick a param (EQ: its 10 bands),
-      `j`/`k` (`J`/`K` coarse) nudge it. The tracks view gains a `MASTER` row one
-      slot past the last track, sharing this exact rack UI against the
-      master bus — non-removable, no pan/mute/solo/piano-roll, `-`/`+`
-      steps its gain instead of a track's.
+      a track's spectrum view (`s`) is now an FX rack. Chains start empty —
+      `a` opens a picker (gate/comp/EQ/saturator/crusher/chorus/phaser/
+      delay/reverb) and inserts the chosen unit after the focused slot, so
+      the user decides what runs and in what order, duplicates included;
+      `Tab`/`L`/`H` walk slot focus, `x` removes the focused unit, `<`/`>`
+      move it along the chain, `b` toggles its bypass (kept in the chain,
+      skipped by the audio path). `h`/`l` pick a param within the focused
+      unit (EQ: its 10 bands), `j`/`k` (`J`/`K` coarse) nudge it. The tracks
+      view gains a `MASTER` row one slot past the last track, sharing this
+      exact rack UI against the master bus — non-removable, no pan/mute/
+      solo/piano-roll, `-`/`+` steps its gain instead of a track's.
 - [x] Procedural synth/drum presets: `:synth-preset [name]` applies a factory
       `PolySynth.Patch` (pad/bass/lead/pluck/FM-bell/etc.) to the cursor
       track's synth; `:drum-kit [name]` regenerates a drum machine's 8 pads
@@ -225,12 +234,13 @@ Done:
 - [x] Minimal netrw-style file browser: `:e`, `:load-sample`, and `:load-pad`
       open it when called with no path — `j`/`k` move, `enter`/`l` open a
       directory or pick a file, `h`/backspace go up, `~` jumps home
-- [x] Master bus FX: the same pluggable nine-slot chain as a track's rack
-      (identical `Fx` shape) applied to the summed mix before the master gain
-      and always-on limiter. `M` in the tracks view opens the master EQ's
-      live spectrum + band editor (`:master-eq` from the `:` prompt); the
-      compressor is `:master-comp on|off|thresh|ratio|attack|release|makeup
-      <value>`. Persisted (`Snapshot.master_fx`, .wsj v6)
+- [x] Master bus FX: the same user-built chain as a track's rack (identical
+      `Fx` shape, up to 9 units, insert/remove/reorder/bypass/duplicates)
+      applied to the summed mix before the master gain and always-on
+      limiter. `M` in the tracks view opens the master EQ's live spectrum +
+      band editor (`:master-eq` from the `:` prompt); the compressor is
+      `:master-comp on|off|thresh|ratio|attack|release|makeup <value>`.
+      Persisted (`Snapshot.master_fx`, .wsj v10)
 - [x] Scale highlighting + chord stamp in the piano roll: `:scale [<root>
       [<type>]|off]` dims out-of-scale rows; `c`/`C` stamp a diatonic
       triad/seventh at the cursor, harmonized to the active scale (a plain
@@ -268,7 +278,7 @@ Done:
 - [x] Pattern copy/paste across tracks (`y`/`P` in piano roll and drum grid)
 - [x] Play-from-cursor in the arrangement view (`g`)
 - [x] Drum grid per-step velocity (100/75/50/25%) and swing (50–75%)
-- [x] Per-pad choke groups (`G` in the drum grid) — same-group pads cut each other off
+- [x] Per-pad choke groups (`C` in the drum grid) — same-group pads cut each other off
 - [x] TUI frontend wiring the modal input layer to a real terminal
 - [x] Native audio backend (ALSA; PipeWire serves it on modern systems)
 - [x] Song mode: arrangement timeline with per-track clips
