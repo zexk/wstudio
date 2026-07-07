@@ -81,13 +81,22 @@ pub fn writeSearchPrompt(w: *std.Io.Writer, buf: []const u8, cursor: usize) !voi
     try writeCursor(w, buf, cursor);
 }
 
+/// True for entries whose `desc` marks them as an alias of another command
+/// (e.g. "quit (alias for :q)") — these carry no information beyond the
+/// canonical name they duplicate, so the suggestion popup skips them.
+fn isAlias(c: Def) bool {
+    return std.mem.indexOf(u8, c.desc, "alias for") != null;
+}
+
 /// Number of command names starting with `buf` — 0 once a space has been
 /// typed (there's no fixed name list for arguments here). Below 2, Tab
 /// already spells the single match out in full, so no popup is needed.
+/// Skips aliases (see `isAlias`) so shorthand forms don't pad out the list.
 pub fn suggestionCount(cmds: []const Def, buf: []const u8) usize {
     if (std.mem.indexOfScalar(u8, buf, ' ') != null) return 0;
     var n: usize = 0;
     for (cmds) |c| {
+        if (isAlias(c)) continue;
         if (std.mem.startsWith(u8, c.name, buf)) n += 1;
     }
     return n;
@@ -103,9 +112,10 @@ pub fn suggestionRows(cmds: []const Def, buf: []const u8, max_rows: usize) usize
     return @min(n, max_rows);
 }
 
-/// Neovim-wildmenu-style popup: every command name starting with `buf`,
-/// one per line, `selected` drawn as a solid reverse-video bar (index into
-/// the match list, not `cmds` — clamp/compare against `suggestionCount`).
+/// Neovim-wildmenu-style popup: every non-alias command name starting with
+/// `buf` (see `isAlias`), one per line, `selected` drawn as a solid
+/// reverse-video bar (index into the match list, not `cmds` — clamp/compare
+/// against `suggestionCount`).
 /// Truncates silently past `max_rows` (matching what `suggestionRows`
 /// reserved) rather than showing a "N more" line — narrowing the typed
 /// prefix is how the rest becomes reachable, same as Tab-cycling already
@@ -113,6 +123,7 @@ pub fn suggestionRows(cmds: []const Def, buf: []const u8, max_rows: usize) usize
 pub fn writeSuggestionBox(w: *std.Io.Writer, cmds: []const Def, buf: []const u8, selected: usize, max_rows: usize) !void {
     var idx: usize = 0;
     for (cmds) |c| {
+        if (isAlias(c)) continue;
         if (!std.mem.startsWith(u8, c.name, buf)) continue;
         if (idx >= max_rows) break;
         const is_sel = idx == selected;
@@ -171,6 +182,26 @@ test "writeSuggestionBox truncates at max_rows" {
     try writeSuggestionBox(&w, test_cmds, "q", 0, 1);
     const text = w.buffered();
     try std.testing.expect(std.mem.indexOf(u8, text, "qa") == null);
+}
+
+const alias_test_cmds: []const Def = &.{
+    .{ .name = "q", .desc = "quit", .run = undefined },
+    .{ .name = "quit", .desc = "quit (alias for :q)", .run = undefined },
+    .{ .name = "qa", .desc = "quit (alias for :q)", .run = undefined },
+};
+
+test "suggestionCount/writeSuggestionBox skip alias entries" {
+    // "quit" and "qa" are aliases of "q" — only "q" itself should count/show.
+    try std.testing.expectEqual(@as(usize, 1), suggestionCount(alias_test_cmds, "q"));
+    try std.testing.expectEqual(@as(usize, 0), suggestionRows(alias_test_cmds, "q", 10));
+
+    var out: [256]u8 = undefined;
+    var w: std.Io.Writer = .fixed(&out);
+    try writeSuggestionBox(&w, alias_test_cmds, "q", 0, 10);
+    const text = w.buffered();
+    try std.testing.expect(std.mem.indexOf(u8, text, "quit") == null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "qa") == null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "q") != null);
 }
 
 test "writePrompt shows the usage hint once a space follows an exact command name" {
