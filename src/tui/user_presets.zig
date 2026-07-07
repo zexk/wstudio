@@ -15,6 +15,7 @@ pub const UserPreset = struct {
 };
 
 const FileSnapshot = struct {
+    version: u32 = 1,
     presets: []const UserPreset = &.{},
 };
 
@@ -26,15 +27,31 @@ fn configPath(buf: []u8) ?[]const u8 {
     return std.fmt.bufPrint(buf, "{s}/.config/wstudio/synth_presets.json", .{home}) catch null;
 }
 
+/// Best-effort rescue for a file that exists but didn't parse: rename it
+/// aside instead of leaving `load` to report an empty set, which would let
+/// the very next `:synth-preset-save` overwrite it with that empty set and
+/// wipe every preset it held. Failure here is silent — the quarantine is a
+/// courtesy, not a guarantee.
+fn quarantine(io: std.Io, path: []const u8) void {
+    var buf: [520]u8 = undefined;
+    const dest = std.fmt.bufPrint(&buf, "{s}.corrupt", .{path}) catch return;
+    std.Io.Dir.cwd().rename(path, std.Io.Dir.cwd(), dest, io) catch {};
+}
+
 /// Load every saved preset. Empty (not an error) if the file doesn't exist
-/// yet, is malformed, or `$HOME` is unset — a missing/broken presets file
-/// should never block startup, same spirit as a missing sample sidecar.
+/// yet or `$HOME` is unset — a missing presets file should never block
+/// startup, same spirit as a missing sample sidecar. A file that exists but
+/// fails to parse is quarantined (see `quarantine`) rather than silently
+/// treated as empty, so a later save can't clobber it.
 pub fn load(allocator: std.mem.Allocator, io: std.Io) std.ArrayListUnmanaged(UserPreset) {
     var path_buf: [512]u8 = undefined;
     const path = configPath(&path_buf) orelse return .empty;
     const data = std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .limited(4 * 1024 * 1024)) catch return .empty;
     defer allocator.free(data);
-    var parsed = std.json.parseFromSlice(FileSnapshot, allocator, data, .{ .ignore_unknown_fields = true }) catch return .empty;
+    var parsed = std.json.parseFromSlice(FileSnapshot, allocator, data, .{ .ignore_unknown_fields = true }) catch {
+        quarantine(io, path);
+        return .empty;
+    };
     defer parsed.deinit();
 
     var list: std.ArrayListUnmanaged(UserPreset) = .empty;
@@ -150,6 +167,45 @@ test "upsert saves and load reads a preset back" {
     try upsert(testing.allocator, testing.io, &list, "MY-LEAD", patch);
     try testing.expectEqual(@as(usize, 1), list.items.len);
     try testing.expectApproxEqAbs(@as(f32, 0.9), find(list.items, "my-lead").?.gain, 1e-6);
+}
+
+test "a malformed presets file is quarantined, not silently discarded" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var home_buf: [128]u8 = undefined;
+    const home = try std.fmt.bufPrintZ(&home_buf, ".zig-cache/tmp/{s}", .{&tmp.sub_path});
+    _ = setenv("HOME", home.ptr, 1);
+
+    const dir = try std.fmt.allocPrint(testing.allocator, "{s}/.config/wstudio", .{home});
+    defer testing.allocator.free(dir);
+    try std.Io.Dir.cwd().createDirPath(testing.io, dir);
+    const path = try std.fmt.allocPrint(testing.allocator, "{s}/.config/wstudio/synth_presets.json", .{home});
+    defer testing.allocator.free(path);
+    {
+        const file = try std.Io.Dir.cwd().createFile(testing.io, path, .{});
+        defer file.close(testing.io);
+        var buf: [64]u8 = undefined;
+        var fw = file.writer(testing.io, &buf);
+        try fw.interface.writeAll("not valid json {{{");
+        try fw.interface.flush();
+    }
+
+    var loaded = load(testing.allocator, testing.io);
+    defer deinit(testing.allocator, &loaded);
+    try testing.expectEqual(@as(usize, 0), loaded.items.len);
+
+    // The malformed file moved aside instead of vanishing.
+    try testing.expectError(error.FileNotFound, std.Io.Dir.cwd().openFile(testing.io, path, .{}));
+    const quarantined = try std.fmt.allocPrint(testing.allocator, "{s}.corrupt", .{path});
+    defer testing.allocator.free(quarantined);
+    (try std.Io.Dir.cwd().openFile(testing.io, quarantined, .{})).close(testing.io);
+
+    // A subsequent save writes a fresh file rather than resurrecting the
+    // corrupt one, and doesn't error out just because it's starting empty.
+    const patch: Patch = .{};
+    try upsert(testing.allocator, testing.io, &loaded, "rescued", patch);
+    try testing.expectEqual(@as(usize, 1), loaded.items.len);
 }
 
 test "load returns an empty list when there's nothing saved yet" {
