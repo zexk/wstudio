@@ -67,7 +67,10 @@ pub const SpectrumAnalyzer = struct {
             .band_mags = undefined,
             .active = std.atomic.Value(bool).init(false),
             .gen = std.atomic.Value(u32).init(0),
-            .bin_atomics = .{std.atomic.Value(u32).init(0)} ** num_bands,
+            // Seed at toDb's silence floor, not bit-pattern 0 (= 0.0dB): a
+            // snapshot taken before the first analyze() lands must read as
+            // silence, or the view paints every band pinned at the 0dB line.
+            .bin_atomics = .{std.atomic.Value(u32).init(@bitCast(@as(f32, -120.0)))} ** num_bands,
         };
         @memset(self.buffer, 0.0);
         for (self.window, 0..) |*w, i| {
