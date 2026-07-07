@@ -8,7 +8,6 @@
 
 const std = @import("std");
 const ws = @import("wstudio");
-const Project = ws.Project;
 const Transport = ws.Transport;
 const style = @import("style.zig");
 const icons = @import("icons.zig");
@@ -33,7 +32,7 @@ pub const meter = style.meter;
 
 pub fn drawHeader(
     w: *std.Io.Writer,
-    project: *const Project,
+    title: []const u8,
     transport: *const Transport,
     audio_label: []const u8,
     master_gain_db: f32,
@@ -42,7 +41,7 @@ pub fn drawHeader(
     const vol_sign: []const u8 = if (master_gain_db >= 0) "+" else "";
     try w.writeAll(bold ++ " " ++ icons.logo ++ " wstudio" ++ rst);
     try w.writeAll(dim ++ "  " ++ rst);
-    try w.writeAll(project.name);
+    try w.writeAll(title);
     if (dirty) try w.writeAll(" " ++ yel ++ icons.warn ++ rst);
     try w.writeAll(dim ++ "   " ++ icons.tempo ++ " " ++ rst);
     try w.print("{d:.0}", .{transport.tempo_bpm});

@@ -1668,7 +1668,10 @@ pub const App = struct {
         const content_rows = rows -| suggestion_rows;
 
         try w.writeAll("\x1b[H");
-        try tui.drawHeader(w, &self.session.project, &self.session.engine.transport, self.audio_label, self.master_gain_db, self.dirty);
+        // The .wsj format has no project-name field, so a loaded file would
+        // otherwise sit under the default "untitled" — show its basename.
+        const header_title: []const u8 = if (self.projectPath()) |p| std.fs.path.basename(p) else self.session.project.name;
+        try tui.drawHeader(w, header_title, &self.session.engine.transport, self.audio_label, self.master_gain_db, self.dirty);
         try tui.hr(w, size.cols);
 
         switch (self.view) {
