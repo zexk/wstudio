@@ -487,8 +487,8 @@ fn cycleVariant(app: *App, delta: i32) void {
 }
 
 /// Left-gutter width before the step grid starts — matches views/drum.zig's
-/// `" {s: <4} "` pad-name column in drawDrumGrid.
-const gutter: usize = 6;
+/// `" {s: <8} "` pad-name column in drawDrumGrid.
+const gutter: usize = 10;
 
 /// Step index at column `x` within a pad row, or null if `x` falls in the
 /// gutter or past the last visible step. Replays the exact column math

@@ -25,8 +25,9 @@ const mag = style.mag;
 const bcyn = style.bcyn;
 const endLine = style.endLine;
 
-/// Left gutter: " NN name " then the lane's leading separator.
-pub const gutter: usize = 11;
+/// Left gutter: " NN name " then the lane's leading separator. The name field
+/// is 8 wide — "e-piano"-sized names showed as "e-pian" at the old 6.
+pub const gutter: usize = 13;
 
 /// Bars that fit in the timeline area for a terminal `cols` wide, at cell
 /// width `cw` (`App.arrCellWidth()` — 4 normal, 2 compact).
@@ -120,7 +121,7 @@ pub fn drawArrangement(
         const is_sel_lane = li == app.cursor;
 
         if (is_sel_lane) try w.writeAll(sel);
-        try w.print(" {d: >2} {s: <6}", .{ li + 1, track.name[0..@min(track.name.len, 6)] });
+        try w.print(" {d: >2} {s: <8}", .{ li + 1, track.name[0..@min(track.name.len, 8)] });
         if (is_sel_lane) try w.writeAll(rst);
 
         for (0..visible) |c| {

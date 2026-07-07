@@ -66,7 +66,7 @@ pub fn drawDrumGrid(app: anytype, w: *std.Io.Writer, rows: usize, snap: engine_m
     try endLine(w);
 
     // step header — only the active range (step_count) is shown
-    try w.writeAll(dim ++ "      ");
+    try w.writeAll(dim ++ "          ");
     for (0..step_count) |s| {
         if (s % 4 == 0) try w.writeAll("│");
         try w.print("{d:>2} ", .{s + 1});
@@ -80,7 +80,9 @@ pub fn drawDrumGrid(app: anytype, w: *std.Io.Writer, rows: usize, snap: engine_m
         const name = dm.padName(@intCast(p));
         const group = dm.choke_group[p];
         try w.writeAll(if (group != 0) choke_colors[(group - 1) % choke_colors.len] else dim);
-        try w.print(" {s: <4} ", .{name[0..@min(name.len, 4)]});
+        // 8 = the rename cap (:pad-rename), so no legal name truncates —
+        // at 4 the two stock toms both rendered as "tom-".
+        try w.print(" {s: <8} ", .{name[0..@min(name.len, 8)]});
         try w.writeAll(rst);
         for (0..step_count) |s| {
             if (s % 4 == 0) {

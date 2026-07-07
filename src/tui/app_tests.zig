@@ -2736,20 +2736,20 @@ test "mouse click toggles a drum step and drag paints a run of them" {
     try std.testing.expect(!app.drumMachine().stepActive(0, 2));
     try std.testing.expect(!app.drumMachine().stepActive(0, 3));
 
-    // row 0 = title, row 1 = step header, row 2 = pad 0. Cell columns (6-char
-    // gutter, 1-char "│" every 4 steps, 3-char cells): step1 x in [10,13),
-    // step2 x in [13,16), step3 x in [16,19) — see editors/drum.zig's stepAt.
+    // row 0 = title, row 1 = step header, row 2 = pad 0. Cell columns (10-char
+    // gutter, 1-char "│" every 4 steps, 3-char cells): step1 x in [14,17),
+    // step2 x in [17,20), step3 x in [20,23) — see editors/drum.zig's stepAt.
     const row = app_mod.content_top + 2;
-    app.handleMouse(.{ .x = 11, .y = row, .button = .left, .kind = .press }, 80, 24, 0);
+    app.handleMouse(.{ .x = 15, .y = row, .button = .left, .kind = .press }, 80, 24, 0);
     try std.testing.expect(app.drumMachine().stepActive(0, 1));
 
-    app.handleMouse(.{ .x = 14, .y = row, .button = .left, .kind = .drag }, 80, 24, 0);
+    app.handleMouse(.{ .x = 18, .y = row, .button = .left, .kind = .drag }, 80, 24, 0);
     try std.testing.expect(app.drumMachine().stepActive(0, 2));
 
-    app.handleMouse(.{ .x = 17, .y = row, .button = .left, .kind = .drag }, 80, 24, 0);
+    app.handleMouse(.{ .x = 21, .y = row, .button = .left, .kind = .drag }, 80, 24, 0);
     try std.testing.expect(app.drumMachine().stepActive(0, 3));
 
-    app.handleMouse(.{ .x = 17, .y = row, .button = .left, .kind = .release }, 80, 24, 0);
+    app.handleMouse(.{ .x = 21, .y = row, .button = .left, .kind = .release }, 80, 24, 0);
     try std.testing.expect(app.drum_paint_state == null);
 }
 
@@ -2813,17 +2813,17 @@ test "mouse drag moves an arrangement clip" {
     const lane = app.session.arrangement.lane(0).?;
     try std.testing.expect(lane.clipAt(0) != null);
 
-    // row 0 = title, row 1 = ruler, row 2 = lane 0. gutter=11, cell_w=4 —
-    // bar 0's cell is x in [11,15), bar 2's is x in [19,23).
+    // row 0 = title, row 1 = ruler, row 2 = lane 0. gutter=13, cell_w=4 —
+    // bar 0's cell is x in [13,17), bar 2's is x in [21,25).
     const row = app_mod.content_top + 2;
-    app.handleMouse(.{ .x = 12, .y = row, .button = .left, .kind = .press }, 80, 24, 0);
+    app.handleMouse(.{ .x = 14, .y = row, .button = .left, .kind = .press }, 80, 24, 0);
     try std.testing.expectEqual(@as(u32, 0), app.arr_drag_bar.?);
 
-    app.handleMouse(.{ .x = 20, .y = row, .button = .left, .kind = .drag }, 80, 24, 0);
+    app.handleMouse(.{ .x = 22, .y = row, .button = .left, .kind = .drag }, 80, 24, 0);
     try std.testing.expect(lane.clipAt(0) == null);
     try std.testing.expect(lane.clipAt(2) != null);
 
-    app.handleMouse(.{ .x = 20, .y = row, .button = .left, .kind = .release }, 80, 24, 0);
+    app.handleMouse(.{ .x = 22, .y = row, .button = .left, .kind = .release }, 80, 24, 0);
     try std.testing.expect(app.arr_drag_bar == null);
 }
 
