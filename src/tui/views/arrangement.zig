@@ -170,7 +170,8 @@ pub fn drawArrangement(
         try endLine(w);
     }
 
-    const used = 3 + (last_lane - lane_scroll);
+    // used includes the 2 outer rows (header + hr) so padding aligns with drum-grid convention
+    const used = 4 + (last_lane - lane_scroll);
     for (used..@max(used, rows -| 3)) |_| try endLine(w);
 }
 

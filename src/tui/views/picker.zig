@@ -75,7 +75,8 @@ pub fn drawInstrumentPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void 
         try endLine(w);
     }
 
-    const used = 2 + picker_menu.len;
+    // used includes the 2 outer rows (header + hr) so padding aligns with drum-grid convention
+    const used = 4 + picker_menu.len;
     for (used..@max(used, rows -| 3)) |_| try endLine(w);
 }
 

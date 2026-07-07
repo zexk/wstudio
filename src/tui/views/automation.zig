@@ -80,7 +80,7 @@ pub fn drawAutomation(
     const clip = currentClip(app) orelse {
         try w.writeAll(bold ++ " AUTOMATION" ++ rst ++ dim ++ "  clip gone — esc" ++ rst);
         try endLine(w);
-        for (1..@max(1, rows -| 3)) |_| try endLine(w);
+        for (3..@max(3, rows -| 3)) |_| try endLine(w);
         return;
     };
 
@@ -164,7 +164,8 @@ pub fn drawAutomation(
     }
     try endLine(w);
 
-    const used = 5;
+    // used includes the 2 outer rows (header + hr) so padding aligns with drum-grid convention
+    const used = 6;
     for (used..@max(used, rows -| 3)) |_| try endLine(w);
 }
 

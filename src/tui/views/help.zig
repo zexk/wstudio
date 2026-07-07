@@ -289,7 +289,7 @@ pub fn drawHelp(w: *std.Io.Writer, rows: usize, cmds: []const cmd_mod.Def, scrol
     var t = HelpText{};
     buildHelp(&t, cmds);
 
-    const body = rows -| 3; // lines available between the rules
+    const body = rows -| 5; // lines available between the rules
     const visible = body -| 1; // one row reserved for the sticky title
     const max_scroll = t.count -| visible;
     if (scroll.* > max_scroll) scroll.* = max_scroll;
