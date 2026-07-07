@@ -69,13 +69,15 @@ fn eqColor(gain_db: f32) []const u8 {
     return dim;
 }
 
-fn brailleBarInv(rem: usize) u21 {
+/// Bottom-anchored braille partial: `rem` of the cell's 4 sub-rows lit,
+/// counted up from the cell's floor (0 = blank, 4 = full block).
+fn brailleBar(rem: usize) u21 {
     const bits: u8 = switch (rem) {
-        0 => 0b11111111,
-        1 => 0b00111111,
-        2 => 0b00011011,
-        3 => 0b00001001,
-        else => 0b00000000,
+        0 => 0b00000000,
+        1 => 0b11000000,
+        2 => 0b11100100,
+        3 => 0b11110110,
+        else => 0b11111111,
     };
     return @as(u21, 0x2800) | @as(u21, bits);
 }
@@ -118,9 +120,11 @@ pub fn drawSpectrumView(
     const eq_row: usize = if (fx == null) 0 else 1 + body_rows;
 
     // 1 header + visual_rows spectrum + 1 hz label + eq_row must fit in rows-5.
-    const visual_rows = @min(spectrum_rows, rows -| (7 + eq_row));
-    // Limit band count to available horizontal space (3-char indent + bands).
-    const draw_bands = @min(spectrum_band_count, cols -| 5);
+    // usize annotation matters: @min against the comptime spectrum_rows bound
+    // otherwise narrows the type to u5, and `visual_rows * 4` overflows it.
+    const visual_rows: usize = @min(spectrum_rows, rows -| (7 + eq_row));
+    // Limit band count to available horizontal space (6-char dB gutter + bands).
+    const draw_bands = @min(spectrum_band_count, cols -| 8);
 
     const db_range: f32 = 70.0;
     const db_offset: f32 = -60.0;
@@ -132,67 +136,63 @@ pub fn drawSpectrumView(
     try w.print(" \"{s}\"", .{title});
     try endLine(w);
 
-    for (0..visual_rows) |visual_row_inv| {
-        const visual_row = visual_rows - 1 - visual_row_inv;
+    // Axis labels sit in the 6-char gutter at their true heights on the dB
+    // scale, so bars draw on every row (the old layout gave the top three
+    // rows to labels alone and no bar could ever reach them).
+    const total_pixels = visual_rows * 4;
+    const axis_labels = [_]struct { db: f32, label: []const u8 }{
+        .{ .db = 0.0,   .label = "  0dB" },
+        .{ .db = -20.0, .label = "-20dB" },
+        .{ .db = -40.0, .label = "-40dB" },
+    };
 
-        try w.writeAll(dim ++ "   " ++ rst);
+    for (0..visual_rows) |line| {
+        const visual_row = visual_rows - 1 - line; // counted up from the graph floor
 
-        if (visual_row == visual_rows - 1) {
-            try w.writeAll(dim ++ " 0dB");
-            try endLine(w);
-            continue;
-        }
-        if (visual_row == visual_rows - 2) {
-            try w.writeAll(dim ++ " -6dB");
-            try endLine(w);
-            continue;
-        }
-        if (visual_row == visual_rows - 3) {
-            try w.writeAll(dim ++ "-12dB");
-            try endLine(w);
-            continue;
-        }
+        try w.writeAll(dim);
+        const tick: []const u8 = blk: {
+            for (axis_labels) |a| {
+                const norm_a = std.math.clamp((a.db - db_offset) / db_range, 0.0, 1.0);
+                const px: usize = @intFromFloat(norm_a * @as(f32, @floatFromInt(total_pixels)));
+                if (@min(px / 4, visual_rows - 1) == visual_row) break :blk a.label;
+            }
+            break :blk "     ";
+        };
+        try w.writeAll(tick);
+        try w.writeAll("\u{2524}" ++ rst);
 
         if (spectrum_snap) |ssnap| {
+            // colour by level: top rows are louder
+            const row_norm: f32 = @as(f32, @floatFromInt(visual_row)) /
+                @as(f32, @floatFromInt(visual_rows));
+            const colour: []const u8 = if (row_norm > 0.85) red
+                else if (row_norm > 0.65) yel
+                else grn;
             for (0..draw_bands) |band| {
                 const db_val = ssnap.bins[band];
                 const raw = (db_val - db_offset) / db_range;
                 const norm = if (std.math.isNan(raw)) 0.0 else std.math.clamp(raw, 0.0, 1.0);
-                const total_pixels = @as(u32, @intCast(visual_rows)) * 4;
-                const pixel_height = @as(usize, @intFromFloat(norm * @as(f32, @floatFromInt(total_pixels))));
+                const pixel_height: usize = @intFromFloat(norm * @as(f32, @floatFromInt(total_pixels)));
 
-                const pixel_start = (visual_rows - 1 - visual_row) * 4;
-                const rem = if (pixel_height > pixel_start)
-                    @min(pixel_height - pixel_start, 4)
-                else
-                    0;
-
-                // colour by level: top rows are louder
-                const row_norm: f32 = @as(f32, @floatFromInt(visual_rows - 1 - visual_row)) /
-                    @as(f32, @floatFromInt(visual_rows));
-                const colour: []const u8 = if (row_norm > 0.85) red
-                    else if (row_norm > 0.65) yel
-                    else grn;
-                try w.writeAll(if (rem > 0) colour else dim);
-
-                const ch = brailleBarInv(rem);
+                const rem = @min(pixel_height -| (visual_row * 4), 4);
+                if (rem == 0) {
+                    try w.writeByte(' ');
+                    continue;
+                }
+                try w.writeAll(colour);
+                const ch = brailleBar(rem);
                 var utf8_buf: [4]u8 = undefined;
                 const utf8_len = std.unicode.utf8Encode(ch, &utf8_buf) catch unreachable;
                 try w.writeAll(utf8_buf[0..utf8_len]);
                 try w.writeAll(rst);
             }
-        } else {
-            try w.writeAll(dim);
-            for (0..draw_bands) |_| {
-                var utf8_buf: [4]u8 = undefined;
-                const utf8_len = std.unicode.utf8Encode(brailleBarInv(0), &utf8_buf) catch unreachable;
-                try w.writeAll(utf8_buf[0..utf8_len]);
-            }
         }
+        // No snapshot (analyzer idle): leave the graph area blank — endLine
+        // clears to the right edge.
         try endLine(w);
     }
 
-    try w.writeAll(dim ++ "Hz   ");
+    try w.writeAll(dim ++ "Hz    ");
     const freq_labels = [_]struct { idx: usize, label: []const u8 }{
         .{ .idx = 0,  .label = "20"  },
         .{ .idx = 12, .label = "40"  },
@@ -223,7 +223,7 @@ pub fn drawSpectrumView(
         // tick entirely (still shows, just nudged off its exact bin).
         const min_start = if (col == 0) lbl.idx else col + 1;
         const start = @max(lbl.idx, min_start);
-        if (5 + start + lbl.label.len > cols) break;
+        if (6 + start + lbl.label.len > cols) break;
         for (col..start) |_| try w.writeByte(' ');
         try w.writeAll(lbl.label);
         col = start + lbl.label.len;

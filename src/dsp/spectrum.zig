@@ -124,8 +124,13 @@ pub const SpectrumAnalyzer = struct {
         for (self.real, self.window) |*r, w| r.* *= w;
         fft.fft(self.fft_size, self.real, self.imag);
 
+        // Normalise to amplitude: /N for the transform, x2 for the single-sided
+        // spectrum's split across +-f, x2 to undo the Hann window's 0.5 coherent
+        // gain. A full-scale sine then reads ~0dB regardless of fft_size; raw
+        // magnitudes would sit ~54dB hot at N=2048 and pin every display bin.
+        const amp_norm = 4.0 / @as(f32, @floatFromInt(self.fft_size));
         for (self.mags, 0..) |*m, k| {
-            m.* = fft.magnitude(self.real[k], self.imag[k]);
+            m.* = fft.magnitude(self.real[k], self.imag[k]) * amp_norm;
         }
         for (&self.band_mags, &self.bands) |*bm, *band| {
             if (band.last_bin <= band.first_bin) {
