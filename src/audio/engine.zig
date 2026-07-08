@@ -67,11 +67,29 @@ pub const Command = union(enum) {
 };
 
 /// Which absolute value an `AutomationCurve` overrides. `gain`/`pan` are
-/// mix-bus params, applied as a post-chain multiplier in `renderTracks`;
-/// `filter_cutoff` is an instrument param, pushed into the device itself
-/// via `Event.set_param_abs` before it renders the block (see
-/// `renderTracks`'s two very different application points for these).
-pub const AutomationTarget = enum { gain, pan, filter_cutoff };
+/// mix-bus params, applied as a post-chain multiplier in `renderTracks`.
+/// Synth-instrument params (filter cutoff, LFO rate, envelope times, ...)
+/// don't go through this enum — see `setTrackSynthParam`/`SynthAutomationSlot`
+/// below, since there are ~30 of them and most tracks only automate a few at
+/// once (a fixed per-param field the way `gain`/`pan` work would preallocate
+/// far more than any project uses — see `AutomationPair`'s own doc comment).
+pub const AutomationTarget = enum { gain, pan };
+
+/// Bank of simultaneously-automatable synth params per track — same "small
+/// fixed bank" convention as `max_groups`/drum banks/`Fx.max_units` elsewhere,
+/// not a per-possible-param field (see `AutomationPair`'s doc comment for why
+/// that would blow the memory budget). Plenty for any real arrangement: a
+/// track automating more than 8 distinct synth params at once is vanishingly
+/// rare.
+pub const max_synth_slots = 8;
+
+/// One synth-param automation slot. `param_id` matches `PolySynth.
+/// setParamAbsolute`'s id space (filter cutoff is just param_id 21 here, no
+/// longer a dedicated field) or `null` for an unused slot.
+const SynthAutomationSlot = struct {
+    param_id: ?u8 = null,
+    curve: AutomationCurve = .{},
+};
 
 const TrackState = struct {
     active: bool = false,
@@ -117,11 +135,10 @@ const GroupState = struct {
 const AutomationPair = struct {
     gain: AutomationCurve = .{},
     pan: AutomationCurve = .{},
-    /// Hz, same range PolySynth.setParamAbsolute clamps to (20..20_000).
-    /// Named to match `AutomationTarget.filter_cutoff`, not renamed to
-    /// "Pair" since that'd suggest exactly two curves — kept as-is to avoid
-    /// a churny rename for one added field.
-    filter_cutoff: AutomationCurve = .{},
+    /// Sparse synth-param automation — see `SynthAutomationSlot`/
+    /// `max_synth_slots`. Kept as its own array rather than growing this
+    /// struct's field count 1:1 with PolySynth's ~30 continuous params.
+    synth_slots: [max_synth_slots]SynthAutomationSlot = [_]SynthAutomationSlot{.{}} ** max_synth_slots,
 };
 
 pub const UiSnapshot = struct {
@@ -391,7 +408,45 @@ pub const Engine = struct {
         switch (target) {
             .gain => pair.gain.set(points),
             .pan => pair.pan.set(points),
-            .filter_cutoff => pair.filter_cutoff.set(points),
+        }
+    }
+
+    /// Replace a track's synth-param automation curve for `param_id` (a
+    /// `PolySynth.setParamAbsolute` id). Finds the slot already holding this
+    /// param, or the first free slot; an empty `points` clears the slot back
+    /// to unused so it's free for a different param on a later rebuild,
+    /// rather than leaving a stale zero-point curve occupying it forever.
+    /// Silently drops the automation if all `max_synth_slots` are already
+    /// taken by OTHER params — same "silently truncate past capacity"
+    /// convention `AutomationCurve.set` itself already uses past `max_points`.
+    pub fn setTrackSynthParam(self: *Engine, track: u16, param_id: u8, points: []const AutomationPoint) void {
+        const pair = &self.automation[@min(track, max_tracks - 1)];
+        for (&pair.synth_slots) |*slot| {
+            if (slot.param_id == param_id) {
+                slot.curve.set(points);
+                if (points.len == 0) slot.param_id = null;
+                return;
+            }
+        }
+        if (points.len == 0) return;
+        for (&pair.synth_slots) |*slot| {
+            if (slot.param_id == null) {
+                slot.param_id = param_id;
+                slot.curve.set(points);
+                return;
+            }
+        }
+    }
+
+    /// Clear every synth-param automation slot for a track (control thread).
+    /// `Session.rebuildSongData` calls this before repopulating a track's
+    /// slots from scratch each rebuild, so a param removed from every clip
+    /// since the last rebuild doesn't linger in a stale slot forever.
+    pub fn clearTrackSynthParams(self: *Engine, track: u16) void {
+        const pair = &self.automation[@min(track, max_tracks - 1)];
+        for (&pair.synth_slots) |*slot| {
+            slot.param_id = null;
+            slot.curve.set(&.{});
         }
     }
 
@@ -597,11 +652,14 @@ pub const Engine = struct {
             // Instrument-param automation must reach the device before it
             // renders this block, unlike gain/pan below (a post-chain
             // multiplier) — push it through the same Event path
-            // adjustParam/CC already use. Only fires when a curve is
-            // actually set for this track (valueAt is null otherwise), so
-            // tracks with no filter-cutoff automation pay nothing extra.
-            if (auto.filter_cutoff.valueAt(beat_pos)) |hz| {
-                self.sendTrackEvent(@intCast(ti), .{ .set_param_abs = .{ .id = 21, .value = hz } });
+            // adjustParam/CC already use. Only fires for slots actually
+            // holding a param this track (valueAt is null otherwise), so
+            // tracks with no synth-param automation pay nothing extra.
+            for (&auto.synth_slots) |*slot| {
+                const pid = slot.param_id orelse continue;
+                if (slot.curve.valueAt(beat_pos)) |val| {
+                    self.sendTrackEvent(@intCast(ti), .{ .set_param_abs = .{ .id = pid, .value = val } });
+                }
             }
 
             const scratch = self.scratch[0 .. frames * channels];
@@ -671,7 +729,7 @@ test "renderTracks pushes filter-cutoff automation into the synth before it proc
     defer engine.deinit();
     engine.tracks[0] = .{ .active = true };
     engine.setTrackChain(0, &.{synth.device()});
-    engine.setTrackAutomation(0, .filter_cutoff, &.{.{ .beat = 0.0, .value = 5_000.0 }});
+    engine.setTrackSynthParam(0, 21, &.{.{ .beat = 0.0, .value = 5_000.0 }});
 
     var block: [512]Sample = undefined;
     engine.process(&block);
@@ -679,10 +737,51 @@ test "renderTracks pushes filter-cutoff automation into the synth before it proc
 
     // Clearing the curve (empty points) falls back to the manual value again
     // — matches gain/pan's own "no automation" fallback, not a frozen value.
-    engine.setTrackAutomation(0, .filter_cutoff, &.{});
+    engine.setTrackSynthParam(0, 21, &.{});
     synth.filter_cutoff = 1_000.0;
     engine.process(&block);
     try std.testing.expectApproxEqAbs(@as(f32, 1_000.0), synth.filter_cutoff, 1.0);
+}
+
+test "renderTracks handles multiple simultaneous synth-param automation slots" {
+    var synth = PolySynth.init(48_000);
+    var engine = try Engine.init(std.testing.allocator, 48_000);
+    defer engine.deinit();
+    engine.tracks[0] = .{ .active = true };
+    engine.setTrackChain(0, &.{synth.device()});
+    engine.setTrackSynthParam(0, 21, &.{.{ .beat = 0.0, .value = 5_000.0 }}); // filter cutoff
+    engine.setTrackSynthParam(0, 29, &.{.{ .beat = 0.0, .value = 8.0 }}); // lfo rate
+    engine.setTrackSynthParam(0, 34, &.{.{ .beat = 0.0, .value = 0.5 }}); // sub level
+
+    var block: [512]Sample = undefined;
+    engine.process(&block);
+    try std.testing.expectApproxEqAbs(@as(f32, 5_000.0), synth.filter_cutoff, 1.0);
+    try std.testing.expectApproxEqAbs(@as(f32, 8.0), synth.lfo_rate_hz, 1e-3);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.5), synth.sub_level, 1e-3);
+
+    // Clearing one slot frees it without disturbing the other two.
+    engine.setTrackSynthParam(0, 29, &.{});
+    synth.lfo_rate_hz = 1.0;
+    engine.process(&block);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), synth.lfo_rate_hz, 1e-3);
+    try std.testing.expectApproxEqAbs(@as(f32, 5_000.0), synth.filter_cutoff, 1.0);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.5), synth.sub_level, 1e-3);
+}
+
+test "setTrackSynthParam silently drops automation past max_synth_slots capacity" {
+    var engine = try Engine.init(std.testing.allocator, 48_000);
+    defer engine.deinit();
+    var i: u8 = 0;
+    while (i < max_synth_slots) : (i += 1) {
+        engine.setTrackSynthParam(0, i + 1, &.{.{ .beat = 0.0, .value = 1.0 }});
+    }
+    const pair = &engine.automation[0];
+    for (pair.synth_slots) |slot| try std.testing.expect(slot.param_id != null);
+
+    // One more distinct param than there are slots — dropped, not a panic,
+    // and doesn't disturb the 8 already assigned.
+    engine.setTrackSynthParam(0, 99, &.{.{ .beat = 0.0, .value = 1.0 }});
+    for (pair.synth_slots) |slot| try std.testing.expect(slot.param_id != 99);
 }
 
 test "notes sound even while transport is stopped (live preview)" {

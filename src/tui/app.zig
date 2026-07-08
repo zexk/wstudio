@@ -33,6 +33,7 @@ const user_presets = @import("user_presets.zig");
 const fuzzy = @import("fuzzy.zig");
 
 const Engine = engine_mod.Engine;
+const synth_mod = ws.dsp.synth;
 const Sampler = ws.dsp.Sampler;
 const InstrumentKind = ws.InstrumentKind;
 const pattern_mod = ws.dsp.pattern;
@@ -51,7 +52,7 @@ const tap_timeout_ns: i96 = 2 * std.time.ns_per_s;
 /// Minimum gap between silent `<path>~` backups; see `maybeAutosave`.
 const autosave_interval_ns: i96 = 30 * std.time.ns_per_s;
 
-pub const AppView = enum { tracks, drum_grid, synth_editor, sampler_editor, help, track_spectrum, master_spectrum, group_spectrum, piano_roll, instrument_picker, fx_picker, arrangement, file_browser, automation };
+pub const AppView = enum { tracks, drum_grid, synth_editor, sampler_editor, help, track_spectrum, master_spectrum, group_spectrum, piano_roll, instrument_picker, fx_picker, arrangement, file_browser, automation, automation_param_picker };
 
 /// Which waveform marker a sampler-editor mouse drag is moving — see
 /// `App.sampler_drag_marker` and editors/sampler.zig's handleMouse.
@@ -335,8 +336,16 @@ pub const App = struct {
     /// Track shown in the automation view — mirrors `piano_track`/
     /// `drum_track` etc. so `currentTrack()` can find it.
     automation_track: u16 = 0,
-    /// Which curve h/l + j/k currently edit; tab toggles.
-    automation_target: engine_mod.AutomationTarget = .gain,
+    /// Which curve h/l + j/k currently edit; tab cycles, `p` opens a picker
+    /// for synth params not yet on this clip. See `automation_ed.
+    /// AutomationFocus`.
+    automation_focus: automation_ed.AutomationFocus = .gain,
+    /// Cursor index into `synth_mod.PolySynth.automatable_params` while
+    /// `.automation_param_picker` is open.
+    automation_param_cursor: u8 = 0,
+    /// Scroll offset (in printed display rows, headers included) for the
+    /// param picker — mirrors `track_scroll`'s "clamped at draw" convention.
+    automation_param_scroll: usize = 0,
     /// Cursor position within the clip, in 16th-note steps (0 = clip start,
     /// same unit the piano roll/drum grid use — beat = step / 4.0).
     automation_cursor_step: u32 = 0,
@@ -608,6 +617,7 @@ pub const App = struct {
             .automation => if (self.modal.mode == .command or self.modal.mode == .search or !automation_ed.handleKey(self, key)) {
                 self.applyAction(self.modal.handle(key), now_ns);
             } else { self.modal.count = 0; },
+            .automation_param_picker => self.handleAutomationParamPickerKey(key),
             .tracks => {
                 // Visual mode: a contiguous track-range selection, checked
                 // first so it can't leak into the normal-mode bindings below
@@ -729,6 +739,7 @@ pub const App = struct {
             .file_browser => self.browserMouse(ev, row),
             .help => self.helpMouse(ev),
             .automation => automation_ed.handleMouse(self, ev, row),
+            .automation_param_picker => self.automationParamPickerMouse(ev, row),
         }
     }
 
@@ -990,6 +1001,59 @@ pub const App = struct {
             },
             .scroll_up => { if (self.fx_picker_cursor > 0) self.fx_picker_cursor -= 1; },
             .scroll_down => { if (self.fx_picker_cursor + 1 < spectrum_ed.picker_kinds.len) self.fx_picker_cursor += 1; },
+            else => {},
+        }
+    }
+
+    /// Synth-param automation picker: j/k move, enter/space start automating
+    /// the highlighted param on the current clip, esc cancels back to the
+    /// automation view. Opened by `p` in editors/automation.zig.
+    fn handleAutomationParamPickerKey(self: *App, key: modal_mod.Key) void {
+        const count = synth_mod.PolySynth.automatable_params.len;
+        switch (key) {
+            .escape => self.view = .automation,
+            .enter => self.automationParamPick(),
+            .char => |c| switch (c) {
+                'k' => { if (self.automation_param_cursor > 0) self.automation_param_cursor -= 1; },
+                'j' => { if (self.automation_param_cursor + 1 < count) self.automation_param_cursor += 1; },
+                ' ' => self.automationParamPick(),
+                'q' => self.view = .automation,
+                else => {},
+            },
+            else => {},
+        }
+    }
+
+    fn automationParamPick(self: *App) void {
+        const id = synth_mod.PolySynth.automatable_params[self.automation_param_cursor].id;
+        automation_ed.selectParam(self, id);
+    }
+
+    /// Param picker: click a param row to select + apply it (same as enter/
+    /// space); header rows aren't clickable. Scroll moves the highlight.
+    /// Row math mirrors `views/automation.zig`'s `drawAutomationParamPicker`
+    /// exactly (title(1) + blank(1) before the display-row list starts) —
+    /// both build the same list via `automation_ed.buildParamDisplayRows`.
+    fn automationParamPickerMouse(self: *App, ev: modal_mod.MouseEvent, row: usize) void {
+        switch (ev.kind) {
+            .press => {
+                if (row < 2) return;
+                var buf: [automation_ed.max_param_display_rows]automation_ed.ParamDisplayRow = undefined;
+                const rows_list = automation_ed.buildParamDisplayRows(&buf);
+                const display_row = self.automation_param_scroll + (row - 2);
+                if (display_row >= rows_list.len) return;
+                switch (rows_list[display_row]) {
+                    .header => {},
+                    .param => |i| {
+                        self.automation_param_cursor = @intCast(i);
+                        self.automationParamPick();
+                    },
+                }
+            },
+            .scroll_up => { if (self.automation_param_cursor > 0) self.automation_param_cursor -= 1; },
+            .scroll_down => {
+                if (self.automation_param_cursor + 1 < synth_mod.PolySynth.automatable_params.len) self.automation_param_cursor += 1;
+            },
             else => {},
         }
     }
@@ -1808,7 +1872,7 @@ pub const App = struct {
             {
                 self.view = .tracks;
             },
-            .automation => if (automation_ed.currentClip(self) == null) { self.view = .arrangement; },
+            .automation, .automation_param_picker => if (automation_ed.currentClip(self) == null) { self.view = .arrangement; },
             else => {},
         }
     }
@@ -2034,6 +2098,7 @@ pub const App = struct {
             .arrangement     => try tui.drawArrangement(self, w, content_rows, size.cols, snap),
             .file_browser    => try tui.drawFileBrowser(self, w, content_rows),
             .automation      => try tui.drawAutomation(self, w, content_rows, size.cols, snap),
+            .automation_param_picker => try tui.drawAutomationParamPicker(self, w, content_rows),
         }
 
         var transport: Transport = .{
@@ -2135,6 +2200,7 @@ pub const App = struct {
             .arrangement     => try tui.drawArrangementStatus(self, &status_w, &status_right_w, commands.cmds),
             .file_browser    => try tui.drawFileBrowserStatus(self, &status_w, &status_right_w),
             .automation      => try tui.drawAutomationStatus(self, &status_w, &status_right_w, commands.cmds),
+            .automation_param_picker => try status_w.writeAll(" j/k: move   enter: pick   esc: cancel"),
         }
         try style.writeSplitRow(w, status_w.buffered(), status_right_w.buffered(), size.cols -| 1);
         // Erase from cursor to end of screen so stale content from taller

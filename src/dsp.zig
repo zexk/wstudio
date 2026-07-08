@@ -2,8 +2,9 @@ pub const device = @import("dsp/device.zig");
 pub const Device = device.Device;
 pub const Event = device.Event;
 
-pub const PolySynth = @import("dsp/synth.zig").PolySynth;
-pub const Waveform = @import("dsp/synth.zig").Waveform;
+pub const synth = @import("dsp/synth.zig");
+pub const PolySynth = synth.PolySynth;
+pub const Waveform = synth.Waveform;
 pub const synth_presets = @import("dsp/synth_presets.zig");
 pub const StereoDelay = @import("dsp/delay.zig").StereoDelay;
 pub const Reverb = @import("dsp/reverb.zig").Reverb;

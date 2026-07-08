@@ -529,11 +529,11 @@ pub const Session = struct {
         }
     }
 
-    /// Flatten one track's clips' gain/pan/filter-cutoff breakpoints (clip-
+    /// Flatten one track's clips' gain/pan/synth-param breakpoints (clip-
     /// relative beats) into absolute-song-beat curves and push them to the
     /// engine. Runs for every instrument kind — a non-synth track's
-    /// `filter_cutoff` slice is simply always empty (the automation editor
-    /// only ever writes it for poly_synth tracks), so this loop needs no
+    /// `synth_params` list is simply always empty (the automation editor
+    /// only ever writes to it for poly_synth tracks), so this loop needs no
     /// extra guard. Clips are already stored start_bar-ascending
     /// (`Lane.place`) and each clip's own points are beat-ascending
     /// (`automation.setPoint`), so appending in clip order needs no extra sort.
@@ -542,8 +542,16 @@ pub const Session = struct {
         var gain_n: usize = 0;
         var pan_pts: [automation_mod.max_points]AutomationPoint = undefined;
         var pan_n: usize = 0;
-        var fc_pts: [automation_mod.max_points]AutomationPoint = undefined;
-        var fc_n: usize = 0;
+
+        // Distinct synth param ids used anywhere in this lane, first-seen
+        // order, capped at max_synth_slots — matches the engine's own
+        // per-track slot bank exactly (Engine.setTrackSynthParam silently
+        // drops any param past it, so collecting more here is wasted work).
+        var param_ids: [engine_mod.max_synth_slots]u8 = undefined;
+        var param_n: usize = 0;
+        var param_pts: [engine_mod.max_synth_slots][automation_mod.max_points]AutomationPoint = undefined;
+        var param_pt_n: [engine_mod.max_synth_slots]usize = [_]usize{0} ** engine_mod.max_synth_slots;
+
         for (lane.clips.items) |c| {
             const clip_start_beat = @as(f64, @floatFromInt(c.start_bar)) * bpb;
             for (c.automation.gain) |p| {
@@ -558,17 +566,36 @@ pub const Session = struct {
                 pan_pts[pan_n] = .{ .beat = clip_start_beat + p.beat, .value = p.value };
                 pan_n += 1;
             }
-            for (c.automation.filter_cutoff) |p| {
-                if (fc_n >= fc_pts.len) break;
-                // Already Hz, the same unit PolySynth.setParamAbsolute
-                // expects — no conversion needed, unlike gain's dB->linear.
-                fc_pts[fc_n] = .{ .beat = clip_start_beat + p.beat, .value = p.value };
-                fc_n += 1;
+            for (c.automation.synth_params.items) |sp| {
+                var slot: ?usize = null;
+                for (param_ids[0..param_n], 0..) |pid, idx| {
+                    if (pid == sp.param_id) { slot = idx; break; }
+                }
+                if (slot == null) {
+                    if (param_n >= param_ids.len) continue; // slot cap reached — drop, matches engine's own cap
+                    param_ids[param_n] = sp.param_id;
+                    slot = param_n;
+                    param_n += 1;
+                }
+                const s = slot.?;
+                for (sp.points) |p| {
+                    if (param_pt_n[s] >= param_pts[s].len) break;
+                    // Already the unit PolySynth.setParamAbsolute expects
+                    // (Hz for cutoff, etc.) — no conversion needed, unlike
+                    // gain's dB->linear.
+                    param_pts[s][param_pt_n[s]] = .{ .beat = clip_start_beat + p.beat, .value = p.value };
+                    param_pt_n[s] += 1;
+                }
             }
         }
         self.engine.setTrackAutomation(track, .gain, gain_pts[0..gain_n]);
         self.engine.setTrackAutomation(track, .pan, pan_pts[0..pan_n]);
-        self.engine.setTrackAutomation(track, .filter_cutoff, fc_pts[0..fc_n]);
+        // Clear every slot first — a param removed from every clip since the
+        // last rebuild must not linger in a stale slot forever.
+        self.engine.clearTrackSynthParams(track);
+        for (param_ids[0..param_n], 0..) |pid, idx| {
+            self.engine.setTrackSynthParam(track, pid, param_pts[idx][0..param_pt_n[idx]]);
+        }
     }
 
     /// Whole bars needed to hold `len_beats`, at least one.

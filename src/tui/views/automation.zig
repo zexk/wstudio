@@ -6,6 +6,9 @@ const ws = @import("wstudio");
 const engine_mod = ws.engine;
 const automation_mod = ws.dsp.automation;
 const AutomationPoint = automation_mod.AutomationPoint;
+const synth_mod = ws.dsp.synth;
+const automation_ed = @import("../editors/automation.zig");
+const AutomationFocus = automation_ed.AutomationFocus;
 const cmd_mod = @import("../cmd.zig");
 const style = @import("../style.zig");
 
@@ -58,20 +61,20 @@ fn currentClip(app: anytype) ?*const ws.Clip {
     return lane.clipAt(link.start_bar);
 }
 
-fn curveRange(target: engine_mod.AutomationTarget) [2]f32 {
+fn curveRange(target: AutomationFocus) [2]f32 {
     return switch (target) {
         .gain => .{ -40.0, 12.0 }, // wider than the persisted -60 floor — a
         // fade all the way to -60dB would otherwise pin the whole graph flat
         .pan => .{ -1.0, 1.0 },
-        .filter_cutoff => .{ 20.0, 20_000.0 },
+        .synth_param => |id| if (synth_mod.PolySynth.findAutomatableParam(id)) |info| info.range else .{ 0.0, 1.0 },
     };
 }
 
-fn curvePoints(clip: *const ws.Clip, target: engine_mod.AutomationTarget) []const AutomationPoint {
+fn curvePoints(clip: *const ws.Clip, target: AutomationFocus) []const AutomationPoint {
     return switch (target) {
         .gain => clip.automation.gain,
         .pan => clip.automation.pan,
-        .filter_cutoff => clip.automation.filter_cutoff,
+        .synth_param => |id| clip.automation.findSynthParam(id) orelse &.{},
     };
 }
 
@@ -94,11 +97,11 @@ pub fn drawAutomation(
         app.session.project.tracks.items[app.automation_track].name
     else
         "?";
-    const target = app.automation_target;
+    const target = app.automation_focus;
     const target_label: []const u8 = switch (target) {
         .gain => "GAIN",
         .pan => "PAN",
-        .filter_cutoff => "CUTOFF",
+        .synth_param => |id| if (synth_mod.PolySynth.findAutomatableParam(id)) |info| info.label else "?",
     };
 
     try w.writeAll(bold ++ " AUTOMATION" ++ rst);
@@ -107,7 +110,7 @@ pub fn drawAutomation(
     try w.print("{d}\u{2192}{d}", .{ clip.start_bar + 1, clip.endBar() });
     try w.writeAll(dim ++ "  " ++ rst ++ acc ++ bold);
     try w.print(" {s} ", .{target_label});
-    try w.writeAll(rst ++ dim ++ " (tab: switch curve)" ++ rst);
+    try w.writeAll(rst ++ dim ++ " (tab: switch curve, p: pick param)" ++ rst);
     try endLine(w);
 
     const bpb = app.session.project.beats_per_bar;
@@ -219,7 +222,7 @@ pub fn drawAutomationStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writ
     try w.writeAll(dim ++ "  " ++ rst);
     try w.print("{d}.{d}", .{ bar + 1, step_in_bar + 1 });
 
-    const target = app.automation_target;
+    const target = app.automation_focus;
     const points = curvePoints(clip, target);
     if (automation_mod.interpolate(points, beat)) |v| {
         const explicit = hasPointAt(points, beat);
@@ -228,7 +231,16 @@ pub fn drawAutomationStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writ
         switch (target) {
             .gain => try w.print("{d:.1}dB", .{v}),
             .pan => try w.print("{d:.2}", .{v}),
-            .filter_cutoff => try w.print("{d:.0}Hz", .{v}),
+            // Cutoff keeps its own kHz breakdown for parity with the synth
+            // editor's own readout; every other synth param gets a plain
+            // generic format (no per-param unit table needed for ~29 params).
+            .synth_param => |id| if (id == 21) {
+                if (v >= 1_000.0) try w.print("{d:.2}kHz", .{v / 1_000.0}) else try w.print("{d:.0}Hz", .{v});
+            } else if (@abs(v) >= 10.0) {
+                try w.print("{d:.1}", .{v});
+            } else {
+                try w.print("{d:.2}", .{v});
+            },
         }
         if (explicit) {
             try w.writeAll(rst);
@@ -240,10 +252,81 @@ pub fn drawAutomationStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writ
         try w.writeAll(dim ++ "  no automation yet — j/k adds a point" ++ rst);
     }
 
-    try w.writeAll(dim ++ "  h/l:move  j/k:nudge  x:delete  v:select  .:repeat  tab:curve  esc:back" ++ rst);
+    try w.writeAll(dim ++ "  h/l:move  j/k:nudge  x:delete  v:select  .:repeat  tab:curve  p:pick  esc:back" ++ rst);
 
     if (app.status_len > 0) {
         try w.writeAll(dim ++ "  " ++ rst);
         try w.writeAll(app.status_buf[0..app.status_len]);
     }
+}
+
+/// Synth-param automation picker (`p` in the automation editor): every
+/// continuous param in `synth_mod.PolySynth.automatable_params`, grouped by
+/// section header. A leading bullet marks a param that already has a lane on
+/// the current clip (so re-opening the picker shows what's already active).
+/// Row math (title(1) + blank(1) before the display-row list) is shared with
+/// `App.automationParamPickerMouse` via `automation_ed.buildParamDisplayRows`
+/// — keep the two in sync if this layout ever changes.
+pub fn drawAutomationParamPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void {
+    const track_name = if (app.automation_track < app.session.project.tracks.items.len)
+        app.session.project.tracks.items[app.automation_track].name
+    else
+        "?";
+    try w.writeAll(bold ++ " AUTOMATE PARAM" ++ rst);
+    try w.writeAll(acc);
+    try w.print("  \"{s}\"", .{track_name});
+    try w.writeAll(rst);
+    try endLine(w);
+    try endLine(w);
+
+    const clip = currentClip(app);
+
+    var buf: [automation_ed.max_param_display_rows]automation_ed.ParamDisplayRow = undefined;
+    const rows_list = automation_ed.buildParamDisplayRows(&buf);
+
+    // Scroll clamp keyed on the cursor's display row (headers count too) —
+    // same "clamped at draw" convention drawTracks' vis_rows uses.
+    var cursor_row: usize = 0;
+    for (rows_list, 0..) |r, ri| {
+        switch (r) {
+            .param => |i| if (i == app.automation_param_cursor) { cursor_row = ri; break; },
+            .header => {},
+        }
+    }
+    // 2 rows of preamble (title + blank) already printed above, plus the
+    // same 3-row bottom margin every other view's pad loop reserves — same
+    // "vis_rows = rows - preamble - 3" shape drawTracks' vis_rows uses.
+    const vis_rows: usize = rows -| 5;
+    if (cursor_row < app.automation_param_scroll) app.automation_param_scroll = cursor_row;
+    if (vis_rows > 0 and cursor_row >= app.automation_param_scroll + vis_rows)
+        app.automation_param_scroll = cursor_row - vis_rows + 1;
+    const scroll = app.automation_param_scroll;
+    const last_visible = @min(rows_list.len, scroll + vis_rows);
+
+    for (rows_list[scroll..last_visible]) |r| {
+        switch (r) {
+            .header => |name| {
+                try w.writeAll(dim ++ bold);
+                try w.print(" {s}", .{name});
+                try w.writeAll(rst);
+                try endLine(w);
+            },
+            .param => |i| {
+                const p = synth_mod.PolySynth.automatable_params[i];
+                const is_sel = i == app.automation_param_cursor;
+                const has_lane = if (clip) |c| c.automation.findSynthParam(p.id) != null else false;
+                if (is_sel) try w.writeAll(sel);
+                try w.writeAll(if (is_sel) "  > " else "    ");
+                try w.writeAll(if (has_lane) "\u{2022} " else "  ");
+                try w.print("{s: <12}", .{p.label});
+                if (!is_sel) try w.writeAll(dim);
+                try w.print(" {d:.2} .. {d:.2}", .{ p.range[0], p.range[1] });
+                try w.writeAll(rst);
+                try endLine(w);
+            },
+        }
+    }
+
+    const used = 2 + (last_visible - scroll);
+    for (used..@max(used, rows -| 3)) |_| try endLine(w);
 }

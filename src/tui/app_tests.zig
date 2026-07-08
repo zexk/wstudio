@@ -794,43 +794,64 @@ test "automation editor char/word tiers: x deletes the point under the cursor, w
     try std.testing.expectApproxEqAbs(@as(f64, 4.0), clip.automation.gain[0].beat, 1e-9); // step 16 = beat 4
 }
 
-test "automation editor: tab offers filter cutoff only on a synth track" {
+test "automation editor: tab only cycles gain/pan until the picker adds a synth param" {
     var app = try testApp(); // synth(0), sampler(1), drums(2)
     defer app.deinit();
 
-    // Synth track: tab cycles gain -> pan -> filter_cutoff -> gain.
+    // Synth track: tab cycles gain <-> pan only — no synth-param lane exists
+    // on this clip yet, so there's nothing else to cycle to.
     try app.session.stampClip(0, 0);
     automation_ed.switchTo(&app, 0, 0);
-    try std.testing.expectEqual(engine_mod.AutomationTarget.gain, app.automation_target);
+    try std.testing.expectEqual(automation_ed.AutomationFocus.gain, app.automation_focus);
     _ = automation_ed.handleKey(&app, .tab);
-    try std.testing.expectEqual(engine_mod.AutomationTarget.pan, app.automation_target);
+    try std.testing.expectEqual(automation_ed.AutomationFocus.pan, app.automation_focus);
     _ = automation_ed.handleKey(&app, .tab);
-    try std.testing.expectEqual(engine_mod.AutomationTarget.filter_cutoff, app.automation_target);
-    _ = automation_ed.handleKey(&app, .tab);
-    try std.testing.expectEqual(engine_mod.AutomationTarget.gain, app.automation_target);
+    try std.testing.expectEqual(automation_ed.AutomationFocus.gain, app.automation_focus);
 
-    // j nudges the cutoff curve, clamped 20..20_000 like the synth's own param.
-    _ = automation_ed.handleKey(&app, .tab); // -> pan
-    _ = automation_ed.handleKey(&app, .tab); // -> filter_cutoff
+    // p opens the picker; select filter cutoff (param_id 21) and confirm it
+    // switches focus there and creates an (empty) lane.
+    _ = automation_ed.handleKey(&app, .{ .char = 'p' });
+    try std.testing.expectEqual(AppView.automation_param_picker, app.view);
+    var cutoff_idx: u8 = 0;
+    for (ws.dsp.synth.PolySynth.automatable_params, 0..) |p, i| {
+        if (p.id == 21) { cutoff_idx = @intCast(i); break; }
+    }
+    app.automation_param_cursor = cutoff_idx;
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqual(AppView.automation, app.view);
+    try std.testing.expectEqual(automation_ed.AutomationFocus{ .synth_param = 21 }, app.automation_focus);
+
+    // Now tab cycles gain -> pan -> cutoff -> gain, and j nudges the cutoff
+    // curve, clamped 20..20_000 like the synth's own param.
     _ = automation_ed.handleKey(&app, .{ .char = 'j' });
     const synth_clip = automation_ed.currentClip(&app).?;
-    try std.testing.expectEqual(@as(usize, 1), synth_clip.automation.filter_cutoff.len);
+    try std.testing.expectEqual(@as(usize, 1), synth_clip.automation.findSynthParam(21).?.len);
+    app.automation_focus = .gain;
+    _ = automation_ed.handleKey(&app, .tab);
+    try std.testing.expectEqual(automation_ed.AutomationFocus.pan, app.automation_focus);
+    _ = automation_ed.handleKey(&app, .tab);
+    try std.testing.expectEqual(automation_ed.AutomationFocus{ .synth_param = 21 }, app.automation_focus);
+    _ = automation_ed.handleKey(&app, .tab);
+    try std.testing.expectEqual(automation_ed.AutomationFocus.gain, app.automation_focus);
 
-    // Sampler track: filter_cutoff is skipped entirely — gain <-> pan only.
+    // Sampler track: p refuses (no synth params on this instrument kind) —
+    // gain <-> pan only.
     try app.session.stampClip(1, 0);
     automation_ed.switchTo(&app, 1, 0);
-    try std.testing.expectEqual(engine_mod.AutomationTarget.gain, app.automation_target);
+    try std.testing.expectEqual(automation_ed.AutomationFocus.gain, app.automation_focus);
+    _ = automation_ed.handleKey(&app, .{ .char = 'p' });
+    try std.testing.expectEqual(AppView.automation, app.view); // picker refused to open
     _ = automation_ed.handleKey(&app, .tab);
-    try std.testing.expectEqual(engine_mod.AutomationTarget.pan, app.automation_target);
+    try std.testing.expectEqual(automation_ed.AutomationFocus.pan, app.automation_focus);
     _ = automation_ed.handleKey(&app, .tab);
-    try std.testing.expectEqual(engine_mod.AutomationTarget.gain, app.automation_target);
+    try std.testing.expectEqual(automation_ed.AutomationFocus.gain, app.automation_focus);
 
-    // Switching back to the synth clip while target is .gain still offers
-    // cutoff again (the fallback in switchTo only fires the other way).
+    // Switching back to the synth clip while focus is .gain still offers the
+    // cutoff lane again via tab (it's already on that clip).
     automation_ed.switchTo(&app, 0, 0);
     _ = automation_ed.handleKey(&app, .tab);
     _ = automation_ed.handleKey(&app, .tab);
-    try std.testing.expectEqual(engine_mod.AutomationTarget.filter_cutoff, app.automation_target);
+    try std.testing.expectEqual(automation_ed.AutomationFocus{ .synth_param = 21 }, app.automation_focus);
 }
 
 test "visual mode escape cancels the selection without editing" {

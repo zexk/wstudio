@@ -261,7 +261,8 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("g / G",        "jump cursor to clip start / end");
     t.key("v",            "visual mode: select a step range on the current curve — y/d/p");
     t.key(".",            "repeat the last nudge or visual range delete/paste");
-    t.key("tab",          "cycle gain -> pan -> filter cutoff (synth tracks only) -> gain");
+    t.key("tab",          "cycle gain -> pan -> synth params already on this clip -> gain");
+    t.key("p",            "pick a synth param to automate (~30 continuous params, synth tracks only)");
     t.key("u / U / ^R",   "undo / redo (whole-lane, same as the arrangement's)");
     t.key("esc",          "back to the arrangement");
 

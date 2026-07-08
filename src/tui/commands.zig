@@ -265,7 +265,7 @@ pub fn cmdHelp(app: *App, _: []const u8) void {
         .synth_editor => .synth_editor,
         .piano_roll => .piano_roll,
         .arrangement => .arrangement,
-        .automation => .automation,
+        .automation, .automation_param_picker => .automation,
         .track_spectrum, .master_spectrum, .group_spectrum, .fx_picker => .spectrum,
         .file_browser => .file_browser,
         .help, .instrument_picker => null,

@@ -98,3 +98,4 @@ pub const drawFileBrowser = browser.drawFileBrowser;
 pub const drawFileBrowserStatus = browser.drawFileBrowserStatus;
 pub const drawAutomation = automation.drawAutomation;
 pub const drawAutomationStatus = automation.drawAutomationStatus;
+pub const drawAutomationParamPicker = automation.drawAutomationParamPicker;

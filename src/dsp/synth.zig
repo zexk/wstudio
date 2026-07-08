@@ -905,15 +905,99 @@ pub const PolySynth = struct {
     /// Absolute-value counterpart to `adjustParam`, for automation curves
     /// (which know the value they want at a beat position directly, not a
     /// delta from wherever the param last was — see `Event.set_param_abs`).
-    /// Only filter cutoff (id 21) is wired so far, since automation lanes
-    /// open to it first (other synth params can follow the same shape once
-    /// they get an automation lane); unhandled ids are a no-op, matching
-    /// `adjustParam`'s own default arm.
+    /// Every continuous param `adjustParam` handles is wired here with the
+    /// exact same clamp range; enum/toggle ids (waveform 0/7, osc_b_on 6,
+    /// mod_mode 14, filter_type 20, lfo_shape 28, lfo_target 31, voice_mode
+    /// 32, sub_shape 35) have no meaningful "absolute value" and stay
+    /// unhandled, a no-op matching `adjustParam`'s own default arm.
     pub fn setParamAbsolute(self: *PolySynth, id: u8, value: f32) void {
         switch (id) {
-            21 => self.filter_cutoff = std.math.clamp(value, 20.0, 20_000.0),
+            1  => self.pulse_width         = std.math.clamp(value,   0.01,   0.99),
+            2  => self.detune_cents        = std.math.clamp(value, -100.0, 100.0),
+            3  => self.unison              = @intCast(std.math.clamp(@as(i32, @intFromFloat(@round(value))), 1, 16)),
+            4  => self.unison_detune       = std.math.clamp(value,   0.0,  100.0),
+            5  => self.unison_spread       = std.math.clamp(value,   0.0,    1.0),
+            8  => self.osc_b_pulse_width   = std.math.clamp(value,   0.01,   0.99),
+            9  => self.osc_b_semi          = std.math.clamp(value, -24.0,   24.0),
+            10 => self.osc_b_detune_cents  = std.math.clamp(value, -100.0,  100.0),
+            11 => self.osc_b_level         = std.math.clamp(value,   0.0,    1.0),
+            12 => self.osc_b_unison        = @intCast(std.math.clamp(@as(i32, @intFromFloat(@round(value))), 1, 16)),
+            13 => self.osc_b_unison_detune = std.math.clamp(value,   0.0,  100.0),
+            15 => self.mod_amount          = std.math.clamp(value,   0.0,    8.0),
+            16 => self.attack_s            = std.math.clamp(value,   0.001,  5.0),
+            17 => self.decay_s             = std.math.clamp(value,   0.001,  5.0),
+            18 => self.sustain             = std.math.clamp(value,   0.0,    1.0),
+            19 => self.release_s           = std.math.clamp(value,   0.001, 10.0),
+            21 => self.filter_cutoff       = std.math.clamp(value,  20.0, 20_000.0),
+            22 => self.filter_res          = std.math.clamp(value,   0.0,    1.0),
+            23 => self.fenv_amount         = std.math.clamp(value,  -4.0,    4.0),
+            24 => self.fenv_attack_s       = std.math.clamp(value,   0.001,  5.0),
+            25 => self.fenv_decay_s        = std.math.clamp(value,   0.001,  5.0),
+            26 => self.fenv_sustain        = std.math.clamp(value,   0.0,    1.0),
+            27 => self.fenv_release_s      = std.math.clamp(value,   0.001, 10.0),
+            29 => self.lfo_rate_hz         = std.math.clamp(value,   0.01,  20.0),
+            30 => self.lfo_depth           = std.math.clamp(value,   0.0,    1.0),
+            33 => self.glide_s             = std.math.clamp(value,   0.0,   10.0),
+            34 => self.sub_level           = std.math.clamp(value,   0.0,    1.0),
+            36 => self.noise_level         = std.math.clamp(value,   0.0,    1.0),
+            37 => self.noise_color         = std.math.clamp(value,   0.0,    1.0),
+            38 => self.gain                = std.math.clamp(value,   0.01,   1.0),
             else => {},
         }
+    }
+
+    /// One entry per `setParamAbsolute`-handled id — the shared metadata the
+    /// automation editor's param picker, curve labels, and h/l nudge step all
+    /// need. `label` is the short in-graph tag (matches the synth editor's own
+    /// row labels where practical); `section` groups the picker's listing the
+    /// same way the synth editor's own KEY/OSC A/OSC B/... rows are grouped.
+    pub const AutomatableParam = struct {
+        id: u8,
+        label: []const u8,
+        section: []const u8,
+        range: [2]f32,
+        /// h/l nudge step — same magnitude as `adjustParam`'s own per-step
+        /// multiplier for this id, so automation nudges feel consistent with
+        /// the live editor's own h/l.
+        step: f32,
+    };
+
+    pub const automatable_params = [_]AutomatableParam{
+        .{ .id = 1,  .label = "PW A",       .section = "OSC A",   .range = .{ 0.01,   0.99 },    .step = 0.01 },
+        .{ .id = 2,  .label = "DETUNE A",   .section = "OSC A",   .range = .{ -100.0, 100.0 },   .step = 1.0 },
+        .{ .id = 3,  .label = "UNISON A",   .section = "OSC A",   .range = .{ 1.0,    16.0 },    .step = 1.0 },
+        .{ .id = 4,  .label = "UNI DET A",  .section = "OSC A",   .range = .{ 0.0,    100.0 },   .step = 1.0 },
+        .{ .id = 5,  .label = "UNI SPRD A", .section = "OSC A",   .range = .{ 0.0,    1.0 },     .step = 0.01 },
+        .{ .id = 8,  .label = "PW B",       .section = "OSC B",   .range = .{ 0.01,   0.99 },    .step = 0.01 },
+        .{ .id = 9,  .label = "SEMI B",     .section = "OSC B",   .range = .{ -24.0,  24.0 },    .step = 1.0 },
+        .{ .id = 10, .label = "DETUNE B",   .section = "OSC B",   .range = .{ -100.0, 100.0 },   .step = 1.0 },
+        .{ .id = 11, .label = "LEVEL B",    .section = "OSC B",   .range = .{ 0.0,    1.0 },     .step = 0.01 },
+        .{ .id = 12, .label = "UNISON B",   .section = "OSC B",   .range = .{ 1.0,    16.0 },    .step = 1.0 },
+        .{ .id = 13, .label = "UNI DET B",  .section = "OSC B",   .range = .{ 0.0,    100.0 },   .step = 1.0 },
+        .{ .id = 15, .label = "MOD AMT",    .section = "MOD",     .range = .{ 0.0,    8.0 },     .step = 0.05 },
+        .{ .id = 16, .label = "ATTACK",     .section = "ENV",     .range = .{ 0.001,  5.0 },     .step = 0.01 },
+        .{ .id = 17, .label = "DECAY",      .section = "ENV",     .range = .{ 0.001,  5.0 },     .step = 0.01 },
+        .{ .id = 18, .label = "SUSTAIN",    .section = "ENV",     .range = .{ 0.0,    1.0 },     .step = 0.01 },
+        .{ .id = 19, .label = "RELEASE",    .section = "ENV",     .range = .{ 0.001,  10.0 },    .step = 0.01 },
+        .{ .id = 21, .label = "CUTOFF",     .section = "FILTER",  .range = .{ 20.0,   20_000.0 },.step = 100.0 },
+        .{ .id = 22, .label = "RESONANCE",  .section = "FILTER",  .range = .{ 0.0,    1.0 },     .step = 0.01 },
+        .{ .id = 23, .label = "FENV AMT",   .section = "FENV",    .range = .{ -4.0,   4.0 },     .step = 0.05 },
+        .{ .id = 24, .label = "FENV ATK",   .section = "FENV",    .range = .{ 0.001,  5.0 },     .step = 0.01 },
+        .{ .id = 25, .label = "FENV DEC",   .section = "FENV",    .range = .{ 0.001,  5.0 },     .step = 0.01 },
+        .{ .id = 26, .label = "FENV SUS",   .section = "FENV",    .range = .{ 0.0,    1.0 },     .step = 0.01 },
+        .{ .id = 27, .label = "FENV REL",   .section = "FENV",    .range = .{ 0.001,  10.0 },    .step = 0.01 },
+        .{ .id = 29, .label = "LFO RATE",   .section = "LFO",     .range = .{ 0.01,   20.0 },    .step = 0.1 },
+        .{ .id = 30, .label = "LFO DEPTH",  .section = "LFO",     .range = .{ 0.0,    1.0 },     .step = 0.01 },
+        .{ .id = 33, .label = "GLIDE",      .section = "VOICE",   .range = .{ 0.0,    10.0 },    .step = 0.01 },
+        .{ .id = 34, .label = "SUB LEVEL",  .section = "SUB",     .range = .{ 0.0,    1.0 },     .step = 0.01 },
+        .{ .id = 36, .label = "NOISE LVL",  .section = "NOISE",   .range = .{ 0.0,    1.0 },     .step = 0.01 },
+        .{ .id = 37, .label = "NOISE CLR",  .section = "NOISE",   .range = .{ 0.0,    1.0 },     .step = 0.01 },
+        .{ .id = 38, .label = "OUT GAIN",   .section = "OUT",     .range = .{ 0.01,   1.0 },     .step = 0.01 },
+    };
+
+    pub fn findAutomatableParam(id: u8) ?*const AutomatableParam {
+        for (&automatable_params) |*p| if (p.id == id) return p;
+        return null;
     }
 
     /// Apply a MIDI pitch bend. `bend` is −8192..+8191; `range_semitones` = ±range.

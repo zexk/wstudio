@@ -33,21 +33,34 @@ pub const Clip = struct {
     /// flattens every clip's points into one whole-song curve per track.
     automation: Automation = .{},
 
+    /// One synth-param automation lane: `param_id` matches `PolySynth.
+    /// setParamAbsolute`'s id space (poly_synth tracks only — the editor
+    /// gates offering these to those tracks; a clip on any other track kind
+    /// simply never gets an entry, no separate guard needed here).
+    pub const SynthParamCurve = struct {
+        param_id: u8,
+        points: []AutomationPoint = &.{},
+    };
+
     /// Gain (dB, same range as `:gain`/`Track.gain_db`) and pan (-1..1, same
-    /// range as `Track.pan`) breakpoints, each independently optional.
-    /// `filter_cutoff` (Hz, 20..20_000) is the first instrument-param
-    /// automation lane (poly_synth tracks only — the editor gates offering
-    /// it to those; an empty slice on any other track kind is simply never
-    /// populated, no separate guard needed here).
+    /// range as `Track.pan`) breakpoints, each independently optional, plus a
+    /// sparse list of synth-instrument-param lanes (filter cutoff, LFO rate,
+    /// envelope times, ...) — was a single dedicated `filter_cutoff` field,
+    /// generalized to a growable list so any of PolySynth's ~30 continuous
+    /// params can be automated per clip, not just cutoff (see dsp/synth.zig's
+    /// `automatable_params`). Clips aren't multiplied across `max_tracks` the
+    /// way the engine's live `AutomationPair` is, so a growable list here
+    /// costs nothing extra unlike a fixed-size bank would in the engine.
     pub const Automation = struct {
         gain: []AutomationPoint = &.{},
         pan: []AutomationPoint = &.{},
-        filter_cutoff: []AutomationPoint = &.{},
+        synth_params: std.ArrayListUnmanaged(SynthParamCurve) = .empty,
 
         pub fn deinit(self: *Automation, allocator: std.mem.Allocator) void {
             allocator.free(self.gain);
             allocator.free(self.pan);
-            allocator.free(self.filter_cutoff);
+            for (self.synth_params.items) |*sp| allocator.free(sp.points);
+            self.synth_params.deinit(allocator);
         }
 
         pub fn dupe(self: Automation, allocator: std.mem.Allocator) !Automation {
@@ -55,8 +68,36 @@ pub const Clip = struct {
             errdefer allocator.free(gain);
             const pan = try allocator.dupe(AutomationPoint, self.pan);
             errdefer allocator.free(pan);
-            const filter_cutoff = try allocator.dupe(AutomationPoint, self.filter_cutoff);
-            return .{ .gain = gain, .pan = pan, .filter_cutoff = filter_cutoff };
+            var synth_params: std.ArrayListUnmanaged(SynthParamCurve) = .empty;
+            errdefer {
+                for (synth_params.items) |*sp| allocator.free(sp.points);
+                synth_params.deinit(allocator);
+            }
+            for (self.synth_params.items) |sp| {
+                const points = try allocator.dupe(AutomationPoint, sp.points);
+                try synth_params.append(allocator, .{ .param_id = sp.param_id, .points = points });
+            }
+            return .{ .gain = gain, .pan = pan, .synth_params = synth_params };
+        }
+
+        /// Read-only lookup — null if this param has no lane on this clip yet.
+        pub fn findSynthParam(self: *const Automation, param_id: u8) ?[]const AutomationPoint {
+            for (self.synth_params.items) |sp| {
+                if (sp.param_id == param_id) return sp.points;
+            }
+            return null;
+        }
+
+        /// The mutable points-slice pointer for `param_id`, creating an empty
+        /// lane for it first if none exists yet (the param picker's "start
+        /// automating this" action) — same "own the pointer, mutate through
+        /// it" shape `gain`/`pan` fields already offer via `&self.gain`.
+        pub fn synthParamPoints(self: *Automation, allocator: std.mem.Allocator, param_id: u8) !*[]AutomationPoint {
+            for (self.synth_params.items) |*sp| {
+                if (sp.param_id == param_id) return &sp.points;
+            }
+            try self.synth_params.append(allocator, .{ .param_id = param_id });
+            return &self.synth_params.items[self.synth_params.items.len - 1].points;
         }
     };
 

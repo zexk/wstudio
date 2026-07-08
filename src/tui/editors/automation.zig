@@ -1,4 +1,4 @@
-//! Per-clip gain/pan automation editor: a breakpoint grid, vim-style.
+//! Per-clip gain/pan/synth-param automation editor: a breakpoint grid, vim-style.
 //!
 //! The cursor moves along the clip's own beat axis in 16th-note steps (the
 //! same unit the piano roll/drum grid use — beat = step / 4.0). h/l move it;
@@ -6,9 +6,11 @@
 //! none exists yet (starting from whatever the curve currently interpolates
 //! to, so a nudge on a bare stretch doesn't jump to an arbitrary default);
 //! x deletes the point at the cursor exactly (vim's char tier); w/b jump the
-//! cursor a bar at a time (word tier); tab cycles gain -> pan -> filter
-//! cutoff (synth tracks only) -> gain; v starts a step-range selection on
-//! the current curve —
+//! cursor a bar at a time (word tier); tab cycles gain -> pan -> whichever
+//! synth params already have at least one point on this clip -> gain; `p`
+//! opens a picker (poly_synth tracks only) to start automating one of
+//! PolySynth's ~30 continuous params that isn't on this clip yet; v starts a
+//! step-range selection on the current curve —
 //! y/d/p act on it (breakpoints only, not the interpolated curve shape in
 //! between); d/y without `v` first arm an operator that a motion
 //! (h/l/H/L/g/G/w/b) completes against, and d/y repeated (dd/yy) act on the
@@ -23,24 +25,31 @@ const modal_mod = ws.input;
 const automation_mod = ws.dsp.automation;
 const AutomationPoint = automation_mod.AutomationPoint;
 const engine_mod = ws.engine;
+const synth_mod = ws.dsp.synth;
 const App = @import("../app.zig").App;
 const history = @import("../history.zig");
 const view = @import("../views/automation.zig");
 
-/// Gain (dB, matches `:gain`/`Track.gain_db`), pan (-1..1, matches
-/// `Track.pan`), and filter cutoff (Hz, matches PolySynth.setParamAbsolute)
-/// ranges — same clamps `persist.zig`'s loader enforces.
+/// Which curve h/l + j/k currently edit. `gain`/`pan` are the two universal
+/// targets, always available on any clip (mix-bus params). `synth_param`
+/// names one of PolySynth's ~30 continuous params by its `setParamAbsolute`
+/// id (see `synth_mod.automatable_params`) — poly_synth tracks only.
+/// Replaces the old fixed 3-way gain/pan/filter_cutoff enum now that any of
+/// ~30 params can be targeted, not just cutoff.
+pub const AutomationFocus = union(enum) {
+    gain,
+    pan,
+    synth_param: u8,
+};
+
+/// Gain (dB, matches `:gain`/`Track.gain_db`) and pan (-1..1, matches
+/// `Track.pan`) ranges/steps — same clamps `persist.zig`'s loader enforces.
+/// Synth-param ranges/steps come from `synth_mod.automatable_params` instead
+/// (one entry per param, not two constants).
 const gain_range = [2]f32{ -60.0, 12.0 };
 const pan_range = [2]f32{ -1.0, 1.0 };
-const filter_cutoff_range = [2]f32{ 20.0, 20_000.0 };
 const gain_step: f32 = 1.0;
 const pan_step: f32 = 0.05;
-/// Flat Hz step — not log-scaled like the synth editor's own h/l cutoff
-/// nudge, since automation curves nudge every target with the same
-/// additive-step shape (see `nudgeValue`). A coarser step than gain/pan's
-/// to keep the 20-20_000 Hz range navigable in a reasonable number of
-/// presses; J/K (10x via the existing count multiplier) covers 1000 Hz.
-const filter_cutoff_step: f32 = 100.0;
 
 /// Open the automation editor on the clip under the arrangement cursor.
 /// `cursor_bar` need only fall inside the clip's span — the link is stored
@@ -54,11 +63,13 @@ pub fn switchTo(app: *App, track: u16, cursor_bar: u32) void {
     };
     app.automation_clip = .{ .track = track, .start_bar = clip.start_bar };
     app.automation_track = track;
-    // A previous clip may have left the editor on filter_cutoff; if this
-    // one's track can't use it (not a synth), fall back to gain rather than
-    // opening on a curve this track has no way to populate.
-    if (app.automation_target == .filter_cutoff and !hasFilterCutoff(app)) {
-        app.automation_target = .gain;
+    // A previous clip may have left the editor on a synth param this one
+    // doesn't have a lane for yet — fall back to gain rather than opening on
+    // a curve this clip has no data for.
+    if (std.meta.activeTag(app.automation_focus) == .synth_param) {
+        if (clip.automation.findSynthParam(app.automation_focus.synth_param) == null) {
+            app.automation_focus = .gain;
+        }
     }
     app.automation_cursor_step = 0;
     app.automation_scroll = 0;
@@ -85,48 +96,54 @@ fn maxStep(app: *App, clip: *const ws.Clip) u32 {
     return clip.length_bars * stepsPerBar(app);
 }
 
-fn curvePoints(clip: *ws.Clip, target: engine_mod.AutomationTarget) *[]AutomationPoint {
+/// The mutable points-slice pointer for `target`, creating an empty synth-
+/// param lane on demand if none exists yet. In practice a `.synth_param`
+/// focus is only ever reached via the picker (which creates the lane before
+/// switching focus) or `nextTarget` (which only offers params that already
+/// have one) — the on-demand create here is just defence in depth, not the
+/// primary path.
+fn curvePoints(app: *App, clip: *ws.Clip, target: AutomationFocus) !*[]AutomationPoint {
     return switch (target) {
         .gain => &clip.automation.gain,
         .pan => &clip.automation.pan,
-        .filter_cutoff => &clip.automation.filter_cutoff,
+        .synth_param => |id| try clip.automation.synthParamPoints(app.allocator, id),
     };
 }
 
-fn curveRange(target: engine_mod.AutomationTarget) [2]f32 {
+fn curveRange(target: AutomationFocus) [2]f32 {
     return switch (target) {
         .gain => gain_range,
         .pan => pan_range,
-        .filter_cutoff => filter_cutoff_range,
+        .synth_param => |id| if (synth_mod.PolySynth.findAutomatableParam(id)) |info| info.range else .{ 0.0, 1.0 },
     };
 }
 
-fn curveStep(target: engine_mod.AutomationTarget) f32 {
+fn curveStep(target: AutomationFocus) f32 {
     return switch (target) {
         .gain => gain_step,
         .pan => pan_step,
-        .filter_cutoff => filter_cutoff_step,
+        .synth_param => |id| if (synth_mod.PolySynth.findAutomatableParam(id)) |info| info.step else 0.01,
     };
 }
 
-/// True if the clip's own track is a poly_synth — the only kind
-/// `filter_cutoff` automation currently applies to (Sampler has no filter
-/// param, DrumMachine automation isn't wired at all yet). Gates whether
-/// `tab` offers the third curve at all.
-fn hasFilterCutoff(app: *App) bool {
-    return app.automation_track < app.session.racks.items.len and
-        std.meta.activeTag(app.session.racks.items[app.automation_track].instrument) == .poly_synth;
-}
-
-/// `tab`'s 3-way cycle: gain -> pan -> filter_cutoff (synth tracks only) ->
-/// gain. Skips straight back to gain from pan on a non-synth track, so tab
-/// never lands on a curve that track can't actually use.
-fn nextTarget(app: *App, cur: engine_mod.AutomationTarget) engine_mod.AutomationTarget {
-    return switch (cur) {
-        .gain => .pan,
-        .pan => if (hasFilterCutoff(app)) .filter_cutoff else .gain,
-        .filter_cutoff => .gain,
-    };
+/// `tab`'s cycle: gain -> pan -> whichever synth params already have a lane
+/// on THIS clip (in the order they were first added) -> back to gain. Unlike
+/// gain/pan, a synth param with no lane yet isn't offered — that's what the
+/// picker (`p`) is for, since offering all ~30 candidates via tab would make
+/// the common case (a handful of active lanes) slow to cycle through.
+fn nextTarget(clip: *const ws.Clip, cur: AutomationFocus) AutomationFocus {
+    const items = clip.automation.synth_params.items;
+    switch (cur) {
+        .gain => return .pan,
+        .pan => return if (items.len > 0) .{ .synth_param = items[0].param_id } else .gain,
+        .synth_param => |id| {
+            for (items, 0..) |sp, i| {
+                if (sp.param_id != id) continue;
+                return if (i + 1 < items.len) .{ .synth_param = items[i + 1].param_id } else .gain;
+            }
+            return .gain; // the focused param vanished from this clip — bounce home
+        },
+    }
 }
 
 pub fn handleKey(app: *App, key: modal_mod.Key) bool {
@@ -184,7 +201,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
         .escape => { app.view = .arrangement; return true; },
         .ctrl_r => { history.doRedo(app); return true; },
         .tab => {
-            app.automation_target = nextTarget(app, app.automation_target);
+            app.automation_focus = nextTarget(clip, app.automation_focus);
             return true;
         },
         .char => |c| switch (c) {
@@ -210,6 +227,10 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             // curve.
             'd' => { armOperator(app, 'd'); return true; },
             'y' => { armOperator(app, 'y'); return true; },
+            // Open the synth-param picker (poly_synth tracks only) to start
+            // automating a param that isn't on this clip yet — tab only
+            // cycles curves that already have a lane (see nextTarget).
+            'p' => { openParamPicker(app); return true; },
             'v' => {
                 app.automation_visual_anchor = app.automation_cursor_step;
                 app.modal.mode = .visual;
@@ -271,7 +292,10 @@ fn yankSelection(app: *App, clip: *ws.Clip) void {
     const r = selectionRange(app);
     const lo_beat = @as(f64, @floatFromInt(r.lo)) * 0.25;
     const hi_beat = @as(f64, @floatFromInt(r.hi)) * 0.25 + 0.25;
-    const points = curvePoints(clip, app.automation_target).*;
+    const points = (curvePoints(app, clip, app.automation_focus) catch {
+        app.setStatus("yank failed (out of memory)", .{});
+        return;
+    }).*;
     var list: std.ArrayListUnmanaged(AutomationPoint) = .empty;
     for (points) |p| {
         if (p.beat < lo_beat or p.beat >= hi_beat) continue;
@@ -299,7 +323,10 @@ fn deleteSelection(app: *App, clip: *ws.Clip) void {
     const lo_beat = @as(f64, @floatFromInt(r.lo)) * 0.25;
     const hi_beat = @as(f64, @floatFromInt(r.hi)) * 0.25 + 0.25;
     history.push(app, history.captureLane(app, app.automation_track));
-    const points = curvePoints(clip, app.automation_target);
+    const points = curvePoints(app, clip, app.automation_focus) catch {
+        app.setStatus("delete failed (out of memory)", .{});
+        return;
+    };
     var removed: usize = 0;
     var i: usize = 0;
     while (i < points.len) {
@@ -315,7 +342,7 @@ fn deleteSelection(app: *App, clip: *ws.Clip) void {
 }
 
 /// Paste the range clipboard's breakpoints onto the curve active *now*
-/// (`automation_target`, which may differ from the one yanked if `tab` was
+/// (`automation_focus`, which may differ from the one yanked if `tab` was
 /// pressed since), starting at the cursor step.
 fn pasteSelection(app: *App, clip: *ws.Clip) void {
     const rc = app.automation_range_clip orelse {
@@ -324,7 +351,10 @@ fn pasteSelection(app: *App, clip: *ws.Clip) void {
         return;
     };
     history.push(app, history.captureLane(app, app.automation_track));
-    const points = curvePoints(clip, app.automation_target);
+    const points = curvePoints(app, clip, app.automation_focus) catch {
+        app.setStatus("paste failed (out of memory)", .{});
+        return;
+    };
     const base_beat = @as(f64, @floatFromInt(app.automation_cursor_step)) * 0.25;
     const max_beat: f64 = @as(f64, @floatFromInt(maxStep(app, clip))) * 0.25;
     for (rc.points) |p| {
@@ -457,9 +487,12 @@ fn finishOperator(app: *App, clip: *ws.Clip, op: u8) void {
 /// arbitrary default.
 fn nudgeValue(app: *App, clip: *ws.Clip, steps: i32) void {
     if (steps == 0) return;
-    const target = app.automation_target;
+    const target = app.automation_focus;
     const beat = @as(f64, @floatFromInt(app.automation_cursor_step)) * 0.25;
-    const points = curvePoints(clip, target);
+    const points = curvePoints(app, clip, target) catch {
+        app.setStatus("automation edit failed (out of memory)", .{});
+        return;
+    };
     const range = curveRange(target);
     const cur = automation_mod.interpolate(points.*, beat) orelse 0.0;
     const new_val = std.math.clamp(
@@ -478,9 +511,12 @@ fn nudgeValue(app: *App, clip: *ws.Clip, steps: i32) void {
 }
 
 fn deletePoint(app: *App, clip: *ws.Clip) void {
-    const target = app.automation_target;
+    const target = app.automation_focus;
     const beat = @as(f64, @floatFromInt(app.automation_cursor_step)) * 0.25;
-    const points = curvePoints(clip, target);
+    const points = curvePoints(app, clip, target) catch {
+        app.setStatus("automation edit failed (out of memory)", .{});
+        return;
+    };
     if (!hasPointAt(points.*, beat)) {
         app.setStatus("no point exactly here", .{});
         return;
@@ -496,4 +532,69 @@ fn hasPointAt(points: []const AutomationPoint, beat: f64) bool {
         if (@abs(p.beat - beat) < 1e-9) return true;
     }
     return false;
+}
+
+/// Open the synth-param picker (`p`) — poly_synth tracks only, since no
+/// other instrument kind has a `setParamAbsolute` id space to automate.
+/// Places the cursor on the currently-focused param if there is one, else 0,
+/// so re-opening the picker on an already-automated param starts there.
+fn openParamPicker(app: *App) void {
+    if (app.automation_track >= app.session.racks.items.len or
+        std.meta.activeTag(app.session.racks.items[app.automation_track].instrument) != .poly_synth)
+    {
+        app.setStatus("no automatable params on this track kind (poly_synth only)", .{});
+        return;
+    }
+    if (std.meta.activeTag(app.automation_focus) == .synth_param) {
+        const cur_id = app.automation_focus.synth_param;
+        for (synth_mod.PolySynth.automatable_params, 0..) |p, i| {
+            if (p.id == cur_id) { app.automation_param_cursor = @intCast(i); break; }
+        }
+    }
+    app.automation_param_scroll = 0;
+    app.view = .automation_param_picker;
+}
+
+/// Chosen from the picker (enter/click) — creates an empty lane for the
+/// param on the current clip if none exists yet, switches focus to it, and
+/// returns to the automation view.
+pub fn selectParam(app: *App, param_id: u8) void {
+    const clip = currentClip(app) orelse return;
+    _ = clip.automation.synthParamPoints(app.allocator, param_id) catch {
+        app.setStatus("couldn't add param lane (out of memory)", .{});
+        return;
+    };
+    app.automation_focus = .{ .synth_param = param_id };
+    app.view = .automation;
+}
+
+/// One printed row of the param picker: either a section header (dim label
+/// row, not selectable) or a param (index into `synth_mod.PolySynth.
+/// automatable_params`). Shared by the picker's render (views/automation.zig)
+/// and its mouse hit-testing (App.automationParamPickerMouse) so the two
+/// can't drift out of sync — same "shared row math" convention
+/// views/synth.zig's import of editors/synth.zig's `paramRow` already uses.
+pub const ParamDisplayRow = union(enum) {
+    header: []const u8,
+    param: usize,
+};
+
+/// Room for every param plus one header per distinct section — generous
+/// fixed cap, not a computed expression, so it doesn't need updating if
+/// `automatable_params` grows a little.
+pub const max_param_display_rows = 64;
+
+pub fn buildParamDisplayRows(buf: *[max_param_display_rows]ParamDisplayRow) []ParamDisplayRow {
+    var n: usize = 0;
+    var last_section: []const u8 = "";
+    for (synth_mod.PolySynth.automatable_params, 0..) |p, i| {
+        if (!std.mem.eql(u8, p.section, last_section)) {
+            buf[n] = .{ .header = p.section };
+            n += 1;
+            last_section = p.section;
+        }
+        buf[n] = .{ .param = i };
+        n += 1;
+    }
+    return buf[0..n];
 }

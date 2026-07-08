@@ -1,0 +1,36 @@
+{
+  "version": 13,
+  "tracks": [
+    { "name": "keys" }
+  ],
+  "racks": [
+    { "label": "keys", "kind": "poly_synth", "synth": {} }
+  ],
+  "arrangement": [
+    {
+      "clips": [
+        {
+          "start_bar": 0,
+          "length_bars": 1,
+          "kind": "melodic",
+          "length_beats": 4.0,
+          "synth_param_automation": [
+            {
+              "param_id": 21,
+              "points": [
+                { "beat": 0.0, "value": 2000.0 },
+                { "beat": 2.0, "value": 8000.0 }
+              ]
+            },
+            {
+              "param_id": 29,
+              "points": [
+                { "beat": 0.0, "value": 4.0 }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

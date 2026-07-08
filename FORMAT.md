@@ -65,13 +65,14 @@ they showed up in the same week as one.
 | v10 | The fixed nine-slot FX rack (`FxSnap`, one optional per unit kind) becomes a user-built ordered chain (`fx_chain`: a list of `FxUnitSnap` in signal-flow order, duplicates allowed, per-unit bypass). Older files carry the struct-of-optionals shape instead; loading synthesizes a chain in the old hard-wired order (gate → comp → eq → sat → crush → chorus → phaser → delay → reverb), matching the audible behaviour those files always had. |
 | v11 | The drum machine's pad cap grew 8→64 (`DrumMachine.max_pads`), MPC-style banks of 8 for the UI. Every pad-indexed field (`DrumSnap`/`VariantSnap`/`ClipSnap`'s `pattern`/`vel_lo`/`vel_hi`/`choke_group`/`pads`) changed from a fixed-length array to a slice, since `std.json` requires exact-length matches for fixed arrays and a fixed 8-element array can't parse against a 64-element one. `PadSnap` gained `used: bool` so a pad can be "never loaded" (null `DrumMachine.pads[i]`, lazily materialized) instead of every pad always existing. Older files, which had no concept of an empty pad, load with every one of their (at most 8) entries treated as used regardless of the field's default — version-gated (`snap.version < 11`), not inferred from array length, since a v11+ file can legitimately have exactly 8 real entries with some genuinely unused. |
 | v12 | Per-step drum velocity widened from the old 2-bit `vel_lo`/`vel_hi` bitplanes (4 levels: 100/75/50/25%) to a plain 0-127 byte per step (`VariantSnap.vel`/`ClipSnap.drum_vel`, nested per-pad slices of per-step values). `vel_lo`/`vel_hi` are kept, read-only, purely so an older file's data can be remapped onto the new scale via `DrumMachine.legacyVelToNew` — new saves never write them. |
+| v13 | The single `filter_cutoff_automation` clip lane generalizes to a sparse list of synth-instrument-param automation lanes (`ClipSnap.synth_param_automation`, one entry per automated `PolySynth.setParamAbsolute` id — see `dsp/synth.zig`'s `automatable_params`, ~30 continuous params: LFO rate/depth, envelope times, unison, etc., not just cutoff). `filter_cutoff_automation` is kept, read-only, purely so an older file's cutoff lane remaps onto the new list's `param_id = 21` entry — new saves never write it. |
 
 Since v11, every field added has been the additive/no-bump kind described
-above (v12 above is the one exception — a genuine semantic change, not
+above (v12 and v13 above are the exceptions — genuine semantic changes, not
 additive). Check `persist.zig`'s per-field doc comments for specifics (e.g.
 `Sampler.mono`, `PatternPlayer.swing`, `:bounce`'s bit-depth option).
 
-`test/fixtures/wsj/v1.wsj` through `v12.wsj` are tiny, hand-written fixtures
+`test/fixtures/wsj/v1.wsj` through `v13.wsj` are tiny, hand-written fixtures
 of each historical shape (no `variants` for v2, no `master_fx_chain` for v9,
 etc.), one per row of the table above. `persist.zig`'s "golden-file corpus"
 test loads every file in that directory and fails loudly if one stops

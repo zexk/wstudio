@@ -101,11 +101,27 @@ const AutomationPoint = automation_mod.AutomationPoint;
 /// file's `vel_lo`/`vel_hi` (kept, read-only, for exactly this migration)
 /// gets remapped through `DrumMachine.legacyVelToNew` onto the new scale
 /// instead of being read directly.
-pub const file_version: u32 = 12;
+/// v13 generalizes the single `filter_cutoff_automation` lane into a sparse
+/// list of synth-instrument-param automation lanes (`ClipSnap.
+/// synth_param_automation`, one entry per automated `PolySynth.
+/// setParamAbsolute` id — see dsp/synth.zig's `automatable_params`).
+/// Genuinely a version bump for the same reason v12's velocity change was:
+/// the old field is superseded, not extended, so a pre-v13 file's
+/// `filter_cutoff_automation` (kept, read-only, for exactly this migration)
+/// remaps onto the new list's param_id 21 entry instead of being read
+/// directly.
+pub const file_version: u32 = 13;
 
 pub const AutomationPointSnap = struct {
     beat: f64,
     value: f32,
+};
+
+/// One synth-instrument-param automation lane — see `ClipSnap.
+/// synth_param_automation`.
+pub const SynthParamAutomationSnap = struct {
+    param_id: u8,
+    points: []const AutomationPointSnap = &.{},
 };
 
 // ---------------------------------------------------------------------------
@@ -438,9 +454,13 @@ pub const ClipSnap = struct {
     /// beats. Independent of `kind` — either clip type can carry them.
     gain_automation: []const AutomationPointSnap = &.{},
     pan_automation: []const AutomationPointSnap = &.{},
-    /// Additive field (see FORMAT.md's versioning policy): older files omit
-    /// it and load with no filter-cutoff automation, matching every clip's
-    /// look before this lane existed. Hz, 20..20_000.
+    /// v13: sparse synth-instrument-param automation lanes — supersedes
+    /// `filter_cutoff_automation` below (kept, read-only, for the legacy
+    /// remap; see `file_version`'s v13 doc comment). New saves never write
+    /// the old field, matching v11/v12's own migration convention.
+    synth_param_automation: []const SynthParamAutomationSnap = &.{},
+    /// v7, read-only since v13 — see `synth_param_automation`'s doc comment.
+    /// Hz, 20..20_000.
     filter_cutoff_automation: []const AutomationPointSnap = &.{},
 };
 
@@ -818,7 +838,13 @@ fn clipToSnap(aa: std.mem.Allocator, clip: ws_arrangement.Clip) !ClipSnap {
     }
     c.gain_automation = try automationToSnap(aa, clip.automation.gain);
     c.pan_automation = try automationToSnap(aa, clip.automation.pan);
-    c.filter_cutoff_automation = try automationToSnap(aa, clip.automation.filter_cutoff);
+    if (clip.automation.synth_params.items.len > 0) {
+        const sps = try aa.alloc(SynthParamAutomationSnap, clip.automation.synth_params.items.len);
+        for (clip.automation.synth_params.items, sps) |sp, *o| {
+            o.* = .{ .param_id = sp.param_id, .points = try automationToSnap(aa, sp.points) };
+        }
+        c.synth_param_automation = sps;
+    }
     return c;
 }
 
@@ -1266,8 +1292,38 @@ fn clipFromSnap(allocator: std.mem.Allocator, cs: ClipSnap) !ws_arrangement.Clip
     errdefer out.deinit(allocator);
     out.automation.gain = try automationFromSnap(allocator, cs.gain_automation, -60.0, 12.0);
     out.automation.pan = try automationFromSnap(allocator, cs.pan_automation, -1.0, 1.0);
-    out.automation.filter_cutoff = try automationFromSnap(allocator, cs.filter_cutoff_automation, 20.0, 20_000.0);
+    try applySynthParamAutomationSnap(allocator, &out.automation, cs.synth_param_automation, cs.filter_cutoff_automation);
     return out;
+}
+
+/// Load a clip's synth-param automation lanes. A v13 `synth_param_automation`
+/// takes priority when present; a pre-v13 file only carries the old
+/// single-lane `filter_cutoff_automation`, remapped onto param_id 21 — same
+/// "new field wins, else remap the old one" convention `applyVelSnap` uses
+/// for drum velocity.
+fn applySynthParamAutomationSnap(
+    allocator: std.mem.Allocator,
+    automation: *ws_arrangement.Clip.Automation,
+    synth_param_automation: []const SynthParamAutomationSnap,
+    legacy_filter_cutoff: []const AutomationPointSnap,
+) !void {
+    if (synth_param_automation.len > 0) {
+        for (synth_param_automation) |sp| {
+            const range = if (synth_mod.PolySynth.findAutomatableParam(sp.param_id)) |info|
+                info.range
+            else
+                [2]f32{ -std.math.floatMax(f32), std.math.floatMax(f32) };
+            const points = try automationFromSnap(allocator, sp.points, range[0], range[1]);
+            const dst = try automation.synthParamPoints(allocator, sp.param_id);
+            dst.* = points;
+        }
+        return;
+    }
+    if (legacy_filter_cutoff.len > 0) {
+        const points = try automationFromSnap(allocator, legacy_filter_cutoff, 20.0, 20_000.0);
+        const dst = try automation.synthParamPoints(allocator, 21);
+        dst.* = points;
+    }
 }
 
 /// Load automation breakpoints, clamping values to the same range the live
@@ -1803,7 +1859,7 @@ test "automationFromSnap sorts unsorted points and clamps out-of-range values" {
     try testing.expectApproxEqAbs(@as(f32, 12.0), pts[1].value, 1e-6);
 }
 
-test "buildSession: clip automation round-trips" {
+test "buildSession: clip automation round-trips (legacy filter_cutoff_automation remaps to param_id 21)" {
     const testing = std.testing;
     const snap: Snapshot = .{
         .tracks = &.{.{ .name = "keys" }},
@@ -1826,8 +1882,9 @@ test "buildSession: clip automation round-trips" {
     try testing.expectApproxEqAbs(@as(f32, -6.0), clip.automation.gain[0].value, 1e-6);
     try testing.expectEqual(@as(usize, 1), clip.automation.pan.len);
     try testing.expectApproxEqAbs(@as(f32, 0.5), clip.automation.pan[0].value, 1e-6);
-    try testing.expectEqual(@as(usize, 1), clip.automation.filter_cutoff.len);
-    try testing.expectApproxEqAbs(@as(f32, 2_500.0), clip.automation.filter_cutoff[0].value, 1e-6);
+    const cutoff = clip.automation.findSynthParam(21).?;
+    try testing.expectEqual(@as(usize, 1), cutoff.len);
+    try testing.expectApproxEqAbs(@as(f32, 2_500.0), cutoff[0].value, 1e-6);
 }
 
 test "buildSession: filter cutoff automation clamps an out-of-range hand-edited value" {
@@ -1847,7 +1904,7 @@ test "buildSession: filter cutoff automation clamps an out-of-range hand-edited 
     var session = try buildSession(testing.allocator, &snap);
     defer session.deinit();
     const clip = session.arrangement.lane(0).?.clips.items[0];
-    try testing.expectApproxEqAbs(@as(f32, 20_000.0), clip.automation.filter_cutoff[0].value, 1e-6);
+    try testing.expectApproxEqAbs(@as(f32, 20_000.0), clip.automation.findSynthParam(21).?[0].value, 1e-6);
 }
 
 test "buildSession: drum variant bank round-trips; v2 files get one variant" {
@@ -2441,7 +2498,20 @@ test "golden-file corpus: every historical .wsj fixture still loads" {
     }
 
     // Guards against a misconfigured path silently turning this into a no-op.
-    try testing.expectEqual(@as(usize, 12), count);
+    try testing.expectEqual(@as(usize, 13), count);
+}
+
+test "golden-file corpus: v13's synth_param_automation loads multiple lanes" {
+    const testing = std.testing;
+    var session = try load(testing.allocator, testing.io, "test/fixtures/wsj/v13.wsj");
+    defer session.deinit();
+    const clip = session.arrangement.lanes.items[0].clips.items[0];
+    const cutoff = clip.automation.findSynthParam(21).?;
+    try testing.expectEqual(@as(usize, 2), cutoff.len);
+    try testing.expectApproxEqAbs(@as(f32, 2000.0), cutoff[0].value, 1e-3);
+    const lfo_rate = clip.automation.findSynthParam(29).?;
+    try testing.expectEqual(@as(usize, 1), lfo_rate.len);
+    try testing.expectApproxEqAbs(@as(f32, 4.0), lfo_rate[0].value, 1e-3);
 }
 
 test "golden-file corpus: v12's vel field loads a granular per-step value" {
