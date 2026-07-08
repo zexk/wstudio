@@ -45,8 +45,9 @@ pub const PatternPlayer = struct {
     /// absolute start_beat (clip start + note offset). Guarded by `notes_lock`.
     song_notes:       [max_notes]Note = undefined,
     song_note_count:  u16 = 0,
-    /// Loop length of the whole arrangement in beats. The song plays through
-    /// then repeats, mirroring the live loop's wrap behaviour.
+    /// Loop length of the whole arrangement in beats. Past this point
+    /// process() goes silent instead of wrapping — the arrangement plays
+    /// once through, unlike the live loop above.
     song_length_beats: f64 = 0.0,
 
     // ── Audio-thread-only state ──────────────────────────────────────────────
@@ -275,10 +276,26 @@ pub const PatternPlayer = struct {
         const start_beat = @as(f64, @floatFromInt(pos)) / fpb;
         const end_beat = @as(f64, @floatFromInt(pos + frames)) / fpb;
 
+        if (self.song_mode and start_beat >= loop) {
+            // Past the end of the arrangement: silence anything left
+            // sounding and stop — the song plays once through, it doesn't
+            // wrap like the live loop does.
+            for (0..128) |p| {
+                if (self.sounding[p]) {
+                    self.target.sendEvent(.{ .note_off = .{ .note = @intCast(p) } });
+                    self.sounding[p] = false;
+                }
+            }
+            return;
+        }
+
         const s = @mod(start_beat, loop);
         const e = s + (end_beat - start_beat);
 
-        if (e >= loop) {
+        if (self.song_mode) {
+            // No wraparound in song mode — clamp to the arrangement's end.
+            scanRange(notes, loop, &self.sounding, self.target, s, @min(e, loop));
+        } else if (e >= loop) {
             // Block spans the loop boundary: two non-wrapping scans.
             scanRange(notes, loop, &self.sounding, self.target, s, loop);
             scanRange(notes, loop, &self.sounding, self.target, 0.0, @min(e - loop, loop));

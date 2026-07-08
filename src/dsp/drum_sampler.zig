@@ -576,12 +576,12 @@ pub const DrumMachine = struct {
         for (&self.pads) |*pad| pad.processBlock(buf);
     }
 
-    /// Fire pads for absolute step `step_k` from the song timeline. The whole
-    /// arrangement loops at `song_length_steps`; the clip covering the wrapped
-    /// step drives the pads, repeating its own pattern to fill its span.
+    /// Fire pads for absolute step `step_k` from the song timeline. Past
+    /// `song_length_steps` this goes silent instead of wrapping — the
+    /// arrangement plays once through, not on a loop.
     fn fireSongStep(self: *DrumMachine, step_k: u64, fire_frame: u32) void {
-        if (self.song_length_steps == 0) return;
-        const lk: u32 = @intCast(step_k % self.song_length_steps);
+        if (self.song_length_steps == 0 or step_k >= self.song_length_steps) return;
+        const lk: u32 = @intCast(step_k);
         for (self.song_clips[0..self.song_clip_count]) |*clip| {
             if (lk < clip.start_step or lk >= clip.start_step + clip.span_steps) continue;
             if (clip.step_count == 0) return;
