@@ -49,14 +49,24 @@ fn parseSgrMouse(params: []const u8, is_press: bool) ?Key {
     } };
 }
 
+/// Leading decimal number of a CSI parameter block, ignoring anything from
+/// the first `;` on (modifier suffixes like `1;5~` for ctrl+Home). Used for
+/// the numbered Home/End forms (`ESC [ 1 ~` / `ESC [ 4 ~`, tmux's default),
+/// distinct from the plain-letter forms (`ESC [ H` / `ESC [ F`).
+fn leadingCsiNum(params: []const u8) ?u16 {
+    const end = std.mem.indexOfScalar(u8, params, ';') orelse params.len;
+    return std.fmt.parseInt(u16, params[0..end], 10) catch null;
+}
+
 /// Decodes a batch of raw input bytes into keys. A lone 0x1b in the batch is
 /// the escape key; 0x1b followed by '[' is a CSI sequence — arrows, Home
-/// (xterm/alacritty's plain `ESC [ H`, not the `1~` form), End (`ESC [ F`),
-/// and SGR mouse reports (`ESC [ < Cb ; Cx ; Cy M`/`m`) decode to their own
-/// Key variants (arrows/Home/End not aliased to hjkl chars, so the modal
-/// layer can tell a real arrow press from someone typing those letters —
-/// see App.handleKey), other CSI sequences are dropped. Returns the number
-/// of keys written to `out`.
+/// (xterm/alacritty's plain `ESC [ H` or the numbered `ESC [ 1 ~` / `7 ~`
+/// forms), End (`ESC [ F` or `ESC [ 4 ~` / `8 ~`), and SGR mouse reports
+/// (`ESC [ < Cb ; Cx ; Cy M`/`m`) decode to their own Key variants (arrows/
+/// Home/End not aliased to hjkl chars, so the modal layer can tell a real
+/// arrow press from someone typing those letters — see App.handleKey),
+/// other CSI sequences are dropped. Returns the number of keys written to
+/// `out`.
 pub fn decode(bytes: []const u8, out: []Key) usize {
     var count: usize = 0;
     var i: usize = 0;
@@ -75,6 +85,12 @@ pub fn decode(bytes: []const u8, out: []Key) usize {
                         i += 1;
                         const mapped: ?Key = if (params.len > 0 and params[0] == '<' and (final == 'M' or final == 'm'))
                             parseSgrMouse(params[1..], final == 'M')
+                        else if (final == '~')
+                            switch (leadingCsiNum(params) orelse 0) {
+                                1, 7 => .home,
+                                4, 8 => .end,
+                                else => null,
+                            }
                         else switch (final) {
                             'A' => .arrow_up,
                             'B' => .arrow_down,
@@ -174,6 +190,16 @@ test "decode Home/End CSI sequences" {
     try std.testing.expectEqual(@as(usize, 2), n);
     try std.testing.expectEqual(Key.home, keys[0]);
     try std.testing.expectEqual(Key.end, keys[1]);
+}
+
+test "decode numbered Home/End CSI sequences (tmux/rxvt)" {
+    var keys: [8]Key = undefined;
+    const n = decode("\x1b[1~\x1b[4~\x1b[7~\x1b[8~", &keys);
+    try std.testing.expectEqual(@as(usize, 4), n);
+    try std.testing.expectEqual(Key.home, keys[0]);
+    try std.testing.expectEqual(Key.end, keys[1]);
+    try std.testing.expectEqual(Key.home, keys[2]);
+    try std.testing.expectEqual(Key.end, keys[3]);
 }
 
 test "decode SGR mouse press/release/drag" {

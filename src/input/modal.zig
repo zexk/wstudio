@@ -26,11 +26,14 @@ pub const Key = union(enum) {
     arrow_down,
     arrow_left,
     arrow_right,
-    /// Command-mode line-editing: jump to the start/end of the buffer, or
-    /// (ctrl_w) delete the word behind the cursor. No meaning outside
-    /// command mode (see handleCommand).
+    /// Command-mode line-editing: jump to the start/end of the buffer.
+    /// In normal mode (handleNormal) home/end instead seek the playhead to
+    /// the start/end of the content — a `gg`/`G`-alike that stays reachable
+    /// even in views (piano roll, drum grid, arrangement) where `g`/`G` are
+    /// already claimed for cursor motion.
     home,
     end,
+    /// (command mode only) delete the word behind the cursor.
     ctrl_w,
     /// Vim's canonical redo key, alongside `U` — handled by whichever view
     /// (App.handleKey/editors/*.zig) tracks undo history; no meaning in
@@ -171,6 +174,8 @@ pub const ModalInput = struct {
                 if (self.mode == .visual) return self.setMode(.normal);
                 return .none;
             },
+            .home => return .goto_start,
+            .end => return .goto_end,
             else => return .none,
         };
 

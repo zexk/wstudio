@@ -104,7 +104,8 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("1–9",          "count prefix repeats a motion (3l, 12h, 2j …)");
     t.key("[ / ]",        "master volume down / up  (except piano roll)");
     t.key("space",        "play / pause");
-    t.key("gg",           "rewind to start");
+    t.key("gg / home",    "seek playhead to start (gg also moves the cursor in piano roll/drum grid/arrangement)");
+    t.key("G / end",      "seek playhead to end of content (G also moves the cursor in piano roll/drum grid)");
     t.key("i",            "enter INSERT mode (play notes)");
     t.key("esc",          "back / return to NORMAL mode");
     t.key(":",            "open command prompt");
