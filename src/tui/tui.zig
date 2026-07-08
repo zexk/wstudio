@@ -67,6 +67,7 @@ pub fn drawHeader(
 const tracks = @import("views/tracks.zig");
 const picker = @import("views/picker.zig");
 const drum = @import("views/drum.zig");
+const slicer = @import("views/slicer.zig");
 const help = @import("views/help.zig");
 const spectrum = @import("views/spectrum.zig");
 const synth = @import("views/synth.zig");
@@ -82,6 +83,8 @@ pub const drawInstrumentPicker = picker.drawInstrumentPicker;
 pub const drawFxPicker = picker.drawFxPicker;
 pub const drawDrumGrid = drum.drawDrumGrid;
 pub const drawDrumStatus = drum.drawDrumStatus;
+pub const drawSlicerGrid = slicer.drawSlicerGrid;
+pub const drawSlicerStatus = slicer.drawSlicerStatus;
 pub const drawHelp = help.drawHelp;
 pub const drawFxView = spectrum.drawFxView;
 pub const drawFxStatus = spectrum.drawFxStatus;

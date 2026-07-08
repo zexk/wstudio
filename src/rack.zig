@@ -3,6 +3,7 @@ const dsp = @import("dsp/device.zig");
 const PolySynth = @import("dsp/synth.zig").PolySynth;
 const Sampler = @import("dsp/sampler.zig").Sampler;
 const DrumMachine = @import("dsp/drum_sampler.zig").DrumMachine;
+const Slicer = @import("dsp/slicer.zig").Slicer;
 const Compressor = @import("dsp/compressor.zig").Compressor;
 const StereoDelay = @import("dsp/delay.zig").StereoDelay;
 const Reverb = @import("dsp/reverb.zig").Reverb;
@@ -28,6 +29,10 @@ pub const Instrument = union(enum) {
     /// The DrumMachine's internal `transport` pointer stays valid because the
     /// engine (and therefore its Transport) is heap-allocated.
     drum_machine: DrumMachine,
+    /// Step-sequenced sample chopper — one shared clip cut into
+    /// independently-triggerable slices. Same `*const Transport` stability
+    /// rule as `drum_machine`.
+    slicer: Slicer,
 
     /// Returns a dsp.Device fat-pointer whose `.ptr` is stable as long as
     /// the parent Rack (heap-allocated) is alive, or null for `empty`.
@@ -37,6 +42,7 @@ pub const Instrument = union(enum) {
             .poly_synth    => |*s|  return s.device(),
             .sampler       => |*s|  return s.device(),
             .drum_machine  => |*dm| return dm.device(),
+            .slicer        => |*sl| return sl.device(),
         }
     }
 
@@ -46,6 +52,7 @@ pub const Instrument = union(enum) {
             .poly_synth   => {},           // no heap allocations
             .sampler      => |*s|  s.deinit(),
             .drum_machine => |*dm| dm.deinit(),
+            .slicer       => |*sl| sl.deinit(),
         }
     }
 };
@@ -257,6 +264,7 @@ pub const Rack = struct {
             .poly_synth => |s| rack.instrument = .{ .poly_synth = s },
             .sampler => |*s| rack.instrument = .{ .sampler = try s.dupe() },
             .drum_machine => |*dm| rack.instrument = .{ .drum_machine = try dm.dupe() },
+            .slicer => |*sl| rack.instrument = .{ .slicer = try sl.dupe() },
         }
         // Set AFTER the instrument lands in the heap rack — the player holds
         // a pointer into it (same rule as Session.setInstrument).

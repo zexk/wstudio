@@ -31,6 +31,9 @@ pub const help = "\u{f02d7}"; // md-help_circle
 pub const master = "\u{f025}"; // fa-headphones
 pub const loop = "\u{f0547}"; // md-repeat_variant
 pub const logo = "\u{f1de}"; // fa-sliders
+/// Same codepoint as `logo` — the app logo IS a sliders glyph, which happens
+/// to be a fitting icon for the Slicer instrument too. No new glyph needed.
+pub const slicer = logo;
 
 const std = @import("std");
 const ws = @import("wstudio");

@@ -19,6 +19,7 @@ const pattern_mod = @import("dsp/pattern.zig");
 const PatternPlayer = pattern_mod.PatternPlayer;
 const Note = pattern_mod.Note;
 const DrumMachine = @import("dsp/drum_sampler.zig").DrumMachine;
+const Slicer = @import("dsp/slicer.zig").Slicer;
 const dsp = @import("dsp/device.zig");
 const arr_mod = @import("arrangement.zig");
 const Arrangement = arr_mod.Arrangement;
@@ -172,9 +173,14 @@ pub const Session = struct {
                 rack.instrument = .{ .drum_machine = try DrumMachine.init(self.allocator, sr, &self.engine.transport) };
                 rack.label = "drums";
             },
+            .slicer => {
+                rack.instrument = .{ .slicer = try Slicer.init(self.allocator, sr, &self.engine.transport) };
+                rack.label = "slicer";
+            },
         }
         // Set AFTER the instrument lands in the heap rack — the player holds a
-        // pointer into it.
+        // pointer into it. Slicer gets its own step grid, not a PatternPlayer,
+        // same as drum_machine.
         switch (kind) {
             .poly_synth, .sampler => rack.pattern_player = PatternPlayer.init(rack.instrument.device().?, &self.engine.transport),
             else => {},
@@ -542,7 +548,10 @@ pub const Session = struct {
                     }
                     pp.setSongNotes(notes[0..n], song_len_beats);
                 },
-                .empty => {},
+                // Slicer doesn't participate in the arrangement yet (no clip
+                // stamping) — deliberately out of scope for this first pass,
+                // see dsp/slicer.zig's own doc comment.
+                .empty, .slicer => {},
             }
             self.flattenClipAutomation(@intCast(i), lane, bpb);
         }
@@ -679,10 +688,31 @@ test "setInstrument swaps instrument and wires pattern player" {
     try std.testing.expectEqual(rack_mod.InstrumentKind.drum_machine, std.meta.activeTag(s.racks.items[0].instrument));
     try std.testing.expect(s.racks.items[0].pattern_player == null);
 
+    try s.setInstrument(0, .slicer);
+    try std.testing.expectEqual(rack_mod.InstrumentKind.slicer, std.meta.activeTag(s.racks.items[0].instrument));
+    try std.testing.expect(s.racks.items[0].pattern_player == null); // own step grid, not piano-roll sequenced
+
     // Chains stay live and renderable after each swap.
     _ = s.engine.send(.play);
     var block: [128]@import("core/types.zig").Sample = undefined;
     s.engine.process(&block);
+}
+
+test "slicer instrument: slices into the engine chain and triggers audibly" {
+    var s = try Session.initDefault(std.testing.allocator);
+    defer s.deinit();
+    try s.setInstrument(0, .slicer);
+
+    const sl = &s.racks.items[0].instrument.slicer;
+    sl.sliceInto(8);
+    try std.testing.expectEqual(@as(u8, 8), sl.slice_count);
+
+    _ = s.engine.send(.{ .note_on = .{ .track = 0, .note = 3, .velocity = 1.0 } });
+    var block: [512]@import("core/types.zig").Sample = undefined;
+    s.engine.process(&block);
+    var peak: f32 = 0.0;
+    for (block) |x| peak = @max(peak, @abs(x));
+    try std.testing.expect(peak > 0.001);
 }
 
 test "setInstrument retires the old rack instead of freeing it" {

@@ -14,6 +14,7 @@ const modal_mod = ws.input;
 const terminal_mod = if (builtin.os.tag == .windows) @import("terminal_windows.zig") else @import("terminal.zig");
 const Transport = ws.Transport;
 const DrumMachine = ws.dsp.DrumMachine;
+const Slicer = ws.dsp.Slicer;
 const commands = @import("commands.zig");
 const cmd_mod = @import("cmd.zig");
 const undo_mod = @import("undo.zig");
@@ -23,6 +24,7 @@ const style = @import("style.zig");
 const icons = @import("icons.zig");
 // Per-view input handlers; the render halves live in views/<name>.zig.
 const drum_ed = @import("editors/drum.zig");
+const slicer_ed = @import("editors/slicer.zig");
 const synth_ed = @import("editors/synth.zig");
 const sampler_ed = @import("editors/sampler.zig");
 const piano_ed = @import("editors/piano.zig");
@@ -52,7 +54,7 @@ const tap_timeout_ns: i96 = 2 * std.time.ns_per_s;
 /// Minimum gap between silent `<path>~` backups; see `maybeAutosave`.
 const autosave_interval_ns: i96 = 30 * std.time.ns_per_s;
 
-pub const AppView = enum { tracks, drum_grid, synth_editor, sampler_editor, help, track_spectrum, master_spectrum, group_spectrum, piano_roll, instrument_picker, fx_picker, arrangement, file_browser, automation, automation_param_picker };
+pub const AppView = enum { tracks, drum_grid, synth_editor, sampler_editor, help, track_spectrum, master_spectrum, group_spectrum, piano_roll, instrument_picker, fx_picker, arrangement, file_browser, automation, automation_param_picker, slicer_grid };
 
 /// Which waveform marker a sampler-editor mouse drag is moving — see
 /// `App.sampler_drag_marker` and editors/sampler.zig's handleMouse.
@@ -70,8 +72,8 @@ pub const SamplerTarget = union(enum) {
 };
 
 /// The instruments the picker offers, in display order.
-pub const picker_kinds = [_]InstrumentKind{ .poly_synth, .sampler, .drum_machine };
-pub const picker_labels = [_][]const u8{ "Synth", "Sampler", "Drum Machine" };
+pub const picker_kinds = [_]InstrumentKind{ .poly_synth, .sampler, .drum_machine, .slicer };
+pub const picker_labels = [_][]const u8{ "Synth", "Sampler", "Drum Machine", "Slicer" };
 
 /// What a file picked in the netrw-style file browser (`file_browser` view)
 /// resolves to once selected. Set by `App.openBrowser`; read by
@@ -81,13 +83,14 @@ pub const BrowserPurpose = union(enum) {
     load_sample,
     load_pad: u8,
     load_clip,
+    load_slice,
 
     /// The extension the browser filters non-directory entries to (case
     /// insensitive); directories are always shown regardless.
     fn ext(self: BrowserPurpose) []const u8 {
         return switch (self) {
             .open_project => ".wsj",
-            .load_sample, .load_pad, .load_clip => ".wav",
+            .load_sample, .load_pad, .load_clip, .load_slice => ".wav",
         };
     }
 };
@@ -198,6 +201,17 @@ pub const App = struct {
     drum_step_scroll: u32 = 0,
     /// Track currently shown in the drum_grid view (a drum_machine rack).
     drum_track: u16 = 0,
+    /// [slice, step] cursor for the slicer_grid view — same shape as
+    /// `drum_cursor`.
+    slicer_cursor: [2]u8 = .{ 0, 0 },
+    /// First visible step column, cursor-follow — same convention as
+    /// `drum_step_scroll`.
+    slicer_step_scroll: u32 = 0,
+    /// First visible slice row, cursor-follow bank window — same convention
+    /// as the drum grid's own pad banking (views/slicer.zig).
+    slicer_row_scroll: usize = 0,
+    /// Track currently shown in the slicer_grid view (a slicer rack).
+    slicer_track: u16 = 0,
     /// What the sampler_editor view edits: a drum pad or a standalone Sampler.
     sampler_target: SamplerTarget = .{ .drum = 0 },
     /// Selected param row in the sampler editor (0..param_count-1). For a drum
@@ -466,6 +480,12 @@ pub const App = struct {
         return &self.session.racks.items[self.drum_track].instrument.drum_machine;
     }
 
+    /// The slicer currently open in the slicer_grid view. Valid only while
+    /// `slicer_track` points at a slicer rack — same guarantee as `drumMachine`.
+    pub fn slicerInst(self: *App) *Slicer {
+        return &self.session.racks.items[self.slicer_track].instrument.slicer;
+    }
+
     /// The sampler currently open in the sampler_editor view (when targeting a
     /// standalone Sampler).
     pub fn editingSampler(self: *App) ?*Sampler {
@@ -586,6 +606,11 @@ pub const App = struct {
             // editors/drum.zig).
             .drum_grid => {
                 if (self.modal.mode == .command or self.modal.mode == .search or self.modal.mode == .insert or !drum_ed.handleKey(self, key)) {
+                    self.applyAction(self.modal.handle(key), now_ns);
+                } else self.modal.count = 0;
+            },
+            .slicer_grid => {
+                if (self.modal.mode == .command or self.modal.mode == .search or self.modal.mode == .insert or !slicer_ed.handleKey(self, key)) {
                     self.applyAction(self.modal.handle(key), now_ns);
                 } else self.modal.count = 0;
             },
@@ -740,6 +765,7 @@ pub const App = struct {
             .help => self.helpMouse(ev),
             .automation => automation_ed.handleMouse(self, ev, row),
             .automation_param_picker => self.automationParamPickerMouse(ev, row),
+            .slicer_grid => slicer_ed.handleMouse(self, ev, row),
         }
     }
 
@@ -938,6 +964,10 @@ pub const App = struct {
             .drum_machine => {
                 self.drum_track = @intCast(cursor);
                 self.view = .drum_grid;
+            },
+            .slicer => {
+                self.slicer_track = @intCast(cursor);
+                self.view = .slicer_grid;
             },
         }
     }
@@ -1272,6 +1302,7 @@ pub const App = struct {
             .load_sample => commands.loadSampleFromPath(self, joined),
             .load_pad => |pad| commands.loadPadFromPath(self, pad, joined),
             .load_clip => commands.loadClipFromPath(self, joined),
+            .load_slice => commands.loadSliceFromPath(self, joined),
         }
         self.closeBrowser();
     }
@@ -1292,6 +1323,7 @@ pub const App = struct {
             .synth_editor   => self.synth_track,
             .piano_roll     => self.piano_track,
             .drum_grid      => self.drum_track,
+            .slicer_grid    => self.slicer_track,
             .sampler_editor => self.sampler_target.track(),
             .track_spectrum => self.eq_track,
             .automation     => self.automation_track,
@@ -1389,6 +1421,14 @@ pub const App = struct {
                             .velocity = 0.9,
                         } });
                         if (self.view == .drum_grid) drum_ed.recordNote(self, n.pitch);
+                    },
+                    .slicer => |*sl| if (sl.slice_count > 0) {
+                        _ = self.session.engine.send(.{ .note_on = .{
+                            .track = track_idx,
+                            .note = n.pitch % @as(u7, @intCast(sl.slice_count)),
+                            .velocity = 0.9,
+                        } });
+                        if (self.view == .slicer_grid) slicer_ed.recordNote(self, n.pitch);
                     },
                     .poly_synth, .sampler => {
                         self.playNote(track_idx, n.pitch, now_ns);
@@ -1841,6 +1881,7 @@ pub const App = struct {
         switch (self.view) {
             .synth_editor => if (!kindIs(racks, self.synth_track, .poly_synth)) { self.view = .tracks; },
             .drum_grid => if (!kindIs(racks, self.drum_track, .drum_machine)) { self.view = .tracks; },
+            .slicer_grid => if (!kindIs(racks, self.slicer_track, .slicer)) { self.view = .tracks; },
             .sampler_editor => {
                 const ok = switch (self.sampler_target) {
                     .drum => |t| kindIs(racks, t, .drum_machine),
@@ -2099,6 +2140,7 @@ pub const App = struct {
             .file_browser    => try tui.drawFileBrowser(self, w, content_rows),
             .automation      => try tui.drawAutomation(self, w, content_rows, size.cols, snap),
             .automation_param_picker => try tui.drawAutomationParamPicker(self, w, content_rows),
+            .slicer_grid     => try tui.drawSlicerGrid(self, w, content_rows, size.cols, snap),
         }
 
         var transport: Transport = .{
@@ -2201,6 +2243,7 @@ pub const App = struct {
             .file_browser    => try tui.drawFileBrowserStatus(self, &status_w, &status_right_w),
             .automation      => try tui.drawAutomationStatus(self, &status_w, &status_right_w, commands.cmds),
             .automation_param_picker => try status_w.writeAll(" j/k: move   enter: pick   esc: cancel"),
+            .slicer_grid     => try tui.drawSlicerStatus(self, &status_w, &status_right_w, commands.cmds),
         }
         try style.writeSplitRow(w, status_w.buffered(), status_right_w.buffered(), size.cols -| 1);
         // Erase from cursor to end of screen so stale content from taller

@@ -18,10 +18,10 @@ model from vim:
   cancels
 - **command**: ex-style `:` commands
 
-And it ships batteries included: synths, samplers, a drum machine, and a
-full effects rack (gate, compression, EQ, saturation, bitcrush, chorus,
-phaser, delay, reverb) are built in. No plugin hunting before the first
-note.
+And it ships batteries included: synths, samplers, a drum machine, a
+sample-chopping slicer, and a full effects rack (gate, compression, EQ,
+saturation, bitcrush, chorus, phaser, delay, reverb) are built in. No
+plugin hunting before the first note.
 
 ## Status
 
@@ -92,6 +92,7 @@ src/
 │   ├── synth.zig       polyphonic synth (sine/saw/square, ADSR)
 │   ├── sampler.zig     chromatic single-clip sampler
 │   ├── drum_sampler.zig step-sequenced 64-pad drum machine (banks of 8)
+│   ├── slicer.zig      step-sequenced sample chopper (one clip, up to 64 slices)
 │   ├── drum_kit.zig    synthesis factory for the shipped kit samples
 │   ├── pattern.zig     piano-roll pattern sequencer
 │   ├── eq.zig          3-band EQ
@@ -340,7 +341,17 @@ Done:
 - [x] Native audio backend (ALSA; PipeWire serves it on modern systems)
 - [x] Song mode: arrangement timeline with per-track clips
 - [x] Drum machine pattern variants (A-H), stampable per clip
-- [x] Per-track instrument insertion (synth / sampler / drum machine)
+- [x] Per-track instrument insertion (synth / sampler / drum machine / slicer)
+- [x] Slicer: chop one loaded sample into up to 64 slices (`:load-slice`,
+      `:slice <n>` equal-divides) and step-sequence the chops in their own
+      grid (own step-timing/swing/velocity, mirroring but not sharing
+      DrumMachine's — see `dsp/slicer.zig`). Every slice's `Pad.samples`
+      aliases the SAME shared clip (a slice is just `{ptr, len}`, no
+      per-slice duplication), reusing `dsp/pad.zig`'s existing region-trim/
+      pitch/ADSR voice renderer unmodified. `[`/`]`/`{`/`}` nudge a slice's
+      start/end, `_`/`=`/`<`/`>`/`r` its gain/pan/reverse. Deliberately out
+      of scope for this first pass: mouse support, undo, visual mode, and
+      arrangement/song-mode participation (no clip stamping yet)
 - [x] More devices: EQ, sampler, drum machine (filters, chorus to come)
 - [x] RT-safe parameter changes (device params over the command queue)
 - [x] Project save/load, WAV bounce/export

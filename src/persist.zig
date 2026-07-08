@@ -29,6 +29,7 @@ const PatternPlayer = pattern_mod.PatternPlayer;
 const DrumMachine = @import("dsp/drum_sampler.zig").DrumMachine;
 const Pad = @import("dsp/pad.zig").Pad;
 const Sampler = @import("dsp/sampler.zig").Sampler;
+const Slicer = @import("dsp/slicer.zig").Slicer;
 const Compressor = @import("dsp/compressor.zig").Compressor;
 const StereoDelay = @import("dsp/delay.zig").StereoDelay;
 const Reverb = @import("dsp/reverb.zig").Reverb;
@@ -368,7 +369,7 @@ pub const FxUnitSnap = struct {
     phaser: ?PhaserSnap = null,
 };
 
-pub const InstrumentKind = enum { empty, poly_synth, sampler, drum_machine };
+pub const InstrumentKind = enum { empty, poly_synth, sampler, drum_machine, slicer };
 
 /// A single-clip sampler: the pad's params, its root note, and the piano-roll
 /// pattern. User-loaded clip audio rides along via `pad.sample_file` (v5);
@@ -388,12 +389,32 @@ pub const SamplerSnap = struct {
     swing: f32 = 50.0,
 };
 
+/// One shared-clip Slicer instrument. `sample_file`/`name` mirror
+/// `PadSnap`'s own sample-sidecar fields but live at this top level (not per
+/// slice) since every slice shares the ONE clip. `slices` is dense, position
+/// IS the slice index (same convention `DrumSnap.pads` uses) — each entry
+/// reuses `PadSnap` wholesale for its start/end/gain/pan/pitch/ADSR/reverse,
+/// but its own `sample_file`/`name`/`used` fields are unused/always default
+/// (the real sample lives at this struct's own `sample_file`/`name`).
+pub const SlicerSnap = struct {
+    sample_file: []const u8 = "",
+    name: []const u8 = "",
+    slices: []PadSnap = &.{},
+    step_count: u8 = 16,
+    /// Dense, parallel to `slices` — same "slice not fixed array" shape
+    /// every other pattern-indexed field in this file uses.
+    pattern: []const u64 = &.{},
+    vel: []const []const u8 = &.{},
+    swing: f32 = 50.0,
+};
+
 pub const RackSnap = struct {
     label: []const u8 = "synth",
     kind: InstrumentKind,
     synth: ?SynthSnap = null,
     sampler: ?SamplerSnap = null,
     drum: ?DrumSnap = null,
+    slicer: ?SlicerSnap = null,
     /// Legacy fixed rack (v9 and older). Only read when `fx_chain` is null.
     fx: FxSnap = .{},
     /// v10: the user-built chain in signal-flow order.
@@ -675,6 +696,42 @@ fn rackToSnap(aa: std.mem.Allocator, rack: *Rack, sample_rate: u32) !RackSnap {
             ds.pads = pads;
             rs.drum = ds;
         },
+        .slicer => |*sl| {
+            rs.kind = .slicer;
+            var sls: SlicerSnap = .{
+                .step_count = sl.step_count,
+                .swing = sl.swing.load(.monotonic),
+                // Always saved — see the drum pad loop's identical comment
+                // above (exportSamples overwrites this for user-sample clips).
+                .name = try aa.dupe(u8, sl.clipName()),
+            };
+
+            const slices = try aa.alloc(PadSnap, sl.slice_count);
+            for (slices, 0..) |*ps, i| {
+                const p = &sl.slices[i];
+                ps.* = .{
+                    .gain = p.gain, .pan = p.pan, .pitch_semitones = p.pitch_semitones,
+                    .start_norm = p.start_norm, .end_norm = p.end_norm, .reverse = p.reverse,
+                    .attack_s = p.attack_s, .decay_s = p.decay_s,
+                    .sustain = p.sustain, .release_s = p.release_s,
+                };
+            }
+            sls.slices = slices;
+
+            const pattern = try aa.alloc(u64, sl.slice_count);
+            for (pattern, 0..) |*p, i| p.* = sl.pattern[i].load(.acquire);
+            sls.pattern = pattern;
+
+            const vel = try aa.alloc([]const u8, sl.slice_count);
+            for (vel, 0..) |*row, i| {
+                const r = try aa.alloc(u8, Slicer.max_steps);
+                for (r, 0..) |*v, s| v.* = sl.vel[i][s].load(.acquire);
+                row.* = r;
+            }
+            sls.vel = vel;
+
+            rs.slicer = sls;
+        },
     }
 
     rs.fx_chain = try chainToSnap(aa, &rack.fx, sample_rate);
@@ -753,6 +810,12 @@ fn exportSamples(
                 const rel = try std.fmt.allocPrint(aa, "{s}/t{d}clip.wav", .{ sidecar, ti });
                 try writeSampleWav(aa, io, path, rel, &dir_ready, sr, s.pad.samples);
                 rs.sampler.?.pad.sample_file = rel;
+                // .name already set by rackToSnap (unconditionally).
+            },
+            .slicer => |*sl| if (sl.user_sample) {
+                const rel = try std.fmt.allocPrint(aa, "{s}/t{d}clip.wav", .{ sidecar, ti });
+                try writeSampleWav(aa, io, path, rel, &dir_ready, sr, sl.samples);
+                rs.slicer.?.sample_file = rel;
                 // .name already set by rackToSnap (unconditionally).
             },
             else => {},
@@ -974,6 +1037,19 @@ fn restoreSamples(
                 s.loadWav(data, sampleName(smp.pad)) catch continue;
                 s.pad.user_sample = true;
             },
+            .slicer => |*sl| {
+                const sls = rs.slicer orelse continue;
+                if (sls.sample_file.len == 0) continue; // default clip, nothing to restore
+                const data = readWsjRel(allocator, io, path, sls.sample_file) orelse continue;
+                defer allocator.free(data);
+                const name = if (sls.name.len > 0) sls.name else std.fs.path.stem(sls.sample_file);
+                // reset_slices=false: buildSession already applied every
+                // slice's saved start/end/etc. from `sls.slices` — this must
+                // only swap the audio bytes, not wipe that back out (see
+                // Slicer.loadWav's own doc comment).
+                sl.loadWav(data, name, false) catch continue;
+                sl.user_sample = true;
+            },
             else => {},
         }
     }
@@ -1160,6 +1236,29 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
                         dmp.pads[pi] = Sampler.init(allocator, sr) catch continue;
                         applyPadSnap(&dmp.pads[pi].?.pad, ps);
                     }
+                }
+            },
+            .slicer => {
+                rack.instrument = .{ .slicer = try Slicer.init(allocator, sr, &engine.transport) };
+                if (rs.slicer) |sls| {
+                    const sl = &rack.instrument.slicer;
+                    const count: u8 = @intCast(@min(sls.slices.len, Slicer.max_slices));
+                    sl.slice_count = count;
+                    for (sls.slices[0..count], sl.slices[0..count]) |ps, *p| {
+                        p.samples = sl.samples; // applyPadSnap never touches .samples
+                        applyPadSnap(p, ps);
+                    }
+                    sl.setStepCount(sls.step_count);
+                    const pn = @min(sls.pattern.len, count);
+                    for (sls.pattern[0..pn], 0..) |bits, i| {
+                        sl.pattern[i].store(bits & Slicer.stepMask(sl.step_count), .monotonic);
+                    }
+                    const vn = @min(sls.vel.len, count);
+                    for (sls.vel[0..vn], 0..) |row, i| {
+                        const sn = @min(row.len, Slicer.max_steps);
+                        for (row[0..sn], 0..) |v, s| sl.vel[i][s].store(v, .monotonic);
+                    }
+                    sl.setSwing(sls.swing);
                 }
             },
         }
@@ -1781,6 +1880,75 @@ test "save/load round-trip persists a compressor's sidechain_source" {
     var loaded = try load(testing.allocator, testing.io, wsj_path);
     defer loaded.deinit();
     try testing.expectEqual(@as(?u16, 7), loaded.racks.items[0].fx.units.items[0].payload.comp.sidechain_source);
+}
+
+test "save/load round-trip persists a slicer's slices, pattern, and swing" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [64]u8 = undefined;
+    const wsj_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/slicer.wsj", .{&tmp.sub_path});
+
+    var session = try Session.initDefault(testing.allocator);
+    defer session.deinit();
+    try session.setInstrument(0, .slicer);
+    {
+        const sl = &session.racks.items[0].instrument.slicer;
+        sl.sliceInto(4);
+        sl.slices[2].gain = 1.5;
+        sl.slices[2].pan = -0.3;
+        sl.slices[2].reverse = true;
+        sl.toggleStep(2, 5);
+        sl.setStepVel(2, 5, 90);
+        sl.setStepCount(24);
+        sl.setSwing(65.0);
+    }
+
+    try save(testing.allocator, &session, testing.io, wsj_path);
+    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    defer loaded.deinit();
+
+    const sl = &loaded.racks.items[0].instrument.slicer;
+    try testing.expectEqual(@as(u8, 4), sl.slice_count);
+    try testing.expectApproxEqAbs(@as(f32, 1.5), sl.slices[2].gain, 1e-4);
+    try testing.expectApproxEqAbs(@as(f32, -0.3), sl.slices[2].pan, 1e-4);
+    try testing.expect(sl.slices[2].reverse);
+    try testing.expectApproxEqAbs(@as(f32, 0.25), sl.slices[1].start_norm, 1e-4);
+    try testing.expect(sl.stepActive(2, 5));
+    try testing.expectEqual(@as(u8, 90), sl.stepVel(2, 5));
+    try testing.expectEqual(@as(u8, 24), sl.step_count);
+    try testing.expectApproxEqAbs(@as(f32, 65.0), sl.swing.load(.monotonic), 1e-4);
+}
+
+test "save/load round-trip restores a slicer's user-loaded sample audio" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [64]u8 = undefined;
+    const wsj_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/slicer2.wsj", .{&tmp.sub_path});
+
+    var session = try Session.initDefault(testing.allocator);
+    defer session.deinit();
+    try session.setInstrument(0, .slicer);
+    const distinct_samples = [_]f32{ 0.25, 0.5, 0.75, 1.0, 0.5, 0.25 };
+    {
+        const sl = &session.racks.items[0].instrument.slicer;
+        testing.allocator.free(sl.samples);
+        const owned = try testing.allocator.dupe(f32, &distinct_samples);
+        sl.samples = owned;
+        for (&sl.slices) |*p| p.samples = owned;
+        sl.user_sample = true;
+        sl.sliceInto(2);
+    }
+
+    try save(testing.allocator, &session, testing.io, wsj_path);
+    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    defer loaded.deinit();
+
+    const sl = &loaded.racks.items[0].instrument.slicer;
+    try testing.expectEqual(distinct_samples.len, sl.samples.len);
+    for (distinct_samples, sl.samples) |a, b| try testing.expectApproxEqAbs(a, b, 1e-3);
+    try testing.expectEqual(@as(u8, 2), sl.slice_count); // saved slicing survives the audio reload
 }
 
 test "save/load round-trip persists master FX" {

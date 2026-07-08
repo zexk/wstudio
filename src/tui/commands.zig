@@ -12,6 +12,7 @@ const eq_mod = ws.dsp.eq;
 const dsp = ws.dsp.device;
 const DrumMachine = ws.dsp.DrumMachine;
 const Sampler = ws.dsp.Sampler;
+const Slicer = ws.dsp.Slicer;
 const cmd_mod = @import("cmd.zig");
 const App = @import("app.zig").App;
 const history = @import("history.zig");
@@ -62,6 +63,8 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "pad-rename",  .desc = "<1-64> <name>  rename a loaded drum pad (up to 8 chars)", .run = wrap(cmdPadRename), .scope = .drum },
     .{ .name = "load-sample", .desc = "[file]  load WAV into sampler track (omit the file to browse)",  .run = wrap(cmdLoadSample), .scope = .sampler },
     .{ .name = "load-clip",   .desc = "[file]  load a WAV as a whole audio clip and stamp it at the arrangement cursor (sampler track, omit the file to browse)", .run = wrap(cmdLoadClip), .scope = .sampler },
+    .{ .name = "load-slice",  .desc = "[file]  load a WAV as the slicer's shared clip (omit the file to browse)", .run = wrap(cmdLoadSlice), .scope = .slicer },
+    .{ .name = "slice",       .desc = "<n>  equal-divide the slicer's loaded clip into n slices (1-64)", .run = wrap(cmdSlice), .scope = .slicer },
     .{ .name = "e",           .desc = "[file]  open a project (refuses if unsaved changes; omit the file to browse)", .run = wrap(cmdEdit) },
     .{ .name = "e!",          .desc = "[file]  open a project, discarding changes; no file reverts the current one", .run = wrap(cmdEditForce) },
     .{ .name = "restore-backup", .desc = "load the <project>~ autosave backup over the current session", .run = wrap(cmdRestoreBackup) },
@@ -261,6 +264,7 @@ pub fn cmdHelp(app: *App, _: []const u8) void {
     const section: ?help_view.Section = switch (app.view) {
         .tracks => .tracks,
         .drum_grid => .drum_grid,
+        .slicer_grid => .slicer_grid,
         .sampler_editor => .sampler_editor,
         .synth_editor => .synth_editor,
         .piano_roll => .piano_roll,
@@ -660,6 +664,25 @@ fn cursorSynth(app: *App) ?*ws.dsp.PolySynth {
     };
 }
 
+/// The Slicer on the cursor's track, or — if the slicer grid is open — the
+/// one being edited. Null when neither is a slicer. Mirrors
+/// `cursorDrumMachine`'s two-fallback shape.
+fn cursorSlicer(app: *App) ?*Slicer {
+    if (app.cursor < app.session.racks.items.len) {
+        switch (app.session.racks.items[app.cursor].instrument) {
+            .slicer => |*sl| return sl,
+            else => {},
+        }
+    }
+    if (app.view == .slicer_grid and app.slicer_track < app.session.racks.items.len) {
+        switch (app.session.racks.items[app.slicer_track].instrument) {
+            .slicer => |*sl| return sl,
+            else => {},
+        }
+    }
+    return null;
+}
+
 /// The cursor's track index, or null when it's on the master row (or out
 /// of range). Shared fallback for commands whose leading `<track>` arg is
 /// now optional — same "no args: act on the selection" convenience
@@ -677,6 +700,7 @@ pub fn activeScope(app: *App) cmd_mod.Scope {
     if (cursorDrumMachine(app) != null) return .drum;
     if (cursorSampler(app) != null) return .sampler;
     if (cursorSynth(app) != null) return .synth;
+    if (cursorSlicer(app) != null) return .slicer;
     return .any;
 }
 
@@ -891,6 +915,70 @@ pub fn loadClipFromPath(app: *App, path: []const u8) void {
 
     app.dirty = true;
     app.setStatus("clip loaded: {s} ({d:.1} beats, bar {d})", .{ stem, length_beats, app.arr_cursor_bar + 1 });
+}
+
+fn cmdLoadSlice(app: *App, args: []const u8) void {
+    const trimmed = std.mem.trim(u8, args, " ");
+    if (trimmed.len == 0) {
+        if (cursorSlicer(app) == null) {
+            app.setStatus("load-slice: select a slicer track first", .{});
+            return;
+        }
+        app.openBrowser(.load_slice);
+        return;
+    }
+    var path_buf: [path_buf_len]u8 = undefined;
+    loadSliceFromPath(app, expandHome(&path_buf, trimmed));
+}
+
+/// Shared by `:load-slice <file>` and the file browser's slice-load purpose.
+/// `reset_slices = true` — an interactively-loaded clip's old slice
+/// boundaries (fractions of the PREVIOUS clip's length) are meaningless
+/// against new audio, so this always re-chops with a fresh `:slice`
+/// afterward (unlike the session-restore path in persist.zig, which keeps
+/// the saved boundaries — see `Slicer.loadWav`'s own doc comment).
+pub fn loadSliceFromPath(app: *App, path: []const u8) void {
+    const sl = cursorSlicer(app) orelse {
+        app.setStatus("load-slice: select a slicer track first", .{});
+        return;
+    };
+    const data = std.Io.Dir.cwd().readFileAlloc(
+        app.io,
+        path,
+        app.allocator,
+        .limited(64 * 1024 * 1024),
+    ) catch |e| {
+        app.setStatus("load-slice: cannot read '{s}': {s}", .{ path, @errorName(e) });
+        return;
+    };
+    defer app.allocator.free(data);
+    const basename = std.fs.path.basename(path);
+    const stem = if (std.mem.lastIndexOf(u8, basename, ".")) |dot| basename[0..dot] else basename;
+    sl.loadWav(data, stem, true) catch |e| {
+        app.setStatus("load-slice: parse error: {s}", .{@errorName(e)});
+        return;
+    };
+    app.dirty = true;
+    app.setStatus("clip loaded: {s} — :slice <n> to chop it", .{stem});
+}
+
+fn cmdSlice(app: *App, args: []const u8) void {
+    const sl = cursorSlicer(app) orelse {
+        app.setStatus("slice: select a slicer track first", .{});
+        return;
+    };
+    const trimmed = std.mem.trim(u8, args, " ");
+    const n = std.fmt.parseInt(u16, trimmed, 10) catch {
+        app.setStatus("slice: usage :slice <1-{d}>", .{Slicer.max_slices});
+        return;
+    };
+    if (n == 0) {
+        app.setStatus("slice: usage :slice <1-{d}>", .{Slicer.max_slices});
+        return;
+    }
+    sl.sliceInto(@intCast(@min(n, Slicer.max_slices)));
+    app.dirty = true;
+    app.setStatus("sliced into {d}", .{sl.slice_count});
 }
 
 /// Explicit :save argument (with `~` expanded), else the file the session

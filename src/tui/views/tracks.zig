@@ -131,6 +131,7 @@ pub fn drawTracks(app: anytype, w: *std.Io.Writer, rows: usize, snap: engine_mod
             .poly_synth => icons.synth,
             .sampler => icons.sampler,
             .drum_machine => icons.drum,
+            .slicer => icons.slicer,
         };
         try w.writeAll(kind_icon);
         try w.writeByte(' ');

@@ -13,6 +13,7 @@ const AppView = app_mod.AppView;
 const note_ms = app_mod.note_ms;
 const commands = @import("commands.zig");
 const drum_ed = @import("editors/drum.zig");
+const slicer_ed = @import("editors/slicer.zig");
 const automation_ed = @import("editors/automation.zig");
 const style = @import("style.zig");
 const piano_ed = @import("editors/piano.zig");
@@ -298,6 +299,55 @@ test "enter on a drum track switches to drum_grid view" {
 
     app.handleKey(.escape, 0);
     try std.testing.expectEqual(AppView.tracks, app.view);
+}
+
+test "slicer grid: slice, step toggle, play triggers the right slice" {
+    var app = try testApp(); // synth(0), sampler(1), drums(2)
+    defer app.deinit();
+    try app.session.setInstrument(0, .slicer);
+    app.slicer_track = 0;
+    app.view = .slicer_grid;
+
+    commands.run(&app, "slice 8");
+    try std.testing.expectEqual(@as(u8, 8), app.slicerInst().slice_count);
+
+    app.slicer_cursor = .{ 3, 0 };
+    _ = slicer_ed.handleKey(&app, .{ .char = 'x' });
+    try std.testing.expect(app.slicerInst().stepActive(3, 0));
+    _ = slicer_ed.handleKey(&app, .{ .char = 'x' });
+    try std.testing.expect(!app.slicerInst().stepActive(3, 0));
+
+    // Re-arm it and confirm the sequencer actually fires that slice on play.
+    _ = slicer_ed.handleKey(&app, .{ .char = 'x' });
+    _ = app.session.engine.send(.play);
+    var block: [512]types.Sample = undefined;
+    app.session.engine.process(&block);
+    var peak: f32 = 0.0;
+    for (block) |v| peak = @max(peak, @abs(v));
+    try std.testing.expect(peak > 0.001);
+}
+
+test "slicer grid: navigation and per-slice param nudges stay within bounds" {
+    var app = try testApp();
+    defer app.deinit();
+    try app.session.setInstrument(0, .slicer);
+    app.slicer_track = 0;
+    app.view = .slicer_grid;
+    app.slicerInst().sliceInto(4);
+
+    app.slicer_cursor = .{ 0, 0 };
+    _ = slicer_ed.handleKey(&app, .{ .char = 'j' });
+    try std.testing.expectEqual(@as(u8, 1), app.slicer_cursor[0]);
+    _ = slicer_ed.handleKey(&app, .{ .char = 'J' }); // bank jump, clamped to slice_count-1
+    try std.testing.expectEqual(@as(u8, 3), app.slicer_cursor[0]);
+
+    const gain_before = app.slicerInst().slices[3].gain;
+    _ = slicer_ed.handleKey(&app, .{ .char = '=' });
+    try std.testing.expect(app.slicerInst().slices[3].gain > gain_before);
+
+    try std.testing.expect(!app.slicerInst().slices[3].reverse);
+    _ = slicer_ed.handleKey(&app, .{ .char = 'r' });
+    try std.testing.expect(app.slicerInst().slices[3].reverse);
 }
 
 test "drum grid step toggle" {

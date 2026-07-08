@@ -22,6 +22,7 @@ fn purposeLabel(purpose: app_mod.BrowserPurpose, buf: []u8) []const u8 {
         .load_sample => "load sample (.wav)",
         .load_pad => |pad| std.fmt.bufPrint(buf, "load pad {d} (.wav)", .{pad}) catch "load pad (.wav)",
         .load_clip => "load clip (.wav)",
+        .load_slice => "load slicer clip (.wav)",
     };
 }
 

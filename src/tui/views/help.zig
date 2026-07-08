@@ -54,6 +54,7 @@ pub const Section = enum {
     automation,
     spectrum,
     file_browser,
+    slicer_grid,
 };
 
 /// Collects pre-rendered help lines into a fixed buffer so the view can show
@@ -182,6 +183,25 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("y / p",        "yank / paste pattern (works across tracks)");
     t.key("(visual) y/d/p", "range yank / clear / paste (v to enter, hjkl to extend)");
     t.key(".",            "repeat last visual-mode range delete/paste at the cursor");
+
+    t.taggedSection(.slicer_grid, "SLICER");
+    t.key("",             "chop one loaded sample into slices, step-sequence the chops");
+    t.key(":load-slice",  "[file.wav]  load a WAV as the shared clip (opens the file browser with no path)");
+    t.key(":slice",       "<n>  equal-divide the loaded clip into n slices (1-64)");
+    t.key("h / l",        "move cursor left / right (one step)");
+    t.key("H / L",        "move cursor left / right (one beat, coarse)");
+    t.key("j / k",        "move cursor down / up (slice)");
+    t.key("J / K",        "jump a whole bank of 8 slices");
+    t.key("g / G",        "jump step cursor to pattern start / end");
+    t.key("x / enter",    "toggle step on/off");
+    t.key("a",            "preview current slice");
+    t.key("i",            "insert mode: trigger slices on the qwerty piano (pitch wraps to slice count)");
+    t.key("+ / -",        "lengthen / shorten loop (1-64 steps)");
+    t.key("[ / ]",        "nudge current slice's start earlier / later");
+    t.key("{ / }",        "nudge current slice's end earlier / later");
+    t.key("_ / =",        "current slice's gain down / up");
+    t.key("< / >",        "current slice's pan left / right");
+    t.key("r",            "toggle current slice's reverse");
 
     t.taggedSection(.sampler_editor, "SAMPLER EDITOR");
     t.key("j / k",        "select parameter");
