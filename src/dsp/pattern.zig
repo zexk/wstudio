@@ -167,6 +167,26 @@ pub const PatternPlayer = struct {
         return removed;
     }
 
+    /// Jitters every live note's timing (±`amount_pct`% of one grid step,
+    /// clamped inside the loop) and velocity (±`amount_pct`%, relative,
+    /// clamped to (0, 1]) — the `:humanize` command. Unlike `noteAt`'s
+    /// callers this moves `start_beat`, so it takes the full lock rather
+    /// than mutating in place.
+    pub fn humanize(self: *PatternPlayer, amount_pct: f64, step_beats: f64, seed: u64) void {
+        while (!self.notes_lock.tryLock()) std.atomic.spinLoopHint();
+        defer self.notes_lock.unlock();
+        var prng = std.Random.DefaultPrng.init(seed);
+        const rand = prng.random();
+        const frac = amount_pct / 100.0;
+        const max_start = @max(0.0, self.length_beats - step_beats);
+        for (self.notes[0..self.note_count]) |*n| {
+            const dt = (rand.float(f64) * 2.0 - 1.0) * frac * step_beats;
+            n.start_beat = std.math.clamp(n.start_beat + dt, 0.0, max_start);
+            const dv = (rand.float(f32) * 2.0 - 1.0) * @as(f32, @floatCast(frac));
+            n.velocity = std.math.clamp(n.velocity + dv, 0.05, 1.0);
+        }
+    }
+
     /// Mutable pointer to the note starting at pitch/start_beat, or null.
     /// Caller mutates fields in place (pitch/start_beat unchanged), so no lock
     /// is needed: the audio thread reads a consistent note either way.
@@ -377,6 +397,30 @@ test "copyNotes/setNotes round-trip a pattern between players" {
     try std.testing.expectEqual(@as(u7, 64), dst.notes[1].pitch);
     try std.testing.expectApproxEqAbs(@as(f32, 0.5), dst.notes[1].velocity, 1e-6);
     try std.testing.expectApproxEqAbs(@as(f64, 8.0), dst.length_beats, 1e-9);
+}
+
+test "humanize jitters timing/velocity within bounds; 0% is a no-op" {
+    var synth = PolySynth.init(48_000);
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    var pp = PatternPlayer.init(synth.device(), &transport);
+    pp.length_beats = 4.0;
+    pp.addNote(.{ .pitch = 60, .start_beat = 1.0, .duration_beat = 0.5, .velocity = 0.8 });
+    pp.addNote(.{ .pitch = 64, .start_beat = 2.0, .duration_beat = 0.5, .velocity = 0.5 });
+
+    pp.humanize(0.0, 0.25, 1);
+    try std.testing.expectApproxEqAbs(@as(f64, 1.0), pp.notes[0].start_beat, 1e-9);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.8), pp.notes[0].velocity, 1e-6);
+
+    pp.humanize(50.0, 0.25, 42);
+    for (pp.notes[0..pp.note_count]) |n| {
+        try std.testing.expect(n.start_beat >= 0.0 and n.start_beat <= pp.length_beats);
+        try std.testing.expect(n.velocity > 0.0 and n.velocity <= 1.0);
+    }
+    // At least one of the two notes actually moved/changed velocity.
+    try std.testing.expect(
+        pp.notes[0].start_beat != 1.0 or pp.notes[1].start_beat != 2.0 or
+        pp.notes[0].velocity != 0.8 or pp.notes[1].velocity != 0.5,
+    );
 }
 
 test "PatternPlayer sequences note against transport" {

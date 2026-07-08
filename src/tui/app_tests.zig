@@ -187,6 +187,29 @@ test "renderBounce honors a nonzero start_frame and restores transport position"
     try std.testing.expectEqual(@as(u64, 12345), app.session.engine.transport.position_frames);
 }
 
+test ":humanize jitters the cursor track's pattern and is undoable" {
+    var app = try testApp();
+    defer app.deinit();
+
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    pp.addNote(.{ .pitch = 60, .start_beat = 1.0, .duration_beat = 0.5, .velocity = 0.8 });
+    const before = pp.notes[0];
+
+    app.cursor = 0;
+    for (":humanize 80") |c| app.handleKey(.{ .char = c }, 100) ;
+    app.handleKey(.enter, 100);
+
+    try std.testing.expectEqual(@as(u16, 1), pp.note_count);
+    const after = pp.notes[0];
+    try std.testing.expect(after.start_beat != before.start_beat or after.velocity != before.velocity);
+
+    app.view = .piano_roll;
+    app.piano_track = 0;
+    _ = piano_ed.handleKey(&app, .{ .char = 'u' }); // undo the humanize
+    try std.testing.expectApproxEqAbs(before.start_beat, pp.notes[0].start_beat, 1e-9);
+    try std.testing.expectApproxEqAbs(before.velocity, pp.notes[0].velocity, 1e-6);
+}
+
 test "toggle_mute flips project state and reaches the engine" {
     var app = try testApp();
     defer app.deinit();

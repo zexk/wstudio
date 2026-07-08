@@ -86,6 +86,7 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "bounce-stems", .desc = "[dir] [16|24]  render each non-empty track soloed to <dir>/<track>.wav (default: stems/)", .run = wrap(cmdBounceStems) },
     .{ .name = "clear",       .desc = "erase all notes in the piano-roll pattern",          .run = wrap(cmdClear) },
     .{ .name = "%d",          .desc = "erase all notes in the pattern (alias for :clear)",  .run = wrap(cmdClear) },
+    .{ .name = "humanize",    .desc = "[amount]  jitter the pattern's note timing/velocity 0-100% (default 15)", .run = wrap(cmdHumanize) },
     .{ .name = "metronome",   .desc = "[on|off]  toggle the click track",                   .run = wrap(cmdMetronome) },
     .{ .name = "scale",       .desc = "[<root> [<type>]|off]  piano-roll scale highlight + chord-stamp key", .run = wrap(cmdScale) },
     .{ .name = "master-eq",   .desc = "[<band> <db>]  master bus EQ (see M in the tracks view)", .run = wrap(cmdMasterEq) },
@@ -189,6 +190,35 @@ fn cmdClear(app: *App, _: []const u8) void {
     history.recordMelodic(app, @intCast(track));
     pp.clearNotes();
     app.setStatus("cleared {d} notes", .{n});
+    piano_ed.syncLinkedClip(app);
+}
+
+/// `:humanize [amount]` — jitters every note in the pattern's timing (±amount%
+/// of one grid step) and velocity (±amount%, relative), 0-100 (default 15).
+/// Same track-resolution rule as `:clear`.
+fn cmdHumanize(app: *App, args: []const u8) void {
+    const track: usize = if (app.view == .piano_roll) app.piano_track else app.cursor;
+    if (track >= app.session.racks.items.len or
+        app.session.racks.items[track].pattern_player == null)
+    {
+        app.setStatus("humanize: no piano-roll pattern", .{});
+        return;
+    }
+    const trimmed = std.mem.trim(u8, args, " ");
+    const amount: f64 = if (trimmed.len == 0) 15.0 else std.fmt.parseFloat(f64, trimmed) catch {
+        app.setStatus("humanize: expected a percent, e.g. :humanize 15", .{});
+        return;
+    };
+    if (amount < 0.0 or amount > 100.0) {
+        app.setStatus("humanize: amount must be 0-100", .{});
+        return;
+    }
+    const pp = &app.session.racks.items[track].pattern_player.?;
+    history.recordMelodic(app, @intCast(track));
+    const step_beats = 1.0 / @as(f64, @floatFromInt(app.pianoStepsPerBeat()));
+    const seed: u64 = @truncate(@as(u96, @bitCast(app.now_ns)));
+    pp.humanize(amount, step_beats, seed);
+    app.setStatus("humanized {d} notes ({d:.0}%)", .{ pp.note_count, amount });
     piano_ed.syncLinkedClip(app);
 }
 
