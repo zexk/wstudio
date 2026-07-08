@@ -360,6 +360,10 @@ pub const ClipSnap = struct {
     /// beats. Independent of `kind` — either clip type can carry them.
     gain_automation: []const AutomationPointSnap = &.{},
     pan_automation: []const AutomationPointSnap = &.{},
+    /// Additive field (see FORMAT.md's versioning policy): older files omit
+    /// it and load with no filter-cutoff automation, matching every clip's
+    /// look before this lane existed. Hz, 20..20_000.
+    filter_cutoff_automation: []const AutomationPointSnap = &.{},
 };
 
 /// One track's lane of clips. Lanes are parallel to `racks`/`tracks`.
@@ -698,6 +702,7 @@ fn clipToSnap(aa: std.mem.Allocator, clip: ws_arrangement.Clip) !ClipSnap {
     }
     c.gain_automation = try automationToSnap(aa, clip.automation.gain);
     c.pan_automation = try automationToSnap(aa, clip.automation.pan);
+    c.filter_cutoff_automation = try automationToSnap(aa, clip.automation.filter_cutoff);
     return c;
 }
 
@@ -1029,6 +1034,7 @@ fn clipFromSnap(allocator: std.mem.Allocator, cs: ClipSnap) !ws_arrangement.Clip
     errdefer out.deinit(allocator);
     out.automation.gain = try automationFromSnap(allocator, cs.gain_automation, -60.0, 12.0);
     out.automation.pan = try automationFromSnap(allocator, cs.pan_automation, -1.0, 1.0);
+    out.automation.filter_cutoff = try automationFromSnap(allocator, cs.filter_cutoff_automation, 20.0, 20_000.0);
     return out;
 }
 
@@ -1578,6 +1584,7 @@ test "buildSession: clip automation round-trips" {
                     .start_bar = 0, .length_bars = 1, .kind = .melodic, .length_beats = 4.0,
                     .gain_automation = &.{.{ .beat = 0.0, .value = -6.0 }},
                     .pan_automation = &.{.{ .beat = 0.0, .value = 0.5 }},
+                    .filter_cutoff_automation = &.{.{ .beat = 0.0, .value = 2_500.0 }},
                 },
             } },
         },
@@ -1589,6 +1596,28 @@ test "buildSession: clip automation round-trips" {
     try testing.expectApproxEqAbs(@as(f32, -6.0), clip.automation.gain[0].value, 1e-6);
     try testing.expectEqual(@as(usize, 1), clip.automation.pan.len);
     try testing.expectApproxEqAbs(@as(f32, 0.5), clip.automation.pan[0].value, 1e-6);
+    try testing.expectEqual(@as(usize, 1), clip.automation.filter_cutoff.len);
+    try testing.expectApproxEqAbs(@as(f32, 2_500.0), clip.automation.filter_cutoff[0].value, 1e-6);
+}
+
+test "buildSession: filter cutoff automation clamps an out-of-range hand-edited value" {
+    const testing = std.testing;
+    const snap: Snapshot = .{
+        .tracks = &.{.{ .name = "keys" }},
+        .racks = &.{.{ .label = "synth", .kind = .poly_synth, .synth = .{} }},
+        .arrangement = &.{
+            .{ .clips = &.{
+                .{
+                    .start_bar = 0, .length_bars = 1, .kind = .melodic, .length_beats = 4.0,
+                    .filter_cutoff_automation = &.{.{ .beat = 0.0, .value = 99_999.0 }},
+                },
+            } },
+        },
+    };
+    var session = try buildSession(testing.allocator, &snap);
+    defer session.deinit();
+    const clip = session.arrangement.lane(0).?.clips.items[0];
+    try testing.expectApproxEqAbs(@as(f32, 20_000.0), clip.automation.filter_cutoff[0].value, 1e-6);
 }
 
 test "buildSession: drum variant bank round-trips; v2 files get one variant" {

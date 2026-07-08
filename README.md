@@ -212,13 +212,21 @@ Done:
       breakpoint-grid view opened with `a` on a clip. `h`/`l` move the cursor
       along the clip's own beat axis, `j`/`k` (`J`/`K` coarse) nudge the
       value at the cursor (creating a point if none exists there), `x`
-      deletes a point, `tab` switches between the gain and pan curves.
+      deletes a point, `tab` cycles gain -> pan -> filter cutoff (synth
+      tracks only) -> gain.
       Playback flattens every clip's points into a whole-song curve per
       track and applies it live in song mode (falls back to the track's
-      manual gain/pan in pattern mode). Undo (`u`/`U`), mouse (click to move,
+      manual gain/pan in pattern mode; filter cutoff has no "manual" side —
+      it's silent until automated). Undo (`u`/`U`), mouse (click to move,
       scroll to nudge), and yank/paste all work — the last two reuse the
       arrangement's existing whole-lane snapshot and clip clipboard, since a
       clip's automation now travels with it wherever the clip goes.
+- [x] Filter-cutoff automation (synth tracks): the first instrument param
+      opened to automation lanes, alongside gain/pan — `PolySynth.
+      setParamAbsolute` is the absolute-value counterpart to the synth
+      editor's own relative `adjustParam` nudges, pushed into the device
+      every block via the same `Event` path note-on/CC already use. 20 Hz
+      to 20 kHz, same clamp the synth editor enforces.
 
 - [x] Live recording from insert mode: `i` in the piano roll now enters
       insert mode instead of being blocked — while the transport is

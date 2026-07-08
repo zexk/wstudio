@@ -902,6 +902,20 @@ pub const PolySynth = struct {
         }
     }
 
+    /// Absolute-value counterpart to `adjustParam`, for automation curves
+    /// (which know the value they want at a beat position directly, not a
+    /// delta from wherever the param last was — see `Event.set_param_abs`).
+    /// Only filter cutoff (id 21) is wired so far, since automation lanes
+    /// open to it first (other synth params can follow the same shape once
+    /// they get an automation lane); unhandled ids are a no-op, matching
+    /// `adjustParam`'s own default arm.
+    pub fn setParamAbsolute(self: *PolySynth, id: u8, value: f32) void {
+        switch (id) {
+            21 => self.filter_cutoff = std.math.clamp(value, 20.0, 20_000.0),
+            else => {},
+        }
+    }
+
     /// Apply a MIDI pitch bend. `bend` is −8192..+8191; `range_semitones` = ±range.
     pub fn applyPitchBend(self: *PolySynth, bend: i16, range_semitones: f32) void {
         self.pitch_bend_semitones = @as(f32, @floatFromInt(bend)) / 8192.0 * range_semitones;
@@ -930,6 +944,7 @@ pub const PolySynth = struct {
             .cc         => |e| self.applyCC(e.cc, e.value),
             .pitch_bend => |e| self.applyPitchBend(e.bend, 2.0),
             .set_param  => |e| self.adjustParam(e.id, e.steps),
+            .set_param_abs => |e| self.setParamAbsolute(e.id, e.value),
         }
     }
 
@@ -1254,6 +1269,22 @@ test "applyCC: cutoff logarithmic scaling" {
     try std.testing.expectApproxEqAbs(@as(f32, 20.0), synth.filter_cutoff, 1.0);
     synth.applyCC(@intFromEnum(midi.CC.filter_cutoff), 127);
     try std.testing.expect(synth.filter_cutoff > 17_000.0);
+}
+
+test "setParamAbsolute: sets filter cutoff directly and clamps out-of-range" {
+    var synth = PolySynth.init(48_000);
+    synth.setParamAbsolute(21, 2_500.0);
+    try std.testing.expectApproxEqAbs(@as(f32, 2_500.0), synth.filter_cutoff, 1e-3);
+
+    synth.setParamAbsolute(21, 99_999.0);
+    try std.testing.expectApproxEqAbs(@as(f32, 20_000.0), synth.filter_cutoff, 1e-3);
+    synth.setParamAbsolute(21, -5.0);
+    try std.testing.expectApproxEqAbs(@as(f32, 20.0), synth.filter_cutoff, 1e-3);
+
+    // Unhandled ids are a no-op, matching adjustParam's own default arm.
+    synth.filter_cutoff = 1_000.0;
+    synth.setParamAbsolute(0, 5_000.0);
+    try std.testing.expectApproxEqAbs(@as(f32, 1_000.0), synth.filter_cutoff, 1e-3);
 }
 
 test "applyCC: waveform steps" {

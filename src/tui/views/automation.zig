@@ -63,6 +63,7 @@ fn curveRange(target: engine_mod.AutomationTarget) [2]f32 {
         .gain => .{ -40.0, 12.0 }, // wider than the persisted -60 floor — a
         // fade all the way to -60dB would otherwise pin the whole graph flat
         .pan => .{ -1.0, 1.0 },
+        .filter_cutoff => .{ 20.0, 20_000.0 },
     };
 }
 
@@ -70,6 +71,7 @@ fn curvePoints(clip: *const ws.Clip, target: engine_mod.AutomationTarget) []cons
     return switch (target) {
         .gain => clip.automation.gain,
         .pan => clip.automation.pan,
+        .filter_cutoff => clip.automation.filter_cutoff,
     };
 }
 
@@ -93,7 +95,11 @@ pub fn drawAutomation(
     else
         "?";
     const target = app.automation_target;
-    const target_label: []const u8 = if (target == .gain) "GAIN" else "PAN";
+    const target_label: []const u8 = switch (target) {
+        .gain => "GAIN",
+        .pan => "PAN",
+        .filter_cutoff => "CUTOFF",
+    };
 
     try w.writeAll(bold ++ " AUTOMATION" ++ rst);
     try w.print("  \"{s}\"", .{track_name});
@@ -222,6 +228,7 @@ pub fn drawAutomationStatus(app: anytype, w: *std.Io.Writer, cmds: []const cmd_m
         switch (target) {
             .gain => try w.print("{d:.1}dB", .{v}),
             .pan => try w.print("{d:.2}", .{v}),
+            .filter_cutoff => try w.print("{d:.0}Hz", .{v}),
         }
         if (explicit) {
             try w.writeAll(rst);

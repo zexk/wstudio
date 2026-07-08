@@ -35,20 +35,28 @@ pub const Clip = struct {
 
     /// Gain (dB, same range as `:gain`/`Track.gain_db`) and pan (-1..1, same
     /// range as `Track.pan`) breakpoints, each independently optional.
+    /// `filter_cutoff` (Hz, 20..20_000) is the first instrument-param
+    /// automation lane (poly_synth tracks only — the editor gates offering
+    /// it to those; an empty slice on any other track kind is simply never
+    /// populated, no separate guard needed here).
     pub const Automation = struct {
         gain: []AutomationPoint = &.{},
         pan: []AutomationPoint = &.{},
+        filter_cutoff: []AutomationPoint = &.{},
 
         pub fn deinit(self: *Automation, allocator: std.mem.Allocator) void {
             allocator.free(self.gain);
             allocator.free(self.pan);
+            allocator.free(self.filter_cutoff);
         }
 
         pub fn dupe(self: Automation, allocator: std.mem.Allocator) !Automation {
             const gain = try allocator.dupe(AutomationPoint, self.gain);
             errdefer allocator.free(gain);
             const pan = try allocator.dupe(AutomationPoint, self.pan);
-            return .{ .gain = gain, .pan = pan };
+            errdefer allocator.free(pan);
+            const filter_cutoff = try allocator.dupe(AutomationPoint, self.filter_cutoff);
+            return .{ .gain = gain, .pan = pan, .filter_cutoff = filter_cutoff };
         }
     };
 

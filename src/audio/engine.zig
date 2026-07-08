@@ -54,8 +54,12 @@ pub const Command = union(enum) {
     record,
 };
 
-/// Which absolute value an `AutomationCurve` overrides.
-pub const AutomationTarget = enum { gain, pan };
+/// Which absolute value an `AutomationCurve` overrides. `gain`/`pan` are
+/// mix-bus params, applied as a post-chain multiplier in `renderTracks`;
+/// `filter_cutoff` is an instrument param, pushed into the device itself
+/// via `Event.set_param_abs` before it renders the block (see
+/// `renderTracks`'s two very different application points for these).
+pub const AutomationTarget = enum { gain, pan, filter_cutoff };
 
 const TrackState = struct {
     active: bool = false,
@@ -82,6 +86,11 @@ const TrackState = struct {
 const AutomationPair = struct {
     gain: AutomationCurve = .{},
     pan: AutomationCurve = .{},
+    /// Hz, same range PolySynth.setParamAbsolute clamps to (20..20_000).
+    /// Named to match `AutomationTarget.filter_cutoff`, not renamed to
+    /// "Pair" since that'd suggest exactly two curves — kept as-is to avoid
+    /// a churny rename for one added field.
+    filter_cutoff: AutomationCurve = .{},
 };
 
 pub const UiSnapshot = struct {
@@ -344,6 +353,7 @@ pub const Engine = struct {
         switch (target) {
             .gain => pair.gain.set(points),
             .pan => pair.pan.set(points),
+            .filter_cutoff => pair.filter_cutoff.set(points),
         }
     }
 
@@ -512,13 +522,23 @@ pub const Engine = struct {
         for (&self.tracks, 0..) |*track, ti| {
             if (!track.active or track.chain_len == 0) continue;
 
+            const auto = &self.automation[ti];
+            // Instrument-param automation must reach the device before it
+            // renders this block, unlike gain/pan below (a post-chain
+            // multiplier) — push it through the same Event path
+            // adjustParam/CC already use. Only fires when a curve is
+            // actually set for this track (valueAt is null otherwise), so
+            // tracks with no filter-cutoff automation pay nothing extra.
+            if (auto.filter_cutoff.valueAt(beat_pos)) |hz| {
+                self.sendTrackEvent(@intCast(ti), .{ .set_param_abs = .{ .id = 21, .value = hz } });
+            }
+
             const scratch = self.scratch[0 .. frames * channels];
             @memset(scratch, 0.0);
             for (track.chain[0..track.chain_len]) |dev| dev.process(scratch);
 
             if (track.muted or (any_solo and !track.soloed)) continue;
 
-            const auto = &self.automation[ti];
             const gain = auto.gain.valueAt(beat_pos) orelse track.gain;
             const pan = auto.pan.valueAt(beat_pos) orelse track.pan;
             const angle = (pan + 1.0) * std.math.pi / 4.0;
@@ -542,6 +562,27 @@ pub const Engine = struct {
 const PolySynth = @import("../dsp/synth.zig").PolySynth;
 const DrumMachine = @import("../dsp/drum_sampler.zig").DrumMachine;
 const Compressor = @import("../dsp/compressor.zig").Compressor;
+
+test "renderTracks pushes filter-cutoff automation into the synth before it processes the block" {
+    var synth = PolySynth.init(48_000);
+    synth.filter_cutoff = 1_000.0; // manual value — automation should override it
+    var engine = try Engine.init(std.testing.allocator, 48_000);
+    defer engine.deinit();
+    engine.tracks[0] = .{ .active = true };
+    engine.setTrackChain(0, &.{synth.device()});
+    engine.setTrackAutomation(0, .filter_cutoff, &.{.{ .beat = 0.0, .value = 5_000.0 }});
+
+    var block: [512]Sample = undefined;
+    engine.process(&block);
+    try std.testing.expectApproxEqAbs(@as(f32, 5_000.0), synth.filter_cutoff, 1.0);
+
+    // Clearing the curve (empty points) falls back to the manual value again
+    // — matches gain/pan's own "no automation" fallback, not a frozen value.
+    engine.setTrackAutomation(0, .filter_cutoff, &.{});
+    synth.filter_cutoff = 1_000.0;
+    engine.process(&block);
+    try std.testing.expectApproxEqAbs(@as(f32, 1_000.0), synth.filter_cutoff, 1.0);
+}
 
 test "notes sound even while transport is stopped (live preview)" {
     var synth = PolySynth.init(48_000);

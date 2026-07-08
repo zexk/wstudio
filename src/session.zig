@@ -442,18 +442,21 @@ pub const Session = struct {
         }
     }
 
-    /// Flatten one track's clips' gain/pan breakpoints (clip-relative beats)
-    /// into absolute-song-beat curves and push them to the engine. Runs for
-    /// every instrument kind — gain/pan are track-level, not instrument
-    /// params, so this is independent of the note/drum switch above. Clips
-    /// are already stored start_bar-ascending (`Lane.place`) and each clip's
-    /// own points are beat-ascending (`automation.setPoint`), so appending in
-    /// clip order needs no extra sort.
+    /// Flatten one track's clips' gain/pan/filter-cutoff breakpoints (clip-
+    /// relative beats) into absolute-song-beat curves and push them to the
+    /// engine. Runs for every instrument kind — a non-synth track's
+    /// `filter_cutoff` slice is simply always empty (the automation editor
+    /// only ever writes it for poly_synth tracks), so this loop needs no
+    /// extra guard. Clips are already stored start_bar-ascending
+    /// (`Lane.place`) and each clip's own points are beat-ascending
+    /// (`automation.setPoint`), so appending in clip order needs no extra sort.
     fn flattenClipAutomation(self: *Session, track: u16, lane: *arr_mod.Lane, bpb: f64) void {
         var gain_pts: [automation_mod.max_points]AutomationPoint = undefined;
         var gain_n: usize = 0;
         var pan_pts: [automation_mod.max_points]AutomationPoint = undefined;
         var pan_n: usize = 0;
+        var fc_pts: [automation_mod.max_points]AutomationPoint = undefined;
+        var fc_n: usize = 0;
         for (lane.clips.items) |c| {
             const clip_start_beat = @as(f64, @floatFromInt(c.start_bar)) * bpb;
             for (c.automation.gain) |p| {
@@ -468,9 +471,17 @@ pub const Session = struct {
                 pan_pts[pan_n] = .{ .beat = clip_start_beat + p.beat, .value = p.value };
                 pan_n += 1;
             }
+            for (c.automation.filter_cutoff) |p| {
+                if (fc_n >= fc_pts.len) break;
+                // Already Hz, the same unit PolySynth.setParamAbsolute
+                // expects — no conversion needed, unlike gain's dB->linear.
+                fc_pts[fc_n] = .{ .beat = clip_start_beat + p.beat, .value = p.value };
+                fc_n += 1;
+            }
         }
         self.engine.setTrackAutomation(track, .gain, gain_pts[0..gain_n]);
         self.engine.setTrackAutomation(track, .pan, pan_pts[0..pan_n]);
+        self.engine.setTrackAutomation(track, .filter_cutoff, fc_pts[0..fc_n]);
     }
 
     /// Whole bars needed to hold `len_beats`, at least one.

@@ -249,7 +249,7 @@ pub const Sampler = struct {
         switch (ev) {
             .note_on   => |e| self.trigger(e.note, e.velocity, 0),
             .set_param => |e| self.adjustParam(e.id, e.steps),
-            .note_off, .cc, .pitch_bend => {},
+            .note_off, .cc, .pitch_bend, .set_param_abs => {},
             .all_off   => self.resetAll(),
         }
     }

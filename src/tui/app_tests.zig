@@ -794,6 +794,45 @@ test "automation editor char/word tiers: x deletes the point under the cursor, w
     try std.testing.expectApproxEqAbs(@as(f64, 4.0), clip.automation.gain[0].beat, 1e-9); // step 16 = beat 4
 }
 
+test "automation editor: tab offers filter cutoff only on a synth track" {
+    var app = try testApp(); // synth(0), sampler(1), drums(2)
+    defer app.deinit();
+
+    // Synth track: tab cycles gain -> pan -> filter_cutoff -> gain.
+    try app.session.stampClip(0, 0);
+    automation_ed.switchTo(&app, 0, 0);
+    try std.testing.expectEqual(engine_mod.AutomationTarget.gain, app.automation_target);
+    _ = automation_ed.handleKey(&app, .tab);
+    try std.testing.expectEqual(engine_mod.AutomationTarget.pan, app.automation_target);
+    _ = automation_ed.handleKey(&app, .tab);
+    try std.testing.expectEqual(engine_mod.AutomationTarget.filter_cutoff, app.automation_target);
+    _ = automation_ed.handleKey(&app, .tab);
+    try std.testing.expectEqual(engine_mod.AutomationTarget.gain, app.automation_target);
+
+    // j nudges the cutoff curve, clamped 20..20_000 like the synth's own param.
+    _ = automation_ed.handleKey(&app, .tab); // -> pan
+    _ = automation_ed.handleKey(&app, .tab); // -> filter_cutoff
+    _ = automation_ed.handleKey(&app, .{ .char = 'j' });
+    const synth_clip = automation_ed.currentClip(&app).?;
+    try std.testing.expectEqual(@as(usize, 1), synth_clip.automation.filter_cutoff.len);
+
+    // Sampler track: filter_cutoff is skipped entirely — gain <-> pan only.
+    try app.session.stampClip(1, 0);
+    automation_ed.switchTo(&app, 1, 0);
+    try std.testing.expectEqual(engine_mod.AutomationTarget.gain, app.automation_target);
+    _ = automation_ed.handleKey(&app, .tab);
+    try std.testing.expectEqual(engine_mod.AutomationTarget.pan, app.automation_target);
+    _ = automation_ed.handleKey(&app, .tab);
+    try std.testing.expectEqual(engine_mod.AutomationTarget.gain, app.automation_target);
+
+    // Switching back to the synth clip while target is .gain still offers
+    // cutoff again (the fallback in switchTo only fires the other way).
+    automation_ed.switchTo(&app, 0, 0);
+    _ = automation_ed.handleKey(&app, .tab);
+    _ = automation_ed.handleKey(&app, .tab);
+    try std.testing.expectEqual(engine_mod.AutomationTarget.filter_cutoff, app.automation_target);
+}
+
 test "visual mode escape cancels the selection without editing" {
     var app = try testApp();
     defer app.deinit();

@@ -6,8 +6,9 @@
 //! none exists yet (starting from whatever the curve currently interpolates
 //! to, so a nudge on a bare stretch doesn't jump to an arbitrary default);
 //! x deletes the point at the cursor exactly (vim's char tier); w/b jump the
-//! cursor a bar at a time (word tier); tab switches between editing the gain
-//! and pan curves; v starts a step-range selection on the current curve —
+//! cursor a bar at a time (word tier); tab cycles gain -> pan -> filter
+//! cutoff (synth tracks only) -> gain; v starts a step-range selection on
+//! the current curve —
 //! y/d/p act on it (breakpoints only, not the interpolated curve shape in
 //! between); d/y without `v` first arm an operator that a motion
 //! (h/l/H/L/g/G/w/b) completes against, and d/y repeated (dd/yy) act on the
@@ -26,12 +27,20 @@ const App = @import("../app.zig").App;
 const history = @import("../history.zig");
 const view = @import("../views/automation.zig");
 
-/// Gain (dB, matches `:gain`/`Track.gain_db`) and pan (-1..1, matches
-/// `Track.pan`) ranges — same clamps `persist.zig`'s loader enforces.
+/// Gain (dB, matches `:gain`/`Track.gain_db`), pan (-1..1, matches
+/// `Track.pan`), and filter cutoff (Hz, matches PolySynth.setParamAbsolute)
+/// ranges — same clamps `persist.zig`'s loader enforces.
 const gain_range = [2]f32{ -60.0, 12.0 };
 const pan_range = [2]f32{ -1.0, 1.0 };
+const filter_cutoff_range = [2]f32{ 20.0, 20_000.0 };
 const gain_step: f32 = 1.0;
 const pan_step: f32 = 0.05;
+/// Flat Hz step — not log-scaled like the synth editor's own h/l cutoff
+/// nudge, since automation curves nudge every target with the same
+/// additive-step shape (see `nudgeValue`). A coarser step than gain/pan's
+/// to keep the 20-20_000 Hz range navigable in a reasonable number of
+/// presses; J/K (10x via the existing count multiplier) covers 1000 Hz.
+const filter_cutoff_step: f32 = 100.0;
 
 /// Open the automation editor on the clip under the arrangement cursor.
 /// `cursor_bar` need only fall inside the clip's span — the link is stored
@@ -45,6 +54,12 @@ pub fn switchTo(app: *App, track: u16, cursor_bar: u32) void {
     };
     app.automation_clip = .{ .track = track, .start_bar = clip.start_bar };
     app.automation_track = track;
+    // A previous clip may have left the editor on filter_cutoff; if this
+    // one's track can't use it (not a synth), fall back to gain rather than
+    // opening on a curve this track has no way to populate.
+    if (app.automation_target == .filter_cutoff and !hasFilterCutoff(app)) {
+        app.automation_target = .gain;
+    }
     app.automation_cursor_step = 0;
     app.automation_scroll = 0;
     app.view = .automation;
@@ -74,6 +89,7 @@ fn curvePoints(clip: *ws.Clip, target: engine_mod.AutomationTarget) *[]Automatio
     return switch (target) {
         .gain => &clip.automation.gain,
         .pan => &clip.automation.pan,
+        .filter_cutoff => &clip.automation.filter_cutoff,
     };
 }
 
@@ -81,6 +97,7 @@ fn curveRange(target: engine_mod.AutomationTarget) [2]f32 {
     return switch (target) {
         .gain => gain_range,
         .pan => pan_range,
+        .filter_cutoff => filter_cutoff_range,
     };
 }
 
@@ -88,6 +105,27 @@ fn curveStep(target: engine_mod.AutomationTarget) f32 {
     return switch (target) {
         .gain => gain_step,
         .pan => pan_step,
+        .filter_cutoff => filter_cutoff_step,
+    };
+}
+
+/// True if the clip's own track is a poly_synth — the only kind
+/// `filter_cutoff` automation currently applies to (Sampler has no filter
+/// param, DrumMachine automation isn't wired at all yet). Gates whether
+/// `tab` offers the third curve at all.
+fn hasFilterCutoff(app: *App) bool {
+    return app.automation_track < app.session.racks.items.len and
+        std.meta.activeTag(app.session.racks.items[app.automation_track].instrument) == .poly_synth;
+}
+
+/// `tab`'s 3-way cycle: gain -> pan -> filter_cutoff (synth tracks only) ->
+/// gain. Skips straight back to gain from pan on a non-synth track, so tab
+/// never lands on a curve that track can't actually use.
+fn nextTarget(app: *App, cur: engine_mod.AutomationTarget) engine_mod.AutomationTarget {
+    return switch (cur) {
+        .gain => .pan,
+        .pan => if (hasFilterCutoff(app)) .filter_cutoff else .gain,
+        .filter_cutoff => .gain,
     };
 }
 
@@ -146,7 +184,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
         .escape => { app.view = .arrangement; return true; },
         .ctrl_r => { history.doRedo(app); return true; },
         .tab => {
-            app.automation_target = if (app.automation_target == .gain) .pan else .gain;
+            app.automation_target = nextTarget(app, app.automation_target);
             return true;
         },
         .char => |c| switch (c) {

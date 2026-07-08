@@ -245,7 +245,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("a",            "open gain/pan automation editor for the clip at cursor");
     t.key("tab",          "back to the tracks view");
 
-    t.taggedSection(.automation, "AUTOMATION  (per-clip gain/pan breakpoints — opened via 'a' in the arrangement)");
+    t.taggedSection(.automation, "AUTOMATION  (per-clip breakpoints — opened via 'a' in the arrangement)");
     t.key("h / l",        "move cursor along the clip's beat axis");
     t.key("H / L",        "move cursor by a bar");
     t.key("j / k",        "nudge the value at cursor (fine step) — adds a point if none exists");
@@ -254,7 +254,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("g / G",        "jump cursor to clip start / end");
     t.key("v",            "visual mode: select a step range on the current curve — y/d/p");
     t.key(".",            "repeat the last nudge or visual range delete/paste");
-    t.key("tab",          "switch between editing the gain curve and the pan curve");
+    t.key("tab",          "cycle gain -> pan -> filter cutoff (synth tracks only) -> gain");
     t.key("u / U / ^R",   "undo / redo (whole-lane, same as the arrangement's)");
     t.key("esc",          "back to the arrangement");
 
