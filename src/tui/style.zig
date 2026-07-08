@@ -5,6 +5,8 @@
 const std = @import("std");
 const ws = @import("wstudio");
 const types = ws.types;
+const icons = @import("icons.zig");
+const Mode = ws.input.Mode;
 
 pub const spectrum_rows: usize = 18;
 pub const spectrum_band_count: usize = 80;
@@ -47,6 +49,53 @@ pub const bwht = "\x1b[97m";   // bright white – selected value
 pub const track_palette = [_][]const u8{ red, yel, grn, acc, blu, mag, bwht };
 pub const track_color_names = [_][]const u8{ "red", "yellow", "green", "cyan", "blue", "magenta", "white" };
 
+/// Background counterparts of a few palette colours (SGR 40-47), used only
+/// by the status-line "chip" segments below — everywhere else in the TUI
+/// gets its block look from `sel` (reverse video) instead, since that
+/// adapts to whatever the terminal's real background is. Chips need a
+/// literal background code instead of reverse video because the powerline
+/// divider between two adjacent chips has to paint one chip's colour as its
+/// *foreground* and the next chip's colour as its *background* at the same
+/// time — reverse video can't express that.
+const bg_grn = "\x1b[42m";
+const bg_yel = "\x1b[43m";
+const bg_mag = "\x1b[45m";
+const bg_blu = "\x1b[44m";
+/// Bold black text reads cleanly on all four chip background colours above
+/// (they're all ANSI "normal" intensity, so black-on-them has good contrast
+/// regardless of the terminal's light/dark theme).
+const chip_fg = "\x1b[30m" ++ bold;
+
+const ChipColour = struct { fg: []const u8, bg: []const u8 };
+const chip_grn: ChipColour = .{ .fg = grn, .bg = bg_grn };
+const chip_yel: ChipColour = .{ .fg = yel, .bg = bg_yel };
+const chip_mag: ChipColour = .{ .fg = mag, .bg = bg_mag };
+/// Fixed colour for every view-name chip (TRACKS/DRUM/PIANO/...) — one hue
+/// for "which view" keeps the row readable instead of bikeshedding a
+/// distinct colour per view on top of the per-mode colour already carried
+/// by the first chip.
+const chip_view: ChipColour = .{ .fg = blu, .bg = bg_blu };
+
+fn modeChip(mode: Mode) ChipColour {
+    return switch (mode) {
+        .normal => chip_grn,
+        .insert => chip_yel,
+        .visual => chip_mag,
+        // Command/search render their own prompt line instead of chips —
+        // callers never reach writeStatusChips in those modes.
+        .command, .search => chip_grn,
+    };
+}
+
+fn modeChipName(mode: Mode) []const u8 {
+    return switch (mode) {
+        .normal => "NORMAL",
+        .insert => "INSERT",
+        .visual => "VISUAL",
+        .command, .search => "",
+    };
+}
+
 // ---------------------------------------------------------------------------
 // Primitive helpers
 // ---------------------------------------------------------------------------
@@ -62,34 +111,54 @@ pub fn hr(w: *std.Io.Writer, cols: u16) !void {
     try endLine(w);
 }
 
-/// Renders `raw` (may contain ANSI SGR sequences) as a full-width "chrome"
-/// bar: the content as-is, then the remainder of the row filled with a
-/// reverse-video block out to `cols`. Used for the header and transport
-/// rows so they read as UI frame all the way to the edge without a
-/// dedicated rule-line row underneath (see the v1.0.0 tackle-list item on
-/// reclaiming those rows for content).
+/// Renders `raw` (may contain ANSI SGR sequences) as a header/transport row:
+/// content clamped to `cols`, then the line ended normally. A reverse-video
+/// fill was tried here (v1.0.0 tackle item 50) and rejected on a live look —
+/// it read as a stray highlighted bar rather than UI frame, and no separator
+/// at all reads cleaner than either that or a dim hr() rule row.
 pub fn writeChromeRow(w: *std.Io.Writer, raw: []const u8, cols: u16) !void {
-    var i: usize = 0;
-    var col: usize = 0;
-    while (i < raw.len) {
-        if (raw[i] == 0x1b and i + 1 < raw.len and raw[i + 1] == '[') {
-            const start = i;
-            i += 2;
-            while (i < raw.len and !((raw[i] >= 'A' and raw[i] <= 'Z') or (raw[i] >= 'a' and raw[i] <= 'z'))) : (i += 1) {}
-            if (i < raw.len) i += 1; // include the terminator letter
-            try w.writeAll(raw[start..i]);
-            continue;
-        }
-        if (col >= cols) break;
-        if (raw[i] & 0xC0 != 0x80) col += 1; // UTF-8 continuation bytes are free
-        try w.writeByte(raw[i]);
-        i += 1;
-    }
-    if (col < cols) {
-        try w.writeAll("\x1b[7m");
-        try w.splatByteAll(' ', cols - col);
-    }
+    try writeClamped(w, raw, cols);
     try endLine(w);
+}
+
+/// Writes the lualine-style status-line prefix (item 54): a mode chip
+/// (colour keyed to `mode` — green/yellow/magenta for normal/insert/visual)
+/// then a view-name chip (always blue), each end-capped with a powerline
+/// triangle. The divider between the two chips is colour-matched on both
+/// sides (fg = leaving chip's colour, bg = entering chip's colour) so the
+/// row reads as one contiguous bar; the trailing divider after the view
+/// chip fades to the plain terminal background. Caller has already handled
+/// `.command`/`.search` (they get their own prompt line, no chips).
+/// Without the icon font (`icons.font_installed` — item 55) the divider
+/// glyph would render as tofu, so this falls back to plain coloured text
+/// with an ASCII `>` instead of chip fills.
+pub fn writeStatusChips(w: *std.Io.Writer, mode: Mode, view_name: []const u8) !void {
+    const mc = modeChip(mode);
+    const mode_name = modeChipName(mode);
+    if (icons.font_installed) {
+        try w.writeAll(mc.bg);
+        try w.writeAll(chip_fg);
+        try w.print(" {s} ", .{mode_name});
+        try w.writeAll(rst);
+        try w.writeAll(mc.fg);
+        try w.writeAll(chip_view.bg);
+        try w.writeAll(icons.sep_right);
+        try w.writeAll(rst);
+        try w.writeAll(chip_view.bg);
+        try w.writeAll(chip_fg);
+        try w.print(" {s} ", .{view_name});
+        try w.writeAll(rst);
+        try w.writeAll(chip_view.fg);
+        try w.writeAll(icons.sep_right);
+        try w.writeAll(rst);
+    } else {
+        try w.writeAll(mc.fg);
+        try w.writeAll(bold);
+        try w.writeAll(mode_name);
+        try w.writeAll(rst ++ " > " ++ chip_view.fg ++ bold);
+        try w.writeAll(view_name);
+        try w.writeAll(rst ++ " > " ++ rst);
+    }
 }
 
 /// Write `raw` (a single line, no \r\n, may contain ANSI SGR sequences) to
@@ -264,7 +333,7 @@ pub fn enumRow(
     try endLine(w);
 }
 
-test "writeChromeRow pads short content with a reverse-video fill to the exact column count" {
+test "writeChromeRow leaves short content unpadded, no reverse-video fill" {
     var buf: [256]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
     try writeChromeRow(&w, bold ++ "hi" ++ rst, 10);
@@ -272,14 +341,10 @@ test "writeChromeRow pads short content with a reverse-video fill to the exact c
 
     // Original content survives untouched.
     try std.testing.expect(std.mem.indexOf(u8, out, bold ++ "hi" ++ rst) != null);
-    // Reverse-video fill follows, padded to exactly 10 visible columns
-    // (2 already written by "hi", so 8 fill spaces).
-    const fill_start = std.mem.indexOf(u8, out, "\x1b[7m").?;
-    var spaces: usize = 0;
-    var i = fill_start + 4;
-    while (i < out.len and out[i] == ' ') : (i += 1) spaces += 1;
-    try std.testing.expectEqual(@as(usize, 8), spaces);
-    // Ends the line like any other row.
+    // No fill of any kind past the content.
+    try std.testing.expect(std.mem.indexOf(u8, out, "\x1b[7m") == null);
+    // Ends the line like any other row (\x1b[K erases any leftover from the
+    // previous frame instead of a fill covering it).
     try std.testing.expect(std.mem.endsWith(u8, out, "\x1b[K\r\n"));
 }
 
@@ -288,7 +353,6 @@ test "writeChromeRow doesn't overflow when content already fills the row" {
     var w = std.Io.Writer.fixed(&buf);
     try writeChromeRow(&w, "0123456789", 10);
     const out = w.buffered();
-    // No fill needed — content exactly fills 10 columns.
     try std.testing.expect(std.mem.indexOf(u8, out, "\x1b[7m") == null);
     try std.testing.expect(std.mem.endsWith(u8, out, "\x1b[K\r\n"));
 }

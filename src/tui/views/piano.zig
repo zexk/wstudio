@@ -335,11 +335,7 @@ pub fn drawPianoRollStatus(app: anytype, w: *std.Io.Writer, cmds: []const cmd_mo
     const bar = app.piano_cursor_step / spb + 1;
     const sub = app.piano_cursor_step % spb + 1;
 
-    if (app.modal.mode == .visual) {
-        try w.writeAll(yel ++ sel ++ " VISUAL " ++ rst);
-    } else {
-        try w.writeAll(acc ++ sel ++ " PIANO " ++ rst);
-    }
+    try style.writeStatusChips(w, app.modal.mode, "PIANO");
     try w.writeAll(dim ++ "  " ++ rst);
     try w.print("{s}", .{label});
     try w.writeAll(dim ++ "  bar " ++ rst);

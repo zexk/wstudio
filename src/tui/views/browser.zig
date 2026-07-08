@@ -131,10 +131,11 @@ pub fn drawFileBrowserStatus(app: anytype, w: *std.Io.Writer) !void {
         try cmd_mod.writeSearchPrompt(w, app.modal.cmd_buf[0..app.modal.cmd_len], app.modal.cmd_cursor);
         return;
     }
+    try style.writeStatusChips(w, app.modal.mode, "FILES");
     if (app.browser_bookmark_mode) {
-        try w.writeAll(" j/k: move  enter/l: jump  d: remove  esc/q: back");
+        try w.writeAll(dim ++ "  " ++ rst ++ "j/k: move  enter/l: jump  d: remove  esc/q: back");
     } else {
-        try w.writeAll(" j/k: move  enter/l: open  h/bs: up  ~: home  /: search  b/B: mark/list  esc/q: cancel");
+        try w.writeAll(dim ++ "  " ++ rst ++ "j/k: move  enter/l: open  h/bs: up  ~: home  /: search  b/B: mark/list  esc/q: cancel");
     }
     // Every other view's status line surfaces App.setStatus messages
     // (bookmarked/unbookmarked, search "no match", …) the same way — this

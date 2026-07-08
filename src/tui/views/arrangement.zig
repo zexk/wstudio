@@ -196,13 +196,10 @@ pub fn drawArrangementStatus(app: anytype, w: *std.Io.Writer, cmds: []const cmd_
         try cmd_mod.writeSearchPrompt(w, app.modal.cmd_buf[0..app.modal.cmd_len], app.modal.cmd_cursor);
         return;
     }
-    const visual_active = app.modal.mode == .visual;
-    const mode_name: []const u8 = if (visual_active) "VISUAL" else if (app.session.song_mode) "SONG" else "PATTERN";
-    const mode_colour: []const u8 = if (visual_active) mag else if (app.session.song_mode) grn else yel;
-    try w.writeAll(mode_colour);
-    try w.writeAll(sel);
-    try w.print(" {s} ", .{mode_name});
-    try w.writeAll(rst);
+    // The song/pattern toggle (T) isn't a modal.Mode — it's arrangement-
+    // specific playback state — so it rides the VIEW chip instead of the
+    // mode chip, keeping both pieces of info the old single badge carried.
+    try style.writeStatusChips(w, app.modal.mode, if (app.session.song_mode) "SONG" else "PATTERN");
     if (app.arr_zoom == .compact) {
         try w.writeAll(dim ++ "  " ++ rst ++ bcyn ++ "zoom" ++ rst);
     }

@@ -271,7 +271,7 @@ pub fn drawSamplerStatus(app: anytype, w: *std.Io.Writer, cmds: []const cmd_mod.
     };
     const cur = @min(@as(usize, app.sampler_param), sampler_param_labels.len - 1);
 
-    try w.writeAll(grn ++ sel ++ " SAMPLER " ++ rst);
+    try style.writeStatusChips(w, app.modal.mode, "SAMPLER");
     if (is_drum) {
         try w.writeAll(dim ++ "  pad " ++ rst);
         try w.print("{d}", .{pad_idx + 1});

@@ -2011,10 +2011,9 @@ pub const App = struct {
         // The .wsj format has no project-name field, so a loaded file would
         // otherwise sit under the default "untitled" — show its basename.
         const header_title: []const u8 = if (self.projectPath()) |p| std.fs.path.basename(p) else self.session.project.name;
-        // Rendered into a scratch buffer and replayed as a full-width
-        // reverse-video chrome bar (style.writeChromeRow) instead of a
-        // plain line + a separate hr() rule row underneath — reclaims a row
-        // without losing the visual break from the content below.
+        // Rendered into a scratch buffer and replayed via style.writeChromeRow
+        // (clamp + clean line-end, no separate hr() rule row underneath) —
+        // reclaims a row versus the old plain-line-plus-rule layout.
         var header_scratch: [512]u8 = undefined;
         var header_w = std.Io.Writer.fixed(&header_scratch);
         try tui.drawHeader(&header_w, header_title, &self.session.engine.transport, self.audio_label, self.master_gain_db, self.dirty);

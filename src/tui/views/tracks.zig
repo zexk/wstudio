@@ -257,20 +257,7 @@ pub fn drawTracksStatus(app: anytype, w: *std.Io.Writer, cmds: []const cmd_mod.D
         .command => try cmd_mod.writePrompt(w, cmds, app.modal.cmd_buf[0..app.modal.cmd_len], app.modal.cmd_cursor, 60),
         .search => try cmd_mod.writeSearchPrompt(w, app.modal.cmd_buf[0..app.modal.cmd_len], app.modal.cmd_cursor),
         else => {
-            const mode_colour: []const u8 = switch (app.modal.mode) {
-                .insert => yel,
-                else    => grn,
-            };
-            const mode_name = switch (app.modal.mode) {
-                .normal  => "NORMAL",
-                .insert  => "INSERT",
-                .visual  => "VISUAL",
-                .command, .search => unreachable,
-            };
-            try w.writeAll(mode_colour);
-            try w.writeAll(sel);
-            try w.print(" {s} ", .{mode_name});
-            try w.writeAll(rst);
+            try style.writeStatusChips(w, app.modal.mode, "TRACKS");
             // track position
             try w.writeAll(dim ++ "  " ++ rst);
             try w.print("{d}/{d}", .{ app.cursor + 1, app.session.project.tracks.items.len + 1 });

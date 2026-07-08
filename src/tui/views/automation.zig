@@ -212,12 +212,9 @@ pub fn drawAutomationStatus(app: anytype, w: *std.Io.Writer, cmds: []const cmd_m
     const step_in_bar = app.automation_cursor_step % steps_per_bar;
     const beat = @as(f64, @floatFromInt(app.automation_cursor_step)) * 0.25;
 
-    if (app.modal.mode == .visual) {
-        try w.writeAll(yel ++ sel ++ " VISUAL " ++ rst ++ " ");
-    }
-    try w.writeAll(acc ++ sel);
-    try w.print(" {d}.{d} ", .{ bar + 1, step_in_bar + 1 });
-    try w.writeAll(rst);
+    try style.writeStatusChips(w, app.modal.mode, "AUTOMATION");
+    try w.writeAll(dim ++ "  " ++ rst);
+    try w.print("{d}.{d}", .{ bar + 1, step_in_bar + 1 });
 
     const target = app.automation_target;
     const points = curvePoints(clip, target);
