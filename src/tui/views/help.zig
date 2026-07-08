@@ -179,7 +179,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("H / L",        "adjust value (coarse ×10)");
     t.key("1–8",          "switch to pad 1–8");
     t.key("a",            "audition current pad");
-    t.key(":load-pad",    "<0-7> [file.wav]  load a sample into a pad (omit the file to browse)");
+    t.key(":load-pad",    "<1-8> [file.wav]  load a sample into a pad (omit the file to browse)");
 
     t.taggedSection(.synth_editor, "SYNTH EDITOR");
     t.key("j / k",        "select parameter");

@@ -46,7 +46,7 @@ per-pad sampler editor and `[`/`]`/`N` manage up to 8 pattern variants
 stamped from the live patterns are placed on a bar timeline; on drum
 lanes `[`/`]` pick which variant to stamp (clips show their letter),
 and `T` toggles between pattern and song playback. `:load-sample
-<file>` swaps a sampler's clip; `:load-pad <0-7> <file>` swaps a drum
+<file>` swaps a sampler's clip; `:load-pad <1-8> <file>` swaps a drum
 pad. File paths given to `:load-pad`, `:load-sample`, `:save`/`:w`, and
 `:bounce`/`:export` expand a leading `~` to `$HOME`. `:e <file>` opens
 a different project without restarting wstudio (refusing on unsaved

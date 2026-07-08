@@ -2177,7 +2177,7 @@ test "R opens the command prompt pre-filled with :pad-rename <n> in the drum gri
 
     _ = drum_ed.handleKey(&app, .{ .char = 'R' });
     try std.testing.expectEqual(ws.input.Mode.command, app.modal.mode);
-    try std.testing.expectEqualStrings("pad-rename 3 ", app.modal.cmd_buf[0..app.modal.cmd_len]);
+    try std.testing.expectEqualStrings("pad-rename 4 ", app.modal.cmd_buf[0..app.modal.cmd_len]);
 
     for ("808oh") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.enter, 0);
@@ -2561,7 +2561,7 @@ test ":load-sample/:load-pad with no path browse; refuse first with no matching 
     try std.testing.expectEqual(AppView.tracks, app.view);
     try std.testing.expectStringStartsWith(app.status_buf[0..app.status_len], "load-sample: select");
 
-    for (":load-pad 0") |c| app.handleKey(.{ .char = c }, 0);
+    for (":load-pad 1") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(AppView.tracks, app.view);
     try std.testing.expectStringStartsWith(app.status_buf[0..app.status_len], "load-pad: select");
