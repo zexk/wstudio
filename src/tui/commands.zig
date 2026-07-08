@@ -47,10 +47,10 @@ fn expandHome(buf: []u8, path: []const u8) []const u8 {
 }
 
 pub const cmds: []const cmd_mod.Def = &.{
-    .{ .name = "q",           .desc = "quit (refuses if unsaved changes)",   .run = wrap(cmdQuit) },
+    .{ .name = "q",           .desc = "quit (alias for :quit)",              .run = wrap(cmdQuit) },
     .{ .name = "q!",          .desc = "quit, discarding unsaved changes",    .run = wrap(cmdQuitForce) },
-    .{ .name = "quit",        .desc = "quit (alias for :q)",                 .run = wrap(cmdQuit) },
-    .{ .name = "qa",          .desc = "quit (alias for :q)",                 .run = wrap(cmdQuit) },
+    .{ .name = "quit",        .desc = "quit (refuses if unsaved changes)",   .run = wrap(cmdQuit) },
+    .{ .name = "qa",          .desc = "quit (alias for :quit)",              .run = wrap(cmdQuit) },
     .{ .name = "qa!",         .desc = "quit, discarding changes (alias for :q!)", .run = wrap(cmdQuitForce) },
     .{ .name = "bpm",         .desc = "[<value>]  tempo in BPM (20–400)",    .run = wrap(cmdBpm) },
     .{ .name = "sig",         .desc = "[<n>[/4]]  time signature (1–16 beats per bar)", .run = wrap(cmdSig) },
