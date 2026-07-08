@@ -48,7 +48,12 @@ lanes `[`/`]` pick which variant to stamp (clips show their letter),
 and `T` toggles between pattern and song playback. `:load-sample
 <file>` swaps a sampler's clip; `:load-pad <1-8> <file>` swaps a drum
 pad. File paths given to `:load-pad`, `:load-sample`, `:save`/`:w`, and
-`:bounce`/`:export` expand a leading `~` to `$HOME`. `:e <file>` opens
+`:bounce`/`:export`/`:bounce-stems` expand a leading `~` to `$HOME`.
+`:bounce`/`:export` take an optional trailing `16`/`24` to pick the WAV
+bit depth (default 16) and bounce exactly an armed A/B loop region
+instead of the whole song/pattern when one is set; `:bounce-stems
+[dir] [16|24]` renders every non-empty track soloed in turn to
+`<dir>/<track-name>.wav` (default `stems/`). `:e <file>` opens
 a different project without restarting wstudio (refusing on unsaved
 changes; `:e!` forces it, and `:e!` alone reverts to the last save);
 `:new`/`:new!` start a blank project the same way.
