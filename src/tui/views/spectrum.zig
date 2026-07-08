@@ -186,28 +186,32 @@ pub fn drawFxView(
     rows: usize,
     cols: usize,
     snap: engine_mod.UiSnapshot,
-    is_track: bool,
+    target: spectrum_ed.EqTarget,
 ) !void {
     _ = snap;
 
-    const title: []const u8 = if (is_track) blk: {
-        const name = if (app.eq_track < app.session.project.tracks.items.len)
+    const title: []const u8 = switch (target) {
+        .track => if (app.eq_track < app.session.project.tracks.items.len)
             app.session.project.tracks.items[app.eq_track].name
         else
-            "?";
-        break :blk name;
-    } else "MASTER";
+            "?",
+        .master => "MASTER",
+        .group => if (app.eq_group < engine_mod.max_groups) blk: {
+            break :blk if (app.session.groups[app.eq_group]) |g| g.name else "?";
+        } else "?",
+    };
 
-    const title_icon = if (is_track) icons.eq else icons.master;
+    const title_icon = if (target == .master) icons.master else icons.eq;
     try w.writeAll(bold ++ " " ++ rst);
     try w.writeAll(title_icon);
     try w.writeAll(bold ++ " FX CHAIN" ++ rst);
     try w.print(" \"{s}\"", .{title});
     try endLine(w);
 
-    // Null only when the viewed track was deleted out from under the view —
-    // app.zig's guard kicks back to tracks on the next key; just pad here.
-    const chain = spectrum_ed.fxPtr(app, is_track) orelse {
+    // Null only when the viewed track/group was deleted out from under the
+    // view — app.zig's guard kicks back to tracks on the next key; just pad
+    // here.
+    const chain = spectrum_ed.fxPtr(app, target) orelse {
         for (3..@max(3, rows -| 3)) |_| try endLine(w);
         return;
     };
@@ -234,10 +238,11 @@ pub fn drawFxView(
         // The EQ unit's editor: live spectrum graph up top, the 10 band
         // bars underneath. The analyzer only runs while an EQ has focus
         // (editors/spectrum.zig parks it on focus change).
-        const spectrum_snap = if (is_track)
-            app.session.engine.trackSpectrumSnapshot(app.eq_track)
-        else
-            app.session.engine.masterSpectrumSnapshot();
+        const spectrum_snap = switch (target) {
+            .track => app.session.engine.trackSpectrumSnapshot(app.eq_track),
+            .master => app.session.engine.masterSpectrumSnapshot(),
+            .group => app.session.engine.groupSpectrumSnapshot(app.eq_group),
+        };
 
         const bands = spectrum_ed.eq_band_rows;
         // Header + strip + hint + section (6; 3 in compact mode) + graph
@@ -453,7 +458,7 @@ fn formatFxValue(buf: []u8, p: *const ws.FxPayload, idx: usize) []const u8 {
     };
 }
 
-pub fn drawFxStatus(app: anytype, w: *std.Io.Writer, is_track: bool, cmds: []const cmd_mod.Def) !void {
+pub fn drawFxStatus(app: anytype, w: *std.Io.Writer, target: spectrum_ed.EqTarget, cmds: []const cmd_mod.Def) !void {
     if (app.modal.mode == .command) {
         try cmd_mod.writePrompt(w, cmds, app.modal.cmd_buf[0..app.modal.cmd_len], app.modal.cmd_cursor, 60);
         return;
@@ -462,7 +467,7 @@ pub fn drawFxStatus(app: anytype, w: *std.Io.Writer, is_track: bool, cmds: []con
         try cmd_mod.writeSearchPrompt(w, app.modal.cmd_buf[0..app.modal.cmd_len], app.modal.cmd_cursor);
         return;
     }
-    const fx = spectrum_ed.fxPtr(app, is_track) orelse {
+    const fx = spectrum_ed.fxPtr(app, target) orelse {
         if (app.status_len > 0) try w.print(" {s}", .{app.status_buf[0..app.status_len]});
         return;
     };

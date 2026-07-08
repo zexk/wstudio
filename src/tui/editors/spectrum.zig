@@ -320,15 +320,37 @@ fn paramStep(k: FxKind, idx: usize, coarse: bool) f32 {
     };
 }
 
-/// The Fx chain currently in view — a track's rack, or the master bus.
-/// Null only if `app.eq_track` fell out of range (e.g. its track was
-/// deleted from under an open track_spectrum view).
-pub fn fxPtr(app: *App, is_track: bool) ?*Fx {
-    if (is_track) {
-        if (app.eq_track >= app.session.racks.items.len) return null;
-        return &app.session.racks.items[app.eq_track].fx;
-    }
-    return &app.session.master_fx;
+/// Which chain is in view: a track's rack, the master bus, or a group
+/// submix bus (see `Session.Group`). One shared FX-chain editor/view for
+/// all three — group chains build/edit exactly like a track's or the
+/// master's.
+pub const EqTarget = enum { track, master, group };
+
+/// Derive the current target from `app.view` — `.track_spectrum` ->
+/// `.track`, `.group_spectrum` -> `.group`, everything else (including
+/// `.master_spectrum`) -> `.master`.
+pub fn currentTarget(app: *App) EqTarget {
+    return switch (app.view) {
+        .track_spectrum => .track,
+        .group_spectrum => .group,
+        else => .master,
+    };
+}
+
+/// The Fx chain currently in view. Null if `app.eq_track`/`app.eq_group`
+/// fell out of range (e.g. its track was deleted, or its group was deleted,
+/// from under an open chain view).
+pub fn fxPtr(app: *App, target: EqTarget) ?*Fx {
+    return switch (target) {
+        .track => if (app.eq_track >= app.session.racks.items.len)
+            null
+        else
+            &app.session.racks.items[app.eq_track].fx,
+        .master => &app.session.master_fx,
+        .group => if (app.eq_group >= ws.engine.max_groups)
+            null
+        else if (app.session.groups[app.eq_group]) |*g| &g.fx else null,
+    };
 }
 
 /// The unit under `app.fx_focus`, or null while the chain is empty (the
@@ -338,59 +360,74 @@ pub fn focusedUnit(app: *App, fx: *const Fx) ?*FxUnit {
     return fx.units.items[app.fx_focus];
 }
 
-fn syncChain(app: *App, is_track: bool) void {
-    if (is_track) {
-        if (app.eq_track >= app.session.racks.items.len) return;
-        const rack = app.session.racks.items[app.eq_track];
-        var buf: [ws.Rack.chain_cap]dsp.Device = undefined;
-        app.session.engine.setTrackChain(app.eq_track, rack.chain(&buf));
-    } else {
-        app.session.syncMasterChain();
+fn syncChain(app: *App, target: EqTarget) void {
+    switch (target) {
+        .track => {
+            if (app.eq_track >= app.session.racks.items.len) return;
+            const rack = app.session.racks.items[app.eq_track];
+            var buf: [ws.Rack.chain_cap]dsp.Device = undefined;
+            app.session.engine.setTrackChain(app.eq_track, rack.chain(&buf));
+        },
+        .master => app.session.syncMasterChain(),
+        .group => app.session.syncGroupChain(app.eq_group),
     }
 }
 
 /// The spectrum analyzer belongs to an EQ unit's editor: run it only while
 /// one has focus, park it otherwise (and on leaving the view) so the engine
 /// skips FFT work nobody is looking at.
-fn syncAnalyzer(app: *App, is_track: bool) void {
-    const focused_eq = if (fxPtr(app, is_track)) |fx| blk: {
+fn syncAnalyzer(app: *App, target: EqTarget) void {
+    const focused_eq = if (fxPtr(app, target)) |fx| blk: {
         const u = focusedUnit(app, fx) orelse break :blk false;
         break :blk u.kind() == .eq;
     } else false;
     if (focused_eq) {
         _ = app.session.engine.send(.{ .set_spectrum_active = .{
-            .source = if (is_track) .track else .master,
-            .track = if (is_track) app.eq_track else 0,
+            .source = switch (target) { .track => .track, .master => .master, .group => .group },
+            .track = if (target == .track) app.eq_track else 0,
+            .group = if (target == .group) app.eq_group else 0,
         } });
     } else {
         _ = app.session.engine.send(.{ .set_spectrum_active = .{ .source = .none, .track = 0 } });
     }
 }
 
-fn setFocus(app: *App, is_track: bool, idx: usize) void {
+fn setFocus(app: *App, target: EqTarget, idx: usize) void {
     app.fx_focus = idx;
     app.fx_param = 0;
-    syncAnalyzer(app, is_track);
+    syncAnalyzer(app, target);
 }
 
 pub fn switchToTrack(app: *App, track: u16) void {
     app.prev_view = app.view;
     app.view = .track_spectrum;
     app.eq_track = track;
-    setFocus(app, true, 0);
+    setFocus(app, .track, 0);
 }
 
 pub fn switchToMaster(app: *App) void {
     app.prev_view = app.view;
     app.view = .master_spectrum;
-    setFocus(app, false, 0);
+    setFocus(app, .master, 0);
+}
+
+/// Open group `idx`'s FX chain — same entry-point shape as
+/// `switchToTrack`/`switchToMaster`. No-op if the slot is unused (the
+/// caller — the tracks view's group-open key — checks first, this is just
+/// a safety net against a stale index).
+pub fn switchToGroup(app: *App, idx: u8) void {
+    if (idx >= ws.engine.max_groups or app.session.groups[idx] == null) return;
+    app.prev_view = app.view;
+    app.view = .group_spectrum;
+    app.eq_group = idx;
+    setFocus(app, .group, 0);
 }
 
 /// Open the FX picker for the chain in view. Inserting lands after the
 /// focused slot (at the front while the chain is empty). Parks the analyzer
 /// — the picker replaces the whole view, so nobody is watching it.
-fn openPicker(app: *App, is_track: bool) void {
-    const fx = fxPtr(app, is_track) orelse return;
+fn openPicker(app: *App, target: EqTarget) void {
+    const fx = fxPtr(app, target) orelse return;
     if (fx.units.items.len >= Fx.max_units) {
         app.setStatus("chain full ({d} units)", .{Fx.max_units});
         return;
@@ -404,71 +441,71 @@ fn openPicker(app: *App, is_track: bool) void {
 /// Picker accepted: back to the chain view, insert after the focused slot,
 /// focus the new unit. Called by App.handleFxPickerKey.
 pub fn insertFromPicker(app: *App, k: FxKind) void {
-    const is_track = app.fx_picker_return == .track_spectrum;
     app.view = app.fx_picker_return;
-    const fx = fxPtr(app, is_track) orelse return;
+    const target = currentTarget(app);
+    const fx = fxPtr(app, target) orelse return;
     const pos = if (fx.units.items.len == 0) 0 else @min(app.fx_focus + 1, fx.units.items.len);
     _ = fx.insert(app.session.allocator, pos, k, app.session.project.sample_rate) catch |err| {
         switch (err) {
             error.ChainFull => app.setStatus("chain full ({d} units)", .{Fx.max_units}),
             error.OutOfMemory => app.setStatus("{s}: out of memory", .{unitLabel(k)}),
         }
-        syncAnalyzer(app, is_track);
+        syncAnalyzer(app, target);
         return;
     };
-    setFocus(app, is_track, pos);
+    setFocus(app, target, pos);
     app.dirty = true;
-    syncChain(app, is_track);
+    syncChain(app, target);
     app.setStatus("{s} inserted", .{unitLabel(k)});
 }
 
 /// Picker dismissed: back to the chain view, nothing inserted.
 pub fn cancelPicker(app: *App) void {
     app.view = app.fx_picker_return;
-    syncAnalyzer(app, app.view == .track_spectrum);
+    syncAnalyzer(app, currentTarget(app));
 }
 
-fn removeFocused(app: *App, is_track: bool) void {
-    const fx = fxPtr(app, is_track) orelse return;
+fn removeFocused(app: *App, target: EqTarget) void {
+    const fx = fxPtr(app, target) orelse return;
     if (app.fx_focus >= fx.units.items.len) return;
     // Unlink and push the shortened chain to the audio thread *before*
     // freeing the unit, so a delay/reverb line can't be torn down while a
     // freshly-fetched chain still points at it.
     const unit = fx.units.orderedRemove(app.fx_focus);
-    syncChain(app, is_track);
+    syncChain(app, target);
     const label = unitLabel(unit.kind());
     unit.payload.deinit(app.session.allocator);
     app.session.allocator.destroy(unit);
     if (app.fx_focus > 0 and app.fx_focus >= fx.units.items.len) app.fx_focus -= 1;
     app.fx_param = 0;
     app.dirty = true;
-    syncAnalyzer(app, is_track);
+    syncAnalyzer(app, target);
     app.setStatus("{s} removed", .{label});
 }
 
 /// Move the focused unit one slot along the chain; focus follows it.
-fn moveFocused(app: *App, is_track: bool, dir: i2) void {
-    const fx = fxPtr(app, is_track) orelse return;
+fn moveFocused(app: *App, target: EqTarget, dir: i2) void {
+    const fx = fxPtr(app, target) orelse return;
     if (focusedUnit(app, fx) == null) return;
     const other = if (dir < 0) app.fx_focus -% 1 else app.fx_focus + 1;
     if (other >= fx.units.items.len) return; // already at that end (wraps on 0-%1)
     fx.swap(app.fx_focus, other);
     app.fx_focus = other;
     app.dirty = true;
-    syncChain(app, is_track);
+    syncChain(app, target);
 }
 
-fn toggleBypass(app: *App, is_track: bool) void {
-    const fx = fxPtr(app, is_track) orelse return;
+fn toggleBypass(app: *App, target: EqTarget) void {
+    const fx = fxPtr(app, target) orelse return;
     const u = focusedUnit(app, fx) orelse return;
     u.bypassed = !u.bypassed;
     app.dirty = true;
-    syncChain(app, is_track);
+    syncChain(app, target);
     app.setStatus("{s} {s}", .{ unitLabel(u.kind()), if (u.bypassed) "bypassed" else "active" });
 }
 
-fn nudge(app: *App, is_track: bool, key: u8) void {
-    const fx = fxPtr(app, is_track) orelse return;
+fn nudge(app: *App, target: EqTarget, key: u8) void {
+    const fx = fxPtr(app, target) orelse return;
     const u = focusedUnit(app, fx) orelse return;
     const dir: f32 = if (key == 'h' or key == 'H') -1.0 else 1.0;
     const coarse = (key == 'H' or key == 'L');
@@ -476,12 +513,12 @@ fn nudge(app: *App, is_track: bool, key: u8) void {
     const cur = getParam(&u.payload, app.fx_param);
     setParam(&u.payload, app.fx_param, cur + dir * cnt * paramStep(u.kind(), app.fx_param, coarse));
     app.dirty = true;
-    syncChain(app, is_track);
+    syncChain(app, target);
 }
 
 pub fn handleKey(app: *App, key: modal_mod.Key) bool {
-    const is_track = app.view == .track_spectrum;
-    const len = if (fxPtr(app, is_track)) |fx| fx.units.items.len else 0;
+    const target = currentTarget(app);
+    const len = if (fxPtr(app, target)) |fx| fx.units.items.len else 0;
     switch (key) {
         .escape => {
             _ = app.session.engine.send(.{ .set_spectrum_active = .{ .source = .none, .track = 0 } });
@@ -489,28 +526,28 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             return true;
         },
         .tab => {
-            if (len > 0) setFocus(app, is_track, (app.fx_focus + 1) % len);
+            if (len > 0) setFocus(app, target, (app.fx_focus + 1) % len);
             return true;
         },
         .char => |c| switch (c) {
             '[' => {
-                if (len > 0) setFocus(app, is_track, (app.fx_focus + len - 1) % len);
+                if (len > 0) setFocus(app, target, (app.fx_focus + len - 1) % len);
                 return true;
             },
             ']' => {
-                if (len > 0) setFocus(app, is_track, (app.fx_focus + 1) % len);
+                if (len > 0) setFocus(app, target, (app.fx_focus + 1) % len);
                 return true;
             },
-            'a' => { openPicker(app, is_track); return true; },
-            'x' => { removeFocused(app, is_track); return true; },
-            '<' => { moveFocused(app, is_track, -1); return true; },
-            '>' => { moveFocused(app, is_track, 1); return true; },
-            'b' => { toggleBypass(app, is_track); return true; },
+            'a' => { openPicker(app, target); return true; },
+            'x' => { removeFocused(app, target); return true; },
+            '<' => { moveFocused(app, target, -1); return true; },
+            '>' => { moveFocused(app, target, 1); return true; },
+            'b' => { toggleBypass(app, target); return true; },
             // Param picks take a vim count prefix (3k, 4j, …). EQ clamps at
             // its band ends (unchanged from before); the 3-5 param units
             // wrap, which reads more naturally for such a short list.
             'k' => {
-                const fx = fxPtr(app, is_track) orelse return true;
+                const fx = fxPtr(app, target) orelse return true;
                 const u = focusedUnit(app, fx) orelse return true;
                 const n = paramCount(u.kind());
                 const cnt: usize = @intCast(app.takeCount());
@@ -521,7 +558,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 return true;
             },
             'j' => {
-                const fx = fxPtr(app, is_track) orelse return true;
+                const fx = fxPtr(app, target) orelse return true;
                 const u = focusedUnit(app, fx) orelse return true;
                 const n = paramCount(u.kind());
                 const cnt: usize = @intCast(app.takeCount());
@@ -531,7 +568,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                     (app.fx_param + cnt) % n;
                 return true;
             },
-            'h', 'H', 'l', 'L' => { nudge(app, is_track, c); return true; },
+            'h', 'H', 'l', 'L' => { nudge(app, target, c); return true; },
             else => return false,
         },
         else => return false,
@@ -635,10 +672,10 @@ fn eqBandAt(x: usize) ?usize {
 /// Nudge the current param one wheel-notch (**ctrl** = coarse), reusing the
 /// same `nudge` the keyboard's j/J/k/K use — scroll up = increase (k/K),
 /// scroll down = decrease (j/J).
-fn nudgeMouse(app: *App, is_track: bool, ev: modal_mod.MouseEvent) void {
+fn nudgeMouse(app: *App, target: EqTarget, ev: modal_mod.MouseEvent) void {
     const up = ev.kind == .scroll_up;
     const key: u8 = if (up) (if (ev.ctrl) @as(u8, 'K') else 'k') else (if (ev.ctrl) @as(u8, 'J') else 'j');
-    nudge(app, is_track, key);
+    nudge(app, target, key);
 }
 
 /// Click a chain-strip slot box to focus it (the trailing "+" box opens the
@@ -646,15 +683,15 @@ fn nudgeMouse(app: *App, is_track: bool, ev: modal_mod.MouseEvent) void {
 /// either nudges it (**ctrl**+scroll = coarse).
 pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16, view_rows: usize) void {
     _ = cols; // slot/band/param columns here are fixed-width, not terminal-width-dependent
-    const is_track = app.view == .track_spectrum;
-    const fx = fxPtr(app, is_track) orelse return;
+    const target = currentTarget(app);
+    const fx = fxPtr(app, target) orelse return;
     const compact = compactLayout(view_rows);
 
     if (row >= strip_rows_start and row <= (if (compact) strip_rows_start else strip_rows_end)) {
         if (ev.kind == .press) {
             const len = fx.units.items.len;
             const i = slotAt(ev.x, len) orelse return;
-            if (i == len) openPicker(app, is_track) else setFocus(app, is_track, i);
+            if (i == len) openPicker(app, target) else setFocus(app, target, i);
         }
         return;
     }
@@ -674,7 +711,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16, v
             .press => app.fx_param = band,
             .scroll_up, .scroll_down => {
                 app.fx_param = band;
-                nudgeMouse(app, is_track, ev);
+                nudgeMouse(app, target, ev);
             },
             else => {},
         }
@@ -686,7 +723,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16, v
         .press => app.fx_param = rel,
         .scroll_up, .scroll_down => {
             app.fx_param = rel;
-            nudgeMouse(app, is_track, ev);
+            nudgeMouse(app, target, ev);
         },
         else => {},
     }

@@ -95,12 +95,16 @@ const fx_picker_menu = [_]struct { name: []const u8, desc: []const u8 }{
 };
 
 pub fn drawFxPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void {
-    const target: []const u8 = if (app.fx_picker_return == .track_spectrum) blk: {
-        break :blk if (app.eq_track < app.session.project.tracks.items.len)
+    const target: []const u8 = switch (app.fx_picker_return) {
+        .track_spectrum => if (app.eq_track < app.session.project.tracks.items.len)
             app.session.project.tracks.items[app.eq_track].name
         else
-            "?";
-    } else "MASTER";
+            "?",
+        .group_spectrum => if (app.eq_group < app.session.groups.len) blk: {
+            break :blk if (app.session.groups[app.eq_group]) |g| g.name else "?";
+        } else "?",
+        else => "MASTER",
+    };
 
     try w.writeAll(bold ++ " INSERT EFFECT" ++ rst);
     try w.writeAll(acc);

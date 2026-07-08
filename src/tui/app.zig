@@ -51,7 +51,7 @@ const tap_timeout_ns: i96 = 2 * std.time.ns_per_s;
 /// Minimum gap between silent `<path>~` backups; see `maybeAutosave`.
 const autosave_interval_ns: i96 = 30 * std.time.ns_per_s;
 
-pub const AppView = enum { tracks, drum_grid, synth_editor, sampler_editor, help, track_spectrum, master_spectrum, piano_roll, instrument_picker, fx_picker, arrangement, file_browser, automation };
+pub const AppView = enum { tracks, drum_grid, synth_editor, sampler_editor, help, track_spectrum, master_spectrum, group_spectrum, piano_roll, instrument_picker, fx_picker, arrangement, file_browser, automation };
 
 /// Which waveform marker a sampler-editor mouse drag is moving — see
 /// `App.sampler_drag_marker` and editors/sampler.zig's handleMouse.
@@ -221,9 +221,13 @@ pub const App = struct {
     fx_focus: usize = 0,
     /// Highlighted row in the FX picker.
     fx_picker_cursor: u8 = 0,
-    /// Chain view the FX picker returns to (track_spectrum/master_spectrum).
+    /// Chain view the FX picker returns to (track_spectrum/master_spectrum/
+    /// group_spectrum).
     fx_picker_return: AppView = .tracks,
     eq_track: u16 = 0,
+    /// Which group's FX chain is in view when `view == .group_spectrum` —
+    /// parallel to `eq_track`.
+    eq_group: u8 = 0,
     /// Scroll offset (in lines) of the help view; clamped by tui.drawHelp.
     help_scroll: usize = 0,
     synth_track: u16 = 0,
@@ -289,6 +293,11 @@ pub const App = struct {
     /// the whole line" grammar piano/drum/arrangement use for their own
     /// dd/yy. Any other key cancels.
     tracks_del_pending: bool = false,
+    /// Tracks view visual mode: `v` sets the anchor, `j`/`k` extend a
+    /// contiguous range (master excluded — it can't be grouped), `g` groups
+    /// the selection. Same anchor-field shape arrangement/drum/automation's
+    /// own visual modes already use.
+    tracks_visual_anchor: ?usize = null,
     /// Visual-mode range clipboards (y/d/P while `.visual`), separate from
     /// the whole-pattern/single-clip clipboards above.
     piano_range_clip: ?PianoClip = null,
@@ -577,7 +586,7 @@ pub const App = struct {
             .sampler_editor => if (self.modal.mode != .normal or !sampler_ed.handleKey(self, key)) {
                 self.applyAction(self.modal.handle(key), now_ns);
             } else { self.modal.count = 0; },
-            .track_spectrum, .master_spectrum => if (self.modal.mode == .command or self.modal.mode == .search or !spectrum_ed.handleKey(self, key)) {
+            .track_spectrum, .master_spectrum, .group_spectrum => if (self.modal.mode == .command or self.modal.mode == .search or !spectrum_ed.handleKey(self, key)) {
                 self.applyAction(self.modal.handle(key), now_ns);
             } else { self.modal.count = 0; },
             // Insert mode bypasses the roll's own switch entirely — once
@@ -599,6 +608,11 @@ pub const App = struct {
                 self.applyAction(self.modal.handle(key), now_ns);
             } else { self.modal.count = 0; },
             .tracks => {
+                // Visual mode: a contiguous track-range selection, checked
+                // first so it can't leak into the normal-mode bindings below
+                // (same ordering arrangement.zig's own visual-mode guard uses).
+                if (self.modal.mode == .visual) { self.handleTracksVisual(key); return; }
+
                 // The master row lives one slot past the last real track —
                 // same list, same cursor, but it can't be deleted/duplicated/
                 // moved/renamed/muted/soloed and has no piano roll or pan.
@@ -644,7 +658,7 @@ pub const App = struct {
                             'u' => { history.doUndo(self); return; },
                             'U' => { history.doRedo(self); return; },
                             't' => { self.tapTempo(now_ns); return; },
-                            'd', 'Y', 'J', 'K', 'R', 'p', '<', '>', '[', ']' => {
+                            'd', 'Y', 'J', 'K', 'R', 'p', '<', '>', '[', ']', 'v' => {
                                 self.setStatus("master bus: n/a", .{});
                                 return;
                             },
@@ -662,6 +676,12 @@ pub const App = struct {
                             'K' => { self.doTrackMove(-1); return; },
                             '[' => { self.doTrackColorCycle(-1); return; },
                             ']' => { self.doTrackColorCycle(1); return; },
+                            'v' => {
+                                self.tracks_visual_anchor = self.cursor;
+                                self.modal.mode = .visual;
+                                self.setStatus("visual: j/k extend, g groups the selection, esc cancels", .{});
+                                return;
+                            },
                             'c' => { self.toggleMetronome(); return; },
                             '?' => { commands.cmdHelp(self, ""); return; },
                             '<' => { self.doTrackPan(@intCast(self.cursor), -0.05); return; },
@@ -701,7 +721,7 @@ pub const App = struct {
             .synth_editor => synth_ed.handleMouse(self, ev, row),
             .sampler_editor => sampler_ed.handleMouse(self, ev, row, cols, view_rows),
             .piano_roll => piano_ed.handleMouse(self, ev, row, cols),
-            .track_spectrum, .master_spectrum => spectrum_ed.handleMouse(self, ev, row, cols, view_rows),
+            .track_spectrum, .master_spectrum, .group_spectrum => spectrum_ed.handleMouse(self, ev, row, cols, view_rows),
             .arrangement => arrangement_ed.handleMouse(self, ev, row, cols),
             .instrument_picker => self.pickerMouse(ev, row),
             .fx_picker => self.fxPickerMouse(ev, row),
@@ -787,6 +807,65 @@ pub const App = struct {
         self.modal.mode = .command;
         self.cmd_history_pos = self.cmd_history.items.len;
         const text = std.fmt.bufPrint(&self.modal.cmd_buf, "track-rename {d} ", .{self.cursor + 1}) catch return;
+        self.modal.cmd_len = text.len;
+        self.modal.cmd_cursor = text.len;
+    }
+
+    /// Tracks view visual mode's reduced key set: `j`/`k` extend the
+    /// selection (master excluded — the cursor can't reach it from here
+    /// since the range never includes it), `g` groups the selection, `esc`
+    /// cancels. Everything else is swallowed, matching the other editors'
+    /// visual modes.
+    fn handleTracksVisual(self: *App, key: modal_mod.Key) void {
+        const track_count = self.session.project.tracks.items.len;
+        switch (key) {
+            .escape => { self.exitTracksVisual(); self.setStatus("selection cancelled", .{}); },
+            .char => |c| switch (c) {
+                'j' => if (self.cursor + 1 < track_count) { self.cursor += 1; },
+                'k' => if (self.cursor > 0) { self.cursor -= 1; },
+                'g' => self.groupSelectedTracks(),
+                else => {},
+            },
+            else => {},
+        }
+    }
+
+    fn exitTracksVisual(self: *App) void {
+        self.modal.mode = .normal;
+        self.modal.count = 0;
+        self.modal.pending = null;
+        self.tracks_visual_anchor = null;
+    }
+
+    /// `g` in tracks-view visual mode: create a new group from the selected
+    /// range and open the rename prompt for it immediately (same prefill
+    /// pattern `startRenamePrompt` uses) so the user names it right away
+    /// instead of living with an auto-generated "Group N".
+    fn groupSelectedTracks(self: *App) void {
+        const anchor = self.tracks_visual_anchor orelse self.cursor;
+        const lo = @min(anchor, self.cursor);
+        const hi = @max(anchor, self.cursor);
+        self.exitTracksVisual();
+
+        const idx = self.session.addGroup("Group") catch |err| {
+            self.setStatus("group: {s}", .{switch (err) {
+                error.GroupLimitReached => "bank full (8 groups)",
+                error.OutOfMemory => "out of memory",
+            }});
+            return;
+        };
+        var i = lo;
+        while (i <= hi) : (i += 1) self.session.assignTrackGroup(i, idx);
+        self.dirty = true;
+        self.cursor = lo;
+        self.startGroupRenamePrompt(idx);
+    }
+
+    /// Same prefill pattern as `startRenamePrompt`, for a just-created group.
+    fn startGroupRenamePrompt(self: *App, idx: u8) void {
+        self.modal.mode = .command;
+        self.cmd_history_pos = self.cmd_history.items.len;
+        const text = std.fmt.bufPrint(&self.modal.cmd_buf, "group-rename {d} ", .{idx + 1}) catch return;
         self.modal.cmd_len = text.len;
         self.modal.cmd_cursor = text.len;
     }
@@ -1713,10 +1792,19 @@ pub const App = struct {
                 _ = self.session.engine.send(.{ .set_spectrum_active = .{ .source = .none, .track = 0 } });
                 self.view = self.prev_view;
             },
-            // The picker inserts into eq_track's chain on accept — if that
-            // track vanished, retreat all the way to tracks rather than
-            // into a chain view whose target is gone.
-            .fx_picker => if (self.fx_picker_return == .track_spectrum and self.eq_track >= racks.len) {
+            // A deleted group's chain view can't linger either — same
+            // bounce-out shape .track_spectrum uses for a deleted track.
+            .group_spectrum => if (self.eq_group >= engine_mod.max_groups or self.session.groups[self.eq_group] == null) {
+                _ = self.session.engine.send(.{ .set_spectrum_active = .{ .source = .none, .track = 0 } });
+                self.view = self.prev_view;
+            },
+            // The picker inserts into eq_track's/eq_group's chain on accept —
+            // if that target vanished, retreat all the way to tracks rather
+            // than into a chain view whose target is gone.
+            .fx_picker => if ((self.fx_picker_return == .track_spectrum and self.eq_track >= racks.len) or
+                (self.fx_picker_return == .group_spectrum and
+                    (self.eq_group >= engine_mod.max_groups or self.session.groups[self.eq_group] == null)))
+            {
                 self.view = .tracks;
             },
             .automation => if (automation_ed.currentClip(self) == null) { self.view = .arrangement; },
@@ -1939,8 +2027,8 @@ pub const App = struct {
             .sampler_editor  => try tui.drawSamplerEditor(self, w, content_rows, size.cols, snap),
             .piano_roll      => try tui.drawPianoRoll(self, w, content_rows, size.cols, snap),
             .help            => try tui.drawHelp(w, content_rows, commands.cmds, &self.help_scroll),
-            .track_spectrum  => try tui.drawFxView(self, w, content_rows, size.cols, snap, true),
-            .master_spectrum => try tui.drawFxView(self, w, content_rows, size.cols, snap, false),
+            .track_spectrum, .master_spectrum, .group_spectrum =>
+                try tui.drawFxView(self, w, content_rows, size.cols, snap, spectrum_ed.currentTarget(self)),
             .instrument_picker => try tui.drawInstrumentPicker(self, w, content_rows),
             .fx_picker       => try tui.drawFxPicker(self, w, content_rows),
             .arrangement     => try tui.drawArrangement(self, w, content_rows, size.cols, snap),
@@ -2028,8 +2116,8 @@ pub const App = struct {
             .sampler_editor  => try tui.drawSamplerStatus(self, &status_w, commands.cmds),
             .piano_roll      => try tui.drawPianoRollStatus(self, &status_w, commands.cmds),
             .help            => try status_w.writeAll(" j/k: scroll   d/u: page   g/G: top/bottom   esc: close"),
-            .track_spectrum  => try tui.drawFxStatus(self, &status_w, true, commands.cmds),
-            .master_spectrum => try tui.drawFxStatus(self, &status_w, false, commands.cmds),
+            .track_spectrum, .master_spectrum, .group_spectrum =>
+                try tui.drawFxStatus(self, &status_w, spectrum_ed.currentTarget(self), commands.cmds),
             .instrument_picker => try status_w.writeAll(" j/k: move   enter: insert   esc: cancel"),
             .fx_picker       => try status_w.writeAll(" j/k: move   enter: insert   esc: cancel"),
             .arrangement     => try tui.drawArrangementStatus(self, &status_w, commands.cmds),

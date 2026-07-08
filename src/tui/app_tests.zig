@@ -1580,6 +1580,76 @@ test "[/] cycle the cursor track's color, wrapping through none" {
     try std.testing.expect(std.mem.indexOf(u8, app.status_buf[0..app.status_len], "n/a") != null);
 }
 
+test "tracks visual mode: v/j selects a range, g groups it and opens the rename prompt" {
+    var app = try testApp(); // synth(0), sampler(1), drums(2)
+    defer app.deinit();
+    app.cursor = 0;
+
+    app.handleKey(.{ .char = 'v' }, 0);
+    try std.testing.expectEqual(ws.input.Mode.visual, app.modal.mode);
+    app.handleKey(.{ .char = 'j' }, 0); // extend to track 1 — selection is [0,1]
+
+    app.handleKey(.{ .char = 'g' }, 0);
+
+    // Both selected tracks joined the same new group; track 2 didn't.
+    const g = app.session.project.tracks.items[0].group.?;
+    try std.testing.expectEqual(g, app.session.project.tracks.items[1].group.?);
+    try std.testing.expectEqual(@as(?u8, null), app.session.project.tracks.items[2].group);
+    try std.testing.expect(app.session.groups[g] != null);
+
+    // The rename prompt is pre-filled, matching R's own convention.
+    try std.testing.expectEqual(ws.input.Mode.command, app.modal.mode);
+    var buf: [64]u8 = undefined;
+    const expected = std.fmt.bufPrint(&buf, "group-rename {d} ", .{g + 1}) catch unreachable;
+    try std.testing.expectEqualStrings(expected, app.modal.cmd_buf[0..app.modal.cmd_len]);
+}
+
+test "tracks visual mode: esc cancels; master row can't enter it" {
+    var app = try testApp();
+    defer app.deinit();
+    app.cursor = 0;
+    app.handleKey(.{ .char = 'v' }, 0);
+    app.handleKey(.escape, 0);
+    try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
+    try std.testing.expect(app.tracks_visual_anchor == null);
+
+    app.cursor = app.session.project.tracks.items.len; // master
+    app.handleKey(.{ .char = 'v' }, 0);
+    try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
+    try std.testing.expect(std.mem.indexOf(u8, app.status_buf[0..app.status_len], "n/a") != null);
+}
+
+test ":group-add/:group-rename/:group-del/:track-group/:group-fx" {
+    var app = try testApp();
+    defer app.deinit();
+
+    for (":group-add drums") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqualStrings("drums", app.session.groups[0].?.name);
+
+    for (":group-rename 1 drum bus") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqualStrings("drum bus", app.session.groups[0].?.name);
+
+    for (":track-group 3 1") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqual(@as(?u8, 0), app.session.project.tracks.items[2].group);
+
+    for (":group-fx 1") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqual(AppView.group_spectrum, app.view);
+    try std.testing.expectEqual(@as(u8, 0), app.eq_group);
+    app.handleKey(.escape, 0);
+
+    for (":track-group 3 none") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqual(@as(?u8, null), app.session.project.tracks.items[2].group);
+
+    for (":group-del 1") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expect(app.session.groups[0] == null);
+}
+
 test "c toggles the click track" {
     var app = try testApp();
     defer app.deinit();
@@ -3428,4 +3498,33 @@ test "FX chain: </> reorder and b bypass reach the engine chain" {
     try std.testing.expectEqual(@as(usize, 1), app.session.engine.master_chain_len);
     _ = spectrum_ed.handleKey(&app, .{ .char = 'b' });
     try std.testing.expectEqual(@as(usize, 2), app.session.engine.master_chain_len);
+}
+
+test "FX chain: switchToGroup opens a group's chain via the same shared editor" {
+    var app = try testApp();
+    defer app.deinit();
+    const g = try app.session.addGroup("bus");
+
+    spectrum_ed.switchToGroup(&app, g);
+    try std.testing.expectEqual(AppView.group_spectrum, app.view);
+    try std.testing.expectEqual(g, app.eq_group);
+
+    // 'a' opens the picker; accepting inserts into *this* group's chain,
+    // not the master's or a track's — same insert path 'a' already uses
+    // for those two, just resolved through fxPtr's third arm.
+    _ = spectrum_ed.handleKey(&app, .{ .char = 'a' });
+    try std.testing.expectEqual(AppView.fx_picker, app.view);
+    spectrum_ed.insertFromPicker(&app, .comp);
+    try std.testing.expectEqual(AppView.group_spectrum, app.view);
+    try std.testing.expectEqual(@as(usize, 1), app.session.groups[g].?.fx.units.items.len);
+    try std.testing.expectEqual(@as(usize, 1), app.session.engine.groups[g].chain_len);
+
+    // 'x' removes it, reaching the engine the same way.
+    _ = spectrum_ed.handleKey(&app, .{ .char = 'x' });
+    try std.testing.expectEqual(@as(usize, 0), app.session.groups[g].?.fx.units.items.len);
+    try std.testing.expectEqual(@as(usize, 0), app.session.engine.groups[g].chain_len);
+
+    // esc leaves group_spectrum cleanly, back to whatever opened it.
+    _ = spectrum_ed.handleKey(&app, .escape);
+    try std.testing.expect(app.view != .group_spectrum);
 }

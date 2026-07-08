@@ -83,7 +83,16 @@ pub fn drawTracks(app: anytype, w: *std.Io.Writer, rows: usize, snap: engine_mod
     const last_visible = @min(track_count, scroll + vis_rows);
     app.track_rows_shown = last_visible - scroll;
 
+    // Visual-mode selection: a contiguous track range (master excluded, the
+    // cursor never reaches it while this mode is active — see
+    // App.handleTracksVisual).
+    const visual_active = app.modal.mode == .visual;
+    const sel_anchor = app.tracks_visual_anchor orelse app.cursor;
+    const sel_lo = @min(sel_anchor, app.cursor);
+    const sel_hi = @max(sel_anchor, app.cursor);
+
     for (app.session.project.tracks.items[scroll..last_visible], scroll..) |track, i| {
+        const in_sel = visual_active and i >= sel_lo and i <= sel_hi;
         const inst_tag = std.meta.activeTag(app.session.racks.items[i].instrument);
         const is_empty = inst_tag == .empty;
         const label: []const u8 = if (is_empty) "-- empty --" else app.session.racks.items[i].label;
@@ -95,13 +104,14 @@ pub fn drawTracks(app: anytype, w: *std.Io.Writer, rows: usize, snap: engine_mod
         const is_sel = (i == app.cursor);
         // muted-but-not-selected rows get a dim wash over everything
         const faded = track.muted and !is_sel;
-        const marker: []const u8 = if (is_sel) ">" else " ";
+        const marker: []const u8 = if (is_sel) ">" else if (in_sel) "~" else " ";
 
-        if (is_sel) try w.writeAll(sel);
+        if (is_sel) try w.writeAll(sel) else if (in_sel) try w.writeAll(yel);
         if (faded) try w.writeAll(dim);
         try w.writeByte(' ');
         try w.writeAll(marker);
         try w.writeByte(' ');
+        if (in_sel and !is_sel) try w.writeAll(rst);
         try w.print("{d} ", .{i + 1});
         // name padded — color wraps the whole padded field so the field
         // width itself never sees an escape code (matches the label/gain
@@ -177,6 +187,18 @@ pub fn drawTracks(app: anytype, w: *std.Io.Writer, rows: usize, snap: engine_mod
             } else {
                 const pct: i32 = @intFromFloat(@abs(pan) * 100.0);
                 try w.print("  {s}{d}%", .{ if (pan < 0.0) "L" else "R", pct });
+            }
+        }
+        // Group membership tag — a small "belongs to" marker, only shown
+        // when actually grouped. Group name truncated to 8 chars, same cap
+        // the track-name field itself uses.
+        if (track.group) |g| {
+            if (g < app.session.groups.len) {
+                if (app.session.groups[g]) |grp| {
+                    if (!is_sel and !faded) try w.writeAll(dim);
+                    try w.print("  \u{2023}{s}", .{grp.name[0..@min(grp.name.len, 8)]});
+                    if (!is_sel and !faded) try w.writeAll(rst);
+                }
             }
         }
         // keybind hint — dim only when not already faded/selected

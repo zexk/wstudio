@@ -335,6 +335,22 @@ pub const TrackSnap = struct {
     /// it and load with color 0 ("none"), matching every track's look
     /// before this field existed — no version bump needed.
     color: u8 = 0,
+    /// Additive field: older files omit it and load ungrouped, matching
+    /// every track's routing before grouping existed. Indexes into
+    /// `Snapshot.groups` by position (see that field's own doc comment).
+    group: ?u8 = null,
+};
+
+/// One track-grouping submix bus. Mirrors `Session.Group`. `Snapshot.groups`
+/// is always exactly `engine_mod.max_groups` entries, dense — a slot's
+/// position in the array IS its index (same convention `TrackSnap.group`
+/// and the live `Session.groups`/`Engine.groups` fixed banks already use),
+/// so an unused slot is written out as `.{}` (`active = false`) rather than
+/// omitted, keeping every later slot's position stable.
+pub const GroupSnap = struct {
+    active: bool = false,
+    name: []const u8 = "",
+    fx_chain: []const FxUnitSnap = &.{},
 };
 
 pub const ClipKind = enum { melodic, drum };
@@ -394,6 +410,11 @@ pub const Snapshot = struct {
     master_fx: FxSnap = .{},
     /// v10: the master bus's user-built chain in signal-flow order.
     master_fx_chain: ?[]const FxUnitSnap = null,
+    /// Additive field: older files omit it (empty slice) and load with no
+    /// groups — every track's `TrackSnap.group` reference is then
+    /// necessarily null too, since a group it could point at never existed.
+    /// See `GroupSnap`'s own doc comment for the dense fixed-position shape.
+    groups: []const GroupSnap = &.{},
 };
 
 // ---------------------------------------------------------------------------
@@ -417,7 +438,22 @@ pub fn save(
 
     const tracks = try aa.alloc(TrackSnap, session.project.tracks.items.len);
     for (session.project.tracks.items, tracks) |t, *ts| {
-        ts.* = .{ .name = t.name, .gain_db = t.gain_db, .pan = t.pan, .muted = t.muted, .soloed = t.soloed, .color = t.color };
+        ts.* = .{
+            .name = t.name, .gain_db = t.gain_db, .pan = t.pan, .muted = t.muted,
+            .soloed = t.soloed, .color = t.color, .group = t.group,
+        };
+    }
+
+    // Dense, always max_groups entries so a slot's position in the array IS
+    // its index — TrackSnap.group references that position directly, no
+    // separate id field or remapping needed on either side.
+    const groups = try aa.alloc(GroupSnap, engine_mod.max_groups);
+    for (groups, 0..) |*gs, i| {
+        if (session.groups[i]) |*g| {
+            gs.* = .{ .active = true, .name = g.name, .fx_chain = try chainToSnap(aa, &g.fx, session.project.sample_rate) };
+        } else {
+            gs.* = .{};
+        }
     }
 
     const racks = try aa.alloc(RackSnap, session.racks.items.len);
@@ -445,6 +481,7 @@ pub fn save(
         .arrangement = lanes,
         .song_mode = session.song_mode,
         .master_fx_chain = try chainToSnap(aa, &session.master_fx, session.project.sample_rate),
+        .groups = groups,
     };
 
     const json_bytes = try std.json.Stringify.valueAlloc(aa, snap, .{ .whitespace = .indent_2 });
@@ -861,9 +898,13 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
         // track_palette, 7 entries) — the renderer already treats an
         // out-of-range color as "uncolored" gracefully, but clamping here
         // too matches this file's established hand-edited-.wsj hygiene.
+        // `group` is only bound-checked here (< max_groups); whether that
+        // slot is actually an active group gets swept below, once
+        // `snap.groups` itself has been loaded.
         _ = try project.addTrack(.{
             .name = t.name, .gain_db = t.gain_db, .pan = t.pan,
             .muted = t.muted, .soloed = t.soloed, .color = @min(t.color, 7),
+            .group = if (t.group) |g| (if (g < engine_mod.max_groups) g else null) else null,
         });
     }
 
@@ -999,6 +1040,26 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
     if (snap.master_fx_chain) |fc| try applyFxChain(allocator, &self.master_fx, fc, sr)
     else try applyLegacyFx(allocator, &self.master_fx, snap.master_fx, sr);
     self.syncMasterChain();
+
+    // Groups: dense, positional (see GroupSnap's doc comment) — restore
+    // exactly the active slots, push each to the engine, then sweep tracks
+    // for any `.group` reference that turned out to point at a slot this
+    // file never actually marked active (a hand-edited or truncated
+    // `groups` array) and null it out, same "clamp on load" hygiene the
+    // color/velocity/pad fields already follow.
+    const group_count = @min(snap.groups.len, engine_mod.max_groups);
+    for (snap.groups[0..group_count], 0..) |gs, i| {
+        if (!gs.active) continue;
+        const idx: u8 = @intCast(i);
+        self.groups[idx] = .{ .name = try allocator.dupe(u8, gs.name) };
+        try applyFxChain(allocator, &self.groups[idx].?.fx, gs.fx_chain, sr);
+        self.syncGroupChain(idx);
+    }
+    for (self.project.tracks.items) |*t| {
+        if (t.group) |g| {
+            if (g >= group_count or self.groups[g] == null) t.group = null;
+        }
+    }
 
     // Restore placed clips, then the song/pattern mode (setSongMode rebuilds the
     // device song buffers from the clips just placed).
@@ -1763,6 +1824,54 @@ test "buildSession: a 64-step pattern round-trips bit 63 without truncation" {
     try testing.expectEqual(@as(u8, 64), dm.step_count);
     try testing.expect(dm.stepActive(0, 63));
     try testing.expectEqual(@as(u64, 1) << 63, dm.pattern[0].load(.monotonic));
+}
+
+test "buildSession: groups round-trip name, FX chain, and track membership" {
+    const testing = std.testing;
+
+    var groups: [engine_mod.max_groups]GroupSnap = [_]GroupSnap{.{}} ** engine_mod.max_groups;
+    groups[2] = .{
+        .active = true,
+        .name = "drum bus",
+        .fx_chain = &.{.{ .kind = .comp, .comp = .{ .threshold_db = -12.0 } }},
+    };
+    const snap: Snapshot = .{
+        .tracks = &.{
+            .{ .name = "kick", .group = 2 },
+            .{ .name = "lead" }, // ungrouped
+        },
+        .racks = &.{
+            .{ .label = "kick", .kind = .empty },
+            .{ .label = "lead", .kind = .empty },
+        },
+        .groups = &groups,
+    };
+    var session = try buildSession(testing.allocator, &snap);
+    defer session.deinit();
+
+    try testing.expectEqualStrings("drum bus", session.groups[2].?.name);
+    try testing.expectEqual(@as(usize, 1), session.groups[2].?.fx.units.items.len);
+    try testing.expect(session.engine.groups[2].active);
+    try testing.expectEqual(@as(usize, 1), session.engine.groups[2].chain_len);
+
+    try testing.expectEqual(@as(?u8, 2), session.project.tracks.items[0].group);
+    try testing.expectEqual(@as(?u8, null), session.project.tracks.items[1].group);
+    try testing.expectEqual(@as(?u8, 2), session.engine.tracks[0].group);
+
+    // Unused slots (0, 1, 3..) stay unloaded — no phantom groups.
+    try testing.expect(session.groups[0] == null);
+    try testing.expect(!session.engine.groups[0].active);
+}
+
+test "buildSession: a track referencing a slot the file never marked active loads ungrouped" {
+    const testing = std.testing;
+    const snap: Snapshot = .{
+        .tracks = &.{.{ .name = "t", .group = 5 }}, // groups is empty — slot 5 was never active
+        .racks = &.{.{ .label = "t", .kind = .empty }},
+    };
+    var session = try buildSession(testing.allocator, &snap);
+    defer session.deinit();
+    try testing.expectEqual(@as(?u8, null), session.project.tracks.items[0].group);
 }
 
 test "choke groups round-trip through DrumSnap; older files load ungrouped" {

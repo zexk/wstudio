@@ -138,6 +138,10 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("J / K",        "move selected track down / up");
     t.key("[ / ]",        "cycle selected track's color (7 colors + none)");
     t.key("R",            "rename selected track (opens :track-rename <n>)");
+    t.key("v",            "visual mode: select a track range — g groups it (opens :group-rename)");
+    t.key(":group-fx <n>", "open group n's FX chain — same shared chain view as a track/master");
+    t.key(":track-group",  "<track> <group|none>  assign or clear a track's group by number");
+    t.key(":group-del <n>", "delete group n — members fall back to the master mix");
     t.key("tab",          "open the arrangement (song timeline) — tab there returns here");
     t.key("t",            "tap tempo (tap a few times to set bpm)");
     t.key("c",            "toggle the click track (also :metronome [on|off])");
@@ -258,7 +262,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("u / U / ^R",   "undo / redo (whole-lane, same as the arrangement's)");
     t.key("esc",          "back to the arrangement");
 
-    t.taggedSection(.spectrum, "FX CHAIN  (same chain view for a track or the master bus)");
+    t.taggedSection(.spectrum, "FX CHAIN  (same chain view for a track, the master bus, or a group)");
     t.key("",             "chains start empty; build them unit by unit, in any order, duplicates allowed");
     t.key("a",            "insert an effect after the focused slot (opens the FX picker)");
     t.key("x",            "remove the focused unit");

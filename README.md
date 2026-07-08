@@ -198,6 +198,13 @@ Done:
       accent when uncolored)
 - [x] Tracks view scrolls when there are more tracks than fit the terminal —
       the master row stays pinned at the bottom of the list
+- [x] Track grouping: `v` in the tracks view selects a range, `g` creates a
+      group and prompts for its name. Each group is a submix bus with its
+      own FX chain (`:group-fx <n>`, the same shared chain view a track or
+      the master bus uses) — member tracks sum into it before the group's
+      FX applies and the result joins the master mix. Up to 8 groups
+      (`:group-add`/`:group-rename`/`:group-del`, `:track-group <track>
+      <group|none>` for one-off membership changes), persisted
 - [x] Automation editor visual mode (`v`), range `y`/`d`/`P`, and `.` repeat —
       parity with the piano roll/drum grid/arrangement
 - [x] Piano-roll horizontal zoom (`Z`): toggles between the normal

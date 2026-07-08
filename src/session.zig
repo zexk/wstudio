@@ -52,6 +52,26 @@ pub const Session = struct {
     /// (`Snapshot.master_fx_chain`, see persist.zig). Push param/membership
     /// changes to the audio thread with `syncMasterChain`.
     master_fx: rack_mod.Fx = .{},
+    /// Track-grouping submix buses (see `Group`). Fixed bank of
+    /// `engine_mod.max_groups` slots, `null` = unused — same "fixed bank,
+    /// null-slot" shape `engine_mod.GroupState` mirrors on the audio-thread
+    /// side. Persisted (`Snapshot.groups`, see persist.zig).
+    groups: [engine_mod.max_groups]?Group = [_]?Group{null} ** engine_mod.max_groups,
+
+    /// One track-grouping submix bus: a named FX chain every member track's
+    /// summed signal passes through before the master mix — same idea as
+    /// `master_fx`, just scoped to whichever tracks point at it (see
+    /// `Track.group`, `Session.assignTrackGroup`). The FX-chain editor UI is
+    /// shared wholesale with tracks/master (tui/editors/spectrum.zig).
+    pub const Group = struct {
+        name: []u8,
+        fx: rack_mod.Fx = .{},
+
+        pub fn deinit(self: *Group, allocator: std.mem.Allocator) void {
+            allocator.free(self.name);
+            self.fx.deinit(allocator);
+        }
+    };
 
     /// Build the default session: a single blank track. Instruments are added
     /// per-track via `setInstrument`; the shipped `demo.wsj` is the curated
@@ -242,12 +262,14 @@ pub const Session = struct {
         _ = try self.project.addTrack(.{
             .name = name, .kind = src.kind, .gain_db = src.gain_db,
             .pan = src.pan, .muted = src.muted, .soloed = src.soloed,
+            .color = src.color, .group = src.group,
         });
 
         self.engine.applyInsertTrack(idx, idx, types.dbToGain(src.gain_db), src.pan, src.muted);
         var buf: [Rack.chain_cap]dsp.Device = undefined;
         self.engine.setTrackChain(idx, new_rack.chain(&buf));
         if (src.soloed) _ = self.engine.send(.{ .set_track_solo = .{ .track = idx, .soloed = true } });
+        if (src.group) |g| _ = self.engine.send(.{ .set_track_group = .{ .track = idx, .group = g } });
 
         if (self.song_mode) self.rebuildSongData();
 
@@ -352,6 +374,73 @@ pub const Session = struct {
     pub fn syncMasterChain(self: *Session) void {
         var buf: [rack_mod.Fx.max_units]dsp.Device = undefined;
         self.engine.setMasterChain(self.master_fx.chain(&buf));
+    }
+
+    /// Push group `idx`'s active FX units to the audio thread — same idea as
+    /// `syncMasterChain`, one group at a time. Call after inserting,
+    /// removing, reordering, or bypassing a unit in that group's chain, and
+    /// once for every active group after loading a project (see persist.zig).
+    /// A null (unused) slot pushes an empty, inactive chain, matching
+    /// `deleteGroup`'s own cleanup.
+    pub fn syncGroupChain(self: *Session, idx: u8) void {
+        if (idx >= engine_mod.max_groups) return;
+        var buf: [rack_mod.Fx.max_units]dsp.Device = undefined;
+        if (self.groups[idx]) |*g| {
+            self.engine.setGroupChain(idx, true, g.fx.chain(&buf));
+        } else {
+            self.engine.setGroupChain(idx, false, &.{});
+        }
+    }
+
+    /// Create a new group named `name` in the first free slot. Starts with
+    /// an empty FX chain — same "blank slate, user builds it" convention
+    /// `master_fx`/a fresh track's rack already follow.
+    pub fn addGroup(self: *Session, name: []const u8) error{ GroupLimitReached, OutOfMemory }!u8 {
+        for (&self.groups, 0..) |*slot, i| {
+            if (slot.* != null) continue;
+            const owned = try self.allocator.dupe(u8, name);
+            slot.* = .{ .name = owned };
+            const idx: u8 = @intCast(i);
+            self.syncGroupChain(idx);
+            return idx;
+        }
+        return error.GroupLimitReached;
+    }
+
+    /// Rename group `idx`. No-op on an unused slot.
+    pub fn renameGroup(self: *Session, idx: u8, name: []const u8) !void {
+        if (idx >= engine_mod.max_groups) return;
+        const g = &(self.groups[idx] orelse return);
+        const owned = try self.allocator.dupe(u8, name);
+        self.allocator.free(g.name);
+        g.name = owned;
+    }
+
+    /// Delete group `idx`: unassigns every member track (falls back to the
+    /// master mix, same as a track that was never grouped), frees the
+    /// group's name/FX chain, and tells the audio thread the slot is
+    /// inactive. No-op on an already-unused slot.
+    pub fn deleteGroup(self: *Session, idx: u8) void {
+        if (idx >= engine_mod.max_groups) return;
+        var g = self.groups[idx] orelse return;
+        for (self.project.tracks.items, 0..) |*t, ti| {
+            if (t.group == idx) self.assignTrackGroup(ti, null);
+        }
+        g.deinit(self.allocator);
+        self.groups[idx] = null;
+        self.syncGroupChain(idx);
+    }
+
+    /// Assign (or clear, with `null`) which group track `track_idx` submixes
+    /// through. Validates `group` against an active slot — an out-of-range
+    /// or unused index is treated as `null` (ungrouped) rather than silently
+    /// pointing at nothing, matching `renderTracks`'s own inactive-slot
+    /// fallback on the audio thread.
+    pub fn assignTrackGroup(self: *Session, track_idx: usize, group: ?u8) void {
+        if (track_idx >= self.project.tracks.items.len) return;
+        const resolved: ?u8 = if (group) |g| (if (g < engine_mod.max_groups and self.groups[g] != null) g else null) else null;
+        self.project.tracks.items[track_idx].group = resolved;
+        _ = self.engine.send(.{ .set_track_group = .{ .track = @intCast(track_idx), .group = resolved } });
     }
 
     /// Push the project's A/B loop region (bars) to the audio thread as
@@ -492,6 +581,7 @@ pub const Session = struct {
 
     pub fn deinit(self: *Session) void {
         self.master_fx.deinit(self.allocator);
+        for (&self.groups) |*slot| if (slot.*) |*g| g.deinit(self.allocator);
         self.arrangement.deinit(self.allocator);
         for (self.racks.items) |r| { r.deinit(self.allocator); self.allocator.destroy(r); }
         self.racks.deinit(self.allocator);
@@ -828,6 +918,72 @@ test "syncMasterChain pushes master_fx's active units to the engine" {
     s.master_fx.remove(s.allocator, 0);
     s.syncMasterChain();
     try std.testing.expectEqual(@as(usize, 1), s.engine.master_chain_len);
+}
+
+test "addGroup/assignTrackGroup/deleteGroup: CRUD, membership, and engine sync" {
+    var s = try Session.initDefault(std.testing.allocator);
+    defer s.deinit();
+    _ = try s.addTrack("second");
+
+    const g = try s.addGroup("drums bus");
+    try std.testing.expectEqualStrings("drums bus", s.groups[g].?.name);
+    try std.testing.expect(s.engine.groups[g].active);
+
+    s.assignTrackGroup(0, g);
+    try std.testing.expectEqual(@as(?u8, g), s.project.tracks.items[0].group);
+    var block: [128]@import("core/types.zig").Sample = undefined;
+    s.engine.process(&block); // set_track_group is queued; drain before checking the engine side
+    try std.testing.expectEqual(@as(?u8, g), s.engine.tracks[0].group);
+    // Track 1 stays ungrouped — assigning one track never touches another.
+    try std.testing.expectEqual(@as(?u8, null), s.project.tracks.items[1].group);
+
+    // Renaming and pushing an FX unit both reach the engine via syncGroupChain.
+    try s.renameGroup(g, "drum bus");
+    try std.testing.expectEqualStrings("drum bus", s.groups[g].?.name);
+    _ = try s.groups[g].?.fx.insert(s.allocator, 0, .comp, s.project.sample_rate);
+    s.syncGroupChain(g);
+    try std.testing.expectEqual(@as(usize, 1), s.engine.groups[g].chain_len);
+
+    // Deleting the group unassigns its members and marks the engine slot
+    // inactive — track 0 falls back to the master mix, not a dangling index.
+    s.deleteGroup(g);
+    try std.testing.expectEqual(@as(?u8, null), s.project.tracks.items[0].group);
+    s.engine.process(&block); // drain the unassign command deleteGroup queued
+    try std.testing.expectEqual(@as(?u8, null), s.engine.tracks[0].group);
+    try std.testing.expect(s.groups[g] == null);
+    try std.testing.expect(!s.engine.groups[g].active);
+}
+
+test "addGroup fails once every slot is taken; assignTrackGroup rejects an unused slot" {
+    var s = try Session.initDefault(std.testing.allocator);
+    defer s.deinit();
+
+    var i: u8 = 0;
+    while (i < @import("audio/engine.zig").max_groups) : (i += 1) {
+        _ = try s.addGroup("g");
+    }
+    try std.testing.expectError(error.GroupLimitReached, s.addGroup("one too many"));
+
+    // A track pointed at a never-created group index resolves to ungrouped,
+    // not a dangling reference — mirrors renderTracks's own fallback.
+    s.deleteGroup(0);
+    s.assignTrackGroup(0, 0);
+    try std.testing.expectEqual(@as(?u8, null), s.project.tracks.items[0].group);
+}
+
+test "duplicateTrack carries color and group along with gain/pan/mute/solo" {
+    var s = try Session.initDefault(std.testing.allocator);
+    defer s.deinit();
+    const g = try s.addGroup("bus");
+    s.project.tracks.items[0].color = 3;
+    s.assignTrackGroup(0, g);
+
+    const dup = try s.duplicateTrack(0);
+    try std.testing.expectEqual(@as(u8, 3), s.project.tracks.items[dup].color);
+    try std.testing.expectEqual(@as(?u8, g), s.project.tracks.items[dup].group);
+    var block: [128]@import("core/types.zig").Sample = undefined;
+    s.engine.process(&block); // duplicateTrack's set_track_group is queued
+    try std.testing.expectEqual(@as(?u8, g), s.engine.tracks[dup].group);
 }
 
 test "song-mode gain automation ramps a track's level down over the clip" {

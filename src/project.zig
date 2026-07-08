@@ -20,6 +20,10 @@ pub const Track = struct {
     /// look before this field existed). 1..track_palette.len index into
     /// `style.track_palette`, cycled with `[`/`]` in the tracks view.
     color: u8 = 0,
+    /// Which group submix bus (see `Session.Group`/`Session.groups`) this
+    /// track's signal routes through instead of straight to the master mix.
+    /// `null` (the default) is the pre-grouping behaviour, unchanged.
+    group: ?u8 = null,
 };
 
 pub const Project = struct {

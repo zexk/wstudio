@@ -74,6 +74,11 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "track-del",   .desc = "[n]  delete track n (default: cursor)", .run = wrap(cmdTrackDel) },
     .{ .name = "d",           .desc = "[n]  delete track n (alias for :track-del)", .run = wrap(cmdTrackDel) },
     .{ .name = "track-rename",.desc = "[<n>] <name>  rename track n (no n: cursor track)", .run = wrap(cmdTrackRename) },
+    .{ .name = "group-add",   .desc = "<name>  create a new track-grouping submix bus", .run = wrap(cmdGroupAdd) },
+    .{ .name = "group-rename",.desc = "<n> <name>  rename group n", .run = wrap(cmdGroupRename) },
+    .{ .name = "group-del",   .desc = "<n>  delete group n (members fall back to the master mix)", .run = wrap(cmdGroupDel) },
+    .{ .name = "group-fx",    .desc = "<n>  open group n's FX chain", .run = wrap(cmdGroupFx) },
+    .{ .name = "track-group", .desc = "<track> <group|none>  assign (or clear) which group a track submixes through", .run = wrap(cmdTrackGroup) },
     .{ .name = "save",        .desc = "[file]  save project (default: project.wsj)", .run = wrap(cmdSave) },
     .{ .name = "w",           .desc = "[file]  save project (alias for :save)",      .run = wrap(cmdSave) },
     .{ .name = "wa",          .desc = "[file]  save project (alias for :save)",      .run = wrap(cmdSave) },
@@ -261,7 +266,7 @@ pub fn cmdHelp(app: *App, _: []const u8) void {
         .piano_roll => .piano_roll,
         .arrangement => .arrangement,
         .automation => .automation,
-        .track_spectrum, .master_spectrum, .fx_picker => .spectrum,
+        .track_spectrum, .master_spectrum, .group_spectrum, .fx_picker => .spectrum,
         .file_browser => .file_browser,
         .help, .instrument_picker => null,
     };
@@ -413,6 +418,123 @@ fn cmdTrackRename(app: *App, args: []const u8) void {
     };
     app.dirty = true;
     app.setStatus("track {d} renamed to \"{s}\"", .{ n, rest });
+}
+
+fn cmdGroupAdd(app: *App, args: []const u8) void {
+    const name = std.mem.trim(u8, args, " ");
+    if (name.len == 0) {
+        app.setStatus("usage: group-add <name>", .{});
+        return;
+    }
+    const idx = app.session.addGroup(name) catch |err| {
+        app.setStatus("group-add: {s}", .{switch (err) {
+            error.GroupLimitReached => "bank full (8 groups)",
+            error.OutOfMemory => "out of memory",
+        }});
+        return;
+    };
+    app.dirty = true;
+    app.setStatus("group {d} \"{s}\" created", .{ idx + 1, name });
+}
+
+/// Group index from a 1-based command argument, or null with a status
+/// message already set — shared by every `:group-*`/`:track-group` command
+/// that takes one.
+fn parseGroupArg(app: *App, name: []const u8, s: []const u8) ?u8 {
+    const n = std.fmt.parseInt(u8, s, 10) catch {
+        app.setStatus("{s}: expected a group number", .{name});
+        return null;
+    };
+    if (n == 0 or n > ws.engine.max_groups) {
+        app.setStatus("{s}: group must be 1–{d}", .{ name, ws.engine.max_groups });
+        return null;
+    }
+    return n - 1;
+}
+
+fn cmdGroupRename(app: *App, args: []const u8) void {
+    var it = std.mem.splitScalar(u8, std.mem.trim(u8, args, " "), ' ');
+    const idx_str = it.next() orelse "";
+    const name = std.mem.trim(u8, it.rest(), " ");
+    if (idx_str.len == 0 or name.len == 0) {
+        app.setStatus("usage: group-rename <n> <name>", .{});
+        return;
+    }
+    const idx = parseGroupArg(app, "group-rename", idx_str) orelse return;
+    if (app.session.groups[idx] == null) {
+        app.setStatus("group-rename: group {d} doesn't exist", .{idx + 1});
+        return;
+    }
+    app.session.renameGroup(idx, name) catch {
+        app.setStatus("out of memory", .{});
+        return;
+    };
+    app.dirty = true;
+    app.setStatus("group {d} renamed to \"{s}\"", .{ idx + 1, name });
+}
+
+fn cmdGroupDel(app: *App, args: []const u8) void {
+    const idx_str = std.mem.trim(u8, args, " ");
+    if (idx_str.len == 0) {
+        app.setStatus("usage: group-del <n>", .{});
+        return;
+    }
+    const idx = parseGroupArg(app, "group-del", idx_str) orelse return;
+    if (app.session.groups[idx] == null) {
+        app.setStatus("group-del: group {d} doesn't exist", .{idx + 1});
+        return;
+    }
+    if (app.view == .group_spectrum and app.eq_group == idx) app.view = .tracks;
+    app.session.deleteGroup(idx);
+    app.dirty = true;
+    app.setStatus("group {d} deleted", .{idx + 1});
+}
+
+fn cmdGroupFx(app: *App, args: []const u8) void {
+    const idx_str = std.mem.trim(u8, args, " ");
+    if (idx_str.len == 0) {
+        app.setStatus("usage: group-fx <n>", .{});
+        return;
+    }
+    const idx = parseGroupArg(app, "group-fx", idx_str) orelse return;
+    if (app.session.groups[idx] == null) {
+        app.setStatus("group-fx: group {d} doesn't exist", .{idx + 1});
+        return;
+    }
+    spectrum_ed.switchToGroup(app, idx);
+}
+
+fn cmdTrackGroup(app: *App, args: []const u8) void {
+    var it = std.mem.splitScalar(u8, std.mem.trim(u8, args, " "), ' ');
+    const track_str = it.next() orelse "";
+    const group_str = std.mem.trim(u8, it.rest(), " ");
+    if (track_str.len == 0 or group_str.len == 0) {
+        app.setStatus("usage: track-group <track> <group|none>", .{});
+        return;
+    }
+    const track_1 = std.fmt.parseInt(usize, track_str, 10) catch {
+        app.setStatus("track-group: bad track number '{s}'", .{track_str});
+        return;
+    };
+    if (track_1 == 0 or track_1 > app.session.project.tracks.items.len) {
+        app.setStatus("track-group: track must be 1–{d}", .{app.session.project.tracks.items.len});
+        return;
+    }
+    const track_idx = track_1 - 1;
+    if (std.ascii.eqlIgnoreCase(group_str, "none")) {
+        app.session.assignTrackGroup(track_idx, null);
+        app.dirty = true;
+        app.setStatus("track {d}: ungrouped", .{track_1});
+        return;
+    }
+    const idx = parseGroupArg(app, "track-group", group_str) orelse return;
+    if (app.session.groups[idx] == null) {
+        app.setStatus("track-group: group {d} doesn't exist", .{idx + 1});
+        return;
+    }
+    app.session.assignTrackGroup(track_idx, idx);
+    app.dirty = true;
+    app.setStatus("track {d} → group {d}", .{ track_1, idx + 1 });
 }
 
 fn cmdLoadPad(app: *App, args: []const u8) void {

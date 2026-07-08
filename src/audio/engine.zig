@@ -20,8 +20,13 @@ pub const max_tracks = 8192;
 /// FX chain); setTrackChain silently truncates past it.
 pub const max_chain_devices = 12;
 pub const channels = 2;
+/// Track-grouping submix buses (see `TrackState.group`, `renderTracks`'s
+/// two-stage grouped-track routing). Same small-fixed-bank scale as
+/// max_variants/max_choke_groups elsewhere — a real UI-relevant count, not
+/// max_tracks' generous headroom.
+pub const max_groups: u8 = 8;
 
-pub const SpectrumSource = enum { none, track, master };
+pub const SpectrumSource = enum { none, track, master, group };
 
 pub const Command = union(enum) {
     play,
@@ -43,7 +48,13 @@ pub const Command = union(enum) {
     /// Nudge synth editor parameter `id` by `steps` on track `track`. Applied
     /// on the audio thread so editor edits don't race the block reader.
     set_track_param: struct { track: u16, id: u8, steps: i32 },
-    set_spectrum_active: struct { source: SpectrumSource, track: u16 },
+    /// Which group (if any) `track` submixes through before the master bus.
+    /// `null` routes straight to master, same as before grouping existed.
+    set_track_group: struct { track: u16, group: ?u8 },
+    /// `group` is only read when `source == .group` (reuses `track` as the
+    /// generic focus index otherwise, unchanged) — same one-analyzer-at-a-
+    /// time model track/master already share, see `Engine.track_spectrum`.
+    set_spectrum_active: struct { source: SpectrumSource, track: u16, group: u8 = 0 },
     /// A/B loop region (frames). See Transport.advance for the wrap.
     set_loop: struct { enabled: bool, start_frames: u64, end_frames: u64 },
     set_metronome: bool,
@@ -68,6 +79,25 @@ const TrackState = struct {
     muted: bool = false,
     soloed: bool = false,
     chain: [max_chain_devices]dsp.Device = undefined,
+    chain_len: usize = 0,
+    /// Which group submix bus (see `max_groups`) this track's post-gain/pan
+    /// signal routes through instead of straight to the master mix. `null`
+    /// (the default) is the pre-grouping behaviour, unchanged.
+    group: ?u8 = null,
+};
+
+/// One group submix bus: a named FX chain (see `Session.groups`, mirroring
+/// `master_chain`'s shape) every member track's summed signal passes
+/// through before reaching the master mix. `active` distinguishes an
+/// in-use slot from a never-created one — same convention `TrackState`
+/// itself uses, since `[max_groups]GroupState` is a fixed bank, not a
+/// growable list.
+const GroupState = struct {
+    active: bool = false,
+    /// Same fixed width as `master_chain` (Fx.max_units, hardcoded here the
+    /// same way master_chain's own field already does rather than importing
+    /// rack.zig just for the constant).
+    chain: [9]dsp.Device = undefined,
     chain_len: usize = 0,
 };
 
@@ -133,12 +163,18 @@ pub const Engine = struct {
     pre_roll_next_beat: u64 = 0,
     tracks: [max_tracks]TrackState,
     scratch: [types.max_block_frames * channels]Sample = undefined,
+    /// Group submix buses (see `TrackState.group`/`renderTracks`). Fixed
+    /// bank of `max_groups` (8), not multiplied by `max_tracks` — negligible
+    /// size (~256KB total), safe to embed directly unlike `AutomationPair`.
+    groups: [max_groups]GroupState = [_]GroupState{.{}} ** max_groups,
+    group_scratch: [max_groups][types.max_block_frames * channels]Sample = undefined,
     peak: [channels]f32 = .{ 0.0, 0.0 },
-    /// Single analyzer reused for whichever track is being viewed.
+    /// Single analyzer reused for whichever track/group is being viewed.
     track_spectrum: SpectrumAnalyzer,
     master_spectrum: SpectrumAnalyzer,
     active_spectrum_source: SpectrumSource = .none,
     active_spectrum_track: u16 = 0,
+    active_spectrum_group: u8 = 0,
     shared: Shared = .{},
     /// Offline-bounce handshake. When the UI thread sets `bounce_active`, the
     /// realtime backend parks (outputs silence, sets `bounce_parked`) so the UI
@@ -219,6 +255,7 @@ pub const Engine = struct {
                     .pan = t.pan,
                     .muted = t.muted,
                     .soloed = t.soloed,
+                    .group = t.group,
                 };
             } else {
                 state.* = .{};
@@ -366,6 +403,19 @@ pub const Engine = struct {
         }
     }
 
+    /// Same shape as `setMasterChain` but for group submix bus `idx` — FX
+    /// stages only, no instrument slot. `active` marks the group slot in use
+    /// (`renderTracks` skips inactive slots entirely); called whenever
+    /// `Session.groups[idx]` changes, same call-site convention
+    /// `syncMasterChain` already follows for the master bus.
+    pub fn setGroupChain(self: *Engine, idx: u8, active: bool, devices: []const dsp.Device) void {
+        if (idx >= max_groups) return;
+        const g = &self.groups[idx];
+        g.active = active;
+        g.chain_len = @min(devices.len, g.chain.len);
+        for (devices[0..g.chain_len], g.chain[0..g.chain_len]) |src, *dst| dst.* = src;
+    }
+
     pub fn send(self: *Engine, cmd: Command) bool {
         return self.commands.push(cmd);
     }
@@ -438,6 +488,15 @@ pub const Engine = struct {
         return self.track_spectrum.snapshot();
     }
 
+    /// Same idea as `trackSpectrumSnapshot`, keyed by group index instead —
+    /// shares the same reused `track_spectrum` analyzer (only one of
+    /// track/master/group can be in view at a time).
+    pub fn groupSpectrumSnapshot(self: *const Engine, group: u8) ?SpectrumSnapshot {
+        if (self.active_spectrum_source != .group or group != self.active_spectrum_group)
+            return null;
+        return self.track_spectrum.snapshot();
+    }
+
     pub fn masterSpectrumSnapshot(self: *const Engine) ?SpectrumSnapshot {
         return self.master_spectrum.snapshot();
     }
@@ -469,6 +528,7 @@ pub const Engine = struct {
             .cc         => |c| self.sendTrackEvent(c.track, .{ .cc         = .{ .cc   = c.cc,   .value = c.value } }),
             .pitch_bend => |c| self.sendTrackEvent(c.track, .{ .pitch_bend = .{ .bend = c.bend } }),
             .set_track_param => |c| self.sendTrackEvent(c.track, .{ .set_param = .{ .id = c.id, .steps = c.steps } }),
+            .set_track_group => |c| self.trackAt(c.track).group = c.group,
             .set_loop => |c| {
                 self.transport.loop_enabled = c.enabled;
                 self.transport.loop_start_frames = c.start_frames;
@@ -483,13 +543,16 @@ pub const Engine = struct {
             },
             .set_spectrum_active => |c| {
                 self.active_spectrum_source = c.source;
-                // Reset buffer when switching to a different track so stale
-                // data from the previous track doesn't bleed into the view.
-                if (c.source == .track and c.track != self.active_spectrum_track) {
+                // Reset buffer when switching to a different track/group so
+                // stale data from the previous one doesn't bleed into the view.
+                if ((c.source == .track and c.track != self.active_spectrum_track) or
+                    (c.source == .group and c.group != self.active_spectrum_group))
+                {
                     self.track_spectrum.accumulated = 0;
                 }
                 self.active_spectrum_track = c.track;
-                self.track_spectrum.active.store(c.source == .track, .release);
+                self.active_spectrum_group = c.group;
+                self.track_spectrum.active.store(c.source == .track or c.source == .group, .release);
                 self.master_spectrum.active.store(c.source == .master, .release);
             },
         };
@@ -519,6 +582,13 @@ pub const Engine = struct {
         // parameter curve, same granularity the metronome's beat math uses.
         const beat_pos = @as(f64, @floatFromInt(self.transport.position_frames)) / self.transport.framesPerBeat();
 
+        // Zero every active group's submix accumulator before tracks sum
+        // into it below — same per-block-zero convention as the per-track
+        // `scratch` buffer, just once per active group instead of per track.
+        for (&self.groups, 0..) |*g, gi| {
+            if (g.active) @memset(self.group_scratch[gi][0 .. frames * channels], 0.0);
+        }
+
         for (&self.tracks, 0..) |*track, ti| {
             if (!track.active or track.chain_len == 0) continue;
 
@@ -544,15 +614,45 @@ pub const Engine = struct {
             const angle = (pan + 1.0) * std.math.pi / 4.0;
             const gain_l = gain * @cos(angle);
             const gain_r = gain * @sin(angle);
+
+            // A grouped track (an active group assignment) submixes into its
+            // group's accumulator instead of straight to `out` — the
+            // group's own FX chain runs on the sum once every member has
+            // contributed, below. Ungrouped tracks (the default, and any
+            // track pointed at an inactive/removed group slot) are
+            // unaffected — same "no override" fallback automation uses.
+            const dest: []Sample = blk: {
+                if (track.group) |gidx| {
+                    if (gidx < max_groups and self.groups[gidx].active) {
+                        break :blk self.group_scratch[gidx][0 .. frames * channels];
+                    }
+                }
+                break :blk out;
+            };
             for (0..frames) |i| {
-                out[i * channels] += scratch[i * channels] * gain_l;
-                out[i * channels + 1] += scratch[i * channels + 1] * gain_r;
+                dest[i * channels] += scratch[i * channels] * gain_l;
+                dest[i * channels + 1] += scratch[i * channels + 1] * gain_r;
             }
 
             if (self.active_spectrum_source == .track and
                 ti == self.active_spectrum_track)
             {
                 self.track_spectrum.push(scratch);
+                self.track_spectrum.analyze();
+            }
+        }
+
+        // Each active group's FX chain applies to its submix, then the
+        // result sums into `out` — the same shape `process()` applies
+        // master_chain to the whole mix, one level up.
+        for (&self.groups, 0..) |*g, gi| {
+            if (!g.active) continue;
+            const gscratch = self.group_scratch[gi][0 .. frames * channels];
+            for (g.chain[0..g.chain_len]) |dev| dev.process(gscratch);
+            for (out, gscratch) |*o, s| o.* += s;
+
+            if (self.active_spectrum_source == .group and @as(u8, @intCast(gi)) == self.active_spectrum_group) {
+                self.track_spectrum.push(gscratch);
                 self.track_spectrum.analyze();
             }
         }
@@ -763,6 +863,60 @@ test "master FX chain processes the summed mix before gain/limiter" {
 
     try std.testing.expect(loud > 0.05);
     try std.testing.expect(quiet < loud * 0.5);
+}
+
+test "grouped tracks submix through their group's FX chain; ungrouped tracks are unaffected" {
+    var synth1 = PolySynth.init(48_000);
+    var synth2 = PolySynth.init(48_000);
+    var engine = try Engine.init(std.testing.allocator, 48_000);
+    defer engine.deinit();
+    engine.tracks[0] = .{ .active = true };
+    engine.tracks[1] = .{ .active = true };
+    engine.setTrackChain(0, &.{synth1.device()});
+    engine.setTrackChain(1, &.{synth2.device()});
+    _ = engine.send(.{ .note_on = .{ .track = 0, .note = 60, .velocity = 1.0 } });
+    _ = engine.send(.{ .note_on = .{ .track = 1, .note = 60, .velocity = 1.0 } });
+
+    var comp = Compressor.init(48_000);
+    comp.threshold_db = -60.0;
+    comp.ratio = 20.0;
+    comp.attack_ms = 0.1;
+    comp.release_ms = 0.1;
+    engine.setGroupChain(0, true, &.{comp.device()});
+    _ = engine.send(.{ .set_track_group = .{ .track = 0, .group = 0 } }); // track 1 stays ungrouped
+
+    var block: [512]Sample = undefined;
+    for (0..4) |_| engine.process(&block); // let envelopes settle
+
+    // Solo each track in turn to measure its own contribution to `out`.
+    _ = engine.send(.{ .set_track_solo = .{ .track = 0, .soloed = true } });
+    for (0..4) |_| engine.process(&block);
+    var grouped_loud: f32 = 0.0;
+    for (block) |s| grouped_loud = @max(grouped_loud, @abs(s));
+
+    _ = engine.send(.{ .set_track_solo = .{ .track = 0, .soloed = false } });
+    _ = engine.send(.{ .set_track_solo = .{ .track = 1, .soloed = true } });
+    for (0..4) |_| engine.process(&block);
+    var ungrouped_loud: f32 = 0.0;
+    for (block) |s| ungrouped_loud = @max(ungrouped_loud, @abs(s));
+
+    try std.testing.expect(ungrouped_loud > 0.05); // reaches `out` at all — routing works
+    try std.testing.expect(grouped_loud < ungrouped_loud * 0.5); // crushed by the group's compressor
+}
+
+test "a track pointed at an inactive group slot falls back to the master mix" {
+    var synth = PolySynth.init(48_000);
+    var engine = try Engine.init(std.testing.allocator, 48_000);
+    defer engine.deinit();
+    engine.tracks[0] = .{ .active = true, .group = 2 }; // group 2 never activated
+    engine.setTrackChain(0, &.{synth.device()});
+    _ = engine.send(.{ .note_on = .{ .track = 0, .note = 60, .velocity = 1.0 } });
+
+    var block: [512]Sample = undefined;
+    for (0..4) |_| engine.process(&block);
+    var loud: f32 = 0.0;
+    for (block) |s| loud = @max(loud, @abs(s));
+    try std.testing.expect(loud > 0.05); // still reaches `out`, not silently dropped
 }
 
 test "solo silences other tracks but keeps the soloed one" {
