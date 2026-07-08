@@ -2242,9 +2242,10 @@ test ":e Tab completes an unambiguous command name and adds a trailing space" {
     var app = try App.init(std.testing.allocator, std.Io.failing);
     defer app.deinit();
 
-    for (":boun") |c| app.handleKey(.{ .char = c }, 0);
+    // "boun" is now ambiguous (bounce / bounce-stems); "expor" still isn't.
+    for (":expor") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.tab, 0);
-    try std.testing.expectEqualStrings("bounce ", app.modal.cmd_buf[0..app.modal.cmd_len]);
+    try std.testing.expectEqualStrings("export ", app.modal.cmd_buf[0..app.modal.cmd_len]);
 }
 
 test "Tab cycles through multiple command-name matches instead of stalling at a common prefix" {

@@ -81,8 +81,9 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "x",           .desc = "[file]  save project and quit (alias for :wq)", .run = wrap(cmdWriteQuit) },
     .{ .name = "wq!",         .desc = "[file]  save project and quit (alias for :wq)", .run = wrap(cmdWriteQuit) },
     .{ .name = "xa",          .desc = "[file]  save project and quit (alias for :wq)", .run = wrap(cmdWriteQuit) },
-    .{ .name = "bounce",      .desc = "[file] [16|24]  render session to WAV (default: bounce.wav, 16-bit)", .run = wrap(cmdBounce) },
-    .{ .name = "export",      .desc = "[file] [16|24]  render session to WAV (alias for :bounce)",          .run = wrap(cmdBounce) },
+    .{ .name = "bounce",       .desc = "[file] [16|24]  render session to WAV (default: bounce.wav, 16-bit)", .run = wrap(cmdBounce) },
+    .{ .name = "export",       .desc = "[file] [16|24]  render session to WAV (alias for :bounce)",          .run = wrap(cmdBounce) },
+    .{ .name = "bounce-stems", .desc = "[dir] [16|24]  render each non-empty track soloed to <dir>/<track>.wav (default: stems/)", .run = wrap(cmdBounceStems) },
     .{ .name = "clear",       .desc = "erase all notes in the piano-roll pattern",          .run = wrap(cmdClear) },
     .{ .name = "%d",          .desc = "erase all notes in the pattern (alias for :clear)",  .run = wrap(cmdClear) },
     .{ .name = "metronome",   .desc = "[on|off]  toggle the click track",                   .run = wrap(cmdMetronome) },
@@ -693,17 +694,12 @@ fn cmdWriteQuit(app: *App, args: []const u8) void {
     app.should_quit = true;
 }
 
-/// Render the live session (patterns + synth params + drum grid) offline to
-/// a PCM WAV (16-bit by default, 24-bit with a trailing `24` argument).
-/// Length = the longest loop plus a 2s tail for reverb and release. The
-/// realtime backend is parked for the duration so the UI thread can drive
-/// the engine without racing the audio thread.
-fn cmdBounce(app: *App, args: []const u8) void {
-    var path_buf: [path_buf_len]u8 = undefined;
+/// Splits a `:bounce`-family arg string into the leading path/dir (possibly
+/// empty — caller supplies the default) and an optional trailing `16`/`24`
+/// bit-depth token (default 16-bit).
+fn parseBounceArgs(args: []const u8) struct { path: []const u8, bit_depth: ws.wav.BitDepth } {
     var trimmed = std.mem.trim(u8, args, " ");
     var bit_depth: ws.wav.BitDepth = .pcm16;
-    // Optional trailing `16`/`24` token picks the export bit depth; whatever
-    // remains (possibly empty) is the path.
     if (std.mem.lastIndexOfScalar(u8, trimmed, ' ')) |sp| {
         const tail = std.mem.trim(u8, trimmed[sp + 1 ..], " ");
         if (std.mem.eql(u8, tail, "24")) {
@@ -718,14 +714,18 @@ fn cmdBounce(app: *App, args: []const u8) void {
     } else if (std.mem.eql(u8, trimmed, "16")) {
         trimmed = "";
     }
-    const path = if (trimmed.len > 0) expandHome(&path_buf, trimmed) else "bounce.wav";
+    return .{ .path = trimmed, .bit_depth = bit_depth };
+}
 
+const BounceRange = struct { start_frame: u64, total_frames: u64, has_loop_region: bool };
+
+/// An armed A/B loop region bounces exactly that span (e.g. exporting one
+/// section to try in another tool); otherwise song mode renders the whole
+/// arrangement and pattern mode the longest loop. Both cases add a 2s tail
+/// for reverb and release.
+fn computeBounceRange(app: *App) BounceRange {
     const engine = app.session.engine;
     const sr = app.session.project.sample_rate;
-
-    // An armed A/B loop region bounces exactly that span (e.g. exporting one
-    // section to try in another tool); otherwise song mode renders the whole
-    // arrangement and pattern mode the longest loop.
     const loop = engine.transport;
     const has_loop_region = loop.loop_enabled and loop.loop_end_frames > loop.loop_start_frames;
     const start_frame: u64 = if (has_loop_region) loop.loop_start_frames else 0;
@@ -736,10 +736,30 @@ fn cmdBounce(app: *App, args: []const u8) void {
         } else @max(1.0, app.contentBeats());
         break :blk @intFromFloat(engine.transport.framesPerBeat() * max_beats);
     };
-    const total_frames = content_frames + types.secondsToFrames(2.0, sr);
+    return .{
+        .start_frame = start_frame,
+        .total_frames = content_frames + types.secondsToFrames(2.0, sr),
+        .has_loop_region = has_loop_region,
+    };
+}
+
+/// Render the live session (patterns + synth params + drum grid) offline to
+/// a PCM WAV (16-bit by default, 24-bit with a trailing `24` argument).
+/// Length = the longest loop plus a 2s tail for reverb and release. The
+/// realtime backend is parked for the duration so the UI thread can drive
+/// the engine without racing the audio thread.
+fn cmdBounce(app: *App, args: []const u8) void {
+    var path_buf: [path_buf_len]u8 = undefined;
+    const parsed = parseBounceArgs(args);
+    const path = if (parsed.path.len > 0) expandHome(&path_buf, parsed.path) else "bounce.wav";
+    const bit_depth = parsed.bit_depth;
+
+    const engine = app.session.engine;
+    const sr = app.session.project.sample_rate;
+    const range = computeBounceRange(app);
     const buffer = app.allocator.alloc(
         types.Sample,
-        @as(usize, @intCast(total_frames)) * engine_mod.channels,
+        @as(usize, @intCast(range.total_frames)) * engine_mod.channels,
     ) catch {
         app.setStatus("bounce: out of memory", .{});
         return;
@@ -751,7 +771,7 @@ fn cmdBounce(app: *App, args: []const u8) void {
         app.setStatus("bounce: audio thread did not park", .{});
         return;
     }
-    renderBounce(app, buffer, start_frame);
+    renderBounce(app, buffer, range.start_frame);
     engine.bounce_active.store(false, .release);
     engine.bounce_parked.store(false, .release);
 
@@ -768,10 +788,114 @@ fn cmdBounce(app: *App, args: []const u8) void {
     };
     fw.interface.flush() catch {};
 
-    if (has_loop_region) {
-        app.setStatus("bounced {d:.1}s (loop region) -> {s}", .{ types.framesToSeconds(total_frames, sr), path });
+    if (range.has_loop_region) {
+        app.setStatus("bounced {d:.1}s (loop region) -> {s}", .{ types.framesToSeconds(range.total_frames, sr), path });
     } else {
-        app.setStatus("bounced {d:.1}s -> {s}", .{ types.framesToSeconds(total_frames, sr), path });
+        app.setStatus("bounced {d:.1}s -> {s}", .{ types.framesToSeconds(range.total_frames, sr), path });
+    }
+}
+
+/// Fills `buf` with `name` reduced to filesystem-safe characters (alnum,
+/// space, `-`, `_`); anything else becomes `_`. Falls back to `track<N>`
+/// (1-based) if that leaves nothing.
+fn sanitizeStemName(buf: []u8, name: []const u8, index: usize) []const u8 {
+    var len: usize = 0;
+    for (name) |c| {
+        if (len >= buf.len) break;
+        buf[len] = switch (c) {
+            'a'...'z', 'A'...'Z', '0'...'9', '-', '_', ' ' => c,
+            else => '_',
+        };
+        len += 1;
+    }
+    if (len == 0) return std.fmt.bufPrint(buf, "track{d}", .{index + 1}) catch buf[0..0];
+    return buf[0..len];
+}
+
+/// `:bounce-stems [dir] [16|24]` — renders every non-empty track soloed in
+/// turn to `<dir>/<track-name>.wav` (default dir: `stems/`), using the same
+/// length/range rules as `:bounce` (armed loop region, else full song/
+/// pattern). Solo state is restored exactly afterward, whatever it was
+/// before this ran.
+fn cmdBounceStems(app: *App, args: []const u8) void {
+    var path_buf: [path_buf_len]u8 = undefined;
+    const parsed = parseBounceArgs(args);
+    const dir = if (parsed.path.len > 0) expandHome(&path_buf, parsed.path) else "stems";
+    const bit_depth = parsed.bit_depth;
+
+    const engine = app.session.engine;
+    const sr = app.session.project.sample_rate;
+    const range = computeBounceRange(app);
+    const buffer = app.allocator.alloc(
+        types.Sample,
+        @as(usize, @intCast(range.total_frames)) * engine_mod.channels,
+    ) catch {
+        app.setStatus("bounce-stems: out of memory", .{});
+        return;
+    };
+    defer app.allocator.free(buffer);
+
+    std.Io.Dir.cwd().createDirPath(app.io, dir) catch |e| {
+        app.setStatus("bounce-stems: {s}: {s}", .{ dir, @errorName(e) });
+        return;
+    };
+
+    const tracks = app.session.project.tracks.items;
+    const saved_solo = app.allocator.alloc(bool, tracks.len) catch {
+        app.setStatus("bounce-stems: out of memory", .{});
+        return;
+    };
+    defer app.allocator.free(saved_solo);
+    for (tracks, 0..) |t, i| saved_solo[i] = t.soloed;
+    defer for (tracks, 0..) |*t, i| {
+        t.soloed = saved_solo[i];
+        _ = engine.send(.{ .set_track_solo = .{ .track = @intCast(i), .soloed = saved_solo[i] } });
+    };
+
+    var stem_buf: [64]u8 = undefined;
+    var file_path_buf: [path_buf_len]u8 = undefined;
+    var rendered: usize = 0;
+    for (tracks, 0..) |t, i| {
+        if (std.meta.activeTag(app.session.racks.items[i].instrument) == .empty) continue;
+
+        for (tracks, 0..) |*t2, j| {
+            t2.soloed = (j == i);
+            _ = engine.send(.{ .set_track_solo = .{ .track = @intCast(j), .soloed = t2.soloed } });
+        }
+
+        if (!parkAudio(app)) {
+            engine.bounce_active.store(false, .release);
+            app.setStatus("bounce-stems: audio thread did not park", .{});
+            return;
+        }
+        renderBounce(app, buffer, range.start_frame);
+        engine.bounce_active.store(false, .release);
+        engine.bounce_parked.store(false, .release);
+
+        const stem_name = sanitizeStemName(&stem_buf, t.name, i);
+        const file_path = std.fmt.bufPrint(&file_path_buf, "{s}/{s}.wav", .{ dir, stem_name }) catch {
+            app.setStatus("bounce-stems: path too long for track {d}", .{i + 1});
+            continue;
+        };
+        const file = std.Io.Dir.cwd().createFile(app.io, file_path, .{}) catch |e| {
+            app.setStatus("bounce-stems: {s}: {s}", .{ file_path, @errorName(e) });
+            continue;
+        };
+        defer file.close(app.io);
+        var fbuf: [8192]u8 = undefined;
+        var fw = file.writer(app.io, &fbuf);
+        ws.wav.write(&fw.interface, sr, engine_mod.channels, buffer, bit_depth) catch |e| {
+            app.setStatus("bounce-stems: write failed for {s}: {s}", .{ stem_name, @errorName(e) });
+            continue;
+        };
+        fw.interface.flush() catch {};
+        rendered += 1;
+    }
+
+    if (rendered == 0) {
+        app.setStatus("bounce-stems: no non-empty tracks to render", .{});
+    } else {
+        app.setStatus("bounce-stems: {d} track(s) -> {s}/", .{ rendered, dir });
     }
 }
 
