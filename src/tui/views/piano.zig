@@ -155,9 +155,10 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
     }
     try endLine(w);
 
-    // 3 internal header rows (title + col labels + loop marker) + vis_rows note rows
-    // + outer header(2) + footer(3) must fit within `rows`, so max note rows = rows - 8.
-    const vis_rows: usize = @min(rows -| 8, 24);
+    // 3 internal header rows (title + col labels + loop marker) + vis_rows note
+    // rows + the caller's header/transport/status (3 rows total) must fit
+    // within `rows`, so max note rows = rows - 6.
+    const vis_rows: usize = @min(rows -| 6, 24);
     const left: u16 = app.piano_scroll_step;
 
     // Show the full loop (+ end-marker column) up to what fits on screen.

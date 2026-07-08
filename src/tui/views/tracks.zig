@@ -248,7 +248,10 @@ pub fn drawTracks(app: anytype, w: *std.Io.Writer, rows: usize, snap: engine_mod
         try endLine(w);
     }
 
-    const used = 4 + (last_visible - scroll);
+    // title(1) + master(1) actually printed above, plus the visible track
+    // rows — was "4 +" (stale from before the header/transport hr() rows
+    // were removed), leaving 2 rows of dead blank space above the footer.
+    const used = 2 + (last_visible - scroll);
     for (used..@max(used, rows -| 3)) |_| try endLine(w);
 }
 

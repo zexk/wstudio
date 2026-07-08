@@ -212,7 +212,7 @@ pub fn drawFxView(
     // view — app.zig's guard kicks back to tracks on the next key; just pad
     // here.
     const chain = spectrum_ed.fxPtr(app, target) orelse {
-        for (3..@max(3, rows -| 3)) |_| try endLine(w);
+        for (1..@max(1, rows -| 3)) |_| try endLine(w);
         return;
     };
 
@@ -246,11 +246,12 @@ pub fn drawFxView(
 
         const bands = spectrum_ed.eq_band_rows;
         // Header + strip + hint + section (6; 3 in compact mode) + graph
-        // + hz label + band rows must fit in rows-5. usize annotation
-        // matters: @min against the comptime spectrum_rows bound
+        // + hz label + band rows must fit in rows-3 (the caller's header/
+        // transport/status — no separate hr() rule rows anymore). usize
+        // annotation matters: @min against the comptime spectrum_rows bound
         // otherwise narrows the type to u5, and `visual_rows * 4`
         // overflows it.
-        const visual_rows: usize = @min(spectrum_rows, rows -| ((if (compact) @as(usize, 9) else 12) + bands));
+        const visual_rows: usize = @min(spectrum_rows, rows -| ((if (compact) @as(usize, 7) else 10) + bands));
         // Limit band count to available horizontal space (6-char dB gutter + bands).
         const draw_bands = @min(spectrum_band_count, cols -| 8);
 
@@ -408,11 +409,11 @@ pub fn drawFxView(
         }
     }
 
-    // Pad to fill the view's row budget (rows-5) so the footer stays pinned.
+    // Pad to fill the view's row budget (rows-3) so the footer stays pinned.
     // lines written: 1 (header) + strip + hint + 1 (section) + body_lines,
     // where strip+hint is 4 rows normally, 1 in compact mode.
     const prelude: usize = if (compact) 3 else 6;
-    const used = prelude + 2 + body_lines; // "+2 over lines-written" matches other views
+    const used = prelude + body_lines;
     for (used..@max(used, rows -| 3)) |_| try endLine(w);
 }
 

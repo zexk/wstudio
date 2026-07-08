@@ -70,8 +70,9 @@ pub fn drawSamplerEditor(
         break :blk placeholderPad();
     };
 
-    // Body budget: outer header(2) + transport/hr/status(3) = 5 lines reserved.
-    const body = rows -| 5;
+    // Body budget: the caller's header + transport + status (3 rows total,
+    // no separate hr() rule rows anymore) are reserved outside `rows`.
+    const body = rows -| 3;
     var written: usize = 0;
 
     // ── Title ────────────────────────────────────

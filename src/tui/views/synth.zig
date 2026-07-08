@@ -45,8 +45,9 @@ const enumRow = style.enumRow;
 /// it fits within `max_rows`. Always shows the title line, then slices the
 /// parameter body to keep the cursor in view.
 pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, snap: engine_mod.UiSnapshot) !void {
-    // Available rows for the view body (excludes outer header+hr + transport+hr+status).
-    const max_rows = rows -| 5;
+    // Available rows for the view body (excludes the caller's header +
+    // transport + status — 3 rows total, no separate hr() rule rows anymore).
+    const max_rows = rows -| 3;
     // Clamp scroll so cursor row is visible.
     const cursor_row = @import("../editors/synth.zig").paramRow(app.synth_cursor);
     var scroll = app.synth_scroll;
@@ -65,9 +66,16 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, snap: engin
     var row: usize = 0;
     var written: usize = 0;
     // Always emit the title line (row 0) first, outside the scroll window.
+    // Each copied line gets its own explicit \x1b[K clear rather than
+    // relying on the source line's own embedded one: splitSequence yields
+    // one trailing EMPTY segment when `full` ends with the "\r\n" delimiter
+    // (it always does, since every source line ends via endLine), and that
+    // empty segment has no embedded clear code of its own — without this,
+    // scrolling to the exact end of the param list left stale text from a
+    // previous frame's different scroll position visible on that row.
     if (line_it.next()) |title| {
         try w.writeAll(title);
-        try w.writeAll("\r\n");
+        try endLine(w);
         written += 1;
         row += 1;
     }
@@ -75,12 +83,10 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, snap: engin
         if (written >= max_rows) break;
         if (row < scroll + 1) continue; // +1 because title was row 0
         try w.writeAll(line);
-        try w.writeAll("\r\n");
+        try endLine(w);
         written += 1;
     }
     while (written < max_rows) : (written += 1) try endLine(w);
-    // used: outer header(1)+hr(1) are already counted; view writes max_rows rows.
-    // Padding: none needed — we already filled exactly max_rows.
 }
 
 fn drawSynthEditorFull(app: anytype, w: *std.Io.Writer, snap: engine_mod.UiSnapshot) !void {

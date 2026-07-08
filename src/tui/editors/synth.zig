@@ -86,9 +86,12 @@ pub fn paramRow(cursor: u8) usize {
 }
 
 pub fn updateScroll(app: *App) void {
-    // Will be called with an actual max_rows at draw time; use 20 as a safe
-    // minimum so the scroll is kept reasonable even before the first draw.
-    const max_rows: usize = 20;
+    // Will be re-clamped against the real max_rows at draw time (views/
+    // synth.zig's drawSynthEditor); this is just a same-ballpark estimate
+    // so the scroll is already reasonable before that first real draw.
+    // Was 20 (tuned against the old rows-|5 body budget, pre-hr()-removal);
+    // bumped by the same +2 the real budget gained.
+    const max_rows: usize = 22;
     const row = paramRow(app.synth_cursor);
     if (row < app.synth_scroll) app.synth_scroll = row;
     if (row >= app.synth_scroll + max_rows) app.synth_scroll = row - max_rows + 1;

@@ -182,8 +182,10 @@ pub fn drawArrangement(
         try endLine(w);
     }
 
-    // used includes the 2 outer rows (header + hr) so padding aligns with drum-grid convention
-    const used = 4 + (last_lane - lane_scroll);
+    // used = title(1) + ruler(1) actually printed above, plus the visible
+    // lane rows — was "4 +" (stale from before the header/transport hr()
+    // rows were removed), leaving 2 rows of dead blank space above the footer.
+    const used = 2 + (last_lane - lane_scroll);
     for (used..@max(used, rows -| 3)) |_| try endLine(w);
 }
 

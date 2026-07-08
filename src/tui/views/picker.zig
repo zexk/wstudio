@@ -75,8 +75,10 @@ pub fn drawInstrumentPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void 
         try endLine(w);
     }
 
-    // used includes the 2 outer rows (header + hr) so padding aligns with drum-grid convention
-    const used = 4 + picker_menu.len;
+    // used = title(1) + blank(1) actually printed above, plus the menu rows
+    // — was "4 +" (stale from before the header/transport hr() rows were
+    // removed), leaving 2 rows of dead blank space above the footer.
+    const used = 2 + picker_menu.len;
     for (used..@max(used, rows -| 3)) |_| try endLine(w);
 }
 
@@ -124,8 +126,10 @@ pub fn drawFxPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void {
         try endLine(w);
     }
 
-    // used includes the 2 outer rows (header + hr) so padding aligns with drum-grid convention
-    const used = 4 + fx_picker_menu.len;
+    // used = title(1) + blank(1) actually printed above, plus the menu rows
+    // — was "4 +" (stale from before the header/transport hr() rows were
+    // removed), leaving 2 rows of dead blank space above the footer.
+    const used = 2 + fx_picker_menu.len;
     for (used..@max(used, rows -| 3)) |_| try endLine(w);
 }
 

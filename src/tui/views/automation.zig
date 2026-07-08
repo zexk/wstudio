@@ -86,7 +86,7 @@ pub fn drawAutomation(
     const clip = currentClip(app) orelse {
         try w.writeAll(bold ++ " AUTOMATION" ++ rst ++ dim ++ "  clip gone — esc" ++ rst);
         try endLine(w);
-        for (3..@max(3, rows -| 3)) |_| try endLine(w);
+        for (1..@max(1, rows -| 3)) |_| try endLine(w);
         return;
     };
 
@@ -144,7 +144,7 @@ pub fn drawAutomation(
     // interpolated-only steps are dim, the cursor is reverse-video, a
     // visual-mode selection tints its range yellow (matching the piano
     // roll's `in_sel` convention).
-    const graph_rows: usize = @max(1, @min(8, rows -| 8));
+    const graph_rows: usize = @max(1, @min(8, rows -| 6));
     for (0..graph_rows) |line| {
         const row_base = (graph_rows - 1 - line) * 8; // eighth-blocks below this row
         try w.writeAll("   ");
@@ -187,8 +187,10 @@ pub fn drawAutomation(
     }
     try endLine(w);
 
-    // used includes the 2 outer rows (header + hr) so padding aligns with drum-grid convention
-    const used = 5 + graph_rows;
+    // used = title(1) + ruler(1) + caret row(1) actually printed, plus the
+    // graph's own rows — was "5 +" (stale from before the header/transport
+    // hr() rows were removed), leaving 2 rows of dead blank space above the footer.
+    const used = 3 + graph_rows;
     for (used..@max(used, rows -| 3)) |_| try endLine(w);
 }
 

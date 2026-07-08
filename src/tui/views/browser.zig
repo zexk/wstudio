@@ -41,7 +41,7 @@ pub fn drawFileBrowser(app: anytype, w: *std.Io.Writer, rows: usize) !void {
     try endLine(w);
 
     const entries = app.browser_entries.items;
-    const body = rows -| 7; // 2 lines above + the frame's 5 (header/hr/transport/hr/status)
+    const body = rows -| 5; // 2 lines above + the caller's header/transport/status (3)
     const visible = @max(body, 1);
     if (entries.len == 0) {
         try w.writeAll(dim ++ "  (empty)" ++ rst);
@@ -99,7 +99,7 @@ fn drawBookmarkList(app: anytype, w: *std.Io.Writer, rows: usize) !void {
     try endLine(w);
 
     const marks = app.bookmarks.items;
-    const body = rows -| 7;
+    const body = rows -| 5; // 2 lines above + the caller's header/transport/status (3)
     const visible = @max(body, 1);
     if (marks.len == 0) {
         try w.writeAll(dim ++ "  (no bookmarks)" ++ rst);
