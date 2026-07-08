@@ -1431,10 +1431,11 @@ test ":sig sets beats per bar and reshapes bar math" {
     app.session.engine.process(&block);
     try std.testing.expectEqual(@as(u8, 3), app.session.engine.transport.time_signature.beats_per_bar);
 
-    // A 16-step (4-beat) drum pattern now spans 2 bars of 3/4 when stamped.
+    // A 32-step (8-beat) drum pattern now spans 3 bars of 3/4 when stamped
+    // (8 beats doesn't divide evenly into 3-beat bars, so it rounds up).
     try app.session.stampClip(2, 0);
     const clip = app.session.arrangement.lane(2).?.clips.items[0];
-    try std.testing.expectEqual(@as(u32, 2), clip.length_bars);
+    try std.testing.expectEqual(@as(u32, 3), clip.length_bars);
 
     // Bad input is rejected and leaves the setting alone.
     for (":sig 3/8") |c| app.handleKey(.{ .char = c }, 0);
@@ -1750,13 +1751,13 @@ test "count prefixes multiply editor motions and die with the next key" {
     for ("4l") |c| app.handleKey(.{ .char = c }, 0);
     try std.testing.expectEqual(@as(u8, 4), app.drum_cursor[1]);
     for ("99l") |c| app.handleKey(.{ .char = c }, 0);
-    try std.testing.expectEqual(@as(u8, 15), app.drum_cursor[1]); // 16 steps
+    try std.testing.expectEqual(@as(u8, 31), app.drum_cursor[1]); // 32 steps
 
     // An unused count is discarded by the handled key it preceded ('p'
     // previews, no count) — the following motion moves 1, not 5.
     for ("5p") |c| app.handleKey(.{ .char = c }, 0);
     for ("h") |c| app.handleKey(.{ .char = c }, 0);
-    try std.testing.expectEqual(@as(u8, 14), app.drum_cursor[1]);
+    try std.testing.expectEqual(@as(u8, 30), app.drum_cursor[1]);
 
     // Arrangement: 3l = three bars.
     app.view = .arrangement;

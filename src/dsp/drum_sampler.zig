@@ -183,7 +183,7 @@ pub const DrumMachine = struct {
             .pattern = undefined,
             .vel_lo = undefined,
             .vel_hi = undefined,
-            .step_count = 16, // default 1 bar; user can extend to max_steps with >
+            .step_count = 32, // default 2 bars; user can extend to max_steps with >
 
             .next_step_k = 0,
             .current_step = .init(0),
@@ -707,8 +707,8 @@ test "step sequencer fires pads at correct boundaries" {
         dm.processBlock(&buf);
         transport.advance(256);
     }
-    // After exactly one bar (16 steps × 6000 = 96000 frames) step 0 fires again
-    while (transport.position_frames < 96_000) {
+    // After exactly one loop (32 steps × 6000 = 192000 frames) step 0 fires again
+    while (transport.position_frames < 192_000) {
         @memset(&buf, 0.0);
         dm.processBlock(&buf);
         transport.advance(256);
@@ -969,11 +969,11 @@ test "variants: step count is per-variant" {
     defer dm.deinit();
 
     try std.testing.expect(dm.addVariant());
-    dm.setStepCount(32);
+    dm.setStepCount(24);
     dm.selectVariant(0);
-    try std.testing.expectEqual(@as(u8, 16), dm.step_count);
+    try std.testing.expectEqual(@as(u8, 32), dm.step_count); // default, untouched
     dm.selectVariant(1);
-    try std.testing.expectEqual(@as(u8, 32), dm.step_count);
+    try std.testing.expectEqual(@as(u8, 24), dm.step_count);
 }
 
 test "variants: cycle wraps and remove shifts the bank down" {

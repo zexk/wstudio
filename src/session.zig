@@ -717,9 +717,9 @@ test "stampClip captures the active drum variant" {
     dm.toggleStep(1, 2); // variant B: pad 1 step 2 only
     dm.setStepVel(1, 2, 2); // at 50% velocity
 
-    try s.stampClip(0, 0); // stamps B (active)
+    try s.stampClip(0, 0); // stamps B (active) — spans bars 0-1 (32 steps = 2 bars)
     dm.selectVariant(0);
-    try s.stampClip(0, 1); // stamps A
+    try s.stampClip(0, 2); // stamps A — bar 2, past B's span so it isn't evicted
 
     const lane = s.arrangement.lane(0).?;
     const b = lane.clips.items[0].content.drum;
@@ -746,10 +746,11 @@ test "song mode places a drum clip on the step timeline" {
     try std.testing.expectEqual(@as(u16, 1), dm.song_clip_count);
     // 4/4, 16th-note steps → 16 steps per bar, so bar 1 starts at step 16.
     try std.testing.expectEqual(@as(u32, 16), dm.song_clips[0].start_step);
-    try std.testing.expectEqual(@as(u32, 16), dm.song_clips[0].span_steps);
+    // The clip's own pattern is 32 steps (2 bars) — the new default.
+    try std.testing.expectEqual(@as(u32, 32), dm.song_clips[0].span_steps);
     try std.testing.expectEqual(@as(u32, 1), dm.song_clips[0].pattern[0]);
-    // Arrangement spans bars 0..2 (clip covers bar 1) → 32 steps.
-    try std.testing.expectEqual(@as(u32, 32), dm.song_length_steps);
+    // Arrangement spans bars 0..3 (clip covers bars 1-2) → 48 steps.
+    try std.testing.expectEqual(@as(u32, 48), dm.song_length_steps);
 }
 
 test "setMetronome mirrors to the engine" {
