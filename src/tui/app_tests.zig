@@ -710,17 +710,18 @@ test "drum grid operator+motion: d3l / y3l act on a range without entering visua
     try std.testing.expect(!dm.stepActive(3, 14));
 }
 
-test "drum grid char/word tiers: x clears just this cell, w/b jump by bar" {
+test "drum grid char/word tiers: x clears just this cell, w/b jump by 4-step group" {
     var app = try testApp();
     defer app.deinit();
     app.view = .drum_grid;
     app.drum_track = 2;
     const dm = app.drumMachine();
     for (&dm.pattern) |*p| p.store(0, .monotonic);
-    dm.setStepCount(32); // 2 bars at 16 steps/bar
-    dm.toggleStep(0, 5);
+    dm.setStepCount(32);
+    dm.toggleStep(0, 5); // outside the first 4-step group (0-3)
     dm.toggleStep(2, 5);
-    dm.toggleStep(1, 20); // bar 2
+    dm.toggleStep(2, 2); // inside the first 4-step group
+    dm.toggleStep(1, 20); // far away, untouched by anything below
 
     // x: instant single-cell clear, no operator arming needed.
     app.drum_cursor = .{ 0, 5 };
@@ -729,17 +730,18 @@ test "drum grid char/word tiers: x clears just this cell, w/b jump by bar" {
     try std.testing.expect(!dm.stepActive(0, 5));
     try std.testing.expect(dm.stepActive(2, 5)); // a different pad's step at the same column survives
 
-    // w: jump forward to the next bar boundary (step 16); b: back to bar 0.
+    // w: jump forward to the next 4-step group boundary (step 4); b: back to 0.
     app.drum_cursor = .{ 0, 0 };
     app.handleKey(.{ .char = 'w' }, 0);
-    try std.testing.expectEqual(@as(u8, 16), app.drum_cursor[1]);
+    try std.testing.expectEqual(@as(u8, 4), app.drum_cursor[1]);
     app.handleKey(.{ .char = 'b' }, 0);
     try std.testing.expectEqual(@as(u8, 0), app.drum_cursor[1]);
 
-    // dw: clear exactly the current bar's steps (0-15), leaving bar 2's
-    // step untouched.
+    // dw: clear exactly the current 4-step group (0-3), leaving steps
+    // outside it (5, 20) untouched.
     for ("dw") |c| app.handleKey(.{ .char = c }, 0);
-    try std.testing.expect(!dm.stepActive(2, 5));
+    try std.testing.expect(!dm.stepActive(2, 2));
+    try std.testing.expect(dm.stepActive(2, 5));
     try std.testing.expect(dm.stepActive(1, 20));
 }
 

@@ -29,10 +29,10 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
     // arming point (every pad, matching the visual-mode range) — j/k (pad
     // motion) aren't valid here, same time-range-only restriction visual
     // mode's own range select has. Vim's char/word/line hierarchy maps onto
-    // this editor as step (x, below) / bar (w/b, dw/yw) / whole pattern
-    // (dd/yy) — the same operator key again (dd/yy) clears/yanks the entire
-    // pattern (every pad) rather than a zero-width range. Anything else
-    // cancels.
+    // this editor as step (x, below) / 4-step group (w/b, dw/yw) / whole
+    // pattern (dd/yy) — the same operator key again (dd/yy) clears/yanks the
+    // entire pattern (every pad) rather than a zero-width range. Anything
+    // else cancels.
     if (app.drum_op_pending) |op| {
         app.drum_op_pending = null;
         switch (key) {
@@ -98,7 +98,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 },
                 // w/b: vim's word motion, one tier up from h/l's step
                 // ("char") granularity — jump to the start of the
-                // next/current-or-previous bar.
+                // next/current-or-previous 4-step group (see barLenSteps).
                 'w' => jumpBar(app, app.takeCount()),
                 'b' => jumpBar(app, -app.takeCount()),
                 'a' => {
@@ -216,15 +216,20 @@ fn movePad(app: *App, delta: i32) void {
     app.drum_cursor[0] = @intCast(std.math.clamp(@as(i32, app.drum_cursor[0]) + delta, 0, DrumMachine.max_pads - 1));
 }
 
-/// Bar length in steps (drum grid has no grid toggle, always 16th notes —
-/// 4 steps/beat).
+/// w/b's jump granularity: 4 steps, matching the grid's own `│` separators
+/// (views/drum.zig draws one every 4 steps, independent of time signature).
+/// A full musical bar (beats_per_bar * 4 steps) turned out to be too coarse
+/// in practice — with the default 16-step pattern that's the whole visible
+/// grid in one jump, so w/b now move by the same "decorative bar" grouping
+/// the separators already show on screen.
 fn barLenSteps(app: *App) u8 {
-    return @intCast(@as(u32, app.session.project.beats_per_bar) * 4);
+    _ = app;
+    return 4;
 }
 
-/// w/b: jump the step cursor `delta` bars forward/back (vim's word motion,
-/// one tier up from h/l's step granularity) — snaps to the nearest bar
-/// boundary first, then moves whole bars from there.
+/// w/b: jump the step cursor `delta` 4-step groups forward/back (vim's word
+/// motion, one tier up from h/l's step granularity) — snaps to the nearest
+/// group boundary first, then moves whole groups from there.
 fn jumpBar(app: *App, delta: i32) void {
     const bar_len = barLenSteps(app);
     if (bar_len == 0) return;
