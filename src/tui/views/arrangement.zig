@@ -119,9 +119,20 @@ pub fn drawArrangement(
     for (app.session.project.tracks.items[lane_scroll..last_lane], lane_scroll..) |track, li| {
         const lane = app.session.arrangement.lane(li);
         const is_sel_lane = li == app.cursor;
+        // Per-track color (see tui/style.zig's track_palette, cycled with
+        // `[`/`]` in the tracks view) — falls back to the generic accent
+        // for clip cells below (unchanged look for uncolored tracks), and
+        // to no color at all for the lane name (matches tracks.zig's own
+        // name-coloring, which leaves an uncolored track plain).
+        const track_color: ?[]const u8 = if (track.color > 0 and track.color <= style.track_palette.len)
+            style.track_palette[track.color - 1]
+        else
+            null;
 
         if (is_sel_lane) try w.writeAll(sel);
+        if (!is_sel_lane) if (track_color) |c| try w.writeAll(c);
         try w.print(" {d: >2} {s: <8}", .{ li + 1, track.name[0..@min(track.name.len, 8)] });
+        if (!is_sel_lane) if (track_color) |_| try w.writeAll(rst);
         if (is_sel_lane) try w.writeAll(rst);
 
         for (0..visible) |c| {
@@ -149,7 +160,7 @@ pub fn drawArrangement(
             } else if (in_sel) {
                 try w.writeAll(yel);
             } else if (covered) {
-                try w.writeAll(acc);
+                try w.writeAll(track_color orelse acc);
             }
             if (cw == 2) {
                 if (!covered) {

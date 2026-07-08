@@ -366,6 +366,29 @@ test ":ghost overlays another melodic track's notes, dimmed, only when on" {
     try std.testing.expect(std.mem.indexOf(u8, w2.buffered(), style.dim ++ "[") != null);
 }
 
+test "arrangement view colors a lane and its clips with the track's color" {
+    var app = try testApp(); // synth(0), sampler(1), drums(2)
+    defer app.deinit();
+    app.session.racks.items[0].pattern_player.?.addNote(
+        .{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.5 },
+    );
+    try app.session.stampClip(0, 2); // clip off the cursor lane, unselected
+    app.view = .arrangement;
+    app.cursor = 1; // select a different lane so track 0's row isn't reverse-video
+
+    var buf: [32 * 1024]u8 = undefined;
+    var w = std.Io.Writer.fixed(&buf);
+    try app.draw(&w, .{ .cols = 100, .rows = 30 });
+    // Uncolored (default): the clip cell still wears the generic accent.
+    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), style.acc) != null);
+
+    app.session.project.tracks.items[0].color = 1; // red, index 0 of the palette
+    var buf2: [32 * 1024]u8 = undefined;
+    var w2 = std.Io.Writer.fixed(&buf2);
+    try app.draw(&w2, .{ .cols = 100, .rows = 30 });
+    try std.testing.expect(std.mem.indexOf(u8, w2.buffered(), style.red) != null);
+}
+
 test "piano roll yank/paste moves a pattern across tracks" {
     var app = try testApp();
     defer app.deinit();
