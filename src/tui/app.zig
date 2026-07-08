@@ -269,6 +269,11 @@ pub const App = struct {
     piano_op_pending: ?u8 = null,
     drum_op_pending: ?u8 = null,
     arr_op_pending: ?u8 = null,
+    /// Tracks view: `d` arms, a second `d` (dd) deletes the cursor track
+    /// immediately — no confirm prompt, same "operator + same key repeats on
+    /// the whole line" grammar piano/drum/arrangement use for their own
+    /// dd/yy. Any other key cancels.
+    tracks_del_pending: bool = false,
     /// Visual-mode range clipboards (y/d/P while `.visual`), separate from
     /// the whole-pattern/single-clip clipboards above.
     piano_range_clip: ?PianoClip = null,
@@ -564,6 +569,18 @@ pub const App = struct {
                 // same list, same cursor, but it can't be deleted/duplicated/
                 // moved/renamed/muted/soloed and has no piano roll or pan.
                 const on_master = self.cursor == self.session.project.tracks.items.len;
+                // `d` arms; a second `d` (dd) deletes the cursor track right
+                // away, no confirm — checked first so it wins over every
+                // other binding below and can't get stuck armed.
+                if (self.tracks_del_pending) {
+                    self.tracks_del_pending = false;
+                    if (key == .char and key.char == 'd') {
+                        self.doTrackDel(self.cursor);
+                    } else {
+                        self.setStatus("cancelled", .{});
+                    }
+                    return;
+                }
                 if (key == .tab and self.modal.mode == .normal) {
                     self.view = .arrangement;
                     return;
@@ -593,7 +610,7 @@ pub const App = struct {
                             'u' => { history.doUndo(self); return; },
                             'U' => { history.doRedo(self); return; },
                             't' => { self.tapTempo(now_ns); return; },
-                            'D', 'Y', 'J', 'K', 'R', 'p', '<', '>' => {
+                            'd', 'Y', 'J', 'K', 'R', 'p', '<', '>' => {
                                 self.setStatus("master bus: n/a", .{});
                                 return;
                             },
@@ -605,7 +622,7 @@ pub const App = struct {
                             's' => { spectrum_ed.switchToTrack(self, @intCast(self.cursor)); return; },
                             'p' => { piano_ed.switchTo(self, @intCast(self.cursor)); return; },
                             'a' => { self.doTrackAdd(null); return; },
-                            'D' => { self.startTrackDelPrompt(); return; },
+                            'd' => { self.tracks_del_pending = true; return; },
                             'Y' => { self.doTrackDup(self.cursor); return; },
                             'J' => { self.doTrackMove(1); return; },
                             'K' => { self.doTrackMove(-1); return; },
@@ -733,20 +750,6 @@ pub const App = struct {
         self.modal.mode = .command;
         self.cmd_history_pos = self.cmd_history.items.len;
         const text = std.fmt.bufPrint(&self.modal.cmd_buf, "track-rename {d} ", .{self.cursor + 1}) catch return;
-        self.modal.cmd_len = text.len;
-        self.modal.cmd_cursor = text.len;
-    }
-
-    /// `D` used to call doTrackDel directly — one keystroke, irreversible
-    /// (deleteTrack retires the rack rather than pushing to undo history).
-    /// Drop into the command prompt pre-filled with `:track-del N` instead,
-    /// same pattern as startRenamePrompt, so deleting a track needs an
-    /// explicit Enter (or Esc to back out) rather than a single bare key.
-    fn startTrackDelPrompt(self: *App) void {
-        if (self.cursor >= self.session.project.tracks.items.len) return;
-        self.modal.mode = .command;
-        self.cmd_history_pos = self.cmd_history.items.len;
-        const text = std.fmt.bufPrint(&self.modal.cmd_buf, "track-del {d}", .{self.cursor + 1}) catch return;
         self.modal.cmd_len = text.len;
         self.modal.cmd_cursor = text.len;
     }

@@ -132,7 +132,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("< / >",        "pan left / right  (5% per step)");
     t.key("- / +",        "track gain −1 dB / +1 dB  (= also works) — on MASTER: master gain");
     t.key("a",            "add synth track");
-    t.key("D",            "delete selected track  (n/a on MASTER — it can't be removed)");
+    t.key("dd",           "delete selected track, no confirm  (n/a on MASTER — it can't be removed)");
     t.key("Y",            "duplicate selected track (instrument, FX, clips) at the end");
     t.key("J / K",        "move selected track down / up");
     t.key("R",            "rename selected track (opens :track-rename <n>)");
