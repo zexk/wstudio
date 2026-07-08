@@ -199,6 +199,25 @@ pub const Fx = struct {
         }
         return buf[0..len];
     }
+
+    /// Sidechain-detector source per chain slot, parallel to `chain()`'s own
+    /// device ordering (same bypassed-skip rule, so the two always line up).
+    /// Only `.comp` payloads with `sidechain_source` set produce a non-null
+    /// entry; every other unit kind has no such concept. Feeds `Engine.
+    /// set*SidechainSources` — see `Session`'s chain-sync call sites, which
+    /// call this alongside `chain()` any time the chain (re)syncs.
+    pub fn sidechainSources(self: *const Fx, buf: *[max_units]?u16) []const ?u16 {
+        var len: usize = 0;
+        for (self.units.items) |u| {
+            if (u.bypassed) continue;
+            buf[len] = switch (u.payload) {
+                .comp => |c| c.sidechain_source,
+                else => null,
+            };
+            len += 1;
+        }
+        return buf[0..len];
+    }
 };
 
 pub const Rack = struct {
@@ -304,6 +323,19 @@ pub const Rack = struct {
         if (self.instrument.device()) |dev| { buf[len] = dev; len += 1; }
         var fx_buf: [Fx.max_units]dsp.Device = undefined;
         for (self.fx.chain(&fx_buf)) |dev| { buf[len] = dev; len += 1; }
+        return buf[0..len];
+    }
+
+    /// Same shape as `chain()`, parallel slot-for-slot — a pattern-player or
+    /// instrument slot is never a sidechain-detector consumer (null), only
+    /// `fx`'s own units can be. Callers push this to `Engine.
+    /// setTrackSidechainSources` alongside `chain()`'s own `setTrackChain`.
+    pub fn sidechainSources(self: *Rack, buf: *[chain_cap]?u16) []const ?u16 {
+        var len: usize = 0;
+        if (self.pattern_player != null) { buf[len] = null; len += 1; }
+        if (self.instrument.device() != null) { buf[len] = null; len += 1; }
+        var fx_buf: [Fx.max_units]?u16 = undefined;
+        for (self.fx.sidechainSources(&fx_buf)) |src| { buf[len] = src; len += 1; }
         return buf[0..len];
     }
 };

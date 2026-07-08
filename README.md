@@ -238,6 +238,16 @@ Done:
       `Event` path note-on/CC already use. Each track carries up to 8
       simultaneously-automated synth params (`Engine`'s per-track sparse
       slot bank) — plenty for any real arrangement.
+- [x] Sidechain compression: a compressor's last param (`sidechain`, in any
+      chain — track, group, or master) picks another track to detect its
+      envelope from instead of its own input (`h`/`l` cycles none/track N) —
+      the classic "duck the bass under the kick" trick. Sample-accurate: the
+      engine renders every track referenced as a sidechain source first each
+      block and captures its exact post-chain signal, so the detector always
+      sees real audio, not an approximated per-block level — no instrument is
+      ever double-processed in the same block even when a chain both feeds
+      and consumes a sidechain source. Persisted per-compressor (additive
+      `CompSnap.sidechain_source` field, no version bump).
 
 - [x] Live recording from insert mode: `i` in the piano roll now enters
       insert mode instead of being blocked — while the transport is

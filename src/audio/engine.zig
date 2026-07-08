@@ -105,6 +105,24 @@ const TrackState = struct {
     group: ?u8 = null,
 };
 
+/// Bank of distinct tracks that can be captured as a sidechain-compressor
+/// detector source in one block — same small-fixed-bank convention as
+/// `max_synth_slots`/`max_groups`. Most songs sidechain off one or two key
+/// tracks (a kick, maybe a snare); 8 is generous headroom.
+pub const max_sidechain_sources: u8 = 8;
+
+/// One block's captured signal for a track registered as some compressor's
+/// sidechain-detector source (see `Compressor.sidechain_source`). `track`
+/// is `null` when the slot is unused this block. Sized to `max_block_frames`
+/// so it never needs a per-block allocation; only the first `frames*channels`
+/// samples are valid for a given block. Small fixed bank (~256KB total),
+/// safe to embed directly in `Engine` — see `AutomationPair`'s doc comment
+/// for the class of field that ISN'T safe to embed this way.
+const SidechainCapture = struct {
+    track: ?u16 = null,
+    buf: [types.max_block_frames * channels]Sample = undefined,
+};
+
 /// One group submix bus: a named FX chain (see `Session.groups`, mirroring
 /// `master_chain`'s shape) every member track's summed signal passes
 /// through before reaching the master mix. `active` distinguishes an
@@ -118,7 +136,23 @@ const GroupState = struct {
     /// rack.zig just for the constant).
     chain: [9]dsp.Device = undefined,
     chain_len: usize = 0,
+    /// Per-chain-slot sidechain-detector source, parallel to `chain` — see
+    /// `TrackSidechainSlots`'s doc comment for why this lives directly on
+    /// GroupState (safe here, unlike on TrackState) rather than as a
+    /// separate heap slice.
+    sidechain_sources: [9]?u16 = [_]?u16{null} ** 9,
 };
+
+/// Per-track, per-chain-slot sidechain-detector routing (see `Compressor.
+/// sidechain_source`), parallel to `TrackState.chain`. Deliberately NOT a
+/// field on `TrackState` for the exact reason `AutomationPair`'s doc comment
+/// gives: `TrackState` is embedded inline in `[max_tracks]TrackState`
+/// (max_tracks = 8192), so even this small `max_chain_devices`-slot array
+/// would add ~400KB to Engine's own inline layout. Kept as its own
+/// heap-allocated slice instead (`Engine.track_sidechain`), sized once at
+/// `Engine.init` and indexed the same as `tracks` — same pattern
+/// `Engine.automation` already established.
+const TrackSidechainSlots = [max_chain_devices]?u16;
 
 /// A track slot's song-mode gain/pan automation, flattened from the
 /// arrangement's clips by `Session.rebuildSongData` (see dsp/automation.zig).
@@ -203,6 +237,16 @@ pub const Engine = struct {
     /// doc comment for why this is a separate heap allocation rather than a
     /// field on `TrackState`. Indexed the same as `tracks`.
     automation: []AutomationPair,
+    /// Per-track chain-slot sidechain-detector routing — see
+    /// `TrackSidechainSlots`'s doc comment for why this is a separate heap
+    /// allocation. Indexed the same as `tracks`.
+    track_sidechain: []TrackSidechainSlots,
+    /// Per-chain-slot sidechain-detector routing for the master bus, parallel
+    /// to `master_chain` — safe to embed directly (not scaled by max_tracks).
+    master_sidechain_sources: [9]?u16 = [_]?u16{null} ** 9,
+    /// This block's captured signal per registered sidechain-detector source
+    /// track — see `SidechainCapture`. Rebuilt every block in `renderTracks`.
+    sidechain_captures: [max_sidechain_sources]SidechainCapture = [_]SidechainCapture{.{}} ** max_sidechain_sources,
 
     const Shared = struct {
         playing: std.atomic.Value(bool) = .init(false),
@@ -235,6 +279,9 @@ pub const Engine = struct {
         const automation = try allocator.alloc(AutomationPair, max_tracks);
         errdefer allocator.free(automation);
         for (automation) |*a| a.* = .{};
+        const track_sidechain = try allocator.alloc(TrackSidechainSlots, max_tracks);
+        errdefer allocator.free(track_sidechain);
+        for (track_sidechain) |*s| s.* = [_]?u16{null} ** max_chain_devices;
 
         self.* = .{
             .allocator = allocator,
@@ -245,6 +292,7 @@ pub const Engine = struct {
             .track_spectrum = track_spec,
             .master_spectrum = master_spec,
             .automation = automation,
+            .track_sidechain = track_sidechain,
         };
         for (&self.tracks) |*t| t.* = .{};
     }
@@ -254,6 +302,7 @@ pub const Engine = struct {
         self.master_spectrum.deinit(self.allocator);
         self.track_spectrum.deinit(self.allocator);
         self.allocator.free(self.automation);
+        self.allocator.free(self.track_sidechain);
     }
 
     pub fn loadProject(self: *Engine, project: *const Project) void {
@@ -397,6 +446,20 @@ pub const Engine = struct {
         }
     }
 
+    /// Replace a track's per-chain-slot sidechain-detector routing (see
+    /// `Compressor.sidechain_source`). `sources[i]` is the track index
+    /// chain slot `i`'s compressor (if any) should detect from instead of
+    /// its own input; `null` entries and any slot past `sources.len` stay
+    /// self-detecting. Called by `Session` alongside `setTrackChain`
+    /// whenever this track's Fx chain (re)syncs, since the audio thread
+    /// never introspects chain contents to discover this itself.
+    pub fn setTrackSidechainSources(self: *Engine, track: u16, sources: []const ?u16) void {
+        const slots = &self.track_sidechain[@min(track, max_tracks - 1)];
+        @memset(slots, null);
+        const n = @min(sources.len, slots.len);
+        @memcpy(slots[0..n], sources[0..n]);
+    }
+
     /// Replace a track's flattened gain or pan automation curve wholesale
     /// (control thread). Called by `Session.rebuildSongData` whenever the
     /// arrangement's clips change; an empty `points` clears it, falling back
@@ -459,6 +522,13 @@ pub const Engine = struct {
         }
     }
 
+    /// Same shape as `setTrackSidechainSources` but for the master chain.
+    pub fn setMasterSidechainSources(self: *Engine, sources: []const ?u16) void {
+        @memset(&self.master_sidechain_sources, null);
+        const n = @min(sources.len, self.master_sidechain_sources.len);
+        @memcpy(self.master_sidechain_sources[0..n], sources[0..n]);
+    }
+
     /// Same shape as `setMasterChain` but for group submix bus `idx` — FX
     /// stages only, no instrument slot. `active` marks the group slot in use
     /// (`renderTracks` skips inactive slots entirely); called whenever
@@ -470,6 +540,15 @@ pub const Engine = struct {
         g.active = active;
         g.chain_len = @min(devices.len, g.chain.len);
         for (devices[0..g.chain_len], g.chain[0..g.chain_len]) |src, *dst| dst.* = src;
+    }
+
+    /// Same shape as `setTrackSidechainSources` but for group submix bus `idx`.
+    pub fn setGroupSidechainSources(self: *Engine, idx: u8, sources: []const ?u16) void {
+        if (idx >= max_groups) return;
+        const slots = &self.groups[idx].sidechain_sources;
+        @memset(slots, null);
+        const n = @min(sources.len, slots.len);
+        @memcpy(slots[0..n], sources[0..n]);
     }
 
     pub fn send(self: *Engine, cmd: Command) bool {
@@ -492,7 +571,12 @@ pub const Engine = struct {
             if (self.metronome_enabled) self.fireMetronome(out, frames);
         }
 
-        for (self.master_chain[0..self.master_chain_len]) |dev| dev.process(out);
+        for (self.master_chain[0..self.master_chain_len], 0..) |dev, slot| {
+            if (self.master_sidechain_sources[slot]) |src| {
+                if (self.sidechainCapture(src, frames)) |buf| dev.sendEvent(.{ .set_sidechain_buf = .{ .buf = buf } });
+            }
+            dev.process(out);
+        }
 
         for (out) |*s| s.* *= self.master_gain;
         self.limiter.processBlock(out);
@@ -623,6 +707,116 @@ pub const Engine = struct {
         for (state.chain[0..state.chain_len]) |dev| dev.sendEvent(ev);
     }
 
+    /// This block's captured signal for `track`, if it was registered and
+    /// rendered as a sidechain-detector source (see `SidechainCapture`).
+    /// Null means "no capture available" — either nothing points at `track`
+    /// as a source, or (a same-block mutual-reference edge case) it hasn't
+    /// rendered yet — either way the caller's compressor falls back to
+    /// self-detection, never a crash.
+    fn sidechainCapture(self: *Engine, track: u16, frames: u32) ?[]const Sample {
+        for (&self.sidechain_captures) |*c| {
+            if (c.track == track) return c.buf[0 .. frames * channels];
+        }
+        return null;
+    }
+
+    /// Register `src` as a sidechain-detector source to capture this block,
+    /// if it isn't already and there's a free slot — extras past
+    /// `max_sidechain_sources` are silently dropped, same "bank of 8"
+    /// convention `max_synth_slots` already uses.
+    fn registerSidechainSource(self: *Engine, src: u16) void {
+        for (&self.sidechain_captures) |*c| if (c.track == src) return;
+        for (&self.sidechain_captures) |*c| {
+            if (c.track == null) {
+                c.track = src;
+                return;
+            }
+        }
+    }
+
+    /// Render one track's instrument+FX chain and, unless muted/soloed-out,
+    /// mix it into `out` or its group's accumulator. Extracted from
+    /// `renderTracks` so the sidechain pre-pass (below) and the main loop
+    /// can both call it — a track referenced as some compressor's detector
+    /// source elsewhere in the mix must render exactly once, before any
+    /// chain that reads its captured signal, never twice (that would
+    /// double-tick a stateful instrument's envelopes/oscillator phase within
+    /// one block).
+    fn renderOneTrack(self: *Engine, ti: u16, out: []Sample, frames: u32, beat_pos: f64, any_solo: bool) void {
+        const track = self.trackAt(ti);
+        if (!track.active or track.chain_len == 0) return;
+
+        const auto = &self.automation[ti];
+        // Instrument-param automation must reach the device before it
+        // renders this block, unlike gain/pan below (a post-chain
+        // multiplier) — push it through the same Event path
+        // adjustParam/CC already use. Only fires for slots actually
+        // holding a param this track (valueAt is null otherwise), so
+        // tracks with no synth-param automation pay nothing extra.
+        for (&auto.synth_slots) |*slot| {
+            const pid = slot.param_id orelse continue;
+            if (slot.curve.valueAt(beat_pos)) |val| {
+                self.sendTrackEvent(ti, .{ .set_param_abs = .{ .id = pid, .value = val } });
+            }
+        }
+
+        const scratch = self.scratch[0 .. frames * channels];
+        @memset(scratch, 0.0);
+        const sc_slots = &self.track_sidechain[ti];
+        for (track.chain[0..track.chain_len], 0..) |dev, slot| {
+            if (sc_slots[slot]) |src| {
+                if (self.sidechainCapture(src, frames)) |buf| dev.sendEvent(.{ .set_sidechain_buf = .{ .buf = buf } });
+            }
+            dev.process(scratch);
+        }
+
+        // If this track is itself a registered sidechain-detector source,
+        // capture its post-chain signal now — before `scratch` gets reused
+        // by the next track rendered. Captured regardless of mute/solo (a
+        // muted track's audio is already computed above either way; a
+        // sidechain key cares about the signal, not whether it's in the mix).
+        for (&self.sidechain_captures) |*c| {
+            if (c.track == ti) {
+                @memcpy(c.buf[0 .. frames * channels], scratch);
+                break;
+            }
+        }
+
+        if (track.muted or (any_solo and !track.soloed)) return;
+
+        const gain = auto.gain.valueAt(beat_pos) orelse track.gain;
+        const pan = auto.pan.valueAt(beat_pos) orelse track.pan;
+        const angle = (pan + 1.0) * std.math.pi / 4.0;
+        const gain_l = gain * @cos(angle);
+        const gain_r = gain * @sin(angle);
+
+        // A grouped track (an active group assignment) submixes into its
+        // group's accumulator instead of straight to `out` — the
+        // group's own FX chain runs on the sum once every member has
+        // contributed, below. Ungrouped tracks (the default, and any
+        // track pointed at an inactive/removed group slot) are
+        // unaffected — same "no override" fallback automation uses.
+        const dest: []Sample = blk: {
+            if (track.group) |gidx| {
+                if (gidx < max_groups and self.groups[gidx].active) {
+                    break :blk self.group_scratch[gidx][0 .. frames * channels];
+                }
+            }
+            break :blk out;
+        };
+        for (0..frames) |i| {
+            dest[i * channels] += scratch[i * channels] * gain_l;
+            dest[i * channels + 1] += scratch[i * channels + 1] * gain_r;
+        }
+
+        if (self.active_spectrum_source == .track and
+            ti == self.active_spectrum_track)
+        {
+            self.track_spectrum.push(scratch);
+            self.track_spectrum.analyze();
+        }
+    }
+
     fn renderTracks(self: *Engine, out: []Sample, frames: u32) void {
         // When any track is soloed, only soloed tracks are audible.
         var any_solo = false;
@@ -645,60 +839,58 @@ pub const Engine = struct {
             if (g.active) @memset(self.group_scratch[gi][0 .. frames * channels], 0.0);
         }
 
-        for (&self.tracks, 0..) |*track, ti| {
-            if (!track.active or track.chain_len == 0) continue;
+        // Sidechain pre-scan: which track indices does ANY compressor (own
+        // chain, a group chain, or the master chain) reference as its
+        // detector source this block? Registering (not capturing yet) is
+        // cheap and the same "walk every slot, most are null" cost the
+        // per-track loop below already pays.
+        for (&self.sidechain_captures) |*c| c.track = null;
+        for (&self.tracks, 0..) |*t, ti| {
+            if (!t.active or t.chain_len == 0) continue;
+            for (self.track_sidechain[ti][0..t.chain_len]) |src| {
+                if (src) |s| self.registerSidechainSource(s);
+            }
+        }
+        for (&self.groups) |*g| {
+            if (!g.active) continue;
+            for (g.sidechain_sources[0..g.chain_len]) |src| {
+                if (src) |s| self.registerSidechainSource(s);
+            }
+        }
+        for (self.master_sidechain_sources[0..self.master_chain_len]) |src| {
+            if (src) |s| self.registerSidechainSource(s);
+        }
 
-            const auto = &self.automation[ti];
-            // Instrument-param automation must reach the device before it
-            // renders this block, unlike gain/pan below (a post-chain
-            // multiplier) — push it through the same Event path
-            // adjustParam/CC already use. Only fires for slots actually
-            // holding a param this track (valueAt is null otherwise), so
-            // tracks with no synth-param automation pay nothing extra.
-            for (&auto.synth_slots) |*slot| {
-                const pid = slot.param_id orelse continue;
-                if (slot.curve.valueAt(beat_pos)) |val| {
-                    self.sendTrackEvent(@intCast(ti), .{ .set_param_abs = .{ .id = pid, .value = val } });
+        // Phase 1: fully render every registered source track FIRST (in
+        // whatever order `sidechain_captures` collected them), so its
+        // captured signal is ready before phase 2's consumers run. A source
+        // that ALSO sidechains off another source registered after it (a
+        // mutual/circular reference — rare, not a normal use case) simply
+        // falls back to self-detection that block via `sidechainCapture`'s
+        // null return, never a crash.
+        for (&self.sidechain_captures) |*c| {
+            const ti = c.track orelse continue;
+            self.renderOneTrack(ti, out, frames, beat_pos, any_solo);
+        }
+
+        // Phase 2: every other track, in original order, skipping whatever
+        // phase 1 already rendered (never render a track twice — see
+        // renderOneTrack's own doc comment for why that matters). Iterates
+        // by pointer (`&self.sidechain_captures`), not by value — each
+        // capture embeds a `max_block_frames`-sized buffer, and copying that
+        // 8 times per track (times max_tracks) would be a real per-block
+        // cost, not just a style nit.
+        for (0..max_tracks) |ti_usize| {
+            const ti: u16 = @intCast(ti_usize);
+            var already_done = false;
+            for (&self.sidechain_captures) |*c| {
+                if (c.track == ti) {
+                    already_done = true;
+                    break;
                 }
             }
-
-            const scratch = self.scratch[0 .. frames * channels];
-            @memset(scratch, 0.0);
-            for (track.chain[0..track.chain_len]) |dev| dev.process(scratch);
-
-            if (track.muted or (any_solo and !track.soloed)) continue;
-
-            const gain = auto.gain.valueAt(beat_pos) orelse track.gain;
-            const pan = auto.pan.valueAt(beat_pos) orelse track.pan;
-            const angle = (pan + 1.0) * std.math.pi / 4.0;
-            const gain_l = gain * @cos(angle);
-            const gain_r = gain * @sin(angle);
-
-            // A grouped track (an active group assignment) submixes into its
-            // group's accumulator instead of straight to `out` — the
-            // group's own FX chain runs on the sum once every member has
-            // contributed, below. Ungrouped tracks (the default, and any
-            // track pointed at an inactive/removed group slot) are
-            // unaffected — same "no override" fallback automation uses.
-            const dest: []Sample = blk: {
-                if (track.group) |gidx| {
-                    if (gidx < max_groups and self.groups[gidx].active) {
-                        break :blk self.group_scratch[gidx][0 .. frames * channels];
-                    }
-                }
-                break :blk out;
-            };
-            for (0..frames) |i| {
-                dest[i * channels] += scratch[i * channels] * gain_l;
-                dest[i * channels + 1] += scratch[i * channels + 1] * gain_r;
-            }
-
-            if (self.active_spectrum_source == .track and
-                ti == self.active_spectrum_track)
-            {
-                self.track_spectrum.push(scratch);
-                self.track_spectrum.analyze();
-            }
+            if (already_done) continue;
+            self.renderOneTrack(ti, out, frames, beat_pos, any_solo);
         }
 
         // Each active group's FX chain applies to its submix, then the
@@ -707,7 +899,12 @@ pub const Engine = struct {
         for (&self.groups, 0..) |*g, gi| {
             if (!g.active) continue;
             const gscratch = self.group_scratch[gi][0 .. frames * channels];
-            for (g.chain[0..g.chain_len]) |dev| dev.process(gscratch);
+            for (g.chain[0..g.chain_len], 0..) |dev, slot| {
+                if (g.sidechain_sources[slot]) |src| {
+                    if (self.sidechainCapture(src, frames)) |buf| dev.sendEvent(.{ .set_sidechain_buf = .{ .buf = buf } });
+                }
+                dev.process(gscratch);
+            }
             for (out, gscratch) |*o, s| o.* += s;
 
             if (self.active_spectrum_source == .group and @as(u8, @intCast(gi)) == self.active_spectrum_group) {
@@ -1002,6 +1199,82 @@ test "grouped tracks submix through their group's FX chain; ungrouped tracks are
 
     try std.testing.expect(ungrouped_loud > 0.05); // reaches `out` at all — routing works
     try std.testing.expect(grouped_loud < ungrouped_loud * 0.5); // crushed by the group's compressor
+}
+
+test "renderTracks routes a compressor's sidechain detector from a different (source) track" {
+    var kick = PolySynth.init(48_000);
+    var bass = PolySynth.init(48_000);
+    var comp = Compressor.init(48_000);
+    comp.threshold_db = -30.0;
+    comp.ratio = 20.0;
+    comp.attack_ms = 0.1;
+    comp.release_ms = 0.1;
+
+    var engine = try Engine.init(std.testing.allocator, 48_000);
+    defer engine.deinit();
+    engine.tracks[0] = .{ .active = true }; // kick (sidechain source)
+    engine.tracks[1] = .{ .active = true }; // bass (has the compressor)
+    engine.setTrackChain(0, &.{kick.device()});
+    engine.setTrackChain(1, &.{ bass.device(), comp.device() });
+    // slot 0 (bass itself) has no sidechain; slot 1 (comp) detects from track 0.
+    engine.setTrackSidechainSources(1, &.{ null, 0 });
+
+    _ = engine.send(.{ .note_on = .{ .track = 0, .note = 60, .velocity = 1.0 } }); // loud kick
+    _ = engine.send(.{ .note_on = .{ .track = 1, .note = 60, .velocity = 0.02 } }); // quiet bass, well under threshold on its own
+
+    var block: [512]Sample = undefined;
+    for (0..4) |_| engine.process(&block); // let envelopes settle
+
+    _ = engine.send(.{ .set_track_solo = .{ .track = 1, .soloed = true } });
+    for (0..4) |_| engine.process(&block);
+    var bass_with_sidechain: f32 = 0.0;
+    for (block) |s| bass_with_sidechain = @max(bass_with_sidechain, @abs(s));
+
+    // Remove the routing — same quiet bass note, but the compressor now
+    // self-detects its own (quiet, under-threshold) input, so it should
+    // barely touch the level.
+    engine.setTrackSidechainSources(1, &.{});
+    for (0..4) |_| engine.process(&block);
+    var bass_without_sidechain: f32 = 0.0;
+    for (block) |s| bass_without_sidechain = @max(bass_without_sidechain, @abs(s));
+
+    try std.testing.expect(bass_without_sidechain > 0.001); // a real, measurable signal
+    try std.testing.expect(bass_with_sidechain < bass_without_sidechain * 0.5);
+}
+
+test "a sidechain source track is rendered exactly once, not double-mixed" {
+    // Engine A: track 0 alone, referenced by nothing.
+    var kick_a = PolySynth.init(48_000);
+    var engine_a = try Engine.init(std.testing.allocator, 48_000);
+    defer engine_a.deinit();
+    engine_a.tracks[0] = .{ .active = true };
+    engine_a.setTrackChain(0, &.{kick_a.device()});
+    _ = engine_a.send(.{ .note_on = .{ .track = 0, .note = 60, .velocity = 1.0 } });
+    var block_a: [512]Sample = undefined;
+    for (0..4) |_| engine_a.process(&block_a);
+
+    // Engine B: identical track 0, plus a second track whose compressor
+    // sidechains off it — this makes track 0 a phase-1 source. Soloing
+    // track 0 isolates its own contribution to `out`, which must be
+    // bit-identical to engine A's (same devices, same command sequence) —
+    // any drift would mean it got rendered twice (or with different state)
+    // this block.
+    var kick_b = PolySynth.init(48_000);
+    var bass_b = PolySynth.init(48_000);
+    var comp_b = Compressor.init(48_000);
+    var engine_b = try Engine.init(std.testing.allocator, 48_000);
+    defer engine_b.deinit();
+    engine_b.tracks[0] = .{ .active = true };
+    engine_b.tracks[1] = .{ .active = true };
+    engine_b.setTrackChain(0, &.{kick_b.device()});
+    engine_b.setTrackChain(1, &.{ bass_b.device(), comp_b.device() });
+    engine_b.setTrackSidechainSources(1, &.{ null, 0 });
+    _ = engine_b.send(.{ .note_on = .{ .track = 0, .note = 60, .velocity = 1.0 } });
+    _ = engine_b.send(.{ .set_track_solo = .{ .track = 0, .soloed = true } });
+    var block_b: [512]Sample = undefined;
+    for (0..4) |_| engine_b.process(&block_b);
+
+    try std.testing.expectEqualSlices(Sample, &block_a, &block_b);
 }
 
 test "a track pointed at an inactive group slot falls back to the master mix" {

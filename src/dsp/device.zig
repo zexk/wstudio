@@ -27,6 +27,17 @@ pub const Event = union(enum) {
     /// some ids are wired on a given device (see e.g.
     /// PolySynth.setParamAbsolute); unhandled ids are a no-op.
     set_param_abs: struct { id: u16, value: f32 },
+    /// Supply this block's external sidechain-detector signal — pushed by
+    /// the engine to a single chain slot (not broadcast to a whole chain
+    /// the way `sendTrackEvent` sends the other variants) right before that
+    /// slot's `process()` runs, whenever it holds a `Compressor` with
+    /// `sidechain_source` set and that source track was actually rendered
+    /// this block. `buf` is interleaved stereo, same length as the block
+    /// being processed, and only valid for the immediately-following
+    /// `process()` call — devices that consume it must not retain the slice
+    /// past that. Every device but `Compressor` ignores this, matching
+    /// `set_param_abs`'s "unhandled ids are a no-op" convention.
+    set_sidechain_buf: struct { buf: []const types.Sample },
 };
 
 pub const Device = struct {

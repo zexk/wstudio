@@ -252,7 +252,7 @@ pub const Sampler = struct {
             // truncate rather than @intCast, same reasoning as PolySynth's
             // identical arm.
             .set_param => |e| self.adjustParam(@truncate(e.id), e.steps),
-            .note_off, .cc, .pitch_bend, .set_param_abs => {},
+            .note_off, .cc, .pitch_bend, .set_param_abs, .set_sidechain_buf => {},
             .all_off   => self.resetAll(),
         }
     }

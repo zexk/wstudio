@@ -689,7 +689,7 @@ pub const DrumMachine = struct {
         switch (ev) {
             .note_on  => |e| self.triggerPad(e.note % max_pads, e.velocity),
             .set_param => |e| self.adjustParam(e.id, e.steps),
-            .note_off, .cc, .pitch_bend, .set_param_abs => {},
+            .note_off, .cc, .pitch_bend, .set_param_abs, .set_sidechain_buf => {},
             .all_off  => self.resetAll(),
         }
     }

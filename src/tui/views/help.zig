@@ -276,6 +276,8 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("j / k",        "select a param within the focused unit (EQ: its 10 bands)");
     t.key("h / l",        "decrease / increase the selected param (fine step)");
     t.key("H / L",        "decrease / increase the selected param (coarse step)");
+    t.key("",             "a compressor's last param is 'sidechain': h/l cycles none/track N — its envelope");
+    t.key("",             "  then detects from track N's signal instead of its own input (duck a bass off a kick)");
     t.key(":eq",          "<track> [<band> <db>]  first EQ in the chain, from the : prompt (inserts one if missing)");
     t.key(":master-eq",   "[<band> <db>]  same, from the : prompt (M opens the live editor)");
     t.key(":master-comp", "on|off|thresh|ratio|attack|release|makeup <value>  first comp in the master chain");

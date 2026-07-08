@@ -1035,6 +1035,7 @@ pub const PolySynth = struct {
             // unknown-id default arm.
             .set_param  => |e| self.adjustParam(@truncate(e.id), e.steps),
             .set_param_abs => |e| self.setParamAbsolute(@truncate(e.id), e.value),
+            .set_sidechain_buf => {},
         }
     }
 

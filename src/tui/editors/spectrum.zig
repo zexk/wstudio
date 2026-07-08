@@ -24,6 +24,7 @@ const ws = @import("wstudio");
 const modal_mod = ws.input;
 const dsp = ws.dsp.device;
 const eq_mod = ws.dsp.eq;
+const engine_mod = ws.engine;
 const style = @import("../style.zig");
 const chorus_mod = ws.dsp.chorus;
 const Fx = ws.Fx;
@@ -73,7 +74,7 @@ pub fn stripLabel(k: FxKind) []const u8 {
 pub fn paramCount(k: FxKind) usize {
     return switch (k) {
         .eq => eq_mod.num_eq_bands,
-        .comp => 5,
+        .comp => 6,
         .phaser => 4,
         .gate, .sat, .crush, .chorus, .delay, .reverb => 3,
     };
@@ -84,7 +85,7 @@ pub fn paramName(k: FxKind, idx: usize) []const u8 {
     return switch (k) {
         .eq => "band",
         .comp => switch (idx) {
-            0 => "thresh", 1 => "ratio", 2 => "attack", 3 => "release", 4 => "makeup",
+            0 => "thresh", 1 => "ratio", 2 => "attack", 3 => "release", 4 => "makeup", 5 => "sidechain",
             else => "?",
         },
         .delay => switch (idx) {
@@ -124,6 +125,11 @@ pub fn getParam(p: *const FxPayload, idx: usize) f32 {
         .eq => |*e| e.bands[idx].gain_db,
         .comp => |*c| switch (idx) {
             0 => c.threshold_db, 1 => c.ratio, 2 => c.attack_ms, 3 => c.release_ms, 4 => c.makeup_db,
+            // Sidechain source, encoded as 0 = none, N = 1-based track index
+            // (matches the tracks view's own 1-based row numbering) — lets
+            // this slot share the same float-valued get/set/range/step shape
+            // every other param here uses instead of a separate enum path.
+            5 => if (c.sidechain_source) |s| @as(f32, @floatFromInt(s)) + 1.0 else 0.0,
             else => 0,
         },
         .delay => |*d| switch (idx) {
@@ -170,6 +176,7 @@ pub fn paramRange(k: FxKind, idx: usize) [2]f32 {
             2 => .{ 0.1, 500.0 },
             3 => .{ 1.0, 2000.0 },
             4 => .{ -24.0, 24.0 },
+            5 => .{ 0.0, @floatFromInt(engine_mod.max_tracks) },
             else => .{ 0.0, 1.0 },
         },
         .delay => switch (idx) {
@@ -220,6 +227,10 @@ pub fn setParam(p: *FxPayload, idx: usize, value: f32) void {
             2 => c.attack_ms = std.math.clamp(value, 0.1, 500.0),
             3 => c.release_ms = std.math.clamp(value, 1.0, 2000.0),
             4 => c.makeup_db = std.math.clamp(value, -24.0, 24.0),
+            5 => {
+                const rounded = std.math.clamp(@round(value), 0.0, @as(f32, @floatFromInt(engine_mod.max_tracks)));
+                c.sidechain_source = if (rounded < 0.5) null else @intFromFloat(rounded - 1.0);
+            },
             else => {},
         },
         .delay => |*d| switch (idx) {
@@ -283,6 +294,7 @@ fn paramStep(k: FxKind, idx: usize, coarse: bool) f32 {
             2 => if (coarse) @as(f32, 50.0) else 5.0,
             3 => if (coarse) @as(f32, 200.0) else 20.0,
             4 => if (coarse) @as(f32, 3.0) else 0.5,
+            5 => if (coarse) @as(f32, 5.0) else 1.0, // step whole track indices
             else => 1.0,
         },
         .delay => switch (idx) {
@@ -365,8 +377,7 @@ fn syncChain(app: *App, target: EqTarget) void {
         .track => {
             if (app.eq_track >= app.session.racks.items.len) return;
             const rack = app.session.racks.items[app.eq_track];
-            var buf: [ws.Rack.chain_cap]dsp.Device = undefined;
-            app.session.engine.setTrackChain(app.eq_track, rack.chain(&buf));
+            app.session.syncTrackChain(app.eq_track, rack);
         },
         .master => app.session.syncMasterChain(),
         .group => app.session.syncGroupChain(app.eq_group),

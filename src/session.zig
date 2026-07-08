@@ -111,8 +111,7 @@ pub const Session = struct {
             .arrangement = arrangement,
         };
         for (self.racks.items, 0..) |rack, i| {
-            var buf: [Rack.chain_cap]dsp.Device = undefined;
-            self.engine.setTrackChain(@intCast(i), rack.chain(&buf));
+            self.syncTrackChain(@intCast(i), rack);
         }
         return self;
     }
@@ -138,8 +137,7 @@ pub const Session = struct {
         _ = try self.project.addTrack(.{ .name = name });
 
         self.engine.applyInsertTrack(idx, idx, 1.0, 0.0, false);
-        var buf: [Rack.chain_cap]dsp.Device = undefined;
-        self.engine.setTrackChain(idx, rack.chain(&buf));
+        self.syncTrackChain(idx, rack);
 
         return idx;
     }
@@ -192,8 +190,7 @@ pub const Session = struct {
 
         self.racks.items[track_idx] = rack;
 
-        var buf: [Rack.chain_cap]dsp.Device = undefined;
-        self.engine.setTrackChain(@intCast(track_idx), rack.chain(&buf));
+        self.syncTrackChain(@intCast(track_idx), rack);
 
         // Keep the new device coherent with the current playback mode: its
         // lane is empty now, so in song mode it must follow the (empty) song
@@ -266,8 +263,7 @@ pub const Session = struct {
         });
 
         self.engine.applyInsertTrack(idx, idx, types.dbToGain(src.gain_db), src.pan, src.muted);
-        var buf: [Rack.chain_cap]dsp.Device = undefined;
-        self.engine.setTrackChain(idx, new_rack.chain(&buf));
+        self.syncTrackChain(idx, new_rack);
         if (src.soloed) _ = self.engine.send(.{ .set_track_solo = .{ .track = idx, .soloed = true } });
         if (src.group) |g| _ = self.engine.send(.{ .set_track_group = .{ .track = idx, .group = g } });
 
@@ -366,28 +362,51 @@ pub const Session = struct {
         _ = self.engine.send(.{ .set_metronome = on });
     }
 
+    /// Push `rack`'s chain (instrument/pattern-player + active FX units) to
+    /// the audio thread, AND the sidechain-detector routing for any
+    /// compressor in that chain (see `Rack.sidechainSources`) — the two
+    /// always go together since the audio thread never introspects chain
+    /// contents itself to discover sidechain routing live (see
+    /// `Engine.setTrackSidechainSources`'s doc comment). Call after any
+    /// change that could move where a compressor sits in the chain (insert,
+    /// remove, reorder, bypass) or change its `sidechain_source`, not just
+    /// after a fresh instrument swap.
+    pub fn syncTrackChain(self: *Session, idx: u16, rack: *rack_mod.Rack) void {
+        var buf: [rack_mod.Rack.chain_cap]dsp.Device = undefined;
+        self.engine.setTrackChain(idx, rack.chain(&buf));
+        var sc_buf: [rack_mod.Rack.chain_cap]?u16 = undefined;
+        self.engine.setTrackSidechainSources(idx, rack.sidechainSources(&sc_buf));
+    }
+
     /// Push the master bus's active FX units (in chain order) to the audio
-    /// thread. Call after inserting, removing, reordering, or bypassing a
-    /// master FX unit — same idea as `setTrackChain`, but the master bus has
-    /// no instrument slot, just `master_fx`.
+    /// thread, plus their sidechain-detector routing — same idea as
+    /// `syncTrackChain`, but the master bus has no instrument slot, just
+    /// `master_fx`. Call after inserting, removing, reordering, or bypassing
+    /// a master FX unit, or changing a compressor's `sidechain_source`.
     pub fn syncMasterChain(self: *Session) void {
         var buf: [rack_mod.Fx.max_units]dsp.Device = undefined;
         self.engine.setMasterChain(self.master_fx.chain(&buf));
+        var sc_buf: [rack_mod.Fx.max_units]?u16 = undefined;
+        self.engine.setMasterSidechainSources(self.master_fx.sidechainSources(&sc_buf));
     }
 
-    /// Push group `idx`'s active FX units to the audio thread — same idea as
-    /// `syncMasterChain`, one group at a time. Call after inserting,
-    /// removing, reordering, or bypassing a unit in that group's chain, and
-    /// once for every active group after loading a project (see persist.zig).
-    /// A null (unused) slot pushes an empty, inactive chain, matching
-    /// `deleteGroup`'s own cleanup.
+    /// Push group `idx`'s active FX units (and their sidechain-detector
+    /// routing) to the audio thread — same idea as `syncMasterChain`, one
+    /// group at a time. Call after inserting, removing, reordering, or
+    /// bypassing a unit in that group's chain (or changing a compressor's
+    /// `sidechain_source`), and once for every active group after loading a
+    /// project (see persist.zig). A null (unused) slot pushes an empty,
+    /// inactive chain, matching `deleteGroup`'s own cleanup.
     pub fn syncGroupChain(self: *Session, idx: u8) void {
         if (idx >= engine_mod.max_groups) return;
         var buf: [rack_mod.Fx.max_units]dsp.Device = undefined;
+        var sc_buf: [rack_mod.Fx.max_units]?u16 = undefined;
         if (self.groups[idx]) |*g| {
             self.engine.setGroupChain(idx, true, g.fx.chain(&buf));
+            self.engine.setGroupSidechainSources(idx, g.fx.sidechainSources(&sc_buf));
         } else {
             self.engine.setGroupChain(idx, false, &.{});
+            self.engine.setGroupSidechainSources(idx, &.{});
         }
     }
 
@@ -942,6 +961,44 @@ test "syncMasterChain pushes master_fx's active units to the engine" {
     s.master_fx.remove(s.allocator, 0);
     s.syncMasterChain();
     try std.testing.expectEqual(@as(usize, 1), s.engine.master_chain_len);
+}
+
+test "syncTrackChain pushes a compressor's sidechain_source to the engine, parallel to the chain" {
+    var s = try Session.initDefault(std.testing.allocator);
+    defer s.deinit();
+    try s.setInstrument(0, .poly_synth);
+    const rack = s.racks.items[0];
+
+    // Chain slot order: pattern_player(0), instrument(1), then FX from slot 2.
+    const comp_unit = try rack.fx.insert(s.allocator, 0, .comp, s.project.sample_rate);
+    comp_unit.payload.comp.sidechain_source = 5;
+    s.syncTrackChain(0, rack);
+
+    const slots = s.engine.track_sidechain[0];
+    try std.testing.expectEqual(@as(?u16, null), slots[0]); // pattern_player
+    try std.testing.expectEqual(@as(?u16, null), slots[1]); // instrument
+    try std.testing.expectEqual(@as(?u16, 5), slots[2]); // the compressor
+
+    // Clearing it and re-syncing clears the routing too, not just leftover state.
+    comp_unit.payload.comp.sidechain_source = null;
+    s.syncTrackChain(0, rack);
+    try std.testing.expectEqual(@as(?u16, null), s.engine.track_sidechain[0][2]);
+}
+
+test "syncMasterChain and syncGroupChain push sidechain routing too" {
+    var s = try Session.initDefault(std.testing.allocator);
+    defer s.deinit();
+
+    const master_comp = try s.master_fx.insert(s.allocator, 0, .comp, s.project.sample_rate);
+    master_comp.payload.comp.sidechain_source = 2;
+    s.syncMasterChain();
+    try std.testing.expectEqual(@as(?u16, 2), s.engine.master_sidechain_sources[0]);
+
+    const idx = try s.addGroup("bus");
+    const group_comp = try s.groups[idx].?.fx.insert(s.allocator, 0, .comp, s.project.sample_rate);
+    group_comp.payload.comp.sidechain_source = 3;
+    s.syncGroupChain(idx);
+    try std.testing.expectEqual(@as(?u16, 3), s.engine.groups[idx].sidechain_sources[0]);
 }
 
 test "addGroup/assignTrackGroup/deleteGroup: CRUD, membership, and engine sync" {

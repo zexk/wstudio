@@ -279,6 +279,10 @@ pub const CompSnap = struct {
     attack_ms: f32 = 10.0,
     release_ms: f32 = 80.0,
     makeup_db: f32 = 0.0,
+    /// Additive field (see FORMAT.md's versioning policy): older files omit
+    /// it and load with ordinary self-detecting compression, matching every
+    /// compressor's behaviour before sidechain support existed.
+    sidechain_source: ?u16 = null,
 };
 
 pub const DelaySnap = struct {
@@ -687,6 +691,7 @@ fn chainToSnap(aa: std.mem.Allocator, fx: *const Fx, sample_rate: u32) ![]FxUnit
             .comp => |c| .{ .kind = .comp, .comp = .{
                 .threshold_db = c.threshold_db, .ratio = c.ratio,
                 .attack_ms = c.attack_ms, .release_ms = c.release_ms, .makeup_db = c.makeup_db,
+                .sidechain_source = c.sidechain_source,
             } },
             .delay => |d| .{ .kind = .delay, .delay = .{
                 .time_s = @as(f32, @floatFromInt(d.delay_frames)) / @as(f32, @floatFromInt(sample_rate)),
@@ -1179,8 +1184,7 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
         .arrangement = arrangement,
     };
     for (self.racks.items, 0..) |rack, i| {
-        var buf: [Rack.chain_cap]dsp.Device = undefined;
-        self.engine.setTrackChain(@intCast(i), rack.chain(&buf));
+        self.syncTrackChain(@intCast(i), rack);
     }
 
     if (snap.master_fx_chain) |fc| try applyFxChain(allocator, &self.master_fx, fc, sr)
@@ -1456,6 +1460,10 @@ fn applyFxChain(allocator: std.mem.Allocator, fx_out: *Fx, chain: []const FxUnit
                 c.attack_ms = cs.attack_ms;
                 c.release_ms = cs.release_ms;
                 c.makeup_db = cs.makeup_db;
+                c.sidechain_source = if (cs.sidechain_source) |src|
+                    @min(src, engine_mod.max_tracks - 1)
+                else
+                    null;
             },
             .delay => |*d| if (us.delay) |ds| {
                 d.setTime(ds.time_s);
@@ -1722,6 +1730,57 @@ test "buildSession: v10 fx_chain keeps user order, duplicates, and bypass" {
     try testing.expectApproxEqAbs(@as(f32, -18.0), units[4].payload.comp.threshold_db, 1e-4);
     // The bypassed crusher is skipped by chain(): 4 of 5 reach the engine.
     try testing.expectEqual(@as(usize, 4), session.engine.master_chain_len);
+}
+
+test "buildSession: a compressor's sidechain_source loads, clamps, and reaches the engine's routing" {
+    const testing = std.testing;
+    const snap: Snapshot = .{
+        .sample_rate = 48_000,
+        .tracks = &.{.{ .name = "bass" }},
+        .racks = &.{.{
+            .label = "bass", .kind = .empty,
+            .fx_chain = &.{
+                .{ .kind = .comp, .comp = .{ .sidechain_source = 3 } },
+            },
+        }},
+    };
+    var session = try buildSession(testing.allocator, &snap);
+    defer session.deinit();
+    try testing.expectEqual(@as(?u16, 3), session.racks.items[0].fx.units.items[0].payload.comp.sidechain_source);
+    try testing.expectEqual(@as(?u16, 3), session.engine.track_sidechain[0][0]); // no instrument -> comp is slot 0
+
+    // A hand-edited out-of-range value clamps to the last valid track index.
+    const snap2: Snapshot = .{
+        .sample_rate = 48_000,
+        .tracks = &.{.{ .name = "bass" }},
+        .racks = &.{.{
+            .label = "bass", .kind = .empty,
+            .fx_chain = &.{
+                .{ .kind = .comp, .comp = .{ .sidechain_source = 65_000 } },
+            },
+        }},
+    };
+    var session2 = try buildSession(testing.allocator, &snap2);
+    defer session2.deinit();
+    try testing.expectEqual(@as(?u16, engine_mod.max_tracks - 1), session2.racks.items[0].fx.units.items[0].payload.comp.sidechain_source);
+}
+
+test "save/load round-trip persists a compressor's sidechain_source" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [64]u8 = undefined;
+    const wsj_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/sidechain.wsj", .{&tmp.sub_path});
+
+    var session = try Session.initDefault(testing.allocator);
+    defer session.deinit();
+    const unit = try session.racks.items[0].fx.insert(testing.allocator, 0, .comp, session.project.sample_rate);
+    unit.payload.comp.sidechain_source = 7;
+
+    try save(testing.allocator, &session, testing.io, wsj_path);
+    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    defer loaded.deinit();
+    try testing.expectEqual(@as(?u16, 7), loaded.racks.items[0].fx.units.items[0].payload.comp.sidechain_source);
 }
 
 test "save/load round-trip persists master FX" {

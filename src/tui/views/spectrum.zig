@@ -427,6 +427,8 @@ fn formatFxValue(buf: []u8, p: *const ws.FxPayload, idx: usize) []const u8 {
             0, 4 => std.fmt.bufPrint(buf, "{d:.1}dB", .{v}) catch "?",
             1 => std.fmt.bufPrint(buf, "{d:.1}:1", .{v}) catch "?",
             2, 3 => std.fmt.bufPrint(buf, "{d:.0}ms", .{v}) catch "?",
+            // 0 = none, N = 1-based track index — see getParam's doc comment.
+            5 => if (v < 0.5) "none" else std.fmt.bufPrint(buf, "trk {d:.0}", .{v}) catch "?",
             else => "?",
         },
         .delay => switch (idx) {
