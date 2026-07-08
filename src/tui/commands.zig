@@ -58,8 +58,8 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "pan",         .desc = "[<track>] [<-1..1>]  track pan (no track: cursor track)", .run = wrap(cmdPan) },
     .{ .name = "vol",         .desc = "[<dB>]  master volume (–40 to +6)",   .run = wrap(cmdVol) },
     .{ .name = "seek",        .desc = "<bar>  move playhead to bar",         .run = wrap(cmdSeek) },
-    .{ .name = "load-pad",    .desc = "<1-8> [file]  load WAV into pad (omit the file to browse)",     .run = wrap(cmdLoadPad), .scope = .drum },
-    .{ .name = "pad-rename",  .desc = "<1-8> <name>  rename a drum pad (up to 8 chars)", .run = wrap(cmdPadRename), .scope = .drum },
+    .{ .name = "load-pad",    .desc = "<1-64> [file]  load WAV into pad (omit the file to browse)",     .run = wrap(cmdLoadPad), .scope = .drum },
+    .{ .name = "pad-rename",  .desc = "<1-64> <name>  rename a loaded drum pad (up to 8 chars)", .run = wrap(cmdPadRename), .scope = .drum },
     .{ .name = "load-sample", .desc = "[file]  load WAV into sampler track (omit the file to browse)",  .run = wrap(cmdLoadSample), .scope = .sampler },
     .{ .name = "load-clip",   .desc = "[file]  load a WAV as a whole audio clip and stamp it at the arrangement cursor (sampler track, omit the file to browse)", .run = wrap(cmdLoadClip), .scope = .sampler },
     .{ .name = "e",           .desc = "[file]  open a project (refuses if unsaved changes; omit the file to browse)", .run = wrap(cmdEdit) },
@@ -540,7 +540,7 @@ fn cmdTrackGroup(app: *App, args: []const u8) void {
 fn cmdLoadPad(app: *App, args: []const u8) void {
     var it = std.mem.splitScalar(u8, args, ' ');
     const pad_str = it.next() orelse {
-        app.setStatus("usage: load-pad <1-8> [file.wav]  (omit the file to browse)", .{});
+        app.setStatus("usage: load-pad <1-{d}> [file.wav]  (omit the file to browse)", .{DrumMachine.max_pads});
         return;
     };
     const pad_num = std.fmt.parseInt(u8, pad_str, 10) catch {
@@ -548,7 +548,7 @@ fn cmdLoadPad(app: *App, args: []const u8) void {
         return;
     };
     if (pad_num < 1 or pad_num > DrumMachine.max_pads) {
-        app.setStatus("load-pad: pad index must be 1-8", .{});
+        app.setStatus("load-pad: pad index must be 1-{d}", .{DrumMachine.max_pads});
         return;
     }
     const pad_idx = pad_num - 1;
@@ -568,12 +568,12 @@ fn cmdLoadPad(app: *App, args: []const u8) void {
 fn cmdPadRename(app: *App, args: []const u8) void {
     var it = std.mem.splitScalar(u8, std.mem.trim(u8, args, " "), ' ');
     const pad_str = it.next() orelse {
-        app.setStatus("usage: pad-rename <1-8> <name>", .{});
+        app.setStatus("usage: pad-rename <1-{d}> <name>", .{DrumMachine.max_pads});
         return;
     };
     const name = std.mem.trim(u8, it.rest(), " ");
     if (name.len == 0) {
-        app.setStatus("usage: pad-rename <1-8> <name>", .{});
+        app.setStatus("usage: pad-rename <1-{d}> <name>", .{DrumMachine.max_pads});
         return;
     }
     const pad_num = std.fmt.parseInt(u8, pad_str, 10) catch {
@@ -581,7 +581,7 @@ fn cmdPadRename(app: *App, args: []const u8) void {
         return;
     };
     if (pad_num < 1 or pad_num > DrumMachine.max_pads) {
-        app.setStatus("pad-rename: pad index must be 1-8", .{});
+        app.setStatus("pad-rename: pad index must be 1-{d}", .{DrumMachine.max_pads});
         return;
     }
     const pad_idx = pad_num - 1;
@@ -589,9 +589,13 @@ fn cmdPadRename(app: *App, args: []const u8) void {
         app.setStatus("pad-rename: select a drum-machine track first", .{});
         return;
     };
-    dm.pads[pad_idx].rename(name);
+    if (dm.pads[pad_idx] == null) {
+        app.setStatus("pad-rename: pad {d} is empty — :load-pad it first", .{pad_num});
+        return;
+    }
+    dm.pads[pad_idx].?.rename(name);
     app.dirty = true;
-    app.setStatus("pad {d} renamed: {s}", .{ pad_num, dm.pads[pad_idx].clipName() });
+    app.setStatus("pad {d} renamed: {s}", .{ pad_num, dm.pads[pad_idx].?.clipName() });
 }
 
 /// Shared by `:load-pad <n> <file>` and the file browser's pad-load purpose
@@ -617,7 +621,7 @@ pub fn loadPadFromPath(app: *App, pad_idx: u8, path: []const u8) void {
         app.setStatus("load-pad: parse error: {s}", .{@errorName(e)});
         return;
     };
-    dm.pads[pad_idx].pad.user_sample = true;
+    dm.pads[pad_idx].?.pad.user_sample = true; // loadPadWav above materialized it
     app.dirty = true;
     app.setStatus("pad {d} loaded: {s}", .{ pad_idx + 1, stem });
 }
@@ -1657,7 +1661,7 @@ test ":drum-kit regenerates the cursor drum machine's pads" {
     app.handleKey(.enter, 0);
 
     const dm = &app.session.racks.items[0].instrument.drum_machine;
-    try std.testing.expect(!dm.pads[0].pad.user_sample);
+    try std.testing.expect(!dm.pads[0].?.pad.user_sample);
     try std.testing.expect(app.dirty);
     const status = app.status_buf[0..app.status_len];
     try std.testing.expect(std.mem.indexOf(u8, status, "analog") != null);

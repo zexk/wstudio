@@ -95,6 +95,11 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 'L' => moveStep(app, 4 * app.takeCount()),
                 'k' => movePad(app, -app.takeCount()),
                 'j' => movePad(app, app.takeCount()),
+                // J/K jump a whole bank of 8 pads at once — MPC-style paging
+                // rather than a smooth scroll (views/drum.zig windows the
+                // grid to the cursor's bank, floor(pad/8)).
+                'K' => movePad(app, -8 * app.takeCount()),
+                'J' => movePad(app, 8 * app.takeCount()),
                 // g/G jump the step cursor to pattern start/end, matching
                 // the piano roll's convention. Choke-group cycling — that
                 // used to squat on 'G' — lives on 'C' instead (see below).
@@ -563,8 +568,11 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize) void {
     }
 
     if (row < 2) return; // title / step-number header rows — see views/drum.zig
-    const pad = row - 2;
-    if (pad >= DrumMachine.max_pads) return;
+    // Row 2 is the current bank's first pad, not absolute pad 0 — mirrors
+    // views/drum.zig's own bank_start = (cur_pad/8)*8 windowing.
+    const bank_start = (app.drum_cursor[0] / 8) * 8;
+    const pad = bank_start + (row - 2);
+    if (row - 2 >= 8 or pad >= DrumMachine.max_pads) return;
 
     switch (ev.kind) {
         .press => {

@@ -248,7 +248,10 @@ pub const Sampler = struct {
         const self: *Sampler = @ptrCast(@alignCast(ptr));
         switch (ev) {
             .note_on   => |e| self.trigger(e.note, e.velocity, 0),
-            .set_param => |e| self.adjustParam(e.id, e.steps),
+            // e.id is u16 (wide enough for DrumMachine's pad-encoded ids);
+            // truncate rather than @intCast, same reasoning as PolySynth's
+            // identical arm.
+            .set_param => |e| self.adjustParam(@truncate(e.id), e.steps),
             .note_off, .cc, .pitch_bend, .set_param_abs => {},
             .all_off   => self.resetAll(),
         }

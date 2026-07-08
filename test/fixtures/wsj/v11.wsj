@@ -1,0 +1,32 @@
+{
+  "version": 11,
+  "tracks": [
+    { "name": "lead" },
+    { "name": "drums" }
+  ],
+  "racks": [
+    {
+      "label": "lead",
+      "kind": "empty"
+    },
+    {
+      "label": "drums",
+      "kind": "drum_machine",
+      "drum": {
+        "step_count": 16,
+        "pattern": [1, 0, 0, 0, 0, 0, 0, 0, 4],
+        "pads": [
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          { "used": true, "gain": 0.8, "pitch_semitones": -3.0, "name": "extra" }
+        ]
+      }
+    }
+  ]
+}

@@ -158,6 +158,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("h / l",        "move cursor left / right (one step)");
     t.key("H / L",        "move cursor left / right (one beat, coarse)");
     t.key("j / k",        "move cursor down / up (pad)");
+    t.key("J / K",        "jump a whole bank of 8 pads (64 pads total, paged 8 at a time)");
     t.key("g / G",        "jump step cursor to pattern start / end");
     t.key("enter",        "toggle step on/off");
     t.key("c",            "cycle step velocity (100/75/50/25%)");
@@ -165,7 +166,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("< / >",        "less / more swing (50–75%)");
     t.key("C",            "cycle current pad's choke group (none/1-4) — same-group pads cut each other off");
     t.key("a",            "preview pad sound");
-    t.key("i",            "insert mode: play pads on the qwerty piano (pitch wraps to pad 1-8)");
+    t.key("i",            "insert mode: play pads on the qwerty piano (pitch wraps to pad 1-64)");
     t.key("(insert) space","start recording — clicks a one-bar count-in first if stopped");
     t.key("(insert) esc", "back to normal — while playing, hits recorded at the playhead");
     t.key("R",            "rename current pad (opens :pad-rename <n>, 8 chars max)");
@@ -186,9 +187,10 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("g / G",        "jump to first / last parameter");
     t.key("h / l",        "adjust value (fine)");
     t.key("H / L",        "adjust value (coarse ×10)");
-    t.key("1–8",          "switch to pad 1–8");
+    t.key("1–8",          "switch to pad 1–8 within the current bank of 8");
+    t.key("J / K",        "jump a whole bank of 8 pads (same slot, next/prev bank)");
     t.key("a",            "audition current pad");
-    t.key(":load-pad",    "<1-8> [file.wav]  load a sample into a pad (omit the file to browse)");
+    t.key(":load-pad",    "<1-64> [file.wav]  load a sample into a pad (omit the file to browse)");
 
     t.taggedSection(.synth_editor, "SYNTH EDITOR");
     t.key("j / k",        "select parameter");

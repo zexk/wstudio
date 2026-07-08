@@ -93,12 +93,23 @@ pub fn drawDrumGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, s
     const sel_lo: u32 = @min(sel_anchor, cur_step);
     const sel_hi: u32 = @max(sel_anchor, cur_step);
     const playing_step_u32: u32 = playing_step;
+    // MPC-style pad banking: the grid windows to 8 rows at a time — the
+    // bank containing the cursor, not a smooth scroll — so 64 pads never
+    // blow out the terminal height. J/K (editors/drum.zig) jump a whole
+    // bank; j/k crossing a bank boundary pages the window along with them.
+    const pads_per_bank = 8;
+    const bank_count = (DrumMachine.max_pads + pads_per_bank - 1) / pads_per_bank;
+    const bank = cur_pad / pads_per_bank;
+    const bank_start = bank * pads_per_bank;
+    const bank_end = @min(bank_start + pads_per_bank, DrumMachine.max_pads);
     try w.writeAll(bold ++ " " ++ icons.drum ++ " DRUMS" ++ rst);
     try w.print(" \"{s}\"", .{track_name});
     try w.writeAll("  " ++ acc);
     try w.print("pat {c}", .{DrumMachine.variantLetter(dm.variant)});
     try w.writeAll(rst ++ dim);
     try w.print(" {d}/{d}", .{ dm.variant + 1, dm.variant_count });
+    try w.writeAll(dim ++ "  bank " ++ rst);
+    try w.print("{d}/{d}", .{ bank + 1, bank_count });
     try endLine(w);
 
     // step header — only the visible scroll window is shown
@@ -114,7 +125,7 @@ pub fn drawDrumGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, s
     // One tint per choke group so paired pads (e.g. closed/open hihat) read
     // at a glance; ungrouped pads stay dim as before.
     const choke_colors = [_][]const u8{ yel, mag, blu, red };
-    for (0..DrumMachine.max_pads) |p| {
+    for (bank_start..bank_end) |p| {
         const name = dm.padName(@intCast(p));
         const group = dm.choke_group[p];
         try w.writeAll(if (group != 0) choke_colors[(group - 1) % choke_colors.len] else dim);
@@ -157,7 +168,7 @@ pub fn drawDrumGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, s
         try endLine(w);
     }
 
-    const used = 4 + DrumMachine.max_pads;
+    const used = 4 + (bank_end - bank_start);
     for (used..@max(used, rows -| 3)) |_| try endLine(w);
 }
 

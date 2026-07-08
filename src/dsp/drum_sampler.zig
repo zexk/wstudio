@@ -57,7 +57,7 @@ const default_kit = [_]KitSlot{
 };
 
 pub const DrumMachine = struct {
-    pub const max_pads: u8 = 8;
+    pub const max_pads: u8 = 64;
     pub const max_steps: u8 = 64;
     /// Max pattern variants (A..H) one machine can hold.
     pub const max_variants: u8 = 8;
@@ -114,16 +114,27 @@ pub const DrumMachine = struct {
     pub const pad_param_count: u8 = 10;
     /// Id-space stride per pad. `set_param` ids are `pad << 4 | param`, so the
     /// stride is a power of two and pad/param decode with shift + mask.
-    pub const param_stride: u8 = 16;
+    /// u16: at max_pads=64, `63 << 4 | param` is 1008+, past what a u8 id
+    /// could hold (this used to cap addressable pads at 15) — see
+    /// dsp/device.zig's Event.set_param doc comment.
+    pub const param_stride: u16 = 16;
 
     allocator: std.mem.Allocator,
     sample_rate: u32,
     transport: *const Transport,
 
-    /// Eight full Samplers, one per pad. Each guards its own clip buffer
-    /// against concurrent reads (audio thread) and writes (control thread
-    /// calling loadPadWav/setPadSamples at runtime) — see Sampler.pad_lock.
-    pads: [max_pads]Sampler,
+    /// Up to 64 full Samplers, one per pad — lazily materialized. `null`
+    /// means the pad has never had a sample loaded into it: no Sampler
+    /// exists, no memory beyond the tag (a materialized Sampler carries a
+    /// real audio buffer, ~115KB even for the generated default clip, which
+    /// matters multiplied out to 64 pads if every unused slot paid it).
+    /// Materializes on `loadPadWav`/`setPadSamples`; every accessor treats
+    /// null as "silent, nothing to do" — same "no override" shape
+    /// `AutomationCurve`'s null case already uses elsewhere. Each
+    /// materialized pad guards its own clip buffer against concurrent reads
+    /// (audio thread) and writes (control thread calling loadPadWav/
+    /// setPadSamples at runtime) — see Sampler.pad_lock.
+    pads: [max_pads]?Sampler,
     /// Guards `song_clips`/`song_clip_count`/`song_length_steps` against
     /// concurrent control-thread writes (setSongClips) while the audio
     /// thread reads them in fireSongStep.
@@ -189,7 +200,7 @@ pub const DrumMachine = struct {
             .next_step_k = 0,
             .current_step = .init(0),
         };
-        for (&self.pads) |*p| p.* = try Sampler.init(allocator, sample_rate);
+        for (&self.pads) |*p| p.* = null; // lazily materialized — see the field's doc comment
         for (&self.pattern) |*p| p.* = .init(0);
         for (&self.vel_lo)  |*p| p.* = .init(0);
         for (&self.vel_hi)  |*p| p.* = .init(0);
@@ -197,10 +208,11 @@ pub const DrumMachine = struct {
         // Load the shipped kit: WAVs rendered from dsp/drum_kit.zig by the
         // `genkit` build tool and embedded in the binary. Per-pad default gains
         // give a balanced out-of-the-box mix (the user can retune each in the
-        // sampler editor).
+        // sampler editor). loadPadWav materializes pads 0..default_kit.len;
+        // every pad past that stays null until the user loads something.
         for (default_kit, 0..) |slot, i| {
             try self.loadPadWav(@intCast(i), slot.data, slot.name);
-            self.pads[i].pad.gain = slot.gain;
+            self.pads[i].?.pad.gain = slot.gain;
         }
 
         // Default kit pads 2/3 (hihat/open) share choke group 1 — the
@@ -218,21 +230,22 @@ pub const DrumMachine = struct {
     }
 
     pub fn deinit(self: *DrumMachine) void {
-        for (&self.pads) |*p| p.deinit();
+        for (&self.pads) |*p| if (p.*) |*s| s.deinit();
     }
 
     /// Deep copy for track duplication: starts from a fresh `init` (which
     /// loads the embedded kit) so every buffer is uniquely allocated, then
     /// overwrites each pad with a dupe of this machine's actual clip audio
-    /// and copies the pattern bank, step count, and swing. Song-mode state
-    /// isn't carried — the caller rebuilds it from the arrangement if needed.
+    /// (or leaves it null if the source pad was never loaded) and copies the
+    /// pattern bank, step count, and swing. Song-mode state isn't carried —
+    /// the caller rebuilds it from the arrangement if needed.
     pub fn dupe(self: *const DrumMachine) !DrumMachine {
         var out = try DrumMachine.init(self.allocator, self.sample_rate, self.transport);
         errdefer out.deinit();
 
         for (&out.pads, 0..) |*dst, i| {
-            dst.deinit();
-            dst.* = try self.pads[i].dupe();
+            if (dst.*) |*d| d.deinit();
+            dst.* = if (self.pads[i]) |*src| try src.dupe() else null;
         }
         for (&out.pattern, 0..) |*p, i| p.store(self.pattern[i].load(.acquire), .monotonic);
         for (&out.vel_lo, 0..) |*p, i| p.store(self.vel_lo[i].load(.acquire), .monotonic);
@@ -445,7 +458,8 @@ pub const DrumMachine = struct {
 
     pub fn padName(self: *const DrumMachine, pad: u8) []const u8 {
         if (pad >= max_pads) return "----";
-        return self.pads[pad].clipName();
+        if (self.pads[pad]) |*s| return s.clipName();
+        return "empty";
     }
 
     /// Current sequencer step — read by the UI to highlight the playhead.
@@ -454,31 +468,46 @@ pub const DrumMachine = struct {
     }
 
     /// Encode a (pad, param) pair into the `set_param` id space.
-    pub fn paramId(pad: u8, param: u8) u8 {
-        return (pad << 4) | (param & 0x0F);
+    pub fn paramId(pad: u8, param: u8) u16 {
+        return (@as(u16, pad) << 4) | (param & 0x0F);
     }
 
     /// Nudge a per-pad sampler param by `steps` (h/l = ±1, H/L = ±10). Runs on
     /// the audio thread via the `set_param` event so it never races the block
-    /// reader, mirroring PolySynth.adjustParam. The pad index is the high nibble
+    /// reader, mirroring PolySynth.adjustParam. The pad index is the high bits
     /// of `id`; the param index is the low nibble (see `paramId`). Delegates
     /// straight to the pad's own Sampler.adjustParam — pads only ever receive
     /// param indices 0..9 (the drum grid never exposes Sampler's root-note
-    /// param 10).
-    pub fn adjustParam(self: *DrumMachine, id: u8, steps: i32) void {
-        const pad_idx = id >> 4;
-        const param = id & 0x0F;
+    /// param 10). A no-op on an unloaded (null) pad — nothing to nudge.
+    pub fn adjustParam(self: *DrumMachine, id: u16, steps: i32) void {
+        const pad_idx: u8 = @intCast(id >> 4);
+        const param: u8 = @intCast(id & 0x0F);
         if (pad_idx >= max_pads) return;
-        self.pads[pad_idx].adjustParam(param, steps);
+        if (self.pads[pad_idx]) |*s| s.adjustParam(param, steps);
     }
 
     // -----------------------------------------------------------------------
     // Sample loading (call from control side only, not while audio thread runs)
 
+    /// Materialize pad `idx` if it's still null (never loaded), returning a
+    /// pointer to it either way. A freshly materialized Sampler briefly
+    /// carries the generated default clip — the caller (setPadSamples/
+    /// loadPadWav) immediately replaces it, so this is a transient
+    /// allocation, not a persistent cost (see the `pads` field's own doc
+    /// comment for why lazy materialization matters at 64 slots). Caller
+    /// must have already bounds-checked `idx`.
+    fn ensurePad(self: *DrumMachine, idx: u8) !*Sampler {
+        if (self.pads[idx] == null) {
+            self.pads[idx] = try Sampler.init(self.allocator, self.sample_rate);
+        }
+        return &self.pads[idx].?;
+    }
+
     /// Replace pad `idx` with external mono f32 samples (must be allocated
     /// with `self.allocator`; the pad's Sampler takes ownership). Resets every
     /// other pad param to its default — used for a clean-slate kit pad, not
     /// user WAV loading (see `loadPadWav`, which preserves params).
+    /// Materializes the pad if it was still null.
     pub fn setPadSamples(
         self: *DrumMachine,
         idx: u8,
@@ -486,28 +515,35 @@ pub const DrumMachine = struct {
         name: []const u8,
     ) void {
         if (idx >= max_pads) return;
-        self.pads[idx].setSamples(samples, name);
+        const pad = self.ensurePad(idx) catch {
+            self.allocator.free(samples); // materialize failed — don't leak the caller's buffer
+            return;
+        };
+        pad.setSamples(samples, name);
     }
 
-    /// Regenerate all 8 pads from a procedural kit variant (see
-    /// `dsp/drum_kit.zig`'s `variants` table). Runs the generators directly
-    /// into fresh pad buffers — nothing is read from disk or the binary's
+    /// Regenerate the kit variant's pads (always the first 8 — kits are an
+    /// 8-pad concept regardless of `max_pads`; see `dsp/drum_kit.zig`'s
+    /// `variants` table) from procedural generators. Runs them directly into
+    /// fresh pad buffers — nothing is read from disk or the binary's
     /// embedded assets, so extra kit flavours cost no shipped bytes. Marks
     /// every pad as non-user so it isn't exported to the sample sidecar.
     pub fn loadKitVariant(self: *DrumMachine, variant: *const drum_kit.KitVariant) !void {
         for (variant.pads, 0..) |slot, i| {
             const samples = try slot.gen(self.allocator, self.sample_rate);
             self.setPadSamples(@intCast(i), samples, slot.name);
-            self.pads[i].pad.gain = slot.gain;
+            self.pads[i].?.pad.gain = slot.gain;
         }
     }
 
     /// Parse raw WAV bytes into pad `idx`, keeping its other params (pitch,
     /// trim, ADSR, gain, …) untouched — same as loading a new clip into the
-    /// standalone Sampler. Resamples to engine rate if needed.
+    /// standalone Sampler. Resamples to engine rate if needed. Materializes
+    /// the pad if it was still null.
     pub fn loadPadWav(self: *DrumMachine, idx: u8, wav_data: []const u8, name: []const u8) !void {
         if (idx >= max_pads) return;
-        try self.pads[idx].loadWav(wav_data, name);
+        const pad = try self.ensurePad(idx);
+        try pad.loadWav(wav_data, name);
     }
 
     // -----------------------------------------------------------------------
@@ -574,7 +610,7 @@ pub const DrumMachine = struct {
             self.next_step_k = step_k;
         }
 
-        for (&self.pads) |*pad| pad.processBlock(buf);
+        for (&self.pads) |*p| if (p.*) |*s| s.processBlock(buf);
     }
 
     /// Fire pads for absolute step `step_k` from the song timeline. Past
@@ -607,15 +643,18 @@ pub const DrumMachine = struct {
     /// the classic drum-machine convention, even though the underlying
     /// Sampler is itself polyphonic. If `p` belongs to a choke group (nonzero
     /// `choke_group`), every other pad sharing that group is silenced too
-    /// (e.g. a closed-hat hit cutting an open hat's ring-out).
+    /// (e.g. a closed-hat hit cutting an open hat's ring-out). A no-op on an
+    /// unloaded (null) pad — nothing to trigger.
     fn chokeTrigger(self: *DrumMachine, p: u8, vel: f32, block_start: u32) void {
+        const pad = if (self.pads[p]) |*s| s else return;
         const group = self.choke_group[p];
         if (group != 0) {
             for (&self.pads, 0..) |*other, i| {
-                if (i != p and self.choke_group[i] == group) other.resetAll();
+                if (i != p and self.choke_group[i] == group) {
+                    if (other.*) |*s| s.resetAll();
+                }
             }
         }
-        const pad = &self.pads[p];
         pad.resetAll();
         pad.trigger(pad.root_note, vel, block_start);
     }
@@ -626,7 +665,7 @@ pub const DrumMachine = struct {
     }
 
     pub fn resetAll(self: *DrumMachine) void {
-        for (&self.pads) |*p| p.resetAll();
+        for (&self.pads) |*p| if (p.*) |*s| s.resetAll();
         self.next_step_k = 0;
     }
 
@@ -660,16 +699,20 @@ test "embedded kit loads non-silent pads with default gains" {
     defer dm.deinit();
 
     // All 8 kit pads should decode and have samples + their default gain.
-    for (0..DrumMachine.max_pads) |p| {
-        try std.testing.expect(dm.pads[p].pad.samples.len > 0);
-        try std.testing.expect(dm.pads[p].pad.gain > 0.0);
+    for (0..8) |p| {
+        try std.testing.expect(dm.pads[p].?.pad.samples.len > 0);
+        try std.testing.expect(dm.pads[p].?.pad.gain > 0.0);
+    }
+    // Pads beyond the kit's 8 are lazily unmaterialized.
+    for (8..DrumMachine.max_pads) |p| {
+        try std.testing.expect(dm.pads[p] == null);
     }
     // Kick should have a non-zero peak.
     var peak: f32 = 0;
-    for (dm.pads[0].pad.samples) |s| peak = @max(peak, @abs(s));
+    for (dm.pads[0].?.pad.samples) |s| peak = @max(peak, @abs(s));
     try std.testing.expect(peak > 0.01);
     // Hihat ships quieter than the kick by default.
-    try std.testing.expect(dm.pads[2].pad.gain < dm.pads[0].pad.gain);
+    try std.testing.expect(dm.pads[2].?.pad.gain < dm.pads[0].?.pad.gain);
 }
 
 test "step sequencer fires pads at correct boundaries" {
@@ -823,13 +866,13 @@ test "voice velocity scales the rendered level" {
 
     var voice: pad_mod.Voice = .{ .active = true, .played = 0, .block_start = 0, .vel = 1.0 };
     @memset(&buf, 0.0);
-    pad_mod.renderVoice(&voice, &dm.pads[0].pad, &buf, 2, 256, 48_000.0);
+    pad_mod.renderVoice(&voice, &dm.pads[0].?.pad, &buf, 2, 256, 48_000.0);
     var peak_full: f32 = 0;
     for (buf) |s| peak_full = @max(peak_full, @abs(s));
 
     voice = .{ .active = true, .played = 0, .block_start = 0, .vel = 0.25 };
     @memset(&buf, 0.0);
-    pad_mod.renderVoice(&voice, &dm.pads[0].pad, &buf, 2, 256, 48_000.0);
+    pad_mod.renderVoice(&voice, &dm.pads[0].?.pad, &buf, 2, 256, 48_000.0);
     var peak_quiet: f32 = 0;
     for (buf) |s| peak_quiet = @max(peak_quiet, @abs(s));
 
@@ -849,15 +892,15 @@ test "choke group silences other pads sharing it" {
 
     const dev = dm.device();
     dev.sendEvent(.{ .note_on = .{ .note = 4, .velocity = 1.0 } });
-    try std.testing.expect(dm.pads[4].voices[0].active);
+    try std.testing.expect(dm.pads[4].?.voices[0].active);
 
     dev.sendEvent(.{ .note_on = .{ .note = 5, .velocity = 1.0 } });
-    try std.testing.expect(!dm.pads[4].voices[0].active); // choked by pad 5
-    try std.testing.expect(dm.pads[5].voices[0].active);
+    try std.testing.expect(!dm.pads[4].?.voices[0].active); // choked by pad 5
+    try std.testing.expect(dm.pads[5].?.voices[0].active);
 
     // An unrelated pad (no group) doesn't touch pad 5's still-ringing voice.
     dev.sendEvent(.{ .note_on = .{ .note = 6, .velocity = 1.0 } });
-    try std.testing.expect(dm.pads[5].voices[0].active);
+    try std.testing.expect(dm.pads[5].?.voices[0].active);
 }
 
 test "cycleChokeGroup wraps through none..max" {
@@ -1078,16 +1121,16 @@ test "adjustParam decodes pad/param and clamps" {
 
     // pad 2, param 2 = pitch; +3 semitones
     dm.adjustParam(DrumMachine.paramId(2, 2), 3);
-    try std.testing.expectApproxEqAbs(@as(f32, 3.0), dm.pads[2].pad.pitch_semitones, 1e-4);
+    try std.testing.expectApproxEqAbs(@as(f32, 3.0), dm.pads[2].?.pad.pitch_semitones, 1e-4);
 
     // start never crosses end
     dm.adjustParam(DrumMachine.paramId(0, 0), 1000); // start up hard
-    try std.testing.expect(dm.pads[0].pad.start_norm < dm.pads[0].pad.end_norm);
+    try std.testing.expect(dm.pads[0].?.pad.start_norm < dm.pads[0].?.pad.end_norm);
 
     // reverse toggles on any nonzero step
-    const before = dm.pads[1].pad.reverse;
+    const before = dm.pads[1].?.pad.reverse;
     dm.adjustParam(DrumMachine.paramId(1, 9), 1);
-    try std.testing.expectEqual(!before, dm.pads[1].pad.reverse);
+    try std.testing.expectEqual(!before, dm.pads[1].?.pad.reverse);
 }
 
 test "region trim shortens the voice" {
@@ -1096,22 +1139,22 @@ test "region trim shortens the voice" {
     defer dm.deinit();
 
     // Trim pad 0 to the first 10% of the clip, then trigger it.
-    dm.pads[0].pad.end_norm = 0.1;
-    const region = dm.pads[0].pad.samples.len / 10;
+    dm.pads[0].?.pad.end_norm = 0.1;
+    const region = dm.pads[0].?.pad.samples.len / 10;
 
     dm.resetAll();
     var voice: pad_mod.Voice = .{ .active = true, .played = 0, .block_start = 0 };
     var buf: [4096]Sample = undefined;
     // Render enough frames to exceed the trimmed region; the voice must end.
     var rendered: usize = 0;
-    while (voice.active and rendered < dm.pads[0].pad.samples.len) : (rendered += buf.len / 2) {
+    while (voice.active and rendered < dm.pads[0].?.pad.samples.len) : (rendered += buf.len / 2) {
         @memset(&buf, 0.0);
-        pad_mod.renderVoice(&voice, &dm.pads[0].pad, &buf, 2, buf.len / 2, 48_000.0);
+        pad_mod.renderVoice(&voice, &dm.pads[0].?.pad, &buf, 2, buf.len / 2, 48_000.0);
     }
     try std.testing.expect(!voice.active);
     // It stopped near the region length, well before the full clip.
-    try std.testing.expect(rendered < dm.pads[0].pad.samples.len);
-    try std.testing.expect(region < dm.pads[0].pad.samples.len);
+    try std.testing.expect(rendered < dm.pads[0].?.pad.samples.len);
+    try std.testing.expect(region < dm.pads[0].?.pad.samples.len);
 }
 
 test "pitch up plays the region faster" {
@@ -1122,21 +1165,21 @@ test "pitch up plays the region faster" {
     var buf: [256]Sample = undefined;
 
     // Baseline: count active frames at unity pitch.
-    dm.pads[0].pad.pitch_semitones = 0.0;
+    dm.pads[0].?.pad.pitch_semitones = 0.0;
     var voice: pad_mod.Voice = .{ .active = true, .played = 0, .block_start = 0 };
     var unity_frames: usize = 0;
     while (voice.active and unity_frames < 1_000_000) : (unity_frames += 128) {
         @memset(&buf, 0.0);
-        pad_mod.renderVoice(&voice, &dm.pads[0].pad, &buf, 2, 128, 48_000.0);
+        pad_mod.renderVoice(&voice, &dm.pads[0].?.pad, &buf, 2, 128, 48_000.0);
     }
 
     // Pitched up an octave should consume the region in roughly half the frames.
-    dm.pads[0].pad.pitch_semitones = 12.0;
+    dm.pads[0].?.pad.pitch_semitones = 12.0;
     voice = .{ .active = true, .played = 0, .block_start = 0 };
     var fast_frames: usize = 0;
     while (voice.active and fast_frames < 1_000_000) : (fast_frames += 128) {
         @memset(&buf, 0.0);
-        pad_mod.renderVoice(&voice, &dm.pads[0].pad, &buf, 2, 128, 48_000.0);
+        pad_mod.renderVoice(&voice, &dm.pads[0].?.pad, &buf, 2, 128, 48_000.0);
     }
     try std.testing.expect(fast_frames < unity_frames);
 }

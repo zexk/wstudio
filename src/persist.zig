@@ -78,7 +78,21 @@ const AutomationPoint = automation_mod.AutomationPoint;
 /// carry the struct-of-optionals `fx`/`master_fx` instead; they load as a
 /// chain in the old hard-wired order (gate → comp → eq → sat → crush →
 /// chorus → phaser → delay → reverb), the audible behaviour they had.
-pub const file_version: u32 = 10;
+///
+/// v11 bumps `DrumMachine.max_pads` 8 → 64 with lazy per-pad allocation
+/// (`DrumMachine.pads` is now `[64]?Sampler`, not `[8]Sampler`) — genuinely
+/// a version bump, not just an additive field, because it changes what an
+/// *absent* value means: `PadSnap.used` is new in v11 and defaults to
+/// `false`, but every v10-and-older file's 8 pads were ALWAYS materialized
+/// (there was no "empty pad" concept before lazy allocation existed), so an
+/// absent `used` on a pre-v11 file means `true`, not the v11 default. Also
+/// converts DrumSnap/VariantSnap's pad-indexed fields (`pattern`, `vel_lo`,
+/// `vel_hi`, `choke_group`, `pads`) from fixed `[DrumMachine.max_pads]T`
+/// arrays to slices — std.json requires an exact length match to parse a
+/// fixed array, so leaving them tied to the now-64 constant would have
+/// broken loading every pre-v11 file's 8-element arrays outright (confirmed
+/// with a standalone repro before this landed, not just assumed).
+pub const file_version: u32 = 11;
 
 pub const AutomationPointSnap = struct {
     beat: f64,
@@ -174,23 +188,48 @@ pub const PadSnap = struct {
     sample_file: []const u8 = "",
     /// v5: display name of a user-loaded sample ("" = keep the default).
     name: []const u8 = "",
+    /// Additive field: whether this slot has ever had a sample loaded (the
+    /// shipped kit's pads, or a user `:load-pad`) — `false` means the live
+    /// `DrumMachine.pads[i]` is null (never materialized; see that field's
+    /// own doc comment) and every other field here is just the struct
+    /// default, not meaningful data. Older files omit it; since a pre-64-pad
+    /// file only ever had exactly `DrumMachine.max_pads` (then 8) entries
+    /// and all 8 were always loaded (the shipped kit), the load path treats
+    /// omitted `used` as `true` for exactly those legacy positions — see
+    /// `buildSession`.
+    used: bool = false,
 };
 
 /// One drum pattern variant. Mirrors `DrumMachine.Variant`.
+///
+/// `pattern`/`vel_lo`/`vel_hi` are slices, not `[DrumMachine.max_pads]u64`
+/// fixed arrays: std.json requires an EXACT length match to parse a fixed
+/// array, so tying their declared length to `max_pads` would break loading
+/// every file saved before pad cap 8->64 (their JSON arrays have exactly 8
+/// elements) the moment `max_pads` grew — confirmed by hand before this
+/// went further, not just assumed. A slice parses any length; the load path
+/// applies `min(len, max_pads)` elements and leaves the rest at the
+/// zero-value default, same shape `Snapshot.groups` already uses for the
+/// same reason.
 pub const VariantSnap = struct {
     step_count: u8 = 16,
-    pattern: [DrumMachine.max_pads]u64 = [_]u64{0} ** DrumMachine.max_pads,
+    pattern: []const u64 = &.{},
     /// v4: per-step velocity bitplanes. Zero (or absent) = full velocity.
-    vel_lo: [DrumMachine.max_pads]u64 = [_]u64{0} ** DrumMachine.max_pads,
-    vel_hi: [DrumMachine.max_pads]u64 = [_]u64{0} ** DrumMachine.max_pads,
+    vel_lo: []const u64 = &.{},
+    vel_hi: []const u64 = &.{},
 };
 
 pub const DrumSnap = struct {
     /// Legacy live-pattern fields: always the active variant's data, so v2
     /// readers (and hand edits) see a coherent single pattern.
     step_count: u8 = 16,
-    pattern: [DrumMachine.max_pads]u64 = [_]u64{0} ** DrumMachine.max_pads,
-    pads: [DrumMachine.max_pads]PadSnap = [_]PadSnap{.{}} ** DrumMachine.max_pads,
+    /// Slice, not a fixed array — see VariantSnap's doc comment; same
+    /// backward-compat reasoning applies to every pad-indexed field below.
+    pattern: []const u64 = &.{},
+    /// Mutable slice (not `[]const`) — `exportSamples` fills in
+    /// `sample_file` for user-loaded pads *after* this struct is built, an
+    /// in-place mutation a const slice wouldn't allow.
+    pads: []PadSnap = &.{},
     /// v3: the whole variant bank. Empty in v2 files — the machine then gets a
     /// single variant from the legacy fields above.
     variants: []const VariantSnap = &.{},
@@ -199,7 +238,7 @@ pub const DrumSnap = struct {
     /// v4: swing percent (50 = straight … 75 = hardest shuffle).
     swing: f32 = 50.0,
     /// v8: per-pad choke group (0 = none — see DrumMachine.chokeTrigger).
-    choke_group: [DrumMachine.max_pads]u8 = [_]u8{0} ** DrumMachine.max_pads,
+    choke_group: []const u8 = &.{},
 };
 
 pub const CompSnap = struct {
@@ -365,10 +404,14 @@ pub const ClipSnap = struct {
     notes: []const NoteSnap = &.{},
     length_beats: f64 = 4.0,
     // drum
-    drum_pattern: [DrumMachine.max_pads]u64 = [_]u64{0} ** DrumMachine.max_pads,
+    // v11: widened from a [DrumMachine.max_pads]u64 fixed array to a slice —
+    // std.json requires exact-length matches for fixed arrays, and max_pads
+    // grew 8->64, so old files' 8-element arrays would otherwise fail to
+    // parse. Missing/short entries are zero-filled on load (see clipFromSnap).
+    drum_pattern: []const u64 = &.{},
     /// v4: per-step velocity bitplanes. Zero (or absent) = full velocity.
-    drum_vel_lo: [DrumMachine.max_pads]u64 = [_]u64{0} ** DrumMachine.max_pads,
-    drum_vel_hi: [DrumMachine.max_pads]u64 = [_]u64{0} ** DrumMachine.max_pads,
+    drum_vel_lo: []const u64 = &.{},
+    drum_vel_hi: []const u64 = &.{},
     step_count: u8 = 16,
     /// v3: variant letter label (index) the clip was stamped from.
     variant: u8 = 0,
@@ -542,34 +585,55 @@ fn rackToSnap(aa: std.mem.Allocator, rack: *Rack, sample_rate: u32) !RackSnap {
                 .step_count = dm.step_count,
                 .variant = dm.variant,
                 .swing = dm.swing.load(.monotonic),
-                .choke_group = dm.choke_group,
             };
-            for (&ds.pattern, 0..) |*p, i| p.* = dm.pattern[i].load(.acquire);
+            // Dense, always DrumMachine.max_pads entries — position IS the
+            // pad index everywhere below, same "slice for JSON-length
+            // safety, but positionally dense" shape VariantSnap's own doc
+            // comment explains.
+            const choke = try aa.alloc(u8, DrumMachine.max_pads);
+            @memcpy(choke, &dm.choke_group);
+            ds.choke_group = choke;
+
+            const pattern = try aa.alloc(u64, DrumMachine.max_pads);
+            for (pattern, 0..) |*p, i| p.* = dm.pattern[i].load(.acquire);
+            ds.pattern = pattern;
+
             const variants = try aa.alloc(VariantSnap, dm.variant_count);
             for (variants, 0..) |*vs, vi| {
                 // variantData reads the active slot from the live atomics.
                 const v = dm.variantData(@intCast(vi));
-                vs.* = .{
-                    .step_count = v.step_count, .pattern = v.pattern,
-                    .vel_lo = v.vel_lo, .vel_hi = v.vel_hi,
-                };
+                const vp = try aa.alloc(u64, DrumMachine.max_pads);
+                @memcpy(vp, &v.pattern);
+                const vlo = try aa.alloc(u64, DrumMachine.max_pads);
+                @memcpy(vlo, &v.vel_lo);
+                const vhi = try aa.alloc(u64, DrumMachine.max_pads);
+                @memcpy(vhi, &v.vel_hi);
+                vs.* = .{ .step_count = v.step_count, .pattern = vp, .vel_lo = vlo, .vel_hi = vhi };
             }
             ds.variants = variants;
-            for (&ds.pads, 0..) |*ps, i| {
-                const p = &dm.pads[i].pad;
-                ps.* = .{
-                    .gain = p.gain, .pan = p.pan, .pitch_semitones = p.pitch_semitones,
-                    .start_norm = p.start_norm, .end_norm = p.end_norm, .reverse = p.reverse,
-                    .attack_s = p.attack_s, .decay_s = p.decay_s,
-                    .sustain = p.sustain, .release_s = p.release_s,
-                    // Always saved (like a track name), independent of
-                    // whether the pad has user-loaded audio — a `:pad-rename`
-                    // on a shipped-kit pad has no sample_file to carry the
-                    // name through otherwise. exportSamples overwrites this
-                    // with the same value for user-sample pads.
-                    .name = try aa.dupe(u8, dm.pads[i].clipName()),
-                };
+
+            const pads = try aa.alloc(PadSnap, DrumMachine.max_pads);
+            for (pads, 0..) |*ps, i| {
+                if (dm.pads[i]) |*s| {
+                    const p = &s.pad;
+                    ps.* = .{
+                        .used = true,
+                        .gain = p.gain, .pan = p.pan, .pitch_semitones = p.pitch_semitones,
+                        .start_norm = p.start_norm, .end_norm = p.end_norm, .reverse = p.reverse,
+                        .attack_s = p.attack_s, .decay_s = p.decay_s,
+                        .sustain = p.sustain, .release_s = p.release_s,
+                        // Always saved (like a track name), independent of
+                        // whether the pad has user-loaded audio — a `:pad-rename`
+                        // on a shipped-kit pad has no sample_file to carry the
+                        // name through otherwise. exportSamples overwrites this
+                        // with the same value for user-sample pads.
+                        .name = try aa.dupe(u8, s.clipName()),
+                    };
+                } else {
+                    ps.* = .{}; // used = false — unloaded, nothing else here is meaningful
+                }
             }
+            ds.pads = pads;
             rs.drum = ds;
         },
     }
@@ -637,7 +701,8 @@ fn exportSamples(
     for (session.racks.items, racks, 0..) |rack, *rs, ti| {
         switch (rack.instrument) {
             .drum_machine => |*dm| for (0..DrumMachine.max_pads) |pi| {
-                const p = &dm.pads[pi].pad;
+                const s = if (dm.pads[pi]) |*sm| sm else continue; // unloaded pad — nothing to export
+                const p = &s.pad;
                 if (!p.user_sample) continue;
                 const rel = try std.fmt.allocPrint(aa, "{s}/t{d}p{d}.wav", .{ sidecar, ti, pi });
                 try writeSampleWav(aa, io, path, rel, &dir_ready, sr, p.samples);
@@ -730,9 +795,9 @@ fn clipToSnap(aa: std.mem.Allocator, clip: ws_arrangement.Clip) !ClipSnap {
         },
         .drum => |d| {
             c.kind = .drum;
-            c.drum_pattern = d.pattern;
-            c.drum_vel_lo = d.vel_lo;
-            c.drum_vel_hi = d.vel_hi;
+            c.drum_pattern = try aa.dupe(u64, &d.pattern);
+            c.drum_vel_lo = try aa.dupe(u64, &d.vel_lo);
+            c.drum_vel_hi = try aa.dupe(u64, &d.vel_hi);
             c.step_count = d.step_count;
             c.variant = d.variant;
         },
@@ -832,18 +897,23 @@ fn restoreSamples(
             .drum_machine => |*dm| {
                 const ds = rs.drum orelse continue;
                 for (ds.pads, 0..) |ps, pi| {
+                    if (pi >= DrumMachine.max_pads) break;
                     if (ps.sample_file.len == 0) {
                         // No user sample to load, but a `:pad-rename` on a
                         // shipped-kit pad still needs its name restored.
-                        if (ps.name.len > 0) dm.pads[pi].rename(ps.name);
+                        // Null (unmaterialized) pads have nothing to rename.
+                        if (ps.name.len > 0) {
+                            if (dm.pads[pi]) |*sm| sm.rename(ps.name);
+                        }
                         continue;
                     }
                     const data = readWsjRel(allocator, io, path, ps.sample_file) orelse continue;
                     defer allocator.free(data);
                     // loadPadWav swaps audio + name under the pad lock and
-                    // keeps the params already applied by buildSession.
+                    // keeps the params already applied by buildSession, and
+                    // materializes the pad if it wasn't already.
                     dm.loadPadWav(@intCast(pi), data, sampleName(ps)) catch continue;
-                    dm.pads[pi].pad.user_sample = true;
+                    dm.pads[pi].?.pad.user_sample = true;
                 }
             },
             .sampler => |*s| {
@@ -975,9 +1045,19 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
                             const sc = std.math.clamp(vs.step_count, 1, DrumMachine.max_steps);
                             slot.step_count = sc;
                             const mask = DrumMachine.stepMask(sc);
-                            for (vs.pattern, &slot.pattern) |bits, *p| p.* = bits & mask;
-                            for (vs.vel_lo,  &slot.vel_lo)  |bits, *p| p.* = bits & mask;
-                            for (vs.vel_hi,  &slot.vel_hi)  |bits, *p| p.* = bits & mask;
+                            // vs.pattern/vel_lo/vel_hi are slices (any length
+                            // — see VariantSnap's doc comment), slot.* are
+                            // fixed max_pads arrays: bound to whichever is
+                            // shorter rather than zipping (a for-loop zip
+                            // requires equal lengths and would panic on an
+                            // older, shorter file). Pads past the file's own
+                            // length stay at the Variant default (zero).
+                            const pn = @min(vs.pattern.len, slot.pattern.len);
+                            for (vs.pattern[0..pn], slot.pattern[0..pn]) |bits, *p| p.* = bits & mask;
+                            const ln = @min(vs.vel_lo.len, slot.vel_lo.len);
+                            for (vs.vel_lo[0..ln], slot.vel_lo[0..ln]) |bits, *p| p.* = bits & mask;
+                            const hn = @min(vs.vel_hi.len, slot.vel_hi.len);
+                            for (vs.vel_hi[0..hn], slot.vel_hi[0..hn]) |bits, *p| p.* = bits & mask;
                         }
                         dmp.variant_count = count;
                         dmp.variant = @min(ds.variant, count - 1);
@@ -995,6 +1075,7 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
                         // setStepCount masks off any pattern bits the file
                         // left above its own step count.
                         for (ds.pattern, 0..) |bits, pi| {
+                            if (pi >= DrumMachine.max_pads) break;
                             dmp.pattern[pi].store(bits, .monotonic);
                         }
                         dmp.setStepCount(ds.step_count);
@@ -1003,11 +1084,39 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
                         std.math.clamp(ds.swing, DrumMachine.swing_min, DrumMachine.swing_max),
                         .monotonic,
                     );
-                    for (ds.choke_group, &dmp.choke_group) |g, *dst| {
-                        dst.* = @min(g, DrumMachine.max_choke_groups);
+                    // The file is the source of truth even when it says
+                    // nothing: a default/legacy DrumSnap has an empty slice
+                    // here, which must still clear init()'s default hihat
+                    // choke pairing, not leave it standing.
+                    for (&dmp.choke_group) |*c| c.* = 0;
+                    for (ds.choke_group, 0..) |g, pi| {
+                        if (pi >= DrumMachine.max_pads) break;
+                        dmp.choke_group[pi] = @min(g, DrumMachine.max_choke_groups);
                     }
+                    // Only materialize a pad the file actually marked `used`
+                    // (see PadSnap's doc comment) — an omitted/legacy entry
+                    // (older files implicitly meant every one of their 8 was
+                    // used, see the loop below) or an explicit `used = false`
+                    // stays null, matching a pad nobody ever loaded.
                     for (ds.pads, 0..) |ps, pi| {
-                        applyPadSnap(&dmp.pads[pi].pad, ps);
+                        if (pi >= DrumMachine.max_pads) break;
+                        // Pre-v11 files predate the "empty pad" concept
+                        // entirely (every pad was always materialized, even
+                        // an untouched one just carried the generated
+                        // default clip) — `used` didn't exist yet, so its
+                        // absence there means "was materialized", not the
+                        // v11-and-later default of `false`. Version-gated,
+                        // not inferred from array length (a v11+ file can
+                        // legitimately have exactly 8 real entries with some
+                        // genuinely unused).
+                        const was_used = ps.used or snap.version < 11;
+                        if (!was_used) continue;
+                        // init() may have already materialized this pad (the
+                        // default kit fills 0-7) — deinit it first so we don't
+                        // leak its sample buffer when replacing it.
+                        if (dmp.pads[pi]) |*old| old.deinit();
+                        dmp.pads[pi] = Sampler.init(allocator, sr) catch continue;
+                        applyPadSnap(&dmp.pads[pi].?.pad, ps);
                     }
                 }
             },
@@ -1072,6 +1181,15 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
     return self;
 }
 
+/// Widen a possibly-short (older/legacy) bitplane slice into a fixed
+/// max_pads-length array, zero-filling any pads the slice didn't cover.
+fn padBitplane(bits: []const u64) [DrumMachine.max_pads]u64 {
+    var out = [_]u64{0} ** DrumMachine.max_pads;
+    const n = @min(bits.len, out.len);
+    @memcpy(out[0..n], bits[0..n]);
+    return out;
+}
+
 /// Rebuild an arrangement clip from its snapshot. Melodic clips copy notes
 /// through a stack buffer into a fresh owned allocation; drum clips are inline.
 fn clipFromSnap(allocator: std.mem.Allocator, cs: ClipSnap) !ws_arrangement.Clip {
@@ -1085,9 +1203,9 @@ fn clipFromSnap(allocator: std.mem.Allocator, cs: ClipSnap) !ws_arrangement.Clip
             );
         },
         .drum => ws_arrangement.Clip.initDrum(cs.start_bar, cs.length_bars, .{
-            .pattern = cs.drum_pattern,
-            .vel_lo = cs.drum_vel_lo,
-            .vel_hi = cs.drum_vel_hi,
+            .pattern = padBitplane(cs.drum_pattern),
+            .vel_lo = padBitplane(cs.drum_vel_lo),
+            .vel_hi = padBitplane(cs.drum_vel_hi),
             .step_count = cs.step_count,
             .variant = @min(cs.variant, DrumMachine.max_variants - 1),
         }),
@@ -1327,7 +1445,7 @@ test "snapshot types: JSON round-trip preserves synth params, notes, drum patter
             .{
                 .label = "drums",
                 .kind = .drum_machine,
-                .drum = .{ .step_count = 16, .pattern = drum_pattern },
+                .drum = .{ .step_count = 16, .pattern = &drum_pattern },
             },
         },
     };
@@ -1367,6 +1485,8 @@ test "buildSession: constructs valid Session from snapshot" {
         p[0] = 1 << 5;
         break :blk p;
     };
+    var pads_snap = [_]PadSnap{.{}} ** DrumMachine.max_pads;
+    pads_snap[0] = .{ .used = true, .pitch_semitones = 7.0, .reverse = true, .end_norm = 0.5 };
 
     const snap: Snapshot = .{
         .tempo_bpm = 140.0,
@@ -1395,12 +1515,8 @@ test "buildSession: constructs valid Session from snapshot" {
                 .kind = .drum_machine,
                 .drum = .{
                     .step_count = 16,
-                    .pattern = drum_pattern,
-                    .pads = blk: {
-                        var ps = [_]PadSnap{.{}} ** DrumMachine.max_pads;
-                        ps[0] = .{ .pitch_semitones = 7.0, .reverse = true, .end_norm = 0.5 };
-                        break :blk ps;
-                    },
+                    .pattern = &drum_pattern,
+                    .pads = &pads_snap,
                 },
             },
         },
@@ -1434,9 +1550,9 @@ test "buildSession: constructs valid Session from snapshot" {
     const dm = &session.racks.items[1].instrument.drum_machine;
     try testing.expect(dm.stepActive(0, 5));
     try testing.expect(!dm.stepActive(0, 0));
-    try testing.expectApproxEqAbs(@as(f32, 7.0), dm.pads[0].pad.pitch_semitones, 1e-4);
-    try testing.expect(dm.pads[0].pad.reverse);
-    try testing.expectApproxEqAbs(@as(f32, 0.5), dm.pads[0].pad.end_norm, 1e-4);
+    try testing.expectApproxEqAbs(@as(f32, 7.0), dm.pads[0].?.pad.pitch_semitones, 1e-4);
+    try testing.expect(dm.pads[0].?.pad.reverse);
+    try testing.expectApproxEqAbs(@as(f32, 0.5), dm.pads[0].?.pad.end_norm, 1e-4);
 }
 
 test "buildSession: legacy master FX loads in the old fixed order" {
@@ -1552,7 +1668,7 @@ test "buildSession: arrangement clips and song_mode round-trip" {
         .tracks = &.{ .{ .name = "keys" }, .{ .name = "drums" } },
         .racks = &.{
             .{ .label = "synth", .kind = .poly_synth, .synth = .{} },
-            .{ .label = "drums", .kind = .drum_machine, .drum = .{ .step_count = 16, .pattern = drum_pattern } },
+            .{ .label = "drums", .kind = .drum_machine, .drum = .{ .step_count = 16, .pattern = &drum_pattern } },
         },
         .song_mode = true,
         .arrangement = &.{
@@ -1562,7 +1678,7 @@ test "buildSession: arrangement clips and song_mode round-trip" {
                 } },
             } },
             .{ .clips = &.{
-                .{ .start_bar = 0, .length_bars = 1, .kind = .drum, .step_count = 16, .drum_pattern = drum_pattern },
+                .{ .start_bar = 0, .length_bars = 1, .kind = .drum, .step_count = 16, .drum_pattern = &drum_pattern },
             } },
         },
     };
@@ -1690,12 +1806,12 @@ test "buildSession: drum variant bank round-trips; v2 files get one variant" {
         .{ .step_count = 16, .pattern = blk: {
             var p = [_]u64{0} ** DrumMachine.max_pads;
             p[0] = 1 | (1 << 20); // bit 20 is past 16 steps — stray
-            break :blk p;
+            break :blk &p;
         } },
         .{ .step_count = 32, .pattern = blk: {
             var p = [_]u64{0} ** DrumMachine.max_pads;
             p[1] = 1 << 31;
-            break :blk p;
+            break :blk &p;
         } },
     };
     const snap: Snapshot = .{
@@ -1729,7 +1845,7 @@ test "buildSession: drum variant bank round-trips; v2 files get one variant" {
             .drum = .{ .step_count = 16, .pattern = blk: {
                 var p = [_]u64{0} ** DrumMachine.max_pads;
                 p[0] = 1 << 5;
-                break :blk p;
+                break :blk &p;
             } },
         }},
     };
@@ -1761,18 +1877,18 @@ test "buildSession: per-step velocity and swing round-trip" {
         .pattern = blk: {
             var p = [_]u64{0} ** DrumMachine.max_pads;
             p[0] = 0b11;
-            break :blk p;
+            break :blk &p;
         },
         // Step 1 at level 3 (25%); a stray plane bit above the step count.
         .vel_lo = blk: {
             var p = [_]u64{0} ** DrumMachine.max_pads;
             p[0] = (1 << 1) | (1 << 20);
-            break :blk p;
+            break :blk &p;
         },
         .vel_hi = blk: {
             var p = [_]u64{0} ** DrumMachine.max_pads;
             p[0] = 1 << 1;
-            break :blk p;
+            break :blk &p;
         },
     }};
     const snap: Snapshot = .{
@@ -1806,7 +1922,7 @@ test "buildSession: a 64-step pattern round-trips bit 63 without truncation" {
         .pattern = blk: {
             var p = [_]u64{0} ** DrumMachine.max_pads;
             p[0] = @as(u64, 1) << 63;
-            break :blk p;
+            break :blk &p;
         },
     }};
     const snap: Snapshot = .{
@@ -1885,7 +2001,7 @@ test "choke groups round-trip through DrumSnap; older files load ungrouped" {
         .racks = &.{.{
             .label = "drums",
             .kind = .drum_machine,
-            .drum = .{ .choke_group = groups },
+            .drum = .{ .choke_group = &groups },
         }},
     };
     var session = try buildSession(testing.allocator, &snap);
@@ -1964,8 +2080,8 @@ test "buildSession: clamps out-of-range pad and note values" {
                 .pads = blk: {
                     var ps = [_]PadSnap{.{}} ** DrumMachine.max_pads;
                     // end < start and both far out of range.
-                    ps[0] = .{ .start_norm = 7.0, .end_norm = -3.0, .gain = 99.0 };
-                    break :blk ps;
+                    ps[0] = .{ .used = true, .start_norm = 7.0, .end_norm = -3.0, .gain = 99.0 };
+                    break :blk &ps;
                 },
             },
         }},
@@ -1974,7 +2090,7 @@ test "buildSession: clamps out-of-range pad and note values" {
     var session = try buildSession(testing.allocator, &snap);
     defer session.deinit();
 
-    const pad = &session.racks.items[0].instrument.drum_machine.pads[0].pad;
+    const pad = &session.racks.items[0].instrument.drum_machine.pads[0].?.pad;
     try testing.expect(pad.start_norm < pad.end_norm);
     try testing.expect(pad.gain <= 2.0);
     // The invariant adjustParam relies on: clamp bounds stay ordered.
@@ -2103,15 +2219,15 @@ test "save/load round-trip persists user-loaded drum pad samples" {
     // Emulate :load-pad — user audio on pad 3, with a tweaked param.
     const clip = try testing.allocator.dupe(f32, &[_]f32{ 0.5, -0.5, 0.25, -0.125 });
     dm.setPadSamples(3, clip, "usr");
-    dm.pads[3].pad.user_sample = true;
-    dm.pads[3].pad.pitch_semitones = 5.0;
+    dm.pads[3].?.pad.user_sample = true;
+    dm.pads[3].?.pad.pitch_semitones = 5.0;
 
     try save(testing.allocator, &session, testing.io, wsj_path);
 
     var loaded = try load(testing.allocator, testing.io, wsj_path);
     defer loaded.deinit();
     const ldm = &loaded.racks.items[0].instrument.drum_machine;
-    const pad = &ldm.pads[3].pad;
+    const pad = &ldm.pads[3].?.pad;
     try testing.expect(pad.user_sample);
     try testing.expectEqualStrings("usr", ldm.padName(3));
     try testing.expectEqual(@as(usize, 4), pad.samples.len);
@@ -2120,7 +2236,7 @@ test "save/load round-trip persists user-loaded drum pad samples" {
     // Params applied by buildSession survive loadPadWav's sample swap.
     try testing.expectApproxEqAbs(@as(f32, 5.0), pad.pitch_semitones, 1e-4);
     // Shipped-kit pads stay shipped: no sidecar ref, no flag.
-    try testing.expect(!ldm.pads[0].pad.user_sample);
+    try testing.expect(!ldm.pads[0].?.pad.user_sample);
 }
 
 test "save/load round-trip persists a pad rename with no sample change" {
@@ -2136,7 +2252,7 @@ test "save/load round-trip persists a pad rename with no sample change" {
     const dm = &session.racks.items[0].instrument.drum_machine;
 
     // A plain :pad-rename — no new sample, still the shipped kick sample.
-    dm.pads[0].rename("808");
+    dm.pads[0].?.rename("808");
     try testing.expectEqualStrings("snare", dm.padName(1)); // untouched pad unaffected
 
     try save(testing.allocator, &session, testing.io, wsj_path);
@@ -2147,7 +2263,7 @@ test "save/load round-trip persists a pad rename with no sample change" {
     try testing.expectEqualStrings("808", ldm.padName(0));
     try testing.expectEqualStrings("snare", ldm.padName(1));
     // Still the shipped-kit sample — renaming alone doesn't flag user_sample.
-    try testing.expect(!ldm.pads[0].pad.user_sample);
+    try testing.expect(!ldm.pads[0].?.pad.user_sample);
 }
 
 test "save/load round-trip persists a user-loaded sampler clip" {
@@ -2241,5 +2357,23 @@ test "golden-file corpus: every historical .wsj fixture still loads" {
     }
 
     // Guards against a misconfigured path silently turning this into a no-op.
-    try testing.expectEqual(@as(usize, 10), count);
+    try testing.expectEqual(@as(usize, 11), count);
+}
+
+test "golden-file corpus: v11's ninth pad (past the pre-v11 8-pad cap) loads used" {
+    const testing = std.testing;
+    var session = try load(testing.allocator, testing.io, "test/fixtures/wsj/v11.wsj");
+    defer session.deinit();
+    const dm = &session.racks.items[1].instrument.drum_machine;
+    // Pad 8 (the fixture's only `used: true` entry) got materialized fresh
+    // with the file's params, past the pre-v11 8-pad cap.
+    try testing.expect(dm.pads[8] != null);
+    try testing.expectApproxEqAbs(@as(f32, 0.8), dm.pads[8].?.pad.gain, 1e-4);
+    try testing.expectApproxEqAbs(@as(f32, -3.0), dm.pads[8].?.pad.pitch_semitones, 1e-4);
+    try testing.expect(dm.stepActive(8, 2)); // pattern[8] = 4 = bit 2
+    // Pads 0-7 stay whatever init()'s default kit already gave them — a
+    // v11 file's `used: false` doesn't retroactively unmaterialize a pad
+    // the shipped kit always loads; it only means "the file itself didn't
+    // touch this one".
+    for (0..8) |i| try testing.expect(dm.pads[i] != null);
 }

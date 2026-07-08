@@ -721,8 +721,8 @@ test "duplicateTrack deep-copies sampler audio and drum kit pads" {
 
     try s.setInstrument(0, .drum_machine);
     const drum_idx = try s.duplicateTrack(0);
-    const orig_pad = s.racks.items[0].instrument.drum_machine.pads[0].pad;
-    const dup_pad = s.racks.items[drum_idx].instrument.drum_machine.pads[0].pad;
+    const orig_pad = s.racks.items[0].instrument.drum_machine.pads[0].?.pad;
+    const dup_pad = s.racks.items[drum_idx].instrument.drum_machine.pads[0].?.pad;
     try std.testing.expect(orig_pad.samples.ptr != dup_pad.samples.ptr);
     try std.testing.expectEqualSlices(f32, orig_pad.samples, dup_pad.samples);
 }

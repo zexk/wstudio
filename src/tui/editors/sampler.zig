@@ -20,11 +20,12 @@ fn paramCount(app: *App) u8 {
 }
 
 /// Sampler editor: j/k pick a param row, h/l/H/L nudge it. For a drum pad,
-/// 1–8 jump pads (shared `drum_cursor[0]`) and esc/e return to the drum
-/// grid; for a standalone Sampler, esc/e return to the tracks view. a
-/// auditions the current pad / the sampler's root note (mirrors the piano
-/// roll/drum grid's own audition key — 'p' is reserved for paste elsewhere,
-/// so it's kept free here rather than meaning something different per view).
+/// 1–8 jump to that slot within the current bank (shared `drum_cursor[0]`,
+/// see movePadBank's doc comment) and esc/e return to the drum grid; for a
+/// standalone Sampler, esc/e return to the tracks view. a auditions the
+/// current pad / the sampler's root note (mirrors the piano roll/drum
+/// grid's own audition key — 'p' is reserved for paste elsewhere, so it's
+/// kept free here rather than meaning something different per view).
 pub fn handleKey(app: *App, key: modal_mod.Key) bool {
     const is_drum = app.sampler_target == .drum;
     switch (key) {
@@ -43,13 +44,28 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             'L' => { adjustParam(app, 10 * app.takeCount()); return true; },
             'g' => { app.sampler_param = 0; return true; },
             'G' => { app.sampler_param = paramCount(app) - 1; return true; },
+            // J/K jump a whole bank of 8 pads — same MPC-style paging as
+            // the drum grid's own J/K (editors/drum.zig).
+            'K' => {
+                if (!is_drum) return false;
+                movePadBank(app, -8 * app.takeCount());
+                return true;
+            },
+            'J' => {
+                if (!is_drum) return false;
+                movePadBank(app, 8 * app.takeCount());
+                return true;
+            },
             '1'...'8' => {
                 // Only a meaningful pad-jump on a drum pad's sampler — a
                 // standalone Sampler has no pads, so let the digit fall
                 // through to become a count prefix instead (matches j/k
-                // now honoring `app.takeCount()` above).
+                // now honoring `app.takeCount()` above). Bank-relative: "1"
+                // always means the first pad of whichever bank of 8 is
+                // currently showing, not absolute pad 0.
                 if (!is_drum) return false;
-                const pad: u8 = c - '1';
+                const bank = app.drum_cursor[0] / 8;
+                const pad: u8 = bank * 8 + (c - '1');
                 if (pad < DrumMachine.max_pads) app.drum_cursor[0] = pad;
                 return true;
             },
@@ -58,6 +74,15 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
         },
         else => return false,
     }
+}
+
+/// Move the pad cursor by `delta` pads, clamped to the pad count — shared by
+/// J/K here and editors/drum.zig's own movePad (kept separate since the two
+/// files don't share a common cursor-motion module).
+fn movePadBank(app: *App, delta: i32) void {
+    app.drum_cursor[0] = @intCast(std.math.clamp(
+        @as(i32, app.drum_cursor[0]) + delta, 0, @as(i32, DrumMachine.max_pads) - 1,
+    ));
 }
 
 /// Move the param cursor by `delta` rows, clamped to the param list —
@@ -160,8 +185,8 @@ fn waveformNorm(x: usize, cols: u16) ?f32 {
 fn currentNorms(app: *App) ?struct { start: f32, end: f32 } {
     switch (app.sampler_target) {
         .drum => {
-            const p = app.drumMachine().pads[app.drum_cursor[0]].pad;
-            return .{ .start = p.start_norm, .end = p.end_norm };
+            const s = app.drumMachine().pads[app.drum_cursor[0]] orelse return null;
+            return .{ .start = s.pad.start_norm, .end = s.pad.end_norm };
         },
         .sampler => {
             const s = app.editingSampler() orelse return null;

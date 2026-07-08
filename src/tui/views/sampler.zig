@@ -181,9 +181,11 @@ fn placeholderPad() *const ws.dsp.Pad {
     return &holder.p;
 }
 
-/// Return a const pointer to pad `idx`'s underlying Pad.
+/// Return a const pointer to pad `idx`'s underlying Pad, or a placeholder if
+/// the pad is out of range or not yet materialized (lazy-alloc pads).
 fn padOf(dm: anytype, idx: u8) *const ws.dsp.Pad {
-    return &dm.pads[idx].pad;
+    if (idx >= DrumMachine.max_pads) return placeholderPad();
+    return if (dm.pads[idx]) |*s| &s.pad else placeholderPad();
 }
 
 /// Render a centered, filled waveform of `pad` over `wave_rows` rows. Samples

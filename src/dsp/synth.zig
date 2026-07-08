@@ -943,8 +943,14 @@ pub const PolySynth = struct {
             .all_off    => self.resetAll(),
             .cc         => |e| self.applyCC(e.cc, e.value),
             .pitch_bend => |e| self.applyPitchBend(e.bend, 2.0),
-            .set_param  => |e| self.adjustParam(e.id, e.steps),
-            .set_param_abs => |e| self.setParamAbsolute(e.id, e.value),
+            // e.id is u16 (wide enough for DrumMachine's pad-encoded ids);
+            // PolySynth's own param space is well under 256, so truncate
+            // rather than @intCast — a stray wide id (can't happen in
+            // practice, only DrumMachine ever constructs one) silently
+            // no-ops here instead of panicking, matching adjustParam's own
+            // unknown-id default arm.
+            .set_param  => |e| self.adjustParam(@truncate(e.id), e.steps),
+            .set_param_abs => |e| self.setParamAbsolute(@truncate(e.id), e.value),
         }
     }
 

@@ -1303,7 +1303,7 @@ test "drum-pad sampler param edit routes to the drum machine" {
     sampler_ed.adjustParam(&app, 5);
     var block: [128]types.Sample = undefined;
     app.session.engine.process(&block);
-    try std.testing.expect(app.session.racks.items[2].instrument.drum_machine.pads[0].pad.pitch_semitones > 0.0);
+    try std.testing.expect(app.session.racks.items[2].instrument.drum_machine.pads[0].?.pad.pitch_semitones > 0.0);
 }
 
 test "standalone sampler param edit routes to the sampler" {
@@ -2021,14 +2021,14 @@ test "drum grid insert mode records a pad hit at the playhead while playing" {
     app.handleKey(.{ .char = 'i' }, 0);
     try std.testing.expectEqual(ws.input.Mode.insert, app.modal.mode);
 
-    app.handleKey(.{ .char = 'a' }, 0); // pitch 60 -> pad 60 % 8 = 4
+    app.handleKey(.{ .char = 'a' }, 0); // pitch 60 -> pad 60 % 64 = 60
     try std.testing.expectEqual(ws.input.Mode.insert, app.modal.mode); // still recording
 
     const dm = &app.session.racks.items[2].instrument.drum_machine;
     const step = dm.currentStep();
-    try std.testing.expect(dm.stepActive(4, step));
+    try std.testing.expect(dm.stepActive(60, step));
     // Cursor follows the hit so the grid shows where the take landed.
-    try std.testing.expectEqual(@as(u8, 4), app.drum_cursor[0]);
+    try std.testing.expectEqual(@as(u8, 60), app.drum_cursor[0]);
     try std.testing.expectEqual(step, app.drum_cursor[1]);
 
     // Escape drops back to normal without leaving the grid, and grid
@@ -2048,13 +2048,13 @@ test "drum grid insert mode previews without recording while the transport is st
     try std.testing.expectEqual(ws.input.Mode.insert, app.modal.mode);
     app.handleKey(.{ .char = 'a' }, 0);
 
-    // Pitch 60 maps to pad 4, which the shipped kit's default groove leaves
-    // silent (only pads 0/1/2 have a default pattern) — check the whole
-    // pad's row stayed empty rather than a single step, so the test doesn't
-    // depend on where a stopped transport's playhead happens to sit.
+    // Pitch 60 maps to pad 60 % 64 = 60, which the shipped kit's default
+    // groove leaves silent (only pads 0/1/2 have a default pattern) — check
+    // the whole pad's row stayed empty rather than a single step, so the
+    // test doesn't depend on where a stopped transport's playhead sits.
     const dm = &app.session.racks.items[2].instrument.drum_machine;
     var s: u8 = 0;
-    while (s < dm.step_count) : (s += 1) try std.testing.expect(!dm.stepActive(4, s));
+    while (s < dm.step_count) : (s += 1) try std.testing.expect(!dm.stepActive(60, s));
 }
 
 test "drum grid insert mode doesn't stack a duplicate hit on the same step" {
@@ -2071,12 +2071,12 @@ test "drum grid insert mode doesn't stack a duplicate hit on the same step" {
     app.handleKey(.{ .char = 'a' }, 0);
     const dm = &app.session.racks.items[2].instrument.drum_machine;
     const step = dm.currentStep();
-    try std.testing.expect(dm.stepActive(4, step));
+    try std.testing.expect(dm.stepActive(60, step));
 
     // A second hit on the same (pad, step) while the playhead hasn't moved
     // must not toggle it back off.
     app.handleKey(.{ .char = 'a' }, 0);
-    try std.testing.expect(dm.stepActive(4, step));
+    try std.testing.expect(dm.stepActive(60, step));
 }
 
 test ":q refuses to quit while dirty; :q! discards" {
@@ -2687,7 +2687,7 @@ test "R opens the command prompt pre-filled with :pad-rename <n> in the drum gri
     app.handleKey(.enter, 0);
     try std.testing.expectEqualStrings("808oh", app.drumMachine().padName(3));
     // Renaming doesn't touch the actual sample.
-    try std.testing.expect(!app.drumMachine().pads[3].pad.user_sample);
+    try std.testing.expect(!app.drumMachine().pads[3].?.pad.user_sample);
 }
 
 test "t taps the tempo from the average interval; a long gap restarts it" {
@@ -3384,8 +3384,8 @@ test "mouse click/drag on a sampler waveform moves the nearer marker" {
     app.drum_cursor[0] = 0;
     app.view = .sampler_editor;
 
-    try std.testing.expectEqual(@as(f32, 0.0), app.drumMachine().pads[0].pad.start_norm);
-    try std.testing.expectEqual(@as(f32, 1.0), app.drumMachine().pads[0].pad.end_norm);
+    try std.testing.expectEqual(@as(f32, 0.0), app.drumMachine().pads[0].?.pad.start_norm);
+    try std.testing.expectEqual(@as(f32, 1.0), app.drumMachine().pads[0].?.pad.end_norm);
 
     // rows=30 gives the waveform its full 8-row cap (rows [1,9)); gutter=2,
     // width=min(cols-2,120)=78 for cols=80. x=10 -> norm ~0.10, nearer the
@@ -3393,12 +3393,12 @@ test "mouse click/drag on a sampler waveform moves the nearer marker" {
     var block: [64]types.Sample = undefined;
     app.handleMouse(.{ .x = 10, .y = app_mod.content_top + 3, .button = .left, .kind = .press }, 80, 30, 0);
     app.session.engine.process(&block);
-    try std.testing.expect(app.drumMachine().pads[0].pad.start_norm > 0.0);
-    try std.testing.expectEqual(@as(f32, 1.0), app.drumMachine().pads[0].pad.end_norm); // untouched
+    try std.testing.expect(app.drumMachine().pads[0].?.pad.start_norm > 0.0);
+    try std.testing.expectEqual(@as(f32, 1.0), app.drumMachine().pads[0].?.pad.end_norm); // untouched
 
     app.handleMouse(.{ .x = 20, .y = app_mod.content_top + 3, .button = .left, .kind = .drag }, 80, 30, 0);
     app.session.engine.process(&block);
-    try std.testing.expect(app.drumMachine().pads[0].pad.start_norm > 0.1);
+    try std.testing.expect(app.drumMachine().pads[0].?.pad.start_norm > 0.1);
 
     app.handleMouse(.{ .x = 20, .y = app_mod.content_top + 3, .button = .left, .kind = .release }, 80, 30, 0);
     try std.testing.expect(app.sampler_drag_marker == null);

@@ -46,8 +46,9 @@ pub const Command = union(enum) {
     cc: struct { track: u16, cc: u7, value: u7 },
     pitch_bend: struct { track: u16, bend: i16 },
     /// Nudge synth editor parameter `id` by `steps` on track `track`. Applied
-    /// on the audio thread so editor edits don't race the block reader.
-    set_track_param: struct { track: u16, id: u8, steps: i32 },
+    /// on the audio thread so editor edits don't race the block reader. u16,
+    /// not u8 — see dsp/device.zig's Event.set_param doc comment.
+    set_track_param: struct { track: u16, id: u16, steps: i32 },
     /// Which group (if any) `track` submixes through before the master bus.
     /// `null` routes straight to master, same as before grouping existed.
     set_track_group: struct { track: u16, group: ?u8 },

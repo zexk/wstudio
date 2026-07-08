@@ -46,7 +46,7 @@ per-pad sampler editor and `[`/`]`/`N` manage up to 8 pattern variants
 stamped from the live patterns are placed on a bar timeline; on drum
 lanes `[`/`]` pick which variant to stamp (clips show their letter),
 and `T` toggles between pattern and song playback. `:load-sample
-<file>` swaps a sampler's clip; `:load-pad <1-8> <file>` swaps a drum
+<file>` swaps a sampler's clip; `:load-pad <1-64> <file>` swaps a drum
 pad. File paths given to `:load-pad`, `:load-sample`, `:save`/`:w`, and
 `:bounce`/`:export`/`:bounce-stems` expand a leading `~` to `$HOME`.
 `:bounce`/`:export` take an optional trailing `16`/`24` to pick the WAV
@@ -91,7 +91,7 @@ src/
 │   ├── device.zig      Device interface (instruments + effects)
 │   ├── synth.zig       polyphonic synth (sine/saw/square, ADSR)
 │   ├── sampler.zig     chromatic single-clip sampler
-│   ├── drum_sampler.zig step-sequenced 8-pad drum machine
+│   ├── drum_sampler.zig step-sequenced 64-pad drum machine (banks of 8)
 │   ├── drum_kit.zig    synthesis factory for the shipped kit samples
 │   ├── pattern.zig     piano-roll pattern sequencer
 │   ├── eq.zig          3-band EQ

@@ -14,14 +14,19 @@ pub const Event = union(enum) {
     pitch_bend: struct { bend: i16 },
     /// Nudge editor parameter `id` by `steps` (signed). Applied on the audio
     /// thread so UI edits never race the reader — see PolySynth.adjustParam.
-    set_param: struct { id: u8, steps: i32 },
+    /// `id` is u16, not u8: DrumMachine.paramId packs a pad index (up to 64)
+    /// into the high bits, which no longer fits u8 now that pad count grew
+    /// past 15. Every other device's own adjustParam/setParamAbsolute still
+    /// takes a plain u8 (their param counts are all well under 256) — the
+    /// wider id only matters at this shared event boundary.
+    set_param: struct { id: u16, steps: i32 },
     /// Set editor parameter `id` to an absolute value — the counterpart to
     /// `set_param` automation curves need, since a curve knows the value it
     /// wants at a beat position directly rather than a delta from wherever
     /// the param last was. Same audio-thread-only rule as `set_param`. Only
     /// some ids are wired on a given device (see e.g.
     /// PolySynth.setParamAbsolute); unhandled ids are a no-op.
-    set_param_abs: struct { id: u8, value: f32 },
+    set_param_abs: struct { id: u16, value: f32 },
 };
 
 pub const Device = struct {
