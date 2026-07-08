@@ -81,8 +81,8 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "x",           .desc = "[file]  save project and quit (alias for :wq)", .run = wrap(cmdWriteQuit) },
     .{ .name = "wq!",         .desc = "[file]  save project and quit (alias for :wq)", .run = wrap(cmdWriteQuit) },
     .{ .name = "xa",          .desc = "[file]  save project and quit (alias for :wq)", .run = wrap(cmdWriteQuit) },
-    .{ .name = "bounce",      .desc = "[file]  render session to WAV (default: bounce.wav)", .run = wrap(cmdBounce) },
-    .{ .name = "export",      .desc = "[file]  render session to WAV (alias for :bounce)",   .run = wrap(cmdBounce) },
+    .{ .name = "bounce",      .desc = "[file] [16|24]  render session to WAV (default: bounce.wav, 16-bit)", .run = wrap(cmdBounce) },
+    .{ .name = "export",      .desc = "[file] [16|24]  render session to WAV (alias for :bounce)",          .run = wrap(cmdBounce) },
     .{ .name = "clear",       .desc = "erase all notes in the piano-roll pattern",          .run = wrap(cmdClear) },
     .{ .name = "%d",          .desc = "erase all notes in the pattern (alias for :clear)",  .run = wrap(cmdClear) },
     .{ .name = "metronome",   .desc = "[on|off]  toggle the click track",                   .run = wrap(cmdMetronome) },
@@ -694,23 +694,48 @@ fn cmdWriteQuit(app: *App, args: []const u8) void {
 }
 
 /// Render the live session (patterns + synth params + drum grid) offline to
-/// a 16-bit PCM WAV. Length = the longest loop plus a 2s tail for reverb and
-/// release. The realtime backend is parked for the duration so the UI thread
-/// can drive the engine without racing the audio thread.
+/// a PCM WAV (16-bit by default, 24-bit with a trailing `24` argument).
+/// Length = the longest loop plus a 2s tail for reverb and release. The
+/// realtime backend is parked for the duration so the UI thread can drive
+/// the engine without racing the audio thread.
 fn cmdBounce(app: *App, args: []const u8) void {
     var path_buf: [path_buf_len]u8 = undefined;
-    const trimmed = std.mem.trim(u8, args, " ");
+    var trimmed = std.mem.trim(u8, args, " ");
+    var bit_depth: ws.wav.BitDepth = .pcm16;
+    // Optional trailing `16`/`24` token picks the export bit depth; whatever
+    // remains (possibly empty) is the path.
+    if (std.mem.lastIndexOfScalar(u8, trimmed, ' ')) |sp| {
+        const tail = std.mem.trim(u8, trimmed[sp + 1 ..], " ");
+        if (std.mem.eql(u8, tail, "24")) {
+            bit_depth = .pcm24;
+            trimmed = std.mem.trim(u8, trimmed[0..sp], " ");
+        } else if (std.mem.eql(u8, tail, "16")) {
+            trimmed = std.mem.trim(u8, trimmed[0..sp], " ");
+        }
+    } else if (std.mem.eql(u8, trimmed, "24")) {
+        bit_depth = .pcm24;
+        trimmed = "";
+    } else if (std.mem.eql(u8, trimmed, "16")) {
+        trimmed = "";
+    }
     const path = if (trimmed.len > 0) expandHome(&path_buf, trimmed) else "bounce.wav";
 
     const engine = app.session.engine;
     const sr = app.session.project.sample_rate;
 
-    // Song mode renders the whole arrangement; pattern mode the longest loop.
-    const max_beats = if (app.session.song_mode) blk: {
-        const bpb: f64 = @floatFromInt(app.session.project.beats_per_bar);
-        break :blk @max(1.0, @as(f64, @floatFromInt(app.session.arrangement.lengthBars())) * bpb);
-    } else @max(1.0, app.contentBeats());
-    const content_frames: u64 = @intFromFloat(engine.transport.framesPerBeat() * max_beats);
+    // An armed A/B loop region bounces exactly that span (e.g. exporting one
+    // section to try in another tool); otherwise song mode renders the whole
+    // arrangement and pattern mode the longest loop.
+    const loop = engine.transport;
+    const has_loop_region = loop.loop_enabled and loop.loop_end_frames > loop.loop_start_frames;
+    const start_frame: u64 = if (has_loop_region) loop.loop_start_frames else 0;
+    const content_frames: u64 = if (has_loop_region) loop.loop_end_frames - loop.loop_start_frames else blk: {
+        const max_beats = if (app.session.song_mode) inner: {
+            const bpb: f64 = @floatFromInt(app.session.project.beats_per_bar);
+            break :inner @max(1.0, @as(f64, @floatFromInt(app.session.arrangement.lengthBars())) * bpb);
+        } else @max(1.0, app.contentBeats());
+        break :blk @intFromFloat(engine.transport.framesPerBeat() * max_beats);
+    };
     const total_frames = content_frames + types.secondsToFrames(2.0, sr);
     const buffer = app.allocator.alloc(
         types.Sample,
@@ -726,7 +751,7 @@ fn cmdBounce(app: *App, args: []const u8) void {
         app.setStatus("bounce: audio thread did not park", .{});
         return;
     }
-    renderBounce(app, buffer);
+    renderBounce(app, buffer, start_frame);
     engine.bounce_active.store(false, .release);
     engine.bounce_parked.store(false, .release);
 
@@ -737,13 +762,17 @@ fn cmdBounce(app: *App, args: []const u8) void {
     defer file.close(app.io);
     var fbuf: [8192]u8 = undefined;
     var fw = file.writer(app.io, &fbuf);
-    ws.wav.write(&fw.interface, sr, engine_mod.channels, buffer) catch |e| {
+    ws.wav.write(&fw.interface, sr, engine_mod.channels, buffer, bit_depth) catch |e| {
         app.setStatus("bounce: write failed: {s}", .{@errorName(e)});
         return;
     };
     fw.interface.flush() catch {};
 
-    app.setStatus("bounced {d:.1}s -> {s}", .{ types.framesToSeconds(total_frames, sr), path });
+    if (has_loop_region) {
+        app.setStatus("bounced {d:.1}s (loop region) -> {s}", .{ types.framesToSeconds(total_frames, sr), path });
+    } else {
+        app.setStatus("bounced {d:.1}s -> {s}", .{ types.framesToSeconds(total_frames, sr), path });
+    }
 }
 
 /// Signal the realtime backend to park and wait until it confirms. Returns
@@ -763,20 +792,22 @@ fn parkAudio(app: *App) bool {
     return true;
 }
 
-/// Render the session from beat 0 into `buffer` (interleaved stereo), then
-/// restore the live transport position and playing state. Assumes the caller
-/// owns the engine (audio thread parked).
-pub fn renderBounce(app: *App, buffer: []types.Sample) void {
+/// Render the session from `start_frame` into `buffer` (interleaved stereo),
+/// then restore the live transport position and playing state. Assumes the
+/// caller owns the engine (audio thread parked).
+pub fn renderBounce(app: *App, buffer: []types.Sample, start_frame: u64) void {
     const engine = app.session.engine;
     const was_playing = engine.transport.playing;
     const saved_pos = engine.transport.position_frames;
-    // An armed A/B loop would render the region forever; bounce the song.
+    // An armed A/B loop would otherwise wrap the render forever; the caller
+    // has already turned an armed loop region into `start_frame` + a matching
+    // buffer length, so straight-line render here always yields the right span.
     const was_looping = engine.transport.loop_enabled;
     engine.transport.loop_enabled = false;
 
     resetDevices(app);
     engine.limiter.reset();
-    engine.transport.seekFrames(0);
+    engine.transport.seekFrames(start_frame);
     engine.transport.play();
 
     const block = types.default_block_frames * engine_mod.channels;

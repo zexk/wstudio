@@ -153,7 +153,7 @@ test "renderBounce sequences notes offline and restores transport" {
     try std.testing.expect(!app.session.engine.transport.playing);
 
     var buffer: [4096 * engine_mod.channels]types.Sample = undefined;
-    commands.renderBounce(&app, &buffer);
+    commands.renderBounce(&app, &buffer, 0);
 
     var peak: f32 = 0.0;
     for (buffer) |s| peak = @max(peak, @abs(s));
@@ -161,6 +161,30 @@ test "renderBounce sequences notes offline and restores transport" {
 
     try std.testing.expect(!app.session.engine.transport.playing);
     try std.testing.expectEqual(@as(u64, 0), app.session.engine.transport.position_frames);
+}
+
+test "renderBounce honors a nonzero start_frame and restores transport position" {
+    var app = try testApp();
+    defer app.deinit();
+
+    // A note starting after frame 0 should be silent for the leading portion
+    // of the buffer if the render starts at frame 0, but audible immediately
+    // if the render starts at the note's own frame.
+    const fpb = app.session.engine.transport.framesPerBeat();
+    app.session.racks.items[0].pattern_player.?.addNote(
+        .{ .pitch = 60, .start_beat = 1.0, .duration_beat = 1.0 },
+    );
+    app.session.engine.transport.position_frames = 12345; // arbitrary pre-bounce position
+
+    const start_frame: u64 = @intFromFloat(fpb * 1.0);
+    var buffer: [256 * engine_mod.channels]types.Sample = undefined;
+    commands.renderBounce(&app, &buffer, start_frame);
+
+    var peak: f32 = 0.0;
+    for (buffer) |s| peak = @max(peak, @abs(s));
+    try std.testing.expect(peak > 0.001); // note sounds immediately from the note's own start
+
+    try std.testing.expectEqual(@as(u64, 12345), app.session.engine.transport.position_frames);
 }
 
 test "toggle_mute flips project state and reaches the engine" {
@@ -2521,7 +2545,7 @@ test "file browser: enter on a file loads a sample and closes the browser" {
     // (which would change the sample count we assert below).
     var wav_buf: [64]u8 = undefined;
     var fw = std.Io.Writer.fixed(&wav_buf);
-    try ws.wav.write(&fw, app.session.project.sample_rate, 1, &[_]f32{ 0.5, -0.5 });
+    try ws.wav.write(&fw, app.session.project.sample_rate, 1, &[_]f32{ 0.5, -0.5 }, .pcm16);
     try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "vox.wav", .data = fw.buffered() });
 
     app.view = .sampler_editor;
@@ -2593,7 +2617,7 @@ test ":load-clip refuses without a sampler track, then loads a whole-clip note a
 
     var wav_buf: [64]u8 = undefined;
     var fw = std.Io.Writer.fixed(&wav_buf);
-    try ws.wav.write(&fw, app.session.project.sample_rate, 1, &[_]f32{ 0.1, 0.2, 0.3, 0.4, 0.5 });
+    try ws.wav.write(&fw, app.session.project.sample_rate, 1, &[_]f32{ 0.1, 0.2, 0.3, 0.4, 0.5 }, .pcm16);
     var path_buf: [128]u8 = undefined;
     const path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/vox.wav", .{&tmp.sub_path});
     try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "vox.wav", .data = fw.buffered() });

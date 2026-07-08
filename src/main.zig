@@ -150,7 +150,7 @@ fn renderDemo(allocator: std.mem.Allocator, io: std.Io) !void {
     defer file.close(io);
     var file_buffer: [4096]u8 = undefined;
     var file_writer = file.writer(io, &file_buffer);
-    try ws.wav.write(&file_writer.interface, sr, ws.engine.channels, buffer);
+    try ws.wav.write(&file_writer.interface, sr, ws.engine.channels, buffer, .pcm16);
     try file_writer.interface.flush();
 
     try stdout.print(

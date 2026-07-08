@@ -618,7 +618,7 @@ fn writeSampleWav(
         defer file.close(io);
         var buf: [8192]u8 = undefined;
         var fw = file.writer(io, &buf);
-        try wav.write(&fw.interface, sample_rate, 1, samples);
+        try wav.write(&fw.interface, sample_rate, 1, samples, .pcm16);
         try fw.interface.flush();
     }
     try std.Io.Dir.cwd().rename(tmp, std.Io.Dir.cwd(), full, io);
