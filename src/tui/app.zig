@@ -277,6 +277,7 @@ pub const App = struct {
     piano_op_pending: ?u8 = null,
     drum_op_pending: ?u8 = null,
     arr_op_pending: ?u8 = null,
+    automation_op_pending: ?u8 = null,
     /// Tracks view: `d` arms, a second `d` (dd) deletes the cursor track
     /// immediately — no confirm prompt, same "operator + same key repeats on
     /// the whole line" grammar piano/drum/arrangement use for their own

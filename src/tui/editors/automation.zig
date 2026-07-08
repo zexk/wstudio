@@ -5,10 +5,14 @@
 //! j/k nudge the value at the cursor's exact beat, creating a point there if
 //! none exists yet (starting from whatever the curve currently interpolates
 //! to, so a nudge on a bare stretch doesn't jump to an arbitrary default);
-//! x deletes the point at the cursor exactly; tab switches between editing
-//! the gain and pan curves; v starts a step-range selection on the current
-//! curve — y/d/p act on it (breakpoints only, not the interpolated curve
-//! shape in between); `.` repeats the last nudge or visual range op. Same
+//! x deletes the point at the cursor exactly (vim's char tier); w/b jump the
+//! cursor a bar at a time (word tier); tab switches between editing the gain
+//! and pan curves; v starts a step-range selection on the current curve —
+//! y/d/p act on it (breakpoints only, not the interpolated curve shape in
+//! between); d/y without `v` first arm an operator that a motion
+//! (h/l/H/L/g/G/w/b) completes against, and d/y repeated (dd/yy) act on the
+//! whole curve — the same operator+motion grammar the piano roll/drum
+//! grid/arrangement share. `.` repeats the last nudge or range op. Same
 //! shapes as the piano roll's visual mode/`.` repeat, one axis instead of
 //! two. The render half lives in views/automation.zig.
 
@@ -96,6 +100,48 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
     // mid-selection.
     if (app.modal.mode == .visual) return handleVisual(app, key, clip);
 
+    // Operator-pending mode: `d`/`y` arm here (armOperator below), then a
+    // step/bar motion (h/l/H/L/g/G/w/b) deletes/yanks the range from the
+    // arming point to wherever the motion lands — reuses the exact same
+    // deleteSelection/yankSelection visual mode uses, just without the
+    // visual-mode UI (matches piano.zig/drum.zig/arrangement.zig's identical
+    // grammar). The same operator key again (dd/yy) acts on the whole
+    // curve — since a curve's points are already just a beat range, that's
+    // simply the full [0, maxStep] range, same functions, no separate
+    // whole-curve clipboard needed. Anything else cancels.
+    if (app.automation_op_pending) |op| {
+        app.automation_op_pending = null;
+        switch (key) {
+            .escape => { app.automation_visual_anchor = null; app.setStatus("cancelled", .{}); return true; },
+            .char => |c| switch (c) {
+                '0'...'9' => { app.automation_op_pending = op; return false; },
+                'd', 'y' => {
+                    if (c == op) {
+                        const saved = app.automation_cursor_step;
+                        app.automation_visual_anchor = 0;
+                        app.automation_cursor_step = maxStep(app, clip);
+                        if (op == 'd') deleteSelection(app, clip) else yankSelection(app, clip);
+                        app.automation_cursor_step = saved;
+                    } else app.setStatus("cancelled", .{});
+                    return true;
+                },
+                'h' => { moveCursor(app, clip, -app.takeCount()); finishOperator(app, clip, op); return true; },
+                'l' => { moveCursor(app, clip, app.takeCount()); finishOperator(app, clip, op); return true; },
+                'H' => { moveCursor(app, clip, -4 * app.takeCount()); finishOperator(app, clip, op); return true; },
+                'L' => { moveCursor(app, clip, 4 * app.takeCount()); finishOperator(app, clip, op); return true; },
+                'g' => { app.automation_cursor_step = 0; finishOperator(app, clip, op); return true; },
+                'G' => { app.automation_cursor_step = maxStep(app, clip); finishOperator(app, clip, op); return true; },
+                // dw/yw act on exactly the bar(s) through the end of the nth
+                // bar forward, not w's raw landing step (see piano.zig's
+                // identical comment — same vim dw nuance).
+                'w' => { operatorBarForward(app, clip, app.takeCount()); finishOperator(app, clip, op); return true; },
+                'b' => { operatorBarBackward(app, clip, app.takeCount()); finishOperator(app, clip, op); return true; },
+                else => { app.automation_visual_anchor = null; app.setStatus("cancelled", .{}); return true; },
+            },
+            else => { app.automation_visual_anchor = null; app.setStatus("cancelled", .{}); return true; },
+        }
+    }
+
     switch (key) {
         .escape => { app.view = .arrangement; return true; },
         .ctrl_r => { history.doRedo(app); return true; },
@@ -116,7 +162,16 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             // piano roll and drum grid's convention.
             'g' => { app.automation_cursor_step = 0; return true; },
             'G' => { app.automation_cursor_step = maxStep(app, clip); return true; },
+            // w/b: vim's word motion, one tier up from h/l's step
+            // ("char") granularity — jump to the start of the
+            // next/current-or-previous bar.
+            'w' => { jumpBar(app, clip, app.takeCount()); return true; },
+            'b' => { jumpBar(app, clip, -app.takeCount()); return true; },
             'x' => { deletePoint(app, clip); return true; },
+            // d/y are operators (see armOperator) — dd/yy act on the whole
+            // curve.
+            'd' => { armOperator(app, 'd'); return true; },
+            'y' => { armOperator(app, 'y'); return true; },
             'v' => {
                 app.automation_visual_anchor = app.automation_cursor_step;
                 app.modal.mode = .visual;
@@ -297,6 +352,64 @@ fn moveCursor(app: *App, clip: *const ws.Clip, delta: i32) void {
     const max_step: i64 = maxStep(app, clip);
     const cur: i64 = @as(i64, app.automation_cursor_step) + delta;
     app.automation_cursor_step = @intCast(std.math.clamp(cur, 0, max_step));
+}
+
+/// Bar length in steps — always straight 16ths (automation has no grid
+/// toggle like the piano roll's `T`), so this is just beats-per-bar * 4.
+fn barLenSteps(app: *App) u32 {
+    return @as(u32, app.session.project.beats_per_bar) * 4;
+}
+
+/// w/b: jump the cursor `delta` bars forward/back (vim's word motion, one
+/// tier up from h/l's step granularity) — snaps to the nearest bar boundary
+/// first, then moves whole bars from there.
+fn jumpBar(app: *App, clip: *const ws.Clip, delta: i32) void {
+    const bar_len = barLenSteps(app);
+    if (bar_len == 0) return;
+    const cur_bar = @divFloor(@as(i32, @intCast(app.automation_cursor_step)), @as(i32, @intCast(bar_len)));
+    const target_step = (cur_bar + delta) * @as(i32, @intCast(bar_len));
+    const top: i32 = @intCast(maxStep(app, clip));
+    app.automation_cursor_step = @intCast(std.math.clamp(target_step, 0, top));
+}
+
+/// dw/yw's range end: the last step of the nth bar forward (inclusive), not
+/// w's own landing step (the *next* bar's first step) — see the
+/// operator-pending block's comment on 'w'.
+fn operatorBarForward(app: *App, clip: *const ws.Clip, n: i32) void {
+    const bar_len = barLenSteps(app);
+    if (bar_len == 0) return;
+    const cur_bar = @divFloor(@as(i32, @intCast(app.automation_cursor_step)), @as(i32, @intCast(bar_len)));
+    const hi = (cur_bar + n) * @as(i32, @intCast(bar_len)) - 1;
+    const top: i32 = @intCast(maxStep(app, clip));
+    app.automation_cursor_step = @intCast(std.math.clamp(hi, 0, top));
+}
+
+/// db/yb's range start: the first step of the nth bar back — the anchor
+/// (the cursor's position when `d`/`y` was pressed) stays the range's other
+/// (inclusive) end, so this covers "back to the start of this-or-an-earlier
+/// bar, through where you started."
+fn operatorBarBackward(app: *App, clip: *const ws.Clip, n: i32) void {
+    const bar_len = barLenSteps(app);
+    if (bar_len == 0) return;
+    const cur_bar = @divFloor(@as(i32, @intCast(app.automation_cursor_step)), @as(i32, @intCast(bar_len)));
+    const lo = (cur_bar - n + 1) * @as(i32, @intCast(bar_len));
+    const top: i32 = @intCast(maxStep(app, clip));
+    app.automation_cursor_step = @intCast(std.math.clamp(lo, 0, top));
+}
+
+/// Arm `d`/`y` as a pending operator (see the operator-pending block in
+/// handleKey): remembers the cursor as the range anchor, same field visual
+/// mode's `v` sets, so the eventual delete/yank reuses selectionRange as-is.
+fn armOperator(app: *App, op: u8) void {
+    app.automation_visual_anchor = app.automation_cursor_step;
+    app.automation_op_pending = op;
+    app.setStatus("{c}: h/l/H/L/g/G/w/b act on the range, {c}{c} acts on the whole curve", .{ op, op, op });
+}
+
+/// Complete an operator+motion: run the range delete/yank between the
+/// anchor `armOperator` set and the cursor's new position.
+fn finishOperator(app: *App, clip: *ws.Clip, op: u8) void {
+    if (op == 'd') deleteSelection(app, clip) else yankSelection(app, clip);
 }
 
 /// Nudge the curve's value at the cursor's exact beat by `steps`, creating a

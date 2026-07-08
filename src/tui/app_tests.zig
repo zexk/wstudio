@@ -668,6 +668,87 @@ test "automation editor: nudge, `.` repeat, and visual range yank/delete/paste" 
     try std.testing.expectEqual(@as(usize, 2), clip.automation.gain.len);
 }
 
+test "automation editor operator+motion: d3l / y3l act on a range without entering visual mode" {
+    var app = try testApp();
+    defer app.deinit();
+
+    try app.session.stampClip(0, 0); // 1-bar clip at bar 0 on the synth track
+    automation_ed.switchTo(&app, 0, 0);
+    const clip = automation_ed.currentClip(&app).?;
+
+    // Seed points at steps 0, 1, and 8 (outside the coming d3l/y3l range).
+    app.automation_cursor_step = 0;
+    _ = automation_ed.handleKey(&app, .{ .char = 'j' }); // point at step 0
+    app.automation_cursor_step = 1;
+    _ = automation_ed.handleKey(&app, .{ .char = 'j' }); // point at step 1
+    app.automation_cursor_step = 8;
+    _ = automation_ed.handleKey(&app, .{ .char = 'j' }); // point at step 8
+    try std.testing.expectEqual(@as(usize, 3), clip.automation.gain.len);
+
+    app.automation_cursor_step = 0;
+    for ("y3l") |c| app.handleKey(.{ .char = c }, 0); // y + motion: yank steps 0-3
+    try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
+    try std.testing.expectEqual(@as(usize, 2), app.automation_range_clip.?.points.len);
+    try std.testing.expectEqual(@as(u32, 3), app.automation_cursor_step); // cursor follows the motion
+
+    app.automation_cursor_step = 0;
+    for ("d3l") |c| app.handleKey(.{ .char = c }, 0); // d + motion: delete steps 0-3
+    try std.testing.expectEqual(@as(usize, 1), clip.automation.gain.len); // only step 8 survives
+
+    // Escape mid-operator cancels without acting.
+    app.automation_cursor_step = 8;
+    const before = clip.automation.gain.len;
+    app.handleKey(.{ .char = 'd' }, 0);
+    app.handleKey(.escape, 0);
+    try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
+    try std.testing.expectEqual(before, clip.automation.gain.len);
+
+    // dd/yy are the tier above w/b's bar range: the whole curve.
+    for ("yy") |c| app.handleKey(.{ .char = c }, 0);
+    try std.testing.expectEqual(@as(usize, 1), app.automation_range_clip.?.points.len);
+    for ("dd") |c| app.handleKey(.{ .char = c }, 0);
+    try std.testing.expectEqual(@as(usize, 0), clip.automation.gain.len);
+}
+
+test "automation editor char/word tiers: x deletes the point under the cursor, w/b jump by bar" {
+    var app = try testApp();
+    defer app.deinit();
+
+    try app.session.stampClip(0, 0);
+    // Extend the clip to 2 bars so there's a second bar boundary to jump to.
+    automation_ed.switchTo(&app, 0, 0);
+    const clip = automation_ed.currentClip(&app).?;
+    clip.length_bars = 2;
+
+    app.automation_cursor_step = 0;
+    _ = automation_ed.handleKey(&app, .{ .char = 'j' }); // point at step 0
+    try std.testing.expectEqual(@as(usize, 1), clip.automation.gain.len);
+
+    // x: instant single-point delete, no operator arming needed.
+    _ = automation_ed.handleKey(&app, .{ .char = 'x' });
+    try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
+    try std.testing.expectEqual(@as(usize, 0), clip.automation.gain.len);
+
+    // w: jump forward to the next bar boundary (step 16, 4 beats/bar * 4);
+    // b: back to bar 0.
+    app.automation_cursor_step = 0;
+    _ = automation_ed.handleKey(&app, .{ .char = 'w' });
+    try std.testing.expectEqual(@as(u32, 16), app.automation_cursor_step);
+    _ = automation_ed.handleKey(&app, .{ .char = 'b' });
+    try std.testing.expectEqual(@as(u32, 0), app.automation_cursor_step);
+
+    // dw: delete exactly the current bar's worth of points (steps 0-15),
+    // leaving a point at bar 2 (step 16) untouched.
+    app.automation_cursor_step = 16;
+    _ = automation_ed.handleKey(&app, .{ .char = 'j' }); // point at step 16
+    app.automation_cursor_step = 0;
+    _ = automation_ed.handleKey(&app, .{ .char = 'j' }); // point at step 0
+    try std.testing.expectEqual(@as(usize, 2), clip.automation.gain.len);
+    for ("dw") |c| _ = automation_ed.handleKey(&app, .{ .char = c });
+    try std.testing.expectEqual(@as(usize, 1), clip.automation.gain.len);
+    try std.testing.expectApproxEqAbs(@as(f64, 4.0), clip.automation.gain[0].beat, 1e-9); // step 16 = beat 4
+}
+
 test "visual mode escape cancels the selection without editing" {
     var app = try testApp();
     defer app.deinit();
