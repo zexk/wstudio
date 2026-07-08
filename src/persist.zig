@@ -1068,46 +1068,54 @@ fn loadNotes(pp: *PatternPlayer, notes: []const NoteSnap) void {
     }
 }
 
+/// Apply a synth snapshot onto a live PolySynth, clamping every numeric
+/// field to the same ranges `adjustParam` enforces — mirrors
+/// `applyPadSnap`'s reasoning: a hand-edited or corrupted file could
+/// otherwise smuggle an out-of-range value (e.g. unison 0 or 255, a
+/// negative attack time) straight onto the audio thread. Enum fields
+/// (waveform, filter_type, mod_mode, …) need no clamp — `std.json` already
+/// rejects any value that isn't one of the declared tags at parse time.
 fn applyToSynth(s: *PolySynth, ss: *const SynthSnap) void {
+    const clamp = std.math.clamp;
     s.waveform = ss.waveform;
-    s.pulse_width = ss.pulse_width;
-    s.detune_cents = ss.detune_cents;
-    s.unison = ss.unison;
-    s.unison_detune = ss.unison_detune;
-    s.unison_spread = ss.unison_spread;
+    s.pulse_width = clamp(ss.pulse_width, 0.01, 0.99);
+    s.detune_cents = clamp(ss.detune_cents, -100.0, 100.0);
+    s.unison = @intCast(clamp(@as(i32, ss.unison), 1, 16));
+    s.unison_detune = clamp(ss.unison_detune, 0.0, 100.0);
+    s.unison_spread = clamp(ss.unison_spread, 0.0, 1.0);
     s.osc_b_on = ss.osc_b_on;
     s.osc_b_waveform = ss.osc_b_waveform;
-    s.osc_b_pulse_width = ss.osc_b_pulse_width;
-    s.osc_b_semi = ss.osc_b_semi;
-    s.osc_b_detune_cents = ss.osc_b_detune_cents;
-    s.osc_b_level = ss.osc_b_level;
-    s.osc_b_unison = ss.osc_b_unison;
-    s.osc_b_unison_detune = ss.osc_b_unison_detune;
-    s.attack_s = ss.attack_s;
-    s.decay_s = ss.decay_s;
-    s.sustain = ss.sustain;
-    s.release_s = ss.release_s;
+    s.osc_b_pulse_width = clamp(ss.osc_b_pulse_width, 0.01, 0.99);
+    s.osc_b_semi = clamp(ss.osc_b_semi, -24.0, 24.0);
+    s.osc_b_detune_cents = clamp(ss.osc_b_detune_cents, -100.0, 100.0);
+    s.osc_b_level = clamp(ss.osc_b_level, 0.0, 1.0);
+    s.osc_b_unison = @intCast(clamp(@as(i32, ss.osc_b_unison), 1, 16));
+    s.osc_b_unison_detune = clamp(ss.osc_b_unison_detune, 0.0, 100.0);
+    s.attack_s = clamp(ss.attack_s, 0.001, 5.0);
+    s.decay_s = clamp(ss.decay_s, 0.001, 5.0);
+    s.sustain = clamp(ss.sustain, 0.0, 1.0);
+    s.release_s = clamp(ss.release_s, 0.001, 10.0);
     s.filter_type = ss.filter_type;
-    s.filter_cutoff = ss.filter_cutoff;
-    s.filter_res = ss.filter_res;
-    s.fenv_amount = ss.fenv_amount;
-    s.fenv_attack_s = ss.fenv_attack_s;
-    s.fenv_decay_s = ss.fenv_decay_s;
-    s.fenv_sustain = ss.fenv_sustain;
-    s.fenv_release_s = ss.fenv_release_s;
+    s.filter_cutoff = clamp(ss.filter_cutoff, 20.0, 20_000.0);
+    s.filter_res = clamp(ss.filter_res, 0.0, 1.0);
+    s.fenv_amount = clamp(ss.fenv_amount, -4.0, 4.0);
+    s.fenv_attack_s = clamp(ss.fenv_attack_s, 0.001, 5.0);
+    s.fenv_decay_s = clamp(ss.fenv_decay_s, 0.001, 5.0);
+    s.fenv_sustain = clamp(ss.fenv_sustain, 0.0, 1.0);
+    s.fenv_release_s = clamp(ss.fenv_release_s, 0.001, 10.0);
     s.lfo_shape = ss.lfo_shape;
-    s.lfo_rate_hz = ss.lfo_rate_hz;
-    s.lfo_depth = ss.lfo_depth;
+    s.lfo_rate_hz = clamp(ss.lfo_rate_hz, 0.01, 20.0);
+    s.lfo_depth = clamp(ss.lfo_depth, 0.0, 1.0);
     s.lfo_target = ss.lfo_target;
     s.voice_mode = ss.voice_mode;
-    s.glide_s = ss.glide_s;
-    s.sub_level = ss.sub_level;
+    s.glide_s = clamp(ss.glide_s, 0.0, 10.0);
+    s.sub_level = clamp(ss.sub_level, 0.0, 1.0);
     s.sub_shape = ss.sub_shape;
-    s.noise_level = ss.noise_level;
-    s.noise_color = ss.noise_color;
+    s.noise_level = clamp(ss.noise_level, 0.0, 1.0);
+    s.noise_color = clamp(ss.noise_color, 0.0, 1.0);
     s.mod_mode = ss.mod_mode;
-    s.mod_amount = ss.mod_amount;
-    s.gain = ss.gain;
+    s.mod_amount = clamp(ss.mod_amount, 0.0, 8.0);
+    s.gain = clamp(ss.gain, 0.01, 1.0);
 }
 
 /// Rebuild a live chain from v10 unit snaps, in file order. Shared by track
@@ -1826,6 +1834,43 @@ test "buildSession: empty and sampler racks round-trip" {
     try testing.expectEqual(@as(u16, 1), pp.note_count);
     try testing.expectEqual(@as(u7, 64), pp.notes[0].pitch);
     try testing.expectApproxEqAbs(@as(f64, 2.0), pp.length_beats, 1e-9);
+}
+
+test "buildSession clamps malformed synth params from a hand-edited file" {
+    const testing = std.testing;
+
+    const snap: Snapshot = .{
+        .tracks = &.{.{ .name = "lead" }},
+        .racks = &.{
+            .{
+                .label = "synth",
+                .kind = .poly_synth,
+                .synth = .{
+                    .unison = 255,
+                    .osc_b_unison = 0,
+                    .gain = 999.0,
+                    .filter_cutoff = -500.0,
+                    .attack_s = -1.0,
+                    .sustain = 5.0,
+                    .pulse_width = 0.0,
+                    .lfo_rate_hz = 0.0,
+                },
+            },
+        },
+    };
+
+    var session = try buildSession(testing.allocator, &snap);
+    defer session.deinit();
+
+    const s = &session.racks.items[0].instrument.poly_synth;
+    try testing.expect(s.unison >= 1 and s.unison <= 16);
+    try testing.expect(s.osc_b_unison >= 1 and s.osc_b_unison <= 16);
+    try testing.expect(s.gain >= 0.01 and s.gain <= 1.0);
+    try testing.expect(s.filter_cutoff >= 20.0 and s.filter_cutoff <= 20_000.0);
+    try testing.expect(s.attack_s >= 0.001);
+    try testing.expect(s.sustain <= 1.0);
+    try testing.expect(s.pulse_width >= 0.01);
+    try testing.expect(s.lfo_rate_hz >= 0.01);
 }
 
 // 16-bit WAV round-trip quantisation error bound.
