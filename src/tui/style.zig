@@ -5,7 +5,6 @@
 const std = @import("std");
 const ws = @import("wstudio");
 const types = ws.types;
-const icons = @import("icons.zig");
 const Mode = ws.input.Mode;
 
 pub const spectrum_rows: usize = 18;
@@ -49,49 +48,37 @@ pub const bwht = "\x1b[97m";   // bright white – selected value
 pub const track_palette = [_][]const u8{ red, yel, grn, acc, blu, mag, bwht };
 pub const track_color_names = [_][]const u8{ "red", "yellow", "green", "cyan", "blue", "magenta", "white" };
 
-/// Background counterparts of a few palette colours (SGR 40-47), used only
-/// by the status-line "chip" segments below — everywhere else in the TUI
-/// gets its block look from `sel` (reverse video) instead, since that
-/// adapts to whatever the terminal's real background is. Chips need a
-/// literal background code instead of reverse video because the powerline
-/// divider between two adjacent chips has to paint one chip's colour as its
-/// *foreground* and the next chip's colour as its *background* at the same
-/// time — reverse video can't express that.
+/// Background counterparts of the three mode colours (SGR 40-47), used only
+/// by the status-line mode badge below — everywhere else in the TUI gets
+/// its block look from `sel` (reverse video) instead, since that adapts to
+/// whatever the terminal's real background is. The badge needs a literal
+/// background code (reverse video would work fine here too, actually, but
+/// this keeps the badge's look independent of whatever `sel` is doing
+/// elsewhere on the same row).
 const bg_grn = "\x1b[42m";
 const bg_yel = "\x1b[43m";
 const bg_mag = "\x1b[45m";
-const bg_blu = "\x1b[44m";
-/// Bold black text reads cleanly on all four chip background colours above
-/// (they're all ANSI "normal" intensity, so black-on-them has good contrast
-/// regardless of the terminal's light/dark theme).
-const chip_fg = "\x1b[30m" ++ bold;
+/// Bold black text reads cleanly on all three badge background colours
+/// above (they're all ANSI "normal" intensity, so black-on-them has good
+/// contrast regardless of the terminal's light/dark theme).
+const badge_fg = "\x1b[30m" ++ bold;
 
-const ChipColour = struct { fg: []const u8, bg: []const u8 };
-const chip_grn: ChipColour = .{ .fg = grn, .bg = bg_grn };
-const chip_yel: ChipColour = .{ .fg = yel, .bg = bg_yel };
-const chip_mag: ChipColour = .{ .fg = mag, .bg = bg_mag };
-/// Fixed colour for every view-name chip (TRACKS/DRUM/PIANO/...) — one hue
-/// for "which view" keeps the row readable instead of bikeshedding a
-/// distinct colour per view on top of the per-mode colour already carried
-/// by the first chip.
-const chip_view: ChipColour = .{ .fg = blu, .bg = bg_blu };
-
-fn modeChip(mode: Mode) ChipColour {
+fn modeBadgeBg(mode: Mode) []const u8 {
     return switch (mode) {
-        .normal => chip_grn,
-        .insert => chip_yel,
-        .visual => chip_mag,
-        // Command/search render their own prompt line instead of chips —
-        // callers never reach writeStatusChips in those modes.
-        .command, .search => chip_grn,
+        .normal => bg_grn,
+        .insert => bg_yel,
+        .visual => bg_mag,
+        // Command/search render their own prompt line instead of a badge —
+        // callers never reach writeModeBadge in those modes.
+        .command, .search => bg_grn,
     };
 }
 
-fn modeChipName(mode: Mode) []const u8 {
+fn modeBadgeLetter(mode: Mode) []const u8 {
     return switch (mode) {
-        .normal => "NORMAL",
-        .insert => "INSERT",
-        .visual => "VISUAL",
+        .normal => "N",
+        .insert => "I",
+        .visual => "V",
         .command, .search => "",
     };
 }
@@ -121,44 +108,24 @@ pub fn writeChromeRow(w: *std.Io.Writer, raw: []const u8, cols: u16) !void {
     try endLine(w);
 }
 
-/// Writes the lualine-style status-line prefix (item 54): a mode chip
-/// (colour keyed to `mode` — green/yellow/magenta for normal/insert/visual)
-/// then a view-name chip (always blue), each end-capped with a powerline
-/// triangle. The divider between the two chips is colour-matched on both
-/// sides (fg = leaving chip's colour, bg = entering chip's colour) so the
-/// row reads as one contiguous bar; the trailing divider after the view
-/// chip fades to the plain terminal background. Caller has already handled
-/// `.command`/`.search` (they get their own prompt line, no chips).
-/// Without the icon font (`icons.font_installed` — item 55) the divider
-/// glyph would render as tofu, so this falls back to plain coloured text
-/// with an ASCII `>` instead of chip fills.
-pub fn writeStatusChips(w: *std.Io.Writer, mode: Mode, view_name: []const u8) !void {
-    const mc = modeChip(mode);
-    const mode_name = modeChipName(mode);
-    if (icons.font_installed) {
-        try w.writeAll(mc.bg);
-        try w.writeAll(chip_fg);
-        try w.print(" {s} ", .{mode_name});
-        try w.writeAll(rst);
-        try w.writeAll(mc.fg);
-        try w.writeAll(chip_view.bg);
-        try w.writeAll(icons.sep_right);
-        try w.writeAll(rst);
-        try w.writeAll(chip_view.bg);
-        try w.writeAll(chip_fg);
-        try w.print(" {s} ", .{view_name});
-        try w.writeAll(rst);
-        try w.writeAll(chip_view.fg);
-        try w.writeAll(icons.sep_right);
-        try w.writeAll(rst);
-    } else {
-        try w.writeAll(mc.fg);
-        try w.writeAll(bold);
-        try w.writeAll(mode_name);
-        try w.writeAll(rst ++ " > " ++ chip_view.fg ++ bold);
-        try w.writeAll(view_name);
-        try w.writeAll(rst ++ " > " ++ rst);
-    }
+/// Writes the lualine-style mode badge (item 54): a single letter (N/I/V
+/// for normal/insert/visual) on a colour-coded background, tight-padded —
+/// matching real lualine's terse mode indicator rather than spelling the
+/// mode name out. Deliberately just the letter with no trailing divider
+/// glyph and no second "view name" chip: an earlier pass here tried a
+/// second blue chip plus a powerline triangle between the two, which read
+/// as far too heavy next to an actual lualine screenshot the user pulled
+/// up for comparison — real lualine chips only the mode/a couple of small
+/// counters and leaves everything else, including the equivalent of a
+/// "view name", as plain uncoloured text. Callers print the view name and
+/// the rest of their status content as plain text right after this, same
+/// as before. Caller has already handled `.command`/`.search` (they get
+/// their own prompt line, no badge).
+pub fn writeModeBadge(w: *std.Io.Writer, mode: Mode) !void {
+    try w.writeAll(modeBadgeBg(mode));
+    try w.writeAll(badge_fg);
+    try w.print(" {s} ", .{modeBadgeLetter(mode)});
+    try w.writeAll(rst);
 }
 
 /// Write `raw` (a single line, no \r\n, may contain ANSI SGR sequences) to

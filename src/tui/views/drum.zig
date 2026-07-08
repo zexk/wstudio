@@ -184,7 +184,8 @@ pub fn drawDrumStatus(app: anytype, w: *std.Io.Writer, cmds: []const cmd_mod.Def
     const p = app.drum_cursor[0];
     const s = app.drum_cursor[1];
     const dm = app.drumMachine();
-    try style.writeStatusChips(w, app.modal.mode, "DRUM");
+    try style.writeModeBadge(w, app.modal.mode);
+    try w.writeAll(" " ++ acc ++ "DRUM" ++ rst);
     try w.writeAll(dim ++ "  pat " ++ rst);
     try w.print("{c}", .{DrumMachine.variantLetter(dm.variant)});
     try w.writeAll(dim ++ "/" ++ rst);

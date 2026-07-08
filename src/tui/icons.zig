@@ -31,13 +31,6 @@ pub const help = "\u{f02d7}"; // md-help_circle
 pub const master = "\u{f025}"; // fa-headphones
 pub const loop = "\u{f0547}"; // md-repeat_variant
 pub const logo = "\u{f1de}"; // fa-sliders
-/// Powerline "hard divider" triangle, used between status-line chips (see
-/// style.writeStatusChips, item 54). nerd-fonts' own glyphnames.json calls
-/// this codepoint "pl-left_hard_divider" (naming is transition-relative, not
-/// shape-relative) but it renders as a solid RIGHT-pointing triangle (▶) —
-/// what every powerline/lualine setup uses to point from one segment into
-/// the next.
-pub const sep_right = "\u{e0b0}"; // nf-pl-left_hard_divider
 
 const std = @import("std");
 const ws = @import("wstudio");
@@ -80,7 +73,6 @@ test "every icon decodes to exactly one codepoint" {
     const all = [_][]const u8{
         play, stop, mute, solo, save, warn, synth, drum,
         sampler, eq, arrangement, tempo, help, master, loop, logo,
-        sep_right,
     };
     for (all) |icon| {
         var it = std.unicode.Utf8Iterator{ .bytes = icon, .i = 0 };

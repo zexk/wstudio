@@ -1326,7 +1326,7 @@ test "draw renders tracks view without overflowing" {
     var w = std.Io.Writer.fixed(&buf);
     try app.draw(&w, .{ .cols = 80, .rows = 24 });
     const frame = w.buffered();
-    try std.testing.expect(std.mem.indexOf(u8, frame, "NORMAL") != null);
+    try std.testing.expect(std.mem.indexOf(u8, frame, "TRACKS") != null);
     try std.testing.expect(std.mem.indexOf(u8, frame, "synth") != null);
     try std.testing.expect(std.mem.indexOf(u8, frame, "drums") != null);
     // Per-track instrument-kind icons (synth, sampler, drum) are present.

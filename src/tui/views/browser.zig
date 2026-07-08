@@ -131,7 +131,8 @@ pub fn drawFileBrowserStatus(app: anytype, w: *std.Io.Writer) !void {
         try cmd_mod.writeSearchPrompt(w, app.modal.cmd_buf[0..app.modal.cmd_len], app.modal.cmd_cursor);
         return;
     }
-    try style.writeStatusChips(w, app.modal.mode, "FILES");
+    try style.writeModeBadge(w, app.modal.mode);
+    try w.writeAll(" " ++ acc ++ "FILES" ++ rst);
     if (app.browser_bookmark_mode) {
         try w.writeAll(dim ++ "  " ++ rst ++ "j/k: move  enter/l: jump  d: remove  esc/q: back");
     } else {

@@ -197,9 +197,15 @@ pub fn drawArrangementStatus(app: anytype, w: *std.Io.Writer, cmds: []const cmd_
         return;
     }
     // The song/pattern toggle (T) isn't a modal.Mode — it's arrangement-
-    // specific playback state — so it rides the VIEW chip instead of the
-    // mode chip, keeping both pieces of info the old single badge carried.
-    try style.writeStatusChips(w, app.modal.mode, if (app.session.song_mode) "SONG" else "PATTERN");
+    // specific playback state — so it stays its own plain-text segment
+    // rather than folding into the mode badge, keeping both pieces of info
+    // the old single combined badge carried.
+    try style.writeModeBadge(w, app.modal.mode);
+    if (app.session.song_mode) {
+        try w.writeAll(" " ++ grn ++ "SONG" ++ rst);
+    } else {
+        try w.writeAll(" " ++ yel ++ "PATTERN" ++ rst);
+    }
     if (app.arr_zoom == .compact) {
         try w.writeAll(dim ++ "  " ++ rst ++ bcyn ++ "zoom" ++ rst);
     }

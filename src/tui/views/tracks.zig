@@ -257,7 +257,8 @@ pub fn drawTracksStatus(app: anytype, w: *std.Io.Writer, cmds: []const cmd_mod.D
         .command => try cmd_mod.writePrompt(w, cmds, app.modal.cmd_buf[0..app.modal.cmd_len], app.modal.cmd_cursor, 60),
         .search => try cmd_mod.writeSearchPrompt(w, app.modal.cmd_buf[0..app.modal.cmd_len], app.modal.cmd_cursor),
         else => {
-            try style.writeStatusChips(w, app.modal.mode, "TRACKS");
+            try style.writeModeBadge(w, app.modal.mode);
+            try w.writeAll(" " ++ acc ++ "TRACKS" ++ rst);
             // track position
             try w.writeAll(dim ++ "  " ++ rst);
             try w.print("{d}/{d}", .{ app.cursor + 1, app.session.project.tracks.items.len + 1 });

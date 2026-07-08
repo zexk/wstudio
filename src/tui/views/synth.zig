@@ -315,7 +315,8 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, cmds: []const cmd_mod.De
         "gain",
     };
     const cur = @min(@as(usize, app.synth_cursor), labels.len - 1);
-    try style.writeStatusChips(w, app.modal.mode, "SYNTH");
+    try style.writeModeBadge(w, app.modal.mode);
+    try w.writeAll(" " ++ acc ++ "SYNTH" ++ rst);
     try w.writeAll(dim ++ "  " ++ rst);
     try w.writeAll(labels[cur]);
     try w.writeAll(dim ++ ": " ++ rst);
