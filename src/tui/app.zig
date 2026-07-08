@@ -1876,8 +1876,14 @@ pub const App = struct {
         // The .wsj format has no project-name field, so a loaded file would
         // otherwise sit under the default "untitled" — show its basename.
         const header_title: []const u8 = if (self.projectPath()) |p| std.fs.path.basename(p) else self.session.project.name;
-        try tui.drawHeader(w, header_title, &self.session.engine.transport, self.audio_label, self.master_gain_db, self.dirty);
-        try tui.hr(w, size.cols);
+        // Rendered into a scratch buffer and replayed as a full-width
+        // reverse-video chrome bar (style.writeChromeRow) instead of a
+        // plain line + a separate hr() rule row underneath — reclaims a row
+        // without losing the visual break from the content below.
+        var header_scratch: [512]u8 = undefined;
+        var header_w = std.Io.Writer.fixed(&header_scratch);
+        try tui.drawHeader(&header_w, header_title, &self.session.engine.transport, self.audio_label, self.master_gain_db, self.dirty);
+        try style.writeChromeRow(w, header_w.buffered(), size.cols);
 
         switch (self.view) {
             .tracks          => try tui.drawTracks(self, w, content_rows, snap),
@@ -1914,37 +1920,40 @@ pub const App = struct {
         }
         const pos = transport.positionBarBeat();
         const secs = transport.positionSeconds();
+        // Same scratch-buffer-then-chrome-bar treatment as the header above,
+        // replacing the second hr() row.
+        var transport_scratch: [512]u8 = undefined;
+        var tw = std.Io.Writer.fixed(&transport_scratch);
         if (snap.pre_rolling) {
             // No dedicated glyph for this — it's a brief, rare state, so
             // plain text beats adding another icon just for it.
-            try w.writeAll("\x1b[33m\x1b[1m count-in\x1b[0m");
+            try tw.writeAll("\x1b[33m\x1b[1m count-in\x1b[0m");
         } else if (snap.playing) {
             if (icons.font_installed) {
-                try w.writeAll("\x1b[32m\x1b[1m " ++ icons.play ++ "\x1b[0m");
+                try tw.writeAll("\x1b[32m\x1b[1m " ++ icons.play ++ "\x1b[0m");
             } else {
-                try w.writeAll("\x1b[32m\x1b[1m |>\x1b[0m");
+                try tw.writeAll("\x1b[32m\x1b[1m |>\x1b[0m");
             }
         } else {
             if (icons.font_installed) {
-                try w.writeAll("\x1b[2m " ++ icons.stop ++ "\x1b[0m");
+                try tw.writeAll("\x1b[2m " ++ icons.stop ++ "\x1b[0m");
             } else {
-                try w.writeAll("\x1b[2m []\x1b[0m");
+                try tw.writeAll("\x1b[2m []\x1b[0m");
             }
         }
         if (self.session.metronome_enabled) {
-            try w.writeAll(" \x1b[33m" ++ icons.tempo ++ " click\x1b[0m");
+            try tw.writeAll(" \x1b[33m" ++ icons.tempo ++ " click\x1b[0m");
         }
-        try w.print(" {d:0>3}.{d}  {d:0>2}:{d:0>4.1}  \x1b[2mL\x1b[0m", .{
+        try tw.print(" {d:0>3}.{d}  {d:0>2}:{d:0>4.1}  \x1b[2mL\x1b[0m", .{
             pos.bar + 1,
             pos.beat + 1,
             @as(u64, @intFromFloat(secs / 60.0)),
             @mod(secs, 60.0),
         });
-        try tui.meter(w, snap.peak[0]);
-        try w.writeAll("\x1b[2m R\x1b[0m");
-        try tui.meter(w, snap.peak[1]);
-        try tui.endLine(w);
-        try tui.hr(w, size.cols);
+        try tui.meter(&tw, snap.peak[0]);
+        try tw.writeAll("\x1b[2m R\x1b[0m");
+        try tui.meter(&tw, snap.peak[1]);
+        try style.writeChromeRow(w, tw.buffered(), size.cols);
 
         if (suggestion_rows > 0) {
             try cmd_mod.writeSuggestionBox(

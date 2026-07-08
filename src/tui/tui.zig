@@ -30,6 +30,9 @@ pub const meter = style.meter;
 // Header
 // ---------------------------------------------------------------------------
 
+/// Writes the header's content only (no trailing newline) — the caller
+/// (app.zig) captures it into a scratch buffer and renders it as a
+/// full-width chrome bar via `style.writeChromeRow`.
 pub fn drawHeader(
     w: *std.Io.Writer,
     title: []const u8,
@@ -55,7 +58,6 @@ pub fn drawHeader(
     try w.writeAll(dim ++ "   " ++ rst);
     try w.writeAll(acc);
     try w.writeAll(audio_label);
-    try endLine(w);
 }
 
 // ---------------------------------------------------------------------------

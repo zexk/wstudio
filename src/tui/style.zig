@@ -54,6 +54,36 @@ pub fn hr(w: *std.Io.Writer, cols: u16) !void {
     try endLine(w);
 }
 
+/// Renders `raw` (may contain ANSI SGR sequences) as a full-width "chrome"
+/// bar: the content as-is, then the remainder of the row filled with a
+/// reverse-video block out to `cols`. Used for the header and transport
+/// rows so they read as UI frame all the way to the edge without a
+/// dedicated rule-line row underneath (see the v1.0.0 tackle-list item on
+/// reclaiming those rows for content).
+pub fn writeChromeRow(w: *std.Io.Writer, raw: []const u8, cols: u16) !void {
+    var i: usize = 0;
+    var col: usize = 0;
+    while (i < raw.len) {
+        if (raw[i] == 0x1b and i + 1 < raw.len and raw[i + 1] == '[') {
+            const start = i;
+            i += 2;
+            while (i < raw.len and !((raw[i] >= 'A' and raw[i] <= 'Z') or (raw[i] >= 'a' and raw[i] <= 'z'))) : (i += 1) {}
+            if (i < raw.len) i += 1; // include the terminator letter
+            try w.writeAll(raw[start..i]);
+            continue;
+        }
+        if (col >= cols) break;
+        if (raw[i] & 0xC0 != 0x80) col += 1; // UTF-8 continuation bytes are free
+        try w.writeByte(raw[i]);
+        i += 1;
+    }
+    if (col < cols) {
+        try w.writeAll("\x1b[7m");
+        try w.splatByteAll(' ', cols - col);
+    }
+    try endLine(w);
+}
+
 /// Write `raw` (a single line, no \r\n, may contain ANSI SGR sequences) to
 /// `w`, clamped to `max_cols` visible columns. ANSI escapes are copied
 /// through verbatim (they cost no width); everything else counts as one
@@ -224,4 +254,42 @@ pub fn enumRow(
         }
     }
     try endLine(w);
+}
+
+test "writeChromeRow pads short content with a reverse-video fill to the exact column count" {
+    var buf: [256]u8 = undefined;
+    var w = std.Io.Writer.fixed(&buf);
+    try writeChromeRow(&w, bold ++ "hi" ++ rst, 10);
+    const out = w.buffered();
+
+    // Original content survives untouched.
+    try std.testing.expect(std.mem.indexOf(u8, out, bold ++ "hi" ++ rst) != null);
+    // Reverse-video fill follows, padded to exactly 10 visible columns
+    // (2 already written by "hi", so 8 fill spaces).
+    const fill_start = std.mem.indexOf(u8, out, "\x1b[7m").?;
+    var spaces: usize = 0;
+    var i = fill_start + 4;
+    while (i < out.len and out[i] == ' ') : (i += 1) spaces += 1;
+    try std.testing.expectEqual(@as(usize, 8), spaces);
+    // Ends the line like any other row.
+    try std.testing.expect(std.mem.endsWith(u8, out, "\x1b[K\r\n"));
+}
+
+test "writeChromeRow doesn't overflow when content already fills the row" {
+    var buf: [256]u8 = undefined;
+    var w = std.Io.Writer.fixed(&buf);
+    try writeChromeRow(&w, "0123456789", 10);
+    const out = w.buffered();
+    // No fill needed — content exactly fills 10 columns.
+    try std.testing.expect(std.mem.indexOf(u8, out, "\x1b[7m") == null);
+    try std.testing.expect(std.mem.endsWith(u8, out, "\x1b[K\r\n"));
+}
+
+test "writeChromeRow truncates content wider than the row instead of overflowing" {
+    var buf: [256]u8 = undefined;
+    var w = std.Io.Writer.fixed(&buf);
+    try writeChromeRow(&w, "0123456789ABCDEF", 10);
+    const out = w.buffered();
+    try std.testing.expect(std.mem.indexOf(u8, out, "0123456789") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out, "ABCDEF") == null);
 }
