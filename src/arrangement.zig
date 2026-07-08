@@ -76,10 +76,9 @@ pub const Clip = struct {
     /// A private copy of a drum-machine pattern.
     pub const Drum = struct {
         pattern: [DrumMachine.max_pads]u64,
-        /// Per-step velocity bitplanes (see DrumMachine.velGain). All-zero =
-        /// every step at full velocity.
-        vel_lo: [DrumMachine.max_pads]u64 = [_]u64{0} ** DrumMachine.max_pads,
-        vel_hi: [DrumMachine.max_pads]u64 = [_]u64{0} ** DrumMachine.max_pads,
+        /// Per-step velocity (0-127; 127 = full, see DrumMachine.velGain).
+        vel: [DrumMachine.max_pads][DrumMachine.max_steps]u8 =
+            [_][DrumMachine.max_steps]u8{[_]u8{DrumMachine.vel_full} ** DrumMachine.max_steps} ** DrumMachine.max_pads,
         step_count: u8,
         /// Which variant (A..H) this was stamped from — display label only;
         /// the pattern above is the payload, so bank edits never reach clips.

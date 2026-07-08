@@ -12,8 +12,10 @@
 //!
 //! A 64-step bitmask per pad stores the
 //! pattern; each bit is a u64 atomic so the UI thread can flip bits safely
-//! while the audio thread reads them.  Two more bitplanes per pad hold a
-//! 2-bit per-step velocity level (100/75/50/25%).  The sequencer fires on
+//! while the audio thread reads them.  A parallel per-step array holds each
+//! step's velocity (0-127, MIDI-style; 127 = full) as its own atomic u8 — no
+//! bit-packing needed since each step's value is read/written whole.  The
+//! sequencer fires on
 //! step boundaries derived from the transport, using a monotonic step
 //! counter to avoid the double-fire and float-truncation bugs that arise
 //! from recomputing the boundary position every block; MPC-style swing
@@ -72,17 +74,26 @@ pub const DrumMachine = struct {
     pub const swing_min: f32 = 50.0;
     pub const swing_max: f32 = 75.0;
 
-    /// Gain for a step's 2-bit velocity level. Level 0 (both plane bits
-    /// clear) is full volume, so untouched steps and pre-v4 files play
-    /// exactly as before; each level above attenuates by 25%:
-    /// 0 → 100%, 1 → 75%, 2 → 50%, 3 → 25%.
-    pub fn velGain(level: u2) f32 {
-        return 1.0 - 0.25 * @as(f32, @floatFromInt(level));
+    /// Full-velocity value (127, MIDI-style max) — a fresh/toggled-on step's
+    /// default.
+    pub const vel_full: u8 = 127;
+
+    /// Named preset bands `cycleStepVel`'s quick single-key gesture steps
+    /// through: 127→95→63→31→127 (the same 100/75/25/25% feel the old 2-bit
+    /// encoding had, just at the new resolution). Also doubles as the
+    /// index-keyed remap `legacyVelToNew` uses for pre-v12 files, so an old
+    /// file's 2-bit level plays back at effectively the same loudness.
+    const vel_presets = [_]u8{ 127, 95, 63, 31 };
+
+    /// Remap a pre-v12 file's 2-bit velocity level (0-3, see the old
+    /// `vel_lo`/`vel_hi` bitplane encoding) onto the new 0-127 scale.
+    pub fn legacyVelToNew(level: u2) u8 {
+        return vel_presets[level];
     }
 
-    /// Display percent for a 2-bit velocity level (100/75/50/25).
-    pub fn velPercent(level: u2) u8 {
-        return 100 - 25 * @as(u8, level);
+    /// Gain for a step's 0-127 velocity value (127 = full volume).
+    pub fn velGain(level: u8) f32 {
+        return @as(f32, @floatFromInt(level)) / @as(f32, @floatFromInt(vel_full));
     }
 
     /// One pattern variant: a bank slot for the step grid. The active variant
@@ -90,10 +101,9 @@ pub const DrumMachine = struct {
     /// here as plain data (control thread only).
     pub const Variant = struct {
         pattern: [max_pads]u64 = [_]u64{0} ** max_pads,
-        /// Per-step velocity bitplanes: bit k holds the low/high bit of
-        /// step k's 2-bit level (see `velGain`).
-        vel_lo:  [max_pads]u64 = [_]u64{0} ** max_pads,
-        vel_hi:  [max_pads]u64 = [_]u64{0} ** max_pads,
+        /// Per-step velocity (0-127; 127 = full). v12 — replaces the old
+        /// 2-bit `vel_lo`/`vel_hi` bitplanes (see persist.zig's version doc).
+        vel: [max_pads][max_steps]u8 = [_][max_steps]u8{[_]u8{vel_full} ** max_steps} ** max_pads,
         step_count: u8 = 16,
     };
 
@@ -106,9 +116,8 @@ pub const DrumMachine = struct {
         span_steps: u32,
         step_count: u8,
         pattern: [max_pads]u64,
-        /// Per-step velocity bitplanes, same encoding as the live grid.
-        vel_lo: [max_pads]u64 = [_]u64{0} ** max_pads,
-        vel_hi: [max_pads]u64 = [_]u64{0} ** max_pads,
+        /// Per-step velocity, same encoding as the live grid.
+        vel: [max_pads][max_steps]u8 = [_][max_steps]u8{[_]u8{vel_full} ** max_steps} ** max_pads,
     };
     /// Number of editable params per pad (see `adjustParam`).
     pub const pad_param_count: u8 = 10;
@@ -144,11 +153,10 @@ pub const DrumMachine = struct {
     /// Always mirrors the active variant; edits land here and are synced back
     /// to `variants[variant]` when switching away.
     pattern: [max_pads]std.atomic.Value(u64),
-    /// Per-step velocity bitplanes (see `velGain`): bit k of `vel_lo`/`vel_hi`
-    /// is the low/high bit of step k's 2-bit level. Atomic for the same
-    /// UI-edits-while-audio-reads reason as `pattern`.
-    vel_lo: [max_pads]std.atomic.Value(u64),
-    vel_hi: [max_pads]std.atomic.Value(u64),
+    /// Per-step velocity (see `velGain`), one atomic u8 per step — no
+    /// bit-packing needed since each step's value is read/written whole.
+    /// Atomic for the same UI-edits-while-audio-reads reason as `pattern`.
+    vel: [max_pads][max_steps]std.atomic.Value(u8),
     step_count: u8,
     /// Swing percent (see `swing_min`/`swing_max`): where the off-beat 16th
     /// sits within its 8th-note pair. UI writes, audio thread reads.
@@ -193,8 +201,7 @@ pub const DrumMachine = struct {
             .transport = transport,
             .pads = undefined,
             .pattern = undefined,
-            .vel_lo = undefined,
-            .vel_hi = undefined,
+            .vel = undefined,
             .step_count = 32, // default 2 bars; user can extend to max_steps with >
 
             .next_step_k = 0,
@@ -202,8 +209,7 @@ pub const DrumMachine = struct {
         };
         for (&self.pads) |*p| p.* = null; // lazily materialized — see the field's doc comment
         for (&self.pattern) |*p| p.* = .init(0);
-        for (&self.vel_lo)  |*p| p.* = .init(0);
-        for (&self.vel_hi)  |*p| p.* = .init(0);
+        for (&self.vel) |*row| for (row) |*p| { p.* = .init(vel_full); };
 
         // Load the shipped kit: WAVs rendered from dsp/drum_kit.zig by the
         // `genkit` build tool and embedded in the binary. Per-pad default gains
@@ -248,8 +254,9 @@ pub const DrumMachine = struct {
             dst.* = if (self.pads[i]) |*src| try src.dupe() else null;
         }
         for (&out.pattern, 0..) |*p, i| p.store(self.pattern[i].load(.acquire), .monotonic);
-        for (&out.vel_lo, 0..) |*p, i| p.store(self.vel_lo[i].load(.acquire), .monotonic);
-        for (&out.vel_hi, 0..) |*p, i| p.store(self.vel_hi[i].load(.acquire), .monotonic);
+        for (&out.vel, &self.vel) |*dst_row, *src_row| {
+            for (dst_row, src_row) |*dst, *src| dst.store(src.load(.acquire), .monotonic);
+        }
         out.step_count = self.step_count;
         out.swing.store(self.swing.load(.monotonic), .monotonic);
         out.choke_group = self.choke_group;
@@ -281,12 +288,15 @@ pub const DrumMachine = struct {
 
     pub fn setStepCount(self: *DrumMachine, n: u8) void {
         self.step_count = std.math.clamp(n, 1, max_steps);
-        // Discard bits beyond the new count — otherwise they'd silently
-        // survive a shrink, reappear on grow, and be saved to disk.
+        // Discard pattern bits beyond the new count — otherwise they'd
+        // silently survive a shrink, reappear on grow, and be saved to disk.
+        // Velocity gets the same hygiene: steps beyond the count reset to
+        // full so a stray edit can't resurface invisibly on regrow either.
         const mask = stepMask(self.step_count);
         for (&self.pattern) |*p| _ = p.fetchAnd(mask, .acq_rel);
-        for (&self.vel_lo)  |*p| _ = p.fetchAnd(mask, .acq_rel);
-        for (&self.vel_hi)  |*p| _ = p.fetchAnd(mask, .acq_rel);
+        for (&self.vel) |*row| {
+            for (row[self.step_count..]) |*p| p.store(vel_full, .release);
+        }
     }
 
     /// Nudge swing by `delta` percent, clamped to [swing_min, swing_max].
@@ -310,8 +320,9 @@ pub const DrumMachine = struct {
     fn storeActiveVariant(self: *DrumMachine) void {
         const slot = &self.variants[self.variant];
         for (&slot.pattern, &self.pattern) |*bank, *live| bank.* = live.load(.acquire);
-        for (&slot.vel_lo,  &self.vel_lo)  |*bank, *live| bank.* = live.load(.acquire);
-        for (&slot.vel_hi,  &self.vel_hi)  |*bank, *live| bank.* = live.load(.acquire);
+        for (&slot.vel, &self.vel) |*bank_row, *live_row| {
+            for (bank_row, live_row) |*bank, *live| bank.* = live.load(.acquire);
+        }
         slot.step_count = self.step_count;
     }
 
@@ -320,8 +331,9 @@ pub const DrumMachine = struct {
     /// masks off any stray bits above the step count.
     pub fn applyVariant(self: *DrumMachine, slot: Variant) void {
         for (&self.pattern, slot.pattern) |*live, bits| live.store(bits, .release);
-        for (&self.vel_lo,  slot.vel_lo)  |*live, bits| live.store(bits, .release);
-        for (&self.vel_hi,  slot.vel_hi)  |*live, bits| live.store(bits, .release);
+        for (&self.vel, slot.vel) |*live_row, bank_row| {
+            for (live_row, bank_row) |*live, v| live.store(v, .release);
+        }
         self.setStepCount(slot.step_count);
     }
 
@@ -375,8 +387,9 @@ pub const DrumMachine = struct {
         if (v == self.variant) {
             var out: Variant = .{ .step_count = self.step_count };
             for (&out.pattern, &self.pattern) |*dst, *live| dst.* = live.load(.acquire);
-            for (&out.vel_lo,  &self.vel_lo)  |*dst, *live| dst.* = live.load(.acquire);
-            for (&out.vel_hi,  &self.vel_hi)  |*dst, *live| dst.* = live.load(.acquire);
+            for (&out.vel, &self.vel) |*dst_row, *live_row| {
+                for (dst_row, live_row) |*dst, *live| dst.* = live.load(.acquire);
+            }
             return out;
         }
         return self.variants[@min(v, max_variants - 1)];
@@ -403,8 +416,7 @@ pub const DrumMachine = struct {
         const bit = @as(u64, 1) << @intCast(step);
         _ = self.pattern[pad].fetchXor(bit, .acq_rel);
         // A toggled step always (re)starts at full velocity.
-        _ = self.vel_lo[pad].fetchAnd(~bit, .acq_rel);
-        _ = self.vel_hi[pad].fetchAnd(~bit, .acq_rel);
+        self.vel[pad][step].store(vel_full, .release);
     }
 
     pub fn stepActive(self: *const DrumMachine, pad: u8, step: u8) bool {
@@ -412,48 +424,48 @@ pub const DrumMachine = struct {
         return (self.pattern[pad].load(.acquire) >> @intCast(step)) & 1 == 1;
     }
 
-    /// 2-bit velocity level of one step: 0 = full, 3 = quietest (see velGain).
-    pub fn stepVel(self: *const DrumMachine, pad: u8, step: u8) u2 {
-        if (pad >= max_pads or step >= max_steps) return 0;
-        const lo: u2 = @intCast((self.vel_lo[pad].load(.acquire) >> @intCast(step)) & 1);
-        const hi: u2 = @intCast((self.vel_hi[pad].load(.acquire) >> @intCast(step)) & 1);
-        return (hi << 1) | lo;
+    /// One step's velocity, 0-127 (127 = full, see velGain).
+    pub fn stepVel(self: *const DrumMachine, pad: u8, step: u8) u8 {
+        if (pad >= max_pads or step >= max_steps) return vel_full;
+        return self.vel[pad][step].load(.acquire);
     }
 
-    pub fn setStepVel(self: *DrumMachine, pad: u8, step: u8, level: u2) void {
+    pub fn setStepVel(self: *DrumMachine, pad: u8, step: u8, level: u8) void {
         if (pad >= max_pads or step >= max_steps) return;
-        const bit = @as(u64, 1) << @intCast(step);
-        if (level & 1 != 0) {
-            _ = self.vel_lo[pad].fetchOr(bit, .acq_rel);
-        } else {
-            _ = self.vel_lo[pad].fetchAnd(~bit, .acq_rel);
-        }
-        if (level & 2 != 0) {
-            _ = self.vel_hi[pad].fetchOr(bit, .acq_rel);
-        } else {
-            _ = self.vel_hi[pad].fetchAnd(~bit, .acq_rel);
-        }
+        self.vel[pad][step].store(level, .release);
     }
 
-    /// Step one step's velocity down a level, wrapping 100 → 75 → 50 → 25 → 100.
+    /// Cycle through the named preset bands (127→95→63→31→127) — a quick
+    /// single-key gesture; `nudgeStepVel` covers the full 1-127 range.
     pub fn cycleStepVel(self: *DrumMachine, pad: u8, step: u8) void {
-        self.setStepVel(pad, step, self.stepVel(pad, step) +% 1);
+        const cur = self.stepVel(pad, step);
+        var idx: usize = vel_presets.len - 1; // not a preset value -> next lands on preset[0]
+        for (vel_presets, 0..) |v, i| {
+            if (v == cur) { idx = i; break; }
+        }
+        self.setStepVel(pad, step, vel_presets[(idx + 1) % vel_presets.len]);
+    }
+
+    /// Nudge one step's velocity by `delta`, clamped to 1..127 — 0 would be
+    /// silent; use x/X to remove a step instead of zeroing its velocity.
+    pub fn nudgeStepVel(self: *DrumMachine, pad: u8, step: u8, delta: i32) void {
+        const cur: i32 = self.stepVel(pad, step);
+        const next = std.math.clamp(cur + delta, 1, 127);
+        self.setStepVel(pad, step, @intCast(next));
     }
 
     /// Wipe one pad's row: no steps, all velocities back to full.
     pub fn clearPad(self: *DrumMachine, pad: u8) void {
         if (pad >= max_pads) return;
         self.pattern[pad].store(0, .release);
-        self.vel_lo[pad].store(0, .release);
-        self.vel_hi[pad].store(0, .release);
+        for (&self.vel[pad]) |*p| p.store(vel_full, .release);
     }
 
     /// Fill one pad's row with full-velocity steps across the active length.
     pub fn fillPad(self: *DrumMachine, pad: u8) void {
         if (pad >= max_pads) return;
         self.pattern[pad].store(stepMask(self.step_count), .release);
-        self.vel_lo[pad].store(0, .release);
-        self.vel_hi[pad].store(0, .release);
+        for (&self.vel[pad]) |*p| p.store(vel_full, .release);
     }
 
     pub fn padName(self: *const DrumMachine, pad: u8) []const u8 {
@@ -625,9 +637,7 @@ pub const DrumMachine = struct {
             const local: u32 = (lk - clip.start_step) % clip.step_count;
             for (0..max_pads) |p| {
                 if ((clip.pattern[p] >> @intCast(local)) & 1 == 1) {
-                    const lo: u2 = @intCast((clip.vel_lo[p] >> @intCast(local)) & 1);
-                    const hi: u2 = @intCast((clip.vel_hi[p] >> @intCast(local)) & 1);
-                    self.chokeTrigger(@intCast(p), velGain((hi << 1) | lo), fire_frame);
+                    self.chokeTrigger(@intCast(p), velGain(clip.vel[p][local]), fire_frame);
                 }
             }
             self.current_step.store(@intCast(local), .monotonic);
@@ -820,41 +830,49 @@ test "note_on triggers pad directly" {
     try std.testing.expect(peak > 0.01);
 }
 
-test "step velocity: cycles levels, toggling resets, shrink masks" {
+test "step velocity: cycles presets, nudges, toggling resets, shrink masks" {
     var transport: Transport = .{ .sample_rate = 48_000 };
     var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
     defer dm.deinit();
 
     dm.pattern[0].store(0, .monotonic);
     dm.toggleStep(0, 5);
-    try std.testing.expectEqual(@as(u2, 0), dm.stepVel(0, 5)); // new steps are full
+    try std.testing.expectEqual(@as(u8, 127), dm.stepVel(0, 5)); // new steps are full
 
-    // v walks 100 → 75 → 50 → 25 and wraps back to 100.
+    // c walks 127 → 95 → 63 → 31 and wraps back to 127.
     dm.cycleStepVel(0, 5);
-    try std.testing.expectEqual(@as(u2, 1), dm.stepVel(0, 5));
+    try std.testing.expectEqual(@as(u8, 95), dm.stepVel(0, 5));
     dm.cycleStepVel(0, 5);
     dm.cycleStepVel(0, 5);
-    try std.testing.expectEqual(@as(u2, 3), dm.stepVel(0, 5));
+    try std.testing.expectEqual(@as(u8, 31), dm.stepVel(0, 5));
     dm.cycleStepVel(0, 5);
-    try std.testing.expectEqual(@as(u2, 0), dm.stepVel(0, 5));
+    try std.testing.expectEqual(@as(u8, 127), dm.stepVel(0, 5));
 
     // Level → gain mapping.
-    try std.testing.expectApproxEqAbs(@as(f32, 1.0),  DrumMachine.velGain(0), 1e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 0.25), DrumMachine.velGain(3), 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), DrumMachine.velGain(127), 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.25), DrumMachine.velGain(31), 1e-2);
+
+    // {/} nudge the full 1-127 range, clamped at both ends.
+    dm.setStepVel(0, 5, 5);
+    dm.nudgeStepVel(0, 5, -10);
+    try std.testing.expectEqual(@as(u8, 1), dm.stepVel(0, 5));
+    dm.setStepVel(0, 5, 120);
+    dm.nudgeStepVel(0, 5, 20);
+    try std.testing.expectEqual(@as(u8, 127), dm.stepVel(0, 5));
 
     // Retoggling a step brings it back at full velocity.
-    dm.setStepVel(0, 5, 3);
+    dm.setStepVel(0, 5, 31);
     dm.toggleStep(0, 5); // off
     dm.toggleStep(0, 5); // on again
-    try std.testing.expectEqual(@as(u2, 0), dm.stepVel(0, 5));
+    try std.testing.expectEqual(@as(u8, 127), dm.stepVel(0, 5));
 
-    // Velocity bits past a shrink don't survive a re-grow.
+    // Velocity past a shrink doesn't survive a re-grow.
     dm.setStepCount(32);
     dm.toggleStep(0, 20);
-    dm.setStepVel(0, 20, 2);
+    dm.setStepVel(0, 20, 63);
     dm.setStepCount(16);
     dm.setStepCount(32);
-    try std.testing.expectEqual(@as(u2, 0), dm.stepVel(0, 20));
+    try std.testing.expectEqual(@as(u8, 127), dm.stepVel(0, 20));
 }
 
 test "voice velocity scales the rendered level" {
@@ -957,16 +975,16 @@ test "variants keep per-step velocity" {
 
     for (&dm.pattern) |*p| p.store(0, .monotonic);
     dm.toggleStep(0, 0);
-    dm.setStepVel(0, 0, 2); // variant A: 50%
+    dm.setStepVel(0, 0, 63); // variant A: ~50%
 
     _ = dm.addVariant(); // B copies A, then diverges
-    try std.testing.expectEqual(@as(u2, 2), dm.stepVel(0, 0));
-    dm.setStepVel(0, 0, 3);
+    try std.testing.expectEqual(@as(u8, 63), dm.stepVel(0, 0));
+    dm.setStepVel(0, 0, 31);
 
     dm.selectVariant(0);
-    try std.testing.expectEqual(@as(u2, 2), dm.stepVel(0, 0));
+    try std.testing.expectEqual(@as(u8, 63), dm.stepVel(0, 0));
     dm.selectVariant(1);
-    try std.testing.expectEqual(@as(u2, 3), dm.stepVel(0, 0));
+    try std.testing.expectEqual(@as(u8, 31), dm.stepVel(0, 0));
 }
 
 test "toggleStep flips pattern bit" {
@@ -1095,8 +1113,8 @@ test "step count grows to 64 (u64 bitmask width) and the sequencer fires the las
     for (&dm.pattern) |*p| p.store(0, .monotonic);
     dm.toggleStep(0, 63); // the highest bit the u64 bitmask can hold
     try std.testing.expect(dm.stepActive(0, 63));
-    dm.setStepVel(0, 63, 3);
-    try std.testing.expectEqual(@as(u2, 3), dm.stepVel(0, 63));
+    dm.setStepVel(0, 63, 31);
+    try std.testing.expectEqual(@as(u8, 31), dm.stepVel(0, 63));
 
     // The bit actually lives at u64 bit 63, not truncated/wrapped into a
     // lower bit by a stale u32 shift somewhere in the pipeline.

@@ -861,7 +861,7 @@ test "drum grid yank/paste carries pattern, velocity, and length" {
     for (&dm.pattern) |*p| p.store(0, .monotonic);
     dm.setStepCount(32);
     dm.toggleStep(0, 7);
-    dm.setStepVel(0, 7, 2);
+    dm.setStepVel(0, 7, 63);
     _ = drum_ed.handleKey(&app, .{ .char = 'y' }); // yy yanks the whole pattern
     _ = drum_ed.handleKey(&app, .{ .char = 'y' });
 
@@ -871,7 +871,7 @@ test "drum grid yank/paste carries pattern, velocity, and length" {
     dm.setStepCount(16);
     _ = drum_ed.handleKey(&app, .{ .char = 'P' });
     try std.testing.expect(dm.stepActive(0, 7));
-    try std.testing.expectEqual(@as(u2, 2), dm.stepVel(0, 7));
+    try std.testing.expectEqual(@as(u8, 63), dm.stepVel(0, 7));
     try std.testing.expectEqual(@as(u8, 32), dm.step_count);
 }
 
@@ -884,7 +884,7 @@ test "drum grid visual mode selects a step range across pads for y/d/P" {
     for (&dm.pattern) |*p| p.store(0, .monotonic);
     dm.setStepCount(16);
     dm.toggleStep(0, 0);
-    dm.setStepVel(0, 0, 3);
+    dm.setStepVel(0, 0, 31);
     dm.toggleStep(1, 2);
     dm.toggleStep(3, 14); // outside both the selection and the paste target below
 
@@ -903,7 +903,7 @@ test "drum grid visual mode selects a step range across pads for y/d/P" {
     app.handleKey(.{ .char = 'P' }, 0);
     try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
     try std.testing.expect(dm.stepActive(0, 8));
-    try std.testing.expectEqual(@as(u2, 3), dm.stepVel(0, 8));
+    try std.testing.expectEqual(@as(u8, 31), dm.stepVel(0, 8));
     try std.testing.expect(dm.stepActive(1, 10));
     // Untouched original steps and the step outside the paste range survive.
     try std.testing.expect(dm.stepActive(0, 0));

@@ -136,7 +136,25 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                     if (dm.stepActive(pad.*, step.*)) {
                         history.push(app, history.captureDrum(app, app.drum_track));
                         dm.cycleStepVel(pad.*, step.*);
-                        app.setStatus("vel {d}%", .{DrumMachine.velPercent(dm.stepVel(pad.*, step.*))});
+                        app.setStatus("vel {d}", .{dm.stepVel(pad.*, step.*)});
+                    } else app.setStatus("no step here — enter places one", .{});
+                },
+                // {/}: fine velocity nudge (±1, count-scaled) over the full
+                // 1-127 range — 'c' above only cycles the named presets.
+                '{' => {
+                    const dm = app.drumMachine();
+                    if (dm.stepActive(pad.*, step.*)) {
+                        history.push(app, history.captureDrum(app, app.drum_track));
+                        dm.nudgeStepVel(pad.*, step.*, -app.takeCount());
+                        app.setStatus("vel {d}", .{dm.stepVel(pad.*, step.*)});
+                    } else app.setStatus("no step here — enter places one", .{});
+                },
+                '}' => {
+                    const dm = app.drumMachine();
+                    if (dm.stepActive(pad.*, step.*)) {
+                        history.push(app, history.captureDrum(app, app.drum_track));
+                        dm.nudgeStepVel(pad.*, step.*, app.takeCount());
+                        app.setStatus("vel {d}", .{dm.stepVel(pad.*, step.*)});
                     } else app.setStatus("no step here — enter places one", .{});
                 },
                 'v' => {
@@ -240,7 +258,7 @@ pub fn recordNote(app: *App, pitch: u7) void {
     const step = dm.currentStep();
     if (dm.stepActive(pad, step)) return;
     history.push(app, history.captureDrum(app, app.drum_track));
-    setStep(dm, pad, step, true, 0);
+    setStep(dm, pad, step, true, DrumMachine.vel_full);
     app.drum_cursor = .{ pad, step };
     app.setStatus("rec: pad {d} step {d}", .{ pad + 1, step + 1 });
 }
@@ -400,7 +418,7 @@ fn selectionRange(app: *App) StepRange {
 /// velocity API (no direct bitmask poking, so this stays in step with
 /// whatever DrumMachine does internally on toggle). Also used by handleMouse
 /// to paint a drag stroke.
-pub fn setStep(dm: *DrumMachine, pad: u8, step: u8, active: bool, vel: u2) void {
+pub fn setStep(dm: *DrumMachine, pad: u8, step: u8, active: bool, vel: u8) void {
     if (dm.stepActive(pad, step) != active) dm.toggleStep(pad, step);
     if (active) dm.setStepVel(pad, step, vel);
 }
@@ -417,9 +435,7 @@ fn yankSelection(app: *App) void {
             if (!dm.stepActive(@intCast(pad), s)) continue;
             const bit = @as(u32, 1) << @intCast(s - r.lo);
             clip.active[pad] |= bit;
-            const vel = dm.stepVel(@intCast(pad), s);
-            if (vel & 1 != 0) clip.vel_lo[pad] |= bit;
-            if (vel & 2 != 0) clip.vel_hi[pad] |= bit;
+            clip.vel[pad][s - r.lo] = dm.stepVel(@intCast(pad), s);
         }
     }
     app.drum_range_clip = clip;
@@ -459,9 +475,7 @@ fn pasteSelection(app: *App) void {
         for (0..DrumMachine.max_pads) |pad| {
             const bit = @as(u32, 1) << @intCast(i);
             const active = clip.active[pad] & bit != 0;
-            const vel: u2 = (@as(u2, @intCast((clip.vel_hi[pad] & bit) >> @intCast(i))) << 1) |
-                @as(u2, @intCast((clip.vel_lo[pad] & bit) >> @intCast(i)));
-            setStep(dm, @intCast(pad), target, active, vel);
+            setStep(dm, @intCast(pad), target, active, clip.vel[pad][i]);
         }
     }
     app.last_edit = .drum_range_paste;
@@ -593,7 +607,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize) void {
             const step = stepAt(app.drum_step_scroll, dm.step_count, ev.x) orelse return;
             app.drum_cursor[0] = @intCast(pad);
             app.drum_cursor[1] = step;
-            setStep(dm, @intCast(pad), step, state, 0);
+            setStep(dm, @intCast(pad), step, state, DrumMachine.vel_full);
         },
         .release => app.drum_paint_state = null,
         else => {},

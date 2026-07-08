@@ -156,12 +156,14 @@ pub fn drawDrumGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, s
                 try w.writeAll(dim);
             }
 
-            // Glyph tracks the step's velocity level: full → quietest.
+            // Glyph tracks the step's velocity (0-127): full → quietest,
+            // five bands now that velocity isn't a 2-bit level anymore.
             try w.writeAll(if (!active) "[ ]" else switch (dm.stepVel(@intCast(p), @intCast(s))) {
-                0 => "[X]",
-                1 => "[x]",
-                2 => "[o]",
-                3 => "[.]",
+                102...127 => "[X]",
+                76...101 => "[x]",
+                51...75 => "[o]",
+                26...50 => "[-]",
+                else => "[.]",
             });
             try w.writeAll(rst);
         }
@@ -202,7 +204,7 @@ pub fn drawDrumStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer, cm
     try w.print("{d:.0}%", .{dm.swing.load(.monotonic)});
     if (dm.stepActive(p, s)) {
         try w.writeAll(dim ++ "  vel " ++ rst);
-        try w.print("{d}%", .{DrumMachine.velPercent(dm.stepVel(p, s))});
+        try w.print("{d}", .{dm.stepVel(p, s)});
     }
     if (dm.choke_group[p] != 0) {
         try w.writeAll(dim ++ "  choke " ++ rst);

@@ -92,7 +92,16 @@ const AutomationPoint = automation_mod.AutomationPoint;
 /// fixed array, so leaving them tied to the now-64 constant would have
 /// broken loading every pre-v11 file's 8-element arrays outright (confirmed
 /// with a standalone repro before this landed, not just assumed).
-pub const file_version: u32 = 11;
+/// v12 widens per-step drum velocity from the old 2-bit `vel_lo`/`vel_hi`
+/// bitplanes (4 levels: 100/75/50/25%) to a plain 0-127 byte per step
+/// (`VariantSnap.vel`/`ClipSnap.drum_vel`, nested per-pad slices of
+/// per-step values — same "slice for JSON-length safety" shape the v11
+/// pad-indexed fields already use). Genuinely a version bump, not additive:
+/// the old fields aren't just extended, they're superseded, so an older
+/// file's `vel_lo`/`vel_hi` (kept, read-only, for exactly this migration)
+/// gets remapped through `DrumMachine.legacyVelToNew` onto the new scale
+/// instead of being read directly.
+pub const file_version: u32 = 12;
 
 pub const AutomationPointSnap = struct {
     beat: f64,
@@ -214,9 +223,16 @@ pub const PadSnap = struct {
 pub const VariantSnap = struct {
     step_count: u8 = 16,
     pattern: []const u64 = &.{},
-    /// v4: per-step velocity bitplanes. Zero (or absent) = full velocity.
+    /// v4, read-only since v12: the old 2-bit velocity bitplanes. Kept only
+    /// so `applyVelSnap` can migrate a pre-v12 file's data; new files never
+    /// write these (see `vel`, below).
     vel_lo: []const u64 = &.{},
     vel_hi: []const u64 = &.{},
+    /// v12: per-pad, per-step velocity (0-127; 127 = full), superseding
+    /// `vel_lo`/`vel_hi`. Nested slices, not `[max_pads][max_steps]u8` —
+    /// same exact-length-match reasoning as every other pad-indexed field
+    /// here (see this struct's own history above).
+    vel: []const []const u8 = &.{},
 };
 
 pub const DrumSnap = struct {
@@ -410,8 +426,11 @@ pub const ClipSnap = struct {
     // parse. Missing/short entries are zero-filled on load (see clipFromSnap).
     drum_pattern: []const u64 = &.{},
     /// v4: per-step velocity bitplanes. Zero (or absent) = full velocity.
+    /// v4, read-only since v12 — see `VariantSnap.vel_lo`'s doc comment.
     drum_vel_lo: []const u64 = &.{},
     drum_vel_hi: []const u64 = &.{},
+    /// v12: per-pad, per-step velocity — see `VariantSnap.vel`'s doc comment.
+    drum_vel: []const []const u8 = &.{},
     step_count: u8 = 16,
     /// v3: variant letter label (index) the clip was stamped from.
     variant: u8 = 0,
@@ -604,11 +623,7 @@ fn rackToSnap(aa: std.mem.Allocator, rack: *Rack, sample_rate: u32) !RackSnap {
                 const v = dm.variantData(@intCast(vi));
                 const vp = try aa.alloc(u64, DrumMachine.max_pads);
                 @memcpy(vp, &v.pattern);
-                const vlo = try aa.alloc(u64, DrumMachine.max_pads);
-                @memcpy(vlo, &v.vel_lo);
-                const vhi = try aa.alloc(u64, DrumMachine.max_pads);
-                @memcpy(vhi, &v.vel_hi);
-                vs.* = .{ .step_count = v.step_count, .pattern = vp, .vel_lo = vlo, .vel_hi = vhi };
+                vs.* = .{ .step_count = v.step_count, .pattern = vp, .vel = try velToSnap(aa, &v.vel) };
             }
             ds.variants = variants;
 
@@ -796,8 +811,7 @@ fn clipToSnap(aa: std.mem.Allocator, clip: ws_arrangement.Clip) !ClipSnap {
         .drum => |d| {
             c.kind = .drum;
             c.drum_pattern = try aa.dupe(u64, &d.pattern);
-            c.drum_vel_lo = try aa.dupe(u64, &d.vel_lo);
-            c.drum_vel_hi = try aa.dupe(u64, &d.vel_hi);
+            c.drum_vel = try velToSnap(aa, &d.vel);
             c.step_count = d.step_count;
             c.variant = d.variant;
         },
@@ -1045,29 +1059,26 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
                             const sc = std.math.clamp(vs.step_count, 1, DrumMachine.max_steps);
                             slot.step_count = sc;
                             const mask = DrumMachine.stepMask(sc);
-                            // vs.pattern/vel_lo/vel_hi are slices (any length
-                            // — see VariantSnap's doc comment), slot.* are
-                            // fixed max_pads arrays: bound to whichever is
-                            // shorter rather than zipping (a for-loop zip
-                            // requires equal lengths and would panic on an
-                            // older, shorter file). Pads past the file's own
-                            // length stay at the Variant default (zero).
+                            // vs.pattern/vel are slices (any length — see
+                            // VariantSnap's doc comment), slot.* are fixed
+                            // max_pads arrays: bound to whichever is shorter
+                            // rather than zipping (a for-loop zip requires
+                            // equal lengths and would panic on an older,
+                            // shorter file). Pads past the file's own length
+                            // stay at the Variant default (zero pattern,
+                            // full velocity).
                             const pn = @min(vs.pattern.len, slot.pattern.len);
                             for (vs.pattern[0..pn], slot.pattern[0..pn]) |bits, *p| p.* = bits & mask;
-                            const ln = @min(vs.vel_lo.len, slot.vel_lo.len);
-                            for (vs.vel_lo[0..ln], slot.vel_lo[0..ln]) |bits, *p| p.* = bits & mask;
-                            const hn = @min(vs.vel_hi.len, slot.vel_hi.len);
-                            for (vs.vel_hi[0..hn], slot.vel_hi[0..hn]) |bits, *p| p.* = bits & mask;
+                            applyVelSnap(&slot.vel, vs.vel, vs.vel_lo, vs.vel_hi);
                         }
                         dmp.variant_count = count;
                         dmp.variant = @min(ds.variant, count - 1);
                         // The legacy pattern/step_count fields mirror the
                         // active variant; the bank is the source of truth.
                         const active = dmp.variants[dmp.variant];
-                        for (active.pattern, active.vel_lo, active.vel_hi, 0..) |bits, lo, hi, pi| {
+                        for (active.pattern, active.vel, 0..) |bits, vel_row, pi| {
                             dmp.pattern[pi].store(bits, .monotonic);
-                            dmp.vel_lo[pi].store(lo, .monotonic);
-                            dmp.vel_hi[pi].store(hi, .monotonic);
+                            for (vel_row, 0..) |v, s| dmp.vel[pi][s].store(v, .monotonic);
                         }
                         dmp.setStepCount(active.step_count);
                     } else {
@@ -1190,6 +1201,46 @@ fn padBitplane(bits: []const u64) [DrumMachine.max_pads]u64 {
     return out;
 }
 
+/// Build a v12 `vel` snapshot (per-pad slice of per-step u8 slices) from a
+/// live `[max_pads][max_steps]u8` velocity array.
+fn velToSnap(
+    aa: std.mem.Allocator,
+    vel: *const [DrumMachine.max_pads][DrumMachine.max_steps]u8,
+) ![]const []const u8 {
+    const out = try aa.alloc([]const u8, DrumMachine.max_pads);
+    for (out, vel) |*row, *src| row.* = try aa.dupe(u8, src);
+    return out;
+}
+
+/// Apply a velocity snapshot into a live `Variant.vel`/`Clip.Drum.vel`-shaped
+/// array. A v12 `vel` (per-pad, per-step 0-127 slices) takes priority when
+/// present; a pre-v12 file only carries the old 2-bit `vel_lo`/`vel_hi`
+/// bitplanes, remapped onto the new scale via `DrumMachine.legacyVelToNew`.
+/// Both absent leaves `dst` at its caller-supplied default (full velocity).
+fn applyVelSnap(
+    dst: *[DrumMachine.max_pads][DrumMachine.max_steps]u8,
+    vel: []const []const u8,
+    vel_lo: []const u64,
+    vel_hi: []const u64,
+) void {
+    if (vel.len > 0) {
+        const pn = @min(vel.len, dst.len);
+        for (vel[0..pn], dst[0..pn]) |row, *dst_row| {
+            const sn = @min(row.len, dst_row.len);
+            @memcpy(dst_row[0..sn], row[0..sn]);
+        }
+        return;
+    }
+    const pn = @min(@min(vel_lo.len, vel_hi.len), dst.len);
+    for (vel_lo[0..pn], vel_hi[0..pn], dst[0..pn]) |lo, hi, *dst_row| {
+        for (dst_row, 0..) |*p, s| {
+            const l: u2 = @intCast((lo >> @intCast(s)) & 1);
+            const h: u2 = @intCast((hi >> @intCast(s)) & 1);
+            p.* = DrumMachine.legacyVelToNew((h << 1) | l);
+        }
+    }
+}
+
 /// Rebuild an arrangement clip from its snapshot. Melodic clips copy notes
 /// through a stack buffer into a fresh owned allocation; drum clips are inline.
 fn clipFromSnap(allocator: std.mem.Allocator, cs: ClipSnap) !ws_arrangement.Clip {
@@ -1202,13 +1253,15 @@ fn clipFromSnap(allocator: std.mem.Allocator, cs: ClipSnap) !ws_arrangement.Clip
                 allocator, cs.start_bar, cs.length_bars, tmp[0..count], cs.length_beats,
             );
         },
-        .drum => ws_arrangement.Clip.initDrum(cs.start_bar, cs.length_bars, .{
-            .pattern = padBitplane(cs.drum_pattern),
-            .vel_lo = padBitplane(cs.drum_vel_lo),
-            .vel_hi = padBitplane(cs.drum_vel_hi),
-            .step_count = cs.step_count,
-            .variant = @min(cs.variant, DrumMachine.max_variants - 1),
-        }),
+        .drum => blk2: {
+            var d: ws_arrangement.Clip.Drum = .{
+                .pattern = padBitplane(cs.drum_pattern),
+                .step_count = cs.step_count,
+                .variant = @min(cs.variant, DrumMachine.max_variants - 1),
+            };
+            applyVelSnap(&d.vel, cs.drum_vel, cs.drum_vel_lo, cs.drum_vel_hi);
+            break :blk2 ws_arrangement.Clip.initDrum(cs.start_bar, cs.length_bars, d);
+        },
     };
     errdefer out.deinit(allocator);
     out.automation.gain = try automationFromSnap(allocator, cs.gain_automation, -60.0, 12.0);
@@ -1869,7 +1922,7 @@ test "buildSession: time signature lands in project and transport" {
     try testing.expectEqual(@as(u8, 3), session.engine.transport.time_signature.beats_per_bar);
 }
 
-test "buildSession: per-step velocity and swing round-trip" {
+test "buildSession: pre-v12 vel_lo/vel_hi bitplanes migrate onto the new 0-127 scale" {
     const testing = std.testing;
 
     const variants = [_]VariantSnap{.{
@@ -1879,7 +1932,7 @@ test "buildSession: per-step velocity and swing round-trip" {
             p[0] = 0b11;
             break :blk &p;
         },
-        // Step 1 at level 3 (25%); a stray plane bit above the step count.
+        // Step 1 at legacy level 3 (25%); a stray plane bit above the step count.
         .vel_lo = blk: {
             var p = [_]u64{0} ** DrumMachine.max_pads;
             p[0] = (1 << 1) | (1 << 20);
@@ -1904,15 +1957,46 @@ test "buildSession: per-step velocity and swing round-trip" {
     defer session.deinit();
 
     const dm = &session.racks.items[0].instrument.drum_machine;
-    try testing.expectEqual(@as(u2, 0), dm.stepVel(0, 0));
-    try testing.expectEqual(@as(u2, 3), dm.stepVel(0, 1));
-    try testing.expectEqual(@as(u2, 0), dm.stepVel(0, 20)); // stray bit masked
+    try testing.expectEqual(@as(u8, 127), dm.stepVel(0, 0));
+    try testing.expectEqual(@as(u8, 31), dm.stepVel(0, 1));
+    try testing.expectEqual(@as(u8, 127), dm.stepVel(0, 20)); // stray bit masked
     try testing.expectApproxEqAbs(@as(f32, 62.0), dm.swing.load(.monotonic), 1e-6);
 
     // And back out through save-shaped snapshots.
     const v = dm.variantData(0);
-    try testing.expectEqual(@as(u64, 1 << 1), v.vel_lo[0]);
-    try testing.expectEqual(@as(u64, 1 << 1), v.vel_hi[0]);
+    try testing.expectEqual(@as(u8, 31), v.vel[0][1]);
+}
+
+test "buildSession: v12 vel field round-trips a granular 0-127 value" {
+    const testing = std.testing;
+
+    var vel_row = [_]u8{DrumMachine.vel_full} ** DrumMachine.max_steps;
+    vel_row[1] = 64;
+    const vel_rows = [_][]const u8{&vel_row};
+    const variants = [_]VariantSnap{.{
+        .step_count = 16,
+        .pattern = blk: {
+            var p = [_]u64{0} ** DrumMachine.max_pads;
+            p[0] = 0b11;
+            break :blk &p;
+        },
+        .vel = &vel_rows,
+    }};
+    const snap: Snapshot = .{
+        .tracks = &.{.{ .name = "drums" }},
+        .racks = &.{.{
+            .label = "drums",
+            .kind = .drum_machine,
+            .drum = .{ .variants = &variants },
+        }},
+    };
+
+    var session = try buildSession(testing.allocator, &snap);
+    defer session.deinit();
+
+    const dm = &session.racks.items[0].instrument.drum_machine;
+    try testing.expectEqual(@as(u8, 127), dm.stepVel(0, 0));
+    try testing.expectEqual(@as(u8, 64), dm.stepVel(0, 1));
 }
 
 test "buildSession: a 64-step pattern round-trips bit 63 without truncation" {
@@ -2357,7 +2441,17 @@ test "golden-file corpus: every historical .wsj fixture still loads" {
     }
 
     // Guards against a misconfigured path silently turning this into a no-op.
-    try testing.expectEqual(@as(usize, 11), count);
+    try testing.expectEqual(@as(usize, 12), count);
+}
+
+test "golden-file corpus: v12's vel field loads a granular per-step value" {
+    const testing = std.testing;
+    var session = try load(testing.allocator, testing.io, "test/fixtures/wsj/v12.wsj");
+    defer session.deinit();
+    const dm = &session.racks.items[0].instrument.drum_machine;
+    try testing.expect(dm.stepActive(0, 0));
+    try testing.expectEqual(@as(u8, 127), dm.stepVel(0, 0));
+    try testing.expectEqual(@as(u8, 64), dm.stepVel(0, 1));
 }
 
 test "golden-file corpus: v11's ninth pad (past the pre-v11 8-pad cap) loads used" {

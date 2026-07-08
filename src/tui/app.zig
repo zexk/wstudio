@@ -120,8 +120,9 @@ pub const PianoClip = struct {
 pub const DrumRangeClip = struct {
     width: u8,
     active: [DrumMachine.max_pads]u32 = [_]u32{0} ** DrumMachine.max_pads,
-    vel_lo: [DrumMachine.max_pads]u32 = [_]u32{0} ** DrumMachine.max_pads,
-    vel_hi: [DrumMachine.max_pads]u32 = [_]u32{0} ** DrumMachine.max_pads,
+    /// Per-step velocity within the yanked range (index = step - range
+    /// start); 32-wide to match `active`'s bitmask width cap.
+    vel: [DrumMachine.max_pads][32]u8 = [_][32]u8{[_]u8{DrumMachine.vel_full} ** 32} ** DrumMachine.max_pads,
 };
 
 /// A visual-mode range yank from the arrangement: deep-copied clips from one

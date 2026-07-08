@@ -161,7 +161,8 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("J / K",        "jump a whole bank of 8 pads (64 pads total, paged 8 at a time)");
     t.key("g / G",        "jump step cursor to pattern start / end");
     t.key("enter",        "toggle step on/off");
-    t.key("c",            "cycle step velocity (100/75/50/25%)");
+    t.key("c",            "cycle step velocity presets (127/95/63/31)");
+    t.key("{ / }",        "nudge step velocity down / up by 1 (count-scaled, full 1-127 range)");
     t.key("v",            "visual mode: select a step range (all pads) — y/d/P");
     t.key("< / >",        "less / more swing (50–75%)");
     t.key("C",            "cycle current pad's choke group (none/1-4) — same-group pads cut each other off");
