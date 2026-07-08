@@ -258,10 +258,10 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("x",            "remove the focused unit");
     t.key("< / >",        "move the focused unit one slot left / right along the chain");
     t.key("b",            "bypass toggle: the unit keeps its settings but the audio skips it");
-    t.key("tab / H / L",  "walk slot focus along the chain (an EQ unit's editor doubles as the spectrum analyzer)");
-    t.key("h / l",        "select a param within the focused unit (EQ: its 10 bands)");
-    t.key("j / k",        "decrease / increase the selected param (fine step)");
-    t.key("J / K",        "decrease / increase the selected param (coarse step)");
+    t.key("tab / ] / [",  "walk slot focus along the chain (an EQ unit's editor doubles as the spectrum analyzer)");
+    t.key("j / k",        "select a param within the focused unit (EQ: its 10 bands)");
+    t.key("h / l",        "decrease / increase the selected param (fine step)");
+    t.key("H / L",        "decrease / increase the selected param (coarse step)");
     t.key(":eq",          "<track> [<band> <db>]  first EQ in the chain, from the : prompt (inserts one if missing)");
     t.key(":master-eq",   "[<band> <db>]  same, from the : prompt (M opens the live editor)");
     t.key(":master-comp", "on|off|thresh|ratio|attack|release|makeup <value>  first comp in the master chain");

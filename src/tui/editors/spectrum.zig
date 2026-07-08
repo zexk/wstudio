@@ -8,11 +8,14 @@
 //! duplicates included. The spectrum analyzer belongs to an EQ unit's
 //! editor and only runs while one has focus.
 //!
-//! `Tab`/`L` and `H` walk slot focus along the chain; `a` inserts via the
-//! picker; `x` removes the focused unit; `<`/`>` move it along the chain;
-//! `b` toggles its bypass (kept in the chain, skipped by the audio path);
-//! `h`/`l` pick a parameter within the focused unit (EQ's are its 10
-//! bands); `j`/`k` (`J`/`K` coarse) nudge the selected parameter.
+//! `Tab`/`]`/`[` walk slot focus along the chain (the boxes it moves
+//! between are drawn left-to-right onscreen); `a` inserts via the picker;
+//! `x` removes the focused unit; `<`/`>` move it along the chain; `b`
+//! toggles its bypass (kept in the chain, skipped by the audio path);
+//! `j`/`k` pick a parameter within the focused unit — the vertical axis,
+//! matching the param list's on-screen layout (EQ's are its 10 bands);
+//! `h`/`l` (`H`/`L` coarse) nudge the selected parameter's value along the
+//! horizontal axis, matching its on-screen bar.
 //! `esc` restores the previous view and parks the analyzer.
 //! The render half lives in views/spectrum.zig.
 
@@ -467,8 +470,8 @@ fn toggleBypass(app: *App, is_track: bool) void {
 fn nudge(app: *App, is_track: bool, key: u8) void {
     const fx = fxPtr(app, is_track) orelse return;
     const u = focusedUnit(app, fx) orelse return;
-    const dir: f32 = if (key == 'j' or key == 'J') -1.0 else 1.0;
-    const coarse = (key == 'J' or key == 'K');
+    const dir: f32 = if (key == 'h' or key == 'H') -1.0 else 1.0;
+    const coarse = (key == 'H' or key == 'L');
     const cnt: f32 = @floatFromInt(app.takeCount());
     const cur = getParam(&u.payload, app.fx_param);
     setParam(&u.payload, app.fx_param, cur + dir * cnt * paramStep(u.kind(), app.fx_param, coarse));
@@ -490,11 +493,11 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             return true;
         },
         .char => |c| switch (c) {
-            'H' => {
+            '[' => {
                 if (len > 0) setFocus(app, is_track, (app.fx_focus + len - 1) % len);
                 return true;
             },
-            'L' => {
+            ']' => {
                 if (len > 0) setFocus(app, is_track, (app.fx_focus + 1) % len);
                 return true;
             },
@@ -503,10 +506,10 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             '<' => { moveFocused(app, is_track, -1); return true; },
             '>' => { moveFocused(app, is_track, 1); return true; },
             'b' => { toggleBypass(app, is_track); return true; },
-            // Param picks take a vim count prefix (3l, 4h, …). EQ clamps at
+            // Param picks take a vim count prefix (3k, 4j, …). EQ clamps at
             // its band ends (unchanged from before); the 3-5 param units
             // wrap, which reads more naturally for such a short list.
-            'h' => {
+            'k' => {
                 const fx = fxPtr(app, is_track) orelse return true;
                 const u = focusedUnit(app, fx) orelse return true;
                 const n = paramCount(u.kind());
@@ -517,7 +520,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                     (app.fx_param + n - (cnt % n)) % n;
                 return true;
             },
-            'l' => {
+            'j' => {
                 const fx = fxPtr(app, is_track) orelse return true;
                 const u = focusedUnit(app, fx) orelse return true;
                 const n = paramCount(u.kind());
@@ -528,7 +531,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                     (app.fx_param + cnt) % n;
                 return true;
             },
-            'j', 'J', 'k', 'K' => { nudge(app, is_track, c); return true; },
+            'h', 'H', 'l', 'L' => { nudge(app, is_track, c); return true; },
             else => return false,
         },
         else => return false,

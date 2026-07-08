@@ -216,7 +216,7 @@ pub fn drawFxView(
     try drawChainStrip(app, w, chain, compact);
 
     if (!compact) {
-        try w.writeAll(dim ++ "  tab/H/L:slot  a:insert  x:remove  </>:move  b:bypass  h/l:param  j/k:adjust" ++ rst);
+        try w.writeAll(dim ++ "  tab/[/]:slot  a:insert  x:remove  </>:move  b:bypass  j/k:param  h/l:adjust" ++ rst);
         try endLine(w);
     }
 
