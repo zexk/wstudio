@@ -103,8 +103,16 @@ pub fn drawTracks(app: anytype, w: *std.Io.Writer, rows: usize, snap: engine_mod
         try w.writeAll(marker);
         try w.writeByte(' ');
         try w.print("{d} ", .{i + 1});
-        // name padded — no escape codes inside the padded field
+        // name padded — color wraps the whole padded field so the field
+        // width itself never sees an escape code (matches the label/gain
+        // color-wrap pattern below); track.color == 0 is uncolored.
+        const track_color: ?[]const u8 = if (!is_sel and !faded and track.color > 0 and track.color <= style.track_palette.len)
+            style.track_palette[track.color - 1]
+        else
+            null;
+        if (track_color) |c| try w.writeAll(c);
         try w.print("{s: <8}", .{track.name});
+        if (track_color != null) try w.writeAll(rst);
         try w.writeByte(' ');
         // instrument-kind icon — a single Mono-font cell either way, so
         // blank tracks' plain space keeps every row's columns aligned.

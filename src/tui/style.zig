@@ -39,6 +39,14 @@ pub const mag  = "\x1b[35m";   // magenta – modulation / movement
 pub const bcyn = "\x1b[96m";   // bright cyan – cursor / selected row
 pub const bwht = "\x1b[97m";   // bright white – selected value
 
+/// Fixed per-track color palette (see `Track.color`, cycled with `[`/`]`
+/// in the tracks view). Reuses the existing semantic constants above rather
+/// than inventing new ANSI codes — a track color and, say, the mute
+/// indicator's yellow are different row segments, so sharing a hue causes
+/// no real ambiguity. `color == 0` (not in this array) means uncolored.
+pub const track_palette = [_][]const u8{ red, yel, grn, acc, blu, mag, bwht };
+pub const track_color_names = [_][]const u8{ "red", "yellow", "green", "cyan", "blue", "magenta", "white" };
+
 // ---------------------------------------------------------------------------
 // Primitive helpers
 // ---------------------------------------------------------------------------

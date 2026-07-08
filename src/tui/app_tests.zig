@@ -1494,6 +1494,30 @@ test "J/K swap the selected track with its neighbor and follow the cursor" {
     try std.testing.expectEqual(@as(usize, 0), app.cursor);
 }
 
+test "[/] cycle the cursor track's color, wrapping through none" {
+    var app = try testApp();
+    defer app.deinit();
+    app.cursor = 0;
+
+    try std.testing.expectEqual(@as(u8, 0), app.session.project.tracks.items[0].color);
+    app.handleKey(.{ .char = ']' }, 0);
+    try std.testing.expectEqual(@as(u8, 1), app.session.project.tracks.items[0].color);
+    try std.testing.expect(app.dirty);
+
+    // Cycle all the way around: 7 colors + "none" = 8 states total.
+    for (0..7) |_| app.handleKey(.{ .char = ']' }, 0);
+    try std.testing.expectEqual(@as(u8, 0), app.session.project.tracks.items[0].color);
+
+    // Backward wraps the other way, straight to the last color.
+    app.handleKey(.{ .char = '[' }, 0);
+    try std.testing.expectEqual(@as(u8, 7), app.session.project.tracks.items[0].color);
+
+    // The master row has no color to cycle.
+    app.cursor = app.session.project.tracks.items.len;
+    app.handleKey(.{ .char = ']' }, 0);
+    try std.testing.expect(std.mem.indexOf(u8, app.status_buf[0..app.status_len], "n/a") != null);
+}
+
 test "c toggles the click track" {
     var app = try testApp();
     defer app.deinit();

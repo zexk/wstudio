@@ -16,6 +16,10 @@ pub const Track = struct {
     pan: f32 = 0.0,
     muted: bool = false,
     soloed: bool = false,
+    /// 0 = no color (default, uncolored name, matches every track's
+    /// look before this field existed). 1..track_palette.len index into
+    /// `style.track_palette`, cycled with `[`/`]` in the tracks view.
+    color: u8 = 0,
 };
 
 pub const Project = struct {

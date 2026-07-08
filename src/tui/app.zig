@@ -639,7 +639,7 @@ pub const App = struct {
                             'u' => { history.doUndo(self); return; },
                             'U' => { history.doRedo(self); return; },
                             't' => { self.tapTempo(now_ns); return; },
-                            'd', 'Y', 'J', 'K', 'R', 'p', '<', '>' => {
+                            'd', 'Y', 'J', 'K', 'R', 'p', '<', '>', '[', ']' => {
                                 self.setStatus("master bus: n/a", .{});
                                 return;
                             },
@@ -655,6 +655,8 @@ pub const App = struct {
                             'Y' => { self.doTrackDup(self.cursor); return; },
                             'J' => { self.doTrackMove(1); return; },
                             'K' => { self.doTrackMove(-1); return; },
+                            '[' => { self.doTrackColorCycle(-1); return; },
+                            ']' => { self.doTrackColorCycle(1); return; },
                             'c' => { self.toggleMetronome(); return; },
                             '?' => { commands.cmdHelp(self, ""); return; },
                             '<' => { self.doTrackPan(@intCast(self.cursor), -0.05); return; },
@@ -1773,6 +1775,25 @@ pub const App = struct {
         self.cursor = other;
         self.dirty = true;
         self.setStatus("moved track {d} {s}", .{ cur + 1, if (dir < 0) "up" else "down" });
+    }
+
+    /// `[`/`]` in the tracks view: cycle the cursor track's color through
+    /// `style.track_palette`, wrapping through 0 ("none") on both ends —
+    /// same cycling shape as the drum grid's variant `[`/`]`. Not
+    /// undo-tracked, matching mute/solo/gain/pan (mixer-style live state,
+    /// not pattern content).
+    pub fn doTrackColorCycle(self: *App, dir: i32) void {
+        if (self.cursor >= self.session.project.tracks.items.len) return;
+        const track = &self.session.project.tracks.items[self.cursor];
+        const n: i32 = @intCast(style.track_palette.len + 1); // +1 for "none"
+        const cur: i32 = @intCast(track.color);
+        track.color = @intCast(@mod(cur + dir, n));
+        self.dirty = true;
+        if (track.color == 0) {
+            self.setStatus("track {d} color: none", .{self.cursor + 1});
+        } else {
+            self.setStatus("track {d} color: {s}", .{ self.cursor + 1, style.track_color_names[track.color - 1] });
+        }
     }
 
     fn doTrackPan(self: *App, track: u16, delta: f32) void {

@@ -192,6 +192,8 @@ Done:
       when the leading `<track>` number is omitted entirely (an explicit
       number still always means that track, avoiding any "is this a track
       or a value" ambiguity)
+- [x] Per-track color (`[`/`]` in the tracks view, a fixed 7-color palette
+      + none), persisted, colors the track name
 - [x] Tracks view scrolls when there are more tracks than fit the terminal —
       the master row stays pinned at the bottom of the list
 - [x] Automation editor visual mode (`v`), range `y`/`d`/`P`, and `.` repeat —

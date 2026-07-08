@@ -136,6 +136,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("dd",           "delete selected track, no confirm  (n/a on MASTER — it can't be removed)");
     t.key("Y",            "duplicate selected track (instrument, FX, clips) at the end");
     t.key("J / K",        "move selected track down / up");
+    t.key("[ / ]",        "cycle selected track's color (7 colors + none)");
     t.key("R",            "rename selected track (opens :track-rename <n>)");
     t.key("tab",          "open the arrangement (song timeline) — tab there returns here");
     t.key("t",            "tap tempo (tap a few times to set bpm)");

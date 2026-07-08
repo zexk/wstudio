@@ -331,6 +331,10 @@ pub const TrackSnap = struct {
     pan: f32 = 0.0,
     muted: bool = false,
     soloed: bool = false,
+    /// Additive field (see FORMAT.md's versioning policy): older files omit
+    /// it and load with color 0 ("none"), matching every track's look
+    /// before this field existed — no version bump needed.
+    color: u8 = 0,
 };
 
 pub const ClipKind = enum { melodic, drum };
@@ -409,7 +413,7 @@ pub fn save(
 
     const tracks = try aa.alloc(TrackSnap, session.project.tracks.items.len);
     for (session.project.tracks.items, tracks) |t, *ts| {
-        ts.* = .{ .name = t.name, .gain_db = t.gain_db, .pan = t.pan, .muted = t.muted, .soloed = t.soloed };
+        ts.* = .{ .name = t.name, .gain_db = t.gain_db, .pan = t.pan, .muted = t.muted, .soloed = t.soloed, .color = t.color };
     }
 
     const racks = try aa.alloc(RackSnap, session.racks.items.len);
@@ -848,7 +852,14 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
     project.loop_enabled = snap.loop_enabled and snap.loop_end_bar > snap.loop_start_bar;
 
     for (snap.tracks) |t| {
-        _ = try project.addTrack(.{ .name = t.name, .gain_db = t.gain_db, .pan = t.pan, .muted = t.muted, .soloed = t.soloed });
+        // Clamped to the palette's actual size (tui/style.zig's
+        // track_palette, 7 entries) — the renderer already treats an
+        // out-of-range color as "uncolored" gracefully, but clamping here
+        // too matches this file's established hand-edited-.wsj hygiene.
+        _ = try project.addTrack(.{
+            .name = t.name, .gain_db = t.gain_db, .pan = t.pan,
+            .muted = t.muted, .soloed = t.soloed, .color = @min(t.color, 7),
+        });
     }
 
     const sr = project.sample_rate;
@@ -1804,6 +1815,24 @@ test "buildSession: clamps out-of-range pad and note values" {
     // The invariant adjustParam relies on: clamp bounds stay ordered.
     session.racks.items[0].instrument.drum_machine.adjustParam(DrumMachine.paramId(0, 0), 1);
     session.racks.items[0].instrument.drum_machine.adjustParam(DrumMachine.paramId(0, 1), -1);
+}
+
+test "buildSession: track color round-trips and clamps out-of-range values" {
+    const testing = std.testing;
+
+    const snap: Snapshot = .{
+        .tracks = &.{
+            .{ .name = "lead", .color = 3 },
+            .{ .name = "bass", .color = 255 }, // hand-edited, past the 7-color palette
+        },
+        .racks = &.{ .{ .label = "empty", .kind = .empty }, .{ .label = "empty", .kind = .empty } },
+    };
+
+    var session = try buildSession(testing.allocator, &snap);
+    defer session.deinit();
+
+    try testing.expectEqual(@as(u8, 3), session.project.tracks.items[0].color);
+    try testing.expectEqual(@as(u8, 7), session.project.tracks.items[1].color);
 }
 
 test "buildSession: empty and sampler racks round-trip" {
