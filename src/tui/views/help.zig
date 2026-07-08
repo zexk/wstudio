@@ -167,7 +167,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("R",            "rename current pad (opens :pad-rename <n>, 8 chars max)");
     t.key("e",            "open sampler editor for current pad");
     t.key("s",            "FX chain for drum track");
-    t.key("+ / -",        "lengthen / shorten loop (1–16 steps)");
+    t.key("+ / -",        "lengthen / shorten loop (1–64 steps)");
     t.key("X",            "clear all steps on current pad");
     t.key("F",            "fill all steps on current pad");
     t.key("[ / ]",        "prev / next pattern variant (A–H)");

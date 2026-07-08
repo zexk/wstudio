@@ -179,17 +179,17 @@ pub const PadSnap = struct {
 /// One drum pattern variant. Mirrors `DrumMachine.Variant`.
 pub const VariantSnap = struct {
     step_count: u8 = 16,
-    pattern: [DrumMachine.max_pads]u32 = [_]u32{0} ** DrumMachine.max_pads,
+    pattern: [DrumMachine.max_pads]u64 = [_]u64{0} ** DrumMachine.max_pads,
     /// v4: per-step velocity bitplanes. Zero (or absent) = full velocity.
-    vel_lo: [DrumMachine.max_pads]u32 = [_]u32{0} ** DrumMachine.max_pads,
-    vel_hi: [DrumMachine.max_pads]u32 = [_]u32{0} ** DrumMachine.max_pads,
+    vel_lo: [DrumMachine.max_pads]u64 = [_]u64{0} ** DrumMachine.max_pads,
+    vel_hi: [DrumMachine.max_pads]u64 = [_]u64{0} ** DrumMachine.max_pads,
 };
 
 pub const DrumSnap = struct {
     /// Legacy live-pattern fields: always the active variant's data, so v2
     /// readers (and hand edits) see a coherent single pattern.
     step_count: u8 = 16,
-    pattern: [DrumMachine.max_pads]u32 = [_]u32{0} ** DrumMachine.max_pads,
+    pattern: [DrumMachine.max_pads]u64 = [_]u64{0} ** DrumMachine.max_pads,
     pads: [DrumMachine.max_pads]PadSnap = [_]PadSnap{.{}} ** DrumMachine.max_pads,
     /// v3: the whole variant bank. Empty in v2 files — the machine then gets a
     /// single variant from the legacy fields above.
@@ -349,10 +349,10 @@ pub const ClipSnap = struct {
     notes: []const NoteSnap = &.{},
     length_beats: f64 = 4.0,
     // drum
-    drum_pattern: [DrumMachine.max_pads]u32 = [_]u32{0} ** DrumMachine.max_pads,
+    drum_pattern: [DrumMachine.max_pads]u64 = [_]u64{0} ** DrumMachine.max_pads,
     /// v4: per-step velocity bitplanes. Zero (or absent) = full velocity.
-    drum_vel_lo: [DrumMachine.max_pads]u32 = [_]u32{0} ** DrumMachine.max_pads,
-    drum_vel_hi: [DrumMachine.max_pads]u32 = [_]u32{0} ** DrumMachine.max_pads,
+    drum_vel_lo: [DrumMachine.max_pads]u64 = [_]u64{0} ** DrumMachine.max_pads,
+    drum_vel_hi: [DrumMachine.max_pads]u64 = [_]u64{0} ** DrumMachine.max_pads,
     step_count: u8 = 16,
     /// v3: variant letter label (index) the clip was stamped from.
     variant: u8 = 0,
@@ -1236,8 +1236,8 @@ test "snapshot types: JSON round-trip preserves synth params, notes, drum patter
     const testing = std.testing;
     const aa = testing.allocator;
 
-    const drum_pattern: [DrumMachine.max_pads]u32 = blk: {
-        var p = [_]u32{0} ** DrumMachine.max_pads;
+    const drum_pattern: [DrumMachine.max_pads]u64 = blk: {
+        var p = [_]u64{0} ** DrumMachine.max_pads;
         p[0] = 1 << 5;
         break :blk p;
     };
@@ -1294,15 +1294,15 @@ test "snapshot types: JSON round-trip preserves synth params, notes, drum patter
 
     const dr = snap_out.racks[1].drum.?;
     try testing.expectEqual(@as(u8, 16), dr.step_count);
-    try testing.expectEqual(@as(u32, 1 << 5), dr.pattern[0]);
-    try testing.expectEqual(@as(u32, 0), dr.pattern[1]);
+    try testing.expectEqual(@as(u64, 1 << 5), dr.pattern[0]);
+    try testing.expectEqual(@as(u64, 0), dr.pattern[1]);
 }
 
 test "buildSession: constructs valid Session from snapshot" {
     const testing = std.testing;
 
-    const drum_pattern: [DrumMachine.max_pads]u32 = blk: {
-        var p = [_]u32{0} ** DrumMachine.max_pads;
+    const drum_pattern: [DrumMachine.max_pads]u64 = blk: {
+        var p = [_]u64{0} ** DrumMachine.max_pads;
         p[0] = 1 << 5;
         break :blk p;
     };
@@ -1481,8 +1481,8 @@ test "save/load round-trip persists master FX" {
 test "buildSession: arrangement clips and song_mode round-trip" {
     const testing = std.testing;
 
-    const drum_pattern: [DrumMachine.max_pads]u32 = blk: {
-        var p = [_]u32{0} ** DrumMachine.max_pads;
+    const drum_pattern: [DrumMachine.max_pads]u64 = blk: {
+        var p = [_]u64{0} ** DrumMachine.max_pads;
         p[0] = 1;
         break :blk p;
     };
@@ -1522,7 +1522,7 @@ test "buildSession: arrangement clips and song_mode round-trip" {
     // Drum clip restored on lane 1.
     const lane1 = session.arrangement.lane(1).?;
     try testing.expectEqual(@as(usize, 1), lane1.clips.items.len);
-    try testing.expectEqual(@as(u32, 1), lane1.clips.items[0].content.drum.pattern[0]);
+    try testing.expectEqual(@as(u64, 1), lane1.clips.items[0].content.drum.pattern[0]);
 
     // song_mode = true means the devices were handed their song buffers.
     try testing.expect(session.racks.items[0].pattern_player.?.song_mode);
@@ -1534,7 +1534,7 @@ test "buildSession: arrangement clips and song_mode round-trip" {
 test "clipToSnap/clipFromSnap round-trip gain/pan automation" {
     const testing = std.testing;
     var clip = ws_arrangement.Clip.initDrum(0, 1, .{
-        .pattern = [_]u32{0} ** DrumMachine.max_pads, .step_count = 16,
+        .pattern = [_]u64{0} ** DrumMachine.max_pads, .step_count = 16,
     });
     try automation_mod.setPoint(testing.allocator, &clip.automation.gain, 0.0, -6.0);
     try automation_mod.setPoint(testing.allocator, &clip.automation.gain, 2.0, 0.0);
@@ -1627,12 +1627,12 @@ test "buildSession: drum variant bank round-trips; v2 files get one variant" {
     // the loader must mask off.
     const variants = [_]VariantSnap{
         .{ .step_count = 16, .pattern = blk: {
-            var p = [_]u32{0} ** DrumMachine.max_pads;
+            var p = [_]u64{0} ** DrumMachine.max_pads;
             p[0] = 1 | (1 << 20); // bit 20 is past 16 steps — stray
             break :blk p;
         } },
         .{ .step_count = 32, .pattern = blk: {
-            var p = [_]u32{0} ** DrumMachine.max_pads;
+            var p = [_]u64{0} ** DrumMachine.max_pads;
             p[1] = 1 << 31;
             break :blk p;
         } },
@@ -1666,7 +1666,7 @@ test "buildSession: drum variant bank round-trips; v2 files get one variant" {
             .label = "drums",
             .kind = .drum_machine,
             .drum = .{ .step_count = 16, .pattern = blk: {
-                var p = [_]u32{0} ** DrumMachine.max_pads;
+                var p = [_]u64{0} ** DrumMachine.max_pads;
                 p[0] = 1 << 5;
                 break :blk p;
             } },
@@ -1698,18 +1698,18 @@ test "buildSession: per-step velocity and swing round-trip" {
     const variants = [_]VariantSnap{.{
         .step_count = 16,
         .pattern = blk: {
-            var p = [_]u32{0} ** DrumMachine.max_pads;
+            var p = [_]u64{0} ** DrumMachine.max_pads;
             p[0] = 0b11;
             break :blk p;
         },
         // Step 1 at level 3 (25%); a stray plane bit above the step count.
         .vel_lo = blk: {
-            var p = [_]u32{0} ** DrumMachine.max_pads;
+            var p = [_]u64{0} ** DrumMachine.max_pads;
             p[0] = (1 << 1) | (1 << 20);
             break :blk p;
         },
         .vel_hi = blk: {
-            var p = [_]u32{0} ** DrumMachine.max_pads;
+            var p = [_]u64{0} ** DrumMachine.max_pads;
             p[0] = 1 << 1;
             break :blk p;
         },
@@ -1734,8 +1734,35 @@ test "buildSession: per-step velocity and swing round-trip" {
 
     // And back out through save-shaped snapshots.
     const v = dm.variantData(0);
-    try testing.expectEqual(@as(u32, 1 << 1), v.vel_lo[0]);
-    try testing.expectEqual(@as(u32, 1 << 1), v.vel_hi[0]);
+    try testing.expectEqual(@as(u64, 1 << 1), v.vel_lo[0]);
+    try testing.expectEqual(@as(u64, 1 << 1), v.vel_hi[0]);
+}
+
+test "buildSession: a 64-step pattern round-trips bit 63 without truncation" {
+    const testing = std.testing;
+    const variants = [_]VariantSnap{.{
+        .step_count = 64,
+        .pattern = blk: {
+            var p = [_]u64{0} ** DrumMachine.max_pads;
+            p[0] = @as(u64, 1) << 63;
+            break :blk p;
+        },
+    }};
+    const snap: Snapshot = .{
+        .tracks = &.{.{ .name = "drums" }},
+        .racks = &.{.{
+            .label = "drums",
+            .kind = .drum_machine,
+            .drum = .{ .variants = &variants, .variant = 0 },
+        }},
+    };
+    var session = try buildSession(testing.allocator, &snap);
+    defer session.deinit();
+
+    const dm = &session.racks.items[0].instrument.drum_machine;
+    try testing.expectEqual(@as(u8, 64), dm.step_count);
+    try testing.expect(dm.stepActive(0, 63));
+    try testing.expectEqual(@as(u64, 1) << 63, dm.pattern[0].load(.monotonic));
 }
 
 test "choke groups round-trip through DrumSnap; older files load ungrouped" {

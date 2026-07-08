@@ -10,8 +10,8 @@
 //! single-voice "choke" behaviour (a retrigger cuts the previous hit, the
 //! classic drum-machine convention) even though Sampler itself is polyphonic.
 //!
-//! A 16-step bitmask per pad stores the
-//! pattern; each bit is a u32 atomic so the UI thread can flip bits safely
+//! A 64-step bitmask per pad stores the
+//! pattern; each bit is a u64 atomic so the UI thread can flip bits safely
 //! while the audio thread reads them.  Two more bitplanes per pad hold a
 //! 2-bit per-step velocity level (100/75/50/25%).  The sequencer fires on
 //! step boundaries derived from the transport, using a monotonic step
@@ -58,7 +58,7 @@ const default_kit = [_]KitSlot{
 
 pub const DrumMachine = struct {
     pub const max_pads: u8 = 8;
-    pub const max_steps: u8 = 32;
+    pub const max_steps: u8 = 64;
     /// Max pattern variants (A..H) one machine can hold.
     pub const max_variants: u8 = 8;
     /// Max choke groups a pad can belong to (0 = no group, ungated).
@@ -89,11 +89,11 @@ pub const DrumMachine = struct {
     /// lives in the atomic `pattern`/`step_count` fields; inactive ones rest
     /// here as plain data (control thread only).
     pub const Variant = struct {
-        pattern: [max_pads]u32 = [_]u32{0} ** max_pads,
+        pattern: [max_pads]u64 = [_]u64{0} ** max_pads,
         /// Per-step velocity bitplanes: bit k holds the low/high bit of
         /// step k's 2-bit level (see `velGain`).
-        vel_lo:  [max_pads]u32 = [_]u32{0} ** max_pads,
-        vel_hi:  [max_pads]u32 = [_]u32{0} ** max_pads,
+        vel_lo:  [max_pads]u64 = [_]u64{0} ** max_pads,
+        vel_hi:  [max_pads]u64 = [_]u64{0} ** max_pads,
         step_count: u8 = 16,
     };
 
@@ -105,10 +105,10 @@ pub const DrumMachine = struct {
         start_step: u32,
         span_steps: u32,
         step_count: u8,
-        pattern: [max_pads]u32,
+        pattern: [max_pads]u64,
         /// Per-step velocity bitplanes, same encoding as the live grid.
-        vel_lo: [max_pads]u32 = [_]u32{0} ** max_pads,
-        vel_hi: [max_pads]u32 = [_]u32{0} ** max_pads,
+        vel_lo: [max_pads]u64 = [_]u64{0} ** max_pads,
+        vel_hi: [max_pads]u64 = [_]u64{0} ** max_pads,
     };
     /// Number of editable params per pad (see `adjustParam`).
     pub const pad_param_count: u8 = 10;
@@ -128,15 +128,16 @@ pub const DrumMachine = struct {
     /// concurrent control-thread writes (setSongClips) while the audio
     /// thread reads them in fireSongStep.
     pad_lock: std.atomic.Mutex = .unlocked,
-    /// Bitmask: bit k == 1 means step k is active. u32 for atomic compat.
+    /// Bitmask: bit k == 1 means step k is active. u64 for atomic compat
+    /// (max_steps = 64, one bit per step).
     /// Always mirrors the active variant; edits land here and are synced back
     /// to `variants[variant]` when switching away.
-    pattern: [max_pads]std.atomic.Value(u32),
+    pattern: [max_pads]std.atomic.Value(u64),
     /// Per-step velocity bitplanes (see `velGain`): bit k of `vel_lo`/`vel_hi`
     /// is the low/high bit of step k's 2-bit level. Atomic for the same
     /// UI-edits-while-audio-reads reason as `pattern`.
-    vel_lo: [max_pads]std.atomic.Value(u32),
-    vel_hi: [max_pads]std.atomic.Value(u32),
+    vel_lo: [max_pads]std.atomic.Value(u64),
+    vel_hi: [max_pads]std.atomic.Value(u64),
     step_count: u8,
     /// Swing percent (see `swing_min`/`swing_max`): where the off-beat 16th
     /// sits within its 8th-note pair. UI writes, audio thread reads.
@@ -260,9 +261,9 @@ pub const DrumMachine = struct {
     // Pattern editing (UI thread)
 
     /// Bitmask covering steps 0..n — the valid bits for an n-step pattern.
-    pub fn stepMask(n: u8) u32 {
-        if (n >= 32) return ~@as(u32, 0);
-        return (@as(u32, 1) << @intCast(n)) - 1;
+    pub fn stepMask(n: u8) u64 {
+        if (n >= 64) return ~@as(u64, 0);
+        return (@as(u64, 1) << @intCast(n)) - 1;
     }
 
     pub fn setStepCount(self: *DrumMachine, n: u8) void {
@@ -386,7 +387,7 @@ pub const DrumMachine = struct {
 
     pub fn toggleStep(self: *DrumMachine, pad: u8, step: u8) void {
         if (pad >= max_pads or step >= max_steps) return;
-        const bit = @as(u32, 1) << @intCast(step);
+        const bit = @as(u64, 1) << @intCast(step);
         _ = self.pattern[pad].fetchXor(bit, .acq_rel);
         // A toggled step always (re)starts at full velocity.
         _ = self.vel_lo[pad].fetchAnd(~bit, .acq_rel);
@@ -408,7 +409,7 @@ pub const DrumMachine = struct {
 
     pub fn setStepVel(self: *DrumMachine, pad: u8, step: u8, level: u2) void {
         if (pad >= max_pads or step >= max_steps) return;
-        const bit = @as(u32, 1) << @intCast(step);
+        const bit = @as(u64, 1) << @intCast(step);
         if (level & 1 != 0) {
             _ = self.vel_lo[pad].fetchOr(bit, .acq_rel);
         } else {
@@ -730,7 +731,7 @@ test "song mode fires the clip covering the playhead" {
 
     // Two bars long. A single clip in bar 1 (steps 16..31) fires pad 0 on its
     // first step; bar 0 is empty.
-    var pat = [_]u32{0} ** DrumMachine.max_pads;
+    var pat = [_]u64{0} ** DrumMachine.max_pads;
     pat[0] = 1; // local step 0
     const clips = [_]DrumMachine.SongClip{.{
         .start_step = 16, .span_steps = 16, .step_count = 16, .pattern = pat,
@@ -1022,7 +1023,7 @@ test "variantData reads the active variant from the live atomics" {
     for (&dm.pattern) |*p| p.store(0, .monotonic);
     dm.toggleStep(3, 9); // edit after the bank slot was last synced
     const active = dm.variantData(dm.variant);
-    try std.testing.expectEqual(@as(u32, 1 << 9), active.pattern[3]);
+    try std.testing.expectEqual(@as(u64, 1 << 9), active.pattern[3]);
 }
 
 test "setStepCount discards bits beyond the new count" {
@@ -1035,6 +1036,39 @@ test "setStepCount discards bits beyond the new count" {
     dm.setStepCount(16); // shrink: bit 20 must not survive
     dm.setStepCount(32); // grow back
     try std.testing.expect(!dm.stepActive(0, 20));
+}
+
+test "step count grows to 64 (u64 bitmask width) and the sequencer fires the last step" {
+    var transport: Transport = .{ .sample_rate = 48_000, .tempo_bpm = 120.0 };
+    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    defer dm.deinit();
+
+    dm.setStepCount(64);
+    try std.testing.expectEqual(@as(u8, 64), dm.step_count);
+    // A count past the ceiling clamps, it doesn't wrap or overflow the u8.
+    dm.setStepCount(200);
+    try std.testing.expectEqual(@as(u8, 64), dm.step_count);
+
+    for (&dm.pattern) |*p| p.store(0, .monotonic);
+    dm.toggleStep(0, 63); // the highest bit the u64 bitmask can hold
+    try std.testing.expect(dm.stepActive(0, 63));
+    dm.setStepVel(0, 63, 3);
+    try std.testing.expectEqual(@as(u2, 3), dm.stepVel(0, 63));
+
+    // The bit actually lives at u64 bit 63, not truncated/wrapped into a
+    // lower bit by a stale u32 shift somewhere in the pipeline.
+    try std.testing.expectEqual(@as(u64, 1) << 63, dm.pattern[0].load(.monotonic));
+
+    // Step 63 fires at 6000 * 63 = 378_000 frames (120bpm, 16th = 6000 frames).
+    transport.play();
+    transport.seekFrames(377_950);
+    var buf: [512]Sample = undefined; // 256 frames
+    dm.resetAll();
+    @memset(&buf, 0.0);
+    dm.processBlock(&buf);
+    var peak: f32 = 0;
+    for (buf) |s| peak = @max(peak, @abs(s));
+    try std.testing.expect(peak > 0.01);
 }
 
 test "adjustParam decodes pad/param and clamps" {

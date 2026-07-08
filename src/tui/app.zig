@@ -189,6 +189,11 @@ pub const App = struct {
     view: AppView = .tracks,
     prev_view: AppView = .tracks,
     drum_cursor: [2]u8 = .{ 0, 0 },
+    /// First visible step column — cursor-follow horizontal scroll, same
+    /// "clamped at draw" convention as `arr_scroll_bar`/`automation_scroll`
+    /// (drawDrumGrid updates it; step_count can exceed a terminal's width
+    /// at max_steps = 64).
+    drum_step_scroll: u32 = 0,
     /// Track currently shown in the drum_grid view (a drum_machine rack).
     drum_track: u16 = 0,
     /// What the sampler_editor view edits: a drum pad or a standalone Sampler.
@@ -1929,7 +1934,7 @@ pub const App = struct {
 
         switch (self.view) {
             .tracks          => try tui.drawTracks(self, w, content_rows, snap),
-            .drum_grid       => try tui.drawDrumGrid(self, w, content_rows, snap),
+            .drum_grid       => try tui.drawDrumGrid(self, w, content_rows, size.cols, snap),
             .synth_editor    => try tui.drawSynthEditor(self, w, content_rows, snap),
             .sampler_editor  => try tui.drawSamplerEditor(self, w, content_rows, size.cols, snap),
             .piano_roll      => try tui.drawPianoRoll(self, w, content_rows, size.cols, snap),

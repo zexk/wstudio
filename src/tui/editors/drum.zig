@@ -532,15 +532,15 @@ const gutter: usize = 10;
 
 /// Step index at column `x` within a pad row, or null if `x` falls in the
 /// gutter or past the last visible step. Replays the exact column math
-/// views/drum.zig's render loop uses (a 1-char "│" every 4 steps, then a
-/// 3-char cell) rather than deriving a closed form.
-fn stepAt(step_count: u8, x: usize) ?u8 {
+/// views/drum.zig's render loop uses (starting from `scroll`, a 1-char "│"
+/// every 4 steps, then a 3-char cell) rather than deriving a closed form.
+fn stepAt(scroll: u32, step_count: u8, x: usize) ?u8 {
     if (x < gutter) return null;
     var col = gutter;
-    var s: u8 = 0;
+    var s: u32 = scroll;
     while (s < step_count) : (s += 1) {
         if (s % 4 == 0) col += 1;
-        if (x < col + 3) return if (x < col) null else s; // `x < col`: landed on the separator itself
+        if (x < col + 3) return if (x < col) null else @intCast(s); // `x < col`: landed on the separator itself
         col += 3;
     }
     return null;
@@ -570,7 +570,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize) void {
         .press => {
             app.drum_cursor[0] = @intCast(pad);
             const dm = app.drumMachine();
-            const step = stepAt(dm.step_count, ev.x) orelse {
+            const step = stepAt(app.drum_step_scroll, dm.step_count, ev.x) orelse {
                 app.drum_paint_state = null;
                 return;
             };
@@ -582,7 +582,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize) void {
         .drag => {
             const state = app.drum_paint_state orelse return;
             const dm = app.drumMachine();
-            const step = stepAt(dm.step_count, ev.x) orelse return;
+            const step = stepAt(app.drum_step_scroll, dm.step_count, ev.x) orelse return;
             app.drum_cursor[0] = @intCast(pad);
             app.drum_cursor[1] = step;
             setStep(dm, @intCast(pad), step, state, 0);

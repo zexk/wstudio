@@ -41,7 +41,31 @@ const rowVal = style.rowVal;
 const barRow = style.barRow;
 const enumRow = style.enumRow;
 
-pub fn drawDrumGrid(app: anytype, w: *std.Io.Writer, rows: usize, snap: engine_mod.UiSnapshot) !void {
+/// Left gutter before the step columns start (matches editors/drum.zig's
+/// `stepAt` column math) and each step cell's width (a 1-char "│" every 4
+/// steps, then a 3-char "[X]"-shaped cell).
+pub const gutter: usize = 10;
+const cell_width: usize = 3;
+
+/// How many steps fit in `cols` at cell_width each, PLUS the periodic "│"
+/// separator (one extra column every 4 steps) — a plain `(cols-gutter)/
+/// cell_width` overcounts by ignoring that extra column and overflows the
+/// terminal width once enough separators accumulate. Bounded to at most
+/// max_steps iterations, cheap to just compute directly once per frame.
+fn visibleSteps(cols: usize) u32 {
+    if (cols <= gutter) return 1;
+    const avail = cols - gutter;
+    var n: u32 = 0;
+    while (n < DrumMachine.max_steps) {
+        const next = n + 1;
+        const sep = (next + 3) / 4;
+        if (next * cell_width + sep > avail) break;
+        n = next;
+    }
+    return @max(1, n);
+}
+
+pub fn drawDrumGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, snap: engine_mod.UiSnapshot) !void {
     _ = snap;
     const playing_step = app.drumMachine().currentStep();
     const is_playing = app.session.engine.uiSnapshot().playing;
@@ -50,13 +74,25 @@ pub fn drawDrumGrid(app: anytype, w: *std.Io.Writer, rows: usize, snap: engine_m
 
     const dm = app.drumMachine();
     const step_count = dm.step_count;
+    const step_count_u32: u32 = step_count;
     const track_name = app.session.project.tracks.items[app.drum_track].name;
+
+    // Horizontal step scroll, cursor-follow — same "clamped at draw"
+    // convention as views/arrangement.zig's arr_scroll_bar. Needed once
+    // step_count exceeds what fits at cell_width cols/step (max_steps = 64
+    // won't fit most terminals at 3 chars/step).
+    const visible = visibleSteps(cols);
+    const cur_step_u32: u32 = cur_step;
+    if (cur_step_u32 < app.drum_step_scroll) app.drum_step_scroll = cur_step_u32;
+    if (cur_step_u32 >= app.drum_step_scroll + visible) app.drum_step_scroll = cur_step_u32 - visible + 1;
+    const scroll = app.drum_step_scroll;
 
     // Visual-mode selection: a step range spanning every pad row.
     const visual_active = app.modal.mode == .visual;
     const sel_anchor = app.drum_visual_anchor orelse cur_step;
-    const sel_lo: u8 = @min(sel_anchor, cur_step);
-    const sel_hi: u8 = @max(sel_anchor, cur_step);
+    const sel_lo: u32 = @min(sel_anchor, cur_step);
+    const sel_hi: u32 = @max(sel_anchor, cur_step);
+    const playing_step_u32: u32 = playing_step;
     try w.writeAll(bold ++ " " ++ icons.drum ++ " DRUMS" ++ rst);
     try w.print(" \"{s}\"", .{track_name});
     try w.writeAll("  " ++ acc);
@@ -65,9 +101,11 @@ pub fn drawDrumGrid(app: anytype, w: *std.Io.Writer, rows: usize, snap: engine_m
     try w.print(" {d}/{d}", .{ dm.variant + 1, dm.variant_count });
     try endLine(w);
 
-    // step header — only the active range (step_count) is shown
+    // step header — only the visible scroll window is shown
     try w.writeAll(dim ++ "          ");
-    for (0..step_count) |s| {
+    var col: u32 = 0;
+    while (col < visible and scroll + col < step_count_u32) : (col += 1) {
+        const s = scroll + col;
         if (s % 4 == 0) try w.writeAll("│");
         try w.print("{d:>2} ", .{s + 1});
     }
@@ -84,13 +122,15 @@ pub fn drawDrumGrid(app: anytype, w: *std.Io.Writer, rows: usize, snap: engine_m
         // at 4 the two stock toms both rendered as "tom-".
         try w.print(" {s: <8} ", .{name[0..@min(name.len, 8)]});
         try w.writeAll(rst);
-        for (0..step_count) |s| {
+        col = 0;
+        while (col < visible and scroll + col < step_count_u32) : (col += 1) {
+            const s = scroll + col;
             if (s % 4 == 0) {
                 try w.writeAll(dim ++ "│" ++ rst);
             }
             const active = dm.stepActive(@intCast(p), @intCast(s));
-            const is_cursor = (p == cur_pad and s == cur_step);
-            const is_play = is_playing and (s == playing_step);
+            const is_cursor = (p == cur_pad and s == cur_step_u32);
+            const is_play = is_playing and (s == playing_step_u32);
             const in_sel = visual_active and s >= sel_lo and s <= sel_hi;
 
             if (is_cursor) {
