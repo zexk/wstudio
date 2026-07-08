@@ -315,6 +315,35 @@ test "drum grid G jumps the step cursor to the pattern end; C cycles choke group
     try std.testing.expectEqual(@as(u8, 1), app.drumMachine().choke_group[0]);
 }
 
+test ":ghost overlays another melodic track's notes, dimmed, only when on" {
+    var app = try testApp();
+    defer app.deinit();
+
+    // Track 0 (synth) gets a note; view track 1's (sampler) roll instead.
+    app.session.racks.items[0].pattern_player.?.addNote(
+        .{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.25 },
+    );
+    app.view = .piano_roll;
+    app.piano_track = 1;
+    app.piano_scroll_pitch = @intCast(@min(@as(u32, 60) + 8, 127));
+    // Move the cursor off the ghost note's own cell (pitch 60, step 0) so its
+    // reverse-video cursor rendering doesn't mask the ghost glyph underneath.
+    app.piano_cursor_pitch = 72;
+    app.piano_cursor_step = 4;
+
+    var buf: [32 * 1024]u8 = undefined;
+    var w = std.Io.Writer.fixed(&buf);
+    try app.draw(&w, .{ .cols = 100, .rows = 30 });
+    const off_output = w.buffered();
+    try std.testing.expect(std.mem.indexOf(u8, off_output, style.dim ++ "[") == null);
+
+    app.piano_ghost = true;
+    var buf2: [32 * 1024]u8 = undefined;
+    var w2 = std.Io.Writer.fixed(&buf2);
+    try app.draw(&w2, .{ .cols = 100, .rows = 30 });
+    try std.testing.expect(std.mem.indexOf(u8, w2.buffered(), style.dim ++ "[") != null);
+}
+
 test "piano roll yank/paste moves a pattern across tracks" {
     var app = try testApp();
     defer app.deinit();

@@ -337,6 +337,10 @@ pub const App = struct {
     /// plain major shape). A monitoring/writing aid, not song content — not
     /// persisted, mirroring `Session.metronome_enabled`.
     piano_scale: ?ws.theory.Scale = null,
+    /// `:ghost [on|off]` — dims every OTHER melodic track's notes into the
+    /// piano roll's empty cells (e.g. tracing a bassline from a chord
+    /// track). Same monitoring-aid status as `piano_scale`: not persisted.
+    piano_ghost: bool = false,
     /// Undo/redo history for content edits (u / U in the editing views).
     history: undo_mod.History = .{},
     /// User-saved synth presets (`:synth-preset-save <name>`), loaded once

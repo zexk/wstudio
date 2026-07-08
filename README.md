@@ -250,6 +250,11 @@ Done:
       [<type>]|off]` dims out-of-scale rows; `c`/`C` stamp a diatonic
       triad/seventh at the cursor, harmonized to the active scale (a plain
       major shape with no scale set)
+- [x] `:ghost [on|off]` dims every OTHER melodic track's notes into the piano
+      roll's background (e.g. tracing a bassline from a chord track)
+- [x] `:humanize [amount]` (0-100%, default 15) jitters the current
+      pattern's note timing (± a fraction of one grid step) and velocity,
+      undoable like any other pattern edit
 - [x] `.` repeats the last compound edit: count-scaled nudges/resizes, the
       piano-roll note grab-and-drag, and visual-mode range delete/paste
 - [x] Visual mode (`v`): select a range (steps in the piano roll/drum grid,

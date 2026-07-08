@@ -89,6 +89,7 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "humanize",    .desc = "[amount]  jitter the pattern's note timing/velocity 0-100% (default 15)", .run = wrap(cmdHumanize) },
     .{ .name = "metronome",   .desc = "[on|off]  toggle the click track",                   .run = wrap(cmdMetronome) },
     .{ .name = "scale",       .desc = "[<root> [<type>]|off]  piano-roll scale highlight + chord-stamp key", .run = wrap(cmdScale) },
+    .{ .name = "ghost",       .desc = "[on|off]  dim every other melodic track's notes into the piano-roll background", .run = wrap(cmdGhost) },
     .{ .name = "master-eq",   .desc = "[<band> <db>]  master bus EQ (see M in the tracks view)", .run = wrap(cmdMasterEq) },
     .{ .name = "master-comp", .desc = "[on|off|thresh|ratio|attack|release|makeup <value>]  master bus compressor", .run = wrap(cmdMasterComp) },
     .{ .name = "synth-preset", .desc = "[name]  apply a factory or saved synth patch to the cursor track (no args: list names)", .run = wrap(cmdSynthPreset) },
@@ -250,6 +251,20 @@ fn cmdMetronome(app: *App, args: []const u8) void {
         !app.session.metronome_enabled;
     app.session.setMetronome(on);
     app.setStatus("metronome {s}", .{if (on) "on" else "off"});
+}
+
+/// `:ghost [on|off]` — toggles dimmed "ghost notes" from every other melodic
+/// track into the piano roll's background (see `App.piano_ghost`).
+fn cmdGhost(app: *App, args: []const u8) void {
+    const trimmed = std.mem.trim(u8, args, " ");
+    const on = if (std.mem.eql(u8, trimmed, "on"))
+        true
+    else if (std.mem.eql(u8, trimmed, "off"))
+        false
+    else
+        !app.piano_ghost;
+    app.piano_ghost = on;
+    app.setStatus("ghost notes {s}", .{if (on) "on" else "off"});
 }
 
 /// `:scale [<root> [<type>]|off]` — sets or clears the piano roll's active

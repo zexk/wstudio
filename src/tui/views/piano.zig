@@ -88,6 +88,20 @@ fn isBlackKey(pitch: u7) bool {
     };
 }
 
+/// Whether some OTHER melodic track has a note starting or covering this
+/// pitch/beat, for `:ghost`'s background overlay. Cheap enough to call per
+/// cell: track counts and view sizes are both small in a TUI.
+const GhostHit = enum { none, starts, covers };
+fn ghostAt(app: anytype, pitch: u7, beat_pos: f64) GhostHit {
+    for (0..app.session.racks.items.len) |i| {
+        if (i == app.piano_track) continue;
+        const pp = if (app.session.racks.items[i].pattern_player) |*p| p else continue;
+        if (pp.noteStartsAt(pitch, beat_pos)) return .starts;
+        if (pp.noteCovers(pitch, beat_pos)) return .covers;
+    }
+    return .none;
+}
+
 pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, snap: engine_mod.UiSnapshot) !void {
     if (app.piano_track >= app.session.racks.items.len) return;
     const rack = app.session.racks.items[app.piano_track];
@@ -277,10 +291,17 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
                 // cw==1 has no padding column to carry the beat tick, so the
                 // downbeat dot itself borrows a distinct colour instead
                 // (mirrors arrangement.zig's blu downbeat ruler marker).
-                const dot_color = if (cw == 1 and downbeat) blu else if (row_dim) dim else "";
-                if (dot_color.len > 0) try w.writeAll(dot_color);
-                try w.writeAll("·");
-                if (dot_color.len > 0) try w.writeAll(rst);
+                const ghost = if (app.piano_ghost) ghostAt(app, pitch, beat_pos) else .none;
+                if (ghost != .none) {
+                    try w.writeAll(dim);
+                    try w.writeAll(if (ghost == .starts) "[" else "=");
+                    try w.writeAll(rst);
+                } else {
+                    const dot_color = if (cw == 1 and downbeat) blu else if (row_dim) dim else "";
+                    if (dot_color.len > 0) try w.writeAll(dot_color);
+                    try w.writeAll("·");
+                    if (dot_color.len > 0) try w.writeAll(rst);
+                }
                 try writeStepPad(w, cw -| 1, next_downbeat, tick_color);
             }
         }
