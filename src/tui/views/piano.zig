@@ -353,6 +353,13 @@ pub fn drawPianoRollStatus(app: anytype, w: *std.Io.Writer, cmds: []const cmd_mo
     if (app.piano_zoom == .compact) {
         try w.writeAll(dim ++ "  " ++ rst ++ bcyn ++ "zoom" ++ rst);
     }
+    // Swing only shown when it's off the straight default (50%) — a plain
+    // pattern shouldn't pay status-line width for a param it isn't using.
+    const swing_pct = pp.swing.load(.monotonic);
+    if (swing_pct != 50.0) {
+        try w.writeAll(dim ++ "  swing " ++ rst);
+        try w.print("{d:.0}%", .{swing_pct});
+    }
     // Note count at cursor pitch
     var n_here: usize = 0;
     _ = beat_pos;

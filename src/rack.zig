@@ -246,6 +246,7 @@ pub const Rack = struct {
             new_pp.note_count = pp.note_count;
             new_pp.notes = pp.notes;
             new_pp.length_beats = pp.length_beats;
+            new_pp.swing.store(pp.swing.load(.monotonic), .monotonic);
             rack.pattern_player = new_pp;
         }
 

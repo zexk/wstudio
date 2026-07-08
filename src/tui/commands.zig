@@ -87,6 +87,7 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "clear",       .desc = "erase all notes in the piano-roll pattern",          .run = wrap(cmdClear) },
     .{ .name = "%d",          .desc = "erase all notes in the pattern (alias for :clear)",  .run = wrap(cmdClear) },
     .{ .name = "humanize",    .desc = "[amount]  jitter the pattern's note timing/velocity 0-100% (default 15)", .run = wrap(cmdHumanize) },
+    .{ .name = "swing",       .desc = "[percent]  piano-roll pattern swing 50-75% (default 50, straight) — matches the drum machine's", .run = wrap(cmdSwing) },
     .{ .name = "metronome",   .desc = "[on|off]  toggle the click track",                   .run = wrap(cmdMetronome) },
     .{ .name = "scale",       .desc = "[<root> [<type>]|off]  piano-roll scale highlight + chord-stamp key", .run = wrap(cmdScale) },
     .{ .name = "ghost",       .desc = "[on|off]  dim every other melodic track's notes into the piano-roll background", .run = wrap(cmdGhost) },
@@ -221,6 +222,34 @@ fn cmdHumanize(app: *App, args: []const u8) void {
     pp.humanize(amount, step_beats, seed);
     app.setStatus("humanized {d} notes ({d:.0}%)", .{ pp.note_count, amount });
     piano_ed.syncLinkedClip(app);
+}
+
+/// `:swing [percent]` — sets the piano-roll pattern's swing, 50 (straight,
+/// the default) to 75 (hardest shuffle) — the melodic counterpart to the
+/// drum machine's `<`/`>` swing, so a melodic track can match a swung drum
+/// groove. Same track-resolution rule as `:clear`/`:humanize`. With no args,
+/// reports the current setting (matches `:scale`). Not undo-tracked — a
+/// mixer-style live param, same as the drum machine's own swing.
+fn cmdSwing(app: *App, args: []const u8) void {
+    const track: usize = if (app.view == .piano_roll) app.piano_track else app.cursor;
+    if (track >= app.session.racks.items.len or
+        app.session.racks.items[track].pattern_player == null)
+    {
+        app.setStatus("swing: no piano-roll pattern", .{});
+        return;
+    }
+    const pp = &app.session.racks.items[track].pattern_player.?;
+    const trimmed = std.mem.trim(u8, args, " ");
+    if (trimmed.len == 0) {
+        app.setStatus("swing: {d:.0}%", .{pp.swing.load(.monotonic)});
+        return;
+    }
+    const pct = std.fmt.parseFloat(f32, trimmed) catch {
+        app.setStatus("swing: expected a percent, e.g. :swing 62", .{});
+        return;
+    };
+    pp.setSwing(pct);
+    app.setStatus("swing: {d:.0}%", .{pp.swing.load(.monotonic)});
 }
 
 pub fn cmdHelp(app: *App, _: []const u8) void {

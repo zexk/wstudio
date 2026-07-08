@@ -25,6 +25,9 @@ pub const Note = struct {
 };
 
 pub const PatternPlayer = struct {
+    pub const swing_min: f32 = 50.0;
+    pub const swing_max: f32 = 75.0;
+
     /// Instrument fed note events (synth, sampler, …). Stable for the rack's
     /// lifetime because the rack is heap-allocated.
     target:    dsp.Device,
@@ -35,6 +38,11 @@ pub const PatternPlayer = struct {
     note_count: u16 = 0,
     /// Loop length in beats (default 4 = 1 bar in 4/4).
     length_beats: f64 = 4.0,
+    /// Swing percent (see `swing_min`/`swing_max`): every note landing on an
+    /// off-beat 16th (odd step, 0.25 beat each) fires late by up to a
+    /// quarter of a step (75% = hardest shuffle) — mirrors DrumMachine's
+    /// swing exactly, so a melodic track can match a swung drum groove.
+    swing: std.atomic.Value(f32) = .init(50.0),
 
     // ── Song-mode playback ───────────────────────────────────────────────────
     /// When true, process() plays `song_notes` (the arrangement's clips
@@ -187,6 +195,13 @@ pub const PatternPlayer = struct {
         }
     }
 
+    /// Set swing to `pct`, clamped to [swing_min, swing_max] — the
+    /// `:swing` command. Audio-thread-safe (atomic store), not undo-tracked:
+    /// a mixer-style live param, same as DrumMachine's own swing.
+    pub fn setSwing(self: *PatternPlayer, pct: f32) void {
+        self.swing.store(std.math.clamp(pct, swing_min, swing_max), .monotonic);
+    }
+
     /// Mutable pointer to the note starting at pitch/start_beat, or null.
     /// Caller mutates fields in place (pitch/start_beat unchanged), so no lock
     /// is needed: the audio thread reads a consistent note either way.
@@ -227,10 +242,26 @@ pub const PatternPlayer = struct {
         return false;
     }
 
+    /// Delay `beat` by up to a quarter-step if it lands on an off-beat 16th
+    /// (odd step, 0.25 beat each) — same shape as DrumMachine's per-step
+    /// `swing_delay`, just expressed in beats instead of frames. Even steps
+    /// stay exactly on the grid, so boundary positions stay non-decreasing.
+    fn swungBeat(beat: f64, swing_pct: f32) f64 {
+        if (swing_pct == 50.0) return beat; // fast path: dead straight
+        const step: i64 = @intFromFloat(@floor(beat / 0.25));
+        if (@mod(step, 2) == 0) return beat;
+        const delay: f64 = 0.25 * @as(f64, swing_pct - 50.0) / 50.0;
+        return beat + delay;
+    }
+
     // ── Audio thread ─────────────────────────────────────────────────────────
 
-    /// Fire note_offs then note_ons for notes whose boundaries fall in [lo, hi).
-    /// `lo` and `hi` are beat positions within [0, loop_beats) — non-wrapping.
+    /// Fire note_offs then note_ons for notes whose (swung) boundaries fall
+    /// in [lo, hi). `lo` and `hi` are beat positions within [0, loop_beats) —
+    /// non-wrapping. `swing_pct` shifts a note's start (and, to keep its
+    /// audible length exact, its matching note_off) as a single unit — never
+    /// the onset alone — so a swung note-off can never land before its own
+    /// swung onset.
     pub fn scanRange(
         notes: []const Note,
         loop_beats: f64,
@@ -238,17 +269,20 @@ pub const PatternPlayer = struct {
         target: dsp.Device,
         lo: f64,
         hi: f64,
+        swing_pct: f32,
     ) void {
         // note_offs first so same-pitch re-triggers work correctly
         for (notes) |n| {
-            const off = @mod(n.start_beat + n.duration_beat, loop_beats);
+            const start = @mod(swungBeat(n.start_beat, swing_pct), loop_beats);
+            const off = @mod(start + n.duration_beat, loop_beats);
             if (sounding[n.pitch] and off >= lo and off < hi) {
                 target.sendEvent(.{ .note_off = .{ .note = n.pitch } });
                 sounding[n.pitch] = false;
             }
         }
         for (notes) |n| {
-            if (n.start_beat >= lo and n.start_beat < hi) {
+            const start = @mod(swungBeat(n.start_beat, swing_pct), loop_beats);
+            if (start >= lo and start < hi) {
                 target.sendEvent(.{ .note_on = .{ .note = n.pitch, .velocity = n.velocity } });
                 sounding[n.pitch] = true;
             }
@@ -312,15 +346,16 @@ pub const PatternPlayer = struct {
         const s = @mod(start_beat, loop);
         const e = s + (end_beat - start_beat);
 
+        const swing_pct = self.swing.load(.monotonic);
         if (self.song_mode) {
             // No wraparound in song mode — clamp to the arrangement's end.
-            scanRange(notes, loop, &self.sounding, self.target, s, @min(e, loop));
+            scanRange(notes, loop, &self.sounding, self.target, s, @min(e, loop), swing_pct);
         } else if (e >= loop) {
             // Block spans the loop boundary: two non-wrapping scans.
-            scanRange(notes, loop, &self.sounding, self.target, s, loop);
-            scanRange(notes, loop, &self.sounding, self.target, 0.0, @min(e - loop, loop));
+            scanRange(notes, loop, &self.sounding, self.target, s, loop, swing_pct);
+            scanRange(notes, loop, &self.sounding, self.target, 0.0, @min(e - loop, loop), swing_pct);
         } else {
-            scanRange(notes, loop, &self.sounding, self.target, s, e);
+            scanRange(notes, loop, &self.sounding, self.target, s, e, swing_pct);
         }
     }
 
@@ -359,6 +394,49 @@ pub const PatternPlayer = struct {
 // Tests
 // ---------------------------------------------------------------------------
 
+test "swing delays a note on an off-beat 16th, mirroring DrumMachine's math" {
+    var synth = PolySynth.init(48_000);
+    var transport: Transport = .{ .sample_rate = 48_000 };
+
+    var pp = PatternPlayer.init(synth.device(), &transport);
+    // start_beat 0.25 = step 1 (off-beat 16th). 75% swing delays it by
+    // 0.25 * (75-50)/50 = 0.125 beat, landing exactly at 0.375.
+    pp.notes[0] = .{ .pitch = 60, .start_beat = 0.25, .duration_beat = 0.25 };
+    pp.note_count = 1;
+    const loop: f64 = 4.0;
+
+    // Straight (50%): fires right at 0.25, silent afterward.
+    PatternPlayer.scanRange(pp.notes[0..1], loop, &pp.sounding, synth.device(), 0.25, 0.375, 50.0);
+    try std.testing.expect(pp.sounding[60]);
+    pp.sounding[60] = false;
+
+    // 75% swing: silent through the straight boundary (0.25) up to just
+    // before the swung one (0.375), then fires exactly there.
+    PatternPlayer.scanRange(pp.notes[0..1], loop, &pp.sounding, synth.device(), 0.25, 0.375, 75.0);
+    try std.testing.expect(!pp.sounding[60]);
+    PatternPlayer.scanRange(pp.notes[0..1], loop, &pp.sounding, synth.device(), 0.375, 0.5, 75.0);
+    try std.testing.expect(pp.sounding[60]);
+
+    // Even steps (step 0, start_beat 0.0) stay exactly on the grid regardless
+    // of swing — only odd (off-beat) steps shift.
+    pp.notes[0] = .{ .pitch = 62, .start_beat = 0.0, .duration_beat = 0.25 };
+    PatternPlayer.scanRange(pp.notes[0..1], loop, &pp.sounding, synth.device(), 0.0, 0.1, 75.0);
+    try std.testing.expect(pp.sounding[62]);
+}
+
+test "setSwing clamps to [swing_min, swing_max]" {
+    var synth = PolySynth.init(48_000);
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    var pp = PatternPlayer.init(synth.device(), &transport);
+
+    pp.setSwing(1000.0);
+    try std.testing.expectApproxEqAbs(PatternPlayer.swing_max, pp.swing.load(.monotonic), 1e-6);
+    pp.setSwing(-1000.0);
+    try std.testing.expectApproxEqAbs(PatternPlayer.swing_min, pp.swing.load(.monotonic), 1e-6);
+    pp.setSwing(62.0);
+    try std.testing.expectApproxEqAbs(@as(f32, 62.0), pp.swing.load(.monotonic), 1e-6);
+}
+
 test "scanRange fires note_on then note_off across loop boundary" {
     var synth = PolySynth.init(48_000);
     var transport: Transport = .{ .sample_rate = 48_000 };
@@ -369,11 +447,11 @@ test "scanRange fires note_on then note_off across loop boundary" {
     const loop: f64 = 4.0;
 
     // Note should fire at beat 0.5
-    PatternPlayer.scanRange(pp.notes[0..1], loop, &pp.sounding, synth.device(), 0.0, 1.0);
+    PatternPlayer.scanRange(pp.notes[0..1], loop, &pp.sounding, synth.device(), 0.0, 1.0, 50.0);
     try std.testing.expect(pp.sounding[60]);
 
     // Note off fires at beat 1.0 (start of next scan)
-    PatternPlayer.scanRange(pp.notes[0..1], loop, &pp.sounding, synth.device(), 1.0, 2.0);
+    PatternPlayer.scanRange(pp.notes[0..1], loop, &pp.sounding, synth.device(), 1.0, 2.0, 50.0);
     try std.testing.expect(!pp.sounding[60]);
 }
 

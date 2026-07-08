@@ -150,6 +150,10 @@ pub const SynthSnap = struct {
     // Pattern player
     notes: []const NoteSnap = &.{},
     length_beats: f64 = 4.0,
+    /// Pattern swing, 50 (straight) to 75 (hardest shuffle) — see
+    /// `dsp.PatternPlayer.swing`. Additive optional-with-default field, no
+    /// version bump needed.
+    swing: f32 = 50.0,
 };
 
 /// Per-pad sampler params. Defaults mirror `dsp.Pad` so projects saved before
@@ -303,6 +307,10 @@ pub const SamplerSnap = struct {
     mono: bool = false,
     notes: []const NoteSnap = &.{},
     length_beats: f64 = 4.0,
+    /// Pattern swing, 50 (straight) to 75 (hardest shuffle) — see
+    /// `dsp.PatternPlayer.swing`. Additive optional-with-default field, no
+    /// version bump needed.
+    swing: f32 = 50.0,
 };
 
 pub const RackSnap = struct {
@@ -458,6 +466,7 @@ fn rackToSnap(aa: std.mem.Allocator, rack: *Rack, sample_rate: u32) !RackSnap {
             if (rack.pattern_player) |*pp| {
                 ss.length_beats = pp.length_beats;
                 ss.notes = try notesToSnap(aa, pp);
+                ss.swing = pp.swing.load(.monotonic);
             }
             rs.synth = ss;
         },
@@ -478,6 +487,7 @@ fn rackToSnap(aa: std.mem.Allocator, rack: *Rack, sample_rate: u32) !RackSnap {
             if (rack.pattern_player) |*pp| {
                 smp.length_beats = pp.length_beats;
                 smp.notes = try notesToSnap(aa, pp);
+                smp.swing = pp.swing.load(.monotonic);
             }
             rs.sampler = smp;
         },
@@ -880,6 +890,7 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
                     applyToSynth(&rack.instrument.poly_synth, &ss);
                     rack.pattern_player.?.length_beats = ss.length_beats;
                     loadNotes(&rack.pattern_player.?, ss.notes);
+                    rack.pattern_player.?.setSwing(ss.swing);
                 }
             },
             .sampler => {
@@ -892,6 +903,7 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
                     s.mono = smp.mono;
                     rack.pattern_player.?.length_beats = smp.length_beats;
                     loadNotes(&rack.pattern_player.?, smp.notes);
+                    rack.pattern_player.?.setSwing(smp.swing);
                 }
             },
             .drum_machine => {
@@ -1812,6 +1824,7 @@ test "buildSession: empty and sampler racks round-trip" {
                         .{ .pitch = 64, .start_beat = 0.0, .duration_beat = 0.5, .velocity = 0.7 },
                     },
                     .length_beats = 2.0,
+                    .swing = 68.0,
                 },
             },
         },
@@ -1834,6 +1847,7 @@ test "buildSession: empty and sampler racks round-trip" {
     try testing.expectEqual(@as(u16, 1), pp.note_count);
     try testing.expectEqual(@as(u7, 64), pp.notes[0].pitch);
     try testing.expectApproxEqAbs(@as(f64, 2.0), pp.length_beats, 1e-9);
+    try testing.expectApproxEqAbs(@as(f32, 68.0), pp.swing.load(.monotonic), 1e-6);
 }
 
 test "buildSession clamps malformed synth params from a hand-edited file" {
@@ -1854,6 +1868,7 @@ test "buildSession clamps malformed synth params from a hand-edited file" {
                     .sustain = 5.0,
                     .pulse_width = 0.0,
                     .lfo_rate_hz = 0.0,
+                    .swing = 999.0,
                 },
             },
         },
@@ -1871,6 +1886,9 @@ test "buildSession clamps malformed synth params from a hand-edited file" {
     try testing.expect(s.sustain <= 1.0);
     try testing.expect(s.pulse_width >= 0.01);
     try testing.expect(s.lfo_rate_hz >= 0.01);
+
+    const pp = &session.racks.items[0].pattern_player.?;
+    try testing.expectApproxEqAbs(PatternPlayer.swing_max, pp.swing.load(.monotonic), 1e-6);
 }
 
 // 16-bit WAV round-trip quantisation error bound.

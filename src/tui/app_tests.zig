@@ -210,6 +210,28 @@ test ":humanize jitters the cursor track's pattern and is undoable" {
     try std.testing.expectApproxEqAbs(before.velocity, pp.notes[0].velocity, 1e-6);
 }
 
+test ":swing sets the cursor track's pattern swing, clamped, and reports with no args" {
+    var app = try testApp();
+    defer app.deinit();
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    try std.testing.expectApproxEqAbs(@as(f32, 50.0), pp.swing.load(.monotonic), 1e-6);
+
+    app.cursor = 0;
+    for (":swing 62") |c| app.handleKey(.{ .char = c }, 100);
+    app.handleKey(.enter, 100);
+    try std.testing.expectApproxEqAbs(@as(f32, 62.0), pp.swing.load(.monotonic), 1e-6);
+
+    // Out of range clamps rather than erroring.
+    for (":swing 999") |c| app.handleKey(.{ .char = c }, 100);
+    app.handleKey(.enter, 100);
+    try std.testing.expectApproxEqAbs(@as(f32, 75.0), pp.swing.load(.monotonic), 1e-6);
+
+    // No args reports the current value without changing it.
+    for (":swing") |c| app.handleKey(.{ .char = c }, 100);
+    app.handleKey(.enter, 100);
+    try std.testing.expectApproxEqAbs(@as(f32, 75.0), pp.swing.load(.monotonic), 1e-6);
+}
+
 test "toggle_mute flips project state and reaches the engine" {
     var app = try testApp();
     defer app.deinit();
