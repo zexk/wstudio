@@ -2515,6 +2515,25 @@ test ":e Tab completes an unambiguous command name and adds a trailing space" {
     try std.testing.expectEqualStrings("export ", app.modal.cmd_buf[0..app.modal.cmd_len]);
 }
 
+test "command Tab-completion hides instrument-scoped commands under the wrong track" {
+    var app = try testApp(); // synth(0), sampler(1), drums(2)
+    defer app.deinit();
+
+    // Cursor on the synth track: "load-p" (drum-scoped) has no in-scope
+    // candidate, so Tab is a no-op — cmd_buf is untouched.
+    app.cursor = 0;
+    for (":load-p") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.tab, 0);
+    try std.testing.expectEqualStrings("load-p", app.modal.cmd_buf[0..app.modal.cmd_len]);
+
+    // Cursor on the drum track: the same prefix now completes in full.
+    app.handleKey(.escape, 0);
+    app.cursor = 2;
+    for (":load-p") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.tab, 0);
+    try std.testing.expectEqualStrings("load-pad ", app.modal.cmd_buf[0..app.modal.cmd_len]);
+}
+
 test "Tab cycles through multiple command-name matches instead of stalling at a common prefix" {
     var app = try App.init(std.testing.allocator, std.Io.failing);
     defer app.deinit();

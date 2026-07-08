@@ -1410,9 +1410,18 @@ pub const App = struct {
             return;
         }
 
+        // Only offer names Tab-cycling could actually land on productively —
+        // same in-scope gate the suggestion popup uses (cmd.visible), so
+        // cycling can never produce a name the popup wouldn't have shown.
+        const active = commands.activeScope(self);
         var name_buf: [commands.cmds.len][]const u8 = undefined;
-        for (commands.cmds, 0..) |c, i| name_buf[i] = c.name;
-        self.cycleCompletion(0, buf, .command_name, &name_buf);
+        var n: usize = 0;
+        for (commands.cmds) |c| {
+            if (!cmd_mod.visible(c, active)) continue;
+            name_buf[n] = c.name;
+            n += 1;
+        }
+        self.cycleCompletion(0, buf, .command_name, name_buf[0..n]);
     }
 
     /// Tab-completes the argument after `buf[0..name_end]` against a small
@@ -1879,7 +1888,7 @@ pub const App = struct {
         // budget up front so the frame never grows taller than the terminal.
         const max_suggestion_rows = 10;
         const suggestion_rows: usize = if (self.modal.mode == .command)
-            cmd_mod.suggestionRows(commands.cmds, self.modal.cmd_buf[0..self.modal.cmd_len], max_suggestion_rows)
+            cmd_mod.suggestionRows(commands.cmds, self.modal.cmd_buf[0..self.modal.cmd_len], commands.activeScope(self), max_suggestion_rows)
         else
             0;
         const content_rows = rows -| suggestion_rows;
@@ -1972,6 +1981,7 @@ pub const App = struct {
                 w,
                 commands.cmds,
                 self.modal.cmd_buf[0..self.modal.cmd_len],
+                commands.activeScope(self),
                 self.suggestionSelected(),
                 max_suggestion_rows,
             );

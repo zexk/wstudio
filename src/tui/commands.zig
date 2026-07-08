@@ -58,10 +58,10 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "pan",         .desc = "<track> [<-1..1>]  track pan",        .run = wrap(cmdPan) },
     .{ .name = "vol",         .desc = "[<dB>]  master volume (–40 to +6)",   .run = wrap(cmdVol) },
     .{ .name = "seek",        .desc = "<bar>  move playhead to bar",         .run = wrap(cmdSeek) },
-    .{ .name = "load-pad",    .desc = "<1-8> [file]  load WAV into pad (omit the file to browse)",     .run = wrap(cmdLoadPad) },
-    .{ .name = "pad-rename",  .desc = "<1-8> <name>  rename a drum pad (up to 8 chars)", .run = wrap(cmdPadRename) },
-    .{ .name = "load-sample", .desc = "[file]  load WAV into sampler track (omit the file to browse)",  .run = wrap(cmdLoadSample) },
-    .{ .name = "load-clip",   .desc = "[file]  load a WAV as a whole audio clip and stamp it at the arrangement cursor (sampler track, omit the file to browse)", .run = wrap(cmdLoadClip) },
+    .{ .name = "load-pad",    .desc = "<1-8> [file]  load WAV into pad (omit the file to browse)",     .run = wrap(cmdLoadPad), .scope = .drum },
+    .{ .name = "pad-rename",  .desc = "<1-8> <name>  rename a drum pad (up to 8 chars)", .run = wrap(cmdPadRename), .scope = .drum },
+    .{ .name = "load-sample", .desc = "[file]  load WAV into sampler track (omit the file to browse)",  .run = wrap(cmdLoadSample), .scope = .sampler },
+    .{ .name = "load-clip",   .desc = "[file]  load a WAV as a whole audio clip and stamp it at the arrangement cursor (sampler track, omit the file to browse)", .run = wrap(cmdLoadClip), .scope = .sampler },
     .{ .name = "e",           .desc = "[file]  open a project (refuses if unsaved changes; omit the file to browse)", .run = wrap(cmdEdit) },
     .{ .name = "e!",          .desc = "[file]  open a project, discarding changes; no file reverts the current one", .run = wrap(cmdEditForce) },
     .{ .name = "restore-backup", .desc = "load the <project>~ autosave backup over the current session", .run = wrap(cmdRestoreBackup) },
@@ -93,9 +93,9 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "ghost",       .desc = "[on|off]  dim every other melodic track's notes into the piano-roll background", .run = wrap(cmdGhost) },
     .{ .name = "master-eq",   .desc = "[<band> <db>]  master bus EQ (see M in the tracks view)", .run = wrap(cmdMasterEq) },
     .{ .name = "master-comp", .desc = "[on|off|thresh|ratio|attack|release|makeup <value>]  master bus compressor", .run = wrap(cmdMasterComp) },
-    .{ .name = "synth-preset", .desc = "[name]  apply a factory or saved synth patch to the cursor track (no args: list names)", .run = wrap(cmdSynthPreset) },
-    .{ .name = "synth-preset-save", .desc = "<name>  save the cursor track's current synth params as a reusable preset", .run = wrap(cmdSynthPresetSave) },
-    .{ .name = "drum-kit",    .desc = "[name]  regenerate the cursor drum machine's pads from a kit variant (no args: list names)", .run = wrap(cmdDrumKit) },
+    .{ .name = "synth-preset", .desc = "[name]  apply a factory or saved synth patch to the cursor track (no args: list names)", .run = wrap(cmdSynthPreset), .scope = .synth },
+    .{ .name = "synth-preset-save", .desc = "<name>  save the cursor track's current synth params as a reusable preset", .run = wrap(cmdSynthPresetSave), .scope = .synth },
+    .{ .name = "drum-kit",    .desc = "[name]  regenerate the cursor drum machine's pads from a kit variant (no args: list names)", .run = wrap(cmdDrumKit), .scope = .drum },
 };
 
 /// Look up `text` in the command table and run it, reporting unknown commands
@@ -510,6 +510,17 @@ fn cursorSynth(app: *App) ?*ws.dsp.PolySynth {
     return switch (app.session.racks.items[app.cursor].instrument) {
         .poly_synth => |*s| s, else => null,
     };
+}
+
+/// The command-line Tab-completion gate (see cmd.Scope): reuses the exact
+/// same track lookups the scoped commands themselves check at run time
+/// (cursorDrumMachine/cursorSampler/cursorSynth), so what gets offered in
+/// the popup always matches what would actually work if typed in full.
+pub fn activeScope(app: *App) cmd_mod.Scope {
+    if (cursorDrumMachine(app) != null) return .drum;
+    if (cursorSampler(app) != null) return .sampler;
+    if (cursorSynth(app) != null) return .synth;
+    return .any;
 }
 
 /// Appends " (genre1/genre2)" for the genre tags in `tags` (everything past

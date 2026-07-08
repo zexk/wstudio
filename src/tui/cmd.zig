@@ -8,12 +8,26 @@
 const std = @import("std");
 const style = @import("style.zig");
 
+/// Which instrument kind a command only makes sense for — `.any` (the
+/// default) means every track/view. Gates the Tab-completion popup only
+/// (see `visible`/`writeSuggestionBox`); `dispatch` never checks this, so a
+/// fully-typed command out of scope still runs and gets that command's own
+/// (usually more specific) error, e.g. "select a drum-machine track first".
+pub const Scope = enum { any, drum, sampler, synth };
+
 pub const Def = struct {
     name: []const u8,
     /// Short usage + description shown by :help, e.g. "[<value>]  set tempo"
     desc: []const u8,
     run: *const fn (ctx: *anyopaque, args: []const u8) void,
+    scope: Scope = .any,
 };
+
+/// True if `c` should be offered under `active` — either it works anywhere,
+/// or `active` matches the one instrument kind it's scoped to.
+pub fn visible(c: Def, active: Scope) bool {
+    return c.scope == .any or c.scope == active;
+}
 
 /// Walk `cmds` and run the first entry whose name matches `text`.
 /// Matches exactly (`:quit`) or with a trailing space (`:bpm 140`).
@@ -88,15 +102,17 @@ fn isAlias(c: Def) bool {
     return std.mem.indexOf(u8, c.desc, "alias for") != null;
 }
 
-/// Number of command names starting with `buf` — 0 once a space has been
-/// typed (there's no fixed name list for arguments here). Below 2, Tab
-/// already spells the single match out in full, so no popup is needed.
-/// Skips aliases (see `isAlias`) so shorthand forms don't pad out the list.
-pub fn suggestionCount(cmds: []const Def, buf: []const u8) usize {
+/// Number of command names starting with `buf` under `active` scope — 0
+/// once a space has been typed (there's no fixed name list for arguments
+/// here). Below 2, Tab already spells the single match out in full, so no
+/// popup is needed. Skips aliases (see `isAlias`) and out-of-scope entries
+/// (see `visible`) so shorthand forms and other-instrument commands don't
+/// pad out the list.
+pub fn suggestionCount(cmds: []const Def, buf: []const u8, active: Scope) usize {
     if (std.mem.indexOfScalar(u8, buf, ' ') != null) return 0;
     var n: usize = 0;
     for (cmds) |c| {
-        if (isAlias(c)) continue;
+        if (isAlias(c) or !visible(c, active)) continue;
         if (std.mem.startsWith(u8, c.name, buf)) n += 1;
     }
     return n;
@@ -106,24 +122,24 @@ pub fn suggestionCount(cmds: []const Def, buf: []const u8) usize {
 /// `max_rows` — callers carve exactly this many rows out of the content
 /// area's budget before drawing it, so the popup never pushes the frame
 /// taller than the terminal.
-pub fn suggestionRows(cmds: []const Def, buf: []const u8, max_rows: usize) usize {
-    const n = suggestionCount(cmds, buf);
+pub fn suggestionRows(cmds: []const Def, buf: []const u8, active: Scope, max_rows: usize) usize {
+    const n = suggestionCount(cmds, buf, active);
     if (n < 2) return 0;
     return @min(n, max_rows);
 }
 
-/// Neovim-wildmenu-style popup: every non-alias command name starting with
-/// `buf` (see `isAlias`), one per line, `selected` drawn as a solid
-/// reverse-video bar (index into the match list, not `cmds` — clamp/compare
-/// against `suggestionCount`).
+/// Neovim-wildmenu-style popup: every non-alias, in-scope command name
+/// starting with `buf` (see `isAlias`/`visible`), one per line, `selected`
+/// drawn as a solid reverse-video bar (index into the match list, not
+/// `cmds` — clamp/compare against `suggestionCount`).
 /// Truncates silently past `max_rows` (matching what `suggestionRows`
 /// reserved) rather than showing a "N more" line — narrowing the typed
 /// prefix is how the rest becomes reachable, same as Tab-cycling already
 /// requires for large match sets.
-pub fn writeSuggestionBox(w: *std.Io.Writer, cmds: []const Def, buf: []const u8, selected: usize, max_rows: usize) !void {
+pub fn writeSuggestionBox(w: *std.Io.Writer, cmds: []const Def, buf: []const u8, active: Scope, selected: usize, max_rows: usize) !void {
     var idx: usize = 0;
     for (cmds) |c| {
-        if (isAlias(c)) continue;
+        if (isAlias(c) or !visible(c, active)) continue;
         if (!std.mem.startsWith(u8, c.name, buf)) continue;
         if (idx >= max_rows) break;
         const is_sel = idx == selected;
@@ -150,21 +166,21 @@ fn promptText(buf: []const u8, max_chars: usize, out: []u8) []const u8 {
 
 test "suggestionCount/suggestionRows gate on 2+ matches and a space" {
     // "bpm" matches only itself — no popup.
-    try std.testing.expectEqual(@as(usize, 1), suggestionCount(test_cmds, "bpm"));
-    try std.testing.expectEqual(@as(usize, 0), suggestionRows(test_cmds, "bpm", 10));
+    try std.testing.expectEqual(@as(usize, 1), suggestionCount(test_cmds, "bpm", .any));
+    try std.testing.expectEqual(@as(usize, 0), suggestionRows(test_cmds, "bpm", .any, 10));
     // "q" matches q / qa / qa!.
-    try std.testing.expectEqual(@as(usize, 3), suggestionCount(test_cmds, "q"));
-    try std.testing.expectEqual(@as(usize, 3), suggestionRows(test_cmds, "q", 10));
+    try std.testing.expectEqual(@as(usize, 3), suggestionCount(test_cmds, "q", .any));
+    try std.testing.expectEqual(@as(usize, 3), suggestionRows(test_cmds, "q", .any, 10));
     // Capped by max_rows.
-    try std.testing.expectEqual(@as(usize, 2), suggestionRows(test_cmds, "q", 2));
+    try std.testing.expectEqual(@as(usize, 2), suggestionRows(test_cmds, "q", .any, 2));
     // A space means we're past the command name — no popup at all.
-    try std.testing.expectEqual(@as(usize, 0), suggestionCount(test_cmds, "q "));
+    try std.testing.expectEqual(@as(usize, 0), suggestionCount(test_cmds, "q ", .any));
 }
 
 test "writeSuggestionBox lists every match, one per line, highlighting `selected`" {
     var out: [256]u8 = undefined;
     var w: std.Io.Writer = .fixed(&out);
-    try writeSuggestionBox(&w, test_cmds, "q", 1, 10);
+    try writeSuggestionBox(&w, test_cmds, "q", .any, 1, 10);
     const text = w.buffered();
     try std.testing.expect(std.mem.indexOf(u8, text, "q") != null);
     try std.testing.expect(std.mem.indexOf(u8, text, "qa") != null);
@@ -179,7 +195,7 @@ test "writeSuggestionBox lists every match, one per line, highlighting `selected
 test "writeSuggestionBox truncates at max_rows" {
     var out: [256]u8 = undefined;
     var w: std.Io.Writer = .fixed(&out);
-    try writeSuggestionBox(&w, test_cmds, "q", 0, 1);
+    try writeSuggestionBox(&w, test_cmds, "q", .any, 0, 1);
     const text = w.buffered();
     try std.testing.expect(std.mem.indexOf(u8, text, "qa") == null);
 }
@@ -192,16 +208,39 @@ const alias_test_cmds: []const Def = &.{
 
 test "suggestionCount/writeSuggestionBox skip alias entries" {
     // "quit" and "qa" are aliases of "q" — only "q" itself should count/show.
-    try std.testing.expectEqual(@as(usize, 1), suggestionCount(alias_test_cmds, "q"));
-    try std.testing.expectEqual(@as(usize, 0), suggestionRows(alias_test_cmds, "q", 10));
+    try std.testing.expectEqual(@as(usize, 1), suggestionCount(alias_test_cmds, "q", .any));
+    try std.testing.expectEqual(@as(usize, 0), suggestionRows(alias_test_cmds, "q", .any, 10));
 
     var out: [256]u8 = undefined;
     var w: std.Io.Writer = .fixed(&out);
-    try writeSuggestionBox(&w, alias_test_cmds, "q", 0, 10);
+    try writeSuggestionBox(&w, alias_test_cmds, "q", .any, 0, 10);
     const text = w.buffered();
     try std.testing.expect(std.mem.indexOf(u8, text, "quit") == null);
     try std.testing.expect(std.mem.indexOf(u8, text, "qa") == null);
     try std.testing.expect(std.mem.indexOf(u8, text, "q") != null);
+}
+
+const scoped_test_cmds: []const Def = &.{
+    .{ .name = "bpm",       .desc = "tempo",    .run = undefined },
+    .{ .name = "load-pad",  .desc = "load pad", .run = undefined, .scope = .drum },
+    .{ .name = "load-sample", .desc = "load sample", .run = undefined, .scope = .sampler },
+};
+
+test "suggestionCount/writeSuggestionBox hide out-of-scope commands" {
+    // "bpm" is unscoped — visible under any active scope, including .any
+    // (e.g. the cursor sitting on an empty track).
+    try std.testing.expectEqual(@as(usize, 1), suggestionCount(scoped_test_cmds, "b", .any));
+    // Under .any, both load-* commands are scoped out entirely.
+    try std.testing.expectEqual(@as(usize, 0), suggestionCount(scoped_test_cmds, "l", .any));
+    // Under .drum, the drum-scoped one joins; the sampler-scoped one stays hidden.
+    try std.testing.expectEqual(@as(usize, 1), suggestionCount(scoped_test_cmds, "l", .drum));
+
+    var out: [256]u8 = undefined;
+    var w: std.Io.Writer = .fixed(&out);
+    try writeSuggestionBox(&w, scoped_test_cmds, "l", .drum, 0, 10);
+    const text = w.buffered();
+    try std.testing.expect(std.mem.indexOf(u8, text, "load-pad") != null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "load-sample") == null);
 }
 
 test "writePrompt shows the usage hint once a space follows an exact command name" {
