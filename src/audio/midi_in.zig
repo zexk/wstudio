@@ -17,6 +17,13 @@ pub const MidiIn = struct {
     engine: *Engine,
     /// Engine track index that receives all incoming MIDI. Write from UI thread.
     active_track: std.atomic.Value(u16) = .init(0),
+    /// Set (release) by the reader thread whenever an incoming CC actually
+    /// mutates a saved instrument param (see dispatch's CONTROLLER branch —
+    /// applyCC writes straight into e.g. PolySynth.gain/filter_cutoff/etc.,
+    /// same fields `:w` persists). The UI thread swaps it (acquire) once per
+    /// frame into `App.dirty`, since this thread has no App pointer to set
+    /// it on directly.
+    dirty: std.atomic.Value(bool) = .init(false),
 
     pub const Error = error{ SeqOpenFailed, PortCreateFailed, ThreadSpawnFailed };
 
@@ -108,6 +115,7 @@ pub const MidiIn = struct {
             const cc: u7  = @intCast(ev.data.control.param & 0x7F);
             const val: u7 = @intCast(ev.data.control.value & 0x7F);
             _ = eng.send(.{ .cc = .{ .track = track, .cc = cc, .value = val } });
+            self.dirty.store(true, .release);
         } else if (etype == c.SND_SEQ_EVENT_PITCHBEND) {
             // ALSA delivers pitch bend centred at 0: −8192..+8191.
             const raw = @as(i32, ev.data.control.value);
@@ -116,3 +124,23 @@ pub const MidiIn = struct {
         }
     }
 };
+
+test "an incoming MIDI CC marks dirty; a note does not" {
+    var engine = try Engine.init(std.testing.allocator, 48_000);
+    defer engine.deinit();
+    var midi_in: MidiIn = .{ .engine = &engine };
+
+    var note_ev: c.snd_seq_event_t = std.mem.zeroes(c.snd_seq_event_t);
+    note_ev.@"type" = c.SND_SEQ_EVENT_NOTEON;
+    note_ev.data.note.note = 60;
+    note_ev.data.note.velocity = 100;
+    midi_in.dispatch(&note_ev);
+    try std.testing.expect(!midi_in.dirty.load(.acquire)); // audition only, nothing persisted changes
+
+    var cc_ev: c.snd_seq_event_t = std.mem.zeroes(c.snd_seq_event_t);
+    cc_ev.@"type" = c.SND_SEQ_EVENT_CONTROLLER;
+    cc_ev.data.control.param = 7; // CC7 -> PolySynth.gain (applyCC), a saved param
+    cc_ev.data.control.value = 100;
+    midi_in.dispatch(&cc_ev);
+    try std.testing.expect(midi_in.dirty.load(.acquire));
+}

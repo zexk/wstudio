@@ -2189,6 +2189,11 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8) !vo
         // in the MIDI reader thread.
         if (has_alsa) { if (using_midi) midi_in.active_track.store(@intCast(app.cursor), .monotonic); }
 
+        // A MIDI CC can mutate saved instrument params straight from the
+        // reader thread (PolySynth.applyCC); it has no App pointer to flag
+        // `dirty` itself, so pick up its signal here once per frame instead.
+        if (has_alsa) { if (using_midi and midi_in.dirty.swap(false, .acquire)) app.dirty = true; }
+
         var w = std.Io.Writer.fixed(&frame_buf);
         app.draw(&w, term.size()) catch {};
         term.write(w.buffered());
