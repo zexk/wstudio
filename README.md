@@ -85,7 +85,7 @@ src/
 ├── project.zig         the document: tracks, settings (control side)
 ├── session.zig         session factory, track lifecycle, engine wiring
 ├── arrangement.zig     song mode: per-track clips on a bar timeline
-├── persist.zig         project save/load (.wsj JSON snapshots)
+├── persist.zig         project save/load (.wsj JSON snapshots, see FORMAT.md)
 ├── midi.zig            MIDI protocol types and raw-byte parser
 ├── dsp/
 │   ├── device.zig      Device interface (instruments + effects)
@@ -279,6 +279,7 @@ Done:
       `<project>~` autosave backup while there are unsaved changes
 - [x] User-loaded sample audio persists across saves: WAVs are exported to a
       `<name>_samples/` directory next to the .wsj and reloaded with the project
+      (format details and versioning policy: [FORMAT.md](FORMAT.md))
 - [x] Undo/redo (`u`/`U`) for content edits: notes, drum patterns/variants,
       arrangement clips — including clips evicted by a stamp
 - [x] Melodic clip editing, Ableton-style: clips own their notes; `e` on a
