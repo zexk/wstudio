@@ -554,8 +554,13 @@ pub const App = struct {
             // Normal and visual both route through the editor first (visual
             // reuses its motions and adds range y/d/P); only command mode
             // bypasses it entirely.
+            // Insert mode bypasses the grid's own switch entirely, same
+            // reasoning as the piano roll below: the qwerty piano-key layout
+            // needs h/j/k/l as pad triggers, not grid navigation, so
+            // modal.handle owns every key until escape (see recordNote in
+            // editors/drum.zig).
             .drum_grid => {
-                if (self.modal.mode == .command or self.modal.mode == .search or !drum_ed.handleKey(self, key)) {
+                if (self.modal.mode == .command or self.modal.mode == .search or self.modal.mode == .insert or !drum_ed.handleKey(self, key)) {
                     self.applyAction(self.modal.handle(key), now_ns);
                 } else self.modal.count = 0;
             },
@@ -1176,12 +1181,14 @@ pub const App = struct {
                     // it instead of arming another one on top.
                     _ = self.session.engine.send(.stop);
                     self.setStatus("count-in cancelled", .{});
-                } else if (!snap.playing and self.view == .piano_roll and self.modal.mode == .insert) {
-                    // Starting playback to record (insert mode, piano roll,
-                    // currently stopped) clicks a one-bar count-in first so
-                    // there's a cue to come in on. Already-rolling playback
-                    // (jumping into insert mode mid-song) needs none of
-                    // this — recordNote just quantizes to the live playhead.
+                } else if (!snap.playing and self.modal.mode == .insert and
+                    (self.view == .piano_roll or self.view == .drum_grid))
+                {
+                    // Starting playback to record (insert mode, piano roll or
+                    // drum grid, currently stopped) clicks a one-bar count-in
+                    // first so there's a cue to come in on. Already-rolling
+                    // playback (jumping into insert mode mid-song) needs none
+                    // of this — recordNote just quantizes to the live playhead.
                     _ = self.session.engine.send(.record);
                     self.setStatus("count-in...", .{});
                 } else {
@@ -1223,11 +1230,14 @@ pub const App = struct {
                 const track_idx = self.currentTrack();
                 if (track_idx >= self.session.racks.items.len) return;
                 switch (self.session.racks.items[track_idx].instrument) {
-                    .drum_machine => _ = self.session.engine.send(.{ .note_on = .{
-                        .track = track_idx,
-                        .note = @intCast(n.pitch % DrumMachine.max_pads),
-                        .velocity = 0.9,
-                    } }),
+                    .drum_machine => {
+                        _ = self.session.engine.send(.{ .note_on = .{
+                            .track = track_idx,
+                            .note = @intCast(n.pitch % DrumMachine.max_pads),
+                            .velocity = 0.9,
+                        } });
+                        if (self.view == .drum_grid) drum_ed.recordNote(self, n.pitch);
+                    },
                     .poly_synth, .sampler => {
                         self.playNote(track_idx, n.pitch, now_ns);
                         if (self.view == .piano_roll) piano_ed.recordNote(self, n.pitch);

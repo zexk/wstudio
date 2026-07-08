@@ -160,6 +160,9 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("< / >",        "less / more swing (50–75%)");
     t.key("C",            "cycle current pad's choke group (none/1-4) — same-group pads cut each other off");
     t.key("a",            "preview pad sound");
+    t.key("i",            "insert mode: play pads on the qwerty piano (pitch wraps to pad 1-8)");
+    t.key("(insert) space","start recording — clicks a one-bar count-in first if stopped");
+    t.key("(insert) esc", "back to normal — while playing, hits recorded at the playhead");
     t.key("R",            "rename current pad (opens :pad-rename <n>, 8 chars max)");
     t.key("e",            "open sampler editor for current pad");
     t.key("s",            "FX chain for drum track");

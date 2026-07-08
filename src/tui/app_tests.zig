@@ -1795,6 +1795,79 @@ test "piano roll insert mode previews without recording while the transport is s
     try std.testing.expectEqual(@as(u16, 0), pp.note_count);
 }
 
+test "drum grid insert mode records a pad hit at the playhead while playing" {
+    var app = try testApp();
+    defer app.deinit();
+
+    app.cursor = 2; // drum machine
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqual(AppView.drum_grid, app.view);
+
+    _ = app.session.engine.send(.play);
+    var block: [64]types.Sample = undefined;
+    app.session.engine.process(&block); // flushes commands, publishes the snapshot
+
+    app.handleKey(.{ .char = 'i' }, 0);
+    try std.testing.expectEqual(ws.input.Mode.insert, app.modal.mode);
+
+    app.handleKey(.{ .char = 'a' }, 0); // pitch 60 -> pad 60 % 8 = 4
+    try std.testing.expectEqual(ws.input.Mode.insert, app.modal.mode); // still recording
+
+    const dm = &app.session.racks.items[2].instrument.drum_machine;
+    const step = dm.currentStep();
+    try std.testing.expect(dm.stepActive(4, step));
+    // Cursor follows the hit so the grid shows where the take landed.
+    try std.testing.expectEqual(@as(u8, 4), app.drum_cursor[0]);
+    try std.testing.expectEqual(step, app.drum_cursor[1]);
+
+    // Escape drops back to normal without leaving the grid, and grid
+    // navigation (not pad-play) owns h/j/k/l again.
+    app.handleKey(.escape, 0);
+    try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
+    try std.testing.expectEqual(AppView.drum_grid, app.view);
+}
+
+test "drum grid insert mode previews without recording while the transport is stopped" {
+    var app = try testApp();
+    defer app.deinit();
+
+    app.cursor = 2;
+    app.handleKey(.enter, 0);
+    app.handleKey(.{ .char = 'i' }, 0);
+    try std.testing.expectEqual(ws.input.Mode.insert, app.modal.mode);
+    app.handleKey(.{ .char = 'a' }, 0);
+
+    // Pitch 60 maps to pad 4, which the shipped kit's default groove leaves
+    // silent (only pads 0/1/2 have a default pattern) — check the whole
+    // pad's row stayed empty rather than a single step, so the test doesn't
+    // depend on where a stopped transport's playhead happens to sit.
+    const dm = &app.session.racks.items[2].instrument.drum_machine;
+    var s: u8 = 0;
+    while (s < dm.step_count) : (s += 1) try std.testing.expect(!dm.stepActive(4, s));
+}
+
+test "drum grid insert mode doesn't stack a duplicate hit on the same step" {
+    var app = try testApp();
+    defer app.deinit();
+
+    app.cursor = 2;
+    app.handleKey(.enter, 0);
+    _ = app.session.engine.send(.play);
+    var block: [64]types.Sample = undefined;
+    app.session.engine.process(&block);
+
+    app.handleKey(.{ .char = 'i' }, 0);
+    app.handleKey(.{ .char = 'a' }, 0);
+    const dm = &app.session.racks.items[2].instrument.drum_machine;
+    const step = dm.currentStep();
+    try std.testing.expect(dm.stepActive(4, step));
+
+    // A second hit on the same (pad, step) while the playhead hasn't moved
+    // must not toggle it back off.
+    app.handleKey(.{ .char = 'a' }, 0);
+    try std.testing.expect(dm.stepActive(4, step));
+}
+
 test ":q refuses to quit while dirty; :q! discards" {
     var app = try testApp();
     defer app.deinit();

@@ -78,8 +78,15 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
         .ctrl_r => { history.doRedo(app); return true; },
         .char => |c| {
             switch (c) {
-                // Block insert mode — piano keys conflict with grid navigation.
-                'i' => {},
+                // 'i' falls through to modal.handle below (see the .char
+                // default at the bottom of this switch), which enters insert
+                // mode — App.handleKey then stops routing keys through this
+                // switch entirely while insert mode lasts (mirrors the piano
+                // roll's identical comment), so the qwerty piano-key layout
+                // owns h/j/k/l instead of grid navigation. That's what makes
+                // recordNote below reachable: play a take while the
+                // transport rolls and pad hits land as steps, quantized to
+                // the machine's own live playhead (DrumMachine.currentStep).
                 // fine move by one step; shift (HL) jumps one beat (4 steps).
                 // All motions take a vim count prefix (3l, 2j, …).
                 'h' => moveStep(app, -app.takeCount()),
@@ -203,6 +210,34 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
         },
         else => return false,
     }
+}
+
+/// Live recording: called from `App.applyAction`'s `.note` handler whenever
+/// insert mode plays a pad on `app.drum_track` (see `App.currentTrack`'s
+/// `.drum_grid` case — the note's pitch already carries the pad index,
+/// wrapped mod `DrumMachine.max_pads`, same mapping the plain-audition path
+/// used before this). Only writes something if the transport is actually
+/// rolling — a stopped transport has no playhead to quantize against, so
+/// insert mode is pure audition in that case, mirroring piano.zig's
+/// `recordNote`. Quantizes to `DrumMachine.currentStep()`, the audio
+/// thread's own live step counter (already correct under swing and
+/// song/live mode alike, unlike recomputing from frames/tempo by hand), and
+/// skips a step that's already active rather than stacking a duplicate hit.
+/// Cursor follows the recorded hit so the grid shows where the take is
+/// landing in real time.
+pub fn recordNote(app: *App, pitch: u7) void {
+    if (app.drum_track >= app.session.racks.items.len) return;
+    if (app.session.racks.items[app.drum_track].instrument != .drum_machine) return;
+    const snap = app.session.engine.uiSnapshot();
+    if (!snap.playing) return;
+    const dm = app.drumMachine();
+    const pad: u8 = @intCast(pitch % DrumMachine.max_pads);
+    const step = dm.currentStep();
+    if (dm.stepActive(pad, step)) return;
+    history.push(app, history.captureDrum(app, app.drum_track));
+    setStep(dm, pad, step, true, 0);
+    app.drum_cursor = .{ pad, step };
+    app.setStatus("rec: pad {d} step {d}", .{ pad + 1, step + 1 });
 }
 
 /// Move the step cursor by `delta` steps, clamped to the pattern length.
