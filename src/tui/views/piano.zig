@@ -172,20 +172,27 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
     }
     try endLine(w);
 
-    // Loop-end / playhead marker row (between header and notes)
+    // Loop-end / playhead marker row (between header and notes). The plain
+    // beat tick rides in the same trailing-padding column the note-grid
+    // separator uses (writeStepPad above) so the two lines stay vertically
+    // aligned; play/loop markers stay at the step's own leading column since
+    // they mark an exact position, not a beat boundary.
     try w.writeAll(dim ++ "      " ++ rst);
     for (0..vis_cols) |col| {
         const step = left + @as(u16, @intCast(col));
         if (step == play_step) {
             try w.writeAll(grn ++ bold ++ "▾" ++ rst);
+            if (cw > 1) try w.splatByteAll(' ', cw - 1);
         } else if (step == loop_step) {
             try w.writeAll(acc ++ "┤" ++ rst);
-        } else if (step % spb == 0) {
-            try w.writeAll(dim ++ "│" ++ rst);
+            if (cw > 1) try w.splatByteAll(' ', cw - 1);
+        } else if (cw == 1) {
+            if (step % spb == 0) try w.writeAll(dim ++ "│" ++ rst) else try w.writeAll(" ");
         } else {
+            const next_downbeat = col + 1 < vis_cols and (step + 1) % spb == 0;
             try w.writeAll(" ");
+            try writeStepPad(w, cw - 1, next_downbeat, dim);
         }
-        if (cw > 1) try w.splatByteAll(' ', cw - 1);
     }
     try endLine(w);
 
