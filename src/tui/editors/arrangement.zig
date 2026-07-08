@@ -19,8 +19,9 @@ const view = @import("../views/arrangement.zig");
 /// h/l move ±1 bar, H/L ±4 bars (one phrase), j/k change lane (shared
 /// `cursor`), enter stamps the live pattern as a clip, x deletes the clip
 /// under the cursor, d/y are operators (dd/yy act on the whole lane, d/y +
-/// h/l/H/L act on a bar range), p pastes, </> shift a clip by bars, ( ) b
-/// set/toggle the A/B
+/// h/l/H/L act on a bar range), p pastes, </> shift a clip by bars, +/-
+/// edge-resize a clip's length by bars (its content loops to fill whatever
+/// span it's given), ( ) b set/toggle the A/B
 /// loop, [/] cycle a drum lane's pattern variant, T toggles song/pattern
 /// mode, v starts a bar-range selection on the current lane, a opens the
 /// gain/pan automation editor on the clip under the cursor. Tab (like
@@ -105,6 +106,8 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             },
             '<' => { moveClip(app, -app.takeCount()); return true; },
             '>' => { moveClip(app, app.takeCount()); return true; },
+            '-' => { resizeClip(app, -app.takeCount()); return true; },
+            '+' => { resizeClip(app, app.takeCount()); return true; },
             '.' => { repeatLastEdit(app); return true; },
             'e' => { editClip(app); return true; },
             'g' => { playFromCursor(app); return true; },
@@ -330,12 +333,14 @@ fn pasteSelection(app: *App) void {
     exitVisual(app);
 }
 
-/// `.`: replay the last compound edit (a clip move, or a visual range
-/// delete/paste) at the current cursor. No-op ("nothing to repeat") if the
-/// last edit came from a different editor or there wasn't one.
+/// `.`: replay the last compound edit (a clip move, a clip resize, or a
+/// visual range delete/paste) at the current cursor. No-op ("nothing to
+/// repeat") if the last edit came from a different editor or there wasn't
+/// one.
 fn repeatLastEdit(app: *App) void {
     switch (app.last_edit) {
         .arr_move_clip => |v| moveClip(app, v.delta),
+        .arr_resize_clip => |v| resizeClip(app, v.delta),
         .arr_range_delete => |v| {
             app.arr_visual_anchor = app.arr_cursor_bar + (v.width - 1);
             deleteSelection(app);
@@ -530,6 +535,35 @@ fn moveClip(app: *App, delta: i32) void {
     app.arr_cursor_bar = new_start;
     if (app.session.song_mode) app.session.rebuildSongData();
     app.setStatus("clip → bar {d}", .{new_start + 1});
+}
+
+/// `+`/`-`: edge-resize the clip under the cursor by `delta` bars (count-
+/// scaled, like `<`/`>`), clamped to a minimum of 1 bar. Growing evicts
+/// whatever clips the new span now overlaps — the same eviction rule
+/// `moveClip`/stamp/paste already follow. A clip's own content loops to fill
+/// whatever span it's given (Session.rebuildSongData for melodic clips,
+/// DrumMachine.fireSongStep for drum clips), so growing a short pattern is
+/// exactly how it repeats across a longer phrase.
+fn resizeClip(app: *App, delta: i32) void {
+    const lane = app.session.arrangement.lane(app.cursor) orelse return;
+    const clip = lane.clipAt(app.arr_cursor_bar) orelse {
+        app.setStatus("no clip here", .{});
+        return;
+    };
+    const new_len: u32 = @intCast(@max(@as(i64, clip.length_bars) + delta, 1));
+    if (new_len == clip.length_bars) return;
+    history.push(app, history.captureLane(app, @intCast(app.cursor)));
+    app.last_edit = .{ .arr_resize_clip = .{ .delta = delta } };
+    var resized: ws.Clip = for (lane.clips.items, 0..) |c, i| {
+        if (c.covers(app.arr_cursor_bar)) break lane.clips.orderedRemove(i);
+    } else unreachable; // clipAt() above proved a covering clip exists
+    resized.length_bars = new_len;
+    lane.place(app.allocator, resized) catch {
+        app.setStatus("resize failed (out of memory)", .{});
+        return;
+    };
+    if (app.session.song_mode) app.session.rebuildSongData();
+    app.setStatus("clip length → {d} bar(s)", .{new_len});
 }
 
 fn deleteClip(app: *App) void {

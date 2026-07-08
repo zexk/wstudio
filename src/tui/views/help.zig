@@ -234,7 +234,8 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("y / p",        "yank / paste clip (matching track kind)");
     t.key("v",            "visual mode: select a bar range on this lane — y/d/p");
     t.key("< / >",        "move clip left / right by a bar");
-    t.key(".",            "repeat the last clip move or visual range delete/paste");
+    t.key("- / +",        "edge-resize clip length by a bar (content loops to fill it)");
+    t.key(".",            "repeat the last clip move / resize or visual range delete/paste");
     t.key("( / )",        "set loop start / end at cursor bar");
     t.key("b",            "toggle A/B loop on/off");
     t.key("g",            "play from cursor bar");

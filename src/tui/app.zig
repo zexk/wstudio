@@ -156,6 +156,7 @@ pub const RepeatOp = union(enum) {
     drum_range_delete: struct { width: u8 },
     drum_range_paste,
     arr_move_clip: struct { delta: i32 },
+    arr_resize_clip: struct { delta: i32 },
     arr_range_delete: struct { width: u32 },
     arr_range_paste,
     automation_range_delete: struct { width: u32 },

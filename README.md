@@ -284,6 +284,8 @@ Done:
       arrangement clips — including clips evicted by a stamp
 - [x] Melodic clip editing, Ableton-style: clips own their notes; `e` on a
       clip opens it in the piano roll and edits write back into the clip
+- [x] Arrangement clip edge-resize (`-`/`+`, count-scaled): a clip's content
+      loops to fill whatever bar span it's given, melodic or drum
 - [x] Time signature setting (`:sig <n>`, any /4 meter, persisted)
 - [x] Master bus limiter (always on; hot mixes duck instead of clipping)
 - [x] Pattern copy/paste across tracks (`y`/`P` in piano roll and drum grid)

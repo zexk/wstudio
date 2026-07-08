@@ -2065,6 +2065,44 @@ test "arrangement operator+motion: d3l / y3l act on a bar range without entering
     try std.testing.expectEqual(@as(u32, 11), app.arr_cursor_bar);
 }
 
+test "arrangement +/- edge-resize a clip; undo/dot-repeat, min clamp, growth evicts" {
+    var app = try testApp();
+    defer app.deinit();
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.5 });
+    try app.session.stampClip(0, 0); // 1-bar clip at bar 0
+    try app.session.stampClip(0, 3); // a second clip, in the way of growth
+
+    app.view = .arrangement;
+    app.cursor = 0;
+    app.arr_cursor_bar = 0;
+    const lane = app.session.arrangement.lane(0).?;
+    try std.testing.expectEqual(@as(u32, 1), lane.clipAt(0).?.length_bars);
+
+    // '+' grows the clip by 3 bars (endBar 0+4=4); count-prefixed like '<'/'>'.
+    for ("3+") |c| app.handleKey(.{ .char = c }, 0);
+    try std.testing.expectEqual(@as(u32, 4), lane.clipAt(0).?.length_bars);
+    // Growth now overlaps and evicts the clip stamped at bar 3.
+    try std.testing.expectEqual(@as(usize, 1), lane.clips.items.len);
+    try std.testing.expect(lane.clipAt(3) != null);
+
+    // '.' repeats the last resize (another +3 bars) at the cursor.
+    app.handleKey(.{ .char = '.' }, 0);
+    try std.testing.expectEqual(@as(u32, 7), lane.clipAt(0).?.length_bars);
+
+    // '-' shrinks it back down, clamped to a minimum of 1 bar.
+    for ("9-") |c| app.handleKey(.{ .char = c }, 0);
+    try std.testing.expectEqual(@as(u32, 1), lane.clipAt(0).?.length_bars);
+
+    // Undo restores the length from before the shrink.
+    app.handleKey(.{ .char = 'u' }, 0);
+    try std.testing.expectEqual(@as(u32, 7), lane.clipAt(0).?.length_bars);
+
+    // No clip under the cursor: a clean no-op, not a crash.
+    app.arr_cursor_bar = 50;
+    app.handleKey(.{ .char = '+' }, 0);
+}
+
 test "piano roll M grabs a note; h/l/j/k drag it as one undo step" {
     var app = try testApp();
     defer app.deinit();

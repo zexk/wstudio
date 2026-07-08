@@ -408,18 +408,30 @@ pub const Session = struct {
                     for (lane.clips.items) |c| {
                         const mel = switch (c.content) { .melodic => |m| m, .drum => continue };
                         const clip_start_beat = @as(f64, @floatFromInt(c.start_bar)) * bpb;
-                        for (mel.notes) |note| {
+                        // The captured pattern repeats to fill the clip's own
+                        // bar span (length_bars, edge-resizable in the
+                        // arrangement editor) — the same repeat-to-fill-span
+                        // rule DrumMachine.fireSongStep already applies to
+                        // drum clips, just expressed in beats instead of a
+                        // step modulo since melodic content has no fixed grid.
+                        const clip_span_beats = @as(f64, @floatFromInt(c.length_bars)) * bpb;
+                        if (mel.length_beats <= 0) continue;
+                        var rep_start: f64 = 0;
+                        while (rep_start < clip_span_beats) : (rep_start += mel.length_beats) {
+                            for (mel.notes) |note| {
+                                if (n >= notes.len) break;
+                                if (note.start_beat >= mel.length_beats) continue;
+                                const abs_start = rep_start + note.start_beat;
+                                if (abs_start >= clip_span_beats) continue;
+                                notes[n] = .{
+                                    .pitch = note.pitch,
+                                    .start_beat = clip_start_beat + abs_start,
+                                    .duration_beat = note.duration_beat,
+                                    .velocity = note.velocity,
+                                };
+                                n += 1;
+                            }
                             if (n >= notes.len) break;
-                            // The clip plays its captured pattern once at its
-                            // start; notes past the loop length are ignored.
-                            if (note.start_beat >= mel.length_beats) continue;
-                            notes[n] = .{
-                                .pitch = note.pitch,
-                                .start_beat = clip_start_beat + note.start_beat,
-                                .duration_beat = note.duration_beat,
-                                .velocity = note.velocity,
-                            };
-                            n += 1;
                         }
                     }
                     pp.setSongNotes(notes[0..n], song_len_beats);
@@ -702,6 +714,29 @@ test "song mode flattens a melodic clip to absolute beats" {
 
     s.setSongMode(false);
     try std.testing.expect(!pp.song_mode);
+}
+
+test "song mode repeats a melodic clip's pattern to fill an edge-resized span" {
+    var s = try Session.initDefault(std.testing.allocator);
+    defer s.deinit();
+    try s.setInstrument(0, .poly_synth);
+    const pp = &s.racks.items[0].pattern_player.?;
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 1.0 });
+    pp.length_beats = 4.0; // one bar in 4/4
+    try s.stampClip(0, 0);
+
+    // Edge-resize the clip to 3 bars — 3x the captured pattern's length —
+    // the same operation editors/arrangement.zig's resizeClip performs.
+    const lane = s.arrangement.lane(0).?;
+    lane.clips.items[0].length_bars = 3;
+
+    s.setSongMode(true);
+    // The one-note pattern should repeat 3 times: beats 0, 4, 8.
+    try std.testing.expectEqual(@as(u16, 3), pp.song_note_count);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.0), pp.song_notes[0].start_beat, 1e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 4.0), pp.song_notes[1].start_beat, 1e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 8.0), pp.song_notes[2].start_beat, 1e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 12.0), pp.song_length_beats, 1e-9);
 }
 
 test "stampClip captures the active drum variant" {
