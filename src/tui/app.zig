@@ -99,6 +99,14 @@ pub const BrowserEntry = struct {
     is_dir: bool,
 };
 
+/// A session-only (not persisted) file-browser bookmark — `path` is the
+/// absolute path `openBrowser`/`setBrowserDir` canonicalize to, so jumping
+/// to it later works regardless of what directory is currently listed.
+pub const Bookmark = struct {
+    path: []u8,
+    is_dir: bool,
+};
+
 /// One yanked piano-roll pattern: a private copy of the notes + loop length.
 pub const PianoClip = struct {
     notes: [pattern_mod.max_notes]pattern_mod.Note,
@@ -375,6 +383,14 @@ pub const App = struct {
     browser_cursor: usize = 0,
     browser_scroll: usize = 0,
     browser_purpose: BrowserPurpose = .load_sample,
+    /// `b` toggles the cursor entry in/out; session-only, freed in deinit.
+    bookmarks: std.ArrayListUnmanaged(Bookmark) = .empty,
+    /// `B` swaps the browser's listing for `bookmarks` in place — own
+    /// cursor/scroll so returning to the directory listing (`esc`/`q`)
+    /// doesn't disturb where you were browsing.
+    browser_bookmark_mode: bool = false,
+    bookmark_cursor: usize = 0,
+    bookmark_scroll: usize = 0,
     /// Last submitted `/` search pattern, owned (fixed buffer, same
     /// convention as `project_path_buf`), shared across views the same way
     /// vim's search register is global — `n`/`N` repeat it in whichever view
@@ -405,6 +421,8 @@ pub const App = struct {
         self.freeBrowserEntries();
         self.browser_entries.deinit(self.allocator);
         if (self.browser_dir.len > 0) self.allocator.free(self.browser_dir);
+        for (self.bookmarks.items) |b| self.allocator.free(b.path);
+        self.bookmarks.deinit(self.allocator);
         for (self.cmd_history.items) |s| self.allocator.free(s);
         self.cmd_history.deinit(self.allocator);
         self.history.deinit(self.allocator);
@@ -719,6 +737,7 @@ pub const App = struct {
     /// File browser: click a row to descend into it or activate it (same as
     /// enter/l/space); scroll moves the highlight.
     fn browserMouse(self: *App, ev: modal_mod.MouseEvent, row: usize) void {
+        if (self.browser_bookmark_mode) return; // keyboard-only overlay
         switch (ev.kind) {
             .press => {
                 if (row < 2) return;
@@ -952,6 +971,10 @@ pub const App = struct {
     /// go to the parent dir, g/G jump to the list ends, `~` jumps home,
     /// esc/q cancel back to the view that opened the browser.
     fn handleBrowserKey(self: *App, key: modal_mod.Key) void {
+        if (self.browser_bookmark_mode) {
+            self.handleBookmarkListKey(key);
+            return;
+        }
         switch (key) {
             .escape => self.closeBrowser(),
             .enter => self.browserActivate(),
@@ -975,11 +998,93 @@ pub const App = struct {
                 },
                 'n' => self.searchBrowser(1),
                 'N' => self.searchBrowser(-1),
+                'b' => self.toggleBookmark(),
+                'B' => {
+                    if (self.bookmarks.items.len == 0) {
+                        self.setStatus("no bookmarks yet — b marks the entry under the cursor", .{});
+                        return;
+                    }
+                    self.browser_bookmark_mode = true;
+                    self.bookmark_cursor = @min(self.bookmark_cursor, self.bookmarks.items.len - 1);
+                },
                 'q' => self.closeBrowser(),
                 else => {},
             },
             else => {},
         }
+    }
+
+    /// `b`: toggle the entry under the browser cursor in/out of `bookmarks`,
+    /// keyed by absolute path so the same file/dir reached two different ways
+    /// still dedupes.
+    fn toggleBookmark(self: *App) void {
+        if (self.browser_cursor >= self.browser_entries.items.len) return;
+        const entry = self.browser_entries.items[self.browser_cursor];
+        const joined = std.fs.path.join(self.allocator, &.{ self.browser_dir, entry.name }) catch return;
+        defer self.allocator.free(joined);
+
+        for (self.bookmarks.items, 0..) |b, i| {
+            if (std.mem.eql(u8, b.path, joined)) {
+                self.allocator.free(b.path);
+                _ = self.bookmarks.swapRemove(i);
+                self.setStatus("unbookmarked: {s}", .{entry.name});
+                return;
+            }
+        }
+        const owned = self.allocator.dupe(u8, joined) catch return;
+        self.bookmarks.append(self.allocator, .{ .path = owned, .is_dir = entry.is_dir }) catch {
+            self.allocator.free(owned);
+            return;
+        };
+        self.setStatus("bookmarked: {s}", .{entry.name});
+    }
+
+    /// Key handling while `browser_bookmark_mode` is showing the bookmark
+    /// list instead of the current directory.
+    fn handleBookmarkListKey(self: *App, key: modal_mod.Key) void {
+        switch (key) {
+            .escape => self.browser_bookmark_mode = false,
+            .enter => self.jumpToBookmark(),
+            .char => |c| switch (c) {
+                'j' => { if (self.bookmark_cursor + 1 < self.bookmarks.items.len) self.bookmark_cursor += 1; },
+                'k' => { if (self.bookmark_cursor > 0) self.bookmark_cursor -= 1; },
+                'g' => self.bookmark_cursor = 0,
+                'G' => self.bookmark_cursor = self.bookmarks.items.len -| 1,
+                'l', ' ' => self.jumpToBookmark(),
+                'd' => {
+                    if (self.bookmark_cursor >= self.bookmarks.items.len) return;
+                    self.allocator.free(self.bookmarks.items[self.bookmark_cursor].path);
+                    _ = self.bookmarks.swapRemove(self.bookmark_cursor);
+                    if (self.bookmarks.items.len == 0) self.browser_bookmark_mode = false
+                    else self.bookmark_cursor = @min(self.bookmark_cursor, self.bookmarks.items.len - 1);
+                },
+                'q' => self.browser_bookmark_mode = false,
+                else => {},
+            },
+            else => {},
+        }
+    }
+
+    /// enter/l/space on a bookmark: directories are opened directly; a
+    /// bookmarked file opens its parent directory with the cursor on it if
+    /// the current browser purpose's extension filter still shows it (see
+    /// setBrowserDir), otherwise the parent directory listing is still a
+    /// reasonable landing spot.
+    fn jumpToBookmark(self: *App) void {
+        if (self.bookmark_cursor >= self.bookmarks.items.len) return;
+        const bm = self.bookmarks.items[self.bookmark_cursor];
+        const dir = if (bm.is_dir) bm.path else (std.fs.path.dirname(bm.path) orelse bm.path);
+        self.setBrowserDir(dir) catch |e| {
+            self.setStatus("browse: {s}", .{@errorName(e)});
+            return;
+        };
+        if (!bm.is_dir) {
+            const base = std.fs.path.basename(bm.path);
+            for (self.browser_entries.items, 0..) |e, i| {
+                if (std.mem.eql(u8, e.name, base)) { self.browser_cursor = i; break; }
+            }
+        }
+        self.browser_bookmark_mode = false;
     }
 
     /// Parent of `browser_dir` (root's parent is itself — nothing to go up to).
@@ -1011,6 +1116,7 @@ pub const App = struct {
 
     fn closeBrowser(self: *App) void {
         self.freeBrowserEntries();
+        self.browser_bookmark_mode = false;
         self.view = self.prev_view;
     }
 

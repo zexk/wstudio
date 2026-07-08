@@ -26,6 +26,8 @@ fn purposeLabel(purpose: app_mod.BrowserPurpose, buf: []u8) []const u8 {
 }
 
 pub fn drawFileBrowser(app: anytype, w: *std.Io.Writer, rows: usize) !void {
+    if (app.browser_bookmark_mode) return drawBookmarkList(app, w, rows);
+
     var label_buf: [32]u8 = undefined;
     try w.writeAll(bold ++ " BROWSE" ++ rst);
     try w.writeAll(dim ++ "  " ++ rst);
@@ -87,10 +89,58 @@ fn writeHighlighted(w: *std.Io.Writer, name: []const u8, pattern: []const u8, ro
     }
 }
 
+/// `B`'s overlay: the bookmark list in place of the directory listing, same
+/// visual layout as drawFileBrowser's own list (see App.handleBookmarkListKey
+/// for the input side).
+fn drawBookmarkList(app: anytype, w: *std.Io.Writer, rows: usize) !void {
+    try w.writeAll(bold ++ " BOOKMARKS" ++ rst);
+    try endLine(w);
+    try w.writeAll(dim ++ "session-only — cleared on quit" ++ rst);
+    try endLine(w);
+
+    const marks = app.bookmarks.items;
+    const body = rows -| 7;
+    const visible = @max(body, 1);
+    if (marks.len == 0) {
+        try w.writeAll(dim ++ "  (no bookmarks)" ++ rst);
+        try endLine(w);
+        for (1..visible) |_| try endLine(w);
+        return;
+    }
+
+    if (app.bookmark_cursor < app.bookmark_scroll) app.bookmark_scroll = app.bookmark_cursor;
+    if (app.bookmark_cursor >= app.bookmark_scroll + visible)
+        app.bookmark_scroll = app.bookmark_cursor - visible + 1;
+    const off = app.bookmark_scroll;
+    const end = @min(off + visible, marks.len);
+
+    for (marks[off..end], off..) |bm, i| {
+        const is_sel = i == app.bookmark_cursor;
+        if (is_sel) try w.writeAll(sel);
+        try w.writeAll(if (is_sel) "  > " else "    ");
+        try w.writeAll(bm.path);
+        if (bm.is_dir) try w.writeAll("/");
+        try w.writeAll(rst);
+        try endLine(w);
+    }
+    for (end - off..visible) |_| try endLine(w);
+}
+
 pub fn drawFileBrowserStatus(app: anytype, w: *std.Io.Writer) !void {
     if (app.modal.mode == .search) {
         try cmd_mod.writeSearchPrompt(w, app.modal.cmd_buf[0..app.modal.cmd_len], app.modal.cmd_cursor);
         return;
     }
-    try w.writeAll(" j/k: move   enter/l: open   h/backspace: up   ~: home   /: search   esc/q: cancel");
+    if (app.browser_bookmark_mode) {
+        try w.writeAll(" j/k: move  enter/l: jump  d: remove  esc/q: back");
+    } else {
+        try w.writeAll(" j/k: move  enter/l: open  h/bs: up  ~: home  /: search  b/B: mark/list  esc/q: cancel");
+    }
+    // Every other view's status line surfaces App.setStatus messages
+    // (bookmarked/unbookmarked, search "no match", …) the same way — this
+    // one just never had the plumbing until now.
+    if (app.status_len > 0) {
+        try w.writeAll(dim ++ "  " ++ rst);
+        try w.writeAll(app.status_buf[0..app.status_len]);
+    }
 }
