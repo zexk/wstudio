@@ -7,6 +7,7 @@ const ws = @import("wstudio");
 const app_mod = @import("../app.zig");
 const style = @import("../style.zig");
 const cmd_mod = @import("../cmd.zig");
+const fuzzy = @import("../fuzzy.zig");
 
 const rst = style.rst;
 const bold = style.bold;
@@ -53,16 +54,37 @@ pub fn drawFileBrowser(app: anytype, w: *std.Io.Writer, rows: usize) !void {
     const off = app.browser_scroll;
     const end = @min(off + visible, entries.len);
 
+    const pattern = app.searchPattern();
     for (entries[off..end], off..) |entry, i| {
         const is_sel = i == app.browser_cursor;
         if (is_sel) try w.writeAll(sel);
         try w.writeAll(if (is_sel) "  > " else "    ");
-        try w.writeAll(entry.name);
+        try writeHighlighted(w, entry.name, pattern, is_sel);
         if (entry.is_dir) try w.writeAll("/");
         try w.writeAll(rst);
         try endLine(w);
     }
     for (end - off..visible) |_| try endLine(w);
+}
+
+/// Writes `name`, reverse-video highlighting the bytes the last `/` search
+/// pattern matched (see App.searchPattern). On the already-reverse-video
+/// selected row, `sel` would be invisible against itself, so matched bytes
+/// get `bold` instead and the row's `sel` is re-applied after each one.
+fn writeHighlighted(w: *std.Io.Writer, name: []const u8, pattern: []const u8, row_selected: bool) !void {
+    if (pattern.len == 0) { try w.writeAll(name); return; }
+    var match_buf: [128]bool = undefined;
+    const checked = name[0..@min(name.len, match_buf.len)];
+    fuzzy.matchPositions(pattern, checked, match_buf[0..checked.len]);
+    for (name, 0..) |c, i| {
+        const hl = i < checked.len and match_buf[i];
+        if (hl) try w.writeAll(if (row_selected) bold else sel);
+        try w.writeByte(c);
+        if (hl) {
+            try w.writeAll(rst);
+            if (row_selected) try w.writeAll(sel);
+        }
+    }
 }
 
 pub fn drawFileBrowserStatus(app: anytype, w: *std.Io.Writer) !void {

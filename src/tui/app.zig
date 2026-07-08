@@ -1141,7 +1141,10 @@ pub const App = struct {
         }
     }
 
-    fn searchPattern(self: *App) []const u8 {
+    /// The last submitted `/` search pattern (persists past the search
+    /// itself for `n`/`N` repeat — see searchTracks/searchBrowser — and for
+    /// views/browser.zig's match highlighting).
+    pub fn searchPattern(self: *App) []const u8 {
         return self.search_pattern_buf[0..self.search_pattern_len];
     }
 
