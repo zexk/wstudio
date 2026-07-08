@@ -1577,6 +1577,61 @@ test ":track-rename renames a track" {
     try std.testing.expectEqualStrings("renamed", app.session.project.tracks.items[0].name);
 }
 
+test ":track-rename with no track number renames the cursor track" {
+    var app = try App.init(std.testing.allocator, std.Io.failing);
+    defer app.deinit();
+    _ = try app.session.addTrack("second");
+    app.cursor = 1;
+
+    for (":track-rename bass") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqualStrings("track 1", app.session.project.tracks.items[0].name);
+    try std.testing.expectEqualStrings("bass", app.session.project.tracks.items[1].name);
+
+    // A single bare number is still a missing-<name> error, not a rename
+    // to that numeral — the same lone-index usage that already errored.
+    for (":track-rename 3") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqualStrings("bass", app.session.project.tracks.items[1].name);
+}
+
+test ":gain/:pan/:eq with no args at all report the cursor track" {
+    // Only the fully-argless form falls back to the cursor track — a single
+    // token (":gain -6") still means an explicit track number as before,
+    // since a bare number is genuinely ambiguous between "which track" and
+    // "what value for the cursor track" and guessing wrong would silently
+    // touch the wrong track.
+    var app = try testApp(); // synth(0), sampler(1), drums(2)
+    defer app.deinit();
+    app.session.project.tracks.items[1].gain_db = -6.0;
+    app.session.project.tracks.items[1].pan = 0.5;
+    app.cursor = 1;
+
+    for (":gain") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expect(std.mem.indexOf(u8, app.status_buf[0..app.status_len], "track 2 gain: -6.0dB") != null);
+
+    for (":pan") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expect(std.mem.indexOf(u8, app.status_buf[0..app.status_len], "track 2 pan: R50%") != null);
+
+    for (":eq") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expect(std.mem.indexOf(u8, app.status_buf[0..app.status_len], "track 2") != null);
+
+    // An explicit index still targets that track, not the cursor.
+    for (":gain 1") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expect(std.mem.indexOf(u8, app.status_buf[0..app.status_len], "track 1 gain: 0.0dB") != null);
+
+    // On the master row (no cursor track), the fallback bails out cleanly
+    // instead of indexing past the track list.
+    app.cursor = app.session.project.tracks.items.len;
+    for (":gain") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expect(std.mem.indexOf(u8, app.status_buf[0..app.status_len], "usage:") != null);
+}
+
 test "enter on synth track opens synth editor" {
     var app = try testApp();
     defer app.deinit();

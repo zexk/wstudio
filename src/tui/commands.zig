@@ -54,8 +54,8 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "qa!",         .desc = "quit, discarding changes (alias for :q!)", .run = wrap(cmdQuitForce) },
     .{ .name = "bpm",         .desc = "[<value>]  tempo in BPM (20–400)",    .run = wrap(cmdBpm) },
     .{ .name = "sig",         .desc = "[<n>[/4]]  time signature (1–16 beats per bar)", .run = wrap(cmdSig) },
-    .{ .name = "gain",        .desc = "<track> [<dB>]  track gain",          .run = wrap(cmdGain) },
-    .{ .name = "pan",         .desc = "<track> [<-1..1>]  track pan",        .run = wrap(cmdPan) },
+    .{ .name = "gain",        .desc = "[<track>] [<dB>]  track gain (no track: cursor track)", .run = wrap(cmdGain) },
+    .{ .name = "pan",         .desc = "[<track>] [<-1..1>]  track pan (no track: cursor track)", .run = wrap(cmdPan) },
     .{ .name = "vol",         .desc = "[<dB>]  master volume (–40 to +6)",   .run = wrap(cmdVol) },
     .{ .name = "seek",        .desc = "<bar>  move playhead to bar",         .run = wrap(cmdSeek) },
     .{ .name = "load-pad",    .desc = "<1-8> [file]  load WAV into pad (omit the file to browse)",     .run = wrap(cmdLoadPad), .scope = .drum },
@@ -69,11 +69,11 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "new!",        .desc = "start a blank project, discarding unsaved changes", .run = wrap(cmdNewForce) },
     .{ .name = "help",        .desc = "list all commands",                   .run = wrap(cmdHelp) },
     .{ .name = "h",           .desc = "list all commands (alias for :help)", .run = wrap(cmdHelp) },
-    .{ .name = "eq",          .desc = "<track> [<band> <db>]  EQ control",   .run = wrap(cmdEq) },
+    .{ .name = "eq",          .desc = "[<track>] [<band> <db>]  EQ control (no track: cursor track)", .run = wrap(cmdEq) },
     .{ .name = "track-add",   .desc = "[name]  add a synth track",           .run = wrap(cmdTrackAdd) },
     .{ .name = "track-del",   .desc = "[n]  delete track n (default: cursor)", .run = wrap(cmdTrackDel) },
     .{ .name = "d",           .desc = "[n]  delete track n (alias for :track-del)", .run = wrap(cmdTrackDel) },
-    .{ .name = "track-rename",.desc = "<n> <name>  rename track n",          .run = wrap(cmdTrackRename) },
+    .{ .name = "track-rename",.desc = "[<n>] <name>  rename track n (no n: cursor track)", .run = wrap(cmdTrackRename) },
     .{ .name = "save",        .desc = "[file]  save project (default: project.wsj)", .run = wrap(cmdSave) },
     .{ .name = "w",           .desc = "[file]  save project (alias for :save)",      .run = wrap(cmdSave) },
     .{ .name = "wa",          .desc = "[file]  save project (alias for :save)",      .run = wrap(cmdSave) },
@@ -367,17 +367,39 @@ fn cmdTrackDel(app: *App, args: []const u8) void {
 }
 
 fn cmdTrackRename(app: *App, args: []const u8) void {
-    var it = std.mem.splitScalar(u8, std.mem.trim(u8, args, " "), ' ');
-    const n_str = it.next() orelse {
-        app.setStatus("usage: track-rename <n> <name>", .{});
-        return;
-    };
-    const name = std.mem.trim(u8, it.rest(), " ");
-    if (name.len == 0) {
+    const trimmed = std.mem.trim(u8, args, " ");
+    if (trimmed.len == 0) {
         app.setStatus("usage: track-rename <n> <name>", .{});
         return;
     }
-    const n = std.fmt.parseInt(usize, n_str, 10) catch {
+    var it = std.mem.splitScalar(u8, trimmed, ' ');
+    const first = it.next().?;
+    const rest = std.mem.trim(u8, it.rest(), " ");
+
+    // A single token that isn't a bare number is far more likely a
+    // forgotten <name> than someone renaming a track to a numeral: treat
+    // it as the new name for the cursor track — same "no index: act on
+    // the selection" convenience gain/pan/eq now share.
+    const first_is_number = if (std.fmt.parseInt(usize, first, 10)) |_| true else |_| false;
+    if (rest.len == 0 and !first_is_number) {
+        const idx = cursorTrackIdx(app) orelse {
+            app.setStatus("track-rename: cursor is on the master row — give a track number", .{});
+            return;
+        };
+        app.session.project.renameTrack(idx, first) catch {
+            app.setStatus("out of memory", .{});
+            return;
+        };
+        app.dirty = true;
+        app.setStatus("track {d} renamed to \"{s}\"", .{ idx + 1, first });
+        return;
+    }
+
+    if (rest.len == 0) {
+        app.setStatus("usage: track-rename <n> <name>", .{});
+        return;
+    }
+    const n = std.fmt.parseInt(usize, first, 10) catch {
         app.setStatus("track-rename: expected a track number", .{});
         return;
     };
@@ -385,12 +407,12 @@ fn cmdTrackRename(app: *App, args: []const u8) void {
         app.setStatus("track-rename: track must be 1–{d}", .{app.session.project.tracks.items.len});
         return;
     }
-    app.session.project.renameTrack(n - 1, name) catch {
+    app.session.project.renameTrack(n - 1, rest) catch {
         app.setStatus("out of memory", .{});
         return;
     };
     app.dirty = true;
-    app.setStatus("track {d} renamed to \"{s}\"", .{ n, name });
+    app.setStatus("track {d} renamed to \"{s}\"", .{ n, rest });
 }
 
 fn cmdLoadPad(app: *App, args: []const u8) void {
@@ -510,6 +532,15 @@ fn cursorSynth(app: *App) ?*ws.dsp.PolySynth {
     return switch (app.session.racks.items[app.cursor].instrument) {
         .poly_synth => |*s| s, else => null,
     };
+}
+
+/// The cursor's track index, or null when it's on the master row (or out
+/// of range). Shared fallback for commands whose leading `<track>` arg is
+/// now optional — same "no args: act on the selection" convenience
+/// `:track-del`'s cursor fallback already established.
+fn cursorTrackIdx(app: *App) ?usize {
+    if (app.cursor >= app.session.project.tracks.items.len) return null;
+    return app.cursor;
 }
 
 /// The command-line Tab-completion gate (see cmd.Scope): reuses the exact
@@ -1099,19 +1130,26 @@ fn cmdSig(app: *App, args: []const u8) void {
 
 fn cmdGain(app: *App, args: []const u8) void {
     var it = std.mem.splitScalar(u8, args, ' ');
-    const track_str = it.next() orelse {
-        app.setStatus("usage: gain <track> [<dB>]", .{});
-        return;
+    const track_str = it.next() orelse "";
+    // No leading arg at all: fall back to the cursor track, same
+    // convenience :track-del's cursor fallback already established.
+    const track_idx: usize = if (track_str.len == 0)
+        cursorTrackIdx(app) orelse {
+            app.setStatus("usage: gain <track> [<dB>]", .{});
+            return;
+        }
+    else blk: {
+        const track_1 = std.fmt.parseInt(usize, track_str, 10) catch {
+            app.setStatus("gain: bad track number '{s}'", .{track_str});
+            return;
+        };
+        if (track_1 == 0 or track_1 > app.session.project.tracks.items.len) {
+            app.setStatus("gain: track must be 1–{d}", .{app.session.project.tracks.items.len});
+            return;
+        }
+        break :blk track_1 - 1;
     };
-    const track_1 = std.fmt.parseInt(usize, track_str, 10) catch {
-        app.setStatus("gain: bad track number '{s}'", .{track_str});
-        return;
-    };
-    if (track_1 == 0 or track_1 > app.session.project.tracks.items.len) {
-        app.setStatus("gain: track must be 1–{d}", .{app.session.project.tracks.items.len});
-        return;
-    }
-    const track_idx = track_1 - 1;
+    const track_1 = track_idx + 1;
     const track = &app.session.project.tracks.items[track_idx];
     const db_str = std.mem.trim(u8, it.rest(), " ");
     if (db_str.len == 0) {
@@ -1134,19 +1172,24 @@ fn cmdGain(app: *App, args: []const u8) void {
 
 fn cmdPan(app: *App, args: []const u8) void {
     var it = std.mem.splitScalar(u8, std.mem.trim(u8, args, " "), ' ');
-    const track_str = it.next() orelse {
-        app.setStatus("usage: pan <track> [<-1..1>]", .{});
-        return;
+    const track_str = it.next() orelse "";
+    const track_idx: usize = if (track_str.len == 0)
+        cursorTrackIdx(app) orelse {
+            app.setStatus("usage: pan <track> [<-1..1>]", .{});
+            return;
+        }
+    else blk: {
+        const track_1 = std.fmt.parseInt(usize, track_str, 10) catch {
+            app.setStatus("pan: bad track number '{s}'", .{track_str});
+            return;
+        };
+        if (track_1 == 0 or track_1 > app.session.project.tracks.items.len) {
+            app.setStatus("pan: track must be 1–{d}", .{app.session.project.tracks.items.len});
+            return;
+        }
+        break :blk track_1 - 1;
     };
-    const track_1 = std.fmt.parseInt(usize, track_str, 10) catch {
-        app.setStatus("pan: bad track number '{s}'", .{track_str});
-        return;
-    };
-    if (track_1 == 0 or track_1 > app.session.project.tracks.items.len) {
-        app.setStatus("pan: track must be 1–{d}", .{app.session.project.tracks.items.len});
-        return;
-    }
-    const track_idx = track_1 - 1;
+    const track_1 = track_idx + 1;
     const track = &app.session.project.tracks.items[track_idx];
     const val_str = std.mem.trim(u8, it.rest(), " ");
     if (val_str.len == 0) {
@@ -1206,19 +1249,24 @@ fn cmdVol(app: *App, args: []const u8) void {
 
 fn cmdEq(app: *App, args: []const u8) void {
     var it = std.mem.splitScalar(u8, args, ' ');
-    const track_str = it.next() orelse {
-        app.setStatus("usage: eq <track> [<band> <db>]", .{});
-        return;
+    const track_str = it.next() orelse "";
+    const track_idx: usize = if (track_str.len == 0)
+        cursorTrackIdx(app) orelse {
+            app.setStatus("usage: eq <track> [<band> <db>]", .{});
+            return;
+        }
+    else blk: {
+        const track_1 = std.fmt.parseInt(usize, track_str, 10) catch {
+            app.setStatus("eq: bad track number '{s}'", .{track_str});
+            return;
+        };
+        if (track_1 == 0 or track_1 > app.session.racks.items.len) {
+            app.setStatus("eq: track must be 1–{d}", .{app.session.racks.items.len});
+            return;
+        }
+        break :blk track_1 - 1;
     };
-    const track_1 = std.fmt.parseInt(usize, track_str, 10) catch {
-        app.setStatus("eq: bad track number '{s}'", .{track_str});
-        return;
-    };
-    if (track_1 == 0 or track_1 > app.session.racks.items.len) {
-        app.setStatus("eq: track must be 1–{d}", .{app.session.racks.items.len});
-        return;
-    }
-    const track_idx = track_1 - 1;
+    const track_1 = track_idx + 1;
     const rest = std.mem.trim(u8, it.rest(), " ");
     if (rest.len == 0) {
         if (app.session.racks.items[track_idx].fx.find(.eq)) |u| {

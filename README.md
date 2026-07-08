@@ -188,6 +188,10 @@ Done:
       instrument than the cursor track's (e.g. `:load-sample` only offered
       on a sampler track) — typing the full name out of scope still runs it
       and gets that command's own error
+- [x] `:gain`/`:pan`/`:eq`/`:track-rename` fall back to the cursor track
+      when the leading `<track>` number is omitted entirely (an explicit
+      number still always means that track, avoiding any "is this a track
+      or a value" ambiguity)
 - [x] Tracks view scrolls when there are more tracks than fit the terminal —
       the master row stays pinned at the bottom of the list
 - [x] Automation editor visual mode (`v`), range `y`/`d`/`P`, and `.` repeat —
