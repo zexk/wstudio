@@ -23,7 +23,7 @@ const Sample = types.Sample;
 pub const Sampler = struct {
     pub const max_voices: u8 = 16;
     /// Number of editable params (see `adjustParam`).
-    pub const param_count: u8 = 11;
+    pub const param_count: u8 = 12;
 
     pub const NoteVoice = struct {
         active: bool = false,
@@ -45,6 +45,10 @@ pub const Sampler = struct {
     pad: Pad,
     /// MIDI note at which the clip plays at its native pitch.
     root_note: u7 = 60,
+    /// Mono voice mode: a retrigger cuts every other still-ringing voice
+    /// first, so overlapping one-shots (e.g. a held 808 bass note replayed
+    /// before it decays) don't stack. Off by default (polyphonic).
+    mono: bool = false,
 
     // Audio-thread-only state:
     voices: [max_voices]NoteVoice,
@@ -130,6 +134,7 @@ pub const Sampler = struct {
                 const r = @as(i32, self.root_note) + steps;
                 self.root_note = @intCast(std.math.clamp(r, 0, 127));
             },
+            11 => if (steps != 0) { self.mono = !self.mono; },
             else => {},
         }
     }
@@ -189,6 +194,10 @@ pub const Sampler = struct {
     /// the `note_on` device event; also called directly by DrumMachine, whose
     /// pads are plain embedded Samplers.
     pub fn trigger(self: *Sampler, note: u7, vel: f32, block_start: u32) void {
+        // Mono mode: a new note always cuts every still-ringing voice first,
+        // so long one-shots (e.g. a bass note) never overlap themselves.
+        if (self.mono) self.resetAll();
+
         // Reuse a free voice, else steal the oldest active one.
         var slot: usize = 0;
         var oldest_age: u64 = std.math.maxInt(u64);
@@ -321,6 +330,39 @@ test "all_off clears voices" {
     try std.testing.expect(s.voices[0].active);
     s.device().sendEvent(.all_off);
     try std.testing.expect(!s.voices[0].active);
+}
+
+test "mono mode chokes a still-ringing voice on retrigger" {
+    var s = try Sampler.init(std.testing.allocator, 48_000);
+    defer s.deinit();
+
+    // Polyphonic by default: two overlapping triggers hold two active voices.
+    s.trigger(60, 1.0, 0);
+    s.trigger(64, 1.0, 0);
+    try std.testing.expect(s.voices[0].active);
+    try std.testing.expect(s.voices[1].active);
+
+    s.resetAll();
+    s.mono = true;
+    s.trigger(60, 1.0, 0);
+    try std.testing.expect(s.voices[0].active);
+    s.trigger(64, 1.0, 0);
+    // The first voice was choked by the second trigger; only one is active.
+    var active_count: usize = 0;
+    for (s.voices) |nv| { if (nv.active) active_count += 1; }
+    try std.testing.expectEqual(@as(usize, 1), active_count);
+}
+
+test "adjustParam toggles mono" {
+    var s = try Sampler.init(std.testing.allocator, 48_000);
+    defer s.deinit();
+    try std.testing.expect(!s.mono);
+    s.adjustParam(11, 1);
+    try std.testing.expect(s.mono);
+    s.adjustParam(11, -1);
+    try std.testing.expect(!s.mono);
+    s.adjustParam(11, 0); // steps=0 is a no-op, mirroring the reverse toggle
+    try std.testing.expect(!s.mono);
 }
 
 test "adjustParam edits clip params and root note" {

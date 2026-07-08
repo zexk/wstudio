@@ -41,10 +41,10 @@ const rowVal = style.rowVal;
 const barRow = style.barRow;
 const enumRow = style.enumRow;
 
-/// Names for the sampler param rows, indexed by `app.sampler_param`. Index 10
-/// (root) applies only to the standalone Sampler, not drum pads.
+/// Names for the sampler param rows, indexed by `app.sampler_param`. Indices
+/// 10-11 (root, voice) apply only to the standalone Sampler, not drum pads.
 const sampler_param_labels = [_][]const u8{
-    "start", "end", "pitch", "attack", "decay", "sustain", "release", "gain", "pan", "reverse", "root",
+    "start", "end", "pitch", "attack", "decay", "sustain", "release", "gain", "pan", "reverse", "root", "voice",
 };
 
 pub fn drawSamplerEditor(
@@ -97,7 +97,7 @@ pub fn drawSamplerEditor(
     // ── Waveform panel ───────────────────────────
     // The section headers + param rows need ~13 (drum) / ~16 (sampler) lines;
     // give the waveform whatever vertical space remains, capped for readability.
-    const param_lines: usize = if (is_drum) 13 else 16;
+    const param_lines: usize = if (is_drum) 13 else 17;
     const wave_rows: usize = @min(@as(usize, 8), body -| (written + param_lines));
     if (wave_rows >= 2) {
         try drawWaveformPad(w, pad, cols, wave_rows);
@@ -162,6 +162,10 @@ pub fn drawSamplerEditor(
         var nbuf: [5]u8 = undefined;
         try barRow(w, c == 10, false, grn, "root", @floatFromInt(root), 127.0,
             try std.fmt.bufPrint(&buf, "{s} ({d})", .{ midi.noteName(root, &nbuf), root }));
+        written += 1;
+        const mono = if (app.editingSampler()) |s| s.mono else false;
+        const voice_names = [_][]const u8{ "poly", "mono" };
+        try enumRow(w, c == 11, false, grn, "voice", &voice_names, if (mono) 1 else 0);
         written += 1;
     }
 
@@ -290,6 +294,7 @@ pub fn drawSamplerStatus(app: anytype, w: *std.Io.Writer, cmds: []const cmd_mod.
             var nbuf: [5]u8 = undefined;
             try w.writeAll(midi.noteName(root, &nbuf));
         },
+        11 => try w.writeAll(if (app.editingSampler()) |s| (if (s.mono) "mono" else "poly") else "poly"),
         else => {},
     }
     try w.writeAll(rst);

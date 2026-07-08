@@ -108,7 +108,7 @@ pub fn adjustParam(app: *App, steps: i32) void {
 /// one — drawSamplerEditor skips it below 2 rows). `body` is the view's
 /// content-row budget (`rows -| 5`, matching drawSamplerEditor).
 fn waveRows(is_drum: bool, body: usize) usize {
-    const param_lines: usize = if (is_drum) 13 else 16;
+    const param_lines: usize = if (is_drum) 13 else 17;
     const wr = @min(@as(usize, 8), body -| (1 + param_lines));
     return if (wr >= 2) wr else 0;
 }
@@ -122,7 +122,7 @@ fn paramRelRow(idx: u8) usize {
         0 => 1, 1 => 2, 2 => 3, // SAMPLE (header at 0): start, end, pitch
         3 => 5, 4 => 6, 5 => 7, 6 => 8, // AMP ENV (header at 4): attack..release
         7 => 10, 8 => 11, 9 => 12, // OUT (header at 9): gain, pan, reverse
-        10 => 14, // KEY (header at 13): root — standalone sampler only
+        10 => 14, 11 => 15, // KEY (header at 13): root, voice — standalone sampler only
         else => 0,
     };
 }
@@ -134,7 +134,7 @@ fn paramAtRow(app: *App, row: usize, view_rows: usize) ?u8 {
     const w_rows = waveRows(is_drum, view_rows -| 5);
     if (row < 1 + w_rows) return null;
     const rel = row - (1 + w_rows);
-    const count: u8 = if (is_drum) 10 else 11;
+    const count: u8 = if (is_drum) 10 else 12;
     var i: u8 = 0;
     while (i < count) : (i += 1) {
         if (paramRelRow(i) == rel) return i;

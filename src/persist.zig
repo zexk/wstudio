@@ -297,6 +297,10 @@ pub const InstrumentKind = enum { empty, poly_synth, sampler, drum_machine };
 pub const SamplerSnap = struct {
     pad: PadSnap = .{},
     root_note: u8 = 60,
+    /// Mono voice mode (see `dsp.Sampler.mono`). Additive optional-with-
+    /// default field, no version bump needed — defaults to polyphonic so
+    /// older projects load unchanged.
+    mono: bool = false,
     notes: []const NoteSnap = &.{},
     length_beats: f64 = 4.0,
 };
@@ -469,6 +473,7 @@ fn rackToSnap(aa: std.mem.Allocator, rack: *Rack, sample_rate: u32) !RackSnap {
                     .name = try aa.dupe(u8, s.clipName()),
                 },
                 .root_note = s.root_note,
+                .mono = s.mono,
             };
             if (rack.pattern_player) |*pp| {
                 smp.length_beats = pp.length_beats;
@@ -884,6 +889,7 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
                     const s = &rack.instrument.sampler;
                     applyPadSnap(&s.pad, smp.pad);
                     s.root_note = @intCast(@min(smp.root_note, 127));
+                    s.mono = smp.mono;
                     rack.pattern_player.?.length_beats = smp.length_beats;
                     loadNotes(&rack.pattern_player.?, smp.notes);
                 }
@@ -1793,6 +1799,7 @@ test "buildSession: empty and sampler racks round-trip" {
                 .sampler = .{
                     .pad = .{ .pitch_semitones = 3.0, .gain = 0.8, .reverse = true },
                     .root_note = 48,
+                    .mono = true,
                     .notes = &.{
                         .{ .pitch = 64, .start_beat = 0.0, .duration_beat = 0.5, .velocity = 0.7 },
                     },
@@ -1813,6 +1820,7 @@ test "buildSession: empty and sampler racks round-trip" {
     try testing.expectApproxEqAbs(@as(f32, 0.8), smp.pad.gain, 1e-4);
     try testing.expect(smp.pad.reverse);
     try testing.expectEqual(@as(u7, 48), smp.root_note);
+    try testing.expect(smp.mono);
 
     const pp = &session.racks.items[1].pattern_player.?;
     try testing.expectEqual(@as(u16, 1), pp.note_count);
