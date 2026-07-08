@@ -187,7 +187,7 @@ pub fn drawArrangement(
     for (used..@max(used, rows -| 3)) |_| try endLine(w);
 }
 
-pub fn drawArrangementStatus(app: anytype, w: *std.Io.Writer, cmds: []const cmd_mod.Def) !void {
+pub fn drawArrangementStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer, cmds: []const cmd_mod.Def) !void {
     if (app.modal.mode == .command) {
         try cmd_mod.writePrompt(w, cmds, app.modal.cmd_buf[0..app.modal.cmd_len], app.modal.cmd_cursor, 60);
         return;
@@ -202,13 +202,11 @@ pub fn drawArrangementStatus(app: anytype, w: *std.Io.Writer, cmds: []const cmd_
     // the old single combined badge carried.
     try style.writeModeBadge(w, app.modal.mode);
     if (app.session.song_mode) {
-        try w.writeAll(" " ++ grn ++ "SONG" ++ rst);
+        try right.writeAll(grn ++ "SONG" ++ rst);
     } else {
-        try w.writeAll(" " ++ yel ++ "PATTERN" ++ rst);
+        try right.writeAll(yel ++ "PATTERN" ++ rst);
     }
-    if (app.arr_zoom == .compact) {
-        try w.writeAll(dim ++ "  " ++ rst ++ bcyn ++ "zoom" ++ rst);
-    }
+    if (app.arr_zoom == .compact) try right.writeAll("  " ++ bcyn ++ "zoom" ++ rst);
 
     try w.writeAll(dim ++ "  bar " ++ rst);
     try w.print("{d}", .{app.arr_cursor_bar + 1});

@@ -287,7 +287,7 @@ fn drawSynthEditorFull(app: anytype, w: *std.Io.Writer, snap: engine_mod.UiSnaps
     // is responsible for slicing and padding to fit the terminal height.
 }
 
-pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, cmds: []const cmd_mod.Def) !void {
+pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer, cmds: []const cmd_mod.Def) !void {
     if (app.modal.mode == .command) {
         try cmd_mod.writePrompt(w, cmds, app.modal.cmd_buf[0..app.modal.cmd_len], app.modal.cmd_cursor, 60);
         return;
@@ -316,7 +316,7 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, cmds: []const cmd_mod.De
     };
     const cur = @min(@as(usize, app.synth_cursor), labels.len - 1);
     try style.writeModeBadge(w, app.modal.mode);
-    try w.writeAll(" " ++ acc ++ "SYNTH" ++ rst);
+    try right.writeAll(acc ++ "SYNTH" ++ rst);
     try w.writeAll(dim ++ "  " ++ rst);
     try w.writeAll(labels[cur]);
     try w.writeAll(dim ++ ": " ++ rst);

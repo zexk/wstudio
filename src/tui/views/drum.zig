@@ -172,7 +172,7 @@ pub fn drawDrumGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, s
     for (used..@max(used, rows -| 3)) |_| try endLine(w);
 }
 
-pub fn drawDrumStatus(app: anytype, w: *std.Io.Writer, cmds: []const cmd_mod.Def) !void {
+pub fn drawDrumStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer, cmds: []const cmd_mod.Def) !void {
     if (app.modal.mode == .command) {
         try cmd_mod.writePrompt(w, cmds, app.modal.cmd_buf[0..app.modal.cmd_len], app.modal.cmd_cursor, 60);
         return;
@@ -185,7 +185,7 @@ pub fn drawDrumStatus(app: anytype, w: *std.Io.Writer, cmds: []const cmd_mod.Def
     const s = app.drum_cursor[1];
     const dm = app.drumMachine();
     try style.writeModeBadge(w, app.modal.mode);
-    try w.writeAll(" " ++ acc ++ "DRUM" ++ rst);
+    try right.writeAll(acc ++ "DRUM" ++ rst);
     try w.writeAll(dim ++ "  pat " ++ rst);
     try w.print("{c}", .{DrumMachine.variantLetter(dm.variant)});
     try w.writeAll(dim ++ "/" ++ rst);

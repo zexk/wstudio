@@ -458,7 +458,7 @@ fn formatFxValue(buf: []u8, p: *const ws.FxPayload, idx: usize) []const u8 {
     };
 }
 
-pub fn drawFxStatus(app: anytype, w: *std.Io.Writer, target: spectrum_ed.EqTarget, cmds: []const cmd_mod.Def) !void {
+pub fn drawFxStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer, target: spectrum_ed.EqTarget, cmds: []const cmd_mod.Def) !void {
     if (app.modal.mode == .command) {
         try cmd_mod.writePrompt(w, cmds, app.modal.cmd_buf[0..app.modal.cmd_len], app.modal.cmd_cursor, 60);
         return;
@@ -474,7 +474,7 @@ pub fn drawFxStatus(app: anytype, w: *std.Io.Writer, target: spectrum_ed.EqTarge
     if (spectrum_ed.focusedUnit(app, fx)) |unit| {
         const k = unit.kind();
         try style.writeModeBadge(w, app.modal.mode);
-        try w.writeAll(" " ++ acc ++ "FX" ++ rst);
+        try right.writeAll(acc ++ "FX" ++ rst);
         try w.writeAll(dim ++ "  " ++ rst);
         try w.print("{d}/{d} {s}", .{ app.fx_focus + 1, fx.units.items.len, spectrum_ed.unitLabel(k) });
         try w.writeAll(dim ++ "  " ++ rst);
@@ -498,7 +498,7 @@ pub fn drawFxStatus(app: anytype, w: *std.Io.Writer, target: spectrum_ed.EqTarge
         try w.writeAll(dim ++ "]" ++ rst);
     } else {
         try style.writeModeBadge(w, app.modal.mode);
-        try w.writeAll(" " ++ acc ++ "FX" ++ rst);
+        try right.writeAll(acc ++ "FX" ++ rst);
         try w.writeAll(dim ++ "  chain empty: 'a' inserts an effect" ++ rst);
     }
     if (app.status_len > 0) {

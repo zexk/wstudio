@@ -126,13 +126,13 @@ fn drawBookmarkList(app: anytype, w: *std.Io.Writer, rows: usize) !void {
     for (end - off..visible) |_| try endLine(w);
 }
 
-pub fn drawFileBrowserStatus(app: anytype, w: *std.Io.Writer) !void {
+pub fn drawFileBrowserStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !void {
     if (app.modal.mode == .search) {
         try cmd_mod.writeSearchPrompt(w, app.modal.cmd_buf[0..app.modal.cmd_len], app.modal.cmd_cursor);
         return;
     }
     try style.writeModeBadge(w, app.modal.mode);
-    try w.writeAll(" " ++ acc ++ "FILES" ++ rst);
+    try right.writeAll(acc ++ "FILES" ++ rst);
     if (app.browser_bookmark_mode) {
         try w.writeAll(dim ++ "  " ++ rst ++ "j/k: move  enter/l: jump  d: remove  esc/q: back");
     } else {

@@ -313,7 +313,7 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
     for (used..@max(used, rows -| 3)) |_| try endLine(w);
 }
 
-pub fn drawPianoRollStatus(app: anytype, w: *std.Io.Writer, cmds: []const cmd_mod.Def) !void {
+pub fn drawPianoRollStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer, cmds: []const cmd_mod.Def) !void {
     if (app.modal.mode == .command) {
         try cmd_mod.writePrompt(w, cmds, app.modal.cmd_buf[0..app.modal.cmd_len], app.modal.cmd_cursor, 60);
         return;
@@ -336,7 +336,8 @@ pub fn drawPianoRollStatus(app: anytype, w: *std.Io.Writer, cmds: []const cmd_mo
     const sub = app.piano_cursor_step % spb + 1;
 
     try style.writeModeBadge(w, app.modal.mode);
-    try w.writeAll(" " ++ acc ++ "PIANO" ++ rst);
+    try right.writeAll(acc ++ "PIANO" ++ rst);
+    if (app.piano_zoom == .compact) try right.writeAll("  " ++ bcyn ++ "zoom" ++ rst);
     try w.writeAll(dim ++ "  " ++ rst);
     try w.print("{s}", .{label});
     try w.writeAll(dim ++ "  bar " ++ rst);
@@ -347,9 +348,6 @@ pub fn drawPianoRollStatus(app: anytype, w: *std.Io.Writer, cmds: []const cmd_mo
     try w.print("{d:.0}b", .{pp.length_beats});
     try w.writeAll(dim ++ "  grid " ++ rst);
     try w.writeAll(if (app.piano_grid == .triplet) "1/16T" else "1/16");
-    if (app.piano_zoom == .compact) {
-        try w.writeAll(dim ++ "  " ++ rst ++ bcyn ++ "zoom" ++ rst);
-    }
     // Swing only shown when it's off the straight default (50%) — a plain
     // pattern shouldn't pay status-line width for a param it isn't using.
     const swing_pct = pp.swing.load(.monotonic);

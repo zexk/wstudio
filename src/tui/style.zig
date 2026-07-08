@@ -128,6 +128,25 @@ pub fn writeModeBadge(w: *std.Io.Writer, mode: Mode) !void {
     try w.writeAll(rst);
 }
 
+/// Visible column width of `raw` (may contain ANSI SGR sequences): escapes
+/// cost nothing, everything else counts as one column per UTF-8 lead byte.
+/// Shared by writeClamped (left content) and writeSplitRow (both sides).
+fn visibleWidth(raw: []const u8) usize {
+    var i: usize = 0;
+    var col: usize = 0;
+    while (i < raw.len) {
+        if (raw[i] == 0x1b and i + 1 < raw.len and raw[i + 1] == '[') {
+            i += 2;
+            while (i < raw.len and !((raw[i] >= 'A' and raw[i] <= 'Z') or (raw[i] >= 'a' and raw[i] <= 'z'))) : (i += 1) {}
+            if (i < raw.len) i += 1;
+            continue;
+        }
+        if (raw[i] & 0xC0 != 0x80) col += 1;
+        i += 1;
+    }
+    return col;
+}
+
 /// Write `raw` (a single line, no \r\n, may contain ANSI SGR sequences) to
 /// `w`, clamped to `max_cols` visible columns. ANSI escapes are copied
 /// through verbatim (they cost no width); everything else counts as one
@@ -153,6 +172,29 @@ pub fn writeClamped(w: *std.Io.Writer, raw: []const u8, max_cols: usize) !void {
         try w.writeByte(raw[i]);
         i += 1;
     }
+    try w.writeAll(rst);
+}
+
+/// Writes `left` then right-aligns `right` flush against `cols` (padding
+/// the gap between them with spaces) — the lualine "sections" look: mode/
+/// position info reading left-to-right, identity info (current view, L/R
+/// meters) pinned to the right edge instead of trailing wherever the left
+/// content happens to end. Both `left` and `right` may contain ANSI SGR
+/// sequences. If they'd collide (combined width leaves no gap), `right` is
+/// dropped and `left` is clamped instead — same "truncate rather than
+/// corrupt" rule writeClamped already follows, so a narrow terminal loses
+/// the right-aligned extra before it loses the primary content.
+pub fn writeSplitRow(w: *std.Io.Writer, left: []const u8, right: []const u8, cols: usize) !void {
+    const left_w = visibleWidth(left);
+    const right_w = visibleWidth(right);
+    if (right_w == 0 or left_w + 1 + right_w > cols) {
+        try writeClamped(w, left, cols);
+        return;
+    }
+    try w.writeAll(left);
+    try w.writeAll(rst);
+    try w.splatByteAll(' ', cols - left_w - right_w);
+    try w.writeAll(right);
     try w.writeAll(rst);
 }
 

@@ -252,13 +252,13 @@ pub fn drawTracks(app: anytype, w: *std.Io.Writer, rows: usize, snap: engine_mod
     for (used..@max(used, rows -| 3)) |_| try endLine(w);
 }
 
-pub fn drawTracksStatus(app: anytype, w: *std.Io.Writer, cmds: []const cmd_mod.Def) !void {
+pub fn drawTracksStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer, cmds: []const cmd_mod.Def) !void {
     switch (app.modal.mode) {
         .command => try cmd_mod.writePrompt(w, cmds, app.modal.cmd_buf[0..app.modal.cmd_len], app.modal.cmd_cursor, 60),
         .search => try cmd_mod.writeSearchPrompt(w, app.modal.cmd_buf[0..app.modal.cmd_len], app.modal.cmd_cursor),
         else => {
             try style.writeModeBadge(w, app.modal.mode);
-            try w.writeAll(" " ++ acc ++ "TRACKS" ++ rst);
+            try right.writeAll(acc ++ "TRACKS" ++ rst);
             // track position
             try w.writeAll(dim ++ "  " ++ rst);
             try w.print("{d}/{d}", .{ app.cursor + 1, app.session.project.tracks.items.len + 1 });

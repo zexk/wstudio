@@ -192,7 +192,7 @@ pub fn drawAutomation(
     for (used..@max(used, rows -| 3)) |_| try endLine(w);
 }
 
-pub fn drawAutomationStatus(app: anytype, w: *std.Io.Writer, cmds: []const cmd_mod.Def) !void {
+pub fn drawAutomationStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer, cmds: []const cmd_mod.Def) !void {
     if (app.modal.mode == .command) {
         try cmd_mod.writePrompt(w, cmds, app.modal.cmd_buf[0..app.modal.cmd_len], app.modal.cmd_cursor, 60);
         return;
@@ -213,7 +213,7 @@ pub fn drawAutomationStatus(app: anytype, w: *std.Io.Writer, cmds: []const cmd_m
     const beat = @as(f64, @floatFromInt(app.automation_cursor_step)) * 0.25;
 
     try style.writeModeBadge(w, app.modal.mode);
-    try w.writeAll(" " ++ acc ++ "AUTOMATION" ++ rst);
+    try right.writeAll(acc ++ "AUTOMATION" ++ rst);
     try w.writeAll(dim ++ "  " ++ rst);
     try w.print("{d}.{d}", .{ bar + 1, step_in_bar + 1 });
 

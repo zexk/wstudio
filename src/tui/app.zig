@@ -2054,8 +2054,9 @@ pub const App = struct {
         }
         const pos = transport.positionBarBeat();
         const secs = transport.positionSeconds();
-        // Same scratch-buffer-then-chrome-bar treatment as the header above,
-        // replacing the second hr() row.
+        // Left = transport state (play/stop, metronome, bar.beat, clock);
+        // right = the L/R meters, pinned to the row's right edge instead of
+        // trailing wherever the left content happens to end (writeSplitRow).
         var transport_scratch: [512]u8 = undefined;
         var tw = std.Io.Writer.fixed(&transport_scratch);
         if (snap.pre_rolling) {
@@ -2078,16 +2079,20 @@ pub const App = struct {
         if (self.session.metronome_enabled) {
             try tw.writeAll(" \x1b[33m" ++ icons.tempo ++ " click\x1b[0m");
         }
-        try tw.print(" {d:0>3}.{d}  {d:0>2}:{d:0>4.1}  \x1b[2mL\x1b[0m", .{
+        try tw.print(" {d:0>3}.{d}  {d:0>2}:{d:0>4.1}", .{
             pos.bar + 1,
             pos.beat + 1,
             @as(u64, @intFromFloat(secs / 60.0)),
             @mod(secs, 60.0),
         });
-        try tui.meter(&tw, snap.peak[0]);
-        try tw.writeAll("\x1b[2m R\x1b[0m");
-        try tui.meter(&tw, snap.peak[1]);
-        try style.writeChromeRow(w, tw.buffered(), size.cols);
+        var meter_scratch: [128]u8 = undefined;
+        var mw = std.Io.Writer.fixed(&meter_scratch);
+        try mw.writeAll("\x1b[2mL\x1b[0m");
+        try tui.meter(&mw, snap.peak[0]);
+        try mw.writeAll("\x1b[2m R\x1b[0m");
+        try tui.meter(&mw, snap.peak[1]);
+        try style.writeSplitRow(w, tw.buffered(), mw.buffered(), size.cols);
+        try style.endLine(w);
 
         if (suggestion_rows > 0) {
             try cmd_mod.writeSuggestionBox(
@@ -2108,22 +2113,29 @@ pub const App = struct {
         // ever reaches the real writer.
         var status_scratch: [1024]u8 = undefined;
         var status_w = std.Io.Writer.fixed(&status_scratch);
+        // The current-view name (and a couple of short state flags — zoom,
+        // song/pattern) rides a second buffer and gets pinned to the row's
+        // right edge via writeSplitRow, lualine's "current view is an
+        // identity tag on the right, not more left-to-right reading order"
+        // convention — mirrors the transport row's L/R meters above.
+        var status_right_scratch: [128]u8 = undefined;
+        var status_right_w = std.Io.Writer.fixed(&status_right_scratch);
         switch (self.view) {
-            .tracks          => try tui.drawTracksStatus(self, &status_w, commands.cmds),
-            .drum_grid       => try tui.drawDrumStatus(self, &status_w, commands.cmds),
-            .synth_editor    => try tui.drawSynthStatus(self, &status_w, commands.cmds),
-            .sampler_editor  => try tui.drawSamplerStatus(self, &status_w, commands.cmds),
-            .piano_roll      => try tui.drawPianoRollStatus(self, &status_w, commands.cmds),
+            .tracks          => try tui.drawTracksStatus(self, &status_w, &status_right_w, commands.cmds),
+            .drum_grid       => try tui.drawDrumStatus(self, &status_w, &status_right_w, commands.cmds),
+            .synth_editor    => try tui.drawSynthStatus(self, &status_w, &status_right_w, commands.cmds),
+            .sampler_editor  => try tui.drawSamplerStatus(self, &status_w, &status_right_w, commands.cmds),
+            .piano_roll      => try tui.drawPianoRollStatus(self, &status_w, &status_right_w, commands.cmds),
             .help            => try status_w.writeAll(" j/k: scroll   d/u: page   g/G: top/bottom   esc: close"),
             .track_spectrum, .master_spectrum, .group_spectrum =>
-                try tui.drawFxStatus(self, &status_w, spectrum_ed.currentTarget(self), commands.cmds),
+                try tui.drawFxStatus(self, &status_w, &status_right_w, spectrum_ed.currentTarget(self), commands.cmds),
             .instrument_picker => try status_w.writeAll(" j/k: move   enter: insert   esc: cancel"),
             .fx_picker       => try status_w.writeAll(" j/k: move   enter: insert   esc: cancel"),
-            .arrangement     => try tui.drawArrangementStatus(self, &status_w, commands.cmds),
-            .file_browser    => try tui.drawFileBrowserStatus(self, &status_w),
-            .automation      => try tui.drawAutomationStatus(self, &status_w, commands.cmds),
+            .arrangement     => try tui.drawArrangementStatus(self, &status_w, &status_right_w, commands.cmds),
+            .file_browser    => try tui.drawFileBrowserStatus(self, &status_w, &status_right_w),
+            .automation      => try tui.drawAutomationStatus(self, &status_w, &status_right_w, commands.cmds),
         }
-        try style.writeClamped(w, status_w.buffered(), size.cols -| 1);
+        try style.writeSplitRow(w, status_w.buffered(), status_right_w.buffered(), size.cols -| 1);
         // Erase from cursor to end of screen so stale content from taller
         // previous frames never bleeds through.
         try w.writeAll("\x1b[K\x1b[J");
