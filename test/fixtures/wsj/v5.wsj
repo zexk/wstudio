@@ -1,0 +1,21 @@
+{
+  "version": 5,
+  "loop_enabled": true,
+  "loop_start_bar": 2,
+  "loop_end_bar": 4,
+  "tracks": [
+    { "name": "drums" }
+  ],
+  "racks": [
+    {
+      "label": "drums",
+      "kind": "drum_machine",
+      "drum": {
+        "pads": [
+          { "name": "kick808" },
+          {}, {}, {}, {}, {}, {}, {}
+        ]
+      }
+    }
+  ]
+}

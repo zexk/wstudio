@@ -1,0 +1,55 @@
+{
+  "version": 2,
+  "tempo_bpm": 120.0,
+  "tracks": [
+    { "name": "lead" },
+    { "name": "drums" }
+  ],
+  "racks": [
+    {
+      "label": "lead",
+      "kind": "poly_synth",
+      "synth": {
+        "notes": [
+          { "pitch": 67, "start_beat": 0.0, "duration_beat": 1.0, "velocity": 0.8 }
+        ],
+        "length_beats": 4.0
+      }
+    },
+    {
+      "label": "drums",
+      "kind": "drum_machine",
+      "drum": {
+        "step_count": 16,
+        "pattern": [1, 0, 0, 0, 1, 0, 0, 0]
+      }
+    }
+  ],
+  "song_mode": true,
+  "arrangement": [
+    {
+      "clips": [
+        {
+          "start_bar": 0,
+          "length_bars": 1,
+          "kind": "melodic",
+          "length_beats": 4.0,
+          "notes": [
+            { "pitch": 67, "start_beat": 0.0, "duration_beat": 1.0, "velocity": 0.8 }
+          ]
+        }
+      ]
+    },
+    {
+      "clips": [
+        {
+          "start_bar": 0,
+          "length_bars": 1,
+          "kind": "drum",
+          "step_count": 16,
+          "drum_pattern": [1, 0, 0, 0, 1, 0, 0, 0]
+        }
+      ]
+    }
+  ]
+}

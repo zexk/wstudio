@@ -2016,3 +2016,36 @@ test "buildSession: A/B loop region lands in project and transport" {
     defer bad.deinit();
     try testing.expect(!bad.engine.transport.loop_enabled);
 }
+
+test "golden-file corpus: every historical .wsj fixture still loads" {
+    const testing = std.testing;
+    const dir_path = "test/fixtures/wsj";
+
+    var dir = try std.Io.Dir.cwd().openDir(testing.io, dir_path, .{ .iterate = true });
+    defer dir.close(testing.io);
+
+    var count: usize = 0;
+    var it = dir.iterate();
+    while (try it.next(testing.io)) |entry| {
+        if (entry.kind != .file) continue;
+        if (!std.ascii.endsWithIgnoreCase(entry.name, ".wsj")) continue;
+        count += 1;
+
+        var path_buf: [128]u8 = undefined;
+        const path = try std.fmt.bufPrint(&path_buf, "{s}/{s}", .{ dir_path, entry.name });
+
+        var session = load(testing.allocator, testing.io, path) catch |err| {
+            std.debug.print("fixture {s} failed to load: {}\n", .{ entry.name, err });
+            return err;
+        };
+        defer session.deinit();
+
+        // Every fixture's Snapshot has parallel tracks/racks/arrangement —
+        // buildSession already enforces this, but check it here too so a
+        // regression shows up against the fixture name, not just an error.
+        try testing.expectEqual(session.project.tracks.items.len, session.racks.items.len);
+    }
+
+    // Guards against a misconfigured path silently turning this into a no-op.
+    try testing.expectEqual(@as(usize, 10), count);
+}

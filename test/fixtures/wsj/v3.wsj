@@ -1,0 +1,19 @@
+{
+  "version": 3,
+  "tracks": [
+    { "name": "drums" }
+  ],
+  "racks": [
+    {
+      "label": "drums",
+      "kind": "drum_machine",
+      "drum": {
+        "variant": 1,
+        "variants": [
+          { "step_count": 16, "pattern": [1, 0, 0, 0, 0, 0, 0, 0] },
+          { "step_count": 32, "pattern": [0, 2147483648, 0, 0, 0, 0, 0, 0] }
+        ]
+      }
+    }
+  ]
+}

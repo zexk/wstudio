@@ -1,0 +1,24 @@
+{
+  "version": 4,
+  "beats_per_bar": 3,
+  "tracks": [
+    { "name": "drums" }
+  ],
+  "racks": [
+    {
+      "label": "drums",
+      "kind": "drum_machine",
+      "drum": {
+        "swing": 65.0,
+        "variants": [
+          {
+            "step_count": 16,
+            "pattern": [3, 0, 0, 0, 0, 0, 0, 0],
+            "vel_lo": [2, 0, 0, 0, 0, 0, 0, 0],
+            "vel_hi": [2, 0, 0, 0, 0, 0, 0, 0]
+          }
+        ]
+      }
+    }
+  ]
+}

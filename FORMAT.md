@@ -68,6 +68,12 @@ Since v10, every field added has been the additive/no-bump kind described
 above. Check `persist.zig`'s per-field doc comments for specifics (e.g.
 `Sampler.mono`, `PatternPlayer.swing`, `:bounce`'s bit-depth option).
 
+`test/fixtures/wsj/v1.wsj` through `v10.wsj` are tiny, hand-written fixtures
+of each historical shape (no `variants` for v2, no `master_fx_chain` for v9,
+etc.), one per row of the table above. `persist.zig`'s "golden-file corpus"
+test loads every file in that directory and fails loudly if one stops
+parsing — add a new fixture there alongside any future version bump.
+
 ## Sample sidecar
 
 A pad's audio is either the shipped/generated default (nothing written to

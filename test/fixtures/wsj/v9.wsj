@@ -1,0 +1,21 @@
+{
+  "version": 9,
+  "tracks": [
+    { "name": "lead" }
+  ],
+  "racks": [
+    {
+      "label": "lead",
+      "kind": "poly_synth",
+      "synth": {},
+      "fx": {
+        "comp": { "threshold_db": -24.0, "ratio": 6.0, "attack_ms": 5.0, "release_ms": 60.0, "makeup_db": 3.0 },
+        "gate": { "threshold_db": -50.0, "attack_ms": 1.0, "release_ms": 100.0 },
+        "sat": { "drive_db": 12.0, "out_db": 0.0, "mix": 1.0 },
+        "crush": { "bits": 8.0, "downsample": 4.0, "mix": 1.0 },
+        "chorus": { "rate_hz": 0.8, "depth_ms": 4.0, "mix": 0.5 },
+        "phaser": { "rate_hz": 0.4, "depth": 0.9, "feedback": 0.5, "mix": 0.5 }
+      }
+    }
+  ]
+}

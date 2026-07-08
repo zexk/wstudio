@@ -1,0 +1,28 @@
+{
+  "version": 7,
+  "tracks": [
+    { "name": "keys" }
+  ],
+  "racks": [
+    { "label": "keys", "kind": "poly_synth", "synth": {} }
+  ],
+  "arrangement": [
+    {
+      "clips": [
+        {
+          "start_bar": 0,
+          "length_bars": 1,
+          "kind": "melodic",
+          "length_beats": 4.0,
+          "gain_automation": [
+            { "beat": 0.0, "value": -6.0 },
+            { "beat": 2.0, "value": 0.0 }
+          ],
+          "pan_automation": [
+            { "beat": 0.0, "value": -1.0 }
+          ]
+        }
+      ]
+    }
+  ]
+}
