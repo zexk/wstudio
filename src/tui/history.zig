@@ -250,11 +250,16 @@ fn applyEntry(app: *App, entry: undo_mod.Entry) ?undo_mod.Entry {
         .fx => |f| {
             const displaced = captureFxRaw(app, f.target) orelse return null;
             const fx = fxPtrFor(app, f.target).?; // captureFxRaw above already resolved it
-            fx.deinit(app.allocator);
+            // Install the snapshot and push it to the audio thread BEFORE
+            // freeing the displaced units: the engine's chain still holds
+            // device pointers into them until the resync lands (same
+            // sync-then-free rule spectrum.zig's removeFocused documents).
+            var old = fx.*;
             fx.* = f.fx;
             app.fx_focus = if (fx.units.items.len == 0) 0 else @min(app.fx_focus, fx.units.items.len - 1);
             app.fx_param = 0;
             syncFxTarget(app, f.target);
+            old.deinit(app.allocator);
             return displaced;
         },
         .param_nudge => |p| {
