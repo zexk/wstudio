@@ -1636,7 +1636,7 @@ pub const App = struct {
         const arg = buf[name_end + 1 ..];
         if (std.mem.indexOfScalar(u8, arg, ' ') != null) return;
 
-        var name_buf: [48][]const u8 = undefined;
+        var name_buf: [96][]const u8 = undefined;
         if (std.mem.eql(u8, name, "drum-kit")) {
             var n: usize = 0;
             for (ws.dsp.drum_kit.variants) |v| {
