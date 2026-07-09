@@ -113,13 +113,19 @@ pub const max_sidechain_sources: u8 = 8;
 
 /// One block's captured signal for a track registered as some compressor's
 /// sidechain-detector source (see `Compressor.sidechain_source`). `track`
-/// is `null` when the slot is unused this block. Sized to `max_block_frames`
-/// so it never needs a per-block allocation; only the first `frames*channels`
-/// samples are valid for a given block. Small fixed bank (~256KB total),
-/// safe to embed directly in `Engine` — see `AutomationPair`'s doc comment
-/// for the class of field that ISN'T safe to embed this way.
+/// is `null` when the slot is unused this block. `captured` says the source
+/// actually rendered into `buf` THIS block; a registered slot whose track
+/// never rendered (inactive, empty chain, or ordered after its consumer in
+/// a mutual-reference cycle) keeps it false, and `sidechainCapture` treats
+/// the slot as absent rather than handing out stale or uninitialized
+/// samples. Sized to `max_block_frames` so it never needs a per-block
+/// allocation; only the first `frames*channels` samples are valid for a
+/// given block. Small fixed bank (~256KB total), safe to embed directly in
+/// `Engine` — see `AutomationPair`'s doc comment for the class of field
+/// that ISN'T safe to embed this way.
 const SidechainCapture = struct {
     track: ?u16 = null,
+    captured: bool = false,
     buf: [types.max_block_frames * channels]Sample = undefined,
 };
 
@@ -710,12 +716,16 @@ pub const Engine = struct {
     /// This block's captured signal for `track`, if it was registered and
     /// rendered as a sidechain-detector source (see `SidechainCapture`).
     /// Null means "no capture available" — either nothing points at `track`
-    /// as a source, or (a same-block mutual-reference edge case) it hasn't
-    /// rendered yet — either way the caller's compressor falls back to
-    /// self-detection, never a crash.
+    /// as a source, or it was registered but never rendered this block (an
+    /// inactive/empty source track, or a same-block mutual-reference edge
+    /// case where it hasn't rendered yet) — either way the caller's
+    /// compressor falls back to self-detection, never stale samples and
+    /// never a crash. The `captured` check is what makes that true: a
+    /// registered-but-unrendered slot's `buf` holds a previous block's
+    /// signal at best and uninitialized memory at worst.
     fn sidechainCapture(self: *Engine, track: u16, frames: u32) ?[]const Sample {
         for (&self.sidechain_captures) |*c| {
-            if (c.track == track) return c.buf[0 .. frames * channels];
+            if (c.track == track and c.captured) return c.buf[0 .. frames * channels];
         }
         return null;
     }
@@ -778,6 +788,7 @@ pub const Engine = struct {
         for (&self.sidechain_captures) |*c| {
             if (c.track == ti) {
                 @memcpy(c.buf[0 .. frames * channels], scratch);
+                c.captured = true;
                 break;
             }
         }
@@ -844,7 +855,10 @@ pub const Engine = struct {
         // detector source this block? Registering (not capturing yet) is
         // cheap and the same "walk every slot, most are null" cost the
         // per-track loop below already pays.
-        for (&self.sidechain_captures) |*c| c.track = null;
+        for (&self.sidechain_captures) |*c| {
+            c.track = null;
+            c.captured = false;
+        }
         for (&self.tracks, 0..) |*t, ti| {
             if (!t.active or t.chain_len == 0) continue;
             for (self.track_sidechain[ti][0..t.chain_len]) |src| {
@@ -1240,6 +1254,50 @@ test "renderTracks routes a compressor's sidechain detector from a different (so
 
     try std.testing.expect(bass_without_sidechain > 0.001); // a real, measurable signal
     try std.testing.expect(bass_with_sidechain < bass_without_sidechain * 0.5);
+}
+
+test "a sidechain source that never renders falls back to self-detection, not a stale buffer" {
+    // Track 1's compressor points at track 0 as its detector, but track 0 is
+    // inactive: it gets REGISTERED in the capture bank every block yet never
+    // renders into it. The compressor must behave exactly as if it had no
+    // sidechain routing at all (self-detecting a quiet, under-threshold
+    // input), never reading the capture slot's uninitialized buffer.
+    var bass = PolySynth.init(48_000);
+    var comp = Compressor.init(48_000);
+    comp.threshold_db = -30.0;
+    comp.ratio = 20.0;
+    comp.attack_ms = 0.1;
+    comp.release_ms = 0.1;
+
+    var engine = try Engine.init(std.testing.allocator, 48_000);
+    defer engine.deinit();
+    engine.tracks[1] = .{ .active = true }; // track 0 stays inactive on purpose
+    engine.setTrackChain(1, &.{ bass.device(), comp.device() });
+    engine.setTrackSidechainSources(1, &.{ null, 0 });
+
+    _ = engine.send(.{ .note_on = .{ .track = 1, .note = 60, .velocity = 0.02 } });
+    var block: [512]Sample = undefined;
+    for (0..4) |_| engine.process(&block);
+    var with_dead_source: f32 = 0.0;
+    for (block) |s| with_dead_source = @max(with_dead_source, @abs(s));
+
+    // Same setup with the routing cleared: the self-detection baseline.
+    var bass2 = PolySynth.init(48_000);
+    var comp2 = Compressor.init(48_000);
+    comp2.threshold_db = -30.0;
+    comp2.ratio = 20.0;
+    comp2.attack_ms = 0.1;
+    comp2.release_ms = 0.1;
+    var engine2 = try Engine.init(std.testing.allocator, 48_000);
+    defer engine2.deinit();
+    engine2.tracks[1] = .{ .active = true };
+    engine2.setTrackChain(1, &.{ bass2.device(), comp2.device() });
+
+    _ = engine2.send(.{ .note_on = .{ .track = 1, .note = 60, .velocity = 0.02 } });
+    var block2: [512]Sample = undefined;
+    for (0..4) |_| engine2.process(&block2);
+
+    try std.testing.expectEqualSlices(Sample, &block2, &block);
 }
 
 test "a sidechain source track is rendered exactly once, not double-mixed" {
