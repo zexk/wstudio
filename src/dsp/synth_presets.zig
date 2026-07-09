@@ -197,7 +197,7 @@ pub const presets = [_]Preset{
         .gain = 0.36,
     } },
 
-    .{ .name = "moog-bass", .category = "bass", .tags = &.{ "wstudio", "funk" }, .patch = .{
+    .{ .name = "ladder-bass", .category = "bass", .tags = &.{ "wstudio", "funk" }, .patch = .{
         .waveform = .saw, .voice_mode = .mono, .glide_s = 0.015,
         .osc_b_on = true, .osc_b_waveform = .saw, .osc_b_semi = -12.0, .osc_b_level = 0.7,
         .attack_s = 0.003, .decay_s = 0.2, .sustain = 0.7, .release_s = 0.15,
@@ -311,7 +311,7 @@ pub const presets = [_]Preset{
         .gain = 0.3,
     } },
 
-    .{ .name = "trap-808", .category = "bass", .tags = &.{ "wstudio", "trap" }, .patch = .{
+    .{ .name = "trap-sub", .category = "bass", .tags = &.{ "wstudio", "trap" }, .patch = .{
         .waveform = .sine, .voice_mode = .mono, .glide_s = 0.08,
         .attack_s = 0.002, .decay_s = 0.8, .sustain = 0.4, .release_s = 0.6,
         .filter_type = .lp, .filter_cutoff = 400.0, .filter_res = 0.0,
@@ -361,7 +361,7 @@ pub const presets = [_]Preset{
         .gain = 0.3,
     } },
 
-    .{ .name = "wurli", .category = "keys", .tags = &.{ "wstudio", "soul" }, .patch = .{
+    .{ .name = "reed-keys", .category = "keys", .tags = &.{ "wstudio", "soul" }, .patch = .{
         .waveform = .sine, .osc_b_on = true, .osc_b_waveform = .sine, .osc_b_semi = 12.0, .osc_b_detune_cents = 2.0, .osc_b_level = 0.5,
         .mod_mode = .fm_b_to_a, .mod_amount = 2.4,
         .attack_s = 0.002, .decay_s = 1.0, .sustain = 0.2, .release_s = 0.6,
@@ -589,7 +589,7 @@ pub const presets = [_]Preset{
 
     // city-pop — glassy FM tine e-piano (the 3:1-ratio DX-style keys under
     // every late-night Tokyo track)
-    .{ .name = "dx-epiano", .category = "keys", .tags = &.{ "wstudio", "city-pop" }, .patch = .{
+    .{ .name = "fm-epiano", .category = "keys", .tags = &.{ "wstudio", "city-pop" }, .patch = .{
         .waveform = .sine, .osc_b_on = true, .osc_b_waveform = .sine, .osc_b_semi = 19.0, .osc_b_detune_cents = 3.0, .osc_b_level = 0.8,
         .mod_mode = .fm_b_to_a, .mod_amount = 2.2,
         .attack_s = 0.001, .decay_s = 1.2, .sustain = 0.15, .release_s = 0.5,
