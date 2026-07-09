@@ -10,6 +10,7 @@ const Sampler = ws.dsp.Sampler;
 const app_mod = @import("../app.zig");
 const App = app_mod.App;
 const SamplerMarker = app_mod.SamplerMarker;
+const history = @import("../history.zig");
 
 /// Number of editable params for the sampler editor's current target.
 fn paramCount(app: *App) u8 {
@@ -29,11 +30,22 @@ fn paramCount(app: *App) u8 {
 pub fn handleKey(app: *App, key: modal_mod.Key) bool {
     const is_drum = app.sampler_target == .drum;
     switch (key) {
-        .escape => { app.view = if (is_drum) .drum_grid else .tracks; return true; },
+        .escape => {
+            history.flushParamNudge(app);
+            app.view = if (is_drum) .drum_grid else .tracks;
+            return true;
+        },
+        .ctrl_r => { history.doRedo(app); return true; },
         .char => |c| switch (c) {
             // Block insert mode — piano keys conflict with param navigation.
             'i' => return true,
-            'e' => { app.view = if (is_drum) .drum_grid else .tracks; return true; },
+            'e' => {
+                history.flushParamNudge(app);
+                app.view = if (is_drum) .drum_grid else .tracks;
+                return true;
+            },
+            'u' => { history.doUndo(app); return true; },
+            'U' => { history.doRedo(app); return true; },
             // j/k rows and h/l nudges take a vim count prefix (3j, 5l, …),
             // matching the synth editor's equivalent.
             'j' => { moveCursor(app, app.takeCount()); return true; },
@@ -42,17 +54,19 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             'l' => { adjustParam(app, app.takeCount()); return true; },
             'H' => { adjustParam(app, -10 * app.takeCount()); return true; },
             'L' => { adjustParam(app, 10 * app.takeCount()); return true; },
-            'g' => { app.sampler_param = 0; return true; },
-            'G' => { app.sampler_param = paramCount(app) - 1; return true; },
+            'g' => { history.flushParamNudge(app); app.sampler_param = 0; return true; },
+            'G' => { history.flushParamNudge(app); app.sampler_param = paramCount(app) - 1; return true; },
             // J/K jump a whole bank of 8 pads — same MPC-style paging as
             // the drum grid's own J/K (editors/drum.zig).
             'K' => {
                 if (!is_drum) return false;
+                history.flushParamNudge(app);
                 movePadBank(app, -8 * app.takeCount());
                 return true;
             },
             'J' => {
                 if (!is_drum) return false;
+                history.flushParamNudge(app);
                 movePadBank(app, 8 * app.takeCount());
                 return true;
             },
@@ -64,6 +78,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 // always means the first pad of whichever bank of 8 is
                 // currently showing, not absolute pad 0.
                 if (!is_drum) return false;
+                history.flushParamNudge(app);
                 const bank = app.drum_cursor[0] / 8;
                 const pad: u8 = bank * 8 + (c - '1');
                 if (pad < DrumMachine.max_pads) app.drum_cursor[0] = pad;
@@ -110,15 +125,19 @@ fn preview(app: *App) void {
 
 /// Nudge the selected sampler param. Routed over the command queue so the
 /// edit lands on the audio thread (DrumMachine/Sampler.adjustParam), never
-/// racing the block reader — mirrors the synth editor's adjustParam.
+/// racing the block reader — mirrors the synth editor's adjustParam. Also
+/// notes the nudge for undo (history.noteParamNudge), coalescing a run of
+/// h/l presses on the same param into one undo step.
 pub fn adjustParam(app: *App, steps: i32) void {
     app.dirty = true;
     switch (app.sampler_target) {
         .drum => |t| {
             const id = DrumMachine.paramId(app.drum_cursor[0], app.sampler_param);
+            history.noteParamNudge(app, t, id, steps);
             _ = app.session.engine.send(.{ .set_track_param = .{ .track = t, .id = id, .steps = steps } });
         },
         .sampler => |t| {
+            history.noteParamNudge(app, t, app.sampler_param, steps);
             _ = app.session.engine.send(.{ .set_track_param = .{ .track = t, .id = app.sampler_param, .steps = steps } });
         },
     }
@@ -231,6 +250,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16, v
             if (in_waveform) {
                 startWaveformDrag(app, ev.x, cols);
             } else if (paramAtRow(app, row, view_rows)) |p| {
+                history.flushParamNudge(app);
                 app.sampler_param = p;
             }
         },

@@ -230,6 +230,14 @@ pub const App = struct {
     // Last timestamp seen by handleKey; lets sub-view handlers schedule note-offs
     // (e.g. piano-roll preview) without threading now_ns through every signature.
     now_ns: i96 = 0,
+    /// An open coalescing batch of synth/sampler param nudges (h/l/H/L),
+    /// flushed to `history` once the cursor moves off that param — see
+    /// history.zig's noteParamNudge/flushParamNudge.
+    pending_param_nudge: ?undo_mod.ParamNudgeState = null,
+    /// An open coalescing batch of FX-chain param nudges — see history.zig's
+    /// noteFxNudge/flushFxNudge. Owns a heap-allocated "before" chain
+    /// snapshot until flushed; freed in `deinit` if a batch is still open.
+    pending_fx_nudge: ?undo_mod.PendingFxNudge = null,
     /// Selected param row within the focused FX unit (EQ's are its bands).
     fx_param: usize = 0,
     /// Chain slot index the FX view is focused on — Tab cycles it. Clamped
@@ -462,6 +470,7 @@ pub const App = struct {
             self.allocator.free(r.clips);
         }
         if (self.automation_range_clip) |r| self.allocator.free(r.points);
+        if (self.pending_fx_nudge) |*p| p.deinit(self.allocator);
         self.freeBrowserEntries();
         self.browser_entries.deinit(self.allocator);
         if (self.browser_dir.len > 0) self.allocator.free(self.browser_dir);

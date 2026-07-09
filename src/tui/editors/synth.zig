@@ -9,17 +9,21 @@ const style = @import("../style.zig");
 const App = @import("../app.zig").App;
 const spectrum = @import("spectrum.zig");
 const piano = @import("piano.zig");
+const history = @import("../history.zig");
 
 pub fn handleKey(app: *App, key: modal_mod.Key) bool {
     switch (key) {
-        .escape => { app.view = .tracks; return true; },
+        .escape => { history.flushParamNudge(app); app.view = .tracks; return true; },
+        .ctrl_r => { history.doRedo(app); return true; },
         .char => |c| switch (c) {
             // Block insert mode — piano keys conflict with parameter navigation.
             'i' => return true,
-            's' => { spectrum.switchToTrack(app, app.synth_track); return true; },
+            's' => { history.flushParamNudge(app); spectrum.switchToTrack(app, app.synth_track); return true; },
             // p opens the piano roll for this track (matches p in the tracks view);
             // e in the piano roll comes back here, so synth <-> roll is bidirectional.
-            'p' => { piano.switchTo(app, app.synth_track); return true; },
+            'p' => { history.flushParamNudge(app); piano.switchTo(app, app.synth_track); return true; },
+            'u' => { history.doUndo(app); return true; },
+            'U' => { history.doRedo(app); return true; },
             // j/k rows and h/l nudges take a vim count prefix (3j, 5l, …).
             'j' => { moveCursor(app, app.takeCount()); return true; },
             'k' => { moveCursor(app, -app.takeCount()); return true; },
@@ -27,9 +31,10 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             'l' => { adjustParam(app, app.takeCount()); return true; },
             'H' => { adjustParam(app, -10 * app.takeCount()); return true; },
             'L' => { adjustParam(app, 10 * app.takeCount()); return true; },
-            'g' => { app.synth_cursor = 0; updateScroll(app); return true; },
-            'G' => { app.synth_cursor = style.synth_param_count - 1; updateScroll(app); return true; },
+            'g' => { history.flushParamNudge(app); app.synth_cursor = 0; updateScroll(app); return true; },
+            'G' => { history.flushParamNudge(app); app.synth_cursor = style.synth_param_count - 1; updateScroll(app); return true; },
             '}', '{' => {
+                history.flushParamNudge(app);
                 const section_starts = [_]u8{ 0, 6, 14, 16, 20, 24, 28, 32, 34, 36, 38 };
                 if (c == '}') {
                     for (section_starts) |s| {
@@ -100,7 +105,9 @@ pub fn updateScroll(app: *App) void {
 /// Nudge the selected synth-editor parameter. The change is routed over the
 /// engine command queue and applied on the audio thread (PolySynth.adjustParam)
 /// so it never races the block reader — the editor view reflects it on the
-/// next frame. See engine.Command.set_track_param.
+/// next frame. See engine.Command.set_track_param. Also notes the nudge for
+/// undo (history.noteParamNudge), coalescing a run of h/l presses on the
+/// same param into one undo step.
 fn adjustParam(app: *App, steps: i32) void {
     if (app.synth_track >= app.session.racks.items.len) return;
     const rack = app.session.racks.items[app.synth_track];
@@ -109,6 +116,7 @@ fn adjustParam(app: *App, steps: i32) void {
         else => return,
     }
     app.dirty = true;
+    history.noteParamNudge(app, app.synth_track, app.synth_cursor, steps);
     _ = app.session.engine.send(.{ .set_track_param = .{
         .track = app.synth_track,
         .id    = app.synth_cursor,
@@ -137,6 +145,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize) void {
     switch (ev.kind) {
         .press => {
             const p = paramAtRow(app, row) orelse return;
+            history.flushParamNudge(app);
             app.synth_cursor = p;
             updateScroll(app);
         },

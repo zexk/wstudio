@@ -8,6 +8,7 @@ const pattern_mod = ws.dsp.pattern;
 const undo_mod = @import("undo.zig");
 const App = @import("app.zig").App;
 const piano = @import("editors/piano.zig");
+const spectrum = @import("editors/spectrum.zig");
 
 /// Record a pre-edit snapshot; null (capture failed / target invalid)
 /// simply records nothing — undo is best-effort, never blocks the edit.
@@ -75,6 +76,125 @@ pub fn captureLane(app: *App, track: u16) ?undo_mod.Entry {
     return .{ .lane = .{ .track = @intCast(track), .clips = clips } };
 }
 
+/// The live `Fx` chain a stored `FxTarget` points at, or null if the track/
+/// group it named is gone. Unlike `spectrum.fxPtr`, this resolves the
+/// index baked into the entry rather than `app`'s current eq_track/
+/// eq_group cursor, so undo/redo apply correctly even from a different view.
+fn fxPtrFor(app: *App, target: undo_mod.FxTarget) ?*ws.Fx {
+    return switch (target) {
+        .track => |t| if (t >= app.session.racks.items.len) null else &app.session.racks.items[t].fx,
+        .master => &app.session.master_fx,
+        .group => |g| if (g >= ws.engine.max_groups) null else if (app.session.groups[g]) |*grp| &grp.fx else null,
+    };
+}
+
+/// Push a chain resync to the engine for a stored `FxTarget` — same idea as
+/// `spectrum.syncChain` but keyed off the entry's own index instead of
+/// `app`'s current cursor.
+fn syncFxTarget(app: *App, target: undo_mod.FxTarget) void {
+    switch (target) {
+        .track => |t| if (t < app.session.racks.items.len) app.session.syncTrackChain(t, app.session.racks.items[t]),
+        .master => app.session.syncMasterChain(),
+        .group => |g| app.session.syncGroupChain(g),
+    }
+}
+
+/// Snapshot one FX chain's whole unit list (deep copy).
+fn captureFxRaw(app: *App, target: undo_mod.FxTarget) ?undo_mod.Entry {
+    const fx = fxPtrFor(app, target) orelse return null;
+    const dup = fx.dupe(app.allocator, app.session.project.sample_rate) catch return null;
+    return .{ .fx = .{ .target = target, .fx = dup } };
+}
+
+/// Snapshot the FX chain in view, resolving `app`'s current eq_track/
+/// eq_group into the concrete target baked into the entry.
+pub fn captureFx(app: *App, target: spectrum.EqTarget) ?undo_mod.Entry {
+    return captureFxRaw(app, switch (target) {
+        .track => .{ .track = app.eq_track },
+        .master => .master,
+        .group => .{ .group = app.eq_group },
+    });
+}
+
+/// Push a `captureFx` result only if the edit it preceded actually
+/// succeeded; otherwise discard it. For structural edits that can fail
+/// after already needing to capture "before" state (e.g. a picker insert
+/// that turns out chain-full), so a failed edit doesn't leave a spurious
+/// no-op undo step.
+pub fn pushFxIfOk(app: *App, entry: ?undo_mod.Entry, ok: bool) void {
+    const e = entry orelse return;
+    if (ok) {
+        push(app, e);
+    } else {
+        var owned = e;
+        owned.deinit(app.allocator);
+    }
+}
+
+/// Pre-edit wrapper for a structural FX-chain edit (insert/remove/reorder/
+/// bypass) — each such edit is its own undo step, so any open param-nudge
+/// batch on the same chain is flushed first (closing it as a separate step)
+/// rather than folding the structural edit into it.
+pub fn recordFx(app: *App, target: spectrum.EqTarget) void {
+    flushFxNudge(app);
+    push(app, captureFx(app, target));
+}
+
+/// Note one nudge of unit `focus`'s param `param` in the chain `target`
+/// points at, called right before the caller mutates it. Continues the
+/// open batch if it's the same (target, focus, param); otherwise flushes
+/// whatever was open and captures a fresh "before" snapshot for the new one.
+pub fn noteFxNudge(app: *App, target: spectrum.EqTarget, focus: usize, param: usize) void {
+    const t: undo_mod.FxTarget = switch (target) {
+        .track => .{ .track = app.eq_track },
+        .master => .master,
+        .group => .{ .group = app.eq_group },
+    };
+    if (app.pending_fx_nudge) |p| {
+        if (undo_mod.FxTarget.eql(p.target, t) and p.focus == focus and p.param == param) return;
+        flushFxNudge(app);
+    }
+    if (captureFxRaw(app, t)) |entry| {
+        app.pending_fx_nudge = .{ .target = t, .focus = focus, .param = param, .before = entry.fx };
+    }
+}
+
+/// Commit the in-flight FX param-nudge batch (if any) to the undo stack.
+/// Call on any focus/param/view change so a batch never silently drops.
+pub fn flushFxNudge(app: *App) void {
+    const p = app.pending_fx_nudge orelse return;
+    app.pending_fx_nudge = null;
+    app.dirty = true;
+    app.history.push(app.allocator, .{ .fx = p.before });
+}
+
+/// Note one nudge (`steps`, already signed) of param `id` on `track`,
+/// called right where `adjustParam` sends the live command. Continues the
+/// open batch if it's the same (track, id); otherwise flushes whatever was
+/// open and starts a new one.
+pub fn noteParamNudge(app: *App, track: u16, id: u16, steps: i32) void {
+    if (app.pending_param_nudge) |*p| {
+        if (p.track == track and p.id == id) {
+            p.steps += steps;
+            return;
+        }
+        flushParamNudge(app);
+    }
+    app.pending_param_nudge = .{ .track = track, .id = id, .steps = steps };
+}
+
+/// Commit the in-flight param-nudge batch (if any) to the undo stack,
+/// storing the undo-direction (negated) delta — see `ParamNudgeState`'s doc
+/// comment. Call on any cursor/track/view change so a batch never silently
+/// drops.
+pub fn flushParamNudge(app: *App) void {
+    const p = app.pending_param_nudge orelse return;
+    app.pending_param_nudge = null;
+    if (p.steps == 0) return;
+    app.dirty = true;
+    app.history.push(app.allocator, .{ .param_nudge = .{ .track = p.track, .id = p.id, .steps = -p.steps } });
+}
+
 /// Swap `entry`'s state with the live one. On success the entry is
 /// consumed and the displaced state is returned for the opposite stack;
 /// null means the target no longer accepts it (track gone, kind changed)
@@ -127,10 +247,33 @@ fn applyEntry(app: *App, entry: undo_mod.Entry) ?undo_mod.Entry {
             if (app.session.song_mode) app.session.rebuildSongData();
             return displaced;
         },
+        .fx => |f| {
+            const displaced = captureFxRaw(app, f.target) orelse return null;
+            const fx = fxPtrFor(app, f.target).?; // captureFxRaw above already resolved it
+            fx.deinit(app.allocator);
+            fx.* = f.fx;
+            app.fx_focus = if (fx.units.items.len == 0) 0 else @min(app.fx_focus, fx.units.items.len - 1);
+            app.fx_param = 0;
+            syncFxTarget(app, f.target);
+            return displaced;
+        },
+        .param_nudge => |p| {
+            if (p.track >= app.session.racks.items.len) return null;
+            _ = app.session.engine.send(.{ .set_track_param = .{ .track = p.track, .id = p.id, .steps = p.steps } });
+            return .{ .param_nudge = .{ .track = p.track, .id = p.id, .steps = -p.steps } };
+        },
     }
 }
 
 pub fn doUndo(app: *App) void {
+    // A still-open coalescing batch (param nudge / FX nudge) hasn't reached
+    // the undo stack yet — flush it first so `u` right after nudging (with
+    // no intervening cursor move) undoes the edit just made, not an older
+    // one. Same "a fresh edit clears redo" rule as any other flush; doRedo
+    // does NOT do this, since flushing there would wipe the very redo
+    // entry it's about to pop.
+    flushParamNudge(app);
+    flushFxNudge(app);
     var entry = app.history.popUndo() orelse {
         app.setStatus("nothing to undo", .{});
         return;

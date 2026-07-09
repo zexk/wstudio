@@ -99,6 +99,36 @@ pub const FxPayload = union(enum) {
             else => {},
         }
     }
+
+    /// Deep-copies one payload: chorus/delay/reverb get fresh lines (only
+    /// their params carry over — matches what project save/load already
+    /// does); the rest are plain value state and copy directly.
+    pub fn dupe(self: *const FxPayload, allocator: std.mem.Allocator, sr: u32) !FxPayload {
+        switch (self.*) {
+            .chorus => |c| {
+                var nc = try Chorus.init(allocator, sr);
+                nc.rate_hz = c.rate_hz;
+                nc.depth_ms = c.depth_ms;
+                nc.mix = c.mix;
+                return .{ .chorus = nc };
+            },
+            .delay => |d| {
+                var nd = try StereoDelay.init(allocator, sr, 2.0);
+                nd.delay_frames = d.delay_frames;
+                nd.feedback = d.feedback;
+                nd.mix = d.mix;
+                return .{ .delay = nd };
+            },
+            .reverb => |r| {
+                var nr = try Reverb.init(allocator, sr);
+                nr.mix = r.mix;
+                nr.room = r.room;
+                nr.damp = r.damp;
+                return .{ .reverb = nr };
+            },
+            else => return self.*,
+        }
+    }
 };
 
 /// The effect variants as a plain enum — names a kind without a payload,
@@ -225,6 +255,25 @@ pub const Fx = struct {
         }
         return buf[0..len];
     }
+
+    /// Deep-copies the whole chain in order: fresh heap allocations for
+    /// every owned buffer (delay/reverb lines, chorus mod line) so the copy
+    /// shares no memory with the original and can be torn down
+    /// independently. FX buffer *contents* (reverb tail, delay line) aren't
+    /// preserved, only params — same as project save/load and `Rack.dupe`,
+    /// which calls this for its own fx field.
+    pub fn dupe(self: *const Fx, allocator: std.mem.Allocator, sr: u32) !Fx {
+        var out: Fx = .{};
+        errdefer out.deinit(allocator);
+        for (self.units.items) |u| {
+            const nu = try allocator.create(FxUnit);
+            errdefer allocator.destroy(nu);
+            nu.* = .{ .payload = try u.payload.dupe(allocator, sr), .bypassed = u.bypassed };
+            errdefer nu.payload.deinit(allocator);
+            try out.units.append(allocator, nu);
+        }
+        return out;
+    }
 };
 
 pub const Rack = struct {
@@ -277,45 +326,9 @@ pub const Rack = struct {
             rack.pattern_player = new_pp;
         }
 
-        for (self.fx.units.items) |u| {
-            const nu = try allocator.create(FxUnit);
-            errdefer allocator.destroy(nu);
-            nu.* = .{ .payload = try dupePayload(&u.payload, allocator, sr), .bypassed = u.bypassed };
-            errdefer nu.payload.deinit(allocator);
-            try rack.fx.units.append(allocator, nu);
-        }
+        rack.fx = try self.fx.dupe(allocator, sr);
 
         return rack;
-    }
-
-    /// Deep-copies one FX payload: chorus/delay/reverb get fresh lines (only
-    /// their params carry over, same as save/load); the rest are plain value
-    /// state and copy directly.
-    fn dupePayload(p: *const FxPayload, allocator: std.mem.Allocator, sr: u32) !FxPayload {
-        switch (p.*) {
-            .chorus => |c| {
-                var nc = try Chorus.init(allocator, sr);
-                nc.rate_hz = c.rate_hz;
-                nc.depth_ms = c.depth_ms;
-                nc.mix = c.mix;
-                return .{ .chorus = nc };
-            },
-            .delay => |d| {
-                var nd = try StereoDelay.init(allocator, sr, 2.0);
-                nd.delay_frames = d.delay_frames;
-                nd.feedback = d.feedback;
-                nd.mix = d.mix;
-                return .{ .delay = nd };
-            },
-            .reverb => |r| {
-                var nr = try Reverb.init(allocator, sr);
-                nr.mix = r.mix;
-                nr.room = r.room;
-                nr.damp = r.damp;
-                return .{ .reverb = nr };
-            },
-            else => return p.*,
-        }
     }
 
     /// Capacity every `chain()` scratch buffer needs: pattern player +
@@ -413,6 +426,35 @@ test "Fx.swap reorders without moving unit memory" {
     const ch = fx.chain(&buf);
     try std.testing.expectEqual(@as(*anyopaque, @ptrCast(&b.payload.eq)), ch[0].ptr);
     try std.testing.expectEqual(@as(*anyopaque, @ptrCast(&a.payload.comp)), ch[1].ptr);
+}
+
+test "Fx.dupe deep-copies params and heap buffers independently (used by undo's FX snapshot)" {
+    const allocator = std.testing.allocator;
+    var fx: Fx = .{};
+    defer fx.deinit(allocator);
+
+    const comp = try fx.insert(allocator, 0, .comp, 48_000);
+    comp.payload.comp.threshold_db = -12.0;
+    const delay = try fx.insert(allocator, 1, .delay, 48_000);
+    delay.payload.delay.feedback = 0.42;
+    delay.bypassed = true;
+
+    var dup = try fx.dupe(allocator, 48_000);
+    defer dup.deinit(allocator);
+
+    try std.testing.expectEqual(@as(usize, 2), dup.units.items.len);
+    try std.testing.expectEqual(@as(f32, -12.0), dup.units.items[0].payload.comp.threshold_db);
+    try std.testing.expectEqual(@as(f32, 0.42), dup.units.items[1].payload.delay.feedback);
+    try std.testing.expect(dup.units.items[1].bypassed);
+
+    // Distinct unit + line memory — freeing one chain must not touch the
+    // other's buffers (the crash-if-it-aliased check).
+    try std.testing.expect(dup.units.items[1] != delay);
+    try std.testing.expect(dup.units.items[1].payload.delay.lines[0].ptr != delay.payload.delay.lines[0].ptr);
+
+    // Mutating the original after the dupe doesn't leak into the copy.
+    comp.payload.comp.threshold_db = -30.0;
+    try std.testing.expectEqual(@as(f32, -12.0), dup.units.items[0].payload.comp.threshold_db);
 }
 
 test "drum_machine Instrument variant: device ptr stable inside heap Rack" {

@@ -1929,6 +1929,76 @@ test "synth editor g/G jump to the first/last parameter" {
     try std.testing.expectEqual(@as(u8, style.synth_param_count - 1), app.synth_cursor);
 }
 
+test "synth editor param nudges coalesce into one undo step, u/U round-trips" {
+    var app = try testApp();
+    defer app.deinit();
+    var block: [64]types.Sample = undefined;
+
+    app.handleKey(.enter, 0); // cursor 0 = synth
+    for (0..16) |_| app.handleKey(.{ .char = 'j' }, 0); // land on attack (a numeric param)
+    try std.testing.expectEqual(@as(u8, 16), app.synth_cursor);
+
+    const synth = &app.session.racks.items[0].instrument.poly_synth;
+    app.session.engine.process(&block);
+    const before = synth.attack_s;
+
+    app.handleKey(.{ .char = 'l' }, 0);
+    app.handleKey(.{ .char = 'l' }, 0);
+    app.handleKey(.{ .char = 'l' }, 0);
+    app.session.engine.process(&block);
+    try std.testing.expect(synth.attack_s > before);
+    // Three nudges on the same param, no cursor move yet — still one open
+    // batch, nothing pushed to the undo stack.
+    try std.testing.expectEqual(@as(usize, 0), app.history.undo_stack.items.len);
+
+    // u right after nudging (no intervening flush point) must undo the
+    // batch just made, not silently no-op.
+    app.handleKey(.{ .char = 'u' }, 0);
+    app.session.engine.process(&block);
+    try std.testing.expectApproxEqAbs(before, synth.attack_s, 0.0001);
+
+    app.handleKey(.{ .char = 'U' }, 0);
+    app.session.engine.process(&block);
+    try std.testing.expect(synth.attack_s > before);
+}
+
+test "synth editor param nudge flushes as its own step when the cursor moves off the param" {
+    var app = try testApp();
+    defer app.deinit();
+    var block: [64]types.Sample = undefined;
+
+    app.handleKey(.enter, 0);
+    for (0..16) |_| app.handleKey(.{ .char = 'j' }, 0); // attack
+    const synth = &app.session.racks.items[0].instrument.poly_synth;
+    app.session.engine.process(&block);
+    const attack_before = synth.attack_s;
+
+    app.handleKey(.{ .char = 'l' }, 0);
+    app.handleKey(.{ .char = 'l' }, 0);
+    app.session.engine.process(&block);
+
+    app.handleKey(.{ .char = 'j' }, 0); // move to decay (17), nudge it too
+    app.session.engine.process(&block);
+    const decay_before = synth.decay_s;
+    app.handleKey(.{ .char = 'l' }, 0);
+    app.session.engine.process(&block);
+    try std.testing.expect(synth.decay_s > decay_before);
+
+    // The attack batch was flushed by the id mismatch on the next nudge;
+    // the decay nudge is still open (not flushed) — one entry so far.
+    try std.testing.expectEqual(@as(usize, 1), app.history.undo_stack.items.len);
+
+    app.handleKey(.{ .char = 'g' }, 0); // flushes the open decay batch
+    try std.testing.expectEqual(@as(usize, 2), app.history.undo_stack.items.len);
+
+    app.handleKey(.{ .char = 'u' }, 0); // undo decay nudge
+    app.session.engine.process(&block);
+    try std.testing.expectApproxEqAbs(decay_before, synth.decay_s, 0.0001);
+    app.handleKey(.{ .char = 'u' }, 0); // undo attack batch
+    app.session.engine.process(&block);
+    try std.testing.expectApproxEqAbs(attack_before, synth.attack_s, 0.0001);
+}
+
 test "escape returns from track_spectrum to tracks" {
     var app = try App.init(std.testing.allocator, std.Io.failing);
     defer app.deinit();
@@ -3569,6 +3639,96 @@ test "FX chain: </> reorder and b bypass reach the engine chain" {
     try std.testing.expectEqual(@as(usize, 1), app.session.engine.master_chain_len);
     _ = spectrum_ed.handleKey(&app, .{ .char = 'b' });
     try std.testing.expectEqual(@as(usize, 2), app.session.engine.master_chain_len);
+}
+
+test "FX chain: param nudges coalesce into one undo step, u right after nudging still undoes it" {
+    var app = try testApp();
+    defer app.deinit();
+    spectrum_ed.switchToTrack(&app, 0);
+    _ = try app.session.racks.items[0].fx.insert(app.session.allocator, 0, .comp, app.session.project.sample_rate);
+    app.session.syncTrackChain(0, app.session.racks.items[0]);
+    const fx = &app.session.racks.items[0].fx;
+    const before = spectrum_ed.getParam(&fx.units.items[0].payload, 0); // threshold
+
+    _ = spectrum_ed.handleKey(&app, .{ .char = 'l' });
+    _ = spectrum_ed.handleKey(&app, .{ .char = 'l' });
+    _ = spectrum_ed.handleKey(&app, .{ .char = 'l' });
+    const nudged = spectrum_ed.getParam(&fx.units.items[0].payload, 0);
+    try std.testing.expect(nudged > before);
+    // Three nudges on the same param, no cursor move — still one open batch.
+    try std.testing.expectEqual(@as(usize, 0), app.history.undo_stack.items.len);
+
+    // u right away (no intervening flush point) must undo the whole batch.
+    _ = spectrum_ed.handleKey(&app, .{ .char = 'u' });
+    try std.testing.expectApproxEqAbs(before, spectrum_ed.getParam(&fx.units.items[0].payload, 0), 0.0001);
+
+    _ = spectrum_ed.handleKey(&app, .{ .char = 'U' });
+    try std.testing.expectApproxEqAbs(nudged, spectrum_ed.getParam(&fx.units.items[0].payload, 0), 0.0001);
+}
+
+test "FX chain: insert/bypass/remove are each their own undoable step" {
+    var app = try testApp();
+    defer app.deinit();
+    spectrum_ed.switchToTrack(&app, 0);
+    const fx = &app.session.racks.items[0].fx;
+
+    _ = spectrum_ed.handleKey(&app, .{ .char = 'a' });
+    spectrum_ed.insertFromPicker(&app, .comp);
+    try std.testing.expectEqual(@as(usize, 1), fx.units.items.len);
+    try std.testing.expectEqual(@as(usize, 1), app.history.undo_stack.items.len);
+
+    _ = spectrum_ed.handleKey(&app, .{ .char = 'b' }); // bypass — its own step
+    try std.testing.expect(fx.units.items[0].bypassed);
+    try std.testing.expectEqual(@as(usize, 2), app.history.undo_stack.items.len);
+
+    _ = spectrum_ed.handleKey(&app, .{ .char = 'x' }); // remove — its own step
+    try std.testing.expectEqual(@as(usize, 0), fx.units.items.len);
+    try std.testing.expectEqual(@as(usize, 3), app.history.undo_stack.items.len);
+
+    // Undo the remove: the comp is back, still bypassed.
+    _ = spectrum_ed.handleKey(&app, .{ .char = 'u' });
+    try std.testing.expectEqual(@as(usize, 1), fx.units.items.len);
+    try std.testing.expect(fx.units.items[0].bypassed);
+
+    // Undo the bypass: active again.
+    _ = spectrum_ed.handleKey(&app, .{ .char = 'u' });
+    try std.testing.expect(!fx.units.items[0].bypassed);
+
+    // Undo the insert: gone again.
+    _ = spectrum_ed.handleKey(&app, .{ .char = 'u' });
+    try std.testing.expectEqual(@as(usize, 0), fx.units.items.len);
+
+    // Redo walks the same three states forward again.
+    _ = spectrum_ed.handleKey(&app, .{ .char = 'U' }); // redo insert
+    try std.testing.expectEqual(@as(usize, 1), fx.units.items.len);
+    try std.testing.expect(!fx.units.items[0].bypassed);
+    _ = spectrum_ed.handleKey(&app, .{ .char = 'U' }); // redo bypass
+    try std.testing.expect(fx.units.items[0].bypassed);
+    _ = spectrum_ed.handleKey(&app, .{ .char = 'U' }); // redo remove
+    try std.testing.expectEqual(@as(usize, 0), fx.units.items.len);
+}
+
+test "FX chain: a param nudge followed by a structural edit are two separate undo steps" {
+    var app = try testApp();
+    defer app.deinit();
+    spectrum_ed.switchToTrack(&app, 0);
+    const fx = &app.session.racks.items[0].fx;
+    _ = spectrum_ed.handleKey(&app, .{ .char = 'a' });
+    spectrum_ed.insertFromPicker(&app, .comp);
+    const undo_after_insert = app.history.undo_stack.items.len;
+    const threshold_before = spectrum_ed.getParam(&fx.units.items[0].payload, 0);
+
+    _ = spectrum_ed.handleKey(&app, .{ .char = 'l' }); // nudge threshold — opens a batch
+    try std.testing.expectEqual(undo_after_insert, app.history.undo_stack.items.len); // still open
+    const threshold_nudged = spectrum_ed.getParam(&fx.units.items[0].payload, 0);
+    try std.testing.expect(threshold_nudged > threshold_before);
+
+    _ = spectrum_ed.handleKey(&app, .{ .char = 'b' }); // bypass flushes the nudge, then records its own step
+    try std.testing.expectEqual(undo_after_insert + 2, app.history.undo_stack.items.len);
+
+    _ = spectrum_ed.handleKey(&app, .{ .char = 'u' }); // undo the bypass only
+    try std.testing.expect(!fx.units.items[0].bypassed);
+    try std.testing.expectApproxEqAbs(threshold_nudged, spectrum_ed.getParam(&fx.units.items[0].payload, 0), 0.0001); // nudge still applied
 }
 
 test "FX chain: switchToGroup opens a group's chain via the same shared editor" {

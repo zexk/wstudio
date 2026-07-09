@@ -32,6 +32,7 @@ const FxKind = ws.FxKind;
 const FxUnit = ws.FxUnit;
 const FxPayload = ws.FxPayload;
 const App = @import("../app.zig").App;
+const history = @import("../history.zig");
 
 /// The insertable kinds in picker display order (signal-flow-ish: dynamics,
 /// tone, character, modulation, time). Parallel to `picker_menu` in
@@ -403,7 +404,11 @@ fn syncAnalyzer(app: *App, target: EqTarget) void {
     }
 }
 
+/// Change chain-slot focus — every focus change (Tab/[/]/picker-insert/
+/// switching which chain is in view) ends any open FX param-nudge batch,
+/// since a batch is scoped to one (target, unit, param) triple.
 fn setFocus(app: *App, target: EqTarget, idx: usize) void {
+    history.flushFxNudge(app);
     app.fx_focus = idx;
     app.fx_param = 0;
     syncAnalyzer(app, target);
@@ -456,7 +461,12 @@ pub fn insertFromPicker(app: *App, k: FxKind) void {
     const target = currentTarget(app);
     const fx = fxPtr(app, target) orelse return;
     const pos = if (fx.units.items.len == 0) 0 else @min(app.fx_focus + 1, fx.units.items.len);
+    // Captured before the attempt (not via history.recordFx) since insert
+    // can fail — a failed insert must not leave a spurious no-op undo step.
+    history.flushFxNudge(app);
+    const before = history.captureFx(app, target);
     _ = fx.insert(app.session.allocator, pos, k, app.session.project.sample_rate) catch |err| {
+        history.pushFxIfOk(app, before, false);
         switch (err) {
             error.ChainFull => app.setStatus("chain full ({d} units)", .{Fx.max_units}),
             error.OutOfMemory => app.setStatus("{s}: out of memory", .{unitLabel(k)}),
@@ -464,6 +474,7 @@ pub fn insertFromPicker(app: *App, k: FxKind) void {
         syncAnalyzer(app, target);
         return;
     };
+    history.pushFxIfOk(app, before, true);
     setFocus(app, target, pos);
     app.dirty = true;
     syncChain(app, target);
@@ -479,6 +490,7 @@ pub fn cancelPicker(app: *App) void {
 fn removeFocused(app: *App, target: EqTarget) void {
     const fx = fxPtr(app, target) orelse return;
     if (app.fx_focus >= fx.units.items.len) return;
+    history.recordFx(app, target);
     // Unlink and push the shortened chain to the audio thread *before*
     // freeing the unit, so a delay/reverb line can't be torn down while a
     // freshly-fetched chain still points at it.
@@ -500,6 +512,7 @@ fn moveFocused(app: *App, target: EqTarget, dir: i2) void {
     if (focusedUnit(app, fx) == null) return;
     const other = if (dir < 0) app.fx_focus -% 1 else app.fx_focus + 1;
     if (other >= fx.units.items.len) return; // already at that end (wraps on 0-%1)
+    history.recordFx(app, target);
     fx.swap(app.fx_focus, other);
     app.fx_focus = other;
     app.dirty = true;
@@ -509,6 +522,7 @@ fn moveFocused(app: *App, target: EqTarget, dir: i2) void {
 fn toggleBypass(app: *App, target: EqTarget) void {
     const fx = fxPtr(app, target) orelse return;
     const u = focusedUnit(app, fx) orelse return;
+    history.recordFx(app, target);
     u.bypassed = !u.bypassed;
     app.dirty = true;
     syncChain(app, target);
@@ -518,6 +532,7 @@ fn toggleBypass(app: *App, target: EqTarget) void {
 fn nudge(app: *App, target: EqTarget, key: u8) void {
     const fx = fxPtr(app, target) orelse return;
     const u = focusedUnit(app, fx) orelse return;
+    history.noteFxNudge(app, target, app.fx_focus, app.fx_param);
     const dir: f32 = if (key == 'h' or key == 'H') -1.0 else 1.0;
     const coarse = (key == 'H' or key == 'L');
     const cnt: f32 = @floatFromInt(app.takeCount());
@@ -532,10 +547,12 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
     const len = if (fxPtr(app, target)) |fx| fx.units.items.len else 0;
     switch (key) {
         .escape => {
+            history.flushFxNudge(app);
             _ = app.session.engine.send(.{ .set_spectrum_active = .{ .source = .none, .track = 0 } });
             app.view = app.prev_view;
             return true;
         },
+        .ctrl_r => { history.doRedo(app); return true; },
         .tab => {
             if (len > 0) setFocus(app, target, (app.fx_focus + 1) % len);
             return true;
@@ -554,6 +571,8 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             '<' => { moveFocused(app, target, -1); return true; },
             '>' => { moveFocused(app, target, 1); return true; },
             'b' => { toggleBypass(app, target); return true; },
+            'u' => { history.doUndo(app); return true; },
+            'U' => { history.doRedo(app); return true; },
             // Param picks take a vim count prefix (3k, 4j, …). EQ clamps at
             // its band ends (unchanged from before); the 3-5 param units
             // wrap, which reads more naturally for such a short list.
@@ -562,6 +581,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 const u = focusedUnit(app, fx) orelse return true;
                 const n = paramCount(u.kind());
                 const cnt: usize = @intCast(app.takeCount());
+                history.flushFxNudge(app);
                 app.fx_param = if (u.kind() == .eq)
                     app.fx_param -| cnt
                 else
@@ -573,6 +593,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 const u = focusedUnit(app, fx) orelse return true;
                 const n = paramCount(u.kind());
                 const cnt: usize = @intCast(app.takeCount());
+                history.flushFxNudge(app);
                 app.fx_param = if (u.kind() == .eq)
                     @min(app.fx_param + cnt, n - 1)
                 else
@@ -719,7 +740,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16, v
         if (rel < band_row0 or rel >= band_row0 + eq_band_rows) return;
         const band = eqBandAt(ev.x) orelse return;
         switch (ev.kind) {
-            .press => app.fx_param = band,
+            .press => { history.flushFxNudge(app); app.fx_param = band; },
             .scroll_up, .scroll_down => {
                 app.fx_param = band;
                 nudgeMouse(app, target, ev);
@@ -731,7 +752,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16, v
 
     if (rel >= paramCount(unit.kind())) return;
     switch (ev.kind) {
-        .press => app.fx_param = rel,
+        .press => { history.flushFxNudge(app); app.fx_param = rel; },
         .scroll_up, .scroll_down => {
             app.fx_param = rel;
             nudgeMouse(app, target, ev);

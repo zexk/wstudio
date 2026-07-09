@@ -2,13 +2,17 @@
 //!
 //! Snapshot-based: before a mutating edit, the App captures the whole state
 //! of the domain being touched — one track's melodic pattern, one drum
-//! machine's pattern bank, or one arrangement lane — and pushes it here.
-//! Undo swaps the captured state with the live one (the displaced state
-//! moves to the redo stack), so undo/redo walk the same entries in both
-//! directions. Track-level operations (add/delete/instrument swap) and
-//! continuous param nudges (synth editor, swing, EQ, mixer) are
-//! deliberately out of scope: the stack covers the note/pattern/clip data
-//! an artist can't reconstruct by ear.
+//! machine's pattern bank, one arrangement lane, or one FX chain — and
+//! pushes it here. Undo swaps the captured state with the live one (the
+//! displaced state moves to the redo stack), so undo/redo walk the same
+//! entries in both directions. `.param_nudge` is the odd one out: synth/
+//! sampler params live on the audio thread and can only be moved by
+//! replaying the same relative-steps command `adjustParam` sends, so it
+//! stores a delta instead of a snapshot (see its own doc comment). Rapid
+//! repeated nudges on the same param/unit coalesce into one entry — see
+//! `history.zig`'s `noteParamNudge`/`noteFxNudge`. Track-level operations
+//! (add/delete/instrument swap) and swing/mixer gain/pan are deliberately
+//! out of scope.
 
 const std = @import("std");
 const ws = @import("wstudio");
@@ -16,6 +20,7 @@ const ws = @import("wstudio");
 const Note = ws.dsp.pattern.Note;
 const DrumMachine = ws.dsp.DrumMachine;
 const Clip = ws.Clip;
+const Fx = ws.Fx;
 
 /// Entries kept on the undo side; the oldest fall off beyond this.
 pub const max_entries: usize = 64;
@@ -54,16 +59,78 @@ pub const LaneState = struct {
     }
 };
 
+/// Which FX chain an `.fx` entry targets — track/master/group index baked
+/// in at capture time, so undo/redo apply to the right chain even if the
+/// user has since navigated away from the FX view that made the edit.
+pub const FxTarget = union(enum) {
+    track: u16,
+    master,
+    group: u8,
+
+    pub fn eql(a: FxTarget, b: FxTarget) bool {
+        return switch (a) {
+            .track => |ta| switch (b) { .track => |tb| ta == tb, else => false },
+            .master => b == .master,
+            .group => |ga| switch (b) { .group => |gb| ga == gb, else => false },
+        };
+    }
+};
+
+/// One FX chain's whole ordered unit list (deep copy, via `Fx.dupe` — same
+/// payload-clone rule `Rack.dupe` uses for track duplication). Covers both
+/// param nudges and structural edits (insert/remove/reorder/bypass) alike,
+/// since either reshapes the same chain.
+pub const FxState = struct {
+    target: FxTarget,
+    fx: Fx, // owned deep copy
+
+    pub fn deinit(self: *FxState, allocator: std.mem.Allocator) void {
+        self.fx.deinit(allocator);
+    }
+};
+
+/// A coalesced run of h/l/H/L nudges on one synth/sampler param, replayed
+/// through the same `engine.set_track_param` command `adjustParam` already
+/// sends. `steps` is stored as the delta `applyEntry` should apply — pushed
+/// as the UNDO-direction delta (negated from what was actually dialed in),
+/// so applying it undoes the edit; `applyEntry` then hands back the
+/// negation as the entry parked on the opposite stack, which works
+/// symmetrically for both undo and redo without needing to know which
+/// stack it was popped from.
+pub const ParamNudgeState = struct {
+    track: u16,
+    id: u16,
+    steps: i32,
+};
+
+/// An FX param-nudge batch still open (cursor hasn't moved off this unit's
+/// param row yet). `before` is the chain snapshot captured when the batch
+/// started; flushing pushes it and clears this.
+pub const PendingFxNudge = struct {
+    target: FxTarget,
+    focus: usize,
+    param: usize,
+    before: FxState, // owned deep copy
+
+    pub fn deinit(self: *PendingFxNudge, allocator: std.mem.Allocator) void {
+        self.before.deinit(allocator);
+    }
+};
+
 pub const Entry = union(enum) {
     melodic: MelodicState,
     drum: DrumState,
     lane: LaneState,
+    fx: FxState,
+    param_nudge: ParamNudgeState,
 
     pub fn deinit(self: *Entry, allocator: std.mem.Allocator) void {
         switch (self.*) {
             .melodic => |*m| m.deinit(allocator),
             .drum => {},
             .lane => |*l| l.deinit(allocator),
+            .fx => |*f| f.deinit(allocator),
+            .param_nudge => {},
         }
     }
 
@@ -72,6 +139,8 @@ pub const Entry = union(enum) {
             .melodic => "pattern",
             .drum => "drum",
             .lane => "clip",
+            .fx => "fx",
+            .param_nudge => "param",
         };
     }
 };
