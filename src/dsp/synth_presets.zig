@@ -584,6 +584,177 @@ pub const presets = [_]Preset{
         .fenv_amount = 1.6, .fenv_attack_s = 0.015, .fenv_decay_s = 0.35, .fenv_sustain = 0.3, .fenv_release_s = 0.2,
         .gain = 0.28,
     } },
+
+    // === Round 3: Japanese genres + 90s hip-hop deep dive ===
+
+    // city-pop — glassy FM tine e-piano (the 3:1-ratio DX-style keys under
+    // every late-night Tokyo track)
+    .{ .name = "dx-epiano", .category = "keys", .tags = &.{ "wstudio", "city-pop" }, .patch = .{
+        .waveform = .sine, .osc_b_on = true, .osc_b_waveform = .sine, .osc_b_semi = 19.0, .osc_b_detune_cents = 3.0, .osc_b_level = 0.8,
+        .mod_mode = .fm_b_to_a, .mod_amount = 2.2,
+        .attack_s = 0.001, .decay_s = 1.2, .sustain = 0.15, .release_s = 0.5,
+        .filter_type = .lp, .filter_cutoff = 6500.0, .filter_res = 0.0,
+        .lfo_shape = .sine, .lfo_rate_hz = 4.5, .lfo_depth = 0.08, .lfo_target = .amp,
+        .gain = 0.3,
+    } },
+
+    // city-pop — round funky FM knock bass
+    .{ .name = "citypop-bass", .category = "bass", .tags = &.{ "wstudio", "city-pop" }, .patch = .{
+        .waveform = .sine, .voice_mode = .mono, .glide_s = 0.0,
+        .osc_b_on = true, .osc_b_waveform = .sine, .osc_b_semi = 12.0, .osc_b_level = 0.9,
+        .mod_mode = .fm_b_to_a, .mod_amount = 1.6,
+        .attack_s = 0.002, .decay_s = 0.25, .sustain = 0.35, .release_s = 0.1,
+        .filter_type = .lp, .filter_cutoff = 1100.0, .filter_res = 0.1,
+        .fenv_amount = 1.2, .fenv_attack_s = 0.001, .fenv_decay_s = 0.12, .fenv_sustain = 0.0, .fenv_release_s = 0.06,
+        .sub_level = 0.3, .sub_shape = .sine,
+        .gain = 0.36,
+    } },
+
+    // technopop — piercing pulse lead with fast vibrato (Rydeen-style,
+    // halfway between synth and video game)
+    .{ .name = "technopop-lead", .category = "lead", .tags = &.{ "wstudio", "technopop" }, .patch = .{
+        .waveform = .square, .pulse_width = 0.3, .voice_mode = .mono, .glide_s = 0.0,
+        .attack_s = 0.003, .decay_s = 0.1, .sustain = 0.85, .release_s = 0.08,
+        .filter_type = .lp, .filter_cutoff = 9000.0, .filter_res = 0.05,
+        .lfo_shape = .sine, .lfo_rate_hz = 5.8, .lfo_depth = 0.18, .lfo_target = .pitch,
+        .gain = 0.28,
+    } },
+
+    // technopop — tight sequencer-locked analog bass
+    .{ .name = "technopop-bass", .category = "bass", .tags = &.{ "wstudio", "technopop" }, .patch = .{
+        .waveform = .saw, .voice_mode = .mono, .glide_s = 0.0,
+        .attack_s = 0.002, .decay_s = 0.09, .sustain = 0.2, .release_s = 0.05,
+        .filter_type = .lp, .filter_cutoff = 750.0, .filter_res = 0.25,
+        .fenv_amount = 1.4, .fenv_attack_s = 0.001, .fenv_decay_s = 0.08, .fenv_sustain = 0.0, .fenv_release_s = 0.04,
+        .sub_level = 0.3, .sub_shape = .square,
+        .gain = 0.36,
+    } },
+
+    // kawaii future bass — hyper-bright wide supersaw chord
+    .{ .name = "kawaii-chord", .category = "stab", .tags = &.{ "wstudio", "kawaii" }, .patch = .{
+        .waveform = .saw, .unison = 7, .unison_detune = 24.0, .unison_spread = 0.9,
+        .attack_s = 0.01, .decay_s = 0.25, .sustain = 0.9, .release_s = 0.3,
+        .filter_type = .lp, .filter_cutoff = 7500.0, .filter_res = 0.1,
+        .lfo_shape = .sine, .lfo_rate_hz = 5.5, .lfo_depth = 0.1, .lfo_target = .pitch,
+        .gain = 0.22,
+    } },
+
+    // kawaii future bass — sparkly bell pluck on top of the chords
+    .{ .name = "kawaii-pluck", .category = "pluck", .tags = &.{ "wstudio", "kawaii" }, .patch = .{
+        .waveform = .sine, .osc_b_on = true, .osc_b_waveform = .sine, .osc_b_semi = 24.0, .osc_b_detune_cents = 3.0, .osc_b_level = 0.6,
+        .mod_mode = .fm_b_to_a, .mod_amount = 2.0,
+        .attack_s = 0.001, .decay_s = 0.35, .sustain = 0.0, .release_s = 0.3,
+        .filter_type = .lp, .filter_cutoff = 10_000.0, .filter_res = 0.0,
+        .gain = 0.3,
+    } },
+
+    // vaporwave — slow watery detuned pad (saw + triangle blend with a
+    // wow/flutter pitch drift)
+    .{ .name = "vapor-pad", .category = "pad", .tags = &.{ "wstudio", "vaporwave" }, .patch = .{
+        .waveform = .saw, .unison = 3, .unison_detune = 10.0, .unison_spread = 0.6,
+        .osc_b_on = true, .osc_b_waveform = .triangle, .osc_b_semi = 0.0, .osc_b_detune_cents = 9.0, .osc_b_level = 0.7,
+        .attack_s = 2.2, .decay_s = 1.0, .sustain = 0.8, .release_s = 2.8,
+        .filter_type = .lp, .filter_cutoff = 2400.0, .filter_res = 0.08,
+        .lfo_shape = .sine, .lfo_rate_hz = 0.8, .lfo_depth = 0.08, .lfo_target = .pitch,
+        .gain = 0.24,
+    } },
+
+    // eurobeat — bright punchy unison lead
+    .{ .name = "eurobeat-lead", .category = "lead", .tags = &.{ "wstudio", "eurobeat" }, .patch = .{
+        .waveform = .saw, .unison = 4, .unison_detune = 14.0, .unison_spread = 0.6,
+        .attack_s = 0.004, .decay_s = 0.15, .sustain = 0.85, .release_s = 0.12,
+        .filter_type = .lp, .filter_cutoff = 6000.0, .filter_res = 0.1,
+        .lfo_shape = .sine, .lfo_rate_hz = 5.5, .lfo_depth = 0.08, .lfo_target = .pitch,
+        .gain = 0.28,
+    } },
+
+    // eurobeat — driving octave-pump bass
+    .{ .name = "eurobeat-bass", .category = "bass", .tags = &.{ "wstudio", "eurobeat" }, .patch = .{
+        .waveform = .saw, .voice_mode = .mono, .glide_s = 0.0,
+        .osc_b_on = true, .osc_b_waveform = .saw, .osc_b_semi = -12.0, .osc_b_level = 0.8,
+        .attack_s = 0.002, .decay_s = 0.12, .sustain = 0.7, .release_s = 0.06,
+        .filter_type = .lp, .filter_cutoff = 1000.0, .filter_res = 0.2,
+        .fenv_amount = 1.0, .fenv_attack_s = 0.001, .fenv_decay_s = 0.1, .fenv_sustain = 0.2, .fenv_release_s = 0.05,
+        .gain = 0.36,
+    } },
+
+    // anime — twangy koto-style pluck (sharp filter-env attack + a touch of
+    // noise for the string snap)
+    .{ .name = "koto-pluck", .category = "pluck", .tags = &.{ "wstudio", "anime" }, .patch = .{
+        .waveform = .triangle,
+        .noise_level = 0.1, .noise_color = 0.3,
+        .attack_s = 0.001, .decay_s = 0.4, .sustain = 0.0, .release_s = 0.15,
+        .filter_type = .lp, .filter_cutoff = 3000.0, .filter_res = 0.15,
+        .fenv_amount = 2.0, .fenv_attack_s = 0.001, .fenv_decay_s = 0.08, .fenv_sustain = 0.0, .fenv_release_s = 0.05,
+        .gain = 0.32,
+    } },
+
+    // g-funk — the high sine whistle lead riding over everything
+    .{ .name = "whistle-lead", .category = "lead", .tags = &.{ "wstudio", "hip-hop", "g-funk" }, .patch = .{
+        .waveform = .sine, .voice_mode = .mono, .glide_s = 0.05,
+        .attack_s = 0.02, .decay_s = 0.2, .sustain = 0.9, .release_s = 0.25,
+        .filter_type = .lp, .filter_cutoff = 12_000.0, .filter_res = 0.0,
+        .lfo_shape = .sine, .lfo_rate_hz = 5.2, .lfo_depth = 0.15, .lfo_target = .pitch,
+        .gain = 0.28,
+    } },
+
+    // g-funk — the squelchy resonant portamento worm
+    .{ .name = "funky-worm", .category = "lead", .tags = &.{ "wstudio", "hip-hop", "g-funk" }, .patch = .{
+        .waveform = .triangle, .voice_mode = .mono, .glide_s = 0.1,
+        .attack_s = 0.005, .decay_s = 0.3, .sustain = 0.7, .release_s = 0.15,
+        .filter_type = .lp, .filter_cutoff = 1200.0, .filter_res = 0.7,
+        .fenv_amount = 1.2, .fenv_attack_s = 0.004, .fenv_decay_s = 0.25, .fenv_sustain = 0.4, .fenv_release_s = 0.12,
+        .gain = 0.28,
+    } },
+
+    // g-funk — deep gliding Moog-style low end
+    .{ .name = "gfunk-bass", .category = "bass", .tags = &.{ "wstudio", "hip-hop", "g-funk" }, .patch = .{
+        .waveform = .saw, .voice_mode = .mono, .glide_s = 0.03,
+        .attack_s = 0.004, .decay_s = 0.3, .sustain = 0.6, .release_s = 0.15,
+        .filter_type = .lp, .filter_cutoff = 480.0, .filter_res = 0.1,
+        .sub_level = 0.6, .sub_shape = .sine,
+        .gain = 0.4,
+    } },
+
+    // g-funk — dark cinematic string layer
+    .{ .name = "westcoast-strings", .category = "pad", .tags = &.{ "wstudio", "hip-hop", "g-funk" }, .patch = .{
+        .waveform = .saw, .unison = 4, .unison_detune = 10.0, .unison_spread = 0.5,
+        .attack_s = 0.05, .decay_s = 0.4, .sustain = 0.6, .release_s = 0.3,
+        .filter_type = .lp, .filter_cutoff = 2800.0, .filter_res = 0.1,
+        .fenv_amount = 0.8, .fenv_attack_s = 0.04, .fenv_decay_s = 0.5, .fenv_sustain = 0.4, .fenv_release_s = 0.3,
+        .gain = 0.26,
+    } },
+
+    // boom-bap — grimy dark minor keys (the QB dungeon-piano sound)
+    .{ .name = "grimy-keys", .category = "keys", .tags = &.{ "wstudio", "hip-hop", "boom-bap" }, .patch = .{
+        .waveform = .triangle, .detune_cents = -4.0,
+        .osc_b_on = true, .osc_b_waveform = .sine, .osc_b_semi = 12.0, .osc_b_level = 0.4,
+        .noise_level = 0.03, .noise_color = 0.4,
+        .attack_s = 0.002, .decay_s = 0.9, .sustain = 0.1, .release_s = 0.4,
+        .filter_type = .lp, .filter_cutoff = 2200.0, .filter_res = 0.05,
+        .gain = 0.3,
+    } },
+
+    // boom-bap — warped out-of-tune bell (dusty 36-chambers tape flavor:
+    // the detuned FM partial beats against the carrier)
+    .{ .name = "shaolin-bell", .category = "keys", .tags = &.{ "wstudio", "hip-hop", "boom-bap" }, .patch = .{
+        .waveform = .sine, .osc_b_on = true, .osc_b_waveform = .sine, .osc_b_semi = 24.0, .osc_b_detune_cents = 18.0, .osc_b_level = 0.7,
+        .mod_mode = .fm_b_to_a, .mod_amount = 2.8,
+        .attack_s = 0.001, .decay_s = 1.0, .sustain = 0.0, .release_s = 0.8,
+        .filter_type = .lp, .filter_cutoff = 5000.0, .filter_res = 0.0,
+        .gain = 0.28,
+    } },
+
+    // hip-hop — creepy detuned horror-movie organ (late-90s shock-rap
+    // production staple)
+    .{ .name = "creep-keys", .category = "keys", .tags = &.{ "wstudio", "hip-hop" }, .patch = .{
+        .waveform = .square, .pulse_width = 0.5, .detune_cents = 5.0,
+        .osc_b_on = true, .osc_b_waveform = .square, .osc_b_semi = 12.0, .osc_b_detune_cents = -8.0, .osc_b_level = 0.5,
+        .attack_s = 0.01, .decay_s = 0.2, .sustain = 0.9, .release_s = 0.15,
+        .filter_type = .lp, .filter_cutoff = 1500.0, .filter_res = 0.1,
+        .lfo_shape = .sine, .lfo_rate_hz = 5.0, .lfo_depth = 0.1, .lfo_target = .amp,
+        .gain = 0.28,
+    } },
 };
 
 /// Case-insensitive lookup by name.
