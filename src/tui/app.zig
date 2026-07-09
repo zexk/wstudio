@@ -587,6 +587,15 @@ pub const App = struct {
             else => key_in,
         };
 
+        // `?` opens the context-jumping help from ANY view's normal mode —
+        // cmdHelp already maps every view to its help section and prev_view
+        // brings escape back here. Gated to normal mode so command/search
+        // typing and piano-roll insert notes never trigger it.
+        if (self.modal.mode == .normal and self.view != .help and key == .char and key.char == '?') {
+            commands.cmdHelp(self, "");
+            return;
+        }
+
         switch (self.view) {
             .help => switch (key) {
                 .escape => self.view = self.prev_view,
@@ -697,7 +706,6 @@ pub const App = struct {
                             's', 'M' => { spectrum_ed.switchToMaster(self); return; },
                             'a' => { self.doTrackAdd(null); return; },
                             'c' => { self.toggleMetronome(); return; },
-                            '?' => { commands.cmdHelp(self, ""); return; },
                             '-' => { self.doMasterGainStep(-1.0); return; },
                             '+', '=' => { self.doMasterGainStep(1.0); return; },
                             'u' => { history.doUndo(self); return; },
@@ -728,7 +736,6 @@ pub const App = struct {
                                 return;
                             },
                             'c' => { self.toggleMetronome(); return; },
-                            '?' => { commands.cmdHelp(self, ""); return; },
                             '<' => { self.doTrackPan(@intCast(self.cursor), -0.05); return; },
                             '>' => { self.doTrackPan(@intCast(self.cursor), 0.05); return; },
                             '-' => { self.doTrackGainStep(@intCast(self.cursor), -1.0); return; },
