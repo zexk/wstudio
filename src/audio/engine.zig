@@ -179,6 +179,22 @@ const AutomationPair = struct {
     /// `max_synth_slots`. Kept as its own array rather than growing this
     /// struct's field count 1:1 with PolySynth's ~30 continuous params.
     synth_slots: [max_synth_slots]SynthAutomationSlot = [_]SynthAutomationSlot{.{}} ** max_synth_slots,
+
+    /// Copy another slot's rows wholesale (control thread) — for the track
+    /// insert/delete/swap shifts, which must move automation along with
+    /// `Engine.tracks` or the rows end up keyed to the wrong tracks. A
+    /// plain struct copy would also duplicate each curve's lock STATE: if
+    /// the audio thread happens to hold a source curve's lock mid-`valueAt`
+    /// at that instant, the copy would be born permanently locked and its
+    /// next `set()` would spin forever — so every copied lock is forced
+    /// back to unlocked. The torn read this can let through is the same
+    /// one-stale-block race `setTrackChain` already tolerates.
+    fn copyFrom(self: *AutomationPair, src: *const AutomationPair) void {
+        self.* = src.*;
+        self.gain.lock = .unlocked;
+        self.pan.lock = .unlocked;
+        for (&self.synth_slots) |*s| s.curve.lock = .unlocked;
+    }
 };
 
 pub const UiSnapshot = struct {
@@ -338,11 +354,18 @@ pub const Engine = struct {
 
     /// Shift engine slots [idx, total) up by one (to make room for a new
     /// track), then initialize `idx` as a new active track with no chain.
-    /// `total` is the track count before the insert.
+    /// `total` is the track count before the insert. Shifts the parallel
+    /// per-track heap arrays (`automation`, `track_sidechain`) in the same
+    /// motion — they are indexed the same as `tracks` and would otherwise
+    /// stay keyed to the pre-shift indices.
     /// Called from the UI/control thread — same class of race as setTrackChain.
     pub fn applyInsertTrack(self: *Engine, idx: u16, total: u16, gain: f32, pan: f32, muted: bool) void {
         var i: usize = @min(total, max_tracks - 1);
-        while (i > idx) : (i -= 1) self.tracks[i] = self.tracks[i - 1];
+        while (i > idx) : (i -= 1) {
+            self.tracks[i] = self.tracks[i - 1];
+            self.track_sidechain[i] = self.track_sidechain[i - 1];
+            self.automation[i].copyFrom(&self.automation[i - 1]);
+        }
         self.tracks[idx] = .{
             .active = true,
             .gain = gain,
@@ -350,20 +373,35 @@ pub const Engine = struct {
             .muted = muted,
             .chain_len = 0,
         };
+        self.track_sidechain[idx] = [_]?u16{null} ** max_chain_devices;
+        self.automation[idx] = .{};
     }
 
     /// Shift engine slots [idx+1, total) down by one, clearing the last slot.
+    /// Same parallel-array rule as `applyInsertTrack`.
     /// Called from the UI/control thread — same class of race as setTrackChain.
     pub fn applyDeleteTrack(self: *Engine, idx: u16, total: u16) void {
-        for (idx..total - 1) |i| self.tracks[i] = self.tracks[i + 1];
+        for (idx..total - 1) |i| {
+            self.tracks[i] = self.tracks[i + 1];
+            self.track_sidechain[i] = self.track_sidechain[i + 1];
+            self.automation[i].copyFrom(&self.automation[i + 1]);
+        }
         self.tracks[total - 1] = .{};
+        self.track_sidechain[total - 1] = [_]?u16{null} ** max_chain_devices;
+        self.automation[total - 1] = .{};
     }
 
-    /// Swap two tracks' engine slots (state + chain) in place. Same race
-    /// class as applyInsertTrack/applyDeleteTrack — called from the UI/control
+    /// Swap two tracks' engine slots (state + chain + the parallel
+    /// automation/sidechain rows) in place. Same race class as
+    /// applyInsertTrack/applyDeleteTrack — called from the UI/control
     /// thread while the audio thread may be mid-block.
     pub fn swapTracks(self: *Engine, a: u16, b: u16) void {
         std.mem.swap(TrackState, &self.tracks[a], &self.tracks[b]);
+        std.mem.swap(TrackSidechainSlots, &self.track_sidechain[a], &self.track_sidechain[b]);
+        var tmp: AutomationPair = undefined;
+        tmp.copyFrom(&self.automation[a]);
+        self.automation[a].copyFrom(&self.automation[b]);
+        self.automation[b].copyFrom(&tmp);
     }
 
     /// Fire the metronome click at every beat boundary inside this block
@@ -1484,4 +1522,45 @@ test "applyDeleteTrack shifts tracks down" {
     try std.testing.expectApproxEqAbs(@as(f32, 0.3), engine.tracks[1].gain, 1e-6);
     try std.testing.expectApproxEqAbs(@as(f32, 0.4), engine.tracks[2].gain, 1e-6);
     try std.testing.expect(!engine.tracks[3].active); // cleared
+}
+
+test "applyDeleteTrack shifts the parallel automation and sidechain rows with the tracks" {
+    var engine = try Engine.init(std.testing.allocator, 48_000);
+    defer engine.deinit();
+
+    engine.tracks[0] = .{ .active = true };
+    engine.tracks[1] = .{ .active = true }; // deleted
+    engine.tracks[2] = .{ .active = true };
+
+    engine.setTrackAutomation(2, .gain, &.{.{ .beat = 0.0, .value = 0.7 }});
+    engine.setTrackSynthParam(2, 21, &.{.{ .beat = 0.0, .value = 5_000.0 }});
+    engine.setTrackSidechainSources(2, &.{ null, 7 });
+
+    engine.applyDeleteTrack(1, 3);
+
+    // Track 2's rows moved down to slot 1 alongside its TrackState...
+    try std.testing.expectApproxEqAbs(@as(f32, 0.7), engine.automation[1].gain.valueAt(0.0).?, 1e-6);
+    try std.testing.expectEqual(@as(?u8, 21), engine.automation[1].synth_slots[0].param_id);
+    try std.testing.expectEqual(@as(?u16, 7), engine.track_sidechain[1][1]);
+    // ...and the vacated last slot is fully cleared, not left stale.
+    try std.testing.expect(engine.automation[2].gain.valueAt(0.0) == null);
+    try std.testing.expectEqual(@as(?u8, null), engine.automation[2].synth_slots[0].param_id);
+    try std.testing.expectEqual(@as(?u16, null), engine.track_sidechain[2][1]);
+}
+
+test "swapTracks exchanges the parallel automation and sidechain rows too" {
+    var engine = try Engine.init(std.testing.allocator, 48_000);
+    defer engine.deinit();
+
+    engine.tracks[0] = .{ .active = true };
+    engine.tracks[1] = .{ .active = true };
+    engine.setTrackAutomation(0, .pan, &.{.{ .beat = 0.0, .value = -0.5 }});
+    engine.setTrackSidechainSources(1, &.{3});
+
+    engine.swapTracks(0, 1);
+
+    try std.testing.expectApproxEqAbs(@as(f32, -0.5), engine.automation[1].pan.valueAt(0.0).?, 1e-6);
+    try std.testing.expect(engine.automation[0].pan.valueAt(0.0) == null);
+    try std.testing.expectEqual(@as(?u16, 3), engine.track_sidechain[0][0]);
+    try std.testing.expectEqual(@as(?u16, null), engine.track_sidechain[1][0]);
 }

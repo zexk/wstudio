@@ -229,6 +229,10 @@ pub const Session = struct {
 
         self.arrangement.removeLane(self.allocator, track_idx);
         self.project.removeTrack(track_idx);
+
+        // Compressors elsewhere may sidechain off a track index that just
+        // shifted (or off the deleted track itself) — rewrite and resync.
+        self.remapSidechainSources(.{ .delete = @intCast(track_idx) });
     }
 
     /// Deep-copy `track_idx` — instrument, params, FX, pattern/pad audio, and
@@ -290,6 +294,9 @@ pub const Session = struct {
         std.mem.swap(*Rack, &self.racks.items[a], &self.racks.items[b]);
         self.arrangement.swapLanes(a, b);
         self.engine.swapTracks(@intCast(a), @intCast(b));
+        // Same rule as deleteTrack: sidechain sources name tracks, so they
+        // follow the swap.
+        self.remapSidechainSources(.{ .swap = .{ @intCast(a), @intCast(b) } });
     }
 
     /// Capture `track_idx`'s current live pattern as a clip at `start_bar`.
@@ -414,6 +421,48 @@ pub const Session = struct {
             self.engine.setGroupChain(idx, false, &.{});
             self.engine.setGroupSidechainSources(idx, &.{});
         }
+    }
+
+    /// How track indices moved, for `remapSidechainSources`.
+    const SidechainRemap = union(enum) {
+        /// This track index was removed; everything after it shifted down.
+        delete: u16,
+        /// These two track indices traded places.
+        swap: [2]u16,
+    };
+
+    /// Rewrite every compressor's `sidechain_source` (track racks, group
+    /// buses, master) after track indices shift, then push the refreshed
+    /// routing to the engine. Without this a compressor keeps its raw
+    /// index and silently starts detecting from whatever track slid into
+    /// it — the source is a persisted USER setting naming a specific
+    /// track, so it must follow that track (or clear when it's deleted),
+    /// same reason `TrackState.group` values are per-track state the
+    /// engine shifts in applyDeleteTrack.
+    fn remapSidechainSources(self: *Session, op: SidechainRemap) void {
+        const remapFx = struct {
+            fn go(fx: *rack_mod.Fx, op_: SidechainRemap) void {
+                for (fx.units.items) |u| switch (u.payload) {
+                    .comp => |*c| if (c.sidechain_source) |s| {
+                        c.sidechain_source = switch (op_) {
+                            .delete => |d| if (s == d) null else if (s > d) s - 1 else s,
+                            .swap => |ab| if (s == ab[0]) ab[1] else if (s == ab[1]) ab[0] else s,
+                        };
+                    },
+                    else => {},
+                };
+            }
+        }.go;
+        for (self.racks.items) |rack| remapFx(&rack.fx, op);
+        for (&self.groups) |*slot| if (slot.*) |*g| remapFx(&g.fx, op);
+        remapFx(&self.master_fx, op);
+
+        for (self.racks.items, 0..) |rack, i| {
+            var sc_buf: [rack_mod.Rack.chain_cap]?u16 = undefined;
+            self.engine.setTrackSidechainSources(@intCast(i), rack.sidechainSources(&sc_buf));
+        }
+        for (0..engine_mod.max_groups) |gi| self.syncGroupChain(@intCast(gi));
+        self.syncMasterChain();
     }
 
     /// Create a new group named `name` in the first free slot. Starts with
@@ -1029,6 +1078,45 @@ test "syncMasterChain and syncGroupChain push sidechain routing too" {
     group_comp.payload.comp.sidechain_source = 3;
     s.syncGroupChain(idx);
     try std.testing.expectEqual(@as(?u16, 3), s.engine.groups[idx].sidechain_sources[0]);
+}
+
+test "deleteTrack remaps other compressors' sidechain_source track indices" {
+    var s = try Session.initDefault(std.testing.allocator);
+    defer s.deinit();
+    _ = try s.addTrack("kick"); // idx 1: the sidechain source
+    _ = try s.addTrack("bass"); // idx 2: carries the compressor
+
+    const rack = s.racks.items[2];
+    const comp = try rack.fx.insert(s.allocator, 0, .comp, s.project.sample_rate);
+    comp.payload.comp.sidechain_source = 1;
+    s.syncTrackChain(2, rack);
+
+    // Deleting track 0 shifts the source 1 -> 0 (and the consumer 2 -> 1);
+    // the compressor must keep detecting from the same musical track.
+    try s.deleteTrack(0);
+    try std.testing.expectEqual(@as(?u16, 0), s.racks.items[1].fx.units.items[0].payload.comp.sidechain_source);
+    try std.testing.expectEqual(@as(?u16, 0), s.engine.track_sidechain[1][0]);
+
+    // Deleting the source itself clears the routing back to self-detection.
+    try s.deleteTrack(0);
+    try std.testing.expectEqual(@as(?u16, null), s.racks.items[0].fx.units.items[0].payload.comp.sidechain_source);
+    try std.testing.expectEqual(@as(?u16, null), s.engine.track_sidechain[0][0]);
+}
+
+test "swapTracks follows a compressor's sidechain_source through the swap" {
+    var s = try Session.initDefault(std.testing.allocator);
+    defer s.deinit();
+    _ = try s.addTrack("kick"); // idx 1: the sidechain source
+    _ = try s.addTrack("bass"); // idx 2: carries the compressor
+
+    const rack = s.racks.items[2];
+    const comp = try rack.fx.insert(s.allocator, 0, .comp, s.project.sample_rate);
+    comp.payload.comp.sidechain_source = 1;
+    s.syncTrackChain(2, rack);
+
+    s.swapTracks(0, 1);
+    try std.testing.expectEqual(@as(?u16, 0), s.racks.items[2].fx.units.items[0].payload.comp.sidechain_source);
+    try std.testing.expectEqual(@as(?u16, 0), s.engine.track_sidechain[2][0]);
 }
 
 test "addGroup/assignTrackGroup/deleteGroup: CRUD, membership, and engine sync" {
