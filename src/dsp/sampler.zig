@@ -275,7 +275,13 @@ pub const Sampler = struct {
 
         for (&self.voices) |*nv| {
             if (!nv.active) continue;
-            nv.v.block_start = 0;
+            // A voice triggered mid-block (a step fired at `fire_frame`,
+            // see DrumMachine.processBlock) keeps its `block_start` offset
+            // for this first render; renderVoice itself resets it to 0
+            // once consumed, so voices surviving into later blocks render
+            // from the top. Zeroing it here instead used to flatten every
+            // step onto the block boundary, quantizing swing/step timing
+            // to ~block granularity.
             // Effective pad: pad params + this voice's chromatic transpose.
             // The value copy shares the `samples` slice (no allocation).
             var eff = self.pad;
@@ -428,4 +434,27 @@ test "adjustParam edits clip params and root note" {
     try std.testing.expectEqual(@as(u7, 48), s.root_note);
     s.adjustParam(9, 1); // reverse toggle
     try std.testing.expect(s.pad.reverse);
+}
+
+test "a mid-block trigger renders from its block_start offset, not the block top" {
+    var s = try Sampler.init(std.testing.allocator, 48_000);
+    defer s.deinit();
+
+    s.trigger(s.root_note, 1.0, 100); // fire 100 frames into the block
+    var buf: [512]Sample = undefined; // 256 frames stereo
+    @memset(&buf, 0.0);
+    s.processBlock(&buf);
+
+    // Everything before the offset stays silent; the hit starts at it.
+    for (buf[0 .. 100 * 2]) |x| try std.testing.expectEqual(@as(Sample, 0.0), x);
+    var peak: f32 = 0.0;
+    for (buf[100 * 2 ..]) |x| peak = @max(peak, @abs(x));
+    try std.testing.expect(peak > 0.001);
+
+    // The offset is consumed: the next block renders from its own top.
+    @memset(&buf, 0.0);
+    s.processBlock(&buf);
+    var head: f32 = 0.0;
+    for (buf[0..16]) |x| head = @max(head, @abs(x));
+    try std.testing.expect(head > 0.0001);
 }

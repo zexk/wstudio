@@ -391,7 +391,9 @@ pub const Slicer = struct {
         for (self.slices[0..self.slice_count], self.voices[0..self.slice_count]) |*pad, *pool| {
             for (pool) |*sv| {
                 if (!sv.active) continue;
-                sv.v.block_start = 0;
+                // Keep a mid-block trigger's `block_start` offset for its
+                // first render — renderVoice consumes and resets it — same
+                // rule as Sampler.processBlock (see its comment there).
                 pad_mod.renderVoice(&sv.v, pad, buf, channels, frames, sr);
                 if (!sv.v.active) sv.active = false;
             }
