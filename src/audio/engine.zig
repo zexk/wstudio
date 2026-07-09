@@ -49,6 +49,13 @@ pub const Command = union(enum) {
     /// on the audio thread so editor edits don't race the block reader. u16,
     /// not u8 — see dsp/device.zig's Event.set_param doc comment.
     set_track_param: struct { track: u16, id: u16, steps: i32 },
+    /// Absolute-value counterpart to `set_track_param` — for undo, which
+    /// restores a captured value directly rather than replaying a delta (a
+    /// delta lands wrong whenever any nudge in the batch hit a param's
+    /// clamp, and enum/toggle params treat any nonzero delta as one step).
+    /// Same route automation's own `Event.set_param_abs` already takes,
+    /// just originating from the control-side command queue.
+    set_track_param_abs: struct { track: u16, id: u16, value: f32 },
     /// Which group (if any) `track` submixes through before the master bus.
     /// `null` routes straight to master, same as before grouping existed.
     set_track_group: struct { track: u16, group: ?u8 },
@@ -712,6 +719,7 @@ pub const Engine = struct {
             .cc         => |c| self.sendTrackEvent(c.track, .{ .cc         = .{ .cc   = c.cc,   .value = c.value } }),
             .pitch_bend => |c| self.sendTrackEvent(c.track, .{ .pitch_bend = .{ .bend = c.bend } }),
             .set_track_param => |c| self.sendTrackEvent(c.track, .{ .set_param = .{ .id = c.id, .steps = c.steps } }),
+            .set_track_param_abs => |c| self.sendTrackEvent(c.track, .{ .set_param_abs = .{ .id = c.id, .value = c.value } }),
             .set_track_group => |c| self.trackAt(c.track).group = c.group,
             .set_loop => |c| {
                 self.transport.loop_enabled = c.enabled;

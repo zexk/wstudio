@@ -233,7 +233,7 @@ pub const App = struct {
     /// An open coalescing batch of synth/sampler param nudges (h/l/H/L),
     /// flushed to `history` once the cursor moves off that param — see
     /// history.zig's noteParamNudge/flushParamNudge.
-    pending_param_nudge: ?undo_mod.ParamNudgeState = null,
+    pending_param_nudge: ?undo_mod.PendingParamNudge = null,
     /// An open coalescing batch of FX-chain param nudges — see history.zig's
     /// noteFxNudge/flushFxNudge. Owns a heap-allocated "before" chain
     /// snapshot until flushed; freed in `deinit` if a batch is still open.

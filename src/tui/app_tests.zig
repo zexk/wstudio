@@ -1962,6 +1962,62 @@ test "synth editor param nudges coalesce into one undo step, u/U round-trips" {
     try std.testing.expect(synth.attack_s > before);
 }
 
+test "param undo restores the exact value even when a nudge hit the clamp" {
+    var app = try testApp();
+    defer app.deinit();
+    var block: [64]types.Sample = undefined;
+
+    app.handleKey(.enter, 0); // cursor 0 = synth
+    for (0..18) |_| app.handleKey(.{ .char = 'j' }, 0); // sustain (0..1, clamps)
+    try std.testing.expectEqual(@as(u8, 18), app.synth_cursor);
+
+    const synth = &app.session.racks.items[0].instrument.poly_synth;
+    synth.sustain = 0.99;
+    app.session.engine.process(&block);
+
+    // Three up-nudges: the first lands (1.0), the rest clamp. A delta
+    // replay would "undo" -3 steps to 0.96; the absolute restore must
+    // come back to exactly 0.99.
+    for (0..3) |_| app.handleKey(.{ .char = 'l' }, 0);
+    app.session.engine.process(&block);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), synth.sustain, 1e-6);
+
+    app.handleKey(.{ .char = 'u' }, 0);
+    app.session.engine.process(&block);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.99), synth.sustain, 1e-6);
+
+    app.handleKey(.{ .char = 'U' }, 0);
+    app.session.engine.process(&block);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), synth.sustain, 1e-6);
+}
+
+test "param undo round-trips a coalesced toggle batch (any nonzero delta = one flip)" {
+    var app = try testApp();
+    defer app.deinit();
+    var block: [64]types.Sample = undefined;
+
+    app.handleKey(.enter, 0);
+    for (0..6) |_| app.handleKey(.{ .char = 'j' }, 0); // osc_b_on (a toggle)
+    try std.testing.expectEqual(@as(u8, 6), app.synth_cursor);
+
+    const synth = &app.session.racks.items[0].instrument.poly_synth;
+    app.session.engine.process(&block);
+    const before = synth.osc_b_on;
+
+    // Two same-direction presses coalesce to a +2 batch but flip the
+    // toggle twice (net zero change). Undo must restore the original
+    // state, not replay -2 as a single third flip.
+    app.handleKey(.{ .char = 'l' }, 0);
+    app.session.engine.process(&block);
+    app.handleKey(.{ .char = 'l' }, 0);
+    app.session.engine.process(&block);
+    try std.testing.expectEqual(before, synth.osc_b_on);
+
+    app.handleKey(.{ .char = 'u' }, 0);
+    app.session.engine.process(&block);
+    try std.testing.expectEqual(before, synth.osc_b_on);
+}
+
 test "synth editor param nudge flushes as its own step when the cursor moves off the param" {
     var app = try testApp();
     defer app.deinit();

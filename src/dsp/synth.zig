@@ -8,6 +8,23 @@ const midi = @import("../midi.zig");
 
 const Sample = types.Sample;
 
+/// Enum/toggle params cross `paramValue`/`setParamAbsolute` as the
+/// variant's 0-based declaration ordinal, rounded and clamped on the way
+/// back in. The `> 0.0` guard doubles as the NaN check (a hand-edited
+/// automation value could be anything), so a bad value degrades to the
+/// first variant instead of tripping @intFromFloat safety.
+fn enumToValue(e: anytype) f32 {
+    return @floatFromInt(@intFromEnum(e));
+}
+
+fn enumFromValue(comptime E: type, value: f32) E {
+    const n = @typeInfo(E).@"enum".fields.len;
+    if (!(value > 0.0)) return @enumFromInt(0);
+    const max: f32 = @floatFromInt(n - 1);
+    if (value >= max) return @enumFromInt(n - 1);
+    return @enumFromInt(@as(u8, @intFromFloat(@round(value))));
+}
+
 pub const Waveform   = enum { sine, saw, triangle, square };
 pub const FilterType = enum { lp, hp, bp, notch };
 pub const LfoShape   = enum { sine, triangle, saw, square };
@@ -904,14 +921,25 @@ pub const PolySynth = struct {
 
     /// Absolute-value counterpart to `adjustParam`, for automation curves
     /// (which know the value they want at a beat position directly, not a
-    /// delta from wherever the param last was — see `Event.set_param_abs`).
+    /// delta from wherever the param last was — see `Event.set_param_abs`)
+    /// and for undo's capture/restore (`paramValue` is the read half).
     /// Every continuous param `adjustParam` handles is wired here with the
     /// exact same clamp range; enum/toggle ids (waveform 0/7, osc_b_on 6,
     /// mod_mode 14, filter_type 20, lfo_shape 28, lfo_target 31, voice_mode
-    /// 32, sub_shape 35) have no meaningful "absolute value" and stay
-    /// unhandled, a no-op matching `adjustParam`'s own default arm.
+    /// 32, sub_shape 35) take the variant's 0-based ordinal (toggles: >= 0.5
+    /// is on) — automation never targets them (they're not in
+    /// `automatable_params`), only undo restores them this way.
     pub fn setParamAbsolute(self: *PolySynth, id: u8, value: f32) void {
         switch (id) {
+            0  => self.waveform            = enumFromValue(Waveform, value),
+            6  => self.osc_b_on            = value >= 0.5,
+            7  => self.osc_b_waveform      = enumFromValue(Waveform, value),
+            14 => self.mod_mode            = enumFromValue(ModMode, value),
+            20 => self.filter_type         = enumFromValue(FilterType, value),
+            28 => self.lfo_shape           = enumFromValue(LfoShape, value),
+            31 => self.lfo_target          = enumFromValue(LfoTarget, value),
+            32 => self.voice_mode          = enumFromValue(VoiceMode, value),
+            35 => self.sub_shape           = enumFromValue(SubShape, value),
             1  => self.pulse_width         = std.math.clamp(value,   0.01,   0.99),
             2  => self.detune_cents        = std.math.clamp(value, -100.0, 100.0),
             3  => self.unison              = @intCast(std.math.clamp(@as(i32, @intFromFloat(@round(value))), 1, 16)),
@@ -944,6 +972,56 @@ pub const PolySynth = struct {
             38 => self.gain                = std.math.clamp(value,   0.01,   1.0),
             else => {},
         }
+    }
+
+    /// Current value of editor param `id`, in the same unit/encoding
+    /// `setParamAbsolute` accepts (enums/toggles as 0-based ordinals) — the
+    /// read half of undo's capture/restore pair. A control-thread read of
+    /// live fields, same race-tolerant convention the synth editor's own
+    /// row rendering already uses. Null for unknown ids.
+    pub fn paramValue(self: *const PolySynth, id: u8) ?f32 {
+        return switch (id) {
+            0  => enumToValue(self.waveform),
+            1  => self.pulse_width,
+            2  => self.detune_cents,
+            3  => @floatFromInt(self.unison),
+            4  => self.unison_detune,
+            5  => self.unison_spread,
+            6  => if (self.osc_b_on) 1.0 else 0.0,
+            7  => enumToValue(self.osc_b_waveform),
+            8  => self.osc_b_pulse_width,
+            9  => self.osc_b_semi,
+            10 => self.osc_b_detune_cents,
+            11 => self.osc_b_level,
+            12 => @floatFromInt(self.osc_b_unison),
+            13 => self.osc_b_unison_detune,
+            14 => enumToValue(self.mod_mode),
+            15 => self.mod_amount,
+            16 => self.attack_s,
+            17 => self.decay_s,
+            18 => self.sustain,
+            19 => self.release_s,
+            20 => enumToValue(self.filter_type),
+            21 => self.filter_cutoff,
+            22 => self.filter_res,
+            23 => self.fenv_amount,
+            24 => self.fenv_attack_s,
+            25 => self.fenv_decay_s,
+            26 => self.fenv_sustain,
+            27 => self.fenv_release_s,
+            28 => enumToValue(self.lfo_shape),
+            29 => self.lfo_rate_hz,
+            30 => self.lfo_depth,
+            31 => enumToValue(self.lfo_target),
+            32 => enumToValue(self.voice_mode),
+            33 => self.glide_s,
+            34 => self.sub_level,
+            35 => enumToValue(self.sub_shape),
+            36 => self.noise_level,
+            37 => self.noise_color,
+            38 => self.gain,
+            else => null,
+        };
     }
 
     /// One entry per `setParamAbsolute`-handled id — the shared metadata the
@@ -1396,4 +1474,29 @@ test "applyPitchBend: range at ±2 semitones" {
     try std.testing.expect(synth.pitch_bend_semitones < -1.9);
     synth.applyPitchBend(0, 2.0);
     try std.testing.expectApproxEqAbs(@as(f32, 0.0), synth.pitch_bend_semitones, 1e-4);
+}
+
+test "paramValue/setParamAbsolute round-trip continuous, enum, and toggle params" {
+    var a = PolySynth.init(48_000);
+    a.sustain = 0.37;
+    a.filter_type = .bp;
+    a.osc_b_on = true;
+    a.mod_mode = .fm_a_to_b;
+
+    // Every editor param id survives a value-copy through the pair.
+    var b = PolySynth.init(48_000);
+    var id: u8 = 0;
+    while (id <= 38) : (id += 1) {
+        if (a.paramValue(id)) |v| b.setParamAbsolute(id, v);
+    }
+    try std.testing.expectApproxEqAbs(@as(f32, 0.37), b.sustain, 1e-6);
+    try std.testing.expectEqual(FilterType.bp, b.filter_type);
+    try std.testing.expect(b.osc_b_on);
+    try std.testing.expectEqual(ModMode.fm_a_to_b, b.mod_mode);
+
+    // A garbage ordinal (hand-edited automation) degrades safely.
+    b.setParamAbsolute(20, std.math.nan(f32));
+    try std.testing.expectEqual(FilterType.lp, b.filter_type);
+    b.setParamAbsolute(20, 1.0e30);
+    try std.testing.expectEqual(FilterType.notch, b.filter_type);
 }

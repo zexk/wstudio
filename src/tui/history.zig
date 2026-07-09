@@ -168,10 +168,28 @@ pub fn flushFxNudge(app: *App) void {
     app.history.push(app.allocator, .{ .fx = p.before });
 }
 
+/// The live value of instrument param `id` on `track`, in the encoding
+/// `set_track_param_abs` restores (see each instrument's `paramValue`).
+/// A control-thread read of the rack's live DSP struct — same
+/// race-tolerant convention the editors' own row rendering uses. Null
+/// when the track is gone or its instrument has no such param (e.g. the
+/// instrument was swapped since the entry was captured — the undo/redo
+/// then skips rather than writing a foreign id).
+fn liveParamValue(app: *App, track: u16, id: u16) ?f32 {
+    if (track >= app.session.racks.items.len) return null;
+    return switch (app.session.racks.items[track].instrument) {
+        .poly_synth => |*s| if (id <= 0xFF) s.paramValue(@intCast(id)) else null,
+        .sampler => |*s| if (id <= 0xFF) s.paramValue(@intCast(id)) else null,
+        .drum_machine => |*dm| dm.paramValue(id),
+        else => null,
+    };
+}
+
 /// Note one nudge (`steps`, already signed) of param `id` on `track`,
-/// called right where `adjustParam` sends the live command. Continues the
-/// open batch if it's the same (track, id); otherwise flushes whatever was
-/// open and starts a new one.
+/// called right BEFORE the caller sends the live `set_track_param` command
+/// (so the captured before-value predates the nudge). Continues the open
+/// batch if it's the same (track, id); otherwise flushes whatever was open
+/// and starts a new one by capturing the param's current absolute value.
 pub fn noteParamNudge(app: *App, track: u16, id: u16, steps: i32) void {
     if (app.pending_param_nudge) |*p| {
         if (p.track == track and p.id == id) {
@@ -180,19 +198,23 @@ pub fn noteParamNudge(app: *App, track: u16, id: u16, steps: i32) void {
         }
         flushParamNudge(app);
     }
-    app.pending_param_nudge = .{ .track = track, .id = id, .steps = steps };
+    const before = liveParamValue(app, track, id) orelse return;
+    app.pending_param_nudge = .{ .track = track, .id = id, .before = before, .steps = steps };
 }
 
 /// Commit the in-flight param-nudge batch (if any) to the undo stack,
-/// storing the undo-direction (negated) delta — see `ParamNudgeState`'s doc
-/// comment. Call on any cursor/track/view change so a batch never silently
-/// drops.
+/// storing the absolute before-value — see `ParamNudgeState`'s doc
+/// comment. A batch that netted zero steps is dropped rather than pushed
+/// as a no-op step; that check uses the synchronous steps accumulator,
+/// NOT a re-read of the live value, because the nudges themselves are
+/// queued commands the audio thread may not have applied yet. Call on any
+/// cursor/track/view change so a batch never silently drops.
 pub fn flushParamNudge(app: *App) void {
     const p = app.pending_param_nudge orelse return;
     app.pending_param_nudge = null;
     if (p.steps == 0) return;
     app.dirty = true;
-    app.history.push(app.allocator, .{ .param_nudge = .{ .track = p.track, .id = p.id, .steps = -p.steps } });
+    app.history.push(app.allocator, .{ .param_nudge = .{ .track = p.track, .id = p.id, .value = p.before } });
 }
 
 /// Swap `entry`'s state with the live one. On success the entry is
@@ -263,9 +285,15 @@ fn applyEntry(app: *App, entry: undo_mod.Entry) ?undo_mod.Entry {
             return displaced;
         },
         .param_nudge => |p| {
-            if (p.track >= app.session.racks.items.len) return null;
-            _ = app.session.engine.send(.{ .set_track_param = .{ .track = p.track, .id = p.id, .steps = p.steps } });
-            return .{ .param_nudge = .{ .track = p.track, .id = p.id, .steps = -p.steps } };
+            // Read the value being displaced (for the opposite stack) on
+            // the control thread, then restore the stored one through the
+            // audio thread's own event path — absolute, so it lands exactly
+            // regardless of clamps or enum/toggle params (see
+            // ParamNudgeState). liveParamValue doubles as the target check:
+            // null (track gone, instrument swapped) skips the entry.
+            const displaced = liveParamValue(app, p.track, p.id) orelse return null;
+            _ = app.session.engine.send(.{ .set_track_param_abs = .{ .track = p.track, .id = p.id, .value = p.value } });
+            return .{ .param_nudge = .{ .track = p.track, .id = p.id, .value = displaced } };
         },
     }
 }

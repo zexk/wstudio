@@ -6,9 +6,9 @@
 //! pushes it here. Undo swaps the captured state with the live one (the
 //! displaced state moves to the redo stack), so undo/redo walk the same
 //! entries in both directions. `.param_nudge` is the odd one out: synth/
-//! sampler params live on the audio thread and can only be moved by
-//! replaying the same relative-steps command `adjustParam` sends, so it
-//! stores a delta instead of a snapshot (see its own doc comment). Rapid
+//! sampler params live on the audio thread, so it stores the one param's
+//! absolute before-value and restores it through the same event path
+//! automation already uses (see its own doc comment). Rapid
 //! repeated nudges on the same param/unit coalesce into one entry — see
 //! `history.zig`'s `noteParamNudge`/`noteFxNudge`. Track-level operations
 //! (add/delete/instrument swap) and swing/mixer gain/pan are deliberately
@@ -89,18 +89,32 @@ pub const FxState = struct {
     }
 };
 
-/// A coalesced run of h/l/H/L nudges on one synth/sampler param, replayed
-/// through the same `engine.set_track_param` command `adjustParam` already
-/// sends. `steps` is stored as the delta `applyEntry` should apply — pushed
-/// as the UNDO-direction delta (negated from what was actually dialed in),
-/// so applying it undoes the edit; `applyEntry` then hands back the
-/// negation as the entry parked on the opposite stack, which works
-/// symmetrically for both undo and redo without needing to know which
-/// stack it was popped from.
+/// A coalesced run of h/l/H/L nudges on one synth/sampler param. `value`
+/// is the ABSOLUTE param value `applyEntry` should restore (captured on
+/// the control thread when the batch opened — see `PolySynth.paramValue`
+/// and friends), sent through `engine.set_track_param_abs`; applying it
+/// hands back the value it displaced as the entry parked on the opposite
+/// stack, which works symmetrically for undo and redo. Absolute, not a
+/// replayed delta: a delta lands wrong whenever any nudge in the batch
+/// hit the param's clamp, and enum/toggle params treat any nonzero delta
+/// as a single step, so a coalesced sum couldn't round-trip them.
 pub const ParamNudgeState = struct {
     track: u16,
     id: u16,
-    steps: i32,
+    value: f32,
+};
+
+/// A synth/sampler param-nudge batch still open (cursor hasn't moved off
+/// the param yet). `before` is the absolute value captured when the batch
+/// opened; `steps` is the net signed delta dialed in so far, kept ONLY for
+/// the flush-time no-op check (a batch that netted zero is dropped) —
+/// that check must stay synchronous, since the nudges themselves are
+/// queued commands the audio thread may not have applied yet.
+pub const PendingParamNudge = struct {
+    track: u16,
+    id: u16,
+    before: f32,
+    steps: i32 = 0,
 };
 
 /// An FX param-nudge batch still open (cursor hasn't moved off this unit's

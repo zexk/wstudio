@@ -498,6 +498,28 @@ pub const DrumMachine = struct {
         if (self.pads[pad_idx]) |*s| s.adjustParam(param, steps);
     }
 
+    /// Absolute-value counterpart to `adjustParam`, same pad-encoded id
+    /// space — for undo's capture/restore, delegating to the pad's own
+    /// Sampler.setParamAbsolute. Runs on the audio thread via the
+    /// `set_param_abs` event.
+    pub fn setParamAbsolute(self: *DrumMachine, id: u16, value: f32) void {
+        const pad_idx: u8 = @intCast(id >> 4);
+        const param: u8 = @intCast(id & 0x0F);
+        if (pad_idx >= max_pads) return;
+        if (self.pads[pad_idx]) |*s| s.setParamAbsolute(param, value);
+    }
+
+    /// Current value of pad-encoded param `id` (see `paramId`), the read
+    /// half of undo's capture/restore pair — null for an unloaded pad,
+    /// matching `adjustParam`'s no-op there.
+    pub fn paramValue(self: *const DrumMachine, id: u16) ?f32 {
+        const pad_idx: u8 = @intCast(id >> 4);
+        const param: u8 = @intCast(id & 0x0F);
+        if (pad_idx >= max_pads) return null;
+        if (self.pads[pad_idx]) |*s| return s.paramValue(param);
+        return null;
+    }
+
     // -----------------------------------------------------------------------
     // Sample loading (call from control side only, not while audio thread runs)
 
@@ -689,7 +711,8 @@ pub const DrumMachine = struct {
         switch (ev) {
             .note_on  => |e| self.triggerPad(e.note % max_pads, e.velocity),
             .set_param => |e| self.adjustParam(e.id, e.steps),
-            .note_off, .cc, .pitch_bend, .set_param_abs, .set_sidechain_buf => {},
+            .set_param_abs => |e| self.setParamAbsolute(e.id, e.value),
+            .note_off, .cc, .pitch_bend, .set_sidechain_buf => {},
             .all_off  => self.resetAll(),
         }
     }

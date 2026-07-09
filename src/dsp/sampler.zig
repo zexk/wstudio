@@ -139,6 +139,56 @@ pub const Sampler = struct {
         }
     }
 
+    /// Absolute-value counterpart to `adjustParam`, same id space and clamp
+    /// ranges — for undo's capture/restore (`paramValue` is the read half),
+    /// mirroring PolySynth's own pair. Toggles (reverse 9, mono 11): >= 0.5
+    /// is on. Runs on the audio thread via the `set_param_abs` event.
+    pub fn setParamAbsolute(self: *Sampler, id: u8, value: f32) void {
+        const pad = &self.pad;
+        switch (id) {
+            0 => pad.start_norm = std.math.clamp(value, 0.0, pad.end_norm - 0.01),
+            1 => pad.end_norm   = std.math.clamp(value, pad.start_norm + 0.01, 1.0),
+            2 => pad.pitch_semitones = std.math.clamp(value, -24.0, 24.0),
+            3 => pad.attack_s   = std.math.clamp(value, 0.0, 5.0),
+            4 => pad.decay_s    = std.math.clamp(value, 0.0, 5.0),
+            5 => pad.sustain    = std.math.clamp(value, 0.0, 1.0),
+            6 => pad.release_s  = std.math.clamp(value, 0.001, 5.0),
+            7 => pad.gain       = std.math.clamp(value, 0.0, 2.0),
+            8 => pad.pan        = std.math.clamp(value, -1.0, 1.0),
+            9 => pad.reverse    = value >= 0.5,
+            10 => {
+                if (!(value > 0.0)) { self.root_note = 0; return; } // also catches NaN
+                if (value >= 127.0) { self.root_note = 127; return; }
+                self.root_note = @intFromFloat(@round(value));
+            },
+            11 => self.mono = value >= 0.5,
+            else => {},
+        }
+    }
+
+    /// Current value of param `id`, same unit/encoding `setParamAbsolute`
+    /// accepts (toggles as 0/1) — the read half of undo's capture/restore
+    /// pair. A control-thread read of live fields, same race-tolerant
+    /// convention the sampler editor's own row rendering already uses.
+    pub fn paramValue(self: *const Sampler, id: u8) ?f32 {
+        const pad = &self.pad;
+        return switch (id) {
+            0 => pad.start_norm,
+            1 => pad.end_norm,
+            2 => pad.pitch_semitones,
+            3 => pad.attack_s,
+            4 => pad.decay_s,
+            5 => pad.sustain,
+            6 => pad.release_s,
+            7 => pad.gain,
+            8 => pad.pan,
+            9 => if (pad.reverse) 1.0 else 0.0,
+            10 => @floatFromInt(self.root_note),
+            11 => if (self.mono) 1.0 else 0.0,
+            else => null,
+        };
+    }
+
     // -----------------------------------------------------------------------
     // Sample loading (call from control side only, not while audio thread runs)
 
@@ -252,7 +302,8 @@ pub const Sampler = struct {
             // truncate rather than @intCast, same reasoning as PolySynth's
             // identical arm.
             .set_param => |e| self.adjustParam(@truncate(e.id), e.steps),
-            .note_off, .cc, .pitch_bend, .set_param_abs, .set_sidechain_buf => {},
+            .set_param_abs => |e| self.setParamAbsolute(@truncate(e.id), e.value),
+            .note_off, .cc, .pitch_bend, .set_sidechain_buf => {},
             .all_off   => self.resetAll(),
         }
     }
