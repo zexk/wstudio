@@ -252,8 +252,6 @@ pub fn drawAutomationStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writ
         try w.writeAll(dim ++ "  no automation yet — j/k adds a point" ++ rst);
     }
 
-    try w.writeAll(dim ++ "  h/l:move  j/k:nudge  x:delete  v:select  .:repeat  tab:curve  p:pick  esc:back" ++ rst);
-
     if (app.status_len > 0) {
         try w.writeAll(dim ++ "  " ++ rst);
         try w.writeAll(app.status_buf[0..app.status_len]);
