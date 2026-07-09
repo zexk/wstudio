@@ -60,18 +60,28 @@ pub const Section = enum {
 /// Collects pre-rendered help lines into a fixed buffer so the view can show
 /// an arbitrary scroll window instead of spilling off the bottom of the screen.
 const HelpText = struct {
-    buf: [16384]u8 = undefined,
+    buf: [49152]u8 = undefined,
     len: usize = 0,
     ends: [512]usize = undefined,
     count: usize = 0,
+    /// Set when a line didn't fit in `buf`/`ends` — from then on lines render
+    /// blank, so the build test below asserts this never trips with the real
+    /// command table (it did once: 16K silently blanked every section past
+    /// ~line 160 while the count kept climbing).
+    truncated: bool = false,
     section_start: std.EnumArray(Section, usize) = std.EnumArray(Section, usize).initFill(0),
 
     fn push(self: *HelpText, comptime fmt: []const u8, args: anytype) void {
-        const s = std.fmt.bufPrint(self.buf[self.len..], fmt, args) catch self.buf[self.len..self.len];
+        const s = std.fmt.bufPrint(self.buf[self.len..], fmt, args) catch blk: {
+            self.truncated = true;
+            break :blk self.buf[self.len..self.len];
+        };
         self.len += s.len;
         if (self.count < self.ends.len) {
             self.ends[self.count] = self.len;
             self.count += 1;
+        } else {
+            self.truncated = true;
         }
     }
 
@@ -357,3 +367,14 @@ pub fn drawHelp(w: *std.Io.Writer, rows: usize, cmds: []const cmd_mod.Def, scrol
     for (1 + (end - off)..body) |_| try endLine(w);
 }
 
+
+test "help text fits its buffers — nothing silently truncated" {
+    const commands = @import("../commands.zig");
+    var t = HelpText{};
+    buildHelp(&t, commands.cmds);
+    try std.testing.expect(!t.truncated);
+    // Early warning well before the hard cap: growing content should bump
+    // the buffer deliberately, not creep up on the blank-lines cliff again.
+    try std.testing.expect(t.len + 8192 <= t.buf.len);
+    try std.testing.expect(t.count + 64 <= t.ends.len);
+}
