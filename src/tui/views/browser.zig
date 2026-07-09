@@ -134,16 +134,17 @@ pub fn drawFileBrowserStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Wri
     }
     try style.writeModeBadge(w, app.modal.mode);
     try right.writeAll(acc ++ "FILES" ++ rst);
+    // Status message BEFORE the key hints: the row clamps at the terminal
+    // edge, so whatever prints last is what a narrow window silently drops —
+    // that must be the static hints, never live feedback (bookmarked/
+    // unbookmarked, search "no match", …).
+    if (app.status_len > 0) {
+        try w.writeAll(dim ++ "  " ++ rst);
+        try w.writeAll(app.status_buf[0..app.status_len]);
+    }
     if (app.browser_bookmark_mode) {
         try w.writeAll(dim ++ "  " ++ rst ++ "j/k: move  enter/l: jump  d: remove  esc/q: back");
     } else {
         try w.writeAll(dim ++ "  " ++ rst ++ "j/k: move  enter/l: open  h/bs: up  ~: home  /: search  b/B: mark/list  esc/q: cancel");
-    }
-    // Every other view's status line surfaces App.setStatus messages
-    // (bookmarked/unbookmarked, search "no match", …) the same way — this
-    // one just never had the plumbing until now.
-    if (app.status_len > 0) {
-        try w.writeAll(dim ++ "  " ++ rst);
-        try w.writeAll(app.status_buf[0..app.status_len]);
     }
 }

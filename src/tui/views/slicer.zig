@@ -148,7 +148,6 @@ pub fn drawSlicerStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer, 
         try w.print("{d:.2}", .{pad.pan});
         if (pad.reverse) try w.writeAll(dim ++ "  " ++ blu ++ "rev" ++ rst);
     }
-    try w.writeAll(dim ++ "  h/l:step j/k:slice x:toggle i:insert []/{}:start/end -/=:gain <>:pan r:rev" ++ rst);
     if (app.status_len > 0) {
         try w.writeAll(dim ++ "  " ++ rst);
         try w.writeAll(app.status_buf[0..app.status_len]);

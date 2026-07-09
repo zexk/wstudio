@@ -46,7 +46,7 @@ const enumRow = style.enumRow;
 const picker_menu = [_]struct { name: []const u8, desc: []const u8, icon: []const u8 }{
     .{ .name = "Synth",        .desc = "subtractive/FM polysynth — piano-roll sequenceable",   .icon = icons.synth },
     .{ .name = "Sampler",      .desc = "one clip played chromatically — :load-sample to swap", .icon = icons.sampler },
-    .{ .name = "Drum Machine", .desc = "8-pad step sequencer with per-pad sampler",             .icon = icons.drum },
+    .{ .name = "Drum Machine", .desc = "64-pad step sequencer with per-pad sampler",            .icon = icons.drum },
     .{ .name = "Slicer",       .desc = "chop one sample into slices, step-sequence the chops",  .icon = icons.slicer },
 };
 
