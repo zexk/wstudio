@@ -257,7 +257,11 @@ Done:
       into the pattern at the current playhead, quantized to the same
       16th-note grid as step-edit; stopped, it's pure audition like
       everywhere else `i` works. `esc` drops back to normal without
-      leaving the roll.
+      leaving the roll. A connected MIDI controller (`aconnect <device>
+      wstudio:0`) records the same way — insert mode plus a rolling
+      transport writes its note-ons into the piano roll, drum grid, or
+      slicer grid, same quantization and duplicate-hit rules as qwerty;
+      MIDI audition itself is unaffected either way.
 - [x] Interactive per-track FX rack, and a `MASTER` row in the tracks view:
       a track's spectrum view (`s`) is now an FX rack. Chains start empty —
       `a` opens a picker (gate/comp/EQ/saturator/crusher/chorus/phaser/

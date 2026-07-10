@@ -2552,6 +2552,27 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8) !vo
         // `dirty` itself, so pick up its signal here once per frame instead.
         if (has_alsa) { if (using_midi and midi_in.dirty.swap(false, .acquire)) app.dirty = true; }
 
+        // Live MIDI note recording: every note-on the reader thread saw also
+        // landed in `note_queue` (audition itself already went straight to
+        // the engine from that thread, unaffected by this). Drain it here
+        // and feed each pitch through the exact same insert-mode recordNote
+        // path qwerty playing uses (the `.note` action handler above) —
+        // gated the same way: only in insert mode, only for the view whose
+        // pattern is actually being edited. A stopped transport or wrong
+        // view/mode just drops the pitch; the live audition already
+        // happened regardless.
+        if (has_alsa) { if (using_midi) {
+            while (midi_in.note_queue.pop()) |pitch| {
+                if (app.modal.mode != .insert) continue;
+                switch (app.view) {
+                    .drum_grid => drum_ed.recordNote(&app, pitch),
+                    .slicer_grid => slicer_ed.recordNote(&app, pitch),
+                    .piano_roll => piano_ed.recordNote(&app, pitch),
+                    else => {},
+                }
+            }
+        } }
+
         var w = std.Io.Writer.fixed(&frame_buf);
         // Bracket the frame in a DEC 2026 synchronized update, inside the
         // same single write: without it tmux/compositing terminals can

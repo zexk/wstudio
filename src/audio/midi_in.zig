@@ -6,6 +6,7 @@
 
 const std = @import("std");
 const Engine = @import("engine.zig").Engine;
+const Spsc = @import("../core/ring_buffer.zig").Spsc;
 
 const c = @cImport(@cInclude("alsa/asoundlib.h"));
 
@@ -24,6 +25,16 @@ pub const MidiIn = struct {
     /// frame into `App.dirty`, since this thread has no App pointer to set
     /// it on directly.
     dirty: std.atomic.Value(bool) = .init(false),
+    /// Every note-on (raw MIDI pitch, non-zero velocity) also lands here,
+    /// independent of the direct-to-engine audition send above. The UI
+    /// thread drains it once per frame and feeds each pitch through the
+    /// same `recordNote` insert-mode-recording path qwerty playing already
+    /// uses (App.zig's `.note` action handler) — this thread has no App
+    /// pointer and doesn't know the current view/mode, so it always queues
+    /// and lets the UI thread decide whether a given pitch actually lands
+    /// in a pattern. A full queue just drops the note (audition already
+    /// went out above; only the recording side is lost).
+    note_queue: Spsc(u7, 32) = .{},
 
     pub const Error = error{ SeqOpenFailed, PortCreateFailed, ThreadSpawnFailed };
 
@@ -107,6 +118,7 @@ pub const MidiIn = struct {
                     .note     = note,
                     .velocity = @as(f32, @floatFromInt(vel)) / 127.0,
                 } });
+                _ = self.note_queue.push(note);
             }
         } else if (etype == c.SND_SEQ_EVENT_NOTEOFF) {
             const note: u7 = @intCast(ev.data.note.note & 0x7F);
@@ -143,4 +155,31 @@ test "an incoming MIDI CC marks dirty; a note does not" {
     cc_ev.data.control.value = 100;
     midi_in.dispatch(&cc_ev);
     try std.testing.expect(midi_in.dirty.load(.acquire));
+}
+
+test "a note-on queues its pitch for recording; note-off does not" {
+    var engine = try Engine.init(std.testing.allocator, 48_000);
+    defer engine.deinit();
+    var midi_in: MidiIn = .{ .engine = &engine };
+
+    var on_ev: c.snd_seq_event_t = std.mem.zeroes(c.snd_seq_event_t);
+    on_ev.@"type" = c.SND_SEQ_EVENT_NOTEON;
+    on_ev.data.note.note = 64;
+    on_ev.data.note.velocity = 100;
+    midi_in.dispatch(&on_ev);
+    try std.testing.expectEqual(@as(?u7, 64), midi_in.note_queue.pop());
+    try std.testing.expectEqual(@as(?u7, null), midi_in.note_queue.pop());
+
+    var off_ev: c.snd_seq_event_t = std.mem.zeroes(c.snd_seq_event_t);
+    off_ev.@"type" = c.SND_SEQ_EVENT_NOTEOFF;
+    off_ev.data.note.note = 64;
+    midi_in.dispatch(&off_ev);
+    try std.testing.expectEqual(@as(?u7, null), midi_in.note_queue.pop());
+
+    var zero_vel_on: c.snd_seq_event_t = std.mem.zeroes(c.snd_seq_event_t);
+    zero_vel_on.@"type" = c.SND_SEQ_EVENT_NOTEON;
+    zero_vel_on.data.note.note = 64;
+    zero_vel_on.data.note.velocity = 0;
+    midi_in.dispatch(&zero_vel_on);
+    try std.testing.expectEqual(@as(?u7, null), midi_in.note_queue.pop()); // note-on vel=0 is a note-off, not recordable
 }
