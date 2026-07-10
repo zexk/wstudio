@@ -52,8 +52,8 @@ pub const pads_per_bank: usize = 8;
 /// How many 8-pad banks the grid stacks at once: tall terminals show 2/4/8
 /// banks instead of leaving the rows blank. Snapped to divisors of the bank
 /// count so the paging groups always align. Every bank after the first
-/// costs pads_per_bank + 1 rows (its own step-header rule marks the bank
-/// boundary). `rows` is the view's content-row budget (drawDrumGrid's
+/// costs pads_per_bank + 1 rows (a dim rule marks the bank boundary).
+/// `rows` is the view's content-row budget (drawDrumGrid's
 /// `rows` / handleMouse's view_rows); pad rows fit while used = title(1) +
 /// header(1) + bank rows + 2 stays inside rows - 3.
 pub fn banksShown(rows: usize) usize {
@@ -143,22 +143,24 @@ pub fn drawDrumGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, s
     try endLine(w);
 
     // step header — only the visible scroll window is shown
-    try writeStepHeader(w, "", scroll, visible, step_count_u32);
+    try w.writeAll(dim ++ "          ");
+    var col: u32 = 0;
+    while (col < visible and scroll + col < step_count_u32) : (col += 1) {
+        const s = scroll + col;
+        if (s % 4 == 0) try w.writeAll("│");
+        try w.print("{d:>2} ", .{s + 1});
+    }
+    try endLine(w);
 
     // One tint per choke group so paired pads (e.g. closed/open hihat) read
     // at a glance; ungrouped pads stay dim as before.
     const choke_colors = [_][]const u8{ yel, mag, blu, red };
     var printed: usize = 0;
-    var buf: [10]u8 = undefined;
     for (bank_start..bank_end) |p| {
-        // Every stacked bank after the first opens with its own step-header
-        // rule, labeled with the bank number in the pad-name gutter — both
-        // the bank boundary and a nearby step ruler on tall grids. Mirrored
-        // by editors/drum.zig's mouse pad mapping (pads_per_bank + 1 rows
-        // per stacked bank).
+        // A dim rule between stacked banks. Mirrored by editors/drum.zig's
+        // mouse pad mapping (pads_per_bank + 1 rows per stacked bank).
         if (p != bank_start and p % pads_per_bank == 0) {
-            const label = std.fmt.bufPrint(&buf, "bank {d}", .{p / pads_per_bank + 1}) catch "";
-            try writeStepHeader(w, label, scroll, visible, step_count_u32);
+            try writeBankRule(w, scroll, visible, step_count_u32);
             printed += 1;
         }
         const name = dm.padName(@intCast(p));
@@ -168,7 +170,7 @@ pub fn drawDrumGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, s
         // at 4 the two stock toms both rendered as "tom-".
         try w.print(" {s: <8} ", .{name[0..@min(name.len, 8)]});
         try w.writeAll(rst);
-        var col: u32 = 0;
+        col = 0;
         while (col < visible and scroll + col < step_count_u32) : (col += 1) {
             const s = scroll + col;
             if (s % 4 == 0) {
@@ -210,18 +212,16 @@ pub fn drawDrumGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, s
     for (used..@max(used, rows -| 3)) |_| try endLine(w);
 }
 
-/// One dim step-number ruler row: `label` sits in the 10-column pad-name
-/// gutter (blank for the top header, "bank N" for stacked-bank boundaries),
-/// then the visible step numbers with the same periodic "│" separators the
-/// pad rows use.
-fn writeStepHeader(w: *std.Io.Writer, label: []const u8, scroll: u32, visible: u32, step_count: u32) !void {
+/// One dim horizontal rule spanning exactly the grid's width (gutter +
+/// visible step cells + their periodic "│" columns) — the boundary row
+/// between stacked banks.
+fn writeBankRule(w: *std.Io.Writer, scroll: u32, visible: u32, step_count: u32) !void {
     try w.writeAll(dim);
-    try w.print(" {s: <9}", .{label});
+    for (0..gutter) |_| try w.writeAll("\u{2500}");
     var col: u32 = 0;
     while (col < visible and scroll + col < step_count) : (col += 1) {
-        const s = scroll + col;
-        if (s % 4 == 0) try w.writeAll("│");
-        try w.print("{d:>2} ", .{s + 1});
+        if ((scroll + col) % 4 == 0) try w.writeAll("\u{2500}");
+        try w.writeAll("\u{2500}\u{2500}\u{2500}");
     }
     try endLine(w);
 }

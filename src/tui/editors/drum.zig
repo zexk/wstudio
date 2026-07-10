@@ -587,15 +587,14 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, view_rows: u
 
     if (row < 2) return; // title / step-number header rows — see views/drum.zig
     // Row 2 is the visible bank window's first pad, not absolute pad 0 —
-    // mirrors views/drum.zig's bankWindowStart/banksShown windowing. Each
-    // stacked bank after the first opens with its own step-header rule, so
-    // banks occupy pads_per_bank + 1 rows past the first; the header rows
-    // themselves map to no pad.
+    // mirrors views/drum.zig's bankWindowStart/banksShown windowing. A dim
+    // rule separates stacked banks, so banks occupy pads_per_bank + 1 rows
+    // past the first; the rule rows themselves map to no pad.
     const per_bank = drum_view.pads_per_bank;
     const rel = row - 2;
     const block = rel / (per_bank + 1);
     const within = rel % (per_bank + 1);
-    if (within == per_bank) return; // a stacked bank's step-header rule
+    if (within == per_bank) return; // the rule between stacked banks
     if (block >= drum_view.banksShown(view_rows)) return;
     const bank_start = drum_view.bankWindowStart(app.drum_cursor[0], view_rows);
     const pad = bank_start + block * per_bank + within;
