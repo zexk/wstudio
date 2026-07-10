@@ -503,6 +503,12 @@ pub const GroupSnap = struct {
     active: bool = false,
     name: []const u8 = "",
     fx_chain: []const FxUnitSnap = &.{},
+    /// Additive (like `CompSnap.sidechain_source`): older files omit it and
+    /// the bus loads at unity, its only possible level before faders existed.
+    gain_db: f32 = 0.0,
+    /// Additive: tracks-view fold state (see `Session.Group.folded`). Older
+    /// files omit it and every group loads unfolded — the prior behaviour.
+    folded: bool = false,
 };
 
 pub const ClipKind = enum { melodic, drum };
@@ -613,7 +619,7 @@ pub fn save(
     const groups = try aa.alloc(GroupSnap, engine_mod.max_groups);
     for (groups, 0..) |*gs, i| {
         if (session.groups[i]) |*g| {
-            gs.* = .{ .active = true, .name = g.name, .fx_chain = try chainToSnap(aa, &g.fx, session.project.sample_rate) };
+            gs.* = .{ .active = true, .name = g.name, .fx_chain = try chainToSnap(aa, &g.fx, session.project.sample_rate), .gain_db = g.gain_db, .folded = g.folded };
         } else {
             gs.* = .{};
         }
@@ -1356,7 +1362,7 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
     for (snap.groups[0..group_count], 0..) |gs, i| {
         if (!gs.active) continue;
         const idx: u8 = @intCast(i);
-        self.groups[idx] = .{ .name = try allocator.dupe(u8, gs.name) };
+        self.groups[idx] = .{ .name = try allocator.dupe(u8, gs.name), .gain_db = gs.gain_db, .folded = gs.folded };
         try applyFxChain(allocator, &self.groups[idx].?.fx, gs.fx_chain, sr);
         self.syncGroupChain(idx);
     }
@@ -2380,6 +2386,8 @@ test "buildSession: groups round-trip name, FX chain, and track membership" {
         .active = true,
         .name = "drum bus",
         .fx_chain = &.{.{ .kind = .comp, .comp = .{ .threshold_db = -12.0 } }},
+        .gain_db = -6.0206, // linear 0.5
+        .folded = true,
     };
     const snap: Snapshot = .{
         .tracks = &.{
@@ -2407,6 +2415,16 @@ test "buildSession: groups round-trip name, FX chain, and track membership" {
     // Unused slots (0, 1, 3..) stay unloaded — no phantom groups.
     try testing.expect(session.groups[0] == null);
     try testing.expect(!session.engine.groups[0].active);
+
+    // Tracks-view fold state survives the trip (UI-only, engine never sees it).
+    try testing.expect(session.groups[2].?.folded);
+
+    // The bus fader restores too. Engine-side it travels as a queued
+    // command (same as track gain), so drain one block first.
+    try testing.expectApproxEqAbs(@as(f32, -6.0206), session.groups[2].?.gain_db, 1e-4);
+    var block: [256]f32 = undefined;
+    session.engine.process(&block);
+    try testing.expectApproxEqAbs(@as(f32, 0.5), session.engine.groups[2].gain, 1e-4);
 }
 
 test "buildSession: a track referencing a slot the file never marked active loads ungrouped" {

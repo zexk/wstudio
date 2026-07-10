@@ -60,157 +60,209 @@ fn writeFxBadges(w: *std.Io.Writer, fx: *const ws.Fx) !void {
     }
 }
 
+/// One real track's row. Members of a group render indented under their
+/// group's own row (see App.rebuildTrackRows for the folder ordering), which
+/// replaced the old per-track "‣group" suffix tag.
+fn writeTrackRow(app: anytype, w: *std.Io.Writer, ti: u16, is_sel: bool, in_sel: bool, cols: usize) !void {
+    const track = app.session.project.tracks.items[ti];
+    // Row content builds up in a scratch buffer so the keybind hint can
+    // be pinned to the right edge (writeSplitRow) instead of trailing
+    // wherever the left content happens to end.
+    var row_buf: [768]u8 = undefined;
+    var row_w = std.Io.Writer.fixed(&row_buf);
+    const lw = &row_w;
+    const inst_tag = std.meta.activeTag(app.session.racks.items[ti].instrument);
+    const is_empty = inst_tag == .empty;
+    const label: []const u8 = if (is_empty) "-- empty --" else app.session.racks.items[ti].label;
+    const hint: []const u8 = switch (inst_tag) {
+        .empty => dim ++ "[enter:insert]" ++ rst,
+        .drum_machine => dim ++ "[enter:grid]" ++ rst,
+        else => dim ++ "[enter:edit]" ++ rst,
+    };
+    // muted-but-not-selected rows get a dim wash over everything
+    const faded = track.muted and !is_sel;
+    const marker: []const u8 = if (is_sel) ">" else if (in_sel) "~" else " ";
+    const grouped = if (track.group) |g| (g < app.session.groups.len and app.session.groups[g] != null) else false;
+
+    if (is_sel) try lw.writeAll(sel) else if (in_sel) try lw.writeAll(yel);
+    if (faded) try lw.writeAll(dim);
+    try lw.writeByte(' ');
+    try lw.writeAll(marker);
+    try lw.writeByte(' ');
+    if (in_sel and !is_sel) try lw.writeAll(rst);
+    // group members sit indented under their group's row
+    if (grouped) try lw.writeAll("  ");
+    try lw.print("{d} ", .{ti + 1});
+    // name padded — color wraps the whole padded field so the field
+    // width itself never sees an escape code (matches the label/gain
+    // color-wrap pattern below); track.color == 0 is uncolored.
+    const track_color: ?[]const u8 = if (!is_sel and !faded and track.color > 0 and track.color <= style.track_palette.len)
+        style.track_palette[track.color - 1]
+    else
+        null;
+    if (track_color) |c| try lw.writeAll(c);
+    try lw.print("{s: <8}", .{track.name});
+    if (track_color != null) try lw.writeAll(rst);
+    try lw.writeByte(' ');
+    // instrument-kind icon — a single Mono-font cell either way, so
+    // blank tracks' plain space keeps every row's columns aligned.
+    const kind_icon: []const u8 = switch (inst_tag) {
+        .empty => " ",
+        .poly_synth => icons.synth,
+        .sampler => icons.sampler,
+        .drum_machine => icons.drum,
+        .slicer => icons.slicer,
+    };
+    try lw.writeAll(kind_icon);
+    try lw.writeByte(' ');
+    // muted indicator: yellow only when row isn't already faded
+    if (track.muted) {
+        if (!faded) try lw.writeAll(yel);
+        try lw.writeByte('M');
+        if (!faded) try lw.writeAll(rst);
+        if (is_sel) try lw.writeAll(sel);
+    } else {
+        try lw.writeByte(' ');
+    }
+    // solo indicator: green
+    if (track.soloed) {
+        if (!faded) try lw.writeAll(grn);
+        try lw.writeByte('S');
+        if (!faded) try lw.writeAll(rst);
+        if (is_sel) try lw.writeAll(sel);
+    } else {
+        try lw.writeByte(' ');
+    }
+    // instrument / rack label — accent only on active, unselected rows
+    if (!is_sel and !faded) try lw.writeAll(acc);
+    try lw.print(" [{s}]", .{label});
+    if (!is_sel and !faded) try lw.writeAll(rst);
+    // FX badges — the chain's units in signal-flow order. Not gated on
+    // is_empty: a chain can be built before the instrument is picked.
+    if (ti < app.session.racks.items.len) {
+        const rfx = &app.session.racks.items[ti].fx;
+        if (rfx.units.items.len > 0) {
+            if (!is_sel and !faded) try lw.writeAll(acc);
+            try writeFxBadges(lw, rfx);
+            if (!is_sel and !faded) try lw.writeAll(rst);
+        }
+    }
+    // Gain / pan — always shown; dim at defaults, accented when non-default.
+    {
+        const gdb = track.gain_db;
+        const pan = track.pan;
+        // gain
+        if (gdb == 0.0) {
+            if (!is_sel and !faded) try lw.writeAll(dim);
+            try lw.writeAll("  0dB");
+            if (!is_sel and !faded) try lw.writeAll(rst);
+        } else {
+            const sign: []const u8 = if (gdb >= 0.0) "+" else "";
+            try lw.print("  {s}{d:.0}dB", .{ sign, gdb });
+        }
+        // pan
+        if (pan == 0.0) {
+            if (!is_sel and !faded) try lw.writeAll(dim);
+            try lw.writeAll("  C");
+            if (!is_sel and !faded) try lw.writeAll(rst);
+        } else {
+            const pct: i32 = @intFromFloat(@abs(pan) * 100.0);
+            try lw.print("  {s}{d}%", .{ if (pan < 0.0) "L" else "R", pct });
+        }
+    }
+    // keybind hint — pinned to the right edge (dropped by writeSplitRow
+    // before the row content whenever the two would collide)
+    try style.writeSplitRow(w, row_w.buffered(), hint, cols -| 1);
+}
+
+/// A group's own row — same shape as a track row (name, FX badges, bus
+/// gain) plus a fold arrow and its `:group-*` slot number where a track row
+/// has its track number. Folded groups show how many member rows they hide;
+/// unfolded ones don't need to — the members sit right below.
+fn writeGroupRow(app: anytype, w: *std.Io.Writer, gi: u8, is_sel: bool, in_sel: bool, cols: usize) !void {
+    const grp = &app.session.groups[gi].?;
+    var row_buf: [768]u8 = undefined;
+    var row_w = std.Io.Writer.fixed(&row_buf);
+    const lw = &row_w;
+    const marker: []const u8 = if (is_sel) ">" else if (in_sel) "~" else " ";
+
+    if (is_sel) try lw.writeAll(sel) else if (in_sel) try lw.writeAll(yel);
+    try lw.writeByte(' ');
+    try lw.writeAll(marker);
+    try lw.writeByte(' ');
+    if (in_sel and !is_sel) try lw.writeAll(rst);
+    if (!is_sel) try lw.writeAll(mag);
+    try lw.print("{s}{d} ", .{ @as([]const u8, if (grp.folded) "\u{25B8}" else "\u{25BE}"), gi + 1 });
+    try lw.print("{s: <8}", .{grp.name[0..@min(grp.name.len, 8)]});
+    if (!is_sel) try lw.writeAll(rst);
+    if (!is_sel) try lw.writeAll(acc);
+    try lw.writeAll(" [group]");
+    if (!is_sel) try lw.writeAll(rst);
+    if (grp.fx.units.items.len > 0) {
+        if (!is_sel) try lw.writeAll(acc);
+        try writeFxBadges(lw, &grp.fx);
+        if (!is_sel) try lw.writeAll(rst);
+    }
+    // Bus fader — same dim-at-default shape as track gain.
+    if (grp.gain_db == 0.0) {
+        if (!is_sel) try lw.writeAll(dim);
+        try lw.writeAll("  0dB");
+        if (!is_sel) try lw.writeAll(rst);
+    } else {
+        const sign: []const u8 = if (grp.gain_db >= 0.0) "+" else "";
+        try lw.print("  {s}{d:.0}dB", .{ sign, grp.gain_db });
+    }
+    if (grp.folded) {
+        var members: usize = 0;
+        for (app.session.project.tracks.items) |t| {
+            if (t.group) |g| { if (g == gi) members += 1; }
+        }
+        if (!is_sel) try lw.writeAll(dim);
+        try lw.print("  ({d} track{s})", .{ members, if (members == 1) "" else "s" });
+        if (!is_sel) try lw.writeAll(rst);
+    }
+    try style.writeSplitRow(w, row_w.buffered(), dim ++ "[enter:fx z:fold]" ++ rst, cols -| 1);
+}
+
 pub fn drawTracks(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, snap: engine_mod.UiSnapshot) !void {
     _ = snap;
     try w.writeAll(bold ++ " TRACKS" ++ rst);
     try endLine(w);
 
-    // Vertical scroll over the track rows — the master row below is always
-    // pinned/visible (like a fixed footer channel), so only plain tracks
-    // need a window. Budget: title(1) + master(1) + footer(3) are always
-    // spoken for; `rows` is exact here (unlike editors/piano.zig's
-    // ensureVisible, called before render, which has to approximate),
-    // so clamp directly against it — same pattern as drawArrangement's
-    // `arr_scroll_bar`.
-    const track_count = app.session.project.tracks.items.len;
+    // Vertical scroll over the display rows (tracks + group rows — see
+    // App.TrackRow) — the master row below is always pinned/visible (like a
+    // fixed footer channel), so only the list needs a window. Budget:
+    // title(1) + master(1) + footer(3) are always spoken for; `rows` is
+    // exact here (unlike editors/piano.zig's ensureVisible, called before
+    // render, which has to approximate), so clamp directly against it —
+    // same pattern as drawArrangement's `arr_scroll_bar`.
+    app.tracksRowSync();
+    const row_count = app.track_rows_len;
     const vis_rows: usize = rows -| 5;
-    if (app.cursor < track_count) {
-        if (app.cursor < app.track_scroll) app.track_scroll = app.cursor;
-        if (vis_rows > 0 and app.cursor >= app.track_scroll + vis_rows) app.track_scroll = app.cursor - vis_rows + 1;
+    if (app.track_row < row_count) {
+        if (app.track_row < app.track_scroll) app.track_scroll = app.track_row;
+        if (vis_rows > 0 and app.track_row >= app.track_scroll + vis_rows) app.track_scroll = app.track_row - vis_rows + 1;
     }
-    app.track_scroll = if (track_count > vis_rows) @min(app.track_scroll, track_count - vis_rows) else 0;
+    app.track_scroll = if (row_count > vis_rows) @min(app.track_scroll, row_count - vis_rows) else 0;
     const scroll = app.track_scroll;
-    const last_visible = @min(track_count, scroll + vis_rows);
+    const last_visible = @min(row_count, scroll + vis_rows);
     app.track_rows_shown = last_visible - scroll;
 
-    // Visual-mode selection: a contiguous track range (master excluded, the
-    // cursor never reaches it while this mode is active — see
+    // Visual-mode selection: a contiguous display-row range (master
+    // excluded, the cursor never reaches it while this mode is active — see
     // App.handleTracksVisual).
     const visual_active = app.modal.mode == .visual;
-    const sel_anchor = app.tracks_visual_anchor orelse app.cursor;
-    const sel_lo = @min(sel_anchor, app.cursor);
-    const sel_hi = @max(sel_anchor, app.cursor);
+    const sel_anchor = app.tracks_visual_anchor orelse app.track_row;
+    const sel_lo = @min(sel_anchor, app.track_row);
+    const sel_hi = @max(sel_anchor, app.track_row);
 
-    for (app.session.project.tracks.items[scroll..last_visible], scroll..) |track, i| {
-        // Row content builds up in a scratch buffer so the keybind hint can
-        // be pinned to the right edge (writeSplitRow) instead of trailing
-        // wherever the left content happens to end.
-        var row_buf: [768]u8 = undefined;
-        var row_w = std.Io.Writer.fixed(&row_buf);
-        const lw = &row_w;
-        const in_sel = visual_active and i >= sel_lo and i <= sel_hi;
-        const inst_tag = std.meta.activeTag(app.session.racks.items[i].instrument);
-        const is_empty = inst_tag == .empty;
-        const label: []const u8 = if (is_empty) "-- empty --" else app.session.racks.items[i].label;
-        const hint: []const u8 = switch (inst_tag) {
-            .empty => dim ++ "[enter:insert]" ++ rst,
-            .drum_machine => dim ++ "[enter:grid]" ++ rst,
-            else => dim ++ "[enter:edit]" ++ rst,
-        };
-        const is_sel = (i == app.cursor);
-        // muted-but-not-selected rows get a dim wash over everything
-        const faded = track.muted and !is_sel;
-        const marker: []const u8 = if (is_sel) ">" else if (in_sel) "~" else " ";
-
-        if (is_sel) try lw.writeAll(sel) else if (in_sel) try lw.writeAll(yel);
-        if (faded) try lw.writeAll(dim);
-        try lw.writeByte(' ');
-        try lw.writeAll(marker);
-        try lw.writeByte(' ');
-        if (in_sel and !is_sel) try lw.writeAll(rst);
-        try lw.print("{d} ", .{i + 1});
-        // name padded — color wraps the whole padded field so the field
-        // width itself never sees an escape code (matches the label/gain
-        // color-wrap pattern below); track.color == 0 is uncolored.
-        const track_color: ?[]const u8 = if (!is_sel and !faded and track.color > 0 and track.color <= style.track_palette.len)
-            style.track_palette[track.color - 1]
-        else
-            null;
-        if (track_color) |c| try lw.writeAll(c);
-        try lw.print("{s: <8}", .{track.name});
-        if (track_color != null) try lw.writeAll(rst);
-        try lw.writeByte(' ');
-        // instrument-kind icon — a single Mono-font cell either way, so
-        // blank tracks' plain space keeps every row's columns aligned.
-        const kind_icon: []const u8 = switch (inst_tag) {
-            .empty => " ",
-            .poly_synth => icons.synth,
-            .sampler => icons.sampler,
-            .drum_machine => icons.drum,
-            .slicer => icons.slicer,
-        };
-        try lw.writeAll(kind_icon);
-        try lw.writeByte(' ');
-        // muted indicator: yellow only when row isn't already faded
-        if (track.muted) {
-            if (!faded) try lw.writeAll(yel);
-            try lw.writeByte('M');
-            if (!faded) try lw.writeAll(rst);
-            if (is_sel) try lw.writeAll(sel);
-        } else {
-            try lw.writeByte(' ');
+    for (app.trackRows()[scroll..last_visible], scroll..) |trow, ri| {
+        const in_sel = visual_active and ri >= sel_lo and ri <= sel_hi;
+        const is_sel = (ri == app.track_row);
+        switch (trow) {
+            .group => |gi| try writeGroupRow(app, w, gi, is_sel, in_sel, cols),
+            .track => |ti| try writeTrackRow(app, w, ti, is_sel, in_sel, cols),
         }
-        // solo indicator: green
-        if (track.soloed) {
-            if (!faded) try lw.writeAll(grn);
-            try lw.writeByte('S');
-            if (!faded) try lw.writeAll(rst);
-            if (is_sel) try lw.writeAll(sel);
-        } else {
-            try lw.writeByte(' ');
-        }
-        // instrument / rack label — accent only on active, unselected rows
-        if (!is_sel and !faded) try lw.writeAll(acc);
-        try lw.print(" [{s}]", .{label});
-        if (!is_sel and !faded) try lw.writeAll(rst);
-        // FX badges — the chain's units in signal-flow order. Not gated on
-        // is_empty: a chain can be built before the instrument is picked.
-        if (i < app.session.racks.items.len) {
-            const rfx = &app.session.racks.items[i].fx;
-            if (rfx.units.items.len > 0) {
-                if (!is_sel and !faded) try lw.writeAll(acc);
-                try writeFxBadges(lw, rfx);
-                if (!is_sel and !faded) try lw.writeAll(rst);
-            }
-        }
-        // Gain / pan — always shown; dim at defaults, accented when non-default.
-        {
-            const gdb = track.gain_db;
-            const pan = track.pan;
-            // gain
-            if (gdb == 0.0) {
-                if (!is_sel and !faded) try lw.writeAll(dim);
-                try lw.writeAll("  0dB");
-                if (!is_sel and !faded) try lw.writeAll(rst);
-            } else {
-                const sign: []const u8 = if (gdb >= 0.0) "+" else "";
-                try lw.print("  {s}{d:.0}dB", .{ sign, gdb });
-            }
-            // pan
-            if (pan == 0.0) {
-                if (!is_sel and !faded) try lw.writeAll(dim);
-                try lw.writeAll("  C");
-                if (!is_sel and !faded) try lw.writeAll(rst);
-            } else {
-                const pct: i32 = @intFromFloat(@abs(pan) * 100.0);
-                try lw.print("  {s}{d}%", .{ if (pan < 0.0) "L" else "R", pct });
-            }
-        }
-        // Group membership tag — a small "belongs to" marker, only shown
-        // when actually grouped. Group name truncated to 8 chars, same cap
-        // the track-name field itself uses.
-        if (track.group) |g| {
-            if (g < app.session.groups.len) {
-                if (app.session.groups[g]) |grp| {
-                    if (!is_sel and !faded) try lw.writeAll(dim);
-                    try lw.print("  \u{2023}{s}", .{grp.name[0..@min(grp.name.len, 8)]});
-                    if (!is_sel and !faded) try lw.writeAll(rst);
-                }
-            }
-        }
-        // keybind hint — pinned to the right edge (dropped by writeSplitRow
-        // before the row content whenever the two would collide)
-        try style.writeSplitRow(w, row_w.buffered(), hint, cols -| 1);
         try endLine(w);
     }
 
@@ -221,7 +273,7 @@ pub fn drawTracks(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, sna
         var row_buf: [768]u8 = undefined;
         var row_w = std.Io.Writer.fixed(&row_buf);
         const lw = &row_w;
-        const is_sel = (track_count == app.cursor);
+        const is_sel = (row_count == app.track_row);
         const marker: []const u8 = if (is_sel) ">" else " ";
         if (is_sel) try lw.writeAll(sel);
         try lw.writeByte(' ');
@@ -271,9 +323,9 @@ pub fn drawTracksStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer, 
         else => {
             try style.writeModeBadge(w, app.modal.mode);
             try style.writeViewBadge(right, "TRACKS");
-            // track position
+            // row position — display rows (tracks + groups) + 1 for master
             try w.writeAll(dim ++ "  " ++ rst);
-            try w.print("{d}/{d}", .{ app.cursor + 1, app.session.project.tracks.items.len + 1 });
+            try w.print("{d}/{d}", .{ app.track_row + 1, app.track_rows_len + 1 });
             try w.writeAll(dim ++ "  oct " ++ rst);
             try w.print("{d}", .{app.modal.octave});
             if (app.modal.count > 0) try w.print("  {d}", .{app.modal.count});

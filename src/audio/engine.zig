@@ -59,6 +59,8 @@ pub const Command = union(enum) {
     /// Which group (if any) `track` submixes through before the master bus.
     /// `null` routes straight to master, same as before grouping existed.
     set_track_group: struct { track: u16, group: ?u8 },
+    /// Group submix bus fader (linear, post-FX-chain — see `GroupState.gain`).
+    set_group_gain: struct { group: u8, gain: f32 },
     /// `group` is only read when `source == .group` (reuses `track` as the
     /// generic focus index otherwise, unchanged) — same one-analyzer-at-a-
     /// time model track/master already share, see `Engine.track_spectrum`.
@@ -144,6 +146,10 @@ const SidechainCapture = struct {
 /// growable list.
 const GroupState = struct {
     active: bool = false,
+    /// Bus fader, applied to the submix AFTER the group's FX chain (ride
+    /// the level of the finished bus, not what feeds its compressor) —
+    /// linear, same convention as `TrackState.gain`/`master_gain`.
+    gain: f32 = 1.0,
     /// Same fixed width as `master_chain` (Fx.max_units, hardcoded here the
     /// same way master_chain's own field already does rather than importing
     /// rack.zig just for the constant).
@@ -721,6 +727,9 @@ pub const Engine = struct {
             .set_track_param => |c| self.sendTrackEvent(c.track, .{ .set_param = .{ .id = c.id, .steps = c.steps } }),
             .set_track_param_abs => |c| self.sendTrackEvent(c.track, .{ .set_param_abs = .{ .id = c.id, .value = c.value } }),
             .set_track_group => |c| self.trackAt(c.track).group = c.group,
+            .set_group_gain => |c| if (c.group < max_groups) {
+                self.groups[c.group].gain = c.gain;
+            },
             .set_loop => |c| {
                 self.transport.loop_enabled = c.enabled;
                 self.transport.loop_start_frames = c.start_frames;
@@ -965,7 +974,7 @@ pub const Engine = struct {
                 }
                 dev.process(gscratch);
             }
-            for (out, gscratch) |*o, s| o.* += s;
+            for (out, gscratch) |*o, s| o.* += s * g.gain;
 
             if (self.active_spectrum_source == .group and @as(u8, @intCast(gi)) == self.active_spectrum_group) {
                 self.track_spectrum.push(gscratch);

@@ -215,6 +215,10 @@ pub fn drawFxView(
     try w.writeAll(title_icon);
     try w.writeAll(bold ++ " FX CHAIN" ++ rst);
     try w.print(" \"{s}\"", .{title});
+    // A group chain has its own bus fader (-/+); keep the level in sight.
+    if (target == .group and app.eq_group < engine_mod.max_groups) {
+        if (app.session.groups[app.eq_group]) |g| try w.print(dim ++ "  bus {d:.1}dB" ++ rst, .{g.gain_db});
+    }
     try endLine(w);
 
     // Null only when the viewed track/group was deleted out from under the
@@ -229,7 +233,9 @@ pub fn drawFxView(
     try drawChainStrip(app, w, chain, compact);
 
     if (!compact) {
-        try w.writeAll(dim ++ "  tab/[/]:slot  a:insert  x:remove  </>:move  b:bypass  j/k:param  h/l:adjust" ++ rst);
+        try w.writeAll(dim ++ "  tab/[/]:slot  a:insert  x:remove  </>:move  b:bypass  j/k:param  h/l:adjust");
+        if (target == .group) try w.writeAll("  -/+:bus gain");
+        try w.writeAll(rst);
         try endLine(w);
     }
 

@@ -60,6 +60,11 @@ pub const default_project_path = "project.wsj";
 
 pub const AppView = enum { tracks, drum_grid, synth_editor, sampler_editor, help, track_spectrum, master_spectrum, group_spectrum, piano_roll, instrument_picker, fx_picker, arrangement, file_browser, automation, automation_param_picker, slicer_grid, preset_picker };
 
+/// One tracks-view display row: a real track, or a group's own row (its
+/// header when unfolded, the whole group when folded). The pinned master row
+/// is not represented — see `App.track_rows_buf`.
+pub const TrackRow = union(enum) { track: u16, group: u8 };
+
 /// Which waveform marker a sampler-editor mouse drag is moving — see
 /// `App.sampler_drag_marker` and editors/sampler.zig's handleMouse.
 pub const SamplerMarker = enum { start, end };
@@ -187,9 +192,28 @@ pub const App = struct {
     /// Tab-cycle state for command-mode completion; see `TabCycle`/`cycleCompletion`.
     tab_cycle: ?TabCycle = null,
     cursor: usize = 0,
+    /// Tracks-view display rows: tracks in folder order — a group's row
+    /// followed by its (indented) member tracks, folded groups hiding
+    /// theirs — plus memberless groups pinned after the last track. The
+    /// pinned master row is NOT in the list; `track_row == track_rows_len`
+    /// is the master, same "one past the end" convention `cursor ==
+    /// tracks.len` used before groups got rows. Rebuilt on demand by
+    /// `tracksRowSync` (cheap, so no invalidation bookkeeping).
+    track_rows_buf: [@as(usize, engine_mod.max_tracks) + engine_mod.max_groups]TrackRow = undefined,
+    track_rows_len: usize = 0,
+    /// Tracks-view cursor, in display-row space (`track_rows_buf` index, or
+    /// `track_rows_len` for the master row). `cursor` stays the selected
+    /// *track index* — the arrangement view, MIDI follow, and the editors
+    /// all share it — and the two are kept in sync by `setTrackRow` (row
+    /// moved here) / `tracksRowSync` (cursor moved by another view).
+    track_row: usize = 0,
+    /// `cursor`'s value the last time the two were in sync — when they
+    /// differ, some other view moved the selected track and `tracksRowSync`
+    /// re-derives `track_row` from it.
+    track_row_cursor_snap: usize = 0,
     /// Tracks view vertical scroll — first visible row index. Clamped to
-    /// keep `cursor` in view directly in `drawTracks` (exact `rows` is known
-    /// there), same pattern as `arr_scroll_bar` in drawArrangement.
+    /// keep `track_row` in view directly in `drawTracks` (exact `rows` is
+    /// known there), same pattern as `arr_scroll_bar` in drawArrangement.
     track_scroll: usize = 0,
     /// How many track rows `drawTracks` actually rendered last frame — lets
     /// `tracksMouse` (which isn't handed the row budget) know where the
@@ -325,9 +349,10 @@ pub const App = struct {
     /// dd/yy. Any other key cancels.
     tracks_del_pending: bool = false,
     /// Tracks view visual mode: `v` sets the anchor, `j`/`k` extend a
-    /// contiguous range (master excluded — it can't be grouped), `g` groups
-    /// the selection. Same anchor-field shape arrangement/drum/automation's
-    /// own visual modes already use.
+    /// contiguous range of display rows (master excluded — it can't be
+    /// grouped), `g` groups the selection. In `track_row` space, not track
+    /// indices. Same anchor-field shape arrangement/drum/automation's own
+    /// visual modes already use.
     tracks_visual_anchor: ?usize = null,
     /// Visual-mode range clipboards (y/d/P while `.visual`), separate from
     /// the whole-pattern/single-clip clipboards above.
@@ -723,22 +748,29 @@ pub const App = struct {
                 self.applyAction(self.modal.handle(key), now_ns);
             } else preset_ed.handleKey(self, key),
             .tracks => {
-                // Visual mode: a contiguous track-range selection, checked
+                self.tracksRowSync();
+                // Visual mode: a contiguous row-range selection, checked
                 // first so it can't leak into the normal-mode bindings below
                 // (same ordering arrangement.zig's own visual-mode guard uses).
                 if (self.modal.mode == .visual) { self.handleTracksVisual(key); return; }
 
-                // The master row lives one slot past the last real track —
-                // same list, same cursor, but it can't be deleted/duplicated/
-                // moved/renamed/muted/soloed and has no piano roll or pan.
-                const on_master = self.cursor == self.session.project.tracks.items.len;
-                // `d` arms; a second `d` (dd) deletes the cursor track right
-                // away, no confirm — checked first so it wins over every
-                // other binding below and can't get stuck armed.
+                // The cursor walks display rows: real tracks, group rows,
+                // and — one slot past the end, same convention as before
+                // groups got rows — the pinned master row. Bus rows (group/
+                // master) can't be deleted-as-a-track/duplicated/moved/
+                // muted/soloed and have no piano roll or pan.
+                const cur_track = self.cursorTrack();
+                const cur_group = self.cursorGroup();
+                const on_master = self.track_row == self.track_rows_len;
+                // `d` arms; a second `d` (dd) deletes the cursor row right
+                // away — the track, or on a group row the group itself — no
+                // confirm. Checked first so it wins over every other binding
+                // below and can't get stuck armed.
                 if (self.tracks_del_pending) {
                     self.tracks_del_pending = false;
                     if (key == .char and key.char == 'd') {
-                        self.doTrackDel(self.cursor);
+                        if (cur_group) |g| self.doGroupDel(g)
+                        else if (cur_track) |t| self.doTrackDel(t);
                     } else {
                         self.setStatus("cancelled", .{});
                     }
@@ -749,7 +781,9 @@ pub const App = struct {
                     return;
                 }
                 if (key == .enter and self.modal.mode == .normal) {
-                    if (on_master) spectrum_ed.switchToMaster(self) else self.openTrack(self.cursor);
+                    if (on_master) spectrum_ed.switchToMaster(self)
+                    else if (cur_group) |g| spectrum_ed.switchToGroup(self, g)
+                    else if (cur_track) |t| self.openTrack(t);
                     return;
                 }
                 if (key == .ctrl_r and self.modal.mode == .normal) {
@@ -772,15 +806,41 @@ pub const App = struct {
                             'u' => { history.doUndo(self); return; },
                             'U' => { history.doRedo(self); return; },
                             't' => { self.tapTempo(now_ns); return; },
-                            'd', 'Y', 'J', 'K', 'R', 'p', '<', '>', '[', ']', 'v' => {
+                            'd', 'Y', 'J', 'K', 'R', 'p', '<', '>', '[', ']', 'v', 'z' => {
                                 self.setStatus("master bus: n/a", .{});
+                                return;
+                            },
+                            else => {},
+                        }
+                    } else if (cur_group) |g| {
+                        switch (key.char) {
+                            's' => { spectrum_ed.switchToGroup(self, g); return; },
+                            'z' => { self.doGroupFoldToggle(g); return; },
+                            'R' => { self.startGroupRenamePrompt(g); return; },
+                            'd' => { self.tracks_del_pending = true; return; },
+                            '-' => { self.doGroupGainStep(g, -1.0); return; },
+                            '+', '=' => { self.doGroupGainStep(g, 1.0); return; },
+                            'M' => { spectrum_ed.switchToMaster(self); self.setTrackRow(self.track_rows_len); return; },
+                            'a' => { self.doTrackAdd(null); return; },
+                            'c' => { self.toggleMetronome(); return; },
+                            'u' => { history.doUndo(self); return; },
+                            'U' => { history.doRedo(self); return; },
+                            't' => { self.tapTempo(now_ns); return; },
+                            'v' => {
+                                self.tracks_visual_anchor = self.track_row;
+                                self.modal.mode = .visual;
+                                self.setStatus("visual: j/k extend, g groups the selection, esc cancels", .{});
+                                return;
+                            },
+                            'Y', 'J', 'K', 'p', '<', '>', '[', ']' => {
+                                self.setStatus("group row: n/a", .{});
                                 return;
                             },
                             else => {},
                         }
                     } else {
                         switch (key.char) {
-                            'M' => { spectrum_ed.switchToMaster(self); self.cursor = self.session.project.tracks.items.len; return; },
+                            'M' => { spectrum_ed.switchToMaster(self); self.setTrackRow(self.track_rows_len); return; },
                             's' => { spectrum_ed.switchToTrack(self, @intCast(self.cursor)); return; },
                             'p' => { piano_ed.switchTo(self, @intCast(self.cursor)); return; },
                             'a' => { self.doTrackAdd(null); return; },
@@ -790,8 +850,16 @@ pub const App = struct {
                             'K' => { self.doTrackMove(-1); return; },
                             '[' => { self.doTrackColorCycle(-1); return; },
                             ']' => { self.doTrackColorCycle(1); return; },
+                            'z' => {
+                                if (self.session.project.tracks.items[self.cursor].group) |g| {
+                                    self.doGroupFoldToggle(g);
+                                } else {
+                                    self.setStatus("track {d} isn't grouped", .{self.cursor + 1});
+                                }
+                                return;
+                            },
                             'v' => {
-                                self.tracks_visual_anchor = self.cursor;
+                                self.tracks_visual_anchor = self.track_row;
                                 self.modal.mode = .visual;
                                 self.setStatus("visual: j/k extend, g groups the selection, esc cancels", .{});
                                 return;
@@ -847,30 +915,188 @@ pub const App = struct {
         }
     }
 
-    /// Tracks view: click a row to select + open it (same as Enter); scroll
-    /// moves the cursor like j/k. Row-level only: track names are unbounded
-    /// width (`"{s: <8}"` pads but never truncates), so a mute/solo column
-    /// click zone can't be derived reliably from the track index alone.
+    /// Tracks view: click a row to select + open it (same as Enter — a
+    /// group row opens its FX chain); scroll moves the cursor like j/k.
+    /// Row-level only: track names are unbounded width (`"{s: <8}"` pads
+    /// but never truncates), so a mute/solo column click zone can't be
+    /// derived reliably from the track index alone.
     fn tracksMouse(self: *App, ev: modal_mod.MouseEvent, row: usize) void {
         switch (ev.kind) {
             .press => {
-                const track_count = self.session.project.tracks.items.len;
-                // Rows 1..track_rows_shown are the (possibly scrolled) track
-                // window; the row right after is the pinned master row.
+                self.tracksRowSync();
+                // Rows 1..track_rows_shown are the (possibly scrolled)
+                // display-row window; the row right after is the pinned
+                // master row.
                 if (row == 0 or row > self.track_rows_shown + 1) return; // title row / out of range
                 if (row - 1 == self.track_rows_shown) {
-                    self.cursor = track_count;
+                    self.setTrackRow(self.track_rows_len);
                     spectrum_ed.switchToMaster(self);
                     return;
                 }
-                const idx = self.track_scroll + (row - 1);
-                self.cursor = idx;
-                self.openTrack(idx);
+                const ri = self.track_scroll + (row - 1);
+                if (ri >= self.track_rows_len) return;
+                self.setTrackRow(ri);
+                switch (self.track_rows_buf[ri]) {
+                    .track => |t| self.openTrack(t),
+                    .group => |g| spectrum_ed.switchToGroup(self, g),
+                }
             },
             .scroll_up => self.applyAction(.{ .move = .{ .dy = -1 } }, self.now_ns),
             .scroll_down => self.applyAction(.{ .move = .{ .dy = 1 } }, self.now_ns),
             else => {},
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Tracks-view display rows (tracks + group rows; see TrackRow)
+    // -----------------------------------------------------------------------
+
+    /// Rebuild the display-row list from the current tracks/groups/fold
+    /// state. Folder order: a group's row sits where its first member (by
+    /// track index) sits, the members follow it in index order (hidden
+    /// entirely while folded), ungrouped tracks keep their own positions,
+    /// and memberless groups trail after the last track so a fresh
+    /// `:group-add` is visible immediately.
+    pub fn rebuildTrackRows(self: *App) void {
+        const tracks = self.session.project.tracks.items;
+        var emitted = [_]bool{false} ** engine_mod.max_groups;
+        var n: usize = 0;
+        for (tracks, 0..) |t, i| {
+            const g: u8 = t.group orelse {
+                self.track_rows_buf[n] = .{ .track = @intCast(i) };
+                n += 1;
+                continue;
+            };
+            if (g >= engine_mod.max_groups or self.session.groups[g] == null) {
+                // Stale reference (assignTrackGroup never writes one, but a
+                // hand-edited file might) — render as plain ungrouped.
+                self.track_rows_buf[n] = .{ .track = @intCast(i) };
+                n += 1;
+                continue;
+            }
+            if (emitted[g]) continue; // already listed under its group's row
+            emitted[g] = true;
+            self.track_rows_buf[n] = .{ .group = g };
+            n += 1;
+            if (self.session.groups[g].?.folded) continue;
+            for (tracks, 0..) |t2, j| {
+                const g2 = t2.group orelse continue;
+                if (g2 != g) continue;
+                self.track_rows_buf[n] = .{ .track = @intCast(j) };
+                n += 1;
+            }
+        }
+        for (self.session.groups, 0..) |slot, g| {
+            if (slot != null and !emitted[g]) {
+                self.track_rows_buf[n] = .{ .group = @intCast(g) };
+                n += 1;
+            }
+        }
+        self.track_rows_len = n;
+    }
+
+    pub fn trackRows(self: *const App) []const TrackRow {
+        return self.track_rows_buf[0..self.track_rows_len];
+    }
+
+    /// Rebuild + re-sync the row cursor. When `cursor` moved since the last
+    /// sync (another view or a command changed the selected track), the row
+    /// cursor follows it — unfolding is NOT forced, so a track hidden in a
+    /// fold resolves to its group's row. Call before any row-cursor read.
+    pub fn tracksRowSync(self: *App) void {
+        self.rebuildTrackRows();
+        if (self.cursor != self.track_row_cursor_snap) {
+            self.track_row = if (self.cursor >= self.session.project.tracks.items.len)
+                self.track_rows_len // master sentinel
+            else
+                self.rowOfTrack(@intCast(self.cursor));
+            self.track_row_cursor_snap = self.cursor;
+        }
+        if (self.track_row > self.track_rows_len) self.track_row = self.track_rows_len;
+    }
+
+    /// Move the row cursor and mirror it into `cursor`: a track row selects
+    /// its track; a group or the master row parks `cursor` one past the last
+    /// track — the pre-existing master sentinel every consumer (mute/solo,
+    /// MIDI follow, arrangement) already guards — so nothing outside the
+    /// tracks view ever targets a bus row.
+    pub fn setTrackRow(self: *App, row: usize) void {
+        self.track_row = @min(row, self.track_rows_len);
+        self.cursor = if (self.rowTrack(self.track_row)) |t| t else self.session.project.tracks.items.len;
+        self.track_row_cursor_snap = self.cursor;
+    }
+
+    fn rowTrack(self: *const App, row: usize) ?u16 {
+        if (row >= self.track_rows_len) return null;
+        return switch (self.track_rows_buf[row]) { .track => |t| t, .group => null };
+    }
+
+    /// Track under the row cursor — null on a group or the master row.
+    pub fn cursorTrack(self: *const App) ?u16 {
+        return self.rowTrack(self.track_row);
+    }
+
+    /// Group whose row the cursor is on — null on track/master rows.
+    pub fn cursorGroup(self: *const App) ?u8 {
+        if (self.track_row >= self.track_rows_len) return null;
+        return switch (self.track_rows_buf[self.track_row]) { .group => |g| g, .track => null };
+    }
+
+    /// Row of track `idx` — its group's row when hidden inside a fold.
+    fn rowOfTrack(self: *const App, idx: u16) usize {
+        var group_row: usize = 0;
+        for (self.trackRows(), 0..) |r, ri| switch (r) {
+            .track => |t| if (t == idx) return ri,
+            .group => |g| {
+                const tg = self.session.project.tracks.items[idx].group orelse continue;
+                if (tg == g) group_row = ri;
+            },
+        };
+        return group_row;
+    }
+
+    fn rowOfGroup(self: *const App, g: u8) ?usize {
+        for (self.trackRows(), 0..) |r, ri| switch (r) {
+            .group => |gi| if (gi == g) return ri,
+            else => {},
+        };
+        return null;
+    }
+
+    /// `z` in the tracks view: fold/unfold the group under (or containing)
+    /// the cursor. Folding from a member row lands the cursor on the group's
+    /// own row — the rows it could have sat on are gone.
+    fn doGroupFoldToggle(self: *App, g: u8) void {
+        if (g >= engine_mod.max_groups) return;
+        if (self.session.groups[g]) |*grp| {
+            grp.folded = !grp.folded;
+            self.dirty = true;
+            self.rebuildTrackRows();
+            self.setTrackRow(self.rowOfGroup(g) orelse self.track_row);
+            self.setStatus("\"{s}\" {s}", .{ grp.name, if (grp.folded) "folded" else "unfolded" });
+        }
+    }
+
+    /// `-`/`+` on a group row: ride the bus fader (session.setGroupGain
+    /// clamps to the track-gain range). Mixer-style live state, so — like
+    /// track gain/pan — deliberately not undo-tracked.
+    fn doGroupGainStep(self: *App, g: u8, delta_db: f32) void {
+        if (g >= engine_mod.max_groups) return;
+        if (self.session.groups[g]) |*grp| {
+            self.session.setGroupGain(g, grp.gain_db + delta_db);
+            self.dirty = true;
+            const sign: []const u8 = if (grp.gain_db >= 0) "+" else "";
+            self.setStatus("group {d} gain: {s}{d:.1}dB", .{ g + 1, sign, grp.gain_db });
+        }
+    }
+
+    /// `dd` on a group row: delete the group. Members fall back to the
+    /// master mix — same semantics as `:group-del`.
+    fn doGroupDel(self: *App, g: u8) void {
+        if (g >= engine_mod.max_groups or self.session.groups[g] == null) return;
+        self.session.deleteGroup(g);
+        self.dirty = true;
+        self.setStatus("group {d} deleted (members back on the master mix)", .{g + 1});
     }
 
     /// Instrument picker: click a row to select + insert it (same as
@@ -928,17 +1154,16 @@ pub const App = struct {
     }
 
     /// Tracks view visual mode's reduced key set: `j`/`k` extend the
-    /// selection (master excluded — the cursor can't reach it from here
-    /// since the range never includes it), `g` groups the selection, `esc`
-    /// cancels. Everything else is swallowed, matching the other editors'
-    /// visual modes.
+    /// selection over display rows (master excluded — the cursor can't
+    /// reach it from here since the range never includes it), `g` groups
+    /// the selection, `esc` cancels. Everything else is swallowed, matching
+    /// the other editors' visual modes.
     fn handleTracksVisual(self: *App, key: modal_mod.Key) void {
-        const track_count = self.session.project.tracks.items.len;
         switch (key) {
             .escape => { self.exitTracksVisual(); self.setStatus("selection cancelled", .{}); },
             .char => |c| switch (c) {
-                'j' => if (self.cursor + 1 < track_count) { self.cursor += 1; },
-                'k' => if (self.cursor > 0) { self.cursor -= 1; },
+                'j' => if (self.track_row + 1 < self.track_rows_len) self.setTrackRow(self.track_row + 1),
+                'k' => if (self.track_row > 0) self.setTrackRow(self.track_row - 1),
                 'g' => self.groupSelectedTracks(),
                 else => {},
             },
@@ -954,14 +1179,30 @@ pub const App = struct {
     }
 
     /// `g` in tracks-view visual mode: create a new group from the selected
-    /// range and open the rename prompt for it immediately (same prefill
+    /// rows and open the rename prompt for it immediately (same prefill
     /// pattern `startRenamePrompt` uses) so the user names it right away
-    /// instead of living with an auto-generated "Group N".
+    /// instead of living with an auto-generated "Group N". The selection
+    /// takes what's on screen: track rows join directly and a *folded*
+    /// group row brings its hidden members along; an unfolded group's own
+    /// row contributes nothing — its members are rows of their own.
     fn groupSelectedTracks(self: *App) void {
-        const anchor = self.tracks_visual_anchor orelse self.cursor;
-        const lo = @min(anchor, self.cursor);
-        const hi = @max(anchor, self.cursor);
+        const anchor = self.tracks_visual_anchor orelse self.track_row;
+        const lo = @min(anchor, self.track_row);
+        const hi = @max(anchor, self.track_row);
         self.exitTracksVisual();
+
+        const rows = self.track_rows_buf[lo..@min(hi + 1, self.track_rows_len)];
+        var count: usize = 0;
+        for (rows) |r| switch (r) {
+            .track => count += 1,
+            .group => |g| if (self.session.groups[g].?.folded) {
+                for (self.session.project.tracks.items) |t| {
+                    const tg = t.group orelse continue;
+                    if (tg == g) count += 1;
+                }
+            },
+        };
+        if (count == 0) { self.setStatus("no tracks selected", .{}); return; }
 
         const idx = self.session.addGroup("Group") catch |err| {
             self.setStatus("group: {s}", .{switch (err) {
@@ -970,10 +1211,18 @@ pub const App = struct {
             }});
             return;
         };
-        var i = lo;
-        while (i <= hi) : (i += 1) self.session.assignTrackGroup(i, idx);
+        for (rows) |r| switch (r) {
+            .track => |t| self.session.assignTrackGroup(t, idx),
+            .group => |g| if (self.session.groups[g].?.folded) {
+                for (self.session.project.tracks.items, 0..) |t, j| {
+                    const tg = t.group orelse continue;
+                    if (tg == g) self.session.assignTrackGroup(j, idx);
+                }
+            },
+        };
         self.dirty = true;
-        self.cursor = lo;
+        self.rebuildTrackRows();
+        self.setTrackRow(self.rowOfGroup(idx) orelse 0);
         self.startGroupRenamePrompt(idx);
     }
 
@@ -1432,10 +1681,19 @@ pub const App = struct {
                 if (m == .command) self.cmd_history_pos = self.cmd_history.items.len;
             },
             .move => |m| {
-                const count: i64 = @as(i64, @intCast(self.cursor)) + m.dy;
-                // One extra slot past the last real track — the master row.
-                const last: i64 = @intCast(self.session.project.tracks.items.len);
-                self.cursor = @intCast(std.math.clamp(count, 0, last));
+                if (self.view == .tracks) {
+                    // Row-space movement: tracks, group rows, and — one
+                    // extra slot past the end — the pinned master row.
+                    self.tracksRowSync();
+                    const target: i64 = @as(i64, @intCast(self.track_row)) + m.dy;
+                    const last: i64 = @intCast(self.track_rows_len);
+                    self.setTrackRow(@intCast(std.math.clamp(target, 0, last)));
+                } else {
+                    const count: i64 = @as(i64, @intCast(self.cursor)) + m.dy;
+                    // One extra slot past the last real track — the master row.
+                    const last: i64 = @intCast(self.session.project.tracks.items.len);
+                    self.cursor = @intCast(std.math.clamp(count, 0, last));
+                }
             },
             .goto_start => _ = self.session.engine.send(.{ .seek_frames = 0 }),
             .toggle_play => {
@@ -1573,6 +1831,16 @@ pub const App = struct {
             const idx: usize = @intCast(@mod(start + dir * step, n));
             if (fuzzy.matches(pattern, tracks[idx].name)) {
                 self.cursor = idx;
+                // A hit hidden inside a folded group unfolds it — vim's own
+                // open-fold-on-search behaviour — so the cursor can actually
+                // land on (and n can cycle past) the matching row.
+                if (tracks[idx].group) |g| {
+                    if (g < engine_mod.max_groups) {
+                        if (self.session.groups[g]) |*grp| {
+                            if (grp.folded) { grp.folded = false; self.dirty = true; }
+                        }
+                    }
+                }
                 self.setStatus("/{s}  [{d}/{d}]", .{ pattern, idx + 1, tracks.len });
                 return;
             }

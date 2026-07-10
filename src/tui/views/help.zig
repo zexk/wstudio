@@ -134,22 +134,23 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("shift+drag",   "bypass wstudio — your terminal's native text selection (for copy/paste)");
 
     t.taggedSection(.tracks, "TRACKS");
-    t.key("j / k",        "move cursor down / up — one slot past the last track is MASTER");
-    t.key("enter",        "edit track (synth or drum grid) — on MASTER: open its FX chain");
+    t.key("j / k",        "move cursor down / up over rows — tracks, group rows, then MASTER last");
+    t.key("enter",        "edit track (synth or drum grid) — on a group row / MASTER: open its FX chain");
     t.key("p",            "piano roll for melodic tracks (synth or sampler)");
-    t.key("s",            "FX chain for selected track — on MASTER: same for the bus");
+    t.key("s",            "FX chain for selected track — same on a group row / MASTER");
     t.key("m",            "mute / unmute selected track");
     t.key("S",            "solo / unsolo selected track");
     t.key("M",            "jump to the master row and open its FX chain");
     t.key("< / >",        "pan left / right  (5% per step)");
-    t.key("- / +",        "track gain −1 dB / +1 dB  (= also works) — on MASTER: master gain");
+    t.key("- / +",        "track gain −1 dB / +1 dB  (= also works) — group row: bus fader; MASTER: master gain");
     t.key("a",            "add synth track");
-    t.key("dd",           "delete selected track, no confirm  (n/a on MASTER — it can't be removed)");
+    t.key("dd",           "delete selected track, no confirm — on a group row: delete the group (members ungroup)");
     t.key("Y",            "duplicate selected track (instrument, FX, clips) at the end");
     t.key("J / K",        "move selected track down / up");
     t.key("[ / ]",        "cycle selected track's color (7 colors + none)");
-    t.key("R",            "rename selected track (opens :track-rename <n>)");
-    t.key("v",            "visual mode: select a track range — g groups it (opens :group-rename)");
+    t.key("R",            "rename selected track (opens :track-rename <n>) — group row: :group-rename <n>");
+    t.key("v",            "visual mode: select a row range — g groups it (opens :group-rename)");
+    t.key("z",            "fold / unfold the group under the cursor — its member rows hide behind the group's row");
     t.key(":group-fx <n>", "open group n's FX chain — same shared chain view as a track/master");
     t.key(":track-group",  "<track> <group|none>  assign or clear a track's group by number");
     t.key(":group-del <n>", "delete group n — members fall back to the master mix");
@@ -317,6 +318,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("H / L",        "decrease / increase the selected param (coarse step)");
     t.key("",             "a compressor's last param is 'sidechain': h/l cycles none/track N — its envelope");
     t.key("",             "  then detects from track N's signal instead of its own input (duck a bass off a kick)");
+    t.key("- / +",        "group chain only: bus fader for the whole submix, post-FX (also :group-gain)");
     t.key(":eq",          "<track> [<band> <db>]  first EQ in the chain, from the : prompt (inserts one if missing)");
     t.key(":master-eq",   "[<band> <db>]  same, from the : prompt (M opens the live editor)");
     t.key(":master-comp", "on|off|thresh|ratio|attack|release|makeup <value>  first comp in the master chain");

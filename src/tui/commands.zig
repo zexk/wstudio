@@ -80,6 +80,7 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "track-rename",.desc = "[<n>] <name>  rename track n (no n: cursor track)", .run = wrap(cmdTrackRename) },
     .{ .name = "group-add",   .desc = "<name>  create a new track-grouping submix bus", .run = wrap(cmdGroupAdd) },
     .{ .name = "group-rename",.desc = "<n> <name>  rename group n", .run = wrap(cmdGroupRename) },
+    .{ .name = "group-gain",  .desc = "<n> [<dB>]  group bus fader, post-FX (-60..12; no dB: report)", .run = wrap(cmdGroupGain) },
     .{ .name = "group-del",   .desc = "<n>  delete group n (members fall back to the master mix)", .run = wrap(cmdGroupDel) },
     .{ .name = "group-fx",    .desc = "<n>  open group n's FX chain", .run = wrap(cmdGroupFx) },
     .{ .name = "track-group", .desc = "<track> <group|none>  assign (or clear) which group a track submixes through", .run = wrap(cmdTrackGroup) },
@@ -477,6 +478,32 @@ fn cmdGroupRename(app: *App, args: []const u8) void {
     };
     app.dirty = true;
     app.setStatus("group {d} renamed to \"{s}\"", .{ idx + 1, name });
+}
+
+fn cmdGroupGain(app: *App, args: []const u8) void {
+    var it = std.mem.splitScalar(u8, std.mem.trim(u8, args, " "), ' ');
+    const idx_str = it.next() orelse "";
+    if (idx_str.len == 0) {
+        app.setStatus("usage: group-gain <n> [<dB>]", .{});
+        return;
+    }
+    const idx = parseGroupArg(app, "group-gain", idx_str) orelse return;
+    if (app.session.groups[idx] == null) {
+        app.setStatus("group-gain: group {d} doesn't exist", .{idx + 1});
+        return;
+    }
+    const db_str = std.mem.trim(u8, it.rest(), " ");
+    if (db_str.len == 0) {
+        app.setStatus("group {d} gain: {d:.1}dB", .{ idx + 1, app.session.groups[idx].?.gain_db });
+        return;
+    }
+    const db = std.fmt.parseFloat(f32, db_str) catch {
+        app.setStatus("group-gain: expected a dB value, e.g. :group-gain 1 -6", .{});
+        return;
+    };
+    app.session.setGroupGain(idx, db);
+    app.dirty = true;
+    app.setStatus("group {d} gain: {d:.1}dB", .{ idx + 1, app.session.groups[idx].?.gain_db });
 }
 
 fn cmdGroupDel(app: *App, args: []const u8) void {

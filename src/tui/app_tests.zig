@@ -3998,6 +3998,99 @@ test "FX chain: switchToGroup opens a group's chain via the same shared editor" 
     try std.testing.expect(app.view != .group_spectrum);
 }
 
+test "tracks view: group rows render in folder order; z folds members behind the row" {
+    var app = try testApp();
+    defer app.deinit();
+    // Group tracks 0+1; track 2 stays loose.
+    const g = try app.session.addGroup("bus");
+    app.session.assignTrackGroup(0, g);
+    app.session.assignTrackGroup(1, g);
+
+    app.tracksRowSync();
+    // Folder order: group row where its first member sat, members under it,
+    // the loose track after — master one past the end as always.
+    try std.testing.expectEqual(@as(usize, 4), app.track_rows_len);
+    try std.testing.expectEqual(g, app.track_rows_buf[0].group);
+    try std.testing.expectEqual(@as(u16, 0), app.track_rows_buf[1].track);
+    try std.testing.expectEqual(@as(u16, 1), app.track_rows_buf[2].track);
+    try std.testing.expectEqual(@as(u16, 2), app.track_rows_buf[3].track);
+
+    // z on the group row folds: member rows vanish, cursor stays put.
+    app.view = .tracks;
+    app.setTrackRow(0);
+    try std.testing.expectEqual(@as(?u8, g), app.cursorGroup());
+    app.handleKey(.{ .char = 'z' }, 0);
+    try std.testing.expect(app.session.groups[g].?.folded);
+    try std.testing.expectEqual(@as(usize, 2), app.track_rows_len); // group row + loose track
+    try std.testing.expectEqual(@as(?u8, g), app.cursorGroup());
+
+    // z from a member row folds too — the cursor climbs onto the group row.
+    app.handleKey(.{ .char = 'z' }, 0); // unfold first
+    try std.testing.expectEqual(@as(usize, 4), app.track_rows_len);
+    app.setTrackRow(2); // track 1, inside the group
+    app.handleKey(.{ .char = 'z' }, 0);
+    try std.testing.expect(app.session.groups[g].?.folded);
+    try std.testing.expectEqual(@as(?u8, g), app.cursorGroup());
+
+    // A search hit hidden in the fold unfolds it, vim-style.
+    for ("/samp") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expect(!app.session.groups[g].?.folded);
+    app.tracksRowSync();
+    try std.testing.expectEqual(@as(?u16, 1), app.cursorTrack());
+}
+
+test "tracks view: group row rides its bus fader, opens its chain, dd deletes the group" {
+    var app = try testApp();
+    defer app.deinit();
+    const g = try app.session.addGroup("bus");
+    app.session.assignTrackGroup(0, g);
+    app.view = .tracks;
+    app.tracksRowSync();
+    app.setTrackRow(0); // the group row
+    try std.testing.expectEqual(@as(?u8, g), app.cursorGroup());
+
+    // -/+ step the bus fader, same 1 dB grain as track gain.
+    app.handleKey(.{ .char = '-' }, 0);
+    try std.testing.expectApproxEqAbs(@as(f32, -1.0), app.session.groups[g].?.gain_db, 0.001);
+    app.handleKey(.{ .char = '+' }, 0);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), app.session.groups[g].?.gain_db, 0.001);
+
+    // enter opens the group's FX chain, same as a track row's chain view.
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqual(AppView.group_spectrum, app.view);
+    try std.testing.expectEqual(g, app.eq_group);
+    app.view = .tracks;
+
+    // dd deletes the group; its member falls back to the master mix.
+    app.handleKey(.{ .char = 'd' }, 0);
+    app.handleKey(.{ .char = 'd' }, 0);
+    try std.testing.expect(app.session.groups[g] == null);
+    try std.testing.expectEqual(@as(?u8, null), app.session.project.tracks.items[0].group);
+    app.tracksRowSync();
+    try std.testing.expectEqual(@as(usize, 3), app.track_rows_len); // plain track list again
+}
+
+test "tracks view: visual g groups the selected rows and lands on the new group's row" {
+    var app = try testApp();
+    defer app.deinit();
+    app.view = .tracks;
+    app.tracksRowSync();
+    app.setTrackRow(0);
+    app.handleKey(.{ .char = 'v' }, 0);
+    try std.testing.expectEqual(ws.input.Mode.visual, app.modal.mode);
+    app.handleKey(.{ .char = 'j' }, 0);
+    app.handleKey(.{ .char = 'g' }, 0);
+    // g created the group and dropped into the :group-rename prompt.
+    try std.testing.expectEqual(ws.input.Mode.command, app.modal.mode);
+    try std.testing.expectEqual(@as(?u8, 0), app.session.project.tracks.items[0].group);
+    try std.testing.expectEqual(@as(?u8, 0), app.session.project.tracks.items[1].group);
+    try std.testing.expectEqual(@as(?u8, null), app.session.project.tracks.items[2].group);
+    app.handleKey(.escape, 0);
+    app.tracksRowSync();
+    try std.testing.expectEqual(@as(?u8, 0), app.cursorGroup());
+}
+
 test "below the minimum terminal size, draw gates to the too-small notice" {
     var app = try testApp();
     defer app.deinit();

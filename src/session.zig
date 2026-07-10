@@ -67,6 +67,14 @@ pub const Session = struct {
     pub const Group = struct {
         name: []u8,
         fx: rack_mod.Fx = .{},
+        /// Bus fader, dB — applied post-chain by the engine (see
+        /// `GroupState.gain`). Same clamp range as track gain.
+        gain_db: f32 = 0.0,
+        /// Tracks-view fold state: when true the group's member rows are
+        /// hidden behind the group's own row. Pure UI state — the engine
+        /// never sees it — but persisted so a folded mixer stays folded
+        /// across save/load (`GroupSnap.folded`).
+        folded: bool = false,
 
         pub fn deinit(self: *Group, allocator: std.mem.Allocator) void {
             allocator.free(self.name);
@@ -417,9 +425,21 @@ pub const Session = struct {
         if (self.groups[idx]) |*g| {
             self.engine.setGroupChain(idx, true, g.fx.chain(&buf));
             self.engine.setGroupSidechainSources(idx, g.fx.sidechainSources(&sc_buf));
+            _ = self.engine.send(.{ .set_group_gain = .{ .group = idx, .gain = types.dbToGain(g.gain_db) } });
         } else {
             self.engine.setGroupChain(idx, false, &.{});
             self.engine.setGroupSidechainSources(idx, &.{});
+            _ = self.engine.send(.{ .set_group_gain = .{ .group = idx, .gain = 1.0 } });
+        }
+    }
+
+    /// Set group `idx`'s bus fader (clamped to track gain's -60..+12 dB
+    /// range) and push it to the audio thread. No-op on an unused slot.
+    pub fn setGroupGain(self: *Session, idx: u8, db: f32) void {
+        if (idx >= engine_mod.max_groups) return;
+        if (self.groups[idx]) |*g| {
+            g.gain_db = std.math.clamp(db, -60.0, 12.0);
+            _ = self.engine.send(.{ .set_group_gain = .{ .group = idx, .gain = types.dbToGain(g.gain_db) } });
         }
     }
 

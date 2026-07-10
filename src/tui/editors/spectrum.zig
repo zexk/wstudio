@@ -378,6 +378,16 @@ fn paramStep(k: FxKind, idx: usize, coarse: bool) f32 {
 /// submix bus (see `Session.Group`). One shared FX-chain editor/view for
 /// all three — group chains build/edit exactly like a track's or the
 /// master's.
+/// Nudge the viewed group's bus fader by `delta` dB (see Session.setGroupGain
+/// for the clamp) and echo the new level.
+fn adjustGroupGain(app: *App, delta: f32) void {
+    if (app.eq_group >= ws.engine.max_groups) return;
+    const cur = (app.session.groups[app.eq_group] orelse return).gain_db;
+    app.session.setGroupGain(app.eq_group, cur + delta);
+    app.dirty = true;
+    app.setStatus("bus gain: {d:.1}dB", .{app.session.groups[app.eq_group].?.gain_db});
+}
+
 pub const EqTarget = enum { track, master, group };
 
 /// Derive the current target from `app.view` — `.track_spectrum` ->
@@ -612,6 +622,12 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             '<' => { moveFocused(app, target, -1); return true; },
             '>' => { moveFocused(app, target, 1); return true; },
             'b' => { toggleBypass(app, target); return true; },
+            // -/+ ride the group's bus fader from inside its chain view
+            // (1 dB per press, count-scaled) — a mixer move like track
+            // gain, so deliberately not undo-tracked. Track/master chains
+            // have their faders in the tracks view already.
+            '-' => { if (target == .group) { adjustGroupGain(app, -1.0 * @as(f32, @floatFromInt(app.takeCount()))); return true; } return false; },
+            '+', '=' => { if (target == .group) { adjustGroupGain(app, 1.0 * @as(f32, @floatFromInt(app.takeCount()))); return true; } return false; },
             'u' => { history.doUndo(app); return true; },
             'U' => { history.doRedo(app); return true; },
             // Param picks take a vim count prefix (3k, 4j, …) and wrap —
