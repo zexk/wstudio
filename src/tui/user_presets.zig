@@ -115,6 +115,25 @@ pub fn upsert(
     try save(allocator, io, list.items);
 }
 
+/// Remove `name`'s preset (case-insensitive, mirroring `upsert`'s match)
+/// from `list` and persist the shrunk set. False when no such preset —
+/// nothing is written to disk then.
+pub fn remove(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    list: *std.ArrayListUnmanaged(UserPreset),
+    name: []const u8,
+) !bool {
+    for (list.items, 0..) |p, i| {
+        if (!std.ascii.eqlIgnoreCase(p.name, name)) continue;
+        const removed = list.orderedRemove(i);
+        allocator.free(removed.name);
+        try save(allocator, io, list.items);
+        return true;
+    }
+    return false;
+}
+
 /// Case-insensitive lookup, mirroring `dsp/synth_presets.find`.
 pub fn find(list: []const UserPreset, name: []const u8) ?Patch {
     for (list) |p| {
@@ -167,6 +186,30 @@ test "upsert saves and load reads a preset back" {
     try upsert(testing.allocator, testing.io, &list, "MY-LEAD", patch);
     try testing.expectEqual(@as(usize, 1), list.items.len);
     try testing.expectApproxEqAbs(@as(f32, 0.9), find(list.items, "my-lead").?.gain, 1e-6);
+}
+
+test "remove deletes by name (any case) and persists the shrunk set" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var home_buf: [128]u8 = undefined;
+    const home = try std.fmt.bufPrintZ(&home_buf, ".zig-cache/tmp/{s}", .{&tmp.sub_path});
+    _ = setenv("HOME", home.ptr, 1);
+
+    var list: std.ArrayListUnmanaged(UserPreset) = .empty;
+    defer deinit(testing.allocator, &list);
+    try upsert(testing.allocator, testing.io, &list, "keeper", .{});
+    try upsert(testing.allocator, testing.io, &list, "goner", .{});
+
+    try testing.expect(try remove(testing.allocator, testing.io, &list, "GONER"));
+    try testing.expectEqual(@as(usize, 1), list.items.len);
+    // An unknown name is a clean false, not an error.
+    try testing.expect(!try remove(testing.allocator, testing.io, &list, "goner"));
+
+    var loaded = load(testing.allocator, testing.io);
+    defer deinit(testing.allocator, &loaded);
+    try testing.expectEqual(@as(usize, 1), loaded.items.len);
+    try testing.expectEqualStrings("keeper", loaded.items[0].name);
 }
 
 test "a malformed presets file is quarantined, not silently discarded" {

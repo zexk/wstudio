@@ -127,7 +127,9 @@ pub fn drawPresetPickerStatus(app: anytype, w: *std.Io.Writer) !void {
         try cmd_mod.writeSearchPrompt(w, app.modal.cmd_buf[0..app.modal.cmd_len], app.modal.cmd_cursor);
         return;
     }
-    try w.writeAll(" j/k: move   enter: apply   /: filter name/tag/author   esc: close");
+    try w.writeAll(" j/k: move   enter: apply");
+    if (app.preset_picker_kind == .synth) try w.writeAll("   d: delete saved");
+    try w.writeAll("   /: filter name/tag/author   esc: close");
     if (app.status_len > 0) {
         try w.writeAll(dim ++ "  " ++ rst);
         try w.writeAll(app.status_buf[0..app.status_len]);

@@ -236,7 +236,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("H / L",        "adjust value (coarse ×10)");
     t.key("p",            "open piano roll for this track");
     t.key("s",            "FX chain for this track");
-    t.key("f",            "preset picker — factory + saved patches, / filters by name/tag/author");
+    t.key("f",            "preset picker — factory + saved patches, / filters by name/tag/author, d deletes a save");
     t.key(":synth-preset-save", "<name>  save the current params as a reusable preset");
 
     t.taggedSection(.piano_roll, "PIANO ROLL");

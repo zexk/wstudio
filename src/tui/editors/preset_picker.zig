@@ -16,6 +16,7 @@ const ws = @import("wstudio");
 const modal_mod = ws.input;
 const App = @import("../app.zig").App;
 const fuzzy = @import("../fuzzy.zig");
+const user_presets = @import("../user_presets.zig");
 
 pub const Kind = enum { synth, drum };
 
@@ -193,6 +194,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) void {
             'k' => moveCursor(app, -1),
             'g' => app.preset_picker_cursor = 0,
             'G' => app.preset_picker_cursor = entryCount(app) -| 1,
+            'd' => deleteSelected(app),
             ' ' => applySelected(app),
             else => {},
         },
@@ -247,6 +249,43 @@ fn targetDrum(app: *App) ?*ws.dsp.DrumMachine {
     };
 }
 
+/// The entry the cursor sits on within the filtered rows, if any.
+fn selectedEntry(rows_list: []const DisplayRow, cursor: usize) ?Entry {
+    var n: usize = 0;
+    for (rows_list) |r| switch (r) {
+        .entry => |e| {
+            if (n == cursor) return e;
+            n += 1;
+        },
+        .header => {},
+    };
+    return null;
+}
+
+/// d: delete the highlighted user-saved preset, from the list and from
+/// synth_presets.json (same key the file browser's bookmark list uses).
+/// Factory presets and drum kits refuse. The picker stays open so several
+/// stale saves can go in one visit.
+fn deleteSelected(app: *App) void {
+    var buf: [max_display_rows]DisplayRow = undefined;
+    const rows_list = buildDisplayRows(app, &buf);
+    const chosen = selectedEntry(rows_list, app.preset_picker_cursor) orelse return;
+    if (chosen.source != .user) {
+        app.setStatus("only saved presets can be deleted", .{});
+        return;
+    }
+    // The status line needs the name after remove() has freed it.
+    var name_buf: [64]u8 = undefined;
+    const shown_len = @min(chosen.name.len, name_buf.len);
+    @memcpy(name_buf[0..shown_len], chosen.name[0..shown_len]);
+    _ = user_presets.remove(app.allocator, app.io, &app.user_synth_presets, chosen.name) catch |e| {
+        app.setStatus("delete: {s}", .{@errorName(e)});
+        return;
+    };
+    app.preset_picker_cursor = @min(app.preset_picker_cursor, entryCount(app) -| 1);
+    app.setStatus("deleted preset: {s}", .{name_buf[0..shown_len]});
+}
+
 /// Apply the highlighted entry to the picker's target track — the same
 /// paths `:synth-preset`/`:drum-kit` take (PolySynth.applyPatch /
 /// DrumMachine.loadKitVariant), then bounce back to the opening view. An
@@ -254,16 +293,7 @@ fn targetDrum(app: *App) ?*ws.dsp.DrumMachine {
 pub fn applySelected(app: *App) void {
     var buf: [max_display_rows]DisplayRow = undefined;
     const rows_list = buildDisplayRows(app, &buf);
-    var n: usize = 0;
-    const chosen: Entry = for (rows_list) |r| {
-        switch (r) {
-            .entry => |e| {
-                if (n == app.preset_picker_cursor) break e;
-                n += 1;
-            },
-            .header => {},
-        }
-    } else return;
+    const chosen = selectedEntry(rows_list, app.preset_picker_cursor) orelse return;
 
     switch (chosen.source) {
         .user => |i| {
