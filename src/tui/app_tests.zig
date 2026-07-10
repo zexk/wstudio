@@ -3823,6 +3823,52 @@ test "FX chain: insert/bypass/remove are each their own undoable step" {
     try std.testing.expectEqual(@as(usize, 0), fx.units.items.len);
 }
 
+test ":eq/:master-eq/:master-comp are undoable steps" {
+    var app = try testApp();
+    defer app.deinit();
+    const track_fx = &app.session.racks.items[0].fx;
+    const mfx = &app.session.master_fx;
+
+    // :eq auto-creates an EQ; one u reverts the insert + band set together.
+    commands.run(&app, "eq 1 2 4.5");
+    try std.testing.expectEqual(@as(usize, 1), track_fx.units.items.len);
+    try std.testing.expectEqual(@as(usize, 1), app.history.undo_stack.items.len);
+    app.handleKey(.{ .char = 'u' }, 0);
+    try std.testing.expectEqual(@as(usize, 0), track_fx.units.items.len);
+
+    // :master-comp param set inserts + sets as one step; a second set on
+    // the now-existing comp is its own step.
+    commands.run(&app, "master-comp thresh -20");
+    try std.testing.expectEqual(@as(usize, 1), mfx.units.items.len);
+    try std.testing.expectApproxEqAbs(@as(f32, -20.0), mfx.units.items[0].payload.comp.threshold_db, 0.001);
+    commands.run(&app, "master-comp ratio 8");
+    app.handleKey(.{ .char = 'u' }, 0); // undo the ratio set — comp stays, ratio reverts
+    try std.testing.expectEqual(@as(usize, 1), mfx.units.items.len);
+    try std.testing.expect(mfx.units.items[0].payload.comp.ratio != 8.0);
+    app.handleKey(.{ .char = 'u' }, 0); // undo the insert+thresh
+    try std.testing.expectEqual(@as(usize, 0), mfx.units.items.len);
+
+    // A typo'd param neither inserts a comp nor records an undo step.
+    const undo_before_typo = app.history.undo_stack.items.len;
+    commands.run(&app, "master-comp bogus 5");
+    try std.testing.expectEqual(@as(usize, 0), mfx.units.items.len);
+    try std.testing.expectEqual(undo_before_typo, app.history.undo_stack.items.len);
+
+    // :master-eq auto-creates too; u reverts it whole.
+    commands.run(&app, "master-eq 0 3");
+    try std.testing.expectEqual(@as(usize, 1), mfx.units.items.len);
+    app.handleKey(.{ .char = 'u' }, 0);
+    try std.testing.expectEqual(@as(usize, 0), mfx.units.items.len);
+
+    // :master-comp off is undoable: the comp returns WITH its settings.
+    commands.run(&app, "master-comp thresh -12");
+    commands.run(&app, "master-comp off");
+    try std.testing.expectEqual(@as(usize, 0), mfx.units.items.len);
+    app.handleKey(.{ .char = 'u' }, 0);
+    try std.testing.expectEqual(@as(usize, 1), mfx.units.items.len);
+    try std.testing.expectApproxEqAbs(@as(f32, -12.0), mfx.units.items[0].payload.comp.threshold_db, 0.001);
+}
+
 test "FX chain: a param nudge followed by a structural edit are two separate undo steps" {
     var app = try testApp();
     defer app.deinit();

@@ -1509,7 +1509,10 @@ fn cmdEq(app: *App, args: []const u8) void {
         app.setStatus("eq: expected dB value", .{});
         return;
     };
-    spectrum_ed.setEqBand(app, @intCast(track_idx), band, db);
+    const entry = history.captureFxCmd(app, .{ .track = @intCast(track_idx) });
+    const ok = spectrum_ed.setEqBand(app, @intCast(track_idx), band, db);
+    history.pushFxIfOk(app, entry, ok);
+    if (!ok) return; // setEqBand already reported the failure
     app.setStatus("track {d} eq band {d}: {d:.1}dB", .{ track_1, band, db });
 }
 
@@ -1542,7 +1545,10 @@ fn cmdMasterEq(app: *App, args: []const u8) void {
         app.setStatus("master-eq: expected dB value", .{});
         return;
     };
-    spectrum_ed.setMasterEqBand(app, band, db);
+    const entry = history.captureFxCmd(app, .master);
+    const ok = spectrum_ed.setMasterEqBand(app, band, db);
+    history.pushFxIfOk(app, entry, ok);
+    if (!ok) return; // setMasterEqBand already reported the failure
     app.setStatus("master eq band {d}: {d:.1}dB", .{ band, db });
 }
 
@@ -1568,7 +1574,9 @@ fn cmdMasterComp(app: *App, args: []const u8) void {
     }
     if (std.ascii.eqlIgnoreCase(trimmed, "off")) {
         if (mfx.findIdx(.comp)) |idx| {
+            const entry = history.captureFxCmd(app, .master);
             mfx.remove(app.session.allocator, idx);
+            history.pushFxIfOk(app, entry, true);
             app.dirty = true;
             app.session.syncMasterChain();
         }
@@ -1579,14 +1587,27 @@ fn cmdMasterComp(app: *App, args: []const u8) void {
     const first = it.next().?;
     if (std.ascii.eqlIgnoreCase(first, "on")) {
         if (mfx.find(.comp) == null) {
+            const entry = history.captureFxCmd(app, .master);
             _ = mfx.insert(app.session.allocator, mfx.units.items.len, .comp, app.session.project.sample_rate) catch {
+                history.pushFxIfOk(app, entry, false);
                 app.setStatus("master comp: chain full", .{});
                 return;
             };
+            history.pushFxIfOk(app, entry, true);
         }
         app.dirty = true;
         app.session.syncMasterChain();
         app.setStatus("master comp: on (defaults)", .{});
+        return;
+    }
+    // Validate the param name BEFORE the find-or-insert below: a typo'd
+    // param used to leave a freshly inserted (unsynced) compressor behind
+    // on its early return — and would leave a spurious undo step now.
+    const known = std.ascii.eqlIgnoreCase(first, "thresh") or std.ascii.eqlIgnoreCase(first, "ratio") or
+        std.ascii.eqlIgnoreCase(first, "attack") or std.ascii.eqlIgnoreCase(first, "release") or
+        std.ascii.eqlIgnoreCase(first, "makeup");
+    if (!known) {
+        app.setStatus("master-comp: unknown param '{s}' (thresh/ratio/attack/release/makeup)", .{first});
         return;
     }
     const val_str = std.mem.trim(u8, it.rest(), " ");
@@ -1594,8 +1615,10 @@ fn cmdMasterComp(app: *App, args: []const u8) void {
         app.setStatus("usage: master-comp on|off|thresh|ratio|attack|release|makeup <value>", .{});
         return;
     };
+    const entry = history.captureFxCmd(app, .master);
     const unit = mfx.find(.comp) orelse
         mfx.insert(app.session.allocator, mfx.units.items.len, .comp, app.session.project.sample_rate) catch {
+            history.pushFxIfOk(app, entry, false);
             app.setStatus("master comp: chain full", .{});
             return;
         };
@@ -1610,10 +1633,8 @@ fn cmdMasterComp(app: *App, args: []const u8) void {
         c.release_ms = std.math.clamp(val, 1.0, 2000.0);
     } else if (std.ascii.eqlIgnoreCase(first, "makeup")) {
         c.makeup_db = std.math.clamp(val, -24.0, 24.0);
-    } else {
-        app.setStatus("master-comp: unknown param '{s}' (thresh/ratio/attack/release/makeup)", .{first});
-        return;
     }
+    history.pushFxIfOk(app, entry, true);
     app.dirty = true;
     app.session.syncMasterChain();
     app.setStatus("master comp: {s} {d:.2}", .{ first, val });

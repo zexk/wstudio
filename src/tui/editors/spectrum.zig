@@ -645,33 +645,36 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
 /// `:eq <track> [<band> <db>]` support — same shape kept for backward
 /// compatibility with the command-line path; targets the chain's first EQ,
 /// inserting one at the end if there is none (matching the command's
-/// long-standing auto-create behaviour).
-pub fn setEqBand(app: *App, track: u16, band: usize, gain_db: f32) void {
-    if (track >= app.session.racks.items.len) return;
+/// long-standing auto-create behaviour). Returns whether the band was
+/// actually set, so the caller can push (or discard) its undo capture.
+pub fn setEqBand(app: *App, track: u16, band: usize, gain_db: f32) bool {
+    if (track >= app.session.racks.items.len) return false;
     const rack = app.session.racks.items[track];
     const unit = rack.fx.find(.eq) orelse
         rack.fx.insert(app.session.allocator, rack.fx.units.items.len, .eq, app.session.project.sample_rate) catch {
             app.setStatus("eq: chain full", .{});
-            return;
+            return false;
         };
     unit.payload.eq.setGain(band, gain_db);
     app.dirty = true;
     var buf: [ws.Rack.chain_cap]dsp.Device = undefined;
     app.session.engine.setTrackChain(track, rack.chain(&buf));
+    return true;
 }
 
 /// Same as `setEqBand` but for the master bus — no track index, and pushes
 /// the change through `Session.syncMasterChain` instead of `setTrackChain`.
-pub fn setMasterEqBand(app: *App, band: usize, gain_db: f32) void {
+pub fn setMasterEqBand(app: *App, band: usize, gain_db: f32) bool {
     const fx = &app.session.master_fx;
     const unit = fx.find(.eq) orelse
         fx.insert(app.session.allocator, fx.units.items.len, .eq, app.session.project.sample_rate) catch {
             app.setStatus("master-eq: chain full", .{});
-            return;
+            return false;
         };
     unit.payload.eq.setGain(band, gain_db);
     app.dirty = true;
     app.session.syncMasterChain();
+    return true;
 }
 
 // Row layout mirrors views/spectrum.zig's drawFxView exactly: title, the
