@@ -258,7 +258,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
 /// skips a step that's already active rather than stacking a duplicate hit.
 /// Cursor follows the recorded hit so the grid shows where the take is
 /// landing in real time.
-pub fn recordNote(app: *App, pitch: u7) void {
+pub fn recordNote(app: *App, pitch: u7, vel: u8) void {
     if (app.drum_track >= app.session.racks.items.len) return;
     if (app.session.racks.items[app.drum_track].instrument != .drum_machine) return;
     const snap = app.session.engine.uiSnapshot();
@@ -268,7 +268,7 @@ pub fn recordNote(app: *App, pitch: u7) void {
     const step = dm.currentStep();
     if (dm.stepActive(pad, step)) return;
     history.push(app, history.captureDrum(app, app.drum_track));
-    setStep(dm, pad, step, true, DrumMachine.vel_full);
+    setStep(dm, pad, step, true, vel);
     app.drum_cursor = .{ pad, step };
     app.setStatus("rec: pad {d} step {d}", .{ pad + 1, step + 1 });
 }

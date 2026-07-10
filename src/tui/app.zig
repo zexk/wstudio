@@ -1500,7 +1500,7 @@ pub const App = struct {
                             .note = @intCast(n.pitch % DrumMachine.max_pads),
                             .velocity = 0.9,
                         } });
-                        if (self.view == .drum_grid) drum_ed.recordNote(self, n.pitch);
+                        if (self.view == .drum_grid) drum_ed.recordNote(self, n.pitch, DrumMachine.vel_full);
                     },
                     .slicer => |*sl| if (sl.slice_count > 0) {
                         _ = self.session.engine.send(.{ .note_on = .{
@@ -1508,11 +1508,11 @@ pub const App = struct {
                             .note = n.pitch % @as(u7, @intCast(sl.slice_count)),
                             .velocity = 0.9,
                         } });
-                        if (self.view == .slicer_grid) slicer_ed.recordNote(self, n.pitch);
+                        if (self.view == .slicer_grid) slicer_ed.recordNote(self, n.pitch, Slicer.vel_full);
                     },
                     .poly_synth, .sampler => {
                         self.playNote(track_idx, n.pitch, now_ns);
-                        if (self.view == .piano_roll) piano_ed.recordNote(self, n.pitch);
+                        if (self.view == .piano_roll) piano_ed.recordNote(self, n.pitch, pattern_mod.default_velocity);
                     },
                     .empty => {},
                 }
@@ -2641,19 +2641,20 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8) !vo
         // Live MIDI note recording: every note-on the reader thread saw also
         // landed in `note_queue` (audition itself already went straight to
         // the engine from that thread, unaffected by this). Drain it here
-        // and feed each pitch through the exact same insert-mode recordNote
+        // and feed each note through the exact same insert-mode recordNote
         // path qwerty playing uses (the `.note` action handler above) —
         // gated the same way: only in insert mode, only for the view whose
         // pattern is actually being edited. A stopped transport or wrong
-        // view/mode just drops the pitch; the live audition already
-        // happened regardless.
+        // view/mode just drops the note; the live audition already
+        // happened regardless. Unlike qwerty, the played velocity comes
+        // through, so a take keeps its dynamics.
         if (has_alsa) { if (using_midi) {
-            while (midi_in.note_queue.pop()) |pitch| {
+            while (midi_in.note_queue.pop()) |rec| {
                 if (app.modal.mode != .insert) continue;
                 switch (app.view) {
-                    .drum_grid => drum_ed.recordNote(&app, pitch),
-                    .slicer_grid => slicer_ed.recordNote(&app, pitch),
-                    .piano_roll => piano_ed.recordNote(&app, pitch),
+                    .drum_grid => drum_ed.recordNote(&app, rec.pitch, rec.vel),
+                    .slicer_grid => slicer_ed.recordNote(&app, rec.pitch, rec.vel),
+                    .piano_roll => piano_ed.recordNote(&app, rec.pitch, @as(f32, @floatFromInt(rec.vel)) / 127.0),
                     else => {},
                 }
             }

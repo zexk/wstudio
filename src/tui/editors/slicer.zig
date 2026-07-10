@@ -71,7 +71,7 @@ fn nudgeSlice(sl: *Slicer, slice: u8, param: u8, steps: i32) void {
 
 /// Records a hit while the transport is rolling, quantized to the live step
 /// (same insert-mode convention as `editors/drum.zig`'s `recordNote`).
-pub fn recordNote(app: *App, pitch: u7) void {
+pub fn recordNote(app: *App, pitch: u7, vel: u8) void {
     if (app.slicer_track >= app.session.racks.items.len) return;
     if (app.session.racks.items[app.slicer_track].instrument != .slicer) return;
     const snap = app.session.engine.uiSnapshot();
@@ -82,7 +82,7 @@ pub fn recordNote(app: *App, pitch: u7) void {
     const step = sl.currentStep();
     if (sl.stepActive(slice, step)) return;
     sl.toggleStep(slice, step);
-    sl.setStepVel(slice, step, Slicer.vel_full);
+    sl.setStepVel(slice, step, vel);
     app.slicer_cursor = .{ slice, step };
     app.setStatus("rec: slice {d} step {d}", .{ slice + 1, step + 1 });
 }

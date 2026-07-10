@@ -17,11 +17,15 @@ const PolySynth = @import("synth.zig").PolySynth;
 
 pub const max_notes: u16 = 512;
 
+/// What a note lands at when nothing supplies a velocity (step edits, the
+/// qwerty piano) — recorded MIDI carries its own.
+pub const default_velocity: f32 = 0.85;
+
 pub const Note = struct {
     pitch:         u7,
     start_beat:    f64,
     duration_beat: f64,
-    velocity:      f32 = 0.85,
+    velocity:      f32 = default_velocity,
 };
 
 pub const PatternPlayer = struct {

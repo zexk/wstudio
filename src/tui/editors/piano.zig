@@ -454,7 +454,7 @@ fn stampChord(app: *App, seventh: bool) void {
 /// already has a note starting on this pitch rather than stacking a
 /// duplicate. Cursor follows the recorded note so the roll shows where the
 /// take is landing in real time.
-pub fn recordNote(app: *App, pitch: u7) void {
+pub fn recordNote(app: *App, pitch: u7, velocity: f32) void {
     if (app.piano_track >= app.session.racks.items.len) return;
     const pp = if (app.session.racks.items[app.piano_track].pattern_player != null)
         &app.session.racks.items[app.piano_track].pattern_player.?
@@ -468,7 +468,7 @@ pub fn recordNote(app: *App, pitch: u7) void {
     const start_beat = stepToBeat(app, step);
     if (pp.noteStartsAt(pitch, start_beat)) return;
     history.push(app, history.captureMelodic(app, app.piano_track));
-    pp.addNote(.{ .pitch = pitch, .start_beat = start_beat, .duration_beat = app.piano_note_len });
+    pp.addNote(.{ .pitch = pitch, .start_beat = start_beat, .duration_beat = app.piano_note_len, .velocity = velocity });
     app.piano_cursor_step = step;
     app.piano_cursor_pitch = pitch;
     ensureVisible(app);
