@@ -14,7 +14,8 @@ const DrumMachine = ws.dsp.DrumMachine;
 const Sampler = ws.dsp.Sampler;
 const Slicer = ws.dsp.Slicer;
 const cmd_mod = @import("cmd.zig");
-const App = @import("app.zig").App;
+const app_mod = @import("app.zig");
+const App = app_mod.App;
 const history = @import("history.zig");
 const piano_ed = @import("editors/piano.zig");
 const spectrum_ed = @import("editors/spectrum.zig");
@@ -160,10 +161,9 @@ fn editOrRevert(app: *App, args: []const u8, force: bool) void {
 /// project file. Requires a known project path (same requirement the
 /// backup itself has: `maybeAutosave` skips brand-new, path-less projects).
 fn cmdRestoreBackup(app: *App, _: []const u8) void {
-    const path = app.projectPath() orelse {
-        app.setStatus("restore-backup: no project loaded yet", .{});
-        return;
-    };
+    // Same pathless fallback as App.backupPath: a never-saved session's
+    // autosave lives next to :w's default target.
+    const path = app.projectPath() orelse app_mod.default_project_path;
     var buf: [path_buf_len]u8 = undefined;
     const backup = std.fmt.bufPrint(&buf, "{s}~", .{path}) catch {
         app.setStatus("restore-backup: path too long", .{});
@@ -992,7 +992,7 @@ fn cmdSlice(app: *App, args: []const u8) void {
 fn savePath(app: *App, args: []const u8, buf: []u8) []const u8 {
     const arg = std.mem.trim(u8, args, " ");
     if (arg.len > 0) return expandHome(buf, arg);
-    const p = app.projectPath() orelse "project.wsj";
+    const p = app.projectPath() orelse app_mod.default_project_path;
     const len = @min(p.len, buf.len);
     @memcpy(buf[0..len], p[0..len]);
     return buf[0..len];

@@ -326,7 +326,9 @@ Done:
       tab-completion (arrow keys no longer leak into typed text), `~`
       expansion in file paths, `:e`/`:new` to switch or start a project
       mid-session, track rename key (`R`), tap tempo (`t`), and a silent
-      `<project>~` autosave backup while there are unsaved changes
+      `<project>~` autosave backup while there are unsaved changes (also
+      flushed on a dirty ctrl-c; a never-saved project backs up next to
+      `:w`'s default target, and startup offers `:restore-backup` either way)
 - [x] User-loaded sample audio persists across saves: WAVs are exported to a
       `<name>_samples/` directory next to the .wsj and reloaded with the project
       (format details and versioning policy: [FORMAT.md](FORMAT.md))

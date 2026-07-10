@@ -54,6 +54,9 @@ const reload_path_buf_len: usize = 1024;
 const tap_timeout_ns: i96 = 2 * std.time.ns_per_s;
 /// Minimum gap between silent `<path>~` backups; see `maybeAutosave`.
 const autosave_interval_ns: i96 = 30 * std.time.ns_per_s;
+/// Where a plain `:w` lands when no project path is known yet — also what
+/// a pathless session's autosave backs up next to (see `App.backupPath`).
+pub const default_project_path = "project.wsj";
 
 pub const AppView = enum { tracks, drum_grid, synth_editor, sampler_editor, help, track_spectrum, master_spectrum, group_spectrum, piano_roll, instrument_picker, fx_picker, arrangement, file_browser, automation, automation_param_picker, slicer_grid, preset_picker };
 
@@ -579,6 +582,11 @@ pub const App = struct {
     pub fn handleKey(self: *App, key_in: modal_mod.Key, now_ns: i96) void {
         self.now_ns = now_ns;
         if (key_in == .ctrl_c) {
+            // ctrl-c always exits, even with unsaved changes — but the least
+            // deliberate quit path shouldn't have the weakest safety net, so
+            // flush a backup first instead of letting up to 30s of edits
+            // (the autosave cadence) die with the process.
+            if (self.dirty) self.writeBackup();
             self.should_quit = true;
             return;
         }
@@ -1883,20 +1891,45 @@ pub const App = struct {
         self.maybeAutosave(now_ns);
     }
 
-    /// Every `autosave_interval_ns`, if there are unsaved changes and the
-    /// project has a known path, silently write a `<path>~` backup — a
-    /// safety net, not a real save: it doesn't clear `dirty` or touch the
-    /// primary file, so `:q` still guards the actual edits. A brand-new
-    /// project with no path yet has nowhere natural to back up next to, so
-    /// it's skipped until the first `:w`. Failures are silent (best-effort);
-    /// a status message every 30s would just be noise during active work.
+    /// Every `autosave_interval_ns`, if there are unsaved changes, silently
+    /// write a `<path>~` backup — a safety net, not a real save: it doesn't
+    /// clear `dirty` or touch the primary file, so `:q` still guards the
+    /// actual edits. A brand-new project with no path yet backs up next to
+    /// `:w`'s own default target (see backupPath). Failures are silent
+    /// (best-effort); a status message every 30s would just be noise during
+    /// active work.
     fn maybeAutosave(self: *App, now_ns: i96) void {
         if (!self.dirty) return;
         if (now_ns - self.last_autosave_ns < autosave_interval_ns) return;
         self.last_autosave_ns = now_ns;
+        self.writeBackup();
+    }
+
+    /// Write the `<path>~` backup right now — maybeAutosave's write, also
+    /// called directly on a dirty ctrl-c so an instant exit can't outrun
+    /// the 30s cadence.
+    fn writeBackup(self: *App) void {
         var buf: [reload_path_buf_len]u8 = undefined;
         const backup = self.backupPath(&buf) orelse return;
         ws.persist.save(self.allocator, &self.session, self.io, backup) catch {};
+    }
+
+    /// Startup recovery: maybeAutosave/ctrl-c leave `<path>~` behind on a
+    /// crash or kill — offer it back rather than letting it sit invisible
+    /// (the file browser filters to `.wsj`) until someone types the path by
+    /// hand. Only when it's newer than the project file itself (or that
+    /// file doesn't exist at all); an older backup is just stale.
+    fn promptIfBackupNewer(self: *App, path: []const u8) void {
+        var backup_buf: [reload_path_buf_len]u8 = undefined;
+        const backup = std.fmt.bufPrint(&backup_buf, "{s}~", .{path}) catch return;
+        const backup_stat = std.Io.Dir.cwd().statFile(self.io, backup, .{}) catch return;
+        const project_stat = std.Io.Dir.cwd().statFile(self.io, path, .{}) catch null;
+        if (project_stat) |ps| {
+            if (backup_stat.mtime.nanoseconds <= ps.mtime.nanoseconds) return;
+            self.setStatus("autosave backup found, newer than '{s}' — :restore-backup to load it", .{path});
+        } else {
+            self.setStatus("autosave backup '{s}' found — :restore-backup to load it", .{backup});
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -2181,11 +2214,13 @@ pub const App = struct {
         self.pending_reload = .restore_backup;
     }
 
-    /// `<path>~`, or null if no project path is known yet — shared by the
-    /// autosave writer, the startup recovery check, and the post-save/quit
-    /// cleanup.
+    /// `<path>~` — shared by the autosave writer, the startup recovery
+    /// check, `:restore-backup`, and the post-save/quit cleanup. A project
+    /// with no path yet falls back to `:w`'s own default save target, so a
+    /// never-saved session still gets the full autosave/restore cycle
+    /// instead of no safety net at all.
     fn backupPath(self: *const App, buf: []u8) ?[]const u8 {
-        const path = self.projectPath() orelse return null;
+        const path = self.projectPath() orelse default_project_path;
         return std.fmt.bufPrint(buf, "{s}~", .{path}) catch null;
     }
 
@@ -2451,22 +2486,15 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8) !vo
             app.session.deinit();
             app.session = loaded;
             app.setProjectPath(p);
-
-            // maybeAutosave leaves `<path>~` behind on a crash/kill — offer
-            // it back rather than letting it sit invisible (the file browser
-            // filters to `.wsj`) until someone types the path by hand.
-            var backup_buf: [reload_path_buf_len]u8 = undefined;
-            if (std.fmt.bufPrint(&backup_buf, "{s}~", .{p}) catch null) |backup| {
-                const project_stat = std.Io.Dir.cwd().statFile(io, p, .{}) catch null;
-                const backup_stat = std.Io.Dir.cwd().statFile(io, backup, .{}) catch null;
-                if (backup_stat) |bs| {
-                    const newer = if (project_stat) |ps| bs.mtime.nanoseconds > ps.mtime.nanoseconds else true;
-                    if (newer) app.setStatus("autosave backup found, newer than '{s}' — :restore-backup to load it", .{p});
-                }
-            }
+            app.promptIfBackupNewer(p);
         } else |e| {
             std.debug.print("wstudio: cannot load '{s}': {s}\n", .{ p, @errorName(e) });
         }
+    } else {
+        // No project argument: a crashed pathless session's autosave lands
+        // next to `:w`'s default target (see backupPath's fallback), so the
+        // blank start checks the same spot the pathed start does.
+        app.promptIfBackupNewer(default_project_path);
     }
 
     var config: backend_mod.Config = .{ .sample_rate = app.session.project.sample_rate };
