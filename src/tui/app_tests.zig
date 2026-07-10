@@ -102,6 +102,37 @@ test "/ search: escape cancels without moving the cursor; no match reports a sta
     try std.testing.expect(std.mem.indexOf(u8, app.status_buf[0..app.status_len], "no match") != null);
 }
 
+test "help view: / search jumps and anchors n/N; ? closes" {
+    var app = try testApp();
+    defer app.deinit();
+    app.handleKey(.{ .char = '?' }, 0); // open from tracks
+    try std.testing.expectEqual(AppView.help, app.view);
+    try std.testing.expect(app.help_scroll > 0); // landed on the TRACKS section
+    try std.testing.expectEqual(@as(?usize, null), app.help_search_hit);
+
+    for ("/slicer") |c| app.handleKey(.{ .char = c }, 0);
+    try std.testing.expectEqual(ws.input.Mode.search, app.modal.mode);
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
+    const first_hit = app.help_search_hit orelse return error.TestUnexpectedResult;
+    try std.testing.expectEqual(first_hit, app.help_scroll); // hit scrolled to window top
+
+    // "slicer" matches several lines: n advances to a different one, N returns.
+    app.handleKey(.{ .char = 'n' }, 0);
+    const second_hit = app.help_search_hit orelse return error.TestUnexpectedResult;
+    try std.testing.expect(second_hit != first_hit);
+    app.handleKey(.{ .char = 'N' }, 0);
+    try std.testing.expectEqual(@as(?usize, first_hit), app.help_search_hit);
+
+    // ? toggles help closed, back to the view that opened it; reopening
+    // starts with a clean hit.
+    app.handleKey(.{ .char = '?' }, 0);
+    try std.testing.expectEqual(AppView.tracks, app.view);
+    app.handleKey(.{ .char = '?' }, 0);
+    try std.testing.expectEqual(@as(?usize, null), app.help_search_hit);
+    app.handleKey(.escape, 0);
+}
+
 test "/ search reports unavailable in a view with nothing to search" {
     var app = try testApp();
     defer app.deinit();

@@ -255,6 +255,9 @@ pub const App = struct {
     eq_group: u8 = 0,
     /// Scroll offset (in lines) of the help view; clamped by tui.drawHelp.
     help_scroll: usize = 0,
+    /// Line index of the last `/` search match in the help view (highlighted
+    /// by drawHelp, the anchor `n`/`N` continue from); reset on every open.
+    help_search_hit: ?usize = null,
     synth_track: u16 = 0,
     synth_cursor: u8 = 0,
     synth_scroll: usize = 0,
@@ -616,20 +619,38 @@ pub const App = struct {
         }
 
         switch (self.view) {
-            .help => switch (key) {
-                .escape => self.view = self.prev_view,
-                // j/k scroll one line, d/u half-page, g/G jump to ends.
-                // draw clamps help_scroll, so over-scrolling just pins to the edge.
-                .char => |c| switch (c) {
-                    'j' => self.help_scroll += 1,
-                    'k' => self.help_scroll -|= 1,
-                    'd' => self.help_scroll += 10,
-                    'u' => self.help_scroll -|= 10,
-                    'G' => self.help_scroll = std.math.maxInt(usize),
-                    'g' => self.help_scroll = 0,
+            .help => {
+                // `/` search typing routes to the modal prompt; submit lands
+                // in applyAction's `.search_submit` case (same shape as the
+                // file browser's own search wiring).
+                if (self.modal.mode == .search) {
+                    self.applyAction(self.modal.handle(key), now_ns);
+                    return;
+                }
+                switch (key) {
+                    .escape => self.view = self.prev_view,
+                    // j/k scroll one line, d/u half-page, g/G jump to ends.
+                    // draw clamps help_scroll, so over-scrolling just pins to the edge.
+                    .char => |c| switch (c) {
+                        'j' => self.help_scroll += 1,
+                        'k' => self.help_scroll -|= 1,
+                        'd' => self.help_scroll += 10,
+                        'u' => self.help_scroll -|= 10,
+                        'G' => self.help_scroll = std.math.maxInt(usize),
+                        'g' => self.help_scroll = 0,
+                        '/' => {
+                            self.modal.mode = .search;
+                            self.modal.cmd_len = 0;
+                            self.modal.cmd_cursor = 0;
+                        },
+                        'n' => self.searchHelp(1),
+                        'N' => self.searchHelp(-1),
+                        // `?` toggles help closed again, mirroring how it opens.
+                        '?', 'q' => self.view = self.prev_view,
+                        else => {},
+                    },
                     else => {},
-                },
-                else => {},
+                }
             },
             // Editor-handled keys discard any unused count prefix (vim: a
             // count binds to the command it precedes, then dies with it).
@@ -1492,6 +1513,7 @@ pub const App = struct {
                 switch (self.view) {
                     .tracks => self.searchTracks(1),
                     .file_browser => self.searchBrowser(1),
+                    .help => self.searchHelp(1),
                     // The picker's `/` is a list filter, not a cursor jump:
                     // submitting commits the pattern (empty clears it) and
                     // rests the cursor on the narrowed list's first entry.
@@ -1541,6 +1563,22 @@ pub const App = struct {
             }
         }
         self.setStatus("no match for '{s}'", .{pattern});
+    }
+
+    /// `/` search + `n`/`N` repeat over the help view's rendered lines
+    /// (ANSI-stripped), wrapping the same way `searchTracks` does. The hit
+    /// line scrolls to the top of the window and stays highlighted.
+    pub fn searchHelp(self: *App, dir: i64) void {
+        const pattern = self.searchPattern();
+        if (pattern.len == 0) { self.setStatus("no previous search pattern", .{}); return; }
+        const start = self.help_search_hit orelse self.help_scroll;
+        if (tui.helpSearch(commands.cmds, pattern, start, dir)) |idx| {
+            self.help_search_hit = idx;
+            self.help_scroll = idx;
+            self.setStatus("/{s}  [line {d}]", .{ pattern, idx + 1 });
+        } else {
+            self.setStatus("no match for '{s}'", .{pattern});
+        }
     }
 
     /// `/` search + `n`/`N` repeat over the file browser's current entry
@@ -2220,7 +2258,7 @@ pub const App = struct {
             .synth_editor    => try tui.drawSynthEditor(self, w, content_rows, size.cols, snap),
             .sampler_editor  => try tui.drawSamplerEditor(self, w, content_rows, size.cols, snap),
             .piano_roll      => try tui.drawPianoRoll(self, w, content_rows, size.cols, snap),
-            .help            => try tui.drawHelp(w, content_rows, commands.cmds, &self.help_scroll),
+            .help            => try tui.drawHelp(w, content_rows, commands.cmds, &self.help_scroll, self.help_search_hit),
             .track_spectrum, .master_spectrum, .group_spectrum =>
                 try tui.drawFxView(self, w, content_rows, size.cols, snap, spectrum_ed.currentTarget(self)),
             .instrument_picker => try tui.drawInstrumentPicker(self, w, content_rows),
@@ -2324,7 +2362,7 @@ pub const App = struct {
             .synth_editor    => try tui.drawSynthStatus(self, &status_w, &status_right_w, commands.cmds),
             .sampler_editor  => try tui.drawSamplerStatus(self, &status_w, &status_right_w, commands.cmds),
             .piano_roll      => try tui.drawPianoRollStatus(self, &status_w, &status_right_w, commands.cmds),
-            .help            => try status_w.writeAll(" j/k: scroll   d/u: page   g/G: top/bottom   esc: close"),
+            .help            => try tui.drawHelpStatus(self, &status_w, &status_right_w),
             .track_spectrum, .master_spectrum, .group_spectrum =>
                 try tui.drawFxStatus(self, &status_w, &status_right_w, spectrum_ed.currentTarget(self), commands.cmds),
             .instrument_picker => try status_w.writeAll(" j/k: move   enter: insert   esc: cancel"),

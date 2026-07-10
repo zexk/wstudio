@@ -171,8 +171,9 @@ Done:
       row, click-drag to paint drum steps or resize/move arrangement
       clips, scroll to nudge a focused parameter — a second way to trigger
       the same actions the keyboard already does, not a replacement for it
-- [x] `/` fuzzy search + `n`/`N` repeat, in the tracks view and the file
-      browser: type a pattern, jump to (and cycle through) matching names
+- [x] `/` search + `n`/`N` repeat: fuzzy over track names and file-browser
+      filenames, plain-text over the help view's lines (the match is
+      highlighted and scrolled into view)
 - [x] Audio clips: `:load-clip [file.wav]` loads a WAV onto a sampler
       track and stamps it whole into the arrangement at the cursor bar,
       one command instead of hand-placing a piano-roll note and stamping

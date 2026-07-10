@@ -122,8 +122,8 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key(":",            "open command prompt");
     t.key("(in :) up/down","recall previous / next command");
     t.key("(in :) tab",   "complete the command name");
-    t.key("/",            "fuzzy-search prompt — tracks (names) and the file browser (filenames) only");
-    t.key("n / N",        "repeat last search forward / backward (tracks, file browser)");
+    t.key("/",            "search prompt — fuzzy over track names / browser filenames, plain-text in this help");
+    t.key("n / N",        "repeat last search forward / backward (tracks, file browser, help)");
     t.key("ctrl-c",       "quit");
 
     t.section("MOUSE  (additive — every gesture below has a keyboard equivalent)");
@@ -336,9 +336,67 @@ pub fn scrollForSection(section: ?Section, cmds: []const cmd_mod.Def) usize {
     return if (section) |s| t.section_start.get(s) else 0;
 }
 
+/// Copy `raw`'s visible bytes (ANSI SGR sequences dropped) into `buf`,
+/// truncating if it wouldn't fit. Search matches against this, never the
+/// raw line — otherwise a pattern could "match" color-code bytes the user
+/// can't see.
+fn stripAnsi(raw: []const u8, buf: []u8) []const u8 {
+    var i: usize = 0;
+    var len: usize = 0;
+    while (i < raw.len) : (i += 1) {
+        if (raw[i] == 0x1b and i + 1 < raw.len and raw[i + 1] == '[') {
+            i += 2;
+            while (i < raw.len and !((raw[i] >= 'A' and raw[i] <= 'Z') or (raw[i] >= 'a' and raw[i] <= 'z'))) : (i += 1) {}
+            continue; // the loop's own i += 1 consumes the terminator letter
+        }
+        if (len >= buf.len) break;
+        buf[len] = raw[i];
+        len += 1;
+    }
+    return buf[0..len];
+}
+
+/// Match `pattern` against the help's rendered lines, starting one line
+/// past `start` in `dir` (+1 forward, -1 backward) and wrapping around the
+/// whole text — the same walk App.searchTracks/searchBrowser do over their
+/// lists. Case-insensitive SUBSTRING match, not the fuzzy subsequence the
+/// other searches use: against 70-char prose lines a subsequence is so
+/// loose that "sidechain" matches "edit track (synth or drum grid)…" long
+/// before the actual sidechain line. Fuzzy earns its keep on short names;
+/// prose needs the stricter rule.
+pub fn search(cmds: []const cmd_mod.Def, pattern: []const u8, start: usize, dir: i64) ?usize {
+    var t = HelpText{};
+    buildHelp(&t, cmds);
+    if (t.count == 0) return null;
+    const n: i64 = @intCast(t.count);
+    const anchor: i64 = @intCast(@min(start, t.count - 1));
+    var step: i64 = 1;
+    while (step <= n) : (step += 1) {
+        const idx: usize = @intCast(@mod(anchor + dir * step, n));
+        var plain_buf: [512]u8 = undefined;
+        if (std.ascii.indexOfIgnoreCase(stripAnsi(t.line(idx), &plain_buf), pattern) != null) return idx;
+    }
+    return null;
+}
+
+/// Write `line` in full-line reverse video: `sel` up front, re-asserted
+/// after every embedded reset so the line's interior styling can't switch
+/// the highlight back off partway through. endLine's trailing `rst` closes it.
+fn writeHighlighted(w: *std.Io.Writer, line: []const u8) !void {
+    try w.writeAll(sel);
+    var rest = line;
+    while (std.mem.indexOf(u8, rest, rst)) |p| {
+        try w.writeAll(rest[0 .. p + rst.len]);
+        try w.writeAll(sel);
+        rest = rest[p + rst.len ..];
+    }
+    try w.writeAll(rest);
+}
+
 /// Renders a scroll window of the help text. `scroll` is clamped in place so
-/// the caller's stored offset can never run past the last screenful.
-pub fn drawHelp(w: *std.Io.Writer, rows: usize, cmds: []const cmd_mod.Def, scroll: *usize) !void {
+/// the caller's stored offset can never run past the last screenful. `hit`
+/// (the last `/` search match, if any) renders reverse-video when in view.
+pub fn drawHelp(w: *std.Io.Writer, rows: usize, cmds: []const cmd_mod.Def, scroll: *usize, hit: ?usize) !void {
     var t = HelpText{};
     buildHelp(&t, cmds);
 
@@ -351,7 +409,7 @@ pub fn drawHelp(w: *std.Io.Writer, rows: usize, cmds: []const cmd_mod.Def, scrol
 
     // Sticky title with a position indicator.
     try w.writeAll(bold ++ " " ++ icons.help ++ " HELP" ++ rst);
-    try w.writeAll(dim ++ "   esc: close   j/k: scroll");
+    try w.writeAll(dim ++ "   esc: close   j/k: scroll   /: search");
     if (t.count > visible) {
         try w.print("   {d}–{d}/{d}", .{ off + 1, end, t.count });
         if (off < max_scroll) try w.writeAll("  ↓");
@@ -361,7 +419,7 @@ pub fn drawHelp(w: *std.Io.Writer, rows: usize, cmds: []const cmd_mod.Def, scrol
 
     var i = off;
     while (i < end) : (i += 1) {
-        try w.writeAll(t.line(i));
+        if (hit == i) try writeHighlighted(w, t.line(i)) else try w.writeAll(t.line(i));
         try endLine(w);
     }
 
@@ -369,6 +427,37 @@ pub fn drawHelp(w: *std.Io.Writer, rows: usize, cmds: []const cmd_mod.Def, scrol
     for (1 + (end - off)..body) |_| try endLine(w);
 }
 
+/// Help's footer status row: the live `/` prompt while typing, otherwise
+/// mode badge + any pending status message + the key hints — same
+/// message-before-hints clamp ordering views/browser.zig documents.
+pub fn drawHelpStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !void {
+    if (app.modal.mode == .search) {
+        try cmd_mod.writeSearchPrompt(w, app.modal.cmd_buf[0..app.modal.cmd_len], app.modal.cmd_cursor);
+        return;
+    }
+    try style.writeModeBadge(w, app.modal.mode);
+    try style.writeViewBadge(right, "HELP");
+    if (app.status_len > 0) {
+        try w.writeAll(dim ++ "  " ++ rst);
+        try w.writeAll(app.status_buf[0..app.status_len]);
+    }
+    try w.writeAll(dim ++ "  " ++ rst ++ "j/k: scroll  d/u: page  g/G: top/bottom  /: search  n/N: next/prev  ?/esc: close");
+}
+
+
+test "stripAnsi drops SGR sequences, keeps visible bytes" {
+    var buf: [64]u8 = undefined;
+    try std.testing.expectEqualStrings("  hi there", stripAnsi("\x1b[36m  hi \x1b[0m\x1b[2mthere", &buf));
+    try std.testing.expectEqualStrings("plain", stripAnsi("plain", &buf));
+}
+
+test "help search wraps forward from the end; no match is null" {
+    const commands = @import("../commands.zig");
+    // "master volume" lives in the ALL VIEWS section near the top, so an
+    // anchor past the last line (clamped there) only finds it by wrapping.
+    try std.testing.expect(search(commands.cmds, "master volume", 100000, 1) != null);
+    try std.testing.expectEqual(@as(?usize, null), search(commands.cmds, "zzqqxxjj", 0, 1));
+}
 
 test "help text fits its buffers — nothing silently truncated" {
     const commands = @import("../commands.zig");

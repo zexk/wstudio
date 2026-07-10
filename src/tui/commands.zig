@@ -277,6 +277,7 @@ pub fn cmdHelp(app: *App, _: []const u8) void {
     };
     app.prev_view = app.view;
     app.help_scroll = help_view.scrollForSection(section, cmds);
+    app.help_search_hit = null;
     app.view = .help;
 }
 
