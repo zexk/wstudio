@@ -3815,3 +3815,25 @@ test "FX chain: switchToGroup opens a group's chain via the same shared editor" 
     _ = spectrum_ed.handleKey(&app, .escape);
     try std.testing.expect(app.view != .group_spectrum);
 }
+
+test "below the minimum terminal size, draw gates to the too-small notice" {
+    var app = try testApp();
+    defer app.deinit();
+
+    var buf: [32 * 1024]u8 = undefined;
+    var w = std.Io.Writer.fixed(&buf);
+    try app.draw(&w, .{ .cols = 40, .rows = 10 });
+    const out = w.buffered();
+    try std.testing.expect(std.mem.indexOf(u8, out, "terminal too small") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out, "need 80x14, have 40x10") != null);
+    // No view content leaks through the gate.
+    try std.testing.expect(std.mem.indexOf(u8, out, "TRACKS") == null);
+
+    // At exactly the minimum the real frame renders.
+    var buf2: [32 * 1024]u8 = undefined;
+    var w2 = std.Io.Writer.fixed(&buf2);
+    try app.draw(&w2, .{ .cols = 80, .rows = 14 });
+    const out2 = w2.buffered();
+    try std.testing.expect(std.mem.indexOf(u8, out2, "terminal too small") == null);
+    try std.testing.expect(std.mem.indexOf(u8, out2, "TRACKS") != null);
+}

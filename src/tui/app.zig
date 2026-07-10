@@ -2114,7 +2114,19 @@ pub const App = struct {
     // Rendering (delegates to tui.zig)
     // -----------------------------------------------------------------------
 
+    /// Smallest terminal the layouts are actually built for: the FX chain's
+    /// slot strip is sized "nine boxes + ▶OUT = 78 cols" for 80-col
+    /// terminals, and the row budgets were audited down to 14 rows. Below
+    /// this, content lines wrap and shove the frame apart — show a notice
+    /// instead (btop-style) rather than fighting per-view overflow.
+    pub const min_cols: usize = 80;
+    pub const min_rows: usize = 14;
+
     pub fn draw(self: *App, w: *std.Io.Writer, size: terminal_mod.Size) !void {
+        if (size.cols < min_cols or size.rows < min_rows) {
+            try drawTooSmall(w, size);
+            return;
+        }
         const snap = self.session.engine.uiSnapshot();
         const rows: usize = @max(size.rows, 10);
 
@@ -2265,6 +2277,28 @@ pub const App = struct {
         // Erase from cursor to end of screen so stale content from taller
         // previous frames never bleeds through.
         try w.writeAll("\x1b[K\x1b[J");
+    }
+
+    /// Full-screen stand-in below min_cols x min_rows. ASCII only so the
+    /// byte-length centering math holds.
+    fn drawTooSmall(w: *std.Io.Writer, size: terminal_mod.Size) !void {
+        try w.writeAll("\x1b[H");
+        var buf: [64]u8 = undefined;
+        const line1: []const u8 = "terminal too small";
+        const line2: []const u8 = std.fmt.bufPrint(&buf, "need {d}x{d}, have {d}x{d}", .{ min_cols, min_rows, size.cols, size.rows }) catch "";
+        const rows: usize = @max(size.rows, 1);
+        for (0..(rows / 2) -| 1) |_| try style.endLine(w);
+        try drawCenteredLine(w, line1, size.cols, style.bold);
+        if (rows >= 2) try drawCenteredLine(w, line2, size.cols, style.dim);
+        try w.writeAll("\x1b[K\x1b[J");
+    }
+
+    fn drawCenteredLine(w: *std.Io.Writer, text: []const u8, cols: u16, sgr: []const u8) !void {
+        const pad = (@as(usize, cols) -| text.len) / 2;
+        for (0..pad) |_| try w.writeByte(' ');
+        try w.writeAll(sgr);
+        try style.writeClamped(w, text, cols);
+        try style.endLine(w);
     }
 };
 
