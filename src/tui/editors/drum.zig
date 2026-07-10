@@ -187,10 +187,14 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 'u' => history.doUndo(app),
                 'U' => history.doRedo(app),
                 'y' => armOperator(app, 'y'),
-                // p/P both paste (no linewise before/after distinction for a
-                // whole-pattern replace) — p is the canonical vim paste key.
+                // p/P both paste the most recent yank (no linewise before/
+                // after distinction): after yy a whole-pattern replace,
+                // after a visual/operator range yank the range lands at the
+                // cursor step.
                 'p', 'P' => {
-                    if (app.drum_clip) |clip| {
+                    if (app.drum_last_yank == .range) {
+                        pasteSelection(app);
+                    } else if (app.drum_clip) |clip| {
                         const dm = app.drumMachine();
                         history.push(app, history.captureDrum(app, app.drum_track));
                         dm.applyVariant(clip);
@@ -374,6 +378,7 @@ fn clearPadRow(app: *App) void {
 fn yankWholePattern(app: *App) void {
     const dm = app.drumMachine();
     app.drum_clip = dm.variantData(dm.variant);
+    app.drum_last_yank = .pattern;
     app.setStatus("yanked pattern {c}", .{DrumMachine.variantLetter(dm.variant)});
 }
 
@@ -448,6 +453,7 @@ fn yankSelection(app: *App) void {
         }
     }
     app.drum_range_clip = clip;
+    app.drum_last_yank = .range;
     app.setStatus("yanked {d} steps", .{clip.width});
     exitVisual(app);
 }

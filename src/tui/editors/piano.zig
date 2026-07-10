@@ -191,9 +191,13 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             'c' => { stampChord(app, false); return true; },
             'C' => { stampChord(app, true); return true; },
             'y' => { armOperator(app, 'y'); return true; },
-            // p/P both paste (no linewise before/after distinction for a
-            // whole-pattern replace) — p is the canonical vim paste key.
-            'p', 'P' => { paste(app); return true; },
+            // p/P both paste the most recent yank (no linewise before/after
+            // distinction): after yy a whole-pattern replace, after a
+            // visual/operator range yank the range lands at the cursor step.
+            'p', 'P' => {
+                if (app.piano_last_yank == .range) pasteSelection(app, pp) else paste(app);
+                return true;
+            },
             'v' => {
                 app.piano_visual_anchor = app.piano_cursor_step;
                 app.modal.mode = .visual;
@@ -581,6 +585,7 @@ fn yank(app: *App) void {
     var clip: PianoClip = .{ .notes = undefined, .count = 0, .length_beats = pp.length_beats };
     clip.count = pp.copyNotes(&clip.notes);
     app.piano_clip = clip;
+    app.piano_last_yank = .pattern;
     app.setStatus("yanked {d} notes ({d:.0} beats)", .{ clip.count, clip.length_beats });
 }
 
@@ -726,6 +731,7 @@ fn yankSelection(app: *App, pp: *pattern_mod.PatternPlayer) void {
     var clip: PianoClip = .{ .notes = undefined, .count = 0, .length_beats = hi_beat - lo_beat };
     clip.count = pp.copyNotesInRange(lo_beat, hi_beat, &clip.notes);
     app.piano_range_clip = clip;
+    app.piano_last_yank = .range;
     app.setStatus("yanked {d} notes ({d} steps)", .{ clip.count, r.hi - r.lo + 1 });
     exitVisual(app);
 }

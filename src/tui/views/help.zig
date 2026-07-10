@@ -191,7 +191,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("[ / ]",        "prev / next pattern variant (A–H)");
     t.key("N",            "new pattern variant (copy of current)");
     t.key("D",            "delete current pattern variant");
-    t.key("y / p",        "yank / paste pattern (works across tracks)");
+    t.key("y / p",        "yank / paste pattern (works across tracks); p pastes the latest yank");
     t.key("(visual) y/d/p", "range yank / clear / paste (v to enter, hjkl to extend)");
     t.key(".",            "repeat last visual-mode range delete/paste at the cursor");
 
@@ -253,7 +253,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("s",            "FX chain for this track");
     t.key("[ / ]",        "resize note at cursor, else set default length (count-scaled)");
     t.key("+ / -",        "lengthen / shorten loop (1 bar)");
-    t.key("y / p",        "yank / paste pattern (works across tracks)");
+    t.key("y / p",        "yank / paste pattern (works across tracks); p pastes the latest yank");
     t.key("v",            "visual mode: select a step range (all pitches) — y/d/p");
     t.key(".",            "repeat the last nudge, drag, or visual range delete/paste");
     t.key("c / C",        "stamp a triad / 7th chord at cursor (:scale-aware)");

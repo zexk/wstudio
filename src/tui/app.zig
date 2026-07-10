@@ -334,6 +334,13 @@ pub const App = struct {
     piano_range_clip: ?PianoClip = null,
     drum_range_clip: ?DrumRangeClip = null,
     arr_range_clip: ?ArrRangeClip = null,
+    /// Which clipboard the last piano/drum yank filled, so normal-mode p/P
+    /// pastes whatever was yanked most recently (vim's unnamed-register
+    /// feel): after yy p replaces the whole pattern, after a visual or
+    /// operator+motion range yank p pastes the range at the cursor.
+    /// Arrangement doesn't need one — its yy fills the same range clipboard.
+    piano_last_yank: enum { pattern, range } = .pattern,
+    drum_last_yank: enum { pattern, range } = .pattern,
     /// `.` repeat target — the last compound edit, app-wide (see RepeatOp).
     last_edit: RepeatOp = .none,
     /// Cumulative (dstep, dpitch) of the current note-drag session (M grab

@@ -566,6 +566,35 @@ test "piano roll visual mode selects a step range for y/d/P" {
     try std.testing.expect(pp.noteAt(72, 2.0) != null);
 }
 
+test "piano roll normal-mode p pastes the most recent yank: range after visual y, pattern after yy" {
+    var app = try testApp();
+    defer app.deinit();
+    app.view = .piano_roll;
+    app.piano_track = 0;
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    pp.length_beats = 8.0;
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.25 }); // step 0
+    pp.addNote(.{ .pitch = 64, .start_beat = 0.25, .duration_beat = 0.25 }); // step 1
+
+    // Visual range yank, then a plain normal-mode p at the new cursor —
+    // no re-entering visual mode required.
+    app.piano_cursor_step = 0;
+    for ("v3ly") |c| app.handleKey(.{ .char = c }, 0);
+    app.piano_cursor_step = 8;
+    app.handleKey(.{ .char = 'p' }, 0);
+    try std.testing.expectEqual(@as(u16, 4), pp.note_count);
+    try std.testing.expect(pp.noteAt(60, 2.0) != null);
+    try std.testing.expect(pp.noteAt(64, 2.25) != null);
+
+    // yy makes p the whole-pattern replace again.
+    for ("yy") |c| app.handleKey(.{ .char = c }, 0);
+    pp.clearNotes();
+    app.handleKey(.{ .char = 'p' }, 0);
+    try std.testing.expectEqual(@as(u16, 4), pp.note_count);
+    try std.testing.expect(pp.noteAt(60, 0.0) != null);
+    try std.testing.expect(pp.noteAt(64, 2.25) != null);
+}
+
 test "piano roll operator+motion: d3l / y3l act on a range without entering visual mode" {
     var app = try testApp();
     defer app.deinit();
@@ -1057,6 +1086,37 @@ test "drum grid visual mode selects a step range across pads for y/d/P" {
     app.handleKey(.{ .char = 'd' }, 0);
     try std.testing.expect(!dm.stepActive(0, 0));
     try std.testing.expect(!dm.stepActive(1, 2));
+}
+
+test "drum grid normal-mode p pastes the most recent yank: range after visual y, pattern after yy" {
+    var app = try testApp();
+    defer app.deinit();
+    app.view = .drum_grid;
+    app.drum_track = 2;
+    const dm = app.drumMachine();
+    for (&dm.pattern) |*p| p.store(0, .monotonic);
+    dm.setStepCount(16);
+    dm.toggleStep(0, 0);
+    dm.setStepVel(0, 0, 31);
+    dm.toggleStep(1, 2);
+
+    // Visual range yank, then a plain normal-mode p at the new cursor —
+    // no re-entering visual mode required.
+    app.drum_cursor = .{ 0, 0 };
+    for ("v3ly") |c| app.handleKey(.{ .char = c }, 0);
+    app.drum_cursor[1] = 8;
+    app.handleKey(.{ .char = 'p' }, 0);
+    try std.testing.expect(dm.stepActive(0, 8));
+    try std.testing.expectEqual(@as(u8, 31), dm.stepVel(0, 8));
+    try std.testing.expect(dm.stepActive(1, 10));
+
+    // yy makes p the whole-pattern replace again.
+    for ("yy") |c| app.handleKey(.{ .char = c }, 0);
+    dm.toggleStep(3, 14); // extra step the pattern paste should wipe
+    app.handleKey(.{ .char = 'p' }, 0);
+    try std.testing.expect(!dm.stepActive(3, 14));
+    try std.testing.expect(dm.stepActive(0, 0));
+    try std.testing.expect(dm.stepActive(1, 2));
 }
 
 test "drum grid operator+motion: d3l / y3l act on a range without entering visual mode" {
