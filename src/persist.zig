@@ -34,7 +34,7 @@ const Compressor = @import("dsp/compressor.zig").Compressor;
 const StereoDelay = @import("dsp/delay.zig").StereoDelay;
 const Reverb = @import("dsp/reverb.zig").Reverb;
 const eq_mod = @import("dsp/eq.zig");
-const GraphicEq = eq_mod.GraphicEq;
+const ParametricEq = eq_mod.ParametricEq;
 const Gate = @import("dsp/gate.zig").Gate;
 const Saturator = @import("dsp/saturator.zig").Saturator;
 const Crusher = @import("dsp/crusher.zig").Crusher;
@@ -111,7 +111,16 @@ const AutomationPoint = automation_mod.AutomationPoint;
 /// `filter_cutoff_automation` (kept, read-only, for exactly this migration)
 /// remaps onto the new list's param_id 21 entry instead of being read
 /// directly.
-pub const file_version: u32 = 13;
+/// v14 turns the EQ from a 10-band graphic EQ (fixed ISO center
+/// frequencies, gain-only) into an 8-band parametric EQ (freq/Q/gain all
+/// adjustable per band). `EqSnap.band_gains` (the old 10-element gain
+/// array, kept read-only for exactly this migration) remaps onto the new
+/// `bands` array by nearest legacy ISO frequency, with Q defaulted to
+/// the old fixed 0.7 — genuinely lossy (10 gain-only slots collapse onto
+/// 8 parametric ones) but there's no better source of truth in an old
+/// file. New saves never write `band_gains`, matching v11/v12/v13's own
+/// migration convention.
+pub const file_version: u32 = 14;
 
 pub const AutomationPointSnap = struct {
     beat: f64,
@@ -298,10 +307,57 @@ pub const ReverbSnap = struct {
     damp: f32 = 0.25,
 };
 
+/// Legacy per-band gain array shape (v13 and older): 10 fixed ISO-frequency
+/// bands, gain-only. Length is hardcoded — NOT tied to `eq_mod.num_eq_bands`
+/// (8 as of v14) — since std.json requires an exact length match to parse a
+/// fixed array (same constraint the v11 pad-cap migration hit); an old
+/// 10-element file array must keep landing on a 10-element field forever.
+const legacy_eq_band_count = 10;
+
+/// Legacy fixed ISO center frequencies (v13 and older) — kept only so
+/// `migrateEqBands` can nearest-match an old file's `band_gains` onto
+/// v14's parametric bands.
+const legacy_iso_frequencies = [legacy_eq_band_count]f32{
+    31.25, 62.5,  125.0,  250.0,  500.0,
+    1000.0, 2000.0, 4000.0, 8000.0, 16000.0,
+};
+
+pub const EqBandSnap = struct {
+    freq: f32,
+    q: f32 = 0.7,
+    gain_db: f32 = 0.0,
+};
+
 pub const EqSnap = struct {
-    band_gains: [eq_mod.num_eq_bands]f32 = [_]f32{0.0} ** eq_mod.num_eq_bands,
+    /// v13 and older, read-only since v14 — see `file_version`'s v14 doc
+    /// comment. New saves never write this.
+    band_gains: ?[legacy_eq_band_count]f32 = null,
+    /// v14: 8 fully-parametric bands (freq/Q/gain all adjustable).
+    bands: ?[eq_mod.num_eq_bands]EqBandSnap = null,
     bypass: bool = false,
 };
+
+/// Migrate a pre-v14 EqSnap's `band_gains` (10 fixed ISO bands, gain-only)
+/// onto v14's 8 parametric bands: each new band's default frequency
+/// inherits the nearest legacy ISO band's gain (nearest in log-frequency,
+/// matching how the ear perceives spacing); Q defaults to the old fixed
+/// 0.7. See `file_version`'s v14 doc comment.
+fn migrateEqBands(band_gains: [legacy_eq_band_count]f32) [eq_mod.num_eq_bands]EqBandSnap {
+    var out: [eq_mod.num_eq_bands]EqBandSnap = undefined;
+    for (&out, &eq_mod.default_frequencies) |*band, freq| {
+        var best_idx: usize = 0;
+        var best_dist: f32 = std.math.inf(f32);
+        for (legacy_iso_frequencies, 0..) |lf, i| {
+            const dist = @abs(@log(freq) - @log(lf));
+            if (dist < best_dist) {
+                best_dist = dist;
+                best_idx = i;
+            }
+        }
+        band.* = .{ .freq = freq, .q = 0.7, .gain_db = band_gains[best_idx] };
+    }
+    return out;
+}
 
 pub const GateSnap = struct {
     threshold_db: f32 = -50.0,
@@ -756,9 +812,9 @@ fn chainToSnap(aa: std.mem.Allocator, fx: *const Fx, sample_rate: u32) ![]FxUnit
             } },
             .reverb => |r| .{ .kind = .reverb, .reverb = .{ .mix = r.mix, .room = r.room, .damp = r.damp } },
             .eq => |e| blk: {
-                var gains: [eq_mod.num_eq_bands]f32 = undefined;
-                for (&e.bands, 0..) |*b, i| gains[i] = b.gain_db;
-                break :blk .{ .kind = .eq, .eq = .{ .band_gains = gains } };
+                var bands: [eq_mod.num_eq_bands]EqBandSnap = undefined;
+                for (&e.bands, 0..) |*b, i| bands[i] = .{ .freq = b.freq, .q = b.q, .gain_db = b.gain_db };
+                break :blk .{ .kind = .eq, .eq = .{ .bands = bands } };
             },
             .gate => |g| .{ .kind = .gate, .gate = .{
                 .threshold_db = g.threshold_db, .attack_ms = g.attack_ms, .release_ms = g.release_ms,
@@ -1575,7 +1631,13 @@ fn applyFxChain(allocator: std.mem.Allocator, fx_out: *Fx, chain: []const FxUnit
                 r.damp = rs.damp;
             },
             .eq => |*e| if (us.eq) |es| {
-                e.setAllBands(es.band_gains);
+                const bands = es.bands orelse
+                    migrateEqBands(es.band_gains orelse [_]f32{0.0} ** legacy_eq_band_count);
+                for (bands, 0..) |b, i| {
+                    e.setFreq(i, b.freq);
+                    e.setQ(i, b.q);
+                    e.setGain(i, b.gain_db);
+                }
                 // Legacy EQ-only bypass maps onto the slot's generic one.
                 if (es.bypass) unit.bypassed = true;
             },
@@ -1780,7 +1842,7 @@ test "buildSession: legacy master FX loads in the old fixed order" {
         .racks = &.{.{ .label = "lead", .kind = .empty }},
         .master_fx = .{
             .comp = .{ .threshold_db = -12.0, .ratio = 3.0, .attack_ms = 5.0, .release_ms = 60.0, .makeup_db = 1.5 },
-            .eq = .{ .band_gains = [_]f32{2.0} ** eq_mod.num_eq_bands, .bypass = false },
+            .eq = .{ .band_gains = [_]f32{2.0} ** legacy_eq_band_count, .bypass = false },
         },
     };
 
@@ -2725,7 +2787,34 @@ test "golden-file corpus: every historical .wsj fixture still loads" {
     }
 
     // Guards against a misconfigured path silently turning this into a no-op.
-    try testing.expectEqual(@as(usize, 13), count);
+    try testing.expectEqual(@as(usize, 14), count);
+}
+
+test "golden-file corpus: v14's parametric EQ bands load freq/Q/gain" {
+    const testing = std.testing;
+    var session = try load(testing.allocator, testing.io, "test/fixtures/wsj/v14.wsj");
+    defer session.deinit();
+    const eq = &session.racks.items[0].fx.find(.eq).?.payload.eq;
+    try testing.expectApproxEqAbs(@as(f32, 80.0), eq.bands[0].freq, 1e-3);
+    try testing.expectApproxEqAbs(@as(f32, 1.2), eq.bands[0].q, 1e-3);
+    try testing.expectApproxEqAbs(@as(f32, 3.0), eq.bands[0].gain_db, 1e-3);
+    try testing.expectApproxEqAbs(@as(f32, 1200.0), eq.bands[3].freq, 1e-3);
+    try testing.expectApproxEqAbs(@as(f32, 2.0), eq.bands[3].q, 1e-3);
+    try testing.expectApproxEqAbs(@as(f32, 4.5), eq.bands[3].gain_db, 1e-3);
+}
+
+test "migrateEqBands: legacy 10-band gains land on sane 8-band defaults" {
+    const testing = std.testing;
+    var gains = [_]f32{0.0} ** legacy_eq_band_count;
+    gains[1] = 5.0; // 62.5Hz — nearest legacy band to the new 60Hz default
+    gains[9] = -4.0; // 16000Hz — matches the new top band's default exactly
+    const bands = migrateEqBands(gains);
+    try testing.expectEqual(@as(usize, eq_mod.num_eq_bands), bands.len);
+    try testing.expectApproxEqAbs(@as(f32, 5.0), bands[0].gain_db, 1e-4);
+    try testing.expectApproxEqAbs(@as(f32, 60.0), bands[0].freq, 1e-4);
+    try testing.expectApproxEqAbs(@as(f32, 0.7), bands[0].q, 1e-4);
+    try testing.expectApproxEqAbs(@as(f32, -4.0), bands[7].gain_db, 1e-4);
+    try testing.expectApproxEqAbs(@as(f32, 16000.0), bands[7].freq, 1e-4);
 }
 
 test "golden-file corpus: v13's synth_param_automation loads multiple lanes" {

@@ -13,7 +13,8 @@
 //! `x` removes the focused unit; `<`/`>` move it along the chain; `b`
 //! toggles its bypass (kept in the chain, skipped by the audio path);
 //! `j`/`k` pick a parameter within the focused unit — the vertical axis,
-//! matching the param list's on-screen layout (EQ's are its 10 bands);
+//! matching the param list's on-screen layout (EQ's are its 8 bands x
+//! freq/q/gain, flattened into one 24-entry sequential list);
 //! `h`/`l` (`H`/`L` coarse) nudge the selected parameter's value along the
 //! horizontal axis, matching its on-screen bar.
 //! `esc` restores the previous view and parks the analyzer.
@@ -74,17 +75,35 @@ pub fn stripLabel(k: FxKind) []const u8 {
 
 pub fn paramCount(k: FxKind) usize {
     return switch (k) {
-        .eq => eq_mod.num_eq_bands,
+        .eq => eq_mod.num_eq_bands * 3,
         .comp => 6,
         .phaser => 4,
         .gate, .sat, .crush, .chorus, .delay, .reverb => 3,
     };
 }
 
+/// EQ params are a flat `band*3 + field` list (freq, q, gain per band),
+/// the same "one sequential param list" shape every other multi-param
+/// unit here uses — no separate band/field navigation axis needed.
+pub const eq_field_freq = 0;
+pub const eq_field_q = 1;
+pub const eq_field_gain = 2;
+
+pub fn eqBandField(idx: usize) struct { band: usize, field: usize } {
+    return .{ .band = idx / 3, .field = idx % 3 };
+}
+
 /// Param name at `idx` within a unit of kind `k` — bounds match `paramCount`.
 pub fn paramName(k: FxKind, idx: usize) []const u8 {
     return switch (k) {
-        .eq => "band",
+        .eq => blk: {
+            const bf = eqBandField(idx);
+            break :blk switch (bf.field) {
+                eq_field_freq => "freq",
+                eq_field_q => "q",
+                else => "gain",
+            };
+        },
         .comp => switch (idx) {
             0 => "thresh", 1 => "ratio", 2 => "attack", 3 => "release", 4 => "makeup", 5 => "sidechain",
             else => "?",
@@ -123,7 +142,14 @@ pub fn paramName(k: FxKind, idx: usize) []const u8 {
 /// Current value of param `idx` in `p` — bounds match `paramCount`.
 pub fn getParam(p: *const FxPayload, idx: usize) f32 {
     return switch (p.*) {
-        .eq => |*e| e.bands[idx].gain_db,
+        .eq => |*e| blk: {
+            const bf = eqBandField(idx);
+            break :blk switch (bf.field) {
+                eq_field_freq => e.bands[bf.band].freq,
+                eq_field_q => e.bands[bf.band].q,
+                else => e.bands[bf.band].gain_db,
+            };
+        },
         .comp => |*c| switch (idx) {
             0 => c.threshold_db, 1 => c.ratio, 2 => c.attack_ms, 3 => c.release_ms, 4 => c.makeup_db,
             // Sidechain source, encoded as 0 = none, N = 1-based track index
@@ -170,7 +196,11 @@ pub fn getParam(p: *const FxPayload, idx: usize) f32 {
 /// filled bar (barRow wants a 0..1-ish normalised value).
 pub fn paramRange(k: FxKind, idx: usize) [2]f32 {
     return switch (k) {
-        .eq => .{ -18.0, 18.0 },
+        .eq => switch (eqBandField(idx).field) {
+            eq_field_freq => .{ 20.0, 20000.0 },
+            eq_field_q => .{ 0.1, 10.0 },
+            else => .{ -18.0, 18.0 },
+        },
         .comp => switch (idx) {
             0 => .{ -60.0, 0.0 },
             1 => .{ 1.0, 20.0 },
@@ -221,7 +251,14 @@ pub fn paramRange(k: FxKind, idx: usize) [2]f32 {
 /// Clamped absolute set of param `idx` in `p` — bounds match `paramRange`.
 pub fn setParam(p: *FxPayload, idx: usize, value: f32) void {
     switch (p.*) {
-        .eq => |*e| e.setBand(idx, value),
+        .eq => |*e| {
+            const bf = eqBandField(idx);
+            switch (bf.field) {
+                eq_field_freq => e.setFreq(bf.band, value),
+                eq_field_q => e.setQ(bf.band, value),
+                else => e.setGain(bf.band, value),
+            }
+        },
         .comp => |*c| switch (idx) {
             0 => c.threshold_db = std.math.clamp(value, -60.0, 0.0),
             1 => c.ratio = std.math.clamp(value, 1.0, 20.0),
@@ -288,7 +325,11 @@ pub fn setParam(p: *FxPayload, idx: usize, value: f32) void {
 /// comp threshold, fractions for the 0..1-ish delay/reverb knobs).
 fn paramStep(k: FxKind, idx: usize, coarse: bool) f32 {
     return switch (k) {
-        .eq => if (coarse) @as(f32, 6.0) else 1.0,
+        .eq => switch (eqBandField(idx).field) {
+            eq_field_freq => if (coarse) @as(f32, 100.0) else 10.0,
+            eq_field_q => if (coarse) @as(f32, 0.5) else 0.1,
+            else => if (coarse) @as(f32, 6.0) else 1.0,
+        },
         .comp => switch (idx) {
             0 => if (coarse) @as(f32, 6.0) else 1.0,
             1 => if (coarse) @as(f32, 2.0) else 0.5,
@@ -573,19 +614,16 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             'b' => { toggleBypass(app, target); return true; },
             'u' => { history.doUndo(app); return true; },
             'U' => { history.doRedo(app); return true; },
-            // Param picks take a vim count prefix (3k, 4j, …). EQ clamps at
-            // its band ends (unchanged from before); the 3-5 param units
-            // wrap, which reads more naturally for such a short list.
+            // Param picks take a vim count prefix (3k, 4j, …) and wrap —
+            // reads more naturally than clamping for a short sequential
+            // list (also true of EQ's flat 24-entry band/field list).
             'k' => {
                 const fx = fxPtr(app, target) orelse return true;
                 const u = focusedUnit(app, fx) orelse return true;
                 const n = paramCount(u.kind());
                 const cnt: usize = @intCast(app.takeCount());
                 history.flushFxNudge(app);
-                app.fx_param = if (u.kind() == .eq)
-                    app.fx_param -| cnt
-                else
-                    (app.fx_param + n - (cnt % n)) % n;
+                app.fx_param = (app.fx_param + n - (cnt % n)) % n;
                 return true;
             },
             'j' => {
@@ -594,10 +632,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 const n = paramCount(u.kind());
                 const cnt: usize = @intCast(app.takeCount());
                 history.flushFxNudge(app);
-                app.fx_param = if (u.kind() == .eq)
-                    @min(app.fx_param + cnt, n - 1)
-                else
-                    (app.fx_param + cnt) % n;
+                app.fx_param = (app.fx_param + cnt) % n;
                 return true;
             },
             'h', 'H', 'l', 'L' => { nudge(app, target, c); return true; },
@@ -619,7 +654,7 @@ pub fn setEqBand(app: *App, track: u16, band: usize, gain_db: f32) void {
             app.setStatus("eq: chain full", .{});
             return;
         };
-    unit.payload.eq.setBand(band, gain_db);
+    unit.payload.eq.setGain(band, gain_db);
     app.dirty = true;
     var buf: [ws.Rack.chain_cap]dsp.Device = undefined;
     app.session.engine.setTrackChain(track, rack.chain(&buf));
@@ -634,7 +669,7 @@ pub fn setMasterEqBand(app: *App, band: usize, gain_db: f32) void {
             app.setStatus("master-eq: chain full", .{});
             return;
         };
-    unit.payload.eq.setBand(band, gain_db);
+    unit.payload.eq.setGain(band, gain_db);
     app.dirty = true;
     app.session.syncMasterChain();
 }
@@ -684,12 +719,12 @@ fn slotAt(x: usize, len: usize) ?usize {
     return i;
 }
 
-/// EQ-body band-row count: bar + value + freq rows (an EQ unit in focus
+/// EQ-body band-row count: bar + gain + Q + freq rows (an EQ unit in focus
 /// always exists — chains only hold inserted units).
-pub const eq_band_rows: usize = 3;
+pub const eq_band_rows: usize = 4;
 
 // EQ band row: a 3-char gutter, then a 5-char cell per band (bracket/glyph/
-// bracket on the bar row; a 5-wide centered field on the value/freq rows) —
+// bracket on the bar row; a 5-wide centered field on the gain/q/freq rows) —
 // see drawFxView's EQ branch.
 const eq_gutter: usize = 3;
 const eq_band_w: usize = 5;
@@ -699,6 +734,16 @@ fn eqBandAt(x: usize) ?usize {
     const col = (x - eq_gutter) / eq_band_w;
     if (col >= eq_mod.num_eq_bands) return null;
     return col;
+}
+
+/// Which field a click/scroll on band-block row `rel` (0-based within the
+/// `eq_band_rows`-tall block: bar, gain, q, freq) selects.
+fn eqFieldAtRow(rel: usize) usize {
+    return switch (rel) {
+        0, 1 => eq_field_gain, // bar row tracks gain visually, same as the value row under it
+        2 => eq_field_q,
+        else => eq_field_freq,
+    };
 }
 
 /// Nudge the current param one wheel-notch (**ctrl** = coarse), reusing the
@@ -734,15 +779,18 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16, v
     const unit = focusedUnit(app, fx) orelse return;
     if (unit.kind() == .eq) {
         // Same sizing as drawFxView: spectrum graph, then the Hz-label row,
-        // then the three band rows — only the band rows are interactive.
+        // then the four band rows (bar/gain/q/freq) — only those are
+        // interactive; the row within the block picks the field.
         const visual_rows: usize = @min(style.spectrum_rows, view_rows -| ((if (compact) @as(usize, 9) else 12) + eq_band_rows));
         const band_row0 = visual_rows + 1;
         if (rel < band_row0 or rel >= band_row0 + eq_band_rows) return;
         const band = eqBandAt(ev.x) orelse return;
+        const field = eqFieldAtRow(rel - band_row0);
+        const idx = band * 3 + field;
         switch (ev.kind) {
-            .press => { history.flushFxNudge(app); app.fx_param = band; },
+            .press => { history.flushFxNudge(app); app.fx_param = idx; },
             .scroll_up, .scroll_down => {
-                app.fx_param = band;
+                app.fx_param = idx;
                 nudgeMouse(app, target, ev);
             },
             else => {},

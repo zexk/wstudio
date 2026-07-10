@@ -88,7 +88,7 @@ pub fn drawInstrumentPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void 
 const fx_picker_menu = [_]struct { name: []const u8, desc: []const u8 }{
     .{ .name = "Gate",       .desc = "cuts signal below a threshold: cleans up noise and bleed" },
     .{ .name = "Compressor", .desc = "evens out dynamics: thresh/ratio/attack/release/makeup" },
-    .{ .name = "EQ",         .desc = "10-band graphic EQ, editor doubles as spectrum analyzer" },
+    .{ .name = "EQ",         .desc = "8-band parametric EQ (freq/Q/gain), editor doubles as spectrum analyzer" },
     .{ .name = "Saturator",  .desc = "soft-clip drive: analog-style warmth through grit" },
     .{ .name = "Crusher",    .desc = "bitcrusher: lo-fi bit depth + sample-rate reduction" },
     .{ .name = "Chorus",     .desc = "modulated doubling: width and shimmer" },

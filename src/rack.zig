@@ -7,7 +7,7 @@ const Slicer = @import("dsp/slicer.zig").Slicer;
 const Compressor = @import("dsp/compressor.zig").Compressor;
 const StereoDelay = @import("dsp/delay.zig").StereoDelay;
 const Reverb = @import("dsp/reverb.zig").Reverb;
-const GraphicEq = @import("dsp/eq.zig").GraphicEq;
+const ParametricEq = @import("dsp/eq.zig").ParametricEq;
 const Gate = @import("dsp/gate.zig").Gate;
 const Saturator = @import("dsp/saturator.zig").Saturator;
 const Crusher = @import("dsp/crusher.zig").Crusher;
@@ -67,7 +67,7 @@ pub const InstrumentKind = std.meta.Tag(Instrument);
 pub const FxPayload = union(enum) {
     gate: Gate,
     comp: Compressor,
-    eq: GraphicEq,
+    eq: ParametricEq,
     sat: Saturator,
     crush: Crusher,
     chorus: Chorus,
@@ -166,7 +166,7 @@ pub const Fx = struct {
         return switch (kind) {
             .gate   => .{ .gate = Gate.init(sr) },
             .comp   => .{ .comp = Compressor.init(sr) },
-            .eq     => .{ .eq = GraphicEq.init(sr) },
+            .eq     => .{ .eq = ParametricEq.init(sr) },
             .sat    => .{ .sat = .{} },
             .crush  => .{ .crush = .{} },
             .chorus => .{ .chorus = try Chorus.init(allocator, sr) },

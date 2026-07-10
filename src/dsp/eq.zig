@@ -4,12 +4,22 @@ const dsp = @import("device.zig");
 
 const Sample = types.Sample;
 
-pub const num_eq_bands = 10;
+pub const num_eq_bands = 8;
 
-pub const iso_frequencies = [_]f32{
-    31.25, 62.5, 125.0, 250.0, 500.0,
-    1000.0, 2000.0, 4000.0, 8000.0, 16000.0,
+/// Initial per-band center frequencies for a freshly inserted EQ — a
+/// log-ish spread across low/mid/high. Every band is fully parametric
+/// (freq/Q/gain all adjustable) so these are just starting points, not
+/// fixed slots the way a graphic EQ's ISO bands were.
+pub const default_frequencies = [_]f32{
+    60.0, 150.0, 400.0, 1000.0, 2500.0, 6000.0, 10000.0, 16000.0,
 };
+
+const freq_min: f32 = 20.0;
+const freq_max: f32 = 20000.0;
+const q_min: f32 = 0.1;
+const q_max: f32 = 10.0;
+const gain_min: f32 = -18.0;
+const gain_max: f32 = 18.0;
 
 const EqBand = struct {
     freq: f32,
@@ -67,37 +77,42 @@ const EqBand = struct {
     }
 };
 
-pub const GraphicEq = struct {
+pub const ParametricEq = struct {
     sr: f32,
     bands: [num_eq_bands]EqBand,
     bypass: bool = false,
 
-    pub fn init(sample_rate: u32) GraphicEq {
-        var self: GraphicEq = .{
+    pub fn init(sample_rate: u32) ParametricEq {
+        var self: ParametricEq = .{
             .sr = @floatFromInt(sample_rate),
             .bands = undefined,
         };
-        for (&self.bands, &iso_frequencies) |*b, f| {
+        for (&self.bands, &default_frequencies) |*b, f| {
             b.* = .{ .freq = f, .gain_db = 0.0, .q = 0.7 };
             b.recompute(self.sr);
         }
         return self;
     }
 
-    pub fn setBand(self: *GraphicEq, index: usize, gain_db: f32) void {
+    pub fn setGain(self: *ParametricEq, index: usize, gain_db: f32) void {
         if (index >= num_eq_bands) return;
-        self.bands[index].gain_db = std.math.clamp(gain_db, -18.0, 18.0);
+        self.bands[index].gain_db = std.math.clamp(gain_db, gain_min, gain_max);
         self.bands[index].recompute(self.sr);
     }
 
-    pub fn setAllBands(self: *GraphicEq, gains: [num_eq_bands]f32) void {
-        for (&self.bands, &gains) |*b, g| {
-            b.gain_db = std.math.clamp(g, -18.0, 18.0);
-            b.recompute(self.sr);
-        }
+    pub fn setFreq(self: *ParametricEq, index: usize, freq_hz: f32) void {
+        if (index >= num_eq_bands) return;
+        self.bands[index].freq = std.math.clamp(freq_hz, freq_min, freq_max);
+        self.bands[index].recompute(self.sr);
     }
 
-    pub fn process(self: *GraphicEq, buf: []Sample) void {
+    pub fn setQ(self: *ParametricEq, index: usize, q: f32) void {
+        if (index >= num_eq_bands) return;
+        self.bands[index].q = std.math.clamp(q, q_min, q_max);
+        self.bands[index].recompute(self.sr);
+    }
+
+    pub fn process(self: *ParametricEq, buf: []Sample) void {
         if (self.bypass) return;
         for (&self.bands) |*band| {
             var i: usize = 0;
@@ -108,20 +123,20 @@ pub const GraphicEq = struct {
         }
     }
 
-    pub fn device(self: *GraphicEq) dsp.Device {
+    pub fn device(self: *ParametricEq) dsp.Device {
         return .{
             .ptr = self,
             .vtable = &.{
                 .process = struct {
                     fn f(ptr: *anyopaque, buf: []Sample) void {
-                        const eq: *GraphicEq = @ptrCast(@alignCast(ptr));
+                        const eq: *ParametricEq = @ptrCast(@alignCast(ptr));
                         eq.process(buf);
                     }
                 }.f,
                 .event = null,
                 .reset = struct {
                     fn f(ptr: *anyopaque) void {
-                        const eq: *GraphicEq = @ptrCast(@alignCast(ptr));
+                        const eq: *ParametricEq = @ptrCast(@alignCast(ptr));
                         for (&eq.bands) |*b| b.reset();
                     }
                 }.f,

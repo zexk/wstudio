@@ -1,0 +1,24 @@
+{
+  "version": 14,
+  "tracks": [
+    { "name": "keys" }
+  ],
+  "racks": [
+    {
+      "label": "keys",
+      "kind": "empty",
+      "fx_chain": [
+        { "kind": "eq", "eq": { "bands": [
+          { "freq": 80.0, "q": 1.2, "gain_db": 3.0 },
+          { "freq": 200.0, "q": 0.7, "gain_db": -2.0 },
+          { "freq": 500.0, "q": 0.7, "gain_db": 0.0 },
+          { "freq": 1200.0, "q": 2.0, "gain_db": 4.5 },
+          { "freq": 3000.0, "q": 0.7, "gain_db": 0.0 },
+          { "freq": 7000.0, "q": 0.7, "gain_db": -1.5 },
+          { "freq": 12000.0, "q": 0.7, "gain_db": 0.0 },
+          { "freq": 16000.0, "q": 0.9, "gain_db": 2.0 }
+        ] } }
+      ]
+    }
+  ]
+}

@@ -49,8 +49,17 @@ const rowVal = style.rowVal;
 const barRow = style.barRow;
 const enumRow = style.enumRow;
 
-// Short frequency labels for the EQ band row, in eq_mod.iso_frequencies order.
-const eq_freq_labels = [_][]const u8{ "31", "62", "125", "250", "500", "1k", "2k", "4k", "8k", "16k" };
+/// Compact frequency label for a band's freq row: "823", "1.2k", "16k".
+fn freqLabel(buf: []u8, hz: f32) []const u8 {
+    if (hz >= 1000.0) {
+        const k = hz / 1000.0;
+        if (@abs(k - @round(k)) < 0.05) {
+            return std.fmt.bufPrint(buf, "{d:.0}k", .{k}) catch "?";
+        }
+        return std.fmt.bufPrint(buf, "{d:.1}k", .{k}) catch "?";
+    }
+    return std.fmt.bufPrint(buf, "{d:.0}", .{hz}) catch "?";
+}
 
 // Lower-eighths block glyphs, shortest (cut) to tallest (boost). 0dB lands
 // on the middle glyph so a flat band still reads as a visible bar.
@@ -235,8 +244,8 @@ pub fn drawFxView(
     } else if (focused.?.kind() == .eq) {
         const unit = focused.?;
         try synthSection(w, sectionLabel(.eq), sectionColor(.eq));
-        // The EQ unit's editor: live spectrum graph up top, the 10 band
-        // bars underneath. The analyzer only runs while an EQ has focus
+        // The EQ unit's editor: live spectrum graph up top, the 8 band
+        // columns underneath. The analyzer only runs while an EQ has focus
         // (editors/spectrum.zig parks it on focus change).
         const spectrum_snap = switch (target) {
             .track => app.session.engine.trackSpectrumSnapshot(app.eq_track),
@@ -353,12 +362,16 @@ pub fn drawFxView(
         try endLine(w);
 
         const e = &unit.payload.eq;
+        const cur_band = app.fx_param / 3;
+        const cur_field = app.fx_param % 3;
+
         // Bar row: one glyph per band, its height tracking gain (▄ =
         // flat, taller = boost, shorter = cut), coloured by
-        // direction/magnitude. The selected band is bracketed.
+        // direction/magnitude. Bracketed together with the gain-value row
+        // below it when gain is the selected field.
         try w.writeAll("   ");
         for (0..eq_mod.num_eq_bands) |b| {
-            const is_cur = (b == app.fx_param);
+            const is_cur = (b == cur_band and cur_field == spectrum_ed.eq_field_gain);
             const gain = e.bands[b].gain_db;
             if (is_cur) try w.writeAll(bold ++ acc ++ " [" ++ rst) else try w.writeAll("  ");
             try w.writeAll(if (is_cur) bwht else eqColor(gain));
@@ -369,10 +382,10 @@ pub fn drawFxView(
         }
         try endLine(w);
 
-        // Value row: signed dB under each bar.
+        // Gain-value row: signed dB under each bar.
         try w.writeAll("   ");
         for (0..eq_mod.num_eq_bands) |b| {
-            const is_cur = (b == app.fx_param);
+            const is_cur = (b == cur_band and cur_field == spectrum_ed.eq_field_gain);
             const val = e.bands[b].gain_db;
             if (is_cur) try w.writeAll(acc ++ bold);
             try w.print("{d: ^5.0}", .{val});
@@ -380,9 +393,28 @@ pub fn drawFxView(
         }
         try endLine(w);
 
-        // Frequency row — matches eq_mod.iso_frequencies' order.
+        // Q-value row.
         try w.writeAll(dim ++ "   ");
-        for (eq_freq_labels) |lbl| try w.print("{s: ^5}", .{lbl});
+        for (0..eq_mod.num_eq_bands) |b| {
+            const is_cur = (b == cur_band and cur_field == spectrum_ed.eq_field_q);
+            const val = e.bands[b].q;
+            if (is_cur) try w.writeAll(rst ++ acc ++ bold);
+            try w.print("{d: ^5.1}", .{val});
+            if (is_cur) try w.writeAll(rst ++ dim);
+        }
+        try w.writeAll(rst);
+        try endLine(w);
+
+        // Frequency row: now live and editable, was a static ISO-band label.
+        try w.writeAll(dim ++ "   ");
+        for (0..eq_mod.num_eq_bands) |b| {
+            const is_cur = (b == cur_band and cur_field == spectrum_ed.eq_field_freq);
+            var fbuf: [8]u8 = undefined;
+            const lbl = freqLabel(&fbuf, e.bands[b].freq);
+            if (is_cur) try w.writeAll(rst ++ acc ++ bold);
+            try w.print("{s: ^5}", .{lbl});
+            if (is_cur) try w.writeAll(rst ++ dim);
+        }
         try w.writeAll(rst);
         try endLine(w);
 
@@ -422,7 +454,11 @@ pub fn drawFxView(
 fn formatFxValue(buf: []u8, p: *const ws.FxPayload, idx: usize) []const u8 {
     const v = spectrum_ed.getParam(p, idx);
     return switch (p.*) {
-        .eq => std.fmt.bufPrint(buf, "{d:.1}dB", .{v}) catch "?",
+        .eq => switch (spectrum_ed.eqBandField(idx).field) {
+            spectrum_ed.eq_field_freq => std.fmt.bufPrint(buf, "{d:.0}Hz", .{v}) catch "?",
+            spectrum_ed.eq_field_q => std.fmt.bufPrint(buf, "{d:.2}", .{v}) catch "?",
+            else => std.fmt.bufPrint(buf, "{d:.1}dB", .{v}) catch "?",
+        },
         .comp => switch (idx) {
             0, 4 => std.fmt.bufPrint(buf, "{d:.1}dB", .{v}) catch "?",
             1 => std.fmt.bufPrint(buf, "{d:.1}:1", .{v}) catch "?",
@@ -484,12 +520,9 @@ pub fn drawFxStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer, targ
         if (unit.bypassed) try w.writeAll(red ++ "BYP" ++ rst ++ "  ");
         switch (k) {
             .eq => {
-                const freq = eq_mod.iso_frequencies[app.fx_param];
-                const gain = spectrum_ed.getParam(&unit.payload, app.fx_param);
-                const sign: []const u8 = if (gain >= 0) "+" else "";
-                try w.print("{d:.0}Hz", .{freq});
-                try w.writeAll("  ");
-                try w.print("{s}{d:.1}dB", .{ sign, gain });
+                const bf = spectrum_ed.eqBandField(app.fx_param);
+                var vbuf: [16]u8 = undefined;
+                try w.print("b{d} {s} {s}", .{ bf.band + 1, spectrum_ed.paramName(k, app.fx_param), formatFxValue(&vbuf, &unit.payload, app.fx_param) });
             },
             else => {
                 var vbuf: [16]u8 = undefined;

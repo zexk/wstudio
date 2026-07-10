@@ -33,7 +33,7 @@ pub const AutomationCurve = automation.AutomationCurve;
 pub const fft = @import("dsp/fft.zig");
 pub const SpectrumAnalyzer = @import("dsp/spectrum.zig").SpectrumAnalyzer;
 pub const spectrum = @import("dsp/spectrum.zig");
-pub const GraphicEq = @import("dsp/eq.zig").GraphicEq;
+pub const ParametricEq = @import("dsp/eq.zig").ParametricEq;
 pub const eq = @import("dsp/eq.zig");
 
 test {
@@ -58,5 +58,5 @@ test {
     _ = automation;
     _ = fft;
     _ = SpectrumAnalyzer;
-    _ = GraphicEq;
+    _ = ParametricEq;
 }
