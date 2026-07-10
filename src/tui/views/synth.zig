@@ -41,79 +41,161 @@ const rowVal = style.rowVal;
 const barRow = style.barRow;
 const enumRow = style.enumRow;
 
-/// Render the full 51-row synth editor into `w`, applying vertical scroll so
-/// it fits within `max_rows`. Always shows the title line, then slices the
-/// parameter body to keep the cursor in view.
-pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, snap: engine_mod.UiSnapshot) !void {
+const synth_ed = @import("../editors/synth.zig");
+
+/// Render the synth editor into `w`, applying vertical scroll so it fits
+/// within `max_rows`. Always shows the title line, then slices the parameter
+/// body to keep the cursor in view. Wide terminals (synth_ed.twoCol) get the
+/// sections zipped into two side-by-side columns — OSC A and the shaping
+/// sections left, OSC B and modulation/output right — 25 body rows instead
+/// of 50; narrow ones keep the single-column stack.
+pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, snap: engine_mod.UiSnapshot) !void {
+    _ = snap;
     // Available rows for the view body (excludes the caller's header +
     // transport + status — 3 rows total, no separate hr() rule rows anymore).
     const max_rows = rows -| 3;
-    // Clamp scroll so cursor row is visible.
-    const cursor_row = @import("../editors/synth.zig").paramRow(app.synth_cursor);
-    var scroll = app.synth_scroll;
+    const two_col = synth_ed.twoCol(cols);
+
+    // Stretch the param bars (and the section rules with them) into free
+    // width — single-column mode gets at most a few extra cells before the
+    // two-column split takes over at 108; there each column stretches its
+    // own bars. The knobs were reset to the compact defaults by App.draw.
+    const col_w = synth_ed.colWidth(cols);
+    style.form_bar_w = if (two_col)
+        @min(style.form_bar_w_default + (col_w -| 56), 40)
+    else
+        @min(style.form_bar_w_default + (cols -| 100) / 2, 40);
+    style.form_section_w = style.form_section_w_default + (style.form_bar_w - style.form_bar_w_default);
+
+    // Clamp scroll so the cursor row is visible and the window never runs
+    // past the layout's last row (the two layouts' heights differ, so a
+    // stale offset from the other mode must not survive a resize).
+    const cursor_row = if (two_col) synth_ed.paramColRow(app.synth_cursor).row else synth_ed.paramRow(app.synth_cursor);
+    const body_rows: usize = if (two_col) 25 else 50; // rows below the shared title
+    var scroll = @min(app.synth_scroll, (body_rows + 1) -| max_rows);
     if (cursor_row < scroll) scroll = cursor_row;
     if (cursor_row >= scroll + max_rows) scroll = cursor_row -| max_rows + 1;
+    // Written back so mouse hit-testing (editors/synth.zig paramAtRow) maps
+    // clicks through the same offset this frame actually rendered with.
+    app.synth_scroll = scroll;
 
-    // Render full editor into a temp buffer, then slice visible rows.
-    var tmp: [16 * 1024]u8 = undefined;
-    var tw = std.Io.Writer.fixed(&tmp);
-    try drawSynthEditorFull(app, &tw, snap);
-
-    // The full output uses \r\n line endings (from endLine). Split and emit
-    // only rows [scroll, scroll+max_rows).
-    const full = tw.buffered();
-    var line_it = std.mem.splitSequence(u8, full, "\r\n");
-    var row: usize = 0;
-    var written: usize = 0;
-    // Always emit the title line (row 0) first, outside the scroll window.
-    // Each copied line gets its own explicit \x1b[K clear rather than
-    // relying on the source line's own embedded one: splitSequence yields
-    // one trailing EMPTY segment when `full` ends with the "\r\n" delimiter
-    // (it always does, since every source line ends via endLine), and that
-    // empty segment has no embedded clear code of its own — without this,
-    // scrolling to the exact end of the param list left stale text from a
-    // previous frame's different scroll position visible on that row.
-    if (line_it.next()) |title| {
-        try w.writeAll(title);
-        try endLine(w);
-        written += 1;
-        row += 1;
+    if (app.synth_track >= app.session.racks.items.len) {
+        for (0..max_rows) |_| try endLine(w);
+        return;
     }
-    while (line_it.next()) |line| : (row += 1) {
-        if (written >= max_rows) break;
-        if (row < scroll + 1) continue; // +1 because title was row 0
-        try w.writeAll(line);
-        try endLine(w);
-        written += 1;
-    }
-    while (written < max_rows) : (written += 1) try endLine(w);
-}
-
-fn drawSynthEditorFull(app: anytype, w: *std.Io.Writer, snap: engine_mod.UiSnapshot) !void {
-    _ = snap;
-    if (app.synth_track >= app.session.racks.items.len) return;
     const rack = app.session.racks.items[app.synth_track];
-    switch (rack.instrument) { .poly_synth => {}, else => return }
+    switch (rack.instrument) {
+        .poly_synth => {},
+        else => {
+            for (0..max_rows) |_| try endLine(w);
+            return;
+        },
+    }
     const synth = &rack.instrument.poly_synth;
+    const c = app.synth_cursor;
 
     const name = if (app.synth_track < app.session.project.tracks.items.len)
         app.session.project.tracks.items[app.synth_track].name
     else "?";
 
-    // Title.
+    // Title (row 0) — always emitted, outside the scroll window.
     try w.writeAll(bcyn ++ bold ++ " \u{2593} " ++ icons.synth ++ " SYNTH " ++ rst);
     try w.writeAll(acc);
     try w.print("\"{s}\"", .{name});
     try w.writeAll(rst);
     try endLine(w);
+    var written: usize = 1;
 
+    // Render the body into temp buffers, then slice out the visible rows.
+    // Each copied line gets its own explicit \x1b[K clear (endLine) rather
+    // than relying on the source line's own embedded one: splitSequence
+    // yields one trailing EMPTY segment when a buffer ends with the "\r\n"
+    // delimiter (it always does, since every source line ends via endLine),
+    // and that empty segment has no embedded clear code of its own —
+    // without this, scrolling to the exact end of the param list left stale
+    // text from a previous frame's different scroll position visible on
+    // that row.
+    if (two_col) {
+        var tmp_l: [16 * 1024]u8 = undefined;
+        var wl = std.Io.Writer.fixed(&tmp_l);
+        try drawSynthColLeft(&wl, synth, c);
+        var tmp_r: [16 * 1024]u8 = undefined;
+        var wr = std.Io.Writer.fixed(&tmp_r);
+        try drawSynthColRight(&wr, synth, c);
+
+        var it_l = std.mem.splitSequence(u8, wl.buffered(), "\r\n");
+        var it_r = std.mem.splitSequence(u8, wr.buffered(), "\r\n");
+        var row: usize = 1;
+        while (true) : (row += 1) {
+            const ll = it_l.next() orelse "";
+            const rl = it_r.next() orelse "";
+            if (ll.len == 0 and rl.len == 0) break; // both exhausted (trailing empties)
+            if (written >= max_rows) break;
+            if (row < scroll + 1) continue;
+            try style.writePadded(w, ll, col_w);
+            try style.writeClamped(w, rl, cols -| col_w);
+            try endLine(w);
+            written += 1;
+        }
+    } else {
+        // Original single-column section order (paramRow's row map).
+        var tmp: [16 * 1024]u8 = undefined;
+        var tw = std.Io.Writer.fixed(&tmp);
+        try secOscA(&tw, synth, c);
+        try secOscB(&tw, synth, c);
+        try secMod(&tw, synth, c);
+        try secEnv(&tw, synth, c);
+        try secFilter(&tw, synth, c);
+        try secFenv(&tw, synth, c);
+        try secLfo(&tw, synth, c);
+        try secVoice(&tw, synth, c);
+        try secSub(&tw, synth, c);
+        try secNoise(&tw, synth, c);
+        try secOut(&tw, synth, c);
+
+        var line_it = std.mem.splitSequence(u8, tw.buffered(), "\r\n");
+        var row: usize = 1;
+        while (line_it.next()) |line| : (row += 1) {
+            if (written >= max_rows) break;
+            if (row < scroll + 1) continue;
+            try w.writeAll(line);
+            try endLine(w);
+            written += 1;
+        }
+    }
+    while (written < max_rows) : (written += 1) try endLine(w);
+}
+
+// The section renderers below emit one header row + one row per param each.
+// The two-column split/order is mirrored by editors/synth.zig's paramColRow,
+// the single-column order (in drawSynthEditor's else-branch above) by its
+// paramRow — keep renderers and row maps in sync.
+
+/// OSC A + the shaping sections: 25 rows (7 + 5 + 5 + 5 + 3).
+fn drawSynthColLeft(w: *std.Io.Writer, synth: anytype, c: u8) !void {
+    try secOscA(w, synth, c);
+    try secEnv(w, synth, c);
+    try secFilter(w, synth, c);
+    try secFenv(w, synth, c);
+    try secVoice(w, synth, c);
+}
+
+/// OSC B + modulation/output sections: 25 rows (9 + 3 + 5 + 3 + 3 + 2).
+fn drawSynthColRight(w: *std.Io.Writer, synth: anytype, c: u8) !void {
+    try secOscB(w, synth, c);
+    try secMod(w, synth, c);
+    try secLfo(w, synth, c);
+    try secSub(w, synth, c);
+    try secNoise(w, synth, c);
+    try secOut(w, synth, c);
+}
+
+const wf_names = [_][]const u8{ "sine", "saw", "tri", "sqr" };
+
+fn secOscA(w: *std.Io.Writer, synth: anytype, c: u8) !void {
     var buf: [40]u8 = undefined;
-    const c = app.synth_cursor;
-
-    // ── OSC A ────────────────────────────────────
     try synthSection(w, "OSC A", acc);
 
-    const wf_names = [_][]const u8{ "sine", "saw", "tri", "sqr" };
     const wf_idx: usize = switch (synth.waveform) {
         .sine => 0, .saw => 1, .triangle => 2, .square => 3,
     };
@@ -132,8 +214,10 @@ fn drawSynthEditorFull(app: anytype, w: *std.Io.Writer, snap: engine_mod.UiSnaps
         try std.fmt.bufPrint(&buf, "{d:.1} ct", .{synth.unison_detune}));
     try barRow(w, c == 5, false, acc, "spread", synth.unison_spread, 1.0,
         try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.unison_spread}));
+}
 
-    // ── OSC B ────────────────────────────────────
+fn secOscB(w: *std.Io.Writer, synth: anytype, c: u8) !void {
+    var buf: [40]u8 = undefined;
     try synthSection(w, "OSC B", acc);
 
     const b_on = synth.osc_b_on;
@@ -157,8 +241,10 @@ fn drawSynthEditorFull(app: anytype, w: *std.Io.Writer, snap: engine_mod.UiSnaps
         try std.fmt.bufPrint(&buf, "{d}", .{synth.osc_b_unison}));
     try barRow(w, c == 13, !b_on, acc, "uni.det", synth.osc_b_unison_detune, 100.0,
         try std.fmt.bufPrint(&buf, "{d:.1} ct", .{synth.osc_b_unison_detune}));
+}
 
-    // ── MOD ──────────────────────────────────────
+fn secMod(w: *std.Io.Writer, synth: anytype, c: u8) !void {
+    var buf: [40]u8 = undefined;
     try synthSection(w, "MOD  (A \u{2194} B)", mag);
 
     const mod_on = synth.mod_mode != .none;
@@ -177,8 +263,10 @@ fn drawSynthEditorFull(app: anytype, w: *std.Io.Writer, snap: engine_mod.UiSnaps
             try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.mod_amount});
         try barRow(w, c == 15, !mod_on, mag, "amount", synth.mod_amount, 8.0, vs);
     }
+}
 
-    // ── ENV ──────────────────────────────────────
+fn secEnv(w: *std.Io.Writer, synth: anytype, c: u8) !void {
+    var buf: [40]u8 = undefined;
     try synthSection(w, "ENV", grn);
 
     try barRow(w, c == 16, false, grn, "attack", synth.attack_s, 5.0,
@@ -189,8 +277,10 @@ fn drawSynthEditorFull(app: anytype, w: *std.Io.Writer, snap: engine_mod.UiSnaps
         try std.fmt.bufPrint(&buf, "{d:.3}", .{synth.sustain}));
     try barRow(w, c == 19, false, grn, "release", synth.release_s, 10.0,
         try std.fmt.bufPrint(&buf, "{d:.3} s", .{synth.release_s}));
+}
 
-    // ── FILTER ───────────────────────────────────
+fn secFilter(w: *std.Io.Writer, synth: anytype, c: u8) !void {
+    var buf: [40]u8 = undefined;
     try synthSection(w, "FILTER", yel);
 
     const ft_names = [_][]const u8{ "lp", "hp", "bp", "ntch" };
@@ -215,8 +305,10 @@ fn drawSynthEditorFull(app: anytype, w: *std.Io.Writer, snap: engine_mod.UiSnaps
         try barRow(w, c == 23, false, yel, "f.env.amt", synth.fenv_amount + 4.0, 8.0,
             try std.fmt.bufPrint(&buf, "{s}{d:.1} oct", .{ sign, synth.fenv_amount }));
     }
+}
 
-    // ── FENV ─────────────────────────────────────
+fn secFenv(w: *std.Io.Writer, synth: anytype, c: u8) !void {
+    var buf: [40]u8 = undefined;
     try synthSection(w, "FENV", grn);
 
     try barRow(w, c == 24, false, grn, "f.attack", synth.fenv_attack_s, 5.0,
@@ -227,8 +319,10 @@ fn drawSynthEditorFull(app: anytype, w: *std.Io.Writer, snap: engine_mod.UiSnaps
         try std.fmt.bufPrint(&buf, "{d:.3}", .{synth.fenv_sustain}));
     try barRow(w, c == 27, false, grn, "f.release", synth.fenv_release_s, 10.0,
         try std.fmt.bufPrint(&buf, "{d:.3} s", .{synth.fenv_release_s}));
+}
 
-    // ── LFO ──────────────────────────────────────
+fn secLfo(w: *std.Io.Writer, synth: anytype, c: u8) !void {
+    var buf: [40]u8 = undefined;
     try synthSection(w, "LFO", mag);
 
     const lfo_names = [_][]const u8{ "sine", "tri", "saw", "sqr" };
@@ -247,8 +341,10 @@ fn drawSynthEditorFull(app: anytype, w: *std.Io.Writer, snap: engine_mod.UiSnaps
         .none => 0, .filter => 1, .pitch => 2, .amp => 3,
     };
     try enumRow(w, c == 31, false, mag, "target", &tgt_names, tgt_idx);
+}
 
-    // ── VOICE ────────────────────────────────────
+fn secVoice(w: *std.Io.Writer, synth: anytype, c: u8) !void {
+    var buf: [40]u8 = undefined;
     try synthSection(w, "VOICE", blu);
 
     const vm_names = [_][]const u8{ "poly", "mono", "lgto" };
@@ -259,8 +355,10 @@ fn drawSynthEditorFull(app: anytype, w: *std.Io.Writer, snap: engine_mod.UiSnaps
 
     try barRow(w, c == 33, false, blu, "glide", synth.glide_s, 10.0,
         if (synth.glide_s == 0.0) "off" else try std.fmt.bufPrint(&buf, "{d:.3} s", .{synth.glide_s}));
+}
 
-    // ── SUB ──────────────────────────────────────
+fn secSub(w: *std.Io.Writer, synth: anytype, c: u8) !void {
+    var buf: [40]u8 = undefined;
     try synthSection(w, "SUB", acc);
 
     try barRow(w, c == 34, false, acc, "level", synth.sub_level, 1.0,
@@ -270,8 +368,10 @@ fn drawSynthEditorFull(app: anytype, w: *std.Io.Writer, snap: engine_mod.UiSnaps
         const sh_idx: usize = switch (synth.sub_shape) { .sine => 0, .square => 1 };
         try enumRow(w, c == 35, synth.sub_level == 0.0, acc, "shape", &sh_names, sh_idx);
     }
+}
 
-    // ── NOISE ────────────────────────────────────
+fn secNoise(w: *std.Io.Writer, synth: anytype, c: u8) !void {
+    var buf: [40]u8 = undefined;
     try synthSection(w, "NOISE", acc);
 
     try barRow(w, c == 36, false, acc, "level", synth.noise_level, 1.0,
@@ -282,15 +382,14 @@ fn drawSynthEditorFull(app: anytype, w: *std.Io.Writer, snap: engine_mod.UiSnaps
         try barRow(w, c == 37, synth.noise_level == 0.0, acc, "color", synth.noise_color, 1.0,
             try std.fmt.bufPrint(&buf, "{d:.2}  {s}", .{ synth.noise_color, hint }));
     }
+}
 
-    // ── OUT ──────────────────────────────────────
+fn secOut(w: *std.Io.Writer, synth: anytype, c: u8) !void {
+    var buf: [40]u8 = undefined;
     try synthSection(w, "OUT", bcyn);
 
     try barRow(w, c == 38, false, bcyn, "gain", synth.gain, 1.0,
         try std.fmt.bufPrint(&buf, "{d:.3}", .{synth.gain}));
-
-    // drawSynthEditorFull renders exactly 51 rows; the caller (drawSynthEditor)
-    // is responsible for slicing and padding to fit the terminal height.
 }
 
 pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer, cmds: []const cmd_mod.Def) !void {

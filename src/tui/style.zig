@@ -198,6 +198,15 @@ pub fn writeSplitRow(w: *std.Io.Writer, left: []const u8, right: []const u8, col
     try w.writeAll(rst);
 }
 
+/// writeClamped, then pad with spaces out to exactly `width` visible
+/// columns — the building block for side-by-side column layouts (the synth
+/// editor's wide two-column mode zips lines through this).
+pub fn writePadded(w: *std.Io.Writer, raw: []const u8, width: usize) !void {
+    try writeClamped(w, raw, width);
+    const vw = visibleWidth(raw);
+    if (vw < width) try w.splatByteAll(' ', width - vw);
+}
+
 pub fn meter(w: *std.Io.Writer, peak: f32) !void {
     const cells = 10;
     const db = types.gainToDb(peak);

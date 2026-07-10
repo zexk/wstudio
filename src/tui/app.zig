@@ -794,7 +794,7 @@ pub const App = struct {
         switch (self.view) {
             .tracks => self.tracksMouse(ev, row),
             .drum_grid => drum_ed.handleMouse(self, ev, row),
-            .synth_editor => synth_ed.handleMouse(self, ev, row),
+            .synth_editor => synth_ed.handleMouse(self, ev, row, cols),
             .sampler_editor => sampler_ed.handleMouse(self, ev, row, cols, view_rows),
             .piano_roll => piano_ed.handleMouse(self, ev, row, cols),
             .track_spectrum, .master_spectrum, .group_spectrum => spectrum_ed.handleMouse(self, ev, row, cols, view_rows),
@@ -2206,7 +2206,7 @@ pub const App = struct {
         switch (self.view) {
             .tracks          => try tui.drawTracks(self, w, content_rows, size.cols, snap),
             .drum_grid       => try tui.drawDrumGrid(self, w, content_rows, size.cols, snap),
-            .synth_editor    => try tui.drawSynthEditor(self, w, content_rows, snap),
+            .synth_editor    => try tui.drawSynthEditor(self, w, content_rows, size.cols, snap),
             .sampler_editor  => try tui.drawSamplerEditor(self, w, content_rows, size.cols, snap),
             .piano_roll      => try tui.drawPianoRoll(self, w, content_rows, size.cols, snap),
             .help            => try tui.drawHelp(w, content_rows, commands.cmds, &self.help_scroll),

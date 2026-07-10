@@ -74,6 +74,41 @@ fn moveCursor(app: *App, delta: i32) void {
     updateScroll(app);
 }
 
+/// Wide terminals split the editor into two side-by-side columns (OSC A +
+/// the shaping sections left, OSC B + modulation/output right) instead of
+/// one 51-row scroll. The widest row (MOD's six-option mode enum) needs 54
+/// visible columns, so the split starts once both columns can hold it.
+pub const two_col_min_cols: usize = 108;
+
+pub fn twoCol(cols: usize) bool {
+    return cols >= two_col_min_cols;
+}
+
+/// Left column's width in two-column mode; the right column takes the rest.
+pub fn colWidth(cols: usize) usize {
+    return cols / 2;
+}
+
+/// Column + row of `cursor` within the two-column layout (row 0 is the
+/// shared title). Must stay in sync with drawSynthColLeft/Right in
+/// views/synth.zig, exactly like paramRow mirrors the single-column order.
+pub fn paramColRow(cursor: u8) struct { col: u1, row: usize } {
+    return switch (cursor) {
+        0...5   => .{ .col = 0, .row = 2  + @as(usize, cursor) },        // OSC A (header at 1)
+        6...13  => .{ .col = 1, .row = 2  + @as(usize, cursor - 6) },    // OSC B (header at 1)
+        14...15 => .{ .col = 1, .row = 11 + @as(usize, cursor - 14) },   // MOD (header at 10)
+        16...19 => .{ .col = 0, .row = 9  + @as(usize, cursor - 16) },   // ENV (header at 8)
+        20...23 => .{ .col = 0, .row = 14 + @as(usize, cursor - 20) },   // FILTER (header at 13)
+        24...27 => .{ .col = 0, .row = 19 + @as(usize, cursor - 24) },   // FENV (header at 18)
+        28...31 => .{ .col = 1, .row = 14 + @as(usize, cursor - 28) },   // LFO (header at 13)
+        32...33 => .{ .col = 0, .row = 24 + @as(usize, cursor - 32) },   // VOICE (header at 23)
+        34...35 => .{ .col = 1, .row = 19 + @as(usize, cursor - 34) },   // SUB (header at 18)
+        36...37 => .{ .col = 1, .row = 22 + @as(usize, cursor - 36) },   // NOISE (header at 21)
+        38      => .{ .col = 1, .row = 25 },                             // OUT (header at 24)
+        else    => .{ .col = 0, .row = 0 },
+    };
+}
+
 /// Row index of `synth_cursor` within drawSynthEditor's output (0-based).
 /// Must stay in sync with the layout in tui.drawSynthEditor.
 pub fn paramRow(cursor: u8) usize {
@@ -129,12 +164,21 @@ fn adjustParam(app: *App, steps: i32) void {
 
 /// The param index whose row (in the *scrolled* on-screen layout) is `row`,
 /// or null for the title row / a row that doesn't land on any param (a
-/// section-header line). Scans `paramRow` — cheap (39 params) and it's
-/// already the exact row math the renderer uses, so no new layout logic.
-fn paramAtRow(app: *App, row: usize) ?u8 {
+/// section-header line). Scans `paramRow`/`paramColRow` — cheap (39 params)
+/// and it's already the exact row math the renderer uses, so no new layout
+/// logic. In two-column mode `x` picks the column.
+fn paramAtRow(app: *App, row: usize, x: usize, cols: u16) ?u8 {
     if (row == 0) return null; // title
     const full_row = app.synth_scroll + row;
     var i: u8 = 0;
+    if (twoCol(cols)) {
+        const col: u1 = if (x < colWidth(cols)) 0 else 1;
+        while (i < style.synth_param_count) : (i += 1) {
+            const cr = paramColRow(i);
+            if (cr.col == col and cr.row == full_row) return i;
+        }
+        return null;
+    }
     while (i < style.synth_param_count) : (i += 1) {
         if (paramRow(i) == full_row) return i;
     }
@@ -144,16 +188,16 @@ fn paramAtRow(app: *App, row: usize) ?u8 {
 /// Click a param row to select it. Scroll over a param row nudges it via
 /// the existing `adjustParam` (same step `h`/`l` use); **ctrl**+scroll is
 /// the coarse step (matches `H`/`L`).
-pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize) void {
+pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16) void {
     switch (ev.kind) {
         .press => {
-            const p = paramAtRow(app, row) orelse return;
+            const p = paramAtRow(app, row, ev.x, cols) orelse return;
             history.flushParamNudge(app);
             app.synth_cursor = p;
             updateScroll(app);
         },
         .scroll_up, .scroll_down => {
-            const p = paramAtRow(app, row) orelse return;
+            const p = paramAtRow(app, row, ev.x, cols) orelse return;
             app.synth_cursor = p;
             updateScroll(app);
             const dir: i32 = if (ev.kind == .scroll_up) 1 else -1;
