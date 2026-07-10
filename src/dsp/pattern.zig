@@ -156,6 +156,24 @@ pub const PatternPlayer = struct {
         return n;
     }
 
+    /// Remove every note on one pitch, across the whole pattern (UI
+    /// thread). Returns the count removed — the piano roll's `dd`, where a
+    /// "line" is the cursor pitch's whole row.
+    pub fn removeNotesAtPitch(self: *PatternPlayer, pitch: u7) u16 {
+        while (!self.notes_lock.tryLock()) std.atomic.spinLoopHint();
+        defer self.notes_lock.unlock();
+        var removed: u16 = 0;
+        var i: usize = 0;
+        while (i < self.note_count) {
+            if (self.notes[i].pitch == pitch) {
+                self.notes[i] = self.notes[self.note_count - 1];
+                self.note_count -= 1;
+                removed += 1;
+            } else i += 1;
+        }
+        return removed;
+    }
+
     /// Remove every note whose start_beat falls in [lo_beat, hi_beat) (UI
     /// thread). Returns the count removed — the delete half of the piano
     /// roll's visual-mode range selection.

@@ -31,10 +31,12 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
     // arming point (every pad, matching the visual-mode range) — j/k (pad
     // motion) aren't valid here, same time-range-only restriction visual
     // mode's own range select has. Vim's char/word/line hierarchy maps onto
-    // this editor as step (x, below) / 4-step group (w/b, dw/yw) / whole
-    // pattern (dd/yy) — the same operator key again (dd/yy) clears/yanks the
-    // entire pattern (every pad) rather than a zero-width range. Anything
-    // else cancels.
+    // this editor as step (x, below) / 4-step group (w/b, dw/yw) / line
+    // (dd) — a "line" is the cursor pad's whole row, so dd clears just that
+    // pad (same as X; whole-pattern clears live in a full-range visual d).
+    // yy stays the whole-pattern yank: it's the cross-track pattern-copy
+    // vehicle (`p` pastes it), and a one-pad yank would have no paste story
+    // of its own. Anything else cancels.
     if (app.drum_op_pending) |op| {
         app.drum_op_pending = null;
         switch (key) {
@@ -43,7 +45,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 '0'...'9' => { app.drum_op_pending = op; return false; },
                 'd', 'y' => {
                     if (c == op) {
-                        if (op == 'd') clearWholePattern(app) else yankWholePattern(app);
+                        if (op == 'd') clearPadRow(app) else yankWholePattern(app);
                     } else app.setStatus("cancelled", .{});
                     return true;
                 },
@@ -167,9 +169,9 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 // x: vim's char-delete — clears just the (pad, step) under
                 // the cursor, instantly, no operator needed.
                 'x' => clearCursorStep(app),
-                // d is an operator (see armOperator) — dd clears the whole
-                // pattern, d + a motion (h/l/H/L/g/G/w/b) clears the range
-                // it covers.
+                // d is an operator (see armOperator) — dd clears the cursor
+                // pad's row (like X), d + a motion (h/l/H/L/g/G/w/b) clears
+                // the range it covers.
                 'd' => armOperator(app, 'd'),
                 '<' => adjustSwing(app, -1.0),
                 '>' => adjustSwing(app, 1.0),
@@ -331,7 +333,10 @@ fn operatorBarBackward(app: *App, n: i32) void {
 fn armOperator(app: *App, op: u8) void {
     app.drum_visual_anchor = app.drum_cursor[1];
     app.drum_op_pending = op;
-    app.setStatus("{c}: h/l/H/L/g/G/w/b act on the range, {c}{c} acts on the whole pattern", .{ op, op, op });
+    if (op == 'd')
+        app.setStatus("d: h/l/H/L/g/G/w/b act on the range, dd clears the cursor pad's row", .{})
+    else
+        app.setStatus("y: h/l/H/L/g/G/w/b act on the range, yy yanks the whole pattern", .{});
 }
 
 /// Complete an operator+motion: run the range delete/yank between the
@@ -352,16 +357,16 @@ fn clearCursorStep(app: *App) void {
     app.setStatus("cleared step", .{});
 }
 
-/// `dd`: clear the whole pattern variant (every pad) — vim's whole-line dd,
-/// one tier coarser than x's single-step delete and w/b's bar range.
-fn clearWholePattern(app: *App) void {
+/// `dd`: clear every step on the cursor pad's row — vim's line-delete,
+/// where a "line" is one pad across the whole pattern (the same clear `X`
+/// does). Whole-pattern clears are a full-range visual d; pad-by-time
+/// selections are visual mode's job.
+fn clearPadRow(app: *App) void {
     const dm = app.drumMachine();
+    const pad = app.drum_cursor[0];
     history.push(app, history.captureDrum(app, app.drum_track));
-    for (0..DrumMachine.max_pads) |pad_i| {
-        var s: u8 = 0;
-        while (s < dm.step_count) : (s += 1) setStep(dm, @intCast(pad_i), s, false, 0);
-    }
-    app.setStatus("cleared pattern {c}", .{DrumMachine.variantLetter(dm.variant)});
+    dm.clearPad(pad);
+    app.setStatus("cleared pad {d}'s row", .{@as(u32, pad) + 1});
 }
 
 /// `yy`: yank the whole current pattern variant (the pre-grammar instant

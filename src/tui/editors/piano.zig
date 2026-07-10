@@ -66,9 +66,12 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
     // deleteSelection/yankSelection visual mode uses, just without the
     // visual-mode UI or its j/k pitch motion (time-range-only, like visual
     // mode). Vim's char/word/line hierarchy maps onto this editor as note
-    // (x, below) / bar (w/b, dw/yw) / whole pattern (dd/yy) — the same
-    // operator key again (dd/yy) clears/yanks the entire pattern, the tier
-    // above a bar, rather than a zero-width range. Anything else cancels.
+    // (x, below) / bar (w/b, dw/yw) / line (dd) — a "line" is the cursor
+    // pitch's whole row, so dd clears just that pitch across the pattern
+    // (whole-pattern clears live in :clear or a full-range visual d). yy
+    // stays the whole-pattern yank: it's the cross-track pattern-copy
+    // vehicle (`p` pastes it), and a one-pitch yank would have no paste
+    // story of its own. Anything else cancels.
     if (app.piano_op_pending) |op| {
         app.piano_op_pending = null;
         switch (key) {
@@ -77,7 +80,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 '0'...'9' => { app.piano_op_pending = op; return false; },
                 'd', 'y' => {
                     if (c == op) {
-                        if (op == 'd') clearPattern(app) else yank(app);
+                        if (op == 'd') clearPitchRow(app) else yank(app);
                     } else app.setStatus("cancelled", .{});
                     return true;
                 },
@@ -204,9 +207,9 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             // no operator needed (the "char" tier of the note/bar/pattern
             // hierarchy; see the operator-pending block above).
             'x' => { deleteNote(app); return true; },
-            // d is an operator (see armOperator) — dd clears the whole
-            // pattern, d + a motion (h/l/H/L/g/G/w/b) clears the range it
-            // covers.
+            // d is an operator (see armOperator) — dd clears the cursor
+            // pitch's row, d + a motion (h/l/H/L/g/G/w/b) clears the range
+            // it covers.
             'd' => { armOperator(app, 'd'); return true; },
             'a' => {
                 app.playNote(app.piano_track, app.piano_cursor_pitch, app.now_ns);
@@ -581,16 +584,28 @@ fn yank(app: *App) void {
     app.setStatus("yanked {d} notes ({d:.0} beats)", .{ clip.count, clip.length_beats });
 }
 
-/// dd: clear every note in the current pattern — vim's whole-line dd, one
-/// tier coarser than x's single-note delete and w/b's bar range.
-fn clearPattern(app: *App) void {
+/// dd: delete every note on the cursor pitch's row — vim's line-delete,
+/// where a "line" is one pitch across the whole pattern. Whole-pattern
+/// clears are :clear or a full-range visual d; pitch-by-time selections
+/// are visual mode's job.
+fn clearPitchRow(app: *App) void {
     if (app.piano_track >= app.session.racks.items.len) return;
     const pp = if (app.session.racks.items[app.piano_track].pattern_player != null)
         &app.session.racks.items[app.piano_track].pattern_player.?
     else return;
-    history.push(app, history.captureMelodic(app, app.piano_track));
-    const removed = pp.removeNotesInRange(0, pp.length_beats);
-    app.setStatus("cleared {d} notes", .{removed});
+    var nbuf: [8]u8 = undefined;
+    const name = midi.noteName(app.piano_cursor_pitch, &nbuf);
+    // Capture before the edit, but only push it if something was actually
+    // removed — a dd on an empty row shouldn't dirty or record a no-op step.
+    var entry = history.captureMelodic(app, app.piano_track);
+    const removed = pp.removeNotesAtPitch(app.piano_cursor_pitch);
+    if (removed == 0) {
+        if (entry) |*e| e.deinit(app.allocator);
+        app.setStatus("no notes on {s}", .{name});
+        return;
+    }
+    history.push(app, entry);
+    app.setStatus("cleared {d} notes on {s}", .{ removed, name });
     syncLinkedClip(app);
 }
 
@@ -645,7 +660,10 @@ fn operatorBarBackward(app: *App, max_step: u16, n: i32) void {
 fn armOperator(app: *App, op: u8) void {
     app.piano_visual_anchor = app.piano_cursor_step;
     app.piano_op_pending = op;
-    app.setStatus("{c}: h/l/H/L/g/G/w/b act on the range, {c}{c} acts on the whole pattern", .{ op, op, op });
+    if (op == 'd')
+        app.setStatus("d: h/l/H/L/g/G/w/b act on the range, dd clears the cursor pitch's row", .{})
+    else
+        app.setStatus("y: h/l/H/L/g/G/w/b act on the range, yy yanks the whole pattern", .{});
 }
 
 /// Complete an operator+motion: run the range delete/yank between the

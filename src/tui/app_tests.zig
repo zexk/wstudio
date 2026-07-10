@@ -599,10 +599,21 @@ test "piano roll operator+motion: d3l / y3l act on a range without entering visu
     try std.testing.expectEqual(before, pp.note_count);
     try std.testing.expect(pp.noteAt(72, 2.0) != null); // note under the cursor survives
 
-    // dd/yy are the tier above w/b's bar range: the whole pattern.
+    // yy stays the whole-pattern yank (the cross-track copy vehicle); dd is
+    // vim's line-delete where a "line" is the cursor pitch's row — other
+    // pitches survive.
     pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.25 });
     for ("yy") |c| app.handleKey(.{ .char = c }, 0);
     try std.testing.expectEqual(@as(u16, 2), app.piano_clip.?.count); // both remaining notes
+    app.piano_cursor_pitch = 60;
+    for ("dd") |c| app.handleKey(.{ .char = c }, 0);
+    try std.testing.expectEqual(@as(u16, 1), pp.note_count); // pitch 72 untouched
+    try std.testing.expect(pp.noteAt(72, 2.0) != null);
+    // dd on an empty row is a no-op: nothing recorded, nothing dirtied.
+    const undo_before_noop = app.history.undo_stack.items.len;
+    for ("dd") |c| app.handleKey(.{ .char = c }, 0);
+    try std.testing.expectEqual(undo_before_noop, app.history.undo_stack.items.len);
+    app.piano_cursor_pitch = 72;
     for ("dd") |c| app.handleKey(.{ .char = c }, 0);
     try std.testing.expectEqual(@as(u16, 0), pp.note_count);
 }
@@ -1072,12 +1083,18 @@ test "drum grid operator+motion: d3l / y3l act on a range without entering visua
     try std.testing.expect(!dm.stepActive(1, 2));
     try std.testing.expect(dm.stepActive(3, 14)); // untouched, outside the range
 
-    // dd/yy are the tier above w/b's bar range: the whole pattern.
+    // yy stays the whole-pattern yank (the cross-track copy vehicle); dd is
+    // vim's line-delete where a "line" is the cursor pad's row — other
+    // pads survive.
     dm.toggleStep(2, 5);
     for ("yy") |c| app.handleKey(.{ .char = c }, 0);
     try std.testing.expect(app.drum_clip != null);
+    app.drum_cursor = .{ 2, 0 };
     for ("dd") |c| app.handleKey(.{ .char = c }, 0);
     try std.testing.expect(!dm.stepActive(2, 5));
+    try std.testing.expect(dm.stepActive(3, 14)); // other pad untouched
+    app.drum_cursor = .{ 3, 0 };
+    for ("dd") |c| app.handleKey(.{ .char = c }, 0);
     try std.testing.expect(!dm.stepActive(3, 14));
 }
 
