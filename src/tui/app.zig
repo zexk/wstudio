@@ -2199,7 +2199,7 @@ pub const App = struct {
         try style.writeChromeRow(w, header_w.buffered(), size.cols);
 
         switch (self.view) {
-            .tracks          => try tui.drawTracks(self, w, content_rows, snap),
+            .tracks          => try tui.drawTracks(self, w, content_rows, size.cols, snap),
             .drum_grid       => try tui.drawDrumGrid(self, w, content_rows, size.cols, snap),
             .synth_editor    => try tui.drawSynthEditor(self, w, content_rows, snap),
             .sampler_editor  => try tui.drawSamplerEditor(self, w, content_rows, size.cols, snap),

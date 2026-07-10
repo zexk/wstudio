@@ -60,7 +60,7 @@ fn writeFxBadges(w: *std.Io.Writer, fx: *const ws.Fx) !void {
     }
 }
 
-pub fn drawTracks(app: anytype, w: *std.Io.Writer, rows: usize, snap: engine_mod.UiSnapshot) !void {
+pub fn drawTracks(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, snap: engine_mod.UiSnapshot) !void {
     _ = snap;
     try w.writeAll(bold ++ " TRACKS" ++ rst);
     try endLine(w);
@@ -92,27 +92,33 @@ pub fn drawTracks(app: anytype, w: *std.Io.Writer, rows: usize, snap: engine_mod
     const sel_hi = @max(sel_anchor, app.cursor);
 
     for (app.session.project.tracks.items[scroll..last_visible], scroll..) |track, i| {
+        // Row content builds up in a scratch buffer so the keybind hint can
+        // be pinned to the right edge (writeSplitRow) instead of trailing
+        // wherever the left content happens to end.
+        var row_buf: [768]u8 = undefined;
+        var row_w = std.Io.Writer.fixed(&row_buf);
+        const lw = &row_w;
         const in_sel = visual_active and i >= sel_lo and i <= sel_hi;
         const inst_tag = std.meta.activeTag(app.session.racks.items[i].instrument);
         const is_empty = inst_tag == .empty;
         const label: []const u8 = if (is_empty) "-- empty --" else app.session.racks.items[i].label;
         const hint: []const u8 = switch (inst_tag) {
-            .empty => " [enter:insert]",
-            .drum_machine => " [enter:grid]",
-            else => " [enter:edit]",
+            .empty => dim ++ "[enter:insert]" ++ rst,
+            .drum_machine => dim ++ "[enter:grid]" ++ rst,
+            else => dim ++ "[enter:edit]" ++ rst,
         };
         const is_sel = (i == app.cursor);
         // muted-but-not-selected rows get a dim wash over everything
         const faded = track.muted and !is_sel;
         const marker: []const u8 = if (is_sel) ">" else if (in_sel) "~" else " ";
 
-        if (is_sel) try w.writeAll(sel) else if (in_sel) try w.writeAll(yel);
-        if (faded) try w.writeAll(dim);
-        try w.writeByte(' ');
-        try w.writeAll(marker);
-        try w.writeByte(' ');
-        if (in_sel and !is_sel) try w.writeAll(rst);
-        try w.print("{d} ", .{i + 1});
+        if (is_sel) try lw.writeAll(sel) else if (in_sel) try lw.writeAll(yel);
+        if (faded) try lw.writeAll(dim);
+        try lw.writeByte(' ');
+        try lw.writeAll(marker);
+        try lw.writeByte(' ');
+        if (in_sel and !is_sel) try lw.writeAll(rst);
+        try lw.print("{d} ", .{i + 1});
         // name padded — color wraps the whole padded field so the field
         // width itself never sees an escape code (matches the label/gain
         // color-wrap pattern below); track.color == 0 is uncolored.
@@ -120,10 +126,10 @@ pub fn drawTracks(app: anytype, w: *std.Io.Writer, rows: usize, snap: engine_mod
             style.track_palette[track.color - 1]
         else
             null;
-        if (track_color) |c| try w.writeAll(c);
-        try w.print("{s: <8}", .{track.name});
-        if (track_color != null) try w.writeAll(rst);
-        try w.writeByte(' ');
+        if (track_color) |c| try lw.writeAll(c);
+        try lw.print("{s: <8}", .{track.name});
+        if (track_color != null) try lw.writeAll(rst);
+        try lw.writeByte(' ');
         // instrument-kind icon — a single Mono-font cell either way, so
         // blank tracks' plain space keeps every row's columns aligned.
         const kind_icon: []const u8 = switch (inst_tag) {
@@ -133,38 +139,38 @@ pub fn drawTracks(app: anytype, w: *std.Io.Writer, rows: usize, snap: engine_mod
             .drum_machine => icons.drum,
             .slicer => icons.slicer,
         };
-        try w.writeAll(kind_icon);
-        try w.writeByte(' ');
+        try lw.writeAll(kind_icon);
+        try lw.writeByte(' ');
         // muted indicator: yellow only when row isn't already faded
         if (track.muted) {
-            if (!faded) try w.writeAll(yel);
-            try w.writeByte('M');
-            if (!faded) try w.writeAll(rst);
-            if (is_sel) try w.writeAll(sel);
+            if (!faded) try lw.writeAll(yel);
+            try lw.writeByte('M');
+            if (!faded) try lw.writeAll(rst);
+            if (is_sel) try lw.writeAll(sel);
         } else {
-            try w.writeByte(' ');
+            try lw.writeByte(' ');
         }
         // solo indicator: green
         if (track.soloed) {
-            if (!faded) try w.writeAll(grn);
-            try w.writeByte('S');
-            if (!faded) try w.writeAll(rst);
-            if (is_sel) try w.writeAll(sel);
+            if (!faded) try lw.writeAll(grn);
+            try lw.writeByte('S');
+            if (!faded) try lw.writeAll(rst);
+            if (is_sel) try lw.writeAll(sel);
         } else {
-            try w.writeByte(' ');
+            try lw.writeByte(' ');
         }
         // instrument / rack label — accent only on active, unselected rows
-        if (!is_sel and !faded) try w.writeAll(acc);
-        try w.print(" [{s}]", .{label});
-        if (!is_sel and !faded) try w.writeAll(rst);
+        if (!is_sel and !faded) try lw.writeAll(acc);
+        try lw.print(" [{s}]", .{label});
+        if (!is_sel and !faded) try lw.writeAll(rst);
         // FX badges — the chain's units in signal-flow order. Not gated on
         // is_empty: a chain can be built before the instrument is picked.
         if (i < app.session.racks.items.len) {
             const rfx = &app.session.racks.items[i].fx;
             if (rfx.units.items.len > 0) {
-                if (!is_sel and !faded) try w.writeAll(acc);
-                try writeFxBadges(w, rfx);
-                if (!is_sel and !faded) try w.writeAll(rst);
+                if (!is_sel and !faded) try lw.writeAll(acc);
+                try writeFxBadges(lw, rfx);
+                if (!is_sel and !faded) try lw.writeAll(rst);
             }
         }
         // Gain / pan — always shown; dim at defaults, accented when non-default.
@@ -173,21 +179,21 @@ pub fn drawTracks(app: anytype, w: *std.Io.Writer, rows: usize, snap: engine_mod
             const pan = track.pan;
             // gain
             if (gdb == 0.0) {
-                if (!is_sel and !faded) try w.writeAll(dim);
-                try w.writeAll("  0dB");
-                if (!is_sel and !faded) try w.writeAll(rst);
+                if (!is_sel and !faded) try lw.writeAll(dim);
+                try lw.writeAll("  0dB");
+                if (!is_sel and !faded) try lw.writeAll(rst);
             } else {
                 const sign: []const u8 = if (gdb >= 0.0) "+" else "";
-                try w.print("  {s}{d:.0}dB", .{ sign, gdb });
+                try lw.print("  {s}{d:.0}dB", .{ sign, gdb });
             }
             // pan
             if (pan == 0.0) {
-                if (!is_sel and !faded) try w.writeAll(dim);
-                try w.writeAll("  C");
-                if (!is_sel and !faded) try w.writeAll(rst);
+                if (!is_sel and !faded) try lw.writeAll(dim);
+                try lw.writeAll("  C");
+                if (!is_sel and !faded) try lw.writeAll(rst);
             } else {
                 const pct: i32 = @intFromFloat(@abs(pan) * 100.0);
-                try w.print("  {s}{d}%", .{ if (pan < 0.0) "L" else "R", pct });
+                try lw.print("  {s}{d}%", .{ if (pan < 0.0) "L" else "R", pct });
             }
         }
         // Group membership tag — a small "belongs to" marker, only shown
@@ -196,15 +202,15 @@ pub fn drawTracks(app: anytype, w: *std.Io.Writer, rows: usize, snap: engine_mod
         if (track.group) |g| {
             if (g < app.session.groups.len) {
                 if (app.session.groups[g]) |grp| {
-                    if (!is_sel and !faded) try w.writeAll(dim);
-                    try w.print("  \u{2023}{s}", .{grp.name[0..@min(grp.name.len, 8)]});
-                    if (!is_sel and !faded) try w.writeAll(rst);
+                    if (!is_sel and !faded) try lw.writeAll(dim);
+                    try lw.print("  \u{2023}{s}", .{grp.name[0..@min(grp.name.len, 8)]});
+                    if (!is_sel and !faded) try lw.writeAll(rst);
                 }
             }
         }
-        // keybind hint — dim only when not already faded/selected
-        if (!is_sel and !faded) try w.writeAll(dim);
-        try w.writeAll(hint);
+        // keybind hint — pinned to the right edge (dropped by writeSplitRow
+        // before the row content whenever the two would collide)
+        try style.writeSplitRow(w, row_w.buffered(), hint, cols -| 1);
         try endLine(w);
     }
 
@@ -212,40 +218,42 @@ pub fn drawTracks(app: anytype, w: *std.Io.Writer, rows: usize, snap: engine_mod
     // fixed at the end, unnamed, un-deletable, and with no pan/mute/solo/
     // piano-roll (see the on_master branch in App.handleKey).
     {
+        var row_buf: [768]u8 = undefined;
+        var row_w = std.Io.Writer.fixed(&row_buf);
+        const lw = &row_w;
         const is_sel = (track_count == app.cursor);
         const marker: []const u8 = if (is_sel) ">" else " ";
-        if (is_sel) try w.writeAll(sel);
-        try w.writeByte(' ');
-        try w.writeAll(marker);
-        try w.writeAll("   ");
-        try w.print("{s: <8}", .{"MASTER"});
-        try w.writeByte(' ');
-        try w.writeAll(icons.master);
-        try w.writeAll("   ");
-        if (!is_sel) try w.writeAll(acc);
-        try w.writeAll(" [bus]");
-        if (!is_sel) try w.writeAll(rst);
+        if (is_sel) try lw.writeAll(sel);
+        try lw.writeByte(' ');
+        try lw.writeAll(marker);
+        try lw.writeAll("   ");
+        try lw.print("{s: <8}", .{"MASTER"});
+        try lw.writeByte(' ');
+        try lw.writeAll(icons.master);
+        try lw.writeAll("   ");
+        if (!is_sel) try lw.writeAll(acc);
+        try lw.writeAll(" [bus]");
+        if (!is_sel) try lw.writeAll(rst);
         {
             const mfx = &app.session.master_fx;
             if (mfx.units.items.len > 0) {
-                if (!is_sel) try w.writeAll(acc);
-                try writeFxBadges(w, mfx);
-                if (!is_sel) try w.writeAll(rst);
+                if (!is_sel) try lw.writeAll(acc);
+                try writeFxBadges(lw, mfx);
+                if (!is_sel) try lw.writeAll(rst);
             }
         }
         {
             const gdb = app.master_gain_db;
             if (gdb == 0.0) {
-                if (!is_sel) try w.writeAll(dim);
-                try w.writeAll("  0dB");
-                if (!is_sel) try w.writeAll(rst);
+                if (!is_sel) try lw.writeAll(dim);
+                try lw.writeAll("  0dB");
+                if (!is_sel) try lw.writeAll(rst);
             } else {
                 const sign: []const u8 = if (gdb >= 0.0) "+" else "";
-                try w.print("  {s}{d:.0}dB", .{ sign, gdb });
+                try lw.print("  {s}{d:.0}dB", .{ sign, gdb });
             }
         }
-        if (!is_sel) try w.writeAll(dim);
-        try w.writeAll(" [enter:fx]");
+        try style.writeSplitRow(w, row_w.buffered(), dim ++ "[enter:fx]" ++ rst, cols -| 1);
         try endLine(w);
     }
 
