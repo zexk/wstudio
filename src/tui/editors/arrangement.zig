@@ -407,9 +407,18 @@ fn cycleDrumVariant(app: *App, delta: i32) void {
 /// then jump the cursor to the clip's end for quick sequential placing.
 fn stampClip(app: *App) void {
     if (app.cursor >= app.session.racks.items.len) return;
-    if (std.meta.activeTag(app.session.racks.items[app.cursor].instrument) == .empty) {
-        app.setStatus("empty track — insert an instrument first", .{});
-        return;
+    switch (std.meta.activeTag(app.session.racks.items[app.cursor].instrument)) {
+        .empty => {
+            app.setStatus("empty track — insert an instrument first", .{});
+            return;
+        },
+        // session.stampClip would silently do nothing (no pattern player);
+        // without this guard the captureLane below parks a junk undo entry.
+        .slicer => {
+            app.setStatus("slicer tracks don't stamp clips yet — the loop plays as-is", .{});
+            return;
+        },
+        else => {},
     }
     // Stamping may evict overlapped clips; the lane snapshot covers both.
     history.push(app, history.captureLane(app, @intCast(app.cursor)));
