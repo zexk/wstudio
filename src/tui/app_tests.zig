@@ -1498,7 +1498,7 @@ test "draw shows a dirty-flag warning icon in the header once edited" {
     try std.testing.expect(std.mem.indexOf(u8, w.buffered(), icons.warn) != null);
 }
 
-test "transport indicator shows the ascii glyph without the font, the icon with it, never both" {
+test "transport indicator shows the unicode glyph without the font, the icon with it, never both" {
     var app = try testApp();
     defer app.deinit();
     var buf: [32 * 1024]u8 = undefined;
@@ -1507,13 +1507,13 @@ test "transport indicator shows the ascii glyph without the font, the icon with 
     icons.font_installed = false;
     var w = std.Io.Writer.fixed(&buf);
     try app.draw(&w, .{ .cols = 80, .rows = 24 });
-    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "[]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "\u{25A0}") != null);
     try std.testing.expect(std.mem.indexOf(u8, w.buffered(), icons.stop) == null);
 
     icons.font_installed = true;
     w = std.Io.Writer.fixed(&buf);
     try app.draw(&w, .{ .cols = 80, .rows = 24 });
-    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "[]") == null);
+    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "\u{25A0}") == null);
     try std.testing.expect(std.mem.indexOf(u8, w.buffered(), icons.stop) != null);
 
     _ = app.session.engine.send(.play);
@@ -1522,13 +1522,13 @@ test "transport indicator shows the ascii glyph without the font, the icon with 
 
     w = std.Io.Writer.fixed(&buf);
     try app.draw(&w, .{ .cols = 80, .rows = 24 });
-    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "|>") == null);
+    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "\u{25BA}") == null);
     try std.testing.expect(std.mem.indexOf(u8, w.buffered(), icons.play) != null);
 
     icons.font_installed = false;
     w = std.Io.Writer.fixed(&buf);
     try app.draw(&w, .{ .cols = 80, .rows = 24 });
-    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "|>") != null);
+    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "\u{25BA}") != null);
     try std.testing.expect(std.mem.indexOf(u8, w.buffered(), icons.play) == null);
 }
 

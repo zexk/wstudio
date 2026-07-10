@@ -2338,13 +2338,15 @@ pub const App = struct {
             if (icons.font_installed) {
                 try tw.writeAll("\x1b[32m\x1b[1m " ++ icons.play ++ "\x1b[0m");
             } else {
-                try tw.writeAll("\x1b[32m\x1b[1m |>\x1b[0m");
+                // U+25BA/U+25A0 are in CP437, so even bitmap terminal fonts
+                // (PxPlus IBM VGA etc.) have them — no icon font needed.
+                try tw.writeAll("\x1b[32m\x1b[1m \u{25BA}\x1b[0m");
             }
         } else {
             if (icons.font_installed) {
                 try tw.writeAll("\x1b[2m " ++ icons.stop ++ "\x1b[0m");
             } else {
-                try tw.writeAll("\x1b[2m []\x1b[0m");
+                try tw.writeAll("\x1b[2m \u{25A0}\x1b[0m");
             }
         }
         if (self.session.metronome_enabled) {
