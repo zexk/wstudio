@@ -136,7 +136,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.taggedSection(.tracks, "TRACKS");
     t.key("j / k",        "move cursor down / up — one slot past the last track is MASTER");
     t.key("enter",        "edit track (synth or drum grid) — on MASTER: open its FX chain");
-    t.key("p",            "piano roll for synth tracks");
+    t.key("p",            "piano roll for melodic tracks (synth or sampler)");
     t.key("s",            "FX chain for selected track — on MASTER: same for the bus");
     t.key("m",            "mute / unmute selected track");
     t.key("S",            "solo / unsolo selected track");
@@ -171,7 +171,9 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("j / k",        "move cursor down / up (pad)");
     t.key("J / K",        "jump a whole bank of 8 pads (64 pads total, paged 8 at a time)");
     t.key("g / G",        "jump step cursor to pattern start / end");
+    t.key("w / b",        "jump to the next / previous bar start");
     t.key("enter",        "toggle step on/off");
+    t.key("x",            "clear the step at cursor");
     t.key("c",            "cycle step velocity presets (127/95/63/31)");
     t.key("{ / }",        "nudge step velocity down / up by 1 (count-scaled, full 1-127 range)");
     t.key("v",            "visual mode: select a step range (all pads) — y/d/P");
@@ -191,7 +193,9 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("[ / ]",        "prev / next pattern variant (A–H)");
     t.key("N",            "new pattern variant (copy of current)");
     t.key("D",            "delete current pattern variant");
-    t.key("y / p",        "yank / paste pattern (works across tracks); p pastes the latest yank");
+    t.key("d / y",        "operator: add a motion (h/l/H/L/w/b/g/G, counts work: d3l) to clear / yank that range");
+    t.key("dd / yy",      "clear the cursor pad's row / yank the whole pattern");
+    t.key("p",            "paste the latest yank (whole pattern or range, works across tracks)");
     t.key("(visual) y/d/p", "range yank / clear / paste (v to enter, hjkl to extend)");
     t.key(".",            "repeat last visual-mode range delete/paste at the cursor");
 
@@ -241,9 +245,10 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("j / k",        "move cursor down / up (pitch)");
     t.key("J / K",        "move cursor down / up (one octave)");
     t.key("g / G",        "jump cursor to loop start / end");
-    t.key("enter",        "toggle note at cursor");
+    t.key("w / b",        "jump to the next / previous bar start");
+    t.key("enter / n",    "toggle / insert note at cursor");
+    t.key("x",            "delete note at cursor");
     t.key("M",            "grab note at cursor — h/l/j/k drag it, esc drops");
-    t.key("n / d",        "insert / delete note at cursor (aliases)");
     t.key("a",            "preview note at cursor");
     t.key("i",            "insert mode: play the qwerty piano (a-row/q-row, z/x octave)");
     t.key("(insert) space","start recording — clicks a one-bar count-in first if stopped");
@@ -253,7 +258,9 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("s",            "FX chain for this track");
     t.key("[ / ]",        "resize note at cursor, else set default length (count-scaled)");
     t.key("+ / -",        "lengthen / shorten loop (1 bar)");
-    t.key("y / p",        "yank / paste pattern (works across tracks); p pastes the latest yank");
+    t.key("d / y",        "operator: add a motion (h/l/H/L/w/b/g/G, counts work: d3l, y2w) to clear / yank that range");
+    t.key("dd / yy",      "clear the cursor pitch's row / yank the whole pattern");
+    t.key("p",            "paste the latest yank (whole pattern or range, works across tracks)");
     t.key("v",            "visual mode: select a step range (all pitches) — y/d/p");
     t.key(".",            "repeat the last nudge, drag, or visual range delete/paste");
     t.key("c / C",        "stamp a triad / 7th chord at cursor (:scale-aware)");
