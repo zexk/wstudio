@@ -15,6 +15,7 @@ const DrumRangeClip = app_mod.DrumRangeClip;
 const history = @import("../history.zig");
 const spectrum = @import("spectrum.zig");
 const preset_picker = @import("preset_picker.zig");
+const drum_view = @import("../views/drum.zig");
 
 pub fn handleKey(app: *App, key: modal_mod.Key) bool {
     const pad = &app.drum_cursor[0];
@@ -574,7 +575,7 @@ fn stepAt(scroll: u32, step_count: u8, x: usize) ?u8 {
 /// click produced — `setStep` is idempotent, so repeated motion events over
 /// the same cell are harmless. Scroll moves the step cursor, or — over the
 /// gutter — the pad cursor, regardless of which row the mouse sits on.
-pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize) void {
+pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, view_rows: usize) void {
     switch (ev.kind) {
         .scroll_up, .scroll_down => {
             const delta: i32 = if (ev.kind == .scroll_up) -1 else 1;
@@ -585,11 +586,20 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize) void {
     }
 
     if (row < 2) return; // title / step-number header rows — see views/drum.zig
-    // Row 2 is the current bank's first pad, not absolute pad 0 — mirrors
-    // views/drum.zig's own bank_start = (cur_pad/8)*8 windowing.
-    const bank_start = (app.drum_cursor[0] / 8) * 8;
-    const pad = bank_start + (row - 2);
-    if (row - 2 >= 8 or pad >= DrumMachine.max_pads) return;
+    // Row 2 is the visible bank window's first pad, not absolute pad 0 —
+    // mirrors views/drum.zig's bankWindowStart/banksShown windowing. Each
+    // stacked bank after the first opens with its own step-header rule, so
+    // banks occupy pads_per_bank + 1 rows past the first; the header rows
+    // themselves map to no pad.
+    const per_bank = drum_view.pads_per_bank;
+    const rel = row - 2;
+    const block = rel / (per_bank + 1);
+    const within = rel % (per_bank + 1);
+    if (within == per_bank) return; // a stacked bank's step-header rule
+    if (block >= drum_view.banksShown(view_rows)) return;
+    const bank_start = drum_view.bankWindowStart(app.drum_cursor[0], view_rows);
+    const pad = bank_start + block * per_bank + within;
+    if (pad >= DrumMachine.max_pads) return;
 
     switch (ev.kind) {
         .press => {

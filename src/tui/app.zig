@@ -793,7 +793,7 @@ pub const App = struct {
         const view_rows: usize = @max(rows, 10);
         switch (self.view) {
             .tracks => self.tracksMouse(ev, row),
-            .drum_grid => drum_ed.handleMouse(self, ev, row),
+            .drum_grid => drum_ed.handleMouse(self, ev, row, view_rows),
             .synth_editor => synth_ed.handleMouse(self, ev, row, cols),
             .sampler_editor => sampler_ed.handleMouse(self, ev, row, cols, view_rows),
             .piano_roll => piano_ed.handleMouse(self, ev, row, cols),

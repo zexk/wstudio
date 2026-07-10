@@ -47,6 +47,32 @@ const enumRow = style.enumRow;
 pub const gutter: usize = 10;
 const cell_width: usize = 3;
 
+pub const pads_per_bank: usize = 8;
+
+/// How many 8-pad banks the grid stacks at once: tall terminals show 2/4/8
+/// banks instead of leaving the rows blank. Snapped to divisors of the bank
+/// count so the paging groups always align. Every bank after the first
+/// costs pads_per_bank + 1 rows (its own step-header rule marks the bank
+/// boundary). `rows` is the view's content-row budget (drawDrumGrid's
+/// `rows` / handleMouse's view_rows); pad rows fit while used = title(1) +
+/// header(1) + bank rows + 2 stays inside rows - 3.
+pub fn banksShown(rows: usize) usize {
+    const budget = rows -| 7;
+    inline for ([_]usize{ 8, 4, 2 }) |n| {
+        if (n * pads_per_bank + (n - 1) <= budget) return n;
+    }
+    return 1;
+}
+
+/// First pad of the window showing the bank group that contains `cur_pad`
+/// (always a multiple of pads_per_bank). Mirrored by editors/drum.zig's
+/// mouse pad mapping — keep both on this helper.
+pub fn bankWindowStart(cur_pad: u8, rows: usize) usize {
+    const shown = banksShown(rows);
+    const bank = @as(usize, cur_pad) / pads_per_bank;
+    return (bank / shown) * shown * pads_per_bank;
+}
+
 /// How many steps fit in `cols` at cell_width each, PLUS the periodic "│"
 /// separator (one extra column every 4 steps) — a plain `(cols-gutter)/
 /// cell_width` overcounts by ignoring that extra column and overflows the
@@ -93,15 +119,15 @@ pub fn drawDrumGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, s
     const sel_lo: u32 = @min(sel_anchor, cur_step);
     const sel_hi: u32 = @max(sel_anchor, cur_step);
     const playing_step_u32: u32 = playing_step;
-    // MPC-style pad banking: the grid windows to 8 rows at a time — the
-    // bank containing the cursor, not a smooth scroll — so 64 pads never
-    // blow out the terminal height. J/K (editors/drum.zig) jump a whole
-    // bank; j/k crossing a bank boundary pages the window along with them.
-    const pads_per_bank = 8;
+    // MPC-style pad banking: the grid windows to whole banks — the bank
+    // group containing the cursor, not a smooth scroll — so 64 pads never
+    // blow out the terminal height. Tall terminals stack several banks at
+    // once (banksShown); J/K (editors/drum.zig) jump a whole bank; j/k
+    // crossing the window's edge pages it along with them.
     const bank_count = (DrumMachine.max_pads + pads_per_bank - 1) / pads_per_bank;
     const bank = cur_pad / pads_per_bank;
-    const bank_start = bank * pads_per_bank;
-    const bank_end = @min(bank_start + pads_per_bank, DrumMachine.max_pads);
+    const bank_start = bankWindowStart(cur_pad, rows);
+    const bank_end = @min(bank_start + banksShown(rows) * pads_per_bank, DrumMachine.max_pads);
     try w.writeAll(bold ++ " " ++ icons.drum ++ " DRUMS" ++ rst);
     try w.print(" \"{s}\"", .{track_name});
     try w.writeAll("  " ++ acc);
@@ -109,23 +135,32 @@ pub fn drawDrumGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, s
     try w.writeAll(rst ++ dim);
     try w.print(" {d}/{d}", .{ dm.variant + 1, dm.variant_count });
     try w.writeAll(dim ++ "  bank " ++ rst);
-    try w.print("{d}/{d}", .{ bank + 1, bank_count });
+    if (bank_end - bank_start > pads_per_bank) {
+        try w.print("{d}-{d}/{d}", .{ bank_start / pads_per_bank + 1, (bank_end - 1) / pads_per_bank + 1, bank_count });
+    } else {
+        try w.print("{d}/{d}", .{ bank + 1, bank_count });
+    }
     try endLine(w);
 
     // step header — only the visible scroll window is shown
-    try w.writeAll(dim ++ "          ");
-    var col: u32 = 0;
-    while (col < visible and scroll + col < step_count_u32) : (col += 1) {
-        const s = scroll + col;
-        if (s % 4 == 0) try w.writeAll("│");
-        try w.print("{d:>2} ", .{s + 1});
-    }
-    try endLine(w);
+    try writeStepHeader(w, "", scroll, visible, step_count_u32);
 
     // One tint per choke group so paired pads (e.g. closed/open hihat) read
     // at a glance; ungrouped pads stay dim as before.
     const choke_colors = [_][]const u8{ yel, mag, blu, red };
+    var printed: usize = 0;
+    var buf: [10]u8 = undefined;
     for (bank_start..bank_end) |p| {
+        // Every stacked bank after the first opens with its own step-header
+        // rule, labeled with the bank number in the pad-name gutter — both
+        // the bank boundary and a nearby step ruler on tall grids. Mirrored
+        // by editors/drum.zig's mouse pad mapping (pads_per_bank + 1 rows
+        // per stacked bank).
+        if (p != bank_start and p % pads_per_bank == 0) {
+            const label = std.fmt.bufPrint(&buf, "bank {d}", .{p / pads_per_bank + 1}) catch "";
+            try writeStepHeader(w, label, scroll, visible, step_count_u32);
+            printed += 1;
+        }
         const name = dm.padName(@intCast(p));
         const group = dm.choke_group[p];
         try w.writeAll(if (group != 0) choke_colors[(group - 1) % choke_colors.len] else dim);
@@ -133,7 +168,7 @@ pub fn drawDrumGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, s
         // at 4 the two stock toms both rendered as "tom-".
         try w.print(" {s: <8} ", .{name[0..@min(name.len, 8)]});
         try w.writeAll(rst);
-        col = 0;
+        var col: u32 = 0;
         while (col < visible and scroll + col < step_count_u32) : (col += 1) {
             const s = scroll + col;
             if (s % 4 == 0) {
@@ -168,10 +203,27 @@ pub fn drawDrumGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, s
             try w.writeAll(rst);
         }
         try endLine(w);
+        printed += 1;
     }
 
-    const used = 4 + (bank_end - bank_start);
+    const used = 4 + printed;
     for (used..@max(used, rows -| 3)) |_| try endLine(w);
+}
+
+/// One dim step-number ruler row: `label` sits in the 10-column pad-name
+/// gutter (blank for the top header, "bank N" for stacked-bank boundaries),
+/// then the visible step numbers with the same periodic "│" separators the
+/// pad rows use.
+fn writeStepHeader(w: *std.Io.Writer, label: []const u8, scroll: u32, visible: u32, step_count: u32) !void {
+    try w.writeAll(dim);
+    try w.print(" {s: <9}", .{label});
+    var col: u32 = 0;
+    while (col < visible and scroll + col < step_count) : (col += 1) {
+        const s = scroll + col;
+        if (s % 4 == 0) try w.writeAll("│");
+        try w.print("{d:>2} ", .{s + 1});
+    }
+    try endLine(w);
 }
 
 pub fn drawDrumStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer, cmds: []const cmd_mod.Def) !void {
@@ -187,7 +239,7 @@ pub fn drawDrumStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer, cm
     const s = app.drum_cursor[1];
     const dm = app.drumMachine();
     try style.writeModeBadge(w, app.modal.mode);
-    try right.writeAll(acc ++ "DRUM" ++ rst);
+    try style.writeViewBadge(right, "DRUM");
     try w.writeAll(dim ++ "  pat " ++ rst);
     try w.print("{c}", .{DrumMachine.variantLetter(dm.variant)});
     try w.writeAll(dim ++ "/" ++ rst);
