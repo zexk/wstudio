@@ -181,6 +181,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("i",            "insert mode: play pads on the qwerty piano (pitch wraps to pad 1-64)");
     t.key("(insert) space","start recording — clicks a one-bar count-in first if stopped");
     t.key("(insert) esc", "back to normal — while playing, hits recorded at the playhead");
+    t.key("f",            "kit picker — regenerate all pads from a kit variant (/ filters by name/tag)");
     t.key("R",            "rename current pad (opens :pad-rename <n>, 8 chars max)");
     t.key("e",            "open sampler editor for current pad");
     t.key("s",            "FX chain for drum track");
@@ -231,6 +232,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("H / L",        "adjust value (coarse ×10)");
     t.key("p",            "open piano roll for this track");
     t.key("s",            "FX chain for this track");
+    t.key("f",            "preset picker — factory + saved patches, / filters by name/tag/author");
     t.key(":synth-preset-save", "<name>  save the current params as a reusable preset");
 
     t.taggedSection(.piano_roll, "PIANO ROLL");

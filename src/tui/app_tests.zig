@@ -19,6 +19,7 @@ const style = @import("style.zig");
 const piano_ed = @import("editors/piano.zig");
 const sampler_ed = @import("editors/sampler.zig");
 const spectrum_ed = @import("editors/spectrum.zig");
+const preset_ed = @import("editors/preset_picker.zig");
 const icons = @import("icons.zig");
 const modal_mod = ws.input;
 
@@ -3836,4 +3837,98 @@ test "below the minimum terminal size, draw gates to the too-small notice" {
     const out2 = w2.buffered();
     try std.testing.expect(std.mem.indexOf(u8, out2, "terminal too small") == null);
     try std.testing.expect(std.mem.indexOf(u8, out2, "TRACKS") != null);
+}
+
+test "f in the synth editor opens the preset picker; / narrows and enter applies" {
+    var app = try testApp();
+    defer app.deinit();
+    app.synth_track = 0;
+    app.view = .synth_editor;
+
+    app.handleKey(.{ .char = 'f' }, 0);
+    try std.testing.expectEqual(AppView.preset_picker, app.view);
+    try std.testing.expectEqual(preset_ed.Kind.synth, app.preset_picker_kind);
+
+    // `/` filters live via the modal search prompt; enter submits it and
+    // stays in the picker with the narrowed list.
+    for ("/acid-bass") |c| app.handleKey(.{ .char = c }, 0);
+    try std.testing.expectEqual(ws.input.Mode.search, app.modal.mode);
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
+    try std.testing.expectEqual(AppView.preset_picker, app.view);
+    var buf: [preset_ed.max_display_rows]preset_ed.DisplayRow = undefined;
+    try std.testing.expectEqual(@as(usize, 1), preset_ed.entryCountOf(preset_ed.buildDisplayRows(&app, &buf)));
+
+    // Enter applies the survivor to the synth and bounces back.
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqual(AppView.synth_editor, app.view);
+    const s = &app.session.racks.items[0].instrument.poly_synth;
+    const expected = ws.dsp.synth_presets.find("acid-bass").?;
+    try std.testing.expectEqual(expected.voice_mode, s.voice_mode);
+    try std.testing.expectApproxEqAbs(expected.filter_res, s.filter_res, 1e-6);
+    try std.testing.expect(app.dirty);
+}
+
+test "preset-picker filter reaches genre tags and user-saved presets" {
+    var app = try testApp();
+    defer app.deinit();
+    // A saved preset alongside the factory list — App.deinit frees the name.
+    const name = try app.allocator.dupe(u8, "my-fave");
+    var patch: ws.dsp.PolySynth.Patch = .{};
+    patch.gain = 0.42;
+    try app.user_synth_presets.append(app.allocator, .{ .name = name, .patch = patch });
+
+    app.synth_track = 0;
+    app.view = .synth_editor;
+    app.handleKey(.{ .char = 'f' }, 0);
+
+    // A pure genre tag narrows to exactly that genre's presets.
+    for ("/psytrance") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    var buf: [preset_ed.max_display_rows]preset_ed.DisplayRow = undefined;
+    try std.testing.expectEqual(@as(usize, 3), preset_ed.entryCountOf(preset_ed.buildDisplayRows(&app, &buf)));
+
+    // The saved preset is reachable by name and applies. (Its "saved"
+    // category is matchable too, but as a subsequence it also catches
+    // synthwave-lead — s,a,v,e,d — so the name is the precise handle.)
+    for ("/my-fave") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqual(@as(usize, 1), preset_ed.entryCountOf(preset_ed.buildDisplayRows(&app, &buf)));
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqual(AppView.synth_editor, app.view);
+    const s = &app.session.racks.items[0].instrument.poly_synth;
+    try std.testing.expectApproxEqAbs(@as(f32, 0.42), s.gain, 1e-6);
+}
+
+test "f in the drum grid opens the kit picker and enter regenerates the pads" {
+    var app = try testApp();
+    defer app.deinit();
+    app.drum_track = 2;
+    app.view = .drum_grid;
+
+    app.handleKey(.{ .char = 'f' }, 0);
+    try std.testing.expectEqual(AppView.preset_picker, app.view);
+    try std.testing.expectEqual(preset_ed.Kind.drum, app.preset_picker_kind);
+
+    // j to the second variant ("analog"), enter applies it.
+    app.handleKey(.{ .char = 'j' }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqual(AppView.drum_grid, app.view);
+    try std.testing.expect(app.dirty);
+    const status = app.status_buf[0..app.status_len];
+    try std.testing.expect(std.mem.indexOf(u8, status, "analog") != null);
+}
+
+test "esc leaves the preset picker without applying anything" {
+    var app = try testApp();
+    defer app.deinit();
+    app.synth_track = 0;
+    app.view = .synth_editor;
+    const gain_before = app.session.racks.items[0].instrument.poly_synth.gain;
+
+    app.handleKey(.{ .char = 'f' }, 0);
+    app.handleKey(.{ .char = 'j' }, 0);
+    app.handleKey(.escape, 0);
+    try std.testing.expectEqual(AppView.synth_editor, app.view);
+    try std.testing.expectApproxEqAbs(gain_before, app.session.racks.items[0].instrument.poly_synth.gain, 1e-6);
 }

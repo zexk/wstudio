@@ -272,6 +272,7 @@ pub fn cmdHelp(app: *App, _: []const u8) void {
         .automation, .automation_param_picker => .automation,
         .track_spectrum, .master_spectrum, .group_spectrum, .fx_picker => .spectrum,
         .file_browser => .file_browser,
+        .preset_picker => switch (app.preset_picker_kind) { .synth => .synth_editor, .drum => .drum_grid },
         .help, .instrument_picker => null,
     };
     app.prev_view = app.view;

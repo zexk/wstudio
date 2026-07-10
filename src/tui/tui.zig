@@ -76,6 +76,7 @@ const sampler = @import("views/sampler.zig");
 const arrangement = @import("views/arrangement.zig");
 const browser = @import("views/browser.zig");
 const automation = @import("views/automation.zig");
+const preset_picker = @import("views/preset_picker.zig");
 
 pub const drawTracks = tracks.drawTracks;
 pub const drawTracksStatus = tracks.drawTracksStatus;
@@ -102,3 +103,5 @@ pub const drawFileBrowserStatus = browser.drawFileBrowserStatus;
 pub const drawAutomation = automation.drawAutomation;
 pub const drawAutomationStatus = automation.drawAutomationStatus;
 pub const drawAutomationParamPicker = automation.drawAutomationParamPicker;
+pub const drawPresetPicker = preset_picker.drawPresetPicker;
+pub const drawPresetPickerStatus = preset_picker.drawPresetPickerStatus;

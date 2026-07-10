@@ -14,6 +14,7 @@ const App = app_mod.App;
 const DrumRangeClip = app_mod.DrumRangeClip;
 const history = @import("../history.zig");
 const spectrum = @import("spectrum.zig");
+const preset_picker = @import("preset_picker.zig");
 
 pub fn handleKey(app: *App, key: modal_mod.Key) bool {
     const pad = &app.drum_cursor[0];
@@ -220,6 +221,8 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                     } else app.setStatus("can't delete the only pattern", .{});
                 },
                 's' => { spectrum.switchToTrack(app, app.drum_track); return true; },
+                // f browses kit variants — same apply path as :drum-kit.
+                'f' => { preset_picker.open(app, .drum, app.drum_track); return true; },
                 'R' => { startPadRenamePrompt(app); return true; },
                 'e' => {
                     app.sampler_target = .{ .drum = app.drum_track };

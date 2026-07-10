@@ -9,6 +9,7 @@ const style = @import("../style.zig");
 const App = @import("../app.zig").App;
 const spectrum = @import("spectrum.zig");
 const piano = @import("piano.zig");
+const preset_picker = @import("preset_picker.zig");
 const history = @import("../history.zig");
 
 pub fn handleKey(app: *App, key: modal_mod.Key) bool {
@@ -22,6 +23,8 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             // p opens the piano roll for this track (matches p in the tracks view);
             // e in the piano roll comes back here, so synth <-> roll is bidirectional.
             'p' => { history.flushParamNudge(app); piano.switchTo(app, app.synth_track); return true; },
+            // f browses factory + saved presets — same apply path as :synth-preset.
+            'f' => { history.flushParamNudge(app); preset_picker.open(app, .synth, app.synth_track); return true; },
             'u' => { history.doUndo(app); return true; },
             'U' => { history.doRedo(app); return true; },
             // j/k rows and h/l nudges take a vim count prefix (3j, 5l, …).

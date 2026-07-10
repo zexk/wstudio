@@ -31,6 +31,7 @@ const piano_ed = @import("editors/piano.zig");
 const spectrum_ed = @import("editors/spectrum.zig");
 const arrangement_ed = @import("editors/arrangement.zig");
 const automation_ed = @import("editors/automation.zig");
+const preset_ed = @import("editors/preset_picker.zig");
 const user_presets = @import("user_presets.zig");
 const fuzzy = @import("fuzzy.zig");
 
@@ -54,7 +55,7 @@ const tap_timeout_ns: i96 = 2 * std.time.ns_per_s;
 /// Minimum gap between silent `<path>~` backups; see `maybeAutosave`.
 const autosave_interval_ns: i96 = 30 * std.time.ns_per_s;
 
-pub const AppView = enum { tracks, drum_grid, synth_editor, sampler_editor, help, track_spectrum, master_spectrum, group_spectrum, piano_roll, instrument_picker, fx_picker, arrangement, file_browser, automation, automation_param_picker, slicer_grid };
+pub const AppView = enum { tracks, drum_grid, synth_editor, sampler_editor, help, track_spectrum, master_spectrum, group_spectrum, piano_roll, instrument_picker, fx_picker, arrangement, file_browser, automation, automation_param_picker, slicer_grid, preset_picker };
 
 /// Which waveform marker a sampler-editor mouse drag is moving — see
 /// `App.sampler_drag_marker` and editors/sampler.zig's handleMouse.
@@ -449,6 +450,23 @@ pub const App = struct {
     /// has something to search (tracks, file browser).
     search_pattern_buf: [modal_mod.ModalInput.max_cmd_len]u8 = undefined,
     search_pattern_len: usize = 0,
+    /// Preset picker (`f` in the synth editor / drum grid — see editors/
+    /// preset_picker.zig): which preset system it's browsing, the track an
+    /// accepted preset applies to, and the view escape bounces back to.
+    preset_picker_kind: preset_ed.Kind = .synth,
+    preset_picker_track: u16 = 0,
+    preset_picker_return: AppView = .tracks,
+    /// Cursor as an ordinal into the *filtered* entries (headers excluded);
+    /// scroll is in printed display rows, clamped at draw like
+    /// `automation_param_scroll`.
+    preset_picker_cursor: usize = 0,
+    preset_picker_scroll: usize = 0,
+    /// Last submitted `/` filter for the preset picker — separate from the
+    /// global search register because it narrows a list rather than jumping
+    /// a cursor, and clears on every open. While the prompt is still being
+    /// typed the live buffer wins; see `preset_ed.activeFilter`.
+    preset_filter_buf: [modal_mod.ModalInput.max_cmd_len]u8 = undefined,
+    preset_filter_len: usize = 0,
 
     pub const ReloadRequest = enum { none, blank, load, restore_backup };
 
@@ -661,6 +679,12 @@ pub const App = struct {
                 self.applyAction(self.modal.handle(key), now_ns);
             } else { self.modal.count = 0; },
             .automation_param_picker => self.handleAutomationParamPickerKey(key),
+            // `/` (and the search mode it enters) is routed to the modal
+            // prompt so the picker's filter narrows live while typing —
+            // submit/cancel land in applyAction's `.search_submit` case.
+            .preset_picker => if (self.modal.mode == .search or (key == .char and key.char == '/')) {
+                self.applyAction(self.modal.handle(key), now_ns);
+            } else preset_ed.handleKey(self, key),
             .tracks => {
                 // Visual mode: a contiguous track-range selection, checked
                 // first so it can't leak into the normal-mode bindings below
@@ -781,6 +805,7 @@ pub const App = struct {
             .help => self.helpMouse(ev),
             .automation => automation_ed.handleMouse(self, ev, row),
             .automation_param_picker => self.automationParamPickerMouse(ev, row),
+            .preset_picker => preset_ed.handleMouse(self, ev, row),
             .slicer_grid => slicer_ed.handleMouse(self, ev, row),
         }
     }
@@ -1343,6 +1368,7 @@ pub const App = struct {
             .sampler_editor => self.sampler_target.track(),
             .track_spectrum => self.eq_track,
             .automation     => self.automation_track,
+            .preset_picker  => self.preset_picker_track,
             else            => @intCast(self.cursor),
         };
     }
@@ -1464,6 +1490,15 @@ pub const App = struct {
                 switch (self.view) {
                     .tracks => self.searchTracks(1),
                     .file_browser => self.searchBrowser(1),
+                    // The picker's `/` is a list filter, not a cursor jump:
+                    // submitting commits the pattern (empty clears it) and
+                    // rests the cursor on the narrowed list's first entry.
+                    .preset_picker => {
+                        const len = @min(text.len, self.preset_filter_buf.len);
+                        @memcpy(self.preset_filter_buf[0..len], text[0..len]);
+                        self.preset_filter_len = len;
+                        self.preset_picker_cursor = 0;
+                    },
                     else => self.setStatus("search not available in this view", .{}),
                 }
             },
@@ -1930,6 +1965,16 @@ pub const App = struct {
                 self.view = .tracks;
             },
             .automation, .automation_param_picker => if (automation_ed.currentClip(self) == null) { self.view = .arrangement; },
+            // Accepting applies to preset_picker_track — if that track
+            // vanished or changed kind, retreat to tracks rather than back
+            // into an editor whose target is gone.
+            .preset_picker => {
+                const ok = switch (self.preset_picker_kind) {
+                    .synth => kindIs(racks, self.preset_picker_track, .poly_synth),
+                    .drum => kindIs(racks, self.preset_picker_track, .drum_machine),
+                };
+                if (!ok) self.view = .tracks;
+            },
             else => {},
         }
     }
@@ -2169,6 +2214,7 @@ pub const App = struct {
             .automation      => try tui.drawAutomation(self, w, content_rows, size.cols, snap),
             .automation_param_picker => try tui.drawAutomationParamPicker(self, w, content_rows),
             .slicer_grid     => try tui.drawSlicerGrid(self, w, content_rows, size.cols, snap),
+            .preset_picker   => try tui.drawPresetPicker(self, w, content_rows),
         }
 
         var transport: Transport = .{
@@ -2272,6 +2318,7 @@ pub const App = struct {
             .automation      => try tui.drawAutomationStatus(self, &status_w, &status_right_w, commands.cmds),
             .automation_param_picker => try status_w.writeAll(" j/k: move   enter: pick   esc: cancel"),
             .slicer_grid     => try tui.drawSlicerStatus(self, &status_w, &status_right_w, commands.cmds),
+            .preset_picker   => try tui.drawPresetPickerStatus(self, &status_w),
         }
         try style.writeSplitRow(w, status_w.buffered(), status_right_w.buffered(), size.cols -| 1);
         // Erase from cursor to end of screen so stale content from taller
