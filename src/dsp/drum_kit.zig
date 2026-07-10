@@ -141,6 +141,10 @@ pub const SnareParams = struct {
     noise_decay: f32 = 17.0,
     drive: f32 = 1.4,
     dur_s: f32 = 0.27,
+    /// Noise band-pass edges: lower `lp_hz` muffles the crack (tape/lo-fi),
+    /// higher opens it up. Defaults reproduce the original hardcoded band.
+    lp_hz: f32 = 8500.0,
+    hp_hz: f32 = 900.0,
 };
 
 /// Tuned two-tone shell plus bandpassed noise for the snares.
@@ -154,8 +158,8 @@ fn snareGen(allocator: std.mem.Allocator, sr: u32, p: SnareParams) std.mem.Alloc
     var lp: OnePole = .{};
     var hp: OnePole = .{};
     var mud: OnePole = .{};
-    const lp_a = cutoffAlpha(8500.0, srf);
-    const hp_a = cutoffAlpha(900.0, srf);
+    const lp_a = cutoffAlpha(p.lp_hz, srf);
+    const hp_a = cutoffAlpha(p.hp_hz, srf);
     const mud_a = cutoffAlpha(170.0, srf);
     for (buf, 0..) |*s, i| {
         const t = @as(f32, @floatFromInt(i)) / srf;
@@ -518,6 +522,264 @@ fn rimBoombap(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f
     });
 }
 
+// G-funk: long analog boom kick, dry cracking snare, tight crisp hats, a
+// snap-forward clap. The low end sustains; everything above it stays short.
+fn kickGfunk(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return kickGen(allocator, sr, .{
+        .freq_end = 46.0, .freq_start_add = 75.0, .pitch_decay = 35.0, .body_decay = 4.5,
+        .click_decay = 420.0, .click_freq = 1400.0, .click_mix = 0.2, .drive = 3.4, .dur_s = 0.7,
+    });
+}
+fn snareGfunk(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return snareGen(allocator, sr, .{
+        .tone1_hz = 175.0, .tone2_hz = 250.0, .tone_decay = 22.0, .noise_decay = 15.0,
+        .drive = 1.9, .dur_s = 0.25, .lp_hz = 7000.0, .hp_hz = 1000.0,
+    });
+}
+fn hihatGfunkClosed(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return metalHat(allocator, sr, .{ .dur_s = 0.05, .decay = 120.0, .body_hz = 6200.0, .air_hz = 8500.0, .air_mix = 0.2 });
+}
+fn hihatGfunkOpen(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return metalHat(allocator, sr, .{ .dur_s = 0.3, .decay = 11.0, .body_hz = 6200.0, .air_hz = 8500.0, .air_mix = 0.2 });
+}
+fn clapGfunk(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return clapGen(allocator, sr, .{
+        .lp_hz = 2800.0, .hp_hz = 1100.0, .burst_decay = 210.0, .tail_decay = 15.0, .tail_mix = 0.45, .dur_s = 0.3,
+    });
+}
+fn tomGfunk1(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return tomGen(allocator, sr, .{
+        .freq_start = 170.0, .freq_end = 85.0, .dur_s = 0.55, .body_decay = 4.5,
+        .attack_decay = 110.0, .drive = 2.0, .attack_mix = 0.1, .seed = 0x751,
+    });
+}
+fn tomGfunk2(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return tomGen(allocator, sr, .{
+        .freq_start = 120.0, .freq_end = 60.0, .dur_s = 0.65, .body_decay = 4.0,
+        .attack_decay = 110.0, .drive = 2.0, .attack_mix = 0.1, .seed = 0x752,
+    });
+}
+fn rimGfunk(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return rimGen(allocator, sr, .{
+        .tone1_hz = 1650.0, .tone2_hz = 1080.0, .tone_decay = 150.0, .click_decay = 300.0, .drive = 2.0, .dur_s = 0.07,
+    });
+}
+
+// City-pop: dry late-70s/80s studio character — punchy definite kick, a fat
+// snare cut short as if gated, clean hats, tight room clap, disco-ish toms.
+fn kickCitypop(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return kickGen(allocator, sr, .{
+        .freq_end = 60.0, .freq_start_add = 140.0, .pitch_decay = 65.0, .body_decay = 16.0,
+        .click_decay = 320.0, .click_freq = 1800.0, .click_mix = 0.7, .drive = 2.0, .dur_s = 0.25,
+    });
+}
+fn snareCitypop(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return snareGen(allocator, sr, .{
+        .tone1_hz = 195.0, .tone2_hz = 285.0, .tone_decay = 26.0, .noise_decay = 12.0,
+        .drive = 1.6, .dur_s = 0.2, .lp_hz = 7500.0, .hp_hz = 950.0,
+    });
+}
+fn hihatCitypopClosed(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return metalHat(allocator, sr, .{ .dur_s = 0.055, .decay = 100.0, .body_hz = 6800.0, .air_hz = 9500.0, .air_mix = 0.35 });
+}
+fn hihatCitypopOpen(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return metalHat(allocator, sr, .{ .dur_s = 0.32, .decay = 10.0, .body_hz = 6800.0, .air_hz = 9500.0, .air_mix = 0.35 });
+}
+fn clapCitypop(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return clapGen(allocator, sr, .{
+        .lp_hz = 3200.0, .hp_hz = 1200.0, .burst_decay = 240.0, .tail_decay = 20.0, .tail_mix = 0.3, .dur_s = 0.24,
+    });
+}
+fn tomCitypop1(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return tomGen(allocator, sr, .{
+        .freq_start = 240.0, .freq_end = 130.0, .dur_s = 0.32, .body_decay = 8.0,
+        .attack_decay = 130.0, .drive = 1.6, .attack_mix = 0.15, .seed = 0x761,
+    });
+}
+fn tomCitypop2(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return tomGen(allocator, sr, .{
+        .freq_start = 175.0, .freq_end = 95.0, .dur_s = 0.38, .body_decay = 7.0,
+        .attack_decay = 130.0, .drive = 1.6, .attack_mix = 0.15, .seed = 0x762,
+    });
+}
+fn rimCitypop(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return rimGen(allocator, sr, .{
+        .tone1_hz = 1850.0, .tone2_hz = 1200.0, .tone_decay = 140.0, .click_decay = 300.0, .drive = 1.9, .dur_s = 0.06,
+    });
+}
+
+// Technopop: precise early-machine minimalism — short clicky kick, thin
+// noise-forward snare, needle-fine hats, synthetic disco-tom sweeps.
+fn kickTechnopop(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return kickGen(allocator, sr, .{
+        .freq_end = 55.0, .freq_start_add = 120.0, .pitch_decay = 80.0, .body_decay = 18.0,
+        .click_decay = 300.0, .click_freq = 2400.0, .click_mix = 0.9, .drive = 1.8, .dur_s = 0.18,
+    });
+}
+fn snareTechnopop(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return snareGen(allocator, sr, .{
+        .tone1_hz = 180.0, .tone2_hz = 320.0, .tone_decay = 35.0, .noise_decay = 20.0,
+        .drive = 1.3, .dur_s = 0.18, .lp_hz = 9000.0, .hp_hz = 1100.0,
+    });
+}
+fn hihatTechnopopClosed(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return metalHat(allocator, sr, .{ .dur_s = 0.04, .decay = 150.0, .body_hz = 7500.0, .air_hz = 10_500.0, .air_mix = 0.25 });
+}
+fn hihatTechnopopOpen(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return metalHat(allocator, sr, .{ .dur_s = 0.25, .decay = 14.0, .body_hz = 7500.0, .air_hz = 10_500.0, .air_mix = 0.25 });
+}
+fn clapTechnopop(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return clapGen(allocator, sr, .{
+        .lp_hz = 3400.0, .hp_hz = 1400.0, .burst_decay = 280.0, .tail_decay = 24.0, .tail_mix = 0.3, .dur_s = 0.2,
+    });
+}
+fn tomTechnopop1(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return tomGen(allocator, sr, .{
+        .freq_start = 300.0, .freq_end = 150.0, .dur_s = 0.25, .body_decay = 10.0,
+        .attack_decay = 150.0, .drive = 1.4, .attack_mix = 0.08, .seed = 0x771,
+    });
+}
+fn tomTechnopop2(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return tomGen(allocator, sr, .{
+        .freq_start = 220.0, .freq_end = 110.0, .dur_s = 0.3, .body_decay = 9.0,
+        .attack_decay = 150.0, .drive = 1.4, .attack_mix = 0.08, .seed = 0x772,
+    });
+}
+fn rimTechnopop(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return rimGen(allocator, sr, .{
+        .tone1_hz = 2000.0, .tone2_hz = 1300.0, .tone_decay = 160.0, .click_decay = 320.0, .drive = 1.7, .dur_s = 0.05,
+    });
+}
+
+// Kawaii: everything tuned up and cut tight — bouncy mid-weight kick, bright
+// snappy snare, sparkly airy hats, cute high toms.
+fn kickKawaii(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return kickGen(allocator, sr, .{
+        .freq_end = 68.0, .freq_start_add = 160.0, .pitch_decay = 75.0, .body_decay = 17.0,
+        .click_decay = 340.0, .click_freq = 2100.0, .click_mix = 0.55, .drive = 2.3, .dur_s = 0.22,
+    });
+}
+fn snareKawaii(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return snareGen(allocator, sr, .{
+        .tone1_hz = 220.0, .tone2_hz = 330.0, .tone_decay = 30.0, .noise_decay = 16.0,
+        .drive = 1.7, .dur_s = 0.2, .lp_hz = 10_000.0, .hp_hz = 1200.0,
+    });
+}
+fn hihatKawaiiClosed(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return metalHat(allocator, sr, .{ .dur_s = 0.04, .decay = 140.0, .body_hz = 8000.0, .air_hz = 11_000.0, .air_mix = 0.45 });
+}
+fn hihatKawaiiOpen(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return metalHat(allocator, sr, .{ .dur_s = 0.24, .decay = 13.0, .body_hz = 8000.0, .air_hz = 11_000.0, .air_mix = 0.45 });
+}
+fn clapKawaii(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return clapGen(allocator, sr, .{
+        .lp_hz = 3800.0, .hp_hz = 1400.0, .burst_decay = 260.0, .tail_decay = 18.0, .tail_mix = 0.45, .dur_s = 0.26,
+    });
+}
+fn tomKawaii1(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return tomGen(allocator, sr, .{
+        .freq_start = 340.0, .freq_end = 190.0, .dur_s = 0.22, .body_decay = 11.0,
+        .attack_decay = 140.0, .drive = 1.6, .attack_mix = 0.12, .seed = 0x781,
+    });
+}
+fn tomKawaii2(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return tomGen(allocator, sr, .{
+        .freq_start = 260.0, .freq_end = 140.0, .dur_s = 0.26, .body_decay = 10.0,
+        .attack_decay = 140.0, .drive = 1.6, .attack_mix = 0.12, .seed = 0x782,
+    });
+}
+fn rimKawaii(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return rimGen(allocator, sr, .{
+        .tone1_hz = 2100.0, .tone2_hz = 1400.0, .tone_decay = 170.0, .click_decay = 340.0, .drive = 1.9, .dur_s = 0.05,
+    });
+}
+
+// Vaporwave: everything behind a closed door — round clickless kick, muffled
+// lazy snare, dull hats with a long wash, roomy clap that's mostly tail.
+fn kickVaporwave(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return kickGen(allocator, sr, .{
+        .freq_end = 50.0, .freq_start_add = 60.0, .pitch_decay = 28.0, .body_decay = 8.0,
+        .click_decay = 500.0, .click_freq = 900.0, .click_mix = 0.08, .drive = 2.0, .dur_s = 0.5,
+    });
+}
+fn snareVaporwave(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return snareGen(allocator, sr, .{
+        .tone1_hz = 155.0, .tone2_hz = 225.0, .tone_decay = 16.0, .noise_decay = 10.0,
+        .drive = 1.2, .dur_s = 0.35, .lp_hz = 4500.0, .hp_hz = 600.0,
+    });
+}
+fn hihatVaporwaveClosed(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return metalHat(allocator, sr, .{ .dur_s = 0.07, .decay = 80.0, .body_hz = 4800.0, .air_hz = 7000.0, .air_mix = 0.15 });
+}
+fn hihatVaporwaveOpen(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return metalHat(allocator, sr, .{ .dur_s = 0.5, .decay = 6.0, .body_hz = 4800.0, .air_hz = 7000.0, .air_mix = 0.15 });
+}
+fn clapVaporwave(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return clapGen(allocator, sr, .{
+        .lp_hz = 2200.0, .hp_hz = 800.0, .burst_decay = 160.0, .tail_decay = 9.0, .tail_mix = 0.75, .dur_s = 0.5,
+    });
+}
+fn tomVaporwave1(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return tomGen(allocator, sr, .{
+        .freq_start = 190.0, .freq_end = 95.0, .dur_s = 0.5, .body_decay = 4.5,
+        .attack_decay = 90.0, .drive = 1.4, .attack_mix = 0.06, .seed = 0x791,
+    });
+}
+fn tomVaporwave2(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return tomGen(allocator, sr, .{
+        .freq_start = 140.0, .freq_end = 70.0, .dur_s = 0.6, .body_decay = 4.0,
+        .attack_decay = 90.0, .drive = 1.4, .attack_mix = 0.06, .seed = 0x792,
+    });
+}
+fn rimVaporwave(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return rimGen(allocator, sr, .{
+        .tone1_hz = 1400.0, .tone2_hz = 900.0, .tone_decay = 100.0, .click_decay = 200.0, .drive = 1.4, .dur_s = 0.08,
+    });
+}
+
+// Eurobeat: full-throttle dance floor — hard four-on-the-floor kick, big
+// driven snare, loud sustained open hat for the offbeats, energetic clap.
+fn kickEurobeat(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return kickGen(allocator, sr, .{
+        .freq_end = 52.0, .freq_start_add = 145.0, .pitch_decay = 58.0, .body_decay = 12.0,
+        .click_decay = 300.0, .click_freq = 1900.0, .click_mix = 0.65, .drive = 3.0, .dur_s = 0.3,
+    });
+}
+fn snareEurobeat(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return snareGen(allocator, sr, .{
+        .tone1_hz = 190.0, .tone2_hz = 280.0, .tone_decay = 25.0, .noise_decay = 18.0,
+        .drive = 2.0, .dur_s = 0.26, .lp_hz = 9500.0, .hp_hz = 1000.0,
+    });
+}
+fn hihatEurobeatClosed(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return metalHat(allocator, sr, .{ .dur_s = 0.05, .decay = 110.0, .body_hz = 7200.0, .air_hz = 10_000.0, .air_mix = 0.35 });
+}
+fn hihatEurobeatOpen(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return metalHat(allocator, sr, .{ .dur_s = 0.4, .decay = 7.5, .body_hz = 7200.0, .air_hz = 10_000.0, .air_mix = 0.35 });
+}
+fn clapEurobeat(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return clapGen(allocator, sr, .{
+        .lp_hz = 3000.0, .hp_hz = 1100.0, .burst_decay = 220.0, .tail_decay = 13.0, .tail_mix = 0.55, .dur_s = 0.34,
+    });
+}
+fn tomEurobeat1(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return tomGen(allocator, sr, .{
+        .freq_start = 230.0, .freq_end = 115.0, .dur_s = 0.35, .body_decay = 7.0,
+        .attack_decay = 120.0, .drive = 1.9, .attack_mix = 0.14, .seed = 0x7a1,
+    });
+}
+fn tomEurobeat2(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return tomGen(allocator, sr, .{
+        .freq_start = 165.0, .freq_end = 85.0, .dur_s = 0.42, .body_decay = 6.0,
+        .attack_decay = 120.0, .drive = 1.9, .attack_mix = 0.14, .seed = 0x7a2,
+    });
+}
+fn rimEurobeat(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return rimGen(allocator, sr, .{
+        .tone1_hz = 1700.0, .tone2_hz = 1150.0, .tone_decay = 150.0, .click_decay = 300.0, .drive = 2.0, .dur_s = 0.06,
+    });
+}
+
 /// One pad slot in a runtime kit variant: display name, generator, and
 /// default mixer gain — the same shape as `PadDef` minus the WAV filename
 /// (these are never written to disk).
@@ -577,7 +839,7 @@ pub const variants = [_]KitVariant{
         .{ .name = "tom-2", .gen = tomIndustrial2, .gain = 0.85 },
         .{ .name = "rim", .gen = rimIndustrial, .gain = 0.65 },
     } },
-    .{ .name = "boombap", .category = "vinyl", .tags = &.{ "wstudio", "hip-hop" }, .pads = .{
+    .{ .name = "boombap", .category = "vinyl", .tags = &.{ "wstudio", "hip-hop", "boom-bap" }, .pads = .{
         .{ .name = "kick", .gen = kickBoombap, .gain = 1.00 },
         .{ .name = "snare", .gen = snareBoombap, .gain = 0.85 },
         .{ .name = "hihat", .gen = hihatBoombapClosed, .gain = 0.45 },
@@ -586,6 +848,66 @@ pub const variants = [_]KitVariant{
         .{ .name = "tom-1", .gen = tomBoombap1, .gain = 0.80 },
         .{ .name = "tom-2", .gen = tomBoombap2, .gain = 0.80 },
         .{ .name = "rim", .gen = rimBoombap, .gain = 0.60 },
+    } },
+    .{ .name = "gfunk", .category = "analog", .tags = &.{ "wstudio", "hip-hop", "g-funk" }, .pads = .{
+        .{ .name = "kick", .gen = kickGfunk, .gain = 1.00 },
+        .{ .name = "snare", .gen = snareGfunk, .gain = 0.88 },
+        .{ .name = "hihat", .gen = hihatGfunkClosed, .gain = 0.45 },
+        .{ .name = "open", .gen = hihatGfunkOpen, .gain = 0.45 },
+        .{ .name = "clap", .gen = clapGfunk, .gain = 0.75 },
+        .{ .name = "tom-1", .gen = tomGfunk1, .gain = 0.80 },
+        .{ .name = "tom-2", .gen = tomGfunk2, .gain = 0.80 },
+        .{ .name = "rim", .gen = rimGfunk, .gain = 0.60 },
+    } },
+    .{ .name = "citypop", .category = "digital", .tags = &.{ "wstudio", "city-pop", "funk" }, .pads = .{
+        .{ .name = "kick", .gen = kickCitypop, .gain = 1.00 },
+        .{ .name = "snare", .gen = snareCitypop, .gain = 0.90 },
+        .{ .name = "hihat", .gen = hihatCitypopClosed, .gain = 0.50 },
+        .{ .name = "open", .gen = hihatCitypopOpen, .gain = 0.50 },
+        .{ .name = "clap", .gen = clapCitypop, .gain = 0.60 },
+        .{ .name = "tom-1", .gen = tomCitypop1, .gain = 0.85 },
+        .{ .name = "tom-2", .gen = tomCitypop2, .gain = 0.85 },
+        .{ .name = "rim", .gen = rimCitypop, .gain = 0.70 },
+    } },
+    .{ .name = "technopop", .category = "digital", .tags = &.{ "wstudio", "technopop", "synth-pop" }, .pads = .{
+        .{ .name = "kick", .gen = kickTechnopop, .gain = 1.00 },
+        .{ .name = "snare", .gen = snareTechnopop, .gain = 0.85 },
+        .{ .name = "hihat", .gen = hihatTechnopopClosed, .gain = 0.50 },
+        .{ .name = "open", .gen = hihatTechnopopOpen, .gain = 0.50 },
+        .{ .name = "clap", .gen = clapTechnopop, .gain = 0.65 },
+        .{ .name = "tom-1", .gen = tomTechnopop1, .gain = 0.80 },
+        .{ .name = "tom-2", .gen = tomTechnopop2, .gain = 0.80 },
+        .{ .name = "rim", .gen = rimTechnopop, .gain = 0.65 },
+    } },
+    .{ .name = "kawaii", .category = "digital", .tags = &.{ "wstudio", "kawaii", "pop" }, .pads = .{
+        .{ .name = "kick", .gen = kickKawaii, .gain = 1.00 },
+        .{ .name = "snare", .gen = snareKawaii, .gain = 0.85 },
+        .{ .name = "hihat", .gen = hihatKawaiiClosed, .gain = 0.50 },
+        .{ .name = "open", .gen = hihatKawaiiOpen, .gain = 0.50 },
+        .{ .name = "clap", .gen = clapKawaii, .gain = 0.70 },
+        .{ .name = "tom-1", .gen = tomKawaii1, .gain = 0.80 },
+        .{ .name = "tom-2", .gen = tomKawaii2, .gain = 0.80 },
+        .{ .name = "rim", .gen = rimKawaii, .gain = 0.65 },
+    } },
+    .{ .name = "vaporwave", .category = "tape", .tags = &.{ "wstudio", "vaporwave", "chill" }, .pads = .{
+        .{ .name = "kick", .gen = kickVaporwave, .gain = 1.00 },
+        .{ .name = "snare", .gen = snareVaporwave, .gain = 0.80 },
+        .{ .name = "hihat", .gen = hihatVaporwaveClosed, .gain = 0.40 },
+        .{ .name = "open", .gen = hihatVaporwaveOpen, .gain = 0.40 },
+        .{ .name = "clap", .gen = clapVaporwave, .gain = 0.60 },
+        .{ .name = "tom-1", .gen = tomVaporwave1, .gain = 0.75 },
+        .{ .name = "tom-2", .gen = tomVaporwave2, .gain = 0.75 },
+        .{ .name = "rim", .gen = rimVaporwave, .gain = 0.55 },
+    } },
+    .{ .name = "eurobeat", .category = "digital", .tags = &.{ "wstudio", "eurobeat", "dance" }, .pads = .{
+        .{ .name = "kick", .gen = kickEurobeat, .gain = 1.00 },
+        .{ .name = "snare", .gen = snareEurobeat, .gain = 0.88 },
+        .{ .name = "hihat", .gen = hihatEurobeatClosed, .gain = 0.50 },
+        .{ .name = "open", .gen = hihatEurobeatOpen, .gain = 0.55 },
+        .{ .name = "clap", .gen = clapEurobeat, .gain = 0.70 },
+        .{ .name = "tom-1", .gen = tomEurobeat1, .gain = 0.80 },
+        .{ .name = "tom-2", .gen = tomEurobeat2, .gain = 0.80 },
+        .{ .name = "rim", .gen = rimEurobeat, .gain = 0.65 },
     } },
 };
 
