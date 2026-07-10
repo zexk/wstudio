@@ -14,6 +14,11 @@ const enter_alt_screen = esc ++ "[?1049h";
 const leave_alt_screen = esc ++ "[?1049l";
 const hide_cursor = esc ++ "[?25l";
 const show_cursor = esc ++ "[?25h";
+/// DEC 2026 synchronized update: the terminal (and tmux in between) holds
+/// repaints until the end marker, so a full-frame redraw can never be
+/// sampled half-applied. Terminals without support ignore the private mode.
+pub const begin_sync = esc ++ "[?2026h";
+pub const end_sync = esc ++ "[?2026l";
 // Button-event tracking (press/release + motion while a button is held) with
 // SGR extended coordinates (unambiguous past column/row 223, and easy to
 // parse back out — see `decode`'s SGR branch). Terminals conventionally let

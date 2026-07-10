@@ -2501,7 +2501,13 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8) !vo
         if (has_alsa) { if (using_midi and midi_in.dirty.swap(false, .acquire)) app.dirty = true; }
 
         var w = std.Io.Writer.fixed(&frame_buf);
+        // Bracket the frame in a DEC 2026 synchronized update, inside the
+        // same single write: without it tmux/compositing terminals can
+        // repaint mid-frame, which reads as flicker on plain navigation
+        // (tackle item 34/37's repro).
+        w.writeAll(terminal_mod.begin_sync) catch {};
         app.draw(&w, term.size()) catch {};
+        w.writeAll(terminal_mod.end_sync) catch {};
         term.write(w.buffered());
     }
 }

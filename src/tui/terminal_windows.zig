@@ -19,6 +19,10 @@ const enter_alt_screen = esc ++ "[?1049h";
 const leave_alt_screen = esc ++ "[?1049l";
 const hide_cursor = esc ++ "[?25l";
 const show_cursor = esc ++ "[?25h";
+/// DEC 2026 synchronized update — see terminal.zig; Windows Terminal
+/// supports it, legacy conhost ignores the private mode.
+pub const begin_sync = esc ++ "[?2026h";
+pub const end_sync = esc ++ "[?2026l";
 const enable_mouse = esc ++ "[?1002h" ++ esc ++ "[?1006h";
 const disable_mouse = esc ++ "[?1002l" ++ esc ++ "[?1006l";
 
