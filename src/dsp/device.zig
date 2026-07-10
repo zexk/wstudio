@@ -40,6 +40,24 @@ pub const Event = union(enum) {
     set_sidechain_buf: struct { buf: []const types.Sample },
 };
 
+/// Shared metadata shape for one continuous instrument param exposed to the
+/// automation editor's param picker, curve labels, and h/l nudge step. Each
+/// instrument that supports automation (PolySynth, Sampler) declares its own
+/// `automatable_params` table of these against its own `setParamAbsolute` id
+/// space — kept here, not owned by either instrument, so the automation
+/// editor can look either table up through one shared type regardless of
+/// which instrument the current track holds.
+pub const AutomatableParam = struct {
+    id: u8,
+    label: []const u8,
+    section: []const u8,
+    range: [2]f32,
+    /// h/l nudge step — same magnitude as the instrument's own `adjustParam`
+    /// per-step multiplier for this id, so automation nudges feel consistent
+    /// with the live editor's own h/l.
+    step: f32,
+};
+
 pub const Device = struct {
     ptr: *anyopaque,
     vtable: *const VTable,

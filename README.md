@@ -230,16 +230,18 @@ Done:
       scroll to nudge), and yank/paste all work — the last two reuse the
       arrangement's existing whole-lane snapshot and clip clipboard, since a
       clip's automation now travels with it wherever the clip goes.
-- [x] Synth-param automation (synth tracks): any of `PolySynth`'s ~30
-      continuous params (filter cutoff, LFO rate/depth, envelope times,
-      unison, oscillator B, sub/noise levels, ...) can be automated per clip
-      alongside gain/pan, picked from a grouped picker (`p` in the automation
-      editor) — see `dsp/synth.zig`'s `automatable_params`. `setParamAbsolute`
-      is the absolute-value counterpart to the synth editor's own relative
-      `adjustParam` nudges, pushed into the device every block via the same
-      `Event` path note-on/CC already use. Each track carries up to 8
-      simultaneously-automated synth params (`Engine`'s per-track sparse
-      slot bank) — plenty for any real arrangement.
+- [x] Instrument-param automation (synth and sampler tracks): any of
+      `PolySynth`'s ~30 continuous params (filter cutoff, LFO rate/depth,
+      envelope times, unison, oscillator B, sub/noise levels, ...) or
+      `Sampler`'s 9 (start/end/pitch, amp ADSR, gain/pan) can be automated
+      per clip alongside gain/pan, picked from a grouped picker (`p` in the
+      automation editor) — see `dsp/synth.zig`/`dsp/sampler.zig`'s
+      `automatable_params`, both sharing `dsp.AutomatableParam`'s shape.
+      `setParamAbsolute` is the absolute-value counterpart to each editor's
+      own relative `adjustParam` nudges, pushed into the device every block
+      via the same `Event` path note-on/CC already use. Each track carries
+      up to 8 simultaneously-automated instrument params (`Engine`'s
+      per-track sparse slot bank) — plenty for any real arrangement.
 - [x] Sidechain compression: a compressor's last param (`sidechain`, in any
       chain — track, group, or master) picks another track to detect its
       envelope from instead of its own input (`h`/`l` cycles none/track N) —

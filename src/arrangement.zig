@@ -33,10 +33,15 @@ pub const Clip = struct {
     /// flattens every clip's points into one whole-song curve per track.
     automation: Automation = .{},
 
-    /// One synth-param automation lane: `param_id` matches `PolySynth.
-    /// setParamAbsolute`'s id space (poly_synth tracks only — the editor
-    /// gates offering these to those tracks; a clip on any other track kind
-    /// simply never gets an entry, no separate guard needed here).
+    /// One instrument-param automation lane: `param_id` matches whichever
+    /// instrument the track holds' own `setParamAbsolute` id space —
+    /// PolySynth's or Sampler's (the automation editor's picker gates
+    /// offering these to poly_synth/sampler tracks only; a clip on any other
+    /// track kind simply never gets an entry, no separate guard needed
+    /// here). The field/type names here still say "synth" from when only
+    /// PolySynth had automatable params — this storage was always just a
+    /// param-id-keyed list, so extending it to Sampler needed no format
+    /// change or rename.
     pub const SynthParamCurve = struct {
         param_id: u8,
         points: []AutomationPoint = &.{},

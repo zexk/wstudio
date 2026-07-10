@@ -189,6 +189,30 @@ pub const Sampler = struct {
         };
     }
 
+    /// One entry per continuous `setParamAbsolute`-handled id — same shape
+    /// and purpose as PolySynth's own table (`dsp.AutomatableParam`), for the
+    /// automation editor's param picker/curve labels/h-l nudge step. Toggles
+    /// (reverse=9, mono=11) and root_note=10 are deliberately excluded, same
+    /// call PolySynth's own table already made for its enum/toggle ids
+    /// (waveform, osc-B on/off, ...) — a breakpoint curve over an on/off
+    /// flip or a coarse tuning offset isn't a meaningful automation target.
+    pub const automatable_params = [_]dsp.AutomatableParam{
+        .{ .id = 0, .label = "START",   .section = "SAMPLE",  .range = .{ 0.0,   1.0 }, .step = 0.01 },
+        .{ .id = 1, .label = "END",     .section = "SAMPLE",  .range = .{ 0.0,   1.0 }, .step = 0.01 },
+        .{ .id = 2, .label = "PITCH",   .section = "SAMPLE",  .range = .{ -24.0, 24.0 }, .step = 1.0 },
+        .{ .id = 3, .label = "ATTACK",  .section = "AMP ENV", .range = .{ 0.0,   5.0 }, .step = 0.001 },
+        .{ .id = 4, .label = "DECAY",   .section = "AMP ENV", .range = .{ 0.0,   5.0 }, .step = 0.005 },
+        .{ .id = 5, .label = "SUSTAIN", .section = "AMP ENV", .range = .{ 0.0,   1.0 }, .step = 0.01 },
+        .{ .id = 6, .label = "RELEASE", .section = "AMP ENV", .range = .{ 0.001, 5.0 }, .step = 0.005 },
+        .{ .id = 7, .label = "GAIN",    .section = "OUT",     .range = .{ 0.0,   2.0 }, .step = 0.01 },
+        .{ .id = 8, .label = "PAN",     .section = "OUT",     .range = .{ -1.0,  1.0 }, .step = 0.05 },
+    };
+
+    pub fn findAutomatableParam(id: u8) ?*const dsp.AutomatableParam {
+        for (&automatable_params) |*p| if (p.id == id) return p;
+        return null;
+    }
+
     // -----------------------------------------------------------------------
     // Sample loading (call from control side only, not while audio thread runs)
 

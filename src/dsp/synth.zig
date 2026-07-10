@@ -1029,16 +1029,8 @@ pub const PolySynth = struct {
     /// need. `label` is the short in-graph tag (matches the synth editor's own
     /// row labels where practical); `section` groups the picker's listing the
     /// same way the synth editor's own KEY/OSC A/OSC B/... rows are grouped.
-    pub const AutomatableParam = struct {
-        id: u8,
-        label: []const u8,
-        section: []const u8,
-        range: [2]f32,
-        /// h/l nudge step — same magnitude as `adjustParam`'s own per-step
-        /// multiplier for this id, so automation nudges feel consistent with
-        /// the live editor's own h/l.
-        step: f32,
-    };
+    /// Shared shape with Sampler's own table — see `dsp.AutomatableParam`.
+    pub const AutomatableParam = dsp.AutomatableParam;
 
     pub const automatable_params = [_]AutomatableParam{
         .{ .id = 1,  .label = "PW A",       .section = "OSC A",   .range = .{ 0.01,   0.99 },    .step = 0.01 },

@@ -885,10 +885,37 @@ test "automation editor: tab only cycles gain/pan until the picker adds a synth 
     _ = automation_ed.handleKey(&app, .tab);
     try std.testing.expectEqual(automation_ed.AutomationFocus.gain, app.automation_focus);
 
-    // Sampler track: p refuses (no synth params on this instrument kind) —
-    // gain <-> pan only.
+    // Sampler track: the picker offers Sampler's own automatable_params
+    // table (item 30's remaining scope) — select GAIN (param_id 7) and
+    // confirm it behaves exactly like the synth-track case above.
     try app.session.stampClip(1, 0);
     automation_ed.switchTo(&app, 1, 0);
+    try std.testing.expectEqual(automation_ed.AutomationFocus.gain, app.automation_focus);
+    _ = automation_ed.handleKey(&app, .{ .char = 'p' });
+    try std.testing.expectEqual(AppView.automation_param_picker, app.view);
+    var gain_idx: u8 = 0;
+    for (ws.dsp.Sampler.automatable_params, 0..) |p, i| {
+        if (p.id == 7) { gain_idx = @intCast(i); break; }
+    }
+    app.automation_param_cursor = gain_idx;
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqual(AppView.automation, app.view);
+    try std.testing.expectEqual(automation_ed.AutomationFocus{ .synth_param = 7 }, app.automation_focus);
+    _ = automation_ed.handleKey(&app, .{ .char = 'j' });
+    const sampler_clip = automation_ed.currentClip(&app).?;
+    try std.testing.expectEqual(@as(usize, 1), sampler_clip.automation.findSynthParam(7).?.len);
+    app.automation_focus = .gain;
+    _ = automation_ed.handleKey(&app, .tab);
+    try std.testing.expectEqual(automation_ed.AutomationFocus.pan, app.automation_focus);
+    _ = automation_ed.handleKey(&app, .tab);
+    try std.testing.expectEqual(automation_ed.AutomationFocus{ .synth_param = 7 }, app.automation_focus);
+    _ = automation_ed.handleKey(&app, .tab);
+    try std.testing.expectEqual(automation_ed.AutomationFocus.gain, app.automation_focus);
+
+    // Drum track: p refuses (drum params are per-pad/per-step, no single
+    // per-track setParamAbsolute id space to automate) — gain <-> pan only.
+    try app.session.stampClip(2, 0);
+    automation_ed.switchTo(&app, 2, 0);
     try std.testing.expectEqual(automation_ed.AutomationFocus.gain, app.automation_focus);
     _ = automation_ed.handleKey(&app, .{ .char = 'p' });
     try std.testing.expectEqual(AppView.automation, app.view); // picker refused to open

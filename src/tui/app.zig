@@ -363,8 +363,9 @@ pub const App = struct {
     /// for synth params not yet on this clip. See `automation_ed.
     /// AutomationFocus`.
     automation_focus: automation_ed.AutomationFocus = .gain,
-    /// Cursor index into `synth_mod.PolySynth.automatable_params` while
-    /// `.automation_param_picker` is open.
+    /// Cursor index into `automation_ed.instrumentAutomatableParams(self)`
+    /// (PolySynth's or Sampler's table, whichever the current track holds)
+    /// while `.automation_param_picker` is open.
     automation_param_cursor: u8 = 0,
     /// Scroll offset (in printed display rows, headers included) for the
     /// param picker — mirrors `track_scroll`'s "clamped at draw" convention.
@@ -1080,7 +1081,7 @@ pub const App = struct {
     /// the highlighted param on the current clip, esc cancels back to the
     /// automation view. Opened by `p` in editors/automation.zig.
     fn handleAutomationParamPickerKey(self: *App, key: modal_mod.Key) void {
-        const count = synth_mod.PolySynth.automatable_params.len;
+        const count = automation_ed.instrumentAutomatableParams(self).len;
         switch (key) {
             .escape => self.view = .automation,
             .enter => self.automationParamPick(),
@@ -1096,8 +1097,9 @@ pub const App = struct {
     }
 
     fn automationParamPick(self: *App) void {
-        const id = synth_mod.PolySynth.automatable_params[self.automation_param_cursor].id;
-        automation_ed.selectParam(self, id);
+        const params = automation_ed.instrumentAutomatableParams(self);
+        if (self.automation_param_cursor >= params.len) return;
+        automation_ed.selectParam(self, params[self.automation_param_cursor].id);
     }
 
     /// Param picker: click a param row to select + apply it (same as enter/
@@ -1110,7 +1112,7 @@ pub const App = struct {
             .press => {
                 if (row < 2) return;
                 var buf: [automation_ed.max_param_display_rows]automation_ed.ParamDisplayRow = undefined;
-                const rows_list = automation_ed.buildParamDisplayRows(&buf);
+                const rows_list = automation_ed.buildParamDisplayRows(automation_ed.instrumentAutomatableParams(self), &buf);
                 const display_row = self.automation_param_scroll + (row - 2);
                 if (display_row >= rows_list.len) return;
                 switch (rows_list[display_row]) {
@@ -1123,7 +1125,7 @@ pub const App = struct {
             },
             .scroll_up => { if (self.automation_param_cursor > 0) self.automation_param_cursor -= 1; },
             .scroll_down => {
-                if (self.automation_param_cursor + 1 < synth_mod.PolySynth.automatable_params.len) self.automation_param_cursor += 1;
+                if (self.automation_param_cursor + 1 < automation_ed.instrumentAutomatableParams(self).len) self.automation_param_cursor += 1;
             },
             else => {},
         }

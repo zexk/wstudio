@@ -61,12 +61,30 @@ fn currentClip(app: anytype) ?*const ws.Clip {
     return lane.clipAt(link.start_bar);
 }
 
-fn curveRange(target: AutomationFocus) [2]f32 {
+/// Duplicated from editors/automation.zig's own `instrumentAutomatableParams`
+/// rather than imported — view renderers take `app: anytype` and never
+/// import app.zig (see `currentClip`'s doc comment above), so they can't
+/// share a helper typed against the concrete `*App` either.
+fn instrumentAutomatableParams(app: anytype) []const ws.dsp.device.AutomatableParam {
+    if (app.automation_track >= app.session.racks.items.len) return &.{};
+    return switch (app.session.racks.items[app.automation_track].instrument) {
+        .poly_synth => &synth_mod.PolySynth.automatable_params,
+        .sampler => &ws.dsp.Sampler.automatable_params,
+        .drum_machine, .slicer, .empty => &.{},
+    };
+}
+
+fn findAutomatableParam(app: anytype, id: u8) ?*const ws.dsp.device.AutomatableParam {
+    for (instrumentAutomatableParams(app)) |*p| if (p.id == id) return p;
+    return null;
+}
+
+fn curveRange(app: anytype, target: AutomationFocus) [2]f32 {
     return switch (target) {
         .gain => .{ -40.0, 12.0 }, // wider than the persisted -60 floor — a
         // fade all the way to -60dB would otherwise pin the whole graph flat
         .pan => .{ -1.0, 1.0 },
-        .synth_param => |id| if (synth_mod.PolySynth.findAutomatableParam(id)) |info| info.range else .{ 0.0, 1.0 },
+        .synth_param => |id| if (findAutomatableParam(app, id)) |info| info.range else .{ 0.0, 1.0 },
     };
 }
 
@@ -101,7 +119,7 @@ pub fn drawAutomation(
     const target_label: []const u8 = switch (target) {
         .gain => "GAIN",
         .pan => "PAN",
-        .synth_param => |id| if (synth_mod.PolySynth.findAutomatableParam(id)) |info| info.label else "?",
+        .synth_param => |id| if (findAutomatableParam(app, id)) |info| info.label else "?",
     };
 
     try w.writeAll(bold ++ " AUTOMATION" ++ rst);
@@ -124,7 +142,7 @@ pub fn drawAutomation(
     const scroll = app.automation_scroll;
 
     const points = curvePoints(clip, target);
-    const range = curveRange(target);
+    const range = curveRange(app, target);
 
     // Visual-mode selection: a step range on the current curve only.
     const visual_active = app.modal.mode == .visual;
@@ -259,7 +277,8 @@ pub fn drawAutomationStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writ
 }
 
 /// Synth-param automation picker (`p` in the automation editor): every
-/// continuous param in `synth_mod.PolySynth.automatable_params`, grouped by
+/// continuous param in the current track's own `automatable_params` table
+/// (PolySynth's or Sampler's — see `instrumentAutomatableParams`), grouped by
 /// section header. A leading bullet marks a param that already has a lane on
 /// the current clip (so re-opening the picker shows what's already active).
 /// Row math (title(1) + blank(1) before the display-row list) is shared with
@@ -278,9 +297,10 @@ pub fn drawAutomationParamPicker(app: anytype, w: *std.Io.Writer, rows: usize) !
     try endLine(w);
 
     const clip = currentClip(app);
+    const params = instrumentAutomatableParams(app);
 
     var buf: [automation_ed.max_param_display_rows]automation_ed.ParamDisplayRow = undefined;
-    const rows_list = automation_ed.buildParamDisplayRows(&buf);
+    const rows_list = automation_ed.buildParamDisplayRows(params, &buf);
 
     // Scroll clamp keyed on the cursor's display row (headers count too) —
     // same "clamped at draw" convention drawTracks' vis_rows uses.
@@ -310,7 +330,7 @@ pub fn drawAutomationParamPicker(app: anytype, w: *std.Io.Writer, rows: usize) !
                 try endLine(w);
             },
             .param => |i| {
-                const p = synth_mod.PolySynth.automatable_params[i];
+                const p = params[i];
                 const is_sel = i == app.automation_param_cursor;
                 const has_lane = if (clip) |c| c.automation.findSynthParam(p.id) != null else false;
                 if (is_sel) try w.writeAll(sel);

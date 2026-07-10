@@ -608,10 +608,10 @@ pub const Session = struct {
 
     /// Flatten one track's clips' gain/pan/synth-param breakpoints (clip-
     /// relative beats) into absolute-song-beat curves and push them to the
-    /// engine. Runs for every instrument kind — a non-synth track's
-    /// `synth_params` list is simply always empty (the automation editor
-    /// only ever writes to it for poly_synth tracks), so this loop needs no
-    /// extra guard. Clips are already stored start_bar-ascending
+    /// engine. Runs for every instrument kind — a drum/slicer/empty track's
+    /// `synth_params` list is simply always empty (the automation editor's
+    /// picker only offers poly_synth/sampler tracks a param to automate),
+    /// so this loop needs no extra guard. Clips are already stored start_bar-ascending
     /// (`Lane.place`) and each clip's own points are beat-ascending
     /// (`automation.setPoint`), so appending in clip order needs no extra sort.
     fn flattenClipAutomation(self: *Session, track: u16, lane: *arr_mod.Lane, bpb: f64) void {

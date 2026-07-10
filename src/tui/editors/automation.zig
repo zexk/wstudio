@@ -7,9 +7,11 @@
 //! to, so a nudge on a bare stretch doesn't jump to an arbitrary default);
 //! x deletes the point at the cursor exactly (vim's char tier); w/b jump the
 //! cursor a bar at a time (word tier); tab cycles gain -> pan -> whichever
-//! synth params already have at least one point on this clip -> gain; `p`
-//! opens a picker (poly_synth tracks only) to start automating one of
-//! PolySynth's ~30 continuous params that isn't on this clip yet; v starts a
+//! instrument params already have at least one point on this clip -> gain;
+//! `p` opens a picker (poly_synth or sampler tracks) to start automating one
+//! of the current track's instrument continuous params that isn't on this
+//! clip yet — PolySynth's ~30 or Sampler's 9, whichever instrument the track
+//! holds (see `instrumentAutomatableParams`); v starts a
 //! step-range selection on the current curve —
 //! y/d/p act on it (breakpoints only, not the interpolated curve shape in
 //! between); d/y without `v` first arm an operator that a motion
@@ -32,10 +34,16 @@ const view = @import("../views/automation.zig");
 
 /// Which curve h/l + j/k currently edit. `gain`/`pan` are the two universal
 /// targets, always available on any clip (mix-bus params). `synth_param`
-/// names one of PolySynth's ~30 continuous params by its `setParamAbsolute`
-/// id (see `synth_mod.automatable_params`) — poly_synth tracks only.
-/// Replaces the old fixed 3-way gain/pan/filter_cutoff enum now that any of
-/// ~30 params can be targeted, not just cutoff.
+/// names one of the current track's instrument's continuous params by its
+/// `setParamAbsolute` id — despite the name (kept from when only PolySynth
+/// had automatable params), this now also covers Sampler tracks;
+/// `instrumentAutomatableParams`/`findAutomatableParam` below resolve the id
+/// against whichever instrument the track actually holds. The persisted
+/// storage (`Clip.Automation.synth_params`) was always instrument-agnostic —
+/// just a param-id-keyed list, see arrangement.zig — so no format change was
+/// needed to extend this past PolySynth.
+/// Replaces the old fixed 3-way gain/pan/filter_cutoff enum now that any
+/// continuous param can be targeted, not just cutoff.
 pub const AutomationFocus = union(enum) {
     gain,
     pan,
@@ -44,8 +52,9 @@ pub const AutomationFocus = union(enum) {
 
 /// Gain (dB, matches `:gain`/`Track.gain_db`) and pan (-1..1, matches
 /// `Track.pan`) ranges/steps — same clamps `persist.zig`'s loader enforces.
-/// Synth-param ranges/steps come from `synth_mod.automatable_params` instead
-/// (one entry per param, not two constants).
+/// Synth-param ranges/steps come from the current track's instrument's own
+/// `automatable_params` table instead (one entry per param, not two
+/// constants) — see `instrumentAutomatableParams`.
 const gain_range = [2]f32{ -60.0, 12.0 };
 const pan_range = [2]f32{ -1.0, 1.0 };
 const gain_step: f32 = 1.0;
@@ -110,19 +119,39 @@ fn curvePoints(app: *App, clip: *ws.Clip, target: AutomationFocus) !*[]Automatio
     };
 }
 
-fn curveRange(target: AutomationFocus) [2]f32 {
-    return switch (target) {
-        .gain => gain_range,
-        .pan => pan_range,
-        .synth_param => |id| if (synth_mod.PolySynth.findAutomatableParam(id)) |info| info.range else .{ 0.0, 1.0 },
+/// The current automation track's own `automatable_params` table — PolySynth's
+/// ~30, Sampler's 9, or empty for any other instrument kind (drum machine/
+/// slicer/empty have no `setParamAbsolute` id space, matching the picker's
+/// own gate in `openParamPicker`). `pub` so app.zig's picker key/mouse
+/// handling can resolve the same table without duplicating the instrument
+/// dispatch.
+pub fn instrumentAutomatableParams(app: *App) []const ws.dsp.device.AutomatableParam {
+    if (app.automation_track >= app.session.racks.items.len) return &.{};
+    return switch (app.session.racks.items[app.automation_track].instrument) {
+        .poly_synth => &synth_mod.PolySynth.automatable_params,
+        .sampler => &ws.dsp.Sampler.automatable_params,
+        .drum_machine, .slicer, .empty => &.{},
     };
 }
 
-fn curveStep(target: AutomationFocus) f32 {
+fn findAutomatableParam(app: *App, id: u8) ?*const ws.dsp.device.AutomatableParam {
+    for (instrumentAutomatableParams(app)) |*p| if (p.id == id) return p;
+    return null;
+}
+
+fn curveRange(app: *App, target: AutomationFocus) [2]f32 {
+    return switch (target) {
+        .gain => gain_range,
+        .pan => pan_range,
+        .synth_param => |id| if (findAutomatableParam(app, id)) |info| info.range else .{ 0.0, 1.0 },
+    };
+}
+
+fn curveStep(app: *App, target: AutomationFocus) f32 {
     return switch (target) {
         .gain => gain_step,
         .pan => pan_step,
-        .synth_param => |id| if (synth_mod.PolySynth.findAutomatableParam(id)) |info| info.step else 0.01,
+        .synth_param => |id| if (findAutomatableParam(app, id)) |info| info.step else 0.01,
     };
 }
 
@@ -493,10 +522,10 @@ fn nudgeValue(app: *App, clip: *ws.Clip, steps: i32) void {
         app.setStatus("automation edit failed (out of memory)", .{});
         return;
     };
-    const range = curveRange(target);
+    const range = curveRange(app, target);
     const cur = automation_mod.interpolate(points.*, beat) orelse 0.0;
     const new_val = std.math.clamp(
-        cur + @as(f32, @floatFromInt(steps)) * curveStep(target),
+        cur + @as(f32, @floatFromInt(steps)) * curveStep(app, target),
         range[0], range[1],
     );
     // Captured before the mutation — the whole lane, same granularity the
@@ -534,20 +563,21 @@ fn hasPointAt(points: []const AutomationPoint, beat: f64) bool {
     return false;
 }
 
-/// Open the synth-param picker (`p`) — poly_synth tracks only, since no
-/// other instrument kind has a `setParamAbsolute` id space to automate.
+/// Open the synth-param picker (`p`) — poly_synth or sampler tracks only,
+/// since no other instrument kind has a `setParamAbsolute` id space to
+/// automate (drum machine/slicer params are per-pad/per-slice, not a single
+/// per-track curve target, and were never in scope for this picker).
 /// Places the cursor on the currently-focused param if there is one, else 0,
 /// so re-opening the picker on an already-automated param starts there.
 fn openParamPicker(app: *App) void {
-    if (app.automation_track >= app.session.racks.items.len or
-        std.meta.activeTag(app.session.racks.items[app.automation_track].instrument) != .poly_synth)
-    {
-        app.setStatus("no automatable params on this track kind (poly_synth only)", .{});
+    const params = instrumentAutomatableParams(app);
+    if (params.len == 0) {
+        app.setStatus("no automatable params on this track kind (poly_synth/sampler only)", .{});
         return;
     }
     if (std.meta.activeTag(app.automation_focus) == .synth_param) {
         const cur_id = app.automation_focus.synth_param;
-        for (synth_mod.PolySynth.automatable_params, 0..) |p, i| {
+        for (params, 0..) |p, i| {
             if (p.id == cur_id) { app.automation_param_cursor = @intCast(i); break; }
         }
     }
@@ -569,11 +599,13 @@ pub fn selectParam(app: *App, param_id: u8) void {
 }
 
 /// One printed row of the param picker: either a section header (dim label
-/// row, not selectable) or a param (index into `synth_mod.PolySynth.
-/// automatable_params`). Shared by the picker's render (views/automation.zig)
-/// and its mouse hit-testing (App.automationParamPickerMouse) so the two
-/// can't drift out of sync — same "shared row math" convention
-/// views/synth.zig's import of editors/synth.zig's `paramRow` already uses.
+/// row, not selectable) or a param (index into the instrument's own
+/// `automatable_params` table — PolySynth's or Sampler's, whichever `params`
+/// the caller resolved via `instrumentAutomatableParams`). Shared by the
+/// picker's render (views/automation.zig) and its mouse hit-testing
+/// (App.automationParamPickerMouse) so the two can't drift out of sync —
+/// same "shared row math" convention views/synth.zig's import of
+/// editors/synth.zig's `paramRow` already uses.
 pub const ParamDisplayRow = union(enum) {
     header: []const u8,
     param: usize,
@@ -581,13 +613,17 @@ pub const ParamDisplayRow = union(enum) {
 
 /// Room for every param plus one header per distinct section — generous
 /// fixed cap, not a computed expression, so it doesn't need updating if
-/// `automatable_params` grows a little.
+/// either instrument's `automatable_params` grows a little.
 pub const max_param_display_rows = 64;
 
-pub fn buildParamDisplayRows(buf: *[max_param_display_rows]ParamDisplayRow) []ParamDisplayRow {
+/// `params` is the current track's own `automatable_params` table (see
+/// `instrumentAutomatableParams`) — the caller resolves it, since views/
+/// automation.zig can't import `App` to call that helper itself (see its own
+/// `currentClip` doc comment for why view renderers take `app: anytype`).
+pub fn buildParamDisplayRows(params: []const ws.dsp.device.AutomatableParam, buf: *[max_param_display_rows]ParamDisplayRow) []ParamDisplayRow {
     var n: usize = 0;
     var last_section: []const u8 = "";
-    for (synth_mod.PolySynth.automatable_params, 0..) |p, i| {
+    for (params, 0..) |p, i| {
         if (!std.mem.eql(u8, p.section, last_section)) {
             buf[n] = .{ .header = p.section };
             n += 1;
