@@ -30,7 +30,8 @@ track; press `enter` to pick an instrument (synth, sampler, or drum
 machine) and a per-track FX rack. Vim-style modal control drives it,
 with live keyboard playing through ALSA on Linux (PipeWire/PulseAudio
 serve its `default` device, so any desktop works) or WASAPI on Windows;
-a silent wall-clock backend takes over when no device exists.
+a silent wall-clock backend takes over when no device exists. Terminals
+smaller than 80x14 get a resize notice instead of a layout.
 
 - `wstudio`: new, empty session (one blank track)
 - `wstudio demo.wsj`: the curated four-track demo (lead, e-piano, bass, drums),
