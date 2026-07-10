@@ -203,12 +203,12 @@ pub fn drawArrangementStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Wri
     // rather than folding into the mode badge, keeping both pieces of info
     // the old single combined badge carried.
     try style.writeModeBadge(w, app.modal.mode);
+    if (app.arr_zoom == .compact) try right.writeAll(bcyn ++ "zoom" ++ rst ++ "  ");
     if (app.session.song_mode) {
-        try right.writeAll(grn ++ "SONG" ++ rst);
+        try style.writeViewBadgeColored(right, "SONG", .green);
     } else {
-        try right.writeAll(yel ++ "PATTERN" ++ rst);
+        try style.writeViewBadgeColored(right, "PATTERN", .yellow);
     }
-    if (app.arr_zoom == .compact) try right.writeAll("  " ++ bcyn ++ "zoom" ++ rst);
 
     try w.writeAll(dim ++ "  bar " ++ rst);
     try w.print("{d}", .{app.arr_cursor_bar + 1});

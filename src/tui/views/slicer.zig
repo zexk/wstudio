@@ -131,7 +131,7 @@ pub fn drawSlicerStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer, 
     const sIdx = app.slicer_cursor[0];
     const s = app.slicer_cursor[1];
     try style.writeModeBadge(w, app.modal.mode);
-    try right.writeAll(acc ++ "SLICER" ++ rst);
+    try style.writeViewBadge(right, "SLICER");
     try w.writeAll(dim ++ "  slice " ++ rst);
     try w.print("{d}/{d}", .{ sIdx + 1, sl.slice_count });
     try w.writeAll(dim ++ "  step " ++ rst);

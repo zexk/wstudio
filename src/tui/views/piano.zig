@@ -337,8 +337,8 @@ pub fn drawPianoRollStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Write
     const sub = app.piano_cursor_step % spb + 1;
 
     try style.writeModeBadge(w, app.modal.mode);
-    try right.writeAll(acc ++ "PIANO" ++ rst);
-    if (app.piano_zoom == .compact) try right.writeAll("  " ++ bcyn ++ "zoom" ++ rst);
+    if (app.piano_zoom == .compact) try right.writeAll(bcyn ++ "zoom" ++ rst ++ "  ");
+    try style.writeViewBadge(right, "PIANO");
     try w.writeAll(dim ++ "  " ++ rst);
     try w.print("{s}", .{label});
     try w.writeAll(dim ++ "  bar " ++ rst);

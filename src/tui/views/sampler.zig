@@ -286,7 +286,7 @@ pub fn drawSamplerStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer,
     const cur = @min(@as(usize, app.sampler_param), sampler_param_labels.len - 1);
 
     try style.writeModeBadge(w, app.modal.mode);
-    try right.writeAll(acc ++ "SAMPLER" ++ rst);
+    try style.writeViewBadge(right, "SAMPLER");
     if (is_drum) {
         try w.writeAll(dim ++ "  pad " ++ rst);
         try w.print("{d}", .{pad_idx + 1});

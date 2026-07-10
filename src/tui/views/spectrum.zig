@@ -477,7 +477,7 @@ pub fn drawFxStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer, targ
     if (spectrum_ed.focusedUnit(app, fx)) |unit| {
         const k = unit.kind();
         try style.writeModeBadge(w, app.modal.mode);
-        try right.writeAll(acc ++ "FX" ++ rst);
+        try style.writeViewBadge(right, "FX");
         try w.writeAll(dim ++ "  " ++ rst);
         try w.print("{d}/{d} {s}", .{ app.fx_focus + 1, fx.units.items.len, spectrum_ed.unitLabel(k) });
         try w.writeAll(dim ++ "  " ++ rst);
@@ -501,7 +501,7 @@ pub fn drawFxStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer, targ
         try w.writeAll(dim ++ "]" ++ rst);
     } else {
         try style.writeModeBadge(w, app.modal.mode);
-        try right.writeAll(acc ++ "FX" ++ rst);
+        try style.writeViewBadge(right, "FX");
         try w.writeAll(dim ++ "  chain empty: 'a' inserts an effect" ++ rst);
     }
     if (app.status_len > 0) {

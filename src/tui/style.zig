@@ -58,6 +58,7 @@ pub const track_color_names = [_][]const u8{ "red", "yellow", "green", "cyan", "
 const bg_grn = "\x1b[42m";
 const bg_yel = "\x1b[43m";
 const bg_mag = "\x1b[45m";
+const bg_cyn = "\x1b[46m";
 /// Bold black text reads cleanly on all three badge background colours
 /// above (they're all ANSI "normal" intensity, so black-on-them has good
 /// contrast regardless of the terminal's light/dark theme).
@@ -125,6 +126,27 @@ pub fn writeModeBadge(w: *std.Io.Writer, mode: Mode) !void {
     try w.writeAll(modeBadgeBg(mode));
     try w.writeAll(badge_fg);
     try w.print(" {s} ", .{modeBadgeLetter(mode)});
+    try w.writeAll(rst);
+}
+
+/// Right-edge view-name chip, matching writeModeBadge's look (solid colour
+/// block, bold black text) so the status row's two ends read as a pair.
+/// Cyan rather than the per-mode colour: the view identity doesn't change
+/// with mode, and cyan is already the UI's "interactive label" accent.
+/// `tone` covers callers whose chip doubles as a state flag (the
+/// arrangement's SONG/PATTERN toggle keeps its green/yellow).
+pub const BadgeTone = enum { cyan, green, yellow };
+
+pub fn writeViewBadge(w: *std.Io.Writer, name: []const u8) !void {
+    try writeViewBadgeColored(w, name, .cyan);
+}
+
+pub fn writeViewBadgeColored(w: *std.Io.Writer, name: []const u8, tone: BadgeTone) !void {
+    try w.writeAll(switch (tone) {
+        .cyan => bg_cyn, .green => bg_grn, .yellow => bg_yel,
+    });
+    try w.writeAll(badge_fg);
+    try w.print(" {s} ", .{name});
     try w.writeAll(rst);
 }
 

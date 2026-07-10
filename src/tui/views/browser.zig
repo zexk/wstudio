@@ -133,7 +133,7 @@ pub fn drawFileBrowserStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Wri
         return;
     }
     try style.writeModeBadge(w, app.modal.mode);
-    try right.writeAll(acc ++ "FILES" ++ rst);
+    try style.writeViewBadge(right, "FILES");
     // Status message BEFORE the key hints: the row clamps at the terminal
     // edge, so whatever prints last is what a narrow window silently drops —
     // that must be the static hints, never live feedback (bookmarked/
