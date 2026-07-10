@@ -11,6 +11,7 @@ const app_mod = @import("../app.zig");
 const App = app_mod.App;
 const SamplerMarker = app_mod.SamplerMarker;
 const history = @import("../history.zig");
+const sampler_view = @import("../views/sampler.zig");
 
 /// Number of editable params for the sampler editor's current target.
 fn paramCount(app: *App) u8 {
@@ -153,7 +154,7 @@ pub fn adjustParam(app: *App, steps: i32) void {
 /// content-row budget (`rows -| 5`, matching drawSamplerEditor).
 fn waveRows(is_drum: bool, body: usize) usize {
     const param_lines: usize = if (is_drum) 13 else 17;
-    const wr = @min(@as(usize, 8), body -| (1 + param_lines));
+    const wr = @min(sampler_view.wave_max_rows, body -| (1 + param_lines));
     return if (wr >= 2) wr else 0;
 }
 
@@ -192,7 +193,7 @@ fn paramAtRow(app: *App, row: usize, view_rows: usize) ?u8 {
 fn waveformNorm(x: usize, cols: u16) ?f32 {
     const gutter = 2;
     if (x < gutter) return null;
-    const width = @min(@as(usize, cols) -| gutter, 120);
+    const width = @min(@as(usize, cols) -| gutter, sampler_view.wave_max_w);
     if (width == 0) return null;
     const rel = x - gutter;
     if (rel >= width) return null;

@@ -215,11 +215,20 @@ pub fn meter(w: *std.Io.Writer, peak: f32) !void {
 // Form-row primitives — shared by the synth and sampler editors
 // ---------------------------------------------------------------------------
 
+pub const form_bar_w_default: usize = 18;
+pub const form_section_w_default: usize = 42;
+/// Width knobs for the form-row primitives below (synthBar's cell count and
+/// synthSection's fill width). App.draw resets both to the compact defaults
+/// at the top of every frame; wide-layout views then opt in for that frame
+/// only — so no view ever inherits another view's widths.
+pub var form_bar_w: usize = form_bar_w_default;
+pub var form_section_w: usize = form_section_w_default;
+
 /// Smooth horizontal level bar. `color` tints the filled portion; the track is
 /// always dim. Fractional fill is rendered with a partial block for the last
 /// cell so small changes are visible.
 pub fn synthBar(w: *std.Io.Writer, value: f32, max_val: f32, is_sel: bool, color: []const u8) !void {
-    const bar_w: usize = 18;
+    const bar_w: usize = form_bar_w;
     const frac = std.math.clamp(value / max_val, 0.0, 1.0) * @as(f32, @floatFromInt(bar_w));
     const full: usize = @intFromFloat(@floor(frac));
     const rem = frac - @floor(frac);
@@ -256,7 +265,7 @@ pub fn synthSection(w: *std.Io.Writer, label: []const u8, color: []const u8) !vo
     try w.writeAll(rst);
     try w.writeAll(dim);
     const used = 5 + label.len; // "  " + "▌ " + label + " "
-    const total = 42;
+    const total = form_section_w;
     if (used < total) for (used..total) |_| try w.writeAll("\u{2500}");
     try endLine(w);
 }

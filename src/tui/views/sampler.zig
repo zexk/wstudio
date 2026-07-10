@@ -47,6 +47,13 @@ const sampler_param_labels = [_][]const u8{
     "start", "end", "pitch", "attack", "decay", "sustain", "release", "gain", "pan", "reverse", "root", "voice",
 };
 
+/// Waveform panel caps: width in columns (was 120 — bumped so wide terminals
+/// use their space) and height in rows (min'd against the leftover row
+/// budget, so short terminals see the same 7-8 rows as before). Mirrored by
+/// editors/sampler.zig's waveformNorm/waveRows for mouse hit-testing.
+pub const wave_max_w: usize = 240;
+pub const wave_max_rows: usize = 14;
+
 pub fn drawSamplerEditor(
     app: anytype,
     w: *std.Io.Writer,
@@ -57,6 +64,12 @@ pub fn drawSamplerEditor(
     _ = snap;
     const c = app.sampler_param;
     const is_drum = app.sampler_target == .drum;
+
+    // Wide terminals: stretch the param bars (and the section rules with
+    // them) into the free width. Compact stays exactly as before below
+    // 100 cols; the knobs were reset to the defaults by App.draw.
+    style.form_bar_w = @min(style.form_bar_w_default + (cols -| 100) / 2, 40);
+    style.form_section_w = style.form_section_w_default + (style.form_bar_w - style.form_bar_w_default);
 
     // Resolve the pad being edited and the surrounding labels from the target.
     const track_idx = app.sampler_target.track();
@@ -99,7 +112,7 @@ pub fn drawSamplerEditor(
     // The section headers + param rows need ~13 (drum) / ~16 (sampler) lines;
     // give the waveform whatever vertical space remains, capped for readability.
     const param_lines: usize = if (is_drum) 13 else 17;
-    const wave_rows: usize = @min(@as(usize, 8), body -| (written + param_lines));
+    const wave_rows: usize = @min(wave_max_rows, body -| (written + param_lines));
     if (wave_rows >= 2) {
         try drawWaveformPad(w, pad, cols, wave_rows);
         written += wave_rows;
@@ -199,7 +212,7 @@ fn drawWaveformPad(
     wave_rows: usize,
 ) !void {
     const gutter = 2;
-    const width = @min(cols -| gutter, @as(usize, 120));
+    const width = @min(cols -| gutter, wave_max_w);
     const len = pad.samples.len;
     if (len == 0) {
         for (0..wave_rows) |_| {
@@ -210,7 +223,7 @@ fn drawWaveformPad(
     }
 
     // Per-column peak amplitude over the column's sample bucket.
-    var amp: [120]f32 = undefined;
+    var amp: [wave_max_w]f32 = undefined;
     var peak: f32 = 1e-6;
     for (0..width) |x| {
         var a: f32 = 0;

@@ -2175,6 +2175,11 @@ pub const App = struct {
         const snap = self.session.engine.uiSnapshot();
         const rows: usize = @max(size.rows, 10);
 
+        // Form-primitive width knobs: back to the compact defaults each
+        // frame, so a wide view's opt-in never leaks into the next view.
+        style.form_bar_w = style.form_bar_w_default;
+        style.form_section_w = style.form_section_w_default;
+
         // Command-mode's Tab-completion popup (see cmd.writeSuggestionBox)
         // sits directly above the `:` prompt, drawn after the transport
         // line's closing hr below. Carve its rows out of the content area's
