@@ -1902,7 +1902,13 @@ pub const App = struct {
             }
         }
         // Track indices shifted: history entries would restore into the
-        // wrong track. Starting fresh beats remapping every entry.
+        // wrong track. Starting fresh beats remapping every entry. Open
+        // coalescing batches carry the same stale indices, so they're
+        // dropped (not flushed — a flush would push a wrong-track entry
+        // into the fresh history).
+        const had_history = self.history.undo_stack.items.len > 0 or self.history.redo_stack.items.len > 0;
+        self.pending_param_nudge = null;
+        if (self.pending_fx_nudge) |*p| { p.deinit(self.allocator); self.pending_fx_nudge = null; }
         self.history.deinit(self.allocator);
         self.history = .{};
         switch (self.sampler_target) {
@@ -1918,7 +1924,7 @@ pub const App = struct {
         self.exitStaleEditors();
 
         self.dirty = true;
-        self.setStatus("deleted track {d}", .{track_idx + 1});
+        self.setStatus("deleted track {d}{s}", .{ track_idx + 1, if (had_history) " (undo history cleared)" else "" });
     }
 
     /// After a structural change (delete), bail out of any per-instrument editor
@@ -2031,12 +2037,15 @@ pub const App = struct {
             if (link.track == cur) link.track = @intCast(other)
             else if (link.track == other) link.track = @intCast(cur);
         }
+        const had_history = self.history.undo_stack.items.len > 0 or self.history.redo_stack.items.len > 0;
+        self.pending_param_nudge = null;
+        if (self.pending_fx_nudge) |*p| { p.deinit(self.allocator); self.pending_fx_nudge = null; }
         self.history.deinit(self.allocator);
         self.history = .{};
 
         self.cursor = other;
         self.dirty = true;
-        self.setStatus("moved track {d} {s}", .{ cur + 1, if (dir < 0) "up" else "down" });
+        self.setStatus("moved track {d} {s}{s}", .{ cur + 1, if (dir < 0) "up" else "down", if (had_history) " (undo history cleared)" else "" });
     }
 
     /// `[`/`]` in the tracks view: cycle the cursor track's color through
