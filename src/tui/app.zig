@@ -2827,6 +2827,10 @@ pub const App = struct {
         try tui.meter(&mw, snap.peak[1]);
         try style.writeSplitRow(w, tw.buffered(), mw.buffered(), size.cols);
         try style.endLine(w);
+        // Blank spacer row, reserved for the `:` command prompt to move
+        // into later — for now it just separates the meter row from the
+        // status/mode-badge row below.
+        try style.endLine(w);
 
         if (suggestion_rows > 0) {
             try cmd_mod.writeSuggestionBox(

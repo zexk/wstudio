@@ -67,7 +67,7 @@ pub fn drawPresetPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void {
             .header => {},
         }
     }
-    const vis_rows: usize = rows -| 5;
+    const vis_rows: usize = rows -| 6;
     if (cursor_row < app.preset_picker_scroll) app.preset_picker_scroll = cursor_row;
     if (vis_rows > 0 and cursor_row >= app.preset_picker_scroll + vis_rows)
         app.preset_picker_scroll = cursor_row - vis_rows + 1;
@@ -115,7 +115,7 @@ pub fn drawPresetPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void {
 
     const printed = (last_visible - scroll) + @intFromBool(count == 0);
     const used = 2 + printed;
-    for (used..@max(used, rows -| 3)) |_| try endLine(w);
+    for (used..@max(used, rows -| 4)) |_| try endLine(w);
 }
 
 /// Status row: the `/` prompt while a filter is being typed (the list above

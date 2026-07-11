@@ -52,8 +52,8 @@ const synth_ed = @import("../editors/synth.zig");
 pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, snap: engine_mod.UiSnapshot) !void {
     _ = snap;
     // Available rows for the view body (excludes the caller's header +
-    // transport + status — 3 rows total, no separate hr() rule rows anymore).
-    const max_rows = rows -| 3;
+    // transport + status — 4 rows total, no separate hr() rule rows anymore).
+    const max_rows = rows -| 4;
     const two_col = synth_ed.twoCol(cols);
 
     // Stretch the param bars (and the section rules with them) into free

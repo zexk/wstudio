@@ -105,9 +105,9 @@ pub fn drawArrangement(
     // Lanes: vertical scroll over tracks, same window-clamp technique the
     // horizontal bar scroll above uses (exact `rows` is known here, unlike
     // editors/piano.zig's ensureVisible which has to approximate). Budget:
-    // title(1) + ruler(1) + footer(3) = 5 are always spoken for.
+    // title(1) + ruler(1) + footer(4) = 6 are always spoken for.
     const lane_count = app.session.project.tracks.items.len;
-    const vis_lanes: usize = rows -| 5;
+    const vis_lanes: usize = rows -| 6;
     if (app.cursor < lane_count) {
         if (app.cursor < app.arr_scroll_lane) app.arr_scroll_lane = app.cursor;
         if (vis_lanes > 0 and app.cursor >= app.arr_scroll_lane + vis_lanes) app.arr_scroll_lane = app.cursor - vis_lanes + 1;
@@ -186,7 +186,7 @@ pub fn drawArrangement(
     // lane rows — was "4 +" (stale from before the header/transport hr()
     // rows were removed), leaving 2 rows of dead blank space above the footer.
     const used = 2 + (last_lane - lane_scroll);
-    for (used..@max(used, rows -| 3)) |_| try endLine(w);
+    for (used..@max(used, rows -| 4)) |_| try endLine(w);
 }
 
 pub fn drawArrangementStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer, cmds: []const cmd_mod.Def) !void {

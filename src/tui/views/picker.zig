@@ -80,7 +80,7 @@ pub fn drawInstrumentPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void 
     // — was "4 +" (stale from before the header/transport hr() rows were
     // removed), leaving 2 rows of dead blank space above the footer.
     const used = 2 + picker_menu.len;
-    for (used..@max(used, rows -| 3)) |_| try endLine(w);
+    for (used..@max(used, rows -| 4)) |_| try endLine(w);
 }
 
 /// Names + one-line descriptions for the FX picker. Order must match
@@ -132,6 +132,6 @@ pub fn drawFxPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void {
     // — was "4 +" (stale from before the header/transport hr() rows were
     // removed), leaving 2 rows of dead blank space above the footer.
     const used = 2 + fx_picker_menu.len;
-    for (used..@max(used, rows -| 3)) |_| try endLine(w);
+    for (used..@max(used, rows -| 4)) |_| try endLine(w);
 }
 

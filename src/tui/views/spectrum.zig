@@ -234,7 +234,7 @@ pub fn drawFxView(
     // view — app.zig's guard kicks back to tracks on the next key; just pad
     // here.
     const chain = spectrum_ed.fxPtr(app, target) orelse {
-        for (1..@max(1, rows -| 3)) |_| try endLine(w);
+        for (1..@max(1, rows -| 4)) |_| try endLine(w);
         return;
     };
 
@@ -489,12 +489,12 @@ pub fn drawFxView(
         }
     }
 
-    // Pad to fill the view's row budget (rows-3) so the footer stays pinned.
+    // Pad to fill the view's row budget (rows-4) so the footer stays pinned.
     // lines written: 1 (header) + strip + hint + 1 (section) + body_lines,
     // where strip+hint is 4 rows normally, 1 in compact mode.
     const prelude: usize = if (compact) 3 else 6;
     const used = prelude + body_lines;
-    for (used..@max(used, rows -| 3)) |_| try endLine(w);
+    for (used..@max(used, rows -| 4)) |_| try endLine(w);
 }
 
 /// Formats param `idx` of payload `p` with a unit-appropriate suffix, e.g.

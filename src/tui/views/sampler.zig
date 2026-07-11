@@ -83,9 +83,9 @@ pub fn drawSamplerEditor(
         break :blk placeholderPad();
     };
 
-    // Body budget: the caller's header + transport + status (3 rows total,
+    // Body budget: the caller's header + transport + status (4 rows total,
     // no separate hr() rule rows anymore) are reserved outside `rows`.
-    const body = rows -| 3;
+    const body = rows -| 4;
     var written: usize = 0;
 
     // ── Title ────────────────────────────────────

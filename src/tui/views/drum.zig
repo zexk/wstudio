@@ -55,9 +55,9 @@ pub const pads_per_bank: usize = 8;
 /// costs pads_per_bank + 1 rows (a dim rule marks the bank boundary).
 /// `rows` is the view's content-row budget (drawDrumGrid's
 /// `rows` / handleMouse's view_rows); pad rows fit while used = title(1) +
-/// header(1) + bank rows + 2 stays inside rows - 3.
+/// header(1) + bank rows + 2 stays inside rows - 4.
 pub fn banksShown(rows: usize) usize {
-    const budget = rows -| 7;
+    const budget = rows -| 8;
     inline for ([_]usize{ 8, 4, 2 }) |n| {
         if (n * pads_per_bank + (n - 1) <= budget) return n;
     }
@@ -209,7 +209,7 @@ pub fn drawDrumGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, s
     }
 
     const used = 4 + printed;
-    for (used..@max(used, rows -| 3)) |_| try endLine(w);
+    for (used..@max(used, rows -| 4)) |_| try endLine(w);
 }
 
 /// One dim horizontal rule spanning exactly the grid's width (gutter +

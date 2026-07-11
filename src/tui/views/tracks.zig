@@ -238,7 +238,7 @@ pub fn drawTracks(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, sna
     // same pattern as drawArrangement's `arr_scroll_bar`.
     app.tracksRowSync();
     const row_count = app.track_rows_len;
-    const vis_rows: usize = rows -| 5;
+    const vis_rows: usize = rows -| 6;
     if (app.track_row < row_count) {
         if (app.track_row < app.track_scroll) app.track_scroll = app.track_row;
         if (vis_rows > 0 and app.track_row >= app.track_scroll + vis_rows) app.track_scroll = app.track_row - vis_rows + 1;
@@ -313,7 +313,7 @@ pub fn drawTracks(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, sna
     // rows — was "4 +" (stale from before the header/transport hr() rows
     // were removed), leaving 2 rows of dead blank space above the footer.
     const used = 2 + (last_visible - scroll);
-    for (used..@max(used, rows -| 3)) |_| try endLine(w);
+    for (used..@max(used, rows -| 4)) |_| try endLine(w);
 }
 
 pub fn drawTracksStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer, cmds: []const cmd_mod.Def) !void {

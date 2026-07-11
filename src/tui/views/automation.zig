@@ -107,7 +107,7 @@ pub fn drawAutomation(
     const clip = currentClip(app) orelse {
         try w.writeAll(bold ++ " AUTOMATION" ++ rst ++ dim ++ "  clip gone — esc" ++ rst);
         try endLine(w);
-        for (1..@max(1, rows -| 3)) |_| try endLine(w);
+        for (1..@max(1, rows -| 4)) |_| try endLine(w);
         return;
     };
 
@@ -165,7 +165,7 @@ pub fn drawAutomation(
     // interpolated-only steps are dim, the cursor is reverse-video, a
     // visual-mode selection tints its range yellow (matching the piano
     // roll's `in_sel` convention).
-    const graph_rows: usize = @max(1, @min(8, rows -| 6));
+    const graph_rows: usize = @max(1, @min(8, rows -| 7));
     for (0..graph_rows) |line| {
         const row_base = (graph_rows - 1 - line) * 8; // eighth-blocks below this row
         try w.writeAll("   ");
@@ -212,7 +212,7 @@ pub fn drawAutomation(
     // graph's own rows — was "5 +" (stale from before the header/transport
     // hr() rows were removed), leaving 2 rows of dead blank space above the footer.
     const used = 3 + graph_rows;
-    for (used..@max(used, rows -| 3)) |_| try endLine(w);
+    for (used..@max(used, rows -| 4)) |_| try endLine(w);
 }
 
 pub fn drawAutomationStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer, cmds: []const cmd_mod.Def) !void {
@@ -314,7 +314,7 @@ pub fn drawAutomationParamPicker(app: anytype, w: *std.Io.Writer, rows: usize) !
     // 2 rows of preamble (title + blank) already printed above, plus the
     // same 3-row bottom margin every other view's pad loop reserves — same
     // "vis_rows = rows - preamble - 3" shape drawTracks' vis_rows uses.
-    const vis_rows: usize = rows -| 5;
+    const vis_rows: usize = rows -| 6;
     if (cursor_row < app.automation_param_scroll) app.automation_param_scroll = cursor_row;
     if (vis_rows > 0 and cursor_row >= app.automation_param_scroll + vis_rows)
         app.automation_param_scroll = cursor_row - vis_rows + 1;
@@ -346,5 +346,5 @@ pub fn drawAutomationParamPicker(app: anytype, w: *std.Io.Writer, rows: usize) !
     }
 
     const used = 2 + (last_visible - scroll);
-    for (used..@max(used, rows -| 3)) |_| try endLine(w);
+    for (used..@max(used, rows -| 4)) |_| try endLine(w);
 }

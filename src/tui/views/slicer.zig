@@ -73,7 +73,7 @@ pub fn drawSlicerGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize,
     if (slice_count == 0) {
         try w.writeAll(dim ++ "  no slices yet — :slice <n> chops the loaded sample (:load-slice first)" ++ rst);
         try endLine(w);
-        for (2..@max(2, rows -| 3)) |_| try endLine(w);
+        for (2..@max(2, rows -| 4)) |_| try endLine(w);
         return;
     }
 
@@ -115,7 +115,7 @@ pub fn drawSlicerGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize,
     }
 
     const used = 2 + (bank_end - bank_start);
-    for (used..@max(used, rows -| 3)) |_| try endLine(w);
+    for (used..@max(used, rows -| 4)) |_| try endLine(w);
 }
 
 pub fn drawSlicerStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer, cmds: []const cmd_mod.Def) !void {
