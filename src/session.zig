@@ -129,25 +129,37 @@ pub const Session = struct {
     /// Append a new blank track at the end. The user picks an instrument for it
     /// via `setInstrument`. Returns the new track index.
     pub fn addTrack(self: *Session, name: []const u8) error{ TrackLimitReached, OutOfMemory }!u16 {
+        return self.insertTrack(@intCast(self.project.tracks.items.len), name);
+    }
+
+    /// Insert a new blank track at `at` (clamped to the current track
+    /// count, so `at == len` is the same as `addTrack`), shifting every
+    /// track from `at` on up by one. The user picks an instrument for it
+    /// via `setInstrument`. Returns the new track's index.
+    pub fn insertTrack(self: *Session, at: u16, name: []const u8) error{ TrackLimitReached, OutOfMemory }!u16 {
         if (self.project.tracks.items.len >= engine_mod.max_tracks)
             return error.TrackLimitReached;
 
-        const idx: u16 = @intCast(self.project.tracks.items.len);
+        const total: u16 = @intCast(self.project.tracks.items.len);
+        const idx = @min(at, total);
 
         const rack = try self.allocator.create(Rack);
         errdefer self.allocator.destroy(rack);
         rack.* = .{ .instrument = .empty, .label = "empty" };
 
-        try self.racks.append(self.allocator, rack);
-        errdefer _ = self.racks.pop();
+        try self.racks.insert(self.allocator, idx, rack);
+        errdefer _ = self.racks.orderedRemove(idx);
 
-        try self.arrangement.addLane(self.allocator);
-        errdefer self.arrangement.removeLane(self.allocator, self.arrangement.lanes.items.len - 1);
+        try self.arrangement.insertLane(self.allocator, idx);
+        errdefer self.arrangement.removeLane(self.allocator, idx);
 
-        _ = try self.project.addTrack(.{ .name = name });
+        try self.project.insertTrack(idx, .{ .name = name });
 
-        self.engine.applyInsertTrack(idx, idx, 1.0, 0.0, false);
+        self.engine.applyInsertTrack(idx, total, 1.0, 0.0, false);
         self.syncTrackChain(idx, rack);
+        // Existing tracks from `idx` on shifted up by one; any compressor
+        // sidechaining off one of them must follow.
+        self.remapSidechainSources(.{ .insert = idx });
 
         return idx;
     }
@@ -450,6 +462,9 @@ pub const Session = struct {
         delete: u16,
         /// These two track indices traded places.
         swap: [2]u16,
+        /// A new track was inserted at this index; everything from here on
+        /// shifted up by one.
+        insert: u16,
     };
 
     /// Rewrite every compressor's `sidechain_source` (track racks, group
@@ -474,6 +489,10 @@ pub const Session = struct {
                                 .{ .track = ab[1], .pad = sc.pad }
                             else if (sc.track == ab[1])
                                 .{ .track = ab[0], .pad = sc.pad }
+                            else
+                                sc,
+                            .insert => |at| if (sc.track >= at)
+                                .{ .track = sc.track + 1, .pad = sc.pad }
                             else
                                 sc,
                         };

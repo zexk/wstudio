@@ -2230,20 +2230,76 @@ pub const App = struct {
     // Track add / delete internals
     // -----------------------------------------------------------------------
 
-    pub fn doTrackAdd(self: *App, name_arg: ?[]const u8) void {
-        var name_buf: [32]u8 = undefined;
-        const name: []const u8 = name_arg orelse std.fmt.bufPrint(
-            &name_buf, "track {d}", .{self.session.project.tracks.items.len},
-        ) catch "track";
+    /// Where a new track lands: right after the currently selected track,
+    /// or — on a folded group row — right after that group's last member,
+    /// so the new track shows up next to the group instead of jumping to
+    /// the very bottom. The master row and any view outside `.tracks` (e.g.
+    /// `:track-add` run from the synth editor) fall back to `self.cursor`,
+    /// which every view keeps pointed at "the" current track; past the
+    /// last real track (the master sentinel) that means append at the end.
+    /// Re-syncs the row cursor itself rather than trusting the caller to
+    /// have done it — same "call before any row-cursor read" rule
+    /// `tracksRowSync`'s own doc comment gives.
+    fn trackAddInsertIndex(self: *App) u16 {
+        const total: u16 = @intCast(self.session.project.tracks.items.len);
+        if (self.view == .tracks) {
+            self.tracksRowSync();
+            if (self.cursorGroup()) |g| {
+                var last: ?u16 = null;
+                for (self.session.project.tracks.items, 0..) |t, i| {
+                    if (t.group == g) last = @intCast(i);
+                }
+                return if (last) |l| l + 1 else total;
+            }
+            if (self.cursorTrack()) |t| return t + 1;
+            return total;
+        }
+        if (self.cursor < total) return @as(u16, @intCast(self.cursor)) + 1;
+        return total;
+    }
 
-        const idx = self.session.addTrack(name) catch |err| {
+    pub fn doTrackAdd(self: *App, name_arg: ?[]const u8) void {
+        const at = self.trackAddInsertIndex();
+        const name: []const u8 = name_arg orelse "untitled track";
+
+        const idx = self.session.insertTrack(at, name) catch |err| {
             if (err == error.TrackLimitReached)
                 self.setStatus("track limit reached", .{})
             else
                 self.setStatus("out of memory", .{});
             return;
         };
-        self.cursor = @intCast(idx);
+
+        // Existing tracks from `idx` on shifted up by one: same field
+        // checklist doTrackDel/doTrackMove remap, mirrored for a track
+        // showing up instead of disappearing or swapping. Nothing is ever
+        // dropped here — an insert can't invalidate a track.
+        if (self.synth_track >= idx) self.synth_track += 1;
+        if (self.drum_track >= idx) self.drum_track += 1;
+        if (self.piano_track >= idx) self.piano_track += 1;
+        if (self.eq_track >= idx) self.eq_track += 1;
+        if (self.slicer_track >= idx) self.slicer_track += 1;
+        if (self.automation_track >= idx) self.automation_track += 1;
+        switch (self.sampler_target) {
+            .drum => |*t| if (t.* >= idx) { t.* += 1; },
+            .sampler => |*t| if (t.* >= idx) { t.* += 1; },
+        }
+        if (self.piano_clip_link) |*link| {
+            if (link.track >= idx) link.track += 1;
+        }
+        if (self.automation_clip) |*link| {
+            if (link.track >= idx) link.track += 1;
+        }
+        for (self.note_offs[0..self.note_off_len]) |*off| {
+            if (off.track >= idx) off.track += 1;
+        }
+
+        const remap: undo_mod.TrackRemap = .{ .insert = idx };
+        history.retargetPending(self, remap);
+        _ = self.history.retarget(self.allocator, remap);
+
+        self.cursor = idx;
+        self.invalidateTrackRow();
         self.dirty = true;
         self.setStatus("added \"{s}\" (track {d})", .{ name, idx + 1 });
     }

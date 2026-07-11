@@ -279,6 +279,12 @@ pub const Arrangement = struct {
         try self.lanes.append(allocator, .{});
     }
 
+    /// Insert a blank lane at `index`, shifting later lanes right (mirrors
+    /// Session.insertTrack).
+    pub fn insertLane(self: *Arrangement, allocator: std.mem.Allocator, index: usize) !void {
+        try self.lanes.insert(allocator, index, .{});
+    }
+
     /// Remove the lane at `index` (mirrors Session.deleteTrack).
     pub fn removeLane(self: *Arrangement, allocator: std.mem.Allocator, index: usize) void {
         if (index >= self.lanes.items.len) return;

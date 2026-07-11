@@ -131,20 +131,24 @@ pub const PendingFxNudge = struct {
     }
 };
 
-/// How a structural track change (delete/swap) reshapes a track index
+/// How a structural track change (delete/swap/insert) reshapes a track index
 /// baked into an undo entry. Applied by `History.retarget` to every entry
 /// on both stacks right after the change, so old entries keep pointing at
 /// the same physical track instead of the wrong one once indices shift.
 pub const TrackRemap = union(enum) {
     delete: u16,
     swap: struct { a: u16, b: u16 },
+    /// A new track was inserted at this index; everything from here on
+    /// shifted up by one.
+    insert: u16,
 
     /// The track's new index, or null if it no longer exists (delete only
-    /// — a swap never removes a track).
+    /// — neither a swap nor an insert ever removes a track).
     pub fn apply(self: TrackRemap, track: u16) ?u16 {
         return switch (self) {
             .delete => |del| if (track == del) null else if (track > del) track - 1 else track,
             .swap => |s| if (track == s.a) s.b else if (track == s.b) s.a else track,
+            .insert => |at| if (track >= at) track + 1 else track,
         };
     }
 };

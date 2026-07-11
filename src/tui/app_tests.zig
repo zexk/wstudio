@@ -1703,19 +1703,21 @@ test "spectrum fills FFT buffer and draws with real data" {
     try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "SPECTRUM") != null);
 }
 
-test "track add appends a blank track at the end" {
+test "track add inserts a blank track right after the cursor's track" {
     var app = try testApp();
     defer app.deinit();
 
     const initial_tracks = app.session.project.tracks.items.len;
+    try std.testing.expectEqual(@as(usize, 0), app.cursor);
     app.doTrackAdd("strings");
 
     try std.testing.expectEqual(initial_tracks + 1, app.session.project.tracks.items.len);
     try std.testing.expectEqual(initial_tracks + 1, app.session.racks.items.len);
-    const last = app.session.racks.items.len - 1;
-    try std.testing.expectEqualStrings("strings", app.session.project.tracks.items[last].name);
-    try std.testing.expectEqual(InstrumentKind.empty, std.meta.activeTag(app.session.racks.items[last].instrument));
-    try std.testing.expectEqual(@as(usize, last), app.cursor);
+    // Cursor started on track 0, so the new track lands at index 1, not
+    // appended after the pre-existing tracks.
+    try std.testing.expectEqualStrings("strings", app.session.project.tracks.items[1].name);
+    try std.testing.expectEqual(InstrumentKind.empty, std.meta.activeTag(app.session.racks.items[1].instrument));
+    try std.testing.expectEqual(@as(usize, 1), app.cursor);
 }
 
 test "track delete removes the rack and shifts later tracks down" {
@@ -2102,16 +2104,18 @@ test ":sig sets beats per bar and reshapes bar math" {
     try std.testing.expectEqual(@as(u8, 3), app.session.project.beats_per_bar);
 }
 
-test ":track-add command adds a blank track" {
+test ":track-add command adds a blank track right after the cursor's track" {
     var app = try testApp();
     defer app.deinit();
 
     const before = app.session.project.tracks.items.len;
+    try std.testing.expectEqual(@as(usize, 0), app.cursor);
     for (":track-add mytrack") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(before + 1, app.session.project.tracks.items.len);
-    const last = app.session.project.tracks.items.len - 1;
-    try std.testing.expectEqualStrings("mytrack", app.session.project.tracks.items[last].name);
+    try std.testing.expectEqualStrings("mytrack", app.session.project.tracks.items[1].name);
+    try std.testing.expectEqualStrings("samp", app.session.project.tracks.items[2].name);
+    try std.testing.expectEqualStrings("drums", app.session.project.tracks.items[3].name);
 }
 
 test ":track-del command deletes a track" {
