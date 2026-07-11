@@ -1788,13 +1788,21 @@ test "track delete remaps a surviving track's undo entry instead of wiping histo
 
     // Delete track 0 (the synth): track 2's drum machine shifts to index 1,
     // and the undo entry should follow it rather than the history getting
-    // wiped or the entry pointing at the wrong (now-track-1) sampler.
+    // wiped or the entry pointing at the wrong (now-track-1) sampler. The
+    // delete itself also pushes its own (whole-track) undo entry on top.
     app.doTrackDel(0);
-    try std.testing.expectEqual(@as(usize, 1), app.history.undo_stack.items.len);
+    try std.testing.expectEqual(@as(usize, 2), app.history.undo_stack.items.len);
     try std.testing.expectEqual(@as(u16, 1), app.history.undo_stack.items[0].drum.track);
 
+    // First undo pops the most recent push: the delete itself, restoring
+    // track 0. The surviving drum entry should follow the drum machine
+    // back to its original index once track 0 reappears.
     app.handleKey(.{ .char = 'u' }, 0);
-    const dm = &app.session.racks.items[1].instrument.drum_machine;
+    try std.testing.expectEqual(@as(u16, 2), app.history.undo_stack.items[0].drum.track);
+
+    // Second undo reverts the drum toggle itself.
+    app.handleKey(.{ .char = 'u' }, 0);
+    const dm = &app.session.racks.items[2].instrument.drum_machine;
     try std.testing.expectEqual(before, dm.variantData(dm.variant).pattern[0]);
 }
 
@@ -1802,14 +1810,22 @@ test "track delete drops an undo entry that named the deleted track" {
     var app = try testApp();
     defer app.deinit();
 
+    const before = app.session.racks.items[2].instrument.drum_machine.variantData(0).pattern[0];
     history.push(&app, history.captureDrum(&app, 2));
     app.session.racks.items[2].instrument.drum_machine.toggleStep(0, 0);
 
     // Delete track 2 itself: the entry it named is gone, not remapped onto
-    // a different surviving track.
+    // a different surviving track — but the delete pushes its own
+    // whole-track undo entry, so the stack isn't left empty.
     app.doTrackDel(2);
-    try std.testing.expectEqual(@as(usize, 0), app.history.undo_stack.items.len);
+    try std.testing.expectEqual(@as(usize, 1), app.history.undo_stack.items.len);
     try std.testing.expect(std.mem.indexOf(u8, app.status_buf[0..app.status_len], "1 undo entries for it cleared") != null);
+
+    // Undo restores track 2 exactly as it was at delete time (including
+    // the toggle), independent of the dropped fine-grained entry.
+    app.handleKey(.{ .char = 'u' }, 0);
+    const dm = &app.session.racks.items[2].instrument.drum_machine;
+    try std.testing.expect(dm.variantData(dm.variant).pattern[0] != before);
 }
 
 test "track delete remaps a still-open FX nudge batch, including the entry it flushes" {
@@ -1830,8 +1846,72 @@ test "track delete remaps a still-open FX nudge batch, including the entry it fl
     // embedded in the snapshot it eventually flushes, not just its own.
     app.doTrackDel(0);
     history.flushFxNudge(&app);
+    // The delete pushes its own whole-track undo entry first; the flushed
+    // FX entry lands on top of it.
+    try std.testing.expectEqual(@as(usize, 2), app.history.undo_stack.items.len);
+    try std.testing.expectEqual(@as(u16, 1), app.history.undo_stack.items[1].fx.target.track);
+}
+
+test "track delete pushes its own undo entry that fully restores the track" {
+    var app = try testApp();
+    defer app.deinit();
+
+    // Distinguishing fields on the sampler track so restore can be checked
+    // field-by-field, not just "a track reappeared".
+    app.session.project.tracks.items[1].gain_db = -6.0;
+    app.session.project.tracks.items[1].color = 3;
+
+    app.doTrackDel(1); // the sampler
+    try std.testing.expectEqual(@as(usize, 2), app.session.project.tracks.items.len);
     try std.testing.expectEqual(@as(usize, 1), app.history.undo_stack.items.len);
-    try std.testing.expectEqual(@as(u16, 1), app.history.undo_stack.items[0].fx.target.track);
+
+    app.handleKey(.{ .char = 'u' }, 0);
+    try std.testing.expectEqual(@as(usize, 3), app.session.project.tracks.items.len);
+    try std.testing.expectEqualStrings("samp", app.session.project.tracks.items[1].name);
+    try std.testing.expectEqual(@as(f32, -6.0), app.session.project.tracks.items[1].gain_db);
+    try std.testing.expectEqual(@as(u8, 3), app.session.project.tracks.items[1].color);
+    try std.testing.expectEqual(InstrumentKind.sampler, std.meta.activeTag(app.session.racks.items[1].instrument));
+    try std.testing.expectEqual(@as(usize, 0), app.history.undo_stack.items.len);
+    try std.testing.expectEqual(@as(usize, 1), app.history.redo_stack.items.len);
+
+    // Redo deletes it again.
+    app.handleKey(.{ .char = 'U' }, 0);
+    try std.testing.expectEqual(@as(usize, 2), app.session.project.tracks.items.len);
+    try std.testing.expectEqual(InstrumentKind.drum_machine, std.meta.activeTag(app.session.racks.items[1].instrument));
+    try std.testing.expectEqual(@as(usize, 1), app.history.undo_stack.items.len);
+    try std.testing.expectEqual(@as(usize, 0), app.history.redo_stack.items.len);
+
+    // Undo again brings it right back.
+    app.handleKey(.{ .char = 'u' }, 0);
+    try std.testing.expectEqual(@as(usize, 3), app.session.project.tracks.items.len);
+    try std.testing.expectEqual(InstrumentKind.sampler, std.meta.activeTag(app.session.racks.items[1].instrument));
+}
+
+test "track delete undo entries stay correctly ordered across two deletes and two undos" {
+    var app = try testApp();
+    defer app.deinit();
+
+    // Delete track 0 (synth), then track 0 again (was the sampler, now
+    // shifted down to index 0) — two whole-track undo entries stack up.
+    app.doTrackDel(0);
+    app.doTrackDel(0);
+    try std.testing.expectEqual(@as(usize, 1), app.session.project.tracks.items.len);
+    try std.testing.expectEqual(@as(usize, 2), app.history.undo_stack.items.len);
+
+    // First undo restores the sampler (the most recent delete) at index 0.
+    app.handleKey(.{ .char = 'u' }, 0);
+    try std.testing.expectEqual(@as(usize, 2), app.session.project.tracks.items.len);
+    try std.testing.expectEqual(InstrumentKind.sampler, std.meta.activeTag(app.session.racks.items[0].instrument));
+
+    // Second undo restores the synth back at index 0, pushing the sampler
+    // to index 1 — the still-pending track_insert entry for the synth must
+    // have followed the sampler's earlier restore (an .insert remap on an
+    // insertion-point entry, not a live-track one) to land at the right slot.
+    app.handleKey(.{ .char = 'u' }, 0);
+    try std.testing.expectEqual(@as(usize, 3), app.session.project.tracks.items.len);
+    try std.testing.expectEqual(InstrumentKind.poly_synth, std.meta.activeTag(app.session.racks.items[0].instrument));
+    try std.testing.expectEqual(InstrumentKind.sampler, std.meta.activeTag(app.session.racks.items[1].instrument));
+    try std.testing.expectEqual(InstrumentKind.drum_machine, std.meta.activeTag(app.session.racks.items[2].instrument));
 }
 
 test "track delete shifts slicer_track like every other editor-target index" {

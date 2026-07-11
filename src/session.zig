@@ -256,6 +256,55 @@ pub const Session = struct {
         self.remapSidechainSources(.{ .delete = @intCast(track_idx) });
     }
 
+    /// Per-track mixer fields `restoreTrack` needs, mirroring `Track`'s own
+    /// fields minus `name`/`kind` (name is a separate arg; kind is implied
+    /// by the restored rack's instrument).
+    pub const RestoredMeta = struct {
+        gain_db: f32,
+        pan: f32,
+        muted: bool,
+        soloed: bool,
+        color: u8,
+        group: ?u8,
+    };
+
+    /// Re-insert a previously-deleted track's full state at `at`, shifting
+    /// later tracks up by one — the undo-side counterpart to `deleteTrack`.
+    /// Takes ownership of `rack` and `clips`: they land directly in session
+    /// structures with no further copy, since the caller (undo's
+    /// `TrackFullState`) already holds a deep copy made specifically for
+    /// this restore. Mirrors `insertTrack`'s exact call shape — including
+    /// running `remapSidechainSources` only after the rack is already in
+    /// `self.racks`, so a sidechain reference living on the RESTORED rack's
+    /// own chain gets swept by the same pass as everyone else's.
+    pub fn restoreTrack(self: *Session, at: u16, name: []const u8, meta: RestoredMeta, rack: *Rack, clips: []Clip) !void {
+        const total: u16 = @intCast(self.project.tracks.items.len);
+        const idx = @min(at, total);
+
+        try self.racks.insert(self.allocator, idx, rack);
+        errdefer _ = self.racks.orderedRemove(idx);
+
+        try self.arrangement.insertLane(self.allocator, idx);
+        errdefer self.arrangement.removeLane(self.allocator, idx);
+        const lane = self.arrangement.lane(idx).?;
+        for (clips) |c| try lane.clips.append(self.allocator, c);
+        self.allocator.free(clips);
+
+        try self.project.insertTrack(idx, .{
+            .name = name, .gain_db = meta.gain_db, .pan = meta.pan,
+            .muted = meta.muted, .soloed = meta.soloed, .color = meta.color,
+            .group = meta.group,
+        });
+
+        self.engine.applyInsertTrack(idx, total, types.dbToGain(meta.gain_db), meta.pan, meta.muted);
+        self.syncTrackChain(idx, rack);
+        self.remapSidechainSources(.{ .insert = idx });
+        if (meta.soloed) _ = self.engine.send(.{ .set_track_solo = .{ .track = idx, .soloed = true } });
+        if (meta.group) |g| _ = self.engine.send(.{ .set_track_group = .{ .track = idx, .group = g } });
+
+        if (self.song_mode) self.rebuildSongData();
+    }
+
     /// Deep-copy `track_idx` — instrument, params, FX, pattern/pad audio, and
     /// its arrangement clips — into a new track appended at the end. Appending
     /// (rather than inserting right after the source) never reindexes an

@@ -21,6 +21,7 @@ const Note = ws.dsp.pattern.Note;
 const DrumMachine = ws.dsp.DrumMachine;
 const Clip = ws.Clip;
 const Fx = ws.Fx;
+const Rack = ws.Rack;
 
 /// Entries kept on the undo side; the oldest fall off beyond this.
 pub const max_entries: usize = 64;
@@ -131,6 +132,35 @@ pub const PendingFxNudge = struct {
     }
 };
 
+/// A whole deleted track's full state (instrument, FX chain, sample audio,
+/// arrangement clips, mixer metadata) — the undo-side counterpart to
+/// `Session.deleteTrack`, reinserted at `track` via `Session.restoreTrack`.
+/// `rack`/`clips` are deep copies (`Rack.dupe`/`Clip.dupe`, same precedent
+/// `duplicateTrack` and the `.lane`/`.fx` entries above already use) taken
+/// BEFORE the delete, so this entry owns memory the live session never
+/// touches — no aliasing with `Session.retired_racks`, which the audio
+/// thread may still be draining.
+pub const TrackFullState = struct {
+    track: u16,
+    name: []u8, // owned
+    gain_db: f32,
+    pan: f32,
+    muted: bool,
+    soloed: bool,
+    color: u8,
+    group: ?u8,
+    rack: *Rack, // owned deep copy
+    clips: []Clip, // owned, including each melodic clip's notes
+
+    pub fn deinit(self: *TrackFullState, allocator: std.mem.Allocator) void {
+        allocator.free(self.name);
+        self.rack.deinit(allocator);
+        allocator.destroy(self.rack);
+        for (self.clips) |*c| c.deinit(allocator);
+        allocator.free(self.clips);
+    }
+};
+
 /// How a structural track change (delete/swap/insert) reshapes a track index
 /// baked into an undo entry. Applied by `History.retarget` to every entry
 /// on both stacks right after the change, so old entries keep pointing at
@@ -159,6 +189,13 @@ pub const Entry = union(enum) {
     lane: LaneState,
     fx: FxState,
     param_nudge: ParamNudgeState,
+    /// A deleted track's full backup; applying re-inserts it (undo of a
+    /// delete, or redo of a restore).
+    track_insert: TrackFullState,
+    /// Just the index of a live track; applying captures it fresh and
+    /// deletes it (redo of a delete, or undo of a restore) — lightweight
+    /// since `Session.deleteTrack` needs no prior snapshot to run.
+    track_delete: u16,
 
     pub fn deinit(self: *Entry, allocator: std.mem.Allocator) void {
         switch (self.*) {
@@ -167,6 +204,8 @@ pub const Entry = union(enum) {
             .lane => |*l| l.deinit(allocator),
             .fx => |*f| f.deinit(allocator),
             .param_nudge => {},
+            .track_insert => |*t| t.deinit(allocator),
+            .track_delete => {},
         }
     }
 
@@ -177,6 +216,7 @@ pub const Entry = union(enum) {
             .lane => "clip",
             .fx => "fx",
             .param_nudge => "param",
+            .track_insert, .track_delete => "track",
         };
     }
 };
@@ -257,6 +297,27 @@ fn retargetStack(stack: *std.ArrayListUnmanaged(Entry), allocator: std.mem.Alloc
             .fx => |*f| switch (f.target) {
                 .track => |t| if (remap.apply(t)) |nt| { f.target = .{ .track = nt }; } else { keep = false; },
                 else => {},
+            },
+            // `track_delete` names a currently-LIVE track, same as every
+            // entry above — standard remap applies (drop on exact delete
+            // match). `track_insert.track` is an INSERTION POINT for a
+            // track that doesn't exist yet, so it needs different math:
+            // never dropped, and a `.delete` at or after it leaves it
+            // alone (nothing before it moved) rather than the "drop on
+            // exact match" rule live-entity fields use.
+            .track_delete => |*idx| if (remap.apply(idx.*)) |nt| { idx.* = nt; } else { keep = false; },
+            .track_insert => |*t| switch (remap) {
+                .delete => |d| if (d < t.track) { t.track -= 1; },
+                .swap => {},
+                // Strictly less-than, not <=: an insert landing at exactly
+                // this insertion point (e.g. a more-recently-deleted
+                // track's own restore, undone first) must NOT bump this
+                // one — this entry's own eventual restore inserts BEFORE
+                // whatever now occupies that slot, same as
+                // `ArrayList.insert`'s own before-not-after semantics, so
+                // undoing older deletes after newer ones lands each track
+                // back in its correct original order.
+                .insert => |at| if (at < t.track) { t.track += 1; },
             },
         }
         if (!keep) {

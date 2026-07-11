@@ -76,6 +76,57 @@ pub fn captureLane(app: *App, track: u16) ?undo_mod.Entry {
     return .{ .lane = .{ .track = @intCast(track), .clips = clips } };
 }
 
+/// Snapshot `track_idx`'s full state (mixer metadata, deep-copied rack,
+/// deep-copied arrangement clips) for whole-track undo. Same deep-copy
+/// machinery `Session.duplicateTrack` uses (`Rack.dupe`), just captured
+/// into an owned undo entry instead of a live sibling track.
+pub fn captureTrackFull(app: *App, track_idx: usize) ?undo_mod.TrackFullState {
+    if (track_idx >= app.session.racks.items.len) return null;
+    const src = app.session.project.tracks.items[track_idx];
+
+    const name = app.allocator.dupe(u8, src.name) catch return null;
+
+    const rack = app.session.racks.items[track_idx].dupe(
+        app.allocator, app.session.project.sample_rate, &app.session.engine.transport,
+    ) catch {
+        app.allocator.free(name);
+        return null;
+    };
+
+    var clips: []ws.Clip = &.{};
+    if (app.session.arrangement.lane(track_idx)) |lane| {
+        clips = app.allocator.alloc(ws.Clip, lane.clips.items.len) catch {
+            app.allocator.free(name);
+            rack.deinit(app.allocator);
+            app.allocator.destroy(rack);
+            return null;
+        };
+        for (lane.clips.items, 0..) |c, i| {
+            clips[i] = c.dupe(app.allocator) catch {
+                for (clips[0..i]) |*done| done.deinit(app.allocator);
+                app.allocator.free(clips);
+                app.allocator.free(name);
+                rack.deinit(app.allocator);
+                app.allocator.destroy(rack);
+                return null;
+            };
+        }
+    }
+
+    return .{
+        .track = @intCast(track_idx),
+        .name = name,
+        .gain_db = src.gain_db,
+        .pan = src.pan,
+        .muted = src.muted,
+        .soloed = src.soloed,
+        .color = src.color,
+        .group = src.group,
+        .rack = rack,
+        .clips = clips,
+    };
+}
+
 /// The live `Fx` chain a stored `FxTarget` points at, or null if the track/
 /// group it named is gone. Unlike `spectrum.fxPtr`, this resolves the
 /// index baked into the entry rather than `app`'s current eq_track/
@@ -335,6 +386,49 @@ fn applyEntry(app: *App, entry: undo_mod.Entry) ?undo_mod.Entry {
             const displaced = liveParamValue(app, p.track, p.id) orelse return null;
             _ = app.session.engine.send(.{ .set_track_param_abs = .{ .track = p.track, .id = p.id, .value = p.value } });
             return .{ .param_nudge = .{ .track = p.track, .id = p.id, .value = displaced } };
+        },
+        .track_insert => |state| {
+            const s = state;
+            app.session.restoreTrack(s.track, s.name, .{
+                .gain_db = s.gain_db, .pan = s.pan, .muted = s.muted,
+                .soloed = s.soloed, .color = s.color, .group = s.group,
+            }, s.rack, s.clips) catch {
+                // OOM mid-restore. `rack`/`clips` ownership is unclear past
+                // this point (may be partially consumed — see
+                // `Session.restoreTrack`'s own doc comment), so, matching
+                // this codebase's existing OOM-only risk tolerance
+                // elsewhere (e.g. `duplicateTrack`'s own errdefer gaps),
+                // only `name` (never touched until restoreTrack's very
+                // last step) is safe to free here; the rest is a rare leak
+                // rather than a double-free.
+                app.allocator.free(s.name);
+                return null;
+            };
+            app.allocator.free(s.name);
+            app.shiftFieldsForInsert(s.track);
+            const remap: undo_mod.TrackRemap = .{ .insert = s.track };
+            retargetPending(app, remap);
+            _ = app.history.retarget(app.allocator, remap);
+            app.cursor = s.track;
+            app.invalidateTrackRow();
+            return .{ .track_delete = s.track };
+        },
+        .track_delete => |idx| {
+            if (idx >= app.session.racks.items.len) return null;
+            var state = captureTrackFull(app, idx) orelse return null;
+            app.session.deleteTrack(idx) catch {
+                state.deinit(app.allocator);
+                return null;
+            };
+            app.shiftFieldsForDelete(idx);
+            const remap: undo_mod.TrackRemap = .{ .delete = idx };
+            retargetPending(app, remap);
+            _ = app.history.retarget(app.allocator, remap);
+            const last = app.session.project.tracks.items.len - 1;
+            app.cursor = @min(app.cursor, last);
+            app.invalidateTrackRow();
+            app.exitStaleEditors();
+            return .{ .track_insert = state };
         },
     }
 }

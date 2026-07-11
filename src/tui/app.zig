@@ -1027,7 +1027,7 @@ pub const App = struct {
     /// deleting a track below the cursor when the deleted track was the
     /// first member of a group (the group's row, keyed to its first
     /// member's position, jumps elsewhere in the list).
-    fn invalidateTrackRow(self: *App) void {
+    pub fn invalidateTrackRow(self: *App) void {
         self.track_row_cursor_snap = std.math.maxInt(usize);
     }
 
@@ -2291,22 +2291,14 @@ pub const App = struct {
         return total;
     }
 
-    pub fn doTrackAdd(self: *App, name_arg: ?[]const u8) void {
-        const at = self.trackAddInsertIndex();
-        const name: []const u8 = name_arg orelse "untitled track";
-
-        const idx = self.session.insertTrack(at, name) catch |err| {
-            if (err == error.TrackLimitReached)
-                self.setStatus("track limit reached", .{})
-            else
-                self.setStatus("out of memory", .{});
-            return;
-        };
-
-        // Existing tracks from `idx` on shifted up by one: same field
-        // checklist doTrackDel/doTrackMove remap, mirrored for a track
-        // showing up instead of disappearing or swapping. Nothing is ever
-        // dropped here — an insert can't invalidate a track.
+    /// Shift every editor-target/pending-state track index that sits at or
+    /// past `idx` up by one, mirroring a track showing up at `idx` (insert,
+    /// or undo restoring a deleted track back to its old slot). Nothing is
+    /// ever dropped here — an insert can't invalidate a track. Shared by
+    /// `doTrackAdd` and history's track-restore apply so the field
+    /// checklist can't drift between the two call sites — see
+    /// project_bug_hunt_2026_07_11's "any NEW field... must join this list".
+    pub fn shiftFieldsForInsert(self: *App, idx: usize) void {
         if (self.synth_track >= idx) self.synth_track += 1;
         if (self.drum_track >= idx) self.drum_track += 1;
         if (self.piano_track >= idx) self.piano_track += 1;
@@ -2326,6 +2318,66 @@ pub const App = struct {
         for (self.note_offs[0..self.note_off_len]) |*off| {
             if (off.track >= idx) off.track += 1;
         }
+    }
+
+    /// Shift/drop every editor-target/pending-state track index for a track
+    /// removed at `idx` — the mirror of `shiftFieldsForInsert`. Shared by
+    /// `doTrackDel` and history's track-delete-redo apply.
+    pub fn shiftFieldsForDelete(self: *App, idx: usize) void {
+        if (idx < self.synth_track and self.synth_track > 0) self.synth_track -= 1;
+        if (idx < self.drum_track and self.drum_track > 0) self.drum_track -= 1;
+        if (idx < self.piano_track and self.piano_track > 0) self.piano_track -= 1;
+        if (idx < self.eq_track and self.eq_track > 0) self.eq_track -= 1;
+        if (idx < self.slicer_track and self.slicer_track > 0) self.slicer_track -= 1;
+        if (idx < self.automation_track and self.automation_track > 0) self.automation_track -= 1;
+        if (self.piano_clip_link) |link| {
+            if (link.track == idx) {
+                self.piano_clip_link = null;
+            } else if (link.track > idx) {
+                self.piano_clip_link.?.track -= 1;
+            }
+        }
+        if (self.automation_clip) |link| {
+            if (link.track == idx) {
+                self.automation_clip = null;
+            } else if (link.track > idx) {
+                self.automation_clip.?.track -= 1;
+            }
+        }
+        // Pending qwerty note-offs name tracks too: drop the deleted
+        // track's (its rack is being retired anyway), shift the rest, so a
+        // note that outlives the delete is stopped on the track it's
+        // actually still sounding on.
+        var no_i: usize = 0;
+        while (no_i < self.note_off_len) {
+            const t = self.note_offs[no_i].track;
+            if (t == idx) {
+                std.mem.copyForwards(NoteOff, self.note_offs[no_i .. self.note_off_len - 1], self.note_offs[no_i + 1 .. self.note_off_len]);
+                self.note_off_len -= 1;
+            } else {
+                if (t > idx) self.note_offs[no_i].track -= 1;
+                no_i += 1;
+            }
+        }
+        switch (self.sampler_target) {
+            .drum    => |*t| if (idx < t.* and t.* > 0) { t.* -= 1; },
+            .sampler => |*t| if (idx < t.* and t.* > 0) { t.* -= 1; },
+        }
+    }
+
+    pub fn doTrackAdd(self: *App, name_arg: ?[]const u8) void {
+        const at = self.trackAddInsertIndex();
+        const name: []const u8 = name_arg orelse "untitled track";
+
+        const idx = self.session.insertTrack(at, name) catch |err| {
+            if (err == error.TrackLimitReached)
+                self.setStatus("track limit reached", .{})
+            else
+                self.setStatus("out of memory", .{});
+            return;
+        };
+
+        self.shiftFieldsForInsert(idx);
 
         const remap: undo_mod.TrackRemap = .{ .insert = idx };
         history.retargetPending(self, remap);
@@ -2338,58 +2390,30 @@ pub const App = struct {
     }
 
     pub fn doTrackDel(self: *App, track_idx: usize) void {
+        // Capture the whole track BEFORE it's gone, so this delete becomes
+        // its own undo step (undo re-inserts it exactly as it was) — on top
+        // of (not instead of) the existing remap/drop below, which still
+        // clears out-of-date fine-grained edit history that named this
+        // track, since restoring from this snapshot supersedes it anyway.
+        var backup = history.captureTrackFull(self, track_idx);
+
         self.session.deleteTrack(track_idx) catch {
             self.setStatus("cannot delete the last track", .{});
+            if (backup) |*b| b.deinit(self.allocator);
             return;
         };
 
-        // Shift the editor-target indices that sit after the removed track.
-        if (track_idx < self.synth_track and self.synth_track > 0) self.synth_track -= 1;
-        if (track_idx < self.drum_track and self.drum_track > 0) self.drum_track -= 1;
-        if (track_idx < self.piano_track and self.piano_track > 0) self.piano_track -= 1;
-        if (track_idx < self.eq_track and self.eq_track > 0) self.eq_track -= 1;
-        if (track_idx < self.slicer_track and self.slicer_track > 0) self.slicer_track -= 1;
-        if (track_idx < self.automation_track and self.automation_track > 0) self.automation_track -= 1;
-        if (self.piano_clip_link) |link| {
-            if (link.track == track_idx) {
-                self.piano_clip_link = null;
-            } else if (link.track > track_idx) {
-                self.piano_clip_link.?.track -= 1;
-            }
-        }
-        if (self.automation_clip) |link| {
-            if (link.track == track_idx) {
-                self.automation_clip = null;
-            } else if (link.track > track_idx) {
-                self.automation_clip.?.track -= 1;
-            }
-        }
-        // Pending qwerty note-offs name tracks too: drop the deleted
-        // track's (its rack is being retired anyway), shift the rest, so a
-        // note that outlives the delete is stopped on the track it's
-        // actually still sounding on.
-        var no_i: usize = 0;
-        while (no_i < self.note_off_len) {
-            const t = self.note_offs[no_i].track;
-            if (t == track_idx) {
-                std.mem.copyForwards(NoteOff, self.note_offs[no_i .. self.note_off_len - 1], self.note_offs[no_i + 1 .. self.note_off_len]);
-                self.note_off_len -= 1;
-            } else {
-                if (t > track_idx) self.note_offs[no_i].track -= 1;
-                no_i += 1;
-            }
-        }
+        self.shiftFieldsForDelete(track_idx);
+
         // Track indices shift below the deleted track: remap every undo/
         // redo entry (and any still-open nudge batch) to keep pointing at
         // the same physical track, dropping only entries that named the
-        // deleted track itself.
+        // deleted track itself. Must run BEFORE pushing `backup` below, or
+        // this exact-match delete remap would immediately drop the entry
+        // that restores the very track it names.
         const remap: undo_mod.TrackRemap = .{ .delete = @intCast(track_idx) };
         history.retargetPending(self, remap);
         const dropped = self.history.retarget(self.allocator, remap);
-        switch (self.sampler_target) {
-            .drum    => |*t| if (track_idx < t.* and t.* > 0) { t.* -= 1; },
-            .sampler => |*t| if (track_idx < t.* and t.* > 0) { t.* -= 1; },
-        }
 
         // Keep cursor in bounds. The row list can reshape even when the
         // cursor's value survives unchanged, so force a row-cursor re-heal.
@@ -2399,6 +2423,8 @@ pub const App = struct {
 
         // Exit any editor whose target track no longer holds the expected kind.
         self.exitStaleEditors();
+
+        if (backup) |b| history.push(self, .{ .track_insert = b });
 
         self.dirty = true;
         if (dropped > 0) {
@@ -2410,7 +2436,7 @@ pub const App = struct {
 
     /// After a structural change (delete), bail out of any per-instrument editor
     /// whose target track is gone or holds a different instrument.
-    fn exitStaleEditors(self: *App) void {
+    pub fn exitStaleEditors(self: *App) void {
         const racks = self.session.racks.items;
         const kindIs = struct {
             fn f(rs: []const *@import("wstudio").Rack, t: u16, comptime tag: anytype) bool {
