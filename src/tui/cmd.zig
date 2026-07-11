@@ -102,17 +102,37 @@ fn isAlias(c: Def) bool {
     return std.mem.indexOf(u8, c.desc, "alias for") != null;
 }
 
+/// True for a `!`-suffixed name (`q!`, `e!`, `new!`) — vim's force-flag
+/// convention, modeled here as its own dispatch entry rather than a `!`
+/// `dispatch` strips off before matching the base command. It's a modifier
+/// on the base command (typed by hand, right after it), not a distinct
+/// name worth showing in the popup's own list — same reasoning as
+/// `isAlias`. Still fully dispatchable when typed out in full, and still a
+/// valid `App.completeCommand` Tab-cycle target (typing "q" + Tab can still
+/// step to "q!"): this only affects what the popup *displays*.
+fn isBangVariant(c: Def) bool {
+    return std.mem.endsWith(u8, c.name, "!");
+}
+
+/// True for entries the suggestion popup (`suggestionCount`/
+/// `writeSuggestionBox`) shouldn't list — see `isAlias`/`isBangVariant`.
+/// Deliberately popup-only: `App.completeCommand`'s Tab-cycling still
+/// offers these as candidates (see its own comment for why).
+pub fn hiddenFromCompletion(c: Def) bool {
+    return isAlias(c) or isBangVariant(c);
+}
+
 /// Number of command names starting with `buf` under `active` scope — 0
 /// once a space has been typed (there's no fixed name list for arguments
 /// here). Below 2, Tab already spells the single match out in full, so no
-/// popup is needed. Skips aliases (see `isAlias`) and out-of-scope entries
-/// (see `visible`) so shorthand forms and other-instrument commands don't
-/// pad out the list.
+/// popup is needed. Skips non-candidate entries (see `hiddenFromCompletion`)
+/// and out-of-scope entries (see `visible`) so shorthand forms and
+/// other-instrument commands don't pad out the list.
 pub fn suggestionCount(cmds: []const Def, buf: []const u8, active: Scope) usize {
     if (std.mem.indexOfScalar(u8, buf, ' ') != null) return 0;
     var n: usize = 0;
     for (cmds) |c| {
-        if (isAlias(c) or !visible(c, active)) continue;
+        if (hiddenFromCompletion(c) or !visible(c, active)) continue;
         if (std.mem.startsWith(u8, c.name, buf)) n += 1;
     }
     return n;
@@ -128,10 +148,10 @@ pub fn suggestionRows(cmds: []const Def, buf: []const u8, active: Scope, max_row
     return @min(n, max_rows);
 }
 
-/// Neovim-wildmenu-style popup: every non-alias, in-scope command name
-/// starting with `buf` (see `isAlias`/`visible`), one per line, `selected`
-/// drawn as a solid reverse-video bar (index into the match list, not
-/// `cmds` — clamp/compare against `suggestionCount`).
+/// Neovim-wildmenu-style popup: every in-scope, real-candidate command name
+/// starting with `buf` (see `hiddenFromCompletion`/`visible`), one per line,
+/// `selected` drawn as a solid reverse-video bar (index into the match
+/// list, not `cmds` — clamp/compare against `suggestionCount`).
 /// Truncates silently past `max_rows` (matching what `suggestionRows`
 /// reserved) rather than showing a "N more" line — narrowing the typed
 /// prefix is how the rest becomes reachable, same as Tab-cycling already
@@ -139,7 +159,7 @@ pub fn suggestionRows(cmds: []const Def, buf: []const u8, active: Scope, max_row
 pub fn writeSuggestionBox(w: *std.Io.Writer, cmds: []const Def, buf: []const u8, active: Scope, selected: usize, max_rows: usize) !void {
     var idx: usize = 0;
     for (cmds) |c| {
-        if (isAlias(c) or !visible(c, active)) continue;
+        if (hiddenFromCompletion(c) or !visible(c, active)) continue;
         if (!std.mem.startsWith(u8, c.name, buf)) continue;
         if (idx >= max_rows) break;
         const is_sel = idx == selected;
@@ -168,11 +188,11 @@ test "suggestionCount/suggestionRows gate on 2+ matches and a space" {
     // "bpm" matches only itself — no popup.
     try std.testing.expectEqual(@as(usize, 1), suggestionCount(test_cmds, "bpm", .any));
     try std.testing.expectEqual(@as(usize, 0), suggestionRows(test_cmds, "bpm", .any, 10));
-    // "q" matches q / qa / qa!.
-    try std.testing.expectEqual(@as(usize, 3), suggestionCount(test_cmds, "q", .any));
-    try std.testing.expectEqual(@as(usize, 3), suggestionRows(test_cmds, "q", .any, 10));
+    // "q" matches q / qa ("qa!" is a bang variant — see the dedicated test below).
+    try std.testing.expectEqual(@as(usize, 2), suggestionCount(test_cmds, "q", .any));
+    try std.testing.expectEqual(@as(usize, 2), suggestionRows(test_cmds, "q", .any, 10));
     // Capped by max_rows.
-    try std.testing.expectEqual(@as(usize, 2), suggestionRows(test_cmds, "q", .any, 2));
+    try std.testing.expectEqual(@as(usize, 1), suggestionRows(test_cmds, "q", .any, 1));
     // A space means we're past the command name — no popup at all.
     try std.testing.expectEqual(@as(usize, 0), suggestionCount(test_cmds, "q ", .any));
 }
@@ -184,7 +204,6 @@ test "writeSuggestionBox lists every match, one per line, highlighting `selected
     const text = w.buffered();
     try std.testing.expect(std.mem.indexOf(u8, text, "q") != null);
     try std.testing.expect(std.mem.indexOf(u8, text, "qa") != null);
-    try std.testing.expect(std.mem.indexOf(u8, text, "qa!") != null);
     // Exactly one selected row (the reverse-video style appears once).
     try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, text, style.sel));
     // Selected row (index 1 = "qa") comes right after the reverse-video code.
@@ -198,6 +217,19 @@ test "writeSuggestionBox truncates at max_rows" {
     try writeSuggestionBox(&w, test_cmds, "q", .any, 0, 1);
     const text = w.buffered();
     try std.testing.expect(std.mem.indexOf(u8, text, "qa") == null);
+}
+
+test "suggestionCount/writeSuggestionBox skip `!`-suffixed bang-variant entries" {
+    // "qa!" is the force variant of "qa" — a modifier typed by hand right
+    // after the base name, not a name worth Tab-completing to on its own.
+    try std.testing.expectEqual(@as(usize, 2), suggestionCount(test_cmds, "q", .any));
+    try std.testing.expectEqual(@as(usize, 0), suggestionRows(test_cmds, "qa!", .any, 10));
+
+    var out: [256]u8 = undefined;
+    var w: std.Io.Writer = .fixed(&out);
+    try writeSuggestionBox(&w, test_cmds, "q", .any, 0, 10);
+    const text = w.buffered();
+    try std.testing.expect(std.mem.indexOf(u8, text, "qa!") == null);
 }
 
 const alias_test_cmds: []const Def = &.{

@@ -186,6 +186,12 @@ pub const App = struct {
     modal: modal_mod.ModalInput = .{},
     /// Tab-cycle state for command-mode completion; see `TabCycle`/`cycleCompletion`.
     tab_cycle: ?TabCycle = null,
+    /// Gates the command-name suggestion popup (draw's `suggestion_rows`) on
+    /// having pressed Tab at least once this command-mode session, matching
+    /// Neovim's wildmenu (typing alone never pops it up, Tab does) rather
+    /// than showing it live on every keystroke. Reset on fresh entry into
+    /// command mode (applyAction's `.mode_changed`); set by `completeCommand`.
+    suggest_popup_open: bool = false,
     cursor: usize = 0,
     /// Tracks-view display rows: tracks in folder order — a group's row
     /// followed by its (indented) member tracks, folded groups hiding
@@ -1710,7 +1716,10 @@ pub const App = struct {
             .mode_changed => |m| {
                 self.status_len = 0;
                 // Fresh entry into the prompt starts recall from the newest.
-                if (m == .command) self.cmd_history_pos = self.cmd_history.items.len;
+                if (m == .command) {
+                    self.cmd_history_pos = self.cmd_history.items.len;
+                    self.suggest_popup_open = false;
+                }
                 if (m == .command or m == .search) {
                     // synth/sampler/spectrum have no ':' or '/' arm of their
                     // own, so entering command/search mode from one of
@@ -2046,9 +2055,12 @@ pub const App = struct {
             return;
         }
 
-        // Only offer names Tab-cycling could actually land on productively —
-        // same in-scope gate the suggestion popup uses (cmd.visible), so
-        // cycling can never produce a name the popup wouldn't have shown.
+        self.suggest_popup_open = true;
+        // Only offer in-scope names (cmd.visible) — aliases and `!`-bang
+        // variants are still valid cycle targets here even though the
+        // popup hides them (cmd.hiddenFromCompletion): typing enough of
+        // "export" or "q!" to disambiguate and pressing Tab should still
+        // reach them, same as before the popup grew that filter.
         const active = commands.activeScope(self);
         var name_buf: [commands.cmds.len][]const u8 = undefined;
         var n: usize = 0;
@@ -2181,21 +2193,44 @@ pub const App = struct {
         self.tab_cycle = tc;
     }
 
-    /// Which match `draw`'s command-name suggestion popup should highlight:
-    /// the in-progress Tab-cycle's index if `cmd_buf` still holds exactly
-    /// what that cycle last wrote there (same check `cycleCompletion` uses
-    /// to decide whether to continue a cycle), otherwise 0 — the top match,
-    /// matching Neovim's wildmenu highlighting the first candidate before
-    /// Tab has ever been pressed.
-    fn suggestionSelected(self: *const App) usize {
-        if (self.tab_cycle) |tc| {
+    /// The in-progress command-name Tab-cycle, but only if `cmd_buf` still
+    /// holds exactly what that cycle last wrote there (same check
+    /// `cycleCompletion` uses to decide whether to continue a cycle vs.
+    /// start fresh) — shared by `suggestionSelected`/`suggestionFilterText`.
+    /// Returns a pointer into `self.tab_cycle` (not a copy) since
+    /// `suggestionFilterText` hands back a slice borrowed from `stem_buf`
+    /// that needs to outlive this call.
+    fn activeCommandCycle(self: *const App) ?*const TabCycle {
+        if (self.tab_cycle) |*tc| {
             if (tc.insert_at == 0 and tc.source == .command_name and
                 std.mem.eql(u8, tc.last_written, self.modal.cmd_buf[0..self.modal.cmd_len]))
             {
-                return tc.index;
+                return tc;
             }
         }
+        return null;
+    }
+
+    /// Which match `draw`'s command-name suggestion popup should highlight:
+    /// the active cycle's index, otherwise 0 — the top match, matching
+    /// Neovim's wildmenu highlighting the first candidate before Tab has
+    /// ever been pressed.
+    fn suggestionSelected(self: *const App) usize {
+        if (self.activeCommandCycle()) |tc| return tc.index;
         return 0;
+    }
+
+    /// Text `draw`'s suggestion popup filters candidates against. Tab
+    /// completion overwrites `cmd_buf` with the candidate name itself (so
+    /// the buffer is always a valid, submittable command) — filtering the
+    /// popup on that literal text would collapse it to a single match the
+    /// instant Tab landed on any candidate, hiding the very list Tab was
+    /// supposed to reveal. While a cycle is active, filter on its
+    /// `stem` (what was actually typed) instead; only fall back to the
+    /// live buffer when there's no cycle to track (plain typing).
+    fn suggestionFilterText(self: *const App) []const u8 {
+        if (self.activeCommandCycle()) |tc| return tc.stem();
+        return self.modal.cmd_buf[0..self.modal.cmd_len];
     }
 
     /// Fire a preview note and schedule its release ~220ms later (see `tick`).
@@ -2729,8 +2764,8 @@ pub const App = struct {
         // line's closing hr below. Carve its rows out of the content area's
         // budget up front so the frame never grows taller than the terminal.
         const max_suggestion_rows = 10;
-        const suggestion_rows: usize = if (self.modal.mode == .command)
-            cmd_mod.suggestionRows(commands.cmds, self.modal.cmd_buf[0..self.modal.cmd_len], commands.activeScope(self), max_suggestion_rows)
+        const suggestion_rows: usize = if (self.modal.mode == .command and self.suggest_popup_open)
+            cmd_mod.suggestionRows(commands.cmds, self.suggestionFilterText(), commands.activeScope(self), max_suggestion_rows)
         else
             0;
         const content_rows = rows -| suggestion_rows;
@@ -2844,7 +2879,7 @@ pub const App = struct {
             try cmd_mod.writeSuggestionBox(
                 w,
                 commands.cmds,
-                self.modal.cmd_buf[0..self.modal.cmd_len],
+                self.suggestionFilterText(),
                 commands.activeScope(self),
                 self.suggestionSelected(),
                 max_suggestion_rows,
