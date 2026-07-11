@@ -131,14 +131,18 @@ pub fn writeModeBadge(w: *std.Io.Writer, mode: Mode) !void {
 
 /// Right-edge view-name chip, matching writeModeBadge's look (solid colour
 /// block, bold black text) so the status row's two ends read as a pair.
-/// Cyan rather than the per-mode colour: the view identity doesn't change
-/// with mode, and cyan is already the UI's "interactive label" accent.
-/// `tone` covers callers whose chip doubles as a state flag (the
-/// arrangement's SONG/PATTERN toggle keeps its green/yellow).
+/// Shares the mode badge's background colour rather than a fixed hue, so
+/// both ends of the row visibly change together when the mode changes.
+/// `tone` covers callers whose chip doubles as a state flag instead of the
+/// mode (the arrangement's SONG/PATTERN toggle keeps its own green/yellow
+/// regardless of mode).
 pub const BadgeTone = enum { cyan, green, yellow };
 
-pub fn writeViewBadge(w: *std.Io.Writer, name: []const u8) !void {
-    try writeViewBadgeColored(w, name, .cyan);
+pub fn writeViewBadge(w: *std.Io.Writer, name: []const u8, mode: Mode) !void {
+    try w.writeAll(modeBadgeBg(mode));
+    try w.writeAll(badge_fg);
+    try w.print(" {s} ", .{name});
+    try w.writeAll(rst);
 }
 
 pub fn writeViewBadgeColored(w: *std.Io.Writer, name: []const u8, tone: BadgeTone) !void {

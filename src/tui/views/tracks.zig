@@ -322,7 +322,7 @@ pub fn drawTracksStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer, 
         .search => try cmd_mod.writeSearchPrompt(w, app.modal.cmd_buf[0..app.modal.cmd_len], app.modal.cmd_cursor),
         else => {
             try style.writeModeBadge(w, app.modal.mode);
-            try style.writeViewBadge(right, "TRACKS");
+            try style.writeViewBadge(right, "TRACKS", app.modal.mode);
             // row position — display rows (tracks + groups) + 1 for master
             try w.writeAll(dim ++ "  " ++ rst);
             try w.print("{d}/{d}", .{ app.track_row + 1, app.track_rows_len + 1 });

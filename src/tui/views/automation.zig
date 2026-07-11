@@ -236,7 +236,7 @@ pub fn drawAutomationStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writ
     const beat = @as(f64, @floatFromInt(app.automation_cursor_step)) * 0.25;
 
     try style.writeModeBadge(w, app.modal.mode);
-    try style.writeViewBadge(right, "AUTOMATION");
+    try style.writeViewBadge(right, "AUTOMATION", app.modal.mode);
     try w.writeAll(dim ++ "  " ++ rst);
     try w.print("{d}.{d}", .{ bar + 1, step_in_bar + 1 });
 

@@ -239,7 +239,7 @@ pub fn drawDrumStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer, cm
     const s = app.drum_cursor[1];
     const dm = app.drumMachine();
     try style.writeModeBadge(w, app.modal.mode);
-    try style.writeViewBadge(right, "DRUM");
+    try style.writeViewBadge(right, "DRUM", app.modal.mode);
     try w.writeAll(dim ++ "  pat " ++ rst);
     try w.print("{c}", .{DrumMachine.variantLetter(dm.variant)});
     try w.writeAll(dim ++ "/" ++ rst);

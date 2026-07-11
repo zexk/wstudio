@@ -451,7 +451,7 @@ pub fn drawHelpStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !v
         return;
     }
     try style.writeModeBadge(w, app.modal.mode);
-    try style.writeViewBadge(right, "HELP");
+    try style.writeViewBadge(right, "HELP", app.modal.mode);
     if (app.status_len > 0) {
         try w.writeAll(dim ++ "  " ++ rst);
         try w.writeAll(app.status_buf[0..app.status_len]);

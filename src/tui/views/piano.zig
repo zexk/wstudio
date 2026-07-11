@@ -338,7 +338,7 @@ pub fn drawPianoRollStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Write
 
     try style.writeModeBadge(w, app.modal.mode);
     if (app.piano_zoom == .compact) try right.writeAll(bcyn ++ "zoom" ++ rst ++ "  ");
-    try style.writeViewBadge(right, "PIANO");
+    try style.writeViewBadge(right, "PIANO", app.modal.mode);
     try w.writeAll(dim ++ "  " ++ rst);
     try w.print("{s}", .{label});
     try w.writeAll(dim ++ "  bar " ++ rst);

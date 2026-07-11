@@ -421,7 +421,7 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer, c
     };
     const cur = @min(@as(usize, app.synth_cursor), labels.len - 1);
     try style.writeModeBadge(w, app.modal.mode);
-    try style.writeViewBadge(right, "SYNTH");
+    try style.writeViewBadge(right, "SYNTH", app.modal.mode);
     try w.writeAll(dim ++ "  " ++ rst);
     try w.writeAll(labels[cur]);
     try w.writeAll(dim ++ ": " ++ rst);
