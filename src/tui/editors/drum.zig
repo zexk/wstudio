@@ -447,7 +447,7 @@ fn yankSelection(app: *App) void {
         var s: u8 = r.lo;
         while (s <= r.hi) : (s += 1) {
             if (!dm.stepActive(@intCast(pad), s)) continue;
-            const bit = @as(u32, 1) << @intCast(s - r.lo);
+            const bit = @as(u64, 1) << @intCast(s - r.lo);
             clip.active[pad] |= bit;
             clip.vel[pad][s - r.lo] = dm.stepVel(@intCast(pad), s);
         }
@@ -488,7 +488,7 @@ fn pasteSelection(app: *App) void {
         const target = base +| i;
         if (target >= dm.step_count) break;
         for (0..DrumMachine.max_pads) |pad| {
-            const bit = @as(u32, 1) << @intCast(i);
+            const bit = @as(u64, 1) << @intCast(i);
             const active = clip.active[pad] & bit != 0;
             setStep(dm, @intCast(pad), target, active, clip.vel[pad][i]);
         }

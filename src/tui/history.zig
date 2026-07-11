@@ -298,6 +298,22 @@ pub fn retargetPending(app: *App, remap: undo_mod.TrackRemap) void {
     }
 }
 
+/// Drop an open FX param-nudge batch if it targets group `idx`, and drop
+/// every stacked `.fx` entry naming it — the group-delete counterpart to
+/// `retargetPending`+`history.retarget`. Call BEFORE `Session.deleteGroup`,
+/// same ordering `retargetPending` needs for track deletes, since the
+/// slot it frees can be reused by the very next `addGroup` (see
+/// `project_code_review_2026_07_11_full_codebase` finding #2).
+pub fn dropGroupPending(app: *App, idx: u8) usize {
+    if (app.pending_fx_nudge) |*p| {
+        if (p.target == .group and p.target.group == idx) {
+            p.deinit(app.allocator);
+            app.pending_fx_nudge = null;
+        }
+    }
+    return app.history.dropGroup(app.allocator, idx);
+}
+
 /// Swap `entry`'s state with the live one. On success the entry is
 /// consumed and the displaced state is returned for the opposite stack;
 /// null means the target no longer accepts it (track gone, kind changed)

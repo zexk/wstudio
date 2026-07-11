@@ -743,14 +743,20 @@ pub const Engine = struct {
                 self.pre_roll_next_beat = 0;
             },
             .set_spectrum_active => |c| {
-                self.active_spectrum_source = c.source;
-                // Reset buffer when switching to a different track/group so
-                // stale data from the previous one doesn't bleed into the view.
-                if ((c.source == .track and c.track != self.active_spectrum_track) or
+                // `.track` and `.group` sources share `track_spectrum`'s one
+                // accumulator (see below), so a category change alone must
+                // reset it too — comparing only the numeric index let a
+                // switch from group N back to track N (or vice versa) skip
+                // the reset, since both zero it out identically on a
+                // `.none` transition in between. Compare against the OLD
+                // source before it's overwritten.
+                if (c.source != self.active_spectrum_source or
+                    (c.source == .track and c.track != self.active_spectrum_track) or
                     (c.source == .group and c.group != self.active_spectrum_group))
                 {
                     self.track_spectrum.accumulated = 0;
                 }
+                self.active_spectrum_source = c.source;
                 self.active_spectrum_track = c.track;
                 self.active_spectrum_group = c.group;
                 self.track_spectrum.active.store(c.source == .track or c.source == .group, .release);

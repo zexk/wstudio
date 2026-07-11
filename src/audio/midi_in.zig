@@ -130,8 +130,11 @@ pub const MidiIn = struct {
         } else if (etype == c.SND_SEQ_EVENT_CONTROLLER) {
             const cc: u7  = @intCast(ev.data.control.param & 0x7F);
             const val: u7 = @intCast(ev.data.control.value & 0x7F);
-            _ = eng.send(.{ .cc = .{ .track = track, .cc = cc, .value = val } });
-            self.dirty.store(true, .release);
+            // Only mark dirty if the command actually landed — a full
+            // queue drops the event, and a false dirty flag would make
+            // the project look unsaved over a change that never happened.
+            if (eng.send(.{ .cc = .{ .track = track, .cc = cc, .value = val } }))
+                self.dirty.store(true, .release);
         } else if (etype == c.SND_SEQ_EVENT_PITCHBEND) {
             // ALSA delivers pitch bend centred at 0: −8192..+8191.
             const raw = @as(i32, ev.data.control.value);

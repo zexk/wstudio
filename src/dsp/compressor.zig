@@ -67,6 +67,24 @@ pub const Compressor = struct {
         return @exp(-1.0 / (ms * 0.001 * self.sample_rate));
     }
 
+    /// Feed-forward envelope-follower update (attack/release smoothing).
+    /// Shared with `MultibandComp`'s per-band stage (`dsp/multiband_comp.zig`
+    /// `BandComp.gainFor`) — returns the updated envelope's dB-over-threshold
+    /// value (`env_db - threshold_db`; negative means under threshold) so
+    /// both can build their own gain-reduction formula on top of it.
+    pub fn envelopeOverDb(env: *f32, level: f32, attack: f32, release: f32, threshold_db: f32) f32 {
+        const coef = if (level > env.*) attack else release;
+        env.* = coef * env.* + (1.0 - coef) * level;
+        return types.gainToDb(env.*) - threshold_db;
+    }
+
+    /// Ordinary downward gain reduction in dB for `over_db` above threshold
+    /// (0 when at or under it) — the ratio formula shared by `processBlock`
+    /// and `BandComp.gainFor`'s downward stage.
+    pub fn downwardReductionDb(over_db: f32, ratio: f32) f32 {
+        return if (over_db > 0.0) over_db * (1.0 / ratio - 1.0) else 0.0;
+    }
+
     pub fn processBlock(self: *Compressor, buf: []Sample) void {
         const frames = buf.len / 2;
         const attack = self.smoothingCoef(self.attack_ms);
@@ -84,15 +102,8 @@ pub const Compressor = struct {
                 @max(@abs(d[i * 2]), @abs(d[i * 2 + 1]))
             else
                 @max(@abs(buf[i * 2]), @abs(buf[i * 2 + 1]));
-            const coef = if (level > self.env) attack else release;
-            self.env = coef * self.env + (1.0 - coef) * level;
-
-            const env_db = types.gainToDb(self.env);
-            const over_db = env_db - self.threshold_db;
-            const reduction_db = if (over_db > 0.0)
-                over_db * (1.0 / self.ratio - 1.0)
-            else
-                0.0;
+            const over_db = envelopeOverDb(&self.env, level, attack, release, self.threshold_db);
+            const reduction_db = downwardReductionDb(over_db, self.ratio);
             const gain = types.dbToGain(reduction_db) * makeup;
 
             buf[i * 2] *= gain;

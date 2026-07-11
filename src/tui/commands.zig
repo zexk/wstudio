@@ -515,6 +515,10 @@ fn cmdGroupDel(app: *App, args: []const u8) void {
         return;
     }
     if (app.view == .group_spectrum and app.eq_group == idx) app.view = .tracks;
+    // Must run BEFORE deleteGroup frees the slot: the very next addGroup
+    // can reuse `idx`, and any undo entry still naming it would otherwise
+    // silently retarget onto the new group's chain.
+    _ = history.dropGroupPending(app, idx);
     app.session.deleteGroup(idx);
     app.dirty = true;
     app.setStatus("group {d} deleted", .{idx + 1});

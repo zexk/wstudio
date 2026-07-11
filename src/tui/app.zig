@@ -134,10 +134,10 @@ pub const PianoClip = struct {
 /// step becomes bit 0. Paste places it starting at the cursor step.
 pub const DrumRangeClip = struct {
     width: u8,
-    active: [DrumMachine.max_pads]u32 = [_]u32{0} ** DrumMachine.max_pads,
+    active: [DrumMachine.max_pads]u64 = [_]u64{0} ** DrumMachine.max_pads,
     /// Per-step velocity within the yanked range (index = step - range
-    /// start); 32-wide to match `active`'s bitmask width cap.
-    vel: [DrumMachine.max_pads][32]u8 = [_][32]u8{[_]u8{DrumMachine.vel_full} ** 32} ** DrumMachine.max_pads,
+    /// start); sized to match `active`'s bitmask width cap (`max_steps`).
+    vel: [DrumMachine.max_pads][DrumMachine.max_steps]u8 = [_][DrumMachine.max_steps]u8{[_]u8{DrumMachine.vel_full} ** DrumMachine.max_steps} ** DrumMachine.max_pads,
 };
 
 /// A visual-mode range yank from the arrangement: deep-copied clips from one
@@ -1118,6 +1118,9 @@ pub const App = struct {
     /// master mix — same semantics as `:group-del`.
     fn doGroupDel(self: *App, g: u8) void {
         if (g >= engine_mod.max_groups or self.session.groups[g] == null) return;
+        // Must run before deleteGroup frees the slot — see cmdGroupDel's
+        // same call for why.
+        _ = history.dropGroupPending(self, g);
         self.session.deleteGroup(g);
         self.dirty = true;
         // `cursor` sat parked on the master sentinel while the group row was
@@ -1709,6 +1712,15 @@ pub const App = struct {
                 self.status_len = 0;
                 // Fresh entry into the prompt starts recall from the newest.
                 if (m == .command) self.cmd_history_pos = self.cmd_history.items.len;
+                if (m == .command or m == .search) {
+                    // synth/sampler/spectrum have no ':' or '/' arm of their
+                    // own, so entering command/search mode from one of
+                    // those editors would otherwise never close an open
+                    // nudge batch — this is the one place all of them
+                    // funnel through. No-op if nothing's pending.
+                    history.flushParamNudge(self);
+                    history.flushFxNudge(self);
+                }
             },
             .move => |m| {
                 if (self.view == .tracks) {

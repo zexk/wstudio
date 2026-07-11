@@ -281,7 +281,38 @@ pub const History = struct {
         return retargetStack(&self.undo_stack, allocator, remap) +
             retargetStack(&self.redo_stack, allocator, remap);
     }
+
+    /// Drop every `.fx` entry targeting group `idx` on both stacks. Unlike
+    /// `retarget`, a deleted group is never remapped to a new index — its
+    /// slot is reused as-is by the next `addGroup`, so any entry still
+    /// naming it must be dropped rather than shifted. Returns how many
+    /// entries were dropped, for a user-facing status message.
+    pub fn dropGroup(self: *History, allocator: std.mem.Allocator, idx: u8) usize {
+        return dropGroupStack(&self.undo_stack, allocator, idx) +
+            dropGroupStack(&self.redo_stack, allocator, idx);
+    }
 };
+
+fn dropGroupStack(stack: *std.ArrayListUnmanaged(Entry), allocator: std.mem.Allocator, idx: u8) usize {
+    var dropped: usize = 0;
+    var i: usize = stack.items.len;
+    while (i > 0) {
+        i -= 1;
+        const drop = switch (stack.items[i]) {
+            .fx => |f| switch (f.target) {
+                .group => |g| g == idx,
+                else => false,
+            },
+            else => false,
+        };
+        if (drop) {
+            var removed = stack.orderedRemove(i);
+            removed.deinit(allocator);
+            dropped += 1;
+        }
+    }
+    return dropped;
+}
 
 fn retargetStack(stack: *std.ArrayListUnmanaged(Entry), allocator: std.mem.Allocator, remap: TrackRemap) usize {
     var dropped: usize = 0;

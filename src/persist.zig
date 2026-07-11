@@ -918,32 +918,72 @@ fn exportSamples(
     const sidecar = try std.fmt.allocPrint(aa, "{s}_samples", .{std.fs.path.stem(path)});
     const sr = session.project.sample_rate;
     var dir_ready = false;
+    // Basenames written this save — anything else already in the sidecar
+    // dir is left over from a previous save under different track/pad
+    // indices and gets swept below.
+    var written: std.StringHashMapUnmanaged(void) = .empty;
     for (session.racks.items, racks, 0..) |rack, *rs, ti| {
         switch (rack.instrument) {
             .drum_machine => |*dm| for (0..DrumMachine.max_pads) |pi| {
                 const s = if (dm.pads[pi]) |*sm| sm else continue; // unloaded pad — nothing to export
                 const p = &s.pad;
                 if (!p.user_sample) continue;
-                const rel = try std.fmt.allocPrint(aa, "{s}/t{d}p{d}.wav", .{ sidecar, ti, pi });
+                const base = try std.fmt.allocPrint(aa, "t{d}p{d}.wav", .{ ti, pi });
+                const rel = try std.fmt.allocPrint(aa, "{s}/{s}", .{ sidecar, base });
                 try writeSampleWav(aa, io, path, rel, &dir_ready, sr, p.samples);
                 rs.drum.?.pads[pi].sample_file = rel;
+                try written.put(aa, base, {});
                 // .name already set by rackToSnap (unconditionally, for every pad).
             },
             .sampler => |*s| if (s.pad.user_sample) {
-                const rel = try std.fmt.allocPrint(aa, "{s}/t{d}clip.wav", .{ sidecar, ti });
+                const base = try std.fmt.allocPrint(aa, "t{d}clip.wav", .{ti});
+                const rel = try std.fmt.allocPrint(aa, "{s}/{s}", .{ sidecar, base });
                 try writeSampleWav(aa, io, path, rel, &dir_ready, sr, s.pad.samples);
                 rs.sampler.?.pad.sample_file = rel;
+                try written.put(aa, base, {});
                 // .name already set by rackToSnap (unconditionally).
             },
             .slicer => |*sl| if (sl.user_sample) {
-                const rel = try std.fmt.allocPrint(aa, "{s}/t{d}clip.wav", .{ sidecar, ti });
+                const base = try std.fmt.allocPrint(aa, "t{d}clip.wav", .{ti});
+                const rel = try std.fmt.allocPrint(aa, "{s}/{s}", .{ sidecar, base });
                 try writeSampleWav(aa, io, path, rel, &dir_ready, sr, sl.samples);
                 rs.slicer.?.sample_file = rel;
+                try written.put(aa, base, {});
                 // .name already set by rackToSnap (unconditionally).
             },
             else => {},
         }
     }
+    try pruneOrphanSamples(aa, io, path, sidecar, &written);
+}
+
+/// Delete any `.wav` in the sample sidecar dir that wasn't written this
+/// save — leftovers from a track delete/reorder that changed which index
+/// each surviving sample's filename is keyed by. No-op if the sidecar dir
+/// doesn't exist (never had user samples, or `exportSamples` never created
+/// it because this save has none either).
+fn pruneOrphanSamples(
+    aa: std.mem.Allocator,
+    io: std.Io,
+    wsj_path: []const u8,
+    sidecar: []const u8,
+    written: *const std.StringHashMapUnmanaged(void),
+) !void {
+    const full_dir = try joinWsjRel(aa, wsj_path, sidecar);
+    var dir = std.Io.Dir.cwd().openDir(io, full_dir, .{ .iterate = true }) catch return;
+    defer dir.close(io);
+
+    var stale: std.ArrayListUnmanaged([]const u8) = .empty;
+    var it = dir.iterate();
+    while (try it.next(io)) |entry| {
+        if (entry.kind != .file) continue;
+        if (!std.ascii.endsWithIgnoreCase(entry.name, ".wav")) continue;
+        if (written.contains(entry.name)) continue;
+        try stale.append(aa, try aa.dupe(u8, entry.name));
+    }
+    // Delete after the iterator is done — mutating a dir mid-iterate isn't
+    // guaranteed safe.
+    for (stale.items) |name| dir.deleteFile(io, name) catch {};
 }
 
 /// Write one mono clip as a 16-bit WAV at `rel` (a .wsj-relative path),
@@ -1688,8 +1728,7 @@ fn applyFxChain(allocator: std.mem.Allocator, fx_out: *Fx, chain: []const FxUnit
                 } else null;
             },
             .mb_comp => |*m| if (us.mb_comp) |ms| {
-                m.setXoverLo(ms.xover_lo_hz);
-                m.setXoverHi(ms.xover_hi_hz);
+                m.setXovers(ms.xover_lo_hz, ms.xover_hi_hz);
                 m.attack_ms = ms.attack_ms;
                 m.release_ms = ms.release_ms;
                 m.style = if (ms.ott) .ott else .classic;
@@ -2169,8 +2208,11 @@ test "save/load round-trip persists a multiband compressor's crossover, style, a
     const alloc = testing.allocator;
 
     const mb = try session.master_fx.insert(alloc, 0, .mb_comp, sr);
-    mb.payload.mb_comp.setXoverLo(150.0);
-    mb.payload.mb_comp.setXoverHi(3500.0);
+    // Both above the struct's just-inserted 200/2000 defaults, so a
+    // load-order bug that clamps `lo` against a still-default `hi` (see
+    // `setXovers`'s doc comment) would corrupt this round-trip.
+    mb.payload.mb_comp.setXoverHi(8000.0);
+    mb.payload.mb_comp.setXoverLo(2500.0);
     mb.payload.mb_comp.attack_ms = 3.0;
     mb.payload.mb_comp.release_ms = 120.0;
     mb.payload.mb_comp.style = .ott;
@@ -2187,8 +2229,8 @@ test "save/load round-trip persists a multiband compressor's crossover, style, a
     const units = loaded.master_fx.units.items;
     try testing.expectEqual(@as(usize, 1), units.len);
     const m = units[0].payload.mb_comp;
-    try testing.expectApproxEqAbs(@as(f32, 150.0), m.xover_lo_hz, 1e-2);
-    try testing.expectApproxEqAbs(@as(f32, 3500.0), m.xover_hi_hz, 1e-2);
+    try testing.expectApproxEqAbs(@as(f32, 2500.0), m.xover_lo_hz, 1e-2);
+    try testing.expectApproxEqAbs(@as(f32, 8000.0), m.xover_hi_hz, 1e-2);
     try testing.expectApproxEqAbs(@as(f32, 3.0), m.attack_ms, 1e-4);
     try testing.expectApproxEqAbs(@as(f32, 120.0), m.release_ms, 1e-4);
     try testing.expectEqual(multiband_comp_mod.Style.ott, m.style);
@@ -2829,6 +2871,43 @@ test "save/load round-trip persists user-loaded drum pad samples" {
     try testing.expectApproxEqAbs(@as(f32, 5.0), pad.pitch_semitones, 1e-4);
     // Shipped-kit pads stay shipped: no sidecar ref, no flag.
     try testing.expect(!ldm.pads[0].?.pad.user_sample);
+}
+
+test "save prunes a sidecar WAV left behind when a sample moves pads" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [64]u8 = undefined;
+    const wsj_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/proj.wsj", .{&tmp.sub_path});
+
+    var session = try Session.initDefault(testing.allocator);
+    defer session.deinit();
+    try session.setInstrument(0, .drum_machine);
+    const dm = &session.racks.items[0].instrument.drum_machine;
+
+    const clip = try testing.allocator.dupe(f32, &[_]f32{ 0.5, -0.5 });
+    dm.setPadSamples(3, clip, "usr");
+    dm.pads[3].?.pad.user_sample = true;
+    try save(testing.allocator, &session, testing.io, wsj_path);
+
+    const sidecar_dir = try std.fmt.allocPrint(testing.allocator, "{s}/{s}_samples", .{ std.fs.path.dirname(wsj_path).?, std.fs.path.stem(wsj_path) });
+    defer testing.allocator.free(sidecar_dir);
+    const old_rel = try std.fmt.allocPrint(testing.allocator, "{s}/t0p3.wav", .{sidecar_dir});
+    defer testing.allocator.free(old_rel);
+    try std.Io.Dir.cwd().access(testing.io, old_rel, .{});
+
+    // Same audio, now loaded onto pad 5 instead — pad 3 no longer exports.
+    const clip2 = try testing.allocator.dupe(f32, &[_]f32{ 0.5, -0.5 });
+    dm.setPadSamples(5, clip2, "usr");
+    dm.pads[5].?.pad.user_sample = true;
+    dm.pads[3].?.pad.user_sample = false;
+    try save(testing.allocator, &session, testing.io, wsj_path);
+
+    // The stale pad-3 file is gone; pad-5's file exists.
+    try testing.expectError(error.FileNotFound, std.Io.Dir.cwd().access(testing.io, old_rel, .{}));
+    const new_rel = try std.fmt.allocPrint(testing.allocator, "{s}/t0p5.wav", .{sidecar_dir});
+    defer testing.allocator.free(new_rel);
+    try std.Io.Dir.cwd().access(testing.io, new_rel, .{});
 }
 
 test "save/load round-trip persists a pad rename with no sample change" {

@@ -360,6 +360,10 @@ pub const Session = struct {
     /// index `a`/`b` mean, same rule as `deleteTrack`.
     pub fn swapTracks(self: *Session, a: usize, b: usize) void {
         if (a == b or a >= self.racks.items.len or b >= self.racks.items.len) return;
+        // A note queued for either track right before the swap must not
+        // fire on the wrong instrument once reindexed — same rule
+        // setInstrument/deleteTrack/setSongMode already follow.
+        _ = self.engine.send(.all_notes_off);
         self.project.swapTracks(a, b);
         std.mem.swap(*Rack, &self.racks.items[a], &self.racks.items[b]);
         self.arrangement.swapLanes(a, b);

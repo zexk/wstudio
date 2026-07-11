@@ -9,6 +9,7 @@
 const std = @import("std");
 const types = @import("../core/types.zig");
 const dsp = @import("device.zig");
+const Compressor = @import("compressor.zig").Compressor;
 
 const Sample = types.Sample;
 
@@ -163,15 +164,11 @@ const BandComp = struct {
     env: f32 = 0.0,
 
     fn gainFor(self: *BandComp, level: f32, attack: f32, release: f32, style: Style) f32 {
-        const coef = if (level > self.env) attack else release;
-        self.env = coef * self.env + (1.0 - coef) * level;
-        const env_db = types.gainToDb(self.env);
-        const over_db = env_db - self.threshold_db;
-        var reduction_db: f32 = 0.0;
-        if (over_db > 0.0) {
-            // Downward: pull the excess above threshold down by `ratio`.
-            reduction_db = over_db * (1.0 / self.ratio - 1.0);
-        } else if (style == .ott) {
+        const over_db = Compressor.envelopeOverDb(&self.env, level, attack, release, self.threshold_db);
+        // Downward: pull the excess above threshold down by `ratio` — same
+        // envelope/ratio math as the plain `Compressor`.
+        var reduction_db = Compressor.downwardReductionDb(over_db, self.ratio);
+        if (over_db <= 0.0 and style == .ott) {
             // Upward (OTT only): push signal below threshold up toward it
             // by the same `ratio` — mirrors the downward formula around the
             // threshold instead of introducing a second ratio param.
@@ -224,6 +221,18 @@ pub const MultibandComp = struct {
 
     pub fn setXoverHi(self: *MultibandComp, hz: f32) void {
         self.xover_hi_hz = std.math.clamp(hz, self.xover_lo_hz + 20.0, 20_000.0);
+        self.recomputeCrossover();
+    }
+
+    /// Set both crossover points at once from a previously-valid saved pair
+    /// (persist load). Unlike calling `setXoverLo` then `setXoverHi`, this
+    /// doesn't cross-clamp `lo` against `hi`'s stale pre-load value (still
+    /// the struct's just-inserted default) — that clamped a saved
+    /// lo=2500/hi=8000 pair down to lo=1980. `lo` is set first against only
+    /// the absolute floor, then `hi` clamps against the now-final `lo`.
+    pub fn setXovers(self: *MultibandComp, lo: f32, hi: f32) void {
+        self.xover_lo_hz = std.math.clamp(lo, 20.0, 20_000.0 - 20.0);
+        self.xover_hi_hz = std.math.clamp(hi, self.xover_lo_hz + 20.0, 20_000.0);
         self.recomputeCrossover();
     }
 
