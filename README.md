@@ -157,6 +157,13 @@ it as a fallback font in your terminal — it only needs to cover a
 handful of Private Use Area codepoints, so it layers cleanly under
 whatever font you already use.
 
+Separately, the TUI's box-drawing borders (`─│┃━┏┓┗┛` etc., standard
+Unicode U+2500 block) need a terminal font with those glyphs — unrelated
+to the icon font above. Some default Windows Terminal font profiles don't
+cover them and render blank/tofu instead; switching to a font with full
+box-drawing coverage (most monospace programming fonts, e.g. Cascadia
+Code) fixes it.
+
 ## Roadmap
 
 Open items, sorted by what most blocks an artist finishing (and keeping)
