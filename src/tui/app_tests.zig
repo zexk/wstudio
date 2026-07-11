@@ -1808,6 +1808,50 @@ test "track delete shifts slicer_track like every other editor-target index" {
     try std.testing.expectEqual(AppView.slicer_grid, app.view);
 }
 
+test "track delete re-heals the row cursor when the row list reshapes under an unchanged cursor" {
+    var app = try testApp();
+    defer app.deinit();
+
+    // Group tracks 0 and 2: rows are [G, t0, t2, t1] (the group row sits at
+    // its first member's position, members follow, t1 trails).
+    const g = try app.session.addGroup("bus");
+    app.session.assignTrackGroup(0, g);
+    app.session.assignTrackGroup(2, g);
+    app.tracksRowSync();
+    app.setTrackRow(3); // the ungrouped t1, on the last row
+    try std.testing.expectEqual(@as(usize, 1), app.cursor);
+
+    // Deleting track 0 keeps cursor == 1 (now the old track 2, still in the
+    // group) but reshapes the rows to [t0', G, t1'] — without a forced
+    // re-heal the row cursor would sit clamped on the master row while
+    // `cursor` names a real track.
+    app.doTrackDel(0);
+    app.tracksRowSync();
+    try std.testing.expectEqual(@as(usize, 1), app.cursor);
+    try std.testing.expectEqual(@as(usize, 2), app.track_row);
+    try std.testing.expectEqual(@as(?u16, 1), app.cursorTrack());
+}
+
+test "dd on a group row lands the row cursor on the row that takes its place" {
+    var app = try testApp();
+    defer app.deinit();
+
+    // Group track 1: rows are [t0, G, t1, t2].
+    const g = try app.session.addGroup("bus");
+    app.session.assignTrackGroup(1, g);
+    app.tracksRowSync();
+    app.setTrackRow(1); // the group row; cursor parks on the master sentinel
+    try std.testing.expectEqual(@as(usize, 3), app.cursor);
+
+    // dd deletes the group; its former member's row takes its place and the
+    // cursor must re-mirror from it instead of staying on the sentinel.
+    app.handleKey(.{ .char = 'd' }, 0);
+    app.handleKey(.{ .char = 'd' }, 0);
+    try std.testing.expectEqual(@as(?u8, null), app.session.project.tracks.items[1].group);
+    try std.testing.expectEqual(@as(usize, 1), app.track_row);
+    try std.testing.expectEqual(@as(usize, 1), app.cursor);
+}
+
 test "J/K track swap remaps an undo entry to follow the moved track" {
     var app = try testApp();
     defer app.deinit();

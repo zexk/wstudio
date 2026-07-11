@@ -1015,6 +1015,16 @@ pub const App = struct {
         if (self.track_row > self.track_rows_len) self.track_row = self.track_rows_len;
     }
 
+    /// Force the next `tracksRowSync` to re-derive `track_row` from
+    /// `cursor`. The sync's value-diff heal can't see a structural change
+    /// that reshapes the row list while `cursor` keeps its value — e.g.
+    /// deleting a track below the cursor when the deleted track was the
+    /// first member of a group (the group's row, keyed to its first
+    /// member's position, jumps elsewhere in the list).
+    fn invalidateTrackRow(self: *App) void {
+        self.track_row_cursor_snap = std.math.maxInt(usize);
+    }
+
     /// Move the row cursor and mirror it into `cursor`: a track row selects
     /// its track; a group or the master row parks `cursor` one past the last
     /// track — the pre-existing master sentinel every consumer (mute/solo,
@@ -1096,6 +1106,12 @@ pub const App = struct {
         if (g >= engine_mod.max_groups or self.session.groups[g] == null) return;
         self.session.deleteGroup(g);
         self.dirty = true;
+        // `cursor` sat parked on the master sentinel while the group row was
+        // selected and doesn't move here, so the value-diff heal never fires
+        // — land on whatever shifted into the row's place instead (vim dd
+        // semantics), re-mirroring `cursor` from it.
+        self.rebuildTrackRows();
+        self.setTrackRow(self.track_row);
         self.setStatus("group {d} deleted (members back on the master mix)", .{g + 1});
     }
 
@@ -1837,7 +1853,10 @@ pub const App = struct {
                 if (tracks[idx].group) |g| {
                     if (g < engine_mod.max_groups) {
                         if (self.session.groups[g]) |*grp| {
-                            if (grp.folded) { grp.folded = false; self.dirty = true; }
+                            // The unfold reshapes the row list, and a hit on
+                            // the cursor's own track leaves `cursor`'s value
+                            // unchanged — force the re-heal explicitly.
+                            if (grp.folded) { grp.folded = false; self.dirty = true; self.invalidateTrackRow(); }
                         }
                     }
                 }
@@ -2260,9 +2279,11 @@ pub const App = struct {
             .sampler => |*t| if (track_idx < t.* and t.* > 0) { t.* -= 1; },
         }
 
-        // Keep cursor in bounds.
+        // Keep cursor in bounds. The row list can reshape even when the
+        // cursor's value survives unchanged, so force a row-cursor re-heal.
         const last = self.session.project.tracks.items.len - 1;
         self.cursor = @min(self.cursor, last);
+        self.invalidateTrackRow();
 
         // Exit any editor whose target track no longer holds the expected kind.
         self.exitStaleEditors();
