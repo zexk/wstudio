@@ -2247,16 +2247,13 @@ pub const App = struct {
                 self.piano_clip_link.?.track -= 1;
             }
         }
-        // Track indices shifted: history entries would restore into the
-        // wrong track. Starting fresh beats remapping every entry. Open
-        // coalescing batches carry the same stale indices, so they're
-        // dropped (not flushed — a flush would push a wrong-track entry
-        // into the fresh history).
-        const had_history = self.history.undo_stack.items.len > 0 or self.history.redo_stack.items.len > 0;
-        self.pending_param_nudge = null;
-        if (self.pending_fx_nudge) |*p| { p.deinit(self.allocator); self.pending_fx_nudge = null; }
-        self.history.deinit(self.allocator);
-        self.history = .{};
+        // Track indices shift below the deleted track: remap every undo/
+        // redo entry (and any still-open nudge batch) to keep pointing at
+        // the same physical track, dropping only entries that named the
+        // deleted track itself.
+        const remap: undo_mod.TrackRemap = .{ .delete = @intCast(track_idx) };
+        history.retargetPending(self, remap);
+        const dropped = self.history.retarget(self.allocator, remap);
         switch (self.sampler_target) {
             .drum    => |*t| if (track_idx < t.* and t.* > 0) { t.* -= 1; },
             .sampler => |*t| if (track_idx < t.* and t.* > 0) { t.* -= 1; },
@@ -2270,7 +2267,11 @@ pub const App = struct {
         self.exitStaleEditors();
 
         self.dirty = true;
-        self.setStatus("deleted track {d}{s}", .{ track_idx + 1, if (had_history) " (undo history cleared)" else "" });
+        if (dropped > 0) {
+            self.setStatus("deleted track {d} ({d} undo entries for it cleared)", .{ track_idx + 1, dropped });
+        } else {
+            self.setStatus("deleted track {d}", .{track_idx + 1});
+        }
     }
 
     /// After a structural change (delete), bail out of any per-instrument editor
@@ -2383,15 +2384,15 @@ pub const App = struct {
             if (link.track == cur) link.track = @intCast(other)
             else if (link.track == other) link.track = @intCast(cur);
         }
-        const had_history = self.history.undo_stack.items.len > 0 or self.history.redo_stack.items.len > 0;
-        self.pending_param_nudge = null;
-        if (self.pending_fx_nudge) |*p| { p.deinit(self.allocator); self.pending_fx_nudge = null; }
-        self.history.deinit(self.allocator);
-        self.history = .{};
+        // A swap never removes a track, so unlike delete this never drops
+        // an entry — every index just exchanges with its neighbor's.
+        const remap: undo_mod.TrackRemap = .{ .swap = .{ .a = @intCast(cur), .b = @intCast(other) } };
+        history.retargetPending(self, remap);
+        _ = self.history.retarget(self.allocator, remap);
 
         self.cursor = other;
         self.dirty = true;
-        self.setStatus("moved track {d} {s}{s}", .{ cur + 1, if (dir < 0) "up" else "down", if (had_history) " (undo history cleared)" else "" });
+        self.setStatus("moved track {d} {s}", .{ cur + 1, if (dir < 0) "up" else "down" });
     }
 
     /// `[`/`]` in the tracks view: cycle the cursor track's color through

@@ -228,6 +228,32 @@ pub fn flushParamNudge(app: *App) void {
     app.history.push(app.allocator, .{ .param_nudge = .{ .track = p.track, .id = p.id, .value = p.before } });
 }
 
+/// Remap or drop the in-flight param/FX nudge batch (if any) after a
+/// structural track change — same rule `undo.History.retarget` applies to
+/// the stacks, so a batch still open on a track that's about to shift
+/// doesn't keep writing into the wrong track once it flushes. Call BEFORE
+/// the track change lands (delete/swap), same ordering `retarget` needs.
+pub fn retargetPending(app: *App, remap: undo_mod.TrackRemap) void {
+    if (app.pending_param_nudge) |*p| {
+        if (remap.apply(p.track)) |nt| {
+            p.track = nt;
+        } else {
+            app.pending_param_nudge = null;
+        }
+    }
+    if (app.pending_fx_nudge) |*p| {
+        switch (p.target) {
+            .track => |t| if (remap.apply(t)) |nt| {
+                p.target = .{ .track = nt };
+            } else {
+                p.deinit(app.allocator);
+                app.pending_fx_nudge = null;
+            },
+            else => {},
+        }
+    }
+}
+
 /// Swap `entry`'s state with the live one. On success the entry is
 /// consumed and the displaced state is returned for the opposite stack;
 /// null means the target no longer accepts it (track gone, kind changed)

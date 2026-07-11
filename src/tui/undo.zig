@@ -131,6 +131,24 @@ pub const PendingFxNudge = struct {
     }
 };
 
+/// How a structural track change (delete/swap) reshapes a track index
+/// baked into an undo entry. Applied by `History.retarget` to every entry
+/// on both stacks right after the change, so old entries keep pointing at
+/// the same physical track instead of the wrong one once indices shift.
+pub const TrackRemap = union(enum) {
+    delete: u16,
+    swap: struct { a: u16, b: u16 },
+
+    /// The track's new index, or null if it no longer exists (delete only
+    /// — a swap never removes a track).
+    pub fn apply(self: TrackRemap, track: u16) ?u16 {
+        return switch (self) {
+            .delete => |del| if (track == del) null else if (track > del) track - 1 else track,
+            .swap => |s| if (track == s.a) s.b else if (track == s.b) s.a else track,
+        };
+    }
+};
+
 pub const Entry = union(enum) {
     melodic: MelodicState,
     drum: DrumState,
@@ -209,7 +227,42 @@ pub const History = struct {
             owned.deinit(allocator);
         };
     }
+
+    /// Remap every undo/redo entry's track index after a structural track
+    /// change (see `TrackRemap`), dropping any entry whose track no longer
+    /// exists. Returns how many entries were dropped, for a user-facing
+    /// status message. Iterates back-to-front so mid-list removals don't
+    /// disturb not-yet-visited indices.
+    pub fn retarget(self: *History, allocator: std.mem.Allocator, remap: TrackRemap) usize {
+        return retargetStack(&self.undo_stack, allocator, remap) +
+            retargetStack(&self.redo_stack, allocator, remap);
+    }
 };
+
+fn retargetStack(stack: *std.ArrayListUnmanaged(Entry), allocator: std.mem.Allocator, remap: TrackRemap) usize {
+    var dropped: usize = 0;
+    var i: usize = stack.items.len;
+    while (i > 0) {
+        i -= 1;
+        var keep = true;
+        switch (stack.items[i]) {
+            .melodic => |*m| if (remap.apply(m.track)) |nt| { m.track = nt; } else { keep = false; },
+            .drum => |*d| if (remap.apply(d.track)) |nt| { d.track = nt; } else { keep = false; },
+            .lane => |*l| if (remap.apply(l.track)) |nt| { l.track = nt; } else { keep = false; },
+            .param_nudge => |*p| if (remap.apply(p.track)) |nt| { p.track = nt; } else { keep = false; },
+            .fx => |*f| switch (f.target) {
+                .track => |t| if (remap.apply(t)) |nt| { f.target = .{ .track = nt }; } else { keep = false; },
+                else => {},
+            },
+        }
+        if (!keep) {
+            var removed = stack.orderedRemove(i);
+            removed.deinit(allocator);
+            dropped += 1;
+        }
+    }
+    return dropped;
+}
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -246,4 +299,49 @@ test "undo stack caps at max_entries, dropping the oldest" {
     try std.testing.expectEqual(max_entries, h.undo_stack.items.len);
     // Oldest 8 fell off: the bottom entry is #8.
     try std.testing.expectEqual(@as(u16, 8), h.undo_stack.items[0].melodic.track);
+}
+
+test "retarget delete drops the deleted track's entry and shifts later ones down" {
+    const a = std.testing.allocator;
+    var h: History = .{};
+    defer h.deinit(a);
+
+    h.push(a, try melodicEntry(a, 0)); // named track deleted below: dropped
+    h.push(a, try melodicEntry(a, 1)); // unaffected: below the deleted index
+    h.push(a, try melodicEntry(a, 2)); // shifts down to 1
+
+    const dropped = h.retarget(a, .{ .delete = 0 });
+    try std.testing.expectEqual(@as(usize, 1), dropped);
+    try std.testing.expectEqual(@as(usize, 2), h.undo_stack.items.len);
+    // Original tracks 1 and 2 both shift down by one.
+    try std.testing.expectEqual(@as(u16, 0), h.undo_stack.items[0].melodic.track);
+    try std.testing.expectEqual(@as(u16, 1), h.undo_stack.items[1].melodic.track);
+}
+
+test "retarget swap exchanges two entries' track indices, drops nothing" {
+    const a = std.testing.allocator;
+    var h: History = .{};
+    defer h.deinit(a);
+
+    h.push(a, try melodicEntry(a, 1));
+    h.push(a, try melodicEntry(a, 2));
+
+    const dropped = h.retarget(a, .{ .swap = .{ .a = 1, .b = 2 } });
+    try std.testing.expectEqual(@as(usize, 0), dropped);
+    try std.testing.expectEqual(@as(u16, 2), h.undo_stack.items[0].melodic.track);
+    try std.testing.expectEqual(@as(u16, 1), h.undo_stack.items[1].melodic.track);
+}
+
+test "retarget on an .fx entry only touches a .track target" {
+    const a = std.testing.allocator;
+    var h: History = .{};
+    defer h.deinit(a);
+
+    h.push(a, .{ .fx = .{ .target = .master, .fx = .{} } });
+    h.push(a, .{ .fx = .{ .target = .{ .track = 2 }, .fx = .{} } });
+
+    const dropped = h.retarget(a, .{ .delete = 0 });
+    try std.testing.expectEqual(@as(usize, 0), dropped);
+    try std.testing.expectEqual(.master, std.meta.activeTag(h.undo_stack.items[0].fx.target));
+    try std.testing.expectEqual(@as(u16, 1), h.undo_stack.items[1].fx.target.track);
 }

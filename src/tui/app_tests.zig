@@ -9,6 +9,7 @@ const engine_mod = ws.engine;
 const InstrumentKind = ws.InstrumentKind;
 const app_mod = @import("app.zig");
 const App = app_mod.App;
+const history = @import("history.zig");
 const AppView = app_mod.AppView;
 const note_ms = app_mod.note_ms;
 const commands = @import("commands.zig");
@@ -1723,6 +1724,66 @@ test "track delete removes the rack and shifts later tracks down" {
     try std.testing.expectEqual(initial_tracks - 1, app.session.racks.items.len);
     // The drum machine that was at index 2 is now index 1.
     try std.testing.expectEqual(InstrumentKind.drum_machine, std.meta.activeTag(app.session.racks.items[1].instrument));
+}
+
+test "track delete remaps a surviving track's undo entry instead of wiping history" {
+    var app = try testApp();
+    defer app.deinit();
+
+    // Capture the drum machine at track 2 (factory pattern), then toggle a
+    // step so it diverges from the captured "before" state.
+    const before = app.session.racks.items[2].instrument.drum_machine.variantData(0).pattern[0];
+    history.push(&app, history.captureDrum(&app, 2));
+    app.session.racks.items[2].instrument.drum_machine.toggleStep(0, 0);
+    try std.testing.expect(app.session.racks.items[2].instrument.drum_machine.variantData(
+        app.session.racks.items[2].instrument.drum_machine.variant,
+    ).pattern[0] != before);
+
+    // Delete track 0 (the synth): track 2's drum machine shifts to index 1,
+    // and the undo entry should follow it rather than the history getting
+    // wiped or the entry pointing at the wrong (now-track-1) sampler.
+    app.doTrackDel(0);
+    try std.testing.expectEqual(@as(usize, 1), app.history.undo_stack.items.len);
+    try std.testing.expectEqual(@as(u16, 1), app.history.undo_stack.items[0].drum.track);
+
+    app.handleKey(.{ .char = 'u' }, 0);
+    const dm = &app.session.racks.items[1].instrument.drum_machine;
+    try std.testing.expectEqual(before, dm.variantData(dm.variant).pattern[0]);
+}
+
+test "track delete drops an undo entry that named the deleted track" {
+    var app = try testApp();
+    defer app.deinit();
+
+    history.push(&app, history.captureDrum(&app, 2));
+    app.session.racks.items[2].instrument.drum_machine.toggleStep(0, 0);
+
+    // Delete track 2 itself: the entry it named is gone, not remapped onto
+    // a different surviving track.
+    app.doTrackDel(2);
+    try std.testing.expectEqual(@as(usize, 0), app.history.undo_stack.items.len);
+    try std.testing.expect(std.mem.indexOf(u8, app.status_buf[0..app.status_len], "1 undo entries for it cleared") != null);
+}
+
+test "J/K track swap remaps an undo entry to follow the moved track" {
+    var app = try testApp();
+    defer app.deinit();
+
+    // Capture and edit the drum machine at track 2.
+    const before = app.session.racks.items[2].instrument.drum_machine.variantData(0).pattern[0];
+    history.push(&app, history.captureDrum(&app, 2));
+    app.session.racks.items[2].instrument.drum_machine.toggleStep(0, 0);
+
+    app.cursor = 2; // the drum machine
+    app.handleKey(.{ .char = 'K' }, 0); // swap up with the sampler at index 1
+
+    try std.testing.expectEqual(@as(usize, 1), app.cursor);
+    try std.testing.expectEqual(@as(usize, 1), app.history.undo_stack.items.len);
+    try std.testing.expectEqual(@as(u16, 1), app.history.undo_stack.items[0].drum.track);
+
+    app.handleKey(.{ .char = 'u' }, 0);
+    const dm = &app.session.racks.items[1].instrument.drum_machine;
+    try std.testing.expectEqual(before, dm.variantData(dm.variant).pattern[0]);
 }
 
 test "Y duplicates the selected track and jumps the cursor to the copy" {
