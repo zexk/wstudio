@@ -227,7 +227,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("1–8",          "switch to pad 1–8 within the current bank of 8");
     t.key("J / K",        "jump a whole bank of 8 pads (same slot, next/prev bank)");
     t.key("a",            "audition current pad");
-    t.key(":load-pad",    "<1-64> [file.wav]  load a sample into a pad (omit the file to browse)");
+    t.key(":load-sample", "[file.wav]  load a sample into the cursor pad or sampler track (omit the file to browse)");
 
     t.taggedSection(.synth_editor, "SYNTH EDITOR");
     t.key("j / k",        "select parameter");
@@ -328,7 +328,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key(":master-eq",   "[<band> <db>]  same, from the : prompt (M opens the live editor)");
     t.key(":master-comp", "on|off|thresh|ratio|attack|release|makeup <value>  first comp in the master chain");
 
-    t.taggedSection(.file_browser, "FILE BROWSER  (netrw-style; opens on :e, :load-sample, :load-pad, :load-clip with no path)");
+    t.taggedSection(.file_browser, "FILE BROWSER  (netrw-style; opens on :e, :load-sample, :load-clip with no path)");
     t.key("j / k",        "move cursor");
     t.key("enter / l",    "open directory / pick file");
     t.key("h / backspace","up to the parent directory");

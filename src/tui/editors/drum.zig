@@ -517,7 +517,7 @@ fn repeatLastEdit(app: *App) void {
 /// R opens the command prompt pre-filled with `:pad-rename <n> ` for the
 /// cursor pad — type the new name and hit enter (esc cancels), same
 /// mechanism as the tracks view's own rename prompt. Pad index is 1-based,
-/// matching `:load-pad`'s convention and the 1-8 direct pad-select keys.
+/// matching the 1-8 direct pad-select keys.
 fn startPadRenamePrompt(app: *App) void {
     app.modal.mode = .command;
     app.cmd_history_pos = app.cmd_history.items.len;

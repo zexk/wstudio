@@ -12,9 +12,9 @@ const Sample = types.Sample;
 pub const Pad = struct {
     samples: []f32,
     name: [8]u8 = [_]u8{' '} ** 8,
-    /// True when the audio was loaded by the user (`:load-pad` /
-    /// `:load-sample`) rather than shipped/generated — only user audio is
-    /// exported to the project's sample sidecar on save.
+    /// True when the audio was loaded by the user (`:load-sample`) rather
+    /// than shipped/generated — only user audio is exported to the
+    /// project's sample sidecar on save.
     user_sample: bool = false,
 
     // ── Sampler params (audio-thread reads; nudged via adjustParam) ──────────

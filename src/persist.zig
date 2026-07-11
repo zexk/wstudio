@@ -224,7 +224,7 @@ pub const PadSnap = struct {
     /// v5: display name of a user-loaded sample ("" = keep the default).
     name: []const u8 = "",
     /// Additive field: whether this slot has ever had a sample loaded (the
-    /// shipped kit's pads, or a user `:load-pad`) — `false` means the live
+    /// shipped kit's pads, or a user `:load-sample`) — `false` means the live
     /// `DrumMachine.pads[i]` is null (never materialized; see that field's
     /// own doc comment) and every other field here is just the struct
     /// default, not meaningful data. Older files omit it; since a pre-64-pad
@@ -2715,7 +2715,7 @@ test "save/load round-trip persists user-loaded drum pad samples" {
     try session.setInstrument(0, .drum_machine);
     const dm = &session.racks.items[0].instrument.drum_machine;
 
-    // Emulate :load-pad — user audio on pad 3, with a tweaked param.
+    // Emulate :load-sample — user audio on pad 3, with a tweaked param.
     const clip = try testing.allocator.dupe(f32, &[_]f32{ 0.5, -0.5, 0.25, -0.125 });
     dm.setPadSamples(3, clip, "usr");
     dm.pads[3].?.pad.user_sample = true;

@@ -470,8 +470,8 @@ pub const App = struct {
     /// Wall-clock ns of the last autosave backup attempt (0 = never tried).
     /// See `maybeAutosave`.
     last_autosave_ns: i96 = 0,
-    /// Minimal netrw/dired-style file browser: `:e`, `:load-sample`, and
-    /// `:load-pad` open it when called with no path. `browser_dir` is the
+    /// Minimal netrw/dired-style file browser: `:e` and `:load-sample`
+    /// open it when called with no path. `browser_dir` is the
     /// canonical (realpath'd) directory currently listed in `browser_entries`
     /// — both are owned and freed together (see `closeBrowser`).
     browser_dir: [:0]const u8 = "",
@@ -1439,7 +1439,7 @@ pub const App = struct {
     }
 
     // -----------------------------------------------------------------------
-    // File browser (netrw/dired-style; `:e`, `:load-sample`, `:load-pad` with
+    // File browser (netrw/dired-style; `:e`, `:load-sample` with
     // no path open it — see commands.zig)
     // -----------------------------------------------------------------------
 
