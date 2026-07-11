@@ -2275,7 +2275,7 @@ test ":track-rename with no track number renames the cursor track" {
     try std.testing.expectEqualStrings("bass", app.session.project.tracks.items[1].name);
 }
 
-test ":gain/:pan/:eq with no args at all report the cursor track" {
+test ":gain/:pan with no args at all report the cursor track" {
     // Only the fully-argless form falls back to the cursor track — a single
     // token (":gain -6") still means an explicit track number as before,
     // since a bare number is genuinely ambiguous between "which track" and
@@ -2294,10 +2294,6 @@ test ":gain/:pan/:eq with no args at all report the cursor track" {
     for (":pan") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.enter, 0);
     try std.testing.expect(std.mem.indexOf(u8, app.status_buf[0..app.status_len], "track 2 pan: R50%") != null);
-
-    for (":eq") |c| app.handleKey(.{ .char = c }, 0);
-    app.handleKey(.enter, 0);
-    try std.testing.expect(std.mem.indexOf(u8, app.status_buf[0..app.status_len], "track 2") != null);
 
     // An explicit index still targets that track, not the cursor.
     for (":gain 1") |c| app.handleKey(.{ .char = c }, 0);
@@ -3488,7 +3484,7 @@ test ":synth-preset Tab completes the preset-name argument from the fixed preset
     try std.testing.expectEqualStrings("synth-preset sub-bass ", app.modal.cmd_buf[0..app.modal.cmd_len]);
 }
 
-test ":metronome Tab cycles on/off; :master-comp Tab completes its sub-keywords" {
+test ":metronome Tab cycles on/off" {
     var app = try App.init(std.testing.allocator, std.Io.failing);
     defer app.deinit();
 
@@ -3499,12 +3495,6 @@ test ":metronome Tab cycles on/off; :master-comp Tab completes its sub-keywords"
     try std.testing.expectEqualStrings("metronome on", app.modal.cmd_buf[0..app.modal.cmd_len]);
     app.handleKey(.tab, 0);
     try std.testing.expectEqualStrings("metronome off", app.modal.cmd_buf[0..app.modal.cmd_len]);
-
-    app.modal.cmd_len = 0;
-    app.modal.cmd_cursor = 0;
-    for ("master-comp thr") |c| app.handleKey(.{ .char = c }, 0);
-    app.handleKey(.tab, 0);
-    try std.testing.expectEqualStrings("master-comp thresh ", app.modal.cmd_buf[0..app.modal.cmd_len]);
 }
 
 test ":scale Tab cycles off, root pitch classes, then scale-type names" {
@@ -4257,52 +4247,6 @@ test "FX chain: insert/bypass/remove are each their own undoable step" {
     try std.testing.expect(fx.units.items[0].bypassed);
     _ = spectrum_ed.handleKey(&app, .{ .char = 'U' }); // redo remove
     try std.testing.expectEqual(@as(usize, 0), fx.units.items.len);
-}
-
-test ":eq/:master-eq/:master-comp are undoable steps" {
-    var app = try testApp();
-    defer app.deinit();
-    const track_fx = &app.session.racks.items[0].fx;
-    const mfx = &app.session.master_fx;
-
-    // :eq auto-creates an EQ; one u reverts the insert + band set together.
-    commands.run(&app, "eq 1 2 4.5");
-    try std.testing.expectEqual(@as(usize, 1), track_fx.units.items.len);
-    try std.testing.expectEqual(@as(usize, 1), app.history.undo_stack.items.len);
-    app.handleKey(.{ .char = 'u' }, 0);
-    try std.testing.expectEqual(@as(usize, 0), track_fx.units.items.len);
-
-    // :master-comp param set inserts + sets as one step; a second set on
-    // the now-existing comp is its own step.
-    commands.run(&app, "master-comp thresh -20");
-    try std.testing.expectEqual(@as(usize, 1), mfx.units.items.len);
-    try std.testing.expectApproxEqAbs(@as(f32, -20.0), mfx.units.items[0].payload.comp.threshold_db, 0.001);
-    commands.run(&app, "master-comp ratio 8");
-    app.handleKey(.{ .char = 'u' }, 0); // undo the ratio set — comp stays, ratio reverts
-    try std.testing.expectEqual(@as(usize, 1), mfx.units.items.len);
-    try std.testing.expect(mfx.units.items[0].payload.comp.ratio != 8.0);
-    app.handleKey(.{ .char = 'u' }, 0); // undo the insert+thresh
-    try std.testing.expectEqual(@as(usize, 0), mfx.units.items.len);
-
-    // A typo'd param neither inserts a comp nor records an undo step.
-    const undo_before_typo = app.history.undo_stack.items.len;
-    commands.run(&app, "master-comp bogus 5");
-    try std.testing.expectEqual(@as(usize, 0), mfx.units.items.len);
-    try std.testing.expectEqual(undo_before_typo, app.history.undo_stack.items.len);
-
-    // :master-eq auto-creates too; u reverts it whole.
-    commands.run(&app, "master-eq 0 3");
-    try std.testing.expectEqual(@as(usize, 1), mfx.units.items.len);
-    app.handleKey(.{ .char = 'u' }, 0);
-    try std.testing.expectEqual(@as(usize, 0), mfx.units.items.len);
-
-    // :master-comp off is undoable: the comp returns WITH its settings.
-    commands.run(&app, "master-comp thresh -12");
-    commands.run(&app, "master-comp off");
-    try std.testing.expectEqual(@as(usize, 0), mfx.units.items.len);
-    app.handleKey(.{ .char = 'u' }, 0);
-    try std.testing.expectEqual(@as(usize, 1), mfx.units.items.len);
-    try std.testing.expectApproxEqAbs(@as(f32, -12.0), mfx.units.items[0].payload.comp.threshold_db, 0.001);
 }
 
 test "FX chain: a param nudge followed by a structural edit are two separate undo steps" {

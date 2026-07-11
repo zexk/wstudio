@@ -8,7 +8,6 @@ const std = @import("std");
 const ws = @import("wstudio");
 const types = ws.types;
 const engine_mod = ws.engine;
-const eq_mod = ws.dsp.eq;
 const dsp = ws.dsp.device;
 const DrumMachine = ws.dsp.DrumMachine;
 const Sampler = ws.dsp.Sampler;
@@ -73,7 +72,6 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "new!",        .desc = "start a blank project, discarding unsaved changes", .run = wrap(cmdNewForce) },
     .{ .name = "help",        .desc = "list all commands",                   .run = wrap(cmdHelp) },
     .{ .name = "h",           .desc = "list all commands (alias for :help)", .run = wrap(cmdHelp) },
-    .{ .name = "eq",          .desc = "[<track>] [<band> <db>]  EQ control (no track: cursor track)", .run = wrap(cmdEq) },
     .{ .name = "track-add",   .desc = "[name]  add a synth track",           .run = wrap(cmdTrackAdd) },
     .{ .name = "track-del",   .desc = "[n]  delete track n (default: cursor)", .run = wrap(cmdTrackDel) },
     .{ .name = "d",           .desc = "[n]  delete track n (alias for :track-del)", .run = wrap(cmdTrackDel) },
@@ -101,8 +99,6 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "metronome",   .desc = "[on|off]  toggle the click track",                   .run = wrap(cmdMetronome) },
     .{ .name = "scale",       .desc = "[<root> [<type>]|off]  piano-roll scale highlight + chord-stamp key", .run = wrap(cmdScale) },
     .{ .name = "ghost",       .desc = "[on|off]  dim every other melodic track's notes into the piano-roll background", .run = wrap(cmdGhost) },
-    .{ .name = "master-eq",   .desc = "[<band> <db>]  master bus EQ (see M in the tracks view)", .run = wrap(cmdMasterEq) },
-    .{ .name = "master-comp", .desc = "[on|off|thresh|ratio|attack|release|makeup <value>]  master bus compressor", .run = wrap(cmdMasterComp) },
     .{ .name = "synth-preset", .desc = "[name]  apply a factory or saved synth patch to the cursor track (no args: list names)", .run = wrap(cmdSynthPreset), .scope = .synth },
     .{ .name = "synth-preset-save", .desc = "<name>  save the cursor track's current synth params as a reusable preset", .run = wrap(cmdSynthPresetSave), .scope = .synth },
     .{ .name = "drum-kit",    .desc = "[name]  apply a factory or saved kit to the cursor drum machine (no args: list names)", .run = wrap(cmdDrumKit), .scope = .drum },
@@ -1513,183 +1509,6 @@ fn cmdVol(app: *App, args: []const u8) void {
     _ = app.session.engine.send(.{ .set_master_gain = types.dbToGain(app.master_gain_db) });
     const sign: []const u8 = if (app.master_gain_db >= 0) "+" else "";
     app.setStatus("master vol: {s}{d:.1}dB", .{ sign, app.master_gain_db });
-}
-
-fn cmdEq(app: *App, args: []const u8) void {
-    var it = std.mem.splitScalar(u8, args, ' ');
-    const track_str = it.next() orelse "";
-    const track_idx: usize = if (track_str.len == 0)
-        cursorTrackIdx(app) orelse {
-            app.setStatus("usage: eq <track> [<band> <db>]", .{});
-            return;
-        }
-    else blk: {
-        const track_1 = std.fmt.parseInt(usize, track_str, 10) catch {
-            app.setStatus("eq: bad track number '{s}'", .{track_str});
-            return;
-        };
-        if (track_1 == 0 or track_1 > app.session.racks.items.len) {
-            app.setStatus("eq: track must be 1–{d}", .{app.session.racks.items.len});
-            return;
-        }
-        break :blk track_1 - 1;
-    };
-    const track_1 = track_idx + 1;
-    const rest = std.mem.trim(u8, it.rest(), " ");
-    if (rest.len == 0) {
-        if (app.session.racks.items[track_idx].fx.find(.eq)) |u| {
-            app.setStatus("track {d}: eq bypass={}", .{ track_1, u.bypassed });
-        } else {
-            app.setStatus("track {d}: no EQ", .{track_1});
-        }
-        return;
-    }
-    var rit = std.mem.splitScalar(u8, rest, ' ');
-    const band_str = rit.next() orelse {
-        app.setStatus("eq: usage eq <track> <band> <db>", .{});
-        return;
-    };
-    const band = std.fmt.parseInt(usize, band_str, 10) catch {
-        app.setStatus("eq: bad band number", .{});
-        return;
-    };
-    if (band >= eq_mod.num_eq_bands) {
-        app.setStatus("eq: band must be 0–{d}", .{eq_mod.num_eq_bands - 1});
-        return;
-    }
-    const db = std.fmt.parseFloat(f32, rit.rest()) catch {
-        app.setStatus("eq: expected dB value", .{});
-        return;
-    };
-    const entry = history.captureFxCmd(app, .{ .track = @intCast(track_idx) });
-    const ok = spectrum_ed.setEqBand(app, @intCast(track_idx), band, db);
-    history.pushFxIfOk(app, entry, ok);
-    if (!ok) return; // setEqBand already reported the failure
-    app.setStatus("track {d} eq band {d}: {d:.1}dB", .{ track_1, band, db });
-}
-
-/// `:master-eq [<band> <db>]` — same shape as `:eq` but for the master bus
-/// (no track index). The interactive editor is `M` in the tracks view.
-fn cmdMasterEq(app: *App, args: []const u8) void {
-    const rest = std.mem.trim(u8, args, " ");
-    if (rest.len == 0) {
-        if (app.session.master_fx.find(.eq)) |u| {
-            app.setStatus("master eq: bypass={}", .{u.bypassed});
-        } else {
-            app.setStatus("master: no EQ", .{});
-        }
-        return;
-    }
-    var it = std.mem.splitScalar(u8, rest, ' ');
-    const band_str = it.next() orelse {
-        app.setStatus("usage: master-eq <band> <db>", .{});
-        return;
-    };
-    const band = std.fmt.parseInt(usize, band_str, 10) catch {
-        app.setStatus("master-eq: bad band number", .{});
-        return;
-    };
-    if (band >= eq_mod.num_eq_bands) {
-        app.setStatus("master-eq: band must be 0–{d}", .{eq_mod.num_eq_bands - 1});
-        return;
-    }
-    const db = std.fmt.parseFloat(f32, it.rest()) catch {
-        app.setStatus("master-eq: expected dB value", .{});
-        return;
-    };
-    const entry = history.captureFxCmd(app, .master);
-    const ok = spectrum_ed.setMasterEqBand(app, band, db);
-    history.pushFxIfOk(app, entry, ok);
-    if (!ok) return; // setMasterEqBand already reported the failure
-    app.setStatus("master eq band {d}: {d:.1}dB", .{ band, db });
-}
-
-/// `:master-comp [on|off|<param> <value>]` — the master bus compressor
-/// (targets the chain's first comp unit). `on` inserts one at the chain end
-/// with defaults if not already present; `off` removes it;
-/// `thresh`/`ratio`/`attack`/`release`/`makeup <value>` tweak one field,
-/// inserting the compressor with defaults first if needed. No args reports
-/// the current settings.
-fn cmdMasterComp(app: *App, args: []const u8) void {
-    const mfx = &app.session.master_fx;
-    const trimmed = std.mem.trim(u8, args, " ");
-    if (trimmed.len == 0) {
-        if (mfx.find(.comp)) |u| {
-            const c = &u.payload.comp;
-            app.setStatus("master comp: thresh {d:.1}dB  ratio {d:.1}:1  atk {d:.0}ms  rel {d:.0}ms  makeup {d:.1}dB", .{
-                c.threshold_db, c.ratio, c.attack_ms, c.release_ms, c.makeup_db,
-            });
-        } else {
-            app.setStatus("master comp: off", .{});
-        }
-        return;
-    }
-    if (std.ascii.eqlIgnoreCase(trimmed, "off")) {
-        if (mfx.findIdx(.comp)) |idx| {
-            const entry = history.captureFxCmd(app, .master);
-            mfx.remove(app.session.allocator, idx);
-            history.pushFxIfOk(app, entry, true);
-            app.dirty = true;
-            app.session.syncMasterChain();
-        }
-        app.setStatus("master comp: off", .{});
-        return;
-    }
-    var it = std.mem.splitScalar(u8, trimmed, ' ');
-    const first = it.next().?;
-    if (std.ascii.eqlIgnoreCase(first, "on")) {
-        if (mfx.find(.comp) == null) {
-            const entry = history.captureFxCmd(app, .master);
-            _ = mfx.insert(app.session.allocator, mfx.units.items.len, .comp, app.session.project.sample_rate) catch {
-                history.pushFxIfOk(app, entry, false);
-                app.setStatus("master comp: chain full", .{});
-                return;
-            };
-            history.pushFxIfOk(app, entry, true);
-        }
-        app.dirty = true;
-        app.session.syncMasterChain();
-        app.setStatus("master comp: on (defaults)", .{});
-        return;
-    }
-    // Validate the param name BEFORE the find-or-insert below: a typo'd
-    // param used to leave a freshly inserted (unsynced) compressor behind
-    // on its early return — and would leave a spurious undo step now.
-    const known = std.ascii.eqlIgnoreCase(first, "thresh") or std.ascii.eqlIgnoreCase(first, "ratio") or
-        std.ascii.eqlIgnoreCase(first, "attack") or std.ascii.eqlIgnoreCase(first, "release") or
-        std.ascii.eqlIgnoreCase(first, "makeup");
-    if (!known) {
-        app.setStatus("master-comp: unknown param '{s}' (thresh/ratio/attack/release/makeup)", .{first});
-        return;
-    }
-    const val_str = std.mem.trim(u8, it.rest(), " ");
-    const val = std.fmt.parseFloat(f32, val_str) catch {
-        app.setStatus("usage: master-comp on|off|thresh|ratio|attack|release|makeup <value>", .{});
-        return;
-    };
-    const entry = history.captureFxCmd(app, .master);
-    const unit = mfx.find(.comp) orelse
-        mfx.insert(app.session.allocator, mfx.units.items.len, .comp, app.session.project.sample_rate) catch {
-            history.pushFxIfOk(app, entry, false);
-            app.setStatus("master comp: chain full", .{});
-            return;
-        };
-    const c = &unit.payload.comp;
-    if (std.ascii.eqlIgnoreCase(first, "thresh")) {
-        c.threshold_db = std.math.clamp(val, -60.0, 0.0);
-    } else if (std.ascii.eqlIgnoreCase(first, "ratio")) {
-        c.ratio = std.math.clamp(val, 1.0, 20.0);
-    } else if (std.ascii.eqlIgnoreCase(first, "attack")) {
-        c.attack_ms = std.math.clamp(val, 0.1, 500.0);
-    } else if (std.ascii.eqlIgnoreCase(first, "release")) {
-        c.release_ms = std.math.clamp(val, 1.0, 2000.0);
-    } else if (std.ascii.eqlIgnoreCase(first, "makeup")) {
-        c.makeup_db = std.math.clamp(val, -24.0, 24.0);
-    }
-    history.pushFxIfOk(app, entry, true);
-    app.dirty = true;
-    app.session.syncMasterChain();
-    app.setStatus("master comp: {s} {d:.2}", .{ first, val });
 }
 
 // ---------------------------------------------------------------------------

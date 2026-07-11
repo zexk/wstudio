@@ -198,7 +198,7 @@ Done:
       instrument than the cursor track's (e.g. `:load-sample` only offered
       on a sampler track) — typing the full name out of scope still runs it
       and gets that command's own error
-- [x] `:gain`/`:pan`/`:eq`/`:track-rename` fall back to the cursor track
+- [x] `:gain`/`:pan`/`:track-rename` fall back to the cursor track
       when the leading `<track>` number is omitted entirely (an explicit
       number still always means that track, avoiding any "is this a track
       or a value" ambiguity)
@@ -311,10 +311,9 @@ Done:
 - [x] Master bus FX: the same user-built chain as a track's rack (identical
       `Fx` shape, up to 9 units, insert/remove/reorder/bypass/duplicates)
       applied to the summed mix before the master gain and always-on
-      limiter. `M` in the tracks view opens the master EQ's live spectrum +
-      band editor (`:master-eq` from the `:` prompt); the compressor is
-      `:master-comp on|off|thresh|ratio|attack|release|makeup <value>`.
-      Persisted (`Snapshot.master_fx`, .wsj v10)
+      limiter. `M` in the tracks view opens the chain editor (spectrum
+      analyzer for a focused EQ unit). Persisted (`Snapshot.master_fx`,
+      .wsj v10)
 - [x] Scale highlighting + chord stamp in the piano roll: `:scale [<root>
       [<type>]|off]` dims out-of-scale rows; `c`/`C` stamp a diatonic
       triad/seventh at the cursor, harmonized to the active scale (a plain

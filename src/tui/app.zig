@@ -2014,7 +2014,7 @@ pub const App = struct {
         index: usize,
         last_written: []const u8,
 
-        const Source = enum { command_name, drum_kit, synth_preset, metronome, master_comp, scale };
+        const Source = enum { command_name, drum_kit, synth_preset, metronome, scale };
 
         fn stem(self: *const TabCycle) []const u8 {
             return self.stem_buf[0..self.stem_len];
@@ -2050,8 +2050,8 @@ pub const App = struct {
     }
 
     /// Tab-completes the argument after `buf[0..name_end]` against a small
-    /// fixed value set — drum-kit/synth-preset names, and metronome/
-    /// master-comp's on/off (and sub-parameter) keywords. Only fires for the
+    /// fixed value set — drum-kit/synth-preset names, and metronome's
+    /// on/off keywords. Only fires for the
     /// *first* argument token (a trailing space means a second argument is
     /// being typed, which has no fixed candidate list here); every other
     /// command's arguments (track numbers, dB values, paths, ...) aren't
@@ -2084,8 +2084,6 @@ pub const App = struct {
             self.cycleCompletion(name_end + 1, arg, .synth_preset, name_buf[0..n]);
         } else if (std.mem.eql(u8, name, "metronome")) {
             self.cycleCompletion(name_end + 1, arg, .metronome, &.{ "on", "off" });
-        } else if (std.mem.eql(u8, name, "master-comp")) {
-            self.cycleCompletion(name_end + 1, arg, .master_comp, &.{ "on", "off", "thresh", "ratio", "attack", "release", "makeup" });
         } else if (std.mem.eql(u8, name, "scale")) {
             // First token can be "off", a root pitch class, or a scale-type
             // name (cmdScale accepts either order) — offer all three sets.

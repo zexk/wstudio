@@ -167,17 +167,6 @@ pub fn captureFx(app: *App, target: spectrum.EqTarget) ?undo_mod.Entry {
     });
 }
 
-/// Pre-edit capture for command-layer callers (`:eq`, `:master-eq`,
-/// `:master-comp`) that name their target explicitly instead of going
-/// through the chain editor's cursor. Flushes any open FX nudge batch
-/// first, same as recordFx, so undo steps land in true edit order even
-/// when a command interleaves with live editor nudges on the same chain.
-/// Pair the result with `pushFxIfOk` once the edit's outcome is known.
-pub fn captureFxCmd(app: *App, target: undo_mod.FxTarget) ?undo_mod.Entry {
-    flushFxNudge(app);
-    return captureFxRaw(app, target);
-}
-
 /// Push a `captureFx` result only if the edit it preceded actually
 /// succeeded; otherwise discard it. For structural edits that can fail
 /// after already needing to capture "before" state (e.g. a picker insert

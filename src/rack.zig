@@ -208,8 +208,7 @@ pub const Fx = struct {
         std.mem.swap(*FxUnit, &self.units.items[a], &self.units.items[b]);
     }
 
-    /// First unit of `kind` in chain order, or null — for the `:eq` /
-    /// `:master-comp` command paths that address a unit by name.
+    /// First unit of `kind` in chain order, or null.
     pub fn find(self: *const Fx, kind: FxKind) ?*FxUnit {
         const i = self.findIdx(kind) orelse return null;
         return self.units.items[i];

@@ -328,9 +328,6 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("",             "  makeup; 'style' h/l toggles classic (downward only) <-> OTT (also squashes");
     t.key("",             "  quiet signal UP toward the threshold); 'mix' blends dry <-> fully processed");
     t.key("- / +",        "group chain only: bus fader for the whole submix, post-FX (also :group-gain)");
-    t.key(":eq",          "<track> [<band> <db>]  first EQ in the chain, from the : prompt (inserts one if missing)");
-    t.key(":master-eq",   "[<band> <db>]  same, from the : prompt (M opens the live editor)");
-    t.key(":master-comp", "on|off|thresh|ratio|attack|release|makeup <value>  first comp in the master chain");
 
     t.taggedSection(.file_browser, "FILE BROWSER  (netrw-style; opens on :e, :load-sample, :load-clip with no path)");
     t.key("j / k",        "move cursor");
