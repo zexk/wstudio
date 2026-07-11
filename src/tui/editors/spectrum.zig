@@ -375,6 +375,22 @@ pub fn paramRange(k: FxKind, idx: usize) [2]f32 {
     };
 }
 
+/// Two-name label pair for a genuine on/off-style param — `views/spectrum.zig`
+/// draws these with `style.enumRow` (bracketed, discrete) instead of
+/// `barRow`'s filled slider, same as the synth/sampler editors already do
+/// for their own booleans (osc-b on/off, sampler reverse/mono-poly). A
+/// slider implies a continuum to scrub through; a 2-state switch reads
+/// clearer as the bracket-pair widget every other toggle in the app already
+/// uses. Null for every param that's actually continuous (or has more than
+/// two states, like `comp`'s sidechain-source spinner, which keeps its bar
+/// since "which of up to 64 tracks" doesn't fit two brackets).
+pub fn paramToggleNames(k: FxKind, idx: usize) ?[2][]const u8 {
+    return switch (k) {
+        .mb_comp => if (idx == mb_style) .{ "classic", "OTT" } else null,
+        else => null,
+    };
+}
+
 /// Clamped absolute set of param `idx` in `p` — bounds match `paramRange`.
 pub fn setParam(p: *FxPayload, idx: usize, value: f32) void {
     switch (p.*) {

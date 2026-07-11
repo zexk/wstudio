@@ -4275,6 +4275,28 @@ test "FX chain: insert/bypass/remove are each their own undoable step" {
     try std.testing.expectEqual(@as(usize, 0), fx.units.items.len);
 }
 
+test "multiband compressor style renders as a bracketed toggle, not a slider" {
+    var app = try testApp();
+    defer app.deinit();
+    spectrum_ed.switchToTrack(&app, 0);
+    _ = spectrum_ed.handleKey(&app, .{ .char = 'a' });
+    spectrum_ed.insertFromPicker(&app, .mb_comp);
+    app.fx_param = spectrum_ed.mb_style;
+
+    var buf: [32 * 1024]u8 = undefined;
+    var w = std.Io.Writer.fixed(&buf);
+    try app.draw(&w, .{ .cols = 100, .rows = 30 });
+    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "[classic]") != null);
+
+    _ = spectrum_ed.handleKey(&app, .{ .char = 'l' });
+    const fx = &app.session.racks.items[0].fx;
+    try std.testing.expectEqual(ws.dsp.multiband_comp.Style.ott, fx.units.items[0].payload.mb_comp.style);
+
+    w = std.Io.Writer.fixed(&buf);
+    try app.draw(&w, .{ .cols = 100, .rows = 30 });
+    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "[OTT") != null);
+}
+
 test "FX chain: a param nudge followed by a structural edit are two separate undo steps" {
     var app = try testApp();
     defer app.deinit();

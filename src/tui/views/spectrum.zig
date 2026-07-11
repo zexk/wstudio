@@ -474,8 +474,12 @@ pub fn drawFxView(
         // same [min, max] setParam clamps to.
         for (0..spectrum_ed.paramCount(k)) |i| {
             const is_sel = (i == app.fx_param);
-            const range = spectrum_ed.paramRange(k, i);
             const v = spectrum_ed.getParam(&unit.payload, i);
+            if (spectrum_ed.paramToggleNames(k, i)) |names| {
+                try enumRow(w, is_sel, false, sectionColor(k), spectrum_ed.paramName(k, i), &names, if (v < 0.5) 0 else 1);
+                continue;
+            }
+            const range = spectrum_ed.paramRange(k, i);
             const norm = std.math.clamp((v - range[0]) / (range[1] - range[0]), 0.0, 1.0);
             var vbuf: [16]u8 = undefined;
             try barRow(w, is_sel, false, sectionColor(k), spectrum_ed.paramName(k, i), norm, 1.0, formatFxValue(&vbuf, &unit.payload, i));
