@@ -2212,11 +2212,31 @@ pub const App = struct {
     }
 
     /// Which match `draw`'s command-name suggestion popup should highlight:
-    /// the active cycle's index, otherwise 0 — the top match, matching
-    /// Neovim's wildmenu highlighting the first candidate before Tab has
-    /// ever been pressed.
-    fn suggestionSelected(self: *const App) usize {
-        if (self.activeCommandCycle()) |tc| return tc.index;
+    /// otherwise 0 — the top match, matching Neovim's wildmenu highlighting
+    /// the first candidate before Tab has ever been pressed.
+    ///
+    /// Deliberately NOT `tc.index`: that's a position in `completeCommand`'s
+    /// own candidate list, which (unlike the popup) still counts
+    /// aliases/bang variants (see `cmd_mod.hiddenFromCompletion`) since
+    /// those stay valid Tab-cycle targets. Whenever one of those sits
+    /// between two popup-visible names in `commands.cmds` order (e.g. stem
+    /// "d" → `d` (alias, hidden) then `drum-kit`, `drum-kit-save`), `tc.index`
+    /// runs ahead of the popup's own row count and highlights the wrong
+    /// row (or none). Re-deriving the position from `tc.last_written`
+    /// against the popup's own filtered enumeration keeps the two in sync.
+    fn suggestionSelected(self: *const App, active: cmd_mod.Scope) usize {
+        const tc = self.activeCommandCycle() orelse return 0;
+        var idx: usize = 0;
+        for (commands.cmds) |c| {
+            if (cmd_mod.hiddenFromCompletion(c) or !cmd_mod.visible(c, active)) continue;
+            if (!std.mem.startsWith(u8, c.name, tc.stem())) continue;
+            if (std.mem.eql(u8, c.name, tc.last_written)) return idx;
+            idx += 1;
+        }
+        // The completed candidate is itself hidden from the popup (an
+        // alias or bang variant) — nothing in the visible list corresponds
+        // to it, so fall back to the top row rather than an index that
+        // would highlight an unrelated candidate.
         return 0;
     }
 
@@ -2881,7 +2901,7 @@ pub const App = struct {
                 commands.cmds,
                 self.suggestionFilterText(),
                 commands.activeScope(self),
-                self.suggestionSelected(),
+                self.suggestionSelected(commands.activeScope(self)),
                 max_suggestion_rows,
             );
         }
