@@ -89,7 +89,7 @@ pub const Session = struct {
     pub fn initDefault(allocator: std.mem.Allocator) !Session {
         var project = Project.init(allocator);
         errdefer project.deinit();
-        _ = try project.addTrack(.{ .name = "track 1" });
+        _ = try project.addTrack(.{ .name = "untitled track" });
         const sr = project.sample_rate;
 
         const engine = try allocator.create(Engine);
@@ -866,7 +866,7 @@ test "duplicateTrack copies params and appends at the end" {
     try std.testing.expectEqual(@as(usize, 2), s.racks.items.len);
 
     const dup = s.project.tracks.items[1];
-    try std.testing.expectEqualStrings("track 1 copy", dup.name);
+    try std.testing.expectEqualStrings("untitled track copy", dup.name);
     try std.testing.expectApproxEqAbs(@as(f32, -6.0), dup.gain_db, 1e-6);
     try std.testing.expectApproxEqAbs(@as(f32, 0.5), dup.pan, 1e-6);
     try std.testing.expect(dup.muted);

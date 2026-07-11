@@ -53,7 +53,7 @@ test "cursor movement clamps to track range, plus one for the master row" {
 test "/ fuzzy-searches track names; n/N repeat and wrap around" {
     var app = try testApp();
     defer app.deinit();
-    // Tracks: 0 "track 1", 1 "samp", 2 "drums" (+ master row at 3).
+    // Tracks: 0 "untitled track", 1 "samp", 2 "drums" (+ master row at 3).
     app.cursor = 0;
 
     for ("/drs") |c| app.handleKey(.{ .char = c }, 0);
@@ -73,15 +73,15 @@ test "/ fuzzy-searches track names; n/N repeat and wrap around" {
     app.handleKey(.{ .char = 'N' }, 0);
     try std.testing.expectEqual(@as(usize, 1), app.cursor);
 
-    // A pattern matching two tracks ("track 1" and "samp" both have 'a';
-    // "drums" doesn't) cycles between them, skipping the non-match.
+    // A pattern matching two tracks ("untitled track" and "samp" both have
+    // 'a'; "drums" doesn't) cycles between them, skipping the non-match.
     for ("/a") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.enter, 0);
-    try std.testing.expectEqual(@as(usize, 0), app.cursor); // "track 1"
+    try std.testing.expectEqual(@as(usize, 0), app.cursor); // "untitled track"
     app.handleKey(.{ .char = 'n' }, 0);
     try std.testing.expectEqual(@as(usize, 1), app.cursor); // "samp"
     app.handleKey(.{ .char = 'n' }, 0);
-    try std.testing.expectEqual(@as(usize, 0), app.cursor); // back to "track 1"
+    try std.testing.expectEqual(@as(usize, 0), app.cursor); // back to "untitled track"
     app.handleKey(.{ .char = 'N' }, 0);
     try std.testing.expectEqual(@as(usize, 1), app.cursor); // reverse: "samp"
 }
@@ -2145,7 +2145,7 @@ test ":track-rename with no track number renames the cursor track" {
 
     for (":track-rename bass") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.enter, 0);
-    try std.testing.expectEqualStrings("track 1", app.session.project.tracks.items[0].name);
+    try std.testing.expectEqualStrings("untitled track", app.session.project.tracks.items[0].name);
     try std.testing.expectEqualStrings("bass", app.session.project.tracks.items[1].name);
 
     // A single bare number is still a missing-<name> error, not a rename
