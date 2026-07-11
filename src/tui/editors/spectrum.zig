@@ -25,6 +25,7 @@ const ws = @import("wstudio");
 const modal_mod = ws.input;
 const dsp = ws.dsp.device;
 const eq_mod = ws.dsp.eq;
+const multiband_comp = ws.dsp.multiband_comp;
 const engine_mod = ws.engine;
 const style = @import("../style.zig");
 const chorus_mod = ws.dsp.chorus;
@@ -40,13 +41,14 @@ const history = @import("../history.zig");
 /// tone, character, modulation, time). Parallel to `picker_menu` in
 /// views/picker.zig.
 pub const picker_kinds = [_]FxKind{
-    .gate, .comp, .eq, .sat, .crush, .chorus, .phaser, .delay, .reverb,
+    .gate, .comp, .mb_comp, .eq, .sat, .crush, .chorus, .phaser, .delay, .reverb,
 };
 
 pub fn unitLabel(k: FxKind) []const u8 {
     return switch (k) {
         .gate => "GATE",
         .comp => "COMP",
+        .mb_comp => "MB COMP",
         .eq => "EQ",
         .sat => "SAT",
         .crush => "CRUSH",
@@ -64,6 +66,7 @@ pub fn stripLabel(k: FxKind) []const u8 {
     return switch (k) {
         .gate => "GATE",
         .comp => "COMP",
+        .mb_comp => "MBCP",
         .eq => "EQ",
         .sat => "SAT",
         .crush => "CRSH",
@@ -77,10 +80,32 @@ pub fn stripLabel(k: FxKind) []const u8 {
 pub fn paramCount(k: FxKind) usize {
     return switch (k) {
         .eq => eq_mod.num_eq_bands * eq_fields_per_band,
+        .mb_comp => mb_comp_param_count,
         .comp => 7,
         .phaser => 4,
         .gate, .sat, .crush, .chorus, .delay, .reverb => 3,
     };
+}
+
+/// Flat param list for a multiband compressor: 6 shared controls (crossover
+/// x2, attack, release, style, mix) followed by 3 fields (thresh/ratio/
+/// makeup) per band, low->mid->high — same "one sequential list" shape the
+/// EQ's flattened band/field list already uses.
+pub const mb_xover_lo = 0;
+pub const mb_xover_hi = 1;
+pub const mb_attack = 2;
+pub const mb_release = 3;
+pub const mb_style = 4;
+pub const mb_mix = 5;
+pub const mb_shared_count = 6;
+pub const mb_fields_per_band = 3; // thresh, ratio, makeup
+const mb_comp_param_count = mb_shared_count + multiband_comp.num_bands * mb_fields_per_band;
+
+pub const MbBandField = struct { band: usize, field: usize };
+
+pub fn mbBandField(idx: usize) MbBandField {
+    const rel = idx - mb_shared_count;
+    return .{ .band = rel / mb_fields_per_band, .field = rel % mb_fields_per_band };
 }
 
 /// EQ params are a flat `band*eq_fields_per_band + field` list (freq, q,
@@ -135,6 +160,21 @@ pub fn eqTypeLabel(buf: []u8, value: f32) []const u8 {
     return eqTypeLabelKS(buf, t.kind, t.slope);
 }
 
+/// [band][field] name table (thresh/ratio/makeup x low/mid/high) — a static
+/// lookup instead of building the string at call time, matching every other
+/// param-name function here (no allocation). Every label stays <=9 chars —
+/// `style.rowHead`'s label column is a fixed 9-wide field; "mid-makeup" (10
+/// chars) broke that alignment, so all three makeup labels use "*-mkup".
+const mb_band_param_names = [multiband_comp.num_bands][mb_fields_per_band][]const u8{
+    .{ "lo-thr", "lo-ratio", "lo-mkup" },
+    .{ "mid-thr", "mid-ratio", "mid-mkup" },
+    .{ "hi-thr", "hi-ratio", "hi-mkup" },
+};
+
+fn mbBandParamName(bf: MbBandField) []const u8 {
+    return mb_band_param_names[bf.band][bf.field];
+}
+
 /// Param name at `idx` within a unit of kind `k` — bounds match `paramCount`.
 pub fn paramName(k: FxKind, idx: usize) []const u8 {
     return switch (k) {
@@ -146,6 +186,15 @@ pub fn paramName(k: FxKind, idx: usize) []const u8 {
                 eq_field_gain => "gain",
                 else => "type",
             };
+        },
+        .mb_comp => switch (idx) {
+            mb_xover_lo => "xover-lo",
+            mb_xover_hi => "xover-hi",
+            mb_attack => "attack",
+            mb_release => "release",
+            mb_style => "style",
+            mb_mix => "mix",
+            else => mbBandParamName(mbBandField(idx)),
         },
         .comp => switch (idx) {
             0 => "thresh", 1 => "ratio", 2 => "attack", 3 => "release", 4 => "makeup", 5 => "sidechain", 6 => "scpad",
@@ -193,6 +242,23 @@ pub fn getParam(p: *const FxPayload, idx: usize) f32 {
                 eq_field_gain => e.bands[bf.band].gain_db,
                 else => eqTypeEncode(e.bands[bf.band].kind, e.bands[bf.band].slope),
             };
+        },
+        .mb_comp => |*m| switch (idx) {
+            mb_xover_lo => m.xover_lo_hz,
+            mb_xover_hi => m.xover_hi_hz,
+            mb_attack => m.attack_ms,
+            mb_release => m.release_ms,
+            mb_style => if (m.style == .ott) 1.0 else 0.0,
+            mb_mix => m.mix,
+            else => blk: {
+                const bf = mbBandField(idx);
+                const band = m.bands[bf.band];
+                break :blk switch (bf.field) {
+                    0 => band.threshold_db,
+                    1 => band.ratio,
+                    else => band.makeup_db,
+                };
+            },
         },
         .comp => |*c| switch (idx) {
             0 => c.threshold_db, 1 => c.ratio, 2 => c.attack_ms, 3 => c.release_ms, 4 => c.makeup_db,
@@ -248,6 +314,18 @@ pub fn paramRange(k: FxKind, idx: usize) [2]f32 {
             eq_field_q => .{ 0.1, 10.0 },
             eq_field_gain => .{ -18.0, 18.0 },
             else => .{ 0.0, @floatFromInt(2 * eq_mod.max_slope) },
+        },
+        .mb_comp => switch (idx) {
+            mb_xover_lo, mb_xover_hi => .{ 20.0, 20000.0 },
+            mb_attack => .{ 0.1, 500.0 },
+            mb_release => .{ 1.0, 2000.0 },
+            mb_style => .{ 0.0, 1.0 },
+            mb_mix => .{ 0.0, 1.0 },
+            else => switch (mbBandField(idx).field) {
+                0 => .{ -60.0, 0.0 }, // threshold
+                1 => .{ 1.0, 20.0 }, // ratio
+                else => .{ -24.0, 24.0 }, // makeup
+            },
         },
         .comp => switch (idx) {
             0 => .{ -60.0, 0.0 },
@@ -311,6 +389,23 @@ pub fn setParam(p: *FxPayload, idx: usize, value: f32) void {
                     e.setType(bf.band, t.kind, t.slope);
                 },
             }
+        },
+        .mb_comp => |*m| switch (idx) {
+            mb_xover_lo => m.setXoverLo(value),
+            mb_xover_hi => m.setXoverHi(value),
+            mb_attack => m.attack_ms = std.math.clamp(value, 0.1, 500.0),
+            mb_release => m.release_ms = std.math.clamp(value, 1.0, 2000.0),
+            mb_style => m.style = if (value >= 0.5) .ott else .classic,
+            mb_mix => m.mix = std.math.clamp(value, 0.0, 1.0),
+            else => {
+                const bf = mbBandField(idx);
+                const band = &m.bands[bf.band];
+                switch (bf.field) {
+                    0 => band.threshold_db = std.math.clamp(value, -60.0, 0.0),
+                    1 => band.ratio = std.math.clamp(value, 1.0, 20.0),
+                    else => band.makeup_db = std.math.clamp(value, -24.0, 24.0),
+                }
+            },
         },
         .comp => |*c| switch (idx) {
             0 => c.threshold_db = std.math.clamp(value, -60.0, 0.0),
@@ -399,6 +494,18 @@ fn paramStep(k: FxKind, idx: usize, coarse: bool) f32 {
             eq_field_gain => if (coarse) @as(f32, 6.0) else 1.0,
             // step whole type/slope states; coarse jumps a full kind group
             else => if (coarse) @as(f32, eq_mod.max_slope) else 1.0,
+        },
+        .mb_comp => switch (idx) {
+            mb_xover_lo, mb_xover_hi => if (coarse) @as(f32, 100.0) else 10.0,
+            mb_attack => if (coarse) @as(f32, 50.0) else 5.0,
+            mb_release => if (coarse) @as(f32, 200.0) else 20.0,
+            mb_style => 1.0, // toggle, whole steps only
+            mb_mix => if (coarse) @as(f32, 0.2) else 0.05,
+            else => switch (mbBandField(idx).field) {
+                0 => if (coarse) @as(f32, 6.0) else 1.0, // threshold
+                1 => if (coarse) @as(f32, 2.0) else 0.5, // ratio
+                else => if (coarse) @as(f32, 3.0) else 0.5, // makeup
+            },
         },
         .comp => switch (idx) {
             0 => if (coarse) @as(f32, 6.0) else 1.0,

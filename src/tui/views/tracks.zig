@@ -53,7 +53,7 @@ fn writeFxBadges(w: *std.Io.Writer, fx: *const ws.Fx) !void {
         }
         try w.writeByte(' ');
         try w.writeAll(switch (u.kind()) {
-            .gate => "gate", .comp => "cmp", .eq => "eq",
+            .gate => "gate", .comp => "cmp", .mb_comp => "mbc", .eq => "eq",
             .sat => "sat", .crush => "crs", .chorus => "cho",
             .phaser => "pha", .delay => "dly", .reverb => "rev",
         });

@@ -88,6 +88,7 @@ pub fn drawInstrumentPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void 
 const fx_picker_menu = [_]struct { name: []const u8, desc: []const u8 }{
     .{ .name = "Gate",       .desc = "cuts signal below a threshold: cleans up noise and bleed" },
     .{ .name = "Compressor", .desc = "evens out dynamics: thresh/ratio/attack/release/makeup" },
+    .{ .name = "Multiband",  .desc = "3-band compressor w/ crossover; OTT style adds upward squash too" },
     .{ .name = "EQ",         .desc = "8-band parametric EQ: peak or lowpass/highpass w/ slope per band" },
     .{ .name = "Saturator",  .desc = "soft-clip drive: analog-style warmth through grit" },
     .{ .name = "Crusher",    .desc = "bitcrusher: lo-fi bit depth + sample-rate reduction" },

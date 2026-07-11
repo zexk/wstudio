@@ -7,7 +7,8 @@
 //!   - All 38 PolySynth params + piano-roll notes + loop length
 //!   - Drum step-count + per-pad bitmask patterns + per-pad sampler params
 //!   - Per-track gain / pan / mute / solo + project tempo
-//!   - FX: gate, compressor, EQ, saturator, crusher, chorus, phaser, delay, reverb
+//!   - FX: gate, compressor, multiband compressor (incl. OTT style), EQ,
+//!     saturator, crusher, chorus, phaser, delay, reverb
 //!   - Rack labels
 //!   - User-loaded sample audio (drum pads + sampler clips), exported as mono
 //!     WAVs into the "<stem>_samples" sidecar directory next to the .wsj
@@ -31,6 +32,7 @@ const Pad = @import("dsp/pad.zig").Pad;
 const Sampler = @import("dsp/sampler.zig").Sampler;
 const Slicer = @import("dsp/slicer.zig").Slicer;
 const Compressor = @import("dsp/compressor.zig").Compressor;
+const multiband_comp_mod = @import("dsp/multiband_comp.zig");
 const StereoDelay = @import("dsp/delay.zig").StereoDelay;
 const Reverb = @import("dsp/reverb.zig").Reverb;
 const eq_mod = @import("dsp/eq.zig");
@@ -120,7 +122,10 @@ const AutomationPoint = automation_mod.AutomationPoint;
 /// 8 parametric ones) but there's no better source of truth in an old
 /// file. New saves never write `band_gains`, matching v11/v12/v13's own
 /// migration convention.
-pub const file_version: u32 = 14;
+/// v15 adds the multiband compressor FX unit (`FxUnitSnap.mb_comp`, see
+/// rack.zig's `MultibandComp`) — purely additive, same as v9's five new
+/// units; older files simply never reference the new `mb_comp` kind.
+pub const file_version: u32 = 15;
 
 pub const AutomationPointSnap = struct {
     beat: f64,
@@ -301,6 +306,27 @@ pub const CompSnap = struct {
     sidechain_pad: ?u8 = null,
 };
 
+pub const MultibandCompSnap = struct {
+    xover_lo_hz: f32 = 200.0,
+    xover_hi_hz: f32 = 2000.0,
+    attack_ms: f32 = 10.0,
+    release_ms: f32 = 80.0,
+    /// Mirrors `dsp.multiband_comp.Style` as a bool (only two states) —
+    /// older files can't have this field (the kind didn't exist), so
+    /// there's no back-compat encoding to preserve, just the plainest shape.
+    ott: bool = false,
+    mix: f32 = 1.0,
+    low_threshold_db: f32 = -20.0,
+    low_ratio: f32 = 3.0,
+    low_makeup_db: f32 = 0.0,
+    mid_threshold_db: f32 = -18.0,
+    mid_ratio: f32 = 4.0,
+    mid_makeup_db: f32 = 0.0,
+    high_threshold_db: f32 = -16.0,
+    high_ratio: f32 = 3.0,
+    high_makeup_db: f32 = 0.0,
+};
+
 pub const DelaySnap = struct {
     time_s: f32 = 0.375,
     feedback: f32 = 0.35,
@@ -425,7 +451,7 @@ pub const FxSnap = struct {
 
 /// Mirrors rack.zig's FxKind — persist keeps its own copy so snapshots stay
 /// pure data, same pattern as `InstrumentKind` below.
-pub const FxKind = enum { gate, comp, eq, sat, crush, chorus, phaser, delay, reverb };
+pub const FxKind = enum { gate, comp, mb_comp, eq, sat, crush, chorus, phaser, delay, reverb };
 
 /// One chain slot (v10): its kind, bypass flag, and the params for that kind
 /// in the matching optional (the others stay null). A missing params field
@@ -434,6 +460,7 @@ pub const FxUnitSnap = struct {
     kind: FxKind,
     bypassed: bool = false,
     comp: ?CompSnap = null,
+    mb_comp: ?MultibandCompSnap = null,
     delay: ?DelaySnap = null,
     reverb: ?ReverbSnap = null,
     eq: ?EqSnap = null,
@@ -831,6 +858,14 @@ fn chainToSnap(aa: std.mem.Allocator, fx: *const Fx, sample_rate: u32) ![]FxUnit
                 .attack_ms = c.attack_ms, .release_ms = c.release_ms, .makeup_db = c.makeup_db,
                 .sidechain_source = if (c.sidechain_source) |sc| sc.track else null,
                 .sidechain_pad = if (c.sidechain_source) |sc| sc.pad else null,
+            } },
+            .mb_comp => |m| .{ .kind = .mb_comp, .mb_comp = .{
+                .xover_lo_hz = m.xover_lo_hz, .xover_hi_hz = m.xover_hi_hz,
+                .attack_ms = m.attack_ms, .release_ms = m.release_ms,
+                .ott = m.style == .ott, .mix = m.mix,
+                .low_threshold_db = m.bands[0].threshold_db, .low_ratio = m.bands[0].ratio, .low_makeup_db = m.bands[0].makeup_db,
+                .mid_threshold_db = m.bands[1].threshold_db, .mid_ratio = m.bands[1].ratio, .mid_makeup_db = m.bands[1].makeup_db,
+                .high_threshold_db = m.bands[2].threshold_db, .high_ratio = m.bands[2].ratio, .high_makeup_db = m.bands[2].makeup_db,
             } },
             .delay => |d| .{ .kind = .delay, .delay = .{
                 .time_s = @as(f32, @floatFromInt(d.delay_frames)) / @as(f32, @floatFromInt(sample_rate)),
@@ -1634,7 +1669,7 @@ fn applyFxChain(allocator: std.mem.Allocator, fx_out: *Fx, chain: []const FxUnit
     for (chain) |us| {
         if (fx_out.units.items.len >= Fx.max_units) break;
         const kind: rack_mod.FxKind = switch (us.kind) {
-            .gate => .gate, .comp => .comp, .eq => .eq,
+            .gate => .gate, .comp => .comp, .mb_comp => .mb_comp, .eq => .eq,
             .sat => .sat, .crush => .crush, .chorus => .chorus,
             .phaser => .phaser, .delay => .delay, .reverb => .reverb,
         };
@@ -1651,6 +1686,17 @@ fn applyFxChain(allocator: std.mem.Allocator, fx_out: *Fx, chain: []const FxUnit
                     .track = @min(src, engine_mod.max_tracks - 1),
                     .pad = if (cs.sidechain_pad) |p| @min(p, DrumMachine.max_pads - 1) else null,
                 } else null;
+            },
+            .mb_comp => |*m| if (us.mb_comp) |ms| {
+                m.setXoverLo(ms.xover_lo_hz);
+                m.setXoverHi(ms.xover_hi_hz);
+                m.attack_ms = ms.attack_ms;
+                m.release_ms = ms.release_ms;
+                m.style = if (ms.ott) .ott else .classic;
+                m.mix = ms.mix;
+                m.bands[0] = .{ .threshold_db = ms.low_threshold_db, .ratio = ms.low_ratio, .makeup_db = ms.low_makeup_db };
+                m.bands[1] = .{ .threshold_db = ms.mid_threshold_db, .ratio = ms.mid_ratio, .makeup_db = ms.mid_makeup_db };
+                m.bands[2] = .{ .threshold_db = ms.high_threshold_db, .ratio = ms.high_ratio, .makeup_db = ms.high_makeup_db };
             },
             .delay => |*d| if (us.delay) |ds| {
                 d.setTime(ds.time_s);
@@ -2108,6 +2154,53 @@ test "save/load round-trip persists master FX" {
     try testing.expectApproxEqAbs(@as(f32, -9.0), units[5].payload.comp.threshold_db, 1e-4);
     // The bypassed crusher stays out of the live chain.
     try testing.expectEqual(@as(usize, 5), loaded.engine.master_chain_len);
+}
+
+test "save/load round-trip persists a multiband compressor's crossover, style, and per-band params" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [64]u8 = undefined;
+    const wsj_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/proj.wsj", .{&tmp.sub_path});
+
+    var session = try Session.initDefault(testing.allocator);
+    defer session.deinit();
+    const sr = session.project.sample_rate;
+    const alloc = testing.allocator;
+
+    const mb = try session.master_fx.insert(alloc, 0, .mb_comp, sr);
+    mb.payload.mb_comp.setXoverLo(150.0);
+    mb.payload.mb_comp.setXoverHi(3500.0);
+    mb.payload.mb_comp.attack_ms = 3.0;
+    mb.payload.mb_comp.release_ms = 120.0;
+    mb.payload.mb_comp.style = .ott;
+    mb.payload.mb_comp.mix = 0.75;
+    mb.payload.mb_comp.bands[0] = .{ .threshold_db = -22.0, .ratio = 5.0, .makeup_db = 1.0 };
+    mb.payload.mb_comp.bands[1] = .{ .threshold_db = -19.0, .ratio = 6.0, .makeup_db = 2.0 };
+    mb.payload.mb_comp.bands[2] = .{ .threshold_db = -15.0, .ratio = 2.5, .makeup_db = 0.5 };
+    session.syncMasterChain();
+
+    try save(testing.allocator, &session, testing.io, wsj_path);
+    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    defer loaded.deinit();
+
+    const units = loaded.master_fx.units.items;
+    try testing.expectEqual(@as(usize, 1), units.len);
+    const m = units[0].payload.mb_comp;
+    try testing.expectApproxEqAbs(@as(f32, 150.0), m.xover_lo_hz, 1e-2);
+    try testing.expectApproxEqAbs(@as(f32, 3500.0), m.xover_hi_hz, 1e-2);
+    try testing.expectApproxEqAbs(@as(f32, 3.0), m.attack_ms, 1e-4);
+    try testing.expectApproxEqAbs(@as(f32, 120.0), m.release_ms, 1e-4);
+    try testing.expectEqual(multiband_comp_mod.Style.ott, m.style);
+    try testing.expectApproxEqAbs(@as(f32, 0.75), m.mix, 1e-4);
+    try testing.expectApproxEqAbs(@as(f32, -22.0), m.bands[0].threshold_db, 1e-4);
+    try testing.expectApproxEqAbs(@as(f32, 5.0), m.bands[0].ratio, 1e-4);
+    try testing.expectApproxEqAbs(@as(f32, 1.0), m.bands[0].makeup_db, 1e-4);
+    try testing.expectApproxEqAbs(@as(f32, -19.0), m.bands[1].threshold_db, 1e-4);
+    try testing.expectApproxEqAbs(@as(f32, 6.0), m.bands[1].ratio, 1e-4);
+    try testing.expectApproxEqAbs(@as(f32, -15.0), m.bands[2].threshold_db, 1e-4);
+    try testing.expectApproxEqAbs(@as(f32, 2.5), m.bands[2].ratio, 1e-4);
+    try testing.expectEqual(@as(usize, 1), loaded.engine.master_chain_len);
 }
 
 test "buildSession: arrangement clips and song_mode round-trip" {

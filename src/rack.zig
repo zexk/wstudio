@@ -5,6 +5,7 @@ const Sampler = @import("dsp/sampler.zig").Sampler;
 const DrumMachine = @import("dsp/drum_sampler.zig").DrumMachine;
 const Slicer = @import("dsp/slicer.zig").Slicer;
 const Compressor = @import("dsp/compressor.zig").Compressor;
+const MultibandComp = @import("dsp/multiband_comp.zig").MultibandComp;
 const StereoDelay = @import("dsp/delay.zig").StereoDelay;
 const Reverb = @import("dsp/reverb.zig").Reverb;
 const ParametricEq = @import("dsp/eq.zig").ParametricEq;
@@ -67,6 +68,7 @@ pub const InstrumentKind = std.meta.Tag(Instrument);
 pub const FxPayload = union(enum) {
     gate: Gate,
     comp: Compressor,
+    mb_comp: MultibandComp,
     eq: ParametricEq,
     sat: Saturator,
     crush: Crusher,
@@ -79,15 +81,16 @@ pub const FxPayload = union(enum) {
     /// the parent FxUnit (heap-allocated by Fx.insert) is alive.
     pub fn device(self: *FxPayload) dsp.Device {
         return switch (self.*) {
-            .gate   => |*g| g.device(),
-            .comp   => |*c| c.device(),
-            .eq     => |*e| e.device(),
-            .sat    => |*s| s.device(),
-            .crush  => |*c| c.device(),
-            .chorus => |*c| c.device(),
-            .phaser => |*p| p.device(),
-            .delay  => |*d| d.device(),
-            .reverb => |*r| r.device(),
+            .gate    => |*g| g.device(),
+            .comp    => |*c| c.device(),
+            .mb_comp => |*m| m.device(),
+            .eq      => |*e| e.device(),
+            .sat     => |*s| s.device(),
+            .crush   => |*c| c.device(),
+            .chorus  => |*c| c.device(),
+            .phaser  => |*p| p.device(),
+            .delay   => |*d| d.device(),
+            .reverb  => |*r| r.device(),
         };
     }
 
@@ -164,15 +167,16 @@ pub const Fx = struct {
     /// allocate (their mod/delay lines).
     pub fn initPayload(allocator: std.mem.Allocator, kind: FxKind, sr: u32) !FxPayload {
         return switch (kind) {
-            .gate   => .{ .gate = Gate.init(sr) },
-            .comp   => .{ .comp = Compressor.init(sr) },
-            .eq     => .{ .eq = ParametricEq.init(sr) },
-            .sat    => .{ .sat = .{} },
-            .crush  => .{ .crush = .{} },
-            .chorus => .{ .chorus = try Chorus.init(allocator, sr) },
-            .phaser => .{ .phaser = Phaser.init(sr) },
-            .delay  => .{ .delay = try StereoDelay.init(allocator, sr, 2.0) },
-            .reverb => .{ .reverb = try Reverb.init(allocator, sr) },
+            .gate    => .{ .gate = Gate.init(sr) },
+            .comp    => .{ .comp = Compressor.init(sr) },
+            .mb_comp => .{ .mb_comp = MultibandComp.init(sr) },
+            .eq      => .{ .eq = ParametricEq.init(sr) },
+            .sat     => .{ .sat = .{} },
+            .crush   => .{ .crush = .{} },
+            .chorus  => .{ .chorus = try Chorus.init(allocator, sr) },
+            .phaser  => .{ .phaser = Phaser.init(sr) },
+            .delay   => .{ .delay = try StereoDelay.init(allocator, sr, 2.0) },
+            .reverb  => .{ .reverb = try Reverb.init(allocator, sr) },
         };
     }
 

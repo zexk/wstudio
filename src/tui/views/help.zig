@@ -324,6 +324,9 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("",             "  detects from track N's signal instead of its own input (duck a bass off a kick)");
     t.key("",             "  'scpad' (next param): h/l cycles none/pad N — narrows detection to one drum pad");
     t.key("",             "  in that track (e.g. just the kick, not the whole kit) instead of its whole mix");
+    t.key("",             "Multiband: 2 crossover splits (low/mid/high), each band its own thresh/ratio/");
+    t.key("",             "  makeup; 'style' h/l toggles classic (downward only) <-> OTT (also squashes");
+    t.key("",             "  quiet signal UP toward the threshold); 'mix' blends dry <-> fully processed");
     t.key("- / +",        "group chain only: bus fader for the whole submix, post-FX (also :group-gain)");
     t.key(":eq",          "<track> [<band> <db>]  first EQ in the chain, from the : prompt (inserts one if missing)");
     t.key(":master-eq",   "[<band> <db>]  same, from the : prompt (M opens the live editor)");
