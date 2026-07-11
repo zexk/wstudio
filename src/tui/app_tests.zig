@@ -6,6 +6,7 @@ const std = @import("std");
 const ws = @import("wstudio");
 const types = ws.types;
 const engine_mod = ws.engine;
+const eq_mod = ws.dsp.eq;
 const InstrumentKind = ws.InstrumentKind;
 const app_mod = @import("app.zig");
 const App = app_mod.App;
@@ -4048,6 +4049,42 @@ test "FX chain: param nudges coalesce into one undo step, u right after nudging 
 
     _ = spectrum_ed.handleKey(&app, .{ .char = 'U' });
     try std.testing.expectApproxEqAbs(nudged, spectrum_ed.getParam(&fx.units.items[0].payload, 0), 0.0001);
+}
+
+test "FX chain: EQ band type field cycles peak -> lowpass slopes -> highpass slopes and back" {
+    var app = try testApp();
+    defer app.deinit();
+    spectrum_ed.switchToTrack(&app, 0);
+    _ = try app.session.racks.items[0].fx.insert(app.session.allocator, 0, .eq, app.session.project.sample_rate);
+    app.session.syncTrackChain(0, app.session.racks.items[0]);
+    const fx = &app.session.racks.items[0].fx;
+    const eq = &fx.units.items[0].payload.eq;
+    app.fx_param = spectrum_ed.eq_field_type; // band 0's type field
+
+    try std.testing.expectEqual(eq_mod.BandKind.peak, eq.bands[0].kind);
+
+    // Fine steps walk one state at a time: peak -> LP1 -> LP2 -> LP3 -> LP4
+    // -> HP1 -> HP2 -> HP3 -> HP4.
+    for (0..4) |_| _ = spectrum_ed.handleKey(&app, .{ .char = 'l' });
+    try std.testing.expectEqual(eq_mod.BandKind.lowpass, eq.bands[0].kind);
+    try std.testing.expectEqual(@as(u8, 4), eq.bands[0].slope);
+
+    _ = spectrum_ed.handleKey(&app, .{ .char = 'l' });
+    try std.testing.expectEqual(eq_mod.BandKind.highpass, eq.bands[0].kind);
+    try std.testing.expectEqual(@as(u8, 1), eq.bands[0].slope);
+
+    // Coarse step (max_slope wide) walks back down through the states —
+    // HP1 -> LP1 -> (underflows past peak, clamped not wrapped) -> peak.
+    _ = spectrum_ed.handleKey(&app, .{ .char = 'H' });
+    try std.testing.expectEqual(eq_mod.BandKind.lowpass, eq.bands[0].kind);
+    try std.testing.expectEqual(@as(u8, 1), eq.bands[0].slope);
+
+    _ = spectrum_ed.handleKey(&app, .{ .char = 'H' });
+    try std.testing.expectEqual(eq_mod.BandKind.peak, eq.bands[0].kind);
+
+    // The field is clamped, not wrapped, at the low end too.
+    for (0..3) |_| _ = spectrum_ed.handleKey(&app, .{ .char = 'h' });
+    try std.testing.expectEqual(eq_mod.BandKind.peak, eq.bands[0].kind);
 }
 
 test "FX chain: insert/bypass/remove are each their own undoable step" {

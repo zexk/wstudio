@@ -14,7 +14,7 @@
 //! toggles its bypass (kept in the chain, skipped by the audio path);
 //! `j`/`k` pick a parameter within the focused unit — the vertical axis,
 //! matching the param list's on-screen layout (EQ's are its 8 bands x
-//! freq/q/gain, flattened into one 24-entry sequential list);
+//! freq/q/gain/type, flattened into one 32-entry sequential list);
 //! `h`/`l` (`H`/`L` coarse) nudge the selected parameter's value along the
 //! horizontal axis, matching its on-screen bar.
 //! `esc` restores the previous view and parks the analyzer.
@@ -76,22 +76,63 @@ pub fn stripLabel(k: FxKind) []const u8 {
 
 pub fn paramCount(k: FxKind) usize {
     return switch (k) {
-        .eq => eq_mod.num_eq_bands * 3,
+        .eq => eq_mod.num_eq_bands * eq_fields_per_band,
         .comp => 7,
         .phaser => 4,
         .gate, .sat, .crush, .chorus, .delay, .reverb => 3,
     };
 }
 
-/// EQ params are a flat `band*3 + field` list (freq, q, gain per band),
-/// the same "one sequential param list" shape every other multi-param
-/// unit here uses — no separate band/field navigation axis needed.
+/// EQ params are a flat `band*eq_fields_per_band + field` list (freq, q,
+/// gain, type per band), the same "one sequential param list" shape every
+/// other multi-param unit here uses — no separate band/field navigation
+/// axis needed.
 pub const eq_field_freq = 0;
 pub const eq_field_q = 1;
 pub const eq_field_gain = 2;
+/// Band response type: peak, or lowpass/highpass with a slope — see
+/// `eqTypeEncode`/`eqTypeDecode` for the discrete-states-as-a-float scheme
+/// (same trick `comp`'s sidechain-source param already uses).
+pub const eq_field_type = 3;
+pub const eq_fields_per_band = 4;
 
 pub fn eqBandField(idx: usize) struct { band: usize, field: usize } {
-    return .{ .band = idx / 3, .field = idx % 3 };
+    return .{ .band = idx / eq_fields_per_band, .field = idx % eq_fields_per_band };
+}
+
+/// Encode a band's (kind, slope) as one float so `eq_field_type` fits the
+/// same get/set/range/step shape every other param here uses: 0 = peak,
+/// 1..max_slope = lowpass at that slope, max_slope+1..2*max_slope =
+/// highpass at that slope (slope-1).
+fn eqTypeEncode(kind: eq_mod.BandKind, slope: u8) f32 {
+    return switch (kind) {
+        .peak => 0.0,
+        .lowpass => @floatFromInt(slope),
+        .highpass => @floatFromInt(eq_mod.max_slope + slope),
+    };
+}
+
+fn eqTypeDecode(value: f32) struct { kind: eq_mod.BandKind, slope: u8 } {
+    const rounded: i32 = @intFromFloat(std.math.clamp(@round(value), 0.0, @as(f32, 2 * eq_mod.max_slope)));
+    if (rounded == 0) return .{ .kind = .peak, .slope = 1 };
+    if (rounded <= eq_mod.max_slope) return .{ .kind = .lowpass, .slope = @intCast(rounded) };
+    return .{ .kind = .highpass, .slope = @intCast(rounded - eq_mod.max_slope) };
+}
+
+/// "peak" / "LP12".."LP48" / "HP12".."HP48" — 12dB/oct per cascade stage.
+pub fn eqTypeLabelKS(buf: []u8, kind: eq_mod.BandKind, slope: u8) []const u8 {
+    return switch (kind) {
+        .peak => "peak",
+        .lowpass => std.fmt.bufPrint(buf, "LP{d}", .{@as(u32, slope) * 12}) catch "?",
+        .highpass => std.fmt.bufPrint(buf, "HP{d}", .{@as(u32, slope) * 12}) catch "?",
+    };
+}
+
+/// Same as `eqTypeLabelKS`, from a `eq_field_type` param value (as returned
+/// by `getParam`) instead of a live band's kind/slope pair.
+pub fn eqTypeLabel(buf: []u8, value: f32) []const u8 {
+    const t = eqTypeDecode(value);
+    return eqTypeLabelKS(buf, t.kind, t.slope);
 }
 
 /// Param name at `idx` within a unit of kind `k` — bounds match `paramCount`.
@@ -102,7 +143,8 @@ pub fn paramName(k: FxKind, idx: usize) []const u8 {
             break :blk switch (bf.field) {
                 eq_field_freq => "freq",
                 eq_field_q => "q",
-                else => "gain",
+                eq_field_gain => "gain",
+                else => "type",
             };
         },
         .comp => switch (idx) {
@@ -148,7 +190,8 @@ pub fn getParam(p: *const FxPayload, idx: usize) f32 {
             break :blk switch (bf.field) {
                 eq_field_freq => e.bands[bf.band].freq,
                 eq_field_q => e.bands[bf.band].q,
-                else => e.bands[bf.band].gain_db,
+                eq_field_gain => e.bands[bf.band].gain_db,
+                else => eqTypeEncode(e.bands[bf.band].kind, e.bands[bf.band].slope),
             };
         },
         .comp => |*c| switch (idx) {
@@ -203,7 +246,8 @@ pub fn paramRange(k: FxKind, idx: usize) [2]f32 {
         .eq => switch (eqBandField(idx).field) {
             eq_field_freq => .{ 20.0, 20000.0 },
             eq_field_q => .{ 0.1, 10.0 },
-            else => .{ -18.0, 18.0 },
+            eq_field_gain => .{ -18.0, 18.0 },
+            else => .{ 0.0, @floatFromInt(2 * eq_mod.max_slope) },
         },
         .comp => switch (idx) {
             0 => .{ -60.0, 0.0 },
@@ -261,7 +305,11 @@ pub fn setParam(p: *FxPayload, idx: usize, value: f32) void {
             switch (bf.field) {
                 eq_field_freq => e.setFreq(bf.band, value),
                 eq_field_q => e.setQ(bf.band, value),
-                else => e.setGain(bf.band, value),
+                eq_field_gain => e.setGain(bf.band, value),
+                else => {
+                    const t = eqTypeDecode(value);
+                    e.setType(bf.band, t.kind, t.slope);
+                },
             }
         },
         .comp => |*c| switch (idx) {
@@ -348,7 +396,9 @@ fn paramStep(k: FxKind, idx: usize, coarse: bool) f32 {
         .eq => switch (eqBandField(idx).field) {
             eq_field_freq => if (coarse) @as(f32, 100.0) else 10.0,
             eq_field_q => if (coarse) @as(f32, 0.5) else 0.1,
-            else => if (coarse) @as(f32, 6.0) else 1.0,
+            eq_field_gain => if (coarse) @as(f32, 6.0) else 1.0,
+            // step whole type/slope states; coarse jumps a full kind group
+            else => if (coarse) @as(f32, eq_mod.max_slope) else 1.0,
         },
         .comp => switch (idx) {
             0 => if (coarse) @as(f32, 6.0) else 1.0,
@@ -652,7 +702,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             'U' => { history.doRedo(app); return true; },
             // Param picks take a vim count prefix (3k, 4j, …) and wrap —
             // reads more naturally than clamping for a short sequential
-            // list (also true of EQ's flat 24-entry band/field list).
+            // list (also true of EQ's flat 32-entry band/field list).
             'k' => {
                 const fx = fxPtr(app, target) orelse return true;
                 const u = focusedUnit(app, fx) orelse return true;
@@ -758,9 +808,9 @@ fn slotAt(x: usize, len: usize) ?usize {
     return i;
 }
 
-/// EQ-body band-row count: bar + gain + Q + freq rows (an EQ unit in focus
-/// always exists — chains only hold inserted units).
-pub const eq_band_rows: usize = 4;
+/// EQ-body band-row count: bar + gain + Q + freq + type rows (an EQ unit
+/// in focus always exists — chains only hold inserted units).
+pub const eq_band_rows: usize = 5;
 
 // EQ band row: a 3-char gutter, then a 5-char cell per band (bracket/glyph/
 // bracket on the bar row; a 5-wide centered field on the gain/q/freq rows) —
@@ -776,12 +826,13 @@ fn eqBandAt(x: usize) ?usize {
 }
 
 /// Which field a click/scroll on band-block row `rel` (0-based within the
-/// `eq_band_rows`-tall block: bar, gain, q, freq) selects.
+/// `eq_band_rows`-tall block: bar, gain, q, freq, type) selects.
 fn eqFieldAtRow(rel: usize) usize {
     return switch (rel) {
         0, 1 => eq_field_gain, // bar row tracks gain visually, same as the value row under it
         2 => eq_field_q,
-        else => eq_field_freq,
+        3 => eq_field_freq,
+        else => eq_field_type,
     };
 }
 
@@ -818,14 +869,14 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16, v
     const unit = focusedUnit(app, fx) orelse return;
     if (unit.kind() == .eq) {
         // Same sizing as drawFxView: spectrum graph, then the Hz-label row,
-        // then the four band rows (bar/gain/q/freq) — only those are
+        // then the five band rows (bar/gain/q/freq/type) — only those are
         // interactive; the row within the block picks the field.
         const visual_rows: usize = @min(style.spectrum_rows, view_rows -| ((if (compact) @as(usize, 9) else 12) + eq_band_rows));
         const band_row0 = visual_rows + 1;
         if (rel < band_row0 or rel >= band_row0 + eq_band_rows) return;
         const band = eqBandAt(ev.x) orelse return;
         const field = eqFieldAtRow(rel - band_row0);
-        const idx = band * 3 + field;
+        const idx = band * eq_fields_per_band + field;
         switch (ev.kind) {
             .press => { history.flushFxNudge(app); app.fx_param = idx; },
             .scroll_up, .scroll_down => {

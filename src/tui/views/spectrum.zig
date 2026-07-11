@@ -74,6 +74,13 @@ fn eqGlyph(gain_db: f32) []const u8 {
     return eq_glyphs[@min(lvl, eq_glyphs.len - 1)];
 }
 
+/// Bar-row glyph for a lowpass/highpass band: gain doesn't shape a filter
+/// band's response, so the bar instead tracks slope (steeper = taller).
+fn slopeGlyph(slope: u8) []const u8 {
+    const lvl = @min(@as(usize, slope) * 2 - 1, eq_glyphs.len - 1);
+    return eq_glyphs[lvl];
+}
+
 // Colour by direction and how far a band has been pushed: a near-flat band
 // stays dim, mild boost/cut are green/blue, and pushing past ±9dB escalates
 // to red/magenta so a hot band is visible at a glance.
@@ -368,38 +375,57 @@ pub fn drawFxView(
         try endLine(w);
 
         const e = &unit.payload.eq;
-        const cur_band = app.fx_param / 3;
-        const cur_field = app.fx_param % 3;
+        const bf = spectrum_ed.eqBandField(app.fx_param);
+        const cur_band = bf.band;
+        const cur_field = bf.field;
 
-        // Bar row: one glyph per band, its height tracking gain (▄ =
-        // flat, taller = boost, shorter = cut), coloured by
-        // direction/magnitude. Bracketed together with the gain-value row
-        // below it when gain is the selected field.
+        // Bar row: for a peak band, glyph height tracks gain (▄ = flat,
+        // taller = boost, shorter = cut) coloured by direction/magnitude;
+        // for a lowpass/highpass band gain doesn't shape the response, so
+        // the bar tracks slope instead, in a neutral colour that reads as
+        // "not gain". Bracketed with whichever value row underneath drives
+        // it (gain for a peak band, type for a filter band).
         try w.writeAll("   ");
         for (0..eq_mod.num_eq_bands) |b| {
-            const is_cur = (b == cur_band and cur_field == spectrum_ed.eq_field_gain);
-            const gain = e.bands[b].gain_db;
+            const band = &e.bands[b];
+            const is_peak = band.kind == .peak;
+            const is_cur = b == cur_band and
+                (cur_field == spectrum_ed.eq_field_gain or (!is_peak and cur_field == spectrum_ed.eq_field_type));
             if (is_cur) try w.writeAll(bold ++ acc ++ " [" ++ rst) else try w.writeAll("  ");
-            try w.writeAll(if (is_cur) bwht else eqColor(gain));
-            if (is_cur) try w.writeAll(bold);
-            try w.writeAll(eqGlyph(gain));
+            if (is_peak) {
+                const gain = band.gain_db;
+                try w.writeAll(if (is_cur) bwht else eqColor(gain));
+                if (is_cur) try w.writeAll(bold);
+                try w.writeAll(eqGlyph(gain));
+            } else {
+                try w.writeAll(if (is_cur) bwht ++ bold else bcyn);
+                try w.writeAll(slopeGlyph(band.slope));
+            }
             try w.writeAll(rst);
             if (is_cur) try w.writeAll(bold ++ acc ++ "] " ++ rst) else try w.writeAll("  ");
         }
         try endLine(w);
 
-        // Gain-value row: signed dB under each bar.
+        // Gain-value row: signed dB under each bar, "--" for a filter band
+        // (gain is stored but the DSP ignores it outside .peak mode).
         try w.writeAll("   ");
         for (0..eq_mod.num_eq_bands) |b| {
+            const band = &e.bands[b];
             const is_cur = (b == cur_band and cur_field == spectrum_ed.eq_field_gain);
-            const val = e.bands[b].gain_db;
             if (is_cur) try w.writeAll(acc ++ bold);
-            try w.print("{d: ^5.0}", .{val});
+            if (band.kind == .peak) {
+                try w.print("{d: ^5.0}", .{band.gain_db});
+            } else {
+                if (!is_cur) try w.writeAll(dim);
+                try w.writeAll(" --  ");
+                if (!is_cur) try w.writeAll(rst);
+            }
             if (is_cur) try w.writeAll(rst);
         }
         try endLine(w);
 
-        // Q-value row.
+        // Q-value row — still meaningful for a filter band (resonance at
+        // the cutoff), not just a peak band's bell width.
         try w.writeAll(dim ++ "   ");
         for (0..eq_mod.num_eq_bands) |b| {
             const is_cur = (b == cur_band and cur_field == spectrum_ed.eq_field_q);
@@ -417,6 +443,20 @@ pub fn drawFxView(
             const is_cur = (b == cur_band and cur_field == spectrum_ed.eq_field_freq);
             var fbuf: [8]u8 = undefined;
             const lbl = freqLabel(&fbuf, e.bands[b].freq);
+            if (is_cur) try w.writeAll(rst ++ acc ++ bold);
+            try w.print("{s: ^5}", .{lbl});
+            if (is_cur) try w.writeAll(rst ++ dim);
+        }
+        try w.writeAll(rst);
+        try endLine(w);
+
+        // Type row: peak, or lowpass/highpass with its slope in dB/oct.
+        try w.writeAll(dim ++ "   ");
+        for (0..eq_mod.num_eq_bands) |b| {
+            const band = &e.bands[b];
+            const is_cur = (b == cur_band and cur_field == spectrum_ed.eq_field_type);
+            var tbuf: [8]u8 = undefined;
+            const lbl = spectrum_ed.eqTypeLabelKS(&tbuf, band.kind, band.slope);
             if (is_cur) try w.writeAll(rst ++ acc ++ bold);
             try w.print("{s: ^5}", .{lbl});
             if (is_cur) try w.writeAll(rst ++ dim);
@@ -463,7 +503,8 @@ fn formatFxValue(buf: []u8, p: *const ws.FxPayload, idx: usize) []const u8 {
         .eq => switch (spectrum_ed.eqBandField(idx).field) {
             spectrum_ed.eq_field_freq => std.fmt.bufPrint(buf, "{d:.0}Hz", .{v}) catch "?",
             spectrum_ed.eq_field_q => std.fmt.bufPrint(buf, "{d:.2}", .{v}) catch "?",
-            else => std.fmt.bufPrint(buf, "{d:.1}dB", .{v}) catch "?",
+            spectrum_ed.eq_field_gain => std.fmt.bufPrint(buf, "{d:.1}dB", .{v}) catch "?",
+            else => spectrum_ed.eqTypeLabel(buf, v),
         },
         .comp => switch (idx) {
             0, 4 => std.fmt.bufPrint(buf, "{d:.1}dB", .{v}) catch "?",

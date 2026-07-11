@@ -328,10 +328,23 @@ const legacy_iso_frequencies = [legacy_eq_band_count]f32{
     1000.0, 2000.0, 4000.0, 8000.0, 16000.0,
 };
 
+/// Mirrors `eq_mod.BandKind` as a plain string enum for JSON stability
+/// (numeric enum tags would silently shift meaning if the DSP-side enum's
+/// member order ever changes).
+pub const EqBandKindSnap = enum { peak, lowpass, highpass };
+
 pub const EqBandSnap = struct {
     freq: f32,
     q: f32 = 0.7,
     gain_db: f32 = 0.0,
+    /// Additive (like `CompSnap.sidechain_source`): band response type —
+    /// older files omit it and land on the default `.peak`, the only kind
+    /// a band could be before lowpass/highpass existed.
+    kind: EqBandKindSnap = .peak,
+    /// Additive, paired with `kind`: cascade stages for `.lowpass`/
+    /// `.highpass` (12 dB/oct each), 1..eq_mod.max_slope. Unused (but
+    /// present) for `.peak`.
+    slope: u8 = 1,
 };
 
 pub const EqSnap = struct {
@@ -826,7 +839,13 @@ fn chainToSnap(aa: std.mem.Allocator, fx: *const Fx, sample_rate: u32) ![]FxUnit
             .reverb => |r| .{ .kind = .reverb, .reverb = .{ .mix = r.mix, .room = r.room, .damp = r.damp } },
             .eq => |e| blk: {
                 var bands: [eq_mod.num_eq_bands]EqBandSnap = undefined;
-                for (&e.bands, 0..) |*b, i| bands[i] = .{ .freq = b.freq, .q = b.q, .gain_db = b.gain_db };
+                for (&e.bands, 0..) |*b, i| bands[i] = .{
+                    .freq = b.freq, .q = b.q, .gain_db = b.gain_db,
+                    .kind = switch (b.kind) {
+                        .peak => .peak, .lowpass => .lowpass, .highpass => .highpass,
+                    },
+                    .slope = b.slope,
+                };
                 break :blk .{ .kind = .eq, .eq = .{ .bands = bands } };
             },
             .gate => |g| .{ .kind = .gate, .gate = .{
@@ -1650,6 +1669,9 @@ fn applyFxChain(allocator: std.mem.Allocator, fx_out: *Fx, chain: []const FxUnit
                     e.setFreq(i, b.freq);
                     e.setQ(i, b.q);
                     e.setGain(i, b.gain_db);
+                    e.setType(i, switch (b.kind) {
+                        .peak => .peak, .lowpass => .lowpass, .highpass => .highpass,
+                    }, b.slope);
                 }
                 // Legacy EQ-only bypass maps onto the slot's generic one.
                 if (es.bypass) unit.bypassed = true;
@@ -2848,6 +2870,31 @@ test "golden-file corpus: v14's parametric EQ bands load freq/Q/gain" {
     try testing.expectApproxEqAbs(@as(f32, 1200.0), eq.bands[3].freq, 1e-3);
     try testing.expectApproxEqAbs(@as(f32, 2.0), eq.bands[3].q, 1e-3);
     try testing.expectApproxEqAbs(@as(f32, 4.5), eq.bands[3].gain_db, 1e-3);
+}
+
+test "save/load round-trip persists an EQ band's lowpass/highpass type and slope" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [64]u8 = undefined;
+    const wsj_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/eq_type.wsj", .{&tmp.sub_path});
+
+    var session = try Session.initDefault(testing.allocator);
+    defer session.deinit();
+    const unit = try session.racks.items[0].fx.insert(testing.allocator, 0, .eq, session.project.sample_rate);
+    unit.payload.eq.setType(0, .highpass, 3);
+    unit.payload.eq.setType(1, .lowpass, 2);
+
+    try save(testing.allocator, &session, testing.io, wsj_path);
+    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    defer loaded.deinit();
+    const eq = &loaded.racks.items[0].fx.units.items[0].payload.eq;
+    try testing.expectEqual(eq_mod.BandKind.highpass, eq.bands[0].kind);
+    try testing.expectEqual(@as(u8, 3), eq.bands[0].slope);
+    try testing.expectEqual(eq_mod.BandKind.lowpass, eq.bands[1].kind);
+    try testing.expectEqual(@as(u8, 2), eq.bands[1].slope);
+    // Untouched bands keep the default peak type.
+    try testing.expectEqual(eq_mod.BandKind.peak, eq.bands[2].kind);
 }
 
 test "migrateEqBands: legacy 10-band gains land on sane 8-band defaults" {

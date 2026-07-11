@@ -313,9 +313,11 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("< / >",        "move the focused unit one slot left / right along the chain");
     t.key("b",            "bypass toggle: the unit keeps its settings but the audio skips it");
     t.key("tab / ] / [",  "walk slot focus along the chain (an EQ unit's editor doubles as the spectrum analyzer)");
-    t.key("j / k",        "select a param within the focused unit (EQ: 8 bands x freq/q/gain)");
+    t.key("j / k",        "select a param within the focused unit (EQ: 8 bands x freq/q/gain/type)");
     t.key("h / l",        "decrease / increase the selected param (fine step)");
     t.key("H / L",        "decrease / increase the selected param (coarse step)");
+    t.key("",             "an EQ band's 'type' param: h/l cycles peak -> lowpass (12/24/36/48dB/oct) ->");
+    t.key("",             "  highpass (same 4 slopes) -> peak; gain only shapes the response in peak mode");
     t.key("",             "a compressor's 'sidechain' param: h/l cycles none/track N — its envelope then");
     t.key("",             "  detects from track N's signal instead of its own input (duck a bass off a kick)");
     t.key("",             "  'scpad' (next param): h/l cycles none/pad N — narrows detection to one drum pad");
