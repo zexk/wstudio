@@ -22,6 +22,7 @@ const spectrum_ed = @import("editors/spectrum.zig");
 const theory = ws.theory;
 const pattern_mod = ws.dsp.pattern;
 const user_presets = @import("user_presets.zig");
+const user_drum_kits = @import("user_drum_kits.zig");
 const help_view = @import("views/help.zig");
 
 fn wrap(comptime f: fn (*App, []const u8) void) *const fn (*anyopaque, []const u8) void {
@@ -104,7 +105,8 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "master-comp", .desc = "[on|off|thresh|ratio|attack|release|makeup <value>]  master bus compressor", .run = wrap(cmdMasterComp) },
     .{ .name = "synth-preset", .desc = "[name]  apply a factory or saved synth patch to the cursor track (no args: list names)", .run = wrap(cmdSynthPreset), .scope = .synth },
     .{ .name = "synth-preset-save", .desc = "<name>  save the cursor track's current synth params as a reusable preset", .run = wrap(cmdSynthPresetSave), .scope = .synth },
-    .{ .name = "drum-kit",    .desc = "[name]  regenerate the cursor drum machine's pads from a kit variant (no args: list names)", .run = wrap(cmdDrumKit), .scope = .drum },
+    .{ .name = "drum-kit",    .desc = "[name]  apply a factory or saved kit to the cursor drum machine (no args: list names)", .run = wrap(cmdDrumKit), .scope = .drum },
+    .{ .name = "drum-kit-save", .desc = "<name>  save the cursor drum machine's pad tuning (name/gain/pan/pitch/ADSR/choke, no audio) as a reusable kit", .run = wrap(cmdDrumKitSave), .scope = .drum },
 };
 
 /// Look up `text` in the command table and run it, reporting unknown commands
@@ -778,19 +780,38 @@ fn cmdSynthPresetSave(app: *App, args: []const u8) void {
 
 /// `:drum-kit [name]` — regenerate all 8 pads of the cursor track's drum
 /// machine from a procedural kit variant (see `dsp/drum_kit.zig`'s
-/// `variants` table). No args, or an unknown name, lists the available kit
-/// names. Overwrites any user-loaded pad samples on that track.
+/// `variants` table), or apply a user-saved kit's tuning (name/gain/pan/
+/// pitch/ADSR/choke — see `tui/user_drum_kits.zig`) onto whatever's already
+/// loaded there. No args, or an unknown name, lists the available names.
+/// User kits are checked first, so saving under a factory name shadows it
+/// for `:drum-kit` (the factory list itself is compiled-in and never
+/// touched) — same precedence `:synth-preset` already established.
 fn cmdDrumKit(app: *App, args: []const u8) void {
     const trimmed = std.mem.trim(u8, args, " ");
     if (trimmed.len == 0) {
-        var buf: [256]u8 = undefined;
+        var buf: [512]u8 = undefined;
         var w: std.Io.Writer = .fixed(&buf);
-        for (ws.dsp.drum_kit.variants, 0..) |v, i| {
+        for (app.user_drum_kits.items, 0..) |k, i| {
             if (i > 0) w.writeAll(", ") catch break;
+            w.print("{s}*", .{k.name}) catch break;
+        }
+        for (ws.dsp.drum_kit.variants, 0..) |v, i| {
+            if (i > 0 or app.user_drum_kits.items.len > 0) w.writeAll(", ") catch break;
             w.writeAll(v.name) catch break;
             writeGenres(&w, v.tags) catch break;
         }
-        app.setStatus("drum kits: {s}", .{w.buffered()});
+        const marker: []const u8 = if (app.user_drum_kits.items.len > 0) " (* = saved)" else "";
+        app.setStatus("drum kits{s}: {s}", .{ marker, w.buffered() });
+        return;
+    }
+    const dm = cursorDrumMachine(app) orelse {
+        app.setStatus("drum-kit: select a drum-machine track first", .{});
+        return;
+    };
+    if (user_drum_kits.find(app.user_drum_kits.items, trimmed)) |kit| {
+        dm.applyPadTune(&kit.pads);
+        app.dirty = true;
+        app.setStatus("drum kit (saved): {s}", .{trimmed});
         return;
     }
     const variant = for (&ws.dsp.drum_kit.variants) |*v| {
@@ -799,16 +820,34 @@ fn cmdDrumKit(app: *App, args: []const u8) void {
         app.setStatus("drum-kit: unknown '{s}' — :drum-kit lists names", .{trimmed});
         return;
     };
-    const dm = cursorDrumMachine(app) orelse {
-        app.setStatus("drum-kit: select a drum-machine track first", .{});
-        return;
-    };
     dm.loadKitVariant(variant) catch |e| {
         app.setStatus("drum-kit: {s}", .{@errorName(e)});
         return;
     };
     app.dirty = true;
     app.setStatus("drum kit: {s}", .{trimmed});
+}
+
+/// `:drum-kit-save <name>` — snapshot the cursor track's drum machine pads
+/// 0-7's tuning (name/gain/pan/pitch/ADSR/choke-group — the same 8-pad
+/// shape factory kits use) and persist it under `name`, overwriting any
+/// existing saved kit of the same name (case-insensitive). No audio is
+/// captured; see `tui/user_drum_kits.zig`'s own doc comment for why.
+fn cmdDrumKitSave(app: *App, args: []const u8) void {
+    const name = std.mem.trim(u8, args, " ");
+    if (name.len == 0) {
+        app.setStatus("usage: drum-kit-save <name>", .{});
+        return;
+    }
+    const dm = cursorDrumMachine(app) orelse {
+        app.setStatus("drum-kit-save: select a drum-machine track first", .{});
+        return;
+    };
+    user_drum_kits.upsert(app.allocator, app.io, &app.user_drum_kits, name, dm.tunePads()) catch |e| {
+        app.setStatus("drum-kit-save: failed to save ({s})", .{@errorName(e)});
+        return;
+    };
+    app.setStatus("saved drum kit: {s}", .{name});
 }
 
 /// Generic sample loader: targets the cursor pad on a drum-machine track,

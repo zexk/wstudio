@@ -582,6 +582,65 @@ pub const DrumMachine = struct {
         }
     }
 
+    /// One pad's musical tuning, independent of its audio — what a
+    /// user-saved kit persists (see tui/user_drum_kits.zig). Unlike
+    /// `VariantSlot`, carries no generator/sample: applying a `PadTune`
+    /// layers onto whatever audio a pad already holds rather than
+    /// replacing it.
+    pub const PadTune = struct {
+        name: []const u8 = &.{},
+        gain: f32 = 1.0,
+        pan: f32 = 0.0,
+        pitch_semitones: f32 = 0.0,
+        attack_s: f32 = 0.001,
+        decay_s: f32 = 0.0,
+        sustain: f32 = 1.0,
+        release_s: f32 = 0.005,
+        choke_group: u8 = 0,
+    };
+
+    /// Snapshot pads 0-7's current tuning — the read half of a user kit
+    /// save. A still-empty slot reports `PadTune{}` (its implicit defaults).
+    pub fn tunePads(self: *const DrumMachine) [8]PadTune {
+        var out: [8]PadTune = undefined;
+        for (&out, 0..) |*t, i| {
+            if (self.pads[i]) |*s| {
+                t.* = .{
+                    .name = s.clipName(),
+                    .gain = s.pad.gain,
+                    .pan = s.pad.pan,
+                    .pitch_semitones = s.pad.pitch_semitones,
+                    .attack_s = s.pad.attack_s,
+                    .decay_s = s.pad.decay_s,
+                    .sustain = s.pad.sustain,
+                    .release_s = s.pad.release_s,
+                    .choke_group = self.choke_group[i],
+                };
+            } else {
+                t.* = .{};
+            }
+        }
+        return out;
+    }
+
+    /// Apply a saved tuning onto pads 0-7 — same 8-pad concept
+    /// `loadKitVariant` uses, but skips a still-empty pad slot instead of
+    /// materializing one, since a `PadTune` carries no audio to give it.
+    pub fn applyPadTune(self: *DrumMachine, tune: *const [8]PadTune) void {
+        for (tune, 0..) |t, i| {
+            const pad = if (self.pads[i]) |*s| s else continue;
+            pad.rename(t.name);
+            pad.pad.gain = t.gain;
+            pad.pad.pan = t.pan;
+            pad.pad.pitch_semitones = t.pitch_semitones;
+            pad.pad.attack_s = t.attack_s;
+            pad.pad.decay_s = t.decay_s;
+            pad.pad.sustain = t.sustain;
+            pad.pad.release_s = t.release_s;
+            self.choke_group[i] = t.choke_group;
+        }
+    }
+
     /// Parse raw WAV bytes into pad `idx`, keeping its other params (pitch,
     /// trim, ADSR, gain, …) untouched — same as loading a new clip into the
     /// standalone Sampler. Resamples to engine rate if needed. Materializes

@@ -33,6 +33,7 @@ const arrangement_ed = @import("editors/arrangement.zig");
 const automation_ed = @import("editors/automation.zig");
 const preset_ed = @import("editors/preset_picker.zig");
 const user_presets = @import("user_presets.zig");
+const user_drum_kits = @import("user_drum_kits.zig");
 const cmd_history_store = @import("cmd_history_store.zig");
 const fuzzy = @import("fuzzy.zig");
 
@@ -437,6 +438,11 @@ pub const App = struct {
     /// wholesale on every save. Complements the compiled-in, read-only
     /// factory list in `dsp/synth_presets.zig`.
     user_synth_presets: std.ArrayListUnmanaged(user_presets.UserPreset) = .empty,
+    /// User-saved drum kits (`:drum-kit-save <name>`) — pad tuning only, no
+    /// audio (see `tui/user_drum_kits.zig`'s own doc comment for why),
+    /// loaded once at startup from `~/.config/wstudio/drum_kits.json` and
+    /// rewritten wholesale on every save.
+    user_drum_kits: std.ArrayListUnmanaged(user_drum_kits.UserKit) = .empty,
     /// True when the session holds edits the project file doesn't. Set at
     /// every persisted mutation (content edits via history.push, param
     /// nudges, track/mix changes); cleared on save. `:q` refuses while set.
@@ -522,6 +528,7 @@ pub const App = struct {
             .io = io,
             .session = try ws.Session.initDefault(allocator),
             .user_synth_presets = user_presets.load(allocator, io),
+            .user_drum_kits = user_drum_kits.load(allocator, io),
             .cmd_history = cmd_history,
             .cmd_history_pos = cmd_history.items.len,
         };
@@ -529,6 +536,7 @@ pub const App = struct {
 
     pub fn deinit(self: *App) void {
         user_presets.deinit(self.allocator, &self.user_synth_presets);
+        user_drum_kits.deinit(self.allocator, &self.user_drum_kits);
         if (self.arr_range_clip) |r| {
             for (r.clips) |*c| c.deinit(self.allocator);
             self.allocator.free(r.clips);

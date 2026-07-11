@@ -1,7 +1,9 @@
 //! Preset-picker input + list building. One view serves both preset systems:
 //! synth patches (factory dsp/synth_presets.zig + user tui/user_presets.zig,
-//! opened with `f` in the synth editor) and drum-kit variants
-//! (dsp/drum_kit.zig, `f` in the drum grid). The render half lives in
+//! opened with `f` in the synth editor) and drum kits (factory
+//! dsp/drum_kit.zig, which carries its own audio, + user
+//! tui/user_drum_kits.zig, pad tuning only — see that file's own doc
+//! comment; `f` in the drum grid). The render half lives in
 //! views/preset_picker.zig; both layers share `buildDisplayRows` so cursor,
 //! mouse hit-testing and drawing can't drift — same convention the
 //! automation param picker set with buildParamDisplayRows.
@@ -17,6 +19,7 @@ const modal_mod = ws.input;
 const App = @import("../app.zig").App;
 const fuzzy = @import("../fuzzy.zig");
 const user_presets = @import("../user_presets.zig");
+const user_drum_kits = @import("../user_drum_kits.zig");
 
 pub const Kind = enum { synth, drum };
 
@@ -71,8 +74,9 @@ fn entryMatches(e: Entry, filter: []const u8) bool {
 
 /// The filtered list as printed: synth presets grouped under category
 /// headers ("saved" first for user presets, then each factory category in
-/// first-appearance order), drum kits flat (every variant is its own
-/// category, so headers would just double every row).
+/// first-appearance order); drum kits the same "saved" header for user
+/// kits, then factory variants flat (each variant is already its own
+/// category, so a header there would just double every row).
 pub fn buildDisplayRows(app: *App, buf: *[max_display_rows]DisplayRow) []DisplayRow {
     const filter = activeFilter(app);
     var n: usize = 0;
@@ -130,6 +134,23 @@ pub fn buildDisplayRows(app: *App, buf: *[max_display_rows]DisplayRow) []Display
             }
         },
         .drum => {
+            var wrote_header = false;
+            for (app.user_drum_kits.items, 0..) |k, i| {
+                const e: Entry = .{
+                    .name = k.name, .category = "saved", .tags = &.{},
+                    .author = user_author, .source = .{ .user = i },
+                };
+                if (!entryMatches(e, filter)) continue;
+                if (!wrote_header) {
+                    if (n >= buf.len) return buf[0..n];
+                    buf[n] = .{ .header = "saved" };
+                    n += 1;
+                    wrote_header = true;
+                }
+                if (n >= buf.len) return buf[0..n];
+                buf[n] = .{ .entry = e };
+                n += 1;
+            }
             for (ws.dsp.drum_kit.variants, 0..) |v, i| {
                 const e: Entry = .{
                     .name = v.name, .category = v.category, .tags = v.tags,
@@ -262,44 +283,58 @@ fn selectedEntry(rows_list: []const DisplayRow, cursor: usize) ?Entry {
     return null;
 }
 
-/// d: delete the highlighted user-saved preset, from the list and from
-/// synth_presets.json (same key the file browser's bookmark list uses).
-/// Factory presets and drum kits refuse. The picker stays open so several
-/// stale saves can go in one visit.
+/// d: delete the highlighted user-saved preset/kit, from the list and from
+/// its config file (same key the file browser's bookmark list uses).
+/// Factory content refuses. The picker stays open so several stale saves
+/// can go in one visit.
 fn deleteSelected(app: *App) void {
     var buf: [max_display_rows]DisplayRow = undefined;
     const rows_list = buildDisplayRows(app, &buf);
     const chosen = selectedEntry(rows_list, app.preset_picker_cursor) orelse return;
     if (chosen.source != .user) {
-        app.setStatus("only saved presets can be deleted", .{});
+        app.setStatus("only saved presets/kits can be deleted", .{});
         return;
     }
     // The status line needs the name after remove() has freed it.
     var name_buf: [64]u8 = undefined;
     const shown_len = @min(chosen.name.len, name_buf.len);
     @memcpy(name_buf[0..shown_len], chosen.name[0..shown_len]);
-    _ = user_presets.remove(app.allocator, app.io, &app.user_synth_presets, chosen.name) catch |e| {
-        app.setStatus("delete: {s}", .{@errorName(e)});
-        return;
-    };
+    switch (app.preset_picker_kind) {
+        .synth => _ = user_presets.remove(app.allocator, app.io, &app.user_synth_presets, chosen.name) catch |e| {
+            app.setStatus("delete: {s}", .{@errorName(e)});
+            return;
+        },
+        .drum => _ = user_drum_kits.remove(app.allocator, app.io, &app.user_drum_kits, chosen.name) catch |e| {
+            app.setStatus("delete: {s}", .{@errorName(e)});
+            return;
+        },
+    }
     app.preset_picker_cursor = @min(app.preset_picker_cursor, entryCount(app) -| 1);
     app.setStatus("deleted preset: {s}", .{name_buf[0..shown_len]});
 }
 
 /// Apply the highlighted entry to the picker's target track — the same
 /// paths `:synth-preset`/`:drum-kit` take (PolySynth.applyPatch /
-/// DrumMachine.loadKitVariant), then bounce back to the opening view. An
-/// apply error keeps the picker open with the error in the status row.
+/// DrumMachine.loadKitVariant/applyPadTune), then bounce back to the
+/// opening view. An apply error keeps the picker open with the error in the
+/// status row.
 pub fn applySelected(app: *App) void {
     var buf: [max_display_rows]DisplayRow = undefined;
     const rows_list = buildDisplayRows(app, &buf);
     const chosen = selectedEntry(rows_list, app.preset_picker_cursor) orelse return;
 
     switch (chosen.source) {
-        .user => |i| {
-            const s = targetSynth(app) orelse return;
-            s.applyPatch(app.user_synth_presets.items[i].patch);
-            app.setStatus("synth preset: {s} (saved)", .{chosen.name});
+        .user => |i| switch (app.preset_picker_kind) {
+            .synth => {
+                const s = targetSynth(app) orelse return;
+                s.applyPatch(app.user_synth_presets.items[i].patch);
+                app.setStatus("synth preset: {s} (saved)", .{chosen.name});
+            },
+            .drum => {
+                const dm = targetDrum(app) orelse return;
+                dm.applyPadTune(&app.user_drum_kits.items[i].pads);
+                app.setStatus("drum kit: {s} (saved)", .{chosen.name});
+            },
         },
         .factory => |i| {
             const s = targetSynth(app) orelse return;

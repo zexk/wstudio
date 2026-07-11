@@ -184,7 +184,8 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("i",            "insert mode: play pads on the qwerty piano (pitch wraps to pad 1-64)");
     t.key("(insert) space","start recording — clicks a one-bar count-in first if stopped");
     t.key("(insert) esc", "back to normal — while playing, hits recorded at the playhead");
-    t.key("f",            "kit picker — regenerate all pads from a kit variant (/ filters by name/tag)");
+    t.key("f",            "kit picker — factory + saved kits, / filters by name/tag/author, d deletes a save");
+    t.key(":drum-kit-save", "<name>  save pads 0-7's tuning (name/gain/pan/pitch/ADSR/choke, no audio) as a reusable kit");
     t.key("R",            "rename current pad (opens :pad-rename <n>, 8 chars max)");
     t.key("e",            "open sampler editor for current pad");
     t.key("s",            "FX chain for drum track");

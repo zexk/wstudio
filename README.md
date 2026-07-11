@@ -293,6 +293,11 @@ Done:
       carries a `category` (sound role/character) and `tags` (always
       `wstudio` + a genre) — the no-args listing shows each name's genre
       alongside it, e.g. `acid-bass (acid), wobble-bass (dubstep)`
+- [x] User-saved synth presets (`:synth-preset-save <name>`, full patch) and
+      drum kits (`:drum-kit-save <name>`, pad tuning only — name/gain/pan/
+      pitch/ADSR/choke-group, no audio) persist to `~/.config/wstudio/` and
+      are checked before the factory list for `:synth-preset`/`:drum-kit`
+      and the `f` picker (saved entries marked, `d` deletes one)
 - [x] Minimal netrw-style file browser: `:e`, `:load-sample`, and `:load-pad`
       open it when called with no path — `j`/`k` move, `enter`/`l` open a
       directory or pick a file, `h`/backspace go up, `~` jumps home
