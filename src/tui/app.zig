@@ -33,6 +33,7 @@ const arrangement_ed = @import("editors/arrangement.zig");
 const automation_ed = @import("editors/automation.zig");
 const preset_ed = @import("editors/preset_picker.zig");
 const user_presets = @import("user_presets.zig");
+const cmd_history_store = @import("cmd_history_store.zig");
 const fuzzy = @import("fuzzy.zig");
 
 const Engine = engine_mod.Engine;
@@ -446,6 +447,9 @@ pub const App = struct {
     project_path_len: usize = 0,
     /// Submitted `:` commands, oldest first, for up/down recall in the
     /// command prompt. Capped at `cmd_history_cap`; oldest drops when full.
+    /// Persisted to `~/.config/wstudio/cmd_history.json` (see
+    /// `cmd_history_store.zig`) — loaded once at `init`, rewritten on every
+    /// new entry so it survives across runs like a shell's history file.
     cmd_history: std.ArrayListUnmanaged([]const u8) = .empty,
     /// Position while recalling: `cmd_history.items.len` means "not
     /// recalling — the prompt holds a fresh, unsubmitted line".
@@ -512,11 +516,14 @@ pub const App = struct {
     const NoteOff = struct { at_ns: i96, track: u16, note: u7 };
 
     pub fn init(allocator: std.mem.Allocator, io: std.Io) !App {
+        const cmd_history = cmd_history_store.load(allocator, io);
         return .{
             .allocator = allocator,
             .io = io,
             .session = try ws.Session.initDefault(allocator),
             .user_synth_presets = user_presets.load(allocator, io),
+            .cmd_history = cmd_history,
+            .cmd_history_pos = cmd_history.items.len,
         };
     }
 
@@ -533,8 +540,7 @@ pub const App = struct {
         if (self.browser_dir.len > 0) self.allocator.free(self.browser_dir);
         for (self.bookmarks.items) |b| self.allocator.free(b.path);
         self.bookmarks.deinit(self.allocator);
-        for (self.cmd_history.items) |s| self.allocator.free(s);
-        self.cmd_history.deinit(self.allocator);
+        cmd_history_store.deinit(self.allocator, &self.cmd_history);
         self.history.deinit(self.allocator);
         self.session.deinit();
     }
@@ -1906,7 +1912,8 @@ pub const App = struct {
 
     /// Record a submitted `:` command for later up/down recall. Skips blanks
     /// and immediate repeats (shell-history convention); drops the oldest
-    /// entry once at capacity.
+    /// entry once at capacity. Persists the updated list to disk (best-
+    /// effort — see `cmd_history_store.save`) so it survives across runs.
     fn pushCommandHistory(self: *App, text: []const u8) void {
         if (text.len == 0) return;
         if (self.cmd_history.items.len > 0 and
@@ -1924,6 +1931,7 @@ pub const App = struct {
             return;
         };
         self.cmd_history_pos = self.cmd_history.items.len;
+        cmd_history_store.save(self.allocator, self.io, self.cmd_history.items) catch {};
     }
 
     /// Step back to the previous history entry.

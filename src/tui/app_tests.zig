@@ -25,6 +25,21 @@ const preset_ed = @import("editors/preset_picker.zig");
 const icons = @import("icons.zig");
 const modal_mod = ws.input;
 
+// Not exposed by std.c on this target; declared directly (libc is already
+// linked) so tests using real io can redirect $HOME at a scratch dir.
+extern "c" fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
+
+/// Redirects $HOME at `tmp` for tests that build an App with real io (not
+/// `std.Io.failing`) and dispatch real commands — otherwise cmd-history/
+/// synth-preset persistence would leak writes into the developer's actual
+/// `~/.config/wstudio/`. Same convention user_presets.zig's own tests use.
+/// setenv is process-global but tests run single-threaded, so this is safe.
+fn redirectHome(tmp: *std.testing.TmpDir) !void {
+    var buf: [128]u8 = undefined;
+    const home = try std.fmt.bufPrintZ(&buf, ".zig-cache/tmp/{s}", .{&tmp.sub_path});
+    _ = setenv("HOME", home.ptr, 1);
+}
+
 /// Build a deterministic 3-track app for tests: synth(0), sampler(1), drums(2).
 fn testApp() !App {
     var app = try App.init(std.testing.allocator, std.Io.failing);
@@ -2636,6 +2651,7 @@ test ":q refuses to quit while dirty; :q! discards" {
 test "saving clears the dirty flag" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
+    try redirectHome(&tmp);
 
     var app = try App.init(std.testing.allocator, std.testing.io);
     defer app.deinit();
@@ -3424,6 +3440,7 @@ test "Tab is a no-op when the cursor isn't at the end of the buffer" {
 test "autosave writes a silent <path>~ backup on a timer, without clearing dirty" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
+    try redirectHome(&tmp);
 
     var app = try App.init(std.testing.allocator, std.testing.io);
     defer app.deinit();
@@ -3469,6 +3486,7 @@ test "autosave is a no-op when clean or when no project path is known" {
 /// `:load-pad`'s no-arg browse starts inside the sandbox instead of the repo
 /// root.
 fn appRootedAt(tmp: *std.testing.TmpDir) !App {
+    try redirectHome(tmp);
     var app = try App.init(std.testing.allocator, std.testing.io);
     errdefer app.deinit();
     var buf: [96]u8 = undefined;
