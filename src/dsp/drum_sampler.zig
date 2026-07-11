@@ -227,11 +227,6 @@ pub const DrumMachine = struct {
         self.choke_group[2] = 1;
         self.choke_group[3] = 1;
 
-        // Default groove: 4-on-the-floor house pattern
-        self.pattern[0].store(0x1111, .monotonic); // kick: every beat
-        self.pattern[1].store((1 << 4) | (1 << 12), .monotonic); // snare: beats 2, 4
-        self.pattern[2].store(0x5555, .monotonic); // hihat: every 8th note
-
         return self;
     }
 

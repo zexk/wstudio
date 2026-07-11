@@ -388,8 +388,10 @@ test "drum grid step toggle" {
     defer app.deinit();
     app.drum_track = 2;
 
-    try std.testing.expect(app.drumMachine().stepActive(0, 0));
+    try std.testing.expect(!app.drumMachine().stepActive(0, 0));
     app.drum_cursor = .{ 0, 0 };
+    _ = drum_ed.handleKey(&app, .enter);
+    try std.testing.expect(app.drumMachine().stepActive(0, 0));
     _ = drum_ed.handleKey(&app, .enter);
     try std.testing.expect(!app.drumMachine().stepActive(0, 0));
 }
@@ -515,6 +517,8 @@ test "drum grid lowercase p pastes the yanked pattern too" {
     var app = try testApp();
     defer app.deinit();
     app.drum_track = 2;
+    app.drum_cursor = .{ 0, 0 };
+    _ = drum_ed.handleKey(&app, .enter); // activate pad 0 step 0 before yanking
 
     _ = drum_ed.handleKey(&app, .{ .char = 'y' }); // yy yanks the whole pattern
     _ = drum_ed.handleKey(&app, .{ .char = 'y' });
@@ -3655,7 +3659,7 @@ test "mouse click toggles a drum step and drag paints a run of them" {
     app.drum_track = 2;
     app.view = .drum_grid;
 
-    // Pad 0's default groove (kick, 0x1111) has steps 1-3 inactive.
+    // The drum grid ships empty; pad 0 has steps 1-3 inactive.
     try std.testing.expect(!app.drumMachine().stepActive(0, 1));
     try std.testing.expect(!app.drumMachine().stepActive(0, 2));
     try std.testing.expect(!app.drumMachine().stepActive(0, 3));
