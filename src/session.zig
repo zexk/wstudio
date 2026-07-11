@@ -20,6 +20,7 @@ const PatternPlayer = pattern_mod.PatternPlayer;
 const Note = pattern_mod.Note;
 const DrumMachine = @import("dsp/drum_sampler.zig").DrumMachine;
 const Slicer = @import("dsp/slicer.zig").Slicer;
+const Compressor = @import("dsp/compressor.zig").Compressor;
 const dsp = @import("dsp/device.zig");
 const arr_mod = @import("arrangement.zig");
 const Arrangement = arr_mod.Arrangement;
@@ -395,7 +396,7 @@ pub const Session = struct {
     pub fn syncTrackChain(self: *Session, idx: u16, rack: *rack_mod.Rack) void {
         var buf: [rack_mod.Rack.chain_cap]dsp.Device = undefined;
         self.engine.setTrackChain(idx, rack.chain(&buf));
-        var sc_buf: [rack_mod.Rack.chain_cap]?u16 = undefined;
+        var sc_buf: [rack_mod.Rack.chain_cap]?Compressor.SidechainSource = undefined;
         self.engine.setTrackSidechainSources(idx, rack.sidechainSources(&sc_buf));
     }
 
@@ -407,7 +408,7 @@ pub const Session = struct {
     pub fn syncMasterChain(self: *Session) void {
         var buf: [rack_mod.Fx.max_units]dsp.Device = undefined;
         self.engine.setMasterChain(self.master_fx.chain(&buf));
-        var sc_buf: [rack_mod.Fx.max_units]?u16 = undefined;
+        var sc_buf: [rack_mod.Fx.max_units]?Compressor.SidechainSource = undefined;
         self.engine.setMasterSidechainSources(self.master_fx.sidechainSources(&sc_buf));
     }
 
@@ -421,7 +422,7 @@ pub const Session = struct {
     pub fn syncGroupChain(self: *Session, idx: u8) void {
         if (idx >= engine_mod.max_groups) return;
         var buf: [rack_mod.Fx.max_units]dsp.Device = undefined;
-        var sc_buf: [rack_mod.Fx.max_units]?u16 = undefined;
+        var sc_buf: [rack_mod.Fx.max_units]?Compressor.SidechainSource = undefined;
         if (self.groups[idx]) |*g| {
             self.engine.setGroupChain(idx, true, g.fx.chain(&buf));
             self.engine.setGroupSidechainSources(idx, g.fx.sidechainSources(&sc_buf));
@@ -463,10 +464,18 @@ pub const Session = struct {
         const remapFx = struct {
             fn go(fx: *rack_mod.Fx, op_: SidechainRemap) void {
                 for (fx.units.items) |u| switch (u.payload) {
-                    .comp => |*c| if (c.sidechain_source) |s| {
+                    .comp => |*c| if (c.sidechain_source) |sc| {
                         c.sidechain_source = switch (op_) {
-                            .delete => |d| if (s == d) null else if (s > d) s - 1 else s,
-                            .swap => |ab| if (s == ab[0]) ab[1] else if (s == ab[1]) ab[0] else s,
+                            .delete => |d| if (sc.track == d)
+                                null
+                            else
+                                .{ .track = if (sc.track > d) sc.track - 1 else sc.track, .pad = sc.pad },
+                            .swap => |ab| if (sc.track == ab[0])
+                                .{ .track = ab[1], .pad = sc.pad }
+                            else if (sc.track == ab[1])
+                                .{ .track = ab[0], .pad = sc.pad }
+                            else
+                                sc,
                         };
                     },
                     else => {},
@@ -478,7 +487,7 @@ pub const Session = struct {
         remapFx(&self.master_fx, op);
 
         for (self.racks.items, 0..) |rack, i| {
-            var sc_buf: [rack_mod.Rack.chain_cap]?u16 = undefined;
+            var sc_buf: [rack_mod.Rack.chain_cap]?Compressor.SidechainSource = undefined;
             self.engine.setTrackSidechainSources(@intCast(i), rack.sidechainSources(&sc_buf));
         }
         for (0..engine_mod.max_groups) |gi| self.syncGroupChain(@intCast(gi));
@@ -1070,18 +1079,34 @@ test "syncTrackChain pushes a compressor's sidechain_source to the engine, paral
 
     // Chain slot order: pattern_player(0), instrument(1), then FX from slot 2.
     const comp_unit = try rack.fx.insert(s.allocator, 0, .comp, s.project.sample_rate);
-    comp_unit.payload.comp.sidechain_source = 5;
+    comp_unit.payload.comp.sidechain_source = .{ .track = 5 };
     s.syncTrackChain(0, rack);
 
     const slots = s.engine.track_sidechain[0];
-    try std.testing.expectEqual(@as(?u16, null), slots[0]); // pattern_player
-    try std.testing.expectEqual(@as(?u16, null), slots[1]); // instrument
-    try std.testing.expectEqual(@as(?u16, 5), slots[2]); // the compressor
+    try std.testing.expectEqual(@as(?Compressor.SidechainSource, null), slots[0]); // pattern_player
+    try std.testing.expectEqual(@as(?Compressor.SidechainSource, null), slots[1]); // instrument
+    try std.testing.expectEqual(@as(u16, 5), slots[2].?.track); // the compressor
 
     // Clearing it and re-syncing clears the routing too, not just leftover state.
     comp_unit.payload.comp.sidechain_source = null;
     s.syncTrackChain(0, rack);
-    try std.testing.expectEqual(@as(?u16, null), s.engine.track_sidechain[0][2]);
+    try std.testing.expectEqual(@as(?Compressor.SidechainSource, null), s.engine.track_sidechain[0][2]);
+}
+
+test "syncTrackChain pushes a compressor's sidechain pad routing to the engine too" {
+    var s = try Session.initDefault(std.testing.allocator);
+    defer s.deinit();
+    try s.setInstrument(0, .drum_machine);
+    const rack = s.racks.items[0];
+
+    // No pattern_player for a drum machine — instrument at slot 0, comp at 1.
+    const comp_unit = try rack.fx.insert(s.allocator, 0, .comp, s.project.sample_rate);
+    comp_unit.payload.comp.sidechain_source = .{ .track = 4, .pad = 2 };
+    s.syncTrackChain(0, rack);
+
+    const slot = s.engine.track_sidechain[0][1].?;
+    try std.testing.expectEqual(@as(u16, 4), slot.track);
+    try std.testing.expectEqual(@as(?u8, 2), slot.pad);
 }
 
 test "syncMasterChain and syncGroupChain push sidechain routing too" {
@@ -1089,15 +1114,15 @@ test "syncMasterChain and syncGroupChain push sidechain routing too" {
     defer s.deinit();
 
     const master_comp = try s.master_fx.insert(s.allocator, 0, .comp, s.project.sample_rate);
-    master_comp.payload.comp.sidechain_source = 2;
+    master_comp.payload.comp.sidechain_source = .{ .track = 2 };
     s.syncMasterChain();
-    try std.testing.expectEqual(@as(?u16, 2), s.engine.master_sidechain_sources[0]);
+    try std.testing.expectEqual(@as(u16, 2), s.engine.master_sidechain_sources[0].?.track);
 
     const idx = try s.addGroup("bus");
     const group_comp = try s.groups[idx].?.fx.insert(s.allocator, 0, .comp, s.project.sample_rate);
-    group_comp.payload.comp.sidechain_source = 3;
+    group_comp.payload.comp.sidechain_source = .{ .track = 3 };
     s.syncGroupChain(idx);
-    try std.testing.expectEqual(@as(?u16, 3), s.engine.groups[idx].sidechain_sources[0]);
+    try std.testing.expectEqual(@as(u16, 3), s.engine.groups[idx].sidechain_sources[0].?.track);
 }
 
 test "deleteTrack remaps other compressors' sidechain_source track indices" {
@@ -1108,19 +1133,21 @@ test "deleteTrack remaps other compressors' sidechain_source track indices" {
 
     const rack = s.racks.items[2];
     const comp = try rack.fx.insert(s.allocator, 0, .comp, s.project.sample_rate);
-    comp.payload.comp.sidechain_source = 1;
+    comp.payload.comp.sidechain_source = .{ .track = 1, .pad = 3 };
     s.syncTrackChain(2, rack);
 
     // Deleting track 0 shifts the source 1 -> 0 (and the consumer 2 -> 1);
-    // the compressor must keep detecting from the same musical track.
+    // the compressor must keep detecting from the same musical track, pad
+    // untouched by the shift.
     try s.deleteTrack(0);
-    try std.testing.expectEqual(@as(?u16, 0), s.racks.items[1].fx.units.items[0].payload.comp.sidechain_source);
-    try std.testing.expectEqual(@as(?u16, 0), s.engine.track_sidechain[1][0]);
+    try std.testing.expectEqual(@as(u16, 0), s.racks.items[1].fx.units.items[0].payload.comp.sidechain_source.?.track);
+    try std.testing.expectEqual(@as(?u8, 3), s.racks.items[1].fx.units.items[0].payload.comp.sidechain_source.?.pad);
+    try std.testing.expectEqual(@as(u16, 0), s.engine.track_sidechain[1][0].?.track);
 
     // Deleting the source itself clears the routing back to self-detection.
     try s.deleteTrack(0);
-    try std.testing.expectEqual(@as(?u16, null), s.racks.items[0].fx.units.items[0].payload.comp.sidechain_source);
-    try std.testing.expectEqual(@as(?u16, null), s.engine.track_sidechain[0][0]);
+    try std.testing.expectEqual(@as(?Compressor.SidechainSource, null), s.racks.items[0].fx.units.items[0].payload.comp.sidechain_source);
+    try std.testing.expectEqual(@as(?Compressor.SidechainSource, null), s.engine.track_sidechain[0][0]);
 }
 
 test "swapTracks follows a compressor's sidechain_source through the swap" {
@@ -1131,12 +1158,12 @@ test "swapTracks follows a compressor's sidechain_source through the swap" {
 
     const rack = s.racks.items[2];
     const comp = try rack.fx.insert(s.allocator, 0, .comp, s.project.sample_rate);
-    comp.payload.comp.sidechain_source = 1;
+    comp.payload.comp.sidechain_source = .{ .track = 1 };
     s.syncTrackChain(2, rack);
 
     s.swapTracks(0, 1);
-    try std.testing.expectEqual(@as(?u16, 0), s.racks.items[2].fx.units.items[0].payload.comp.sidechain_source);
-    try std.testing.expectEqual(@as(?u16, 0), s.engine.track_sidechain[2][0]);
+    try std.testing.expectEqual(@as(u16, 0), s.racks.items[2].fx.units.items[0].payload.comp.sidechain_source.?.track);
+    try std.testing.expectEqual(@as(u16, 0), s.engine.track_sidechain[2][0].?.track);
 }
 
 test "addGroup/assignTrackGroup/deleteGroup: CRUD, membership, and engine sync" {

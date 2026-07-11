@@ -38,6 +38,22 @@ pub const Event = union(enum) {
     /// past that. Every device but `Compressor` ignores this, matching
     /// `set_param_abs`'s "unhandled ids are a no-op" convention.
     set_sidechain_buf: struct { buf: []const types.Sample },
+    /// Ask the device to also render drum pad `pad`'s isolated signal into
+    /// `buf` this block, for per-pad sidechain-detector capture (see
+    /// `Compressor.SidechainSource.pad`) — the counterpart to
+    /// `set_sidechain_buf`, but pushing a WRITE destination instead of
+    /// supplying a read-only source. `buf` is interleaved stereo, the same
+    /// length as the block about to be processed; the engine zeroes it
+    /// first, so a device that ignores this (every kind but `DrumMachine`)
+    /// leaves the caller with silence, never garbage. Broadcast to a
+    /// track's whole chain (not one slot) before `process()` runs on any
+    /// device in it, since the instrument's chain position varies by kind
+    /// (`DrumMachine` has no pattern player, so it sits at slot 0 instead
+    /// of 1) — see `Engine.renderOneTrack`. `DrumMachine` consumes the
+    /// request at the start of the SAME block's `processBlock`, mixing the
+    /// pad into the normal output exactly once (never a double-triggered
+    /// voice) while also copying its isolated contribution into `buf`.
+    capture_pad: struct { pad: u8, buf: []types.Sample },
 };
 
 /// Shared metadata shape for one continuous instrument param exposed to the

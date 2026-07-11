@@ -8,6 +8,22 @@ const dsp = @import("device.zig");
 const Sample = types.Sample;
 
 pub const Compressor = struct {
+    /// Which track (and, optionally, which drum pad within it) this
+    /// compressor's envelope follower should detect from instead of its own
+    /// input. `pad` null means "the whole track's post-chain mix" (the
+    /// original, track-only behaviour); set it to key off one drum pad in
+    /// isolation (e.g. duck the bass under just the kick, not the whole
+    /// drum bus's snare/hats too) — see `DrumMachine`'s `Event.capture_pad`
+    /// handling. Only meaningful when `track` holds a `DrumMachine`
+    /// instrument; on any other instrument kind the engine never receives a
+    /// matching pad capture, so it silently behaves as if `pad` were null
+    /// (no crash, just no signal — same "registered but never rendered"
+    /// fallback a dead whole-track source already gets).
+    pub const SidechainSource = struct {
+        track: u16,
+        pad: ?u8 = null,
+    };
+
     sample_rate: f32,
     threshold_db: f32 = -18.0,
     ratio: f32 = 4.0,
@@ -16,13 +32,14 @@ pub const Compressor = struct {
     makeup_db: f32 = 0.0,
     /// Envelope follower state (linear peak).
     env: f32 = 0.0,
-    /// Which track's signal this compressor's envelope follower should
-    /// detect from instead of its own input — `null` (default) is ordinary
-    /// self-detecting compression. Persisted (see persist.zig's FxUnitSnap);
-    /// the engine translates this into a per-chain-slot routing table on the
-    /// control thread whenever the chain syncs (see `Session`'s sidechain
-    /// resync), since the audio thread never introspects chain contents live.
-    sidechain_source: ?u16 = null,
+    /// Which track (and optionally which drum pad) this compressor's
+    /// envelope follower should detect from instead of its own input —
+    /// `null` (default) is ordinary self-detecting compression. Persisted
+    /// (see persist.zig's CompSnap); the engine translates this into a
+    /// per-chain-slot routing table on the control thread whenever the
+    /// chain syncs (see `Session`'s sidechain resync), since the audio
+    /// thread never introspects chain contents live.
+    sidechain_source: ?SidechainSource = null,
     /// This block's external detector signal, pushed by the engine via
     /// `Event.set_sidechain_buf` right before `process()` runs, only when
     /// `sidechain_source` is set and that track was actually rendered this
@@ -92,7 +109,7 @@ pub const Compressor = struct {
         const self: *Compressor = @ptrCast(@alignCast(ptr));
         switch (ev) {
             .set_sidechain_buf => |e| self.detector = e.buf,
-            .note_on, .note_off, .all_off, .cc, .pitch_bend, .set_param, .set_param_abs => {},
+            .note_on, .note_off, .all_off, .cc, .pitch_bend, .set_param, .set_param_abs, .capture_pad => {},
         }
     }
 
@@ -127,7 +144,7 @@ test "sidechain detector overrides self-detection, and is consumed after one blo
     comp.threshold_db = -12.0;
     comp.ratio = 4.0;
     comp.attack_ms = 0.1;
-    comp.sidechain_source = 3; // just marks intent; processBlock only reads `detector`
+    comp.sidechain_source = .{ .track = 3 }; // just marks intent; processBlock only reads `detector`
 
     // Quiet signal, but a LOUD detector buffer — the quiet signal itself
     // should still get compressed because the detector, not its own input,

@@ -243,7 +243,7 @@ pub const Fx = struct {
     /// entry; every other unit kind has no such concept. Feeds `Engine.
     /// set*SidechainSources` — see `Session`'s chain-sync call sites, which
     /// call this alongside `chain()` any time the chain (re)syncs.
-    pub fn sidechainSources(self: *const Fx, buf: *[max_units]?u16) []const ?u16 {
+    pub fn sidechainSources(self: *const Fx, buf: *[max_units]?Compressor.SidechainSource) []const ?Compressor.SidechainSource {
         var len: usize = 0;
         for (self.units.items) |u| {
             if (u.bypassed) continue;
@@ -351,11 +351,11 @@ pub const Rack = struct {
     /// instrument slot is never a sidechain-detector consumer (null), only
     /// `fx`'s own units can be. Callers push this to `Engine.
     /// setTrackSidechainSources` alongside `chain()`'s own `setTrackChain`.
-    pub fn sidechainSources(self: *Rack, buf: *[chain_cap]?u16) []const ?u16 {
+    pub fn sidechainSources(self: *Rack, buf: *[chain_cap]?Compressor.SidechainSource) []const ?Compressor.SidechainSource {
         var len: usize = 0;
         if (self.pattern_player != null) { buf[len] = null; len += 1; }
         if (self.instrument.device() != null) { buf[len] = null; len += 1; }
-        var fx_buf: [Fx.max_units]?u16 = undefined;
+        var fx_buf: [Fx.max_units]?Compressor.SidechainSource = undefined;
         for (self.fx.sidechainSources(&fx_buf)) |src| { buf[len] = src; len += 1; }
         return buf[0..len];
     }

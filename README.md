@@ -243,16 +243,23 @@ Done:
       via the same `Event` path note-on/CC already use. Each track carries
       up to 8 simultaneously-automated instrument params (`Engine`'s
       per-track sparse slot bank) — plenty for any real arrangement.
-- [x] Sidechain compression: a compressor's last param (`sidechain`, in any
-      chain — track, group, or master) picks another track to detect its
-      envelope from instead of its own input (`h`/`l` cycles none/track N) —
-      the classic "duck the bass under the kick" trick. Sample-accurate: the
-      engine renders every track referenced as a sidechain source first each
-      block and captures its exact post-chain signal, so the detector always
-      sees real audio, not an approximated per-block level — no instrument is
-      ever double-processed in the same block even when a chain both feeds
-      and consumes a sidechain source. Persisted per-compressor (additive
-      `CompSnap.sidechain_source` field, no version bump).
+- [x] Sidechain compression: a compressor's `sidechain` param (in any chain —
+      track, group, or master) picks another track to detect its envelope
+      from instead of its own input (`h`/`l` cycles none/track N) — the
+      classic "duck the bass under the kick" trick. The next param, `scpad`,
+      narrows that further to one drum pad within the picked track (`h`/`l`
+      cycles none/pad N) instead of its whole mix — the common case where the
+      kick is one pad among many on a single drum-machine track and only the
+      kick, not the snare/hats/etc., should trigger the duck. Sample-accurate
+      either way: the engine renders every track referenced as a sidechain
+      source first each block and captures its exact post-chain signal (or,
+      for a pad source, that one pad's isolated signal, rendered alongside
+      the normal mix rather than as a second pass over it — see `Event.
+      capture_pad`), so the detector always sees real audio, not an
+      approximated per-block level — no instrument is ever double-processed
+      in the same block even when a chain both feeds and consumes a
+      sidechain source. Persisted per-compressor (additive
+      `CompSnap.sidechain_source`/`sidechain_pad` fields, no version bump).
 
 - [x] Live recording from insert mode: `i` in the piano roll now enters
       insert mode instead of being blocked — while the transport is

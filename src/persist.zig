@@ -293,6 +293,12 @@ pub const CompSnap = struct {
     /// it and load with ordinary self-detecting compression, matching every
     /// compressor's behaviour before sidechain support existed.
     sidechain_source: ?u16 = null,
+    /// Additive (like `sidechain_source` itself): which drum pad within
+    /// `sidechain_source`'s track to key off, instead of the whole track's
+    /// mix — see `Compressor.SidechainSource.pad`. Older files omit it and
+    /// load with the original whole-track behaviour; meaningless (and
+    /// ignored on load) whenever `sidechain_source` itself is null.
+    sidechain_pad: ?u8 = null,
 };
 
 pub const DelaySnap = struct {
@@ -810,7 +816,8 @@ fn chainToSnap(aa: std.mem.Allocator, fx: *const Fx, sample_rate: u32) ![]FxUnit
             .comp => |c| .{ .kind = .comp, .comp = .{
                 .threshold_db = c.threshold_db, .ratio = c.ratio,
                 .attack_ms = c.attack_ms, .release_ms = c.release_ms, .makeup_db = c.makeup_db,
-                .sidechain_source = c.sidechain_source,
+                .sidechain_source = if (c.sidechain_source) |sc| sc.track else null,
+                .sidechain_pad = if (c.sidechain_source) |sc| sc.pad else null,
             } },
             .delay => |d| .{ .kind = .delay, .delay = .{
                 .time_s = @as(f32, @floatFromInt(d.delay_frames)) / @as(f32, @floatFromInt(sample_rate)),
@@ -1621,10 +1628,10 @@ fn applyFxChain(allocator: std.mem.Allocator, fx_out: *Fx, chain: []const FxUnit
                 c.attack_ms = cs.attack_ms;
                 c.release_ms = cs.release_ms;
                 c.makeup_db = cs.makeup_db;
-                c.sidechain_source = if (cs.sidechain_source) |src|
-                    @min(src, engine_mod.max_tracks - 1)
-                else
-                    null;
+                c.sidechain_source = if (cs.sidechain_source) |src| .{
+                    .track = @min(src, engine_mod.max_tracks - 1),
+                    .pad = if (cs.sidechain_pad) |p| @min(p, DrumMachine.max_pads - 1) else null,
+                } else null;
             },
             .delay => |*d| if (us.delay) |ds| {
                 d.setTime(ds.time_s);
@@ -1913,8 +1920,8 @@ test "buildSession: a compressor's sidechain_source loads, clamps, and reaches t
     };
     var session = try buildSession(testing.allocator, &snap);
     defer session.deinit();
-    try testing.expectEqual(@as(?u16, 3), session.racks.items[0].fx.units.items[0].payload.comp.sidechain_source);
-    try testing.expectEqual(@as(?u16, 3), session.engine.track_sidechain[0][0]); // no instrument -> comp is slot 0
+    try testing.expectEqual(@as(u16, 3), session.racks.items[0].fx.units.items[0].payload.comp.sidechain_source.?.track);
+    try testing.expectEqual(@as(u16, 3), session.engine.track_sidechain[0][0].?.track); // no instrument -> comp is slot 0
 
     // A hand-edited out-of-range value clamps to the last valid track index.
     const snap2: Snapshot = .{
@@ -1929,7 +1936,27 @@ test "buildSession: a compressor's sidechain_source loads, clamps, and reaches t
     };
     var session2 = try buildSession(testing.allocator, &snap2);
     defer session2.deinit();
-    try testing.expectEqual(@as(?u16, engine_mod.max_tracks - 1), session2.racks.items[0].fx.units.items[0].payload.comp.sidechain_source);
+    try testing.expectEqual(@as(u16, engine_mod.max_tracks - 1), session2.racks.items[0].fx.units.items[0].payload.comp.sidechain_source.?.track);
+}
+
+test "buildSession: a compressor's sidechain_pad loads, clamps, and combines with sidechain_source" {
+    const testing = std.testing;
+    const snap: Snapshot = .{
+        .sample_rate = 48_000,
+        .tracks = &.{.{ .name = "bass" }},
+        .racks = &.{.{
+            .label = "bass", .kind = .empty,
+            .fx_chain = &.{
+                .{ .kind = .comp, .comp = .{ .sidechain_source = 3, .sidechain_pad = 200 } },
+            },
+        }},
+    };
+    var session = try buildSession(testing.allocator, &snap);
+    defer session.deinit();
+    const sc = session.racks.items[0].fx.units.items[0].payload.comp.sidechain_source.?;
+    try testing.expectEqual(@as(u16, 3), sc.track);
+    // A hand-edited out-of-range pad clamps to the last valid pad index.
+    try testing.expectEqual(@as(u8, DrumMachine.max_pads - 1), sc.pad.?);
 }
 
 test "save/load round-trip persists a compressor's sidechain_source" {
@@ -1942,12 +1969,14 @@ test "save/load round-trip persists a compressor's sidechain_source" {
     var session = try Session.initDefault(testing.allocator);
     defer session.deinit();
     const unit = try session.racks.items[0].fx.insert(testing.allocator, 0, .comp, session.project.sample_rate);
-    unit.payload.comp.sidechain_source = 7;
+    unit.payload.comp.sidechain_source = .{ .track = 7, .pad = 2 };
 
     try save(testing.allocator, &session, testing.io, wsj_path);
     var loaded = try load(testing.allocator, testing.io, wsj_path);
     defer loaded.deinit();
-    try testing.expectEqual(@as(?u16, 7), loaded.racks.items[0].fx.units.items[0].payload.comp.sidechain_source);
+    const sc = loaded.racks.items[0].fx.units.items[0].payload.comp.sidechain_source.?;
+    try testing.expectEqual(@as(u16, 7), sc.track);
+    try testing.expectEqual(@as(?u8, 2), sc.pad);
 }
 
 test "save/load round-trip persists a slicer's slices, pattern, and swing" {

@@ -28,6 +28,7 @@ const eq_mod = ws.dsp.eq;
 const engine_mod = ws.engine;
 const style = @import("../style.zig");
 const chorus_mod = ws.dsp.chorus;
+const DrumMachine = ws.dsp.DrumMachine;
 const Fx = ws.Fx;
 const FxKind = ws.FxKind;
 const FxUnit = ws.FxUnit;
@@ -76,7 +77,7 @@ pub fn stripLabel(k: FxKind) []const u8 {
 pub fn paramCount(k: FxKind) usize {
     return switch (k) {
         .eq => eq_mod.num_eq_bands * 3,
-        .comp => 6,
+        .comp => 7,
         .phaser => 4,
         .gate, .sat, .crush, .chorus, .delay, .reverb => 3,
     };
@@ -105,7 +106,7 @@ pub fn paramName(k: FxKind, idx: usize) []const u8 {
             };
         },
         .comp => switch (idx) {
-            0 => "thresh", 1 => "ratio", 2 => "attack", 3 => "release", 4 => "makeup", 5 => "sidechain",
+            0 => "thresh", 1 => "ratio", 2 => "attack", 3 => "release", 4 => "makeup", 5 => "sidechain", 6 => "scpad",
             else => "?",
         },
         .delay => switch (idx) {
@@ -156,7 +157,10 @@ pub fn getParam(p: *const FxPayload, idx: usize) f32 {
             // (matches the tracks view's own 1-based row numbering) — lets
             // this slot share the same float-valued get/set/range/step shape
             // every other param here uses instead of a separate enum path.
-            5 => if (c.sidechain_source) |s| @as(f32, @floatFromInt(s)) + 1.0 else 0.0,
+            5 => if (c.sidechain_source) |s| @as(f32, @floatFromInt(s.track)) + 1.0 else 0.0,
+            // Sidechain pad, same 0=none/N=1-based encoding as idx 5 — only
+            // meaningful once a track is picked there; see `setParam`.
+            6 => if (c.sidechain_source) |s| (if (s.pad) |pd| @as(f32, @floatFromInt(pd)) + 1.0 else 0.0) else 0.0,
             else => 0,
         },
         .delay => |*d| switch (idx) {
@@ -208,6 +212,7 @@ pub fn paramRange(k: FxKind, idx: usize) [2]f32 {
             3 => .{ 1.0, 2000.0 },
             4 => .{ -24.0, 24.0 },
             5 => .{ 0.0, @floatFromInt(engine_mod.max_tracks) },
+            6 => .{ 0.0, @floatFromInt(DrumMachine.max_pads) },
             else => .{ 0.0, 1.0 },
         },
         .delay => switch (idx) {
@@ -267,7 +272,22 @@ pub fn setParam(p: *FxPayload, idx: usize, value: f32) void {
             4 => c.makeup_db = std.math.clamp(value, -24.0, 24.0),
             5 => {
                 const rounded = std.math.clamp(@round(value), 0.0, @as(f32, @floatFromInt(engine_mod.max_tracks)));
-                c.sidechain_source = if (rounded < 0.5) null else @intFromFloat(rounded - 1.0);
+                if (rounded < 0.5) {
+                    c.sidechain_source = null;
+                } else {
+                    const track: u16 = @intFromFloat(rounded - 1.0);
+                    const pad = if (c.sidechain_source) |sc| sc.pad else null;
+                    c.sidechain_source = .{ .track = track, .pad = pad };
+                }
+            },
+            // Only meaningful once a track is picked at idx 5 — a no-op
+            // otherwise, since there's nothing to attach a pad to.
+            6 => if (c.sidechain_source) |sc| {
+                const rounded = std.math.clamp(@round(value), 0.0, @as(f32, @floatFromInt(DrumMachine.max_pads)));
+                c.sidechain_source = .{
+                    .track = sc.track,
+                    .pad = if (rounded < 0.5) null else @intFromFloat(rounded - 1.0),
+                };
             },
             else => {},
         },

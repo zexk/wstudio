@@ -121,6 +121,19 @@ pub const DrumMachine = struct {
     };
     /// Number of editable params per pad (see `adjustParam`).
     pub const pad_param_count: u8 = 10;
+    /// Max simultaneous per-pad sidechain-detector capture requests one
+    /// block can carry — matches `Engine.max_sidechain_sources`, the real
+    /// upper bound (every request this machine could ever receive in one
+    /// block originates from that bank). Kept as its own small constant
+    /// rather than importing audio/engine.zig just for it (engine.zig
+    /// already imports this file — see `Event.capture_pad`'s doc comment).
+    pub const max_pad_captures: u8 = 8;
+
+    /// One pad's per-block isolated-capture request — see `Event.
+    /// capture_pad`'s doc comment. `buf`'s lifetime is exactly one block:
+    /// stashed here by `eventOpaque`, consumed and cleared by the very next
+    /// `processBlock` call.
+    const PadCapture = struct { pad: u8, buf: []Sample };
     /// Id-space stride per pad. `set_param` ids are `pad << 4 | param`, so the
     /// stride is a power of two and pad/param decode with shift + mask.
     /// u16: at max_pads=64, `63 << 4 | param` is 1008+, past what a u8 id
@@ -189,6 +202,10 @@ pub const DrumMachine = struct {
 
     /// Current step index, published by the audio thread for UI display.
     current_step: std.atomic.Value(u8),
+    /// This block's registered pad-capture requests (see `PadCapture`) —
+    /// audio-thread-only, filled by `eventOpaque` right before `process()`
+    /// runs and cleared at the end of the same `processBlock` call.
+    pad_captures: [max_pad_captures]?PadCapture = [_]?PadCapture{null} ** max_pad_captures,
 
     pub fn init(
         allocator: std.mem.Allocator,
@@ -639,7 +656,34 @@ pub const DrumMachine = struct {
             self.next_step_k = step_k;
         }
 
-        for (&self.pads) |*p| if (p.*) |*s| s.processBlock(buf);
+        // A pad with a pending capture request renders into its own scratch
+        // buffer first (so its contribution can be copied out in isolation),
+        // then that scratch sums into `buf` exactly like every other pad's
+        // direct `processBlock(buf)` call — never rendered twice, so voice
+        // state (envelopes, playback position) advances only once either
+        // way. Every other pad takes the cheap direct-into-`buf` path,
+        // unchanged from before per-pad capture existed.
+        var pad_scratch: [types.max_block_frames * channels]Sample = undefined;
+        for (&self.pads, 0..) |*p, i| {
+            const s = if (p.*) |*sm| sm else continue;
+            const pad_idx: u8 = @intCast(i);
+            const capture = capture: {
+                for (&self.pad_captures) |*c| {
+                    if (c.*) |cap| if (cap.pad == pad_idx) break :capture cap.buf;
+                }
+                break :capture null;
+            };
+            if (capture) |dst| {
+                const scratch = pad_scratch[0..buf.len];
+                @memset(scratch, 0.0);
+                s.processBlock(scratch);
+                for (buf, scratch) |*o, sv| o.* += sv;
+                @memcpy(dst, scratch);
+            } else {
+                s.processBlock(buf);
+            }
+        }
+        self.pad_captures = [_]?PadCapture{null} ** max_pad_captures;
     }
 
     /// Fire pads for absolute step `step_k` from the song timeline. Past
@@ -707,8 +751,21 @@ pub const DrumMachine = struct {
             .note_on  => |e| self.triggerPad(e.note % max_pads, e.velocity),
             .set_param => |e| self.adjustParam(e.id, e.steps),
             .set_param_abs => |e| self.setParamAbsolute(e.id, e.value),
+            .capture_pad => |e| self.addPadCapture(e.pad, e.buf),
             .note_off, .cc, .pitch_bend, .set_sidechain_buf => {},
             .all_off  => self.resetAll(),
+        }
+    }
+
+    /// Stash a pad-capture request in the first free slot — extras past
+    /// `max_pad_captures` are silently dropped, same "bank of N" convention
+    /// `Engine.registerSidechainSource` already uses.
+    fn addPadCapture(self: *DrumMachine, pad: u8, buf: []Sample) void {
+        for (&self.pad_captures) |*c| {
+            if (c.* == null) {
+                c.* = .{ .pad = pad, .buf = buf };
+                return;
+            }
         }
     }
 

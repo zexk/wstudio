@@ -316,8 +316,10 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("j / k",        "select a param within the focused unit (EQ: 8 bands x freq/q/gain)");
     t.key("h / l",        "decrease / increase the selected param (fine step)");
     t.key("H / L",        "decrease / increase the selected param (coarse step)");
-    t.key("",             "a compressor's last param is 'sidechain': h/l cycles none/track N — its envelope");
-    t.key("",             "  then detects from track N's signal instead of its own input (duck a bass off a kick)");
+    t.key("",             "a compressor's 'sidechain' param: h/l cycles none/track N — its envelope then");
+    t.key("",             "  detects from track N's signal instead of its own input (duck a bass off a kick)");
+    t.key("",             "  'scpad' (next param): h/l cycles none/pad N — narrows detection to one drum pad");
+    t.key("",             "  in that track (e.g. just the kick, not the whole kit) instead of its whole mix");
     t.key("- / +",        "group chain only: bus fader for the whole submix, post-FX (also :group-gain)");
     t.key(":eq",          "<track> [<band> <db>]  first EQ in the chain, from the : prompt (inserts one if missing)");
     t.key(":master-eq",   "[<band> <db>]  same, from the : prompt (M opens the live editor)");

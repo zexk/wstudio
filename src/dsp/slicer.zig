@@ -419,7 +419,7 @@ pub const Slicer = struct {
                 self.triggerSlice(e.note % self.slice_count, e.velocity, 0);
             },
             .set_param => |e| self.adjustParam(e.id, e.steps),
-            .note_off, .cc, .pitch_bend, .set_param_abs, .set_sidechain_buf => {},
+            .note_off, .cc, .pitch_bend, .set_param_abs, .set_sidechain_buf, .capture_pad => {},
             .all_off => self.resetAll(),
         }
     }

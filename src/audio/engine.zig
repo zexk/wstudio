@@ -133,7 +133,7 @@ pub const max_sidechain_sources: u8 = 8;
 /// `Engine` — see `AutomationPair`'s doc comment for the class of field
 /// that ISN'T safe to embed this way.
 const SidechainCapture = struct {
-    track: ?u16 = null,
+    source: ?Compressor.SidechainSource = null,
     captured: bool = false,
     buf: [types.max_block_frames * channels]Sample = undefined,
 };
@@ -159,7 +159,7 @@ const GroupState = struct {
     /// `TrackSidechainSlots`'s doc comment for why this lives directly on
     /// GroupState (safe here, unlike on TrackState) rather than as a
     /// separate heap slice.
-    sidechain_sources: [9]?u16 = [_]?u16{null} ** 9,
+    sidechain_sources: [9]?Compressor.SidechainSource = [_]?Compressor.SidechainSource{null} ** 9,
 };
 
 /// Per-track, per-chain-slot sidechain-detector routing (see `Compressor.
@@ -171,7 +171,7 @@ const GroupState = struct {
 /// heap-allocated slice instead (`Engine.track_sidechain`), sized once at
 /// `Engine.init` and indexed the same as `tracks` — same pattern
 /// `Engine.automation` already established.
-const TrackSidechainSlots = [max_chain_devices]?u16;
+const TrackSidechainSlots = [max_chain_devices]?Compressor.SidechainSource;
 
 /// A track slot's song-mode gain/pan automation, flattened from the
 /// arrangement's clips by `Session.rebuildSongData` (see dsp/automation.zig).
@@ -278,7 +278,7 @@ pub const Engine = struct {
     track_sidechain: []TrackSidechainSlots,
     /// Per-chain-slot sidechain-detector routing for the master bus, parallel
     /// to `master_chain` — safe to embed directly (not scaled by max_tracks).
-    master_sidechain_sources: [9]?u16 = [_]?u16{null} ** 9,
+    master_sidechain_sources: [9]?Compressor.SidechainSource = [_]?Compressor.SidechainSource{null} ** 9,
     /// This block's captured signal per registered sidechain-detector source
     /// track — see `SidechainCapture`. Rebuilt every block in `renderTracks`.
     sidechain_captures: [max_sidechain_sources]SidechainCapture = [_]SidechainCapture{.{}} ** max_sidechain_sources,
@@ -316,7 +316,7 @@ pub const Engine = struct {
         for (automation) |*a| a.* = .{};
         const track_sidechain = try allocator.alloc(TrackSidechainSlots, max_tracks);
         errdefer allocator.free(track_sidechain);
-        for (track_sidechain) |*s| s.* = [_]?u16{null} ** max_chain_devices;
+        for (track_sidechain) |*s| s.* = [_]?Compressor.SidechainSource{null} ** max_chain_devices;
 
         self.* = .{
             .allocator = allocator,
@@ -386,7 +386,7 @@ pub const Engine = struct {
             .muted = muted,
             .chain_len = 0,
         };
-        self.track_sidechain[idx] = [_]?u16{null} ** max_chain_devices;
+        self.track_sidechain[idx] = [_]?Compressor.SidechainSource{null} ** max_chain_devices;
         self.automation[idx] = .{};
     }
 
@@ -400,7 +400,7 @@ pub const Engine = struct {
             self.automation[i].copyFrom(&self.automation[i + 1]);
         }
         self.tracks[total - 1] = .{};
-        self.track_sidechain[total - 1] = [_]?u16{null} ** max_chain_devices;
+        self.track_sidechain[total - 1] = [_]?Compressor.SidechainSource{null} ** max_chain_devices;
         self.automation[total - 1] = .{};
     }
 
@@ -510,7 +510,7 @@ pub const Engine = struct {
     /// self-detecting. Called by `Session` alongside `setTrackChain`
     /// whenever this track's Fx chain (re)syncs, since the audio thread
     /// never introspects chain contents to discover this itself.
-    pub fn setTrackSidechainSources(self: *Engine, track: u16, sources: []const ?u16) void {
+    pub fn setTrackSidechainSources(self: *Engine, track: u16, sources: []const ?Compressor.SidechainSource) void {
         const slots = &self.track_sidechain[@min(track, max_tracks - 1)];
         @memset(slots, null);
         const n = @min(sources.len, slots.len);
@@ -580,7 +580,7 @@ pub const Engine = struct {
     }
 
     /// Same shape as `setTrackSidechainSources` but for the master chain.
-    pub fn setMasterSidechainSources(self: *Engine, sources: []const ?u16) void {
+    pub fn setMasterSidechainSources(self: *Engine, sources: []const ?Compressor.SidechainSource) void {
         @memset(&self.master_sidechain_sources, null);
         const n = @min(sources.len, self.master_sidechain_sources.len);
         @memcpy(self.master_sidechain_sources[0..n], sources[0..n]);
@@ -600,7 +600,7 @@ pub const Engine = struct {
     }
 
     /// Same shape as `setTrackSidechainSources` but for group submix bus `idx`.
-    pub fn setGroupSidechainSources(self: *Engine, idx: u8, sources: []const ?u16) void {
+    pub fn setGroupSidechainSources(self: *Engine, idx: u8, sources: []const ?Compressor.SidechainSource) void {
         if (idx >= max_groups) return;
         const slots = &self.groups[idx].sidechain_sources;
         @memset(slots, null);
@@ -778,9 +778,11 @@ pub const Engine = struct {
     /// never a crash. The `captured` check is what makes that true: a
     /// registered-but-unrendered slot's `buf` holds a previous block's
     /// signal at best and uninitialized memory at worst.
-    fn sidechainCapture(self: *Engine, track: u16, frames: u32) ?[]const Sample {
+    fn sidechainCapture(self: *Engine, src: Compressor.SidechainSource, frames: u32) ?[]const Sample {
         for (&self.sidechain_captures) |*c| {
-            if (c.track == track and c.captured) return c.buf[0 .. frames * channels];
+            const key = c.source orelse continue;
+            if (key.track == src.track and key.pad == src.pad and c.captured)
+                return c.buf[0 .. frames * channels];
         }
         return null;
     }
@@ -788,12 +790,17 @@ pub const Engine = struct {
     /// Register `src` as a sidechain-detector source to capture this block,
     /// if it isn't already and there's a free slot — extras past
     /// `max_sidechain_sources` are silently dropped, same "bank of 8"
-    /// convention `max_synth_slots` already uses.
-    fn registerSidechainSource(self: *Engine, src: u16) void {
-        for (&self.sidechain_captures) |*c| if (c.track == src) return;
+    /// convention `max_synth_slots` already uses. A whole-track source
+    /// (`pad == null`) and a specific pad on that same track are distinct
+    /// keys — both can be registered and captured independently in one
+    /// block.
+    fn registerSidechainSource(self: *Engine, src: Compressor.SidechainSource) void {
         for (&self.sidechain_captures) |*c| {
-            if (c.track == null) {
-                c.track = src;
+            if (c.source) |key| if (key.track == src.track and key.pad == src.pad) return;
+        }
+        for (&self.sidechain_captures) |*c| {
+            if (c.source == null) {
+                c.source = src;
                 return;
             }
         }
@@ -827,6 +834,25 @@ pub const Engine = struct {
 
         const scratch = self.scratch[0 .. frames * channels];
         @memset(scratch, 0.0);
+
+        // If this track is referenced as some compressor's PER-PAD detector
+        // source, broadcast a capture request to every device in the chain
+        // before any of them process this block — only `DrumMachine` acts on
+        // it (see `Event.capture_pad`'s doc comment), and it must see the
+        // request before its own `process()` call below, regardless of
+        // whether it sits at chain slot 0 (no pattern player) or 1. Zeroed
+        // first so a pad that doesn't exist yields silence, not garbage.
+        for (&self.sidechain_captures) |*c| {
+            const src = c.source orelse continue;
+            if (src.track != ti) continue;
+            const pad = src.pad orelse continue;
+            const dest = c.buf[0 .. frames * channels];
+            @memset(dest, 0.0);
+            for (track.chain[0..track.chain_len]) |dev| {
+                dev.sendEvent(.{ .capture_pad = .{ .pad = pad, .buf = dest } });
+            }
+        }
+
         const sc_slots = &self.track_sidechain[ti];
         for (track.chain[0..track.chain_len], 0..) |dev, slot| {
             if (sc_slots[slot]) |src| {
@@ -836,16 +862,21 @@ pub const Engine = struct {
         }
 
         // If this track is itself a registered sidechain-detector source,
-        // capture its post-chain signal now — before `scratch` gets reused
-        // by the next track rendered. Captured regardless of mute/solo (a
-        // muted track's audio is already computed above either way; a
-        // sidechain key cares about the signal, not whether it's in the mix).
+        // finalize its capture now — before `scratch` gets reused by the
+        // next track rendered. Captured regardless of mute/solo (a muted
+        // track's audio is already computed above either way; a sidechain
+        // key cares about the signal, not whether it's in the mix). A
+        // whole-track source (`pad == null`) copies the finished post-chain
+        // mix; a per-pad source's buffer was already filled above (during
+        // the instrument's own `process()` call, via `capture_pad`) — just
+        // mark it captured. Multiple slots can reference the same track
+        // (different pads, or a pad alongside the whole track), so this
+        // walks every slot rather than stopping at the first match.
         for (&self.sidechain_captures) |*c| {
-            if (c.track == ti) {
-                @memcpy(c.buf[0 .. frames * channels], scratch);
-                c.captured = true;
-                break;
-            }
+            const src = c.source orelse continue;
+            if (src.track != ti) continue;
+            if (src.pad == null) @memcpy(c.buf[0 .. frames * channels], scratch);
+            c.captured = true;
         }
 
         if (track.muted or (any_solo and !track.soloed)) return;
@@ -911,7 +942,7 @@ pub const Engine = struct {
         // cheap and the same "walk every slot, most are null" cost the
         // per-track loop below already pays.
         for (&self.sidechain_captures) |*c| {
-            c.track = null;
+            c.source = null;
             c.captured = false;
         }
         for (&self.tracks, 0..) |*t, ti| {
@@ -936,9 +967,20 @@ pub const Engine = struct {
         // that ALSO sidechains off another source registered after it (a
         // mutual/circular reference — rare, not a normal use case) simply
         // falls back to self-detection that block via `sidechainCapture`'s
-        // null return, never a crash.
-        for (&self.sidechain_captures) |*c| {
-            const ti = c.track orelse continue;
+        // null return, never a crash. Two slots can share the same track
+        // (e.g. a kick-pad capture and a snare-pad capture on the same drum
+        // track) — dedup against slots already handled earlier in this same
+        // loop so that track still renders exactly once.
+        for (&self.sidechain_captures, 0..) |*c, idx| {
+            const ti = (c.source orelse continue).track;
+            var dup = false;
+            for (self.sidechain_captures[0..idx]) |prev| {
+                if (prev.source) |ps| if (ps.track == ti) {
+                    dup = true;
+                    break;
+                };
+            }
+            if (dup) continue;
             self.renderOneTrack(ti, out, frames, beat_pos, any_solo);
         }
 
@@ -953,10 +995,10 @@ pub const Engine = struct {
             const ti: u16 = @intCast(ti_usize);
             var already_done = false;
             for (&self.sidechain_captures) |*c| {
-                if (c.track == ti) {
+                if (c.source) |s| if (s.track == ti) {
                     already_done = true;
                     break;
-                }
+                };
             }
             if (already_done) continue;
             self.renderOneTrack(ti, out, frames, beat_pos, any_solo);
@@ -1286,7 +1328,7 @@ test "renderTracks routes a compressor's sidechain detector from a different (so
     engine.setTrackChain(0, &.{kick.device()});
     engine.setTrackChain(1, &.{ bass.device(), comp.device() });
     // slot 0 (bass itself) has no sidechain; slot 1 (comp) detects from track 0.
-    engine.setTrackSidechainSources(1, &.{ null, 0 });
+    engine.setTrackSidechainSources(1, &.{ null, .{ .track = 0 } });
 
     _ = engine.send(.{ .note_on = .{ .track = 0, .note = 60, .velocity = 1.0 } }); // loud kick
     _ = engine.send(.{ .note_on = .{ .track = 1, .note = 60, .velocity = 0.02 } }); // quiet bass, well under threshold on its own
@@ -1311,6 +1353,97 @@ test "renderTracks routes a compressor's sidechain detector from a different (so
     try std.testing.expect(bass_with_sidechain < bass_without_sidechain * 0.5);
 }
 
+test "renderTracks routes a compressor's sidechain detector from a single drum pad, isolated from the rest of the kit" {
+    var bass = PolySynth.init(48_000);
+    var comp = Compressor.init(48_000);
+    comp.threshold_db = -30.0;
+    comp.ratio = 20.0;
+    comp.attack_ms = 0.1;
+    comp.release_ms = 0.1;
+
+    var engine = try Engine.init(std.testing.allocator, 48_000);
+    defer engine.deinit();
+    var drum = try DrumMachine.init(std.testing.allocator, 48_000, &engine.transport);
+    defer drum.deinit();
+    engine.tracks[0] = .{ .active = true }; // drum kit (sidechain source)
+    engine.tracks[1] = .{ .active = true }; // bass (has the compressor)
+    engine.setTrackChain(0, &.{drum.device()});
+    engine.setTrackChain(1, &.{ bass.device(), comp.device() });
+    // slot 0 (bass itself) has no sidechain; slot 1 (comp) detects from
+    // track 0's pad 0 (the kick) specifically, not its whole mix.
+    engine.setTrackSidechainSources(1, &.{ null, .{ .track = 0, .pad = 0 } });
+
+    // Hit pad 0 (kick) loud; leave every other pad untriggered.
+    _ = engine.send(.{ .note_on = .{ .track = 0, .note = 0, .velocity = 1.0 } });
+    _ = engine.send(.{ .note_on = .{ .track = 1, .note = 60, .velocity = 0.02 } }); // quiet bass
+
+    var block: [512]Sample = undefined;
+    for (0..4) |_| engine.process(&block);
+    _ = engine.send(.{ .set_track_solo = .{ .track = 1, .soloed = true } });
+    for (0..4) |_| engine.process(&block);
+    var bass_ducked_by_kick: f32 = 0.0;
+    for (block) |s| bass_ducked_by_kick = @max(bass_ducked_by_kick, @abs(s));
+
+    // Self-detection baseline: same quiet bass, no sidechain routing.
+    var bass2 = PolySynth.init(48_000);
+    var comp2 = Compressor.init(48_000);
+    comp2.threshold_db = -30.0;
+    comp2.ratio = 20.0;
+    comp2.attack_ms = 0.1;
+    comp2.release_ms = 0.1;
+    var engine2 = try Engine.init(std.testing.allocator, 48_000);
+    defer engine2.deinit();
+    engine2.tracks[1] = .{ .active = true };
+    engine2.setTrackChain(1, &.{ bass2.device(), comp2.device() });
+    _ = engine2.send(.{ .note_on = .{ .track = 1, .note = 60, .velocity = 0.02 } });
+    var baseline: [512]Sample = undefined;
+    for (0..4) |_| engine2.process(&baseline);
+    var bass_undisturbed: f32 = 0.0;
+    for (baseline) |s| bass_undisturbed = @max(bass_undisturbed, @abs(s));
+
+    try std.testing.expect(bass_undisturbed > 0.001); // a real, measurable signal
+    try std.testing.expect(bass_ducked_by_kick < bass_undisturbed * 0.5);
+
+    // Now hit a DIFFERENT pad (snare) loud instead, leaving the kick (pad 0,
+    // still the compressor's detector source) silent. Inspect the engine's
+    // own capture buffer directly rather than the bass's output — comparing
+    // downstream audio across separately-constructed PolySynth instances
+    // would just be re-testing PolySynth's determinism, not this feature.
+    // The capture for (track 0, pad 0) must stay silent even though the
+    // snare made the REST of the drum track loud.
+    var bass3 = PolySynth.init(48_000);
+    var comp3 = Compressor.init(48_000);
+    var engine3 = try Engine.init(std.testing.allocator, 48_000);
+    defer engine3.deinit();
+    var drum3 = try DrumMachine.init(std.testing.allocator, 48_000, &engine3.transport);
+    defer drum3.deinit();
+    engine3.tracks[0] = .{ .active = true };
+    engine3.tracks[1] = .{ .active = true };
+    engine3.setTrackChain(0, &.{drum3.device()});
+    engine3.setTrackChain(1, &.{ bass3.device(), comp3.device() });
+    engine3.setTrackSidechainSources(1, &.{ null, .{ .track = 0, .pad = 0 } });
+    _ = engine3.send(.{ .note_on = .{ .track = 0, .note = 1, .velocity = 1.0 } }); // snare, not kick
+
+    var block3: [512]Sample = undefined;
+    engine3.process(&block3);
+
+    // The snare made the whole drum track audible...
+    var drum_peak: f32 = 0.0;
+    for (block3) |s| drum_peak = @max(drum_peak, @abs(s));
+    try std.testing.expect(drum_peak > 0.05);
+
+    // ...but pad 0's own capture (what the compressor actually reads) is
+    // silent, since the kick itself was never triggered.
+    var cap_peak: f32 = 0.0;
+    for (&engine3.sidechain_captures) |*c| {
+        const src = c.source orelse continue;
+        if (src.track == 0 and src.pad != null and src.pad.? == 0 and c.captured) {
+            for (c.buf[0 .. 512 * channels]) |s| cap_peak = @max(cap_peak, @abs(s));
+        }
+    }
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), cap_peak, 1e-6);
+}
+
 test "a sidechain source that never renders falls back to self-detection, not a stale buffer" {
     // Track 1's compressor points at track 0 as its detector, but track 0 is
     // inactive: it gets REGISTERED in the capture bank every block yet never
@@ -1328,7 +1461,7 @@ test "a sidechain source that never renders falls back to self-detection, not a 
     defer engine.deinit();
     engine.tracks[1] = .{ .active = true }; // track 0 stays inactive on purpose
     engine.setTrackChain(1, &.{ bass.device(), comp.device() });
-    engine.setTrackSidechainSources(1, &.{ null, 0 });
+    engine.setTrackSidechainSources(1, &.{ null, .{ .track = 0 } });
 
     _ = engine.send(.{ .note_on = .{ .track = 1, .note = 60, .velocity = 0.02 } });
     var block: [512]Sample = undefined;
@@ -1381,7 +1514,7 @@ test "a sidechain source track is rendered exactly once, not double-mixed" {
     engine_b.tracks[1] = .{ .active = true };
     engine_b.setTrackChain(0, &.{kick_b.device()});
     engine_b.setTrackChain(1, &.{ bass_b.device(), comp_b.device() });
-    engine_b.setTrackSidechainSources(1, &.{ null, 0 });
+    engine_b.setTrackSidechainSources(1, &.{ null, .{ .track = 0 } });
     _ = engine_b.send(.{ .note_on = .{ .track = 0, .note = 60, .velocity = 1.0 } });
     _ = engine_b.send(.{ .set_track_solo = .{ .track = 0, .soloed = true } });
     var block_b: [512]Sample = undefined;
@@ -1551,18 +1684,18 @@ test "applyDeleteTrack shifts the parallel automation and sidechain rows with th
 
     engine.setTrackAutomation(2, .gain, &.{.{ .beat = 0.0, .value = 0.7 }});
     engine.setTrackSynthParam(2, 21, &.{.{ .beat = 0.0, .value = 5_000.0 }});
-    engine.setTrackSidechainSources(2, &.{ null, 7 });
+    engine.setTrackSidechainSources(2, &.{ null, .{ .track = 7 } });
 
     engine.applyDeleteTrack(1, 3);
 
     // Track 2's rows moved down to slot 1 alongside its TrackState...
     try std.testing.expectApproxEqAbs(@as(f32, 0.7), engine.automation[1].gain.valueAt(0.0).?, 1e-6);
     try std.testing.expectEqual(@as(?u8, 21), engine.automation[1].synth_slots[0].param_id);
-    try std.testing.expectEqual(@as(?u16, 7), engine.track_sidechain[1][1]);
+    try std.testing.expectEqual(@as(u16, 7), engine.track_sidechain[1][1].?.track);
     // ...and the vacated last slot is fully cleared, not left stale.
     try std.testing.expect(engine.automation[2].gain.valueAt(0.0) == null);
     try std.testing.expectEqual(@as(?u8, null), engine.automation[2].synth_slots[0].param_id);
-    try std.testing.expectEqual(@as(?u16, null), engine.track_sidechain[2][1]);
+    try std.testing.expectEqual(@as(?Compressor.SidechainSource, null), engine.track_sidechain[2][1]);
 }
 
 test "swapTracks exchanges the parallel automation and sidechain rows too" {
@@ -1572,12 +1705,12 @@ test "swapTracks exchanges the parallel automation and sidechain rows too" {
     engine.tracks[0] = .{ .active = true };
     engine.tracks[1] = .{ .active = true };
     engine.setTrackAutomation(0, .pan, &.{.{ .beat = 0.0, .value = -0.5 }});
-    engine.setTrackSidechainSources(1, &.{3});
+    engine.setTrackSidechainSources(1, &.{.{ .track = 3 }});
 
     engine.swapTracks(0, 1);
 
     try std.testing.expectApproxEqAbs(@as(f32, -0.5), engine.automation[1].pan.valueAt(0.0).?, 1e-6);
     try std.testing.expect(engine.automation[0].pan.valueAt(0.0) == null);
-    try std.testing.expectEqual(@as(?u16, 3), engine.track_sidechain[0][0]);
-    try std.testing.expectEqual(@as(?u16, null), engine.track_sidechain[1][0]);
+    try std.testing.expectEqual(@as(u16, 3), engine.track_sidechain[0][0].?.track);
+    try std.testing.expectEqual(@as(?Compressor.SidechainSource, null), engine.track_sidechain[1][0]);
 }
