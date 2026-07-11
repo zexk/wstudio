@@ -2260,11 +2260,19 @@ pub const App = struct {
         if (track_idx < self.piano_track and self.piano_track > 0) self.piano_track -= 1;
         if (track_idx < self.eq_track and self.eq_track > 0) self.eq_track -= 1;
         if (track_idx < self.slicer_track and self.slicer_track > 0) self.slicer_track -= 1;
+        if (track_idx < self.automation_track and self.automation_track > 0) self.automation_track -= 1;
         if (self.piano_clip_link) |link| {
             if (link.track == track_idx) {
                 self.piano_clip_link = null;
             } else if (link.track > track_idx) {
                 self.piano_clip_link.?.track -= 1;
+            }
+        }
+        if (self.automation_clip) |link| {
+            if (link.track == track_idx) {
+                self.automation_clip = null;
+            } else if (link.track > track_idx) {
+                self.automation_clip.?.track -= 1;
             }
         }
         // Track indices shift below the deleted track: remap every undo/
@@ -2399,11 +2407,16 @@ pub const App = struct {
         swap(&self.piano_track, cur, other);
         swap(&self.eq_track, cur, other);
         swap(&self.slicer_track, cur, other);
+        swap(&self.automation_track, cur, other);
         switch (self.sampler_target) {
             .drum => |*t| swap(t, cur, other),
             .sampler => |*t| swap(t, cur, other),
         }
         if (self.piano_clip_link) |*link| {
+            if (link.track == cur) link.track = @intCast(other)
+            else if (link.track == other) link.track = @intCast(cur);
+        }
+        if (self.automation_clip) |*link| {
             if (link.track == cur) link.track = @intCast(other)
             else if (link.track == other) link.track = @intCast(cur);
         }

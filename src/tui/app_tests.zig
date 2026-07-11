@@ -1852,6 +1852,29 @@ test "dd on a group row lands the row cursor on the row that takes its place" {
     try std.testing.expectEqual(@as(usize, 1), app.cursor);
 }
 
+test "track delete shifts the automation editor's clip link and track with it" {
+    var app = try testApp();
+    defer app.deinit();
+
+    // Automation editor open on a clip in track 2's lane.
+    try app.session.stampClip(2, 0);
+    automation_ed.switchTo(&app, 2, 0);
+    try std.testing.expectEqual(AppView.automation, app.view);
+
+    // `:track-del 1` is reachable from inside the editor. Track 2's lane
+    // shifts to index 1; the link must follow it — a stale link would
+    // resolve against the OLD index and silently edit another track's clip.
+    app.doTrackDel(0);
+    try std.testing.expectEqual(@as(u16, 1), app.automation_clip.?.track);
+    try std.testing.expectEqual(@as(u16, 1), app.automation_track);
+    try std.testing.expect(automation_ed.currentClip(&app) != null);
+
+    // Deleting the automated track itself drops the link (and the view).
+    app.doTrackDel(1);
+    try std.testing.expect(app.automation_clip == null);
+    try std.testing.expectEqual(AppView.arrangement, app.view);
+}
+
 test "J/K track swap remaps an undo entry to follow the moved track" {
     var app = try testApp();
     defer app.deinit();
