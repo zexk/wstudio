@@ -336,7 +336,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("g / G",        "jump to first / last entry");
     t.key("~",            "jump to $HOME");
     t.key("/",            "fuzzy-search filenames, n / N repeat forward / backward — matches are highlighted");
-    t.key("b",            "bookmark / unbookmark the entry under the cursor (session-only)");
+    t.key("b",            "bookmark / unbookmark the entry under the cursor (persists across sessions)");
     t.key("B",            "open the bookmark list — enter/l jumps, d removes, esc/q back");
     t.key("esc / q",      "cancel back to the previous view");
 }

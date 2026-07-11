@@ -95,7 +95,7 @@ fn writeHighlighted(w: *std.Io.Writer, name: []const u8, pattern: []const u8, ro
 fn drawBookmarkList(app: anytype, w: *std.Io.Writer, rows: usize) !void {
     try w.writeAll(bold ++ " BOOKMARKS" ++ rst);
     try endLine(w);
-    try w.writeAll(dim ++ "session-only — cleared on quit" ++ rst);
+    try w.writeAll(dim ++ "persisted in ~/.config/wstudio/bookmarks.json" ++ rst);
     try endLine(w);
 
     const marks = app.bookmarks.items;
