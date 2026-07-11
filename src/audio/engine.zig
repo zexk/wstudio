@@ -851,6 +851,18 @@ pub const Engine = struct {
             for (track.chain[0..track.chain_len]) |dev| {
                 dev.sendEvent(.{ .capture_pad = .{ .pad = pad, .buf = dest } });
             }
+            // Mark it captured NOW rather than in the post-chain finalize
+            // below: the instrument (the only device that fills `dest`)
+            // always precedes any FX slot in the same chain, so a
+            // compressor on this very track keyed to one of its own pads
+            // (duck the drum bus off its own kick) reads a fully-rendered
+            // buffer by the time its slot's injection runs — the
+            // finalize-time flag made that case silently fall back to
+            // self-detection. Cross-track readers only run after this
+            // whole track finishes, so nothing reads any earlier than
+            // before; a chain with no DrumMachine leaves the zeroed buffer
+            // = a silent detector, the documented bad-pad convention.
+            c.captured = true;
         }
 
         const sc_slots = &self.track_sidechain[ti];
@@ -1442,6 +1454,55 @@ test "renderTracks routes a compressor's sidechain detector from a single drum p
         }
     }
     try std.testing.expectApproxEqAbs(@as(f32, 0.0), cap_peak, 1e-6);
+}
+
+test "a compressor keyed to a pad on its OWN track reads the pad, not self-detection" {
+    // The drum track compresses ITSELF, keyed off its own (silent) kick pad
+    // while the snare plays loud. Keyed correctly, the detector hears
+    // silence and the loud snare passes uncompressed; the old finalize-time
+    // captured flag made same-track pad keys fall back to self-detection,
+    // which would squash the snare hard.
+    var comp = Compressor.init(48_000);
+    comp.threshold_db = -30.0;
+    comp.ratio = 20.0;
+    comp.attack_ms = 0.1;
+    comp.release_ms = 0.1;
+    var engine = try Engine.init(std.testing.allocator, 48_000);
+    defer engine.deinit();
+    var drum = try DrumMachine.init(std.testing.allocator, 48_000, &engine.transport);
+    defer drum.deinit();
+    engine.tracks[0] = .{ .active = true };
+    engine.setTrackChain(0, &.{ drum.device(), comp.device() });
+    engine.setTrackSidechainSources(0, &.{ null, .{ .track = 0, .pad = 0 } });
+    _ = engine.send(.{ .note_on = .{ .track = 0, .note = 1, .velocity = 1.0 } }); // snare, kick silent
+
+    var block: [512]Sample = undefined;
+    engine.process(&block);
+    var keyed_peak: f32 = 0.0;
+    for (block) |s| keyed_peak = @max(keyed_peak, @abs(s));
+
+    // Identical setup, self-detecting (no routing): the loud snare drives
+    // the envelope and gets squashed.
+    var comp2 = Compressor.init(48_000);
+    comp2.threshold_db = -30.0;
+    comp2.ratio = 20.0;
+    comp2.attack_ms = 0.1;
+    comp2.release_ms = 0.1;
+    var engine2 = try Engine.init(std.testing.allocator, 48_000);
+    defer engine2.deinit();
+    var drum2 = try DrumMachine.init(std.testing.allocator, 48_000, &engine2.transport);
+    defer drum2.deinit();
+    engine2.tracks[0] = .{ .active = true };
+    engine2.setTrackChain(0, &.{ drum2.device(), comp2.device() });
+    _ = engine2.send(.{ .note_on = .{ .track = 0, .note = 1, .velocity = 1.0 } });
+
+    var block2: [512]Sample = undefined;
+    engine2.process(&block2);
+    var self_peak: f32 = 0.0;
+    for (block2) |s| self_peak = @max(self_peak, @abs(s));
+
+    try std.testing.expect(self_peak > 0.001); // still audible, just compressed
+    try std.testing.expect(keyed_peak > self_peak * 1.5); // uncompressed vs squashed
 }
 
 test "a sidechain source that never renders falls back to self-detection, not a stale buffer" {
