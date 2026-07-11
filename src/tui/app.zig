@@ -2275,6 +2275,21 @@ pub const App = struct {
                 self.automation_clip.?.track -= 1;
             }
         }
+        // Pending qwerty note-offs name tracks too: drop the deleted
+        // track's (its rack is being retired anyway), shift the rest, so a
+        // note that outlives the delete is stopped on the track it's
+        // actually still sounding on.
+        var no_i: usize = 0;
+        while (no_i < self.note_off_len) {
+            const t = self.note_offs[no_i].track;
+            if (t == track_idx) {
+                std.mem.copyForwards(NoteOff, self.note_offs[no_i .. self.note_off_len - 1], self.note_offs[no_i + 1 .. self.note_off_len]);
+                self.note_off_len -= 1;
+            } else {
+                if (t > track_idx) self.note_offs[no_i].track -= 1;
+                no_i += 1;
+            }
+        }
         // Track indices shift below the deleted track: remap every undo/
         // redo entry (and any still-open nudge batch) to keep pointing at
         // the same physical track, dropping only entries that named the
@@ -2420,6 +2435,7 @@ pub const App = struct {
             if (link.track == cur) link.track = @intCast(other)
             else if (link.track == other) link.track = @intCast(cur);
         }
+        for (self.note_offs[0..self.note_off_len]) |*off| swap(&off.track, cur, other);
         // A swap never removes a track, so unlike delete this never drops
         // an entry — every index just exchanges with its neighbor's.
         const remap: undo_mod.TrackRemap = .{ .swap = .{ .a = @intCast(cur), .b = @intCast(other) } };

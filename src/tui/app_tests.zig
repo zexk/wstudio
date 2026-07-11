@@ -1875,6 +1875,27 @@ test "track delete shifts the automation editor's clip link and track with it" {
     try std.testing.expectEqual(AppView.arrangement, app.view);
 }
 
+test "track delete/move remap pending qwerty note-offs so held notes still stop" {
+    var app = try testApp();
+    defer app.deinit();
+
+    // A note sounding on track 2 with its note-off scheduled in the future,
+    // plus one on track 0 (the track about to be deleted).
+    app.playNote(2, 60, 0);
+    app.playNote(0, 40, 0);
+    try std.testing.expectEqual(@as(usize, 2), app.note_off_len);
+
+    // Deleting track 0 drops its pending off and shifts track 2's to 1.
+    app.doTrackDel(0);
+    try std.testing.expectEqual(@as(usize, 1), app.note_off_len);
+    try std.testing.expectEqual(@as(u16, 1), app.note_offs[0].track);
+
+    // J/K swap follows the note too.
+    app.cursor = 1;
+    app.handleKey(.{ .char = 'K' }, 0);
+    try std.testing.expectEqual(@as(u16, 0), app.note_offs[0].track);
+}
+
 test "J/K track swap remaps an undo entry to follow the moved track" {
     var app = try testApp();
     defer app.deinit();
