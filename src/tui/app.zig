@@ -35,6 +35,7 @@ const preset_ed = @import("editors/preset_picker.zig");
 const user_presets = @import("user_presets.zig");
 const user_drum_kits = @import("user_drum_kits.zig");
 const cmd_history_store = @import("cmd_history_store.zig");
+const bookmark_store = @import("bookmark_store.zig");
 const fuzzy = @import("fuzzy.zig");
 
 const Engine = engine_mod.Engine;
@@ -111,14 +112,6 @@ pub const BrowserPurpose = union(enum) {
 /// the next iterator step).
 pub const BrowserEntry = struct {
     name: []u8,
-    is_dir: bool,
-};
-
-/// A session-only (not persisted) file-browser bookmark — `path` is the
-/// absolute path `openBrowser`/`setBrowserDir` canonicalize to, so jumping
-/// to it later works regardless of what directory is currently listed.
-pub const Bookmark = struct {
-    path: []u8,
     is_dir: bool,
 };
 
@@ -485,8 +478,11 @@ pub const App = struct {
     browser_cursor: usize = 0,
     browser_scroll: usize = 0,
     browser_purpose: BrowserPurpose = .load_sample,
-    /// `b` toggles the cursor entry in/out; session-only, freed in deinit.
-    bookmarks: std.ArrayListUnmanaged(Bookmark) = .empty,
+    /// `b` toggles the cursor entry in/out. Persisted to
+    /// `~/.config/wstudio/bookmarks.json` (see `bookmark_store.zig`) — loaded
+    /// once at `init`, rewritten on every add/remove so it survives across
+    /// runs like `cmd_history`.
+    bookmarks: std.ArrayListUnmanaged(bookmark_store.Bookmark) = .empty,
     /// `B` swaps the browser's listing for `bookmarks` in place — own
     /// cursor/scroll so returning to the directory listing (`esc`/`q`)
     /// doesn't disturb where you were browsing.
@@ -531,6 +527,7 @@ pub const App = struct {
             .user_drum_kits = user_drum_kits.load(allocator, io),
             .cmd_history = cmd_history,
             .cmd_history_pos = cmd_history.items.len,
+            .bookmarks = bookmark_store.load(allocator, io),
         };
     }
 
@@ -546,8 +543,7 @@ pub const App = struct {
         self.freeBrowserEntries();
         self.browser_entries.deinit(self.allocator);
         if (self.browser_dir.len > 0) self.allocator.free(self.browser_dir);
-        for (self.bookmarks.items) |b| self.allocator.free(b.path);
-        self.bookmarks.deinit(self.allocator);
+        bookmark_store.deinit(self.allocator, &self.bookmarks);
         cmd_history_store.deinit(self.allocator, &self.cmd_history);
         self.history.deinit(self.allocator);
         self.session.deinit();
@@ -1581,6 +1577,7 @@ pub const App = struct {
                 self.allocator.free(b.path);
                 _ = self.bookmarks.swapRemove(i);
                 self.setStatus("unbookmarked: {s}", .{entry.name});
+                bookmark_store.save(self.allocator, self.io, self.bookmarks.items) catch {};
                 return;
             }
         }
@@ -1590,6 +1587,7 @@ pub const App = struct {
             return;
         };
         self.setStatus("bookmarked: {s}", .{entry.name});
+        bookmark_store.save(self.allocator, self.io, self.bookmarks.items) catch {};
     }
 
     /// Key handling while `browser_bookmark_mode` is showing the bookmark
@@ -1610,6 +1608,7 @@ pub const App = struct {
                     _ = self.bookmarks.swapRemove(self.bookmark_cursor);
                     if (self.bookmarks.items.len == 0) self.browser_bookmark_mode = false
                     else self.bookmark_cursor = @min(self.bookmark_cursor, self.bookmarks.items.len - 1);
+                    bookmark_store.save(self.allocator, self.io, self.bookmarks.items) catch {};
                 },
                 'q' => self.browser_bookmark_mode = false,
                 else => {},
