@@ -1769,6 +1769,28 @@ test "track delete drops an undo entry that named the deleted track" {
     try std.testing.expect(std.mem.indexOf(u8, app.status_buf[0..app.status_len], "1 undo entries for it cleared") != null);
 }
 
+test "track delete remaps a still-open FX nudge batch, including the entry it flushes" {
+    var app = try testApp();
+    defer app.deinit();
+
+    // Open an FX param-nudge batch on track 2's chain.
+    _ = try app.session.racks.items[2].fx.insert(
+        app.session.allocator, 0, .comp, app.session.project.sample_rate,
+    );
+    app.eq_track = 2;
+    history.noteFxNudge(&app, .track, 0, 0);
+    try std.testing.expect(app.pending_fx_nudge != null);
+
+    // Delete track 0 while the batch is still open (`:track-del` is
+    // reachable from inside the FX editor without a flush): the chain
+    // shifts to index 1 and the batch must follow — including the target
+    // embedded in the snapshot it eventually flushes, not just its own.
+    app.doTrackDel(0);
+    history.flushFxNudge(&app);
+    try std.testing.expectEqual(@as(usize, 1), app.history.undo_stack.items.len);
+    try std.testing.expectEqual(@as(u16, 1), app.history.undo_stack.items[0].fx.target.track);
+}
+
 test "J/K track swap remaps an undo entry to follow the moved track" {
     var app = try testApp();
     defer app.deinit();

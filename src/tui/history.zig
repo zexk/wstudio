@@ -244,7 +244,11 @@ pub fn retargetPending(app: *App, remap: undo_mod.TrackRemap) void {
     if (app.pending_fx_nudge) |*p| {
         switch (p.target) {
             .track => |t| if (remap.apply(t)) |nt| {
+                // `before` embeds its own copy of the target (it's the
+                // Entry flushFxNudge will push verbatim) — remap both or
+                // the flushed entry still names the old index.
                 p.target = .{ .track = nt };
+                p.before.target = .{ .track = nt };
             } else {
                 p.deinit(app.allocator);
                 app.pending_fx_nudge = null;
