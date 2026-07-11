@@ -1791,6 +1791,23 @@ test "track delete remaps a still-open FX nudge batch, including the entry it fl
     try std.testing.expectEqual(@as(u16, 1), app.history.undo_stack.items[0].fx.target.track);
 }
 
+test "track delete shifts slicer_track like every other editor-target index" {
+    var app = try testApp();
+    defer app.deinit();
+
+    // A slicer at track 3, open in the slicer grid.
+    _ = try app.session.addTrack("chop");
+    try app.session.setInstrument(3, .slicer);
+    app.slicer_track = 3;
+    app.view = .slicer_grid;
+
+    // `:track-del 1` is reachable from inside the grid — the slicer shifts
+    // to index 2 and the open grid must follow it.
+    app.doTrackDel(0);
+    try std.testing.expectEqual(@as(u16, 2), app.slicer_track);
+    try std.testing.expectEqual(AppView.slicer_grid, app.view);
+}
+
 test "J/K track swap remaps an undo entry to follow the moved track" {
     var app = try testApp();
     defer app.deinit();

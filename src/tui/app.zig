@@ -2240,6 +2240,7 @@ pub const App = struct {
         if (track_idx < self.drum_track and self.drum_track > 0) self.drum_track -= 1;
         if (track_idx < self.piano_track and self.piano_track > 0) self.piano_track -= 1;
         if (track_idx < self.eq_track and self.eq_track > 0) self.eq_track -= 1;
+        if (track_idx < self.slicer_track and self.slicer_track > 0) self.slicer_track -= 1;
         if (self.piano_clip_link) |link| {
             if (link.track == track_idx) {
                 self.piano_clip_link = null;
@@ -2376,6 +2377,7 @@ pub const App = struct {
         swap(&self.drum_track, cur, other);
         swap(&self.piano_track, cur, other);
         swap(&self.eq_track, cur, other);
+        swap(&self.slicer_track, cur, other);
         switch (self.sampler_target) {
             .drum => |*t| swap(t, cur, other),
             .sampler => |*t| swap(t, cur, other),
