@@ -3424,6 +3424,32 @@ test "Tab cycles through multiple command-name matches instead of stalling at a 
     try std.testing.expectEqualStrings("track-rename", app.modal.cmd_buf[0..app.modal.cmd_len]);
 }
 
+test "suggestion popup highlight tracks the completed candidate past a hidden alias in the stem" {
+    var app = try testApp(); // synth(0), sampler(1), drums(2)
+    defer app.deinit();
+    app.cursor = 2; // drum track: "d" stem now also matches drum-kit/drum-kit-save
+
+    for (":d") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.tab, 0); // -> "d" (the alias — table order puts it first, still hidden from the popup)
+    app.handleKey(.tab, 0); // -> "drum-kit"
+    try std.testing.expectEqualStrings("drum-kit", app.modal.cmd_buf[0..app.modal.cmd_len]);
+
+    var buf: [32 * 1024]u8 = undefined;
+    var w = std.Io.Writer.fixed(&buf);
+    try app.draw(&w, .{ .cols = 100, .rows = 30 });
+    const frame = w.buffered();
+
+    // The row actually highlighted must be the one the buffer holds, not
+    // the row one slot further down that a hidden-alias-inflated cycle
+    // index would land on (drum-kit-save) — see suggestionSelected.
+    var want_buf: [32]u8 = undefined;
+    const want_row = std.fmt.bufPrint(&want_buf, "{s}  {s: <16}", .{ style.sel, "drum-kit" }) catch unreachable;
+    try std.testing.expect(std.mem.indexOf(u8, frame, want_row) != null);
+    var wrong_buf: [32]u8 = undefined;
+    const wrong_row = std.fmt.bufPrint(&wrong_buf, "{s}  {s: <16}", .{ style.sel, "drum-kit-save" }) catch unreachable;
+    try std.testing.expect(std.mem.indexOf(u8, frame, wrong_row) == null);
+}
+
 test "typing after a Tab-cycle starts a fresh cycle instead of continuing the old one" {
     var app = try App.init(std.testing.allocator, std.Io.failing);
     defer app.deinit();
