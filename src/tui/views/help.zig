@@ -446,10 +446,6 @@ pub fn drawHelp(w: *std.Io.Writer, rows: usize, cmds: []const cmd_mod.Def, scrol
 /// mode badge + any pending status message + the key hints — same
 /// message-before-hints clamp ordering views/browser.zig documents.
 pub fn drawHelpStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !void {
-    if (app.modal.mode == .search) {
-        try cmd_mod.writeSearchPrompt(w, app.modal.cmd_buf[0..app.modal.cmd_len], app.modal.cmd_cursor);
-        return;
-    }
     try style.writeModeBadge(w, app.modal.mode);
     try style.writeViewBadge(right, "HELP", app.modal.mode);
     if (app.status_len > 0) {

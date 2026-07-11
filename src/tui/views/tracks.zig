@@ -7,7 +7,6 @@ const Project = ws.Project;
 const Transport = ws.Transport;
 const DrumMachine = ws.dsp.DrumMachine;
 const eq_mod = ws.dsp.eq;
-const cmd_mod = @import("../cmd.zig");
 const engine_mod = ws.engine;
 const pattern_mod = ws.dsp.pattern;
 const midi = ws.midi;
@@ -316,24 +315,18 @@ pub fn drawTracks(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, sna
     for (used..@max(used, rows -| 4)) |_| try endLine(w);
 }
 
-pub fn drawTracksStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer, cmds: []const cmd_mod.Def) !void {
-    switch (app.modal.mode) {
-        .command => try cmd_mod.writePrompt(w, cmds, app.modal.cmd_buf[0..app.modal.cmd_len], app.modal.cmd_cursor, 60),
-        .search => try cmd_mod.writeSearchPrompt(w, app.modal.cmd_buf[0..app.modal.cmd_len], app.modal.cmd_cursor),
-        else => {
-            try style.writeModeBadge(w, app.modal.mode);
-            try style.writeViewBadge(right, "TRACKS", app.modal.mode);
-            // row position — display rows (tracks + groups) + 1 for master
-            try w.writeAll(dim ++ "  " ++ rst);
-            try w.print("{d}/{d}", .{ app.track_row + 1, app.track_rows_len + 1 });
-            try w.writeAll(dim ++ "  oct " ++ rst);
-            try w.print("{d}", .{app.modal.octave});
-            if (app.modal.count > 0) try w.print("  {d}", .{app.modal.count});
-            if (app.status_len > 0) {
-                try w.writeAll(dim ++ "  " ++ rst);
-                try w.writeAll(app.status_buf[0..app.status_len]);
-            }
-        },
+pub fn drawTracksStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !void {
+    try style.writeModeBadge(w, app.modal.mode);
+    try style.writeViewBadge(right, "TRACKS", app.modal.mode);
+    // row position — display rows (tracks + groups) + 1 for master
+    try w.writeAll(dim ++ "  " ++ rst);
+    try w.print("{d}/{d}", .{ app.track_row + 1, app.track_rows_len + 1 });
+    try w.writeAll(dim ++ "  oct " ++ rst);
+    try w.print("{d}", .{app.modal.octave});
+    if (app.modal.count > 0) try w.print("  {d}", .{app.modal.count});
+    if (app.status_len > 0) {
+        try w.writeAll(dim ++ "  " ++ rst);
+        try w.writeAll(app.status_buf[0..app.status_len]);
     }
 }
 

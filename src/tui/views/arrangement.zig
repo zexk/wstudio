@@ -11,7 +11,6 @@ const engine_mod = ws.engine;
 const Transport = ws.Transport;
 const style = @import("../style.zig");
 const icons = @import("../icons.zig");
-const cmd_mod = @import("../cmd.zig");
 
 const rst = style.rst;
 const bold = style.bold;
@@ -189,15 +188,7 @@ pub fn drawArrangement(
     for (used..@max(used, rows -| 4)) |_| try endLine(w);
 }
 
-pub fn drawArrangementStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer, cmds: []const cmd_mod.Def) !void {
-    if (app.modal.mode == .command) {
-        try cmd_mod.writePrompt(w, cmds, app.modal.cmd_buf[0..app.modal.cmd_len], app.modal.cmd_cursor, 60);
-        return;
-    }
-    if (app.modal.mode == .search) {
-        try cmd_mod.writeSearchPrompt(w, app.modal.cmd_buf[0..app.modal.cmd_len], app.modal.cmd_cursor);
-        return;
-    }
+pub fn drawArrangementStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !void {
     // The song/pattern toggle (T) isn't a modal.Mode — it's arrangement-
     // specific playback state — so it stays its own plain-text segment
     // rather than folding into the mode badge, keeping both pieces of info

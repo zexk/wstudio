@@ -2826,9 +2826,18 @@ pub const App = struct {
         try tui.meter(&mw, snap.peak[1]);
         try style.writeSplitRow(w, tw.buffered(), mw.buffered(), size.cols);
         try style.endLine(w);
-        // Blank spacer row, reserved for the `:` command prompt to move
-        // into later — for now it just separates the meter row from the
-        // status/mode-badge row below.
+        // The `:`/`/` prompt's own row — blank outside command/search mode.
+        // Moved off the status row below so that row can keep showing the
+        // mode badge/view info while a command is being typed instead of
+        // being replaced by the prompt text.
+        var prompt_scratch: [1024]u8 = undefined;
+        var prompt_w = std.Io.Writer.fixed(&prompt_scratch);
+        switch (self.modal.mode) {
+            .command => try cmd_mod.writePrompt(&prompt_w, commands.cmds, self.modal.cmd_buf[0..self.modal.cmd_len], self.modal.cmd_cursor, 60),
+            .search => try cmd_mod.writeSearchPrompt(&prompt_w, self.modal.cmd_buf[0..self.modal.cmd_len], self.modal.cmd_cursor),
+            else => {},
+        }
+        try style.writeClamped(w, prompt_w.buffered(), size.cols -| 1);
         try style.endLine(w);
 
         if (suggestion_rows > 0) {
@@ -2858,21 +2867,21 @@ pub const App = struct {
         var status_right_scratch: [128]u8 = undefined;
         var status_right_w = std.Io.Writer.fixed(&status_right_scratch);
         switch (self.view) {
-            .tracks          => try tui.drawTracksStatus(self, &status_w, &status_right_w, commands.cmds),
-            .drum_grid       => try tui.drawDrumStatus(self, &status_w, &status_right_w, commands.cmds),
-            .synth_editor    => try tui.drawSynthStatus(self, &status_w, &status_right_w, commands.cmds),
-            .sampler_editor  => try tui.drawSamplerStatus(self, &status_w, &status_right_w, commands.cmds),
-            .piano_roll      => try tui.drawPianoRollStatus(self, &status_w, &status_right_w, commands.cmds),
+            .tracks          => try tui.drawTracksStatus(self, &status_w, &status_right_w),
+            .drum_grid       => try tui.drawDrumStatus(self, &status_w, &status_right_w),
+            .synth_editor    => try tui.drawSynthStatus(self, &status_w, &status_right_w),
+            .sampler_editor  => try tui.drawSamplerStatus(self, &status_w, &status_right_w),
+            .piano_roll      => try tui.drawPianoRollStatus(self, &status_w, &status_right_w),
             .help            => try tui.drawHelpStatus(self, &status_w, &status_right_w),
             .track_spectrum, .master_spectrum, .group_spectrum =>
-                try tui.drawFxStatus(self, &status_w, &status_right_w, spectrum_ed.currentTarget(self), commands.cmds),
+                try tui.drawFxStatus(self, &status_w, &status_right_w, spectrum_ed.currentTarget(self)),
             .instrument_picker => try status_w.writeAll(" j/k: move   enter: insert   esc: cancel"),
             .fx_picker       => try status_w.writeAll(" j/k: move   enter: insert   esc: cancel"),
-            .arrangement     => try tui.drawArrangementStatus(self, &status_w, &status_right_w, commands.cmds),
+            .arrangement     => try tui.drawArrangementStatus(self, &status_w, &status_right_w),
             .file_browser    => try tui.drawFileBrowserStatus(self, &status_w, &status_right_w),
-            .automation      => try tui.drawAutomationStatus(self, &status_w, &status_right_w, commands.cmds),
+            .automation      => try tui.drawAutomationStatus(self, &status_w, &status_right_w),
             .automation_param_picker => try status_w.writeAll(" j/k: move   enter: pick   esc: cancel"),
-            .slicer_grid     => try tui.drawSlicerStatus(self, &status_w, &status_right_w, commands.cmds),
+            .slicer_grid     => try tui.drawSlicerStatus(self, &status_w, &status_right_w),
             .preset_picker   => try tui.drawPresetPickerStatus(self, &status_w),
         }
         try style.writeSplitRow(w, status_w.buffered(), status_right_w.buffered(), size.cols -| 1);

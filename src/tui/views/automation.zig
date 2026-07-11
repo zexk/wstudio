@@ -9,7 +9,6 @@ const AutomationPoint = automation_mod.AutomationPoint;
 const synth_mod = ws.dsp.synth;
 const automation_ed = @import("../editors/automation.zig");
 const AutomationFocus = automation_ed.AutomationFocus;
-const cmd_mod = @import("../cmd.zig");
 const style = @import("../style.zig");
 
 const rst = style.rst;
@@ -215,15 +214,7 @@ pub fn drawAutomation(
     for (used..@max(used, rows -| 4)) |_| try endLine(w);
 }
 
-pub fn drawAutomationStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer, cmds: []const cmd_mod.Def) !void {
-    if (app.modal.mode == .command) {
-        try cmd_mod.writePrompt(w, cmds, app.modal.cmd_buf[0..app.modal.cmd_len], app.modal.cmd_cursor, 60);
-        return;
-    }
-    if (app.modal.mode == .search) {
-        try cmd_mod.writeSearchPrompt(w, app.modal.cmd_buf[0..app.modal.cmd_len], app.modal.cmd_cursor);
-        return;
-    }
+pub fn drawAutomationStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !void {
     const clip = currentClip(app) orelse {
         try w.writeAll(dim ++ "clip gone — esc" ++ rst);
         return;

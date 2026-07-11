@@ -6,7 +6,6 @@ const std = @import("std");
 const ws = @import("wstudio");
 const app_mod = @import("../app.zig");
 const style = @import("../style.zig");
-const cmd_mod = @import("../cmd.zig");
 const fuzzy = @import("../fuzzy.zig");
 
 const rst = style.rst;
@@ -128,10 +127,6 @@ fn drawBookmarkList(app: anytype, w: *std.Io.Writer, rows: usize) !void {
 }
 
 pub fn drawFileBrowserStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !void {
-    if (app.modal.mode == .search) {
-        try cmd_mod.writeSearchPrompt(w, app.modal.cmd_buf[0..app.modal.cmd_len], app.modal.cmd_cursor);
-        return;
-    }
     try style.writeModeBadge(w, app.modal.mode);
     try style.writeViewBadge(right, "FILES", app.modal.mode);
     // Status message BEFORE the key hints: the row clamps at the terminal

@@ -7,7 +7,6 @@ const Project = ws.Project;
 const Transport = ws.Transport;
 const DrumMachine = ws.dsp.DrumMachine;
 const eq_mod = ws.dsp.eq;
-const cmd_mod = @import("../cmd.zig");
 const engine_mod = ws.engine;
 const pattern_mod = ws.dsp.pattern;
 const midi = ws.midi;
@@ -226,15 +225,7 @@ fn writeBankRule(w: *std.Io.Writer, scroll: u32, visible: u32, step_count: u32) 
     try endLine(w);
 }
 
-pub fn drawDrumStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer, cmds: []const cmd_mod.Def) !void {
-    if (app.modal.mode == .command) {
-        try cmd_mod.writePrompt(w, cmds, app.modal.cmd_buf[0..app.modal.cmd_len], app.modal.cmd_cursor, 60);
-        return;
-    }
-    if (app.modal.mode == .search) {
-        try cmd_mod.writeSearchPrompt(w, app.modal.cmd_buf[0..app.modal.cmd_len], app.modal.cmd_cursor);
-        return;
-    }
+pub fn drawDrumStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !void {
     const p = app.drum_cursor[0];
     const s = app.drum_cursor[1];
     const dm = app.drumMachine();

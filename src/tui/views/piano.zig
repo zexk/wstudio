@@ -7,7 +7,6 @@ const Project = ws.Project;
 const Transport = ws.Transport;
 const DrumMachine = ws.dsp.DrumMachine;
 const eq_mod = ws.dsp.eq;
-const cmd_mod = @import("../cmd.zig");
 const engine_mod = ws.engine;
 const pattern_mod = ws.dsp.pattern;
 const midi = ws.midi;
@@ -314,15 +313,7 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
     for (used..@max(used, rows -| 4)) |_| try endLine(w);
 }
 
-pub fn drawPianoRollStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer, cmds: []const cmd_mod.Def) !void {
-    if (app.modal.mode == .command) {
-        try cmd_mod.writePrompt(w, cmds, app.modal.cmd_buf[0..app.modal.cmd_len], app.modal.cmd_cursor, 60);
-        return;
-    }
-    if (app.modal.mode == .search) {
-        try cmd_mod.writeSearchPrompt(w, app.modal.cmd_buf[0..app.modal.cmd_len], app.modal.cmd_cursor);
-        return;
-    }
+pub fn drawPianoRollStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !void {
     if (app.piano_track >= app.session.racks.items.len) return;
     const rack = app.session.racks.items[app.piano_track];
     const pp = if (rack.pattern_player != null)

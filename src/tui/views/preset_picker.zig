@@ -3,7 +3,6 @@
 
 const std = @import("std");
 const preset_ed = @import("../editors/preset_picker.zig");
-const cmd_mod = @import("../cmd.zig");
 const style = @import("../style.zig");
 
 const rst = style.rst;
@@ -123,10 +122,6 @@ pub fn drawPresetPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void {
 /// apply error surfaces even though this view owns the row — the exact
 /// dropped-setStatus trap the automation/slicer status rows had.
 pub fn drawPresetPickerStatus(app: anytype, w: *std.Io.Writer) !void {
-    if (app.modal.mode == .search) {
-        try cmd_mod.writeSearchPrompt(w, app.modal.cmd_buf[0..app.modal.cmd_len], app.modal.cmd_cursor);
-        return;
-    }
     try w.writeAll(" j/k: move   enter: apply");
     if (app.preset_picker_kind == .synth) try w.writeAll("   d: delete saved");
     try w.writeAll("   /: filter name/tag/author   esc: close");

@@ -7,7 +7,6 @@ const Project = ws.Project;
 const Transport = ws.Transport;
 const DrumMachine = ws.dsp.DrumMachine;
 const eq_mod = ws.dsp.eq;
-const cmd_mod = @import("../cmd.zig");
 const engine_mod = ws.engine;
 const pattern_mod = ws.dsp.pattern;
 const midi = ws.midi;
@@ -268,15 +267,7 @@ fn drawWaveformPad(
     }
 }
 
-pub fn drawSamplerStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer, cmds: []const cmd_mod.Def) !void {
-    if (app.modal.mode == .command) {
-        try cmd_mod.writePrompt(w, cmds, app.modal.cmd_buf[0..app.modal.cmd_len], app.modal.cmd_cursor, 60);
-        return;
-    }
-    if (app.modal.mode == .search) {
-        try cmd_mod.writeSearchPrompt(w, app.modal.cmd_buf[0..app.modal.cmd_len], app.modal.cmd_cursor);
-        return;
-    }
+pub fn drawSamplerStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !void {
     const is_drum = app.sampler_target == .drum;
     const pad_idx = app.drum_cursor[0];
     const pad: *const ws.dsp.Pad = if (is_drum) padOf(app.drumMachine(), pad_idx) else blk: {

@@ -69,9 +69,10 @@ fn modeBadgeBg(mode: Mode) []const u8 {
         .normal => bg_grn,
         .insert => bg_yel,
         .visual => bg_mag,
-        // Command/search render their own prompt line instead of a badge —
-        // callers never reach writeModeBadge in those modes.
-        .command, .search => bg_grn,
+        // The `:`/`/` prompt itself lives on its own row now (see
+        // App.draw's prompt row) — the status row still shows a badge,
+        // cyan so both ends of the row visibly flag "you're typing".
+        .command, .search => bg_cyn,
     };
 }
 
@@ -80,7 +81,8 @@ fn modeBadgeLetter(mode: Mode) []const u8 {
         .normal => "N",
         .insert => "I",
         .visual => "V",
-        .command, .search => "",
+        .command => "C",
+        .search => "S",
     };
 }
 
@@ -120,8 +122,9 @@ pub fn writeChromeRow(w: *std.Io.Writer, raw: []const u8, cols: u16) !void {
 /// counters and leaves everything else, including the equivalent of a
 /// "view name", as plain uncoloured text. Callers print the view name and
 /// the rest of their status content as plain text right after this, same
-/// as before. Caller has already handled `.command`/`.search` (they get
-/// their own prompt line, no badge).
+/// as before. `.command`/`.search` get a badge too now (see
+/// `modeBadgeLetter`) — the `:`/`/` prompt itself renders on its own row
+/// above (App.draw), so the status row stays informative while typing.
 pub fn writeModeBadge(w: *std.Io.Writer, mode: Mode) !void {
     try w.writeAll(modeBadgeBg(mode));
     try w.writeAll(badge_fg);

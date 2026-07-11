@@ -7,7 +7,6 @@ const Project = ws.Project;
 const Transport = ws.Transport;
 const DrumMachine = ws.dsp.DrumMachine;
 const eq_mod = ws.dsp.eq;
-const cmd_mod = @import("../cmd.zig");
 const engine_mod = ws.engine;
 const pattern_mod = ws.dsp.pattern;
 const midi = ws.midi;
@@ -392,15 +391,7 @@ fn secOut(w: *std.Io.Writer, synth: anytype, c: u8) !void {
         try std.fmt.bufPrint(&buf, "{d:.3}", .{synth.gain}));
 }
 
-pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer, cmds: []const cmd_mod.Def) !void {
-    if (app.modal.mode == .command) {
-        try cmd_mod.writePrompt(w, cmds, app.modal.cmd_buf[0..app.modal.cmd_len], app.modal.cmd_cursor, 60);
-        return;
-    }
-    if (app.modal.mode == .search) {
-        try cmd_mod.writeSearchPrompt(w, app.modal.cmd_buf[0..app.modal.cmd_len], app.modal.cmd_cursor);
-        return;
-    }
+pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !void {
     if (app.synth_track >= app.session.racks.items.len) return;
     const rack = app.session.racks.items[app.synth_track];
     switch (rack.instrument) { .poly_synth => {}, else => return }

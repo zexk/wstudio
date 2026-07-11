@@ -14,7 +14,6 @@ const Project = ws.Project;
 const Transport = ws.Transport;
 const DrumMachine = ws.dsp.DrumMachine;
 const eq_mod = ws.dsp.eq;
-const cmd_mod = @import("../cmd.zig");
 const spectrum_ed = @import("../editors/spectrum.zig");
 const engine_mod = ws.engine;
 const pattern_mod = ws.dsp.pattern;
@@ -559,15 +558,7 @@ fn formatFxValue(buf: []u8, p: *const ws.FxPayload, idx: usize) []const u8 {
     };
 }
 
-pub fn drawFxStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer, target: spectrum_ed.EqTarget, cmds: []const cmd_mod.Def) !void {
-    if (app.modal.mode == .command) {
-        try cmd_mod.writePrompt(w, cmds, app.modal.cmd_buf[0..app.modal.cmd_len], app.modal.cmd_cursor, 60);
-        return;
-    }
-    if (app.modal.mode == .search) {
-        try cmd_mod.writeSearchPrompt(w, app.modal.cmd_buf[0..app.modal.cmd_len], app.modal.cmd_cursor);
-        return;
-    }
+pub fn drawFxStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer, target: spectrum_ed.EqTarget) !void {
     const fx = spectrum_ed.fxPtr(app, target) orelse {
         if (app.status_len > 0) try w.print(" {s}", .{app.status_buf[0..app.status_len]});
         return;
