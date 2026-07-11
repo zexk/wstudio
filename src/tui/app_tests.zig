@@ -101,6 +101,31 @@ test "/ fuzzy-searches track names; n/N repeat and wrap around" {
     try std.testing.expectEqual(@as(usize, 1), app.cursor); // reverse: "samp"
 }
 
+test "arrangement: / fuzzy-searches lane (track) names; n/N repeat and wrap" {
+    var app = try testApp();
+    defer app.deinit();
+    // Tracks: 0 "untitled track", 1 "samp", 2 "drums" — no master lane here.
+    app.view = .arrangement;
+    app.cursor = 0;
+
+    for ("/drs") |c| app.handleKey(.{ .char = c }, 0);
+    try std.testing.expectEqual(ws.input.Mode.search, app.modal.mode);
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
+    try std.testing.expectEqual(@as(usize, 2), app.cursor); // "drums"
+    try std.testing.expectEqual(AppView.arrangement, app.view); // stayed put
+
+    // A pattern matching two lanes ("untitled track" and "samp") cycles
+    // between them with n/N, wrapping past "drums".
+    for ("/a") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqual(@as(usize, 0), app.cursor); // "untitled track"
+    app.handleKey(.{ .char = 'n' }, 0);
+    try std.testing.expectEqual(@as(usize, 1), app.cursor); // "samp"
+    app.handleKey(.{ .char = 'N' }, 0);
+    try std.testing.expectEqual(@as(usize, 0), app.cursor); // back to "untitled track"
+}
+
 test "/ search: escape cancels without moving the cursor; no match reports a status" {
     var app = try testApp();
     defer app.deinit();

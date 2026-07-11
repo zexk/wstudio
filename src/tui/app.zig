@@ -1809,6 +1809,7 @@ pub const App = struct {
                     .tracks => self.searchTracks(1),
                     .file_browser => self.searchBrowser(1),
                     .help => self.searchHelp(1),
+                    .arrangement => self.searchArrangement(1),
                     // The picker's `/` is a list filter, not a cursor jump:
                     // submitting commits the pattern (empty clears it) and
                     // rests the cursor on the narrowed list's first entry.
@@ -1904,6 +1905,30 @@ pub const App = struct {
             if (fuzzy.matches(pattern, entries[idx].name)) {
                 self.browser_cursor = idx;
                 self.setStatus("/{s}  [{d}/{d}]", .{ pattern, idx + 1, entries.len });
+                return;
+            }
+        }
+        self.setStatus("no match for '{s}'", .{pattern});
+    }
+
+    /// `/` search + `n`/`N` repeat over arrangement lane names, wrapping the
+    /// same way `searchTracks` does. Lanes map 1:1 to tracks with no master
+    /// row here (unlike the tracks view — see `moveLane`'s own bound), and
+    /// arrangement lanes are flat regardless of tracks-view group folding,
+    /// so this skips `searchTracks`' group-unfold step entirely.
+    pub fn searchArrangement(self: *App, dir: i64) void {
+        const pattern = self.searchPattern();
+        if (pattern.len == 0) { self.setStatus("no previous search pattern", .{}); return; }
+        const tracks = self.session.project.tracks.items;
+        const n: i64 = @intCast(tracks.len);
+        if (n == 0) { self.setStatus("no tracks to search", .{}); return; }
+        const start: i64 = @min(@as(i64, @intCast(self.cursor)), n - 1);
+        var step: i64 = 1;
+        while (step <= n) : (step += 1) {
+            const idx: usize = @intCast(@mod(start + dir * step, n));
+            if (fuzzy.matches(pattern, tracks[idx].name)) {
+                self.cursor = idx;
+                self.setStatus("/{s}  [{d}/{d}]", .{ pattern, idx + 1, tracks.len });
                 return;
             }
         }

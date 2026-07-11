@@ -290,6 +290,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("T",            "toggle song / pattern mode");
     t.key("Z",            "toggle zoom: normal <-> compact (see more of a long song)");
     t.key("a",            "open gain/pan automation editor for the clip at cursor");
+    t.key("/",            "fuzzy-search lane (track) names, n / N repeat forward / backward");
     t.key("tab",          "back to the tracks view");
 
     t.taggedSection(.automation, "AUTOMATION  (per-clip breakpoints — opened via 'a' in the arrangement)");

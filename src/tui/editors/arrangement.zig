@@ -113,6 +113,8 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             'g' => { playFromCursor(app); return true; },
             'u' => { history.doUndo(app); return true; },
             'U' => { history.doRedo(app); return true; },
+            'n' => { app.searchArrangement(1); return true; },
+            'N' => { app.searchArrangement(-1); return true; },
             '[' => { cycleDrumVariant(app, -1); return true; },
             ']' => { cycleDrumVariant(app, 1); return true; },
             'a' => { automation.switchTo(app, @intCast(app.cursor), app.arr_cursor_bar); return true; },
