@@ -612,35 +612,35 @@ test "piano roll visual mode selects a step range for y/d/P" {
     try std.testing.expect(pp.noteAt(72, 2.0) != null);
 }
 
-test "piano roll visual mode: w/b extend the selection by bar, matching normal-mode jumpBar" {
+test "piano roll visual mode: w/b extend the selection by beat, matching normal-mode jumpBar" {
     var app = try testApp();
     defer app.deinit();
     app.view = .piano_roll;
     app.piano_track = 0;
     const pp = &app.session.racks.items[0].pattern_player.?;
-    pp.length_beats = 24.0;
-    // Default 4/4, straight grid: a bar is 4 beats * 4 steps/beat = 16 steps.
+    pp.length_beats = 6.0;
+    // Straight grid: 4 steps/beat, w/b's granularity (matches the drum grid's).
     pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.25 }); // step 0
-    pp.addNote(.{ .pitch = 62, .start_beat = 4.0, .duration_beat = 0.25 }); // step 16, w's landing step (included, like v3l's landing step is)
-    pp.addNote(.{ .pitch = 64, .start_beat = 8.0, .duration_beat = 0.25 }); // step 32, outside the w-extended range
+    pp.addNote(.{ .pitch = 62, .start_beat = 1.0, .duration_beat = 0.25 }); // step 4, w's landing step (included, like v3l's landing step is)
+    pp.addNote(.{ .pitch = 64, .start_beat = 2.0, .duration_beat = 0.25 }); // step 8, outside the w-extended range
 
     app.piano_cursor_step = 0;
     app.handleKey(.{ .char = 'v' }, 0);
-    app.handleKey(.{ .char = 'w' }, 0); // extend one bar forward (0 -> 16)
+    app.handleKey(.{ .char = 'w' }, 0); // extend one beat forward (0 -> 4)
     try std.testing.expectEqual(ws.input.Mode.visual, app.modal.mode);
-    try std.testing.expectEqual(@as(u16, 16), app.piano_cursor_step);
+    try std.testing.expectEqual(@as(u16, 4), app.piano_cursor_step);
     app.handleKey(.{ .char = 'd' }, 0);
     try std.testing.expect(pp.noteAt(60, 0.0) == null);
-    try std.testing.expect(pp.noteAt(62, 4.0) == null);
-    try std.testing.expect(pp.noteAt(64, 8.0) != null); // untouched, outside the range
+    try std.testing.expect(pp.noteAt(62, 1.0) == null);
+    try std.testing.expect(pp.noteAt(64, 2.0) != null); // untouched, outside the range
 
-    // b moves the extended selection back a bar (from step 48, lands on 32).
-    app.piano_cursor_step = 48;
+    // b moves the extended selection back a beat (from step 12, lands on 8).
+    app.piano_cursor_step = 12;
     app.handleKey(.{ .char = 'v' }, 0);
     app.handleKey(.{ .char = 'b' }, 0);
-    try std.testing.expectEqual(@as(u16, 32), app.piano_cursor_step);
+    try std.testing.expectEqual(@as(u16, 8), app.piano_cursor_step);
     app.handleKey(.{ .char = 'd' }, 0);
-    try std.testing.expect(pp.noteAt(64, 8.0) == null);
+    try std.testing.expect(pp.noteAt(64, 2.0) == null);
 }
 
 test "piano roll normal-mode p pastes the most recent yank: range after visual y, pattern after yy" {
@@ -724,15 +724,15 @@ test "piano roll operator+motion: d3l / y3l act on a range without entering visu
     try std.testing.expectEqual(@as(u16, 0), pp.note_count);
 }
 
-test "piano roll char/word tiers: x deletes the note under the cursor, w/b jump by bar" {
+test "piano roll char/word tiers: x deletes the note under the cursor, w/b jump by beat" {
     var app = try testApp();
     defer app.deinit();
     app.view = .piano_roll;
     app.piano_track = 0;
     const pp = &app.session.racks.items[0].pattern_player.?;
-    pp.length_beats = 8.0; // 4 beats/bar, straight grid (4 steps/beat) -> 16 steps/bar
+    pp.length_beats = 8.0; // straight grid, 4 steps/beat — w/b's granularity
     pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.25 });
-    pp.addNote(.{ .pitch = 64, .start_beat = 4.0, .duration_beat = 0.25 }); // bar 2, step 16
+    pp.addNote(.{ .pitch = 64, .start_beat = 1.0, .duration_beat = 0.25 }); // beat 2, step 4
 
     // x: instant single-note delete, no operator arming needed.
     app.piano_cursor_step = 0;
@@ -741,17 +741,19 @@ test "piano roll char/word tiers: x deletes the note under the cursor, w/b jump 
     try std.testing.expect(pp.noteAt(60, 0.0) == null);
     try std.testing.expectEqual(@as(u16, 1), pp.note_count);
 
-    // w: jump forward to the next bar boundary (step 16); b: back to bar 0.
+    // w: jump forward to the next beat boundary (step 4); b: back to beat 0.
+    // Matches the drum grid's own w/b granularity (a beat, not a full bar) —
+    // see barLenSteps's own note on the earlier bar-sized bug this fixed.
     app.piano_cursor_step = 0;
     app.handleKey(.{ .char = 'w' }, 0);
-    try std.testing.expectEqual(@as(u16, 16), app.piano_cursor_step);
+    try std.testing.expectEqual(@as(u16, 4), app.piano_cursor_step);
     app.handleKey(.{ .char = 'b' }, 0);
     try std.testing.expectEqual(@as(u16, 0), app.piano_cursor_step);
 
-    // dw: delete exactly the current bar's worth of steps (0-15), leaving
-    // the note at bar 2 (step 16) untouched.
+    // dw: delete exactly the current beat's worth of steps (0-3), leaving
+    // the note at beat 2 (step 4) untouched.
     for ("dw") |c| app.handleKey(.{ .char = c }, 0);
-    try std.testing.expect(pp.noteAt(64, 4.0) != null);
+    try std.testing.expect(pp.noteAt(64, 1.0) != null);
     try std.testing.expectEqual(@as(u16, 1), pp.note_count);
 }
 

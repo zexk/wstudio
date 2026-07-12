@@ -1,6 +1,6 @@
 //! Piano-roll input: note cursor, insert/delete/resize, velocity, yank/paste,
 //! loop length, visual-mode range select (v, then y/d/p), operator+motion
-//! grammar (x/w/b/d/y — see the note/bar/pattern hierarchy on the
+//! grammar (x/w/b/d/y — see the note/beat/pattern hierarchy on the
 //! operator-pending block below), and the Ableton-style clip-link writeback
 //! (edits on a linked arrangement clip land in the clip itself). The render
 //! half lives in views/piano.zig.
@@ -66,7 +66,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
     // deleteSelection/yankSelection visual mode uses, just without the
     // visual-mode UI or its j/k pitch motion (time-range-only, like visual
     // mode). Vim's char/word/line hierarchy maps onto this editor as note
-    // (x, below) / bar (w/b, dw/yw) / line (dd) — a "line" is the cursor
+    // (x, below) / beat (w/b, dw/yw) / line (dd) — a "line" is the cursor
     // pitch's whole row, so dd clears just that pitch across the pattern
     // (whole-pattern clears live in :clear or a full-range visual d). yy
     // stays the whole-pattern yank: it's the cross-track pattern-copy
@@ -95,14 +95,14 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                     finishOperator(app, pp, op);
                     return true;
                 },
-                // dw/yw act on exactly the bar(s) from the cursor through
-                // the end of the nth bar forward — not through w's raw
-                // landing step (the *next* bar's first step), which would
+                // dw/yw act on exactly the beat(s) from the cursor through
+                // the end of the nth beat forward — not through w's raw
+                // landing step (the *next* beat's first step), which would
                 // bleed one step into it. Mirrors vim's own dw: the motion
                 // still lands past the boundary for plain navigation, but
                 // an operator stops just short of it.
                 'w' => { operatorBarForward(app, max_step, app.takeCount()); finishOperator(app, pp, op); return true; },
-                // db/yb act on the bar(s) from the start of the nth bar
+                // db/yb act on the beat(s) from the start of the nth beat
                 // back through the original cursor (inclusive) — the
                 // anchor already holds that original position.
                 'b' => { operatorBarBackward(app, max_step, app.takeCount()); finishOperator(app, pp, op); return true; },
@@ -167,7 +167,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             },
             // w/b: vim's word motion, one tier up from h/l's step ("char")
             // granularity — jump to the start of the next/current-or-
-            // previous bar.
+            // previous beat (matches the drum grid's own w/b granularity).
             'w' => { jumpBar(app, max_step, app.takeCount()); return true; },
             'b' => { jumpBar(app, max_step, -app.takeCount()); return true; },
             // M grabs the note under the cursor for dragging (see above).
@@ -208,7 +208,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             // n kept as an alias for muscle memory; enter is the canonical toggle.
             'n' => { insertNote(app); return true; },
             // x: vim's char-delete — the note under the cursor, instantly,
-            // no operator needed (the "char" tier of the note/bar/pattern
+            // no operator needed (the "char" tier of the note/beat/pattern
             // hierarchy; see the operator-pending block above).
             'x' => { deleteNote(app); return true; },
             // d is an operator (see armOperator) — dd clears the cursor
@@ -614,16 +614,22 @@ fn clearPitchRow(app: *App) void {
     syncLinkedClip(app);
 }
 
-/// Bar length in steps under the current grid (straight/triplet), so w/b
-/// and operator+w/b track `T`'s grid toggle automatically.
+/// "Bar" length in steps under the current grid (straight/triplet) — despite
+/// the name, this is one BEAT (stepsPerBeatF steps), matching the drum
+/// grid's own hardcoded 4-step word-tier group and the status line's own
+/// "bar X.Y" reading (which is a beat count, not a real musical bar — see
+/// drawPianoRollStatus in views/piano.zig). Previously multiplied by
+/// beats_per_bar for a real musical bar, but that made w/b jump 4x further
+/// than the status line's own "bar" number implied and than the drum grid's
+/// equivalent motion — user correction: w/b should match the drum machine's
+/// granularity, one displayed unit at a time.
 fn barLenSteps(app: *App) u16 {
-    const bpb: f64 = @floatFromInt(app.session.project.beats_per_bar);
-    return @intFromFloat(bpb * stepsPerBeatF(app));
+    return app.pianoStepsPerBeat();
 }
 
-/// w/b: jump the cursor `delta` bars forward/back (vim's word motion, one
-/// tier up from h/l's step granularity) — snaps to the nearest bar boundary
-/// first, then moves whole bars from there.
+/// w/b: jump the cursor `delta` beats forward/back (vim's word motion, one
+/// tier up from h/l's step granularity) — snaps to the nearest beat boundary
+/// first, then moves whole beats from there.
 fn jumpBar(app: *App, max_step: u16, delta: i32) void {
     const bar_len = barLenSteps(app);
     if (bar_len == 0) return;
@@ -634,8 +640,8 @@ fn jumpBar(app: *App, max_step: u16, delta: i32) void {
     ensureVisible(app);
 }
 
-/// dw/yw's range end: the last step of the nth bar forward (inclusive),
-/// not w's own landing step (the *next* bar's first step) — see the
+/// dw/yw's range end: the last step of the nth beat forward (inclusive),
+/// not w's own landing step (the *next* beat's first step) — see the
 /// operator-pending block's comment on 'w'.
 fn operatorBarForward(app: *App, max_step: u16, n: i32) void {
     const bar_len = barLenSteps(app);
@@ -646,10 +652,10 @@ fn operatorBarForward(app: *App, max_step: u16, n: i32) void {
     app.piano_cursor_step = @intCast(std.math.clamp(hi, 0, top));
 }
 
-/// db/yb's range start: the first step of the nth bar back — the anchor
+/// db/yb's range start: the first step of the nth beat back — the anchor
 /// (the cursor's position when `d`/`y` was pressed) stays the range's other
 /// (inclusive) end, so this covers "back to the start of this-or-an-
-/// earlier bar, through where you started."
+/// earlier beat, through where you started."
 fn operatorBarBackward(app: *App, max_step: u16, n: i32) void {
     const bar_len = barLenSteps(app);
     if (bar_len == 0) return;
