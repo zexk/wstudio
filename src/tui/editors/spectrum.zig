@@ -36,7 +36,6 @@ const modal_mod = ws.input;
 const dsp = ws.dsp.device;
 const eq_mod = ws.dsp.eq;
 const multiband_comp = ws.dsp.multiband_comp;
-const engine_mod = ws.engine;
 const style = @import("../style.zig");
 const chorus_mod = ws.dsp.chorus;
 const DrumMachine = ws.dsp.DrumMachine;
@@ -315,7 +314,7 @@ pub fn getParam(p: *const FxPayload, idx: usize) f32 {
 /// [min, max] of param `idx` in a unit of kind `k` — the same bounds
 /// `setParam` clamps to, exported so the view can draw each param as a
 /// filled bar (barRow wants a 0..1-ish normalised value).
-pub fn paramRange(p: *const FxPayload, idx: usize) [2]f32 {
+pub fn paramRange(app: *App, p: *const FxPayload, idx: usize) [2]f32 {
     return switch (p.*) {
         .eq => |*e| switch (eqBandField(idx).field) {
             eq_field_kind => .{ 0.0, 2.0 },
@@ -344,7 +343,7 @@ pub fn paramRange(p: *const FxPayload, idx: usize) [2]f32 {
             2 => .{ 0.1, 500.0 },
             3 => .{ 1.0, 2000.0 },
             4 => .{ -24.0, 24.0 },
-            5 => .{ 0.0, @floatFromInt(engine_mod.max_tracks) },
+            5 => .{ 0.0, @floatFromInt(app.session.project.tracks.items.len) },
             6 => .{ 0.0, @floatFromInt(DrumMachine.max_pads) },
             else => .{ 0.0, 1.0 },
         },
@@ -403,7 +402,7 @@ pub fn paramToggleNames(k: FxKind, idx: usize) ?[2][]const u8 {
 }
 
 /// Clamped absolute set of param `idx` in `p` — bounds match `paramRange`.
-pub fn setParam(p: *FxPayload, idx: usize, value: f32) void {
+pub fn setParam(app: *App, p: *FxPayload, idx: usize, value: f32) void {
     switch (p.*) {
         .eq => |*e| {
             const bf = eqBandField(idx);
@@ -445,7 +444,7 @@ pub fn setParam(p: *FxPayload, idx: usize, value: f32) void {
             3 => c.release_ms = std.math.clamp(value, 1.0, 2000.0),
             4 => c.makeup_db = std.math.clamp(value, -24.0, 24.0),
             5 => {
-                const rounded = std.math.clamp(@round(value), 0.0, @as(f32, @floatFromInt(engine_mod.max_tracks)));
+                const rounded = std.math.clamp(@round(value), 0.0, @as(f32, @floatFromInt(app.session.project.tracks.items.len)));
                 if (rounded < 0.5) {
                     c.sidechain_source = null;
                 } else {
@@ -801,7 +800,7 @@ fn nudge(app: *App, target: EqTarget, key: u8) void {
     const coarse = (key == 'H' or key == 'L');
     const cnt: f32 = @floatFromInt(app.takeCount());
     const cur = getParam(&u.payload, app.fx_param);
-    setParam(&u.payload, app.fx_param, cur + dir * cnt * paramStep(&u.payload, app.fx_param, coarse));
+    setParam(app, &u.payload, app.fx_param, cur + dir * cnt * paramStep(&u.payload, app.fx_param, coarse));
     clearStaleSidechainPad(app, &u.payload);
     app.dirty = true;
     syncChain(app, target);

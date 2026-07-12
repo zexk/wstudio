@@ -451,7 +451,7 @@ pub fn drawFxView(
         inline for (.{ spectrum_ed.eq_field_freq, spectrum_ed.eq_field_q, spectrum_ed.eq_field_gain }) |field| {
             const idx = cur_band * spectrum_ed.eq_fields_per_band + field;
             const v = spectrum_ed.getParam(&unit.payload, idx);
-            const range = spectrum_ed.paramRange(&unit.payload, idx);
+            const range = spectrum_ed.paramRange(app, &unit.payload, idx);
             const norm = std.math.clamp((v - range[0]) / (range[1] - range[0]), 0.0, 1.0);
             var vbuf: [16]u8 = undefined;
             try barRow(w, in_submenu and cur_field == field, false, sectionColor(.eq),
@@ -473,7 +473,7 @@ pub fn drawFxView(
                 try enumRow(w, is_sel, false, sectionColor(k), spectrum_ed.paramName(&unit.payload, i), &names, if (v < 0.5) 0 else 1);
                 continue;
             }
-            const range = spectrum_ed.paramRange(&unit.payload, i);
+            const range = spectrum_ed.paramRange(app, &unit.payload, i);
             const norm = std.math.clamp((v - range[0]) / (range[1] - range[0]), 0.0, 1.0);
             var vbuf: [16]u8 = undefined;
             try barRow(w, is_sel, false, sectionColor(k), spectrum_ed.paramName(&unit.payload, i), norm, 1.0, formatFxValue(&vbuf, &unit.payload, i));
