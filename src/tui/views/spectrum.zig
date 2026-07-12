@@ -240,14 +240,22 @@ pub fn drawFxView(
     const compact = spectrum_ed.compactLayout(rows);
     try drawChainStrip(app, w, chain, compact);
 
+    const focused = spectrum_ed.focusedUnit(app, chain);
+
     if (!compact) {
-        try w.writeAll(dim ++ "  tab/[/]:slot  a:insert  x:remove  </>:move  b:bypass  j/k:param  h/l:adjust");
+        try w.writeAll(dim ++ "  tab/[/]:slot  a:insert  x:remove  </>:move  b:bypass  ");
+        // EQ gets its own two-stage scheme (see editors/spectrum.zig's
+        // eq_band_select doc comment) — h/l means something different
+        // depending which stage it's in, so the hint has to match.
+        if (focused != null and focused.?.kind() == .eq) {
+            if (app.eq_band_select) try w.writeAll("h/l:band  enter:edit") else try w.writeAll("j/k:field  h/l:adjust  esc:back");
+        } else {
+            try w.writeAll("j/k:param  h/l:adjust");
+        }
         if (target == .group) try w.writeAll("  -/+:bus gain");
         try w.writeAll(rst);
         try endLine(w);
     }
-
-    const focused = spectrum_ed.focusedUnit(app, chain);
 
     var body_lines: usize = 0;
     if (focused == null) {
@@ -380,20 +388,19 @@ pub fn drawFxView(
         const cur_band = bf.band;
         const cur_field = bf.field;
 
-        // Bar row: for a peak band, glyph height tracks gain (▄ = flat,
-        // taller = boost, shorter = cut) coloured by direction/magnitude;
-        // for a lowpass/highpass band gain doesn't shape the response, so
-        // the bar tracks slope instead, in a neutral colour that reads as
-        // "not gain". Bracketed with whichever value row underneath drives
-        // it (gain for a peak band, type for a filter band).
+        // All-band overview: two dim rows so the whole curve's shape stays
+        // visible at a glance (glyph height/colour = gain for a peak band,
+        // slope steepness for a filter band; frequency underneath). Detail
+        // for one band at a time lives below in the same barRow/enumRow
+        // widgets every other FX unit's body uses — a flat 8-wide grid of
+        // every field stopped scaling once a band could also carry a
+        // separate slope on top of freq/q/gain.
         try w.writeAll("   ");
         for (0..eq_mod.num_eq_bands) |b| {
             const band = &e.bands[b];
-            const is_peak = band.kind == .peak;
-            const is_cur = b == cur_band and
-                (cur_field == spectrum_ed.eq_field_gain or (!is_peak and cur_field == spectrum_ed.eq_field_type));
+            const is_cur = b == cur_band;
             if (is_cur) try w.writeAll(bold ++ acc ++ " [" ++ rst) else try w.writeAll("  ");
-            if (is_peak) {
+            if (band.kind == .peak) {
                 const gain = band.gain_db;
                 try w.writeAll(if (is_cur) bwht else eqColor(gain));
                 if (is_cur) try w.writeAll(bold);
@@ -407,41 +414,9 @@ pub fn drawFxView(
         }
         try endLine(w);
 
-        // Gain-value row: signed dB under each bar, "--" for a filter band
-        // (gain is stored but the DSP ignores it outside .peak mode).
-        try w.writeAll("   ");
-        for (0..eq_mod.num_eq_bands) |b| {
-            const band = &e.bands[b];
-            const is_cur = (b == cur_band and cur_field == spectrum_ed.eq_field_gain);
-            if (is_cur) try w.writeAll(acc ++ bold);
-            if (band.kind == .peak) {
-                try w.print("{d: ^5.0}", .{band.gain_db});
-            } else {
-                if (!is_cur) try w.writeAll(dim);
-                try w.writeAll(" --  ");
-                if (!is_cur) try w.writeAll(rst);
-            }
-            if (is_cur) try w.writeAll(rst);
-        }
-        try endLine(w);
-
-        // Q-value row — still meaningful for a filter band (resonance at
-        // the cutoff), not just a peak band's bell width.
         try w.writeAll(dim ++ "   ");
         for (0..eq_mod.num_eq_bands) |b| {
-            const is_cur = (b == cur_band and cur_field == spectrum_ed.eq_field_q);
-            const val = e.bands[b].q;
-            if (is_cur) try w.writeAll(rst ++ acc ++ bold);
-            try w.print("{d: ^5.1}", .{val});
-            if (is_cur) try w.writeAll(rst ++ dim);
-        }
-        try w.writeAll(rst);
-        try endLine(w);
-
-        // Frequency row: now live and editable, was a static ISO-band label.
-        try w.writeAll(dim ++ "   ");
-        for (0..eq_mod.num_eq_bands) |b| {
-            const is_cur = (b == cur_band and cur_field == spectrum_ed.eq_field_freq);
+            const is_cur = b == cur_band;
             var fbuf: [8]u8 = undefined;
             const lbl = freqLabel(&fbuf, e.bands[b].freq);
             if (is_cur) try w.writeAll(rst ++ acc ++ bold);
@@ -451,19 +426,37 @@ pub fn drawFxView(
         try w.writeAll(rst);
         try endLine(w);
 
-        // Type row: peak, or lowpass/highpass with its slope in dB/oct.
-        try w.writeAll(dim ++ "   ");
-        for (0..eq_mod.num_eq_bands) |b| {
-            const band = &e.bands[b];
-            const is_cur = (b == cur_band and cur_field == spectrum_ed.eq_field_type);
-            var tbuf: [8]u8 = undefined;
-            const lbl = spectrum_ed.eqTypeLabelKS(&tbuf, band.kind, band.slope);
-            if (is_cur) try w.writeAll(rst ++ acc ++ bold);
-            try w.print("{s: ^5}", .{lbl});
-            if (is_cur) try w.writeAll(rst ++ dim);
+        // Focused-band detail: kind/freq/q/gain-or-slope as full sliders,
+        // one row each — "gain" becomes "slope" the moment the band isn't
+        // peak (see eq_field_gain's doc comment), which is the actual ask
+        // this redesign answers: a filter band's steepness gets a real
+        // slider instead of being folded into the same cycle as its kind.
+        // Rows only show a selection cursor once `enter` has actually
+        // opened this band's submenu — while still in band-select, h/l
+        // moves bands instead of nudging a field, so highlighting one here
+        // would read as active when it isn't.
+        const in_submenu = !app.eq_band_select;
+        var hdr_buf: [24]u8 = undefined;
+        const hdr = if (in_submenu)
+            std.fmt.bufPrint(&hdr_buf, "BAND {d}", .{cur_band + 1}) catch "BAND"
+        else
+            std.fmt.bufPrint(&hdr_buf, "BAND {d} (enter)", .{cur_band + 1}) catch "BAND";
+        try synthSection(w, hdr, sectionColor(.eq));
+
+        const kind_idx = cur_band * spectrum_ed.eq_fields_per_band + spectrum_ed.eq_field_kind;
+        const kind_names = [_][]const u8{ "peak", "lowpass", "highpass" };
+        try enumRow(w, in_submenu and cur_field == spectrum_ed.eq_field_kind, false, sectionColor(.eq), "kind", &kind_names,
+            @intFromFloat(@round(spectrum_ed.getParam(&unit.payload, kind_idx))));
+
+        inline for (.{ spectrum_ed.eq_field_freq, spectrum_ed.eq_field_q, spectrum_ed.eq_field_gain }) |field| {
+            const idx = cur_band * spectrum_ed.eq_fields_per_band + field;
+            const v = spectrum_ed.getParam(&unit.payload, idx);
+            const range = spectrum_ed.paramRange(&unit.payload, idx);
+            const norm = std.math.clamp((v - range[0]) / (range[1] - range[0]), 0.0, 1.0);
+            var vbuf: [16]u8 = undefined;
+            try barRow(w, in_submenu and cur_field == field, false, sectionColor(.eq),
+                spectrum_ed.paramName(&unit.payload, idx), norm, 1.0, formatFxValue(&vbuf, &unit.payload, idx));
         }
-        try w.writeAll(rst);
-        try endLine(w);
 
         body_lines = visual_rows + 1 + bands;
     } else {
@@ -477,13 +470,13 @@ pub fn drawFxView(
             const is_sel = (i == app.fx_param);
             const v = spectrum_ed.getParam(&unit.payload, i);
             if (spectrum_ed.paramToggleNames(k, i)) |names| {
-                try enumRow(w, is_sel, false, sectionColor(k), spectrum_ed.paramName(k, i), &names, if (v < 0.5) 0 else 1);
+                try enumRow(w, is_sel, false, sectionColor(k), spectrum_ed.paramName(&unit.payload, i), &names, if (v < 0.5) 0 else 1);
                 continue;
             }
-            const range = spectrum_ed.paramRange(k, i);
+            const range = spectrum_ed.paramRange(&unit.payload, i);
             const norm = std.math.clamp((v - range[0]) / (range[1] - range[0]), 0.0, 1.0);
             var vbuf: [16]u8 = undefined;
-            try barRow(w, is_sel, false, sectionColor(k), spectrum_ed.paramName(k, i), norm, 1.0, formatFxValue(&vbuf, &unit.payload, i));
+            try barRow(w, is_sel, false, sectionColor(k), spectrum_ed.paramName(&unit.payload, i), norm, 1.0, formatFxValue(&vbuf, &unit.payload, i));
         }
         body_lines = visible_count;
         if (unit.bypassed) {
@@ -506,11 +499,21 @@ pub fn drawFxView(
 fn formatFxValue(buf: []u8, p: *const ws.FxPayload, idx: usize) []const u8 {
     const v = spectrum_ed.getParam(p, idx);
     return switch (p.*) {
-        .eq => switch (spectrum_ed.eqBandField(idx).field) {
-            spectrum_ed.eq_field_freq => std.fmt.bufPrint(buf, "{d:.0}Hz", .{v}) catch "?",
-            spectrum_ed.eq_field_q => std.fmt.bufPrint(buf, "{d:.2}", .{v}) catch "?",
-            spectrum_ed.eq_field_gain => std.fmt.bufPrint(buf, "{d:.1}dB", .{v}) catch "?",
-            else => spectrum_ed.eqTypeLabel(buf, v),
+        .eq => |*e| blk: {
+            const bf = spectrum_ed.eqBandField(idx);
+            break :blk switch (bf.field) {
+                spectrum_ed.eq_field_kind => spectrum_ed.eqKindLabel(e.bands[bf.band].kind),
+                spectrum_ed.eq_field_freq => std.fmt.bufPrint(buf, "{d:.0}Hz", .{v}) catch "?",
+                spectrum_ed.eq_field_q => std.fmt.bufPrint(buf, "{d:.2}", .{v}) catch "?",
+                // Gain for a peak band; a filter band's "slope" instead,
+                // stored as a stage count (1..max_slope) — show it in
+                // dB/oct (12 per cascade stage) since that's the unit a
+                // user actually thinks in.
+                else => if (e.bands[bf.band].kind == .peak)
+                    std.fmt.bufPrint(buf, "{d:.1}dB", .{v}) catch "?"
+                else
+                    std.fmt.bufPrint(buf, "{d:.0}dB/oct", .{v * 12.0}) catch "?",
+            };
         },
         .comp => switch (idx) {
             0, 4 => std.fmt.bufPrint(buf, "{d:.1}dB", .{v}) catch "?",
@@ -576,20 +579,28 @@ pub fn drawFxStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer, targ
         try w.print("{d}/{d} {s}", .{ app.fx_focus + 1, fx.units.items.len, spectrum_ed.unitLabel(k) });
         try w.writeAll(dim ++ "  " ++ rst);
         if (unit.bypassed) try w.writeAll(red ++ "BYP" ++ rst ++ "  ");
+        const bf = spectrum_ed.eqBandField(app.fx_param);
+        const eq_band_select = k == .eq and app.eq_band_select;
         switch (k) {
-            .eq => {
-                const bf = spectrum_ed.eqBandField(app.fx_param);
+            // Band-select mode: no field is actually live yet, so show
+            // which band instead of a param/value pair that h/l can't
+            // touch until `enter` opens it.
+            .eq => if (eq_band_select) {
+                try w.print("band {d}/{d}", .{ bf.band + 1, eq_mod.num_eq_bands });
+            } else {
                 var vbuf: [16]u8 = undefined;
-                try w.print("b{d} {s} {s}", .{ bf.band + 1, spectrum_ed.paramName(k, app.fx_param), formatFxValue(&vbuf, &unit.payload, app.fx_param) });
+                try w.print("b{d} {s} {s}", .{ bf.band + 1, spectrum_ed.paramName(&unit.payload, app.fx_param), formatFxValue(&vbuf, &unit.payload, app.fx_param) });
             },
             else => {
                 var vbuf: [16]u8 = undefined;
-                try w.print("{s} {s}", .{ spectrum_ed.paramName(k, app.fx_param), formatFxValue(&vbuf, &unit.payload, app.fx_param) });
+                try w.print("{s} {s}", .{ spectrum_ed.paramName(&unit.payload, app.fx_param), formatFxValue(&vbuf, &unit.payload, app.fx_param) });
             },
         }
-        try w.writeAll(dim ++ "  [" ++ rst);
-        try w.print("{d}/{d}", .{ app.fx_param + 1, spectrum_ed.visibleParamCount(app, k, &unit.payload) });
-        try w.writeAll(dim ++ "]" ++ rst);
+        if (!eq_band_select) {
+            try w.writeAll(dim ++ "  [" ++ rst);
+            try w.print("{d}/{d}", .{ app.fx_param + 1, spectrum_ed.visibleParamCount(app, k, &unit.payload) });
+            try w.writeAll(dim ++ "]" ++ rst);
+        }
     } else {
         try style.writeModeBadge(w, app.modal.mode);
         try style.writeViewBadge(right, "FX", app.modal.mode);

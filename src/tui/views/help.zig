@@ -315,11 +315,14 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("< / >",        "move the focused unit one slot left / right along the chain");
     t.key("b",            "bypass toggle: the unit keeps its settings but the audio skips it");
     t.key("tab / ] / [",  "walk slot focus along the chain (an EQ unit's editor doubles as the spectrum analyzer)");
-    t.key("j / k",        "select a param within the focused unit (EQ: 8 bands x freq/q/gain/type)");
+    t.key("j / k",        "select a param within the focused unit");
     t.key("h / l",        "decrease / increase the selected param (fine step)");
     t.key("H / L",        "decrease / increase the selected param (coarse step)");
-    t.key("",             "an EQ band's 'type' param: h/l cycles peak -> lowpass (12/24/36/48dB/oct) ->");
-    t.key("",             "  highpass (same 4 slopes) -> peak; gain only shapes the response in peak mode");
+    t.key("",             "EQ gets its own scheme instead: h/l picks which of its 8 bands is in view (H/L");
+    t.key("",             "  jump 4 at a time), enter opens that band's kind/freq/q/gain-or-slope submenu");
+    t.key("",             "  (j/k picks the field there, h/l nudges it, esc backs out to band-select first)");
+    t.key("",             "  a band's 'kind' row: h/l cycles peak <-> lowpass <-> highpass; once it's a");
+    t.key("",             "  filter the last row becomes 'slope' (12/24/36/48dB/oct) instead of 'gain'");
     t.key("",             "a compressor's 'sidechain' param: h/l cycles none/track N — its envelope then");
     t.key("",             "  detects from track N's signal instead of its own input (duck a bass off a kick)");
     t.key("",             "  'scpad' (next param): h/l cycles none/pad N — narrows detection to one drum pad");

@@ -269,6 +269,14 @@ pub const App = struct {
     pending_fx_nudge: ?undo_mod.PendingFxNudge = null,
     /// Selected param row within the focused FX unit (EQ's are its bands).
     fx_param: usize = 0,
+    /// EQ-only submode: true while picking which of the 8 bands is in view
+    /// (h/l moves band, enter opens its field submenu); false once inside a
+    /// band's submenu (j/k picks kind/freq/q/gain-or-slope, h/l nudges the
+    /// value, esc backs out to band-select). Reset to band-select whenever
+    /// chain focus changes — see editors/spectrum.zig's setFocus. Cycling
+    /// every field of every band just to reach the next band was the actual
+    /// complaint this splits the flat 32-entry list's navigation to fix.
+    eq_band_select: bool = true,
     /// Chain slot index the FX view is focused on — Tab cycles it. Clamped
     /// by every chain mutation; out of range only while the chain is empty.
     fx_focus: usize = 0,

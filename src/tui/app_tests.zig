@@ -4310,7 +4310,7 @@ test "FX chain: param nudges coalesce into one undo step, u right after nudging 
     try std.testing.expectApproxEqAbs(nudged, spectrum_ed.getParam(&fx.units.items[0].payload, 0), 0.0001);
 }
 
-test "FX chain: EQ band type field cycles peak -> lowpass slopes -> highpass slopes and back" {
+test "FX chain: EQ kind field cycles peak/lowpass/highpass, gain row becomes slope for a filter band" {
     var app = try testApp();
     defer app.deinit();
     spectrum_ed.switchToTrack(&app, 0);
@@ -4318,32 +4318,41 @@ test "FX chain: EQ band type field cycles peak -> lowpass slopes -> highpass slo
     app.session.syncTrackChain(0, app.session.racks.items[0]);
     const fx = &app.session.racks.items[0].fx;
     const eq = &fx.units.items[0].payload.eq;
-    app.fx_param = spectrum_ed.eq_field_type; // band 0's type field
+    app.fx_param = spectrum_ed.eq_field_kind; // band 0's kind field
+    // h/l only nudges a field's value once its submenu is open — band-select
+    // mode (the default after switching focus) has h/l walk bands instead.
+    app.eq_band_select = false;
 
     try std.testing.expectEqual(eq_mod.BandKind.peak, eq.bands[0].kind);
 
-    // Fine steps walk one state at a time: peak -> LP1 -> LP2 -> LP3 -> LP4
-    // -> HP1 -> HP2 -> HP3 -> HP4.
-    for (0..4) |_| _ = spectrum_ed.handleKey(&app, .{ .char = 'l' });
+    _ = spectrum_ed.handleKey(&app, .{ .char = 'l' });
     try std.testing.expectEqual(eq_mod.BandKind.lowpass, eq.bands[0].kind);
-    try std.testing.expectEqual(@as(u8, 4), eq.bands[0].slope);
+    try std.testing.expectEqual(@as(u8, 1), eq.bands[0].slope); // untouched by a kind-only change
 
     _ = spectrum_ed.handleKey(&app, .{ .char = 'l' });
     try std.testing.expectEqual(eq_mod.BandKind.highpass, eq.bands[0].kind);
+
+    // Clamped, not wrapped, past highpass.
+    _ = spectrum_ed.handleKey(&app, .{ .char = 'l' });
+    try std.testing.expectEqual(eq_mod.BandKind.highpass, eq.bands[0].kind);
+
+    // The gain field's flat slot becomes "slope" once the band isn't peak:
+    // fine steps walk one cascade stage (12dB/oct) at a time, clamped 1..4.
+    app.fx_param = spectrum_ed.eq_field_gain;
+    for (0..5) |_| _ = spectrum_ed.handleKey(&app, .{ .char = 'l' });
+    try std.testing.expectEqual(@as(u8, 4), eq.bands[0].slope);
+
+    // Coarse jumps the full 1..max_slope range in one press.
+    _ = spectrum_ed.handleKey(&app, .{ .char = 'H' });
     try std.testing.expectEqual(@as(u8, 1), eq.bands[0].slope);
 
-    // Coarse step (max_slope wide) walks back down through the states —
-    // HP1 -> LP1 -> (underflows past peak, clamped not wrapped) -> peak.
-    _ = spectrum_ed.handleKey(&app, .{ .char = 'H' });
-    try std.testing.expectEqual(eq_mod.BandKind.lowpass, eq.bands[0].kind);
-    try std.testing.expectEqual(@as(u8, 1), eq.bands[0].slope);
-
-    _ = spectrum_ed.handleKey(&app, .{ .char = 'H' });
-    try std.testing.expectEqual(eq_mod.BandKind.peak, eq.bands[0].kind);
-
-    // The field is clamped, not wrapped, at the low end too.
+    // Back to peak: the same flat slot reverts to a normal dB gain slider.
+    app.fx_param = spectrum_ed.eq_field_kind;
     for (0..3) |_| _ = spectrum_ed.handleKey(&app, .{ .char = 'h' });
     try std.testing.expectEqual(eq_mod.BandKind.peak, eq.bands[0].kind);
+    app.fx_param = spectrum_ed.eq_field_gain;
+    _ = spectrum_ed.handleKey(&app, .{ .char = 'l' });
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), eq.bands[0].gain_db, 0.0001);
 }
 
 test "FX chain: insert/bypass/remove are each their own undoable step" {
