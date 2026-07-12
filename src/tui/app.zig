@@ -3064,7 +3064,14 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8) !vo
     defer if (has_alsa) { if (using_midi) midi_in.stop(); };
     app.audio_label = if (using_native) (if (has_alsa) "alsa" else "wasapi") else "none (silent)";
 
-    var frame_buf: [32 * 1024]u8 = undefined;
+    // Sized to comfortably fit the heaviest single-view frame: the drum
+    // grid at max pads (64) x max steps (64), where every cell carries its
+    // own ANSI color code, runs to ~55KB on a wide+tall terminal. A fixed
+    // writer that runs out mid-frame silently truncates (Writer.fixed's
+    // error is swallowed below), which cuts the DEC 2026 sync bracket in
+    // half and leaves the terminal stuck mid-redraw — 32KB was tight enough
+    // for that to actually happen once pad/step banking stacked up.
+    var frame_buf: [160 * 1024]u8 = undefined;
     var input_buf: [128]u8 = undefined;
     var keys: [64]modal_mod.Key = undefined;
 
