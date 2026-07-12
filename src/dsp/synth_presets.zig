@@ -755,6 +755,60 @@ pub const presets = [_]Preset{
         .lfo_shape = .sine, .lfo_rate_hz = 5.0, .lfo_depth = 0.1, .lfo_target = .amp,
         .gain = 0.28,
     } },
+
+    // j-core/gabber — Mentasm-style hoover: detuned saw+square unison with a
+    // fast-closing filter env for that morphing "hoover" swell
+    .{ .name = "hoover-stab", .category = "stab", .tags = &.{ "wstudio", "hardcore", "gabber" }, .patch = .{
+        .waveform = .saw, .unison = 4, .unison_detune = 28.0, .unison_spread = 0.85,
+        .osc_b_on = true, .osc_b_waveform = .square, .osc_b_semi = 0.0, .osc_b_detune_cents = 20.0, .osc_b_level = 0.75,
+        .attack_s = 0.008, .decay_s = 0.32, .sustain = 0.15, .release_s = 0.18,
+        .filter_type = .lp, .filter_cutoff = 5200.0, .filter_res = 0.45,
+        .fenv_amount = -3.2, .fenv_attack_s = 0.005, .fenv_decay_s = 0.28, .fenv_sustain = 0.05, .fenv_release_s = 0.15,
+        .gain = 0.3,
+    } },
+
+    // hardstyle — near-self-oscillating bandpass screech lead, LFO-wobbled
+    // for the classic "talking" shriek
+    .{ .name = "screech-lead", .category = "lead", .tags = &.{ "wstudio", "hardstyle", "hardcore" }, .patch = .{
+        .waveform = .saw, .unison = 3, .unison_detune = 20.0, .unison_spread = 0.6,
+        .voice_mode = .mono, .glide_s = 0.03,
+        .attack_s = 0.004, .decay_s = 0.2, .sustain = 0.55, .release_s = 0.12,
+        .filter_type = .bp, .filter_cutoff = 2000.0, .filter_res = 0.9,
+        .fenv_amount = 3.8, .fenv_attack_s = 0.01, .fenv_decay_s = 0.35, .fenv_sustain = 0.25, .fenv_release_s = 0.2,
+        .lfo_shape = .sine, .lfo_rate_hz = 5.5, .lfo_depth = 0.3, .lfo_target = .filter,
+        .gain = 0.26,
+    } },
+
+    // speedcore/terrorcore — FM-driven harsh bass, square carrier torn up by
+    // audio-rate sine FM for a distortion-like buzz at extreme BPM
+    .{ .name = "distort-bass", .category = "bass", .tags = &.{ "wstudio", "speedcore", "terrorcore" }, .patch = .{
+        .waveform = .square, .voice_mode = .mono, .glide_s = 0.0,
+        .osc_b_on = true, .osc_b_waveform = .sine, .osc_b_semi = 0.0, .osc_b_level = 1.0,
+        .mod_mode = .fm_b_to_a, .mod_amount = 6.5,
+        .attack_s = 0.001, .decay_s = 0.08, .sustain = 0.9, .release_s = 0.05,
+        .filter_type = .lp, .filter_cutoff = 1600.0, .filter_res = 0.35,
+        .sub_level = 0.4, .sub_shape = .sine,
+        .gain = 0.36,
+    } },
+
+    // happy hardcore/j-core — bright FM bell-piano stab for euphoric build
+    // hits
+    .{ .name = "happy-piano", .category = "keys", .tags = &.{ "wstudio", "happy-hardcore", "j-core" }, .patch = .{
+        .waveform = .sine, .osc_b_on = true, .osc_b_waveform = .sine, .osc_b_semi = 12.0, .osc_b_detune_cents = 5.0,
+        .mod_mode = .fm_b_to_a, .mod_amount = 2.2,
+        .attack_s = 0.001, .decay_s = 0.5, .sustain = 0.05, .release_s = 0.35,
+        .filter_type = .lp, .filter_cutoff = 9000.0, .filter_res = 0.05,
+        .gain = 0.3,
+    } },
+
+    // j-core/nerdcore — fast needle-thin square arp lead for chiptune-flavored
+    // melodic runs over the wall of kicks
+    .{ .name = "square-arp", .category = "pluck", .tags = &.{ "wstudio", "j-core", "nerdcore" }, .patch = .{
+        .waveform = .square, .pulse_width = 0.35,
+        .attack_s = 0.001, .decay_s = 0.07, .sustain = 0.0, .release_s = 0.04,
+        .filter_type = .lp, .filter_cutoff = 12_000.0, .filter_res = 0.15,
+        .gain = 0.26,
+    } },
 };
 
 /// Case-insensitive lookup by name.

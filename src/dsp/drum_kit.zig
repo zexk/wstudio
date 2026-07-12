@@ -780,6 +780,50 @@ fn rimEurobeat(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]
     });
 }
 
+// Hardcore/j-core: gabber-style hard-clipped kick with a fast pitch drop and
+// a bright screaming click, everything else short and needle-sharp to keep
+// up at 170+ BPM.
+fn kickHardcore(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return kickGen(allocator, sr, .{
+        .freq_end = 58.0, .freq_start_add = 220.0, .pitch_decay = 95.0, .body_decay = 9.0,
+        .click_decay = 180.0, .click_freq = 2400.0, .click_mix = 0.85, .drive = 7.5, .dur_s = 0.22,
+    });
+}
+fn snareHardcore(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return snareGen(allocator, sr, .{
+        .tone1_hz = 215.0, .tone2_hz = 320.0, .tone_decay = 22.0, .noise_decay = 22.0,
+        .drive = 3.4, .dur_s = 0.2, .lp_hz = 10_000.0, .hp_hz = 1300.0,
+    });
+}
+fn hihatHardcoreClosed(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return metalHat(allocator, sr, .{ .dur_s = 0.032, .decay = 170.0, .body_hz = 8200.0, .air_hz = 11_500.0, .air_mix = 0.4 });
+}
+fn hihatHardcoreOpen(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return metalHat(allocator, sr, .{ .dur_s = 0.2, .decay = 16.0, .body_hz = 8200.0, .air_hz = 11_500.0, .air_mix = 0.4 });
+}
+fn clapHardcore(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return clapGen(allocator, sr, .{
+        .lp_hz = 3600.0, .hp_hz = 1500.0, .burst_decay = 280.0, .tail_decay = 20.0, .tail_mix = 0.3, .dur_s = 0.2,
+    });
+}
+fn tomHardcore1(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return tomGen(allocator, sr, .{
+        .freq_start = 280.0, .freq_end = 150.0, .dur_s = 0.24, .body_decay = 10.0,
+        .attack_decay = 150.0, .drive = 3.2, .attack_mix = 0.2, .seed = 0x7b1,
+    });
+}
+fn tomHardcore2(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return tomGen(allocator, sr, .{
+        .freq_start = 200.0, .freq_end = 100.0, .dur_s = 0.28, .body_decay = 9.0,
+        .attack_decay = 150.0, .drive = 3.2, .attack_mix = 0.2, .seed = 0x7b2,
+    });
+}
+fn rimHardcore(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return rimGen(allocator, sr, .{
+        .tone1_hz = 2000.0, .tone2_hz = 1350.0, .tone_decay = 170.0, .click_decay = 280.0, .drive = 3.5, .dur_s = 0.045,
+    });
+}
+
 /// One pad slot in a runtime kit variant: display name, generator, and
 /// default mixer gain — the same shape as `PadDef` minus the WAV filename
 /// (these are never written to disk).
@@ -908,6 +952,16 @@ pub const variants = [_]KitVariant{
         .{ .name = "tom-1", .gen = tomEurobeat1, .gain = 0.80 },
         .{ .name = "tom-2", .gen = tomEurobeat2, .gain = 0.80 },
         .{ .name = "rim", .gen = rimEurobeat, .gain = 0.65 },
+    } },
+    .{ .name = "hardcore", .category = "distorted", .tags = &.{ "wstudio", "j-core", "hardcore" }, .pads = .{
+        .{ .name = "kick", .gen = kickHardcore, .gain = 1.00 },
+        .{ .name = "snare", .gen = snareHardcore, .gain = 0.85 },
+        .{ .name = "hihat", .gen = hihatHardcoreClosed, .gain = 0.45 },
+        .{ .name = "open", .gen = hihatHardcoreOpen, .gain = 0.45 },
+        .{ .name = "clap", .gen = clapHardcore, .gain = 0.70 },
+        .{ .name = "tom-1", .gen = tomHardcore1, .gain = 0.80 },
+        .{ .name = "tom-2", .gen = tomHardcore2, .gain = 0.80 },
+        .{ .name = "rim", .gen = rimHardcore, .gain = 0.60 },
     } },
 };
 
