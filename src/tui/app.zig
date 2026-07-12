@@ -1799,6 +1799,7 @@ pub const App = struct {
                     .track = track_idx,
                     .muted = track.muted,
                 } });
+                self.setStatus("\"{s}\" {s}", .{ track.name, if (track.muted) "muted" else "unmuted" });
             },
             .toggle_solo => {
                 const track_idx = self.currentTrack();
@@ -1813,6 +1814,7 @@ pub const App = struct {
                     .track = track_idx,
                     .soloed = track.soloed,
                 } });
+                self.setStatus("\"{s}\" {s}", .{ track.name, if (track.soloed) "soloed" else "unsoloed" });
             },
             .note => |n| {
                 const track_idx = self.currentTrack();

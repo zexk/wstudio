@@ -103,6 +103,8 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "synth-preset-save", .desc = "<name>  save the cursor track's current synth params as a reusable preset", .run = wrap(cmdSynthPresetSave), .scope = .synth },
     .{ .name = "drum-kit",    .desc = "[name]  apply a factory or saved kit to the cursor drum machine (no args: list names)", .run = wrap(cmdDrumKit), .scope = .drum },
     .{ .name = "drum-kit-save", .desc = "<name>  save the cursor drum machine's pad tuning (name/gain/pan/pitch/ADSR/choke, no audio) as a reusable kit", .run = wrap(cmdDrumKitSave), .scope = .drum },
+    .{ .name = "undo",         .desc = "undo the last edit (alias for the u key)",   .run = wrap(cmdUndo) },
+    .{ .name = "redo",         .desc = "redo the last undone edit (alias for the U key)", .run = wrap(cmdRedo) },
 };
 
 /// Look up `text` in the command table and run it, reporting unknown commands
@@ -263,6 +265,9 @@ fn cmdSwing(app: *App, args: []const u8) void {
     pp.setSwing(pct);
     app.setStatus("swing: {d:.0}%", .{pp.swing.load(.monotonic)});
 }
+
+fn cmdUndo(app: *App, _: []const u8) void { history.doUndo(app); }
+fn cmdRedo(app: *App, _: []const u8) void { history.doRedo(app); }
 
 pub fn cmdHelp(app: *App, _: []const u8) void {
     const section: ?help_view.Section = switch (app.view) {
