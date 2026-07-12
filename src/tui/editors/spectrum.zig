@@ -87,6 +87,28 @@ pub fn paramCount(k: FxKind) usize {
     };
 }
 
+/// True if `track` currently hosts a drum machine — the only instrument
+/// with individually addressable pads, so the only one `scpad` (see
+/// `visibleParamCount`) makes sense against.
+fn trackIsDrumMachine(app: *App, track: u16) bool {
+    if (track >= app.session.racks.items.len) return false;
+    return std.meta.activeTag(app.session.racks.items[track].instrument) == .drum_machine;
+}
+
+/// `paramCount`, narrowed to what this specific unit instance should
+/// actually show/cycle through: `comp`'s `scpad` row (idx 6, "which pad on
+/// the sidechain track") only makes sense once a sidechain track is picked
+/// AND that track is a drum machine — every other instrument has no pad
+/// concept. Every other kind (and `comp` itself, absent that condition)
+/// falls through to the static `paramCount`.
+pub fn visibleParamCount(app: *App, k: FxKind, p: *const FxPayload) usize {
+    if (k == .comp) {
+        const show_scpad = if (p.comp.sidechain_source) |sc| trackIsDrumMachine(app, sc.track) else false;
+        if (!show_scpad) return paramCount(k) - 1;
+    }
+    return paramCount(k);
+}
+
 /// Flat param list for a multiband compressor: 6 shared controls (crossover
 /// x2, attack, release, style, mix) followed by 3 fields (thresh/ratio/
 /// makeup) per band, low->mid->high — same "one sequential list" shape the
@@ -782,8 +804,30 @@ fn nudge(app: *App, target: EqTarget, key: u8) void {
     const cnt: f32 = @floatFromInt(app.takeCount());
     const cur = getParam(&u.payload, app.fx_param);
     setParam(&u.payload, app.fx_param, cur + dir * cnt * paramStep(u.kind(), app.fx_param, coarse));
+    clearStaleSidechainPad(app, &u.payload);
     app.dirty = true;
     syncChain(app, target);
+}
+
+/// Drops a `comp`'s `scpad` selection the moment its sidechain track (idx
+/// 5) stops being a drum machine — e.g. nudging the track picker off a
+/// drum track, or onto one that's since had its instrument swapped out
+/// from under it. Left alone, a stale non-null `pad` silently breaks the
+/// detector instead of falling back to whole-track sidechain: the engine
+/// zeroes the per-pad capture buffer and only a `DrumMachine` device ever
+/// fills it back in (`Event.capture_pad` is a no-op on every other
+/// instrument), so the compressor would read permanent silence and never
+/// trigger — invisibly, since `visibleParamCount` also hides the row that
+/// would let the user notice and fix it. A no-op whenever `pad` is already
+/// null or the track is still a drum machine.
+fn clearStaleSidechainPad(app: *App, p: *FxPayload) void {
+    switch (p.*) {
+        .comp => |*c| if (c.sidechain_source) |sc| {
+            if (sc.pad != null and !trackIsDrumMachine(app, sc.track))
+                c.sidechain_source = .{ .track = sc.track, .pad = null };
+        },
+        else => {},
+    }
 }
 
 pub fn handleKey(app: *App, key: modal_mod.Key) bool {
@@ -829,7 +873,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             'k' => {
                 const fx = fxPtr(app, target) orelse return true;
                 const u = focusedUnit(app, fx) orelse return true;
-                const n = paramCount(u.kind());
+                const n = visibleParamCount(app, u.kind(), &u.payload);
                 const cnt: usize = @intCast(app.takeCount());
                 history.flushFxNudge(app);
                 app.fx_param = (app.fx_param + n - (cnt % n)) % n;
@@ -838,7 +882,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             'j' => {
                 const fx = fxPtr(app, target) orelse return true;
                 const u = focusedUnit(app, fx) orelse return true;
-                const n = paramCount(u.kind());
+                const n = visibleParamCount(app, u.kind(), &u.payload);
                 const cnt: usize = @intCast(app.takeCount());
                 history.flushFxNudge(app);
                 app.fx_param = (app.fx_param + cnt) % n;
@@ -976,7 +1020,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16, v
         return;
     }
 
-    if (rel >= paramCount(unit.kind())) return;
+    if (rel >= visibleParamCount(app, unit.kind(), &unit.payload)) return;
     switch (ev.kind) {
         .press => { history.flushFxNudge(app); app.fx_param = rel; },
         .scroll_up, .scroll_down => {

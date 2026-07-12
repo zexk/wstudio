@@ -472,7 +472,8 @@ pub fn drawFxView(
         try synthSection(w, sectionLabel(k), sectionColor(k));
         // One synth-editor-style bar per param, filled against the
         // same [min, max] setParam clamps to.
-        for (0..spectrum_ed.paramCount(k)) |i| {
+        const visible_count = spectrum_ed.visibleParamCount(app, k, &unit.payload);
+        for (0..visible_count) |i| {
             const is_sel = (i == app.fx_param);
             const v = spectrum_ed.getParam(&unit.payload, i);
             if (spectrum_ed.paramToggleNames(k, i)) |names| {
@@ -484,7 +485,7 @@ pub fn drawFxView(
             var vbuf: [16]u8 = undefined;
             try barRow(w, is_sel, false, sectionColor(k), spectrum_ed.paramName(k, i), norm, 1.0, formatFxValue(&vbuf, &unit.payload, i));
         }
-        body_lines = spectrum_ed.paramCount(k);
+        body_lines = visible_count;
         if (unit.bypassed) {
             try w.writeAll(red ++ "   BYPASSED" ++ rst ++ dim ++ "  (b to re-enable)" ++ rst);
             try endLine(w);
@@ -587,7 +588,7 @@ pub fn drawFxStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer, targ
             },
         }
         try w.writeAll(dim ++ "  [" ++ rst);
-        try w.print("{d}/{d}", .{ app.fx_param + 1, spectrum_ed.paramCount(k) });
+        try w.print("{d}/{d}", .{ app.fx_param + 1, spectrum_ed.visibleParamCount(app, k, &unit.payload) });
         try w.writeAll(dim ++ "]" ++ rst);
     } else {
         try style.writeModeBadge(w, app.modal.mode);
