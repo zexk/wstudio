@@ -6,7 +6,7 @@
 //! none exists yet (starting from whatever the curve currently interpolates
 //! to, so a nudge on a bare stretch doesn't jump to an arbitrary default);
 //! x deletes the point at the cursor exactly (vim's char tier); w/b jump the
-//! cursor a bar at a time (word tier); tab cycles gain -> pan -> whichever
+//! cursor a beat at a time (word tier); tab cycles gain -> pan -> whichever
 //! instrument params already have at least one point on this clip -> gain;
 //! `p` opens a picker (poly_synth or sampler tracks) to start automating one
 //! of the current track's instrument continuous params that isn't on this
@@ -185,7 +185,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
     if (app.modal.mode == .visual) return handleVisual(app, key, clip);
 
     // Operator-pending mode: `d`/`y` arm here (armOperator below), then a
-    // step/bar motion (h/l/H/L/g/G/w/b) deletes/yanks the range from the
+    // step/beat motion (h/l/H/L/g/G/w/b) deletes/yanks the range from the
     // arming point to wherever the motion lands — reuses the exact same
     // deleteSelection/yankSelection visual mode uses, just without the
     // visual-mode UI (matches piano.zig/drum.zig/arrangement.zig's identical
@@ -215,8 +215,8 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 'L' => { moveCursor(app, clip, 4 * app.takeCount()); finishOperator(app, clip, op); return true; },
                 'g' => { app.automation_cursor_step = 0; finishOperator(app, clip, op); return true; },
                 'G' => { app.automation_cursor_step = maxStep(app, clip); finishOperator(app, clip, op); return true; },
-                // dw/yw act on exactly the bar(s) through the end of the nth
-                // bar forward, not w's raw landing step (see piano.zig's
+                // dw/yw act on exactly the beat(s) through the end of the nth
+                // beat forward, not w's raw landing step (see piano.zig's
                 // identical comment — same vim dw nuance).
                 'w' => { operatorBarForward(app, clip, app.takeCount()); finishOperator(app, clip, op); return true; },
                 'b' => { operatorBarBackward(app, clip, app.takeCount()); finishOperator(app, clip, op); return true; },
@@ -248,7 +248,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             'G' => { app.automation_cursor_step = maxStep(app, clip); return true; },
             // w/b: vim's word motion, one tier up from h/l's step
             // ("char") granularity — jump to the start of the
-            // next/current-or-previous bar.
+            // next/current-or-previous beat.
             'w' => { jumpBar(app, clip, app.takeCount()); return true; },
             'b' => { jumpBar(app, clip, -app.takeCount()); return true; },
             'x' => { deletePoint(app, clip); return true; },
@@ -290,6 +290,8 @@ fn handleVisual(app: *App, key: modal_mod.Key, clip: *ws.Clip) bool {
             'L' => { moveCursor(app, clip, 4 * app.takeCount()); return true; },
             'g' => { app.automation_cursor_step = 0; return true; },
             'G' => { app.automation_cursor_step = maxStep(app, clip); return true; },
+            'w' => { jumpBar(app, clip, app.takeCount()); return true; },
+            'b' => { jumpBar(app, clip, -app.takeCount()); return true; },
             'y' => { yankSelection(app, clip); return true; },
             'd' => { deleteSelection(app, clip); return true; },
             'p', 'P' => { pasteSelection(app, clip); return true; },
@@ -451,15 +453,20 @@ fn moveCursor(app: *App, clip: *const ws.Clip, delta: i32) void {
     app.automation_cursor_step = @intCast(std.math.clamp(cur, 0, max_step));
 }
 
-/// Bar length in steps — always straight 16ths (automation has no grid
-/// toggle like the piano roll's `T`), so this is just beats-per-bar * 4.
+/// "Bar" length in steps — despite the name, this is one beat (4 steps,
+/// always straight 16ths — automation has no grid toggle like the piano
+/// roll's `T`), matching the drum grid's own hardcoded word-tier group and
+/// the piano roll's `barLenSteps` (see its own note on the earlier bug this
+/// mirrors: a real beats-per-bar multiply here would make w/b jump a full
+/// bar, 4x further than the drum grid's equivalent motion).
 fn barLenSteps(app: *App) u32 {
-    return @as(u32, app.session.project.beats_per_bar) * 4;
+    _ = app;
+    return 4;
 }
 
-/// w/b: jump the cursor `delta` bars forward/back (vim's word motion, one
-/// tier up from h/l's step granularity) — snaps to the nearest bar boundary
-/// first, then moves whole bars from there.
+/// w/b: jump the cursor `delta` beats forward/back (vim's word motion, one
+/// tier up from h/l's step granularity) — snaps to the nearest beat boundary
+/// first, then moves whole beats from there.
 fn jumpBar(app: *App, clip: *const ws.Clip, delta: i32) void {
     const bar_len = barLenSteps(app);
     if (bar_len == 0) return;
@@ -469,8 +476,8 @@ fn jumpBar(app: *App, clip: *const ws.Clip, delta: i32) void {
     app.automation_cursor_step = @intCast(std.math.clamp(target_step, 0, top));
 }
 
-/// dw/yw's range end: the last step of the nth bar forward (inclusive), not
-/// w's own landing step (the *next* bar's first step) — see the
+/// dw/yw's range end: the last step of the nth beat forward (inclusive), not
+/// w's own landing step (the *next* beat's first step) — see the
 /// operator-pending block's comment on 'w'.
 fn operatorBarForward(app: *App, clip: *const ws.Clip, n: i32) void {
     const bar_len = barLenSteps(app);
@@ -481,10 +488,10 @@ fn operatorBarForward(app: *App, clip: *const ws.Clip, n: i32) void {
     app.automation_cursor_step = @intCast(std.math.clamp(hi, 0, top));
 }
 
-/// db/yb's range start: the first step of the nth bar back — the anchor
+/// db/yb's range start: the first step of the nth beat back — the anchor
 /// (the cursor's position when `d`/`y` was pressed) stays the range's other
 /// (inclusive) end, so this covers "back to the start of this-or-an-earlier
-/// bar, through where you started."
+/// beat, through where you started."
 fn operatorBarBackward(app: *App, clip: *const ws.Clip, n: i32) void {
     const bar_len = barLenSteps(app);
     if (bar_len == 0) return;

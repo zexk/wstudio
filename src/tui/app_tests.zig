@@ -914,6 +914,43 @@ test "automation editor: nudge, `.` repeat, and visual range yank/delete/paste" 
     try std.testing.expectEqual(@as(usize, 2), clip.automation.gain.len);
 }
 
+test "automation editor visual mode: w/b extend the selection by beat, matching normal-mode jumpBar" {
+    var app = try testApp();
+    defer app.deinit();
+
+    try app.session.stampClip(0, 0);
+    automation_ed.switchTo(&app, 0, 0);
+    const clip = automation_ed.currentClip(&app).?;
+    clip.length_bars = 2;
+
+    // Points at step 0, step 4 (w's landing step, included like v3l's is),
+    // and step 8 (outside the w-extended range).
+    app.automation_cursor_step = 0;
+    _ = automation_ed.handleKey(&app, .{ .char = 'j' });
+    app.automation_cursor_step = 4;
+    _ = automation_ed.handleKey(&app, .{ .char = 'j' });
+    app.automation_cursor_step = 8;
+    _ = automation_ed.handleKey(&app, .{ .char = 'j' });
+    try std.testing.expectEqual(@as(usize, 3), clip.automation.gain.len);
+
+    app.automation_cursor_step = 0;
+    _ = automation_ed.handleKey(&app, .{ .char = 'v' });
+    _ = automation_ed.handleKey(&app, .{ .char = 'w' }); // extend one beat forward (0 -> 4)
+    try std.testing.expectEqual(ws.input.Mode.visual, app.modal.mode);
+    try std.testing.expectEqual(@as(u32, 4), app.automation_cursor_step);
+    _ = automation_ed.handleKey(&app, .{ .char = 'd' });
+    try std.testing.expectEqual(@as(usize, 1), clip.automation.gain.len);
+    try std.testing.expectApproxEqAbs(@as(f64, 2.0), clip.automation.gain[0].beat, 1e-9); // step 8 survives
+
+    // b moves the extended selection back a beat (from step 12, lands on 8).
+    app.automation_cursor_step = 12;
+    _ = automation_ed.handleKey(&app, .{ .char = 'v' });
+    _ = automation_ed.handleKey(&app, .{ .char = 'b' });
+    try std.testing.expectEqual(@as(u32, 8), app.automation_cursor_step);
+    _ = automation_ed.handleKey(&app, .{ .char = 'd' });
+    try std.testing.expectEqual(@as(usize, 0), clip.automation.gain.len);
+}
+
 test "automation editor operator+motion: d3l / y3l act on a range without entering visual mode" {
     var app = try testApp();
     defer app.deinit();
@@ -956,12 +993,12 @@ test "automation editor operator+motion: d3l / y3l act on a range without enteri
     try std.testing.expectEqual(@as(usize, 0), clip.automation.gain.len);
 }
 
-test "automation editor char/word tiers: x deletes the point under the cursor, w/b jump by bar" {
+test "automation editor char/word tiers: x deletes the point under the cursor, w/b jump by beat" {
     var app = try testApp();
     defer app.deinit();
 
     try app.session.stampClip(0, 0);
-    // Extend the clip to 2 bars so there's a second bar boundary to jump to.
+    // Extend the clip to 2 bars so there's plenty of beat boundaries to jump to.
     automation_ed.switchTo(&app, 0, 0);
     const clip = automation_ed.currentClip(&app).?;
     clip.length_bars = 2;
@@ -975,24 +1012,25 @@ test "automation editor char/word tiers: x deletes the point under the cursor, w
     try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
     try std.testing.expectEqual(@as(usize, 0), clip.automation.gain.len);
 
-    // w: jump forward to the next bar boundary (step 16, 4 beats/bar * 4);
-    // b: back to bar 0.
+    // w: jump forward to the next beat boundary (step 4); b: back to beat 0.
+    // Matches the drum grid's own w/b granularity (a beat, not a full bar) —
+    // see barLenSteps's own note on the earlier bar-sized bug this fixed.
     app.automation_cursor_step = 0;
     _ = automation_ed.handleKey(&app, .{ .char = 'w' });
-    try std.testing.expectEqual(@as(u32, 16), app.automation_cursor_step);
+    try std.testing.expectEqual(@as(u32, 4), app.automation_cursor_step);
     _ = automation_ed.handleKey(&app, .{ .char = 'b' });
     try std.testing.expectEqual(@as(u32, 0), app.automation_cursor_step);
 
-    // dw: delete exactly the current bar's worth of points (steps 0-15),
-    // leaving a point at bar 2 (step 16) untouched.
-    app.automation_cursor_step = 16;
-    _ = automation_ed.handleKey(&app, .{ .char = 'j' }); // point at step 16
+    // dw: delete exactly the current beat's worth of points (steps 0-3),
+    // leaving a point at beat 2 (step 4) untouched.
+    app.automation_cursor_step = 4;
+    _ = automation_ed.handleKey(&app, .{ .char = 'j' }); // point at step 4
     app.automation_cursor_step = 0;
     _ = automation_ed.handleKey(&app, .{ .char = 'j' }); // point at step 0
     try std.testing.expectEqual(@as(usize, 2), clip.automation.gain.len);
     for ("dw") |c| _ = automation_ed.handleKey(&app, .{ .char = c });
     try std.testing.expectEqual(@as(usize, 1), clip.automation.gain.len);
-    try std.testing.expectApproxEqAbs(@as(f64, 4.0), clip.automation.gain[0].beat, 1e-9); // step 16 = beat 4
+    try std.testing.expectApproxEqAbs(@as(f64, 1.0), clip.automation.gain[0].beat, 1e-9); // step 4 = beat 1
 }
 
 test "automation editor: tab only cycles gain/pan until the picker adds a synth param" {
