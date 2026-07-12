@@ -44,10 +44,11 @@ const synth_ed = @import("../editors/synth.zig");
 
 /// Render the synth editor into `w`, applying vertical scroll so it fits
 /// within `max_rows`. Always shows the title line, then slices the parameter
-/// body to keep the cursor in view. Wide terminals (synth_ed.twoCol) get the
-/// sections zipped into two side-by-side columns — OSC A and the shaping
-/// sections left, OSC B and modulation/output right — 25 body rows instead
-/// of 50; narrow ones keep the single-column stack.
+/// body to keep the cursor in view. Wide terminals (synth_ed.twoCol) get an
+/// A/B-over-C layout: OSC A and OSC B side by side on top (osc-specific
+/// params), then every other, non-oscillator section stacked full-width
+/// beneath (43 body rows instead of 50); narrow terminals keep the plain
+/// single-column stack.
 pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, snap: engine_mod.UiSnapshot) !void {
     _ = snap;
     // Available rows for the view body (excludes the caller's header +
@@ -57,20 +58,21 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize
 
     // Stretch the param bars (and the section rules with them) into free
     // width — single-column mode gets at most a few extra cells before the
-    // two-column split takes over at 108; there each column stretches its
-    // own bars. The knobs were reset to the compact defaults by App.draw.
+    // wide layout takes over at 108. The wide layout sets its own widths
+    // per block below (narrower for the OSC A/B top block, full-width for
+    // the stacked section beneath). The knobs were reset to the compact
+    // defaults by App.draw.
     const col_w = synth_ed.colWidth(cols);
-    style.form_bar_w = if (two_col)
-        @min(style.form_bar_w_default + (col_w -| 56), 40)
-    else
-        @min(style.form_bar_w_default + (cols -| 100) / 2, 40);
-    style.form_section_w = style.form_section_w_default + (style.form_bar_w - style.form_bar_w_default);
+    if (!two_col) {
+        style.form_bar_w = @min(style.form_bar_w_default + (cols -| 100) / 2, 40);
+        style.form_section_w = style.form_section_w_default + (style.form_bar_w - style.form_bar_w_default);
+    }
 
     // Clamp scroll so the cursor row is visible and the window never runs
     // past the layout's last row (the two layouts' heights differ, so a
     // stale offset from the other mode must not survive a resize).
     const cursor_row = if (two_col) synth_ed.paramColRow(app.synth_cursor).row else synth_ed.paramRow(app.synth_cursor);
-    const body_rows: usize = if (two_col) 25 else 50; // rows below the shared title
+    const body_rows: usize = if (two_col) synth_ed.body_rows_wide else 50; // rows below the shared title
     var scroll = @min(app.synth_scroll, (body_rows + 1) -| max_rows);
     if (cursor_row < scroll) scroll = cursor_row;
     if (cursor_row >= scroll + max_rows) scroll = cursor_row -| max_rows + 1;
@@ -115,24 +117,40 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize
     // text from a previous frame's different scroll position visible on
     // that row.
     if (two_col) {
+        // Top block: OSC A / OSC B side by side, bars scaled to half-width.
+        style.form_bar_w = @min(style.form_bar_w_default + (col_w -| 56), 40);
+        style.form_section_w = style.form_section_w_default + (style.form_bar_w - style.form_bar_w_default);
         var tmp_l: [16 * 1024]u8 = undefined;
         var wl = std.Io.Writer.fixed(&tmp_l);
-        try drawSynthColLeft(&wl, synth, c);
+        try secOscA(&wl, synth, c);
         var tmp_r: [16 * 1024]u8 = undefined;
         var wr = std.Io.Writer.fixed(&tmp_r);
-        try drawSynthColRight(&wr, synth, c);
+        try secOscB(&wr, synth, c);
+
+        // Bottom block: every non-oscillator section, stacked full-width.
+        style.form_bar_w = @min(style.form_bar_w_default + (cols -| 100) / 2, 40);
+        style.form_section_w = style.form_section_w_default + (style.form_bar_w - style.form_bar_w_default);
+        var tmp_b: [16 * 1024]u8 = undefined;
+        var wb = std.Io.Writer.fixed(&tmp_b);
+        try drawSynthBottom(&wb, synth, c);
 
         var it_l = std.mem.splitSequence(u8, wl.buffered(), "\r\n");
         var it_r = std.mem.splitSequence(u8, wr.buffered(), "\r\n");
+        var it_b = std.mem.splitSequence(u8, wb.buffered(), "\r\n");
         var row: usize = 1;
-        while (true) : (row += 1) {
-            const ll = it_l.next() orelse "";
-            const rl = it_r.next() orelse "";
-            if (ll.len == 0 and rl.len == 0) break; // both exhausted (trailing empties)
+        while (row <= synth_ed.body_rows_wide) : (row += 1) {
+            const in_top = row <= synth_ed.top_h;
+            const ll = if (in_top) it_l.next() orelse "" else "";
+            const rl = if (in_top) it_r.next() orelse "" else "";
+            const bl = if (!in_top) it_b.next() orelse "" else "";
             if (written >= max_rows) break;
             if (row < scroll + 1) continue;
-            try style.writePadded(w, ll, col_w);
-            try style.writeClamped(w, rl, cols -| col_w);
+            if (in_top) {
+                try style.writePadded(w, ll, col_w);
+                try style.writeClamped(w, rl, cols -| col_w);
+            } else {
+                try w.writeAll(bl);
+            }
             try endLine(w);
             written += 1;
         }
@@ -166,24 +184,20 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize
 }
 
 // The section renderers below emit one header row + one row per param each.
-// The two-column split/order is mirrored by editors/synth.zig's paramColRow,
-// the single-column order (in drawSynthEditor's else-branch above) by its
-// paramRow — keep renderers and row maps in sync.
+// The wide layout's OSC A/B top block + drawSynthBottom's order is mirrored
+// by editors/synth.zig's paramColRow, the single-column order (in
+// drawSynthEditor's else-branch above) by its paramRow — keep renderers and
+// row maps in sync.
 
-/// OSC A + the shaping sections: 25 rows (7 + 5 + 5 + 5 + 3).
-fn drawSynthColLeft(w: *std.Io.Writer, synth: anytype, c: u8) !void {
-    try secOscA(w, synth, c);
+/// Every non-oscillator section, stacked full-width beneath OSC A/B in the
+/// wide layout: 34 rows (3 + 5 + 5 + 5 + 5 + 3 + 3 + 3 + 2).
+fn drawSynthBottom(w: *std.Io.Writer, synth: anytype, c: u8) !void {
+    try secMod(w, synth, c);
     try secEnv(w, synth, c);
     try secFilter(w, synth, c);
     try secFenv(w, synth, c);
-    try secVoice(w, synth, c);
-}
-
-/// OSC B + modulation/output sections: 25 rows (9 + 3 + 5 + 3 + 3 + 2).
-fn drawSynthColRight(w: *std.Io.Writer, synth: anytype, c: u8) !void {
-    try secOscB(w, synth, c);
-    try secMod(w, synth, c);
     try secLfo(w, synth, c);
+    try secVoice(w, synth, c);
     try secSub(w, synth, c);
     try secNoise(w, synth, c);
     try secOut(w, synth, c);

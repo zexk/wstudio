@@ -74,37 +74,46 @@ fn moveCursor(app: *App, delta: i32) void {
     updateScroll(app);
 }
 
-/// Wide terminals split the editor into two side-by-side columns (OSC A +
-/// the shaping sections left, OSC B + modulation/output right) instead of
-/// one 51-row scroll. The widest row (MOD's six-option mode enum) needs 54
-/// visible columns, so the split starts once both columns can hold it.
+/// Wide terminals split the editor into OSC A / OSC B side by side on top
+/// (7 and 9 rows respectively — OSC B is taller, so the top block is 9 rows)
+/// followed by every other section stacked full-width beneath, instead of
+/// one 51-row scroll. 108 cols keeps both oscillator columns comfortably
+/// above their own widest row (OSC B's 9-row block).
 pub const two_col_min_cols: usize = 108;
 
 pub fn twoCol(cols: usize) bool {
     return cols >= two_col_min_cols;
 }
 
-/// Left column's width in two-column mode; the right column takes the rest.
+/// Left column's width in the OSC A/B top block; the right column takes the rest.
 pub fn colWidth(cols: usize) usize {
     return cols / 2;
 }
 
-/// Column + row of `cursor` within the two-column layout (row 0 is the
-/// shared title). Must stay in sync with drawSynthColLeft/Right in
-/// views/synth.zig, exactly like paramRow mirrors the single-column order.
+/// Row budget of the OSC A/B top block (max of OSC A's 7 rows and OSC B's 9).
+pub const top_h: usize = 9;
+
+/// Total body rows (below the shared title) in the wide A/B-over-C layout.
+pub const body_rows_wide: usize = 43;
+
+/// Column + row of `cursor` within the wide layout (row 0 is the shared
+/// title). OSC A/B (rows 1-9) are side by side, col meaningful; everything
+/// else (rows 10-43) is a single full-width column and col is unused. Must
+/// stay in sync with secOscA/secOscB/drawSynthBottom in views/synth.zig,
+/// exactly like paramRow mirrors the single-column order.
 pub fn paramColRow(cursor: u8) struct { col: u1, row: usize } {
     return switch (cursor) {
         0...5   => .{ .col = 0, .row = 2  + @as(usize, cursor) },        // OSC A (header at 1)
         6...13  => .{ .col = 1, .row = 2  + @as(usize, cursor - 6) },    // OSC B (header at 1)
-        14...15 => .{ .col = 1, .row = 11 + @as(usize, cursor - 14) },   // MOD (header at 10)
-        16...19 => .{ .col = 0, .row = 9  + @as(usize, cursor - 16) },   // ENV (header at 8)
-        20...23 => .{ .col = 0, .row = 14 + @as(usize, cursor - 20) },   // FILTER (header at 13)
-        24...27 => .{ .col = 0, .row = 19 + @as(usize, cursor - 24) },   // FENV (header at 18)
-        28...31 => .{ .col = 1, .row = 14 + @as(usize, cursor - 28) },   // LFO (header at 13)
-        32...33 => .{ .col = 0, .row = 24 + @as(usize, cursor - 32) },   // VOICE (header at 23)
-        34...35 => .{ .col = 1, .row = 19 + @as(usize, cursor - 34) },   // SUB (header at 18)
-        36...37 => .{ .col = 1, .row = 22 + @as(usize, cursor - 36) },   // NOISE (header at 21)
-        38      => .{ .col = 1, .row = 25 },                             // OUT (header at 24)
+        14...15 => .{ .col = 0, .row = 11 + @as(usize, cursor - 14) },   // MOD (header at 10)
+        16...19 => .{ .col = 0, .row = 14 + @as(usize, cursor - 16) },   // ENV (header at 13)
+        20...23 => .{ .col = 0, .row = 19 + @as(usize, cursor - 20) },   // FILTER (header at 18)
+        24...27 => .{ .col = 0, .row = 24 + @as(usize, cursor - 24) },   // FENV (header at 23)
+        28...31 => .{ .col = 0, .row = 29 + @as(usize, cursor - 28) },   // LFO (header at 28)
+        32...33 => .{ .col = 0, .row = 34 + @as(usize, cursor - 32) },   // VOICE (header at 33)
+        34...35 => .{ .col = 0, .row = 37 + @as(usize, cursor - 34) },   // SUB (header at 36)
+        36...37 => .{ .col = 0, .row = 40 + @as(usize, cursor - 36) },   // NOISE (header at 39)
+        38      => .{ .col = 0, .row = 43 },                             // OUT (header at 42)
         else    => .{ .col = 0, .row = 0 },
     };
 }
@@ -166,16 +175,23 @@ fn adjustParam(app: *App, steps: i32) void {
 /// or null for the title row / a row that doesn't land on any param (a
 /// section-header line). Scans `paramRow`/`paramColRow` — cheap (39 params)
 /// and it's already the exact row math the renderer uses, so no new layout
-/// logic. In two-column mode `x` picks the column.
+/// logic. In wide mode `x` only picks a column within the OSC A/B top block
+/// (rows 1-9); everything below that is a single full-width column.
 fn paramAtRow(app: *App, row: usize, x: usize, cols: u16) ?u8 {
     if (row == 0) return null; // title
     const full_row = app.synth_scroll + row;
     var i: u8 = 0;
     if (twoCol(cols)) {
-        const col: u1 = if (x < colWidth(cols)) 0 else 1;
+        if (full_row <= top_h) {
+            const col: u1 = if (x < colWidth(cols)) 0 else 1;
+            while (i < style.synth_param_count) : (i += 1) {
+                const cr = paramColRow(i);
+                if (cr.col == col and cr.row == full_row) return i;
+            }
+            return null;
+        }
         while (i < style.synth_param_count) : (i += 1) {
-            const cr = paramColRow(i);
-            if (cr.col == col and cr.row == full_row) return i;
+            if (paramColRow(i).row == full_row) return i;
         }
         return null;
     }
