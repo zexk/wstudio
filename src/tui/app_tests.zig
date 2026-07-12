@@ -3929,12 +3929,14 @@ test ":e with no path always browses; selecting a file refuses when dirty" {
     try std.testing.expectEqualStrings("song.wsj", app.browser_entries.items[0].name);
     app.handleKey(.escape, 0);
 
-    // Browsing itself is safe even with unsaved changes — only actually
-    // picking a file (below) is refused.
+    // Browsing itself is safe even with unsaved changes, so the picker
+    // still opens — but the refusal warns pre-emptively (right here) rather
+    // than after the user's already hunted down a file to select.
     app.applyAction(.toggle_mute, 0); // dirty
     for (":e") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(AppView.file_browser, app.view);
+    try std.testing.expectStringStartsWith(app.status_buf[0..app.status_len], "unsaved changes");
 
     app.handleKey(.enter, 0); // select "song.wsj"
     try std.testing.expectEqual(AppView.tracks, app.view);
