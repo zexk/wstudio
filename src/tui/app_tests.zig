@@ -3915,7 +3915,7 @@ test ":load-clip refuses without a sampler track, then loads a whole-clip note a
     try std.testing.expectEqual(@as(u32, 2), lane.clips.items[0].length_bars); // ceil(5 beats / 4 per bar)
 }
 
-test ":e with no path browses when clean, refuses when dirty" {
+test ":e with no path always browses; selecting a file refuses when dirty" {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
     try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "song.wsj", .data = "x" });
@@ -3929,9 +3929,14 @@ test ":e with no path browses when clean, refuses when dirty" {
     try std.testing.expectEqualStrings("song.wsj", app.browser_entries.items[0].name);
     app.handleKey(.escape, 0);
 
+    // Browsing itself is safe even with unsaved changes — only actually
+    // picking a file (below) is refused.
     app.applyAction(.toggle_mute, 0); // dirty
     for (":e") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.enter, 0);
+    try std.testing.expectEqual(AppView.file_browser, app.view);
+
+    app.handleKey(.enter, 0); // select "song.wsj"
     try std.testing.expectEqual(AppView.tracks, app.view);
     try std.testing.expectStringStartsWith(app.status_buf[0..app.status_len], "unsaved changes");
 }

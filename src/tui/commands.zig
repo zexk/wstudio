@@ -135,12 +135,15 @@ fn cmdEditForce(app: *App, args: []const u8) void { editOrRevert(app, args, true
 /// swap happens in `run()` — see `App.requestReload`.
 fn editOrRevert(app: *App, args: []const u8, force: bool) void {
     const trimmed = std.mem.trim(u8, args, " ");
-    if (!force and app.dirty) {
-        app.setStatus("unsaved changes — :w to save, :e! to discard", .{});
-        return;
-    }
+    // Browsing itself touches nothing — allowed even with unsaved changes.
+    // The dirty refusal instead guards the actual swap, in browserActivate
+    // for this path (.open_project) and below for a path given directly.
     if (trimmed.len == 0 and !force) {
         app.openBrowser(.open_project);
+        return;
+    }
+    if (!force and app.dirty) {
+        app.setStatus("unsaved changes — :w to save, :e! to discard", .{});
         return;
     }
     var path_buf: [path_buf_len]u8 = undefined;

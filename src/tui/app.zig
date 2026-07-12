@@ -1664,7 +1664,15 @@ pub const App = struct {
             return;
         }
         switch (self.browser_purpose) {
-            .open_project => self.requestReload(joined),
+            // Only reachable via a non-forced `:e` (openBrowser's sole
+            // .open_project caller, commands.editOrRevert) — the dirty
+            // refusal that skips there for a given path belongs here
+            // instead, since browsing itself was allowed through regardless.
+            .open_project => if (self.dirty) {
+                self.setStatus("unsaved changes — :w to save, :e! to discard", .{});
+            } else {
+                self.requestReload(joined);
+            },
             .load_sample => commands.loadSampleFromPath(self, joined),
             .load_pad => |pad| commands.loadPadFromPath(self, pad, joined),
             .load_clip => commands.loadClipFromPath(self, joined),
