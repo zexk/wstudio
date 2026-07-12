@@ -81,7 +81,15 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             'l' => { moveBar(app, app.takeCount()); return true; },
             'H' => { moveBar(app, -4 * app.takeCount()); return true; },
             'L' => { moveBar(app, 4 * app.takeCount()); return true; },
-            '0' => { app.arr_cursor_bar = 0; return true; },
+            // Vim's own '0': jump-to-start only when no count is pending —
+            // otherwise it's a digit continuing the count (10l, 20h, …),
+            // same rule modal.zig's generic handleNormal already applies.
+            // Falling through with `return false` hands it to modal.handle,
+            // whose own '0' case multiplies the pending count.
+            '0' => {
+                if (app.modal.count == 0) { app.arr_cursor_bar = 0; return true; }
+                return false;
+            },
             'j' => { moveLane(app, lane_count, app.takeCount()); return true; },
             'k' => { moveLane(app, lane_count, -app.takeCount()); return true; },
             // x: vim's char-delete — the clip under the cursor, instantly,

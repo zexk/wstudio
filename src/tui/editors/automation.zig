@@ -260,6 +260,11 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             // automating a param that isn't on this clip yet — tab only
             // cycles curves that already have a lane (see nextTarget).
             'p' => { openParamPicker(app); return true; },
+            // 'p' is already the param-picker key (above), so paste — which
+            // piano/drum/arrangement all bind to plain p/P — lives on 'P'
+            // here instead. Calls the same pasteSelection visual mode's p/P
+            // use; it doesn't require actually being in visual mode.
+            'P' => { pasteSelection(app, clip); return true; },
             'v' => {
                 app.automation_visual_anchor = app.automation_cursor_step;
                 app.modal.mode = .visual;

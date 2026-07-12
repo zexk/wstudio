@@ -951,6 +951,34 @@ test "automation editor visual mode: w/b extend the selection by beat, matching 
     try std.testing.expectEqual(@as(usize, 0), clip.automation.gain.len);
 }
 
+test "automation editor normal-mode P pastes a range yank without re-entering visual mode ('p' is the param picker)" {
+    var app = try testApp();
+    defer app.deinit();
+
+    try app.session.stampClip(0, 0);
+    automation_ed.switchTo(&app, 0, 0);
+    const clip = automation_ed.currentClip(&app).?;
+    clip.length_bars = 2;
+
+    app.automation_cursor_step = 0;
+    _ = automation_ed.handleKey(&app, .{ .char = 'j' }); // point at step 0
+    app.automation_cursor_step = 4;
+    _ = automation_ed.handleKey(&app, .{ .char = 'j' }); // point at step 4
+
+    app.automation_cursor_step = 0;
+    _ = automation_ed.handleKey(&app, .{ .char = 'v' });
+    _ = automation_ed.handleKey(&app, .{ .char = 'w' }); // select steps 0-4
+    _ = automation_ed.handleKey(&app, .{ .char = 'y' });
+    try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
+    try std.testing.expectEqual(@as(usize, 2), app.automation_range_clip.?.points.len);
+
+    app.automation_cursor_step = 12;
+    const before = clip.automation.gain.len;
+    _ = automation_ed.handleKey(&app, .{ .char = 'P' }); // plain normal-mode paste, no 'v' first
+    try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
+    try std.testing.expectEqual(before + 2, clip.automation.gain.len);
+}
+
 test "automation editor operator+motion: d3l / y3l act on a range without entering visual mode" {
     var app = try testApp();
     defer app.deinit();
@@ -1234,6 +1262,22 @@ test "drum grid visual mode: w/b extend the selection by bar, matching normal-mo
     try std.testing.expectEqual(@as(u8, 4), app.drum_cursor[1]);
     app.handleKey(.{ .char = 'd' }, 0);
     try std.testing.expect(!dm.stepActive(0, 8));
+}
+
+test "drum grid visual mode: J/K jump a pad bank, matching normal-mode movePad" {
+    var app = try testApp();
+    defer app.deinit();
+    app.view = .drum_grid;
+    app.drum_track = 2;
+
+    app.drum_cursor = .{ 0, 0 };
+    app.handleKey(.{ .char = 'v' }, 0);
+    app.handleKey(.{ .char = 'J' }, 0);
+    try std.testing.expectEqual(ws.input.Mode.visual, app.modal.mode);
+    try std.testing.expectEqual(@as(u8, 8), app.drum_cursor[0]);
+    app.handleKey(.{ .char = 'K' }, 0);
+    try std.testing.expectEqual(@as(u8, 0), app.drum_cursor[0]);
+    app.handleKey(.escape, 0);
 }
 
 test "drum grid normal-mode p pastes the most recent yank: range after visual y, pattern after yy" {
@@ -1550,6 +1594,24 @@ test "arrangement g plays from the cursor bar" {
     // and the block advances 256 frames because playback started.
     try std.testing.expect(app.session.engine.transport.playing);
     try std.testing.expectEqual(@as(u64, 192_256), app.session.engine.transport.position_frames);
+}
+
+test "arrangement 0: jumps to bar 0 with no pending count, but continues a count otherwise (10l)" {
+    var app = try testApp();
+    defer app.deinit();
+
+    app.view = .arrangement;
+
+    // Bare '0' with no count pending: jump-to-start.
+    app.arr_cursor_bar = 5;
+    app.handleKey(.{ .char = '0' }, 0);
+    try std.testing.expectEqual(@as(u32, 0), app.arr_cursor_bar);
+
+    // '1' then '0' then 'l': should move by 10, not jump to bar 0 and then
+    // move by the freshly-reset count of 1.
+    app.arr_cursor_bar = 0;
+    for ("10l") |c| app.handleKey(.{ .char = c }, 0);
+    try std.testing.expectEqual(@as(u32, 10), app.arr_cursor_bar);
 }
 
 test "draw renders drum_grid view without overflowing" {

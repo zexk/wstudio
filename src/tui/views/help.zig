@@ -274,6 +274,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.taggedSection(.arrangement, "ARRANGEMENT");
     t.key("h / l",        "move cursor left / right (one bar)");
     t.key("H / L",        "move cursor left / right (4 bars)");
+    t.key("0",            "jump cursor to bar 0 (a count first makes it a digit instead: 10l)");
     t.key("j / k",        "move between track lanes");
     t.key("enter",        "stamp the live pattern as a clip");
     t.key("e",            "edit melodic clip in the piano roll (edits save into the clip)");
@@ -301,10 +302,14 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("J / K",        "nudge the value at cursor (coarse step)");
     t.key("x",            "delete the point at cursor exactly");
     t.key("g / G",        "jump cursor to clip start / end");
+    t.key("w / b",        "jump to the next / previous beat start");
+    t.key("d / y",        "operator: add a motion (h/l/H/L/w/b/g/G, counts work: d3l) to clear / yank that range");
+    t.key("dd / yy",      "clear / yank the whole curve");
     t.key("v",            "visual mode: select a step range on the current curve — y/d/p");
     t.key(".",            "repeat the last nudge or visual range delete/paste");
     t.key("tab",          "cycle gain -> pan -> instrument params already on this clip -> gain");
     t.key("p",            "pick an instrument param to automate (synth ~30, sampler 9 continuous params)");
+    t.key("P",            "paste the latest range yank at the cursor (p is taken by the param picker above)");
     t.key("u / U / ^R",   "undo / redo (whole-lane, same as the arrangement's)");
     t.key("esc",          "back to the arrangement");
 
