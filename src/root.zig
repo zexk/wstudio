@@ -7,6 +7,7 @@ pub const TimeSignature = @import("transport.zig").TimeSignature;
 
 pub const Project = @import("project.zig").Project;
 pub const Track = @import("project.zig").Track;
+pub const track_color_count = @import("project.zig").track_color_count;
 pub const arrangement = @import("arrangement.zig");
 pub const Arrangement = arrangement.Arrangement;
 pub const Clip = arrangement.Clip;

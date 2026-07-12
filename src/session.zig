@@ -7,7 +7,8 @@
 
 const std = @import("std");
 const types = @import("core/types.zig");
-const Project = @import("project.zig").Project;
+const project_mod = @import("project.zig");
+const Project = project_mod.Project;
 const engine_mod = @import("audio/engine.zig");
 const Engine = engine_mod.Engine;
 const rack_mod = @import("rack.zig");
@@ -89,7 +90,7 @@ pub const Session = struct {
     pub fn initDefault(allocator: std.mem.Allocator) !Session {
         var project = Project.init(allocator);
         errdefer project.deinit();
-        _ = try project.addTrack(.{ .name = "untitled track" });
+        _ = try project.addTrack(.{ .name = "untitled track", .color = 1 });
         const sr = project.sample_rate;
 
         const engine = try allocator.create(Engine);
@@ -153,7 +154,13 @@ pub const Session = struct {
         try self.arrangement.insertLane(self.allocator, idx);
         errdefer self.arrangement.removeLane(self.allocator, idx);
 
-        try self.project.insertTrack(idx, .{ .name = name });
+        // Auto-assign a color so new tracks are visually distinct from the
+        // moment they're created, instead of starting uncolored until the
+        // user manually cycles one with `[`/`]`. Cycles by track count
+        // (not `idx`) so repeated inserts at the same position still walk
+        // the palette instead of repeating a color.
+        const color: u8 = @intCast(@mod(total, project_mod.track_color_count) + 1);
+        try self.project.insertTrack(idx, .{ .name = name, .color = color });
 
         self.engine.applyInsertTrack(idx, total, 1.0, 0.0, false);
         self.syncTrackChain(idx, rack);

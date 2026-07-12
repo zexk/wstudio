@@ -8,6 +8,12 @@ const types = @import("core/types.zig");
 
 pub const TrackKind = enum { audio, midi };
 
+/// Number of colors in `style.track_palette`. Duplicated here (rather than
+/// importing the tui-layer style module into this control-layer one) so
+/// `Session.insertTrack` can auto-assign colors; `style.zig` comptime-asserts
+/// its palette length matches this constant to keep the two in sync.
+pub const track_color_count: u8 = 7;
+
 pub const Track = struct {
     name: []const u8,
     kind: TrackKind = .audio,
@@ -19,6 +25,8 @@ pub const Track = struct {
     /// 0 = no color (default, uncolored name, matches every track's
     /// look before this field existed). 1..track_palette.len index into
     /// `style.track_palette`, cycled with `[`/`]` in the tracks view.
+    /// Auto-assigned on creation by `Session.insertTrack`; duplicated
+    /// tracks instead inherit their source's color.
     color: u8 = 0,
     /// Which group submix bus (see `Session.Group`/`Session.groups`) this
     /// track's signal routes through instead of straight to the master mix.

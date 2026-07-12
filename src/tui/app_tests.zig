@@ -2082,6 +2082,10 @@ test "[/] cycle the cursor track's color, wrapping through none" {
     var app = try testApp();
     defer app.deinit();
     app.cursor = 0;
+    // Tracks auto-color themselves on creation now; start from a known
+    // baseline ("none") rather than asserting what that auto-assigned
+    // color happens to be.
+    app.session.project.tracks.items[0].color = 0;
 
     try std.testing.expectEqual(@as(u8, 0), app.session.project.tracks.items[0].color);
     app.handleKey(.{ .char = ']' }, 0);

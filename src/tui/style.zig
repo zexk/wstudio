@@ -47,6 +47,10 @@ pub const bwht = "\x1b[97m";   // bright white – selected value
 /// no real ambiguity. `color == 0` (not in this array) means uncolored.
 pub const track_palette = [_][]const u8{ red, yel, grn, acc, blu, mag, bwht };
 pub const track_color_names = [_][]const u8{ "red", "yellow", "green", "cyan", "blue", "magenta", "white" };
+comptime {
+    std.debug.assert(track_palette.len == ws.track_color_count);
+    std.debug.assert(track_color_names.len == ws.track_color_count);
+}
 
 /// Background counterparts of the three mode colours (SGR 40-47), used only
 /// by the status-line mode badge below — everywhere else in the TUI gets
