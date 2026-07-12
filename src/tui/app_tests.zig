@@ -612,6 +612,37 @@ test "piano roll visual mode selects a step range for y/d/P" {
     try std.testing.expect(pp.noteAt(72, 2.0) != null);
 }
 
+test "piano roll visual mode: w/b extend the selection by bar, matching normal-mode jumpBar" {
+    var app = try testApp();
+    defer app.deinit();
+    app.view = .piano_roll;
+    app.piano_track = 0;
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    pp.length_beats = 24.0;
+    // Default 4/4, straight grid: a bar is 4 beats * 4 steps/beat = 16 steps.
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.25 }); // step 0
+    pp.addNote(.{ .pitch = 62, .start_beat = 4.0, .duration_beat = 0.25 }); // step 16, w's landing step (included, like v3l's landing step is)
+    pp.addNote(.{ .pitch = 64, .start_beat = 8.0, .duration_beat = 0.25 }); // step 32, outside the w-extended range
+
+    app.piano_cursor_step = 0;
+    app.handleKey(.{ .char = 'v' }, 0);
+    app.handleKey(.{ .char = 'w' }, 0); // extend one bar forward (0 -> 16)
+    try std.testing.expectEqual(ws.input.Mode.visual, app.modal.mode);
+    try std.testing.expectEqual(@as(u16, 16), app.piano_cursor_step);
+    app.handleKey(.{ .char = 'd' }, 0);
+    try std.testing.expect(pp.noteAt(60, 0.0) == null);
+    try std.testing.expect(pp.noteAt(62, 4.0) == null);
+    try std.testing.expect(pp.noteAt(64, 8.0) != null); // untouched, outside the range
+
+    // b moves the extended selection back a bar (from step 48, lands on 32).
+    app.piano_cursor_step = 48;
+    app.handleKey(.{ .char = 'v' }, 0);
+    app.handleKey(.{ .char = 'b' }, 0);
+    try std.testing.expectEqual(@as(u16, 32), app.piano_cursor_step);
+    app.handleKey(.{ .char = 'd' }, 0);
+    try std.testing.expect(pp.noteAt(64, 8.0) == null);
+}
+
 test "piano roll normal-mode p pastes the most recent yank: range after visual y, pattern after yy" {
     var app = try testApp();
     defer app.deinit();
@@ -1132,6 +1163,37 @@ test "drum grid visual mode selects a step range across pads for y/d/P" {
     app.handleKey(.{ .char = 'd' }, 0);
     try std.testing.expect(!dm.stepActive(0, 0));
     try std.testing.expect(!dm.stepActive(1, 2));
+}
+
+test "drum grid visual mode: w/b extend the selection by bar, matching normal-mode jumpBar" {
+    var app = try testApp();
+    defer app.deinit();
+    app.view = .drum_grid;
+    app.drum_track = 2;
+    const dm = app.drumMachine();
+    for (&dm.pattern) |*p| p.store(0, .monotonic);
+    dm.setStepCount(16);
+    dm.toggleStep(0, 0);
+    dm.toggleStep(0, 4); // last step of the first 4-step bar `w` should reach
+    dm.toggleStep(0, 8); // outside the w-extended range
+
+    app.drum_cursor = .{ 0, 0 };
+    app.handleKey(.{ .char = 'v' }, 0);
+    app.handleKey(.{ .char = 'w' }, 0); // extend one bar forward (0 -> 4)
+    try std.testing.expectEqual(ws.input.Mode.visual, app.modal.mode);
+    try std.testing.expectEqual(@as(u8, 4), app.drum_cursor[1]);
+    app.handleKey(.{ .char = 'd' }, 0);
+    try std.testing.expect(!dm.stepActive(0, 0));
+    try std.testing.expect(!dm.stepActive(0, 4));
+    try std.testing.expect(dm.stepActive(0, 8)); // untouched, outside the range
+
+    // b moves the extended selection back a bar (from step 8, lands on 4).
+    app.drum_cursor = .{ 0, 8 };
+    app.handleKey(.{ .char = 'v' }, 0);
+    app.handleKey(.{ .char = 'b' }, 0);
+    try std.testing.expectEqual(@as(u8, 4), app.drum_cursor[1]);
+    app.handleKey(.{ .char = 'd' }, 0);
+    try std.testing.expect(!dm.stepActive(0, 8));
 }
 
 test "drum grid normal-mode p pastes the most recent yank: range after visual y, pattern after yy" {

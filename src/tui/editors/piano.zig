@@ -694,6 +694,8 @@ fn handleVisual(app: *App, key: modal_mod.Key, pp: *pattern_mod.PatternPlayer, m
             'k' => { movePitch(app, app.takeCount()); return true; },
             'J' => { movePitch(app, -12 * app.takeCount()); return true; },
             'K' => { movePitch(app, 12 * app.takeCount()); return true; },
+            'w' => { jumpBar(app, max_step, app.takeCount()); return true; },
+            'b' => { jumpBar(app, max_step, -app.takeCount()); return true; },
             'g' => { app.piano_cursor_step = 0; ensureVisible(app); return true; },
             'G' => { if (max_step > 0) app.piano_cursor_step = max_step - 1; ensureVisible(app); return true; },
             'y' => { yankSelection(app, pp); return true; },

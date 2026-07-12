@@ -397,6 +397,8 @@ fn handleVisual(app: *App, key: modal_mod.Key) bool {
             'L' => { moveStep(app, 4 * app.takeCount()); return true; },
             'j' => { movePad(app, app.takeCount()); return true; },
             'k' => { movePad(app, -app.takeCount()); return true; },
+            'w' => { jumpBar(app, app.takeCount()); return true; },
+            'b' => { jumpBar(app, -app.takeCount()); return true; },
             'g' => { app.drum_cursor[1] = 0; return true; },
             'G' => {
                 const dm = app.drumMachine();
