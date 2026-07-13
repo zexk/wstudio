@@ -29,11 +29,14 @@ that text captures miss.
 
 ## Hard rules
 
-- **Never run `zig fmt`.** This codebase is deliberately hand-aligned
-  (column-aligned switch arms, assignment blocks in `PolySynth.adjustParam`,
-  synth editor tables, ...). `zig fmt` collapses that alignment into huge
-  noisy diffs. Write new Zig by hand in the surrounding style. The global
-  `nix fmt` convention is for `.nix` files only, not this repo's Zig.
+- **`zig fmt` is allowed, the fences are law.** The deliberately compact
+  regions (param tables, one-line switch-arm key handlers, grouped
+  struct-literal fields, aligned assignment blocks) are wrapped in
+  `// zig fmt: off` / `// zig fmt: on` markers, so `zig fmt` is safe and
+  encouraged on any file you touch. Never hand-reflow a fenced region to
+  fmt style; if you write NEW code in that compact style and fmt would
+  mangle it, extend or add a fence rather than skipping fmt. The global
+  `nix fmt` convention is still for `.nix` files only.
 - **Never `git add -A` or `-u`.** Stage files by name. `-A` has already
   swept a stray `demo.wsj~` backup into a feature commit once. Run
   `git status --short` and eyeball every untracked/modified entry before
