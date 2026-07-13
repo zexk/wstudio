@@ -113,6 +113,11 @@ pub const SynthSnap = struct {
     filter_cutoff: f32 = 18_000.0,
     filter_res: f32 = 0.0,
     fenv_amount: f32 = 0.0,
+    filter2_on: bool = false,
+    filter2_type: synth_mod.FilterType = .lp,
+    filter2_cutoff: f32 = 18_000.0,
+    filter2_res: f32 = 0.0,
+    filter_routing: synth_mod.FilterRouting = .series,
     // Filter envelope
     fenv_attack_s: f32 = 0.005,
     fenv_decay_s: f32 = 0.5,
@@ -1109,6 +1114,11 @@ fn synthToSnap(s: *const PolySynth) SynthSnap {
         .filter_cutoff = s.filter_cutoff,
         .filter_res = s.filter_res,
         .fenv_amount = s.fenv_amount,
+        .filter2_on = s.filter2_on,
+        .filter2_type = s.filter2_type,
+        .filter2_cutoff = s.filter2_cutoff,
+        .filter2_res = s.filter2_res,
+        .filter_routing = s.filter_routing,
         .fenv_attack_s = s.fenv_attack_s,
         .fenv_decay_s = s.fenv_decay_s,
         .fenv_sustain = s.fenv_sustain,
@@ -1724,6 +1734,11 @@ fn applyToSynth(s: *PolySynth, ss: *const SynthSnap) void {
     s.filter_cutoff = clamp(ss.filter_cutoff, 20.0, 20_000.0);
     s.filter_res = clamp(ss.filter_res, 0.0, 1.0);
     s.fenv_amount = clamp(ss.fenv_amount, -4.0, 4.0);
+    s.filter2_on = ss.filter2_on;
+    s.filter2_type = ss.filter2_type;
+    s.filter2_cutoff = clamp(ss.filter2_cutoff, 20.0, 20_000.0);
+    s.filter2_res = clamp(ss.filter2_res, 0.0, 1.0);
+    s.filter_routing = ss.filter_routing;
     s.fenv_attack_s = clamp(ss.fenv_attack_s, 0.001, 5.0);
     s.fenv_decay_s = clamp(ss.fenv_decay_s, 0.001, 5.0);
     s.fenv_sustain = clamp(ss.fenv_sustain, 0.0, 1.0);

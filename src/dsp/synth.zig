@@ -28,6 +28,11 @@ fn enumFromValue(comptime E: type, value: f32) E {
 // zig fmt: off
 pub const Waveform   = enum { sine, saw, triangle, square };
 pub const FilterType = enum { lp, hp, bp, notch };
+/// How filter 2's output combines with filter 1's when filter 2 is on.
+/// `series`: filter 1 feeds filter 2. `parallel`: both filter the dry
+/// oscillator mix and their outputs are averaged. Irrelevant (and behaves
+/// identically to filter 1 alone) while `filter2_on` is false.
+pub const FilterRouting = enum { series, parallel };
 pub const LfoShape   = enum { sine, triangle, saw, square };
 pub const LfoTarget  = enum { none, filter, pitch, amp };
 pub const VoiceMode  = enum { poly, mono, legato };
@@ -99,6 +104,16 @@ pub const PolySynth = struct {
     filter_res: f32 = 0.0,
     /// Filter envelope amount in octaves (–4..+4). 0 = no modulation.
     fenv_amount: f32 = 0.0,
+
+    // ── FILTER 2 ────────────────────────────────────────────────────────────
+    /// Second filter slot. Shares the filter envelope/LFO-target modulation
+    /// with filter 1 (its own cutoff as the base instead of a second env),
+    /// so this stays a routing/model addition, not a second modulation rig.
+    filter2_on: bool = false,
+    filter2_type: FilterType = .lp,
+    filter2_cutoff: f32 = 18_000.0,
+    filter2_res: f32 = 0.0,
+    filter_routing: FilterRouting = .series,
 
     // ── FILTER ENVELOPE ─────────────────────────────────────────────────────
     // zig fmt: off
@@ -188,6 +203,12 @@ pub const PolySynth = struct {
         /// Right channel biquad state (same coefficients, independent history).
         x1_r: f32 = 0.0, x2_r: f32 = 0.0,
         y1_r: f32 = 0.0, y2_r: f32 = 0.0,
+        /// Filter 2's own DF1 biquad state (L then R) — independent history
+        /// even in series mode, since it filters filter 1's output.
+        x1_2: f32 = 0.0, x2_2: f32 = 0.0,
+        y1_2: f32 = 0.0, y2_2: f32 = 0.0,
+        x1_2_r: f32 = 0.0, x2_2_r: f32 = 0.0,
+        y1_2_r: f32 = 0.0, y2_2_r: f32 = 0.0,
         // zig fmt: on
         // Glide: current log2(freq) sliding toward log2(noteToFreq(note)).
         glide_log_freq: f32 = 0.0,
@@ -256,6 +277,12 @@ pub const PolySynth = struct {
         filter_cutoff: f32 = 18_000.0,
         filter_res: f32 = 0.0,
         fenv_amount: f32 = 0.0,
+
+        filter2_on: bool = false,
+        filter2_type: FilterType = .lp,
+        filter2_cutoff: f32 = 18_000.0,
+        filter2_res: f32 = 0.0,
+        filter_routing: FilterRouting = .series,
 
         fenv_attack_s: f32 = 0.005,
         fenv_decay_s: f32 = 0.5,
@@ -497,7 +524,15 @@ pub const PolySynth = struct {
             const effective_cutoff = std.math.clamp(
                 self.filter_cutoff * fenv_mod * lfo_filter_mod, 20.0, self.sample_rate * 0.49,
             );
-            const fc = self.computeFilterCoeffs(effective_cutoff);
+            const fc = self.computeFilterCoeffs(effective_cutoff, self.filter_type, self.filter_res);
+
+            // Filter 2 shares filter 1's envelope/LFO modulation depth,
+            // applied around its own base cutoff. Computed unconditionally
+            // (cheap) so there's no uninitialized-coeffs case to guard.
+            const effective_cutoff2 = std.math.clamp(
+                self.filter2_cutoff * fenv_mod * lfo_filter_mod, 20.0, self.sample_rate * 0.49,
+            );
+            const fc2 = self.computeFilterCoeffs(effective_cutoff2, self.filter2_type, self.filter2_res);
 
             // Pitch vibrato: ±1 oct at full depth. Glide is in log-freq space.
             const lfo_pitch_log = if (self.lfo_target == .pitch) self.lfo_depth * lfo_val else 0.0;
@@ -702,11 +737,30 @@ pub const PolySynth = struct {
 
                 // Stereo filter: same coefficients, independent L/R biquad histories.
                 // zig fmt: off
-                const filt_l = fc.b0*osc_l + fc.b1*v.x1   + fc.b2*v.x2   - fc.a1*v.y1   - fc.a2*v.y2;
-                v.x2 = v.x1; v.x1 = osc_l; v.y2 = v.y1; v.y1 = filt_l;
+                const filt1_l = fc.b0*osc_l + fc.b1*v.x1   + fc.b2*v.x2   - fc.a1*v.y1   - fc.a2*v.y2;
+                v.x2 = v.x1; v.x1 = osc_l; v.y2 = v.y1; v.y1 = filt1_l;
 
-                const filt_r = fc.b0*osc_r + fc.b1*v.x1_r + fc.b2*v.x2_r - fc.a1*v.y1_r - fc.a2*v.y2_r;
-                v.x2_r = v.x1_r; v.x1_r = osc_r; v.y2_r = v.y1_r; v.y1_r = filt_r;
+                const filt1_r = fc.b0*osc_r + fc.b1*v.x1_r + fc.b2*v.x2_r - fc.a1*v.y1_r - fc.a2*v.y2_r;
+                v.x2_r = v.x1_r; v.x1_r = osc_r; v.y2_r = v.y1_r; v.y1_r = filt1_r;
+
+                // Filter 2: series chains off filter 1's output; parallel
+                // filters the same dry mix and blends with filter 1's output.
+                // Both collapse to filter 1 alone when filter2_on is false.
+                var filt_l = filt1_l;
+                var filt_r = filt1_r;
+                if (self.filter2_on) {
+                    const in2_l = if (self.filter_routing == .series) filt1_l else osc_l;
+                    const in2_r = if (self.filter_routing == .series) filt1_r else osc_r;
+
+                    const filt2_l = fc2.b0*in2_l + fc2.b1*v.x1_2   + fc2.b2*v.x2_2   - fc2.a1*v.y1_2   - fc2.a2*v.y2_2;
+                    v.x2_2 = v.x1_2; v.x1_2 = in2_l; v.y2_2 = v.y1_2; v.y1_2 = filt2_l;
+
+                    const filt2_r = fc2.b0*in2_r + fc2.b1*v.x1_2_r + fc2.b2*v.x2_2_r - fc2.a1*v.y1_2_r - fc2.a2*v.y2_2_r;
+                    v.x2_2_r = v.x1_2_r; v.x1_2_r = in2_r; v.y2_2_r = v.y1_2_r; v.y1_2_r = filt2_r;
+
+                    filt_l = if (self.filter_routing == .series) filt2_l else (filt1_l + filt2_l) * 0.5;
+                    filt_r = if (self.filter_routing == .series) filt2_r else (filt1_r + filt2_r) * 0.5;
+                }
 
                 const sg = v.env * v.velocity * self.gain * amp_mod;
                 buf[i * 2]     += filt_l * sg;
@@ -767,8 +821,10 @@ pub const PolySynth = struct {
         };
     }
 
-    fn computeFilterCoeffs(self: *const PolySynth, cutoff: f32) FilterCoeffs {
-        const q = 0.5 + self.filter_res * 19.5;
+    /// `filter_type`/`res` are passed explicitly (not read off `self`) so the
+    /// same coefficient math serves both filter slots.
+    fn computeFilterCoeffs(self: *const PolySynth, cutoff: f32, filter_type: FilterType, res: f32) FilterCoeffs {
+        const q = 0.5 + res * 19.5;
         const c = std.math.clamp(cutoff, 20.0, self.sample_rate * 0.49);
         const w0 = 2.0 * std.math.pi * c / self.sample_rate;
         const cos_w0 = @cos(w0);
@@ -777,7 +833,7 @@ pub const PolySynth = struct {
         const a0_inv = 1.0 / (1.0 + alpha);
         const neg2cos = -2.0 * cos_w0;
 
-        return switch (self.filter_type) {
+        return switch (filter_type) {
             .lp => .{
                 .b0 = ((1.0 - cos_w0) * 0.5) * a0_inv,
                 .b1 = (1.0 - cos_w0) * a0_inv,
@@ -1042,7 +1098,20 @@ pub const PolySynth = struct {
                 .none => .sync, .bend => .none, .mirror => .bend, .sync => .mirror,
             },
             44 => self.osc_b_warp_amount    = std.math.clamp(self.osc_b_warp_amount  + s * 0.01,   0.0,    1.0),
+            // FILTER 2 (45–49)
+            45 => self.filter2_on           = !self.filter2_on,
+            46 => self.filter2_type = if (steps > 0) switch (self.filter2_type) {
+                .lp => .hp, .hp => .bp, .bp => .notch, .notch => .lp,
+            } else switch (self.filter2_type) {
+                .lp => .notch, .hp => .lp, .bp => .hp, .notch => .bp,
+            },
+            47 => self.filter2_cutoff       = std.math.clamp(
+                self.filter2_cutoff * std.math.pow(f32, 2.0, s / 12.0), 20.0, 20_000.0),
+            48 => self.filter2_res          = std.math.clamp(self.filter2_res        + s * 0.01,   0.0,    1.0),
+            49 => self.filter_routing = switch (self.filter_routing) {
+                .series => .parallel, .parallel => .series,
                 // zig fmt: on
+            },
             else => {},
         }
     }
@@ -1073,6 +1142,9 @@ pub const PolySynth = struct {
             40 => self.osc_b_unison_mode   = enumFromValue(UnisonMode, value),
             41 => self.warp_mode           = enumFromValue(WarpMode, value),
             43 => self.osc_b_warp_mode     = enumFromValue(WarpMode, value),
+            45 => self.filter2_on          = value >= 0.5,
+            46 => self.filter2_type        = enumFromValue(FilterType, value),
+            49 => self.filter_routing      = enumFromValue(FilterRouting, value),
             1  => self.pulse_width         = std.math.clamp(value,   0.01,   0.99),
             2  => self.detune_cents        = std.math.clamp(value, -100.0, 100.0),
             3  => self.unison              = @intCast(std.math.clamp(@as(i32, @intFromFloat(@round(value))), 1, 16)),
@@ -1105,6 +1177,8 @@ pub const PolySynth = struct {
             38 => self.gain                = std.math.clamp(value,   0.01,   1.0),
             42 => self.warp_amount         = std.math.clamp(value,   0.0,    1.0),
             44 => self.osc_b_warp_amount   = std.math.clamp(value,   0.0,    1.0),
+            47 => self.filter2_cutoff      = std.math.clamp(value,  20.0, 20_000.0),
+            48 => self.filter2_res         = std.math.clamp(value,   0.0,    1.0),
             // zig fmt: on
             else => {},
         }
@@ -1164,6 +1238,11 @@ pub const PolySynth = struct {
             42 => self.warp_amount,
             43 => enumToValue(self.osc_b_warp_mode),
             44 => self.osc_b_warp_amount,
+            45 => if (self.filter2_on) 1.0 else 0.0,
+            46 => enumToValue(self.filter2_type),
+            47 => self.filter2_cutoff,
+            48 => self.filter2_res,
+            49 => enumToValue(self.filter_routing),
             else => null,
         };
     }
@@ -1210,6 +1289,8 @@ pub const PolySynth = struct {
         .{ .id = 38, .label = "OUT GAIN",   .section = "OUT",     .range = .{ 0.01,   1.0 },     .step = 0.01 },
         .{ .id = 42, .label = "WARP AMT A", .section = "OSC A",   .range = .{ 0.0,    1.0 },     .step = 0.01 },
         .{ .id = 44, .label = "WARP AMT B", .section = "OSC B",   .range = .{ 0.0,    1.0 },     .step = 0.01 },
+        .{ .id = 47, .label = "CUTOFF 2",   .section = "FILTER 2",.range = .{ 20.0,   20_000.0 },.step = 100.0 },
+        .{ .id = 48, .label = "RESONANCE 2",.section = "FILTER 2",.range = .{ 0.0,    1.0 },     .step = 0.01 },
         // zig fmt: on
     };
 

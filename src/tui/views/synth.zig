@@ -173,6 +173,7 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize
         try secOut(&tw, synth, c);
         try secUniMode(&tw, synth, c);
         try secWarp(&tw, synth, c);
+        try secFilter2(&tw, synth, c);
 
         var line_it = std.mem.splitSequence(u8, tw.buffered(), "\r\n");
         var row: usize = 1;
@@ -194,7 +195,7 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize
 // row maps in sync.
 
 /// Every non-oscillator section, stacked full-width beneath OSC A/B in the
-/// wide layout: 42 rows (3 + 5 + 5 + 5 + 5 + 3 + 3 + 3 + 2 + 3 + 5).
+/// wide layout: 47 rows (3 + 5 + 5 + 5 + 5 + 3 + 3 + 3 + 2 + 3 + 5 + 5).
 fn drawSynthBottom(w: *std.Io.Writer, synth: anytype, c: u8) !void {
     try secMod(w, synth, c);
     try secEnv(w, synth, c);
@@ -207,6 +208,7 @@ fn drawSynthBottom(w: *std.Io.Writer, synth: anytype, c: u8) !void {
     try secOut(w, synth, c);
     try secUniMode(w, synth, c);
     try secWarp(w, synth, c);
+    try secFilter2(w, synth, c);
 }
 
 const wf_names = [_][]const u8{ "sine", "saw", "tri", "sqr" };
@@ -447,6 +449,37 @@ fn secWarp(w: *std.Io.Writer, synth: anytype, c: u8) !void {
         try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.osc_b_warp_amount}));
 }
 
+fn secFilter2(w: *std.Io.Writer, synth: anytype, c: u8) !void {
+    var buf: [40]u8 = undefined;
+    try synthSection(w, "FILTER 2", yel);
+
+    const on_names = [_][]const u8{ "on", "off" };
+    try enumRow(w, c == 45, false, yel, "on/off", &on_names, if (synth.filter2_on) 0 else 1);
+
+    const on = synth.filter2_on;
+    const ft_names = [_][]const u8{ "lp", "hp", "bp", "ntch" };
+    const ft_idx: usize = switch (synth.filter2_type) {
+        .lp => 0, .hp => 1, .bp => 2, .notch => 3,
+    };
+    try enumRow(w, c == 46, !on, yel, "type", &ft_names, ft_idx);
+
+    {
+        const log_norm = std.math.log2(synth.filter2_cutoff / 20.0) /
+            std.math.log2(20_000.0 / 20.0);
+        const vs = if (synth.filter2_cutoff >= 1_000.0)
+            try std.fmt.bufPrint(&buf, "{d:.2} kHz", .{synth.filter2_cutoff / 1_000.0})
+        else
+            try std.fmt.bufPrint(&buf, "{d:.0} Hz", .{synth.filter2_cutoff});
+        try barRow(w, c == 47, !on, yel, "cutoff", log_norm, 1.0, vs);
+    }
+    try barRow(w, c == 48, !on, yel, "res", synth.filter2_res, 1.0,
+        try std.fmt.bufPrint(&buf, "{d:.3}", .{synth.filter2_res}));
+
+    const routing_names = [_][]const u8{ "series", "parallel" };
+    const routing_idx: usize = switch (synth.filter_routing) { .series => 0, .parallel => 1 };
+    try enumRow(w, c == 49, !on, yel, "routing", &routing_names, routing_idx);
+}
+
 pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !void {
     if (app.synth_track >= app.session.racks.items.len) return;
     const rack = app.session.racks.items[app.synth_track];
@@ -467,6 +500,7 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !
         "gain",
         "uni.mode a", "uni.mode b",
         "warp.mode a", "warp.amt a", "warp.mode b", "warp.amt b",
+        "filt2.on", "filt2.type", "filt2.cutoff", "filt2.res", "filt2.routing",
     };
     const cur = @min(@as(usize, app.synth_cursor), labels.len - 1);
     try style.writeModeBadge(w, app.modal.mode);
@@ -553,6 +587,16 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !
             .none => "none", .bend => "bend", .mirror => "mirror", .sync => "sync",
         }),
         44 => try w.print("{d:.2}",       .{synth.osc_b_warp_amount}),
+        45 => try w.writeAll(if (synth.filter2_on) "on" else "off"),
+        46 => try w.writeAll(switch (synth.filter2_type) {
+            .lp => "lp", .hp => "hp", .bp => "bp", .notch => "notch",
+        }),
+        47 => if (synth.filter2_cutoff >= 1_000.0)
+            try w.print("{d:.2} kHz", .{synth.filter2_cutoff / 1_000.0})
+        else
+            try w.print("{d:.0} Hz",  .{synth.filter2_cutoff}),
+        48 => try w.print("{d:.3}",       .{synth.filter2_res}),
+        49 => try w.writeAll(switch (synth.filter_routing) { .series => "series", .parallel => "parallel" }),
         else => {},
     }
     try w.writeAll(rst);
