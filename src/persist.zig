@@ -46,88 +46,11 @@ const dsp = @import("dsp/device.zig");
 const automation_mod = @import("dsp/automation.zig");
 const AutomationPoint = automation_mod.AutomationPoint;
 
-/// v2 adds the arrangement (song timeline) and `song_mode`. v1 files omit both
-/// and deserialize to an empty arrangement in pattern mode — the prior behaviour.
-/// v3 adds drum pattern variants (`DrumSnap.variants` + active index) and the
-/// variant label on drum clips. v2 files omit them and load as a single
-/// variant built from the legacy `pattern`/`step_count` fields, which v3 keeps
-/// writing (mirroring the active variant) so files stay hand-editable.
-/// v4 adds per-step drum velocity (the `vel_lo`/`vel_hi` bitplanes on variants
-/// and drum clips), per-machine swing, and the time signature numerator
-/// (`beats_per_bar`). Older files omit them and load with every step at full
-/// velocity, swing 50 (straight), and 4/4 — the prior behaviour.
-/// v5 adds user sample persistence: pads whose audio was loaded by the user
-/// carry `sample_file`/`name` refs to mono WAVs exported into the project's
-/// sample sidecar directory ("<stem>_samples" next to the .wsj). Older files
-/// omit them and keep the shipped kit / generated clip — the prior behaviour.
-/// v5 also adds the A/B loop region (`loop_enabled`/`loop_start_bar`/
-/// `loop_end_bar`); older files load with no loop.
-/// v6 adds the master bus FX rack (`Snapshot.master_fx`, the same `FxSnap`
-/// shape as a track's). Older files omit it and load with no master FX —
-/// the prior behaviour.
-/// v7 adds per-clip gain/pan automation (`ClipSnap.gain_automation`/
-/// `pan_automation`, clip-relative-beat breakpoints — see dsp/automation.zig
-/// and Session.rebuildSongData). Older files omit them and load with no
-/// automation — clips play at the track's manual gain/pan, the prior
-/// behaviour.
-/// v8 adds per-pad choke groups (`DrumSnap.choke_group`). Older files omit
-/// it and every pad loads ungrouped (group 0) — the prior behaviour.
-/// v9 adds the five new FX units (`FxSnap.gate`/`sat`/`crush`/`chorus`/
-/// `phaser`, see rack.zig's Fx). Older files omit them and load with those
-/// slots empty, the prior behaviour.
-/// v10 replaces the fixed nine-slot FX rack with a user-built ordered chain
-/// (`RackSnap.fx_chain`/`Snapshot.master_fx_chain`, a list of `FxUnitSnap` in
-/// signal-flow order — duplicates allowed, per-slot bypass). Older files
-/// carry the struct-of-optionals `fx`/`master_fx` instead; they load as a
-/// chain in the old hard-wired order (gate → comp → eq → sat → crush →
-/// chorus → phaser → delay → reverb), the audible behaviour they had.
-///
-/// v11 bumps `DrumMachine.max_pads` 8 → 64 with lazy per-pad allocation
-/// (`DrumMachine.pads` is now `[64]?Sampler`, not `[8]Sampler`) — genuinely
-/// a version bump, not just an additive field, because it changes what an
-/// *absent* value means: `PadSnap.used` is new in v11 and defaults to
-/// `false`, but every v10-and-older file's 8 pads were ALWAYS materialized
-/// (there was no "empty pad" concept before lazy allocation existed), so an
-/// absent `used` on a pre-v11 file means `true`, not the v11 default. Also
-/// converts DrumSnap/VariantSnap's pad-indexed fields (`pattern`, `vel_lo`,
-/// `vel_hi`, `choke_group`, `pads`) from fixed `[DrumMachine.max_pads]T`
-/// arrays to slices — std.json requires an exact length match to parse a
-/// fixed array, so leaving them tied to the now-64 constant would have
-/// broken loading every pre-v11 file's 8-element arrays outright (confirmed
-/// with a standalone repro before this landed, not just assumed).
-/// v12 widens per-step drum velocity from the old 2-bit `vel_lo`/`vel_hi`
-/// bitplanes (4 levels: 100/75/50/25%) to a plain 0-127 byte per step
-/// (`VariantSnap.vel`/`ClipSnap.drum_vel`, nested per-pad slices of
-/// per-step values — same "slice for JSON-length safety" shape the v11
-/// pad-indexed fields already use). Genuinely a version bump, not additive:
-/// the old fields aren't just extended, they're superseded, so an older
-/// file's `vel_lo`/`vel_hi` (kept, read-only, for exactly this migration)
-/// gets remapped through `DrumMachine.legacyVelToNew` onto the new scale
-/// instead of being read directly.
-/// v13 generalizes the single `filter_cutoff_automation` lane into a sparse
-/// list of synth-instrument-param automation lanes (`ClipSnap.
-/// synth_param_automation`, one entry per automated `PolySynth.
-/// setParamAbsolute` id — see dsp/synth.zig's `automatable_params`).
-/// Genuinely a version bump for the same reason v12's velocity change was:
-/// the old field is superseded, not extended, so a pre-v13 file's
-/// `filter_cutoff_automation` (kept, read-only, for exactly this migration)
-/// remaps onto the new list's param_id 21 entry instead of being read
-/// directly.
-/// v14 turns the EQ from a 10-band graphic EQ (fixed ISO center
-/// frequencies, gain-only) into an 8-band parametric EQ (freq/Q/gain all
-/// adjustable per band). `EqSnap.band_gains` (the old 10-element gain
-/// array, kept read-only for exactly this migration) remaps onto the new
-/// `bands` array by nearest legacy ISO frequency, with Q defaulted to
-/// the old fixed 0.7 — genuinely lossy (10 gain-only slots collapse onto
-/// 8 parametric ones) but there's no better source of truth in an old
-/// file. New saves never write `band_gains`, matching v11/v12/v13's own
-/// migration convention.
-/// v15 adds the multiband compressor FX unit (`FxUnitSnap.mb_comp`, see
-/// rack.zig's `MultibandComp`) — purely additive, same as v9's five new
-/// units; older files simply never reference the new `mb_comp` kind.
-/// v16 adds the OTT FX unit (`FxUnitSnap.ott`, see dsp/ott.zig) — purely
-/// additive again; the bump exists so pre-v16 builds hard-reject a file
-/// using the new kind instead of failing on an unknown enum name.
+/// Newest format version this build writes and reads; newer files are
+/// hard-rejected on load. The canonical version history (what each bump
+/// added and what older files load as) and the bump-vs-additive policy
+/// live in FORMAT.md; per-field migration specifics stay as doc comments
+/// on the snapshot fields they concern.
 pub const file_version: u32 = 16;
 
 pub const AutomationPointSnap = struct {

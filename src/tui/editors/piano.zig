@@ -1,9 +1,7 @@
 //! Piano-roll input: note cursor, insert/delete/resize, velocity, yank/paste,
-//! loop length, visual-mode range select (v, then y/d/p), operator+motion
-//! grammar (x/w/b/d/y — see the note/beat/pattern hierarchy on the
-//! operator-pending block below), and the Ableton-style clip-link writeback
-//! (edits on a linked arrangement clip land in the clip itself). The render
-//! half lives in views/piano.zig.
+//! loop length, the shared vim grammar (docs/editing-grammar.md), and the
+//! Ableton-style clip-link writeback (edits on a linked arrangement clip
+//! land in the clip itself). The render half lives in views/piano.zig.
 
 const std = @import("std");
 const ws = @import("wstudio");
@@ -61,18 +59,9 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
     if (app.modal.mode == .visual) return handleVisual(app, key, pp, max_step);
 
     // zig fmt: off
-    // Operator-pending mode: `d`/`y` arm here (armOperator below), then a
-    // step motion (h/l/H/L/g/G/w/b) deletes/yanks the range from the
-    // arming point to wherever the motion lands — reuses the exact same
-    // deleteSelection/yankSelection visual mode uses, just without the
-    // visual-mode UI or its j/k pitch motion (time-range-only, like visual
-    // mode). Vim's char/word/line hierarchy maps onto this editor as note
-    // (x, below) / beat (w/b, dw/yw) / line (dd) — a "line" is the cursor
-    // pitch's whole row, so dd clears just that pitch across the pattern
-    // (whole-pattern clears live in :clear or a full-range visual d). yy
-    // stays the whole-pattern yank: it's the cross-track pattern-copy
-    // vehicle (`p` pastes it), and a one-pitch yank would have no paste
-    // story of its own. Anything else cancels.
+    // Operator-pending: d/y + time motion, shared grammar
+    // (docs/editing-grammar.md). Line tier is per-pitch here: dd clears
+    // just the cursor pitch's row; yy stays the whole-pattern yank.
     if (app.piano_op_pending) |op| {
         app.piano_op_pending = null;
         switch (key) {
@@ -647,8 +636,8 @@ fn jumpBar(app: *App, max_step: u16, delta: i32) void {
 }
 
 /// dw/yw's range end: the last step of the nth beat forward (inclusive),
-/// not w's own landing step (the *next* beat's first step) — see the
-/// operator-pending block's comment on 'w'.
+/// not w's own landing step (the *next* beat's first step): vim's dw
+/// word-end nuance, see docs/editing-grammar.md.
 fn operatorBarForward(app: *App, max_step: u16, n: i32) void {
     const bar_len = barLenSteps(app);
     if (bar_len == 0) return;

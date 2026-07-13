@@ -16,19 +16,14 @@ const piano = @import("piano.zig");
 const automation = @import("automation.zig");
 const view = @import("../views/arrangement.zig");
 
-/// h/l move ±1 bar, H/L ±4 bars (one phrase), j/k change lane (shared
-/// `cursor`), enter stamps the live pattern as a clip, x deletes the clip
-/// under the cursor, d/y are operators (dd/yy act on the whole lane, d/y +
-/// h/l/H/L act on a bar range), p pastes, </> shift a clip by bars, +/-
-/// edge-resize a clip's length by bars (its content loops to fill whatever
-/// span it's given), ( ) b set/toggle the A/B
-/// loop, [/] cycle a drum lane's pattern variant, T toggles song/pattern
-/// mode, v starts a bar-range selection on the current lane, a opens the
-/// gain/pan automation editor on the clip under the cursor. Tab (like
-/// escape) returns to the tracks view — tracks' own Tab is the mirror,
-/// switching into arrangement.
-/// Returns false for unhandled keys (space, `:`, …) so the transport and
-/// command line still work. Scroll is clamped at draw.
+/// Arrangement (song timeline) input. A bar is the atomic unit: h/l move
+/// by bars, enter stamps the live pattern as a clip, </> shift and +/-
+/// edge-resize the clip under the cursor (content loops to fill), ( ) b
+/// manage the A/B loop, [/] cycle a drum lane's variant, T toggles
+/// song/pattern mode, a opens the automation editor. Operators and
+/// visual mode follow the shared grammar (docs/editing-grammar.md),
+/// current-lane only. Returns false for unhandled keys so the transport
+/// and command line still work; scroll is clamped at draw.
 pub fn handleKey(app: *App, key: modal_mod.Key) bool {
     const lane_count = app.session.project.tracks.items.len;
 
@@ -38,15 +33,9 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
     // swallowed so a stray keypress can't jump views mid-selection.
     if (app.modal.mode == .visual) return handleVisual(app, key, lane_count);
 
-    // Operator-pending mode: `d`/`y` arm here (armOperator below), then
-    // h/l/H/L act on the bar range from the arming point (current lane
-    // only) — no j/k here, same lane-only restriction visual mode's own
-    // range select has. Vim's char/word/line hierarchy collapses a tier in
-    // this editor: a bar already IS the atomic unit (`x` deletes one, h/l
-    // already move one at a time — there's no finer grain to distinguish
-    // "char" from "word" here), so the same operator key again (dd/yy)
-    // clears/yanks the entire lane, the tier above a bar. Anything else
-    // cancels.
+    // Operator-pending: d/y + bar motion on the current lane only, shared
+    // grammar (docs/editing-grammar.md). A bar is this editor's atomic
+    // unit, so the line tier (dd/yy) is the entire lane.
     if (app.arr_op_pending) |op| {
         app.arr_op_pending = null;
         switch (key) {

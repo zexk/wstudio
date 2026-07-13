@@ -1104,8 +1104,8 @@ test "automation editor: tab only cycles gain/pan until the picker adds a synth 
     try std.testing.expectEqual(automation_ed.AutomationFocus.gain, app.automation_focus);
 
     // Sampler track: the picker offers Sampler's own automatable_params
-    // table (item 30's remaining scope) — select GAIN (param_id 7) and
-    // confirm it behaves exactly like the synth-track case above.
+    // table: select GAIN (param_id 7) and confirm it behaves exactly
+    // like the synth-track case above.
     try app.session.stampClip(1, 0);
     automation_ed.switchTo(&app, 1, 0);
     try std.testing.expectEqual(automation_ed.AutomationFocus.gain, app.automation_focus);

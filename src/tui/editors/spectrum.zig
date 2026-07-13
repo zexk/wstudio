@@ -1,34 +1,15 @@
-//! FX chain input — shared by a track's view and the master bus.
+//! FX chain input, shared by a track's view, a group's, and the master
+//! bus. The chain strip shows the inserted units in signal-flow order;
+//! Tab/]/[ walk slot focus, `a` inserts via the picker, `x` removes,
+//! `<`/`>` reorder, `b` bypasses, j/k pick a param and h/l (H/L coarse)
+//! nudge it. The spectrum analyzer belongs to an EQ unit's editor and
+//! only runs while one has focus.
 //!
-//! The chain strip is the view's centrepiece: the units the user has
-//! inserted, drawn in signal-flow order, with a trailing "+" box while
-//! there's room for more. Chains start empty; `a` opens the FX picker
-//! (same idea as the instrument picker) and inserts the chosen unit after
-//! the focused slot, so the user decides what runs and in what order —
-//! duplicates included. The spectrum analyzer belongs to an EQ unit's
-//! editor and only runs while one has focus.
-//!
-//! `Tab`/`]`/`[` walk slot focus along the chain (the boxes it moves
-//! between are drawn left-to-right onscreen); `a` inserts via the picker;
-//! `x` removes the focused unit; `<`/`>` move it along the chain; `b`
-//! toggles its bypass (kept in the chain, skipped by the audio path);
-//! `j`/`k` pick a parameter within the focused unit — the vertical axis,
-//! matching the param list's on-screen layout; `h`/`l` (`H`/`L` coarse)
-//! nudge the selected parameter's value along the horizontal axis, matching
-//! its on-screen bar.
-//!
-//! An EQ unit gets its own scheme instead (`app.eq_band_select`, see
-//! `moveEqBand`/`cycleParam`): cycling every field of every band with j/k
-//! just to reach the next one didn't scale past a couple of bands. Its 8
-//! bands x kind/freq/q/gain ("gain" is a filter band's "slope" instead, see
-//! `eq_field_gain`) still flatten into one 32-entry `fx_param` list, but
-//! `h`/`l` walk band selection (`H`/`L` jump 4 at a time) until `enter`
-//! drills into that band's field submenu, where `j`/`k` then pick
-//! kind/freq/q/gain and `h`/`l` nudge the selected one; `esc` backs out to
-//! band-select before it falls through to leaving the chain view entirely.
-//! `esc` (outside an open EQ submenu) restores the previous view and parks
-//! the analyzer.
-//! The render half lives in views/spectrum.zig.
+//! An EQ unit gets its own band-select scheme instead (`app.eq_band_select`,
+//! see `moveEqBand`/`cycleParam`): cycling all 32 band-fields with j/k
+//! didn't scale, so h/l walk bands until `enter` opens that band's
+//! kind/freq/q/gain-or-slope submenu, and `esc` backs out to band-select
+//! before leaving the view. The render half lives in views/spectrum.zig.
 
 const std = @import("std");
 const ws = @import("wstudio");

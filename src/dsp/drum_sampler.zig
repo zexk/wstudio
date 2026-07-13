@@ -1,7 +1,7 @@
 //! Step-sequenced multisampler — the drum machine instrument.
 //!
-//! Eight pads, each a full embedded `dsp.Sampler` (see sampler.zig): its own
-//! clip, sample start/end trim, pitch (playback transpose), amplitude ADSR,
+//! Up to 64 pads (lazily allocated), each a full embedded `dsp.Sampler`
+//! (see sampler.zig): its own clip, start/end trim, pitch, amplitude ADSR,
 //! gain, pan, and reverse toggle. DrumMachine itself only adds the step
 //! sequencer on top — sample loading, param edits, and voice rendering are
 //! delegated straight to each pad's Sampler, so there is exactly one place
@@ -10,22 +10,20 @@
 //! single-voice "choke" behaviour (a retrigger cuts the previous hit, the
 //! classic drum-machine convention) even though Sampler itself is polyphonic.
 //!
-//! A 64-step bitmask per pad stores the
-//! pattern; each bit is a u64 atomic so the UI thread can flip bits safely
-//! while the audio thread reads them.  A parallel per-step array holds each
-//! step's velocity (0-127, MIDI-style; 127 = full) as its own atomic u8 — no
-//! bit-packing needed since each step's value is read/written whole.  The
-//! sequencer fires on
-//! step boundaries derived from the transport, using a monotonic step
-//! counter to avoid the double-fire and float-truncation bugs that arise
-//! from recomputing the boundary position every block; MPC-style swing
-//! (50–75%) delays each off-beat 16th within its 8th-note pair.
+//! A 64-step bitmask per pad stores the pattern; each bit is a u64 atomic
+//! so the UI thread can flip bits safely while the audio thread reads them.
+//! A parallel per-step array holds each step's velocity (0-127, MIDI-style)
+//! as its own atomic u8. The sequencer fires on step boundaries derived
+//! from the transport, using a monotonic step counter to avoid the
+//! double-fire and float-truncation bugs that arise from recomputing the
+//! boundary position every block; MPC-style swing (50–75%) delays each
+//! off-beat 16th within its 8th-note pair.
 //!
 //! Per-pad params are plain scalar fields read by the audio thread and
 //! nudged on the audio thread (via the `set_param` device event, with the
-//! pad index encoded in the high nibble of the id) — same race-free path
-//! the synth editor uses.  The UI reads them for display without locking,
-//! matching the synth editor's convention.
+//! pad index in the id's high bits, see `paramId`), the same race-free
+//! path the synth editor uses. The UI reads them for display without
+//! locking, matching the synth editor's convention.
 //!
 //! Pads can also be assigned to a choke group (0 = none, 1..max_choke_groups):
 //! triggering a pad silences every other pad sharing its group, the classic

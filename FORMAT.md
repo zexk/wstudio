@@ -41,9 +41,9 @@ Everything older loads, because of how fields are added:
   whose *absence* can't be given a backward-compatible default (the shape
   of a whole sub-structure changes, e.g. v10's FX rack), or where old data
   needs active migration on load rather than just defaulting. Each bump
-  gets a `vN adds ...` paragraph in `persist.zig`'s top-of-file doc comment
-  explaining exactly what older files load as instead. That comment block
-  is the canonical version history; the table below mirrors it.
+  gets a row in the table below explaining exactly what older files load
+  as instead. That table is the canonical version history; `persist.zig`
+  keeps only per-field migration comments and points here.
 
 The v1-v10-in-a-week churn during initial development is done; this policy
 is what keeps future additions from needing another bump merely because

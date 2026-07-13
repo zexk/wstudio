@@ -1,25 +1,13 @@
-//! Per-clip gain/pan/synth-param automation editor: a breakpoint grid, vim-style.
-//!
-//! The cursor moves along the clip's own beat axis in 16th-note steps (the
-//! same unit the piano roll/drum grid use — beat = step / 4.0). h/l move it;
-//! j/k nudge the value at the cursor's exact beat, creating a point there if
-//! none exists yet (starting from whatever the curve currently interpolates
-//! to, so a nudge on a bare stretch doesn't jump to an arbitrary default);
-//! x deletes the point at the cursor exactly (vim's char tier); w/b jump the
-//! cursor a beat at a time (word tier); tab cycles gain -> pan -> whichever
-//! instrument params already have at least one point on this clip -> gain;
-//! `p` opens a picker (poly_synth or sampler tracks) to start automating one
-//! of the current track's instrument continuous params that isn't on this
-//! clip yet — PolySynth's ~30 or Sampler's 9, whichever instrument the track
-//! holds (see `instrumentAutomatableParams`); v starts a
-//! step-range selection on the current curve —
-//! y/d/p act on it (breakpoints only, not the interpolated curve shape in
-//! between); d/y without `v` first arm an operator that a motion
-//! (h/l/H/L/g/G/w/b) completes against, and d/y repeated (dd/yy) act on the
-//! whole curve — the same operator+motion grammar the piano roll/drum
-//! grid/arrangement share. `.` repeats the last nudge or range op. Same
-//! shapes as the piano roll's visual mode/`.` repeat, one axis instead of
-//! two. The render half lives in views/automation.zig.
+//! Per-clip gain/pan/instrument-param automation editor: a breakpoint
+//! grid, vim-style. The cursor walks the clip's beat axis in 16th steps;
+//! j/k nudge the value at the cursor's exact beat, creating a point from
+//! the curve's interpolated value there (so a nudge on a bare stretch
+//! doesn't jump to an arbitrary default). tab cycles gain -> pan -> the
+//! instrument params already automated on this clip; `p` opens the param
+//! picker (see `instrumentAutomatableParams`), so paste is `P` here.
+//! Motions, operators, visual mode and `.` follow the shared grammar
+//! (docs/editing-grammar.md); range ops act on breakpoints only, not the
+//! interpolated shape between them. Render half: views/automation.zig.
 
 const std = @import("std");
 const ws = @import("wstudio");
@@ -184,15 +172,10 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
     // mid-selection.
     if (app.modal.mode == .visual) return handleVisual(app, key, clip);
 
-    // Operator-pending mode: `d`/`y` arm here (armOperator below), then a
-    // step/beat motion (h/l/H/L/g/G/w/b) deletes/yanks the range from the
-    // arming point to wherever the motion lands — reuses the exact same
-    // deleteSelection/yankSelection visual mode uses, just without the
-    // visual-mode UI (matches piano.zig/drum.zig/arrangement.zig's identical
-    // grammar). The same operator key again (dd/yy) acts on the whole
-    // curve — since a curve's points are already just a beat range, that's
-    // simply the full [0, maxStep] range, same functions, no separate
-    // whole-curve clipboard needed. Anything else cancels.
+    // Operator-pending: d/y + time motion, shared grammar
+    // (docs/editing-grammar.md), through the same delete/yankSelection
+    // path visual mode uses. Line tier (dd/yy) is the whole curve, which
+    // is simply the full [0, maxStep] range through those same functions.
     if (app.automation_op_pending) |op| {
         app.automation_op_pending = null;
         switch (key) {

@@ -108,30 +108,20 @@ pub fn hr(w: *std.Io.Writer, cols: u16) !void {
     try endLine(w);
 }
 
-/// Renders `raw` (may contain ANSI SGR sequences) as a header/transport row:
-/// content clamped to `cols`, then the line ended normally. A reverse-video
-/// fill was tried here (v1.0.0 tackle item 50) and rejected on a live look —
-/// it read as a stray highlighted bar rather than UI frame, and no separator
-/// at all reads cleaner than either that or a dim hr() rule row.
+/// Renders `raw` (may contain ANSI SGR sequences) as a header/transport
+/// row: content clamped to `cols`, no fill (a reverse-video fill read as
+/// a stray highlighted bar; see docs/ui-conventions.md).
 pub fn writeChromeRow(w: *std.Io.Writer, raw: []const u8, cols: u16) !void {
     try writeClamped(w, raw, cols);
     try endLine(w);
 }
 
-/// Writes the lualine-style mode badge (item 54): a single letter (N/I/V
-/// for normal/insert/visual) on a colour-coded background, tight-padded —
-/// matching real lualine's terse mode indicator rather than spelling the
-/// mode name out. Deliberately just the letter with no trailing divider
-/// glyph and no second "view name" chip: an earlier pass here tried a
-/// second blue chip plus a powerline triangle between the two, which read
-/// as far too heavy next to an actual lualine screenshot the user pulled
-/// up for comparison — real lualine chips only the mode/a couple of small
-/// counters and leaves everything else, including the equivalent of a
-/// "view name", as plain uncoloured text. Callers print the view name and
-/// the rest of their status content as plain text right after this, same
-/// as before. `.command`/`.search` get a badge too now (see
-/// `modeBadgeLetter`) — the `:`/`/` prompt itself renders on its own row
-/// above (App.draw), so the status row stays informative while typing.
+/// Writes the lualine-style mode badge: a single letter (N/I/V, plus C/S
+/// for command/search) on a colour-coded background, deliberately with no
+/// divider glyph or second chip (docs/ui-conventions.md has the design
+/// story). Callers print the view name and status content as plain text
+/// right after. The `:`/`/` prompt renders on its own row (App.draw), so
+/// the status row stays informative while typing.
 pub fn writeModeBadge(w: *std.Io.Writer, mode: Mode) !void {
     try w.writeAll(modeBadgeBg(mode));
     try w.writeAll(badge_fg);

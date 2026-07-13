@@ -725,14 +725,10 @@ pub const App = struct {
             },
             // Editor-handled keys discard any unused count prefix (vim: a
             // count binds to the command it precedes, then dies with it).
-            // Normal and visual both route through the editor first (visual
-            // reuses its motions and adds range y/d/P); only command mode
-            // bypasses it entirely.
-            // Insert mode bypasses the grid's own switch entirely, same
-            // reasoning as the piano roll below: the qwerty piano-key layout
-            // needs h/j/k/l as pad triggers, not grid navigation, so
-            // modal.handle owns every key until escape (see recordNote in
-            // editors/drum.zig).
+            // Normal and visual route through the editor first; command
+            // mode bypasses it, and insert mode bypasses the grid switch so
+            // qwerty keys trigger pads (see recordNote in editors/drum.zig
+            // and docs/editing-grammar.md).
             .drum_grid => {
                 if (self.modal.mode == .command or self.modal.mode == .search or self.modal.mode == .insert or !drum_ed.handleKey(self, key)) {
                     self.applyAction(self.modal.handle(key), now_ns);
@@ -3259,8 +3255,7 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8) !vo
         var w = std.Io.Writer.fixed(&frame_buf);
         // Bracket the frame in a DEC 2026 synchronized update, inside the
         // same single write: without it tmux/compositing terminals can
-        // repaint mid-frame, which reads as flicker on plain navigation
-        // (tackle item 34/37's repro).
+        // repaint mid-frame, which reads as flicker on plain navigation.
         w.writeAll(terminal_mod.begin_sync) catch {};
         app.draw(&w, term.size()) catch {};
         w.writeAll(terminal_mod.end_sync) catch {};

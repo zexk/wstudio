@@ -26,17 +26,9 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
     // stray keypress can't jump views mid-selection.
     if (app.modal.mode == .visual) return handleVisual(app, key);
 
-    // Operator-pending mode: `d`/`y` arm here (armOperator below), then a
-    // step motion (h/l/H/L/g/G/w/b) deletes/yanks the range from the
-    // arming point (every pad, matching the visual-mode range) — j/k (pad
-    // motion) aren't valid here, same time-range-only restriction visual
-    // mode's own range select has. Vim's char/word/line hierarchy maps onto
-    // this editor as step (x, below) / 4-step group (w/b, dw/yw) / line
-    // (dd) — a "line" is the cursor pad's whole row, so dd clears just that
-    // pad (same as X; whole-pattern clears live in a full-range visual d).
-    // yy stays the whole-pattern yank: it's the cross-track pattern-copy
-    // vehicle (`p` pastes it), and a one-pad yank would have no paste story
-    // of its own. Anything else cancels.
+    // Operator-pending: d/y + time motion, shared grammar
+    // (docs/editing-grammar.md). Line tier is per-pad here: dd clears just
+    // the cursor pad's row (same as X); yy stays the whole-pattern yank.
     if (app.drum_op_pending) |op| {
         app.drum_op_pending = null;
         switch (key) {
@@ -84,17 +76,9 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
         // zig fmt: on
         .char => |c| {
             switch (c) {
-                // 'i' falls through to modal.handle below (see the .char
-                // default at the bottom of this switch), which enters insert
-                // mode — App.handleKey then stops routing keys through this
-                // switch entirely while insert mode lasts (mirrors the piano
-                // roll's identical comment), so the qwerty piano-key layout
-                // owns h/j/k/l instead of grid navigation. That's what makes
-                // recordNote below reachable: play a take while the
-                // transport rolls and pad hits land as steps, quantized to
-                // the machine's own live playhead (DrumMachine.currentStep).
-                // fine move by one step; shift (HL) jumps one beat (4 steps).
-                // All motions take a vim count prefix (3l, 2j, …).
+                // 'i' falls through to modal.handle (the .char default
+                // below): insert mode then owns every key as qwerty pad
+                // triggers, which is what makes recordNote reachable.
                 'h' => moveStep(app, -app.takeCount()),
                 'l' => moveStep(app, app.takeCount()),
                 'H' => moveStep(app, -4 * app.takeCount()),
@@ -251,19 +235,13 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
     }
 }
 
-/// Live recording: called from `App.applyAction`'s `.note` handler whenever
-/// insert mode plays a pad on `app.drum_track` (see `App.currentTrack`'s
-/// `.drum_grid` case — the note's pitch already carries the pad index,
-/// wrapped mod `DrumMachine.max_pads`, same mapping the plain-audition path
-/// used before this). Only writes something if the transport is actually
-/// rolling — a stopped transport has no playhead to quantize against, so
-/// insert mode is pure audition in that case, mirroring piano.zig's
-/// `recordNote`. Quantizes to `DrumMachine.currentStep()`, the audio
-/// thread's own live step counter (already correct under swing and
-/// song/live mode alike, unlike recomputing from frames/tempo by hand), and
-/// skips a step that's already active rather than stacking a duplicate hit.
-/// Cursor follows the recorded hit so the grid shows where the take is
-/// landing in real time.
+/// Live recording: insert-mode pad hits land here (via `App.applyAction`'s
+/// `.note` handler; the pitch carries the pad index mod max_pads) while
+/// the transport rolls; stopped transport = pure audition. Quantizes to
+/// `DrumMachine.currentStep()`, the audio thread's own step counter
+/// (already correct under swing and song/live mode alike, unlike
+/// recomputing from frames/tempo by hand), skips already-active steps,
+/// and moves the cursor to where the take lands.
 pub fn recordNote(app: *App, pitch: u7, vel: u8) void {
     if (app.drum_track >= app.session.racks.items.len) return;
     if (app.session.racks.items[app.drum_track].instrument != .drum_machine) return;

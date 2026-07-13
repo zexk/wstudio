@@ -48,6 +48,12 @@ that text captures miss.
 - **No em dashes in new prose** (commit messages, code comments, README
   additions, help text). The ones already in the codebase predate this
   convention; don't clean them up, but don't add new ones either.
+- **Comments explain the why of tricky or arbitrary steps, nothing more.**
+  No narration of what the next line does, no session history ("an earlier
+  pass tried..."), no duplicated essays across files. Shared conventions
+  and design stories live in docs/ (see docs/README.md); code keeps a
+  one-line pointer. Threading/atomics contracts in dsp/ and audio/ stay
+  in the code, they are load-bearing.
 
 ## Zig 0.16 gotcha
 

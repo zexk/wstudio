@@ -96,8 +96,10 @@ src/
 │   ├── slicer.zig      step-sequenced sample chopper (one clip, up to 64 slices)
 │   ├── drum_kit.zig    synthesis factory for the shipped kit samples
 │   ├── pattern.zig     piano-roll pattern sequencer
-│   ├── eq.zig          3-band EQ
-│   ├── compressor.zig  feed-forward stereo-linked compressor
+│   ├── eq.zig          8-band parametric EQ (peak/lowpass/highpass)
+│   ├── compressor.zig  feed-forward stereo-linked compressor (sidechain)
+│   ├── multiband_comp.zig  3-band compressor, classic or OTT style
+│   ├── ott.zig         OTT as its own unit: the multiband squash, pre-tuned
 │   ├── gate.zig        noise gate
 │   ├── saturator.zig   tanh soft-clip saturator
 │   ├── crusher.zig     bitcrusher (bit depth + sample-rate reduce)
@@ -126,6 +128,10 @@ Three rules hold everything together:
 3. **Input is a pure state machine.** Key to action mapping lives in
    `input/modal.zig` with no UI dependency, so bindings are unit-tested
    and identical across frontends.
+
+Longer-form design notes (the shared vim editing grammar, TUI layout
+conventions) live in [docs/](docs/README.md); the save format and its
+version history in [FORMAT.md](FORMAT.md).
 
 ## Building
 
