@@ -66,6 +66,7 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "load-clip",   .desc = "[file]  load a WAV as a whole audio clip and stamp it at the arrangement cursor (sampler track, omit the file to browse)", .run = wrap(cmdLoadClip), .scope = .sampler },
     .{ .name = "load-slice",  .desc = "[file]  load a WAV as the slicer's shared clip (omit the file to browse)", .run = wrap(cmdLoadSlice), .scope = .slicer },
     .{ .name = "slice",       .desc = "<n>  equal-divide the slicer's loaded clip into n slices (1-64)", .run = wrap(cmdSlice), .scope = .slicer },
+    .{ .name = "chop",        .desc = "[1-9]  chop the slicer's clip at detected transients (sensitivity, default 5)", .run = wrap(cmdChop), .scope = .slicer },
     .{ .name = "e",           .desc = "[file]  open a project (refuses if unsaved changes; omit the file to browse)", .run = wrap(cmdEdit) },
     .{ .name = "e!",          .desc = "[file]  open a project, discarding changes; no file reverts the current one", .run = wrap(cmdEditForce) },
     .{ .name = "restore-backup", .desc = "load the <project>~ autosave backup over the current session", .run = wrap(cmdRestoreBackup) },
@@ -690,23 +691,22 @@ fn cursorSynth(app: *App) ?*ws.dsp.PolySynth {
     };
 }
 
-/// The Slicer on the cursor's track, or — if the slicer grid is open — the
-/// one being edited. Null when neither is a slicer. Mirrors
-/// `cursorDrumMachine`'s two-fallback shape.
-fn cursorSlicer(app: *App) ?*Slicer {
-    if (app.cursor < app.session.racks.items.len) {
-        switch (app.session.racks.items[app.cursor].instrument) {
-            .slicer => |*sl| return sl,
-            else => {},
-        }
-    }
-    if (app.view == .slicer_grid and app.slicer_track < app.session.racks.items.len) {
-        switch (app.session.racks.items[app.slicer_track].instrument) {
-            .slicer => |*sl| return sl,
-            else => {},
-        }
-    }
+/// The track index of the slicer the command should act on: the cursor's
+/// track, or — if the slicer grid is open — the one being edited. Null when
+/// neither is a slicer. Mirrors `cursorDrumMachine`'s two-fallback shape.
+fn cursorSlicerTrack(app: *App) ?u16 {
+    if (app.cursor < app.session.racks.items.len and
+        app.session.racks.items[app.cursor].instrument == .slicer)
+        return @intCast(app.cursor);
+    if (app.view == .slicer_grid and app.slicer_track < app.session.racks.items.len and
+        app.session.racks.items[app.slicer_track].instrument == .slicer)
+        return app.slicer_track;
     return null;
+}
+
+fn cursorSlicer(app: *App) ?*Slicer {
+    const t = cursorSlicerTrack(app) orelse return null;
+    return &app.session.racks.items[t].instrument.slicer;
 }
 
 /// The cursor's track index, or null when it's on the master row (or out
@@ -1042,10 +1042,11 @@ pub fn loadSliceFromPath(app: *App, path: []const u8) void {
 }
 
 fn cmdSlice(app: *App, args: []const u8) void {
-    const sl = cursorSlicer(app) orelse {
+    const track = cursorSlicerTrack(app) orelse {
         app.setStatus("slice: select a slicer track first", .{});
         return;
     };
+    const sl = &app.session.racks.items[track].instrument.slicer;
     const trimmed = std.mem.trim(u8, args, " ");
     const n = std.fmt.parseInt(u16, trimmed, 10) catch {
         app.setStatus("slice: usage :slice <1-{d}>", .{Slicer.max_slices});
@@ -1055,9 +1056,33 @@ fn cmdSlice(app: *App, args: []const u8) void {
         app.setStatus("slice: usage :slice <1-{d}>", .{Slicer.max_slices});
         return;
     }
+    history.push(app, history.captureSlicer(app, track));
     sl.sliceInto(@intCast(@min(n, Slicer.max_slices)));
     app.dirty = true;
     app.setStatus("sliced into {d}", .{sl.slice_count});
+}
+
+/// `:chop [1-9]` — re-chop the loaded clip at detected transients. The
+/// optional sensitivity defaults to 5; higher finds more (softer) hits.
+fn cmdChop(app: *App, args: []const u8) void {
+    const track = cursorSlicerTrack(app) orelse {
+        app.setStatus("chop: select a slicer track first", .{});
+        return;
+    };
+    const sl = &app.session.racks.items[track].instrument.slicer;
+    const trimmed = std.mem.trim(u8, args, " ");
+    const sensitivity: u8 = if (trimmed.len == 0) 5 else std.fmt.parseInt(u8, trimmed, 10) catch 0;
+    if (sensitivity < 1 or sensitivity > 9) {
+        app.setStatus("chop: usage :chop [1-9] (sensitivity, default 5)", .{});
+        return;
+    }
+    history.push(app, history.captureSlicer(app, track));
+    const n = sl.chopTransients(sensitivity);
+    app.dirty = true;
+    if (n <= 1)
+        app.setStatus("chop: no transients found — try a higher sensitivity (:chop 1-9)", .{})
+    else
+        app.setStatus("chopped into {d} slices (sensitivity {d})", .{ n, sensitivity });
 }
 
 /// Explicit :save argument (with `~` expanded), else the file the session

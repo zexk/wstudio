@@ -62,6 +62,28 @@ pub fn captureDrum(app: *App, track: u16) ?undo_mod.Entry {
     return .{ .drum = st };
 }
 
+/// Snapshot one slicer's chop layout + step grid (see SlicerState).
+pub fn captureSlicer(app: *App, track: u16) ?undo_mod.Entry {
+    if (track >= app.session.racks.items.len) return null;
+    const sl = switch (app.session.racks.items[track].instrument) {
+        .slicer => |*s| s,
+        else => return null,
+    };
+    var st: undo_mod.SlicerState = .{
+        .track = track,
+        .slice_count = sl.slice_count,
+        .step_count = sl.step_count,
+        .slices = sl.slices,
+        .pattern = undefined,
+        .vel = undefined,
+    };
+    for (&st.pattern, &sl.pattern) |*dst, *src| dst.* = src.load(.monotonic);
+    // zig fmt: off
+    for (&st.vel, &sl.vel) |*drow, *srow| for (drow, srow) |*d, *s| { d.* = s.load(.monotonic); };
+    // zig fmt: on
+    return .{ .slicer = st };
+}
+
 /// Snapshot one arrangement lane's clips (deep copies).
 pub fn captureLane(app: *App, track: u16) ?undo_mod.Entry {
     const lane = app.session.arrangement.lane(track) orelse return null;
@@ -234,7 +256,8 @@ fn liveParamValue(app: *App, track: u16, id: u16) ?f32 {
         .poly_synth => |*s| if (id <= 0xFF) s.paramValue(@intCast(id)) else null,
         .sampler => |*s| if (id <= 0xFF) s.paramValue(@intCast(id)) else null,
         .drum_machine => |*dm| dm.paramValue(id),
-        else => null,
+        .slicer => |*sl| sl.paramValue(id),
+        .empty => null,
     };
 }
 
@@ -347,6 +370,28 @@ fn applyEntry(app: *App, entry: undo_mod.Entry) ?undo_mod.Entry {
             dm.variant = @min(d.variant, d.variant_count - 1);
             dm.applyVariant(d.variants[dm.variant]);
             if (app.drum_cursor[1] >= dm.step_count) app.drum_cursor[1] = dm.step_count - 1;
+            return displaced;
+        },
+        .slicer => |d| {
+            const displaced = captureSlicer(app, d.track) orelse return null;
+            const sl = &app.session.racks.items[d.track].instrument.slicer;
+            // Restore the chop layout under the sample lock (processBlock
+            // holds it for the whole block), re-pointing every slice at the
+            // CURRENT buffer — captured `samples` aliases may predate a
+            // :load-slice (see SlicerState's doc comment).
+            while (!sl.sample_lock.tryLock()) std.atomic.spinLoopHint();
+            sl.slice_count = d.slice_count;
+            sl.slices = d.slices;
+            for (&sl.slices) |*p| p.samples = sl.samples;
+            sl.sample_lock.unlock();
+            sl.step_count = d.step_count;
+            for (&sl.pattern, d.pattern) |*dst, v| dst.store(v, .release);
+            // zig fmt: off
+            for (&sl.vel, d.vel) |*row, vrow| for (row, vrow) |*p, v| { p.store(v, .release); };
+            // zig fmt: on
+            sl.resetAll(); // ringing tails would finish through relocated slices
+            app.slicer_cursor[0] = @min(app.slicer_cursor[0], sl.slice_count -| 1);
+            app.slicer_cursor[1] = @min(app.slicer_cursor[1], sl.step_count -| 1);
             return displaced;
         },
         .lane => |l| {

@@ -1,7 +1,8 @@
 # Editing grammar
 
-The four pattern editors (piano roll, drum grid, arrangement,
-automation) share one vim-flavored grammar. Each editor's input file
+The five pattern editors (piano roll, drum grid, slicer grid,
+arrangement, automation) share one vim-flavored grammar. Each editor's
+input file
 (`src/tui/editors/<name>.zig`) implements it against its own axes; this
 page is the canonical description, so per-editor comments only note
 where that editor deviates.
@@ -16,9 +17,9 @@ where that editor deviates.
   playhead), otherwise insert is pure audition.
 - **Visual** (`v`): anchors a time-range selection. Selections are
   time-range only in every editor: the piano roll selects all pitches
-  across the step range, the drum grid all pads, and the arrangement
-  restricts itself to the current lane (undo snapshots one lane at a
-  time). `y`/`d` act on the range, escape cancels. While visual mode is
+  across the step range, the drum and slicer grids all rows, and the
+  arrangement restricts itself to the current lane (undo snapshots one
+  lane at a time). `y`/`d` act on the range, escape cancels. While visual mode is
   active every unrelated key is swallowed so a stray press cannot
   switch views or curves mid-selection.
 - **Command** (`:`) / **search** (`/`): handled outside the editors.
@@ -32,13 +33,14 @@ operator is pending extend the count without cancelling the operator.
 
 ## Motions
 
-- `h`/`l`: one step (piano, drum, automation) or one bar (arrangement).
+- `h`/`l`: one step (piano, drum, slicer, automation) or one bar
+  (arrangement).
 - `H`/`L`: 4 steps from wherever the cursor is (one beat), or 4 bars in
   the arrangement.
 - `w`/`b`: one beat, snapped to beat boundaries (unlike `H`/`L`, which
   do not snap). The piano roll respects the triplet grid (6 steps per
-  beat under `T`); the drum grid and automation hardcode 4 steps,
-  matching the visual `|` separators. A true musical-bar jump was tried
+  beat under `T`); the drum grid, slicer grid, and automation hardcode
+  4 steps, matching the visual `|` separators. A true musical-bar jump was tried
   and rejected as too coarse: on a default 16-step pattern it crossed
   the whole visible grid in one press. The implementing functions are
   still named `jumpBar`/`barLenSteps` for historical reasons; despite
@@ -62,6 +64,7 @@ cancels. `dw`/`yw` end at the last step of the nth beat forward, not at
 |-------------|------------------|----------------------|-------------------------|
 | piano roll  | note at cursor   | beat                 | cursor pitch's row      |
 | drum grid   | step at cursor   | beat (4 steps)       | cursor pad's row (= X)  |
+| slicer grid | step at cursor   | beat (4 steps)       | cursor slice's row (= X)|
 | arrangement | clip under cursor| (bar IS the unit)    | whole lane              |
 | automation  | point at cursor  | beat (4 steps)       | whole curve             |
 
@@ -72,7 +75,9 @@ The arrangement collapses a tier: a bar is already its atomic unit, so
 than a one-row yank: it is the cross-track pattern-copy vehicle (`p`
 pastes it into another track), and a one-pitch/one-pad yank would have
 no paste story of its own. Whole-pattern clears live in `:clear` or a
-full-range visual `d`.
+full-range visual `d`. The slicer grid's `yy` is a full-width range
+yank instead (it has no pattern variants and its rows are clip-specific
+chops, so there is no cross-track paste story).
 
 ## Paste
 

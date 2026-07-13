@@ -386,13 +386,16 @@ test "slicer grid: slice, step toggle, play triggers the right slice" {
     try std.testing.expectEqual(@as(u8, 8), app.slicerInst().slice_count);
 
     app.slicer_cursor = .{ 3, 0 };
-    _ = slicer_ed.handleKey(&app, .{ .char = 'x' });
+    _ = slicer_ed.handleKey(&app, .enter);
     try std.testing.expect(app.slicerInst().stepActive(3, 0));
+    // x clears (vim char-delete, drum-grid parity) — never re-toggles on.
+    _ = slicer_ed.handleKey(&app, .{ .char = 'x' });
+    try std.testing.expect(!app.slicerInst().stepActive(3, 0));
     _ = slicer_ed.handleKey(&app, .{ .char = 'x' });
     try std.testing.expect(!app.slicerInst().stepActive(3, 0));
 
     // Re-arm it and confirm the sequencer actually fires that slice on play.
-    _ = slicer_ed.handleKey(&app, .{ .char = 'x' });
+    _ = slicer_ed.handleKey(&app, .enter);
     _ = app.session.engine.send(.play);
     var block: [512]types.Sample = undefined;
     app.session.engine.process(&block);
@@ -415,13 +418,160 @@ test "slicer grid: navigation and per-slice param nudges stay within bounds" {
     _ = slicer_ed.handleKey(&app, .{ .char = 'J' }); // bank jump, clamped to slice_count-1
     try std.testing.expectEqual(@as(u8, 3), app.slicer_cursor[0]);
 
-    const gain_before = app.slicerInst().slices[3].gain;
-    _ = slicer_ed.handleKey(&app, .{ .char = '=' });
-    try std.testing.expect(app.slicerInst().slices[3].gain > gain_before);
-
-    try std.testing.expect(!app.slicerInst().slices[3].reverse);
+    // Boundary/reverse nudges ride the command queue (like every other
+    // instrument param), so they land when the engine processes a block.
+    const start_before = app.slicerInst().slices[3].start_norm;
+    _ = slicer_ed.handleKey(&app, .{ .char = ']' });
     _ = slicer_ed.handleKey(&app, .{ .char = 'r' });
+    var block: [64]types.Sample = undefined;
+    app.session.engine.process(&block);
+    try std.testing.expect(app.slicerInst().slices[3].start_norm > start_before);
     try std.testing.expect(app.slicerInst().slices[3].reverse);
+}
+
+test "slicer grid: velocity cycle + fine nudge on an active step only" {
+    var app = try testApp();
+    defer app.deinit();
+    try app.session.setInstrument(0, .slicer);
+    app.slicer_track = 0;
+    app.view = .slicer_grid;
+    app.slicerInst().sliceInto(2);
+    app.slicer_cursor = .{ 0, 0 };
+
+    // No step yet: c and _ refuse rather than editing a phantom step.
+    _ = slicer_ed.handleKey(&app, .{ .char = 'c' });
+    try std.testing.expectEqual(@as(u8, 127), app.slicerInst().stepVel(0, 0));
+
+    _ = slicer_ed.handleKey(&app, .enter);
+    _ = slicer_ed.handleKey(&app, .{ .char = 'c' });
+    try std.testing.expectEqual(@as(u8, 95), app.slicerInst().stepVel(0, 0));
+    _ = slicer_ed.handleKey(&app, .{ .char = '_' });
+    try std.testing.expectEqual(@as(u8, 94), app.slicerInst().stepVel(0, 0));
+    _ = slicer_ed.handleKey(&app, .{ .char = '=' });
+    try std.testing.expectEqual(@as(u8, 95), app.slicerInst().stepVel(0, 0));
+}
+
+test "slicer grid: undo restores steps AND chop layout through one stack" {
+    var app = try testApp();
+    defer app.deinit();
+    try app.session.setInstrument(0, .slicer);
+    app.slicer_track = 0;
+    app.view = .slicer_grid;
+    commands.run(&app, "slice 4");
+    app.slicer_cursor = .{ 1, 3 };
+    _ = slicer_ed.handleKey(&app, .enter); // step on
+    try std.testing.expect(app.slicerInst().stepActive(1, 3));
+
+    commands.run(&app, "slice 8"); // re-chop over the programmed pattern
+    try std.testing.expectEqual(@as(u8, 8), app.slicerInst().slice_count);
+
+    _ = slicer_ed.handleKey(&app, .{ .char = 'u' }); // undo the re-chop
+    try std.testing.expectEqual(@as(u8, 4), app.slicerInst().slice_count);
+    try std.testing.expect(app.slicerInst().stepActive(1, 3));
+
+    _ = slicer_ed.handleKey(&app, .{ .char = 'u' }); // undo the step
+    try std.testing.expect(!app.slicerInst().stepActive(1, 3));
+
+    _ = slicer_ed.handleKey(&app, .{ .char = 'U' }); // redo the step
+    try std.testing.expect(app.slicerInst().stepActive(1, 3));
+}
+
+test "slicer grid: split shifts programming down, merge folds it back" {
+    var app = try testApp();
+    defer app.deinit();
+    try app.session.setInstrument(0, .slicer);
+    app.slicer_track = 0;
+    app.view = .slicer_grid;
+    app.slicerInst().sliceInto(2);
+    app.slicerInst().toggleStep(1, 6);
+
+    app.slicer_cursor = .{ 0, 0 };
+    _ = slicer_ed.handleKey(&app, .{ .char = 's' });
+    try std.testing.expectEqual(@as(u8, 3), app.slicerInst().slice_count);
+    try std.testing.expect(app.slicerInst().stepActive(2, 6)); // followed its slice down
+
+    _ = slicer_ed.handleKey(&app, .{ .char = 'm' });
+    try std.testing.expectEqual(@as(u8, 2), app.slicerInst().slice_count);
+    try std.testing.expect(app.slicerInst().stepActive(1, 6)); // and back up
+
+    // Both are one undo step each.
+    _ = slicer_ed.handleKey(&app, .{ .char = 'u' });
+    try std.testing.expectEqual(@as(u8, 3), app.slicerInst().slice_count);
+}
+
+test "slicer grid: visual range yank/paste and dot-repeat" {
+    var app = try testApp();
+    defer app.deinit();
+    try app.session.setInstrument(0, .slicer);
+    app.slicer_track = 0;
+    app.view = .slicer_grid;
+    app.slicerInst().sliceInto(2);
+    app.slicerInst().toggleStep(0, 0);
+    app.slicerInst().toggleStep(1, 1);
+
+    // v + l + y: yank steps 0-1 across all slices.
+    app.slicer_cursor = .{ 0, 0 };
+    _ = slicer_ed.handleKey(&app, .{ .char = 'v' });
+    try std.testing.expectEqual(modal_mod.Mode.visual, app.modal.mode);
+    _ = slicer_ed.handleKey(&app, .{ .char = 'l' });
+    _ = slicer_ed.handleKey(&app, .{ .char = 'y' });
+    try std.testing.expectEqual(modal_mod.Mode.normal, app.modal.mode);
+
+    // p at step 4 reproduces both hits, offset.
+    app.slicer_cursor = .{ 0, 4 };
+    _ = slicer_ed.handleKey(&app, .{ .char = 'p' });
+    try std.testing.expect(app.slicerInst().stepActive(0, 4));
+    try std.testing.expect(app.slicerInst().stepActive(1, 5));
+
+    // . repeats the paste at a new cursor.
+    app.slicer_cursor = .{ 0, 8 };
+    _ = slicer_ed.handleKey(&app, .{ .char = '.' });
+    try std.testing.expect(app.slicerInst().stepActive(0, 8));
+    try std.testing.expect(app.slicerInst().stepActive(1, 9));
+}
+
+test "slicer grid: e opens the sampler editor on the cursor slice and returns" {
+    var app = try testApp();
+    defer app.deinit();
+    try app.session.setInstrument(0, .slicer);
+    app.slicer_track = 0;
+    app.view = .slicer_grid;
+    app.slicerInst().sliceInto(4);
+    app.slicer_cursor = .{ 2, 0 };
+
+    _ = slicer_ed.handleKey(&app, .{ .char = 'e' });
+    try std.testing.expectEqual(AppView.sampler_editor, app.view);
+    try std.testing.expect(app.sampler_target == .slice);
+
+    // h/l nudges route to the addressed slice's params via the queue.
+    app.sampler_param = 2; // pitch
+    _ = sampler_ed.handleKey(&app, .{ .char = 'l' });
+    var block: [64]types.Sample = undefined;
+    app.session.engine.process(&block);
+    try std.testing.expect(app.slicerInst().slices[2].pitch_semitones > 0.0);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), app.slicerInst().slices[0].pitch_semitones, 1e-6);
+
+    _ = sampler_ed.handleKey(&app, .escape);
+    try std.testing.expectEqual(AppView.slicer_grid, app.view);
+}
+
+test ":chop finds transients in the default clip or reports none" {
+    var app = try testApp();
+    defer app.deinit();
+    try app.session.setInstrument(0, .slicer);
+    app.slicer_track = 0;
+    app.view = .slicer_grid;
+
+    // The generated default clip is one pluck: chop must not crash and must
+    // leave a valid (>= 1) slicing either way, undoable.
+    const before = app.slicerInst().slice_count;
+    commands.run(&app, "chop");
+    try std.testing.expect(app.slicerInst().slice_count >= 1);
+    _ = slicer_ed.handleKey(&app, .{ .char = 'u' });
+    try std.testing.expectEqual(before, app.slicerInst().slice_count);
+
+    commands.run(&app, "chop 99");
+    try std.testing.expect(std.mem.indexOf(u8, app.status_buf[0..app.status_len], "usage") != null);
 }
 
 test "drum grid step toggle" {

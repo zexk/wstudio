@@ -63,6 +63,10 @@ pub fn drawSamplerEditor(
     _ = snap;
     const c = app.sampler_param;
     const is_drum = app.sampler_target == .drum;
+    const is_slice = app.sampler_target == .slice;
+    // Drum pads and slices share the compact 10-param layout (no KEY
+    // section); only the standalone Sampler gets root/voice rows.
+    const pad_target = is_drum or is_slice;
 
     // Wide terminals: stretch the param bars (and the section rules with
     // them) into the free width. Compact stays exactly as before below
@@ -77,7 +81,7 @@ pub fn drawSamplerEditor(
     else
         "?";
     const pad_idx = app.drum_cursor[0];
-    const pad: *const ws.dsp.Pad = if (is_drum) padOf(app.drumMachine(), pad_idx) else blk: {
+    const pad: *const ws.dsp.Pad = if (is_drum) padOf(app.drumMachine(), pad_idx) else if (is_slice) sliceOf(app) else blk: {
         if (app.editingSampler()) |s| break :blk &s.pad;
         break :blk placeholderPad();
     };
@@ -89,15 +93,21 @@ pub fn drawSamplerEditor(
 
     // ── Title ────────────────────────────────────
     try w.writeAll(bcyn ++ bold ++ " \u{2593} " ++ rst);
-    try w.writeAll(if (is_drum) icons.drum else icons.sampler);
-    try w.writeAll(bcyn ++ bold ++ " SAMPLER " ++ rst);
-    try w.writeAll(acc);
+    try w.writeAll(if (is_drum) icons.drum else if (is_slice) icons.slicer else icons.sampler);
+    try w.writeAll(bcyn ++ bold);
+    try w.writeAll(if (is_slice) " SLICE " else " SAMPLER ");
+    try w.writeAll(rst ++ acc);
     try w.print("\"{s}\"", .{track_name});
     try w.writeAll(rst ++ dim);
     if (is_drum) {
         try w.print("  pad {d}/{d} ", .{ pad_idx + 1, DrumMachine.max_pads });
         try w.writeAll(rst ++ acc);
         try w.print("\"{s}\"", .{app.drumMachine().padName(pad_idx)});
+        try w.writeAll(rst);
+    } else if (is_slice) {
+        try w.print("  slice {d}/{d} ", .{ app.slicer_cursor[0] + 1, app.slicerInst().slice_count });
+        try w.writeAll(rst ++ acc);
+        try w.print("\"{s}\"", .{app.slicerInst().clipName()});
         try w.writeAll(rst);
     } else {
         try w.writeAll(rst ++ acc);
@@ -108,9 +118,10 @@ pub fn drawSamplerEditor(
     written += 1;
 
     // ── Waveform panel ───────────────────────────
-    // The section headers + param rows need ~13 (drum) / ~16 (sampler) lines;
-    // give the waveform whatever vertical space remains, capped for readability.
-    const param_lines: usize = if (is_drum) 13 else 17;
+    // The section headers + param rows need ~13 (pad/slice) / ~16 (sampler)
+    // lines; give the waveform whatever vertical space remains, capped for
+    // readability.
+    const param_lines: usize = if (pad_target) 13 else 17;
     const wave_rows: usize = @min(wave_max_rows, body -| (written + param_lines));
     if (wave_rows >= 2) {
         try drawWaveformPad(w, pad, cols, wave_rows);
@@ -169,7 +180,7 @@ pub fn drawSamplerEditor(
     written += 3;
 
     // ── KEY (standalone sampler only): the root note ─────────────────────────
-    if (!is_drum) {
+    if (!pad_target) {
         try synthSection(w, "KEY", grn);
         written += 1;
         const root: u7 = if (app.editingSampler()) |s| s.root_note else 60;
@@ -201,6 +212,13 @@ fn placeholderPad() *const ws.dsp.Pad {
 fn padOf(dm: anytype, idx: u8) *const ws.dsp.Pad {
     if (idx >= DrumMachine.max_pads) return placeholderPad();
     return if (dm.pads[idx]) |*s| &s.pad else placeholderPad();
+}
+
+/// The cursor slice's Pad, or a placeholder past the slice count.
+fn sliceOf(app: anytype) *const ws.dsp.Pad {
+    const sl = app.slicerInst();
+    if (app.slicer_cursor[0] >= sl.slice_count) return placeholderPad();
+    return &sl.slices[app.slicer_cursor[0]];
 }
 
 /// Render a centered, filled waveform of `pad` over `wave_rows` rows. Samples
@@ -271,8 +289,9 @@ fn drawWaveformPad(
 
 pub fn drawSamplerStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !void {
     const is_drum = app.sampler_target == .drum;
+    const is_slice = app.sampler_target == .slice;
     const pad_idx = app.drum_cursor[0];
-    const pad: *const ws.dsp.Pad = if (is_drum) padOf(app.drumMachine(), pad_idx) else blk: {
+    const pad: *const ws.dsp.Pad = if (is_drum) padOf(app.drumMachine(), pad_idx) else if (is_slice) sliceOf(app) else blk: {
         if (app.editingSampler()) |s| break :blk &s.pad;
         break :blk placeholderPad();
     };
@@ -280,10 +299,14 @@ pub fn drawSamplerStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer)
 
     // zig fmt: off
     try style.writeModeBadge(w, app.modal.mode);
-    try style.writeViewBadge(right, "SAMPLER", app.modal.mode);
+    try style.writeViewBadge(right, if (is_slice) "SLICE" else "SAMPLER", app.modal.mode);
     if (is_drum) {
         try w.writeAll(dim ++ "  pad " ++ rst);
         try w.print("{d}", .{pad_idx + 1});
+    }
+    if (is_slice) {
+        try w.writeAll(dim ++ "  slice " ++ rst);
+        try w.print("{d}", .{app.slicer_cursor[0] + 1});
     }
     try w.writeAll(dim ++ "  " ++ rst);
     try w.writeAll(sampler_param_labels[cur]);

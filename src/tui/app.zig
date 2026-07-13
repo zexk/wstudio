@@ -72,15 +72,18 @@ pub const TrackRow = union(enum) { track: u16, group: u8 };
 /// `App.sampler_drag_marker` and editors/sampler.zig's handleMouse.
 pub const SamplerMarker = enum { start, end };
 
-/// What the shared sampler_editor view is currently editing: one pad of a drum
-/// machine, or a standalone Sampler instrument. Holds the track index.
+/// What the shared sampler_editor view is currently editing: one pad of a
+/// drum machine, a standalone Sampler instrument, or one slice of a Slicer
+/// (which pad/slice comes from `drum_cursor[0]`/`slicer_cursor[0]`). Holds
+/// the track index.
 pub const SamplerTarget = union(enum) {
     drum: u16,
     sampler: u16,
+    slice: u16,
 
     // zig fmt: off
     pub fn track(self: SamplerTarget) u16 {
-        return switch (self) { .drum => |t| t, .sampler => |t| t };
+        return switch (self) { .drum => |t| t, .sampler => |t| t, .slice => |t| t };
     }
 };
 // zig fmt: on
@@ -135,6 +138,14 @@ pub const DrumRangeClip = struct {
     vel: [DrumMachine.max_pads][DrumMachine.max_steps]u8 = [_][DrumMachine.max_steps]u8{[_]u8{DrumMachine.vel_full} ** DrumMachine.max_steps} ** DrumMachine.max_pads,
 };
 
+/// A visual-mode range yank from the slicer grid — same shape as
+/// `DrumRangeClip`, one row per slice instead of per pad.
+pub const SlicerRangeClip = struct {
+    width: u8,
+    active: [Slicer.max_slices]u64 = [_]u64{0} ** Slicer.max_slices,
+    vel: [Slicer.max_slices][Slicer.max_steps]u8 = [_][Slicer.max_steps]u8{[_]u8{Slicer.vel_full} ** Slicer.max_steps} ** Slicer.max_slices,
+};
+
 /// A visual-mode range yank from the arrangement: deep-copied clips from one
 /// lane, with start_bar rebased relative to the selection's first bar. Paste
 /// re-targets the cursor bar on the same lane it was copied from.
@@ -166,6 +177,8 @@ pub const RepeatOp = union(enum) {
     piano_range_paste,
     drum_range_delete: struct { width: u8 },
     drum_range_paste,
+    slicer_range_delete: struct { width: u8 },
+    slicer_range_paste,
     arr_move_clip: struct { delta: i32 },
     arr_resize_clip: struct { delta: i32 },
     arr_range_delete: struct { width: u32 },
@@ -342,6 +355,7 @@ pub const App = struct {
     /// editors/{piano,drum,arrangement}.zig's handleVisual.
     piano_visual_anchor: ?u16 = null,
     drum_visual_anchor: ?u8 = null,
+    slicer_visual_anchor: ?u8 = null,
     arr_visual_anchor: ?u32 = null,
     /// Operator-pending state (normal mode, not `.visual`): set when `d`/`y`
     /// is pressed without entering visual mode first, holding which operator
@@ -352,6 +366,7 @@ pub const App = struct {
     /// editor's `armOperator`/operator-pending block in handleKey.
     piano_op_pending: ?u8 = null,
     drum_op_pending: ?u8 = null,
+    slicer_op_pending: ?u8 = null,
     arr_op_pending: ?u8 = null,
     automation_op_pending: ?u8 = null,
     /// Tracks view: `d` arms, a second `d` (dd) deletes the cursor track
@@ -369,6 +384,7 @@ pub const App = struct {
     /// the whole-pattern/single-clip clipboards above.
     piano_range_clip: ?PianoClip = null,
     drum_range_clip: ?DrumRangeClip = null,
+    slicer_range_clip: ?SlicerRangeClip = null,
     arr_range_clip: ?ArrRangeClip = null,
     /// Which clipboard the last piano/drum yank filled, so normal-mode p/P
     /// pastes whatever was yanked most recently (vim's unnamed-register
@@ -389,6 +405,9 @@ pub const App = struct {
     /// (true = activating, false = clearing). Null when no drag is active.
     /// See editors/drum.zig's handleMouse.
     drum_paint_state: ?bool = null,
+    /// In-progress slicer-grid mouse paint stroke — same convention as
+    /// `drum_paint_state`. See editors/slicer.zig's handleMouse.
+    slicer_paint_state: ?bool = null,
     /// In-progress arrangement clip drag: the bar last reported by the
     /// mouse, so each motion event can compute an incremental delta for
     /// `moveClip`. Null when no drag is active. See editors/arrangement.zig's
@@ -582,7 +601,7 @@ pub const App = struct {
     /// The sampler currently open in the sampler_editor view (when targeting a
     /// standalone Sampler).
     pub fn editingSampler(self: *App) ?*Sampler {
-        const t = switch (self.sampler_target) { .sampler => |x| x, .drum => return null };
+        const t = switch (self.sampler_target) { .sampler => |x| x, .drum, .slice => return null };
         if (t >= self.session.racks.items.len) return null;
         return switch (self.session.racks.items[t].instrument) {
             .sampler => |*s| s, else => null,
@@ -944,7 +963,7 @@ pub const App = struct {
             .automation => automation_ed.handleMouse(self, ev, row),
             .automation_param_picker => self.automationParamPickerMouse(ev, row),
             .preset_picker => preset_ed.handleMouse(self, ev, row),
-            .slicer_grid => slicer_ed.handleMouse(self, ev, row),
+            .slicer_grid => slicer_ed.handleMouse(self, ev, row, cols, view_rows),
         }
     }
 
@@ -2445,6 +2464,7 @@ pub const App = struct {
         switch (self.sampler_target) {
             .drum => |*t| if (t.* >= idx) { t.* += 1; },
             .sampler => |*t| if (t.* >= idx) { t.* += 1; },
+            .slice => |*t| if (t.* >= idx) { t.* += 1; },
         }
         if (self.piano_clip_link) |*link| {
             if (link.track >= idx) link.track += 1;
@@ -2499,6 +2519,7 @@ pub const App = struct {
         switch (self.sampler_target) {
             .drum    => |*t| if (idx < t.* and t.* > 0) { t.* -= 1; },
             .sampler => |*t| if (idx < t.* and t.* > 0) { t.* -= 1; },
+            .slice   => |*t| if (idx < t.* and t.* > 0) { t.* -= 1; },
         }
     }
     // zig fmt: on
@@ -2591,6 +2612,7 @@ pub const App = struct {
                 const ok = switch (self.sampler_target) {
                     .drum => |t| kindIs(racks, t, .drum_machine),
                     .sampler => |t| kindIs(racks, t, .sampler),
+                    .slice => |t| kindIs(racks, t, .slicer),
                 };
                 if (!ok) self.view = .tracks;
             },
@@ -2682,6 +2704,7 @@ pub const App = struct {
         switch (self.sampler_target) {
             .drum => |*t| swap(t, cur, other),
             .sampler => |*t| swap(t, cur, other),
+            .slice => |*t| swap(t, cur, other),
         }
         if (self.piano_clip_link) |*link| {
             if (link.track == cur) link.track = @intCast(other)

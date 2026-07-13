@@ -19,6 +19,8 @@ const ws = @import("wstudio");
 
 const Note = ws.dsp.pattern.Note;
 const DrumMachine = ws.dsp.DrumMachine;
+const Slicer = ws.dsp.Slicer;
+const Pad = ws.dsp.Pad;
 const Clip = ws.Clip;
 const Fx = ws.Fx;
 const Rack = ws.Rack;
@@ -47,6 +49,24 @@ pub const DrumState = struct {
     variants: [DrumMachine.max_variants]DrumMachine.Variant,
     variant_count: u8,
     variant: u8,
+};
+
+/// One slicer's whole state: the chop layout (slice regions + per-slice
+/// params) and the step grid, so structural chops (:chop/:slice/split/
+/// merge) and grid edits undo through the same entry. Plain value — no
+/// allocation. Each captured Pad's `samples` field aliases whatever clip
+/// was loaded at capture time and is NOT restored — applying re-points
+/// every slice at the slicer's CURRENT buffer (same rule persist.zig's
+/// `reset_slices = false` load path documents), so an entry captured
+/// before a `:load-slice` still applies safely after it. Swing is a
+/// param, not captured — same call DrumState made.
+pub const SlicerState = struct {
+    track: u16,
+    slice_count: u8,
+    step_count: u8,
+    slices: [Slicer.max_slices]Pad,
+    pattern: [Slicer.max_slices]u64,
+    vel: [Slicer.max_slices][Slicer.max_steps]u8,
 };
 
 /// One arrangement lane's clips (deep copies; melodic notes owned).
@@ -188,6 +208,7 @@ pub const TrackRemap = union(enum) {
 pub const Entry = union(enum) {
     melodic: MelodicState,
     drum: DrumState,
+    slicer: SlicerState,
     lane: LaneState,
     fx: FxState,
     param_nudge: ParamNudgeState,
@@ -203,6 +224,7 @@ pub const Entry = union(enum) {
         switch (self.*) {
             .melodic => |*m| m.deinit(allocator),
             .drum => {},
+            .slicer => {},
             .lane => |*l| l.deinit(allocator),
             .fx => |*f| f.deinit(allocator),
             .param_nudge => {},
@@ -215,6 +237,7 @@ pub const Entry = union(enum) {
         return switch (self.*) {
             .melodic => "pattern",
             .drum => "drum",
+            .slicer => "slicer",
             .lane => "clip",
             .fx => "fx",
             .param_nudge => "param",
@@ -326,6 +349,7 @@ fn retargetStack(stack: *std.ArrayListUnmanaged(Entry), allocator: std.mem.Alloc
             // zig fmt: off
             .melodic => |*m| if (remap.apply(m.track)) |nt| { m.track = nt; } else { keep = false; },
             .drum => |*d| if (remap.apply(d.track)) |nt| { d.track = nt; } else { keep = false; },
+            .slicer => |*d| if (remap.apply(d.track)) |nt| { d.track = nt; } else { keep = false; },
             .lane => |*l| if (remap.apply(l.track)) |nt| { l.track = nt; } else { keep = false; },
             .param_nudge => |*p| if (remap.apply(p.track)) |nt| { p.track = nt; } else { keep = false; },
             .fx => |*f| switch (f.target) {
