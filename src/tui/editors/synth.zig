@@ -44,7 +44,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             'G' => { history.flushParamNudge(app); app.synth_cursor = style.synth_param_count - 1; updateScroll(app); return true; },
             '}', '{' => {
                 history.flushParamNudge(app);
-                const section_starts = [_]u8{ 0, 6, 14, 16, 20, 24, 28, 32, 34, 36, 38, 39, 41, 45, 50, 59 };
+                const section_starts = [_]u8{ 0, 6, 14, 16, 20, 24, 28, 32, 34, 36, 38, 39, 41, 45, 50, 59, 83, 86, 90 };
                 if (c == '}') {
                     for (section_starts) |s| {
                         if (s > app.synth_cursor) {
@@ -111,10 +111,10 @@ pub fn colWidth(cols: usize) usize {
 pub const top_h: usize = 9;
 
 /// Total body rows (below the shared title) in the wide A/B-over-C layout.
-pub const body_rows_wide: usize = 89;
+pub const body_rows_wide: usize = 104;
 
 /// Total body rows in the single-column layout.
-pub const body_rows_single: usize = 96;
+pub const body_rows_single: usize = 112;
 
 // zig fmt: off
 /// Column + row of `cursor` within the wide layout (row 0 is the shared
@@ -141,6 +141,9 @@ pub fn paramColRow(cursor: u8) struct { col: u1, row: usize } {
         45...49 => .{ .col = 0, .row = 50 + @as(usize, cursor - 45) },   // FILTER 2 (header at 49)
         50...58 => .{ .col = 0, .row = 56 + @as(usize, cursor - 50) },   // OSC C (header at 55)
         59...82 => .{ .col = 0, .row = 66 + @as(usize, cursor - 59) },   // MATRIX (header at 65)
+        83...85 => .{ .col = 0, .row = 91 + @as(usize, cursor - 83) },   // FX DIST (header at 90)
+        86...89 => .{ .col = 0, .row = 95 + @as(usize, cursor - 86) },   // FX CRUSH (header at 94)
+        90...94 => .{ .col = 0, .row = 100 + @as(usize, cursor - 90) },  // FX FLNG (header at 99)
         else    => .{ .col = 0, .row = 0 },
     };
 }
@@ -165,6 +168,9 @@ pub fn paramRow(cursor: u8) usize {
         45...49 => 58 + @as(usize, cursor - 45),   // FILTER 2 (header at 57)
         50...58 => 64 + @as(usize, cursor - 50),   // OSC C (header at 63)
         59...82 => 74 + @as(usize, cursor - 59),   // MATRIX (header at 73)
+        83...85 => 99 + @as(usize, cursor - 83),   // FX DIST (header at 98)
+        86...89 => 103 + @as(usize, cursor - 86),  // FX CRUSH (header at 102)
+        90...94 => 108 + @as(usize, cursor - 90),  // FX FLNG (header at 107)
         else    => 0,
     };
 }

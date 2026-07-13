@@ -28,7 +28,10 @@ pub const spectrum_band_count: usize = 80;
 /// FILTER 2: 45:filter2_on 46:filter2_type 47:filter2_cutoff 48:filter2_res 49:filter_routing
 /// OSC C : 50:c_on 51:c_waveform 52:c_pw 53:c_semi 54:c_detune 55:c_level 56:c_unison 57:c_uni.det 58:c_uni.mode
 /// MATRIX: 59..82 — 8 rows x (source, dest, depth)
-pub const synth_param_count: u8 = 83;
+/// FX DIST : 83:fx_dist_on 84:fx_dist_drive_db 85:fx_dist_mix
+/// FX CRUSH: 86:fx_crush_on 87:fx_crush_bits 88:fx_crush_rate 89:fx_crush_mix
+/// FX FLNG : 90:fx_flanger_on 91:fx_flanger_rate_hz 92:fx_flanger_depth 93:fx_flanger_feedback 94:fx_flanger_mix
+pub const synth_param_count: u8 = 95;
 
 // ---------------------------------------------------------------------------
 // Palette — all colour codes go here; never raw \x1b sequences elsewhere

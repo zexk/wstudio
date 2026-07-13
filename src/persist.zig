@@ -159,6 +159,19 @@ pub const SynthSnap = struct {
     mod_amount: f32 = 0.0,
     // Output
     gain: f32 = 0.35,
+    // Internal FX (additive optional-with-default fields, no version bump)
+    fx_dist_on: bool = false,
+    fx_dist_drive_db: f32 = 12.0,
+    fx_dist_mix: f32 = 1.0,
+    fx_crush_on: bool = false,
+    fx_crush_bits: f32 = 8.0,
+    fx_crush_rate: f32 = 4.0,
+    fx_crush_mix: f32 = 1.0,
+    fx_flanger_on: bool = false,
+    fx_flanger_rate_hz: f32 = 0.3,
+    fx_flanger_depth: f32 = 0.7,
+    fx_flanger_feedback: f32 = 0.5,
+    fx_flanger_mix: f32 = 0.5,
     // Pattern player
     notes: []const NoteSnap = &.{},
     length_beats: f64 = 4.0,
@@ -1162,6 +1175,18 @@ fn synthToSnap(s: *const PolySynth) SynthSnap {
         .mod_mode = s.mod_mode,
         .mod_amount = s.mod_amount,
         .gain = s.gain,
+        .fx_dist_on = s.fx_dist_on,
+        .fx_dist_drive_db = s.fx_dist_drive_db,
+        .fx_dist_mix = s.fx_dist_mix,
+        .fx_crush_on = s.fx_crush_on,
+        .fx_crush_bits = s.fx_crush_bits,
+        .fx_crush_rate = s.fx_crush_rate,
+        .fx_crush_mix = s.fx_crush_mix,
+        .fx_flanger_on = s.fx_flanger_on,
+        .fx_flanger_rate_hz = s.fx_flanger_rate_hz,
+        .fx_flanger_depth = s.fx_flanger_depth,
+        .fx_flanger_feedback = s.fx_flanger_feedback,
+        .fx_flanger_mix = s.fx_flanger_mix,
     };
 }
 
@@ -1812,6 +1837,18 @@ fn applyToSynth(s: *PolySynth, ss: *const SynthSnap) void {
     s.mod_mode = ss.mod_mode;
     s.mod_amount = clamp(ss.mod_amount, 0.0, 8.0);
     s.gain = clamp(ss.gain, 0.01, 1.0);
+    s.fx_dist_on = ss.fx_dist_on;
+    s.fx_dist_drive_db = clamp(ss.fx_dist_drive_db, 0.0, 36.0);
+    s.fx_dist_mix = clamp(ss.fx_dist_mix, 0.0, 1.0);
+    s.fx_crush_on = ss.fx_crush_on;
+    s.fx_crush_bits = clamp(ss.fx_crush_bits, 1.0, 16.0);
+    s.fx_crush_rate = clamp(ss.fx_crush_rate, 1.0, 64.0);
+    s.fx_crush_mix = clamp(ss.fx_crush_mix, 0.0, 1.0);
+    s.fx_flanger_on = ss.fx_flanger_on;
+    s.fx_flanger_rate_hz = clamp(ss.fx_flanger_rate_hz, 0.02, 8.0);
+    s.fx_flanger_depth = clamp(ss.fx_flanger_depth, 0.0, 1.0);
+    s.fx_flanger_feedback = clamp(ss.fx_flanger_feedback, 0.0, 0.95);
+    s.fx_flanger_mix = clamp(ss.fx_flanger_mix, 0.0, 1.0);
 }
 
 // zig fmt: off

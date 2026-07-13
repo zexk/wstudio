@@ -5,6 +5,8 @@ const std = @import("std");
 const types = @import("../core/types.zig");
 const dsp = @import("device.zig");
 const midi = @import("../midi.zig");
+const Saturator = @import("saturator.zig").Saturator;
+const Crusher = @import("crusher.zig").Crusher;
 
 const Sample = types.Sample;
 
@@ -67,6 +69,51 @@ pub const UnisonMode  = enum { spread, step, harmonic, ratio };
 /// `warp_amount = 0`, so switching the mode alone never surprises the sound.
 pub const WarpMode    = enum { none, bend, mirror, sync };
 // zig fmt: on
+
+/// Fixed-line stereo flanger for the synth's internal FX section. Unlike the
+/// master-bus Chorus it owns no heap delay line — PolySynth embeds by value
+/// in Rack and Rack.dupe copies it, so all state must be inline (same
+/// constraint that sized the comb filter's ring). The 1024-sample ring caps
+/// the sweep at ~21 ms at 48 kHz: flanger through light-chorus territory.
+/// Params are passed per block (they come from PolySynth's fields plus
+/// matrix modulation), only the audio state lives here.
+pub const Flanger = struct {
+    ring: [2][len]f32 = [_][len]f32{[_]f32{0.0} ** len} ** 2,
+    pos: usize = 0,
+    phase: f32 = 0.0,
+
+    pub const len: usize = 1024;
+
+    /// depth 0..1 scales the sweep span; feedback 0..0.95; mix 0=dry 1=wet.
+    /// The right channel's LFO runs a quarter cycle ahead for stereo width.
+    pub fn processBlock(self: *Flanger, buf: []Sample, sample_rate: f32, rate_hz: f32, depth: f32, feedback: f32, mix: f32) void {
+        const len_f: f32 = @floatFromInt(len);
+        const max_delay: f32 = len_f - 4.0;
+        const inc = rate_hz / sample_rate;
+        var i: usize = 0;
+        while (i + 1 < buf.len) : (i += 2) {
+            inline for (0..2) |ch| {
+                const ph = self.phase + @as(f32, if (ch == 1) 0.25 else 0.0);
+                const lfo = 0.5 + 0.5 * @sin(ph * 2.0 * std.math.pi);
+                // >= 1 sample of delay so the fractional read below never
+                // touches the frame being written this iteration.
+                const delay = 1.0 + lfo * depth * (max_delay - 1.0);
+                var rp = @as(f32, @floatFromInt(self.pos)) - delay;
+                if (rp < 0.0) rp += len_f;
+                const tap_i: usize = @intFromFloat(rp);
+                const frac = rp - @floor(rp);
+                const tap = self.ring[ch][tap_i % len] * (1.0 - frac) +
+                    self.ring[ch][(tap_i + 1) % len] * frac;
+                const dry = buf[i + ch];
+                self.ring[ch][self.pos] = dry + tap * feedback;
+                buf[i + ch] = dry * (1.0 - mix) + tap * mix;
+            }
+            self.pos = (self.pos + 1) % len;
+            self.phase += inc;
+            self.phase -= @floor(self.phase);
+        }
+    }
+};
 
 pub const PolySynth = struct {
     sample_rate: f32,
@@ -203,6 +250,34 @@ pub const PolySynth = struct {
     // ── OUT ─────────────────────────────────────────────────────────────────
     gain: f32 = 0.35,
 
+    // ── FX ──────────────────────────────────────────────────────────────────
+    // Synth-internal insert FX, applied post-mix in fixed order dist →
+    // crush → flanger. Base params live here (not on the state structs) so
+    // applyPatch/toPatch pick them up by field name; each block writes the
+    // effective values (base + matrix modulation) into the state structs.
+    // Delay/reverb-class FX stay on the track chain — this section exists
+    // for the params the matrix can reach, which the track chain can't be.
+    // zig fmt: off
+    fx_dist_on:          bool = false,
+    fx_dist_drive_db:    f32  = 12.0,
+    fx_dist_mix:         f32  = 1.0,
+    fx_crush_on:         bool = false,
+    fx_crush_bits:       f32  = 8.0,
+    fx_crush_rate:       f32  = 4.0,
+    fx_crush_mix:        f32  = 1.0,
+    fx_flanger_on:       bool = false,
+    fx_flanger_rate_hz:  f32  = 0.3,
+    fx_flanger_depth:    f32  = 0.7,
+    fx_flanger_feedback: f32  = 0.5,
+    fx_flanger_mix:      f32  = 0.5,
+    // zig fmt: on
+    fx_crush_state: Crusher = .{},
+    fx_flanger_state: Flanger = .{},
+    /// Index of the most recently triggered voice: the FX destinations are
+    /// global (post-mix), so their one matrix evaluation per block reads
+    /// the per-voice sources (envs, velocity, keytrack) from this voice.
+    newest_voice: u8 = 0,
+
     voices: [max_voices]Voice = [_]Voice{.{}} ** max_voices,
 
     pub const max_voices = 16;
@@ -229,12 +304,15 @@ pub const PolySynth = struct {
 
     /// Legal matrix destinations: every automatable param that is consumed
     /// per voice (excludes the global LFO rate and the matrix's own depth
-    /// ids — no self-modulation), plus the two virtual dests.
+    /// ids — no self-modulation), the internal FX params (consumed globally,
+    /// once per block — see processBlock's FX pass), plus the two virtual
+    /// dests.
     pub const mod_dest_ids = [_]u8{
         // zig fmt: off
         1, 2, 3, 4, 5, 8, 9, 10, 11, 12, 13, 15, 16, 17, 18, 19,
         21, 22, 24, 25, 26, 27, 33, 34, 36, 37, 38, 42, 44, 47, 48,
         52, 53, 54, 55, 56, 57,
+        84, 85, 87, 88, 89, 91, 92, 93, 94,
         dest_pitch, dest_amp,
         // zig fmt: on
     };
@@ -455,6 +533,19 @@ pub const PolySynth = struct {
         mod_amount: f32 = 0.0,
 
         gain: f32 = 0.35,
+
+        fx_dist_on: bool = false,
+        fx_dist_drive_db: f32 = 12.0,
+        fx_dist_mix: f32 = 1.0,
+        fx_crush_on: bool = false,
+        fx_crush_bits: f32 = 8.0,
+        fx_crush_rate: f32 = 4.0,
+        fx_crush_mix: f32 = 1.0,
+        fx_flanger_on: bool = false,
+        fx_flanger_rate_hz: f32 = 0.3,
+        fx_flanger_depth: f32 = 0.7,
+        fx_flanger_feedback: f32 = 0.5,
+        fx_flanger_mix: f32 = 0.5,
     };
 
     /// Load a patch onto this synth. Field-by-field so per-instance state
@@ -541,7 +632,8 @@ pub const PolySynth = struct {
     }
 
     fn noteOnPoly(self: *PolySynth, note: u7, velocity: f32) void {
-        const v = self.allocVoice();
+        self.newest_voice = self.allocVoice();
+        const v = &self.voices[self.newest_voice];
         const was_active  = v.active;
         const prev_log    = v.glide_log_freq;
         const target_log  = std.math.log2(noteToFreq(note));
@@ -563,6 +655,7 @@ pub const PolySynth = struct {
     /// Activate or update the single mono/legato voice.
     /// retrigger=true → reset amplitude envelope from attack.
     fn noteOnMono(self: *PolySynth, note: u7, velocity: f32, retrigger: bool) void {
+        self.newest_voice = 0;
         const v          = &self.voices[0];
         const was_active = v.active;
         const target_log = std.math.log2(noteToFreq(note));
@@ -627,11 +720,11 @@ pub const PolySynth = struct {
         }
     }
 
-    fn allocVoice(self: *PolySynth) *Voice {
-        var quietest: *Voice = &self.voices[0];
-        for (&self.voices) |*v| {
-            if (!v.active) return v;
-            if (v.env < quietest.env) quietest = v;
+    fn allocVoice(self: *PolySynth) u8 {
+        var quietest: u8 = 0;
+        for (self.voices, 0..) |v, i| {
+            if (!v.active) return @intCast(i);
+            if (v.env < self.voices[quietest].env) quietest = @intCast(i);
         }
         return quietest;
     }
@@ -652,7 +745,9 @@ pub const PolySynth = struct {
     };
 
     /// Evaluate every active matrix row for one voice at block rate.
-    fn evalMatrix(self: *const PolySynth, v: *const Voice, lfo_val: f32) ModAccum {
+    /// `v` is null for the global FX evaluation when no voice is active:
+    /// the per-voice sources read as silence, the global ones still run.
+    fn evalMatrix(self: *const PolySynth, v: ?*const Voice, lfo_val: f32) ModAccum {
         var acc: ModAccum = .{};
         for (self.mod_matrix) |row| {
             if (row.source == .none or row.depth == 0.0) continue;
@@ -660,10 +755,10 @@ pub const PolySynth = struct {
                 // zig fmt: off
                 .none     => unreachable,
                 .lfo      => lfo_val,
-                .fenv     => v.env2,
-                .aenv     => v.env,
-                .velocity => v.velocity,
-                .keytrack => (@as(f32, @floatFromInt(v.note)) - 60.0) / 64.0,
+                .fenv     => if (v) |vv| vv.env2 else 0.0,
+                .aenv     => if (v) |vv| vv.env else 0.0,
+                .velocity => if (v) |vv| vv.velocity else 0.0,
+                .keytrack => if (v) |vv| (@as(f32, @floatFromInt(vv.note)) - 60.0) / 64.0 else 0.0,
                 .wheel    => self.mod_wheel,
                 // zig fmt: on
             };
@@ -1091,6 +1186,42 @@ pub const PolySynth = struct {
             }
         }
 
+        // ── Internal FX (post-mix, fixed order dist → crush → flanger) ──
+        // One global matrix evaluation per block: FX params are shared by
+        // all voices, so the per-voice sources read from the most recently
+        // triggered voice (env/velocity → drive style routes still play).
+        if (self.fx_dist_on or self.fx_crush_on or self.fx_flanger_on) {
+            const nv = &self.voices[self.newest_voice];
+            const mods = self.evalMatrix(if (nv.active) nv else null, lfo_val);
+            if (self.fx_dist_on) {
+                // Stateless, so a per-block value with the effective params
+                // is all it takes (out_db stays at its 0 dB default).
+                var sat = Saturator{
+                    .drive_db = eff(&mods, 84, self.fx_dist_drive_db),
+                    .mix = eff(&mods, 85, self.fx_dist_mix),
+                };
+                sat.processBlock(buf);
+            }
+            if (self.fx_crush_on) {
+                // zig fmt: off
+                self.fx_crush_state.bits       = eff(&mods, 87, self.fx_crush_bits);
+                self.fx_crush_state.downsample = eff(&mods, 88, self.fx_crush_rate);
+                self.fx_crush_state.mix        = eff(&mods, 89, self.fx_crush_mix);
+                // zig fmt: on
+                self.fx_crush_state.processBlock(buf);
+            }
+            if (self.fx_flanger_on) {
+                self.fx_flanger_state.processBlock(
+                    buf,
+                    self.sample_rate,
+                    eff(&mods, 91, self.fx_flanger_rate_hz),
+                    eff(&mods, 92, self.fx_flanger_depth),
+                    eff(&mods, 93, self.fx_flanger_feedback),
+                    eff(&mods, 94, self.fx_flanger_mix),
+                );
+            }
+        }
+
         // Advance LFO once per block after all voices are done.
         self.lfo_phase += self.lfo_rate_hz * @as(f32, @floatFromInt(frames)) / self.sample_rate;
         self.lfo_phase -= @floor(self.lfo_phase);
@@ -1285,6 +1416,8 @@ pub const PolySynth = struct {
     pub fn resetAll(self: *PolySynth) void {
         for (&self.voices) |*v| v.* = .{};
         self.held_count = 0;
+        self.fx_crush_state = .{};
+        self.fx_flanger_state = .{};
     }
 
     /// Apply a raw MIDI CC. Safe to call on the audio thread (field writes only).
@@ -1470,8 +1603,23 @@ pub const PolySynth = struct {
                 .spread => .step, .step => .harmonic, .harmonic => .ratio, .ratio => .spread,
             } else switch (self.osc_c_unison_mode) {
                 .spread => .ratio, .step => .spread, .harmonic => .step, .ratio => .harmonic,
-                // zig fmt: on
             },
+            // FX DIST (83–85)
+            83 => self.fx_dist_on           = !self.fx_dist_on,
+            84 => self.fx_dist_drive_db     = std.math.clamp(self.fx_dist_drive_db     + s * 0.5,    0.0,   36.0),
+            85 => self.fx_dist_mix          = std.math.clamp(self.fx_dist_mix          + s * 0.01,   0.0,    1.0),
+            // FX CRUSH (86–89)
+            86 => self.fx_crush_on          = !self.fx_crush_on,
+            87 => self.fx_crush_bits        = std.math.clamp(self.fx_crush_bits        + s * 1.0,    1.0,   16.0),
+            88 => self.fx_crush_rate        = std.math.clamp(self.fx_crush_rate        + s * 1.0,    1.0,   64.0),
+            89 => self.fx_crush_mix         = std.math.clamp(self.fx_crush_mix         + s * 0.01,   0.0,    1.0),
+            // FX FLANGER (90–94)
+            90 => self.fx_flanger_on        = !self.fx_flanger_on,
+            91 => self.fx_flanger_rate_hz   = std.math.clamp(self.fx_flanger_rate_hz   + s * 0.05,   0.02,   8.0),
+            92 => self.fx_flanger_depth     = std.math.clamp(self.fx_flanger_depth     + s * 0.01,   0.0,    1.0),
+            93 => self.fx_flanger_feedback  = std.math.clamp(self.fx_flanger_feedback  + s * 0.01,   0.0,    0.95),
+            94 => self.fx_flanger_mix       = std.math.clamp(self.fx_flanger_mix       + s * 0.01,   0.0,    1.0),
+            // zig fmt: on
             // MATRIX (59–82): 3 ids per row — source, dest, depth.
             59...82 => {
                 const row = &self.mod_matrix[(id - 59) / 3];
@@ -1568,6 +1716,18 @@ pub const PolySynth = struct {
             55 => self.osc_c_level         = std.math.clamp(value,   0.0,    1.0),
             56 => self.osc_c_unison        = @intCast(std.math.clamp(@as(i32, @intFromFloat(@round(value))), 1, 16)),
             57 => self.osc_c_unison_detune = std.math.clamp(value,   0.0,  100.0),
+            83 => self.fx_dist_on          = value >= 0.5,
+            84 => self.fx_dist_drive_db    = std.math.clamp(value,   0.0,   36.0),
+            85 => self.fx_dist_mix         = std.math.clamp(value,   0.0,    1.0),
+            86 => self.fx_crush_on         = value >= 0.5,
+            87 => self.fx_crush_bits       = std.math.clamp(value,   1.0,   16.0),
+            88 => self.fx_crush_rate       = std.math.clamp(value,   1.0,   64.0),
+            89 => self.fx_crush_mix        = std.math.clamp(value,   0.0,    1.0),
+            90 => self.fx_flanger_on       = value >= 0.5,
+            91 => self.fx_flanger_rate_hz  = std.math.clamp(value,   0.02,   8.0),
+            92 => self.fx_flanger_depth    = std.math.clamp(value,   0.0,    1.0),
+            93 => self.fx_flanger_feedback = std.math.clamp(value,   0.0,    0.95),
+            94 => self.fx_flanger_mix      = std.math.clamp(value,   0.0,    1.0),
             // zig fmt: on
             // MATRIX: dest takes the raw param id (falls back to cutoff if
             // the value isn't a legal dest — e.g. a hand-edited curve).
@@ -1655,6 +1815,20 @@ pub const PolySynth = struct {
             56 => @floatFromInt(self.osc_c_unison),
             57 => self.osc_c_unison_detune,
             58 => enumToValue(self.osc_c_unison_mode),
+            // zig fmt: off
+            83 => if (self.fx_dist_on) 1.0 else 0.0,
+            84 => self.fx_dist_drive_db,
+            85 => self.fx_dist_mix,
+            86 => if (self.fx_crush_on) 1.0 else 0.0,
+            87 => self.fx_crush_bits,
+            88 => self.fx_crush_rate,
+            89 => self.fx_crush_mix,
+            90 => if (self.fx_flanger_on) 1.0 else 0.0,
+            91 => self.fx_flanger_rate_hz,
+            92 => self.fx_flanger_depth,
+            93 => self.fx_flanger_feedback,
+            94 => self.fx_flanger_mix,
+            // zig fmt: on
             59...82 => blk: {
                 const row = self.mod_matrix[(id - 59) / 3];
                 break :blk switch ((id - 59) % 3) {
@@ -1728,6 +1902,15 @@ pub const PolySynth = struct {
         .{ .id = 76, .label = "MT6 DEPTH",  .section = "MATRIX",  .range = .{ -1.0,   1.0 },     .step = 0.01 },
         .{ .id = 79, .label = "MT7 DEPTH",  .section = "MATRIX",  .range = .{ -1.0,   1.0 },     .step = 0.01 },
         .{ .id = 82, .label = "MT8 DEPTH",  .section = "MATRIX",  .range = .{ -1.0,   1.0 },     .step = 0.01 },
+        .{ .id = 84, .label = "DIST DRIVE", .section = "FX DIST", .range = .{ 0.0,    36.0 },    .step = 0.5 },
+        .{ .id = 85, .label = "DIST MIX",   .section = "FX DIST", .range = .{ 0.0,    1.0 },     .step = 0.01 },
+        .{ .id = 87, .label = "CRUSH BITS", .section = "FX CRUSH",.range = .{ 1.0,    16.0 },    .step = 1.0 },
+        .{ .id = 88, .label = "CRUSH RATE", .section = "FX CRUSH",.range = .{ 1.0,    64.0 },    .step = 1.0 },
+        .{ .id = 89, .label = "CRUSH MIX",  .section = "FX CRUSH",.range = .{ 0.0,    1.0 },     .step = 0.01 },
+        .{ .id = 91, .label = "FLNG RATE",  .section = "FX FLNG", .range = .{ 0.02,   8.0 },     .step = 0.05 },
+        .{ .id = 92, .label = "FLNG DEPTH", .section = "FX FLNG", .range = .{ 0.0,    1.0 },     .step = 0.01 },
+        .{ .id = 93, .label = "FLNG FDBK",  .section = "FX FLNG", .range = .{ 0.0,    0.95 },    .step = 0.01 },
+        .{ .id = 94, .label = "FLNG MIX",   .section = "FX FLNG", .range = .{ 0.0,    1.0 },     .step = 0.01 },
         // zig fmt: on
     };
 
@@ -2337,4 +2520,113 @@ test "paramValue/setParamAbsolute round-trip continuous, enum, and toggle params
     try std.testing.expectEqual(FilterType.lp, b.filter_type);
     b.setParamAbsolute(20, 1.0e30);
     try std.testing.expectEqual(FilterType.comb, b.filter_type);
+}
+
+test "FX param ids round-trip through paramValue/setParamAbsolute" {
+    var a = PolySynth.init(48_000);
+    a.fx_dist_on = true;
+    a.fx_dist_drive_db = 24.0;
+    a.fx_crush_bits = 4.0;
+    a.fx_flanger_on = true;
+    a.fx_flanger_feedback = 0.8;
+
+    var b = PolySynth.init(48_000);
+    var id: u8 = 83;
+    while (id <= 94) : (id += 1) {
+        if (a.paramValue(id)) |v| b.setParamAbsolute(id, v);
+    }
+    try std.testing.expect(b.fx_dist_on);
+    try std.testing.expectApproxEqAbs(@as(f32, 24.0), b.fx_dist_drive_db, 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 4.0), b.fx_crush_bits, 1e-6);
+    try std.testing.expect(b.fx_flanger_on);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.8), b.fx_flanger_feedback, 1e-6);
+    try std.testing.expect(!b.fx_crush_on);
+}
+
+test "internal FX: flanger at mix 0 passes the synth output untouched" {
+    var a = PolySynth.init(48_000);
+    var b = PolySynth.init(48_000);
+    b.fx_flanger_on = true;
+    b.fx_flanger_mix = 0.0;
+    b.fx_flanger_feedback = 0.0;
+    a.noteOn(60, 1.0);
+    b.noteOn(60, 1.0);
+
+    var buf_a: [512]Sample = undefined;
+    var buf_b: [512]Sample = undefined;
+    for (0..8) |_| {
+        @memset(&buf_a, 0.0);
+        @memset(&buf_b, 0.0);
+        a.processBlock(&buf_a);
+        b.processBlock(&buf_b);
+        for (buf_a, buf_b) |sa, sb| try std.testing.expectApproxEqAbs(sa, sb, 1e-6);
+    }
+}
+
+test "internal FX: distortion drives the synth output hotter" {
+    var a = PolySynth.init(48_000);
+    var b = PolySynth.init(48_000);
+    b.fx_dist_on = true;
+    b.fx_dist_drive_db = 30.0;
+    a.noteOn(60, 0.6);
+    b.noteOn(60, 0.6);
+
+    var buf_a: [512]Sample = undefined;
+    var buf_b: [512]Sample = undefined;
+    var sum_a: f64 = 0.0;
+    var sum_b: f64 = 0.0;
+    for (0..8) |_| {
+        @memset(&buf_a, 0.0);
+        @memset(&buf_b, 0.0);
+        a.processBlock(&buf_a);
+        b.processBlock(&buf_b);
+        for (buf_a, buf_b) |sa, sb| {
+            sum_a += @abs(sa);
+            sum_b += @abs(sb);
+            try std.testing.expect(std.math.isFinite(sb));
+        }
+    }
+    try std.testing.expect(sum_b > sum_a * 1.5);
+}
+
+test "internal FX: matrix wheel row modulates dist mix globally" {
+    // Base mix 1 with a wheel → dist-mix row at depth -1: wheel at 1 nulls
+    // the mix, so the driven synth must match a clean one exactly. This
+    // exercises the global (post-mix) matrix evaluation path end to end.
+    var clean = PolySynth.init(48_000);
+    var driven = PolySynth.init(48_000);
+    driven.fx_dist_on = true;
+    driven.fx_dist_drive_db = 30.0;
+    driven.fx_dist_mix = 1.0;
+    driven.mod_matrix[0] = .{ .source = .wheel, .dest = 85, .depth = -1.0 };
+    driven.mod_wheel = 1.0;
+    clean.noteOn(60, 0.6);
+    driven.noteOn(60, 0.6);
+
+    var buf_c: [512]Sample = undefined;
+    var buf_d: [512]Sample = undefined;
+    for (0..4) |_| {
+        @memset(&buf_c, 0.0);
+        @memset(&buf_d, 0.0);
+        clean.processBlock(&buf_c);
+        driven.processBlock(&buf_d);
+        for (buf_c, buf_d) |sc, sd| try std.testing.expectApproxEqAbs(sc, sd, 1e-6);
+    }
+}
+
+test "internal FX: flanger stays finite at max feedback and depth" {
+    var synth = PolySynth.init(48_000);
+    synth.fx_flanger_on = true;
+    synth.fx_flanger_depth = 1.0;
+    synth.fx_flanger_feedback = 0.95;
+    synth.fx_flanger_mix = 1.0;
+    synth.fx_flanger_rate_hz = 8.0;
+    synth.noteOn(48, 1.0);
+
+    var buf: [512]Sample = undefined;
+    for (0..64) |_| {
+        @memset(&buf, 0.0);
+        synth.processBlock(&buf);
+        for (buf) |s| try std.testing.expect(std.math.isFinite(s));
+    }
 }

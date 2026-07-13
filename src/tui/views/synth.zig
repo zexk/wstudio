@@ -176,6 +176,9 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize
         try secFilter2(&tw, synth, c);
         try secOscC(&tw, synth, c);
         try secMatrix(&tw, synth, c);
+        try secFxDist(&tw, synth, c);
+        try secFxCrush(&tw, synth, c);
+        try secFxFlanger(&tw, synth, c);
 
         var line_it = std.mem.splitSequence(u8, tw.buffered(), "\r\n");
         var row: usize = 1;
@@ -216,6 +219,9 @@ fn drawSynthBottom(w: *std.Io.Writer, synth: anytype, c: u8) !void {
     try secFilter2(w, synth, c);
     try secOscC(w, synth, c);
     try secMatrix(w, synth, c);
+    try secFxDist(w, synth, c);
+    try secFxCrush(w, synth, c);
+    try secFxFlanger(w, synth, c);
 }
 
 const wf_names = [_][]const u8{ "sine", "saw", "tri", "sqr" };
@@ -547,6 +553,53 @@ fn secMatrix(w: *std.Io.Writer, synth: anytype, c: u8) !void {
     }
 }
 
+const on_off_names = [_][]const u8{ "on", "off" };
+
+/// Internal FX sections: post-mix dist → crush → flanger inside the synth
+/// itself, distinct from the track FX chain — these params are matrix and
+/// automation targets (see PolySynth's FX field block).
+fn secFxDist(w: *std.Io.Writer, synth: anytype, c: u8) !void {
+    var buf: [40]u8 = undefined;
+    try synthSection(w, "FX DIST", red);
+
+    const on = synth.fx_dist_on;
+    try enumRow(w, c == 83, false, red, "on/off", &on_off_names, if (on) 0 else 1);
+    try barRow(w, c == 84, !on, red, "drive", synth.fx_dist_drive_db, 36.0,
+        try std.fmt.bufPrint(&buf, "{d:.1} dB", .{synth.fx_dist_drive_db}));
+    try barRow(w, c == 85, !on, red, "mix", synth.fx_dist_mix, 1.0,
+        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.fx_dist_mix}));
+}
+
+fn secFxCrush(w: *std.Io.Writer, synth: anytype, c: u8) !void {
+    var buf: [40]u8 = undefined;
+    try synthSection(w, "FX CRUSH", red);
+
+    const on = synth.fx_crush_on;
+    try enumRow(w, c == 86, false, red, "on/off", &on_off_names, if (on) 0 else 1);
+    try barRow(w, c == 87, !on, red, "bits", synth.fx_crush_bits, 16.0,
+        try std.fmt.bufPrint(&buf, "{d:.0}", .{synth.fx_crush_bits}));
+    try barRow(w, c == 88, !on, red, "rate", synth.fx_crush_rate, 64.0,
+        try std.fmt.bufPrint(&buf, "1/{d:.0}", .{synth.fx_crush_rate}));
+    try barRow(w, c == 89, !on, red, "mix", synth.fx_crush_mix, 1.0,
+        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.fx_crush_mix}));
+}
+
+fn secFxFlanger(w: *std.Io.Writer, synth: anytype, c: u8) !void {
+    var buf: [40]u8 = undefined;
+    try synthSection(w, "FX FLNG", red);
+
+    const on = synth.fx_flanger_on;
+    try enumRow(w, c == 90, false, red, "on/off", &on_off_names, if (on) 0 else 1);
+    try barRow(w, c == 91, !on, red, "rate", synth.fx_flanger_rate_hz, 8.0,
+        try std.fmt.bufPrint(&buf, "{d:.2} Hz", .{synth.fx_flanger_rate_hz}));
+    try barRow(w, c == 92, !on, red, "depth", synth.fx_flanger_depth, 1.0,
+        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.fx_flanger_depth}));
+    try barRow(w, c == 93, !on, red, "feedback", synth.fx_flanger_feedback, 0.95,
+        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.fx_flanger_feedback}));
+    try barRow(w, c == 94, !on, red, "mix", synth.fx_flanger_mix, 1.0,
+        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.fx_flanger_mix}));
+}
+
 pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !void {
     if (app.synth_track >= app.session.racks.items.len) return;
     const rack = app.session.racks.items[app.synth_track];
@@ -576,6 +629,9 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !
         "mtx3.src", "mtx3.dest", "mtx3.depth", "mtx4.src", "mtx4.dest", "mtx4.depth",
         "mtx5.src", "mtx5.dest", "mtx5.depth", "mtx6.src", "mtx6.dest", "mtx6.depth",
         "mtx7.src", "mtx7.dest", "mtx7.depth", "mtx8.src", "mtx8.dest", "mtx8.depth",
+        "dist.on", "dist.drive", "dist.mix",
+        "crush.on", "crush.bits", "crush.rate", "crush.mix",
+        "flng.on", "flng.rate", "flng.depth", "flng.fdbk", "flng.mix",
     };
     const cur = @min(@as(usize, app.synth_cursor), labels.len - 1);
     try style.writeModeBadge(w, app.modal.mode);
@@ -682,6 +738,20 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !
                 else => {},
             }
         },
+        // zig fmt: off
+        83 => try w.writeAll(if (synth.fx_dist_on) "on" else "off"),
+        84 => try w.print("{d:.1} dB",    .{synth.fx_dist_drive_db}),
+        85 => try w.print("{d:.2}",       .{synth.fx_dist_mix}),
+        86 => try w.writeAll(if (synth.fx_crush_on) "on" else "off"),
+        87 => try w.print("{d:.0}",       .{synth.fx_crush_bits}),
+        88 => try w.print("1/{d:.0}",     .{synth.fx_crush_rate}),
+        89 => try w.print("{d:.2}",       .{synth.fx_crush_mix}),
+        90 => try w.writeAll(if (synth.fx_flanger_on) "on" else "off"),
+        91 => try w.print("{d:.2} Hz",    .{synth.fx_flanger_rate_hz}),
+        92 => try w.print("{d:.2}",       .{synth.fx_flanger_depth}),
+        93 => try w.print("{d:.2}",       .{synth.fx_flanger_feedback}),
+        94 => try w.print("{d:.2}",       .{synth.fx_flanger_mix}),
+        // zig fmt: on
         else => {},
     }
     try w.writeAll(rst);
