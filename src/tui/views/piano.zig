@@ -65,9 +65,9 @@ fn pitchLabel(pitch: u7, buf: *[5]u8) []const u8 {
 
 // Writes the trailing padding after a step's glyph. When `tick` is set the
 // last padding column carries a decorative beat separator instead of a
-// blank — the separator rides in the downbeat step's OWN trailing pad (not
-// the previous step's), so it lands in the same column group as the beat
-// number above it instead of appearing to belong to the prior beat.
+// blank: the separator rides in the trailing pad of the step BEFORE a
+// downbeat, marking the boundary between beats, and shares its column with
+// the beat number the header row prints on that same boundary.
 fn writeStepPad(w: *std.Io.Writer, pad: usize, tick: bool, tick_color: []const u8) !void {
     if (pad == 0) return;
     if (!tick) {
@@ -168,17 +168,27 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
     const max_step_cols: usize = (cols -| 6) / cw;
     const vis_cols: usize = @min(@as(usize, loop_step) + 1, max_step_cols);
 
-    // Column header: beat markers (prefix = 5-char label + 1-char │ = 6 visual cols).
-    // Compact (cw==1) has no room for multi-digit numbers without corrupting
-    // column alignment, so it falls back to a plain beat tick.
-    try w.writeAll(dim ++ "      " ++ rst);
+    // Column header: beat numbers sit on the boundary column BEFORE their
+    // beat (the same column the note grid's │ separator ticks occupy) while
+    // every step keeps a plain dot, so the row reads "1 ·  ·  ·  · 2 ...".
+    // The first visible beat's number lands on the last prefix column, atop
+    // the note rows' │ prefix separator. Compact (cw==1) has no room for
+    // multi-digit numbers without corrupting column alignment, so it falls
+    // back to a plain beat tick.
+    try w.writeAll(dim);
+    if (cw > 1 and left % spb == 0) {
+        try w.print("    {d:>2}", .{left / spb + 1});
+    } else {
+        try w.writeAll("      ");
+    }
+    try w.writeAll(rst);
     for (0..vis_cols) |col| {
         const step = left + @as(u16, @intCast(col));
         if (cw == 1) {
             if (step % spb == 0) try w.writeAll(dim ++ "|" ++ rst) else try w.writeAll(" ");
-        } else if (step % spb == 0) {
+        } else if (col + 1 < vis_cols and (step + 1) % spb == 0) {
             try w.writeAll(dim);
-            try w.print("{d:<3}", .{step / spb + 1});
+            try w.print("·{d:>2}", .{(step + 1) / spb + 1});
             try w.writeAll(rst);
         } else {
             try w.writeAll(dim ++ "·  " ++ rst);
@@ -203,8 +213,9 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
         } else if (cw == 1) {
             if (step % spb == 0) try w.writeAll(dim ++ "│" ++ rst) else try w.writeAll(" ");
         } else {
+            const next_downbeat = col + 1 < vis_cols and (step + 1) % spb == 0;
             try w.writeAll(" ");
-            try writeStepPad(w, cw - 1, step % spb == 0, dim);
+            try writeStepPad(w, cw - 1, next_downbeat, dim);
         }
     }
     try endLine(w);
@@ -249,11 +260,12 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
             const downbeat = step % spb == 0;
 
             // The beat separator is purely decorative: at cw>1 it rides in
-            // the trailing padding column of THIS step, right after its own
-            // glyph, so it lands in the same column group as the beat number
-            // above it rather than the previous beat's; at cw==1 there is no
-            // padding to borrow, so the fallback below colours the downbeat
-            // dot itself instead (mirrors arrangement.zig's compact ruler).
+            // the trailing padding of the step BEFORE a downbeat, marking
+            // the boundary between beats in the same column as the header's
+            // beat number; at cw==1 there is no padding to borrow, so the
+            // fallback below colours the downbeat dot itself instead
+            // (mirrors arrangement.zig's compact ruler).
+            const next_downbeat = col + 1 < vis_cols and (step + 1) % spb == 0;
             const tick_color = if (in_sel) yel else dim;
 
             if (is_cur) {
@@ -262,7 +274,7 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
                 else if (covers) try w.writeAll("=")
                 else try w.writeAll("·");
                 try w.writeAll(rst);
-                try writeStepPad(w, cw -| 1, downbeat, tick_color);
+                try writeStepPad(w, cw -| 1, next_downbeat, tick_color);
             } else if (starts) {
                 // Shade the note head by velocity: loud = bold, soft = dim.
                 // Selected notes (visual mode) swap the accent for yellow.
@@ -277,15 +289,15 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
                 if (cw > 1) {
                     try w.writeAll(note_color);
                     try w.writeAll("=" ++ rst);
-                    try writeStepPad(w, cw -| 2, downbeat, tick_color);
+                    try writeStepPad(w, cw -| 2, next_downbeat, tick_color);
                 }
             } else if (covers) {
                 try w.writeAll(if (in_sel) yel else acc);
                 try w.writeAll("=" ++ rst);
-                try writeStepPad(w, cw -| 1, downbeat, tick_color);
+                try writeStepPad(w, cw -| 1, next_downbeat, tick_color);
             } else if (in_sel) {
                 try w.writeAll(yel ++ "·" ++ rst);
-                try writeStepPad(w, cw -| 1, downbeat, tick_color);
+                try writeStepPad(w, cw -| 1, next_downbeat, tick_color);
             } else {
                 // cw==1 has no padding column to carry the beat tick, so the
                 // downbeat dot itself borrows a distinct colour instead
@@ -301,7 +313,7 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
                     try w.writeAll("·");
                     if (dot_color.len > 0) try w.writeAll(rst);
                 }
-                try writeStepPad(w, cw -| 1, downbeat, tick_color);
+                try writeStepPad(w, cw -| 1, next_downbeat, tick_color);
             }
         }
         try endLine(w);
