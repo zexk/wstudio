@@ -89,6 +89,20 @@ pub const PolySynth = struct {
     osc_b_warp_mode:    WarpMode   = .none,
     osc_b_warp_amount:  f32       = 0.0,
 
+    // ── OSC C ────────────────────────────────────────────────────────────────
+    /// Plain additive 3rd oscillator: no MOD A<->B or warp participation,
+    /// same shape as OSC B otherwise. Kept simple deliberately — the mod
+    /// matrix and warp are per-A/B-slot features, not per-oscillator ones.
+    osc_c_on:           bool     = false,
+    osc_c_waveform:     Waveform = .saw,
+    osc_c_pulse_width:  f32      = 0.5,
+    osc_c_semi:         f32      = 0.0,
+    osc_c_detune_cents: f32      = 0.0,
+    osc_c_level:        f32      = 1.0,
+    osc_c_unison:       u8       = 1,
+    osc_c_unison_detune: f32     = 15.0,
+    osc_c_unison_mode:  UnisonMode = .spread,
+
     // ── AMP ENVELOPE ────────────────────────────────────────────────────────
     attack_s:  f32 = 0.005,
     decay_s:   f32 = 0.08,
@@ -191,6 +205,7 @@ pub const PolySynth = struct {
         /// Phase accumulators for OSC A and OSC B unison voices.
         phases:   [max_unison]f32 = [_]f32{0.0} ** max_unison,
         phases_b: [max_unison]f32 = [_]f32{0.0} ** max_unison,
+        phases_c: [max_unison]f32 = [_]f32{0.0} ** max_unison,
         // Amplitude envelope
         env:   f32   = 0.0,
         stage: Stage = .attack,
@@ -267,6 +282,16 @@ pub const PolySynth = struct {
         osc_b_unison_mode: UnisonMode = .spread,
         osc_b_warp_mode: WarpMode = .none,
         osc_b_warp_amount: f32 = 0.0,
+
+        osc_c_on: bool = false,
+        osc_c_waveform: Waveform = .saw,
+        osc_c_pulse_width: f32 = 0.5,
+        osc_c_semi: f32 = 0.0,
+        osc_c_detune_cents: f32 = 0.0,
+        osc_c_level: f32 = 1.0,
+        osc_c_unison: u8 = 1,
+        osc_c_unison_detune: f32 = 15.0,
+        osc_c_unison_mode: UnisonMode = .spread,
 
         attack_s: f32 = 0.005,
         decay_s: f32 = 0.08,
@@ -493,10 +518,11 @@ pub const PolySynth = struct {
         const fenv_decay_inc   = (1.0 - self.fenv_sustain)       / @max(self.fenv_decay_s   * self.sample_rate, 1.0);
         const fenv_release_inc = 1.0                              / @max(self.fenv_release_s  * self.sample_rate, 1.0);
 
-        // osc_budget: split evenly between OSC A and B so total ≤ 32.
+        // osc_budget: split evenly between active oscillators so total ≤ 32.
         var active_count: usize = 0;
         for (self.voices) |v| if (v.active) { active_count += 1; };
-        const osc_count: usize = 1 + @as(usize, if (self.osc_b_on) 1 else 0);
+        const osc_count: usize = 1 + @as(usize, if (self.osc_b_on) 1 else 0)
+                                   + @as(usize, if (self.osc_c_on) 1 else 0);
         const per_osc_cap: usize = if (active_count > 0)
             @max(osc_budget / active_count / osc_count, 1)
         else max_unison;
@@ -551,6 +577,9 @@ pub const PolySynth = struct {
             const n_b: usize = if (self.osc_b_on)
                 @min(@min(@as(usize, @max(self.osc_b_unison, 1)), max_unison), per_osc_cap)
             else 0;
+            const n_c: usize = if (self.osc_c_on)
+                @min(@min(@as(usize, @max(self.osc_c_unison, 1)), max_unison), per_osc_cap)
+            else 0;
             // zig fmt: on
 
             // Precompute per-unison phase increments for OSC A.
@@ -573,6 +602,19 @@ pub const PolySynth = struct {
                 }
             }
 
+            // Precompute per-unison phase increments for OSC C.
+            var phase_incs_c: [max_unison]f32 = undefined;
+            if (self.osc_c_on) {
+                // zig fmt: off
+                const c_freq = base_freq * std.math.pow(f32, 2.0,
+                    self.osc_c_semi / 12.0 + self.osc_c_detune_cents / 1200.0);
+                    // zig fmt: on
+                for (0..n_c) |ui| {
+                    const spread: f32 = if (n_c > 1) unisonSpreadCents(self.osc_c_unison_mode, ui, n_c, self.osc_c_unison_detune) else 0.0;
+                    phase_incs_c[ui] = c_freq * std.math.pow(f32, 2.0, spread / 1200.0) / self.sample_rate;
+                }
+            }
+
             // Per-voice sub phase increment (half-frequency = one octave below).
             const sub_phase_inc = base_freq * 0.5 / self.sample_rate;
 
@@ -582,13 +624,16 @@ pub const PolySynth = struct {
             // Power-preserving normalisation across all sources.
             const scale_a = 1.0 / @sqrt(@as(f32, @floatFromInt(n_a)));
             const scale_b = if (n_b > 0) 1.0 / @sqrt(@as(f32, @floatFromInt(n_b))) else 0.0;
+            const scale_c = if (n_c > 0) 1.0 / @sqrt(@as(f32, @floatFromInt(n_c))) else 0.0;
             // zig fmt: off
             const b_pow   = self.osc_b_level * self.osc_b_level * @as(f32, if (self.osc_b_on) 1.0 else 0.0);
-            const mix_norm = 1.0 / @sqrt(1.0 + b_pow
+            const c_pow   = self.osc_c_level * self.osc_c_level * @as(f32, if (self.osc_c_on) 1.0 else 0.0);
+            const mix_norm = 1.0 / @sqrt(1.0 + b_pow + c_pow
                 + self.sub_level * self.sub_level
                 + self.noise_level * self.noise_level);
-            // ring_mix_norm: B acts as modulator only, so exclude b_pow.
-            const ring_mix_norm = 1.0 / @sqrt(1.0
+            // ring_mix_norm: B acts as modulator only, so exclude b_pow. C is
+            // a plain additive voice regardless of mod_mode, so it's included.
+            const ring_mix_norm = 1.0 / @sqrt(1.0 + c_pow
                 + self.sub_level * self.sub_level
                 + self.noise_level * self.noise_level);
 
@@ -618,6 +663,19 @@ pub const PolySynth = struct {
                     const angle = (raw + 1.0) * std.math.pi * 0.25;
                     pan_l_b[ui] = pan_scale * @cos(angle);
                     pan_r_b[ui] = pan_scale * @sin(angle);
+                }
+            }
+            var pan_l_c: [max_unison]f32 = undefined;
+            var pan_r_c: [max_unison]f32 = undefined;
+            if (self.osc_c_on) {
+                for (0..n_c) |ui| {
+                    const raw: f32 = if (n_c > 1 and self.unison_spread > 0.0)
+                        ((@as(f32, @floatFromInt(ui)) / @as(f32, @floatFromInt(n_c - 1))) * 2.0 - 1.0) * self.unison_spread
+                    else
+                        0.0;
+                    const angle = (raw + 1.0) * std.math.pi * 0.25;
+                    pan_l_c[ui] = pan_scale * @cos(angle);
+                    pan_r_c[ui] = pan_scale * @sin(angle);
                 }
             }
 
@@ -698,6 +756,19 @@ pub const PolySynth = struct {
                     else => {},
                 };
 
+                // OSC C: plain additive voice, no MOD A<->B or warp interaction.
+                var c_l: f32 = 0.0;
+                var c_r: f32 = 0.0;
+                if (self.osc_c_on) {
+                    for (0..n_c) |ui| {
+                        const samp = oscWave(self.osc_c_waveform, v.phases_c[ui], self.osc_c_pulse_width);
+                        c_l += samp * pan_l_c[ui];
+                        c_r += samp * pan_r_c[ui];
+                        v.phases_c[ui] += phase_incs_c[ui];
+                        if (v.phases_c[ui] >= 1.0) v.phases_c[ui] -= 1.0;
+                    }
+                }
+
                 // Sub: always centre (mono → both channels).
                 var sub_out: f32 = 0.0;
                 if (self.sub_level > 0.0) {
@@ -727,13 +798,13 @@ pub const PolySynth = struct {
                     break :blk (1.0 - depth) + depth * b_mono;
                 } else 0.0;
                 const osc_l: f32 = if (self.osc_b_on and self.mod_mode == .ring)
-                    (a_l * scale_a * ring_factor + sub_out + nse_out) * ring_mix_norm
+                    (a_l * scale_a * ring_factor + c_l * scale_c * self.osc_c_level + sub_out + nse_out) * ring_mix_norm
                 else
-                    (a_l * scale_a + b_l * scale_b * self.osc_b_level + sub_out + nse_out) * mix_norm;
+                    (a_l * scale_a + b_l * scale_b * self.osc_b_level + c_l * scale_c * self.osc_c_level + sub_out + nse_out) * mix_norm;
                 const osc_r: f32 = if (self.osc_b_on and self.mod_mode == .ring)
-                    (a_r * scale_a * ring_factor + sub_out + nse_out) * ring_mix_norm
+                    (a_r * scale_a * ring_factor + c_r * scale_c * self.osc_c_level + sub_out + nse_out) * ring_mix_norm
                 else
-                    (a_r * scale_a + b_r * scale_b * self.osc_b_level + sub_out + nse_out) * mix_norm;
+                    (a_r * scale_a + b_r * scale_b * self.osc_b_level + c_r * scale_c * self.osc_c_level + sub_out + nse_out) * mix_norm;
 
                 // Stereo filter: same coefficients, independent L/R biquad histories.
                 // zig fmt: off
@@ -1110,6 +1181,22 @@ pub const PolySynth = struct {
             48 => self.filter2_res          = std.math.clamp(self.filter2_res        + s * 0.01,   0.0,    1.0),
             49 => self.filter_routing = switch (self.filter_routing) {
                 .series => .parallel, .parallel => .series,
+            },
+            // OSC C (50–58)
+            50 => self.osc_c_on = !self.osc_c_on,
+            51 => self.osc_c_waveform = if (steps > 0) switch (self.osc_c_waveform) {
+                .sine => .saw, .saw => .triangle, .triangle => .square, .square => .sine,
+            } else switch (self.osc_c_waveform) {
+                .sine => .square, .saw => .sine, .triangle => .saw, .square => .triangle,
+            },
+            52 => self.osc_c_pulse_width    = std.math.clamp(self.osc_c_pulse_width  + s * 0.01,   0.01,   0.99),
+            53 => self.osc_c_semi           = std.math.clamp(self.osc_c_semi         + s * 1.0,  -24.0,   24.0),
+            54 => self.osc_c_detune_cents   = std.math.clamp(self.osc_c_detune_cents + s * 1.0, -100.0,  100.0),
+            55 => self.osc_c_level          = std.math.clamp(self.osc_c_level        + s * 0.01,   0.0,    1.0),
+            56 => self.osc_c_unison         = @intCast(std.math.clamp(@as(i32, self.osc_c_unison) + steps, 1, 16)),
+            57 => self.osc_c_unison_detune  = std.math.clamp(self.osc_c_unison_detune + s * 1.0,   0.0,  100.0),
+            58 => self.osc_c_unison_mode = switch (self.osc_c_unison_mode) {
+                .spread => .step, .step => .spread,
                 // zig fmt: on
             },
             else => {},
@@ -1145,6 +1232,9 @@ pub const PolySynth = struct {
             45 => self.filter2_on          = value >= 0.5,
             46 => self.filter2_type        = enumFromValue(FilterType, value),
             49 => self.filter_routing      = enumFromValue(FilterRouting, value),
+            50 => self.osc_c_on            = value >= 0.5,
+            51 => self.osc_c_waveform      = enumFromValue(Waveform, value),
+            58 => self.osc_c_unison_mode   = enumFromValue(UnisonMode, value),
             1  => self.pulse_width         = std.math.clamp(value,   0.01,   0.99),
             2  => self.detune_cents        = std.math.clamp(value, -100.0, 100.0),
             3  => self.unison              = @intCast(std.math.clamp(@as(i32, @intFromFloat(@round(value))), 1, 16)),
@@ -1179,6 +1269,12 @@ pub const PolySynth = struct {
             44 => self.osc_b_warp_amount   = std.math.clamp(value,   0.0,    1.0),
             47 => self.filter2_cutoff      = std.math.clamp(value,  20.0, 20_000.0),
             48 => self.filter2_res         = std.math.clamp(value,   0.0,    1.0),
+            52 => self.osc_c_pulse_width   = std.math.clamp(value,   0.01,   0.99),
+            53 => self.osc_c_semi          = std.math.clamp(value, -24.0,   24.0),
+            54 => self.osc_c_detune_cents  = std.math.clamp(value, -100.0,  100.0),
+            55 => self.osc_c_level         = std.math.clamp(value,   0.0,    1.0),
+            56 => self.osc_c_unison        = @intCast(std.math.clamp(@as(i32, @intFromFloat(@round(value))), 1, 16)),
+            57 => self.osc_c_unison_detune = std.math.clamp(value,   0.0,  100.0),
             // zig fmt: on
             else => {},
         }
@@ -1243,6 +1339,15 @@ pub const PolySynth = struct {
             47 => self.filter2_cutoff,
             48 => self.filter2_res,
             49 => enumToValue(self.filter_routing),
+            50 => if (self.osc_c_on) 1.0 else 0.0,
+            51 => enumToValue(self.osc_c_waveform),
+            52 => self.osc_c_pulse_width,
+            53 => self.osc_c_semi,
+            54 => self.osc_c_detune_cents,
+            55 => self.osc_c_level,
+            56 => @floatFromInt(self.osc_c_unison),
+            57 => self.osc_c_unison_detune,
+            58 => enumToValue(self.osc_c_unison_mode),
             else => null,
         };
     }
@@ -1291,6 +1396,12 @@ pub const PolySynth = struct {
         .{ .id = 44, .label = "WARP AMT B", .section = "OSC B",   .range = .{ 0.0,    1.0 },     .step = 0.01 },
         .{ .id = 47, .label = "CUTOFF 2",   .section = "FILTER 2",.range = .{ 20.0,   20_000.0 },.step = 100.0 },
         .{ .id = 48, .label = "RESONANCE 2",.section = "FILTER 2",.range = .{ 0.0,    1.0 },     .step = 0.01 },
+        .{ .id = 52, .label = "PW C",       .section = "OSC C",   .range = .{ 0.01,   0.99 },    .step = 0.01 },
+        .{ .id = 53, .label = "SEMI C",     .section = "OSC C",   .range = .{ -24.0,  24.0 },    .step = 1.0 },
+        .{ .id = 54, .label = "DETUNE C",   .section = "OSC C",   .range = .{ -100.0, 100.0 },   .step = 1.0 },
+        .{ .id = 55, .label = "LEVEL C",    .section = "OSC C",   .range = .{ 0.0,    1.0 },     .step = 0.01 },
+        .{ .id = 56, .label = "UNISON C",   .section = "OSC C",   .range = .{ 1.0,    16.0 },    .step = 1.0 },
+        .{ .id = 57, .label = "UNI DET C",  .section = "OSC C",   .range = .{ 0.0,    100.0 },   .step = 1.0 },
         // zig fmt: on
     };
 

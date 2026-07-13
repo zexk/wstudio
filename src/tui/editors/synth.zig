@@ -44,7 +44,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             'G' => { history.flushParamNudge(app); app.synth_cursor = style.synth_param_count - 1; updateScroll(app); return true; },
             '}', '{' => {
                 history.flushParamNudge(app);
-                const section_starts = [_]u8{ 0, 6, 14, 16, 20, 24, 28, 32, 34, 36, 38, 39, 41, 45 };
+                const section_starts = [_]u8{ 0, 6, 14, 16, 20, 24, 28, 32, 34, 36, 38, 39, 41, 45, 50 };
                 if (c == '}') {
                     for (section_starts) |s| {
                         if (s > app.synth_cursor) {
@@ -101,7 +101,7 @@ pub fn colWidth(cols: usize) usize {
 pub const top_h: usize = 9;
 
 /// Total body rows (below the shared title) in the wide A/B-over-C layout.
-pub const body_rows_wide: usize = 57;
+pub const body_rows_wide: usize = 67;
 
 // zig fmt: off
 /// Column + row of `cursor` within the wide layout (row 0 is the shared
@@ -125,6 +125,7 @@ pub fn paramColRow(cursor: u8) struct { col: u1, row: usize } {
         39...40 => .{ .col = 0, .row = 45 + @as(usize, cursor - 39) },   // UNI MODE (header at 44)
         41...44 => .{ .col = 0, .row = 48 + @as(usize, cursor - 41) },   // WARP (header at 47)
         45...49 => .{ .col = 0, .row = 53 + @as(usize, cursor - 45) },   // FILTER 2 (header at 52)
+        50...58 => .{ .col = 0, .row = 59 + @as(usize, cursor - 50) },   // OSC C (header at 58)
         else    => .{ .col = 0, .row = 0 },
     };
 }
@@ -147,6 +148,7 @@ pub fn paramRow(cursor: u8) usize {
         39...40 => 52 + @as(usize, cursor - 39),   // UNI MODE (header at 51)
         41...44 => 55 + @as(usize, cursor - 41),   // WARP (header at 54)
         45...49 => 60 + @as(usize, cursor - 45),   // FILTER 2 (header at 59)
+        50...58 => 66 + @as(usize, cursor - 50),   // OSC C (header at 65)
         else    => 0,
     };
 }
@@ -190,7 +192,7 @@ fn adjustParam(app: *App, steps: i32) void {
 
 /// The param index whose row (in the *scrolled* on-screen layout) is `row`,
 /// or null for the title row / a row that doesn't land on any param (a
-/// section-header line). Scans `paramRow`/`paramColRow` — cheap (50 params)
+/// section-header line). Scans `paramRow`/`paramColRow` — cheap (59 params)
 /// and it's already the exact row math the renderer uses, so no new layout
 /// logic. In wide mode `x` only picks a column within the OSC A/B top block
 /// (rows 1-9); everything below that is a single full-width column.

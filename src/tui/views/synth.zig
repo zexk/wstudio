@@ -174,6 +174,7 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize
         try secUniMode(&tw, synth, c);
         try secWarp(&tw, synth, c);
         try secFilter2(&tw, synth, c);
+        try secOscC(&tw, synth, c);
 
         var line_it = std.mem.splitSequence(u8, tw.buffered(), "\r\n");
         var row: usize = 1;
@@ -195,7 +196,10 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize
 // row maps in sync.
 
 /// Every non-oscillator section, stacked full-width beneath OSC A/B in the
-/// wide layout: 47 rows (3 + 5 + 5 + 5 + 5 + 3 + 3 + 3 + 2 + 3 + 5 + 5).
+/// wide layout: 57 rows (3 + 5 + 5 + 5 + 5 + 3 + 3 + 3 + 2 + 3 + 5 + 5 + 9).
+/// OSC C is 3rd-oscillator content but lives here (not the top A/B block)
+/// since the wide layout's top block is a fixed 2-column split — see
+/// body_rows_wide's own history for why a 3-column top block was skipped.
 fn drawSynthBottom(w: *std.Io.Writer, synth: anytype, c: u8) !void {
     try secMod(w, synth, c);
     try secEnv(w, synth, c);
@@ -209,6 +213,7 @@ fn drawSynthBottom(w: *std.Io.Writer, synth: anytype, c: u8) !void {
     try secUniMode(w, synth, c);
     try secWarp(w, synth, c);
     try secFilter2(w, synth, c);
+    try secOscC(w, synth, c);
 }
 
 const wf_names = [_][]const u8{ "sine", "saw", "tri", "sqr" };
@@ -480,6 +485,39 @@ fn secFilter2(w: *std.Io.Writer, synth: anytype, c: u8) !void {
     try enumRow(w, c == 49, !on, yel, "routing", &routing_names, routing_idx);
 }
 
+/// Plain additive 3rd oscillator — same row shape as OSC B, no mod/warp rows
+/// since OSC C doesn't participate in either (see PolySynth's own doc comment).
+fn secOscC(w: *std.Io.Writer, synth: anytype, c: u8) !void {
+    var buf: [40]u8 = undefined;
+    try synthSection(w, "OSC C", acc);
+
+    const c_on = synth.osc_c_on;
+    const on_names = [_][]const u8{ "on", "off" };
+    try enumRow(w, c == 50, false, acc, "on/off", &on_names, if (c_on) 0 else 1);
+
+    const wfc_idx: usize = switch (synth.osc_c_waveform) {
+        .sine => 0, .saw => 1, .triangle => 2, .square => 3,
+    };
+    try enumRow(w, c == 51, !c_on, acc, "waveform", &wf_names, wfc_idx);
+
+    try barRow(w, c == 52, !c_on, acc, "pls.width", synth.osc_c_pulse_width, 1.0,
+        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.osc_c_pulse_width}));
+    try barRow(w, c == 53, !c_on, acc, "semi", synth.osc_c_semi + 24.0, 48.0,
+        try std.fmt.bufPrint(&buf, "{d:.0}", .{synth.osc_c_semi}));
+    try barRow(w, c == 54, !c_on, acc, "detune", synth.osc_c_detune_cents + 100.0, 200.0,
+        try std.fmt.bufPrint(&buf, "{d:.0} ct", .{synth.osc_c_detune_cents}));
+    try barRow(w, c == 55, !c_on, acc, "level", synth.osc_c_level, 1.0,
+        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.osc_c_level}));
+    try barRow(w, c == 56, !c_on, acc, "unison", @floatFromInt(synth.osc_c_unison), 16.0,
+        try std.fmt.bufPrint(&buf, "{d}", .{synth.osc_c_unison}));
+    try barRow(w, c == 57, !c_on, acc, "uni.det", synth.osc_c_unison_detune, 100.0,
+        try std.fmt.bufPrint(&buf, "{d:.1} ct", .{synth.osc_c_unison_detune}));
+
+    const um_names = [_][]const u8{ "spread", "step" };
+    const um_idx: usize = switch (synth.osc_c_unison_mode) { .spread => 0, .step => 1 };
+    try enumRow(w, c == 58, !c_on or synth.osc_c_unison <= 1, acc, "uni.mode", &um_names, um_idx);
+}
+
 pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !void {
     if (app.synth_track >= app.session.racks.items.len) return;
     const rack = app.session.racks.items[app.synth_track];
@@ -501,6 +539,7 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !
         "uni.mode a", "uni.mode b",
         "warp.mode a", "warp.amt a", "warp.mode b", "warp.amt b",
         "filt2.on", "filt2.type", "filt2.cutoff", "filt2.res", "filt2.routing",
+        "c.on", "c.waveform", "c.pw", "c.semi", "c.detune", "c.level", "c.unison", "c.uni.det", "c.uni.mode",
     };
     const cur = @min(@as(usize, app.synth_cursor), labels.len - 1);
     try style.writeModeBadge(w, app.modal.mode);
@@ -597,6 +636,17 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !
             try w.print("{d:.0} Hz",  .{synth.filter2_cutoff}),
         48 => try w.print("{d:.3}",       .{synth.filter2_res}),
         49 => try w.writeAll(switch (synth.filter_routing) { .series => "series", .parallel => "parallel" }),
+        50 => try w.writeAll(if (synth.osc_c_on) "on" else "off"),
+        51 => try w.writeAll(switch (synth.osc_c_waveform) {
+            .sine => "sine", .saw => "saw", .triangle => "tri", .square => "sqr",
+        }),
+        52 => try w.print("{d:.2}",       .{synth.osc_c_pulse_width}),
+        53 => try w.print("{d:.0} st",    .{synth.osc_c_semi}),
+        54 => try w.print("{d:.0} ct",    .{synth.osc_c_detune_cents}),
+        55 => try w.print("{d:.2}",       .{synth.osc_c_level}),
+        56 => try w.print("{d}",           .{synth.osc_c_unison}),
+        57 => try w.print("{d:.1} ct",    .{synth.osc_c_unison_detune}),
+        58 => try w.writeAll(switch (synth.osc_c_unison_mode) { .spread => "spread", .step => "step" }),
         else => {},
     }
     try w.writeAll(rst);

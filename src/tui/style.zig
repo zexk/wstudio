@@ -24,7 +24,8 @@ pub const spectrum_band_count: usize = 80;
 /// UNI MODE: 39:unison_mode 40:osc_b_unison_mode
 /// WARP  : 41:warp_mode 42:warp_amount 43:osc_b_warp_mode 44:osc_b_warp_amount
 /// FILTER 2: 45:filter2_on 46:filter2_type 47:filter2_cutoff 48:filter2_res 49:filter_routing
-pub const synth_param_count: u8 = 50;
+/// OSC C : 50:c_on 51:c_waveform 52:c_pw 53:c_semi 54:c_detune 55:c_level 56:c_unison 57:c_uni.det 58:c_uni.mode
+pub const synth_param_count: u8 = 59;
 
 // ---------------------------------------------------------------------------
 // Palette — all colour codes go here; never raw \x1b sequences elsewhere
