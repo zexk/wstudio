@@ -41,6 +41,7 @@ const rowVal = style.rowVal;
 const barRow = style.barRow;
 const enumRow = style.enumRow;
 
+// zig fmt: off
 /// Names + one-line descriptions for the instrument picker. Order must match
 /// `app.picker_kinds`.
 const picker_menu = [_]struct { name: []const u8, desc: []const u8, icon: []const u8 }{
@@ -49,6 +50,7 @@ const picker_menu = [_]struct { name: []const u8, desc: []const u8, icon: []cons
     .{ .name = "Drum Machine", .desc = "64-pad step sequencer with per-pad sampler",            .icon = icons.drum },
     .{ .name = "Slicer",       .desc = "chop one sample into slices, step-sequence the chops",  .icon = icons.slicer },
 };
+// zig fmt: on
 
 pub fn drawInstrumentPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void {
     const track_name = if (app.cursor < app.session.project.tracks.items.len)
@@ -83,6 +85,7 @@ pub fn drawInstrumentPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void 
     for (used..@max(used, rows -| 4)) |_| try endLine(w);
 }
 
+// zig fmt: off
 /// Names + one-line descriptions for the FX picker. Order must match
 /// `editors/spectrum.zig`'s `picker_kinds`.
 const fx_picker_menu = [_]struct { name: []const u8, desc: []const u8 }{
@@ -98,6 +101,7 @@ const fx_picker_menu = [_]struct { name: []const u8, desc: []const u8 }{
     .{ .name = "Delay",      .desc = "stereo echo with feedback and mix" },
     .{ .name = "Reverb",     .desc = "room to hall tails: room/damp/mix" },
 };
+// zig fmt: on
 
 pub fn drawFxPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void {
     const target: []const u8 = switch (app.fx_picker_return) {
@@ -129,6 +133,7 @@ pub fn drawFxPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void {
         try endLine(w);
     }
 
+    // zig fmt: off
     // used = title(1) + blank(1) actually printed above, plus the menu rows
     // — was "4 +" (stale from before the header/transport hr() rows were
     // removed), leaving 2 rows of dead blank space above the footer.
@@ -136,3 +141,4 @@ pub fn drawFxPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void {
     for (used..@max(used, rows -| 4)) |_| try endLine(w);
 }
 
+// zig fmt: on

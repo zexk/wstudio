@@ -112,6 +112,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     for (cmds) |c| t.push(acc ++ "  :{s: <14}" ++ rst ++ dim ++ "{s}", .{ c.name, c.desc });
 
     t.section("ALL VIEWS");
+    // zig fmt: off
     t.key("1–9",          "count prefix repeats a motion (3l, 12h, 2j …)");
     t.key("[ / ]",        "master volume down / up  (except piano roll)");
     t.key("space",        "play / pause");
@@ -350,6 +351,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("b",            "bookmark / unbookmark the entry under the cursor (persists across sessions)");
     t.key("B",            "open the bookmark list — enter/l jumps, d removes, esc/q back");
     t.key("esc / q",      "cancel back to the previous view");
+    // zig fmt: on
 }
 
 /// Line offset where `section`'s content starts, so opening help from a
@@ -466,7 +468,9 @@ pub fn drawHelpStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !v
     try w.writeAll(dim ++ "  " ++ rst ++ "j/k: scroll  d/u: page  g/G: top/bottom  /: search  n/N: next/prev  ?/esc: close");
 }
 
+// zig fmt: off
 
+// zig fmt: on
 test "stripAnsi drops SGR sequences, keeps visible bytes" {
     var buf: [64]u8 = undefined;
     try std.testing.expectEqualStrings("  hi there", stripAnsi("\x1b[36m  hi \x1b[0m\x1b[2mthere", &buf));

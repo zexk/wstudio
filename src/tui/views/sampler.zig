@@ -119,6 +119,7 @@ pub fn drawSamplerEditor(
 
     var buf: [40]u8 = undefined;
 
+    // zig fmt: off
     // ── SAMPLE ───────────────────────────────────
     try synthSection(w, "SAMPLE", acc);
     written += 1;
@@ -181,6 +182,7 @@ pub fn drawSamplerEditor(
         try enumRow(w, c == 11, false, grn, "voice", &voice_names, if (mono) 1 else 0);
         written += 1;
     }
+    // zig fmt: on
 
     while (written < body) : (written += 1) try endLine(w);
 }
@@ -276,6 +278,7 @@ pub fn drawSamplerStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer)
     };
     const cur = @min(@as(usize, app.sampler_param), sampler_param_labels.len - 1);
 
+    // zig fmt: off
     try style.writeModeBadge(w, app.modal.mode);
     try style.writeViewBadge(right, "SAMPLER", app.modal.mode);
     if (is_drum) {
@@ -312,3 +315,4 @@ pub fn drawSamplerStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer)
     }
 }
 
+// zig fmt: on

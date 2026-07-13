@@ -143,9 +143,11 @@ pub const Terminal = struct {
             if (key.bKeyDown == 0) continue;
             if (key.uChar.UnicodeChar != 0) return true;
             switch (key.wVirtualKeyCode) {
+                // zig fmt: off
                 c.VK_UP, c.VK_DOWN, c.VK_LEFT, c.VK_RIGHT,
                 c.VK_HOME, c.VK_END, c.VK_PRIOR, c.VK_NEXT,
                 c.VK_INSERT, c.VK_DELETE => return true,
+                // zig fmt: on
                 else => {},
             }
         }

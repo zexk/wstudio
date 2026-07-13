@@ -262,4 +262,3 @@ pub fn drawDrumStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !v
         try w.writeAll(app.status_buf[0..app.status_len]);
     }
 }
-

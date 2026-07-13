@@ -70,9 +70,11 @@ pub const FxTarget = union(enum) {
 
     pub fn eql(a: FxTarget, b: FxTarget) bool {
         return switch (a) {
+            // zig fmt: off
             .track => |ta| switch (b) { .track => |tb| ta == tb, else => false },
             .master => b == .master,
             .group => |ga| switch (b) { .group => |gb| ga == gb, else => false },
+            // zig fmt: on
         };
     }
 };
@@ -321,6 +323,7 @@ fn retargetStack(stack: *std.ArrayListUnmanaged(Entry), allocator: std.mem.Alloc
         i -= 1;
         var keep = true;
         switch (stack.items[i]) {
+            // zig fmt: off
             .melodic => |*m| if (remap.apply(m.track)) |nt| { m.track = nt; } else { keep = false; },
             .drum => |*d| if (remap.apply(d.track)) |nt| { d.track = nt; } else { keep = false; },
             .lane => |*l| if (remap.apply(l.track)) |nt| { l.track = nt; } else { keep = false; },
@@ -349,6 +352,7 @@ fn retargetStack(stack: *std.ArrayListUnmanaged(Entry), allocator: std.mem.Alloc
                 // undoing older deletes after newer ones lands each track
                 // back in its correct original order.
                 .insert => |at| if (at < t.track) { t.track += 1; },
+                // zig fmt: on
             },
         }
         if (!keep) {

@@ -35,6 +35,7 @@ pub const Gate = struct {
 
     /// Gate an interleaved stereo buffer in place.
     pub fn processBlock(self: *Gate, buf: []Sample) void {
+        // zig fmt: off
         const thresh    = std.math.pow(f32, 10.0, self.threshold_db / 20.0);
         const det_decay = @exp(-1.0 / (0.050 * self.sample_rate));
         const attack    = @exp(-1.0 / (self.attack_ms * 0.001 * self.sample_rate));
@@ -47,6 +48,7 @@ pub const Gate = struct {
             const coef = if (target > self.gain) attack else release;
             self.gain = target + coef * (self.gain - target);
             buf[i]     *= self.gain;
+            // zig fmt: on
             buf[i + 1] *= self.gain;
         }
     }

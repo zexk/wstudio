@@ -95,9 +95,11 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize
     const synth = &rack.instrument.poly_synth;
     const c = app.synth_cursor;
 
+    // zig fmt: off
     const name = if (app.synth_track < app.session.project.tracks.items.len)
         app.session.project.tracks.items[app.synth_track].name
     else "?";
+    // zig fmt: on
 
     // Title (row 0) — always emitted, outside the scroll window.
     try w.writeAll(bcyn ++ bold ++ " \u{2593} " ++ icons.synth ++ " SYNTH " ++ rst);
@@ -211,6 +213,7 @@ fn secOscA(w: *std.Io.Writer, synth: anytype, c: u8) !void {
     var buf: [40]u8 = undefined;
     try synthSection(w, "OSC A", acc);
 
+    // zig fmt: off
     const wf_idx: usize = switch (synth.waveform) {
         .sine => 0, .saw => 1, .triangle => 2, .square => 3,
     };
@@ -230,6 +233,7 @@ fn secOscA(w: *std.Io.Writer, synth: anytype, c: u8) !void {
     try barRow(w, c == 5, false, acc, "spread", synth.unison_spread, 1.0,
         try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.unison_spread}));
 }
+// zig fmt: on
 
 fn secOscB(w: *std.Io.Writer, synth: anytype, c: u8) !void {
     var buf: [40]u8 = undefined;
@@ -239,6 +243,7 @@ fn secOscB(w: *std.Io.Writer, synth: anytype, c: u8) !void {
     const on_names = [_][]const u8{ "on", "off" };
     try enumRow(w, c == 6, false, acc, "on/off", &on_names, if (b_on) 0 else 1);
 
+    // zig fmt: off
     const wfb_idx: usize = switch (synth.osc_b_waveform) {
         .sine => 0, .saw => 1, .triangle => 2, .square => 3,
     };
@@ -522,3 +527,4 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !
     }
 }
 
+// zig fmt: on

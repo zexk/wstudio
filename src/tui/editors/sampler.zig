@@ -21,6 +21,7 @@ fn paramCount(app: *App) u8 {
     };
 }
 
+// zig fmt: off
 /// Sampler editor: j/k pick a param row, h/l/H/L nudge it. For a drum pad,
 /// 1–8 jump to that slot within the current bank (shared `drum_cursor[0]`,
 /// see movePadBank's doc comment) and esc/e return to the drum grid; for a
@@ -123,6 +124,7 @@ fn preview(app: *App) void {
         },
     }
 }
+// zig fmt: on
 
 /// Nudge the selected sampler param. Routed over the command queue so the
 /// edit lands on the audio thread (DrumMachine/Sampler.adjustParam), never
@@ -158,6 +160,7 @@ fn waveRows(is_drum: bool, body: usize) usize {
     return if (wr >= 2) wr else 0;
 }
 
+// zig fmt: off
 /// Row of param `idx` relative to right after the waveform panel (title +
 /// waveform rows already excluded) — one row per section header, matching
 /// drawSamplerEditor's emission order (SAMPLE's 3 params, AMP ENV's 4, OUT's
@@ -171,6 +174,7 @@ fn paramRelRow(idx: u8) usize {
         else => 0,
     };
 }
+// zig fmt: on
 
 /// The param row (in view-content-relative rows) at `row`, or null for the
 /// title/waveform rows or a section-header line.

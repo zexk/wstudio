@@ -78,10 +78,12 @@ pub const SamplerTarget = union(enum) {
     drum: u16,
     sampler: u16,
 
+    // zig fmt: off
     pub fn track(self: SamplerTarget) u16 {
         return switch (self) { .drum => |t| t, .sampler => |t| t };
     }
 };
+// zig fmt: on
 
 /// The instruments the picker offers, in display order.
 pub const picker_kinds = [_]InstrumentKind{ .poly_synth, .sampler, .drum_machine, .slicer };
@@ -576,6 +578,7 @@ pub const App = struct {
         return &self.session.racks.items[self.slicer_track].instrument.slicer;
     }
 
+    // zig fmt: off
     /// The sampler currently open in the sampler_editor view (when targeting a
     /// standalone Sampler).
     pub fn editingSampler(self: *App) ?*Sampler {
@@ -585,6 +588,7 @@ pub const App = struct {
             .sampler => |*s| s, else => null,
         };
     }
+    // zig fmt: on
 
     /// Total content length in beats: the longest piano-roll loop and the
     /// longest drum-machine pattern across all tracks.
@@ -647,6 +651,7 @@ pub const App = struct {
             return;
         }
 
+        // zig fmt: off
         // Command/search mode: up/down recall history (command only — search
         // has no history), tab completes the command name (command only).
         // Left/right/home/end/ctrl-w edit the cmd_buf cursor in place
@@ -672,6 +677,7 @@ pub const App = struct {
             .arrow_right => .{ .char = 'l' },
             else => key_in,
         };
+        // zig fmt: on
 
         // `?` opens the context-jumping help from ANY view's normal mode —
         // cmdHelp already maps every view to its help section and prev_view
@@ -682,6 +688,7 @@ pub const App = struct {
             return;
         }
 
+        // zig fmt: off
         switch (self.view) {
             .help => {
                 // `/` search typing routes to the modal prompt; submit lands
@@ -906,6 +913,7 @@ pub const App = struct {
             },
         }
     }
+    // zig fmt: on
 
     /// Mouse entry point — routed here directly by `run()` rather than
     /// through `handleKey`/the modal state machine (mouse isn't part of the
@@ -1060,6 +1068,7 @@ pub const App = struct {
         self.track_row_cursor_snap = self.cursor;
     }
 
+    // zig fmt: off
     fn rowTrack(self: *const App, row: usize) ?u16 {
         if (row >= self.track_rows_len) return null;
         return switch (self.track_rows_buf[row]) { .track => |t| t, .group => null };
@@ -1075,6 +1084,7 @@ pub const App = struct {
         if (self.track_row >= self.track_rows_len) return null;
         return switch (self.track_rows_buf[self.track_row]) { .group => |g| g, .track => null };
     }
+    // zig fmt: on
 
     /// Row of track `idx` — its group's row when hidden inside a fold.
     fn rowOfTrack(self: *const App, idx: u16) usize {
@@ -1142,6 +1152,7 @@ pub const App = struct {
         self.setStatus("group {d} deleted (members back on the master mix)", .{g + 1});
     }
 
+    // zig fmt: off
     /// Instrument picker: click a row to select + insert it (same as
     /// enter/space); scroll moves the highlight.
     fn pickerMouse(self: *App, ev: modal_mod.MouseEvent, row: usize) void {
@@ -1174,6 +1185,7 @@ pub const App = struct {
             else => {},
         }
     }
+    // zig fmt: on
 
     /// Help view: scroll wheel scrolls content (same as j/k). No click behavior.
     fn helpMouse(self: *App, ev: modal_mod.MouseEvent) void {
@@ -1196,6 +1208,7 @@ pub const App = struct {
         self.modal.cmd_cursor = text.len;
     }
 
+    // zig fmt: off
     /// Tracks view visual mode's reduced key set: `j`/`k` extend the
     /// selection over display rows (master excluded — the cursor can't
     /// reach it from here since the range never includes it), `g` groups
@@ -1213,6 +1226,7 @@ pub const App = struct {
             else => {},
         }
     }
+    // zig fmt: on
 
     fn exitTracksVisual(self: *App) void {
         self.modal.mode = .normal;
@@ -1234,6 +1248,7 @@ pub const App = struct {
         const hi = @max(anchor, self.track_row);
         self.exitTracksVisual();
 
+        // zig fmt: off
         const rows = self.track_rows_buf[lo..@min(hi + 1, self.track_rows_len)];
         var count: usize = 0;
         for (rows) |r| switch (r) {
@@ -1246,6 +1261,7 @@ pub const App = struct {
             },
         };
         if (count == 0) { self.setStatus("no tracks selected", .{}); return; }
+        // zig fmt: on
 
         const idx = self.session.addGroup("Group") catch |err| {
             self.setStatus("group: {s}", .{switch (err) {
@@ -1315,6 +1331,7 @@ pub const App = struct {
         self.setStatus("tap tempo: {d:.1} bpm ({d} taps)", .{ bpm, self.tap_count });
     }
 
+    // zig fmt: off
     /// Open the editor matching the track's instrument, or the instrument
     /// picker if the track is blank.
     fn openTrack(self: *App, cursor: usize) void {
@@ -1358,6 +1375,7 @@ pub const App = struct {
             else => {},
         }
     }
+    // zig fmt: on
 
     fn pickerInsert(self: *App) void {
         const kind = picker_kinds[self.picker_cursor];
@@ -1372,6 +1390,7 @@ pub const App = struct {
         self.openTrack(self.cursor);
     }
 
+    // zig fmt: off
     /// FX picker: j/k move, enter/space insert the highlighted effect after
     /// the focused chain slot, esc cancels back to the chain view. Opened by
     /// `a` in the FX chain view (see editors/spectrum.zig's openPicker).
@@ -1423,6 +1442,7 @@ pub const App = struct {
             else => {},
         }
     }
+    // zig fmt: on
 
     fn automationParamPick(self: *App) void {
         const params = automation_ed.instrumentAutomatableParams(self);
@@ -1430,6 +1450,7 @@ pub const App = struct {
         automation_ed.selectParam(self, params[self.automation_param_cursor].id);
     }
 
+    // zig fmt: off
     /// Param picker: click a param row to select + apply it (same as enter/
     /// space); header rows aren't clickable. Scroll moves the highlight.
     /// Row math mirrors `views/automation.zig`'s `drawAutomationParamPicker`
@@ -1458,6 +1479,7 @@ pub const App = struct {
             else => {},
         }
     }
+    // zig fmt: on
 
     // -----------------------------------------------------------------------
     // File browser (netrw/dired-style; `:e`, `:load-sample` with
@@ -1530,6 +1552,7 @@ pub const App = struct {
         return std.ascii.lessThanIgnoreCase(a.name, b.name);
     }
 
+    // zig fmt: off
     /// j/k move, enter/l/space descend into a dir or pick a file, h/backspace
     /// go to the parent dir, g/G jump to the list ends, `~` jumps home,
     /// esc/q cancel back to the view that opened the browser.
@@ -1576,6 +1599,7 @@ pub const App = struct {
             else => {},
         }
     }
+    // zig fmt: on
 
     /// `b`: toggle the entry under the browser cursor in/out of `bookmarks`,
     /// keyed by absolute path so the same file/dir reached two different ways
@@ -1604,6 +1628,7 @@ pub const App = struct {
         bookmark_store.save(self.allocator, self.io, self.bookmarks.items) catch {};
     }
 
+    // zig fmt: off
     /// Key handling while `browser_bookmark_mode` is showing the bookmark
     /// list instead of the current directory.
     fn handleBookmarkListKey(self: *App, key: modal_mod.Key) void {
@@ -1652,6 +1677,7 @@ pub const App = struct {
         }
         self.browser_bookmark_mode = false;
     }
+    // zig fmt: on
 
     /// Parent of `browser_dir` (root's parent is itself — nothing to go up to).
     fn browserGoUp(self: *App) void {
@@ -1695,6 +1721,7 @@ pub const App = struct {
         self.view = self.prev_view;
     }
 
+    // zig fmt: off
     /// Track that mute/solo/note-preview act on outside the tracks view —
     /// the track whose editor is actually open, not the (possibly stale)
     /// tracks-view cursor. Keep this in sync with every per-track editor;
@@ -1713,6 +1740,7 @@ pub const App = struct {
             else            => @intCast(self.cursor),
         };
     }
+    // zig fmt: on
 
     pub fn applyAction(self: *App, action: modal_mod.Action, now_ns: i96) void {
         switch (action) {
@@ -1884,6 +1912,7 @@ pub const App = struct {
         self.search_pattern_len = len;
     }
 
+    // zig fmt: off
     /// `/` search + `n`/`N` repeat over track names, wrapping around the
     /// list like vim's own search. `dir` is +1 for `n`/a fresh `/`, -1 for
     /// `N` (repeat in reverse). The master row has no name and is skipped —
@@ -1980,6 +2009,7 @@ pub const App = struct {
         }
         self.setStatus("no match for '{s}'", .{pattern});
     }
+    // zig fmt: on
 
     /// Record a submitted `:` command for later up/down recall. Skips blanks
     /// and immediate repeats (shell-history convention); drops the oldest
@@ -2381,6 +2411,7 @@ pub const App = struct {
         return total;
     }
 
+    // zig fmt: off
     /// Shift every editor-target/pending-state track index that sits at or
     /// past `idx` up by one, mirroring a track showing up at `idx` (insert,
     /// or undo restoring a deleted track back to its old slot). Nothing is
@@ -2454,6 +2485,7 @@ pub const App = struct {
             .sampler => |*t| if (idx < t.* and t.* > 0) { t.* -= 1; },
         }
     }
+    // zig fmt: on
 
     pub fn doTrackAdd(self: *App, name_arg: ?[]const u8) void {
         const at = self.trackAddInsertIndex();
@@ -2534,6 +2566,7 @@ pub const App = struct {
             }
         }.f;
 
+        // zig fmt: off
         switch (self.view) {
             .synth_editor => if (!kindIs(racks, self.synth_track, .poly_synth)) { self.view = .tracks; },
             .drum_grid => if (!kindIs(racks, self.drum_track, .drum_machine)) { self.view = .tracks; },
@@ -2583,6 +2616,7 @@ pub const App = struct {
             else => {},
         }
     }
+    // zig fmt: on
 
     /// Deep-copy the track under the cursor into a new track appended at the
     /// end (see Session.duplicateTrack) and jump the cursor to it. Appending
@@ -2617,6 +2651,7 @@ pub const App = struct {
 
         self.session.swapTracks(cur, other);
 
+        // zig fmt: off
         const swap = struct {
             fn f(idx: *u16, a: usize, b: usize) void {
                 if (idx.* == a) idx.* = @intCast(b) else if (idx.* == b) idx.* = @intCast(a);
@@ -2646,6 +2681,7 @@ pub const App = struct {
         const remap: undo_mod.TrackRemap = .{ .swap = .{ .a = @intCast(cur), .b = @intCast(other) } };
         history.retargetPending(self, remap);
         _ = self.history.retarget(self.allocator, remap);
+        // zig fmt: on
 
         self.cursor = other;
         self.dirty = true;
@@ -2671,6 +2707,7 @@ pub const App = struct {
         }
     }
 
+    // zig fmt: off
     fn doTrackPan(self: *App, track: u16, delta: f32) void {
         if (track >= self.session.project.tracks.items.len) return;
         const t = &self.session.project.tracks.items[track];
@@ -2682,6 +2719,7 @@ pub const App = struct {
         else if (t.pan < 0) self.setStatus("track {d} pan: L{d}%", .{ track + 1, pct })
         else self.setStatus("track {d} pan: R{d}%", .{ track + 1, pct });
     }
+    // zig fmt: on
 
     fn doTrackGainStep(self: *App, track: u16, delta_db: f32) void {
         if (track >= self.session.project.tracks.items.len) return;
@@ -2820,6 +2858,7 @@ pub const App = struct {
         try tui.drawHeader(&header_w, header_title, &self.session.engine.transport, self.audio_label, self.master_gain_db, self.dirty);
         try style.writeChromeRow(w, header_w.buffered(), size.cols);
 
+        // zig fmt: off
         switch (self.view) {
             .tracks          => try tui.drawTracks(self, w, content_rows, size.cols, snap),
             .drum_grid       => try tui.drawDrumGrid(self, w, content_rows, size.cols, snap),
@@ -2838,6 +2877,7 @@ pub const App = struct {
             .slicer_grid     => try tui.drawSlicerGrid(self, w, content_rows, size.cols, snap),
             .preset_picker   => try tui.drawPresetPicker(self, w, content_rows),
         }
+        // zig fmt: on
 
         var transport: Transport = .{
             .sample_rate = self.session.project.sample_rate,
@@ -2924,6 +2964,7 @@ pub const App = struct {
             );
         }
 
+        // zig fmt: off
         // Status lines are assembled from several independent print calls
         // with no shared width budget, so a verbose message (e.g. the
         // visual-mode hint) can overflow past the terminal's right edge and
@@ -2962,6 +3003,7 @@ pub const App = struct {
         // previous frames never bleeds through.
         try w.writeAll("\x1b[K\x1b[J");
     }
+    // zig fmt: on
 
     /// Full-screen stand-in below min_cols x min_rows. ASCII only so the
     /// byte-length centering math holds.
@@ -3005,6 +3047,7 @@ fn renderTrampoline(ctx: *anyopaque, out: []types.Sample) void {
 /// itself is unreadable (no \r\n translation, alternate screen still up).
 pub var active_terminal: ?*terminal_mod.Terminal = null;
 
+// zig fmt: off
 pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8) !void {
     var term = terminal_mod.Terminal.init(io) catch {
         std.debug.print(
@@ -3015,6 +3058,7 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8) !vo
     };
     active_terminal = &term;
     defer { term.deinit(); active_terminal = null; }
+    // zig fmt: on
 
     var app = try App.init(allocator, io);
     defer app.deinit();
@@ -3047,6 +3091,7 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8) !vo
 
     var config: backend_mod.Config = .{ .sample_rate = app.session.project.sample_rate };
 
+    // zig fmt: off
     const has_alsa = builtin.os.tag == .linux;
     const has_wasapi = builtin.os.tag == .windows;
     const NativeBackend = if (has_alsa) ws.alsa.AlsaBackend else if (has_wasapi) ws.wasapi.WasapiBackend else void;
@@ -3058,6 +3103,7 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8) !vo
         .render = renderTrampoline,
         .ctx = app.session.engine,
     };
+    // zig fmt: on
 
     var using_native = false;
     var using_midi = false;
@@ -3067,6 +3113,7 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8) !vo
             using_native = true;
         } else |_| {}
 
+        // zig fmt: off
         midi_in = .{ .engine = app.session.engine };
         if (midi_in.start()) {
             using_midi = true;
@@ -3081,6 +3128,7 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8) !vo
     defer if (using_native) native_backend.stop() else null_backend.stop();
     defer if (has_alsa) { if (using_midi) midi_in.stop(); };
     app.audio_label = if (using_native) (if (has_alsa) "alsa" else "wasapi") else "none (silent)";
+    // zig fmt: on
 
     // Sized to comfortably fit the heaviest single-view frame: the drum
     // grid at max pads (64) x max steps (64), where every cell carries its
@@ -3106,6 +3154,7 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8) !vo
         };
         app.tick(now);
 
+        // zig fmt: off
         // :e / :new asked for a session swap. Build the replacement first
         // (control-thread only, no backend involved) so a bad path or OOM
         // just reports an error and leaves the running session untouched;
@@ -3205,6 +3254,7 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8) !vo
                 }
             }
         } }
+        // zig fmt: on
 
         var w = std.Io.Writer.fixed(&frame_buf);
         // Bracket the frame in a DEC 2026 synchronized update, inside the

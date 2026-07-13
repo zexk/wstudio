@@ -38,7 +38,9 @@ pub const Limiter = struct {
             self.gain = 1.0 - release * (1.0 - self.gain);
             const level = @max(@abs(buf[i]), @abs(buf[i + 1])) * self.gain;
             if (level > self.ceiling) self.gain *= self.ceiling / level;
+            // zig fmt: off
             buf[i]     *= self.gain;
+            // zig fmt: on
             buf[i + 1] *= self.gain;
         }
     }

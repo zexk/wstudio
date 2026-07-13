@@ -74,7 +74,9 @@ pub fn drawFileBrowser(app: anytype, w: *std.Io.Writer, rows: usize) !void {
 /// selected row, `sel` would be invisible against itself, so matched bytes
 /// get `bold` instead and the row's `sel` is re-applied after each one.
 fn writeHighlighted(w: *std.Io.Writer, name: []const u8, pattern: []const u8, row_selected: bool) !void {
+    // zig fmt: off
     if (pattern.len == 0) { try w.writeAll(name); return; }
+    // zig fmt: on
     var match_buf: [128]bool = undefined;
     const checked = name[0..@min(name.len, match_buf.len)];
     fuzzy.matchPositions(pattern, checked, match_buf[0..checked.len]);

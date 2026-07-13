@@ -196,9 +196,11 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
     if (app.automation_op_pending) |op| {
         app.automation_op_pending = null;
         switch (key) {
+            // zig fmt: off
             .escape => { app.automation_visual_anchor = null; app.setStatus("cancelled", .{}); return true; },
             .char => |c| switch (c) {
                 '0'...'9' => { app.automation_op_pending = op; return false; },
+                // zig fmt: on
                 'd', 'y' => {
                     if (c == op) {
                         const saved = app.automation_cursor_step;
@@ -209,6 +211,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                     } else app.setStatus("cancelled", .{});
                     return true;
                 },
+                // zig fmt: off
                 'h' => { moveCursor(app, clip, -app.takeCount()); finishOperator(app, clip, op); return true; },
                 'l' => { moveCursor(app, clip, app.takeCount()); finishOperator(app, clip, op); return true; },
                 'H' => { moveCursor(app, clip, -4 * app.takeCount()); finishOperator(app, clip, op); return true; },
@@ -274,6 +277,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             '.' => { repeatLastEdit(app, clip); return true; },
             'u' => { history.doUndo(app); return true; },
             'U' => { history.doRedo(app); return true; },
+            // zig fmt: on
             else => return false,
         },
         else => return false,
@@ -287,6 +291,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
 /// keeps accumulating the count prefix.
 fn handleVisual(app: *App, key: modal_mod.Key, clip: *ws.Clip) bool {
     switch (key) {
+        // zig fmt: off
         .escape => { exitVisual(app); app.setStatus("selection cancelled", .{}); return true; },
         .char => |c| switch (c) {
             'h' => { moveCursor(app, clip, -app.takeCount()); return true; },
@@ -300,6 +305,7 @@ fn handleVisual(app: *App, key: modal_mod.Key, clip: *ws.Clip) bool {
             'y' => { yankSelection(app, clip); return true; },
             'd' => { deleteSelection(app, clip); return true; },
             'p', 'P' => { pasteSelection(app, clip); return true; },
+            // zig fmt: on
             '0'...'9' => return false,
             else => return true,
         },
@@ -538,7 +544,9 @@ fn nudgeValue(app: *App, clip: *ws.Clip, steps: i32) void {
     const cur = automation_mod.interpolate(points.*, beat) orelse 0.0;
     const new_val = std.math.clamp(
         cur + @as(f32, @floatFromInt(steps)) * curveStep(app, target),
+        // zig fmt: off
         range[0], range[1],
+        // zig fmt: on
     );
     // Captured before the mutation — the whole lane, same granularity the
     // arrangement's own clip edits (move/delete) undo at.
@@ -590,7 +598,9 @@ fn openParamPicker(app: *App) void {
     if (std.meta.activeTag(app.automation_focus) == .synth_param) {
         const cur_id = app.automation_focus.synth_param;
         for (params, 0..) |p, i| {
+            // zig fmt: off
             if (p.id == cur_id) { app.automation_param_cursor = @intCast(i); break; }
+            // zig fmt: on
         }
     }
     app.automation_param_scroll = 0;

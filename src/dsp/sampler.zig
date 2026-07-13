@@ -121,6 +121,7 @@ pub const Sampler = struct {
         const pad = &self.pad;
         switch (id) {
             0 => pad.start_norm = std.math.clamp(pad.start_norm + s * 0.01, 0.0, pad.end_norm - 0.01),
+            // zig fmt: off
             1 => pad.end_norm   = std.math.clamp(pad.end_norm   + s * 0.01, pad.start_norm + 0.01, 1.0),
             2 => pad.pitch_semitones = std.math.clamp(pad.pitch_semitones + s * 1.0, -24.0, 24.0),
             3 => pad.attack_s   = std.math.clamp(pad.attack_s   + s * 0.001, 0.0, 5.0),
@@ -135,6 +136,7 @@ pub const Sampler = struct {
                 self.root_note = @intCast(std.math.clamp(r, 0, 127));
             },
             11 => if (steps != 0) { self.mono = !self.mono; },
+            // zig fmt: on
             else => {},
         }
     }
@@ -147,6 +149,7 @@ pub const Sampler = struct {
         const pad = &self.pad;
         switch (id) {
             0 => pad.start_norm = std.math.clamp(value, 0.0, pad.end_norm - 0.01),
+            // zig fmt: off
             1 => pad.end_norm   = std.math.clamp(value, pad.start_norm + 0.01, 1.0),
             2 => pad.pitch_semitones = std.math.clamp(value, -24.0, 24.0),
             3 => pad.attack_s   = std.math.clamp(value, 0.0, 5.0),
@@ -159,6 +162,7 @@ pub const Sampler = struct {
             10 => {
                 if (!(value > 0.0)) { self.root_note = 0; return; } // also catches NaN
                 if (value >= 127.0) { self.root_note = 127; return; }
+                // zig fmt: on
                 self.root_note = @intFromFloat(@round(value));
             },
             11 => self.mono = value >= 0.5,
@@ -197,6 +201,7 @@ pub const Sampler = struct {
     /// (waveform, osc-B on/off, ...) — a breakpoint curve over an on/off
     /// flip or a coarse tuning offset isn't a meaningful automation target.
     pub const automatable_params = [_]dsp.AutomatableParam{
+        // zig fmt: off
         .{ .id = 0, .label = "START",   .section = "SAMPLE",  .range = .{ 0.0,   1.0 }, .step = 0.01 },
         .{ .id = 1, .label = "END",     .section = "SAMPLE",  .range = .{ 0.0,   1.0 }, .step = 0.01 },
         .{ .id = 2, .label = "PITCH",   .section = "SAMPLE",  .range = .{ -24.0, 24.0 }, .step = 1.0 },
@@ -206,6 +211,7 @@ pub const Sampler = struct {
         .{ .id = 6, .label = "RELEASE", .section = "AMP ENV", .range = .{ 0.001, 5.0 }, .step = 0.005 },
         .{ .id = 7, .label = "GAIN",    .section = "OUT",     .range = .{ 0.0,   2.0 }, .step = 0.01 },
         .{ .id = 8, .label = "PAN",     .section = "OUT",     .range = .{ -1.0,  1.0 }, .step = 0.05 },
+        // zig fmt: on
     };
 
     pub fn findAutomatableParam(id: u8) ?*const dsp.AutomatableParam {
@@ -276,8 +282,10 @@ pub const Sampler = struct {
         var slot: usize = 0;
         var oldest_age: u64 = std.math.maxInt(u64);
         for (&self.voices, 0..) |*nv, i| {
+            // zig fmt: off
             if (!nv.active) { slot = i; break; }
             if (nv.age < oldest_age) { oldest_age = nv.age; slot = i; }
+            // zig fmt: on
         }
         self.voices[slot] = .{
             .active = true,
@@ -327,6 +335,7 @@ pub const Sampler = struct {
     fn eventOpaque(ptr: *anyopaque, ev: dsp.Event) void {
         const self: *Sampler = @ptrCast(@alignCast(ptr));
         switch (ev) {
+            // zig fmt: off
             .note_on   => |e| self.trigger(e.note, e.velocity, 0),
             // e.id is u16 (wide enough for DrumMachine's pad-encoded ids);
             // truncate rather than @intCast, same reasoning as PolySynth's
@@ -335,6 +344,7 @@ pub const Sampler = struct {
             .set_param_abs => |e| self.setParamAbsolute(@truncate(e.id), e.value),
             .note_off, .cc, .pitch_bend, .set_sidechain_buf, .capture_pad => {},
             .all_off   => self.resetAll(),
+            // zig fmt: on
         }
     }
 
@@ -433,7 +443,9 @@ test "mono mode chokes a still-ringing voice on retrigger" {
     s.trigger(64, 1.0, 0);
     // The first voice was choked by the second trigger; only one is active.
     var active_count: usize = 0;
+    // zig fmt: off
     for (s.voices) |nv| { if (nv.active) active_count += 1; }
+    // zig fmt: on
     try std.testing.expectEqual(@as(usize, 1), active_count);
 }
 

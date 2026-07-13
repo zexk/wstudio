@@ -25,6 +25,7 @@ fn enumFromValue(comptime E: type, value: f32) E {
     return @enumFromInt(@as(u8, @intFromFloat(@round(value))));
 }
 
+// zig fmt: off
 pub const Waveform   = enum { sine, saw, triangle, square };
 pub const FilterType = enum { lp, hp, bp, notch };
 pub const LfoShape   = enum { sine, triangle, saw, square };
@@ -37,6 +38,7 @@ pub const ModMode    = enum { none, ring, am_a_to_b, am_b_to_a, fm_a_to_b, fm_b_
 /// a full unison_detune-cents step from its neighbor — a chord/stack-style
 /// unison instead of a micro-detune blur.
 pub const UnisonMode  = enum { spread, step };
+// zig fmt: on
 
 pub const PolySynth = struct {
     sample_rate: f32,
@@ -56,6 +58,7 @@ pub const PolySynth = struct {
     unison_mode: UnisonMode = .spread,
 
     // ── OSC B ────────────────────────────────────────────────────────────────
+    // zig fmt: off
     osc_b_on:           bool     = false,
     osc_b_waveform:     Waveform = .saw,
     osc_b_pulse_width:  f32      = 0.5,
@@ -73,6 +76,7 @@ pub const PolySynth = struct {
     attack_s:  f32 = 0.005,
     decay_s:   f32 = 0.08,
     sustain:   f32 = 0.7,
+    // zig fmt: on
     release_s: f32 = 0.25,
 
     // ── FILTER ──────────────────────────────────────────────────────────────
@@ -85,6 +89,7 @@ pub const PolySynth = struct {
     fenv_amount: f32 = 0.0,
 
     // ── FILTER ENVELOPE ─────────────────────────────────────────────────────
+    // zig fmt: off
     fenv_attack_s:  f32 = 0.005,
     fenv_decay_s:   f32 = 0.5,
     fenv_sustain:   f32 = 0.0,
@@ -92,6 +97,7 @@ pub const PolySynth = struct {
 
     // ── LFO ─────────────────────────────────────────────────────────────────
     lfo_shape:  LfoShape  = .sine,
+    // zig fmt: on
     /// Rate in Hz (0.01–20 Hz).
     lfo_rate_hz: f32 = 1.0,
     /// Depth 0..1. Modulation range depends on target (see processBlock).
@@ -105,6 +111,7 @@ pub const PolySynth = struct {
     /// Portamento time in seconds. 0 = off (snap).
     glide_s: f32 = 0.0,
     /// Note stack for mono/legato: last-in, first-out.
+    // zig fmt: off
     held_notes:      [16]u7  = [_]u7{0}  ** 16,
     held_velocities: [16]f32 = [_]f32{0} ** 16,
     held_count: u8 = 0,
@@ -112,6 +119,7 @@ pub const PolySynth = struct {
     // ── SUB ─────────────────────────────────────────────────────────────────
     /// Level 0 = off. Sine or square at -1 octave.
     sub_level: f32      = 0.0,
+    // zig fmt: on
     sub_shape: SubShape = .sine,
 
     // ── NOISE ────────────────────────────────────────────────────────────────
@@ -144,6 +152,7 @@ pub const PolySynth = struct {
     const Stage = enum { attack, decay, sustain, release };
 
     const FilterCoeffs = struct {
+        // zig fmt: off
         b0: f32 = 1.0, b1: f32 = 0.0, b2: f32 = 0.0,
         a1: f32 = 0.0, a2: f32 = 0.0,
     };
@@ -167,6 +176,7 @@ pub const PolySynth = struct {
         /// Right channel biquad state (same coefficients, independent history).
         x1_r: f32 = 0.0, x2_r: f32 = 0.0,
         y1_r: f32 = 0.0, y2_r: f32 = 0.0,
+        // zig fmt: on
         // Glide: current log2(freq) sliding toward log2(noteToFreq(note)).
         glide_log_freq: f32 = 0.0,
         /// log2(freq) change per sample. 0 when glide is off or complete.
@@ -188,8 +198,10 @@ pub const PolySynth = struct {
 
     const vtable: dsp.Device.VTable = .{
         .process = processOpaque,
+        // zig fmt: off
         .event   = eventOpaque,
         .reset   = resetOpaque,
+        // zig fmt: on
     };
 
     pub fn noteToFreq(note: u7) f32 {
@@ -277,8 +289,10 @@ pub const PolySynth = struct {
 
     pub fn noteOn(self: *PolySynth, note: u7, velocity: f32) void {
         switch (self.voice_mode) {
+            // zig fmt: off
             .poly   => self.noteOnPoly(note, velocity),
             .mono   => { self.pushHeld(note, velocity); self.noteOnMono(note, velocity, true); },
+            // zig fmt: on
             .legato => {
                 const was_active = self.voices[0].active;
                 self.pushHeld(note, velocity);
@@ -292,7 +306,9 @@ pub const PolySynth = struct {
             .poly => {
                 for (&self.voices) |*v| {
                     if (v.active and v.note == note and v.stage != .release) {
+                        // zig fmt: off
                         v.stage  = .release;
+                        // zig fmt: on
                         v.stage2 = .release;
                     }
                 }
@@ -304,6 +320,7 @@ pub const PolySynth = struct {
                     self.noteOnMono(self.held_notes[i], self.held_velocities[i], true);
                 } else {
                     const v = &self.voices[0];
+                    // zig fmt: off
                     if (v.active and v.note == note) { v.stage = .release; v.stage2 = .release; }
                 }
             },
@@ -358,6 +375,7 @@ pub const PolySynth = struct {
                 .glide_rate       = if (was_active and self.glide_s > 0.0)
                     (target_log - start_log) / @max(self.glide_s * self.sample_rate, 1.0)
                 else 0.0,
+                // zig fmt: on
                 .noise_rand_state = (@as(u32, note) *% 0x9E3779B9) | 1,
             };
         } else {
@@ -368,7 +386,9 @@ pub const PolySynth = struct {
                     @max(self.glide_s * self.sample_rate, 1.0);
             } else {
                 v.glide_log_freq = target_log;
+                // zig fmt: off
                 v.glide_rate     = 0.0;
+                // zig fmt: on
             }
         }
     }
@@ -381,7 +401,9 @@ pub const PolySynth = struct {
             }
         }
         if (self.held_count < self.held_notes.len) {
+            // zig fmt: off
             self.held_notes[self.held_count]      = note;
+            // zig fmt: on
             self.held_velocities[self.held_count] = velocity;
             self.held_count += 1;
         }
@@ -392,7 +414,9 @@ pub const PolySynth = struct {
             if (self.held_notes[i] == note) {
                 self.held_count -= 1;
                 for (i..self.held_count) |j| {
+                    // zig fmt: off
                     self.held_notes[j]      = self.held_notes[j + 1];
+                    // zig fmt: on
                     self.held_velocities[j] = self.held_velocities[j + 1];
                 }
                 return;
@@ -417,6 +441,7 @@ pub const PolySynth = struct {
         const lfo_val = lfoSample(self.lfo_shape, self.lfo_phase);
 
         // Precompute per-block envelope increments.
+        // zig fmt: off
         const attack_inc  = 1.0 / @max(self.attack_s  * self.sample_rate, 1.0);
         const decay_inc   = (1.0 - self.sustain)       / @max(self.decay_s   * self.sample_rate, 1.0);
         const release_inc = 1.0                        / @max(self.release_s  * self.sample_rate, 1.0);
@@ -475,6 +500,7 @@ pub const PolySynth = struct {
             const n_b: usize = if (self.osc_b_on)
                 @min(@min(@as(usize, @max(self.osc_b_unison, 1)), max_unison), per_osc_cap)
             else 0;
+            // zig fmt: on
 
             // Precompute per-unison phase increments for OSC A.
             var phase_incs_a: [max_unison]f32 = undefined;
@@ -486,8 +512,10 @@ pub const PolySynth = struct {
             // Precompute per-unison phase increments for OSC B.
             var phase_incs_b: [max_unison]f32 = undefined;
             if (self.osc_b_on) {
+                // zig fmt: off
                 const b_freq = base_freq * std.math.pow(f32, 2.0,
                     self.osc_b_semi / 12.0 + self.osc_b_detune_cents / 1200.0);
+                    // zig fmt: on
                 for (0..n_b) |ui| {
                     const spread: f32 = if (n_b > 1) unisonSpreadCents(self.osc_b_unison_mode, ui, n_b, self.osc_b_unison_detune) else 0.0;
                     phase_incs_b[ui] = b_freq * std.math.pow(f32, 2.0, spread / 1200.0) / self.sample_rate;
@@ -503,6 +531,7 @@ pub const PolySynth = struct {
             // Power-preserving normalisation across all sources.
             const scale_a = 1.0 / @sqrt(@as(f32, @floatFromInt(n_a)));
             const scale_b = if (n_b > 0) 1.0 / @sqrt(@as(f32, @floatFromInt(n_b))) else 0.0;
+            // zig fmt: off
             const b_pow   = self.osc_b_level * self.osc_b_level * @as(f32, if (self.osc_b_on) 1.0 else 0.0);
             const mix_norm = 1.0 / @sqrt(1.0 + b_pow
                 + self.sub_level * self.sub_level
@@ -534,6 +563,7 @@ pub const PolySynth = struct {
                         ((@as(f32, @floatFromInt(ui)) / @as(f32, @floatFromInt(n_b - 1))) * 2.0 - 1.0)
                         * self.unison_spread
                     else 0.0;
+                    // zig fmt: on
                     const angle = (raw + 1.0) * std.math.pi * 0.25;
                     pan_l_b[ui] = pan_scale * @cos(angle);
                     pan_r_b[ui] = pan_scale * @sin(angle);
@@ -607,6 +637,7 @@ pub const PolySynth = struct {
                 if (self.osc_b_on) switch (self.mod_mode) {
                     .am_a_to_b => {
                         const g = std.math.clamp((1.0 + self.mod_amount * a_mono) / (1.0 + self.mod_amount), 0.0, 1.0);
+                        // zig fmt: off
                         b_l *= g; b_r *= g;
                     },
                     .am_b_to_a => {
@@ -621,6 +652,7 @@ pub const PolySynth = struct {
                 if (self.sub_level > 0.0) {
                     sub_out = (switch (self.sub_shape) {
                         .sine   => @sin(2.0 * std.math.pi * v.sub_phase),
+                        // zig fmt: on
                         .square => if (v.sub_phase < 0.5) @as(f32, 1.0) else @as(f32, -1.0),
                     }) * self.sub_level;
                     v.sub_phase += sub_phase_inc;
@@ -653,6 +685,7 @@ pub const PolySynth = struct {
                     (a_r * scale_a + b_r * scale_b * self.osc_b_level + sub_out + nse_out) * mix_norm;
 
                 // Stereo filter: same coefficients, independent L/R biquad histories.
+                // zig fmt: off
                 const filt_l = fc.b0*osc_l + fc.b1*v.x1   + fc.b2*v.x2   - fc.a1*v.y1   - fc.a2*v.y2;
                 v.x2 = v.x1; v.x1 = osc_l; v.y2 = v.y1; v.y1 = filt_l;
 
@@ -689,6 +722,7 @@ pub const PolySynth = struct {
                     .decay => {
                         v.env2 -= fenv_decay_inc;
                         if (v.env2 <= self.fenv_sustain) { v.env2 = self.fenv_sustain; v.stage2 = .sustain; }
+                        // zig fmt: on
                     },
                     .sustain => {},
                     .release => {
@@ -770,10 +804,12 @@ pub const PolySynth = struct {
 
     fn lfoSample(shape: LfoShape, phase: f32) f32 {
         return switch (shape) {
+            // zig fmt: off
             .sine     => @sin(2.0 * std.math.pi * phase),
             .triangle => 1.0 - 4.0 * @abs(phase - 0.5),
             .saw      => 2.0 * phase - 1.0,
             .square   => if (phase < 0.5) 1.0 else -1.0,
+            // zig fmt: on
         };
     }
 
@@ -787,10 +823,12 @@ pub const PolySynth = struct {
 
     fn oscWave(wf: Waveform, phase: f32, pw: f32) Sample {
         return switch (wf) {
+            // zig fmt: off
             .sine     => @sin(2.0 * std.math.pi * phase),
             .saw      => 2.0 * phase - 1.0,
             .triangle => 1.0 - 4.0 * @abs(phase - 0.5),
             .square   => if (phase < pw) 1.0 else -1.0,
+            // zig fmt: on
         };
     }
 
@@ -803,6 +841,7 @@ pub const PolySynth = struct {
     pub fn applyCC(self: *PolySynth, cc: u7, value: u7) void {
         const v01 = @as(f32, @floatFromInt(value)) / 127.0;
         switch (@as(midi.CC, @enumFromInt(cc))) {
+            // zig fmt: off
             .mod_wheel         => self.lfo_depth = v01,
             .glide_time        => self.glide_s   = v01 * 4.0,
             .gain              => self.gain       = v01,
@@ -837,6 +876,7 @@ pub const PolySynth = struct {
             .all_notes_off     => { for (0..128) |n| self.noteOff(@intCast(n)); },
             .reset_all_ctrls   => {},
             _                  => {},
+            // zig fmt: on
         }
     }
 
@@ -847,6 +887,7 @@ pub const PolySynth = struct {
     pub fn adjustParam(self: *PolySynth, id: u8, steps: i32) void {
         const s: f32 = @floatFromInt(steps);
         switch (id) {
+            // zig fmt: off
             0  => self.waveform = if (steps > 0) switch (self.waveform) {
                 .sine => .saw, .saw => .triangle, .triangle => .square, .square => .sine,
             } else switch (self.waveform) {
@@ -937,6 +978,7 @@ pub const PolySynth = struct {
             },
             40 => self.osc_b_unison_mode = switch (self.osc_b_unison_mode) {
                 .spread => .step, .step => .spread,
+                // zig fmt: on
             },
             else => {},
         }
@@ -954,6 +996,7 @@ pub const PolySynth = struct {
     /// `automatable_params`), only undo restores them this way.
     pub fn setParamAbsolute(self: *PolySynth, id: u8, value: f32) void {
         switch (id) {
+            // zig fmt: off
             0  => self.waveform            = enumFromValue(Waveform, value),
             6  => self.osc_b_on            = value >= 0.5,
             7  => self.osc_b_waveform      = enumFromValue(Waveform, value),
@@ -995,6 +1038,7 @@ pub const PolySynth = struct {
             36 => self.noise_level         = std.math.clamp(value,   0.0,    1.0),
             37 => self.noise_color         = std.math.clamp(value,   0.0,    1.0),
             38 => self.gain                = std.math.clamp(value,   0.01,   1.0),
+            // zig fmt: on
             else => {},
         }
     }
@@ -1006,6 +1050,7 @@ pub const PolySynth = struct {
     /// row rendering already uses. Null for unknown ids.
     pub fn paramValue(self: *const PolySynth, id: u8) ?f32 {
         return switch (id) {
+            // zig fmt: off
             0  => enumToValue(self.waveform),
             1  => self.pulse_width,
             2  => self.detune_cents,
@@ -1016,6 +1061,7 @@ pub const PolySynth = struct {
             7  => enumToValue(self.osc_b_waveform),
             8  => self.osc_b_pulse_width,
             9  => self.osc_b_semi,
+            // zig fmt: on
             10 => self.osc_b_detune_cents,
             11 => self.osc_b_level,
             12 => @floatFromInt(self.osc_b_unison),
@@ -1060,6 +1106,7 @@ pub const PolySynth = struct {
     pub const AutomatableParam = dsp.AutomatableParam;
 
     pub const automatable_params = [_]AutomatableParam{
+        // zig fmt: off
         .{ .id = 1,  .label = "PW A",       .section = "OSC A",   .range = .{ 0.01,   0.99 },    .step = 0.01 },
         .{ .id = 2,  .label = "DETUNE A",   .section = "OSC A",   .range = .{ -100.0, 100.0 },   .step = 1.0 },
         .{ .id = 3,  .label = "UNISON A",   .section = "OSC A",   .range = .{ 1.0,    16.0 },    .step = 1.0 },
@@ -1090,6 +1137,7 @@ pub const PolySynth = struct {
         .{ .id = 36, .label = "NOISE LVL",  .section = "NOISE",   .range = .{ 0.0,    1.0 },     .step = 0.01 },
         .{ .id = 37, .label = "NOISE CLR",  .section = "NOISE",   .range = .{ 0.0,    1.0 },     .step = 0.01 },
         .{ .id = 38, .label = "OUT GAIN",   .section = "OUT",     .range = .{ 0.01,   1.0 },     .step = 0.01 },
+        // zig fmt: on
     };
 
     pub fn findAutomatableParam(id: u8) ?*const AutomatableParam {
@@ -1119,6 +1167,7 @@ pub const PolySynth = struct {
     fn eventOpaque(ptr: *anyopaque, ev: dsp.Event) void {
         const self: *PolySynth = @ptrCast(@alignCast(ptr));
         switch (ev) {
+            // zig fmt: off
             .note_on    => |e| self.noteOn(e.note, e.velocity),
             .note_off   => |e| self.noteOff(e.note),
             .all_off    => self.resetAll(),
@@ -1131,6 +1180,7 @@ pub const PolySynth = struct {
             // no-ops here instead of panicking, matching adjustParam's own
             // unknown-id default arm.
             .set_param  => |e| self.adjustParam(@truncate(e.id), e.steps),
+            // zig fmt: on
             .set_param_abs => |e| self.setParamAbsolute(@truncate(e.id), e.value),
             .set_sidechain_buf, .capture_pad => {},
         }
@@ -1200,6 +1250,7 @@ test "filter: closed LP cutoff attenuates high-frequency content" {
     var buf_open: [512]Sample = undefined;
     var buf_closed: [512]Sample = undefined;
     for (0..20) |_| {
+        // zig fmt: off
         @memset(&buf_open, 0.0);   open.processBlock(&buf_open);
         @memset(&buf_closed, 0.0); closed.processBlock(&buf_closed);
     }
@@ -1208,6 +1259,7 @@ test "filter: closed LP cutoff attenuates high-frequency content" {
     var rms_closed: f32 = 0.0;
     for (buf_open, buf_closed) |o, c| {
         rms_open   += o * o;
+        // zig fmt: on
         rms_closed += c * c;
     }
     try std.testing.expect(rms_closed < rms_open * 0.1);
@@ -1227,6 +1279,7 @@ test "filter envelope modulates cutoff: positive amount brightens" {
     mod_synth.filter_cutoff = 500.0;
     mod_synth.fenv_amount = 3.0; // +3 octaves when env2 = 1 → 500 Hz * 8 = 4 kHz
     mod_synth.fenv_attack_s = 0.001; // very fast attack
+    // zig fmt: off
     mod_synth.fenv_sustain = 1.0;    // hold open
     mod_synth.noteOn(60, 1.0);
 
@@ -1240,6 +1293,7 @@ test "filter envelope modulates cutoff: positive amount brightens" {
     var rms_base: f32 = 0.0;
     var rms_mod:  f32 = 0.0;
     for (buf_base, buf_mod) |b, m| { rms_base += b * b; rms_mod += m * m; }
+    // zig fmt: on
     try std.testing.expect(rms_mod > rms_base);
 }
 
@@ -1293,6 +1347,7 @@ test "pulse width: narrow pulse is quieter than 50% duty cycle" {
     var buf_wide: [512]Sample = undefined;
     var buf_narrow: [512]Sample = undefined;
     for (0..10) |_| {
+        // zig fmt: off
         @memset(&buf_wide, 0.0);   wide.processBlock(&buf_wide);
         @memset(&buf_narrow, 0.0); narrow.processBlock(&buf_narrow);
     }
@@ -1320,6 +1375,7 @@ test "unison mode: step and spread produce different detune patterns" {
     for (0..10) |_| {
         @memset(&buf_spread, 0.0); spread.processBlock(&buf_spread);
         @memset(&buf_step, 0.0);   step.processBlock(&buf_step);
+        // zig fmt: on
     }
     var diff: f32 = 0.0;
     for (buf_spread, buf_step) |a, b| diff += @abs(a - b);
@@ -1341,11 +1397,13 @@ test "LFO tremolo: square wave at 0 Hz halves amplitude at depth=1 (trough)" {
     // LFO square at phase=0.75 → value = -1 (trough). Trough + depth=1 → amp_mod=0.
     // To get trough reliably: start phase at 0.5 (square goes low) so first block sees val=-1.
     var with_lfo = PolySynth.init(48_000);
+    // zig fmt: off
     with_lfo.lfo_shape  = .square;
     with_lfo.lfo_rate_hz = 0.0; // frozen
     with_lfo.lfo_depth  = 1.0;
     with_lfo.lfo_target = .amp;
     with_lfo.lfo_phase  = 0.75; // square trough → lfo_val = -1 → amp_mod = 0
+    // zig fmt: on
     with_lfo.noteOn(60, 1.0);
 
     var without_lfo = PolySynth.init(48_000);
@@ -1356,8 +1414,10 @@ test "LFO tremolo: square wave at 0 Hz halves amplitude at depth=1 (trough)" {
     var buf_dry: [256]Sample = undefined;
     // Warm up past attack
     for (0..20) |_| {
+        // zig fmt: off
         @memset(&buf_lfo, 0.0); with_lfo.processBlock(&buf_lfo);
         @memset(&buf_dry, 0.0); without_lfo.processBlock(&buf_dry);
+        // zig fmt: on
     }
     var rms_lfo: f32 = 0.0;
     for (buf_lfo) |s| rms_lfo += s * s;
@@ -1368,6 +1428,7 @@ test "polyphony: up to max_voices voices" {
     var synth = PolySynth.init(48_000);
     for (0..PolySynth.max_voices) |i| synth.noteOn(@intCast(60 + i), 1.0);
     var active: usize = 0;
+    // zig fmt: off
     for (synth.voices) |v| if (v.active) { active += 1; };
     try std.testing.expectEqual(PolySynth.max_voices, active);
 }
@@ -1412,6 +1473,7 @@ test "glide: snaps immediately when glide_s=0" {
     const a4_log = std.math.log2(PolySynth.noteToFreq(69));
     var buf: [512]Sample = undefined;
     @memset(&buf, 0.0); synth.processBlock(&buf);
+    // zig fmt: on
     try std.testing.expectApproxEqAbs(a4_log, synth.voices[0].glide_log_freq, 1e-4);
 }
 
@@ -1422,7 +1484,9 @@ test "mono mode: only one voice active" {
     synth.noteOn(64, 1.0);
     synth.noteOn(67, 1.0);
     var active: usize = 0;
+    // zig fmt: off
     for (synth.voices) |v| if (v.active) { active += 1; };
+    // zig fmt: on
     try std.testing.expectEqual(@as(usize, 1), active);
     try std.testing.expectEqual(@as(u7, 67), synth.voices[0].note);
 }
@@ -1444,7 +1508,9 @@ test "legato mode: no envelope retrigger on second note" {
     synth.noteOn(60, 1.0);
     var buf: [512]Sample = undefined;
     // Warm up past attack so we're in sustain
+    // zig fmt: off
     for (0..100) |_| { @memset(&buf, 0.0); synth.processBlock(&buf); }
+    // zig fmt: on
     const env_before = synth.voices[0].env;
     // Second note in legato — should not retrigger (env stays in sustain, not reset to 0)
     synth.noteOn(64, 1.0);
@@ -1457,10 +1523,12 @@ test "LFO: all shapes stay finite under filter modulation" {
     const shapes = [_]LfoShape{ .sine, .triangle, .saw, .square };
     for (shapes) |shape| {
         var synth = PolySynth.init(48_000);
+        // zig fmt: off
         synth.lfo_shape   = shape;
         synth.lfo_rate_hz = 5.0;
         synth.lfo_depth   = 1.0;
         synth.lfo_target  = .filter;
+        // zig fmt: on
         synth.filter_cutoff = 2_000.0;
         synth.noteOn(60, 1.0);
         var buf: [512]Sample = undefined;

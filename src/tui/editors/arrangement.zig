@@ -50,6 +50,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
     if (app.arr_op_pending) |op| {
         app.arr_op_pending = null;
         switch (key) {
+            // zig fmt: off
             .escape => { app.arr_visual_anchor = null; app.setStatus("cancelled", .{}); return true; },
             .char => |c| switch (c) {
                 '0'...'9' => { app.arr_op_pending = op; return false; },
@@ -136,6 +137,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 return true;
             },
             'Z' => { toggleZoom(app); return true; },
+            // zig fmt: on
             else => return false,
         },
         else => return false,
@@ -177,6 +179,7 @@ fn wholeLaneRange(app: *App, lane: *ws.arrangement.Lane, act: *const fn (*App) v
 /// tier coarser than x's single-clip delete and h/l's bar range.
 fn clearLane(app: *App) void {
     const lane = app.session.arrangement.lane(app.cursor) orelse return;
+    // zig fmt: off
     if (lane.clips.items.len == 0) { app.setStatus("lane already empty", .{}); return; }
     wholeLaneRange(app, lane, deleteSelection);
 }
@@ -186,6 +189,7 @@ fn clearLane(app: *App) void {
 fn yankWholeLane(app: *App) void {
     const lane = app.session.arrangement.lane(app.cursor) orelse return;
     if (lane.clips.items.len == 0) { app.setStatus("lane is empty", .{}); return; }
+    // zig fmt: on
     wholeLaneRange(app, lane, yankSelection);
 }
 
@@ -196,6 +200,7 @@ fn yankWholeLane(app: *App) void {
 /// keeps accumulating the count prefix.
 fn handleVisual(app: *App, key: modal_mod.Key, lane_count: usize) bool {
     switch (key) {
+        // zig fmt: off
         .escape => { exitVisual(app); app.setStatus("selection cancelled", .{}); return true; },
         .char => |c| switch (c) {
             'h' => { moveBar(app, -app.takeCount()); return true; },
@@ -207,6 +212,7 @@ fn handleVisual(app: *App, key: modal_mod.Key, lane_count: usize) bool {
             'y' => { yankSelection(app); return true; },
             'd' => { deleteSelection(app); return true; },
             'p', 'P' => { pasteSelection(app); return true; },
+            // zig fmt: on
             '0'...'9' => return false,
             else => return true,
         },
@@ -301,9 +307,11 @@ fn pasteSelection(app: *App) void {
         exitVisual(app);
         return;
     };
+    // zig fmt: off
     if (app.cursor >= app.session.racks.items.len) { exitVisual(app); return; }
     const rack = app.session.racks.items[app.cursor];
     const lane = app.session.arrangement.lane(app.cursor) orelse { exitVisual(app); return; };
+    // zig fmt: on
     const kind_ok = struct {
         fn check(r: @TypeOf(rack), c: ws.Clip) bool {
             return switch (c.content) {
@@ -316,7 +324,9 @@ fn pasteSelection(app: *App) void {
     // the clipboard actually matches this lane's instrument — matching the
     // old single-clip paste's behavior of leaving undo history untouched
     // on a kind mismatch, rather than recording a no-op entry.
+    // zig fmt: off
     const any_kind_ok = for (clip.clips) |c| { if (kind_ok(rack, c)) break true; } else false;
+    // zig fmt: on
     if (!any_kind_ok) {
         app.setStatus("clip kind doesn't match this track", .{});
         exitVisual(app);
@@ -472,7 +482,9 @@ fn editClip(app: *App) void {
             const pre = history.captureMelodic(app, track);
             piano.switchTo(app, track);
             if (app.view != .piano_roll) {
+                // zig fmt: off
                 if (pre) |p| { var e = p; e.deinit(app.allocator); }
+                // zig fmt: on
                 return;
             }
             history.push(app, pre);
@@ -528,7 +540,9 @@ fn toggleLoop(app: *App) void {
     app.dirty = true;
     app.session.syncLoop();
 }
+// zig fmt: off
 
+// zig fmt: on
 
 /// Shift the clip under the cursor by `delta` bars (clamped at bar 0). Clips
 /// it lands on are evicted — the same overwrite rule as stamping and pasting.
@@ -618,8 +632,10 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16) v
     const cw = app.arrCellWidth();
 
     switch (ev.kind) {
+        // zig fmt: off
         .scroll_up => { if (ev.x < view.gutter) moveLane(app, lane_count, -1) else moveBar(app, -1); return; },
         .scroll_down => { if (ev.x < view.gutter) moveLane(app, lane_count, 1) else moveBar(app, 1); return; },
+        // zig fmt: on
         else => {},
     }
 

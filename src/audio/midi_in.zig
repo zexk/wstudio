@@ -109,6 +109,7 @@ pub const MidiIn = struct {
         const track = self.active_track.load(.monotonic);
         const eng = self.engine;
 
+        // zig fmt: off
         const etype = @as(c_uint, ev.@"type");
 
         if (etype == c.SND_SEQ_EVENT_NOTEON) {
@@ -129,6 +130,7 @@ pub const MidiIn = struct {
             _ = eng.send(.{ .note_off = .{ .track = track, .note = note } });
         } else if (etype == c.SND_SEQ_EVENT_CONTROLLER) {
             const cc: u7  = @intCast(ev.data.control.param & 0x7F);
+            // zig fmt: on
             const val: u7 = @intCast(ev.data.control.value & 0x7F);
             // Only mark dirty if the command actually landed — a full
             // queue drops the event, and a false dirty flag would make
@@ -150,6 +152,7 @@ test "an incoming MIDI CC marks dirty; a note does not" {
     var midi_in: MidiIn = .{ .engine = &engine };
 
     var note_ev: c.snd_seq_event_t = std.mem.zeroes(c.snd_seq_event_t);
+    // zig fmt: off
     note_ev.@"type" = c.SND_SEQ_EVENT_NOTEON;
     note_ev.data.note.note = 60;
     note_ev.data.note.velocity = 100;
@@ -158,6 +161,7 @@ test "an incoming MIDI CC marks dirty; a note does not" {
 
     var cc_ev: c.snd_seq_event_t = std.mem.zeroes(c.snd_seq_event_t);
     cc_ev.@"type" = c.SND_SEQ_EVENT_CONTROLLER;
+    // zig fmt: on
     cc_ev.data.control.param = 7; // CC7 -> PolySynth.gain (applyCC), a saved param
     cc_ev.data.control.value = 100;
     midi_in.dispatch(&cc_ev);
@@ -170,6 +174,7 @@ test "a note-on queues its pitch + velocity for recording; note-off does not" {
     var midi_in: MidiIn = .{ .engine = &engine };
 
     var on_ev: c.snd_seq_event_t = std.mem.zeroes(c.snd_seq_event_t);
+    // zig fmt: off
     on_ev.@"type" = c.SND_SEQ_EVENT_NOTEON;
     on_ev.data.note.note = 64;
     on_ev.data.note.velocity = 100;
@@ -185,6 +190,7 @@ test "a note-on queues its pitch + velocity for recording; note-off does not" {
 
     var zero_vel_on: c.snd_seq_event_t = std.mem.zeroes(c.snd_seq_event_t);
     zero_vel_on.@"type" = c.SND_SEQ_EVENT_NOTEON;
+    // zig fmt: on
     zero_vel_on.data.note.note = 64;
     zero_vel_on.data.note.velocity = 0;
     midi_in.dispatch(&zero_vel_on);

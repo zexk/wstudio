@@ -271,7 +271,7 @@ test ":humanize jitters the cursor track's pattern and is undoable" {
     const before = pp.notes[0];
 
     app.cursor = 0;
-    for (":humanize 80") |c| app.handleKey(.{ .char = c }, 100) ;
+    for (":humanize 80") |c| app.handleKey(.{ .char = c }, 100);
     app.handleKey(.enter, 100);
 
     try std.testing.expectEqual(@as(u16, 1), pp.note_count);
@@ -1081,7 +1081,9 @@ test "automation editor: tab only cycles gain/pan until the picker adds a synth 
     try std.testing.expectEqual(AppView.automation_param_picker, app.view);
     var cutoff_idx: u8 = 0;
     for (ws.dsp.synth.PolySynth.automatable_params, 0..) |p, i| {
+        // zig fmt: off
         if (p.id == 21) { cutoff_idx = @intCast(i); break; }
+        // zig fmt: on
     }
     app.automation_param_cursor = cutoff_idx;
     app.handleKey(.enter, 0);
@@ -1111,7 +1113,9 @@ test "automation editor: tab only cycles gain/pan until the picker adds a synth 
     try std.testing.expectEqual(AppView.automation_param_picker, app.view);
     var gain_idx: u8 = 0;
     for (ws.dsp.Sampler.automatable_params, 0..) |p, i| {
+        // zig fmt: off
         if (p.id == 7) { gain_idx = @intCast(i); break; }
+        // zig fmt: on
     }
     app.automation_param_cursor = gain_idx;
     app.handleKey(.enter, 0);
@@ -1894,7 +1898,9 @@ test "spectrum fills FFT buffer and draws with real data" {
 
     // The analyzer belongs to an EQ unit's editor — insert one and focus it.
     _ = try app.session.racks.items[0].fx.insert(
+        // zig fmt: off
         app.session.allocator, 0, .eq, app.session.project.sample_rate,
+        // zig fmt: on
     );
     app.handleKey(.{ .char = 's' }, 0);
     _ = app.session.engine.send(.{ .note_on = .{ .track = 0, .note = 60, .velocity = 1.0 } });
@@ -1998,7 +2004,9 @@ test "track delete remaps a still-open FX nudge batch, including the entry it fl
 
     // Open an FX param-nudge batch on track 2's chain.
     _ = try app.session.racks.items[2].fx.insert(
+        // zig fmt: off
         app.session.allocator, 0, .comp, app.session.project.sample_rate,
+        // zig fmt: on
     );
     app.eq_track = 2;
     history.noteFxNudge(&app, .track, 0, 0);

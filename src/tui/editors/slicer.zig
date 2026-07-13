@@ -19,8 +19,10 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
     const sl = app.slicerInst();
 
     switch (key) {
+        // zig fmt: off
         .escape => { app.view = .tracks; return true; },
         .enter => { sl.toggleStep(slice.*, step.*); return true; },
+        // zig fmt: on
         .char => |c| switch (c) {
             'h' => moveStep(app, -app.takeCount()),
             'l' => moveStep(app, app.takeCount()),
@@ -34,6 +36,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             'J' => moveSlice(app, 8 * app.takeCount()),
             'K' => moveSlice(app, -8 * app.takeCount()),
             'g' => step.* = 0,
+            // zig fmt: off
             'G' => { if (sl.step_count > 0) step.* = sl.step_count - 1; },
             'x' => sl.toggleStep(slice.*, step.*),
             'a' => {
@@ -58,6 +61,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             '_' => nudgeSlice(sl, slice.*, 7, -app.takeCount()), // gain -
             '=' => nudgeSlice(sl, slice.*, 7, app.takeCount()),  // gain +
             'r' => nudgeSlice(sl, slice.*, 9, 1),                // reverse toggle
+            // zig fmt: on
             else => return false,
         },
         else => return false,
@@ -96,7 +100,9 @@ fn moveStep(app: *App, delta: i32) void {
 fn moveSlice(app: *App, delta: i32) void {
     const sl = app.slicerInst();
     const top = @as(i32, sl.slice_count) - 1;
+    // zig fmt: off
     if (top < 0) { app.slicer_cursor[0] = 0; return; }
+    // zig fmt: on
     app.slicer_cursor[0] = @intCast(std.math.clamp(@as(i32, app.slicer_cursor[0]) + delta, 0, top));
 }
 

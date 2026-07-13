@@ -101,6 +101,7 @@ pub const Action = union(enum) {
 pub fn noteForChar(c: u8, octave: u4) ?u7 {
     const semi: u8 = switch (c) {
         // a-row — white notes
+        // zig fmt: off
         'a' => 0,   // C
         's' => 2,   // D
         'd' => 4,   // E
@@ -120,6 +121,7 @@ pub fn noteForChar(c: u8, octave: u4) ?u7 {
         'i' => 13,  // C#'
         'o' => 15,  // D#'
         'p' => 18,  // F#'
+        // zig fmt: on
         else => return null,
     };
     const midi = (@as(u8, octave) + 1) * 12 + semi;

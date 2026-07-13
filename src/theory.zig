@@ -5,6 +5,7 @@
 const std = @import("std");
 
 pub const ScaleType = enum {
+    // zig fmt: off
     major, minor, dorian, phrygian, lydian, mixolydian, locrian,
     major_pentatonic, minor_pentatonic, chromatic,
 
@@ -21,6 +22,7 @@ pub const ScaleType = enum {
             .major_pentatonic  => &[_]u8{ 0, 2, 4, 7, 9 },
             .minor_pentatonic  => &[_]u8{ 0, 3, 5, 7, 10 },
             .chromatic         => &[_]u8{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 },
+            // zig fmt: on
         };
     }
 
@@ -67,7 +69,9 @@ pub fn pitchClassName(pc: u4) []const u8 {
 pub fn parsePitchClass(s: []const u8) ?u4 {
     if (s.len == 0 or s.len > 2) return null;
     const base: i32 = switch (std.ascii.toUpper(s[0])) {
+        // zig fmt: off
         'C' => 0, 'D' => 2, 'E' => 4, 'F' => 5, 'G' => 7, 'A' => 9, 'B' => 11,
+        // zig fmt: on
         else => return null,
     };
     var acc: i32 = 0;
@@ -116,7 +120,9 @@ pub const Scale = struct {
         const pc: i32 = @mod(@as(i32, pitch) - @as(i32, self.root), 12);
         var idx: ?usize = null;
         for (iv, 0..) |v, i| {
+            // zig fmt: off
             if (@as(i32, v) == pc) { idx = i; break; }
+            // zig fmt: on
         }
         const root_idx = idx orelse return fixedChord(pitch, false, seventh);
         const base: i32 = @as(i32, pitch) - pc;

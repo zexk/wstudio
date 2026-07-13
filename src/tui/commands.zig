@@ -48,6 +48,7 @@ fn expandHome(buf: []u8, path: []const u8) []const u8 {
     return std.fmt.bufPrint(buf, "{s}{s}", .{ std.mem.sliceTo(home, 0), path[1..] }) catch path;
 }
 
+// zig fmt: off
 pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "q",           .desc = "quit (alias for :quit)",              .run = wrap(cmdQuit) },
     .{ .name = "q!",          .desc = "quit, discarding unsaved changes",    .run = wrap(cmdQuitForce) },
@@ -105,6 +106,7 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "drum-kit-save", .desc = "<name>  save the cursor drum machine's pad tuning (name/gain/pan/pitch/ADSR/choke, no audio) as a reusable kit", .run = wrap(cmdDrumKitSave), .scope = .drum },
     .{ .name = "undo",         .desc = "undo the last edit (alias for the u key)",   .run = wrap(cmdUndo) },
     .{ .name = "redo",         .desc = "redo the last undone edit (alias for the U key)", .run = wrap(cmdRedo) },
+    // zig fmt: on
 };
 
 /// Look up `text` in the command table and run it, reporting unknown commands
@@ -125,11 +127,13 @@ fn cmdQuit(app: *App, _: []const u8) void {
     app.deleteBackupIfPresent();
     app.should_quit = true;
 }
+// zig fmt: off
 
 fn cmdQuitForce(app: *App, _: []const u8) void { app.should_quit = true; }
 
 fn cmdEdit(app: *App, args: []const u8) void { editOrRevert(app, args, false); }
 fn cmdEditForce(app: *App, args: []const u8) void { editOrRevert(app, args, true); }
+// zig fmt: on
 
 /// `:e <file>` swaps in a different project (refusing on unsaved changes,
 /// like `:q`). `:e!` forces it; `:e!` alone (no path) reverts the current
@@ -177,9 +181,11 @@ fn cmdRestoreBackup(app: *App, _: []const u8) void {
     };
     app.requestRestoreBackup(backup);
 }
+// zig fmt: off
 
 fn cmdNew(app: *App, _: []const u8) void { newOrForce(app, false); }
 fn cmdNewForce(app: *App, _: []const u8) void { newOrForce(app, true); }
+// zig fmt: on
 
 /// `:new` starts a blank session (refusing on unsaved changes); `:new!` forces
 /// it. Same reload path as `:e` — see `App.requestReload`.
@@ -265,9 +271,11 @@ fn cmdSwing(app: *App, args: []const u8) void {
     pp.setSwing(pct);
     app.setStatus("swing: {d:.0}%", .{pp.swing.load(.monotonic)});
 }
+// zig fmt: off
 
 fn cmdUndo(app: *App, _: []const u8) void { history.doUndo(app); }
 fn cmdRedo(app: *App, _: []const u8) void { history.doRedo(app); }
+// zig fmt: on
 
 pub fn cmdHelp(app: *App, _: []const u8) void {
     const section: ?help_view.Section = switch (app.view) {
@@ -280,8 +288,10 @@ pub fn cmdHelp(app: *App, _: []const u8) void {
         .arrangement => .arrangement,
         .automation, .automation_param_picker => .automation,
         .track_spectrum, .master_spectrum, .group_spectrum, .fx_picker => .spectrum,
+        // zig fmt: off
         .file_browser => .file_browser,
         .preset_picker => switch (app.preset_picker_kind) { .synth => .synth_editor, .drum => .drum_grid },
+        // zig fmt: on
         .help, .instrument_picker => null,
     };
     app.prev_view = app.view;
@@ -665,6 +675,7 @@ fn cursorDrumMachine(app: *App) ?*DrumMachine {
 /// The standalone Sampler on the cursor's track, or null.
 fn cursorSampler(app: *App) ?*Sampler {
     if (app.cursor >= app.session.racks.items.len) return null;
+    // zig fmt: off
     return switch (app.session.racks.items[app.cursor].instrument) {
         .sampler => |*s| s, else => null,
     };
@@ -675,6 +686,7 @@ fn cursorSynth(app: *App) ?*ws.dsp.PolySynth {
     if (app.cursor >= app.session.racks.items.len) return null;
     return switch (app.session.racks.items[app.cursor].instrument) {
         .poly_synth => |*s| s, else => null,
+        // zig fmt: on
     };
 }
 
@@ -756,10 +768,12 @@ fn cmdSynthPreset(app: *App, args: []const u8) void {
         return;
     }
     const patch = user_presets.find(app.user_synth_presets.items, trimmed) orelse
+        // zig fmt: off
         ws.dsp.synth_presets.find(trimmed) orelse {
             app.setStatus("synth-preset: unknown '{s}' — :synth-preset lists names", .{trimmed});
             return;
         };
+        // zig fmt: on
     const s = cursorSynth(app) orelse {
         app.setStatus("synth-preset: select a synth track first", .{});
         return;
@@ -1472,6 +1486,7 @@ fn cmdPan(app: *App, args: []const u8) void {
     const track = &app.session.project.tracks.items[track_idx];
     const val_str = std.mem.trim(u8, it.rest(), " ");
     if (val_str.len == 0) {
+        // zig fmt: off
         const pct: i32 = @intFromFloat(@abs(track.pan) * 100.0);
         if (pct == 0) app.setStatus("track {d} pan: center", .{track_1})
         else if (track.pan < 0) app.setStatus("track {d} pan: L{d}%", .{ track_1, pct })
@@ -1489,6 +1504,7 @@ fn cmdPan(app: *App, args: []const u8) void {
     if (pct == 0) app.setStatus("track {d} pan: center", .{track_1})
     else if (track.pan < 0) app.setStatus("track {d} pan: L{d}%", .{ track_1, pct })
     else app.setStatus("track {d} pan: R{d}%", .{ track_1, pct });
+    // zig fmt: on
 }
 
 fn cmdSeek(app: *App, args: []const u8) void {

@@ -48,6 +48,7 @@ const Sample = types.Sample;
 /// at init; `gain` is the pad's default mixer level.
 const KitSlot = struct { data: []const u8, name: []const u8, gain: f32 };
 const default_kit = [_]KitSlot{
+    // zig fmt: off
     .{ .data = @embedFile("../assets/kit/kick.wav"),  .name = "kick",  .gain = 1.00 },
     .{ .data = @embedFile("../assets/kit/snare.wav"), .name = "snare", .gain = 0.85 },
     .{ .data = @embedFile("../assets/kit/hihat.wav"), .name = "hihat", .gain = 0.50 },
@@ -56,6 +57,7 @@ const default_kit = [_]KitSlot{
     .{ .data = @embedFile("../assets/kit/tom1.wav"),  .name = "tom-1", .gain = 0.80 },
     .{ .data = @embedFile("../assets/kit/tom2.wav"),  .name = "tom-2", .gain = 0.80 },
     .{ .data = @embedFile("../assets/kit/rim.wav"),   .name = "rim",   .gain = 0.65 },
+    // zig fmt: on
 };
 
 pub const DrumMachine = struct {
@@ -226,7 +228,9 @@ pub const DrumMachine = struct {
         };
         for (&self.pads) |*p| p.* = null; // lazily materialized — see the field's doc comment
         for (&self.pattern) |*p| p.* = .init(0);
+        // zig fmt: off
         for (&self.vel) |*row| for (row) |*p| { p.* = .init(vel_full); };
+        // zig fmt: on
 
         // Load the shipped kit: WAVs rendered from dsp/drum_kit.zig by the
         // `genkit` build tool and embedded in the binary. Per-pad default gains
@@ -453,7 +457,9 @@ pub const DrumMachine = struct {
         const cur = self.stepVel(pad, step);
         var idx: usize = vel_presets.len - 1; // not a preset value -> next lands on preset[0]
         for (vel_presets, 0..) |v, i| {
+            // zig fmt: off
             if (v == cur) { idx = i; break; }
+            // zig fmt: on
         }
         self.setStepVel(pad, step, vel_presets[(idx + 1) % vel_presets.len]);
     }
@@ -807,12 +813,14 @@ pub const DrumMachine = struct {
     fn eventOpaque(ptr: *anyopaque, ev: dsp.Event) void {
         const self: *DrumMachine = @ptrCast(@alignCast(ptr));
         switch (ev) {
+            // zig fmt: off
             .note_on  => |e| self.triggerPad(e.note % max_pads, e.velocity),
             .set_param => |e| self.adjustParam(e.id, e.steps),
             .set_param_abs => |e| self.setParamAbsolute(e.id, e.value),
             .capture_pad => |e| self.addPadCapture(e.pad, e.buf),
             .note_off, .cc, .pitch_bend, .set_sidechain_buf => {},
             .all_off  => self.resetAll(),
+            // zig fmt: on
         }
     }
 
@@ -921,7 +929,9 @@ test "song mode fires the clip covering the playhead" {
     var pat = [_]u64{0} ** DrumMachine.max_pads;
     pat[0] = 1; // local step 0
     const clips = [_]DrumMachine.SongClip{.{
+        // zig fmt: off
         .start_step = 16, .span_steps = 16, .step_count = 16, .pattern = pat,
+        // zig fmt: on
     }};
     dm.setSongClips(&clips, 32);
     dm.song_mode = true;

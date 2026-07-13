@@ -101,7 +101,9 @@ pub const Session = struct {
 
         var racks: std.ArrayListUnmanaged(*Rack) = .empty;
         errdefer {
+            // zig fmt: off
             for (racks.items) |r| { r.deinit(allocator); allocator.destroy(r); }
+            // zig fmt: on
             racks.deinit(allocator);
         }
 
@@ -298,8 +300,10 @@ pub const Session = struct {
         self.allocator.free(clips);
 
         try self.project.insertTrack(idx, .{
+            // zig fmt: off
             .name = name, .gain_db = meta.gain_db, .pan = meta.pan,
             .muted = meta.muted, .soloed = meta.soloed, .color = meta.color,
+            // zig fmt: on
             .group = meta.group,
         });
 
@@ -327,9 +331,11 @@ pub const Session = struct {
         const name = std.fmt.bufPrint(&name_buf, "{s} copy", .{src.name}) catch src.name;
 
         const new_rack = try self.racks.items[track_idx].dupe(
+            // zig fmt: off
             self.allocator, self.project.sample_rate, &self.engine.transport,
         );
         errdefer { new_rack.deinit(self.allocator); self.allocator.destroy(new_rack); }
+        // zig fmt: on
 
         const idx: u16 = @intCast(self.project.tracks.items.len);
 
@@ -344,9 +350,11 @@ pub const Session = struct {
         }
 
         _ = try self.project.addTrack(.{
+            // zig fmt: off
             .name = name, .kind = src.kind, .gain_db = src.gain_db,
             .pan = src.pan, .muted = src.muted, .soloed = src.soloed,
             .color = src.color, .group = src.group,
+            // zig fmt: on
         });
 
         self.engine.applyInsertTrack(idx, idx, types.dbToGain(src.gain_db), src.pan, src.muted);
@@ -404,7 +412,9 @@ pub const Session = struct {
                 }
                 const len_beats = @as(f64, @floatFromInt(dm.step_count)) / 4.0;
                 try lane.place(self.allocator, Clip.initDrum(
+                    // zig fmt: off
                     start_bar, barsFor(len_beats, bpb), drum,
+                    // zig fmt: on
                 ));
             },
             else => {
@@ -417,7 +427,9 @@ pub const Session = struct {
                 for (pp.notes[0..count], tmp[0..count]) |n, *t| t.* = n;
                 pp.notes_lock.unlock();
                 try lane.place(self.allocator, try Clip.initMelodic(
+                    // zig fmt: off
                     self.allocator, start_bar, barsFor(len_beats, bpb), tmp[0..count], len_beats,
+                    // zig fmt: on
                 ));
             },
         }
@@ -658,7 +670,9 @@ pub const Session = struct {
                     var n: usize = 0;
                     for (lane.clips.items) |c| {
                         if (n >= clips.len) break;
+                        // zig fmt: off
                         const drum = switch (c.content) { .drum => |d| d, .melodic => continue };
+                        // zig fmt: on
                         clips[n] = .{
                             .start_step = c.start_bar * steps_per_bar,
                             .span_steps = c.length_bars * steps_per_bar,
@@ -675,7 +689,9 @@ pub const Session = struct {
                     var notes: [pattern_mod.max_notes]Note = undefined;
                     var n: usize = 0;
                     for (lane.clips.items) |c| {
+                        // zig fmt: off
                         const mel = switch (c.content) { .melodic => |m| m, .drum => continue };
+                        // zig fmt: on
                         const clip_start_beat = @as(f64, @floatFromInt(c.start_bar)) * bpb;
                         // The captured pattern repeats to fill the clip's own
                         // bar span (length_bars, edge-resizable in the
@@ -754,7 +770,9 @@ pub const Session = struct {
             for (c.automation.synth_params.items) |sp| {
                 var slot: ?usize = null;
                 for (param_ids[0..param_n], 0..) |pid, idx| {
+                    // zig fmt: off
                     if (pid == sp.param_id) { slot = idx; break; }
+                    // zig fmt: on
                 }
                 if (slot == null) {
                     if (param_n >= param_ids.len) continue; // slot cap reached — drop, matches engine's own cap
@@ -793,9 +811,11 @@ pub const Session = struct {
         self.master_fx.deinit(self.allocator);
         for (&self.groups) |*slot| if (slot.*) |*g| g.deinit(self.allocator);
         self.arrangement.deinit(self.allocator);
+        // zig fmt: off
         for (self.racks.items) |r| { r.deinit(self.allocator); self.allocator.destroy(r); }
         self.racks.deinit(self.allocator);
         for (self.retired_racks.items) |r| { r.deinit(self.allocator); self.allocator.destroy(r); }
+        // zig fmt: on
         self.retired_racks.deinit(self.allocator);
         self.engine.deinit();
         self.allocator.destroy(self.engine);

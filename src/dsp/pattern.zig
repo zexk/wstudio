@@ -21,6 +21,7 @@ pub const max_notes: u16 = 512;
 /// qwerty piano) — recorded MIDI carries its own.
 pub const default_velocity: f32 = 0.85;
 
+// zig fmt: off
 pub const Note = struct {
     pitch:         u7,
     start_beat:    f64,
@@ -39,6 +40,7 @@ pub const PatternPlayer = struct {
 
     notes_lock: std.atomic.Mutex = .unlocked,
     notes:      [max_notes]Note = undefined,
+    // zig fmt: on
     note_count: u16 = 0,
     /// Loop length in beats (default 4 = 1 bar in 4/4).
     length_beats: f64 = 4.0,
@@ -51,6 +53,7 @@ pub const PatternPlayer = struct {
     // ── Song-mode playback ───────────────────────────────────────────────────
     /// When true, process() plays `song_notes` (the arrangement's clips
     /// flattened to absolute beats) instead of the live loop above. Set by the
+    // zig fmt: off
     /// control thread via Session.setSongMode; read on the audio thread.
     song_mode:        bool = false,
     /// The lane's clips flattened into one timeline: each note carries its
@@ -65,6 +68,7 @@ pub const PatternPlayer = struct {
     // ── Audio-thread-only state ──────────────────────────────────────────────
     /// Which MIDI pitches are currently sounding (audio thread only).
     sounding:        [128]bool = [_]bool{false} ** 128,
+    // zig fmt: on
     /// Expected transport position at the start of the next block.
     /// 0 = first block or after a reset.
     last_pos_frames: u64 = 0,
@@ -389,8 +393,10 @@ pub const PatternPlayer = struct {
     fn eventOpaque(ptr: *anyopaque, ev: dsp.Event) void {
         const self: *PatternPlayer = @ptrCast(@alignCast(ptr));
         switch (ev) {
+            // zig fmt: off
             .all_off => @memset(&self.sounding, false),
             else     => {},
+            // zig fmt: on
         }
     }
 
@@ -406,9 +412,11 @@ pub const PatternPlayer = struct {
     }
 
     const vtable: dsp.Device.VTable = .{
+        // zig fmt: off
         .process = processOpaque,
         .event   = eventOpaque,
         .reset   = resetOpaque,
+        // zig fmt: on
     };
 };
 
@@ -518,8 +526,10 @@ test "humanize jitters timing/velocity within bounds; 0% is a no-op" {
     }
     // At least one of the two notes actually moved/changed velocity.
     try std.testing.expect(
+        // zig fmt: off
         pp.notes[0].start_beat != 1.0 or pp.notes[1].start_beat != 2.0 or
         pp.notes[0].velocity != 0.8 or pp.notes[1].velocity != 0.5,
+        // zig fmt: on
     );
 }
 
@@ -539,7 +549,9 @@ test "PatternPlayer sequences note against transport" {
     pp.processBlock(&scratch);
     synth.processBlock(&scratch);
 
+    // zig fmt: off
     var has_signal = false;
     for (scratch) |s| if (@abs(s) > 1e-4) { has_signal = true; break; };
+    // zig fmt: on
     try std.testing.expect(has_signal);
 }

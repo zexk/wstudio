@@ -49,7 +49,9 @@ pub const Metronome = struct {
         const clip = if (self.is_accent) self.accent_click else self.click;
         var i: usize = self.block_start;
         while (i < frames) : (i += 1) {
+            // zig fmt: off
             if (self.pos >= clip.len) { self.active = false; break; }
+            // zig fmt: on
             const s = clip[self.pos];
             for (0..channels) |ch| buf[i * channels + ch] += s;
             self.pos += 1;

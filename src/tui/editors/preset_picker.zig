@@ -85,8 +85,10 @@ pub fn buildDisplayRows(app: *App, buf: *[max_display_rows]DisplayRow) []Display
             var wrote_header = false;
             for (app.user_synth_presets.items, 0..) |p, i| {
                 const e: Entry = .{
+                    // zig fmt: off
                     .name = p.name, .category = "saved", .tags = &.{},
                     .author = user_author, .source = .{ .user = i },
+                    // zig fmt: on
                 };
                 if (!entryMatches(e, filter)) continue;
                 if (!wrote_header) {
@@ -117,8 +119,10 @@ pub fn buildDisplayRows(app: *App, buf: *[max_display_rows]DisplayRow) []Display
                 for (ws.dsp.synth_presets.presets, 0..) |p, i| {
                     if (!std.mem.eql(u8, p.category, cat)) continue;
                     const e: Entry = .{
+                        // zig fmt: off
                         .name = p.name, .category = p.category, .tags = p.tags,
                         .author = factory_author, .source = .{ .factory = i },
+                        // zig fmt: on
                     };
                     if (!entryMatches(e, filter)) continue;
                     if (!wrote_header) {
@@ -137,8 +141,10 @@ pub fn buildDisplayRows(app: *App, buf: *[max_display_rows]DisplayRow) []Display
             var wrote_header = false;
             for (app.user_drum_kits.items, 0..) |k, i| {
                 const e: Entry = .{
+                    // zig fmt: off
                     .name = k.name, .category = "saved", .tags = &.{},
                     .author = user_author, .source = .{ .user = i },
+                    // zig fmt: on
                 };
                 if (!entryMatches(e, filter)) continue;
                 if (!wrote_header) {
@@ -153,8 +159,10 @@ pub fn buildDisplayRows(app: *App, buf: *[max_display_rows]DisplayRow) []Display
             }
             for (ws.dsp.drum_kit.variants, 0..) |v, i| {
                 const e: Entry = .{
+                    // zig fmt: off
                     .name = v.name, .category = v.category, .tags = v.tags,
                     .author = factory_author, .source = .{ .kit = i },
+                    // zig fmt: on
                 };
                 if (!entryMatches(e, filter)) continue;
                 if (n >= buf.len) return buf[0..n];

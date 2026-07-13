@@ -208,7 +208,9 @@ test "decode SGR mouse press/release/drag" {
     var n = decode("\x1b[<0;5;3M", &keys);
     try std.testing.expectEqual(@as(usize, 1), n);
     try std.testing.expectEqual(modal_mod.MouseEvent{
+        // zig fmt: off
         .x = 4, .y = 2, .button = .left, .kind = .press,
+        // zig fmt: on
     }, keys[0].mouse);
 
     // left release, same cell

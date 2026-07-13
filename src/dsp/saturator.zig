@@ -26,7 +26,9 @@ pub const Saturator = struct {
 
     /// Shape an interleaved stereo buffer in place.
     pub fn processBlock(self: *Saturator, buf: []Sample) void {
+        // zig fmt: off
         const pre  = std.math.pow(f32, 10.0, self.drive_db / 20.0);
+        // zig fmt: on
         const post = std.math.pow(f32, 10.0, self.out_db / 20.0);
         const norm = 1.0 / std.math.tanh(pre); // full-scale in → full-scale out
         for (buf) |*s| {

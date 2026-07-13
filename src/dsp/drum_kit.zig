@@ -362,6 +362,9 @@ fn rim(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
 // generators directly into the DrumMachine's pads, so extra kits cost zero
 // shipped bytes — just the parameter tables below.
 
+// Each variant wrapper's generator params stay grouped on a couple of lines
+// (pitch family / decay family / character) so a whole drum reads at a glance.
+// zig fmt: off
 fn kickAnalog(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
     return kickGen(allocator, sr, .{
         .freq_end = 45.0, .freq_start_add = 90.0, .pitch_decay = 30.0, .body_decay = 7.0,
@@ -823,6 +826,7 @@ fn rimHardcore(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]
         .tone1_hz = 2000.0, .tone2_hz = 1350.0, .tone_decay = 170.0, .click_decay = 280.0, .drive = 3.5, .dur_s = 0.045,
     });
 }
+// zig fmt: on
 
 /// One pad slot in a runtime kit variant: display name, generator, and
 /// default mixer gain — the same shape as `PadDef` minus the WAV filename

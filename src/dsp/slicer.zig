@@ -123,9 +123,11 @@ pub const Slicer = struct {
             .name = name,
         };
         for (&self.slices) |*p| p.* = .{ .samples = samples };
+        // zig fmt: off
         for (&self.voices) |*row| for (row) |*v| { v.* = .{}; };
         for (&self.pattern) |*p| p.* = .init(0);
         for (&self.vel) |*row| for (row) |*p| { p.* = .init(vel_full); };
+        // zig fmt: on
         return self;
     }
 
@@ -141,7 +143,9 @@ pub const Slicer = struct {
         copy.samples = try self.allocator.dupe(f32, self.samples);
         for (&copy.slices) |*p| p.samples = copy.samples;
         copy.sample_lock = .unlocked;
+        // zig fmt: off
         for (&copy.voices) |*row| for (row) |*v| { v.* = .{}; };
+        // zig fmt: on
         copy.next_age = 0;
         copy.next_step_k = 0;
         copy.current_step = .init(0);
@@ -243,6 +247,7 @@ pub const Slicer = struct {
         const pad = &self.slices[slice_idx];
         switch (param) {
             0 => pad.start_norm = std.math.clamp(pad.start_norm + s * 0.01, 0.0, pad.end_norm - 0.01),
+            // zig fmt: off
             1 => pad.end_norm   = std.math.clamp(pad.end_norm   + s * 0.01, pad.start_norm + 0.01, 1.0),
             2 => pad.pitch_semitones = std.math.clamp(pad.pitch_semitones + s * 1.0, -24.0, 24.0),
             3 => pad.attack_s   = std.math.clamp(pad.attack_s   + s * 0.001, 0.0, 5.0),
@@ -252,6 +257,7 @@ pub const Slicer = struct {
             7 => pad.gain       = std.math.clamp(pad.gain       + s * 0.01, 0.0, 2.0),
             8 => pad.pan        = std.math.clamp(pad.pan        + s * 0.05, -1.0, 1.0),
             9 => if (steps != 0) { pad.reverse = !pad.reverse; },
+            // zig fmt: on
             else => {},
         }
     }
@@ -324,8 +330,10 @@ pub const Slicer = struct {
         var slot: usize = 0;
         var oldest_age: u64 = std.math.maxInt(u64);
         for (pool, 0..) |*sv, i| {
+            // zig fmt: off
             if (!sv.active) { slot = i; break; }
             if (sv.age < oldest_age) { oldest_age = sv.age; slot = i; }
+            // zig fmt: on
         }
         pool[slot] = .{
             .active = true,
@@ -401,7 +409,9 @@ pub const Slicer = struct {
     }
 
     pub fn resetAll(self: *Slicer) void {
+        // zig fmt: off
         for (&self.voices) |*row| for (row) |*sv| { sv.* = .{}; };
+        // zig fmt: on
     }
 
     fn processOpaque(ptr: *anyopaque, buf: []Sample) void {

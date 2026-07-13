@@ -28,6 +28,7 @@ pub const synth_param_count: u8 = 41;
 // Palette — all colour codes go here; never raw \x1b sequences elsewhere
 // ---------------------------------------------------------------------------
 
+// zig fmt: off
 pub const rst  = "\x1b[0m";
 pub const bold = "\x1b[1m";
 pub const dim  = "\x1b[2m";
@@ -40,6 +41,7 @@ pub const blu  = "\x1b[34m";   // blue   – voice / routing
 pub const mag  = "\x1b[35m";   // magenta – modulation / movement
 pub const bcyn = "\x1b[96m";   // bright cyan – cursor / selected row
 pub const bwht = "\x1b[97m";   // bright white – selected value
+// zig fmt: on
 
 /// Fixed per-track color palette (see `Track.color`, cycled with `[`/`]`
 /// in the tracks view). Reuses the existing semantic constants above rather
@@ -155,7 +157,9 @@ pub fn writeViewBadge(w: *std.Io.Writer, name: []const u8, mode: Mode) !void {
 
 pub fn writeViewBadgeColored(w: *std.Io.Writer, name: []const u8, tone: BadgeTone) !void {
     try w.writeAll(switch (tone) {
+        // zig fmt: off
         .cyan => bg_cyn, .green => bg_grn, .yellow => bg_yel,
+        // zig fmt: on
     });
     try w.writeAll(badge_fg);
     try w.print(" {s} ", .{name});

@@ -12,6 +12,7 @@ const std = @import("std");
 pub const Channel = u4;
 
 pub const Msg = union(enum) {
+    // zig fmt: off
     note_on:          NoteMsg,
     note_off:         NoteMsg,
     poly_aftertouch:  NoteMsg,
@@ -34,6 +35,7 @@ pub const Msg = union(enum) {
 // ============================================================
 
 const chromatic = [12][]const u8{ "C","C#","D","D#","E","F","F#","G","G#","A","A#","B" };
+// zig fmt: on
 
 /// Write note name into buf (e.g. "C4", "D#3"). Returns the written slice.
 /// buf must be at least 4 bytes.
@@ -74,12 +76,14 @@ pub const Parser = struct {
 
             // System-realtime: single byte, no running-status update.
             switch (status) {
+                // zig fmt: off
                 0xF8 => return .{ .msg = .clock,          .consumed = 1 },
                 0xFA => return .{ .msg = .start,          .consumed = 1 },
                 0xFB => return .{ .msg = .@"continue",    .consumed = 1 },
                 0xFC => return .{ .msg = .stop,           .consumed = 1 },
                 0xFE => return .{ .msg = .active_sensing, .consumed = 1 },
                 0xFF => return .{ .msg = .reset,          .consumed = 1 },
+                // zig fmt: on
                 else => {},
             }
             if (status < 0xF0) {
@@ -101,7 +105,9 @@ pub const Parser = struct {
             const d: u7 = @intCast(bytes[i] & 0x7F);
             i += 1;
             const msg: Msg = if (kind == 0xC)
+                // zig fmt: off
                 .{ .program_change   = .{ .ch = ch, .program  = d } }
+                // zig fmt: on
             else
                 .{ .channel_pressure = .{ .ch = ch, .pressure = d } };
             return .{ .msg = msg, .consumed = i };
@@ -133,9 +139,11 @@ pub const Parser = struct {
                 // Velocity-0 note-on is a note-off per the MIDI spec.
                 .{ .note_off = .{ .ch = ch, .note = d1, .velocity = 0 } }
             else
+                // zig fmt: off
                 .{ .note_on  = .{ .ch = ch, .note = d1, .velocity = d2 } },
             0xA => .{ .poly_aftertouch = .{ .ch = ch, .note = d1, .velocity = d2 } },
             0xB => .{ .control_change  = .{ .ch = ch, .cc   = d1, .value    = d2 } },
+            // zig fmt: on
             0xE => blk: {
                 const raw: u14 = (@as(u14, d2) << 7) | d1;
                 break :blk .{ .pitch_bend = .{ .ch = ch, .bend = @as(i16, @intCast(raw)) - 0x2000 } };
@@ -157,6 +165,7 @@ pub const Parser = struct {
 /// Canonical CC number → PolySynth parameter assignments.
 /// Standard GM numbers are respected where a convention exists.
 pub const CC = enum(u7) {
+    // zig fmt: off
     mod_wheel         = 1,   // → lfo_depth (0–1)
     glide_time        = 5,   // → glide_s (0–4 s)
     gain              = 7,   // → output gain (0–1)
@@ -190,6 +199,7 @@ pub const CC = enum(u7) {
     all_sound_off     = 120, // GM mandatory — immediate silence
     reset_all_ctrls   = 121, // GM mandatory — no-op for now
     all_notes_off     = 123, // GM mandatory — release all voices
+    // zig fmt: on
     _,
 };
 
@@ -232,7 +242,9 @@ test "parser: pitch bend centre" {
 test "parser: split message across two calls" {
     var p: Parser = .{};
     try std.testing.expect(p.feed(&.{ 0x90, 60 }) == null);
+    // zig fmt: off
     const r = p.feed(&.{ 80 }).?;
+    // zig fmt: on
     try std.testing.expect(r.msg == .note_on);
     try std.testing.expectEqual(@as(u7, 60), r.msg.note_on.note);
 }

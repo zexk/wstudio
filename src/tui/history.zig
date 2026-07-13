@@ -87,7 +87,9 @@ pub fn captureTrackFull(app: *App, track_idx: usize) ?undo_mod.TrackFullState {
     const name = app.allocator.dupe(u8, src.name) catch return null;
 
     const rack = app.session.racks.items[track_idx].dupe(
+        // zig fmt: off
         app.allocator, app.session.project.sample_rate, &app.session.engine.transport,
+        // zig fmt: on
     ) catch {
         app.allocator.free(name);
         return null;
@@ -395,8 +397,10 @@ fn applyEntry(app: *App, entry: undo_mod.Entry) ?undo_mod.Entry {
         .track_insert => |state| {
             const s = state;
             app.session.restoreTrack(s.track, s.name, .{
+                // zig fmt: off
                 .gain_db = s.gain_db, .pan = s.pan, .muted = s.muted,
                 .soloed = s.soloed, .color = s.color, .group = s.group,
+                // zig fmt: on
             }, s.rack, s.clips) catch {
                 // OOM mid-restore. `rack`/`clips` ownership is unclear past
                 // this point (may be partially consumed — see

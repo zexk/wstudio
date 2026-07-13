@@ -170,7 +170,9 @@ pub const Clip = struct {
     pub fn dupe(self: Clip, allocator: std.mem.Allocator) !Clip {
         var out: Clip = switch (self.content) {
             .melodic => |m| try initMelodic(
+                // zig fmt: off
                 allocator, self.start_bar, self.length_bars, m.notes, m.length_beats,
+                // zig fmt: on
             ),
             .drum => |d| initDrum(self.start_bar, self.length_bars, d),
         };

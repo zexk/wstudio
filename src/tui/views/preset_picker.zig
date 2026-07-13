@@ -60,7 +60,9 @@ pub fn drawPresetPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void {
     for (rows_list, 0..) |r, ri| {
         switch (r) {
             .entry => {
+                // zig fmt: off
                 if (n == app.preset_picker_cursor) { cursor_row = ri; break; }
+                // zig fmt: on
                 n += 1;
             },
             .header => {},

@@ -74,8 +74,8 @@ fn fontDir(buf: []u8) ![]const u8 {
 
 test "every icon decodes to exactly one codepoint" {
     const all = [_][]const u8{
-        play, stop, mute, solo, save, warn, synth, drum,
-        sampler, eq, arrangement, tempo, help, master, loop, logo,
+        play,    stop, mute,        solo,  save, warn,   synth, drum,
+        sampler, eq,   arrangement, tempo, help, master, loop,  logo,
     };
     for (all) |icon| {
         var it = std.unicode.Utf8Iterator{ .bytes = icon, .i = 0 };

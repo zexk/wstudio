@@ -253,8 +253,10 @@ test "suggestionCount/writeSuggestionBox skip alias entries" {
 }
 
 const scoped_test_cmds: []const Def = &.{
+    // zig fmt: off
     .{ .name = "bpm",       .desc = "tempo",    .run = undefined },
     .{ .name = "load-pad",  .desc = "load pad", .run = undefined, .scope = .drum },
+    // zig fmt: on
     .{ .name = "load-sample", .desc = "load sample", .run = undefined, .scope = .sampler },
 };
 

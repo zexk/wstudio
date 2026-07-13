@@ -722,7 +722,9 @@ pub const Engine = struct {
             .all_notes_off => for (&self.tracks) |*t| {
                 for (t.chain[0..t.chain_len]) |dev| dev.sendEvent(.all_off);
             },
+            // zig fmt: off
             .cc         => |c| self.sendTrackEvent(c.track, .{ .cc         = .{ .cc   = c.cc,   .value = c.value } }),
+            // zig fmt: on
             .pitch_bend => |c| self.sendTrackEvent(c.track, .{ .pitch_bend = .{ .bend = c.bend } }),
             .set_track_param => |c| self.sendTrackEvent(c.track, .{ .set_param = .{ .id = c.id, .steps = c.steps } }),
             .set_track_param_abs => |c| self.sendTrackEvent(c.track, .{ .set_param_abs = .{ .id = c.id, .value = c.value } }),
@@ -1607,7 +1609,9 @@ test "a track pointed at an inactive group slot falls back to the master mix" {
 
 test "solo silences other tracks but keeps the soloed one" {
     var lead = PolySynth.init(48_000);
+    // zig fmt: off
     var pad  = PolySynth.init(48_000);
+    // zig fmt: on
     var engine = try Engine.init(std.testing.allocator, 48_000);
     defer engine.deinit();
     engine.tracks[0] = .{ .active = true };

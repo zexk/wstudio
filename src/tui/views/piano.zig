@@ -101,12 +101,14 @@ fn ghostAt(app: anytype, pitch: u7, beat_pos: f64) GhostHit {
     return .none;
 }
 
+// zig fmt: off
 pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, snap: engine_mod.UiSnapshot) !void {
     if (app.piano_track >= app.session.racks.items.len) return;
     const rack = app.session.racks.items[app.piano_track];
     const pp = if (rack.pattern_player != null)
         &app.session.racks.items[app.piano_track].pattern_player.?
     else return;
+    // zig fmt: on
 
     // Steps per beat under the current grid (4 = straight 16ths, 6 = 16th
     // triplets, toggled by `T` — see App.pianoStepsPerBeat).
@@ -121,9 +123,11 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
         break :blk @intFromFloat(@mod(raw_beats, pp.length_beats) * spbf);
     } else std.math.maxInt(u16);
 
+    // zig fmt: off
     const name = if (app.piano_track < app.session.project.tracks.items.len)
         app.session.project.tracks.items[app.piano_track].name
     else "?";
+    // zig fmt: on
 
     try w.writeAll(bold ++ " " ++ icons.synth ++ " PIANO ROLL" ++ rst);
     try w.print(" \"{s}\"", .{name});
@@ -268,6 +272,7 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
             const next_downbeat = col + 1 < vis_cols and (step + 1) % spb == 0;
             const tick_color = if (in_sel) yel else dim;
 
+            // zig fmt: off
             if (is_cur) {
                 try w.writeAll(sel);
                 if (starts) try w.writeAll("[")
@@ -318,18 +323,21 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
         }
         try endLine(w);
     }
+    // zig fmt: on
 
     // used includes the 2 outer rows (header + hr) so padding aligns with drum-grid convention
     const used = 5 + vis_rows;
     for (used..@max(used, rows -| 4)) |_| try endLine(w);
 }
 
+// zig fmt: off
 pub fn drawPianoRollStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !void {
     if (app.piano_track >= app.session.racks.items.len) return;
     const rack = app.session.racks.items[app.piano_track];
     const pp = if (rack.pattern_player != null)
         &app.session.racks.items[app.piano_track].pattern_player.?
     else return;
+    // zig fmt: on
 
     var lbuf: [5]u8 = undefined;
     const label = pitchLabel(@intCast(app.piano_cursor_pitch), &lbuf);
@@ -338,6 +346,7 @@ pub fn drawPianoRollStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Write
     const bar = app.piano_cursor_step / spb + 1;
     const sub = app.piano_cursor_step % spb + 1;
 
+    // zig fmt: off
     try style.writeModeBadge(w, app.modal.mode);
     if (app.piano_zoom == .compact) try right.writeAll(bcyn ++ "zoom" ++ rst ++ "  ");
     try style.writeViewBadge(right, "PIANO", app.modal.mode);
@@ -372,3 +381,4 @@ pub fn drawPianoRollStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Write
     }
 }
 
+// zig fmt: on

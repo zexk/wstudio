@@ -65,6 +65,7 @@ pub fn renderVoice(
     sr: f64,
 ) void {
     const len = pad.samples.len;
+    // zig fmt: off
     if (len == 0) { voice.active = false; return; }
     const len_f: f64 = @floatFromInt(len);
 
@@ -74,6 +75,7 @@ pub fn renderVoice(
     const hi = std.math.clamp(@as(f64, pad.end_norm), 0.0, 1.0) * len_f;
     const region_len = hi - lo;
     if (region_len <= 1.0) { voice.active = false; return; }
+    // zig fmt: on
 
     const rate: f64 = std.math.pow(f64, 2.0, @as(f64, pad.pitch_semitones) / 12.0);
 
@@ -85,7 +87,9 @@ pub fn renderVoice(
     const start = voice.block_start;
     var i: usize = start;
     while (i < frames) : (i += 1) {
+        // zig fmt: off
         if (voice.played >= region_len) { voice.active = false; break; }
+        // zig fmt: on
 
         // Read position within the clip for this voice's progress.
         const rp: f64 = if (pad.reverse) (hi - 1.0 - voice.played) else (lo + voice.played);

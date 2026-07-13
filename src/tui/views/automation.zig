@@ -298,7 +298,9 @@ pub fn drawAutomationParamPicker(app: anytype, w: *std.Io.Writer, rows: usize) !
     var cursor_row: usize = 0;
     for (rows_list, 0..) |r, ri| {
         switch (r) {
+            // zig fmt: off
             .param => |i| if (i == app.automation_param_cursor) { cursor_row = ri; break; },
+            // zig fmt: on
             .header => {},
         }
     }

@@ -190,6 +190,7 @@ fn mbBandParamName(bf: MbBandField) []const u8 {
     return mb_band_param_names[bf.band][bf.field];
 }
 
+// zig fmt: off
 /// Param name at `idx` in `p` — bounds match `paramCount`.
 pub fn paramName(p: *const FxPayload, idx: usize) []const u8 {
     return switch (p.*) {
@@ -333,6 +334,7 @@ pub fn getParam(p: *const FxPayload, idx: usize) f32 {
         },
     };
 }
+// zig fmt: on
 
 /// [min, max] of param `idx` in a unit of kind `k` — the same bounds
 /// `setParam` clamps to, exported so the view can draw each param as a
@@ -429,6 +431,7 @@ pub fn paramToggleNames(k: FxKind, idx: usize) ?[2][]const u8 {
     };
 }
 
+// zig fmt: off
 /// Clamped absolute set of param `idx` in `p` — bounds match `paramRange`.
 pub fn setParam(app: *App, p: *FxPayload, idx: usize, value: f32) void {
     switch (p.*) {
@@ -547,6 +550,7 @@ pub fn setParam(app: *App, p: *FxPayload, idx: usize, value: f32) void {
         },
     }
 }
+// zig fmt: on
 
 /// Nudge step for `j`/`k` (`coarse` = `J`/`K`) — sized per param so a single
 /// press is a musically useful move (e.g. 1dB fine / 6dB coarse for EQ and
@@ -687,6 +691,7 @@ fn syncChain(app: *App, target: EqTarget) void {
     }
 }
 
+// zig fmt: off
 /// The spectrum analyzer belongs to an EQ unit's editor: run it only while
 /// one has focus, park it otherwise (and on leaving the view) so the engine
 /// skips FFT work nobody is looking at.
@@ -705,6 +710,7 @@ fn syncAnalyzer(app: *App, target: EqTarget) void {
         _ = app.session.engine.send(.{ .set_spectrum_active = .{ .source = .none, .track = 0 } });
     }
 }
+// zig fmt: on
 
 /// Change chain-slot focus — every focus change (Tab/[/]/picker-insert/
 /// switching which chain is in view) ends any open FX param-nudge batch,
@@ -918,6 +924,7 @@ fn clearStaleSidechainPad(app: *App, p: *FxPayload) void {
     }
 }
 
+// zig fmt: off
 pub fn handleKey(app: *App, key: modal_mod.Key) bool {
     const target = currentTarget(app);
     const len = if (fxPtr(app, target)) |fx| fx.units.items.len else 0;
@@ -991,6 +998,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
         else => return false,
     }
 }
+// zig fmt: on
 
 // Row layout mirrors views/spectrum.zig's drawFxView exactly: title, the
 // 3-row chain strip, a key-hint row, the focused slot's section divider,
@@ -998,6 +1006,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
 // rows + an Hz-label row + the band rows; for the other units it's one
 // barRow per param (or a single hint row while the chain is empty).
 
+// zig fmt: off
 // Chain strip geometry, middle row: an "IN▶" gutter, then up to nine 7-wide
 // slot boxes ("┃GATE●┃") joined by 1-wide "▶" arrows; slot i starts at
 // column strip_x0 + i*(strip_box_w + strip_gap_w). A trailing "+" box (the
@@ -1009,6 +1018,7 @@ pub const strip_gap_w: usize = 1;
 pub const strip_rows_start: usize = 1; // first row after the title
 pub const strip_rows_end: usize = 3;   // inclusive
 pub const body_row0: usize = 6;        // title + strip(3) + hint + section
+// zig fmt: on
 
 /// Short terminals can't fit the boxed strip + hint + the biggest editor
 /// body (comp's 5 rows) inside the rows-5 content budget, so below this
@@ -1088,6 +1098,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16, v
     if (row < body0) return; // title / hint / section rows — not interactive
     const rel = row - body0;
 
+    // zig fmt: off
     const unit = focusedUnit(app, fx) orelse return;
     if (unit.kind() == .eq) {
         // Same sizing as drawFxView: spectrum graph, then the Hz-label row,
@@ -1139,3 +1150,4 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16, v
         else => {},
     }
 }
+// zig fmt: on

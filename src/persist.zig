@@ -359,6 +359,7 @@ pub const ReverbSnap = struct {
 /// 10-element file array must keep landing on a 10-element field forever.
 const legacy_eq_band_count = 10;
 
+// zig fmt: off
 /// Legacy fixed ISO center frequencies (v13 and older) — kept only so
 /// `migrateEqBands` can nearest-match an old file's `band_gains` onto
 /// v14's parametric bands.
@@ -366,6 +367,7 @@ const legacy_iso_frequencies = [legacy_eq_band_count]f32{
     31.25, 62.5,  125.0,  250.0,  500.0,
     1000.0, 2000.0, 4000.0, 8000.0, 16000.0,
 };
+// zig fmt: on
 
 /// Mirrors `eq_mod.BandKind` as a plain string enum for JSON stability
 /// (numeric enum tags would silently shift meaning if the DSP-side enum's
@@ -665,6 +667,7 @@ pub fn save(
     defer arena.deinit();
     const aa = arena.allocator();
 
+    // zig fmt: off
     const tracks = try aa.alloc(TrackSnap, session.project.tracks.items.len);
     for (session.project.tracks.items, tracks) |t, *ts| {
         ts.* = .{
@@ -672,6 +675,7 @@ pub fn save(
             .soloed = t.soloed, .color = t.color, .group = t.group,
         };
     }
+    // zig fmt: on
 
     // Dense, always max_groups entries so a slot's position in the array IS
     // its index — TrackSnap.group references that position directly, no
@@ -730,6 +734,7 @@ pub fn save(
 fn rackToSnap(aa: std.mem.Allocator, rack: *Rack, sample_rate: u32) !RackSnap {
     var rs: RackSnap = .{ .label = rack.label, .kind = undefined };
 
+    // zig fmt: off
     switch (rack.instrument) {
         .empty => {
             rs.kind = .empty;
@@ -779,6 +784,7 @@ fn rackToSnap(aa: std.mem.Allocator, rack: *Rack, sample_rate: u32) !RackSnap {
             const choke = try aa.alloc(u8, DrumMachine.max_pads);
             @memcpy(choke, &dm.choke_group);
             ds.choke_group = choke;
+            // zig fmt: on
 
             const pattern = try aa.alloc(u64, DrumMachine.max_pads);
             for (pattern, 0..) |*p, i| p.* = dm.pattern[i].load(.acquire);
@@ -794,6 +800,7 @@ fn rackToSnap(aa: std.mem.Allocator, rack: *Rack, sample_rate: u32) !RackSnap {
             }
             ds.variants = variants;
 
+            // zig fmt: off
             const pads = try aa.alloc(PadSnap, DrumMachine.max_pads);
             for (pads, 0..) |*ps, i| {
                 if (dm.pads[i]) |*s| {
@@ -839,6 +846,7 @@ fn rackToSnap(aa: std.mem.Allocator, rack: *Rack, sample_rate: u32) !RackSnap {
                 };
             }
             sls.slices = slices;
+            // zig fmt: on
 
             const pattern = try aa.alloc(u64, sl.slice_count);
             for (pattern, 0..) |*p, i| p.* = sl.pattern[i].load(.acquire);
@@ -861,6 +869,7 @@ fn rackToSnap(aa: std.mem.Allocator, rack: *Rack, sample_rate: u32) !RackSnap {
     return rs;
 }
 
+// zig fmt: off
 /// Shared by track racks and the master bus — both hold a user-built `Fx`
 /// chain. One FxUnitSnap per slot, in chain order.
 fn chainToSnap(aa: std.mem.Allocator, fx: *const Fx, sample_rate: u32) ![]FxUnitSnap {
@@ -915,6 +924,7 @@ fn chainToSnap(aa: std.mem.Allocator, fx: *const Fx, sample_rate: u32) ![]FxUnit
     }
     return out;
 }
+// zig fmt: on
 
 // ---------------------------------------------------------------------------
 // Sample sidecar — user-loaded audio lives in "<stem>_samples/" next to the
@@ -1062,6 +1072,7 @@ fn notesToSnap(aa: std.mem.Allocator, pp: *PatternPlayer) ![]const NoteSnap {
     return aa.dupe(NoteSnap, tmp[0..@as(usize, count)]);
 }
 
+// zig fmt: off
 /// Serialise one arrangement clip. Melodic clips duplicate their notes into
 /// freshly allocated NoteSnaps; drum clips copy the bitmask by value.
 fn clipToSnap(aa: std.mem.Allocator, clip: ws_arrangement.Clip) !ClipSnap {
@@ -1096,6 +1107,7 @@ fn clipToSnap(aa: std.mem.Allocator, clip: ws_arrangement.Clip) !ClipSnap {
     }
     return c;
 }
+// zig fmt: on
 
 fn automationToSnap(aa: std.mem.Allocator, points: []const AutomationPoint) ![]const AutomationPointSnap {
     const out = try aa.alloc(AutomationPointSnap, points.len);
@@ -1265,6 +1277,7 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
     project.loop_end_bar = snap.loop_end_bar;
     project.loop_enabled = snap.loop_enabled and snap.loop_end_bar > snap.loop_start_bar;
 
+    // zig fmt: off
     for (snap.tracks) |t| {
         // Clamped to the palette's actual size (tui/style.zig's
         // track_palette, 7 entries) — the renderer already treats an
@@ -1279,6 +1292,7 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
             .group = if (t.group) |g| (if (g < engine_mod.max_groups) g else null) else null,
         });
     }
+    // zig fmt: on
 
     const sr = project.sample_rate;
 
@@ -1288,6 +1302,7 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
     errdefer engine.deinit();
     engine.loadProject(&project);
 
+    // zig fmt: off
     var racks: std.ArrayListUnmanaged(*Rack) = .empty;
     errdefer {
         for (racks.items) |r| { r.deinit(allocator); allocator.destroy(r); }
@@ -1303,11 +1318,13 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
             .owned_label = false,
         };
         errdefer { rack.deinit(allocator); allocator.destroy(rack); }
+        // zig fmt: on
 
         // Duplicate the label; freed by Rack.deinit when owned_label = true.
         rack.label = try allocator.dupe(u8, rs.label);
         rack.owned_label = true;
 
+        // zig fmt: off
         switch (rs.kind) {
             .empty => {},
             .poly_synth => {
@@ -1448,6 +1465,7 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
         else try applyLegacyFx(allocator, &rack.fx, rs.fx, sr);
         try racks.append(allocator, rack);
     }
+    // zig fmt: on
 
     // One blank lane per track keeps the arrangement parallel to racks/tracks;
     // clips (if any) are placed below once the Session owns the arrangement.
@@ -1455,6 +1473,7 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
     errdefer arrangement.deinit(allocator);
     for (racks.items) |_| try arrangement.addLane(allocator);
 
+    // zig fmt: off
     var self: Session = .{
         .allocator = allocator,
         .project = project,
@@ -1470,6 +1489,7 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
     if (snap.master_fx_chain) |fc| try applyFxChain(allocator, &self.master_fx, fc, sr)
     else try applyLegacyFx(allocator, &self.master_fx, snap.master_fx, sr);
     self.syncMasterChain();
+    // zig fmt: on
 
     // Groups: dense, positional (see GroupSnap's doc comment) — restore
     // exactly the active slots, push each to the engine, then sweep tracks
@@ -1551,6 +1571,7 @@ fn applyVelSnap(
     }
 }
 
+// zig fmt: off
 /// Rebuild an arrangement clip from its snapshot. Melodic clips copy notes
 /// through a stack buffer into a fresh owned allocation; drum clips are inline.
 fn clipFromSnap(allocator: std.mem.Allocator, cs: ClipSnap) !ws_arrangement.Clip {
@@ -1579,6 +1600,7 @@ fn clipFromSnap(allocator: std.mem.Allocator, cs: ClipSnap) !ws_arrangement.Clip
     try applySynthParamAutomationSnap(allocator, &out.automation, cs.synth_param_automation, cs.filter_cutoff_automation);
     return out;
 }
+// zig fmt: on
 
 /// Load a clip's synth-param automation lanes. A v13 `synth_param_automation`
 /// takes priority when present; a pre-v13 file only carries the old
@@ -1633,6 +1655,7 @@ fn automationFromSnap(
     return out;
 }
 
+// zig fmt: off
 /// Apply a pad snapshot onto a live Pad, clamping every field to the same
 /// ranges `adjustParam` enforces. Unclamped values from a hand-edited file
 /// would otherwise trip adjustParam's clamp bounds (lower > upper) on the
@@ -1649,6 +1672,7 @@ fn applyPadSnap(p: *Pad, ps: PadSnap) void {
     p.sustain         = std.math.clamp(ps.sustain, 0.0, 1.0);
     p.release_s       = std.math.clamp(ps.release_s, 0.001, 5.0);
 }
+// zig fmt: on
 
 /// A NoteSnap with pitch/velocity/times forced into playable ranges.
 fn sanitizeNote(n: NoteSnap) pattern_mod.Note {
@@ -1719,6 +1743,7 @@ fn applyToSynth(s: *PolySynth, ss: *const SynthSnap) void {
     s.gain = clamp(ss.gain, 0.01, 1.0);
 }
 
+// zig fmt: off
 /// Rebuild a live chain from v10 unit snaps, in file order. Shared by track
 /// racks and the master bus — both hold a user-built `Fx` chain. Snaps past
 /// the chain cap are dropped (only reachable by hand-editing the file).
@@ -1828,6 +1853,7 @@ fn applyLegacyFx(allocator: std.mem.Allocator, fx_out: *Fx, fx: FxSnap, sr: u32)
     if (fx.reverb) |rs| { snaps[n] = .{ .kind = .reverb, .reverb = rs };   n += 1; }
     try applyFxChain(allocator, fx_out, snaps[0..n], sr);
 }
+// zig fmt: on
 
 // ---------------------------------------------------------------------------
 // Tests — in-memory round-trip (no file I/O; std.Io not needed)
@@ -2037,6 +2063,7 @@ test "buildSession: v10 fx_chain keeps user order, duplicates, and bypass" {
     try testing.expectEqual(@as(usize, 4), session.engine.master_chain_len);
 }
 
+// zig fmt: off
 test "buildSession: a compressor's sidechain_source loads, clamps, and reaches the engine's routing" {
     const testing = std.testing;
     const snap: Snapshot = .{
@@ -2089,6 +2116,7 @@ test "buildSession: a compressor's sidechain_pad loads, clamps, and combines wit
     // A hand-edited out-of-range pad clamps to the last valid pad index.
     try testing.expectEqual(@as(u8, DrumMachine.max_pads - 1), sc.pad.?);
 }
+// zig fmt: on
 
 test "save/load round-trip persists a compressor's sidechain_source" {
     const testing = std.testing;
@@ -2358,6 +2386,7 @@ test "buildSession: arrangement clips and song_mode round-trip" {
     try testing.expectEqual(@as(u16, 1), session.racks.items[1].instrument.drum_machine.song_clip_count);
 }
 
+// zig fmt: off
 test "clipToSnap/clipFromSnap round-trip gain/pan automation" {
     const testing = std.testing;
     var clip = ws_arrangement.Clip.initDrum(0, 1, .{
@@ -2367,6 +2396,7 @@ test "clipToSnap/clipFromSnap round-trip gain/pan automation" {
     try automation_mod.setPoint(testing.allocator, &clip.automation.gain, 2.0, 0.0);
     try automation_mod.setPoint(testing.allocator, &clip.automation.pan, 0.0, -1.0);
     defer clip.deinit(testing.allocator);
+    // zig fmt: on
 
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
@@ -2400,6 +2430,7 @@ test "automationFromSnap sorts unsorted points and clamps out-of-range values" {
     try testing.expectApproxEqAbs(@as(f32, 12.0), pts[1].value, 1e-6);
 }
 
+// zig fmt: off
 test "buildSession: clip automation round-trips (legacy filter_cutoff_automation remaps to param_id 21)" {
     const testing = std.testing;
     const snap: Snapshot = .{
@@ -2447,10 +2478,12 @@ test "buildSession: filter cutoff automation clamps an out-of-range hand-edited 
     const clip = session.arrangement.lane(0).?.clips.items[0];
     try testing.expectApproxEqAbs(@as(f32, 20_000.0), clip.automation.findSynthParam(21).?[0].value, 1e-6);
 }
+// zig fmt: on
 
 test "buildSession: drum variant bank round-trips; v2 files get one variant" {
     const testing = std.testing;
 
+    // zig fmt: off
     // v3: two variants, B active, with stray bits above each step count that
     // the loader must mask off.
     const variants = [_]VariantSnap{
@@ -2473,6 +2506,7 @@ test "buildSession: drum variant bank round-trips; v2 files get one variant" {
             .drum = .{ .variants = &variants, .variant = 1 },
         }},
     };
+    // zig fmt: on
 
     var session = try buildSession(testing.allocator, &snap);
     defer session.deinit();

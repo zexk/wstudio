@@ -60,6 +60,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
     // stray keypress can't jump views mid-selection.
     if (app.modal.mode == .visual) return handleVisual(app, key, pp, max_step);
 
+    // zig fmt: off
     // Operator-pending mode: `d`/`y` arm here (armOperator below), then a
     // step motion (h/l/H/L/g/G/w/b) deletes/yanks the range from the
     // arming point to wherever the motion lands — reuses the exact same
@@ -268,6 +269,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
         else => return false,
     }
 }
+// zig fmt: on
 
 /// Drag the grabbed note by `dstep` steps / `dpitch` semitones, cursor in
 /// tow, and write the edit through to a linked clip. Ends the grab if the
@@ -384,6 +386,7 @@ fn toggleZoom(app: *App) void {
     app.setStatus("zoom: {s}", .{if (app.piano_zoom == .compact) "compact" else "normal"});
 }
 
+// zig fmt: off
 fn ensureVisible(app: *App) void {
     // Compact packs 3x the steps into the same screen width, so widen the
     // autoscroll window to match (both are rough approximations, independent
@@ -532,6 +535,7 @@ fn nudgeVelocity(app: *App, delta: f32) void {
         app.setStatus("no note under cursor", .{});
     }
 }
+// zig fmt: on
 
 /// Clip-editing writeback: copy the pattern player's notes into the
 /// linked arrangement clip (the clip owns the data; the player is its
@@ -575,6 +579,7 @@ pub fn syncLinkedClip(app: *App) void {
     if (app.session.song_mode) app.session.rebuildSongData();
 }
 
+// zig fmt: off
 /// Yank the piano roll's whole pattern (notes + loop length) to the
 /// app clipboard.
 fn yank(app: *App) void {
@@ -613,6 +618,7 @@ fn clearPitchRow(app: *App) void {
     app.setStatus("cleared {d} notes on {s}", .{ removed, name });
     syncLinkedClip(app);
 }
+// zig fmt: on
 
 /// "Bar" length in steps under the current grid (straight/triplet) — despite
 /// the name, this is one BEAT (stepsPerBeatF steps), matching the drum
@@ -683,6 +689,7 @@ fn finishOperator(app: *App, pp: *pattern_mod.PatternPlayer, op: u8) void {
     if (op == 'd') deleteSelection(app, pp) else yankSelection(app, pp);
 }
 
+// zig fmt: off
 /// Visual mode's reduced key set: motions extend the selection, y/d/p act
 /// on it and return to normal, escape cancels. Everything else is
 /// swallowed (returns true) so it can't jump views or open another editor
@@ -713,6 +720,7 @@ fn handleVisual(app: *App, key: modal_mod.Key, pp: *pattern_mod.PatternPlayer, m
         else => return true,
     }
 }
+// zig fmt: on
 
 /// Leave visual mode, clearing the anchor so the selection can't linger.
 fn exitVisual(app: *App) void {
@@ -779,6 +787,7 @@ fn pasteSelection(app: *App, pp: *pattern_mod.PatternPlayer) void {
     exitVisual(app);
 }
 
+// zig fmt: off
 /// Replace this track's pattern with the yanked one.
 fn paste(app: *App) void {
     if (app.piano_track >= app.session.racks.items.len) return;
@@ -806,6 +815,7 @@ fn deleteNote(app: *App) void {
     app.setStatus("removed {s}", .{midi.noteName(app.piano_cursor_pitch, &nbuf)});
     syncLinkedClip(app);
 }
+// zig fmt: on
 
 // Column/row layout mirrors views/piano.zig's drawPianoRoll exactly: a
 // 6-char prefix (pitch label + "│"), then one cell per step, `App.pianoCellWidth()`
@@ -833,11 +843,13 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16) v
     const pp = if (rack.pattern_player != null) &app.session.racks.items[app.piano_track].pattern_player.? else return;
     const max_step: u16 = @intFromFloat(pp.length_beats * stepsPerBeatF(app));
 
+    // zig fmt: off
     switch (ev.kind) {
         .scroll_up => { if (ev.shift) moveStep(app, max_step, -1) else movePitch(app, 1); return; },
         .scroll_down => { if (ev.shift) moveStep(app, max_step, 1) else movePitch(app, -1); return; },
         else => {},
     }
+    // zig fmt: on
 
     if (row < header_rows) return;
     const r = row - header_rows;

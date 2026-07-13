@@ -12,6 +12,7 @@ const piano = @import("piano.zig");
 const preset_picker = @import("preset_picker.zig");
 const history = @import("../history.zig");
 
+// zig fmt: off
 pub fn handleKey(app: *App, key: modal_mod.Key) bool {
     switch (key) {
         .escape => { history.flushParamNudge(app); app.view = .tracks; return true; },
@@ -73,6 +74,7 @@ fn moveCursor(app: *App, delta: i32) void {
     ));
     updateScroll(app);
 }
+// zig fmt: on
 
 /// Wide terminals split the editor into OSC A / OSC B side by side on top
 /// (7 and 9 rows respectively — OSC B is taller, so the top block is 9 rows)
@@ -96,6 +98,7 @@ pub const top_h: usize = 9;
 /// Total body rows (below the shared title) in the wide A/B-over-C layout.
 pub const body_rows_wide: usize = 46;
 
+// zig fmt: off
 /// Column + row of `cursor` within the wide layout (row 0 is the shared
 /// title). OSC A/B (rows 1-9) are side by side, col meaningful; everything
 /// else (rows 10-43) is a single full-width column and col is unused. Must
@@ -138,6 +141,7 @@ pub fn paramRow(cursor: u8) usize {
         else    => 0,
     };
 }
+// zig fmt: on
 
 pub fn updateScroll(app: *App) void {
     // Will be re-clamped against the real max_rows at draw time (views/
@@ -151,6 +155,7 @@ pub fn updateScroll(app: *App) void {
     if (row >= app.synth_scroll + max_rows) app.synth_scroll = row - max_rows + 1;
 }
 
+// zig fmt: off
 /// Nudge the selected synth-editor parameter. The change is routed over the
 /// engine command queue and applied on the audio thread (PolySynth.adjustParam)
 /// so it never races the block reader — the editor view reflects it on the
@@ -172,6 +177,7 @@ fn adjustParam(app: *App, steps: i32) void {
         .steps = steps,
     } });
 }
+// zig fmt: on
 
 /// The param index whose row (in the *scrolled* on-screen layout) is `row`,
 /// or null for the title row / a row that doesn't land on any param (a

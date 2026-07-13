@@ -40,6 +40,7 @@ const rowVal = style.rowVal;
 const barRow = style.barRow;
 const enumRow = style.enumRow;
 
+// zig fmt: off
 /// Row-badge chips for a rack's FX chain, in signal-flow order. Chains can
 /// hold up to nine units but a track row's width is shared with gain/pan and
 /// the keybind hint, so show the first four and fold the rest into "+n".
@@ -58,6 +59,7 @@ fn writeFxBadges(w: *std.Io.Writer, fx: *const ws.Fx) !void {
         });
     }
 }
+// zig fmt: on
 
 /// One real track's row. Members of a group render indented under their
 /// group's own row (see App.rebuildTrackRows for the folder ordering), which
@@ -185,6 +187,7 @@ fn writeGroupRow(app: anytype, w: *std.Io.Writer, gi: u8, is_sel: bool, in_sel: 
     const lw = &row_w;
     const marker: []const u8 = if (is_sel) ">" else if (in_sel) "~" else " ";
 
+    // zig fmt: off
     if (is_sel) try lw.writeAll(sel) else if (in_sel) try lw.writeAll(yel);
     try lw.writeByte(' ');
     try lw.writeAll(marker);
@@ -222,6 +225,7 @@ fn writeGroupRow(app: anytype, w: *std.Io.Writer, gi: u8, is_sel: bool, in_sel: 
     }
     try style.writeSplitRow(w, row_w.buffered(), dim ++ "[enter:fx z:fold]" ++ rst, cols -| 1);
 }
+// zig fmt: on
 
 pub fn drawTracks(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, snap: engine_mod.UiSnapshot) !void {
     _ = snap;
@@ -315,6 +319,7 @@ pub fn drawTracks(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, sna
     for (used..@max(used, rows -| 4)) |_| try endLine(w);
 }
 
+// zig fmt: off
 pub fn drawTracksStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !void {
     try style.writeModeBadge(w, app.modal.mode);
     try style.writeViewBadge(right, "TRACKS", app.modal.mode);
@@ -330,3 +335,4 @@ pub fn drawTracksStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) 
     }
 }
 
+// zig fmt: on

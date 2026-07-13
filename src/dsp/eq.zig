@@ -110,8 +110,10 @@ const EqBand = struct {
 
     fn processStage(band: *EqBand, stage: usize, ch: usize, x: f32) f32 {
         const st = &band.state[stage][ch];
+        // zig fmt: off
         const y = band.b0 * x + band.b1 * st.x1 + band.b2 * st.x2
                 - band.a1 * st.y1 - band.a2 * st.y2;
+                // zig fmt: on
         st.x2 = st.x1;
         st.x1 = x;
         st.y2 = st.y1;
@@ -248,7 +250,9 @@ test "steeper highpass slope attenuates a below-cutoff tone harder" {
                 phase += 2.0 * std.math.pi * 200.0 / 48_000.0;
             }
             eq.process(&buf);
+            // zig fmt: off
             if (block >= 50) for (buf) |s| { peak = @max(peak, @abs(s)); };
+            // zig fmt: on
         }
         peak_by_slope[si] = peak;
     }

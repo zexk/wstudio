@@ -19,6 +19,7 @@ pub const Preset = struct {
 pub const presets = [_]Preset{
     .{ .name = "init", .category = "utility", .tags = &.{"wstudio"}, .patch = .{} },
 
+    // zig fmt: off
     .{ .name = "warm-pad", .category = "pad", .tags = &.{ "wstudio", "trance" }, .patch = .{
         .waveform = .saw, .unison = 6, .unison_detune = 18.0, .unison_spread = 0.7,
         .attack_s = 0.9, .decay_s = 0.6, .sustain = 0.85, .release_s = 1.4,
@@ -810,6 +811,7 @@ pub const presets = [_]Preset{
         .gain = 0.26,
     } },
 };
+// zig fmt: on
 
 /// Case-insensitive lookup by name.
 pub fn find(name: []const u8) ?Patch {

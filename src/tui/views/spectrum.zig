@@ -152,11 +152,13 @@ fn drawStripBorder(app: anytype, w: *std.Io.Writer, chain: *const ws.Fx, top: bo
         const focused = i < chain.units.items.len and i == app.fx_focus;
         if (i > 0) try w.writeAll(" ");
         if (focused) {
+            // zig fmt: off
             try w.writeAll(if (top) acc ++ bold ++ "\u{250F}\u{2501}\u{2501}\u{2501}\u{2501}\u{2501}\u{2513}"
                            else acc ++ bold ++ "\u{2517}\u{2501}\u{2501}\u{2501}\u{2501}\u{2501}\u{251B}");
         } else {
             try w.writeAll(if (top) dim ++ "\u{250C}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2510}"
                            else dim ++ "\u{2514}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2518}");
+                           // zig fmt: on
         }
         try w.writeAll(rst);
     }
@@ -295,7 +297,9 @@ pub fn drawFxView(
         // the dB scale, so bars draw on every row.
         const total_pixels = visual_rows * 4;
         const axis_labels = [_]struct { db: f32, label: []const u8 }{
+            // zig fmt: off
             .{ .db = 0.0,   .label = "  0dB" },
+            // zig fmt: on
             .{ .db = -20.0, .label = "-20dB" },
             .{ .db = -40.0, .label = "-40dB" },
         };
@@ -319,9 +323,11 @@ pub fn drawFxView(
                 // colour by level: top rows are louder
                 const row_norm: f32 = @as(f32, @floatFromInt(visual_row)) /
                     @as(f32, @floatFromInt(visual_rows));
+                // zig fmt: off
                 const colour: []const u8 = if (row_norm > 0.85) red
                     else if (row_norm > 0.65) yel
                     else grn;
+                    // zig fmt: on
                 for (0..draw_bands) |band| {
                     const db_val = ssnap.bins[band];
                     const raw = (db_val - db_offset) / db_range;
@@ -348,6 +354,7 @@ pub fn drawFxView(
 
         try w.writeAll(dim ++ "Hz    ");
         const freq_labels = [_]struct { idx: usize, label: []const u8 }{
+            // zig fmt: off
             .{ .idx = 0,  .label = "20"  },
             .{ .idx = 12, .label = "40"  },
             .{ .idx = 24, .label = "80"  },
@@ -357,6 +364,7 @@ pub fn drawFxView(
             .{ .idx = 61, .label = "1.2k"},
             .{ .idx = 67, .label = "2.5k"},
             .{ .idx = 72, .label = "5k"  },
+            // zig fmt: on
             .{ .idx = 76, .label = "10k" },
             .{ .idx = 78, .label = "20k" },
         };
@@ -447,6 +455,7 @@ pub fn drawFxView(
 
         const kind_idx = cur_band * spectrum_ed.eq_fields_per_band + spectrum_ed.eq_field_kind;
         const kind_names = [_][]const u8{ "peak", "lowpass", "highpass" };
+        // zig fmt: off
         try enumRow(w, in_submenu and cur_field == spectrum_ed.eq_field_kind, false, sectionColor(.eq), "kind", &kind_names,
             @intFromFloat(@round(spectrum_ed.getParam(&unit.payload, kind_idx))));
 
@@ -458,6 +467,7 @@ pub fn drawFxView(
             var vbuf: [16]u8 = undefined;
             try barRow(w, in_submenu and cur_field == field, false, sectionColor(.eq),
                 spectrum_ed.paramName(&unit.payload, idx), norm, 1.0, formatFxValue(&vbuf, &unit.payload, idx));
+                // zig fmt: on
         }
 
         body_lines = visual_rows + 1 + bands;

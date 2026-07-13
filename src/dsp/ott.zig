@@ -59,9 +59,13 @@ pub const Ott = struct {
     pub fn processBlock(self: *Ott, buf: []Sample) void {
         const gin = types.dbToGain(self.gain_in_db);
         const gout = types.dbToGain(self.gain_out_db);
-        if (self.gain_in_db != 0.0) for (buf) |*s| { s.* *= gin; };
+        if (self.gain_in_db != 0.0) for (buf) |*s| {
+            s.* *= gin;
+        };
         self.mb.processBlock(buf);
-        if (self.gain_out_db != 0.0) for (buf) |*s| { s.* *= gout; };
+        if (self.gain_out_db != 0.0) for (buf) |*s| {
+            s.* *= gout;
+        };
     }
 
     pub fn device(self: *Ott) dsp.Device {

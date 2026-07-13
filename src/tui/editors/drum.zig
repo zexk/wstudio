@@ -40,6 +40,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
     if (app.drum_op_pending) |op| {
         app.drum_op_pending = null;
         switch (key) {
+            // zig fmt: off
             .escape => { app.drum_visual_anchor = null; app.setStatus("cancelled", .{}); return true; },
             .char => |c| switch (c) {
                 '0'...'9' => { app.drum_op_pending = op; return false; },
@@ -80,6 +81,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             return true;
         },
         .ctrl_r => { history.doRedo(app); return true; },
+        // zig fmt: on
         .char => |c| {
             switch (c) {
                 // 'i' falls through to modal.handle below (see the .char
@@ -203,8 +205,10 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                     } else app.setStatus("nothing yanked — y copies the pattern", .{});
                 },
                 '.' => repeatLastEdit(app),
+                // zig fmt: off
                 '[' => { cycleVariant(app, -1); },
                 ']' => { cycleVariant(app, 1); },
+                // zig fmt: on
                 'N' => {
                     const dm = app.drumMachine();
                     const src = dm.variant;
@@ -227,10 +231,12 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                         app.setStatus("deleted pattern — now on {c}", .{DrumMachine.variantLetter(dm.variant)});
                     } else app.setStatus("can't delete the only pattern", .{});
                 },
+                // zig fmt: off
                 's' => { spectrum.switchToTrack(app, app.drum_track); return true; },
                 // f browses kit variants — same apply path as :drum-kit.
                 'f' => { preset_picker.open(app, .drum, app.drum_track); return true; },
                 'R' => { startPadRenamePrompt(app); return true; },
+                // zig fmt: on
                 'e' => {
                     app.sampler_target = .{ .drum = app.drum_track };
                     app.sampler_param = 0;
@@ -355,7 +361,9 @@ fn clearCursorStep(app: *App) void {
     const dm = app.drumMachine();
     const pad = app.drum_cursor[0];
     const step = app.drum_cursor[1];
+    // zig fmt: off
     if (!dm.stepActive(pad, step)) { app.setStatus("no step here", .{}); return; }
+    // zig fmt: on
     history.push(app, history.captureDrum(app, app.drum_track));
     setStep(dm, pad, step, false, 0);
     app.setStatus("cleared step", .{});
@@ -389,6 +397,7 @@ fn yankWholePattern(app: *App) void {
 /// keeps accumulating the count prefix.
 fn handleVisual(app: *App, key: modal_mod.Key) bool {
     switch (key) {
+        // zig fmt: off
         .escape => { exitVisual(app); app.setStatus("selection cancelled", .{}); return true; },
         .char => |c| switch (c) {
             'h' => { moveStep(app, -app.takeCount()); return true; },
@@ -410,6 +419,7 @@ fn handleVisual(app: *App, key: modal_mod.Key) bool {
             'y' => { yankSelection(app); return true; },
             'd' => { deleteSelection(app); return true; },
             'p', 'P' => { pasteSelection(app); return true; },
+            // zig fmt: on
             '0'...'9' => return false,
             else => return true,
         },

@@ -39,6 +39,7 @@ pub const Instrument = union(enum) {
     /// Returns a dsp.Device fat-pointer whose `.ptr` is stable as long as
     /// the parent Rack (heap-allocated) is alive, or null for `empty`.
     pub fn device(self: *Instrument) ?dsp.Device {
+        // zig fmt: off
         switch (self.*) {
             .empty         => return null,
             .poly_synth    => |*s|  return s.device(),
@@ -55,6 +56,7 @@ pub const Instrument = union(enum) {
             .sampler      => |*s|  s.deinit(),
             .drum_machine => |*dm| dm.deinit(),
             .slicer       => |*sl| sl.deinit(),
+            // zig fmt: on
         }
     }
 };
@@ -82,6 +84,7 @@ pub const FxPayload = union(enum) {
     /// Returns a dsp.Device fat-pointer whose `.ptr` is stable as long as
     /// the parent FxUnit (heap-allocated by Fx.insert) is alive.
     pub fn device(self: *FxPayload) dsp.Device {
+        // zig fmt: off
         return switch (self.*) {
             .gate    => |*g| g.device(),
             .comp    => |*c| c.device(),
@@ -101,6 +104,7 @@ pub const FxPayload = union(enum) {
         switch (self.*) {
             .chorus => |*c| c.deinit(allocator),
             .delay  => |*d| d.deinit(allocator),
+            // zig fmt: on
             .reverb => |*r| r.deinit(allocator),
             else => {},
         }
@@ -169,6 +173,7 @@ pub const Fx = struct {
     /// A fresh payload of `kind` with its defaults. Only chorus/delay/reverb
     /// allocate (their mod/delay lines).
     pub fn initPayload(allocator: std.mem.Allocator, kind: FxKind, sr: u32) !FxPayload {
+        // zig fmt: off
         return switch (kind) {
             .gate    => .{ .gate = Gate.init(sr) },
             .comp    => .{ .comp = Compressor.init(sr) },
@@ -181,6 +186,7 @@ pub const Fx = struct {
             .phaser  => .{ .phaser = Phaser.init(sr) },
             .delay   => .{ .delay = try StereoDelay.init(allocator, sr, 2.0) },
             .reverb  => .{ .reverb = try Reverb.init(allocator, sr) },
+            // zig fmt: on
         };
     }
 
@@ -346,6 +352,7 @@ pub const Rack = struct {
     /// order and returns the used slice. Caller must keep `buf` alive for as
     /// long as the slice is passed to the engine.
     pub fn chain(self: *Rack, buf: *[chain_cap]dsp.Device) []const dsp.Device {
+        // zig fmt: off
         var len: usize = 0;
         if (self.pattern_player) |*pp| { buf[len] = pp.device(); len += 1; }
         if (self.instrument.device()) |dev| { buf[len] = dev; len += 1; }
@@ -364,6 +371,7 @@ pub const Rack = struct {
         if (self.instrument.device() != null) { buf[len] = null; len += 1; }
         var fx_buf: [Fx.max_units]?Compressor.SidechainSource = undefined;
         for (self.fx.sidechainSources(&fx_buf)) |src| { buf[len] = src; len += 1; }
+        // zig fmt: on
         return buf[0..len];
     }
 };
@@ -376,6 +384,7 @@ test "chain follows insertion order, not a fixed slot order" {
     defer rack.fx.deinit(std.testing.allocator);
 
     // Insert an EQ, then a comp *in front of it* — the old fixed rack would
+    // zig fmt: off
     // have forced comp → eq; the chain must play them as ordered.
     const eq   = try rack.fx.insert(std.testing.allocator, 0, .eq, 48_000);
     const comp = try rack.fx.insert(std.testing.allocator, 0, .comp, 48_000);
@@ -393,6 +402,7 @@ test "chain follows insertion order, not a fixed slot order" {
     );
     try std.testing.expectEqual(
         @as(*anyopaque, @ptrCast(&eq.payload.eq)), ch[2].ptr,
+        // zig fmt: on
     );
 }
 
@@ -467,6 +477,7 @@ test "Fx.dupe deep-copies params and heap buffers independently (used by undo's 
 test "drum_machine Instrument variant: device ptr stable inside heap Rack" {
     var transport: Transport = .{ .sample_rate = 48_000 };
 
+    // zig fmt: off
     const rack = try std.testing.allocator.create(Rack);
     defer { rack.deinit(std.testing.allocator); std.testing.allocator.destroy(rack); }
 
@@ -484,5 +495,6 @@ test "drum_machine Instrument variant: device ptr stable inside heap Rack" {
     // device() must point into the heap-allocated Rack, not a stack copy
     try std.testing.expectEqual(
         @as(*anyopaque, @ptrCast(&rack.instrument.drum_machine)), ch[0].ptr,
+        // zig fmt: on
     );
 }

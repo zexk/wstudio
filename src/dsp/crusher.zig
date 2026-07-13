@@ -29,6 +29,7 @@ pub const Crusher = struct {
 
     /// Crush an interleaved stereo buffer in place.
     pub fn processBlock(self: *Crusher, buf: []Sample) void {
+        // zig fmt: off
         const q    = std.math.pow(f32, 2.0, @round(self.bits) - 1.0);
         const step = @max(@as(u32, @intFromFloat(@round(self.downsample))), 1);
         var i: usize = 0;
@@ -39,6 +40,7 @@ pub const Crusher = struct {
             }
             self.counter = (self.counter + 1) % step;
             buf[i]     = buf[i] * (1.0 - self.mix) + self.hold[0] * self.mix;
+            // zig fmt: on
             buf[i + 1] = buf[i + 1] * (1.0 - self.mix) + self.hold[1] * self.mix;
         }
     }
