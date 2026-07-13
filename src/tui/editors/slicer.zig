@@ -173,6 +173,35 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 'U' => history.doRedo(app),
                 'p', 'P' => pasteSelection(app),
                 '.' => repeatLastEdit(app),
+                // (/) cycle the pattern variant — [ and ] (the drum grid's
+                // variant keys) belong to boundary nudges here.
+                '(' => cycleVariant(app, -1),
+                ')' => cycleVariant(app, 1),
+                'N' => {
+                    if (sl.variant_count < Slicer.max_variants)
+                        history.push(app, history.captureSlicer(app, app.slicer_track));
+                    if (sl.addVariant())
+                        app.setStatus("new pattern {c} (copy of previous)", .{Slicer.variantLetter(sl.variant)})
+                    else
+                        app.setStatus("pattern bank full ({d} max)", .{Slicer.max_variants});
+                },
+                'D' => {
+                    if (sl.variant_count > 1)
+                        history.push(app, history.captureSlicer(app, app.slicer_track));
+                    if (sl.removeVariant()) {
+                        if (step.* >= sl.step_count) step.* = sl.step_count - 1;
+                        app.setStatus("deleted pattern — now on {c}", .{Slicer.variantLetter(sl.variant)});
+                    } else app.setStatus("can't delete the only pattern", .{});
+                },
+                'C' => {
+                    sl.cycleChokeGroup(slice.*);
+                    app.dirty = true;
+                    const g = sl.choke_group[slice.*];
+                    if (g == 0)
+                        app.setStatus("choke group: none (overlap allowed)", .{})
+                    else
+                        app.setStatus("choke group: {d} (cuts group-mates)", .{g});
+                },
                 'e' => {
                     history.flushParamNudge(app);
                     app.sampler_target = .{ .slice = app.slicer_track };
@@ -212,6 +241,22 @@ fn nudgeVel(app: *App, delta: i32) void {
     history.push(app, history.captureSlicer(app, app.slicer_track));
     sl.nudgeStepVel(slice, step, delta);
     app.setStatus("vel {d}", .{sl.stepVel(slice, step)});
+}
+
+/// Cycle the active pattern variant, keeping the step cursor inside the
+/// new variant's step count — same shape as the drum grid's.
+fn cycleVariant(app: *App, delta: i32) void {
+    const sl = app.slicerInst();
+    if (sl.variant_count <= 1) {
+        app.setStatus("one pattern — N creates another", .{});
+        return;
+    }
+    sl.cycleVariant(delta);
+    app.dirty = true;
+    if (app.slicer_cursor[1] >= sl.step_count) app.slicer_cursor[1] = sl.step_count - 1;
+    app.setStatus("pattern {c} ({d}/{d})", .{
+        Slicer.variantLetter(sl.variant), sl.variant + 1, sl.variant_count,
+    });
 }
 
 /// Nudge the slicer's swing and echo the new value.

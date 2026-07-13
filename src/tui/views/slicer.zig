@@ -16,8 +16,10 @@ const dim = style.dim;
 const acc = style.acc;
 const grn = style.grn;
 const yel = style.yel;
+const red = style.red;
 const sel = style.sel;
 const blu = style.blu;
+const mag = style.mag;
 const bcyn = style.bcyn;
 const endLine = style.endLine;
 
@@ -234,6 +236,13 @@ pub fn drawSlicerGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize,
     try w.print("\"{s}\"", .{sl.clipName()});
     try w.writeAll(dim ++ "  slices " ++ rst);
     try w.print("{d}", .{slice_count});
+    try w.writeAll(dim ++ "  pat " ++ rst);
+    try w.print("{c}", .{Slicer.variantLetter(sl.variant)});
+    if (sl.variant_count > 1) {
+        try w.writeAll(dim);
+        try w.print(" {d}/{d}", .{ sl.variant + 1, sl.variant_count });
+        try w.writeAll(rst);
+    }
     if (bank_count > 1) {
         try w.writeAll(dim ++ "  bank " ++ rst);
         try w.print("{d}/{d}", .{ bank + 1, bank_count });
@@ -267,8 +276,18 @@ pub fn drawSlicerGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize,
     try endLine(w);
     written += 1;
 
+    // One tint per choke group so grouped slices read as a set — same
+    // palette order as the drum grid's pad names.
+    const choke_colors = [_][]const u8{ yel, mag, blu, red };
     for (bank_start..bank_end) |sIdx| {
-        try w.writeAll(if (sIdx == cur_slice) acc else dim);
+        const group = sl.choke_group[sIdx];
+        if (sIdx == cur_slice) {
+            try w.writeAll(acc);
+        } else if (group != 0) {
+            try w.writeAll(choke_colors[(group - 1) % choke_colors.len]);
+        } else {
+            try w.writeAll(dim);
+        }
         try w.print(" #{d: <3}    ", .{sIdx + 1});
         try w.writeAll(rst);
         col = 0;
@@ -320,6 +339,8 @@ pub fn drawSlicerStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) 
     const s = app.slicer_cursor[1];
     try style.writeModeBadge(w, app.modal.mode);
     try style.writeViewBadge(right, "SLICER", app.modal.mode);
+    try w.writeAll(dim ++ "  pat " ++ rst);
+    try w.print("{c}", .{Slicer.variantLetter(sl.variant)});
     try w.writeAll(dim ++ "  slice " ++ rst);
     try w.print("{d}/{d}", .{ sIdx + 1, sl.slice_count });
     try w.writeAll(dim ++ "  step " ++ rst);

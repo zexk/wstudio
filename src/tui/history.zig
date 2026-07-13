@@ -62,7 +62,9 @@ pub fn captureDrum(app: *App, track: u16) ?undo_mod.Entry {
     return .{ .drum = st };
 }
 
-/// Snapshot one slicer's chop layout + step grid (see SlicerState).
+/// Snapshot one slicer's chop layout + whole variant bank (see
+/// SlicerState). The active bank slot is stale; read it live via
+/// variantData — same rule captureDrum applies.
 pub fn captureSlicer(app: *App, track: u16) ?undo_mod.Entry {
     if (track >= app.session.racks.items.len) return null;
     const sl = switch (app.session.racks.items[track].instrument) {
@@ -72,15 +74,12 @@ pub fn captureSlicer(app: *App, track: u16) ?undo_mod.Entry {
     var st: undo_mod.SlicerState = .{
         .track = track,
         .slice_count = sl.slice_count,
-        .step_count = sl.step_count,
         .slices = sl.slices,
-        .pattern = undefined,
-        .vel = undefined,
+        .variants = sl.variants,
+        .variant_count = sl.variant_count,
+        .variant = sl.variant,
     };
-    for (&st.pattern, &sl.pattern) |*dst, *src| dst.* = src.load(.monotonic);
-    // zig fmt: off
-    for (&st.vel, &sl.vel) |*drow, *srow| for (drow, srow) |*d, *s| { d.* = s.load(.monotonic); };
-    // zig fmt: on
+    st.variants[sl.variant] = sl.variantData(sl.variant);
     return .{ .slicer = st };
 }
 
@@ -384,11 +383,10 @@ fn applyEntry(app: *App, entry: undo_mod.Entry) ?undo_mod.Entry {
             sl.slices = d.slices;
             for (&sl.slices) |*p| p.samples = sl.samples;
             sl.sample_lock.unlock();
-            sl.step_count = d.step_count;
-            for (&sl.pattern, d.pattern) |*dst, v| dst.store(v, .release);
-            // zig fmt: off
-            for (&sl.vel, d.vel) |*row, vrow| for (row, vrow) |*p, v| { p.store(v, .release); };
-            // zig fmt: on
+            sl.variants = d.variants;
+            sl.variant_count = d.variant_count;
+            sl.variant = @min(d.variant, d.variant_count - 1);
+            sl.applyVariant(d.variants[sl.variant]);
             sl.resetAll(); // ringing tails would finish through relocated slices
             app.slicer_cursor[0] = @min(app.slicer_cursor[0], sl.slice_count -| 1);
             app.slicer_cursor[1] = @min(app.slicer_cursor[1], sl.step_count -| 1);

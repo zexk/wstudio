@@ -119,7 +119,10 @@ pub const Clip = struct {
         length_beats: f64,
     };
 
-    /// A private copy of a drum-machine pattern.
+    /// A private copy of a drum-machine (or slicer) pattern — the two share
+    /// the same 64-row step-grid shape (`Slicer.max_slices ==
+    /// DrumMachine.max_pads`), so slicer clips reuse this content kind
+    /// wholesale rather than adding a third.
     pub const Drum = struct {
         pattern: [DrumMachine.max_pads]u64,
         /// Per-step velocity (0-127; 127 = full, see DrumMachine.velGain).

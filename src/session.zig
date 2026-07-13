@@ -236,6 +236,7 @@ pub const Session = struct {
             if (rack.pattern_player) |*pp| pp.song_mode = true;
             switch (rack.instrument) {
                 .drum_machine => |*dm| dm.song_mode = true,
+                .slicer => |*sl| sl.song_mode = true,
                 else => {},
             }
         }
@@ -417,6 +418,26 @@ pub const Session = struct {
                     // zig fmt: on
                 ));
             },
+            // Slicer patterns are the same 64-row step grid a drum bank is
+            // (`Slicer.max_slices == DrumMachine.max_pads`), so they stamp
+            // as the same `.drum` clip content — no third clip kind.
+            .slicer => |*sl| {
+                var drum: Clip.Drum = .{
+                    .pattern = undefined,
+                    .step_count = sl.step_count,
+                    .variant = sl.variant,
+                };
+                for (&drum.pattern, &drum.vel, 0..) |*p, *vel_row, i| {
+                    p.* = sl.pattern[i].load(.acquire);
+                    for (vel_row, &sl.vel[i]) |*v, *live| v.* = live.load(.acquire);
+                }
+                const len_beats = @as(f64, @floatFromInt(sl.step_count)) / 4.0;
+                try lane.place(self.allocator, Clip.initDrum(
+                    // zig fmt: off
+                    start_bar, barsFor(len_beats, bpb), drum,
+                    // zig fmt: on
+                ));
+            },
             else => {
                 const pp = if (rack.pattern_player) |*p| p else return;
                 // Snapshot the notes under the player's lock (UI thread).
@@ -457,6 +478,7 @@ pub const Session = struct {
             if (rack.pattern_player) |*pp| pp.song_mode = on;
             switch (rack.instrument) {
                 .drum_machine => |*dm| dm.song_mode = on,
+                .slicer => |*sl| sl.song_mode = on,
                 else => {},
             }
         }
@@ -684,6 +706,25 @@ pub const Session = struct {
                     }
                     dm.setSongClips(clips[0..n], song_len_steps);
                 },
+                .slicer => |*sl| {
+                    var clips: [Slicer.max_song_clips]Slicer.SongClip = undefined;
+                    var n: usize = 0;
+                    for (lane.clips.items) |c| {
+                        if (n >= clips.len) break;
+                        // zig fmt: off
+                        const drum = switch (c.content) { .drum => |d| d, .melodic => continue };
+                        // zig fmt: on
+                        clips[n] = .{
+                            .start_step = c.start_bar * steps_per_bar,
+                            .span_steps = c.length_bars * steps_per_bar,
+                            .step_count = drum.step_count,
+                            .pattern = drum.pattern,
+                            .vel = drum.vel,
+                        };
+                        n += 1;
+                    }
+                    sl.setSongClips(clips[0..n], song_len_steps);
+                },
                 .poly_synth, .sampler => {
                     const pp = if (rack.pattern_player) |*p| p else continue;
                     var notes: [pattern_mod.max_notes]Note = undefined;
@@ -721,10 +762,7 @@ pub const Session = struct {
                     }
                     pp.setSongNotes(notes[0..n], song_len_beats);
                 },
-                // Slicer doesn't participate in the arrangement yet (no clip
-                // stamping) — deliberately out of scope for this first pass,
-                // see dsp/slicer.zig's own doc comment.
-                .empty, .slicer => {},
+                .empty => {},
             }
             self.flattenClipAutomation(@intCast(i), lane, bpb);
         }

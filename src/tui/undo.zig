@@ -52,21 +52,23 @@ pub const DrumState = struct {
 };
 
 /// One slicer's whole state: the chop layout (slice regions + per-slice
-/// params) and the step grid, so structural chops (:chop/:slice/split/
-/// merge) and grid edits undo through the same entry. Plain value — no
-/// allocation. Each captured Pad's `samples` field aliases whatever clip
-/// was loaded at capture time and is NOT restored — applying re-points
-/// every slice at the slicer's CURRENT buffer (same rule persist.zig's
-/// `reset_slices = false` load path documents), so an entry captured
-/// before a `:load-slice` still applies safely after it. Swing is a
-/// param, not captured — same call DrumState made.
+/// params) and the whole pattern-variant bank (active slot read from the
+/// live atomics, same as DrumState), so structural chops (:chop/:slice/
+/// split/merge) and grid edits undo through the same entry. Plain value —
+/// no allocation. Each captured Pad's `samples` field aliases whatever
+/// clip was loaded at capture time and is NOT restored — applying
+/// re-points every slice at the slicer's CURRENT buffer (same rule
+/// persist.zig's `reset_slices = false` load path documents), so an entry
+/// captured before a `:load-slice` still applies safely after it. Swing
+/// and choke groups are mixer-style params, not captured — same call
+/// DrumState made.
 pub const SlicerState = struct {
     track: u16,
     slice_count: u8,
-    step_count: u8,
     slices: [Slicer.max_slices]Pad,
-    pattern: [Slicer.max_slices]u64,
-    vel: [Slicer.max_slices][Slicer.max_steps]u8,
+    variants: [Slicer.max_variants]Slicer.Variant,
+    variant_count: u8,
+    variant: u8,
 };
 
 /// One arrangement lane's clips (deep copies; melodic notes owned).

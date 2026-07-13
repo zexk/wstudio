@@ -14,15 +14,13 @@
 //!
 //! Its own step sequencer deliberately does NOT share code with
 //! DrumMachine's, despite the conceptual overlap (both fire per-step
-//! triggers with swing and per-step velocity) — DrumMachine is the heaviest-
-//! tested, most atomics-delicate file in the codebase (see its own doc
-//! comment), and entangling a second consumer with its internals is a real
-//! risk for a modest amount of shared code. This file mirrors DrumMachine's
-//! swing/velocity/step-boundary-firing algorithm independently instead.
-//! Deliberately out of scope for this first pass: pattern variants, choke
-//! groups, and song-mode/arrangement playback — a slicer track doesn't
-//! participate in the arrangement yet (no clip stamping), same as how drum
-//! pad banks/variants were added to DrumMachine in later, separate passes.
+//! triggers with swing and per-step velocity, hold pattern variants A-H,
+//! carry per-row choke groups, and flatten arrangement clips into a
+//! SongClip timeline for song mode) — DrumMachine is the heaviest-tested,
+//! most atomics-delicate file in the codebase (see its own doc comment),
+//! and entangling a second consumer with its internals is a real risk for
+//! a modest amount of shared code. This file mirrors those algorithms
+//! independently instead.
 
 const std = @import("std");
 const types = @import("../core/types.zig");
@@ -38,6 +36,13 @@ const Sample = types.Sample;
 pub const Slicer = struct {
     pub const max_slices: u8 = 64;
     pub const max_steps: u8 = 64;
+    /// Max pattern variants (A..H) one slicer can hold — same bank size as
+    /// `DrumMachine.max_variants`.
+    pub const max_variants: u8 = 8;
+    /// Max clips one lane can hold for song-mode playback (see `song_clips`).
+    pub const max_song_clips: u16 = 256;
+    /// Max choke groups a slice can belong to (0 = no group, ungated).
+    pub const max_choke_groups: u8 = 4;
     /// Small per-slice voice pool — slices are short one-shots retriggered
     /// often (stutters, rolls), so a few overlapping voices covers real use
     /// without Sampler's full 16 (a slicer track can have up to 64 of these
@@ -67,6 +72,28 @@ pub const Slicer = struct {
         active: bool = false,
         age: u64 = 0,
         v: Voice = .{},
+    };
+
+    /// One pattern variant: a bank slot for the step grid. The active
+    /// variant lives in the atomic `pattern`/`step_count` fields; inactive
+    /// ones rest here as plain data (control thread only). Mirrors
+    /// `DrumMachine.Variant`, rows indexed by slice instead of pad.
+    pub const Variant = struct {
+        pattern: [max_slices]u64 = [_]u64{0} ** max_slices,
+        vel: [max_slices][max_steps]u8 = [_][max_steps]u8{[_]u8{vel_full} ** max_steps} ** max_slices,
+        step_count: u8 = 16,
+    };
+
+    /// A slicer clip flattened onto the arrangement's step timeline —
+    /// same shape and repeat-to-fill-span semantics as
+    /// `DrumMachine.SongClip` (the audio thread reads these under
+    /// `sample_lock`, which `processBlock` already holds).
+    pub const SongClip = struct {
+        start_step: u32,
+        span_steps: u32,
+        step_count: u8,
+        pattern: [max_slices]u64,
+        vel: [max_slices][max_steps]u8 = [_][max_steps]u8{[_]u8{vel_full} ** max_steps} ** max_slices,
     };
 
     allocator: std.mem.Allocator,
@@ -109,6 +136,27 @@ pub const Slicer = struct {
     vel: [max_slices][max_steps]std.atomic.Value(u8) = undefined,
     step_count: u8 = 16,
     swing: std.atomic.Value(f32) = .init(50.0),
+
+    // ── Pattern variants (control thread only) ──────────────────────────────
+    /// Bank slots. Slot `variant` is stale while active — read it through
+    /// `variantData`, which pulls the live atomics instead.
+    variants: [max_variants]Variant = [_]Variant{.{}} ** max_variants,
+    variant_count: u8 = 1,
+    /// Index of the active variant (the one in the live `pattern`).
+    variant: u8 = 0,
+
+    /// Per-slice choke group (0 = none). Grouped slices opt back into the
+    /// classic cut-the-previous-hit behavior `triggerSlice` alone
+    /// deliberately skips — see `chokeTrigger`.
+    choke_group: [max_slices]u8 = [_]u8{0} ** max_slices,
+
+    /// When true, processBlock fires from `song_clips` under the playhead
+    /// instead of looping the live pattern — same switch DrumMachine has.
+    song_mode: bool = false,
+    song_clips: [max_song_clips]SongClip = undefined,
+    song_clip_count: u16 = 0,
+    /// Whole-arrangement length in steps; silent past this (no wrap).
+    song_length_steps: u32 = 0,
 
     // Audio-thread-only state:
     next_step_k: u64 = 0,
@@ -416,6 +464,108 @@ pub const Slicer = struct {
     }
 
     // -----------------------------------------------------------------------
+    // Pattern variants (control thread) — mirrors DrumMachine's bank exactly.
+
+    /// Sync the live pattern back into its bank slot.
+    fn storeActiveVariant(self: *Slicer) void {
+        const slot = &self.variants[self.variant];
+        for (&slot.pattern, &self.pattern) |*bank, *live| bank.* = live.load(.acquire);
+        for (&slot.vel, &self.vel) |*bank_row, *live_row| {
+            for (bank_row, live_row) |*bank, *live| bank.* = live.load(.acquire);
+        }
+        slot.step_count = self.step_count;
+    }
+
+    /// Replace the live pattern with `slot`'s data (control thread). Used to
+    /// activate a bank variant and by undo's whole-state restore.
+    pub fn applyVariant(self: *Slicer, slot: Variant) void {
+        for (&self.pattern, slot.pattern) |*live, bits| live.store(bits, .release);
+        for (&self.vel, slot.vel) |*live_row, bank_row| {
+            for (live_row, bank_row) |*live, v| live.store(v, .release);
+        }
+        self.setStepCount(slot.step_count);
+    }
+
+    /// Switch the active variant to `v`, saving the live pattern first.
+    pub fn selectVariant(self: *Slicer, v: u8) void {
+        if (v >= self.variant_count or v == self.variant) return;
+        self.storeActiveVariant();
+        self.variant = v;
+        self.applyVariant(self.variants[v]);
+    }
+
+    /// Step the active variant by `delta`, wrapping within the bank.
+    pub fn cycleVariant(self: *Slicer, delta: i32) void {
+        const n: i32 = self.variant_count;
+        if (n <= 1) return;
+        self.selectVariant(@intCast(@mod(@as(i32, self.variant) + delta, n)));
+    }
+
+    /// Duplicate the active variant into a new slot and switch to it — the
+    /// live pattern already matches the copy. False when the bank is full.
+    pub fn addVariant(self: *Slicer) bool {
+        if (self.variant_count >= max_variants) return false;
+        self.storeActiveVariant();
+        self.variants[self.variant_count] = self.variants[self.variant];
+        self.variant = self.variant_count;
+        self.variant_count += 1;
+        return true;
+    }
+
+    /// Remove the active variant, shifting later slots down. The slot that
+    /// takes its index (or the new last) becomes active. False when it's the
+    /// only one left.
+    pub fn removeVariant(self: *Slicer) bool {
+        if (self.variant_count <= 1) return false;
+        var i = self.variant;
+        while (i + 1 < self.variant_count) : (i += 1) self.variants[i] = self.variants[i + 1];
+        self.variant_count -= 1;
+        if (self.variant >= self.variant_count) self.variant = self.variant_count - 1;
+        self.applyVariant(self.variants[self.variant]);
+        return true;
+    }
+
+    /// Variant `v`'s pattern data. The active one is read from the live
+    /// atomics (its bank slot is stale until the next switch).
+    pub fn variantData(self: *const Slicer, v: u8) Variant {
+        if (v == self.variant) {
+            var out: Variant = .{ .step_count = self.step_count };
+            for (&out.pattern, &self.pattern) |*dst, *live| dst.* = live.load(.acquire);
+            for (&out.vel, &self.vel) |*dst_row, *live_row| {
+                for (dst_row, live_row) |*dst, *live| dst.* = live.load(.acquire);
+            }
+            return out;
+        }
+        return self.variants[@min(v, max_variants - 1)];
+    }
+
+    /// Display letter for variant `v`: A, B, C, …
+    pub fn variantLetter(v: u8) u8 {
+        return 'A' + @as(u8, @min(v, max_variants - 1));
+    }
+
+    /// Step slice `slice`'s choke group forward: none → 1 → … → max → none.
+    pub fn cycleChokeGroup(self: *Slicer, slice: u8) void {
+        if (slice >= max_slices) return;
+        self.choke_group[slice] = (self.choke_group[slice] + 1) % (max_choke_groups + 1);
+    }
+
+    // -----------------------------------------------------------------------
+    // Song-mode clip timeline (mirrors DrumMachine's)
+
+    /// Replace the song-mode clip timeline (control thread). Taken under
+    /// `sample_lock` — `processBlock` holds it for the whole block, so
+    /// `fireSongStep` never reads a half-written list.
+    pub fn setSongClips(self: *Slicer, clips: []const SongClip, length_steps: u32) void {
+        while (!self.sample_lock.tryLock()) std.atomic.spinLoopHint();
+        defer self.sample_lock.unlock();
+        const count = @min(clips.len, @as(usize, max_song_clips));
+        for (clips[0..count], self.song_clips[0..count]) |src, *dst| dst.* = src;
+        self.song_clip_count = @intCast(count);
+        self.song_length_steps = length_steps;
+    }
+
+    // -----------------------------------------------------------------------
     // Step grid (control thread edits; audio thread reads in processBlock)
 
     pub fn toggleStep(self: *Slicer, slice: u8, step: u8) void {
@@ -502,12 +652,31 @@ pub const Slicer = struct {
     // -----------------------------------------------------------------------
     // Audio thread processing
 
+    /// Trigger `slice` through its choke group: a nonzero group first cuts
+    /// every ringing voice in the group INCLUDING this slice's own pool —
+    /// grouped slices opt back into the classic drum-machine cut behavior
+    /// that plain `triggerSlice` deliberately skips (put every slice in one
+    /// group for the MPC "mono" chop feel, or pair just two for an
+    /// open/closed-hat-style gate).
+    pub fn chokeTrigger(self: *Slicer, slice: u8, vel: f32, block_start: u32) void {
+        if (slice >= self.slice_count) return;
+        const group = self.choke_group[slice];
+        if (group != 0) {
+            for (0..self.slice_count) |i| {
+                // zig fmt: off
+                if (self.choke_group[i] == group) for (&self.voices[i]) |*sv| { sv.* = .{}; };
+                // zig fmt: on
+            }
+        }
+        self.triggerSlice(slice, vel, block_start);
+    }
+
     /// Trigger `slice` (0-based), stealing the oldest voice in its own small
     /// pool if all are busy — no forced choke-on-retrigger (unlike
     /// DrumMachine's pads): a slice replayed while still ringing is allowed
     /// to overlap, matching the "manipulate chops live" workflow (stutters,
     /// rolls) rather than the drum-kit convention of always cutting the
-    /// previous hit.
+    /// previous hit. Choke groups opt out of that — see `chokeTrigger`.
     pub fn triggerSlice(self: *Slicer, slice: u8, vel: f32, block_start: u32) void {
         if (slice >= self.slice_count) return;
         var pool = &self.voices[slice];
@@ -567,13 +736,17 @@ pub const Slicer = struct {
                         @as(u64, frames - 1),
                     ));
 
-                const step_idx: u8 = @intCast(step_k % self.step_count);
-                for (0..self.slice_count) |s| {
-                    if ((self.pattern[s].load(.acquire) >> @intCast(step_idx)) & 1 == 1) {
-                        self.triggerSlice(@intCast(s), velGain(self.stepVel(@intCast(s), step_idx)), fire_frame);
+                if (self.song_mode) {
+                    self.fireSongStep(step_k, fire_frame);
+                } else {
+                    const step_idx: u8 = @intCast(step_k % self.step_count);
+                    for (0..self.slice_count) |s| {
+                        if ((self.pattern[s].load(.acquire) >> @intCast(step_idx)) & 1 == 1) {
+                            self.chokeTrigger(@intCast(s), velGain(self.stepVel(@intCast(s), step_idx)), fire_frame);
+                        }
                     }
+                    self.current_step.store(step_idx, .monotonic);
                 }
-                self.current_step.store(step_idx, .monotonic);
                 step_k += 1;
             }
 
@@ -590,6 +763,30 @@ pub const Slicer = struct {
                 if (!sv.v.active) sv.active = false;
             }
         }
+    }
+
+    /// Fire slices for absolute step `step_k` from the song timeline. Past
+    /// `song_length_steps` this goes silent instead of wrapping — the
+    /// arrangement plays once through, not on a loop. Mirrors
+    /// `DrumMachine.fireSongStep`; caller (processBlock) holds sample_lock.
+    fn fireSongStep(self: *Slicer, step_k: u64, fire_frame: u32) void {
+        if (self.song_length_steps == 0 or step_k >= self.song_length_steps) return;
+        const lk: u32 = @intCast(step_k);
+        for (self.song_clips[0..self.song_clip_count]) |*clip| {
+            if (lk < clip.start_step or lk >= clip.start_step + clip.span_steps) continue;
+            if (clip.step_count == 0) return;
+            const local: u32 = (lk - clip.start_step) % clip.step_count;
+            for (0..self.slice_count) |s| {
+                if ((clip.pattern[s] >> @intCast(local)) & 1 == 1) {
+                    self.chokeTrigger(@intCast(s), velGain(clip.vel[s][local]), fire_frame);
+                }
+            }
+            self.current_step.store(@intCast(local), .monotonic);
+            return; // clips never overlap
+        }
+        // No clip under the playhead: keep the UI step indicator moving
+        // through the gap instead of freezing on the last clip's step.
+        self.current_step.store(@intCast(lk % self.step_count), .monotonic);
     }
 
     pub fn resetAll(self: *Slicer) void {
@@ -610,7 +807,7 @@ pub const Slicer = struct {
             // the current slice count — same convention DrumMachine.
             // triggerPad's `note % max_pads` uses for pad triggering.
             .note_on => |e| if (self.slice_count > 0) {
-                self.triggerSlice(e.note % self.slice_count, e.velocity, 0);
+                self.chokeTrigger(e.note % self.slice_count, e.velocity, 0);
             },
             .set_param => |e| self.adjustParam(e.id, e.steps),
             .set_param_abs => |e| self.setParamAbsolute(e.id, e.value),
@@ -937,6 +1134,118 @@ test "fillSlice/clearSlice cover exactly the active step range" {
     try std.testing.expect(!s.stepActive(0, 12));
     s.clearSlice(0);
     try std.testing.expect(!s.stepActive(0, 0));
+}
+
+test "variant bank: add copies, select round-trips, remove shifts" {
+    var transport = Transport{ .sample_rate = 48_000 };
+    var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
+    defer s.deinit();
+    s.sliceInto(4);
+    s.toggleStep(0, 0);
+    s.setStepVel(0, 0, 90);
+
+    try std.testing.expect(s.addVariant()); // B = copy of A, now active
+    try std.testing.expectEqual(@as(u8, 1), s.variant);
+    try std.testing.expect(s.stepActive(0, 0));
+    s.toggleStep(0, 0); // B diverges: step off
+    s.toggleStep(1, 2);
+
+    s.selectVariant(0);
+    try std.testing.expect(s.stepActive(0, 0)); // A intact
+    try std.testing.expectEqual(@as(u8, 90), s.stepVel(0, 0));
+    try std.testing.expect(!s.stepActive(1, 2));
+
+    s.selectVariant(1);
+    try std.testing.expect(!s.stepActive(0, 0)); // B's divergence held
+    try std.testing.expect(s.stepActive(1, 2));
+
+    try std.testing.expect(s.removeVariant()); // drop B, back on A
+    try std.testing.expectEqual(@as(u8, 1), s.variant_count);
+    try std.testing.expect(s.stepActive(0, 0));
+    try std.testing.expect(!s.removeVariant()); // last one stays
+}
+
+test "chokeTrigger cuts grouped voices, leaves ungrouped ringing" {
+    var transport = Transport{ .sample_rate = 48_000 };
+    var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
+    defer s.deinit();
+    s.sliceInto(4);
+    s.choke_group[0] = 1;
+    s.choke_group[1] = 1;
+    // Slice 2 ungrouped, slice 3 in a different group.
+    s.choke_group[3] = 2;
+
+    s.chokeTrigger(1, 1.0, 0);
+    s.chokeTrigger(2, 1.0, 0);
+    s.chokeTrigger(3, 1.0, 0);
+    try std.testing.expect(s.voices[1][0].active);
+
+    s.chokeTrigger(0, 1.0, 0); // group 1: cuts slice 1, spares 2 and 3
+    try std.testing.expect(s.voices[0][0].active);
+    try std.testing.expect(!s.voices[1][0].active);
+    try std.testing.expect(s.voices[2][0].active);
+    try std.testing.expect(s.voices[3][0].active);
+
+    // Grouped self-retrigger cuts its own previous voice (mono chop feel):
+    // still exactly one active voice in slice 0's pool.
+    s.chokeTrigger(0, 1.0, 0);
+    var active: usize = 0;
+    for (s.voices[0]) |sv| active += @intFromBool(sv.active);
+    try std.testing.expectEqual(@as(usize, 1), active);
+}
+
+test "ungrouped retrigger still overlaps (choke stays opt-in)" {
+    var transport = Transport{ .sample_rate = 48_000 };
+    var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
+    defer s.deinit();
+    s.sliceInto(2);
+    s.chokeTrigger(0, 1.0, 0);
+    s.chokeTrigger(0, 1.0, 0);
+    var active: usize = 0;
+    for (s.voices[0]) |sv| active += @intFromBool(sv.active);
+    try std.testing.expectEqual(@as(usize, 2), active);
+}
+
+test "song mode fires the clip covering the playhead, silent past the end" {
+    var transport = Transport{ .sample_rate = 48_000, .tempo_bpm = 120.0 };
+    transport.play();
+    var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
+    defer s.deinit();
+    s.sliceInto(4);
+    // Live pattern has slice 0 on step 0 — must NOT fire in song mode.
+    s.toggleStep(0, 0);
+
+    var clip: Slicer.SongClip = .{
+        .start_step = 0,
+        .span_steps = 16,
+        .step_count = 16,
+        .pattern = [_]u64{0} ** Slicer.max_slices,
+    };
+    clip.pattern[2] = 1; // slice 2 on the clip's step 0
+    s.setSongClips(&.{clip}, 16);
+    s.song_mode = true;
+
+    var buf: [64]Sample = undefined;
+    @memset(&buf, 0.0);
+    s.processBlock(&buf);
+    try std.testing.expect(s.voices[2][0].active);
+    try std.testing.expect(!s.voices[0][0].active);
+
+    // Past the song's end: nothing fires.
+    var s2 = try Slicer.init(std.testing.allocator, 48_000, &transport);
+    defer s2.deinit();
+    s2.sliceInto(4);
+    s2.setSongClips(&.{clip}, 16);
+    s2.song_mode = true;
+    var t2 = Transport{ .sample_rate = 48_000, .tempo_bpm = 120.0 };
+    t2.play();
+    t2.position_frames = 48_000 * 60; // way past 16 steps
+    s2.transport = &t2;
+    @memset(&buf, 0.0);
+    s2.processBlock(&buf);
+    for (s2.voices[0..4]) |pool| {
+        for (pool) |sv| try std.testing.expect(!sv.active);
+    }
 }
 
 test "all_off clears every slice's voices" {

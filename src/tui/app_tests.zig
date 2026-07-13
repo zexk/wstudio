@@ -555,6 +555,79 @@ test "slicer grid: e opens the sampler editor on the cursor slice and returns" {
     try std.testing.expectEqual(AppView.slicer_grid, app.view);
 }
 
+test "slicer grid: variant bank keys ( ) N D, undoable as one stack" {
+    var app = try testApp();
+    defer app.deinit();
+    try app.session.setInstrument(0, .slicer);
+    app.slicer_track = 0;
+    app.view = .slicer_grid;
+    app.slicerInst().sliceInto(4);
+    app.slicer_cursor = .{ 0, 0 };
+    _ = slicer_ed.handleKey(&app, .enter); // A: slice 0 step 0
+
+    _ = slicer_ed.handleKey(&app, .{ .char = 'N' }); // B = copy, active
+    try std.testing.expectEqual(@as(u8, 2), app.slicerInst().variant_count);
+    _ = slicer_ed.handleKey(&app, .{ .char = 'x' }); // B diverges: clear the step
+    try std.testing.expect(!app.slicerInst().stepActive(0, 0));
+
+    _ = slicer_ed.handleKey(&app, .{ .char = '(' }); // back to A
+    try std.testing.expectEqual(@as(u8, 0), app.slicerInst().variant);
+    try std.testing.expect(app.slicerInst().stepActive(0, 0));
+    _ = slicer_ed.handleKey(&app, .{ .char = ')' }); // forward to B
+    try std.testing.expect(!app.slicerInst().stepActive(0, 0));
+
+    _ = slicer_ed.handleKey(&app, .{ .char = 'D' }); // delete B
+    try std.testing.expectEqual(@as(u8, 1), app.slicerInst().variant_count);
+    _ = slicer_ed.handleKey(&app, .{ .char = 'u' }); // undo restores the bank
+    try std.testing.expectEqual(@as(u8, 2), app.slicerInst().variant_count);
+}
+
+test "slicer grid: C cycles the cursor slice's choke group" {
+    var app = try testApp();
+    defer app.deinit();
+    try app.session.setInstrument(0, .slicer);
+    app.slicer_track = 0;
+    app.view = .slicer_grid;
+    app.slicerInst().sliceInto(2);
+    app.slicer_cursor = .{ 1, 0 };
+    _ = slicer_ed.handleKey(&app, .{ .char = 'C' });
+    try std.testing.expectEqual(@as(u8, 1), app.slicerInst().choke_group[1]);
+    try std.testing.expectEqual(@as(u8, 0), app.slicerInst().choke_group[0]);
+}
+
+test "arrangement: slicer lane stamps a clip and song mode plays it" {
+    var app = try testApp();
+    defer app.deinit();
+    try app.session.setInstrument(0, .slicer);
+    app.slicer_track = 0;
+    app.slicerInst().sliceInto(4);
+    app.slicerInst().toggleStep(2, 0);
+
+    // enter in the arrangement stamps the live pattern at the cursor bar.
+    app.view = .arrangement;
+    app.cursor = 0;
+    app.arr_cursor_bar = 0;
+    app.handleKey(.enter, 0);
+    const lane = app.session.arrangement.lane(0).?;
+    try std.testing.expectEqual(@as(usize, 1), lane.clips.items.len);
+    try std.testing.expect(lane.clips.items[0].content == .drum);
+
+    // Song mode: the clip fires slice 2; audio comes out.
+    app.session.setSongMode(true);
+    try std.testing.expect(app.slicerInst().song_mode);
+    try std.testing.expectEqual(@as(u16, 1), app.slicerInst().song_clip_count);
+    _ = app.session.engine.send(.play);
+    var block: [512]types.Sample = undefined;
+    app.session.engine.process(&block);
+    try std.testing.expect(app.slicerInst().voices[2][0].active);
+
+    // The stamp is undoable as a lane edit.
+    app.session.setSongMode(false);
+    app.view = .slicer_grid;
+    _ = slicer_ed.handleKey(&app, .{ .char = 'u' });
+    try std.testing.expectEqual(@as(usize, 0), lane.clips.items.len);
+}
+
 test ":chop finds transients in the default clip or reports none" {
     var app = try testApp();
     defer app.deinit();

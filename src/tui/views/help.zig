@@ -234,6 +234,9 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("{ / }",        "nudge current slice's end earlier / later");
     t.key("r",            "toggle current slice's reverse");
     t.key("< / >",        "swing (50% straight ... 75% hardest shuffle)");
+    t.key("( / )",        "prev / next pattern variant (A–H; [ ] are boundary nudges here)");
+    t.key("N / D",        "new pattern variant (copy of current) / delete current");
+    t.key("C",            "cycle current slice's choke group (grouped slices cut each other)");
     t.key("e",            "edit the cursor slice in the full sampler editor (pitch, ADSR, gain, pan)");
 
     t.taggedSection(.sampler_editor, "SAMPLER EDITOR");
@@ -296,7 +299,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("enter",        "stamp the live pattern as a clip");
     t.key("e",            "edit melodic clip in the piano roll (edits save into the clip)");
     t.key(":load-clip",   "[file.wav]  load a WAV onto a sampler track and stamp it whole at the cursor bar");
-    t.key("[ / ]",        "cycle drum pattern variant to stamp");
+    t.key("[ / ]",        "cycle drum/slicer pattern variant to stamp");
     t.key("x",            "delete clip at cursor");
     t.key("y / p",        "yank / paste clip (matching track kind)");
     t.key("v",            "visual mode: select a bar range on this lane — y/d/p");

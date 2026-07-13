@@ -441,12 +441,25 @@ pub const SlicerSnap = struct {
     sample_file: []const u8 = "",
     name: []const u8 = "",
     slices: []PadSnap = &.{},
+    /// Legacy live-pattern fields: always the active variant's data (same
+    /// convention as `DrumSnap`'s), so pre-variant readers and hand edits
+    /// see a coherent single pattern.
     step_count: u8 = 16,
     /// Dense, parallel to `slices` — same "slice not fixed array" shape
     /// every other pattern-indexed field in this file uses.
     pattern: []const u64 = &.{},
     vel: []const []const u8 = &.{},
     swing: f32 = 50.0,
+    /// Additive, no version bump (see FORMAT.md's policy): the whole
+    /// variant bank, reusing `VariantSnap` (a slicer variant is the same
+    /// 64-row grid a drum variant is). Empty in older files — the slicer
+    /// then gets a single variant from the legacy fields above.
+    variants: []const VariantSnap = &.{},
+    /// Additive: index of the active variant within `variants`.
+    variant: u8 = 0,
+    /// Additive: per-slice choke group (0 = none — see
+    /// `Slicer.chokeTrigger`). Dense, parallel to `slices`.
+    choke_group: []const u8 = &.{},
 };
 
 pub const RackSnap = struct {
@@ -782,6 +795,24 @@ fn rackToSnap(aa: std.mem.Allocator, rack: *Rack, sample_rate: u32) !RackSnap {
                 row.* = r;
             }
             sls.vel = vel;
+
+            // The whole variant bank; the active slot reads through
+            // variantData (its bank copy is stale) — mirrors the drum
+            // export above. The legacy flat fields above stay the active
+            // variant's data for older readers.
+            const variants = try aa.alloc(VariantSnap, sl.variant_count);
+            for (variants, 0..) |*vs, vi| {
+                const v = sl.variantData(@intCast(vi));
+                const vp = try aa.alloc(u64, Slicer.max_slices);
+                for (vp, v.pattern) |*p, bits| p.* = bits;
+                vs.* = .{ .step_count = v.step_count, .pattern = vp, .vel = try velToSnap(aa, &v.vel) };
+            }
+            sls.variants = variants;
+            sls.variant = sl.variant;
+
+            const choke = try aa.alloc(u8, Slicer.max_slices);
+            for (choke, sl.choke_group) |*c, g| c.* = g;
+            sls.choke_group = choke;
 
             rs.slicer = sls;
         },
@@ -1369,15 +1400,39 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
                         p.samples = sl.samples; // applyPadSnap never touches .samples
                         applyPadSnap(p, ps);
                     }
-                    sl.setStepCount(sls.step_count);
-                    const pn = @min(sls.pattern.len, count);
-                    for (sls.pattern[0..pn], 0..) |bits, i| {
-                        sl.pattern[i].store(bits & Slicer.stepMask(sl.step_count), .monotonic);
+                    if (sls.variants.len > 0) {
+                        // Variant bank present: same load shape as the
+                        // drum's (bound to whichever side is shorter, bits
+                        // masked to each slot's own step count).
+                        const vcount: u8 = @intCast(@min(sls.variants.len, Slicer.max_variants));
+                        for (sls.variants[0..vcount], sl.variants[0..vcount]) |vs, *slot| {
+                            const sc = std.math.clamp(vs.step_count, 1, Slicer.max_steps);
+                            slot.step_count = sc;
+                            const mask = Slicer.stepMask(sc);
+                            const vpn = @min(vs.pattern.len, slot.pattern.len);
+                            for (vs.pattern[0..vpn], slot.pattern[0..vpn]) |bits, *p| p.* = bits & mask;
+                            applyVelSnap(&slot.vel, vs.vel, vs.vel_lo, vs.vel_hi);
+                        }
+                        sl.variant_count = vcount;
+                        sl.variant = @min(sls.variant, vcount - 1);
+                        sl.applyVariant(sl.variants[sl.variant]);
+                    } else {
+                        // Pre-variant file: one variant from the legacy
+                        // flat fields.
+                        sl.setStepCount(sls.step_count);
+                        const pn = @min(sls.pattern.len, count);
+                        for (sls.pattern[0..pn], 0..) |bits, i| {
+                            sl.pattern[i].store(bits & Slicer.stepMask(sl.step_count), .monotonic);
+                        }
+                        const vn = @min(sls.vel.len, count);
+                        for (sls.vel[0..vn], 0..) |row, i| {
+                            const sn = @min(row.len, Slicer.max_steps);
+                            for (row[0..sn], 0..) |v, s| sl.vel[i][s].store(v, .monotonic);
+                        }
                     }
-                    const vn = @min(sls.vel.len, count);
-                    for (sls.vel[0..vn], 0..) |row, i| {
-                        const sn = @min(row.len, Slicer.max_steps);
-                        for (row[0..sn], 0..) |v, s| sl.vel[i][s].store(v, .monotonic);
+                    for (sls.choke_group, 0..) |g, i| {
+                        if (i >= Slicer.max_slices) break;
+                        sl.choke_group[i] = @min(g, Slicer.max_choke_groups);
                     }
                     sl.setSwing(sls.swing);
                 }
@@ -2097,6 +2152,78 @@ test "save/load round-trip persists a slicer's slices, pattern, and swing" {
     try testing.expectEqual(@as(u8, 90), sl.stepVel(2, 5));
     try testing.expectEqual(@as(u8, 24), sl.step_count);
     try testing.expectApproxEqAbs(@as(f32, 65.0), sl.swing.load(.monotonic), 1e-4);
+}
+
+test "save/load round-trip persists a slicer's variant bank and choke groups" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [64]u8 = undefined;
+    const wsj_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/slvar.wsj", .{&tmp.sub_path});
+
+    var session = try Session.initDefault(testing.allocator);
+    defer session.deinit();
+    try session.setInstrument(0, .slicer);
+    {
+        const sl = &session.racks.items[0].instrument.slicer;
+        sl.sliceInto(4);
+        sl.toggleStep(0, 0); // variant A: slice 0 on step 0
+        try testing.expect(sl.addVariant()); // B active, copy of A
+        sl.toggleStep(0, 0); // B diverges: off
+        sl.toggleStep(3, 7);
+        sl.setStepVel(3, 7, 60);
+        sl.choke_group[0] = 1;
+        sl.choke_group[1] = 1;
+    }
+
+    try save(testing.allocator, &session, testing.io, wsj_path);
+    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    defer loaded.deinit();
+
+    const sl = &loaded.racks.items[0].instrument.slicer;
+    try testing.expectEqual(@as(u8, 2), sl.variant_count);
+    try testing.expectEqual(@as(u8, 1), sl.variant); // B was active at save
+    try testing.expect(!sl.stepActive(0, 0));
+    try testing.expect(sl.stepActive(3, 7));
+    try testing.expectEqual(@as(u8, 60), sl.stepVel(3, 7));
+    sl.selectVariant(0);
+    try testing.expect(sl.stepActive(0, 0)); // A intact through the file
+    try testing.expect(!sl.stepActive(3, 7));
+    try testing.expectEqual(@as(u8, 1), sl.choke_group[0]);
+    try testing.expectEqual(@as(u8, 1), sl.choke_group[1]);
+    try testing.expectEqual(@as(u8, 0), sl.choke_group[2]);
+}
+
+test "save/load round-trip keeps a slicer lane's stamped clips playable in song mode" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [64]u8 = undefined;
+    const wsj_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/slsong.wsj", .{&tmp.sub_path});
+
+    var session = try Session.initDefault(testing.allocator);
+    defer session.deinit();
+    try session.setInstrument(0, .slicer);
+    {
+        const sl = &session.racks.items[0].instrument.slicer;
+        sl.sliceInto(4);
+        sl.toggleStep(2, 0);
+    }
+    try session.stampClip(0, 0);
+
+    try save(testing.allocator, &session, testing.io, wsj_path);
+    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    defer loaded.deinit();
+
+    const lane = loaded.arrangement.lane(0).?;
+    try testing.expectEqual(@as(usize, 1), lane.clips.items.len);
+    try testing.expect(lane.clips.items[0].content == .drum);
+
+    loaded.setSongMode(true);
+    const sl = &loaded.racks.items[0].instrument.slicer;
+    try testing.expect(sl.song_mode);
+    try testing.expect(sl.song_clip_count == 1);
+    try testing.expectEqual(@as(u64, 1), sl.song_clips[0].pattern[2]);
 }
 
 test "save/load round-trip restores a slicer's user-loaded sample audio" {

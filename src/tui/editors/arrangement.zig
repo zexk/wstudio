@@ -391,9 +391,10 @@ fn playFromCursor(app: *App) void {
     app.setStatus("play from bar {d}", .{app.arr_cursor_bar + 1});
 }
 
-/// On a drum lane, cycle which pattern variant `enter` will stamp. This is
-/// the machine's active variant — the same one the drum grid edits and
-/// pattern mode plays — so there is only one notion of "selected pattern".
+/// On a drum or slicer lane, cycle which pattern variant `enter` will
+/// stamp. This is the machine's active variant — the same one the grid
+/// edits and pattern mode plays — so there is only one notion of
+/// "selected pattern".
 fn cycleDrumVariant(app: *App, delta: i32) void {
     if (app.cursor >= app.session.racks.items.len) return;
     switch (app.session.racks.items[app.cursor].instrument) {
@@ -408,7 +409,18 @@ fn cycleDrumVariant(app: *App, delta: i32) void {
                 DrumMachine.variantLetter(dm.variant), dm.variant + 1, dm.variant_count,
             });
         },
-        else => app.setStatus("not a drum track", .{}),
+        .slicer => |*sl| {
+            if (sl.variant_count <= 1) {
+                app.setStatus("one pattern — create variants in the slicer grid (N)", .{});
+                return;
+            }
+            sl.cycleVariant(delta);
+            app.dirty = true;
+            app.setStatus("pattern {c} ({d}/{d})", .{
+                ws.dsp.Slicer.variantLetter(sl.variant), sl.variant + 1, sl.variant_count,
+            });
+        },
+        else => app.setStatus("not a drum or slicer track", .{}),
     }
 }
 
@@ -419,12 +431,6 @@ fn stampClip(app: *App) void {
     switch (std.meta.activeTag(app.session.racks.items[app.cursor].instrument)) {
         .empty => {
             app.setStatus("empty track — insert an instrument first", .{});
-            return;
-        },
-        // session.stampClip would silently do nothing (no pattern player);
-        // without this guard the captureLane below parks a junk undo entry.
-        .slicer => {
-            app.setStatus("slicer tracks don't stamp clips yet — the loop plays as-is", .{});
             return;
         },
         else => {},
@@ -481,7 +487,7 @@ fn editClip(app: *App) void {
             app.piano_clip_link = .{ .track = track, .start_bar = clip.start_bar };
             app.setStatus("editing clip @ bar {d} — edits land in the clip", .{clip.start_bar + 1});
         },
-        .drum => app.setStatus("drum clips play the pattern bank — edit variants in the grid", .{}),
+        .drum => app.setStatus("pattern clips play from their stamp — edit variants in the grid", .{}),
     }
 }
 
