@@ -72,7 +72,7 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize
     // past the layout's last row (the two layouts' heights differ, so a
     // stale offset from the other mode must not survive a resize).
     const cursor_row = if (two_col) synth_ed.paramColRow(app.synth_cursor).row else synth_ed.paramRow(app.synth_cursor);
-    const body_rows: usize = if (two_col) synth_ed.body_rows_wide else 50; // rows below the shared title
+    const body_rows: usize = if (two_col) synth_ed.body_rows_wide else 53; // rows below the shared title
     var scroll = @min(app.synth_scroll, (body_rows + 1) -| max_rows);
     if (cursor_row < scroll) scroll = cursor_row;
     if (cursor_row >= scroll + max_rows) scroll = cursor_row -| max_rows + 1;
@@ -169,6 +169,7 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize
         try secSub(&tw, synth, c);
         try secNoise(&tw, synth, c);
         try secOut(&tw, synth, c);
+        try secUniMode(&tw, synth, c);
 
         var line_it = std.mem.splitSequence(u8, tw.buffered(), "\r\n");
         var row: usize = 1;
@@ -190,7 +191,7 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize
 // row maps in sync.
 
 /// Every non-oscillator section, stacked full-width beneath OSC A/B in the
-/// wide layout: 34 rows (3 + 5 + 5 + 5 + 5 + 3 + 3 + 3 + 2).
+/// wide layout: 37 rows (3 + 5 + 5 + 5 + 5 + 3 + 3 + 3 + 2 + 3).
 fn drawSynthBottom(w: *std.Io.Writer, synth: anytype, c: u8) !void {
     try secMod(w, synth, c);
     try secEnv(w, synth, c);
@@ -201,6 +202,7 @@ fn drawSynthBottom(w: *std.Io.Writer, synth: anytype, c: u8) !void {
     try secSub(w, synth, c);
     try secNoise(w, synth, c);
     try secOut(w, synth, c);
+    try secUniMode(w, synth, c);
 }
 
 const wf_names = [_][]const u8{ "sine", "saw", "tri", "sqr" };
@@ -403,6 +405,18 @@ fn secOut(w: *std.Io.Writer, synth: anytype, c: u8) !void {
 
     try barRow(w, c == 38, false, bcyn, "gain", synth.gain, 1.0,
         try std.fmt.bufPrint(&buf, "{d:.3}", .{synth.gain}));
+}
+
+const uni_mode_names = [_][]const u8{ "spread", "step" };
+
+fn secUniMode(w: *std.Io.Writer, synth: anytype, c: u8) !void {
+    try synthSection(w, "UNI MODE", acc);
+
+    const a_idx: usize = switch (synth.unison_mode) { .spread => 0, .step => 1 };
+    try enumRow(w, c == 39, synth.unison <= 1, acc, "osc a", &uni_mode_names, a_idx);
+
+    const b_idx: usize = switch (synth.osc_b_unison_mode) { .spread => 0, .step => 1 };
+    try enumRow(w, c == 40, !synth.osc_b_on or synth.osc_b_unison <= 1, acc, "osc b", &uni_mode_names, b_idx);
 }
 
 pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !void {

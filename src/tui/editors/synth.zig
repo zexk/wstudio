@@ -38,7 +38,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             'G' => { history.flushParamNudge(app); app.synth_cursor = style.synth_param_count - 1; updateScroll(app); return true; },
             '}', '{' => {
                 history.flushParamNudge(app);
-                const section_starts = [_]u8{ 0, 6, 14, 16, 20, 24, 28, 32, 34, 36, 38 };
+                const section_starts = [_]u8{ 0, 6, 14, 16, 20, 24, 28, 32, 34, 36, 38, 39 };
                 if (c == '}') {
                     for (section_starts) |s| {
                         if (s > app.synth_cursor) {
@@ -94,7 +94,7 @@ pub fn colWidth(cols: usize) usize {
 pub const top_h: usize = 9;
 
 /// Total body rows (below the shared title) in the wide A/B-over-C layout.
-pub const body_rows_wide: usize = 43;
+pub const body_rows_wide: usize = 46;
 
 /// Column + row of `cursor` within the wide layout (row 0 is the shared
 /// title). OSC A/B (rows 1-9) are side by side, col meaningful; everything
@@ -114,6 +114,7 @@ pub fn paramColRow(cursor: u8) struct { col: u1, row: usize } {
         34...35 => .{ .col = 0, .row = 37 + @as(usize, cursor - 34) },   // SUB (header at 36)
         36...37 => .{ .col = 0, .row = 40 + @as(usize, cursor - 36) },   // NOISE (header at 39)
         38      => .{ .col = 0, .row = 43 },                             // OUT (header at 42)
+        39...40 => .{ .col = 0, .row = 45 + @as(usize, cursor - 39) },   // UNI MODE (header at 44)
         else    => .{ .col = 0, .row = 0 },
     };
 }
@@ -133,6 +134,7 @@ pub fn paramRow(cursor: u8) usize {
         34...35 => 44 + @as(usize, cursor - 34),   // SUB (header at 43)
         36...37 => 47 + @as(usize, cursor - 36),   // NOISE (header at 46)
         38      => 50,                              // OUT (header at 49)
+        39...40 => 52 + @as(usize, cursor - 39),   // UNI MODE (header at 51)
         else    => 0,
     };
 }

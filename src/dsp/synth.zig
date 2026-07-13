@@ -32,6 +32,11 @@ pub const LfoTarget  = enum { none, filter, pitch, amp };
 pub const VoiceMode  = enum { poly, mono, legato };
 pub const SubShape   = enum { sine, square };
 pub const ModMode    = enum { none, ring, am_a_to_b, am_b_to_a, fm_a_to_b, fm_b_to_a };
+/// Detune curve across unison voices. `spread`: symmetric, total width =
+/// unison_detune cents (original behaviour). `step`: each voice offset by
+/// a full unison_detune-cents step from its neighbor — a chord/stack-style
+/// unison instead of a micro-detune blur.
+pub const UnisonMode  = enum { spread, step };
 
 pub const PolySynth = struct {
     sample_rate: f32,
@@ -48,6 +53,7 @@ pub const PolySynth = struct {
     unison_detune: f32 = 15.0,
     /// Stereo width: 0 = mono, 1 = full L/R spread across unison voices.
     unison_spread: f32 = 0.0,
+    unison_mode: UnisonMode = .spread,
 
     // ── OSC B ────────────────────────────────────────────────────────────────
     osc_b_on:           bool     = false,
@@ -61,6 +67,7 @@ pub const PolySynth = struct {
     osc_b_level:        f32      = 1.0,
     osc_b_unison:       u8       = 1,
     osc_b_unison_detune: f32     = 15.0,
+    osc_b_unison_mode:  UnisonMode = .spread,
 
     // ── AMP ENVELOPE ────────────────────────────────────────────────────────
     attack_s:  f32 = 0.005,
@@ -200,6 +207,7 @@ pub const PolySynth = struct {
         unison: u8 = 1,
         unison_detune: f32 = 15.0,
         unison_spread: f32 = 0.0,
+        unison_mode: UnisonMode = .spread,
 
         osc_b_on: bool = false,
         osc_b_waveform: Waveform = .saw,
@@ -209,6 +217,7 @@ pub const PolySynth = struct {
         osc_b_level: f32 = 1.0,
         osc_b_unison: u8 = 1,
         osc_b_unison_detune: f32 = 15.0,
+        osc_b_unison_mode: UnisonMode = .spread,
 
         attack_s: f32 = 0.005,
         decay_s: f32 = 0.08,
@@ -470,10 +479,7 @@ pub const PolySynth = struct {
             // Precompute per-unison phase increments for OSC A.
             var phase_incs_a: [max_unison]f32 = undefined;
             for (0..n_a) |ui| {
-                const spread: f32 = if (n_a > 1) blk: {
-                    const t = @as(f32, @floatFromInt(ui)) / @as(f32, @floatFromInt(n_a - 1));
-                    break :blk (t * 2.0 - 1.0) * self.unison_detune * 0.5;
-                } else 0.0;
+                const spread: f32 = if (n_a > 1) unisonSpreadCents(self.unison_mode, ui, n_a, self.unison_detune) else 0.0;
                 phase_incs_a[ui] = base_freq * std.math.pow(f32, 2.0, spread / 1200.0) / self.sample_rate;
             }
 
@@ -483,10 +489,7 @@ pub const PolySynth = struct {
                 const b_freq = base_freq * std.math.pow(f32, 2.0,
                     self.osc_b_semi / 12.0 + self.osc_b_detune_cents / 1200.0);
                 for (0..n_b) |ui| {
-                    const spread: f32 = if (n_b > 1) blk: {
-                        const t = @as(f32, @floatFromInt(ui)) / @as(f32, @floatFromInt(n_b - 1));
-                        break :blk (t * 2.0 - 1.0) * self.osc_b_unison_detune * 0.5;
-                    } else 0.0;
+                    const spread: f32 = if (n_b > 1) unisonSpreadCents(self.osc_b_unison_mode, ui, n_b, self.osc_b_unison_detune) else 0.0;
                     phase_incs_b[ui] = b_freq * std.math.pow(f32, 2.0, spread / 1200.0) / self.sample_rate;
                 }
             }
@@ -699,6 +702,19 @@ pub const PolySynth = struct {
         // Advance LFO once per block after all voices are done.
         self.lfo_phase += self.lfo_rate_hz * @as(f32, @floatFromInt(frames)) / self.sample_rate;
         self.lfo_phase -= @floor(self.lfo_phase);
+    }
+
+    /// Cents offset of unison voice `ui` of `n` (n > 1), per `mode`.
+    /// spread: symmetric, total width across the outermost voices = `detune`.
+    /// step: each voice offset by a full `detune`-cent step from its neighbor.
+    fn unisonSpreadCents(mode: UnisonMode, ui: usize, n: usize, detune: f32) f32 {
+        return switch (mode) {
+            .spread => blk: {
+                const t = @as(f32, @floatFromInt(ui)) / @as(f32, @floatFromInt(n - 1));
+                break :blk (t * 2.0 - 1.0) * detune * 0.5;
+            },
+            .step => (@as(f32, @floatFromInt(ui)) - @as(f32, @floatFromInt(n - 1)) * 0.5) * detune,
+        };
     }
 
     fn computeFilterCoeffs(self: *const PolySynth, cutoff: f32) FilterCoeffs {
@@ -915,6 +931,13 @@ pub const PolySynth = struct {
             37 => self.noise_color          = std.math.clamp(self.noise_color        + s * 0.01,   0.0,    1.0),
             // OUT (38)
             38 => self.gain                 = std.math.clamp(self.gain               + s * 0.01,  0.01,    1.0),
+            // UNI MODE (39–40)
+            39 => self.unison_mode = switch (self.unison_mode) {
+                .spread => .step, .step => .spread,
+            },
+            40 => self.osc_b_unison_mode = switch (self.osc_b_unison_mode) {
+                .spread => .step, .step => .spread,
+            },
             else => {},
         }
     }
@@ -940,6 +963,8 @@ pub const PolySynth = struct {
             31 => self.lfo_target          = enumFromValue(LfoTarget, value),
             32 => self.voice_mode          = enumFromValue(VoiceMode, value),
             35 => self.sub_shape           = enumFromValue(SubShape, value),
+            39 => self.unison_mode         = enumFromValue(UnisonMode, value),
+            40 => self.osc_b_unison_mode   = enumFromValue(UnisonMode, value),
             1  => self.pulse_width         = std.math.clamp(value,   0.01,   0.99),
             2  => self.detune_cents        = std.math.clamp(value, -100.0, 100.0),
             3  => self.unison              = @intCast(std.math.clamp(@as(i32, @intFromFloat(@round(value))), 1, 16)),
@@ -1020,6 +1045,8 @@ pub const PolySynth = struct {
             36 => self.noise_level,
             37 => self.noise_color,
             38 => self.gain,
+            39 => enumToValue(self.unison_mode),
+            40 => enumToValue(self.osc_b_unison_mode),
             else => null,
         };
     }
@@ -1275,6 +1302,30 @@ test "pulse width: narrow pulse is quieter than 50% duty cycle" {
     try std.testing.expect(rms_n < rms_w);
 }
 
+test "unison mode: step and spread produce different detune patterns" {
+    var spread = PolySynth.init(48_000);
+    spread.unison       = 4;
+    spread.unison_detune = 50.0;
+    spread.unison_mode  = .spread;
+    spread.noteOn(60, 1.0);
+
+    var step = PolySynth.init(48_000);
+    step.unison        = 4;
+    step.unison_detune  = 50.0;
+    step.unison_mode   = .step;
+    step.noteOn(60, 1.0);
+
+    var buf_spread: [512]Sample = undefined;
+    var buf_step: [512]Sample = undefined;
+    for (0..10) |_| {
+        @memset(&buf_spread, 0.0); spread.processBlock(&buf_spread);
+        @memset(&buf_step, 0.0);   step.processBlock(&buf_step);
+    }
+    var diff: f32 = 0.0;
+    for (buf_spread, buf_step) |a, b| diff += @abs(a - b);
+    try std.testing.expect(diff > 0.01);
+}
+
 test "LFO: phase advances by rate×frames/sr each block" {
     var synth = PolySynth.init(48_000);
     synth.lfo_rate_hz = 10.0;
@@ -1478,7 +1529,7 @@ test "paramValue/setParamAbsolute round-trip continuous, enum, and toggle params
     // Every editor param id survives a value-copy through the pair.
     var b = PolySynth.init(48_000);
     var id: u8 = 0;
-    while (id <= 38) : (id += 1) {
+    while (id <= 40) : (id += 1) {
         if (a.paramValue(id)) |v| b.setParamAbsolute(id, v);
     }
     try std.testing.expectApproxEqAbs(@as(f32, 0.37), b.sustain, 1e-6);
