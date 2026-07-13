@@ -421,16 +421,21 @@ fn secOut(w: *std.Io.Writer, synth: anytype, c: u8) !void {
         try std.fmt.bufPrint(&buf, "{d:.3}", .{synth.gain}));
 }
 
-const uni_mode_names = [_][]const u8{ "spread", "step" };
+const uni_mode_names = [_][]const u8{ "spread", "step", "harm", "ratio" };
+
+fn uniModeIdx(mode: anytype) usize {
+    return switch (mode) { .spread => 0, .step => 1, .harmonic => 2, .ratio => 3 };
+}
+
+fn uniModeName(mode: anytype) []const u8 {
+    return switch (mode) { .spread => "spread", .step => "step", .harmonic => "harmonic", .ratio => "ratio" };
+}
 
 fn secUniMode(w: *std.Io.Writer, synth: anytype, c: u8) !void {
     try synthSection(w, "UNI MODE", acc);
 
-    const a_idx: usize = switch (synth.unison_mode) { .spread => 0, .step => 1 };
-    try enumRow(w, c == 39, synth.unison <= 1, acc, "osc a", &uni_mode_names, a_idx);
-
-    const b_idx: usize = switch (synth.osc_b_unison_mode) { .spread => 0, .step => 1 };
-    try enumRow(w, c == 40, !synth.osc_b_on or synth.osc_b_unison <= 1, acc, "osc b", &uni_mode_names, b_idx);
+    try enumRow(w, c == 39, synth.unison <= 1, acc, "osc a", &uni_mode_names, uniModeIdx(synth.unison_mode));
+    try enumRow(w, c == 40, !synth.osc_b_on or synth.osc_b_unison <= 1, acc, "osc b", &uni_mode_names, uniModeIdx(synth.osc_b_unison_mode));
 }
 
 const warp_mode_names = [_][]const u8{ "none", "bend", "mirror", "sync" };
@@ -513,9 +518,7 @@ fn secOscC(w: *std.Io.Writer, synth: anytype, c: u8) !void {
     try barRow(w, c == 57, !c_on, acc, "uni.det", synth.osc_c_unison_detune, 100.0,
         try std.fmt.bufPrint(&buf, "{d:.1} ct", .{synth.osc_c_unison_detune}));
 
-    const um_names = [_][]const u8{ "spread", "step" };
-    const um_idx: usize = switch (synth.osc_c_unison_mode) { .spread => 0, .step => 1 };
-    try enumRow(w, c == 58, !c_on or synth.osc_c_unison <= 1, acc, "uni.mode", &um_names, um_idx);
+    try enumRow(w, c == 58, !c_on or synth.osc_c_unison <= 1, acc, "uni.mode", &uni_mode_names, uniModeIdx(synth.osc_c_unison_mode));
 }
 
 pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !void {
@@ -616,8 +619,8 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !
               else try w.print("{d:.2}",   .{synth.noise_level}),
         37 => try w.print("{d:.2}",       .{synth.noise_color}),
         38 => try w.print("{d:.3}",       .{synth.gain}),
-        39 => try w.writeAll(switch (synth.unison_mode) { .spread => "spread", .step => "step" }),
-        40 => try w.writeAll(switch (synth.osc_b_unison_mode) { .spread => "spread", .step => "step" }),
+        39 => try w.writeAll(uniModeName(synth.unison_mode)),
+        40 => try w.writeAll(uniModeName(synth.osc_b_unison_mode)),
         41 => try w.writeAll(switch (synth.warp_mode) {
             .none => "none", .bend => "bend", .mirror => "mirror", .sync => "sync",
         }),
@@ -646,7 +649,7 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !
         55 => try w.print("{d:.2}",       .{synth.osc_c_level}),
         56 => try w.print("{d}",           .{synth.osc_c_unison}),
         57 => try w.print("{d:.1} ct",    .{synth.osc_c_unison_detune}),
-        58 => try w.writeAll(switch (synth.osc_c_unison_mode) { .spread => "spread", .step => "step" }),
+        58 => try w.writeAll(uniModeName(synth.osc_c_unison_mode)),
         else => {},
     }
     try w.writeAll(rst);

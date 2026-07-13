@@ -41,8 +41,12 @@ pub const ModMode    = enum { none, ring, am_a_to_b, am_b_to_a, fm_a_to_b, fm_b_
 /// Detune curve across unison voices. `spread`: symmetric, total width =
 /// unison_detune cents (original behaviour). `step`: each voice offset by
 /// a full unison_detune-cents step from its neighbor — a chord/stack-style
-/// unison instead of a micro-detune blur.
-pub const UnisonMode  = enum { spread, step };
+/// unison instead of a micro-detune blur. `harmonic`: voices bend upward
+/// toward the integer harmonic series (1x, 2x, 3x, ...); `ratio` toward the
+/// half-integer series (1x, 1.5x, 2x, ...) — a fifths/octaves power-chord
+/// stack. For both, unison_detune is the blend: 0 = all voices at the
+/// fundamental, 100 = exact series.
+pub const UnisonMode  = enum { spread, step, harmonic, ratio };
 /// Phase-warp applied to an oscillator's read phase before waveform lookup.
 /// `bend`: pivots the ramp so one half of the cycle races the other (PD-style
 /// asymmetry). `mirror`: folds the back part of the cycle backward instead of
@@ -882,13 +886,20 @@ pub const PolySynth = struct {
     /// Cents offset of unison voice `ui` of `n` (n > 1), per `mode`.
     /// spread: symmetric, total width across the outermost voices = `detune`.
     /// step: each voice offset by a full `detune`-cent step from its neighbor.
+    /// harmonic/ratio: voice ui aims at the (ui+1)-th entry of the integer /
+    /// half-integer harmonic series, scaled by `detune`/100 so the knob morphs
+    /// from plain unison (0) to the exact series (100). Voice 0 always stays
+    /// on the fundamental.
     fn unisonSpreadCents(mode: UnisonMode, ui: usize, n: usize, detune: f32) f32 {
+        const ui_f: f32 = @floatFromInt(ui);
         return switch (mode) {
             .spread => blk: {
-                const t = @as(f32, @floatFromInt(ui)) / @as(f32, @floatFromInt(n - 1));
+                const t = ui_f / @as(f32, @floatFromInt(n - 1));
                 break :blk (t * 2.0 - 1.0) * detune * 0.5;
             },
-            .step => (@as(f32, @floatFromInt(ui)) - @as(f32, @floatFromInt(n - 1)) * 0.5) * detune,
+            .step => (ui_f - @as(f32, @floatFromInt(n - 1)) * 0.5) * detune,
+            .harmonic => 1200.0 * std.math.log2(1.0 + ui_f) * (detune / 100.0),
+            .ratio => 1200.0 * std.math.log2(1.0 + 0.5 * ui_f) * (detune / 100.0),
         };
     }
 
@@ -1150,11 +1161,15 @@ pub const PolySynth = struct {
             // OUT (38)
             38 => self.gain                 = std.math.clamp(self.gain               + s * 0.01,  0.01,    1.0),
             // UNI MODE (39–40)
-            39 => self.unison_mode = switch (self.unison_mode) {
-                .spread => .step, .step => .spread,
+            39 => self.unison_mode = if (steps > 0) switch (self.unison_mode) {
+                .spread => .step, .step => .harmonic, .harmonic => .ratio, .ratio => .spread,
+            } else switch (self.unison_mode) {
+                .spread => .ratio, .step => .spread, .harmonic => .step, .ratio => .harmonic,
             },
-            40 => self.osc_b_unison_mode = switch (self.osc_b_unison_mode) {
-                .spread => .step, .step => .spread,
+            40 => self.osc_b_unison_mode = if (steps > 0) switch (self.osc_b_unison_mode) {
+                .spread => .step, .step => .harmonic, .harmonic => .ratio, .ratio => .spread,
+            } else switch (self.osc_b_unison_mode) {
+                .spread => .ratio, .step => .spread, .harmonic => .step, .ratio => .harmonic,
             },
             // WARP (41–44)
             41 => self.warp_mode = if (steps > 0) switch (self.warp_mode) {
@@ -1195,8 +1210,10 @@ pub const PolySynth = struct {
             55 => self.osc_c_level          = std.math.clamp(self.osc_c_level        + s * 0.01,   0.0,    1.0),
             56 => self.osc_c_unison         = @intCast(std.math.clamp(@as(i32, self.osc_c_unison) + steps, 1, 16)),
             57 => self.osc_c_unison_detune  = std.math.clamp(self.osc_c_unison_detune + s * 1.0,   0.0,  100.0),
-            58 => self.osc_c_unison_mode = switch (self.osc_c_unison_mode) {
-                .spread => .step, .step => .spread,
+            58 => self.osc_c_unison_mode = if (steps > 0) switch (self.osc_c_unison_mode) {
+                .spread => .step, .step => .harmonic, .harmonic => .ratio, .ratio => .spread,
+            } else switch (self.osc_c_unison_mode) {
+                .spread => .ratio, .step => .spread, .harmonic => .step, .ratio => .harmonic,
                 // zig fmt: on
             },
             else => {},
@@ -1645,6 +1662,21 @@ test "unison mode: step and spread produce different detune patterns" {
     var diff: f32 = 0.0;
     for (buf_spread, buf_step) |a, b| diff += @abs(a - b);
     try std.testing.expect(diff > 0.01);
+}
+
+test "unison mode: harmonic and ratio curves hit exact series at detune=100" {
+    const eps = 0.01;
+    // Voice 0 stays on the fundamental in both modes, at any detune.
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), PolySynth.unisonSpreadCents(.harmonic, 0, 4, 100.0), eps);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), PolySynth.unisonSpreadCents(.ratio, 0, 4, 100.0), eps);
+    // harmonic: voice 1 = 2nd harmonic (octave), voice 3 = 4th (two octaves).
+    try std.testing.expectApproxEqAbs(@as(f32, 1200.0), PolySynth.unisonSpreadCents(.harmonic, 1, 4, 100.0), eps);
+    try std.testing.expectApproxEqAbs(@as(f32, 2400.0), PolySynth.unisonSpreadCents(.harmonic, 3, 4, 100.0), eps);
+    // ratio: voice 1 = 1.5x (just fifth, ~702 ct), voice 2 = 2x (octave).
+    try std.testing.expectApproxEqAbs(@as(f32, 701.955), PolySynth.unisonSpreadCents(.ratio, 1, 4, 100.0), eps);
+    try std.testing.expectApproxEqAbs(@as(f32, 1200.0), PolySynth.unisonSpreadCents(.ratio, 2, 4, 100.0), eps);
+    // detune scales the blend linearly: half detune = half the cents.
+    try std.testing.expectApproxEqAbs(@as(f32, 600.0), PolySynth.unisonSpreadCents(.harmonic, 1, 4, 50.0), eps);
 }
 
 test "LFO: phase advances by rate×frames/sr each block" {
