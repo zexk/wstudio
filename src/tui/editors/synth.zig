@@ -44,7 +44,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             'G' => { history.flushParamNudge(app); app.synth_cursor = style.synth_param_count - 1; updateScroll(app); return true; },
             '}', '{' => {
                 history.flushParamNudge(app);
-                const section_starts = [_]u8{ 0, 6, 14, 16, 20, 24, 28, 32, 34, 36, 38, 39, 41, 45, 50 };
+                const section_starts = [_]u8{ 0, 6, 14, 16, 20, 24, 28, 32, 34, 36, 38, 39, 41, 45, 50, 59 };
                 if (c == '}') {
                     for (section_starts) |s| {
                         if (s > app.synth_cursor) {
@@ -72,11 +72,21 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
     }
 }
 
-/// Move the param cursor by `delta` rows, clamped to the param list.
+/// Retired param ids (absorbed into the mod matrix) that no longer have an
+/// editor row; the cursor steps over them.
+fn deadParam(id: u8) bool {
+    return id == 23 or id == 30 or id == 31;
+}
+
+/// Move the param cursor by `delta` rows, clamped to the param list and
+/// skipping retired ids in the direction of travel.
 fn moveCursor(app: *App, delta: i32) void {
-    app.synth_cursor = @intCast(std.math.clamp(
+    var c: i32 = std.math.clamp(
         @as(i32, app.synth_cursor) + delta, 0, style.synth_param_count - 1,
-    ));
+    );
+    const dir: i32 = if (delta >= 0) 1 else -1;
+    while (deadParam(@intCast(c))) c += dir;
+    app.synth_cursor = @intCast(c);
     updateScroll(app);
 }
 // zig fmt: on
@@ -101,31 +111,36 @@ pub fn colWidth(cols: usize) usize {
 pub const top_h: usize = 9;
 
 /// Total body rows (below the shared title) in the wide A/B-over-C layout.
-pub const body_rows_wide: usize = 67;
+pub const body_rows_wide: usize = 89;
+
+/// Total body rows in the single-column layout.
+pub const body_rows_single: usize = 96;
 
 // zig fmt: off
 /// Column + row of `cursor` within the wide layout (row 0 is the shared
 /// title). OSC A/B (rows 1-9) are side by side, col meaningful; everything
-/// else (rows 10-43) is a single full-width column and col is unused. Must
-/// stay in sync with secOscA/secOscB/drawSynthBottom in views/synth.zig,
-/// exactly like paramRow mirrors the single-column order.
+/// else is a single full-width column and col is unused. Must stay in sync
+/// with secOscA/secOscB/drawSynthBottom in views/synth.zig, exactly like
+/// paramRow mirrors the single-column order. Retired ids (23/30/31) map to
+/// row 0, which never matches a body row.
 pub fn paramColRow(cursor: u8) struct { col: u1, row: usize } {
     return switch (cursor) {
         0...5   => .{ .col = 0, .row = 2  + @as(usize, cursor) },        // OSC A (header at 1)
         6...13  => .{ .col = 1, .row = 2  + @as(usize, cursor - 6) },    // OSC B (header at 1)
         14...15 => .{ .col = 0, .row = 11 + @as(usize, cursor - 14) },   // MOD (header at 10)
         16...19 => .{ .col = 0, .row = 14 + @as(usize, cursor - 16) },   // ENV (header at 13)
-        20...23 => .{ .col = 0, .row = 19 + @as(usize, cursor - 20) },   // FILTER (header at 18)
-        24...27 => .{ .col = 0, .row = 24 + @as(usize, cursor - 24) },   // FENV (header at 23)
-        28...31 => .{ .col = 0, .row = 29 + @as(usize, cursor - 28) },   // LFO (header at 28)
-        32...33 => .{ .col = 0, .row = 34 + @as(usize, cursor - 32) },   // VOICE (header at 33)
-        34...35 => .{ .col = 0, .row = 37 + @as(usize, cursor - 34) },   // SUB (header at 36)
-        36...37 => .{ .col = 0, .row = 40 + @as(usize, cursor - 36) },   // NOISE (header at 39)
-        38      => .{ .col = 0, .row = 43 },                             // OUT (header at 42)
-        39...40 => .{ .col = 0, .row = 45 + @as(usize, cursor - 39) },   // UNI MODE (header at 44)
-        41...44 => .{ .col = 0, .row = 48 + @as(usize, cursor - 41) },   // WARP (header at 47)
-        45...49 => .{ .col = 0, .row = 53 + @as(usize, cursor - 45) },   // FILTER 2 (header at 52)
-        50...58 => .{ .col = 0, .row = 59 + @as(usize, cursor - 50) },   // OSC C (header at 58)
+        20...22 => .{ .col = 0, .row = 19 + @as(usize, cursor - 20) },   // FILTER (header at 18)
+        24...27 => .{ .col = 0, .row = 23 + @as(usize, cursor - 24) },   // FENV (header at 22)
+        28...29 => .{ .col = 0, .row = 28 + @as(usize, cursor - 28) },   // LFO (header at 27)
+        32...33 => .{ .col = 0, .row = 31 + @as(usize, cursor - 32) },   // VOICE (header at 30)
+        34...35 => .{ .col = 0, .row = 34 + @as(usize, cursor - 34) },   // SUB (header at 33)
+        36...37 => .{ .col = 0, .row = 37 + @as(usize, cursor - 36) },   // NOISE (header at 36)
+        38      => .{ .col = 0, .row = 40 },                             // OUT (header at 39)
+        39...40 => .{ .col = 0, .row = 42 + @as(usize, cursor - 39) },   // UNI MODE (header at 41)
+        41...44 => .{ .col = 0, .row = 45 + @as(usize, cursor - 41) },   // WARP (header at 44)
+        45...49 => .{ .col = 0, .row = 50 + @as(usize, cursor - 45) },   // FILTER 2 (header at 49)
+        50...58 => .{ .col = 0, .row = 56 + @as(usize, cursor - 50) },   // OSC C (header at 55)
+        59...82 => .{ .col = 0, .row = 66 + @as(usize, cursor - 59) },   // MATRIX (header at 65)
         else    => .{ .col = 0, .row = 0 },
     };
 }
@@ -138,17 +153,18 @@ pub fn paramRow(cursor: u8) usize {
         6...13 => 9 + @as(usize, cursor - 6),      // OSC B (header at row 8)
         14...15 => 18 + @as(usize, cursor - 14),   // MOD (header at 17)
         16...19 => 21 + @as(usize, cursor - 16),   // ENV (header at 20)
-        20...23 => 26 + @as(usize, cursor - 20),   // FILTER (header at 25)
-        24...27 => 31 + @as(usize, cursor - 24),   // FENV (header at 30)
-        28...31 => 36 + @as(usize, cursor - 28),   // LFO (header at 35)
-        32...33 => 41 + @as(usize, cursor - 32),   // VOICE (header at 40)
-        34...35 => 44 + @as(usize, cursor - 34),   // SUB (header at 43)
-        36...37 => 47 + @as(usize, cursor - 36),   // NOISE (header at 46)
-        38      => 50,                              // OUT (header at 49)
-        39...40 => 52 + @as(usize, cursor - 39),   // UNI MODE (header at 51)
-        41...44 => 55 + @as(usize, cursor - 41),   // WARP (header at 54)
-        45...49 => 60 + @as(usize, cursor - 45),   // FILTER 2 (header at 59)
-        50...58 => 66 + @as(usize, cursor - 50),   // OSC C (header at 65)
+        20...22 => 26 + @as(usize, cursor - 20),   // FILTER (header at 25)
+        24...27 => 30 + @as(usize, cursor - 24),   // FENV (header at 29)
+        28...29 => 35 + @as(usize, cursor - 28),   // LFO (header at 34)
+        32...33 => 39 + @as(usize, cursor - 32),   // VOICE (header at 38)
+        34...35 => 42 + @as(usize, cursor - 34),   // SUB (header at 41)
+        36...37 => 45 + @as(usize, cursor - 36),   // NOISE (header at 44)
+        38      => 48,                              // OUT (header at 47)
+        39...40 => 50 + @as(usize, cursor - 39),   // UNI MODE (header at 49)
+        41...44 => 53 + @as(usize, cursor - 41),   // WARP (header at 52)
+        45...49 => 58 + @as(usize, cursor - 45),   // FILTER 2 (header at 57)
+        50...58 => 64 + @as(usize, cursor - 50),   // OSC C (header at 63)
+        59...82 => 74 + @as(usize, cursor - 59),   // MATRIX (header at 73)
         else    => 0,
     };
 }

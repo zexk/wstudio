@@ -47,7 +47,7 @@ const synth_ed = @import("../editors/synth.zig");
 /// body to keep the cursor in view. Wide terminals (synth_ed.twoCol) get an
 /// A/B-over-C layout: OSC A and OSC B side by side on top (osc-specific
 /// params), then every other, non-oscillator section stacked full-width
-/// beneath (43 body rows instead of 50); narrow terminals keep the plain
+/// beneath (see synth_ed.body_rows_wide); narrow terminals keep the plain
 /// single-column stack.
 pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, snap: engine_mod.UiSnapshot) !void {
     _ = snap;
@@ -72,7 +72,7 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize
     // past the layout's last row (the two layouts' heights differ, so a
     // stale offset from the other mode must not survive a resize).
     const cursor_row = if (two_col) synth_ed.paramColRow(app.synth_cursor).row else synth_ed.paramRow(app.synth_cursor);
-    const body_rows: usize = if (two_col) synth_ed.body_rows_wide else 53; // rows below the shared title
+    const body_rows: usize = if (two_col) synth_ed.body_rows_wide else synth_ed.body_rows_single;
     var scroll = @min(app.synth_scroll, (body_rows + 1) -| max_rows);
     if (cursor_row < scroll) scroll = cursor_row;
     if (cursor_row >= scroll + max_rows) scroll = cursor_row -| max_rows + 1;
@@ -175,6 +175,7 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize
         try secWarp(&tw, synth, c);
         try secFilter2(&tw, synth, c);
         try secOscC(&tw, synth, c);
+        try secMatrix(&tw, synth, c);
 
         var line_it = std.mem.splitSequence(u8, tw.buffered(), "\r\n");
         var row: usize = 1;
@@ -196,10 +197,10 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize
 // row maps in sync.
 
 /// Every non-oscillator section, stacked full-width beneath OSC A/B in the
-/// wide layout: 57 rows (3 + 5 + 5 + 5 + 5 + 3 + 3 + 3 + 2 + 3 + 5 + 5 + 9).
-/// OSC C is 3rd-oscillator content but lives here (not the top A/B block)
-/// since the wide layout's top block is a fixed 2-column split — see
-/// body_rows_wide's own history for why a 3-column top block was skipped.
+/// wide layout (body_rows_wide - top_h rows; the MATRIX section is the big
+/// one at 25). OSC C is 3rd-oscillator content but lives here (not the top
+/// A/B block) since the wide layout's top block is a fixed 2-column split —
+/// see body_rows_wide's own history for why a 3-column top block was skipped.
 fn drawSynthBottom(w: *std.Io.Writer, synth: anytype, c: u8) !void {
     try secMod(w, synth, c);
     try secEnv(w, synth, c);
@@ -214,6 +215,7 @@ fn drawSynthBottom(w: *std.Io.Writer, synth: anytype, c: u8) !void {
     try secWarp(w, synth, c);
     try secFilter2(w, synth, c);
     try secOscC(w, synth, c);
+    try secMatrix(w, synth, c);
 }
 
 const wf_names = [_][]const u8{ "sine", "saw", "tri", "sqr" };
@@ -335,11 +337,6 @@ fn secFilter(w: *std.Io.Writer, synth: anytype, c: u8) !void {
     }
     try barRow(w, c == 22, false, yel, "res", synth.filter_res, 1.0,
         try std.fmt.bufPrint(&buf, "{d:.3}", .{synth.filter_res}));
-    {
-        const sign: []const u8 = if (synth.fenv_amount >= 0.0) "+" else "";
-        try barRow(w, c == 23, false, yel, "f.env.amt", synth.fenv_amount + 4.0, 8.0,
-            try std.fmt.bufPrint(&buf, "{s}{d:.1} oct", .{ sign, synth.fenv_amount }));
-    }
 }
 
 fn secFenv(w: *std.Io.Writer, synth: anytype, c: u8) !void {
@@ -356,6 +353,8 @@ fn secFenv(w: *std.Io.Writer, synth: anytype, c: u8) !void {
         try std.fmt.bufPrint(&buf, "{d:.3} s", .{synth.fenv_release_s}));
 }
 
+/// Shape + rate only: the LFO is a pure mod source, its routing lives on
+/// MATRIX rows (the matrix absorbed the old depth/target params).
 fn secLfo(w: *std.Io.Writer, synth: anytype, c: u8) !void {
     var buf: [40]u8 = undefined;
     try synthSection(w, "LFO", mag);
@@ -368,14 +367,6 @@ fn secLfo(w: *std.Io.Writer, synth: anytype, c: u8) !void {
 
     try barRow(w, c == 29, false, mag, "rate", synth.lfo_rate_hz, 20.0,
         try std.fmt.bufPrint(&buf, "{d:.2} Hz", .{synth.lfo_rate_hz}));
-    try barRow(w, c == 30, false, mag, "depth", synth.lfo_depth, 1.0,
-        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.lfo_depth}));
-
-    const tgt_names = [_][]const u8{ "off", "filt", "pitch", "amp" };
-    const tgt_idx: usize = switch (synth.lfo_target) {
-        .none => 0, .filter => 1, .pitch => 2, .amp => 3,
-    };
-    try enumRow(w, c == 31, false, mag, "target", &tgt_names, tgt_idx);
 }
 
 fn secVoice(w: *std.Io.Writer, synth: anytype, c: u8) !void {
@@ -523,20 +514,56 @@ fn secOscC(w: *std.Io.Writer, synth: anytype, c: u8) !void {
     try enumRow(w, c == 58, !c_on or synth.osc_c_unison <= 1, acc, "uni.mode", &uni_mode_names, uniModeIdx(synth.osc_c_unison_mode));
 }
 
+const mod_src_names = [_][]const u8{ "off", "lfo", "fenv", "aenv", "vel", "key", "whl" };
+
+fn modSrcIdx(src: anytype) usize {
+    return @intFromEnum(src);
+}
+
+/// 8 mod-matrix rows, 3 editor rows each (source / dest / depth). Dest and
+/// depth dim while the row's source is off, mirroring the on/off gating the
+/// oscillator sections use.
+fn secMatrix(w: *std.Io.Writer, synth: anytype, c: u8) !void {
+    var buf: [40]u8 = undefined;
+    try synthSection(w, "MATRIX", mag);
+
+    for (synth.mod_matrix, 0..) |row, k| {
+        const base: u8 = @intCast(59 + k * 3);
+        const off = row.source == .none;
+        var lbl: [12]u8 = undefined;
+
+        const src_lbl = try std.fmt.bufPrint(&lbl, "{d} source", .{k + 1});
+        try enumRow(w, c == base, false, mag, src_lbl, &mod_src_names, modSrcIdx(row.source));
+
+        const dst_lbl = try std.fmt.bufPrint(&lbl, "{d} dest", .{k + 1});
+        try rowHead(w, c == base + 1, off, dst_lbl);
+        try rowVal(w, c == base + 1, off, ws.dsp.PolySynth.modDestLabel(row.dest));
+        try endLine(w);
+
+        const dep_lbl = try std.fmt.bufPrint(&lbl, "{d} depth", .{k + 1});
+        const sign: []const u8 = if (row.depth >= 0.0) "+" else "";
+        try barRow(w, c == base + 2, off, mag, dep_lbl, row.depth + 1.0, 2.0,
+            try std.fmt.bufPrint(&buf, "{s}{d:.2}", .{ sign, row.depth }));
+    }
+}
+
 pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !void {
     if (app.synth_track >= app.session.racks.items.len) return;
     const rack = app.session.racks.items[app.synth_track];
     switch (rack.instrument) { .poly_synth => {}, else => return }
     const synth = &rack.instrument.poly_synth;
 
+    // Ids 23/30/31 are retired (absorbed into the matrix) and never land
+    // under the cursor — their entries are placeholders keeping the array
+    // aligned with param ids.
     const labels = [_][]const u8{
         "waveform", "pls.width", "detune", "unison", "uni.det", "spread",
         "b.on", "b.waveform", "b.pw", "b.semi", "b.detune", "b.level", "b.unison", "b.uni.det",
         "mod.mode", "mod.amount",
         "attack", "decay", "sustain", "release",
-        "filt.type", "cutoff", "res", "f.env.amt",
+        "filt.type", "cutoff", "res", "-",
         "f.attack", "f.decay", "f.sustain", "f.release",
-        "lfo.shape", "lfo.rate", "lfo.depth", "lfo.target",
+        "lfo.shape", "lfo.rate", "-", "-",
         "voice.mode", "glide",
         "sub.level", "sub.shape",
         "noise.level", "noise.color",
@@ -545,6 +572,10 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !
         "warp.mode a", "warp.amt a", "warp.mode b", "warp.amt b",
         "filt2.on", "filt2.type", "filt2.cutoff", "filt2.res", "filt2.routing",
         "c.on", "c.waveform", "c.pw", "c.semi", "c.detune", "c.level", "c.unison", "c.uni.det", "c.uni.mode",
+        "mtx1.src", "mtx1.dest", "mtx1.depth", "mtx2.src", "mtx2.dest", "mtx2.depth",
+        "mtx3.src", "mtx3.dest", "mtx3.depth", "mtx4.src", "mtx4.dest", "mtx4.depth",
+        "mtx5.src", "mtx5.dest", "mtx5.depth", "mtx6.src", "mtx6.dest", "mtx6.depth",
+        "mtx7.src", "mtx7.dest", "mtx7.depth", "mtx8.src", "mtx8.dest", "mtx8.depth",
     };
     const cur = @min(@as(usize, app.synth_cursor), labels.len - 1);
     try style.writeModeBadge(w, app.modal.mode);
@@ -591,10 +622,6 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !
         else
             try w.print("{d:.0} Hz",  .{synth.filter_cutoff}),
         22 => try w.print("{d:.3}",       .{synth.filter_res}),
-        23 => {
-            const sign: []const u8 = if (synth.fenv_amount >= 0.0) "+" else "";
-            try w.print("{s}{d:.1} oct",  .{ sign, synth.fenv_amount });
-        },
         24 => try w.print("{d:.3} s",     .{synth.fenv_attack_s}),
         25 => try w.print("{d:.3} s",     .{synth.fenv_decay_s}),
         26 => try w.print("{d:.3}",       .{synth.fenv_sustain}),
@@ -603,10 +630,6 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !
             .sine => "sine", .triangle => "tri", .saw => "saw", .square => "sqr",
         }),
         29 => try w.print("{d:.2} Hz",    .{synth.lfo_rate_hz}),
-        30 => try w.print("{d:.2}",       .{synth.lfo_depth}),
-        31 => try w.writeAll(switch (synth.lfo_target) {
-            .none => "off", .filter => "filter", .pitch => "pitch", .amp => "amp",
-        }),
         32 => try w.writeAll(switch (synth.voice_mode) {
             .poly => "poly", .mono => "mono", .legato => "legato",
         }),
@@ -648,6 +671,17 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !
         56 => try w.print("{d}",           .{synth.osc_c_unison}),
         57 => try w.print("{d:.1} ct",    .{synth.osc_c_unison_detune}),
         58 => try w.writeAll(uniModeName(synth.osc_c_unison_mode)),
+        59...82 => {
+            const row = synth.mod_matrix[(app.synth_cursor - 59) / 3];
+            switch ((app.synth_cursor - 59) % 3) {
+                // zig fmt: off
+                0 => try w.writeAll(mod_src_names[modSrcIdx(row.source)]),
+                1 => try w.writeAll(ws.dsp.PolySynth.modDestLabel(row.dest)),
+                2 => try w.print("{s}{d:.2}", .{ @as([]const u8, if (row.depth >= 0.0) "+" else ""), row.depth }),
+                // zig fmt: on
+                else => {},
+            }
+        },
         else => {},
     }
     try w.writeAll(rst);

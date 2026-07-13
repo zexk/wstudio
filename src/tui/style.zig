@@ -9,14 +9,16 @@ const Mode = ws.input.Mode;
 
 pub const spectrum_rows: usize = 18;
 pub const spectrum_band_count: usize = 80;
-/// Number of editable synth parameters.
+/// Number of editable synth parameters (ids 23/30/31 are retired — absorbed
+/// into the mod matrix — and skipped by the cursor, but stay inside the
+/// count so every other id keeps its meaning).
 /// OSC A : 0:waveform 1:pulse_width 2:detune 3:unison 4:uni.det 5:uni.spread
 /// OSC B : 6:b_on 7:b_waveform 8:b_pw 9:b_semi 10:b_detune 11:b_level 12:b_unison 13:b_uni.det
 /// MOD   : 14:mod_mode 15:mod_amount
 /// ENV   : 16:attack 17:decay 18:sustain 19:release
-/// FILTER: 20:filter_type 21:cutoff 22:res 23:fenv_amount
+/// FILTER: 20:filter_type 21:cutoff 22:res (23 retired)
 /// FENV  : 24:fenv_attack 25:fenv_decay 26:fenv_sustain 27:fenv_release
-/// LFO   : 28:lfo_shape 29:lfo_rate 30:lfo_depth 31:lfo_target
+/// LFO   : 28:lfo_shape 29:lfo_rate (30/31 retired)
 /// VOICE : 32:voice_mode 33:glide
 /// SUB   : 34:sub_level 35:sub_shape
 /// NOISE : 36:noise_level 37:noise_color
@@ -25,7 +27,8 @@ pub const spectrum_band_count: usize = 80;
 /// WARP  : 41:warp_mode 42:warp_amount 43:osc_b_warp_mode 44:osc_b_warp_amount
 /// FILTER 2: 45:filter2_on 46:filter2_type 47:filter2_cutoff 48:filter2_res 49:filter_routing
 /// OSC C : 50:c_on 51:c_waveform 52:c_pw 53:c_semi 54:c_detune 55:c_level 56:c_unison 57:c_uni.det 58:c_uni.mode
-pub const synth_param_count: u8 = 59;
+/// MATRIX: 59..82 — 8 rows x (source, dest, depth)
+pub const synth_param_count: u8 = 83;
 
 // ---------------------------------------------------------------------------
 // Palette — all colour codes go here; never raw \x1b sequences elsewhere

@@ -166,7 +166,7 @@ pub const Parser = struct {
 /// Standard GM numbers are respected where a convention exists.
 pub const CC = enum(u7) {
     // zig fmt: off
-    mod_wheel         = 1,   // → lfo_depth (0–1)
+    mod_wheel         = 1,   // → mod_wheel (0–1), the matrix `.wheel` source
     glide_time        = 5,   // → glide_s (0–4 s)
     gain              = 7,   // → output gain (0–1)
     osc_a_waveform    = 14,  // 0-31=sine  32-63=saw  64-95=tri  96-127=square
@@ -183,7 +183,7 @@ pub const CC = enum(u7) {
     noise_level       = 26,  // → noise_level (0–1)
     noise_color       = 27,  // → noise_color (0=dark … 1=white)
     lfo_rate          = 28,  // → lfo_rate_hz log (0.01–20 Hz)
-    lfo_depth_cc      = 29,  // → lfo_depth (0–1)  [also CC 1 = mod wheel]
+    lfo_depth_cc      = 29,  // → mod_wheel (0–1), legacy alias of CC 1
     mod_amount        = 30,  // → mod_amount (0–8, covers FM β and AM depth)
     filter_res        = 71,  // GM timbre → filter_res (0–1)
     amp_release       = 72,  // GM release → release_s (0–4 s)
@@ -191,7 +191,7 @@ pub const CC = enum(u7) {
     filter_cutoff     = 74,  // GM brightness → filter_cutoff log (20–18 000 Hz)
     amp_decay         = 75,  // GM decay → decay_s (0–4 s)
     amp_sustain       = 76,  // → sustain level (0–1)
-    fenv_amount       = 77,  // → fenv_amount (−4..+4 oct)
+    fenv_amount       = 77,  // retired (fenv amount lives on mod-matrix rows now) — ignored
     fenv_attack       = 78,  // → fenv_attack_s (0–4 s)
     fenv_decay        = 79,  // → fenv_decay_s (0–4 s)
     fenv_sustain      = 80,  // → fenv_sustain (0–1)

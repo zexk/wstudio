@@ -92,7 +92,7 @@ pub fn main(init: std.process.Init) !void {
         s.sustain = 0.0;
         s.release_s = 0.3;
         s.filter_cutoff = 8_000.0;
-        s.fenv_amount = 1.2;
+        s.mod_matrix[0] = .{ .source = .fenv, .dest = 21, .depth = 0.3 }; // +1.2 oct at env peak
         s.fenv_attack_s = 0.005;
         s.fenv_decay_s = 0.35;
         s.fenv_sustain = 0.0;
@@ -133,7 +133,7 @@ pub fn main(init: std.process.Init) !void {
         s.release_s = 0.15;
         s.filter_cutoff = 1_100.0;
         s.filter_res = 0.2;
-        s.fenv_amount = 2.2;
+        s.mod_matrix[0] = .{ .source = .fenv, .dest = 21, .depth = 0.55 }; // +2.2 oct at env peak
         s.fenv_attack_s = 0.004;
         s.fenv_decay_s = 0.22;
         s.fenv_sustain = 0.0;

@@ -51,7 +51,7 @@ const AutomationPoint = automation_mod.AutomationPoint;
 /// added and what older files load as) and the bump-vs-additive policy
 /// live in FORMAT.md; per-field migration specifics stay as doc comments
 /// on the snapshot fields they concern.
-pub const file_version: u32 = 16;
+pub const file_version: u32 = 17;
 
 pub const AutomationPointSnap = struct {
     beat: f64,
@@ -122,7 +122,6 @@ pub const SynthSnap = struct {
     filter_type: synth_mod.FilterType = .lp,
     filter_cutoff: f32 = 18_000.0,
     filter_res: f32 = 0.0,
-    fenv_amount: f32 = 0.0,
     filter2_on: bool = false,
     filter2_type: synth_mod.FilterType = .lp,
     filter2_cutoff: f32 = 18_000.0,
@@ -136,6 +135,14 @@ pub const SynthSnap = struct {
     // LFO
     lfo_shape: synth_mod.LfoShape = .sine,
     lfo_rate_hz: f32 = 1.0,
+    // Mod matrix (v17). Optional so its absence identifies a pre-matrix
+    // file: null triggers the legacy fenv/lfo migration in applyToSynth,
+    // while a present-but-empty matrix (a new file with no routing) is
+    // honored as-is.
+    mod_matrix: ?[]const synth_mod.PolySynth.ModRow = null,
+    /// Legacy fixed mod routes (pre-v17), load-only: folded into matrix
+    /// rows when `mod_matrix` is null. Written at defaults by new saves.
+    fenv_amount: f32 = 0.0,
     lfo_depth: f32 = 0.0,
     lfo_target: synth_mod.LfoTarget = .none,
     // Voice
@@ -1132,7 +1139,6 @@ fn synthToSnap(s: *const PolySynth) SynthSnap {
         .filter_type = s.filter_type,
         .filter_cutoff = s.filter_cutoff,
         .filter_res = s.filter_res,
-        .fenv_amount = s.fenv_amount,
         .filter2_on = s.filter2_on,
         .filter2_type = s.filter2_type,
         .filter2_cutoff = s.filter2_cutoff,
@@ -1144,8 +1150,9 @@ fn synthToSnap(s: *const PolySynth) SynthSnap {
         .fenv_release_s = s.fenv_release_s,
         .lfo_shape = s.lfo_shape,
         .lfo_rate_hz = s.lfo_rate_hz,
-        .lfo_depth = s.lfo_depth,
-        .lfo_target = s.lfo_target,
+        // Slices the live synth's rows — fine, the snapshot is serialized
+        // synchronously in save() while the rack is alive.
+        .mod_matrix = s.mod_matrix[0..],
         .voice_mode = s.voice_mode,
         .glide_s = s.glide_s,
         .sub_level = s.sub_level,
@@ -1761,7 +1768,6 @@ fn applyToSynth(s: *PolySynth, ss: *const SynthSnap) void {
     s.filter_type = ss.filter_type;
     s.filter_cutoff = clamp(ss.filter_cutoff, 20.0, 20_000.0);
     s.filter_res = clamp(ss.filter_res, 0.0, 1.0);
-    s.fenv_amount = clamp(ss.fenv_amount, -4.0, 4.0);
     s.filter2_on = ss.filter2_on;
     s.filter2_type = ss.filter2_type;
     s.filter2_cutoff = clamp(ss.filter2_cutoff, 20.0, 20_000.0);
@@ -1773,8 +1779,30 @@ fn applyToSynth(s: *PolySynth, ss: *const SynthSnap) void {
     s.fenv_release_s = clamp(ss.fenv_release_s, 0.001, 10.0);
     s.lfo_shape = ss.lfo_shape;
     s.lfo_rate_hz = clamp(ss.lfo_rate_hz, 0.01, 20.0);
-    s.lfo_depth = clamp(ss.lfo_depth, 0.0, 1.0);
-    s.lfo_target = ss.lfo_target;
+    if (ss.mod_matrix) |rows| {
+        // v17 file: take the rows as saved (clamped; a bad dest falls back
+        // to cutoff inside setParamAbsolute's rules — mirror them here).
+        for (0..PolySynth.max_mod_rows) |k| {
+            if (k < rows.len) {
+                var row = rows[k];
+                row.depth = clamp(row.depth, -1.0, 1.0);
+                if (PolySynth.modDestIndex(row.dest) == null) row.dest = 21;
+                s.mod_matrix[k] = row;
+            } else {
+                s.mod_matrix[k] = .{};
+            }
+        }
+    } else {
+        // Pre-v17 file: fold the legacy fixed routes into matrix rows.
+        const rows = PolySynth.legacyModRows(
+            clamp(ss.fenv_amount, -4.0, 4.0),
+            clamp(ss.lfo_depth, 0.0, 1.0),
+            ss.lfo_target,
+        );
+        s.mod_matrix = [_]PolySynth.ModRow{.{}} ** PolySynth.max_mod_rows;
+        s.mod_matrix[0] = rows[0];
+        s.mod_matrix[1] = rows[1];
+    }
     s.voice_mode = ss.voice_mode;
     s.glide_s = clamp(ss.glide_s, 0.0, 10.0);
     s.sub_level = clamp(ss.sub_level, 0.0, 1.0);
@@ -3237,7 +3265,38 @@ test "golden-file corpus: every historical .wsj fixture still loads" {
     }
 
     // Guards against a misconfigured path silently turning this into a no-op.
-    try testing.expectEqual(@as(usize, 16), count);
+    try testing.expectEqual(@as(usize, 17), count);
+}
+
+test "golden-file corpus: v17's mod matrix loads its rows" {
+    const testing = std.testing;
+    var session = try load(testing.allocator, testing.io, "test/fixtures/wsj/v17.wsj");
+    defer session.deinit();
+
+    const s = &session.racks.items[0].instrument.poly_synth;
+    try testing.expectEqual(synth_mod.ModSource.lfo, s.mod_matrix[0].source);
+    try testing.expectEqual(@as(u8, 21), s.mod_matrix[0].dest);
+    try testing.expectApproxEqAbs(@as(f32, 0.8), s.mod_matrix[0].depth, 1e-6);
+    try testing.expectEqual(synth_mod.ModSource.velocity, s.mod_matrix[1].source);
+    try testing.expectEqual(PolySynth.dest_amp, s.mod_matrix[1].dest);
+    try testing.expectEqual(synth_mod.ModSource.none, s.mod_matrix[2].source);
+}
+
+test "applyToSynth: pre-v17 legacy mod fields migrate onto matrix rows" {
+    var s = PolySynth.init(48_000);
+    const legacy: SynthSnap = .{ .fenv_amount = 2.0, .lfo_depth = 0.8, .lfo_target = .filter };
+    applyToSynth(&s, &legacy);
+    try std.testing.expectEqual(synth_mod.ModSource.fenv, s.mod_matrix[0].source);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.5), s.mod_matrix[0].depth, 1e-6);
+    try std.testing.expectEqual(synth_mod.ModSource.lfo, s.mod_matrix[1].source);
+    try std.testing.expectEqual(@as(u8, 21), s.mod_matrix[1].dest);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.4), s.mod_matrix[1].depth, 1e-6);
+
+    // A v17 snapshot with a present-but-empty matrix means "no routing" —
+    // the stale legacy fields (written at defaults, but be paranoid) lose.
+    const empty: SynthSnap = .{ .mod_matrix = &.{}, .fenv_amount = 2.0 };
+    applyToSynth(&s, &empty);
+    try std.testing.expectEqual(synth_mod.ModSource.none, s.mod_matrix[0].source);
 }
 
 test "golden-file corpus: v14's parametric EQ bands load freq/Q/gain" {

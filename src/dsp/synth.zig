@@ -39,7 +39,13 @@ pub const FilterType = enum { lp, hp, bp, notch, ladder, comb };
 /// identically to filter 1 alone) while `filter2_on` is false.
 pub const FilterRouting = enum { series, parallel };
 pub const LfoShape   = enum { sine, triangle, saw, square };
+/// Legacy fixed LFO routing, retired when the mod matrix absorbed it.
+/// Kept only so pre-matrix patches/projects still parse; `legacyModRows`
+/// folds it into matrix rows on load.
 pub const LfoTarget  = enum { none, filter, pitch, amp };
+/// Modulation source for a mod-matrix row. `lfo` and `wheel` are synth-
+/// global; the rest are per-voice.
+pub const ModSource  = enum { none, lfo, fenv, aenv, velocity, keytrack, wheel };
 pub const VoiceMode  = enum { poly, mono, legato };
 pub const SubShape   = enum { sine, square };
 pub const ModMode    = enum { none, ring, am_a_to_b, am_b_to_a, fm_a_to_b, fm_b_to_a };
@@ -125,8 +131,6 @@ pub const PolySynth = struct {
     filter_cutoff: f32 = 18_000.0,
     /// Filter resonance 0..1 (mapped to Q 0.5..20).
     filter_res: f32 = 0.0,
-    /// Filter envelope amount in octaves (–4..+4). 0 = no modulation.
-    fenv_amount: f32 = 0.0,
 
     // ── FILTER 2 ────────────────────────────────────────────────────────────
     /// Second filter slot. Shares the filter envelope/LFO-target modulation
@@ -146,15 +150,23 @@ pub const PolySynth = struct {
     fenv_release_s: f32 = 0.3,
 
     // ── LFO ─────────────────────────────────────────────────────────────────
+    // A pure mod source since the matrix absorbed its routing: shape + rate
+    // here, destination/depth live on matrix rows.
     lfo_shape:  LfoShape  = .sine,
     // zig fmt: on
     /// Rate in Hz (0.01–20 Hz).
     lfo_rate_hz: f32 = 1.0,
-    /// Depth 0..1. Modulation range depends on target (see processBlock).
-    lfo_depth: f32 = 0.0,
-    lfo_target: LfoTarget = .none,
     /// Synth-global LFO phase (0..1). Advanced once per block.
     lfo_phase: f32 = 0.0,
+
+    // ── MOD MATRIX ──────────────────────────────────────────────────────────
+    /// Free-assign modulation routing: each row sends one source to one
+    /// destination (a `mod_dest_ids` entry — an automatable param id or the
+    /// virtual pitch/amp dests) with a bipolar depth. Evaluated per voice
+    /// at block rate in processBlock; same-dest rows sum.
+    mod_matrix: [max_mod_rows]ModRow = [_]ModRow{.{}} ** max_mod_rows,
+    /// MIDI mod wheel (CC1), 0..1 — the `.wheel` matrix source.
+    mod_wheel: f32 = 0.0,
 
     // ── VOICE ────────────────────────────────────────────────────────────────
     voice_mode: VoiceMode = .poly,
@@ -198,6 +210,78 @@ pub const PolySynth = struct {
     /// Hard cap on simultaneous oscillators across all active voices.
     /// With e.g. 8 active voices, unison is capped at 4 each → 32 total.
     pub const osc_budget: usize = 32;
+
+    pub const max_mod_rows = 8;
+    /// Virtual matrix destinations that aren't editor params: note pitch
+    /// (amt = octaves) and voice amplitude (gain factor 1 + amt). Chosen
+    /// well above the real param-id space so they can never collide.
+    pub const dest_pitch: u8 = 254;
+    pub const dest_amp: u8 = 255;
+
+    /// One mod-matrix row. `dest` is a `mod_dest_ids` entry; `depth` is
+    /// bipolar, scaled by the dest param's full range (linear params), or
+    /// ±4 octaves (cutoffs), ±1 octave (pitch), ±1x gain (amp) at |1|.
+    pub const ModRow = struct {
+        source: ModSource = .none,
+        dest: u8 = 21,
+        depth: f32 = 0.0,
+    };
+
+    /// Legal matrix destinations: every automatable param that is consumed
+    /// per voice (excludes the global LFO rate and the matrix's own depth
+    /// ids — no self-modulation), plus the two virtual dests.
+    pub const mod_dest_ids = [_]u8{
+        // zig fmt: off
+        1, 2, 3, 4, 5, 8, 9, 10, 11, 12, 13, 15, 16, 17, 18, 19,
+        21, 22, 24, 25, 26, 27, 33, 34, 36, 37, 38, 42, 44, 47, 48,
+        52, 53, 54, 55, 56, 57,
+        dest_pitch, dest_amp,
+        // zig fmt: on
+    };
+
+    pub fn modDestLabel(dest: u8) []const u8 {
+        return switch (dest) {
+            // zig fmt: off
+            dest_pitch => "PITCH",
+            dest_amp   => "AMP",
+            // zig fmt: on
+            else => if (findAutomatableParam(dest)) |p| p.label else "?",
+        };
+    }
+
+    pub fn modDestIndex(dest: u8) ?usize {
+        for (mod_dest_ids, 0..) |d, i| if (d == dest) return i;
+        return null;
+    }
+
+    /// Fold the retired fixed mod routes (filter-env amount, LFO target +
+    /// depth) into equivalent matrix rows — the load-time migration for
+    /// pre-matrix presets and project files. Depth scales match the old
+    /// units: fenv was ±4 oct at ±4, lfo→filter ±2 oct at depth 1 (the
+    /// matrix cutoff dest spans ±4 oct at |depth| 1), lfo→pitch ±1 oct at
+    /// depth 1, lfo→amp swing d/2 about unity (the old tremolo's swing;
+    /// its constant -d/2 level dip is not reproduced).
+    pub fn legacyModRows(fenv_amount: f32, lfo_depth: f32, lfo_target: LfoTarget) [2]ModRow {
+        return .{
+            if (fenv_amount != 0.0)
+                .{ .source = .fenv, .dest = 21, .depth = fenv_amount / 4.0 }
+            else
+                .{},
+            switch (lfo_target) {
+                .none => .{},
+                // zig fmt: off
+                .filter => .{ .source = .lfo, .dest = 21,         .depth = lfo_depth * 0.5 },
+                .pitch  => .{ .source = .lfo, .dest = dest_pitch, .depth = lfo_depth },
+                .amp    => .{ .source = .lfo, .dest = dest_amp,   .depth = lfo_depth * 0.5 },
+                // zig fmt: on
+            },
+        };
+    }
+
+    pub fn matrixEmpty(rows: [max_mod_rows]ModRow) bool {
+        for (rows) |r| if (r.source != .none) return false;
+        return true;
+    }
 
     const Stage = enum { attack, decay, sustain, release };
 
@@ -333,7 +417,6 @@ pub const PolySynth = struct {
         filter_type: FilterType = .lp,
         filter_cutoff: f32 = 18_000.0,
         filter_res: f32 = 0.0,
-        fenv_amount: f32 = 0.0,
 
         filter2_on: bool = false,
         filter2_type: FilterType = .lp,
@@ -348,6 +431,14 @@ pub const PolySynth = struct {
 
         lfo_shape: LfoShape = .sine,
         lfo_rate_hz: f32 = 1.0,
+
+        mod_matrix: [max_mod_rows]ModRow = [_]ModRow{.{}} ** max_mod_rows,
+
+        /// Legacy fixed mod routes, kept as load-only carriers so pre-matrix
+        /// presets (factory and user JSON alike) still apply: `applyPatch`
+        /// folds them into matrix rows when `mod_matrix` is empty. Not
+        /// fields on PolySynth anymore; `toPatch` leaves them at defaults.
+        fenv_amount: f32 = 0.0,
         lfo_depth: f32 = 0.0,
         lfo_target: LfoTarget = .none,
 
@@ -369,20 +460,32 @@ pub const PolySynth = struct {
     /// Load a patch onto this synth. Field-by-field so per-instance state
     /// (sample_rate, voices, glide/held-note tracking) is untouched — notes
     /// already sounding pick up the new params on their next block, same as
-    /// a single `adjustParam` nudge.
+    /// a single `adjustParam` nudge. Patch fields without a PolySynth
+    /// counterpart are the legacy mod-route carriers, folded into matrix
+    /// rows below instead of copied.
     pub fn applyPatch(self: *PolySynth, patch: Patch) void {
         inline for (@typeInfo(Patch).@"struct".fields) |f| {
-            @field(self, f.name) = @field(patch, f.name);
+            if (@hasField(PolySynth, f.name)) {
+                @field(self, f.name) = @field(patch, f.name);
+            }
+        }
+        if (matrixEmpty(patch.mod_matrix)) {
+            const rows = legacyModRows(patch.fenv_amount, patch.lfo_depth, patch.lfo_target);
+            self.mod_matrix[0] = rows[0];
+            self.mod_matrix[1] = rows[1];
         }
     }
 
     /// The inverse of `applyPatch`: snapshot this synth's current params into
     /// a `Patch` (e.g. to save a hand-tuned sound as a reusable preset — see
-    /// `tui/user_presets.zig`).
+    /// `tui/user_presets.zig`). The legacy carrier fields stay at their
+    /// defaults, so a round-trip never re-triggers migration.
     pub fn toPatch(self: *const PolySynth) Patch {
         var patch: Patch = .{};
         inline for (@typeInfo(Patch).@"struct".fields) |f| {
-            @field(patch, f.name) = @field(self, f.name);
+            if (@hasField(PolySynth, f.name)) {
+                @field(patch, f.name) = @field(self, f.name);
+            }
         }
         return patch;
     }
@@ -533,6 +636,69 @@ pub const PolySynth = struct {
         return quietest;
     }
 
+    /// Summed matrix modulation per destination for one voice/block:
+    /// `amts[i]` = Σ depth×source over the rows targeting `dests[i]`.
+    const ModAccum = struct {
+        dests: [max_mod_rows]u8 = undefined,
+        amts: [max_mod_rows]f32 = undefined,
+        count: u8 = 0,
+
+        fn amt(self: *const ModAccum, dest: u8) f32 {
+            for (self.dests[0..self.count], self.amts[0..self.count]) |d, a| {
+                if (d == dest) return a;
+            }
+            return 0.0;
+        }
+    };
+
+    /// Evaluate every active matrix row for one voice at block rate.
+    fn evalMatrix(self: *const PolySynth, v: *const Voice, lfo_val: f32) ModAccum {
+        var acc: ModAccum = .{};
+        for (self.mod_matrix) |row| {
+            if (row.source == .none or row.depth == 0.0) continue;
+            const src: f32 = switch (row.source) {
+                // zig fmt: off
+                .none     => unreachable,
+                .lfo      => lfo_val,
+                .fenv     => v.env2,
+                .aenv     => v.env,
+                .velocity => v.velocity,
+                .keytrack => (@as(f32, @floatFromInt(v.note)) - 60.0) / 64.0,
+                .wheel    => self.mod_wheel,
+                // zig fmt: on
+            };
+            const a = row.depth * src;
+            for (acc.dests[0..acc.count], 0..) |d, i| {
+                if (d == row.dest) {
+                    acc.amts[i] += a;
+                    break;
+                }
+            } else {
+                acc.dests[acc.count] = row.dest;
+                acc.amts[acc.count] = a;
+                acc.count += 1;
+            }
+        }
+        return acc;
+    }
+
+    /// `base` (a param's live value) shifted by the voice's matrix amount
+    /// for that param, scaled to the param's full range and clamped to it.
+    /// Cutoffs and the virtual pitch/amp dests are NOT routed through here —
+    /// they modulate in octave/gain space at their use sites instead.
+    fn eff(acc: *const ModAccum, id: u8, base: f32) f32 {
+        const a = acc.amt(id);
+        if (a == 0.0) return base;
+        const p = findAutomatableParam(id) orelse return base;
+        return std.math.clamp(base + a * (p.range[1] - p.range[0]), p.range[0], p.range[1]);
+    }
+
+    /// `eff` for the integer unison-count params, rounded back to a count.
+    fn effUnison(acc: *const ModAccum, id: u8, base: u8) usize {
+        const e = eff(acc, id, @floatFromInt(@max(base, 1)));
+        return @intFromFloat(@round(std.math.clamp(e, 1.0, @as(f32, max_unison))));
+    }
+
     pub fn processBlock(self: *PolySynth, buf: []Sample) void {
         const frames = buf.len / 2;
 
@@ -540,16 +706,7 @@ pub const PolySynth = struct {
         // receive the same value, avoiding inter-voice phase desync.
         const lfo_val = lfoSample(self.lfo_shape, self.lfo_phase);
 
-        // Precompute per-block envelope increments.
         // zig fmt: off
-        const attack_inc  = 1.0 / @max(self.attack_s  * self.sample_rate, 1.0);
-        const decay_inc   = (1.0 - self.sustain)       / @max(self.decay_s   * self.sample_rate, 1.0);
-        const release_inc = 1.0                        / @max(self.release_s  * self.sample_rate, 1.0);
-
-        const fenv_attack_inc  = 1.0 / @max(self.fenv_attack_s  * self.sample_rate, 1.0);
-        const fenv_decay_inc   = (1.0 - self.fenv_sustain)       / @max(self.fenv_decay_s   * self.sample_rate, 1.0);
-        const fenv_release_inc = 1.0                              / @max(self.fenv_release_s  * self.sample_rate, 1.0);
-
         // osc_budget: split evenly between active oscillators so total ≤ 32.
         var active_count: usize = 0;
         for (self.voices) |v| if (v.active) { active_count += 1; };
@@ -562,10 +719,29 @@ pub const PolySynth = struct {
         for (&self.voices) |*v| {
             if (!v.active) continue;
 
+            // All matrix modulation below is block-rate per voice — the
+            // same rate the retired fixed routes always ran at.
+            const mods = self.evalMatrix(v, lfo_val);
+
+            // Envelope increments are per voice (not hoisted) so matrix
+            // rows can modulate times/sustains, e.g. velocity → decay.
+            // zig fmt: off
+            const sustain_v      = eff(&mods, 18, self.sustain);
+            const attack_inc     = 1.0 / @max(eff(&mods, 16, self.attack_s)  * self.sample_rate, 1.0);
+            const decay_inc      = (1.0 - sustain_v) / @max(eff(&mods, 17, self.decay_s) * self.sample_rate, 1.0);
+            const release_inc    = 1.0 / @max(eff(&mods, 19, self.release_s) * self.sample_rate, 1.0);
+
+            const fenv_sustain_v   = eff(&mods, 26, self.fenv_sustain);
+            const fenv_attack_inc  = 1.0 / @max(eff(&mods, 24, self.fenv_attack_s)  * self.sample_rate, 1.0);
+            const fenv_decay_inc   = (1.0 - fenv_sustain_v) / @max(eff(&mods, 25, self.fenv_decay_s) * self.sample_rate, 1.0);
+            const fenv_release_inc = 1.0 / @max(eff(&mods, 27, self.fenv_release_s) * self.sample_rate, 1.0);
+            // zig fmt: on
+
             // Glide: advance current log-freq toward target at block rate.
             const target_log = std.math.log2(noteToFreq(v.note));
-            if (self.glide_s > 0.0 and v.glide_rate != 0.0) {
+            if (eff(&mods, 33, self.glide_s) > 0.0 and v.glide_rate != 0.0) {
                 v.glide_log_freq += v.glide_rate * @as(f32, @floatFromInt(frames));
+                // zig fmt: off
                 const overshot = (v.glide_rate > 0.0 and v.glide_log_freq >= target_log) or
                                  (v.glide_rate < 0.0 and v.glide_log_freq <= target_log);
                 if (overshot) { v.glide_log_freq = target_log; v.glide_rate = 0.0; }
@@ -574,50 +750,62 @@ pub const PolySynth = struct {
                 v.glide_rate     = 0.0;
             }
 
-            // Cutoff = base × filter-env mod × LFO (±2 oct at full depth).
-            const fenv_mod = std.math.pow(f32, 2.0, self.fenv_amount * v.env2);
-            const lfo_filter_mod = if (self.lfo_target == .filter)
-                std.math.pow(f32, 2.0, self.lfo_depth * 2.0 * lfo_val)
-            else 1.0;
+            // Cutoff = base × 2^(4 × matrix amount): a full-depth row spans
+            // ±4 octaves (what the retired fenv_amount spanned at ±4).
             const effective_cutoff = std.math.clamp(
-                self.filter_cutoff * fenv_mod * lfo_filter_mod, 20.0, self.sample_rate * 0.49,
+                self.filter_cutoff * std.math.pow(f32, 2.0, 4.0 * mods.amt(21)),
+                20.0, self.sample_rate * 0.49,
             );
-            const fc = self.computeFilterCoeffs(effective_cutoff, self.filter_type, self.filter_res);
+            const fc = self.computeFilterCoeffs(effective_cutoff, self.filter_type, eff(&mods, 22, self.filter_res));
 
-            // Filter 2 shares filter 1's envelope/LFO modulation depth,
-            // applied around its own base cutoff. Computed unconditionally
-            // (cheap) so there's no uninitialized-coeffs case to guard.
+            // Filter 2: own cutoff/res dests (47/48), same octave scale.
+            // Computed unconditionally (cheap) so there's no
+            // uninitialized-coeffs case to guard.
             const effective_cutoff2 = std.math.clamp(
-                self.filter2_cutoff * fenv_mod * lfo_filter_mod, 20.0, self.sample_rate * 0.49,
+                self.filter2_cutoff * std.math.pow(f32, 2.0, 4.0 * mods.amt(47)),
+                20.0, self.sample_rate * 0.49,
             );
-            const fc2 = self.computeFilterCoeffs(effective_cutoff2, self.filter2_type, self.filter2_res);
+            const fc2 = self.computeFilterCoeffs(effective_cutoff2, self.filter2_type, eff(&mods, 48, self.filter2_res));
 
-            // Pitch vibrato: ±1 oct at full depth. Glide is in log-freq space.
-            const lfo_pitch_log = if (self.lfo_target == .pitch) self.lfo_depth * lfo_val else 0.0;
+            // Pitch: the virtual dest is in octaves. Glide is log-freq space.
             const base_freq = std.math.pow(f32, 2.0,
-                v.glide_log_freq + self.detune_cents / 1200.0 + lfo_pitch_log +
+                v.glide_log_freq + eff(&mods, 2, self.detune_cents) / 1200.0 + mods.amt(dest_pitch) +
                 self.pitch_bend_semitones / 12.0);
 
-            // Tremolo: LFO converted to [0,1]; depth controls dip depth.
-            // At depth=1, lfo trough → amp_mod=0; lfo peak → amp_mod=1.
-            const amp_mod: f32 = if (self.lfo_target == .amp) blk: {
-                const lfo_uni = (lfo_val + 1.0) * 0.5;
-                break :blk 1.0 - self.lfo_depth * (1.0 - lfo_uni);
-            } else 1.0;
+            // Amp: virtual dest is a gain factor about unity (tremolo when
+            // fed by the LFO, swells from envelopes/wheel).
+            const amp_mod: f32 = std.math.clamp(1.0 + mods.amt(dest_amp), 0.0, 2.0);
 
-            const n_a: usize = @min(@min(@as(usize, @max(self.unison,     1)), max_unison), per_osc_cap);
+            const n_a: usize = @min(@min(effUnison(&mods, 3, self.unison), max_unison), per_osc_cap);
             const n_b: usize = if (self.osc_b_on)
-                @min(@min(@as(usize, @max(self.osc_b_unison, 1)), max_unison), per_osc_cap)
+                @min(@min(effUnison(&mods, 12, self.osc_b_unison), max_unison), per_osc_cap)
             else 0;
             const n_c: usize = if (self.osc_c_on)
-                @min(@min(@as(usize, @max(self.osc_c_unison, 1)), max_unison), per_osc_cap)
+                @min(@min(effUnison(&mods, 56, self.osc_c_unison), max_unison), per_osc_cap)
             else 0;
             // zig fmt: on
 
+            // Per-voice effective values for params consumed inside the
+            // per-sample loop (hoisted once per block).
+            // zig fmt: off
+            const pw_a         = eff(&mods, 1,  self.pulse_width);
+            const pw_b         = eff(&mods, 8,  self.osc_b_pulse_width);
+            const pw_c         = eff(&mods, 52, self.osc_c_pulse_width);
+            const warp_amt_a   = eff(&mods, 42, self.warp_amount);
+            const warp_amt_b   = eff(&mods, 44, self.osc_b_warp_amount);
+            const mod_amount_v = eff(&mods, 15, self.mod_amount);
+            const b_level      = eff(&mods, 11, self.osc_b_level);
+            const c_level      = eff(&mods, 55, self.osc_c_level);
+            const sub_level_v  = eff(&mods, 34, self.sub_level);
+            const noise_lvl_v  = eff(&mods, 36, self.noise_level);
+            const gain_v       = eff(&mods, 38, self.gain);
+            // zig fmt: on
+
             // Precompute per-unison phase increments for OSC A.
+            const uni_det_a = eff(&mods, 4, self.unison_detune);
             var phase_incs_a: [max_unison]f32 = undefined;
             for (0..n_a) |ui| {
-                const spread: f32 = if (n_a > 1) unisonSpreadCents(self.unison_mode, ui, n_a, self.unison_detune) else 0.0;
+                const spread: f32 = if (n_a > 1) unisonSpreadCents(self.unison_mode, ui, n_a, uni_det_a) else 0.0;
                 phase_incs_a[ui] = base_freq * std.math.pow(f32, 2.0, spread / 1200.0) / self.sample_rate;
             }
 
@@ -626,10 +814,11 @@ pub const PolySynth = struct {
             if (self.osc_b_on) {
                 // zig fmt: off
                 const b_freq = base_freq * std.math.pow(f32, 2.0,
-                    self.osc_b_semi / 12.0 + self.osc_b_detune_cents / 1200.0);
+                    eff(&mods, 9, self.osc_b_semi) / 12.0 + eff(&mods, 10, self.osc_b_detune_cents) / 1200.0);
                     // zig fmt: on
+                const uni_det_b = eff(&mods, 13, self.osc_b_unison_detune);
                 for (0..n_b) |ui| {
-                    const spread: f32 = if (n_b > 1) unisonSpreadCents(self.osc_b_unison_mode, ui, n_b, self.osc_b_unison_detune) else 0.0;
+                    const spread: f32 = if (n_b > 1) unisonSpreadCents(self.osc_b_unison_mode, ui, n_b, uni_det_b) else 0.0;
                     phase_incs_b[ui] = b_freq * std.math.pow(f32, 2.0, spread / 1200.0) / self.sample_rate;
                 }
             }
@@ -639,10 +828,11 @@ pub const PolySynth = struct {
             if (self.osc_c_on) {
                 // zig fmt: off
                 const c_freq = base_freq * std.math.pow(f32, 2.0,
-                    self.osc_c_semi / 12.0 + self.osc_c_detune_cents / 1200.0);
+                    eff(&mods, 53, self.osc_c_semi) / 12.0 + eff(&mods, 54, self.osc_c_detune_cents) / 1200.0);
                     // zig fmt: on
+                const uni_det_c = eff(&mods, 57, self.osc_c_unison_detune);
                 for (0..n_c) |ui| {
-                    const spread: f32 = if (n_c > 1) unisonSpreadCents(self.osc_c_unison_mode, ui, n_c, self.osc_c_unison_detune) else 0.0;
+                    const spread: f32 = if (n_c > 1) unisonSpreadCents(self.osc_c_unison_mode, ui, n_c, uni_det_c) else 0.0;
                     phase_incs_c[ui] = c_freq * std.math.pow(f32, 2.0, spread / 1200.0) / self.sample_rate;
                 }
             }
@@ -651,33 +841,34 @@ pub const PolySynth = struct {
             const sub_phase_inc = base_freq * 0.5 / self.sample_rate;
 
             // Noise color: one-pole LP pole coefficient. color=1 → white, color=0 → dark.
-            const noise_lp_a = (1.0 - self.noise_color) * 0.99;
+            const noise_lp_a = (1.0 - eff(&mods, 37, self.noise_color)) * 0.99;
 
             // Power-preserving normalisation across all sources.
             const scale_a = 1.0 / @sqrt(@as(f32, @floatFromInt(n_a)));
             const scale_b = if (n_b > 0) 1.0 / @sqrt(@as(f32, @floatFromInt(n_b))) else 0.0;
             const scale_c = if (n_c > 0) 1.0 / @sqrt(@as(f32, @floatFromInt(n_c))) else 0.0;
             // zig fmt: off
-            const b_pow   = self.osc_b_level * self.osc_b_level * @as(f32, if (self.osc_b_on) 1.0 else 0.0);
-            const c_pow   = self.osc_c_level * self.osc_c_level * @as(f32, if (self.osc_c_on) 1.0 else 0.0);
+            const b_pow   = b_level * b_level * @as(f32, if (self.osc_b_on) 1.0 else 0.0);
+            const c_pow   = c_level * c_level * @as(f32, if (self.osc_c_on) 1.0 else 0.0);
             const mix_norm = 1.0 / @sqrt(1.0 + b_pow + c_pow
-                + self.sub_level * self.sub_level
-                + self.noise_level * self.noise_level);
+                + sub_level_v * sub_level_v
+                + noise_lvl_v * noise_lvl_v);
             // ring_mix_norm: B acts as modulator only, so exclude b_pow. C is
             // a plain additive voice regardless of mod_mode, so it's included.
             const ring_mix_norm = 1.0 / @sqrt(1.0 + c_pow
-                + self.sub_level * self.sub_level
-                + self.noise_level * self.noise_level);
+                + sub_level_v * sub_level_v
+                + noise_lvl_v * noise_lvl_v);
 
             // Stereo pan gains per unison voice — constant-power, √2-compensated so
             // spread=0 gives the same per-channel amplitude as the original mono path.
+            const uni_spread = eff(&mods, 5, self.unison_spread);
             const pan_scale = std.math.sqrt2;
             var pan_l_a: [max_unison]f32 = undefined;
             var pan_r_a: [max_unison]f32 = undefined;
             for (0..n_a) |ui| {
-                const raw: f32 = if (n_a > 1 and self.unison_spread > 0.0)
+                const raw: f32 = if (n_a > 1 and uni_spread > 0.0)
                     ((@as(f32, @floatFromInt(ui)) / @as(f32, @floatFromInt(n_a - 1))) * 2.0 - 1.0)
-                    * self.unison_spread
+                    * uni_spread
                 else 0.0;
                 const angle = (raw + 1.0) * std.math.pi * 0.25;
                 pan_l_a[ui] = pan_scale * @cos(angle);
@@ -687,9 +878,9 @@ pub const PolySynth = struct {
             var pan_r_b: [max_unison]f32 = undefined;
             if (self.osc_b_on) {
                 for (0..n_b) |ui| {
-                    const raw: f32 = if (n_b > 1 and self.unison_spread > 0.0)
+                    const raw: f32 = if (n_b > 1 and uni_spread > 0.0)
                         ((@as(f32, @floatFromInt(ui)) / @as(f32, @floatFromInt(n_b - 1))) * 2.0 - 1.0)
-                        * self.unison_spread
+                        * uni_spread
                     else 0.0;
                     // zig fmt: on
                     const angle = (raw + 1.0) * std.math.pi * 0.25;
@@ -701,8 +892,8 @@ pub const PolySynth = struct {
             var pan_r_c: [max_unison]f32 = undefined;
             if (self.osc_c_on) {
                 for (0..n_c) |ui| {
-                    const raw: f32 = if (n_c > 1 and self.unison_spread > 0.0)
-                        ((@as(f32, @floatFromInt(ui)) / @as(f32, @floatFromInt(n_c - 1))) * 2.0 - 1.0) * self.unison_spread
+                    const raw: f32 = if (n_c > 1 and uni_spread > 0.0)
+                        ((@as(f32, @floatFromInt(ui)) / @as(f32, @floatFromInt(n_c - 1))) * 2.0 - 1.0) * uni_spread
                     else
                         0.0;
                     const angle = (raw + 1.0) * std.math.pi * 0.25;
@@ -722,7 +913,7 @@ pub const PolySynth = struct {
                 // FM B→A: render B first so b_mono is ready when A phases advance.
                 if (self.osc_b_on and self.mod_mode == .fm_b_to_a) {
                     for (0..n_b) |ui| {
-                        const samp = self.oscSampleB(v.phases_b[ui]);
+                        const samp = self.oscSampleB(v.phases_b[ui], pw_b, warp_amt_b);
                         b_l += samp * pan_l_b[ui];
                         b_r += samp * pan_r_b[ui];
                         b_mono += samp;
@@ -734,12 +925,12 @@ pub const PolySynth = struct {
 
                 // OSC A: phase is FM-modulated by b_mono when mod_mode == fm_b_to_a.
                 for (0..n_a) |ui| {
-                    const samp = self.oscSampleA(v.phases[ui]);
+                    const samp = self.oscSampleA(v.phases[ui], pw_a, warp_amt_a);
                     a_l += samp * pan_l_a[ui];
                     a_r += samp * pan_r_a[ui];
                     a_mono += samp;
                     const inc: f32 = if (self.mod_mode == .fm_b_to_a)
-                        phase_incs_a[ui] * (1.0 + self.mod_amount * b_mono)
+                        phase_incs_a[ui] * (1.0 + mod_amount_v * b_mono)
                     else
                         phase_incs_a[ui];
                     v.phases[ui] += inc;
@@ -754,13 +945,13 @@ pub const PolySynth = struct {
                 // OSC B: skip if already rendered above for fm_b_to_a.
                 if (self.osc_b_on and self.mod_mode != .fm_b_to_a) {
                     for (0..n_b) |ui| {
-                        const samp = self.oscSampleB(v.phases_b[ui]);
+                        const samp = self.oscSampleB(v.phases_b[ui], pw_b, warp_amt_b);
                         b_l += samp * pan_l_b[ui];
                         b_r += samp * pan_r_b[ui];
                         b_mono += samp;
                         // FM A→B: advance B's phase modulated by a_mono.
                         const inc: f32 = if (self.mod_mode == .fm_a_to_b)
-                            phase_incs_b[ui] * (1.0 + self.mod_amount * a_mono)
+                            phase_incs_b[ui] * (1.0 + mod_amount_v * a_mono)
                         else
                             phase_incs_b[ui];
                         v.phases_b[ui] += inc;
@@ -777,12 +968,12 @@ pub const PolySynth = struct {
                 // Clamped to [0,1]: mod_amount up to 8 can drive the formula negative otherwise.
                 if (self.osc_b_on) switch (self.mod_mode) {
                     .am_a_to_b => {
-                        const g = std.math.clamp((1.0 + self.mod_amount * a_mono) / (1.0 + self.mod_amount), 0.0, 1.0);
+                        const g = std.math.clamp((1.0 + mod_amount_v * a_mono) / (1.0 + mod_amount_v), 0.0, 1.0);
                         // zig fmt: off
                         b_l *= g; b_r *= g;
                     },
                     .am_b_to_a => {
-                        const g = std.math.clamp((1.0 + self.mod_amount * b_mono) / (1.0 + self.mod_amount), 0.0, 1.0);
+                        const g = std.math.clamp((1.0 + mod_amount_v * b_mono) / (1.0 + mod_amount_v), 0.0, 1.0);
                         a_l *= g; a_r *= g;
                     },
                     else => {},
@@ -793,7 +984,7 @@ pub const PolySynth = struct {
                 var c_r: f32 = 0.0;
                 if (self.osc_c_on) {
                     for (0..n_c) |ui| {
-                        const samp = oscWave(self.osc_c_waveform, v.phases_c[ui], self.osc_c_pulse_width);
+                        const samp = oscWave(self.osc_c_waveform, v.phases_c[ui], pw_c);
                         c_l += samp * pan_l_c[ui];
                         c_r += samp * pan_r_c[ui];
                         v.phases_c[ui] += phase_incs_c[ui];
@@ -803,22 +994,22 @@ pub const PolySynth = struct {
 
                 // Sub: always centre (mono → both channels).
                 var sub_out: f32 = 0.0;
-                if (self.sub_level > 0.0) {
+                if (sub_level_v > 0.0) {
                     sub_out = (switch (self.sub_shape) {
                         .sine   => @sin(2.0 * std.math.pi * v.sub_phase),
                         // zig fmt: on
                         .square => if (v.sub_phase < 0.5) @as(f32, 1.0) else @as(f32, -1.0),
-                    }) * self.sub_level;
+                    }) * sub_level_v;
                     v.sub_phase += sub_phase_inc;
                     if (v.sub_phase >= 1.0) v.sub_phase -= 1.0;
                 }
 
                 // Noise: always centre.
                 var nse_out: f32 = 0.0;
-                if (self.noise_level > 0.0) {
+                if (noise_lvl_v > 0.0) {
                     const raw = nextNoise(&v.noise_rand_state);
                     v.noise_lp = (1.0 - noise_lp_a) * raw + noise_lp_a * v.noise_lp;
-                    nse_out = v.noise_lp * self.noise_level;
+                    nse_out = v.noise_lp * noise_lvl_v;
                 }
 
                 // Stereo mix.
@@ -826,17 +1017,17 @@ pub const PolySynth = struct {
                 // Formula: (1-d) + d·b_mono stays in [-1,1] for d∈[0,1], b_mono∈[-1,1].
                 // FM/AM/none: standard A + B mix (B contribution already modulated above).
                 const ring_factor: f32 = if (self.osc_b_on and self.mod_mode == .ring) blk: {
-                    const depth = std.math.clamp(self.mod_amount, 0.0, 1.0);
+                    const depth = std.math.clamp(mod_amount_v, 0.0, 1.0);
                     break :blk (1.0 - depth) + depth * b_mono;
                 } else 0.0;
                 const osc_l: f32 = if (self.osc_b_on and self.mod_mode == .ring)
-                    (a_l * scale_a * ring_factor + c_l * scale_c * self.osc_c_level + sub_out + nse_out) * ring_mix_norm
+                    (a_l * scale_a * ring_factor + c_l * scale_c * c_level + sub_out + nse_out) * ring_mix_norm
                 else
-                    (a_l * scale_a + b_l * scale_b * self.osc_b_level + c_l * scale_c * self.osc_c_level + sub_out + nse_out) * mix_norm;
+                    (a_l * scale_a + b_l * scale_b * b_level + c_l * scale_c * c_level + sub_out + nse_out) * mix_norm;
                 const osc_r: f32 = if (self.osc_b_on and self.mod_mode == .ring)
-                    (a_r * scale_a * ring_factor + c_r * scale_c * self.osc_c_level + sub_out + nse_out) * ring_mix_norm
+                    (a_r * scale_a * ring_factor + c_r * scale_c * c_level + sub_out + nse_out) * ring_mix_norm
                 else
-                    (a_r * scale_a + b_r * scale_b * self.osc_b_level + c_r * scale_c * self.osc_c_level + sub_out + nse_out) * mix_norm;
+                    (a_r * scale_a + b_r * scale_b * b_level + c_r * scale_c * c_level + sub_out + nse_out) * mix_norm;
 
                 // Stereo filter: same coefficients, independent L/R histories.
                 // zig fmt: off
@@ -859,7 +1050,7 @@ pub const PolySynth = struct {
                     filt_r = if (self.filter_routing == .series) filt2_r else (filt1_r + filt2_r) * 0.5;
                 }
 
-                const sg = v.env * v.velocity * self.gain * amp_mod;
+                const sg = v.env * v.velocity * gain_v * amp_mod;
                 buf[i * 2]     += filt_l * sg;
                 buf[i * 2 + 1] += filt_r * sg;
 
@@ -871,7 +1062,7 @@ pub const PolySynth = struct {
                     },
                     .decay => {
                         v.env -= decay_inc;
-                        if (v.env <= self.sustain) { v.env = self.sustain; v.stage = .sustain; }
+                        if (v.env <= sustain_v) { v.env = sustain_v; v.stage = .sustain; }
                     },
                     .sustain => {},
                     .release => {
@@ -888,7 +1079,7 @@ pub const PolySynth = struct {
                     },
                     .decay => {
                         v.env2 -= fenv_decay_inc;
-                        if (v.env2 <= self.fenv_sustain) { v.env2 = self.fenv_sustain; v.stage2 = .sustain; }
+                        if (v.env2 <= fenv_sustain_v) { v.env2 = fenv_sustain_v; v.stage2 = .sustain; }
                         // zig fmt: on
                     },
                     .sustain => {},
@@ -1036,12 +1227,14 @@ pub const PolySynth = struct {
         };
     }
 
-    fn oscSampleA(self: *const PolySynth, phase: f32) Sample {
-        return oscWave(self.waveform, warpPhase(self.warp_mode, phase, self.warp_amount), self.pulse_width);
+    /// `pw`/`warp_amount` are passed in (not read off `self`) so the caller
+    /// can substitute per-voice matrix-modulated values.
+    fn oscSampleA(self: *const PolySynth, phase: f32, pw: f32, warp_amount: f32) Sample {
+        return oscWave(self.waveform, warpPhase(self.warp_mode, phase, warp_amount), pw);
     }
 
-    fn oscSampleB(self: *const PolySynth, phase: f32) Sample {
-        return oscWave(self.osc_b_waveform, warpPhase(self.osc_b_warp_mode, phase, self.osc_b_warp_amount), self.osc_b_pulse_width);
+    fn oscSampleB(self: *const PolySynth, phase: f32, pw: f32, warp_amount: f32) Sample {
+        return oscWave(self.osc_b_waveform, warpPhase(self.osc_b_warp_mode, phase, warp_amount), pw);
     }
 
     /// Remap a 0..1 read phase before waveform lookup. `amount` is 0..1 and
@@ -1099,7 +1292,7 @@ pub const PolySynth = struct {
         const v01 = @as(f32, @floatFromInt(value)) / 127.0;
         switch (@as(midi.CC, @enumFromInt(cc))) {
             // zig fmt: off
-            .mod_wheel         => self.lfo_depth = v01,
+            .mod_wheel         => self.mod_wheel = v01,
             .glide_time        => self.glide_s   = v01 * 4.0,
             .gain              => self.gain       = v01,
             .osc_a_waveform    => self.waveform         = ccWaveform(value),
@@ -1116,7 +1309,7 @@ pub const PolySynth = struct {
             .noise_level       => self.noise_level  = v01,
             .noise_color       => self.noise_color  = v01,
             .lfo_rate          => self.lfo_rate_hz  = 0.01 * std.math.pow(f32, 2000.0, v01),
-            .lfo_depth_cc      => self.lfo_depth    = v01,
+            .lfo_depth_cc      => self.mod_wheel    = v01,
             .mod_amount        => self.mod_amount   = v01 * 8.0,
             .filter_res        => self.filter_res    = v01,
             .amp_release       => self.release_s     = v01 * 4.0,
@@ -1124,7 +1317,7 @@ pub const PolySynth = struct {
             .filter_cutoff     => self.filter_cutoff = ccCutoff(value),
             .amp_decay         => self.decay_s       = v01 * 4.0,
             .amp_sustain       => self.sustain       = v01,
-            .fenv_amount       => self.fenv_amount   = v01 * 8.0 - 4.0,
+            .fenv_amount       => {}, // retired: fenv amount lives on matrix rows now
             .fenv_attack       => self.fenv_attack_s  = v01 * 4.0,
             .fenv_decay        => self.fenv_decay_s   = v01 * 4.0,
             .fenv_sustain      => self.fenv_sustain   = v01,
@@ -1191,25 +1384,19 @@ pub const PolySynth = struct {
             21 => self.filter_cutoff        = std.math.clamp(
                 self.filter_cutoff * std.math.pow(f32, 2.0, s / 12.0), 20.0, 20_000.0),
             22 => self.filter_res           = std.math.clamp(self.filter_res         + s * 0.01,   0.0,    1.0),
-            23 => self.fenv_amount          = std.math.clamp(self.fenv_amount        + s * 0.1,   -4.0,    4.0),
+            // 23 (fenv amount) retired — absorbed into the mod matrix.
             // FENV (24–27)
             24 => self.fenv_attack_s        = std.math.clamp(self.fenv_attack_s      + s * 0.001, 0.001,   5.0),
             25 => self.fenv_decay_s         = std.math.clamp(self.fenv_decay_s       + s * 0.005, 0.001,   5.0),
             26 => self.fenv_sustain         = std.math.clamp(self.fenv_sustain       + s * 0.01,   0.0,    1.0),
             27 => self.fenv_release_s       = std.math.clamp(self.fenv_release_s     + s * 0.005, 0.001,  10.0),
-            // LFO (28–31)
+            // LFO (28–29; 30/31 depth+target retired into the mod matrix)
             28 => self.lfo_shape = if (steps > 0) switch (self.lfo_shape) {
                 .sine => .triangle, .triangle => .saw, .saw => .square, .square => .sine,
             } else switch (self.lfo_shape) {
                 .sine => .square, .triangle => .sine, .saw => .triangle, .square => .saw,
             },
             29 => self.lfo_rate_hz          = std.math.clamp(self.lfo_rate_hz        + s * 0.1,   0.01,   20.0),
-            30 => self.lfo_depth            = std.math.clamp(self.lfo_depth          + s * 0.01,   0.0,    1.0),
-            31 => self.lfo_target = if (steps > 0) switch (self.lfo_target) {
-                .none => .filter, .filter => .pitch, .pitch => .amp, .amp => .none,
-            } else switch (self.lfo_target) {
-                .none => .amp, .filter => .none, .pitch => .filter, .amp => .pitch,
-            },
             // VOICE (32–33)
             32 => self.voice_mode = if (steps > 0) switch (self.voice_mode) {
                 .poly => .mono, .mono => .legato, .legato => .poly,
@@ -1285,6 +1472,29 @@ pub const PolySynth = struct {
                 .spread => .ratio, .step => .spread, .harmonic => .step, .ratio => .harmonic,
                 // zig fmt: on
             },
+            // MATRIX (59–82): 3 ids per row — source, dest, depth.
+            59...82 => {
+                const row = &self.mod_matrix[(id - 59) / 3];
+                switch ((id - 59) % 3) {
+                    // Source steps one variant per press (matches the other
+                    // enum params); wraps.
+                    0 => {
+                        const n: i32 = @typeInfo(ModSource).@"enum".fields.len;
+                        const cur: i32 = @intFromEnum(row.source);
+                        const dir: i32 = if (steps > 0) 1 else -1;
+                        row.source = @enumFromInt(@as(u8, @intCast(@mod(cur + dir, n))));
+                    },
+                    // Dest walks the mod_dest_ids table by the full step
+                    // count (H/L jump 10 through the ~40 entries); wraps.
+                    1 => {
+                        const n: i32 = mod_dest_ids.len;
+                        const cur: i32 = @intCast(modDestIndex(row.dest) orelse 0);
+                        row.dest = mod_dest_ids[@intCast(@mod(cur + steps, n))];
+                    },
+                    2 => row.depth = std.math.clamp(row.depth + s * 0.01, -1.0, 1.0),
+                    else => unreachable,
+                }
+            },
             else => {},
         }
     }
@@ -1295,9 +1505,9 @@ pub const PolySynth = struct {
     /// and for undo's capture/restore (`paramValue` is the read half).
     /// Every continuous param `adjustParam` handles is wired here with the
     /// exact same clamp range; enum/toggle ids (waveform 0/7, osc_b_on 6,
-    /// mod_mode 14, filter_type 20, lfo_shape 28, lfo_target 31, voice_mode
-    /// 32, sub_shape 35) take the variant's 0-based ordinal (toggles: >= 0.5
-    /// is on) — automation never targets them (they're not in
+    /// mod_mode 14, filter_type 20, lfo_shape 28, voice_mode 32, sub_shape
+    /// 35, matrix sources) take the variant's 0-based ordinal (toggles:
+    /// >= 0.5 is on) — automation never targets them (they're not in
     /// `automatable_params`), only undo restores them this way.
     pub fn setParamAbsolute(self: *PolySynth, id: u8, value: f32) void {
         switch (id) {
@@ -1308,7 +1518,6 @@ pub const PolySynth = struct {
             14 => self.mod_mode            = enumFromValue(ModMode, value),
             20 => self.filter_type         = enumFromValue(FilterType, value),
             28 => self.lfo_shape           = enumFromValue(LfoShape, value),
-            31 => self.lfo_target          = enumFromValue(LfoTarget, value),
             32 => self.voice_mode          = enumFromValue(VoiceMode, value),
             35 => self.sub_shape           = enumFromValue(SubShape, value),
             39 => self.unison_mode         = enumFromValue(UnisonMode, value),
@@ -1339,13 +1548,11 @@ pub const PolySynth = struct {
             19 => self.release_s           = std.math.clamp(value,   0.001, 10.0),
             21 => self.filter_cutoff       = std.math.clamp(value,  20.0, 20_000.0),
             22 => self.filter_res          = std.math.clamp(value,   0.0,    1.0),
-            23 => self.fenv_amount         = std.math.clamp(value,  -4.0,    4.0),
             24 => self.fenv_attack_s       = std.math.clamp(value,   0.001,  5.0),
             25 => self.fenv_decay_s        = std.math.clamp(value,   0.001,  5.0),
             26 => self.fenv_sustain        = std.math.clamp(value,   0.0,    1.0),
             27 => self.fenv_release_s      = std.math.clamp(value,   0.001, 10.0),
             29 => self.lfo_rate_hz         = std.math.clamp(value,   0.01,  20.0),
-            30 => self.lfo_depth           = std.math.clamp(value,   0.0,    1.0),
             33 => self.glide_s             = std.math.clamp(value,   0.0,   10.0),
             34 => self.sub_level           = std.math.clamp(value,   0.0,    1.0),
             36 => self.noise_level         = std.math.clamp(value,   0.0,    1.0),
@@ -1362,6 +1569,23 @@ pub const PolySynth = struct {
             56 => self.osc_c_unison        = @intCast(std.math.clamp(@as(i32, @intFromFloat(@round(value))), 1, 16)),
             57 => self.osc_c_unison_detune = std.math.clamp(value,   0.0,  100.0),
             // zig fmt: on
+            // MATRIX: dest takes the raw param id (falls back to cutoff if
+            // the value isn't a legal dest — e.g. a hand-edited curve).
+            59...82 => {
+                const row = &self.mod_matrix[(id - 59) / 3];
+                switch ((id - 59) % 3) {
+                    0 => row.source = enumFromValue(ModSource, value),
+                    1 => {
+                        const d: u8 = if (value > 0.0 and value <= 255.0)
+                            @intFromFloat(@round(value))
+                        else
+                            21;
+                        row.dest = if (modDestIndex(d) != null) d else 21;
+                    },
+                    2 => row.depth = std.math.clamp(value, -1.0, 1.0),
+                    else => unreachable,
+                }
+            },
             else => {},
         }
     }
@@ -1398,15 +1622,12 @@ pub const PolySynth = struct {
             20 => enumToValue(self.filter_type),
             21 => self.filter_cutoff,
             22 => self.filter_res,
-            23 => self.fenv_amount,
             24 => self.fenv_attack_s,
             25 => self.fenv_decay_s,
             26 => self.fenv_sustain,
             27 => self.fenv_release_s,
             28 => enumToValue(self.lfo_shape),
             29 => self.lfo_rate_hz,
-            30 => self.lfo_depth,
-            31 => enumToValue(self.lfo_target),
             32 => enumToValue(self.voice_mode),
             33 => self.glide_s,
             34 => self.sub_level,
@@ -1434,6 +1655,17 @@ pub const PolySynth = struct {
             56 => @floatFromInt(self.osc_c_unison),
             57 => self.osc_c_unison_detune,
             58 => enumToValue(self.osc_c_unison_mode),
+            59...82 => blk: {
+                const row = self.mod_matrix[(id - 59) / 3];
+                break :blk switch ((id - 59) % 3) {
+                    // zig fmt: off
+                    0 => enumToValue(row.source),
+                    1 => @floatFromInt(row.dest),
+                    2 => row.depth,
+                    // zig fmt: on
+                    else => unreachable,
+                };
+            },
             else => null,
         };
     }
@@ -1466,13 +1698,11 @@ pub const PolySynth = struct {
         .{ .id = 19, .label = "RELEASE",    .section = "ENV",     .range = .{ 0.001,  10.0 },    .step = 0.01 },
         .{ .id = 21, .label = "CUTOFF",     .section = "FILTER",  .range = .{ 20.0,   20_000.0 },.step = 100.0 },
         .{ .id = 22, .label = "RESONANCE",  .section = "FILTER",  .range = .{ 0.0,    1.0 },     .step = 0.01 },
-        .{ .id = 23, .label = "FENV AMT",   .section = "FENV",    .range = .{ -4.0,   4.0 },     .step = 0.05 },
         .{ .id = 24, .label = "FENV ATK",   .section = "FENV",    .range = .{ 0.001,  5.0 },     .step = 0.01 },
         .{ .id = 25, .label = "FENV DEC",   .section = "FENV",    .range = .{ 0.001,  5.0 },     .step = 0.01 },
         .{ .id = 26, .label = "FENV SUS",   .section = "FENV",    .range = .{ 0.0,    1.0 },     .step = 0.01 },
         .{ .id = 27, .label = "FENV REL",   .section = "FENV",    .range = .{ 0.001,  10.0 },    .step = 0.01 },
         .{ .id = 29, .label = "LFO RATE",   .section = "LFO",     .range = .{ 0.01,   20.0 },    .step = 0.1 },
-        .{ .id = 30, .label = "LFO DEPTH",  .section = "LFO",     .range = .{ 0.0,    1.0 },     .step = 0.01 },
         .{ .id = 33, .label = "GLIDE",      .section = "VOICE",   .range = .{ 0.0,    10.0 },    .step = 0.01 },
         .{ .id = 34, .label = "SUB LEVEL",  .section = "SUB",     .range = .{ 0.0,    1.0 },     .step = 0.01 },
         .{ .id = 36, .label = "NOISE LVL",  .section = "NOISE",   .range = .{ 0.0,    1.0 },     .step = 0.01 },
@@ -1488,6 +1718,16 @@ pub const PolySynth = struct {
         .{ .id = 55, .label = "LEVEL C",    .section = "OSC C",   .range = .{ 0.0,    1.0 },     .step = 0.01 },
         .{ .id = 56, .label = "UNISON C",   .section = "OSC C",   .range = .{ 1.0,    16.0 },    .step = 1.0 },
         .{ .id = 57, .label = "UNI DET C",  .section = "OSC C",   .range = .{ 0.0,    100.0 },   .step = 1.0 },
+        // Matrix row depths: automating one wobbles the wobble (the classic
+        // dubstep depth ride). Sources/dests stay manual-only.
+        .{ .id = 61, .label = "MT1 DEPTH",  .section = "MATRIX",  .range = .{ -1.0,   1.0 },     .step = 0.01 },
+        .{ .id = 64, .label = "MT2 DEPTH",  .section = "MATRIX",  .range = .{ -1.0,   1.0 },     .step = 0.01 },
+        .{ .id = 67, .label = "MT3 DEPTH",  .section = "MATRIX",  .range = .{ -1.0,   1.0 },     .step = 0.01 },
+        .{ .id = 70, .label = "MT4 DEPTH",  .section = "MATRIX",  .range = .{ -1.0,   1.0 },     .step = 0.01 },
+        .{ .id = 73, .label = "MT5 DEPTH",  .section = "MATRIX",  .range = .{ -1.0,   1.0 },     .step = 0.01 },
+        .{ .id = 76, .label = "MT6 DEPTH",  .section = "MATRIX",  .range = .{ -1.0,   1.0 },     .step = 0.01 },
+        .{ .id = 79, .label = "MT7 DEPTH",  .section = "MATRIX",  .range = .{ -1.0,   1.0 },     .step = 0.01 },
+        .{ .id = 82, .label = "MT8 DEPTH",  .section = "MATRIX",  .range = .{ -1.0,   1.0 },     .step = 0.01 },
         // zig fmt: on
     };
 
@@ -1670,19 +1910,19 @@ test "comb filter: impulse echoes at the tuned delay" {
     }
 }
 
-test "filter envelope modulates cutoff: positive amount brightens" {
-    // Two identical synths; one has a filter env with positive amount.
+test "filter envelope modulates cutoff via matrix row: positive depth brightens" {
+    // Two identical synths; one routes fenv → cutoff through the matrix.
     // After initial attack the envelope-driven one should be louder (more HF content).
     var base_synth = PolySynth.init(48_000);
     base_synth.waveform = .saw;
     base_synth.filter_cutoff = 500.0;
-    base_synth.fenv_amount = 0.0;
     base_synth.noteOn(60, 1.0);
 
     var mod_synth = PolySynth.init(48_000);
     mod_synth.waveform = .saw;
     mod_synth.filter_cutoff = 500.0;
-    mod_synth.fenv_amount = 3.0; // +3 octaves when env2 = 1 → 500 Hz * 8 = 4 kHz
+    // depth 0.75 = +3 octaves when env2 = 1 → 500 Hz * 8 = 4 kHz
+    mod_synth.mod_matrix[0] = .{ .source = .fenv, .dest = 21, .depth = 0.75 };
     mod_synth.fenv_attack_s = 0.001; // very fast attack
     // zig fmt: off
     mod_synth.fenv_sustain = 1.0;    // hold open
@@ -1813,21 +2053,19 @@ test "LFO: phase advances by rate×frames/sr each block" {
     try std.testing.expectApproxEqAbs(expected_phase, synth.lfo_phase, 1e-5);
 }
 
-test "LFO tremolo: square wave at 0 Hz halves amplitude at depth=1 (trough)" {
-    // LFO square at phase=0.75 → value = -1 (trough). Trough + depth=1 → amp_mod=0.
-    // To get trough reliably: start phase at 0.5 (square goes low) so first block sees val=-1.
+test "LFO tremolo via matrix: square trough at depth=1 silences the voice" {
+    // LFO square at phase=0.75 → value = -1 (trough); a matrix row lfo→amp
+    // at depth 1 makes amp_mod = clamp(1 + (-1), 0, 2) = 0.
     var with_lfo = PolySynth.init(48_000);
     // zig fmt: off
     with_lfo.lfo_shape  = .square;
     with_lfo.lfo_rate_hz = 0.0; // frozen
-    with_lfo.lfo_depth  = 1.0;
-    with_lfo.lfo_target = .amp;
-    with_lfo.lfo_phase  = 0.75; // square trough → lfo_val = -1 → amp_mod = 0
+    with_lfo.lfo_phase  = 0.75; // square trough → lfo_val = -1
     // zig fmt: on
+    with_lfo.mod_matrix[0] = .{ .source = .lfo, .dest = PolySynth.dest_amp, .depth = 1.0 };
     with_lfo.noteOn(60, 1.0);
 
     var without_lfo = PolySynth.init(48_000);
-    without_lfo.lfo_target = .none;
     without_lfo.noteOn(60, 1.0);
 
     var buf_lfo: [256]Sample = undefined;
@@ -1842,6 +2080,76 @@ test "LFO tremolo: square wave at 0 Hz halves amplitude at depth=1 (trough)" {
     var rms_lfo: f32 = 0.0;
     for (buf_lfo) |s| rms_lfo += s * s;
     try std.testing.expectApproxEqAbs(@as(f32, 0.0), rms_lfo, 1e-6);
+}
+
+test "mod matrix: velocity source scales its dest per voice" {
+    var with_vel = PolySynth.init(48_000);
+    with_vel.mod_matrix[0] = .{ .source = .velocity, .dest = PolySynth.dest_amp, .depth = 1.0 };
+    with_vel.noteOn(60, 1.0); // amp_mod = 1 + 1.0*1.0 = 2
+
+    var without = PolySynth.init(48_000);
+    without.noteOn(60, 1.0);
+
+    var buf_vel: [256]Sample = undefined;
+    var buf_dry: [256]Sample = undefined;
+    for (0..20) |_| {
+        // zig fmt: off
+        @memset(&buf_vel, 0.0); with_vel.processBlock(&buf_vel);
+        @memset(&buf_dry, 0.0); without.processBlock(&buf_dry);
+        // zig fmt: on
+    }
+    var rms_vel: f32 = 0.0;
+    var rms_dry: f32 = 0.0;
+    // zig fmt: off
+    for (buf_vel, buf_dry) |a, b| { rms_vel += a * a; rms_dry += b * b; }
+    // zig fmt: on
+    try std.testing.expect(rms_vel > rms_dry * 2.0);
+}
+
+test "applyPatch: legacy fenv/lfo fields migrate to matrix rows" {
+    var s = PolySynth.init(48_000);
+    s.applyPatch(.{ .fenv_amount = 2.0, .lfo_depth = 0.5, .lfo_target = .pitch });
+    try std.testing.expectEqual(ModSource.fenv, s.mod_matrix[0].source);
+    try std.testing.expectEqual(@as(u8, 21), s.mod_matrix[0].dest);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.5), s.mod_matrix[0].depth, 1e-6);
+    try std.testing.expectEqual(ModSource.lfo, s.mod_matrix[1].source);
+    try std.testing.expectEqual(PolySynth.dest_pitch, s.mod_matrix[1].dest);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.5), s.mod_matrix[1].depth, 1e-6);
+
+    // A patch that carries its own matrix ignores the legacy fields.
+    var rows = [_]PolySynth.ModRow{.{}} ** PolySynth.max_mod_rows;
+    rows[0] = .{ .source = .wheel, .dest = 34, .depth = -0.4 };
+    s.applyPatch(.{ .fenv_amount = 2.0, .mod_matrix = rows });
+    try std.testing.expectEqual(ModSource.wheel, s.mod_matrix[0].source);
+    try std.testing.expectEqual(ModSource.none, s.mod_matrix[1].source);
+}
+
+test "matrix param ids round-trip through paramValue/setParamAbsolute" {
+    var a = PolySynth.init(48_000);
+    a.mod_matrix[2] = .{ .source = .wheel, .dest = 34, .depth = -0.4 };
+    a.mod_matrix[7] = .{ .source = .keytrack, .dest = PolySynth.dest_pitch, .depth = 1.0 };
+
+    var b = PolySynth.init(48_000);
+    var id: u8 = 59;
+    while (id <= 82) : (id += 1) {
+        if (a.paramValue(id)) |v| b.setParamAbsolute(id, v);
+    }
+    try std.testing.expectEqual(a.mod_matrix[2], b.mod_matrix[2]);
+    try std.testing.expectEqual(a.mod_matrix[7], b.mod_matrix[7]);
+
+    // An illegal dest ordinal (hand-edited automation) falls back to cutoff.
+    b.setParamAbsolute(60, 200.0); // row 0 dest; 200 is not a legal dest
+    try std.testing.expectEqual(@as(u8, 21), b.mod_matrix[0].dest);
+}
+
+test "adjustParam: matrix dest walks the dest table and wraps" {
+    var s = PolySynth.init(48_000);
+    try std.testing.expectEqual(@as(u8, 21), s.mod_matrix[0].dest);
+    s.adjustParam(60, -1); // one step back from cutoff
+    const idx_cutoff = PolySynth.modDestIndex(21).?;
+    try std.testing.expectEqual(PolySynth.mod_dest_ids[idx_cutoff - 1], s.mod_matrix[0].dest);
+    s.adjustParam(60, 1);
+    try std.testing.expectEqual(@as(u8, 21), s.mod_matrix[0].dest);
 }
 
 test "polyphony: up to max_voices voices" {
@@ -1946,9 +2254,8 @@ test "LFO: all shapes stay finite under filter modulation" {
         // zig fmt: off
         synth.lfo_shape   = shape;
         synth.lfo_rate_hz = 5.0;
-        synth.lfo_depth   = 1.0;
-        synth.lfo_target  = .filter;
         // zig fmt: on
+        synth.mod_matrix[0] = .{ .source = .lfo, .dest = 21, .depth = 1.0 };
         synth.filter_cutoff = 2_000.0;
         synth.noteOn(60, 1.0);
         var buf: [512]Sample = undefined;

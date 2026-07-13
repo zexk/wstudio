@@ -1,0 +1,19 @@
+{
+  "version": 17,
+  "tracks": [
+    { "name": "wobble" }
+  ],
+  "racks": [
+    {
+      "label": "wobble",
+      "kind": "poly_synth",
+      "synth": {
+        "filter_cutoff": 900.0,
+        "mod_matrix": [
+          { "source": "lfo", "dest": 21, "depth": 0.8 },
+          { "source": "velocity", "dest": 255, "depth": 0.5 }
+        ]
+      }
+    }
+  ]
+}
