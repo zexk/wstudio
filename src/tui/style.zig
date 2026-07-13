@@ -22,7 +22,8 @@ pub const spectrum_band_count: usize = 80;
 /// NOISE : 36:noise_level 37:noise_color
 /// OUT   : 38:gain
 /// UNI MODE: 39:unison_mode 40:osc_b_unison_mode
-pub const synth_param_count: u8 = 41;
+/// WARP  : 41:warp_mode 42:warp_amount 43:osc_b_warp_mode 44:osc_b_warp_amount
+pub const synth_param_count: u8 = 45;
 
 // ---------------------------------------------------------------------------
 // Palette — all colour codes go here; never raw \x1b sequences elsewhere

@@ -38,6 +38,14 @@ pub const ModMode    = enum { none, ring, am_a_to_b, am_b_to_a, fm_a_to_b, fm_b_
 /// a full unison_detune-cents step from its neighbor — a chord/stack-style
 /// unison instead of a micro-detune blur.
 pub const UnisonMode  = enum { spread, step };
+/// Phase-warp applied to an oscillator's read phase before waveform lookup.
+/// `bend`: pivots the ramp so one half of the cycle races the other (PD-style
+/// asymmetry). `mirror`: folds the back part of the cycle backward instead of
+/// letting it run forward (adds a fold-back harmonic edge). `sync`: multiplies
+/// phase by an integer-ish ratio and wraps, giving the classic hard-sync buzz
+/// without a second real oscillator. All three reduce to (near-)identity at
+/// `warp_amount = 0`, so switching the mode alone never surprises the sound.
+pub const WarpMode    = enum { none, bend, mirror, sync };
 // zig fmt: on
 
 pub const PolySynth = struct {
@@ -56,6 +64,8 @@ pub const PolySynth = struct {
     /// Stereo width: 0 = mono, 1 = full L/R spread across unison voices.
     unison_spread: f32 = 0.0,
     unison_mode: UnisonMode = .spread,
+    warp_mode: WarpMode = .none,
+    warp_amount: f32 = 0.0,
 
     // ── OSC B ────────────────────────────────────────────────────────────────
     // zig fmt: off
@@ -71,6 +81,8 @@ pub const PolySynth = struct {
     osc_b_unison:       u8       = 1,
     osc_b_unison_detune: f32     = 15.0,
     osc_b_unison_mode:  UnisonMode = .spread,
+    osc_b_warp_mode:    WarpMode   = .none,
+    osc_b_warp_amount:  f32       = 0.0,
 
     // ── AMP ENVELOPE ────────────────────────────────────────────────────────
     attack_s:  f32 = 0.005,
@@ -220,6 +232,8 @@ pub const PolySynth = struct {
         unison_detune: f32 = 15.0,
         unison_spread: f32 = 0.0,
         unison_mode: UnisonMode = .spread,
+        warp_mode: WarpMode = .none,
+        warp_amount: f32 = 0.0,
 
         osc_b_on: bool = false,
         osc_b_waveform: Waveform = .saw,
@@ -230,6 +244,8 @@ pub const PolySynth = struct {
         osc_b_unison: u8 = 1,
         osc_b_unison_detune: f32 = 15.0,
         osc_b_unison_mode: UnisonMode = .spread,
+        osc_b_warp_mode: WarpMode = .none,
+        osc_b_warp_amount: f32 = 0.0,
 
         attack_s: f32 = 0.005,
         decay_s: f32 = 0.08,
@@ -814,11 +830,45 @@ pub const PolySynth = struct {
     }
 
     fn oscSampleA(self: *const PolySynth, phase: f32) Sample {
-        return oscWave(self.waveform, phase, self.pulse_width);
+        return oscWave(self.waveform, warpPhase(self.warp_mode, phase, self.warp_amount), self.pulse_width);
     }
 
     fn oscSampleB(self: *const PolySynth, phase: f32) Sample {
-        return oscWave(self.osc_b_waveform, phase, self.osc_b_pulse_width);
+        return oscWave(self.osc_b_waveform, warpPhase(self.osc_b_warp_mode, phase, self.osc_b_warp_amount), self.osc_b_pulse_width);
+    }
+
+    /// Remap a 0..1 read phase before waveform lookup. `amount` is 0..1 and
+    /// every mode is (near-)identity at 0, so toggling `warp_mode` alone
+    /// (before touching amount) never changes the sound.
+    fn warpPhase(mode: WarpMode, phase: f32, amount: f32) f32 {
+        return switch (mode) {
+            .none => phase,
+            // Pivot the ramp: one side of the cycle covers more phase than
+            // the other, same trick classic phase-distortion synths use.
+            .bend => blk: {
+                const pivot = 0.5 + amount * 0.49;
+                break :blk if (phase < pivot)
+                    phase / pivot * 0.5
+                else
+                    0.5 + (phase - pivot) / (1.0 - pivot) * 0.5;
+            },
+            // Fold the tail of the cycle back on itself instead of letting
+            // it run forward past the pivot.
+            .mirror => blk: {
+                const pivot = 1.0 - amount * 0.5;
+                break :blk if (phase < pivot)
+                    phase
+                else
+                    pivot - (phase - pivot) / (1.0 - pivot) * pivot;
+            },
+            // Multiply-and-wrap: each sub-cycle restarts at 0 in lockstep
+            // with the fundamental, giving a hard-sync-like buzz with no
+            // second phase accumulator needed.
+            .sync => blk: {
+                const p = phase * (1.0 + amount * 7.0);
+                break :blk p - @floor(p);
+            },
+        };
     }
 
     fn oscWave(wf: Waveform, phase: f32, pw: f32) Sample {
@@ -978,8 +1028,21 @@ pub const PolySynth = struct {
             },
             40 => self.osc_b_unison_mode = switch (self.osc_b_unison_mode) {
                 .spread => .step, .step => .spread,
-                // zig fmt: on
             },
+            // WARP (41–44)
+            41 => self.warp_mode = if (steps > 0) switch (self.warp_mode) {
+                .none => .bend, .bend => .mirror, .mirror => .sync, .sync => .none,
+            } else switch (self.warp_mode) {
+                .none => .sync, .bend => .none, .mirror => .bend, .sync => .mirror,
+            },
+            42 => self.warp_amount          = std.math.clamp(self.warp_amount        + s * 0.01,   0.0,    1.0),
+            43 => self.osc_b_warp_mode = if (steps > 0) switch (self.osc_b_warp_mode) {
+                .none => .bend, .bend => .mirror, .mirror => .sync, .sync => .none,
+            } else switch (self.osc_b_warp_mode) {
+                .none => .sync, .bend => .none, .mirror => .bend, .sync => .mirror,
+            },
+            44 => self.osc_b_warp_amount    = std.math.clamp(self.osc_b_warp_amount  + s * 0.01,   0.0,    1.0),
+                // zig fmt: on
             else => {},
         }
     }
@@ -1008,6 +1071,8 @@ pub const PolySynth = struct {
             35 => self.sub_shape           = enumFromValue(SubShape, value),
             39 => self.unison_mode         = enumFromValue(UnisonMode, value),
             40 => self.osc_b_unison_mode   = enumFromValue(UnisonMode, value),
+            41 => self.warp_mode           = enumFromValue(WarpMode, value),
+            43 => self.osc_b_warp_mode     = enumFromValue(WarpMode, value),
             1  => self.pulse_width         = std.math.clamp(value,   0.01,   0.99),
             2  => self.detune_cents        = std.math.clamp(value, -100.0, 100.0),
             3  => self.unison              = @intCast(std.math.clamp(@as(i32, @intFromFloat(@round(value))), 1, 16)),
@@ -1038,6 +1103,8 @@ pub const PolySynth = struct {
             36 => self.noise_level         = std.math.clamp(value,   0.0,    1.0),
             37 => self.noise_color         = std.math.clamp(value,   0.0,    1.0),
             38 => self.gain                = std.math.clamp(value,   0.01,   1.0),
+            42 => self.warp_amount         = std.math.clamp(value,   0.0,    1.0),
+            44 => self.osc_b_warp_amount   = std.math.clamp(value,   0.0,    1.0),
             // zig fmt: on
             else => {},
         }
@@ -1093,6 +1160,10 @@ pub const PolySynth = struct {
             38 => self.gain,
             39 => enumToValue(self.unison_mode),
             40 => enumToValue(self.osc_b_unison_mode),
+            41 => enumToValue(self.warp_mode),
+            42 => self.warp_amount,
+            43 => enumToValue(self.osc_b_warp_mode),
+            44 => self.osc_b_warp_amount,
             else => null,
         };
     }
@@ -1137,6 +1208,8 @@ pub const PolySynth = struct {
         .{ .id = 36, .label = "NOISE LVL",  .section = "NOISE",   .range = .{ 0.0,    1.0 },     .step = 0.01 },
         .{ .id = 37, .label = "NOISE CLR",  .section = "NOISE",   .range = .{ 0.0,    1.0 },     .step = 0.01 },
         .{ .id = 38, .label = "OUT GAIN",   .section = "OUT",     .range = .{ 0.01,   1.0 },     .step = 0.01 },
+        .{ .id = 42, .label = "WARP AMT A", .section = "OSC A",   .range = .{ 0.0,    1.0 },     .step = 0.01 },
+        .{ .id = 44, .label = "WARP AMT B", .section = "OSC B",   .range = .{ 0.0,    1.0 },     .step = 0.01 },
         // zig fmt: on
     };
 

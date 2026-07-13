@@ -172,6 +172,7 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize
         try secNoise(&tw, synth, c);
         try secOut(&tw, synth, c);
         try secUniMode(&tw, synth, c);
+        try secWarp(&tw, synth, c);
 
         var line_it = std.mem.splitSequence(u8, tw.buffered(), "\r\n");
         var row: usize = 1;
@@ -193,7 +194,7 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize
 // row maps in sync.
 
 /// Every non-oscillator section, stacked full-width beneath OSC A/B in the
-/// wide layout: 37 rows (3 + 5 + 5 + 5 + 5 + 3 + 3 + 3 + 2 + 3).
+/// wide layout: 42 rows (3 + 5 + 5 + 5 + 5 + 3 + 3 + 3 + 2 + 3 + 5).
 fn drawSynthBottom(w: *std.Io.Writer, synth: anytype, c: u8) !void {
     try secMod(w, synth, c);
     try secEnv(w, synth, c);
@@ -205,6 +206,7 @@ fn drawSynthBottom(w: *std.Io.Writer, synth: anytype, c: u8) !void {
     try secNoise(w, synth, c);
     try secOut(w, synth, c);
     try secUniMode(w, synth, c);
+    try secWarp(w, synth, c);
 }
 
 const wf_names = [_][]const u8{ "sine", "saw", "tri", "sqr" };
@@ -424,6 +426,27 @@ fn secUniMode(w: *std.Io.Writer, synth: anytype, c: u8) !void {
     try enumRow(w, c == 40, !synth.osc_b_on or synth.osc_b_unison <= 1, acc, "osc b", &uni_mode_names, b_idx);
 }
 
+const warp_mode_names = [_][]const u8{ "none", "bend", "mirror", "sync" };
+
+fn secWarp(w: *std.Io.Writer, synth: anytype, c: u8) !void {
+    var buf: [40]u8 = undefined;
+    try synthSection(w, "WARP", acc);
+
+    const a_idx: usize = switch (synth.warp_mode) {
+        .none => 0, .bend => 1, .mirror => 2, .sync => 3,
+    };
+    try enumRow(w, c == 41, false, acc, "osc a", &warp_mode_names, a_idx);
+    try barRow(w, c == 42, synth.warp_mode == .none, acc, "amt a", synth.warp_amount, 1.0,
+        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.warp_amount}));
+
+    const b_idx: usize = switch (synth.osc_b_warp_mode) {
+        .none => 0, .bend => 1, .mirror => 2, .sync => 3,
+    };
+    try enumRow(w, c == 43, !synth.osc_b_on, acc, "osc b", &warp_mode_names, b_idx);
+    try barRow(w, c == 44, !synth.osc_b_on or synth.osc_b_warp_mode == .none, acc, "amt b", synth.osc_b_warp_amount, 1.0,
+        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.osc_b_warp_amount}));
+}
+
 pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !void {
     if (app.synth_track >= app.session.racks.items.len) return;
     const rack = app.session.racks.items[app.synth_track];
@@ -442,6 +465,8 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !
         "sub.level", "sub.shape",
         "noise.level", "noise.color",
         "gain",
+        "uni.mode a", "uni.mode b",
+        "warp.mode a", "warp.amt a", "warp.mode b", "warp.amt b",
     };
     const cur = @min(@as(usize, app.synth_cursor), labels.len - 1);
     try style.writeModeBadge(w, app.modal.mode);
@@ -518,6 +543,16 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !
               else try w.print("{d:.2}",   .{synth.noise_level}),
         37 => try w.print("{d:.2}",       .{synth.noise_color}),
         38 => try w.print("{d:.3}",       .{synth.gain}),
+        39 => try w.writeAll(switch (synth.unison_mode) { .spread => "spread", .step => "step" }),
+        40 => try w.writeAll(switch (synth.osc_b_unison_mode) { .spread => "spread", .step => "step" }),
+        41 => try w.writeAll(switch (synth.warp_mode) {
+            .none => "none", .bend => "bend", .mirror => "mirror", .sync => "sync",
+        }),
+        42 => try w.print("{d:.2}",       .{synth.warp_amount}),
+        43 => try w.writeAll(switch (synth.osc_b_warp_mode) {
+            .none => "none", .bend => "bend", .mirror => "mirror", .sync => "sync",
+        }),
+        44 => try w.print("{d:.2}",       .{synth.osc_b_warp_amount}),
         else => {},
     }
     try w.writeAll(rst);

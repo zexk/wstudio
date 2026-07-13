@@ -84,6 +84,13 @@ pub const SynthSnap = struct {
     unison: u8 = 1,
     unison_detune: f32 = 15.0,
     unison_spread: f32 = 0.0,
+    /// Additive field: never actually wired to this struct/synthToSnap/
+    /// applyToSynth when the feature shipped, so saved+reloaded projects
+    /// silently lost this setting back to `.spread`. Fixed alongside adding
+    /// warp mode below.
+    unison_mode: synth_mod.UnisonMode = .spread,
+    warp_mode: synth_mod.WarpMode = .none,
+    warp_amount: f32 = 0.0,
     // OSC B
     osc_b_on: bool = false,
     osc_b_waveform: synth_mod.Waveform = .saw,
@@ -93,6 +100,9 @@ pub const SynthSnap = struct {
     osc_b_level: f32 = 1.0,
     osc_b_unison: u8 = 1,
     osc_b_unison_detune: f32 = 15.0,
+    osc_b_unison_mode: synth_mod.UnisonMode = .spread,
+    osc_b_warp_mode: synth_mod.WarpMode = .none,
+    osc_b_warp_amount: f32 = 0.0,
     // Amp envelope
     attack_s: f32 = 0.005,
     decay_s: f32 = 0.08,
@@ -1077,6 +1087,9 @@ fn synthToSnap(s: *const PolySynth) SynthSnap {
         .unison = s.unison,
         .unison_detune = s.unison_detune,
         .unison_spread = s.unison_spread,
+        .unison_mode = s.unison_mode,
+        .warp_mode = s.warp_mode,
+        .warp_amount = s.warp_amount,
         .osc_b_on = s.osc_b_on,
         .osc_b_waveform = s.osc_b_waveform,
         .osc_b_pulse_width = s.osc_b_pulse_width,
@@ -1085,6 +1098,9 @@ fn synthToSnap(s: *const PolySynth) SynthSnap {
         .osc_b_level = s.osc_b_level,
         .osc_b_unison = s.osc_b_unison,
         .osc_b_unison_detune = s.osc_b_unison_detune,
+        .osc_b_unison_mode = s.osc_b_unison_mode,
+        .osc_b_warp_mode = s.osc_b_warp_mode,
+        .osc_b_warp_amount = s.osc_b_warp_amount,
         .attack_s = s.attack_s,
         .decay_s = s.decay_s,
         .sustain = s.sustain,
@@ -1686,6 +1702,9 @@ fn applyToSynth(s: *PolySynth, ss: *const SynthSnap) void {
     s.unison = @intCast(clamp(@as(i32, ss.unison), 1, 16));
     s.unison_detune = clamp(ss.unison_detune, 0.0, 100.0);
     s.unison_spread = clamp(ss.unison_spread, 0.0, 1.0);
+    s.unison_mode = ss.unison_mode;
+    s.warp_mode = ss.warp_mode;
+    s.warp_amount = clamp(ss.warp_amount, 0.0, 1.0);
     s.osc_b_on = ss.osc_b_on;
     s.osc_b_waveform = ss.osc_b_waveform;
     s.osc_b_pulse_width = clamp(ss.osc_b_pulse_width, 0.01, 0.99);
@@ -1694,6 +1713,9 @@ fn applyToSynth(s: *PolySynth, ss: *const SynthSnap) void {
     s.osc_b_level = clamp(ss.osc_b_level, 0.0, 1.0);
     s.osc_b_unison = @intCast(clamp(@as(i32, ss.osc_b_unison), 1, 16));
     s.osc_b_unison_detune = clamp(ss.osc_b_unison_detune, 0.0, 100.0);
+    s.osc_b_unison_mode = ss.osc_b_unison_mode;
+    s.osc_b_warp_mode = ss.osc_b_warp_mode;
+    s.osc_b_warp_amount = clamp(ss.osc_b_warp_amount, 0.0, 1.0);
     s.attack_s = clamp(ss.attack_s, 0.001, 5.0);
     s.decay_s = clamp(ss.decay_s, 0.001, 5.0);
     s.sustain = clamp(ss.sustain, 0.0, 1.0);
