@@ -53,6 +53,9 @@ pub const Slicer = struct {
     pub const param_stride: u16 = 16;
 
     pub const vel_full: u8 = 127;
+    /// Named preset bands `cycleStepVel` steps through — same ladder as
+    /// DrumMachine's, so the two grids' `c` key feels identical.
+    const vel_presets = [_]u8{ 127, 95, 63, 31 };
     pub fn velGain(level: u8) f32 {
         return @as(f32, @floatFromInt(level)) / @as(f32, @floatFromInt(vel_full));
     }
@@ -236,6 +239,102 @@ pub const Slicer = struct {
         self.slice_count = count;
     }
 
+    /// Re-chop at detected transients (the MPC "slice at attacks" workflow):
+    /// contiguous fresh-params regions, one per onset, first always anchored
+    /// at 0. `sensitivity` 1 (only the hardest hits) .. 9 (every flutter),
+    /// 5 = default. Returns the new slice count (1 = nothing detected, the
+    /// whole clip as one slice).
+    pub fn chopTransients(self: *Slicer, sensitivity: u8) u8 {
+        var positions: [max_slices]f32 = undefined;
+        const n = detectOnsets(self.samples, self.sample_rate, sensitivity, &positions);
+        self.chopAt(positions[0..n]);
+        return self.slice_count;
+    }
+
+    /// Chop into contiguous regions whose starts are `positions` (ascending
+    /// fractions of the clip, first entry treated as 0); each region ends
+    /// where the next begins, the last at 1.0.
+    pub fn chopAt(self: *Slicer, positions: []const f32) void {
+        const count: u8 = @intCast(std.math.clamp(positions.len, 1, max_slices));
+        while (!self.sample_lock.tryLock()) std.atomic.spinLoopHint();
+        defer self.sample_lock.unlock();
+        for (0..count) |i| {
+            self.slices[i] = .{
+                .samples = self.samples,
+                .start_norm = if (i == 0) 0.0 else std.math.clamp(positions[i], 0.0, 1.0),
+                .end_norm = if (i + 1 < count) std.math.clamp(positions[i + 1], 0.0, 1.0) else 1.0,
+            };
+        }
+        self.slice_count = count;
+    }
+
+    /// Split the cursor slice at its region midpoint: the new right half is
+    /// inserted at `idx + 1` (inheriting the left half's params), and every
+    /// later slice — including its pattern/velocity rows — shifts down one.
+    /// Returns false when full or `idx` is out of range.
+    pub fn splitSlice(self: *Slicer, idx: u8) bool {
+        if (idx >= self.slice_count or self.slice_count >= max_slices) return false;
+        while (!self.sample_lock.tryLock()) std.atomic.spinLoopHint();
+        defer self.sample_lock.unlock();
+        var i: usize = self.slice_count;
+        while (i > idx + 1) : (i -= 1) {
+            self.slices[i] = self.slices[i - 1];
+            self.pattern[i].store(self.pattern[i - 1].load(.monotonic), .release);
+            for (&self.vel[i], &self.vel[i - 1]) |*dst, *src| dst.store(src.load(.monotonic), .release);
+        }
+        const left = &self.slices[idx];
+        const mid = left.start_norm + (left.end_norm - left.start_norm) / 2.0;
+        var right = left.*;
+        right.start_norm = mid;
+        left.end_norm = mid;
+        self.slices[idx + 1] = right;
+        // The new right half starts silent — it inherited its sound from the
+        // left, not its programming.
+        self.pattern[idx + 1].store(0, .release);
+        for (&self.vel[idx + 1]) |*p| p.store(vel_full, .release);
+        self.slice_count += 1;
+        self.resetVoicesLocked();
+        return true;
+    }
+
+    /// Merge the cursor slice with the one after it: the region extends to
+    /// the right slice's end, both patterns are OR-combined (max velocity
+    /// where they collide), and every later slice shifts up one. Returns
+    /// false when `idx` is the last slice or out of range.
+    pub fn mergeSliceRight(self: *Slicer, idx: u8) bool {
+        if (idx + 1 >= self.slice_count) return false;
+        while (!self.sample_lock.tryLock()) std.atomic.spinLoopHint();
+        defer self.sample_lock.unlock();
+        self.slices[idx].end_norm = self.slices[idx + 1].end_norm;
+        const merged = self.pattern[idx].load(.monotonic) | self.pattern[idx + 1].load(.monotonic);
+        self.pattern[idx].store(merged, .release);
+        for (&self.vel[idx], &self.vel[idx + 1], 0..) |*dst, *src, s| {
+            const bit = @as(u64, 1) << @intCast(s);
+            if (self.pattern[idx + 1].load(.monotonic) & bit != 0)
+                dst.store(@max(dst.load(.monotonic), src.load(.monotonic)), .release);
+        }
+        var i: usize = idx + 1;
+        while (i + 1 < self.slice_count) : (i += 1) {
+            self.slices[i] = self.slices[i + 1];
+            self.pattern[i].store(self.pattern[i + 1].load(.monotonic), .release);
+            for (&self.vel[i], &self.vel[i + 1]) |*dst, *src| dst.store(src.load(.monotonic), .release);
+        }
+        self.pattern[self.slice_count - 1].store(0, .release);
+        for (&self.vel[self.slice_count - 1]) |*p| p.store(vel_full, .release);
+        self.slice_count -= 1;
+        self.resetVoicesLocked();
+        return true;
+    }
+
+    /// Kill every voice after a structural slice change (split/merge): the
+    /// pools are indexed by slice, so a shifted row's ringing tail would
+    /// finish through the wrong slice's params. Caller holds `sample_lock`.
+    fn resetVoicesLocked(self: *Slicer) void {
+        // zig fmt: off
+        for (&self.voices) |*row| for (row) |*v| { v.* = .{}; };
+        // zig fmt: on
+    }
+
     // -----------------------------------------------------------------------
     // Param editing — `id` is `slice << 4 | param` (see `param_stride`).
 
@@ -266,6 +365,56 @@ pub const Slicer = struct {
         return (@as(u16, slice) << 4) | (param & 0x0F);
     }
 
+    /// Set slice-encoded param `id` to an absolute value (same clamps as
+    /// `adjustParam`'s per-step nudges) — undo's restore half, mirroring
+    /// `DrumMachine.setParamAbsolute`.
+    pub fn setParamAbsolute(self: *Slicer, id: u16, value: f32) void {
+        const slice_idx = id >> 4;
+        const param = id & 0x0F;
+        if (slice_idx >= max_slices) return;
+        const pad = &self.slices[slice_idx];
+        switch (param) {
+            0 => pad.start_norm = std.math.clamp(value, 0.0, pad.end_norm - 0.01),
+            // zig fmt: off
+            1 => pad.end_norm   = std.math.clamp(value, pad.start_norm + 0.01, 1.0),
+            2 => pad.pitch_semitones = std.math.clamp(value, -24.0, 24.0),
+            3 => pad.attack_s   = std.math.clamp(value, 0.0, 5.0),
+            4 => pad.decay_s    = std.math.clamp(value, 0.0, 5.0),
+            5 => pad.sustain    = std.math.clamp(value, 0.0, 1.0),
+            6 => pad.release_s  = std.math.clamp(value, 0.001, 5.0),
+            7 => pad.gain       = std.math.clamp(value, 0.0, 2.0),
+            8 => pad.pan        = std.math.clamp(value, -1.0, 1.0),
+            9 => pad.reverse    = value >= 0.5,
+            // zig fmt: on
+            else => {},
+        }
+    }
+
+    /// Current value of slice-encoded param `id`, in `setParamAbsolute`'s
+    /// encoding (reverse as 0/1) — undo's capture half. Null past the live
+    /// slice count, so undo skips rather than editing an inert slot.
+    pub fn paramValue(self: *const Slicer, id: u16) ?f32 {
+        const slice_idx = id >> 4;
+        const param = id & 0x0F;
+        if (slice_idx >= self.slice_count) return null;
+        const pad = &self.slices[slice_idx];
+        return switch (param) {
+            // zig fmt: off
+            0 => pad.start_norm,
+            1 => pad.end_norm,
+            2 => pad.pitch_semitones,
+            3 => pad.attack_s,
+            4 => pad.decay_s,
+            5 => pad.sustain,
+            6 => pad.release_s,
+            7 => pad.gain,
+            8 => pad.pan,
+            9 => if (pad.reverse) 1.0 else 0.0,
+            // zig fmt: on
+            else => null,
+        };
+    }
+
     // -----------------------------------------------------------------------
     // Step grid (control thread edits; audio thread reads in processBlock)
 
@@ -288,6 +437,41 @@ pub const Slicer = struct {
     pub fn setStepVel(self: *Slicer, slice: u8, step: u8, level: u8) void {
         if (slice >= max_slices or step >= max_steps) return;
         self.vel[slice][step].store(level, .release);
+    }
+
+    /// Step one step's velocity through the named preset bands — same
+    /// single-key gesture as `DrumMachine.cycleStepVel`.
+    pub fn cycleStepVel(self: *Slicer, slice: u8, step: u8) void {
+        const cur = self.stepVel(slice, step);
+        var idx: usize = vel_presets.len - 1; // not a preset value -> next lands on preset[0]
+        for (vel_presets, 0..) |v, i| {
+            // zig fmt: off
+            if (v == cur) { idx = i; break; }
+            // zig fmt: on
+        }
+        self.setStepVel(slice, step, vel_presets[(idx + 1) % vel_presets.len]);
+    }
+
+    /// Nudge one step's velocity by `delta`, clamped to 1..127 — 0 would be
+    /// silent; use x to remove a step instead of zeroing its velocity.
+    pub fn nudgeStepVel(self: *Slicer, slice: u8, step: u8, delta: i32) void {
+        const cur: i32 = self.stepVel(slice, step);
+        const next = std.math.clamp(cur + delta, 1, 127);
+        self.setStepVel(slice, step, @intCast(next));
+    }
+
+    /// Wipe one slice's row: no steps, all velocities back to full.
+    pub fn clearSlice(self: *Slicer, slice: u8) void {
+        if (slice >= max_slices) return;
+        self.pattern[slice].store(0, .release);
+        for (&self.vel[slice]) |*p| p.store(vel_full, .release);
+    }
+
+    /// Fill one slice's row with full-velocity steps across the active length.
+    pub fn fillSlice(self: *Slicer, slice: u8) void {
+        if (slice >= max_slices) return;
+        self.pattern[slice].store(stepMask(self.step_count), .release);
+        for (&self.vel[slice]) |*p| p.store(vel_full, .release);
     }
 
     pub fn setStepCount(self: *Slicer, n: u8) void {
@@ -429,7 +613,8 @@ pub const Slicer = struct {
                 self.triggerSlice(e.note % self.slice_count, e.velocity, 0);
             },
             .set_param => |e| self.adjustParam(e.id, e.steps),
-            .note_off, .cc, .pitch_bend, .set_param_abs, .set_sidechain_buf, .capture_pad => {},
+            .set_param_abs => |e| self.setParamAbsolute(e.id, e.value),
+            .note_off, .cc, .pitch_bend, .set_sidechain_buf, .capture_pad => {},
             .all_off => self.resetAll(),
         }
     }
@@ -439,6 +624,73 @@ pub const Slicer = struct {
         self.resetAll();
     }
 };
+
+/// Energy-envelope onset detection for `chopTransients`: fills `out` with
+/// ascending slice-start positions (fractions of the clip, `out[0]` always
+/// 0.0) and returns how many were found (>= 1). An onset is a 10 ms RMS hop
+/// that rises `ratio`x above the recent local average — `sensitivity` 1..9
+/// maps to ratio 3.7 (only the hardest hits) down to 1.3 (every flutter) —
+/// gated by a noise floor relative to the clip's own peak and a 40 ms
+/// refractory so one drum hit can't chop twice. The boundary lands one hop
+/// early so the attack transient stays inside its own slice.
+pub fn detectOnsets(samples: []const f32, sample_rate: u32, sensitivity: u8, out: *[Slicer.max_slices]f32) u8 {
+    out[0] = 0.0;
+    var count: u8 = 1;
+    if (samples.len == 0) return count;
+
+    const hop: usize = @max(sample_rate / 100, 32);
+    const hops = samples.len / hop;
+    if (hops < 4) return count;
+
+    const hopRms = struct {
+        fn f(s: []const f32, h: usize, size: usize) f32 {
+            var acc: f32 = 0;
+            for (s[h * size ..][0..size]) |x| acc += x * x;
+            return @sqrt(acc / @as(f32, @floatFromInt(size)));
+        }
+    }.f;
+
+    var peak_env: f32 = 1e-9;
+    for (0..hops) |h| peak_env = @max(peak_env, hopRms(samples, h, hop));
+    const noise_floor = peak_env * 0.04;
+
+    const s = std.math.clamp(sensitivity, 1, 9);
+    const ratio = 3.7 - 0.3 * @as(f32, @floatFromInt(s - 1));
+    const min_gap_hops: usize = 4; // 40 ms refractory
+
+    // Moving local average over the last `ring.len` hops, seeded with the
+    // first hop so a hot open doesn't divide by a zero-energy history.
+    var ring = [_]f32{hopRms(samples, 0, hop)} ** 8;
+    var ring_i: usize = 0;
+    var prev_env = ring[0];
+    var last_onset_hop: usize = 0;
+
+    for (1..hops) |h| {
+        const env = hopRms(samples, h, hop);
+        var avg: f32 = 0;
+        for (ring) |r| avg += r;
+        avg /= @floatFromInt(ring.len);
+
+        const rising = env > prev_env;
+        const loud_enough = env > noise_floor;
+        const jumps = env > avg * ratio;
+        const spaced = h - last_onset_hop >= min_gap_hops;
+        if (rising and loud_enough and jumps and spaced) {
+            last_onset_hop = h;
+            const pos = @as(f32, @floatFromInt((h - 1) * hop)) / @as(f32, @floatFromInt(samples.len));
+            // The head is always slice 0; an onset this close to it is it.
+            if (pos > 0.02 and count < Slicer.max_slices) {
+                out[count] = pos;
+                count += 1;
+            }
+        }
+
+        ring[ring_i] = env;
+        ring_i = (ring_i + 1) % ring.len;
+        prev_env = env;
+    }
+    return count;
+}
 
 /// A short plucked C4 tone, same generator `dsp/sampler.zig` uses for its
 /// own default clip — so a freshly inserted Slicer has real audio to chop
@@ -550,6 +802,141 @@ test "adjustParam edits the addressed slice only" {
     s.adjustParam(Slicer.paramId(2, 7), 10); // slice 2's gain +10 steps of 0.01
     try std.testing.expectApproxEqAbs(@as(f32, 1.1), s.slices[2].gain, 1e-4);
     try std.testing.expectApproxEqAbs(@as(f32, 1.0), s.slices[0].gain, 1e-4);
+}
+
+/// Four decaying noise bursts at 0/25/50/75% of a one-second clip —
+/// a synthetic drum loop for the transient-chop tests.
+fn burstClip(allocator: std.mem.Allocator, sample_rate: u32) ![]f32 {
+    const len = sample_rate;
+    const out = try allocator.alloc(f32, len);
+    @memset(out, 0.0);
+    var rng = std.Random.DefaultPrng.init(42);
+    const burst_len = sample_rate / 20; // 50 ms
+    for (0..4) |b| {
+        const at = b * (len / 4);
+        for (0..burst_len) |i| {
+            const t = @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(burst_len));
+            out[at + i] = (rng.random().float(f32) * 2.0 - 1.0) * (1.0 - t);
+        }
+    }
+    return out;
+}
+
+test "chopTransients finds the bursts and anchors slice 0 at the head" {
+    var transport = Transport{ .sample_rate = 48_000 };
+    var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
+    defer s.deinit();
+    std.testing.allocator.free(s.samples);
+    s.samples = try burstClip(std.testing.allocator, 48_000);
+    for (&s.slices) |*p| p.samples = s.samples;
+
+    const n = s.chopTransients(5);
+    try std.testing.expectEqual(@as(u8, 4), n);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), s.slices[0].start_norm, 1e-6);
+    // Each detected boundary sits within 3% of its burst (one hop early).
+    try std.testing.expectApproxEqAbs(@as(f32, 0.25), s.slices[1].start_norm, 0.03);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.50), s.slices[2].start_norm, 0.03);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.75), s.slices[3].start_norm, 0.03);
+    // Contiguous: each slice ends where the next begins.
+    try std.testing.expectApproxEqAbs(s.slices[1].start_norm, s.slices[0].end_norm, 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), s.slices[3].end_norm, 1e-6);
+}
+
+test "chopTransients on silence falls back to one whole-clip slice" {
+    var transport = Transport{ .sample_rate = 48_000 };
+    var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
+    defer s.deinit();
+    std.testing.allocator.free(s.samples);
+    s.samples = try std.testing.allocator.alloc(f32, 48_000);
+    @memset(s.samples, 0.0);
+    for (&s.slices) |*p| p.samples = s.samples;
+
+    try std.testing.expectEqual(@as(u8, 1), s.chopTransients(9));
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), s.slices[0].start_norm, 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), s.slices[0].end_norm, 1e-6);
+}
+
+test "splitSlice halves the region and shifts later pattern rows down" {
+    var transport = Transport{ .sample_rate = 48_000 };
+    var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
+    defer s.deinit();
+    s.sliceInto(3);
+    s.toggleStep(2, 5); // will belong to slice 3 after the split
+    s.slices[1].pitch_semitones = -12.0;
+
+    try std.testing.expect(s.splitSlice(1));
+    try std.testing.expectEqual(@as(u8, 4), s.slice_count);
+    // Old slice 1 spanned 1/3..2/3; halves meet at 1/2.
+    try std.testing.expectApproxEqAbs(@as(f32, 0.5), s.slices[1].end_norm, 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.5), s.slices[2].start_norm, 1e-6);
+    // The right half inherits params but starts silent.
+    try std.testing.expectApproxEqAbs(@as(f32, -12.0), s.slices[2].pitch_semitones, 1e-6);
+    try std.testing.expect(!s.stepActive(2, 5));
+    // Old slice 2's programming followed it to row 3.
+    try std.testing.expect(s.stepActive(3, 5));
+}
+
+test "mergeSliceRight ORs patterns and shifts later rows up" {
+    var transport = Transport{ .sample_rate = 48_000 };
+    var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
+    defer s.deinit();
+    s.sliceInto(4);
+    s.toggleStep(1, 0);
+    s.setStepVel(1, 0, 40);
+    s.toggleStep(2, 0);
+    s.setStepVel(2, 0, 90);
+    s.toggleStep(2, 7);
+    s.toggleStep(3, 3);
+
+    try std.testing.expect(s.mergeSliceRight(1));
+    try std.testing.expectEqual(@as(u8, 3), s.slice_count);
+    // Region 1 now spans old 1+2.
+    try std.testing.expectApproxEqAbs(@as(f32, 0.25), s.slices[1].start_norm, 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.75), s.slices[1].end_norm, 1e-6);
+    // Colliding step keeps the louder velocity; disjoint steps both survive.
+    try std.testing.expect(s.stepActive(1, 0));
+    try std.testing.expectEqual(@as(u8, 90), s.stepVel(1, 0));
+    try std.testing.expect(s.stepActive(1, 7));
+    // Old slice 3 shifted up to row 2.
+    try std.testing.expect(s.stepActive(2, 3));
+    try std.testing.expect(!s.mergeSliceRight(2)); // last slice: nothing to its right
+}
+
+test "setParamAbsolute/paramValue roundtrip, null past slice_count" {
+    var transport = Transport{ .sample_rate = 48_000 };
+    var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
+    defer s.deinit();
+    s.sliceInto(2);
+    s.setParamAbsolute(Slicer.paramId(1, 2), -7.0);
+    try std.testing.expectApproxEqAbs(@as(f32, -7.0), s.paramValue(Slicer.paramId(1, 2)).?, 1e-6);
+    s.setParamAbsolute(Slicer.paramId(1, 9), 1.0);
+    try std.testing.expect(s.slices[1].reverse);
+    try std.testing.expectEqual(@as(?f32, null), s.paramValue(Slicer.paramId(2, 0)));
+}
+
+test "cycleStepVel walks the preset ladder; nudge clamps at 1" {
+    var transport = Transport{ .sample_rate = 48_000 };
+    var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
+    defer s.deinit();
+    s.sliceInto(1);
+    try std.testing.expectEqual(@as(u8, 127), s.stepVel(0, 0));
+    s.cycleStepVel(0, 0);
+    try std.testing.expectEqual(@as(u8, 95), s.stepVel(0, 0));
+    s.nudgeStepVel(0, 0, -200);
+    try std.testing.expectEqual(@as(u8, 1), s.stepVel(0, 0));
+}
+
+test "fillSlice/clearSlice cover exactly the active step range" {
+    var transport = Transport{ .sample_rate = 48_000 };
+    var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
+    defer s.deinit();
+    s.sliceInto(2);
+    s.setStepCount(12);
+    s.fillSlice(0);
+    try std.testing.expect(s.stepActive(0, 11));
+    try std.testing.expect(!s.stepActive(0, 12));
+    s.clearSlice(0);
+    try std.testing.expect(!s.stepActive(0, 0));
 }
 
 test "all_off clears every slice's voices" {
