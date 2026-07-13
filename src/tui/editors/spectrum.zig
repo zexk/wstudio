@@ -50,7 +50,7 @@ const history = @import("../history.zig");
 /// tone, character, modulation, time). Parallel to `picker_menu` in
 /// views/picker.zig.
 pub const picker_kinds = [_]FxKind{
-    .gate, .comp, .mb_comp, .eq, .sat, .crush, .chorus, .phaser, .delay, .reverb,
+    .gate, .comp, .mb_comp, .ott, .eq, .sat, .crush, .chorus, .phaser, .delay, .reverb,
 };
 
 pub fn unitLabel(k: FxKind) []const u8 {
@@ -58,6 +58,7 @@ pub fn unitLabel(k: FxKind) []const u8 {
         .gate => "GATE",
         .comp => "COMP",
         .mb_comp => "MB COMP",
+        .ott => "OTT",
         .eq => "EQ",
         .sat => "SAT",
         .crush => "CRUSH",
@@ -76,6 +77,7 @@ pub fn stripLabel(k: FxKind) []const u8 {
         .gate => "GATE",
         .comp => "COMP",
         .mb_comp => "MBCP",
+        .ott => "OTT",
         .eq => "EQ",
         .sat => "SAT",
         .crush => "CRSH",
@@ -91,7 +93,7 @@ pub fn paramCount(k: FxKind) usize {
         .eq => eq_mod.num_eq_bands * eq_fields_per_band,
         .mb_comp => mb_comp_param_count,
         .comp => 7,
-        .phaser => 4,
+        .ott, .phaser => 4,
         .gate, .sat, .crush, .chorus, .delay, .reverb => 3,
     };
 }
@@ -131,6 +133,13 @@ pub const mb_mix = 5;
 pub const mb_shared_count = 6;
 pub const mb_fields_per_band = 3; // thresh, ratio, makeup
 const mb_comp_param_count = mb_shared_count + multiband_comp.num_bands * mb_fields_per_band;
+
+/// The OTT unit's four params, in display order — the whole point of the
+/// kind is that this list stays this short (see dsp/ott.zig).
+pub const ott_depth = 0;
+pub const ott_time = 1;
+pub const ott_in = 2;
+pub const ott_out = 3;
 
 pub const MbBandField = struct { band: usize, field: usize };
 
@@ -202,6 +211,13 @@ pub fn paramName(p: *const FxPayload, idx: usize) []const u8 {
             mb_mix => "mix",
             else => mbBandParamName(mbBandField(idx)),
         },
+        .ott => switch (idx) {
+            ott_depth => "depth",
+            ott_time => "time",
+            ott_in => "in",
+            ott_out => "out",
+            else => "?",
+        },
         .comp => switch (idx) {
             0 => "thresh", 1 => "ratio", 2 => "attack", 3 => "release", 4 => "makeup", 5 => "sidechain", 6 => "scpad",
             else => "?",
@@ -266,6 +282,13 @@ pub fn getParam(p: *const FxPayload, idx: usize) f32 {
                     else => band.makeup_db,
                 };
             },
+        },
+        .ott => |*o| switch (idx) {
+            ott_depth => o.depth(),
+            ott_time => o.time,
+            ott_in => o.gain_in_db,
+            ott_out => o.gain_out_db,
+            else => 0,
         },
         .comp => |*c| switch (idx) {
             0 => c.threshold_db, 1 => c.ratio, 2 => c.attack_ms, 3 => c.release_ms, 4 => c.makeup_db,
@@ -336,6 +359,11 @@ pub fn paramRange(app: *App, p: *const FxPayload, idx: usize) [2]f32 {
                 1 => .{ 1.0, 20.0 }, // ratio
                 else => .{ -24.0, 24.0 }, // makeup
             },
+        },
+        .ott => switch (idx) {
+            ott_depth => .{ 0.0, 1.0 },
+            ott_time => .{ 0.25, 4.0 },
+            else => .{ -24.0, 24.0 }, // in/out gain
         },
         .comp => switch (idx) {
             0 => .{ -60.0, 0.0 },
@@ -436,6 +464,13 @@ pub fn setParam(app: *App, p: *FxPayload, idx: usize, value: f32) void {
                     else => band.makeup_db = std.math.clamp(value, -24.0, 24.0),
                 }
             },
+        },
+        .ott => |*o| switch (idx) {
+            ott_depth => o.setDepth(value),
+            ott_time => o.setTime(value),
+            ott_in => o.gain_in_db = std.math.clamp(value, -24.0, 24.0),
+            ott_out => o.gain_out_db = std.math.clamp(value, -24.0, 24.0),
+            else => {},
         },
         .comp => |*c| switch (idx) {
             0 => c.threshold_db = std.math.clamp(value, -60.0, 0.0),
@@ -540,6 +575,11 @@ fn paramStep(p: *const FxPayload, idx: usize, coarse: bool) f32 {
                 1 => if (coarse) @as(f32, 2.0) else 0.5, // ratio
                 else => if (coarse) @as(f32, 3.0) else 0.5, // makeup
             },
+        },
+        .ott => switch (idx) {
+            ott_depth => if (coarse) @as(f32, 0.2) else 0.05,
+            ott_time => if (coarse) @as(f32, 0.5) else 0.05,
+            else => if (coarse) @as(f32, 3.0) else 0.5, // in/out gain
         },
         .comp => switch (idx) {
             0 => if (coarse) @as(f32, 6.0) else 1.0,

@@ -125,7 +125,10 @@ const AutomationPoint = automation_mod.AutomationPoint;
 /// v15 adds the multiband compressor FX unit (`FxUnitSnap.mb_comp`, see
 /// rack.zig's `MultibandComp`) — purely additive, same as v9's five new
 /// units; older files simply never reference the new `mb_comp` kind.
-pub const file_version: u32 = 15;
+/// v16 adds the OTT FX unit (`FxUnitSnap.ott`, see dsp/ott.zig) — purely
+/// additive again; the bump exists so pre-v16 builds hard-reject a file
+/// using the new kind instead of failing on an unknown enum name.
+pub const file_version: u32 = 16;
 
 pub const AutomationPointSnap = struct {
     beat: f64,
@@ -327,6 +330,16 @@ pub const MultibandCompSnap = struct {
     high_makeup_db: f32 = 0.0,
 };
 
+/// The OTT unit's four user-facing controls; its multiband internals are
+/// fixed tuning (see dsp/ott.zig) and deliberately not persisted — a future
+/// retune should reach every saved project, not be frozen per file.
+pub const OttSnap = struct {
+    depth: f32 = 1.0,
+    time: f32 = 1.0,
+    gain_in_db: f32 = 0.0,
+    gain_out_db: f32 = 0.0,
+};
+
 pub const DelaySnap = struct {
     time_s: f32 = 0.375,
     feedback: f32 = 0.35,
@@ -451,7 +464,7 @@ pub const FxSnap = struct {
 
 /// Mirrors rack.zig's FxKind — persist keeps its own copy so snapshots stay
 /// pure data, same pattern as `InstrumentKind` below.
-pub const FxKind = enum { gate, comp, mb_comp, eq, sat, crush, chorus, phaser, delay, reverb };
+pub const FxKind = enum { gate, comp, mb_comp, ott, eq, sat, crush, chorus, phaser, delay, reverb };
 
 /// One chain slot (v10): its kind, bypass flag, and the params for that kind
 /// in the matching optional (the others stay null). A missing params field
@@ -461,6 +474,7 @@ pub const FxUnitSnap = struct {
     bypassed: bool = false,
     comp: ?CompSnap = null,
     mb_comp: ?MultibandCompSnap = null,
+    ott: ?OttSnap = null,
     delay: ?DelaySnap = null,
     reverb: ?ReverbSnap = null,
     eq: ?EqSnap = null,
@@ -866,6 +880,10 @@ fn chainToSnap(aa: std.mem.Allocator, fx: *const Fx, sample_rate: u32) ![]FxUnit
                 .low_threshold_db = m.bands[0].threshold_db, .low_ratio = m.bands[0].ratio, .low_makeup_db = m.bands[0].makeup_db,
                 .mid_threshold_db = m.bands[1].threshold_db, .mid_ratio = m.bands[1].ratio, .mid_makeup_db = m.bands[1].makeup_db,
                 .high_threshold_db = m.bands[2].threshold_db, .high_ratio = m.bands[2].ratio, .high_makeup_db = m.bands[2].makeup_db,
+            } },
+            .ott => |o| .{ .kind = .ott, .ott = .{
+                .depth = o.depth(), .time = o.time,
+                .gain_in_db = o.gain_in_db, .gain_out_db = o.gain_out_db,
             } },
             .delay => |d| .{ .kind = .delay, .delay = .{
                 .time_s = @as(f32, @floatFromInt(d.delay_frames)) / @as(f32, @floatFromInt(sample_rate)),
@@ -1709,8 +1727,8 @@ fn applyFxChain(allocator: std.mem.Allocator, fx_out: *Fx, chain: []const FxUnit
     for (chain) |us| {
         if (fx_out.units.items.len >= Fx.max_units) break;
         const kind: rack_mod.FxKind = switch (us.kind) {
-            .gate => .gate, .comp => .comp, .mb_comp => .mb_comp, .eq => .eq,
-            .sat => .sat, .crush => .crush, .chorus => .chorus,
+            .gate => .gate, .comp => .comp, .mb_comp => .mb_comp, .ott => .ott,
+            .eq => .eq, .sat => .sat, .crush => .crush, .chorus => .chorus,
             .phaser => .phaser, .delay => .delay, .reverb => .reverb,
         };
         const unit = try fx_out.insert(allocator, fx_out.units.items.len, kind, sr);
@@ -1736,6 +1754,12 @@ fn applyFxChain(allocator: std.mem.Allocator, fx_out: *Fx, chain: []const FxUnit
                 m.bands[0] = .{ .threshold_db = ms.low_threshold_db, .ratio = ms.low_ratio, .makeup_db = ms.low_makeup_db };
                 m.bands[1] = .{ .threshold_db = ms.mid_threshold_db, .ratio = ms.mid_ratio, .makeup_db = ms.mid_makeup_db };
                 m.bands[2] = .{ .threshold_db = ms.high_threshold_db, .ratio = ms.high_ratio, .makeup_db = ms.high_makeup_db };
+            },
+            .ott => |*o| if (us.ott) |os| {
+                o.setDepth(os.depth);
+                o.setTime(os.time);
+                o.gain_in_db = std.math.clamp(os.gain_in_db, -24.0, 24.0);
+                o.gain_out_db = std.math.clamp(os.gain_out_db, -24.0, 24.0);
             },
             .delay => |*d| if (us.delay) |ds| {
                 d.setTime(ds.time_s);
@@ -2242,6 +2266,42 @@ test "save/load round-trip persists a multiband compressor's crossover, style, a
     try testing.expectApproxEqAbs(@as(f32, 6.0), m.bands[1].ratio, 1e-4);
     try testing.expectApproxEqAbs(@as(f32, -15.0), m.bands[2].threshold_db, 1e-4);
     try testing.expectApproxEqAbs(@as(f32, 2.5), m.bands[2].ratio, 1e-4);
+    try testing.expectEqual(@as(usize, 1), loaded.engine.master_chain_len);
+}
+
+test "save/load round-trip persists an OTT unit's depth/time/gains and rederives its attack/release" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [64]u8 = undefined;
+    const wsj_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/proj.wsj", .{&tmp.sub_path});
+
+    var session = try Session.initDefault(testing.allocator);
+    defer session.deinit();
+    const sr = session.project.sample_rate;
+    const alloc = testing.allocator;
+
+    const unit = try session.master_fx.insert(alloc, 0, .ott, sr);
+    unit.payload.ott.setDepth(0.6);
+    unit.payload.ott.setTime(2.0);
+    unit.payload.ott.gain_in_db = 3.0;
+    unit.payload.ott.gain_out_db = -4.5;
+    session.syncMasterChain();
+
+    try save(testing.allocator, &session, testing.io, wsj_path);
+    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    defer loaded.deinit();
+
+    const units = loaded.master_fx.units.items;
+    try testing.expectEqual(@as(usize, 1), units.len);
+    const o = units[0].payload.ott;
+    try testing.expectApproxEqAbs(@as(f32, 0.6), o.depth(), 1e-4);
+    try testing.expectApproxEqAbs(@as(f32, 2.0), o.time, 1e-4);
+    try testing.expectApproxEqAbs(@as(f32, 3.0), o.gain_in_db, 1e-4);
+    try testing.expectApproxEqAbs(@as(f32, -4.5), o.gain_out_db, 1e-4);
+    // Derived from `time` through setTime on load, not stored in the file.
+    try testing.expectApproxEqAbs(unit.payload.ott.mb.attack_ms, o.mb.attack_ms, 1e-4);
+    try testing.expectApproxEqAbs(unit.payload.ott.mb.release_ms, o.mb.release_ms, 1e-4);
     try testing.expectEqual(@as(usize, 1), loaded.engine.master_chain_len);
 }
 
@@ -3028,7 +3088,7 @@ test "golden-file corpus: every historical .wsj fixture still loads" {
     }
 
     // Guards against a misconfigured path silently turning this into a no-op.
-    try testing.expectEqual(@as(usize, 14), count);
+    try testing.expectEqual(@as(usize, 16), count);
 }
 
 test "golden-file corpus: v14's parametric EQ bands load freq/Q/gain" {
@@ -3042,6 +3102,25 @@ test "golden-file corpus: v14's parametric EQ bands load freq/Q/gain" {
     try testing.expectApproxEqAbs(@as(f32, 1200.0), eq.bands[3].freq, 1e-3);
     try testing.expectApproxEqAbs(@as(f32, 2.0), eq.bands[3].q, 1e-3);
     try testing.expectApproxEqAbs(@as(f32, 4.5), eq.bands[3].gain_db, 1e-3);
+}
+
+test "golden-file corpus: v15's multiband unit and v16's OTT unit load their params" {
+    const testing = std.testing;
+
+    var v15 = try load(testing.allocator, testing.io, "test/fixtures/wsj/v15.wsj");
+    defer v15.deinit();
+    const m = &v15.racks.items[0].fx.find(.mb_comp).?.payload.mb_comp;
+    try testing.expectApproxEqAbs(@as(f32, 150.0), m.xover_lo_hz, 1e-3);
+    try testing.expectEqual(multiband_comp_mod.Style.ott, m.style);
+    try testing.expectApproxEqAbs(@as(f32, -25.0), m.bands[0].threshold_db, 1e-3);
+
+    var v16 = try load(testing.allocator, testing.io, "test/fixtures/wsj/v16.wsj");
+    defer v16.deinit();
+    const o = &v16.racks.items[0].fx.find(.ott).?.payload.ott;
+    try testing.expectApproxEqAbs(@as(f32, 0.7), o.depth(), 1e-3);
+    try testing.expectApproxEqAbs(@as(f32, 1.5), o.time, 1e-3);
+    try testing.expectApproxEqAbs(@as(f32, 2.0), o.gain_in_db, 1e-3);
+    try testing.expectApproxEqAbs(@as(f32, -3.0), o.gain_out_db, 1e-3);
 }
 
 test "save/load round-trip persists an EQ band's lowpass/highpass type and slope" {

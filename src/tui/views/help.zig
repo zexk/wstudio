@@ -335,6 +335,9 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("",             "Multiband: 2 crossover splits (low/mid/high), each band its own thresh/ratio/");
     t.key("",             "  makeup; 'style' h/l toggles classic (downward only) <-> OTT (also squashes");
     t.key("",             "  quiet signal UP toward the threshold); 'mix' blends dry <-> fully processed");
+    t.key("",             "OTT: the multiband squash pre-tuned to the famous preset, 4 params only —");
+    t.key("",             "  depth (dry<->wet), time (attack+release speed), in/out gain; reach for the");
+    t.key("",             "  full Multiband unit instead when you want the crossovers or per-band control");
     t.key("- / +",        "group chain only: bus fader for the whole submix, post-FX (also :group-gain)");
 
     t.taggedSection(.file_browser, "FILE BROWSER  (netrw-style; opens on :e, :load-sample, :load-clip with no path)");

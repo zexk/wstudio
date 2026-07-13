@@ -110,6 +110,7 @@ fn sectionLabel(k: ws.FxKind) []const u8 {
         .gate => "GATE",
         .comp => "COMPRESSOR",
         .mb_comp => "MULTIBAND COMP",
+        .ott => "OTT",
         .eq => "EQ + SPECTRUM",
         .sat => "SATURATOR",
         .crush => "CRUSHER",
@@ -126,6 +127,7 @@ fn sectionColor(k: ws.FxKind) []const u8 {
         .gate => bcyn,
         .comp => yel,
         .mb_comp => yel,
+        .ott => yel,
         .eq => grn,
         .sat => red,
         .crush => mag,
@@ -535,6 +537,11 @@ fn formatFxValue(buf: []u8, p: *const ws.FxPayload, idx: usize) []const u8 {
                 1 => std.fmt.bufPrint(buf, "{d:.1}:1", .{v}) catch "?", // ratio
                 else => std.fmt.bufPrint(buf, "{d:.1}dB", .{v}) catch "?", // makeup
             },
+        },
+        .ott => switch (idx) {
+            spectrum_ed.ott_depth => std.fmt.bufPrint(buf, "{d:.0}%", .{v * 100.0}) catch "?",
+            spectrum_ed.ott_time => std.fmt.bufPrint(buf, "{d:.2}x", .{v}) catch "?",
+            else => std.fmt.bufPrint(buf, "{d:.1}dB", .{v}) catch "?", // in/out gain
         },
         .delay => switch (idx) {
             0 => std.fmt.bufPrint(buf, "{d:.0}ms", .{v * 1000.0}) catch "?",

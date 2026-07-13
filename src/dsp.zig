@@ -11,6 +11,7 @@ pub const Reverb = @import("dsp/reverb.zig").Reverb;
 pub const Compressor = @import("dsp/compressor.zig").Compressor;
 pub const multiband_comp = @import("dsp/multiband_comp.zig");
 pub const MultibandComp = multiband_comp.MultibandComp;
+pub const Ott = @import("dsp/ott.zig").Ott;
 pub const Limiter = @import("dsp/limiter.zig").Limiter;
 pub const Gate = @import("dsp/gate.zig").Gate;
 pub const Saturator = @import("dsp/saturator.zig").Saturator;
@@ -46,6 +47,7 @@ test {
     _ = Reverb;
     _ = Compressor;
     _ = MultibandComp;
+    _ = Ott;
     _ = Limiter;
     _ = Gate;
     _ = Saturator;

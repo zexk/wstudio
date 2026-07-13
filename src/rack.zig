@@ -6,6 +6,7 @@ const DrumMachine = @import("dsp/drum_sampler.zig").DrumMachine;
 const Slicer = @import("dsp/slicer.zig").Slicer;
 const Compressor = @import("dsp/compressor.zig").Compressor;
 const MultibandComp = @import("dsp/multiband_comp.zig").MultibandComp;
+const Ott = @import("dsp/ott.zig").Ott;
 const StereoDelay = @import("dsp/delay.zig").StereoDelay;
 const Reverb = @import("dsp/reverb.zig").Reverb;
 const ParametricEq = @import("dsp/eq.zig").ParametricEq;
@@ -69,6 +70,7 @@ pub const FxPayload = union(enum) {
     gate: Gate,
     comp: Compressor,
     mb_comp: MultibandComp,
+    ott: Ott,
     eq: ParametricEq,
     sat: Saturator,
     crush: Crusher,
@@ -84,6 +86,7 @@ pub const FxPayload = union(enum) {
             .gate    => |*g| g.device(),
             .comp    => |*c| c.device(),
             .mb_comp => |*m| m.device(),
+            .ott     => |*o| o.device(),
             .eq      => |*e| e.device(),
             .sat     => |*s| s.device(),
             .crush   => |*c| c.device(),
@@ -170,6 +173,7 @@ pub const Fx = struct {
             .gate    => .{ .gate = Gate.init(sr) },
             .comp    => .{ .comp = Compressor.init(sr) },
             .mb_comp => .{ .mb_comp = MultibandComp.init(sr) },
+            .ott     => .{ .ott = Ott.init(sr) },
             .eq      => .{ .eq = ParametricEq.init(sr) },
             .sat     => .{ .sat = .{} },
             .crush   => .{ .crush = .{} },

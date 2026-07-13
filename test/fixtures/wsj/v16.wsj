@@ -1,0 +1,18 @@
+{
+  "version": 16,
+  "tracks": [
+    { "name": "bus" }
+  ],
+  "racks": [
+    {
+      "label": "bus",
+      "kind": "empty",
+      "fx_chain": [
+        { "kind": "ott", "ott": {
+          "depth": 0.7, "time": 1.5,
+          "gain_in_db": 2.0, "gain_out_db": -3.0
+        } }
+      ]
+    }
+  ]
+}

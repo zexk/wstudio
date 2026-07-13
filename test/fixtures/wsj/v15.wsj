@@ -1,0 +1,22 @@
+{
+  "version": 15,
+  "tracks": [
+    { "name": "bus" }
+  ],
+  "racks": [
+    {
+      "label": "bus",
+      "kind": "empty",
+      "fx_chain": [
+        { "kind": "mb_comp", "mb_comp": {
+          "xover_lo_hz": 150.0, "xover_hi_hz": 3000.0,
+          "attack_ms": 5.0, "release_ms": 100.0,
+          "ott": true, "mix": 0.8,
+          "low_threshold_db": -25.0, "low_ratio": 4.0, "low_makeup_db": 1.0,
+          "mid_threshold_db": -20.0, "mid_ratio": 5.0, "mid_makeup_db": 0.0,
+          "high_threshold_db": -18.0, "high_ratio": 3.0, "high_makeup_db": 2.0
+        } }
+      ]
+    }
+  ]
+}
