@@ -155,7 +155,9 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key(":group-fx <n>", "open group n's FX chain — same shared chain view as a track/master");
     t.key(":track-group",  "<track> <group|none>  assign or clear a track's group by number");
     t.key(":group-del <n>", "delete group n — members fall back to the master mix");
-    t.key("tab",          "open the arrangement (song timeline) — tab there returns here");
+    t.key("tab",          "open the arrangement (song timeline) — tab there returns here; while");
+    t.key("",             "  stopped this also enables song mode (opening a pattern editor from");
+    t.key("",             "  here enables pattern mode; nothing changes while playing)");
     t.key("t",            "tap tempo (tap a few times to set bpm)");
     t.key("c",            "toggle the click track (also :metronome [on|off])");
     t.key("u / U / ^R",   "undo / redo content edits (notes, drums, clips)");
@@ -290,7 +292,9 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("( / )",        "set loop start / end at cursor bar");
     t.key("b",            "toggle A/B loop on/off");
     t.key("g",            "play from cursor bar");
-    t.key("T",            "toggle song / pattern mode");
+    t.key("T",            "toggle song / pattern mode (manual override; view switches while the");
+    t.key("",             "  transport is stopped set it for you: arrangement = song, opening a");
+    t.key("",             "  pattern editor from tracks = pattern; playback is never interrupted)");
     t.key("Z",            "toggle zoom: normal <-> compact (see more of a long song)");
     t.key("a",            "open gain/pan automation editor for the clip at cursor");
     t.key("/",            "fuzzy-search lane (track) names, n / N repeat forward / backward");

@@ -805,6 +805,7 @@ pub const App = struct {
                 }
                 if (key == .tab and self.modal.mode == .normal) {
                     self.view = .arrangement;
+                    self.autoSongMode(true);
                     return;
                 }
                 if (key == .enter and self.modal.mode == .normal) {
@@ -869,7 +870,11 @@ pub const App = struct {
                         switch (key.char) {
                             'M' => { spectrum_ed.switchToMaster(self); self.setTrackRow(self.track_rows_len); return; },
                             's' => { spectrum_ed.switchToTrack(self, @intCast(self.cursor)); return; },
-                            'p' => { piano_ed.switchTo(self, @intCast(self.cursor)); return; },
+                            'p' => {
+                                piano_ed.switchTo(self, @intCast(self.cursor));
+                                if (self.view == .piano_roll) self.autoSongMode(false);
+                                return;
+                            },
                             'a' => { self.doTrackAdd(null); return; },
                             'd' => { self.tracks_del_pending = true; return; },
                             'Y' => { self.doTrackDup(self.cursor); return; },
@@ -1328,6 +1333,19 @@ pub const App = struct {
     }
 
     // zig fmt: off
+    /// View->mode soft coupling: entering the arrangement nudges song mode
+    /// on, entering a live-pattern editor from the tracks view nudges it
+    /// off, but ONLY while the transport is stopped. Switching views must
+    /// never yank a playing source (mixing during song playback, clip-linked
+    /// editing, sound design against the song). `T` in the arrangement stays
+    /// the manual override either way.
+    pub fn autoSongMode(self: *App, on: bool) void {
+        if (self.session.song_mode == on) return;
+        if (self.session.engine.uiSnapshot().playing) return;
+        self.session.setSongMode(on);
+        self.setStatus("{s} mode", .{if (on) "song" else "pattern"});
+    }
+
     /// Open the editor matching the track's instrument, or the instrument
     /// picker if the track is blank.
     fn openTrack(self: *App, cursor: usize) void {
@@ -1347,10 +1365,12 @@ pub const App = struct {
             .drum_machine => {
                 self.drum_track = @intCast(cursor);
                 self.view = .drum_grid;
+                self.autoSongMode(false);
             },
             .slicer => {
                 self.slicer_track = @intCast(cursor);
                 self.view = .slicer_grid;
+                self.autoSongMode(false);
             },
         }
     }

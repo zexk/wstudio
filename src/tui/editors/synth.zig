@@ -23,7 +23,12 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             's' => { history.flushParamNudge(app); spectrum.switchToTrack(app, app.synth_track); return true; },
             // p opens the piano roll for this track (matches p in the tracks view);
             // e in the piano roll comes back here, so synth <-> roll is bidirectional.
-            'p' => { history.flushParamNudge(app); piano.switchTo(app, app.synth_track); return true; },
+            'p' => {
+                history.flushParamNudge(app);
+                piano.switchTo(app, app.synth_track);
+                if (app.view == .piano_roll) app.autoSongMode(false);
+                return true;
+            },
             // f browses factory + saved presets — same apply path as :synth-preset.
             'f' => { history.flushParamNudge(app); preset_picker.open(app, .synth, app.synth_track); return true; },
             'u' => { history.doUndo(app); return true; },

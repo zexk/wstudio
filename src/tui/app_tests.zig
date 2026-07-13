@@ -844,6 +844,39 @@ test "piano roll flags an unlinked scratch pattern in song mode, not pattern mod
     try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "scratch") == null);
 }
 
+test "view switches nudge song mode while stopped, never while playing" {
+    var app = try testApp();
+    defer app.deinit();
+
+    // Stopped: tab into the arrangement enables song mode.
+    try std.testing.expect(!app.session.song_mode);
+    app.handleKey(.tab, 0);
+    try std.testing.expectEqual(AppView.arrangement, app.view);
+    try std.testing.expect(app.session.song_mode);
+
+    // Returning to tracks is mode-neutral: it doubles as the mixer while
+    // the song plays, so it must never flip the mode itself.
+    app.handleKey(.tab, 0);
+    try std.testing.expectEqual(AppView.tracks, app.view);
+    try std.testing.expect(app.session.song_mode);
+
+    // Opening a pattern editor from tracks while stopped flips back.
+    app.handleKey(.{ .char = 'p' }, 0);
+    try std.testing.expectEqual(AppView.piano_roll, app.view);
+    try std.testing.expect(!app.session.song_mode);
+
+    // Playing: view switches leave the mode alone (switching to the mixer
+    // or an editor mid-song must not yank the playback source).
+    app.view = .tracks;
+    app.session.setSongMode(true);
+    _ = app.session.engine.send(.play);
+    var block: [64]types.Sample = undefined;
+    app.session.engine.process(&block); // publishes playing=true
+    app.handleKey(.{ .char = 'p' }, 0);
+    try std.testing.expectEqual(AppView.piano_roll, app.view);
+    try std.testing.expect(app.session.song_mode);
+}
+
 test "Z toggles arrangement zoom and compacts the rendered timeline" {
     var app = try testApp();
     defer app.deinit();
