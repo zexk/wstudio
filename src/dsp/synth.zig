@@ -27,7 +27,12 @@ fn enumFromValue(comptime E: type, value: f32) E {
 
 // zig fmt: off
 pub const Waveform   = enum { sine, saw, triangle, square };
-pub const FilterType = enum { lp, hp, bp, notch };
+/// lp/hp/bp/notch are 2-pole biquads. `ladder` is a Moog-style 4-pole
+/// lowpass (24 dB/oct, tanh-saturated feedback — self-oscillates near full
+/// resonance). `comb` is a feedback comb whose fundamental sits at the
+/// cutoff frequency (resonance = feedback amount); its delay line bounds
+/// the low end at sample_rate/comb_len (~94 Hz at 48 kHz).
+pub const FilterType = enum { lp, hp, bp, notch, ladder, comb };
 /// How filter 2's output combines with filter 1's when filter 2 is on.
 /// `series`: filter 1 feeds filter 2. `parallel`: both filter the dry
 /// oscillator mix and their outputs are averaged. Irrelevant (and behaves
@@ -196,13 +201,41 @@ pub const PolySynth = struct {
 
     const Stage = enum { attack, decay, sustain, release };
 
+    /// Comb delay line length per channel per slot. Sets the comb model's
+    /// lowest reachable fundamental (sample_rate / comb_len) and dominates
+    /// Voice's size — keep it modest, PolySynth is embedded by value in Rack.
+    const comb_len: usize = 512;
+
     const FilterCoeffs = struct {
         // zig fmt: off
+        // biquad (lp/hp/bp/notch)
         b0: f32 = 1.0, b1: f32 = 0.0, b2: f32 = 0.0,
         a1: f32 = 0.0, a2: f32 = 0.0,
+        // ladder: one-pole coefficient + feedback amount (res*4, self-osc at 4)
+        g: f32 = 0.0, k: f32 = 0.0,
+        // comb: delay in samples (fractional) + feedback amount
+        comb_delay: f32 = 2.0, comb_fb: f32 = 0.0,
+        // zig fmt: on
+    };
+
+    /// Per-channel state for one filter slot, covering every filter model:
+    /// biquad history, the ladder's 4 one-pole stages, and the comb's delay
+    /// ring. Only the active model's fields advance; switching models
+    /// mid-note picks up whatever stale state the new model left behind,
+    /// which decays within a few hundred samples.
+    const FilterState = struct {
+        // zig fmt: off
+        x1: f32 = 0.0, x2: f32 = 0.0,
+        y1: f32 = 0.0, y2: f32 = 0.0,
+        s1: f32 = 0.0, s2: f32 = 0.0,
+        s3: f32 = 0.0, s4: f32 = 0.0,
+        // zig fmt: on
+        comb: [comb_len]f32 = [_]f32{0.0} ** comb_len,
+        comb_pos: usize = 0,
     };
 
     const Voice = struct {
+        // zig fmt: off
         active: bool = false,
         note:   u7   = 0,
         velocity: f32 = 0.0,
@@ -216,19 +249,14 @@ pub const PolySynth = struct {
         // Filter envelope
         env2:   f32   = 0.0,
         stage2: Stage = .attack,
-        /// Per-voice DF1 biquad state — left channel.
-        x1: f32 = 0.0, x2: f32 = 0.0,
-        y1: f32 = 0.0, y2: f32 = 0.0,
-        /// Right channel biquad state (same coefficients, independent history).
-        x1_r: f32 = 0.0, x2_r: f32 = 0.0,
-        y1_r: f32 = 0.0, y2_r: f32 = 0.0,
-        /// Filter 2's own DF1 biquad state (L then R) — independent history
-        /// even in series mode, since it filters filter 1's output.
-        x1_2: f32 = 0.0, x2_2: f32 = 0.0,
-        y1_2: f32 = 0.0, y2_2: f32 = 0.0,
-        x1_2_r: f32 = 0.0, x2_2_r: f32 = 0.0,
-        y1_2_r: f32 = 0.0, y2_2_r: f32 = 0.0,
         // zig fmt: on
+        /// Filter state per slot per channel (same coefficients L/R,
+        /// independent histories). Filter 2 keeps its own state even in
+        /// series mode, since it filters filter 1's output.
+        f1_l: FilterState = .{},
+        f1_r: FilterState = .{},
+        f2_l: FilterState = .{},
+        f2_r: FilterState = .{},
         // Glide: current log2(freq) sliding toward log2(noteToFreq(note)).
         glide_log_freq: f32 = 0.0,
         /// log2(freq) change per sample. 0 when glide is off or complete.
@@ -810,13 +838,10 @@ pub const PolySynth = struct {
                 else
                     (a_r * scale_a + b_r * scale_b * self.osc_b_level + c_r * scale_c * self.osc_c_level + sub_out + nse_out) * mix_norm;
 
-                // Stereo filter: same coefficients, independent L/R biquad histories.
+                // Stereo filter: same coefficients, independent L/R histories.
                 // zig fmt: off
-                const filt1_l = fc.b0*osc_l + fc.b1*v.x1   + fc.b2*v.x2   - fc.a1*v.y1   - fc.a2*v.y2;
-                v.x2 = v.x1; v.x1 = osc_l; v.y2 = v.y1; v.y1 = filt1_l;
-
-                const filt1_r = fc.b0*osc_r + fc.b1*v.x1_r + fc.b2*v.x2_r - fc.a1*v.y1_r - fc.a2*v.y2_r;
-                v.x2_r = v.x1_r; v.x1_r = osc_r; v.y2_r = v.y1_r; v.y1_r = filt1_r;
+                const filt1_l = filterSample(self.filter_type, fc, &v.f1_l, osc_l);
+                const filt1_r = filterSample(self.filter_type, fc, &v.f1_r, osc_r);
 
                 // Filter 2: series chains off filter 1's output; parallel
                 // filters the same dry mix and blends with filter 1's output.
@@ -827,11 +852,8 @@ pub const PolySynth = struct {
                     const in2_l = if (self.filter_routing == .series) filt1_l else osc_l;
                     const in2_r = if (self.filter_routing == .series) filt1_r else osc_r;
 
-                    const filt2_l = fc2.b0*in2_l + fc2.b1*v.x1_2   + fc2.b2*v.x2_2   - fc2.a1*v.y1_2   - fc2.a2*v.y2_2;
-                    v.x2_2 = v.x1_2; v.x1_2 = in2_l; v.y2_2 = v.y1_2; v.y1_2 = filt2_l;
-
-                    const filt2_r = fc2.b0*in2_r + fc2.b1*v.x1_2_r + fc2.b2*v.x2_2_r - fc2.a1*v.y1_2_r - fc2.a2*v.y2_2_r;
-                    v.x2_2_r = v.x1_2_r; v.x1_2_r = in2_r; v.y2_2_r = v.y1_2_r; v.y1_2_r = filt2_r;
+                    const filt2_l = filterSample(self.filter2_type, fc2, &v.f2_l, in2_l);
+                    const filt2_r = filterSample(self.filter2_type, fc2, &v.f2_r, in2_r);
 
                     filt_l = if (self.filter_routing == .series) filt2_l else (filt1_l + filt2_l) * 0.5;
                     filt_r = if (self.filter_routing == .series) filt2_r else (filt1_r + filt2_r) * 0.5;
@@ -944,7 +966,54 @@ pub const PolySynth = struct {
                 .a1 = neg2cos * a0_inv,
                 .a2 = (1.0 - alpha) * a0_inv,
             },
+            .ladder => .{
+                .g = 1.0 - @exp(-w0),
+                .k = res * 4.0,
+            },
+            .comb => .{
+                .comb_delay = std.math.clamp(self.sample_rate / c, 2.0, @as(f32, @floatFromInt(comb_len)) - 2.0),
+                .comb_fb = res * 0.9,
+            },
         };
+    }
+
+    /// One sample through one filter slot/channel, dispatching on the
+    /// slot's model. Static (no self): everything cutoff/res-dependent
+    /// lives in the per-block `FilterCoeffs`.
+    fn filterSample(ft: FilterType, fc: FilterCoeffs, st: *FilterState, x: f32) f32 {
+        switch (ft) {
+            .lp, .hp, .bp, .notch => {
+                // zig fmt: off
+                const y = fc.b0 * x + fc.b1 * st.x1 + fc.b2 * st.x2 - fc.a1 * st.y1 - fc.a2 * st.y2;
+                st.x2 = st.x1; st.x1 = x; st.y2 = st.y1; st.y1 = y;
+                // zig fmt: on
+                return y;
+            },
+            .ladder => {
+                // tanh on the feedback-summed input bounds the loop, so
+                // full resonance self-oscillates instead of blowing up.
+                const in_sat = std.math.tanh(x - fc.k * st.s4);
+                st.s1 += fc.g * (in_sat - st.s1);
+                st.s2 += fc.g * (st.s1 - st.s2);
+                st.s3 += fc.g * (st.s2 - st.s3);
+                st.s4 += fc.g * (st.s3 - st.s4);
+                return st.s4;
+            },
+            .comb => {
+                // Fractional read `comb_delay` samples behind the write
+                // head (linear interp) so cutoff sweeps stay smooth.
+                var rp = @as(f32, @floatFromInt(st.comb_pos)) - fc.comb_delay;
+                if (rp < 0.0) rp += @floatFromInt(comb_len);
+                const idx: usize = @intFromFloat(rp);
+                const frac = rp - @floor(rp);
+                const idx_next = (idx + 1) % comb_len;
+                const delayed = st.comb[idx] * (1.0 - frac) + st.comb[idx_next] * frac;
+                const y = x + fc.comb_fb * delayed;
+                st.comb[st.comb_pos] = y;
+                st.comb_pos = (st.comb_pos + 1) % comb_len;
+                return y;
+            },
+        }
     }
 
     /// Xorshift32 white noise, returns [-1, 1).
@@ -1114,9 +1183,9 @@ pub const PolySynth = struct {
             19 => self.release_s            = std.math.clamp(self.release_s          + s * 0.005, 0.001,  10.0),
             // FILTER (20–23)
             20 => self.filter_type = if (steps > 0) switch (self.filter_type) {
-                .lp => .hp, .hp => .bp, .bp => .notch, .notch => .lp,
+                .lp => .hp, .hp => .bp, .bp => .notch, .notch => .ladder, .ladder => .comb, .comb => .lp,
             } else switch (self.filter_type) {
-                .lp => .notch, .hp => .lp, .bp => .hp, .notch => .bp,
+                .lp => .comb, .hp => .lp, .bp => .hp, .notch => .bp, .ladder => .notch, .comb => .ladder,
             },
             // Log-scale cutoff: 1 semitone per step (h/l), ~minor-7th per H/L.
             21 => self.filter_cutoff        = std.math.clamp(
@@ -1187,9 +1256,9 @@ pub const PolySynth = struct {
             // FILTER 2 (45–49)
             45 => self.filter2_on           = !self.filter2_on,
             46 => self.filter2_type = if (steps > 0) switch (self.filter2_type) {
-                .lp => .hp, .hp => .bp, .bp => .notch, .notch => .lp,
+                .lp => .hp, .hp => .bp, .bp => .notch, .notch => .ladder, .ladder => .comb, .comb => .lp,
             } else switch (self.filter2_type) {
-                .lp => .notch, .hp => .lp, .bp => .hp, .notch => .bp,
+                .lp => .comb, .hp => .lp, .bp => .hp, .notch => .bp, .ladder => .notch, .comb => .ladder,
             },
             47 => self.filter2_cutoff       = std.math.clamp(
                 self.filter2_cutoff * std.math.pow(f32, 2.0, s / 12.0), 20.0, 20_000.0),
@@ -1497,7 +1566,7 @@ test "filter: high-Q sweep near Nyquist stays finite" {
 }
 
 test "filter: all types stay finite under resonance" {
-    const types_to_test = [_]FilterType{ .lp, .hp, .bp, .notch };
+    const types_to_test = [_]FilterType{ .lp, .hp, .bp, .notch, .ladder, .comb };
     for (types_to_test) |ft| {
         var synth = PolySynth.init(48_000);
         synth.filter_type = ft;
@@ -1545,6 +1614,60 @@ test "filter: closed LP cutoff attenuates high-frequency content" {
         rms_closed += c * c;
     }
     try std.testing.expect(rms_closed < rms_open * 0.1);
+}
+
+test "ladder filter: closed cutoff attenuates like a lowpass" {
+    var open = PolySynth.init(48_000);
+    open.waveform = .saw;
+    open.filter_type = .ladder;
+    open.filter_cutoff = 18_000.0;
+    open.noteOn(84, 1.0);
+
+    var closed = PolySynth.init(48_000);
+    closed.waveform = .saw;
+    closed.filter_type = .ladder;
+    closed.filter_cutoff = 200.0;
+    closed.noteOn(84, 1.0);
+
+    var buf_open: [512]Sample = undefined;
+    var buf_closed: [512]Sample = undefined;
+    for (0..20) |_| {
+        // zig fmt: off
+        @memset(&buf_open, 0.0);   open.processBlock(&buf_open);
+        @memset(&buf_closed, 0.0); closed.processBlock(&buf_closed);
+    }
+
+    var rms_open: f32 = 0.0;
+    var rms_closed: f32 = 0.0;
+    for (buf_open, buf_closed) |o, c| {
+        rms_open   += o * o;
+        // zig fmt: on
+        rms_closed += c * c;
+    }
+    try std.testing.expect(rms_closed < rms_open * 0.1);
+}
+
+test "comb filter: impulse echoes at the tuned delay" {
+    var st: PolySynth.FilterState = .{};
+    const fc: PolySynth.FilterCoeffs = .{ .comb_delay = 100.0, .comb_fb = 0.9 };
+
+    // Impulse passes through dry immediately...
+    const first = PolySynth.filterSample(.comb, fc, &st, 1.0);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), first, 1e-6);
+
+    // ...then echoes scaled by the feedback exactly comb_delay samples later,
+    // and again one round-trip after that.
+    for (1..251) |i| {
+        const y = PolySynth.filterSample(.comb, fc, &st, 0.0);
+        switch (i) {
+            // zig fmt: off
+            100  => try std.testing.expectApproxEqAbs(@as(f32, 0.9),  y, 1e-5),
+            200  => try std.testing.expectApproxEqAbs(@as(f32, 0.81), y, 1e-5),
+            150  => try std.testing.expectApproxEqAbs(@as(f32, 0.0),  y, 1e-5),
+            else => {},
+            // zig fmt: on
+        }
+    }
 }
 
 test "filter envelope modulates cutoff: positive amount brightens" {
@@ -1906,5 +2029,5 @@ test "paramValue/setParamAbsolute round-trip continuous, enum, and toggle params
     b.setParamAbsolute(20, std.math.nan(f32));
     try std.testing.expectEqual(FilterType.lp, b.filter_type);
     b.setParamAbsolute(20, 1.0e30);
-    try std.testing.expectEqual(FilterType.notch, b.filter_type);
+    try std.testing.expectEqual(FilterType.comb, b.filter_type);
 }

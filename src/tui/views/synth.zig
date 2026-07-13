@@ -308,15 +308,21 @@ fn secEnv(w: *std.Io.Writer, synth: anytype, c: u8) !void {
         try std.fmt.bufPrint(&buf, "{d:.3} s", .{synth.release_s}));
 }
 
+const filter_type_names = [_][]const u8{ "lp", "hp", "bp", "ntch", "ladr", "comb" };
+
+fn filterTypeIdx(ft: anytype) usize {
+    return switch (ft) { .lp => 0, .hp => 1, .bp => 2, .notch => 3, .ladder => 4, .comb => 5 };
+}
+
+fn filterTypeName(ft: anytype) []const u8 {
+    return switch (ft) { .lp => "lp", .hp => "hp", .bp => "bp", .notch => "notch", .ladder => "ladder", .comb => "comb" };
+}
+
 fn secFilter(w: *std.Io.Writer, synth: anytype, c: u8) !void {
     var buf: [40]u8 = undefined;
     try synthSection(w, "FILTER", yel);
 
-    const ft_names = [_][]const u8{ "lp", "hp", "bp", "ntch" };
-    const ft_idx: usize = switch (synth.filter_type) {
-        .lp => 0, .hp => 1, .bp => 2, .notch => 3,
-    };
-    try enumRow(w, c == 20, false, yel, "type", &ft_names, ft_idx);
+    try enumRow(w, c == 20, false, yel, "type", &filter_type_names, filterTypeIdx(synth.filter_type));
 
     {
         const log_norm = std.math.log2(synth.filter_cutoff / 20.0) /
@@ -467,11 +473,7 @@ fn secFilter2(w: *std.Io.Writer, synth: anytype, c: u8) !void {
     try enumRow(w, c == 45, false, yel, "on/off", &on_names, if (synth.filter2_on) 0 else 1);
 
     const on = synth.filter2_on;
-    const ft_names = [_][]const u8{ "lp", "hp", "bp", "ntch" };
-    const ft_idx: usize = switch (synth.filter2_type) {
-        .lp => 0, .hp => 1, .bp => 2, .notch => 3,
-    };
-    try enumRow(w, c == 46, !on, yel, "type", &ft_names, ft_idx);
+    try enumRow(w, c == 46, !on, yel, "type", &filter_type_names, filterTypeIdx(synth.filter2_type));
 
     {
         const log_norm = std.math.log2(synth.filter2_cutoff / 20.0) /
@@ -583,9 +585,7 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !
         17 => try w.print("{d:.3} s",     .{synth.decay_s}),
         18 => try w.print("{d:.3}",       .{synth.sustain}),
         19 => try w.print("{d:.3} s",     .{synth.release_s}),
-        20 => try w.writeAll(switch (synth.filter_type) {
-            .lp => "lp", .hp => "hp", .bp => "bp", .notch => "notch",
-        }),
+        20 => try w.writeAll(filterTypeName(synth.filter_type)),
         21 => if (synth.filter_cutoff >= 1_000.0)
             try w.print("{d:.2} kHz", .{synth.filter_cutoff / 1_000.0})
         else
@@ -630,9 +630,7 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !
         }),
         44 => try w.print("{d:.2}",       .{synth.osc_b_warp_amount}),
         45 => try w.writeAll(if (synth.filter2_on) "on" else "off"),
-        46 => try w.writeAll(switch (synth.filter2_type) {
-            .lp => "lp", .hp => "hp", .bp => "bp", .notch => "notch",
-        }),
+        46 => try w.writeAll(filterTypeName(synth.filter2_type)),
         47 => if (synth.filter2_cutoff >= 1_000.0)
             try w.print("{d:.2} kHz", .{synth.filter2_cutoff / 1_000.0})
         else
