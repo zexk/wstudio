@@ -216,6 +216,10 @@ pub const SynthSnap = struct {
     fx_crush_bits: f32 = 8.0,
     fx_crush_rate: f32 = 4.0,
     fx_crush_mix: f32 = 1.0,
+    fx_chorus_on: bool = false,
+    fx_chorus_rate_hz: f32 = 0.8,
+    fx_chorus_depth_ms: f32 = 4.0,
+    fx_chorus_mix: f32 = 0.5,
     fx_flanger_on: bool = false,
     fx_flanger_rate_hz: f32 = 0.3,
     fx_flanger_depth: f32 = 0.7,
@@ -234,7 +238,7 @@ pub const SynthSnap = struct {
     fx_reverb_room: f32 = 0.6,
     fx_reverb_damp: f32 = 0.4,
     fx_reverb_mix: f32 = 0.3,
-    fx_order: [11]synth_mod.FxUnitKind = synth_mod.default_fx_order,
+    fx_order: [12]synth_mod.FxUnitKind = synth_mod.default_fx_order,
     // Arpeggiator (additive optional-with-default fields, no version bump)
     arp_on: bool = false,
     arp_mode: synth_mod.ArpMode = .up,
@@ -1314,6 +1318,10 @@ fn synthToSnap(s: *const PolySynth) SynthSnap {
         .fx_crush_bits = s.fx_crush_bits,
         .fx_crush_rate = s.fx_crush_rate,
         .fx_crush_mix = s.fx_crush_mix,
+        .fx_chorus_on = s.fx_chorus_on,
+        .fx_chorus_rate_hz = s.fx_chorus_rate_hz,
+        .fx_chorus_depth_ms = s.fx_chorus_depth_ms,
+        .fx_chorus_mix = s.fx_chorus_mix,
         .fx_flanger_on = s.fx_flanger_on,
         .fx_flanger_rate_hz = s.fx_flanger_rate_hz,
         .fx_flanger_depth = s.fx_flanger_depth,
@@ -1910,8 +1918,8 @@ fn loadNotes(pp: *PatternPlayer, notes: []const NoteSnap) void {
 /// drop another, silently dropping the missing unit from processing).
 /// `order.len == FxUnitKind`'s variant count, so "every kind appears at
 /// least once" already implies no duplicates (pigeonhole).
-fn isValidFxOrder(order: [11]synth_mod.FxUnitKind) bool {
-    var seen = [_]bool{false} ** 11;
+fn isValidFxOrder(order: [12]synth_mod.FxUnitKind) bool {
+    var seen = [_]bool{false} ** 12;
     for (order) |kind| seen[@intFromEnum(kind)] = true;
     for (seen) |s| if (!s) return false;
     return true;
@@ -2060,6 +2068,10 @@ fn applyToSynth(s: *PolySynth, ss: *const SynthSnap) void {
     s.fx_crush_bits = clamp(ss.fx_crush_bits, 1.0, 16.0);
     s.fx_crush_rate = clamp(ss.fx_crush_rate, 1.0, 64.0);
     s.fx_crush_mix = clamp(ss.fx_crush_mix, 0.0, 1.0);
+    s.fx_chorus_on = ss.fx_chorus_on;
+    s.fx_chorus_rate_hz = clamp(ss.fx_chorus_rate_hz, 0.05, 5.0);
+    s.fx_chorus_depth_ms = clamp(ss.fx_chorus_depth_ms, 0.0, synth_mod.Chorus.max_depth_ms);
+    s.fx_chorus_mix = clamp(ss.fx_chorus_mix, 0.0, 1.0);
     s.fx_flanger_on = ss.fx_flanger_on;
     s.fx_flanger_rate_hz = clamp(ss.fx_flanger_rate_hz, 0.02, 8.0);
     s.fx_flanger_depth = clamp(ss.fx_flanger_depth, 0.0, 1.0);

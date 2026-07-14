@@ -92,7 +92,7 @@ pub const ArpMode     = enum { up, down, updown, downup, played, random, chord }
 /// no heap allocation and doesn't touch the mod-matrix/automation id space
 /// (every param keeps its existing stable id regardless of position). See
 /// `PolySynth.fx_order`'s own doc comment for the reorder mechanism.
-pub const FxUnitKind = enum { gate, eq, comp, mb_comp, ott, dist, crush, flanger, phaser, delay, reverb };
+pub const FxUnitKind = enum { gate, eq, comp, mb_comp, ott, dist, crush, chorus, flanger, phaser, delay, reverb };
 
 /// Starting chain order — preserves the relative order the original 6
 /// fixed units always ran in, so existing presets/projects sound unchanged
@@ -100,7 +100,7 @@ pub const FxUnitKind = enum { gate, eq, comp, mb_comp, ott, dist, crush, flanger
 /// a typical signal chain (gate first, ahead of everything else; comp/
 /// mb_comp right after it, dynamics before tone-shaping). Purely a starting
 /// point once `fx_order` is user-reorderable.
-pub const default_fx_order = [_]FxUnitKind{ .gate, .eq, .comp, .mb_comp, .ott, .dist, .crush, .flanger, .phaser, .delay, .reverb };
+pub const default_fx_order = [_]FxUnitKind{ .gate, .eq, .comp, .mb_comp, .ott, .dist, .crush, .chorus, .flanger, .phaser, .delay, .reverb };
 
 /// Fixed-line stereo flanger for the synth's internal FX section. Unlike the
 /// master-bus Chorus it owns no heap delay line — PolySynth embeds by value
@@ -143,6 +143,51 @@ pub const Flanger = struct {
             self.pos = (self.pos + 1) % len;
             self.phase += inc;
             self.phase -= @floor(self.phase);
+        }
+    }
+};
+
+/// Fixed-ring stereo chorus for the synth's internal FX section — same
+/// algorithm as the track chain's own `dsp/chorus.zig` `Chorus` (single
+/// LFO-modulated tap around a fixed 12ms base, right channel a quarter
+/// cycle behind), ported to a fixed array since that one heap-allocates its
+/// delay lines (same reason Flanger/Delay/Reverb above are their own
+/// fixed-capacity structs instead of reusing the track-chain versions
+/// directly). `len` covers the required ~24ms tap range (12ms base + 10ms
+/// max depth + margin) up to ~85kHz sessions; like Flanger, the sweep range
+/// simply narrows in real time above that rather than growing the array.
+pub const Chorus = struct {
+    ring: [2][len]f32 = [_][len]f32{[_]f32{0.0} ** len} ** 2,
+    pos: usize = 0,
+    phase: f32 = 0.0,
+
+    pub const len: usize = 2048;
+    const base_delay_ms: f32 = 12.0;
+    pub const max_depth_ms: f32 = 10.0;
+
+    /// depth_ms clamped to max_depth_ms; mix 0=dry 1=wet.
+    pub fn processBlock(self: *Chorus, buf: []Sample, sample_rate: f32, rate_hz: f32, depth_ms: f32, mix: f32) void {
+        const len_f: f32 = @floatFromInt(len);
+        const phase_inc = 2.0 * std.math.pi * rate_hz / sample_rate;
+        const depth = @min(depth_ms, max_depth_ms);
+        var i: usize = 0;
+        while (i + 1 < buf.len) : (i += 2) {
+            inline for (0..2) |ch| {
+                self.ring[ch][self.pos] = buf[i + ch];
+                // Right channel trails the LFO by a quarter cycle for width.
+                const lfo = @sin(self.phase - @as(f32, ch) * (std.math.pi / 2.0));
+                const delay_frames = (base_delay_ms + depth * lfo) * 0.001 * sample_rate;
+                var rp = @as(f32, @floatFromInt(self.pos)) - delay_frames;
+                if (rp < 0.0) rp += len_f;
+                const tap_i: usize = @intFromFloat(rp);
+                const frac = rp - @floor(rp);
+                const wet = self.ring[ch][tap_i % len] * (1.0 - frac) +
+                    self.ring[ch][(tap_i + 1) % len] * frac;
+                buf[i + ch] = buf[i + ch] * (1.0 - mix) + wet * mix;
+            }
+            self.pos = (self.pos + 1) % len;
+            self.phase += phase_inc;
+            if (self.phase >= 2.0 * std.math.pi) self.phase -= 2.0 * std.math.pi;
         }
     }
 };
@@ -678,6 +723,12 @@ pub const PolySynth = struct {
     fx_crush_bits:       f32  = 8.0,
     fx_crush_rate:       f32  = 4.0,
     fx_crush_mix:        f32  = 1.0,
+    /// Fixed-ring port of the track-chain's own Chorus unit
+    /// (dsp/chorus.zig) — see `Chorus`'s own doc comment.
+    fx_chorus_on:        bool = false,
+    fx_chorus_rate_hz:   f32  = 0.8,
+    fx_chorus_depth_ms:  f32  = 4.0,
+    fx_chorus_mix:       f32  = 0.5,
     fx_flanger_on:       bool = false,
     fx_flanger_rate_hz:  f32  = 0.3,
     fx_flanger_depth:    f32  = 0.7,
@@ -707,13 +758,14 @@ pub const PolySynth = struct {
     /// Processing sequence for the FX section above — see `FxUnitKind`'s
     /// doc comment. Reordered via `adjustParam`'s dedicated reorder-handle
     /// ids, never written directly by the editor.
-    fx_order: [11]FxUnitKind = default_fx_order,
+    fx_order: [12]FxUnitKind = default_fx_order,
     fx_gate_state: Gate = .{},
     fx_eq_state: Eq3 = .{},
     fx_comp_state: Compressor = .{},
     fx_mb_state: MultibandComp = .{},
     fx_ott_state: Ott = .{},
     fx_crush_state: Crusher = .{},
+    fx_chorus_state: Chorus = .{},
     fx_flanger_state: Flanger = .{},
     fx_phaser_state: Phaser = .{},
     fx_delay_state: Delay = .{},
@@ -815,6 +867,7 @@ pub const PolySynth = struct {
         145, 146, 147, 148, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159,
         162, 163, 164, 165,
         168, 169, 170, 171, 172, 173, 174,
+        177, 178, 179,
         dest_pitch, dest_amp,
         // zig fmt: on
     };
@@ -1103,6 +1156,10 @@ pub const PolySynth = struct {
         fx_crush_bits: f32 = 8.0,
         fx_crush_rate: f32 = 4.0,
         fx_crush_mix: f32 = 1.0,
+        fx_chorus_on: bool = false,
+        fx_chorus_rate_hz: f32 = 0.8,
+        fx_chorus_depth_ms: f32 = 4.0,
+        fx_chorus_mix: f32 = 0.5,
         fx_flanger_on: bool = false,
         fx_flanger_rate_hz: f32 = 0.3,
         fx_flanger_depth: f32 = 0.7,
@@ -1121,7 +1178,7 @@ pub const PolySynth = struct {
         fx_reverb_room: f32 = 0.6,
         fx_reverb_damp: f32 = 0.4,
         fx_reverb_mix: f32 = 0.3,
-        fx_order: [11]FxUnitKind = default_fx_order,
+        fx_order: [12]FxUnitKind = default_fx_order,
 
         arp_on: bool = false,
         arp_mode: ArpMode = .up,
@@ -1948,8 +2005,8 @@ pub const PolySynth = struct {
         // most recently triggered voice (env/velocity → drive style routes
         // still play).
         if (self.fx_gate_on or self.fx_eq_on or self.fx_comp_on or self.fx_mb_on or
-            self.fx_ott_on or self.fx_dist_on or self.fx_crush_on or self.fx_flanger_on or
-            self.fx_phaser_on or self.fx_delay_on or self.fx_reverb_on)
+            self.fx_ott_on or self.fx_dist_on or self.fx_crush_on or self.fx_chorus_on or
+            self.fx_flanger_on or self.fx_phaser_on or self.fx_delay_on or self.fx_reverb_on)
         {
             const nv = &self.voices[self.newest_voice];
             const mods = self.evalMatrix(if (nv.active) nv else null, lfo_vals);
@@ -2041,6 +2098,15 @@ pub const PolySynth = struct {
                         self.fx_crush_state.mix        = eff(&mods, 89, self.fx_crush_mix);
                         // zig fmt: on
                         self.fx_crush_state.processBlock(buf);
+                    },
+                    .chorus => if (self.fx_chorus_on) {
+                        self.fx_chorus_state.processBlock(
+                            buf,
+                            self.sample_rate,
+                            eff(&mods, 177, self.fx_chorus_rate_hz),
+                            eff(&mods, 178, self.fx_chorus_depth_ms),
+                            eff(&mods, 179, self.fx_chorus_mix),
+                        );
                     },
                     .flanger => if (self.fx_flanger_on) {
                         self.fx_flanger_state.processBlock(
@@ -2338,6 +2404,7 @@ pub const PolySynth = struct {
         self.arp_gate_open = false;
         self.arp_was_on = false;
         self.fx_crush_state = .{};
+        self.fx_chorus_state = .{};
         self.fx_flanger_state = .{};
         self.fx_delay_state = .{};
         // Reset(), not `= .{}` — a bare default would also clobber the
@@ -2699,6 +2766,12 @@ pub const PolySynth = struct {
             173 => self.fx_eq_high_freq    = std.math.clamp(self.fx_eq_high_freq * std.math.pow(f32, 2.0, s / 12.0),   20.0, 20_000.0),
             174 => self.fx_eq_high_gain_db = std.math.clamp(self.fx_eq_high_gain_db + s * 0.5,  -18.0,  18.0),
             175 => self.reorderFx(.eq, steps),
+            // FX CHORUS (176–179), reorder handle 180.
+            176 => self.fx_chorus_on        = !self.fx_chorus_on,
+            177 => self.fx_chorus_rate_hz   = std.math.clamp(self.fx_chorus_rate_hz  + s * 0.05, 0.05, 5.0),
+            178 => self.fx_chorus_depth_ms  = std.math.clamp(self.fx_chorus_depth_ms + s * 0.1,  0.0, Chorus.max_depth_ms),
+            179 => self.fx_chorus_mix       = std.math.clamp(self.fx_chorus_mix      + s * 0.01, 0.0, 1.0),
+            180 => self.reorderFx(.chorus, steps),
             // zig fmt: on
             // MATRIX (59–82): 3 ids per row — source, dest, depth.
             59...82 => {
@@ -2896,6 +2969,11 @@ pub const PolySynth = struct {
             173 => self.fx_eq_high_freq    = std.math.clamp(value,  20.0, 20_000.0),
             174 => self.fx_eq_high_gain_db = std.math.clamp(value, -18.0,    18.0),
             175 => self.setFxIndex(.eq,         @intFromFloat(@round(@max(value, 0.0)))),
+            176 => self.fx_chorus_on        = value >= 0.5,
+            177 => self.fx_chorus_rate_hz   = std.math.clamp(value, 0.05, 5.0),
+            178 => self.fx_chorus_depth_ms  = std.math.clamp(value, 0.0, Chorus.max_depth_ms),
+            179 => self.fx_chorus_mix       = std.math.clamp(value, 0.0, 1.0),
+            180 => self.setFxIndex(.chorus,     @intFromFloat(@round(@max(value, 0.0)))),
             // zig fmt: on
             // MATRIX: dest takes the raw param id (falls back to cutoff if
             // the value isn't a legal dest — e.g. a hand-edited curve).
@@ -3077,6 +3155,11 @@ pub const PolySynth = struct {
             173 => self.fx_eq_high_freq,
             174 => self.fx_eq_high_gain_db,
             175 => @floatFromInt(self.fxOrderIndex(.eq)),
+            176 => if (self.fx_chorus_on) 1.0 else 0.0,
+            177 => self.fx_chorus_rate_hz,
+            178 => self.fx_chorus_depth_ms,
+            179 => self.fx_chorus_mix,
+            180 => @floatFromInt(self.fxOrderIndex(.chorus)),
             // zig fmt: on
             59...82 => blk: {
                 const row = self.mod_matrix[(id - 59) / 3];
@@ -3221,6 +3304,9 @@ pub const PolySynth = struct {
         .{ .id = 172,.label = "EQ MID Q",    .section = "FX EQ",   .range = .{ 0.1,    10.0 },   .step = 0.05 },
         .{ .id = 173,.label = "EQ HI FREQ",  .section = "FX EQ",   .range = .{ 20.0,   20000.0 },.step = 10.0 },
         .{ .id = 174,.label = "EQ HI GAIN",  .section = "FX EQ",   .range = .{ -18.0,  18.0 },   .step = 0.5 },
+        .{ .id = 177,.label = "CHOR RATE",   .section = "FX CHOR", .range = .{ 0.05,   5.0 },    .step = 0.05 },
+        .{ .id = 178,.label = "CHOR DEPTH",  .section = "FX CHOR", .range = .{ 0.0,    10.0 },   .step = 0.1 },
+        .{ .id = 179,.label = "CHOR MIX",    .section = "FX CHOR", .range = .{ 0.0,    1.0 },    .step = 0.01 },
         // zig fmt: on
     };
 
@@ -4466,4 +4552,24 @@ test "Eq3 high shelf: boost raises and cut lowers a high-frequency tone" {
     boosted.processBlock(&buf_boost, 48_000.0, 150.0, 0.0, 1000.0, 0.0, 0.7, 6000.0, 12.0);
     cut.processBlock(&buf_cut, 48_000.0, 150.0, 0.0, 1000.0, 0.0, 0.7, 6000.0, -12.0);
     try std.testing.expect(rmsTail(&buf_boost) > rmsTail(&buf_cut) * 2.0);
+}
+
+test "Chorus mix=0 passes a signal through unchanged" {
+    var chorus: Chorus = .{};
+    var buf: [4096]Sample = undefined;
+    sineBuf(&buf, 48_000.0, 440.0);
+    var dry: [4096]Sample = undefined;
+    @memcpy(&dry, &buf);
+    chorus.processBlock(&buf, 48_000.0, 0.8, 4.0, 0.0);
+    for (buf, dry) |wet, d| try std.testing.expectApproxEqAbs(d, wet, 1e-5);
+}
+
+test "Chorus at mix=1 produces a modulated, bounded, non-silent output" {
+    var chorus: Chorus = .{};
+    var buf: [8192]Sample = undefined;
+    sineBuf(&buf, 48_000.0, 440.0);
+    chorus.processBlock(&buf, 48_000.0, 0.8, 4.0, 1.0);
+    const tail_rms = rmsTail(&buf);
+    try std.testing.expect(tail_rms > 0.1);
+    for (buf) |s| try std.testing.expect(@abs(s) <= 1.5);
 }

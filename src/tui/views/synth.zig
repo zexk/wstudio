@@ -189,6 +189,7 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize
                     .mb_comp => try secFxMb(&tw, synth, c),
                     .ott => try secFxOtt(&tw, synth, c),
                     .eq => try secFxEq(&tw, synth, c),
+                    .chorus => try secFxChorus(&tw, synth, c),
                     .dist => try secFxDist(&tw, synth, c),
                     .crush => try secFxCrush(&tw, synth, c),
                     .flanger => try secFxFlanger(&tw, synth, c),
@@ -792,6 +793,20 @@ fn secFxEq(w: *std.Io.Writer, synth: anytype, c: u8) !void {
         try std.fmt.bufPrint(&buf, "{d:.1} dB", .{synth.fx_eq_high_gain_db}));
 }
 
+fn secFxChorus(w: *std.Io.Writer, synth: anytype, c: u8) !void {
+    var buf: [40]u8 = undefined;
+    try synthSection(w, "FX CHOR", red);
+
+    const on = synth.fx_chorus_on;
+    try enumRow(w, c == 176, false, red, "on/off", &on_off_names, if (on) 0 else 1);
+    try barRow(w, c == 177, !on, red, "rate", synth.fx_chorus_rate_hz, 5.0,
+        try std.fmt.bufPrint(&buf, "{d:.2} Hz", .{synth.fx_chorus_rate_hz}));
+    try barRow(w, c == 178, !on, red, "depth", synth.fx_chorus_depth_ms, 10.0,
+        try std.fmt.bufPrint(&buf, "{d:.1} ms", .{synth.fx_chorus_depth_ms}));
+    try barRow(w, c == 179, !on, red, "mix", synth.fx_chorus_mix, 1.0,
+        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.fx_chorus_mix}));
+}
+
 fn secFxDist(w: *std.Io.Writer, synth: anytype, c: u8) !void {
     var buf: [40]u8 = undefined;
     try synthSection(w, "FX DIST", red);
@@ -932,6 +947,8 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !
         "eq.on", "eq.lo.freq", "eq.lo.gain", "eq.mid.freq", "eq.mid.gain", "eq.mid.q",
         "eq.hi.freq", "eq.hi.gain",
         "-", // 175: eq's reorder handle, never cursor-reachable
+        "chor.on", "chor.rate", "chor.depth", "chor.mix",
+        "-", // 180: chorus's reorder handle, never cursor-reachable
     };
     const cur = @min(@as(usize, app.synth_cursor), labels.len - 1);
     try style.writeModeBadge(w, app.modal.mode);
@@ -1119,6 +1136,10 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !
         172 => try w.print("{d:.2}",       .{synth.fx_eq_mid_q}),
         173 => try w.print("{d:.0} Hz",    .{synth.fx_eq_high_freq}),
         174 => try w.print("{d:.1} dB",    .{synth.fx_eq_high_gain_db}),
+        176 => try w.writeAll(if (synth.fx_chorus_on) "on" else "off"),
+        177 => try w.print("{d:.2} Hz",    .{synth.fx_chorus_rate_hz}),
+        178 => try w.print("{d:.1} ms",    .{synth.fx_chorus_depth_ms}),
+        179 => try w.print("{d:.2}",       .{synth.fx_chorus_mix}),
         // zig fmt: on
         else => {},
     }
