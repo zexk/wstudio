@@ -89,7 +89,8 @@ fn renderDemo(allocator: std.mem.Allocator, io: std.Io) !void {
     engine.loadProject(&project);
 
     // --- device chain: synth -> compressor -> delay -> reverb ------------
-    var synth = ws.dsp.PolySynth.init(sr);
+    var synth = try ws.dsp.PolySynth.init(allocator, sr);
+    defer synth.deinit();
     var comp = ws.dsp.Compressor.init(sr);
     var delay = try ws.dsp.StereoDelay.init(allocator, sr, 2.0);
     defer delay.deinit(allocator);

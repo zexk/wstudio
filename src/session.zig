@@ -192,7 +192,7 @@ pub const Session = struct {
         switch (kind) {
             .empty => {},
             .poly_synth => {
-                rack.instrument = .{ .poly_synth = PolySynth.init(sr) };
+                rack.instrument = .{ .poly_synth = try PolySynth.init(self.allocator, sr) };
                 rack.label = "synth";
             },
             .sampler => {

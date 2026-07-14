@@ -425,7 +425,8 @@ pub const PatternPlayer = struct {
 // ---------------------------------------------------------------------------
 
 test "swing delays a note on an off-beat 16th, mirroring DrumMachine's math" {
-    var synth = PolySynth.init(48_000);
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
     var transport: Transport = .{ .sample_rate = 48_000 };
 
     var pp = PatternPlayer.init(synth.device(), &transport);
@@ -455,7 +456,8 @@ test "swing delays a note on an off-beat 16th, mirroring DrumMachine's math" {
 }
 
 test "setSwing clamps to [swing_min, swing_max]" {
-    var synth = PolySynth.init(48_000);
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
     var transport: Transport = .{ .sample_rate = 48_000 };
     var pp = PatternPlayer.init(synth.device(), &transport);
 
@@ -468,7 +470,8 @@ test "setSwing clamps to [swing_min, swing_max]" {
 }
 
 test "scanRange fires note_on then note_off across loop boundary" {
-    var synth = PolySynth.init(48_000);
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
     var transport: Transport = .{ .sample_rate = 48_000 };
 
     var pp = PatternPlayer.init(synth.device(), &transport);
@@ -486,7 +489,8 @@ test "scanRange fires note_on then note_off across loop boundary" {
 }
 
 test "copyNotes/setNotes round-trip a pattern between players" {
-    var synth = PolySynth.init(48_000);
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
     var transport: Transport = .{ .sample_rate = 48_000 };
 
     var src = PatternPlayer.init(synth.device(), &transport);
@@ -508,7 +512,8 @@ test "copyNotes/setNotes round-trip a pattern between players" {
 }
 
 test "humanize jitters timing/velocity within bounds; 0% is a no-op" {
-    var synth = PolySynth.init(48_000);
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
     var transport: Transport = .{ .sample_rate = 48_000 };
     var pp = PatternPlayer.init(synth.device(), &transport);
     pp.length_beats = 4.0;
@@ -537,7 +542,8 @@ test "PatternPlayer sequences note against transport" {
     var transport: Transport = .{ .sample_rate = 48_000 };
     transport.play();
 
-    var synth = PolySynth.init(48_000);
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
     var pp = PatternPlayer.init(synth.device(), &transport);
     // Quarter-note C4 at beat 0
     pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 1.0 });

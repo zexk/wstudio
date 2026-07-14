@@ -1,0 +1,117 @@
+//! Wavetable storage + lookup for the synth's `.wavetable` oscillator mode.
+//! A table is a flat run of fixed-length frames; playback picks a fractional
+//! frame position (`frame_pos`, 0..1) and crossfades between the two nearest
+//! frames, each read with linear-interpolated phase — no band-limiting, so
+//! high notes on harmonically dense tables will alias (accepted for v1, see
+//! docs/ for the tradeoff).
+
+const std = @import("std");
+const types = @import("../core/types.zig");
+
+const Sample = types.Sample;
+
+pub const frame_len: usize = 2048;
+
+pub const Wavetable = struct {
+    /// Flattened frame data: `frame_count * frame_len` samples.
+    frames: []f32,
+    frame_count: usize,
+};
+
+/// Copies `samples` into a table of `frame_len`-sample frames. Truncates a
+/// trailing partial frame's worth of silence in rather than dropping data,
+/// so any WAV length still produces at least one full frame.
+pub fn fromSamples(allocator: std.mem.Allocator, samples: []const f32) !Wavetable {
+    const frame_count = @max(1, samples.len / frame_len);
+    const total = frame_count * frame_len;
+    const frames = try allocator.alloc(f32, total);
+    const n = @min(total, samples.len);
+    @memcpy(frames[0..n], samples[0..n]);
+    if (n < total) @memset(frames[n..], 0.0);
+    return .{ .frames = frames, .frame_count = frame_count };
+}
+
+/// A single silent-but-valid frame, for call sites that need owned table
+/// data before any real content (bundled or user-imported) is available.
+pub fn silent(allocator: std.mem.Allocator) !Wavetable {
+    const frames = try allocator.alloc(f32, frame_len);
+    @memset(frames, 0.0);
+    return .{ .frames = frames, .frame_count = 1 };
+}
+
+pub fn deinit(table: *Wavetable, allocator: std.mem.Allocator) void {
+    allocator.free(table.frames);
+}
+
+pub fn dupe(table: Wavetable, allocator: std.mem.Allocator) !Wavetable {
+    return .{ .frames = try allocator.dupe(f32, table.frames), .frame_count = table.frame_count };
+}
+
+/// Reads `table` at fractional frame position `frame_pos` (0..1, clamped)
+/// and phase `phase` (wrapped to 0..1), bilinearly interpolating across
+/// both frame and sample axes.
+pub fn lookup(table: Wavetable, frame_pos: f32, phase: f32) Sample {
+    const fc: f32 = @floatFromInt(table.frame_count - 1);
+    const fp = std.math.clamp(frame_pos, 0.0, 1.0) * fc;
+    const f0: usize = @intFromFloat(@floor(fp));
+    const f1: usize = @min(f0 + 1, table.frame_count - 1);
+    const frac_f = fp - @floor(fp);
+
+    const ph = phase - @floor(phase);
+    const sp = ph * @as(f32, @floatFromInt(frame_len));
+    const s0: usize = @intFromFloat(@floor(sp));
+    const s1: usize = (s0 + 1) % frame_len;
+    const frac_s = sp - @floor(sp);
+
+    const a0 = table.frames[f0 * frame_len + s0];
+    const a1 = table.frames[f0 * frame_len + s1];
+    const va = a0 + (a1 - a0) * frac_s;
+
+    const b0 = table.frames[f1 * frame_len + s0];
+    const b1 = table.frames[f1 * frame_len + s1];
+    const vb = b0 + (b1 - b0) * frac_s;
+
+    return va + (vb - va) * frac_f;
+}
+
+test "lookup: single-frame table matches a plain sine read" {
+    const allocator = std.testing.allocator;
+    var frame: [frame_len]f32 = undefined;
+    for (&frame, 0..) |*s, i| {
+        s.* = @sin(2.0 * std.math.pi * @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(frame_len)));
+    }
+    var table = try fromSamples(allocator, &frame);
+    defer deinit(&table, allocator);
+
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), lookup(table, 0.0, 0.0), 0.001);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), lookup(table, 0.5, 0.25), 0.01);
+    // frame_pos is irrelevant with only one frame.
+    try std.testing.expectApproxEqAbs(lookup(table, 0.0, 0.25), lookup(table, 1.0, 0.25), 0.0001);
+}
+
+test "lookup: frame_pos crossfades between distinct frames" {
+    const allocator = std.testing.allocator;
+    var samples: [frame_len * 2]f32 = undefined;
+    @memset(samples[0..frame_len], -1.0);
+    @memset(samples[frame_len..], 1.0);
+    var table = try fromSamples(allocator, &samples);
+    defer deinit(&table, allocator);
+
+    try std.testing.expectApproxEqAbs(@as(f32, -1.0), lookup(table, 0.0, 0.1), 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), lookup(table, 1.0, 0.1), 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), lookup(table, 0.5, 0.1), 0.0001);
+}
+
+test "dupe: independent buffer, same content" {
+    const allocator = std.testing.allocator;
+    var table = try silent(allocator);
+    defer deinit(&table, allocator);
+    table.frames[0] = 0.5;
+
+    var copy = try dupe(table, allocator);
+    defer deinit(&copy, allocator);
+    try std.testing.expectEqual(@as(f32, 0.5), copy.frames[0]);
+
+    copy.frames[0] = -0.5;
+    try std.testing.expectEqual(@as(f32, 0.5), table.frames[0]);
+}

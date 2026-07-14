@@ -54,7 +54,7 @@ pub const Instrument = union(enum) {
     pub fn deinit(self: *Instrument) void {
         switch (self.*) {
             .empty        => {},
-            .poly_synth   => {},           // no heap allocations
+            .poly_synth   => |*s|  s.deinit(),
             .sampler      => |*s|  s.deinit(),
             .drum_machine => |*dm| dm.deinit(),
             .slicer       => |*sl| sl.deinit(),
@@ -331,7 +331,7 @@ pub const Rack = struct {
 
         switch (self.instrument) {
             .empty => {},
-            .poly_synth => |s| rack.instrument = .{ .poly_synth = s },
+            .poly_synth => |*s| rack.instrument = .{ .poly_synth = try s.dupe() },
             .sampler => |*s| rack.instrument = .{ .sampler = try s.dupe() },
             .drum_machine => |*dm| rack.instrument = .{ .drum_machine = try dm.dupe() },
             .slicer => |*sl| rack.instrument = .{ .slicer = try sl.dupe() },
@@ -386,10 +386,11 @@ pub const Rack = struct {
 
 test "chain follows insertion order, not a fixed slot order" {
     var rack = Rack{
-        .instrument = .{ .poly_synth = PolySynth.init(48_000) },
+        .instrument = .{ .poly_synth = try PolySynth.init(std.testing.allocator, 48_000) },
         .label = "test",
     };
     defer rack.fx.deinit(std.testing.allocator);
+    defer rack.instrument.deinit();
 
     // Insert an EQ, then a comp *in front of it* — the old fixed rack would
     // zig fmt: off

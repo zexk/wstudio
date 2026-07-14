@@ -1541,7 +1541,7 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
         switch (rs.kind) {
             .empty => {},
             .poly_synth => {
-                rack.instrument = .{ .poly_synth = PolySynth.init(sr) };
+                rack.instrument = .{ .poly_synth = try PolySynth.init(allocator, sr) };
                 // PatternPlayer holds a pointer into the heap-allocated Rack —
                 // must be set AFTER the instrument lands in the rack.
                 rack.pattern_player = PatternPlayer.init(rack.instrument.device().?, &engine.transport);
@@ -3633,7 +3633,8 @@ test "golden-file corpus: v17's mod matrix loads its rows" {
 }
 
 test "applyToSynth: pre-v17 legacy mod fields migrate onto matrix rows" {
-    var s = PolySynth.init(48_000);
+    var s = try PolySynth.init(std.testing.allocator, 48_000);
+    defer s.deinit();
     const legacy: SynthSnap = .{ .fenv_amount = 2.0, .lfo_depth = 0.8, .lfo_target = .filter };
     applyToSynth(&s, &legacy);
     try std.testing.expectEqual(synth_mod.ModSource.fenv, s.mod_matrix[0].source);
@@ -3658,7 +3659,7 @@ test "save/load round-trip persists LFO 2/3, macros, and their matrix sources" {
 
     var session = try Session.initDefault(testing.allocator);
     defer session.deinit();
-    session.racks.items[0].instrument = .{ .poly_synth = PolySynth.init(session.project.sample_rate) };
+    session.racks.items[0].instrument = .{ .poly_synth = try PolySynth.init(testing.allocator, session.project.sample_rate) };
     const s = &session.racks.items[0].instrument.poly_synth;
     // zig fmt: off
     s.lfo2_shape = .sh;  s.lfo2_rate_hz = 6.5;

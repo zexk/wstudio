@@ -1051,7 +1051,8 @@ const DrumMachine = @import("../dsp/drum_sampler.zig").DrumMachine;
 const Compressor = @import("../dsp/compressor.zig").Compressor;
 
 test "renderTracks pushes filter-cutoff automation into the synth before it processes the block" {
-    var synth = PolySynth.init(48_000);
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
     synth.filter_cutoff = 1_000.0; // manual value — automation should override it
     var engine = try Engine.init(std.testing.allocator, 48_000);
     defer engine.deinit();
@@ -1072,7 +1073,8 @@ test "renderTracks pushes filter-cutoff automation into the synth before it proc
 }
 
 test "renderTracks handles multiple simultaneous synth-param automation slots" {
-    var synth = PolySynth.init(48_000);
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
     var engine = try Engine.init(std.testing.allocator, 48_000);
     defer engine.deinit();
     engine.tracks[0] = .{ .active = true };
@@ -1113,7 +1115,8 @@ test "setTrackSynthParam silently drops automation past max_synth_slots capacity
 }
 
 test "notes sound even while transport is stopped (live preview)" {
-    var synth = PolySynth.init(48_000);
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
     var engine = try Engine.init(std.testing.allocator, 48_000);
     defer engine.deinit();
     engine.tracks[0] = .{ .active = true };
@@ -1230,7 +1233,8 @@ test "uiSnapshot reports pre_rolling during count-in, then playing once it compl
 }
 
 test "mute command silences a track" {
-    var synth = PolySynth.init(48_000);
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
     var engine = try Engine.init(std.testing.allocator, 48_000);
     defer engine.deinit();
     engine.tracks[0] = .{ .active = true };
@@ -1244,7 +1248,8 @@ test "mute command silences a track" {
 }
 
 test "master limiter keeps a hot mix under the ceiling" {
-    var synth = PolySynth.init(48_000);
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
     var engine = try Engine.init(std.testing.allocator, 48_000);
     defer engine.deinit();
     engine.tracks[0] = .{ .active = true };
@@ -1263,7 +1268,8 @@ test "master limiter keeps a hot mix under the ceiling" {
 }
 
 test "master FX chain processes the summed mix before gain/limiter" {
-    var synth = PolySynth.init(48_000);
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
     var engine = try Engine.init(std.testing.allocator, 48_000);
     defer engine.deinit();
     engine.tracks[0] = .{ .active = true };
@@ -1294,8 +1300,10 @@ test "master FX chain processes the summed mix before gain/limiter" {
 }
 
 test "grouped tracks submix through their group's FX chain; ungrouped tracks are unaffected" {
-    var synth1 = PolySynth.init(48_000);
-    var synth2 = PolySynth.init(48_000);
+    var synth1 = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth1.deinit();
+    var synth2 = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth2.deinit();
     var engine = try Engine.init(std.testing.allocator, 48_000);
     defer engine.deinit();
     engine.tracks[0] = .{ .active = true };
@@ -1333,8 +1341,10 @@ test "grouped tracks submix through their group's FX chain; ungrouped tracks are
 }
 
 test "renderTracks routes a compressor's sidechain detector from a different (source) track" {
-    var kick = PolySynth.init(48_000);
-    var bass = PolySynth.init(48_000);
+    var kick = try PolySynth.init(std.testing.allocator, 48_000);
+    defer kick.deinit();
+    var bass = try PolySynth.init(std.testing.allocator, 48_000);
+    defer bass.deinit();
     var comp = Compressor.init(48_000);
     comp.threshold_db = -30.0;
     comp.ratio = 20.0;
@@ -1374,7 +1384,8 @@ test "renderTracks routes a compressor's sidechain detector from a different (so
 }
 
 test "renderTracks routes a compressor's sidechain detector from a single drum pad, isolated from the rest of the kit" {
-    var bass = PolySynth.init(48_000);
+    var bass = try PolySynth.init(std.testing.allocator, 48_000);
+    defer bass.deinit();
     var comp = Compressor.init(48_000);
     comp.threshold_db = -30.0;
     comp.ratio = 20.0;
@@ -1405,7 +1416,8 @@ test "renderTracks routes a compressor's sidechain detector from a single drum p
     for (block) |s| bass_ducked_by_kick = @max(bass_ducked_by_kick, @abs(s));
 
     // Self-detection baseline: same quiet bass, no sidechain routing.
-    var bass2 = PolySynth.init(48_000);
+    var bass2 = try PolySynth.init(std.testing.allocator, 48_000);
+    defer bass2.deinit();
     var comp2 = Compressor.init(48_000);
     comp2.threshold_db = -30.0;
     comp2.ratio = 20.0;
@@ -1431,7 +1443,8 @@ test "renderTracks routes a compressor's sidechain detector from a single drum p
     // would just be re-testing PolySynth's determinism, not this feature.
     // The capture for (track 0, pad 0) must stay silent even though the
     // snare made the REST of the drum track loud.
-    var bass3 = PolySynth.init(48_000);
+    var bass3 = try PolySynth.init(std.testing.allocator, 48_000);
+    defer bass3.deinit();
     var comp3 = Compressor.init(48_000);
     var engine3 = try Engine.init(std.testing.allocator, 48_000);
     defer engine3.deinit();
@@ -1519,7 +1532,8 @@ test "a sidechain source that never renders falls back to self-detection, not a 
     // renders into it. The compressor must behave exactly as if it had no
     // sidechain routing at all (self-detecting a quiet, under-threshold
     // input), never reading the capture slot's uninitialized buffer.
-    var bass = PolySynth.init(48_000);
+    var bass = try PolySynth.init(std.testing.allocator, 48_000);
+    defer bass.deinit();
     var comp = Compressor.init(48_000);
     comp.threshold_db = -30.0;
     comp.ratio = 20.0;
@@ -1539,7 +1553,8 @@ test "a sidechain source that never renders falls back to self-detection, not a 
     for (block) |s| with_dead_source = @max(with_dead_source, @abs(s));
 
     // Same setup with the routing cleared: the self-detection baseline.
-    var bass2 = PolySynth.init(48_000);
+    var bass2 = try PolySynth.init(std.testing.allocator, 48_000);
+    defer bass2.deinit();
     var comp2 = Compressor.init(48_000);
     comp2.threshold_db = -30.0;
     comp2.ratio = 20.0;
@@ -1559,7 +1574,8 @@ test "a sidechain source that never renders falls back to self-detection, not a 
 
 test "a sidechain source track is rendered exactly once, not double-mixed" {
     // Engine A: track 0 alone, referenced by nothing.
-    var kick_a = PolySynth.init(48_000);
+    var kick_a = try PolySynth.init(std.testing.allocator, 48_000);
+    defer kick_a.deinit();
     var engine_a = try Engine.init(std.testing.allocator, 48_000);
     defer engine_a.deinit();
     engine_a.tracks[0] = .{ .active = true };
@@ -1574,8 +1590,10 @@ test "a sidechain source track is rendered exactly once, not double-mixed" {
     // bit-identical to engine A's (same devices, same command sequence) —
     // any drift would mean it got rendered twice (or with different state)
     // this block.
-    var kick_b = PolySynth.init(48_000);
-    var bass_b = PolySynth.init(48_000);
+    var kick_b = try PolySynth.init(std.testing.allocator, 48_000);
+    defer kick_b.deinit();
+    var bass_b = try PolySynth.init(std.testing.allocator, 48_000);
+    defer bass_b.deinit();
     var comp_b = Compressor.init(48_000);
     var engine_b = try Engine.init(std.testing.allocator, 48_000);
     defer engine_b.deinit();
@@ -1593,7 +1611,8 @@ test "a sidechain source track is rendered exactly once, not double-mixed" {
 }
 
 test "a track pointed at an inactive group slot falls back to the master mix" {
-    var synth = PolySynth.init(48_000);
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
     var engine = try Engine.init(std.testing.allocator, 48_000);
     defer engine.deinit();
     engine.tracks[0] = .{ .active = true, .group = 2 }; // group 2 never activated
@@ -1608,10 +1627,10 @@ test "a track pointed at an inactive group slot falls back to the master mix" {
 }
 
 test "solo silences other tracks but keeps the soloed one" {
-    var lead = PolySynth.init(48_000);
-    // zig fmt: off
-    var pad  = PolySynth.init(48_000);
-    // zig fmt: on
+    var lead = try PolySynth.init(std.testing.allocator, 48_000);
+    defer lead.deinit();
+    var pad = try PolySynth.init(std.testing.allocator, 48_000);
+    defer pad.deinit();
     var engine = try Engine.init(std.testing.allocator, 48_000);
     defer engine.deinit();
     engine.tracks[0] = .{ .active = true };
@@ -1635,7 +1654,8 @@ test "solo silences other tracks but keeps the soloed one" {
 }
 
 test "uiSnapshot publishes transport and meter state" {
-    var synth = PolySynth.init(48_000);
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
     var engine = try Engine.init(std.testing.allocator, 48_000);
     defer engine.deinit();
     engine.tracks[0] = .{ .active = true };
@@ -1661,7 +1681,8 @@ test "spectrum snapshot returns null when inactive" {
 }
 
 test "spectrum snapshot returns data when active" {
-    var synth = PolySynth.init(48_000);
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
     var engine = try Engine.init(std.testing.allocator, 48_000);
     defer engine.deinit();
     engine.tracks[0] = .{ .active = true };

@@ -14,6 +14,8 @@ const MultibandComp = @import("multiband_comp.zig").MultibandComp;
 pub const MbStyle = @import("multiband_comp.zig").Style;
 const Ott = @import("ott.zig").Ott;
 const FreqShifter = @import("freq_shift.zig").FreqShifter;
+const wavetable = @import("wavetable.zig");
+const Wavetable = wavetable.Wavetable;
 
 const Sample = types.Sample;
 
@@ -501,11 +503,21 @@ pub const Eq3 = struct {
 
 pub const PolySynth = struct {
     sample_rate: f32,
+    /// Owns the three oscillators' wavetable data (`wt_a`/`wt_b`/`wt_c`) —
+    /// the one heap allocation PolySynth needs, everything else stays
+    /// embedded by value. See `deinit`/`dupe`.
+    allocator: std.mem.Allocator,
 
     // ── OSC ─────────────────────────────────────────────────────────────────
     waveform: Waveform = .saw,
     /// Pulse width for square wave (0.01–0.99).
     pulse_width: f32 = 0.5,
+    /// OSC A's `.wavetable` table data. Not part of `Patch` — same as
+    /// Sampler's audio clip, table content isn't preset data. No default:
+    /// only `init()` constructs a `PolySynth`, and it always sets this.
+    wt: Wavetable,
+    /// OSC A's frame-scan position, 0..1. This one IS a plain `Patch` param.
+    wt_pos: f32 = 0.0,
     /// Global pitch offset in cents. ±100 = ±1 semitone.
     detune_cents: f32 = 0.0,
     /// Unison oscillator count (1 = off, 2–8 = stacked).
@@ -534,6 +546,11 @@ pub const PolySynth = struct {
     osc_b_unison_mode:  UnisonMode = .spread,
     osc_b_warp_mode:    WarpMode   = .none,
     osc_b_warp_amount:  f32       = 0.0,
+    // zig fmt: on
+    /// OSC B's `.wavetable` table data — see `wt`'s doc comment.
+    osc_b_wt: Wavetable,
+    osc_b_wt_pos: f32 = 0.0,
+    // zig fmt: off
 
     // ── OSC C ────────────────────────────────────────────────────────────────
     /// Plain additive 3rd oscillator: no MOD A<->B or warp participation,
@@ -548,6 +565,12 @@ pub const PolySynth = struct {
     osc_c_unison:       u8       = 1,
     osc_c_unison_detune: f32     = 15.0,
     osc_c_unison_mode:  UnisonMode = .spread,
+    // zig fmt: on
+    /// OSC C's `.wavetable` table data — see `wt`'s doc comment. Its
+    /// position param stays outside the mod matrix, like the rest of OSC C.
+    osc_c_wt: Wavetable,
+    osc_c_wt_pos: f32 = 0.0,
+    // zig fmt: off
 
     // ── AMP ENVELOPE ────────────────────────────────────────────────────────
     attack_s:  f32 = 0.005,
@@ -1042,9 +1065,19 @@ pub const PolySynth = struct {
         noise_lp: f32 = 0.0,
     };
 
-    pub fn init(sample_rate: u32) PolySynth {
+    pub fn init(allocator: std.mem.Allocator, sample_rate: u32) !PolySynth {
+        var wt = try wavetable.silent(allocator);
+        errdefer wavetable.deinit(&wt, allocator);
+        var osc_b_wt = try wavetable.silent(allocator);
+        errdefer wavetable.deinit(&osc_b_wt, allocator);
+        var osc_c_wt = try wavetable.silent(allocator);
+        errdefer wavetable.deinit(&osc_c_wt, allocator);
         return .{
             .sample_rate = @floatFromInt(sample_rate),
+            .allocator = allocator,
+            .wt = wt,
+            .osc_b_wt = osc_b_wt,
+            .osc_c_wt = osc_c_wt,
             .fx_gate_state = Gate.init(sample_rate),
             .fx_comp_state = Compressor.init(sample_rate),
             .fx_mb_state = MultibandComp.init(sample_rate),
@@ -1053,6 +1086,25 @@ pub const PolySynth = struct {
             .fx_phaser_state = Phaser.init(sample_rate),
             .fx_reverb_state = Reverb.init(@floatFromInt(sample_rate)),
         };
+    }
+
+    pub fn deinit(self: *PolySynth) void {
+        wavetable.deinit(&self.wt, self.allocator);
+        wavetable.deinit(&self.osc_b_wt, self.allocator);
+        wavetable.deinit(&self.osc_c_wt, self.allocator);
+    }
+
+    /// Deep-copies the three owned wavetables; everything else (params,
+    /// voices) is plain data and copies fine by value. Same shape as
+    /// `Sampler.dupe`.
+    pub fn dupe(self: *const PolySynth) !PolySynth {
+        var copy = self.*;
+        copy.wt = try wavetable.dupe(self.wt, self.allocator);
+        errdefer wavetable.deinit(&copy.wt, self.allocator);
+        copy.osc_b_wt = try wavetable.dupe(self.osc_b_wt, self.allocator);
+        errdefer wavetable.deinit(&copy.osc_b_wt, self.allocator);
+        copy.osc_c_wt = try wavetable.dupe(self.osc_c_wt, self.allocator);
+        return copy;
     }
 
     pub fn device(self: *PolySynth) dsp.Device {
@@ -1085,6 +1137,7 @@ pub const PolySynth = struct {
         unison_mode: UnisonMode = .spread,
         warp_mode: WarpMode = .none,
         warp_amount: f32 = 0.0,
+        wt_pos: f32 = 0.0,
 
         osc_b_on: bool = false,
         osc_b_waveform: Waveform = .saw,
@@ -1097,6 +1150,7 @@ pub const PolySynth = struct {
         osc_b_unison_mode: UnisonMode = .spread,
         osc_b_warp_mode: WarpMode = .none,
         osc_b_warp_amount: f32 = 0.0,
+        osc_b_wt_pos: f32 = 0.0,
 
         osc_c_on: bool = false,
         osc_c_waveform: Waveform = .saw,
@@ -1107,6 +1161,7 @@ pub const PolySynth = struct {
         osc_c_unison: u8 = 1,
         osc_c_unison_detune: f32 = 15.0,
         osc_c_unison_mode: UnisonMode = .spread,
+        osc_c_wt_pos: f32 = 0.0,
 
         attack_s: f32 = 0.005,
         decay_s: f32 = 0.08,
@@ -3589,7 +3644,8 @@ test "A4 tuning" {
 }
 
 test "filter: high-Q sweep near Nyquist stays finite" {
-    var synth = PolySynth.init(48_000);
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
     synth.filter_cutoff = 22_000.0;
     synth.filter_res = 1.0;
     synth.noteOn(60, 1.0);
@@ -3608,7 +3664,8 @@ test "filter: high-Q sweep near Nyquist stays finite" {
 test "filter: all types stay finite under resonance" {
     const types_to_test = [_]FilterType{ .lp, .hp, .bp, .notch, .ladder, .diode, .comb, .formant };
     for (types_to_test) |ft| {
-        var synth = PolySynth.init(48_000);
+        var synth = try PolySynth.init(std.testing.allocator, 48_000);
+        defer synth.deinit();
         synth.filter_type = ft;
         synth.filter_cutoff = 1_000.0;
         synth.filter_res = 0.9;
@@ -3626,13 +3683,15 @@ test "filter: all types stay finite under resonance" {
 }
 
 test "filter: closed LP cutoff attenuates high-frequency content" {
-    var open = PolySynth.init(48_000);
+    var open = try PolySynth.init(std.testing.allocator, 48_000);
+    defer open.deinit();
     open.waveform = .saw;
     open.filter_cutoff = 18_000.0;
     open.filter_res = 0.0;
     open.noteOn(84, 1.0);
 
-    var closed = PolySynth.init(48_000);
+    var closed = try PolySynth.init(std.testing.allocator, 48_000);
+    defer closed.deinit();
     closed.waveform = .saw;
     closed.filter_cutoff = 200.0;
     closed.filter_res = 0.0;
@@ -3657,13 +3716,15 @@ test "filter: closed LP cutoff attenuates high-frequency content" {
 }
 
 test "ladder filter: closed cutoff attenuates like a lowpass" {
-    var open = PolySynth.init(48_000);
+    var open = try PolySynth.init(std.testing.allocator, 48_000);
+    defer open.deinit();
     open.waveform = .saw;
     open.filter_type = .ladder;
     open.filter_cutoff = 18_000.0;
     open.noteOn(84, 1.0);
 
-    var closed = PolySynth.init(48_000);
+    var closed = try PolySynth.init(std.testing.allocator, 48_000);
+    defer closed.deinit();
     closed.waveform = .saw;
     closed.filter_type = .ladder;
     closed.filter_cutoff = 200.0;
@@ -3688,13 +3749,15 @@ test "ladder filter: closed cutoff attenuates like a lowpass" {
 }
 
 test "diode ladder filter: closed cutoff attenuates like a lowpass" {
-    var open = PolySynth.init(48_000);
+    var open = try PolySynth.init(std.testing.allocator, 48_000);
+    defer open.deinit();
     open.waveform = .saw;
     open.filter_type = .diode;
     open.filter_cutoff = 18_000.0;
     open.noteOn(84, 1.0);
 
-    var closed = PolySynth.init(48_000);
+    var closed = try PolySynth.init(std.testing.allocator, 48_000);
+    defer closed.deinit();
     closed.waveform = .saw;
     closed.filter_type = .diode;
     closed.filter_cutoff = 200.0;
@@ -3722,14 +3785,16 @@ test "formant filter: vowel scan produces distinct spectral content" {
     // Low cutoff scans toward vowel "a" (F1=600), high cutoff toward "u"
     // (F1=350, F2=600) — different enough resonant peaks that RMS output
     // should differ meaningfully across the sweep, not just clamp flat.
-    var low = PolySynth.init(48_000);
+    var low = try PolySynth.init(std.testing.allocator, 48_000);
+    defer low.deinit();
     low.waveform = .saw;
     low.filter_type = .formant;
     low.filter_cutoff = 20.0;
     low.filter_res = 0.3;
     low.noteOn(48, 1.0);
 
-    var high = PolySynth.init(48_000);
+    var high = try PolySynth.init(std.testing.allocator, 48_000);
+    defer high.deinit();
     high.waveform = .saw;
     high.filter_type = .formant;
     high.filter_cutoff = 20_000.0;
@@ -3780,12 +3845,14 @@ test "comb filter: impulse echoes at the tuned delay" {
 test "filter envelope modulates cutoff via matrix row: positive depth brightens" {
     // Two identical synths; one routes fenv → cutoff through the matrix.
     // After initial attack the envelope-driven one should be louder (more HF content).
-    var base_synth = PolySynth.init(48_000);
+    var base_synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer base_synth.deinit();
     base_synth.waveform = .saw;
     base_synth.filter_cutoff = 500.0;
     base_synth.noteOn(60, 1.0);
 
-    var mod_synth = PolySynth.init(48_000);
+    var mod_synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer mod_synth.deinit();
     mod_synth.waveform = .saw;
     mod_synth.filter_cutoff = 500.0;
     // depth 0.75 = +3 octaves when env2 = 1 → 500 Hz * 8 = 4 kHz
@@ -3810,7 +3877,8 @@ test "filter envelope modulates cutoff via matrix row: positive depth brightens"
 }
 
 test "voice lifecycle: silence, sound, release back to silence" {
-    var synth = PolySynth.init(48_000);
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
     var buf: [512]Sample = undefined;
 
     @memset(&buf, 0.0);
@@ -3834,7 +3902,8 @@ test "voice lifecycle: silence, sound, release back to silence" {
 }
 
 test "polyphony allocates distinct voices" {
-    var synth = PolySynth.init(48_000);
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
     synth.noteOn(60, 1.0);
     synth.noteOn(64, 1.0);
     synth.noteOn(67, 1.0);
@@ -3846,12 +3915,14 @@ test "polyphony allocates distinct voices" {
 }
 
 test "pulse width: narrow pulse is quieter than 50% duty cycle" {
-    var wide = PolySynth.init(48_000);
+    var wide = try PolySynth.init(std.testing.allocator, 48_000);
+    defer wide.deinit();
     wide.waveform = .square;
     wide.pulse_width = 0.5;
     wide.noteOn(60, 1.0);
 
-    var narrow = PolySynth.init(48_000);
+    var narrow = try PolySynth.init(std.testing.allocator, 48_000);
+    defer narrow.deinit();
     narrow.waveform = .square;
     narrow.pulse_width = 0.1;
     narrow.noteOn(60, 1.0);
@@ -3870,13 +3941,15 @@ test "pulse width: narrow pulse is quieter than 50% duty cycle" {
 }
 
 test "unison mode: step and spread produce different detune patterns" {
-    var spread = PolySynth.init(48_000);
+    var spread = try PolySynth.init(std.testing.allocator, 48_000);
+    defer spread.deinit();
     spread.unison       = 4;
     spread.unison_detune = 50.0;
     spread.unison_mode  = .spread;
     spread.noteOn(60, 1.0);
 
-    var step = PolySynth.init(48_000);
+    var step = try PolySynth.init(std.testing.allocator, 48_000);
+    defer step.deinit();
     step.unison        = 4;
     step.unison_detune  = 50.0;
     step.unison_mode   = .step;
@@ -3910,7 +3983,8 @@ test "unison mode: harmonic and ratio curves hit exact series at detune=100" {
 }
 
 test "LFO: phase advances by rate×frames/sr each block" {
-    var synth = PolySynth.init(48_000);
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
     synth.lfo_rate_hz = 10.0;
     synth.noteOn(60, 1.0);
     var buf: [256]Sample = undefined;
@@ -3923,7 +3997,8 @@ test "LFO: phase advances by rate×frames/sr each block" {
 test "LFO tremolo via matrix: square trough at depth=1 silences the voice" {
     // LFO square at phase=0.75 → value = -1 (trough); a matrix row lfo→amp
     // at depth 1 makes amp_mod = clamp(1 + (-1), 0, 2) = 0.
-    var with_lfo = PolySynth.init(48_000);
+    var with_lfo = try PolySynth.init(std.testing.allocator, 48_000);
+    defer with_lfo.deinit();
     // zig fmt: off
     with_lfo.lfo_shape  = .square;
     with_lfo.lfo_rate_hz = 0.0; // frozen
@@ -3932,7 +4007,8 @@ test "LFO tremolo via matrix: square trough at depth=1 silences the voice" {
     with_lfo.mod_matrix[0] = .{ .source = .lfo, .dest = PolySynth.dest_amp, .depth = 1.0 };
     with_lfo.noteOn(60, 1.0);
 
-    var without_lfo = PolySynth.init(48_000);
+    var without_lfo = try PolySynth.init(std.testing.allocator, 48_000);
+    defer without_lfo.deinit();
     without_lfo.noteOn(60, 1.0);
 
     var buf_lfo: [256]Sample = undefined;
@@ -3950,11 +4026,13 @@ test "LFO tremolo via matrix: square trough at depth=1 silences the voice" {
 }
 
 test "mod matrix: velocity source scales its dest per voice" {
-    var with_vel = PolySynth.init(48_000);
+    var with_vel = try PolySynth.init(std.testing.allocator, 48_000);
+    defer with_vel.deinit();
     with_vel.mod_matrix[0] = .{ .source = .velocity, .dest = PolySynth.dest_amp, .depth = 1.0 };
     with_vel.noteOn(60, 1.0); // amp_mod = 1 + 1.0*1.0 = 2
 
-    var without = PolySynth.init(48_000);
+    var without = try PolySynth.init(std.testing.allocator, 48_000);
+    defer without.deinit();
     without.noteOn(60, 1.0);
 
     var buf_vel: [256]Sample = undefined;
@@ -3974,7 +4052,8 @@ test "mod matrix: velocity source scales its dest per voice" {
 }
 
 test "applyPatch: legacy fenv/lfo fields migrate to matrix rows" {
-    var s = PolySynth.init(48_000);
+    var s = try PolySynth.init(std.testing.allocator, 48_000);
+    defer s.deinit();
     s.applyPatch(.{ .fenv_amount = 2.0, .lfo_depth = 0.5, .lfo_target = .pitch });
     try std.testing.expectEqual(ModSource.fenv, s.mod_matrix[0].source);
     try std.testing.expectEqual(@as(u8, 21), s.mod_matrix[0].dest);
@@ -3992,11 +4071,13 @@ test "applyPatch: legacy fenv/lfo fields migrate to matrix rows" {
 }
 
 test "matrix param ids round-trip through paramValue/setParamAbsolute" {
-    var a = PolySynth.init(48_000);
+    var a = try PolySynth.init(std.testing.allocator, 48_000);
+    defer a.deinit();
     a.mod_matrix[2] = .{ .source = .wheel, .dest = 34, .depth = -0.4 };
     a.mod_matrix[7] = .{ .source = .keytrack, .dest = PolySynth.dest_pitch, .depth = 1.0 };
 
-    var b = PolySynth.init(48_000);
+    var b = try PolySynth.init(std.testing.allocator, 48_000);
+    defer b.deinit();
     var id: u8 = 59;
     while (id <= 82) : (id += 1) {
         if (a.paramValue(id)) |v| b.setParamAbsolute(id, v);
@@ -4010,7 +4091,8 @@ test "matrix param ids round-trip through paramValue/setParamAbsolute" {
 }
 
 test "adjustParam: matrix dest walks the dest table and wraps" {
-    var s = PolySynth.init(48_000);
+    var s = try PolySynth.init(std.testing.allocator, 48_000);
+    defer s.deinit();
     try std.testing.expectEqual(@as(u8, 21), s.mod_matrix[0].dest);
     s.adjustParam(60, -1); // one step back from cutoff
     const idx_cutoff = PolySynth.modDestIndex(21).?;
@@ -4020,7 +4102,8 @@ test "adjustParam: matrix dest walks the dest table and wraps" {
 }
 
 test "LFO 2 tremolo via matrix: square trough at depth=1 silences the voice" {
-    var s = PolySynth.init(48_000);
+    var s = try PolySynth.init(std.testing.allocator, 48_000);
+    defer s.deinit();
     // zig fmt: off
     s.lfo2_shape   = .square;
     s.lfo2_rate_hz = 0.0;  // frozen
@@ -4041,12 +4124,14 @@ test "LFO 2 tremolo via matrix: square trough at depth=1 silences the voice" {
 }
 
 test "macro source: mac1 at depth 1 to AMP doubles the voice gain" {
-    var with_mac = PolySynth.init(48_000);
+    var with_mac = try PolySynth.init(std.testing.allocator, 48_000);
+    defer with_mac.deinit();
     with_mac.macro1 = 1.0;
     with_mac.mod_matrix[0] = .{ .source = .mac1, .dest = PolySynth.dest_amp, .depth = 1.0 };
     with_mac.noteOn(60, 1.0);
 
-    var without = PolySynth.init(48_000);
+    var without = try PolySynth.init(std.testing.allocator, 48_000);
+    defer without.deinit();
     without.noteOn(60, 1.0);
 
     var buf_mac: [256]Sample = undefined;
@@ -4066,7 +4151,8 @@ test "macro source: mac1 at depth 1 to AMP doubles the voice gain" {
 }
 
 test "sample & hold: level redraws on phase wrap and holds between wraps" {
-    var s = PolySynth.init(48_000);
+    var s = try PolySynth.init(std.testing.allocator, 48_000);
+    defer s.deinit();
     s.lfo_shape = .sh;
     s.lfo_rate_hz = 20.0; // wraps every 2400 frames
     s.noteOn(60, 1.0);
@@ -4089,14 +4175,16 @@ test "sample & hold: level redraws on phase wrap and holds between wraps" {
 }
 
 test "LFO 2/3 + macro params round-trip through paramValue/setParamAbsolute and Patch" {
-    var a = PolySynth.init(48_000);
+    var a = try PolySynth.init(std.testing.allocator, 48_000);
+    defer a.deinit();
     // zig fmt: off
     a.lfo2_shape = .sh;  a.lfo2_rate_hz = 6.5;
     a.lfo3_shape = .saw; a.lfo3_rate_hz = 0.25;
     a.macro1 = 0.1; a.macro2 = 0.4; a.macro3 = 0.7; a.macro4 = 1.0;
     // zig fmt: on
 
-    var b = PolySynth.init(48_000);
+    var b = try PolySynth.init(std.testing.allocator, 48_000);
+    defer b.deinit();
     var id: u8 = 95;
     while (id <= 102) : (id += 1) {
         if (a.paramValue(id)) |v| b.setParamAbsolute(id, v);
@@ -4108,7 +4196,8 @@ test "LFO 2/3 + macro params round-trip through paramValue/setParamAbsolute and 
     try std.testing.expectApproxEqAbs(a.macro2, b.macro2, 1e-6);
     try std.testing.expectApproxEqAbs(a.macro4, b.macro4, 1e-6);
 
-    var c = PolySynth.init(48_000);
+    var c = try PolySynth.init(std.testing.allocator, 48_000);
+    defer c.deinit();
     c.applyPatch(a.toPatch());
     try std.testing.expectEqual(a.lfo2_shape, c.lfo2_shape);
     try std.testing.expectApproxEqAbs(a.lfo3_rate_hz, c.lfo3_rate_hz, 1e-6);
@@ -4116,7 +4205,8 @@ test "LFO 2/3 + macro params round-trip through paramValue/setParamAbsolute and 
 }
 
 test "polyphony: up to max_voices voices" {
-    var synth = PolySynth.init(48_000);
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
     for (0..PolySynth.max_voices) |i| synth.noteOn(@intCast(60 + i), 1.0);
     var active: usize = 0;
     // zig fmt: off
@@ -4125,7 +4215,8 @@ test "polyphony: up to max_voices voices" {
 }
 
 test "osc_budget: unison capped when many voices active" {
-    var synth = PolySynth.init(48_000);
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
     synth.unison = 16;
     // With 16 active voices, unison_cap = 32/16 = 2 per voice.
     for (0..16) |i| synth.noteOn(@intCast(48 + i), 1.0);
@@ -4138,7 +4229,8 @@ test "osc_budget: unison capped when many voices active" {
 }
 
 test "glide: pitch slides over time (log-linear)" {
-    var synth = PolySynth.init(48_000);
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
     synth.voice_mode = .mono;
     synth.glide_s    = 0.5; // half-second glide
     synth.noteOn(60, 1.0); // C4
@@ -4156,7 +4248,8 @@ test "glide: pitch slides over time (log-linear)" {
 }
 
 test "glide: snaps immediately when glide_s=0" {
-    var synth = PolySynth.init(48_000);
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
     synth.voice_mode = .mono;
     synth.glide_s    = 0.0;
     synth.noteOn(60, 1.0);
@@ -4169,7 +4262,8 @@ test "glide: snaps immediately when glide_s=0" {
 }
 
 test "mono mode: only one voice active" {
-    var synth = PolySynth.init(48_000);
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
     synth.voice_mode = .mono;
     synth.noteOn(60, 1.0);
     synth.noteOn(64, 1.0);
@@ -4183,7 +4277,8 @@ test "mono mode: only one voice active" {
 }
 
 test "mono mode: note-off retrieves last held note" {
-    var synth = PolySynth.init(48_000);
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
     synth.voice_mode = .mono;
     synth.noteOn(60, 1.0);
     synth.noteOn(64, 1.0);
@@ -4194,7 +4289,8 @@ test "mono mode: note-off retrieves last held note" {
 }
 
 test "legato mode: no envelope retrigger on second note" {
-    var synth = PolySynth.init(48_000);
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
     synth.voice_mode = .legato;
     synth.noteOn(60, 1.0);
     var buf: [512]Sample = undefined;
@@ -4213,7 +4309,8 @@ test "legato mode: no envelope retrigger on second note" {
 test "LFO: all shapes stay finite under filter modulation" {
     const shapes = [_]LfoShape{ .sine, .triangle, .saw, .square, .chaos };
     for (shapes) |shape| {
-        var synth = PolySynth.init(48_000);
+        var synth = try PolySynth.init(std.testing.allocator, 48_000);
+        defer synth.deinit();
         // zig fmt: off
         synth.lfo_shape   = shape;
         synth.lfo_rate_hz = 5.0;
@@ -4234,7 +4331,8 @@ test "LFO: all shapes stay finite under filter modulation" {
 }
 
 test "LFO: chaos shape evolves and stays bounded" {
-    var synth = PolySynth.init(48_000);
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
     synth.lfo_shape = .chaos;
     synth.lfo_rate_hz = 5.0;
     synth.noteOn(60, 1.0);
@@ -4254,7 +4352,8 @@ test "LFO: chaos shape evolves and stays bounded" {
 }
 
 test "applyCC: cutoff logarithmic scaling" {
-    var synth = PolySynth.init(48_000);
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
     synth.applyCC(@intFromEnum(midi.CC.filter_cutoff), 0);
     try std.testing.expectApproxEqAbs(@as(f32, 20.0), synth.filter_cutoff, 1.0);
     synth.applyCC(@intFromEnum(midi.CC.filter_cutoff), 127);
@@ -4262,7 +4361,8 @@ test "applyCC: cutoff logarithmic scaling" {
 }
 
 test "setParamAbsolute: sets filter cutoff directly and clamps out-of-range" {
-    var synth = PolySynth.init(48_000);
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
     synth.setParamAbsolute(21, 2_500.0);
     try std.testing.expectApproxEqAbs(@as(f32, 2_500.0), synth.filter_cutoff, 1e-3);
 
@@ -4278,7 +4378,8 @@ test "setParamAbsolute: sets filter cutoff directly and clamps out-of-range" {
 }
 
 test "applyCC: waveform steps" {
-    var synth = PolySynth.init(48_000);
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
     synth.applyCC(@intFromEnum(midi.CC.osc_a_waveform), 0);
     try std.testing.expectEqual(Waveform.sine, synth.waveform);
     synth.applyCC(@intFromEnum(midi.CC.osc_a_waveform), 32);
@@ -4288,7 +4389,8 @@ test "applyCC: waveform steps" {
 }
 
 test "applyPitchBend: range at ±2 semitones" {
-    var synth = PolySynth.init(48_000);
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
     synth.applyPitchBend(8191, 2.0);
     try std.testing.expect(synth.pitch_bend_semitones > 1.9);
     synth.applyPitchBend(-8192, 2.0);
@@ -4298,14 +4400,16 @@ test "applyPitchBend: range at ±2 semitones" {
 }
 
 test "paramValue/setParamAbsolute round-trip continuous, enum, and toggle params" {
-    var a = PolySynth.init(48_000);
+    var a = try PolySynth.init(std.testing.allocator, 48_000);
+    defer a.deinit();
     a.sustain = 0.37;
     a.filter_type = .bp;
     a.osc_b_on = true;
     a.mod_mode = .fm_a_to_b;
 
     // Every editor param id survives a value-copy through the pair.
-    var b = PolySynth.init(48_000);
+    var b = try PolySynth.init(std.testing.allocator, 48_000);
+    defer b.deinit();
     var id: u8 = 0;
     while (id <= 40) : (id += 1) {
         if (a.paramValue(id)) |v| b.setParamAbsolute(id, v);
@@ -4323,14 +4427,16 @@ test "paramValue/setParamAbsolute round-trip continuous, enum, and toggle params
 }
 
 test "FX param ids round-trip through paramValue/setParamAbsolute" {
-    var a = PolySynth.init(48_000);
+    var a = try PolySynth.init(std.testing.allocator, 48_000);
+    defer a.deinit();
     a.fx_dist_on = true;
     a.fx_dist_drive_db = 24.0;
     a.fx_crush_bits = 4.0;
     a.fx_flanger_on = true;
     a.fx_flanger_feedback = 0.8;
 
-    var b = PolySynth.init(48_000);
+    var b = try PolySynth.init(std.testing.allocator, 48_000);
+    defer b.deinit();
     var id: u8 = 83;
     while (id <= 94) : (id += 1) {
         if (a.paramValue(id)) |v| b.setParamAbsolute(id, v);
@@ -4344,8 +4450,10 @@ test "FX param ids round-trip through paramValue/setParamAbsolute" {
 }
 
 test "internal FX: flanger at mix 0 passes the synth output untouched" {
-    var a = PolySynth.init(48_000);
-    var b = PolySynth.init(48_000);
+    var a = try PolySynth.init(std.testing.allocator, 48_000);
+    defer a.deinit();
+    var b = try PolySynth.init(std.testing.allocator, 48_000);
+    defer b.deinit();
     b.fx_flanger_on = true;
     b.fx_flanger_mix = 0.0;
     b.fx_flanger_feedback = 0.0;
@@ -4364,8 +4472,10 @@ test "internal FX: flanger at mix 0 passes the synth output untouched" {
 }
 
 test "internal FX: distortion drives the synth output hotter" {
-    var a = PolySynth.init(48_000);
-    var b = PolySynth.init(48_000);
+    var a = try PolySynth.init(std.testing.allocator, 48_000);
+    defer a.deinit();
+    var b = try PolySynth.init(std.testing.allocator, 48_000);
+    defer b.deinit();
     b.fx_dist_on = true;
     b.fx_dist_drive_db = 30.0;
     a.noteOn(60, 0.6);
@@ -4393,8 +4503,10 @@ test "internal FX: matrix wheel row modulates dist mix globally" {
     // Base mix 1 with a wheel → dist-mix row at depth -1: wheel at 1 nulls
     // the mix, so the driven synth must match a clean one exactly. This
     // exercises the global (post-mix) matrix evaluation path end to end.
-    var clean = PolySynth.init(48_000);
-    var driven = PolySynth.init(48_000);
+    var clean = try PolySynth.init(std.testing.allocator, 48_000);
+    defer clean.deinit();
+    var driven = try PolySynth.init(std.testing.allocator, 48_000);
+    defer driven.deinit();
     driven.fx_dist_on = true;
     driven.fx_dist_drive_db = 30.0;
     driven.fx_dist_mix = 1.0;
@@ -4415,7 +4527,8 @@ test "internal FX: matrix wheel row modulates dist mix globally" {
 }
 
 test "internal FX: flanger stays finite at max feedback and depth" {
-    var synth = PolySynth.init(48_000);
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
     synth.fx_flanger_on = true;
     synth.fx_flanger_depth = 1.0;
     synth.fx_flanger_feedback = 0.95;
@@ -4432,14 +4545,16 @@ test "internal FX: flanger stays finite at max feedback and depth" {
 }
 
 test "FX phaser param ids round-trip through paramValue/setParamAbsolute" {
-    var a = PolySynth.init(48_000);
+    var a = try PolySynth.init(std.testing.allocator, 48_000);
+    defer a.deinit();
     a.fx_phaser_on = true;
     a.fx_phaser_rate_hz = 2.5;
     a.fx_phaser_depth = 0.6;
     a.fx_phaser_feedback = 0.7;
     a.fx_phaser_mix = 0.4;
 
-    var b = PolySynth.init(48_000);
+    var b = try PolySynth.init(std.testing.allocator, 48_000);
+    defer b.deinit();
     var id: u8 = 103;
     while (id <= 107) : (id += 1) {
         if (a.paramValue(id)) |v| b.setParamAbsolute(id, v);
@@ -4452,8 +4567,10 @@ test "FX phaser param ids round-trip through paramValue/setParamAbsolute" {
 }
 
 test "internal FX: phaser at mix 0 passes the synth output untouched" {
-    var a = PolySynth.init(48_000);
-    var b = PolySynth.init(48_000);
+    var a = try PolySynth.init(std.testing.allocator, 48_000);
+    defer a.deinit();
+    var b = try PolySynth.init(std.testing.allocator, 48_000);
+    defer b.deinit();
     b.fx_phaser_on = true;
     b.fx_phaser_mix = 0.0;
     b.fx_phaser_feedback = 0.0;
@@ -4472,7 +4589,8 @@ test "internal FX: phaser at mix 0 passes the synth output untouched" {
 }
 
 test "internal FX: phaser stays finite at max feedback and depth" {
-    var synth = PolySynth.init(48_000);
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
     synth.fx_phaser_on = true;
     synth.fx_phaser_depth = 1.0;
     synth.fx_phaser_feedback = 0.95;
@@ -4489,7 +4607,8 @@ test "internal FX: phaser stays finite at max feedback and depth" {
 }
 
 test "internal FX: phaser reset preserves the synth's sample rate" {
-    var synth = PolySynth.init(44_100);
+    var synth = try PolySynth.init(std.testing.allocator, 44_100);
+    defer synth.deinit();
     synth.fx_phaser_on = true;
     synth.noteOn(60, 1.0);
     var buf: [128]Sample = undefined;
@@ -4499,7 +4618,8 @@ test "internal FX: phaser reset preserves the synth's sample rate" {
 }
 
 test "FX delay/reverb param ids round-trip through paramValue/setParamAbsolute" {
-    var a = PolySynth.init(48_000);
+    var a = try PolySynth.init(std.testing.allocator, 48_000);
+    defer a.deinit();
     a.fx_delay_on = true;
     a.fx_delay_time_s = 0.4;
     a.fx_delay_feedback = 0.6;
@@ -4509,7 +4629,8 @@ test "FX delay/reverb param ids round-trip through paramValue/setParamAbsolute" 
     a.fx_reverb_damp = 0.2;
     a.fx_reverb_mix = 0.8;
 
-    var b = PolySynth.init(48_000);
+    var b = try PolySynth.init(std.testing.allocator, 48_000);
+    defer b.deinit();
     var id: u8 = 108;
     while (id <= 115) : (id += 1) {
         if (a.paramValue(id)) |v| b.setParamAbsolute(id, v);
@@ -4525,7 +4646,8 @@ test "FX delay/reverb param ids round-trip through paramValue/setParamAbsolute" 
 }
 
 test "internal FX: delay echoes at the set time with feedback decay" {
-    var synth = PolySynth.init(1000);
+    var synth = try PolySynth.init(std.testing.allocator, 1000);
+    defer synth.deinit();
     synth.fx_delay_on = true;
     synth.fx_delay_time_s = 0.1; // 100 frames at 1000 Hz
     synth.fx_delay_feedback = 0.5;
@@ -4542,8 +4664,10 @@ test "internal FX: delay echoes at the set time with feedback decay" {
 }
 
 test "internal FX: delay at mix 0 passes the synth output untouched" {
-    var a = PolySynth.init(48_000);
-    var b = PolySynth.init(48_000);
+    var a = try PolySynth.init(std.testing.allocator, 48_000);
+    defer a.deinit();
+    var b = try PolySynth.init(std.testing.allocator, 48_000);
+    defer b.deinit();
     b.fx_delay_on = true;
     b.fx_delay_mix = 0.0;
     a.noteOn(60, 1.0);
@@ -4561,8 +4685,10 @@ test "internal FX: delay at mix 0 passes the synth output untouched" {
 }
 
 test "internal FX: reverb at mix 0 passes the synth output untouched" {
-    var a = PolySynth.init(48_000);
-    var b = PolySynth.init(48_000);
+    var a = try PolySynth.init(std.testing.allocator, 48_000);
+    defer a.deinit();
+    var b = try PolySynth.init(std.testing.allocator, 48_000);
+    defer b.deinit();
     b.fx_reverb_on = true;
     b.fx_reverb_mix = 0.0;
     a.noteOn(60, 1.0);
@@ -4580,7 +4706,8 @@ test "internal FX: reverb at mix 0 passes the synth output untouched" {
 }
 
 test "internal FX: reverb produces a decaying tail and stays bounded" {
-    var synth = PolySynth.init(48_000);
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
     synth.fx_reverb_on = true;
     synth.fx_reverb_mix = 1.0;
     synth.fx_reverb_room = 0.84;
@@ -4602,7 +4729,8 @@ test "internal FX: reverb produces a decaying tail and stays bounded" {
 }
 
 test "internal FX: delay and reverb stay finite at max feedback/room" {
-    var synth = PolySynth.init(48_000);
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
     synth.fx_delay_on = true;
     synth.fx_delay_feedback = 0.95;
     synth.fx_delay_mix = 1.0;
@@ -4620,7 +4748,8 @@ test "internal FX: delay and reverb stay finite at max feedback/room" {
 }
 
 test "internal FX: reverb reset preserves the synth's sample-rate-derived line lengths" {
-    var synth = PolySynth.init(44_100);
+    var synth = try PolySynth.init(std.testing.allocator, 44_100);
+    defer synth.deinit();
     synth.fx_reverb_on = true;
     synth.noteOn(60, 1.0);
     var buf: [128]Sample = undefined;
@@ -4648,7 +4777,8 @@ fn arpFiredNote(synth: *PolySynth) u7 {
 }
 
 test "arp up mode ascends through held notes and wraps" {
-    var synth = PolySynth.init(48_000);
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
     synth.arp_on = true;
     synth.arp_mode = .up;
     arpSeedLatch(&synth, &.{ 60, 64, 67 });
@@ -4660,7 +4790,8 @@ test "arp up mode ascends through held notes and wraps" {
 }
 
 test "arp down mode descends through held notes and wraps" {
-    var synth = PolySynth.init(48_000);
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
     synth.arp_on = true;
     synth.arp_mode = .down;
     arpSeedLatch(&synth, &.{ 60, 64, 67 });
@@ -4672,7 +4803,8 @@ test "arp down mode descends through held notes and wraps" {
 }
 
 test "arp updown mode ping-pongs without repeating the endpoints" {
-    var synth = PolySynth.init(48_000);
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
     synth.arp_on = true;
     synth.arp_mode = .updown;
     arpSeedLatch(&synth, &.{ 60, 64, 67 });
@@ -4684,7 +4816,8 @@ test "arp updown mode ping-pongs without repeating the endpoints" {
 }
 
 test "arp played mode keeps press order instead of sorting by pitch" {
-    var synth = PolySynth.init(48_000);
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
     synth.arp_on = true;
     synth.arp_mode = .played;
     arpSeedLatch(&synth, &.{ 67, 60, 64 }); // pressed high-low-mid
@@ -4695,7 +4828,8 @@ test "arp played mode keeps press order instead of sorting by pitch" {
 }
 
 test "arp octave range expands the sequence, lowest octave first" {
-    var synth = PolySynth.init(48_000);
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
     synth.arp_on = true;
     synth.arp_mode = .up;
     synth.arp_octaves = 3;
@@ -4708,7 +4842,8 @@ test "arp octave range expands the sequence, lowest octave first" {
 }
 
 test "arp chord mode retriggers every held note together, ignoring octaves" {
-    var synth = PolySynth.init(48_000);
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
     synth.arp_on = true;
     synth.arp_mode = .chord;
     synth.arp_octaves = 2;
@@ -4729,7 +4864,8 @@ test "arp chord mode retriggers every held note together, ignoring octaves" {
 }
 
 test "arp gate closes the voice partway through a step" {
-    var synth = PolySynth.init(48_000);
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
     synth.arp_on = true;
     synth.arp_mode = .up;
     synth.arp_gate = 0.5;
@@ -4751,7 +4887,8 @@ test "arp gate closes the voice partway through a step" {
 }
 
 test "arp hold keeps cycling the last chord after every key releases" {
-    var synth = PolySynth.init(48_000);
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
     synth.arp_on = true;
     synth.arp_hold = true;
     synth.arp_mode = .up;
@@ -4763,7 +4900,8 @@ test "arp hold keeps cycling the last chord after every key releases" {
 }
 
 test "arp without hold releases and clears the latch once all keys are up" {
-    var synth = PolySynth.init(48_000);
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
     synth.arp_on = true;
     synth.arp_mode = .up;
     synth.noteOn(60, 1.0);
@@ -4775,7 +4913,8 @@ test "arp without hold releases and clears the latch once all keys are up" {
 }
 
 test "toggling arp off mid-note releases the stuck voice" {
-    var synth = PolySynth.init(48_000);
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
     synth.arp_on = true;
     synth.arp_rate_hz = 0.0; // no steps/gate activity during the setup block
     synth.noteOn(60, 1.0);
