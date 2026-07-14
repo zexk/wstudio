@@ -261,6 +261,8 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("s",            "FX chain for this track");
     t.key("f",            "preset picker — factory + saved patches, / filters by name/tag/author, d deletes a save");
     t.key(":synth-preset-save", "<name>  save the current params as a reusable preset");
+    t.push(dim ++ "  ARP and ENV 3 sections sit after MACRO in the main subview (j/k reaches them).", .{});
+    t.push(dim ++ "  the FX subview reuses the FX-chain a/x/</> keys documented under FX CHAIN below.", .{});
     t.push(dim ++ "  MATRIX rows route a mod source (lfo 1-3/envs/velocity/keytrack/wheel/macros)", .{});
     t.push(dim ++ "  to any automatable param plus PITCH and AMP; depth is bipolar, same-dest", .{});
     t.push(dim ++ "  rows sum. MACRO knobs only act through matrix rows (mc1-mc4).", .{});
@@ -341,7 +343,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
 
     t.taggedSection(.spectrum, "FX CHAIN  (same chain view for a track, the master bus, or a group)");
     t.key("",             "chains start empty; build them unit by unit, in any order, duplicates allowed");
-    t.key("a",            "insert an effect after the focused slot (opens the FX picker)");
+    t.key("a",            "insert an effect after the focused slot (opens the FX picker); / filters it by name, g/G jumps first/last");
     t.key("x",            "remove the focused unit");
     t.key("< / >",        "move the focused unit one slot left / right along the chain");
     t.key("b",            "bypass toggle: the unit keeps its settings but the audio skips it");
