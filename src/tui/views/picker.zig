@@ -13,6 +13,8 @@ const pattern_mod = ws.dsp.pattern;
 const midi = ws.midi;
 const style = @import("../style.zig");
 const icons = @import("../icons.zig");
+const synth_ed = @import("../editors/synth.zig");
+const spectrum_ed = @import("../editors/spectrum.zig");
 
 // Aliases so the moved render bodies reference the shared palette/primitives
 // by their original bare names.
@@ -144,3 +146,36 @@ pub fn drawFxPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void {
 }
 
 // zig fmt: on
+
+/// The synth-internal FX chain's insert picker — same shape as
+/// `drawFxPicker`, just over `synth_ed.synthFxPickerKinds` (the currently-
+/// off units) instead of the track chain's fixed `fx_picker_menu`, and
+/// without the description column (the user already has each unit's full
+/// param section on screen once inserted).
+pub fn drawSynthFxPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void {
+    const name = if (app.synth_track < app.session.project.tracks.items.len)
+        app.session.project.tracks.items[app.synth_track].name
+    else
+        "?";
+
+    try w.writeAll(bold ++ " INSERT FX UNIT" ++ rst);
+    try w.writeAll(acc);
+    try w.print("  \"{s}\"", .{name});
+    try w.writeAll(rst);
+    try endLine(w);
+    try endLine(w);
+
+    var buf: [13]ws.dsp.synth.FxUnitKind = undefined;
+    const kinds = synth_ed.synthFxPickerKinds(app, &buf);
+    for (kinds, 0..) |kind, i| {
+        const is_sel = (i == app.synth_fx_picker_cursor);
+        if (is_sel) try w.writeAll(sel);
+        try w.writeAll(if (is_sel) "  > " else "    ");
+        try w.print("{s}", .{spectrum_ed.unitLabel(synth_ed.asFxKind(kind))});
+        try w.writeAll(rst);
+        try endLine(w);
+    }
+
+    const used = 2 + kinds.len;
+    for (used..@max(used, rows -| 4)) |_| try endLine(w);
+}

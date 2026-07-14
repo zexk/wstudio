@@ -61,7 +61,7 @@ const autosave_interval_ns: i96 = 30 * std.time.ns_per_s;
 /// a pathless session's autosave backs up next to (see `App.backupPath`).
 pub const default_project_path = "project.wsj";
 
-pub const AppView = enum { tracks, drum_grid, synth_editor, sampler_editor, help, track_spectrum, master_spectrum, group_spectrum, piano_roll, instrument_picker, fx_picker, arrangement, file_browser, automation, automation_param_picker, slicer_grid, preset_picker };
+pub const AppView = enum { tracks, drum_grid, synth_editor, sampler_editor, help, track_spectrum, master_spectrum, group_spectrum, piano_roll, instrument_picker, fx_picker, synth_fx_picker, arrangement, file_browser, automation, automation_param_picker, slicer_grid, preset_picker };
 
 /// One tracks-view display row: a real track, or a group's own row (its
 /// header when unfolded, the whole group when folded). The pinned master row
@@ -301,6 +301,10 @@ pub const App = struct {
     /// Chain view the FX picker returns to (track_spectrum/master_spectrum/
     /// group_spectrum).
     fx_picker_return: AppView = .tracks,
+    /// Highlighted row in the synth-internal FX insert picker (`.fx`
+    /// subview's `a`) — always returns to `.synth_editor`, so no return-view
+    /// field needed like `fx_picker_return`'s.
+    synth_fx_picker_cursor: u8 = 0,
     eq_track: u16 = 0,
     /// Which group's FX chain is in view when `view == .group_spectrum` —
     /// parallel to `eq_track`.
@@ -783,6 +787,7 @@ pub const App = struct {
             } else { self.modal.count = 0; },
             .instrument_picker => self.handlePickerKey(key),
             .fx_picker => self.handleFxPickerKey(key),
+            .synth_fx_picker => self.handleSynthFxPickerKey(key),
             .file_browser => if (self.modal.mode == .search) {
                 self.applyAction(self.modal.handle(key), now_ns);
             } else self.handleBrowserKey(key),
@@ -964,6 +969,7 @@ pub const App = struct {
             .arrangement => arrangement_ed.handleMouse(self, ev, row, cols),
             .instrument_picker => self.pickerMouse(ev, row),
             .fx_picker => self.fxPickerMouse(ev, row),
+            .synth_fx_picker => self.synthFxPickerMouse(ev, row),
             .file_browser => self.browserMouse(ev, row),
             .help => self.helpMouse(ev),
             .automation => automation_ed.handleMouse(self, ev, row),
@@ -1462,6 +1468,45 @@ pub const App = struct {
             },
             .scroll_up => { if (self.fx_picker_cursor > 0) self.fx_picker_cursor -= 1; },
             .scroll_down => { if (self.fx_picker_cursor + 1 < spectrum_ed.picker_kinds.len) self.fx_picker_cursor += 1; },
+            else => {},
+        }
+    }
+
+    /// Synth-internal FX picker: j/k move, enter/space insert the
+    /// highlighted unit, esc cancels back to the `.fx` subview. Opened by
+    /// `a` there (see editors/synth.zig's openFxPicker). The list is the
+    /// currently-off units, so — unlike the track chain's fixed
+    /// `picker_kinds` — it's recomputed (and re-bounded) on every call.
+    fn handleSynthFxPickerKey(self: *App, key: modal_mod.Key) void {
+        var buf: [13]ws.dsp.synth.FxUnitKind = undefined;
+        const kinds = synth_ed.synthFxPickerKinds(self, &buf);
+        switch (key) {
+            .escape => synth_ed.cancelSynthFxPicker(self),
+            .enter => if (self.synth_fx_picker_cursor < kinds.len) synth_ed.insertFromSynthFxPicker(self, kinds[self.synth_fx_picker_cursor]),
+            .char => |c| switch (c) {
+                'k' => { if (self.synth_fx_picker_cursor > 0) self.synth_fx_picker_cursor -= 1; },
+                'j' => { if (self.synth_fx_picker_cursor + 1 < kinds.len) self.synth_fx_picker_cursor += 1; },
+                ' ' => if (self.synth_fx_picker_cursor < kinds.len) synth_ed.insertFromSynthFxPicker(self, kinds[self.synth_fx_picker_cursor]),
+                'q' => synth_ed.cancelSynthFxPicker(self),
+                else => {},
+            },
+            else => {},
+        }
+    }
+
+    /// Synth-internal FX picker: click a row to select + insert it (same as
+    /// enter/space); scroll moves the highlight. Mirrors `fxPickerMouse`.
+    fn synthFxPickerMouse(self: *App, ev: modal_mod.MouseEvent, row: usize) void {
+        var buf: [13]ws.dsp.synth.FxUnitKind = undefined;
+        const kinds = synth_ed.synthFxPickerKinds(self, &buf);
+        switch (ev.kind) {
+            .press => {
+                if (row < 2 or row - 2 >= kinds.len) return;
+                self.synth_fx_picker_cursor = @intCast(row - 2);
+                synth_ed.insertFromSynthFxPicker(self, kinds[self.synth_fx_picker_cursor]);
+            },
+            .scroll_up => { if (self.synth_fx_picker_cursor > 0) self.synth_fx_picker_cursor -= 1; },
+            .scroll_down => { if (self.synth_fx_picker_cursor + 1 < kinds.len) self.synth_fx_picker_cursor += 1; },
             else => {},
         }
     }
@@ -2613,7 +2658,7 @@ pub const App = struct {
 
         // zig fmt: off
         switch (self.view) {
-            .synth_editor => if (!kindIs(racks, self.synth_track, .poly_synth)) { self.view = .tracks; },
+            .synth_editor, .synth_fx_picker => if (!kindIs(racks, self.synth_track, .poly_synth)) { self.view = .tracks; },
             .drum_grid => if (!kindIs(racks, self.drum_track, .drum_machine)) { self.view = .tracks; },
             .slicer_grid => if (!kindIs(racks, self.slicer_track, .slicer)) { self.view = .tracks; },
             .sampler_editor => {
@@ -2917,6 +2962,7 @@ pub const App = struct {
                 try tui.drawFxView(self, w, content_rows, size.cols, snap, spectrum_ed.currentTarget(self)),
             .instrument_picker => try tui.drawInstrumentPicker(self, w, content_rows),
             .fx_picker       => try tui.drawFxPicker(self, w, content_rows),
+            .synth_fx_picker => try tui.drawSynthFxPicker(self, w, content_rows),
             .arrangement     => try tui.drawArrangement(self, w, content_rows, size.cols, snap),
             .file_browser    => try tui.drawFileBrowser(self, w, content_rows),
             .automation      => try tui.drawAutomation(self, w, content_rows, size.cols, snap),
@@ -3038,6 +3084,7 @@ pub const App = struct {
                 try tui.drawFxStatus(self, &status_w, &status_right_w, spectrum_ed.currentTarget(self)),
             .instrument_picker => try status_w.writeAll(" j/k: move   enter: insert   esc: cancel"),
             .fx_picker       => try status_w.writeAll(" j/k: move   enter: insert   esc: cancel"),
+            .synth_fx_picker => try status_w.writeAll(" j/k: move   enter: insert   esc: cancel"),
             .arrangement     => try tui.drawArrangementStatus(self, &status_w, &status_right_w),
             .file_browser    => try tui.drawFileBrowserStatus(self, &status_w, &status_right_w),
             .automation      => try tui.drawAutomationStatus(self, &status_w, &status_right_w),

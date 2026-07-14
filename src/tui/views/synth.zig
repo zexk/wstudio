@@ -174,6 +174,15 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize
     } else {
         // Single full-width list — "main" on a narrow terminal (OSC A/B
         // inline like every other section), or "fx"/"matrix" always.
+        // The FX strip is a fixed row above the scrolled section list (like
+        // the title above it), not part of `tw`/`scroll` — mirrors the
+        // track/master chain's own strip, which likewise sits outside its
+        // focused unit's scrollable body. editors/synth.zig's `paramRow`/
+        // `handleMouse` account for this same +1 row offset.
+        if (subview == .fx and written < max_rows) {
+            try drawFxStrip(app, w, c, cols);
+            written += 1;
+        }
         var tmp: [16 * 1024]u8 = undefined;
         var tw = std.Io.Writer.fixed(&tmp);
         switch (subview) {
@@ -213,6 +222,34 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize
         }
     }
     while (written < max_rows) : (written += 1) try endLine(w);
+}
+
+/// The `.fx` subview's chain strip: `IN▶` + each on unit's short label in
+/// `fx_order` sequence + a `+` insert affordance + `▶OUT`, all read from
+/// `synth_ed.stripLayout` — the single source of truth this and
+/// `editors/synth.zig`'s click handler (`stripSlotAt`) both use, so a click
+/// can never land somewhere this didn't draw. The focused unit's label is
+/// bold/white; others green. Mirrors the track/master chain's own strip
+/// closely enough to feel like the same control, minus the multi-row box
+/// border — this one stays a single fixed row above the scrolled section
+/// list (see drawSynthEditor's call site).
+fn drawFxStrip(app: anytype, w: *std.Io.Writer, c: u8, cols: usize) !void {
+    var buf: [14]synth_ed.StripSlot = undefined;
+    const slots = synth_ed.stripLayout(app, cols, &buf);
+    const focused = synth_ed.fxKindOfId(c);
+    try w.writeAll(dim ++ synth_ed.strip_prefix ++ rst);
+    for (slots, 0..) |slot, i| {
+        if (i > 0) try w.writeAll(dim ++ "\u{25B6}" ++ rst);
+        if (slot.kind == null) {
+            try w.writeAll(dim ++ rst);
+        } else {
+            try w.writeAll(if (slot.kind == focused) bwht ++ bold else grn);
+        }
+        try w.writeAll(slot.label);
+        try w.writeAll(rst);
+    }
+    try w.writeAll(dim ++ synth_ed.strip_suffix ++ rst);
+    try endLine(w);
 }
 
 // The section renderers below emit one header row + one row per param each.

@@ -102,11 +102,96 @@ fn fxAwareLastId(app: *App) u8 {
 /// `fxFirstId`/`fxIdCount`, used by `<`/`>` to figure out which section the
 /// cursor is currently sitting in (order-independent: every kind's id range
 /// is fixed regardless of where it sits in `fx_order`).
-fn fxKindOfId(id: u8) ?FxUnitKind {
+pub fn fxKindOfId(id: u8) ?FxUnitKind {
     inline for (@typeInfo(FxUnitKind).@"enum".fields) |f| {
         const k: FxUnitKind = @enumFromInt(f.value);
         const first = fxFirstId(k);
         if (id >= first and id < first + fxIdCount(k)) return k;
+    }
+    return null;
+}
+
+/// Maps this synth-internal kind onto the track chain's equivalent so the
+/// `.fx` subview's strip/picker can reuse editors/spectrum.zig's label
+/// tables (`unitLabel`/`stripLabel`) instead of duplicating them — the two
+/// enums share every variant except naming (`dist` here is `sat` there).
+pub fn asFxKind(kind: FxUnitKind) ws.FxKind {
+    return switch (kind) {
+        // zig fmt: off
+        .gate => .gate, .comp => .comp, .mb_comp => .mb_comp, .ott => .ott, .eq => .eq,
+        .dist => .sat, .crush => .crush, .chorus => .chorus, .flanger => .flanger,
+        .phaser => .phaser, .freq_shift => .freq_shift, .delay => .delay, .reverb => .reverb,
+        // zig fmt: on
+    };
+}
+
+/// Whether `kind`'s unit is currently in the audible chain — its `fx_*_on`
+/// field, the same one `views/synth.zig`'s section renderers already read
+/// directly for dimming. The `.fx` subview's strip only lists units this
+/// returns true for; picker-insert flips it true, `x` flips it false — no
+/// other state changes either way, so nothing is lost toggling repeatedly.
+fn fxOn(synth: anytype, kind: FxUnitKind) bool {
+    return switch (kind) {
+        // zig fmt: off
+        .gate => synth.fx_gate_on, .comp => synth.fx_comp_on, .mb_comp => synth.fx_mb_on,
+        .ott => synth.fx_ott_on, .eq => synth.fx_eq_on, .dist => synth.fx_dist_on,
+        .crush => synth.fx_crush_on, .chorus => synth.fx_chorus_on, .flanger => synth.fx_flanger_on,
+        .phaser => synth.fx_phaser_on, .freq_shift => synth.fx_freq_shift_on,
+        .delay => synth.fx_delay_on, .reverb => synth.fx_reverb_on,
+        // zig fmt: on
+    };
+}
+
+/// One `.fx`-subview strip slot: a labeled unit (`kind` set, `label` its
+/// short strip name) or the trailing insert affordance (`kind` null,
+/// `label` "+"). `col`/`width` are the strip row's character span, shared
+/// verbatim by the renderer (which writes exactly these slots in order,
+/// carrying the label itself so views/synth.zig needs no label lookup of
+/// its own) and `stripSlotAt` below, so a click can never land somewhere
+/// the drawing didn't.
+pub const StripSlot = struct { kind: ?FxUnitKind, label: []const u8, col: usize, width: usize };
+
+/// Fixed prefix/suffix around the strip's slot list — see `StripSlot`.
+pub const strip_prefix = "IN\u{25B6}";
+pub const strip_suffix = "\u{25B6}OUT";
+
+/// Lays out the `.fx` subview's strip: every on unit in `fx_order`
+/// sequence, then a trailing `+` while any unit is still off, clipped to
+/// `max_cols`. Returns a slice into `buf` (sized for the worst case: 13
+/// units + the `+`).
+pub fn stripLayout(app: *App, max_cols: usize, buf: *[14]StripSlot) []const StripSlot {
+    if (app.synth_track >= app.session.racks.items.len) return &.{};
+    const rack = app.session.racks.items[app.synth_track];
+    const synth = switch (rack.instrument) {
+        .poly_synth => |*s| s,
+        else => return &.{},
+    };
+    var n: usize = 0;
+    var col: usize = strip_prefix.len;
+    var any_off = false;
+    for (synth.fx_order) |kind| {
+        if (!fxOn(synth, kind)) {
+            any_off = true;
+            continue;
+        }
+        const label = spectrum.stripLabel(asFxKind(kind));
+        if (col + label.len + strip_suffix.len > max_cols) break;
+        buf[n] = .{ .kind = kind, .label = label, .col = col, .width = label.len };
+        n += 1;
+        col += label.len + 1; // trailing arrow
+    }
+    if (any_off and col + 3 + strip_suffix.len <= max_cols) {
+        buf[n] = .{ .kind = null, .label = " + ", .col = col, .width = 3 };
+        n += 1;
+    }
+    return buf[0..n];
+}
+
+/// Which strip slot (if any) column `x` on the strip row lands in.
+fn stripSlotAt(app: *App, max_cols: usize, x: usize) ?StripSlot {
+    var buf: [14]StripSlot = undefined;
+    for (stripLayout(app, max_cols, &buf)) |slot| {
+        if (x >= slot.col and x < slot.col + slot.width) return slot;
     }
     return null;
 }
@@ -128,10 +213,12 @@ fn reorderIdFor(kind: FxUnitKind) u16 {
 /// currently sits in one slot toward `dir` in `fx_order`. Mirrors the
 /// master FX chain editor's own `<`/`>` (`moveFocused` in
 /// editors/spectrum.zig) closely enough to feel like the same control, but
-/// swaps this fixed unit's slot instead of an ArrayList index — no insert/
-/// remove here, so no `x`/`a` counterparts. Routed through the same
-/// (id, steps) command + undo plumbing every other param nudge uses (see
-/// `adjustParam` ids 126-131), not a bespoke message.
+/// swaps this fixed unit's slot instead of an ArrayList index. Routed
+/// through the same (id, steps) command + undo plumbing every other param
+/// nudge uses (see `adjustParam` ids 126-131), not a bespoke message — the
+/// `x`/`a` insert/remove pair below (`removeFocusedFx`/
+/// `insertFromSynthFxPicker`) rides the same plumbing, just on each unit's
+/// on/off id instead of its reorder id.
 fn reorderSelectedFx(app: *App, dir: i32) void {
     if (app.synth_subview != .fx) return;
     if (app.synth_track >= app.session.racks.items.len) return;
@@ -150,6 +237,92 @@ fn reorderSelectedFx(app: *App, dir: i32) void {
         .steps = dir,
     } });
     updateScroll(app);
+}
+
+/// Sends one nudge on `id` (flips a bool field the same way `l` nudging
+/// that row by hand would) through the exact command-queue + undo pair
+/// `reorderSelectedFx`/`adjustParam` already use, then flushes it
+/// immediately — unlike a held `h`/`l` run, insert and remove are each a
+/// single discrete action, not a batch to coalesce. Without the immediate
+/// flush, an insert followed straight by a remove on the same id (no
+/// cursor move in between to flush the first one) would coalesce into one
+/// pending nudge whose captured before-value predates the insert — one
+/// `u` would then silently undo both at once instead of stepping back
+/// through them individually.
+fn sendFxToggle(app: *App, id: u8) void {
+    app.dirty = true;
+    history.noteParamNudge(app, app.synth_track, id, 1);
+    history.flushParamNudge(app);
+    _ = app.session.engine.send(.{ .set_track_param = .{
+        .track = app.synth_track,
+        .id = id,
+        .steps = 1,
+    } });
+}
+
+/// Off units in `fx_order` sequence — the `.fx` subview's insert-picker
+/// list. Shared by the picker's render and its key/mouse handlers so they
+/// can't disagree about what row N means.
+pub fn synthFxPickerKinds(app: *App, buf: *[13]FxUnitKind) []const FxUnitKind {
+    if (app.synth_track >= app.session.racks.items.len) return &.{};
+    const rack = app.session.racks.items[app.synth_track];
+    const synth = switch (rack.instrument) {
+        .poly_synth => |*s| s,
+        else => return &.{},
+    };
+    var n: usize = 0;
+    for (synth.fx_order) |kind| {
+        if (!fxOn(synth, kind)) {
+            buf[n] = kind;
+            n += 1;
+        }
+    }
+    return buf[0..n];
+}
+
+/// `a` in the `.fx` subview: opens the insert picker, unless every unit is
+/// already on.
+pub fn openFxPicker(app: *App) void {
+    if (app.synth_subview != .fx) return;
+    var buf: [13]FxUnitKind = undefined;
+    if (synthFxPickerKinds(app, &buf).len == 0) {
+        app.setStatus("all FX units already in chain", .{});
+        return;
+    }
+    app.synth_fx_picker_cursor = 0;
+    app.view = .synth_fx_picker;
+}
+
+/// Picker accepted: flips `kind`'s on id true, focuses its section, and
+/// returns to the `.fx` subview.
+pub fn insertFromSynthFxPicker(app: *App, kind: FxUnitKind) void {
+    app.view = .synth_editor;
+    sendFxToggle(app, fxFirstId(kind));
+    app.synth_cursor = fxFirstId(kind);
+    updateScroll(app);
+    app.setStatus("{s} inserted", .{spectrum.unitLabel(asFxKind(kind))});
+}
+
+/// Picker dismissed: back to the `.fx` subview, nothing inserted.
+pub fn cancelSynthFxPicker(app: *App) void {
+    app.view = .synth_editor;
+}
+
+/// `x` in the `.fx` subview: turns off whichever unit's section the cursor
+/// sits in. A no-op if the unit is already off (unlike a bare `l` nudge on
+/// its own id, which would turn it back on).
+fn removeFocusedFx(app: *App) void {
+    if (app.synth_subview != .fx) return;
+    if (app.synth_track >= app.session.racks.items.len) return;
+    const rack = app.session.racks.items[app.synth_track];
+    const synth = switch (rack.instrument) {
+        .poly_synth => |*s| s,
+        else => return,
+    };
+    const kind = fxKindOfId(app.synth_cursor) orelse return;
+    if (!fxOn(synth, kind)) return;
+    sendFxToggle(app, fxFirstId(kind));
+    app.setStatus("{s} removed", .{spectrum.unitLabel(asFxKind(kind))});
 }
 
 /// `}`/`{` in the FX subview: moves the cursor to the next/previous
@@ -278,6 +451,10 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             // Reorders the FX chain — see reorderSelectedFx. No-op outside .fx.
             '<' => { reorderSelectedFx(app, -1); return true; },
             '>' => { reorderSelectedFx(app, 1); return true; },
+            // Insert/remove for the FX chain strip — see openFxPicker /
+            // removeFocusedFx. No-op outside .fx.
+            'a' => { openFxPicker(app); return true; },
+            'x' => { removeFocusedFx(app); return true; },
             '}', '{' => {
                 history.flushParamNudge(app);
                 if (app.synth_subview == .fx) {
@@ -542,17 +719,32 @@ fn paramAtRow(app: *App, row: usize, x: usize, cols: u16) ?u8 {
 
 /// Click a param row to select it. Scroll over a param row nudges it via
 /// the existing `adjustParam` (same step `h`/`l` use); **ctrl**+scroll is
-/// the coarse step (matches `H`/`L`).
+/// the coarse step (matches `H`/`L`). In the `.fx` subview, row 1 is the
+/// fixed chain strip (not part of the scrolled body — see views/synth.zig's
+/// drawSynthEditor) — a click there focuses the clicked unit or opens the
+/// insert picker; body rows below it are offset by one to compensate.
 pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16) void {
+    if (app.synth_subview == .fx and row == 1) {
+        if (ev.kind == .press) {
+            const slot = stripSlotAt(app, cols, ev.x) orelse return;
+            history.flushParamNudge(app);
+            if (slot.kind) |k| {
+                app.synth_cursor = fxFirstId(k);
+                updateScroll(app);
+            } else openFxPicker(app);
+        }
+        return;
+    }
+    const body_row = if (app.synth_subview == .fx and row >= 2) row - 1 else row;
     switch (ev.kind) {
         .press => {
-            const p = paramAtRow(app, row, ev.x, cols) orelse return;
+            const p = paramAtRow(app, body_row, ev.x, cols) orelse return;
             history.flushParamNudge(app);
             app.synth_cursor = p;
             updateScroll(app);
         },
         .scroll_up, .scroll_down => {
-            const p = paramAtRow(app, row, ev.x, cols) orelse return;
+            const p = paramAtRow(app, body_row, ev.x, cols) orelse return;
             app.synth_cursor = p;
             updateScroll(app);
             const dir: i32 = if (ev.kind == .scroll_up) 1 else -1;

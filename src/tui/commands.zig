@@ -285,7 +285,7 @@ pub fn cmdHelp(app: *App, _: []const u8) void {
         .drum_grid => .drum_grid,
         .slicer_grid => .slicer_grid,
         .sampler_editor => .sampler_editor,
-        .synth_editor => .synth_editor,
+        .synth_editor, .synth_fx_picker => .synth_editor,
         .piano_roll => .piano_roll,
         .arrangement => .arrangement,
         .automation, .automation_param_picker => .automation,
