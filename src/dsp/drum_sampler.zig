@@ -131,7 +131,7 @@ pub const DrumMachine = struct {
 
     /// One pad's per-block isolated-capture request — see `Event.
     /// capture_pad`'s doc comment. `buf`'s lifetime is exactly one block:
-    /// stashed here by `eventOpaque`, consumed and cleared by the very next
+    /// stashed here by `handleEvent`, consumed and cleared by the very next
     /// `processBlock` call.
     const PadCapture = struct { pad: u8, buf: []Sample };
     /// Id-space stride per pad. `set_param` ids are `pad << 4 | param`, so the
@@ -203,7 +203,7 @@ pub const DrumMachine = struct {
     /// Current step index, published by the audio thread for UI display.
     current_step: std.atomic.Value(u8),
     /// This block's registered pad-capture requests (see `PadCapture`) —
-    /// audio-thread-only, filled by `eventOpaque` right before `process()`
+    /// audio-thread-only, filled by `handleEvent` right before `process()`
     /// runs and cleared at the end of the same `processBlock` call.
     pad_captures: [max_pad_captures]?PadCapture = [_]?PadCapture{null} ** max_pad_captures,
 
