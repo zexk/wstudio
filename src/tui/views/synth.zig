@@ -188,6 +188,7 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize
                     .comp => try secFxComp(&tw, synth, c),
                     .mb_comp => try secFxMb(&tw, synth, c),
                     .ott => try secFxOtt(&tw, synth, c),
+                    .eq => try secFxEq(&tw, synth, c),
                     .dist => try secFxDist(&tw, synth, c),
                     .crush => try secFxCrush(&tw, synth, c),
                     .flanger => try secFxFlanger(&tw, synth, c),
@@ -672,6 +673,13 @@ fn secMatrix(w: *std.Io.Writer, synth: anytype, c: u8) !void {
 
 const on_off_names = [_][]const u8{ "on", "off" };
 
+/// Log-normalized 0..1 bar fill for a 20Hz-20kHz frequency param — same
+/// formula `secFilter`'s cutoff bar already uses (a linear fill would cram
+/// almost the whole audible range into the bar's first few percent).
+fn freqBarVal(hz: f32) f32 {
+    return std.math.log2(hz / 20.0) / std.math.log2(20_000.0 / 20.0);
+}
+
 /// Internal FX sections: post-mix, user-reorderable inside the synth
 /// itself, distinct from the track FX chain — these params are matrix and
 /// automation targets (see PolySynth's FX field block).
@@ -760,6 +768,28 @@ fn secFxOtt(w: *std.Io.Writer, synth: anytype, c: u8) !void {
         try std.fmt.bufPrint(&buf, "{d:.1} dB", .{synth.fx_ott_gain_in_db}));
     try barRow(w, c == 165, !on, red, "gain out", synth.fx_ott_gain_out_db + 24.0, 48.0,
         try std.fmt.bufPrint(&buf, "{d:.1} dB", .{synth.fx_ott_gain_out_db}));
+}
+
+fn secFxEq(w: *std.Io.Writer, synth: anytype, c: u8) !void {
+    var buf: [40]u8 = undefined;
+    try synthSection(w, "FX EQ", red);
+
+    const on = synth.fx_eq_on;
+    try enumRow(w, c == 167, false, red, "on/off", &on_off_names, if (on) 0 else 1);
+    try barRow(w, c == 168, !on, red, "lo freq", freqBarVal(synth.fx_eq_low_freq), 1.0,
+        try std.fmt.bufPrint(&buf, "{d:.0} Hz", .{synth.fx_eq_low_freq}));
+    try barRow(w, c == 169, !on, red, "lo gain", synth.fx_eq_low_gain_db + 18.0, 36.0,
+        try std.fmt.bufPrint(&buf, "{d:.1} dB", .{synth.fx_eq_low_gain_db}));
+    try barRow(w, c == 170, !on, red, "mid freq", freqBarVal(synth.fx_eq_mid_freq), 1.0,
+        try std.fmt.bufPrint(&buf, "{d:.0} Hz", .{synth.fx_eq_mid_freq}));
+    try barRow(w, c == 171, !on, red, "mid gain", synth.fx_eq_mid_gain_db + 18.0, 36.0,
+        try std.fmt.bufPrint(&buf, "{d:.1} dB", .{synth.fx_eq_mid_gain_db}));
+    try barRow(w, c == 172, !on, red, "mid Q", synth.fx_eq_mid_q, 10.0,
+        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.fx_eq_mid_q}));
+    try barRow(w, c == 173, !on, red, "hi freq", freqBarVal(synth.fx_eq_high_freq), 1.0,
+        try std.fmt.bufPrint(&buf, "{d:.0} Hz", .{synth.fx_eq_high_freq}));
+    try barRow(w, c == 174, !on, red, "hi gain", synth.fx_eq_high_gain_db + 18.0, 36.0,
+        try std.fmt.bufPrint(&buf, "{d:.1} dB", .{synth.fx_eq_high_gain_db}));
 }
 
 fn secFxDist(w: *std.Io.Writer, synth: anytype, c: u8) !void {
@@ -899,6 +929,9 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !
         "-", // 160: mb_comp's reorder handle, never cursor-reachable
         "ott.on", "ott.depth", "ott.time", "ott.gain.in", "ott.gain.out",
         "-", // 166: ott's reorder handle, never cursor-reachable
+        "eq.on", "eq.lo.freq", "eq.lo.gain", "eq.mid.freq", "eq.mid.gain", "eq.mid.q",
+        "eq.hi.freq", "eq.hi.gain",
+        "-", // 175: eq's reorder handle, never cursor-reachable
     };
     const cur = @min(@as(usize, app.synth_cursor), labels.len - 1);
     try style.writeModeBadge(w, app.modal.mode);
@@ -1078,6 +1111,14 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !
         163 => try w.print("{d:.2}x",      .{synth.fx_ott_time}),
         164 => try w.print("{d:.1} dB",    .{synth.fx_ott_gain_in_db}),
         165 => try w.print("{d:.1} dB",    .{synth.fx_ott_gain_out_db}),
+        167 => try w.writeAll(if (synth.fx_eq_on) "on" else "off"),
+        168 => try w.print("{d:.0} Hz",    .{synth.fx_eq_low_freq}),
+        169 => try w.print("{d:.1} dB",    .{synth.fx_eq_low_gain_db}),
+        170 => try w.print("{d:.0} Hz",    .{synth.fx_eq_mid_freq}),
+        171 => try w.print("{d:.1} dB",    .{synth.fx_eq_mid_gain_db}),
+        172 => try w.print("{d:.2}",       .{synth.fx_eq_mid_q}),
+        173 => try w.print("{d:.0} Hz",    .{synth.fx_eq_high_freq}),
+        174 => try w.print("{d:.1} dB",    .{synth.fx_eq_high_gain_db}),
         // zig fmt: on
         else => {},
     }

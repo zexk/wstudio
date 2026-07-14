@@ -92,7 +92,7 @@ pub const ArpMode     = enum { up, down, updown, downup, played, random, chord }
 /// no heap allocation and doesn't touch the mod-matrix/automation id space
 /// (every param keeps its existing stable id regardless of position). See
 /// `PolySynth.fx_order`'s own doc comment for the reorder mechanism.
-pub const FxUnitKind = enum { gate, comp, mb_comp, ott, dist, crush, flanger, phaser, delay, reverb };
+pub const FxUnitKind = enum { gate, eq, comp, mb_comp, ott, dist, crush, flanger, phaser, delay, reverb };
 
 /// Starting chain order — preserves the relative order the original 6
 /// fixed units always ran in, so existing presets/projects sound unchanged
@@ -100,7 +100,7 @@ pub const FxUnitKind = enum { gate, comp, mb_comp, ott, dist, crush, flanger, ph
 /// a typical signal chain (gate first, ahead of everything else; comp/
 /// mb_comp right after it, dynamics before tone-shaping). Purely a starting
 /// point once `fx_order` is user-reorderable.
-pub const default_fx_order = [_]FxUnitKind{ .gate, .comp, .mb_comp, .ott, .dist, .crush, .flanger, .phaser, .delay, .reverb };
+pub const default_fx_order = [_]FxUnitKind{ .gate, .eq, .comp, .mb_comp, .ott, .dist, .crush, .flanger, .phaser, .delay, .reverb };
 
 /// Fixed-line stereo flanger for the synth's internal FX section. Unlike the
 /// master-bus Chorus it owns no heap delay line — PolySynth embeds by value
@@ -289,6 +289,161 @@ pub const Reverb = struct {
     }
 };
 
+/// One RBJ-cookbook biquad stage (Direct Form I), stereo. Coefficients are
+/// recomputed once per block from the effective (base + matrix) params —
+/// see PolySynth's FX pass — same pattern MultibandComp.setXovers already
+/// uses; the per-channel history is what actually needs to persist.
+/// Formulas verified against the Audio EQ Cookbook, not recalled from
+/// memory (shelf filters aren't in dsp/eq.zig, which only has peak/
+/// lowpass/highpass).
+const EqBiquad = struct {
+    b0: f32 = 1.0,
+    b1: f32 = 0.0,
+    b2: f32 = 0.0,
+    a1: f32 = 0.0,
+    a2: f32 = 0.0,
+    x1: [2]f32 = .{ 0.0, 0.0 },
+    x2: [2]f32 = .{ 0.0, 0.0 },
+    y1: [2]f32 = .{ 0.0, 0.0 },
+    y2: [2]f32 = .{ 0.0, 0.0 },
+
+    /// Shelf slope fixed at S=1 ("maximally flat"/gentle knee) — the same
+    /// simplification a fixed-role channel-strip EQ (not a general
+    /// adjustable-slope shelf) can afford; collapses the cookbook's alpha
+    /// formula to `(sin_w0/2) * sqrt(2)`.
+    fn shelfAlpha(sin_w0: f32) f32 {
+        return (sin_w0 / 2.0) * std.math.sqrt2;
+    }
+
+    fn normalize(self: *EqBiquad, b0: f32, b1: f32, b2: f32, a0: f32, a1: f32, a2: f32) void {
+        const inv = 1.0 / a0;
+        self.b0 = b0 * inv;
+        self.b1 = b1 * inv;
+        self.b2 = b2 * inv;
+        self.a1 = a1 * inv;
+        self.a2 = a2 * inv;
+    }
+
+    fn setLowShelf(self: *EqBiquad, sr: f32, freq: f32, gain_db: f32) void {
+        const a = std.math.pow(f32, 10.0, gain_db / 40.0);
+        const sqrt_a = @sqrt(a);
+        const w0 = 2.0 * std.math.pi * freq / sr;
+        const cos_w0 = @cos(w0);
+        const alpha = shelfAlpha(@sin(w0));
+        // zig fmt: off
+        self.normalize(
+            a * ((a + 1.0) - (a - 1.0) * cos_w0 + 2.0 * sqrt_a * alpha),
+            2.0 * a * ((a - 1.0) - (a + 1.0) * cos_w0),
+            a * ((a + 1.0) - (a - 1.0) * cos_w0 - 2.0 * sqrt_a * alpha),
+            (a + 1.0) + (a - 1.0) * cos_w0 + 2.0 * sqrt_a * alpha,
+            -2.0 * ((a - 1.0) + (a + 1.0) * cos_w0),
+            (a + 1.0) + (a - 1.0) * cos_w0 - 2.0 * sqrt_a * alpha,
+        );
+        // zig fmt: on
+    }
+
+    fn setHighShelf(self: *EqBiquad, sr: f32, freq: f32, gain_db: f32) void {
+        const a = std.math.pow(f32, 10.0, gain_db / 40.0);
+        const sqrt_a = @sqrt(a);
+        const w0 = 2.0 * std.math.pi * freq / sr;
+        const cos_w0 = @cos(w0);
+        const alpha = shelfAlpha(@sin(w0));
+        // zig fmt: off
+        self.normalize(
+            a * ((a + 1.0) + (a - 1.0) * cos_w0 + 2.0 * sqrt_a * alpha),
+            -2.0 * a * ((a - 1.0) + (a + 1.0) * cos_w0),
+            a * ((a + 1.0) + (a - 1.0) * cos_w0 - 2.0 * sqrt_a * alpha),
+            (a + 1.0) - (a - 1.0) * cos_w0 + 2.0 * sqrt_a * alpha,
+            2.0 * ((a - 1.0) - (a + 1.0) * cos_w0),
+            (a + 1.0) - (a - 1.0) * cos_w0 - 2.0 * sqrt_a * alpha,
+        );
+        // zig fmt: on
+    }
+
+    /// Same peaking-bell formula as dsp/eq.zig's (private) `EqBand.recompute`
+    /// `.peak` case — duplicated rather than exposed, same call this
+    /// codebase already made for `dsp/multiband_comp.zig`'s crossover
+    /// biquads (see that file's own doc comment on `Biquad`).
+    fn setPeak(self: *EqBiquad, sr: f32, freq: f32, gain_db: f32, q: f32) void {
+        const a = std.math.pow(f32, 10.0, gain_db / 40.0);
+        const w0 = 2.0 * std.math.pi * freq / sr;
+        const cos_w0 = @cos(w0);
+        const alpha = @sin(w0) / (2.0 * q);
+        self.normalize(
+            1.0 + alpha * a,
+            -2.0 * cos_w0,
+            1.0 - alpha * a,
+            1.0 + alpha / a,
+            -2.0 * cos_w0,
+            1.0 - alpha / a,
+        );
+    }
+
+    fn process(self: *EqBiquad, ch: usize, x: f32) f32 {
+        // zig fmt: off
+        const y = self.b0 * x + self.b1 * self.x1[ch] + self.b2 * self.x2[ch]
+            - self.a1 * self.y1[ch] - self.a2 * self.y2[ch];
+            // zig fmt: on
+        self.x2[ch] = self.x1[ch];
+        self.x1[ch] = x;
+        self.y2[ch] = self.y1[ch];
+        self.y1[ch] = y;
+        return y;
+    }
+
+    fn reset(self: *EqBiquad) void {
+        self.x1 = .{ 0.0, 0.0 };
+        self.x2 = .{ 0.0, 0.0 };
+        self.y1 = .{ 0.0, 0.0 };
+        self.y2 = .{ 0.0, 0.0 };
+    }
+};
+
+/// Scaled-down 3-band EQ for the synth's internal FX section: low-shelf,
+/// mid-peak, high-shelf — a channel-strip shape, not the track chain's
+/// general 8-band parametric (`dsp/eq.zig`'s `ParametricEq`, which keeps
+/// its per-band type private and would blow past a flat-param-id budget at
+/// 8 bands x ~4 fields). Fixed roles mean no `kind`/band-index plumbing —
+/// each field IS its role.
+pub const Eq3 = struct {
+    low: EqBiquad = .{},
+    mid: EqBiquad = .{},
+    high: EqBiquad = .{},
+
+    pub fn processBlock(
+        self: *Eq3,
+        buf: []Sample,
+        sr: f32,
+        low_freq: f32,
+        low_gain_db: f32,
+        mid_freq: f32,
+        mid_gain_db: f32,
+        mid_q: f32,
+        high_freq: f32,
+        high_gain_db: f32,
+    ) void {
+        self.low.setLowShelf(sr, low_freq, low_gain_db);
+        self.mid.setPeak(sr, mid_freq, mid_gain_db, mid_q);
+        self.high.setHighShelf(sr, high_freq, high_gain_db);
+        var i: usize = 0;
+        while (i + 1 < buf.len) : (i += 2) {
+            inline for (0..2) |ch| {
+                var s = buf[i + ch];
+                s = self.low.process(ch, s);
+                s = self.mid.process(ch, s);
+                s = self.high.process(ch, s);
+                buf[i + ch] = s;
+            }
+        }
+    }
+
+    pub fn reset(self: *Eq3) void {
+        self.low.reset();
+        self.mid.reset();
+        self.high.reset();
+    }
+};
+
 pub const PolySynth = struct {
     sample_rate: f32,
 
@@ -467,6 +622,17 @@ pub const PolySynth = struct {
     fx_gate_threshold_db: f32 = -50.0,
     fx_gate_attack_ms:   f32  = 1.0,
     fx_gate_release_ms:  f32  = 100.0,
+    /// Scaled-down 3-band EQ (low-shelf/mid-peak/high-shelf) — see `Eq3`'s
+    /// own doc comment for why this isn't the track chain's 8-band
+    /// `ParametricEq`.
+    fx_eq_on:            bool = false,
+    fx_eq_low_freq:      f32  = 150.0,
+    fx_eq_low_gain_db:   f32  = 0.0,
+    fx_eq_mid_freq:      f32  = 1000.0,
+    fx_eq_mid_gain_db:   f32  = 0.0,
+    fx_eq_mid_q:         f32  = 0.7,
+    fx_eq_high_freq:     f32  = 6000.0,
+    fx_eq_high_gain_db:  f32  = 0.0,
     /// Reuses the track-chain's own Compressor unit (dsp/compressor.zig) —
     /// same envelope/gain-computer math, just matrix-automatable and
     /// embedded by value here. `sidechain_source`/`detector` are never set
@@ -541,8 +707,9 @@ pub const PolySynth = struct {
     /// Processing sequence for the FX section above — see `FxUnitKind`'s
     /// doc comment. Reordered via `adjustParam`'s dedicated reorder-handle
     /// ids, never written directly by the editor.
-    fx_order: [10]FxUnitKind = default_fx_order,
+    fx_order: [11]FxUnitKind = default_fx_order,
     fx_gate_state: Gate = .{},
+    fx_eq_state: Eq3 = .{},
     fx_comp_state: Compressor = .{},
     fx_mb_state: MultibandComp = .{},
     fx_ott_state: Ott = .{},
@@ -647,6 +814,7 @@ pub const PolySynth = struct {
         138, 139, 140, 141, 142,
         145, 146, 147, 148, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159,
         162, 163, 164, 165,
+        168, 169, 170, 171, 172, 173, 174,
         dest_pitch, dest_amp,
         // zig fmt: on
     };
@@ -893,6 +1061,14 @@ pub const PolySynth = struct {
         fx_gate_threshold_db: f32 = -50.0,
         fx_gate_attack_ms: f32 = 1.0,
         fx_gate_release_ms: f32 = 100.0,
+        fx_eq_on: bool = false,
+        fx_eq_low_freq: f32 = 150.0,
+        fx_eq_low_gain_db: f32 = 0.0,
+        fx_eq_mid_freq: f32 = 1000.0,
+        fx_eq_mid_gain_db: f32 = 0.0,
+        fx_eq_mid_q: f32 = 0.7,
+        fx_eq_high_freq: f32 = 6000.0,
+        fx_eq_high_gain_db: f32 = 0.0,
         fx_comp_on: bool = false,
         fx_comp_threshold_db: f32 = -18.0,
         fx_comp_ratio: f32 = 4.0,
@@ -945,7 +1121,7 @@ pub const PolySynth = struct {
         fx_reverb_room: f32 = 0.6,
         fx_reverb_damp: f32 = 0.4,
         fx_reverb_mix: f32 = 0.3,
-        fx_order: [10]FxUnitKind = default_fx_order,
+        fx_order: [11]FxUnitKind = default_fx_order,
 
         arp_on: bool = false,
         arp_mode: ArpMode = .up,
@@ -1771,9 +1947,9 @@ pub const PolySynth = struct {
         // are shared by all voices, so the per-voice sources read from the
         // most recently triggered voice (env/velocity → drive style routes
         // still play).
-        if (self.fx_gate_on or self.fx_comp_on or self.fx_mb_on or self.fx_ott_on or
-            self.fx_dist_on or self.fx_crush_on or self.fx_flanger_on or self.fx_phaser_on or
-            self.fx_delay_on or self.fx_reverb_on)
+        if (self.fx_gate_on or self.fx_eq_on or self.fx_comp_on or self.fx_mb_on or
+            self.fx_ott_on or self.fx_dist_on or self.fx_crush_on or self.fx_flanger_on or
+            self.fx_phaser_on or self.fx_delay_on or self.fx_reverb_on)
         {
             const nv = &self.voices[self.newest_voice];
             const mods = self.evalMatrix(if (nv.active) nv else null, lfo_vals);
@@ -1786,6 +1962,19 @@ pub const PolySynth = struct {
                         self.fx_gate_state.release_ms    = eff(&mods, 135, self.fx_gate_release_ms);
                         // zig fmt: on
                         self.fx_gate_state.processBlock(buf);
+                    },
+                    .eq => if (self.fx_eq_on) {
+                        self.fx_eq_state.processBlock(
+                            buf,
+                            self.sample_rate,
+                            eff(&mods, 168, self.fx_eq_low_freq),
+                            eff(&mods, 169, self.fx_eq_low_gain_db),
+                            eff(&mods, 170, self.fx_eq_mid_freq),
+                            eff(&mods, 171, self.fx_eq_mid_gain_db),
+                            eff(&mods, 172, self.fx_eq_mid_q),
+                            eff(&mods, 173, self.fx_eq_high_freq),
+                            eff(&mods, 174, self.fx_eq_high_gain_db),
+                        );
                     },
                     .comp => if (self.fx_comp_on) {
                         // zig fmt: off
@@ -2158,6 +2347,7 @@ pub const PolySynth = struct {
         // band/xover setup, baked in at init since only depth/time/in/out
         // are exposed as params).
         self.fx_gate_state.reset();
+        self.fx_eq_state.reset();
         self.fx_comp_state.reset();
         self.fx_mb_state.reset();
         self.fx_ott_state.reset();
@@ -2499,6 +2689,16 @@ pub const PolySynth = struct {
             164 => self.fx_ott_gain_in_db  = std.math.clamp(self.fx_ott_gain_in_db  + s * 0.5,   -24.0,  24.0),
             165 => self.fx_ott_gain_out_db = std.math.clamp(self.fx_ott_gain_out_db + s * 0.5,   -24.0,  24.0),
             166 => self.reorderFx(.ott, steps),
+            // FX EQ (167–174), reorder handle 175.
+            167 => self.fx_eq_on           = !self.fx_eq_on,
+            168 => self.fx_eq_low_freq     = std.math.clamp(self.fx_eq_low_freq  * std.math.pow(f32, 2.0, s / 12.0),   20.0, 20_000.0),
+            169 => self.fx_eq_low_gain_db  = std.math.clamp(self.fx_eq_low_gain_db  + s * 0.5,  -18.0,  18.0),
+            170 => self.fx_eq_mid_freq     = std.math.clamp(self.fx_eq_mid_freq  * std.math.pow(f32, 2.0, s / 12.0),   20.0, 20_000.0),
+            171 => self.fx_eq_mid_gain_db  = std.math.clamp(self.fx_eq_mid_gain_db  + s * 0.5,  -18.0,  18.0),
+            172 => self.fx_eq_mid_q        = std.math.clamp(self.fx_eq_mid_q        + s * 0.05,   0.1,   10.0),
+            173 => self.fx_eq_high_freq    = std.math.clamp(self.fx_eq_high_freq * std.math.pow(f32, 2.0, s / 12.0),   20.0, 20_000.0),
+            174 => self.fx_eq_high_gain_db = std.math.clamp(self.fx_eq_high_gain_db + s * 0.5,  -18.0,  18.0),
+            175 => self.reorderFx(.eq, steps),
             // zig fmt: on
             // MATRIX (59–82): 3 ids per row — source, dest, depth.
             59...82 => {
@@ -2687,6 +2887,15 @@ pub const PolySynth = struct {
             164 => self.fx_ott_gain_in_db  = std.math.clamp(value, -24.0, 24.0),
             165 => self.fx_ott_gain_out_db = std.math.clamp(value, -24.0, 24.0),
             166 => self.setFxIndex(.ott,        @intFromFloat(@round(@max(value, 0.0)))),
+            167 => self.fx_eq_on           = value >= 0.5,
+            168 => self.fx_eq_low_freq     = std.math.clamp(value,  20.0, 20_000.0),
+            169 => self.fx_eq_low_gain_db  = std.math.clamp(value, -18.0,    18.0),
+            170 => self.fx_eq_mid_freq     = std.math.clamp(value,  20.0, 20_000.0),
+            171 => self.fx_eq_mid_gain_db  = std.math.clamp(value, -18.0,    18.0),
+            172 => self.fx_eq_mid_q        = std.math.clamp(value,   0.1,    10.0),
+            173 => self.fx_eq_high_freq    = std.math.clamp(value,  20.0, 20_000.0),
+            174 => self.fx_eq_high_gain_db = std.math.clamp(value, -18.0,    18.0),
+            175 => self.setFxIndex(.eq,         @intFromFloat(@round(@max(value, 0.0)))),
             // zig fmt: on
             // MATRIX: dest takes the raw param id (falls back to cutoff if
             // the value isn't a legal dest — e.g. a hand-edited curve).
@@ -2859,6 +3068,15 @@ pub const PolySynth = struct {
             164 => self.fx_ott_gain_in_db,
             165 => self.fx_ott_gain_out_db,
             166 => @floatFromInt(self.fxOrderIndex(.ott)),
+            167 => if (self.fx_eq_on) 1.0 else 0.0,
+            168 => self.fx_eq_low_freq,
+            169 => self.fx_eq_low_gain_db,
+            170 => self.fx_eq_mid_freq,
+            171 => self.fx_eq_mid_gain_db,
+            172 => self.fx_eq_mid_q,
+            173 => self.fx_eq_high_freq,
+            174 => self.fx_eq_high_gain_db,
+            175 => @floatFromInt(self.fxOrderIndex(.eq)),
             // zig fmt: on
             59...82 => blk: {
                 const row = self.mod_matrix[(id - 59) / 3];
@@ -2996,6 +3214,13 @@ pub const PolySynth = struct {
         .{ .id = 163,.label = "OTT TIME",    .section = "FX OTT",  .range = .{ 0.25,   4.0 },    .step = 0.05 },
         .{ .id = 164,.label = "OTT GAIN IN", .section = "FX OTT",  .range = .{ -24.0,  24.0 },   .step = 0.5 },
         .{ .id = 165,.label = "OTT GAIN OUT",.section = "FX OTT",  .range = .{ -24.0,  24.0 },   .step = 0.5 },
+        .{ .id = 168,.label = "EQ LO FREQ",  .section = "FX EQ",   .range = .{ 20.0,   20000.0 },.step = 10.0 },
+        .{ .id = 169,.label = "EQ LO GAIN",  .section = "FX EQ",   .range = .{ -18.0,  18.0 },   .step = 0.5 },
+        .{ .id = 170,.label = "EQ MID FREQ", .section = "FX EQ",   .range = .{ 20.0,   20000.0 },.step = 10.0 },
+        .{ .id = 171,.label = "EQ MID GAIN", .section = "FX EQ",   .range = .{ -18.0,  18.0 },   .step = 0.5 },
+        .{ .id = 172,.label = "EQ MID Q",    .section = "FX EQ",   .range = .{ 0.1,    10.0 },   .step = 0.05 },
+        .{ .id = 173,.label = "EQ HI FREQ",  .section = "FX EQ",   .range = .{ 20.0,   20000.0 },.step = 10.0 },
+        .{ .id = 174,.label = "EQ HI GAIN",  .section = "FX EQ",   .range = .{ -18.0,  18.0 },   .step = 0.5 },
         // zig fmt: on
     };
 
@@ -4171,4 +4396,74 @@ test "toggling arp off mid-note releases the stuck voice" {
     synth.processBlock(&buf); // on->off edge: release whatever was sounding
 
     try std.testing.expectEqual(.release, synth.voices[idx].stage);
+}
+
+/// RMS of a mono-duplicated interleaved-stereo buffer's tail (past biquad
+/// settling), used by the Eq3 gain-direction tests below.
+fn rmsTail(buf: []const Sample) f32 {
+    var sum: f32 = 0.0;
+    var n: usize = 0;
+    var i = buf.len / 2; // second half only — after the filter has settled
+    while (i + 1 < buf.len) : (i += 2) {
+        sum += buf[i] * buf[i];
+        n += 1;
+    }
+    return @sqrt(sum / @as(f32, @floatFromInt(n)));
+}
+
+fn sineBuf(buf: []Sample, sr: f32, freq: f32) void {
+    var i: usize = 0;
+    var phase: f32 = 0.0;
+    const inc = 2.0 * std.math.pi * freq / sr;
+    while (i + 1 < buf.len) : (i += 2) {
+        const s = @sin(phase);
+        buf[i] = s;
+        buf[i + 1] = s;
+        phase += inc;
+    }
+}
+
+test "Eq3 at all-zero gains passes a signal through essentially unchanged" {
+    var eq: Eq3 = .{};
+    var buf: [4096]Sample = undefined;
+    sineBuf(&buf, 48_000.0, 1000.0);
+    const dry_rms = rmsTail(&buf);
+    eq.processBlock(&buf, 48_000.0, 150.0, 0.0, 1000.0, 0.0, 0.7, 6000.0, 0.0);
+    try std.testing.expectApproxEqAbs(dry_rms, rmsTail(&buf), 0.02);
+}
+
+test "Eq3 low shelf: boost raises and cut lowers a low-frequency tone" {
+    var boosted: Eq3 = .{};
+    var cut: Eq3 = .{};
+    var buf_boost: [8192]Sample = undefined;
+    var buf_cut: [8192]Sample = undefined;
+    sineBuf(&buf_boost, 48_000.0, 100.0);
+    sineBuf(&buf_cut, 48_000.0, 100.0);
+    boosted.processBlock(&buf_boost, 48_000.0, 150.0, 12.0, 1000.0, 0.0, 0.7, 6000.0, 0.0);
+    cut.processBlock(&buf_cut, 48_000.0, 150.0, -12.0, 1000.0, 0.0, 0.7, 6000.0, 0.0);
+    try std.testing.expect(rmsTail(&buf_boost) > rmsTail(&buf_cut) * 2.0);
+}
+
+test "Eq3 mid peak: boost raises and cut lowers a tone at the peak frequency" {
+    var boosted: Eq3 = .{};
+    var cut: Eq3 = .{};
+    var buf_boost: [8192]Sample = undefined;
+    var buf_cut: [8192]Sample = undefined;
+    sineBuf(&buf_boost, 48_000.0, 1000.0);
+    sineBuf(&buf_cut, 48_000.0, 1000.0);
+    boosted.processBlock(&buf_boost, 48_000.0, 150.0, 0.0, 1000.0, 12.0, 0.7, 6000.0, 0.0);
+    cut.processBlock(&buf_cut, 48_000.0, 150.0, 0.0, 1000.0, -12.0, 0.7, 6000.0, 0.0);
+    try std.testing.expect(rmsTail(&buf_boost) > rmsTail(&buf_cut) * 2.0);
+}
+
+test "Eq3 high shelf: boost raises and cut lowers a high-frequency tone" {
+    var boosted: Eq3 = .{};
+    var cut: Eq3 = .{};
+    var buf_boost: [8192]Sample = undefined;
+    var buf_cut: [8192]Sample = undefined;
+    sineBuf(&buf_boost, 48_000.0, 8000.0);
+    sineBuf(&buf_cut, 48_000.0, 8000.0);
+    boosted.processBlock(&buf_boost, 48_000.0, 150.0, 0.0, 1000.0, 0.0, 0.7, 6000.0, 12.0);
+    cut.processBlock(&buf_cut, 48_000.0, 150.0, 0.0, 1000.0, 0.0, 0.7, 6000.0, -12.0);
+    try std.testing.expect(rmsTail(&buf_boost) > rmsTail(&buf_cut) * 2.0);
 }

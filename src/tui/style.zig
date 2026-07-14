@@ -49,7 +49,9 @@ pub const spectrum_band_count: usize = 80;
 /// FX MB   : 144:fx_mb_on 145:xover_lo 146:xover_hi 147:attack 148:release 149:style 150:mix
 ///   151-153:low(thresh,ratio,makeup) 154-156:mid(...) 157-159:high(...) 160:reorder handle
 /// FX OTT  : 161:fx_ott_on 162:depth 163:time 164:gain_in 165:gain_out 166:reorder handle
-pub const synth_param_count: u8 = 167;
+/// FX EQ   : 167:fx_eq_on 168:lo_freq 169:lo_gain 170:mid_freq 171:mid_gain 172:mid_q
+///   173:hi_freq 174:hi_gain 175:reorder handle
+pub const synth_param_count: u8 = 176;
 
 // ---------------------------------------------------------------------------
 // Palette — all colour codes go here; never raw \x1b sequences elsewhere

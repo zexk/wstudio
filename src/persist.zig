@@ -174,6 +174,14 @@ pub const SynthSnap = struct {
     fx_gate_threshold_db: f32 = -50.0,
     fx_gate_attack_ms: f32 = 1.0,
     fx_gate_release_ms: f32 = 100.0,
+    fx_eq_on: bool = false,
+    fx_eq_low_freq: f32 = 150.0,
+    fx_eq_low_gain_db: f32 = 0.0,
+    fx_eq_mid_freq: f32 = 1000.0,
+    fx_eq_mid_gain_db: f32 = 0.0,
+    fx_eq_mid_q: f32 = 0.7,
+    fx_eq_high_freq: f32 = 6000.0,
+    fx_eq_high_gain_db: f32 = 0.0,
     fx_comp_on: bool = false,
     fx_comp_threshold_db: f32 = -18.0,
     fx_comp_ratio: f32 = 4.0,
@@ -226,7 +234,7 @@ pub const SynthSnap = struct {
     fx_reverb_room: f32 = 0.6,
     fx_reverb_damp: f32 = 0.4,
     fx_reverb_mix: f32 = 0.3,
-    fx_order: [10]synth_mod.FxUnitKind = synth_mod.default_fx_order,
+    fx_order: [11]synth_mod.FxUnitKind = synth_mod.default_fx_order,
     // Arpeggiator (additive optional-with-default fields, no version bump)
     arp_on: bool = false,
     arp_mode: synth_mod.ArpMode = .up,
@@ -1264,6 +1272,14 @@ fn synthToSnap(s: *const PolySynth) SynthSnap {
         .fx_gate_threshold_db = s.fx_gate_threshold_db,
         .fx_gate_attack_ms = s.fx_gate_attack_ms,
         .fx_gate_release_ms = s.fx_gate_release_ms,
+        .fx_eq_on = s.fx_eq_on,
+        .fx_eq_low_freq = s.fx_eq_low_freq,
+        .fx_eq_low_gain_db = s.fx_eq_low_gain_db,
+        .fx_eq_mid_freq = s.fx_eq_mid_freq,
+        .fx_eq_mid_gain_db = s.fx_eq_mid_gain_db,
+        .fx_eq_mid_q = s.fx_eq_mid_q,
+        .fx_eq_high_freq = s.fx_eq_high_freq,
+        .fx_eq_high_gain_db = s.fx_eq_high_gain_db,
         .fx_comp_on = s.fx_comp_on,
         .fx_comp_threshold_db = s.fx_comp_threshold_db,
         .fx_comp_ratio = s.fx_comp_ratio,
@@ -1894,8 +1910,8 @@ fn loadNotes(pp: *PatternPlayer, notes: []const NoteSnap) void {
 /// drop another, silently dropping the missing unit from processing).
 /// `order.len == FxUnitKind`'s variant count, so "every kind appears at
 /// least once" already implies no duplicates (pigeonhole).
-fn isValidFxOrder(order: [10]synth_mod.FxUnitKind) bool {
-    var seen = [_]bool{false} ** 10;
+fn isValidFxOrder(order: [11]synth_mod.FxUnitKind) bool {
+    var seen = [_]bool{false} ** 11;
     for (order) |kind| seen[@intFromEnum(kind)] = true;
     for (seen) |s| if (!s) return false;
     return true;
@@ -2002,6 +2018,14 @@ fn applyToSynth(s: *PolySynth, ss: *const SynthSnap) void {
     s.fx_gate_threshold_db = clamp(ss.fx_gate_threshold_db, -80.0, 0.0);
     s.fx_gate_attack_ms = clamp(ss.fx_gate_attack_ms, 0.1, 50.0);
     s.fx_gate_release_ms = clamp(ss.fx_gate_release_ms, 5.0, 1000.0);
+    s.fx_eq_on = ss.fx_eq_on;
+    s.fx_eq_low_freq = clamp(ss.fx_eq_low_freq, 20.0, 20_000.0);
+    s.fx_eq_low_gain_db = clamp(ss.fx_eq_low_gain_db, -18.0, 18.0);
+    s.fx_eq_mid_freq = clamp(ss.fx_eq_mid_freq, 20.0, 20_000.0);
+    s.fx_eq_mid_gain_db = clamp(ss.fx_eq_mid_gain_db, -18.0, 18.0);
+    s.fx_eq_mid_q = clamp(ss.fx_eq_mid_q, 0.1, 10.0);
+    s.fx_eq_high_freq = clamp(ss.fx_eq_high_freq, 20.0, 20_000.0);
+    s.fx_eq_high_gain_db = clamp(ss.fx_eq_high_gain_db, -18.0, 18.0);
     s.fx_comp_on = ss.fx_comp_on;
     s.fx_comp_threshold_db = clamp(ss.fx_comp_threshold_db, -60.0, 0.0);
     s.fx_comp_ratio = clamp(ss.fx_comp_ratio, 1.0, 20.0);

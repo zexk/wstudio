@@ -46,7 +46,7 @@ pub fn currentFxOrder(app: anytype) []const FxUnitKind {
 fn fxFirstId(kind: FxUnitKind) u8 {
     return switch (kind) {
         // zig fmt: off
-        .gate    => 132, .comp => 137, .mb_comp => 144, .ott => 161,
+        .gate    => 132, .comp => 137, .mb_comp => 144, .ott => 161, .eq => 167,
         .dist    => 83, .crush => 86, .flanger => 90,
         .phaser  => 103, .delay => 108, .reverb => 112,
         // zig fmt: on
@@ -55,7 +55,7 @@ fn fxFirstId(kind: FxUnitKind) u8 {
 fn fxIdCount(kind: FxUnitKind) u8 {
     return switch (kind) {
         // zig fmt: off
-        .gate    => 4, .comp => 6, .mb_comp => 16, .ott => 5,
+        .gate    => 4, .comp => 6, .mb_comp => 16, .ott => 5, .eq => 8,
         .dist    => 3, .crush => 4, .flanger => 5,
         .phaser  => 5, .delay => 4, .reverb => 4,
         // zig fmt: on
@@ -119,7 +119,7 @@ fn reorderIdFor(kind: FxUnitKind) u16 {
         // zig fmt: off
         .dist => 126, .crush => 127, .flanger => 128,
         .phaser => 129, .delay => 130, .reverb => 131,
-        .gate => 136, .comp => 143, .mb_comp => 160, .ott => 166,
+        .gate => 136, .comp => 143, .mb_comp => 160, .ott => 166, .eq => 175,
         // zig fmt: on
     };
 }
@@ -191,25 +191,25 @@ fn firstId(subview: Subview) u8 {
 fn lastId(subview: Subview) u8 {
     return switch (subview) {
         .main => 125,
-        .fx => 165,
+        .fx => 174,
         .matrix => 82,
     };
 }
 
 /// Whether `id` is rendered/reachable in `subview`. `main` excludes the 3
 /// retired matrix-absorbed ids (23/30/31) same as before, plus the whole
-/// 59-94/103-165 range now that matrix/FX moved to their own panes; `fx`
-/// has six disjoint ranges (83-94, 103-115, 132-135 for gate, 137-142 for
-/// comp, 144-159 for mb_comp, 161-165 for ott — matrix and LFO2/LFO3/MACRO
-/// sit between the first two in the global id space, ARP/ENV3/the reorder-
-/// handle ids between the rest). Reorder-handle ids (126-131, 136, 143,
-/// 160, 166) are never cursor-reachable — see `reorderIdFor`. ARP (116-121)
-/// and ENV 3 (122-125) trail after MACRO in `main`, same append-after-the-
-/// max pattern every prior pickup used.
+/// 59-94/103-174 range now that matrix/FX moved to their own panes; `fx`
+/// has seven disjoint ranges (83-94, 103-115, 132-135 for gate, 137-142 for
+/// comp, 144-159 for mb_comp, 161-165 for ott, 167-174 for eq — matrix and
+/// LFO2/LFO3/MACRO sit between the first two in the global id space, ARP/
+/// ENV3/the reorder-handle ids between the rest). Reorder-handle ids
+/// (126-131, 136, 143, 160, 166, 175) are never cursor-reachable — see
+/// `reorderIdFor`. ARP (116-121) and ENV 3 (122-125) trail after MACRO in
+/// `main`, same append-after-the-max pattern every prior pickup used.
 fn inSubview(id: u8, subview: Subview) bool {
     return switch (subview) {
         .main => (id <= 58 and !deadParam(id)) or (id >= 95 and id <= 102) or (id >= 116 and id <= 125),
-        .fx => (id >= 83 and id <= 94) or (id >= 103 and id <= 115) or (id >= 132 and id <= 135) or (id >= 137 and id <= 142) or (id >= 144 and id <= 159) or (id >= 161 and id <= 165),
+        .fx => (id >= 83 and id <= 94) or (id >= 103 and id <= 115) or (id >= 132 and id <= 135) or (id >= 137 and id <= 142) or (id >= 144 and id <= 159) or (id >= 161 and id <= 165) or (id >= 167 and id <= 174),
         .matrix => id >= 59 and id <= 82,
     };
 }
@@ -379,7 +379,7 @@ pub const body_rows_wide: usize = 87;
 /// Total body rows in the "main" subview's single-column layout.
 pub const body_rows_single: usize = 95;
 /// Total body rows in the "fx" subview (always single-column).
-pub const body_rows_fx: usize = 66;
+pub const body_rows_fx: usize = 75;
 /// Total body rows in the "matrix" subview (always single-column).
 pub const body_rows_matrix: usize = 25;
 
