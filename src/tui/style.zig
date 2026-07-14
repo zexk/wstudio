@@ -39,7 +39,12 @@ pub const spectrum_band_count: usize = 80;
 /// FX VERB : 112:fx_reverb_on 113:fx_reverb_room 114:fx_reverb_damp 115:fx_reverb_mix
 /// ARP     : 116:arp_on 117:arp_mode 118:arp_octaves 119:arp_rate_hz 120:arp_gate 121:arp_hold
 /// ENV 3   : 122:env3_attack_s 123:env3_decay_s 124:env3_sustain 125:env3_release_s
-pub const synth_param_count: u8 = 126;
+/// FX REORDER: 126:dist 127:crush 128:flanger 129:phaser 130:delay 131:reverb — not real
+///   params (no editor row); value is the unit's fx_order slot index, see
+///   PolySynth.setFxIndex.
+/// FX GATE : 132:fx_gate_on 133:fx_gate_threshold_db 134:fx_gate_attack_ms 135:fx_gate_release_ms
+///   136:reorder handle (gate) — same "not a real param" note as 126-131.
+pub const synth_param_count: u8 = 137;
 
 // ---------------------------------------------------------------------------
 // Palette — all colour codes go here; never raw \x1b sequences elsewhere

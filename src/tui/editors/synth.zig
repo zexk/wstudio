@@ -46,6 +46,7 @@ pub fn currentFxOrder(app: anytype) []const FxUnitKind {
 fn fxFirstId(kind: FxUnitKind) u8 {
     return switch (kind) {
         // zig fmt: off
+        .gate    => 132,
         .dist    => 83, .crush => 86, .flanger => 90,
         .phaser  => 103, .delay => 108, .reverb => 112,
         // zig fmt: on
@@ -54,10 +55,47 @@ fn fxFirstId(kind: FxUnitKind) u8 {
 fn fxIdCount(kind: FxUnitKind) u8 {
     return switch (kind) {
         // zig fmt: off
+        .gate    => 4,
         .dist    => 3, .crush => 4, .flanger => 5,
         .phaser  => 5, .delay => 4, .reverb => 4,
         // zig fmt: on
     };
+}
+
+/// Every cursor-reachable `.fx` id, in on-screen (fx_order) sequence rather
+/// than numeric order — the list j/k and g/G walk. Sized generously above
+/// the current real total (29 ids across 7 units) for headroom as more
+/// units are added.
+fn fxVisualIds(order: []const FxUnitKind, buf: []u8) []const u8 {
+    var n: usize = 0;
+    for (order) |kind| {
+        const first = fxFirstId(kind);
+        const count = fxIdCount(kind);
+        var i: u8 = 0;
+        while (i < count) : (i += 1) {
+            buf[n] = first + i;
+            n += 1;
+        }
+    }
+    return buf[0..n];
+}
+
+/// `g`/`G`'s target ids for the current subview: `.main`/`.matrix` just use
+/// `firstId`/`lastId` (numeric id order matches visual order there), `.fx`
+/// instead jumps to the top/bottom of `fx_order`'s on-screen sequence —
+/// see `fxVisualIds`'s doc comment for why numeric extremes are wrong once
+/// a unit's been reordered away from its numeric position.
+fn fxAwareFirstId(app: *App) u8 {
+    if (app.synth_subview != .fx) return firstId(app.synth_subview);
+    var buf: [64]u8 = undefined;
+    const ids = fxVisualIds(currentFxOrder(app), &buf);
+    return if (ids.len > 0) ids[0] else firstId(.fx);
+}
+fn fxAwareLastId(app: *App) u8 {
+    if (app.synth_subview != .fx) return lastId(app.synth_subview);
+    var buf: [64]u8 = undefined;
+    const ids = fxVisualIds(currentFxOrder(app), &buf);
+    return if (ids.len > 0) ids[ids.len - 1] else lastId(.fx);
 }
 
 /// Which unit's id range `id` falls in, if any — the reverse of
@@ -81,6 +119,7 @@ fn reorderIdFor(kind: FxUnitKind) u16 {
         // zig fmt: off
         .dist => 126, .crush => 127, .flanger => 128,
         .phaser => 129, .delay => 130, .reverb => 131,
+        .gate => 136,
         // zig fmt: on
     };
 }
@@ -113,6 +152,30 @@ fn reorderSelectedFx(app: *App, dir: i32) void {
     updateScroll(app);
 }
 
+/// `}`/`{` in the FX subview: moves the cursor to the next/previous
+/// section's first id in `fx_order`'s current sequence (not id order — see
+/// the `'}', '{'` key handler's own comment). No wrap, matching `.main`/
+/// `.matrix`'s sectionStarts-based behavior: past either end, the cursor
+/// just stays on the current section's own first id.
+fn jumpFxSection(app: *App, forward: bool) void {
+    const order = currentFxOrder(app);
+    const cur_idx = if (fxKindOfId(app.synth_cursor)) |k|
+        std.mem.indexOfScalar(FxUnitKind, order, k)
+    else
+        null;
+    if (forward) {
+        const idx = cur_idx orelse return;
+        if (idx + 1 < order.len) app.synth_cursor = fxFirstId(order[idx + 1]);
+    } else {
+        const idx = cur_idx orelse return;
+        if (app.synth_cursor == fxFirstId(order[idx]) and idx > 0) {
+            app.synth_cursor = fxFirstId(order[idx - 1]);
+        } else {
+            app.synth_cursor = fxFirstId(order[idx]);
+        }
+    }
+}
+
 /// First/last param id belonging to `subview`, for `g`/`G` and moveCursor's
 /// clamp bounds. Not a claim that every id in [first,last] belongs to the
 /// subview — `fx`'s range spans the matrix/lfo2/lfo3/macro ids too (they're
@@ -128,22 +191,24 @@ fn firstId(subview: Subview) u8 {
 fn lastId(subview: Subview) u8 {
     return switch (subview) {
         .main => 125,
-        .fx => 115,
+        .fx => 135,
         .matrix => 82,
     };
 }
 
 /// Whether `id` is rendered/reachable in `subview`. `main` excludes the 3
 /// retired matrix-absorbed ids (23/30/31) same as before, plus the whole
-/// 59-94/103-115 range now that matrix/FX moved to their own panes; `fx`
-/// has two disjoint ranges (83-94, then 103-115 — matrix and LFO2/LFO3/
-/// MACRO sit between them in the global id space). ARP (116-121) and ENV 3
-/// (122-125) trail after MACRO in `main`, same append-after-the-max pattern
-/// every prior pickup used.
+/// 59-94/103-135 range now that matrix/FX moved to their own panes; `fx`
+/// has three disjoint ranges (83-94, 103-115, then 132-135 for gate —
+/// matrix and LFO2/LFO3/MACRO sit between the first two in the global id
+/// space, ARP/ENV3/the reorder-handle ids between the last two). Reorder-
+/// handle ids (126-131, 136) are never cursor-reachable — see
+/// `reorderIdFor`. ARP (116-121) and ENV 3 (122-125) trail after MACRO in
+/// `main`, same append-after-the-max pattern every prior pickup used.
 fn inSubview(id: u8, subview: Subview) bool {
     return switch (subview) {
         .main => (id <= 58 and !deadParam(id)) or (id >= 95 and id <= 102) or (id >= 116 and id <= 125),
-        .fx => (id >= 83 and id <= 94) or (id >= 103 and id <= 115),
+        .fx => (id >= 83 and id <= 94) or (id >= 103 and id <= 115) or (id >= 132 and id <= 135),
         .matrix => id >= 59 and id <= 82,
     };
 }
@@ -178,7 +243,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             app.synth_subview = switch (app.synth_subview) {
                 .main => .fx, .fx => .matrix, .matrix => .main,
             };
-            app.synth_cursor = firstId(app.synth_subview);
+            app.synth_cursor = fxAwareFirstId(app);
             updateScroll(app);
             return true;
         },
@@ -205,38 +270,41 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             'l' => { adjustParam(app, app.takeCount()); return true; },
             'H' => { adjustParam(app, -10 * app.takeCount()); return true; },
             'L' => { adjustParam(app, 10 * app.takeCount()); return true; },
-            'g' => { history.flushParamNudge(app); app.synth_cursor = firstId(app.synth_subview); updateScroll(app); return true; },
-            'G' => { history.flushParamNudge(app); app.synth_cursor = lastId(app.synth_subview); updateScroll(app); return true; },
+            'g' => { history.flushParamNudge(app); app.synth_cursor = fxAwareFirstId(app); updateScroll(app); return true; },
+            'G' => { history.flushParamNudge(app); app.synth_cursor = fxAwareLastId(app); updateScroll(app); return true; },
             // Reorders the FX chain — see reorderSelectedFx. No-op outside .fx.
             '<' => { reorderSelectedFx(app, -1); return true; },
             '>' => { reorderSelectedFx(app, 1); return true; },
             '}', '{' => {
                 history.flushParamNudge(app);
-                // .fx's section order now follows fx_order, not id order —
-                // build the jump list from it instead of the static table
-                // sectionStarts still serves .main/.matrix.
-                var fx_starts: [6]u8 = undefined;
-                const starts: []const u8 = if (app.synth_subview == .fx) blk: {
-                    const order = currentFxOrder(app);
-                    for (order, 0..) |kind, i| fx_starts[i] = fxFirstId(kind);
-                    break :blk fx_starts[0..order.len];
-                } else sectionStarts(app.synth_subview);
-                if (c == '}') {
-                    for (starts) |s| {
-                        if (s > app.synth_cursor) {
-                            app.synth_cursor = s;
-                            break;
-                        }
-                    }
+                if (app.synth_subview == .fx) {
+                    // .fx's section order follows fx_order, which need not
+                    // be id-sorted once the user has reordered — walking a
+                    // "first id greater than cursor" list (like .main/
+                    // .matrix's sectionStarts below) would jump to whatever
+                    // section happens to have the next-highest id, not the
+                    // next section on screen. Jump by position in fx_order
+                    // instead.
+                    jumpFxSection(app, c == '}');
                 } else {
-                    var sec_idx: usize = 0;
-                    for (starts, 0..) |s, idx| {
-                        if (s <= app.synth_cursor) sec_idx = idx;
-                    }
-                    if (app.synth_cursor == starts[sec_idx] and sec_idx > 0) {
-                        app.synth_cursor = starts[sec_idx - 1];
+                    const starts = sectionStarts(app.synth_subview);
+                    if (c == '}') {
+                        for (starts) |s| {
+                            if (s > app.synth_cursor) {
+                                app.synth_cursor = s;
+                                break;
+                            }
+                        }
                     } else {
-                        app.synth_cursor = starts[sec_idx];
+                        var sec_idx: usize = 0;
+                        for (starts, 0..) |s, idx| {
+                            if (s <= app.synth_cursor) sec_idx = idx;
+                        }
+                        if (app.synth_cursor == starts[sec_idx] and sec_idx > 0) {
+                            app.synth_cursor = starts[sec_idx - 1];
+                        } else {
+                            app.synth_cursor = starts[sec_idx];
+                        }
                     }
                 }
                 updateScroll(app);
@@ -259,6 +327,20 @@ fn deadParam(id: u8) bool {
 /// (retired ids for `main`, the matrix/lfo2/lfo3/macro gap for `fx`).
 fn moveCursor(app: *App, delta: i32) void {
     const view = app.synth_subview;
+    if (view == .fx) {
+        // .fx's on-screen order follows fx_order, not numeric id order —
+        // walking raw ids (like .main/.matrix below) would get stuck at a
+        // unit's numeric id extreme even mid-screen once reordering makes
+        // id order diverge from visual order. See fxVisualIds.
+        var buf: [64]u8 = undefined;
+        const ids = fxVisualIds(currentFxOrder(app), &buf);
+        if (ids.len == 0) return;
+        const cur: i32 = @intCast(std.mem.indexOfScalar(u8, ids, app.synth_cursor) orelse 0);
+        const pos = std.math.clamp(cur + delta, 0, @as(i32, @intCast(ids.len - 1)));
+        app.synth_cursor = ids[@intCast(pos)];
+        updateScroll(app);
+        return;
+    }
     var c: i32 = std.math.clamp(
         @as(i32, app.synth_cursor) + delta, firstId(view), lastId(view),
     );
@@ -296,7 +378,7 @@ pub const body_rows_wide: usize = 87;
 /// Total body rows in the "main" subview's single-column layout.
 pub const body_rows_single: usize = 95;
 /// Total body rows in the "fx" subview (always single-column).
-pub const body_rows_fx: usize = 31;
+pub const body_rows_fx: usize = 36;
 /// Total body rows in the "matrix" subview (always single-column).
 pub const body_rows_matrix: usize = 25;
 

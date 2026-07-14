@@ -170,6 +170,10 @@ pub const SynthSnap = struct {
     // Output
     gain: f32 = 0.35,
     // Internal FX (additive optional-with-default fields, no version bump)
+    fx_gate_on: bool = false,
+    fx_gate_threshold_db: f32 = -50.0,
+    fx_gate_attack_ms: f32 = 1.0,
+    fx_gate_release_ms: f32 = 100.0,
     fx_dist_on: bool = false,
     fx_dist_drive_db: f32 = 12.0,
     fx_dist_mix: f32 = 1.0,
@@ -195,7 +199,7 @@ pub const SynthSnap = struct {
     fx_reverb_room: f32 = 0.6,
     fx_reverb_damp: f32 = 0.4,
     fx_reverb_mix: f32 = 0.3,
-    fx_order: [6]synth_mod.FxUnitKind = synth_mod.default_fx_order,
+    fx_order: [7]synth_mod.FxUnitKind = synth_mod.default_fx_order,
     // Arpeggiator (additive optional-with-default fields, no version bump)
     arp_on: bool = false,
     arp_mode: synth_mod.ArpMode = .up,
@@ -1229,6 +1233,10 @@ fn synthToSnap(s: *const PolySynth) SynthSnap {
         .mod_mode = s.mod_mode,
         .mod_amount = s.mod_amount,
         .gain = s.gain,
+        .fx_gate_on = s.fx_gate_on,
+        .fx_gate_threshold_db = s.fx_gate_threshold_db,
+        .fx_gate_attack_ms = s.fx_gate_attack_ms,
+        .fx_gate_release_ms = s.fx_gate_release_ms,
         .fx_dist_on = s.fx_dist_on,
         .fx_dist_drive_db = s.fx_dist_drive_db,
         .fx_dist_mix = s.fx_dist_mix,
@@ -1827,13 +1835,13 @@ fn loadNotes(pp: *PatternPlayer, notes: []const NoteSnap) void {
 }
 
 /// `fx_order` needs more than a per-field enum check: `std.json` guarantees
-/// every entry is a *legal* `FxUnitKind`, but not that all 6 kinds are
+/// every entry is a *legal* `FxUnitKind`, but not that all kinds are
 /// present exactly once (a hand-edited file could duplicate one kind and
 /// drop another, silently dropping the missing unit from processing).
 /// `order.len == FxUnitKind`'s variant count, so "every kind appears at
 /// least once" already implies no duplicates (pigeonhole).
-fn isValidFxOrder(order: [6]synth_mod.FxUnitKind) bool {
-    var seen = [_]bool{false} ** 6;
+fn isValidFxOrder(order: [7]synth_mod.FxUnitKind) bool {
+    var seen = [_]bool{false} ** 7;
     for (order) |kind| seen[@intFromEnum(kind)] = true;
     for (seen) |s| if (!s) return false;
     return true;
@@ -1936,6 +1944,10 @@ fn applyToSynth(s: *PolySynth, ss: *const SynthSnap) void {
     s.mod_mode = ss.mod_mode;
     s.mod_amount = clamp(ss.mod_amount, 0.0, 8.0);
     s.gain = clamp(ss.gain, 0.01, 1.0);
+    s.fx_gate_on = ss.fx_gate_on;
+    s.fx_gate_threshold_db = clamp(ss.fx_gate_threshold_db, -80.0, 0.0);
+    s.fx_gate_attack_ms = clamp(ss.fx_gate_attack_ms, 0.1, 50.0);
+    s.fx_gate_release_ms = clamp(ss.fx_gate_release_ms, 5.0, 1000.0);
     s.fx_dist_on = ss.fx_dist_on;
     s.fx_dist_drive_db = clamp(ss.fx_dist_drive_db, 0.0, 36.0);
     s.fx_dist_mix = clamp(ss.fx_dist_mix, 0.0, 1.0);

@@ -8,6 +8,7 @@ const midi = @import("../midi.zig");
 const Saturator = @import("saturator.zig").Saturator;
 const Crusher = @import("crusher.zig").Crusher;
 const Phaser = @import("phaser.zig").Phaser;
+const Gate = @import("gate.zig").Gate;
 
 const Sample = types.Sample;
 
@@ -87,12 +88,14 @@ pub const ArpMode     = enum { up, down, updown, downup, played, random, chord }
 /// no heap allocation and doesn't touch the mod-matrix/automation id space
 /// (every param keeps its existing stable id regardless of position). See
 /// `PolySynth.fx_order`'s own doc comment for the reorder mechanism.
-pub const FxUnitKind = enum { dist, crush, flanger, phaser, delay, reverb };
+pub const FxUnitKind = enum { gate, dist, crush, flanger, phaser, delay, reverb };
 
-/// Starting chain order — preserves the relative order the 6 original fixed
-/// units always ran in, so existing presets/projects sound unchanged on
-/// load. Purely a starting point once `fx_order` is user-reorderable.
-pub const default_fx_order = [_]FxUnitKind{ .dist, .crush, .flanger, .phaser, .delay, .reverb };
+/// Starting chain order — preserves the relative order the original 6
+/// fixed units always ran in, so existing presets/projects sound unchanged
+/// on load; each unit added since is slotted in wherever it makes sense in
+/// a typical signal chain (gate first, ahead of everything else). Purely a
+/// starting point once `fx_order` is user-reorderable.
+pub const default_fx_order = [_]FxUnitKind{ .gate, .dist, .crush, .flanger, .phaser, .delay, .reverb };
 
 /// Fixed-line stereo flanger for the synth's internal FX section. Unlike the
 /// master-bus Chorus it owns no heap delay line — PolySynth embeds by value
@@ -452,6 +455,13 @@ pub const PolySynth = struct {
     // its own delay time or reverb mix per note/LFO cycle, which a chain
     // unit (set-and-forget per track) can't do.
     // zig fmt: off
+    /// Reuses the track-chain's own Gate unit (dsp/gate.zig) — same peak-
+    /// detector/attack/release math, just matrix-automatable and embedded
+    /// by value here.
+    fx_gate_on:          bool = false,
+    fx_gate_threshold_db: f32 = -50.0,
+    fx_gate_attack_ms:   f32  = 1.0,
+    fx_gate_release_ms:  f32  = 100.0,
     fx_dist_on:          bool = false,
     fx_dist_drive_db:    f32  = 12.0,
     fx_dist_mix:         f32  = 1.0,
@@ -487,8 +497,9 @@ pub const PolySynth = struct {
     // zig fmt: on
     /// Processing sequence for the FX section above — see `FxUnitKind`'s
     /// doc comment. Reordered via `adjustParam`'s dedicated reorder-handle
-    /// ids (126-131), never written directly by the editor.
-    fx_order: [6]FxUnitKind = default_fx_order,
+    /// ids, never written directly by the editor.
+    fx_order: [7]FxUnitKind = default_fx_order,
+    fx_gate_state: Gate = .{},
     fx_crush_state: Crusher = .{},
     fx_flanger_state: Flanger = .{},
     fx_phaser_state: Phaser = .{},
@@ -586,6 +597,7 @@ pub const PolySynth = struct {
         84, 85, 87, 88, 89, 91, 92, 93, 94, 104, 105, 106, 107,
         109, 110, 111, 113, 114, 115,
         122, 123, 124, 125,
+        133, 134, 135,
         dest_pitch, dest_amp,
         // zig fmt: on
     };
@@ -709,6 +721,7 @@ pub const PolySynth = struct {
     pub fn init(sample_rate: u32) PolySynth {
         return .{
             .sample_rate = @floatFromInt(sample_rate),
+            .fx_gate_state = Gate.init(sample_rate),
             .fx_phaser_state = Phaser.init(sample_rate),
             .fx_reverb_state = Reverb.init(@floatFromInt(sample_rate)),
         };
@@ -824,6 +837,10 @@ pub const PolySynth = struct {
 
         gain: f32 = 0.35,
 
+        fx_gate_on: bool = false,
+        fx_gate_threshold_db: f32 = -50.0,
+        fx_gate_attack_ms: f32 = 1.0,
+        fx_gate_release_ms: f32 = 100.0,
         fx_dist_on: bool = false,
         fx_dist_drive_db: f32 = 12.0,
         fx_dist_mix: f32 = 1.0,
@@ -849,7 +866,7 @@ pub const PolySynth = struct {
         fx_reverb_room: f32 = 0.6,
         fx_reverb_damp: f32 = 0.4,
         fx_reverb_mix: f32 = 0.3,
-        fx_order: [6]FxUnitKind = default_fx_order,
+        fx_order: [7]FxUnitKind = default_fx_order,
 
         arp_on: bool = false,
         arp_mode: ArpMode = .up,
@@ -1675,13 +1692,21 @@ pub const PolySynth = struct {
         // are shared by all voices, so the per-voice sources read from the
         // most recently triggered voice (env/velocity → drive style routes
         // still play).
-        if (self.fx_dist_on or self.fx_crush_on or self.fx_flanger_on or self.fx_phaser_on or
-            self.fx_delay_on or self.fx_reverb_on)
+        if (self.fx_gate_on or self.fx_dist_on or self.fx_crush_on or self.fx_flanger_on or
+            self.fx_phaser_on or self.fx_delay_on or self.fx_reverb_on)
         {
             const nv = &self.voices[self.newest_voice];
             const mods = self.evalMatrix(if (nv.active) nv else null, lfo_vals);
             for (self.fx_order) |kind| {
                 switch (kind) {
+                    .gate => if (self.fx_gate_on) {
+                        // zig fmt: off
+                        self.fx_gate_state.threshold_db = eff(&mods, 133, self.fx_gate_threshold_db);
+                        self.fx_gate_state.attack_ms     = eff(&mods, 134, self.fx_gate_attack_ms);
+                        self.fx_gate_state.release_ms    = eff(&mods, 135, self.fx_gate_release_ms);
+                        // zig fmt: on
+                        self.fx_gate_state.processBlock(buf);
+                    },
                     .dist => if (self.fx_dist_on) {
                         // Stateless, so a per-block value with the
                         // effective params is all it takes (out_db stays
@@ -1999,8 +2024,9 @@ pub const PolySynth = struct {
         self.fx_flanger_state = .{};
         self.fx_delay_state = .{};
         // Reset(), not `= .{}` — a bare default would also clobber the
-        // sample-rate-derived state PolySynth.init set (Phaser's
-        // sample_rate, Reverb's per-line len).
+        // sample-rate-derived state PolySynth.init set (Gate's and
+        // Phaser's sample_rate, Reverb's per-line len).
+        self.fx_gate_state.reset();
         self.fx_phaser_state.reset();
         self.fx_reverb_state.reset();
     }
@@ -2297,6 +2323,15 @@ pub const PolySynth = struct {
             129 => self.reorderFx(.phaser,  steps),
             130 => self.reorderFx(.delay,   steps),
             131 => self.reorderFx(.reverb,  steps),
+            // FX GATE (132–135), reorder handle 136 — appended after the
+            // reorder-id block above rather than renumbered into it, same
+            // "always append after the current max" convention as any
+            // other param pickup.
+            132 => self.fx_gate_on           = !self.fx_gate_on,
+            133 => self.fx_gate_threshold_db = std.math.clamp(self.fx_gate_threshold_db + s * 1.0,   -80.0,    0.0),
+            134 => self.fx_gate_attack_ms    = std.math.clamp(self.fx_gate_attack_ms    + s * 0.1,     0.1,   50.0),
+            135 => self.fx_gate_release_ms   = std.math.clamp(self.fx_gate_release_ms   + s * 10.0,    5.0, 1000.0),
+            136 => self.reorderFx(.gate, steps),
             // zig fmt: on
             // MATRIX (59–82): 3 ids per row — source, dest, depth.
             59...82 => {
@@ -2437,15 +2472,24 @@ pub const PolySynth = struct {
             123 => self.env3_decay_s       = std.math.clamp(value,   0.001,  5.0),
             124 => self.env3_sustain       = std.math.clamp(value,   0.0,    1.0),
             125 => self.env3_release_s     = std.math.clamp(value,   0.001, 10.0),
-            // FX REORDER (126-131) — value is the unit's absolute fx_order
-            // slot index; see `setFxIndex`'s doc comment for why undo/redo
-            // routes reordering through here instead of `adjustParam`.
-            126 => self.setFxIndex(.dist,    @intFromFloat(@round(std.math.clamp(value, 0.0, 5.0)))),
-            127 => self.setFxIndex(.crush,   @intFromFloat(@round(std.math.clamp(value, 0.0, 5.0)))),
-            128 => self.setFxIndex(.flanger, @intFromFloat(@round(std.math.clamp(value, 0.0, 5.0)))),
-            129 => self.setFxIndex(.phaser,  @intFromFloat(@round(std.math.clamp(value, 0.0, 5.0)))),
-            130 => self.setFxIndex(.delay,   @intFromFloat(@round(std.math.clamp(value, 0.0, 5.0)))),
-            131 => self.setFxIndex(.reverb,  @intFromFloat(@round(std.math.clamp(value, 0.0, 5.0)))),
+            // FX REORDER (126-131), gate's 136 appended further below —
+            // value is the unit's absolute fx_order slot index; see
+            // `setFxIndex`'s doc comment for why undo/redo routes
+            // reordering through here instead of `adjustParam`. Only the
+            // lower bound is clamped here: `setFxIndex` itself clamps the
+            // upper end to the real (growing) slot count, so this stays
+            // correct as more units are added without needing a bump here.
+            126 => self.setFxIndex(.dist,    @intFromFloat(@round(@max(value, 0.0)))),
+            127 => self.setFxIndex(.crush,   @intFromFloat(@round(@max(value, 0.0)))),
+            128 => self.setFxIndex(.flanger, @intFromFloat(@round(@max(value, 0.0)))),
+            129 => self.setFxIndex(.phaser,  @intFromFloat(@round(@max(value, 0.0)))),
+            130 => self.setFxIndex(.delay,   @intFromFloat(@round(@max(value, 0.0)))),
+            131 => self.setFxIndex(.reverb,  @intFromFloat(@round(@max(value, 0.0)))),
+            132 => self.fx_gate_on           = value >= 0.5,
+            133 => self.fx_gate_threshold_db = std.math.clamp(value, -80.0,   0.0),
+            134 => self.fx_gate_attack_ms    = std.math.clamp(value,   0.1,  50.0),
+            135 => self.fx_gate_release_ms   = std.math.clamp(value,   5.0, 1000.0),
+            136 => self.setFxIndex(.gate,      @intFromFloat(@round(@max(value, 0.0)))),
             // zig fmt: on
             // MATRIX: dest takes the raw param id (falls back to cutoff if
             // the value isn't a legal dest — e.g. a hand-edited curve).
@@ -2583,6 +2627,11 @@ pub const PolySynth = struct {
             129 => @floatFromInt(self.fxOrderIndex(.phaser)),
             130 => @floatFromInt(self.fxOrderIndex(.delay)),
             131 => @floatFromInt(self.fxOrderIndex(.reverb)),
+            132 => if (self.fx_gate_on) 1.0 else 0.0,
+            133 => self.fx_gate_threshold_db,
+            134 => self.fx_gate_attack_ms,
+            135 => self.fx_gate_release_ms,
+            136 => @floatFromInt(self.fxOrderIndex(.gate)),
             // zig fmt: on
             59...82 => blk: {
                 const row = self.mod_matrix[(id - 59) / 3];
@@ -2694,6 +2743,9 @@ pub const PolySynth = struct {
         .{ .id = 123,.label = "E3 DECAY",   .section = "ENV 3",   .range = .{ 0.001,  5.0 },     .step = 0.01 },
         .{ .id = 124,.label = "E3 SUSTAIN", .section = "ENV 3",   .range = .{ 0.0,    1.0 },     .step = 0.01 },
         .{ .id = 125,.label = "E3 RELEASE", .section = "ENV 3",   .range = .{ 0.001,  10.0 },    .step = 0.01 },
+        .{ .id = 133,.label = "GATE THRESH",.section = "FX GATE", .range = .{ -80.0,  0.0 },     .step = 1.0 },
+        .{ .id = 134,.label = "GATE ATTACK",.section = "FX GATE", .range = .{ 0.1,    50.0 },    .step = 0.1 },
+        .{ .id = 135,.label = "GATE RELEASE",.section = "FX GATE",.range = .{ 5.0,    1000.0 },  .step = 10.0 },
         // zig fmt: on
     };
 

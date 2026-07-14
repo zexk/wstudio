@@ -10,7 +10,7 @@ const dsp = @import("device.zig");
 const Sample = types.Sample;
 
 pub const Gate = struct {
-    sample_rate: f32,
+    sample_rate: f32 = 48_000.0,
     threshold_db: f32 = -50.0,
     attack_ms: f32 = 1.0,
     release_ms: f32 = 100.0,
@@ -58,10 +58,18 @@ pub const Gate = struct {
         self.processBlock(buf);
     }
 
-    fn resetOpaque(ptr: *anyopaque) void {
-        const self: *Gate = @ptrCast(@alignCast(ptr));
+    /// Clears detector/gain state without touching `sample_rate` — callers
+    /// embedding a `Gate` by value (e.g. PolySynth's internal FX section)
+    /// must use this instead of `= .{}`, which would reset sample_rate to
+    /// the struct default and desync it from the real session rate.
+    pub fn reset(self: *Gate) void {
         self.env = 0.0;
         self.gain = 0.0;
+    }
+
+    fn resetOpaque(ptr: *anyopaque) void {
+        const self: *Gate = @ptrCast(@alignCast(ptr));
+        self.reset();
     }
 };
 

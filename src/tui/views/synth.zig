@@ -184,12 +184,13 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize
             },
             .fx => for (synth.fx_order) |kind| {
                 switch (kind) {
-                    .dist    => try secFxDist(&tw, synth, c),
-                    .crush   => try secFxCrush(&tw, synth, c),
+                    .gate => try secFxGate(&tw, synth, c),
+                    .dist => try secFxDist(&tw, synth, c),
+                    .crush => try secFxCrush(&tw, synth, c),
                     .flanger => try secFxFlanger(&tw, synth, c),
-                    .phaser  => try secFxPhaser(&tw, synth, c),
-                    .delay   => try secFxDelay(&tw, synth, c),
-                    .reverb  => try secFxReverb(&tw, synth, c),
+                    .phaser => try secFxPhaser(&tw, synth, c),
+                    .delay => try secFxDelay(&tw, synth, c),
+                    .reverb => try secFxReverb(&tw, synth, c),
                 }
             },
             .matrix => try secMatrix(&tw, synth, c),
@@ -668,9 +669,23 @@ fn secMatrix(w: *std.Io.Writer, synth: anytype, c: u8) !void {
 
 const on_off_names = [_][]const u8{ "on", "off" };
 
-/// Internal FX sections: post-mix dist → crush → flanger inside the synth
+/// Internal FX sections: post-mix, user-reorderable inside the synth
 /// itself, distinct from the track FX chain — these params are matrix and
 /// automation targets (see PolySynth's FX field block).
+fn secFxGate(w: *std.Io.Writer, synth: anytype, c: u8) !void {
+    var buf: [40]u8 = undefined;
+    try synthSection(w, "FX GATE", red);
+
+    const on = synth.fx_gate_on;
+    try enumRow(w, c == 132, false, red, "on/off", &on_off_names, if (on) 0 else 1);
+    try barRow(w, c == 133, !on, red, "threshold", synth.fx_gate_threshold_db + 80.0, 80.0,
+        try std.fmt.bufPrint(&buf, "{d:.0} dB", .{synth.fx_gate_threshold_db}));
+    try barRow(w, c == 134, !on, red, "attack", synth.fx_gate_attack_ms, 50.0,
+        try std.fmt.bufPrint(&buf, "{d:.1} ms", .{synth.fx_gate_attack_ms}));
+    try barRow(w, c == 135, !on, red, "release", synth.fx_gate_release_ms, 1000.0,
+        try std.fmt.bufPrint(&buf, "{d:.0} ms", .{synth.fx_gate_release_ms}));
+}
+
 fn secFxDist(w: *std.Io.Writer, synth: anytype, c: u8) !void {
     var buf: [40]u8 = undefined;
     try synthSection(w, "FX DIST", red);
@@ -795,6 +810,10 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !
         "dly.on", "dly.time", "dly.fdbk", "dly.mix",
         "vrb.on", "vrb.room", "vrb.damp", "vrb.mix",
         "arp.on", "arp.mode", "arp.octaves", "arp.rate", "arp.gate", "arp.hold",
+        "e3.attack", "e3.decay", "e3.sustain", "e3.release",
+        "-", "-", "-", "-", "-", "-", // 126-131: FX reorder handles, never cursor-reachable
+        "gate.on", "gate.thresh", "gate.attack", "gate.release",
+        "-", // 136: gate's reorder handle, never cursor-reachable
     };
     const cur = @min(@as(usize, app.synth_cursor), labels.len - 1);
     try style.writeModeBadge(w, app.modal.mode);
@@ -943,6 +962,10 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !
         123 => try w.print("{d:.3} s",     .{synth.env3_decay_s}),
         124 => try w.print("{d:.3}",       .{synth.env3_sustain}),
         125 => try w.print("{d:.3} s",     .{synth.env3_release_s}),
+        132 => try w.writeAll(if (synth.fx_gate_on) "on" else "off"),
+        133 => try w.print("{d:.0} dB",    .{synth.fx_gate_threshold_db}),
+        134 => try w.print("{d:.1} ms",    .{synth.fx_gate_attack_ms}),
+        135 => try w.print("{d:.0} ms",    .{synth.fx_gate_release_ms}),
         // zig fmt: on
         else => {},
     }
