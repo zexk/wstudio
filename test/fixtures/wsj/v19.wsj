@@ -1,0 +1,17 @@
+{
+  "version": 19,
+  "tracks": [
+    { "name": "flange" }
+  ],
+  "racks": [
+    {
+      "label": "flange",
+      "kind": "empty",
+      "fx_chain": [
+        { "kind": "flanger", "flanger": {
+          "rate_hz": 0.6, "depth": 0.85, "feedback": 0.4, "mix": 0.7
+        } }
+      ]
+    }
+  ]
+}

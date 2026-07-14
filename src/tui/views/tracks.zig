@@ -55,7 +55,7 @@ fn writeFxBadges(w: *std.Io.Writer, fx: *const ws.Fx) !void {
         try w.writeAll(switch (u.kind()) {
             .gate => "gate", .comp => "cmp", .mb_comp => "mbc", .ott => "ott",
             .eq => "eq", .sat => "sat", .crush => "crs", .chorus => "cho",
-            .phaser => "pha", .freq_shift => "frq", .delay => "dly", .reverb => "rev",
+            .phaser => "pha", .flanger => "fln", .freq_shift => "frq", .delay => "dly", .reverb => "rev",
         });
     }
 }

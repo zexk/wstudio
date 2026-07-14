@@ -8,7 +8,8 @@
 //!   - Drum step-count + per-pad bitmask patterns + per-pad sampler params
 //!   - Per-track gain / pan / mute / solo + project tempo
 //!   - FX: gate, compressor, multiband compressor (incl. OTT style), EQ,
-//!     saturator, crusher, chorus, phaser, frequency shifter, delay, reverb
+//!     saturator, crusher, chorus, phaser, flanger, frequency shifter, delay,
+//!     reverb
 //!   - Rack labels
 //!   - User-loaded sample audio (drum pads + sampler clips), exported as mono
 //!     WAVs into the "<stem>_samples" sidecar directory next to the .wsj
@@ -51,7 +52,7 @@ const AutomationPoint = automation_mod.AutomationPoint;
 /// added and what older files load as) and the bump-vs-additive policy
 /// live in FORMAT.md; per-field migration specifics stay as doc comments
 /// on the snapshot fields they concern.
-pub const file_version: u32 = 18;
+pub const file_version: u32 = 19;
 
 pub const AutomationPointSnap = struct {
     beat: f64,
@@ -501,6 +502,13 @@ pub const PhaserSnap = struct {
     mix: f32 = 0.5,
 };
 
+pub const FlangerSnap = struct {
+    rate_hz: f32 = 0.3,
+    depth: f32 = 0.7,
+    feedback: f32 = 0.5,
+    mix: f32 = 0.5,
+};
+
 pub const FreqShiftSnap = struct {
     shift_hz: f32 = 0.0,
     mix: f32 = 1.0,
@@ -522,7 +530,7 @@ pub const FxSnap = struct {
 
 /// Mirrors rack.zig's FxKind — persist keeps its own copy so snapshots stay
 /// pure data, same pattern as `InstrumentKind` below.
-pub const FxKind = enum { gate, comp, mb_comp, ott, eq, sat, crush, chorus, phaser, freq_shift, delay, reverb };
+pub const FxKind = enum { gate, comp, mb_comp, ott, eq, sat, crush, chorus, phaser, flanger, freq_shift, delay, reverb };
 
 /// One chain slot (v10): its kind, bypass flag, and the params for that kind
 /// in the matching optional (the others stay null). A missing params field
@@ -541,6 +549,7 @@ pub const FxUnitSnap = struct {
     crush: ?CrushSnap = null,
     chorus: ?ChorusSnap = null,
     phaser: ?PhaserSnap = null,
+    flanger: ?FlangerSnap = null,
     freq_shift: ?FreqShiftSnap = null,
 };
 
@@ -1006,6 +1015,9 @@ fn chainToSnap(aa: std.mem.Allocator, fx: *const Fx, sample_rate: u32) ![]FxUnit
             .chorus => |c| .{ .kind = .chorus, .chorus = .{ .rate_hz = c.rate_hz, .depth_ms = c.depth_ms, .mix = c.mix } },
             .phaser => |p| .{ .kind = .phaser, .phaser = .{
                 .rate_hz = p.rate_hz, .depth = p.depth, .feedback = p.feedback, .mix = p.mix,
+            } },
+            .flanger => |fl| .{ .kind = .flanger, .flanger = .{
+                .rate_hz = fl.rate_hz, .depth = fl.depth, .feedback = fl.feedback, .mix = fl.mix,
             } },
             .freq_shift => |f| .{ .kind = .freq_shift, .freq_shift = .{
                 .shift_hz = f.shift_hz, .mix = f.mix,
@@ -2123,7 +2135,8 @@ fn applyFxChain(allocator: std.mem.Allocator, fx_out: *Fx, chain: []const FxUnit
         const kind: rack_mod.FxKind = switch (us.kind) {
             .gate => .gate, .comp => .comp, .mb_comp => .mb_comp, .ott => .ott,
             .eq => .eq, .sat => .sat, .crush => .crush, .chorus => .chorus,
-            .phaser => .phaser, .freq_shift => .freq_shift, .delay => .delay, .reverb => .reverb,
+            .phaser => .phaser, .flanger => .flanger,
+            .freq_shift => .freq_shift, .delay => .delay, .reverb => .reverb,
         };
         const unit = try fx_out.insert(allocator, fx_out.units.items.len, kind, sr);
         unit.bypassed = us.bypassed;
@@ -2200,6 +2213,12 @@ fn applyFxChain(allocator: std.mem.Allocator, fx_out: *Fx, chain: []const FxUnit
                 p.depth = ps.depth;
                 p.feedback = ps.feedback;
                 p.mix = ps.mix;
+            },
+            .flanger => |*fl| if (us.flanger) |fs| {
+                fl.rate_hz = fs.rate_hz;
+                fl.depth = fs.depth;
+                fl.feedback = fs.feedback;
+                fl.mix = fs.mix;
             },
             .freq_shift => |*f| if (us.freq_shift) |fs| {
                 f.shift_hz = fs.shift_hz;
@@ -3596,7 +3615,7 @@ test "golden-file corpus: every historical .wsj fixture still loads" {
     }
 
     // Guards against a misconfigured path silently turning this into a no-op.
-    try testing.expectEqual(@as(usize, 18), count);
+    try testing.expectEqual(@as(usize, 19), count);
 }
 
 test "golden-file corpus: v17's mod matrix loads its rows" {
@@ -3704,6 +3723,17 @@ test "golden-file corpus: v18's freq_shift unit loads its params" {
     const f = &session.racks.items[0].fx.find(.freq_shift).?.payload.freq_shift;
     try testing.expectApproxEqAbs(@as(f32, 137.0), f.shift_hz, 1e-3);
     try testing.expectApproxEqAbs(@as(f32, 0.8), f.mix, 1e-3);
+}
+
+test "golden-file corpus: v19's flanger unit loads its params" {
+    const testing = std.testing;
+    var session = try load(testing.allocator, testing.io, "test/fixtures/wsj/v19.wsj");
+    defer session.deinit();
+    const fl = &session.racks.items[0].fx.find(.flanger).?.payload.flanger;
+    try testing.expectApproxEqAbs(@as(f32, 0.6), fl.rate_hz, 1e-3);
+    try testing.expectApproxEqAbs(@as(f32, 0.85), fl.depth, 1e-3);
+    try testing.expectApproxEqAbs(@as(f32, 0.4), fl.feedback, 1e-3);
+    try testing.expectApproxEqAbs(@as(f32, 0.7), fl.mix, 1e-3);
 }
 
 test "save/load round-trip persists an EQ band's lowpass/highpass type and slope" {

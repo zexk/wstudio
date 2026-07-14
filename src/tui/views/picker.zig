@@ -97,6 +97,7 @@ const fx_picker_menu = [_]struct { name: []const u8, desc: []const u8 }{
     .{ .name = "Saturator",  .desc = "soft-clip drive: analog-style warmth through grit" },
     .{ .name = "Crusher",    .desc = "bitcrusher: lo-fi bit depth + sample-rate reduction" },
     .{ .name = "Chorus",     .desc = "modulated doubling: width and shimmer" },
+    .{ .name = "Flanger",    .desc = "modulated delay w/ feedback: whoosh to metallic comb" },
     .{ .name = "Phaser",     .desc = "sweeping notches: slow swirl to fast wobble" },
     .{ .name = "Freq Shift", .desc = "Bode-style shifter: moves every partial by a fixed Hz, inharmonic" },
     .{ .name = "Delay",      .desc = "stereo echo with feedback and mix" },

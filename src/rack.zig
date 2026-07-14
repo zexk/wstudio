@@ -15,6 +15,7 @@ const Saturator = @import("dsp/saturator.zig").Saturator;
 const Crusher = @import("dsp/crusher.zig").Crusher;
 const Chorus = @import("dsp/chorus.zig").Chorus;
 const Phaser = @import("dsp/phaser.zig").Phaser;
+const Flanger = @import("dsp/flanger.zig").Flanger;
 const FreqShifter = @import("dsp/freq_shift.zig").FreqShifter;
 const PatternPlayer = @import("dsp/pattern.zig").PatternPlayer;
 const Transport = @import("transport.zig").Transport;
@@ -79,6 +80,7 @@ pub const FxPayload = union(enum) {
     crush: Crusher,
     chorus: Chorus,
     phaser: Phaser,
+    flanger: Flanger,
     freq_shift: FreqShifter,
     delay: StereoDelay,
     reverb: Reverb,
@@ -97,6 +99,7 @@ pub const FxPayload = union(enum) {
             .crush   => |*c| c.device(),
             .chorus  => |*c| c.device(),
             .phaser  => |*p| p.device(),
+            .flanger => |*f| f.device(),
             .freq_shift => |*f| f.device(),
             .delay   => |*d| d.device(),
             .reverb  => |*r| r.device(),
@@ -187,6 +190,7 @@ pub const Fx = struct {
             .crush   => .{ .crush = .{} },
             .chorus  => .{ .chorus = try Chorus.init(allocator, sr) },
             .phaser  => .{ .phaser = Phaser.init(sr) },
+            .flanger => .{ .flanger = Flanger.init(sr) },
             .freq_shift => .{ .freq_shift = FreqShifter.init(sr) },
             .delay   => .{ .delay = try StereoDelay.init(allocator, sr, 2.0) },
             .reverb  => .{ .reverb = try Reverb.init(allocator, sr) },

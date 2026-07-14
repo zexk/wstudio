@@ -31,7 +31,7 @@ const history = @import("../history.zig");
 /// tone, character, modulation, time). Parallel to `picker_menu` in
 /// views/picker.zig.
 pub const picker_kinds = [_]FxKind{
-    .gate, .comp, .mb_comp, .ott, .eq, .sat, .crush, .chorus, .phaser, .freq_shift, .delay, .reverb,
+    .gate, .comp, .mb_comp, .ott, .eq, .sat, .crush, .chorus, .flanger, .phaser, .freq_shift, .delay, .reverb,
 };
 
 pub fn unitLabel(k: FxKind) []const u8 {
@@ -44,6 +44,7 @@ pub fn unitLabel(k: FxKind) []const u8 {
         .sat => "SAT",
         .crush => "CRUSH",
         .chorus => "CHORUS",
+        .flanger => "FLANGER",
         .phaser => "PHASER",
         .freq_shift => "FREQ SHIFT",
         .delay => "DELAY",
@@ -64,6 +65,7 @@ pub fn stripLabel(k: FxKind) []const u8 {
         .sat => "SAT",
         .crush => "CRSH",
         .chorus => "CHOR",
+        .flanger => "FLNG",
         .phaser => "PHAS",
         .freq_shift => "FRQS",
         .delay => "DLY",
@@ -76,7 +78,7 @@ pub fn paramCount(k: FxKind) usize {
         .eq => eq_mod.num_eq_bands * eq_fields_per_band,
         .mb_comp => mb_comp_param_count,
         .comp => 7,
-        .ott, .phaser => 4,
+        .ott, .phaser, .flanger => 4,
         .freq_shift => 2,
         .gate, .sat, .crush, .chorus, .delay, .reverb => 3,
     };
@@ -235,6 +237,10 @@ pub fn paramName(p: *const FxPayload, idx: usize) []const u8 {
             0 => "rate", 1 => "depth", 2 => "feedback", 3 => "mix",
             else => "?",
         },
+        .flanger => switch (idx) {
+            0 => "rate", 1 => "depth", 2 => "feedback", 3 => "mix",
+            else => "?",
+        },
         .freq_shift => switch (idx) {
             0 => "shift", 1 => "mix",
             else => "?",
@@ -320,6 +326,10 @@ pub fn getParam(p: *const FxPayload, idx: usize) f32 {
             0 => p2.rate_hz, 1 => p2.depth, 2 => p2.feedback, 3 => p2.mix,
             else => 0,
         },
+        .flanger => |*fl| switch (idx) {
+            0 => fl.rate_hz, 1 => fl.depth, 2 => fl.feedback, 3 => fl.mix,
+            else => 0,
+        },
         .freq_shift => |*f| switch (idx) {
             0 => f.shift_hz, 1 => f.mix,
             else => 0,
@@ -400,6 +410,11 @@ pub fn paramRange(app: *App, p: *const FxPayload, idx: usize) [2]f32 {
             else => .{ 0.0, 1.0 },
         },
         .phaser => switch (idx) {
+            0 => .{ 0.05, 5.0 },
+            2 => .{ 0.0, 0.9 },
+            else => .{ 0.0, 1.0 },
+        },
+        .flanger => switch (idx) {
             0 => .{ 0.05, 5.0 },
             2 => .{ 0.0, 0.9 },
             else => .{ 0.0, 1.0 },
@@ -544,6 +559,13 @@ pub fn setParam(app: *App, p: *FxPayload, idx: usize, value: f32) void {
             3 => p2.mix = std.math.clamp(value, 0.0, 1.0),
             else => {},
         },
+        .flanger => |*fl| switch (idx) {
+            0 => fl.rate_hz = std.math.clamp(value, 0.05, 5.0),
+            1 => fl.depth = std.math.clamp(value, 0.0, 1.0),
+            2 => fl.feedback = std.math.clamp(value, 0.0, 0.9),
+            3 => fl.mix = std.math.clamp(value, 0.0, 1.0),
+            else => {},
+        },
         .freq_shift => |*f| switch (idx) {
             0 => f.shift_hz = std.math.clamp(value, -2000.0, 2000.0),
             1 => f.mix = std.math.clamp(value, 0.0, 1.0),
@@ -624,6 +646,10 @@ fn paramStep(p: *const FxPayload, idx: usize, coarse: bool) f32 {
             else => if (coarse) @as(f32, 0.2) else 0.05,
         },
         .phaser => switch (idx) {
+            0 => if (coarse) @as(f32, 0.5) else 0.05,
+            else => if (coarse) @as(f32, 0.2) else 0.05,
+        },
+        .flanger => switch (idx) {
             0 => if (coarse) @as(f32, 0.5) else 0.05,
             else => if (coarse) @as(f32, 0.2) else 0.05,
         },
