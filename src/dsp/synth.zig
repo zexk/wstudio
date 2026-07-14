@@ -81,6 +81,19 @@ pub const WarpMode    = enum { none, bend, mirror, sync };
 pub const ArpMode     = enum { up, down, updown, downup, played, random, chord };
 // zig fmt: on
 
+/// Which insert-FX unit occupies each slot of the synth-internal chain's
+/// processing order. Every unit stays an always-present by-value field on
+/// `PolySynth` (same as before) — this only controls *sequence*, so it adds
+/// no heap allocation and doesn't touch the mod-matrix/automation id space
+/// (every param keeps its existing stable id regardless of position). See
+/// `PolySynth.fx_order`'s own doc comment for the reorder mechanism.
+pub const FxUnitKind = enum { dist, crush, flanger, phaser, delay, reverb };
+
+/// Starting chain order — preserves the relative order the 6 original fixed
+/// units always ran in, so existing presets/projects sound unchanged on
+/// load. Purely a starting point once `fx_order` is user-reorderable.
+pub const default_fx_order = [_]FxUnitKind{ .dist, .crush, .flanger, .phaser, .delay, .reverb };
+
 /// Fixed-line stereo flanger for the synth's internal FX section. Unlike the
 /// master-bus Chorus it owns no heap delay line — PolySynth embeds by value
 /// in Rack and Rack.dupe copies it, so all state must be inline (same
@@ -472,6 +485,10 @@ pub const PolySynth = struct {
     fx_reverb_damp:      f32  = 0.4,
     fx_reverb_mix:       f32  = 0.3,
     // zig fmt: on
+    /// Processing sequence for the FX section above — see `FxUnitKind`'s
+    /// doc comment. Reordered via `adjustParam`'s dedicated reorder-handle
+    /// ids (126-131), never written directly by the editor.
+    fx_order: [6]FxUnitKind = default_fx_order,
     fx_crush_state: Crusher = .{},
     fx_flanger_state: Flanger = .{},
     fx_phaser_state: Phaser = .{},
@@ -832,6 +849,7 @@ pub const PolySynth = struct {
         fx_reverb_room: f32 = 0.6,
         fx_reverb_damp: f32 = 0.4,
         fx_reverb_mix: f32 = 0.3,
+        fx_order: [6]FxUnitKind = default_fx_order,
 
         arp_on: bool = false,
         arp_mode: ArpMode = .up,
@@ -1652,68 +1670,73 @@ pub const PolySynth = struct {
             }
         }
 
-        // ── Internal FX (post-mix, fixed order dist → crush → flanger →
-        // phaser → delay → reverb) ── One global matrix evaluation per
-        // block: FX params are shared by all voices, so the per-voice
-        // sources read from the most recently triggered voice (env/velocity
-        // → drive style routes still play).
+        // ── Internal FX (post-mix, user-reorderable via fx_order — see
+        // FxUnitKind) ── One global matrix evaluation per block: FX params
+        // are shared by all voices, so the per-voice sources read from the
+        // most recently triggered voice (env/velocity → drive style routes
+        // still play).
         if (self.fx_dist_on or self.fx_crush_on or self.fx_flanger_on or self.fx_phaser_on or
             self.fx_delay_on or self.fx_reverb_on)
         {
             const nv = &self.voices[self.newest_voice];
             const mods = self.evalMatrix(if (nv.active) nv else null, lfo_vals);
-            if (self.fx_dist_on) {
-                // Stateless, so a per-block value with the effective params
-                // is all it takes (out_db stays at its 0 dB default).
-                var sat = Saturator{
-                    .drive_db = eff(&mods, 84, self.fx_dist_drive_db),
-                    .mix = eff(&mods, 85, self.fx_dist_mix),
-                };
-                sat.processBlock(buf);
-            }
-            if (self.fx_crush_on) {
-                // zig fmt: off
-                self.fx_crush_state.bits       = eff(&mods, 87, self.fx_crush_bits);
-                self.fx_crush_state.downsample = eff(&mods, 88, self.fx_crush_rate);
-                self.fx_crush_state.mix        = eff(&mods, 89, self.fx_crush_mix);
-                // zig fmt: on
-                self.fx_crush_state.processBlock(buf);
-            }
-            if (self.fx_flanger_on) {
-                self.fx_flanger_state.processBlock(
-                    buf,
-                    self.sample_rate,
-                    eff(&mods, 91, self.fx_flanger_rate_hz),
-                    eff(&mods, 92, self.fx_flanger_depth),
-                    eff(&mods, 93, self.fx_flanger_feedback),
-                    eff(&mods, 94, self.fx_flanger_mix),
-                );
-            }
-            if (self.fx_phaser_on) {
-                // zig fmt: off
-                self.fx_phaser_state.rate_hz  = eff(&mods, 104, self.fx_phaser_rate_hz);
-                self.fx_phaser_state.depth    = eff(&mods, 105, self.fx_phaser_depth);
-                self.fx_phaser_state.feedback = eff(&mods, 106, self.fx_phaser_feedback);
-                self.fx_phaser_state.mix      = eff(&mods, 107, self.fx_phaser_mix);
-                // zig fmt: on
-                self.fx_phaser_state.processBlock(buf);
-            }
-            if (self.fx_delay_on) {
-                self.fx_delay_state.processBlock(
-                    buf,
-                    self.sample_rate,
-                    eff(&mods, 109, self.fx_delay_time_s),
-                    eff(&mods, 110, self.fx_delay_feedback),
-                    eff(&mods, 111, self.fx_delay_mix),
-                );
-            }
-            if (self.fx_reverb_on) {
-                self.fx_reverb_state.processBlock(
-                    buf,
-                    eff(&mods, 113, self.fx_reverb_room),
-                    eff(&mods, 114, self.fx_reverb_damp),
-                    eff(&mods, 115, self.fx_reverb_mix),
-                );
+            for (self.fx_order) |kind| {
+                switch (kind) {
+                    .dist => if (self.fx_dist_on) {
+                        // Stateless, so a per-block value with the
+                        // effective params is all it takes (out_db stays
+                        // at its 0 dB default).
+                        var sat = Saturator{
+                            .drive_db = eff(&mods, 84, self.fx_dist_drive_db),
+                            .mix = eff(&mods, 85, self.fx_dist_mix),
+                        };
+                        sat.processBlock(buf);
+                    },
+                    .crush => if (self.fx_crush_on) {
+                        // zig fmt: off
+                        self.fx_crush_state.bits       = eff(&mods, 87, self.fx_crush_bits);
+                        self.fx_crush_state.downsample = eff(&mods, 88, self.fx_crush_rate);
+                        self.fx_crush_state.mix        = eff(&mods, 89, self.fx_crush_mix);
+                        // zig fmt: on
+                        self.fx_crush_state.processBlock(buf);
+                    },
+                    .flanger => if (self.fx_flanger_on) {
+                        self.fx_flanger_state.processBlock(
+                            buf,
+                            self.sample_rate,
+                            eff(&mods, 91, self.fx_flanger_rate_hz),
+                            eff(&mods, 92, self.fx_flanger_depth),
+                            eff(&mods, 93, self.fx_flanger_feedback),
+                            eff(&mods, 94, self.fx_flanger_mix),
+                        );
+                    },
+                    .phaser => if (self.fx_phaser_on) {
+                        // zig fmt: off
+                        self.fx_phaser_state.rate_hz  = eff(&mods, 104, self.fx_phaser_rate_hz);
+                        self.fx_phaser_state.depth    = eff(&mods, 105, self.fx_phaser_depth);
+                        self.fx_phaser_state.feedback = eff(&mods, 106, self.fx_phaser_feedback);
+                        self.fx_phaser_state.mix      = eff(&mods, 107, self.fx_phaser_mix);
+                        // zig fmt: on
+                        self.fx_phaser_state.processBlock(buf);
+                    },
+                    .delay => if (self.fx_delay_on) {
+                        self.fx_delay_state.processBlock(
+                            buf,
+                            self.sample_rate,
+                            eff(&mods, 109, self.fx_delay_time_s),
+                            eff(&mods, 110, self.fx_delay_feedback),
+                            eff(&mods, 111, self.fx_delay_mix),
+                        );
+                    },
+                    .reverb => if (self.fx_reverb_on) {
+                        self.fx_reverb_state.processBlock(
+                            buf,
+                            eff(&mods, 113, self.fx_reverb_room),
+                            eff(&mods, 114, self.fx_reverb_damp),
+                            eff(&mods, 115, self.fx_reverb_mix),
+                        );
+                    },
+                }
             }
         }
 
@@ -2025,6 +2048,49 @@ pub const PolySynth = struct {
         }
     }
 
+    /// Move `kind`'s slot in `fx_order` toward the right (steps > 0) or left
+    /// (steps < 0), `|steps|` times, clamping at either end instead of
+    /// wrapping (matches a chain strip, not a cyclic enum). Drives the live
+    /// `<`/`>` keypress via `adjustParam`'s ids 126-131 — undo/redo instead
+    /// goes through `setFxIndex` (see that fn's doc comment for why).
+    fn reorderFx(self: *PolySynth, kind: FxUnitKind, steps: i32) void {
+        const dir: i32 = if (steps >= 0) 1 else -1;
+        var n = @abs(steps);
+        while (n > 0) : (n -= 1) {
+            const idx = std.mem.indexOfScalar(FxUnitKind, &self.fx_order, kind) orelse return;
+            const other: i32 = @as(i32, @intCast(idx)) + dir;
+            if (other < 0 or other >= self.fx_order.len) return;
+            std.mem.swap(FxUnitKind, &self.fx_order[idx], &self.fx_order[@intCast(other)]);
+        }
+    }
+
+    /// `kind`'s current slot index in `fx_order`, 0-based — the "value" ids
+    /// 126-131 report from `paramValue` and accept in `setParamAbsolute`.
+    /// Undo/redo for every other param works by capturing an absolute
+    /// before-value and restoring it later (see `history.zig`'s
+    /// `param_nudge` entry) — a reorder action needs *some* scalar that
+    /// fully captures "where this unit was," and its index in the chain is
+    /// exactly that, so the reorder ids piggyback on the same generic
+    /// mechanism every other param already uses instead of a bespoke undo
+    /// entry.
+    fn fxOrderIndex(self: *const PolySynth, kind: FxUnitKind) usize {
+        return std.mem.indexOfScalar(FxUnitKind, &self.fx_order, kind) orelse 0;
+    }
+
+    /// Move `kind` to absolute slot `idx`, shifting the units between its
+    /// old and new position by walking adjacent swaps (same primitive
+    /// `reorderFx` uses, just driven to an absolute target instead of a
+    /// relative count). This is what undo/redo actually calls, through
+    /// `setParamAbsolute`'s ids 126-131 — the live `<`/`>` keypress goes
+    /// through `reorderFx`/`adjustParam` instead.
+    fn setFxIndex(self: *PolySynth, kind: FxUnitKind, idx: usize) void {
+        const cur = std.mem.indexOfScalar(FxUnitKind, &self.fx_order, kind) orelse return;
+        const target = @min(idx, self.fx_order.len - 1);
+        var i = cur;
+        while (i < target) : (i += 1) std.mem.swap(FxUnitKind, &self.fx_order[i], &self.fx_order[i + 1]);
+        while (i > target) : (i -= 1) std.mem.swap(FxUnitKind, &self.fx_order[i], &self.fx_order[i - 1]);
+    }
+
     /// Nudge the editor parameter at `id` by `steps` (h/l = ±1, H/L = ±10).
     /// Runs on the audio thread (via the `set_param` event) so it never races
     /// the block reader — the editor sends edits over the command queue rather
@@ -2221,6 +2287,16 @@ pub const PolySynth = struct {
             123 => self.env3_decay_s        = std.math.clamp(self.env3_decay_s         + s * 0.005, 0.001,   5.0),
             124 => self.env3_sustain        = std.math.clamp(self.env3_sustain         + s * 0.01,   0.0,    1.0),
             125 => self.env3_release_s      = std.math.clamp(self.env3_release_s       + s * 0.005, 0.001,  10.0),
+            // FX REORDER (126-131) — not real params: no automatable_params/
+            // mod_dest_ids entry, no editor row of its own. The FX subview's
+            // </> sends whichever unit's id the cursor currently sits in;
+            // see editors/synth.zig's handling and reorderFx's own comment.
+            126 => self.reorderFx(.dist,    steps),
+            127 => self.reorderFx(.crush,   steps),
+            128 => self.reorderFx(.flanger, steps),
+            129 => self.reorderFx(.phaser,  steps),
+            130 => self.reorderFx(.delay,   steps),
+            131 => self.reorderFx(.reverb,  steps),
             // zig fmt: on
             // MATRIX (59–82): 3 ids per row — source, dest, depth.
             59...82 => {
@@ -2361,6 +2437,15 @@ pub const PolySynth = struct {
             123 => self.env3_decay_s       = std.math.clamp(value,   0.001,  5.0),
             124 => self.env3_sustain       = std.math.clamp(value,   0.0,    1.0),
             125 => self.env3_release_s     = std.math.clamp(value,   0.001, 10.0),
+            // FX REORDER (126-131) — value is the unit's absolute fx_order
+            // slot index; see `setFxIndex`'s doc comment for why undo/redo
+            // routes reordering through here instead of `adjustParam`.
+            126 => self.setFxIndex(.dist,    @intFromFloat(@round(std.math.clamp(value, 0.0, 5.0)))),
+            127 => self.setFxIndex(.crush,   @intFromFloat(@round(std.math.clamp(value, 0.0, 5.0)))),
+            128 => self.setFxIndex(.flanger, @intFromFloat(@round(std.math.clamp(value, 0.0, 5.0)))),
+            129 => self.setFxIndex(.phaser,  @intFromFloat(@round(std.math.clamp(value, 0.0, 5.0)))),
+            130 => self.setFxIndex(.delay,   @intFromFloat(@round(std.math.clamp(value, 0.0, 5.0)))),
+            131 => self.setFxIndex(.reverb,  @intFromFloat(@round(std.math.clamp(value, 0.0, 5.0)))),
             // zig fmt: on
             // MATRIX: dest takes the raw param id (falls back to cutoff if
             // the value isn't a legal dest — e.g. a hand-edited curve).
@@ -2492,6 +2577,12 @@ pub const PolySynth = struct {
             123 => self.env3_decay_s,
             124 => self.env3_sustain,
             125 => self.env3_release_s,
+            126 => @floatFromInt(self.fxOrderIndex(.dist)),
+            127 => @floatFromInt(self.fxOrderIndex(.crush)),
+            128 => @floatFromInt(self.fxOrderIndex(.flanger)),
+            129 => @floatFromInt(self.fxOrderIndex(.phaser)),
+            130 => @floatFromInt(self.fxOrderIndex(.delay)),
+            131 => @floatFromInt(self.fxOrderIndex(.reverb)),
             // zig fmt: on
             59...82 => blk: {
                 const row = self.mod_matrix[(id - 59) / 3];

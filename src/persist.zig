@@ -195,6 +195,7 @@ pub const SynthSnap = struct {
     fx_reverb_room: f32 = 0.6,
     fx_reverb_damp: f32 = 0.4,
     fx_reverb_mix: f32 = 0.3,
+    fx_order: [6]synth_mod.FxUnitKind = synth_mod.default_fx_order,
     // Arpeggiator (additive optional-with-default fields, no version bump)
     arp_on: bool = false,
     arp_mode: synth_mod.ArpMode = .up,
@@ -1253,6 +1254,7 @@ fn synthToSnap(s: *const PolySynth) SynthSnap {
         .fx_reverb_room = s.fx_reverb_room,
         .fx_reverb_damp = s.fx_reverb_damp,
         .fx_reverb_mix = s.fx_reverb_mix,
+        .fx_order = s.fx_order,
         .arp_on = s.arp_on,
         .arp_mode = s.arp_mode,
         .arp_octaves = s.arp_octaves,
@@ -1824,6 +1826,19 @@ fn loadNotes(pp: *PatternPlayer, notes: []const NoteSnap) void {
     }
 }
 
+/// `fx_order` needs more than a per-field enum check: `std.json` guarantees
+/// every entry is a *legal* `FxUnitKind`, but not that all 6 kinds are
+/// present exactly once (a hand-edited file could duplicate one kind and
+/// drop another, silently dropping the missing unit from processing).
+/// `order.len == FxUnitKind`'s variant count, so "every kind appears at
+/// least once" already implies no duplicates (pigeonhole).
+fn isValidFxOrder(order: [6]synth_mod.FxUnitKind) bool {
+    var seen = [_]bool{false} ** 6;
+    for (order) |kind| seen[@intFromEnum(kind)] = true;
+    for (seen) |s| if (!s) return false;
+    return true;
+}
+
 /// Apply a synth snapshot onto a live PolySynth, clamping every numeric
 /// field to the same ranges `adjustParam` enforces — mirrors
 /// `applyPadSnap`'s reasoning: a hand-edited or corrupted file could
@@ -1946,6 +1961,7 @@ fn applyToSynth(s: *PolySynth, ss: *const SynthSnap) void {
     s.fx_reverb_room = clamp(ss.fx_reverb_room, 0.0, 0.98);
     s.fx_reverb_damp = clamp(ss.fx_reverb_damp, 0.0, 1.0);
     s.fx_reverb_mix = clamp(ss.fx_reverb_mix, 0.0, 1.0);
+    s.fx_order = if (isValidFxOrder(ss.fx_order)) ss.fx_order else synth_mod.default_fx_order;
     s.arp_on = ss.arp_on;
     s.arp_mode = ss.arp_mode;
     s.arp_octaves = @intCast(clamp(@as(i32, ss.arp_octaves), 1, PolySynth.max_arp_octaves));

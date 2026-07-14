@@ -75,7 +75,7 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize
     // past the layout's last row (the layouts' heights differ per subview
     // and per wide/narrow, so a stale offset from a different one must not
     // survive a resize or a Tab subview switch).
-    const cursor_row = if (wide) synth_ed.paramColRow(app.synth_cursor).row else synth_ed.paramRow(subview, app.synth_cursor);
+    const cursor_row = if (wide) synth_ed.paramColRow(app.synth_cursor).row else synth_ed.paramRow(subview, app.synth_cursor, synth_ed.currentFxOrder(app));
     const body_rows: usize = switch (subview) {
         .main => if (wide) synth_ed.body_rows_wide else synth_ed.body_rows_single,
         .fx => synth_ed.body_rows_fx,
@@ -182,13 +182,15 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize
                 try secOscB(&tw, synth, c);
                 try drawSynthBottom(&tw, synth, c);
             },
-            .fx => {
-                try secFxDist(&tw, synth, c);
-                try secFxCrush(&tw, synth, c);
-                try secFxFlanger(&tw, synth, c);
-                try secFxPhaser(&tw, synth, c);
-                try secFxDelay(&tw, synth, c);
-                try secFxReverb(&tw, synth, c);
+            .fx => for (synth.fx_order) |kind| {
+                switch (kind) {
+                    .dist    => try secFxDist(&tw, synth, c),
+                    .crush   => try secFxCrush(&tw, synth, c),
+                    .flanger => try secFxFlanger(&tw, synth, c),
+                    .phaser  => try secFxPhaser(&tw, synth, c),
+                    .delay   => try secFxDelay(&tw, synth, c),
+                    .reverb  => try secFxReverb(&tw, synth, c),
+                }
             },
             .matrix => try secMatrix(&tw, synth, c),
         }

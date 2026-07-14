@@ -22,6 +22,97 @@ const history = @import("../history.zig");
 /// instead of one 138-row list).
 pub const Subview = enum { main, fx, matrix };
 
+const FxUnitKind = ws.dsp.synth.FxUnitKind;
+
+/// The current synth track's `fx_order`, or the default order as a fallback
+/// when the track isn't (yet) resolvable as a synth. Generic over the app
+/// type (`anytype`) so both this file's own `*App` call sites and views/
+/// synth.zig's generic `drawSynthEditor(app: anytype, ...)` can share it —
+/// the latter needs this ahead of its own track-validity check (its row/
+/// scroll math runs before that check), so a safe fallback beats an error.
+pub fn currentFxOrder(app: anytype) []const FxUnitKind {
+    if (app.synth_track >= app.session.racks.items.len) return &ws.dsp.synth.default_fx_order;
+    const rack = app.session.racks.items[app.synth_track];
+    return switch (rack.instrument) {
+        .poly_synth => |*s| &s.fx_order,
+        else => &ws.dsp.synth.default_fx_order,
+    };
+}
+
+/// First/id-count of each FX unit's flat param-id range — the `.fx`
+/// subview's row math walks `fx_order` and looks these up per slot instead
+/// of the fixed id-range switch every other subview still uses, since FX
+/// section screen order now depends on runtime order, not id order.
+fn fxFirstId(kind: FxUnitKind) u8 {
+    return switch (kind) {
+        // zig fmt: off
+        .dist    => 83, .crush => 86, .flanger => 90,
+        .phaser  => 103, .delay => 108, .reverb => 112,
+        // zig fmt: on
+    };
+}
+fn fxIdCount(kind: FxUnitKind) u8 {
+    return switch (kind) {
+        // zig fmt: off
+        .dist    => 3, .crush => 4, .flanger => 5,
+        .phaser  => 5, .delay => 4, .reverb => 4,
+        // zig fmt: on
+    };
+}
+
+/// Which unit's id range `id` falls in, if any — the reverse of
+/// `fxFirstId`/`fxIdCount`, used by `<`/`>` to figure out which section the
+/// cursor is currently sitting in (order-independent: every kind's id range
+/// is fixed regardless of where it sits in `fx_order`).
+fn fxKindOfId(id: u8) ?FxUnitKind {
+    inline for (@typeInfo(FxUnitKind).@"enum".fields) |f| {
+        const k: FxUnitKind = @enumFromInt(f.value);
+        const first = fxFirstId(k);
+        if (id >= first and id < first + fxIdCount(k)) return k;
+    }
+    return null;
+}
+
+/// `kind`'s dedicated reorder-handle param id — see PolySynth.adjustParam's
+/// ids 126-131 and `setFxIndex`'s doc comment for why undo/redo need this
+/// to be a real (if synthetic) param id rather than a bespoke message.
+fn reorderIdFor(kind: FxUnitKind) u16 {
+    return switch (kind) {
+        // zig fmt: off
+        .dist => 126, .crush => 127, .flanger => 128,
+        .phaser => 129, .delay => 130, .reverb => 131,
+        // zig fmt: on
+    };
+}
+
+/// `<`/`>` in the FX subview: nudges whichever unit's section the cursor
+/// currently sits in one slot toward `dir` in `fx_order`. Mirrors the
+/// master FX chain editor's own `<`/`>` (`moveFocused` in
+/// editors/spectrum.zig) closely enough to feel like the same control, but
+/// swaps this fixed unit's slot instead of an ArrayList index — no insert/
+/// remove here, so no `x`/`a` counterparts. Routed through the same
+/// (id, steps) command + undo plumbing every other param nudge uses (see
+/// `adjustParam` ids 126-131), not a bespoke message.
+fn reorderSelectedFx(app: *App, dir: i32) void {
+    if (app.synth_subview != .fx) return;
+    if (app.synth_track >= app.session.racks.items.len) return;
+    const rack = app.session.racks.items[app.synth_track];
+    switch (rack.instrument) {
+        .poly_synth => {},
+        else => return,
+    }
+    const kind = fxKindOfId(app.synth_cursor) orelse return;
+    const id = reorderIdFor(kind);
+    app.dirty = true;
+    history.noteParamNudge(app, app.synth_track, id, dir);
+    _ = app.session.engine.send(.{ .set_track_param = .{
+        .track = app.synth_track,
+        .id = id,
+        .steps = dir,
+    } });
+    updateScroll(app);
+}
+
 /// First/last param id belonging to `subview`, for `g`/`G` and moveCursor's
 /// clamp bounds. Not a claim that every id in [first,last] belongs to the
 /// subview — `fx`'s range spans the matrix/lfo2/lfo3/macro ids too (they're
@@ -116,9 +207,20 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             'L' => { adjustParam(app, 10 * app.takeCount()); return true; },
             'g' => { history.flushParamNudge(app); app.synth_cursor = firstId(app.synth_subview); updateScroll(app); return true; },
             'G' => { history.flushParamNudge(app); app.synth_cursor = lastId(app.synth_subview); updateScroll(app); return true; },
+            // Reorders the FX chain — see reorderSelectedFx. No-op outside .fx.
+            '<' => { reorderSelectedFx(app, -1); return true; },
+            '>' => { reorderSelectedFx(app, 1); return true; },
             '}', '{' => {
                 history.flushParamNudge(app);
-                const starts = sectionStarts(app.synth_subview);
+                // .fx's section order now follows fx_order, not id order —
+                // build the jump list from it instead of the static table
+                // sectionStarts still serves .main/.matrix.
+                var fx_starts: [6]u8 = undefined;
+                const starts: []const u8 = if (app.synth_subview == .fx) blk: {
+                    const order = currentFxOrder(app);
+                    for (order, 0..) |kind, i| fx_starts[i] = fxFirstId(kind);
+                    break :blk fx_starts[0..order.len];
+                } else sectionStarts(app.synth_subview);
                 if (c == '}') {
                     for (starts) |s| {
                         if (s > app.synth_cursor) {
@@ -234,8 +336,10 @@ pub fn paramColRow(cursor: u8) struct { col: u1, row: usize } {
 
 /// Row index of `cursor` within `subview`'s single-column rendering (0-based,
 /// title excluded). Must stay in sync with the section calls in
-/// views/synth.zig's drawSynthEditor/drawSynthBottom.
-pub fn paramRow(subview: Subview, cursor: u8) usize {
+/// views/synth.zig's drawSynthEditor/drawSynthBottom. `fx_order` is only
+/// consulted for `.fx` (see `currentFxOrder`) — pass whatever's convenient
+/// for `.main`/`.matrix` callers.
+pub fn paramRow(subview: Subview, cursor: u8, fx_order: []const FxUnitKind) usize {
     return switch (subview) {
         .main => switch (cursor) {
             0...5  => 2 + @as(usize, cursor),          // OSC A (header at row 1)
@@ -260,14 +364,17 @@ pub fn paramRow(subview: Subview, cursor: u8) usize {
             122...125 => 92 + @as(usize, cursor - 122), // ENV 3 (header at 91)
             else    => 0,
         },
-        .fx => switch (cursor) {
-            83...85   => 2  + @as(usize, cursor - 83),  // FX DIST (header at 1)
-            86...89   => 6  + @as(usize, cursor - 86),  // FX CRUSH (header at 5)
-            90...94   => 11 + @as(usize, cursor - 90),  // FX FLNG (header at 10)
-            103...107 => 17 + @as(usize, cursor - 103), // FX PHSR (header at 16)
-            108...111 => 23 + @as(usize, cursor - 108), // FX DELAY (header at 22)
-            112...115 => 28 + @as(usize, cursor - 112), // FX VERB (header at 27)
-            else      => 0,
+        .fx => blk: {
+            var row: usize = 1;
+            for (fx_order) |kind| {
+                const first = fxFirstId(kind);
+                const count = fxIdCount(kind);
+                if (cursor >= first and cursor < first + count) {
+                    break :blk row + 1 + (cursor - first); // +1 for this section's own header row
+                }
+                row += 1 + count;
+            }
+            break :blk 0;
         },
         .matrix => switch (cursor) {
             59...82 => 2 + @as(usize, cursor - 59), // MATRIX (header at 1)
@@ -284,7 +391,7 @@ pub fn updateScroll(app: *App) void {
     // Was 20 (tuned against the old rows-|5 body budget, pre-hr()-removal);
     // bumped by the same +2 the real budget gained.
     const max_rows: usize = 22;
-    const row = paramRow(app.synth_subview, app.synth_cursor);
+    const row = paramRow(app.synth_subview, app.synth_cursor, currentFxOrder(app));
     if (row < app.synth_scroll) app.synth_scroll = row;
     if (row >= app.synth_scroll + max_rows) app.synth_scroll = row - max_rows + 1;
 }
@@ -336,10 +443,11 @@ fn paramAtRow(app: *App, row: usize, x: usize, cols: u16) ?u8 {
         }
         return null;
     }
+    const fx_order = currentFxOrder(app);
     var i: u8 = firstId(view);
     while (i <= lastId(view)) : (i += 1) {
         if (!inSubview(i, view)) continue;
-        const row_i = if (wide) paramColRow(i).row else paramRow(view, i);
+        const row_i = if (wide) paramColRow(i).row else paramRow(view, i, fx_order);
         if (row_i == full_row) return i;
     }
     return null;
