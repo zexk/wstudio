@@ -5,7 +5,10 @@ result-*
 dist/
 .direnv/
 *.wav
-# ...but the shipped drum kit is a committed, embedded asset.
+# ...but the shipped drum kit and default wavetable are committed,
+# embedded assets.
 !src/assets/kit/
 !src/assets/kit/*.wav
+!src/assets/wavetable/
+!src/assets/wavetable/*.wav
 *~

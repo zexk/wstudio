@@ -26,6 +26,7 @@ const engine_mod = @import("audio/engine.zig");
 const Engine = engine_mod.Engine;
 const synth_mod = @import("dsp/synth.zig");
 const PolySynth = synth_mod.PolySynth;
+const wavetable_mod = @import("dsp/wavetable.zig");
 const pattern_mod = @import("dsp/pattern.zig");
 const PatternPlayer = pattern_mod.PatternPlayer;
 const DrumMachine = @import("dsp/drum_sampler.zig").DrumMachine;
@@ -52,7 +53,7 @@ const AutomationPoint = automation_mod.AutomationPoint;
 /// added and what older files load as) and the bump-vs-additive policy
 /// live in FORMAT.md; per-field migration specifics stay as doc comments
 /// on the snapshot fields they concern.
-pub const file_version: u32 = 19;
+pub const file_version: u32 = 20;
 
 pub const AutomationPointSnap = struct {
     beat: f64,
@@ -256,6 +257,17 @@ pub const SynthSnap = struct {
     env3_decay_s: f32 = 0.3,
     env3_sustain: f32 = 0.0,
     env3_release_s: f32 = 0.3,
+    // Wavetable oscillators (v20): frame-scan position is additive, but
+    // the sidecar-path fields are a new field *shape* (a path, not a plain
+    // value) — bumped file_version for clarity, same call as the OTT unit.
+    wt_pos: f32 = 0.0,
+    osc_b_wt_pos: f32 = 0.0,
+    osc_c_wt_pos: f32 = 0.0,
+    /// Relative path to a `:load-wavetable`-imported table's sidecar WAV,
+    /// empty for the bundled default (mirrors `PadSnap.sample_file`).
+    wt_file: []const u8 = "",
+    osc_b_wt_file: []const u8 = "",
+    osc_c_wt_file: []const u8 = "",
     // Pattern player
     notes: []const NoteSnap = &.{},
     length_beats: f64 = 4.0,
@@ -1082,6 +1094,31 @@ fn exportSamples(
                 try written.put(aa, base, {});
                 // .name already set by rackToSnap (unconditionally).
             },
+            .poly_synth => |*s| {
+                // zig fmt: off
+                if (s.wt_user) {
+                    const base = try std.fmt.allocPrint(aa, "t{d}oscA.wav", .{ti});
+                    const rel = try std.fmt.allocPrint(aa, "{s}/{s}", .{ sidecar, base });
+                    try writeSampleWav(aa, io, path, rel, &dir_ready, sr, s.wt.frames);
+                    rs.synth.?.wt_file = rel;
+                    try written.put(aa, base, {});
+                }
+                if (s.osc_b_wt_user) {
+                    const base = try std.fmt.allocPrint(aa, "t{d}oscB.wav", .{ti});
+                    const rel = try std.fmt.allocPrint(aa, "{s}/{s}", .{ sidecar, base });
+                    try writeSampleWav(aa, io, path, rel, &dir_ready, sr, s.osc_b_wt.frames);
+                    rs.synth.?.osc_b_wt_file = rel;
+                    try written.put(aa, base, {});
+                }
+                if (s.osc_c_wt_user) {
+                    const base = try std.fmt.allocPrint(aa, "t{d}oscC.wav", .{ti});
+                    const rel = try std.fmt.allocPrint(aa, "{s}/{s}", .{ sidecar, base });
+                    try writeSampleWav(aa, io, path, rel, &dir_ready, sr, s.osc_c_wt.frames);
+                    rs.synth.?.osc_c_wt_file = rel;
+                    try written.put(aa, base, {});
+                }
+                // zig fmt: on
+            },
             else => {},
         }
     }
@@ -1249,6 +1286,9 @@ fn synthToSnap(s: *const PolySynth) SynthSnap {
         .osc_c_unison = s.osc_c_unison,
         .osc_c_unison_detune = s.osc_c_unison_detune,
         .osc_c_unison_mode = s.osc_c_unison_mode,
+        .wt_pos = s.wt_pos,
+        .osc_b_wt_pos = s.osc_b_wt_pos,
+        .osc_c_wt_pos = s.osc_c_wt_pos,
         .attack_s = s.attack_s,
         .decay_s = s.decay_s,
         .sustain = s.sustain,
@@ -1455,6 +1495,27 @@ fn restoreSamples(
                 // Slicer.loadWav's own doc comment).
                 sl.loadWav(data, name, false) catch continue;
                 sl.user_sample = true;
+            },
+            .poly_synth => |*s| {
+                const ss = rs.synth orelse continue;
+                if (ss.wt_file.len > 0) {
+                    if (readWsjRel(allocator, io, path, ss.wt_file)) |data| {
+                        defer allocator.free(data);
+                        s.loadWavetable(.a, data) catch {};
+                    }
+                }
+                if (ss.osc_b_wt_file.len > 0) {
+                    if (readWsjRel(allocator, io, path, ss.osc_b_wt_file)) |data| {
+                        defer allocator.free(data);
+                        s.loadWavetable(.b, data) catch {};
+                    }
+                }
+                if (ss.osc_c_wt_file.len > 0) {
+                    if (readWsjRel(allocator, io, path, ss.osc_c_wt_file)) |data| {
+                        defer allocator.free(data);
+                        s.loadWavetable(.c, data) catch {};
+                    }
+                }
             },
             else => {},
         }
@@ -1981,6 +2042,9 @@ fn applyToSynth(s: *PolySynth, ss: *const SynthSnap) void {
     s.osc_c_unison = @intCast(clamp(@as(i32, ss.osc_c_unison), 1, 16));
     s.osc_c_unison_detune = clamp(ss.osc_c_unison_detune, 0.0, 100.0);
     s.osc_c_unison_mode = ss.osc_c_unison_mode;
+    s.wt_pos = clamp(ss.wt_pos, 0.0, 1.0);
+    s.osc_b_wt_pos = clamp(ss.osc_b_wt_pos, 0.0, 1.0);
+    s.osc_c_wt_pos = clamp(ss.osc_c_wt_pos, 0.0, 1.0);
     s.attack_s = clamp(ss.attack_s, 0.001, 5.0);
     s.decay_s = clamp(ss.decay_s, 0.001, 5.0);
     s.sustain = clamp(ss.sustain, 0.0, 1.0);
@@ -3555,6 +3619,52 @@ test "save/load round-trip persists a user-loaded sampler clip" {
     try testing.expectApproxEqAbs(@as(f32, 0.8), ls.pad.gain, 1e-4);
 }
 
+test "save/load round-trip persists a :load-wavetable-imported table, default state writes no sidecar" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [64]u8 = undefined;
+    const wsj_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/proj.wsj", .{&tmp.sub_path});
+
+    var session = try Session.initDefault(testing.allocator);
+    defer session.deinit();
+    try session.setInstrument(0, .poly_synth);
+    const s = &session.racks.items[0].instrument.poly_synth;
+
+    // A synth that never touches wavetables shouldn't produce a sidecar dir.
+    try save(testing.allocator, &session, testing.io, wsj_path);
+    const sidecar_dir = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/proj_samples", .{&tmp.sub_path});
+    try testing.expectError(error.FileNotFound, std.Io.Dir.cwd().openDir(testing.io, sidecar_dir, .{}));
+
+    // Emulate :load-wavetable on OSC B.
+    var samples: [wavetable_mod.frame_len * 2]f32 = undefined;
+    @memset(samples[0..wavetable_mod.frame_len], -1.0);
+    @memset(samples[wavetable_mod.frame_len..], 1.0);
+    var wav_buf: [wavetable_mod.frame_len * 2 * 4 + 64]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&wav_buf);
+    try wav.write(&writer, session.project.sample_rate, 1, &samples, .pcm16);
+    try s.loadWavetable(.b, writer.buffered());
+    s.waveform = .wavetable;
+    s.osc_b_waveform = .wavetable;
+    s.osc_b_wt_pos = 0.5;
+
+    try save(testing.allocator, &session, testing.io, wsj_path);
+
+    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    defer loaded.deinit();
+    const ls = &loaded.racks.items[0].instrument.poly_synth;
+    try testing.expectEqual(@as(usize, 2), ls.osc_b_wt.frame_count);
+    // Wider tolerance than a single WAV round trip's `wav_eps`: this value
+    // passes through pcm16 three times (this test's own synthetic WAV, the
+    // sidecar export, then the sidecar reload), compounding quantization.
+    try testing.expectApproxEqAbs(@as(f32, -1.0), ls.osc_b_wt.frames[0], 1e-3);
+    try testing.expectApproxEqAbs(@as(f32, 1.0), ls.osc_b_wt.frames[wavetable_mod.frame_len], 1e-3);
+    try testing.expectApproxEqAbs(@as(f32, 0.5), ls.osc_b_wt_pos, 1e-4);
+    // OSC A never got a `:load-wavetable` call — still the bundled default,
+    // no sidecar for it.
+    try testing.expect(!ls.wt_user);
+}
+
 test "buildSession: A/B loop region lands in project and transport" {
     const testing = std.testing;
     const snap: Snapshot = .{
@@ -3615,7 +3725,7 @@ test "golden-file corpus: every historical .wsj fixture still loads" {
     }
 
     // Guards against a misconfigured path silently turning this into a no-op.
-    try testing.expectEqual(@as(usize, 19), count);
+    try testing.expectEqual(@as(usize, 20), count);
 }
 
 test "golden-file corpus: v17's mod matrix loads its rows" {
@@ -3735,6 +3845,15 @@ test "golden-file corpus: v19's flanger unit loads its params" {
     try testing.expectApproxEqAbs(@as(f32, 0.85), fl.depth, 1e-3);
     try testing.expectApproxEqAbs(@as(f32, 0.4), fl.feedback, 1e-3);
     try testing.expectApproxEqAbs(@as(f32, 0.7), fl.mix, 1e-3);
+}
+
+test "golden-file corpus: v20's wavetable oscillator loads its waveform/wt_pos" {
+    const testing = std.testing;
+    var session = try load(testing.allocator, testing.io, "test/fixtures/wsj/v20.wsj");
+    defer session.deinit();
+    const s = &session.racks.items[0].instrument.poly_synth;
+    try testing.expectEqual(synth_mod.Waveform.wavetable, s.waveform);
+    try testing.expectApproxEqAbs(@as(f32, 0.35), s.wt_pos, 1e-3);
 }
 
 test "save/load round-trip persists an EQ band's lowpass/highpass type and slope" {

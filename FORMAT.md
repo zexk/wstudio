@@ -72,6 +72,7 @@ they showed up in the same week as one.
 | v17 | The synth mod matrix (`SynthSnap.mod_matrix`: up to 8 rows of source/dest/depth, see `PolySynth.ModRow`). The old fixed mod routes (`fenv_amount`, `lfo_depth`, `lfo_target`) are kept, read-only, purely so a pre-v17 file's routing migrates onto matrix rows 1-2 via `PolySynth.legacyModRows` — new saves write them at defaults. `mod_matrix` being null (absent) is what marks a file as pre-v17 for that migration; an empty list is honored as "no routing". Automation lanes targeting the retired param ids 23 (fenv amount) / 30 (LFO depth) silently no-op after loading. |
 | v18 | The frequency shifter FX unit (`FxUnitSnap.freq_shift`: signed `shift_hz` + `mix`, see `dsp/freq_shift.zig`). Purely additive; the bump makes pre-v18 builds hard-reject a file using the new kind instead of failing on an unknown enum name, same rationale as v15/v16. |
 | v19 | The flanger FX unit (`FxUnitSnap.flanger`: `rate_hz`/`depth`/`feedback`/`mix` over a modulated delay line, see `dsp/flanger.zig`). Purely additive, same rationale as v15/v16/v18. |
+| v20 | The wavetable oscillator: a new `Waveform.wavetable` variant (`waveform`/`osc_b_waveform`/`osc_c_waveform` can now hold it), same enum-growth rationale as v15/v16/v18/v19 — the bump makes pre-v20 builds hard-reject a file using it instead of failing on an unknown enum name. Frame-scan position (`SynthSnap.wt_pos`/`osc_b_wt_pos`/`osc_c_wt_pos`) and the sidecar path fields (`wt_file`/`osc_b_wt_file`/`osc_c_wt_file`, see below) are purely additive and would not have needed a bump on their own. |
 
 Since v11, every field added has been the additive/no-bump kind described
 above (v12/v13/v14 above are the exceptions — genuine semantic changes, not
@@ -92,9 +93,12 @@ as a mono 16-bit WAV into `<stem>_samples/` next to the `.wsj` (`<stem>` is
 the project filename without its extension, so `song.wsj` becomes
 `song_samples/`, created lazily, only once a session actually holds a user
 sample). Each file is named by its position: `t<track>p<pad>.wav` for a
-drum pad, `t<track>clip.wav` for a standalone sampler clip. Both are
-written through the same `.tmp` + rename dance as the project file itself,
-so a crash never leaves a truncated sample behind.
+drum pad, `t<track>clip.wav` for a standalone sampler clip, `t<track>oscA.wav`/
+`oscB.wav`/`oscC.wav` for a synth oscillator's imported wavetable (v20 — same
+sidecar directory, since it's the same "variable-size audio blob that
+shouldn't live inline in the JSON" problem). All are written through the
+same `.tmp` + rename dance as the project file itself, so a crash never
+leaves a truncated sample behind.
 
 The pad's `sample_file` field stores a path *relative to the `.wsj`*, never
 absolute, so a project directory can be moved or copied as a unit and still

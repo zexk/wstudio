@@ -71,6 +71,24 @@ pub fn build(b: *std.Build) void {
     const genkit_step = b.step("genkit", "Render the drum kit to assets/kit/*.wav");
     genkit_step.dependOn(&run_genkit.step);
 
+    // `zig build genwavetable` renders the default wavetable to
+    // assets/wavetable/basic_shapes.wav. Run once after editing the shape
+    // math in tools/genwavetable.zig, then commit the refreshed WAV.
+    const genwavetable = b.addExecutable(.{
+        .name = "genwavetable",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/genwavetable.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "wstudio", .module = wstudio_mod },
+            },
+        }),
+    });
+    const run_genwavetable = b.addRunArtifact(genwavetable);
+    const genwavetable_step = b.step("genwavetable", "Render the default wavetable to assets/wavetable/basic_shapes.wav");
+    genwavetable_step.dependOn(&run_genwavetable.step);
+
     // `zig build gendemo` writes the curated, fully arranged demo song to
     // demo.wsj. Run once after editing tools/gendemo.zig, then commit the
     // refreshed demo.wsj.

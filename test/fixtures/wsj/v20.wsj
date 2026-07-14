@@ -1,0 +1,16 @@
+{
+  "version": 20,
+  "tracks": [
+    { "name": "wave" }
+  ],
+  "racks": [
+    {
+      "label": "wave",
+      "kind": "poly_synth",
+      "synth": {
+        "waveform": "wavetable",
+        "wt_pos": 0.35
+      }
+    }
+  ]
+}

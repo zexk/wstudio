@@ -101,13 +101,14 @@ pub const BrowserPurpose = union(enum) {
     load_pad: u8,
     load_clip,
     load_slice,
+    load_wavetable: ws.dsp.PolySynth.OscSlot,
 
     /// The extension the browser filters non-directory entries to (case
     /// insensitive); directories are always shown regardless.
     fn ext(self: BrowserPurpose) []const u8 {
         return switch (self) {
             .open_project => ".wsj",
-            .load_sample, .load_pad, .load_clip, .load_slice => ".wav",
+            .load_sample, .load_pad, .load_clip, .load_slice, .load_wavetable => ".wav",
         };
     }
 };
@@ -1752,6 +1753,7 @@ pub const App = struct {
             .load_pad => |pad| commands.loadPadFromPath(self, pad, joined),
             .load_clip => commands.loadClipFromPath(self, joined),
             .load_slice => commands.loadSliceFromPath(self, joined),
+            .load_wavetable => |slot| commands.loadWavetableFromPath(self, slot, joined),
         }
         self.closeBrowser();
     }

@@ -7,10 +7,16 @@
 
 const std = @import("std");
 const types = @import("../core/types.zig");
+const wav = @import("../core/wav.zig");
 
 const Sample = types.Sample;
 
 pub const frame_len: usize = 2048;
+
+/// Bundled "basic shapes" table (sine/triangle/saw/square, one frame each —
+/// see tools/genwavetable.zig). The oscillator's own frame_pos crossfade
+/// gives the morph between them; no baked intermediate frames needed.
+const default_wav = @embedFile("../assets/wavetable/basic_shapes.wav");
 
 pub const Wavetable = struct {
     /// Flattened frame data: `frame_count * frame_len` samples.
@@ -31,12 +37,17 @@ pub fn fromSamples(allocator: std.mem.Allocator, samples: []const f32) !Wavetabl
     return .{ .frames = frames, .frame_count = frame_count };
 }
 
-/// A single silent-but-valid frame, for call sites that need owned table
-/// data before any real content (bundled or user-imported) is available.
-pub fn silent(allocator: std.mem.Allocator) !Wavetable {
-    const frames = try allocator.alloc(f32, frame_len);
-    @memset(frames, 0.0);
-    return .{ .frames = frames, .frame_count = 1 };
+/// Parses `bytes` as a WAV and reshapes it into a table — the shared path
+/// for both the bundled default and a `:load-wavetable`-imported WAV.
+pub fn fromWav(allocator: std.mem.Allocator, bytes: []const u8) !Wavetable {
+    const result = try wav.parseAlloc(allocator, bytes);
+    defer allocator.free(result.samples);
+    return fromSamples(allocator, result.samples);
+}
+
+/// The bundled default table, owned by the caller like any other Wavetable.
+pub fn loadDefault(allocator: std.mem.Allocator) !Wavetable {
+    return fromWav(allocator, default_wav);
 }
 
 pub fn deinit(table: *Wavetable, allocator: std.mem.Allocator) void {
@@ -102,9 +113,16 @@ test "lookup: frame_pos crossfades between distinct frames" {
     try std.testing.expectApproxEqAbs(@as(f32, 0.0), lookup(table, 0.5, 0.1), 0.0001);
 }
 
+test "loadDefault: bundled basic-shapes table has 4 frames" {
+    const allocator = std.testing.allocator;
+    var table = try loadDefault(allocator);
+    defer deinit(&table, allocator);
+    try std.testing.expectEqual(@as(usize, 4), table.frame_count);
+}
+
 test "dupe: independent buffer, same content" {
     const allocator = std.testing.allocator;
-    var table = try silent(allocator);
+    var table = try loadDefault(allocator);
     defer deinit(&table, allocator);
     table.frames[0] = 0.5;
 

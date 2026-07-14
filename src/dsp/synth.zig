@@ -516,6 +516,10 @@ pub const PolySynth = struct {
     /// Sampler's audio clip, table content isn't preset data. No default:
     /// only `init()` constructs a `PolySynth`, and it always sets this.
     wt: Wavetable,
+    /// True once `wt` holds a `:load-wavetable`-imported table rather than
+    /// the bundled default — gates whether persistence sidecars it (same
+    /// convention as Sampler's `pad.user_sample`).
+    wt_user: bool = false,
     /// OSC A's frame-scan position, 0..1. This one IS a plain `Patch` param.
     wt_pos: f32 = 0.0,
     /// Global pitch offset in cents. ±100 = ±1 semitone.
@@ -549,6 +553,7 @@ pub const PolySynth = struct {
     // zig fmt: on
     /// OSC B's `.wavetable` table data — see `wt`'s doc comment.
     osc_b_wt: Wavetable,
+    osc_b_wt_user: bool = false,
     osc_b_wt_pos: f32 = 0.0,
     // zig fmt: off
 
@@ -569,6 +574,7 @@ pub const PolySynth = struct {
     /// OSC C's `.wavetable` table data — see `wt`'s doc comment. Its
     /// position param stays outside the mod matrix, like the rest of OSC C.
     osc_c_wt: Wavetable,
+    osc_c_wt_user: bool = false,
     osc_c_wt_pos: f32 = 0.0,
     // zig fmt: off
 
@@ -1067,11 +1073,11 @@ pub const PolySynth = struct {
     };
 
     pub fn init(allocator: std.mem.Allocator, sample_rate: u32) !PolySynth {
-        var wt = try wavetable.silent(allocator);
+        var wt = try wavetable.loadDefault(allocator);
         errdefer wavetable.deinit(&wt, allocator);
-        var osc_b_wt = try wavetable.silent(allocator);
+        var osc_b_wt = try wavetable.loadDefault(allocator);
         errdefer wavetable.deinit(&osc_b_wt, allocator);
-        var osc_c_wt = try wavetable.silent(allocator);
+        var osc_c_wt = try wavetable.loadDefault(allocator);
         errdefer wavetable.deinit(&osc_c_wt, allocator);
         return .{
             .sample_rate = @floatFromInt(sample_rate),
@@ -1106,6 +1112,35 @@ pub const PolySynth = struct {
         errdefer wavetable.deinit(&copy.osc_b_wt, self.allocator);
         copy.osc_c_wt = try wavetable.dupe(self.osc_c_wt, self.allocator);
         return copy;
+    }
+
+    /// Which oscillator's wavetable slot a load/persistence op targets.
+    pub const OscSlot = enum { a, b, c };
+
+    /// Replaces one oscillator's wavetable with `wav_bytes` (a whole WAV
+    /// file's contents, reshaped into `wavetable.frame_len`-sample frames)
+    /// and marks it user-imported so persistence sidecars it. Frees the
+    /// slot's previous table only after the new one parses successfully,
+    /// so a bad file leaves the old table intact.
+    pub fn loadWavetable(self: *PolySynth, slot: OscSlot, wav_bytes: []const u8) !void {
+        const new_table = try wavetable.fromWav(self.allocator, wav_bytes);
+        switch (slot) {
+            .a => {
+                wavetable.deinit(&self.wt, self.allocator);
+                self.wt = new_table;
+                self.wt_user = true;
+            },
+            .b => {
+                wavetable.deinit(&self.osc_b_wt, self.allocator);
+                self.osc_b_wt = new_table;
+                self.osc_b_wt_user = true;
+            },
+            .c => {
+                wavetable.deinit(&self.osc_c_wt, self.allocator);
+                self.osc_c_wt = new_table;
+                self.osc_c_wt_user = true;
+            },
+        }
     }
 
     pub fn device(self: *PolySynth) dsp.Device {
@@ -4411,6 +4446,27 @@ test "applyCC: waveform steps" {
     try std.testing.expectEqual(Waveform.saw, synth.waveform);
     synth.applyCC(@intFromEnum(midi.CC.osc_a_waveform), 127);
     try std.testing.expectEqual(Waveform.wavetable, synth.waveform);
+}
+
+test "loadWavetable: replaces a slot's table, marks it user-imported, leaves old table intact on parse failure" {
+    const wav = @import("../core/wav.zig");
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    try std.testing.expectEqual(false, synth.osc_b_wt_user);
+
+    var samples: [wavetable.frame_len * 2]f32 = undefined;
+    @memset(samples[0..wavetable.frame_len], -1.0);
+    @memset(samples[wavetable.frame_len..], 1.0);
+    var buf: [wavetable.frame_len * 2 * 4 + 64]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&buf);
+    try wav.write(&writer, 48_000, 1, &samples, .pcm16);
+
+    try synth.loadWavetable(.b, writer.buffered());
+    try std.testing.expectEqual(true, synth.osc_b_wt_user);
+    try std.testing.expectEqual(@as(usize, 2), synth.osc_b_wt.frame_count);
+
+    try std.testing.expectError(error.NotWav, synth.loadWavetable(.b, "not a wav at all!!"));
+    try std.testing.expectEqual(@as(usize, 2), synth.osc_b_wt.frame_count);
 }
 
 test "applyPitchBend: range at ±2 semitones" {

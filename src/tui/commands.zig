@@ -65,6 +65,7 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "load-sample", .desc = "[file]  load WAV into the cursor pad (drum track) or the sampler (sampler track); omit the file to browse", .run = wrap(cmdLoadSample) },
     .{ .name = "load-clip",   .desc = "[file]  load a WAV as a whole audio clip and stamp it at the arrangement cursor (sampler track, omit the file to browse)", .run = wrap(cmdLoadClip), .scope = .sampler },
     .{ .name = "load-slice",  .desc = "[file]  load a WAV as the slicer's shared clip (omit the file to browse)", .run = wrap(cmdLoadSlice), .scope = .slicer },
+    .{ .name = "load-wavetable", .desc = "[file]  load a WAV as a wavetable into the oscillator under the synth editor's cursor (defaults to OSC A elsewhere; omit the file to browse)", .run = wrap(cmdLoadWavetable), .scope = .synth },
     .{ .name = "slice",       .desc = "<n>  equal-divide the slicer's loaded clip into n slices (1-64)", .run = wrap(cmdSlice), .scope = .slicer },
     .{ .name = "chop",        .desc = "[1-9]  chop the slicer's clip at detected transients (sensitivity, default 5)", .run = wrap(cmdChop), .scope = .slicer },
     .{ .name = "e",           .desc = "[file]  open a project (refuses if unsaved changes; omit the file to browse)", .run = wrap(cmdEdit) },
@@ -930,6 +931,64 @@ pub fn loadSampleFromPath(app: *App, path: []const u8) void {
     s.pad.user_sample = true;
     app.dirty = true;
     app.setStatus("sample loaded: {s}", .{stem});
+}
+
+/// Which oscillator slot `:load-wavetable` targets when invoked from inside
+/// the synth editor: whichever section `app.synth_cursor` currently sits in
+/// (the WAVETABLE section's own three rows included). Any other view (or an
+/// unrecognized id) falls back to OSC A — the single-target convention
+/// `:load-sample`/`:load-clip` already use for instruments with only one
+/// possible destination.
+fn oscSlotForCursor(id: u8) ws.dsp.PolySynth.OscSlot {
+    return switch (id) {
+        6...13, 43, 44, 186 => .b,
+        50...58, 187 => .c,
+        else => .a,
+    };
+}
+
+fn cmdLoadWavetable(app: *App, args: []const u8) void {
+    if (cursorSynth(app) == null) {
+        app.setStatus("load-wavetable: select a synth track first", .{});
+        return;
+    }
+    const slot = if (app.view == .synth_editor)
+        oscSlotForCursor(app.synth_cursor)
+    else
+        .a;
+    const trimmed = std.mem.trim(u8, args, " ");
+    if (trimmed.len == 0) {
+        app.openBrowser(.{ .load_wavetable = slot });
+        return;
+    }
+    var path_buf: [path_buf_len]u8 = undefined;
+    loadWavetableFromPath(app, slot, expandHome(&path_buf, trimmed));
+}
+
+/// Shared by `:load-wavetable <file>` and the file browser's wavetable-load
+/// purpose (the browser hands over an already-resolved path — no `~` to
+/// expand).
+pub fn loadWavetableFromPath(app: *App, slot: ws.dsp.PolySynth.OscSlot, path: []const u8) void {
+    const s = cursorSynth(app) orelse {
+        app.setStatus("load-wavetable: select a synth track first", .{});
+        return;
+    };
+    const data = std.Io.Dir.cwd().readFileAlloc(
+        app.io,
+        path,
+        app.allocator,
+        .limited(64 * 1024 * 1024),
+    ) catch |e| {
+        app.setStatus("load-wavetable: cannot read '{s}': {s}", .{ path, @errorName(e) });
+        return;
+    };
+    defer app.allocator.free(data);
+    s.loadWavetable(slot, data) catch |e| {
+        app.setStatus("load-wavetable: parse error: {s}", .{@errorName(e)});
+        return;
+    };
+    app.dirty = true;
+    app.setStatus("wavetable loaded into osc {s}: {s}", .{ @tagName(slot), std.fs.path.basename(path) });
 }
 
 fn cmdLoadClip(app: *App, args: []const u8) void {
