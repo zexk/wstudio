@@ -280,18 +280,32 @@ pub fn drawAutomationParamPicker(app: anytype, w: *std.Io.Writer, rows: usize) !
         app.session.project.tracks.items[app.automation_track].name
     else
         "?";
+    const clip = currentClip(app);
+    const params = instrumentAutomatableParams(app);
+    const filter = automation_ed.activeParamFilter(app);
+
+    var buf: [automation_ed.max_param_display_rows]automation_ed.ParamDisplayRow = undefined;
+    const rows_list = automation_ed.buildParamDisplayRows(params, filter, &buf);
+    const match_count = blk: {
+        var n: usize = 0;
+        for (rows_list) |r| if (r == .param) {
+            n += 1;
+        };
+        break :blk n;
+    };
+
     try w.writeAll(bold ++ " AUTOMATE PARAM" ++ rst);
     try w.writeAll(acc);
     try w.print("  \"{s}\"", .{track_name});
+    try w.writeAll(rst ++ dim);
+    try w.print("  {d} match{s}", .{ match_count, if (match_count == 1) "" else "es" });
+    if (filter.len > 0) {
+        try w.writeAll(rst ++ yel);
+        try w.print("  /{s}", .{filter});
+    }
     try w.writeAll(rst);
     try endLine(w);
     try endLine(w);
-
-    const clip = currentClip(app);
-    const params = instrumentAutomatableParams(app);
-
-    var buf: [automation_ed.max_param_display_rows]automation_ed.ParamDisplayRow = undefined;
-    const rows_list = automation_ed.buildParamDisplayRows(params, &buf);
 
     // Scroll clamp keyed on the cursor's display row (headers count too) —
     // same "clamped at draw" convention drawTracks' vis_rows uses.
@@ -337,7 +351,13 @@ pub fn drawAutomationParamPicker(app: anytype, w: *std.Io.Writer, rows: usize) !
             },
         }
     }
+    if (match_count == 0) {
+        try w.writeAll(dim);
+        try w.print("    no match for /{s}", .{filter});
+        try w.writeAll(rst);
+        try endLine(w);
+    }
 
-    const used = 2 + (last_visible - scroll);
+    const used = 2 + (last_visible - scroll) + @intFromBool(match_count == 0);
     for (used..@max(used, rows -| 4)) |_| try endLine(w);
 }

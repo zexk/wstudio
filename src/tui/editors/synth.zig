@@ -10,6 +10,7 @@ const spectrum = @import("spectrum.zig");
 const piano = @import("piano.zig");
 const preset_picker = @import("preset_picker.zig");
 const history = @import("../history.zig");
+const fuzzy = @import("../fuzzy.zig");
 
 /// The synth editor's three panes, cycled by Tab: the oscillator/envelope/
 /// filter/mod-source params ("main"), the internal FX section, and the mod
@@ -280,6 +281,30 @@ pub fn synthFxPickerKinds(app: *App, buf: *[13]FxUnitKind) []const FxUnitKind {
     return buf[0..n];
 }
 
+/// The `/` filter narrowing the synth-internal FX picker right now — same
+/// live-while-typing rule `spectrum.activeFilter` uses for the track chain's
+/// own FX picker.
+pub fn activeFxFilter(app: *App) []const u8 {
+    if (app.modal.mode == .search and app.view == .synth_fx_picker)
+        return app.modal.cmd_buf[0..app.modal.cmd_len];
+    return app.synth_fx_picker_filter_buf[0..app.synth_fx_picker_filter_len];
+}
+
+/// `synthFxPickerKinds` narrowed by the active filter, matched against each
+/// unit's display label.
+pub fn filteredSynthFxPickerKinds(app: *App, buf: *[13]FxUnitKind) []const FxUnitKind {
+    var off_buf: [13]FxUnitKind = undefined;
+    const off = synthFxPickerKinds(app, &off_buf);
+    const filter = activeFxFilter(app);
+    var n: usize = 0;
+    for (off) |k| {
+        if (filter.len > 0 and !fuzzy.matches(filter, spectrum.unitLabel(asFxKind(k)))) continue;
+        buf[n] = k;
+        n += 1;
+    }
+    return buf[0..n];
+}
+
 /// `a` in the `.fx` subview: opens the insert picker, unless every unit is
 /// already on.
 pub fn openFxPicker(app: *App) void {
@@ -290,6 +315,7 @@ pub fn openFxPicker(app: *App) void {
         return;
     }
     app.synth_fx_picker_cursor = 0;
+    app.synth_fx_picker_filter_len = 0;
     app.view = .synth_fx_picker;
 }
 

@@ -19,6 +19,7 @@ const synth_mod = ws.dsp.synth;
 const App = @import("../app.zig").App;
 const history = @import("../history.zig");
 const view = @import("../views/automation.zig");
+const fuzzy = @import("../fuzzy.zig");
 
 /// Which curve h/l + j/k currently edit. `gain`/`pan` are the two universal
 /// targets, always available on any clip (mix-bus params). `synth_param`
@@ -587,6 +588,7 @@ fn openParamPicker(app: *App) void {
         }
     }
     app.automation_param_scroll = 0;
+    app.automation_param_filter_len = 0;
     app.view = .automation_param_picker;
 }
 
@@ -618,24 +620,101 @@ pub const ParamDisplayRow = union(enum) {
 
 /// Room for every param plus one header per distinct section — generous
 /// fixed cap, not a computed expression, so it doesn't need updating if
-/// either instrument's `automatable_params` grows a little.
-pub const max_param_display_rows = 64;
+/// either instrument's `automatable_params` grows a little. PolySynth alone
+/// is past 100 params across 30+ sections now, so this has real headroom
+/// above that, not just above the old 64 (which one FX-chain-params batch
+/// silently overflowed: `buf[n] = ...` with no bounds check, an out-of-
+/// bounds write that panics under the default Debug build the moment a
+/// synth track's picker had enough rows).
+pub const max_param_display_rows = 256;
+
+/// The `/` filter narrowing the param picker right now: the modal search
+/// buffer while it's being typed (live narrowing), else the last submitted
+/// pattern — same shape as `preset_ed.activeFilter`.
+pub fn activeParamFilter(app: *App) []const u8 {
+    if (app.modal.mode == .search and app.view == .automation_param_picker)
+        return app.modal.cmd_buf[0..app.modal.cmd_len];
+    return app.automation_param_filter_buf[0..app.automation_param_filter_len];
+}
+
+fn paramMatches(p: ws.dsp.device.AutomatableParam, filter: []const u8) bool {
+    if (filter.len == 0) return true;
+    return fuzzy.matches(filter, p.label) or fuzzy.matches(filter, p.section);
+}
 
 /// `params` is the current track's own `automatable_params` table (see
 /// `instrumentAutomatableParams`) — the caller resolves it, since views/
 /// automation.zig can't import `App` to call that helper itself (see its own
 /// `currentClip` doc comment for why view renderers take `app: anytype`).
-pub fn buildParamDisplayRows(params: []const ws.dsp.device.AutomatableParam, buf: *[max_param_display_rows]ParamDisplayRow) []ParamDisplayRow {
+/// `filter` narrows to params (and their section) matching the fuzzy `/`
+/// pattern; a section with no matching params drops its header too.
+pub fn buildParamDisplayRows(params: []const ws.dsp.device.AutomatableParam, filter: []const u8, buf: *[max_param_display_rows]ParamDisplayRow) []ParamDisplayRow {
     var n: usize = 0;
     var last_section: []const u8 = "";
     for (params, 0..) |p, i| {
+        if (!paramMatches(p, filter)) continue;
         if (!std.mem.eql(u8, p.section, last_section)) {
+            if (n >= buf.len) return buf[0..n];
             buf[n] = .{ .header = p.section };
             n += 1;
             last_section = p.section;
         }
+        if (n >= buf.len) return buf[0..n];
         buf[n] = .{ .param = i };
         n += 1;
     }
     return buf[0..n];
+}
+
+/// Move the picker cursor by `delta` among displayed (filter-matching) rows
+/// only, so j/k never lands on something the current filter is hiding.
+pub fn moveParamCursor(app: *App, delta: i32) void {
+    const params = instrumentAutomatableParams(app);
+    var buf: [max_param_display_rows]ParamDisplayRow = undefined;
+    const rows_list = buildParamDisplayRows(params, activeParamFilter(app), &buf);
+    var pos: usize = 0;
+    var count: usize = 0;
+    for (rows_list) |r| switch (r) {
+        .param => |i| {
+            if (i == app.automation_param_cursor) pos = count;
+            count += 1;
+        },
+        .header => {},
+    };
+    if (count == 0) return;
+    const cur: i64 = @intCast(pos);
+    const new_pos: usize = @intCast(std.math.clamp(cur + delta, 0, @as(i64, @intCast(count - 1))));
+    var n: usize = 0;
+    for (rows_list) |r| switch (r) {
+        .param => |i| {
+            if (n == new_pos) {
+                app.automation_param_cursor = @intCast(i);
+                return;
+            }
+            n += 1;
+        },
+        .header => {},
+    };
+}
+
+/// `g`/`G`: first/last displayed param, mirroring preset_ed's ordinal jump.
+pub fn firstParamCursor(app: *App) u8 {
+    var buf: [max_param_display_rows]ParamDisplayRow = undefined;
+    const rows_list = buildParamDisplayRows(instrumentAutomatableParams(app), activeParamFilter(app), &buf);
+    for (rows_list) |r| switch (r) {
+        .param => |i| return @intCast(i),
+        .header => {},
+    };
+    return app.automation_param_cursor;
+}
+
+pub fn lastParamCursor(app: *App) u8 {
+    var buf: [max_param_display_rows]ParamDisplayRow = undefined;
+    const rows_list = buildParamDisplayRows(instrumentAutomatableParams(app), activeParamFilter(app), &buf);
+    var last: usize = app.automation_param_cursor;
+    for (rows_list) |r| switch (r) {
+        .param => |i| last = i,
+        .header => {},
+    };
+    return @intCast(last);
 }

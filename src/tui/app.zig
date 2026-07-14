@@ -301,10 +301,19 @@ pub const App = struct {
     /// Chain view the FX picker returns to (track_spectrum/master_spectrum/
     /// group_spectrum).
     fx_picker_return: AppView = .tracks,
+    /// Last submitted `/` filter for the FX picker — same "live buffer wins
+    /// while typing, else the last submitted pattern" rule as
+    /// `preset_filter_buf`; cleared on every open. See `spectrum.activeFilter`.
+    fx_picker_filter_buf: [modal_mod.ModalInput.max_cmd_len]u8 = undefined,
+    fx_picker_filter_len: usize = 0,
     /// Highlighted row in the synth-internal FX insert picker (`.fx`
     /// subview's `a`) — always returns to `.synth_editor`, so no return-view
     /// field needed like `fx_picker_return`'s.
     synth_fx_picker_cursor: u8 = 0,
+    /// Same filter convention as `fx_picker_filter_buf`, for the
+    /// synth-internal FX picker. See `synth_ed.activeFxFilter`.
+    synth_fx_picker_filter_buf: [modal_mod.ModalInput.max_cmd_len]u8 = undefined,
+    synth_fx_picker_filter_len: usize = 0,
     eq_track: u16 = 0,
     /// Which group's FX chain is in view when `view == .group_spectrum` —
     /// parallel to `eq_track`.
@@ -448,6 +457,10 @@ pub const App = struct {
     /// Scroll offset (in printed display rows, headers included) for the
     /// param picker — mirrors `track_scroll`'s "clamped at draw" convention.
     automation_param_scroll: usize = 0,
+    /// Last submitted `/` filter for the automation param picker — same
+    /// convention as `preset_filter_buf`. See `automation_ed.activeParamFilter`.
+    automation_param_filter_buf: [modal_mod.ModalInput.max_cmd_len]u8 = undefined,
+    automation_param_filter_len: usize = 0,
     /// Cursor position within the clip, in 16th-note steps (0 = clip start,
     /// same unit the piano roll/drum grid use — beat = step / 4.0).
     automation_cursor_step: u32 = 0,
@@ -786,8 +799,16 @@ pub const App = struct {
                 self.applyAction(self.modal.handle(key), now_ns);
             } else { self.modal.count = 0; },
             .instrument_picker => self.handlePickerKey(key),
-            .fx_picker => self.handleFxPickerKey(key),
-            .synth_fx_picker => self.handleSynthFxPickerKey(key),
+            // `/` (and the search mode it enters) is routed to the modal
+            // prompt so the picker's filter narrows live while typing —
+            // submit/cancel land in applyAction's `.search_submit` case.
+            // Same shape as `.preset_picker`'s own routing below.
+            .fx_picker => if (self.modal.mode == .search or (key == .char and key.char == '/')) {
+                self.applyAction(self.modal.handle(key), now_ns);
+            } else self.handleFxPickerKey(key),
+            .synth_fx_picker => if (self.modal.mode == .search or (key == .char and key.char == '/')) {
+                self.applyAction(self.modal.handle(key), now_ns);
+            } else self.handleSynthFxPickerKey(key),
             .file_browser => if (self.modal.mode == .search) {
                 self.applyAction(self.modal.handle(key), now_ns);
             } else self.handleBrowserKey(key),
@@ -797,10 +818,9 @@ pub const App = struct {
             .automation => if (self.modal.mode == .command or self.modal.mode == .search or !automation_ed.handleKey(self, key)) {
                 self.applyAction(self.modal.handle(key), now_ns);
             } else { self.modal.count = 0; },
-            .automation_param_picker => self.handleAutomationParamPickerKey(key),
-            // `/` (and the search mode it enters) is routed to the modal
-            // prompt so the picker's filter narrows live while typing —
-            // submit/cancel land in applyAction's `.search_submit` case.
+            .automation_param_picker => if (self.modal.mode == .search or (key == .char and key.char == '/')) {
+                self.applyAction(self.modal.handle(key), now_ns);
+            } else self.handleAutomationParamPickerKey(key),
             .preset_picker => if (self.modal.mode == .search or (key == .char and key.char == '/')) {
                 self.applyAction(self.modal.handle(key), now_ns);
             } else preset_ed.handleKey(self, key),
@@ -1407,8 +1427,9 @@ pub const App = struct {
         }
     }
 
-    /// Instrument picker: j/k move, enter/space insert the highlighted kind on
-    /// the cursor track and jump to its editor, esc cancels back to tracks.
+    /// Instrument picker: j/k move, g/G jump to ends, enter/space insert the
+    /// highlighted kind on the cursor track and jump to its editor, esc
+    /// cancels back to tracks.
     fn handlePickerKey(self: *App, key: modal_mod.Key) void {
         switch (key) {
             .escape => self.view = .tracks,
@@ -1416,6 +1437,8 @@ pub const App = struct {
             .char => |c| switch (c) {
                 'k' => { if (self.picker_cursor > 0) self.picker_cursor -= 1; },
                 'j' => { if (self.picker_cursor + 1 < picker_kinds.len) self.picker_cursor += 1; },
+                'g' => self.picker_cursor = 0,
+                'G' => self.picker_cursor = @intCast(picker_kinds.len - 1),
                 ' ' => self.pickerInsert(),
                 'q' => self.view = .tracks,
                 else => {},
@@ -1439,17 +1462,25 @@ pub const App = struct {
     }
 
     // zig fmt: off
-    /// FX picker: j/k move, enter/space insert the highlighted effect after
-    /// the focused chain slot, esc cancels back to the chain view. Opened by
-    /// `a` in the FX chain view (see editors/spectrum.zig's openPicker).
+    /// FX picker: j/k move, g/G jump to ends, `/` filters (see
+    /// spectrum_ed.activeFilter), enter/space insert the highlighted effect
+    /// after the focused chain slot, esc cancels back to the chain view.
+    /// Opened by `a` in the FX chain view (see editors/spectrum.zig's
+    /// openPicker). The filter can shrink the list out from under a stale
+    /// cursor, so every access re-resolves `kinds` and clamps first.
     fn handleFxPickerKey(self: *App, key: modal_mod.Key) void {
+        var buf: [spectrum_ed.picker_kinds.len]ws.FxKind = undefined;
+        const kinds = spectrum_ed.filteredPickerKinds(self, &buf);
+        if (kinds.len > 0 and self.fx_picker_cursor >= kinds.len) self.fx_picker_cursor = @intCast(kinds.len - 1);
         switch (key) {
             .escape => spectrum_ed.cancelPicker(self),
-            .enter => spectrum_ed.insertFromPicker(self, spectrum_ed.picker_kinds[self.fx_picker_cursor]),
+            .enter => if (self.fx_picker_cursor < kinds.len) spectrum_ed.insertFromPicker(self, kinds[self.fx_picker_cursor]),
             .char => |c| switch (c) {
                 'k' => { if (self.fx_picker_cursor > 0) self.fx_picker_cursor -= 1; },
-                'j' => { if (self.fx_picker_cursor + 1 < spectrum_ed.picker_kinds.len) self.fx_picker_cursor += 1; },
-                ' ' => spectrum_ed.insertFromPicker(self, spectrum_ed.picker_kinds[self.fx_picker_cursor]),
+                'j' => { if (self.fx_picker_cursor + 1 < kinds.len) self.fx_picker_cursor += 1; },
+                'g' => self.fx_picker_cursor = 0,
+                'G' => self.fx_picker_cursor = @intCast(kinds.len -| 1),
+                ' ' => if (self.fx_picker_cursor < kinds.len) spectrum_ed.insertFromPicker(self, kinds[self.fx_picker_cursor]),
                 'q' => spectrum_ed.cancelPicker(self),
                 else => {},
             },
@@ -1460,32 +1491,38 @@ pub const App = struct {
     /// FX picker: click a row to select + insert it (same as enter/space);
     /// scroll moves the highlight.
     fn fxPickerMouse(self: *App, ev: modal_mod.MouseEvent, row: usize) void {
+        var buf: [spectrum_ed.picker_kinds.len]ws.FxKind = undefined;
+        const kinds = spectrum_ed.filteredPickerKinds(self, &buf);
         switch (ev.kind) {
             .press => {
-                if (row < 2 or row - 2 >= spectrum_ed.picker_kinds.len) return;
+                if (row < 2 or row - 2 >= kinds.len) return;
                 self.fx_picker_cursor = @intCast(row - 2);
-                spectrum_ed.insertFromPicker(self, spectrum_ed.picker_kinds[self.fx_picker_cursor]);
+                spectrum_ed.insertFromPicker(self, kinds[self.fx_picker_cursor]);
             },
             .scroll_up => { if (self.fx_picker_cursor > 0) self.fx_picker_cursor -= 1; },
-            .scroll_down => { if (self.fx_picker_cursor + 1 < spectrum_ed.picker_kinds.len) self.fx_picker_cursor += 1; },
+            .scroll_down => { if (self.fx_picker_cursor + 1 < kinds.len) self.fx_picker_cursor += 1; },
             else => {},
         }
     }
 
-    /// Synth-internal FX picker: j/k move, enter/space insert the
-    /// highlighted unit, esc cancels back to the `.fx` subview. Opened by
-    /// `a` there (see editors/synth.zig's openFxPicker). The list is the
-    /// currently-off units, so — unlike the track chain's fixed
-    /// `picker_kinds` — it's recomputed (and re-bounded) on every call.
+    /// Synth-internal FX picker: j/k move, g/G jump to ends, `/` filters
+    /// (see synth_ed.activeFxFilter), enter/space insert the highlighted
+    /// unit, esc cancels back to the `.fx` subview. Opened by `a` there (see
+    /// editors/synth.zig's openFxPicker). The list is the currently-off
+    /// units narrowed by the filter, so it's recomputed (and re-bounded) on
+    /// every call.
     fn handleSynthFxPickerKey(self: *App, key: modal_mod.Key) void {
         var buf: [13]ws.dsp.synth.FxUnitKind = undefined;
-        const kinds = synth_ed.synthFxPickerKinds(self, &buf);
+        const kinds = synth_ed.filteredSynthFxPickerKinds(self, &buf);
+        if (kinds.len > 0 and self.synth_fx_picker_cursor >= kinds.len) self.synth_fx_picker_cursor = @intCast(kinds.len - 1);
         switch (key) {
             .escape => synth_ed.cancelSynthFxPicker(self),
             .enter => if (self.synth_fx_picker_cursor < kinds.len) synth_ed.insertFromSynthFxPicker(self, kinds[self.synth_fx_picker_cursor]),
             .char => |c| switch (c) {
                 'k' => { if (self.synth_fx_picker_cursor > 0) self.synth_fx_picker_cursor -= 1; },
                 'j' => { if (self.synth_fx_picker_cursor + 1 < kinds.len) self.synth_fx_picker_cursor += 1; },
+                'g' => self.synth_fx_picker_cursor = 0,
+                'G' => self.synth_fx_picker_cursor = @intCast(kinds.len -| 1),
                 ' ' => if (self.synth_fx_picker_cursor < kinds.len) synth_ed.insertFromSynthFxPicker(self, kinds[self.synth_fx_picker_cursor]),
                 'q' => synth_ed.cancelSynthFxPicker(self),
                 else => {},
@@ -1498,7 +1535,7 @@ pub const App = struct {
     /// enter/space); scroll moves the highlight. Mirrors `fxPickerMouse`.
     fn synthFxPickerMouse(self: *App, ev: modal_mod.MouseEvent, row: usize) void {
         var buf: [13]ws.dsp.synth.FxUnitKind = undefined;
-        const kinds = synth_ed.synthFxPickerKinds(self, &buf);
+        const kinds = synth_ed.filteredSynthFxPickerKinds(self, &buf);
         switch (ev.kind) {
             .press => {
                 if (row < 2 or row - 2 >= kinds.len) return;
@@ -1511,17 +1548,19 @@ pub const App = struct {
         }
     }
 
-    /// Synth-param automation picker: j/k move, enter/space start automating
-    /// the highlighted param on the current clip, esc cancels back to the
+    /// Synth-param automation picker: j/k move (skipping rows the active
+    /// `/` filter hides), g/G jump to ends, enter/space start automating the
+    /// highlighted param on the current clip, esc cancels back to the
     /// automation view. Opened by `p` in editors/automation.zig.
     fn handleAutomationParamPickerKey(self: *App, key: modal_mod.Key) void {
-        const count = automation_ed.instrumentAutomatableParams(self).len;
         switch (key) {
             .escape => self.view = .automation,
             .enter => self.automationParamPick(),
             .char => |c| switch (c) {
-                'k' => { if (self.automation_param_cursor > 0) self.automation_param_cursor -= 1; },
-                'j' => { if (self.automation_param_cursor + 1 < count) self.automation_param_cursor += 1; },
+                'k' => automation_ed.moveParamCursor(self, -1),
+                'j' => automation_ed.moveParamCursor(self, 1),
+                'g' => self.automation_param_cursor = automation_ed.firstParamCursor(self),
+                'G' => self.automation_param_cursor = automation_ed.lastParamCursor(self),
                 ' ' => self.automationParamPick(),
                 'q' => self.view = .automation,
                 else => {},
@@ -1548,7 +1587,7 @@ pub const App = struct {
             .press => {
                 if (row < 2) return;
                 var buf: [automation_ed.max_param_display_rows]automation_ed.ParamDisplayRow = undefined;
-                const rows_list = automation_ed.buildParamDisplayRows(automation_ed.instrumentAutomatableParams(self), &buf);
+                const rows_list = automation_ed.buildParamDisplayRows(automation_ed.instrumentAutomatableParams(self), automation_ed.activeParamFilter(self), &buf);
                 const display_row = self.automation_param_scroll + (row - 2);
                 if (display_row >= rows_list.len) return;
                 switch (rows_list[display_row]) {
@@ -1559,10 +1598,8 @@ pub const App = struct {
                     },
                 }
             },
-            .scroll_up => { if (self.automation_param_cursor > 0) self.automation_param_cursor -= 1; },
-            .scroll_down => {
-                if (self.automation_param_cursor + 1 < automation_ed.instrumentAutomatableParams(self).len) self.automation_param_cursor += 1;
-            },
+            .scroll_up => automation_ed.moveParamCursor(self, -1),
+            .scroll_down => automation_ed.moveParamCursor(self, 1),
             else => {},
         }
     }
@@ -1980,6 +2017,24 @@ pub const App = struct {
                         @memcpy(self.preset_filter_buf[0..len], text[0..len]);
                         self.preset_filter_len = len;
                         self.preset_picker_cursor = 0;
+                    },
+                    .fx_picker => {
+                        const len = @min(text.len, self.fx_picker_filter_buf.len);
+                        @memcpy(self.fx_picker_filter_buf[0..len], text[0..len]);
+                        self.fx_picker_filter_len = len;
+                        self.fx_picker_cursor = 0;
+                    },
+                    .synth_fx_picker => {
+                        const len = @min(text.len, self.synth_fx_picker_filter_buf.len);
+                        @memcpy(self.synth_fx_picker_filter_buf[0..len], text[0..len]);
+                        self.synth_fx_picker_filter_len = len;
+                        self.synth_fx_picker_cursor = 0;
+                    },
+                    .automation_param_picker => {
+                        const len = @min(text.len, self.automation_param_filter_buf.len);
+                        @memcpy(self.automation_param_filter_buf[0..len], text[0..len]);
+                        self.automation_param_filter_len = len;
+                        self.automation_param_cursor = automation_ed.firstParamCursor(self);
                     },
                     else => self.setStatus("search not available in this view", .{}),
                 }
@@ -3082,13 +3137,13 @@ pub const App = struct {
             .help            => try tui.drawHelpStatus(self, &status_w, &status_right_w),
             .track_spectrum, .master_spectrum, .group_spectrum =>
                 try tui.drawFxStatus(self, &status_w, &status_right_w, spectrum_ed.currentTarget(self)),
-            .instrument_picker => try status_w.writeAll(" j/k: move   enter: insert   esc: cancel"),
-            .fx_picker       => try status_w.writeAll(" j/k: move   enter: insert   esc: cancel"),
-            .synth_fx_picker => try status_w.writeAll(" j/k: move   enter: insert   esc: cancel"),
+            .instrument_picker => try status_w.writeAll(" j/k: move   g/G: top/bottom   enter: insert   esc: cancel"),
+            .fx_picker       => try status_w.writeAll(" j/k: move   g/G: top/bottom   /: filter   enter: insert   esc: cancel"),
+            .synth_fx_picker => try status_w.writeAll(" j/k: move   g/G: top/bottom   /: filter   enter: insert   esc: cancel"),
             .arrangement     => try tui.drawArrangementStatus(self, &status_w, &status_right_w),
             .file_browser    => try tui.drawFileBrowserStatus(self, &status_w, &status_right_w),
             .automation      => try tui.drawAutomationStatus(self, &status_w, &status_right_w),
-            .automation_param_picker => try status_w.writeAll(" j/k: move   enter: pick   esc: cancel"),
+            .automation_param_picker => try status_w.writeAll(" j/k: move   g/G: top/bottom   /: filter   enter: pick   esc: cancel"),
             .slicer_grid     => try tui.drawSlicerStatus(self, &status_w, &status_right_w),
             .preset_picker   => try tui.drawPresetPickerStatus(self, &status_w),
         }

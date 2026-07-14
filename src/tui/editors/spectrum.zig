@@ -26,6 +26,7 @@ const FxUnit = ws.FxUnit;
 const FxPayload = ws.FxPayload;
 const App = @import("../app.zig").App;
 const history = @import("../history.zig");
+const fuzzy = @import("../fuzzy.zig");
 
 /// The insertable kinds in picker display order (signal-flow-ish: dynamics,
 /// tone, character, modulation, time). Parallel to `picker_menu` in
@@ -33,6 +34,27 @@ const history = @import("../history.zig");
 pub const picker_kinds = [_]FxKind{
     .gate, .comp, .mb_comp, .ott, .eq, .sat, .crush, .chorus, .flanger, .phaser, .freq_shift, .delay, .reverb,
 };
+
+/// The `/` filter narrowing the FX insert picker right now — same
+/// live-while-typing rule `preset_ed.activeFilter` uses.
+pub fn activeFilter(app: *App) []const u8 {
+    if (app.modal.mode == .search and app.view == .fx_picker)
+        return app.modal.cmd_buf[0..app.modal.cmd_len];
+    return app.fx_picker_filter_buf[0..app.fx_picker_filter_len];
+}
+
+/// `picker_kinds` narrowed by the active filter, matched against each
+/// unit's display label.
+pub fn filteredPickerKinds(app: *App, buf: *[picker_kinds.len]FxKind) []FxKind {
+    const filter = activeFilter(app);
+    var n: usize = 0;
+    for (picker_kinds) |k| {
+        if (filter.len > 0 and !fuzzy.matches(filter, unitLabel(k))) continue;
+        buf[n] = k;
+        n += 1;
+    }
+    return buf[0..n];
+}
 
 pub fn unitLabel(k: FxKind) []const u8 {
     return switch (k) {
@@ -791,6 +813,7 @@ fn openPicker(app: *App, target: EqTarget) void {
     _ = app.session.engine.send(.{ .set_spectrum_active = .{ .source = .none, .track = 0 } });
     app.fx_picker_return = app.view;
     app.fx_picker_cursor = 0;
+    app.fx_picker_filter_len = 0;
     app.view = .fx_picker;
 }
 

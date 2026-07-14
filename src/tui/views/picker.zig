@@ -119,15 +119,27 @@ pub fn drawFxPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void {
         else => "MASTER",
     };
 
+    var buf: [spectrum_ed.picker_kinds.len]ws.FxKind = undefined;
+    const kinds = spectrum_ed.filteredPickerKinds(app, &buf);
+    const filter = spectrum_ed.activeFilter(app);
+
     try w.writeAll(bold ++ " INSERT EFFECT" ++ rst);
     try w.writeAll(acc);
     try w.print("  \"{s}\"", .{target});
+    try w.writeAll(rst ++ dim);
+    try w.print("  {d} match{s}", .{ kinds.len, if (kinds.len == 1) "" else "es" });
+    if (filter.len > 0) {
+        try w.writeAll(rst ++ yel);
+        try w.print("  /{s}", .{filter});
+    }
     try w.writeAll(rst);
     try endLine(w);
     try endLine(w);
 
-    for (fx_picker_menu, 0..) |item, i| {
+    for (kinds, 0..) |k, i| {
         const is_sel = (i == app.fx_picker_cursor);
+        const menu_i = std.mem.indexOfScalar(ws.FxKind, &spectrum_ed.picker_kinds, k) orelse 0;
+        const item = fx_picker_menu[menu_i];
         if (is_sel) try w.writeAll(sel);
         try w.writeAll(if (is_sel) "  > " else "    ");
         try w.print("{s: <12}", .{item.name});
@@ -136,12 +148,18 @@ pub fn drawFxPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void {
         try w.writeAll(rst);
         try endLine(w);
     }
+    if (kinds.len == 0) {
+        try w.writeAll(dim);
+        try w.print("    no match for /{s}", .{filter});
+        try w.writeAll(rst);
+        try endLine(w);
+    }
 
     // zig fmt: off
     // used = title(1) + blank(1) actually printed above, plus the menu rows
     // — was "4 +" (stale from before the header/transport hr() rows were
     // removed), leaving 2 rows of dead blank space above the footer.
-    const used = 2 + fx_picker_menu.len;
+    const used = 2 + @max(kinds.len, 1);
     for (used..@max(used, rows -| 4)) |_| try endLine(w);
 }
 
@@ -158,15 +176,23 @@ pub fn drawSynthFxPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void {
     else
         "?";
 
+    var buf: [13]ws.dsp.synth.FxUnitKind = undefined;
+    const kinds = synth_ed.filteredSynthFxPickerKinds(app, &buf);
+    const filter = synth_ed.activeFxFilter(app);
+
     try w.writeAll(bold ++ " INSERT FX UNIT" ++ rst);
     try w.writeAll(acc);
     try w.print("  \"{s}\"", .{name});
+    try w.writeAll(rst ++ dim);
+    try w.print("  {d} match{s}", .{ kinds.len, if (kinds.len == 1) "" else "es" });
+    if (filter.len > 0) {
+        try w.writeAll(rst ++ yel);
+        try w.print("  /{s}", .{filter});
+    }
     try w.writeAll(rst);
     try endLine(w);
     try endLine(w);
 
-    var buf: [13]ws.dsp.synth.FxUnitKind = undefined;
-    const kinds = synth_ed.synthFxPickerKinds(app, &buf);
     for (kinds, 0..) |kind, i| {
         const is_sel = (i == app.synth_fx_picker_cursor);
         if (is_sel) try w.writeAll(sel);
@@ -175,7 +201,13 @@ pub fn drawSynthFxPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void {
         try w.writeAll(rst);
         try endLine(w);
     }
+    if (kinds.len == 0) {
+        try w.writeAll(dim);
+        try w.print("    no match for /{s}", .{filter});
+        try w.writeAll(rst);
+        try endLine(w);
+    }
 
-    const used = 2 + kinds.len;
+    const used = 2 + @max(kinds.len, 1);
     for (used..@max(used, rows -| 4)) |_| try endLine(w);
 }
