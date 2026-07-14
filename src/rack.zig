@@ -41,24 +41,16 @@ pub const Instrument = union(enum) {
     /// Returns a dsp.Device fat-pointer whose `.ptr` is stable as long as
     /// the parent Rack (heap-allocated) is alive, or null for `empty`.
     pub fn device(self: *Instrument) ?dsp.Device {
-        // zig fmt: off
-        switch (self.*) {
-            .empty         => return null,
-            .poly_synth    => |*s|  return s.device(),
-            .sampler       => |*s|  return s.device(),
-            .drum_machine  => |*dm| return dm.device(),
-            .slicer        => |*sl| return sl.device(),
-        }
+        return switch (self.*) {
+            .empty => null,
+            inline else => |*p| p.device(),
+        };
     }
 
     pub fn deinit(self: *Instrument) void {
         switch (self.*) {
-            .empty        => {},
-            .poly_synth   => |*s|  s.deinit(),
-            .sampler      => |*s|  s.deinit(),
-            .drum_machine => |*dm| dm.deinit(),
-            .slicer       => |*sl| sl.deinit(),
-            // zig fmt: on
+            .empty => {},
+            inline else => |*p| p.deinit(),
         }
     }
 };
@@ -88,29 +80,15 @@ pub const FxPayload = union(enum) {
     /// Returns a dsp.Device fat-pointer whose `.ptr` is stable as long as
     /// the parent FxUnit (heap-allocated by Fx.insert) is alive.
     pub fn device(self: *FxPayload) dsp.Device {
-        // zig fmt: off
         return switch (self.*) {
-            .gate    => |*g| g.device(),
-            .comp    => |*c| c.device(),
-            .mb_comp => |*m| m.device(),
-            .ott     => |*o| o.device(),
-            .eq      => |*e| e.device(),
-            .sat     => |*s| s.device(),
-            .crush   => |*c| c.device(),
-            .chorus  => |*c| c.device(),
-            .phaser  => |*p| p.device(),
-            .flanger => |*f| f.device(),
-            .freq_shift => |*f| f.device(),
-            .delay   => |*d| d.device(),
-            .reverb  => |*r| r.device(),
+            inline else => |*p| p.device(),
         };
     }
 
     pub fn deinit(self: *FxPayload, allocator: std.mem.Allocator) void {
         switch (self.*) {
             .chorus => |*c| c.deinit(allocator),
-            .delay  => |*d| d.deinit(allocator),
-            // zig fmt: on
+            .delay => |*d| d.deinit(allocator),
             .reverb => |*r| r.deinit(allocator),
             else => {},
         }
