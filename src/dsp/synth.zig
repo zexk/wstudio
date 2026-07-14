@@ -53,7 +53,7 @@ pub const LfoTarget  = enum { none, filter, pitch, amp };
 /// macro knobs are synth-global; fenv/aenv/velocity/keytrack are per-voice.
 /// Macros are plain 0..1 values fanned out through matrix rows — one knob
 /// (or one automation lane, ids 99-102) moving many destinations at once.
-pub const ModSource  = enum { none, lfo, fenv, aenv, velocity, keytrack, wheel, lfo2, lfo3, mac1, mac2, mac3, mac4 };
+pub const ModSource  = enum { none, lfo, fenv, aenv, velocity, keytrack, wheel, lfo2, lfo3, mac1, mac2, mac3, mac4, env3 };
 pub const VoiceMode  = enum { poly, mono, legato };
 pub const SubShape   = enum { sine, square };
 pub const ModMode    = enum { none, ring, am_a_to_b, am_b_to_a, fm_a_to_b, fm_b_to_a };
@@ -512,6 +512,19 @@ pub const PolySynth = struct {
     /// processBlock's arp block).
     arp_was_on:      bool    = false,
     // zig fmt: on
+
+    // ── ENV 3 ───────────────────────────────────────────────────────────────
+    // A third ADSR with no fixed destination — a pure mod-matrix source
+    // (.env3), same per-voice stage machine as amp/filter envelopes but
+    // routed entirely through matrix rows. Trailing ids (122-125, after
+    // ARP) per the append-after-the-max rule.
+    // zig fmt: off
+    env3_attack_s:  f32 = 0.005,
+    env3_decay_s:   f32 = 0.3,
+    env3_sustain:   f32 = 0.0,
+    env3_release_s: f32 = 0.3,
+    // zig fmt: on
+
     /// Index of the most recently triggered voice: the FX destinations are
     /// global (post-mix), so their one matrix evaluation per block reads
     /// the per-voice sources (envs, velocity, keytrack) from this voice.
@@ -555,6 +568,7 @@ pub const PolySynth = struct {
         52, 53, 54, 55, 56, 57,
         84, 85, 87, 88, 89, 91, 92, 93, 94, 104, 105, 106, 107,
         109, 110, 111, 113, 114, 115,
+        122, 123, 124, 125,
         dest_pitch, dest_amp,
         // zig fmt: on
     };
@@ -653,6 +667,9 @@ pub const PolySynth = struct {
         // Filter envelope
         env2:   f32   = 0.0,
         stage2: Stage = .attack,
+        // ENV 3: free-assignable, no fixed destination — pure matrix source.
+        env3:   f32   = 0.0,
+        stage3: Stage = .attack,
         // zig fmt: on
         /// Filter state per slot per channel (same coefficients L/R,
         /// independent histories). Filter 2 keeps its own state even in
@@ -822,6 +839,11 @@ pub const PolySynth = struct {
         arp_rate_hz: f32 = 8.0,
         arp_gate: f32 = 0.5,
         arp_hold: bool = false,
+
+        env3_attack_s: f32 = 0.005,
+        env3_decay_s: f32 = 0.3,
+        env3_sustain: f32 = 0.0,
+        env3_release_s: f32 = 0.3,
     };
 
     /// Load a patch onto this synth. Field-by-field so per-instance state
@@ -905,6 +927,7 @@ pub const PolySynth = struct {
                         v.stage  = .release;
                         // zig fmt: on
                         v.stage2 = .release;
+                        v.stage3 = .release;
                     }
                 }
             },
@@ -916,7 +939,7 @@ pub const PolySynth = struct {
                 } else {
                     const v = &self.voices[0];
                     // zig fmt: off
-                    if (v.active and v.note == note) { v.stage = .release; v.stage2 = .release; }
+                    if (v.active and v.note == note) { v.stage = .release; v.stage2 = .release; v.stage3 = .release; }
                 }
             },
             .legato => {
@@ -926,7 +949,7 @@ pub const PolySynth = struct {
                     self.noteOnMono(self.held_notes[i], self.held_velocities[i], false);
                 } else {
                     const v = &self.voices[0];
-                    if (v.active) { v.stage = .release; v.stage2 = .release; }
+                    if (v.active) { v.stage = .release; v.stage2 = .release; v.stage3 = .release; }
                 }
             },
         }
@@ -945,6 +968,7 @@ pub const PolySynth = struct {
             .velocity         = velocity,
             .stage            = .attack,
             .stage2           = .attack,
+            .stage3           = .attack,
             .glide_log_freq   = start_log,
             .glide_rate       = if (was_active and self.glide_s > 0.0)
                 (target_log - start_log) / @max(self.glide_s * self.sample_rate, 1.0)
@@ -968,6 +992,7 @@ pub const PolySynth = struct {
                 .velocity         = velocity,
                 .stage            = .attack,
                 .stage2           = .attack,
+                .stage3           = .attack,
                 .glide_log_freq   = start_log,
                 .glide_rate       = if (was_active and self.glide_s > 0.0)
                     (target_log - start_log) / @max(self.glide_s * self.sample_rate, 1.0)
@@ -1173,6 +1198,7 @@ pub const PolySynth = struct {
                 .mac2     => self.macro2,
                 .mac3     => self.macro3,
                 .mac4     => self.macro4,
+                .env3     => if (v) |vv| vv.env3 else 0.0,
                 // zig fmt: on
             };
             const a = row.depth * src;
@@ -1247,6 +1273,11 @@ pub const PolySynth = struct {
             const fenv_attack_inc  = 1.0 / @max(eff(&mods, 24, self.fenv_attack_s)  * self.sample_rate, 1.0);
             const fenv_decay_inc   = (1.0 - fenv_sustain_v) / @max(eff(&mods, 25, self.fenv_decay_s) * self.sample_rate, 1.0);
             const fenv_release_inc = 1.0 / @max(eff(&mods, 27, self.fenv_release_s) * self.sample_rate, 1.0);
+
+            const env3_sustain_v   = eff(&mods, 124, self.env3_sustain);
+            const env3_attack_inc  = 1.0 / @max(eff(&mods, 122, self.env3_attack_s)  * self.sample_rate, 1.0);
+            const env3_decay_inc   = (1.0 - env3_sustain_v) / @max(eff(&mods, 123, self.env3_decay_s) * self.sample_rate, 1.0);
+            const env3_release_inc = 1.0 / @max(eff(&mods, 125, self.env3_release_s) * self.sample_rate, 1.0);
             // zig fmt: on
 
             // Glide: advance current log-freq toward target at block rate.
@@ -1592,7 +1623,6 @@ pub const PolySynth = struct {
                     .decay => {
                         v.env2 -= fenv_decay_inc;
                         if (v.env2 <= fenv_sustain_v) { v.env2 = fenv_sustain_v; v.stage2 = .sustain; }
-                        // zig fmt: on
                     },
                     .sustain => {},
                     .release => {
@@ -1600,6 +1630,25 @@ pub const PolySynth = struct {
                         if (v.env2 < 0.0) v.env2 = 0.0;
                     },
                 }
+
+                // ENV 3 (free-assign, no fixed destination — voice death is
+                // still governed by the amp env above)
+                switch (v.stage3) {
+                    .attack => {
+                        v.env3 += env3_attack_inc;
+                        if (v.env3 >= 1.0) { v.env3 = 1.0; v.stage3 = .decay; }
+                    },
+                    .decay => {
+                        v.env3 -= env3_decay_inc;
+                        if (v.env3 <= env3_sustain_v) { v.env3 = env3_sustain_v; v.stage3 = .sustain; }
+                    },
+                    .sustain => {},
+                    .release => {
+                        v.env3 -= env3_release_inc;
+                        if (v.env3 < 0.0) v.env3 = 0.0;
+                    },
+                }
+                // zig fmt: on
             }
         }
 
@@ -2167,6 +2216,11 @@ pub const PolySynth = struct {
             119 => self.arp_rate_hz         = std.math.clamp(self.arp_rate_hz          + s * 0.1,    0.1,   20.0),
             120 => self.arp_gate            = std.math.clamp(self.arp_gate             + s * 0.01,   0.02,   1.0),
             121 => self.arp_hold            = !self.arp_hold,
+            // ENV 3 (122–125)
+            122 => self.env3_attack_s       = std.math.clamp(self.env3_attack_s        + s * 0.001, 0.001,   5.0),
+            123 => self.env3_decay_s        = std.math.clamp(self.env3_decay_s         + s * 0.005, 0.001,   5.0),
+            124 => self.env3_sustain        = std.math.clamp(self.env3_sustain         + s * 0.01,   0.0,    1.0),
+            125 => self.env3_release_s      = std.math.clamp(self.env3_release_s       + s * 0.005, 0.001,  10.0),
             // zig fmt: on
             // MATRIX (59–82): 3 ids per row — source, dest, depth.
             59...82 => {
@@ -2303,6 +2357,10 @@ pub const PolySynth = struct {
             119 => self.arp_rate_hz        = std.math.clamp(value,   0.1,   20.0),
             120 => self.arp_gate           = std.math.clamp(value,   0.02,   1.0),
             121 => self.arp_hold           = value >= 0.5,
+            122 => self.env3_attack_s      = std.math.clamp(value,   0.001,  5.0),
+            123 => self.env3_decay_s       = std.math.clamp(value,   0.001,  5.0),
+            124 => self.env3_sustain       = std.math.clamp(value,   0.0,    1.0),
+            125 => self.env3_release_s     = std.math.clamp(value,   0.001, 10.0),
             // zig fmt: on
             // MATRIX: dest takes the raw param id (falls back to cutoff if
             // the value isn't a legal dest — e.g. a hand-edited curve).
@@ -2430,6 +2488,10 @@ pub const PolySynth = struct {
             119 => self.arp_rate_hz,
             120 => self.arp_gate,
             121 => if (self.arp_hold) 1.0 else 0.0,
+            122 => self.env3_attack_s,
+            123 => self.env3_decay_s,
+            124 => self.env3_sustain,
+            125 => self.env3_release_s,
             // zig fmt: on
             59...82 => blk: {
                 const row = self.mod_matrix[(id - 59) / 3];
@@ -2537,6 +2599,10 @@ pub const PolySynth = struct {
         // paramValue but automation curves never target them).
         .{ .id = 119, .label = "ARP RATE",  .section = "ARP",     .range = .{ 0.1,    20.0 },    .step = 0.1 },
         .{ .id = 120, .label = "ARP GATE",  .section = "ARP",     .range = .{ 0.02,   1.0 },     .step = 0.01 },
+        .{ .id = 122,.label = "E3 ATTACK",  .section = "ENV 3",   .range = .{ 0.001,  5.0 },     .step = 0.01 },
+        .{ .id = 123,.label = "E3 DECAY",   .section = "ENV 3",   .range = .{ 0.001,  5.0 },     .step = 0.01 },
+        .{ .id = 124,.label = "E3 SUSTAIN", .section = "ENV 3",   .range = .{ 0.0,    1.0 },     .step = 0.01 },
+        .{ .id = 125,.label = "E3 RELEASE", .section = "ENV 3",   .range = .{ 0.001,  10.0 },    .step = 0.01 },
         // zig fmt: on
     };
 

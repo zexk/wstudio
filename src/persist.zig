@@ -202,6 +202,12 @@ pub const SynthSnap = struct {
     arp_rate_hz: f32 = 8.0,
     arp_gate: f32 = 0.5,
     arp_hold: bool = false,
+    // ENV 3: free-assignable envelope, matrix source only (additive, no
+    // version bump)
+    env3_attack_s: f32 = 0.005,
+    env3_decay_s: f32 = 0.3,
+    env3_sustain: f32 = 0.0,
+    env3_release_s: f32 = 0.3,
     // Pattern player
     notes: []const NoteSnap = &.{},
     length_beats: f64 = 4.0,
@@ -1244,6 +1250,10 @@ fn synthToSnap(s: *const PolySynth) SynthSnap {
         .arp_rate_hz = s.arp_rate_hz,
         .arp_gate = s.arp_gate,
         .arp_hold = s.arp_hold,
+        .env3_attack_s = s.env3_attack_s,
+        .env3_decay_s = s.env3_decay_s,
+        .env3_sustain = s.env3_sustain,
+        .env3_release_s = s.env3_release_s,
     };
 }
 
@@ -1933,6 +1943,10 @@ fn applyToSynth(s: *PolySynth, ss: *const SynthSnap) void {
     s.arp_rate_hz = clamp(ss.arp_rate_hz, 0.1, 20.0);
     s.arp_gate = clamp(ss.arp_gate, 0.02, 1.0);
     s.arp_hold = ss.arp_hold;
+    s.env3_attack_s = clamp(ss.env3_attack_s, 0.001, 5.0);
+    s.env3_decay_s = clamp(ss.env3_decay_s, 0.001, 5.0);
+    s.env3_sustain = clamp(ss.env3_sustain, 0.0, 1.0);
+    s.env3_release_s = clamp(ss.env3_release_s, 0.001, 10.0);
 }
 
 // zig fmt: off

@@ -237,6 +237,7 @@ fn drawSynthBottom(w: *std.Io.Writer, synth: anytype, c: u8) !void {
     try secLfo3(w, synth, c);
     try secMacro(w, synth, c);
     try secArp(w, synth, c);
+    try secEnv3(w, synth, c);
 }
 
 const wf_names = [_][]const u8{ "sine", "saw", "tri", "sqr" };
@@ -464,6 +465,23 @@ fn secArp(w: *std.Io.Writer, synth: anytype, c: u8) !void {
     try enumRow(w, c == 121, !on, bcyn, "hold", &on_off_names, if (synth.arp_hold) 0 else 1);
 }
 
+/// A third ADSR with no fixed destination — a pure MATRIX source (env3),
+/// same shape as FENV but not tied to the filter. Trailing section (ids
+/// 122-125, appended after ARP), same pattern LFO2/LFO3/ARP used.
+fn secEnv3(w: *std.Io.Writer, synth: anytype, c: u8) !void {
+    var buf: [40]u8 = undefined;
+    try synthSection(w, "ENV 3", grn);
+
+    try barRow(w, c == 122, false, grn, "attack", synth.env3_attack_s, 5.0,
+        try std.fmt.bufPrint(&buf, "{d:.3} s", .{synth.env3_attack_s}));
+    try barRow(w, c == 123, false, grn, "decay", synth.env3_decay_s, 5.0,
+        try std.fmt.bufPrint(&buf, "{d:.3} s", .{synth.env3_decay_s}));
+    try barRow(w, c == 124, false, grn, "sustain", synth.env3_sustain, 1.0,
+        try std.fmt.bufPrint(&buf, "{d:.3}", .{synth.env3_sustain}));
+    try barRow(w, c == 125, false, grn, "release", synth.env3_release_s, 10.0,
+        try std.fmt.bufPrint(&buf, "{d:.3} s", .{synth.env3_release_s}));
+}
+
 fn secVoice(w: *std.Io.Writer, synth: anytype, c: u8) !void {
     var buf: [40]u8 = undefined;
     try synthSection(w, "VOICE", blu);
@@ -609,7 +627,7 @@ fn secOscC(w: *std.Io.Writer, synth: anytype, c: u8) !void {
     try enumRow(w, c == 58, !c_on or synth.osc_c_unison <= 1, acc, "uni.mode", &uni_mode_names, uniModeIdx(synth.osc_c_unison_mode));
 }
 
-const mod_src_names = [_][]const u8{ "off", "lfo", "fenv", "aenv", "vel", "key", "whl", "lfo2", "lfo3", "mc1", "mc2", "mc3", "mc4" };
+const mod_src_names = [_][]const u8{ "off", "lfo", "fenv", "aenv", "vel", "key", "whl", "lfo2", "lfo3", "mc1", "mc2", "mc3", "mc4", "env3" };
 
 fn modSrcIdx(src: anytype) usize {
     return @intFromEnum(src);
@@ -919,6 +937,10 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !
         119 => try w.print("{d:.1} Hz",    .{synth.arp_rate_hz}),
         120 => try w.print("{d:.2}",       .{synth.arp_gate}),
         121 => try w.writeAll(if (synth.arp_hold) "on" else "off"),
+        122 => try w.print("{d:.3} s",     .{synth.env3_attack_s}),
+        123 => try w.print("{d:.3} s",     .{synth.env3_decay_s}),
+        124 => try w.print("{d:.3}",       .{synth.env3_sustain}),
+        125 => try w.print("{d:.3} s",     .{synth.env3_release_s}),
         // zig fmt: on
         else => {},
     }
