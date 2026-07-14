@@ -121,6 +121,148 @@ pub const Flanger = struct {
     }
 };
 
+/// Fixed-line stereo slapback/echo delay for the synth's internal FX
+/// section. Same by-value constraint as Flanger — no heap. `max_len` caps
+/// the settable time to max_len/sample_rate seconds (~0.68s at 48kHz);
+/// the track chain's own delay (dsp/delay.zig, up to 2s) still owns long
+/// ambient throws, this one is for short rhythmic slaps that a matrix row
+/// can wobble. No interpolation (integer-sample tap): automating time
+/// zippers rather than pitch-shifting through the change, an accepted
+/// trade for staying allocation-free.
+pub const Delay = struct {
+    ring: [2][max_len]f32 = [_][max_len]f32{[_]f32{0.0} ** max_len} ** 2,
+    pos: usize = 0,
+
+    pub const max_len: usize = 32_768;
+    /// UI-facing bound for the time param: safely under max_len/sample_rate
+    /// at 44.1/48kHz (~0.68-0.74s); processBlock's own clamp is the real
+    /// safety net at higher session rates, where the usable ceiling is
+    /// lower than this constant suggests.
+    pub const max_time_s: f32 = 0.6;
+
+    /// time_s clamps into [1 sample, max_len - 1]; feedback 0..0.95;
+    /// mix 0=dry 1=wet.
+    pub fn processBlock(self: *Delay, buf: []Sample, sample_rate: f32, time_s: f32, feedback: f32, mix: f32) void {
+        const delay_frames: usize = @intFromFloat(std.math.clamp(
+            time_s * sample_rate,
+            1.0,
+            @as(f32, @floatFromInt(max_len - 1)),
+        ));
+        var i: usize = 0;
+        while (i + 1 < buf.len) : (i += 2) {
+            inline for (0..2) |ch| {
+                const tap = self.ring[ch][(self.pos + max_len - delay_frames) % max_len];
+                const dry = buf[i + ch];
+                self.ring[ch][self.pos] = dry + tap * feedback;
+                buf[i + ch] = dry * (1.0 - mix) + tap * mix;
+            }
+            self.pos = (self.pos + 1) % max_len;
+        }
+    }
+};
+
+/// Fixed-array Freeverb-style reverb (parallel damped combs into series
+/// allpasses, per channel) for the synth's internal FX section. The
+/// track chain's own Reverb (dsp/reverb.zig) heap-allocates its lines,
+/// sized exactly for the session's sample rate; this one can't (same
+/// by-value constraint as Flanger/Delay), so each line's backing array is
+/// capacity-sized for up to 2x the 44.1kHz reference tunings (covers
+/// 44.1/48/88.2kHz sessions exactly; a session above that just clamps
+/// `len` to capacity, shortening the tail, not corrupting it) and `init`
+/// computes the actual per-instance `len` once from the real sample rate,
+/// mirroring how Phaser stores its own sample_rate.
+pub const Reverb = struct {
+    channels: [2]Channel = .{ .{}, .{} },
+
+    const comb_tunings = [_]usize{ 1116, 1188, 1277, 1356 };
+    const allpass_tunings = [_]usize{ 556, 441 };
+    const stereo_spread = 23;
+    const input_gain = 0.06;
+    const cap_scale = 2;
+    const max_comb_len: usize = 1356 * cap_scale;
+    const max_allpass_len: usize = 556 * cap_scale;
+
+    const Comb = struct {
+        buf: [max_comb_len]f32 = [_]f32{0.0} ** max_comb_len,
+        len: usize = max_comb_len,
+        idx: usize = 0,
+        store: f32 = 0.0,
+    };
+
+    const Allpass = struct {
+        buf: [max_allpass_len]f32 = [_]f32{0.0} ** max_allpass_len,
+        len: usize = max_allpass_len,
+        idx: usize = 0,
+    };
+
+    const Channel = struct {
+        combs: [comb_tunings.len]Comb = [_]Comb{.{}} ** comb_tunings.len,
+        allpasses: [allpass_tunings.len]Allpass = [_]Allpass{.{}} ** allpass_tunings.len,
+    };
+
+    pub fn init(sample_rate: f32) Reverb {
+        var self: Reverb = .{};
+        const scale = sample_rate / 44_100.0;
+        for (&self.channels, 0..) |*ch, ch_i| {
+            const spread = ch_i * stereo_spread;
+            for (&ch.combs, comb_tunings) |*comb, tuning| comb.len = lineLen(tuning + spread, scale, max_comb_len);
+            for (&ch.allpasses, allpass_tunings) |*ap, tuning| ap.len = lineLen(tuning + spread, scale, max_allpass_len);
+        }
+        return self;
+    }
+
+    fn lineLen(frames_44k: usize, scale: f32, cap: usize) usize {
+        const n: usize = @intFromFloat(@as(f32, @floatFromInt(frames_44k)) * scale);
+        return std.math.clamp(n, 1, cap);
+    }
+
+    /// Clears the comb/allpass history, leaving each line's sample-rate-
+    /// derived `len` untouched (a bare `= .{}` would reset it to capacity).
+    pub fn reset(self: *Reverb) void {
+        for (&self.channels) |*ch| {
+            for (&ch.combs) |*comb| {
+                @memset(comb.buf[0..comb.len], 0.0);
+                comb.idx = 0;
+                comb.store = 0.0;
+            }
+            for (&ch.allpasses) |*ap| {
+                @memset(ap.buf[0..ap.len], 0.0);
+                ap.idx = 0;
+            }
+        }
+    }
+
+    /// room 0..0.98 (feedback — higher sustains longer); damp 0..1 (higher
+    /// darkens the tail faster); mix 0=dry 1=wet.
+    pub fn processBlock(self: *Reverb, buf: []Sample, room: f32, damp: f32, mix: f32) void {
+        const frames = buf.len / 2;
+        for (0..frames) |i| {
+            inline for (0..2) |ch_i| {
+                const ch = &self.channels[ch_i];
+                const dry = buf[i * 2 + ch_i];
+                const input = dry * input_gain;
+
+                var wet: f32 = 0.0;
+                for (&ch.combs) |*comb| {
+                    const y = comb.buf[comb.idx];
+                    comb.store = y * (1.0 - damp) + comb.store * damp;
+                    comb.buf[comb.idx] = input + comb.store * room;
+                    comb.idx = (comb.idx + 1) % comb.len;
+                    wet += y;
+                }
+                for (&ch.allpasses) |*ap| {
+                    const y = ap.buf[ap.idx];
+                    ap.buf[ap.idx] = wet + y * 0.5;
+                    ap.idx = (ap.idx + 1) % ap.len;
+                    wet = y - wet;
+                }
+
+                buf[i * 2 + ch_i] = dry * (1.0 - mix) + wet * mix;
+            }
+        }
+    }
+};
+
 pub const PolySynth = struct {
     sample_rate: f32,
 
@@ -284,12 +426,13 @@ pub const PolySynth = struct {
 
     // ── FX ──────────────────────────────────────────────────────────────────
     // Synth-internal insert FX, applied post-mix in fixed order dist →
-    // crush → flanger → phaser. Base params live here (not on the state
-    // structs) so applyPatch/toPatch pick them up by field name; each block
-    // writes the effective values (base + matrix modulation) into the state
-    // structs. Delay/reverb-class FX stay on the track chain — this section
-    // exists for the params the matrix can reach, which the track chain
-    // can't be.
+    // crush → flanger → phaser → delay → reverb. Base params live here (not
+    // on the state structs) so applyPatch/toPatch pick them up by field
+    // name; each block writes the effective values (base + matrix
+    // modulation) into the state structs. The point vs the track FX chain:
+    // these params are matrix dests + automatable, so a preset can wobble
+    // its own delay time or reverb mix per note/LFO cycle, which a chain
+    // unit (set-and-forget per track) can't do.
     // zig fmt: off
     fx_dist_on:          bool = false,
     fx_dist_drive_db:    f32  = 12.0,
@@ -311,10 +454,24 @@ pub const PolySynth = struct {
     fx_phaser_depth:     f32  = 0.9,
     fx_phaser_feedback:  f32  = 0.5,
     fx_phaser_mix:       f32  = 0.5,
+    /// Short rhythmic slap, not the track chain's long ambient throw — see
+    /// the Delay struct's own doc comment for the capacity trade-off.
+    fx_delay_on:         bool = false,
+    fx_delay_time_s:     f32  = 0.25,
+    fx_delay_feedback:   f32  = 0.3,
+    fx_delay_mix:        f32  = 0.3,
+    /// Small-room Freeverb voice, sized to fit inline — see the Reverb
+    /// struct's own doc comment.
+    fx_reverb_on:        bool = false,
+    fx_reverb_room:      f32  = 0.6,
+    fx_reverb_damp:      f32  = 0.4,
+    fx_reverb_mix:       f32  = 0.3,
     // zig fmt: on
     fx_crush_state: Crusher = .{},
     fx_flanger_state: Flanger = .{},
     fx_phaser_state: Phaser = .{},
+    fx_delay_state: Delay = .{},
+    fx_reverb_state: Reverb = .{},
     /// Index of the most recently triggered voice: the FX destinations are
     /// global (post-mix), so their one matrix evaluation per block reads
     /// the per-voice sources (envs, velocity, keytrack) from this voice.
@@ -356,6 +513,7 @@ pub const PolySynth = struct {
         21, 22, 24, 25, 26, 27, 33, 34, 36, 37, 38, 42, 44, 47, 48,
         52, 53, 54, 55, 56, 57,
         84, 85, 87, 88, 89, 91, 92, 93, 94, 104, 105, 106, 107,
+        109, 110, 111, 113, 114, 115,
         dest_pitch, dest_amp,
         // zig fmt: on
     };
@@ -477,6 +635,7 @@ pub const PolySynth = struct {
         return .{
             .sample_rate = @floatFromInt(sample_rate),
             .fx_phaser_state = Phaser.init(sample_rate),
+            .fx_reverb_state = Reverb.init(@floatFromInt(sample_rate)),
         };
     }
 
@@ -607,6 +766,14 @@ pub const PolySynth = struct {
         fx_phaser_depth: f32 = 0.9,
         fx_phaser_feedback: f32 = 0.5,
         fx_phaser_mix: f32 = 0.5,
+        fx_delay_on: bool = false,
+        fx_delay_time_s: f32 = 0.25,
+        fx_delay_feedback: f32 = 0.3,
+        fx_delay_mix: f32 = 0.3,
+        fx_reverb_on: bool = false,
+        fx_reverb_room: f32 = 0.6,
+        fx_reverb_damp: f32 = 0.4,
+        fx_reverb_mix: f32 = 0.3,
     };
 
     /// Load a patch onto this synth. Field-by-field so per-instance state
@@ -1258,11 +1425,13 @@ pub const PolySynth = struct {
         }
 
         // ── Internal FX (post-mix, fixed order dist → crush → flanger →
-        // phaser) ── One global matrix evaluation per block: FX params are
-        // shared by all voices, so the per-voice sources read from the most
-        // recently triggered voice (env/velocity → drive style routes still
-        // play).
-        if (self.fx_dist_on or self.fx_crush_on or self.fx_flanger_on or self.fx_phaser_on) {
+        // phaser → delay → reverb) ── One global matrix evaluation per
+        // block: FX params are shared by all voices, so the per-voice
+        // sources read from the most recently triggered voice (env/velocity
+        // → drive style routes still play).
+        if (self.fx_dist_on or self.fx_crush_on or self.fx_flanger_on or self.fx_phaser_on or
+            self.fx_delay_on or self.fx_reverb_on)
+        {
             const nv = &self.voices[self.newest_voice];
             const mods = self.evalMatrix(if (nv.active) nv else null, lfo_vals);
             if (self.fx_dist_on) {
@@ -1300,6 +1469,23 @@ pub const PolySynth = struct {
                 self.fx_phaser_state.mix      = eff(&mods, 107, self.fx_phaser_mix);
                 // zig fmt: on
                 self.fx_phaser_state.processBlock(buf);
+            }
+            if (self.fx_delay_on) {
+                self.fx_delay_state.processBlock(
+                    buf,
+                    self.sample_rate,
+                    eff(&mods, 109, self.fx_delay_time_s),
+                    eff(&mods, 110, self.fx_delay_feedback),
+                    eff(&mods, 111, self.fx_delay_mix),
+                );
+            }
+            if (self.fx_reverb_on) {
+                self.fx_reverb_state.processBlock(
+                    buf,
+                    eff(&mods, 113, self.fx_reverb_room),
+                    eff(&mods, 114, self.fx_reverb_damp),
+                    eff(&mods, 115, self.fx_reverb_mix),
+                );
             }
         }
 
@@ -1529,10 +1715,12 @@ pub const PolySynth = struct {
         self.held_count = 0;
         self.fx_crush_state = .{};
         self.fx_flanger_state = .{};
+        self.fx_delay_state = .{};
         // Reset(), not `= .{}` — a bare default would also clobber the
-        // sample_rate PolySynth.init set (Phaser has no other synth-instance
-        // state to lose).
+        // sample-rate-derived state PolySynth.init set (Phaser's
+        // sample_rate, Reverb's per-line len).
         self.fx_phaser_state.reset();
+        self.fx_reverb_state.reset();
     }
 
     /// Apply a raw MIDI CC. Safe to call on the audio thread (field writes only).
@@ -1746,6 +1934,16 @@ pub const PolySynth = struct {
             105 => self.fx_phaser_depth     = std.math.clamp(self.fx_phaser_depth      + s * 0.01,   0.0,    1.0),
             106 => self.fx_phaser_feedback  = std.math.clamp(self.fx_phaser_feedback   + s * 0.01,   0.0,    0.95),
             107 => self.fx_phaser_mix       = std.math.clamp(self.fx_phaser_mix        + s * 0.01,   0.0,    1.0),
+            // FX DELAY (108–111)
+            108 => self.fx_delay_on         = !self.fx_delay_on,
+            109 => self.fx_delay_time_s     = std.math.clamp(self.fx_delay_time_s      + s * 0.01,   0.001, Delay.max_time_s),
+            110 => self.fx_delay_feedback   = std.math.clamp(self.fx_delay_feedback    + s * 0.01,   0.0,    0.95),
+            111 => self.fx_delay_mix        = std.math.clamp(self.fx_delay_mix         + s * 0.01,   0.0,    1.0),
+            // FX REVERB (112–115)
+            112 => self.fx_reverb_on        = !self.fx_reverb_on,
+            113 => self.fx_reverb_room      = std.math.clamp(self.fx_reverb_room       + s * 0.01,   0.0,    0.98),
+            114 => self.fx_reverb_damp      = std.math.clamp(self.fx_reverb_damp       + s * 0.01,   0.0,    1.0),
+            115 => self.fx_reverb_mix       = std.math.clamp(self.fx_reverb_mix        + s * 0.01,   0.0,    1.0),
             // zig fmt: on
             // MATRIX (59–82): 3 ids per row — source, dest, depth.
             59...82 => {
@@ -1868,6 +2066,14 @@ pub const PolySynth = struct {
             105 => self.fx_phaser_depth    = std.math.clamp(value,   0.0,    1.0),
             106 => self.fx_phaser_feedback = std.math.clamp(value,   0.0,    0.95),
             107 => self.fx_phaser_mix      = std.math.clamp(value,   0.0,    1.0),
+            108 => self.fx_delay_on        = value >= 0.5,
+            109 => self.fx_delay_time_s    = std.math.clamp(value,   0.001, Delay.max_time_s),
+            110 => self.fx_delay_feedback  = std.math.clamp(value,   0.0,    0.95),
+            111 => self.fx_delay_mix       = std.math.clamp(value,   0.0,    1.0),
+            112 => self.fx_reverb_on       = value >= 0.5,
+            113 => self.fx_reverb_room     = std.math.clamp(value,   0.0,    0.98),
+            114 => self.fx_reverb_damp     = std.math.clamp(value,   0.0,    1.0),
+            115 => self.fx_reverb_mix      = std.math.clamp(value,   0.0,    1.0),
             // zig fmt: on
             // MATRIX: dest takes the raw param id (falls back to cutoff if
             // the value isn't a legal dest — e.g. a hand-edited curve).
@@ -1981,6 +2187,14 @@ pub const PolySynth = struct {
             105 => self.fx_phaser_depth,
             106 => self.fx_phaser_feedback,
             107 => self.fx_phaser_mix,
+            108 => if (self.fx_delay_on) 1.0 else 0.0,
+            109 => self.fx_delay_time_s,
+            110 => self.fx_delay_feedback,
+            111 => self.fx_delay_mix,
+            112 => if (self.fx_reverb_on) 1.0 else 0.0,
+            113 => self.fx_reverb_room,
+            114 => self.fx_reverb_damp,
+            115 => self.fx_reverb_mix,
             // zig fmt: on
             59...82 => blk: {
                 const row = self.mod_matrix[(id - 59) / 3];
@@ -2068,6 +2282,12 @@ pub const PolySynth = struct {
         .{ .id = 105,.label = "PHSR DEPTH", .section = "FX PHSR", .range = .{ 0.0,    1.0 },     .step = 0.01 },
         .{ .id = 106,.label = "PHSR FDBK",  .section = "FX PHSR", .range = .{ 0.0,    0.95 },    .step = 0.01 },
         .{ .id = 107,.label = "PHSR MIX",   .section = "FX PHSR", .range = .{ 0.0,    1.0 },     .step = 0.01 },
+        .{ .id = 109,.label = "DLY TIME",   .section = "FX DELAY",.range = .{ 0.001,  Delay.max_time_s },.step = 0.01 },
+        .{ .id = 110,.label = "DLY FDBK",   .section = "FX DELAY",.range = .{ 0.0,    0.95 },    .step = 0.01 },
+        .{ .id = 111,.label = "DLY MIX",    .section = "FX DELAY",.range = .{ 0.0,    1.0 },     .step = 0.01 },
+        .{ .id = 113,.label = "VRB ROOM",   .section = "FX VERB", .range = .{ 0.0,    0.98 },    .step = 0.01 },
+        .{ .id = 114,.label = "VRB DAMP",   .section = "FX VERB", .range = .{ 0.0,    1.0 },     .step = 0.01 },
+        .{ .id = 115,.label = "VRB MIX",    .section = "FX VERB", .range = .{ 0.0,    1.0 },     .step = 0.01 },
         .{ .id = 96, .label = "LFO2 RATE",  .section = "LFO 2",   .range = .{ 0.01,   20.0 },    .step = 0.1 },
         .{ .id = 98, .label = "LFO3 RATE",  .section = "LFO 3",   .range = .{ 0.01,   20.0 },    .step = 0.1 },
         // Macros: an automation lane on one macro rides every destination
@@ -2958,4 +3178,136 @@ test "internal FX: phaser reset preserves the synth's sample rate" {
     synth.processBlock(&buf);
     synth.resetAll();
     try std.testing.expectApproxEqAbs(@as(f32, 44_100.0), synth.fx_phaser_state.sample_rate, 1e-6);
+}
+
+test "FX delay/reverb param ids round-trip through paramValue/setParamAbsolute" {
+    var a = PolySynth.init(48_000);
+    a.fx_delay_on = true;
+    a.fx_delay_time_s = 0.4;
+    a.fx_delay_feedback = 0.6;
+    a.fx_delay_mix = 0.5;
+    a.fx_reverb_on = true;
+    a.fx_reverb_room = 0.7;
+    a.fx_reverb_damp = 0.2;
+    a.fx_reverb_mix = 0.8;
+
+    var b = PolySynth.init(48_000);
+    var id: u8 = 108;
+    while (id <= 115) : (id += 1) {
+        if (a.paramValue(id)) |v| b.setParamAbsolute(id, v);
+    }
+    try std.testing.expect(b.fx_delay_on);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.4), b.fx_delay_time_s, 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.6), b.fx_delay_feedback, 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.5), b.fx_delay_mix, 1e-6);
+    try std.testing.expect(b.fx_reverb_on);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.7), b.fx_reverb_room, 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.2), b.fx_reverb_damp, 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.8), b.fx_reverb_mix, 1e-6);
+}
+
+test "internal FX: delay echoes at the set time with feedback decay" {
+    var synth = PolySynth.init(1000);
+    synth.fx_delay_on = true;
+    synth.fx_delay_time_s = 0.1; // 100 frames at 1000 Hz
+    synth.fx_delay_feedback = 0.5;
+    synth.fx_delay_mix = 0.5;
+
+    var buf = [_]Sample{0.0} ** 800;
+    buf[0] = 1.0;
+    buf[1] = 1.0;
+    synth.processBlock(&buf);
+
+    try std.testing.expectApproxEqAbs(@as(Sample, 0.5), buf[0], 1e-6); // dry half
+    try std.testing.expectApproxEqAbs(@as(Sample, 0.5), buf[100 * 2], 1e-6); // first echo
+    try std.testing.expectApproxEqAbs(@as(Sample, 0.25), buf[200 * 2], 1e-6); // second echo
+}
+
+test "internal FX: delay at mix 0 passes the synth output untouched" {
+    var a = PolySynth.init(48_000);
+    var b = PolySynth.init(48_000);
+    b.fx_delay_on = true;
+    b.fx_delay_mix = 0.0;
+    a.noteOn(60, 1.0);
+    b.noteOn(60, 1.0);
+
+    var buf_a: [512]Sample = undefined;
+    var buf_b: [512]Sample = undefined;
+    for (0..8) |_| {
+        @memset(&buf_a, 0.0);
+        @memset(&buf_b, 0.0);
+        a.processBlock(&buf_a);
+        b.processBlock(&buf_b);
+        for (buf_a, buf_b) |sa, sb| try std.testing.expectApproxEqAbs(sa, sb, 1e-6);
+    }
+}
+
+test "internal FX: reverb at mix 0 passes the synth output untouched" {
+    var a = PolySynth.init(48_000);
+    var b = PolySynth.init(48_000);
+    b.fx_reverb_on = true;
+    b.fx_reverb_mix = 0.0;
+    a.noteOn(60, 1.0);
+    b.noteOn(60, 1.0);
+
+    var buf_a: [512]Sample = undefined;
+    var buf_b: [512]Sample = undefined;
+    for (0..8) |_| {
+        @memset(&buf_a, 0.0);
+        @memset(&buf_b, 0.0);
+        a.processBlock(&buf_a);
+        b.processBlock(&buf_b);
+        for (buf_a, buf_b) |sa, sb| try std.testing.expectApproxEqAbs(sa, sb, 1e-6);
+    }
+}
+
+test "internal FX: reverb produces a decaying tail and stays bounded" {
+    var synth = PolySynth.init(48_000);
+    synth.fx_reverb_on = true;
+    synth.fx_reverb_mix = 1.0;
+    synth.fx_reverb_room = 0.84;
+    synth.fx_reverb_damp = 0.25;
+
+    var buf = [_]Sample{0.0} ** (4096 * 2);
+    buf[0] = 1.0;
+    buf[1] = 1.0;
+    synth.processBlock(&buf);
+
+    var tail_energy: f32 = 0.0;
+    var peak: f32 = 0.0;
+    for (buf[2048..]) |s| {
+        tail_energy += s * s;
+        peak = @max(peak, @abs(s));
+    }
+    try std.testing.expect(tail_energy > 0.0);
+    try std.testing.expect(peak < 1.0);
+}
+
+test "internal FX: delay and reverb stay finite at max feedback/room" {
+    var synth = PolySynth.init(48_000);
+    synth.fx_delay_on = true;
+    synth.fx_delay_feedback = 0.95;
+    synth.fx_delay_mix = 1.0;
+    synth.fx_reverb_on = true;
+    synth.fx_reverb_room = 0.98;
+    synth.fx_reverb_mix = 1.0;
+    synth.noteOn(48, 1.0);
+
+    var buf: [512]Sample = undefined;
+    for (0..64) |_| {
+        @memset(&buf, 0.0);
+        synth.processBlock(&buf);
+        for (buf) |s| try std.testing.expect(std.math.isFinite(s));
+    }
+}
+
+test "internal FX: reverb reset preserves the synth's sample-rate-derived line lengths" {
+    var synth = PolySynth.init(44_100);
+    synth.fx_reverb_on = true;
+    synth.noteOn(60, 1.0);
+    var buf: [128]Sample = undefined;
+    synth.processBlock(&buf);
+    const len_before = synth.fx_reverb_state.channels[0].combs[0].len;
+    synth.resetAll();
+    try std.testing.expectEqual(len_before, synth.fx_reverb_state.channels[0].combs[0].len);
 }

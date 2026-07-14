@@ -187,6 +187,14 @@ pub const SynthSnap = struct {
     fx_phaser_depth: f32 = 0.9,
     fx_phaser_feedback: f32 = 0.5,
     fx_phaser_mix: f32 = 0.5,
+    fx_delay_on: bool = false,
+    fx_delay_time_s: f32 = 0.25,
+    fx_delay_feedback: f32 = 0.3,
+    fx_delay_mix: f32 = 0.3,
+    fx_reverb_on: bool = false,
+    fx_reverb_room: f32 = 0.6,
+    fx_reverb_damp: f32 = 0.4,
+    fx_reverb_mix: f32 = 0.3,
     // Pattern player
     notes: []const NoteSnap = &.{},
     length_beats: f64 = 4.0,
@@ -1215,6 +1223,14 @@ fn synthToSnap(s: *const PolySynth) SynthSnap {
         .fx_phaser_depth = s.fx_phaser_depth,
         .fx_phaser_feedback = s.fx_phaser_feedback,
         .fx_phaser_mix = s.fx_phaser_mix,
+        .fx_delay_on = s.fx_delay_on,
+        .fx_delay_time_s = s.fx_delay_time_s,
+        .fx_delay_feedback = s.fx_delay_feedback,
+        .fx_delay_mix = s.fx_delay_mix,
+        .fx_reverb_on = s.fx_reverb_on,
+        .fx_reverb_room = s.fx_reverb_room,
+        .fx_reverb_damp = s.fx_reverb_damp,
+        .fx_reverb_mix = s.fx_reverb_mix,
     };
 }
 
@@ -1890,6 +1906,14 @@ fn applyToSynth(s: *PolySynth, ss: *const SynthSnap) void {
     s.fx_phaser_depth = clamp(ss.fx_phaser_depth, 0.0, 1.0);
     s.fx_phaser_feedback = clamp(ss.fx_phaser_feedback, 0.0, 0.95);
     s.fx_phaser_mix = clamp(ss.fx_phaser_mix, 0.0, 1.0);
+    s.fx_delay_on = ss.fx_delay_on;
+    s.fx_delay_time_s = clamp(ss.fx_delay_time_s, 0.001, synth_mod.Delay.max_time_s);
+    s.fx_delay_feedback = clamp(ss.fx_delay_feedback, 0.0, 0.95);
+    s.fx_delay_mix = clamp(ss.fx_delay_mix, 0.0, 1.0);
+    s.fx_reverb_on = ss.fx_reverb_on;
+    s.fx_reverb_room = clamp(ss.fx_reverb_room, 0.0, 0.98);
+    s.fx_reverb_damp = clamp(ss.fx_reverb_damp, 0.0, 1.0);
+    s.fx_reverb_mix = clamp(ss.fx_reverb_mix, 0.0, 1.0);
 }
 
 // zig fmt: off

@@ -183,6 +183,8 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize
         try secLfo3(&tw, synth, c);
         try secMacro(&tw, synth, c);
         try secFxPhaser(&tw, synth, c);
+        try secFxDelay(&tw, synth, c);
+        try secFxReverb(&tw, synth, c);
 
         var line_it = std.mem.splitSequence(u8, tw.buffered(), "\r\n");
         var row: usize = 1;
@@ -230,6 +232,8 @@ fn drawSynthBottom(w: *std.Io.Writer, synth: anytype, c: u8) !void {
     try secLfo3(w, synth, c);
     try secMacro(w, synth, c);
     try secFxPhaser(w, synth, c);
+    try secFxDelay(w, synth, c);
+    try secFxReverb(w, synth, c);
 }
 
 const wf_names = [_][]const u8{ "sine", "saw", "tri", "sqr" };
@@ -666,6 +670,34 @@ fn secFxPhaser(w: *std.Io.Writer, synth: anytype, c: u8) !void {
         try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.fx_phaser_mix}));
 }
 
+fn secFxDelay(w: *std.Io.Writer, synth: anytype, c: u8) !void {
+    var buf: [40]u8 = undefined;
+    try synthSection(w, "FX DELAY", red);
+
+    const on = synth.fx_delay_on;
+    try enumRow(w, c == 108, false, red, "on/off", &on_off_names, if (on) 0 else 1);
+    try barRow(w, c == 109, !on, red, "time", synth.fx_delay_time_s, ws.dsp.synth.Delay.max_time_s,
+        try std.fmt.bufPrint(&buf, "{d:.3} s", .{synth.fx_delay_time_s}));
+    try barRow(w, c == 110, !on, red, "feedback", synth.fx_delay_feedback, 0.95,
+        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.fx_delay_feedback}));
+    try barRow(w, c == 111, !on, red, "mix", synth.fx_delay_mix, 1.0,
+        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.fx_delay_mix}));
+}
+
+fn secFxReverb(w: *std.Io.Writer, synth: anytype, c: u8) !void {
+    var buf: [40]u8 = undefined;
+    try synthSection(w, "FX VERB", red);
+
+    const on = synth.fx_reverb_on;
+    try enumRow(w, c == 112, false, red, "on/off", &on_off_names, if (on) 0 else 1);
+    try barRow(w, c == 113, !on, red, "room", synth.fx_reverb_room, 0.98,
+        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.fx_reverb_room}));
+    try barRow(w, c == 114, !on, red, "damp", synth.fx_reverb_damp, 1.0,
+        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.fx_reverb_damp}));
+    try barRow(w, c == 115, !on, red, "mix", synth.fx_reverb_mix, 1.0,
+        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.fx_reverb_mix}));
+}
+
 pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !void {
     if (app.synth_track >= app.session.racks.items.len) return;
     const rack = app.session.racks.items[app.synth_track];
@@ -701,6 +733,8 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !
         "lfo2.shape", "lfo2.rate", "lfo3.shape", "lfo3.rate",
         "macro 1", "macro 2", "macro 3", "macro 4",
         "phsr.on", "phsr.rate", "phsr.depth", "phsr.fdbk", "phsr.mix",
+        "dly.on", "dly.time", "dly.fdbk", "dly.mix",
+        "vrb.on", "vrb.room", "vrb.damp", "vrb.mix",
     };
     const cur = @min(@as(usize, app.synth_cursor), labels.len - 1);
     try style.writeModeBadge(w, app.modal.mode);
@@ -831,6 +865,14 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !
         105 => try w.print("{d:.2}",       .{synth.fx_phaser_depth}),
         106 => try w.print("{d:.2}",       .{synth.fx_phaser_feedback}),
         107 => try w.print("{d:.2}",       .{synth.fx_phaser_mix}),
+        108 => try w.writeAll(if (synth.fx_delay_on) "on" else "off"),
+        109 => try w.print("{d:.3} s",     .{synth.fx_delay_time_s}),
+        110 => try w.print("{d:.2}",       .{synth.fx_delay_feedback}),
+        111 => try w.print("{d:.2}",       .{synth.fx_delay_mix}),
+        112 => try w.writeAll(if (synth.fx_reverb_on) "on" else "off"),
+        113 => try w.print("{d:.2}",       .{synth.fx_reverb_room}),
+        114 => try w.print("{d:.2}",       .{synth.fx_reverb_damp}),
+        115 => try w.print("{d:.2}",       .{synth.fx_reverb_mix}),
         // zig fmt: on
         else => {},
     }
