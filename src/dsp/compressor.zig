@@ -24,7 +24,7 @@ pub const Compressor = struct {
         pad: ?u8 = null,
     };
 
-    sample_rate: f32,
+    sample_rate: f32 = 48_000.0,
     threshold_db: f32 = -18.0,
     ratio: f32 = 4.0,
     attack_ms: f32 = 10.0,
@@ -124,10 +124,19 @@ pub const Compressor = struct {
         }
     }
 
-    fn resetOpaque(ptr: *anyopaque) void {
-        const self: *Compressor = @ptrCast(@alignCast(ptr));
+    /// Clears envelope/detector state without touching `sample_rate` —
+    /// callers embedding a `Compressor` by value (e.g. PolySynth's internal
+    /// FX section) must use this instead of `= .{}`, which would reset
+    /// sample_rate to the struct default and desync it from the real
+    /// session rate.
+    pub fn reset(self: *Compressor) void {
         self.env = 0.0;
         self.detector = null;
+    }
+
+    fn resetOpaque(ptr: *anyopaque) void {
+        const self: *Compressor = @ptrCast(@alignCast(ptr));
+        self.reset();
     }
 };
 

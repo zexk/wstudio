@@ -9,6 +9,7 @@ const Saturator = @import("saturator.zig").Saturator;
 const Crusher = @import("crusher.zig").Crusher;
 const Phaser = @import("phaser.zig").Phaser;
 const Gate = @import("gate.zig").Gate;
+const Compressor = @import("compressor.zig").Compressor;
 
 const Sample = types.Sample;
 
@@ -88,14 +89,15 @@ pub const ArpMode     = enum { up, down, updown, downup, played, random, chord }
 /// no heap allocation and doesn't touch the mod-matrix/automation id space
 /// (every param keeps its existing stable id regardless of position). See
 /// `PolySynth.fx_order`'s own doc comment for the reorder mechanism.
-pub const FxUnitKind = enum { gate, dist, crush, flanger, phaser, delay, reverb };
+pub const FxUnitKind = enum { gate, comp, dist, crush, flanger, phaser, delay, reverb };
 
 /// Starting chain order — preserves the relative order the original 6
 /// fixed units always ran in, so existing presets/projects sound unchanged
 /// on load; each unit added since is slotted in wherever it makes sense in
-/// a typical signal chain (gate first, ahead of everything else). Purely a
-/// starting point once `fx_order` is user-reorderable.
-pub const default_fx_order = [_]FxUnitKind{ .gate, .dist, .crush, .flanger, .phaser, .delay, .reverb };
+/// a typical signal chain (gate first, ahead of everything else; comp right
+/// after it, dynamics before tone-shaping). Purely a starting point once
+/// `fx_order` is user-reorderable.
+pub const default_fx_order = [_]FxUnitKind{ .gate, .comp, .dist, .crush, .flanger, .phaser, .delay, .reverb };
 
 /// Fixed-line stereo flanger for the synth's internal FX section. Unlike the
 /// master-bus Chorus it owns no heap delay line — PolySynth embeds by value
@@ -462,6 +464,17 @@ pub const PolySynth = struct {
     fx_gate_threshold_db: f32 = -50.0,
     fx_gate_attack_ms:   f32  = 1.0,
     fx_gate_release_ms:  f32  = 100.0,
+    /// Reuses the track-chain's own Compressor unit (dsp/compressor.zig) —
+    /// same envelope/gain-computer math, just matrix-automatable and
+    /// embedded by value here. `sidechain_source`/`detector` are never set
+    /// (no per-track routing concept inside a single synth instance), so
+    /// this always self-detects off its own input.
+    fx_comp_on:          bool = false,
+    fx_comp_threshold_db: f32 = -18.0,
+    fx_comp_ratio:       f32  = 4.0,
+    fx_comp_attack_ms:   f32  = 10.0,
+    fx_comp_release_ms:  f32  = 80.0,
+    fx_comp_makeup_db:   f32  = 0.0,
     fx_dist_on:          bool = false,
     fx_dist_drive_db:    f32  = 12.0,
     fx_dist_mix:         f32  = 1.0,
@@ -498,8 +511,9 @@ pub const PolySynth = struct {
     /// Processing sequence for the FX section above — see `FxUnitKind`'s
     /// doc comment. Reordered via `adjustParam`'s dedicated reorder-handle
     /// ids, never written directly by the editor.
-    fx_order: [7]FxUnitKind = default_fx_order,
+    fx_order: [8]FxUnitKind = default_fx_order,
     fx_gate_state: Gate = .{},
+    fx_comp_state: Compressor = .{},
     fx_crush_state: Crusher = .{},
     fx_flanger_state: Flanger = .{},
     fx_phaser_state: Phaser = .{},
@@ -598,6 +612,7 @@ pub const PolySynth = struct {
         109, 110, 111, 113, 114, 115,
         122, 123, 124, 125,
         133, 134, 135,
+        138, 139, 140, 141, 142,
         dest_pitch, dest_amp,
         // zig fmt: on
     };
@@ -722,6 +737,7 @@ pub const PolySynth = struct {
         return .{
             .sample_rate = @floatFromInt(sample_rate),
             .fx_gate_state = Gate.init(sample_rate),
+            .fx_comp_state = Compressor.init(sample_rate),
             .fx_phaser_state = Phaser.init(sample_rate),
             .fx_reverb_state = Reverb.init(@floatFromInt(sample_rate)),
         };
@@ -841,6 +857,12 @@ pub const PolySynth = struct {
         fx_gate_threshold_db: f32 = -50.0,
         fx_gate_attack_ms: f32 = 1.0,
         fx_gate_release_ms: f32 = 100.0,
+        fx_comp_on: bool = false,
+        fx_comp_threshold_db: f32 = -18.0,
+        fx_comp_ratio: f32 = 4.0,
+        fx_comp_attack_ms: f32 = 10.0,
+        fx_comp_release_ms: f32 = 80.0,
+        fx_comp_makeup_db: f32 = 0.0,
         fx_dist_on: bool = false,
         fx_dist_drive_db: f32 = 12.0,
         fx_dist_mix: f32 = 1.0,
@@ -866,7 +888,7 @@ pub const PolySynth = struct {
         fx_reverb_room: f32 = 0.6,
         fx_reverb_damp: f32 = 0.4,
         fx_reverb_mix: f32 = 0.3,
-        fx_order: [7]FxUnitKind = default_fx_order,
+        fx_order: [8]FxUnitKind = default_fx_order,
 
         arp_on: bool = false,
         arp_mode: ArpMode = .up,
@@ -1692,8 +1714,8 @@ pub const PolySynth = struct {
         // are shared by all voices, so the per-voice sources read from the
         // most recently triggered voice (env/velocity → drive style routes
         // still play).
-        if (self.fx_gate_on or self.fx_dist_on or self.fx_crush_on or self.fx_flanger_on or
-            self.fx_phaser_on or self.fx_delay_on or self.fx_reverb_on)
+        if (self.fx_gate_on or self.fx_comp_on or self.fx_dist_on or self.fx_crush_on or
+            self.fx_flanger_on or self.fx_phaser_on or self.fx_delay_on or self.fx_reverb_on)
         {
             const nv = &self.voices[self.newest_voice];
             const mods = self.evalMatrix(if (nv.active) nv else null, lfo_vals);
@@ -1706,6 +1728,16 @@ pub const PolySynth = struct {
                         self.fx_gate_state.release_ms    = eff(&mods, 135, self.fx_gate_release_ms);
                         // zig fmt: on
                         self.fx_gate_state.processBlock(buf);
+                    },
+                    .comp => if (self.fx_comp_on) {
+                        // zig fmt: off
+                        self.fx_comp_state.threshold_db = eff(&mods, 138, self.fx_comp_threshold_db);
+                        self.fx_comp_state.ratio        = eff(&mods, 139, self.fx_comp_ratio);
+                        self.fx_comp_state.attack_ms    = eff(&mods, 140, self.fx_comp_attack_ms);
+                        self.fx_comp_state.release_ms   = eff(&mods, 141, self.fx_comp_release_ms);
+                        self.fx_comp_state.makeup_db    = eff(&mods, 142, self.fx_comp_makeup_db);
+                        // zig fmt: on
+                        self.fx_comp_state.processBlock(buf);
                     },
                     .dist => if (self.fx_dist_on) {
                         // Stateless, so a per-block value with the
@@ -2024,9 +2056,10 @@ pub const PolySynth = struct {
         self.fx_flanger_state = .{};
         self.fx_delay_state = .{};
         // Reset(), not `= .{}` — a bare default would also clobber the
-        // sample-rate-derived state PolySynth.init set (Gate's and
-        // Phaser's sample_rate, Reverb's per-line len).
+        // sample-rate-derived state PolySynth.init set (Gate's, Compressor's
+        // and Phaser's sample_rate, Reverb's per-line len).
         self.fx_gate_state.reset();
+        self.fx_comp_state.reset();
         self.fx_phaser_state.reset();
         self.fx_reverb_state.reset();
     }
@@ -2332,6 +2365,14 @@ pub const PolySynth = struct {
             134 => self.fx_gate_attack_ms    = std.math.clamp(self.fx_gate_attack_ms    + s * 0.1,     0.1,   50.0),
             135 => self.fx_gate_release_ms   = std.math.clamp(self.fx_gate_release_ms   + s * 10.0,    5.0, 1000.0),
             136 => self.reorderFx(.gate, steps),
+            // FX COMP (137–142), reorder handle 143.
+            137 => self.fx_comp_on           = !self.fx_comp_on,
+            138 => self.fx_comp_threshold_db = std.math.clamp(self.fx_comp_threshold_db + s * 1.0,   -60.0,    0.0),
+            139 => self.fx_comp_ratio        = std.math.clamp(self.fx_comp_ratio        + s * 0.1,     1.0,   20.0),
+            140 => self.fx_comp_attack_ms    = std.math.clamp(self.fx_comp_attack_ms    + s * 0.5,     0.1,  500.0),
+            141 => self.fx_comp_release_ms   = std.math.clamp(self.fx_comp_release_ms   + s * 5.0,     1.0, 2000.0),
+            142 => self.fx_comp_makeup_db    = std.math.clamp(self.fx_comp_makeup_db    + s * 0.5,   -24.0,   24.0),
+            143 => self.reorderFx(.comp, steps),
             // zig fmt: on
             // MATRIX (59–82): 3 ids per row — source, dest, depth.
             59...82 => {
@@ -2490,6 +2531,13 @@ pub const PolySynth = struct {
             134 => self.fx_gate_attack_ms    = std.math.clamp(value,   0.1,  50.0),
             135 => self.fx_gate_release_ms   = std.math.clamp(value,   5.0, 1000.0),
             136 => self.setFxIndex(.gate,      @intFromFloat(@round(@max(value, 0.0)))),
+            137 => self.fx_comp_on           = value >= 0.5,
+            138 => self.fx_comp_threshold_db = std.math.clamp(value, -60.0,   0.0),
+            139 => self.fx_comp_ratio        = std.math.clamp(value,   1.0,  20.0),
+            140 => self.fx_comp_attack_ms    = std.math.clamp(value,   0.1, 500.0),
+            141 => self.fx_comp_release_ms   = std.math.clamp(value,   1.0, 2000.0),
+            142 => self.fx_comp_makeup_db    = std.math.clamp(value, -24.0,  24.0),
+            143 => self.setFxIndex(.comp,      @intFromFloat(@round(@max(value, 0.0)))),
             // zig fmt: on
             // MATRIX: dest takes the raw param id (falls back to cutoff if
             // the value isn't a legal dest — e.g. a hand-edited curve).
@@ -2632,6 +2680,13 @@ pub const PolySynth = struct {
             134 => self.fx_gate_attack_ms,
             135 => self.fx_gate_release_ms,
             136 => @floatFromInt(self.fxOrderIndex(.gate)),
+            137 => if (self.fx_comp_on) 1.0 else 0.0,
+            138 => self.fx_comp_threshold_db,
+            139 => self.fx_comp_ratio,
+            140 => self.fx_comp_attack_ms,
+            141 => self.fx_comp_release_ms,
+            142 => self.fx_comp_makeup_db,
+            143 => @floatFromInt(self.fxOrderIndex(.comp)),
             // zig fmt: on
             59...82 => blk: {
                 const row = self.mod_matrix[(id - 59) / 3];
@@ -2746,6 +2801,11 @@ pub const PolySynth = struct {
         .{ .id = 133,.label = "GATE THRESH",.section = "FX GATE", .range = .{ -80.0,  0.0 },     .step = 1.0 },
         .{ .id = 134,.label = "GATE ATTACK",.section = "FX GATE", .range = .{ 0.1,    50.0 },    .step = 0.1 },
         .{ .id = 135,.label = "GATE RELEASE",.section = "FX GATE",.range = .{ 5.0,    1000.0 },  .step = 10.0 },
+        .{ .id = 138,.label = "COMP THRESH", .section = "FX COMP", .range = .{ -60.0,  0.0 },    .step = 1.0 },
+        .{ .id = 139,.label = "COMP RATIO",  .section = "FX COMP", .range = .{ 1.0,    20.0 },   .step = 0.5 },
+        .{ .id = 140,.label = "COMP ATTACK", .section = "FX COMP", .range = .{ 0.1,    500.0 },  .step = 1.0 },
+        .{ .id = 141,.label = "COMP RELEASE",.section = "FX COMP", .range = .{ 1.0,    2000.0 }, .step = 10.0 },
+        .{ .id = 142,.label = "COMP MAKEUP", .section = "FX COMP", .range = .{ -24.0,  24.0 },   .step = 0.5 },
         // zig fmt: on
     };
 

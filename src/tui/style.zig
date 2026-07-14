@@ -44,7 +44,9 @@ pub const spectrum_band_count: usize = 80;
 ///   PolySynth.setFxIndex.
 /// FX GATE : 132:fx_gate_on 133:fx_gate_threshold_db 134:fx_gate_attack_ms 135:fx_gate_release_ms
 ///   136:reorder handle (gate) — same "not a real param" note as 126-131.
-pub const synth_param_count: u8 = 137;
+/// FX COMP : 137:fx_comp_on 138:fx_comp_threshold_db 139:fx_comp_ratio 140:fx_comp_attack_ms
+///   141:fx_comp_release_ms 142:fx_comp_makeup_db 143:reorder handle (comp)
+pub const synth_param_count: u8 = 144;
 
 // ---------------------------------------------------------------------------
 // Palette — all colour codes go here; never raw \x1b sequences elsewhere

@@ -185,6 +185,7 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize
             .fx => for (synth.fx_order) |kind| {
                 switch (kind) {
                     .gate => try secFxGate(&tw, synth, c),
+                    .comp => try secFxComp(&tw, synth, c),
                     .dist => try secFxDist(&tw, synth, c),
                     .crush => try secFxCrush(&tw, synth, c),
                     .flanger => try secFxFlanger(&tw, synth, c),
@@ -686,6 +687,24 @@ fn secFxGate(w: *std.Io.Writer, synth: anytype, c: u8) !void {
         try std.fmt.bufPrint(&buf, "{d:.0} ms", .{synth.fx_gate_release_ms}));
 }
 
+fn secFxComp(w: *std.Io.Writer, synth: anytype, c: u8) !void {
+    var buf: [40]u8 = undefined;
+    try synthSection(w, "FX COMP", red);
+
+    const on = synth.fx_comp_on;
+    try enumRow(w, c == 137, false, red, "on/off", &on_off_names, if (on) 0 else 1);
+    try barRow(w, c == 138, !on, red, "threshold", synth.fx_comp_threshold_db + 60.0, 60.0,
+        try std.fmt.bufPrint(&buf, "{d:.0} dB", .{synth.fx_comp_threshold_db}));
+    try barRow(w, c == 139, !on, red, "ratio", synth.fx_comp_ratio, 20.0,
+        try std.fmt.bufPrint(&buf, "{d:.1}:1", .{synth.fx_comp_ratio}));
+    try barRow(w, c == 140, !on, red, "attack", synth.fx_comp_attack_ms, 500.0,
+        try std.fmt.bufPrint(&buf, "{d:.1} ms", .{synth.fx_comp_attack_ms}));
+    try barRow(w, c == 141, !on, red, "release", synth.fx_comp_release_ms, 2000.0,
+        try std.fmt.bufPrint(&buf, "{d:.0} ms", .{synth.fx_comp_release_ms}));
+    try barRow(w, c == 142, !on, red, "makeup", synth.fx_comp_makeup_db + 24.0, 48.0,
+        try std.fmt.bufPrint(&buf, "{d:.1} dB", .{synth.fx_comp_makeup_db}));
+}
+
 fn secFxDist(w: *std.Io.Writer, synth: anytype, c: u8) !void {
     var buf: [40]u8 = undefined;
     try synthSection(w, "FX DIST", red);
@@ -814,6 +833,8 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !
         "-", "-", "-", "-", "-", "-", // 126-131: FX reorder handles, never cursor-reachable
         "gate.on", "gate.thresh", "gate.attack", "gate.release",
         "-", // 136: gate's reorder handle, never cursor-reachable
+        "comp.on", "comp.thresh", "comp.ratio", "comp.attack", "comp.release", "comp.makeup",
+        "-", // 143: comp's reorder handle, never cursor-reachable
     };
     const cur = @min(@as(usize, app.synth_cursor), labels.len - 1);
     try style.writeModeBadge(w, app.modal.mode);
@@ -966,6 +987,12 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !
         133 => try w.print("{d:.0} dB",    .{synth.fx_gate_threshold_db}),
         134 => try w.print("{d:.1} ms",    .{synth.fx_gate_attack_ms}),
         135 => try w.print("{d:.0} ms",    .{synth.fx_gate_release_ms}),
+        137 => try w.writeAll(if (synth.fx_comp_on) "on" else "off"),
+        138 => try w.print("{d:.0} dB",    .{synth.fx_comp_threshold_db}),
+        139 => try w.print("{d:.1}:1",     .{synth.fx_comp_ratio}),
+        140 => try w.print("{d:.1} ms",    .{synth.fx_comp_attack_ms}),
+        141 => try w.print("{d:.0} ms",    .{synth.fx_comp_release_ms}),
+        142 => try w.print("{d:.1} dB",    .{synth.fx_comp_makeup_db}),
         // zig fmt: on
         else => {},
     }
