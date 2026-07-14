@@ -19,6 +19,7 @@ pub const Crusher = @import("dsp/crusher.zig").Crusher;
 pub const Chorus = @import("dsp/chorus.zig").Chorus;
 pub const chorus = @import("dsp/chorus.zig");
 pub const Phaser = @import("dsp/phaser.zig").Phaser;
+pub const FreqShifter = @import("dsp/freq_shift.zig").FreqShifter;
 pub const DrumMachine = @import("dsp/drum_sampler.zig").DrumMachine;
 pub const Pad = @import("dsp/pad.zig").Pad;
 pub const pad = @import("dsp/pad.zig");
@@ -54,6 +55,7 @@ test {
     _ = Crusher;
     _ = Chorus;
     _ = Phaser;
+    _ = FreqShifter;
     _ = DrumMachine;
     _ = pad;
     _ = Sampler;

@@ -19,7 +19,7 @@ a sidecar directory, not embedded in the JSON. See
 
 ## Versioning policy
 
-`persist.zig`'s `file_version` (currently 17) is the newest format version
+`persist.zig`'s `file_version` (currently 18) is the newest format version
 this build can write and read. Loading enforces one rule:
 
 - **A file whose `version` is newer than `file_version` is hard-rejected**
@@ -70,13 +70,14 @@ they showed up in the same week as one.
 | v15 | The multiband compressor FX unit (`FxUnitSnap.mb_comp`: crossovers, shared attack/release, classic/OTT style, mix, per-band thresh/ratio/makeup). Purely additive; the bump makes pre-v15 builds hard-reject a file using the new kind instead of failing on an unknown enum name. |
 | v16 | The OTT FX unit (`FxUnitSnap.ott`: depth/time/in/out gain over fixed multiband tuning, see `dsp/ott.zig`). Purely additive, same rationale as v15. |
 | v17 | The synth mod matrix (`SynthSnap.mod_matrix`: up to 8 rows of source/dest/depth, see `PolySynth.ModRow`). The old fixed mod routes (`fenv_amount`, `lfo_depth`, `lfo_target`) are kept, read-only, purely so a pre-v17 file's routing migrates onto matrix rows 1-2 via `PolySynth.legacyModRows` — new saves write them at defaults. `mod_matrix` being null (absent) is what marks a file as pre-v17 for that migration; an empty list is honored as "no routing". Automation lanes targeting the retired param ids 23 (fenv amount) / 30 (LFO depth) silently no-op after loading. |
+| v18 | The frequency shifter FX unit (`FxUnitSnap.freq_shift`: signed `shift_hz` + `mix`, see `dsp/freq_shift.zig`). Purely additive; the bump makes pre-v18 builds hard-reject a file using the new kind instead of failing on an unknown enum name, same rationale as v15/v16. |
 
 Since v11, every field added has been the additive/no-bump kind described
 above (v12/v13/v14 above are the exceptions — genuine semantic changes, not
 additive). Check `persist.zig`'s per-field doc comments for specifics (e.g.
 `Sampler.mono`, `PatternPlayer.swing`, `:bounce`'s bit-depth option).
 
-`test/fixtures/wsj/v1.wsj` through `v16.wsj` are tiny, hand-written fixtures
+`test/fixtures/wsj/v1.wsj` through `v18.wsj` are tiny, hand-written fixtures
 of each historical shape (no `variants` for v2, no `master_fx_chain` for v9,
 etc.), one per row of the table above. `persist.zig`'s "golden-file corpus"
 test loads every file in that directory and fails loudly if one stops

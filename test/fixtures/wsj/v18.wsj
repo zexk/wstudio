@@ -1,0 +1,17 @@
+{
+  "version": 18,
+  "tracks": [
+    { "name": "shift" }
+  ],
+  "racks": [
+    {
+      "label": "shift",
+      "kind": "empty",
+      "fx_chain": [
+        { "kind": "freq_shift", "freq_shift": {
+          "shift_hz": 137.0, "mix": 0.8
+        } }
+      ]
+    }
+  ]
+}

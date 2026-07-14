@@ -116,6 +116,7 @@ fn sectionLabel(k: ws.FxKind) []const u8 {
         .crush => "CRUSHER",
         .chorus => "CHORUS",
         .phaser => "PHASER",
+        .freq_shift => "FREQ SHIFT",
         .delay => "DELAY",
         .reverb => "REVERB",
     };
@@ -133,6 +134,7 @@ fn sectionColor(k: ws.FxKind) []const u8 {
         .crush => mag,
         .chorus => bcyn,
         .phaser => yel,
+        .freq_shift => acc,
         .delay => blu,
         .reverb => mag,
     };
@@ -578,6 +580,10 @@ fn formatFxValue(buf: []u8, p: *const ws.FxPayload, idx: usize) []const u8 {
         },
         .phaser => switch (idx) {
             0 => std.fmt.bufPrint(buf, "{d:.2}Hz", .{v}) catch "?",
+            else => std.fmt.bufPrint(buf, "{d:.0}%", .{v * 100.0}) catch "?",
+        },
+        .freq_shift => switch (idx) {
+            0 => std.fmt.bufPrint(buf, "{s}{d:.0}Hz", .{ if (v >= 0.0) "+" else "", v }) catch "?",
             else => std.fmt.bufPrint(buf, "{d:.0}%", .{v * 100.0}) catch "?",
         },
     };

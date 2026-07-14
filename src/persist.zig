@@ -8,7 +8,7 @@
 //!   - Drum step-count + per-pad bitmask patterns + per-pad sampler params
 //!   - Per-track gain / pan / mute / solo + project tempo
 //!   - FX: gate, compressor, multiband compressor (incl. OTT style), EQ,
-//!     saturator, crusher, chorus, phaser, delay, reverb
+//!     saturator, crusher, chorus, phaser, frequency shifter, delay, reverb
 //!   - Rack labels
 //!   - User-loaded sample audio (drum pads + sampler clips), exported as mono
 //!     WAVs into the "<stem>_samples" sidecar directory next to the .wsj
@@ -51,7 +51,7 @@ const AutomationPoint = automation_mod.AutomationPoint;
 /// added and what older files load as) and the bump-vs-additive policy
 /// live in FORMAT.md; per-field migration specifics stay as doc comments
 /// on the snapshot fields they concern.
-pub const file_version: u32 = 17;
+pub const file_version: u32 = 18;
 
 pub const AutomationPointSnap = struct {
     beat: f64,
@@ -454,6 +454,11 @@ pub const PhaserSnap = struct {
     mix: f32 = 0.5,
 };
 
+pub const FreqShiftSnap = struct {
+    shift_hz: f32 = 0.0,
+    mix: f32 = 1.0,
+};
+
 /// Legacy (v9 and older) fixed nine-slot rack: one optional per slot, order
 /// implied. Read-only on load; v10 files carry `fx_chain` instead.
 pub const FxSnap = struct {
@@ -470,7 +475,7 @@ pub const FxSnap = struct {
 
 /// Mirrors rack.zig's FxKind — persist keeps its own copy so snapshots stay
 /// pure data, same pattern as `InstrumentKind` below.
-pub const FxKind = enum { gate, comp, mb_comp, ott, eq, sat, crush, chorus, phaser, delay, reverb };
+pub const FxKind = enum { gate, comp, mb_comp, ott, eq, sat, crush, chorus, phaser, freq_shift, delay, reverb };
 
 /// One chain slot (v10): its kind, bypass flag, and the params for that kind
 /// in the matching optional (the others stay null). A missing params field
@@ -489,6 +494,7 @@ pub const FxUnitSnap = struct {
     crush: ?CrushSnap = null,
     chorus: ?ChorusSnap = null,
     phaser: ?PhaserSnap = null,
+    freq_shift: ?FreqShiftSnap = null,
 };
 
 pub const InstrumentKind = enum { empty, poly_synth, sampler, drum_machine, slicer };
@@ -953,6 +959,9 @@ fn chainToSnap(aa: std.mem.Allocator, fx: *const Fx, sample_rate: u32) ![]FxUnit
             .chorus => |c| .{ .kind = .chorus, .chorus = .{ .rate_hz = c.rate_hz, .depth_ms = c.depth_ms, .mix = c.mix } },
             .phaser => |p| .{ .kind = .phaser, .phaser = .{
                 .rate_hz = p.rate_hz, .depth = p.depth, .feedback = p.feedback, .mix = p.mix,
+            } },
+            .freq_shift => |f| .{ .kind = .freq_shift, .freq_shift = .{
+                .shift_hz = f.shift_hz, .mix = f.mix,
             } },
         };
         us.bypassed = u.bypassed;
@@ -1960,7 +1969,7 @@ fn applyFxChain(allocator: std.mem.Allocator, fx_out: *Fx, chain: []const FxUnit
         const kind: rack_mod.FxKind = switch (us.kind) {
             .gate => .gate, .comp => .comp, .mb_comp => .mb_comp, .ott => .ott,
             .eq => .eq, .sat => .sat, .crush => .crush, .chorus => .chorus,
-            .phaser => .phaser, .delay => .delay, .reverb => .reverb,
+            .phaser => .phaser, .freq_shift => .freq_shift, .delay => .delay, .reverb => .reverb,
         };
         const unit = try fx_out.insert(allocator, fx_out.units.items.len, kind, sr);
         unit.bypassed = us.bypassed;
@@ -2037,6 +2046,10 @@ fn applyFxChain(allocator: std.mem.Allocator, fx_out: *Fx, chain: []const FxUnit
                 p.depth = ps.depth;
                 p.feedback = ps.feedback;
                 p.mix = ps.mix;
+            },
+            .freq_shift => |*f| if (us.freq_shift) |fs| {
+                f.shift_hz = fs.shift_hz;
+                f.mix = fs.mix;
             },
         }
     }
@@ -2608,6 +2621,35 @@ test "save/load round-trip persists an OTT unit's depth/time/gains and rederives
     // Derived from `time` through setTime on load, not stored in the file.
     try testing.expectApproxEqAbs(unit.payload.ott.mb.attack_ms, o.mb.attack_ms, 1e-4);
     try testing.expectApproxEqAbs(unit.payload.ott.mb.release_ms, o.mb.release_ms, 1e-4);
+    try testing.expectEqual(@as(usize, 1), loaded.engine.master_chain_len);
+}
+
+test "save/load round-trip persists a frequency shifter's shift and mix" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [64]u8 = undefined;
+    const wsj_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/proj.wsj", .{&tmp.sub_path});
+
+    var session = try Session.initDefault(testing.allocator);
+    defer session.deinit();
+    const sr = session.project.sample_rate;
+    const alloc = testing.allocator;
+
+    const unit = try session.master_fx.insert(alloc, 0, .freq_shift, sr);
+    unit.payload.freq_shift.shift_hz = -350.0;
+    unit.payload.freq_shift.mix = 0.65;
+    session.syncMasterChain();
+
+    try save(testing.allocator, &session, testing.io, wsj_path);
+    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    defer loaded.deinit();
+
+    const units = loaded.master_fx.units.items;
+    try testing.expectEqual(@as(usize, 1), units.len);
+    const f = units[0].payload.freq_shift;
+    try testing.expectApproxEqAbs(@as(f32, -350.0), f.shift_hz, 1e-4);
+    try testing.expectApproxEqAbs(@as(f32, 0.65), f.mix, 1e-4);
     try testing.expectEqual(@as(usize, 1), loaded.engine.master_chain_len);
 }
 
@@ -3400,7 +3442,7 @@ test "golden-file corpus: every historical .wsj fixture still loads" {
     }
 
     // Guards against a misconfigured path silently turning this into a no-op.
-    try testing.expectEqual(@as(usize, 17), count);
+    try testing.expectEqual(@as(usize, 18), count);
 }
 
 test "golden-file corpus: v17's mod matrix loads its rows" {
@@ -3499,6 +3541,15 @@ test "golden-file corpus: v15's multiband unit and v16's OTT unit load their par
     try testing.expectApproxEqAbs(@as(f32, 1.5), o.time, 1e-3);
     try testing.expectApproxEqAbs(@as(f32, 2.0), o.gain_in_db, 1e-3);
     try testing.expectApproxEqAbs(@as(f32, -3.0), o.gain_out_db, 1e-3);
+}
+
+test "golden-file corpus: v18's freq_shift unit loads its params" {
+    const testing = std.testing;
+    var session = try load(testing.allocator, testing.io, "test/fixtures/wsj/v18.wsj");
+    defer session.deinit();
+    const f = &session.racks.items[0].fx.find(.freq_shift).?.payload.freq_shift;
+    try testing.expectApproxEqAbs(@as(f32, 137.0), f.shift_hz, 1e-3);
+    try testing.expectApproxEqAbs(@as(f32, 0.8), f.mix, 1e-3);
 }
 
 test "save/load round-trip persists an EQ band's lowpass/highpass type and slope" {
