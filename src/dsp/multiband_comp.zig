@@ -185,7 +185,7 @@ const BandComp = struct {
 };
 
 pub const MultibandComp = struct {
-    sample_rate: f32,
+    sample_rate: f32 = 48_000.0,
     xover_lo_hz: f32 = 200.0,
     xover_hi_hz: f32 = 2000.0,
     attack_ms: f32 = 10.0,
@@ -281,10 +281,19 @@ pub const MultibandComp = struct {
         self.processBlock(buf);
     }
 
-    fn resetOpaque(ptr: *anyopaque) void {
-        const self: *MultibandComp = @ptrCast(@alignCast(ptr));
+    /// Clears crossover/envelope state without touching `sample_rate` —
+    /// callers embedding a `MultibandComp` by value (e.g. PolySynth's
+    /// internal FX section) must use this instead of `= .{}`, which would
+    /// reset sample_rate to the struct default and desync it from the real
+    /// session rate.
+    pub fn reset(self: *MultibandComp) void {
         for (&self.crossover) |*cx| cx.reset();
         for (&self.bands) |*b| b.reset();
+    }
+
+    fn resetOpaque(ptr: *anyopaque) void {
+        const self: *MultibandComp = @ptrCast(@alignCast(ptr));
+        self.reset();
     }
 };
 

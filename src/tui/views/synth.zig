@@ -186,6 +186,7 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize
                 switch (kind) {
                     .gate => try secFxGate(&tw, synth, c),
                     .comp => try secFxComp(&tw, synth, c),
+                    .mb_comp => try secFxMb(&tw, synth, c),
                     .dist => try secFxDist(&tw, synth, c),
                     .crush => try secFxCrush(&tw, synth, c),
                     .flanger => try secFxFlanger(&tw, synth, c),
@@ -705,6 +706,45 @@ fn secFxComp(w: *std.Io.Writer, synth: anytype, c: u8) !void {
         try std.fmt.bufPrint(&buf, "{d:.1} dB", .{synth.fx_comp_makeup_db}));
 }
 
+const mb_style_names = [_][]const u8{ "classic", "OTT" };
+
+fn secFxMb(w: *std.Io.Writer, synth: anytype, c: u8) !void {
+    var buf: [40]u8 = undefined;
+    try synthSection(w, "FX MB", red);
+
+    const on = synth.fx_mb_on;
+    try enumRow(w, c == 144, false, red, "on/off", &on_off_names, if (on) 0 else 1);
+    try barRow(w, c == 145, !on, red, "xover lo", synth.fx_mb_xover_lo, 20_000.0,
+        try std.fmt.bufPrint(&buf, "{d:.0} Hz", .{synth.fx_mb_xover_lo}));
+    try barRow(w, c == 146, !on, red, "xover hi", synth.fx_mb_xover_hi, 20_000.0,
+        try std.fmt.bufPrint(&buf, "{d:.0} Hz", .{synth.fx_mb_xover_hi}));
+    try barRow(w, c == 147, !on, red, "attack", synth.fx_mb_attack_ms, 500.0,
+        try std.fmt.bufPrint(&buf, "{d:.1} ms", .{synth.fx_mb_attack_ms}));
+    try barRow(w, c == 148, !on, red, "release", synth.fx_mb_release_ms, 2000.0,
+        try std.fmt.bufPrint(&buf, "{d:.0} ms", .{synth.fx_mb_release_ms}));
+    try enumRow(w, c == 149, !on, red, "style", &mb_style_names, @intFromEnum(synth.fx_mb_style));
+    try barRow(w, c == 150, !on, red, "mix", synth.fx_mb_mix, 1.0,
+        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.fx_mb_mix}));
+    try barRow(w, c == 151, !on, red, "lo thresh", synth.fx_mb_low_threshold_db + 60.0, 60.0,
+        try std.fmt.bufPrint(&buf, "{d:.0} dB", .{synth.fx_mb_low_threshold_db}));
+    try barRow(w, c == 152, !on, red, "lo ratio", synth.fx_mb_low_ratio, 20.0,
+        try std.fmt.bufPrint(&buf, "{d:.1}:1", .{synth.fx_mb_low_ratio}));
+    try barRow(w, c == 153, !on, red, "lo makeup", synth.fx_mb_low_makeup_db + 24.0, 48.0,
+        try std.fmt.bufPrint(&buf, "{d:.1} dB", .{synth.fx_mb_low_makeup_db}));
+    try barRow(w, c == 154, !on, red, "mid thresh", synth.fx_mb_mid_threshold_db + 60.0, 60.0,
+        try std.fmt.bufPrint(&buf, "{d:.0} dB", .{synth.fx_mb_mid_threshold_db}));
+    try barRow(w, c == 155, !on, red, "mid ratio", synth.fx_mb_mid_ratio, 20.0,
+        try std.fmt.bufPrint(&buf, "{d:.1}:1", .{synth.fx_mb_mid_ratio}));
+    try barRow(w, c == 156, !on, red, "mid makeup", synth.fx_mb_mid_makeup_db + 24.0, 48.0,
+        try std.fmt.bufPrint(&buf, "{d:.1} dB", .{synth.fx_mb_mid_makeup_db}));
+    try barRow(w, c == 157, !on, red, "hi thresh", synth.fx_mb_high_threshold_db + 60.0, 60.0,
+        try std.fmt.bufPrint(&buf, "{d:.0} dB", .{synth.fx_mb_high_threshold_db}));
+    try barRow(w, c == 158, !on, red, "hi ratio", synth.fx_mb_high_ratio, 20.0,
+        try std.fmt.bufPrint(&buf, "{d:.1}:1", .{synth.fx_mb_high_ratio}));
+    try barRow(w, c == 159, !on, red, "hi makeup", synth.fx_mb_high_makeup_db + 24.0, 48.0,
+        try std.fmt.bufPrint(&buf, "{d:.1} dB", .{synth.fx_mb_high_makeup_db}));
+}
+
 fn secFxDist(w: *std.Io.Writer, synth: anytype, c: u8) !void {
     var buf: [40]u8 = undefined;
     try synthSection(w, "FX DIST", red);
@@ -835,6 +875,11 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !
         "-", // 136: gate's reorder handle, never cursor-reachable
         "comp.on", "comp.thresh", "comp.ratio", "comp.attack", "comp.release", "comp.makeup",
         "-", // 143: comp's reorder handle, never cursor-reachable
+        "mb.on", "mb.xover.lo", "mb.xover.hi", "mb.attack", "mb.release", "mb.style", "mb.mix",
+        "mb.lo.thresh", "mb.lo.ratio", "mb.lo.makeup",
+        "mb.mid.thresh", "mb.mid.ratio", "mb.mid.makeup",
+        "mb.hi.thresh", "mb.hi.ratio", "mb.hi.makeup",
+        "-", // 160: mb_comp's reorder handle, never cursor-reachable
     };
     const cur = @min(@as(usize, app.synth_cursor), labels.len - 1);
     try style.writeModeBadge(w, app.modal.mode);
@@ -993,6 +1038,22 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !
         140 => try w.print("{d:.1} ms",    .{synth.fx_comp_attack_ms}),
         141 => try w.print("{d:.0} ms",    .{synth.fx_comp_release_ms}),
         142 => try w.print("{d:.1} dB",    .{synth.fx_comp_makeup_db}),
+        144 => try w.writeAll(if (synth.fx_mb_on) "on" else "off"),
+        145 => try w.print("{d:.0} Hz",    .{synth.fx_mb_xover_lo}),
+        146 => try w.print("{d:.0} Hz",    .{synth.fx_mb_xover_hi}),
+        147 => try w.print("{d:.1} ms",    .{synth.fx_mb_attack_ms}),
+        148 => try w.print("{d:.0} ms",    .{synth.fx_mb_release_ms}),
+        149 => try w.writeAll(if (synth.fx_mb_style == .ott) "OTT" else "classic"),
+        150 => try w.print("{d:.2}",       .{synth.fx_mb_mix}),
+        151 => try w.print("{d:.0} dB",    .{synth.fx_mb_low_threshold_db}),
+        152 => try w.print("{d:.1}:1",     .{synth.fx_mb_low_ratio}),
+        153 => try w.print("{d:.1} dB",    .{synth.fx_mb_low_makeup_db}),
+        154 => try w.print("{d:.0} dB",    .{synth.fx_mb_mid_threshold_db}),
+        155 => try w.print("{d:.1}:1",     .{synth.fx_mb_mid_ratio}),
+        156 => try w.print("{d:.1} dB",    .{synth.fx_mb_mid_makeup_db}),
+        157 => try w.print("{d:.0} dB",    .{synth.fx_mb_high_threshold_db}),
+        158 => try w.print("{d:.1}:1",     .{synth.fx_mb_high_ratio}),
+        159 => try w.print("{d:.1} dB",    .{synth.fx_mb_high_makeup_db}),
         // zig fmt: on
         else => {},
     }

@@ -46,7 +46,9 @@ pub const spectrum_band_count: usize = 80;
 ///   136:reorder handle (gate) — same "not a real param" note as 126-131.
 /// FX COMP : 137:fx_comp_on 138:fx_comp_threshold_db 139:fx_comp_ratio 140:fx_comp_attack_ms
 ///   141:fx_comp_release_ms 142:fx_comp_makeup_db 143:reorder handle (comp)
-pub const synth_param_count: u8 = 144;
+/// FX MB   : 144:fx_mb_on 145:xover_lo 146:xover_hi 147:attack 148:release 149:style 150:mix
+///   151-153:low(thresh,ratio,makeup) 154-156:mid(...) 157-159:high(...) 160:reorder handle
+pub const synth_param_count: u8 = 161;
 
 // ---------------------------------------------------------------------------
 // Palette — all colour codes go here; never raw \x1b sequences elsewhere

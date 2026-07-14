@@ -46,7 +46,7 @@ pub fn currentFxOrder(app: anytype) []const FxUnitKind {
 fn fxFirstId(kind: FxUnitKind) u8 {
     return switch (kind) {
         // zig fmt: off
-        .gate    => 132, .comp => 137,
+        .gate    => 132, .comp => 137, .mb_comp => 144,
         .dist    => 83, .crush => 86, .flanger => 90,
         .phaser  => 103, .delay => 108, .reverb => 112,
         // zig fmt: on
@@ -55,7 +55,7 @@ fn fxFirstId(kind: FxUnitKind) u8 {
 fn fxIdCount(kind: FxUnitKind) u8 {
     return switch (kind) {
         // zig fmt: off
-        .gate    => 4, .comp => 6,
+        .gate    => 4, .comp => 6, .mb_comp => 16,
         .dist    => 3, .crush => 4, .flanger => 5,
         .phaser  => 5, .delay => 4, .reverb => 4,
         // zig fmt: on
@@ -64,7 +64,7 @@ fn fxIdCount(kind: FxUnitKind) u8 {
 
 /// Every cursor-reachable `.fx` id, in on-screen (fx_order) sequence rather
 /// than numeric order — the list j/k and g/G walk. Sized generously above
-/// the current real total (29 ids across 7 units) for headroom as more
+/// the current real total (51 ids across 9 units) for headroom as more
 /// units are added.
 fn fxVisualIds(order: []const FxUnitKind, buf: []u8) []const u8 {
     var n: usize = 0;
@@ -87,13 +87,13 @@ fn fxVisualIds(order: []const FxUnitKind, buf: []u8) []const u8 {
 /// a unit's been reordered away from its numeric position.
 fn fxAwareFirstId(app: *App) u8 {
     if (app.synth_subview != .fx) return firstId(app.synth_subview);
-    var buf: [64]u8 = undefined;
+    var buf: [96]u8 = undefined;
     const ids = fxVisualIds(currentFxOrder(app), &buf);
     return if (ids.len > 0) ids[0] else firstId(.fx);
 }
 fn fxAwareLastId(app: *App) u8 {
     if (app.synth_subview != .fx) return lastId(app.synth_subview);
-    var buf: [64]u8 = undefined;
+    var buf: [96]u8 = undefined;
     const ids = fxVisualIds(currentFxOrder(app), &buf);
     return if (ids.len > 0) ids[ids.len - 1] else lastId(.fx);
 }
@@ -119,7 +119,7 @@ fn reorderIdFor(kind: FxUnitKind) u16 {
         // zig fmt: off
         .dist => 126, .crush => 127, .flanger => 128,
         .phaser => 129, .delay => 130, .reverb => 131,
-        .gate => 136, .comp => 143,
+        .gate => 136, .comp => 143, .mb_comp => 160,
         // zig fmt: on
     };
 }
@@ -191,24 +191,25 @@ fn firstId(subview: Subview) u8 {
 fn lastId(subview: Subview) u8 {
     return switch (subview) {
         .main => 125,
-        .fx => 142,
+        .fx => 159,
         .matrix => 82,
     };
 }
 
 /// Whether `id` is rendered/reachable in `subview`. `main` excludes the 3
 /// retired matrix-absorbed ids (23/30/31) same as before, plus the whole
-/// 59-94/103-142 range now that matrix/FX moved to their own panes; `fx`
-/// has four disjoint ranges (83-94, 103-115, 132-135 for gate, 137-142 for
-/// comp — matrix and LFO2/LFO3/MACRO sit between the first two in the
-/// global id space, ARP/ENV3/the reorder-handle ids between the rest).
-/// Reorder-handle ids (126-131, 136, 143) are never cursor-reachable — see
-/// `reorderIdFor`. ARP (116-121) and ENV 3 (122-125) trail after MACRO in
-/// `main`, same append-after-the-max pattern every prior pickup used.
+/// 59-94/103-159 range now that matrix/FX moved to their own panes; `fx`
+/// has five disjoint ranges (83-94, 103-115, 132-135 for gate, 137-142 for
+/// comp, 144-159 for mb_comp — matrix and LFO2/LFO3/MACRO sit between the
+/// first two in the global id space, ARP/ENV3/the reorder-handle ids
+/// between the rest). Reorder-handle ids (126-131, 136, 143, 160) are
+/// never cursor-reachable — see `reorderIdFor`. ARP (116-121) and ENV 3
+/// (122-125) trail after MACRO in `main`, same append-after-the-max
+/// pattern every prior pickup used.
 fn inSubview(id: u8, subview: Subview) bool {
     return switch (subview) {
         .main => (id <= 58 and !deadParam(id)) or (id >= 95 and id <= 102) or (id >= 116 and id <= 125),
-        .fx => (id >= 83 and id <= 94) or (id >= 103 and id <= 115) or (id >= 132 and id <= 135) or (id >= 137 and id <= 142),
+        .fx => (id >= 83 and id <= 94) or (id >= 103 and id <= 115) or (id >= 132 and id <= 135) or (id >= 137 and id <= 142) or (id >= 144 and id <= 159),
         .matrix => id >= 59 and id <= 82,
     };
 }
@@ -332,7 +333,7 @@ fn moveCursor(app: *App, delta: i32) void {
         // walking raw ids (like .main/.matrix below) would get stuck at a
         // unit's numeric id extreme even mid-screen once reordering makes
         // id order diverge from visual order. See fxVisualIds.
-        var buf: [64]u8 = undefined;
+        var buf: [96]u8 = undefined;
         const ids = fxVisualIds(currentFxOrder(app), &buf);
         if (ids.len == 0) return;
         const cur: i32 = @intCast(std.mem.indexOfScalar(u8, ids, app.synth_cursor) orelse 0);
@@ -378,7 +379,7 @@ pub const body_rows_wide: usize = 87;
 /// Total body rows in the "main" subview's single-column layout.
 pub const body_rows_single: usize = 95;
 /// Total body rows in the "fx" subview (always single-column).
-pub const body_rows_fx: usize = 43;
+pub const body_rows_fx: usize = 60;
 /// Total body rows in the "matrix" subview (always single-column).
 pub const body_rows_matrix: usize = 25;
 

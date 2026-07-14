@@ -10,6 +10,8 @@ const Crusher = @import("crusher.zig").Crusher;
 const Phaser = @import("phaser.zig").Phaser;
 const Gate = @import("gate.zig").Gate;
 const Compressor = @import("compressor.zig").Compressor;
+const MultibandComp = @import("multiband_comp.zig").MultibandComp;
+pub const MbStyle = @import("multiband_comp.zig").Style;
 
 const Sample = types.Sample;
 
@@ -89,15 +91,15 @@ pub const ArpMode     = enum { up, down, updown, downup, played, random, chord }
 /// no heap allocation and doesn't touch the mod-matrix/automation id space
 /// (every param keeps its existing stable id regardless of position). See
 /// `PolySynth.fx_order`'s own doc comment for the reorder mechanism.
-pub const FxUnitKind = enum { gate, comp, dist, crush, flanger, phaser, delay, reverb };
+pub const FxUnitKind = enum { gate, comp, mb_comp, dist, crush, flanger, phaser, delay, reverb };
 
 /// Starting chain order — preserves the relative order the original 6
 /// fixed units always ran in, so existing presets/projects sound unchanged
 /// on load; each unit added since is slotted in wherever it makes sense in
-/// a typical signal chain (gate first, ahead of everything else; comp right
-/// after it, dynamics before tone-shaping). Purely a starting point once
-/// `fx_order` is user-reorderable.
-pub const default_fx_order = [_]FxUnitKind{ .gate, .comp, .dist, .crush, .flanger, .phaser, .delay, .reverb };
+/// a typical signal chain (gate first, ahead of everything else; comp/
+/// mb_comp right after it, dynamics before tone-shaping). Purely a starting
+/// point once `fx_order` is user-reorderable.
+pub const default_fx_order = [_]FxUnitKind{ .gate, .comp, .mb_comp, .dist, .crush, .flanger, .phaser, .delay, .reverb };
 
 /// Fixed-line stereo flanger for the synth's internal FX section. Unlike the
 /// master-bus Chorus it owns no heap delay line — PolySynth embeds by value
@@ -475,6 +477,25 @@ pub const PolySynth = struct {
     fx_comp_attack_ms:   f32  = 10.0,
     fx_comp_release_ms:  f32  = 80.0,
     fx_comp_makeup_db:   f32  = 0.0,
+    /// Reuses the track-chain's own MultibandComp unit (dsp/multiband_comp.zig)
+    /// directly — same LR4 3-band crossover + per-band feed-forward
+    /// compressor, just matrix-automatable and embedded by value here.
+    fx_mb_on:            bool = false,
+    fx_mb_xover_lo:      f32  = 200.0,
+    fx_mb_xover_hi:      f32  = 2000.0,
+    fx_mb_attack_ms:     f32  = 10.0,
+    fx_mb_release_ms:    f32  = 80.0,
+    fx_mb_style:         MbStyle = .classic,
+    fx_mb_mix:           f32  = 1.0,
+    fx_mb_low_threshold_db:  f32 = -20.0,
+    fx_mb_low_ratio:         f32 = 3.0,
+    fx_mb_low_makeup_db:     f32 = 0.0,
+    fx_mb_mid_threshold_db:  f32 = -18.0,
+    fx_mb_mid_ratio:         f32 = 4.0,
+    fx_mb_mid_makeup_db:     f32 = 0.0,
+    fx_mb_high_threshold_db: f32 = -16.0,
+    fx_mb_high_ratio:        f32 = 3.0,
+    fx_mb_high_makeup_db:    f32 = 0.0,
     fx_dist_on:          bool = false,
     fx_dist_drive_db:    f32  = 12.0,
     fx_dist_mix:         f32  = 1.0,
@@ -511,9 +532,10 @@ pub const PolySynth = struct {
     /// Processing sequence for the FX section above — see `FxUnitKind`'s
     /// doc comment. Reordered via `adjustParam`'s dedicated reorder-handle
     /// ids, never written directly by the editor.
-    fx_order: [8]FxUnitKind = default_fx_order,
+    fx_order: [9]FxUnitKind = default_fx_order,
     fx_gate_state: Gate = .{},
     fx_comp_state: Compressor = .{},
+    fx_mb_state: MultibandComp = .{},
     fx_crush_state: Crusher = .{},
     fx_flanger_state: Flanger = .{},
     fx_phaser_state: Phaser = .{},
@@ -613,6 +635,7 @@ pub const PolySynth = struct {
         122, 123, 124, 125,
         133, 134, 135,
         138, 139, 140, 141, 142,
+        145, 146, 147, 148, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159,
         dest_pitch, dest_amp,
         // zig fmt: on
     };
@@ -738,6 +761,7 @@ pub const PolySynth = struct {
             .sample_rate = @floatFromInt(sample_rate),
             .fx_gate_state = Gate.init(sample_rate),
             .fx_comp_state = Compressor.init(sample_rate),
+            .fx_mb_state = MultibandComp.init(sample_rate),
             .fx_phaser_state = Phaser.init(sample_rate),
             .fx_reverb_state = Reverb.init(@floatFromInt(sample_rate)),
         };
@@ -863,6 +887,22 @@ pub const PolySynth = struct {
         fx_comp_attack_ms: f32 = 10.0,
         fx_comp_release_ms: f32 = 80.0,
         fx_comp_makeup_db: f32 = 0.0,
+        fx_mb_on: bool = false,
+        fx_mb_xover_lo: f32 = 200.0,
+        fx_mb_xover_hi: f32 = 2000.0,
+        fx_mb_attack_ms: f32 = 10.0,
+        fx_mb_release_ms: f32 = 80.0,
+        fx_mb_style: MbStyle = .classic,
+        fx_mb_mix: f32 = 1.0,
+        fx_mb_low_threshold_db: f32 = -20.0,
+        fx_mb_low_ratio: f32 = 3.0,
+        fx_mb_low_makeup_db: f32 = 0.0,
+        fx_mb_mid_threshold_db: f32 = -18.0,
+        fx_mb_mid_ratio: f32 = 4.0,
+        fx_mb_mid_makeup_db: f32 = 0.0,
+        fx_mb_high_threshold_db: f32 = -16.0,
+        fx_mb_high_ratio: f32 = 3.0,
+        fx_mb_high_makeup_db: f32 = 0.0,
         fx_dist_on: bool = false,
         fx_dist_drive_db: f32 = 12.0,
         fx_dist_mix: f32 = 1.0,
@@ -888,7 +928,7 @@ pub const PolySynth = struct {
         fx_reverb_room: f32 = 0.6,
         fx_reverb_damp: f32 = 0.4,
         fx_reverb_mix: f32 = 0.3,
-        fx_order: [8]FxUnitKind = default_fx_order,
+        fx_order: [9]FxUnitKind = default_fx_order,
 
         arp_on: bool = false,
         arp_mode: ArpMode = .up,
@@ -1714,8 +1754,9 @@ pub const PolySynth = struct {
         // are shared by all voices, so the per-voice sources read from the
         // most recently triggered voice (env/velocity → drive style routes
         // still play).
-        if (self.fx_gate_on or self.fx_comp_on or self.fx_dist_on or self.fx_crush_on or
-            self.fx_flanger_on or self.fx_phaser_on or self.fx_delay_on or self.fx_reverb_on)
+        if (self.fx_gate_on or self.fx_comp_on or self.fx_mb_on or self.fx_dist_on or
+            self.fx_crush_on or self.fx_flanger_on or self.fx_phaser_on or self.fx_delay_on or
+            self.fx_reverb_on)
         {
             const nv = &self.voices[self.newest_voice];
             const mods = self.evalMatrix(if (nv.active) nv else null, lfo_vals);
@@ -1738,6 +1779,34 @@ pub const PolySynth = struct {
                         self.fx_comp_state.makeup_db    = eff(&mods, 142, self.fx_comp_makeup_db);
                         // zig fmt: on
                         self.fx_comp_state.processBlock(buf);
+                    },
+                    .mb_comp => if (self.fx_mb_on) {
+                        // setXovers (not a bare field write) recomputes the
+                        // crossover biquads — required whenever the split
+                        // points move, unlike the other unit's plain params.
+                        // Individual band fields, not whole-struct literals:
+                        // BandComp.env must persist across blocks or the
+                        // envelope follower never settles.
+                        self.fx_mb_state.setXovers(
+                            eff(&mods, 145, self.fx_mb_xover_lo),
+                            eff(&mods, 146, self.fx_mb_xover_hi),
+                        );
+                        // zig fmt: off
+                        self.fx_mb_state.attack_ms  = eff(&mods, 147, self.fx_mb_attack_ms);
+                        self.fx_mb_state.release_ms = eff(&mods, 148, self.fx_mb_release_ms);
+                        self.fx_mb_state.style       = self.fx_mb_style;
+                        self.fx_mb_state.mix        = eff(&mods, 150, self.fx_mb_mix);
+                        self.fx_mb_state.bands[0].threshold_db = eff(&mods, 151, self.fx_mb_low_threshold_db);
+                        self.fx_mb_state.bands[0].ratio        = eff(&mods, 152, self.fx_mb_low_ratio);
+                        self.fx_mb_state.bands[0].makeup_db    = eff(&mods, 153, self.fx_mb_low_makeup_db);
+                        self.fx_mb_state.bands[1].threshold_db = eff(&mods, 154, self.fx_mb_mid_threshold_db);
+                        self.fx_mb_state.bands[1].ratio        = eff(&mods, 155, self.fx_mb_mid_ratio);
+                        self.fx_mb_state.bands[1].makeup_db    = eff(&mods, 156, self.fx_mb_mid_makeup_db);
+                        self.fx_mb_state.bands[2].threshold_db = eff(&mods, 157, self.fx_mb_high_threshold_db);
+                        self.fx_mb_state.bands[2].ratio        = eff(&mods, 158, self.fx_mb_high_ratio);
+                        self.fx_mb_state.bands[2].makeup_db    = eff(&mods, 159, self.fx_mb_high_makeup_db);
+                        // zig fmt: on
+                        self.fx_mb_state.processBlock(buf);
                     },
                     .dist => if (self.fx_dist_on) {
                         // Stateless, so a per-block value with the
@@ -2056,10 +2125,11 @@ pub const PolySynth = struct {
         self.fx_flanger_state = .{};
         self.fx_delay_state = .{};
         // Reset(), not `= .{}` — a bare default would also clobber the
-        // sample-rate-derived state PolySynth.init set (Gate's, Compressor's
-        // and Phaser's sample_rate, Reverb's per-line len).
+        // sample-rate-derived state PolySynth.init set (Gate's, Compressor's,
+        // MultibandComp's and Phaser's sample_rate, Reverb's per-line len).
         self.fx_gate_state.reset();
         self.fx_comp_state.reset();
+        self.fx_mb_state.reset();
         self.fx_phaser_state.reset();
         self.fx_reverb_state.reset();
     }
@@ -2373,6 +2443,24 @@ pub const PolySynth = struct {
             141 => self.fx_comp_release_ms   = std.math.clamp(self.fx_comp_release_ms   + s * 5.0,     1.0, 2000.0),
             142 => self.fx_comp_makeup_db    = std.math.clamp(self.fx_comp_makeup_db    + s * 0.5,   -24.0,   24.0),
             143 => self.reorderFx(.comp, steps),
+            // FX MB COMP (144–159), reorder handle 160.
+            144 => self.fx_mb_on               = !self.fx_mb_on,
+            145 => self.fx_mb_xover_lo         = std.math.clamp(self.fx_mb_xover_lo         * std.math.pow(f32, 2.0, s / 12.0), 20.0, 20_000.0),
+            146 => self.fx_mb_xover_hi         = std.math.clamp(self.fx_mb_xover_hi         * std.math.pow(f32, 2.0, s / 12.0), 20.0, 20_000.0),
+            147 => self.fx_mb_attack_ms        = std.math.clamp(self.fx_mb_attack_ms        + s * 0.5,     0.1,  500.0),
+            148 => self.fx_mb_release_ms       = std.math.clamp(self.fx_mb_release_ms       + s * 5.0,     1.0, 2000.0),
+            149 => self.fx_mb_style            = if (steps > 0) .ott else .classic,
+            150 => self.fx_mb_mix              = std.math.clamp(self.fx_mb_mix              + s * 0.01,    0.0,    1.0),
+            151 => self.fx_mb_low_threshold_db  = std.math.clamp(self.fx_mb_low_threshold_db  + s * 1.0,  -60.0,    0.0),
+            152 => self.fx_mb_low_ratio         = std.math.clamp(self.fx_mb_low_ratio         + s * 0.1,    1.0,   20.0),
+            153 => self.fx_mb_low_makeup_db     = std.math.clamp(self.fx_mb_low_makeup_db     + s * 0.5,  -24.0,   24.0),
+            154 => self.fx_mb_mid_threshold_db  = std.math.clamp(self.fx_mb_mid_threshold_db  + s * 1.0,  -60.0,    0.0),
+            155 => self.fx_mb_mid_ratio         = std.math.clamp(self.fx_mb_mid_ratio         + s * 0.1,    1.0,   20.0),
+            156 => self.fx_mb_mid_makeup_db     = std.math.clamp(self.fx_mb_mid_makeup_db     + s * 0.5,  -24.0,   24.0),
+            157 => self.fx_mb_high_threshold_db = std.math.clamp(self.fx_mb_high_threshold_db + s * 1.0,  -60.0,    0.0),
+            158 => self.fx_mb_high_ratio        = std.math.clamp(self.fx_mb_high_ratio        + s * 0.1,    1.0,   20.0),
+            159 => self.fx_mb_high_makeup_db    = std.math.clamp(self.fx_mb_high_makeup_db    + s * 0.5,  -24.0,   24.0),
+            160 => self.reorderFx(.mb_comp, steps),
             // zig fmt: on
             // MATRIX (59–82): 3 ids per row — source, dest, depth.
             59...82 => {
@@ -2538,6 +2626,23 @@ pub const PolySynth = struct {
             141 => self.fx_comp_release_ms   = std.math.clamp(value,   1.0, 2000.0),
             142 => self.fx_comp_makeup_db    = std.math.clamp(value, -24.0,  24.0),
             143 => self.setFxIndex(.comp,      @intFromFloat(@round(@max(value, 0.0)))),
+            144 => self.fx_mb_on               = value >= 0.5,
+            145 => self.fx_mb_xover_lo         = std.math.clamp(value, 20.0, 20_000.0),
+            146 => self.fx_mb_xover_hi         = std.math.clamp(value, 20.0, 20_000.0),
+            147 => self.fx_mb_attack_ms        = std.math.clamp(value,  0.1, 500.0),
+            148 => self.fx_mb_release_ms       = std.math.clamp(value,  1.0, 2000.0),
+            149 => self.fx_mb_style            = enumFromValue(MbStyle, value),
+            150 => self.fx_mb_mix              = std.math.clamp(value,  0.0,   1.0),
+            151 => self.fx_mb_low_threshold_db  = std.math.clamp(value, -60.0,  0.0),
+            152 => self.fx_mb_low_ratio         = std.math.clamp(value,   1.0, 20.0),
+            153 => self.fx_mb_low_makeup_db     = std.math.clamp(value, -24.0, 24.0),
+            154 => self.fx_mb_mid_threshold_db  = std.math.clamp(value, -60.0,  0.0),
+            155 => self.fx_mb_mid_ratio         = std.math.clamp(value,   1.0, 20.0),
+            156 => self.fx_mb_mid_makeup_db     = std.math.clamp(value, -24.0, 24.0),
+            157 => self.fx_mb_high_threshold_db = std.math.clamp(value, -60.0,  0.0),
+            158 => self.fx_mb_high_ratio        = std.math.clamp(value,   1.0, 20.0),
+            159 => self.fx_mb_high_makeup_db    = std.math.clamp(value, -24.0, 24.0),
+            160 => self.setFxIndex(.mb_comp,     @intFromFloat(@round(@max(value, 0.0)))),
             // zig fmt: on
             // MATRIX: dest takes the raw param id (falls back to cutoff if
             // the value isn't a legal dest — e.g. a hand-edited curve).
@@ -2687,6 +2792,23 @@ pub const PolySynth = struct {
             141 => self.fx_comp_release_ms,
             142 => self.fx_comp_makeup_db,
             143 => @floatFromInt(self.fxOrderIndex(.comp)),
+            144 => if (self.fx_mb_on) 1.0 else 0.0,
+            145 => self.fx_mb_xover_lo,
+            146 => self.fx_mb_xover_hi,
+            147 => self.fx_mb_attack_ms,
+            148 => self.fx_mb_release_ms,
+            149 => enumToValue(self.fx_mb_style),
+            150 => self.fx_mb_mix,
+            151 => self.fx_mb_low_threshold_db,
+            152 => self.fx_mb_low_ratio,
+            153 => self.fx_mb_low_makeup_db,
+            154 => self.fx_mb_mid_threshold_db,
+            155 => self.fx_mb_mid_ratio,
+            156 => self.fx_mb_mid_makeup_db,
+            157 => self.fx_mb_high_threshold_db,
+            158 => self.fx_mb_high_ratio,
+            159 => self.fx_mb_high_makeup_db,
+            160 => @floatFromInt(self.fxOrderIndex(.mb_comp)),
             // zig fmt: on
             59...82 => blk: {
                 const row = self.mod_matrix[(id - 59) / 3];
@@ -2806,6 +2928,20 @@ pub const PolySynth = struct {
         .{ .id = 140,.label = "COMP ATTACK", .section = "FX COMP", .range = .{ 0.1,    500.0 },  .step = 1.0 },
         .{ .id = 141,.label = "COMP RELEASE",.section = "FX COMP", .range = .{ 1.0,    2000.0 }, .step = 10.0 },
         .{ .id = 142,.label = "COMP MAKEUP", .section = "FX COMP", .range = .{ -24.0,  24.0 },   .step = 0.5 },
+        .{ .id = 145,.label = "MB XOVER LO", .section = "FX MB",   .range = .{ 20.0,   20000.0 },.step = 10.0 },
+        .{ .id = 146,.label = "MB XOVER HI", .section = "FX MB",   .range = .{ 20.0,   20000.0 },.step = 10.0 },
+        .{ .id = 147,.label = "MB ATTACK",   .section = "FX MB",   .range = .{ 0.1,    500.0 },  .step = 1.0 },
+        .{ .id = 148,.label = "MB RELEASE",  .section = "FX MB",   .range = .{ 1.0,    2000.0 }, .step = 10.0 },
+        .{ .id = 150,.label = "MB MIX",      .section = "FX MB",   .range = .{ 0.0,    1.0 },    .step = 0.01 },
+        .{ .id = 151,.label = "MB LO THRESH",.section = "FX MB",   .range = .{ -60.0,  0.0 },    .step = 1.0 },
+        .{ .id = 152,.label = "MB LO RATIO", .section = "FX MB",   .range = .{ 1.0,    20.0 },   .step = 0.5 },
+        .{ .id = 153,.label = "MB LO MAKEUP",.section = "FX MB",   .range = .{ -24.0,  24.0 },   .step = 0.5 },
+        .{ .id = 154,.label = "MB MD THRESH",.section = "FX MB",   .range = .{ -60.0,  0.0 },    .step = 1.0 },
+        .{ .id = 155,.label = "MB MD RATIO", .section = "FX MB",   .range = .{ 1.0,    20.0 },   .step = 0.5 },
+        .{ .id = 156,.label = "MB MD MAKEUP",.section = "FX MB",   .range = .{ -24.0,  24.0 },   .step = 0.5 },
+        .{ .id = 157,.label = "MB HI THRESH",.section = "FX MB",   .range = .{ -60.0,  0.0 },    .step = 1.0 },
+        .{ .id = 158,.label = "MB HI RATIO", .section = "FX MB",   .range = .{ 1.0,    20.0 },   .step = 0.5 },
+        .{ .id = 159,.label = "MB HI MAKEUP",.section = "FX MB",   .range = .{ -24.0,  24.0 },   .step = 0.5 },
         // zig fmt: on
     };
 
