@@ -236,6 +236,7 @@ fn drawSynthBottom(w: *std.Io.Writer, synth: anytype, c: u8) !void {
     try secLfo2(w, synth, c);
     try secLfo3(w, synth, c);
     try secMacro(w, synth, c);
+    try secArp(w, synth, c);
 }
 
 const wf_names = [_][]const u8{ "sine", "saw", "tri", "sqr" };
@@ -425,6 +426,42 @@ fn secMacro(w: *std.Io.Writer, synth: anytype, c: u8) !void {
             try std.fmt.bufPrint(&lbl, "macro {d}", .{k + 1}), v, 1.0,
             try std.fmt.bufPrint(&buf, "{d:.2}", .{v}));
     }
+}
+
+const arp_mode_names = [_][]const u8{ "up", "down", "up/dn", "dn/up", "played", "random", "chord" };
+
+fn arpModeIdx(mode: anytype) usize {
+    return switch (mode) {
+        .up => 0, .down => 1, .updown => 2, .downup => 3,
+        .played => 4, .random => 5, .chord => 6,
+    };
+}
+
+fn arpModeName(mode: anytype) []const u8 {
+    return switch (mode) {
+        .up => "up", .down => "down", .updown => "up/dn", .downup => "dn/up",
+        .played => "played", .random => "random", .chord => "chord",
+    };
+}
+
+/// A step sequencer in front of note triggering — see PolySynth's own ARP
+/// doc comment. Trailing section (ids 116-121, appended after MACRO) even
+/// though it's not conceptually a MACRO sibling, same pattern LFO2/LFO3
+/// used.
+fn secArp(w: *std.Io.Writer, synth: anytype, c: u8) !void {
+    var buf: [40]u8 = undefined;
+    try synthSection(w, "ARP", bcyn);
+
+    const on = synth.arp_on;
+    try enumRow(w, c == 116, false, bcyn, "on/off", &on_off_names, if (on) 0 else 1);
+    try enumRow(w, c == 117, !on, bcyn, "mode", &arp_mode_names, arpModeIdx(synth.arp_mode));
+    try barRow(w, c == 118, !on or synth.arp_mode == .chord, bcyn, "octaves", @floatFromInt(synth.arp_octaves), 4.0,
+        try std.fmt.bufPrint(&buf, "{d}", .{synth.arp_octaves}));
+    try barRow(w, c == 119, !on, bcyn, "rate", synth.arp_rate_hz, 20.0,
+        try std.fmt.bufPrint(&buf, "{d:.1} Hz", .{synth.arp_rate_hz}));
+    try barRow(w, c == 120, !on, bcyn, "gate", synth.arp_gate, 1.0,
+        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.arp_gate}));
+    try enumRow(w, c == 121, !on, bcyn, "hold", &on_off_names, if (synth.arp_hold) 0 else 1);
 }
 
 fn secVoice(w: *std.Io.Writer, synth: anytype, c: u8) !void {
@@ -737,6 +774,7 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !
         "phsr.on", "phsr.rate", "phsr.depth", "phsr.fdbk", "phsr.mix",
         "dly.on", "dly.time", "dly.fdbk", "dly.mix",
         "vrb.on", "vrb.room", "vrb.damp", "vrb.mix",
+        "arp.on", "arp.mode", "arp.octaves", "arp.rate", "arp.gate", "arp.hold",
     };
     const cur = @min(@as(usize, app.synth_cursor), labels.len - 1);
     try style.writeModeBadge(w, app.modal.mode);
@@ -875,6 +913,12 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !
         113 => try w.print("{d:.2}",       .{synth.fx_reverb_room}),
         114 => try w.print("{d:.2}",       .{synth.fx_reverb_damp}),
         115 => try w.print("{d:.2}",       .{synth.fx_reverb_mix}),
+        116 => try w.writeAll(if (synth.arp_on) "on" else "off"),
+        117 => try w.writeAll(arpModeName(synth.arp_mode)),
+        118 => try w.print("{d}",          .{synth.arp_octaves}),
+        119 => try w.print("{d:.1} Hz",    .{synth.arp_rate_hz}),
+        120 => try w.print("{d:.2}",       .{synth.arp_gate}),
+        121 => try w.writeAll(if (synth.arp_hold) "on" else "off"),
         // zig fmt: on
         else => {},
     }

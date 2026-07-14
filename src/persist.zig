@@ -195,6 +195,13 @@ pub const SynthSnap = struct {
     fx_reverb_room: f32 = 0.6,
     fx_reverb_damp: f32 = 0.4,
     fx_reverb_mix: f32 = 0.3,
+    // Arpeggiator (additive optional-with-default fields, no version bump)
+    arp_on: bool = false,
+    arp_mode: synth_mod.ArpMode = .up,
+    arp_octaves: u8 = 1,
+    arp_rate_hz: f32 = 8.0,
+    arp_gate: f32 = 0.5,
+    arp_hold: bool = false,
     // Pattern player
     notes: []const NoteSnap = &.{},
     length_beats: f64 = 4.0,
@@ -1231,6 +1238,12 @@ fn synthToSnap(s: *const PolySynth) SynthSnap {
         .fx_reverb_room = s.fx_reverb_room,
         .fx_reverb_damp = s.fx_reverb_damp,
         .fx_reverb_mix = s.fx_reverb_mix,
+        .arp_on = s.arp_on,
+        .arp_mode = s.arp_mode,
+        .arp_octaves = s.arp_octaves,
+        .arp_rate_hz = s.arp_rate_hz,
+        .arp_gate = s.arp_gate,
+        .arp_hold = s.arp_hold,
     };
 }
 
@@ -1914,6 +1927,12 @@ fn applyToSynth(s: *PolySynth, ss: *const SynthSnap) void {
     s.fx_reverb_room = clamp(ss.fx_reverb_room, 0.0, 0.98);
     s.fx_reverb_damp = clamp(ss.fx_reverb_damp, 0.0, 1.0);
     s.fx_reverb_mix = clamp(ss.fx_reverb_mix, 0.0, 1.0);
+    s.arp_on = ss.arp_on;
+    s.arp_mode = ss.arp_mode;
+    s.arp_octaves = @intCast(clamp(@as(i32, ss.arp_octaves), 1, PolySynth.max_arp_octaves));
+    s.arp_rate_hz = clamp(ss.arp_rate_hz, 0.1, 20.0);
+    s.arp_gate = clamp(ss.arp_gate, 0.02, 1.0);
+    s.arp_hold = ss.arp_hold;
 }
 
 // zig fmt: off

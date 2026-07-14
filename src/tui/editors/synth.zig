@@ -16,7 +16,7 @@ const history = @import("../history.zig");
 /// matrix. `App.synth_cursor` stays one flat param-id space across all
 /// three (it IS the PolySynth param id — engine commands and undo key off
 /// it directly) — the subview only changes which ids are reachable and how
-/// they're laid out on screen. 116 params in one scrolling list needed
+/// they're laid out on screen. 122 params in one scrolling list needed
 /// `G`/`{`/`}` just to get around; splitting by section ownership also
 /// simplifies the row-math tables below (three small per-view ranges
 /// instead of one 138-row list).
@@ -36,7 +36,7 @@ fn firstId(subview: Subview) u8 {
 }
 fn lastId(subview: Subview) u8 {
     return switch (subview) {
-        .main => 102,
+        .main => 121,
         .fx => 115,
         .matrix => 82,
     };
@@ -46,10 +46,12 @@ fn lastId(subview: Subview) u8 {
 /// retired matrix-absorbed ids (23/30/31) same as before, plus the whole
 /// 59-94/103-115 range now that matrix/FX moved to their own panes; `fx`
 /// has two disjoint ranges (83-94, then 103-115 — matrix and LFO2/LFO3/
-/// MACRO sit between them in the global id space).
+/// MACRO sit between them in the global id space). ARP (116-121) trails
+/// after MACRO in `main`, same append-after-the-max pattern every prior
+/// pickup used.
 fn inSubview(id: u8, subview: Subview) bool {
     return switch (subview) {
-        .main => (id <= 58 and !deadParam(id)) or (id >= 95 and id <= 102),
+        .main => (id <= 58 and !deadParam(id)) or (id >= 95 and id <= 102) or (id >= 116 and id <= 121),
         .fx => (id >= 83 and id <= 94) or (id >= 103 and id <= 115),
         .matrix => id >= 59 and id <= 82,
     };
@@ -58,7 +60,7 @@ fn inSubview(id: u8, subview: Subview) bool {
 fn sectionStarts(subview: Subview) []const u8 {
     return switch (subview) {
         // zig fmt: off
-        .main   => &[_]u8{ 0, 6, 14, 16, 20, 24, 28, 32, 34, 36, 38, 39, 41, 45, 50, 95, 97, 99 },
+        .main   => &[_]u8{ 0, 6, 14, 16, 20, 24, 28, 32, 34, 36, 38, 39, 41, 45, 50, 95, 97, 99, 116 },
         .fx     => &[_]u8{ 83, 86, 90, 103, 108, 112 },
         .matrix => &[_]u8{59},
         // zig fmt: on
@@ -188,9 +190,9 @@ pub const top_h: usize = 9;
 
 /// Total body rows (below the shared title) in the "main" subview's wide
 /// A/B-over-C layout.
-pub const body_rows_wide: usize = 75;
+pub const body_rows_wide: usize = 82;
 /// Total body rows in the "main" subview's single-column layout.
-pub const body_rows_single: usize = 83;
+pub const body_rows_single: usize = 90;
 /// Total body rows in the "fx" subview (always single-column).
 pub const body_rows_fx: usize = 31;
 /// Total body rows in the "matrix" subview (always single-column).
@@ -224,6 +226,7 @@ pub fn paramColRow(cursor: u8) struct { col: u1, row: usize } {
         95...96 => .{ .col = 0, .row = 66 + @as(usize, cursor - 95) },   // LFO 2 (header at 65)
         97...98 => .{ .col = 0, .row = 69 + @as(usize, cursor - 97) },   // LFO 3 (header at 68)
         99...102 => .{ .col = 0, .row = 72 + @as(usize, cursor - 99) },  // MACRO (header at 71)
+        116...121 => .{ .col = 0, .row = 77 + @as(usize, cursor - 116) }, // ARP (header at 76)
         else    => .{ .col = 0, .row = 0 },
     };
 }
@@ -252,6 +255,7 @@ pub fn paramRow(subview: Subview, cursor: u8) usize {
             95...96 => 74 + @as(usize, cursor - 95),   // LFO 2 (header at 73)
             97...98 => 77 + @as(usize, cursor - 97),   // LFO 3 (header at 76)
             99...102 => 80 + @as(usize, cursor - 99),  // MACRO (header at 79)
+            116...121 => 85 + @as(usize, cursor - 116), // ARP (header at 84)
             else    => 0,
         },
         .fx => switch (cursor) {

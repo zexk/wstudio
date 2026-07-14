@@ -74,6 +74,11 @@ pub const UnisonMode  = enum { spread, step, harmonic, ratio };
 /// without a second real oscillator. All three reduce to (near-)identity at
 /// `warp_amount = 0`, so switching the mode alone never surprises the sound.
 pub const WarpMode    = enum { none, bend, mirror, sync };
+/// `updown`/`downup` ping-pong across the built sequence without repeating
+/// either endpoint (classic arp behaviour). `played` walks the held-note
+/// press order instead of pitch order. `chord` retriggers every held note
+/// together each step (ignores `arp_octaves` — see PolySynth.arpFireStep).
+pub const ArpMode     = enum { up, down, updown, downup, played, random, chord };
 // zig fmt: on
 
 /// Fixed-line stereo flanger for the synth's internal FX section. Unlike the
@@ -472,6 +477,41 @@ pub const PolySynth = struct {
     fx_phaser_state: Phaser = .{},
     fx_delay_state: Delay = .{},
     fx_reverb_state: Reverb = .{},
+
+    // ── ARP ─────────────────────────────────────────────────────────────────
+    // A step sequencer sitting in front of note triggering, pure Hz-rate
+    // like the LFOs (PolySynth has no Transport access to sync to tempo).
+    // While on, noteOn/noteOff fully bypass voice_mode dispatch — see their
+    // own arp branches — and the step engine drives voices itself.
+    // zig fmt: off
+    arp_on:      bool    = false,
+    arp_mode:    ArpMode = .up,
+    /// Octave range above the played note(s), 1..max_arp_octaves. Ignored
+    /// by `.chord` mode (it always retriggers the held notes as played).
+    arp_octaves: u8      = 1,
+    /// Steps per second.
+    arp_rate_hz: f32     = 8.0,
+    /// Fraction of one step a triggered note stays gated on, 0..1.
+    arp_gate:    f32     = 0.5,
+    /// Keep cycling the last-played notes after every key releases, until a
+    /// fresh note (pressed from zero held keys) replaces them.
+    arp_hold:    bool    = false,
+
+    // Runtime state only — not part of Patch, same as held_notes/lfo_phase.
+    arp_phase:       f32     = 0.0,
+    arp_index:       usize   = 0,
+    arp_gate_open:   bool    = false,
+    arp_rand:        u32     = 0x2545F491,
+    /// Notes currently in rotation: mirrors held_notes while any key is
+    /// down, frozen at its last value across a release when arp_hold is on.
+    arp_latch_notes: [16]u7  = [_]u7{0} ** 16,
+    arp_latch_vel:   [16]f32 = [_]f32{0} ** 16,
+    arp_latch_count: u8      = 0,
+    /// On->off edge detector so turning the arp off mid-note releases
+    /// whatever it was sounding instead of leaving it stuck (see
+    /// processBlock's arp block).
+    arp_was_on:      bool    = false,
+    // zig fmt: on
     /// Index of the most recently triggered voice: the FX destinations are
     /// global (post-mix), so their one matrix evaluation per block reads
     /// the per-voice sources (envs, velocity, keytrack) from this voice.
@@ -486,6 +526,7 @@ pub const PolySynth = struct {
     pub const osc_budget: usize = 32;
 
     pub const max_mod_rows = 8;
+    pub const max_arp_octaves = 4;
     /// Virtual matrix destinations that aren't editor params: note pitch
     /// (amt = octaves) and voice amplitude (gain factor 1 + amt). Chosen
     /// well above the real param-id space so they can never collide.
@@ -774,6 +815,13 @@ pub const PolySynth = struct {
         fx_reverb_room: f32 = 0.6,
         fx_reverb_damp: f32 = 0.4,
         fx_reverb_mix: f32 = 0.3,
+
+        arp_on: bool = false,
+        arp_mode: ArpMode = .up,
+        arp_octaves: u8 = 1,
+        arp_rate_hz: f32 = 8.0,
+        arp_gate: f32 = 0.5,
+        arp_hold: bool = false,
     };
 
     /// Load a patch onto this synth. Field-by-field so per-instance state
@@ -810,6 +858,20 @@ pub const PolySynth = struct {
     }
 
     pub fn noteOn(self: *PolySynth, note: u7, velocity: f32) void {
+        if (self.arp_on) {
+            const was_empty = self.held_count == 0;
+            self.pushHeld(note, velocity);
+            self.arpUpdateLatch();
+            // Fresh press from silence: trigger immediately and restart the
+            // step clock, rather than waiting out whatever phase happened
+            // to be left over (also how a hold-latched arp gets replaced).
+            if (was_empty) {
+                self.arp_phase = 0.0;
+                self.arp_index = 0;
+                self.arpFireStep();
+            }
+            return;
+        }
         switch (self.voice_mode) {
             // zig fmt: off
             .poly   => self.noteOnPoly(note, velocity),
@@ -824,6 +886,17 @@ pub const PolySynth = struct {
     }
 
     pub fn noteOff(self: *PolySynth, note: u7) void {
+        if (self.arp_on) {
+            self.popHeld(note);
+            if (self.held_count > 0) {
+                self.arpUpdateLatch();
+            } else if (!self.arp_hold) {
+                self.arpReleaseActive();
+                self.arp_latch_count = 0;
+                self.arp_index = 0;
+            }
+            return;
+        }
         switch (self.voice_mode) {
             .poly => {
                 for (&self.voices) |*v| {
@@ -946,6 +1019,112 @@ pub const PolySynth = struct {
                 return;
             }
         }
+    }
+
+    fn arpUpdateLatch(self: *PolySynth) void {
+        self.arp_latch_count = self.held_count;
+        @memcpy(self.arp_latch_notes[0..self.held_count], self.held_notes[0..self.held_count]);
+        @memcpy(self.arp_latch_vel[0..self.held_count], self.held_velocities[0..self.held_count]);
+    }
+
+    /// Release every currently active voice (there's nothing else sounding
+    /// while the arp owns note triggering, so this is always "close the
+    /// arp's own gate", never a stray note belonging to something else).
+    fn arpReleaseActive(self: *PolySynth) void {
+        for (&self.voices) |*v| {
+            if (v.active and v.stage != .release) {
+                // zig fmt: off
+                v.stage  = .release;
+                // zig fmt: on
+                v.stage2 = .release;
+            }
+        }
+    }
+
+    /// Sort `arp_latch_notes[0..arp_latch_count]` ascending by pitch (unless
+    /// `.played`, which keeps press order) and expand across `arp_octaves`,
+    /// lowest octave first. Notes that shift past MIDI's range are dropped
+    /// rather than clamped, so the sequence's rhythm stays even instead of
+    /// piling extra hits on the boundary note.
+    fn arpBuildSeq(self: *const PolySynth, seq_notes: *[16 * max_arp_octaves]u7, seq_vels: *[16 * max_arp_octaves]f32) usize {
+        const n: usize = self.arp_latch_count;
+        var notes: [16]u7 = self.arp_latch_notes;
+        var vels: [16]f32 = self.arp_latch_vel;
+        if (self.arp_mode != .played) {
+            var i: usize = 1;
+            while (i < n) : (i += 1) {
+                const key = notes[i];
+                const key_v = vels[i];
+                var j = i;
+                while (j > 0 and notes[j - 1] > key) : (j -= 1) {
+                    notes[j] = notes[j - 1];
+                    vels[j] = vels[j - 1];
+                }
+                notes[j] = key;
+                vels[j] = key_v;
+            }
+        }
+        const octaves: usize = @intCast(std.math.clamp(self.arp_octaves, 1, max_arp_octaves));
+        var k: usize = 0;
+        for (0..octaves) |oct| {
+            for (0..n) |i| {
+                const shifted: i32 = @as(i32, notes[i]) + @as(i32, @intCast(oct)) * 12;
+                if (shifted < 0 or shifted > 127) continue;
+                seq_notes[k] = @intCast(shifted);
+                seq_vels[k] = vels[i];
+                k += 1;
+            }
+        }
+        return k;
+    }
+
+    /// Trigger the next arp step: all held notes at once for `.chord`, one
+    /// note from the built sequence otherwise. Called synchronously from
+    /// `noteOn` (first press) and from `processBlock`'s step timer.
+    fn arpFireStep(self: *PolySynth) void {
+        const n = self.arp_latch_count;
+        if (n == 0) return;
+
+        if (self.arp_mode == .chord) {
+            self.arpReleaseActive();
+            for (0..n) |i| self.noteOnPoly(self.arp_latch_notes[i], self.arp_latch_vel[i]);
+            self.arp_gate_open = true;
+            return;
+        }
+
+        var seq_notes: [16 * max_arp_octaves]u7 = undefined;
+        var seq_vels: [16 * max_arp_octaves]f32 = undefined;
+        const k = self.arpBuildSeq(&seq_notes, &seq_vels);
+        if (k == 0) return;
+
+        // zig fmt: off
+        const idx: usize = switch (self.arp_mode) {
+            .up, .played => blk: { const i = self.arp_index % k; self.arp_index += 1; break :blk i; },
+            .down         => blk: { const i = k - 1 - (self.arp_index % k); self.arp_index += 1; break :blk i; },
+            .updown       => blk: {
+                const pp_len = if (k <= 1) k else 2 * k - 2;
+                const p = self.arp_index % pp_len;
+                self.arp_index += 1;
+                break :blk if (p < k) p else pp_len - p;
+            },
+            .downup       => blk: {
+                const pp_len = if (k <= 1) k else 2 * k - 2;
+                const p = self.arp_index % pp_len;
+                const mirrored = if (p < k) p else pp_len - p;
+                self.arp_index += 1;
+                break :blk k - 1 - mirrored;
+            },
+            .random       => blk: {
+                const r01 = nextNoise(&self.arp_rand) * 0.5 + 0.5; // [-1,1) -> [0,1)
+                break :blk @min(@as(usize, @intFromFloat(r01 * @as(f32, @floatFromInt(k)))), k - 1);
+            },
+            .chord        => unreachable,
+        };
+        // zig fmt: on
+
+        self.arpReleaseActive();
+        self.noteOnPoly(seq_notes[idx], seq_vels[idx]);
+        self.arp_gate_open = true;
     }
 
     fn allocVoice(self: *PolySynth) u8 {
@@ -1494,6 +1673,32 @@ pub const PolySynth = struct {
         self.advanceLfo(0, &self.lfo_phase, self.lfo_rate_hz, frames_f);
         self.advanceLfo(1, &self.lfo2_phase, self.lfo2_rate_hz, frames_f);
         self.advanceLfo(2, &self.lfo3_phase, self.lfo3_rate_hz, frames_f);
+
+        // Arp step timer: block-rate like the LFOs above (PolySynth has no
+        // Transport access to sync to tempo, so rate is plain Hz). The gate
+        // check runs before the wrap loop so a step fired earlier this same
+        // block can still close before a later block's wrap retriggers it.
+        if (self.arp_on) {
+            self.arp_phase += self.arp_rate_hz * frames_f / self.sample_rate;
+            if (self.arp_gate_open and self.arp_phase >= self.arp_gate) {
+                self.arpReleaseActive();
+                self.arp_gate_open = false;
+            }
+            while (self.arp_phase >= 1.0) {
+                self.arp_phase -= 1.0;
+                self.arpFireStep();
+            }
+        } else if (self.arp_was_on) {
+            // Toggled off mid-note: release whatever it was sounding rather
+            // than leaving a voice stuck (its held note may be pitched an
+            // octave+ away from anything a normal noteOff would match).
+            self.arpReleaseActive();
+            self.arp_latch_count = 0;
+            self.arp_index = 0;
+            self.arp_phase = 0.0;
+            self.arp_gate_open = false;
+        }
+        self.arp_was_on = self.arp_on;
     }
 
     /// Block-rate value of the LFO in `slot`: the held random level for
@@ -1713,6 +1918,11 @@ pub const PolySynth = struct {
     pub fn resetAll(self: *PolySynth) void {
         for (&self.voices) |*v| v.* = .{};
         self.held_count = 0;
+        self.arp_latch_count = 0;
+        self.arp_index = 0;
+        self.arp_phase = 0.0;
+        self.arp_gate_open = false;
+        self.arp_was_on = false;
         self.fx_crush_state = .{};
         self.fx_flanger_state = .{};
         self.fx_delay_state = .{};
@@ -1944,6 +2154,19 @@ pub const PolySynth = struct {
             113 => self.fx_reverb_room      = std.math.clamp(self.fx_reverb_room       + s * 0.01,   0.0,    0.98),
             114 => self.fx_reverb_damp      = std.math.clamp(self.fx_reverb_damp       + s * 0.01,   0.0,    1.0),
             115 => self.fx_reverb_mix       = std.math.clamp(self.fx_reverb_mix        + s * 0.01,   0.0,    1.0),
+            // ARP (116–121)
+            116 => self.arp_on              = !self.arp_on,
+            117 => self.arp_mode = if (steps > 0) switch (self.arp_mode) {
+                .up => .down, .down => .updown, .updown => .downup, .downup => .played,
+                .played => .random, .random => .chord, .chord => .up,
+            } else switch (self.arp_mode) {
+                .up => .chord, .down => .up, .updown => .down, .downup => .updown,
+                .played => .downup, .random => .played, .chord => .random,
+            },
+            118 => self.arp_octaves         = @intCast(std.math.clamp(@as(i32, self.arp_octaves) + steps, 1, max_arp_octaves)),
+            119 => self.arp_rate_hz         = std.math.clamp(self.arp_rate_hz          + s * 0.1,    0.1,   20.0),
+            120 => self.arp_gate            = std.math.clamp(self.arp_gate             + s * 0.01,   0.02,   1.0),
+            121 => self.arp_hold            = !self.arp_hold,
             // zig fmt: on
             // MATRIX (59–82): 3 ids per row — source, dest, depth.
             59...82 => {
@@ -2074,6 +2297,12 @@ pub const PolySynth = struct {
             113 => self.fx_reverb_room     = std.math.clamp(value,   0.0,    0.98),
             114 => self.fx_reverb_damp     = std.math.clamp(value,   0.0,    1.0),
             115 => self.fx_reverb_mix      = std.math.clamp(value,   0.0,    1.0),
+            116 => self.arp_on             = value >= 0.5,
+            117 => self.arp_mode           = enumFromValue(ArpMode, value),
+            118 => self.arp_octaves        = @intCast(std.math.clamp(@as(i32, @intFromFloat(@round(value))), 1, max_arp_octaves)),
+            119 => self.arp_rate_hz        = std.math.clamp(value,   0.1,   20.0),
+            120 => self.arp_gate           = std.math.clamp(value,   0.02,   1.0),
+            121 => self.arp_hold           = value >= 0.5,
             // zig fmt: on
             // MATRIX: dest takes the raw param id (falls back to cutoff if
             // the value isn't a legal dest — e.g. a hand-edited curve).
@@ -2195,6 +2424,12 @@ pub const PolySynth = struct {
             113 => self.fx_reverb_room,
             114 => self.fx_reverb_damp,
             115 => self.fx_reverb_mix,
+            116 => if (self.arp_on) 1.0 else 0.0,
+            117 => enumToValue(self.arp_mode),
+            118 => @floatFromInt(self.arp_octaves),
+            119 => self.arp_rate_hz,
+            120 => self.arp_gate,
+            121 => if (self.arp_hold) 1.0 else 0.0,
             // zig fmt: on
             59...82 => blk: {
                 const row = self.mod_matrix[(id - 59) / 3];
@@ -2297,6 +2532,11 @@ pub const PolySynth = struct {
         .{ .id = 100, .label = "MACRO 2",   .section = "MACRO",   .range = .{ 0.0,    1.0 },     .step = 0.01 },
         .{ .id = 101, .label = "MACRO 3",   .section = "MACRO",   .range = .{ 0.0,    1.0 },     .step = 0.01 },
         .{ .id = 102, .label = "MACRO 4",   .section = "MACRO",   .range = .{ 0.0,    1.0 },     .step = 0.01 },
+        // Rate/gate only — like the LFO rates, not matrix dests (mode/
+        // octaves/on/hold are enum/toggle-only, undo-restore reads them via
+        // paramValue but automation curves never target them).
+        .{ .id = 119, .label = "ARP RATE",  .section = "ARP",     .range = .{ 0.1,    20.0 },    .step = 0.1 },
+        .{ .id = 120, .label = "ARP GATE",  .section = "ARP",     .range = .{ 0.02,   1.0 },     .step = 0.01 },
         // zig fmt: on
     };
 
@@ -3310,4 +3550,166 @@ test "internal FX: reverb reset preserves the synth's sample-rate-derived line l
     const len_before = synth.fx_reverb_state.channels[0].combs[0].len;
     synth.resetAll();
     try std.testing.expectEqual(len_before, synth.fx_reverb_state.channels[0].combs[0].len);
+}
+
+/// Directly seeds held/latch state and drives `arpFireStep` (bypassing the
+/// block-rate timer) so each mode's note sequence is checked exactly,
+/// without needing to reverse-engineer phase-increment arithmetic.
+fn arpSeedLatch(synth: *PolySynth, notes: []const u7) void {
+    synth.held_count = @intCast(notes.len);
+    for (notes, 0..) |n, i| {
+        synth.held_notes[i] = n;
+        synth.held_velocities[i] = 1.0;
+    }
+    synth.arpUpdateLatch();
+}
+
+fn arpFiredNote(synth: *PolySynth) u7 {
+    synth.arpFireStep();
+    return synth.voices[synth.newest_voice].note;
+}
+
+test "arp up mode ascends through held notes and wraps" {
+    var synth = PolySynth.init(48_000);
+    synth.arp_on = true;
+    synth.arp_mode = .up;
+    arpSeedLatch(&synth, &.{ 60, 64, 67 });
+
+    try std.testing.expectEqual(@as(u7, 60), arpFiredNote(&synth));
+    try std.testing.expectEqual(@as(u7, 64), arpFiredNote(&synth));
+    try std.testing.expectEqual(@as(u7, 67), arpFiredNote(&synth));
+    try std.testing.expectEqual(@as(u7, 60), arpFiredNote(&synth)); // wraps
+}
+
+test "arp down mode descends through held notes and wraps" {
+    var synth = PolySynth.init(48_000);
+    synth.arp_on = true;
+    synth.arp_mode = .down;
+    arpSeedLatch(&synth, &.{ 60, 64, 67 });
+
+    try std.testing.expectEqual(@as(u7, 67), arpFiredNote(&synth));
+    try std.testing.expectEqual(@as(u7, 64), arpFiredNote(&synth));
+    try std.testing.expectEqual(@as(u7, 60), arpFiredNote(&synth));
+    try std.testing.expectEqual(@as(u7, 67), arpFiredNote(&synth)); // wraps
+}
+
+test "arp updown mode ping-pongs without repeating the endpoints" {
+    var synth = PolySynth.init(48_000);
+    synth.arp_on = true;
+    synth.arp_mode = .updown;
+    arpSeedLatch(&synth, &.{ 60, 64, 67 });
+
+    const expected = [_]u7{ 60, 64, 67, 64, 60, 64, 67 };
+    for (expected) |note| {
+        try std.testing.expectEqual(note, arpFiredNote(&synth));
+    }
+}
+
+test "arp played mode keeps press order instead of sorting by pitch" {
+    var synth = PolySynth.init(48_000);
+    synth.arp_on = true;
+    synth.arp_mode = .played;
+    arpSeedLatch(&synth, &.{ 67, 60, 64 }); // pressed high-low-mid
+
+    try std.testing.expectEqual(@as(u7, 67), arpFiredNote(&synth));
+    try std.testing.expectEqual(@as(u7, 60), arpFiredNote(&synth));
+    try std.testing.expectEqual(@as(u7, 64), arpFiredNote(&synth));
+}
+
+test "arp octave range expands the sequence, lowest octave first" {
+    var synth = PolySynth.init(48_000);
+    synth.arp_on = true;
+    synth.arp_mode = .up;
+    synth.arp_octaves = 3;
+    arpSeedLatch(&synth, &.{60});
+
+    try std.testing.expectEqual(@as(u7, 60), arpFiredNote(&synth));
+    try std.testing.expectEqual(@as(u7, 72), arpFiredNote(&synth));
+    try std.testing.expectEqual(@as(u7, 84), arpFiredNote(&synth));
+    try std.testing.expectEqual(@as(u7, 60), arpFiredNote(&synth)); // wraps
+}
+
+test "arp chord mode retriggers every held note together, ignoring octaves" {
+    var synth = PolySynth.init(48_000);
+    synth.arp_on = true;
+    synth.arp_mode = .chord;
+    synth.arp_octaves = 2;
+    arpSeedLatch(&synth, &.{ 60, 64, 67 });
+
+    synth.arpFireStep();
+    var sounding: [3]bool = .{ false, false, false };
+    for (synth.voices) |v| {
+        if (!v.active) continue;
+        switch (v.note) {
+            60 => sounding[0] = true,
+            64 => sounding[1] = true,
+            67 => sounding[2] = true,
+            else => try std.testing.expect(false), // no octave-doubled notes
+        }
+    }
+    try std.testing.expect(sounding[0] and sounding[1] and sounding[2]);
+}
+
+test "arp gate closes the voice partway through a step" {
+    var synth = PolySynth.init(48_000);
+    synth.arp_on = true;
+    synth.arp_mode = .up;
+    synth.arp_gate = 0.5;
+    // Exactly half a step per 512-frame block, so the gate-close check
+    // (phase >= gate) trips on this call without also wrapping into a
+    // same-block retrigger.
+    synth.arp_rate_hz = 0.5 * 48_000.0 / 512.0;
+    synth.noteOn(60, 1.0); // immediate first step, phase reset to 0
+
+    const idx = synth.newest_voice;
+    try std.testing.expect(synth.voices[idx].active);
+    try std.testing.expect(synth.voices[idx].stage != .release);
+
+    var buf: [1024]Sample = undefined; // 512 frames
+    @memset(&buf, 0.0);
+    synth.processBlock(&buf);
+
+    try std.testing.expectEqual(.release, synth.voices[idx].stage);
+}
+
+test "arp hold keeps cycling the last chord after every key releases" {
+    var synth = PolySynth.init(48_000);
+    synth.arp_on = true;
+    synth.arp_hold = true;
+    synth.arp_mode = .up;
+    synth.noteOn(60, 1.0);
+    synth.noteOff(60);
+
+    try std.testing.expectEqual(@as(u8, 1), synth.arp_latch_count);
+    try std.testing.expectEqual(@as(u7, 60), arpFiredNote(&synth));
+}
+
+test "arp without hold releases and clears the latch once all keys are up" {
+    var synth = PolySynth.init(48_000);
+    synth.arp_on = true;
+    synth.arp_mode = .up;
+    synth.noteOn(60, 1.0);
+    const idx = synth.newest_voice;
+    synth.noteOff(60);
+
+    try std.testing.expectEqual(@as(u8, 0), synth.arp_latch_count);
+    try std.testing.expectEqual(.release, synth.voices[idx].stage);
+}
+
+test "toggling arp off mid-note releases the stuck voice" {
+    var synth = PolySynth.init(48_000);
+    synth.arp_on = true;
+    synth.arp_rate_hz = 0.0; // no steps/gate activity during the setup block
+    synth.noteOn(60, 1.0);
+    const idx = synth.newest_voice;
+
+    var buf: [64]Sample = undefined;
+    @memset(&buf, 0.0);
+    synth.processBlock(&buf); // arp_was_on becomes true
+
+    synth.arp_on = false;
+    @memset(&buf, 0.0);
+    synth.processBlock(&buf); // on->off edge: release whatever was sounding
+
+    try std.testing.expectEqual(.release, synth.voices[idx].stage);
 }

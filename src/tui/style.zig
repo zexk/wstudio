@@ -37,7 +37,8 @@ pub const spectrum_band_count: usize = 80;
 /// FX PHSR : 103:fx_phaser_on 104:fx_phaser_rate_hz 105:fx_phaser_depth 106:fx_phaser_feedback 107:fx_phaser_mix
 /// FX DELAY: 108:fx_delay_on 109:fx_delay_time_s 110:fx_delay_feedback 111:fx_delay_mix
 /// FX VERB : 112:fx_reverb_on 113:fx_reverb_room 114:fx_reverb_damp 115:fx_reverb_mix
-pub const synth_param_count: u8 = 116;
+/// ARP     : 116:arp_on 117:arp_mode 118:arp_octaves 119:arp_rate_hz 120:arp_gate 121:arp_hold
+pub const synth_param_count: u8 = 122;
 
 // ---------------------------------------------------------------------------
 // Palette — all colour codes go here; never raw \x1b sequences elsewhere
