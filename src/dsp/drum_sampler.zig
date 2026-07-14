@@ -281,15 +281,7 @@ pub const DrumMachine = struct {
         return out;
     }
 
-    pub fn device(self: *DrumMachine) dsp.Device {
-        return .{ .ptr = self, .vtable = &vtable };
-    }
-
-    const vtable: dsp.Device.VTable = .{
-        .process = processOpaque,
-        .event = eventOpaque,
-        .reset = resetOpaque,
-    };
+    pub const device = dsp.deviceOf(@This());
 
     // -----------------------------------------------------------------------
     // Pattern editing (UI thread)
@@ -803,13 +795,12 @@ pub const DrumMachine = struct {
         self.next_step_k = 0;
     }
 
-    fn processOpaque(ptr: *anyopaque, buf: []Sample) void {
-        const self: *DrumMachine = @ptrCast(@alignCast(ptr));
-        self.processBlock(buf);
+    /// `deviceOf`'s expected name; forwards to `resetAll`.
+    pub fn reset(self: *DrumMachine) void {
+        self.resetAll();
     }
 
-    fn eventOpaque(ptr: *anyopaque, ev: dsp.Event) void {
-        const self: *DrumMachine = @ptrCast(@alignCast(ptr));
+    pub fn handleEvent(self: *DrumMachine, ev: dsp.Event) void {
         switch (ev) {
             // zig fmt: off
             .note_on  => |e| self.triggerPad(e.note % max_pads, e.velocity),
@@ -832,11 +823,6 @@ pub const DrumMachine = struct {
                 return;
             }
         }
-    }
-
-    fn resetOpaque(ptr: *anyopaque) void {
-        const self: *DrumMachine = @ptrCast(@alignCast(ptr));
-        self.resetAll();
     }
 };
 

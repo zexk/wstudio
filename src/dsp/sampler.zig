@@ -83,15 +83,7 @@ pub const Sampler = struct {
         return copy;
     }
 
-    pub fn device(self: *Sampler) dsp.Device {
-        return .{ .ptr = self, .vtable = &vtable };
-    }
-
-    const vtable: dsp.Device.VTable = .{
-        .process = processOpaque,
-        .event = eventOpaque,
-        .reset = resetOpaque,
-    };
+    pub const device = dsp.deviceOf(@This());
 
     pub fn clipName(self: *const Sampler) []const u8 {
         var end: usize = self.pad.name.len;
@@ -327,13 +319,13 @@ pub const Sampler = struct {
         for (&self.voices) |*nv| nv.* = .{};
     }
 
-    fn processOpaque(ptr: *anyopaque, buf: []Sample) void {
-        const self: *Sampler = @ptrCast(@alignCast(ptr));
-        self.processBlock(buf);
+    /// `deviceOf`'s expected name; forwards to `resetAll` since a Sampler
+    /// has exactly one thing to reset (its voices).
+    pub fn reset(self: *Sampler) void {
+        self.resetAll();
     }
 
-    fn eventOpaque(ptr: *anyopaque, ev: dsp.Event) void {
-        const self: *Sampler = @ptrCast(@alignCast(ptr));
+    pub fn handleEvent(self: *Sampler, ev: dsp.Event) void {
         switch (ev) {
             // zig fmt: off
             .note_on   => |e| self.trigger(e.note, e.velocity, 0),
@@ -346,11 +338,6 @@ pub const Sampler = struct {
             .all_off   => self.resetAll(),
             // zig fmt: on
         }
-    }
-
-    fn resetOpaque(ptr: *anyopaque) void {
-        const self: *Sampler = @ptrCast(@alignCast(ptr));
-        self.resetAll();
     }
 };
 

@@ -77,9 +77,7 @@ pub const PatternPlayer = struct {
         return .{ .target = target, .transport = transport };
     }
 
-    pub fn device(self: *PatternPlayer) dsp.Device {
-        return .{ .ptr = self, .vtable = &vtable };
-    }
+    pub const device = dsp.deviceOf(@This());
 
     // ── UI-thread note editing ───────────────────────────────────────────────
 
@@ -315,7 +313,7 @@ pub const PatternPlayer = struct {
         }
     }
 
-    fn processBlock(self: *PatternPlayer, buf: []types.Sample) void {
+    pub fn processBlock(self: *PatternPlayer, buf: []types.Sample) void {
         if (!self.transport.playing) {
             // Silence any notes that were left sounding.
             for (0..128) |p| {
@@ -385,13 +383,7 @@ pub const PatternPlayer = struct {
         }
     }
 
-    fn processOpaque(ptr: *anyopaque, buf: []types.Sample) void {
-        const self: *PatternPlayer = @ptrCast(@alignCast(ptr));
-        self.processBlock(buf);
-    }
-
-    fn eventOpaque(ptr: *anyopaque, ev: dsp.Event) void {
-        const self: *PatternPlayer = @ptrCast(@alignCast(ptr));
+    pub fn handleEvent(self: *PatternPlayer, ev: dsp.Event) void {
         switch (ev) {
             // zig fmt: off
             .all_off => @memset(&self.sounding, false),
@@ -400,8 +392,7 @@ pub const PatternPlayer = struct {
         }
     }
 
-    fn resetOpaque(ptr: *anyopaque) void {
-        const self: *PatternPlayer = @ptrCast(@alignCast(ptr));
+    pub fn reset(self: *PatternPlayer) void {
         for (0..128) |p| {
             if (self.sounding[p]) {
                 self.target.sendEvent(.{ .note_off = .{ .note = @intCast(p) } });
@@ -410,14 +401,6 @@ pub const PatternPlayer = struct {
         }
         self.last_pos_frames = 0;
     }
-
-    const vtable: dsp.Device.VTable = .{
-        // zig fmt: off
-        .process = processOpaque,
-        .event   = eventOpaque,
-        .reset   = resetOpaque,
-        // zig fmt: on
-    };
 };
 
 // ---------------------------------------------------------------------------

@@ -203,15 +203,7 @@ pub const Slicer = struct {
         return copy;
     }
 
-    pub fn device(self: *Slicer) dsp.Device {
-        return .{ .ptr = self, .vtable = &vtable };
-    }
-
-    const vtable: dsp.Device.VTable = .{
-        .process = processOpaque,
-        .event = eventOpaque,
-        .reset = resetOpaque,
-    };
+    pub const device = dsp.deviceOf(@This());
 
     pub fn clipName(self: *const Slicer) []const u8 {
         var end: usize = self.name.len;
@@ -795,13 +787,12 @@ pub const Slicer = struct {
         // zig fmt: on
     }
 
-    fn processOpaque(ptr: *anyopaque, buf: []Sample) void {
-        const self: *Slicer = @ptrCast(@alignCast(ptr));
-        self.processBlock(buf);
+    /// `deviceOf`'s expected name; forwards to `resetAll`.
+    pub fn reset(self: *Slicer) void {
+        self.resetAll();
     }
 
-    fn eventOpaque(ptr: *anyopaque, ev: dsp.Event) void {
-        const self: *Slicer = @ptrCast(@alignCast(ptr));
+    pub fn handleEvent(self: *Slicer, ev: dsp.Event) void {
         switch (ev) {
             // A qwerty/MIDI note maps onto a slice by index, wrapping modulo
             // the current slice count — same convention DrumMachine.
@@ -814,11 +805,6 @@ pub const Slicer = struct {
             .note_off, .cc, .pitch_bend, .set_sidechain_buf, .capture_pad => {},
             .all_off => self.resetAll(),
         }
-    }
-
-    fn resetOpaque(ptr: *anyopaque) void {
-        const self: *Slicer = @ptrCast(@alignCast(ptr));
-        self.resetAll();
     }
 };
 

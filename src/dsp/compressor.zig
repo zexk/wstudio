@@ -53,15 +53,7 @@ pub const Compressor = struct {
         return .{ .sample_rate = @floatFromInt(sample_rate) };
     }
 
-    pub fn device(self: *Compressor) dsp.Device {
-        return .{ .ptr = self, .vtable = &vtable };
-    }
-
-    const vtable: dsp.Device.VTable = .{
-        .process = processOpaque,
-        .event = eventOpaque,
-        .reset = resetOpaque,
-    };
+    pub const device = dsp.deviceOf(@This());
 
     fn smoothingCoef(self: *const Compressor, ms: f32) f32 {
         return @exp(-1.0 / (ms * 0.001 * self.sample_rate));
@@ -111,13 +103,7 @@ pub const Compressor = struct {
         }
     }
 
-    fn processOpaque(ptr: *anyopaque, buf: []Sample) void {
-        const self: *Compressor = @ptrCast(@alignCast(ptr));
-        self.processBlock(buf);
-    }
-
-    fn eventOpaque(ptr: *anyopaque, ev: dsp.Event) void {
-        const self: *Compressor = @ptrCast(@alignCast(ptr));
+    pub fn handleEvent(self: *Compressor, ev: dsp.Event) void {
         switch (ev) {
             .set_sidechain_buf => |e| self.detector = e.buf,
             .note_on, .note_off, .all_off, .cc, .pitch_bend, .set_param, .set_param_abs, .capture_pad => {},
@@ -132,11 +118,6 @@ pub const Compressor = struct {
     pub fn reset(self: *Compressor) void {
         self.env = 0.0;
         self.detector = null;
-    }
-
-    fn resetOpaque(ptr: *anyopaque) void {
-        const self: *Compressor = @ptrCast(@alignCast(ptr));
-        self.reset();
     }
 };
 
