@@ -33,14 +33,7 @@ pub const Flanger = struct {
         return .{ .sample_rate = @floatFromInt(sample_rate) };
     }
 
-    pub fn device(self: *Flanger) dsp.Device {
-        return .{ .ptr = self, .vtable = &vtable };
-    }
-
-    const vtable: dsp.Device.VTable = .{
-        .process = processOpaque,
-        .reset = resetOpaque,
-    };
+    pub const device = dsp.deviceOf(@This());
 
     pub fn processBlock(self: *Flanger, buf: []Sample) void {
         const len_f: f32 = @floatFromInt(len);
@@ -70,22 +63,12 @@ pub const Flanger = struct {
         }
     }
 
-    fn processOpaque(ptr: *anyopaque, buf: []Sample) void {
-        const self: *Flanger = @ptrCast(@alignCast(ptr));
-        self.processBlock(buf);
-    }
-
     /// Clears the delay ring and phase, leaving sample_rate and the
     /// user-facing params (rate/depth/feedback/mix) untouched.
     pub fn reset(self: *Flanger) void {
         self.ring = [_][len]f32{[_]f32{0.0} ** len} ** 2;
         self.pos = 0;
         self.phase = 0.0;
-    }
-
-    fn resetOpaque(ptr: *anyopaque) void {
-        const self: *Flanger = @ptrCast(@alignCast(ptr));
-        self.reset();
     }
 };
 

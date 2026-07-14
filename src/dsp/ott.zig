@@ -68,19 +68,7 @@ pub const Ott = struct {
         };
     }
 
-    pub fn device(self: *Ott) dsp.Device {
-        return .{ .ptr = self, .vtable = &vtable };
-    }
-
-    const vtable: dsp.Device.VTable = .{
-        .process = processOpaque,
-        .reset = resetOpaque,
-    };
-
-    fn processOpaque(ptr: *anyopaque, buf: []Sample) void {
-        const self: *Ott = @ptrCast(@alignCast(ptr));
-        self.processBlock(buf);
-    }
+    pub const device = dsp.deviceOf(@This());
 
     /// Clears the underlying MultibandComp's crossover/envelope state
     /// without touching its sample-rate-derived coefficients — callers
@@ -88,11 +76,6 @@ pub const Ott = struct {
     /// must use this instead of `= .{}`.
     pub fn reset(self: *Ott) void {
         self.mb.reset();
-    }
-
-    fn resetOpaque(ptr: *anyopaque) void {
-        const self: *Ott = @ptrCast(@alignCast(ptr));
-        self.reset();
     }
 };
 

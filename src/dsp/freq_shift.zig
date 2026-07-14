@@ -96,14 +96,7 @@ pub const FreqShifter = struct {
         return .{ .sample_rate = @floatFromInt(sample_rate) };
     }
 
-    pub fn device(self: *FreqShifter) dsp.Device {
-        return .{ .ptr = self, .vtable = &vtable };
-    }
-
-    const vtable: dsp.Device.VTable = .{
-        .process = processOpaque,
-        .reset = resetOpaque,
-    };
+    pub const device = dsp.deviceOf(@This());
 
     pub fn processBlock(self: *FreqShifter, buf: []Sample) void {
         const phase_inc = 2.0 * std.math.pi * self.shift_hz / self.sample_rate;
@@ -123,21 +116,11 @@ pub const FreqShifter = struct {
         }
     }
 
-    fn processOpaque(ptr: *anyopaque, buf: []Sample) void {
-        const self: *FreqShifter = @ptrCast(@alignCast(ptr));
-        self.processBlock(buf);
-    }
-
     /// Clears the allpass/delay history and oscillator phase, leaving
     /// sample_rate and the user-facing params (shift/mix) untouched.
     pub fn reset(self: *FreqShifter) void {
         for (&self.ch) |*c| c.reset();
         self.phase = 0.0;
-    }
-
-    fn resetOpaque(ptr: *anyopaque) void {
-        const self: *FreqShifter = @ptrCast(@alignCast(ptr));
-        self.reset();
     }
 };
 

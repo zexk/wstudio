@@ -24,14 +24,7 @@ pub const Gate = struct {
         return .{ .sample_rate = @floatFromInt(sample_rate) };
     }
 
-    pub fn device(self: *Gate) dsp.Device {
-        return .{ .ptr = self, .vtable = &vtable };
-    }
-
-    const vtable: dsp.Device.VTable = .{
-        .process = processOpaque,
-        .reset = resetOpaque,
-    };
+    pub const device = dsp.deviceOf(@This());
 
     /// Gate an interleaved stereo buffer in place.
     pub fn processBlock(self: *Gate, buf: []Sample) void {
@@ -53,11 +46,6 @@ pub const Gate = struct {
         }
     }
 
-    fn processOpaque(ptr: *anyopaque, buf: []Sample) void {
-        const self: *Gate = @ptrCast(@alignCast(ptr));
-        self.processBlock(buf);
-    }
-
     /// Clears detector/gain state without touching `sample_rate` — callers
     /// embedding a `Gate` by value (e.g. PolySynth's internal FX section)
     /// must use this instead of `= .{}`, which would reset sample_rate to
@@ -65,11 +53,6 @@ pub const Gate = struct {
     pub fn reset(self: *Gate) void {
         self.env = 0.0;
         self.gain = 0.0;
-    }
-
-    fn resetOpaque(ptr: *anyopaque) void {
-        const self: *Gate = @ptrCast(@alignCast(ptr));
-        self.reset();
     }
 };
 

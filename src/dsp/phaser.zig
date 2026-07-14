@@ -35,14 +35,7 @@ pub const Phaser = struct {
         return .{ .sample_rate = @floatFromInt(sample_rate) };
     }
 
-    pub fn device(self: *Phaser) dsp.Device {
-        return .{ .ptr = self, .vtable = &vtable };
-    }
-
-    const vtable: dsp.Device.VTable = .{
-        .process = processOpaque,
-        .reset = resetOpaque,
-    };
+    pub const device = dsp.deviceOf(@This());
 
     /// Phase an interleaved stereo buffer in place.
     pub fn processBlock(self: *Phaser, buf: []Sample) void {
@@ -75,11 +68,6 @@ pub const Phaser = struct {
         }
     }
 
-    fn processOpaque(ptr: *anyopaque, buf: []Sample) void {
-        const self: *Phaser = @ptrCast(@alignCast(ptr));
-        self.processBlock(buf);
-    }
-
     /// Clears the allpass/feedback history and phase, leaving sample_rate
     /// and the user-facing params (rate/depth/feedback/mix) untouched.
     pub fn reset(self: *Phaser) void {
@@ -87,11 +75,6 @@ pub const Phaser = struct {
         self.y1 = .{ .{ 0.0, 0.0, 0.0, 0.0 }, .{ 0.0, 0.0, 0.0, 0.0 } };
         self.fb = .{ 0.0, 0.0 };
         self.phase = 0.0;
-    }
-
-    fn resetOpaque(ptr: *anyopaque) void {
-        const self: *Phaser = @ptrCast(@alignCast(ptr));
-        self.reset();
     }
 };
 

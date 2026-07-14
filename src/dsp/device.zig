@@ -100,3 +100,36 @@ pub const Device = struct {
         self.vtable.reset(self.ptr);
     }
 };
+
+/// Builds a `Device` fat-pointer for `T`, given `T.processBlock(*T, []Sample)
+/// void` and `T.reset(*T) void`. If `T` also declares `handleEvent(*T, Event)
+/// void`, the vtable's `event` slot forwards to it; otherwise it stays null,
+/// same split every effect (no events) vs. instrument (events) already had.
+/// Usage: `pub const device = dsp.deviceOf(@This());` inside `T`'s own
+/// definition — kills the identical `@ptrCast(@alignCast(ptr))` shim + static
+/// vtable literal every device implementation used to hand-write.
+pub fn deviceOf(comptime T: type) fn (*T) Device {
+    const shim = struct {
+        fn processOpaque(ptr: *anyopaque, buf: []types.Sample) void {
+            const self: *T = @ptrCast(@alignCast(ptr));
+            self.processBlock(buf);
+        }
+        fn resetOpaque(ptr: *anyopaque) void {
+            const self: *T = @ptrCast(@alignCast(ptr));
+            self.reset();
+        }
+        fn eventOpaque(ptr: *anyopaque, ev: Event) void {
+            const self: *T = @ptrCast(@alignCast(ptr));
+            self.handleEvent(ev);
+        }
+        const vtable: Device.VTable = .{
+            .process = processOpaque,
+            .reset = resetOpaque,
+            .event = if (@hasDecl(T, "handleEvent")) eventOpaque else null,
+        };
+        fn device(self: *T) Device {
+            return .{ .ptr = self, .vtable = &vtable };
+        }
+    }.device;
+    return shim;
+}
