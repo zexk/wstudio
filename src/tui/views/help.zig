@@ -251,9 +251,10 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key(":load-sample", "[file.wav]  load a sample into the cursor pad or sampler track (omit the file to browse)");
 
     t.taggedSection(.synth_editor, "SYNTH EDITOR");
+    t.key("tab",          "cycle subview — main params / FX section / mod matrix");
     t.key("j / k",        "select parameter");
-    t.key("g / G",        "jump to first / last parameter");
-    t.key("{ / }",        "prev / next section");
+    t.key("g / G",        "jump to first / last parameter (within the current subview)");
+    t.key("{ / }",        "prev / next section (within the current subview)");
     t.key("h / l",        "adjust value (fine)");
     t.key("H / L",        "adjust value (coarse ×10)");
     t.key("p",            "open piano roll for this track");

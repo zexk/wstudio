@@ -312,6 +312,11 @@ pub const App = struct {
     synth_track: u16 = 0,
     synth_cursor: u8 = 0,
     synth_scroll: usize = 0,
+    /// Which of the synth editor's three subviews (osc/env/filter params,
+    /// the internal FX section, the mod matrix) is showing — cycled by Tab.
+    /// `synth_cursor` stays one flat param-id space across all three; only
+    /// which ids are reachable/rendered changes with the subview.
+    synth_subview: synth_ed.Subview = .main,
     piano_track: u16 = 0,
     piano_cursor_step: u16 = 0,
     piano_cursor_pitch: u7 = 60,
@@ -1374,6 +1379,7 @@ pub const App = struct {
             .poly_synth => {
                 self.synth_track = @intCast(cursor);
                 self.synth_cursor = 0;
+                self.synth_subview = .main;
                 self.view = .synth_editor;
             },
             .sampler => {

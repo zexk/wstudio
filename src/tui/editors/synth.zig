@@ -1,22 +1,94 @@
-//! Synth-editor input: param row navigation ({/} jump sections), h/l nudges
-//! routed over the engine command queue to the audio thread, and the
+//! Synth-editor input: param row navigation ({/} jump sections, Tab cycles
+//! subviews), h/l nudges routed over the engine command queue, and the
 //! cursor-row/scroll math shared with the renderer in views/synth.zig.
 
 const std = @import("std");
 const ws = @import("wstudio");
 const modal_mod = ws.input;
-const style = @import("../style.zig");
 const App = @import("../app.zig").App;
 const spectrum = @import("spectrum.zig");
 const piano = @import("piano.zig");
 const preset_picker = @import("preset_picker.zig");
 const history = @import("../history.zig");
 
+/// The synth editor's three panes, cycled by Tab: the oscillator/envelope/
+/// filter/mod-source params ("main"), the internal FX section, and the mod
+/// matrix. `App.synth_cursor` stays one flat param-id space across all
+/// three (it IS the PolySynth param id — engine commands and undo key off
+/// it directly) — the subview only changes which ids are reachable and how
+/// they're laid out on screen. 116 params in one scrolling list needed
+/// `G`/`{`/`}` just to get around; splitting by section ownership also
+/// simplifies the row-math tables below (three small per-view ranges
+/// instead of one 138-row list).
+pub const Subview = enum { main, fx, matrix };
+
+/// First/last param id belonging to `subview`, for `g`/`G` and moveCursor's
+/// clamp bounds. Not a claim that every id in [first,last] belongs to the
+/// subview — `fx`'s range spans the matrix/lfo2/lfo3/macro ids too (they're
+/// appended after the matrix in the global id space); `inSubview` is the
+/// real membership test.
+fn firstId(subview: Subview) u8 {
+    return switch (subview) {
+        .main => 0,
+        .fx => 83,
+        .matrix => 59,
+    };
+}
+fn lastId(subview: Subview) u8 {
+    return switch (subview) {
+        .main => 102,
+        .fx => 115,
+        .matrix => 82,
+    };
+}
+
+/// Whether `id` is rendered/reachable in `subview`. `main` excludes the 3
+/// retired matrix-absorbed ids (23/30/31) same as before, plus the whole
+/// 59-94/103-115 range now that matrix/FX moved to their own panes; `fx`
+/// has two disjoint ranges (83-94, then 103-115 — matrix and LFO2/LFO3/
+/// MACRO sit between them in the global id space).
+fn inSubview(id: u8, subview: Subview) bool {
+    return switch (subview) {
+        .main => (id <= 58 and !deadParam(id)) or (id >= 95 and id <= 102),
+        .fx => (id >= 83 and id <= 94) or (id >= 103 and id <= 115),
+        .matrix => id >= 59 and id <= 82,
+    };
+}
+
+fn sectionStarts(subview: Subview) []const u8 {
+    return switch (subview) {
+        // zig fmt: off
+        .main   => &[_]u8{ 0, 6, 14, 16, 20, 24, 28, 32, 34, 36, 38, 39, 41, 45, 50, 95, 97, 99 },
+        .fx     => &[_]u8{ 83, 86, 90, 103, 108, 112 },
+        .matrix => &[_]u8{59},
+        // zig fmt: on
+    };
+}
+
+/// Short tag for the editor title when not on the main pane (main shows no
+/// tag at all, matching the pre-subview look).
+pub fn subviewLabel(subview: Subview) []const u8 {
+    return switch (subview) {
+        .main => "",
+        .fx => "FX",
+        .matrix => "MATRIX",
+    };
+}
+
 // zig fmt: off
 pub fn handleKey(app: *App, key: modal_mod.Key) bool {
     switch (key) {
         .escape => { history.flushParamNudge(app); app.view = .tracks; return true; },
         .ctrl_r => { history.doRedo(app); return true; },
+        .tab => {
+            history.flushParamNudge(app);
+            app.synth_subview = switch (app.synth_subview) {
+                .main => .fx, .fx => .matrix, .matrix => .main,
+            };
+            app.synth_cursor = firstId(app.synth_subview);
+            updateScroll(app);
+            return true;
+        },
         .char => |c| switch (c) {
             // Block insert mode — piano keys conflict with parameter navigation.
             'i' => return true,
@@ -40,13 +112,13 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             'l' => { adjustParam(app, app.takeCount()); return true; },
             'H' => { adjustParam(app, -10 * app.takeCount()); return true; },
             'L' => { adjustParam(app, 10 * app.takeCount()); return true; },
-            'g' => { history.flushParamNudge(app); app.synth_cursor = 0; updateScroll(app); return true; },
-            'G' => { history.flushParamNudge(app); app.synth_cursor = style.synth_param_count - 1; updateScroll(app); return true; },
+            'g' => { history.flushParamNudge(app); app.synth_cursor = firstId(app.synth_subview); updateScroll(app); return true; },
+            'G' => { history.flushParamNudge(app); app.synth_cursor = lastId(app.synth_subview); updateScroll(app); return true; },
             '}', '{' => {
                 history.flushParamNudge(app);
-                const section_starts = [_]u8{ 0, 6, 14, 16, 20, 24, 28, 32, 34, 36, 38, 39, 41, 45, 50, 59, 83, 86, 90, 95, 97, 99, 103, 108, 112 };
+                const starts = sectionStarts(app.synth_subview);
                 if (c == '}') {
-                    for (section_starts) |s| {
+                    for (starts) |s| {
                         if (s > app.synth_cursor) {
                             app.synth_cursor = s;
                             break;
@@ -54,13 +126,13 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                     }
                 } else {
                     var sec_idx: usize = 0;
-                    for (section_starts, 0..) |s, idx| {
+                    for (starts, 0..) |s, idx| {
                         if (s <= app.synth_cursor) sec_idx = idx;
                     }
-                    if (app.synth_cursor == section_starts[sec_idx] and sec_idx > 0) {
-                        app.synth_cursor = section_starts[sec_idx - 1];
+                    if (app.synth_cursor == starts[sec_idx] and sec_idx > 0) {
+                        app.synth_cursor = starts[sec_idx - 1];
                     } else {
-                        app.synth_cursor = section_starts[sec_idx];
+                        app.synth_cursor = starts[sec_idx];
                     }
                 }
                 updateScroll(app);
@@ -78,24 +150,28 @@ fn deadParam(id: u8) bool {
     return id == 23 or id == 30 or id == 31;
 }
 
-/// Move the param cursor by `delta` rows, clamped to the param list and
-/// skipping retired ids in the direction of travel.
+/// Move the param cursor by `delta` rows within the current subview,
+/// clamped to its id range and skipping ids that don't belong to it
+/// (retired ids for `main`, the matrix/lfo2/lfo3/macro gap for `fx`).
 fn moveCursor(app: *App, delta: i32) void {
+    const view = app.synth_subview;
     var c: i32 = std.math.clamp(
-        @as(i32, app.synth_cursor) + delta, 0, style.synth_param_count - 1,
+        @as(i32, app.synth_cursor) + delta, firstId(view), lastId(view),
     );
     const dir: i32 = if (delta >= 0) 1 else -1;
-    while (deadParam(@intCast(c))) c += dir;
+    while (!inSubview(@intCast(c), view)) c += dir;
     app.synth_cursor = @intCast(c);
     updateScroll(app);
 }
 // zig fmt: on
 
-/// Wide terminals split the editor into OSC A / OSC B side by side on top
-/// (7 and 9 rows respectively — OSC B is taller, so the top block is 9 rows)
-/// followed by every other section stacked full-width beneath, instead of
-/// one 51-row scroll. 108 cols keeps both oscillator columns comfortably
-/// above their own widest row (OSC B's 9-row block).
+/// Wide terminals split the "main" subview into OSC A / OSC B side by side
+/// on top (7 and 9 rows respectively — OSC B is taller, so the top block is
+/// 9 rows) followed by every other main-pane section stacked full-width
+/// beneath, instead of one long scroll. 108 cols keeps both oscillator
+/// columns comfortably above their own widest row (OSC B's 9-row block).
+/// The FX and matrix subviews always render as a single full-width list
+/// regardless of width — neither has an OSC-A/B-style pairing to split.
 pub const two_col_min_cols: usize = 108;
 
 pub fn twoCol(cols: usize) bool {
@@ -110,19 +186,24 @@ pub fn colWidth(cols: usize) usize {
 /// Row budget of the OSC A/B top block (max of OSC A's 7 rows and OSC B's 9).
 pub const top_h: usize = 9;
 
-/// Total body rows (below the shared title) in the wide A/B-over-C layout.
-pub const body_rows_wide: usize = 130;
-
-/// Total body rows in the single-column layout.
-pub const body_rows_single: usize = 138;
+/// Total body rows (below the shared title) in the "main" subview's wide
+/// A/B-over-C layout.
+pub const body_rows_wide: usize = 75;
+/// Total body rows in the "main" subview's single-column layout.
+pub const body_rows_single: usize = 83;
+/// Total body rows in the "fx" subview (always single-column).
+pub const body_rows_fx: usize = 31;
+/// Total body rows in the "matrix" subview (always single-column).
+pub const body_rows_matrix: usize = 25;
 
 // zig fmt: off
-/// Column + row of `cursor` within the wide layout (row 0 is the shared
-/// title). OSC A/B (rows 1-9) are side by side, col meaningful; everything
-/// else is a single full-width column and col is unused. Must stay in sync
-/// with secOscA/secOscB/drawSynthBottom in views/synth.zig, exactly like
-/// paramRow mirrors the single-column order. Retired ids (23/30/31) map to
-/// row 0, which never matches a body row.
+/// Column + row of `cursor` within the "main" subview's wide layout (row 0
+/// is the shared title). OSC A/B (rows 1-9) are side by side, col
+/// meaningful; everything else is a single full-width column and col is
+/// unused. Must stay in sync with secOscA/secOscB/drawSynthBottom in
+/// views/synth.zig, exactly like paramRow mirrors the single-column order.
+/// Retired ids (23/30/31) map to row 0, which never matches a body row.
+/// Only meaningful for ids `inSubview(id, .main)` — never called otherwise.
 pub fn paramColRow(cursor: u8) struct { col: u1, row: usize } {
     return switch (cursor) {
         0...5   => .{ .col = 0, .row = 2  + @as(usize, cursor) },        // OSC A (header at 1)
@@ -140,50 +221,52 @@ pub fn paramColRow(cursor: u8) struct { col: u1, row: usize } {
         41...44 => .{ .col = 0, .row = 45 + @as(usize, cursor - 41) },   // WARP (header at 44)
         45...49 => .{ .col = 0, .row = 50 + @as(usize, cursor - 45) },   // FILTER 2 (header at 49)
         50...58 => .{ .col = 0, .row = 56 + @as(usize, cursor - 50) },   // OSC C (header at 55)
-        59...82 => .{ .col = 0, .row = 66 + @as(usize, cursor - 59) },   // MATRIX (header at 65)
-        83...85 => .{ .col = 0, .row = 91 + @as(usize, cursor - 83) },   // FX DIST (header at 90)
-        86...89 => .{ .col = 0, .row = 95 + @as(usize, cursor - 86) },   // FX CRUSH (header at 94)
-        90...94 => .{ .col = 0, .row = 100 + @as(usize, cursor - 90) },  // FX FLNG (header at 99)
-        95...96 => .{ .col = 0, .row = 106 + @as(usize, cursor - 95) },  // LFO 2 (header at 105)
-        97...98 => .{ .col = 0, .row = 109 + @as(usize, cursor - 97) },  // LFO 3 (header at 108)
-        99...102 => .{ .col = 0, .row = 112 + @as(usize, cursor - 99) }, // MACRO (header at 111)
-        103...107 => .{ .col = 0, .row = 116 + @as(usize, cursor - 103) }, // FX PHSR (header at 115)
-        108...111 => .{ .col = 0, .row = 122 + @as(usize, cursor - 108) }, // FX DELAY (header at 121)
-        112...115 => .{ .col = 0, .row = 127 + @as(usize, cursor - 112) }, // FX VERB (header at 126)
+        95...96 => .{ .col = 0, .row = 66 + @as(usize, cursor - 95) },   // LFO 2 (header at 65)
+        97...98 => .{ .col = 0, .row = 69 + @as(usize, cursor - 97) },   // LFO 3 (header at 68)
+        99...102 => .{ .col = 0, .row = 72 + @as(usize, cursor - 99) },  // MACRO (header at 71)
         else    => .{ .col = 0, .row = 0 },
     };
 }
 
-/// Row index of `synth_cursor` within drawSynthEditor's output (0-based).
-/// Must stay in sync with the layout in tui.drawSynthEditor.
-pub fn paramRow(cursor: u8) usize {
-    return switch (cursor) {
-        0...5  => 2 + @as(usize, cursor),          // OSC A section (header at row 1)
-        6...13 => 9 + @as(usize, cursor - 6),      // OSC B (header at row 8)
-        14...15 => 18 + @as(usize, cursor - 14),   // MOD (header at 17)
-        16...19 => 21 + @as(usize, cursor - 16),   // ENV (header at 20)
-        20...22 => 26 + @as(usize, cursor - 20),   // FILTER (header at 25)
-        24...27 => 30 + @as(usize, cursor - 24),   // FENV (header at 29)
-        28...29 => 35 + @as(usize, cursor - 28),   // LFO (header at 34)
-        32...33 => 39 + @as(usize, cursor - 32),   // VOICE (header at 38)
-        34...35 => 42 + @as(usize, cursor - 34),   // SUB (header at 41)
-        36...37 => 45 + @as(usize, cursor - 36),   // NOISE (header at 44)
-        38      => 48,                              // OUT (header at 47)
-        39...40 => 50 + @as(usize, cursor - 39),   // UNI MODE (header at 49)
-        41...44 => 53 + @as(usize, cursor - 41),   // WARP (header at 52)
-        45...49 => 58 + @as(usize, cursor - 45),   // FILTER 2 (header at 57)
-        50...58 => 64 + @as(usize, cursor - 50),   // OSC C (header at 63)
-        59...82 => 74 + @as(usize, cursor - 59),   // MATRIX (header at 73)
-        83...85 => 99 + @as(usize, cursor - 83),   // FX DIST (header at 98)
-        86...89 => 103 + @as(usize, cursor - 86),  // FX CRUSH (header at 102)
-        90...94 => 108 + @as(usize, cursor - 90),  // FX FLNG (header at 107)
-        95...96 => 114 + @as(usize, cursor - 95),  // LFO 2 (header at 113)
-        97...98 => 117 + @as(usize, cursor - 97),  // LFO 3 (header at 116)
-        99...102 => 120 + @as(usize, cursor - 99), // MACRO (header at 119)
-        103...107 => 124 + @as(usize, cursor - 103), // FX PHSR (header at 123)
-        108...111 => 130 + @as(usize, cursor - 108), // FX DELAY (header at 129)
-        112...115 => 135 + @as(usize, cursor - 112), // FX VERB (header at 134)
-        else    => 0,
+/// Row index of `cursor` within `subview`'s single-column rendering (0-based,
+/// title excluded). Must stay in sync with the section calls in
+/// views/synth.zig's drawSynthEditor/drawSynthBottom.
+pub fn paramRow(subview: Subview, cursor: u8) usize {
+    return switch (subview) {
+        .main => switch (cursor) {
+            0...5  => 2 + @as(usize, cursor),          // OSC A (header at row 1)
+            6...13 => 9 + @as(usize, cursor - 6),      // OSC B (header at row 8)
+            14...15 => 18 + @as(usize, cursor - 14),   // MOD (header at 17)
+            16...19 => 21 + @as(usize, cursor - 16),   // ENV (header at 20)
+            20...22 => 26 + @as(usize, cursor - 20),   // FILTER (header at 25)
+            24...27 => 30 + @as(usize, cursor - 24),   // FENV (header at 29)
+            28...29 => 35 + @as(usize, cursor - 28),   // LFO (header at 34)
+            32...33 => 39 + @as(usize, cursor - 32),   // VOICE (header at 38)
+            34...35 => 42 + @as(usize, cursor - 34),   // SUB (header at 41)
+            36...37 => 45 + @as(usize, cursor - 36),   // NOISE (header at 44)
+            38      => 48,                              // OUT (header at 47)
+            39...40 => 50 + @as(usize, cursor - 39),   // UNI MODE (header at 49)
+            41...44 => 53 + @as(usize, cursor - 41),   // WARP (header at 52)
+            45...49 => 58 + @as(usize, cursor - 45),   // FILTER 2 (header at 57)
+            50...58 => 64 + @as(usize, cursor - 50),   // OSC C (header at 63)
+            95...96 => 74 + @as(usize, cursor - 95),   // LFO 2 (header at 73)
+            97...98 => 77 + @as(usize, cursor - 97),   // LFO 3 (header at 76)
+            99...102 => 80 + @as(usize, cursor - 99),  // MACRO (header at 79)
+            else    => 0,
+        },
+        .fx => switch (cursor) {
+            83...85   => 2  + @as(usize, cursor - 83),  // FX DIST (header at 1)
+            86...89   => 6  + @as(usize, cursor - 86),  // FX CRUSH (header at 5)
+            90...94   => 11 + @as(usize, cursor - 90),  // FX FLNG (header at 10)
+            103...107 => 17 + @as(usize, cursor - 103), // FX PHSR (header at 16)
+            108...111 => 23 + @as(usize, cursor - 108), // FX DELAY (header at 22)
+            112...115 => 28 + @as(usize, cursor - 112), // FX VERB (header at 27)
+            else      => 0,
+        },
+        .matrix => switch (cursor) {
+            59...82 => 2 + @as(usize, cursor - 59), // MATRIX (header at 1)
+            else    => 0,
+        },
     };
 }
 // zig fmt: on
@@ -195,7 +278,7 @@ pub fn updateScroll(app: *App) void {
     // Was 20 (tuned against the old rows-|5 body budget, pre-hr()-removal);
     // bumped by the same +2 the real budget gained.
     const max_rows: usize = 22;
-    const row = paramRow(app.synth_cursor);
+    const row = paramRow(app.synth_subview, app.synth_cursor);
     if (row < app.synth_scroll) app.synth_scroll = row;
     if (row >= app.synth_scroll + max_rows) app.synth_scroll = row - max_rows + 1;
 }
@@ -226,30 +309,32 @@ fn adjustParam(app: *App, steps: i32) void {
 
 /// The param index whose row (in the *scrolled* on-screen layout) is `row`,
 /// or null for the title row / a row that doesn't land on any param (a
-/// section-header line). Scans `paramRow`/`paramColRow` — cheap (59 params)
-/// and it's already the exact row math the renderer uses, so no new layout
-/// logic. In wide mode `x` only picks a column within the OSC A/B top block
-/// (rows 1-9); everything below that is a single full-width column.
+/// section-header line). Scans the current subview's own id range against
+/// `paramRow`/`paramColRow` — cheap and it's already the exact row math the
+/// renderer uses, so no new layout logic. In wide "main" mode `x` only
+/// picks a column within the OSC A/B top block (rows 1-9); everything below
+/// that (and every row in the fx/matrix subviews) is a single full-width
+/// column.
 fn paramAtRow(app: *App, row: usize, x: usize, cols: u16) ?u8 {
     if (row == 0) return null; // title
     const full_row = app.synth_scroll + row;
-    var i: u8 = 0;
-    if (twoCol(cols)) {
-        if (full_row <= top_h) {
-            const col: u1 = if (x < colWidth(cols)) 0 else 1;
-            while (i < style.synth_param_count) : (i += 1) {
-                const cr = paramColRow(i);
-                if (cr.col == col and cr.row == full_row) return i;
-            }
-            return null;
-        }
-        while (i < style.synth_param_count) : (i += 1) {
-            if (paramColRow(i).row == full_row) return i;
+    const view = app.synth_subview;
+    const wide = view == .main and twoCol(cols);
+    if (wide and full_row <= top_h) {
+        const col: u1 = if (x < colWidth(cols)) 0 else 1;
+        var i: u8 = firstId(view);
+        while (i <= lastId(view)) : (i += 1) {
+            if (!inSubview(i, view)) continue;
+            const cr = paramColRow(i);
+            if (cr.col == col and cr.row == full_row) return i;
         }
         return null;
     }
-    while (i < style.synth_param_count) : (i += 1) {
-        if (paramRow(i) == full_row) return i;
+    var i: u8 = firstId(view);
+    while (i <= lastId(view)) : (i += 1) {
+        if (!inSubview(i, view)) continue;
+        const row_i = if (wide) paramColRow(i).row else paramRow(view, i);
+        if (row_i == full_row) return i;
     }
     return null;
 }

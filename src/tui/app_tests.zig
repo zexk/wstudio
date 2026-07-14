@@ -2807,7 +2807,9 @@ test "synth editor g/G jump to the first/last parameter" {
     app.handleKey(.{ .char = 'g' }, 0);
     try std.testing.expectEqual(@as(u8, 0), app.synth_cursor);
     app.handleKey(.{ .char = 'G' }, 0);
-    try std.testing.expectEqual(@as(u8, style.synth_param_count - 1), app.synth_cursor);
+    // Last id of the "main" subview (macro 4) — not the raw param-id space
+    // max, which now belongs to the fx/matrix subviews.
+    try std.testing.expectEqual(@as(u8, 102), app.synth_cursor);
 }
 
 test "synth editor param nudges coalesce into one undo step, u/U round-trips" {

@@ -222,6 +222,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                     else => {
                         app.synth_track = app.piano_track;
                         app.synth_cursor = 0;
+                        app.synth_subview = .main;
                         synth.updateScroll(app);
                         app.view = .synth_editor;
                     },

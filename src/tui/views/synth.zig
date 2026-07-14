@@ -43,18 +43,21 @@ const enumRow = style.enumRow;
 const synth_ed = @import("../editors/synth.zig");
 
 /// Render the synth editor into `w`, applying vertical scroll so it fits
-/// within `max_rows`. Always shows the title line, then slices the parameter
-/// body to keep the cursor in view. Wide terminals (synth_ed.twoCol) get an
-/// A/B-over-C layout: OSC A and OSC B side by side on top (osc-specific
-/// params), then every other, non-oscillator section stacked full-width
-/// beneath (see synth_ed.body_rows_wide); narrow terminals keep the plain
-/// single-column stack.
+/// within `max_rows`. Always shows the title line, then slices the current
+/// subview's body to keep the cursor in view. `app.synth_subview` picks one
+/// of three panes (see synth_ed.Subview): "main" gets a wide-terminal
+/// (synth_ed.twoCol) A/B-over-C layout — OSC A and OSC B side by side on
+/// top, every other main-pane section stacked full-width beneath — or the
+/// plain single-column stack on narrow terminals; "fx" and "matrix" are
+/// always a single full-width list regardless of width, since neither has
+/// an OSC-A/B-style pairing to split.
 pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, snap: engine_mod.UiSnapshot) !void {
     _ = snap;
     // Available rows for the view body (excludes the caller's header +
     // transport + status — 4 rows total, no separate hr() rule rows anymore).
     const max_rows = rows -| 4;
-    const two_col = synth_ed.twoCol(cols);
+    const subview = app.synth_subview;
+    const wide = subview == .main and synth_ed.twoCol(cols);
 
     // Stretch the param bars (and the section rules with them) into free
     // width — single-column mode gets at most a few extra cells before the
@@ -63,16 +66,21 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize
     // the stacked section beneath). The knobs were reset to the compact
     // defaults by App.draw.
     const col_w = synth_ed.colWidth(cols);
-    if (!two_col) {
+    if (!wide) {
         style.form_bar_w = @min(style.form_bar_w_default + (cols -| 100) / 2, 40);
         style.form_section_w = style.form_section_w_default + (style.form_bar_w - style.form_bar_w_default);
     }
 
     // Clamp scroll so the cursor row is visible and the window never runs
-    // past the layout's last row (the two layouts' heights differ, so a
-    // stale offset from the other mode must not survive a resize).
-    const cursor_row = if (two_col) synth_ed.paramColRow(app.synth_cursor).row else synth_ed.paramRow(app.synth_cursor);
-    const body_rows: usize = if (two_col) synth_ed.body_rows_wide else synth_ed.body_rows_single;
+    // past the layout's last row (the layouts' heights differ per subview
+    // and per wide/narrow, so a stale offset from a different one must not
+    // survive a resize or a Tab subview switch).
+    const cursor_row = if (wide) synth_ed.paramColRow(app.synth_cursor).row else synth_ed.paramRow(subview, app.synth_cursor);
+    const body_rows: usize = switch (subview) {
+        .main => if (wide) synth_ed.body_rows_wide else synth_ed.body_rows_single,
+        .fx => synth_ed.body_rows_fx,
+        .matrix => synth_ed.body_rows_matrix,
+    };
     var scroll = @min(app.synth_scroll, (body_rows + 1) -| max_rows);
     if (cursor_row < scroll) scroll = cursor_row;
     if (cursor_row >= scroll + max_rows) scroll = cursor_row -| max_rows + 1;
@@ -101,8 +109,15 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize
     else "?";
     // zig fmt: on
 
-    // Title (row 0) — always emitted, outside the scroll window.
+    // Title (row 0) — always emitted, outside the scroll window. Only
+    // tagged with the subview name off "main" — that one keeps the
+    // pre-subview-split look exactly.
     try w.writeAll(bcyn ++ bold ++ " \u{2593} " ++ icons.synth ++ " SYNTH " ++ rst);
+    if (subview != .main) {
+        try w.writeAll(dim);
+        try w.print("[{s}] ", .{synth_ed.subviewLabel(subview)});
+        try w.writeAll(rst);
+    }
     try w.writeAll(acc);
     try w.print("\"{s}\"", .{name});
     try w.writeAll(rst);
@@ -118,7 +133,7 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize
     // without this, scrolling to the exact end of the param list left stale
     // text from a previous frame's different scroll position visible on
     // that row.
-    if (two_col) {
+    if (wide) {
         // Top block: OSC A / OSC B side by side, bars scaled to half-width.
         style.form_bar_w = @min(style.form_bar_w_default + (col_w -| 56), 40);
         style.form_section_w = style.form_section_w_default + (style.form_bar_w - style.form_bar_w_default);
@@ -129,7 +144,7 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize
         var wr = std.Io.Writer.fixed(&tmp_r);
         try secOscB(&wr, synth, c);
 
-        // Bottom block: every non-oscillator section, stacked full-width.
+        // Bottom block: every other main-pane section, stacked full-width.
         style.form_bar_w = @min(style.form_bar_w_default + (cols -| 100) / 2, 40);
         style.form_section_w = style.form_section_w_default + (style.form_bar_w - style.form_bar_w_default);
         var tmp_b: [16 * 1024]u8 = undefined;
@@ -157,34 +172,26 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize
             written += 1;
         }
     } else {
-        // Original single-column section order (paramRow's row map).
+        // Single full-width list — "main" on a narrow terminal (OSC A/B
+        // inline like every other section), or "fx"/"matrix" always.
         var tmp: [16 * 1024]u8 = undefined;
         var tw = std.Io.Writer.fixed(&tmp);
-        try secOscA(&tw, synth, c);
-        try secOscB(&tw, synth, c);
-        try secMod(&tw, synth, c);
-        try secEnv(&tw, synth, c);
-        try secFilter(&tw, synth, c);
-        try secFenv(&tw, synth, c);
-        try secLfo(&tw, synth, c);
-        try secVoice(&tw, synth, c);
-        try secSub(&tw, synth, c);
-        try secNoise(&tw, synth, c);
-        try secOut(&tw, synth, c);
-        try secUniMode(&tw, synth, c);
-        try secWarp(&tw, synth, c);
-        try secFilter2(&tw, synth, c);
-        try secOscC(&tw, synth, c);
-        try secMatrix(&tw, synth, c);
-        try secFxDist(&tw, synth, c);
-        try secFxCrush(&tw, synth, c);
-        try secFxFlanger(&tw, synth, c);
-        try secLfo2(&tw, synth, c);
-        try secLfo3(&tw, synth, c);
-        try secMacro(&tw, synth, c);
-        try secFxPhaser(&tw, synth, c);
-        try secFxDelay(&tw, synth, c);
-        try secFxReverb(&tw, synth, c);
+        switch (subview) {
+            .main => {
+                try secOscA(&tw, synth, c);
+                try secOscB(&tw, synth, c);
+                try drawSynthBottom(&tw, synth, c);
+            },
+            .fx => {
+                try secFxDist(&tw, synth, c);
+                try secFxCrush(&tw, synth, c);
+                try secFxFlanger(&tw, synth, c);
+                try secFxPhaser(&tw, synth, c);
+                try secFxDelay(&tw, synth, c);
+                try secFxReverb(&tw, synth, c);
+            },
+            .matrix => try secMatrix(&tw, synth, c),
+        }
 
         var line_it = std.mem.splitSequence(u8, tw.buffered(), "\r\n");
         var row: usize = 1;
@@ -200,16 +207,18 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize
 }
 
 // The section renderers below emit one header row + one row per param each.
-// The wide layout's OSC A/B top block + drawSynthBottom's order is mirrored
-// by editors/synth.zig's paramColRow, the single-column order (in
-// drawSynthEditor's else-branch above) by its paramRow — keep renderers and
-// row maps in sync.
+// The "main" subview's wide-layout OSC A/B top block + drawSynthBottom's
+// order is mirrored by editors/synth.zig's paramColRow, its single-column
+// order (drawSynthEditor's main-subview else-branch above) by paramRow(.main,
+// ...) — keep renderers and row maps in sync. "fx"/"matrix" have their own
+// (much shorter) row maps under paramRow(.fx/.matrix, ...).
 
-/// Every non-oscillator section, stacked full-width beneath OSC A/B in the
-/// wide layout (body_rows_wide - top_h rows; the MATRIX section is the big
-/// one at 25). OSC C is 3rd-oscillator content but lives here (not the top
-/// A/B block) since the wide layout's top block is a fixed 2-column split —
-/// see body_rows_wide's own history for why a 3-column top block was skipped.
+/// Every "main"-subview section except OSC A/B, stacked full-width beneath
+/// them in the wide layout (body_rows_wide - top_h rows). OSC C is
+/// 3rd-oscillator content but lives here (not the top A/B block) since the
+/// wide layout's top block is a fixed 2-column split — see body_rows_wide's
+/// own history for why a 3-column top block was skipped. MATRIX and the FX
+/// sections live in their own subviews now, not here.
 fn drawSynthBottom(w: *std.Io.Writer, synth: anytype, c: u8) !void {
     try secMod(w, synth, c);
     try secEnv(w, synth, c);
@@ -224,16 +233,9 @@ fn drawSynthBottom(w: *std.Io.Writer, synth: anytype, c: u8) !void {
     try secWarp(w, synth, c);
     try secFilter2(w, synth, c);
     try secOscC(w, synth, c);
-    try secMatrix(w, synth, c);
-    try secFxDist(w, synth, c);
-    try secFxCrush(w, synth, c);
-    try secFxFlanger(w, synth, c);
     try secLfo2(w, synth, c);
     try secLfo3(w, synth, c);
     try secMacro(w, synth, c);
-    try secFxPhaser(w, synth, c);
-    try secFxDelay(w, synth, c);
-    try secFxReverb(w, synth, c);
 }
 
 const wf_names = [_][]const u8{ "sine", "saw", "tri", "sqr" };
