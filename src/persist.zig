@@ -196,6 +196,11 @@ pub const SynthSnap = struct {
     fx_mb_high_threshold_db: f32 = -16.0,
     fx_mb_high_ratio: f32 = 3.0,
     fx_mb_high_makeup_db: f32 = 0.0,
+    fx_ott_on: bool = false,
+    fx_ott_depth: f32 = 1.0,
+    fx_ott_time: f32 = 1.0,
+    fx_ott_gain_in_db: f32 = 0.0,
+    fx_ott_gain_out_db: f32 = 0.0,
     fx_dist_on: bool = false,
     fx_dist_drive_db: f32 = 12.0,
     fx_dist_mix: f32 = 1.0,
@@ -221,7 +226,7 @@ pub const SynthSnap = struct {
     fx_reverb_room: f32 = 0.6,
     fx_reverb_damp: f32 = 0.4,
     fx_reverb_mix: f32 = 0.3,
-    fx_order: [9]synth_mod.FxUnitKind = synth_mod.default_fx_order,
+    fx_order: [10]synth_mod.FxUnitKind = synth_mod.default_fx_order,
     // Arpeggiator (additive optional-with-default fields, no version bump)
     arp_on: bool = false,
     arp_mode: synth_mod.ArpMode = .up,
@@ -1281,6 +1286,11 @@ fn synthToSnap(s: *const PolySynth) SynthSnap {
         .fx_mb_high_threshold_db = s.fx_mb_high_threshold_db,
         .fx_mb_high_ratio = s.fx_mb_high_ratio,
         .fx_mb_high_makeup_db = s.fx_mb_high_makeup_db,
+        .fx_ott_on = s.fx_ott_on,
+        .fx_ott_depth = s.fx_ott_depth,
+        .fx_ott_time = s.fx_ott_time,
+        .fx_ott_gain_in_db = s.fx_ott_gain_in_db,
+        .fx_ott_gain_out_db = s.fx_ott_gain_out_db,
         .fx_dist_on = s.fx_dist_on,
         .fx_dist_drive_db = s.fx_dist_drive_db,
         .fx_dist_mix = s.fx_dist_mix,
@@ -1884,8 +1894,8 @@ fn loadNotes(pp: *PatternPlayer, notes: []const NoteSnap) void {
 /// drop another, silently dropping the missing unit from processing).
 /// `order.len == FxUnitKind`'s variant count, so "every kind appears at
 /// least once" already implies no duplicates (pigeonhole).
-fn isValidFxOrder(order: [9]synth_mod.FxUnitKind) bool {
-    var seen = [_]bool{false} ** 9;
+fn isValidFxOrder(order: [10]synth_mod.FxUnitKind) bool {
+    var seen = [_]bool{false} ** 10;
     for (order) |kind| seen[@intFromEnum(kind)] = true;
     for (seen) |s| if (!s) return false;
     return true;
@@ -2014,6 +2024,11 @@ fn applyToSynth(s: *PolySynth, ss: *const SynthSnap) void {
     s.fx_mb_high_threshold_db = clamp(ss.fx_mb_high_threshold_db, -60.0, 0.0);
     s.fx_mb_high_ratio = clamp(ss.fx_mb_high_ratio, 1.0, 20.0);
     s.fx_mb_high_makeup_db = clamp(ss.fx_mb_high_makeup_db, -24.0, 24.0);
+    s.fx_ott_on = ss.fx_ott_on;
+    s.fx_ott_depth = clamp(ss.fx_ott_depth, 0.0, 1.0);
+    s.fx_ott_time = clamp(ss.fx_ott_time, 0.25, 4.0);
+    s.fx_ott_gain_in_db = clamp(ss.fx_ott_gain_in_db, -24.0, 24.0);
+    s.fx_ott_gain_out_db = clamp(ss.fx_ott_gain_out_db, -24.0, 24.0);
     s.fx_dist_on = ss.fx_dist_on;
     s.fx_dist_drive_db = clamp(ss.fx_dist_drive_db, 0.0, 36.0);
     s.fx_dist_mix = clamp(ss.fx_dist_mix, 0.0, 1.0);

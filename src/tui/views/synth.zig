@@ -187,6 +187,7 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize
                     .gate => try secFxGate(&tw, synth, c),
                     .comp => try secFxComp(&tw, synth, c),
                     .mb_comp => try secFxMb(&tw, synth, c),
+                    .ott => try secFxOtt(&tw, synth, c),
                     .dist => try secFxDist(&tw, synth, c),
                     .crush => try secFxCrush(&tw, synth, c),
                     .flanger => try secFxFlanger(&tw, synth, c),
@@ -745,6 +746,22 @@ fn secFxMb(w: *std.Io.Writer, synth: anytype, c: u8) !void {
         try std.fmt.bufPrint(&buf, "{d:.1} dB", .{synth.fx_mb_high_makeup_db}));
 }
 
+fn secFxOtt(w: *std.Io.Writer, synth: anytype, c: u8) !void {
+    var buf: [40]u8 = undefined;
+    try synthSection(w, "FX OTT", red);
+
+    const on = synth.fx_ott_on;
+    try enumRow(w, c == 161, false, red, "on/off", &on_off_names, if (on) 0 else 1);
+    try barRow(w, c == 162, !on, red, "depth", synth.fx_ott_depth, 1.0,
+        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.fx_ott_depth}));
+    try barRow(w, c == 163, !on, red, "time", synth.fx_ott_time, 4.0,
+        try std.fmt.bufPrint(&buf, "{d:.2}x", .{synth.fx_ott_time}));
+    try barRow(w, c == 164, !on, red, "gain in", synth.fx_ott_gain_in_db + 24.0, 48.0,
+        try std.fmt.bufPrint(&buf, "{d:.1} dB", .{synth.fx_ott_gain_in_db}));
+    try barRow(w, c == 165, !on, red, "gain out", synth.fx_ott_gain_out_db + 24.0, 48.0,
+        try std.fmt.bufPrint(&buf, "{d:.1} dB", .{synth.fx_ott_gain_out_db}));
+}
+
 fn secFxDist(w: *std.Io.Writer, synth: anytype, c: u8) !void {
     var buf: [40]u8 = undefined;
     try synthSection(w, "FX DIST", red);
@@ -880,6 +897,8 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !
         "mb.mid.thresh", "mb.mid.ratio", "mb.mid.makeup",
         "mb.hi.thresh", "mb.hi.ratio", "mb.hi.makeup",
         "-", // 160: mb_comp's reorder handle, never cursor-reachable
+        "ott.on", "ott.depth", "ott.time", "ott.gain.in", "ott.gain.out",
+        "-", // 166: ott's reorder handle, never cursor-reachable
     };
     const cur = @min(@as(usize, app.synth_cursor), labels.len - 1);
     try style.writeModeBadge(w, app.modal.mode);
@@ -1054,6 +1073,11 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !
         157 => try w.print("{d:.0} dB",    .{synth.fx_mb_high_threshold_db}),
         158 => try w.print("{d:.1}:1",     .{synth.fx_mb_high_ratio}),
         159 => try w.print("{d:.1} dB",    .{synth.fx_mb_high_makeup_db}),
+        161 => try w.writeAll(if (synth.fx_ott_on) "on" else "off"),
+        162 => try w.print("{d:.2}",       .{synth.fx_ott_depth}),
+        163 => try w.print("{d:.2}x",      .{synth.fx_ott_time}),
+        164 => try w.print("{d:.1} dB",    .{synth.fx_ott_gain_in_db}),
+        165 => try w.print("{d:.1} dB",    .{synth.fx_ott_gain_out_db}),
         // zig fmt: on
         else => {},
     }

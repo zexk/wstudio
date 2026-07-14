@@ -19,7 +19,7 @@ const base_attack_ms: f32 = 13.0;
 const base_release_ms: f32 = 130.0;
 
 pub const Ott = struct {
-    mb: MultibandComp,
+    mb: MultibandComp = .{},
     /// Speed multiplier on the fixed attack/release pair, 0.25x..4x.
     time: f32 = 1.0,
     gain_in_db: f32 = 0.0,
@@ -82,9 +82,17 @@ pub const Ott = struct {
         self.processBlock(buf);
     }
 
+    /// Clears the underlying MultibandComp's crossover/envelope state
+    /// without touching its sample-rate-derived coefficients — callers
+    /// embedding an `Ott` by value (e.g. PolySynth's internal FX section)
+    /// must use this instead of `= .{}`.
+    pub fn reset(self: *Ott) void {
+        self.mb.reset();
+    }
+
     fn resetOpaque(ptr: *anyopaque) void {
         const self: *Ott = @ptrCast(@alignCast(ptr));
-        self.mb.device().reset();
+        self.reset();
     }
 };
 

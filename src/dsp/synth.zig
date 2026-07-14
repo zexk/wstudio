@@ -12,6 +12,7 @@ const Gate = @import("gate.zig").Gate;
 const Compressor = @import("compressor.zig").Compressor;
 const MultibandComp = @import("multiband_comp.zig").MultibandComp;
 pub const MbStyle = @import("multiband_comp.zig").Style;
+const Ott = @import("ott.zig").Ott;
 
 const Sample = types.Sample;
 
@@ -91,7 +92,7 @@ pub const ArpMode     = enum { up, down, updown, downup, played, random, chord }
 /// no heap allocation and doesn't touch the mod-matrix/automation id space
 /// (every param keeps its existing stable id regardless of position). See
 /// `PolySynth.fx_order`'s own doc comment for the reorder mechanism.
-pub const FxUnitKind = enum { gate, comp, mb_comp, dist, crush, flanger, phaser, delay, reverb };
+pub const FxUnitKind = enum { gate, comp, mb_comp, ott, dist, crush, flanger, phaser, delay, reverb };
 
 /// Starting chain order — preserves the relative order the original 6
 /// fixed units always ran in, so existing presets/projects sound unchanged
@@ -99,7 +100,7 @@ pub const FxUnitKind = enum { gate, comp, mb_comp, dist, crush, flanger, phaser,
 /// a typical signal chain (gate first, ahead of everything else; comp/
 /// mb_comp right after it, dynamics before tone-shaping). Purely a starting
 /// point once `fx_order` is user-reorderable.
-pub const default_fx_order = [_]FxUnitKind{ .gate, .comp, .mb_comp, .dist, .crush, .flanger, .phaser, .delay, .reverb };
+pub const default_fx_order = [_]FxUnitKind{ .gate, .comp, .mb_comp, .ott, .dist, .crush, .flanger, .phaser, .delay, .reverb };
 
 /// Fixed-line stereo flanger for the synth's internal FX section. Unlike the
 /// master-bus Chorus it owns no heap delay line — PolySynth embeds by value
@@ -496,6 +497,14 @@ pub const PolySynth = struct {
     fx_mb_high_threshold_db: f32 = -16.0,
     fx_mb_high_ratio:        f32 = 3.0,
     fx_mb_high_makeup_db:    f32 = 0.0,
+    /// Reuses the track-chain's own Ott unit (dsp/ott.zig) — fixed-tuning
+    /// facade over MultibandComp exposing only depth/time/in/out, just
+    /// matrix-automatable and embedded by value here.
+    fx_ott_on:           bool = false,
+    fx_ott_depth:        f32  = 1.0,
+    fx_ott_time:         f32  = 1.0,
+    fx_ott_gain_in_db:   f32  = 0.0,
+    fx_ott_gain_out_db:  f32  = 0.0,
     fx_dist_on:          bool = false,
     fx_dist_drive_db:    f32  = 12.0,
     fx_dist_mix:         f32  = 1.0,
@@ -532,10 +541,11 @@ pub const PolySynth = struct {
     /// Processing sequence for the FX section above — see `FxUnitKind`'s
     /// doc comment. Reordered via `adjustParam`'s dedicated reorder-handle
     /// ids, never written directly by the editor.
-    fx_order: [9]FxUnitKind = default_fx_order,
+    fx_order: [10]FxUnitKind = default_fx_order,
     fx_gate_state: Gate = .{},
     fx_comp_state: Compressor = .{},
     fx_mb_state: MultibandComp = .{},
+    fx_ott_state: Ott = .{},
     fx_crush_state: Crusher = .{},
     fx_flanger_state: Flanger = .{},
     fx_phaser_state: Phaser = .{},
@@ -636,6 +646,7 @@ pub const PolySynth = struct {
         133, 134, 135,
         138, 139, 140, 141, 142,
         145, 146, 147, 148, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159,
+        162, 163, 164, 165,
         dest_pitch, dest_amp,
         // zig fmt: on
     };
@@ -762,6 +773,7 @@ pub const PolySynth = struct {
             .fx_gate_state = Gate.init(sample_rate),
             .fx_comp_state = Compressor.init(sample_rate),
             .fx_mb_state = MultibandComp.init(sample_rate),
+            .fx_ott_state = Ott.init(sample_rate),
             .fx_phaser_state = Phaser.init(sample_rate),
             .fx_reverb_state = Reverb.init(@floatFromInt(sample_rate)),
         };
@@ -903,6 +915,11 @@ pub const PolySynth = struct {
         fx_mb_high_threshold_db: f32 = -16.0,
         fx_mb_high_ratio: f32 = 3.0,
         fx_mb_high_makeup_db: f32 = 0.0,
+        fx_ott_on: bool = false,
+        fx_ott_depth: f32 = 1.0,
+        fx_ott_time: f32 = 1.0,
+        fx_ott_gain_in_db: f32 = 0.0,
+        fx_ott_gain_out_db: f32 = 0.0,
         fx_dist_on: bool = false,
         fx_dist_drive_db: f32 = 12.0,
         fx_dist_mix: f32 = 1.0,
@@ -928,7 +945,7 @@ pub const PolySynth = struct {
         fx_reverb_room: f32 = 0.6,
         fx_reverb_damp: f32 = 0.4,
         fx_reverb_mix: f32 = 0.3,
-        fx_order: [9]FxUnitKind = default_fx_order,
+        fx_order: [10]FxUnitKind = default_fx_order,
 
         arp_on: bool = false,
         arp_mode: ArpMode = .up,
@@ -1754,9 +1771,9 @@ pub const PolySynth = struct {
         // are shared by all voices, so the per-voice sources read from the
         // most recently triggered voice (env/velocity → drive style routes
         // still play).
-        if (self.fx_gate_on or self.fx_comp_on or self.fx_mb_on or self.fx_dist_on or
-            self.fx_crush_on or self.fx_flanger_on or self.fx_phaser_on or self.fx_delay_on or
-            self.fx_reverb_on)
+        if (self.fx_gate_on or self.fx_comp_on or self.fx_mb_on or self.fx_ott_on or
+            self.fx_dist_on or self.fx_crush_on or self.fx_flanger_on or self.fx_phaser_on or
+            self.fx_delay_on or self.fx_reverb_on)
         {
             const nv = &self.voices[self.newest_voice];
             const mods = self.evalMatrix(if (nv.active) nv else null, lfo_vals);
@@ -1807,6 +1824,16 @@ pub const PolySynth = struct {
                         self.fx_mb_state.bands[2].makeup_db    = eff(&mods, 159, self.fx_mb_high_makeup_db);
                         // zig fmt: on
                         self.fx_mb_state.processBlock(buf);
+                    },
+                    .ott => if (self.fx_ott_on) {
+                        // setDepth/setTime (not bare field writes) apply
+                        // their own clamps and, for time, rescale the fixed
+                        // attack/release pair — matches Ott's own setter API.
+                        self.fx_ott_state.setDepth(eff(&mods, 162, self.fx_ott_depth));
+                        self.fx_ott_state.setTime(eff(&mods, 163, self.fx_ott_time));
+                        self.fx_ott_state.gain_in_db = eff(&mods, 164, self.fx_ott_gain_in_db);
+                        self.fx_ott_state.gain_out_db = eff(&mods, 165, self.fx_ott_gain_out_db);
+                        self.fx_ott_state.processBlock(buf);
                     },
                     .dist => if (self.fx_dist_on) {
                         // Stateless, so a per-block value with the
@@ -2126,10 +2153,14 @@ pub const PolySynth = struct {
         self.fx_delay_state = .{};
         // Reset(), not `= .{}` — a bare default would also clobber the
         // sample-rate-derived state PolySynth.init set (Gate's, Compressor's,
-        // MultibandComp's and Phaser's sample_rate, Reverb's per-line len).
+        // MultibandComp's/Ott's and Phaser's sample_rate, Reverb's per-line
+        // len), and Ott's/MultibandComp's fixed tuning fields (Ott's own
+        // band/xover setup, baked in at init since only depth/time/in/out
+        // are exposed as params).
         self.fx_gate_state.reset();
         self.fx_comp_state.reset();
         self.fx_mb_state.reset();
+        self.fx_ott_state.reset();
         self.fx_phaser_state.reset();
         self.fx_reverb_state.reset();
     }
@@ -2461,6 +2492,13 @@ pub const PolySynth = struct {
             158 => self.fx_mb_high_ratio        = std.math.clamp(self.fx_mb_high_ratio        + s * 0.1,    1.0,   20.0),
             159 => self.fx_mb_high_makeup_db    = std.math.clamp(self.fx_mb_high_makeup_db    + s * 0.5,  -24.0,   24.0),
             160 => self.reorderFx(.mb_comp, steps),
+            // FX OTT (161–165), reorder handle 166.
+            161 => self.fx_ott_on          = !self.fx_ott_on,
+            162 => self.fx_ott_depth       = std.math.clamp(self.fx_ott_depth       + s * 0.01,   0.0,    1.0),
+            163 => self.fx_ott_time        = std.math.clamp(self.fx_ott_time        + s * 0.05,   0.25,   4.0),
+            164 => self.fx_ott_gain_in_db  = std.math.clamp(self.fx_ott_gain_in_db  + s * 0.5,   -24.0,  24.0),
+            165 => self.fx_ott_gain_out_db = std.math.clamp(self.fx_ott_gain_out_db + s * 0.5,   -24.0,  24.0),
+            166 => self.reorderFx(.ott, steps),
             // zig fmt: on
             // MATRIX (59–82): 3 ids per row — source, dest, depth.
             59...82 => {
@@ -2643,6 +2681,12 @@ pub const PolySynth = struct {
             158 => self.fx_mb_high_ratio        = std.math.clamp(value,   1.0, 20.0),
             159 => self.fx_mb_high_makeup_db    = std.math.clamp(value, -24.0, 24.0),
             160 => self.setFxIndex(.mb_comp,     @intFromFloat(@round(@max(value, 0.0)))),
+            161 => self.fx_ott_on          = value >= 0.5,
+            162 => self.fx_ott_depth       = std.math.clamp(value,  0.0,  1.0),
+            163 => self.fx_ott_time        = std.math.clamp(value,  0.25, 4.0),
+            164 => self.fx_ott_gain_in_db  = std.math.clamp(value, -24.0, 24.0),
+            165 => self.fx_ott_gain_out_db = std.math.clamp(value, -24.0, 24.0),
+            166 => self.setFxIndex(.ott,        @intFromFloat(@round(@max(value, 0.0)))),
             // zig fmt: on
             // MATRIX: dest takes the raw param id (falls back to cutoff if
             // the value isn't a legal dest — e.g. a hand-edited curve).
@@ -2809,6 +2853,12 @@ pub const PolySynth = struct {
             158 => self.fx_mb_high_ratio,
             159 => self.fx_mb_high_makeup_db,
             160 => @floatFromInt(self.fxOrderIndex(.mb_comp)),
+            161 => if (self.fx_ott_on) 1.0 else 0.0,
+            162 => self.fx_ott_depth,
+            163 => self.fx_ott_time,
+            164 => self.fx_ott_gain_in_db,
+            165 => self.fx_ott_gain_out_db,
+            166 => @floatFromInt(self.fxOrderIndex(.ott)),
             // zig fmt: on
             59...82 => blk: {
                 const row = self.mod_matrix[(id - 59) / 3];
@@ -2942,6 +2992,10 @@ pub const PolySynth = struct {
         .{ .id = 157,.label = "MB HI THRESH",.section = "FX MB",   .range = .{ -60.0,  0.0 },    .step = 1.0 },
         .{ .id = 158,.label = "MB HI RATIO", .section = "FX MB",   .range = .{ 1.0,    20.0 },   .step = 0.5 },
         .{ .id = 159,.label = "MB HI MAKEUP",.section = "FX MB",   .range = .{ -24.0,  24.0 },   .step = 0.5 },
+        .{ .id = 162,.label = "OTT DEPTH",   .section = "FX OTT",  .range = .{ 0.0,    1.0 },    .step = 0.01 },
+        .{ .id = 163,.label = "OTT TIME",    .section = "FX OTT",  .range = .{ 0.25,   4.0 },    .step = 0.05 },
+        .{ .id = 164,.label = "OTT GAIN IN", .section = "FX OTT",  .range = .{ -24.0,  24.0 },   .step = 0.5 },
+        .{ .id = 165,.label = "OTT GAIN OUT",.section = "FX OTT",  .range = .{ -24.0,  24.0 },   .step = 0.5 },
         // zig fmt: on
     };
 
