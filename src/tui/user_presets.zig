@@ -7,6 +7,7 @@
 
 const std = @import("std");
 const ws = @import("wstudio");
+const json_store = @import("json_store.zig");
 const Patch = ws.dsp.PolySynth.Patch;
 
 pub const UserPreset = struct {
@@ -19,39 +20,15 @@ const FileSnapshot = struct {
     presets: []const UserPreset = &.{},
 };
 
-/// Resolves the presets file path via `$HOME` ($USERPROFILE on Windows,
-/// which has no $HOME). Null if unset — presets then just don't persist
-/// across runs rather than blocking startup.
-fn configPath(buf: []u8) ?[]const u8 {
-    const home = std.c.getenv("HOME") orelse std.c.getenv("USERPROFILE") orelse return null;
-    return std.fmt.bufPrint(buf, "{s}/.config/wstudio/synth_presets.json", .{home}) catch null;
-}
-
-/// Best-effort rescue for a file that exists but didn't parse: rename it
-/// aside instead of leaving `load` to report an empty set, which would let
-/// the very next `:synth-preset-save` overwrite it with that empty set and
-/// wipe every preset it held. Failure here is silent — the quarantine is a
-/// courtesy, not a guarantee.
-fn quarantine(io: std.Io, path: []const u8) void {
-    var buf: [520]u8 = undefined;
-    const dest = std.fmt.bufPrint(&buf, "{s}.corrupt", .{path}) catch return;
-    std.Io.Dir.cwd().rename(path, std.Io.Dir.cwd(), dest, io) catch {};
-}
+const filename = "synth_presets.json";
 
 /// Load every saved preset. Empty (not an error) if the file doesn't exist
 /// yet or `$HOME` is unset — a missing presets file should never block
 /// startup, same spirit as a missing sample sidecar. A file that exists but
-/// fails to parse is quarantined (see `quarantine`) rather than silently
-/// treated as empty, so a later save can't clobber it.
+/// fails to parse is quarantined rather than silently treated as empty, so
+/// a later save can't clobber it.
 pub fn load(allocator: std.mem.Allocator, io: std.Io) std.ArrayListUnmanaged(UserPreset) {
-    var path_buf: [512]u8 = undefined;
-    const path = configPath(&path_buf) orelse return .empty;
-    const data = std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .limited(4 * 1024 * 1024)) catch return .empty;
-    defer allocator.free(data);
-    var parsed = std.json.parseFromSlice(FileSnapshot, allocator, data, .{ .ignore_unknown_fields = true }) catch {
-        quarantine(io, path);
-        return .empty;
-    };
+    var parsed = json_store.load(FileSnapshot, allocator, io, filename, 4 * 1024 * 1024) orelse return .empty;
     defer parsed.deinit();
 
     var list: std.ArrayListUnmanaged(UserPreset) = .empty;
@@ -68,28 +45,7 @@ pub fn load(allocator: std.mem.Allocator, io: std.Io) std.ArrayListUnmanaged(Use
 /// Write every preset in `list` to disk, creating `~/.config/wstudio/`
 /// first if needed.
 fn save(allocator: std.mem.Allocator, io: std.Io, list: []const UserPreset) !void {
-    var path_buf: [512]u8 = undefined;
-    const path = configPath(&path_buf) orelse return error.NoHome;
-
-    var arena = std.heap.ArenaAllocator.init(allocator);
-    defer arena.deinit();
-    const aa = arena.allocator();
-
-    try std.Io.Dir.cwd().createDirPath(io, std.fs.path.dirname(path).?);
-
-    const snap: FileSnapshot = .{ .presets = list };
-    const json_bytes = try std.json.Stringify.valueAlloc(aa, snap, .{ .whitespace = .indent_2 });
-
-    const tmp_path = try std.fmt.allocPrint(aa, "{s}.tmp", .{path});
-    {
-        const file = try std.Io.Dir.cwd().createFile(io, tmp_path, .{});
-        defer file.close(io);
-        var buf: [8192]u8 = undefined;
-        var fw = file.writer(io, &buf);
-        try fw.interface.writeAll(json_bytes);
-        try fw.interface.flush();
-    }
-    try std.Io.Dir.cwd().rename(tmp_path, std.Io.Dir.cwd(), path, io);
+    try json_store.save(allocator, io, filename, FileSnapshot{ .presets = list });
 }
 
 /// Insert or update (by case-insensitive name) `name`'s patch in `list`,

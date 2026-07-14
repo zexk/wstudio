@@ -5,28 +5,14 @@
 //! `cmd_history_cap`=50 cap.
 
 const std = @import("std");
+const json_store = @import("json_store.zig");
 
 const FileSnapshot = struct {
     version: u32 = 1,
     commands: []const []const u8 = &.{},
 };
 
-/// Resolves the history file path via `$HOME` ($USERPROFILE on Windows,
-/// which has no $HOME). Null if unset — history then just doesn't persist
-/// across runs rather than blocking startup.
-fn configPath(buf: []u8) ?[]const u8 {
-    const home = std.c.getenv("HOME") orelse std.c.getenv("USERPROFILE") orelse return null;
-    return std.fmt.bufPrint(buf, "{s}/.config/wstudio/cmd_history.json", .{home}) catch null;
-}
-
-/// Best-effort rescue for a file that exists but didn't parse: rename it
-/// aside instead of leaving `load` to report an empty list, which would let
-/// the very next save overwrite it with that empty list and wipe history.
-fn quarantine(io: std.Io, path: []const u8) void {
-    var buf: [520]u8 = undefined;
-    const dest = std.fmt.bufPrint(&buf, "{s}.corrupt", .{path}) catch return;
-    std.Io.Dir.cwd().rename(path, std.Io.Dir.cwd(), dest, io) catch {};
-}
+const filename = "cmd_history.json";
 
 /// Load saved history, oldest first. Empty (not an error) if the file
 /// doesn't exist yet or `$HOME` is unset — a missing history file should
@@ -34,14 +20,7 @@ fn quarantine(io: std.Io, path: []const u8) void {
 /// that exists but fails to parse is quarantined rather than silently
 /// treated as empty, so a later save can't clobber it.
 pub fn load(allocator: std.mem.Allocator, io: std.Io) std.ArrayListUnmanaged([]const u8) {
-    var path_buf: [512]u8 = undefined;
-    const path = configPath(&path_buf) orelse return .empty;
-    const data = std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .limited(1 * 1024 * 1024)) catch return .empty;
-    defer allocator.free(data);
-    var parsed = std.json.parseFromSlice(FileSnapshot, allocator, data, .{ .ignore_unknown_fields = true }) catch {
-        quarantine(io, path);
-        return .empty;
-    };
+    var parsed = json_store.load(FileSnapshot, allocator, io, filename, 1 * 1024 * 1024) orelse return .empty;
     defer parsed.deinit();
 
     var list: std.ArrayListUnmanaged([]const u8) = .empty;
@@ -60,28 +39,7 @@ pub fn load(allocator: std.mem.Allocator, io: std.Io) std.ArrayListUnmanaged([]c
 /// `$HOME`, disk full) never blocks command entry, it just means history
 /// doesn't outlive this run.
 pub fn save(allocator: std.mem.Allocator, io: std.Io, list: []const []const u8) !void {
-    var path_buf: [512]u8 = undefined;
-    const path = configPath(&path_buf) orelse return error.NoHome;
-
-    var arena = std.heap.ArenaAllocator.init(allocator);
-    defer arena.deinit();
-    const aa = arena.allocator();
-
-    try std.Io.Dir.cwd().createDirPath(io, std.fs.path.dirname(path).?);
-
-    const snap: FileSnapshot = .{ .commands = list };
-    const json_bytes = try std.json.Stringify.valueAlloc(aa, snap, .{ .whitespace = .indent_2 });
-
-    const tmp_path = try std.fmt.allocPrint(aa, "{s}.tmp", .{path});
-    {
-        const file = try std.Io.Dir.cwd().createFile(io, tmp_path, .{});
-        defer file.close(io);
-        var buf: [8192]u8 = undefined;
-        var fw = file.writer(io, &buf);
-        try fw.interface.writeAll(json_bytes);
-        try fw.interface.flush();
-    }
-    try std.Io.Dir.cwd().rename(tmp_path, std.Io.Dir.cwd(), path, io);
+    try json_store.save(allocator, io, filename, FileSnapshot{ .commands = list });
 }
 
 pub fn deinit(allocator: std.mem.Allocator, list: *std.ArrayListUnmanaged([]const u8)) void {
@@ -136,7 +94,7 @@ test "a corrupt history file is quarantined instead of silently emptied" {
     _ = setenv("HOME", home.ptr, 1);
 
     var path_buf: [512]u8 = undefined;
-    const path = configPath(&path_buf).?;
+    const path = json_store.configPath(&path_buf, filename).?;
     try std.Io.Dir.cwd().createDirPath(testing.io, std.fs.path.dirname(path).?);
     {
         const file = try std.Io.Dir.cwd().createFile(testing.io, path, .{});

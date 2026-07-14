@@ -10,6 +10,7 @@
 
 const std = @import("std");
 const ws = @import("wstudio");
+const json_store = @import("json_store.zig");
 const PadTune = ws.dsp.DrumMachine.PadTune;
 
 pub const UserKit = struct {
@@ -22,18 +23,7 @@ const FileSnapshot = struct {
     kits: []const UserKit = &.{},
 };
 
-fn configPath(buf: []u8) ?[]const u8 {
-    const home = std.c.getenv("HOME") orelse std.c.getenv("USERPROFILE") orelse return null;
-    return std.fmt.bufPrint(buf, "{s}/.config/wstudio/drum_kits.json", .{home}) catch null;
-}
-
-/// Same rescue as `user_presets.quarantine`: don't let a failed parse look
-/// like an empty file, or the next save would overwrite it with nothing.
-fn quarantine(io: std.Io, path: []const u8) void {
-    var buf: [520]u8 = undefined;
-    const dest = std.fmt.bufPrint(&buf, "{s}.corrupt", .{path}) catch return;
-    std.Io.Dir.cwd().rename(path, std.Io.Dir.cwd(), dest, io) catch {};
-}
+const filename = "drum_kits.json";
 
 fn dupePads(allocator: std.mem.Allocator, pads: [8]PadTune) ![8]PadTune {
     var out: [8]PadTune = pads;
@@ -51,14 +41,7 @@ fn freePads(allocator: std.mem.Allocator, pads: [8]PadTune) void {
 }
 
 pub fn load(allocator: std.mem.Allocator, io: std.Io) std.ArrayListUnmanaged(UserKit) {
-    var path_buf: [512]u8 = undefined;
-    const path = configPath(&path_buf) orelse return .empty;
-    const data = std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .limited(4 * 1024 * 1024)) catch return .empty;
-    defer allocator.free(data);
-    var parsed = std.json.parseFromSlice(FileSnapshot, allocator, data, .{ .ignore_unknown_fields = true }) catch {
-        quarantine(io, path);
-        return .empty;
-    };
+    var parsed = json_store.load(FileSnapshot, allocator, io, filename, 4 * 1024 * 1024) orelse return .empty;
     defer parsed.deinit();
 
     var list: std.ArrayListUnmanaged(UserKit) = .empty;
@@ -78,28 +61,7 @@ pub fn load(allocator: std.mem.Allocator, io: std.Io) std.ArrayListUnmanaged(Use
 }
 
 fn save(allocator: std.mem.Allocator, io: std.Io, list: []const UserKit) !void {
-    var path_buf: [512]u8 = undefined;
-    const path = configPath(&path_buf) orelse return error.NoHome;
-
-    var arena = std.heap.ArenaAllocator.init(allocator);
-    defer arena.deinit();
-    const aa = arena.allocator();
-
-    try std.Io.Dir.cwd().createDirPath(io, std.fs.path.dirname(path).?);
-
-    const snap: FileSnapshot = .{ .kits = list };
-    const json_bytes = try std.json.Stringify.valueAlloc(aa, snap, .{ .whitespace = .indent_2 });
-
-    const tmp_path = try std.fmt.allocPrint(aa, "{s}.tmp", .{path});
-    {
-        const file = try std.Io.Dir.cwd().createFile(io, tmp_path, .{});
-        defer file.close(io);
-        var buf: [8192]u8 = undefined;
-        var fw = file.writer(io, &buf);
-        try fw.interface.writeAll(json_bytes);
-        try fw.interface.flush();
-    }
-    try std.Io.Dir.cwd().rename(tmp_path, std.Io.Dir.cwd(), path, io);
+    try json_store.save(allocator, io, filename, FileSnapshot{ .kits = list });
 }
 
 /// Insert or update (by case-insensitive name) `name`'s tuning in `list`,
