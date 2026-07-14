@@ -1143,17 +1143,7 @@ pub const PolySynth = struct {
         }
     }
 
-    pub fn device(self: *PolySynth) dsp.Device {
-        return .{ .ptr = self, .vtable = &vtable };
-    }
-
-    const vtable: dsp.Device.VTable = .{
-        .process = processOpaque,
-        // zig fmt: off
-        .event   = eventOpaque,
-        .reset   = resetOpaque,
-        // zig fmt: on
-    };
+    pub const device = dsp.deviceOf(@This());
 
     pub fn noteToFreq(note: u7) f32 {
         return midi.noteToFreq(note);
@@ -3665,13 +3655,7 @@ pub const PolySynth = struct {
         return 20.0 * std.math.pow(f32, 900.0, @as(f32, @floatFromInt(value)) / 127.0);
     }
 
-    fn processOpaque(ptr: *anyopaque, buf: []Sample) void {
-        const self: *PolySynth = @ptrCast(@alignCast(ptr));
-        self.processBlock(buf);
-    }
-
-    fn eventOpaque(ptr: *anyopaque, ev: dsp.Event) void {
-        const self: *PolySynth = @ptrCast(@alignCast(ptr));
+    pub fn handleEvent(self: *PolySynth, ev: dsp.Event) void {
         switch (ev) {
             // zig fmt: off
             .note_on    => |e| self.noteOn(e.note, e.velocity),
@@ -3692,8 +3676,8 @@ pub const PolySynth = struct {
         }
     }
 
-    fn resetOpaque(ptr: *anyopaque) void {
-        const self: *PolySynth = @ptrCast(@alignCast(ptr));
+    /// `deviceOf`'s expected name; forwards to `resetAll`.
+    pub fn reset(self: *PolySynth) void {
         self.resetAll();
     }
 };
