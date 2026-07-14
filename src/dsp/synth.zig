@@ -7,6 +7,7 @@ const dsp = @import("device.zig");
 const midi = @import("../midi.zig");
 const Saturator = @import("saturator.zig").Saturator;
 const Crusher = @import("crusher.zig").Crusher;
+const Phaser = @import("phaser.zig").Phaser;
 
 const Sample = types.Sample;
 
@@ -283,11 +284,12 @@ pub const PolySynth = struct {
 
     // ── FX ──────────────────────────────────────────────────────────────────
     // Synth-internal insert FX, applied post-mix in fixed order dist →
-    // crush → flanger. Base params live here (not on the state structs) so
-    // applyPatch/toPatch pick them up by field name; each block writes the
-    // effective values (base + matrix modulation) into the state structs.
-    // Delay/reverb-class FX stay on the track chain — this section exists
-    // for the params the matrix can reach, which the track chain can't be.
+    // crush → flanger → phaser. Base params live here (not on the state
+    // structs) so applyPatch/toPatch pick them up by field name; each block
+    // writes the effective values (base + matrix modulation) into the state
+    // structs. Delay/reverb-class FX stay on the track chain — this section
+    // exists for the params the matrix can reach, which the track chain
+    // can't be.
     // zig fmt: off
     fx_dist_on:          bool = false,
     fx_dist_drive_db:    f32  = 12.0,
@@ -301,9 +303,18 @@ pub const PolySynth = struct {
     fx_flanger_depth:    f32  = 0.7,
     fx_flanger_feedback: f32  = 0.5,
     fx_flanger_mix:      f32  = 0.5,
+    /// Reuses the track-chain's own Phaser unit (dsp/phaser.zig) — same
+    /// allpass math, just matrix-automatable and embedded by value here
+    /// instead of heap-allocated in the FX chain.
+    fx_phaser_on:        bool = false,
+    fx_phaser_rate_hz:   f32  = 0.4,
+    fx_phaser_depth:     f32  = 0.9,
+    fx_phaser_feedback:  f32  = 0.5,
+    fx_phaser_mix:       f32  = 0.5,
     // zig fmt: on
     fx_crush_state: Crusher = .{},
     fx_flanger_state: Flanger = .{},
+    fx_phaser_state: Phaser = .{},
     /// Index of the most recently triggered voice: the FX destinations are
     /// global (post-mix), so their one matrix evaluation per block reads
     /// the per-voice sources (envs, velocity, keytrack) from this voice.
@@ -344,7 +355,7 @@ pub const PolySynth = struct {
         1, 2, 3, 4, 5, 8, 9, 10, 11, 12, 13, 15, 16, 17, 18, 19,
         21, 22, 24, 25, 26, 27, 33, 34, 36, 37, 38, 42, 44, 47, 48,
         52, 53, 54, 55, 56, 57,
-        84, 85, 87, 88, 89, 91, 92, 93, 94,
+        84, 85, 87, 88, 89, 91, 92, 93, 94, 104, 105, 106, 107,
         dest_pitch, dest_amp,
         // zig fmt: on
     };
@@ -463,7 +474,10 @@ pub const PolySynth = struct {
     };
 
     pub fn init(sample_rate: u32) PolySynth {
-        return .{ .sample_rate = @floatFromInt(sample_rate) };
+        return .{
+            .sample_rate = @floatFromInt(sample_rate),
+            .fx_phaser_state = Phaser.init(sample_rate),
+        };
     }
 
     pub fn device(self: *PolySynth) dsp.Device {
@@ -588,6 +602,11 @@ pub const PolySynth = struct {
         fx_flanger_depth: f32 = 0.7,
         fx_flanger_feedback: f32 = 0.5,
         fx_flanger_mix: f32 = 0.5,
+        fx_phaser_on: bool = false,
+        fx_phaser_rate_hz: f32 = 0.4,
+        fx_phaser_depth: f32 = 0.9,
+        fx_phaser_feedback: f32 = 0.5,
+        fx_phaser_mix: f32 = 0.5,
     };
 
     /// Load a patch onto this synth. Field-by-field so per-instance state
@@ -1238,11 +1257,12 @@ pub const PolySynth = struct {
             }
         }
 
-        // ── Internal FX (post-mix, fixed order dist → crush → flanger) ──
-        // One global matrix evaluation per block: FX params are shared by
-        // all voices, so the per-voice sources read from the most recently
-        // triggered voice (env/velocity → drive style routes still play).
-        if (self.fx_dist_on or self.fx_crush_on or self.fx_flanger_on) {
+        // ── Internal FX (post-mix, fixed order dist → crush → flanger →
+        // phaser) ── One global matrix evaluation per block: FX params are
+        // shared by all voices, so the per-voice sources read from the most
+        // recently triggered voice (env/velocity → drive style routes still
+        // play).
+        if (self.fx_dist_on or self.fx_crush_on or self.fx_flanger_on or self.fx_phaser_on) {
             const nv = &self.voices[self.newest_voice];
             const mods = self.evalMatrix(if (nv.active) nv else null, lfo_vals);
             if (self.fx_dist_on) {
@@ -1271,6 +1291,15 @@ pub const PolySynth = struct {
                     eff(&mods, 93, self.fx_flanger_feedback),
                     eff(&mods, 94, self.fx_flanger_mix),
                 );
+            }
+            if (self.fx_phaser_on) {
+                // zig fmt: off
+                self.fx_phaser_state.rate_hz  = eff(&mods, 104, self.fx_phaser_rate_hz);
+                self.fx_phaser_state.depth    = eff(&mods, 105, self.fx_phaser_depth);
+                self.fx_phaser_state.feedback = eff(&mods, 106, self.fx_phaser_feedback);
+                self.fx_phaser_state.mix      = eff(&mods, 107, self.fx_phaser_mix);
+                // zig fmt: on
+                self.fx_phaser_state.processBlock(buf);
             }
         }
 
@@ -1500,6 +1529,10 @@ pub const PolySynth = struct {
         self.held_count = 0;
         self.fx_crush_state = .{};
         self.fx_flanger_state = .{};
+        // Reset(), not `= .{}` — a bare default would also clobber the
+        // sample_rate PolySynth.init set (Phaser has no other synth-instance
+        // state to lose).
+        self.fx_phaser_state.reset();
     }
 
     /// Apply a raw MIDI CC. Safe to call on the audio thread (field writes only).
@@ -1707,6 +1740,12 @@ pub const PolySynth = struct {
             100 => self.macro2              = std.math.clamp(self.macro2               + s * 0.01,   0.0,    1.0),
             101 => self.macro3              = std.math.clamp(self.macro3               + s * 0.01,   0.0,    1.0),
             102 => self.macro4              = std.math.clamp(self.macro4               + s * 0.01,   0.0,    1.0),
+            // FX PHASER (103–107)
+            103 => self.fx_phaser_on        = !self.fx_phaser_on,
+            104 => self.fx_phaser_rate_hz   = std.math.clamp(self.fx_phaser_rate_hz    + s * 0.05,   0.02,   8.0),
+            105 => self.fx_phaser_depth     = std.math.clamp(self.fx_phaser_depth      + s * 0.01,   0.0,    1.0),
+            106 => self.fx_phaser_feedback  = std.math.clamp(self.fx_phaser_feedback   + s * 0.01,   0.0,    0.95),
+            107 => self.fx_phaser_mix       = std.math.clamp(self.fx_phaser_mix        + s * 0.01,   0.0,    1.0),
             // zig fmt: on
             // MATRIX (59–82): 3 ids per row — source, dest, depth.
             59...82 => {
@@ -1824,6 +1863,11 @@ pub const PolySynth = struct {
             100 => self.macro2             = std.math.clamp(value,   0.0,    1.0),
             101 => self.macro3             = std.math.clamp(value,   0.0,    1.0),
             102 => self.macro4             = std.math.clamp(value,   0.0,    1.0),
+            103 => self.fx_phaser_on       = value >= 0.5,
+            104 => self.fx_phaser_rate_hz  = std.math.clamp(value,   0.02,   8.0),
+            105 => self.fx_phaser_depth    = std.math.clamp(value,   0.0,    1.0),
+            106 => self.fx_phaser_feedback = std.math.clamp(value,   0.0,    0.95),
+            107 => self.fx_phaser_mix      = std.math.clamp(value,   0.0,    1.0),
             // zig fmt: on
             // MATRIX: dest takes the raw param id (falls back to cutoff if
             // the value isn't a legal dest — e.g. a hand-edited curve).
@@ -1932,6 +1976,11 @@ pub const PolySynth = struct {
             100 => self.macro2,
             101 => self.macro3,
             102 => self.macro4,
+            103 => if (self.fx_phaser_on) 1.0 else 0.0,
+            104 => self.fx_phaser_rate_hz,
+            105 => self.fx_phaser_depth,
+            106 => self.fx_phaser_feedback,
+            107 => self.fx_phaser_mix,
             // zig fmt: on
             59...82 => blk: {
                 const row = self.mod_matrix[(id - 59) / 3];
@@ -2015,6 +2064,10 @@ pub const PolySynth = struct {
         .{ .id = 92, .label = "FLNG DEPTH", .section = "FX FLNG", .range = .{ 0.0,    1.0 },     .step = 0.01 },
         .{ .id = 93, .label = "FLNG FDBK",  .section = "FX FLNG", .range = .{ 0.0,    0.95 },    .step = 0.01 },
         .{ .id = 94, .label = "FLNG MIX",   .section = "FX FLNG", .range = .{ 0.0,    1.0 },     .step = 0.01 },
+        .{ .id = 104,.label = "PHSR RATE",  .section = "FX PHSR", .range = .{ 0.02,   8.0 },     .step = 0.05 },
+        .{ .id = 105,.label = "PHSR DEPTH", .section = "FX PHSR", .range = .{ 0.0,    1.0 },     .step = 0.01 },
+        .{ .id = 106,.label = "PHSR FDBK",  .section = "FX PHSR", .range = .{ 0.0,    0.95 },    .step = 0.01 },
+        .{ .id = 107,.label = "PHSR MIX",   .section = "FX PHSR", .range = .{ 0.0,    1.0 },     .step = 0.01 },
         .{ .id = 96, .label = "LFO2 RATE",  .section = "LFO 2",   .range = .{ 0.01,   20.0 },    .step = 0.1 },
         .{ .id = 98, .label = "LFO3 RATE",  .section = "LFO 3",   .range = .{ 0.01,   20.0 },    .step = 0.1 },
         // Macros: an automation lane on one macro rides every destination
@@ -2838,4 +2891,71 @@ test "internal FX: flanger stays finite at max feedback and depth" {
         synth.processBlock(&buf);
         for (buf) |s| try std.testing.expect(std.math.isFinite(s));
     }
+}
+
+test "FX phaser param ids round-trip through paramValue/setParamAbsolute" {
+    var a = PolySynth.init(48_000);
+    a.fx_phaser_on = true;
+    a.fx_phaser_rate_hz = 2.5;
+    a.fx_phaser_depth = 0.6;
+    a.fx_phaser_feedback = 0.7;
+    a.fx_phaser_mix = 0.4;
+
+    var b = PolySynth.init(48_000);
+    var id: u8 = 103;
+    while (id <= 107) : (id += 1) {
+        if (a.paramValue(id)) |v| b.setParamAbsolute(id, v);
+    }
+    try std.testing.expect(b.fx_phaser_on);
+    try std.testing.expectApproxEqAbs(@as(f32, 2.5), b.fx_phaser_rate_hz, 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.6), b.fx_phaser_depth, 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.7), b.fx_phaser_feedback, 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.4), b.fx_phaser_mix, 1e-6);
+}
+
+test "internal FX: phaser at mix 0 passes the synth output untouched" {
+    var a = PolySynth.init(48_000);
+    var b = PolySynth.init(48_000);
+    b.fx_phaser_on = true;
+    b.fx_phaser_mix = 0.0;
+    b.fx_phaser_feedback = 0.0;
+    a.noteOn(60, 1.0);
+    b.noteOn(60, 1.0);
+
+    var buf_a: [512]Sample = undefined;
+    var buf_b: [512]Sample = undefined;
+    for (0..8) |_| {
+        @memset(&buf_a, 0.0);
+        @memset(&buf_b, 0.0);
+        a.processBlock(&buf_a);
+        b.processBlock(&buf_b);
+        for (buf_a, buf_b) |sa, sb| try std.testing.expectApproxEqAbs(sa, sb, 1e-6);
+    }
+}
+
+test "internal FX: phaser stays finite at max feedback and depth" {
+    var synth = PolySynth.init(48_000);
+    synth.fx_phaser_on = true;
+    synth.fx_phaser_depth = 1.0;
+    synth.fx_phaser_feedback = 0.95;
+    synth.fx_phaser_mix = 1.0;
+    synth.fx_phaser_rate_hz = 8.0;
+    synth.noteOn(48, 1.0);
+
+    var buf: [512]Sample = undefined;
+    for (0..64) |_| {
+        @memset(&buf, 0.0);
+        synth.processBlock(&buf);
+        for (buf) |s| try std.testing.expect(std.math.isFinite(s));
+    }
+}
+
+test "internal FX: phaser reset preserves the synth's sample rate" {
+    var synth = PolySynth.init(44_100);
+    synth.fx_phaser_on = true;
+    synth.noteOn(60, 1.0);
+    var buf: [128]Sample = undefined;
+    synth.processBlock(&buf);
+    synth.resetAll();
+    try std.testing.expectApproxEqAbs(@as(f32, 44_100.0), synth.fx_phaser_state.sample_rate, 1e-6);
 }

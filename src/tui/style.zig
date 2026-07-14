@@ -34,7 +34,8 @@ pub const spectrum_band_count: usize = 80;
 /// LFO 2   : 95:lfo2_shape 96:lfo2_rate_hz
 /// LFO 3   : 97:lfo3_shape 98:lfo3_rate_hz
 /// MACRO   : 99:macro1 100:macro2 101:macro3 102:macro4
-pub const synth_param_count: u8 = 103;
+/// FX PHSR : 103:fx_phaser_on 104:fx_phaser_rate_hz 105:fx_phaser_depth 106:fx_phaser_feedback 107:fx_phaser_mix
+pub const synth_param_count: u8 = 108;
 
 // ---------------------------------------------------------------------------
 // Palette — all colour codes go here; never raw \x1b sequences elsewhere

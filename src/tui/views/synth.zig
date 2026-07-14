@@ -182,6 +182,7 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize
         try secLfo2(&tw, synth, c);
         try secLfo3(&tw, synth, c);
         try secMacro(&tw, synth, c);
+        try secFxPhaser(&tw, synth, c);
 
         var line_it = std.mem.splitSequence(u8, tw.buffered(), "\r\n");
         var row: usize = 1;
@@ -228,6 +229,7 @@ fn drawSynthBottom(w: *std.Io.Writer, synth: anytype, c: u8) !void {
     try secLfo2(w, synth, c);
     try secLfo3(w, synth, c);
     try secMacro(w, synth, c);
+    try secFxPhaser(w, synth, c);
 }
 
 const wf_names = [_][]const u8{ "sine", "saw", "tri", "sqr" };
@@ -648,6 +650,22 @@ fn secFxFlanger(w: *std.Io.Writer, synth: anytype, c: u8) !void {
         try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.fx_flanger_mix}));
 }
 
+fn secFxPhaser(w: *std.Io.Writer, synth: anytype, c: u8) !void {
+    var buf: [40]u8 = undefined;
+    try synthSection(w, "FX PHSR", red);
+
+    const on = synth.fx_phaser_on;
+    try enumRow(w, c == 103, false, red, "on/off", &on_off_names, if (on) 0 else 1);
+    try barRow(w, c == 104, !on, red, "rate", synth.fx_phaser_rate_hz, 8.0,
+        try std.fmt.bufPrint(&buf, "{d:.2} Hz", .{synth.fx_phaser_rate_hz}));
+    try barRow(w, c == 105, !on, red, "depth", synth.fx_phaser_depth, 1.0,
+        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.fx_phaser_depth}));
+    try barRow(w, c == 106, !on, red, "feedback", synth.fx_phaser_feedback, 0.95,
+        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.fx_phaser_feedback}));
+    try barRow(w, c == 107, !on, red, "mix", synth.fx_phaser_mix, 1.0,
+        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.fx_phaser_mix}));
+}
+
 pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !void {
     if (app.synth_track >= app.session.racks.items.len) return;
     const rack = app.session.racks.items[app.synth_track];
@@ -682,6 +700,7 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !
         "flng.on", "flng.rate", "flng.depth", "flng.fdbk", "flng.mix",
         "lfo2.shape", "lfo2.rate", "lfo3.shape", "lfo3.rate",
         "macro 1", "macro 2", "macro 3", "macro 4",
+        "phsr.on", "phsr.rate", "phsr.depth", "phsr.fdbk", "phsr.mix",
     };
     const cur = @min(@as(usize, app.synth_cursor), labels.len - 1);
     try style.writeModeBadge(w, app.modal.mode);
@@ -807,6 +826,11 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !
         100 => try w.print("{d:.2}",      .{synth.macro2}),
         101 => try w.print("{d:.2}",      .{synth.macro3}),
         102 => try w.print("{d:.2}",      .{synth.macro4}),
+        103 => try w.writeAll(if (synth.fx_phaser_on) "on" else "off"),
+        104 => try w.print("{d:.2} Hz",    .{synth.fx_phaser_rate_hz}),
+        105 => try w.print("{d:.2}",       .{synth.fx_phaser_depth}),
+        106 => try w.print("{d:.2}",       .{synth.fx_phaser_feedback}),
+        107 => try w.print("{d:.2}",       .{synth.fx_phaser_mix}),
         // zig fmt: on
         else => {},
     }

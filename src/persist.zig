@@ -182,6 +182,11 @@ pub const SynthSnap = struct {
     fx_flanger_depth: f32 = 0.7,
     fx_flanger_feedback: f32 = 0.5,
     fx_flanger_mix: f32 = 0.5,
+    fx_phaser_on: bool = false,
+    fx_phaser_rate_hz: f32 = 0.4,
+    fx_phaser_depth: f32 = 0.9,
+    fx_phaser_feedback: f32 = 0.5,
+    fx_phaser_mix: f32 = 0.5,
     // Pattern player
     notes: []const NoteSnap = &.{},
     length_beats: f64 = 4.0,
@@ -1205,6 +1210,11 @@ fn synthToSnap(s: *const PolySynth) SynthSnap {
         .fx_flanger_depth = s.fx_flanger_depth,
         .fx_flanger_feedback = s.fx_flanger_feedback,
         .fx_flanger_mix = s.fx_flanger_mix,
+        .fx_phaser_on = s.fx_phaser_on,
+        .fx_phaser_rate_hz = s.fx_phaser_rate_hz,
+        .fx_phaser_depth = s.fx_phaser_depth,
+        .fx_phaser_feedback = s.fx_phaser_feedback,
+        .fx_phaser_mix = s.fx_phaser_mix,
     };
 }
 
@@ -1875,6 +1885,11 @@ fn applyToSynth(s: *PolySynth, ss: *const SynthSnap) void {
     s.fx_flanger_depth = clamp(ss.fx_flanger_depth, 0.0, 1.0);
     s.fx_flanger_feedback = clamp(ss.fx_flanger_feedback, 0.0, 0.95);
     s.fx_flanger_mix = clamp(ss.fx_flanger_mix, 0.0, 1.0);
+    s.fx_phaser_on = ss.fx_phaser_on;
+    s.fx_phaser_rate_hz = clamp(ss.fx_phaser_rate_hz, 0.02, 8.0);
+    s.fx_phaser_depth = clamp(ss.fx_phaser_depth, 0.0, 1.0);
+    s.fx_phaser_feedback = clamp(ss.fx_phaser_feedback, 0.0, 0.95);
+    s.fx_phaser_mix = clamp(ss.fx_phaser_mix, 0.0, 1.0);
 }
 
 // zig fmt: off

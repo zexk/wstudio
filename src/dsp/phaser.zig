@@ -15,7 +15,9 @@ const sweep_lo_hz: f32 = 100.0;
 const sweep_octaves: f32 = 4.5;
 
 pub const Phaser = struct {
-    sample_rate: f32,
+    /// Only meaningful for a bare `.{}` (PolySynth's internal-FX slot embeds
+    /// one by value); every other caller sets the real rate via `init`.
+    sample_rate: f32 = 48_000.0,
     rate_hz: f32 = 0.4,
     /// 0 = parked at the sweep floor, 1 = full ~4.5-octave sweep.
     depth: f32 = 0.9,
@@ -78,12 +80,18 @@ pub const Phaser = struct {
         self.processBlock(buf);
     }
 
-    fn resetOpaque(ptr: *anyopaque) void {
-        const self: *Phaser = @ptrCast(@alignCast(ptr));
+    /// Clears the allpass/feedback history and phase, leaving sample_rate
+    /// and the user-facing params (rate/depth/feedback/mix) untouched.
+    pub fn reset(self: *Phaser) void {
         self.x1 = .{ .{ 0.0, 0.0, 0.0, 0.0 }, .{ 0.0, 0.0, 0.0, 0.0 } };
         self.y1 = .{ .{ 0.0, 0.0, 0.0, 0.0 }, .{ 0.0, 0.0, 0.0, 0.0 } };
         self.fb = .{ 0.0, 0.0 };
         self.phase = 0.0;
+    }
+
+    fn resetOpaque(ptr: *anyopaque) void {
+        const self: *Phaser = @ptrCast(@alignCast(ptr));
+        self.reset();
     }
 };
 
