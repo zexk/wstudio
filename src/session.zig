@@ -386,7 +386,7 @@ pub const Session = struct {
         self.engine.swapTracks(@intCast(a), @intCast(b));
         // Same rule as deleteTrack: sidechain sources name tracks, so they
         // follow the swap.
-        self.remapSidechainSources(.{ .swap = .{ @intCast(a), @intCast(b) } });
+        self.remapSidechainSources(.{ .swap = .{ .a = @intCast(a), .b = @intCast(b) } });
     }
 
     /// Capture `track_idx`'s current live pattern as a clip at `start_bar`.
@@ -550,15 +550,27 @@ pub const Session = struct {
         }
     }
 
-    /// How track indices moved, for `remapSidechainSources`.
-    const SidechainRemap = union(enum) {
-        /// This track index was removed; everything after it shifted down.
+    /// How a structural track change (delete/swap/insert) reshapes a track
+    /// index. Shared by `remapSidechainSources` below and, via
+    /// `tui/undo.zig`'s re-export, `History.retarget` for undo entries — one
+    /// definition of "what happens to a track index" instead of two unions
+    /// with the same three cases drifting apart.
+    pub const TrackRemap = union(enum) {
         delete: u16,
-        /// These two track indices traded places.
-        swap: [2]u16,
+        swap: struct { a: u16, b: u16 },
         /// A new track was inserted at this index; everything from here on
         /// shifted up by one.
         insert: u16,
+
+        /// The track's new index, or null if it no longer exists (delete
+        /// only — neither a swap nor an insert ever removes a track).
+        pub fn apply(self: TrackRemap, track: u16) ?u16 {
+            return switch (self) {
+                .delete => |del| if (track == del) null else if (track > del) track - 1 else track,
+                .swap => |s| if (track == s.a) s.b else if (track == s.b) s.a else track,
+                .insert => |at| if (track >= at) track + 1 else track,
+            };
+        }
     };
 
     /// Rewrite every compressor's `sidechain_source` (track racks, group
@@ -569,27 +581,15 @@ pub const Session = struct {
     /// track, so it must follow that track (or clear when it's deleted),
     /// same reason `TrackState.group` values are per-track state the
     /// engine shifts in applyDeleteTrack.
-    fn remapSidechainSources(self: *Session, op: SidechainRemap) void {
+    fn remapSidechainSources(self: *Session, op: TrackRemap) void {
         const remapFx = struct {
-            fn go(fx: *rack_mod.Fx, op_: SidechainRemap) void {
+            fn go(fx: *rack_mod.Fx, op_: TrackRemap) void {
                 for (fx.units.items) |u| switch (u.payload) {
                     .comp => |*c| if (c.sidechain_source) |sc| {
-                        c.sidechain_source = switch (op_) {
-                            .delete => |d| if (sc.track == d)
-                                null
-                            else
-                                .{ .track = if (sc.track > d) sc.track - 1 else sc.track, .pad = sc.pad },
-                            .swap => |ab| if (sc.track == ab[0])
-                                .{ .track = ab[1], .pad = sc.pad }
-                            else if (sc.track == ab[1])
-                                .{ .track = ab[0], .pad = sc.pad }
-                            else
-                                sc,
-                            .insert => |at| if (sc.track >= at)
-                                .{ .track = sc.track + 1, .pad = sc.pad }
-                            else
-                                sc,
-                        };
+                        c.sidechain_source = if (op_.apply(sc.track)) |nt|
+                            .{ .track = nt, .pad = sc.pad }
+                        else
+                            null;
                     },
                     else => {},
                 };
