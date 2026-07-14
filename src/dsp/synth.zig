@@ -37,7 +37,7 @@ fn enumFromValue(comptime E: type, value: f32) E {
 }
 
 // zig fmt: off
-pub const Waveform   = enum { sine, saw, triangle, square };
+pub const Waveform   = enum { sine, saw, triangle, square, wavetable };
 /// lp/hp/bp/notch are 2-pole biquads. `ladder` is a Moog-style 4-pole
 /// lowpass (24 dB/oct, tanh-saturated feedback — self-oscillates near full
 /// resonance). `diode` is the same 4-stage cascade but with an asymmetric
@@ -916,6 +916,7 @@ pub const PolySynth = struct {
         168, 169, 170, 171, 172, 173, 174,
         177, 178, 179,
         182, 183,
+        185, 186,
         dest_pitch, dest_amp,
         // zig fmt: on
     };
@@ -1796,6 +1797,8 @@ pub const PolySynth = struct {
             const pw_c         = eff(&mods, 52, self.osc_c_pulse_width);
             const warp_amt_a   = eff(&mods, 42, self.warp_amount);
             const warp_amt_b   = eff(&mods, 44, self.osc_b_warp_amount);
+            const wt_pos_a     = eff(&mods, 185, self.wt_pos);
+            const wt_pos_b     = eff(&mods, 186, self.osc_b_wt_pos);
             const mod_amount_v = eff(&mods, 15, self.mod_amount);
             const b_level      = eff(&mods, 11, self.osc_b_level);
             const c_level      = eff(&mods, 55, self.osc_c_level);
@@ -1916,7 +1919,7 @@ pub const PolySynth = struct {
                 // FM B→A: render B first so b_mono is ready when A phases advance.
                 if (self.osc_b_on and self.mod_mode == .fm_b_to_a) {
                     for (0..n_b) |ui| {
-                        const samp = self.oscSampleB(v.phases_b[ui], pw_b, warp_amt_b);
+                        const samp = self.oscSampleB(v.phases_b[ui], pw_b, warp_amt_b, wt_pos_b);
                         b_l += samp * pan_l_b[ui];
                         b_r += samp * pan_r_b[ui];
                         b_mono += samp;
@@ -1928,7 +1931,7 @@ pub const PolySynth = struct {
 
                 // OSC A: phase is FM-modulated by b_mono when mod_mode == fm_b_to_a.
                 for (0..n_a) |ui| {
-                    const samp = self.oscSampleA(v.phases[ui], pw_a, warp_amt_a);
+                    const samp = self.oscSampleA(v.phases[ui], pw_a, warp_amt_a, wt_pos_a);
                     a_l += samp * pan_l_a[ui];
                     a_r += samp * pan_r_a[ui];
                     a_mono += samp;
@@ -1948,7 +1951,7 @@ pub const PolySynth = struct {
                 // OSC B: skip if already rendered above for fm_b_to_a.
                 if (self.osc_b_on and self.mod_mode != .fm_b_to_a) {
                     for (0..n_b) |ui| {
-                        const samp = self.oscSampleB(v.phases_b[ui], pw_b, warp_amt_b);
+                        const samp = self.oscSampleB(v.phases_b[ui], pw_b, warp_amt_b, wt_pos_b);
                         b_l += samp * pan_l_b[ui];
                         b_r += samp * pan_r_b[ui];
                         b_mono += samp;
@@ -1987,7 +1990,10 @@ pub const PolySynth = struct {
                 var c_r: f32 = 0.0;
                 if (self.osc_c_on) {
                     for (0..n_c) |ui| {
-                        const samp = oscWave(self.osc_c_waveform, v.phases_c[ui], pw_c);
+                        const samp = if (self.osc_c_waveform == .wavetable)
+                            wavetable.lookup(self.osc_c_wt, self.osc_c_wt_pos, v.phases_c[ui])
+                        else
+                            oscWave(self.osc_c_waveform, v.phases_c[ui], pw_c);
                         c_l += samp * pan_l_c[ui];
                         c_r += samp * pan_r_c[ui];
                         v.phases_c[ui] += phase_incs_c[ui];
@@ -2600,14 +2606,16 @@ pub const PolySynth = struct {
         // zig fmt: on
     }
 
-    /// `pw`/`warp_amount` are passed in (not read off `self`) so the caller
-    /// can substitute per-voice matrix-modulated values.
-    fn oscSampleA(self: *const PolySynth, phase: f32, pw: f32, warp_amount: f32) Sample {
-        return oscWave(self.waveform, warpPhase(self.warp_mode, phase, warp_amount), pw);
+    /// `pw`/`warp_amount`/`wt_pos` are passed in (not read off `self`) so the
+    /// caller can substitute per-voice matrix-modulated values.
+    fn oscSampleA(self: *const PolySynth, phase: f32, pw: f32, warp_amount: f32, wt_pos: f32) Sample {
+        const p = warpPhase(self.warp_mode, phase, warp_amount);
+        return if (self.waveform == .wavetable) wavetable.lookup(self.wt, wt_pos, p) else oscWave(self.waveform, p, pw);
     }
 
-    fn oscSampleB(self: *const PolySynth, phase: f32, pw: f32, warp_amount: f32) Sample {
-        return oscWave(self.osc_b_waveform, warpPhase(self.osc_b_warp_mode, phase, warp_amount), pw);
+    fn oscSampleB(self: *const PolySynth, phase: f32, pw: f32, warp_amount: f32, wt_pos: f32) Sample {
+        const p = warpPhase(self.osc_b_warp_mode, phase, warp_amount);
+        return if (self.osc_b_waveform == .wavetable) wavetable.lookup(self.osc_b_wt, wt_pos, p) else oscWave(self.osc_b_waveform, p, pw);
     }
 
     /// Remap a 0..1 read phase before waveform lookup. `amount` is 0..1 and
@@ -2651,6 +2659,9 @@ pub const PolySynth = struct {
             .saw      => 2.0 * phase - 1.0,
             .triangle => 1.0 - 4.0 * @abs(phase - 0.5),
             .square   => if (phase < pw) 1.0 else -1.0,
+            // Callers branch to `wavetable.lookup` before reaching here —
+            // this arm only exists to keep the switch exhaustive.
+            .wavetable => 0.0,
             // zig fmt: on
         };
     }
@@ -2778,9 +2789,9 @@ pub const PolySynth = struct {
         switch (id) {
             // zig fmt: off
             0  => self.waveform = if (steps > 0) switch (self.waveform) {
-                .sine => .saw, .saw => .triangle, .triangle => .square, .square => .sine,
+                .sine => .saw, .saw => .triangle, .triangle => .square, .square => .wavetable, .wavetable => .sine,
             } else switch (self.waveform) {
-                .sine => .square, .saw => .sine, .triangle => .saw, .square => .triangle,
+                .sine => .wavetable, .saw => .sine, .triangle => .saw, .square => .triangle, .wavetable => .square,
             },
             1  => self.pulse_width         = std.math.clamp(self.pulse_width        + s * 0.01,   0.01,   0.99),
             2  => self.detune_cents         = std.math.clamp(self.detune_cents       + s * 1.0,  -100.0, 100.0),
@@ -2789,9 +2800,9 @@ pub const PolySynth = struct {
             5  => self.unison_spread        = std.math.clamp(self.unison_spread      + s * 0.01,   0.0,    1.0),
             6  => self.osc_b_on             = !self.osc_b_on,
             7  => self.osc_b_waveform = if (steps > 0) switch (self.osc_b_waveform) {
-                .sine => .saw, .saw => .triangle, .triangle => .square, .square => .sine,
+                .sine => .saw, .saw => .triangle, .triangle => .square, .square => .wavetable, .wavetable => .sine,
             } else switch (self.osc_b_waveform) {
-                .sine => .square, .saw => .sine, .triangle => .saw, .square => .triangle,
+                .sine => .wavetable, .saw => .sine, .triangle => .saw, .square => .triangle, .wavetable => .square,
             },
             8  => self.osc_b_pulse_width    = std.math.clamp(self.osc_b_pulse_width  + s * 0.01,   0.01,   0.99),
             9  => self.osc_b_semi           = std.math.clamp(self.osc_b_semi         + s * 1.0,  -24.0,   24.0),
@@ -2891,9 +2902,9 @@ pub const PolySynth = struct {
             // OSC C (50–58)
             50 => self.osc_c_on = !self.osc_c_on,
             51 => self.osc_c_waveform = if (steps > 0) switch (self.osc_c_waveform) {
-                .sine => .saw, .saw => .triangle, .triangle => .square, .square => .sine,
+                .sine => .saw, .saw => .triangle, .triangle => .square, .square => .wavetable, .wavetable => .sine,
             } else switch (self.osc_c_waveform) {
-                .sine => .square, .saw => .sine, .triangle => .saw, .square => .triangle,
+                .sine => .wavetable, .saw => .sine, .triangle => .saw, .square => .triangle, .wavetable => .square,
             },
             52 => self.osc_c_pulse_width    = std.math.clamp(self.osc_c_pulse_width  + s * 0.01,   0.01,   0.99),
             53 => self.osc_c_semi           = std.math.clamp(self.osc_c_semi         + s * 1.0,  -24.0,   24.0),
@@ -3038,6 +3049,10 @@ pub const PolySynth = struct {
             182 => self.fx_freq_shift_hz  = std.math.clamp(self.fx_freq_shift_hz  + s * 1.0,  -2000.0, 2000.0),
             183 => self.fx_freq_shift_mix = std.math.clamp(self.fx_freq_shift_mix + s * 0.01,    0.0,    1.0),
             184 => self.reorderFx(.freq_shift, steps),
+            // WAVETABLE frame position, one per oscillator.
+            185 => self.wt_pos         = std.math.clamp(self.wt_pos         + s * 0.01, 0.0, 1.0),
+            186 => self.osc_b_wt_pos   = std.math.clamp(self.osc_b_wt_pos   + s * 0.01, 0.0, 1.0),
+            187 => self.osc_c_wt_pos   = std.math.clamp(self.osc_c_wt_pos   + s * 0.01, 0.0, 1.0),
             // zig fmt: on
             // MATRIX (59–82): 3 ids per row — source, dest, depth.
             59...82 => {
@@ -3244,6 +3259,9 @@ pub const PolySynth = struct {
             182 => self.fx_freq_shift_hz  = std.math.clamp(value, -2000.0, 2000.0),
             183 => self.fx_freq_shift_mix = std.math.clamp(value,    0.0,    1.0),
             184 => self.setFxIndex(.freq_shift, @intFromFloat(@round(@max(value, 0.0)))),
+            185 => self.wt_pos       = std.math.clamp(value, 0.0, 1.0),
+            186 => self.osc_b_wt_pos = std.math.clamp(value, 0.0, 1.0),
+            187 => self.osc_c_wt_pos = std.math.clamp(value, 0.0, 1.0),
             // zig fmt: on
             // MATRIX: dest takes the raw param id (falls back to cutoff if
             // the value isn't a legal dest — e.g. a hand-edited curve).
@@ -3434,6 +3452,9 @@ pub const PolySynth = struct {
             182 => self.fx_freq_shift_hz,
             183 => self.fx_freq_shift_mix,
             184 => @floatFromInt(self.fxOrderIndex(.freq_shift)),
+            185 => self.wt_pos,
+            186 => self.osc_b_wt_pos,
+            187 => self.osc_c_wt_pos,
             // zig fmt: on
             59...82 => blk: {
                 const row = self.mod_matrix[(id - 59) / 3];
@@ -3583,6 +3604,9 @@ pub const PolySynth = struct {
         .{ .id = 179,.label = "CHOR MIX",    .section = "FX CHOR", .range = .{ 0.0,    1.0 },    .step = 0.01 },
         .{ .id = 182,.label = "FRQS SHIFT",  .section = "FX FRQS", .range = .{ -2000.0,2000.0 }, .step = 1.0 },
         .{ .id = 183,.label = "FRQS MIX",    .section = "FX FRQS", .range = .{ 0.0,    1.0 },    .step = 0.01 },
+        .{ .id = 185,.label = "WT POS A",    .section = "OSC A",   .range = .{ 0.0,    1.0 },    .step = 0.01 },
+        .{ .id = 186,.label = "WT POS B",    .section = "OSC B",   .range = .{ 0.0,    1.0 },    .step = 0.01 },
+        .{ .id = 187,.label = "WT POS C",    .section = "OSC C",   .range = .{ 0.0,    1.0 },    .step = 0.01 },
         // zig fmt: on
     };
 
@@ -3597,7 +3621,8 @@ pub const PolySynth = struct {
     }
 
     fn ccWaveform(value: u7) Waveform {
-        return @enumFromInt(@min(3, value >> 5));
+        const n = @typeInfo(Waveform).@"enum".fields.len;
+        return @enumFromInt(@min(n - 1, @as(usize, value) * n / 128));
     }
 
     fn ccCutoff(value: u7) f32 {
@@ -4385,7 +4410,7 @@ test "applyCC: waveform steps" {
     synth.applyCC(@intFromEnum(midi.CC.osc_a_waveform), 32);
     try std.testing.expectEqual(Waveform.saw, synth.waveform);
     synth.applyCC(@intFromEnum(midi.CC.osc_a_waveform), 127);
-    try std.testing.expectEqual(Waveform.square, synth.waveform);
+    try std.testing.expectEqual(Waveform.wavetable, synth.waveform);
 }
 
 test "applyPitchBend: range at ±2 semitones" {

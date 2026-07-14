@@ -190,7 +190,7 @@ fn firstId(subview: Subview) u8 {
 }
 fn lastId(subview: Subview) u8 {
     return switch (subview) {
-        .main => 125,
+        .main => 187,
         .fx => 183,
         .matrix => 82,
     };
@@ -206,10 +206,11 @@ fn lastId(subview: Subview) u8 {
 /// between the rest). Reorder-handle ids (126-131, 136, 143, 160, 166, 175,
 /// 180, 184) are never cursor-reachable — see `reorderIdFor`. ARP (116-121)
 /// and ENV 3 (122-125) trail after MACRO in `main`, same append-after-the-
-/// max pattern every prior pickup used.
+/// max pattern every prior pickup used. WAVETABLE (185-187, one frame-pos
+/// param per oscillator) trails after ENV 3, same pattern again.
 fn inSubview(id: u8, subview: Subview) bool {
     return switch (subview) {
-        .main => (id <= 58 and !deadParam(id)) or (id >= 95 and id <= 102) or (id >= 116 and id <= 125),
+        .main => (id <= 58 and !deadParam(id)) or (id >= 95 and id <= 102) or (id >= 116 and id <= 125) or (id >= 185 and id <= 187),
         .fx => (id >= 83 and id <= 94) or (id >= 103 and id <= 115) or (id >= 132 and id <= 135) or (id >= 137 and id <= 142) or (id >= 144 and id <= 159) or (id >= 161 and id <= 165) or (id >= 167 and id <= 174) or (id >= 176 and id <= 179) or (id >= 181 and id <= 183),
         .matrix => id >= 59 and id <= 82,
     };
@@ -218,7 +219,7 @@ fn inSubview(id: u8, subview: Subview) bool {
 fn sectionStarts(subview: Subview) []const u8 {
     return switch (subview) {
         // zig fmt: off
-        .main   => &[_]u8{ 0, 6, 14, 16, 20, 24, 28, 32, 34, 36, 38, 39, 41, 45, 50, 95, 97, 99, 116, 122 },
+        .main   => &[_]u8{ 0, 6, 14, 16, 20, 24, 28, 32, 34, 36, 38, 39, 41, 45, 50, 95, 97, 99, 116, 122, 185 },
         .fx     => &[_]u8{ 83, 86, 90, 103, 108, 112 },
         .matrix => &[_]u8{59},
         // zig fmt: on
@@ -376,9 +377,9 @@ pub const top_h: usize = 9;
 
 /// Total body rows (below the shared title) in the "main" subview's wide
 /// A/B-over-C layout.
-pub const body_rows_wide: usize = 87;
+pub const body_rows_wide: usize = 91;
 /// Total body rows in the "main" subview's single-column layout.
-pub const body_rows_single: usize = 95;
+pub const body_rows_single: usize = 99;
 /// Total body rows in the "fx" subview (always single-column).
 pub const body_rows_fx: usize = 84;
 /// Total body rows in the "matrix" subview (always single-column).
@@ -414,6 +415,7 @@ pub fn paramColRow(cursor: u8) struct { col: u1, row: usize } {
         99...102 => .{ .col = 0, .row = 72 + @as(usize, cursor - 99) },  // MACRO (header at 71)
         116...121 => .{ .col = 0, .row = 77 + @as(usize, cursor - 116) }, // ARP (header at 76)
         122...125 => .{ .col = 0, .row = 84 + @as(usize, cursor - 122) }, // ENV 3 (header at 83)
+        185...187 => .{ .col = 0, .row = 89 + @as(usize, cursor - 185) }, // WAVETABLE (header at 88)
         else    => .{ .col = 0, .row = 0 },
     };
 }
@@ -446,6 +448,7 @@ pub fn paramRow(subview: Subview, cursor: u8, fx_order: []const FxUnitKind) usiz
             99...102 => 80 + @as(usize, cursor - 99),  // MACRO (header at 79)
             116...121 => 85 + @as(usize, cursor - 116), // ARP (header at 84)
             122...125 => 92 + @as(usize, cursor - 122), // ENV 3 (header at 91)
+            185...187 => 97 + @as(usize, cursor - 185), // WAVETABLE (header at 96)
             else    => 0,
         },
         .fx => blk: {

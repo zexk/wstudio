@@ -247,9 +247,10 @@ fn drawSynthBottom(w: *std.Io.Writer, synth: anytype, c: u8) !void {
     try secMacro(w, synth, c);
     try secArp(w, synth, c);
     try secEnv3(w, synth, c);
+    try secWavetable(w, synth, c);
 }
 
-const wf_names = [_][]const u8{ "sine", "saw", "tri", "sqr" };
+const wf_names = [_][]const u8{ "sine", "saw", "tri", "sqr", "wt" };
 
 fn secOscA(w: *std.Io.Writer, synth: anytype, c: u8) !void {
     var buf: [40]u8 = undefined;
@@ -257,7 +258,7 @@ fn secOscA(w: *std.Io.Writer, synth: anytype, c: u8) !void {
 
     // zig fmt: off
     const wf_idx: usize = switch (synth.waveform) {
-        .sine => 0, .saw => 1, .triangle => 2, .square => 3,
+        .sine => 0, .saw => 1, .triangle => 2, .square => 3, .wavetable => 4,
     };
     try enumRow(w, c == 0, false, acc, "waveform", &wf_names, wf_idx);
 
@@ -287,7 +288,7 @@ fn secOscB(w: *std.Io.Writer, synth: anytype, c: u8) !void {
 
     // zig fmt: off
     const wfb_idx: usize = switch (synth.osc_b_waveform) {
-        .sine => 0, .saw => 1, .triangle => 2, .square => 3,
+        .sine => 0, .saw => 1, .triangle => 2, .square => 3, .wavetable => 4,
     };
     try enumRow(w, c == 7, !b_on, acc, "waveform", &wf_names, wfb_idx);
 
@@ -491,6 +492,22 @@ fn secEnv3(w: *std.Io.Writer, synth: anytype, c: u8) !void {
         try std.fmt.bufPrint(&buf, "{d:.3} s", .{synth.env3_release_s}));
 }
 
+/// Frame-scan position for whichever oscillator(s) are in `.wavetable`
+/// mode. One row per oscillator (A/B/C can each hold a different table) —
+/// grayed out when that oscillator isn't set to `.wavetable`, same
+/// convention as OSC A's pulse-width row gating on `.square`.
+fn secWavetable(w: *std.Io.Writer, synth: anytype, c: u8) !void {
+    var buf: [40]u8 = undefined;
+    try synthSection(w, "WAVETABLE", acc);
+
+    try barRow(w, c == 185, synth.waveform != .wavetable, acc, "pos a", synth.wt_pos, 1.0,
+        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.wt_pos}));
+    try barRow(w, c == 186, !synth.osc_b_on or synth.osc_b_waveform != .wavetable, acc, "pos b", synth.osc_b_wt_pos, 1.0,
+        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.osc_b_wt_pos}));
+    try barRow(w, c == 187, !synth.osc_c_on or synth.osc_c_waveform != .wavetable, acc, "pos c", synth.osc_c_wt_pos, 1.0,
+        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.osc_c_wt_pos}));
+}
+
 fn secVoice(w: *std.Io.Writer, synth: anytype, c: u8) !void {
     var buf: [40]u8 = undefined;
     try synthSection(w, "VOICE", blu);
@@ -616,7 +633,7 @@ fn secOscC(w: *std.Io.Writer, synth: anytype, c: u8) !void {
     try enumRow(w, c == 50, false, acc, "on/off", &on_names, if (c_on) 0 else 1);
 
     const wfc_idx: usize = switch (synth.osc_c_waveform) {
-        .sine => 0, .saw => 1, .triangle => 2, .square => 3,
+        .sine => 0, .saw => 1, .triangle => 2, .square => 3, .wavetable => 4,
     };
     try enumRow(w, c == 51, !c_on, acc, "waveform", &wf_names, wfc_idx);
 
@@ -964,6 +981,7 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !
         "-", // 180: chorus's reorder handle, never cursor-reachable
         "frqs.on", "frqs.shift", "frqs.mix",
         "-", // 184: freq_shift's reorder handle, never cursor-reachable
+        "wt.pos a", "wt.pos b", "wt.pos c",
     };
     const cur = @min(@as(usize, app.synth_cursor), labels.len - 1);
     try style.writeModeBadge(w, app.modal.mode);
@@ -974,7 +992,7 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !
     try w.writeAll(acc);
     switch (app.synth_cursor) {
         0  => try w.writeAll(switch (synth.waveform) {
-            .sine => "sine", .saw => "saw", .triangle => "tri", .square => "sqr",
+            .sine => "sine", .saw => "saw", .triangle => "tri", .square => "sqr", .wavetable => "wt",
         }),
         1  => try w.print("{d:.2}",       .{synth.pulse_width}),
         2  => try w.print("{d:.0} ct",    .{synth.detune_cents}),
@@ -983,7 +1001,7 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !
         5  => try w.print("{d:.2}",       .{synth.unison_spread}),
         6  => try w.writeAll(if (synth.osc_b_on) "on" else "off"),
         7  => try w.writeAll(switch (synth.osc_b_waveform) {
-            .sine => "sine", .saw => "saw", .triangle => "tri", .square => "sqr",
+            .sine => "sine", .saw => "saw", .triangle => "tri", .square => "sqr", .wavetable => "wt",
         }),
         8  => try w.print("{d:.2}",       .{synth.osc_b_pulse_width}),
         9  => try w.print("{d:.0} st",    .{synth.osc_b_semi}),
@@ -1048,7 +1066,7 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !
         49 => try w.writeAll(switch (synth.filter_routing) { .series => "series", .parallel => "parallel" }),
         50 => try w.writeAll(if (synth.osc_c_on) "on" else "off"),
         51 => try w.writeAll(switch (synth.osc_c_waveform) {
-            .sine => "sine", .saw => "saw", .triangle => "tri", .square => "sqr",
+            .sine => "sine", .saw => "saw", .triangle => "tri", .square => "sqr", .wavetable => "wt",
         }),
         52 => try w.print("{d:.2}",       .{synth.osc_c_pulse_width}),
         53 => try w.print("{d:.0} st",    .{synth.osc_c_semi}),
@@ -1158,6 +1176,9 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !
         181 => try w.writeAll(if (synth.fx_freq_shift_on) "on" else "off"),
         182 => try w.print("{d:.0} Hz",    .{synth.fx_freq_shift_hz}),
         183 => try w.print("{d:.2}",       .{synth.fx_freq_shift_mix}),
+        185 => try w.print("{d:.2}",       .{synth.wt_pos}),
+        186 => try w.print("{d:.2}",       .{synth.osc_b_wt_pos}),
+        187 => try w.print("{d:.2}",       .{synth.osc_c_wt_pos}),
         // zig fmt: on
         else => {},
     }
