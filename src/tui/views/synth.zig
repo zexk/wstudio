@@ -179,6 +179,9 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize
         try secFxDist(&tw, synth, c);
         try secFxCrush(&tw, synth, c);
         try secFxFlanger(&tw, synth, c);
+        try secLfo2(&tw, synth, c);
+        try secLfo3(&tw, synth, c);
+        try secMacro(&tw, synth, c);
 
         var line_it = std.mem.splitSequence(u8, tw.buffered(), "\r\n");
         var row: usize = 1;
@@ -222,6 +225,9 @@ fn drawSynthBottom(w: *std.Io.Writer, synth: anytype, c: u8) !void {
     try secFxDist(w, synth, c);
     try secFxCrush(w, synth, c);
     try secFxFlanger(w, synth, c);
+    try secLfo2(w, synth, c);
+    try secLfo3(w, synth, c);
+    try secMacro(w, synth, c);
 }
 
 const wf_names = [_][]const u8{ "sine", "saw", "tri", "sqr" };
@@ -359,20 +365,58 @@ fn secFenv(w: *std.Io.Writer, synth: anytype, c: u8) !void {
         try std.fmt.bufPrint(&buf, "{d:.3} s", .{synth.fenv_release_s}));
 }
 
+const lfo_shape_names = [_][]const u8{ "sine", "tri", "saw", "sqr", "s&h" };
+
+fn lfoShapeIdx(shape: anytype) usize {
+    return switch (shape) { .sine => 0, .triangle => 1, .saw => 2, .square => 3, .sh => 4 };
+}
+
+fn lfoShapeName(shape: anytype) []const u8 {
+    return switch (shape) { .sine => "sine", .triangle => "tri", .saw => "saw", .square => "sqr", .sh => "s&h" };
+}
+
 /// Shape + rate only: the LFO is a pure mod source, its routing lives on
 /// MATRIX rows (the matrix absorbed the old depth/target params).
 fn secLfo(w: *std.Io.Writer, synth: anytype, c: u8) !void {
     var buf: [40]u8 = undefined;
     try synthSection(w, "LFO", mag);
 
-    const lfo_names = [_][]const u8{ "sine", "tri", "saw", "sqr" };
-    const lfo_idx: usize = switch (synth.lfo_shape) {
-        .sine => 0, .triangle => 1, .saw => 2, .square => 3,
-    };
-    try enumRow(w, c == 28, false, mag, "shape", &lfo_names, lfo_idx);
+    try enumRow(w, c == 28, false, mag, "shape", &lfo_shape_names, lfoShapeIdx(synth.lfo_shape));
 
     try barRow(w, c == 29, false, mag, "rate", synth.lfo_rate_hz, 20.0,
         try std.fmt.bufPrint(&buf, "{d:.2} Hz", .{synth.lfo_rate_hz}));
+}
+
+/// LFO 2/3: trailing sections (ids append after the current max — see
+/// PolySynth's stable-id rule) even though they belong beside LFO 1.
+fn secLfo2(w: *std.Io.Writer, synth: anytype, c: u8) !void {
+    var buf: [40]u8 = undefined;
+    try synthSection(w, "LFO 2", mag);
+    try enumRow(w, c == 95, false, mag, "shape", &lfo_shape_names, lfoShapeIdx(synth.lfo2_shape));
+    try barRow(w, c == 96, false, mag, "rate", synth.lfo2_rate_hz, 20.0,
+        try std.fmt.bufPrint(&buf, "{d:.2} Hz", .{synth.lfo2_rate_hz}));
+}
+
+fn secLfo3(w: *std.Io.Writer, synth: anytype, c: u8) !void {
+    var buf: [40]u8 = undefined;
+    try synthSection(w, "LFO 3", mag);
+    try enumRow(w, c == 97, false, mag, "shape", &lfo_shape_names, lfoShapeIdx(synth.lfo3_shape));
+    try barRow(w, c == 98, false, mag, "rate", synth.lfo3_rate_hz, 20.0,
+        try std.fmt.bufPrint(&buf, "{d:.2} Hz", .{synth.lfo3_rate_hz}));
+}
+
+/// Four macro knobs — pure mod sources (mc1-mc4 on MATRIX rows), no sound
+/// of their own, automatable as ids 99-102.
+fn secMacro(w: *std.Io.Writer, synth: anytype, c: u8) !void {
+    var buf: [40]u8 = undefined;
+    try synthSection(w, "MACRO", bcyn);
+    const vals = [4]f32{ synth.macro1, synth.macro2, synth.macro3, synth.macro4 };
+    for (vals, 0..) |v, k| {
+        var lbl: [12]u8 = undefined;
+        try barRow(w, c == 99 + @as(u8, @intCast(k)), false, bcyn,
+            try std.fmt.bufPrint(&lbl, "macro {d}", .{k + 1}), v, 1.0,
+            try std.fmt.bufPrint(&buf, "{d:.2}", .{v}));
+    }
 }
 
 fn secVoice(w: *std.Io.Writer, synth: anytype, c: u8) !void {
@@ -520,7 +564,7 @@ fn secOscC(w: *std.Io.Writer, synth: anytype, c: u8) !void {
     try enumRow(w, c == 58, !c_on or synth.osc_c_unison <= 1, acc, "uni.mode", &uni_mode_names, uniModeIdx(synth.osc_c_unison_mode));
 }
 
-const mod_src_names = [_][]const u8{ "off", "lfo", "fenv", "aenv", "vel", "key", "whl" };
+const mod_src_names = [_][]const u8{ "off", "lfo", "fenv", "aenv", "vel", "key", "whl", "lfo2", "lfo3", "mc1", "mc2", "mc3", "mc4" };
 
 fn modSrcIdx(src: anytype) usize {
     return @intFromEnum(src);
@@ -538,8 +582,12 @@ fn secMatrix(w: *std.Io.Writer, synth: anytype, c: u8) !void {
         const off = row.source == .none;
         var lbl: [12]u8 = undefined;
 
+        // Value-only like the dest row beneath (not an enumRow menu): 13
+        // sources at enumRow's 7 cells each would wrap the 80-col minimum.
         const src_lbl = try std.fmt.bufPrint(&lbl, "{d} source", .{k + 1});
-        try enumRow(w, c == base, false, mag, src_lbl, &mod_src_names, modSrcIdx(row.source));
+        try rowHead(w, c == base, false, src_lbl);
+        try rowVal(w, c == base, false, mod_src_names[modSrcIdx(row.source)]);
+        try endLine(w);
 
         const dst_lbl = try std.fmt.bufPrint(&lbl, "{d} dest", .{k + 1});
         try rowHead(w, c == base + 1, off, dst_lbl);
@@ -632,6 +680,8 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !
         "dist.on", "dist.drive", "dist.mix",
         "crush.on", "crush.bits", "crush.rate", "crush.mix",
         "flng.on", "flng.rate", "flng.depth", "flng.fdbk", "flng.mix",
+        "lfo2.shape", "lfo2.rate", "lfo3.shape", "lfo3.rate",
+        "macro 1", "macro 2", "macro 3", "macro 4",
     };
     const cur = @min(@as(usize, app.synth_cursor), labels.len - 1);
     try style.writeModeBadge(w, app.modal.mode);
@@ -682,9 +732,7 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !
         25 => try w.print("{d:.3} s",     .{synth.fenv_decay_s}),
         26 => try w.print("{d:.3}",       .{synth.fenv_sustain}),
         27 => try w.print("{d:.3} s",     .{synth.fenv_release_s}),
-        28 => try w.writeAll(switch (synth.lfo_shape) {
-            .sine => "sine", .triangle => "tri", .saw => "saw", .square => "sqr",
-        }),
+        28 => try w.writeAll(lfoShapeName(synth.lfo_shape)),
         29 => try w.print("{d:.2} Hz",    .{synth.lfo_rate_hz}),
         32 => try w.writeAll(switch (synth.voice_mode) {
             .poly => "poly", .mono => "mono", .legato => "legato",
@@ -751,6 +799,14 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !
         92 => try w.print("{d:.2}",       .{synth.fx_flanger_depth}),
         93 => try w.print("{d:.2}",       .{synth.fx_flanger_feedback}),
         94 => try w.print("{d:.2}",       .{synth.fx_flanger_mix}),
+        95 => try w.writeAll(lfoShapeName(synth.lfo2_shape)),
+        96 => try w.print("{d:.2} Hz",    .{synth.lfo2_rate_hz}),
+        97 => try w.writeAll(lfoShapeName(synth.lfo3_shape)),
+        98 => try w.print("{d:.2} Hz",    .{synth.lfo3_rate_hz}),
+        99  => try w.print("{d:.2}",      .{synth.macro1}),
+        100 => try w.print("{d:.2}",      .{synth.macro2}),
+        101 => try w.print("{d:.2}",      .{synth.macro3}),
+        102 => try w.print("{d:.2}",      .{synth.macro4}),
         // zig fmt: on
         else => {},
     }

@@ -135,6 +135,16 @@ pub const SynthSnap = struct {
     // LFO
     lfo_shape: synth_mod.LfoShape = .sine,
     lfo_rate_hz: f32 = 1.0,
+    // LFO 2 / LFO 3 + macros (additive optional-with-default fields, no
+    // version bump)
+    lfo2_shape: synth_mod.LfoShape = .sine,
+    lfo2_rate_hz: f32 = 1.0,
+    lfo3_shape: synth_mod.LfoShape = .sine,
+    lfo3_rate_hz: f32 = 1.0,
+    macro1: f32 = 0.0,
+    macro2: f32 = 0.0,
+    macro3: f32 = 0.0,
+    macro4: f32 = 0.0,
     // Mod matrix (v17). Optional so its absence identifies a pre-matrix
     // file: null triggers the legacy fenv/lfo migration in applyToSynth,
     // while a present-but-empty matrix (a new file with no routing) is
@@ -1163,6 +1173,14 @@ fn synthToSnap(s: *const PolySynth) SynthSnap {
         .fenv_release_s = s.fenv_release_s,
         .lfo_shape = s.lfo_shape,
         .lfo_rate_hz = s.lfo_rate_hz,
+        .lfo2_shape = s.lfo2_shape,
+        .lfo2_rate_hz = s.lfo2_rate_hz,
+        .lfo3_shape = s.lfo3_shape,
+        .lfo3_rate_hz = s.lfo3_rate_hz,
+        .macro1 = s.macro1,
+        .macro2 = s.macro2,
+        .macro3 = s.macro3,
+        .macro4 = s.macro4,
         // Slices the live synth's rows — fine, the snapshot is serialized
         // synchronously in save() while the rack is alive.
         .mod_matrix = s.mod_matrix[0..],
@@ -1804,6 +1822,14 @@ fn applyToSynth(s: *PolySynth, ss: *const SynthSnap) void {
     s.fenv_release_s = clamp(ss.fenv_release_s, 0.001, 10.0);
     s.lfo_shape = ss.lfo_shape;
     s.lfo_rate_hz = clamp(ss.lfo_rate_hz, 0.01, 20.0);
+    s.lfo2_shape = ss.lfo2_shape;
+    s.lfo2_rate_hz = clamp(ss.lfo2_rate_hz, 0.01, 20.0);
+    s.lfo3_shape = ss.lfo3_shape;
+    s.lfo3_rate_hz = clamp(ss.lfo3_rate_hz, 0.01, 20.0);
+    s.macro1 = clamp(ss.macro1, 0.0, 1.0);
+    s.macro2 = clamp(ss.macro2, 0.0, 1.0);
+    s.macro3 = clamp(ss.macro3, 0.0, 1.0);
+    s.macro4 = clamp(ss.macro4, 0.0, 1.0);
     if (ss.mod_matrix) |rows| {
         // v17 file: take the rows as saved (clamped; a bad dest falls back
         // to cutoff inside setParamAbsolute's rules — mirror them here).
@@ -3334,6 +3360,41 @@ test "applyToSynth: pre-v17 legacy mod fields migrate onto matrix rows" {
     const empty: SynthSnap = .{ .mod_matrix = &.{}, .fenv_amount = 2.0 };
     applyToSynth(&s, &empty);
     try std.testing.expectEqual(synth_mod.ModSource.none, s.mod_matrix[0].source);
+}
+
+test "save/load round-trip persists LFO 2/3, macros, and their matrix sources" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [64]u8 = undefined;
+    const wsj_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/lfo23.wsj", .{&tmp.sub_path});
+
+    var session = try Session.initDefault(testing.allocator);
+    defer session.deinit();
+    session.racks.items[0].instrument = .{ .poly_synth = PolySynth.init(session.project.sample_rate) };
+    const s = &session.racks.items[0].instrument.poly_synth;
+    // zig fmt: off
+    s.lfo2_shape = .sh;  s.lfo2_rate_hz = 6.5;
+    s.lfo3_shape = .saw; s.lfo3_rate_hz = 0.25;
+    s.macro1 = 0.33; s.macro4 = 0.9;
+    s.mod_matrix[0] = .{ .source = .lfo2, .dest = 21,                 .depth = 0.5 };
+    s.mod_matrix[1] = .{ .source = .mac1, .dest = PolySynth.dest_amp, .depth = -0.3 };
+    // zig fmt: on
+
+    try save(testing.allocator, &session, testing.io, wsj_path);
+    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    defer loaded.deinit();
+
+    const ls = &loaded.racks.items[0].instrument.poly_synth;
+    try testing.expectEqual(synth_mod.LfoShape.sh, ls.lfo2_shape);
+    try testing.expectApproxEqAbs(@as(f32, 6.5), ls.lfo2_rate_hz, 1e-6);
+    try testing.expectEqual(synth_mod.LfoShape.saw, ls.lfo3_shape);
+    try testing.expectApproxEqAbs(@as(f32, 0.25), ls.lfo3_rate_hz, 1e-6);
+    try testing.expectApproxEqAbs(@as(f32, 0.33), ls.macro1, 1e-6);
+    try testing.expectApproxEqAbs(@as(f32, 0.9), ls.macro4, 1e-6);
+    try testing.expectEqual(synth_mod.ModSource.lfo2, ls.mod_matrix[0].source);
+    try testing.expectEqual(synth_mod.ModSource.mac1, ls.mod_matrix[1].source);
+    try testing.expectApproxEqAbs(@as(f32, -0.3), ls.mod_matrix[1].depth, 1e-6);
 }
 
 test "golden-file corpus: v14's parametric EQ bands load freq/Q/gain" {

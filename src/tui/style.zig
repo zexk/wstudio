@@ -31,7 +31,10 @@ pub const spectrum_band_count: usize = 80;
 /// FX DIST : 83:fx_dist_on 84:fx_dist_drive_db 85:fx_dist_mix
 /// FX CRUSH: 86:fx_crush_on 87:fx_crush_bits 88:fx_crush_rate 89:fx_crush_mix
 /// FX FLNG : 90:fx_flanger_on 91:fx_flanger_rate_hz 92:fx_flanger_depth 93:fx_flanger_feedback 94:fx_flanger_mix
-pub const synth_param_count: u8 = 95;
+/// LFO 2   : 95:lfo2_shape 96:lfo2_rate_hz
+/// LFO 3   : 97:lfo3_shape 98:lfo3_rate_hz
+/// MACRO   : 99:macro1 100:macro2 101:macro3 102:macro4
+pub const synth_param_count: u8 = 103;
 
 // ---------------------------------------------------------------------------
 // Palette — all colour codes go here; never raw \x1b sequences elsewhere

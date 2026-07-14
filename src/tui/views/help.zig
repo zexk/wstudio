@@ -260,8 +260,9 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("s",            "FX chain for this track");
     t.key("f",            "preset picker — factory + saved patches, / filters by name/tag/author, d deletes a save");
     t.key(":synth-preset-save", "<name>  save the current params as a reusable preset");
-    t.push(dim ++ "  MATRIX rows route a mod source (lfo/envs/velocity/keytrack/wheel) to any", .{});
-    t.push(dim ++ "  automatable param plus PITCH and AMP; depth is bipolar, same-dest rows sum.", .{});
+    t.push(dim ++ "  MATRIX rows route a mod source (lfo 1-3/envs/velocity/keytrack/wheel/macros)", .{});
+    t.push(dim ++ "  to any automatable param plus PITCH and AMP; depth is bipolar, same-dest", .{});
+    t.push(dim ++ "  rows sum. MACRO knobs only act through matrix rows (mc1-mc4).", .{});
 
     t.taggedSection(.piano_roll, "PIANO ROLL");
     t.key("h / l",        "move cursor left / right (one step)");

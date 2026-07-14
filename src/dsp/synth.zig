@@ -40,14 +40,19 @@ pub const FilterType = enum { lp, hp, bp, notch, ladder, comb };
 /// oscillator mix and their outputs are averaged. Irrelevant (and behaves
 /// identically to filter 1 alone) while `filter2_on` is false.
 pub const FilterRouting = enum { series, parallel };
-pub const LfoShape   = enum { sine, triangle, saw, square };
+/// `sh` is sample & hold: a random level (uniform in [-1, 1)) redrawn each
+/// time the LFO's phase wraps — held state lives on PolySynth (`lfo_sh`),
+/// not derivable from phase alone like the other shapes.
+pub const LfoShape   = enum { sine, triangle, saw, square, sh };
 /// Legacy fixed LFO routing, retired when the mod matrix absorbed it.
 /// Kept only so pre-matrix patches/projects still parse; `legacyModRows`
 /// folds it into matrix rows on load.
 pub const LfoTarget  = enum { none, filter, pitch, amp };
-/// Modulation source for a mod-matrix row. `lfo` and `wheel` are synth-
-/// global; the rest are per-voice.
-pub const ModSource  = enum { none, lfo, fenv, aenv, velocity, keytrack, wheel };
+/// Modulation source for a mod-matrix row. The LFOs, `wheel`, and the four
+/// macro knobs are synth-global; fenv/aenv/velocity/keytrack are per-voice.
+/// Macros are plain 0..1 values fanned out through matrix rows — one knob
+/// (or one automation lane, ids 99-102) moving many destinations at once.
+pub const ModSource  = enum { none, lfo, fenv, aenv, velocity, keytrack, wheel, lfo2, lfo3, mac1, mac2, mac3, mac4 };
 pub const VoiceMode  = enum { poly, mono, legato };
 pub const SubShape   = enum { sine, square };
 pub const ModMode    = enum { none, ring, am_a_to_b, am_b_to_a, fm_a_to_b, fm_b_to_a };
@@ -206,6 +211,32 @@ pub const PolySynth = struct {
     /// Synth-global LFO phase (0..1). Advanced once per block.
     lfo_phase: f32 = 0.0,
 
+    // ── LFO 2 / LFO 3 ───────────────────────────────────────────────────────
+    // Two more global LFOs, same shape+rate-only design as LFO 1 (routing
+    // lives on matrix rows). Independent phases so different rates stay
+    // free-running against each other.
+    // zig fmt: off
+    lfo2_shape:   LfoShape = .sine,
+    lfo2_rate_hz: f32      = 1.0,
+    lfo2_phase:   f32      = 0.0,
+    lfo3_shape:   LfoShape = .sine,
+    lfo3_rate_hz: f32      = 1.0,
+    lfo3_phase:   f32      = 0.0,
+    /// Held sample & hold level per LFO slot (0=LFO 1), redrawn on phase
+    /// wrap. Runtime state like the phases, not part of a Patch.
+    lfo_sh:       [3]f32   = .{ 0.0, 0.0, 0.0 },
+    lfo_sh_rand:  u32      = 0x9E3779B9,
+
+    // ── MACRO ───────────────────────────────────────────────────────────────
+    // Performance knobs with no sound of their own: only matrix rows give
+    // them meaning. Automatable (ids 99-102), so one automation lane can
+    // ride every destination its rows fan out to.
+    macro1: f32 = 0.0,
+    macro2: f32 = 0.0,
+    macro3: f32 = 0.0,
+    macro4: f32 = 0.0,
+    // zig fmt: on
+
     // ── MOD MATRIX ──────────────────────────────────────────────────────────
     /// Free-assign modulation routing: each row sends one source to one
     /// destination (a `mod_dest_ids` entry — an automatable param id or the
@@ -303,8 +334,9 @@ pub const PolySynth = struct {
     };
 
     /// Legal matrix destinations: every automatable param that is consumed
-    /// per voice (excludes the global LFO rate and the matrix's own depth
-    /// ids — no self-modulation), the internal FX params (consumed globally,
+    /// per voice (excludes the global LFO rates, the macro knobs, and the
+    /// matrix's own depth ids — no self-modulation), the internal FX params
+    /// (consumed globally,
     /// once per block — see processBlock's FX pass), plus the two virtual
     /// dests.
     pub const mod_dest_ids = [_]u8{
@@ -509,6 +541,16 @@ pub const PolySynth = struct {
 
         lfo_shape: LfoShape = .sine,
         lfo_rate_hz: f32 = 1.0,
+
+        lfo2_shape: LfoShape = .sine,
+        lfo2_rate_hz: f32 = 1.0,
+        lfo3_shape: LfoShape = .sine,
+        lfo3_rate_hz: f32 = 1.0,
+
+        macro1: f32 = 0.0,
+        macro2: f32 = 0.0,
+        macro3: f32 = 0.0,
+        macro4: f32 = 0.0,
 
         mod_matrix: [max_mod_rows]ModRow = [_]ModRow{.{}} ** max_mod_rows,
 
@@ -747,19 +789,25 @@ pub const PolySynth = struct {
     /// Evaluate every active matrix row for one voice at block rate.
     /// `v` is null for the global FX evaluation when no voice is active:
     /// the per-voice sources read as silence, the global ones still run.
-    fn evalMatrix(self: *const PolySynth, v: ?*const Voice, lfo_val: f32) ModAccum {
+    fn evalMatrix(self: *const PolySynth, v: ?*const Voice, lfo_vals: [3]f32) ModAccum {
         var acc: ModAccum = .{};
         for (self.mod_matrix) |row| {
             if (row.source == .none or row.depth == 0.0) continue;
             const src: f32 = switch (row.source) {
                 // zig fmt: off
                 .none     => unreachable,
-                .lfo      => lfo_val,
+                .lfo      => lfo_vals[0],
+                .lfo2     => lfo_vals[1],
+                .lfo3     => lfo_vals[2],
                 .fenv     => if (v) |vv| vv.env2 else 0.0,
                 .aenv     => if (v) |vv| vv.env else 0.0,
                 .velocity => if (v) |vv| vv.velocity else 0.0,
                 .keytrack => if (v) |vv| (@as(f32, @floatFromInt(vv.note)) - 60.0) / 64.0 else 0.0,
                 .wheel    => self.mod_wheel,
+                .mac1     => self.macro1,
+                .mac2     => self.macro2,
+                .mac3     => self.macro3,
+                .mac4     => self.macro4,
                 // zig fmt: on
             };
             const a = row.depth * src;
@@ -797,9 +845,13 @@ pub const PolySynth = struct {
     pub fn processBlock(self: *PolySynth, buf: []Sample) void {
         const frames = buf.len / 2;
 
-        // Block-rate LFO: sample once before the voice loop so all voices
-        // receive the same value, avoiding inter-voice phase desync.
-        const lfo_val = lfoSample(self.lfo_shape, self.lfo_phase);
+        // Block-rate LFOs: sample once before the voice loop so all voices
+        // receive the same values, avoiding inter-voice phase desync.
+        const lfo_vals = [3]f32{
+            self.lfoVal(0, self.lfo_shape, self.lfo_phase),
+            self.lfoVal(1, self.lfo2_shape, self.lfo2_phase),
+            self.lfoVal(2, self.lfo3_shape, self.lfo3_phase),
+        };
 
         // zig fmt: off
         // osc_budget: split evenly between active oscillators so total ≤ 32.
@@ -816,7 +868,7 @@ pub const PolySynth = struct {
 
             // All matrix modulation below is block-rate per voice — the
             // same rate the retired fixed routes always ran at.
-            const mods = self.evalMatrix(v, lfo_val);
+            const mods = self.evalMatrix(v, lfo_vals);
 
             // Envelope increments are per voice (not hoisted) so matrix
             // rows can modulate times/sustains, e.g. velocity → decay.
@@ -1192,7 +1244,7 @@ pub const PolySynth = struct {
         // triggered voice (env/velocity → drive style routes still play).
         if (self.fx_dist_on or self.fx_crush_on or self.fx_flanger_on) {
             const nv = &self.voices[self.newest_voice];
-            const mods = self.evalMatrix(if (nv.active) nv else null, lfo_val);
+            const mods = self.evalMatrix(if (nv.active) nv else null, lfo_vals);
             if (self.fx_dist_on) {
                 // Stateless, so a per-block value with the effective params
                 // is all it takes (out_db stays at its 0 dB default).
@@ -1222,9 +1274,25 @@ pub const PolySynth = struct {
             }
         }
 
-        // Advance LFO once per block after all voices are done.
-        self.lfo_phase += self.lfo_rate_hz * @as(f32, @floatFromInt(frames)) / self.sample_rate;
-        self.lfo_phase -= @floor(self.lfo_phase);
+        // Advance the LFOs once per block after all voices are done.
+        const frames_f: f32 = @floatFromInt(frames);
+        self.advanceLfo(0, &self.lfo_phase, self.lfo_rate_hz, frames_f);
+        self.advanceLfo(1, &self.lfo2_phase, self.lfo2_rate_hz, frames_f);
+        self.advanceLfo(2, &self.lfo3_phase, self.lfo3_rate_hz, frames_f);
+    }
+
+    /// Block-rate value of the LFO in `slot`: the held random level for
+    /// sample & hold, a pure function of phase for every other shape.
+    fn lfoVal(self: *const PolySynth, slot: usize, shape: LfoShape, phase: f32) f32 {
+        return if (shape == .sh) self.lfo_sh[slot] else lfoSample(shape, phase);
+    }
+
+    /// Advance one LFO's phase by a block; a wrap redraws the slot's sample
+    /// & hold level (cheap enough to do regardless of the active shape).
+    fn advanceLfo(self: *PolySynth, slot: usize, phase: *f32, rate_hz: f32, frames: f32) void {
+        phase.* += rate_hz * frames / self.sample_rate;
+        if (phase.* >= 1.0) self.lfo_sh[slot] = nextNoise(&self.lfo_sh_rand);
+        phase.* -= @floor(phase.*);
     }
 
     /// Cents offset of unison voice `ui` of `n` (n > 1), per `mode`.
@@ -1354,8 +1422,22 @@ pub const PolySynth = struct {
             .triangle => 1.0 - 4.0 * @abs(phase - 0.5),
             .saw      => 2.0 * phase - 1.0,
             .square   => if (phase < 0.5) 1.0 else -1.0,
+            // Held level lives on PolySynth.lfo_sh; callers go through
+            // lfoVal, which never reaches here for .sh.
+            .sh       => 0.0,
             // zig fmt: on
         };
+    }
+
+    /// Editor h/l stepping for the three LFO shape params (28/95/97).
+    fn cycleLfoShape(shape: LfoShape, steps: i32) LfoShape {
+        // zig fmt: off
+        return if (steps > 0) switch (shape) {
+            .sine => .triangle, .triangle => .saw, .saw => .square, .square => .sh, .sh => .sine,
+        } else switch (shape) {
+            .sine => .sh, .triangle => .sine, .saw => .triangle, .square => .saw, .sh => .square,
+        };
+        // zig fmt: on
     }
 
     /// `pw`/`warp_amount` are passed in (not read off `self`) so the caller
@@ -1524,11 +1606,7 @@ pub const PolySynth = struct {
             26 => self.fenv_sustain         = std.math.clamp(self.fenv_sustain       + s * 0.01,   0.0,    1.0),
             27 => self.fenv_release_s       = std.math.clamp(self.fenv_release_s     + s * 0.005, 0.001,  10.0),
             // LFO (28–29; 30/31 depth+target retired into the mod matrix)
-            28 => self.lfo_shape = if (steps > 0) switch (self.lfo_shape) {
-                .sine => .triangle, .triangle => .saw, .saw => .square, .square => .sine,
-            } else switch (self.lfo_shape) {
-                .sine => .square, .triangle => .sine, .saw => .triangle, .square => .saw,
-            },
+            28 => self.lfo_shape            = cycleLfoShape(self.lfo_shape, steps),
             29 => self.lfo_rate_hz          = std.math.clamp(self.lfo_rate_hz        + s * 0.1,   0.01,   20.0),
             // VOICE (32–33)
             32 => self.voice_mode = if (steps > 0) switch (self.voice_mode) {
@@ -1619,6 +1697,16 @@ pub const PolySynth = struct {
             92 => self.fx_flanger_depth     = std.math.clamp(self.fx_flanger_depth     + s * 0.01,   0.0,    1.0),
             93 => self.fx_flanger_feedback  = std.math.clamp(self.fx_flanger_feedback  + s * 0.01,   0.0,    0.95),
             94 => self.fx_flanger_mix       = std.math.clamp(self.fx_flanger_mix       + s * 0.01,   0.0,    1.0),
+            // LFO 2 (95–96) / LFO 3 (97–98)
+            95 => self.lfo2_shape           = cycleLfoShape(self.lfo2_shape, steps),
+            96 => self.lfo2_rate_hz         = std.math.clamp(self.lfo2_rate_hz         + s * 0.1,    0.01,  20.0),
+            97 => self.lfo3_shape           = cycleLfoShape(self.lfo3_shape, steps),
+            98 => self.lfo3_rate_hz         = std.math.clamp(self.lfo3_rate_hz         + s * 0.1,    0.01,  20.0),
+            // MACRO (99–102)
+            99  => self.macro1              = std.math.clamp(self.macro1               + s * 0.01,   0.0,    1.0),
+            100 => self.macro2              = std.math.clamp(self.macro2               + s * 0.01,   0.0,    1.0),
+            101 => self.macro3              = std.math.clamp(self.macro3               + s * 0.01,   0.0,    1.0),
+            102 => self.macro4              = std.math.clamp(self.macro4               + s * 0.01,   0.0,    1.0),
             // zig fmt: on
             // MATRIX (59–82): 3 ids per row — source, dest, depth.
             59...82 => {
@@ -1728,6 +1816,14 @@ pub const PolySynth = struct {
             92 => self.fx_flanger_depth    = std.math.clamp(value,   0.0,    1.0),
             93 => self.fx_flanger_feedback = std.math.clamp(value,   0.0,    0.95),
             94 => self.fx_flanger_mix      = std.math.clamp(value,   0.0,    1.0),
+            95 => self.lfo2_shape          = enumFromValue(LfoShape, value),
+            96 => self.lfo2_rate_hz        = std.math.clamp(value,   0.01,  20.0),
+            97 => self.lfo3_shape          = enumFromValue(LfoShape, value),
+            98 => self.lfo3_rate_hz        = std.math.clamp(value,   0.01,  20.0),
+            99  => self.macro1             = std.math.clamp(value,   0.0,    1.0),
+            100 => self.macro2             = std.math.clamp(value,   0.0,    1.0),
+            101 => self.macro3             = std.math.clamp(value,   0.0,    1.0),
+            102 => self.macro4             = std.math.clamp(value,   0.0,    1.0),
             // zig fmt: on
             // MATRIX: dest takes the raw param id (falls back to cutoff if
             // the value isn't a legal dest — e.g. a hand-edited curve).
@@ -1828,6 +1924,14 @@ pub const PolySynth = struct {
             92 => self.fx_flanger_depth,
             93 => self.fx_flanger_feedback,
             94 => self.fx_flanger_mix,
+            95 => enumToValue(self.lfo2_shape),
+            96 => self.lfo2_rate_hz,
+            97 => enumToValue(self.lfo3_shape),
+            98 => self.lfo3_rate_hz,
+            99  => self.macro1,
+            100 => self.macro2,
+            101 => self.macro3,
+            102 => self.macro4,
             // zig fmt: on
             59...82 => blk: {
                 const row = self.mod_matrix[(id - 59) / 3];
@@ -1911,6 +2015,15 @@ pub const PolySynth = struct {
         .{ .id = 92, .label = "FLNG DEPTH", .section = "FX FLNG", .range = .{ 0.0,    1.0 },     .step = 0.01 },
         .{ .id = 93, .label = "FLNG FDBK",  .section = "FX FLNG", .range = .{ 0.0,    0.95 },    .step = 0.01 },
         .{ .id = 94, .label = "FLNG MIX",   .section = "FX FLNG", .range = .{ 0.0,    1.0 },     .step = 0.01 },
+        .{ .id = 96, .label = "LFO2 RATE",  .section = "LFO 2",   .range = .{ 0.01,   20.0 },    .step = 0.1 },
+        .{ .id = 98, .label = "LFO3 RATE",  .section = "LFO 3",   .range = .{ 0.01,   20.0 },    .step = 0.1 },
+        // Macros: an automation lane on one macro rides every destination
+        // its matrix rows fan out to. Not matrix dests themselves (a row
+        // reading a matrix-shifted macro would need eval ordering).
+        .{ .id = 99,  .label = "MACRO 1",   .section = "MACRO",   .range = .{ 0.0,    1.0 },     .step = 0.01 },
+        .{ .id = 100, .label = "MACRO 2",   .section = "MACRO",   .range = .{ 0.0,    1.0 },     .step = 0.01 },
+        .{ .id = 101, .label = "MACRO 3",   .section = "MACRO",   .range = .{ 0.0,    1.0 },     .step = 0.01 },
+        .{ .id = 102, .label = "MACRO 4",   .section = "MACRO",   .range = .{ 0.0,    1.0 },     .step = 0.01 },
         // zig fmt: on
     };
 
@@ -2333,6 +2446,102 @@ test "adjustParam: matrix dest walks the dest table and wraps" {
     try std.testing.expectEqual(PolySynth.mod_dest_ids[idx_cutoff - 1], s.mod_matrix[0].dest);
     s.adjustParam(60, 1);
     try std.testing.expectEqual(@as(u8, 21), s.mod_matrix[0].dest);
+}
+
+test "LFO 2 tremolo via matrix: square trough at depth=1 silences the voice" {
+    var s = PolySynth.init(48_000);
+    // zig fmt: off
+    s.lfo2_shape   = .square;
+    s.lfo2_rate_hz = 0.0;  // frozen
+    s.lfo2_phase   = 0.75; // square trough → -1
+    // zig fmt: on
+    s.mod_matrix[0] = .{ .source = .lfo2, .dest = PolySynth.dest_amp, .depth = 1.0 };
+    s.noteOn(60, 1.0);
+    var buf: [256]Sample = undefined;
+    for (0..20) |_| {
+        @memset(&buf, 0.0);
+        s.processBlock(&buf);
+    }
+    var rms: f32 = 0.0;
+    for (buf) |x| rms += x * x;
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), rms, 1e-6);
+    // A frozen (rate 0) phase survives the per-block advance untouched.
+    try std.testing.expectApproxEqAbs(@as(f32, 0.75), s.lfo2_phase, 1e-6);
+}
+
+test "macro source: mac1 at depth 1 to AMP doubles the voice gain" {
+    var with_mac = PolySynth.init(48_000);
+    with_mac.macro1 = 1.0;
+    with_mac.mod_matrix[0] = .{ .source = .mac1, .dest = PolySynth.dest_amp, .depth = 1.0 };
+    with_mac.noteOn(60, 1.0);
+
+    var without = PolySynth.init(48_000);
+    without.noteOn(60, 1.0);
+
+    var buf_mac: [256]Sample = undefined;
+    var buf_dry: [256]Sample = undefined;
+    for (0..20) |_| {
+        // zig fmt: off
+        @memset(&buf_mac, 0.0); with_mac.processBlock(&buf_mac);
+        @memset(&buf_dry, 0.0); without.processBlock(&buf_dry);
+        // zig fmt: on
+    }
+    var rms_mac: f32 = 0.0;
+    var rms_dry: f32 = 0.0;
+    // zig fmt: off
+    for (buf_mac, buf_dry) |a, b| { rms_mac += a * a; rms_dry += b * b; }
+    // zig fmt: on
+    try std.testing.expect(rms_mac > rms_dry * 2.0);
+}
+
+test "sample & hold: level redraws on phase wrap and holds between wraps" {
+    var s = PolySynth.init(48_000);
+    s.lfo_shape = .sh;
+    s.lfo_rate_hz = 20.0; // wraps every 2400 frames
+    s.noteOn(60, 1.0);
+    var buf: [256]Sample = undefined;
+
+    // First blocks stay within one cycle: the held level must not change.
+    @memset(&buf, 0.0);
+    s.processBlock(&buf);
+    const held = s.lfo_sh[0];
+    @memset(&buf, 0.0);
+    s.processBlock(&buf);
+    try std.testing.expectEqual(held, s.lfo_sh[0]);
+
+    // Push the phase past a wrap: a new level is drawn (xorshift never
+    // repeats within a period, so inequality is deterministic here).
+    s.lfo_phase = 0.999;
+    @memset(&buf, 0.0);
+    s.processBlock(&buf);
+    try std.testing.expect(s.lfo_sh[0] != held);
+}
+
+test "LFO 2/3 + macro params round-trip through paramValue/setParamAbsolute and Patch" {
+    var a = PolySynth.init(48_000);
+    // zig fmt: off
+    a.lfo2_shape = .sh;  a.lfo2_rate_hz = 6.5;
+    a.lfo3_shape = .saw; a.lfo3_rate_hz = 0.25;
+    a.macro1 = 0.1; a.macro2 = 0.4; a.macro3 = 0.7; a.macro4 = 1.0;
+    // zig fmt: on
+
+    var b = PolySynth.init(48_000);
+    var id: u8 = 95;
+    while (id <= 102) : (id += 1) {
+        if (a.paramValue(id)) |v| b.setParamAbsolute(id, v);
+    }
+    try std.testing.expectEqual(a.lfo2_shape, b.lfo2_shape);
+    try std.testing.expectEqual(a.lfo3_shape, b.lfo3_shape);
+    try std.testing.expectApproxEqAbs(a.lfo2_rate_hz, b.lfo2_rate_hz, 1e-6);
+    try std.testing.expectApproxEqAbs(a.lfo3_rate_hz, b.lfo3_rate_hz, 1e-6);
+    try std.testing.expectApproxEqAbs(a.macro2, b.macro2, 1e-6);
+    try std.testing.expectApproxEqAbs(a.macro4, b.macro4, 1e-6);
+
+    var c = PolySynth.init(48_000);
+    c.applyPatch(a.toPatch());
+    try std.testing.expectEqual(a.lfo2_shape, c.lfo2_shape);
+    try std.testing.expectApproxEqAbs(a.lfo3_rate_hz, c.lfo3_rate_hz, 1e-6);
+    try std.testing.expectApproxEqAbs(a.macro3, c.macro3, 1e-6);
 }
 
 test "polyphony: up to max_voices voices" {

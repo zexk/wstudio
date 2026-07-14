@@ -44,7 +44,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             'G' => { history.flushParamNudge(app); app.synth_cursor = style.synth_param_count - 1; updateScroll(app); return true; },
             '}', '{' => {
                 history.flushParamNudge(app);
-                const section_starts = [_]u8{ 0, 6, 14, 16, 20, 24, 28, 32, 34, 36, 38, 39, 41, 45, 50, 59, 83, 86, 90 };
+                const section_starts = [_]u8{ 0, 6, 14, 16, 20, 24, 28, 32, 34, 36, 38, 39, 41, 45, 50, 59, 83, 86, 90, 95, 97, 99 };
                 if (c == '}') {
                     for (section_starts) |s| {
                         if (s > app.synth_cursor) {
@@ -111,10 +111,10 @@ pub fn colWidth(cols: usize) usize {
 pub const top_h: usize = 9;
 
 /// Total body rows (below the shared title) in the wide A/B-over-C layout.
-pub const body_rows_wide: usize = 104;
+pub const body_rows_wide: usize = 115;
 
 /// Total body rows in the single-column layout.
-pub const body_rows_single: usize = 112;
+pub const body_rows_single: usize = 123;
 
 // zig fmt: off
 /// Column + row of `cursor` within the wide layout (row 0 is the shared
@@ -144,6 +144,9 @@ pub fn paramColRow(cursor: u8) struct { col: u1, row: usize } {
         83...85 => .{ .col = 0, .row = 91 + @as(usize, cursor - 83) },   // FX DIST (header at 90)
         86...89 => .{ .col = 0, .row = 95 + @as(usize, cursor - 86) },   // FX CRUSH (header at 94)
         90...94 => .{ .col = 0, .row = 100 + @as(usize, cursor - 90) },  // FX FLNG (header at 99)
+        95...96 => .{ .col = 0, .row = 106 + @as(usize, cursor - 95) },  // LFO 2 (header at 105)
+        97...98 => .{ .col = 0, .row = 109 + @as(usize, cursor - 97) },  // LFO 3 (header at 108)
+        99...102 => .{ .col = 0, .row = 112 + @as(usize, cursor - 99) }, // MACRO (header at 111)
         else    => .{ .col = 0, .row = 0 },
     };
 }
@@ -171,6 +174,9 @@ pub fn paramRow(cursor: u8) usize {
         83...85 => 99 + @as(usize, cursor - 83),   // FX DIST (header at 98)
         86...89 => 103 + @as(usize, cursor - 86),  // FX CRUSH (header at 102)
         90...94 => 108 + @as(usize, cursor - 90),  // FX FLNG (header at 107)
+        95...96 => 114 + @as(usize, cursor - 95),  // LFO 2 (header at 113)
+        97...98 => 117 + @as(usize, cursor - 97),  // LFO 3 (header at 116)
+        99...102 => 120 + @as(usize, cursor - 99), // MACRO (header at 119)
         else    => 0,
     };
 }
