@@ -43,23 +43,16 @@ pub const StereoDelay = struct {
     pub fn setTime(self: *StereoDelay, seconds: f32) void {
         const frames: usize = @intFromFloat(seconds * @as(f32, @floatFromInt(self.sample_rate)));
         self.delay_frames = std.math.clamp(frames, 1, self.lines[0].len);
-        self.clear();
+        self.reset();
     }
 
-    pub fn clear(self: *StereoDelay) void {
+    pub fn reset(self: *StereoDelay) void {
         @memset(self.lines[0], 0.0);
         @memset(self.lines[1], 0.0);
         self.index = .{ 0, 0 };
     }
 
-    pub fn device(self: *StereoDelay) dsp.Device {
-        return .{ .ptr = self, .vtable = &vtable };
-    }
-
-    const vtable: dsp.Device.VTable = .{
-        .process = processOpaque,
-        .reset = resetOpaque,
-    };
+    pub const device = dsp.deviceOf(@This());
 
     pub fn processBlock(self: *StereoDelay, buf: []Sample) void {
         const frames = buf.len / 2;
@@ -74,16 +67,6 @@ pub const StereoDelay = struct {
                 buf[i * 2 + ch] = dry * (1.0 - self.mix) + wet * self.mix;
             }
         }
-    }
-
-    fn processOpaque(ptr: *anyopaque, buf: []Sample) void {
-        const self: *StereoDelay = @ptrCast(@alignCast(ptr));
-        self.processBlock(buf);
-    }
-
-    fn resetOpaque(ptr: *anyopaque) void {
-        const self: *StereoDelay = @ptrCast(@alignCast(ptr));
-        self.clear();
     }
 };
 

@@ -67,7 +67,7 @@ pub const Reverb = struct {
         }
     }
 
-    pub fn clear(self: *Reverb) void {
+    pub fn reset(self: *Reverb) void {
         for (&self.channels) |*ch| {
             for (&ch.combs) |*comb| {
                 @memset(comb.buf, 0.0);
@@ -77,14 +77,7 @@ pub const Reverb = struct {
         }
     }
 
-    pub fn device(self: *Reverb) dsp.Device {
-        return .{ .ptr = self, .vtable = &vtable };
-    }
-
-    const vtable: dsp.Device.VTable = .{
-        .process = processOpaque,
-        .reset = resetOpaque,
-    };
+    pub const device = dsp.deviceOf(@This());
 
     pub fn processBlock(self: *Reverb, buf: []Sample) void {
         const frames = buf.len / 2;
@@ -112,16 +105,6 @@ pub const Reverb = struct {
                 buf[i * 2 + ch_i] = dry * (1.0 - self.mix) + wet * self.mix;
             }
         }
-    }
-
-    fn processOpaque(ptr: *anyopaque, buf: []Sample) void {
-        const self: *Reverb = @ptrCast(@alignCast(ptr));
-        self.processBlock(buf);
-    }
-
-    fn resetOpaque(ptr: *anyopaque) void {
-        const self: *Reverb = @ptrCast(@alignCast(ptr));
-        self.clear();
     }
 };
 

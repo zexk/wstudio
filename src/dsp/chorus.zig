@@ -45,21 +45,14 @@ pub const Chorus = struct {
         allocator.free(self.lines[1]);
     }
 
-    pub fn clear(self: *Chorus) void {
+    pub fn reset(self: *Chorus) void {
         @memset(self.lines[0], 0.0);
         @memset(self.lines[1], 0.0);
         self.index = 0;
         self.phase = 0.0;
     }
 
-    pub fn device(self: *Chorus) dsp.Device {
-        return .{ .ptr = self, .vtable = &vtable };
-    }
-
-    const vtable: dsp.Device.VTable = .{
-        .process = processOpaque,
-        .reset = resetOpaque,
-    };
+    pub const device = dsp.deviceOf(@This());
 
     /// Chorus an interleaved stereo buffer in place.
     pub fn processBlock(self: *Chorus, buf: []Sample) void {
@@ -88,16 +81,6 @@ pub const Chorus = struct {
             self.phase += phase_inc;
             if (self.phase >= 2.0 * std.math.pi) self.phase -= 2.0 * std.math.pi;
         }
-    }
-
-    fn processOpaque(ptr: *anyopaque, buf: []Sample) void {
-        const self: *Chorus = @ptrCast(@alignCast(ptr));
-        self.processBlock(buf);
-    }
-
-    fn resetOpaque(ptr: *anyopaque) void {
-        const self: *Chorus = @ptrCast(@alignCast(ptr));
-        self.clear();
     }
 };
 
