@@ -7,9 +7,18 @@
 //! All patches are matrix-native: legacy fenv_amount/lfo_depth/lfo_target
 //! carriers stay at their defaults and every mod route is an explicit
 //! `mod_matrix` row. Dest ids used below (see `automatable_params`):
-//! 1 PW A · 11 LEVEL B · 15 MOD AMT · 21 CUTOFF · 36 NOISE LVL ·
-//! 42 WARP AMT A · 47 CUTOFF 2 · 55 LEVEL C · 185 WT POS A ·
-//! plus the dP/dA virtual pitch/amp dests.
+//! 1 PW A · 4 UNI DET A · 8 PW B · 11 LEVEL B · 15 MOD AMT · 21 CUTOFF ·
+//! 22 RES · 34 SUB LVL · 36 NOISE LVL · 42 WARP AMT A · 47 CUTOFF 2 ·
+//! 55 LEVEL C · 85 DIST MIX · 89 CRUSH MIX · 94 FLNG MIX · 107 PHSR MIX ·
+//! 111 DLY MIX · 115 VRB MIX · 179 CHOR MIX · 182 FRQS SHIFT ·
+//! 185 WT POS A · plus the dP/dA virtual pitch/amp dests.
+//!
+//! Macro convention (all four default to 0, so every patch sounds stock
+//! until a knob moves): MACRO 1 = brightness (cutoff; the vowel scan on
+//! formant patches), MACRO 2 = timbre motion (FM depth, pulse width, warp,
+//! wavetable pos, resonance), MACRO 3 = space (delay/reverb/chorus/phaser
+//! mix), MACRO 4 = grit (dist/crush mix). Only routes that fit the sound
+//! are wired, but every preset except init carries at least one.
 
 const std = @import("std");
 const synth = @import("synth.zig");
@@ -49,8 +58,9 @@ pub const presets = [_]Preset{
         .filter2_on = true, .filter2_type = .hp, .filter2_cutoff = 120.0, .filter_routing = .series,
         .lfo_shape = .sine, .lfo_rate_hz = 0.25,
         .mod_matrix = mods(&.{
-            .{ .source = .lfo,  .dest = 21, .depth = 0.06 },
-            .{ .source = .mac1, .dest = 21, .depth = 0.5 },
+            .{ .source = .lfo,  .dest = 21,  .depth = 0.06 },
+            .{ .source = .mac1, .dest = 21,  .depth = 0.5 },
+            .{ .source = .mac3, .dest = 115, .depth = 0.4 },
         }),
         .fx_chorus_on = true, .fx_chorus_rate_hz = 0.5, .fx_chorus_depth_ms = 5.0, .fx_chorus_mix = 0.4,
         .fx_reverb_on = true, .fx_reverb_room = 0.75, .fx_reverb_damp = 0.4, .fx_reverb_mix = 0.25,
@@ -63,9 +73,11 @@ pub const presets = [_]Preset{
         .filter_type = .ladder, .filter_cutoff = 900.0, .filter_res = 0.15,
         .fenv_attack_s = 0.001, .fenv_decay_s = 0.15, .fenv_sustain = 0.0, .fenv_release_s = 0.1,
         .mod_matrix = mods(&.{
-            .{ .source = .fenv,     .dest = 21, .depth = 0.8 },
-            .{ .source = .velocity, .dest = 21, .depth = 0.3 },
-            .{ .source = .keytrack, .dest = 21, .depth = 0.3 },
+            .{ .source = .fenv,     .dest = 21,  .depth = 0.8 },
+            .{ .source = .velocity, .dest = 21,  .depth = 0.3 },
+            .{ .source = .keytrack, .dest = 21,  .depth = 0.3 },
+            .{ .source = .mac1,     .dest = 21,  .depth = 0.5 },
+            .{ .source = .mac3,     .dest = 111, .depth = 0.4 },
         }),
         .fx_delay_on = true, .fx_delay_time_s = 0.375, .fx_delay_feedback = 0.35, .fx_delay_mix = 0.25,
         .gain = 0.35,
@@ -80,6 +92,8 @@ pub const presets = [_]Preset{
         .sub_level = 0.8, .sub_shape = .sine,
         .mod_matrix = mods(&.{
             .{ .source = .keytrack, .dest = 21, .depth = 0.2 },
+            .{ .source = .mac1,     .dest = 21, .depth = 0.4 },
+            .{ .source = .mac4,     .dest = 85, .depth = 0.5 },
         }),
         .fx_dist_on = true, .fx_dist_drive_db = 6.0, .fx_dist_mix = 0.15,
         .gain = 0.4,
@@ -96,6 +110,9 @@ pub const presets = [_]Preset{
             .{ .source = .fenv,     .dest = 21, .depth = 0.875 },
             .{ .source = .velocity, .dest = 21, .depth = 0.25 },
             .{ .source = .keytrack, .dest = 21, .depth = 0.3 },
+            .{ .source = .mac1,     .dest = 21, .depth = 0.5 },
+            .{ .source = .mac2,     .dest = 22, .depth = 0.25 },
+            .{ .source = .mac4,     .dest = 85, .depth = 0.4 },
         }),
         .fx_dist_on = true, .fx_dist_drive_db = 10.0, .fx_dist_mix = 0.5,
         .gain = 0.32,
@@ -113,6 +130,7 @@ pub const presets = [_]Preset{
         .mod_matrix = mods(&.{
             .{ .source = .fenv,     .dest = 21, .depth = 0.625 },
             .{ .source = .velocity, .dest = 21, .depth = 0.4 },
+            .{ .source = .mac1,     .dest = 21, .depth = 0.5 },
         }),
         .gain = 0.32,
     } },
@@ -125,7 +143,9 @@ pub const presets = [_]Preset{
         .filter_type = .lp, .filter_cutoff = 6500.0, .filter_res = 0.15,
         .filter2_on = true, .filter2_type = .hp, .filter2_cutoff = 180.0, .filter_routing = .series,
         .mod_matrix = mods(&.{
-            .{ .source = .mac1, .dest = 21, .depth = 0.5 },
+            .{ .source = .mac1, .dest = 21,  .depth = 0.5 },
+            .{ .source = .mac3, .dest = 111, .depth = 0.4 },
+            .{ .source = .mac3, .dest = 115, .depth = 0.35 },
         }),
         .fx_delay_on = true, .fx_delay_time_s = 0.375, .fx_delay_feedback = 0.4, .fx_delay_mix = 0.28,
         .fx_reverb_on = true, .fx_reverb_room = 0.7, .fx_reverb_damp = 0.35, .fx_reverb_mix = 0.22,
@@ -140,7 +160,9 @@ pub const presets = [_]Preset{
         .attack_s = 0.001, .decay_s = 1.2, .sustain = 0.0, .release_s = 1.8,
         .filter_type = .lp, .filter_cutoff = 12_000.0, .filter_res = 0.0,
         .mod_matrix = mods(&.{
-            .{ .source = .velocity, .dest = 15, .depth = 0.15 },
+            .{ .source = .velocity, .dest = 15,  .depth = 0.15 },
+            .{ .source = .mac2,     .dest = 15,  .depth = 0.25 },
+            .{ .source = .mac3,     .dest = 115, .depth = 0.4 },
         }),
         .fx_reverb_on = true, .fx_reverb_room = 0.8, .fx_reverb_damp = 0.3, .fx_reverb_mix = 0.3,
         .gain = 0.3,
@@ -158,6 +180,8 @@ pub const presets = [_]Preset{
             .{ .source = .lfo,  .dest = 21,  .depth = 0.45 },
             .{ .source = .lfo,  .dest = 185, .depth = 0.3 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.5 },
+            .{ .source = .mac2, .dest = 185, .depth = 0.4 },
+            .{ .source = .mac4, .dest = 85,  .depth = 0.4 },
         }),
         .fx_dist_on = true, .fx_dist_drive_db = 12.0, .fx_dist_mix = 0.4,
         .gain = 0.34,
@@ -174,6 +198,8 @@ pub const presets = [_]Preset{
         .mod_matrix = mods(&.{
             .{ .source = .lfo,  .dest = 21, .depth = 0.25 },
             .{ .source = .env3, .dest = dP, .depth = 0.4 },
+            .{ .source = .mac1, .dest = 21, .depth = 0.5 },
+            .{ .source = .mac3, .dest = 94, .depth = 0.3 },
         }),
         .fx_flanger_on = true, .fx_flanger_rate_hz = 0.15, .fx_flanger_depth = 0.9, .fx_flanger_feedback = 0.6, .fx_flanger_mix = 0.5,
         .gain = 0.28,
@@ -187,8 +213,11 @@ pub const presets = [_]Preset{
         .attack_s = 0.002, .decay_s = 1.4, .sustain = 0.25, .release_s = 0.9,
         .filter_type = .lp, .filter_cutoff = 3800.0, .filter_res = 0.05,
         .mod_matrix = mods(&.{
-            .{ .source = .velocity, .dest = 15, .depth = 0.15 },
-            .{ .source = .velocity, .dest = 21, .depth = 0.25 },
+            .{ .source = .velocity, .dest = 15,  .depth = 0.15 },
+            .{ .source = .velocity, .dest = 21,  .depth = 0.25 },
+            .{ .source = .mac1,     .dest = 21,  .depth = 0.4 },
+            .{ .source = .mac2,     .dest = 15,  .depth = 0.25 },
+            .{ .source = .mac3,     .dest = 179, .depth = 0.3 },
         }),
         .fx_chorus_on = true, .fx_chorus_rate_hz = 0.9, .fx_chorus_depth_ms = 4.0, .fx_chorus_mix = 0.35,
         .gain = 0.3,
@@ -204,6 +233,7 @@ pub const presets = [_]Preset{
         .sub_level = 0.6, .sub_shape = .sine,
         .mod_matrix = mods(&.{
             .{ .source = .velocity, .dest = 21, .depth = 0.3 },
+            .{ .source = .mac1,     .dest = 21, .depth = 0.4 },
         }),
         .fx_comp_on = true, .fx_comp_threshold_db = -20.0, .fx_comp_ratio = 3.0, .fx_comp_attack_ms = 15.0, .fx_comp_release_ms = 120.0,
         .gain = 0.4,
@@ -221,8 +251,11 @@ pub const presets = [_]Preset{
         .lfo_shape = .sine, .lfo_rate_hz = 0.2,
         .lfo2_shape = .sine, .lfo2_rate_hz = 0.7,
         .mod_matrix = mods(&.{
-            .{ .source = .lfo,  .dest = 21, .depth = 0.04 },
-            .{ .source = .lfo2, .dest = dP, .depth = 0.015 },
+            .{ .source = .lfo,  .dest = 21,  .depth = 0.04 },
+            .{ .source = .lfo2, .dest = dP,  .depth = 0.015 },
+            .{ .source = .mac1, .dest = 21,  .depth = 0.5 },
+            .{ .source = .mac3, .dest = 115, .depth = 0.4 },
+            .{ .source = .mac4, .dest = 89,  .depth = 0.4 },
         }),
         .fx_crush_on = true, .fx_crush_bits = 10.0, .fx_crush_rate = 3.0, .fx_crush_mix = 0.25,
         .fx_reverb_on = true, .fx_reverb_room = 0.65, .fx_reverb_damp = 0.55, .fx_reverb_mix = 0.2,
@@ -231,7 +264,7 @@ pub const presets = [_]Preset{
 
     // --- Drum & bass / neurofunk ---
     // reese-bass — third saw widens the beat pattern, ladder filter, macro 1
-    // as the DJ-style cutoff ride
+    // as the DJ-style cutoff ride, macro 2 blurs the detune wider
     .{ .name = "reese-bass", .category = "bass", .tags = &.{ "wstudio", "dnb" }, .patch = .{
         .waveform = .saw, .unison = 2, .unison_detune = 16.0, .unison_spread = 0.6,
         .osc_b_on = true, .osc_b_waveform = .saw, .osc_b_semi = 0.0, .osc_b_detune_cents = 14.0, .osc_b_level = 0.9,
@@ -244,6 +277,7 @@ pub const presets = [_]Preset{
         .mod_matrix = mods(&.{
             .{ .source = .lfo,  .dest = 21, .depth = 0.125 },
             .{ .source = .mac1, .dest = 21, .depth = 0.6 },
+            .{ .source = .mac2, .dest = 4,  .depth = 0.3 },
         }),
         .gain = 0.3,
     } },
@@ -264,6 +298,9 @@ pub const presets = [_]Preset{
             .{ .source = .fenv, .dest = 21,  .depth = 0.5 },
             .{ .source = .lfo,  .dest = 47,  .depth = 0.35 },
             .{ .source = .lfo2, .dest = 185, .depth = 0.2 },
+            .{ .source = .mac1, .dest = 21,  .depth = 0.5 },
+            .{ .source = .mac2, .dest = 47,  .depth = 0.4 },
+            .{ .source = .mac4, .dest = 85,  .depth = 0.3 },
         }),
         .fx_dist_on = true, .fx_dist_drive_db = 14.0, .fx_dist_mix = 0.5,
         .fx_ott_on = true, .fx_ott_depth = 0.6, .fx_ott_gain_out_db = -8.0,
@@ -283,6 +320,8 @@ pub const presets = [_]Preset{
             .{ .source = .fenv,     .dest = 21, .depth = 0.375 },
             .{ .source = .velocity, .dest = 21, .depth = 0.2 },
             .{ .source = .keytrack, .dest = 21, .depth = 0.3 },
+            .{ .source = .mac1,     .dest = 21, .depth = 0.4 },
+            .{ .source = .mac4,     .dest = 85, .depth = 0.3 },
         }),
         .fx_dist_on = true, .fx_dist_drive_db = 8.0, .fx_dist_mix = 0.2,
         .gain = 0.4,
@@ -297,8 +336,10 @@ pub const presets = [_]Preset{
         .fenv_attack_s = 0.02, .fenv_decay_s = 0.3, .fenv_sustain = 0.4, .fenv_release_s = 0.2,
         .lfo_shape = .sine, .lfo_rate_hz = 5.0,
         .mod_matrix = mods(&.{
-            .{ .source = .fenv, .dest = 21, .depth = 0.7 },
-            .{ .source = .lfo,  .dest = dP, .depth = 0.15 },
+            .{ .source = .fenv, .dest = 21,  .depth = 0.7 },
+            .{ .source = .lfo,  .dest = dP,  .depth = 0.15 },
+            .{ .source = .mac1, .dest = 21,  .depth = 0.5 },
+            .{ .source = .mac3, .dest = 111, .depth = 0.4 },
         }),
         .fx_delay_on = true, .fx_delay_time_s = 0.16, .fx_delay_feedback = 0.45, .fx_delay_mix = 0.3,
         .gain = 0.28,
@@ -313,8 +354,10 @@ pub const presets = [_]Preset{
         .filter_type = .lp, .filter_cutoff = 2200.0, .filter_res = 0.2,
         .fenv_attack_s = 0.005, .fenv_decay_s = 0.35, .fenv_sustain = 0.0, .fenv_release_s = 0.2,
         .mod_matrix = mods(&.{
-            .{ .source = .fenv,     .dest = 21, .depth = 0.45 },
-            .{ .source = .velocity, .dest = 21, .depth = 0.35 },
+            .{ .source = .fenv,     .dest = 21,  .depth = 0.45 },
+            .{ .source = .velocity, .dest = 21,  .depth = 0.35 },
+            .{ .source = .mac1,     .dest = 21,  .depth = 0.5 },
+            .{ .source = .mac3,     .dest = 115, .depth = 0.4 },
         }),
         .fx_reverb_on = true, .fx_reverb_room = 0.5, .fx_reverb_damp = 0.5, .fx_reverb_mix = 0.18,
         .gain = 0.3,
@@ -330,6 +373,8 @@ pub const presets = [_]Preset{
         .mod_matrix = mods(&.{
             .{ .source = .fenv,     .dest = 21, .depth = 0.3 },
             .{ .source = .velocity, .dest = 21, .depth = 0.2 },
+            .{ .source = .mac1,     .dest = 21, .depth = 0.4 },
+            .{ .source = .mac4,     .dest = 85, .depth = 0.4 },
         }),
         .fx_dist_on = true, .fx_dist_drive_db = 8.0, .fx_dist_mix = 0.3,
         .gain = 0.38,
@@ -337,7 +382,7 @@ pub const presets = [_]Preset{
 
     // --- House / disco / funk ---
     // organ-bass — harmonic-series unison stacks sine drawbars over the
-    // square foundation
+    // square foundation; macro 2 pulls the fifth drawbar in
     .{ .name = "organ-bass", .category = "bass", .tags = &.{ "wstudio", "deep-house" }, .patch = .{
         .waveform = .square, .voice_mode = .mono, .glide_s = 0.0,
         .osc_b_on = true, .osc_b_waveform = .sine, .osc_b_semi = 12.0, .osc_b_level = 0.5,
@@ -347,6 +392,8 @@ pub const presets = [_]Preset{
         .sub_level = 0.4, .sub_shape = .sine,
         .mod_matrix = mods(&.{
             .{ .source = .keytrack, .dest = 21, .depth = 0.25 },
+            .{ .source = .mac1,     .dest = 21, .depth = 0.4 },
+            .{ .source = .mac2,     .dest = 55, .depth = 0.4 },
         }),
         .gain = 0.34,
     } },
@@ -361,6 +408,7 @@ pub const presets = [_]Preset{
         .mod_matrix = mods(&.{
             .{ .source = .fenv,     .dest = 21, .depth = 0.25 },
             .{ .source = .velocity, .dest = 21, .depth = 0.3 },
+            .{ .source = .mac1,     .dest = 21, .depth = 0.4 },
         }),
         .fx_comp_on = true, .fx_comp_threshold_db = -18.0, .fx_comp_ratio = 3.0, .fx_comp_attack_ms = 10.0, .fx_comp_release_ms = 100.0,
         .gain = 0.36,
@@ -376,6 +424,8 @@ pub const presets = [_]Preset{
         .mod_matrix = mods(&.{
             .{ .source = .fenv,     .dest = 21, .depth = 0.4 },
             .{ .source = .velocity, .dest = 21, .depth = 0.4 },
+            .{ .source = .mac1,     .dest = 21, .depth = 0.5 },
+            .{ .source = .mac2,     .dest = 22, .depth = 0.3 },
         }),
         .gain = 0.36,
     } },
@@ -388,9 +438,11 @@ pub const presets = [_]Preset{
         .filter_type = .bp, .filter_cutoff = 1600.0, .filter_res = 0.35,
         .fenv_attack_s = 0.001, .fenv_decay_s = 0.2, .fenv_sustain = 0.0, .fenv_release_s = 0.1,
         .mod_matrix = mods(&.{
-            .{ .source = .fenv,     .dest = 21, .depth = 0.375 },
-            .{ .source = .velocity, .dest = 21, .depth = 0.4 },
-            .{ .source = .keytrack, .dest = 21, .depth = 0.3 },
+            .{ .source = .fenv,     .dest = 21,  .depth = 0.375 },
+            .{ .source = .velocity, .dest = 21,  .depth = 0.4 },
+            .{ .source = .keytrack, .dest = 21,  .depth = 0.3 },
+            .{ .source = .mac1,     .dest = 21,  .depth = 0.4 },
+            .{ .source = .mac3,     .dest = 107, .depth = 0.3 },
         }),
         .fx_phaser_on = true, .fx_phaser_rate_hz = 0.5, .fx_phaser_depth = 0.8, .fx_phaser_feedback = 0.5, .fx_phaser_mix = 0.45,
         .gain = 0.32,
@@ -405,6 +457,8 @@ pub const presets = [_]Preset{
         .sub_level = 0.7, .sub_shape = .sine,
         .mod_matrix = mods(&.{
             .{ .source = .velocity, .dest = 21, .depth = 0.2 },
+            .{ .source = .mac1,     .dest = 21, .depth = 0.4 },
+            .{ .source = .mac4,     .dest = 85, .depth = 0.3 },
         }),
         .fx_dist_on = true, .fx_dist_drive_db = 5.0, .fx_dist_mix = 0.15,
         .gain = 0.42,
@@ -421,8 +475,11 @@ pub const presets = [_]Preset{
         .lfo2_shape = .sine, .lfo2_rate_hz = 5.5,
         .env3_attack_s = 0.001, .env3_decay_s = 0.35, .env3_sustain = 0.0, .env3_release_s = 0.2,
         .mod_matrix = mods(&.{
-            .{ .source = .lfo2, .dest = dP, .depth = 0.06 },
-            .{ .source = .env3, .dest = 42, .depth = 0.4 },
+            .{ .source = .lfo2, .dest = dP,  .depth = 0.06 },
+            .{ .source = .env3, .dest = 42,  .depth = 0.4 },
+            .{ .source = .mac1, .dest = 21,  .depth = 0.5 },
+            .{ .source = .mac2, .dest = 42,  .depth = 0.4 },
+            .{ .source = .mac3, .dest = 111, .depth = 0.35 },
         }),
         .fx_delay_on = true, .fx_delay_time_s = 0.375, .fx_delay_feedback = 0.4, .fx_delay_mix = 0.3,
         .fx_chorus_on = true, .fx_chorus_rate_hz = 0.7, .fx_chorus_depth_ms = 3.5, .fx_chorus_mix = 0.3,
@@ -439,9 +496,11 @@ pub const presets = [_]Preset{
         .fenv_attack_s = 0.07, .fenv_decay_s = 0.5, .fenv_sustain = 0.5, .fenv_release_s = 0.3,
         .lfo_shape = .sine, .lfo_rate_hz = 5.0,
         .mod_matrix = mods(&.{
-            .{ .source = .fenv,     .dest = 21, .depth = 0.3 },
-            .{ .source = .lfo,      .dest = dP, .depth = 0.08 },
-            .{ .source = .velocity, .dest = 21, .depth = 0.35 },
+            .{ .source = .fenv,     .dest = 21,  .depth = 0.3 },
+            .{ .source = .lfo,      .dest = dP,  .depth = 0.08 },
+            .{ .source = .velocity, .dest = 21,  .depth = 0.35 },
+            .{ .source = .mac1,     .dest = 21,  .depth = 0.4 },
+            .{ .source = .mac3,     .dest = 179, .depth = 0.3 },
         }),
         .fx_chorus_on = true, .fx_chorus_rate_hz = 0.8, .fx_chorus_depth_ms = 5.0, .fx_chorus_mix = 0.35,
         .gain = 0.28,
@@ -457,8 +516,11 @@ pub const presets = [_]Preset{
         .lfo_shape = .triangle, .lfo_rate_hz = 0.4,
         .lfo2_shape = .sine, .lfo2_rate_hz = 0.3,
         .mod_matrix = mods(&.{
-            .{ .source = .lfo,  .dest = 21, .depth = 0.05 },
-            .{ .source = .lfo2, .dest = 1,  .depth = 0.25 },
+            .{ .source = .lfo,  .dest = 21,  .depth = 0.05 },
+            .{ .source = .lfo2, .dest = 1,   .depth = 0.25 },
+            .{ .source = .mac1, .dest = 21,  .depth = 0.4 },
+            .{ .source = .mac2, .dest = 1,   .depth = 0.3 },
+            .{ .source = .mac3, .dest = 179, .depth = 0.3 },
         }),
         .fx_chorus_on = true, .fx_chorus_rate_hz = 0.8, .fx_chorus_depth_ms = 6.0, .fx_chorus_mix = 0.5,
         .gain = 0.26,
@@ -472,7 +534,9 @@ pub const presets = [_]Preset{
         .filter_type = .lp, .filter_cutoff = 5000.0, .filter_res = 0.12,
         .lfo_shape = .sine, .lfo_rate_hz = 5.0,
         .mod_matrix = mods(&.{
-            .{ .source = .lfo, .dest = dP, .depth = 0.1 },
+            .{ .source = .lfo,  .dest = dP,  .depth = 0.1 },
+            .{ .source = .mac1, .dest = 21,  .depth = 0.5 },
+            .{ .source = .mac3, .dest = 115, .depth = 0.4 },
         }),
         .fx_ott_on = true, .fx_ott_depth = 0.7, .fx_ott_gain_out_db = -12.0,
         .fx_reverb_on = true, .fx_reverb_room = 0.7, .fx_reverb_damp = 0.35, .fx_reverb_mix = 0.25,
@@ -491,6 +555,8 @@ pub const presets = [_]Preset{
         .mod_matrix = mods(&.{
             .{ .source = .lfo,  .dest = dP, .depth = 0.1 },
             .{ .source = .lfo2, .dest = 1,  .depth = 0.12 },
+            .{ .source = .mac2, .dest = 1,  .depth = 0.3 },
+            .{ .source = .mac4, .dest = 89, .depth = 0.4 },
         }),
         .fx_crush_on = true, .fx_crush_bits = 8.0, .fx_crush_rate = 4.0, .fx_crush_mix = 0.4,
         .gain = 0.3,
@@ -501,6 +567,9 @@ pub const presets = [_]Preset{
         .waveform = .triangle, .voice_mode = .mono, .glide_s = 0.0,
         .attack_s = 0.001, .decay_s = 0.08, .sustain = 0.9, .release_s = 0.03,
         .filter_type = .lp, .filter_cutoff = 18_000.0, .filter_res = 0.0,
+        .mod_matrix = mods(&.{
+            .{ .source = .mac4, .dest = 89, .depth = 0.4 },
+        }),
         .fx_crush_on = true, .fx_crush_bits = 4.0, .fx_crush_rate = 2.0, .fx_crush_mix = 0.5,
         .gain = 0.38,
     } },
@@ -512,6 +581,10 @@ pub const presets = [_]Preset{
         .attack_s = 0.001, .decay_s = 0.06, .sustain = 0.0, .release_s = 0.02,
         .filter_type = .lp, .filter_cutoff = 18_000.0, .filter_res = 0.0,
         .arp_on = true, .arp_mode = .up, .arp_octaves = 2, .arp_rate_hz = 12.0, .arp_gate = 0.6,
+        .mod_matrix = mods(&.{
+            .{ .source = .mac2, .dest = 1,  .depth = 0.3 },
+            .{ .source = .mac4, .dest = 89, .depth = 0.4 },
+        }),
         .fx_crush_on = true, .fx_crush_bits = 8.0, .fx_crush_rate = 3.0, .fx_crush_mix = 0.3,
         .gain = 0.3,
     } },
@@ -530,6 +603,9 @@ pub const presets = [_]Preset{
         .mod_matrix = mods(&.{
             .{ .source = .lfo,  .dest = 21,  .depth = 0.12 },
             .{ .source = .lfo2, .dest = 185, .depth = 0.25 },
+            .{ .source = .mac1, .dest = 21,  .depth = 0.5 },
+            .{ .source = .mac2, .dest = 185, .depth = 0.4 },
+            .{ .source = .mac3, .dest = 115, .depth = 0.4 },
         }),
         .fx_reverb_on = true, .fx_reverb_room = 0.92, .fx_reverb_damp = 0.35, .fx_reverb_mix = 0.45,
         .gain = 0.24,
@@ -543,8 +619,10 @@ pub const presets = [_]Preset{
         .filter_type = .lp, .filter_cutoff = 6000.0, .filter_res = 0.0,
         .lfo_shape = .sine, .lfo_rate_hz = 0.3,
         .mod_matrix = mods(&.{
-            .{ .source = .lfo,      .dest = dA, .depth = 0.05 },
-            .{ .source = .velocity, .dest = 15, .depth = 0.1 },
+            .{ .source = .lfo,      .dest = dA,  .depth = 0.05 },
+            .{ .source = .velocity, .dest = 15,  .depth = 0.1 },
+            .{ .source = .mac2,     .dest = 15,  .depth = 0.2 },
+            .{ .source = .mac3,     .dest = 115, .depth = 0.4 },
         }),
         .fx_chorus_on = true, .fx_chorus_rate_hz = 0.4, .fx_chorus_depth_ms = 5.0, .fx_chorus_mix = 0.3,
         .fx_reverb_on = true, .fx_reverb_room = 0.85, .fx_reverb_damp = 0.3, .fx_reverb_mix = 0.4,
@@ -560,15 +638,17 @@ pub const presets = [_]Preset{
         .attack_s = 0.001, .decay_s = 0.6, .sustain = 0.0, .release_s = 0.5,
         .filter_type = .lp, .filter_cutoff = 9000.0, .filter_res = 0.0,
         .mod_matrix = mods(&.{
-            .{ .source = .velocity, .dest = 15, .depth = 0.15 },
+            .{ .source = .velocity, .dest = 15,  .depth = 0.15 },
+            .{ .source = .mac2,     .dest = 15,  .depth = 0.25 },
+            .{ .source = .mac3,     .dest = 115, .depth = 0.4 },
         }),
         .fx_reverb_on = true, .fx_reverb_room = 0.8, .fx_reverb_damp = 0.6, .fx_reverb_mix = 0.35,
         .gain = 0.3,
     } },
 
-    // trap-sub — ENV 3 gives the 808 pitch knock (starts ~half an octave
+    // trap-808 — ENV 3 gives the 808 pitch knock (starts ~half an octave
     // sharp and drops in), drive adds the speaker-rattle harmonics
-    .{ .name = "trap-sub", .category = "bass", .tags = &.{ "wstudio", "trap" }, .patch = .{
+    .{ .name = "trap-808", .category = "bass", .tags = &.{ "wstudio", "trap" }, .patch = .{
         .waveform = .sine, .voice_mode = .mono, .glide_s = 0.08,
         .attack_s = 0.002, .decay_s = 0.8, .sustain = 0.4, .release_s = 0.6,
         .filter_type = .lp, .filter_cutoff = 400.0, .filter_res = 0.0,
@@ -576,6 +656,8 @@ pub const presets = [_]Preset{
         .env3_attack_s = 0.001, .env3_decay_s = 0.07, .env3_sustain = 0.0, .env3_release_s = 0.05,
         .mod_matrix = mods(&.{
             .{ .source = .env3, .dest = dP, .depth = 0.55 },
+            .{ .source = .mac1, .dest = 21, .depth = 0.3 },
+            .{ .source = .mac4, .dest = 85, .depth = 0.4 },
         }),
         .fx_dist_on = true, .fx_dist_drive_db = 8.0, .fx_dist_mix = 0.2,
         .gain = 0.42,
@@ -594,8 +676,11 @@ pub const presets = [_]Preset{
         .lfo_shape = .sine, .lfo_rate_hz = 5.5,
         .env3_attack_s = 0.001, .env3_decay_s = 0.15, .env3_sustain = 0.0, .env3_release_s = 0.1,
         .mod_matrix = mods(&.{
-            .{ .source = .lfo,  .dest = dP, .depth = 0.18 },
-            .{ .source = .env3, .dest = dP, .depth = -0.45 },
+            .{ .source = .lfo,  .dest = dP,  .depth = 0.18 },
+            .{ .source = .env3, .dest = dP,  .depth = -0.45 },
+            .{ .source = .mac1, .dest = 21,  .depth = 0.5 },
+            .{ .source = .mac3, .dest = 107, .depth = 0.3 },
+            .{ .source = .mac4, .dest = 85,  .depth = 0.3 },
         }),
         .fx_phaser_on = true, .fx_phaser_rate_hz = 0.6, .fx_phaser_depth = 0.8, .fx_phaser_feedback = 0.4, .fx_phaser_mix = 0.4,
         .fx_dist_on = true, .fx_dist_drive_db = 9.0, .fx_dist_mix = 0.3,
@@ -610,9 +695,13 @@ pub const presets = [_]Preset{
         .filter_type = .diode, .filter_cutoff = 800.0, .filter_res = 0.82,
         .fenv_attack_s = 0.001, .fenv_decay_s = 0.28, .fenv_sustain = 0.1, .fenv_release_s = 0.1,
         .mod_matrix = mods(&.{
-            .{ .source = .fenv,     .dest = 21, .depth = 0.75 },
-            .{ .source = .keytrack, .dest = 21, .depth = 0.35 },
-            .{ .source = .velocity, .dest = 21, .depth = 0.25 },
+            .{ .source = .fenv,     .dest = 21,  .depth = 0.75 },
+            .{ .source = .keytrack, .dest = 21,  .depth = 0.35 },
+            .{ .source = .velocity, .dest = 21,  .depth = 0.25 },
+            .{ .source = .mac1,     .dest = 21,  .depth = 0.5 },
+            .{ .source = .mac2,     .dest = 22,  .depth = 0.25 },
+            .{ .source = .mac3,     .dest = 111, .depth = 0.3 },
+            .{ .source = .mac4,     .dest = 85,  .depth = 0.3 },
         }),
         .fx_dist_on = true, .fx_dist_drive_db = 14.0, .fx_dist_mix = 0.5,
         .fx_delay_on = true, .fx_delay_time_s = 0.19, .fx_delay_feedback = 0.4, .fx_delay_mix = 0.25,
@@ -631,6 +720,8 @@ pub const presets = [_]Preset{
         .mod_matrix = mods(&.{
             .{ .source = .fenv,     .dest = 21, .depth = 0.45 },
             .{ .source = .velocity, .dest = 21, .depth = 0.3 },
+            .{ .source = .mac1,     .dest = 21, .depth = 0.4 },
+            .{ .source = .mac4,     .dest = 85, .depth = 0.3 },
         }),
         .fx_dist_on = true, .fx_dist_drive_db = 10.0, .fx_dist_mix = 0.45,
         .fx_chorus_on = true, .fx_chorus_rate_hz = 0.6, .fx_chorus_depth_ms = 3.0, .fx_chorus_mix = 0.25,
@@ -639,7 +730,8 @@ pub const presets = [_]Preset{
 
     // --- Jazz / soul ---
     // jazz-organ — harmonic-series unison stacks real drawbars, ENV 3 fakes
-    // the Hammond's percussion register on the 2nd-harmonic osc
+    // the Hammond's percussion register on the 2nd-harmonic osc; macro 2
+    // pulls in the sub drawbar
     .{ .name = "jazz-organ", .category = "keys", .tags = &.{ "wstudio", "jazz" }, .patch = .{
         .waveform = .sine, .unison = 3, .unison_mode = .harmonic, .unison_detune = 100.0,
         .osc_b_on = true, .osc_b_waveform = .sine, .osc_b_semi = 12.0, .osc_b_level = 0.4,
@@ -651,6 +743,8 @@ pub const presets = [_]Preset{
         .mod_matrix = mods(&.{
             .{ .source = .lfo,  .dest = dP, .depth = 0.06 },
             .{ .source = .env3, .dest = 11, .depth = 0.5 },
+            .{ .source = .mac1, .dest = 21, .depth = 0.4 },
+            .{ .source = .mac2, .dest = 34, .depth = 0.4 },
         }),
         .gain = 0.3,
     } },
@@ -662,7 +756,9 @@ pub const presets = [_]Preset{
         .attack_s = 0.002, .decay_s = 1.0, .sustain = 0.2, .release_s = 0.6,
         .filter_type = .lp, .filter_cutoff = 3200.0, .filter_res = 0.05,
         .mod_matrix = mods(&.{
-            .{ .source = .velocity, .dest = 15, .depth = 0.12 },
+            .{ .source = .velocity, .dest = 15,  .depth = 0.12 },
+            .{ .source = .mac2,     .dest = 15,  .depth = 0.2 },
+            .{ .source = .mac3,     .dest = 179, .depth = 0.3 },
         }),
         .fx_chorus_on = true, .fx_chorus_rate_hz = 0.7, .fx_chorus_depth_ms = 3.5, .fx_chorus_mix = 0.3,
         .gain = 0.32,
@@ -676,8 +772,10 @@ pub const presets = [_]Preset{
         .filter_type = .lp, .filter_cutoff = 8000.0, .filter_res = 0.0,
         .lfo_shape = .sine, .lfo_rate_hz = 5.0,
         .mod_matrix = mods(&.{
-            .{ .source = .lfo,      .dest = dA, .depth = 0.075 },
-            .{ .source = .velocity, .dest = 15, .depth = 0.12 },
+            .{ .source = .lfo,      .dest = dA,  .depth = 0.075 },
+            .{ .source = .velocity, .dest = 15,  .depth = 0.12 },
+            .{ .source = .mac2,     .dest = 15,  .depth = 0.2 },
+            .{ .source = .mac3,     .dest = 115, .depth = 0.4 },
         }),
         .fx_reverb_on = true, .fx_reverb_room = 0.55, .fx_reverb_damp = 0.4, .fx_reverb_mix = 0.25,
         .gain = 0.3,
@@ -694,6 +792,7 @@ pub const presets = [_]Preset{
         .mod_matrix = mods(&.{
             .{ .source = .velocity, .dest = 21, .depth = 0.25 },
             .{ .source = .keytrack, .dest = 21, .depth = 0.25 },
+            .{ .source = .mac1,     .dest = 21, .depth = 0.5 },
         }),
         .fx_comp_on = true, .fx_comp_threshold_db = -18.0, .fx_comp_ratio = 4.0, .fx_comp_attack_ms = 5.0, .fx_comp_release_ms = 80.0,
         .gain = 0.36,
@@ -710,12 +809,15 @@ pub const presets = [_]Preset{
         .sub_level = 0.5, .sub_shape = .sine,
         .mod_matrix = mods(&.{
             .{ .source = .env3, .dest = 11, .depth = 0.4 },
+            .{ .source = .mac1, .dest = 21, .depth = 0.4 },
+            .{ .source = .mac2, .dest = 34, .depth = 0.4 },
         }),
         .gain = 0.3,
     } },
 
     // dubstep — the talking growl finally talks: a real formant filter
-    // scanned by the LFO, lowpassed in series to keep it bass
+    // scanned by the LFO, lowpassed in series to keep it bass; macro 1 is
+    // the vowel, not a plain cutoff, on this one
     .{ .name = "growl-bass", .category = "bass", .tags = &.{ "wstudio", "dubstep" }, .patch = .{
         .waveform = .saw, .voice_mode = .mono, .glide_s = 0.01,
         .osc_b_on = true, .osc_b_waveform = .square, .osc_b_semi = 0.0, .osc_b_detune_cents = 8.0, .osc_b_level = 0.8,
@@ -727,6 +829,7 @@ pub const presets = [_]Preset{
         .mod_matrix = mods(&.{
             .{ .source = .lfo,  .dest = 21, .depth = 0.4 },
             .{ .source = .mac1, .dest = 21, .depth = 0.5 },
+            .{ .source = .mac4, .dest = 85, .depth = 0.3 },
         }),
         .fx_dist_on = true, .fx_dist_drive_db = 12.0, .fx_dist_mix = 0.5,
         .fx_ott_on = true, .fx_ott_depth = 0.5, .fx_ott_gain_out_db = -8.0,
@@ -740,8 +843,10 @@ pub const presets = [_]Preset{
         .filter_type = .ladder, .filter_cutoff = 3500.0, .filter_res = 0.15,
         .lfo_shape = .sine, .lfo_rate_hz = 5.5,
         .mod_matrix = mods(&.{
-            .{ .source = .lfo,      .dest = dP, .depth = 0.15 },
-            .{ .source = .velocity, .dest = 21, .depth = 0.25 },
+            .{ .source = .lfo,      .dest = dP,  .depth = 0.15 },
+            .{ .source = .velocity, .dest = 21,  .depth = 0.25 },
+            .{ .source = .mac1,     .dest = 21,  .depth = 0.4 },
+            .{ .source = .mac3,     .dest = 111, .depth = 0.4 },
         }),
         .fx_delay_on = true, .fx_delay_time_s = 0.28, .fx_delay_feedback = 0.3, .fx_delay_mix = 0.2,
         .gain = 0.28,
@@ -756,7 +861,9 @@ pub const presets = [_]Preset{
         .filter2_on = true, .filter2_type = .hp, .filter2_cutoff = 120.0, .filter_routing = .series,
         .lfo_shape = .sine, .lfo_rate_hz = 0.3,
         .mod_matrix = mods(&.{
-            .{ .source = .lfo, .dest = 21, .depth = 0.05 },
+            .{ .source = .lfo,  .dest = 21,  .depth = 0.05 },
+            .{ .source = .mac1, .dest = 21,  .depth = 0.5 },
+            .{ .source = .mac3, .dest = 115, .depth = 0.4 },
         }),
         .fx_chorus_on = true, .fx_chorus_rate_hz = 0.5, .fx_chorus_depth_ms = 5.0, .fx_chorus_mix = 0.4,
         .fx_reverb_on = true, .fx_reverb_room = 0.8, .fx_reverb_damp = 0.4, .fx_reverb_mix = 0.35,
@@ -775,8 +882,11 @@ pub const presets = [_]Preset{
         .fenv_attack_s = 0.004, .fenv_decay_s = 0.3, .fenv_sustain = 0.3, .fenv_release_s = 0.15,
         .lfo_shape = .triangle, .lfo_rate_hz = 4.0,
         .mod_matrix = mods(&.{
-            .{ .source = .fenv, .dest = 21, .depth = 0.625 },
-            .{ .source = .lfo,  .dest = 21, .depth = 0.15 },
+            .{ .source = .fenv, .dest = 21,  .depth = 0.625 },
+            .{ .source = .lfo,  .dest = 21,  .depth = 0.15 },
+            .{ .source = .mac1, .dest = 21,  .depth = 0.5 },
+            .{ .source = .mac2, .dest = 182, .depth = 0.05 },
+            .{ .source = .mac4, .dest = 85,  .depth = 0.3 },
         }),
         .fx_freq_shift_on = true, .fx_freq_shift_hz = 30.0, .fx_freq_shift_mix = 0.3,
         .fx_dist_on = true, .fx_dist_drive_db = 12.0, .fx_dist_mix = 0.5,
@@ -790,9 +900,11 @@ pub const presets = [_]Preset{
         .filter_type = .diode, .filter_cutoff = 1200.0, .filter_res = 0.5,
         .fenv_attack_s = 0.001, .fenv_decay_s = 0.11, .fenv_sustain = 0.0, .fenv_release_s = 0.05,
         .mod_matrix = mods(&.{
-            .{ .source = .fenv,     .dest = 21, .depth = 0.625 },
-            .{ .source = .keytrack, .dest = 21, .depth = 0.4 },
-            .{ .source = .velocity, .dest = 21, .depth = 0.3 },
+            .{ .source = .fenv,     .dest = 21,  .depth = 0.625 },
+            .{ .source = .keytrack, .dest = 21,  .depth = 0.4 },
+            .{ .source = .velocity, .dest = 21,  .depth = 0.3 },
+            .{ .source = .mac1,     .dest = 21,  .depth = 0.4 },
+            .{ .source = .mac3,     .dest = 111, .depth = 0.4 },
         }),
         .fx_delay_on = true, .fx_delay_time_s = 0.166, .fx_delay_feedback = 0.5, .fx_delay_mix = 0.3,
         .gain = 0.3,
@@ -805,8 +917,10 @@ pub const presets = [_]Preset{
         .filter_type = .lp, .filter_cutoff = 1000.0, .filter_res = 0.3,
         .fenv_attack_s = 0.001, .fenv_decay_s = 0.12, .fenv_sustain = 0.0, .fenv_release_s = 0.06,
         .mod_matrix = mods(&.{
-            .{ .source = .fenv,     .dest = 21, .depth = 0.375 },
-            .{ .source = .velocity, .dest = 21, .depth = 0.25 },
+            .{ .source = .fenv,     .dest = 21,  .depth = 0.375 },
+            .{ .source = .velocity, .dest = 21,  .depth = 0.25 },
+            .{ .source = .mac1,     .dest = 21,  .depth = 0.4 },
+            .{ .source = .mac3,     .dest = 111, .depth = 0.4 },
         }),
         .fx_delay_on = true, .fx_delay_time_s = 0.375, .fx_delay_feedback = 0.55, .fx_delay_mix = 0.35,
         .fx_reverb_on = true, .fx_reverb_room = 0.7, .fx_reverb_damp = 0.6, .fx_reverb_mix = 0.25,
@@ -821,9 +935,11 @@ pub const presets = [_]Preset{
         .filter_type = .lp, .filter_cutoff = 2600.0, .filter_res = 0.08,
         .lfo_shape = .sine, .lfo_rate_hz = 0.4,
         .mod_matrix = mods(&.{
-            .{ .source = .lfo,      .dest = 21, .depth = 0.04 },
-            .{ .source = .velocity, .dest = 21, .depth = 0.25 },
-            .{ .source = .keytrack, .dest = 21, .depth = 0.2 },
+            .{ .source = .lfo,      .dest = 21,  .depth = 0.04 },
+            .{ .source = .velocity, .dest = 21,  .depth = 0.25 },
+            .{ .source = .keytrack, .dest = 21,  .depth = 0.2 },
+            .{ .source = .mac1,     .dest = 21,  .depth = 0.4 },
+            .{ .source = .mac3,     .dest = 179, .depth = 0.3 },
         }),
         .fx_chorus_on = true, .fx_chorus_rate_hz = 0.6, .fx_chorus_depth_ms = 4.0, .fx_chorus_mix = 0.35,
         .gain = 0.28,
@@ -837,7 +953,9 @@ pub const presets = [_]Preset{
         .filter2_on = true, .filter2_type = .hp, .filter2_cutoff = 200.0, .filter_routing = .series,
         .lfo_shape = .triangle, .lfo_rate_hz = 6.0,
         .mod_matrix = mods(&.{
-            .{ .source = .lfo, .dest = dP, .depth = 0.08 },
+            .{ .source = .lfo,  .dest = dP,  .depth = 0.08 },
+            .{ .source = .mac1, .dest = 21,  .depth = 0.4 },
+            .{ .source = .mac3, .dest = 179, .depth = 0.3 },
         }),
         .fx_chorus_on = true, .fx_chorus_rate_hz = 0.9, .fx_chorus_depth_ms = 6.0, .fx_chorus_mix = 0.5,
         .gain = 0.24,
@@ -855,9 +973,12 @@ pub const presets = [_]Preset{
         .lfo_shape = .sine, .lfo_rate_hz = 5.0,
         .env3_attack_s = 0.001, .env3_decay_s = 0.25, .env3_sustain = 0.0, .env3_release_s = 0.15,
         .mod_matrix = mods(&.{
-            .{ .source = .fenv, .dest = 21, .depth = 0.45 },
-            .{ .source = .lfo,  .dest = dP, .depth = 0.12 },
-            .{ .source = .env3, .dest = 42, .depth = 0.35 },
+            .{ .source = .fenv, .dest = 21,  .depth = 0.45 },
+            .{ .source = .lfo,  .dest = dP,  .depth = 0.12 },
+            .{ .source = .env3, .dest = 42,  .depth = 0.35 },
+            .{ .source = .mac1, .dest = 21,  .depth = 0.4 },
+            .{ .source = .mac2, .dest = 42,  .depth = 0.4 },
+            .{ .source = .mac3, .dest = 107, .depth = 0.3 },
         }),
         .fx_phaser_on = true, .fx_phaser_rate_hz = 0.4, .fx_phaser_depth = 0.8, .fx_phaser_feedback = 0.45, .fx_phaser_mix = 0.35,
         .gain = 0.28,
@@ -871,7 +992,9 @@ pub const presets = [_]Preset{
         .filter_type = .lp, .filter_cutoff = 2400.0, .filter_res = 0.1,
         .lfo_shape = .sine, .lfo_rate_hz = 5.5,
         .mod_matrix = mods(&.{
-            .{ .source = .lfo, .dest = dP, .depth = 0.14 },
+            .{ .source = .lfo,  .dest = dP,  .depth = 0.14 },
+            .{ .source = .mac1, .dest = 21,  .depth = 0.4 },
+            .{ .source = .mac3, .dest = 111, .depth = 0.4 },
         }),
         .fx_delay_on = true, .fx_delay_time_s = 0.33, .fx_delay_feedback = 0.55, .fx_delay_mix = 0.35,
         .gain = 0.3,
@@ -888,6 +1011,7 @@ pub const presets = [_]Preset{
         .mod_matrix = mods(&.{
             .{ .source = .lfo2,     .dest = 8,  .depth = 0.15 },
             .{ .source = .velocity, .dest = 21, .depth = 0.25 },
+            .{ .source = .mac1,     .dest = 21, .depth = 0.4 },
         }),
         .fx_chorus_on = true, .fx_chorus_rate_hz = 0.7, .fx_chorus_depth_ms = 3.0, .fx_chorus_mix = 0.3,
         .gain = 0.34,
@@ -900,7 +1024,9 @@ pub const presets = [_]Preset{
         .attack_s = 0.002, .decay_s = 0.3, .sustain = 0.0, .release_s = 0.25,
         .filter_type = .lp, .filter_cutoff = 5000.0, .filter_res = 0.1,
         .mod_matrix = mods(&.{
-            .{ .source = .velocity, .dest = 21, .depth = 0.3 },
+            .{ .source = .velocity, .dest = 21,  .depth = 0.3 },
+            .{ .source = .mac1,     .dest = 21,  .depth = 0.4 },
+            .{ .source = .mac3,     .dest = 115, .depth = 0.4 },
         }),
         .fx_ott_on = true, .fx_ott_depth = 0.5, .fx_ott_gain_out_db = -8.0,
         .fx_reverb_on = true, .fx_reverb_room = 0.7, .fx_reverb_damp = 0.35, .fx_reverb_mix = 0.3,
@@ -917,13 +1043,16 @@ pub const presets = [_]Preset{
         .mod_matrix = mods(&.{
             .{ .source = .lfo,  .dest = dP, .depth = 0.06 },
             .{ .source = .lfo2, .dest = 1,  .depth = 0.25 },
+            .{ .source = .mac2, .dest = 1,  .depth = 0.3 },
+            .{ .source = .mac4, .dest = 89, .depth = 0.3 },
         }),
         .fx_crush_on = true, .fx_crush_bits = 8.0, .fx_crush_rate = 3.0, .fx_crush_mix = 0.2,
         .gain = 0.26,
     } },
 
     // ambient — the choir finally has vocal cords: a real formant filter
-    // parked in the a/e region, slow LFO drifting the vowel, huge hall
+    // parked in the a/e region, slow LFO drifting the vowel, huge hall;
+    // macro 1 scans vowels here rather than opening a cutoff
     .{ .name = "choir-pad", .category = "pad", .tags = &.{ "wstudio", "ambient" }, .patch = .{
         .waveform = .saw, .unison = 4, .unison_detune = 10.0, .unison_spread = 0.6,
         .noise_level = 0.04, .noise_color = 0.6,
@@ -931,7 +1060,9 @@ pub const presets = [_]Preset{
         .filter_type = .formant, .filter_cutoff = 80.0, .filter_res = 0.3,
         .lfo_shape = .sine, .lfo_rate_hz = 0.2,
         .mod_matrix = mods(&.{
-            .{ .source = .lfo, .dest = 21, .depth = 0.15 },
+            .{ .source = .lfo,  .dest = 21,  .depth = 0.15 },
+            .{ .source = .mac1, .dest = 21,  .depth = 0.3 },
+            .{ .source = .mac3, .dest = 115, .depth = 0.4 },
         }),
         .fx_chorus_on = true, .fx_chorus_rate_hz = 0.5, .fx_chorus_depth_ms = 5.0, .fx_chorus_mix = 0.3,
         .fx_reverb_on = true, .fx_reverb_room = 0.88, .fx_reverb_damp = 0.35, .fx_reverb_mix = 0.4,
@@ -944,7 +1075,9 @@ pub const presets = [_]Preset{
         .attack_s = 0.002, .decay_s = 0.25, .sustain = 0.0, .release_s = 0.2,
         .filter_type = .lp, .filter_cutoff = 4000.0, .filter_res = 0.12,
         .mod_matrix = mods(&.{
-            .{ .source = .velocity, .dest = 21, .depth = 0.3 },
+            .{ .source = .velocity, .dest = 21,  .depth = 0.3 },
+            .{ .source = .mac1,     .dest = 21,  .depth = 0.4 },
+            .{ .source = .mac3,     .dest = 115, .depth = 0.4 },
         }),
         .fx_reverb_on = true, .fx_reverb_room = 0.7, .fx_reverb_damp = 0.55, .fx_reverb_mix = 0.25,
         .gain = 0.3,
@@ -959,7 +1092,10 @@ pub const presets = [_]Preset{
         .filter_type = .lp, .filter_cutoff = 2600.0, .filter_res = 0.25,
         .fenv_attack_s = 0.004, .fenv_decay_s = 0.28, .fenv_sustain = 0.0, .fenv_release_s = 0.15,
         .mod_matrix = mods(&.{
-            .{ .source = .fenv, .dest = 21, .depth = 0.375 },
+            .{ .source = .fenv, .dest = 21,  .depth = 0.375 },
+            .{ .source = .mac1, .dest = 21,  .depth = 0.5 },
+            .{ .source = .mac3, .dest = 107, .depth = 0.3 },
+            .{ .source = .mac4, .dest = 85,  .depth = 0.3 },
         }),
         .fx_phaser_on = true, .fx_phaser_rate_hz = 0.7, .fx_phaser_depth = 0.8, .fx_phaser_feedback = 0.4, .fx_phaser_mix = 0.4,
         .fx_dist_on = true, .fx_dist_drive_db = 9.0, .fx_dist_mix = 0.35,
@@ -976,8 +1112,11 @@ pub const presets = [_]Preset{
         .filter_type = .lp, .filter_cutoff = 2000.0, .filter_res = 0.35,
         .fenv_attack_s = 0.004, .fenv_decay_s = 0.25, .fenv_sustain = 0.3, .fenv_release_s = 0.15,
         .mod_matrix = mods(&.{
-            .{ .source = .fenv,     .dest = 21, .depth = 0.4 },
-            .{ .source = .velocity, .dest = 21, .depth = 0.3 },
+            .{ .source = .fenv,     .dest = 21,  .depth = 0.4 },
+            .{ .source = .velocity, .dest = 21,  .depth = 0.3 },
+            .{ .source = .mac1,     .dest = 21,  .depth = 0.4 },
+            .{ .source = .mac3,     .dest = 111, .depth = 0.3 },
+            .{ .source = .mac4,     .dest = 85,  .depth = 0.3 },
         }),
         .fx_dist_on = true, .fx_dist_drive_db = 11.0, .fx_dist_mix = 0.4,
         .fx_delay_on = true, .fx_delay_time_s = 0.25, .fx_delay_feedback = 0.3, .fx_delay_mix = 0.2,
@@ -992,8 +1131,10 @@ pub const presets = [_]Preset{
         .filter_type = .lp, .filter_cutoff = 4000.0, .filter_res = 0.05,
         .lfo_shape = .sine, .lfo_rate_hz = 5.0,
         .mod_matrix = mods(&.{
-            .{ .source = .lfo,      .dest = dP, .depth = 0.12 },
-            .{ .source = .velocity, .dest = 36, .depth = 0.15 },
+            .{ .source = .lfo,      .dest = dP,  .depth = 0.12 },
+            .{ .source = .velocity, .dest = 36,  .depth = 0.15 },
+            .{ .source = .mac2,     .dest = 36,  .depth = 0.2 },
+            .{ .source = .mac3,     .dest = 115, .depth = 0.4 },
         }),
         .fx_reverb_on = true, .fx_reverb_room = 0.6, .fx_reverb_damp = 0.4, .fx_reverb_mix = 0.25,
         .gain = 0.3,
@@ -1006,8 +1147,10 @@ pub const presets = [_]Preset{
         .filter_type = .lp, .filter_cutoff = 3200.0, .filter_res = 0.1,
         .fenv_attack_s = 0.015, .fenv_decay_s = 0.35, .fenv_sustain = 0.3, .fenv_release_s = 0.2,
         .mod_matrix = mods(&.{
-            .{ .source = .fenv,     .dest = 21, .depth = 0.4 },
-            .{ .source = .velocity, .dest = 21, .depth = 0.45 },
+            .{ .source = .fenv,     .dest = 21,  .depth = 0.4 },
+            .{ .source = .velocity, .dest = 21,  .depth = 0.45 },
+            .{ .source = .mac1,     .dest = 21,  .depth = 0.4 },
+            .{ .source = .mac3,     .dest = 179, .depth = 0.3 },
         }),
         .fx_chorus_on = true, .fx_chorus_rate_hz = 0.6, .fx_chorus_depth_ms = 3.0, .fx_chorus_mix = 0.25,
         .gain = 0.28,
@@ -1024,8 +1167,10 @@ pub const presets = [_]Preset{
         .filter_type = .lp, .filter_cutoff = 6500.0, .filter_res = 0.0,
         .lfo_shape = .sine, .lfo_rate_hz = 4.5,
         .mod_matrix = mods(&.{
-            .{ .source = .lfo,      .dest = dA, .depth = 0.04 },
-            .{ .source = .velocity, .dest = 15, .depth = 0.2 },
+            .{ .source = .lfo,      .dest = dA,  .depth = 0.04 },
+            .{ .source = .velocity, .dest = 15,  .depth = 0.2 },
+            .{ .source = .mac2,     .dest = 15,  .depth = 0.25 },
+            .{ .source = .mac3,     .dest = 179, .depth = 0.3 },
         }),
         .fx_chorus_on = true, .fx_chorus_rate_hz = 0.8, .fx_chorus_depth_ms = 4.5, .fx_chorus_mix = 0.4,
         .gain = 0.3,
@@ -1045,6 +1190,8 @@ pub const presets = [_]Preset{
             .{ .source = .fenv,     .dest = 21, .depth = 0.3 },
             .{ .source = .velocity, .dest = 15, .depth = 0.12 },
             .{ .source = .velocity, .dest = 21, .depth = 0.25 },
+            .{ .source = .mac1,     .dest = 21, .depth = 0.4 },
+            .{ .source = .mac2,     .dest = 15, .depth = 0.2 },
         }),
         .fx_comp_on = true, .fx_comp_threshold_db = -18.0, .fx_comp_ratio = 4.0, .fx_comp_attack_ms = 8.0, .fx_comp_release_ms = 90.0,
         .gain = 0.36,
@@ -1059,8 +1206,10 @@ pub const presets = [_]Preset{
         .lfo_shape = .sine, .lfo_rate_hz = 5.8,
         .lfo2_shape = .sine, .lfo2_rate_hz = 0.9,
         .mod_matrix = mods(&.{
-            .{ .source = .lfo,  .dest = dP, .depth = 0.15 },
-            .{ .source = .lfo2, .dest = 1,  .depth = 0.12 },
+            .{ .source = .lfo,  .dest = dP,  .depth = 0.15 },
+            .{ .source = .lfo2, .dest = 1,   .depth = 0.12 },
+            .{ .source = .mac2, .dest = 1,   .depth = 0.2 },
+            .{ .source = .mac3, .dest = 111, .depth = 0.35 },
         }),
         .fx_delay_on = true, .fx_delay_time_s = 0.25, .fx_delay_feedback = 0.3, .fx_delay_mix = 0.25,
         .gain = 0.28,
@@ -1076,6 +1225,7 @@ pub const presets = [_]Preset{
         .mod_matrix = mods(&.{
             .{ .source = .fenv,     .dest = 21, .depth = 0.35 },
             .{ .source = .velocity, .dest = 21, .depth = 0.25 },
+            .{ .source = .mac1,     .dest = 21, .depth = 0.4 },
         }),
         .fx_comp_on = true, .fx_comp_threshold_db = -16.0, .fx_comp_ratio = 4.0, .fx_comp_attack_ms = 5.0, .fx_comp_release_ms = 60.0,
         .gain = 0.36,
@@ -1090,7 +1240,9 @@ pub const presets = [_]Preset{
         .filter2_on = true, .filter2_type = .hp, .filter2_cutoff = 150.0, .filter_routing = .series,
         .lfo_shape = .sine, .lfo_rate_hz = 5.5,
         .mod_matrix = mods(&.{
-            .{ .source = .lfo, .dest = dP, .depth = 0.08 },
+            .{ .source = .lfo,  .dest = dP,  .depth = 0.08 },
+            .{ .source = .mac1, .dest = 21,  .depth = 0.5 },
+            .{ .source = .mac3, .dest = 115, .depth = 0.4 },
         }),
         .fx_ott_on = true, .fx_ott_depth = 0.8, .fx_ott_gain_out_db = -16.0,
         .fx_reverb_on = true, .fx_reverb_room = 0.7, .fx_reverb_damp = 0.3, .fx_reverb_mix = 0.28,
@@ -1104,7 +1256,9 @@ pub const presets = [_]Preset{
         .attack_s = 0.001, .decay_s = 0.35, .sustain = 0.0, .release_s = 0.3,
         .filter_type = .lp, .filter_cutoff = 10_000.0, .filter_res = 0.0,
         .mod_matrix = mods(&.{
-            .{ .source = .velocity, .dest = 15, .depth = 0.12 },
+            .{ .source = .velocity, .dest = 15,  .depth = 0.12 },
+            .{ .source = .mac2,     .dest = 15,  .depth = 0.25 },
+            .{ .source = .mac3,     .dest = 115, .depth = 0.4 },
         }),
         .fx_ott_on = true, .fx_ott_depth = 0.5, .fx_ott_gain_out_db = -8.0,
         .fx_delay_on = true, .fx_delay_time_s = 0.2, .fx_delay_feedback = 0.35, .fx_delay_mix = 0.25,
@@ -1122,8 +1276,11 @@ pub const presets = [_]Preset{
         .lfo_shape = .sine, .lfo_rate_hz = 0.8,
         .lfo2_shape = .sh, .lfo2_rate_hz = 6.0,
         .mod_matrix = mods(&.{
-            .{ .source = .lfo,  .dest = dP, .depth = 0.08 },
-            .{ .source = .lfo2, .dest = dP, .depth = 0.012 },
+            .{ .source = .lfo,  .dest = dP,  .depth = 0.08 },
+            .{ .source = .lfo2, .dest = dP,  .depth = 0.012 },
+            .{ .source = .mac1, .dest = 21,  .depth = 0.4 },
+            .{ .source = .mac3, .dest = 115, .depth = 0.4 },
+            .{ .source = .mac4, .dest = 89,  .depth = 0.3 },
         }),
         .fx_crush_on = true, .fx_crush_bits = 12.0, .fx_crush_rate = 2.0, .fx_crush_mix = 0.2,
         .fx_chorus_on = true, .fx_chorus_rate_hz = 0.4, .fx_chorus_depth_ms = 6.0, .fx_chorus_mix = 0.45,
@@ -1138,8 +1295,10 @@ pub const presets = [_]Preset{
         .filter_type = .lp, .filter_cutoff = 6000.0, .filter_res = 0.1,
         .lfo_shape = .sine, .lfo_rate_hz = 5.5,
         .mod_matrix = mods(&.{
-            .{ .source = .lfo,      .dest = dP, .depth = 0.08 },
-            .{ .source = .velocity, .dest = 21, .depth = 0.25 },
+            .{ .source = .lfo,      .dest = dP,  .depth = 0.08 },
+            .{ .source = .velocity, .dest = 21,  .depth = 0.25 },
+            .{ .source = .mac1,     .dest = 21,  .depth = 0.4 },
+            .{ .source = .mac3,     .dest = 111, .depth = 0.35 },
         }),
         .fx_eq_on = true, .fx_eq_high_freq = 6000.0, .fx_eq_high_gain_db = 3.0,
         .fx_delay_on = true, .fx_delay_time_s = 0.25, .fx_delay_feedback = 0.3, .fx_delay_mix = 0.25,
@@ -1156,13 +1315,15 @@ pub const presets = [_]Preset{
         .mod_matrix = mods(&.{
             .{ .source = .fenv,     .dest = 21, .depth = 0.25 },
             .{ .source = .velocity, .dest = 21, .depth = 0.2 },
+            .{ .source = .mac1,     .dest = 21, .depth = 0.4 },
         }),
         .fx_comp_on = true, .fx_comp_threshold_db = -16.0, .fx_comp_ratio = 4.0, .fx_comp_attack_ms = 5.0, .fx_comp_release_ms = 70.0,
         .gain = 0.36,
     } },
 
     // anime — twangy koto-style pluck; the comb filter is the string body
-    // now, keytracked so the resonance follows the note
+    // now, keytracked so the resonance follows the note; macro 2 lengthens
+    // the string ring via comb feedback
     .{ .name = "koto-pluck", .category = "pluck", .tags = &.{ "wstudio", "anime" }, .patch = .{
         .waveform = .triangle,
         .noise_level = 0.1, .noise_color = 0.3,
@@ -1174,6 +1335,8 @@ pub const presets = [_]Preset{
             .{ .source = .keytrack, .dest = 21, .depth = 1.0 },
             .{ .source = .fenv,     .dest = 47, .depth = 0.5 },
             .{ .source = .velocity, .dest = 36, .depth = 0.1 },
+            .{ .source = .mac1,     .dest = 47, .depth = 0.4 },
+            .{ .source = .mac2,     .dest = 22, .depth = 0.3 },
         }),
         .gain = 0.32,
     } },
@@ -1185,7 +1348,9 @@ pub const presets = [_]Preset{
         .filter_type = .lp, .filter_cutoff = 12_000.0, .filter_res = 0.0,
         .lfo_shape = .sine, .lfo_rate_hz = 5.2,
         .mod_matrix = mods(&.{
-            .{ .source = .lfo, .dest = dP, .depth = 0.15 },
+            .{ .source = .lfo,  .dest = dP,  .depth = 0.15 },
+            .{ .source = .mac3, .dest = 115, .depth = 0.4 },
+            .{ .source = .mac3, .dest = 111, .depth = 0.3 },
         }),
         .fx_delay_on = true, .fx_delay_time_s = 0.25, .fx_delay_feedback = 0.3, .fx_delay_mix = 0.2,
         .fx_reverb_on = true, .fx_reverb_room = 0.65, .fx_reverb_damp = 0.4, .fx_reverb_mix = 0.25,
@@ -1204,6 +1369,7 @@ pub const presets = [_]Preset{
             .{ .source = .fenv, .dest = 21, .depth = 0.3 },
             .{ .source = .lfo2, .dest = dP, .depth = 0.04 },
             .{ .source = .mac1, .dest = 21, .depth = 0.7 },
+            .{ .source = .mac2, .dest = 22, .depth = 0.3 },
         }),
         .gain = 0.28,
     } },
@@ -1216,6 +1382,7 @@ pub const presets = [_]Preset{
         .sub_level = 0.6, .sub_shape = .sine,
         .mod_matrix = mods(&.{
             .{ .source = .velocity, .dest = 21, .depth = 0.25 },
+            .{ .source = .mac1,     .dest = 21, .depth = 0.4 },
         }),
         .fx_comp_on = true, .fx_comp_threshold_db = -20.0, .fx_comp_ratio = 3.0, .fx_comp_attack_ms = 12.0, .fx_comp_release_ms = 110.0,
         .gain = 0.4,
@@ -1230,8 +1397,10 @@ pub const presets = [_]Preset{
         .fenv_attack_s = 0.04, .fenv_decay_s = 0.5, .fenv_sustain = 0.4, .fenv_release_s = 0.3,
         .lfo2_shape = .sine, .lfo2_rate_hz = 0.5,
         .mod_matrix = mods(&.{
-            .{ .source = .fenv, .dest = 21, .depth = 0.2 },
-            .{ .source = .lfo2, .dest = dP, .depth = 0.02 },
+            .{ .source = .fenv, .dest = 21,  .depth = 0.2 },
+            .{ .source = .lfo2, .dest = dP,  .depth = 0.02 },
+            .{ .source = .mac1, .dest = 21,  .depth = 0.4 },
+            .{ .source = .mac3, .dest = 115, .depth = 0.4 },
         }),
         .fx_chorus_on = true, .fx_chorus_rate_hz = 0.6, .fx_chorus_depth_ms = 5.0, .fx_chorus_mix = 0.4,
         .fx_reverb_on = true, .fx_reverb_room = 0.7, .fx_reverb_damp = 0.5, .fx_reverb_mix = 0.3,
@@ -1248,6 +1417,8 @@ pub const presets = [_]Preset{
         .filter_type = .lp, .filter_cutoff = 2200.0, .filter_res = 0.05,
         .mod_matrix = mods(&.{
             .{ .source = .velocity, .dest = 21, .depth = 0.25 },
+            .{ .source = .mac1,     .dest = 21, .depth = 0.4 },
+            .{ .source = .mac4,     .dest = 89, .depth = 0.3 },
         }),
         .fx_crush_on = true, .fx_crush_bits = 9.0, .fx_crush_rate = 3.0, .fx_crush_mix = 0.3,
         .fx_reverb_on = true, .fx_reverb_room = 0.6, .fx_reverb_damp = 0.7, .fx_reverb_mix = 0.25,
@@ -1264,6 +1435,8 @@ pub const presets = [_]Preset{
         .filter_type = .lp, .filter_cutoff = 5000.0, .filter_res = 0.0,
         .mod_matrix = mods(&.{
             .{ .source = .velocity, .dest = 15, .depth = 0.12 },
+            .{ .source = .mac2,     .dest = 15, .depth = 0.25 },
+            .{ .source = .mac4,     .dest = 89, .depth = 0.3 },
         }),
         .fx_crush_on = true, .fx_crush_bits = 8.0, .fx_crush_rate = 4.0, .fx_crush_mix = 0.35,
         .fx_reverb_on = true, .fx_reverb_room = 0.7, .fx_reverb_damp = 0.6, .fx_reverb_mix = 0.3,
@@ -1280,8 +1453,10 @@ pub const presets = [_]Preset{
         .lfo_shape = .sine, .lfo_rate_hz = 5.0,
         .lfo2_shape = .chaos, .lfo2_rate_hz = 0.15,
         .mod_matrix = mods(&.{
-            .{ .source = .lfo,  .dest = dA, .depth = 0.05 },
-            .{ .source = .lfo2, .dest = dP, .depth = 0.02 },
+            .{ .source = .lfo,  .dest = dA,  .depth = 0.05 },
+            .{ .source = .lfo2, .dest = dP,  .depth = 0.02 },
+            .{ .source = .mac1, .dest = 21,  .depth = 0.4 },
+            .{ .source = .mac3, .dest = 115, .depth = 0.4 },
         }),
         .fx_reverb_on = true, .fx_reverb_room = 0.75, .fx_reverb_damp = 0.6, .fx_reverb_mix = 0.35,
         .gain = 0.28,
@@ -1301,6 +1476,8 @@ pub const presets = [_]Preset{
         .mod_matrix = mods(&.{
             .{ .source = .fenv, .dest = 21, .depth = -0.8 },
             .{ .source = .env3, .dest = dP, .depth = -0.4 },
+            .{ .source = .mac1, .dest = 21, .depth = 0.5 },
+            .{ .source = .mac4, .dest = 85, .depth = 0.3 },
         }),
         .fx_dist_on = true, .fx_dist_drive_db = 14.0, .fx_dist_mix = 0.5,
         .fx_phaser_on = true, .fx_phaser_rate_hz = 0.8, .fx_phaser_depth = 0.7, .fx_phaser_feedback = 0.4, .fx_phaser_mix = 0.35,
@@ -1319,6 +1496,9 @@ pub const presets = [_]Preset{
         .mod_matrix = mods(&.{
             .{ .source = .fenv, .dest = 21, .depth = 0.95 },
             .{ .source = .lfo,  .dest = 21, .depth = 0.15 },
+            .{ .source = .mac1, .dest = 21, .depth = 0.4 },
+            .{ .source = .mac2, .dest = 22, .depth = 0.2 },
+            .{ .source = .mac4, .dest = 85, .depth = 0.3 },
         }),
         .fx_dist_on = true, .fx_dist_drive_db = 18.0, .fx_dist_mix = 0.7,
         .fx_delay_on = true, .fx_delay_time_s = 0.19, .fx_delay_feedback = 0.3, .fx_delay_mix = 0.2,
@@ -1335,6 +1515,12 @@ pub const presets = [_]Preset{
         .attack_s = 0.001, .decay_s = 0.08, .sustain = 0.9, .release_s = 0.05,
         .filter_type = .lp, .filter_cutoff = 1600.0, .filter_res = 0.35,
         .sub_level = 0.4, .sub_shape = .sine,
+        .mod_matrix = mods(&.{
+            .{ .source = .mac1, .dest = 21, .depth = 0.4 },
+            .{ .source = .mac2, .dest = 42, .depth = 0.4 },
+            .{ .source = .mac4, .dest = 85, .depth = 0.3 },
+            .{ .source = .mac4, .dest = 89, .depth = 0.3 },
+        }),
         .fx_dist_on = true, .fx_dist_drive_db = 20.0, .fx_dist_mix = 0.7,
         .fx_crush_on = true, .fx_crush_bits = 6.0, .fx_crush_rate = 2.0, .fx_crush_mix = 0.3,
         .gain = 0.36,
@@ -1348,7 +1534,9 @@ pub const presets = [_]Preset{
         .attack_s = 0.001, .decay_s = 0.5, .sustain = 0.05, .release_s = 0.35,
         .filter_type = .lp, .filter_cutoff = 9000.0, .filter_res = 0.05,
         .mod_matrix = mods(&.{
-            .{ .source = .velocity, .dest = 15, .depth = 0.15 },
+            .{ .source = .velocity, .dest = 15,  .depth = 0.15 },
+            .{ .source = .mac2,     .dest = 15,  .depth = 0.25 },
+            .{ .source = .mac3,     .dest = 115, .depth = 0.4 },
         }),
         .fx_ott_on = true, .fx_ott_depth = 0.4, .fx_ott_gain_out_db = -6.0,
         .fx_reverb_on = true, .fx_reverb_room = 0.6, .fx_reverb_damp = 0.35, .fx_reverb_mix = 0.22,
@@ -1362,6 +1550,11 @@ pub const presets = [_]Preset{
         .attack_s = 0.001, .decay_s = 0.07, .sustain = 0.0, .release_s = 0.04,
         .filter_type = .lp, .filter_cutoff = 12_000.0, .filter_res = 0.15,
         .arp_on = true, .arp_mode = .updown, .arp_octaves = 2, .arp_rate_hz = 16.0, .arp_gate = 0.55,
+        .mod_matrix = mods(&.{
+            .{ .source = .mac2, .dest = 1,   .depth = 0.2 },
+            .{ .source = .mac3, .dest = 111, .depth = 0.3 },
+            .{ .source = .mac4, .dest = 89,  .depth = 0.3 },
+        }),
         .fx_crush_on = true, .fx_crush_bits = 8.0, .fx_crush_rate = 3.0, .fx_crush_mix = 0.25,
         .fx_delay_on = true, .fx_delay_time_s = 0.18, .fx_delay_feedback = 0.3, .fx_delay_mix = 0.2,
         .gain = 0.26,
@@ -1392,6 +1585,21 @@ test "every preset's matrix rows target legal dests at sane depths" {
             try std.testing.expect(PolySynth.modDestIndex(row.dest) != null);
             try std.testing.expect(@abs(row.depth) <= 1.0);
         }
+    }
+}
+
+test "every preset except init wires at least one performance macro" {
+    for (presets) |p| {
+        if (std.mem.eql(u8, p.name, "init")) continue;
+        var has_macro = false;
+        for (p.patch.mod_matrix) |row| {
+            switch (row.source) {
+                .mac1, .mac2, .mac3, .mac4 => has_macro = true,
+                else => {},
+            }
+        }
+        errdefer std.debug.print("preset '{s}' has no macro row\n", .{p.name});
+        try std.testing.expect(has_macro);
     }
 }
 
