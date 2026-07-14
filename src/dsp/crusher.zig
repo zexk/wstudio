@@ -18,14 +18,12 @@ pub const Crusher = struct {
     hold: [2]Sample = .{ 0.0, 0.0 },
     counter: u32 = 0,
 
-    pub fn device(self: *Crusher) dsp.Device {
-        return .{ .ptr = self, .vtable = &vtable };
-    }
+    pub const device = dsp.deviceOf(@This());
 
-    const vtable: dsp.Device.VTable = .{
-        .process = processOpaque,
-        .reset = resetOpaque,
-    };
+    pub fn reset(self: *Crusher) void {
+        self.hold = .{ 0.0, 0.0 };
+        self.counter = 0;
+    }
 
     /// Crush an interleaved stereo buffer in place.
     pub fn processBlock(self: *Crusher, buf: []Sample) void {
@@ -43,17 +41,6 @@ pub const Crusher = struct {
             // zig fmt: on
             buf[i + 1] = buf[i + 1] * (1.0 - self.mix) + self.hold[1] * self.mix;
         }
-    }
-
-    fn processOpaque(ptr: *anyopaque, buf: []Sample) void {
-        const self: *Crusher = @ptrCast(@alignCast(ptr));
-        self.processBlock(buf);
-    }
-
-    fn resetOpaque(ptr: *anyopaque) void {
-        const self: *Crusher = @ptrCast(@alignCast(ptr));
-        self.hold = .{ 0.0, 0.0 };
-        self.counter = 0;
     }
 };
 

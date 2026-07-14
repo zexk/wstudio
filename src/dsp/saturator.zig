@@ -15,14 +15,13 @@ pub const Saturator = struct {
     /// 0 = dry only, 1 = wet only.
     mix: f32 = 1.0,
 
-    pub fn device(self: *Saturator) dsp.Device {
-        return .{ .ptr = self, .vtable = &vtable };
-    }
+    pub const device = dsp.deviceOf(@This());
 
-    const vtable: dsp.Device.VTable = .{
-        .process = processOpaque,
-        .reset = resetOpaque,
-    };
+    /// Stateless (no filters/lines to clear) — exists only so `deviceOf`
+    /// has a `reset` to wire into the vtable.
+    pub fn reset(self: *Saturator) void {
+        _ = self;
+    }
 
     /// Shape an interleaved stereo buffer in place.
     pub fn processBlock(self: *Saturator, buf: []Sample) void {
@@ -35,15 +34,6 @@ pub const Saturator = struct {
             const wet = std.math.tanh(s.* * pre) * norm * post;
             s.* = s.* * (1.0 - self.mix) + wet * self.mix;
         }
-    }
-
-    fn processOpaque(ptr: *anyopaque, buf: []Sample) void {
-        const self: *Saturator = @ptrCast(@alignCast(ptr));
-        self.processBlock(buf);
-    }
-
-    fn resetOpaque(ptr: *anyopaque) void {
-        _ = ptr; // stateless; nothing to clear
     }
 };
 

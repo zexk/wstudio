@@ -171,7 +171,7 @@ pub const ParametricEq = struct {
         band.recompute(self.sr);
     }
 
-    pub fn process(self: *ParametricEq, buf: []Sample) void {
+    pub fn processBlock(self: *ParametricEq, buf: []Sample) void {
         if (self.bypass) return;
         for (&self.bands) |*band| {
             const n = band.stages();
@@ -186,26 +186,11 @@ pub const ParametricEq = struct {
         }
     }
 
-    pub fn device(self: *ParametricEq) dsp.Device {
-        return .{
-            .ptr = self,
-            .vtable = &.{
-                .process = struct {
-                    fn f(ptr: *anyopaque, buf: []Sample) void {
-                        const eq: *ParametricEq = @ptrCast(@alignCast(ptr));
-                        eq.process(buf);
-                    }
-                }.f,
-                .event = null,
-                .reset = struct {
-                    fn f(ptr: *anyopaque) void {
-                        const eq: *ParametricEq = @ptrCast(@alignCast(ptr));
-                        for (&eq.bands) |*b| b.reset();
-                    }
-                }.f,
-            },
-        };
+    pub fn reset(self: *ParametricEq) void {
+        for (&self.bands) |*b| b.reset();
     }
+
+    pub const device = dsp.deviceOf(@This());
 };
 
 test "highpass band blocks DC, lowpass band passes it" {
@@ -216,7 +201,7 @@ test "highpass band blocks DC, lowpass band passes it" {
     var buf: [512]Sample = undefined;
     for (0..40) |_| {
         @memset(&buf, 1.0);
-        eq.process(&buf);
+        eq.processBlock(&buf);
     }
     try std.testing.expect(@abs(buf[510]) < 0.01);
     try std.testing.expect(@abs(buf[511]) < 0.01);
@@ -224,7 +209,7 @@ test "highpass band blocks DC, lowpass band passes it" {
     eq.setType(0, .lowpass, 4);
     for (0..40) |_| {
         @memset(&buf, 1.0);
-        eq.process(&buf);
+        eq.processBlock(&buf);
     }
     try std.testing.expectApproxEqAbs(@as(f32, 1.0), buf[510], 0.05);
 }
@@ -249,7 +234,7 @@ test "steeper highpass slope attenuates a below-cutoff tone harder" {
                 buf[i + 1] = s;
                 phase += 2.0 * std.math.pi * 200.0 / 48_000.0;
             }
-            eq.process(&buf);
+            eq.processBlock(&buf);
             // zig fmt: off
             if (block >= 50) for (buf) |s| { peak = @max(peak, @abs(s)); };
             // zig fmt: on
@@ -273,7 +258,7 @@ test "channels filter independently (no shared biquad state)" {
             buf[i] = 1.0;
             buf[i + 1] = 0.0;
         }
-        eq.process(&buf);
+        eq.processBlock(&buf);
     }
     try std.testing.expect(@abs(buf[511]) < 1e-6);
     try std.testing.expect(buf[510] > 0.9);
