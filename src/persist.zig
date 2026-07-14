@@ -230,6 +230,9 @@ pub const SynthSnap = struct {
     fx_phaser_depth: f32 = 0.9,
     fx_phaser_feedback: f32 = 0.5,
     fx_phaser_mix: f32 = 0.5,
+    fx_freq_shift_on: bool = false,
+    fx_freq_shift_hz: f32 = 0.0,
+    fx_freq_shift_mix: f32 = 1.0,
     fx_delay_on: bool = false,
     fx_delay_time_s: f32 = 0.25,
     fx_delay_feedback: f32 = 0.3,
@@ -238,7 +241,7 @@ pub const SynthSnap = struct {
     fx_reverb_room: f32 = 0.6,
     fx_reverb_damp: f32 = 0.4,
     fx_reverb_mix: f32 = 0.3,
-    fx_order: [12]synth_mod.FxUnitKind = synth_mod.default_fx_order,
+    fx_order: [13]synth_mod.FxUnitKind = synth_mod.default_fx_order,
     // Arpeggiator (additive optional-with-default fields, no version bump)
     arp_on: bool = false,
     arp_mode: synth_mod.ArpMode = .up,
@@ -1332,6 +1335,9 @@ fn synthToSnap(s: *const PolySynth) SynthSnap {
         .fx_phaser_depth = s.fx_phaser_depth,
         .fx_phaser_feedback = s.fx_phaser_feedback,
         .fx_phaser_mix = s.fx_phaser_mix,
+        .fx_freq_shift_on = s.fx_freq_shift_on,
+        .fx_freq_shift_hz = s.fx_freq_shift_hz,
+        .fx_freq_shift_mix = s.fx_freq_shift_mix,
         .fx_delay_on = s.fx_delay_on,
         .fx_delay_time_s = s.fx_delay_time_s,
         .fx_delay_feedback = s.fx_delay_feedback,
@@ -1918,8 +1924,8 @@ fn loadNotes(pp: *PatternPlayer, notes: []const NoteSnap) void {
 /// drop another, silently dropping the missing unit from processing).
 /// `order.len == FxUnitKind`'s variant count, so "every kind appears at
 /// least once" already implies no duplicates (pigeonhole).
-fn isValidFxOrder(order: [12]synth_mod.FxUnitKind) bool {
-    var seen = [_]bool{false} ** 12;
+fn isValidFxOrder(order: [13]synth_mod.FxUnitKind) bool {
+    var seen = [_]bool{false} ** 13;
     for (order) |kind| seen[@intFromEnum(kind)] = true;
     for (seen) |s| if (!s) return false;
     return true;
@@ -2082,6 +2088,9 @@ fn applyToSynth(s: *PolySynth, ss: *const SynthSnap) void {
     s.fx_phaser_depth = clamp(ss.fx_phaser_depth, 0.0, 1.0);
     s.fx_phaser_feedback = clamp(ss.fx_phaser_feedback, 0.0, 0.95);
     s.fx_phaser_mix = clamp(ss.fx_phaser_mix, 0.0, 1.0);
+    s.fx_freq_shift_on = ss.fx_freq_shift_on;
+    s.fx_freq_shift_hz = clamp(ss.fx_freq_shift_hz, -2000.0, 2000.0);
+    s.fx_freq_shift_mix = clamp(ss.fx_freq_shift_mix, 0.0, 1.0);
     s.fx_delay_on = ss.fx_delay_on;
     s.fx_delay_time_s = clamp(ss.fx_delay_time_s, 0.001, synth_mod.Delay.max_time_s);
     s.fx_delay_feedback = clamp(ss.fx_delay_feedback, 0.0, 0.95);

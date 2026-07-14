@@ -13,6 +13,7 @@ const Compressor = @import("compressor.zig").Compressor;
 const MultibandComp = @import("multiband_comp.zig").MultibandComp;
 pub const MbStyle = @import("multiband_comp.zig").Style;
 const Ott = @import("ott.zig").Ott;
+const FreqShifter = @import("freq_shift.zig").FreqShifter;
 
 const Sample = types.Sample;
 
@@ -92,7 +93,7 @@ pub const ArpMode     = enum { up, down, updown, downup, played, random, chord }
 /// no heap allocation and doesn't touch the mod-matrix/automation id space
 /// (every param keeps its existing stable id regardless of position). See
 /// `PolySynth.fx_order`'s own doc comment for the reorder mechanism.
-pub const FxUnitKind = enum { gate, eq, comp, mb_comp, ott, dist, crush, chorus, flanger, phaser, delay, reverb };
+pub const FxUnitKind = enum { gate, eq, comp, mb_comp, ott, dist, crush, chorus, flanger, phaser, freq_shift, delay, reverb };
 
 /// Starting chain order — preserves the relative order the original 6
 /// fixed units always ran in, so existing presets/projects sound unchanged
@@ -100,7 +101,7 @@ pub const FxUnitKind = enum { gate, eq, comp, mb_comp, ott, dist, crush, chorus,
 /// a typical signal chain (gate first, ahead of everything else; comp/
 /// mb_comp right after it, dynamics before tone-shaping). Purely a starting
 /// point once `fx_order` is user-reorderable.
-pub const default_fx_order = [_]FxUnitKind{ .gate, .eq, .comp, .mb_comp, .ott, .dist, .crush, .chorus, .flanger, .phaser, .delay, .reverb };
+pub const default_fx_order = [_]FxUnitKind{ .gate, .eq, .comp, .mb_comp, .ott, .dist, .crush, .chorus, .flanger, .phaser, .freq_shift, .delay, .reverb };
 
 /// Fixed-line stereo flanger for the synth's internal FX section. Unlike the
 /// master-bus Chorus it owns no heap delay line — PolySynth embeds by value
@@ -742,6 +743,12 @@ pub const PolySynth = struct {
     fx_phaser_depth:     f32  = 0.9,
     fx_phaser_feedback:  f32  = 0.5,
     fx_phaser_mix:       f32  = 0.5,
+    /// Reuses the track-chain's own FreqShifter unit (dsp/freq_shift.zig) —
+    /// already value-only (Hilbert-pair state, no heap), just matrix-
+    /// automatable and embedded by value here.
+    fx_freq_shift_on:    bool = false,
+    fx_freq_shift_hz:    f32  = 0.0,
+    fx_freq_shift_mix:   f32  = 1.0,
     /// Short rhythmic slap, not the track chain's long ambient throw — see
     /// the Delay struct's own doc comment for the capacity trade-off.
     fx_delay_on:         bool = false,
@@ -758,7 +765,7 @@ pub const PolySynth = struct {
     /// Processing sequence for the FX section above — see `FxUnitKind`'s
     /// doc comment. Reordered via `adjustParam`'s dedicated reorder-handle
     /// ids, never written directly by the editor.
-    fx_order: [12]FxUnitKind = default_fx_order,
+    fx_order: [13]FxUnitKind = default_fx_order,
     fx_gate_state: Gate = .{},
     fx_eq_state: Eq3 = .{},
     fx_comp_state: Compressor = .{},
@@ -768,6 +775,7 @@ pub const PolySynth = struct {
     fx_chorus_state: Chorus = .{},
     fx_flanger_state: Flanger = .{},
     fx_phaser_state: Phaser = .{},
+    fx_freq_shift_state: FreqShifter = .{},
     fx_delay_state: Delay = .{},
     fx_reverb_state: Reverb = .{},
 
@@ -868,6 +876,7 @@ pub const PolySynth = struct {
         162, 163, 164, 165,
         168, 169, 170, 171, 172, 173, 174,
         177, 178, 179,
+        182, 183,
         dest_pitch, dest_amp,
         // zig fmt: on
     };
@@ -995,6 +1004,7 @@ pub const PolySynth = struct {
             .fx_comp_state = Compressor.init(sample_rate),
             .fx_mb_state = MultibandComp.init(sample_rate),
             .fx_ott_state = Ott.init(sample_rate),
+            .fx_freq_shift_state = FreqShifter.init(sample_rate),
             .fx_phaser_state = Phaser.init(sample_rate),
             .fx_reverb_state = Reverb.init(@floatFromInt(sample_rate)),
         };
@@ -1170,6 +1180,9 @@ pub const PolySynth = struct {
         fx_phaser_depth: f32 = 0.9,
         fx_phaser_feedback: f32 = 0.5,
         fx_phaser_mix: f32 = 0.5,
+        fx_freq_shift_on: bool = false,
+        fx_freq_shift_hz: f32 = 0.0,
+        fx_freq_shift_mix: f32 = 1.0,
         fx_delay_on: bool = false,
         fx_delay_time_s: f32 = 0.25,
         fx_delay_feedback: f32 = 0.3,
@@ -1178,7 +1191,7 @@ pub const PolySynth = struct {
         fx_reverb_room: f32 = 0.6,
         fx_reverb_damp: f32 = 0.4,
         fx_reverb_mix: f32 = 0.3,
-        fx_order: [12]FxUnitKind = default_fx_order,
+        fx_order: [13]FxUnitKind = default_fx_order,
 
         arp_on: bool = false,
         arp_mode: ArpMode = .up,
@@ -2006,7 +2019,8 @@ pub const PolySynth = struct {
         // still play).
         if (self.fx_gate_on or self.fx_eq_on or self.fx_comp_on or self.fx_mb_on or
             self.fx_ott_on or self.fx_dist_on or self.fx_crush_on or self.fx_chorus_on or
-            self.fx_flanger_on or self.fx_phaser_on or self.fx_delay_on or self.fx_reverb_on)
+            self.fx_flanger_on or self.fx_phaser_on or self.fx_freq_shift_on or
+            self.fx_delay_on or self.fx_reverb_on)
         {
             const nv = &self.voices[self.newest_voice];
             const mods = self.evalMatrix(if (nv.active) nv else null, lfo_vals);
@@ -2126,6 +2140,13 @@ pub const PolySynth = struct {
                         self.fx_phaser_state.mix      = eff(&mods, 107, self.fx_phaser_mix);
                         // zig fmt: on
                         self.fx_phaser_state.processBlock(buf);
+                    },
+                    .freq_shift => if (self.fx_freq_shift_on) {
+                        // zig fmt: off
+                        self.fx_freq_shift_state.shift_hz = eff(&mods, 182, self.fx_freq_shift_hz);
+                        self.fx_freq_shift_state.mix      = eff(&mods, 183, self.fx_freq_shift_mix);
+                        // zig fmt: on
+                        self.fx_freq_shift_state.processBlock(buf);
                     },
                     .delay => if (self.fx_delay_on) {
                         self.fx_delay_state.processBlock(
@@ -2409,16 +2430,17 @@ pub const PolySynth = struct {
         self.fx_delay_state = .{};
         // Reset(), not `= .{}` — a bare default would also clobber the
         // sample-rate-derived state PolySynth.init set (Gate's, Compressor's,
-        // MultibandComp's/Ott's and Phaser's sample_rate, Reverb's per-line
-        // len), and Ott's/MultibandComp's fixed tuning fields (Ott's own
-        // band/xover setup, baked in at init since only depth/time/in/out
-        // are exposed as params).
+        // MultibandComp's/Ott's, Phaser's and FreqShifter's sample_rate,
+        // Reverb's per-line len), and Ott's/MultibandComp's fixed tuning
+        // fields (Ott's own band/xover setup, baked in at init since only
+        // depth/time/in/out are exposed as params).
         self.fx_gate_state.reset();
         self.fx_eq_state.reset();
         self.fx_comp_state.reset();
         self.fx_mb_state.reset();
         self.fx_ott_state.reset();
         self.fx_phaser_state.reset();
+        self.fx_freq_shift_state.reset();
         self.fx_reverb_state.reset();
     }
 
@@ -2772,6 +2794,11 @@ pub const PolySynth = struct {
             178 => self.fx_chorus_depth_ms  = std.math.clamp(self.fx_chorus_depth_ms + s * 0.1,  0.0, Chorus.max_depth_ms),
             179 => self.fx_chorus_mix       = std.math.clamp(self.fx_chorus_mix      + s * 0.01, 0.0, 1.0),
             180 => self.reorderFx(.chorus, steps),
+            // FX FREQ SHIFT (181–183), reorder handle 184.
+            181 => self.fx_freq_shift_on  = !self.fx_freq_shift_on,
+            182 => self.fx_freq_shift_hz  = std.math.clamp(self.fx_freq_shift_hz  + s * 1.0,  -2000.0, 2000.0),
+            183 => self.fx_freq_shift_mix = std.math.clamp(self.fx_freq_shift_mix + s * 0.01,    0.0,    1.0),
+            184 => self.reorderFx(.freq_shift, steps),
             // zig fmt: on
             // MATRIX (59–82): 3 ids per row — source, dest, depth.
             59...82 => {
@@ -2974,6 +3001,10 @@ pub const PolySynth = struct {
             178 => self.fx_chorus_depth_ms  = std.math.clamp(value, 0.0, Chorus.max_depth_ms),
             179 => self.fx_chorus_mix       = std.math.clamp(value, 0.0, 1.0),
             180 => self.setFxIndex(.chorus,     @intFromFloat(@round(@max(value, 0.0)))),
+            181 => self.fx_freq_shift_on  = value >= 0.5,
+            182 => self.fx_freq_shift_hz  = std.math.clamp(value, -2000.0, 2000.0),
+            183 => self.fx_freq_shift_mix = std.math.clamp(value,    0.0,    1.0),
+            184 => self.setFxIndex(.freq_shift, @intFromFloat(@round(@max(value, 0.0)))),
             // zig fmt: on
             // MATRIX: dest takes the raw param id (falls back to cutoff if
             // the value isn't a legal dest — e.g. a hand-edited curve).
@@ -3160,6 +3191,10 @@ pub const PolySynth = struct {
             178 => self.fx_chorus_depth_ms,
             179 => self.fx_chorus_mix,
             180 => @floatFromInt(self.fxOrderIndex(.chorus)),
+            181 => if (self.fx_freq_shift_on) 1.0 else 0.0,
+            182 => self.fx_freq_shift_hz,
+            183 => self.fx_freq_shift_mix,
+            184 => @floatFromInt(self.fxOrderIndex(.freq_shift)),
             // zig fmt: on
             59...82 => blk: {
                 const row = self.mod_matrix[(id - 59) / 3];
@@ -3307,6 +3342,8 @@ pub const PolySynth = struct {
         .{ .id = 177,.label = "CHOR RATE",   .section = "FX CHOR", .range = .{ 0.05,   5.0 },    .step = 0.05 },
         .{ .id = 178,.label = "CHOR DEPTH",  .section = "FX CHOR", .range = .{ 0.0,    10.0 },   .step = 0.1 },
         .{ .id = 179,.label = "CHOR MIX",    .section = "FX CHOR", .range = .{ 0.0,    1.0 },    .step = 0.01 },
+        .{ .id = 182,.label = "FRQS SHIFT",  .section = "FX FRQS", .range = .{ -2000.0,2000.0 }, .step = 1.0 },
+        .{ .id = 183,.label = "FRQS MIX",    .section = "FX FRQS", .range = .{ 0.0,    1.0 },    .step = 0.01 },
         // zig fmt: on
     };
 

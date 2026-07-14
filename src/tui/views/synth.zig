@@ -190,6 +190,7 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize
                     .ott => try secFxOtt(&tw, synth, c),
                     .eq => try secFxEq(&tw, synth, c),
                     .chorus => try secFxChorus(&tw, synth, c),
+                    .freq_shift => try secFxFreqShift(&tw, synth, c),
                     .dist => try secFxDist(&tw, synth, c),
                     .crush => try secFxCrush(&tw, synth, c),
                     .flanger => try secFxFlanger(&tw, synth, c),
@@ -807,6 +808,18 @@ fn secFxChorus(w: *std.Io.Writer, synth: anytype, c: u8) !void {
         try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.fx_chorus_mix}));
 }
 
+fn secFxFreqShift(w: *std.Io.Writer, synth: anytype, c: u8) !void {
+    var buf: [40]u8 = undefined;
+    try synthSection(w, "FX FRQS", red);
+
+    const on = synth.fx_freq_shift_on;
+    try enumRow(w, c == 181, false, red, "on/off", &on_off_names, if (on) 0 else 1);
+    try barRow(w, c == 182, !on, red, "shift", synth.fx_freq_shift_hz + 2000.0, 4000.0,
+        try std.fmt.bufPrint(&buf, "{d:.0} Hz", .{synth.fx_freq_shift_hz}));
+    try barRow(w, c == 183, !on, red, "mix", synth.fx_freq_shift_mix, 1.0,
+        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.fx_freq_shift_mix}));
+}
+
 fn secFxDist(w: *std.Io.Writer, synth: anytype, c: u8) !void {
     var buf: [40]u8 = undefined;
     try synthSection(w, "FX DIST", red);
@@ -949,6 +962,8 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !
         "-", // 175: eq's reorder handle, never cursor-reachable
         "chor.on", "chor.rate", "chor.depth", "chor.mix",
         "-", // 180: chorus's reorder handle, never cursor-reachable
+        "frqs.on", "frqs.shift", "frqs.mix",
+        "-", // 184: freq_shift's reorder handle, never cursor-reachable
     };
     const cur = @min(@as(usize, app.synth_cursor), labels.len - 1);
     try style.writeModeBadge(w, app.modal.mode);
@@ -1140,6 +1155,9 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !
         177 => try w.print("{d:.2} Hz",    .{synth.fx_chorus_rate_hz}),
         178 => try w.print("{d:.1} ms",    .{synth.fx_chorus_depth_ms}),
         179 => try w.print("{d:.2}",       .{synth.fx_chorus_mix}),
+        181 => try w.writeAll(if (synth.fx_freq_shift_on) "on" else "off"),
+        182 => try w.print("{d:.0} Hz",    .{synth.fx_freq_shift_hz}),
+        183 => try w.print("{d:.2}",       .{synth.fx_freq_shift_mix}),
         // zig fmt: on
         else => {},
     }
