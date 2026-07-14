@@ -341,14 +341,14 @@ fn secEnv(w: *std.Io.Writer, synth: anytype, c: u8) !void {
         try std.fmt.bufPrint(&buf, "{d:.3} s", .{synth.release_s}));
 }
 
-const filter_type_names = [_][]const u8{ "lp", "hp", "bp", "ntch", "ladr", "comb" };
+const filter_type_names = [_][]const u8{ "lp", "hp", "bp", "ntch", "ladr", "diod", "comb", "frmt" };
 
 fn filterTypeIdx(ft: anytype) usize {
-    return switch (ft) { .lp => 0, .hp => 1, .bp => 2, .notch => 3, .ladder => 4, .comb => 5 };
+    return switch (ft) { .lp => 0, .hp => 1, .bp => 2, .notch => 3, .ladder => 4, .diode => 5, .comb => 6, .formant => 7 };
 }
 
 fn filterTypeName(ft: anytype) []const u8 {
-    return switch (ft) { .lp => "lp", .hp => "hp", .bp => "bp", .notch => "notch", .ladder => "ladder", .comb => "comb" };
+    return switch (ft) { .lp => "lp", .hp => "hp", .bp => "bp", .notch => "notch", .ladder => "ladder", .diode => "diode", .comb => "comb", .formant => "formant" };
 }
 
 fn secFilter(w: *std.Io.Writer, synth: anytype, c: u8) !void {
@@ -384,14 +384,14 @@ fn secFenv(w: *std.Io.Writer, synth: anytype, c: u8) !void {
         try std.fmt.bufPrint(&buf, "{d:.3} s", .{synth.fenv_release_s}));
 }
 
-const lfo_shape_names = [_][]const u8{ "sine", "tri", "saw", "sqr", "s&h" };
+const lfo_shape_names = [_][]const u8{ "sine", "tri", "saw", "sqr", "s&h", "cha" };
 
 fn lfoShapeIdx(shape: anytype) usize {
-    return switch (shape) { .sine => 0, .triangle => 1, .saw => 2, .square => 3, .sh => 4 };
+    return switch (shape) { .sine => 0, .triangle => 1, .saw => 2, .square => 3, .sh => 4, .chaos => 5 };
 }
 
 fn lfoShapeName(shape: anytype) []const u8 {
-    return switch (shape) { .sine => "sine", .triangle => "tri", .saw => "saw", .square => "sqr", .sh => "s&h" };
+    return switch (shape) { .sine => "sine", .triangle => "tri", .saw => "saw", .square => "sqr", .sh => "s&h", .chaos => "chaos" };
 }
 
 /// Shape + rate only: the LFO is a pure mod source, its routing lives on

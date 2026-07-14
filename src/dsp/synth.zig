@@ -38,10 +38,16 @@ fn enumFromValue(comptime E: type, value: f32) E {
 pub const Waveform   = enum { sine, saw, triangle, square };
 /// lp/hp/bp/notch are 2-pole biquads. `ladder` is a Moog-style 4-pole
 /// lowpass (24 dB/oct, tanh-saturated feedback — self-oscillates near full
-/// resonance). `comb` is a feedback comb whose fundamental sits at the
-/// cutoff frequency (resonance = feedback amount); its delay line bounds
-/// the low end at sample_rate/comb_len (~94 Hz at 48 kHz).
-pub const FilterType = enum { lp, hp, bp, notch, ladder, comb };
+/// resonance). `diode` is the same 4-stage cascade but with an asymmetric
+/// diode-style clip at each stage instead of Moog's symmetric tanh — the
+/// EMS/TB-303-family "thinner, brighter" resonant character. `comb` is a
+/// feedback comb whose fundamental sits at the cutoff frequency (resonance
+/// = feedback amount); its delay line bounds the low end at
+/// sample_rate/comb_len (~94 Hz at 48 kHz). `formant` reinterprets cutoff
+/// as a scan position across a fixed a-e-i-o-u vowel table (3 parallel
+/// resonant bandpasses per vowel) instead of a corner frequency; resonance
+/// narrows the formant bandwidths for a sharper vowel character.
+pub const FilterType = enum { lp, hp, bp, notch, ladder, diode, comb, formant };
 /// How filter 2's output combines with filter 1's when filter 2 is on.
 /// `series`: filter 1 feeds filter 2. `parallel`: both filter the dry
 /// oscillator mix and their outputs are averaged. Irrelevant (and behaves
@@ -49,8 +55,11 @@ pub const FilterType = enum { lp, hp, bp, notch, ladder, comb };
 pub const FilterRouting = enum { series, parallel };
 /// `sh` is sample & hold: a random level (uniform in [-1, 1)) redrawn each
 /// time the LFO's phase wraps — held state lives on PolySynth (`lfo_sh`),
-/// not derivable from phase alone like the other shapes.
-pub const LfoShape   = enum { sine, triangle, saw, square, sh };
+/// not derivable from phase alone like the other shapes. `chaos` is a
+/// Lorenz-attractor output (x-axis, normalized), continuously integrated
+/// every block at a rate set by the LFO's own rate knob — held state lives
+/// on PolySynth (`lfo_chaos`), also not derivable from phase alone.
+pub const LfoShape   = enum { sine, triangle, saw, square, sh, chaos };
 /// Legacy fixed LFO routing, retired when the mod matrix absorbed it.
 /// Kept only so pre-matrix patches/projects still parse; `legacyModRows`
 /// folds it into matrix rows on load.
@@ -596,6 +605,13 @@ pub const PolySynth = struct {
     /// wrap. Runtime state like the phases, not part of a Patch.
     lfo_sh:       [3]f32   = .{ 0.0, 0.0, 0.0 },
     lfo_sh_rand:  u32      = 0x9E3779B9,
+    /// Lorenz attractor state per LFO slot for the .chaos shape, integrated
+    /// every block regardless of which shape is active (same "always
+    /// maintain shape-specific state" precedent as lfo_sh). Runtime state,
+    /// not part of a Patch. Starts off the origin (an unstable equilibrium
+    /// of the Lorenz system) so it diverges into chaotic motion immediately
+    /// instead of numerically sitting still.
+    lfo_chaos: [3]ChaosState = .{ .{}, .{}, .{} },
 
     // ── MACRO ───────────────────────────────────────────────────────────────
     // Performance knobs with no sound of their own: only matrix rows give
@@ -932,6 +948,31 @@ pub const PolySynth = struct {
     /// Voice's size — keep it modest, PolySynth is embedded by value in Rack.
     const comb_len: usize = 512;
 
+    /// One vowel's first 3 formants: center frequency, bandwidth, relative
+    /// amplitude (dB, F1 = 0 dB reference). Source: the Csound Book bass-
+    /// voice formant appendix (widely reused for musical vowel filters),
+    /// via https://pbat.ch/sndkit/vowel/.
+    const FormantVowel = struct { f: [3]f32, bw: [3]f32, amp_db: [3]f32 };
+    // zig fmt: off
+    const formant_table = [5]FormantVowel{
+        .{ .f = .{ 600, 1040, 2250 }, .bw = .{ 60, 70, 110 }, .amp_db = .{   0,  -7,  -9 } }, // a
+        .{ .f = .{ 400, 1620, 2400 }, .bw = .{ 40, 80, 100 }, .amp_db = .{   0, -12,  -9 } }, // e
+        .{ .f = .{ 250, 1750, 2600 }, .bw = .{ 60, 90, 100 }, .amp_db = .{   0, -30, -16 } }, // i
+        .{ .f = .{ 400,  750, 2400 }, .bw = .{ 40, 80, 100 }, .amp_db = .{   0, -11, -21 } }, // o
+        .{ .f = .{ 350,  600, 2400 }, .bw = .{ 40, 80, 100 }, .amp_db = .{   0, -20, -32 } }, // u
+    };
+    // zig fmt: on
+
+    /// Per-formant state-variable-filter coefficient: the SVF frequency
+    /// coefficient, damping (1/Q), and linear output gain.
+    const FormantCoeffs = struct {
+        // zig fmt: off
+        f1: f32 = 0.0, damp1: f32 = 0.0, gain1: f32 = 0.0,
+        f2: f32 = 0.0, damp2: f32 = 0.0, gain2: f32 = 0.0,
+        f3: f32 = 0.0, damp3: f32 = 0.0, gain3: f32 = 0.0,
+        // zig fmt: on
+    };
+
     const FilterCoeffs = struct {
         // zig fmt: off
         // biquad (lp/hp/bp/notch)
@@ -942,13 +983,17 @@ pub const PolySynth = struct {
         // comb: delay in samples (fractional) + feedback amount
         comb_delay: f32 = 2.0, comb_fb: f32 = 0.0,
         // zig fmt: on
+        // formant: 3 parallel resonator coefficients (vowel-interpolated)
+        formant: FormantCoeffs = .{},
     };
 
     /// Per-channel state for one filter slot, covering every filter model:
     /// biquad history, the ladder's 4 one-pole stages, and the comb's delay
-    /// ring. Only the active model's fields advance; switching models
-    /// mid-note picks up whatever stale state the new model left behind,
-    /// which decays within a few hundred samples.
+    /// ring. `diode` reuses the ladder's s1-s4. `formant` reuses x1/x2,
+    /// y1/y2, s1/s2 as 3 independent 2-state SVF resonators (s3/s4 unused).
+    /// Only the active model's fields advance; switching models mid-note
+    /// picks up whatever stale state the new model left behind, which
+    /// decays within a few hundred samples.
     const FilterState = struct {
         // zig fmt: off
         x1: f32 = 0.0, x2: f32 = 0.0,
@@ -2202,18 +2247,57 @@ pub const PolySynth = struct {
         self.arp_was_on = self.arp_on;
     }
 
+    /// Lorenz attractor state (x, y, z) for one .chaos LFO slot. Defaults
+    /// off the origin — see PolySynth.lfo_chaos's doc comment.
+    const ChaosState = struct { x: f32 = 0.1, y: f32 = 1.0, z: f32 = 1.0 };
+
+    // Classic Lorenz parameters (butterfly attractor). x/y roughly range
+    // ±20 for these constants, hence the /20 normalization in lfoVal.
+    const lorenz_sigma: f32 = 10.0;
+    const lorenz_rho: f32 = 28.0;
+    const lorenz_beta: f32 = 8.0 / 3.0;
+
     /// Block-rate value of the LFO in `slot`: the held random level for
-    /// sample & hold, a pure function of phase for every other shape.
+    /// sample & hold, the normalized Lorenz x-axis for chaos, a pure
+    /// function of phase for every other shape.
     fn lfoVal(self: *const PolySynth, slot: usize, shape: LfoShape, phase: f32) f32 {
-        return if (shape == .sh) self.lfo_sh[slot] else lfoSample(shape, phase);
+        return switch (shape) {
+            .sh => self.lfo_sh[slot],
+            .chaos => std.math.clamp(self.lfo_chaos[slot].x / 20.0, -1.0, 1.0),
+            else => lfoSample(shape, phase),
+        };
     }
 
     /// Advance one LFO's phase by a block; a wrap redraws the slot's sample
-    /// & hold level (cheap enough to do regardless of the active shape).
+    /// & hold level, and the slot's chaos attractor always integrates
+    /// (cheap enough to do regardless of the active shape, same as sh).
     fn advanceLfo(self: *PolySynth, slot: usize, phase: *f32, rate_hz: f32, frames: f32) void {
-        phase.* += rate_hz * frames / self.sample_rate;
+        const phase_inc = rate_hz * frames / self.sample_rate;
+        phase.* += phase_inc;
         if (phase.* >= 1.0) self.lfo_sh[slot] = nextNoise(&self.lfo_sh_rand);
         phase.* -= @floor(phase.*);
+        advanceChaos(&self.lfo_chaos[slot], phase_inc);
+    }
+
+    /// Euler-integrates the Lorenz system by `dt_total`, split into
+    /// substeps bounded to `max_step` (Euler-stable for this system) and
+    /// capped at `max_substeps` so a large block/rate combination can't
+    /// spend unbounded time on the audio thread — it just under-integrates
+    /// instead, which is inaudible for a modulation source.
+    fn advanceChaos(state: *ChaosState, dt_total: f32) void {
+        const max_step: f32 = 0.005;
+        const max_substeps: u32 = 32;
+        var remaining = @min(dt_total, max_step * @as(f32, @floatFromInt(max_substeps)));
+        while (remaining > 0.0) {
+            const step = @min(remaining, max_step);
+            const dx = lorenz_sigma * (state.y - state.x);
+            const dy = state.x * (lorenz_rho - state.z) - state.y;
+            const dz = state.x * state.y - lorenz_beta * state.z;
+            state.x += dx * step;
+            state.y += dy * step;
+            state.z += dz * step;
+            remaining -= step;
+        }
     }
 
     /// Cents offset of unison voice `ui` of `n` (n > 1), per `mode`.
@@ -2281,11 +2365,68 @@ pub const PolySynth = struct {
                 .g = 1.0 - @exp(-w0),
                 .k = res * 4.0,
             },
+            // Same cascade as .ladder; the diode-vs-Moog difference lives
+            // entirely in filterSample's nonlinearity. A slightly hotter
+            // feedback scale (4.5 vs 4.0) reaches self-oscillation a touch
+            // sooner, matching the diode ladder's reputation for an eager,
+            // aggressive resonant peak.
+            .diode => .{
+                .g = 1.0 - @exp(-w0),
+                .k = res * 4.5,
+            },
             .comb => .{
                 .comb_delay = std.math.clamp(self.sample_rate / c, 2.0, @as(f32, @floatFromInt(comb_len)) - 2.0),
                 .comb_fb = res * 0.9,
             },
+            .formant => .{ .formant = self.formantCoeffs(c, res) },
         };
+    }
+
+    /// Interpolated 3-formant SVF coefficients for the vowel-scan filter.
+    /// `c` (already clamped to 20 Hz..Nyquist) doubles as a 0..1 scan
+    /// position across the a-e-i-o-u table on a log scale, same "cutoff
+    /// means something else per filter type" pattern as .comb/.ladder
+    /// above; `res` narrows every formant's bandwidth for a sharper sweep.
+    fn formantCoeffs(self: *const PolySynth, c: f32, res: f32) FormantCoeffs {
+        const scan = std.math.clamp(@log2(c / 20.0) / @log2(20_000.0 / 20.0), 0.0, 1.0);
+        const pos = scan * @as(f32, @floatFromInt(formant_table.len - 1));
+        const vi0: usize = @intFromFloat(@floor(pos));
+        const vi1 = @min(vi0 + 1, formant_table.len - 1);
+        const t = pos - @floor(pos);
+        const v0 = formant_table[vi0];
+        const v1 = formant_table[vi1];
+        const bw_scale = 1.0 - res * 0.8;
+
+        var fc: FormantCoeffs = .{};
+        // zig fmt: off
+        fc.f1    = self.svfCoeff(std.math.lerp(v0.f[0], v1.f[0], t));
+        fc.damp1 = svfDamp(std.math.lerp(v0.f[0], v1.f[0], t), std.math.lerp(v0.bw[0], v1.bw[0], t) * bw_scale);
+        fc.gain1 = dbToLinear(std.math.lerp(v0.amp_db[0], v1.amp_db[0], t));
+        fc.f2    = self.svfCoeff(std.math.lerp(v0.f[1], v1.f[1], t));
+        fc.damp2 = svfDamp(std.math.lerp(v0.f[1], v1.f[1], t), std.math.lerp(v0.bw[1], v1.bw[1], t) * bw_scale);
+        fc.gain2 = dbToLinear(std.math.lerp(v0.amp_db[1], v1.amp_db[1], t));
+        fc.f3    = self.svfCoeff(std.math.lerp(v0.f[2], v1.f[2], t));
+        fc.damp3 = svfDamp(std.math.lerp(v0.f[2], v1.f[2], t), std.math.lerp(v0.bw[2], v1.bw[2], t) * bw_scale);
+        fc.gain3 = dbToLinear(std.math.lerp(v0.amp_db[2], v1.amp_db[2], t));
+        // zig fmt: on
+        return fc;
+    }
+
+    fn svfCoeff(self: *const PolySynth, freq: f32) f32 {
+        const f = std.math.clamp(freq, 20.0, self.sample_rate * 0.49);
+        return 2.0 * @sin(std.math.pi * f / self.sample_rate);
+    }
+
+    /// Q clamped to 40 (matches the biquad's own 0.5..20 Q range order of
+    /// magnitude) so an extreme res setting narrows the formant sharply
+    /// without letting the resonator's peak gain run away.
+    fn svfDamp(freq: f32, bw: f32) f32 {
+        const q = std.math.clamp(freq / @max(bw, 1.0), 0.5, 40.0);
+        return 1.0 / q;
+    }
+
+    fn dbToLinear(db: f32) f32 {
+        return std.math.pow(f32, 10.0, db / 20.0);
     }
 
     /// One sample through one filter slot/channel, dispatching on the
@@ -2310,6 +2451,19 @@ pub const PolySynth = struct {
                 st.s4 += fc.g * (st.s3 - st.s4);
                 return st.s4;
             },
+            .diode => {
+                // Same 4-stage one-pole cascade as .ladder, but each stage
+                // clips through diodeClip's asymmetric curve instead of a
+                // symmetric tanh — the diode pair's forward-conduction
+                // curve, and the source of the "thinner/brighter" diode
+                // ladder color vs the smoother Moog transistor ladder.
+                const in_sat = diodeClip(x - fc.k * st.s4);
+                st.s1 += fc.g * (diodeClip(in_sat) - st.s1);
+                st.s2 += fc.g * (diodeClip(st.s1) - st.s2);
+                st.s3 += fc.g * (diodeClip(st.s2) - st.s3);
+                st.s4 += fc.g * (st.s3 - st.s4);
+                return st.s4;
+            },
             .comb => {
                 // Fractional read `comb_delay` samples behind the write
                 // head (linear interp) so cutoff sweeps stay smooth.
@@ -2324,7 +2478,35 @@ pub const PolySynth = struct {
                 st.comb_pos = (st.comb_pos + 1) % comb_len;
                 return y;
             },
+            .formant => {
+                // 3 parallel Chamberlin SVF bandpass resonators, one per
+                // formant, summed and weighted by the table's per-formant
+                // amplitude. x1/x2, y1/y2, s1/s2 double as the 3 resonators'
+                // lp/bp state pairs (see FilterState's doc comment).
+                const y1 = svfBandpass(fc.formant.f1, fc.formant.damp1, &st.x1, &st.x2, x) * fc.formant.gain1;
+                const y2 = svfBandpass(fc.formant.f2, fc.formant.damp2, &st.y1, &st.y2, x) * fc.formant.gain2;
+                const y3 = svfBandpass(fc.formant.f3, fc.formant.damp3, &st.s1, &st.s2, x) * fc.formant.gain3;
+                return y1 + y2 + y3;
+            },
         }
+    }
+
+    /// Asymmetric soft clip approximating a diode pair's forward-conduction
+    /// curve: compresses positive swings harder than negative ones. Used by
+    /// .diode instead of .ladder's symmetric tanh.
+    fn diodeClip(x: f32) f32 {
+        return if (x >= 0.0) x / (1.0 + 0.5 * x) else std.math.tanh(x);
+    }
+
+    /// One sample through a Chamberlin state-variable bandpass tuned to
+    /// `f` (SVF frequency coefficient, from svfCoeff) with damping `damp`
+    /// (1/Q). `s_lp`/`s_bp` are the resonator's own persistent 2-state
+    /// history.
+    fn svfBandpass(f: f32, damp: f32, s_lp: *f32, s_bp: *f32, x: f32) f32 {
+        s_lp.* += f * s_bp.*;
+        const hp = x - s_lp.* - damp * s_bp.*;
+        s_bp.* += f * hp;
+        return s_bp.*;
     }
 
     /// Xorshift32 white noise, returns [-1, 1).
@@ -2343,9 +2525,11 @@ pub const PolySynth = struct {
             .triangle => 1.0 - 4.0 * @abs(phase - 0.5),
             .saw      => 2.0 * phase - 1.0,
             .square   => if (phase < 0.5) 1.0 else -1.0,
-            // Held level lives on PolySynth.lfo_sh; callers go through
-            // lfoVal, which never reaches here for .sh.
+            // Held/integrated state lives on PolySynth.lfo_sh/lfo_chaos;
+            // callers go through lfoVal, which never reaches here for
+            // .sh or .chaos.
             .sh       => 0.0,
+            .chaos    => 0.0,
             // zig fmt: on
         };
     }
@@ -2354,9 +2538,9 @@ pub const PolySynth = struct {
     fn cycleLfoShape(shape: LfoShape, steps: i32) LfoShape {
         // zig fmt: off
         return if (steps > 0) switch (shape) {
-            .sine => .triangle, .triangle => .saw, .saw => .square, .square => .sh, .sh => .sine,
+            .sine => .triangle, .triangle => .saw, .saw => .square, .square => .sh, .sh => .chaos, .chaos => .sine,
         } else switch (shape) {
-            .sine => .sh, .triangle => .sine, .saw => .triangle, .square => .saw, .sh => .square,
+            .sine => .chaos, .triangle => .sine, .saw => .triangle, .square => .saw, .sh => .square, .chaos => .sh,
         };
         // zig fmt: on
     }
@@ -2576,9 +2760,9 @@ pub const PolySynth = struct {
             19 => self.release_s            = std.math.clamp(self.release_s          + s * 0.005, 0.001,  10.0),
             // FILTER (20–23)
             20 => self.filter_type = if (steps > 0) switch (self.filter_type) {
-                .lp => .hp, .hp => .bp, .bp => .notch, .notch => .ladder, .ladder => .comb, .comb => .lp,
+                .lp => .hp, .hp => .bp, .bp => .notch, .notch => .ladder, .ladder => .diode, .diode => .comb, .comb => .formant, .formant => .lp,
             } else switch (self.filter_type) {
-                .lp => .comb, .hp => .lp, .bp => .hp, .notch => .bp, .ladder => .notch, .comb => .ladder,
+                .lp => .formant, .hp => .lp, .bp => .hp, .notch => .bp, .ladder => .notch, .diode => .ladder, .comb => .diode, .formant => .comb,
             },
             // Log-scale cutoff: 1 semitone per step (h/l), ~minor-7th per H/L.
             21 => self.filter_cutoff        = std.math.clamp(
@@ -2639,9 +2823,9 @@ pub const PolySynth = struct {
             // FILTER 2 (45–49)
             45 => self.filter2_on           = !self.filter2_on,
             46 => self.filter2_type = if (steps > 0) switch (self.filter2_type) {
-                .lp => .hp, .hp => .bp, .bp => .notch, .notch => .ladder, .ladder => .comb, .comb => .lp,
+                .lp => .hp, .hp => .bp, .bp => .notch, .notch => .ladder, .ladder => .diode, .diode => .comb, .comb => .formant, .formant => .lp,
             } else switch (self.filter2_type) {
-                .lp => .comb, .hp => .lp, .bp => .hp, .notch => .bp, .ladder => .notch, .comb => .ladder,
+                .lp => .formant, .hp => .lp, .bp => .hp, .notch => .bp, .ladder => .notch, .diode => .ladder, .comb => .diode, .formant => .comb,
             },
             47 => self.filter2_cutoff       = std.math.clamp(
                 self.filter2_cutoff * std.math.pow(f32, 2.0, s / 12.0), 20.0, 20_000.0),
@@ -3422,7 +3606,7 @@ test "filter: high-Q sweep near Nyquist stays finite" {
 }
 
 test "filter: all types stay finite under resonance" {
-    const types_to_test = [_]FilterType{ .lp, .hp, .bp, .notch, .ladder, .comb };
+    const types_to_test = [_]FilterType{ .lp, .hp, .bp, .notch, .ladder, .diode, .comb, .formant };
     for (types_to_test) |ft| {
         var synth = PolySynth.init(48_000);
         synth.filter_type = ft;
@@ -3501,6 +3685,73 @@ test "ladder filter: closed cutoff attenuates like a lowpass" {
         rms_closed += c * c;
     }
     try std.testing.expect(rms_closed < rms_open * 0.1);
+}
+
+test "diode ladder filter: closed cutoff attenuates like a lowpass" {
+    var open = PolySynth.init(48_000);
+    open.waveform = .saw;
+    open.filter_type = .diode;
+    open.filter_cutoff = 18_000.0;
+    open.noteOn(84, 1.0);
+
+    var closed = PolySynth.init(48_000);
+    closed.waveform = .saw;
+    closed.filter_type = .diode;
+    closed.filter_cutoff = 200.0;
+    closed.noteOn(84, 1.0);
+
+    var buf_open: [512]Sample = undefined;
+    var buf_closed: [512]Sample = undefined;
+    for (0..20) |_| {
+        // zig fmt: off
+        @memset(&buf_open, 0.0);   open.processBlock(&buf_open);
+        @memset(&buf_closed, 0.0); closed.processBlock(&buf_closed);
+    }
+
+    var rms_open: f32 = 0.0;
+    var rms_closed: f32 = 0.0;
+    for (buf_open, buf_closed) |o, c| {
+        rms_open   += o * o;
+        // zig fmt: on
+        rms_closed += c * c;
+    }
+    try std.testing.expect(rms_closed < rms_open * 0.1);
+}
+
+test "formant filter: vowel scan produces distinct spectral content" {
+    // Low cutoff scans toward vowel "a" (F1=600), high cutoff toward "u"
+    // (F1=350, F2=600) — different enough resonant peaks that RMS output
+    // should differ meaningfully across the sweep, not just clamp flat.
+    var low = PolySynth.init(48_000);
+    low.waveform = .saw;
+    low.filter_type = .formant;
+    low.filter_cutoff = 20.0;
+    low.filter_res = 0.3;
+    low.noteOn(48, 1.0);
+
+    var high = PolySynth.init(48_000);
+    high.waveform = .saw;
+    high.filter_type = .formant;
+    high.filter_cutoff = 20_000.0;
+    high.filter_res = 0.3;
+    high.noteOn(48, 1.0);
+
+    var buf_low: [512]Sample = undefined;
+    var buf_high: [512]Sample = undefined;
+    for (0..20) |_| {
+        // zig fmt: off
+        @memset(&buf_low, 0.0);  low.processBlock(&buf_low);
+        @memset(&buf_high, 0.0); high.processBlock(&buf_high);
+        // zig fmt: on
+    }
+
+    var rms_low: f32 = 0.0;
+    var rms_high: f32 = 0.0;
+    for (buf_low, buf_high) |l, h| {
+        rms_low += l * l;
+        rms_high += h * h;
+    }
+    try std.testing.expect(@abs(rms_low - rms_high) > 0.001);
 }
 
 test "comb filter: impulse echoes at the tuned delay" {
@@ -3960,7 +4211,7 @@ test "legato mode: no envelope retrigger on second note" {
 }
 
 test "LFO: all shapes stay finite under filter modulation" {
-    const shapes = [_]LfoShape{ .sine, .triangle, .saw, .square };
+    const shapes = [_]LfoShape{ .sine, .triangle, .saw, .square, .chaos };
     for (shapes) |shape| {
         var synth = PolySynth.init(48_000);
         // zig fmt: off
@@ -3980,6 +4231,26 @@ test "LFO: all shapes stay finite under filter modulation" {
             }
         }
     }
+}
+
+test "LFO: chaos shape evolves and stays bounded" {
+    var synth = PolySynth.init(48_000);
+    synth.lfo_shape = .chaos;
+    synth.lfo_rate_hz = 5.0;
+    synth.noteOn(60, 1.0);
+
+    var buf: [512]Sample = undefined;
+    var prev = synth.lfo_chaos[0].x;
+    var moved = false;
+    for (0..32) |_| {
+        @memset(&buf, 0.0);
+        synth.processBlock(&buf);
+        const v = synth.lfoVal(0, .chaos, synth.lfo_phase);
+        try std.testing.expect(v >= -1.0 and v <= 1.0);
+        if (synth.lfo_chaos[0].x != prev) moved = true;
+        prev = synth.lfo_chaos[0].x;
+    }
+    try std.testing.expect(moved);
 }
 
 test "applyCC: cutoff logarithmic scaling" {
@@ -4048,7 +4319,7 @@ test "paramValue/setParamAbsolute round-trip continuous, enum, and toggle params
     b.setParamAbsolute(20, std.math.nan(f32));
     try std.testing.expectEqual(FilterType.lp, b.filter_type);
     b.setParamAbsolute(20, 1.0e30);
-    try std.testing.expectEqual(FilterType.comb, b.filter_type);
+    try std.testing.expectEqual(FilterType.formant, b.filter_type);
 }
 
 test "FX param ids round-trip through paramValue/setParamAbsolute" {
