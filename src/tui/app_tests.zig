@@ -4078,6 +4078,16 @@ test "autosave writes a silent <path>~ backup on a timer, without clearing dirty
     try std.testing.expectEqual(base, app.last_autosave_ns);
 }
 
+test "remembered project paths are not truncated to 256 bytes" {
+    var app = try App.init(std.testing.allocator, std.Io.failing);
+    defer app.deinit();
+
+    const path = "nested/" ++ ("a" ** 512) ++ "/song.wsj";
+    app.setProjectPath(path);
+
+    try std.testing.expectEqualStrings(path, app.projectPath().?);
+}
+
 test "autosave is a no-op when clean or when no project path is known" {
     var app = try App.init(std.testing.allocator, std.Io.failing);
     defer app.deinit();

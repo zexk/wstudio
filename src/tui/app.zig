@@ -509,7 +509,7 @@ pub const App = struct {
     dirty: bool = false,
     /// Path of the current project file — the default for :w / :wq. Set when
     /// a project is loaded at startup and updated on every successful save.
-    project_path_buf: [256]u8 = undefined,
+    project_path_buf: [reload_path_buf_len]u8 = undefined,
     project_path_len: usize = 0,
     /// Submitted `:` commands, oldest first, for up/down recall in the
     /// command prompt. Capped at `cmd_history_cap`; oldest drops when full.
