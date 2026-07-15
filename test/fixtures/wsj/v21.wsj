@@ -1,0 +1,17 @@
+{
+  "version": 21,
+  "tracks": [
+    { "name": "wobble" }
+  ],
+  "racks": [
+    {
+      "label": "wobble",
+      "kind": "empty",
+      "fx_chain": [
+        { "kind": "tape", "tape": {
+          "wow_rate_hz": 0.5, "wow_depth": 0.6, "flutter_rate_hz": 7.0, "flutter_depth": 0.3, "mix": 0.9
+        } }
+      ]
+    }
+  ]
+}

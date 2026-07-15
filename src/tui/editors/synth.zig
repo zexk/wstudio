@@ -48,7 +48,7 @@ fn fxFirstId(kind: FxUnitKind) u8 {
     return switch (kind) {
         // zig fmt: off
         .gate    => 132, .comp => 137, .mb_comp => 144, .ott => 161, .eq => 167, .chorus => 176, .freq_shift => 181,
-        .dist    => 83, .crush => 86, .flanger => 90,
+        .dist    => 83, .crush => 86, .flanger => 90, .tape => 188,
         .phaser  => 103, .delay => 108, .reverb => 112,
         // zig fmt: on
     };
@@ -57,7 +57,7 @@ fn fxIdCount(kind: FxUnitKind) u8 {
     return switch (kind) {
         // zig fmt: off
         .gate    => 4, .comp => 6, .mb_comp => 16, .ott => 5, .eq => 8, .chorus => 4, .freq_shift => 3,
-        .dist    => 3, .crush => 4, .flanger => 5,
+        .dist    => 3, .crush => 4, .flanger => 5, .tape => 6,
         .phaser  => 5, .delay => 4, .reverb => 4,
         // zig fmt: on
     };
@@ -120,7 +120,7 @@ pub fn asFxKind(kind: FxUnitKind) ws.FxKind {
     return switch (kind) {
         // zig fmt: off
         .gate => .gate, .comp => .comp, .mb_comp => .mb_comp, .ott => .ott, .eq => .eq,
-        .dist => .sat, .crush => .crush, .chorus => .chorus, .flanger => .flanger,
+        .dist => .sat, .crush => .crush, .chorus => .chorus, .flanger => .flanger, .tape => .tape,
         .phaser => .phaser, .freq_shift => .freq_shift, .delay => .delay, .reverb => .reverb,
         // zig fmt: on
     };
@@ -137,6 +137,7 @@ fn fxOn(synth: anytype, kind: FxUnitKind) bool {
         .gate => synth.fx_gate_on, .comp => synth.fx_comp_on, .mb_comp => synth.fx_mb_on,
         .ott => synth.fx_ott_on, .eq => synth.fx_eq_on, .dist => synth.fx_dist_on,
         .crush => synth.fx_crush_on, .chorus => synth.fx_chorus_on, .flanger => synth.fx_flanger_on,
+        .tape => synth.fx_tape_on,
         .phaser => synth.fx_phaser_on, .freq_shift => synth.fx_freq_shift_on,
         .delay => synth.fx_delay_on, .reverb => synth.fx_reverb_on,
         // zig fmt: on
@@ -206,6 +207,7 @@ fn reorderIdFor(kind: FxUnitKind) u16 {
         .dist => 126, .crush => 127, .flanger => 128,
         .phaser => 129, .delay => 130, .reverb => 131,
         .gate => 136, .comp => 143, .mb_comp => 160, .ott => 166, .eq => 175, .chorus => 180, .freq_shift => 184,
+        .tape => 194,
         // zig fmt: on
     };
 }
@@ -264,7 +266,7 @@ fn sendFxToggle(app: *App, id: u8) void {
 /// Off units in `fx_order` sequence — the `.fx` subview's insert-picker
 /// list. Shared by the picker's render and its key/mouse handlers so they
 /// can't disagree about what row N means.
-pub fn synthFxPickerKinds(app: *App, buf: *[13]FxUnitKind) []const FxUnitKind {
+pub fn synthFxPickerKinds(app: *App, buf: *[14]FxUnitKind) []const FxUnitKind {
     if (app.synth_track >= app.session.racks.items.len) return &.{};
     const rack = app.session.racks.items[app.synth_track];
     const synth = switch (rack.instrument) {
@@ -292,8 +294,8 @@ pub fn activeFxFilter(app: *App) []const u8 {
 
 /// `synthFxPickerKinds` narrowed by the active filter, matched against each
 /// unit's display label.
-pub fn filteredSynthFxPickerKinds(app: *App, buf: *[13]FxUnitKind) []const FxUnitKind {
-    var off_buf: [13]FxUnitKind = undefined;
+pub fn filteredSynthFxPickerKinds(app: *App, buf: *[14]FxUnitKind) []const FxUnitKind {
+    var off_buf: [14]FxUnitKind = undefined;
     const off = synthFxPickerKinds(app, &off_buf);
     const filter = activeFxFilter(app);
     var n: usize = 0;
@@ -309,7 +311,7 @@ pub fn filteredSynthFxPickerKinds(app: *App, buf: *[13]FxUnitKind) []const FxUni
 /// already on.
 pub fn openFxPicker(app: *App) void {
     if (app.synth_subview != .fx) return;
-    var buf: [13]FxUnitKind = undefined;
+    var buf: [14]FxUnitKind = undefined;
     if (synthFxPickerKinds(app, &buf).len == 0) {
         app.setStatus("all FX units already in chain", .{});
         return;
@@ -390,7 +392,7 @@ fn firstId(subview: Subview) u8 {
 fn lastId(subview: Subview) u8 {
     return switch (subview) {
         .main => 187,
-        .fx => 183,
+        .fx => 193,
         .matrix => 82,
     };
 }
@@ -398,19 +400,20 @@ fn lastId(subview: Subview) u8 {
 /// Whether `id` is rendered/reachable in `subview`. `main` excludes the 3
 /// retired matrix-absorbed ids (23/30/31) same as before, plus the whole
 /// 59-94/103-183 range now that matrix/FX moved to their own panes; `fx`
-/// has nine disjoint ranges (83-94, 103-115, 132-135 for gate, 137-142 for
+/// has ten disjoint ranges (83-94, 103-115, 132-135 for gate, 137-142 for
 /// comp, 144-159 for mb_comp, 161-165 for ott, 167-174 for eq, 176-179 for
-/// chorus, 181-183 for freq_shift — matrix and LFO2/LFO3/MACRO sit between
-/// the first two in the global id space, ARP/ENV3/the reorder-handle ids
-/// between the rest). Reorder-handle ids (126-131, 136, 143, 160, 166, 175,
-/// 180, 184) are never cursor-reachable — see `reorderIdFor`. ARP (116-121)
-/// and ENV 3 (122-125) trail after MACRO in `main`, same append-after-the-
-/// max pattern every prior pickup used. WAVETABLE (185-187, one frame-pos
-/// param per oscillator) trails after ENV 3, same pattern again.
+/// chorus, 181-183 for freq_shift, 188-193 for tape — matrix and LFO2/LFO3/
+/// MACRO sit between the first two in the global id space, ARP/ENV3/the
+/// reorder-handle ids between the rest). Reorder-handle ids (126-131, 136,
+/// 143, 160, 166, 175, 180, 184, 194) are never cursor-reachable — see
+/// `reorderIdFor`. ARP (116-121) and ENV 3 (122-125) trail after MACRO in
+/// `main`, same append-after-the-max pattern every prior pickup used.
+/// WAVETABLE (185-187, one frame-pos param per oscillator) trails after ENV
+/// 3, same pattern again; TAPE (188-193) trails after that in `.fx`.
 fn inSubview(id: u8, subview: Subview) bool {
     return switch (subview) {
         .main => (id <= 58 and !deadParam(id)) or (id >= 95 and id <= 102) or (id >= 116 and id <= 125) or (id >= 185 and id <= 187),
-        .fx => (id >= 83 and id <= 94) or (id >= 103 and id <= 115) or (id >= 132 and id <= 135) or (id >= 137 and id <= 142) or (id >= 144 and id <= 159) or (id >= 161 and id <= 165) or (id >= 167 and id <= 174) or (id >= 176 and id <= 179) or (id >= 181 and id <= 183),
+        .fx => (id >= 83 and id <= 94) or (id >= 103 and id <= 115) or (id >= 132 and id <= 135) or (id >= 137 and id <= 142) or (id >= 144 and id <= 159) or (id >= 161 and id <= 165) or (id >= 167 and id <= 174) or (id >= 176 and id <= 179) or (id >= 181 and id <= 183) or (id >= 188 and id <= 193),
         .matrix => id >= 59 and id <= 82,
     };
 }
@@ -419,7 +422,7 @@ fn sectionStarts(subview: Subview) []const u8 {
     return switch (subview) {
         // zig fmt: off
         .main   => &[_]u8{ 0, 6, 14, 16, 20, 24, 28, 32, 34, 36, 38, 39, 41, 45, 50, 95, 97, 99, 116, 122, 185 },
-        .fx     => &[_]u8{ 83, 86, 90, 103, 108, 112 },
+        .fx     => &[_]u8{ 83, 86, 90, 103, 108, 112, 188 },
         .matrix => &[_]u8{59},
         // zig fmt: on
     };
@@ -584,7 +587,7 @@ pub const body_rows_wide: usize = 91;
 /// Total body rows in the "main" subview's single-column layout.
 pub const body_rows_single: usize = 99;
 /// Total body rows in the "fx" subview (always single-column).
-pub const body_rows_fx: usize = 84;
+pub const body_rows_fx: usize = 91;
 /// Total body rows in the "matrix" subview (always single-column).
 pub const body_rows_matrix: usize = 25;
 

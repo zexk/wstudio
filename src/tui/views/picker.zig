@@ -100,6 +100,7 @@ const fx_picker_menu = [_]struct { name: []const u8, desc: []const u8 }{
     .{ .name = "Crusher",    .desc = "bitcrusher: lo-fi bit depth + sample-rate reduction" },
     .{ .name = "Chorus",     .desc = "modulated doubling: width and shimmer" },
     .{ .name = "Flanger",    .desc = "modulated delay w/ feedback: whoosh to metallic comb" },
+    .{ .name = "Tape",       .desc = "wow+flutter: dual-LFO delay wobble for pitch-unstable tape character" },
     .{ .name = "Phaser",     .desc = "sweeping notches: slow swirl to fast wobble" },
     .{ .name = "Freq Shift", .desc = "Bode-style shifter: moves every partial by a fixed Hz, inharmonic" },
     .{ .name = "Delay",      .desc = "stereo echo with feedback and mix" },
@@ -176,7 +177,7 @@ pub fn drawSynthFxPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void {
     else
         "?";
 
-    var buf: [13]ws.dsp.synth.FxUnitKind = undefined;
+    var buf: [14]ws.dsp.synth.FxUnitKind = undefined;
     const kinds = synth_ed.filteredSynthFxPickerKinds(app, &buf);
     const filter = synth_ed.activeFxFilter(app);
 

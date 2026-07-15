@@ -8,8 +8,8 @@
 //!   - Drum step-count + per-pad bitmask patterns + per-pad sampler params
 //!   - Per-track gain / pan / mute / solo + project tempo
 //!   - FX: gate, compressor, multiband compressor (incl. OTT style), EQ,
-//!     saturator, crusher, chorus, phaser, flanger, frequency shifter, delay,
-//!     reverb
+//!     saturator, crusher, chorus, phaser, flanger, tape, frequency shifter,
+//!     delay, reverb
 //!   - Rack labels
 //!   - User-loaded sample audio (drum pads + sampler clips), exported as mono
 //!     WAVs into the "<stem>_samples" sidecar directory next to the .wsj
@@ -53,7 +53,7 @@ const AutomationPoint = automation_mod.AutomationPoint;
 /// added and what older files load as) and the bump-vs-additive policy
 /// live in FORMAT.md; per-field migration specifics stay as doc comments
 /// on the snapshot fields they concern.
-pub const file_version: u32 = 20;
+pub const file_version: u32 = 21;
 
 pub const AutomationPointSnap = struct {
     beat: f64,
@@ -243,7 +243,7 @@ pub const SynthSnap = struct {
     fx_reverb_room: f32 = 0.6,
     fx_reverb_damp: f32 = 0.4,
     fx_reverb_mix: f32 = 0.3,
-    fx_order: [13]synth_mod.FxUnitKind = synth_mod.default_fx_order,
+    fx_order: [14]synth_mod.FxUnitKind = synth_mod.default_fx_order,
     // Arpeggiator (additive optional-with-default fields, no version bump)
     arp_on: bool = false,
     arp_mode: synth_mod.ArpMode = .up,
@@ -521,6 +521,14 @@ pub const FlangerSnap = struct {
     mix: f32 = 0.5,
 };
 
+pub const TapeSnap = struct {
+    wow_rate_hz: f32 = 0.6,
+    wow_depth: f32 = 0.4,
+    flutter_rate_hz: f32 = 8.0,
+    flutter_depth: f32 = 0.25,
+    mix: f32 = 1.0,
+};
+
 pub const FreqShiftSnap = struct {
     shift_hz: f32 = 0.0,
     mix: f32 = 1.0,
@@ -542,7 +550,7 @@ pub const FxSnap = struct {
 
 /// Mirrors rack.zig's FxKind — persist keeps its own copy so snapshots stay
 /// pure data, same pattern as `InstrumentKind` below.
-pub const FxKind = enum { gate, comp, mb_comp, ott, eq, sat, crush, chorus, phaser, flanger, freq_shift, delay, reverb };
+pub const FxKind = enum { gate, comp, mb_comp, ott, eq, sat, crush, chorus, phaser, flanger, tape, freq_shift, delay, reverb };
 
 /// One chain slot (v10): its kind, bypass flag, and the params for that kind
 /// in the matching optional (the others stay null). A missing params field
@@ -562,6 +570,7 @@ pub const FxUnitSnap = struct {
     chorus: ?ChorusSnap = null,
     phaser: ?PhaserSnap = null,
     flanger: ?FlangerSnap = null,
+    tape: ?TapeSnap = null,
     freq_shift: ?FreqShiftSnap = null,
 };
 
@@ -1030,6 +1039,10 @@ fn chainToSnap(aa: std.mem.Allocator, fx: *const Fx, sample_rate: u32) ![]FxUnit
             } },
             .flanger => |fl| .{ .kind = .flanger, .flanger = .{
                 .rate_hz = fl.rate_hz, .depth = fl.depth, .feedback = fl.feedback, .mix = fl.mix,
+            } },
+            .tape => |t| .{ .kind = .tape, .tape = .{
+                .wow_rate_hz = t.wow_rate_hz, .wow_depth = t.wow_depth,
+                .flutter_rate_hz = t.flutter_rate_hz, .flutter_depth = t.flutter_depth, .mix = t.mix,
             } },
             .freq_shift => |f| .{ .kind = .freq_shift, .freq_shift = .{
                 .shift_hz = f.shift_hz, .mix = f.mix,
@@ -1861,8 +1874,8 @@ fn loadNotes(pp: *PatternPlayer, notes: []const NoteSnap) void {
 /// drop another, silently dropping the missing unit from processing).
 /// `order.len == FxUnitKind`'s variant count, so "every kind appears at
 /// least once" already implies no duplicates (pigeonhole).
-fn isValidFxOrder(order: [13]synth_mod.FxUnitKind) bool {
-    var seen = [_]bool{false} ** 13;
+fn isValidFxOrder(order: [14]synth_mod.FxUnitKind) bool {
+    var seen = [_]bool{false} ** 14;
     for (order) |kind| seen[@intFromEnum(kind)] = true;
     for (seen) |s| if (!s) return false;
     return true;
@@ -2063,7 +2076,7 @@ fn applyFxChain(allocator: std.mem.Allocator, fx_out: *Fx, chain: []const FxUnit
         const kind: rack_mod.FxKind = switch (us.kind) {
             .gate => .gate, .comp => .comp, .mb_comp => .mb_comp, .ott => .ott,
             .eq => .eq, .sat => .sat, .crush => .crush, .chorus => .chorus,
-            .phaser => .phaser, .flanger => .flanger,
+            .phaser => .phaser, .flanger => .flanger, .tape => .tape,
             .freq_shift => .freq_shift, .delay => .delay, .reverb => .reverb,
         };
         const unit = try fx_out.insert(allocator, fx_out.units.items.len, kind, sr);
@@ -2147,6 +2160,13 @@ fn applyFxChain(allocator: std.mem.Allocator, fx_out: *Fx, chain: []const FxUnit
                 fl.depth = fs.depth;
                 fl.feedback = fs.feedback;
                 fl.mix = fs.mix;
+            },
+            .tape => |*t| if (us.tape) |ts| {
+                t.wow_rate_hz = ts.wow_rate_hz;
+                t.wow_depth = ts.wow_depth;
+                t.flutter_rate_hz = ts.flutter_rate_hz;
+                t.flutter_depth = ts.flutter_depth;
+                t.mix = ts.mix;
             },
             .freq_shift => |*f| if (us.freq_shift) |fs| {
                 f.shift_hz = fs.shift_hz;
@@ -3589,7 +3609,7 @@ test "golden-file corpus: every historical .wsj fixture still loads" {
     }
 
     // Guards against a misconfigured path silently turning this into a no-op.
-    try testing.expectEqual(@as(usize, 20), count);
+    try testing.expectEqual(@as(usize, 21), count);
 }
 
 test "golden-file corpus: v17's mod matrix loads its rows" {
@@ -3718,6 +3738,18 @@ test "golden-file corpus: v20's wavetable oscillator loads its waveform/wt_pos" 
     const s = &session.racks.items[0].instrument.poly_synth;
     try testing.expectEqual(synth_mod.Waveform.wavetable, s.waveform);
     try testing.expectApproxEqAbs(@as(f32, 0.35), s.wt_pos, 1e-3);
+}
+
+test "golden-file corpus: v21's tape unit loads its params" {
+    const testing = std.testing;
+    var session = try load(testing.allocator, testing.io, "test/fixtures/wsj/v21.wsj");
+    defer session.deinit();
+    const t = &session.racks.items[0].fx.find(.tape).?.payload.tape;
+    try testing.expectApproxEqAbs(@as(f32, 0.5), t.wow_rate_hz, 1e-3);
+    try testing.expectApproxEqAbs(@as(f32, 0.6), t.wow_depth, 1e-3);
+    try testing.expectApproxEqAbs(@as(f32, 7.0), t.flutter_rate_hz, 1e-3);
+    try testing.expectApproxEqAbs(@as(f32, 0.3), t.flutter_depth, 1e-3);
+    try testing.expectApproxEqAbs(@as(f32, 0.9), t.mix, 1e-3);
 }
 
 test "save/load round-trip persists an EQ band's lowpass/highpass type and slope" {

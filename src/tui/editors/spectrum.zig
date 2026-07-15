@@ -32,7 +32,7 @@ const fuzzy = @import("../fuzzy.zig");
 /// tone, character, modulation, time). Parallel to `picker_menu` in
 /// views/picker.zig.
 pub const picker_kinds = [_]FxKind{
-    .gate, .comp, .mb_comp, .ott, .eq, .sat, .crush, .chorus, .flanger, .phaser, .freq_shift, .delay, .reverb,
+    .gate, .comp, .mb_comp, .ott, .eq, .sat, .crush, .chorus, .flanger, .tape, .phaser, .freq_shift, .delay, .reverb,
 };
 
 /// The `/` filter narrowing the FX insert picker right now — same
@@ -67,6 +67,7 @@ pub fn unitLabel(k: FxKind) []const u8 {
         .crush => "CRUSH",
         .chorus => "CHORUS",
         .flanger => "FLANGER",
+        .tape => "TAPE",
         .phaser => "PHASER",
         .freq_shift => "FREQ SHIFT",
         .delay => "DELAY",
@@ -88,6 +89,7 @@ pub fn stripLabel(k: FxKind) []const u8 {
         .crush => "CRSH",
         .chorus => "CHOR",
         .flanger => "FLNG",
+        .tape => "TAPE",
         .phaser => "PHAS",
         .freq_shift => "FRQS",
         .delay => "DLY",
@@ -101,6 +103,7 @@ pub fn paramCount(k: FxKind) usize {
         .mb_comp => mb_comp_param_count,
         .comp => 7,
         .ott, .phaser, .flanger => 4,
+        .tape => 5,
         .freq_shift => 2,
         .gate, .sat, .crush, .chorus, .delay, .reverb => 3,
     };
@@ -263,6 +266,10 @@ pub fn paramName(p: *const FxPayload, idx: usize) []const u8 {
             0 => "rate", 1 => "depth", 2 => "feedback", 3 => "mix",
             else => "?",
         },
+        .tape => switch (idx) {
+            0 => "wow rate", 1 => "wow depth", 2 => "flutter rate", 3 => "flutter depth", 4 => "mix",
+            else => "?",
+        },
         .freq_shift => switch (idx) {
             0 => "shift", 1 => "mix",
             else => "?",
@@ -352,6 +359,10 @@ pub fn getParam(p: *const FxPayload, idx: usize) f32 {
             0 => fl.rate_hz, 1 => fl.depth, 2 => fl.feedback, 3 => fl.mix,
             else => 0,
         },
+        .tape => |*t| switch (idx) {
+            0 => t.wow_rate_hz, 1 => t.wow_depth, 2 => t.flutter_rate_hz, 3 => t.flutter_depth, 4 => t.mix,
+            else => 0,
+        },
         .freq_shift => |*f| switch (idx) {
             0 => f.shift_hz, 1 => f.mix,
             else => 0,
@@ -439,6 +450,11 @@ pub fn paramRange(app: *App, p: *const FxPayload, idx: usize) [2]f32 {
         .flanger => switch (idx) {
             0 => .{ 0.05, 5.0 },
             2 => .{ 0.0, 0.9 },
+            else => .{ 0.0, 1.0 },
+        },
+        .tape => switch (idx) {
+            0 => .{ 0.05, 3.0 },
+            2 => .{ 3.0, 15.0 },
             else => .{ 0.0, 1.0 },
         },
         .freq_shift => switch (idx) {
@@ -588,6 +604,14 @@ pub fn setParam(app: *App, p: *FxPayload, idx: usize, value: f32) void {
             3 => fl.mix = std.math.clamp(value, 0.0, 1.0),
             else => {},
         },
+        .tape => |*t| switch (idx) {
+            0 => t.wow_rate_hz = std.math.clamp(value, 0.05, 3.0),
+            1 => t.wow_depth = std.math.clamp(value, 0.0, 1.0),
+            2 => t.flutter_rate_hz = std.math.clamp(value, 3.0, 15.0),
+            3 => t.flutter_depth = std.math.clamp(value, 0.0, 1.0),
+            4 => t.mix = std.math.clamp(value, 0.0, 1.0),
+            else => {},
+        },
         .freq_shift => |*f| switch (idx) {
             0 => f.shift_hz = std.math.clamp(value, -2000.0, 2000.0),
             1 => f.mix = std.math.clamp(value, 0.0, 1.0),
@@ -673,6 +697,11 @@ fn paramStep(p: *const FxPayload, idx: usize, coarse: bool) f32 {
         },
         .flanger => switch (idx) {
             0 => if (coarse) @as(f32, 0.5) else 0.05,
+            else => if (coarse) @as(f32, 0.2) else 0.05,
+        },
+        .tape => switch (idx) {
+            0 => if (coarse) @as(f32, 0.3) else 0.05,
+            2 => if (coarse) @as(f32, 2.0) else 0.5,
             else => if (coarse) @as(f32, 0.2) else 0.05,
         },
         .freq_shift => switch (idx) {

@@ -1512,7 +1512,7 @@ pub const App = struct {
     /// units narrowed by the filter, so it's recomputed (and re-bounded) on
     /// every call.
     fn handleSynthFxPickerKey(self: *App, key: modal_mod.Key) void {
-        var buf: [13]ws.dsp.synth.FxUnitKind = undefined;
+        var buf: [14]ws.dsp.synth.FxUnitKind = undefined;
         const kinds = synth_ed.filteredSynthFxPickerKinds(self, &buf);
         if (kinds.len > 0 and self.synth_fx_picker_cursor >= kinds.len) self.synth_fx_picker_cursor = @intCast(kinds.len - 1);
         switch (key) {
@@ -1534,7 +1534,7 @@ pub const App = struct {
     /// Synth-internal FX picker: click a row to select + insert it (same as
     /// enter/space); scroll moves the highlight. Mirrors `fxPickerMouse`.
     fn synthFxPickerMouse(self: *App, ev: modal_mod.MouseEvent, row: usize) void {
-        var buf: [13]ws.dsp.synth.FxUnitKind = undefined;
+        var buf: [14]ws.dsp.synth.FxUnitKind = undefined;
         const kinds = synth_ed.filteredSynthFxPickerKinds(self, &buf);
         switch (ev.kind) {
             .press => {

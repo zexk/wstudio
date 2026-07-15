@@ -53,7 +53,10 @@ pub const spectrum_band_count: usize = 80;
 ///   173:hi_freq 174:hi_gain 175:reorder handle
 /// FX CHOR : 176:fx_chorus_on 177:rate_hz 178:depth_ms 179:mix 180:reorder handle
 /// FX FRQS : 181:fx_freq_shift_on 182:shift_hz 183:mix 184:reorder handle
-pub const synth_param_count: u8 = 185;
+/// WAVETABLE: 185:wt_pos_a 186:wt_pos_b 187:wt_pos_c
+/// FX TAPE : 188:fx_tape_on 189:wow_rate_hz 190:wow_depth 191:flutter_rate_hz
+///   192:flutter_depth 193:mix 194:reorder handle
+pub const synth_param_count: u8 = 195;
 
 // ---------------------------------------------------------------------------
 // Palette — all colour codes go here; never raw \x1b sequences elsewhere

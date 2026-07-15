@@ -14,6 +14,7 @@ const MultibandComp = @import("multiband_comp.zig").MultibandComp;
 pub const MbStyle = @import("multiband_comp.zig").Style;
 const Ott = @import("ott.zig").Ott;
 const FreqShifter = @import("freq_shift.zig").FreqShifter;
+const Tape = @import("tape.zig").Tape;
 const wavetable = @import("wavetable.zig");
 const Wavetable = wavetable.Wavetable;
 
@@ -104,7 +105,7 @@ pub const ArpMode     = enum { up, down, updown, downup, played, random, chord }
 /// no heap allocation and doesn't touch the mod-matrix/automation id space
 /// (every param keeps its existing stable id regardless of position). See
 /// `PolySynth.fx_order`'s own doc comment for the reorder mechanism.
-pub const FxUnitKind = enum { gate, eq, comp, mb_comp, ott, dist, crush, chorus, flanger, phaser, freq_shift, delay, reverb };
+pub const FxUnitKind = enum { gate, eq, comp, mb_comp, ott, dist, crush, chorus, flanger, tape, phaser, freq_shift, delay, reverb };
 
 /// Starting chain order — preserves the relative order the original 6
 /// fixed units always ran in, so existing presets/projects sound unchanged
@@ -112,7 +113,7 @@ pub const FxUnitKind = enum { gate, eq, comp, mb_comp, ott, dist, crush, chorus,
 /// a typical signal chain (gate first, ahead of everything else; comp/
 /// mb_comp right after it, dynamics before tone-shaping). Purely a starting
 /// point once `fx_order` is user-reorderable.
-pub const default_fx_order = [_]FxUnitKind{ .gate, .eq, .comp, .mb_comp, .ott, .dist, .crush, .chorus, .flanger, .phaser, .freq_shift, .delay, .reverb };
+pub const default_fx_order = [_]FxUnitKind{ .gate, .eq, .comp, .mb_comp, .ott, .dist, .crush, .chorus, .flanger, .tape, .phaser, .freq_shift, .delay, .reverb };
 
 /// Fixed-line stereo flanger for the synth's internal FX section. Unlike the
 /// master-bus Chorus it owns no heap delay line — PolySynth embeds by value
@@ -780,6 +781,15 @@ pub const PolySynth = struct {
     fx_flanger_depth:    f32  = 0.7,
     fx_flanger_feedback: f32  = 0.5,
     fx_flanger_mix:      f32  = 0.5,
+    /// Reuses the track-chain's own Tape unit (dsp/tape.zig) — already
+    /// value-only (fixed delay ring, no heap), just matrix-automatable and
+    /// embedded by value here, same precedent as FreqShifter below.
+    fx_tape_on:            bool = false,
+    fx_tape_wow_rate_hz:   f32  = 0.6,
+    fx_tape_wow_depth:     f32  = 0.4,
+    fx_tape_flutter_rate_hz: f32 = 8.0,
+    fx_tape_flutter_depth: f32  = 0.25,
+    fx_tape_mix:           f32  = 1.0,
     /// Reuses the track-chain's own Phaser unit (dsp/phaser.zig) — same
     /// allpass math, just matrix-automatable and embedded by value here
     /// instead of heap-allocated in the FX chain.
@@ -810,7 +820,7 @@ pub const PolySynth = struct {
     /// Processing sequence for the FX section above — see `FxUnitKind`'s
     /// doc comment. Reordered via `adjustParam`'s dedicated reorder-handle
     /// ids, never written directly by the editor.
-    fx_order: [13]FxUnitKind = default_fx_order,
+    fx_order: [14]FxUnitKind = default_fx_order,
     fx_gate_state: Gate = .{},
     fx_eq_state: Eq3 = .{},
     fx_comp_state: Compressor = .{},
@@ -819,6 +829,7 @@ pub const PolySynth = struct {
     fx_crush_state: Crusher = .{},
     fx_chorus_state: Chorus = .{},
     fx_flanger_state: Flanger = .{},
+    fx_tape_state: Tape = .{},
     fx_phaser_state: Phaser = .{},
     fx_freq_shift_state: FreqShifter = .{},
     fx_delay_state: Delay = .{},
@@ -923,6 +934,7 @@ pub const PolySynth = struct {
         177, 178, 179,
         182, 183,
         185, 186,
+        189, 190, 191, 192, 193,
         dest_pitch, dest_amp,
         // zig fmt: on
     };
@@ -1301,6 +1313,12 @@ pub const PolySynth = struct {
         fx_flanger_depth: f32 = 0.7,
         fx_flanger_feedback: f32 = 0.5,
         fx_flanger_mix: f32 = 0.5,
+        fx_tape_on: bool = false,
+        fx_tape_wow_rate_hz: f32 = 0.6,
+        fx_tape_wow_depth: f32 = 0.4,
+        fx_tape_flutter_rate_hz: f32 = 8.0,
+        fx_tape_flutter_depth: f32 = 0.25,
+        fx_tape_mix: f32 = 1.0,
         fx_phaser_on: bool = false,
         fx_phaser_rate_hz: f32 = 0.4,
         fx_phaser_depth: f32 = 0.9,
@@ -1317,7 +1335,7 @@ pub const PolySynth = struct {
         fx_reverb_room: f32 = 0.6,
         fx_reverb_damp: f32 = 0.4,
         fx_reverb_mix: f32 = 0.3,
-        fx_order: [13]FxUnitKind = default_fx_order,
+        fx_order: [14]FxUnitKind = default_fx_order,
 
         arp_on: bool = false,
         arp_mode: ArpMode = .up,
@@ -2150,7 +2168,7 @@ pub const PolySynth = struct {
         // still play).
         if (self.fx_gate_on or self.fx_eq_on or self.fx_comp_on or self.fx_mb_on or
             self.fx_ott_on or self.fx_dist_on or self.fx_crush_on or self.fx_chorus_on or
-            self.fx_flanger_on or self.fx_phaser_on or self.fx_freq_shift_on or
+            self.fx_flanger_on or self.fx_tape_on or self.fx_phaser_on or self.fx_freq_shift_on or
             self.fx_delay_on or self.fx_reverb_on)
         {
             const nv = &self.voices[self.newest_voice];
@@ -2262,6 +2280,16 @@ pub const PolySynth = struct {
                             eff(&mods, 93, self.fx_flanger_feedback),
                             eff(&mods, 94, self.fx_flanger_mix),
                         );
+                    },
+                    .tape => if (self.fx_tape_on) {
+                        // zig fmt: off
+                        self.fx_tape_state.wow_rate_hz      = eff(&mods, 189, self.fx_tape_wow_rate_hz);
+                        self.fx_tape_state.wow_depth        = eff(&mods, 190, self.fx_tape_wow_depth);
+                        self.fx_tape_state.flutter_rate_hz  = eff(&mods, 191, self.fx_tape_flutter_rate_hz);
+                        self.fx_tape_state.flutter_depth    = eff(&mods, 192, self.fx_tape_flutter_depth);
+                        self.fx_tape_state.mix              = eff(&mods, 193, self.fx_tape_mix);
+                        // zig fmt: on
+                        self.fx_tape_state.processBlock(buf);
                     },
                     .phaser => if (self.fx_phaser_on) {
                         // zig fmt: off
@@ -3632,6 +3660,11 @@ pub const PolySynth = struct {
         .{ .id = 185,.label = "WT POS A",    .section = "OSC A",   .range = .{ 0.0,    1.0 },    .step = 0.01 },
         .{ .id = 186,.label = "WT POS B",    .section = "OSC B",   .range = .{ 0.0,    1.0 },    .step = 0.01 },
         .{ .id = 187,.label = "WT POS C",    .section = "OSC C",   .range = .{ 0.0,    1.0 },    .step = 0.01 },
+        .{ .id = 189,.label = "TAPE WOW RATE",  .section = "FX TAPE", .range = .{ 0.05,  3.0 },  .step = 0.05 },
+        .{ .id = 190,.label = "TAPE WOW DEPTH", .section = "FX TAPE", .range = .{ 0.0,   1.0 },  .step = 0.01 },
+        .{ .id = 191,.label = "TAPE FLT RATE",  .section = "FX TAPE", .range = .{ 3.0,   15.0 }, .step = 0.1 },
+        .{ .id = 192,.label = "TAPE FLT DEPTH", .section = "FX TAPE", .range = .{ 0.0,   1.0 },  .step = 0.01 },
+        .{ .id = 193,.label = "TAPE MIX",       .section = "FX TAPE", .range = .{ 0.0,   1.0 },  .step = 0.01 },
         // zig fmt: on
     };
 

@@ -203,6 +203,7 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize
                     .dist => try secFxDist(&tw, synth, c),
                     .crush => try secFxCrush(&tw, synth, c),
                     .flanger => try secFxFlanger(&tw, synth, c),
+                    .tape => try secFxTape(&tw, synth, c),
                     .phaser => try secFxPhaser(&tw, synth, c),
                     .delay => try secFxDelay(&tw, synth, c),
                     .reverb => try secFxReverb(&tw, synth, c),
@@ -916,6 +917,24 @@ fn secFxFlanger(w: *std.Io.Writer, synth: anytype, c: u8) !void {
         try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.fx_flanger_mix}));
 }
 
+fn secFxTape(w: *std.Io.Writer, synth: anytype, c: u8) !void {
+    var buf: [40]u8 = undefined;
+    try synthSection(w, "FX TAPE", red);
+
+    const on = synth.fx_tape_on;
+    try enumRow(w, c == 188, false, red, "on/off", &on_off_names, if (on) 0 else 1);
+    try barRow(w, c == 189, !on, red, "wow rate", synth.fx_tape_wow_rate_hz, 3.0,
+        try std.fmt.bufPrint(&buf, "{d:.2} Hz", .{synth.fx_tape_wow_rate_hz}));
+    try barRow(w, c == 190, !on, red, "wow depth", synth.fx_tape_wow_depth, 1.0,
+        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.fx_tape_wow_depth}));
+    try barRow(w, c == 191, !on, red, "flt rate", synth.fx_tape_flutter_rate_hz, 15.0,
+        try std.fmt.bufPrint(&buf, "{d:.2} Hz", .{synth.fx_tape_flutter_rate_hz}));
+    try barRow(w, c == 192, !on, red, "flt depth", synth.fx_tape_flutter_depth, 1.0,
+        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.fx_tape_flutter_depth}));
+    try barRow(w, c == 193, !on, red, "mix", synth.fx_tape_mix, 1.0,
+        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.fx_tape_mix}));
+}
+
 fn secFxPhaser(w: *std.Io.Writer, synth: anytype, c: u8) !void {
     var buf: [40]u8 = undefined;
     try synthSection(w, "FX PHSR", red);
@@ -1019,6 +1038,8 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !
         "frqs.on", "frqs.shift", "frqs.mix",
         "-", // 184: freq_shift's reorder handle, never cursor-reachable
         "wt.pos a", "wt.pos b", "wt.pos c",
+        "tape.on", "tape.wow.rate", "tape.wow.depth", "tape.flt.rate", "tape.flt.depth", "tape.mix",
+        "-", // 194: tape's reorder handle, never cursor-reachable
     };
     const cur = @min(@as(usize, app.synth_cursor), labels.len - 1);
     try style.writeModeBadge(w, app.modal.mode);
@@ -1216,6 +1237,12 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !
         185 => try w.print("{d:.2}",       .{synth.wt_pos}),
         186 => try w.print("{d:.2}",       .{synth.osc_b_wt_pos}),
         187 => try w.print("{d:.2}",       .{synth.osc_c_wt_pos}),
+        188 => try w.writeAll(if (synth.fx_tape_on) "on" else "off"),
+        189 => try w.print("{d:.2} Hz",    .{synth.fx_tape_wow_rate_hz}),
+        190 => try w.print("{d:.2}",       .{synth.fx_tape_wow_depth}),
+        191 => try w.print("{d:.2} Hz",    .{synth.fx_tape_flutter_rate_hz}),
+        192 => try w.print("{d:.2}",       .{synth.fx_tape_flutter_depth}),
+        193 => try w.print("{d:.2}",       .{synth.fx_tape_mix}),
         // zig fmt: on
         else => {},
     }
