@@ -220,9 +220,16 @@ fn drawSynthMain(app: anytype, w: *std.Io.Writer, max_rows: usize, cols: usize) 
     const idx = synth_layout.indexContaining(order, app.synth_cursor) orelse 0;
     const cursor_row = if (order.len > 0) order[idx].row else 0;
 
-    var scroll = @min(app.synth_scroll, body_rows -| max_rows);
+    // The scroll window is content rows only — `max_rows` also counts the
+    // title row emitted below, which never scrolls. Clamping against
+    // `max_rows` directly here left the window one row too tall for what
+    // the write loop actually has room for, so the very last content row
+    // (whatever the cursor scrolled all the way down to reach) silently
+    // never got written even though `scroll` claimed to include it.
+    const content_rows = max_rows -| 1;
+    var scroll = @min(app.synth_scroll, body_rows -| content_rows);
     if (cursor_row < scroll) scroll = cursor_row;
-    if (cursor_row >= scroll + max_rows) scroll = cursor_row -| max_rows + 1;
+    if (cursor_row >= scroll + content_rows) scroll = cursor_row -| content_rows + 1;
     app.synth_scroll = scroll;
 
     if (app.synth_track >= app.session.racks.items.len) {
@@ -317,9 +324,12 @@ fn drawSynthMod(app: anytype, w: *std.Io.Writer, max_rows: usize, cols: usize) !
     const idx = synth_layout.indexContaining(order, app.synth_cursor) orelse 0;
     const cursor_row = if (order.len > 0) order[idx].row else 0;
 
-    var scroll = @min(app.synth_scroll, body_rows -| max_rows);
+    // See drawSynthMain's matching comment: the scroll window is content
+    // rows only, `max_rows` also counts the never-scrolling title row.
+    const content_rows = max_rows -| 1;
+    var scroll = @min(app.synth_scroll, body_rows -| content_rows);
     if (cursor_row < scroll) scroll = cursor_row;
-    if (cursor_row >= scroll + max_rows) scroll = cursor_row -| max_rows + 1;
+    if (cursor_row >= scroll + content_rows) scroll = cursor_row -| content_rows + 1;
     app.synth_scroll = scroll;
 
     if (app.synth_track >= app.session.racks.items.len) {
