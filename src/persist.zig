@@ -1010,7 +1010,15 @@ fn snapFromDevice(comptime Snap: type, device: anytype) Snap {
 /// Inverse of `snapFromDevice`: write a Snap's fields onto a live device by
 /// name, leaving the device's other (runtime-state) fields untouched.
 fn applySnapToDevice(device: anytype, snap: anytype) void {
-    inline for (std.meta.fields(@TypeOf(snap))) |f| @field(device.*, f.name) = @field(snap, f.name);
+    inline for (std.meta.fields(@TypeOf(snap))) |f| {
+        const value = @field(snap, f.name);
+        switch (@typeInfo(f.type)) {
+            .float => if (std.math.isFinite(value)) {
+                @field(device.*, f.name) = value;
+            },
+            else => @field(device.*, f.name) = value,
+        }
+    }
 }
 
 // zig fmt: off
@@ -1984,11 +1992,11 @@ fn applyFxChain(allocator: std.mem.Allocator, fx_out: *Fx, chain: []const FxUnit
         unit.bypassed = us.bypassed;
         switch (unit.payload) {
             .comp => |*c| if (us.comp) |cs| {
-                c.threshold_db = cs.threshold_db;
-                c.ratio = cs.ratio;
-                c.attack_ms = cs.attack_ms;
-                c.release_ms = cs.release_ms;
-                c.makeup_db = cs.makeup_db;
+                if (std.math.isFinite(cs.threshold_db)) c.threshold_db = cs.threshold_db;
+                if (std.math.isFinite(cs.ratio)) c.ratio = cs.ratio;
+                if (std.math.isFinite(cs.attack_ms)) c.attack_ms = cs.attack_ms;
+                if (std.math.isFinite(cs.release_ms)) c.release_ms = cs.release_ms;
+                if (std.math.isFinite(cs.makeup_db)) c.makeup_db = cs.makeup_db;
                 c.sidechain_source = if (cs.sidechain_source) |src| .{
                     .track = @min(src, engine_mod.max_tracks - 1),
                     .pad = if (cs.sidechain_pad) |p| @min(p, DrumMachine.max_pads - 1) else null,
@@ -1996,24 +2004,31 @@ fn applyFxChain(allocator: std.mem.Allocator, fx_out: *Fx, chain: []const FxUnit
             },
             .mb_comp => |*m| if (us.mb_comp) |ms| {
                 m.setXovers(ms.xover_lo_hz, ms.xover_hi_hz);
-                m.attack_ms = ms.attack_ms;
-                m.release_ms = ms.release_ms;
+                if (std.math.isFinite(ms.attack_ms)) m.attack_ms = ms.attack_ms;
+                if (std.math.isFinite(ms.release_ms)) m.release_ms = ms.release_ms;
                 m.style = if (ms.ott) .ott else .classic;
-                m.mix = ms.mix;
-                m.bands[0] = .{ .threshold_db = ms.low_threshold_db, .ratio = ms.low_ratio, .makeup_db = ms.low_makeup_db };
-                m.bands[1] = .{ .threshold_db = ms.mid_threshold_db, .ratio = ms.mid_ratio, .makeup_db = ms.mid_makeup_db };
-                m.bands[2] = .{ .threshold_db = ms.high_threshold_db, .ratio = ms.high_ratio, .makeup_db = ms.high_makeup_db };
+                if (std.math.isFinite(ms.mix)) m.mix = ms.mix;
+                const saved_bands = [_][3]f32{
+                    .{ ms.low_threshold_db, ms.low_ratio, ms.low_makeup_db },
+                    .{ ms.mid_threshold_db, ms.mid_ratio, ms.mid_makeup_db },
+                    .{ ms.high_threshold_db, ms.high_ratio, ms.high_makeup_db },
+                };
+                for (&m.bands, saved_bands) |*band, saved| {
+                    if (std.math.isFinite(saved[0])) band.threshold_db = saved[0];
+                    if (std.math.isFinite(saved[1])) band.ratio = saved[1];
+                    if (std.math.isFinite(saved[2])) band.makeup_db = saved[2];
+                }
             },
             .ott => |*o| if (us.ott) |os| {
                 o.setDepth(os.depth);
                 o.setTime(os.time);
-                o.gain_in_db = std.math.clamp(os.gain_in_db, -24.0, 24.0);
-                o.gain_out_db = std.math.clamp(os.gain_out_db, -24.0, 24.0);
+                o.gain_in_db = finiteClamp(f32, os.gain_in_db, -24.0, 24.0, o.gain_in_db);
+                o.gain_out_db = finiteClamp(f32, os.gain_out_db, -24.0, 24.0, o.gain_out_db);
             },
             .delay => |*d| if (us.delay) |ds| {
                 d.setTime(ds.time_s);
-                d.feedback = ds.feedback;
-                d.mix = ds.mix;
+                if (std.math.isFinite(ds.feedback)) d.feedback = ds.feedback;
+                if (std.math.isFinite(ds.mix)) d.mix = ds.mix;
             },
             .reverb => |*r| if (us.reverb) |rs| applySnapToDevice(r, rs),
             .eq => |*e| if (us.eq) |es| {
@@ -3194,6 +3209,97 @@ test "buildSession: rejects malformed and future files" {
             .length_bars = 2,
         }} }},
     }));
+}
+
+test "generic FX snapshot loading ignores non-finite fields" {
+    const nan = std.math.nan(f32);
+
+    var gate = Gate.init(48_000);
+    const gate_before = gate;
+    applySnapToDevice(&gate, GateSnap{ .threshold_db = nan, .attack_ms = nan, .release_ms = nan });
+    try std.testing.expectEqual(gate_before.threshold_db, gate.threshold_db);
+    try std.testing.expectEqual(gate_before.attack_ms, gate.attack_ms);
+    try std.testing.expectEqual(gate_before.release_ms, gate.release_ms);
+
+    var sat: Saturator = .{};
+    const sat_before = sat;
+    applySnapToDevice(&sat, SatSnap{ .drive_db = nan, .out_db = nan, .mix = nan });
+    try std.testing.expectEqual(sat_before.drive_db, sat.drive_db);
+    try std.testing.expectEqual(sat_before.out_db, sat.out_db);
+    try std.testing.expectEqual(sat_before.mix, sat.mix);
+
+    var crush: Crusher = .{};
+    const crush_before = crush;
+    applySnapToDevice(&crush, CrushSnap{ .bits = nan, .downsample = nan, .mix = nan });
+    try std.testing.expectEqual(crush_before.bits, crush.bits);
+    try std.testing.expectEqual(crush_before.downsample, crush.downsample);
+    try std.testing.expectEqual(crush_before.mix, crush.mix);
+
+    var phaser = Phaser.init(48_000);
+    const phaser_before = phaser;
+    applySnapToDevice(&phaser, PhaserSnap{ .rate_hz = nan, .depth = nan, .feedback = nan, .mix = nan });
+    try std.testing.expectEqual(phaser_before.rate_hz, phaser.rate_hz);
+    try std.testing.expectEqual(phaser_before.depth, phaser.depth);
+    try std.testing.expectEqual(phaser_before.feedback, phaser.feedback);
+    try std.testing.expectEqual(phaser_before.mix, phaser.mix);
+}
+
+test "specialized FX snapshot loading ignores non-finite fields" {
+    const testing = std.testing;
+    const nan = std.math.nan(f32);
+    var fx: Fx = .{};
+    defer fx.deinit(testing.allocator);
+    try applyFxChain(testing.allocator, &fx, &.{
+        .{ .kind = .comp, .comp = .{ .threshold_db = nan, .ratio = nan, .attack_ms = nan, .release_ms = nan, .makeup_db = nan } },
+        .{ .kind = .mb_comp, .mb_comp = .{
+            .xover_lo_hz = nan,
+            .xover_hi_hz = nan,
+            .attack_ms = nan,
+            .release_ms = nan,
+            .mix = nan,
+            .low_threshold_db = nan,
+            .low_ratio = nan,
+            .low_makeup_db = nan,
+            .mid_threshold_db = nan,
+            .mid_ratio = nan,
+            .mid_makeup_db = nan,
+            .high_threshold_db = nan,
+            .high_ratio = nan,
+            .high_makeup_db = nan,
+        } },
+        .{ .kind = .ott, .ott = .{ .depth = nan, .time = nan, .gain_in_db = nan, .gain_out_db = nan } },
+        .{ .kind = .delay, .delay = .{ .time_s = nan, .feedback = nan, .mix = nan } },
+    }, 48_000);
+
+    const comp = &fx.units.items[0].payload.comp;
+    try testing.expect(std.math.isFinite(comp.threshold_db));
+    try testing.expect(std.math.isFinite(comp.ratio));
+    try testing.expect(std.math.isFinite(comp.attack_ms));
+    try testing.expect(std.math.isFinite(comp.release_ms));
+    try testing.expect(std.math.isFinite(comp.makeup_db));
+
+    const mb = &fx.units.items[1].payload.mb_comp;
+    try testing.expect(std.math.isFinite(mb.xover_lo_hz));
+    try testing.expect(std.math.isFinite(mb.xover_hi_hz));
+    try testing.expect(std.math.isFinite(mb.attack_ms));
+    try testing.expect(std.math.isFinite(mb.release_ms));
+    try testing.expect(std.math.isFinite(mb.mix));
+    for (mb.bands) |band| {
+        try testing.expect(std.math.isFinite(band.threshold_db));
+        try testing.expect(std.math.isFinite(band.ratio));
+        try testing.expect(std.math.isFinite(band.makeup_db));
+    }
+
+    const ott = &fx.units.items[2].payload.ott;
+    try testing.expect(std.math.isFinite(ott.depth()));
+    try testing.expect(std.math.isFinite(ott.time));
+    try testing.expect(std.math.isFinite(ott.gain_in_db));
+    try testing.expect(std.math.isFinite(ott.gain_out_db));
+
+    const delay = &fx.units.items[3].payload.delay;
+    try testing.expect(std.math.isFinite(delay.timeSeconds()));
+    try testing.expect(std.math.isFinite(delay.feedback));
+    try testing.expect(std.math.isFinite(delay.mix));
 }
 
 test "buildSession: clamps out-of-range pad and note values" {
