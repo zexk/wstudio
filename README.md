@@ -23,9 +23,11 @@ sample-chopping slicer, and a full effects rack (gate, compression, EQ,
 saturation, bitcrush, chorus, phaser, delay, reverb) are built in. No
 plugin hunting before the first note.
 
-## Status
+## Status: beta
 
-Early but live, and audible. `wstudio` opens a TUI with a single blank
+The first public beta is live and audible. Expect rough edges and project-file
+backups are recommended while the format continues to evolve. `wstudio` opens
+a TUI with a single blank
 track; press `enter` to pick an instrument (synth, sampler, or drum
 machine) and a per-track FX rack. Vim-style modal control drives it,
 with live keyboard playing through ALSA on Linux (PipeWire/PulseAudio
