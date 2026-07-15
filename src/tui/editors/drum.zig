@@ -297,8 +297,18 @@ fn doublePattern(app: *App) void {
 }
 
 fn zoom(app: *App, delta: i8) void {
-    app.drum_grid = if (delta > 0) app.drum_grid.finer() else app.drum_grid.coarser();
-    app.setStatus("grid: {s}", .{app.drum_grid.label()});
+    const next = if (delta > 0) app.drum_grid.finer() else app.drum_grid.coarser();
+    if (next == app.drum_grid) return;
+    const spb = next.denominator() / 4;
+    const dm = app.drumMachine();
+    if (@as(u16, dm.step_count) * spb / dm.steps_per_beat > DrumMachine.max_steps) {
+        app.setStatus("grid {s} needs more than 64 steps - shorten the pattern first", .{next.label()});
+        return;
+    }
+    history.push(app, history.captureDrum(app, app.drum_track));
+    if (!dm.setStepsPerBeatPreservingTime(spb)) return;
+    app.drum_grid = next;
+    app.setStatus("grid: {s} ({d} steps)", .{ app.drum_grid.label(), dm.step_count });
 }
 
 /// w/b: jump the step cursor `delta` 4-step groups forward/back - see

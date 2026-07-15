@@ -121,6 +121,7 @@ pub const Clip = struct {
         vel: [DrumMachine.max_pads][DrumMachine.max_steps]u8 =
             [_][DrumMachine.max_steps]u8{[_]u8{DrumMachine.vel_full} ** DrumMachine.max_steps} ** DrumMachine.max_pads,
         step_count: u8,
+        steps_per_beat: u8 = 4,
         /// Which variant (A..H) this was stamped from - display label only;
         /// the pattern above is the payload, so bank edits never reach clips.
         variant: u8 = 0,

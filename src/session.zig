@@ -405,13 +405,14 @@ pub const Session = struct {
                 var drum: Clip.Drum = .{
                     .pattern = undefined,
                     .step_count = dm.step_count,
+                    .steps_per_beat = dm.steps_per_beat,
                     .variant = dm.variant,
                 };
                 for (&drum.pattern, &drum.vel, 0..) |*p, *vel_row, i| {
                     p.* = dm.pattern[i].load(.acquire);
                     for (vel_row, &dm.vel[i]) |*v, *live| v.* = live.load(.acquire);
                 }
-                const len_beats = @as(f64, @floatFromInt(dm.step_count)) / 4.0;
+                const len_beats = @as(f64, @floatFromInt(dm.step_count)) / @as(f64, @floatFromInt(dm.steps_per_beat));
                 try lane.place(self.allocator, Clip.initDrum(
                     // zig fmt: off
                     start_bar, barsFor(len_beats, bpb), drum,
@@ -690,21 +691,28 @@ pub const Session = struct {
                 .drum_machine => |*dm| {
                     var clips: [DrumMachine.max_song_clips]DrumMachine.SongClip = undefined;
                     var n: usize = 0;
+                    var song_spb: u8 = dm.steps_per_beat;
+                    for (lane.clips.items) |c| switch (c.content) {
+                        .drum => |d| song_spb = @max(song_spb, d.steps_per_beat),
+                        .melodic => {},
+                    };
+                    const drum_steps_per_bar: u32 = @as(u32, bpb_u) * song_spb;
                     for (lane.clips.items) |c| {
                         if (n >= clips.len) break;
                         // zig fmt: off
                         const drum = switch (c.content) { .drum => |d| d, .melodic => continue };
                         // zig fmt: on
                         clips[n] = .{
-                            .start_step = c.start_bar * steps_per_bar,
-                            .span_steps = c.length_bars * steps_per_bar,
+                            .start_step = c.start_bar * drum_steps_per_bar,
+                            .span_steps = c.length_bars * drum_steps_per_bar,
                             .step_count = drum.step_count,
+                            .steps_per_beat = drum.steps_per_beat,
                             .pattern = drum.pattern,
                             .vel = drum.vel,
                         };
                         n += 1;
                     }
-                    dm.setSongClips(clips[0..n], song_len_steps);
+                    dm.setSongClips(clips[0..n], total_bars * drum_steps_per_bar, song_spb);
                 },
                 .slicer => |*sl| {
                     var clips: [Slicer.max_song_clips]Slicer.SongClip = undefined;

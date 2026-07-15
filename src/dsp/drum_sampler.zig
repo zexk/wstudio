@@ -105,6 +105,8 @@ pub const DrumMachine = struct {
         /// 2-bit `vel_lo`/`vel_hi` bitplanes (see persist.zig's version doc).
         vel: [max_pads][max_steps]u8 = [_][max_steps]u8{[_]u8{vel_full} ** max_steps} ** max_pads,
         step_count: u8 = 16,
+        /// Number of sequencer steps in one quarter-note beat.
+        steps_per_beat: u8 = 4,
     };
 
     /// A drum clip flattened onto the arrangement's step timeline. `pattern` is
@@ -115,6 +117,7 @@ pub const DrumMachine = struct {
         start_step: u32,
         span_steps: u32,
         step_count: u8,
+        steps_per_beat: u8 = 4,
         pattern: [max_pads]u64,
         /// Per-step velocity, same encoding as the live grid.
         vel: [max_pads][max_steps]u8 = [_][max_steps]u8{[_]u8{vel_full} ** max_steps} ** max_pads,
@@ -171,6 +174,9 @@ pub const DrumMachine = struct {
     /// Atomic for the same UI-edits-while-audio-reads reason as `pattern`.
     vel: [max_pads][max_steps]std.atomic.Value(u8),
     step_count: u8,
+    /// Native timing resolution of the active pattern. Four is 1/16 notes;
+    /// 32 is 1/128 notes.
+    steps_per_beat: u8 = 4,
     /// Swing percent (see `swing_min`/`swing_max`): where the off-beat 16th
     /// sits within its 8th-note pair. UI writes, audio thread reads.
     swing: std.atomic.Value(f32) = .init(50.0),
@@ -195,6 +201,7 @@ pub const DrumMachine = struct {
     song_clip_count: u16 = 0,
     /// Whole-arrangement length in steps; the song loops at this boundary.
     song_length_steps: u32 = 0,
+    song_steps_per_beat: u8 = 4,
 
     // Audio-thread-only state:
     /// Monotonic counter of steps that have fired. Resynced on seek.
@@ -272,6 +279,7 @@ pub const DrumMachine = struct {
             for (dst_row, src_row) |*dst, *src| dst.store(src.load(.acquire), .monotonic);
         }
         out.step_count = self.step_count;
+        out.steps_per_beat = self.steps_per_beat;
         out.swing.store(self.swing.load(.monotonic), .monotonic);
         out.choke_group = self.choke_group;
         out.variants = self.variants;
@@ -330,6 +338,7 @@ pub const DrumMachine = struct {
             for (bank_row, live_row) |*bank, *live| bank.* = live.load(.acquire);
         }
         slot.step_count = self.step_count;
+        slot.steps_per_beat = self.steps_per_beat;
     }
 
     /// Replace the live pattern with `slot`'s data (control thread). Used to
@@ -341,6 +350,7 @@ pub const DrumMachine = struct {
             for (live_row, bank_row) |*live, v| live.store(v, .release);
         }
         self.setStepCount(slot.step_count);
+        self.steps_per_beat = slot.steps_per_beat;
     }
 
     /// Load bank slot `v` into the live pattern.
@@ -391,7 +401,7 @@ pub const DrumMachine = struct {
     /// atomics (its bank slot is stale until the next switch).
     pub fn variantData(self: *const DrumMachine, v: u8) Variant {
         if (v == self.variant) {
-            var out: Variant = .{ .step_count = self.step_count };
+            var out: Variant = .{ .step_count = self.step_count, .steps_per_beat = self.steps_per_beat };
             for (&out.pattern, &self.pattern) |*dst, *live| dst.* = live.load(.acquire);
             for (&out.vel, &self.vel) |*dst_row, *live_row| {
                 for (dst_row, live_row) |*dst, *live| dst.* = live.load(.acquire);
@@ -408,13 +418,14 @@ pub const DrumMachine = struct {
 
     /// Replace the song-mode clip timeline (control thread). Taken under
     /// `pad_lock` so the audio thread never reads a half-written array.
-    pub fn setSongClips(self: *DrumMachine, clips: []const SongClip, length_steps: u32) void {
+    pub fn setSongClips(self: *DrumMachine, clips: []const SongClip, length_steps: u32, steps_per_beat: u8) void {
         while (!self.pad_lock.tryLock()) std.atomic.spinLoopHint();
         defer self.pad_lock.unlock();
         const count = @min(clips.len, @as(usize, max_song_clips));
         for (clips[0..count], self.song_clips[0..count]) |src, *dst| dst.* = src;
         self.song_clip_count = @intCast(count);
         self.song_length_steps = length_steps;
+        self.song_steps_per_beat = std.math.clamp(steps_per_beat, 1, 32);
     }
 
     pub fn toggleStep(self: *DrumMachine, pad: u8, step: u8) void {
@@ -423,6 +434,37 @@ pub const DrumMachine = struct {
         _ = self.pattern[pad].fetchXor(bit, .acq_rel);
         // A toggled step always (re)starts at full velocity.
         self.vel[pad][step].store(vel_full, .release);
+    }
+
+    /// Change the native grid without moving hits in musical time. Returns
+    /// false when refining would exceed the fixed 64-position pattern bank.
+    pub fn setStepsPerBeatPreservingTime(self: *DrumMachine, new_spb: u8) bool {
+        if (new_spb == self.steps_per_beat) return true;
+        if (new_spb < 1 or new_spb > 32) return false;
+        const new_count_u16 = @divTrunc(@as(u16, self.step_count) * new_spb, self.steps_per_beat);
+        if (new_count_u16 < 1 or new_count_u16 > max_steps) return false;
+        const old_spb = self.steps_per_beat;
+        var next_pattern: [max_pads]u64 = [_]u64{0} ** max_pads;
+        var next_vel: [max_pads][max_steps]u8 = [_][max_steps]u8{[_]u8{vel_full} ** max_steps} ** max_pads;
+        for (0..max_pads) |pad| {
+            var step: u8 = 0;
+            while (step < self.step_count) : (step += 1) {
+                if (!self.stepActive(@intCast(pad), step)) continue;
+                const mapped: u8 = @intCast(@divTrunc(@as(u16, step) * new_spb + old_spb / 2, old_spb));
+                if (mapped >= new_count_u16) continue;
+                const bit = @as(u64, 1) << @intCast(mapped);
+                const level = self.stepVel(@intCast(pad), step);
+                if (next_pattern[pad] & bit == 0) next_vel[pad][mapped] = level else next_vel[pad][mapped] = @max(next_vel[pad][mapped], level);
+                next_pattern[pad] |= bit;
+            }
+        }
+        self.step_count = @intCast(new_count_u16);
+        self.steps_per_beat = new_spb;
+        for (&self.pattern, next_pattern) |*dst, bits| dst.store(bits, .release);
+        for (&self.vel, next_vel) |*dst_row, src_row| {
+            for (dst_row, src_row) |*dst, level| dst.store(level, .release);
+        }
+        return true;
     }
 
     pub fn stepActive(self: *const DrumMachine, pad: u8, step: u8) bool {
@@ -647,10 +689,10 @@ pub const DrumMachine = struct {
     // Audio thread processing
 
     fn framesPerStep(self: *const DrumMachine) f64 {
-        // One step = sixteenth note (1/4 beat)
         const bpm = @max(self.transport.tempo_bpm, 1.0);
         const fpb = @as(f64, @floatFromInt(self.sample_rate)) * 60.0 / bpm;
-        return @max(1.0, fpb / 4.0);
+        const spb = if (self.song_mode) self.song_steps_per_beat else self.steps_per_beat;
+        return @max(1.0, fpb / @as(f64, @floatFromInt(spb)));
     }
 
     pub fn processBlock(self: *DrumMachine, buf: []Sample) void {
@@ -746,7 +788,10 @@ pub const DrumMachine = struct {
         for (self.song_clips[0..self.song_clip_count]) |*clip| {
             if (lk < clip.start_step or lk >= clip.start_step + clip.span_steps) continue;
             if (clip.step_count == 0) return;
-            const local: u32 = (lk - clip.start_step) % clip.step_count;
+            const elapsed = lk - clip.start_step;
+            const scaled = elapsed * clip.steps_per_beat;
+            if (scaled % self.song_steps_per_beat != 0) continue;
+            const local: u32 = scaled / self.song_steps_per_beat % clip.step_count;
             for (0..max_pads) |p| {
                 if ((clip.pattern[p] >> @intCast(local)) & 1 == 1) {
                     self.chokeTrigger(@intCast(p), velGain(clip.vel[p][local]), fire_frame);
@@ -913,7 +958,7 @@ test "song mode fires the clip covering the playhead" {
         .start_step = 16, .span_steps = 16, .step_count = 16, .pattern = pat,
         // zig fmt: on
     }};
-    dm.setSongClips(&clips, 32);
+    dm.setSongClips(&clips, 32, 4);
     dm.song_mode = true;
     transport.play();
 
@@ -1254,6 +1299,26 @@ test "step count grows to 64 (u64 bitmask width) and the sequencer fires the las
     var peak: f32 = 0;
     for (buf) |s| peak = @max(peak, @abs(s));
     try std.testing.expect(peak > 0.01);
+}
+
+test "grid resolution preserves hit times through 1/128" {
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    defer dm.deinit();
+    dm.setStepCount(8);
+    for (&dm.pattern) |*p| p.store(0, .monotonic);
+    dm.toggleStep(0, 1);
+    dm.setStepVel(0, 1, 95);
+
+    try std.testing.expect(dm.setStepsPerBeatPreservingTime(32));
+    try std.testing.expectEqual(@as(u8, 64), dm.step_count);
+    try std.testing.expect(dm.stepActive(0, 8));
+    try std.testing.expectEqual(@as(u8, 95), dm.stepVel(0, 8));
+    try std.testing.expect(!dm.stepActive(0, 1));
+
+    try std.testing.expect(dm.setStepsPerBeatPreservingTime(4));
+    try std.testing.expectEqual(@as(u8, 8), dm.step_count);
+    try std.testing.expect(dm.stepActive(0, 1));
 }
 
 test "adjustParam decodes pad/param and clamps" {

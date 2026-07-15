@@ -86,6 +86,11 @@ etc.), one per row of the table above. `persist.zig`'s "golden-file corpus"
 test loads every file in that directory and fails loudly if one stops
 parsing - add a new fixture there alongside any future version bump.
 
+Drum patterns and drum arrangement clips optionally store
+`steps_per_beat`. Its default is 4, the historical fixed 1/16-note grid, so
+projects written before the field existed retain identical timing. New files
+use values through 32 for grids as fine as 1/128 notes.
+
 ## Sample sidecar
 
 A pad's audio is either the shipped/generated default (nothing written to

@@ -330,6 +330,8 @@ pub const PadSnap = struct {
 /// same reason.
 pub const VariantSnap = struct {
     step_count: u8 = 16,
+    /// Native pattern resolution. Absent in older files means 1/16 notes.
+    steps_per_beat: u8 = 4,
     pattern: []const u64 = &.{},
     /// v4, read-only since v12: the old 2-bit velocity bitplanes. Kept only
     /// so `applyVelSnap` can migrate a pre-v12 file's data; new files never
@@ -347,6 +349,7 @@ pub const DrumSnap = struct {
     /// Legacy live-pattern fields: always the active variant's data, so v2
     /// readers (and hand edits) see a coherent single pattern.
     step_count: u8 = 16,
+    steps_per_beat: u8 = 4,
     /// Slice, not a fixed array - see VariantSnap's doc comment; same
     /// backward-compat reasoning applies to every pad-indexed field below.
     pattern: []const u64 = &.{},
@@ -707,6 +710,8 @@ pub const ClipSnap = struct {
     /// v12: per-pad, per-step velocity - see `VariantSnap.vel`'s doc comment.
     drum_vel: []const []const u8 = &.{},
     step_count: u8 = 16,
+    /// Native drum-clip resolution. Older clips default to 1/16 notes.
+    steps_per_beat: u8 = 4,
     /// v3: variant letter label (index) the clip was stamped from.
     variant: u8 = 0,
     /// v7: gain (dB) / pan (-1..1) automation breakpoints, clip-relative
@@ -884,6 +889,7 @@ fn rackToSnap(aa: std.mem.Allocator, rack: *Rack, sample_rate: u32) !RackSnap {
             rs.kind = .drum_machine;
             var ds: DrumSnap = .{
                 .step_count = dm.step_count,
+                .steps_per_beat = dm.steps_per_beat,
                 .variant = dm.variant,
                 .swing = dm.swing.load(.monotonic),
             };
@@ -906,7 +912,7 @@ fn rackToSnap(aa: std.mem.Allocator, rack: *Rack, sample_rate: u32) !RackSnap {
                 const v = dm.variantData(@intCast(vi));
                 const vp = try aa.alloc(u64, DrumMachine.max_pads);
                 @memcpy(vp, &v.pattern);
-                vs.* = .{ .step_count = v.step_count, .pattern = vp, .vel = try velToSnap(aa, &v.vel) };
+                vs.* = .{ .step_count = v.step_count, .steps_per_beat = v.steps_per_beat, .pattern = vp, .vel = try velToSnap(aa, &v.vel) };
             }
             ds.variants = variants;
 
@@ -1269,6 +1275,7 @@ fn clipToSnap(aa: std.mem.Allocator, clip: ws_arrangement.Clip) !ClipSnap {
             c.drum_pattern = try aa.dupe(u64, &d.pattern);
             c.drum_vel = try velToSnap(aa, &d.vel);
             c.step_count = d.step_count;
+            c.steps_per_beat = d.steps_per_beat;
             c.variant = d.variant;
         },
     }
@@ -1555,6 +1562,7 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
                         for (ds.variants[0..count], dmp.variants[0..count]) |vs, *slot| {
                             const sc = std.math.clamp(vs.step_count, 1, DrumMachine.max_steps);
                             slot.step_count = sc;
+                            slot.steps_per_beat = std.math.clamp(vs.steps_per_beat, 1, 32);
                             const mask = DrumMachine.stepMask(sc);
                             // vs.pattern/vel are slices (any length - see
                             // VariantSnap's doc comment), slot.* are fixed
@@ -1578,6 +1586,7 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
                             for (vel_row, 0..) |v, s| dmp.vel[pi][s].store(v, .monotonic);
                         }
                         dmp.setStepCount(active.step_count);
+                        dmp.steps_per_beat = active.steps_per_beat;
                     } else {
                         // v2: one variant from the legacy fields. Bits first:
                         // setStepCount masks off any pattern bits the file
@@ -1587,6 +1596,7 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
                             dmp.pattern[pi].store(bits, .monotonic);
                         }
                         dmp.setStepCount(ds.step_count);
+                        dmp.steps_per_beat = std.math.clamp(ds.steps_per_beat, 1, 32);
                     }
                     dmp.swing.store(
                         std.math.clamp(ds.swing, DrumMachine.swing_min, DrumMachine.swing_max),
@@ -1812,6 +1822,7 @@ fn clipFromSnap(allocator: std.mem.Allocator, cs: ClipSnap) !ws_arrangement.Clip
             var d: ws_arrangement.Clip.Drum = .{
                 .pattern = padBitplane(cs.drum_pattern),
                 .step_count = std.math.clamp(cs.step_count, 1, DrumMachine.max_steps),
+                .steps_per_beat = std.math.clamp(cs.steps_per_beat, 1, 32),
                 .variant = @min(cs.variant, DrumMachine.max_variants - 1),
             };
             applyVelSnap(&d.vel, cs.drum_vel, cs.drum_vel_lo, cs.drum_vel_hi);
