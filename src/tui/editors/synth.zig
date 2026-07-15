@@ -42,6 +42,30 @@ pub fn currentFxOrder(app: anytype) []const FxUnitKind {
     };
 }
 
+/// `currentFxOrder` filtered to on (inserted) units only, in `fx_order`
+/// sequence — the `.fx` subview's actual visible body and navigable set;
+/// off units are reachable only through the `a` insert picker, not shown
+/// or walked directly. The complement of `synthFxPickerKinds`. Takes a
+/// caller-owned buffer (like `fxVisualIds`) since it must filter rather
+/// than return a slice straight into `fx_order`. Generic over the app type
+/// for the same reason `currentFxOrder` is.
+pub fn fxOnOrder(app: anytype, buf: *[14]FxUnitKind) []const FxUnitKind {
+    if (app.synth_track >= app.session.racks.items.len) return &.{};
+    const rack = app.session.racks.items[app.synth_track];
+    const synth = switch (rack.instrument) {
+        .poly_synth => |*s| s,
+        else => return &.{},
+    };
+    var n: usize = 0;
+    for (synth.fx_order) |kind| {
+        if (fxOn(synth, kind)) {
+            buf[n] = kind;
+            n += 1;
+        }
+    }
+    return buf[0..n];
+}
+
 /// First/id-count of each FX unit's flat param-id range — the `.fx`
 /// subview's row math walks `fx_order` and looks these up per slot instead
 /// of the fixed id-range switch every other subview still uses, since FX
@@ -63,6 +87,18 @@ fn fxIdCount(kind: FxUnitKind) u8 {
         .phaser  => 5, .delay => 4, .reverb => 4,
         // zig fmt: on
     };
+}
+
+/// Total scrollable body height (rows below the title, matching `paramRow`'s
+/// `.fx` numbering) for `order` — the `.fx` subview's actual on-only unit
+/// list now that off units don't render, replacing the old fixed
+/// `body_rows_fx` constant (which assumed all units always shown). 1 (no
+/// units) when the chain is empty, matching the "no fx" message's own
+/// single row.
+pub fn fxBodyRows(order: []const FxUnitKind) usize {
+    var row: usize = 1;
+    for (order) |kind| row += 1 + fxIdCount(kind);
+    return row;
 }
 
 /// Every cursor-reachable `.fx` id, in on-screen (fx_order) sequence rather
@@ -90,14 +126,16 @@ fn fxVisualIds(order: []const FxUnitKind, buf: []u8) []const u8 {
 /// a unit's been reordered away from its numeric position.
 fn fxAwareFirstId(app: *App) u8 {
     if (app.synth_subview != .fx) return firstId(app.synth_subview);
+    var kbuf: [14]FxUnitKind = undefined;
     var buf: [96]u8 = undefined;
-    const ids = fxVisualIds(currentFxOrder(app), &buf);
+    const ids = fxVisualIds(fxOnOrder(app, &kbuf), &buf);
     return if (ids.len > 0) ids[0] else firstId(.fx);
 }
 fn fxAwareLastId(app: *App) u8 {
     if (app.synth_subview != .fx) return lastId(app.synth_subview);
+    var kbuf: [14]FxUnitKind = undefined;
     var buf: [96]u8 = undefined;
-    const ids = fxVisualIds(currentFxOrder(app), &buf);
+    const ids = fxVisualIds(fxOnOrder(app, &kbuf), &buf);
     return if (ids.len > 0) ids[ids.len - 1] else lastId(.fx);
 }
 
@@ -163,7 +201,7 @@ pub fn asFxKind(kind: FxUnitKind) ws.FxKind {
 /// directly for dimming. The `.fx` subview's strip only lists units this
 /// returns true for; picker-insert flips it true, `x` flips it false — no
 /// other state changes either way, so nothing is lost toggling repeatedly.
-fn fxOn(synth: anytype, kind: FxUnitKind) bool {
+pub fn fxOn(synth: anytype, kind: FxUnitKind) bool {
     return switch (kind) {
         // zig fmt: off
         .gate => synth.fx_gate_on, .comp => synth.fx_comp_on, .mb_comp => synth.fx_mb_on,
@@ -370,7 +408,11 @@ pub fn cancelSynthFxPicker(app: *App) void {
 
 /// `x` in the `.fx` subview: turns off whichever unit's section the cursor
 /// sits in. A no-op if the unit is already off (unlike a bare `l` nudge on
-/// its own id, which would turn it back on).
+/// its own id, which would turn it back on). Since only on units render
+/// their section now, the cursor can't stay on the removed one — lands on
+/// the nearest still-on neighbor in `fx_order` sequence (checking forward
+/// first, then back), or the subview's first reachable id if the chain is
+/// now empty.
 fn removeFocusedFx(app: *App) void {
     if (app.synth_subview != .fx) return;
     if (app.synth_track >= app.session.racks.items.len) return;
@@ -382,6 +424,28 @@ fn removeFocusedFx(app: *App) void {
     const kind = fxKindOfId(app.synth_cursor) orelse return;
     if (!fxOn(synth, kind)) return;
     sendFxToggle(app, fxFirstId(kind));
+
+    const order = currentFxOrder(app);
+    const idx = std.mem.indexOfScalar(FxUnitKind, order, kind) orelse 0;
+    var landed: ?FxUnitKind = null;
+    var i = idx;
+    while (i + 1 < order.len) : (i += 1) {
+        if (fxOn(synth, order[i + 1])) {
+            landed = order[i + 1];
+            break;
+        }
+    }
+    if (landed == null) {
+        i = idx;
+        while (i > 0) : (i -= 1) {
+            if (fxOn(synth, order[i - 1])) {
+                landed = order[i - 1];
+                break;
+            }
+        }
+    }
+    app.synth_cursor = if (landed) |k| fxFirstId(k) else fxAwareFirstId(app);
+    updateScroll(app);
     app.setStatus("{s} removed", .{spectrum.unitLabel(asFxKind(kind))});
 }
 
@@ -391,7 +455,8 @@ fn removeFocusedFx(app: *App) void {
 /// `.matrix`'s sectionStarts-based behavior: past either end, the cursor
 /// just stays on the current section's own first id.
 fn jumpFxSection(app: *App, forward: bool) void {
-    const order = currentFxOrder(app);
+    var kbuf: [14]FxUnitKind = undefined;
+    const order = fxOnOrder(app, &kbuf);
     const cur_idx = if (fxKindOfId(app.synth_cursor)) |k|
         std.mem.indexOfScalar(FxUnitKind, order, k)
     else
@@ -582,8 +647,9 @@ fn moveCursor(app: *App, delta: i32) void {
     // walking raw ids would get stuck at a unit's numeric id extreme even
     // mid-screen once reordering makes id order diverge from visual
     // order. See fxVisualIds.
+    var kbuf: [14]FxUnitKind = undefined;
     var buf: [96]u8 = undefined;
-    const ids = fxVisualIds(currentFxOrder(app), &buf);
+    const ids = fxVisualIds(fxOnOrder(app, &kbuf), &buf);
     if (ids.len == 0) return;
     const cur: i32 = @intCast(std.mem.indexOfScalar(u8, ids, app.synth_cursor) orelse 0);
     const pos = std.math.clamp(cur + delta, 0, @as(i32, @intCast(ids.len - 1)));
@@ -739,7 +805,8 @@ pub fn updateScroll(app: *App) void {
         if (row >= app.synth_scroll + max_rows) app.synth_scroll = row - max_rows + 1;
         return;
     }
-    const row = paramRow(app.synth_subview, app.synth_cursor, currentFxOrder(app));
+    var kbuf: [14]FxUnitKind = undefined;
+    const row = paramRow(app.synth_subview, app.synth_cursor, fxOnOrder(app, &kbuf));
     if (row < app.synth_scroll) app.synth_scroll = row;
     if (row >= app.synth_scroll + max_rows) app.synth_scroll = row - max_rows + 1;
 }
@@ -791,7 +858,8 @@ fn paramAtRow(app: *App, row: usize, x: usize, cols: u16) ?u8 {
         return null;
     }
     const full_row = app.synth_scroll + row;
-    const fx_order = currentFxOrder(app);
+    var kbuf: [14]FxUnitKind = undefined;
+    const fx_order = fxOnOrder(app, &kbuf);
     var i: u8 = firstId(view);
     while (i <= lastId(view)) : (i += 1) {
         if (!inSubview(i, view)) continue;

@@ -67,17 +67,21 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize
         return;
     }
 
-    // .fx — single full-width list.
+    // .fx — single full-width list of on (inserted) units only; off units
+    // are reachable only through the `a` insert picker, not shown here.
     style.form_bar_w = @min(style.form_bar_w_default + (cols -| 100) / 2, 40);
     style.form_section_w = style.form_section_w_default + (style.form_bar_w - style.form_bar_w_default);
+
+    var kbuf: [14]ws.dsp.synth.FxUnitKind = undefined;
+    const fx_order = synth_ed.fxOnOrder(app, &kbuf);
 
     // Clamp scroll so the cursor row is visible and the window never runs
     // past the layout's last row (the layouts' heights differ per subview,
     // so a stale offset from a different one must not survive a resize or a
     // Tab subview switch).
-    const cursor_row = synth_ed.paramRow(subview, app.synth_cursor, synth_ed.currentFxOrder(app));
+    const cursor_row = synth_ed.paramRow(subview, app.synth_cursor, fx_order);
     const body_rows: usize = switch (subview) {
-        .fx => synth_ed.body_rows_fx,
+        .fx => synth_ed.fxBodyRows(fx_order),
         .main, .mod => unreachable,
     };
     var scroll = @min(app.synth_scroll, (body_rows + 1) -| max_rows);
@@ -132,7 +136,10 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize
     var tmp: [16 * 1024]u8 = undefined;
     var tw = std.Io.Writer.fixed(&tmp);
     switch (subview) {
-        .fx => for (synth.fx_order) |kind| {
+        .fx => if (fx_order.len == 0) {
+            try tw.writeAll(dim ++ "  no fx: press a to insert" ++ rst);
+            try endLine(&tw);
+        } else for (fx_order) |kind| {
             switch (kind) {
                 .gate => try secFxGate(&tw, synth, c),
                 .comp => try secFxComp(&tw, synth, c),
