@@ -2648,15 +2648,16 @@ pub const PolySynth = struct {
         };
     }
 
-    /// Editor h/l stepping for the three LFO shape params (28/95/97).
-    fn cycleLfoShape(shape: LfoShape, steps: i32) LfoShape {
-        // zig fmt: off
-        return if (steps > 0) switch (shape) {
-            .sine => .triangle, .triangle => .saw, .saw => .square, .square => .sh, .sh => .chaos, .chaos => .sine,
-        } else switch (shape) {
-            .sine => .chaos, .triangle => .sine, .saw => .triangle, .square => .saw, .sh => .square, .chaos => .sh,
-        };
-        // zig fmt: on
+    /// Wraps `cur` one variant forward (steps > 0) or backward — every
+    /// `.cycle` `ParamSpec` kind below (and the mod matrix's source
+    /// stepping) shares this instead of a bespoke forward/backward switch
+    /// pair per enum: all of those pairs already reduced to a declaration-
+    /// order wrap once written out, this just does that generically.
+    fn cycleEnum(comptime E: type, cur: E, steps: i32) E {
+        const n: i32 = @typeInfo(E).@"enum".fields.len;
+        const dir: i32 = if (steps > 0) 1 else -1;
+        const ord: i32 = @intFromEnum(cur);
+        return @enumFromInt(@as(u8, @intCast(@mod(ord + dir, n))));
     }
 
     /// `pw`/`warp_amount`/`wt_pos` are passed in (not read off `self`) so the
@@ -2833,292 +2834,295 @@ pub const PolySynth = struct {
         while (i > target) : (i -= 1) std.mem.swap(FxUnitKind, &self.fx_order[i], &self.fx_order[i - 1]);
     }
 
+    /// Editor-param kind, deciding how `adjustParam`/`setParamAbsolute`/
+    /// `paramValue` read and write a `param_specs` entry's field — see
+    /// `specAdjust`/`specSetAbs`/`specValue`. The great majority of the
+    /// ~190 flat param ids reduce to one of these five shapes; what
+    /// doesn't — the mod matrix rows (59-82, banded/cross-field), the FX
+    /// reorder handles (`fx_reorder_ids` below), and `fx_mb_style`'s id 149
+    /// on the `adjustParam` side only (h/l picks classic/ott by direction,
+    /// not a wrap — its `setParamAbsolute`/`paramValue` behavior IS a plain
+    /// `.cycle` though, so it still gets a `param_specs` row) — keep their
+    /// own switch arms around the table dispatch.
+    const ParamKind = enum { cont, log_freq, toggle, cycle, int_cont };
+
+    const ParamSpec = struct {
+        id: u8,
+        field: []const u8,
+        kind: ParamKind = .cont,
+        min: f32 = 0,
+        max: f32 = 0,
+        step: f32 = 0,
+        enum_type: type = void,
+    };
+
+    fn specAdjust(self: *PolySynth, comptime spec: ParamSpec, steps: i32) void {
+        const s: f32 = @floatFromInt(steps);
+        switch (spec.kind) {
+            .cont => {
+                const p = &@field(self.*, spec.field);
+                p.* = std.math.clamp(p.* + s * spec.step, spec.min, spec.max);
+            },
+            .log_freq => {
+                const p = &@field(self.*, spec.field);
+                p.* = std.math.clamp(p.* * std.math.pow(f32, 2.0, s / 12.0), spec.min, spec.max);
+            },
+            .toggle => {
+                const p = &@field(self.*, spec.field);
+                p.* = !p.*;
+            },
+            .cycle => {
+                const p = &@field(self.*, spec.field);
+                p.* = cycleEnum(spec.enum_type, p.*, steps);
+            },
+            .int_cont => {
+                const p = &@field(self.*, spec.field);
+                const lo: i32 = @intFromFloat(spec.min);
+                const hi: i32 = @intFromFloat(spec.max);
+                p.* = @intCast(std.math.clamp(@as(i32, p.*) + steps, lo, hi));
+            },
+        }
+    }
+
+    fn specSetAbs(self: *PolySynth, comptime spec: ParamSpec, value: f32) void {
+        switch (spec.kind) {
+            .cont, .log_freq => @field(self.*, spec.field) = std.math.clamp(value, spec.min, spec.max),
+            .toggle => @field(self.*, spec.field) = value >= 0.5,
+            .cycle => @field(self.*, spec.field) = enumFromValue(spec.enum_type, value),
+            .int_cont => {
+                const lo: i32 = @intFromFloat(spec.min);
+                const hi: i32 = @intFromFloat(spec.max);
+                @field(self.*, spec.field) = @intCast(std.math.clamp(@as(i32, @intFromFloat(@round(value))), lo, hi));
+            },
+        }
+    }
+
+    fn specValue(self: *const PolySynth, comptime spec: ParamSpec) f32 {
+        return switch (spec.kind) {
+            .cont, .log_freq => @field(self.*, spec.field),
+            .toggle => if (@field(self.*, spec.field)) 1.0 else 0.0,
+            .cycle => enumToValue(@field(self.*, spec.field)),
+            .int_cont => @floatFromInt(@field(self.*, spec.field)),
+        };
+    }
+
+    /// One row per flat param id `specAdjust`/`specSetAbs`/`specValue`
+    /// drive generically — `adjustParam`/`setParamAbsolute`/`paramValue`
+    /// used to repeat this id->field->range mapping three times over as
+    /// parallel hand-written switches. `.log_freq` nudges by a semitone
+    /// ratio per step instead of `.cont`'s linear `+step`, matching the
+    /// old cutoff/xover/EQ-freq switch arms. IDs 188-193 (tape) existed in
+    /// `automatable_params`/`mod_dest_ids` since the tape FX unit shipped
+    /// but were never actually wired into adjust/setAbs/paramValue — h/l,
+    /// undo, and automation curves all silently no-op'd on tape params
+    /// until this table filled the gap.
+    const param_specs = [_]ParamSpec{
+        .{ .id = 0, .field = "waveform", .kind = .cycle, .enum_type = Waveform },
+        .{ .id = 1, .field = "pulse_width", .min = 0.01, .max = 0.99, .step = 0.01 },
+        .{ .id = 2, .field = "detune_cents", .min = -100.0, .max = 100.0, .step = 1.0 },
+        .{ .id = 3, .field = "unison", .kind = .int_cont, .min = 1, .max = 16 },
+        .{ .id = 4, .field = "unison_detune", .min = 0.0, .max = 100.0, .step = 1.0 },
+        .{ .id = 5, .field = "unison_spread", .min = 0.0, .max = 1.0, .step = 0.01 },
+        .{ .id = 6, .field = "osc_b_on", .kind = .toggle },
+        .{ .id = 7, .field = "osc_b_waveform", .kind = .cycle, .enum_type = Waveform },
+        .{ .id = 8, .field = "osc_b_pulse_width", .min = 0.01, .max = 0.99, .step = 0.01 },
+        .{ .id = 9, .field = "osc_b_semi", .min = -24.0, .max = 24.0, .step = 1.0 },
+        .{ .id = 10, .field = "osc_b_detune_cents", .min = -100.0, .max = 100.0, .step = 1.0 },
+        .{ .id = 11, .field = "osc_b_level", .min = 0.0, .max = 1.0, .step = 0.01 },
+        .{ .id = 12, .field = "osc_b_unison", .kind = .int_cont, .min = 1, .max = 16 },
+        .{ .id = 13, .field = "osc_b_unison_detune", .min = 0.0, .max = 100.0, .step = 1.0 },
+        .{ .id = 14, .field = "mod_mode", .kind = .cycle, .enum_type = ModMode },
+        .{ .id = 15, .field = "mod_amount", .min = 0.0, .max = 8.0, .step = 0.05 },
+        .{ .id = 16, .field = "attack_s", .min = 0.001, .max = 5.0, .step = 0.001 },
+        .{ .id = 17, .field = "decay_s", .min = 0.001, .max = 5.0, .step = 0.005 },
+        .{ .id = 18, .field = "sustain", .min = 0.0, .max = 1.0, .step = 0.01 },
+        .{ .id = 19, .field = "release_s", .min = 0.001, .max = 10.0, .step = 0.005 },
+        .{ .id = 20, .field = "filter_type", .kind = .cycle, .enum_type = FilterType },
+        .{ .id = 21, .field = "filter_cutoff", .kind = .log_freq, .min = 20.0, .max = 20_000.0 },
+        .{ .id = 22, .field = "filter_res", .min = 0.0, .max = 1.0, .step = 0.01 },
+        // 23 (fenv amount) retired — absorbed into the mod matrix.
+        .{ .id = 24, .field = "fenv_attack_s", .min = 0.001, .max = 5.0, .step = 0.001 },
+        .{ .id = 25, .field = "fenv_decay_s", .min = 0.001, .max = 5.0, .step = 0.005 },
+        .{ .id = 26, .field = "fenv_sustain", .min = 0.0, .max = 1.0, .step = 0.01 },
+        .{ .id = 27, .field = "fenv_release_s", .min = 0.001, .max = 10.0, .step = 0.005 },
+        .{ .id = 28, .field = "lfo_shape", .kind = .cycle, .enum_type = LfoShape },
+        .{ .id = 29, .field = "lfo_rate_hz", .min = 0.01, .max = 20.0, .step = 0.1 },
+        // 30/31 (LFO depth+target) retired into the mod matrix.
+        .{ .id = 32, .field = "voice_mode", .kind = .cycle, .enum_type = VoiceMode },
+        .{ .id = 33, .field = "glide_s", .min = 0.0, .max = 10.0, .step = 0.01 },
+        .{ .id = 34, .field = "sub_level", .min = 0.0, .max = 1.0, .step = 0.01 },
+        .{ .id = 35, .field = "sub_shape", .kind = .cycle, .enum_type = SubShape },
+        .{ .id = 36, .field = "noise_level", .min = 0.0, .max = 1.0, .step = 0.01 },
+        .{ .id = 37, .field = "noise_color", .min = 0.0, .max = 1.0, .step = 0.01 },
+        .{ .id = 38, .field = "gain", .min = 0.01, .max = 1.0, .step = 0.01 },
+        .{ .id = 39, .field = "unison_mode", .kind = .cycle, .enum_type = UnisonMode },
+        .{ .id = 40, .field = "osc_b_unison_mode", .kind = .cycle, .enum_type = UnisonMode },
+        .{ .id = 41, .field = "warp_mode", .kind = .cycle, .enum_type = WarpMode },
+        .{ .id = 42, .field = "warp_amount", .min = 0.0, .max = 1.0, .step = 0.01 },
+        .{ .id = 43, .field = "osc_b_warp_mode", .kind = .cycle, .enum_type = WarpMode },
+        .{ .id = 44, .field = "osc_b_warp_amount", .min = 0.0, .max = 1.0, .step = 0.01 },
+        .{ .id = 45, .field = "filter2_on", .kind = .toggle },
+        .{ .id = 46, .field = "filter2_type", .kind = .cycle, .enum_type = FilterType },
+        .{ .id = 47, .field = "filter2_cutoff", .kind = .log_freq, .min = 20.0, .max = 20_000.0 },
+        .{ .id = 48, .field = "filter2_res", .min = 0.0, .max = 1.0, .step = 0.01 },
+        .{ .id = 49, .field = "filter_routing", .kind = .cycle, .enum_type = FilterRouting },
+        .{ .id = 50, .field = "osc_c_on", .kind = .toggle },
+        .{ .id = 51, .field = "osc_c_waveform", .kind = .cycle, .enum_type = Waveform },
+        .{ .id = 52, .field = "osc_c_pulse_width", .min = 0.01, .max = 0.99, .step = 0.01 },
+        .{ .id = 53, .field = "osc_c_semi", .min = -24.0, .max = 24.0, .step = 1.0 },
+        .{ .id = 54, .field = "osc_c_detune_cents", .min = -100.0, .max = 100.0, .step = 1.0 },
+        .{ .id = 55, .field = "osc_c_level", .min = 0.0, .max = 1.0, .step = 0.01 },
+        .{ .id = 56, .field = "osc_c_unison", .kind = .int_cont, .min = 1, .max = 16 },
+        .{ .id = 57, .field = "osc_c_unison_detune", .min = 0.0, .max = 100.0, .step = 1.0 },
+        .{ .id = 58, .field = "osc_c_unison_mode", .kind = .cycle, .enum_type = UnisonMode },
+        // MATRIX (59-82) has its own switch arm below.
+        .{ .id = 83, .field = "fx_dist_on", .kind = .toggle },
+        .{ .id = 84, .field = "fx_dist_drive_db", .min = 0.0, .max = 36.0, .step = 0.5 },
+        .{ .id = 85, .field = "fx_dist_mix", .min = 0.0, .max = 1.0, .step = 0.01 },
+        .{ .id = 86, .field = "fx_crush_on", .kind = .toggle },
+        .{ .id = 87, .field = "fx_crush_bits", .min = 1.0, .max = 16.0, .step = 1.0 },
+        .{ .id = 88, .field = "fx_crush_rate", .min = 1.0, .max = 64.0, .step = 1.0 },
+        .{ .id = 89, .field = "fx_crush_mix", .min = 0.0, .max = 1.0, .step = 0.01 },
+        .{ .id = 90, .field = "fx_flanger_on", .kind = .toggle },
+        .{ .id = 91, .field = "fx_flanger_rate_hz", .min = 0.02, .max = 8.0, .step = 0.05 },
+        .{ .id = 92, .field = "fx_flanger_depth", .min = 0.0, .max = 1.0, .step = 0.01 },
+        .{ .id = 93, .field = "fx_flanger_feedback", .min = 0.0, .max = 0.95, .step = 0.01 },
+        .{ .id = 94, .field = "fx_flanger_mix", .min = 0.0, .max = 1.0, .step = 0.01 },
+        .{ .id = 95, .field = "lfo2_shape", .kind = .cycle, .enum_type = LfoShape },
+        .{ .id = 96, .field = "lfo2_rate_hz", .min = 0.01, .max = 20.0, .step = 0.1 },
+        .{ .id = 97, .field = "lfo3_shape", .kind = .cycle, .enum_type = LfoShape },
+        .{ .id = 98, .field = "lfo3_rate_hz", .min = 0.01, .max = 20.0, .step = 0.1 },
+        .{ .id = 99, .field = "macro1", .min = 0.0, .max = 1.0, .step = 0.01 },
+        .{ .id = 100, .field = "macro2", .min = 0.0, .max = 1.0, .step = 0.01 },
+        .{ .id = 101, .field = "macro3", .min = 0.0, .max = 1.0, .step = 0.01 },
+        .{ .id = 102, .field = "macro4", .min = 0.0, .max = 1.0, .step = 0.01 },
+        .{ .id = 103, .field = "fx_phaser_on", .kind = .toggle },
+        .{ .id = 104, .field = "fx_phaser_rate_hz", .min = 0.02, .max = 8.0, .step = 0.05 },
+        .{ .id = 105, .field = "fx_phaser_depth", .min = 0.0, .max = 1.0, .step = 0.01 },
+        .{ .id = 106, .field = "fx_phaser_feedback", .min = 0.0, .max = 0.95, .step = 0.01 },
+        .{ .id = 107, .field = "fx_phaser_mix", .min = 0.0, .max = 1.0, .step = 0.01 },
+        .{ .id = 108, .field = "fx_delay_on", .kind = .toggle },
+        .{ .id = 109, .field = "fx_delay_time_s", .min = 0.001, .max = Delay.max_time_s, .step = 0.01 },
+        .{ .id = 110, .field = "fx_delay_feedback", .min = 0.0, .max = 0.95, .step = 0.01 },
+        .{ .id = 111, .field = "fx_delay_mix", .min = 0.0, .max = 1.0, .step = 0.01 },
+        .{ .id = 112, .field = "fx_reverb_on", .kind = .toggle },
+        .{ .id = 113, .field = "fx_reverb_room", .min = 0.0, .max = 0.98, .step = 0.01 },
+        .{ .id = 114, .field = "fx_reverb_damp", .min = 0.0, .max = 1.0, .step = 0.01 },
+        .{ .id = 115, .field = "fx_reverb_mix", .min = 0.0, .max = 1.0, .step = 0.01 },
+        .{ .id = 116, .field = "arp_on", .kind = .toggle },
+        .{ .id = 117, .field = "arp_mode", .kind = .cycle, .enum_type = ArpMode },
+        .{ .id = 118, .field = "arp_octaves", .kind = .int_cont, .min = 1, .max = max_arp_octaves },
+        .{ .id = 119, .field = "arp_rate_hz", .min = 0.1, .max = 20.0, .step = 0.1 },
+        .{ .id = 120, .field = "arp_gate", .min = 0.02, .max = 1.0, .step = 0.01 },
+        .{ .id = 121, .field = "arp_hold", .kind = .toggle },
+        .{ .id = 122, .field = "env3_attack_s", .min = 0.001, .max = 5.0, .step = 0.001 },
+        .{ .id = 123, .field = "env3_decay_s", .min = 0.001, .max = 5.0, .step = 0.005 },
+        .{ .id = 124, .field = "env3_sustain", .min = 0.0, .max = 1.0, .step = 0.01 },
+        .{ .id = 125, .field = "env3_release_s", .min = 0.001, .max = 10.0, .step = 0.005 },
+        // FX reorder handles (126-131, 136, 143, 160, 166, 175, 180, 184,
+        // 194) are in `fx_reorder_ids` below, not here.
+        .{ .id = 132, .field = "fx_gate_on", .kind = .toggle },
+        .{ .id = 133, .field = "fx_gate_threshold_db", .min = -80.0, .max = 0.0, .step = 1.0 },
+        .{ .id = 134, .field = "fx_gate_attack_ms", .min = 0.1, .max = 50.0, .step = 0.1 },
+        .{ .id = 135, .field = "fx_gate_release_ms", .min = 5.0, .max = 1000.0, .step = 10.0 },
+        .{ .id = 137, .field = "fx_comp_on", .kind = .toggle },
+        .{ .id = 138, .field = "fx_comp_threshold_db", .min = -60.0, .max = 0.0, .step = 1.0 },
+        .{ .id = 139, .field = "fx_comp_ratio", .min = 1.0, .max = 20.0, .step = 0.1 },
+        .{ .id = 140, .field = "fx_comp_attack_ms", .min = 0.1, .max = 500.0, .step = 0.5 },
+        .{ .id = 141, .field = "fx_comp_release_ms", .min = 1.0, .max = 2000.0, .step = 5.0 },
+        .{ .id = 142, .field = "fx_comp_makeup_db", .min = -24.0, .max = 24.0, .step = 0.5 },
+        .{ .id = 144, .field = "fx_mb_on", .kind = .toggle },
+        .{ .id = 145, .field = "fx_mb_xover_lo", .kind = .log_freq, .min = 20.0, .max = 20_000.0 },
+        .{ .id = 146, .field = "fx_mb_xover_hi", .kind = .log_freq, .min = 20.0, .max = 20_000.0 },
+        .{ .id = 147, .field = "fx_mb_attack_ms", .min = 0.1, .max = 500.0, .step = 0.5 },
+        .{ .id = 148, .field = "fx_mb_release_ms", .min = 1.0, .max = 2000.0, .step = 5.0 },
+        .{ .id = 149, .field = "fx_mb_style", .kind = .cycle, .enum_type = MbStyle },
+        .{ .id = 150, .field = "fx_mb_mix", .min = 0.0, .max = 1.0, .step = 0.01 },
+        .{ .id = 151, .field = "fx_mb_low_threshold_db", .min = -60.0, .max = 0.0, .step = 1.0 },
+        .{ .id = 152, .field = "fx_mb_low_ratio", .min = 1.0, .max = 20.0, .step = 0.1 },
+        .{ .id = 153, .field = "fx_mb_low_makeup_db", .min = -24.0, .max = 24.0, .step = 0.5 },
+        .{ .id = 154, .field = "fx_mb_mid_threshold_db", .min = -60.0, .max = 0.0, .step = 1.0 },
+        .{ .id = 155, .field = "fx_mb_mid_ratio", .min = 1.0, .max = 20.0, .step = 0.1 },
+        .{ .id = 156, .field = "fx_mb_mid_makeup_db", .min = -24.0, .max = 24.0, .step = 0.5 },
+        .{ .id = 157, .field = "fx_mb_high_threshold_db", .min = -60.0, .max = 0.0, .step = 1.0 },
+        .{ .id = 158, .field = "fx_mb_high_ratio", .min = 1.0, .max = 20.0, .step = 0.1 },
+        .{ .id = 159, .field = "fx_mb_high_makeup_db", .min = -24.0, .max = 24.0, .step = 0.5 },
+        .{ .id = 161, .field = "fx_ott_on", .kind = .toggle },
+        .{ .id = 162, .field = "fx_ott_depth", .min = 0.0, .max = 1.0, .step = 0.01 },
+        .{ .id = 163, .field = "fx_ott_time", .min = 0.25, .max = 4.0, .step = 0.05 },
+        .{ .id = 164, .field = "fx_ott_gain_in_db", .min = -24.0, .max = 24.0, .step = 0.5 },
+        .{ .id = 165, .field = "fx_ott_gain_out_db", .min = -24.0, .max = 24.0, .step = 0.5 },
+        .{ .id = 167, .field = "fx_eq_on", .kind = .toggle },
+        .{ .id = 168, .field = "fx_eq_low_freq", .kind = .log_freq, .min = 20.0, .max = 20_000.0 },
+        .{ .id = 169, .field = "fx_eq_low_gain_db", .min = -18.0, .max = 18.0, .step = 0.5 },
+        .{ .id = 170, .field = "fx_eq_mid_freq", .kind = .log_freq, .min = 20.0, .max = 20_000.0 },
+        .{ .id = 171, .field = "fx_eq_mid_gain_db", .min = -18.0, .max = 18.0, .step = 0.5 },
+        .{ .id = 172, .field = "fx_eq_mid_q", .min = 0.1, .max = 10.0, .step = 0.05 },
+        .{ .id = 173, .field = "fx_eq_high_freq", .kind = .log_freq, .min = 20.0, .max = 20_000.0 },
+        .{ .id = 174, .field = "fx_eq_high_gain_db", .min = -18.0, .max = 18.0, .step = 0.5 },
+        .{ .id = 176, .field = "fx_chorus_on", .kind = .toggle },
+        .{ .id = 177, .field = "fx_chorus_rate_hz", .min = 0.05, .max = 5.0, .step = 0.05 },
+        .{ .id = 178, .field = "fx_chorus_depth_ms", .min = 0.0, .max = Chorus.max_depth_ms, .step = 0.1 },
+        .{ .id = 179, .field = "fx_chorus_mix", .min = 0.0, .max = 1.0, .step = 0.01 },
+        .{ .id = 181, .field = "fx_freq_shift_on", .kind = .toggle },
+        .{ .id = 182, .field = "fx_freq_shift_hz", .min = -2000.0, .max = 2000.0, .step = 1.0 },
+        .{ .id = 183, .field = "fx_freq_shift_mix", .min = 0.0, .max = 1.0, .step = 0.01 },
+        // WAVETABLE frame position, one per oscillator.
+        .{ .id = 185, .field = "wt_pos", .min = 0.0, .max = 1.0, .step = 0.01 },
+        .{ .id = 186, .field = "osc_b_wt_pos", .min = 0.0, .max = 1.0, .step = 0.01 },
+        .{ .id = 187, .field = "osc_c_wt_pos", .min = 0.0, .max = 1.0, .step = 0.01 },
+        // FX TAPE (188-193), reorder handle 194 in `fx_reorder_ids`.
+        .{ .id = 188, .field = "fx_tape_on", .kind = .toggle },
+        .{ .id = 189, .field = "fx_tape_wow_rate_hz", .min = 0.05, .max = 3.0, .step = 0.05 },
+        .{ .id = 190, .field = "fx_tape_wow_depth", .min = 0.0, .max = 1.0, .step = 0.01 },
+        .{ .id = 191, .field = "fx_tape_flutter_rate_hz", .min = 3.0, .max = 15.0, .step = 0.1 },
+        .{ .id = 192, .field = "fx_tape_flutter_depth", .min = 0.0, .max = 1.0, .step = 0.01 },
+        .{ .id = 193, .field = "fx_tape_mix", .min = 0.0, .max = 1.0, .step = 0.01 },
+    };
+
+    /// `kind`'s reorder-handle id → the FX unit it walks in `fx_order`; not
+    /// real params (no `automatable_params`/`mod_dest_ids` entry, no editor
+    /// row of its own — the FX subview's `</>` sends whichever unit's id
+    /// the cursor currently sits in). `adjustParam` calls `reorderFx`,
+    /// `setParamAbsolute` calls `setFxIndex`, `paramValue` calls
+    /// `fxOrderIndex` — this list drives all three instead of repeating the
+    /// id->kind mapping three times over.
+    const fx_reorder_ids = [_]struct { id: u8, kind: FxUnitKind }{
+        .{ .id = 126, .kind = .dist },
+        .{ .id = 127, .kind = .crush },
+        .{ .id = 128, .kind = .flanger },
+        .{ .id = 129, .kind = .phaser },
+        .{ .id = 130, .kind = .delay },
+        .{ .id = 131, .kind = .reverb },
+        .{ .id = 136, .kind = .gate },
+        .{ .id = 143, .kind = .comp },
+        .{ .id = 160, .kind = .mb_comp },
+        .{ .id = 166, .kind = .ott },
+        .{ .id = 175, .kind = .eq },
+        .{ .id = 180, .kind = .chorus },
+        .{ .id = 184, .kind = .freq_shift },
+        .{ .id = 194, .kind = .tape },
+    };
+
     /// Nudge the editor parameter at `id` by `steps` (h/l = ±1, H/L = ±10).
     /// Runs on the audio thread (via the `set_param` event) so it never races
     /// the block reader — the editor sends edits over the command queue rather
     /// than writing these fields directly.
     pub fn adjustParam(self: *PolySynth, id: u8, steps: i32) void {
-        const s: f32 = @floatFromInt(steps);
         switch (id) {
-            // zig fmt: off
-            0  => self.waveform = if (steps > 0) switch (self.waveform) {
-                .sine => .saw, .saw => .triangle, .triangle => .square, .square => .wavetable, .wavetable => .sine,
-            } else switch (self.waveform) {
-                .sine => .wavetable, .saw => .sine, .triangle => .saw, .square => .triangle, .wavetable => .square,
+            // fx_mb_style: h/l always picks classic/ott by direction, not a
+            // wrap (see `param_specs`'s note on id 149).
+            149 => {
+                self.fx_mb_style = if (steps > 0) .ott else .classic;
+                return;
             },
-            1  => self.pulse_width         = std.math.clamp(self.pulse_width        + s * 0.01,   0.01,   0.99),
-            2  => self.detune_cents         = std.math.clamp(self.detune_cents       + s * 1.0,  -100.0, 100.0),
-            3  => self.unison               = @intCast(std.math.clamp(@as(i32, self.unison) + steps, 1, 16)),
-            4  => self.unison_detune        = std.math.clamp(self.unison_detune      + s * 1.0,    0.0,  100.0),
-            5  => self.unison_spread        = std.math.clamp(self.unison_spread      + s * 0.01,   0.0,    1.0),
-            6  => self.osc_b_on             = !self.osc_b_on,
-            7  => self.osc_b_waveform = if (steps > 0) switch (self.osc_b_waveform) {
-                .sine => .saw, .saw => .triangle, .triangle => .square, .square => .wavetable, .wavetable => .sine,
-            } else switch (self.osc_b_waveform) {
-                .sine => .wavetable, .saw => .sine, .triangle => .saw, .square => .triangle, .wavetable => .square,
-            },
-            8  => self.osc_b_pulse_width    = std.math.clamp(self.osc_b_pulse_width  + s * 0.01,   0.01,   0.99),
-            9  => self.osc_b_semi           = std.math.clamp(self.osc_b_semi         + s * 1.0,  -24.0,   24.0),
-            10 => self.osc_b_detune_cents   = std.math.clamp(self.osc_b_detune_cents + s * 1.0, -100.0,  100.0),
-            11 => self.osc_b_level          = std.math.clamp(self.osc_b_level        + s * 0.01,   0.0,    1.0),
-            12 => self.osc_b_unison         = @intCast(std.math.clamp(@as(i32, self.osc_b_unison) + steps, 1, 16)),
-            13 => self.osc_b_unison_detune  = std.math.clamp(self.osc_b_unison_detune + s * 1.0,   0.0,  100.0),
-            // MOD (14–15)
-            14 => self.mod_mode = if (steps > 0) switch (self.mod_mode) {
-                .none => .ring, .ring => .am_a_to_b, .am_a_to_b => .am_b_to_a,
-                .am_b_to_a => .fm_a_to_b, .fm_a_to_b => .fm_b_to_a, .fm_b_to_a => .none,
-            } else switch (self.mod_mode) {
-                .none => .fm_b_to_a, .ring => .none, .am_a_to_b => .ring,
-                .am_b_to_a => .am_a_to_b, .fm_a_to_b => .am_b_to_a, .fm_b_to_a => .fm_a_to_b,
-            },
-            15 => self.mod_amount           = std.math.clamp(self.mod_amount         + s * 0.05,   0.0,    8.0),
-            // ENV (16–19)
-            16 => self.attack_s             = std.math.clamp(self.attack_s           + s * 0.001, 0.001,   5.0),
-            17 => self.decay_s              = std.math.clamp(self.decay_s            + s * 0.005, 0.001,   5.0),
-            18 => self.sustain              = std.math.clamp(self.sustain            + s * 0.01,   0.0,    1.0),
-            19 => self.release_s            = std.math.clamp(self.release_s          + s * 0.005, 0.001,  10.0),
-            // FILTER (20–23)
-            20 => self.filter_type = if (steps > 0) switch (self.filter_type) {
-                .lp => .hp, .hp => .bp, .bp => .notch, .notch => .ladder, .ladder => .diode, .diode => .comb, .comb => .formant, .formant => .lp,
-            } else switch (self.filter_type) {
-                .lp => .formant, .hp => .lp, .bp => .hp, .notch => .bp, .ladder => .notch, .diode => .ladder, .comb => .diode, .formant => .comb,
-            },
-            // Log-scale cutoff: 1 semitone per step (h/l), ~minor-7th per H/L.
-            21 => self.filter_cutoff        = std.math.clamp(
-                self.filter_cutoff * std.math.pow(f32, 2.0, s / 12.0), 20.0, 20_000.0),
-            22 => self.filter_res           = std.math.clamp(self.filter_res         + s * 0.01,   0.0,    1.0),
-            // 23 (fenv amount) retired — absorbed into the mod matrix.
-            // FENV (24–27)
-            24 => self.fenv_attack_s        = std.math.clamp(self.fenv_attack_s      + s * 0.001, 0.001,   5.0),
-            25 => self.fenv_decay_s         = std.math.clamp(self.fenv_decay_s       + s * 0.005, 0.001,   5.0),
-            26 => self.fenv_sustain         = std.math.clamp(self.fenv_sustain       + s * 0.01,   0.0,    1.0),
-            27 => self.fenv_release_s       = std.math.clamp(self.fenv_release_s     + s * 0.005, 0.001,  10.0),
-            // LFO (28–29; 30/31 depth+target retired into the mod matrix)
-            28 => self.lfo_shape            = cycleLfoShape(self.lfo_shape, steps),
-            29 => self.lfo_rate_hz          = std.math.clamp(self.lfo_rate_hz        + s * 0.1,   0.01,   20.0),
-            // VOICE (32–33)
-            32 => self.voice_mode = if (steps > 0) switch (self.voice_mode) {
-                .poly => .mono, .mono => .legato, .legato => .poly,
-            } else switch (self.voice_mode) {
-                .poly => .legato, .mono => .poly, .legato => .mono,
-            },
-            33 => self.glide_s              = std.math.clamp(self.glide_s            + s * 0.01,   0.0,   10.0),
-            // SUB (34–35)
-            34 => self.sub_level            = std.math.clamp(self.sub_level          + s * 0.01,   0.0,    1.0),
-            35 => self.sub_shape = if (steps > 0) switch (self.sub_shape) {
-                .sine => .square, .square => .sine,
-            } else switch (self.sub_shape) {
-                .sine => .square, .square => .sine,
-            },
-            // NOISE (36–37)
-            36 => self.noise_level          = std.math.clamp(self.noise_level        + s * 0.01,   0.0,    1.0),
-            37 => self.noise_color          = std.math.clamp(self.noise_color        + s * 0.01,   0.0,    1.0),
-            // OUT (38)
-            38 => self.gain                 = std.math.clamp(self.gain               + s * 0.01,  0.01,    1.0),
-            // UNI MODE (39–40)
-            39 => self.unison_mode = if (steps > 0) switch (self.unison_mode) {
-                .spread => .step, .step => .harmonic, .harmonic => .ratio, .ratio => .spread,
-            } else switch (self.unison_mode) {
-                .spread => .ratio, .step => .spread, .harmonic => .step, .ratio => .harmonic,
-            },
-            40 => self.osc_b_unison_mode = if (steps > 0) switch (self.osc_b_unison_mode) {
-                .spread => .step, .step => .harmonic, .harmonic => .ratio, .ratio => .spread,
-            } else switch (self.osc_b_unison_mode) {
-                .spread => .ratio, .step => .spread, .harmonic => .step, .ratio => .harmonic,
-            },
-            // WARP (41–44)
-            41 => self.warp_mode = if (steps > 0) switch (self.warp_mode) {
-                .none => .bend, .bend => .mirror, .mirror => .sync, .sync => .none,
-            } else switch (self.warp_mode) {
-                .none => .sync, .bend => .none, .mirror => .bend, .sync => .mirror,
-            },
-            42 => self.warp_amount          = std.math.clamp(self.warp_amount        + s * 0.01,   0.0,    1.0),
-            43 => self.osc_b_warp_mode = if (steps > 0) switch (self.osc_b_warp_mode) {
-                .none => .bend, .bend => .mirror, .mirror => .sync, .sync => .none,
-            } else switch (self.osc_b_warp_mode) {
-                .none => .sync, .bend => .none, .mirror => .bend, .sync => .mirror,
-            },
-            44 => self.osc_b_warp_amount    = std.math.clamp(self.osc_b_warp_amount  + s * 0.01,   0.0,    1.0),
-            // FILTER 2 (45–49)
-            45 => self.filter2_on           = !self.filter2_on,
-            46 => self.filter2_type = if (steps > 0) switch (self.filter2_type) {
-                .lp => .hp, .hp => .bp, .bp => .notch, .notch => .ladder, .ladder => .diode, .diode => .comb, .comb => .formant, .formant => .lp,
-            } else switch (self.filter2_type) {
-                .lp => .formant, .hp => .lp, .bp => .hp, .notch => .bp, .ladder => .notch, .diode => .ladder, .comb => .diode, .formant => .comb,
-            },
-            47 => self.filter2_cutoff       = std.math.clamp(
-                self.filter2_cutoff * std.math.pow(f32, 2.0, s / 12.0), 20.0, 20_000.0),
-            48 => self.filter2_res          = std.math.clamp(self.filter2_res        + s * 0.01,   0.0,    1.0),
-            49 => self.filter_routing = switch (self.filter_routing) {
-                .series => .parallel, .parallel => .series,
-            },
-            // OSC C (50–58)
-            50 => self.osc_c_on = !self.osc_c_on,
-            51 => self.osc_c_waveform = if (steps > 0) switch (self.osc_c_waveform) {
-                .sine => .saw, .saw => .triangle, .triangle => .square, .square => .wavetable, .wavetable => .sine,
-            } else switch (self.osc_c_waveform) {
-                .sine => .wavetable, .saw => .sine, .triangle => .saw, .square => .triangle, .wavetable => .square,
-            },
-            52 => self.osc_c_pulse_width    = std.math.clamp(self.osc_c_pulse_width  + s * 0.01,   0.01,   0.99),
-            53 => self.osc_c_semi           = std.math.clamp(self.osc_c_semi         + s * 1.0,  -24.0,   24.0),
-            54 => self.osc_c_detune_cents   = std.math.clamp(self.osc_c_detune_cents + s * 1.0, -100.0,  100.0),
-            55 => self.osc_c_level          = std.math.clamp(self.osc_c_level        + s * 0.01,   0.0,    1.0),
-            56 => self.osc_c_unison         = @intCast(std.math.clamp(@as(i32, self.osc_c_unison) + steps, 1, 16)),
-            57 => self.osc_c_unison_detune  = std.math.clamp(self.osc_c_unison_detune + s * 1.0,   0.0,  100.0),
-            58 => self.osc_c_unison_mode = if (steps > 0) switch (self.osc_c_unison_mode) {
-                .spread => .step, .step => .harmonic, .harmonic => .ratio, .ratio => .spread,
-            } else switch (self.osc_c_unison_mode) {
-                .spread => .ratio, .step => .spread, .harmonic => .step, .ratio => .harmonic,
-            },
-            // FX DIST (83–85)
-            83 => self.fx_dist_on           = !self.fx_dist_on,
-            84 => self.fx_dist_drive_db     = std.math.clamp(self.fx_dist_drive_db     + s * 0.5,    0.0,   36.0),
-            85 => self.fx_dist_mix          = std.math.clamp(self.fx_dist_mix          + s * 0.01,   0.0,    1.0),
-            // FX CRUSH (86–89)
-            86 => self.fx_crush_on          = !self.fx_crush_on,
-            87 => self.fx_crush_bits        = std.math.clamp(self.fx_crush_bits        + s * 1.0,    1.0,   16.0),
-            88 => self.fx_crush_rate        = std.math.clamp(self.fx_crush_rate        + s * 1.0,    1.0,   64.0),
-            89 => self.fx_crush_mix         = std.math.clamp(self.fx_crush_mix         + s * 0.01,   0.0,    1.0),
-            // FX FLANGER (90–94)
-            90 => self.fx_flanger_on        = !self.fx_flanger_on,
-            91 => self.fx_flanger_rate_hz   = std.math.clamp(self.fx_flanger_rate_hz   + s * 0.05,   0.02,   8.0),
-            92 => self.fx_flanger_depth     = std.math.clamp(self.fx_flanger_depth     + s * 0.01,   0.0,    1.0),
-            93 => self.fx_flanger_feedback  = std.math.clamp(self.fx_flanger_feedback  + s * 0.01,   0.0,    0.95),
-            94 => self.fx_flanger_mix       = std.math.clamp(self.fx_flanger_mix       + s * 0.01,   0.0,    1.0),
-            // LFO 2 (95–96) / LFO 3 (97–98)
-            95 => self.lfo2_shape           = cycleLfoShape(self.lfo2_shape, steps),
-            96 => self.lfo2_rate_hz         = std.math.clamp(self.lfo2_rate_hz         + s * 0.1,    0.01,  20.0),
-            97 => self.lfo3_shape           = cycleLfoShape(self.lfo3_shape, steps),
-            98 => self.lfo3_rate_hz         = std.math.clamp(self.lfo3_rate_hz         + s * 0.1,    0.01,  20.0),
-            // MACRO (99–102)
-            99  => self.macro1              = std.math.clamp(self.macro1               + s * 0.01,   0.0,    1.0),
-            100 => self.macro2              = std.math.clamp(self.macro2               + s * 0.01,   0.0,    1.0),
-            101 => self.macro3              = std.math.clamp(self.macro3               + s * 0.01,   0.0,    1.0),
-            102 => self.macro4              = std.math.clamp(self.macro4               + s * 0.01,   0.0,    1.0),
-            // FX PHASER (103–107)
-            103 => self.fx_phaser_on        = !self.fx_phaser_on,
-            104 => self.fx_phaser_rate_hz   = std.math.clamp(self.fx_phaser_rate_hz    + s * 0.05,   0.02,   8.0),
-            105 => self.fx_phaser_depth     = std.math.clamp(self.fx_phaser_depth      + s * 0.01,   0.0,    1.0),
-            106 => self.fx_phaser_feedback  = std.math.clamp(self.fx_phaser_feedback   + s * 0.01,   0.0,    0.95),
-            107 => self.fx_phaser_mix       = std.math.clamp(self.fx_phaser_mix        + s * 0.01,   0.0,    1.0),
-            // FX DELAY (108–111)
-            108 => self.fx_delay_on         = !self.fx_delay_on,
-            109 => self.fx_delay_time_s     = std.math.clamp(self.fx_delay_time_s      + s * 0.01,   0.001, Delay.max_time_s),
-            110 => self.fx_delay_feedback   = std.math.clamp(self.fx_delay_feedback    + s * 0.01,   0.0,    0.95),
-            111 => self.fx_delay_mix        = std.math.clamp(self.fx_delay_mix         + s * 0.01,   0.0,    1.0),
-            // FX REVERB (112–115)
-            112 => self.fx_reverb_on        = !self.fx_reverb_on,
-            113 => self.fx_reverb_room      = std.math.clamp(self.fx_reverb_room       + s * 0.01,   0.0,    0.98),
-            114 => self.fx_reverb_damp      = std.math.clamp(self.fx_reverb_damp       + s * 0.01,   0.0,    1.0),
-            115 => self.fx_reverb_mix       = std.math.clamp(self.fx_reverb_mix        + s * 0.01,   0.0,    1.0),
-            // ARP (116–121)
-            116 => self.arp_on              = !self.arp_on,
-            117 => self.arp_mode = if (steps > 0) switch (self.arp_mode) {
-                .up => .down, .down => .updown, .updown => .downup, .downup => .played,
-                .played => .random, .random => .chord, .chord => .up,
-            } else switch (self.arp_mode) {
-                .up => .chord, .down => .up, .updown => .down, .downup => .updown,
-                .played => .downup, .random => .played, .chord => .random,
-            },
-            118 => self.arp_octaves         = @intCast(std.math.clamp(@as(i32, self.arp_octaves) + steps, 1, max_arp_octaves)),
-            119 => self.arp_rate_hz         = std.math.clamp(self.arp_rate_hz          + s * 0.1,    0.1,   20.0),
-            120 => self.arp_gate            = std.math.clamp(self.arp_gate             + s * 0.01,   0.02,   1.0),
-            121 => self.arp_hold            = !self.arp_hold,
-            // ENV 3 (122–125)
-            122 => self.env3_attack_s       = std.math.clamp(self.env3_attack_s        + s * 0.001, 0.001,   5.0),
-            123 => self.env3_decay_s        = std.math.clamp(self.env3_decay_s         + s * 0.005, 0.001,   5.0),
-            124 => self.env3_sustain        = std.math.clamp(self.env3_sustain         + s * 0.01,   0.0,    1.0),
-            125 => self.env3_release_s      = std.math.clamp(self.env3_release_s       + s * 0.005, 0.001,  10.0),
-            // FX REORDER (126-131) — not real params: no automatable_params/
-            // mod_dest_ids entry, no editor row of its own. The FX subview's
-            // </> sends whichever unit's id the cursor currently sits in;
-            // see editors/synth.zig's handling and reorderFx's own comment.
-            126 => self.reorderFx(.dist,    steps),
-            127 => self.reorderFx(.crush,   steps),
-            128 => self.reorderFx(.flanger, steps),
-            129 => self.reorderFx(.phaser,  steps),
-            130 => self.reorderFx(.delay,   steps),
-            131 => self.reorderFx(.reverb,  steps),
-            // FX GATE (132–135), reorder handle 136 — appended after the
-            // reorder-id block above rather than renumbered into it, same
-            // "always append after the current max" convention as any
-            // other param pickup.
-            132 => self.fx_gate_on           = !self.fx_gate_on,
-            133 => self.fx_gate_threshold_db = std.math.clamp(self.fx_gate_threshold_db + s * 1.0,   -80.0,    0.0),
-            134 => self.fx_gate_attack_ms    = std.math.clamp(self.fx_gate_attack_ms    + s * 0.1,     0.1,   50.0),
-            135 => self.fx_gate_release_ms   = std.math.clamp(self.fx_gate_release_ms   + s * 10.0,    5.0, 1000.0),
-            136 => self.reorderFx(.gate, steps),
-            // FX COMP (137–142), reorder handle 143.
-            137 => self.fx_comp_on           = !self.fx_comp_on,
-            138 => self.fx_comp_threshold_db = std.math.clamp(self.fx_comp_threshold_db + s * 1.0,   -60.0,    0.0),
-            139 => self.fx_comp_ratio        = std.math.clamp(self.fx_comp_ratio        + s * 0.1,     1.0,   20.0),
-            140 => self.fx_comp_attack_ms    = std.math.clamp(self.fx_comp_attack_ms    + s * 0.5,     0.1,  500.0),
-            141 => self.fx_comp_release_ms   = std.math.clamp(self.fx_comp_release_ms   + s * 5.0,     1.0, 2000.0),
-            142 => self.fx_comp_makeup_db    = std.math.clamp(self.fx_comp_makeup_db    + s * 0.5,   -24.0,   24.0),
-            143 => self.reorderFx(.comp, steps),
-            // FX MB COMP (144–159), reorder handle 160.
-            144 => self.fx_mb_on               = !self.fx_mb_on,
-            145 => self.fx_mb_xover_lo         = std.math.clamp(self.fx_mb_xover_lo         * std.math.pow(f32, 2.0, s / 12.0), 20.0, 20_000.0),
-            146 => self.fx_mb_xover_hi         = std.math.clamp(self.fx_mb_xover_hi         * std.math.pow(f32, 2.0, s / 12.0), 20.0, 20_000.0),
-            147 => self.fx_mb_attack_ms        = std.math.clamp(self.fx_mb_attack_ms        + s * 0.5,     0.1,  500.0),
-            148 => self.fx_mb_release_ms       = std.math.clamp(self.fx_mb_release_ms       + s * 5.0,     1.0, 2000.0),
-            149 => self.fx_mb_style            = if (steps > 0) .ott else .classic,
-            150 => self.fx_mb_mix              = std.math.clamp(self.fx_mb_mix              + s * 0.01,    0.0,    1.0),
-            151 => self.fx_mb_low_threshold_db  = std.math.clamp(self.fx_mb_low_threshold_db  + s * 1.0,  -60.0,    0.0),
-            152 => self.fx_mb_low_ratio         = std.math.clamp(self.fx_mb_low_ratio         + s * 0.1,    1.0,   20.0),
-            153 => self.fx_mb_low_makeup_db     = std.math.clamp(self.fx_mb_low_makeup_db     + s * 0.5,  -24.0,   24.0),
-            154 => self.fx_mb_mid_threshold_db  = std.math.clamp(self.fx_mb_mid_threshold_db  + s * 1.0,  -60.0,    0.0),
-            155 => self.fx_mb_mid_ratio         = std.math.clamp(self.fx_mb_mid_ratio         + s * 0.1,    1.0,   20.0),
-            156 => self.fx_mb_mid_makeup_db     = std.math.clamp(self.fx_mb_mid_makeup_db     + s * 0.5,  -24.0,   24.0),
-            157 => self.fx_mb_high_threshold_db = std.math.clamp(self.fx_mb_high_threshold_db + s * 1.0,  -60.0,    0.0),
-            158 => self.fx_mb_high_ratio        = std.math.clamp(self.fx_mb_high_ratio        + s * 0.1,    1.0,   20.0),
-            159 => self.fx_mb_high_makeup_db    = std.math.clamp(self.fx_mb_high_makeup_db    + s * 0.5,  -24.0,   24.0),
-            160 => self.reorderFx(.mb_comp, steps),
-            // FX OTT (161–165), reorder handle 166.
-            161 => self.fx_ott_on          = !self.fx_ott_on,
-            162 => self.fx_ott_depth       = std.math.clamp(self.fx_ott_depth       + s * 0.01,   0.0,    1.0),
-            163 => self.fx_ott_time        = std.math.clamp(self.fx_ott_time        + s * 0.05,   0.25,   4.0),
-            164 => self.fx_ott_gain_in_db  = std.math.clamp(self.fx_ott_gain_in_db  + s * 0.5,   -24.0,  24.0),
-            165 => self.fx_ott_gain_out_db = std.math.clamp(self.fx_ott_gain_out_db + s * 0.5,   -24.0,  24.0),
-            166 => self.reorderFx(.ott, steps),
-            // FX EQ (167–174), reorder handle 175.
-            167 => self.fx_eq_on           = !self.fx_eq_on,
-            168 => self.fx_eq_low_freq     = std.math.clamp(self.fx_eq_low_freq  * std.math.pow(f32, 2.0, s / 12.0),   20.0, 20_000.0),
-            169 => self.fx_eq_low_gain_db  = std.math.clamp(self.fx_eq_low_gain_db  + s * 0.5,  -18.0,  18.0),
-            170 => self.fx_eq_mid_freq     = std.math.clamp(self.fx_eq_mid_freq  * std.math.pow(f32, 2.0, s / 12.0),   20.0, 20_000.0),
-            171 => self.fx_eq_mid_gain_db  = std.math.clamp(self.fx_eq_mid_gain_db  + s * 0.5,  -18.0,  18.0),
-            172 => self.fx_eq_mid_q        = std.math.clamp(self.fx_eq_mid_q        + s * 0.05,   0.1,   10.0),
-            173 => self.fx_eq_high_freq    = std.math.clamp(self.fx_eq_high_freq * std.math.pow(f32, 2.0, s / 12.0),   20.0, 20_000.0),
-            174 => self.fx_eq_high_gain_db = std.math.clamp(self.fx_eq_high_gain_db + s * 0.5,  -18.0,  18.0),
-            175 => self.reorderFx(.eq, steps),
-            // FX CHORUS (176–179), reorder handle 180.
-            176 => self.fx_chorus_on        = !self.fx_chorus_on,
-            177 => self.fx_chorus_rate_hz   = std.math.clamp(self.fx_chorus_rate_hz  + s * 0.05, 0.05, 5.0),
-            178 => self.fx_chorus_depth_ms  = std.math.clamp(self.fx_chorus_depth_ms + s * 0.1,  0.0, Chorus.max_depth_ms),
-            179 => self.fx_chorus_mix       = std.math.clamp(self.fx_chorus_mix      + s * 0.01, 0.0, 1.0),
-            180 => self.reorderFx(.chorus, steps),
-            // FX FREQ SHIFT (181–183), reorder handle 184.
-            181 => self.fx_freq_shift_on  = !self.fx_freq_shift_on,
-            182 => self.fx_freq_shift_hz  = std.math.clamp(self.fx_freq_shift_hz  + s * 1.0,  -2000.0, 2000.0),
-            183 => self.fx_freq_shift_mix = std.math.clamp(self.fx_freq_shift_mix + s * 0.01,    0.0,    1.0),
-            184 => self.reorderFx(.freq_shift, steps),
-            // WAVETABLE frame position, one per oscillator.
-            185 => self.wt_pos         = std.math.clamp(self.wt_pos         + s * 0.01, 0.0, 1.0),
-            186 => self.osc_b_wt_pos   = std.math.clamp(self.osc_b_wt_pos   + s * 0.01, 0.0, 1.0),
-            187 => self.osc_c_wt_pos   = std.math.clamp(self.osc_c_wt_pos   + s * 0.01, 0.0, 1.0),
-            // zig fmt: on
             // MATRIX (59–82): 3 ids per row — source, dest, depth.
             59...82 => {
                 const row = &self.mod_matrix[(id - 59) / 3];
                 switch ((id - 59) % 3) {
                     // Source steps one variant per press (matches the other
                     // enum params); wraps.
-                    0 => {
-                        const n: i32 = @typeInfo(ModSource).@"enum".fields.len;
-                        const cur: i32 = @intFromEnum(row.source);
-                        const dir: i32 = if (steps > 0) 1 else -1;
-                        row.source = @enumFromInt(@as(u8, @intCast(@mod(cur + dir, n))));
-                    },
+                    0 => row.source = cycleEnum(ModSource, row.source, steps),
                     // Dest walks the mod_dest_ids table by the full step
                     // count (H/L jump 10 through the ~40 entries); wraps.
                     1 => {
@@ -3126,11 +3130,18 @@ pub const PolySynth = struct {
                         const cur: i32 = @intCast(modDestIndex(row.dest) orelse 0);
                         row.dest = mod_dest_ids[@intCast(@mod(cur + steps, n))];
                     },
-                    2 => row.depth = std.math.clamp(row.depth + s * 0.01, -1.0, 1.0),
+                    2 => row.depth = std.math.clamp(row.depth + @as(f32, @floatFromInt(steps)) * 0.01, -1.0, 1.0),
                     else => unreachable,
                 }
+                return;
             },
             else => {},
+        }
+        inline for (param_specs) |spec| {
+            if (spec.id == id) return specAdjust(self, spec, steps);
+        }
+        inline for (fx_reorder_ids) |r| {
+            if (r.id == id) return self.reorderFx(r.kind, steps);
         }
     }
 
@@ -3139,183 +3150,12 @@ pub const PolySynth = struct {
     /// delta from wherever the param last was — see `Event.set_param_abs`)
     /// and for undo's capture/restore (`paramValue` is the read half).
     /// Every continuous param `adjustParam` handles is wired here with the
-    /// exact same clamp range; enum/toggle ids (waveform 0/7, osc_b_on 6,
-    /// mod_mode 14, filter_type 20, lfo_shape 28, voice_mode 32, sub_shape
-    /// 35, matrix sources) take the variant's 0-based ordinal (toggles:
-    /// >= 0.5 is on) — automation never targets them (they're not in
-    /// `automatable_params`), only undo restores them this way.
+    /// exact same clamp range; enum/toggle ids take the variant's 0-based
+    /// ordinal (toggles: >= 0.5 is on) — automation never targets them
+    /// (they're not in `automatable_params`), only undo restores them this
+    /// way.
     pub fn setParamAbsolute(self: *PolySynth, id: u8, value: f32) void {
         switch (id) {
-            // zig fmt: off
-            0  => self.waveform            = enumFromValue(Waveform, value),
-            6  => self.osc_b_on            = value >= 0.5,
-            7  => self.osc_b_waveform      = enumFromValue(Waveform, value),
-            14 => self.mod_mode            = enumFromValue(ModMode, value),
-            20 => self.filter_type         = enumFromValue(FilterType, value),
-            28 => self.lfo_shape           = enumFromValue(LfoShape, value),
-            32 => self.voice_mode          = enumFromValue(VoiceMode, value),
-            35 => self.sub_shape           = enumFromValue(SubShape, value),
-            39 => self.unison_mode         = enumFromValue(UnisonMode, value),
-            40 => self.osc_b_unison_mode   = enumFromValue(UnisonMode, value),
-            41 => self.warp_mode           = enumFromValue(WarpMode, value),
-            43 => self.osc_b_warp_mode     = enumFromValue(WarpMode, value),
-            45 => self.filter2_on          = value >= 0.5,
-            46 => self.filter2_type        = enumFromValue(FilterType, value),
-            49 => self.filter_routing      = enumFromValue(FilterRouting, value),
-            50 => self.osc_c_on            = value >= 0.5,
-            51 => self.osc_c_waveform      = enumFromValue(Waveform, value),
-            58 => self.osc_c_unison_mode   = enumFromValue(UnisonMode, value),
-            1  => self.pulse_width         = std.math.clamp(value,   0.01,   0.99),
-            2  => self.detune_cents        = std.math.clamp(value, -100.0, 100.0),
-            3  => self.unison              = @intCast(std.math.clamp(@as(i32, @intFromFloat(@round(value))), 1, 16)),
-            4  => self.unison_detune       = std.math.clamp(value,   0.0,  100.0),
-            5  => self.unison_spread       = std.math.clamp(value,   0.0,    1.0),
-            8  => self.osc_b_pulse_width   = std.math.clamp(value,   0.01,   0.99),
-            9  => self.osc_b_semi          = std.math.clamp(value, -24.0,   24.0),
-            10 => self.osc_b_detune_cents  = std.math.clamp(value, -100.0,  100.0),
-            11 => self.osc_b_level         = std.math.clamp(value,   0.0,    1.0),
-            12 => self.osc_b_unison        = @intCast(std.math.clamp(@as(i32, @intFromFloat(@round(value))), 1, 16)),
-            13 => self.osc_b_unison_detune = std.math.clamp(value,   0.0,  100.0),
-            15 => self.mod_amount          = std.math.clamp(value,   0.0,    8.0),
-            16 => self.attack_s            = std.math.clamp(value,   0.001,  5.0),
-            17 => self.decay_s             = std.math.clamp(value,   0.001,  5.0),
-            18 => self.sustain             = std.math.clamp(value,   0.0,    1.0),
-            19 => self.release_s           = std.math.clamp(value,   0.001, 10.0),
-            21 => self.filter_cutoff       = std.math.clamp(value,  20.0, 20_000.0),
-            22 => self.filter_res          = std.math.clamp(value,   0.0,    1.0),
-            24 => self.fenv_attack_s       = std.math.clamp(value,   0.001,  5.0),
-            25 => self.fenv_decay_s        = std.math.clamp(value,   0.001,  5.0),
-            26 => self.fenv_sustain        = std.math.clamp(value,   0.0,    1.0),
-            27 => self.fenv_release_s      = std.math.clamp(value,   0.001, 10.0),
-            29 => self.lfo_rate_hz         = std.math.clamp(value,   0.01,  20.0),
-            33 => self.glide_s             = std.math.clamp(value,   0.0,   10.0),
-            34 => self.sub_level           = std.math.clamp(value,   0.0,    1.0),
-            36 => self.noise_level         = std.math.clamp(value,   0.0,    1.0),
-            37 => self.noise_color         = std.math.clamp(value,   0.0,    1.0),
-            38 => self.gain                = std.math.clamp(value,   0.01,   1.0),
-            42 => self.warp_amount         = std.math.clamp(value,   0.0,    1.0),
-            44 => self.osc_b_warp_amount   = std.math.clamp(value,   0.0,    1.0),
-            47 => self.filter2_cutoff      = std.math.clamp(value,  20.0, 20_000.0),
-            48 => self.filter2_res         = std.math.clamp(value,   0.0,    1.0),
-            52 => self.osc_c_pulse_width   = std.math.clamp(value,   0.01,   0.99),
-            53 => self.osc_c_semi          = std.math.clamp(value, -24.0,   24.0),
-            54 => self.osc_c_detune_cents  = std.math.clamp(value, -100.0,  100.0),
-            55 => self.osc_c_level         = std.math.clamp(value,   0.0,    1.0),
-            56 => self.osc_c_unison        = @intCast(std.math.clamp(@as(i32, @intFromFloat(@round(value))), 1, 16)),
-            57 => self.osc_c_unison_detune = std.math.clamp(value,   0.0,  100.0),
-            83 => self.fx_dist_on          = value >= 0.5,
-            84 => self.fx_dist_drive_db    = std.math.clamp(value,   0.0,   36.0),
-            85 => self.fx_dist_mix         = std.math.clamp(value,   0.0,    1.0),
-            86 => self.fx_crush_on         = value >= 0.5,
-            87 => self.fx_crush_bits       = std.math.clamp(value,   1.0,   16.0),
-            88 => self.fx_crush_rate       = std.math.clamp(value,   1.0,   64.0),
-            89 => self.fx_crush_mix        = std.math.clamp(value,   0.0,    1.0),
-            90 => self.fx_flanger_on       = value >= 0.5,
-            91 => self.fx_flanger_rate_hz  = std.math.clamp(value,   0.02,   8.0),
-            92 => self.fx_flanger_depth    = std.math.clamp(value,   0.0,    1.0),
-            93 => self.fx_flanger_feedback = std.math.clamp(value,   0.0,    0.95),
-            94 => self.fx_flanger_mix      = std.math.clamp(value,   0.0,    1.0),
-            95 => self.lfo2_shape          = enumFromValue(LfoShape, value),
-            96 => self.lfo2_rate_hz        = std.math.clamp(value,   0.01,  20.0),
-            97 => self.lfo3_shape          = enumFromValue(LfoShape, value),
-            98 => self.lfo3_rate_hz        = std.math.clamp(value,   0.01,  20.0),
-            99  => self.macro1             = std.math.clamp(value,   0.0,    1.0),
-            100 => self.macro2             = std.math.clamp(value,   0.0,    1.0),
-            101 => self.macro3             = std.math.clamp(value,   0.0,    1.0),
-            102 => self.macro4             = std.math.clamp(value,   0.0,    1.0),
-            103 => self.fx_phaser_on       = value >= 0.5,
-            104 => self.fx_phaser_rate_hz  = std.math.clamp(value,   0.02,   8.0),
-            105 => self.fx_phaser_depth    = std.math.clamp(value,   0.0,    1.0),
-            106 => self.fx_phaser_feedback = std.math.clamp(value,   0.0,    0.95),
-            107 => self.fx_phaser_mix      = std.math.clamp(value,   0.0,    1.0),
-            108 => self.fx_delay_on        = value >= 0.5,
-            109 => self.fx_delay_time_s    = std.math.clamp(value,   0.001, Delay.max_time_s),
-            110 => self.fx_delay_feedback  = std.math.clamp(value,   0.0,    0.95),
-            111 => self.fx_delay_mix       = std.math.clamp(value,   0.0,    1.0),
-            112 => self.fx_reverb_on       = value >= 0.5,
-            113 => self.fx_reverb_room     = std.math.clamp(value,   0.0,    0.98),
-            114 => self.fx_reverb_damp     = std.math.clamp(value,   0.0,    1.0),
-            115 => self.fx_reverb_mix      = std.math.clamp(value,   0.0,    1.0),
-            116 => self.arp_on             = value >= 0.5,
-            117 => self.arp_mode           = enumFromValue(ArpMode, value),
-            118 => self.arp_octaves        = @intCast(std.math.clamp(@as(i32, @intFromFloat(@round(value))), 1, max_arp_octaves)),
-            119 => self.arp_rate_hz        = std.math.clamp(value,   0.1,   20.0),
-            120 => self.arp_gate           = std.math.clamp(value,   0.02,   1.0),
-            121 => self.arp_hold           = value >= 0.5,
-            122 => self.env3_attack_s      = std.math.clamp(value,   0.001,  5.0),
-            123 => self.env3_decay_s       = std.math.clamp(value,   0.001,  5.0),
-            124 => self.env3_sustain       = std.math.clamp(value,   0.0,    1.0),
-            125 => self.env3_release_s     = std.math.clamp(value,   0.001, 10.0),
-            // FX REORDER (126-131), gate's 136 appended further below —
-            // value is the unit's absolute fx_order slot index; see
-            // `setFxIndex`'s doc comment for why undo/redo routes
-            // reordering through here instead of `adjustParam`. Only the
-            // lower bound is clamped here: `setFxIndex` itself clamps the
-            // upper end to the real (growing) slot count, so this stays
-            // correct as more units are added without needing a bump here.
-            126 => self.setFxIndex(.dist,    @intFromFloat(@round(@max(value, 0.0)))),
-            127 => self.setFxIndex(.crush,   @intFromFloat(@round(@max(value, 0.0)))),
-            128 => self.setFxIndex(.flanger, @intFromFloat(@round(@max(value, 0.0)))),
-            129 => self.setFxIndex(.phaser,  @intFromFloat(@round(@max(value, 0.0)))),
-            130 => self.setFxIndex(.delay,   @intFromFloat(@round(@max(value, 0.0)))),
-            131 => self.setFxIndex(.reverb,  @intFromFloat(@round(@max(value, 0.0)))),
-            132 => self.fx_gate_on           = value >= 0.5,
-            133 => self.fx_gate_threshold_db = std.math.clamp(value, -80.0,   0.0),
-            134 => self.fx_gate_attack_ms    = std.math.clamp(value,   0.1,  50.0),
-            135 => self.fx_gate_release_ms   = std.math.clamp(value,   5.0, 1000.0),
-            136 => self.setFxIndex(.gate,      @intFromFloat(@round(@max(value, 0.0)))),
-            137 => self.fx_comp_on           = value >= 0.5,
-            138 => self.fx_comp_threshold_db = std.math.clamp(value, -60.0,   0.0),
-            139 => self.fx_comp_ratio        = std.math.clamp(value,   1.0,  20.0),
-            140 => self.fx_comp_attack_ms    = std.math.clamp(value,   0.1, 500.0),
-            141 => self.fx_comp_release_ms   = std.math.clamp(value,   1.0, 2000.0),
-            142 => self.fx_comp_makeup_db    = std.math.clamp(value, -24.0,  24.0),
-            143 => self.setFxIndex(.comp,      @intFromFloat(@round(@max(value, 0.0)))),
-            144 => self.fx_mb_on               = value >= 0.5,
-            145 => self.fx_mb_xover_lo         = std.math.clamp(value, 20.0, 20_000.0),
-            146 => self.fx_mb_xover_hi         = std.math.clamp(value, 20.0, 20_000.0),
-            147 => self.fx_mb_attack_ms        = std.math.clamp(value,  0.1, 500.0),
-            148 => self.fx_mb_release_ms       = std.math.clamp(value,  1.0, 2000.0),
-            149 => self.fx_mb_style            = enumFromValue(MbStyle, value),
-            150 => self.fx_mb_mix              = std.math.clamp(value,  0.0,   1.0),
-            151 => self.fx_mb_low_threshold_db  = std.math.clamp(value, -60.0,  0.0),
-            152 => self.fx_mb_low_ratio         = std.math.clamp(value,   1.0, 20.0),
-            153 => self.fx_mb_low_makeup_db     = std.math.clamp(value, -24.0, 24.0),
-            154 => self.fx_mb_mid_threshold_db  = std.math.clamp(value, -60.0,  0.0),
-            155 => self.fx_mb_mid_ratio         = std.math.clamp(value,   1.0, 20.0),
-            156 => self.fx_mb_mid_makeup_db     = std.math.clamp(value, -24.0, 24.0),
-            157 => self.fx_mb_high_threshold_db = std.math.clamp(value, -60.0,  0.0),
-            158 => self.fx_mb_high_ratio        = std.math.clamp(value,   1.0, 20.0),
-            159 => self.fx_mb_high_makeup_db    = std.math.clamp(value, -24.0, 24.0),
-            160 => self.setFxIndex(.mb_comp,     @intFromFloat(@round(@max(value, 0.0)))),
-            161 => self.fx_ott_on          = value >= 0.5,
-            162 => self.fx_ott_depth       = std.math.clamp(value,  0.0,  1.0),
-            163 => self.fx_ott_time        = std.math.clamp(value,  0.25, 4.0),
-            164 => self.fx_ott_gain_in_db  = std.math.clamp(value, -24.0, 24.0),
-            165 => self.fx_ott_gain_out_db = std.math.clamp(value, -24.0, 24.0),
-            166 => self.setFxIndex(.ott,        @intFromFloat(@round(@max(value, 0.0)))),
-            167 => self.fx_eq_on           = value >= 0.5,
-            168 => self.fx_eq_low_freq     = std.math.clamp(value,  20.0, 20_000.0),
-            169 => self.fx_eq_low_gain_db  = std.math.clamp(value, -18.0,    18.0),
-            170 => self.fx_eq_mid_freq     = std.math.clamp(value,  20.0, 20_000.0),
-            171 => self.fx_eq_mid_gain_db  = std.math.clamp(value, -18.0,    18.0),
-            172 => self.fx_eq_mid_q        = std.math.clamp(value,   0.1,    10.0),
-            173 => self.fx_eq_high_freq    = std.math.clamp(value,  20.0, 20_000.0),
-            174 => self.fx_eq_high_gain_db = std.math.clamp(value, -18.0,    18.0),
-            175 => self.setFxIndex(.eq,         @intFromFloat(@round(@max(value, 0.0)))),
-            176 => self.fx_chorus_on        = value >= 0.5,
-            177 => self.fx_chorus_rate_hz   = std.math.clamp(value, 0.05, 5.0),
-            178 => self.fx_chorus_depth_ms  = std.math.clamp(value, 0.0, Chorus.max_depth_ms),
-            179 => self.fx_chorus_mix       = std.math.clamp(value, 0.0, 1.0),
-            180 => self.setFxIndex(.chorus,     @intFromFloat(@round(@max(value, 0.0)))),
-            181 => self.fx_freq_shift_on  = value >= 0.5,
-            182 => self.fx_freq_shift_hz  = std.math.clamp(value, -2000.0, 2000.0),
-            183 => self.fx_freq_shift_mix = std.math.clamp(value,    0.0,    1.0),
-            184 => self.setFxIndex(.freq_shift, @intFromFloat(@round(@max(value, 0.0)))),
-            185 => self.wt_pos       = std.math.clamp(value, 0.0, 1.0),
-            186 => self.osc_b_wt_pos = std.math.clamp(value, 0.0, 1.0),
-            187 => self.osc_c_wt_pos = std.math.clamp(value, 0.0, 1.0),
-            // zig fmt: on
             // MATRIX: dest takes the raw param id (falls back to cutoff if
             // the value isn't a legal dest — e.g. a hand-edited curve).
             59...82 => {
@@ -3332,8 +3172,20 @@ pub const PolySynth = struct {
                     2 => row.depth = std.math.clamp(value, -1.0, 1.0),
                     else => unreachable,
                 }
+                return;
             },
             else => {},
+        }
+        inline for (param_specs) |spec| {
+            if (spec.id == id) return specSetAbs(self, spec, value);
+        }
+        // FX reorder handles: value is the unit's absolute fx_order slot
+        // index; see `setFxIndex`'s doc comment for why undo/redo routes
+        // reordering through here instead of `adjustParam`. Only the lower
+        // bound is clamped here: `setFxIndex` itself clamps the upper end
+        // to the real (growing) slot count.
+        inline for (fx_reorder_ids) |r| {
+            if (r.id == id) return self.setFxIndex(r.kind, @intFromFloat(@round(@max(value, 0.0))));
         }
     }
 
@@ -3343,185 +3195,25 @@ pub const PolySynth = struct {
     /// live fields, same race-tolerant convention the synth editor's own
     /// row rendering already uses. Null for unknown ids.
     pub fn paramValue(self: *const PolySynth, id: u8) ?f32 {
-        return switch (id) {
-            // zig fmt: off
-            0  => enumToValue(self.waveform),
-            1  => self.pulse_width,
-            2  => self.detune_cents,
-            3  => @floatFromInt(self.unison),
-            4  => self.unison_detune,
-            5  => self.unison_spread,
-            6  => if (self.osc_b_on) 1.0 else 0.0,
-            7  => enumToValue(self.osc_b_waveform),
-            8  => self.osc_b_pulse_width,
-            9  => self.osc_b_semi,
-            // zig fmt: on
-            10 => self.osc_b_detune_cents,
-            11 => self.osc_b_level,
-            12 => @floatFromInt(self.osc_b_unison),
-            13 => self.osc_b_unison_detune,
-            14 => enumToValue(self.mod_mode),
-            15 => self.mod_amount,
-            16 => self.attack_s,
-            17 => self.decay_s,
-            18 => self.sustain,
-            19 => self.release_s,
-            20 => enumToValue(self.filter_type),
-            21 => self.filter_cutoff,
-            22 => self.filter_res,
-            24 => self.fenv_attack_s,
-            25 => self.fenv_decay_s,
-            26 => self.fenv_sustain,
-            27 => self.fenv_release_s,
-            28 => enumToValue(self.lfo_shape),
-            29 => self.lfo_rate_hz,
-            32 => enumToValue(self.voice_mode),
-            33 => self.glide_s,
-            34 => self.sub_level,
-            35 => enumToValue(self.sub_shape),
-            36 => self.noise_level,
-            37 => self.noise_color,
-            38 => self.gain,
-            39 => enumToValue(self.unison_mode),
-            40 => enumToValue(self.osc_b_unison_mode),
-            41 => enumToValue(self.warp_mode),
-            42 => self.warp_amount,
-            43 => enumToValue(self.osc_b_warp_mode),
-            44 => self.osc_b_warp_amount,
-            45 => if (self.filter2_on) 1.0 else 0.0,
-            46 => enumToValue(self.filter2_type),
-            47 => self.filter2_cutoff,
-            48 => self.filter2_res,
-            49 => enumToValue(self.filter_routing),
-            50 => if (self.osc_c_on) 1.0 else 0.0,
-            51 => enumToValue(self.osc_c_waveform),
-            52 => self.osc_c_pulse_width,
-            53 => self.osc_c_semi,
-            54 => self.osc_c_detune_cents,
-            55 => self.osc_c_level,
-            56 => @floatFromInt(self.osc_c_unison),
-            57 => self.osc_c_unison_detune,
-            58 => enumToValue(self.osc_c_unison_mode),
-            // zig fmt: off
-            83 => if (self.fx_dist_on) 1.0 else 0.0,
-            84 => self.fx_dist_drive_db,
-            85 => self.fx_dist_mix,
-            86 => if (self.fx_crush_on) 1.0 else 0.0,
-            87 => self.fx_crush_bits,
-            88 => self.fx_crush_rate,
-            89 => self.fx_crush_mix,
-            90 => if (self.fx_flanger_on) 1.0 else 0.0,
-            91 => self.fx_flanger_rate_hz,
-            92 => self.fx_flanger_depth,
-            93 => self.fx_flanger_feedback,
-            94 => self.fx_flanger_mix,
-            95 => enumToValue(self.lfo2_shape),
-            96 => self.lfo2_rate_hz,
-            97 => enumToValue(self.lfo3_shape),
-            98 => self.lfo3_rate_hz,
-            99  => self.macro1,
-            100 => self.macro2,
-            101 => self.macro3,
-            102 => self.macro4,
-            103 => if (self.fx_phaser_on) 1.0 else 0.0,
-            104 => self.fx_phaser_rate_hz,
-            105 => self.fx_phaser_depth,
-            106 => self.fx_phaser_feedback,
-            107 => self.fx_phaser_mix,
-            108 => if (self.fx_delay_on) 1.0 else 0.0,
-            109 => self.fx_delay_time_s,
-            110 => self.fx_delay_feedback,
-            111 => self.fx_delay_mix,
-            112 => if (self.fx_reverb_on) 1.0 else 0.0,
-            113 => self.fx_reverb_room,
-            114 => self.fx_reverb_damp,
-            115 => self.fx_reverb_mix,
-            116 => if (self.arp_on) 1.0 else 0.0,
-            117 => enumToValue(self.arp_mode),
-            118 => @floatFromInt(self.arp_octaves),
-            119 => self.arp_rate_hz,
-            120 => self.arp_gate,
-            121 => if (self.arp_hold) 1.0 else 0.0,
-            122 => self.env3_attack_s,
-            123 => self.env3_decay_s,
-            124 => self.env3_sustain,
-            125 => self.env3_release_s,
-            126 => @floatFromInt(self.fxOrderIndex(.dist)),
-            127 => @floatFromInt(self.fxOrderIndex(.crush)),
-            128 => @floatFromInt(self.fxOrderIndex(.flanger)),
-            129 => @floatFromInt(self.fxOrderIndex(.phaser)),
-            130 => @floatFromInt(self.fxOrderIndex(.delay)),
-            131 => @floatFromInt(self.fxOrderIndex(.reverb)),
-            132 => if (self.fx_gate_on) 1.0 else 0.0,
-            133 => self.fx_gate_threshold_db,
-            134 => self.fx_gate_attack_ms,
-            135 => self.fx_gate_release_ms,
-            136 => @floatFromInt(self.fxOrderIndex(.gate)),
-            137 => if (self.fx_comp_on) 1.0 else 0.0,
-            138 => self.fx_comp_threshold_db,
-            139 => self.fx_comp_ratio,
-            140 => self.fx_comp_attack_ms,
-            141 => self.fx_comp_release_ms,
-            142 => self.fx_comp_makeup_db,
-            143 => @floatFromInt(self.fxOrderIndex(.comp)),
-            144 => if (self.fx_mb_on) 1.0 else 0.0,
-            145 => self.fx_mb_xover_lo,
-            146 => self.fx_mb_xover_hi,
-            147 => self.fx_mb_attack_ms,
-            148 => self.fx_mb_release_ms,
-            149 => enumToValue(self.fx_mb_style),
-            150 => self.fx_mb_mix,
-            151 => self.fx_mb_low_threshold_db,
-            152 => self.fx_mb_low_ratio,
-            153 => self.fx_mb_low_makeup_db,
-            154 => self.fx_mb_mid_threshold_db,
-            155 => self.fx_mb_mid_ratio,
-            156 => self.fx_mb_mid_makeup_db,
-            157 => self.fx_mb_high_threshold_db,
-            158 => self.fx_mb_high_ratio,
-            159 => self.fx_mb_high_makeup_db,
-            160 => @floatFromInt(self.fxOrderIndex(.mb_comp)),
-            161 => if (self.fx_ott_on) 1.0 else 0.0,
-            162 => self.fx_ott_depth,
-            163 => self.fx_ott_time,
-            164 => self.fx_ott_gain_in_db,
-            165 => self.fx_ott_gain_out_db,
-            166 => @floatFromInt(self.fxOrderIndex(.ott)),
-            167 => if (self.fx_eq_on) 1.0 else 0.0,
-            168 => self.fx_eq_low_freq,
-            169 => self.fx_eq_low_gain_db,
-            170 => self.fx_eq_mid_freq,
-            171 => self.fx_eq_mid_gain_db,
-            172 => self.fx_eq_mid_q,
-            173 => self.fx_eq_high_freq,
-            174 => self.fx_eq_high_gain_db,
-            175 => @floatFromInt(self.fxOrderIndex(.eq)),
-            176 => if (self.fx_chorus_on) 1.0 else 0.0,
-            177 => self.fx_chorus_rate_hz,
-            178 => self.fx_chorus_depth_ms,
-            179 => self.fx_chorus_mix,
-            180 => @floatFromInt(self.fxOrderIndex(.chorus)),
-            181 => if (self.fx_freq_shift_on) 1.0 else 0.0,
-            182 => self.fx_freq_shift_hz,
-            183 => self.fx_freq_shift_mix,
-            184 => @floatFromInt(self.fxOrderIndex(.freq_shift)),
-            185 => self.wt_pos,
-            186 => self.osc_b_wt_pos,
-            187 => self.osc_c_wt_pos,
-            // zig fmt: on
-            59...82 => blk: {
+        switch (id) {
+            59...82 => {
                 const row = self.mod_matrix[(id - 59) / 3];
-                break :blk switch ((id - 59) % 3) {
-                    // zig fmt: off
+                return switch ((id - 59) % 3) {
                     0 => enumToValue(row.source),
                     1 => @floatFromInt(row.dest),
                     2 => row.depth,
-                    // zig fmt: on
                     else => unreachable,
                 };
             },
-            else => null,
-        };
+            else => {},
+        }
+        inline for (param_specs) |spec| {
+            if (spec.id == id) return specValue(self, spec);
+        }
+        inline for (fx_reorder_ids) |r| {
+            if (r.id == id) return @floatFromInt(self.fxOrderIndex(r.kind));
+        }
+        return null;
     }
 
     /// One entry per `setParamAbsolute`-handled id — the shared metadata the
@@ -4741,6 +4433,57 @@ test "FX delay/reverb param ids round-trip through paramValue/setParamAbsolute" 
     try std.testing.expectApproxEqAbs(@as(f32, 0.7), b.fx_reverb_room, 1e-6);
     try std.testing.expectApproxEqAbs(@as(f32, 0.2), b.fx_reverb_damp, 1e-6);
     try std.testing.expectApproxEqAbs(@as(f32, 0.8), b.fx_reverb_mix, 1e-6);
+}
+
+test "FX tape param ids round-trip through paramValue/setParamAbsolute" {
+    var a = try PolySynth.init(std.testing.allocator, 48_000);
+    defer a.deinit();
+    a.fx_tape_on = true;
+    a.fx_tape_wow_rate_hz = 1.2;
+    a.fx_tape_wow_depth = 0.6;
+    a.fx_tape_flutter_rate_hz = 9.0;
+    a.fx_tape_flutter_depth = 0.4;
+    a.fx_tape_mix = 0.75;
+
+    var b = try PolySynth.init(std.testing.allocator, 48_000);
+    defer b.deinit();
+    var id: u8 = 188;
+    while (id <= 193) : (id += 1) {
+        if (a.paramValue(id)) |v| b.setParamAbsolute(id, v);
+    }
+    try std.testing.expect(b.fx_tape_on);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.2), b.fx_tape_wow_rate_hz, 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.6), b.fx_tape_wow_depth, 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 9.0), b.fx_tape_flutter_rate_hz, 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.4), b.fx_tape_flutter_depth, 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.75), b.fx_tape_mix, 1e-6);
+}
+
+test "adjustParam: tape params nudge and toggle (were silently no-op before the param table)" {
+    var s = try PolySynth.init(std.testing.allocator, 48_000);
+    defer s.deinit();
+    const before_on = s.fx_tape_on;
+    s.adjustParam(188, 1);
+    try std.testing.expect(s.fx_tape_on != before_on);
+    const before_rate = s.fx_tape_wow_rate_hz;
+    s.adjustParam(189, 1);
+    try std.testing.expect(s.fx_tape_wow_rate_hz != before_rate);
+    // Reorder handle 194: tape starts last in the default fx_order.
+    const before_idx = s.fxOrderIndex(.tape);
+    s.adjustParam(194, -1);
+    try std.testing.expect(s.fxOrderIndex(.tape) < before_idx);
+}
+
+test "adjustParam: fx_mb_style picks classic/ott by direction, not a wrap" {
+    var s = try PolySynth.init(std.testing.allocator, 48_000);
+    defer s.deinit();
+    s.fx_mb_style = .ott;
+    s.adjustParam(149, 1); // forward while already .ott: stays .ott
+    try std.testing.expectEqual(MbStyle.ott, s.fx_mb_style);
+    s.adjustParam(149, -1);
+    try std.testing.expectEqual(MbStyle.classic, s.fx_mb_style);
+    s.adjustParam(149, -1); // backward while already .classic: stays .classic
+    try std.testing.expectEqual(MbStyle.classic, s.fx_mb_style);
 }
 
 test "internal FX: delay echoes at the set time with feedback decay" {
