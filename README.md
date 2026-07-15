@@ -1,5 +1,9 @@
 # wstudio
 
+<p align="center">
+  <img src="docs/assets/wstudio-logo.png" alt="wstudio pixel logo" width="320">
+</p>
+
 A keyboard-centric digital audio workstation written in
 [Zig](https://ziglang.org/) (0.16).
 
