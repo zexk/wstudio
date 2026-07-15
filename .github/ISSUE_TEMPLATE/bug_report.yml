@@ -1,0 +1,70 @@
+name: Bug report
+description: Report a reproducible problem in the wstudio beta
+title: "bug: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for testing wstudio. Search existing issues first and remove private audio before attaching files.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Release version or commit hash.
+      placeholder: 1.0.0-beta.1
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: System
+      description: Operating system, terminal, and terminal version.
+      placeholder: Fedora 42, Kitty 0.42
+    validations:
+      required: true
+  - type: textarea
+    id: audio
+    attributes:
+      label: Audio and MIDI setup
+      description: Audio stack, interface, sample rate, and MIDI device when relevant.
+      placeholder: PipeWire through the ALSA default device, Focusrite Scarlett 2i2, 48 kHz
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Give the smallest reliable sequence, including keys or commands.
+      placeholder: |
+        1. Open demo.wsj
+        2. Press space
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include terminal output or a screenshot when useful.
+    validations:
+      required: true
+  - type: textarea
+    id: project
+    attributes:
+      label: Reproduction project
+      description: Attach the smallest safe-to-share .wsj file, if one is needed.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues for this problem.
+          required: true
+        - label: I removed private audio and paths before attaching files.
+          required: true

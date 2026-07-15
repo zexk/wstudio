@@ -1,0 +1,53 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+
+      - name: Install Linux build dependencies
+        run: sudo apt-get update && sudo apt-get install --yes libasound2-dev
+
+      - name: Build Linux release
+        run: zig build -Doptimize=ReleaseSafe
+
+      - name: Package Linux release
+        run: |
+          mkdir -p dist/wstudio-linux-x86_64
+          cp zig-out/bin/wstudio demo.wsj README.md LICENSE dist/wstudio-linux-x86_64/
+          tar -C dist -czf dist/wstudio-linux-x86_64.tar.gz wstudio-linux-x86_64
+
+      - name: Build Windows release
+        run: zig build -Doptimize=ReleaseSafe -Dtarget=x86_64-windows-gnu
+
+      - name: Package Windows release
+        run: |
+          mkdir -p dist/wstudio-windows-x86_64
+          cp zig-out/bin/wstudio.exe demo.wsj README.md LICENSE dist/wstudio-windows-x86_64/
+          cd dist
+          zip -r wstudio-windows-x86_64.zip wstudio-windows-x86_64
+          sha256sum wstudio-linux-x86_64.tar.gz wstudio-windows-x86_64.zip > SHA256SUMS
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            dist/wstudio-linux-x86_64.tar.gz \
+            dist/wstudio-windows-x86_64.zip \
+            dist/SHA256SUMS \
+            --generate-notes \
+            --prerelease \
+            --title "wstudio ${GITHUB_REF_NAME#v}"

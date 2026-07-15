@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and workflow feedback
+    url: https://github.com/zexk/wstudio/discussions
+    about: Ask for help or discuss ideas that are not yet a focused bug or feature request.

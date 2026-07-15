@@ -1,0 +1,34 @@
+name: Feature request
+description: Propose a focused workflow or capability improvement
+title: "feature: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Beta feedback is most useful when it starts with the musical task that is blocked, not only a proposed implementation.
+  - type: textarea
+    id: workflow
+    attributes:
+      label: Blocked workflow
+      description: What are you trying to accomplish, and where does wstudio get in the way?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe the smallest change that would unblock the workflow.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Mention current workarounds or other approaches you tried.
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Screenshots, example projects, or references are welcome.
