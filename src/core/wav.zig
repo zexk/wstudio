@@ -81,6 +81,10 @@ pub fn parseAlloc(
     if (data.len < 12) return error.Truncated;
     if (!std.mem.eql(u8, data[0..4], "RIFF")) return error.NotWav;
     if (!std.mem.eql(u8, data[8..12], "WAVE")) return error.NotWav;
+    const riff_size = std.mem.readInt(u32, data[4..8], .little);
+    if (riff_size < 4) return error.Truncated;
+    const riff_end = 8 + @as(usize, riff_size);
+    if (riff_end > data.len) return error.Truncated;
 
     var pos: usize = 12;
     var fmt_ok = false;
@@ -91,11 +95,11 @@ pub fn parseAlloc(
     var out: ?[]f32 = null;
     errdefer if (out) |s| allocator.free(s);
 
-    while (pos + 8 <= data.len) {
+    while (pos + 8 <= riff_end) {
         const id = data[pos..][0..4];
         const chunk_size = std.mem.readInt(u32, data[pos + 4 ..][0..4], .little);
         pos += 8;
-        if (pos + chunk_size > data.len) return error.Truncated;
+        if (chunk_size > riff_end - pos) return error.Truncated;
         const chunk = data[pos .. pos + chunk_size];
 
         if (std.mem.eql(u8, id, "fmt ")) {
@@ -283,4 +287,14 @@ test "rejects duplicate format chunks" {
     std.mem.writeInt(u32, w.buffered()[4..8], @intCast(w.buffered().len - 8), .little);
 
     try std.testing.expectError(error.BadFmt, parseAlloc(std.testing.allocator, w.buffered()));
+}
+
+test "rejects a RIFF size larger than the available data" {
+    var raw: [128]u8 = undefined;
+    var w = std.Io.Writer.fixed(&raw);
+    try write(&w, 48_000, 1, &.{0.25}, .pcm16);
+
+    const wav = w.buffered();
+    std.mem.writeInt(u32, wav[4..8], std.mem.readInt(u32, wav[4..8], .little) + 1, .little);
+    try std.testing.expectError(error.Truncated, parseAlloc(std.testing.allocator, wav));
 }
