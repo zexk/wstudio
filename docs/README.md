@@ -13,6 +13,8 @@ code keeps a one-line pointer.
   playback share devices, and why arrangement clips own their content.
 - [undo-redo.md](undo-redo.md): snapshot boundaries, swap-based history,
   parameter-nudge coalescing, and the deliberately limited undo scope.
+- [user-config-storage.md](user-config-storage.md): paths, atomic JSON writes,
+  corrupt-file quarantine, and the boundary between drum tuning and audio.
 - [ui-conventions.md](ui-conventions.md): TUI layout and chrome
   conventions (row budget, status row, prompt row, frame bracketing,
   icon fallback) plus the design decisions behind them.

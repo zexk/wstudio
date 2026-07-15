@@ -1,12 +1,5 @@
-//! User-saved drum kits: pad *tuning* (name/gain/pan/pitch/ADSR/choke-group,
-//! `dsp.DrumMachine.PadTune`) persisted to `~/.config/wstudio/drum_kits.json`,
-//! same tmp+rename atomic write + quarantine-on-corrupt convention
-//! `user_presets.zig` established. Unlike a synth preset (a self-sufficient
-//! patch) or a factory drum kit (`dsp/drum_kit.zig`, which also carries the
-//! procedural audio), a saved kit here carries NO audio - it's a reusable
-//! mixing/ADSR/choke template layered onto whatever sample each pad already
-//! holds. Loaded once at `App.init`, the whole set rewritten on every
-//! `:drum-kit-save`.
+//! User-saved `DrumMachine.PadTune` collections. These contain no audio.
+//! See docs/user-config-storage.md for storage and content boundaries.
 
 const std = @import("std");
 const ws = @import("wstudio");

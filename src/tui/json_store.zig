@@ -1,10 +1,5 @@
-//! Shared load/save primitives for the small `~/.config/wstudio/*.json`
-//! files (bookmarks, cmd history, user presets, user drum kits): resolving
-//! the path, quarantining a file that exists but fails to parse (so a later
-//! save can't clobber it with an empty list), and the atomic tmp+rename
-//! write. Each caller keeps its own `FileSnapshot` wrapper type and the
-//! per-entry dupe/free logic, since those genuinely differ (a plain string
-//! vs. a struct with nested owned fields).
+//! Shared load/save primitives for small user-configuration JSON files.
+//! See docs/user-config-storage.md for the storage conventions.
 
 const std = @import("std");
 

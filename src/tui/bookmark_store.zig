@@ -1,7 +1,5 @@
-//! Persisted file-browser bookmarks: `~/.config/wstudio/bookmarks.json`, same
-//! JSON + tmp-rename convention as cmd_history_store.zig. Loaded once at
-//! App.init, the whole list rewritten every time `App.bookmarks` changes
-//! (toggleBookmark add/remove, `d` in the bookmark list).
+//! Persisted file-browser bookmarks.
+//! See docs/user-config-storage.md for paths and write conventions.
 
 const std = @import("std");
 const json_store = @import("json_store.zig");

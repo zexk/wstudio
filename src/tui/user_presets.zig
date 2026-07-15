@@ -1,9 +1,5 @@
-//! User-saved synth presets: a hand-tuned `PolySynth.Patch` persisted to
-//! `~/.config/wstudio/synth_presets.json` (same std.json.Stringify/
-//! parseFromSlice convention persist.zig uses for the project file, and the
-//! same tmp+rename atomic write). Loaded once at `App.init`, the whole set
-//! rewritten on every `:synth-preset-save`. Complements the factory presets
-//! in `dsp/synth_presets.zig`, which are compiled-in and read-only.
+//! User-saved `PolySynth.Patch` values, separate from factory presets.
+//! See docs/user-config-storage.md for paths and write conventions.
 
 const std = @import("std");
 const ws = @import("wstudio");

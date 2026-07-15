@@ -1,8 +1,5 @@
-//! Persisted `:` command history: `~/.config/wstudio/cmd_history.json`, same
-//! JSON + tmp-rename convention user_presets.zig uses. Loaded once at
-//! App.init, the whole list rewritten every time a new entry lands in
-//! `App.cmd_history` (see `App.pushCommandHistory`) - cheap at the
-//! `cmd_history_cap`=50 cap.
+//! Persisted `:` command history, bounded by `cmd_history_cap`.
+//! See docs/user-config-storage.md for paths and write conventions.
 
 const std = @import("std");
 const json_store = @import("json_store.zig");
