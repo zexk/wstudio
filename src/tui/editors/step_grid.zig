@@ -69,14 +69,14 @@ pub fn operatorBarBackward(cursor: *u8, n: i32, step_count: u8) void {
 /// gutter or past the last visible step. Replays the exact column math the
 /// views' render loop uses (starting from `scroll`, a 1-char "│" every 4
 /// steps, then a 3-char cell) rather than deriving a closed form.
-pub fn stepAt(gutter: usize, scroll: u32, step_count: u8, x: usize) ?u8 {
+pub fn stepAt(gutter: usize, cell_width: usize, scroll: u32, step_count: u8, x: usize) ?u8 {
     if (x < gutter) return null;
     var col = gutter;
     var s: u32 = scroll;
     while (s < step_count) : (s += 1) {
         if (s % 4 == 0) col += 1;
-        if (x < col + 3) return if (x < col) null else @intCast(s); // `x < col`: landed on the separator itself
-        col += 3;
+        if (x < col + cell_width) return if (x < col) null else @intCast(s); // `x < col`: landed on the separator itself
+        col += cell_width;
     }
     return null;
 }

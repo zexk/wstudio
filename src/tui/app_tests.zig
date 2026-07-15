@@ -670,6 +670,20 @@ test "drum grid step toggle" {
     try std.testing.expect(!app.drumMachine().stepActive(0, 0));
 }
 
+test "z and Z zoom drum grid cells in and out" {
+    var app = try testApp();
+    defer app.deinit();
+    app.drum_track = 2;
+
+    try std.testing.expectEqual(@as(usize, 3), app.drumCellWidth());
+    _ = drum_ed.handleKey(&app, .{ .char = 'Z' });
+    try std.testing.expectEqual(@as(usize, 1), app.drumCellWidth());
+    _ = drum_ed.handleKey(&app, .{ .char = 'z' });
+    try std.testing.expectEqual(@as(usize, 3), app.drumCellWidth());
+    _ = drum_ed.handleKey(&app, .{ .char = 'z' });
+    try std.testing.expectEqual(@as(usize, 5), app.drumCellWidth());
+}
+
 test "drum grid g jumps the step cursor to the pattern start" {
     var app = try testApp();
     defer app.deinit();
@@ -1021,7 +1035,7 @@ test "T toggles the piano roll grid between straight and triplet" {
     try std.testing.expectApproxEqAbs(@as(f64, 0.25), app.piano_note_len, 1e-9);
 }
 
-test "Z toggles piano roll zoom and compacts the rendered grid" {
+test "z and Z zoom piano roll cells in and out" {
     var app = try testApp();
     defer app.deinit();
     app.view = .piano_roll;
@@ -1034,7 +1048,7 @@ test "Z toggles piano roll zoom and compacts the rendered grid" {
     var buf: [32 * 1024]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
     try app.draw(&w, .{ .cols = 80, .rows = 24 });
-    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "zoom") == null);
+    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "compact") == null);
 
     _ = piano_ed.handleKey(&app, .{ .char = 'Z' });
     try std.testing.expectEqual(@as(usize, 1), app.pianoCellWidth());
@@ -1043,10 +1057,14 @@ test "Z toggles piano roll zoom and compacts the rendered grid" {
     try app.draw(&w, .{ .cols = 80, .rows = 24 });
     const frame = w.buffered();
     try std.testing.expect(std.mem.indexOf(u8, frame, "PIANO ROLL") != null);
-    try std.testing.expect(std.mem.indexOf(u8, frame, "zoom") != null);
+    try std.testing.expect(std.mem.indexOf(u8, frame, "compact") != null);
 
-    _ = piano_ed.handleKey(&app, .{ .char = 'Z' });
+    _ = piano_ed.handleKey(&app, .{ .char = 'z' });
     try std.testing.expectEqual(@as(usize, 3), app.pianoCellWidth());
+    _ = piano_ed.handleKey(&app, .{ .char = 'z' });
+    try std.testing.expectEqual(@as(usize, 5), app.pianoCellWidth());
+    _ = piano_ed.handleKey(&app, .{ .char = 'z' });
+    try std.testing.expectEqual(@as(usize, 5), app.pianoCellWidth());
 }
 
 test "piano roll flags an unlinked scratch pattern in song mode, not pattern mode" {
@@ -1110,7 +1128,7 @@ test "view switches nudge song mode while stopped, never while playing" {
     try std.testing.expect(app.session.song_mode);
 }
 
-test "Z toggles arrangement zoom and compacts the rendered timeline" {
+test "z and Z zoom arrangement cells in and out" {
     var app = try testApp();
     defer app.deinit();
     app.view = .arrangement;
@@ -1120,7 +1138,7 @@ test "Z toggles arrangement zoom and compacts the rendered timeline" {
     var buf: [32 * 1024]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
     try app.draw(&w, .{ .cols = 80, .rows = 24 });
-    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "zoom") == null);
+    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "compact") == null);
 
     app.handleKey(.{ .char = 'Z' }, 0);
     try std.testing.expectEqual(@as(usize, 2), app.arrCellWidth());
@@ -1129,10 +1147,14 @@ test "Z toggles arrangement zoom and compacts the rendered timeline" {
     try app.draw(&w, .{ .cols = 80, .rows = 24 });
     const frame = w.buffered();
     try std.testing.expect(std.mem.indexOf(u8, frame, "ARRANGEMENT") != null);
-    try std.testing.expect(std.mem.indexOf(u8, frame, "zoom") != null);
+    try std.testing.expect(std.mem.indexOf(u8, frame, "compact") != null);
 
-    app.handleKey(.{ .char = 'Z' }, 0);
+    app.handleKey(.{ .char = 'z' }, 0);
     try std.testing.expectEqual(@as(usize, 4), app.arrCellWidth());
+    app.handleKey(.{ .char = 'z' }, 0);
+    try std.testing.expectEqual(@as(usize, 6), app.arrCellWidth());
+    app.handleKey(.{ .char = 'z' }, 0);
+    try std.testing.expectEqual(@as(usize, 6), app.arrCellWidth());
 }
 
 test "automation editor: nudge, `.` repeat, and visual range yank/delete/paste" {

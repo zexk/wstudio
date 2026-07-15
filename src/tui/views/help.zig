@@ -183,6 +183,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("J / K",        "jump a whole bank of 8 pads (64 pads total, paged 8 at a time)");
     t.key("g / G",        "jump step cursor to pattern start / end");
     t.key("w / b",        "jump to the next / previous beat boundary");
+    t.key("z / Z",        "zoom grid cells in / out (expanded, normal, compact)");
     t.key("enter",        "toggle step on/off");
     t.key("x",            "clear the step at cursor");
     t.key("c",            "cycle step velocity presets (127/95/63/31)");
@@ -303,7 +304,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key(".",            "repeat the last nudge, drag, or visual range delete/paste");
     t.key("c / C",        "stamp a triad / 7th chord at cursor (:scale-aware)");
     t.key("T",            "toggle grid: straight 1/16 <-> 1/16 triplet");
-    t.key("Z",            "toggle zoom: normal <-> compact (see more of a long pattern)");
+    t.key("z / Z",        "zoom grid cells in / out (expanded, normal, compact)");
     t.key(":clear",       "erase all notes in the pattern");
     t.key(":scale",       "[<root> [<type>]|off]  scale highlight + chord-stamp key");
 
@@ -328,7 +329,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("T",            "toggle song / pattern mode (manual override; view switches while the");
     t.key("",             "  transport is stopped set it for you: arrangement = song, opening a");
     t.key("",             "  pattern editor from tracks = pattern; playback is never interrupted)");
-    t.key("Z",            "toggle zoom: normal <-> compact (see more of a long song)");
+    t.key("z / Z",        "zoom grid cells in / out (expanded, normal, compact)");
     t.key("a",            "open gain/pan automation editor for the clip at cursor");
     t.key("/",            "fuzzy-search lane (track) names, n / N repeat forward / backward");
     t.key("tab",          "back to the tracks view");

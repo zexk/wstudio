@@ -153,8 +153,8 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
     if (app.piano_grid == .triplet) {
         try w.writeAll("  " ++ yel ++ "triplet" ++ rst);
     }
-    if (app.piano_zoom == .compact) {
-        try w.writeAll("  " ++ bcyn ++ "zoom" ++ rst);
+    if (app.piano_zoom != .normal) {
+        try w.print("  " ++ bcyn ++ "{s}" ++ rst, .{@tagName(app.piano_zoom)});
     }
     if (app.piano_ghost) {
         try w.writeAll("  " ++ dim ++ "ghost" ++ rst);
@@ -169,7 +169,7 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
 
     // Show the full loop (+ end-marker column) up to what fits on screen.
     // Prefix = 6 chars (" C4  │"), each step cell is `cw` chars (App.pianoCellWidth,
-    // toggled by `Z`: 3 normal, 1 compact).
+    // selected with `z`/`Z`: 1 compact, 3 normal, 5 expanded).
     const cw: usize = app.pianoCellWidth();
     const loop_step: u16 = @intFromFloat(pp.length_beats * spbf);
     const max_step_cols: usize = (cols -| 6) / cw;
@@ -202,7 +202,8 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
             try w.print("·{d:>2}", .{(step + 1) / spb + 1});
             try w.writeAll(rst);
         } else {
-            try w.writeAll(dim ++ "·  " ++ rst);
+            try w.writeAll(dim ++ "·" ++ rst);
+            try w.splatByteAll(' ', cw - 1);
         }
     }
     try endLine(w);
@@ -365,7 +366,7 @@ pub fn drawPianoRollStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Write
 
     // zig fmt: off
     try style.writeModeBadge(w, app.modal.mode);
-    if (app.piano_zoom == .compact) try right.writeAll(bcyn ++ "zoom" ++ rst ++ "  ");
+    if (app.piano_zoom != .normal) try right.print(bcyn ++ "{s}" ++ rst ++ "  ", .{@tagName(app.piano_zoom)});
     try style.writeViewBadge(right, "PIANO", app.modal.mode);
     try w.writeAll(dim ++ "  " ++ rst);
     try w.print("{s}", .{label});

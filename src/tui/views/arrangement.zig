@@ -29,7 +29,7 @@ const endLine = style.endLine;
 pub const gutter: usize = 13;
 
 /// Bars that fit in the timeline area for a terminal `cols` wide, at cell
-/// width `cw` (`App.arrCellWidth()` — 4 normal, 2 compact).
+/// width `cw` from `App.arrCellWidth()`.
 pub fn visibleBars(cols: usize, cw: usize) usize {
     if (cols <= gutter + cw) return 1;
     return (cols - gutter) / cw;
@@ -69,7 +69,7 @@ pub fn drawArrangement(
     const mode_tag: []const u8 = if (app.session.song_mode) grn ++ "SONG" ++ rst else dim ++ "PATTERN" ++ rst;
     try w.writeAll(bold ++ " " ++ icons.arrangement ++ " ARRANGEMENT" ++ rst ++ "  ");
     try w.writeAll(mode_tag);
-    if (app.arr_zoom == .compact) try w.writeAll("  " ++ bcyn ++ "zoom" ++ rst);
+    if (app.arr_zoom != .normal) try w.print("  " ++ bcyn ++ "{s}" ++ rst, .{@tagName(app.arr_zoom)});
     try endLine(w);
 
     // Bar ruler. Bars inside an armed loop region wear the accent colour.
@@ -87,10 +87,12 @@ pub fn drawArrangement(
             try w.writeAll(if (in_loop) yel ++ "·" ++ rst else " ");
         } else if (downbeat) {
             try w.print("{s}{d: <3}{s}", .{ if (in_loop) yel else dim, bar + 1, rst });
+            try w.splatByteAll(' ', cw - 4);
         } else if (in_loop) {
             try w.writeAll(yel ++ "···" ++ rst);
+            try w.splatByteAll(' ', cw - 4);
         } else {
-            try w.writeAll("   ");
+            try w.splatByteAll(' ', cw - 1);
         }
     }
     try endLine(w);
@@ -176,6 +178,11 @@ pub fn drawArrangement(
             } else {
                 try w.writeAll(if (is_start) "▌██" else "███");
             }
+            if (cw > 4) {
+                if (covered) {
+                    for (0..cw - 4) |_| try w.writeAll("█");
+                } else try w.splatByteAll(' ', cw - 4);
+            }
             if (is_cursor or is_play or covered or in_sel) try w.writeAll(rst);
         }
         try endLine(w);
@@ -194,7 +201,7 @@ pub fn drawArrangementStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Wri
     // rather than folding into the mode badge, keeping both pieces of info
     // the old single combined badge carried.
     try style.writeModeBadge(w, app.modal.mode);
-    if (app.arr_zoom == .compact) try right.writeAll(bcyn ++ "zoom" ++ rst ++ "  ");
+    if (app.arr_zoom != .normal) try right.print(bcyn ++ "{s}" ++ rst ++ "  ", .{@tagName(app.arr_zoom)});
     if (app.session.song_mode) {
         try style.writeViewBadgeColored(right, "SONG", .green);
     } else {

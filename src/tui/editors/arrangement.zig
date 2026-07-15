@@ -125,7 +125,8 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 app.setStatus("{s} mode", .{if (app.session.song_mode) "song" else "pattern"});
                 return true;
             },
-            'Z' => { toggleZoom(app); return true; },
+            'z' => { zoom(app, 1); return true; },
+            'Z' => { zoom(app, -1); return true; },
             // zig fmt: on
             else => return false,
         },
@@ -359,12 +360,16 @@ fn moveBar(app: *App, delta: i64) void {
     app.arr_cursor_bar = @intCast(@max(@as(i64, 0), nb));
 }
 
-/// `Z`: toggle horizontal zoom between normal (4 cols/bar) and compact
-/// (2 cols/bar) — see `App.arr_zoom`. Purely a render/scroll setting, like
-/// the piano roll's `toggleZoom`: no bar indices move.
-fn toggleZoom(app: *App) void {
-    app.arr_zoom = if (app.arr_zoom == .normal) .compact else .normal;
-    app.setStatus("zoom: {s}", .{if (app.arr_zoom == .compact) "compact" else "normal"});
+/// `z`/`Z`: enlarge/compact horizontal cells without moving bar indices.
+fn zoom(app: *App, delta: i8) void {
+    app.arr_zoom = if (delta > 0) switch (app.arr_zoom) {
+        .compact => .normal,
+        .normal, .expanded => .expanded,
+    } else switch (app.arr_zoom) {
+        .expanded => .normal,
+        .normal, .compact => .compact,
+    };
+    app.setStatus("zoom: {s}", .{@tagName(app.arr_zoom)});
 }
 
 /// Move the lane cursor by `delta`, clamped to the track list.
@@ -603,7 +608,7 @@ fn deleteClip(app: *App) void {
 
 /// Bar at column `x`, or null if `x` falls in the lane-name gutter. Mirrors
 /// views/arrangement.zig's `gutter`/`App.arrCellWidth()` — each bar column
-/// is a 1-char separator + content cell (3 chars normal, 1 compact).
+/// is a 1-char separator plus the current-width content cell.
 fn barAt(scroll_bar: u32, x: usize, cw: usize) ?u32 {
     if (x < view.gutter) return null;
     const col: u32 = @intCast((x - view.gutter) / cw);

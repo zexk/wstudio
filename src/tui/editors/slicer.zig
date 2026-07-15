@@ -461,7 +461,7 @@ fn repeatLastEdit(app: *App) void {
 
 /// Step index at column `x` within a slice row — see step_grid.stepAt.
 fn stepAt(scroll: u32, step_count: u8, x: usize) ?u8 {
-    return step_grid.stepAt(slicer_view.gutter, scroll, step_count, x);
+    return step_grid.stepAt(slicer_view.gutter, 3, scroll, step_count, x);
 }
 
 /// Click a step cell to toggle it; drag to paint. Click inside the

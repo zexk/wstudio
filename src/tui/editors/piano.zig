@@ -266,7 +266,8 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             'u' => { history.doUndo(app); return true; },
             'U' => { history.doRedo(app); return true; },
             'T' => { toggleGrid(app); return true; },
-            'Z' => { toggleZoom(app); return true; },
+            'z' => { zoom(app, 1); return true; },
+            'Z' => { zoom(app, -1); return true; },
             else => return false,
         },
         else => return false,
@@ -380,13 +381,17 @@ fn toggleGrid(app: *App) void {
     app.setStatus("grid: {s}", .{if (app.piano_grid == .triplet) "triplet (6/beat)" else "straight (4/beat)"});
 }
 
-/// `Z`: toggle horizontal zoom between normal (3 chars/step) and compact
-/// (1 char/step, no note-head/tail distinction) — see `App.piano_zoom`.
-/// Purely a render/scroll setting, like `toggleGrid`: no step indices move.
-fn toggleZoom(app: *App) void {
-    app.piano_zoom = if (app.piano_zoom == .normal) .compact else .normal;
+/// `z`/`Z`: enlarge/compact horizontal cells without moving step indices.
+fn zoom(app: *App, delta: i8) void {
+    app.piano_zoom = if (delta > 0) switch (app.piano_zoom) {
+        .compact => .normal,
+        .normal, .expanded => .expanded,
+    } else switch (app.piano_zoom) {
+        .expanded => .normal,
+        .normal, .compact => .compact,
+    };
     ensureVisible(app);
-    app.setStatus("zoom: {s}", .{if (app.piano_zoom == .compact) "compact" else "normal"});
+    app.setStatus("zoom: {s}", .{@tagName(app.piano_zoom)});
 }
 
 // zig fmt: off
@@ -394,7 +399,7 @@ fn ensureVisible(app: *App) void {
     // Compact packs 3x the steps into the same screen width, so widen the
     // autoscroll window to match (both are rough approximations, independent
     // of the real terminal width like the pre-existing `16` was).
-    const vis_cols: u16 = if (app.piano_zoom == .compact) 48 else 16;
+    const vis_cols: u16 = switch (app.piano_zoom) { .compact => 48, .normal => 16, .expanded => 10 };
     const vis_rows: u8  = 16;
     // horizontal
     if (app.piano_cursor_step < app.piano_scroll_step) {

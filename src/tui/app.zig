@@ -62,6 +62,7 @@ const autosave_interval_ns: i96 = 30 * std.time.ns_per_s;
 pub const default_project_path = "project.wsj";
 
 pub const AppView = enum { tracks, drum_grid, synth_editor, sampler_editor, help, track_spectrum, master_spectrum, group_spectrum, piano_roll, instrument_picker, fx_picker, synth_fx_picker, arrangement, file_browser, automation, automation_param_picker, slicer_grid, preset_picker };
+pub const GridZoom = enum { compact, normal, expanded };
 
 /// One tracks-view display row: a real track, or a group's own row (its
 /// header when unfolded, the whole group when folded). The pinned master row
@@ -244,6 +245,7 @@ pub const App = struct {
     /// (drawDrumGrid updates it; step_count can exceed a terminal's width
     /// at max_steps = 64).
     drum_step_scroll: u32 = 0,
+    drum_zoom: GridZoom = .normal,
     /// Track currently shown in the drum_grid view (a drum_machine rack).
     drum_track: u16 = 0,
     /// [slice, step] cursor for the slicer_grid view — same shape as
@@ -350,11 +352,10 @@ pub const App = struct {
     /// sixteenth-note triplets (6 steps/beat), toggled by `T`. Global, not
     /// persisted — a display/editing aid like `piano_scale`.
     piano_grid: enum { straight, triplet } = .straight,
-    /// Piano-roll horizontal zoom, toggled by `Z`: `normal` is the original
-    /// 3-char-per-step layout, `compact` packs 1 char/step so long patterns
-    /// fit on screen without scrolling. Global, not persisted — same bucket
+    /// Piano-roll horizontal zoom: `z` enlarges cells and `Z` compacts them.
+    /// Global and not persisted, in the same bucket
     /// as `piano_grid`/`piano_scale`.
-    piano_zoom: enum { normal, compact } = .normal,
+    piano_zoom: GridZoom = .normal,
     /// True while `M` holds the piano-roll note under the cursor — h/l/j/k
     /// then drag the note instead of the cursor; esc/M (or any other key)
     /// drop it. See editors/piano.zig.
@@ -368,11 +369,9 @@ pub const App = struct {
     /// `App.track_scroll` in the tracks view — no pinned row here, since
     /// arrangement lanes have no master-bus equivalent).
     arr_scroll_lane: usize = 0,
-    /// Arrangement horizontal zoom, toggled by `Z`: `normal` is the original
-    /// 4-col-per-bar layout (1-char separator + 3-char content), `compact`
-    /// packs 2 cols/bar so long songs fit on screen without scrolling.
+    /// Arrangement horizontal zoom: `z` enlarges cells and `Z` compacts them.
     /// Mirrors `App.piano_zoom`. Not persisted — a display aid.
-    arr_zoom: enum { normal, compact } = .normal,
+    arr_zoom: GridZoom = .normal,
     /// Pattern clipboards (y yank / P paste), app-wide so patterns can move
     /// between tracks. Whole-pattern granularity; one slot per editor kind.
     piano_clip: ?PianoClip = null,
@@ -675,19 +674,33 @@ pub const App = struct {
         return if (self.piano_grid == .triplet) 6 else 4;
     }
 
-    /// Terminal columns per step under the current zoom — 3 (normal) or
-    /// 1 (compact, `Z`). Every column-width computation in editors/piano.zig
+    /// Terminal columns per step under the current zoom: 1, 3, or 5.
     /// and views/piano.zig goes through this.
     pub fn pianoCellWidth(self: *const App) usize {
-        return if (self.piano_zoom == .compact) 1 else 3;
+        return switch (self.piano_zoom) {
+            .compact => 1,
+            .normal => 3,
+            .expanded => 5,
+        };
     }
 
-    /// Terminal columns per bar under the current zoom — 4 (normal, 1-char
-    /// separator + 3-char content) or 2 (compact, `Z`: separator + 1-char
-    /// content). Every column-width computation in editors/arrangement.zig
+    pub fn drumCellWidth(self: *const App) usize {
+        return switch (self.drum_zoom) {
+            .compact => 1,
+            .normal => 3,
+            .expanded => 5,
+        };
+    }
+
+    /// Terminal columns per bar under the current zoom: 2, 4, or 6.
+    /// Every column-width computation in editors/arrangement.zig
     /// and views/arrangement.zig goes through this.
     pub fn arrCellWidth(self: *const App) usize {
-        return if (self.arr_zoom == .compact) 2 else 4;
+        return switch (self.arr_zoom) {
+            .compact => 2,
+            .normal => 4,
+            .expanded => 6,
+        };
     }
 
     pub fn handleKey(self: *App, key_in: modal_mod.Key, now_ns: i96) void {
