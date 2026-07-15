@@ -244,13 +244,13 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
             continue;
         }
         const pitch: u7 = @intCast(pitch_i);
-        const black = isBlackKey(pitch);
         const is_cur_row = (pitch == app.piano_cursor_pitch);
-        // Out-of-scale rows are dimmed like a black key so the eye can find
-        // the current scale/mode at a glance; off (no `:scale` set) dims
-        // nothing, matching the pre-scale-highlighting look.
-        const in_scale = if (app.piano_scale) |s| s.contains(pitch) else true;
-        const row_dim = black or !in_scale;
+        // With a scale active, dimming means "out of scale" only - a black
+        // key that IS a scale tone (e.g. Ab in F minor) must read the same
+        // as a white-key scale tone, or the highlight can't show scales that
+        // lean on black keys (most non-C-major ones). Off, fall back to the
+        // pre-scale-highlighting look: black keys dimmed, everything else lit.
+        const row_dim = if (app.piano_scale) |s| !s.contains(pitch) else isBlackKey(pitch);
 
         var lbuf: [5]u8 = undefined;
         const label = pitchLabel(@intCast(pitch), &lbuf);
