@@ -185,13 +185,20 @@ pub const ModalInput = struct {
                 if (self.mode == .visual) return self.setMode(.normal);
                 return .none;
             },
-            .home => return .goto_start,
-            .end => return .goto_end,
+            .home => {
+                self.count = 0;
+                return .goto_start;
+            },
+            .end => {
+                self.count = 0;
+                return .goto_end;
+            },
             else => return .none,
         };
 
         if (self.pending) |p| {
             self.pending = null;
+            self.count = 0;
             if (p == 'g' and c == 'g') return .goto_start;
             return .none;
         }
@@ -213,7 +220,10 @@ pub const ModalInput = struct {
                 self.pending = 'g';
                 return .none;
             },
-            'G' => return .goto_end,
+            'G' => {
+                self.count = 0;
+                return .goto_end;
+            },
             'i' => return self.setMode(.insert),
             ':' => {
                 self.cmd_len = 0;
@@ -225,12 +235,24 @@ pub const ModalInput = struct {
                 self.cmd_cursor = 0;
                 return self.setMode(.search);
             },
-            ' ' => return .toggle_play,
-            'm' => return .toggle_mute,
-            'S' => return .toggle_solo,
+            ' ' => {
+                self.count = 0;
+                return .toggle_play;
+            },
+            'm' => {
+                self.count = 0;
+                return .toggle_mute;
+            },
+            'S' => {
+                self.count = 0;
+                return .toggle_solo;
+            },
             '[' => return .{ .volume_delta = -self.takeCount() },
             ']' => return .{ .volume_delta = self.takeCount() },
-            else => return .none,
+            else => {
+                self.count = 0;
+                return .none;
+            },
         }
     }
 
@@ -467,4 +489,21 @@ test "normal mode count saturates without overflowing" {
         input.handle(.{ .char = 'l' }),
     );
     try std.testing.expectEqual(@as(u32, 0), input.count);
+}
+
+test "count expires after a non-motion command" {
+    var input: ModalInput = .{};
+    try std.testing.expectEqual(Action.toggle_mute, press(&input, "2m"));
+    try std.testing.expectEqual(Action{ .move = .{ .dy = 1 } }, press(&input, "j"));
+
+    _ = press(&input, "3g");
+    try std.testing.expectEqual(Action.goto_start, press(&input, "g"));
+    try std.testing.expectEqual(Action{ .move = .{ .dy = 1 } }, press(&input, "j"));
+}
+
+test "count expires after an invalid pending sequence" {
+    var input: ModalInput = .{};
+    _ = press(&input, "4g");
+    try std.testing.expectEqual(Action.none, press(&input, "x"));
+    try std.testing.expectEqual(Action{ .move = .{ .dy = 1 } }, press(&input, "j"));
 }
