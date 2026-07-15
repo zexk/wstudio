@@ -35,6 +35,19 @@ fn wrap(comptime f: fn (*App, []const u8) void) *const fn (*anyopaque, []const u
 /// Big enough for any real filesystem path; see `expandHome`.
 const path_buf_len: usize = 1024;
 
+fn parseFiniteFloat(comptime T: type, text: []const u8) !T {
+    const value = try std.fmt.parseFloat(T, text);
+    if (!std.math.isFinite(value)) return error.InvalidCharacter;
+    return value;
+}
+
+test "parseFiniteFloat rejects non-finite values" {
+    try std.testing.expectApproxEqAbs(@as(f32, -1.25), try parseFiniteFloat(f32, "-1.25"), 1e-6);
+    try std.testing.expectError(error.InvalidCharacter, parseFiniteFloat(f32, "nan"));
+    try std.testing.expectError(error.InvalidCharacter, parseFiniteFloat(f64, "inf"));
+    try std.testing.expectError(error.InvalidCharacter, parseFiniteFloat(f64, "-inf"));
+}
+
 /// Expand a leading `~` - the shell does this for CLI args, but paths typed
 /// into the `:` prompt never pass through a shell. Handles bare `~` and
 /// `~/rest`; `~otheruser` is left alone (not worth the /etc/passwd lookup for
@@ -229,7 +242,7 @@ fn cmdHumanize(app: *App, args: []const u8) void {
         return;
     }
     const trimmed = std.mem.trim(u8, args, " ");
-    const amount: f64 = if (trimmed.len == 0) 15.0 else std.fmt.parseFloat(f64, trimmed) catch {
+    const amount: f64 = if (trimmed.len == 0) 15.0 else parseFiniteFloat(f64, trimmed) catch {
         app.setStatus("humanize: expected a percent, e.g. :humanize 15", .{});
         return;
     };
@@ -266,7 +279,7 @@ fn cmdSwing(app: *App, args: []const u8) void {
         app.setStatus("swing: {d:.0}%", .{pp.swing.load(.monotonic)});
         return;
     }
-    const pct = std.fmt.parseFloat(f32, trimmed) catch {
+    const pct = parseFiniteFloat(f32, trimmed) catch {
         app.setStatus("swing: expected a percent, e.g. :swing 62", .{});
         return;
     };
@@ -517,7 +530,7 @@ fn cmdGroupGain(app: *App, args: []const u8) void {
         app.setStatus("group {d} gain: {d:.1}dB", .{ idx + 1, app.session.groups[idx].?.gain_db });
         return;
     }
-    const db = std.fmt.parseFloat(f32, db_str) catch {
+    const db = parseFiniteFloat(f32, db_str) catch {
         app.setStatus("group-gain: expected a dB value, e.g. :group-gain 1 -6", .{});
         return;
     };
@@ -1461,7 +1474,7 @@ fn cmdBpm(app: *App, args: []const u8) void {
         app.setStatus("bpm: {d:.1}", .{app.session.project.tempo_bpm});
         return;
     }
-    const bpm = std.fmt.parseFloat(f64, trimmed) catch {
+    const bpm = parseFiniteFloat(f64, trimmed) catch {
         app.setStatus("bpm: expected a number, e.g. :bpm 140", .{});
         return;
     };
@@ -1495,6 +1508,10 @@ fn cmdSig(app: *App, args: []const u8) void {
             app.setStatus("sig: only /4 signatures are supported", .{});
             return;
         }
+        if (it.next() != null) {
+            app.setStatus("sig: expected beats per bar, e.g. :sig 3/4", .{});
+            return;
+        }
     }
     if (n < 1 or n > 16) {
         app.setStatus("sig: beats per bar must be 1–16", .{});
@@ -1511,7 +1528,7 @@ fn cmdSig(app: *App, args: []const u8) void {
 }
 
 fn cmdGain(app: *App, args: []const u8) void {
-    var it = std.mem.splitScalar(u8, args, ' ');
+    var it = std.mem.splitScalar(u8, std.mem.trim(u8, args, " "), ' ');
     const track_str = it.next() orelse "";
     // No leading arg at all: fall back to the cursor track, same
     // convenience :track-del's cursor fallback already established.
@@ -1538,7 +1555,7 @@ fn cmdGain(app: *App, args: []const u8) void {
         app.setStatus("track {d} gain: {d:.1}dB", .{ track_1, track.gain_db });
         return;
     }
-    const db = std.fmt.parseFloat(f32, db_str) catch {
+    const db = parseFiniteFloat(f32, db_str) catch {
         app.setStatus("gain: expected a dB value, e.g. :gain 2 -6", .{});
         return;
     };
@@ -1582,7 +1599,7 @@ fn cmdPan(app: *App, args: []const u8) void {
         else app.setStatus("track {d} pan: R{d}%", .{ track_1, pct });
         return;
     }
-    const val = std.fmt.parseFloat(f32, val_str) catch {
+    const val = parseFiniteFloat(f32, val_str) catch {
         app.setStatus("pan: expected a value between -1.0 and 1.0", .{});
         return;
     };
@@ -1610,7 +1627,11 @@ fn cmdSeek(app: *App, args: []const u8) void {
     const bpm = @max(app.session.project.tempo_bpm, 1.0);
     const beats_per_bar: f64 = @floatFromInt(app.session.project.beats_per_bar);
     const frames_per_bar: u64 = @intFromFloat(sr * 60.0 / bpm * beats_per_bar);
-    _ = app.session.engine.send(.{ .seek_frames = (bar_1 - 1) * frames_per_bar });
+    const frames = std.math.mul(u64, bar_1 - 1, frames_per_bar) catch {
+        app.setStatus("seek: bar number is too large", .{});
+        return;
+    };
+    _ = app.session.engine.send(.{ .seek_frames = frames });
     app.setStatus("seek → bar {d}", .{bar_1});
 }
 
@@ -1621,7 +1642,7 @@ fn cmdVol(app: *App, args: []const u8) void {
         app.setStatus("master vol: {s}{d:.1}dB  ([ / ] to adjust)", .{ sign, app.master_gain_db });
         return;
     }
-    const db = std.fmt.parseFloat(f32, trimmed) catch {
+    const db = parseFiniteFloat(f32, trimmed) catch {
         app.setStatus("vol: expected a dB value, e.g. :vol -6", .{});
         return;
     };

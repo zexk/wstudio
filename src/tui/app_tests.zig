@@ -1888,6 +1888,33 @@ test "arrangement g plays from the cursor bar" {
     try std.testing.expectEqual(@as(u64, 192_256), app.session.engine.transport.position_frames);
 }
 
+test "commands reject non-finite numbers, malformed signatures, and overflowing seeks" {
+    var app = try testApp();
+    defer app.deinit();
+
+    const tempo = app.session.project.tempo_bpm;
+    commands.run(&app, "bpm nan");
+    try std.testing.expectEqual(tempo, app.session.project.tempo_bpm);
+
+    const gain = app.session.project.tracks.items[0].gain_db;
+    commands.run(&app, "gain 1 inf");
+    try std.testing.expectEqual(gain, app.session.project.tracks.items[0].gain_db);
+
+    const pan = app.session.project.tracks.items[0].pan;
+    commands.run(&app, "pan 1 nan");
+    try std.testing.expectEqual(pan, app.session.project.tracks.items[0].pan);
+
+    const signature = app.session.project.beats_per_bar;
+    commands.run(&app, "sig 3/4/4");
+    try std.testing.expectEqual(signature, app.session.project.beats_per_bar);
+
+    commands.run(&app, "seek 18446744073709551615");
+    try std.testing.expect(std.mem.indexOf(u8, app.status_buf[0..app.status_len], "too large") != null);
+
+    commands.run(&app, "gain   1 -6");
+    try std.testing.expectApproxEqAbs(@as(f32, -6.0), app.session.project.tracks.items[0].gain_db, 1e-6);
+}
+
 test "arrangement 0: jumps to bar 0 with no pending count, but continues a count otherwise (10l)" {
     var app = try testApp();
     defer app.deinit();
