@@ -75,17 +75,7 @@ pub const Parser = struct {
             i = 1;
 
             // System-realtime: single byte, no running-status update.
-            switch (status) {
-                // zig fmt: off
-                0xF8 => return .{ .msg = .clock,          .consumed = 1 },
-                0xFA => return .{ .msg = .start,          .consumed = 1 },
-                0xFB => return .{ .msg = .@"continue",    .consumed = 1 },
-                0xFC => return .{ .msg = .stop,           .consumed = 1 },
-                0xFE => return .{ .msg = .active_sensing, .consumed = 1 },
-                0xFF => return .{ .msg = .reset,          .consumed = 1 },
-                // zig fmt: on
-                else => {},
-            }
+            if (realtimeMsg(status)) |msg| return .{ .msg = msg, .consumed = 1 };
             if (status < 0xF0) {
                 self.running_status = status;
                 self.have_d1 = false;
@@ -102,6 +92,7 @@ pub const Parser = struct {
         // 1-data-byte messages: program change (0xC), channel pressure (0xD).
         if (kind == 0xC or kind == 0xD) {
             if (i >= bytes.len) return null;
+            if (realtimeMsg(bytes[i])) |msg| return .{ .msg = msg, .consumed = i + 1 };
             const d: u7 = @intCast(bytes[i] & 0x7F);
             i += 1;
             const msg: Msg = if (kind == 0xC)
@@ -120,6 +111,7 @@ pub const Parser = struct {
             self.have_d1 = false;
         } else {
             if (i >= bytes.len) return null;
+            if (realtimeMsg(bytes[i])) |msg| return .{ .msg = msg, .consumed = i + 1 };
             d1 = @intCast(bytes[i] & 0x7F);
             i += 1;
         }
@@ -128,6 +120,12 @@ pub const Parser = struct {
             self.d1 = d1;
             self.have_d1 = true;
             return null;
+        }
+
+        if (realtimeMsg(bytes[i])) |msg| {
+            self.d1 = d1;
+            self.have_d1 = true;
+            return .{ .msg = msg, .consumed = i + 1 };
         }
 
         const d2: u7 = @intCast(bytes[i] & 0x7F);
@@ -157,6 +155,20 @@ pub const Parser = struct {
         self.* = .{};
     }
 };
+
+fn realtimeMsg(status: u8) ?Msg {
+    return switch (status) {
+        // zig fmt: off
+        0xF8 => .clock,
+        0xFA => .start,
+        0xFB => .@"continue",
+        0xFC => .stop,
+        0xFE => .active_sensing,
+        0xFF => .reset,
+        // zig fmt: on
+        else => null,
+    };
+}
 
 // ============================================================
 // CC assignments
@@ -230,6 +242,40 @@ test "parser: running status" {
     const r = p.feed(&.{ 62, 90 }).?; // no status byte — running status applies
     try std.testing.expect(r.msg == .note_on);
     try std.testing.expectEqual(@as(u7, 62), r.msg.note_on.note);
+}
+
+test "parser: realtime byte interleaved in channel message" {
+    var p: Parser = .{};
+    const realtime = p.feed(&.{ 0x90, 60, 0xF8, 100 }).?;
+    try std.testing.expect(realtime.msg == .clock);
+    try std.testing.expectEqual(@as(usize, 3), realtime.consumed);
+
+    const note = p.feed(&.{100}).?;
+    try std.testing.expect(note.msg == .note_on);
+    try std.testing.expectEqual(@as(u7, 60), note.msg.note_on.note);
+    try std.testing.expectEqual(@as(u7, 100), note.msg.note_on.velocity);
+}
+
+test "parser: realtime byte before first channel data byte" {
+    var p: Parser = .{};
+    const realtime = p.feed(&.{ 0x90, 0xFA }).?;
+    try std.testing.expect(realtime.msg == .start);
+    try std.testing.expectEqual(@as(usize, 2), realtime.consumed);
+
+    const note = p.feed(&.{ 60, 100 }).?;
+    try std.testing.expect(note.msg == .note_on);
+    try std.testing.expectEqual(@as(u7, 60), note.msg.note_on.note);
+}
+
+test "parser: realtime byte interleaved in one-data-byte message" {
+    var p: Parser = .{};
+    const realtime = p.feed(&.{ 0xC0, 0xFC, 12 }).?;
+    try std.testing.expect(realtime.msg == .stop);
+    try std.testing.expectEqual(@as(usize, 2), realtime.consumed);
+
+    const change = p.feed(&.{12}).?;
+    try std.testing.expect(change.msg == .program_change);
+    try std.testing.expectEqual(@as(u7, 12), change.msg.program_change.program);
 }
 
 test "parser: pitch bend centre" {
