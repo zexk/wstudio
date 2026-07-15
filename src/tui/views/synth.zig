@@ -44,6 +44,29 @@ const enumRow = style.enumRow;
 
 const synth_ed = @import("../editors/synth.zig");
 
+fn drawSynthTitle(w: *std.Io.Writer, subview: synth_ed.Subview, name: []const u8) !void {
+    try w.writeAll(bcyn ++ bold ++ " \u{2593} " ++ icons.synth ++ " SYNTH " ++ rst);
+    inline for (.{ synth_ed.Subview.main, synth_ed.Subview.mod, synth_ed.Subview.fx }) |tab| {
+        const label = switch (tab) {
+            .main => "MAIN",
+            .mod => "MOD",
+            .fx => "FX",
+        };
+        if (tab == subview) {
+            try w.writeAll(bcyn ++ bold);
+            try w.print("[{s}]", .{label});
+        } else {
+            try w.writeAll(dim);
+            try w.print(" {s} ", .{label});
+        }
+        try w.writeAll(rst);
+    }
+    try w.writeAll("  " ++ acc);
+    try w.print("\"{s}\"", .{name});
+    try w.writeAll(rst);
+    try endLine(w);
+}
+
 /// Render the synth editor into `w`, applying vertical scroll so it fits
 /// within `max_rows`. Always shows the title line, then slices the current
 /// subview's body to keep the cursor in view. `app.synth_subview` picks one
@@ -112,16 +135,8 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize
     else "?";
     // zig fmt: on
 
-    // Title (row 0) — always emitted, outside the scroll window. Always
-    // tagged here since "main" never reaches this branch.
-    try w.writeAll(bcyn ++ bold ++ " \u{2593} " ++ icons.synth ++ " SYNTH " ++ rst);
-    try w.writeAll(dim);
-    try w.print("[{s}] ", .{synth_ed.subviewLabel(subview)});
-    try w.writeAll(rst);
-    try w.writeAll(acc);
-    try w.print("\"{s}\"", .{name});
-    try w.writeAll(rst);
-    try endLine(w);
+    // Title (row 0) is always emitted outside the scroll window.
+    try drawSynthTitle(w, subview, name);
     var written: usize = 1;
 
     // The FX strip is a fixed row above the scrolled section list (like the
@@ -253,11 +268,7 @@ fn drawSynthMain(app: anytype, w: *std.Io.Writer, max_rows: usize, cols: usize) 
     else "?";
     // zig fmt: on
 
-    try w.writeAll(bcyn ++ bold ++ " \u{2593} " ++ icons.synth ++ " SYNTH " ++ rst);
-    try w.writeAll(acc);
-    try w.print("\"{s}\"", .{name});
-    try w.writeAll(rst);
-    try endLine(w);
+    try drawSynthTitle(w, .main, name);
     var written: usize = 1;
 
     var bufs: [3][16 * 1024]u8 = undefined;
@@ -266,6 +277,7 @@ fn drawSynthMain(app: anytype, w: *std.Io.Writer, max_rows: usize, cols: usize) 
     for (synth_layout.main_sections, 0..) |_, si| {
         const col = sectionCol(order, si);
         try main_render_fns[si](&writers[col], synth, c);
+        try endLine(&writers[col]);
     }
 
     var iters: [3]std.mem.SplitIterator(u8, .sequence) = undefined;
@@ -353,12 +365,7 @@ fn drawSynthMod(app: anytype, w: *std.Io.Writer, max_rows: usize, cols: usize) !
     else "?";
     // zig fmt: on
 
-    try w.writeAll(bcyn ++ bold ++ " \u{2593} " ++ icons.synth ++ " SYNTH " ++ rst);
-    try w.writeAll(dim ++ "[MOD] " ++ rst);
-    try w.writeAll(acc);
-    try w.print("\"{s}\"", .{name});
-    try w.writeAll(rst);
-    try endLine(w);
+    try drawSynthTitle(w, .mod, name);
     var written: usize = 1;
 
     var bufs: [3][16 * 1024]u8 = undefined;
@@ -367,6 +374,7 @@ fn drawSynthMod(app: anytype, w: *std.Io.Writer, max_rows: usize, cols: usize) !
     for (synth_layout.mod_sections, 0..) |_, si| {
         const col = sectionCol(order, si);
         try mod_render_fns[si](&writers[col], synth, c);
+        try endLine(&writers[col]);
     }
 
     var iters: [3]std.mem.SplitIterator(u8, .sequence) = undefined;

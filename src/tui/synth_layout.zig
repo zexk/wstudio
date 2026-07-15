@@ -133,8 +133,8 @@ pub const Placement = struct { col: usize, row0: usize };
 /// Greedy shortest-column-first packing, evaluated at comptime (both
 /// `sections` and `num_cols` are always compile-time known — see
 /// `main_order_*`/`mod_order_*` below). `row0` is the row within its column
-/// (0-based) where the section's own header lands; each section occupies
-/// `params.len + 1` rows (the +1 is the header).
+/// (0-based) where the section's own header lands; each section occupies a
+/// header, its params, and one blank row that separates adjacent cards.
 fn packColumns(comptime sections: []const SectionDef, comptime num_cols: usize) [sections.len]Placement {
     var col_h = [_]usize{0} ** num_cols;
     var out: [sections.len]Placement = undefined;
@@ -144,7 +144,7 @@ fn packColumns(comptime sections: []const SectionDef, comptime num_cols: usize) 
             if (col_h[c] < col_h[best]) best = c;
         }
         out[i] = .{ .col = best, .row0 = col_h[best] };
-        col_h[best] += sec.params.len + 1;
+        col_h[best] += sec.params.len + 2;
     }
     return out;
 }
@@ -152,7 +152,7 @@ fn packColumns(comptime sections: []const SectionDef, comptime num_cols: usize) 
 fn columnHeights(comptime sections: []const SectionDef, comptime placements: [sections.len]Placement, comptime num_cols: usize) [num_cols]usize {
     var h = [_]usize{0} ** num_cols;
     for (sections, 0..) |sec, i| {
-        const end = placements[i].row0 + sec.params.len + 1;
+        const end = placements[i].row0 + sec.params.len + 2;
         if (end > h[placements[i].col]) h[placements[i].col] = end;
     }
     return h;
