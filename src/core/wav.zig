@@ -118,6 +118,8 @@ pub fn parseAlloc(
             // First data chunk wins; decoding a second would leak the first.
             if (!fmt_ok) return error.DataBeforeFmt;
             const bytes_per_sample = bits_per_sample / 8;
+            const bytes_per_frame = bytes_per_sample * num_channels;
+            if (chunk_size % bytes_per_frame != 0) return error.Truncated;
             const total_samples = chunk_size / bytes_per_sample;
             const frame_count = total_samples / num_channels;
             const buf = try allocator.alloc(f32, frame_count);
@@ -252,4 +254,14 @@ test "rejects non-finite IEEE float samples" {
     try w.writeInt(u32, @bitCast(std.math.nan(f32)), .little);
 
     try std.testing.expectError(error.BadFmt, parseAlloc(std.testing.allocator, w.buffered()));
+}
+
+test "rejects a partial interleaved frame" {
+    var raw: [128]u8 = undefined;
+    var w = std.Io.Writer.fixed(&raw);
+    try write(&w, 48_000, 1, &.{ 0.1, 0.2, 0.3 }, .pcm16);
+
+    const wav = w.buffered();
+    std.mem.writeInt(u16, wav[22..24], 2, .little);
+    try std.testing.expectError(error.Truncated, parseAlloc(std.testing.allocator, wav));
 }
