@@ -1,4 +1,4 @@
-//! The `:command` layer — every command-prompt action lives here, dispatched
+//! The `:command` layer - every command-prompt action lives here, dispatched
 //! through the `cmds` table by `run`. Handlers are free functions taking the
 //! owning `*App`; they read/write App fields directly and call back into the
 //! shared App helpers (`setStatus`, `doTrackAdd`, …) that the rest of the UI
@@ -35,7 +35,7 @@ fn wrap(comptime f: fn (*App, []const u8) void) *const fn (*anyopaque, []const u
 /// Big enough for any real filesystem path; see `expandHome`.
 const path_buf_len: usize = 1024;
 
-/// Expand a leading `~` — the shell does this for CLI args, but paths typed
+/// Expand a leading `~` - the shell does this for CLI args, but paths typed
 /// into the `:` prompt never pass through a shell. Handles bare `~` and
 /// `~/rest`; `~otheruser` is left alone (not worth the /etc/passwd lookup for
 /// a single-user TUI). Returns `path` unchanged when there's nothing to
@@ -98,7 +98,7 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "clear",       .desc = "erase all notes in the piano-roll pattern",          .run = wrap(cmdClear) },
     .{ .name = "%d",          .desc = "erase all notes in the pattern (alias for :clear)",  .run = wrap(cmdClear) },
     .{ .name = "humanize",    .desc = "[amount]  jitter the pattern's note timing/velocity 0-100% (default 15)", .run = wrap(cmdHumanize) },
-    .{ .name = "swing",       .desc = "[percent]  piano-roll pattern swing 50-75% (default 50, straight) — matches the drum machine's", .run = wrap(cmdSwing) },
+    .{ .name = "swing",       .desc = "[percent]  piano-roll pattern swing 50-75% (default 50, straight) - matches the drum machine's", .run = wrap(cmdSwing) },
     .{ .name = "metronome",   .desc = "[on|off]  toggle the click track",                   .run = wrap(cmdMetronome) },
     .{ .name = "scale",       .desc = "[<root> [<type>]|off]  piano-roll scale highlight + chord-stamp key", .run = wrap(cmdScale) },
     .{ .name = "ghost",       .desc = "[on|off]  dim every other melodic track's notes into the piano-roll background", .run = wrap(cmdGhost) },
@@ -123,7 +123,7 @@ pub fn run(app: *App, text: []const u8) void {
 /// file doesn't (`App.dirty`). :q! / :qa! force, ctrl-c always exits.
 fn cmdQuit(app: *App, _: []const u8) void {
     if (app.dirty) {
-        app.setStatus("unsaved changes — :w to save, :q! to discard", .{});
+        app.setStatus("unsaved changes - :w to save, :q! to discard", .{});
         return;
     }
     app.deleteBackupIfPresent();
@@ -140,21 +140,21 @@ fn cmdEditForce(app: *App, args: []const u8) void { editOrRevert(app, args, true
 /// `:e <file>` swaps in a different project (refusing on unsaved changes,
 /// like `:q`). `:e!` forces it; `:e!` alone (no path) reverts the current
 /// project to its last-saved state, vim's plain-`:e!` convention. The actual
-/// swap happens in `run()` — see `App.requestReload`.
+/// swap happens in `run()` - see `App.requestReload`.
 fn editOrRevert(app: *App, args: []const u8, force: bool) void {
     const trimmed = std.mem.trim(u8, args, " ");
-    // Browsing itself touches nothing — allowed even with unsaved changes,
+    // Browsing itself touches nothing - allowed even with unsaved changes,
     // so the picker still opens. But warn up front rather than let the
     // user hunt down a file only to be refused at selection (browserActivate
     // re-checks dirty there, since openBrowser can't know which file, if
     // any, they'll end up picking).
     if (trimmed.len == 0 and !force) {
         app.openBrowser(.open_project);
-        if (app.dirty) app.setStatus("unsaved changes — :w to save, :e! to discard", .{});
+        if (app.dirty) app.setStatus("unsaved changes - :w to save, :e! to discard", .{});
         return;
     }
     if (!force and app.dirty) {
-        app.setStatus("unsaved changes — :w to save, :e! to discard", .{});
+        app.setStatus("unsaved changes - :w to save, :e! to discard", .{});
         return;
     }
     var path_buf: [path_buf_len]u8 = undefined;
@@ -162,13 +162,13 @@ fn editOrRevert(app: *App, args: []const u8, force: bool) void {
         expandHome(&path_buf, trimmed)
     else
         app.projectPath() orelse {
-            app.setStatus("e!: no project loaded yet — :e! needs a path", .{});
+            app.setStatus("e!: no project loaded yet - :e! needs a path", .{});
             return;
         };
     app.requestReload(path);
 }
 
-/// Load the `<project>~` autosave backup over the current session — see
+/// Load the `<project>~` autosave backup over the current session - see
 /// the prompt `run()` sets at startup when it finds one newer than the
 /// project file. Requires a known project path (same requirement the
 /// backup itself has: `maybeAutosave` skips brand-new, path-less projects).
@@ -190,10 +190,10 @@ fn cmdNewForce(app: *App, _: []const u8) void { newOrForce(app, true); }
 // zig fmt: on
 
 /// `:new` starts a blank session (refusing on unsaved changes); `:new!` forces
-/// it. Same reload path as `:e` — see `App.requestReload`.
+/// it. Same reload path as `:e` - see `App.requestReload`.
 fn newOrForce(app: *App, force: bool) void {
     if (!force and app.dirty) {
-        app.setStatus("unsaved changes — :w to save, :new! to discard", .{});
+        app.setStatus("unsaved changes - :w to save, :new! to discard", .{});
         return;
     }
     app.requestReload(null);
@@ -217,7 +217,7 @@ fn cmdClear(app: *App, _: []const u8) void {
     piano_ed.syncLinkedClip(app);
 }
 
-/// `:humanize [amount]` — jitters every note in the pattern's timing (±amount%
+/// `:humanize [amount]` - jitters every note in the pattern's timing (±amount%
 /// of one grid step) and velocity (±amount%, relative), 0-100 (default 15).
 /// Same track-resolution rule as `:clear`.
 fn cmdHumanize(app: *App, args: []const u8) void {
@@ -246,11 +246,11 @@ fn cmdHumanize(app: *App, args: []const u8) void {
     piano_ed.syncLinkedClip(app);
 }
 
-/// `:swing [percent]` — sets the piano-roll pattern's swing, 50 (straight,
-/// the default) to 75 (hardest shuffle) — the melodic counterpart to the
+/// `:swing [percent]` - sets the piano-roll pattern's swing, 50 (straight,
+/// the default) to 75 (hardest shuffle) - the melodic counterpart to the
 /// drum machine's `<`/`>` swing, so a melodic track can match a swung drum
 /// groove. Same track-resolution rule as `:clear`/`:humanize`. With no args,
-/// reports the current setting (matches `:scale`). Not undo-tracked — a
+/// reports the current setting (matches `:scale`). Not undo-tracked - a
 /// mixer-style live param, same as the drum machine's own swing.
 fn cmdSwing(app: *App, args: []const u8) void {
     const track: usize = if (app.view == .piano_roll) app.piano_track else app.cursor;
@@ -314,7 +314,7 @@ fn cmdMetronome(app: *App, args: []const u8) void {
     app.setStatus("metronome {s}", .{if (on) "on" else "off"});
 }
 
-/// `:ghost [on|off]` — toggles dimmed "ghost notes" from every other melodic
+/// `:ghost [on|off]` - toggles dimmed "ghost notes" from every other melodic
 /// track into the piano roll's background (see `App.piano_ghost`).
 fn cmdGhost(app: *App, args: []const u8) void {
     const trimmed = std.mem.trim(u8, args, " ");
@@ -328,7 +328,7 @@ fn cmdGhost(app: *App, args: []const u8) void {
     app.setStatus("ghost notes {s}", .{if (on) "on" else "off"});
 }
 
-/// `:scale [<root> [<type>]|off]` — sets or clears the piano roll's active
+/// `:scale [<root> [<type>]|off]` - sets or clears the piano roll's active
 /// scale (see `App.piano_scale`). With no args, reports the current setting.
 /// `<type>` alone (root omitted) keeps the existing root, defaulting to C.
 fn cmdScale(app: *App, args: []const u8) void {
@@ -380,7 +380,7 @@ fn cmdTrackDel(app: *App, args: []const u8) void {
     const trimmed = std.mem.trim(u8, args, " ");
     const idx: usize = if (trimmed.len == 0) blk: {
         if (app.cursor >= app.session.project.tracks.items.len) {
-            app.setStatus("track-del: cursor is on the master row — give a track number", .{});
+            app.setStatus("track-del: cursor is on the master row - give a track number", .{});
             return;
         }
         break :blk app.cursor;
@@ -410,12 +410,12 @@ fn cmdTrackRename(app: *App, args: []const u8) void {
 
     // A single token that isn't a bare number is far more likely a
     // forgotten <name> than someone renaming a track to a numeral: treat
-    // it as the new name for the cursor track — same "no index: act on
+    // it as the new name for the cursor track - same "no index: act on
     // the selection" convenience gain/pan/eq now share.
     const first_is_number = if (std.fmt.parseInt(usize, first, 10)) |_| true else |_| false;
     if (rest.len == 0 and !first_is_number) {
         const idx = cursorTrackIdx(app) orelse {
-            app.setStatus("track-rename: cursor is on the master row — give a track number", .{});
+            app.setStatus("track-rename: cursor is on the master row - give a track number", .{});
             return;
         };
         app.session.project.renameTrack(idx, first) catch {
@@ -465,7 +465,7 @@ fn cmdGroupAdd(app: *App, args: []const u8) void {
 }
 
 /// Group index from a 1-based command argument, or null with a status
-/// message already set — shared by every `:group-*`/`:track-group` command
+/// message already set - shared by every `:group-*`/`:track-group` command
 /// that takes one.
 fn parseGroupArg(app: *App, name: []const u8, s: []const u8) ?u8 {
     const n = std.fmt.parseInt(u8, s, 10) catch {
@@ -619,7 +619,7 @@ fn cmdPadRename(app: *App, args: []const u8) void {
         return;
     };
     if (dm.pads[pad_idx] == null) {
-        app.setStatus("pad-rename: pad {d} is empty — :load-sample it first", .{pad_num});
+        app.setStatus("pad-rename: pad {d} is empty - :load-sample it first", .{pad_num});
         return;
     }
     dm.pads[pad_idx].?.rename(name);
@@ -628,7 +628,7 @@ fn cmdPadRename(app: *App, args: []const u8) void {
 }
 
 /// Shared by `:load-sample`'s drum-track branch and the file browser's
-/// pad-load purpose (the browser hands over an already-resolved path — no
+/// pad-load purpose (the browser hands over an already-resolved path - no
 /// `~` to expand).
 pub fn loadPadFromPath(app: *App, pad_idx: u8, path: []const u8) void {
     const data = std.Io.Dir.cwd().readFileAlloc(
@@ -656,7 +656,7 @@ pub fn loadPadFromPath(app: *App, pad_idx: u8, path: []const u8) void {
     app.setStatus("pad {d} loaded: {s}", .{ pad_idx + 1, stem });
 }
 
-/// The drum machine on the cursor's track, or — if the drum grid is open —
+/// The drum machine on the cursor's track, or - if the drum grid is open -
 /// the one being edited. Null when neither is a drum machine.
 fn cursorDrumMachine(app: *App) ?*DrumMachine {
     if (app.cursor < app.session.racks.items.len) {
@@ -693,7 +693,7 @@ fn cursorSynth(app: *App) ?*ws.dsp.PolySynth {
 }
 
 /// The track index of the slicer the command should act on: the cursor's
-/// track, or — if the slicer grid is open — the one being edited. Null when
+/// track, or - if the slicer grid is open - the one being edited. Null when
 /// neither is a slicer. Mirrors `cursorDrumMachine`'s two-fallback shape.
 fn cursorSlicerTrack(app: *App) ?u16 {
     if (app.cursor < app.session.racks.items.len and
@@ -712,7 +712,7 @@ fn cursorSlicer(app: *App) ?*Slicer {
 
 /// The cursor's track index, or null when it's on the master row (or out
 /// of range). Shared fallback for commands whose leading `<track>` arg is
-/// now optional — same "no args: act on the selection" convenience
+/// now optional - same "no args: act on the selection" convenience
 /// `:track-del`'s cursor fallback already established.
 fn cursorTrackIdx(app: *App) ?usize {
     if (app.cursor >= app.session.project.tracks.items.len) return null;
@@ -744,7 +744,7 @@ fn writeGenres(w: *std.Io.Writer, tags: []const []const u8) std.Io.Writer.Error!
     try w.writeAll(")");
 }
 
-/// `:synth-preset [name]` — apply a factory patch (see `dsp/synth_presets.zig`)
+/// `:synth-preset [name]` - apply a factory patch (see `dsp/synth_presets.zig`)
 /// or a user-saved one (see `tui/user_presets.zig`) to the cursor track's
 /// synth. No args, or an unknown name, lists the available preset names
 /// instead of guessing. User presets are checked first, so saving under a
@@ -771,7 +771,7 @@ fn cmdSynthPreset(app: *App, args: []const u8) void {
     const patch = user_presets.find(app.user_synth_presets.items, trimmed) orelse
         // zig fmt: off
         ws.dsp.synth_presets.find(trimmed) orelse {
-            app.setStatus("synth-preset: unknown '{s}' — :synth-preset lists names", .{trimmed});
+            app.setStatus("synth-preset: unknown '{s}' - :synth-preset lists names", .{trimmed});
             return;
         };
         // zig fmt: on
@@ -784,7 +784,7 @@ fn cmdSynthPreset(app: *App, args: []const u8) void {
     app.setStatus("synth preset: {s}", .{trimmed});
 }
 
-/// `:synth-preset-save <name>` — snapshot the cursor track's current synth
+/// `:synth-preset-save <name>` - snapshot the cursor track's current synth
 /// params (`PolySynth.toPatch`) and persist them under `name`, overwriting
 /// any existing saved preset of the same name (case-insensitive).
 fn cmdSynthPresetSave(app: *App, args: []const u8) void {
@@ -804,14 +804,14 @@ fn cmdSynthPresetSave(app: *App, args: []const u8) void {
     app.setStatus("saved synth preset: {s}", .{name});
 }
 
-/// `:drum-kit [name]` — regenerate all 8 pads of the cursor track's drum
+/// `:drum-kit [name]` - regenerate all 8 pads of the cursor track's drum
 /// machine from a procedural kit variant (see `dsp/drum_kit.zig`'s
 /// `variants` table), or apply a user-saved kit's tuning (name/gain/pan/
-/// pitch/ADSR/choke — see `tui/user_drum_kits.zig`) onto whatever's already
+/// pitch/ADSR/choke - see `tui/user_drum_kits.zig`) onto whatever's already
 /// loaded there. No args, or an unknown name, lists the available names.
 /// User kits are checked first, so saving under a factory name shadows it
 /// for `:drum-kit` (the factory list itself is compiled-in and never
-/// touched) — same precedence `:synth-preset` already established.
+/// touched) - same precedence `:synth-preset` already established.
 fn cmdDrumKit(app: *App, args: []const u8) void {
     const trimmed = std.mem.trim(u8, args, " ");
     if (trimmed.len == 0) {
@@ -843,7 +843,7 @@ fn cmdDrumKit(app: *App, args: []const u8) void {
     const variant = for (&ws.dsp.drum_kit.variants) |*v| {
         if (std.ascii.eqlIgnoreCase(v.name, trimmed)) break v;
     } else {
-        app.setStatus("drum-kit: unknown '{s}' — :drum-kit lists names", .{trimmed});
+        app.setStatus("drum-kit: unknown '{s}' - :drum-kit lists names", .{trimmed});
         return;
     };
     dm.loadKitVariant(variant) catch |e| {
@@ -854,8 +854,8 @@ fn cmdDrumKit(app: *App, args: []const u8) void {
     app.setStatus("drum kit: {s}", .{trimmed});
 }
 
-/// `:drum-kit-save <name>` — snapshot the cursor track's drum machine pads
-/// 0-7's tuning (name/gain/pan/pitch/ADSR/choke-group — the same 8-pad
+/// `:drum-kit-save <name>` - snapshot the cursor track's drum machine pads
+/// 0-7's tuning (name/gain/pan/pitch/ADSR/choke-group - the same 8-pad
 /// shape factory kits use) and persist it under `name`, overwriting any
 /// existing saved kit of the same name (case-insensitive). No audio is
 /// captured; see `tui/user_drum_kits.zig`'s own doc comment for why.
@@ -905,7 +905,7 @@ fn cmdLoadSample(app: *App, args: []const u8) void {
 }
 
 /// Shared by `:load-sample <file>` and the file browser's sample-load
-/// purpose (the browser hands over an already-resolved path — no `~` to
+/// purpose (the browser hands over an already-resolved path - no `~` to
 /// expand).
 pub fn loadSampleFromPath(app: *App, path: []const u8) void {
     const s = cursorSampler(app) orelse {
@@ -941,7 +941,7 @@ pub fn loadSampleFromPath(app: *App, path: []const u8) void {
 /// Which oscillator slot `:load-wavetable` targets when invoked from inside
 /// the synth editor: whichever section `app.synth_cursor` currently sits in
 /// (the WAVETABLE section's own three rows included). Any other view (or an
-/// unrecognized id) falls back to OSC A — the single-target convention
+/// unrecognized id) falls back to OSC A - the single-target convention
 /// `:load-sample`/`:load-clip` already use for instruments with only one
 /// possible destination.
 fn oscSlotForCursor(id: u8) ws.dsp.PolySynth.OscSlot {
@@ -971,7 +971,7 @@ fn cmdLoadWavetable(app: *App, args: []const u8) void {
 }
 
 /// Shared by `:load-wavetable <file>` and the file browser's wavetable-load
-/// purpose (the browser hands over an already-resolved path — no `~` to
+/// purpose (the browser hands over an already-resolved path - no `~` to
 /// expand).
 pub fn loadWavetableFromPath(app: *App, slot: ws.dsp.PolySynth.OscSlot, path: []const u8) void {
     const s = cursorSynth(app) orelse {
@@ -1075,11 +1075,11 @@ fn cmdLoadSlice(app: *App, args: []const u8) void {
 }
 
 /// Shared by `:load-slice <file>` and the file browser's slice-load purpose.
-/// `reset_slices = true` — an interactively-loaded clip's old slice
+/// `reset_slices = true` - an interactively-loaded clip's old slice
 /// boundaries (fractions of the PREVIOUS clip's length) are meaningless
 /// against new audio, so this always re-chops with a fresh `:slice`
 /// afterward (unlike the session-restore path in persist.zig, which keeps
-/// the saved boundaries — see `Slicer.loadWav`'s own doc comment).
+/// the saved boundaries - see `Slicer.loadWav`'s own doc comment).
 pub fn loadSliceFromPath(app: *App, path: []const u8) void {
     const sl = cursorSlicer(app) orelse {
         app.setStatus("load-slice: select a slicer track first", .{});
@@ -1102,7 +1102,7 @@ pub fn loadSliceFromPath(app: *App, path: []const u8) void {
         return;
     };
     app.dirty = true;
-    app.setStatus("clip loaded: {s} — :slice <n> to chop it", .{stem});
+    app.setStatus("clip loaded: {s} - :slice <n> to chop it", .{stem});
 }
 
 fn cmdSlice(app: *App, args: []const u8) void {
@@ -1126,7 +1126,7 @@ fn cmdSlice(app: *App, args: []const u8) void {
     app.setStatus("sliced into {d}", .{sl.slice_count});
 }
 
-/// `:chop [1-9]` — re-chop the loaded clip at detected transients. The
+/// `:chop [1-9]` - re-chop the loaded clip at detected transients. The
 /// optional sensitivity defaults to 5; higher finds more (softer) hits.
 fn cmdChop(app: *App, args: []const u8) void {
     const track = cursorSlicerTrack(app) orelse {
@@ -1144,17 +1144,17 @@ fn cmdChop(app: *App, args: []const u8) void {
     const n = sl.chopTransients(sensitivity);
     app.dirty = true;
     if (n <= 1)
-        app.setStatus("chop: no transients found — try a higher sensitivity (:chop 1-9)", .{})
+        app.setStatus("chop: no transients found - try a higher sensitivity (:chop 1-9)", .{})
     else
         app.setStatus("chopped into {d} slices (sensitivity {d})", .{ n, sensitivity });
 }
 
 /// Explicit :save argument (with `~` expanded), else the file the session
-/// was loaded from / last saved to (already resolved — see `setProjectPath`),
+/// was loaded from / last saved to (already resolved - see `setProjectPath`),
 /// else "project.wsj". Always copies into `buf` rather than returning
 /// `app.projectPath()` directly: callers pass the result straight back into
 /// `setProjectPath`, whose `@memcpy` panics ("arguments alias") if src and
-/// dst are the same backing buffer — which `app.project_path_buf` is.
+/// dst are the same backing buffer - which `app.project_path_buf` is.
 fn savePath(app: *App, args: []const u8, buf: []u8) []const u8 {
     const arg = std.mem.trim(u8, args, " ");
     if (arg.len > 0) return expandHome(buf, arg);
@@ -1193,7 +1193,7 @@ fn cmdWriteQuit(app: *App, args: []const u8) void {
 }
 
 /// Splits a `:bounce`-family arg string into the leading path/dir (possibly
-/// empty — caller supplies the default) and an optional trailing `16`/`24`
+/// empty - caller supplies the default) and an optional trailing `16`/`24`
 /// bit-depth token (default 16-bit).
 fn parseBounceArgs(args: []const u8) struct { path: []const u8, bit_depth: ws.wav.BitDepth } {
     var trimmed = std.mem.trim(u8, args, " ");
@@ -1310,7 +1310,7 @@ fn sanitizeStemName(buf: []u8, name: []const u8, index: usize) []const u8 {
     return buf[0..len];
 }
 
-/// `:bounce-stems [dir] [16|24]` — renders every non-empty track soloed in
+/// `:bounce-stems [dir] [16|24]` - renders every non-empty track soloed in
 /// turn to `<dir>/<track-name>.wav` (default dir: `stems/`), using the same
 /// length/range rules as `:bounce` (armed loop region, else full song/
 /// pattern). Solo state is restored exactly afterward, whatever it was
@@ -1398,9 +1398,9 @@ fn cmdBounceStems(app: *App, args: []const u8) void {
 }
 
 /// Signal the realtime backend to park and wait until it confirms. Returns
-/// false on timeout — the caller must NOT touch the engine then, or the two
+/// false on timeout - the caller must NOT touch the engine then, or the two
 /// threads would call process() concurrently. (The TUI always runs a backend
-/// — ALSA or Null — so the timeout only fires if that thread is wedged.)
+/// - ALSA or Null - so the timeout only fires if that thread is wedged.)
 fn parkAudio(app: *App) bool {
     const engine = app.session.engine;
     engine.bounce_parked.store(false, .release);
@@ -1477,7 +1477,7 @@ fn cmdBpm(app: *App, args: []const u8) void {
     app.setStatus("bpm: {d:.1}", .{bpm});
 }
 
-/// `:sig [<n>[/4]]` — beats per bar. The beat unit is fixed at /4 (a beat is
+/// `:sig [<n>[/4]]` - beats per bar. The beat unit is fixed at /4 (a beat is
 /// always a quarter note, matching the 16th-note step grid everywhere).
 fn cmdSig(app: *App, args: []const u8) void {
     const trimmed = std.mem.trim(u8, args, " ");
@@ -1664,7 +1664,7 @@ test ":save reports the expanded path, not the literal ~, on failure" {
     const home_c = std.c.getenv("HOME") orelse return error.SkipZigTest;
     const home = std.mem.sliceTo(home_c, 0);
 
-    // A directory that doesn't exist under $HOME — save fails, but the
+    // A directory that doesn't exist under $HOME - save fails, but the
     // status must show where it actually tried to write.
     var cmd_buf: [80]u8 = undefined;
     const cmd = try std.fmt.bufPrint(&cmd_buf, ":save ~/__wstudio_missing__/p.wsj", .{});

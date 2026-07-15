@@ -19,7 +19,7 @@ pub const Transport = struct {
     position_frames: u64 = 0,
     /// A/B loop region in frames. While enabled (and the region is non-empty),
     /// `advance` wraps positions reaching `loop_end_frames` back into the
-    /// region — devices resync off the position jump like they do for a seek.
+    /// region - devices resync off the position jump like they do for a seek.
     loop_enabled: bool = false,
     loop_start_frames: u64 = 0,
     loop_end_frames: u64 = 0,

@@ -1,6 +1,6 @@
 //! MIDI protocol types, raw-byte parser, and note utilities.
 //!
-//! Pure protocol layer — no DSP dependency. CC→synth routing lives in
+//! Pure protocol layer - no DSP dependency. CC→synth routing lives in
 //! PolySynth.applyCC / PolySynth.applyPitchBend (dsp/synth.zig).
 
 const std = @import("std");
@@ -54,7 +54,7 @@ pub fn noteToFreq(note: u7) f32 {
 // ============================================================
 
 /// Stateful byte-stream parser with running-status support.
-/// All state fits in 3 bytes — copy-safe for snapshots.
+/// All state fits in 3 bytes - copy-safe for snapshots.
 pub const Parser = struct {
     running_status: u8 = 0,
     /// First data byte of a split 2-byte message carried across calls.
@@ -215,14 +215,14 @@ pub const CC = enum(u7) {
     filter_cutoff     = 74,  // GM brightness → filter_cutoff log (20–18 000 Hz)
     amp_decay         = 75,  // GM decay → decay_s (0–4 s)
     amp_sustain       = 76,  // → sustain level (0–1)
-    fenv_amount       = 77,  // retired (fenv amount lives on mod-matrix rows now) — ignored
+    fenv_amount       = 77,  // retired (fenv amount lives on mod-matrix rows now) - ignored
     fenv_attack       = 78,  // → fenv_attack_s (0–4 s)
     fenv_decay        = 79,  // → fenv_decay_s (0–4 s)
     fenv_sustain      = 80,  // → fenv_sustain (0–1)
     fenv_release      = 81,  // → fenv_release_s (0–4 s)
-    all_sound_off     = 120, // GM mandatory — immediate silence
-    reset_all_ctrls   = 121, // GM mandatory — no-op for now
-    all_notes_off     = 123, // GM mandatory — release all voices
+    all_sound_off     = 120, // GM mandatory - immediate silence
+    reset_all_ctrls   = 121, // GM mandatory - no-op for now
+    all_notes_off     = 123, // GM mandatory - release all voices
     // zig fmt: on
     _,
 };
@@ -251,7 +251,7 @@ test "parser: velocity-0 note_on → note_off" {
 test "parser: running status" {
     var p: Parser = .{};
     _ = p.feed(&.{ 0x90, 60, 80 }); // sets running status
-    const r = p.feed(&.{ 62, 90 }).?; // no status byte — running status applies
+    const r = p.feed(&.{ 62, 90 }).?; // no status byte - running status applies
     try std.testing.expect(r.msg == .note_on);
     try std.testing.expectEqual(@as(u7, 62), r.msg.note_on.note);
 }

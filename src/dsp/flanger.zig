@@ -26,7 +26,7 @@ pub const Flanger = struct {
     pos: usize = 0,
 
     /// 1024 samples caps the sweep at ~21ms at 48kHz (flanger through
-    /// light-chorus territory) — matches the synth-internal ring's sizing.
+    /// light-chorus territory) - matches the synth-internal ring's sizing.
     pub const len: usize = 1024;
 
     pub fn init(sample_rate: u32) Flanger {

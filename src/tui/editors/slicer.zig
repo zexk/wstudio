@@ -1,7 +1,7 @@
 //! Slicer-grid input: slice/step cursor, step + velocity edits, swing,
 //! chop refinement (split/merge, boundary nudges), insert-mode qwerty
 //! triggering, yank/paste, visual-mode range select, and operator+motion
-//! grammar — the same editing surface the drum grid gives its pads
+//! grammar - the same editing surface the drum grid gives its pads
 //! (editors/drum.zig), on top of the chop-specific gestures. The render
 //! half lives in views/slicer.zig; the machine itself in dsp/slicer.zig.
 
@@ -78,7 +78,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 'L' => moveStep(app, 4 * app.takeCount()),
                 'j' => moveSlice(app, app.takeCount()),
                 'k' => moveSlice(app, -app.takeCount()),
-                // J/K jump a whole bank of 8 slices — same MPC-style paging
+                // J/K jump a whole bank of 8 slices - same MPC-style paging
                 // as the drum grid's pads.
                 'J' => moveSlice(app, 8 * app.takeCount()),
                 'K' => moveSlice(app, -8 * app.takeCount()),
@@ -106,7 +106,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                     sl.setStepCount(sl.step_count + 1);
                 },
                 // Chop refinement: split the cursor slice in half / merge it
-                // into the one after it — the interactive loop that turns a
+                // into the one after it - the interactive loop that turns a
                 // rough :chop into the chops you actually wanted.
                 's' => {
                     // Preconditions checked here so a refused split doesn't
@@ -119,7 +119,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                     } else {
                         history.push(app, history.captureSlicer(app, app.slicer_track));
                         _ = sl.splitSlice(slice.*);
-                        app.setStatus("split slice {d} — now {d} slices", .{ slice.* + 1, sl.slice_count });
+                        app.setStatus("split slice {d} - now {d} slices", .{ slice.* + 1, sl.slice_count });
                     }
                 },
                 'm' => {
@@ -128,12 +128,12 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                     } else {
                         history.push(app, history.captureSlicer(app, app.slicer_track));
                         _ = sl.mergeSliceRight(slice.*);
-                        app.setStatus("merged into slice {d} — now {d} slices", .{ slice.* + 1, sl.slice_count });
+                        app.setStatus("merged into slice {d} - now {d} slices", .{ slice.* + 1, sl.slice_count });
                     }
                 },
                 // Per-slice boundary/reverse nudges, routed over the command
                 // queue like every other instrument param (undo coalesces a
-                // run on the same boundary) — the top waveform tracks them
+                // run on the same boundary) - the top waveform tracks them
                 // live. Deeper per-slice params (pitch/ADSR/gain/pan) live
                 // in the slice editor on 'e'.
                 'r' => nudgeSliceParam(app, 9, 1),
@@ -150,7 +150,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                         history.push(app, history.captureSlicer(app, app.slicer_track));
                         sl.cycleStepVel(slice.*, step.*);
                         app.setStatus("vel {d}", .{sl.stepVel(slice.*, step.*)});
-                    } else app.setStatus("no step here — enter places one", .{});
+                    } else app.setStatus("no step here - enter places one", .{});
                 },
                 '_' => nudgeVel(app, -app.takeCount()),
                 '=' => nudgeVel(app, app.takeCount()),
@@ -174,7 +174,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 'U' => history.doRedo(app),
                 'p', 'P' => pasteSelection(app),
                 '.' => repeatLastEdit(app),
-                // (/) cycle the pattern variant — [ and ] (the drum grid's
+                // (/) cycle the pattern variant - [ and ] (the drum grid's
                 // variant keys) belong to boundary nudges here.
                 '(' => cycleVariant(app, -1),
                 ')' => cycleVariant(app, 1),
@@ -191,7 +191,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                         history.push(app, history.captureSlicer(app, app.slicer_track));
                     if (sl.removeVariant()) {
                         if (step.* >= sl.step_count) step.* = sl.step_count - 1;
-                        app.setStatus("deleted pattern — now on {c}", .{Slicer.variantLetter(sl.variant)});
+                        app.setStatus("deleted pattern - now on {c}", .{Slicer.variantLetter(sl.variant)});
                     } else app.setStatus("can't delete the only pattern", .{});
                 },
                 'C' => {
@@ -219,7 +219,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
 }
 
 /// Nudge one of the cursor slice's params over the command queue, noting it
-/// for coalesced undo — same route editors/sampler.zig's adjustParam takes.
+/// for coalesced undo - same route editors/sampler.zig's adjustParam takes.
 fn nudgeSliceParam(app: *App, param: u8, steps: i32) void {
     const sl = app.slicerInst();
     const slice = app.slicer_cursor[0];
@@ -237,7 +237,7 @@ fn nudgeVel(app: *App, delta: i32) void {
     const slice = app.slicer_cursor[0];
     const step = app.slicer_cursor[1];
     // zig fmt: off
-    if (!sl.stepActive(slice, step)) { app.setStatus("no step here — enter places one", .{}); return; }
+    if (!sl.stepActive(slice, step)) { app.setStatus("no step here - enter places one", .{}); return; }
     // zig fmt: on
     history.push(app, history.captureSlicer(app, app.slicer_track));
     sl.nudgeStepVel(slice, step, delta);
@@ -245,11 +245,11 @@ fn nudgeVel(app: *App, delta: i32) void {
 }
 
 /// Cycle the active pattern variant, keeping the step cursor inside the
-/// new variant's step count — same shape as the drum grid's.
+/// new variant's step count - same shape as the drum grid's.
 fn cycleVariant(app: *App, delta: i32) void {
     const sl = app.slicerInst();
     if (sl.variant_count <= 1) {
-        app.setStatus("one pattern — N creates another", .{});
+        app.setStatus("one pattern - N creates another", .{});
         return;
     }
     sl.cycleVariant(delta);
@@ -297,24 +297,24 @@ fn moveSlice(app: *App, delta: i32) void {
     step_grid.moveClamped(&app.slicer_cursor[0], delta, app.slicerInst().slice_count);
 }
 
-/// w/b: jump the step cursor by 4-step groups — see step_grid.jumpBar for
+/// w/b: jump the step cursor by 4-step groups - see step_grid.jumpBar for
 /// the bar-width rationale (same tier as the drum grid's w/b).
 fn jumpBar(app: *App, delta: i32) void {
     step_grid.jumpBar(&app.slicer_cursor[1], delta, app.slicerInst().step_count);
 }
 
-/// dw/yw's range end — see step_grid.operatorBarForward.
+/// dw/yw's range end - see step_grid.operatorBarForward.
 fn operatorBarForward(app: *App, n: i32) void {
     step_grid.operatorBarForward(&app.slicer_cursor[1], n, app.slicerInst().step_count);
 }
 
-/// db/yb's range start — see step_grid.operatorBarBackward.
+/// db/yb's range start - see step_grid.operatorBarBackward.
 fn operatorBarBackward(app: *App, n: i32) void {
     step_grid.operatorBarBackward(&app.slicer_cursor[1], n, app.slicerInst().step_count);
 }
 
 /// Arm `d`/`y` as a pending operator, remembering the cursor step as the
-/// range anchor — same field visual mode's `v` sets.
+/// range anchor - same field visual mode's `v` sets.
 fn armOperator(app: *App, op: u8) void {
     app.slicer_visual_anchor = app.slicer_cursor[1];
     app.slicer_op_pending = op;
@@ -362,7 +362,7 @@ fn yankWholePattern(app: *App) void {
     app.setStatus("yanked the whole pattern ({d} steps)", .{sl.step_count});
 }
 
-/// Visual mode's reduced key set — same shape as the drum grid's.
+/// Visual mode's reduced key set - same shape as the drum grid's.
 fn handleVisual(app: *App, key: modal_mod.Key) bool {
     switch (key) {
         // zig fmt: off
@@ -432,7 +432,7 @@ fn deleteSelection(app: *App) void {
 /// whatever already sits at each destination step (all slices).
 fn pasteSelection(app: *App) void {
     const clip = app.slicer_range_clip orelse {
-        app.setStatus("nothing yanked — select a range and y first", .{});
+        app.setStatus("nothing yanked - select a range and y first", .{});
         exitVisual(app);
         return;
     };
@@ -459,16 +459,16 @@ fn repeatLastEdit(app: *App) void {
     }
 }
 
-/// Step index at column `x` within a slice row — see step_grid.stepAt.
+/// Step index at column `x` within a slice row - see step_grid.stepAt.
 fn stepAt(scroll: u32, step_count: u8, x: usize) ?u8 {
     return step_grid.stepAt(slicer_view.gutter, 3, scroll, step_count, x);
 }
 
 /// Click a step cell to toggle it; drag to paint. Click inside the
 /// waveform pane to jump the cursor to the slice under the mouse (and keep
-/// the click quiet otherwise — boundary editing by mouse lives in the
-/// slice editor on 'e'). Scroll moves the step cursor, or — over the
-/// gutter — the slice cursor.
+/// the click quiet otherwise - boundary editing by mouse lives in the
+/// slice editor on 'e'). Scroll moves the step cursor, or - over the
+/// gutter - the slice cursor.
 pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16, view_rows: usize) void {
     const sl = app.slicerInst();
     switch (ev.kind) {

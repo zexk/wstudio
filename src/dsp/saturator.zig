@@ -17,7 +17,7 @@ pub const Saturator = struct {
 
     pub const device = dsp.deviceOf(@This());
 
-    /// Stateless (no filters/lines to clear) — exists only so `deviceOf`
+    /// Stateless (no filters/lines to clear) - exists only so `deviceOf`
     /// has a `reset` to wire into the vtable.
     pub fn reset(self: *Saturator) void {
         _ = self;

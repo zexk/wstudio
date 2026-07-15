@@ -124,7 +124,7 @@ fn sectionLabel(k: ws.FxKind) []const u8 {
     };
 }
 
-/// Accent colour per unit kind — used by its section divider and param bars.
+/// Accent colour per unit kind - used by its section divider and param bars.
 fn sectionColor(k: ws.FxKind) []const u8 {
     return switch (k) {
         .gate => bcyn,
@@ -240,7 +240,7 @@ pub fn drawFxView(
     try endLine(w);
 
     // Null only when the viewed track/group was deleted out from under the
-    // view — app.zig's guard kicks back to tracks on the next key; just pad
+    // view - app.zig's guard kicks back to tracks on the next key; just pad
     // here.
     const chain = spectrum_ed.fxPtr(app, target) orelse {
         for (1..@max(1, rows -| 4)) |_| try endLine(w);
@@ -255,7 +255,7 @@ pub fn drawFxView(
     if (!compact) {
         try w.writeAll(dim ++ "  tab/[/]:slot  a:insert  x:remove  </>:move  b:bypass  ");
         // EQ gets its own two-stage scheme (see editors/spectrum.zig's
-        // eq_band_select doc comment) — h/l means something different
+        // eq_band_select doc comment) - h/l means something different
         // depending which stage it's in, so the hint has to match.
         if (focused != null and focused.?.kind() == .eq) {
             if (app.eq_band_select) try w.writeAll("h/l:band  enter:edit") else try w.writeAll("j/k:field  h/l:adjust  esc:back");
@@ -288,7 +288,7 @@ pub fn drawFxView(
         const bands = spectrum_ed.eq_band_rows;
         // Header + strip + hint + section (6; 3 in compact mode) + graph
         // + hz label + band rows must fit in rows-3 (the caller's header/
-        // transport/status — no separate hr() rule rows anymore). usize
+        // transport/status - no separate hr() rule rows anymore). usize
         // annotation matters: @min against the comptime spectrum_rows bound
         // otherwise narrows the type to u5, and `visual_rows * 4`
         // overflows it.
@@ -353,7 +353,7 @@ pub fn drawFxView(
                     try w.writeAll(rst);
                 }
             }
-            // No snapshot (analyzer idle): leave the graph area blank —
+            // No snapshot (analyzer idle): leave the graph area blank -
             // endLine clears to the right edge.
             try endLine(w);
         }
@@ -376,7 +376,7 @@ pub fn drawFxView(
         };
 
         // Pad each label out to its target bin (`idx`) by tracked column,
-        // not by looping one char per bin — a previous version wrote each
+        // not by looping one char per bin - a previous version wrote each
         // label in a single step without advancing the loop past its
         // extra characters, so every label after the first drifted right
         // of its bin and the top "20k" (human hearing's upper edge)
@@ -385,7 +385,7 @@ pub fn drawFxView(
         var col: usize = 0;
         for (freq_labels) |lbl| {
             if (lbl.idx >= draw_bands) continue;
-            // Never start before one space past the previous label —
+            // Never start before one space past the previous label -
             // "10k"/"20k" sit only two bins apart at the top of the
             // range, closer than "10k" is wide, so clamp forward instead
             // of dropping the tick entirely (still shows, just nudged off
@@ -408,7 +408,7 @@ pub fn drawFxView(
         // visible at a glance (glyph height/colour = gain for a peak band,
         // slope steepness for a filter band; frequency underneath). Detail
         // for one band at a time lives below in the same barRow/enumRow
-        // widgets every other FX unit's body uses — a flat 8-wide grid of
+        // widgets every other FX unit's body uses - a flat 8-wide grid of
         // every field stopped scaling once a band could also carry a
         // separate slope on top of freq/q/gain.
         try w.writeAll("   ");
@@ -443,12 +443,12 @@ pub fn drawFxView(
         try endLine(w);
 
         // Focused-band detail: kind/freq/q/gain-or-slope as full sliders,
-        // one row each — "gain" becomes "slope" the moment the band isn't
+        // one row each - "gain" becomes "slope" the moment the band isn't
         // peak (see eq_field_gain's doc comment), which is the actual ask
         // this redesign answers: a filter band's steepness gets a real
         // slider instead of being folded into the same cycle as its kind.
         // Rows only show a selection cursor once `enter` has actually
-        // opened this band's submenu — while still in band-select, h/l
+        // opened this band's submenu - while still in band-select, h/l
         // moves bands instead of nudging a field, so highlighting one here
         // would read as active when it isn't.
         const in_submenu = !app.eq_band_select;
@@ -524,7 +524,7 @@ fn formatFxValue(app: anytype, buf: []u8, p: *const ws.FxPayload, idx: usize) []
                 spectrum_ed.eq_field_freq => std.fmt.bufPrint(buf, "{d:.0}Hz", .{v}) catch "?",
                 spectrum_ed.eq_field_q => std.fmt.bufPrint(buf, "{d:.2}", .{v}) catch "?",
                 // Gain for a peak band; a filter band's "slope" instead,
-                // stored as a stage count (1..max_slope) — show it in
+                // stored as a stage count (1..max_slope) - show it in
                 // dB/oct (12 per cascade stage) since that's the unit a
                 // user actually thinks in.
                 else => if (e.bands[bf.band].kind == .peak)

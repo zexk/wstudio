@@ -13,7 +13,7 @@ const sel = style.sel;
 const yel = style.yel;
 const endLine = style.endLine;
 
-/// Genre tags joined "/" — same tags[1..] rule commands.zig's writeGenres
+/// Genre tags joined "/" - same tags[1..] rule commands.zig's writeGenres
 /// uses (index 0 is always the "wstudio" author tag on factory content).
 fn writeGenres(w: *std.Io.Writer, tags: []const []const u8) !void {
     if (tags.len <= 1) return;
@@ -53,7 +53,7 @@ pub fn drawPresetPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void {
     try endLine(w);
 
     // Scroll clamp keyed on the cursor entry's display row (headers count
-    // too) — same "clamped at draw" convention the automation param picker
+    // too) - same "clamped at draw" convention the automation param picker
     // uses, including its rows-|5 budget (2-row preamble + 3-row footer).
     var cursor_row: usize = 0;
     var n: usize = 0;
@@ -121,7 +121,7 @@ pub fn drawPresetPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void {
 
 /// Status row: the `/` prompt while a filter is being typed (the list above
 /// narrows live), the key hints otherwise. Appends `app.status_buf` so an
-/// apply error surfaces even though this view owns the row — the exact
+/// apply error surfaces even though this view owns the row - the exact
 /// dropped-setStatus trap the automation/slicer status rows had.
 pub fn drawPresetPickerStatus(app: anytype, w: *std.Io.Writer) !void {
     try w.writeAll(" j/k: move   enter: apply");

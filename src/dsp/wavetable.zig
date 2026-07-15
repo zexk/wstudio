@@ -1,7 +1,7 @@
 //! Wavetable storage + lookup for the synth's `.wavetable` oscillator mode.
 //! A table is a flat run of fixed-length frames; playback picks a fractional
 //! frame position (`frame_pos`, 0..1) and crossfades between the two nearest
-//! frames, each read with linear-interpolated phase — no band-limiting, so
+//! frames, each read with linear-interpolated phase - no band-limiting, so
 //! high notes on harmonically dense tables will alias (accepted for v1, see
 //! docs/ for the tradeoff).
 
@@ -13,7 +13,7 @@ const Sample = types.Sample;
 
 pub const frame_len: usize = 2048;
 
-/// Bundled "basic shapes" table (sine/triangle/saw/square, one frame each —
+/// Bundled "basic shapes" table (sine/triangle/saw/square, one frame each -
 /// see tools/genwavetable.zig). The oscillator's own frame_pos crossfade
 /// gives the morph between them; no baked intermediate frames needed.
 const default_wav = @embedFile("../assets/wavetable/basic_shapes.wav");
@@ -37,7 +37,7 @@ pub fn fromSamples(allocator: std.mem.Allocator, samples: []const f32) !Wavetabl
     return .{ .frames = frames, .frame_count = frame_count };
 }
 
-/// Parses `bytes` as a WAV and reshapes it into a table — the shared path
+/// Parses `bytes` as a WAV and reshapes it into a table - the shared path
 /// for both the bundled default and a `:load-wavetable`-imported WAV.
 pub fn fromWav(allocator: std.mem.Allocator, bytes: []const u8) !Wavetable {
     const result = try wav.parseAlloc(allocator, bytes);

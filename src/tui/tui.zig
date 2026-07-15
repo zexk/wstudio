@@ -3,7 +3,7 @@
 //! so callers (app.zig) keep using `tui.drawX` / `tui.endLine` / etc.
 //!
 //! View renderers that need App fields take `app: anytype`, so no view module
-//! imports app.zig — the compiler instantiates each with *App at the call site
+//! imports app.zig - the compiler instantiates each with *App at the call site
 //! and type-checks the field accesses there.
 
 const std = @import("std");
@@ -30,7 +30,7 @@ pub const meter = style.meter;
 // Header
 // ---------------------------------------------------------------------------
 
-/// Writes the header's content only (no trailing newline) — the caller
+/// Writes the header's content only (no trailing newline) - the caller
 /// (app.zig) captures it into a scratch buffer and renders it as a
 /// full-width chrome bar via `style.writeChromeRow`.
 pub fn drawHeader(

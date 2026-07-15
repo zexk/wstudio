@@ -1,5 +1,5 @@
 //! App state + the main loop: view dispatch, modal actions, track add/delete,
-//! and frame drawing. The rest of the TUI is split by concern — per-view input
+//! and frame drawing. The rest of the TUI is split by concern - per-view input
 //! in editors/<name>.zig, rendering in views/<name>.zig (via the tui.zig
 //! facade), undo glue in history.zig, the `:command` layer in commands.zig,
 //! and the integration tests in app_tests.zig.
@@ -47,7 +47,7 @@ const pattern_mod = ws.dsp.pattern;
 pub const note_ms = 220;
 /// Rows every view's content starts after in `App.draw`: the header line +
 /// the `hr` divider beneath it. Mouse hit-testing subtracts this before
-/// handing a row to a view's own handler — see `App.handleMouse`.
+/// handing a row to a view's own handler - see `App.handleMouse`.
 pub const content_top: u16 = 2;
 const frame_poll_ms = 30;
 const cmd_history_cap: usize = 50;
@@ -57,7 +57,7 @@ const reload_path_buf_len: usize = 1024;
 const tap_timeout_ns: i96 = 2 * std.time.ns_per_s;
 /// Minimum gap between silent `<path>~` backups; see `maybeAutosave`.
 const autosave_interval_ns: i96 = 30 * std.time.ns_per_s;
-/// Where a plain `:w` lands when no project path is known yet — also what
+/// Where a plain `:w` lands when no project path is known yet - also what
 /// a pathless session's autosave backs up next to (see `App.backupPath`).
 pub const default_project_path = "project.wsj";
 
@@ -66,10 +66,10 @@ pub const GridZoom = enum { compact, normal, expanded };
 
 /// One tracks-view display row: a real track, or a group's own row (its
 /// header when unfolded, the whole group when folded). The pinned master row
-/// is not represented — see `App.track_rows_buf`.
+/// is not represented - see `App.track_rows_buf`.
 pub const TrackRow = union(enum) { track: u16, group: u8 };
 
-/// Which waveform marker a sampler-editor mouse drag is moving — see
+/// Which waveform marker a sampler-editor mouse drag is moving - see
 /// `App.sampler_drag_marker` and editors/sampler.zig's handleMouse.
 pub const SamplerMarker = enum { start, end };
 
@@ -140,7 +140,7 @@ pub const DrumRangeClip = struct {
     vel: [DrumMachine.max_pads][DrumMachine.max_steps]u8 = [_][DrumMachine.max_steps]u8{[_]u8{DrumMachine.vel_full} ** DrumMachine.max_steps} ** DrumMachine.max_pads,
 };
 
-/// A visual-mode range yank from the slicer grid — same shape as
+/// A visual-mode range yank from the slicer grid - same shape as
 /// `DrumRangeClip`, one row per slice instead of per pad.
 pub const SlicerRangeClip = struct {
     width: u8,
@@ -163,7 +163,7 @@ pub const AutomationRangeClip = struct {
     points: []ws.dsp.automation.AutomationPoint,
 };
 
-/// `.` repeats the last "compound" edit — one where replaying it at a new
+/// `.` repeats the last "compound" edit - one where replaying it at a new
 /// cursor position is actually worth a shortcut, as opposed to single-key
 /// edits (insert note, toggle step, stamp/delete clip) that are already
 /// trivially repeatable by pressing the same key again. Each editor only
@@ -192,7 +192,7 @@ pub const RepeatOp = union(enum) {
 
 /// Ableton-style clip editing: while set, the piano roll's pattern player
 /// holds a working copy of this arrangement clip and every edit is written
-/// straight back into it — the clip owns the data. Identified by track +
+/// straight back into it - the clip owns the data. Identified by track +
 /// start bar because clip pointers shift as lanes are edited.
 const ClipLink = struct { track: u16, start_bar: u32 };
 
@@ -210,9 +210,9 @@ pub const App = struct {
     /// command mode (applyAction's `.mode_changed`); set by `completeCommand`.
     suggest_popup_open: bool = false,
     cursor: usize = 0,
-    /// Tracks-view display rows: tracks in folder order — a group's row
+    /// Tracks-view display rows: tracks in folder order - a group's row
     /// followed by its (indented) member tracks, folded groups hiding
-    /// theirs — plus memberless groups pinned after the last track. The
+    /// theirs - plus memberless groups pinned after the last track. The
     /// pinned master row is NOT in the list; `track_row == track_rows_len`
     /// is the master, same "one past the end" convention `cursor ==
     /// tracks.len` used before groups got rows. Rebuilt on demand by
@@ -221,26 +221,26 @@ pub const App = struct {
     track_rows_len: usize = 0,
     /// Tracks-view cursor, in display-row space (`track_rows_buf` index, or
     /// `track_rows_len` for the master row). `cursor` stays the selected
-    /// *track index* — the arrangement view, MIDI follow, and the editors
-    /// all share it — and the two are kept in sync by `setTrackRow` (row
+    /// *track index* - the arrangement view, MIDI follow, and the editors
+    /// all share it - and the two are kept in sync by `setTrackRow` (row
     /// moved here) / `tracksRowSync` (cursor moved by another view).
     track_row: usize = 0,
-    /// `cursor`'s value the last time the two were in sync — when they
+    /// `cursor`'s value the last time the two were in sync - when they
     /// differ, some other view moved the selected track and `tracksRowSync`
     /// re-derives `track_row` from it.
     track_row_cursor_snap: usize = 0,
-    /// Tracks view vertical scroll — first visible row index. Clamped to
+    /// Tracks view vertical scroll - first visible row index. Clamped to
     /// keep `track_row` in view directly in `drawTracks` (exact `rows` is
     /// known there), same pattern as `arr_scroll_bar` in drawArrangement.
     track_scroll: usize = 0,
-    /// How many track rows `drawTracks` actually rendered last frame — lets
+    /// How many track rows `drawTracks` actually rendered last frame - lets
     /// `tracksMouse` (which isn't handed the row budget) know where the
     /// pinned master row landed on screen.
     track_rows_shown: usize = 0,
     view: AppView = .tracks,
     prev_view: AppView = .tracks,
     drum_cursor: [2]u8 = .{ 0, 0 },
-    /// First visible step column — cursor-follow horizontal scroll, same
+    /// First visible step column - cursor-follow horizontal scroll, same
     /// "clamped at draw" convention as `arr_scroll_bar`/`automation_scroll`
     /// (drawDrumGrid updates it; step_count can exceed a terminal's width
     /// at max_steps = 64).
@@ -248,13 +248,13 @@ pub const App = struct {
     drum_zoom: GridZoom = .normal,
     /// Track currently shown in the drum_grid view (a drum_machine rack).
     drum_track: u16 = 0,
-    /// [slice, step] cursor for the slicer_grid view — same shape as
+    /// [slice, step] cursor for the slicer_grid view - same shape as
     /// `drum_cursor`.
     slicer_cursor: [2]u8 = .{ 0, 0 },
-    /// First visible step column, cursor-follow — same convention as
+    /// First visible step column, cursor-follow - same convention as
     /// `drum_step_scroll`.
     slicer_step_scroll: u32 = 0,
-    /// First visible slice row, cursor-follow bank window — same convention
+    /// First visible slice row, cursor-follow bank window - same convention
     /// as the drum grid's own pad banking (views/slicer.zig).
     slicer_row_scroll: usize = 0,
     /// Track currently shown in the slicer_grid view (a slicer rack).
@@ -278,10 +278,10 @@ pub const App = struct {
     // (e.g. piano-roll preview) without threading now_ns through every signature.
     now_ns: i96 = 0,
     /// An open coalescing batch of synth/sampler param nudges (h/l/H/L),
-    /// flushed to `history` once the cursor moves off that param — see
+    /// flushed to `history` once the cursor moves off that param - see
     /// history.zig's noteParamNudge/flushParamNudge.
     pending_param_nudge: ?undo_mod.PendingParamNudge = null,
-    /// An open coalescing batch of FX-chain param nudges — see history.zig's
+    /// An open coalescing batch of FX-chain param nudges - see history.zig's
     /// noteFxNudge/flushFxNudge. Owns a heap-allocated "before" chain
     /// snapshot until flushed; freed in `deinit` if a batch is still open.
     pending_fx_nudge: ?undo_mod.PendingFxNudge = null,
@@ -291,11 +291,11 @@ pub const App = struct {
     /// (h/l moves band, enter opens its field submenu); false once inside a
     /// band's submenu (j/k picks kind/freq/q/gain-or-slope, h/l nudges the
     /// value, esc backs out to band-select). Reset to band-select whenever
-    /// chain focus changes — see editors/spectrum.zig's setFocus. Cycling
+    /// chain focus changes - see editors/spectrum.zig's setFocus. Cycling
     /// every field of every band just to reach the next band was the actual
     /// complaint this splits the flat 32-entry list's navigation to fix.
     eq_band_select: bool = true,
-    /// Chain slot index the FX view is focused on — Tab cycles it. Clamped
+    /// Chain slot index the FX view is focused on - Tab cycles it. Clamped
     /// by every chain mutation; out of range only while the chain is empty.
     fx_focus: usize = 0,
     /// Highlighted row in the FX picker.
@@ -303,13 +303,13 @@ pub const App = struct {
     /// Chain view the FX picker returns to (track_spectrum/master_spectrum/
     /// group_spectrum).
     fx_picker_return: AppView = .tracks,
-    /// Last submitted `/` filter for the FX picker — same "live buffer wins
+    /// Last submitted `/` filter for the FX picker - same "live buffer wins
     /// while typing, else the last submitted pattern" rule as
     /// `preset_filter_buf`; cleared on every open. See `spectrum.activeFilter`.
     fx_picker_filter_buf: [modal_mod.ModalInput.max_cmd_len]u8 = undefined,
     fx_picker_filter_len: usize = 0,
     /// Highlighted row in the synth-internal FX insert picker (`.fx`
-    /// subview's `a`) — always returns to `.synth_editor`, so no return-view
+    /// subview's `a`) - always returns to `.synth_editor`, so no return-view
     /// field needed like `fx_picker_return`'s.
     synth_fx_picker_cursor: u8 = 0,
     /// Same filter convention as `fx_picker_filter_buf`, for the
@@ -317,7 +317,7 @@ pub const App = struct {
     synth_fx_picker_filter_buf: [modal_mod.ModalInput.max_cmd_len]u8 = undefined,
     synth_fx_picker_filter_len: usize = 0,
     eq_track: u16 = 0,
-    /// Which group's FX chain is in view when `view == .group_spectrum` —
+    /// Which group's FX chain is in view when `view == .group_spectrum` -
     /// parallel to `eq_track`.
     eq_group: u8 = 0,
     /// Scroll offset (in lines) of the help view; clamped by tui.drawHelp.
@@ -329,7 +329,7 @@ pub const App = struct {
     synth_cursor: u8 = 0,
     synth_scroll: usize = 0,
     /// Which of the synth editor's three subviews (osc/env/filter params,
-    /// the internal FX section, the mod matrix) is showing — cycled by Tab.
+    /// the internal FX section, the mod matrix) is showing - cycled by Tab.
     /// `synth_cursor` stays one flat param-id space across all three; only
     /// which ids are reachable/rendered changes with the subview.
     synth_subview: synth_ed.Subview = .main,
@@ -340,7 +340,7 @@ pub const App = struct {
     /// `draw`'s call chain with no terminal-size parameter of its own, but
     /// the synth editor's column-grid navigation (`synth_layout.numCols`)
     /// needs to know the current column-count bucket to walk the same
-    /// visual order the last frame rendered — cheaper than threading a
+    /// visual order the last frame rendered - cheaper than threading a
     /// `cols` parameter through the whole key-handling dispatch chain for
     /// one view. Defaults to 80 (== `min_cols`) so pre-first-draw nav
     /// (tests) still gets a sane single-column bucket.
@@ -353,27 +353,27 @@ pub const App = struct {
     piano_note_len: f64 = 0.25,
     /// Piano-roll step grid: straight sixteenths (4 steps/beat) or
     /// sixteenth-note triplets (6 steps/beat), toggled by `T`. Global, not
-    /// persisted — a display/editing aid like `piano_scale`.
+    /// persisted - a display/editing aid like `piano_scale`.
     piano_grid: enum { straight, triplet } = .straight,
     /// Piano-roll horizontal zoom: `z` enlarges cells and `Z` compacts them.
     /// Global and not persisted, in the same bucket
     /// as `piano_grid`/`piano_scale`.
     piano_zoom: GridZoom = .normal,
-    /// True while `M` holds the piano-roll note under the cursor — h/l/j/k
+    /// True while `M` holds the piano-roll note under the cursor - h/l/j/k
     /// then drag the note instead of the cursor; esc/M (or any other key)
     /// drop it. See editors/piano.zig.
     piano_grab: bool = false,
     /// Arrangement view: bar cursor and horizontal scroll (lane = `cursor`).
     arr_cursor_bar: u32 = 0,
     arr_scroll_bar: u32 = 0,
-    /// Arrangement view: vertical scroll over lanes — first visible lane
+    /// Arrangement view: vertical scroll over lanes - first visible lane
     /// index. Clamped directly in drawArrangement against the exact `rows`
     /// budget, same pattern as `arr_scroll_bar`'s horizontal clamp (and
-    /// `App.track_scroll` in the tracks view — no pinned row here, since
+    /// `App.track_scroll` in the tracks view - no pinned row here, since
     /// arrangement lanes have no master-bus equivalent).
     arr_scroll_lane: usize = 0,
     /// Arrangement horizontal zoom: `z` enlarges cells and `Z` compacts them.
-    /// Mirrors `App.piano_zoom`. Not persisted — a display aid.
+    /// Mirrors `App.piano_zoom`. Not persisted - a display aid.
     arr_zoom: GridZoom = .normal,
     /// Pattern clipboards (y yank / P paste), app-wide so patterns can move
     /// between tracks. Whole-pattern granularity; one slot per editor kind.
@@ -391,7 +391,7 @@ pub const App = struct {
     /// is pressed without entering visual mode first, holding which operator
     /// is armed until the next key. A step/bar motion (h/l/H/L/[g/G]) acts on
     /// the range from the `*_visual_anchor` set at arm-time to wherever the
-    /// motion lands — the vim `d3j`/`y2l` grammar — reusing the exact same
+    /// motion lands - the vim `d3j`/`y2l` grammar - reusing the exact same
     /// range delete/yank visual mode uses, just without its UI. See each
     /// editor's `armOperator`/operator-pending block in handleKey.
     piano_op_pending: ?u8 = null,
@@ -400,12 +400,12 @@ pub const App = struct {
     arr_op_pending: ?u8 = null,
     automation_op_pending: ?u8 = null,
     /// Tracks view: `d` arms, a second `d` (dd) deletes the cursor track
-    /// immediately — no confirm prompt, same "operator + same key repeats on
+    /// immediately - no confirm prompt, same "operator + same key repeats on
     /// the whole line" grammar piano/drum/arrangement use for their own
     /// dd/yy. Any other key cancels.
     tracks_del_pending: bool = false,
     /// Tracks view visual mode: `v` sets the anchor, `j`/`k` extend a
-    /// contiguous range of display rows (master excluded — it can't be
+    /// contiguous range of display rows (master excluded - it can't be
     /// grouped), `g` groups the selection. In `track_row` space, not track
     /// indices. Same anchor-field shape arrangement/drum/automation's own
     /// visual modes already use.
@@ -420,22 +420,22 @@ pub const App = struct {
     /// pastes whatever was yanked most recently (vim's unnamed-register
     /// feel): after yy p replaces the whole pattern, after a visual or
     /// operator+motion range yank p pastes the range at the cursor.
-    /// Arrangement doesn't need one — its yy fills the same range clipboard.
+    /// Arrangement doesn't need one - its yy fills the same range clipboard.
     piano_last_yank: enum { pattern, range } = .pattern,
     drum_last_yank: enum { pattern, range } = .pattern,
-    /// `.` repeat target — the last compound edit, app-wide (see RepeatOp).
+    /// `.` repeat target - the last compound edit, app-wide (see RepeatOp).
     last_edit: RepeatOp = .none,
     /// Cumulative (dstep, dpitch) of the current note-drag session (M grab
     /// or a mouse drag), reset when the grab starts, committed to
     /// `last_edit` when it drops. `moved` distinguishes a mouse drag that
     /// never actually left its starting cell (a plain click) from one that
-    /// did — see editors/piano.zig's handleMouse.
+    /// did - see editors/piano.zig's handleMouse.
     piano_grab_delta: struct { dstep: i32 = 0, dpitch: i32 = 0, moved: bool = false } = .{},
     /// In-progress drum-grid mouse paint stroke: the state being painted
     /// (true = activating, false = clearing). Null when no drag is active.
     /// See editors/drum.zig's handleMouse.
     drum_paint_state: ?bool = null,
-    /// In-progress slicer-grid mouse paint stroke — same convention as
+    /// In-progress slicer-grid mouse paint stroke - same convention as
     /// `drum_paint_state`. See editors/slicer.zig's handleMouse.
     slicer_paint_state: ?bool = null,
     /// In-progress arrangement clip drag: the bar last reported by the
@@ -451,10 +451,10 @@ pub const App = struct {
     /// arrangement; cleared when the roll opens on a live pattern instead.
     piano_clip_link: ?ClipLink = null,
     /// The arrangement clip the automation view is editing, relocated by
-    /// (track, start_bar) the same way `piano_clip_link` is — set by `a` on
+    /// (track, start_bar) the same way `piano_clip_link` is - set by `a` on
     /// a clip in the arrangement view. See editors/automation.zig.
     automation_clip: ?ClipLink = null,
-    /// Track shown in the automation view — mirrors `piano_track`/
+    /// Track shown in the automation view - mirrors `piano_track`/
     /// `drum_track` etc. so `currentTrack()` can find it.
     automation_track: u16 = 0,
     /// Which curve h/l + j/k currently edit; tab cycles, `p` opens a picker
@@ -466,30 +466,30 @@ pub const App = struct {
     /// while `.automation_param_picker` is open.
     automation_param_cursor: u8 = 0,
     /// Scroll offset (in printed display rows, headers included) for the
-    /// param picker — mirrors `track_scroll`'s "clamped at draw" convention.
+    /// param picker - mirrors `track_scroll`'s "clamped at draw" convention.
     automation_param_scroll: usize = 0,
-    /// Last submitted `/` filter for the automation param picker — same
+    /// Last submitted `/` filter for the automation param picker - same
     /// convention as `preset_filter_buf`. See `automation_ed.activeParamFilter`.
     automation_param_filter_buf: [modal_mod.ModalInput.max_cmd_len]u8 = undefined,
     automation_param_filter_len: usize = 0,
     /// Cursor position within the clip, in 16th-note steps (0 = clip start,
-    /// same unit the piano roll/drum grid use — beat = step / 4.0).
+    /// same unit the piano roll/drum grid use - beat = step / 4.0).
     automation_cursor_step: u32 = 0,
     /// Horizontal scroll (in steps), kept in sync with the cursor by
     /// views/automation.zig, mirroring `arr_scroll_bar`.
     automation_scroll: u32 = 0,
     /// Visual-mode step-range selection anchor on the currently-edited curve
-    /// (`automation_target`) — mirrors `piano_visual_anchor`/`arr_visual_anchor`.
+    /// (`automation_target`) - mirrors `piano_visual_anchor`/`arr_visual_anchor`.
     automation_visual_anchor: ?u32 = null,
     /// A visual-mode range yank of breakpoints from the current curve,
     /// rebased so the selection's first step becomes beat 0.
     automation_range_clip: ?AutomationRangeClip = null,
     /// Active `:scale` for the piano roll's scale highlighting and `c`/`C`
     /// chord stamp; null = no scale (dims nothing, chord stamp defaults to a
-    /// plain major shape). A monitoring/writing aid, not song content — not
+    /// plain major shape). A monitoring/writing aid, not song content - not
     /// persisted, mirroring `Session.metronome_enabled`.
     piano_scale: ?ws.theory.Scale = null,
-    /// `:ghost [on|off]` — dims every OTHER melodic track's notes into the
+    /// `:ghost [on|off]` - dims every OTHER melodic track's notes into the
     /// piano roll's empty cells (e.g. tracing a bassline from a chord
     /// track). Same monitoring-aid status as `piano_scale`: not persisted.
     piano_ghost: bool = false,
@@ -500,7 +500,7 @@ pub const App = struct {
     /// wholesale on every save. Complements the compiled-in, read-only
     /// factory list in `dsp/synth_presets.zig`.
     user_synth_presets: std.ArrayListUnmanaged(user_presets.UserPreset) = .empty,
-    /// User-saved drum kits (`:drum-kit-save <name>`) — pad tuning only, no
+    /// User-saved drum kits (`:drum-kit-save <name>`) - pad tuning only, no
     /// audio (see `tui/user_drum_kits.zig`'s own doc comment for why),
     /// loaded once at startup from `~/.config/wstudio/drum_kits.json` and
     /// rewritten wholesale on every save.
@@ -509,21 +509,21 @@ pub const App = struct {
     /// every persisted mutation (content edits via history.push, param
     /// nudges, track/mix changes); cleared on save. `:q` refuses while set.
     dirty: bool = false,
-    /// Path of the current project file — the default for :w / :wq. Set when
+    /// Path of the current project file - the default for :w / :wq. Set when
     /// a project is loaded at startup and updated on every successful save.
     project_path_buf: [reload_path_buf_len]u8 = undefined,
     project_path_len: usize = 0,
     /// Submitted `:` commands, oldest first, for up/down recall in the
     /// command prompt. Capped at `cmd_history_cap`; oldest drops when full.
     /// Persisted to `~/.config/wstudio/cmd_history.json` (see
-    /// `cmd_history_store.zig`) — loaded once at `init`, rewritten on every
+    /// `cmd_history_store.zig`) - loaded once at `init`, rewritten on every
     /// new entry so it survives across runs like a shell's history file.
     cmd_history: std.ArrayListUnmanaged([]const u8) = .empty,
     /// Position while recalling: `cmd_history.items.len` means "not
-    /// recalling — the prompt holds a fresh, unsubmitted line".
+    /// recalling - the prompt holds a fresh, unsubmitted line".
     cmd_history_pos: usize = 0,
     /// Set by `:e`/`:new` (see `requestReload`) to ask `run()` to swap the
-    /// session on the next loop iteration. `run()` — not App — owns the
+    /// session on the next loop iteration. `run()` - not App - owns the
     /// audio backend handles, and those hold a raw `*Engine` pointer
     /// captured at start, so the swap has to stop the backend, replace
     /// `session.engine`, and restart it; that can't happen from inside a
@@ -541,18 +541,18 @@ pub const App = struct {
     /// Minimal netrw/dired-style file browser: `:e` and `:load-sample`
     /// open it when called with no path. `browser_dir` is the
     /// canonical (realpath'd) directory currently listed in `browser_entries`
-    /// — both are owned and freed together (see `closeBrowser`).
+    /// - both are owned and freed together (see `closeBrowser`).
     browser_dir: [:0]const u8 = "",
     browser_entries: std.ArrayListUnmanaged(BrowserEntry) = .empty,
     browser_cursor: usize = 0,
     browser_scroll: usize = 0,
     browser_purpose: BrowserPurpose = .load_sample,
     /// `b` toggles the cursor entry in/out. Persisted to
-    /// `~/.config/wstudio/bookmarks.json` (see `bookmark_store.zig`) — loaded
+    /// `~/.config/wstudio/bookmarks.json` (see `bookmark_store.zig`) - loaded
     /// once at `init`, rewritten on every add/remove so it survives across
     /// runs like `cmd_history`.
     bookmarks: std.ArrayListUnmanaged(bookmark_store.Bookmark) = .empty,
-    /// `B` swaps the browser's listing for `bookmarks` in place — own
+    /// `B` swaps the browser's listing for `bookmarks` in place - own
     /// cursor/scroll so returning to the directory listing (`esc`/`q`)
     /// doesn't disturb where you were browsing.
     browser_bookmark_mode: bool = false,
@@ -560,11 +560,11 @@ pub const App = struct {
     bookmark_scroll: usize = 0,
     /// Last submitted `/` search pattern, owned (fixed buffer, same
     /// convention as `project_path_buf`), shared across views the same way
-    /// vim's search register is global — `n`/`N` repeat it in whichever view
+    /// vim's search register is global - `n`/`N` repeat it in whichever view
     /// has something to search (tracks, file browser).
     search_pattern_buf: [modal_mod.ModalInput.max_cmd_len]u8 = undefined,
     search_pattern_len: usize = 0,
-    /// Preset picker (`f` in the synth editor / drum grid — see editors/
+    /// Preset picker (`f` in the synth editor / drum grid - see editors/
     /// preset_picker.zig): which preset system it's browsing, the track an
     /// accepted preset applies to, and the view escape bounces back to.
     preset_picker_kind: preset_ed.Kind = .synth,
@@ -575,7 +575,7 @@ pub const App = struct {
     /// `automation_param_scroll`.
     preset_picker_cursor: usize = 0,
     preset_picker_scroll: usize = 0,
-    /// Last submitted `/` filter for the preset picker — separate from the
+    /// Last submitted `/` filter for the preset picker - separate from the
     /// global search register because it narrows a list rather than jumping
     /// a cursor, and clears on every open. While the prompt is still being
     /// typed the live buffer wins; see `preset_ed.activeFilter`.
@@ -619,14 +619,14 @@ pub const App = struct {
     }
 
     /// The drum machine currently open in the drum_grid view. Valid only while
-    /// `drum_track` points at a drum_machine rack — guaranteed by view entry and
+    /// `drum_track` points at a drum_machine rack - guaranteed by view entry and
     /// the view-exit guards in `doTrackDel`.
     pub fn drumMachine(self: *App) *DrumMachine {
         return &self.session.racks.items[self.drum_track].instrument.drum_machine;
     }
 
     /// The slicer currently open in the slicer_grid view. Valid only while
-    /// `slicer_track` points at a slicer rack — same guarantee as `drumMachine`.
+    /// `slicer_track` points at a slicer rack - same guarantee as `drumMachine`.
     pub fn slicerInst(self: *App) *Slicer {
         return &self.session.racks.items[self.slicer_track].instrument.slicer;
     }
@@ -669,7 +669,7 @@ pub const App = struct {
         return @min(self.modal.takeCount(), 4096);
     }
 
-    /// Steps per beat for the piano roll's current grid — 4 (straight
+    /// Steps per beat for the piano roll's current grid - 4 (straight
     /// sixteenths) or 6 (sixteenth-note triplets). Every step<->beat
     /// conversion in editors/piano.zig and views/piano.zig goes through
     /// this so `T` can retune the whole grid in one place.
@@ -709,7 +709,7 @@ pub const App = struct {
     pub fn handleKey(self: *App, key_in: modal_mod.Key, now_ns: i96) void {
         self.now_ns = now_ns;
         if (key_in == .ctrl_c) {
-            // ctrl-c always exits, even with unsaved changes — but the least
+            // ctrl-c always exits, even with unsaved changes - but the least
             // deliberate quit path shouldn't have the weakest safety net, so
             // flush a backup first instead of letting up to 30s of edits
             // (the autosave cadence) die with the process.
@@ -719,10 +719,10 @@ pub const App = struct {
         }
 
         // zig fmt: off
-        // Command/search mode: up/down recall history (command only — search
+        // Command/search mode: up/down recall history (command only - search
         // has no history), tab completes the command name (command only).
         // Left/right/home/end/ctrl-w edit the cmd_buf cursor in place
-        // (modal.handle owns that state, shared by both prompts) — passed
+        // (modal.handle owns that state, shared by both prompts) - passed
         // through as their own variants rather than the hjkl aliasing below,
         // which would insert literal 'h'/'l' characters into the line
         // instead of moving through it.
@@ -735,7 +735,7 @@ pub const App = struct {
                 else => {},
             }
         }
-        // Everywhere else, arrows are a plain hjkl alias (vim convention) —
+        // Everywhere else, arrows are a plain hjkl alias (vim convention) -
         // every view already navigates on h/l/j/k, so this is transparent.
         const key: modal_mod.Key = switch (key_in) {
             .arrow_up => .{ .char = 'k' },
@@ -746,7 +746,7 @@ pub const App = struct {
         };
         // zig fmt: on
 
-        // `?` opens the context-jumping help from ANY view's normal mode —
+        // `?` opens the context-jumping help from ANY view's normal mode -
         // cmdHelp already maps every view to its help section and prev_view
         // brings escape back here. Gated to normal mode so command/search
         // typing and piano-roll insert notes never trigger it.
@@ -816,7 +816,7 @@ pub const App = struct {
             .track_spectrum, .master_spectrum, .group_spectrum => if (self.modal.mode == .command or self.modal.mode == .search or !spectrum_ed.handleKey(self, key)) {
                 self.applyAction(self.modal.handle(key), now_ns);
             } else { self.modal.count = 0; },
-            // Insert mode bypasses the roll's own switch entirely — once
+            // Insert mode bypasses the roll's own switch entirely - once
             // inserted, the piano-keyboard layout needs h/j/k/l as notes,
             // not roll navigation, so modal.handle owns every key until
             // escape drops back to normal (see recordNote in editors/piano.zig).
@@ -825,7 +825,7 @@ pub const App = struct {
             } else { self.modal.count = 0; },
             .instrument_picker => self.handlePickerKey(key),
             // `/` (and the search mode it enters) is routed to the modal
-            // prompt so the picker's filter narrows live while typing —
+            // prompt so the picker's filter narrows live while typing -
             // submit/cancel land in applyAction's `.search_submit` case.
             // Same shape as `.preset_picker`'s own routing below.
             .fx_picker => if (self.modal.mode == .search or (key == .char and key.char == '/')) {
@@ -857,15 +857,15 @@ pub const App = struct {
                 if (self.modal.mode == .visual) { self.handleTracksVisual(key); return; }
 
                 // The cursor walks display rows: real tracks, group rows,
-                // and — one slot past the end, same convention as before
-                // groups got rows — the pinned master row. Bus rows (group/
+                // and - one slot past the end, same convention as before
+                // groups got rows - the pinned master row. Bus rows (group/
                 // master) can't be deleted-as-a-track/duplicated/moved/
                 // muted/soloed and have no piano roll or pan.
                 const cur_track = self.cursorTrack();
                 const cur_group = self.cursorGroup();
                 const on_master = self.track_row == self.track_rows_len;
                 // `d` arms; a second `d` (dd) deletes the cursor row right
-                // away — the track, or on a group row the group itself — no
+                // away - the track, or on a group row the group itself - no
                 // confirm. Checked first so it wins over every other binding
                 // below and can't get stuck armed.
                 if (self.tracks_del_pending) {
@@ -991,7 +991,7 @@ pub const App = struct {
     }
     // zig fmt: on
 
-    /// Mouse entry point — routed here directly by `run()` rather than
+    /// Mouse entry point - routed here directly by `run()` rather than
     /// through `handleKey`/the modal state machine (mouse isn't part of the
     /// vim mode grammar; it's a second way to trigger the same actions keys
     /// already trigger). `cols`/`rows` are the current terminal size, needed
@@ -1024,7 +1024,7 @@ pub const App = struct {
         }
     }
 
-    /// Tracks view: click a row to select + open it (same as Enter — a
+    /// Tracks view: click a row to select + open it (same as Enter - a
     /// group row opens its FX chain); scroll moves the cursor like j/k.
     /// Row-level only: track names are unbounded width (`"{s: <8}"` pads
     /// but never truncates), so a mute/solo column click zone can't be
@@ -1078,7 +1078,7 @@ pub const App = struct {
             };
             if (g >= engine_mod.max_groups or self.session.groups[g] == null) {
                 // Stale reference (assignTrackGroup never writes one, but a
-                // hand-edited file might) — render as plain ungrouped.
+                // hand-edited file might) - render as plain ungrouped.
                 self.track_rows_buf[n] = .{ .track = @intCast(i) };
                 n += 1;
                 continue;
@@ -1110,7 +1110,7 @@ pub const App = struct {
 
     /// Rebuild + re-sync the row cursor. When `cursor` moved since the last
     /// sync (another view or a command changed the selected track), the row
-    /// cursor follows it — unfolding is NOT forced, so a track hidden in a
+    /// cursor follows it - unfolding is NOT forced, so a track hidden in a
     /// fold resolves to its group's row. Call before any row-cursor read.
     pub fn tracksRowSync(self: *App) void {
         self.rebuildTrackRows();
@@ -1126,7 +1126,7 @@ pub const App = struct {
 
     /// Force the next `tracksRowSync` to re-derive `track_row` from
     /// `cursor`. The sync's value-diff heal can't see a structural change
-    /// that reshapes the row list while `cursor` keeps its value — e.g.
+    /// that reshapes the row list while `cursor` keeps its value - e.g.
     /// deleting a track below the cursor when the deleted track was the
     /// first member of a group (the group's row, keyed to its first
     /// member's position, jumps elsewhere in the list).
@@ -1136,8 +1136,8 @@ pub const App = struct {
 
     /// Move the row cursor and mirror it into `cursor`: a track row selects
     /// its track; a group or the master row parks `cursor` one past the last
-    /// track — the pre-existing master sentinel every consumer (mute/solo,
-    /// MIDI follow, arrangement) already guards — so nothing outside the
+    /// track - the pre-existing master sentinel every consumer (mute/solo,
+    /// MIDI follow, arrangement) already guards - so nothing outside the
     /// tracks view ever targets a bus row.
     pub fn setTrackRow(self: *App, row: usize) void {
         self.track_row = @min(row, self.track_rows_len);
@@ -1151,19 +1151,19 @@ pub const App = struct {
         return switch (self.track_rows_buf[row]) { .track => |t| t, .group => null };
     }
 
-    /// Track under the row cursor — null on a group or the master row.
+    /// Track under the row cursor - null on a group or the master row.
     pub fn cursorTrack(self: *const App) ?u16 {
         return self.rowTrack(self.track_row);
     }
 
-    /// Group whose row the cursor is on — null on track/master rows.
+    /// Group whose row the cursor is on - null on track/master rows.
     pub fn cursorGroup(self: *const App) ?u8 {
         if (self.track_row >= self.track_rows_len) return null;
         return switch (self.track_rows_buf[self.track_row]) { .group => |g| g, .track => null };
     }
     // zig fmt: on
 
-    /// Row of track `idx` — its group's row when hidden inside a fold.
+    /// Row of track `idx` - its group's row when hidden inside a fold.
     fn rowOfTrack(self: *const App, idx: u16) usize {
         var group_row: usize = 0;
         for (self.trackRows(), 0..) |r, ri| switch (r) {
@@ -1186,7 +1186,7 @@ pub const App = struct {
 
     /// `z` in the tracks view: fold/unfold the group under (or containing)
     /// the cursor. Folding from a member row lands the cursor on the group's
-    /// own row — the rows it could have sat on are gone.
+    /// own row - the rows it could have sat on are gone.
     fn doGroupFoldToggle(self: *App, g: u8) void {
         if (g >= engine_mod.max_groups) return;
         if (self.session.groups[g]) |*grp| {
@@ -1199,8 +1199,8 @@ pub const App = struct {
     }
 
     /// `-`/`+` on a group row: ride the bus fader (session.setGroupGain
-    /// clamps to the track-gain range). Mixer-style live state, so — like
-    /// track gain/pan — deliberately not undo-tracked.
+    /// clamps to the track-gain range). Mixer-style live state, so - like
+    /// track gain/pan - deliberately not undo-tracked.
     fn doGroupGainStep(self: *App, g: u8, delta_db: f32) void {
         if (g >= engine_mod.max_groups) return;
         if (self.session.groups[g]) |*grp| {
@@ -1212,17 +1212,17 @@ pub const App = struct {
     }
 
     /// `dd` on a group row: delete the group. Members fall back to the
-    /// master mix — same semantics as `:group-del`.
+    /// master mix - same semantics as `:group-del`.
     fn doGroupDel(self: *App, g: u8) void {
         if (g >= engine_mod.max_groups or self.session.groups[g] == null) return;
-        // Must run before deleteGroup frees the slot — see cmdGroupDel's
+        // Must run before deleteGroup frees the slot - see cmdGroupDel's
         // same call for why.
         _ = history.dropGroupPending(self, g);
         self.session.deleteGroup(g);
         self.dirty = true;
         // `cursor` sat parked on the master sentinel while the group row was
         // selected and doesn't move here, so the value-diff heal never fires
-        // — land on whatever shifted into the row's place instead (vim dd
+        // - land on whatever shifted into the row's place instead (vim dd
         // semantics), re-mirroring `cursor` from it.
         self.rebuildTrackRows();
         self.setTrackRow(self.track_row);
@@ -1274,7 +1274,7 @@ pub const App = struct {
     }
 
     /// R opens the command prompt pre-filled with `:track-rename <n> ` for
-    /// the cursor track — type the new name and hit enter (`esc` cancels,
+    /// the cursor track - type the new name and hit enter (`esc` cancels,
     /// same as any other command-mode entry).
     fn startRenamePrompt(self: *App) void {
         if (self.cursor >= self.session.project.tracks.items.len) return;
@@ -1287,7 +1287,7 @@ pub const App = struct {
 
     // zig fmt: off
     /// Tracks view visual mode's reduced key set: `j`/`k` extend the
-    /// selection over display rows (master excluded — the cursor can't
+    /// selection over display rows (master excluded - the cursor can't
     /// reach it from here since the range never includes it), `g` groups
     /// the selection, `esc` cancels. Everything else is swallowed, matching
     /// the other editors' visual modes.
@@ -1314,7 +1314,7 @@ pub const App = struct {
     /// selected rows. The selection takes what's on screen: track rows join
     /// directly and a *folded*
     /// group row brings its hidden members along; an unfolded group's own
-    /// row contributes nothing — its members are rows of their own.
+    /// row contributes nothing - its members are rows of their own.
     fn groupSelectedTracks(self: *App) void {
         const anchor = self.tracks_visual_anchor orelse self.track_row;
         const lo = @min(anchor, self.track_row);
@@ -1608,7 +1608,7 @@ pub const App = struct {
     /// Param picker: click a param row to select + apply it (same as enter/
     /// space); header rows aren't clickable. Scroll moves the highlight.
     /// Row math mirrors `views/automation.zig`'s `drawAutomationParamPicker`
-    /// exactly (title(1) + blank(1) before the display-row list starts) —
+    /// exactly (title(1) + blank(1) before the display-row list starts) -
     /// both build the same list via `automation_ed.buildParamDisplayRows`.
     fn automationParamPickerMouse(self: *App, ev: modal_mod.MouseEvent, row: usize) void {
         switch (ev.kind) {
@@ -1635,7 +1635,7 @@ pub const App = struct {
 
     // -----------------------------------------------------------------------
     // File browser (netrw/dired-style; `:e`, `:load-sample` with
-    // no path open it — see commands.zig)
+    // no path open it - see commands.zig)
     // -----------------------------------------------------------------------
 
     /// Enter the browser for `purpose`, starting in the current project's
@@ -1698,7 +1698,7 @@ pub const App = struct {
     }
 
     /// Directories first, then alphabetical (case-insensitive) within each
-    /// group — matches `ls`/netrw ordering.
+    /// group - matches `ls`/netrw ordering.
     fn browserEntryLess(_: void, a: BrowserEntry, b: BrowserEntry) bool {
         if (a.is_dir != b.is_dir) return a.is_dir;
         return std.ascii.lessThanIgnoreCase(a.name, b.name);
@@ -1739,7 +1739,7 @@ pub const App = struct {
                 'b' => self.toggleBookmark(),
                 'B' => {
                     if (self.bookmarks.items.len == 0) {
-                        self.setStatus("no bookmarks yet — b marks the entry under the cursor", .{});
+                        self.setStatus("no bookmarks yet - b marks the entry under the cursor", .{});
                         return;
                     }
                     self.browser_bookmark_mode = true;
@@ -1831,7 +1831,7 @@ pub const App = struct {
     }
     // zig fmt: on
 
-    /// Parent of `browser_dir` (root's parent is itself — nothing to go up to).
+    /// Parent of `browser_dir` (root's parent is itself - nothing to go up to).
     fn browserGoUp(self: *App) void {
         const parent = std.fs.path.dirname(self.browser_dir) orelse return;
         self.setBrowserDir(parent) catch |e| self.setStatus("browse: {s}", .{@errorName(e)});
@@ -1851,11 +1851,11 @@ pub const App = struct {
         }
         switch (self.browser_purpose) {
             // Only reachable via a non-forced `:e` (openBrowser's sole
-            // .open_project caller, commands.editOrRevert) — the dirty
+            // .open_project caller, commands.editOrRevert) - the dirty
             // refusal that skips there for a given path belongs here
             // instead, since browsing itself was allowed through regardless.
             .open_project => if (self.dirty) {
-                self.setStatus("unsaved changes — :w to save, :e! to discard", .{});
+                self.setStatus("unsaved changes - :w to save, :e! to discard", .{});
             } else {
                 self.requestReload(joined);
             },
@@ -1875,7 +1875,7 @@ pub const App = struct {
     }
 
     // zig fmt: off
-    /// Track that mute/solo/note-preview act on outside the tracks view —
+    /// Track that mute/solo/note-preview act on outside the tracks view -
     /// the track whose editor is actually open, not the (possibly stale)
     /// tracks-view cursor. Keep this in sync with every per-track editor;
     /// missing a view here means mute/solo/preview silently hit the wrong
@@ -1921,7 +1921,7 @@ pub const App = struct {
                     // synth/sampler/spectrum have no ':' or '/' arm of their
                     // own, so entering command/search mode from one of
                     // those editors would otherwise never close an open
-                    // nudge batch — this is the one place all of them
+                    // nudge batch - this is the one place all of them
                     // funnel through. No-op if nothing's pending.
                     history.flushParamNudge(self);
                     history.flushFxNudge(self);
@@ -1929,15 +1929,15 @@ pub const App = struct {
             },
             .move => |m| {
                 if (self.view == .tracks) {
-                    // Row-space movement: tracks, group rows, and — one
-                    // extra slot past the end — the pinned master row.
+                    // Row-space movement: tracks, group rows, and - one
+                    // extra slot past the end - the pinned master row.
                     self.tracksRowSync();
                     const target: i64 = @as(i64, @intCast(self.track_row)) + m.dy;
                     const last: i64 = @intCast(self.track_rows_len);
                     self.setTrackRow(@intCast(std.math.clamp(target, 0, last)));
                 } else {
                     const count: i64 = @as(i64, @intCast(self.cursor)) + m.dy;
-                    // One extra slot past the last real track — the master row.
+                    // One extra slot past the last real track - the master row.
                     const last: i64 = @intCast(self.session.project.tracks.items.len);
                     self.cursor = @intCast(std.math.clamp(count, 0, last));
                 }
@@ -1957,7 +1957,7 @@ pub const App = struct {
                     // drum grid, currently stopped) clicks a one-bar count-in
                     // first so there's a cue to come in on. Already-rolling
                     // playback (jumping into insert mode mid-song) needs none
-                    // of this — recordNote just quantizes to the live playhead.
+                    // of this - recordNote just quantizes to the live playhead.
                     _ = self.session.engine.send(.record);
                     self.setStatus("count-in...", .{});
                 } else {
@@ -2072,7 +2072,7 @@ pub const App = struct {
     }
 
     /// The last submitted `/` search pattern (persists past the search
-    /// itself for `n`/`N` repeat — see searchTracks/searchBrowser — and for
+    /// itself for `n`/`N` repeat - see searchTracks/searchBrowser - and for
     /// views/browser.zig's match highlighting).
     pub fn searchPattern(self: *App) []const u8 {
         return self.search_pattern_buf[0..self.search_pattern_len];
@@ -2087,7 +2087,7 @@ pub const App = struct {
     // zig fmt: off
     /// `/` search + `n`/`N` repeat over track names, wrapping around the
     /// list like vim's own search. `dir` is +1 for `n`/a fresh `/`, -1 for
-    /// `N` (repeat in reverse). The master row has no name and is skipped —
+    /// `N` (repeat in reverse). The master row has no name and is skipped -
     /// search only ever lands on a real track.
     pub fn searchTracks(self: *App, dir: i64) void {
         const pattern = self.searchPattern();
@@ -2101,15 +2101,15 @@ pub const App = struct {
             const idx: usize = @intCast(@mod(start + dir * step, n));
             if (fuzzy.matches(pattern, tracks[idx].name)) {
                 self.cursor = idx;
-                // A hit hidden inside a folded group unfolds it — vim's own
-                // open-fold-on-search behaviour — so the cursor can actually
+                // A hit hidden inside a folded group unfolds it - vim's own
+                // open-fold-on-search behaviour - so the cursor can actually
                 // land on (and n can cycle past) the matching row.
                 if (tracks[idx].group) |g| {
                     if (g < engine_mod.max_groups) {
                         if (self.session.groups[g]) |*grp| {
                             // The unfold reshapes the row list, and a hit on
                             // the cursor's own track leaves `cursor`'s value
-                            // unchanged — force the re-heal explicitly.
+                            // unchanged - force the re-heal explicitly.
                             if (grp.folded) { grp.folded = false; self.dirty = true; self.invalidateTrackRow(); }
                         }
                     }
@@ -2160,7 +2160,7 @@ pub const App = struct {
 
     /// `/` search + `n`/`N` repeat over arrangement lane names, wrapping the
     /// same way `searchTracks` does. Lanes map 1:1 to tracks with no master
-    /// row here (unlike the tracks view — see `moveLane`'s own bound), and
+    /// row here (unlike the tracks view - see `moveLane`'s own bound), and
     /// arrangement lanes are flat regardless of tracks-view group folding,
     /// so this skips `searchTracks`' group-unfold step entirely.
     pub fn searchArrangement(self: *App, dir: i64) void {
@@ -2184,7 +2184,7 @@ pub const App = struct {
 
     /// `/` search + `n`/`N` repeat over every param across all three synth
     /// subviews (`synth_ed.searchCandidates`), wrapping the same way
-    /// `searchTracks` does — a hit in a different subview than the current
+    /// `searchTracks` does - a hit in a different subview than the current
     /// one switches to it, matching vim's own `/` having no notion of
     /// "current pane" within one buffer.
     pub fn searchSynthParams(self: *App, dir: i64) void {
@@ -2222,7 +2222,7 @@ pub const App = struct {
     /// Record a submitted `:` command for later up/down recall. Skips blanks
     /// and immediate repeats (shell-history convention); drops the oldest
     /// entry once at capacity. Persists the updated list to disk (best-
-    /// effort — see `cmd_history_store.save`) so it survives across runs.
+    /// effort - see `cmd_history_store.save`) so it survives across runs.
     fn pushCommandHistory(self: *App, text: []const u8) void {
         if (text.len == 0) return;
         if (self.cmd_history.items.len > 0 and
@@ -2251,7 +2251,7 @@ pub const App = struct {
     }
 
     /// Step forward through history; past the newest entry, blank the
-    /// prompt (mirrors shell history — you're back to a fresh line).
+    /// prompt (mirrors shell history - you're back to a fresh line).
     fn commandHistoryNext(self: *App) void {
         if (self.cmd_history_pos >= self.cmd_history.items.len) return;
         self.cmd_history_pos += 1;
@@ -2272,13 +2272,13 @@ pub const App = struct {
 
     /// Remembers a Tab-cycle in progress: which value list was last
     /// filtered (`source`), the exact prefix it was filtered against
-    /// (`stem` — the text the user actually typed, *not* whatever
+    /// (`stem` - the text the user actually typed, *not* whatever
     /// candidate is currently sitting in cmd_buf), where the completed
     /// value starts (`insert_at`), and the exact candidate text last
     /// written there (`last_written`, always a static string from a
     /// command/preset/kit table, so storing the slice directly rather than
     /// copying it is safe across calls). `cycleCompletion` only continues
-    /// the cycle — advancing `index` and reusing `stem` — when cmd_buf
+    /// the cycle - advancing `index` and reusing `stem` - when cmd_buf
     /// still holds exactly `last_written`; any other edit (typing more,
     /// backspacing, moving to a different command) makes the next Tab
     /// press start fresh instead.
@@ -2297,8 +2297,8 @@ pub const App = struct {
         }
     };
 
-    /// Tab-completes the command name (before the first space), or — for a
-    /// handful of commands whose values come from a small fixed set — the
+    /// Tab-completes the command name (before the first space), or - for a
+    /// handful of commands whose values come from a small fixed set - the
     /// first argument token after it. Requires the cursor to be at the end
     /// of the buffer: completing a token with more already typed after it
     /// has no obvious insertion point, so mid-line Tab is a no-op.
@@ -2312,7 +2312,7 @@ pub const App = struct {
         }
 
         self.suggest_popup_open = true;
-        // Only offer in-scope names (cmd.visible) — aliases and `!`-bang
+        // Only offer in-scope names (cmd.visible) - aliases and `!`-bang
         // variants are still valid cycle targets here even though the
         // popup hides them (cmd.hiddenFromCompletion): typing enough of
         // "export" or "q!" to disambiguate and pressing Tab should still
@@ -2329,7 +2329,7 @@ pub const App = struct {
     }
 
     /// Tab-completes the argument after `buf[0..name_end]` against a small
-    /// fixed value set — drum-kit/synth-preset names, and metronome's
+    /// fixed value set - drum-kit/synth-preset names, and metronome's
     /// on/off keywords. Only fires for the
     /// *first* argument token (a trailing space means a second argument is
     /// being typed, which has no fixed candidate list here); every other
@@ -2365,7 +2365,7 @@ pub const App = struct {
             self.cycleCompletion(name_end + 1, arg, .metronome, &.{ "on", "off" });
         } else if (std.mem.eql(u8, name, "scale")) {
             // First token can be "off", a root pitch class, or a scale-type
-            // name (cmdScale accepts either order) — offer all three sets.
+            // name (cmdScale accepts either order) - offer all three sets.
             var n: usize = 0;
             name_buf[n] = "off";
             n += 1;
@@ -2389,7 +2389,7 @@ pub const App = struct {
     /// on its original `stem` and advance to the next candidate. Otherwise
     /// `current_text` itself is treated as a fresh stem (typing, deleting,
     /// or switching commands all fail that check, so the next Tab starts
-    /// over — no separate reset wiring needed). A single match always
+    /// over - no separate reset wiring needed). A single match always
     /// completes in full plus a trailing space, cycle or not.
     fn cycleCompletion(self: *App, insert_at: usize, current_text: []const u8, source: TabCycle.Source, values: []const []const u8) void {
         var stem_buf: [modal_mod.ModalInput.max_cmd_len]u8 = undefined;
@@ -2404,7 +2404,7 @@ pub const App = struct {
             }
         }
         if (prev_index == null) {
-            // Fresh stem — snapshot `current_text` before cmd_buf gets
+            // Fresh stem - snapshot `current_text` before cmd_buf gets
             // overwritten below (it may alias cmd_buf directly).
             const len = @min(current_text.len, stem_buf.len);
             @memcpy(stem_buf[0..len], current_text[0..len]);
@@ -2452,7 +2452,7 @@ pub const App = struct {
     /// The in-progress command-name Tab-cycle, but only if `cmd_buf` still
     /// holds exactly what that cycle last wrote there (same check
     /// `cycleCompletion` uses to decide whether to continue a cycle vs.
-    /// start fresh) — shared by `suggestionSelected`/`suggestionFilterText`.
+    /// start fresh) - shared by `suggestionSelected`/`suggestionFilterText`.
     /// Returns a pointer into `self.tab_cycle` (not a copy) since
     /// `suggestionFilterText` hands back a slice borrowed from `stem_buf`
     /// that needs to outlive this call.
@@ -2468,7 +2468,7 @@ pub const App = struct {
     }
 
     /// Which match `draw`'s command-name suggestion popup should highlight:
-    /// otherwise 0 — the top match, matching Neovim's wildmenu highlighting
+    /// otherwise 0 - the top match, matching Neovim's wildmenu highlighting
     /// the first candidate before Tab has ever been pressed.
     ///
     /// Deliberately NOT `tc.index`: that's a position in `completeCommand`'s
@@ -2490,7 +2490,7 @@ pub const App = struct {
             idx += 1;
         }
         // The completed candidate is itself hidden from the popup (an
-        // alias or bang variant) — nothing in the visible list corresponds
+        // alias or bang variant) - nothing in the visible list corresponds
         // to it, so fall back to the top row rather than an index that
         // would highlight an unrelated candidate.
         return 0;
@@ -2498,7 +2498,7 @@ pub const App = struct {
 
     /// Text `draw`'s suggestion popup filters candidates against. Tab
     /// completion overwrites `cmd_buf` with the candidate name itself (so
-    /// the buffer is always a valid, submittable command) — filtering the
+    /// the buffer is always a valid, submittable command) - filtering the
     /// popup on that literal text would collapse it to a single match the
     /// instant Tab landed on any candidate, hiding the very list Tab was
     /// supposed to reveal. While a cycle is active, filter on its
@@ -2547,7 +2547,7 @@ pub const App = struct {
     }
 
     /// Every `autosave_interval_ns`, if there are unsaved changes, silently
-    /// write a `<path>~` backup — a safety net, not a real save: it doesn't
+    /// write a `<path>~` backup - a safety net, not a real save: it doesn't
     /// clear `dirty` or touch the primary file, so `:q` still guards the
     /// actual edits. A brand-new project with no path yet backs up next to
     /// `:w`'s own default target (see backupPath). Failures are silent
@@ -2560,7 +2560,7 @@ pub const App = struct {
         self.writeBackup();
     }
 
-    /// Write the `<path>~` backup right now — maybeAutosave's write, also
+    /// Write the `<path>~` backup right now - maybeAutosave's write, also
     /// called directly on a dirty ctrl-c so an instant exit can't outrun
     /// the 30s cadence.
     fn writeBackup(self: *App) void {
@@ -2570,7 +2570,7 @@ pub const App = struct {
     }
 
     /// Startup recovery: maybeAutosave/ctrl-c leave `<path>~` behind on a
-    /// crash or kill — offer it back rather than letting it sit invisible
+    /// crash or kill - offer it back rather than letting it sit invisible
     /// (the file browser filters to `.wsj`) until someone types the path by
     /// hand. Only when it's newer than the project file itself (or that
     /// file doesn't exist at all); an older backup is just stale.
@@ -2581,9 +2581,9 @@ pub const App = struct {
         const project_stat = std.Io.Dir.cwd().statFile(self.io, path, .{}) catch null;
         if (project_stat) |ps| {
             if (backup_stat.mtime.nanoseconds <= ps.mtime.nanoseconds) return;
-            self.setStatus("autosave backup found, newer than '{s}' — :restore-backup to load it", .{path});
+            self.setStatus("autosave backup found, newer than '{s}' - :restore-backup to load it", .{path});
         } else {
-            self.setStatus("autosave backup '{s}' found — :restore-backup to load it", .{backup});
+            self.setStatus("autosave backup '{s}' found - :restore-backup to load it", .{backup});
         }
     }
 
@@ -2592,14 +2592,14 @@ pub const App = struct {
     // -----------------------------------------------------------------------
 
     /// Where a new track lands: right after the currently selected track,
-    /// or — on a folded group row — right after that group's last member,
+    /// or - on a folded group row - right after that group's last member,
     /// so the new track shows up next to the group instead of jumping to
     /// the very bottom. The master row and any view outside `.tracks` (e.g.
     /// `:track-add` run from the synth editor) fall back to `self.cursor`,
     /// which every view keeps pointed at "the" current track; past the
     /// last real track (the master sentinel) that means append at the end.
     /// Re-syncs the row cursor itself rather than trusting the caller to
-    /// have done it — same "call before any row-cursor read" rule
+    /// have done it - same "call before any row-cursor read" rule
     /// `tracksRowSync`'s own doc comment gives.
     fn trackAddInsertIndex(self: *App) u16 {
         const total: u16 = @intCast(self.session.project.tracks.items.len);
@@ -2623,9 +2623,9 @@ pub const App = struct {
     /// Shift every editor-target/pending-state track index that sits at or
     /// past `idx` up by one, mirroring a track showing up at `idx` (insert,
     /// or undo restoring a deleted track back to its old slot). Nothing is
-    /// ever dropped here — an insert can't invalidate a track. Shared by
+    /// ever dropped here - an insert can't invalidate a track. Shared by
     /// `doTrackAdd` and history's track-restore apply so the field
-    /// checklist can't drift between the two call sites — see
+    /// checklist can't drift between the two call sites - see
     /// project_bug_hunt_2026_07_11's "any NEW field... must join this list".
     pub fn shiftFieldsForInsert(self: *App, idx: usize) void {
         if (self.synth_track >= idx) self.synth_track += 1;
@@ -2651,7 +2651,7 @@ pub const App = struct {
     }
 
     /// Shift/drop every editor-target/pending-state track index for a track
-    /// removed at `idx` — the mirror of `shiftFieldsForInsert`. Shared by
+    /// removed at `idx` - the mirror of `shiftFieldsForInsert`. Shared by
     /// `doTrackDel` and history's track-delete-redo apply.
     pub fn shiftFieldsForDelete(self: *App, idx: usize) void {
         if (idx < self.synth_track and self.synth_track > 0) self.synth_track -= 1;
@@ -2723,7 +2723,7 @@ pub const App = struct {
 
     pub fn doTrackDel(self: *App, track_idx: usize) void {
         // Capture the whole track BEFORE it's gone, so this delete becomes
-        // its own undo step (undo re-inserts it exactly as it was) — on top
+        // its own undo step (undo re-inserts it exactly as it was) - on top
         // of (not instead of) the existing remap/drop below, which still
         // clears out-of-date fine-grained edit history that named this
         // track, since restoring from this snapshot supersedes it anyway.
@@ -2798,13 +2798,13 @@ pub const App = struct {
                 _ = self.session.engine.send(.{ .set_spectrum_active = .{ .source = .none, .track = 0 } });
                 self.view = self.prev_view;
             },
-            // A deleted group's chain view can't linger either — same
+            // A deleted group's chain view can't linger either - same
             // bounce-out shape .track_spectrum uses for a deleted track.
             .group_spectrum => if (self.eq_group >= engine_mod.max_groups or self.session.groups[self.eq_group] == null) {
                 _ = self.session.engine.send(.{ .set_spectrum_active = .{ .source = .none, .track = 0 } });
                 self.view = self.prev_view;
             },
-            // The picker inserts into eq_track's/eq_group's chain on accept —
+            // The picker inserts into eq_track's/eq_group's chain on accept -
             // if that target vanished, retreat all the way to tracks rather
             // than into a chain view whose target is gone.
             .fx_picker => if ((self.fx_picker_return == .track_spectrum and self.eq_track >= racks.len) or
@@ -2814,7 +2814,7 @@ pub const App = struct {
                 self.view = .tracks;
             },
             .automation, .automation_param_picker => if (automation_ed.currentClip(self) == null) { self.view = .arrangement; },
-            // Accepting applies to preset_picker_track — if that track
+            // Accepting applies to preset_picker_track - if that track
             // vanished or changed kind, retreat to tracks rather than back
             // into an editor whose target is gone.
             .preset_picker => {
@@ -2849,7 +2849,7 @@ pub const App = struct {
     /// Swap the cursor's track with its neighbor (`dir` < 0 = up, > 0 =
     /// down) and follow the cursor along. A swap silently changes what
     /// absolute index every per-instrument editor target and undo entry
-    /// refers to, so remap the former and — same call as doTrackDel — drop
+    /// refers to, so remap the former and - same call as doTrackDel - drop
     /// the latter rather than risk restoring content into the wrong track.
     pub fn doTrackMove(self: *App, dir: i32) void {
         const len = self.session.project.tracks.items.len;
@@ -2889,7 +2889,7 @@ pub const App = struct {
         }
         for (self.note_offs[0..self.note_off_len]) |*off| swap(&off.track, cur, other);
         // A swap never removes a track, so unlike delete this never drops
-        // an entry — every index just exchanges with its neighbor's.
+        // an entry - every index just exchanges with its neighbor's.
         const remap: undo_mod.TrackRemap = .{ .swap = .{ .a = @intCast(cur), .b = @intCast(other) } };
         history.retargetPending(self, remap);
         _ = self.history.retarget(self.allocator, remap);
@@ -2901,7 +2901,7 @@ pub const App = struct {
     }
 
     /// `[`/`]` in the tracks view: cycle the cursor track's color through
-    /// `style.track_palette`, wrapping through 0 ("none") on both ends —
+    /// `style.track_palette`, wrapping through 0 ("none") on both ends -
     /// same cycling shape as the drum grid's variant `[`/`]`. Not
     /// undo-tracked, matching mute/solo/gain/pan (mixer-style live state,
     /// not pattern content).
@@ -2943,7 +2943,7 @@ pub const App = struct {
         self.setStatus("track {d} gain: {s}{d:.1}dB", .{ track + 1, sign, t.gain_db });
     }
 
-    /// `-`/`+` on the master row — same gesture as a track's gain step, but
+    /// `-`/`+` on the master row - same gesture as a track's gain step, but
     /// against `master_gain_db` (same range/behaviour as `:vol`/`[`/`]`).
     fn doMasterGainStep(self: *App, delta_db: f32) void {
         self.master_gain_db = std.math.clamp(self.master_gain_db + delta_db, -40.0, 6.0);
@@ -2969,7 +2969,7 @@ pub const App = struct {
     }
 
     /// Ask `run()` to load `path` (or start a blank session when null) on
-    /// its next loop iteration — see the field doc on `pending_reload`.
+    /// its next loop iteration - see the field doc on `pending_reload`.
     pub fn requestReload(self: *App, path: ?[]const u8) void {
         if (path) |p| {
             const len = @min(p.len, self.pending_reload_buf.len);
@@ -2985,7 +2985,7 @@ pub const App = struct {
         return self.pending_reload_buf[0..self.pending_reload_len];
     }
 
-    /// `:restore-backup` — load `backup_path` (the `<project>~` autosave)
+    /// `:restore-backup` - load `backup_path` (the `<project>~` autosave)
     /// on the next loop iteration, same swap mechanism as `:e`, but the
     /// project path stays the original file: the backup's content is newer
     /// than what's on disk, not a different project, so it lands `dirty`
@@ -2997,7 +2997,7 @@ pub const App = struct {
         self.pending_reload = .restore_backup;
     }
 
-    /// `<path>~` — shared by the autosave writer, the startup recovery
+    /// `<path>~` - shared by the autosave writer, the startup recovery
     /// check, `:restore-backup`, and the post-save/quit cleanup. A project
     /// with no path yet falls back to `:w`'s own default save target, so a
     /// never-saved session still gets the full autosave/restore cycle
@@ -3009,7 +3009,7 @@ pub const App = struct {
 
     /// Delete the `<path>~` autosave backup now that it's stale: either its
     /// content just got saved for real, or the session cleanly matched disk
-    /// already. Best-effort — a missing or unremovable backup is a no-op.
+    /// already. Best-effort - a missing or unremovable backup is a no-op.
     pub fn deleteBackupIfPresent(self: *App) void {
         var buf: [reload_path_buf_len]u8 = undefined;
         const backup = self.backupPath(&buf) orelse return;
@@ -3029,7 +3029,7 @@ pub const App = struct {
     /// Smallest terminal the layouts are actually built for: the FX chain's
     /// slot strip is sized "nine boxes + ▶OUT = 78 cols" for 80-col
     /// terminals, and the row budgets were audited down to 14 rows. Below
-    /// this, content lines wrap and shove the frame apart — show a notice
+    /// this, content lines wrap and shove the frame apart - show a notice
     /// instead (btop-style) rather than fighting per-view overflow.
     pub const min_cols: usize = 80;
     pub const min_rows: usize = 14;
@@ -3061,10 +3061,10 @@ pub const App = struct {
 
         try w.writeAll("\x1b[H");
         // The .wsj format has no project-name field, so a loaded file would
-        // otherwise sit under the default "untitled" — show its basename.
+        // otherwise sit under the default "untitled" - show its basename.
         const header_title: []const u8 = if (self.projectPath()) |p| std.fs.path.basename(p) else self.session.project.name;
         // Rendered into a scratch buffer and replayed via style.writeChromeRow
-        // (clamp + clean line-end, no separate hr() rule row underneath) —
+        // (clamp + clean line-end, no separate hr() rule row underneath) -
         // reclaims a row versus the old plain-line-plus-rule layout.
         var header_scratch: [512]u8 = undefined;
         var header_w = std.Io.Writer.fixed(&header_scratch);
@@ -3100,7 +3100,7 @@ pub const App = struct {
         };
         // Off the arrangement timeline, the transport plays a raw straight
         // line while the audio itself loops locally (PatternPlayer/
-        // DrumMachine wrap at their own length) — mirror that in the
+        // DrumMachine wrap at their own length) - mirror that in the
         // bar:beat readout so it cycles instead of climbing forever.
         if (!self.session.song_mode) {
             const len_beats = self.contentBeats();
@@ -3118,7 +3118,7 @@ pub const App = struct {
         var transport_scratch: [512]u8 = undefined;
         var tw = std.Io.Writer.fixed(&transport_scratch);
         if (snap.pre_rolling) {
-            // No dedicated glyph for this — it's a brief, rare state, so
+            // No dedicated glyph for this - it's a brief, rare state, so
             // plain text beats adding another icon just for it.
             try tw.writeAll("\x1b[33m\x1b[1m count-in\x1b[0m");
         } else if (snap.playing) {
@@ -3126,7 +3126,7 @@ pub const App = struct {
                 try tw.writeAll("\x1b[32m\x1b[1m " ++ icons.play ++ "\x1b[0m");
             } else {
                 // U+25BA/U+25A0 are in CP437, so even bitmap terminal fonts
-                // (PxPlus IBM VGA etc.) have them — no icon font needed.
+                // (PxPlus IBM VGA etc.) have them - no icon font needed.
                 try tw.writeAll("\x1b[32m\x1b[1m \u{25BA}\x1b[0m");
             }
         } else {
@@ -3153,7 +3153,7 @@ pub const App = struct {
         try tui.meter(&mw, snap.peak[1]);
         try style.writeSplitRow(w, tw.buffered(), mw.buffered(), size.cols);
         try style.endLine(w);
-        // The `:`/`/` prompt's own row — blank outside command/search mode.
+        // The `:`/`/` prompt's own row - blank outside command/search mode.
         // Moved off the status row below so that row can keep showing the
         // mode badge/view info while a command is being typed instead of
         // being replaced by the prompt text.
@@ -3187,11 +3187,11 @@ pub const App = struct {
         // ever reaches the real writer.
         var status_scratch: [1024]u8 = undefined;
         var status_w = std.Io.Writer.fixed(&status_scratch);
-        // The current-view name (and a couple of short state flags — zoom,
+        // The current-view name (and a couple of short state flags - zoom,
         // song/pattern) rides a second buffer and gets pinned to the row's
         // right edge via writeSplitRow, lualine's "current view is an
         // identity tag on the right, not more left-to-right reading order"
-        // convention — mirrors the transport row's L/R meters above.
+        // convention - mirrors the transport row's L/R meters above.
         var status_right_scratch: [128]u8 = undefined;
         var status_right_w = std.Io.Writer.fixed(&status_right_scratch);
         switch (self.view) {
@@ -3257,7 +3257,7 @@ fn renderTrampoline(ctx: *anyopaque, out: []types.Sample) void {
 
 /// Set for the lifetime of `run`'s raw-mode session so `main.zig`'s panic
 /// handler can find the terminal to restore before it prints the crash
-/// trace — without this, a panic left the terminal in raw mode with SGR
+/// trace - without this, a panic left the terminal in raw mode with SGR
 /// mouse tracking still on: the shell reads garbled, and the panic message
 /// itself is unreadable (no \r\n translation, alternate screen still up).
 pub var active_terminal: ?*terminal_mod.Terminal = null;
@@ -3280,13 +3280,13 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8) !vo
     icons.font_installed = icons.detectFontInstalled(io);
 
     // Surface a raw-mode setup failure once there's a status line to put it
-    // on — see Terminal.raw_mode_ok's doc comment (Windows only; POSIX raw
+    // on - see Terminal.raw_mode_ok's doc comment (Windows only; POSIX raw
     // mode failing is already fatal via tcsetattr's error return in init()).
     if (builtin.os.tag == .windows and !term.raw_mode_ok) {
-        app.setStatus("warning: console raw-mode setup failed — quick edit may freeze the display", .{});
+        app.setStatus("warning: console raw-mode setup failed - quick edit may freeze the display", .{});
     }
 
-    // Load project file before backends start — the backend captures the engine
+    // Load project file before backends start - the backend captures the engine
     // pointer at init, so the swap must happen here.
     if (init_path) |p| {
         if (ws.persist.load(allocator, io, p)) |loaded| {
@@ -3350,7 +3350,7 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8) !vo
     // own ANSI color code, runs to ~55KB on a wide+tall terminal. A fixed
     // writer that runs out mid-frame silently truncates (Writer.fixed's
     // error is swallowed below), which cuts the DEC 2026 sync bracket in
-    // half and leaves the terminal stuck mid-redraw — 32KB was tight enough
+    // half and leaves the terminal stuck mid-redraw - 32KB was tight enough
     // for that to actually happen once pad/step banking stacked up.
     var frame_buf: [160 * 1024]u8 = undefined;
     var input_buf: [128]u8 = undefined;
@@ -3374,7 +3374,7 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8) !vo
         // (control-thread only, no backend involved) so a bad path or OOM
         // just reports an error and leaves the running session untouched;
         // only stop the backend once we actually have something to swap in
-        // — it holds a raw *Engine pointer captured at start (or the last
+        // - it holds a raw *Engine pointer captured at start (or the last
         // reload), which the swap would otherwise dangle.
         if (app.pending_reload != .none) {
             const kind = app.pending_reload;
@@ -3403,10 +3403,10 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8) !vo
                 app.session = loaded;
                 switch (kind) {
                     .load => app.setProjectPath(app.pendingReloadPath()),
-                    // Keep the original project path — the backup's content
+                    // Keep the original project path - the backup's content
                     // replaces the in-memory session but `:w` should still
                     // write back to the real file, not `<path>~`.
-                    .restore_backup => { app.dirty = true; app.setStatus("restored from autosave backup — :w to keep it", .{}); },
+                    .restore_backup => { app.dirty = true; app.setStatus("restored from autosave backup - :w to keep it", .{}); },
                     .blank => app.project_path_len = 0,
                     .none => unreachable,
                 }
@@ -3452,7 +3452,7 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8) !vo
         // landed in `note_queue` (audition itself already went straight to
         // the engine from that thread, unaffected by this). Drain it here
         // and feed each note through the exact same insert-mode recordNote
-        // path qwerty playing uses (the `.note` action handler above) —
+        // path qwerty playing uses (the `.note` action handler above) -
         // gated the same way: only in insert mode, only for the view whose
         // pattern is actually being edited. A stopped transport or wrong
         // view/mode just drops the note; the live audition already
@@ -3483,7 +3483,7 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8) !vo
 }
 
 // ---------------------------------------------------------------------------
-// Tests — integration tests live in app_tests.zig
+// Tests - integration tests live in app_tests.zig
 // ---------------------------------------------------------------------------
 
 test {

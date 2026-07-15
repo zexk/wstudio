@@ -30,7 +30,7 @@ const modal_mod = ws.input;
 extern "c" fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
 
 /// Redirects $HOME at `tmp` for tests that build an App with real io (not
-/// `std.Io.failing`) and dispatch real commands — otherwise cmd-history/
+/// `std.Io.failing`) and dispatch real commands - otherwise cmd-history/
 /// synth-preset persistence would leak writes into the developer's actual
 /// `~/.config/wstudio/`. Same convention user_presets.zig's own tests use.
 /// setenv is process-global but tests run single-threaded, so this is safe.
@@ -89,7 +89,7 @@ test "/ fuzzy-searches track names; n/N repeat and wrap around" {
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(@as(usize, 1), app.cursor); // "samp"
 
-    // Only "samp" matches "smp" — n/N both just re-land on it (wraparound
+    // Only "samp" matches "smp" - n/N both just re-land on it (wraparound
     // with a single hit).
     app.handleKey(.{ .char = 'n' }, 0);
     try std.testing.expectEqual(@as(usize, 1), app.cursor);
@@ -112,7 +112,7 @@ test "/ fuzzy-searches track names; n/N repeat and wrap around" {
 test "arrangement: / fuzzy-searches lane (track) names; n/N repeat and wrap" {
     var app = try testApp();
     defer app.deinit();
-    // Tracks: 0 "untitled track", 1 "samp", 2 "drums" — no master lane here.
+    // Tracks: 0 "untitled track", 1 "samp", 2 "drums" - no master lane here.
     app.view = .arrangement;
     app.cursor = 0;
 
@@ -148,7 +148,7 @@ test "/ search: escape cancels without moving the cursor; no match reports a sta
 
     for ("/zzz") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.enter, 0);
-    try std.testing.expectEqual(@as(usize, 0), app.cursor); // no match — stays put
+    try std.testing.expectEqual(@as(usize, 0), app.cursor); // no match - stays put
     try std.testing.expect(std.mem.indexOf(u8, app.status_buf[0..app.status_len], "no match") != null);
 }
 
@@ -397,7 +397,7 @@ test "slicer grid: slice, step toggle, play triggers the right slice" {
     app.slicer_cursor = .{ 3, 0 };
     _ = slicer_ed.handleKey(&app, .enter);
     try std.testing.expect(app.slicerInst().stepActive(3, 0));
-    // x clears (vim char-delete, drum-grid parity) — never re-toggles on.
+    // x clears (vim char-delete, drum-grid parity) - never re-toggles on.
     _ = slicer_ed.handleKey(&app, .{ .char = 'x' });
     try std.testing.expect(!app.slicerInst().stepActive(3, 0));
     _ = slicer_ed.handleKey(&app, .{ .char = 'x' });
@@ -848,7 +848,7 @@ test "piano roll visual mode selects a step range for y/d/P" {
     try std.testing.expect(pp.noteAt(60, 2.0) != null);
     try std.testing.expect(pp.noteAt(64, 2.25) != null);
 
-    // Select the same range again and delete it — only the untouched note remains.
+    // Select the same range again and delete it - only the untouched note remains.
     app.piano_cursor_step = 0;
     app.handleKey(.{ .char = 'v' }, 0);
     for ("3l") |c| app.handleKey(.{ .char = c }, 0);
@@ -900,7 +900,7 @@ test "piano roll normal-mode p pastes the most recent yank: range after visual y
     pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.25 }); // step 0
     pp.addNote(.{ .pitch = 64, .start_beat = 0.25, .duration_beat = 0.25 }); // step 1
 
-    // Visual range yank, then a plain normal-mode p at the new cursor —
+    // Visual range yank, then a plain normal-mode p at the new cursor -
     // no re-entering visual mode required.
     app.piano_cursor_step = 0;
     for ("v3ly") |c| app.handleKey(.{ .char = c }, 0);
@@ -953,7 +953,7 @@ test "piano roll operator+motion: d3l / y3l act on a range without entering visu
     try std.testing.expect(pp.noteAt(72, 2.0) != null); // note under the cursor survives
 
     // yy stays the whole-pattern yank (the cross-track copy vehicle); dd is
-    // vim's line-delete where a "line" is the cursor pitch's row — other
+    // vim's line-delete where a "line" is the cursor pitch's row - other
     // pitches survive.
     pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.25 });
     for ("yy") |c| app.handleKey(.{ .char = c }, 0);
@@ -977,7 +977,7 @@ test "piano roll char/word tiers: x deletes the note under the cursor, w/b jump 
     app.view = .piano_roll;
     app.piano_track = 0;
     const pp = &app.session.racks.items[0].pattern_player.?;
-    pp.length_beats = 8.0; // straight grid, 4 steps/beat — w/b's granularity
+    pp.length_beats = 8.0; // straight grid, 4 steps/beat - w/b's granularity
     pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.25 });
     pp.addNote(.{ .pitch = 64, .start_beat = 1.0, .duration_beat = 0.25 }); // beat 2, step 4
 
@@ -989,7 +989,7 @@ test "piano roll char/word tiers: x deletes the note under the cursor, w/b jump 
     try std.testing.expectEqual(@as(u16, 1), pp.note_count);
 
     // w: jump forward to the next beat boundary (step 4); b: back to beat 0.
-    // Matches the drum grid's own w/b granularity (a beat, not a full bar) —
+    // Matches the drum grid's own w/b granularity (a beat, not a full bar) -
     // see barLenSteps's own note on the earlier bar-sized bug this fixed.
     app.piano_cursor_step = 0;
     app.handleKey(.{ .char = 'w' }, 0);
@@ -1074,7 +1074,7 @@ test "piano roll flags an unlinked scratch pattern in song mode, not pattern mod
     app.piano_track = 0;
     var buf: [32 * 1024]u8 = undefined;
 
-    // Pattern mode: the live pattern IS what plays — no scratch warning.
+    // Pattern mode: the live pattern IS what plays - no scratch warning.
     var w = std.Io.Writer.fixed(&buf);
     try app.draw(&w, .{ .cols = 100, .rows = 24 });
     try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "scratch") == null);
@@ -1185,7 +1185,7 @@ test "automation editor: nudge, `.` repeat, and visual range yank/delete/paste" 
     try std.testing.expect(app.automation_range_clip != null);
     try std.testing.expectEqual(@as(usize, 2), app.automation_range_clip.?.points.len);
 
-    // Select the same range again and delete it — the curve goes bare.
+    // Select the same range again and delete it - the curve goes bare.
     app.automation_cursor_step = 0;
     _ = automation_ed.handleKey(&app, .{ .char = 'v' });
     for ("3l") |c| _ = automation_ed.handleKey(&app, .{ .char = c });
@@ -1193,7 +1193,7 @@ test "automation editor: nudge, `.` repeat, and visual range yank/delete/paste" 
     try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
     try std.testing.expectEqual(@as(usize, 0), clip.automation.gain.len);
 
-    // Paste the yanked points back — like piano/arrangement, range-paste only
+    // Paste the yanked points back - like piano/arrangement, range-paste only
     // lives inside visual mode (a plain normal-mode `P` is a different,
     // whole-content clipboard that automation doesn't have).
     _ = automation_ed.handleKey(&app, .{ .char = 'v' });
@@ -1329,7 +1329,7 @@ test "automation editor char/word tiers: x deletes the point under the cursor, w
     try std.testing.expectEqual(@as(usize, 0), clip.automation.gain.len);
 
     // w: jump forward to the next beat boundary (step 4); b: back to beat 0.
-    // Matches the drum grid's own w/b granularity (a beat, not a full bar) —
+    // Matches the drum grid's own w/b granularity (a beat, not a full bar) -
     // see barLenSteps's own note on the earlier bar-sized bug this fixed.
     app.automation_cursor_step = 0;
     _ = automation_ed.handleKey(&app, .{ .char = 'w' });
@@ -1353,7 +1353,7 @@ test "automation editor: tab only cycles gain/pan until the picker adds a synth 
     var app = try testApp(); // synth(0), sampler(1), drums(2)
     defer app.deinit();
 
-    // Synth track: tab cycles gain <-> pan only — no synth-param lane exists
+    // Synth track: tab cycles gain <-> pan only - no synth-param lane exists
     // on this clip yet, so there's nothing else to cycle to.
     try app.session.stampClip(0, 0);
     automation_ed.switchTo(&app, 0, 0);
@@ -1421,7 +1421,7 @@ test "automation editor: tab only cycles gain/pan until the picker adds a synth 
     try std.testing.expectEqual(automation_ed.AutomationFocus.gain, app.automation_focus);
 
     // Drum track: p refuses (drum params are per-pad/per-step, no single
-    // per-track setParamAbsolute id space to automate) — gain <-> pan only.
+    // per-track setParamAbsolute id space to automate) - gain <-> pan only.
     try app.session.stampClip(2, 0);
     automation_ed.switchTo(&app, 2, 0);
     try std.testing.expectEqual(automation_ed.AutomationFocus.gain, app.automation_focus);
@@ -1584,7 +1584,7 @@ test "drum grid normal-mode p pastes the most recent yank: range after visual y,
     dm.setStepVel(0, 0, 31);
     dm.toggleStep(1, 2);
 
-    // Visual range yank, then a plain normal-mode p at the new cursor —
+    // Visual range yank, then a plain normal-mode p at the new cursor -
     // no re-entering visual mode required.
     app.drum_cursor = .{ 0, 0 };
     for ("v3ly") |c| app.handleKey(.{ .char = c }, 0);
@@ -1628,7 +1628,7 @@ test "drum grid operator+motion: d3l / y3l act on a range without entering visua
     try std.testing.expect(dm.stepActive(3, 14)); // untouched, outside the range
 
     // yy stays the whole-pattern yank (the cross-track copy vehicle); dd is
-    // vim's line-delete where a "line" is the cursor pad's row — other
+    // vim's line-delete where a "line" is the cursor pad's row - other
     // pads survive.
     dm.toggleStep(2, 5);
     for ("yy") |c| app.handleKey(.{ .char = c }, 0);
@@ -1708,7 +1708,7 @@ test "undo/redo round-trips a piano-roll edit" {
     try std.testing.expectEqual(@as(u16, 1), pp.note_count);
     try std.testing.expectEqual(@as(u7, 60), pp.notes[0].pitch);
 
-    // ctrl-r is vim's canonical redo key — works the same as 'U'.
+    // ctrl-r is vim's canonical redo key - works the same as 'U'.
     _ = piano_ed.handleKey(&app, .{ .char = 'u' });
     try std.testing.expectEqual(@as(u16, 0), pp.note_count);
     _ = piano_ed.handleKey(&app, .ctrl_r);
@@ -1803,7 +1803,7 @@ test "arrangement e edits a melodic clip in place" {
     pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.5 });
     try app.session.stampClip(0, 0);
 
-    // Diverge the live pattern afterwards — the clip keeps its own copy.
+    // Diverge the live pattern afterwards - the clip keeps its own copy.
     pp.addNote(.{ .pitch = 65, .start_beat = 1.0, .duration_beat = 0.5 });
 
     // e on the clip: the piano roll opens with the clip's single note loaded.
@@ -1847,7 +1847,7 @@ test "clip link drops when the clip vanishes; plain open is unlinked" {
     try std.testing.expect(app.piano_clip_link == null);
 
     // Re-link, then a plain open from the tracks view targets the live
-    // pattern again — no link.
+    // pattern again - no link.
     try app.session.stampClip(0, 0);
     app.view = .arrangement;
     app.handleKey(.{ .char = 'e' }, 0);
@@ -2096,7 +2096,7 @@ test "transport indicator shows the unicode glyph without the font, the icon wit
 
 test "icons.detectFontInstalled reports false when the font isn't in the user's font dir" {
     // testApp()/App.init never call this (it needs a real std.Io, not the
-    // std.Io.failing used by the fake IO in tests) — exercise it directly.
+    // std.Io.failing used by the fake IO in tests) - exercise it directly.
     try std.testing.expect(icons.detectFontInstalled(std.testing.io) == false);
 }
 
@@ -2191,7 +2191,7 @@ test "draw renders spectrum view without errors" {
     var w = std.Io.Writer.fixed(&buf);
     try app.draw(&w, .{ .cols = 80, .rows = 24 });
     try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "FX CHAIN") != null);
-    // A fresh chain is empty — the body is the insert hint.
+    // A fresh chain is empty - the body is the insert hint.
     try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "chain empty") != null);
 }
 
@@ -2209,7 +2209,7 @@ test "spectrum fills FFT buffer and draws with real data" {
     var app = try testApp();
     defer app.deinit();
 
-    // The analyzer belongs to an EQ unit's editor — insert one and focus it.
+    // The analyzer belongs to an EQ unit's editor - insert one and focus it.
     _ = try app.session.racks.items[0].fx.insert(
         // zig fmt: off
         app.session.allocator, 0, .eq, app.session.project.sample_rate,
@@ -2298,7 +2298,7 @@ test "track delete drops an undo entry that named the deleted track" {
     app.session.racks.items[2].instrument.drum_machine.toggleStep(0, 0);
 
     // Delete track 2 itself: the entry it named is gone, not remapped onto
-    // a different surviving track — but the delete pushes its own
+    // a different surviving track - but the delete pushes its own
     // whole-track undo entry, so the stack isn't left empty.
     app.doTrackDel(2);
     try std.testing.expectEqual(@as(usize, 1), app.history.undo_stack.items.len);
@@ -2327,7 +2327,7 @@ test "track delete remaps a still-open FX nudge batch, including the entry it fl
 
     // Delete track 0 while the batch is still open (`:track-del` is
     // reachable from inside the FX editor without a flush): the chain
-    // shifts to index 1 and the batch must follow — including the target
+    // shifts to index 1 and the batch must follow - including the target
     // embedded in the snapshot it eventually flushes, not just its own.
     app.doTrackDel(0);
     history.flushFxNudge(&app);
@@ -2377,7 +2377,7 @@ test "track delete undo entries stay correctly ordered across two deletes and tw
     defer app.deinit();
 
     // Delete track 0 (synth), then track 0 again (was the sampler, now
-    // shifted down to index 0) — two whole-track undo entries stack up.
+    // shifted down to index 0) - two whole-track undo entries stack up.
     app.doTrackDel(0);
     app.doTrackDel(0);
     try std.testing.expectEqual(@as(usize, 1), app.session.project.tracks.items.len);
@@ -2389,7 +2389,7 @@ test "track delete undo entries stay correctly ordered across two deletes and tw
     try std.testing.expectEqual(InstrumentKind.sampler, std.meta.activeTag(app.session.racks.items[0].instrument));
 
     // Second undo restores the synth back at index 0, pushing the sampler
-    // to index 1 — the still-pending track_insert entry for the synth must
+    // to index 1 - the still-pending track_insert entry for the synth must
     // have followed the sampler's earlier restore (an .insert remap on an
     // insertion-point entry, not a live-track one) to land at the right slot.
     app.handleKey(.{ .char = 'u' }, 0);
@@ -2409,7 +2409,7 @@ test "track delete shifts slicer_track like every other editor-target index" {
     app.slicer_track = 3;
     app.view = .slicer_grid;
 
-    // `:track-del 1` is reachable from inside the grid — the slicer shifts
+    // `:track-del 1` is reachable from inside the grid - the slicer shifts
     // to index 2 and the open grid must follow it.
     app.doTrackDel(0);
     try std.testing.expectEqual(@as(u16, 2), app.slicer_track);
@@ -2430,7 +2430,7 @@ test "track delete re-heals the row cursor when the row list reshapes under an u
     try std.testing.expectEqual(@as(usize, 1), app.cursor);
 
     // Deleting track 0 keeps cursor == 1 (now the old track 2, still in the
-    // group) but reshapes the rows to [t0', G, t1'] — without a forced
+    // group) but reshapes the rows to [t0', G, t1'] - without a forced
     // re-heal the row cursor would sit clamped on the master row while
     // `cursor` names a real track.
     app.doTrackDel(0);
@@ -2510,7 +2510,7 @@ test "track delete shifts the automation editor's clip link and track with it" {
     try std.testing.expectEqual(AppView.automation, app.view);
 
     // `:track-del 1` is reachable from inside the editor. Track 2's lane
-    // shifts to index 1; the link must follow it — a stale link would
+    // shifts to index 1; the link must follow it - a stale link would
     // resolve against the OLD index and silently edit another track's clip.
     app.doTrackDel(0);
     try std.testing.expectEqual(@as(u16, 1), app.automation_clip.?.track);
@@ -2638,7 +2638,7 @@ test "tracks visual mode: v/j selects a range and g creates an untitled group" {
 
     app.handleKey(.{ .char = 'v' }, 0);
     try std.testing.expectEqual(ws.input.Mode.visual, app.modal.mode);
-    app.handleKey(.{ .char = 'j' }, 0); // extend to track 1 — selection is [0,1]
+    app.handleKey(.{ .char = 'j' }, 0); // extend to track 1 - selection is [0,1]
 
     app.handleKey(.{ .char = 'g' }, 0);
 
@@ -2794,14 +2794,14 @@ test ":track-rename with no track number renames the cursor track" {
     try std.testing.expectEqualStrings("bass", app.session.project.tracks.items[1].name);
 
     // A single bare number is still a missing-<name> error, not a rename
-    // to that numeral — the same lone-index usage that already errored.
+    // to that numeral - the same lone-index usage that already errored.
     for (":track-rename 3") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.enter, 0);
     try std.testing.expectEqualStrings("bass", app.session.project.tracks.items[1].name);
 }
 
 test ":gain/:pan with no args at all report the cursor track" {
-    // Only the fully-argless form falls back to the cursor track — a single
+    // Only the fully-argless form falls back to the cursor track - a single
     // token (":gain -6") still means an explicit track number as before,
     // since a bare number is genuinely ambiguous between "which track" and
     // "what value for the cursor track" and guessing wrong would silently
@@ -2866,7 +2866,7 @@ test "synth editor jk moves cursor, hl adjusts waveform" {
 
     // AMP ENV's "attack" (id 16) is the MAIN subview's 46th nav entry now
     // that OSC A/B/C, SUB, NOISE, MOD, and FILTER 1/2 all sort ahead of it
-    // — see synth_layout.zig's main_sections declaration order.
+    // - see synth_layout.zig's main_sections declaration order.
     for (0..46) |_| app.handleKey(.{ .char = 'j' }, 0);
     try std.testing.expectEqual(@as(u8, 16), app.synth_cursor);
 
@@ -2883,7 +2883,7 @@ test "draw renders synth editor without errors" {
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(AppView.synth_editor, app.view);
 
-    // Tall enough that the whole single-column MAIN body (~76 rows — see
+    // Tall enough that the whole single-column MAIN body (~76 rows - see
     // synth_layout.zig's main_sections) fits without scrolling, so this
     // stays a simple "did real content render" smoke test rather than a
     // reflection of exactly where AMP ENV happens to land in the order.
@@ -2929,7 +2929,7 @@ test "synth editor g/G jump to the first/last parameter" {
     defer app.deinit();
 
     app.handleKey(.enter, 0);
-    // Just a "did we move off the start" sanity check before testing g/G —
+    // Just a "did we move off the start" sanity check before testing g/G -
     // 10 j's lands on OSC B's first entry (id 6, on/off) now that OSC A's
     // 10 entries (waveform..wt.pos) sort ahead of it.
     for (0..10) |_| app.handleKey(.{ .char = 'j' }, 0);
@@ -2938,7 +2938,7 @@ test "synth editor g/G jump to the first/last parameter" {
     app.handleKey(.{ .char = 'g' }, 0);
     try std.testing.expectEqual(@as(u8, 0), app.synth_cursor);
     app.handleKey(.{ .char = 'G' }, 0);
-    // Last id of the "main" subview: OUT's "gain" (id 38) — the last
+    // Last id of the "main" subview: OUT's "gain" (id 38) - the last
     // section in synth_layout.zig's main_sections declaration order.
     try std.testing.expectEqual(@as(u8, 38), app.synth_cursor);
 }
@@ -2949,7 +2949,7 @@ test "synth editor param nudges coalesce into one undo step, u/U round-trips" {
     var block: [64]types.Sample = undefined;
 
     app.handleKey(.enter, 0); // cursor 0 = synth
-    // 46 j's: land on attack (id 16), the AMP ENV section's first entry —
+    // 46 j's: land on attack (id 16), the AMP ENV section's first entry -
     // see synth_layout.zig's main_sections declaration order.
     for (0..46) |_| app.handleKey(.{ .char = 'j' }, 0); // land on attack (a numeric param)
     try std.testing.expectEqual(@as(u8, 16), app.synth_cursor);
@@ -2963,7 +2963,7 @@ test "synth editor param nudges coalesce into one undo step, u/U round-trips" {
     app.handleKey(.{ .char = 'l' }, 0);
     app.session.engine.process(&block);
     try std.testing.expect(synth.attack_s > before);
-    // Three nudges on the same param, no cursor move yet — still one open
+    // Three nudges on the same param, no cursor move yet - still one open
     // batch, nothing pushed to the undo stack.
     try std.testing.expectEqual(@as(usize, 0), app.history.undo_stack.items.len);
 
@@ -2985,7 +2985,7 @@ test "param undo restores the exact value even when a nudge hit the clamp" {
 
     app.handleKey(.enter, 0); // cursor 0 = synth
     // 48 j's: land on sustain (id 18), AMP ENV's 3rd entry (attack, decay,
-    // sustain — see synth_layout.zig's main_sections).
+    // sustain - see synth_layout.zig's main_sections).
     for (0..48) |_| app.handleKey(.{ .char = 'j' }, 0); // sustain (0..1, clamps)
     try std.testing.expectEqual(@as(u8, 18), app.synth_cursor);
 
@@ -3015,7 +3015,7 @@ test "param undo round-trips a coalesced toggle batch (any nonzero delta = one f
     var block: [64]types.Sample = undefined;
 
     app.handleKey(.enter, 0);
-    // 10 j's: land on osc_b_on (id 6), OSC B's first entry — OSC A's 10
+    // 10 j's: land on osc_b_on (id 6), OSC B's first entry - OSC A's 10
     // entries (waveform..wt.pos) sort ahead of it now.
     for (0..10) |_| app.handleKey(.{ .char = 'j' }, 0); // osc_b_on (a toggle)
     try std.testing.expectEqual(@as(u8, 6), app.synth_cursor);
@@ -3044,7 +3044,7 @@ test "synth editor param nudge flushes as its own step when the cursor moves off
     var block: [64]types.Sample = undefined;
 
     app.handleKey(.enter, 0);
-    // 46 j's: land on attack (id 16) — see synth_layout.zig's main_sections.
+    // 46 j's: land on attack (id 16) - see synth_layout.zig's main_sections.
     for (0..46) |_| app.handleKey(.{ .char = 'j' }, 0); // attack
     const synth = &app.session.racks.items[0].instrument.poly_synth;
     app.session.engine.process(&block);
@@ -3062,7 +3062,7 @@ test "synth editor param nudge flushes as its own step when the cursor moves off
     try std.testing.expect(synth.decay_s > decay_before);
 
     // The attack batch was flushed by the id mismatch on the next nudge;
-    // the decay nudge is still open (not flushed) — one entry so far.
+    // the decay nudge is still open (not flushed) - one entry so far.
     try std.testing.expectEqual(@as(usize, 1), app.history.undo_stack.items.len);
 
     app.handleKey(.{ .char = 'g' }, 0); // flushes the open decay batch
@@ -3288,7 +3288,7 @@ test "drum grid insert mode previews without recording while the transport is st
     app.handleKey(.{ .char = 'a' }, 0);
 
     // Pitch 60 maps to pad 60 % 64 = 60, which the shipped kit's default
-    // groove leaves silent (only pads 0/1/2 have a default pattern) — check
+    // groove leaves silent (only pads 0/1/2 have a default pattern) - check
     // the whole pad's row stayed empty rather than a single step, so the
     // test doesn't depend on where a stopped transport's playhead sits.
     const dm = &app.session.racks.items[2].instrument.drum_machine;
@@ -3381,7 +3381,7 @@ test "count prefixes multiply editor motions and die with the next key" {
     try std.testing.expectEqual(@as(u8, 31), app.drum_cursor[1]); // 32 steps
 
     // An unused count is discarded by the handled key it preceded ('p'
-    // previews, no count) — the following motion moves 1, not 5.
+    // previews, no count) - the following motion moves 1, not 5.
     for ("5p") |c| app.handleKey(.{ .char = c }, 0);
     for ("h") |c| app.handleKey(.{ .char = c }, 0);
     try std.testing.expectEqual(@as(u8, 30), app.drum_cursor[1]);
@@ -3447,7 +3447,7 @@ test "arrangement visual mode selects a bar range on the current lane for y/d/P"
     app.arr_cursor_bar = 0;
     app.handleKey(.{ .char = 'v' }, 0);
     try std.testing.expectEqual(ws.input.Mode.visual, app.modal.mode);
-    app.handleKey(.{ .char = 'l' }, 0); // extend to bar 1 — covers both stamped clips
+    app.handleKey(.{ .char = 'l' }, 0); // extend to bar 1 - covers both stamped clips
 
     app.handleKey(.{ .char = 'y' }, 0);
     try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
@@ -3567,7 +3567,7 @@ test "piano roll M grabs a note; h/l/j/k drag it as one undo step" {
     app.handleKey(.{ .char = 'M' }, 0); // grab
     app.handleKey(.{ .char = 'l' }, 0); // step 1
     app.handleKey(.{ .char = 'k' }, 0); // C#4
-    app.handleKey(.escape, 0); // drop — stays in the roll
+    app.handleKey(.escape, 0); // drop - stays in the roll
     try std.testing.expectEqual(AppView.piano_roll, app.view);
     try std.testing.expectEqual(@as(u16, 1), pp.note_count);
     try std.testing.expectEqual(@as(u7, 61), pp.notes[0].pitch);
@@ -3611,7 +3611,7 @@ test "piano roll . repeats the last drag on whatever note sits under the new cur
     app.piano_cursor_pitch = 60;
     app.handleKey(.{ .char = '.' }, 0);
     try std.testing.expect(pp.noteAt(60, 1.0) == null); // moved away from step4/pitch60
-    try std.testing.expect(pp.noteAt(61, 1.25) != null); // to step5/pitch61 — same (Δstep,Δpitch)
+    try std.testing.expect(pp.noteAt(61, 1.25) != null); // to step5/pitch61 - same (Δstep,Δpitch)
 
     // Undo unwinds just the repeat, leaving the first drag intact.
     app.handleKey(.{ .char = 'u' }, 0);
@@ -3971,7 +3971,7 @@ test "command Tab-completion hides instrument-scoped commands under the wrong tr
     defer app.deinit();
 
     // Cursor on the synth track: "pad-r" (drum-scoped) has no in-scope
-    // candidate, so Tab is a no-op — cmd_buf is untouched.
+    // candidate, so Tab is a no-op - cmd_buf is untouched.
     app.cursor = 0;
     for (":pad-r") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.tab, 0);
@@ -3989,7 +3989,7 @@ test "Tab cycles through multiple command-name matches instead of stalling at a 
     var app = try App.init(std.testing.allocator, std.Io.failing);
     defer app.deinit();
 
-    // "q" matches q / q! / quit / qa / qa! (table order) — Tab steps
+    // "q" matches q / q! / quit / qa / qa! (table order) - Tab steps
     // through all five in turn and wraps back to the first.
     for (":q") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.tab, 0);
@@ -4023,7 +4023,7 @@ test "suggestion popup highlight tracks the completed candidate past a hidden al
     app.cursor = 2; // drum track: "d" stem now also matches drum-kit/drum-kit-save
 
     for (":d") |c| app.handleKey(.{ .char = c }, 0);
-    app.handleKey(.tab, 0); // -> "d" (the alias — table order puts it first, still hidden from the popup)
+    app.handleKey(.tab, 0); // -> "d" (the alias - table order puts it first, still hidden from the popup)
     app.handleKey(.tab, 0); // -> "drum-kit"
     try std.testing.expectEqualStrings("drum-kit", app.modal.cmd_buf[0..app.modal.cmd_len]);
 
@@ -4034,7 +4034,7 @@ test "suggestion popup highlight tracks the completed candidate past a hidden al
 
     // The row actually highlighted must be the one the buffer holds, not
     // the row one slot further down that a hidden-alias-inflated cycle
-    // index would land on (drum-kit-save) — see suggestionSelected.
+    // index would land on (drum-kit-save) - see suggestionSelected.
     var want_buf: [32]u8 = undefined;
     const want_row = std.fmt.bufPrint(&want_buf, "{s}  {s: <16}", .{ style.sel, "drum-kit" }) catch unreachable;
     try std.testing.expect(std.mem.indexOf(u8, frame, want_row) != null);
@@ -4052,7 +4052,7 @@ test "typing after a Tab-cycle starts a fresh cycle instead of continuing the ol
     app.handleKey(.tab, 0); // -> "q!"
     try std.testing.expectEqualStrings("q!", app.modal.cmd_buf[0..app.modal.cmd_len]);
 
-    // Clearing back to "q" and typing "uit" makes "quit" — an unambiguous
+    // Clearing back to "q" and typing "uit" makes "quit" - an unambiguous
     // command name, so Tab completes it in full (+ trailing space) instead
     // of resuming the stale q!/quit/qa/qa! cycle at its old index.
     app.handleKey(.backspace, 0);
@@ -4081,7 +4081,7 @@ test ":drum-kit Tab cycles the kit-name argument from the fixed variant list" {
     var app = try App.init(std.testing.allocator, std.Io.failing);
     defer app.deinit();
 
-    // "a" matches "analog" and "acoustic" (variant-table order) — Tab
+    // "a" matches "analog" and "acoustic" (variant-table order) - Tab
     // steps between the two full names instead of stalling at "a".
     for (":drum-kit a") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.tab, 0);
@@ -4096,7 +4096,7 @@ test ":synth-preset Tab completes the preset-name argument from the fixed preset
     var app = try App.init(std.testing.allocator, std.Io.failing);
     defer app.deinit();
 
-    // "sub" uniquely matches "sub-bass" — completes in full plus a
+    // "sub" uniquely matches "sub-bass" - completes in full plus a
     // trailing space, same single-match behavior as command names.
     for (":synth-preset sub") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.tab, 0);
@@ -4107,7 +4107,7 @@ test ":metronome Tab cycles on/off" {
     var app = try App.init(std.testing.allocator, std.Io.failing);
     defer app.deinit();
 
-    // No argument typed yet — Tab steps between "on" and "off" directly
+    // No argument typed yet - Tab steps between "on" and "off" directly
     // rather than stalling at their shared leading "o".
     for (":metronome ") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.tab, 0);
@@ -4206,7 +4206,7 @@ test "autosave is a no-op when clean or when no project path is known" {
 // ---------------------------------------------------------------------------
 
 /// Points a fresh App's project path at `tmp` (without a real project file
-/// there — `openBrowser` only needs the directory) so `:e`/`:load-sample`'s
+/// there - `openBrowser` only needs the directory) so `:e`/`:load-sample`'s
 /// no-arg browse starts inside the sandbox instead of the repo root.
 fn appRootedAt(tmp: *std.testing.TmpDir) !App {
     try redirectHome(tmp);
@@ -4264,7 +4264,7 @@ test "file browser: / fuzzy-searches filenames; n/N repeat and wrap around" {
     try std.testing.expectEqual(@as(usize, 2), app.browser_cursor); // snare.wav
 
     // "i" matches hihat and kick (both have an 'i' in the basename), not
-    // snare — n/N cycle between the two. (Every name ends in ".wav", so the
+    // snare - n/N cycle between the two. (Every name ends in ".wav", so the
     // pattern has to avoid w/a/v or it'd match all three via the extension.)
     for ("/i") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.enter, 0);
@@ -4427,7 +4427,7 @@ test ":e with no path always browses; selecting a file refuses when dirty" {
     app.handleKey(.escape, 0);
 
     // Browsing itself is safe even with unsaved changes, so the picker
-    // still opens — but the refusal warns pre-emptively (right here) rather
+    // still opens - but the refusal warns pre-emptively (right here) rather
     // than after the user's already hunted down a file to select.
     app.applyAction(.toggle_mute, 0); // dirty
     for (":e") |c| app.handleKey(.{ .char = c }, 0);
@@ -4441,7 +4441,7 @@ test ":e with no path always browses; selecting a file refuses when dirty" {
 }
 
 // ---------------------------------------------------------------------------
-// Mouse — one representative test per view; each replays the exact row/col
+// Mouse - one representative test per view; each replays the exact row/col
 // math its handleMouse (see editors/*.zig) derives from the view's own
 // render layout, driven straight through App.handleMouse (bypassing
 // terminal.decode, same as handleKey's tests bypass raw byte parsing).
@@ -4453,7 +4453,7 @@ test "mouse click on a tracks-view row selects and opens it" {
 
     // A real run loop always draws before dispatching input, which is what
     // populates `track_rows_shown` (needed to locate the pinned master row
-    // under scrolling — see App.tracksMouse).
+    // under scrolling - see App.tracksMouse).
     var buf: [8 * 1024]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
     try app.draw(&w, .{ .cols = 80, .rows = 24 });
@@ -4518,7 +4518,7 @@ test "arrangement view scrolls lanes to keep the cursor visible with many tracks
     app.cursor = lane_count - 1;
     try app.draw(&w, .{ .cols = 80, .rows = 15 });
     const frame = w.buffered();
-    // The cursor's lane must actually be on screen — every auto-added
+    // The cursor's lane must actually be on screen - every auto-added
     // track's name truncates to the same "track " (6 chars, digits cut
     // off), so check the lane-number column instead of the name.
     var num_buf: [4]u8 = undefined;
@@ -4550,7 +4550,7 @@ test "mouse click toggles a drum step and drag paints a run of them" {
 
     // row 0 = title, row 1 = step header, row 2 = pad 0. Cell columns (10-char
     // gutter, 1-char "│" every 4 steps, 3-char cells): step1 x in [14,17),
-    // step2 x in [17,20), step3 x in [20,23) — see editors/drum.zig's stepAt.
+    // step2 x in [17,20), step3 x in [20,23) - see editors/drum.zig's stepAt.
     const row = app_mod.content_top + 2;
     app.handleMouse(.{ .x = 15, .y = row, .button = .left, .kind = .press }, 80, 24, 0);
     try std.testing.expect(app.drumMachine().stepActive(0, 1));
@@ -4625,7 +4625,7 @@ test "mouse drag moves an arrangement clip" {
     const lane = app.session.arrangement.lane(0).?;
     try std.testing.expect(lane.clipAt(0) != null);
 
-    // row 0 = title, row 1 = ruler, row 2 = lane 0. gutter=13, cell_w=4 —
+    // row 0 = title, row 1 = ruler, row 2 = lane 0. gutter=13, cell_w=4 -
     // bar 0's cell is x in [13,17), bar 2's is x in [21,25).
     const row = app_mod.content_top + 2;
     app.handleMouse(.{ .x = 14, .y = row, .button = .left, .kind = .press }, 80, 24, 0);
@@ -4648,9 +4648,9 @@ test "mouse scroll over a synth param row selects and nudges it" {
     const old_detune = app.session.racks.items[0].instrument.poly_synth.detune_cents;
 
     // OSC A's "detune" (id 2) is the MAIN subview's 3rd content row (0:wave,
-    // 1:pls.width, 2:detune — see synth_layout.zig's main_sections); +1 for
+    // 1:pls.width, 2:detune - see synth_layout.zig's main_sections); +1 for
     // the header row above it, +1 again since this "row" param is 1-based
-    // content-row numbering (row 1 == the first line below the title — see
+    // content-row numbering (row 1 == the first line below the title - see
     // editors/synth.zig's paramAtRow). synth_scroll starts at 0, so this
     // small a row is on-screen even at this test's 24-row terminal height.
     const row = app_mod.content_top + 4;
@@ -4716,7 +4716,7 @@ test "mouse click on a chain-strip slot box focuses that slot" {
     app.handleMouse(.{ .x = 20, .y = row, .button = .left, .kind = .press }, 80, 24, 0);
     try std.testing.expectEqual(@as(usize, 2), app.fx_focus);
 
-    // The "+" box sits one slot past the last unit — clicking it opens the
+    // The "+" box sits one slot past the last unit - clicking it opens the
     // FX picker for this track's chain.
     app.handleMouse(.{ .x = 28, .y = row, .button = .left, .kind = .press }, 80, 24, 0);
     try std.testing.expectEqual(app_mod.AppView.fx_picker, app.view);
@@ -4800,7 +4800,7 @@ test "FX chain: param nudges coalesce into one undo step, u right after nudging 
     _ = spectrum_ed.handleKey(&app, .{ .char = 'l' });
     const nudged = spectrum_ed.getParam(&fx.units.items[0].payload, 0);
     try std.testing.expect(nudged > before);
-    // Three nudges on the same param, no cursor move — still one open batch.
+    // Three nudges on the same param, no cursor move - still one open batch.
     try std.testing.expectEqual(@as(usize, 0), app.history.undo_stack.items.len);
 
     // u right away (no intervening flush point) must undo the whole batch.
@@ -4820,7 +4820,7 @@ test "FX chain: EQ kind field cycles peak/lowpass/highpass, gain row becomes slo
     const fx = &app.session.racks.items[0].fx;
     const eq = &fx.units.items[0].payload.eq;
     app.fx_param = spectrum_ed.eq_field_kind; // band 0's kind field
-    // h/l only nudges a field's value once its submenu is open — band-select
+    // h/l only nudges a field's value once its submenu is open - band-select
     // mode (the default after switching focus) has h/l walk bands instead.
     app.eq_band_select = false;
 
@@ -4867,11 +4867,11 @@ test "FX chain: insert/bypass/remove are each their own undoable step" {
     try std.testing.expectEqual(@as(usize, 1), fx.units.items.len);
     try std.testing.expectEqual(@as(usize, 1), app.history.undo_stack.items.len);
 
-    _ = spectrum_ed.handleKey(&app, .{ .char = 'b' }); // bypass — its own step
+    _ = spectrum_ed.handleKey(&app, .{ .char = 'b' }); // bypass - its own step
     try std.testing.expect(fx.units.items[0].bypassed);
     try std.testing.expectEqual(@as(usize, 2), app.history.undo_stack.items.len);
 
-    _ = spectrum_ed.handleKey(&app, .{ .char = 'x' }); // remove — its own step
+    _ = spectrum_ed.handleKey(&app, .{ .char = 'x' }); // remove - its own step
     try std.testing.expectEqual(@as(usize, 0), fx.units.items.len);
     try std.testing.expectEqual(@as(usize, 3), app.history.undo_stack.items.len);
 
@@ -4946,7 +4946,7 @@ test "compressor's scpad row only shows once the sidechain track is a drum machi
     try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "scpad") != null);
 
     // Pick a pad, then nudge the sidechain track (idx 5) off the drum
-    // machine and onto the sampler — the now-stale pad selection must
+    // machine and onto the sampler - the now-stale pad selection must
     // clear itself (see clearStaleSidechainPad's doc comment for why a
     // lingering pad silently zeroes the detector instead of falling back
     // to whole-track sidechain).
@@ -4972,7 +4972,7 @@ test "FX chain: a param nudge followed by a structural edit are two separate und
     const undo_after_insert = app.history.undo_stack.items.len;
     const threshold_before = spectrum_ed.getParam(&fx.units.items[0].payload, 0);
 
-    _ = spectrum_ed.handleKey(&app, .{ .char = 'l' }); // nudge threshold — opens a batch
+    _ = spectrum_ed.handleKey(&app, .{ .char = 'l' }); // nudge threshold - opens a batch
     try std.testing.expectEqual(undo_after_insert, app.history.undo_stack.items.len); // still open
     const threshold_nudged = spectrum_ed.getParam(&fx.units.items[0].payload, 0);
     try std.testing.expect(threshold_nudged > threshold_before);
@@ -4995,7 +4995,7 @@ test "FX chain: switchToGroup opens a group's chain via the same shared editor" 
     try std.testing.expectEqual(g, app.eq_group);
 
     // 'a' opens the picker; accepting inserts into *this* group's chain,
-    // not the master's or a track's — same insert path 'a' already uses
+    // not the master's or a track's - same insert path 'a' already uses
     // for those two, just resolved through fxPtr's third arm.
     _ = spectrum_ed.handleKey(&app, .{ .char = 'a' });
     try std.testing.expectEqual(AppView.fx_picker, app.view);
@@ -5024,7 +5024,7 @@ test "tracks view: group rows render in folder order; z folds members behind the
 
     app.tracksRowSync();
     // Folder order: group row where its first member sat, members under it,
-    // the loose track after — master one past the end as always.
+    // the loose track after - master one past the end as always.
     try std.testing.expectEqual(@as(usize, 4), app.track_rows_len);
     try std.testing.expectEqual(g, app.track_rows_buf[0].group);
     try std.testing.expectEqual(@as(u16, 0), app.track_rows_buf[1].track);
@@ -5040,7 +5040,7 @@ test "tracks view: group rows render in folder order; z folds members behind the
     try std.testing.expectEqual(@as(usize, 2), app.track_rows_len); // group row + loose track
     try std.testing.expectEqual(@as(?u8, g), app.cursorGroup());
 
-    // z from a member row folds too — the cursor climbs onto the group row.
+    // z from a member row folds too - the cursor climbs onto the group row.
     app.handleKey(.{ .char = 'z' }, 0); // unfold first
     try std.testing.expectEqual(@as(usize, 4), app.track_rows_len);
     app.setTrackRow(2); // track 1, inside the group
@@ -5161,7 +5161,7 @@ test "f in the synth editor opens the preset picker; / narrows and enter applies
 test "preset-picker filter reaches genre tags and user-saved presets" {
     var app = try testApp();
     defer app.deinit();
-    // A saved preset alongside the factory list — App.deinit frees the name.
+    // A saved preset alongside the factory list - App.deinit frees the name.
     const name = try app.allocator.dupe(u8, "my-fave");
     var patch: ws.dsp.PolySynth.Patch = .{};
     patch.gain = 0.42;
@@ -5179,7 +5179,7 @@ test "preset-picker filter reaches genre tags and user-saved presets" {
 
     // The saved preset is reachable by name and applies. (Its "saved"
     // category is matchable too, but as a subsequence it also catches
-    // synthwave-lead — s,a,v,e,d — so the name is the precise handle.)
+    // synthwave-lead - s,a,v,e,d - so the name is the precise handle.)
     for ("/my-fave") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(@as(usize, 1), preset_ed.entryCountOf(preset_ed.buildDisplayRows(&app, &buf)));

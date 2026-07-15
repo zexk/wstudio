@@ -10,7 +10,7 @@ pub const Size = struct { cols: u16, rows: u16 };
 
 /// Parses the parameter block of an SGR mouse report (everything between the
 /// leading `<` and the final `M`/`m`): `Cb;Cx;Cy`. `is_press` is true when the
-/// sequence's final byte was `M` (press or motion), false for `m` (release —
+/// sequence's final byte was `M` (press or motion), false for `m` (release -
 /// see `Key.mouse`'s doc comment for the byte layout this decodes).
 fn parseSgrMouse(params: []const u8, is_press: bool) ?Key {
     var it = std.mem.splitScalar(u8, params, ';');
@@ -59,12 +59,12 @@ fn leadingCsiNum(params: []const u8) ?u16 {
 }
 
 /// Decodes a batch of raw input bytes into keys. A lone 0x1b in the batch is
-/// the escape key; 0x1b followed by '[' is a CSI sequence — arrows, Home
+/// the escape key; 0x1b followed by '[' is a CSI sequence - arrows, Home
 /// (xterm/alacritty's plain `ESC [ H` or the numbered `ESC [ 1 ~` / `7 ~`
 /// forms), End (`ESC [ F` or `ESC [ 4 ~` / `8 ~`), and SGR mouse reports
 /// (`ESC [ < Cb ; Cx ; Cy M`/`m`) decode to their own Key variants (arrows/
 /// Home/End not aliased to hjkl chars, so the modal layer can tell a real
-/// arrow press from someone typing those letters — see App.handleKey),
+/// arrow press from someone typing those letters - see App.handleKey),
 /// other CSI sequences are dropped. Returns the number of keys written to
 /// `out`.
 pub fn decode(bytes: []const u8, out: []Key) usize {
@@ -217,7 +217,7 @@ test "decode SGR mouse press/release/drag" {
     n = decode("\x1b[<0;5;3m", &keys);
     try std.testing.expectEqual(modal_mod.MouseKind.release, keys[0].mouse.kind);
 
-    // motion with the left button held (bit 0x20) — a drag
+    // motion with the left button held (bit 0x20) - a drag
     n = decode("\x1b[<32;6;3M", &keys);
     try std.testing.expectEqual(modal_mod.MouseKind.drag, keys[0].mouse.kind);
     try std.testing.expectEqual(@as(u16, 5), keys[0].mouse.x);

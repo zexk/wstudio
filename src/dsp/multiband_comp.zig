@@ -3,7 +3,7 @@
 //! own feed-forward peak-envelope compressor, then summed back together.
 //! `style` toggles between ordinary downward-only compression and the "OTT"
 //! variant, which additionally pulls quiet signal UP toward the same
-//! threshold — the aggressive, "always moving" character the mode is named
+//! threshold - the aggressive, "always moving" character the mode is named
 //! after (after Xfer's OTT plugin).
 
 const std = @import("std");
@@ -21,11 +21,11 @@ pub const high: usize = 2;
 pub const Style = enum(u8) { classic, ott };
 
 /// One RBJ-cookbook lowpass/highpass biquad stage, fixed at Butterworth Q
-/// (1/sqrt(2)) — run twice in series (see `LrFilter`) for a 24dB/oct
+/// (1/sqrt(2)) - run twice in series (see `LrFilter`) for a 24dB/oct
 /// Linkwitz-Riley crossover slope. Deliberately its own tiny copy of the
 /// coefficient math `dsp/eq.zig`'s `EqBand` already has (that type isn't
 /// exported, and duplicating ~15 lines here is cheaper than exposing an EQ
-/// internal to a module with different needs — same call the project made
+/// internal to a module with different needs - same call the project made
 /// for `dsp/slicer.zig` vs `DrumMachine`'s step sequencer).
 const Biquad = struct {
     b0: f32 = 1.0,
@@ -121,7 +121,7 @@ const LrFilter = struct {
 /// Splits one channel into [low, mid, high] via two cascaded LR4 crossover
 /// points: first low/high1 at `xover_lo`, then high1 splits again into
 /// mid/high at `xover_hi`. Summing the three bands with no per-band gain
-/// change reconstructs the input (Linkwitz-Riley's defining property) —
+/// change reconstructs the input (Linkwitz-Riley's defining property) -
 /// exactly the topology a per-band gain (the compressor) is meant to perturb.
 const Crossover = struct {
     lo_lp: LrFilter = .{},
@@ -154,7 +154,7 @@ const Crossover = struct {
 
 /// One band's compressor: same feed-forward peak-envelope/dB-domain gain
 /// computer as `Compressor`, plus (in `.ott` style) a mirrored upward stage
-/// that boosts signal below the threshold instead of leaving it alone —
+/// that boosts signal below the threshold instead of leaving it alone -
 /// the two stages share one threshold/ratio pair rather than exposing four,
 /// keeping the param count in line with the rest of the FX chain (a plain
 /// `Compressor` already spends 7 slots; three of these plus the shared
@@ -167,12 +167,12 @@ const BandComp = struct {
 
     fn gainFor(self: *BandComp, level: f32, attack: f32, release: f32, style: Style) f32 {
         const over_db = Compressor.envelopeOverDb(&self.env, level, attack, release, self.threshold_db);
-        // Downward: pull the excess above threshold down by `ratio` — same
+        // Downward: pull the excess above threshold down by `ratio` - same
         // envelope/ratio math as the plain `Compressor`.
         var reduction_db = Compressor.downwardReductionDb(over_db, self.ratio);
         if (over_db <= 0.0 and style == .ott) {
             // Upward (OTT only): push signal below threshold up toward it
-            // by the same `ratio` — mirrors the downward formula around the
+            // by the same `ratio` - mirrors the downward formula around the
             // threshold instead of introducing a second ratio param.
             reduction_db = -over_db * (1.0 - 1.0 / self.ratio);
         }
@@ -191,7 +191,7 @@ pub const MultibandComp = struct {
     attack_ms: f32 = 10.0,
     release_ms: f32 = 80.0,
     style: Style = .classic,
-    /// Dry/wet blend, 0 (bypassed sound) .. 1 (fully processed) — lets the
+    /// Dry/wet blend, 0 (bypassed sound) .. 1 (fully processed) - lets the
     /// user dial back the OTT extreme without leaving the mode.
     mix: f32 = 1.0,
     bands: [num_bands]BandComp = .{
@@ -199,7 +199,7 @@ pub const MultibandComp = struct {
         .{ .threshold_db = -18.0, .ratio = 4.0 },
         .{ .threshold_db = -16.0, .ratio = 3.0 },
     },
-    /// Per-channel crossover networks (L, R) — the split must not smear
+    /// Per-channel crossover networks (L, R) - the split must not smear
     /// stereo state the way a single shared filter would.
     crossover: [2]Crossover = .{ .{}, .{} },
 
@@ -229,7 +229,7 @@ pub const MultibandComp = struct {
     /// Set both crossover points at once from a previously-valid saved pair
     /// (persist load). Unlike calling `setXoverLo` then `setXoverHi`, this
     /// doesn't cross-clamp `lo` against `hi`'s stale pre-load value (still
-    /// the struct's just-inserted default) — that clamped a saved
+    /// the struct's just-inserted default) - that clamped a saved
     /// lo=2500/hi=8000 pair down to lo=1980. `lo` is set first against only
     /// the absolute floor, then `hi` clamps against the now-final `lo`.
     pub fn setXovers(self: *MultibandComp, lo: f32, hi: f32) void {
@@ -269,7 +269,7 @@ pub const MultibandComp = struct {
 
     pub const device = dsp.deviceOf(@This());
 
-    /// Clears crossover/envelope state without touching `sample_rate` —
+    /// Clears crossover/envelope state without touching `sample_rate` -
     /// callers embedding a `MultibandComp` by value (e.g. PolySynth's
     /// internal FX section) must use this instead of `= .{}`, which would
     /// reset sample_rate to the struct default and desync it from the real
@@ -329,7 +329,7 @@ test "OTT style boosts a quiet signal upward, classic style leaves it alone" {
     var buf_ott: [512]Sample = undefined;
     for (0..200) |_| {
         for (0..256) |i| {
-            // -40dBFS-ish broadband signal — well under the -12dB threshold.
+            // -40dBFS-ish broadband signal - well under the -12dB threshold.
             const s: f32 = if (i % 4 < 2) 0.01 else -0.01;
             buf_classic[i * 2] = s;
             buf_classic[i * 2 + 1] = s;
@@ -366,11 +366,11 @@ test "mix blends between dry and fully-processed" {
 test "setXoverLo/Hi keep the two crossover points from crossing" {
     var mb = MultibandComp.init(48_000);
     mb.setXoverHi(500.0);
-    mb.setXoverLo(1000.0); // would cross 500Hz — must clamp below it instead
+    mb.setXoverLo(1000.0); // would cross 500Hz - must clamp below it instead
     try std.testing.expect(mb.xover_lo_hz < mb.xover_hi_hz);
 
     mb.setXoverLo(1000.0);
-    mb.setXoverHi(200.0); // would cross 1000Hz — must clamp above it instead
+    mb.setXoverHi(200.0); // would cross 1000Hz - must clamp above it instead
     try std.testing.expect(mb.xover_hi_hz > mb.xover_lo_hz);
 }
 

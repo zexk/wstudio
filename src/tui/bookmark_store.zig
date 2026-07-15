@@ -6,7 +6,7 @@
 const std = @import("std");
 const json_store = @import("json_store.zig");
 
-/// A file-browser bookmark — `path` is the absolute path
+/// A file-browser bookmark - `path` is the absolute path
 /// `openBrowser`/`setBrowserDir` canonicalize to, so jumping to it later
 /// works regardless of what directory is currently listed.
 pub const Bookmark = struct {
@@ -27,7 +27,7 @@ const FileSnapshot = struct {
 const filename = "bookmarks.json";
 
 /// Load saved bookmarks, in save order. Empty (not an error) if the file
-/// doesn't exist yet or `$HOME` is unset — a missing bookmarks file should
+/// doesn't exist yet or `$HOME` is unset - a missing bookmarks file should
 /// never block startup, same spirit as a missing sample sidecar. A file
 /// that exists but fails to parse is quarantined rather than silently
 /// treated as empty, so a later save can't clobber it.
@@ -47,7 +47,7 @@ pub fn load(allocator: std.mem.Allocator, io: std.Io) std.ArrayListUnmanaged(Boo
 }
 
 /// Write every entry in `list` to disk, creating `~/.config/wstudio/` first
-/// if needed. Best-effort from the caller's side — a failure here (no
+/// if needed. Best-effort from the caller's side - a failure here (no
 /// `$HOME`, disk full) never blocks bookmark toggling, it just means the
 /// bookmark list doesn't outlive this run.
 pub fn save(allocator: std.mem.Allocator, io: std.Io, list: []const Bookmark) !void {

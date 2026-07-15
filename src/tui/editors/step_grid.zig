@@ -3,7 +3,7 @@
 //! the mouse column lookup. Both editors edit an identical (row, step)
 //! bitmask-plus-velocity grid over an instrument that duck-types
 //! toggleStep/stepActive/stepVel/setStepVel (DrumMachine's pads, Slicer's
-//! slices) — this file holds the row-agnostic logic so a fix to the range
+//! slices) - this file holds the row-agnostic logic so a fix to the range
 //! math (the part most prone to off-by-one bugs) lands in both at once.
 //! Key dispatch, undo/status wiring, and view-specific rendering stay in
 //! each editor; they differ enough (chop gestures, choke groups, pad
@@ -21,7 +21,7 @@ pub fn selectionRange(anchor: ?u8, cursor: u8) StepRange {
 }
 
 /// Move a cursor by `delta`, clamped to `[0, count-1]` (or 0 if `count`
-/// is 0). Covers moveStep/movePad/moveSlice alike — they differ only in
+/// is 0). Covers moveStep/movePad/moveSlice alike - they differ only in
 /// which count they clamp against.
 pub fn moveClamped(cursor: *u8, delta: i32, count: usize) void {
     if (count == 0) {
@@ -33,13 +33,13 @@ pub fn moveClamped(cursor: *u8, delta: i32, count: usize) void {
 }
 
 // w/b's jump granularity: 4 steps, matching the grid's own `│` separators
-// (drawn every 4 steps regardless of time signature — see the views'
+// (drawn every 4 steps regardless of time signature - see the views'
 // header-row comments). A full musical bar turned out too coarse in
 // practice with a default 16-step pattern, so both grids settled on this
 // fixed "decorative bar" width instead.
 const bar_len: i32 = 4;
 
-/// w/b: jump the step cursor `delta` 4-step groups forward/back — snaps to
+/// w/b: jump the step cursor `delta` 4-step groups forward/back - snaps to
 /// the nearest group boundary first, then moves whole groups from there.
 pub fn jumpBar(cursor: *u8, delta: i32, step_count: u8) void {
     const cur_bar = @divFloor(@as(i32, cursor.*), bar_len);
@@ -84,14 +84,14 @@ pub fn stepAt(gutter: usize, cell_width: usize, scroll: u32, step_count: u8, x: 
 /// Force one step to a given active/velocity state via the public toggle +
 /// velocity API (no direct bitmask poking, so this stays in step with
 /// whatever the instrument does internally on toggle). `inst` is a
-/// `*DrumMachine` or `*Slicer` — both duck-type the same step API.
+/// `*DrumMachine` or `*Slicer` - both duck-type the same step API.
 pub fn setStep(inst: anytype, row: u8, step: u8, active: bool, vel: u8) void {
     if (inst.stepActive(row, step) != active) inst.toggleStep(row, step);
     if (active) inst.setStepVel(row, step, vel);
 }
 
 /// Yank every row's steps within `r` into a `Clip` (DrumRangeClip or
-/// SlicerRangeClip — both duck-type `width`/`active`/`vel`), rebased so the
+/// SlicerRangeClip - both duck-type `width`/`active`/`vel`), rebased so the
 /// range's first step is bit 0.
 pub fn yankRange(comptime Clip: type, inst: anytype, max_rows: usize, r: StepRange) Clip {
     var clip: Clip = .{ .width = r.hi - r.lo + 1 };

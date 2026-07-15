@@ -25,7 +25,7 @@ const bcyn = style.bcyn;
 const endLine = style.endLine;
 
 /// Left gutter: " NN name " then the lane's leading separator. The name field
-/// is 8 wide — "e-piano"-sized names showed as "e-pian" at the old 6.
+/// is 8 wide - "e-piano"-sized names showed as "e-pian" at the old 6.
 pub const gutter: usize = 13;
 
 /// Bars that fit in the timeline area for a terminal `cols` wide, at cell
@@ -83,7 +83,7 @@ pub fn drawArrangement(
         try w.writeAll(if (in_loop) yel ++ "│" ++ rst else if (downbeat) blu ++ "│" ++ rst else dim ++ "│" ++ rst);
         if (cw == 2) {
             // Compact: no room for a bar number without corrupting column
-            // alignment — the separator's colour already marks downbeat/loop.
+            // alignment - the separator's colour already marks downbeat/loop.
             try w.writeAll(if (in_loop) yel ++ "·" ++ rst else " ");
         } else if (downbeat) {
             try w.print("{s}{d: <3}{s}", .{ if (in_loop) yel else dim, bar + 1, rst });
@@ -121,7 +121,7 @@ pub fn drawArrangement(
         const lane = app.session.arrangement.lane(li);
         const is_sel_lane = li == app.cursor;
         // Per-track color (see tui/style.zig's track_palette, cycled with
-        // `[`/`]` in the tracks view) — falls back to the generic accent
+        // `[`/`]` in the tracks view) - falls back to the generic accent
         // for clip cells below (unchanged look for uncolored tracks), and
         // to no color at all for the lane name (matches tracks.zig's own
         // name-coloring, which leaves an uncolored track plain).
@@ -189,15 +189,15 @@ pub fn drawArrangement(
     }
 
     // used = title(1) + ruler(1) actually printed above, plus the visible
-    // lane rows — was "4 +" (stale from before the header/transport hr()
+    // lane rows - was "4 +" (stale from before the header/transport hr()
     // rows were removed), leaving 2 rows of dead blank space above the footer.
     const used = 2 + (last_lane - lane_scroll);
     for (used..@max(used, rows -| 4)) |_| try endLine(w);
 }
 
 pub fn drawArrangementStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !void {
-    // The song/pattern toggle (T) isn't a modal.Mode — it's arrangement-
-    // specific playback state — so it stays its own plain-text segment
+    // The song/pattern toggle (T) isn't a modal.Mode - it's arrangement-
+    // specific playback state - so it stays its own plain-text segment
     // rather than folding into the mode badge, keeping both pieces of info
     // the old single combined badge carried.
     try style.writeModeBadge(w, app.modal.mode);

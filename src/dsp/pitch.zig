@@ -1,4 +1,4 @@
-//! Single-shot fundamental-frequency estimation for melodic sample loads —
+//! Single-shot fundamental-frequency estimation for melodic sample loads -
 //! control-thread only, not part of the audio-thread render path. Used by
 //! `Sampler.detectRootNote` to guess a newly loaded clip's root note instead
 //! of leaving it at whatever the pad's previous clip was tuned to.
@@ -19,7 +19,7 @@ pub const Result = struct {
 };
 
 const min_freq: f32 = 32.70; // C1
-const max_freq: f32 = 2093.0; // C7 — covers virtually every melodic sample;
+const max_freq: f32 = 2093.0; // C7 - covers virtually every melodic sample;
 // widening it just admits more octave errors from inharmonic content.
 const yin_threshold: f32 = 0.15; // standard YIN absolute threshold
 const no_dip_cutoff: f32 = 0.4; // fallback global-min acceptance ceiling
@@ -74,7 +74,7 @@ pub fn detect(samples: []const f32, sample_rate: u32) ?Result {
     }
     if (best_tau == 0) {
         // No confident dip anywhere: fall back to the global minimum, but
-        // only accept it if it's still reasonably clean — avoids stamping a
+        // only accept it if it's still reasonably clean - avoids stamping a
         // random octave on percussive/noisy material.
         var min_val: f32 = d[tau_min];
         var min_tau: usize = tau_min;

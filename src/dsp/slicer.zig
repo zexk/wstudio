@@ -1,13 +1,13 @@
-//! Step-sequenced sample chopper — the "Slicer" instrument. One shared
+//! Step-sequenced sample chopper - the "Slicer" instrument. One shared
 //! sample buffer is chopped into up to `max_slices` independently-
 //! triggerable regions ("slices"), each with its own start/end/pitch/gain/
-//! pan/reverse/ADSR — the same per-region params `dsp/sampler.zig`'s
+//! pan/reverse/ADSR - the same per-region params `dsp/sampler.zig`'s
 //! standalone Sampler and `dsp/drum_sampler.zig`'s drum pads already carry,
 //! sharing `dsp/pad.zig`'s `renderVoice` engine unmodified.
 //!
 //! Unlike DrumMachine (`max_pads` independent Samplers, each owning its own
 //! clip buffer), every slice's `Pad.samples` here aliases the SAME
-//! underlying buffer (a slice is just `{ptr, len}`, so this costs nothing) —
+//! underlying buffer (a slice is just `{ptr, len}`, so this costs nothing) -
 //! `sliceInto(n)` just sets each slice's `start_norm`/`end_norm` to an equal
 //! 1/n fraction of the one shared clip. That's the whole trick that makes
 //! "one sample, N independently playable chops" cheap.
@@ -16,7 +16,7 @@
 //! DrumMachine's, despite the conceptual overlap (both fire per-step
 //! triggers with swing and per-step velocity, hold pattern variants A-H,
 //! carry per-row choke groups, and flatten arrangement clips into a
-//! SongClip timeline for song mode) — DrumMachine is the heaviest-tested,
+//! SongClip timeline for song mode) - DrumMachine is the heaviest-tested,
 //! most atomics-delicate file in the codebase (see its own doc comment),
 //! and entangling a second consumer with its internals is a real risk for
 //! a modest amount of shared code. This file mirrors those algorithms
@@ -36,24 +36,24 @@ const Sample = types.Sample;
 pub const Slicer = struct {
     pub const max_slices: u8 = 64;
     pub const max_steps: u8 = 64;
-    /// Max pattern variants (A..H) one slicer can hold — same bank size as
+    /// Max pattern variants (A..H) one slicer can hold - same bank size as
     /// `DrumMachine.max_variants`.
     pub const max_variants: u8 = 8;
     /// Max clips one lane can hold for song-mode playback (see `song_clips`).
     pub const max_song_clips: u16 = 256;
     /// Max choke groups a slice can belong to (0 = no group, ungated).
     pub const max_choke_groups: u8 = 4;
-    /// Small per-slice voice pool — slices are short one-shots retriggered
+    /// Small per-slice voice pool - slices are short one-shots retriggered
     /// often (stutters, rolls), so a few overlapping voices covers real use
     /// without Sampler's full 16 (a slicer track can have up to 64 of these
     /// pools live at once, unlike Sampler's single pad).
     pub const max_voices_per_slice: u8 = 4;
-    /// `set_param`/`set_param_abs` ids are `slice << 4 | param` — same shape
+    /// `set_param`/`set_param_abs` ids are `slice << 4 | param` - same shape
     /// DrumMachine.paramId uses for its own per-pad params.
     pub const param_stride: u16 = 16;
 
     pub const vel_full: u8 = 127;
-    /// Named preset bands `cycleStepVel` steps through — same ladder as
+    /// Named preset bands `cycleStepVel` steps through - same ladder as
     /// DrumMachine's, so the two grids' `c` key feels identical.
     const vel_presets = [_]u8{ 127, 95, 63, 31 };
     pub fn velGain(level: u8) f32 {
@@ -79,7 +79,7 @@ pub const Slicer = struct {
         step_count: u8 = 16,
     };
 
-    /// A slicer clip flattened onto the arrangement's step timeline —
+    /// A slicer clip flattened onto the arrangement's step timeline -
     /// same shape and repeat-to-fill-span semantics as
     /// `DrumMachine.SongClip` (the audio thread reads these under
     /// `sample_lock`, which `processBlock` already holds).
@@ -97,28 +97,28 @@ pub const Slicer = struct {
 
     /// Guards `samples` (and every slice's aliasing `Pad.samples`) against
     /// concurrent reads (audio thread) and writes (control thread calling
-    /// `loadWav`/`sliceInto`) — mirrors `Sampler.pad_lock`. Ordinary per-slice
+    /// `loadWav`/`sliceInto`) - mirrors `Sampler.pad_lock`. Ordinary per-slice
     /// param edits (gain, pan, start/end nudge, ...) are plain unlocked
     /// writes, same race-tolerant convention `Sampler.adjustParam`/
-    /// `DrumMachine.choke_group` already use — worst case one stale block,
+    /// `DrumMachine.choke_group` already use - worst case one stale block,
     /// never a crash, since nothing here reallocates.
     sample_lock: std.atomic.Mutex = .unlocked,
     /// The one shared clip every slice's `Pad.samples` aliases.
     samples: []f32,
     name: [8]u8 = [_]u8{' '} ** 8,
-    /// True when the audio was loaded by the user (`:load-slice`) — only
+    /// True when the audio was loaded by the user (`:load-slice`) - only
     /// user audio is exported to the project's sample sidecar on save, same
     /// convention `Pad.user_sample` documents.
     user_sample: bool = false,
 
-    /// Per-slice params. `slices[i].samples` always aliases `self.samples` —
+    /// Per-slice params. `slices[i].samples` always aliases `self.samples` -
     /// never independently allocated or freed; `deinit` frees `self.samples`
     /// exactly once. Slots at/past `slice_count` are inert (never triggered,
     /// never rendered) but still point at valid memory, so no branch needs a
     /// null-check the way DrumMachine's lazily-materialized pads do.
     slices: [max_slices]Pad = undefined,
     /// How many of `slices` are actually chopped out. Zero until `:slice`
-    /// runs — an unsliced Slicer is silent, nothing to trigger, same as a
+    /// runs - an unsliced Slicer is silent, nothing to trigger, same as a
     /// never-loaded drum pad.
     slice_count: u8 = 0,
     voices: [max_slices][max_voices_per_slice]SliceVoice = undefined,
@@ -133,7 +133,7 @@ pub const Slicer = struct {
     swing: std.atomic.Value(f32) = .init(50.0),
 
     // ── Pattern variants (control thread only) ──────────────────────────────
-    /// Bank slots. Slot `variant` is stale while active — read it through
+    /// Bank slots. Slot `variant` is stale while active - read it through
     /// `variantData`, which pulls the live atomics instead.
     variants: [max_variants]Variant = [_]Variant{.{}} ** max_variants,
     variant_count: u8 = 1,
@@ -142,11 +142,11 @@ pub const Slicer = struct {
 
     /// Per-slice choke group (0 = none). Grouped slices opt back into the
     /// classic cut-the-previous-hit behavior `triggerSlice` alone
-    /// deliberately skips — see `chokeTrigger`.
+    /// deliberately skips - see `chokeTrigger`.
     choke_group: [max_slices]u8 = [_]u8{0} ** max_slices,
 
     /// When true, processBlock fires from `song_clips` under the playhead
-    /// instead of looping the live pattern — same switch DrumMachine has.
+    /// instead of looping the live pattern - same switch DrumMachine has.
     song_mode: bool = false,
     song_clips: [max_song_clips]SongClip = undefined,
     song_clip_count: u16 = 0,
@@ -180,7 +180,7 @@ pub const Slicer = struct {
 
     /// Deep copy for track duplication: the clip audio gets a fresh
     /// allocation so the two slicers share no memory; every slice re-aliases
-    /// the NEW buffer. Voice state resets — no mid-flight hit worth carrying.
+    /// the NEW buffer. Voice state resets - no mid-flight hit worth carrying.
     pub fn dupe(self: *const Slicer) !Slicer {
         var copy = self.*;
         copy.samples = try self.allocator.dupe(f32, self.samples);
@@ -208,7 +208,7 @@ pub const Slicer = struct {
 
     /// Parse raw WAV bytes into the shared clip. Resamples to engine rate if
     /// needed. When `reset_slices` is true (the interactive `:load-slice`
-    /// path), clears every slice — the old boundaries (fractions of the OLD
+    /// path), clears every slice - the old boundaries (fractions of the OLD
     /// clip's length) are meaningless against new audio, so the user
     /// re-chops with `:slice` afterward. `reset_slices = false` is for
     /// restoring a saved project: persist.zig applies each slice's saved
@@ -253,7 +253,7 @@ pub const Slicer = struct {
     /// Equal-divide the shared clip into `n` regions (clamped to
     /// `1..=max_slices`), each a fresh default-params slice spanning its own
     /// 1/n fraction. Existing per-slice pattern/velocity data past the new
-    /// `n` stays in the atomics (harmless — `processBlock` only ever reads
+    /// `n` stays in the atomics (harmless - `processBlock` only ever reads
     /// pattern bits for `slice_idx < slice_count`) so re-slicing to a larger
     /// `n` later doesn't lose earlier programming.
     pub fn sliceInto(self: *Slicer, n: u8) void {
@@ -302,7 +302,7 @@ pub const Slicer = struct {
 
     /// Split the cursor slice at its region midpoint: the new right half is
     /// inserted at `idx + 1` (inheriting the left half's params), and every
-    /// later slice — including its pattern/velocity rows — shifts down one.
+    /// later slice - including its pattern/velocity rows - shifts down one.
     /// Returns false when full or `idx` is out of range.
     pub fn splitSlice(self: *Slicer, idx: u8) bool {
         if (idx >= self.slice_count or self.slice_count >= max_slices) return false;
@@ -320,7 +320,7 @@ pub const Slicer = struct {
         right.start_norm = mid;
         left.end_norm = mid;
         self.slices[idx + 1] = right;
-        // The new right half starts silent — it inherited its sound from the
+        // The new right half starts silent - it inherited its sound from the
         // left, not its programming.
         self.pattern[idx + 1].store(0, .release);
         for (&self.vel[idx + 1]) |*p| p.store(vel_full, .release);
@@ -368,7 +368,7 @@ pub const Slicer = struct {
     }
 
     // -----------------------------------------------------------------------
-    // Param editing — `id` is `slice << 4 | param` (see `param_stride`).
+    // Param editing - `id` is `slice << 4 | param` (see `param_stride`).
 
     pub fn adjustParam(self: *Slicer, id: u16, steps: i32) void {
         const slice_idx = id >> 4;
@@ -382,7 +382,7 @@ pub const Slicer = struct {
     }
 
     /// Set slice-encoded param `id` to an absolute value (same clamps as
-    /// `adjustParam`'s per-step nudges) — undo's restore half, mirroring
+    /// `adjustParam`'s per-step nudges) - undo's restore half, mirroring
     /// `DrumMachine.setParamAbsolute`.
     pub fn setParamAbsolute(self: *Slicer, id: u16, value: f32) void {
         const slice_idx = id >> 4;
@@ -392,7 +392,7 @@ pub const Slicer = struct {
     }
 
     /// Current value of slice-encoded param `id`, in `setParamAbsolute`'s
-    /// encoding (reverse as 0/1) — undo's capture half. Null past the live
+    /// encoding (reverse as 0/1) - undo's capture half. Null past the live
     /// slice count, so undo skips rather than editing an inert slot.
     pub fn paramValue(self: *const Slicer, id: u16) ?f32 {
         const slice_idx = id >> 4;
@@ -402,7 +402,7 @@ pub const Slicer = struct {
     }
 
     // -----------------------------------------------------------------------
-    // Pattern variants (control thread) — mirrors DrumMachine's bank exactly.
+    // Pattern variants (control thread) - mirrors DrumMachine's bank exactly.
 
     /// Sync the live pattern back into its bank slot.
     fn storeActiveVariant(self: *Slicer) void {
@@ -439,7 +439,7 @@ pub const Slicer = struct {
         self.selectVariant(@intCast(@mod(@as(i32, self.variant) + delta, n)));
     }
 
-    /// Duplicate the active variant into a new slot and switch to it — the
+    /// Duplicate the active variant into a new slot and switch to it - the
     /// live pattern already matches the copy. False when the bank is full.
     pub fn addVariant(self: *Slicer) bool {
         if (self.variant_count >= max_variants) return false;
@@ -492,7 +492,7 @@ pub const Slicer = struct {
     // Song-mode clip timeline (mirrors DrumMachine's)
 
     /// Replace the song-mode clip timeline (control thread). Taken under
-    /// `sample_lock` — `processBlock` holds it for the whole block, so
+    /// `sample_lock` - `processBlock` holds it for the whole block, so
     /// `fireSongStep` never reads a half-written list.
     pub fn setSongClips(self: *Slicer, clips: []const SongClip, length_steps: u32) void {
         while (!self.sample_lock.tryLock()) std.atomic.spinLoopHint();
@@ -527,7 +527,7 @@ pub const Slicer = struct {
         self.vel[slice][step].store(level, .release);
     }
 
-    /// Step one step's velocity through the named preset bands — same
+    /// Step one step's velocity through the named preset bands - same
     /// single-key gesture as `DrumMachine.cycleStepVel`.
     pub fn cycleStepVel(self: *Slicer, slice: u8, step: u8) void {
         const cur = self.stepVel(slice, step);
@@ -540,7 +540,7 @@ pub const Slicer = struct {
         self.setStepVel(slice, step, vel_presets[(idx + 1) % vel_presets.len]);
     }
 
-    /// Nudge one step's velocity by `delta`, clamped to 1..127 — 0 would be
+    /// Nudge one step's velocity by `delta`, clamped to 1..127 - 0 would be
     /// silent; use x to remove a step instead of zeroing its velocity.
     pub fn nudgeStepVel(self: *Slicer, slice: u8, step: u8, delta: i32) void {
         const cur: i32 = self.stepVel(slice, step);
@@ -591,7 +591,7 @@ pub const Slicer = struct {
     // Audio thread processing
 
     /// Trigger `slice` through its choke group: a nonzero group first cuts
-    /// every ringing voice in the group INCLUDING this slice's own pool —
+    /// every ringing voice in the group INCLUDING this slice's own pool -
     /// grouped slices opt back into the classic drum-machine cut behavior
     /// that plain `triggerSlice` deliberately skips (put every slice in one
     /// group for the MPC "mono" chop feel, or pair just two for an
@@ -610,11 +610,11 @@ pub const Slicer = struct {
     }
 
     /// Trigger `slice` (0-based), stealing the oldest voice in its own small
-    /// pool if all are busy — no forced choke-on-retrigger (unlike
+    /// pool if all are busy - no forced choke-on-retrigger (unlike
     /// DrumMachine's pads): a slice replayed while still ringing is allowed
     /// to overlap, matching the "manipulate chops live" workflow (stutters,
     /// rolls) rather than the drum-kit convention of always cutting the
-    /// previous hit. Choke groups opt out of that — see `chokeTrigger`.
+    /// previous hit. Choke groups opt out of that - see `chokeTrigger`.
     pub fn triggerSlice(self: *Slicer, slice: u8, vel: f32, block_start: u32) void {
         if (slice >= self.slice_count) return;
         var pool = &self.voices[slice];
@@ -635,7 +635,7 @@ pub const Slicer = struct {
     }
 
     fn framesPerStep(self: *const Slicer) f64 {
-        // One step = sixteenth note (1/4 beat) — matches DrumMachine.
+        // One step = sixteenth note (1/4 beat) - matches DrumMachine.
         const bpm = @max(self.transport.tempo_bpm, 1.0);
         const fpb = @as(f64, @floatFromInt(self.sample_rate)) * 60.0 / bpm;
         return @max(1.0, fpb / 4.0);
@@ -695,7 +695,7 @@ pub const Slicer = struct {
             for (pool) |*sv| {
                 if (!sv.active) continue;
                 // Keep a mid-block trigger's `block_start` offset for its
-                // first render — renderVoice consumes and resets it — same
+                // first render - renderVoice consumes and resets it - same
                 // rule as Sampler.processBlock (see its comment there).
                 pad_mod.renderVoice(&sv.v, pad, buf, channels, frames, sr);
                 if (!sv.v.active) sv.active = false;
@@ -704,7 +704,7 @@ pub const Slicer = struct {
     }
 
     /// Fire slices for absolute step `step_k` from the song timeline. Past
-    /// `song_length_steps` this goes silent instead of wrapping — the
+    /// `song_length_steps` this goes silent instead of wrapping - the
     /// arrangement plays once through, not on a loop. Mirrors
     /// `DrumMachine.fireSongStep`; caller (processBlock) holds sample_lock.
     fn fireSongStep(self: *Slicer, step_k: u64, fire_frame: u32) void {
@@ -741,7 +741,7 @@ pub const Slicer = struct {
     pub fn handleEvent(self: *Slicer, ev: dsp.Event) void {
         switch (ev) {
             // A qwerty/MIDI note maps onto a slice by index, wrapping modulo
-            // the current slice count — same convention DrumMachine.
+            // the current slice count - same convention DrumMachine.
             // triggerPad's `note % max_pads` uses for pad triggering.
             .note_on => |e| if (self.slice_count > 0) {
                 self.chokeTrigger(e.note % self.slice_count, e.velocity, 0);
@@ -757,8 +757,8 @@ pub const Slicer = struct {
 /// Energy-envelope onset detection for `chopTransients`: fills `out` with
 /// ascending slice-start positions (fractions of the clip, `out[0]` always
 /// 0.0) and returns how many were found (>= 1). An onset is a 10 ms RMS hop
-/// that rises `ratio`x above the recent local average — `sensitivity` 1..9
-/// maps to ratio 3.7 (only the hardest hits) down to 1.3 (every flutter) —
+/// that rises `ratio`x above the recent local average - `sensitivity` 1..9
+/// maps to ratio 3.7 (only the hardest hits) down to 1.3 (every flutter) -
 /// gated by a noise floor relative to the clip's own peak and a 40 ms
 /// refractory so one drum hit can't chop twice. The boundary lands one hop
 /// early so the attack transient stays inside its own slice.
@@ -933,7 +933,7 @@ test "adjustParam edits the addressed slice only" {
     try std.testing.expectApproxEqAbs(@as(f32, 1.0), s.slices[0].gain, 1e-4);
 }
 
-/// Four decaying noise bursts at 0/25/50/75% of a one-second clip —
+/// Four decaying noise bursts at 0/25/50/75% of a one-second clip -
 /// a synthetic drum loop for the transient-chop tests.
 fn burstClip(allocator: std.mem.Allocator, sample_rate: u32) ![]f32 {
     const len = sample_rate;
@@ -1145,7 +1145,7 @@ test "song mode fires the clip covering the playhead, silent past the end" {
     defer s.deinit();
     try installTestClip(&s);
     s.sliceInto(4);
-    // Live pattern has slice 0 on step 0 — must NOT fire in song mode.
+    // Live pattern has slice 0 on step 0 - must NOT fire in song mode.
     s.toggleStep(0, 0);
 
     var clip: Slicer.SongClip = .{

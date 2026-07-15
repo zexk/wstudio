@@ -1,7 +1,7 @@
 //! Render the default wavetable to a WAV file under assets/wavetable/.
 //!
 //! Run with `zig build genwavetable`. Writes 4 concatenated frames (sine,
-//! triangle, saw, square) of `wavetable.frame_len` samples each — the
+//! triangle, saw, square) of `wavetable.frame_len` samples each - the
 //! oscillator's own frame_pos crossfade at playback time gives the "basic
 //! shapes" morph, so there's no need to bake intermediate morph frames
 //! here. Re-run after changing the shape math and commit the refreshed WAV.
@@ -52,7 +52,7 @@ pub fn main(init: std.process.Init) !void {
     defer file.close(io);
     var fbuf: [8192]u8 = undefined;
     var fw = file.writer(io, &fbuf);
-    // sample_rate here is a nominal WAV header field, not a playback rate —
+    // sample_rate here is a nominal WAV header field, not a playback rate -
     // the reader only cares about the sample data, reshaped by frame_len.
     try ws.wav.write(&fw.interface, 48_000, 1, frames, .pcm16);
     try fw.interface.flush();

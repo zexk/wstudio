@@ -41,7 +41,7 @@ pub const Ott = struct {
         return .{ .mb = mb };
     }
 
-    /// Dry/wet blend, 0..1 — rides `MultibandComp.mix` directly.
+    /// Dry/wet blend, 0..1 - rides `MultibandComp.mix` directly.
     pub fn depth(self: *const Ott) f32 {
         return self.mb.mix;
     }
@@ -71,7 +71,7 @@ pub const Ott = struct {
     pub const device = dsp.deviceOf(@This());
 
     /// Clears the underlying MultibandComp's crossover/envelope state
-    /// without touching its sample-rate-derived coefficients — callers
+    /// without touching its sample-rate-derived coefficients - callers
     /// embedding an `Ott` by value (e.g. PolySynth's internal FX section)
     /// must use this instead of `= .{}`.
     pub fn reset(self: *Ott) void {

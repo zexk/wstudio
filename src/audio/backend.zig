@@ -35,7 +35,7 @@ pub const Backend = struct {
     }
 };
 
-/// Drives the render callback as fast as possible — used for tests and
+/// Drives the render callback as fast as possible - used for tests and
 /// offline export rather than a sound card.
 pub const OfflineBackend = struct {
     config: Config,
@@ -83,7 +83,7 @@ test "offline backend ignores a zero-sized render block" {
 
 /// Real-time pacing without a sound card: a thread calls the render
 /// callback at wall-clock block rate and discards the audio. Keeps the
-/// transport and meters honest until a native device backend lands —
+/// transport and meters honest until a native device backend lands -
 /// which will replace only the inside of `run`.
 pub const NullBackend = struct {
     config: Config,
@@ -123,7 +123,7 @@ pub const NullBackend = struct {
         while (self.running.load(.acquire)) {
             self.render(self.ctx, self.buffer[0..block_samples]);
             // Sleeping the full block duration ignores render time, so
-            // this drifts slightly slow — fine for a stand-in clock.
+            // this drifts slightly slow - fine for a stand-in clock.
             self.io.sleep(.fromNanoseconds(block_ns), .awake) catch return;
         }
     }

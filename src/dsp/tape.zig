@@ -3,7 +3,7 @@
 //! drift of a warped reel; flutter (fast, ~3-15Hz) is the fine jitter of an
 //! uneven capstan. Unlike `Chorus`/`Flanger`, the LFOs are bipolar around a
 //! fixed center delay (symmetric speed-up/slow-down) rather than swept
-//! one-directionally from a minimum, and there's no feedback path — tape
+//! one-directionally from a minimum, and there's no feedback path - tape
 //! wobble doesn't resonate, it just drifts.
 
 const std = @import("std");

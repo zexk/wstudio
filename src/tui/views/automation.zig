@@ -20,14 +20,14 @@ const blu = style.blu;
 const yel = style.yel;
 const endLine = style.endLine;
 
-// Lower-eighths block glyphs, shortest to tallest — same idea as
+// Lower-eighths block glyphs, shortest to tallest - same idea as
 // views/spectrum.zig's `eq_glyphs`, generalised to an arbitrary [lo, hi].
 const level_glyphs = [_][]const u8{
     "\u{2581}", "\u{2582}", "\u{2583}", "\u{2584}",
     "\u{2585}", "\u{2586}", "\u{2587}", "\u{2588}",
 };
 
-/// Sub-cell levels a value fills, out of `graph_rows * 8` eighth-blocks —
+/// Sub-cell levels a value fills, out of `graph_rows * 8` eighth-blocks -
 /// the bar graph's whole vertical resolution. A null value (no automation
 /// on the curve yet) sits on the baseline.
 fn valueLevel(val: ?f32, range: [2]f32, graph_rows: usize) usize {
@@ -38,7 +38,7 @@ fn valueLevel(val: ?f32, range: [2]f32, graph_rows: usize) usize {
     return @max(lvl, 1); // floor values keep a visible ▁ baseline
 }
 
-/// Left indent before the step columns start — shared with
+/// Left indent before the step columns start - shared with
 /// editors/automation.zig's mouse handler so a click/scroll's column maps to
 /// the same step the bar graph/caret row actually draw it at.
 pub const gutter: usize = 3;
@@ -61,7 +61,7 @@ fn currentClip(app: anytype) ?*const ws.Clip {
 }
 
 /// Duplicated from editors/automation.zig's own `instrumentAutomatableParams`
-/// rather than imported — view renderers take `app: anytype` and never
+/// rather than imported - view renderers take `app: anytype` and never
 /// import app.zig (see `currentClip`'s doc comment above), so they can't
 /// share a helper typed against the concrete `*App` either.
 fn instrumentAutomatableParams(app: anytype) []const ws.dsp.device.AutomatableParam {
@@ -80,7 +80,7 @@ fn findAutomatableParam(app: anytype, id: u8) ?*const ws.dsp.device.AutomatableP
 
 fn curveRange(app: anytype, target: AutomationFocus) [2]f32 {
     return switch (target) {
-        .gain => .{ -40.0, 12.0 }, // wider than the persisted -60 floor — a
+        .gain => .{ -40.0, 12.0 }, // wider than the persisted -60 floor - a
         // fade all the way to -60dB would otherwise pin the whole graph flat
         .pan => .{ -1.0, 1.0 },
         .synth_param => |id| if (findAutomatableParam(app, id)) |info| info.range else .{ 0.0, 1.0 },
@@ -104,7 +104,7 @@ pub fn drawAutomation(
 ) !void {
     _ = snap;
     const clip = currentClip(app) orelse {
-        try w.writeAll(bold ++ " AUTOMATION" ++ rst ++ dim ++ "  clip gone — esc" ++ rst);
+        try w.writeAll(bold ++ " AUTOMATION" ++ rst ++ dim ++ "  clip gone - esc" ++ rst);
         try endLine(w);
         for (1..@max(1, rows -| 4)) |_| try endLine(w);
         return;
@@ -208,7 +208,7 @@ pub fn drawAutomation(
     try endLine(w);
 
     // used = title(1) + ruler(1) + caret row(1) actually printed, plus the
-    // graph's own rows — was "5 +" (stale from before the header/transport
+    // graph's own rows - was "5 +" (stale from before the header/transport
     // hr() rows were removed), leaving 2 rows of dead blank space above the footer.
     const used = 3 + graph_rows;
     for (used..@max(used, rows -| 4)) |_| try endLine(w);
@@ -216,7 +216,7 @@ pub fn drawAutomation(
 
 pub fn drawAutomationStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !void {
     const clip = currentClip(app) orelse {
-        try w.writeAll(dim ++ "clip gone — esc" ++ rst);
+        try w.writeAll(dim ++ "clip gone - esc" ++ rst);
         return;
     };
 
@@ -258,7 +258,7 @@ pub fn drawAutomationStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writ
             try w.writeAll(dim ++ " (interpolated)" ++ rst);
         }
     } else {
-        try w.writeAll(dim ++ "  no automation yet — j/k adds a point" ++ rst);
+        try w.writeAll(dim ++ "  no automation yet - j/k adds a point" ++ rst);
     }
 
     if (app.status_len > 0) {
@@ -269,12 +269,12 @@ pub fn drawAutomationStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writ
 
 /// Synth-param automation picker (`p` in the automation editor): every
 /// continuous param in the current track's own `automatable_params` table
-/// (PolySynth's or Sampler's — see `instrumentAutomatableParams`), grouped by
+/// (PolySynth's or Sampler's - see `instrumentAutomatableParams`), grouped by
 /// section header. A leading bullet marks a param that already has a lane on
 /// the current clip (so re-opening the picker shows what's already active).
 /// Row math (title(1) + blank(1) before the display-row list) is shared with
 /// `App.automationParamPickerMouse` via `automation_ed.buildParamDisplayRows`
-/// — keep the two in sync if this layout ever changes.
+/// - keep the two in sync if this layout ever changes.
 pub fn drawAutomationParamPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void {
     const track_name = if (app.automation_track < app.session.project.tracks.items.len)
         app.session.project.tracks.items[app.automation_track].name
@@ -307,7 +307,7 @@ pub fn drawAutomationParamPicker(app: anytype, w: *std.Io.Writer, rows: usize) !
     try endLine(w);
     try endLine(w);
 
-    // Scroll clamp keyed on the cursor's display row (headers count too) —
+    // Scroll clamp keyed on the cursor's display row (headers count too) -
     // same "clamped at draw" convention drawTracks' vis_rows uses.
     var cursor_row: usize = 0;
     for (rows_list, 0..) |r, ri| {
@@ -319,7 +319,7 @@ pub fn drawAutomationParamPicker(app: anytype, w: *std.Io.Writer, rows: usize) !
         }
     }
     // 2 rows of preamble (title + blank) already printed above, plus the
-    // same 3-row bottom margin every other view's pad loop reserves — same
+    // same 3-row bottom margin every other view's pad loop reserves - same
     // "vis_rows = rows - preamble - 3" shape drawTracks' vis_rows uses.
     const vis_rows: usize = rows -| 6;
     if (cursor_row < app.automation_param_scroll) app.automation_param_scroll = cursor_row;

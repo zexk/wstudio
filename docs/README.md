@@ -9,6 +9,10 @@ code keeps a one-line pointer.
 - [editing-grammar.md](editing-grammar.md): the vim grammar every
   pattern editor shares (counts, operators, motions, visual mode,
   dot-repeat) and how each editor maps the char/word/line hierarchy.
+- [arrangement-playback.md](arrangement-playback.md): how pattern and song
+  playback share devices, and why arrangement clips own their content.
+- [undo-redo.md](undo-redo.md): snapshot boundaries, swap-based history,
+  parameter-nudge coalescing, and the deliberately limited undo scope.
 - [ui-conventions.md](ui-conventions.md): TUI layout and chrome
   conventions (row budget, status row, prompt row, frame bracketing,
   icon fallback) plus the design decisions behind them.

@@ -94,7 +94,7 @@ fn writeTrackRow(app: anytype, w: *std.Io.Writer, ti: u16, is_sel: bool, in_sel:
     // group members sit indented under their group's row
     if (grouped) try lw.writeAll("  ");
     try lw.print("{d} ", .{ti + 1});
-    // name padded — color wraps the whole padded field so the field
+    // name padded - color wraps the whole padded field so the field
     // width itself never sees an escape code (matches the label/gain
     // color-wrap pattern below); track.color == 0 is uncolored.
     const track_color: ?[]const u8 = if (!is_sel and !faded and track.color > 0 and track.color <= style.track_palette.len)
@@ -105,7 +105,7 @@ fn writeTrackRow(app: anytype, w: *std.Io.Writer, ti: u16, is_sel: bool, in_sel:
     try lw.print("{s: <8}", .{track.name});
     if (track_color != null) try lw.writeAll(rst);
     try lw.writeByte(' ');
-    // instrument-kind icon — a single Mono-font cell either way, so
+    // instrument-kind icon - a single Mono-font cell either way, so
     // blank tracks' plain space keeps every row's columns aligned.
     const kind_icon: []const u8 = switch (inst_tag) {
         .empty => " ",
@@ -134,11 +134,11 @@ fn writeTrackRow(app: anytype, w: *std.Io.Writer, ti: u16, is_sel: bool, in_sel:
     } else {
         try lw.writeByte(' ');
     }
-    // instrument / rack label — accent only on active, unselected rows
+    // instrument / rack label - accent only on active, unselected rows
     if (!is_sel and !faded) try lw.writeAll(acc);
     try lw.print(" [{s}]", .{label});
     if (!is_sel and !faded) try lw.writeAll(rst);
-    // FX badges — the chain's units in signal-flow order. Not gated on
+    // FX badges - the chain's units in signal-flow order. Not gated on
     // is_empty: a chain can be built before the instrument is picked.
     if (ti < app.session.racks.items.len) {
         const rfx = &app.session.racks.items[ti].fx;
@@ -148,7 +148,7 @@ fn writeTrackRow(app: anytype, w: *std.Io.Writer, ti: u16, is_sel: bool, in_sel:
             if (!is_sel and !faded) try lw.writeAll(rst);
         }
     }
-    // Gain / pan — always shown; dim at defaults, accented when non-default.
+    // Gain / pan - always shown; dim at defaults, accented when non-default.
     {
         const gdb = track.gain_db;
         const pan = track.pan;
@@ -171,15 +171,15 @@ fn writeTrackRow(app: anytype, w: *std.Io.Writer, ti: u16, is_sel: bool, in_sel:
             try lw.print("  {s}{d}%", .{ if (pan < 0.0) "L" else "R", pct });
         }
     }
-    // keybind hint — pinned to the right edge (dropped by writeSplitRow
+    // keybind hint - pinned to the right edge (dropped by writeSplitRow
     // before the row content whenever the two would collide)
     try style.writeSplitRow(w, row_w.buffered(), hint, cols -| 1);
 }
 
-/// A group's own row — same shape as a track row (name, FX badges, bus
+/// A group's own row - same shape as a track row (name, FX badges, bus
 /// gain) plus a fold arrow and its `:group-*` slot number where a track row
 /// has its track number. Folded groups show how many member rows they hide;
-/// unfolded ones don't need to — the members sit right below.
+/// unfolded ones don't need to - the members sit right below.
 fn writeGroupRow(app: anytype, w: *std.Io.Writer, gi: u8, is_sel: bool, in_sel: bool, cols: usize) !void {
     const grp = &app.session.groups[gi].?;
     var row_buf: [768]u8 = undefined;
@@ -205,7 +205,7 @@ fn writeGroupRow(app: anytype, w: *std.Io.Writer, gi: u8, is_sel: bool, in_sel: 
         try writeFxBadges(lw, &grp.fx);
         if (!is_sel) try lw.writeAll(rst);
     }
-    // Bus fader — same dim-at-default shape as track gain.
+    // Bus fader - same dim-at-default shape as track gain.
     if (grp.gain_db == 0.0) {
         if (!is_sel) try lw.writeAll(dim);
         try lw.writeAll("  0dB");
@@ -233,12 +233,12 @@ pub fn drawTracks(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, sna
     try w.writeAll(bold ++ " TRACKS" ++ rst);
     try endLine(w);
 
-    // Vertical scroll over the display rows (tracks + group rows — see
-    // App.TrackRow) — the master row below is always pinned/visible (like a
+    // Vertical scroll over the display rows (tracks + group rows - see
+    // App.TrackRow) - the master row below is always pinned/visible (like a
     // fixed footer channel), so only the list needs a window. Budget:
     // title(1) + master(1) + footer(3) are always spoken for; `rows` is
     // exact here (unlike editors/piano.zig's ensureVisible, called before
-    // render, which has to approximate), so clamp directly against it —
+    // render, which has to approximate), so clamp directly against it -
     // same pattern as drawArrangement's `arr_scroll_bar`.
     app.tracksRowSync();
     const row_count = app.track_rows_len;
@@ -253,7 +253,7 @@ pub fn drawTracks(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, sna
     app.track_rows_shown = last_visible - scroll;
 
     // Visual-mode selection: a contiguous display-row range (master
-    // excluded, the cursor never reaches it while this mode is active — see
+    // excluded, the cursor never reaches it while this mode is active - see
     // App.handleTracksVisual).
     const visual_active = app.modal.mode == .visual;
     const sel_anchor = app.tracks_visual_anchor orelse app.track_row;
@@ -270,7 +270,7 @@ pub fn drawTracks(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, sna
         try endLine(w);
     }
 
-    // Master row — same shape as a track row (icon, FX badges, gain) but
+    // Master row - same shape as a track row (icon, FX badges, gain) but
     // fixed at the end, unnamed, un-deletable, and with no pan/mute/solo/
     // piano-roll (see the on_master branch in App.handleKey).
     {
@@ -315,7 +315,7 @@ pub fn drawTracks(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, sna
     }
 
     // title(1) + master(1) actually printed above, plus the visible track
-    // rows — was "4 +" (stale from before the header/transport hr() rows
+    // rows - was "4 +" (stale from before the header/transport hr() rows
     // were removed), leaving 2 rows of dead blank space above the footer.
     const used = 2 + (last_visible - scroll);
     for (used..@max(used, rows -| 4)) |_| try endLine(w);
@@ -325,7 +325,7 @@ pub fn drawTracks(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, sna
 pub fn drawTracksStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !void {
     try style.writeModeBadge(w, app.modal.mode);
     try style.writeViewBadge(right, "TRACKS", app.modal.mode);
-    // row position — display rows (tracks + groups) + 1 for master
+    // row position - display rows (tracks + groups) + 1 for master
     try w.writeAll(dim ++ "  " ++ rst);
     try w.print("{d}/{d}", .{ app.track_row + 1, app.track_rows_len + 1 });
     try w.writeAll(dim ++ "  oct " ++ rst);

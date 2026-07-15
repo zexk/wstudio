@@ -1,18 +1,5 @@
 //! Undo/redo history for content edits (UI thread only).
-//!
-//! Snapshot-based: before a mutating edit, the App captures the whole state
-//! of the domain being touched — one track's melodic pattern, one drum
-//! machine's pattern bank, one arrangement lane, or one FX chain — and
-//! pushes it here. Undo swaps the captured state with the live one (the
-//! displaced state moves to the redo stack), so undo/redo walk the same
-//! entries in both directions. `.param_nudge` is the odd one out: synth/
-//! sampler params live on the audio thread, so it stores the one param's
-//! absolute before-value and restores it through the same event path
-//! automation already uses (see its own doc comment). Rapid
-//! repeated nudges on the same param/unit coalesce into one entry — see
-//! `history.zig`'s `noteParamNudge`/`noteFxNudge`. Track-level operations
-//! (add/delete/instrument swap) and swing/mixer gain/pan are deliberately
-//! out of scope.
+//! See docs/undo-redo.md for the snapshot, swap, and scope design.
 
 const std = @import("std");
 const ws = @import("wstudio");
@@ -43,7 +30,7 @@ pub const MelodicState = struct {
 };
 
 /// One drum machine's whole pattern bank, active slot read from the live
-/// atomics. Plain value — no allocation. Swing is a param, not captured.
+/// atomics. Plain value - no allocation. Swing is a param, not captured.
 pub const DrumState = struct {
     track: u16,
     variants: [DrumMachine.max_variants]DrumMachine.Variant,
@@ -54,13 +41,13 @@ pub const DrumState = struct {
 /// One slicer's whole state: the chop layout (slice regions + per-slice
 /// params) and the whole pattern-variant bank (active slot read from the
 /// live atomics, same as DrumState), so structural chops (:chop/:slice/
-/// split/merge) and grid edits undo through the same entry. Plain value —
+/// split/merge) and grid edits undo through the same entry. Plain value -
 /// no allocation. Each captured Pad's `samples` field aliases whatever
-/// clip was loaded at capture time and is NOT restored — applying
+/// clip was loaded at capture time and is NOT restored - applying
 /// re-points every slice at the slicer's CURRENT buffer (same rule
 /// persist.zig's `reset_slices = false` load path documents), so an entry
 /// captured before a `:load-slice` still applies safely after it. Swing
-/// and choke groups are mixer-style params, not captured — same call
+/// and choke groups are mixer-style params, not captured - same call
 /// DrumState made.
 pub const SlicerState = struct {
     track: u16,
@@ -82,7 +69,7 @@ pub const LaneState = struct {
     }
 };
 
-/// Which FX chain an `.fx` entry targets — track/master/group index baked
+/// Which FX chain an `.fx` entry targets - track/master/group index baked
 /// in at capture time, so undo/redo apply to the right chain even if the
 /// user has since navigated away from the FX view that made the edit.
 pub const FxTarget = union(enum) {
@@ -101,7 +88,7 @@ pub const FxTarget = union(enum) {
     }
 };
 
-/// One FX chain's whole ordered unit list (deep copy, via `Fx.dupe` — same
+/// One FX chain's whole ordered unit list (deep copy, via `Fx.dupe` - same
 /// payload-clone rule `Rack.dupe` uses for track duplication). Covers both
 /// param nudges and structural edits (insert/remove/reorder/bypass) alike,
 /// since either reshapes the same chain.
@@ -116,7 +103,7 @@ pub const FxState = struct {
 
 /// A coalesced run of h/l/H/L nudges on one synth/sampler param. `value`
 /// is the ABSOLUTE param value `applyEntry` should restore (captured on
-/// the control thread when the batch opened — see `PolySynth.paramValue`
+/// the control thread when the batch opened - see `PolySynth.paramValue`
 /// and friends), sent through `engine.set_track_param_abs`; applying it
 /// hands back the value it displaced as the entry parked on the opposite
 /// stack, which works symmetrically for undo and redo. Absolute, not a
@@ -132,7 +119,7 @@ pub const ParamNudgeState = struct {
 /// A synth/sampler param-nudge batch still open (cursor hasn't moved off
 /// the param yet). `before` is the absolute value captured when the batch
 /// opened; `steps` is the net signed delta dialed in so far, kept ONLY for
-/// the flush-time no-op check (a batch that netted zero is dropped) —
+/// the flush-time no-op check (a batch that netted zero is dropped) -
 /// that check must stay synchronous, since the nudges themselves are
 /// queued commands the audio thread may not have applied yet.
 pub const PendingParamNudge = struct {
@@ -157,12 +144,12 @@ pub const PendingFxNudge = struct {
 };
 
 /// A whole deleted track's full state (instrument, FX chain, sample audio,
-/// arrangement clips, mixer metadata) — the undo-side counterpart to
+/// arrangement clips, mixer metadata) - the undo-side counterpart to
 /// `Session.deleteTrack`, reinserted at `track` via `Session.restoreTrack`.
 /// `rack`/`clips` are deep copies (`Rack.dupe`/`Clip.dupe`, same precedent
 /// `duplicateTrack` and the `.lane`/`.fx` entries above already use) taken
 /// BEFORE the delete, so this entry owns memory the live session never
-/// touches — no aliasing with `Session.retired_racks`, which the audio
+/// touches - no aliasing with `Session.retired_racks`, which the audio
 /// thread may still be draining.
 pub const TrackFullState = struct {
     track: u16,
@@ -190,7 +177,7 @@ pub const TrackFullState = struct {
 /// on both stacks right after the change, so old entries keep pointing at
 /// the same physical track instead of the wrong one once indices shift.
 /// `Session` uses the same union to keep sidechain routing in sync (see
-/// `Session.remapSidechainSources`) — defined there, re-exported here.
+/// `Session.remapSidechainSources`) - defined there, re-exported here.
 pub const TrackRemap = ws.Session.TrackRemap;
 
 pub const Entry = union(enum) {
@@ -204,7 +191,7 @@ pub const Entry = union(enum) {
     /// delete, or redo of a restore).
     track_insert: TrackFullState,
     /// Just the index of a live track; applying captures it fresh and
-    /// deletes it (redo of a delete, or undo of a restore) — lightweight
+    /// deletes it (redo of a delete, or undo of a restore) - lightweight
     /// since `Session.deleteTrack` needs no prior snapshot to run.
     track_delete: u16,
 
@@ -296,7 +283,7 @@ pub const History = struct {
     }
 
     /// Drop every `.fx` entry targeting group `idx` on both stacks. Unlike
-    /// `retarget`, a deleted group is never remapped to a new index — its
+    /// `retarget`, a deleted group is never remapped to a new index - its
     /// slot is reused as-is by the next `addGroup`, so any entry still
     /// naming it must be dropped rather than shifted. Returns how many
     /// entries were dropped, for a user-facing status message.
@@ -345,7 +332,7 @@ fn retargetStack(stack: *std.ArrayListUnmanaged(Entry), allocator: std.mem.Alloc
                 else => {},
             },
             // `track_delete` names a currently-LIVE track, same as every
-            // entry above — standard remap applies (drop on exact delete
+            // entry above - standard remap applies (drop on exact delete
             // match). `track_insert.track` is an INSERTION POINT for a
             // track that doesn't exist yet, so it needs different math:
             // never dropped, and a `.delete` at or after it leaves it
@@ -358,7 +345,7 @@ fn retargetStack(stack: *std.ArrayListUnmanaged(Entry), allocator: std.mem.Alloc
                 // Strictly less-than, not <=: an insert landing at exactly
                 // this insertion point (e.g. a more-recently-deleted
                 // track's own restore, undone first) must NOT bump this
-                // one — this entry's own eventual restore inserts BEFORE
+                // one - this entry's own eventual restore inserts BEFORE
                 // whatever now occupies that slot, same as
                 // `ArrayList.insert`'s own before-not-after semantics, so
                 // undoing older deletes after newer ones lands each track

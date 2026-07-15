@@ -20,7 +20,7 @@ pub const stop = "\u{f04d}"; // fa-stop
 pub const mute = "\u{f075f}"; // md-volume_mute
 pub const solo = "\u{f005}"; // fa-star
 pub const save = "\u{f0c7}"; // fa-save
-pub const warn = "\u{f071}"; // fa-warning — unsaved-changes indicator
+pub const warn = "\u{f071}"; // fa-warning - unsaved-changes indicator
 pub const synth = "\u{ec1a}"; // cod-piano
 pub const drum = "\u{ee32}"; // fa-drum
 pub const sampler = "\u{ef9d}"; // fa-wave_square
@@ -31,7 +31,7 @@ pub const help = "\u{f02d7}"; // md-help_circle
 pub const master = "\u{f025}"; // fa-headphones
 pub const loop = "\u{f0547}"; // md-repeat_variant
 pub const logo = "\u{f1de}"; // fa-sliders
-/// Same codepoint as `logo` — the app logo IS a sliders glyph, which happens
+/// Same codepoint as `logo` - the app logo IS a sliders glyph, which happens
 /// to be a fitting icon for the Slicer instrument too. No new glyph needed.
 pub const slicer = logo;
 
@@ -41,7 +41,7 @@ const ws = @import("wstudio");
 /// True once `zig build install-font` has written the bundled font to the
 /// user's font directory (checked by `detectFontInstalled`, cached here by
 /// `tui/app.zig:run` at startup). Call sites that also have an ASCII
-/// fallback branch on this so exactly one of the two ever renders — without
+/// fallback branch on this so exactly one of the two ever renders - without
 /// it, an uninstalled font just means a stray tofu box next to the ASCII
 /// glyph that already said the same thing.
 pub var font_installed: bool = false;
@@ -59,7 +59,7 @@ pub fn detectFontInstalled(io: std.Io) bool {
     return true;
 }
 
-/// `$XDG_DATA_HOME/fonts`, falling back to `$HOME/.local/share/fonts` —
+/// `$XDG_DATA_HOME/fonts`, falling back to `$HOME/.local/share/fonts` -
 /// mirrors tools/install_font.zig's fontDir (kept separate since tools/ only
 /// imports the wstudio library module, not this one).
 fn fontDir(buf: []u8) ![]const u8 {

@@ -1,11 +1,11 @@
-//! Single-clip chromatic sampler — the melodic counterpart to the drum
+//! Single-clip chromatic sampler - the melodic counterpart to the drum
 //! machine. One sample is held in a `Pad` and played back polyphonically:
 //! each MIDI note triggers a voice pitched by `(note - root_note)` semitones
 //! on top of the pad's own transpose. Voices are one-shots (note-off is
 //! ignored); the amp ADSR and region trim shape the tail.
 //!
-//! The heavy lifting — fractional pitched reads, region trim, reverse, ADSR,
-//! pan — is shared with the drum machine via `pad.renderVoice`, so a
+//! The heavy lifting - fractional pitched reads, region trim, reverse, ADSR,
+//! pan - is shared with the drum machine via `pad.renderVoice`, so a
 //! Sampler is effectively a thin shim over the same Pad/Voice engine. Per-clip
 //! params are plain scalars nudged on the audio thread via the `set_param`
 //! device event (race-free, same path the synth and drum editors use).
@@ -70,7 +70,7 @@ pub const Sampler = struct {
     }
 
     /// Deep copy for track duplication: the clip audio gets a fresh
-    /// allocation so the two samplers share no memory. Voice state resets —
+    /// allocation so the two samplers share no memory. Voice state resets -
     /// there are no mid-flight notes worth carrying over.
     pub fn dupe(self: *const Sampler) !Sampler {
         var copy = self.*;
@@ -89,7 +89,7 @@ pub const Sampler = struct {
         return self.pad.name[0..end];
     }
 
-    /// Set the display name directly, independent of the loaded audio —
+    /// Set the display name directly, independent of the loaded audio -
     /// unlike `loadWav`/`setSamples`, doesn't touch `pad.samples` or
     /// `user_sample`. Truncated to 8 chars like every other name setter here.
     pub fn rename(self: *Sampler, name: []const u8) void {
@@ -102,7 +102,7 @@ pub const Sampler = struct {
     }
 
     // -----------------------------------------------------------------------
-    // Param editing — `id` is the param index (single pad, no pad nibble).
+    // Param editing - `id` is the param index (single pad, no pad nibble).
 
     /// Nudge param `id` by `steps` (h/l = ±1, H/L = ±10). Runs on the audio
     /// thread via the `set_param` event so it never races the block reader.
@@ -123,7 +123,7 @@ pub const Sampler = struct {
     }
 
     /// Absolute-value counterpart to `adjustParam`, same id space and clamp
-    /// ranges — for undo's capture/restore (`paramValue` is the read half),
+    /// ranges - for undo's capture/restore (`paramValue` is the read half),
     /// mirroring PolySynth's own pair. Toggles (reverse 9, mono 11): >= 0.5
     /// is on. Runs on the audio thread via the `set_param_abs` event.
     pub fn setParamAbsolute(self: *Sampler, id: u8, value: f32) void {
@@ -144,7 +144,7 @@ pub const Sampler = struct {
     }
 
     /// Current value of param `id`, same unit/encoding `setParamAbsolute`
-    /// accepts (toggles as 0/1) — the read half of undo's capture/restore
+    /// accepts (toggles as 0/1) - the read half of undo's capture/restore
     /// pair. A control-thread read of live fields, same race-tolerant
     /// convention the sampler editor's own row rendering already uses.
     pub fn paramValue(self: *const Sampler, id: u8) ?f32 {
@@ -156,12 +156,12 @@ pub const Sampler = struct {
         };
     }
 
-    /// One entry per continuous `setParamAbsolute`-handled id — same shape
+    /// One entry per continuous `setParamAbsolute`-handled id - same shape
     /// and purpose as PolySynth's own table (`dsp.AutomatableParam`), for the
     /// automation editor's param picker/curve labels/h-l nudge step. Toggles
     /// (reverse=9, mono=11) and root_note=10 are deliberately excluded, same
     /// call PolySynth's own table already made for its enum/toggle ids
-    /// (waveform, osc-B on/off, ...) — a breakpoint curve over an on/off
+    /// (waveform, osc-B on/off, ...) - a breakpoint curve over an on/off
     /// flip or a coarse tuning offset isn't a meaningful automation target.
     pub const automatable_params = [_]dsp.AutomatableParam{
         // zig fmt: off
@@ -219,7 +219,7 @@ pub const Sampler = struct {
     /// it. Returns the detection result so callers (the `:load-sample`
     /// command) can report it; returns null and leaves `root_note` untouched
     /// for percussive/noisy material with no clear single pitch. Not called
-    /// from `loadWav` itself — project-file restores set `root_note` from
+    /// from `loadWav` itself - project-file restores set `root_note` from
     /// the save explicitly and shouldn't pay for/override that with a fresh
     /// detection pass.
     pub fn detectRootNote(self: *Sampler) ?pitch.Result {
@@ -231,7 +231,7 @@ pub const Sampler = struct {
     /// Replace the clip with already-decoded samples, resetting every other
     /// pad param to its default (gain 1.0, unity trim, flat ADSR, etc). Used
     /// when a caller wants a clean slate rather than `loadWav`'s in-place swap
-    /// — e.g. procedurally generated kit pads.
+    /// - e.g. procedurally generated kit pads.
     pub fn setSamples(self: *Sampler, samples: []f32, name: []const u8) void {
         while (!self.pad_lock.tryLock()) std.atomic.spinLoopHint();
         defer self.pad_lock.unlock();

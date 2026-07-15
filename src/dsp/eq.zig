@@ -6,7 +6,7 @@ const Sample = types.Sample;
 
 pub const num_eq_bands = 8;
 
-/// Initial per-band center frequencies for a freshly inserted EQ — a
+/// Initial per-band center frequencies for a freshly inserted EQ - a
 /// log-ish spread across low/mid/high. Every band is fully parametric
 /// (freq/Q/gain all adjustable) so these are just starting points, not
 /// fixed slots the way a graphic EQ's ISO bands were.

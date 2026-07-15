@@ -5,7 +5,7 @@
 //! `Session.initDefault`, then arranges its loops into a 16-bar song on the
 //! timeline (the same way the `A` view stamps clips) and ships in song mode.
 //! Re-run after changing the demo and commit the refreshed `demo.wsj`. Open it
-//! with `wstudio demo.wsj` and hit space — the transport sweeps the
+//! with `wstudio demo.wsj` and hit space - the transport sweeps the
 //! arrangement instead of looping every track (press `A`, then `T` to compare
 //! with pattern mode).
 //!
@@ -18,7 +18,7 @@
 //! Melodic loops are two bars (8 beats) so their clips span two bars; the drum
 //! loop is one bar (16 steps) so it is stamped bar by bar. The drums carry two
 //! pattern variants: A is the main groove, B adds a snare/tom fill on the last
-//! beat and is stamped on every 4th bar (3, 7, 11, 15) — the same flow as
+//! beat and is stamped on every 4th bar (3, 7, 11, 15) - the same flow as
 //! cycling patterns with `[`/`]` in the arrangement view.
 
 const std = @import("std");
@@ -41,7 +41,7 @@ pub fn main(init: std.process.Init) !void {
     var session = try ws.Session.initDefault(gpa);
     defer session.deinit();
 
-    // ── Track 0 — supersaw lead ──────────────────────────────────────────────
+    // ── Track 0 - supersaw lead ──────────────────────────────────────────────
     try session.setInstrument(0, .poly_synth);
     try session.project.renameTrack(0, "lead");
     {
@@ -75,7 +75,7 @@ pub fn main(init: std.process.Init) !void {
         for (notes) |n| pp.addNote(.{ .pitch = n.p, .start_beat = n.b, .duration_beat = 0.5, .velocity = 0.8 });
     }
 
-    // ── Track 1 — FM electric piano ──────────────────────────────────────────
+    // ── Track 1 - FM electric piano ──────────────────────────────────────────
     _ = try session.addTrack("e-piano");
     try session.setInstrument(1, .poly_synth);
     session.project.tracks.items[1].gain_db = -3.0;
@@ -103,7 +103,7 @@ pub fn main(init: std.process.Init) !void {
         (try r.fx.insert(gpa, r.fx.units.items.len, .reverb, session.project.sample_rate)).payload.reverb.mix = 0.22;
         const pp = &r.pattern_player.?;
         pp.length_beats = 8.0;
-        // Am — F chord stabs.
+        // Am - F chord stabs.
         const chords = [_]struct { p: u7, b: f64 }{
             .{ .p = 57, .b = 0.0 }, .{ .p = 60, .b = 0.0 }, .{ .p = 64, .b = 0.0 },
             .{ .p = 53, .b = 4.0 }, .{ .p = 57, .b = 4.0 }, .{ .p = 60, .b = 4.0 },
@@ -111,7 +111,7 @@ pub fn main(init: std.process.Init) !void {
         for (chords) |n| pp.addNote(.{ .pitch = n.p, .start_beat = n.b, .duration_beat = 3.5, .velocity = 0.7 });
     }
 
-    // ── Track 2 — FM bass ────────────────────────────────────────────────────
+    // ── Track 2 - FM bass ────────────────────────────────────────────────────
     _ = try session.addTrack("bass");
     try session.setInstrument(2, .poly_synth);
     session.project.tracks.items[2].gain_db = -3.0;
@@ -150,7 +150,7 @@ pub fn main(init: std.process.Init) !void {
         for (notes) |n| pp.addNote(.{ .pitch = n.p, .start_beat = n.b, .duration_beat = 0.9, .velocity = 0.85 });
     }
 
-    // ── Track 3 — drum machine (ships with its default groove) ────────────────
+    // ── Track 3 - drum machine (ships with its default groove) ────────────────
     _ = try session.addTrack("drums");
     try session.setInstrument(3, .drum_machine);
 
@@ -191,7 +191,7 @@ pub fn main(init: std.process.Init) !void {
     var stdout_buf: [256]u8 = undefined;
     var stdout_w = std.Io.File.stdout().writer(io, &stdout_buf);
     const stdout = &stdout_w.interface;
-    try stdout.print("wrote {s} ({d} bars, {d} tracks) — reload ok\n", .{
+    try stdout.print("wrote {s} ({d} bars, {d} tracks) - reload ok\n", .{
         out_path, bars, session.project.tracks.items.len,
     });
     try stdout.flush();

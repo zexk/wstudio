@@ -1,9 +1,9 @@
 //! Continuous parameter automation: sorted breakpoints, linearly interpolated.
 //!
-//! Clips (arrangement.zig) own their points in clip-relative beats — edited
+//! Clips (arrangement.zig) own their points in clip-relative beats - edited
 //! by the user, persisted in the .wsj. `Session.rebuildSongData` flattens
 //! every lane's clips into one absolute-beat curve per (track, parameter) and
-//! pushes it into the engine's `AutomationCurve` — the same "own it per-clip,
+//! pushes it into the engine's `AutomationCurve` - the same "own it per-clip,
 //! flatten for playback" split `PatternPlayer.song_notes` already uses for
 //! notes, just for a continuous value instead of discrete events.
 
@@ -17,7 +17,7 @@ pub const AutomationPoint = struct {
 };
 
 /// Linear interpolation across `points` (must be sorted ascending by `beat`).
-/// Holds the first/last value past either edge. `null` means "no points" —
+/// Holds the first/last value past either edge. `null` means "no points" -
 /// distinct from a single flat point, so callers can tell "no automation
 /// here" from "automation holding a constant value".
 pub fn interpolate(points: []const AutomationPoint, beat: f64) ?f32 {
@@ -78,7 +78,7 @@ pub fn removePoint(allocator: std.mem.Allocator, points: *[]AutomationPoint, bea
 /// Fixed-capacity flattened curve, live on the audio thread. One of these
 /// exists per track slot in the engine (see `audio/engine.zig`'s
 /// `AutomationPair`, heap-allocated separately so this doesn't get
-/// multiplied into every one of `max_tracks` (8192) in-struct track slots) —
+/// multiplied into every one of `max_tracks` (8192) in-struct track slots) -
 /// keep this modest. Still generous for a whole song's worth of gain/pan
 /// breakpoints across every clip on a lane.
 pub const max_points: u16 = 64;
@@ -86,7 +86,7 @@ pub const max_points: u16 = 64;
 /// One (track, parameter) pair's whole-song curve. `Session.rebuildSongData`
 /// (control thread) rebuilds it wholesale via `set` whenever clips change;
 /// `Engine.renderTracks` (audio thread) reads it every block via `valueAt`.
-/// Same non-blocking-tryLock discipline as `PatternPlayer.notes_lock` — a
+/// Same non-blocking-tryLock discipline as `PatternPlayer.notes_lock` - a
 /// block that loses the race just falls back to the manual gain/pan (treated
 /// the same as "no automation").
 pub const AutomationCurve = struct {
@@ -95,7 +95,7 @@ pub const AutomationCurve = struct {
     count: u16 = 0,
 
     /// Replace the curve wholesale (control thread). Empty `points` clears
-    /// it — the track falls back to its manual gain/pan.
+    /// it - the track falls back to its manual gain/pan.
     pub fn set(self: *AutomationCurve, points: []const AutomationPoint) void {
         while (!self.lock.tryLock()) std.atomic.spinLoopHint();
         defer self.lock.unlock();
@@ -105,7 +105,7 @@ pub const AutomationCurve = struct {
     }
 
     /// Evaluate at `beat` (audio thread). Null means "no override this
-    /// block" — either the curve is empty or the control thread is mid-`set`.
+    /// block" - either the curve is empty or the control thread is mid-`set`.
     pub fn valueAt(self: *AutomationCurve, beat: f64) ?f32 {
         if (!self.lock.tryLock()) return null;
         defer self.lock.unlock();

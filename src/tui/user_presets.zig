@@ -23,7 +23,7 @@ const FileSnapshot = struct {
 const filename = "synth_presets.json";
 
 /// Load every saved preset. Empty (not an error) if the file doesn't exist
-/// yet or `$HOME` is unset — a missing presets file should never block
+/// yet or `$HOME` is unset - a missing presets file should never block
 /// startup, same spirit as a missing sample sidecar. A file that exists but
 /// fails to parse is quarantined rather than silently treated as empty, so
 /// a later save can't clobber it.
@@ -72,7 +72,7 @@ pub fn upsert(
 }
 
 /// Remove `name`'s preset (case-insensitive, mirroring `upsert`'s match)
-/// from `list` and persist the shrunk set. False when no such preset —
+/// from `list` and persist the shrunk set. False when no such preset -
 /// nothing is written to disk then.
 pub fn remove(
     allocator: std.mem.Allocator,
@@ -115,7 +115,7 @@ test "upsert saves and load reads a preset back" {
     const testing = std.testing;
     // Point $HOME at a temp dir (relative to cwd, same convention
     // persist.zig's own tests use for their .wsj paths) so this test never
-    // touches the real config file — setenv is process-global but tests run
+    // touches the real config file - setenv is process-global but tests run
     // single-threaded.
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();

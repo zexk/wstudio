@@ -1,5 +1,5 @@
 //! Raw terminal handling (POSIX): termios raw mode, alternate screen, and
-//! whole-frame writes. Zero dependencies — just std.posix and ANSI escape
+//! whole-frame writes. Zero dependencies - just std.posix and ANSI escape
 //! sequences. Input byte decoding lives in input_decode.zig, shared with
 //! terminal_windows.zig.
 
@@ -21,7 +21,7 @@ pub const begin_sync = esc ++ "[?2026h";
 pub const end_sync = esc ++ "[?2026l";
 // Button-event tracking (press/release + motion while a button is held) with
 // SGR extended coordinates (unambiguous past column/row 223, and easy to
-// parse back out — see `decode`'s SGR branch). Terminals conventionally let
+// parse back out - see `decode`'s SGR branch). Terminals conventionally let
 // the user hold Shift to bypass this for native text selection.
 const enable_mouse = esc ++ "[?1002h" ++ esc ++ "[?1006h";
 const disable_mouse = esc ++ "[?1002l" ++ esc ++ "[?1006l";

@@ -1,11 +1,11 @@
-//! Modal input engine — the heart of the keyboard-first workflow.
+//! Modal input engine - the heart of the keyboard-first workflow.
 //!
 //! Modeled on vim: normal mode navigates and drives the transport,
 //! insert mode turns the keyboard into a piano, visual mode selects,
 //! command mode takes ex-style commands, search mode takes a `/` fuzzy
-//! pattern (n/N repeat it — see App.searchTracks/searchBrowser, the only
+//! pattern (n/N repeat it - see App.searchTracks/searchBrowser, the only
 //! two views with something to search). This layer is pure state
-//! machine — no terminal, no UI — so every binding is unit-testable
+//! machine - no terminal, no UI - so every binding is unit-testable
 //! and any frontend (TUI, GUI) can sit on top.
 
 const std = @import("std");
@@ -28,14 +28,14 @@ pub const Key = union(enum) {
     arrow_right,
     /// Command-mode line-editing: jump to the start/end of the buffer.
     /// In normal mode (handleNormal) home/end instead seek the playhead to
-    /// the start/end of the content — a `gg`/`G`-alike that stays reachable
+    /// the start/end of the content - a `gg`/`G`-alike that stays reachable
     /// even in views (piano roll, drum grid, arrangement) where `g`/`G` are
     /// already claimed for cursor motion.
     home,
     end,
     /// (command mode only) delete the word behind the cursor.
     ctrl_w,
-    /// Vim's canonical redo key, alongside `U` — handled by whichever view
+    /// Vim's canonical redo key, alongside `U` - handled by whichever view
     /// (App.handleKey/editors/*.zig) tracks undo history; no meaning in
     /// command mode (see handleCommand).
     ctrl_r,
@@ -45,7 +45,7 @@ pub const Key = union(enum) {
     /// Intercepted by the frontend (quit); modal layer ignores it.
     ctrl_c,
     /// Intercepted by App.handleKey before it reaches the modal layer at all
-    /// (mouse events aren't part of the vim state machine — they're routed
+    /// (mouse events aren't part of the vim state machine - they're routed
     /// straight to the active view's own handler). Still a Key variant so
     /// terminal.decode() can hand them back through the same buffer as
     /// keyboard input.
@@ -82,7 +82,7 @@ pub const Action = union(enum) {
     /// Slice is valid until command mode is entered again.
     command_submit: []const u8,
     /// A submitted `/` search pattern. Empty means "repeat the last search"
-    /// (vim's `//` convention) — see App.applyAction. Slice is valid until
+    /// (vim's `//` convention) - see App.applyAction. Slice is valid until
     /// search mode is entered again (same buffer as command_submit).
     search_submit: []const u8,
     /// Signed dB steps to apply to master volume (+n = louder, −n = quieter).
@@ -100,7 +100,7 @@ pub const Action = union(enum) {
 ///   C  D  E  F  G  A  B  C  D  E
 pub fn noteForChar(c: u8, octave: u4) ?u7 {
     const semi: u8 = switch (c) {
-        // a-row — white notes
+        // a-row - white notes
         // zig fmt: off
         'a' => 0,   // C
         's' => 2,   // D
@@ -112,7 +112,7 @@ pub fn noteForChar(c: u8, octave: u4) ?u7 {
         'k' => 12,  // C'
         'l' => 14,  // D'
         ';' => 16,  // E'
-        // q-row — black notes (e and u are gaps: E-F and B-C have no black key)
+        // q-row - black notes (e and u are gaps: E-F and B-C have no black key)
         'q' => 1,   // C#
         'w' => 3,   // D#
         'r' => 6,   // F#
@@ -272,7 +272,7 @@ pub const ModalInput = struct {
                 return .octave_up;
             },
             // Not a piano key (space is never mapped in noteForChar, unlike
-            // z/x carved out above) — free to double as the same transport
+            // z/x carved out above) - free to double as the same transport
             // toggle normal mode uses, so starting/stopping playback (and,
             // in the piano roll, arming a recording) doesn't need dropping
             // out of insert mode first.

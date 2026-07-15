@@ -46,7 +46,7 @@ const sampler_param_labels = [_][]const u8{
     "start", "end", "pitch", "attack", "decay", "sustain", "release", "gain", "pan", "reverse", "root", "voice",
 };
 
-/// Waveform panel caps: width in columns (was 120 — bumped so wide terminals
+/// Waveform panel caps: width in columns (was 120 - bumped so wide terminals
 /// use their space) and height in rows (min'd against the leftover row
 /// budget, so short terminals see the same 7-8 rows as before). Mirrored by
 /// editors/sampler.zig's waveformNorm/waveRows for mouse hit-testing.
@@ -198,7 +198,7 @@ pub fn drawSamplerEditor(
     while (written < body) : (written += 1) try endLine(w);
 }
 
-/// A shared zero-length pad used when an editor has no real pad to show — keeps
+/// A shared zero-length pad used when an editor has no real pad to show - keeps
 /// drawing renderable without optionals or unreachable branches.
 fn placeholderPad() *const ws.dsp.Pad {
     const holder = struct {

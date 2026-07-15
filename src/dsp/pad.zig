@@ -1,5 +1,5 @@
-//! The shared pad/voice engine: one mono clip plus its sampler params —
-//! region trim, pitch (playback transpose), amp ADSR, gain, pan, reverse —
+//! The shared pad/voice engine: one mono clip plus its sampler params -
+//! region trim, pitch (playback transpose), amp ADSR, gain, pan, reverse -
 //! and the allocation-free voice renderer that both drum-machine pads
 //! (dsp/drum_sampler.zig) and the standalone Sampler (dsp/sampler.zig) play
 //! through. The control-side linear resampler used on WAV load lives here too.
@@ -13,7 +13,7 @@ pub const Pad = struct {
     samples: []f32,
     name: [8]u8 = [_]u8{' '} ** 8,
     /// True when the audio was loaded by the user (`:load-sample`) rather
-    /// than shipped/generated — only user audio is exported to the
+    /// than shipped/generated - only user audio is exported to the
     /// project's sample sidecar on save.
     user_sample: bool = false,
 
@@ -40,7 +40,7 @@ pub const Pad = struct {
 };
 
 /// Number of shared, continuous per-pad params `adjustParam`/`setParamAbsolute`/
-/// `paramValue` cover — start/end/pitch/attack/decay/sustain/release/gain/pan,
+/// `paramValue` cover - start/end/pitch/attack/decay/sustain/release/gain/pan,
 /// plus the reverse toggle at id 9. Callers with extra ids of their own
 /// (Sampler's root_note/mono, ...) dispatch those separately and fall through
 /// to these for 0-9.
@@ -73,7 +73,7 @@ fn paramStep(id: u8) f32 {
 }
 
 /// Absolute-value counterpart to `adjustParam`, same id space and clamp
-/// ranges — for undo's capture/restore. Toggle (reverse, id 9): >= 0.5 is on.
+/// ranges - for undo's capture/restore. Toggle (reverse, id 9): >= 0.5 is on.
 pub fn setParamAbsolute(pad: *Pad, id: u8, value: f32) void {
     switch (id) {
         0 => pad.start_norm = std.math.clamp(value, 0.0, pad.end_norm - 0.01),
@@ -93,7 +93,7 @@ pub fn setParamAbsolute(pad: *Pad, id: u8, value: f32) void {
 }
 
 /// Current value of shared pad param `id`, same unit/encoding
-/// `setParamAbsolute` accepts (reverse as 0/1) — the read half of undo's
+/// `setParamAbsolute` accepts (reverse as 0/1) - the read half of undo's
 /// capture/restore pair.
 pub fn paramValue(pad: *const Pad, id: u8) ?f32 {
     return switch (id) {

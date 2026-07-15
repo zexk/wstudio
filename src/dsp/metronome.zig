@@ -15,7 +15,7 @@ pub const Metronome = struct {
     click: []f32,
 
     // Audio-thread-only voice state: one click at a time (a new beat just
-    // restarts it — beats are never dense enough for overlap to matter).
+    // restarts it - beats are never dense enough for overlap to matter).
     active: bool = false,
     is_accent: bool = false,
     pos: usize = 0,
@@ -42,7 +42,7 @@ pub const Metronome = struct {
         self.block_start = block_start;
     }
 
-    /// Mix the click into interleaved `buf` (added, not overwritten — same
+    /// Mix the click into interleaved `buf` (added, not overwritten - same
     /// convention as track rendering). No-op when no click is in flight.
     pub fn render(self: *Metronome, buf: []Sample, channels: usize, frames: u32) void {
         if (!self.active) return;
@@ -60,7 +60,7 @@ pub const Metronome = struct {
     }
 };
 
-/// A short decaying sine burst — a click, not a tone, so it stays out of the
+/// A short decaying sine burst - a click, not a tone, so it stays out of the
 /// way of the mix.
 fn genClick(allocator: std.mem.Allocator, sample_rate: u32, freq: f32, gain: f32) ![]f32 {
     const sr: f32 = @floatFromInt(sample_rate);

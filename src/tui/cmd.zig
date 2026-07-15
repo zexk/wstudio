@@ -1,4 +1,4 @@
-//! Command registry — table-driven ex-style command dispatch.
+//! Command registry - table-driven ex-style command dispatch.
 //!
 //! Each Def holds a name, a one-line description (shown by :help), and an
 //! opaque callback. Callers wrap their typed callbacks with the comptime
@@ -8,7 +8,7 @@
 const std = @import("std");
 const style = @import("style.zig");
 
-/// Which instrument kind a command only makes sense for — `.any` (the
+/// Which instrument kind a command only makes sense for - `.any` (the
 /// default) means every track/view. Gates the Tab-completion popup only
 /// (see `visible`/`writeSuggestionBox`); `dispatch` never checks this, so a
 /// fully-typed command out of scope still runs and gets that command's own
@@ -23,7 +23,7 @@ pub const Def = struct {
     scope: Scope = .any,
 };
 
-/// True if `c` should be offered under `active` — either it works anywhere,
+/// True if `c` should be offered under `active` - either it works anywhere,
 /// or `active` matches the one instrument kind it's scoped to.
 pub fn visible(c: Def, active: Scope) bool {
     return c.scope == .any or c.scope == active;
@@ -65,12 +65,12 @@ fn writeCursor(w: *std.Io.Writer, buf: []const u8, cursor: usize) !void {
     }
 }
 
-/// Renders the `:` prompt shared by every view's status line — see
+/// Renders the `:` prompt shared by every view's status line - see
 /// `writeCursor` for the typed-buffer/cursor part. Once a space is typed and
 /// the name before it is an exact command, appends that command's usage
 /// `desc` (a reminder of argument order/shape while you type args), capped
 /// at `max_chars`. The command-name match list lives in `writeSuggestionBox`
-/// instead of on this line — see that doc comment.
+/// instead of on this line - see that doc comment.
 pub fn writePrompt(w: *std.Io.Writer, cmds: []const Def, buf: []const u8, cursor: usize, max_chars: usize) !void {
     try w.writeAll(style.dim ++ " :" ++ style.rst);
     try writeCursor(w, buf, cursor);
@@ -87,7 +87,7 @@ pub fn writePrompt(w: *std.Io.Writer, cmds: []const Def, buf: []const u8, cursor
     }
 }
 
-/// Renders the `/` fuzzy-search prompt — same line-editing as `writePrompt`
+/// Renders the `/` fuzzy-search prompt - same line-editing as `writePrompt`
 /// (see `writeCursor`), no command-suggestion box since there's no fixed
 /// candidate list to search against.
 pub fn writeSearchPrompt(w: *std.Io.Writer, buf: []const u8, cursor: usize) !void {
@@ -96,17 +96,17 @@ pub fn writeSearchPrompt(w: *std.Io.Writer, buf: []const u8, cursor: usize) !voi
 }
 
 /// True for entries whose `desc` marks them as an alias of another command
-/// (e.g. "quit (alias for :q)") — these carry no information beyond the
+/// (e.g. "quit (alias for :q)") - these carry no information beyond the
 /// canonical name they duplicate, so the suggestion popup skips them.
 fn isAlias(c: Def) bool {
     return std.mem.indexOf(u8, c.desc, "alias for") != null;
 }
 
-/// True for a `!`-suffixed name (`q!`, `e!`, `new!`) — vim's force-flag
+/// True for a `!`-suffixed name (`q!`, `e!`, `new!`) - vim's force-flag
 /// convention, modeled here as its own dispatch entry rather than a `!`
 /// `dispatch` strips off before matching the base command. It's a modifier
 /// on the base command (typed by hand, right after it), not a distinct
-/// name worth showing in the popup's own list — same reasoning as
+/// name worth showing in the popup's own list - same reasoning as
 /// `isAlias`. Still fully dispatchable when typed out in full, and still a
 /// valid `App.completeCommand` Tab-cycle target (typing "q" + Tab can still
 /// step to "q!"): this only affects what the popup *displays*.
@@ -115,14 +115,14 @@ fn isBangVariant(c: Def) bool {
 }
 
 /// True for entries the suggestion popup (`suggestionCount`/
-/// `writeSuggestionBox`) shouldn't list — see `isAlias`/`isBangVariant`.
+/// `writeSuggestionBox`) shouldn't list - see `isAlias`/`isBangVariant`.
 /// Deliberately popup-only: `App.completeCommand`'s Tab-cycling still
 /// offers these as candidates (see its own comment for why).
 pub fn hiddenFromCompletion(c: Def) bool {
     return isAlias(c) or isBangVariant(c);
 }
 
-/// Number of command names starting with `buf` under `active` scope — 0
+/// Number of command names starting with `buf` under `active` scope - 0
 /// once a space has been typed (there's no fixed name list for arguments
 /// here). Below 2, Tab already spells the single match out in full, so no
 /// popup is needed. Skips non-candidate entries (see `hiddenFromCompletion`)
@@ -139,7 +139,7 @@ pub fn suggestionCount(cmds: []const Def, buf: []const u8, active: Scope) usize 
 }
 
 /// Rows `writeSuggestionBox` will actually draw for this `buf`, capped at
-/// `max_rows` — callers carve exactly this many rows out of the content
+/// `max_rows` - callers carve exactly this many rows out of the content
 /// area's budget before drawing it, so the popup never pushes the frame
 /// taller than the terminal.
 pub fn suggestionRows(cmds: []const Def, buf: []const u8, active: Scope, max_rows: usize) usize {
@@ -151,9 +151,9 @@ pub fn suggestionRows(cmds: []const Def, buf: []const u8, active: Scope, max_row
 /// Neovim-wildmenu-style popup: every in-scope, real-candidate command name
 /// starting with `buf` (see `hiddenFromCompletion`/`visible`), one per line,
 /// `selected` drawn as a solid reverse-video bar (index into the match
-/// list, not `cmds` — clamp/compare against `suggestionCount`).
+/// list, not `cmds` - clamp/compare against `suggestionCount`).
 /// Truncates silently past `max_rows` (matching what `suggestionRows`
-/// reserved) rather than showing a "N more" line — narrowing the typed
+/// reserved) rather than showing a "N more" line - narrowing the typed
 /// prefix is how the rest becomes reachable, same as Tab-cycling already
 /// requires for large match sets.
 pub fn writeSuggestionBox(w: *std.Io.Writer, cmds: []const Def, buf: []const u8, active: Scope, selected: usize, max_rows: usize) !void {
@@ -185,15 +185,15 @@ fn promptText(buf: []const u8, max_chars: usize, out: []u8) []const u8 {
 }
 
 test "suggestionCount/suggestionRows gate on 2+ matches and a space" {
-    // "bpm" matches only itself — no popup.
+    // "bpm" matches only itself - no popup.
     try std.testing.expectEqual(@as(usize, 1), suggestionCount(test_cmds, "bpm", .any));
     try std.testing.expectEqual(@as(usize, 0), suggestionRows(test_cmds, "bpm", .any, 10));
-    // "q" matches q / qa ("qa!" is a bang variant — see the dedicated test below).
+    // "q" matches q / qa ("qa!" is a bang variant - see the dedicated test below).
     try std.testing.expectEqual(@as(usize, 2), suggestionCount(test_cmds, "q", .any));
     try std.testing.expectEqual(@as(usize, 2), suggestionRows(test_cmds, "q", .any, 10));
     // Capped by max_rows.
     try std.testing.expectEqual(@as(usize, 1), suggestionRows(test_cmds, "q", .any, 1));
-    // A space means we're past the command name — no popup at all.
+    // A space means we're past the command name - no popup at all.
     try std.testing.expectEqual(@as(usize, 0), suggestionCount(test_cmds, "q ", .any));
 }
 
@@ -220,7 +220,7 @@ test "writeSuggestionBox truncates at max_rows" {
 }
 
 test "suggestionCount/writeSuggestionBox skip `!`-suffixed bang-variant entries" {
-    // "qa!" is the force variant of "qa" — a modifier typed by hand right
+    // "qa!" is the force variant of "qa" - a modifier typed by hand right
     // after the base name, not a name worth Tab-completing to on its own.
     try std.testing.expectEqual(@as(usize, 2), suggestionCount(test_cmds, "q", .any));
     try std.testing.expectEqual(@as(usize, 0), suggestionRows(test_cmds, "qa!", .any, 10));
@@ -239,7 +239,7 @@ const alias_test_cmds: []const Def = &.{
 };
 
 test "suggestionCount/writeSuggestionBox skip alias entries" {
-    // "quit" and "qa" are aliases of "q" — only "q" itself should count/show.
+    // "quit" and "qa" are aliases of "q" - only "q" itself should count/show.
     try std.testing.expectEqual(@as(usize, 1), suggestionCount(alias_test_cmds, "q", .any));
     try std.testing.expectEqual(@as(usize, 0), suggestionRows(alias_test_cmds, "q", .any, 10));
 
@@ -261,7 +261,7 @@ const scoped_test_cmds: []const Def = &.{
 };
 
 test "suggestionCount/writeSuggestionBox hide out-of-scope commands" {
-    // "bpm" is unscoped — visible under any active scope, including .any
+    // "bpm" is unscoped - visible under any active scope, including .any
     // (e.g. the cursor sitting on an empty track).
     try std.testing.expectEqual(@as(usize, 1), suggestionCount(scoped_test_cmds, "b", .any));
     // Under .any, both load-* commands are scoped out entirely.

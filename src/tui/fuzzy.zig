@@ -1,7 +1,7 @@
-//! Minimal fuzzy matcher for `/` search — case-insensitive subsequence
+//! Minimal fuzzy matcher for `/` search - case-insensitive subsequence
 //! match (the same baseline rule fzf/vim fuzzy-finder plugins use): every
 //! character of `pattern` must appear in `text`, in order, not necessarily
-//! contiguous. No ranking/scoring — App.searchTracks/searchBrowser just want
+//! contiguous. No ranking/scoring - App.searchTracks/searchBrowser just want
 //! "does this candidate match," walking the list for the next one that does.
 
 const std = @import("std");
@@ -17,7 +17,7 @@ pub fn matches(pattern: []const u8, text: []const u8) bool {
 }
 
 /// Marks which bytes of `text` the same greedy subsequence walk `matches`
-/// does would consume — for rendering a match highlight, not for deciding
+/// does would consume - for rendering a match highlight, not for deciding
 /// whether it matched at all. `out` must be at least `text.len` long; bytes
 /// past a short pattern (or past a non-match) are left false.
 pub fn matchPositions(pattern: []const u8, text: []const u8, out: []bool) void {

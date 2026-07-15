@@ -40,8 +40,8 @@ pub fn build(b: *std.Build) void {
         }),
     });
     // The frontend's own module reaches OS-specific code too (the terminal
-    // backend, tui/terminal_windows.zig on Windows) via tui/app.zig — not
-    // through the wstudio import — so it needs the same linking/macros.
+    // backend, tui/terminal_windows.zig on Windows) via tui/app.zig - not
+    // through the wstudio import - so it needs the same linking/macros.
     if (target.result.os.tag == .windows) {
         exe.root_module.link_libc = true;
         exe.root_module.addCMacro("_FORTIFY_SOURCE", "0");

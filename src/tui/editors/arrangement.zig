@@ -1,8 +1,8 @@
 //! Arrangement (song timeline) input: bar/lane cursor, clip stamping and
 //! deletion, play-from-cursor, drum-variant cycling, clip editing via the
 //! piano roll, the song/pattern mode toggle, visual-mode range select
-//! (v, then y/d/p — a bar-range on the current lane only), and operator+
-//! motion grammar (x/d/y — a bar is already this editor's atomic unit, so
+//! (v, then y/d/p - a bar-range on the current lane only), and operator+
+//! motion grammar (x/d/y - a bar is already this editor's atomic unit, so
 //! dd/yy are the tier above it: the whole lane; see the operator-pending
 //! block below). The render half lives in views/arrangement.zig.
 
@@ -28,7 +28,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
     const lane_count = app.session.project.tracks.items.len;
 
     // Visual mode: a bar-range selection on the current lane only (lanes are
-    // tracks, and undo snapshots one lane at a time — see captureLane).
+    // tracks, and undo snapshots one lane at a time - see captureLane).
     // Motions and range y/d/p live in handleVisual; everything else is
     // swallowed so a stray keypress can't jump views mid-selection.
     if (app.modal.mode == .visual) return handleVisual(app, key, lane_count);
@@ -64,14 +64,14 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
         .enter => { stampClip(app); return true; },
         .ctrl_r => { history.doRedo(app); return true; },
         .char => |c| switch (c) {
-            // Block insert mode — piano keys would collide with navigation.
+            // Block insert mode - piano keys would collide with navigation.
             'i' => return true,
             // Motions take a vim count prefix (3l, 2j, …).
             'h' => { moveBar(app, -app.takeCount()); return true; },
             'l' => { moveBar(app, app.takeCount()); return true; },
             'H' => { moveBar(app, -4 * app.takeCount()); return true; },
             'L' => { moveBar(app, 4 * app.takeCount()); return true; },
-            // Vim's own '0': jump-to-start only when no count is pending —
+            // Vim's own '0': jump-to-start only when no count is pending -
             // otherwise it's a digit continuing the count (10l, 20h, …),
             // same rule modal.zig's generic handleNormal already applies.
             // Falling through with `return false` hands it to modal.handle,
@@ -82,17 +82,17 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             },
             'j' => { moveLane(app, lane_count, app.takeCount()); return true; },
             'k' => { moveLane(app, lane_count, -app.takeCount()); return true; },
-            // x: vim's char-delete — the clip under the cursor, instantly,
+            // x: vim's char-delete - the clip under the cursor, instantly,
             // no operator needed (a bar is already this editor's atomic
             // unit; see the operator-pending block above).
             'x' => { deleteClip(app); return true; },
-            // y is an operator (see armOperator) — yy yanks every clip on
+            // y is an operator (see armOperator) - yy yanks every clip on
             // the lane, y + a motion yanks the bar range it covers.
             'y' => { armOperator(app, 'y'); return true; },
             // d is likewise an operator; dd clears every clip on the lane,
             // d + a motion (h/l/H/L) deletes the range.
             'd' => { armOperator(app, 'd'); return true; },
-            // p/P paste the range clipboard at the cursor bar — the same
+            // p/P paste the range clipboard at the cursor bar - the same
             // clipboard yy/y+motion fill, since a single clip is just a
             // 1-bar range (see pasteSelection).
             'p', 'P' => { pasteSelection(app); return true; },
@@ -165,7 +165,7 @@ fn wholeLaneRange(app: *App, lane: *ws.arrangement.Lane, act: *const fn (*App) v
     app.arr_cursor_bar = saved_cursor;
 }
 
-/// `dd`: clear every clip on the current lane — vim's whole-line dd, one
+/// `dd`: clear every clip on the current lane - vim's whole-line dd, one
 /// tier coarser than x's single-clip delete and h/l's bar range.
 fn clearLane(app: *App) void {
     const lane = app.session.arrangement.lane(app.cursor) orelse return;
@@ -285,13 +285,13 @@ fn deleteSelection(app: *App) void {
 /// Paste the range clipboard onto the current lane starting at the cursor
 /// bar, evicting whatever it overlaps (same rule as stamping/pasting a
 /// single clip). Skips clips whose kind doesn't match the lane's
-/// instrument. Also the normal-mode `p`/`P` handler — a single clip is just
+/// instrument. Also the normal-mode `p`/`P` handler - a single clip is just
 /// a 1-bar range, so there's no separate single-clip paste path anymore.
 /// Jumps the cursor past the rightmost pasted clip for quick sequential
 /// pasting (leaves it alone if nothing was actually pasted).
 fn pasteSelection(app: *App) void {
     const clip = app.arr_range_clip orelse {
-        app.setStatus("nothing yanked — select a range and y first", .{});
+        app.setStatus("nothing yanked - select a range and y first", .{});
         exitVisual(app);
         return;
     };
@@ -309,7 +309,7 @@ fn pasteSelection(app: *App) void {
         }
     }.check;
     // Skip pushing history (and touching the lane) entirely if nothing in
-    // the clipboard actually matches this lane's instrument — matching the
+    // the clipboard actually matches this lane's instrument - matching the
     // old single-clip paste's behavior of leaving undo history untouched
     // on a kind mismatch, rather than recording a no-op entry.
     // zig fmt: off
@@ -378,7 +378,7 @@ fn moveLane(app: *App, lane_count: usize, delta: i32) void {
     app.cursor = @intCast(std.math.clamp(@as(i64, @intCast(app.cursor)) + delta, 0, top));
 }
 
-/// Seek the playhead to the cursor bar, starting playback if stopped —
+/// Seek the playhead to the cursor bar, starting playback if stopped -
 /// audition the song from the point being arranged (same bar math as
 /// `:seek`, minus the 1-based parsing).
 fn playFromCursor(app: *App) void {
@@ -392,15 +392,15 @@ fn playFromCursor(app: *App) void {
 }
 
 /// On a drum or slicer lane, cycle which pattern variant `enter` will
-/// stamp. This is the machine's active variant — the same one the grid
-/// edits and pattern mode plays — so there is only one notion of
+/// stamp. This is the machine's active variant - the same one the grid
+/// edits and pattern mode plays - so there is only one notion of
 /// "selected pattern".
 fn cycleDrumVariant(app: *App, delta: i32) void {
     if (app.cursor >= app.session.racks.items.len) return;
     switch (app.session.racks.items[app.cursor].instrument) {
         .drum_machine => |*dm| {
             if (dm.variant_count <= 1) {
-                app.setStatus("one pattern — create variants in the drum grid (N)", .{});
+                app.setStatus("one pattern - create variants in the drum grid (N)", .{});
                 return;
             }
             dm.cycleVariant(delta);
@@ -411,7 +411,7 @@ fn cycleDrumVariant(app: *App, delta: i32) void {
         },
         .slicer => |*sl| {
             if (sl.variant_count <= 1) {
-                app.setStatus("one pattern — create variants in the slicer grid (N)", .{});
+                app.setStatus("one pattern - create variants in the slicer grid (N)", .{});
                 return;
             }
             sl.cycleVariant(delta);
@@ -430,7 +430,7 @@ fn stampClip(app: *App) void {
     if (app.cursor >= app.session.racks.items.len) return;
     switch (std.meta.activeTag(app.session.racks.items[app.cursor].instrument)) {
         .empty => {
-            app.setStatus("empty track — insert an instrument first", .{});
+            app.setStatus("empty track - insert an instrument first", .{});
             return;
         },
         else => {},
@@ -459,12 +459,12 @@ fn stampClip(app: *App) void {
 /// Open the melodic clip under the cursor in the piano roll, Ableton
 /// style: its notes load into the pattern player as a working copy and
 /// every edit writes back into the clip itself (piano.syncLinkedClip).
-/// The live pattern is replaced by the loaded clip — the clip is the
+/// The live pattern is replaced by the loaded clip - the clip is the
 /// data; the player is just the surface it's edited and played on.
 fn editClip(app: *App) void {
     const lane = app.session.arrangement.lane(app.cursor) orelse return;
     const clip = lane.clipAt(app.arr_cursor_bar) orelse {
-        app.setStatus("no clip here — enter stamps one", .{});
+        app.setStatus("no clip here - enter stamps one", .{});
         return;
     };
     switch (clip.content) {
@@ -485,9 +485,9 @@ fn editClip(app: *App) void {
             history.push(app, pre);
             app.session.racks.items[track].pattern_player.?.setNotes(m.notes, m.length_beats);
             app.piano_clip_link = .{ .track = track, .start_bar = clip.start_bar };
-            app.setStatus("editing clip @ bar {d} — edits land in the clip", .{clip.start_bar + 1});
+            app.setStatus("editing clip @ bar {d} - edits land in the clip", .{clip.start_bar + 1});
         },
-        .drum => app.setStatus("pattern clips play from their stamp — edit variants in the grid", .{}),
+        .drum => app.setStatus("pattern clips play from their stamp - edit variants in the grid", .{}),
     }
 }
 
@@ -500,7 +500,7 @@ fn setLoopStart(app: *App) void {
         p.loop_enabled = true;
         app.setStatus("loop: bars {d}–{d}", .{ p.loop_start_bar + 1, p.loop_end_bar });
     } else {
-        app.setStatus("loop start: bar {d} — ) sets the end", .{p.loop_start_bar + 1});
+        app.setStatus("loop start: bar {d} - ) sets the end", .{p.loop_start_bar + 1});
     }
     app.dirty = true;
     app.session.syncLoop();
@@ -514,7 +514,7 @@ fn setLoopEnd(app: *App) void {
         p.loop_enabled = true;
         app.setStatus("loop: bars {d}–{d}", .{ p.loop_start_bar + 1, p.loop_end_bar });
     } else {
-        app.setStatus("loop end: bar {d} — ( sets the start", .{p.loop_end_bar});
+        app.setStatus("loop end: bar {d} - ( sets the start", .{p.loop_end_bar});
     }
     app.dirty = true;
     app.session.syncLoop();
@@ -524,7 +524,7 @@ fn setLoopEnd(app: *App) void {
 fn toggleLoop(app: *App) void {
     const p = &app.session.project;
     if (p.loop_end_bar <= p.loop_start_bar) {
-        app.setStatus("no loop region — ( and ) set one", .{});
+        app.setStatus("no loop region - ( and ) set one", .{});
         return;
     }
     p.loop_enabled = !p.loop_enabled;
@@ -540,7 +540,7 @@ fn toggleLoop(app: *App) void {
 // zig fmt: on
 
 /// Shift the clip under the cursor by `delta` bars (clamped at bar 0). Clips
-/// it lands on are evicted — the same overwrite rule as stamping and pasting.
+/// it lands on are evicted - the same overwrite rule as stamping and pasting.
 fn moveClip(app: *App, delta: i32) void {
     const lane = app.session.arrangement.lane(app.cursor) orelse return;
     const clip = lane.clipAt(app.arr_cursor_bar) orelse {
@@ -567,7 +567,7 @@ fn moveClip(app: *App, delta: i32) void {
 
 /// `+`/`-`: edge-resize the clip under the cursor by `delta` bars (count-
 /// scaled, like `<`/`>`), clamped to a minimum of 1 bar. Growing evicts
-/// whatever clips the new span now overlaps — the same eviction rule
+/// whatever clips the new span now overlaps - the same eviction rule
 /// `moveClip`/stamp/paste already follow. A clip's own content loops to fill
 /// whatever span it's given (Session.rebuildSongData for melodic clips,
 /// DrumMachine.fireSongStep for drum clips), so growing a short pattern is
@@ -607,7 +607,7 @@ fn deleteClip(app: *App) void {
 }
 
 /// Bar at column `x`, or null if `x` falls in the lane-name gutter. Mirrors
-/// views/arrangement.zig's `gutter`/`App.arrCellWidth()` — each bar column
+/// views/arrangement.zig's `gutter`/`App.arrCellWidth()` - each bar column
 /// is a 1-char separator plus the current-width content cell.
 fn barAt(scroll_bar: u32, x: usize, cw: usize) ?u32 {
     if (x < view.gutter) return null;
@@ -615,11 +615,11 @@ fn barAt(scroll_bar: u32, x: usize, cw: usize) ?u32 {
     return scroll_bar + col;
 }
 
-/// Click a cell to move the (lane, bar) cursor there — no auto-stamp;
+/// Click a cell to move the (lane, bar) cursor there - no auto-stamp;
 /// stamping a clip stays a deliberate `enter`. Press on a cell covered by a
 /// clip starts tracking a drag; each motion event feeds the incremental bar
-/// delta into the existing `moveClip`. Scroll moves the bar cursor, or —
-/// over the lane-name gutter — the lane cursor, regardless of which row the
+/// delta into the existing `moveClip`. Scroll moves the bar cursor, or -
+/// over the lane-name gutter - the lane cursor, regardless of which row the
 /// mouse sits on.
 pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16) void {
     _ = cols; // column count is derived from scroll + cell width, not terminal-width-dependent
@@ -634,8 +634,8 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16) v
         else => {},
     }
 
-    if (row < 2) return; // title / bar-ruler rows — see views/arrangement.zig
-    // Offset by the vertical scroll drawArrangement clamped last frame —
+    if (row < 2) return; // title / bar-ruler rows - see views/arrangement.zig
+    // Offset by the vertical scroll drawArrangement clamped last frame -
     // row 2 is the *first visible* lane, not lane 0, once the lane list
     // scrolls (see App.arr_scroll_lane).
     const lane = app.arr_scroll_lane + (row - 2);

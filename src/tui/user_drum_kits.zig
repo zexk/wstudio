@@ -3,7 +3,7 @@
 //! same tmp+rename atomic write + quarantine-on-corrupt convention
 //! `user_presets.zig` established. Unlike a synth preset (a self-sufficient
 //! patch) or a factory drum kit (`dsp/drum_kit.zig`, which also carries the
-//! procedural audio), a saved kit here carries NO audio — it's a reusable
+//! procedural audio), a saved kit here carries NO audio - it's a reusable
 //! mixing/ADSR/choke template layered onto whatever sample each pad already
 //! holds. Loaded once at `App.init`, the whole set rewritten on every
 //! `:drum-kit-save`.
@@ -66,7 +66,7 @@ fn save(allocator: std.mem.Allocator, io: std.Io, list: []const UserKit) !void {
 
 /// Insert or update (by case-insensitive name) `name`'s tuning in `list`,
 /// then persist the whole set to disk. `pads`' names are borrowed
-/// (typically straight from live `Sampler.clipName()`s) — duped here before
+/// (typically straight from live `Sampler.clipName()`s) - duped here before
 /// they outlive the caller's stack frame.
 pub fn upsert(
     allocator: std.mem.Allocator,
@@ -98,7 +98,7 @@ pub fn upsert(
 }
 
 /// Remove `name`'s kit (case-insensitive) from `list` and persist the
-/// shrunk set. False when no such kit — nothing is written to disk then.
+/// shrunk set. False when no such kit - nothing is written to disk then.
 pub fn remove(
     allocator: std.mem.Allocator,
     io: std.Io,

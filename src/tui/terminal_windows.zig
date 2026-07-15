@@ -1,7 +1,7 @@
 //! Console handling (Windows): VT100 passthrough on stdin/stdout so the
 //! rest of the TUI (ANSI frames, escape-coded input) is identical to the
 //! POSIX build. Raw mode here means disabling line/echo/processed input
-//! and asking the console to speak VT instead of translating it itself —
+//! and asking the console to speak VT instead of translating it itself -
 //! input byte decoding lives in input_decode.zig, shared with terminal.zig.
 
 const std = @import("std");
@@ -19,7 +19,7 @@ const enter_alt_screen = esc ++ "[?1049h";
 const leave_alt_screen = esc ++ "[?1049l";
 const hide_cursor = esc ++ "[?25l";
 const show_cursor = esc ++ "[?25h";
-/// DEC 2026 synchronized update — see terminal.zig; Windows Terminal
+/// DEC 2026 synchronized update - see terminal.zig; Windows Terminal
 /// supports it, legacy conhost ignores the private mode.
 pub const begin_sync = esc ++ "[?2026h";
 pub const end_sync = esc ++ "[?2026l";
@@ -35,7 +35,7 @@ pub const Terminal = struct {
     original_in_cp: c.UINT,
     original_out_cp: c.UINT,
     /// False if the `SetConsoleMode` call below didn't take (rare, but
-    /// silent on failure otherwise) — QuickEdit stays on, so a click can
+    /// silent on failure otherwise) - QuickEdit stays on, so a click can
     /// still freeze the whole console (input *and* our own redraws) until
     /// the user presses Escape/Enter to release the selection. `run()`
     /// surfaces this as a status message once `App` exists.
@@ -53,7 +53,7 @@ pub const Terminal = struct {
         if (c.GetConsoleMode(stdout, &original_out_mode) == 0) return error.NotATerminal;
 
         // The console's active code page decides how ReadFile/WriteFile bytes
-        // get interpreted — without forcing it to UTF-8, non-ASCII bytes (icon
+        // get interpreted - without forcing it to UTF-8, non-ASCII bytes (icon
         // glyphs on output, non-ASCII keystrokes on input) get reinterpreted
         // through whatever OEM/ANSI code page the system defaults to, unlike
         // POSIX terminals which are UTF-8 by convention already.
@@ -62,13 +62,13 @@ pub const Terminal = struct {
         _ = c.SetConsoleCP(c.CP_UTF8);
         _ = c.SetConsoleOutputCP(c.CP_UTF8);
 
-        // Extended flags must be set for QuickEdit to actually turn off —
+        // Extended flags must be set for QuickEdit to actually turn off -
         // otherwise the console keeps intercepting clicks for text
         // selection instead of reporting them as VT mouse sequences.
         // Deliberately NOT setting ENABLE_WINDOW_INPUT: it would queue a
         // WINDOW_BUFFER_SIZE_EVENT record on resize, which bumps
         // `GetNumberOfConsoleInputEvents` above zero without ever
-        // producing readable bytes — `readInput` would then call the
+        // producing readable bytes - `readInput` would then call the
         // blocking `ReadFile` and hang until a real keystroke, right back
         // to the freeze this file's `readInput` poll loop exists to avoid.
         // Resize is already handled every frame since `term.size()` is
@@ -122,10 +122,10 @@ pub const Terminal = struct {
     /// True when the front of the input queue holds at least one record
     /// `ReadFile` can turn into bytes. Conhost translates input to VT byte
     /// sequences as events *enter* the queue (synthesized KEY_EVENTs whose
-    /// uChar carries the bytes), so records that arrive untranslated — focus
+    /// uChar carries the bytes), so records that arrive untranslated - focus
     /// events (queued on alt-tab regardless of console mode), key releases,
     /// bare modifier presses, media/F-keys, mouse motion with no button held
-    /// — will never satisfy a read. Left in place they keep the queue count
+    /// - will never satisfy a read. Left in place they keep the queue count
     /// nonzero while the blocking `ReadFile` starves: tap Shift or alt-tab
     /// during playback and every redraw freezes until the next real
     /// keystroke. So they're consumed and discarded here instead. Raw
@@ -160,14 +160,14 @@ pub const Terminal = struct {
     /// available. Returns the filled prefix of `buf` (empty on timeout).
     ///
     /// Polls the input queue in short slices instead of a single
-    /// `WaitForSingleObject(stdin, timeout_ms)` — with
+    /// `WaitForSingleObject(stdin, timeout_ms)` - with
     /// ENABLE_VIRTUAL_TERMINAL_INPUT on, the console handle's wait state
     /// tracks its internal event queue, not the VT-translated byte stream
     /// `ReadFile` hands back, and in practice that left the handle
     /// unsignaled (wait never timing out) for the whole span between real
-    /// keystrokes — freezing every audio-driven redraw (playhead, meters,
+    /// keystrokes - freezing every audio-driven redraw (playhead, meters,
     /// auto-scroll) until the next keypress instead of ticking every frame.
-    /// The poll itself must not trust the raw event *count* either — see
+    /// The poll itself must not trust the raw event *count* either - see
     /// `queueHasReadableInput` for why byte-free records are filtered out
     /// before committing to the blocking `ReadFile`.
     pub fn readInput(self: *const Terminal, buf: []u8, timeout_ms: i32) ![]const u8 {

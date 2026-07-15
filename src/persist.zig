@@ -1,7 +1,7 @@
 //! Project save / load.
 //!
 //! Serialises the live Session to a JSON file (*.wsj).  The snapshot types are
-//! pure data — no pointers, no atomics, no heap slices matching the live structs.
+//! pure data - no pointers, no atomics, no heap slices matching the live structs.
 //!
 //! Round-trip guarantees:
 //!   - All 38 PolySynth params + piano-roll notes + loop length
@@ -60,7 +60,7 @@ pub const AutomationPointSnap = struct {
     value: f32,
 };
 
-/// One synth-instrument-param automation lane — see `ClipSnap.
+/// One synth-instrument-param automation lane - see `ClipSnap.
 /// synth_param_automation`.
 pub const SynthParamAutomationSnap = struct {
     param_id: u8,
@@ -68,7 +68,7 @@ pub const SynthParamAutomationSnap = struct {
 };
 
 // ---------------------------------------------------------------------------
-// Snapshot types — plain data, JSON-serialisable
+// Snapshot types - plain data, JSON-serialisable
 // ---------------------------------------------------------------------------
 
 pub const NoteSnap = struct {
@@ -269,7 +269,7 @@ pub const SynthSnap = struct {
     env3_release_s: f32 = 0.3,
     // Wavetable oscillators (v20): frame-scan position is additive, but
     // the sidecar-path fields are a new field *shape* (a path, not a plain
-    // value) — bumped file_version for clarity, same call as the OTT unit.
+    // value) - bumped file_version for clarity, same call as the OTT unit.
     wt_pos: f32 = 0.0,
     osc_b_wt_pos: f32 = 0.0,
     osc_c_wt_pos: f32 = 0.0,
@@ -281,7 +281,7 @@ pub const SynthSnap = struct {
     // Pattern player
     notes: []const NoteSnap = &.{},
     length_beats: f64 = 4.0,
-    /// Pattern swing, 50 (straight) to 75 (hardest shuffle) — see
+    /// Pattern swing, 50 (straight) to 75 (hardest shuffle) - see
     /// `dsp.PatternPlayer.swing`. Additive optional-with-default field, no
     /// version bump needed.
     swing: f32 = 50.0,
@@ -306,13 +306,13 @@ pub const PadSnap = struct {
     /// v5: display name of a user-loaded sample ("" = keep the default).
     name: []const u8 = "",
     /// Additive field: whether this slot has ever had a sample loaded (the
-    /// shipped kit's pads, or a user `:load-sample`) — `false` means the live
+    /// shipped kit's pads, or a user `:load-sample`) - `false` means the live
     /// `DrumMachine.pads[i]` is null (never materialized; see that field's
     /// own doc comment) and every other field here is just the struct
     /// default, not meaningful data. Older files omit it; since a pre-64-pad
     /// file only ever had exactly `DrumMachine.max_pads` (then 8) entries
     /// and all 8 were always loaded (the shipped kit), the load path treats
-    /// omitted `used` as `true` for exactly those legacy positions — see
+    /// omitted `used` as `true` for exactly those legacy positions - see
     /// `buildSession`.
     used: bool = false,
 };
@@ -323,7 +323,7 @@ pub const PadSnap = struct {
 /// fixed arrays: std.json requires an EXACT length match to parse a fixed
 /// array, so tying their declared length to `max_pads` would break loading
 /// every file saved before pad cap 8->64 (their JSON arrays have exactly 8
-/// elements) the moment `max_pads` grew — confirmed by hand before this
+/// elements) the moment `max_pads` grew - confirmed by hand before this
 /// went further, not just assumed. A slice parses any length; the load path
 /// applies `min(len, max_pads)` elements and leaves the rest at the
 /// zero-value default, same shape `Snapshot.groups` already uses for the
@@ -337,7 +337,7 @@ pub const VariantSnap = struct {
     vel_lo: []const u64 = &.{},
     vel_hi: []const u64 = &.{},
     /// v12: per-pad, per-step velocity (0-127; 127 = full), superseding
-    /// `vel_lo`/`vel_hi`. Nested slices, not `[max_pads][max_steps]u8` —
+    /// `vel_lo`/`vel_hi`. Nested slices, not `[max_pads][max_steps]u8` -
     /// same exact-length-match reasoning as every other pad-indexed field
     /// here (see this struct's own history above).
     vel: []const []const u8 = &.{},
@@ -347,21 +347,21 @@ pub const DrumSnap = struct {
     /// Legacy live-pattern fields: always the active variant's data, so v2
     /// readers (and hand edits) see a coherent single pattern.
     step_count: u8 = 16,
-    /// Slice, not a fixed array — see VariantSnap's doc comment; same
+    /// Slice, not a fixed array - see VariantSnap's doc comment; same
     /// backward-compat reasoning applies to every pad-indexed field below.
     pattern: []const u64 = &.{},
-    /// Mutable slice (not `[]const`) — `exportSamples` fills in
+    /// Mutable slice (not `[]const`) - `exportSamples` fills in
     /// `sample_file` for user-loaded pads *after* this struct is built, an
     /// in-place mutation a const slice wouldn't allow.
     pads: []PadSnap = &.{},
-    /// v3: the whole variant bank. Empty in v2 files — the machine then gets a
+    /// v3: the whole variant bank. Empty in v2 files - the machine then gets a
     /// single variant from the legacy fields above.
     variants: []const VariantSnap = &.{},
     /// v3: index of the active variant within `variants`.
     variant: u8 = 0,
     /// v4: swing percent (50 = straight … 75 = hardest shuffle).
     swing: f32 = 50.0,
-    /// v8: per-pad choke group (0 = none — see DrumMachine.chokeTrigger).
+    /// v8: per-pad choke group (0 = none - see DrumMachine.chokeTrigger).
     choke_group: []const u8 = &.{},
 };
 
@@ -377,7 +377,7 @@ pub const CompSnap = struct {
     sidechain_source: ?u16 = null,
     /// Additive (like `sidechain_source` itself): which drum pad within
     /// `sidechain_source`'s track to key off, instead of the whole track's
-    /// mix — see `Compressor.SidechainSource.pad`. Older files omit it and
+    /// mix - see `Compressor.SidechainSource.pad`. Older files omit it and
     /// load with the original whole-track behaviour; meaningless (and
     /// ignored on load) whenever `sidechain_source` itself is null.
     sidechain_pad: ?u8 = null,
@@ -388,7 +388,7 @@ pub const MultibandCompSnap = struct {
     xover_hi_hz: f32 = 2000.0,
     attack_ms: f32 = 10.0,
     release_ms: f32 = 80.0,
-    /// Mirrors `dsp.multiband_comp.Style` as a bool (only two states) —
+    /// Mirrors `dsp.multiband_comp.Style` as a bool (only two states) -
     /// older files can't have this field (the kind didn't exist), so
     /// there's no back-compat encoding to preserve, just the plainest shape.
     ott: bool = false,
@@ -405,7 +405,7 @@ pub const MultibandCompSnap = struct {
 };
 
 /// The OTT unit's four user-facing controls; its multiband internals are
-/// fixed tuning (see dsp/ott.zig) and deliberately not persisted — a future
+/// fixed tuning (see dsp/ott.zig) and deliberately not persisted - a future
 /// retune should reach every saved project, not be frozen per file.
 pub const OttSnap = struct {
     depth: f32 = 1.0,
@@ -427,14 +427,14 @@ pub const ReverbSnap = struct {
 };
 
 /// Legacy per-band gain array shape (v13 and older): 10 fixed ISO-frequency
-/// bands, gain-only. Length is hardcoded — NOT tied to `eq_mod.num_eq_bands`
-/// (8 as of v14) — since std.json requires an exact length match to parse a
+/// bands, gain-only. Length is hardcoded - NOT tied to `eq_mod.num_eq_bands`
+/// (8 as of v14) - since std.json requires an exact length match to parse a
 /// fixed array (same constraint the v11 pad-cap migration hit); an old
 /// 10-element file array must keep landing on a 10-element field forever.
 const legacy_eq_band_count = 10;
 
 // zig fmt: off
-/// Legacy fixed ISO center frequencies (v13 and older) — kept only so
+/// Legacy fixed ISO center frequencies (v13 and older) - kept only so
 /// `migrateEqBands` can nearest-match an old file's `band_gains` onto
 /// v14's parametric bands.
 const legacy_iso_frequencies = [legacy_eq_band_count]f32{
@@ -452,7 +452,7 @@ pub const EqBandSnap = struct {
     freq: f32,
     q: f32 = 0.7,
     gain_db: f32 = 0.0,
-    /// Additive (like `CompSnap.sidechain_source`): band response type —
+    /// Additive (like `CompSnap.sidechain_source`): band response type -
     /// older files omit it and land on the default `.peak`, the only kind
     /// a band could be before lowpass/highpass existed.
     kind: EqBandKindSnap = .peak,
@@ -463,7 +463,7 @@ pub const EqBandSnap = struct {
 };
 
 pub const EqSnap = struct {
-    /// v13 and older, read-only since v14 — see `file_version`'s v14 doc
+    /// v13 and older, read-only since v14 - see `file_version`'s v14 doc
     /// comment. New saves never write this.
     band_gains: ?[legacy_eq_band_count]f32 = null,
     /// v14: 8 fully-parametric bands (freq/Q/gain all adjustable).
@@ -558,7 +558,7 @@ pub const FxSnap = struct {
     phaser: ?PhaserSnap = null,
 };
 
-/// Mirrors rack.zig's FxKind — persist keeps its own copy so snapshots stay
+/// Mirrors rack.zig's FxKind - persist keeps its own copy so snapshots stay
 /// pure data, same pattern as `InstrumentKind` below.
 pub const FxKind = enum { gate, comp, mb_comp, ott, eq, sat, crush, chorus, phaser, flanger, tape, freq_shift, delay, reverb };
 
@@ -593,12 +593,12 @@ pub const SamplerSnap = struct {
     pad: PadSnap = .{},
     root_note: u8 = 60,
     /// Mono voice mode (see `dsp.Sampler.mono`). Additive optional-with-
-    /// default field, no version bump needed — defaults to polyphonic so
+    /// default field, no version bump needed - defaults to polyphonic so
     /// older projects load unchanged.
     mono: bool = false,
     notes: []const NoteSnap = &.{},
     length_beats: f64 = 4.0,
-    /// Pattern swing, 50 (straight) to 75 (hardest shuffle) — see
+    /// Pattern swing, 50 (straight) to 75 (hardest shuffle) - see
     /// `dsp.PatternPlayer.swing`. Additive optional-with-default field, no
     /// version bump needed.
     swing: f32 = 50.0,
@@ -607,7 +607,7 @@ pub const SamplerSnap = struct {
 /// One shared-clip Slicer instrument. `sample_file`/`name` mirror
 /// `PadSnap`'s own sample-sidecar fields but live at this top level (not per
 /// slice) since every slice shares the ONE clip. `slices` is dense, position
-/// IS the slice index (same convention `DrumSnap.pads` uses) — each entry
+/// IS the slice index (same convention `DrumSnap.pads` uses) - each entry
 /// reuses `PadSnap` wholesale for its start/end/gain/pan/pitch/ADSR/reverse,
 /// but its own `sample_file`/`name`/`used` fields are unused/always default
 /// (the real sample lives at this struct's own `sample_file`/`name`).
@@ -619,19 +619,19 @@ pub const SlicerSnap = struct {
     /// convention as `DrumSnap`'s), so pre-variant readers and hand edits
     /// see a coherent single pattern.
     step_count: u8 = 16,
-    /// Dense, parallel to `slices` — same "slice not fixed array" shape
+    /// Dense, parallel to `slices` - same "slice not fixed array" shape
     /// every other pattern-indexed field in this file uses.
     pattern: []const u64 = &.{},
     vel: []const []const u8 = &.{},
     swing: f32 = 50.0,
     /// Additive, no version bump (see FORMAT.md's policy): the whole
     /// variant bank, reusing `VariantSnap` (a slicer variant is the same
-    /// 64-row grid a drum variant is). Empty in older files — the slicer
+    /// 64-row grid a drum variant is). Empty in older files - the slicer
     /// then gets a single variant from the legacy fields above.
     variants: []const VariantSnap = &.{},
     /// Additive: index of the active variant within `variants`.
     variant: u8 = 0,
-    /// Additive: per-slice choke group (0 = none — see
+    /// Additive: per-slice choke group (0 = none - see
     /// `Slicer.chokeTrigger`). Dense, parallel to `slices`.
     choke_group: []const u8 = &.{},
 };
@@ -657,7 +657,7 @@ pub const TrackSnap = struct {
     soloed: bool = false,
     /// Additive field (see FORMAT.md's versioning policy): older files omit
     /// it and load with color 0 ("none"), matching every track's look
-    /// before this field existed — no version bump needed.
+    /// before this field existed - no version bump needed.
     color: u8 = 0,
     /// Additive field: older files omit it and load ungrouped, matching
     /// every track's routing before grouping existed. Indexes into
@@ -666,7 +666,7 @@ pub const TrackSnap = struct {
 };
 
 /// One track-grouping submix bus. Mirrors `Session.Group`. `Snapshot.groups`
-/// is always exactly `engine_mod.max_groups` entries, dense — a slot's
+/// is always exactly `engine_mod.max_groups` entries, dense - a slot's
 /// position in the array IS its index (same convention `TrackSnap.group`
 /// and the live `Session.groups`/`Engine.groups` fixed banks already use),
 /// so an unused slot is written out as `.{}` (`active = false`) rather than
@@ -679,7 +679,7 @@ pub const GroupSnap = struct {
     /// the bus loads at unity, its only possible level before faders existed.
     gain_db: f32 = 0.0,
     /// Additive: tracks-view fold state (see `Session.Group.folded`). Older
-    /// files omit it and every group loads unfolded — the prior behaviour.
+    /// files omit it and every group loads unfolded - the prior behaviour.
     folded: bool = false,
 };
 
@@ -695,30 +695,30 @@ pub const ClipSnap = struct {
     notes: []const NoteSnap = &.{},
     length_beats: f64 = 4.0,
     // drum
-    // v11: widened from a [DrumMachine.max_pads]u64 fixed array to a slice —
+    // v11: widened from a [DrumMachine.max_pads]u64 fixed array to a slice -
     // std.json requires exact-length matches for fixed arrays, and max_pads
     // grew 8->64, so old files' 8-element arrays would otherwise fail to
     // parse. Missing/short entries are zero-filled on load (see clipFromSnap).
     drum_pattern: []const u64 = &.{},
     /// v4: per-step velocity bitplanes. Zero (or absent) = full velocity.
-    /// v4, read-only since v12 — see `VariantSnap.vel_lo`'s doc comment.
+    /// v4, read-only since v12 - see `VariantSnap.vel_lo`'s doc comment.
     drum_vel_lo: []const u64 = &.{},
     drum_vel_hi: []const u64 = &.{},
-    /// v12: per-pad, per-step velocity — see `VariantSnap.vel`'s doc comment.
+    /// v12: per-pad, per-step velocity - see `VariantSnap.vel`'s doc comment.
     drum_vel: []const []const u8 = &.{},
     step_count: u8 = 16,
     /// v3: variant letter label (index) the clip was stamped from.
     variant: u8 = 0,
     /// v7: gain (dB) / pan (-1..1) automation breakpoints, clip-relative
-    /// beats. Independent of `kind` — either clip type can carry them.
+    /// beats. Independent of `kind` - either clip type can carry them.
     gain_automation: []const AutomationPointSnap = &.{},
     pan_automation: []const AutomationPointSnap = &.{},
-    /// v13: sparse synth-instrument-param automation lanes — supersedes
+    /// v13: sparse synth-instrument-param automation lanes - supersedes
     /// `filter_cutoff_automation` below (kept, read-only, for the legacy
     /// remap; see `file_version`'s v13 doc comment). New saves never write
     /// the old field, matching v11/v12's own migration convention.
     synth_param_automation: []const SynthParamAutomationSnap = &.{},
-    /// v7, read-only since v13 — see `synth_param_automation`'s doc comment.
+    /// v7, read-only since v13 - see `synth_param_automation`'s doc comment.
     /// Hz, 20..20_000.
     filter_cutoff_automation: []const AutomationPointSnap = &.{},
 };
@@ -732,10 +732,10 @@ pub const Snapshot = struct {
     version: u32 = file_version,
     tempo_bpm: f64 = 120.0,
     /// v4: time signature numerator (the unit is always /4). Older files
-    /// omit it and load as 4/4 — the prior behaviour.
+    /// omit it and load as 4/4 - the prior behaviour.
     beats_per_bar: u8 = 4,
     /// v5: A/B loop region in bars (`loop_end_bar` exclusive). Older files
-    /// omit it and load with no loop — the prior behaviour.
+    /// omit it and load with no loop - the prior behaviour.
     loop_enabled: bool = false,
     loop_start_bar: u32 = 0,
     loop_end_bar: u32 = 0,
@@ -752,7 +752,7 @@ pub const Snapshot = struct {
     /// v10: the master bus's user-built chain in signal-flow order.
     master_fx_chain: ?[]const FxUnitSnap = null,
     /// Additive field: older files omit it (empty slice) and load with no
-    /// groups — every track's `TrackSnap.group` reference is then
+    /// groups - every track's `TrackSnap.group` reference is then
     /// necessarily null too, since a group it could point at never existed.
     /// See `GroupSnap`'s own doc comment for the dense fixed-position shape.
     groups: []const GroupSnap = &.{},
@@ -788,7 +788,7 @@ pub fn save(
     // zig fmt: on
 
     // Dense, always max_groups entries so a slot's position in the array IS
-    // its index — TrackSnap.group references that position directly, no
+    // its index - TrackSnap.group references that position directly, no
     // separate id field or remapping needed on either side.
     const groups = try aa.alloc(GroupSnap, engine_mod.max_groups);
     for (groups, 0..) |*gs, i| {
@@ -867,7 +867,7 @@ fn rackToSnap(aa: std.mem.Allocator, rack: *Rack, sample_rate: u32) !RackSnap {
                     .start_norm = s.pad.start_norm, .end_norm = s.pad.end_norm, .reverse = s.pad.reverse,
                     .attack_s = s.pad.attack_s, .decay_s = s.pad.decay_s,
                     .sustain = s.pad.sustain, .release_s = s.pad.release_s,
-                    // Always saved — see the drum pad loop's comment above.
+                    // Always saved - see the drum pad loop's comment above.
                     .name = try aa.dupe(u8, s.clipName()),
                 },
                 .root_note = s.root_note,
@@ -887,7 +887,7 @@ fn rackToSnap(aa: std.mem.Allocator, rack: *Rack, sample_rate: u32) !RackSnap {
                 .variant = dm.variant,
                 .swing = dm.swing.load(.monotonic),
             };
-            // Dense, always DrumMachine.max_pads entries — position IS the
+            // Dense, always DrumMachine.max_pads entries - position IS the
             // pad index everywhere below, same "slice for JSON-length
             // safety, but positionally dense" shape VariantSnap's own doc
             // comment explains.
@@ -922,14 +922,14 @@ fn rackToSnap(aa: std.mem.Allocator, rack: *Rack, sample_rate: u32) !RackSnap {
                         .attack_s = p.attack_s, .decay_s = p.decay_s,
                         .sustain = p.sustain, .release_s = p.release_s,
                         // Always saved (like a track name), independent of
-                        // whether the pad has user-loaded audio — a `:pad-rename`
+                        // whether the pad has user-loaded audio - a `:pad-rename`
                         // on a shipped-kit pad has no sample_file to carry the
                         // name through otherwise. exportSamples overwrites this
                         // with the same value for user-sample pads.
                         .name = try aa.dupe(u8, s.clipName()),
                     };
                 } else {
-                    ps.* = .{}; // used = false — unloaded, nothing else here is meaningful
+                    ps.* = .{}; // used = false - unloaded, nothing else here is meaningful
                 }
             }
             ds.pads = pads;
@@ -940,7 +940,7 @@ fn rackToSnap(aa: std.mem.Allocator, rack: *Rack, sample_rate: u32) !RackSnap {
             var sls: SlicerSnap = .{
                 .step_count = sl.step_count,
                 .swing = sl.swing.load(.monotonic),
-                // Always saved — see the drum pad loop's identical comment
+                // Always saved - see the drum pad loop's identical comment
                 // above (exportSamples overwrites this for user-sample clips).
                 .name = try aa.dupe(u8, sl.clipName()),
             };
@@ -971,7 +971,7 @@ fn rackToSnap(aa: std.mem.Allocator, rack: *Rack, sample_rate: u32) !RackSnap {
             sls.vel = vel;
 
             // The whole variant bank; the active slot reads through
-            // variantData (its bank copy is stale) — mirrors the drum
+            // variantData (its bank copy is stale) - mirrors the drum
             // export above. The legacy flat fields above stay the active
             // variant's data for older readers.
             const variants = try aa.alloc(VariantSnap, sl.variant_count);
@@ -997,7 +997,7 @@ fn rackToSnap(aa: std.mem.Allocator, rack: *Rack, sample_rate: u32) !RackSnap {
     return rs;
 }
 
-/// Copy a device's fields into its Snap type by name — for the FX kinds
+/// Copy a device's fields into its Snap type by name - for the FX kinds
 /// below where the two structs mirror 1:1 (device just carries extra
 /// runtime-state fields the Snap doesn't have). comp/mb_comp/ott/delay/eq
 /// keep hand-written cases since they transform or nest fields.
@@ -1014,7 +1014,7 @@ fn applySnapToDevice(device: anytype, snap: anytype) void {
 }
 
 // zig fmt: off
-/// Shared by track racks and the master bus — both hold a user-built `Fx`
+/// Shared by track racks and the master bus - both hold a user-built `Fx`
 /// chain. One FxUnitSnap per slot, in chain order.
 fn chainToSnap(aa: std.mem.Allocator, fx: *const Fx, sample_rate: u32) ![]FxUnitSnap {
     const out = try aa.alloc(FxUnitSnap, fx.units.items.len);
@@ -1070,7 +1070,7 @@ fn chainToSnap(aa: std.mem.Allocator, fx: *const Fx, sample_rate: u32) ![]FxUnit
 // zig fmt: on
 
 // ---------------------------------------------------------------------------
-// Sample sidecar — user-loaded audio lives in "<stem>_samples/" next to the
+// Sample sidecar - user-loaded audio lives in "<stem>_samples/" next to the
 // .wsj as mono 16-bit WAVs; PadSnap.sample_file holds the .wsj-relative path.
 // ---------------------------------------------------------------------------
 
@@ -1089,14 +1089,14 @@ fn exportSamples(
     const sidecar = try std.fmt.allocPrint(aa, "{s}_samples", .{std.fs.path.stem(path)});
     const sr = session.project.sample_rate;
     var dir_ready = false;
-    // Basenames written this save — anything else already in the sidecar
+    // Basenames written this save - anything else already in the sidecar
     // dir is left over from a previous save under different track/pad
     // indices and gets swept below.
     var written: std.StringHashMapUnmanaged(void) = .empty;
     for (session.racks.items, racks, 0..) |rack, *rs, ti| {
         switch (rack.instrument) {
             .drum_machine => |*dm| for (0..DrumMachine.max_pads) |pi| {
-                const s = if (dm.pads[pi]) |*sm| sm else continue; // unloaded pad — nothing to export
+                const s = if (dm.pads[pi]) |*sm| sm else continue; // unloaded pad - nothing to export
                 const p = &s.pad;
                 if (!p.user_sample) continue;
                 const base = try std.fmt.allocPrint(aa, "t{d}p{d}.wav", .{ ti, pi });
@@ -1154,7 +1154,7 @@ fn exportSamples(
 }
 
 /// Delete any `.wav` in the sample sidecar dir that wasn't written this
-/// save — leftovers from a track delete/reorder that changed which index
+/// save - leftovers from a track delete/reorder that changed which index
 /// each surviving sample's filename is keyed by. No-op if the sidecar dir
 /// doesn't exist (never had user samples, or `exportSamples` never created
 /// it because this save has none either).
@@ -1177,7 +1177,7 @@ fn pruneOrphanSamples(
         if (written.contains(entry.name)) continue;
         try stale.append(aa, try aa.dupe(u8, entry.name));
     }
-    // Delete after the iterator is done — mutating a dir mid-iterate isn't
+    // Delete after the iterator is done - mutating a dir mid-iterate isn't
     // guaranteed safe.
     for (stale.items) |name| dir.deleteFile(io, name) catch {};
 }
@@ -1228,7 +1228,7 @@ fn trimmedName(name: *const [8]u8) []const u8 {
 
 /// Copy a pattern player's notes into freshly allocated NoteSnaps. Notes are
 /// read under the lock into a stack buffer, then the lock is released before
-/// the allocator runs — avoids leaking the lock on OOM.
+/// the allocator runs - avoids leaking the lock on OOM.
 fn notesToSnap(aa: std.mem.Allocator, pp: *PatternPlayer) ![]const NoteSnap {
     var tmp: [pattern_mod.max_notes]NoteSnap = undefined;
     while (!pp.notes_lock.tryLock()) std.atomic.spinLoopHint();
@@ -1284,7 +1284,7 @@ fn automationToSnap(aa: std.mem.Allocator, points: []const AutomationPoint) ![]c
 }
 
 /// Field-by-field via `@hasField`/`@field`, same pattern `PolySynth.toPatch`
-/// uses — every SynthSnap field that names a matching PolySynth field is
+/// uses - every SynthSnap field that names a matching PolySynth field is
 /// copied automatically, so a newly added field can't be forgotten here the
 /// way `unison_mode` and the wavetable save fields once were. `mod_matrix`
 /// stays manual: PolySynth holds a fixed array, SynthSnap an optional slice.
@@ -1298,7 +1298,7 @@ fn synthToSnap(s: *const PolySynth) SynthSnap {
             @field(snap, f.name) = @field(s, f.name);
         }
     }
-    // Slices the live synth's rows — fine, the snapshot is serialized
+    // Slices the live synth's rows - fine, the snapshot is serialized
     // synchronously in save() while the rack is alive.
     snap.mod_matrix = s.mod_matrix[0..];
     return snap;
@@ -1382,7 +1382,7 @@ fn restoreSamples(
                 defer allocator.free(data);
                 const name = if (sls.name.len > 0) sls.name else std.fs.path.stem(sls.sample_file);
                 // reset_slices=false: buildSession already applied every
-                // slice's saved start/end/etc. from `sls.slices` — this must
+                // slice's saved start/end/etc. from `sls.slices` - this must
                 // only swap the audio bytes, not wipe that back out (see
                 // Slicer.loadWav's own doc comment).
                 sl.loadWav(data, name, false) catch continue;
@@ -1457,7 +1457,7 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
     // zig fmt: off
     for (snap.tracks) |t| {
         // Clamped to the palette's actual size (tui/style.zig's
-        // track_palette, 7 entries) — the renderer already treats an
+        // track_palette, 7 entries) - the renderer already treats an
         // out-of-range color as "uncolored" gracefully, but clamping here
         // too matches this file's established hand-edited-.wsj hygiene.
         // `group` is only bound-checked here (< max_groups); whether that
@@ -1506,7 +1506,7 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
             .empty => {},
             .poly_synth => {
                 rack.instrument = .{ .poly_synth = try PolySynth.init(allocator, sr) };
-                // PatternPlayer holds a pointer into the heap-allocated Rack —
+                // PatternPlayer holds a pointer into the heap-allocated Rack -
                 // must be set AFTER the instrument lands in the rack.
                 rack.pattern_player = PatternPlayer.init(rack.instrument.device().?, &engine.transport);
                 if (rs.synth) |ss| {
@@ -1541,7 +1541,7 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
                             const sc = std.math.clamp(vs.step_count, 1, DrumMachine.max_steps);
                             slot.step_count = sc;
                             const mask = DrumMachine.stepMask(sc);
-                            // vs.pattern/vel are slices (any length — see
+                            // vs.pattern/vel are slices (any length - see
                             // VariantSnap's doc comment), slot.* are fixed
                             // max_pads arrays: bound to whichever is shorter
                             // rather than zipping (a for-loop zip requires
@@ -1587,7 +1587,7 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
                         dmp.choke_group[pi] = @min(g, DrumMachine.max_choke_groups);
                     }
                     // Only materialize a pad the file actually marked `used`
-                    // (see PadSnap's doc comment) — an omitted/legacy entry
+                    // (see PadSnap's doc comment) - an omitted/legacy entry
                     // (older files implicitly meant every one of their 8 was
                     // used, see the loop below) or an explicit `used = false`
                     // stays null, matching a pad nobody ever loaded.
@@ -1596,7 +1596,7 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
                         // Pre-v11 files predate the "empty pad" concept
                         // entirely (every pad was always materialized, even
                         // an untouched one just carried the generated
-                        // default clip) — `used` didn't exist yet, so its
+                        // default clip) - `used` didn't exist yet, so its
                         // absence there means "was materialized", not the
                         // v11-and-later default of `false`. Version-gated,
                         // not inferred from array length (a v11+ file can
@@ -1605,7 +1605,7 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
                         const was_used = ps.used or snap.version < 11;
                         if (!was_used) continue;
                         // init() may have already materialized this pad (the
-                        // default kit fills 0-7) — deinit it first so we don't
+                        // default kit fills 0-7) - deinit it first so we don't
                         // leak its sample buffer when replacing it.
                         if (dmp.pads[pi]) |*old| old.deinit();
                         dmp.pads[pi] = Sampler.init(allocator, sr) catch continue;
@@ -1692,7 +1692,7 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
     self.syncMasterChain();
     // zig fmt: on
 
-    // Groups: dense, positional (see GroupSnap's doc comment) — restore
+    // Groups: dense, positional (see GroupSnap's doc comment) - restore
     // exactly the active slots, push each to the engine, then sweep tracks
     // for any `.group` reference that turned out to point at a slot this
     // file never actually marked active (a hand-edited or truncated
@@ -1805,7 +1805,7 @@ fn clipFromSnap(allocator: std.mem.Allocator, cs: ClipSnap) !ws_arrangement.Clip
 
 /// Load a clip's synth-param automation lanes. A v13 `synth_param_automation`
 /// takes priority when present; a pre-v13 file only carries the old
-/// single-lane `filter_cutoff_automation`, remapped onto param_id 21 — same
+/// single-lane `filter_cutoff_automation`, remapped onto param_id 21 - same
 /// "new field wins, else remap the old one" convention `applyVelSnap` uses
 /// for drum velocity.
 fn applySynthParamAutomationSnap(
@@ -1834,7 +1834,7 @@ fn applySynthParamAutomationSnap(
 }
 
 /// Load automation breakpoints, clamping values to the same range the live
-/// editor will enforce and sorting by beat — a hand-edited file has no
+/// editor will enforce and sorting by beat - a hand-edited file has no
 /// guarantee the points arrived in order, and `automation.interpolate` relies
 /// on that.
 fn automationFromSnap(
@@ -1908,23 +1908,23 @@ fn isValidFxOrder(order: [14]synth_mod.FxUnitKind) bool {
 }
 
 /// Apply a synth snapshot onto a live PolySynth, clamping every numeric
-/// field to the same ranges `adjustParam` enforces — mirrors
+/// field to the same ranges `adjustParam` enforces - mirrors
 /// `applyPadSnap`'s reasoning: a hand-edited or corrupted file could
 /// otherwise smuggle an out-of-range value (e.g. unison 0 or 255, a
 /// negative attack time) straight onto the audio thread. Enum fields
-/// (waveform, filter_type, mod_mode, …) need no clamp — `std.json` already
+/// (waveform, filter_type, mod_mode, …) need no clamp - `std.json` already
 /// rejects any value that isn't one of the declared tags at parse time.
 fn applyToSynth(s: *PolySynth, ss: *const SynthSnap) void {
     const clamp = std.math.clamp;
     // Every plain param_specs field (id->field->range, shared with the live
-    // h/l-nudge and automation paths) — see PolySynth.applyParamSpecs. What's
+    // h/l-nudge and automation paths) - see PolySynth.applyParamSpecs. What's
     // left below is what param_specs deliberately excludes: the mod matrix
     // (fixed array vs. optional slice, plus pre-v17 legacy migration) and
     // fx_order (needs isValidFxOrder validation, not a plain clamp).
     s.applyParamSpecs(ss);
     if (ss.mod_matrix) |rows| {
         // v17 file: take the rows as saved (clamped; a bad dest falls back
-        // to cutoff inside setParamAbsolute's rules — mirror them here).
+        // to cutoff inside setParamAbsolute's rules - mirror them here).
         for (0..PolySynth.max_mod_rows) |k| {
             if (k < rows.len) {
                 var row = rows[k];
@@ -1953,7 +1953,7 @@ fn applyToSynth(s: *PolySynth, ss: *const SynthSnap) void {
 
 // zig fmt: off
 /// Rebuild a live chain from v10 unit snaps, in file order. Shared by track
-/// racks and the master bus — both hold a user-built `Fx` chain. Snaps past
+/// racks and the master bus - both hold a user-built `Fx` chain. Snaps past
 /// the chain cap are dropped (only reachable by hand-editing the file).
 /// A unit whose params field is null keeps its defaults.
 fn applyFxChain(allocator: std.mem.Allocator, fx_out: *Fx, chain: []const FxUnitSnap, sr: u32) !void {
@@ -2047,7 +2047,7 @@ fn applyLegacyFx(allocator: std.mem.Allocator, fx_out: *Fx, fx: FxSnap, sr: u32)
 // zig fmt: on
 
 // ---------------------------------------------------------------------------
-// Tests — in-memory round-trip (no file I/O; std.Io not needed)
+// Tests - in-memory round-trip (no file I/O; std.Io not needed)
 // ---------------------------------------------------------------------------
 
 test "snapshot types: JSON round-trip preserves synth params, notes, drum pattern, tempo" {
@@ -2210,7 +2210,7 @@ test "buildSession: legacy master FX loads in the old fixed order" {
     var session = try buildSession(testing.allocator, &snap);
     defer session.deinit();
 
-    // The v9 rack hard-wired comp before eq — the rebuilt chain keeps that.
+    // The v9 rack hard-wired comp before eq - the rebuilt chain keeps that.
     try testing.expectEqual(@as(usize, 2), session.master_fx.units.items.len);
     const comp = &session.master_fx.units.items[0].payload.comp;
     try testing.expectApproxEqAbs(@as(f32, -12.0), comp.threshold_db, 1e-4);
@@ -2710,7 +2710,7 @@ test "clipToSnap/clipFromSnap round-trip gain/pan automation" {
 test "automationFromSnap sorts unsorted points and clamps out-of-range values" {
     const testing = std.testing;
     const snaps = [_]AutomationPointSnap{
-        .{ .beat = 3.0, .value = 100.0 }, // out of gain range — clamps to 12
+        .{ .beat = 3.0, .value = 100.0 }, // out of gain range - clamps to 12
         .{ .beat = 1.0, .value = -999.0 }, // clamps to -60
     };
     const pts = try automationFromSnap(testing.allocator, &snaps, -60.0, 12.0);
@@ -2781,7 +2781,7 @@ test "buildSession: drum variant bank round-trips; v2 files get one variant" {
     const variants = [_]VariantSnap{
         .{ .step_count = 16, .pattern = blk: {
             var p = [_]u64{0} ** DrumMachine.max_pads;
-            p[0] = 1 | (1 << 20); // bit 20 is past 16 steps — stray
+            p[0] = 1 | (1 << 20); // bit 20 is past 16 steps - stray
             break :blk &p;
         } },
         .{ .step_count = 32, .pattern = blk: {
@@ -2813,7 +2813,7 @@ test "buildSession: drum variant bank round-trips; v2 files get one variant" {
     try testing.expect(dm.stepActive(0, 0));
     try testing.expect(!dm.stepActive(0, 20)); // stray bit was masked
 
-    // v2 file shape: no `variants` — a single variant from the legacy fields.
+    // v2 file shape: no `variants` - a single variant from the legacy fields.
     const legacy: Snapshot = .{
         .tracks = &.{.{ .name = "drums" }},
         .racks = &.{.{
@@ -2984,7 +2984,7 @@ test "buildSession: groups round-trip name, FX chain, and track membership" {
     try testing.expectEqual(@as(?u8, null), session.project.tracks.items[1].group);
     try testing.expectEqual(@as(?u8, 2), session.engine.tracks[0].group);
 
-    // Unused slots (0, 1, 3..) stay unloaded — no phantom groups.
+    // Unused slots (0, 1, 3..) stay unloaded - no phantom groups.
     try testing.expect(session.groups[0] == null);
     try testing.expect(!session.engine.groups[0].active);
 
@@ -3002,7 +3002,7 @@ test "buildSession: groups round-trip name, FX chain, and track membership" {
 test "buildSession: a track referencing a slot the file never marked active loads ungrouped" {
     const testing = std.testing;
     const snap: Snapshot = .{
-        .tracks = &.{.{ .name = "t", .group = 5 }}, // groups is empty — slot 5 was never active
+        .tracks = &.{.{ .name = "t", .group = 5 }}, // groups is empty - slot 5 was never active
         .racks = &.{.{ .label = "t", .kind = .empty }},
     };
     var session = try buildSession(testing.allocator, &snap);
@@ -3033,7 +3033,7 @@ test "choke groups round-trip through DrumSnap; older files load ungrouped" {
 
     // A pre-v8 snapshot (default DrumSnap, no choke_group field set) must
     // leave every pad ungrouped even though DrumMachine.init seeds a default
-    // hihat/open pairing — the load path is the source of truth.
+    // hihat/open pairing - the load path is the source of truth.
     const legacy: Snapshot = .{
         .tracks = &.{.{ .name = "drums" }},
         .racks = &.{.{ .label = "drums", .kind = .drum_machine, .drum = .{} }},
@@ -3258,7 +3258,7 @@ test "save/load round-trip persists user-loaded drum pad samples" {
     try session.setInstrument(0, .drum_machine);
     const dm = &session.racks.items[0].instrument.drum_machine;
 
-    // Emulate :load-sample — user audio on pad 3, with a tweaked param.
+    // Emulate :load-sample - user audio on pad 3, with a tweaked param.
     const clip = try testing.allocator.dupe(f32, &[_]f32{ 0.5, -0.5, 0.25, -0.125 });
     dm.setPadSamples(3, clip, "usr");
     dm.pads[3].?.pad.user_sample = true;
@@ -3304,7 +3304,7 @@ test "save prunes a sidecar WAV left behind when a sample moves pads" {
     defer testing.allocator.free(old_rel);
     try std.Io.Dir.cwd().access(testing.io, old_rel, .{});
 
-    // Same audio, now loaded onto pad 5 instead — pad 3 no longer exports.
+    // Same audio, now loaded onto pad 5 instead - pad 3 no longer exports.
     const clip2 = try testing.allocator.dupe(f32, &[_]f32{ 0.5, -0.5 });
     dm.setPadSamples(5, clip2, "usr");
     dm.pads[5].?.pad.user_sample = true;
@@ -3330,7 +3330,7 @@ test "save/load round-trip persists a pad rename with no sample change" {
     try session.setInstrument(0, .drum_machine);
     const dm = &session.racks.items[0].instrument.drum_machine;
 
-    // A plain :pad-rename — no new sample, still the shipped kick sample.
+    // A plain :pad-rename - no new sample, still the shipped kick sample.
     dm.pads[0].?.rename("808");
     try testing.expectEqualStrings("snare", dm.padName(1)); // untouched pad unaffected
 
@@ -3341,7 +3341,7 @@ test "save/load round-trip persists a pad rename with no sample change" {
     const ldm = &loaded.racks.items[0].instrument.drum_machine;
     try testing.expectEqualStrings("808", ldm.padName(0));
     try testing.expectEqualStrings("snare", ldm.padName(1));
-    // Still the shipped-kit sample — renaming alone doesn't flag user_sample.
+    // Still the shipped-kit sample - renaming alone doesn't flag user_sample.
     try testing.expect(!ldm.pads[0].?.pad.user_sample);
 }
 
@@ -3357,7 +3357,7 @@ test "save/load round-trip persists a user-loaded sampler clip" {
     try session.setInstrument(0, .sampler);
     const s = &session.racks.items[0].instrument.sampler;
 
-    // Emulate :load-sample — swap the generated clip for user audio.
+    // Emulate :load-sample - swap the generated clip for user audio.
     testing.allocator.free(s.pad.samples);
     s.pad.samples = try testing.allocator.dupe(f32, &[_]f32{ 0.25, -0.25 });
     s.pad.name = [_]u8{ 'v', 'o', 'x', ' ', ' ', ' ', ' ', ' ' };
@@ -3417,7 +3417,7 @@ test "save/load round-trip persists a :load-wavetable-imported table, default st
     try testing.expectApproxEqAbs(@as(f32, -1.0), ls.osc_b_wt.frames[0], 1e-3);
     try testing.expectApproxEqAbs(@as(f32, 1.0), ls.osc_b_wt.frames[wavetable_mod.frame_len], 1e-3);
     try testing.expectApproxEqAbs(@as(f32, 0.5), ls.osc_b_wt_pos, 1e-4);
-    // OSC A never got a `:load-wavetable` call — still the bundled default,
+    // OSC A never got a `:load-wavetable` call - still the bundled default,
     // no sidecar for it.
     try testing.expect(!ls.wt_user);
 }
@@ -3475,7 +3475,7 @@ test "golden-file corpus: every historical .wsj fixture still loads" {
         };
         defer session.deinit();
 
-        // Every fixture's Snapshot has parallel tracks/racks/arrangement —
+        // Every fixture's Snapshot has parallel tracks/racks/arrangement -
         // buildSession already enforces this, but check it here too so a
         // regression shows up against the fixture name, not just an error.
         try testing.expectEqual(session.project.tracks.items.len, session.racks.items.len);
@@ -3510,7 +3510,7 @@ test "applyToSynth: pre-v17 legacy mod fields migrate onto matrix rows" {
     try std.testing.expectEqual(@as(u8, 21), s.mod_matrix[1].dest);
     try std.testing.expectApproxEqAbs(@as(f32, 0.4), s.mod_matrix[1].depth, 1e-6);
 
-    // A v17 snapshot with a present-but-empty matrix means "no routing" —
+    // A v17 snapshot with a present-but-empty matrix means "no routing" -
     // the stale legacy fields (written at defaults, but be paranoid) lose.
     const empty: SynthSnap = .{ .mod_matrix = &.{}, .fenv_amount = 2.0 };
     applyToSynth(&s, &empty);
@@ -3684,8 +3684,8 @@ test "save/load round-trip persists an EQ band's lowpass/highpass type and slope
 test "migrateEqBands: legacy 10-band gains land on sane 8-band defaults" {
     const testing = std.testing;
     var gains = [_]f32{0.0} ** legacy_eq_band_count;
-    gains[1] = 5.0; // 62.5Hz — nearest legacy band to the new 60Hz default
-    gains[9] = -4.0; // 16000Hz — matches the new top band's default exactly
+    gains[1] = 5.0; // 62.5Hz - nearest legacy band to the new 60Hz default
+    gains[9] = -4.0; // 16000Hz - matches the new top band's default exactly
     const bands = migrateEqBands(gains);
     try testing.expectEqual(@as(usize, eq_mod.num_eq_bands), bands.len);
     try testing.expectApproxEqAbs(@as(f32, 5.0), bands[0].gain_db, 1e-4);
@@ -3729,7 +3729,7 @@ test "golden-file corpus: v11's ninth pad (past the pre-v11 8-pad cap) loads use
     try testing.expectApproxEqAbs(@as(f32, 0.8), dm.pads[8].?.pad.gain, 1e-4);
     try testing.expectApproxEqAbs(@as(f32, -3.0), dm.pads[8].?.pad.pitch_semitones, 1e-4);
     try testing.expect(dm.stepActive(8, 2)); // pattern[8] = 4 = bit 2
-    // Pads 0-7 stay whatever init()'s default kit already gave them — a
+    // Pads 0-7 stay whatever init()'s default kit already gave them - a
     // v11 file's `used: false` doesn't retroactively unmaterialize a pad
     // the shipped kit always loads; it only means "the file itself didn't
     // touch this one".

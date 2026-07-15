@@ -1,7 +1,7 @@
 //! Master-bus brick-wall limiter: instant attack, smoothed release.
 //!
 //! Sits after the master gain in Engine.process, so nothing upstream of the
-//! WAV writer's ±1 clamp (or the DAC) ever exceeds the ceiling — hot mixes
+//! WAV writer's ±1 clamp (or the DAC) ever exceeds the ceiling - hot mixes
 //! get momentary gain reduction instead of hard-clip distortion. Stereo-
 //! linked and allocation-free; transparent (gain = 1) while the programme
 //! stays under the ceiling.

@@ -9,7 +9,7 @@
 const std = @import("std");
 
 /// Resolves `~/.config/wstudio/<filename>` via `$HOME` ($USERPROFILE on
-/// Windows, which has no $HOME). Null if unset — callers then just don't
+/// Windows, which has no $HOME). Null if unset - callers then just don't
 /// persist across runs rather than blocking startup.
 pub fn configPath(buf: []u8, comptime filename: []const u8) ?[]const u8 {
     const home = std.c.getenv("HOME") orelse std.c.getenv("USERPROFILE") orelse return null;
@@ -28,7 +28,7 @@ pub fn quarantine(io: std.Io, path: []const u8) void {
 
 /// Read and parse `Snapshot` from `~/.config/wstudio/<filename>`. Null
 /// (not an error) on a missing `$HOME`, a missing file, or a parse failure
-/// (the last case also quarantines the file) — callers treat all three as
+/// (the last case also quarantines the file) - callers treat all three as
 /// "nothing saved yet". Caller owns the returned `Parsed` and must
 /// `.deinit()` it.
 pub fn load(
@@ -44,7 +44,7 @@ pub fn load(
     defer allocator.free(data);
     // alloc_always: parseFromSlice defaults to borrowing unescaped strings
     // straight from `data`, which this function frees before the caller
-    // ever touches `parsed.value` — force full copies into the Parsed
+    // ever touches `parsed.value` - force full copies into the Parsed
     // arena instead, or callers get a use-after-free that only shows up
     // with real-sized files, not small test fixtures.
     return std.json.parseFromSlice(Snapshot, allocator, data, .{

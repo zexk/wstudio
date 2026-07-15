@@ -11,7 +11,7 @@ const piano = @import("editors/piano.zig");
 const spectrum = @import("editors/spectrum.zig");
 
 /// Record a pre-edit snapshot; null (capture failed / target invalid)
-/// simply records nothing — undo is best-effort, never blocks the edit.
+/// simply records nothing - undo is best-effort, never blocks the edit.
 /// The edit that follows happens either way, so the session goes dirty here.
 pub fn push(app: *App, entry: ?undo_mod.Entry) void {
     app.dirty = true;
@@ -64,7 +64,7 @@ pub fn captureDrum(app: *App, track: u16) ?undo_mod.Entry {
 
 /// Snapshot one slicer's chop layout + whole variant bank (see
 /// SlicerState). The active bank slot is stale; read it live via
-/// variantData — same rule captureDrum applies.
+/// variantData - same rule captureDrum applies.
 pub fn captureSlicer(app: *App, track: u16) ?undo_mod.Entry {
     if (track >= app.session.racks.items.len) return null;
     const sl = switch (app.session.racks.items[track].instrument) {
@@ -162,7 +162,7 @@ fn fxPtrFor(app: *App, target: undo_mod.FxTarget) ?*ws.Fx {
     };
 }
 
-/// Push a chain resync to the engine for a stored `FxTarget` — same idea as
+/// Push a chain resync to the engine for a stored `FxTarget` - same idea as
 /// `spectrum.syncChain` but keyed off the entry's own index instead of
 /// `app`'s current cursor.
 fn syncFxTarget(app: *App, target: undo_mod.FxTarget) void {
@@ -206,7 +206,7 @@ pub fn pushFxIfOk(app: *App, entry: ?undo_mod.Entry, ok: bool) void {
 }
 
 /// Pre-edit wrapper for a structural FX-chain edit (insert/remove/reorder/
-/// bypass) — each such edit is its own undo step, so any open param-nudge
+/// bypass) - each such edit is its own undo step, so any open param-nudge
 /// batch on the same chain is flushed first (closing it as a separate step)
 /// rather than folding the structural edit into it.
 pub fn recordFx(app: *App, target: spectrum.EqTarget) void {
@@ -244,10 +244,10 @@ pub fn flushFxNudge(app: *App) void {
 
 /// The live value of instrument param `id` on `track`, in the encoding
 /// `set_track_param_abs` restores (see each instrument's `paramValue`).
-/// A control-thread read of the rack's live DSP struct — same
+/// A control-thread read of the rack's live DSP struct - same
 /// race-tolerant convention the editors' own row rendering uses. Null
 /// when the track is gone or its instrument has no such param (e.g. the
-/// instrument was swapped since the entry was captured — the undo/redo
+/// instrument was swapped since the entry was captured - the undo/redo
 /// then skips rather than writing a foreign id).
 fn liveParamValue(app: *App, track: u16, id: u16) ?f32 {
     if (track >= app.session.racks.items.len) return null;
@@ -278,7 +278,7 @@ pub fn noteParamNudge(app: *App, track: u16, id: u16, steps: i32) void {
 }
 
 /// Commit the in-flight param-nudge batch (if any) to the undo stack,
-/// storing the absolute before-value — see `ParamNudgeState`'s doc
+/// storing the absolute before-value - see `ParamNudgeState`'s doc
 /// comment. A batch that netted zero steps is dropped rather than pushed
 /// as a no-op step; that check uses the synchronous steps accumulator,
 /// NOT a re-read of the live value, because the nudges themselves are
@@ -293,7 +293,7 @@ pub fn flushParamNudge(app: *App) void {
 }
 
 /// Remap or drop the in-flight param/FX nudge batch (if any) after a
-/// structural track change — same rule `undo.History.retarget` applies to
+/// structural track change - same rule `undo.History.retarget` applies to
 /// the stacks, so a batch still open on a track that's about to shift
 /// doesn't keep writing into the wrong track once it flushes. Call BEFORE
 /// the track change lands (delete/swap), same ordering `retarget` needs.
@@ -309,7 +309,7 @@ pub fn retargetPending(app: *App, remap: undo_mod.TrackRemap) void {
         switch (p.target) {
             .track => |t| if (remap.apply(t)) |nt| {
                 // `before` embeds its own copy of the target (it's the
-                // Entry flushFxNudge will push verbatim) — remap both or
+                // Entry flushFxNudge will push verbatim) - remap both or
                 // the flushed entry still names the old index.
                 p.target = .{ .track = nt };
                 p.before.target = .{ .track = nt };
@@ -323,7 +323,7 @@ pub fn retargetPending(app: *App, remap: undo_mod.TrackRemap) void {
 }
 
 /// Drop an open FX param-nudge batch if it targets group `idx`, and drop
-/// every stacked `.fx` entry naming it — the group-delete counterpart to
+/// every stacked `.fx` entry naming it - the group-delete counterpart to
 /// `retargetPending`+`history.retarget`. Call BEFORE `Session.deleteGroup`,
 /// same ordering `retargetPending` needs for track deletes, since the
 /// slot it frees can be reused by the very next `addGroup` (see
@@ -376,7 +376,7 @@ fn applyEntry(app: *App, entry: undo_mod.Entry) ?undo_mod.Entry {
             const sl = &app.session.racks.items[d.track].instrument.slicer;
             // Restore the chop layout under the sample lock (processBlock
             // holds it for the whole block), re-pointing every slice at the
-            // CURRENT buffer — captured `samples` aliases may predate a
+            // CURRENT buffer - captured `samples` aliases may predate a
             // :load-slice (see SlicerState's doc comment).
             while (!sl.sample_lock.tryLock()) std.atomic.spinLoopHint();
             sl.slice_count = d.slice_count;
@@ -429,7 +429,7 @@ fn applyEntry(app: *App, entry: undo_mod.Entry) ?undo_mod.Entry {
         .param_nudge => |p| {
             // Read the value being displaced (for the opposite stack) on
             // the control thread, then restore the stored one through the
-            // audio thread's own event path — absolute, so it lands exactly
+            // audio thread's own event path - absolute, so it lands exactly
             // regardless of clamps or enum/toggle params (see
             // ParamNudgeState). liveParamValue doubles as the target check:
             // null (track gone, instrument swapped) skips the entry.
@@ -446,7 +446,7 @@ fn applyEntry(app: *App, entry: undo_mod.Entry) ?undo_mod.Entry {
                 // zig fmt: on
             }, s.rack, s.clips) catch {
                 // OOM mid-restore. `rack`/`clips` ownership is unclear past
-                // this point (may be partially consumed — see
+                // this point (may be partially consumed - see
                 // `Session.restoreTrack`'s own doc comment), so, matching
                 // this codebase's existing OOM-only risk tolerance
                 // elsewhere (e.g. `duplicateTrack`'s own errdefer gaps),
@@ -487,7 +487,7 @@ fn applyEntry(app: *App, entry: undo_mod.Entry) ?undo_mod.Entry {
 
 pub fn doUndo(app: *App) void {
     // A still-open coalescing batch (param nudge / FX nudge) hasn't reached
-    // the undo stack yet — flush it first so `u` right after nudging (with
+    // the undo stack yet - flush it first so `u` right after nudging (with
     // no intervening cursor move) undoes the edit just made, not an older
     // one. Same "a fresh edit clears redo" rule as any other flush; doRedo
     // does NOT do this, since flushing there would wipe the very redo
@@ -505,7 +505,7 @@ pub fn doUndo(app: *App) void {
         app.setStatus("undid {s} edit ({d} left)", .{ what, app.history.undo_stack.items.len });
     } else {
         entry.deinit(app.allocator);
-        app.setStatus("undo target is gone — skipped", .{});
+        app.setStatus("undo target is gone - skipped", .{});
     }
 }
 
@@ -521,6 +521,6 @@ pub fn doRedo(app: *App) void {
         app.setStatus("redid {s} edit", .{what});
     } else {
         entry.deinit(app.allocator);
-        app.setStatus("redo target is gone — skipped", .{});
+        app.setStatus("redo target is gone - skipped", .{});
     }
 }

@@ -13,11 +13,11 @@ pub const Compressor = struct {
     /// input. `pad` null means "the whole track's post-chain mix" (the
     /// original, track-only behaviour); set it to key off one drum pad in
     /// isolation (e.g. duck the bass under just the kick, not the whole
-    /// drum bus's snare/hats too) — see `DrumMachine`'s `Event.capture_pad`
+    /// drum bus's snare/hats too) - see `DrumMachine`'s `Event.capture_pad`
     /// handling. Only meaningful when `track` holds a `DrumMachine`
     /// instrument; on any other instrument kind the engine never receives a
     /// matching pad capture, so it silently behaves as if `pad` were null
-    /// (no crash, just no signal — same "registered but never rendered"
+    /// (no crash, just no signal - same "registered but never rendered"
     /// fallback a dead whole-track source already gets).
     pub const SidechainSource = struct {
         track: u16,
@@ -33,7 +33,7 @@ pub const Compressor = struct {
     /// Envelope follower state (linear peak).
     env: f32 = 0.0,
     /// Which track (and optionally which drum pad) this compressor's
-    /// envelope follower should detect from instead of its own input —
+    /// envelope follower should detect from instead of its own input -
     /// `null` (default) is ordinary self-detecting compression. Persisted
     /// (see persist.zig's CompSnap); the engine translates this into a
     /// per-chain-slot routing table on the control thread whenever the
@@ -61,7 +61,7 @@ pub const Compressor = struct {
 
     /// Feed-forward envelope-follower update (attack/release smoothing).
     /// Shared with `MultibandComp`'s per-band stage (`dsp/multiband_comp.zig`
-    /// `BandComp.gainFor`) — returns the updated envelope's dB-over-threshold
+    /// `BandComp.gainFor`) - returns the updated envelope's dB-over-threshold
     /// value (`env_db - threshold_db`; negative means under threshold) so
     /// both can build their own gain-reduction formula on top of it.
     pub fn envelopeOverDb(env: *f32, level: f32, attack: f32, release: f32, threshold_db: f32) f32 {
@@ -71,7 +71,7 @@ pub const Compressor = struct {
     }
 
     /// Ordinary downward gain reduction in dB for `over_db` above threshold
-    /// (0 when at or under it) — the ratio formula shared by `processBlock`
+    /// (0 when at or under it) - the ratio formula shared by `processBlock`
     /// and `BandComp.gainFor`'s downward stage.
     pub fn downwardReductionDb(over_db: f32, ratio: f32) f32 {
         return if (over_db > 0.0) over_db * (1.0 / ratio - 1.0) else 0.0;
@@ -83,7 +83,7 @@ pub const Compressor = struct {
         const release = self.smoothingCoef(self.release_ms);
         const makeup = types.dbToGain(self.makeup_db);
         // Detector buffer must match this block's frame count to be safe to
-        // index alongside `buf` — a mismatched length (chain resync landed
+        // index alongside `buf` - a mismatched length (chain resync landed
         // mid-block, or the source track rendered a short final block) falls
         // back to self-detection rather than risking an out-of-bounds read.
         const det = if (self.detector) |d| (if (d.len == buf.len) d else null) else null;
@@ -110,7 +110,7 @@ pub const Compressor = struct {
         }
     }
 
-    /// Clears envelope/detector state without touching `sample_rate` —
+    /// Clears envelope/detector state without touching `sample_rate` -
     /// callers embedding a `Compressor` by value (e.g. PolySynth's internal
     /// FX section) must use this instead of `= .{}`, which would reset
     /// sample_rate to the struct default and desync it from the real
@@ -127,13 +127,13 @@ test "attenuates loud signals, passes quiet ones" {
     comp.ratio = 4.0;
     comp.attack_ms = 0.1;
 
-    // loud: 0 dBFS square — should be pulled toward -9 dB
+    // loud: 0 dBFS square - should be pulled toward -9 dB
     // (-12 + 12/4), i.e. well below full scale once the envelope settles
     var loud = [_]Sample{1.0} ** 9600;
     comp.processBlock(&loud);
     try std.testing.expect(@abs(loud[loud.len - 2]) < 0.5);
 
-    // quiet: -40 dB — should pass through nearly untouched
+    // quiet: -40 dB - should pass through nearly untouched
     comp.env = 0.0;
     var quiet = [_]Sample{0.01} ** 9600;
     comp.processBlock(&quiet);
@@ -147,7 +147,7 @@ test "sidechain detector overrides self-detection, and is consumed after one blo
     comp.attack_ms = 0.1;
     comp.sidechain_source = .{ .track = 3 }; // just marks intent; processBlock only reads `detector`
 
-    // Quiet signal, but a LOUD detector buffer — the quiet signal itself
+    // Quiet signal, but a LOUD detector buffer - the quiet signal itself
     // should still get compressed because the detector, not its own input,
     // drives the envelope.
     const loud_detector = [_]Sample{1.0} ** 9600;
@@ -156,7 +156,7 @@ test "sidechain detector overrides self-detection, and is consumed after one blo
     comp.processBlock(&quiet);
     try std.testing.expect(@abs(quiet[quiet.len - 2]) < 0.05); // gain-reduced below its own input level
 
-    // The detector is consumed — a second block with no new detector falls
+    // The detector is consumed - a second block with no new detector falls
     // back to self-detection (envelope relaxes toward the now-quiet input).
     try std.testing.expect(comp.detector == null);
     comp.env = 0.0;

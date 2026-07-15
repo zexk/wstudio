@@ -78,7 +78,7 @@ fn drawSynthTitle(w: *std.Io.Writer, subview: synth_ed.Subview, name: []const u8
 pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, snap: engine_mod.UiSnapshot) !void {
     _ = snap;
     // Available rows for the view body (excludes the caller's header +
-    // transport + status — 4 rows total, no separate hr() rule rows anymore).
+    // transport + status - 4 rows total, no separate hr() rule rows anymore).
     const max_rows = rows -| 4;
     const subview = app.synth_subview;
 
@@ -91,7 +91,7 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize
         return;
     }
 
-    // .fx — single full-width list of on (inserted) units only; off units
+    // .fx - single full-width list of on (inserted) units only; off units
     // are reachable only through the `a` insert picker, not shown here.
     style.form_bar_w = @min(style.form_bar_w_default + (cols -| 100) / 2, 40);
     style.form_section_w = style.form_section_w_default + (style.form_bar_w - style.form_bar_w_default);
@@ -141,7 +141,7 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize
     var written: usize = 1;
 
     // The FX strip is a fixed row above the scrolled section list (like the
-    // title above it), not part of `tw`/`scroll` — mirrors the track/master
+    // title above it), not part of `tw`/`scroll` - mirrors the track/master
     // chain's own strip, which likewise sits outside its focused unit's
     // scrollable body. editors/synth.zig's `fxRow`/`handleMouse` account
     // for this same +1 row offset.
@@ -189,7 +189,7 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize
 }
 
 /// `main_sections`' render functions, in the exact same order as the table
-/// itself — the single place that maps a `synth_layout.SectionDef` to the
+/// itself - the single place that maps a `synth_layout.SectionDef` to the
 /// code that actually draws it. `sec*` bodies stay ordinary Zig (bespoke
 /// formatting/dimming per param); only *which sections exist and in what
 /// order* is table-driven.
@@ -205,7 +205,7 @@ comptime {
 }
 
 /// Which column (in the current `n`-column bucket) section `si` was packed
-/// into — a small linear scan over the (already comptime-computed) visual
+/// into - a small linear scan over the (already comptime-computed) visual
 /// order rather than a second table, since `order` already carries this per
 /// entry and sections are few (13).
 fn sectionCol(order: []const synth_layout.PositionedEntry, si: usize) usize {
@@ -217,7 +217,7 @@ fn sectionCol(order: []const synth_layout.PositionedEntry, si: usize) usize {
 
 /// The "main" subview: every `main_sections` card packed into 1-3 columns
 /// by `cols` (see synth_layout.numCols), each column rendered into its own
-/// temp buffer and then zipped row-by-row — the same technique the old
+/// temp buffer and then zipped row-by-row - the same technique the old
 /// wide-mode OSC A/B split used, generalized from "2 fixed columns, top
 /// block only" to "N columns, every section". The whole grid scrolls
 /// together (one `scroll` offset shared by every column), matching
@@ -236,7 +236,7 @@ fn drawSynthMain(app: anytype, w: *std.Io.Writer, max_rows: usize, cols: usize) 
     const idx = synth_layout.indexContaining(order, app.synth_cursor) orelse 0;
     const cursor_row = if (order.len > 0) order[idx].row else 0;
 
-    // The scroll window is content rows only — `max_rows` also counts the
+    // The scroll window is content rows only - `max_rows` also counts the
     // title row emitted below, which never scrolls. Clamping against
     // `max_rows` directly here left the window one row too tall for what
     // the write loop actually has room for, so the very last content row
@@ -307,7 +307,7 @@ fn drawSynthMain(app: anytype, w: *std.Io.Writer, max_rows: usize, cols: usize) 
     while (row < body_rows) : (row += 1) {
         // Every column's iterator must advance once per row regardless of
         // whether the row is about to be skipped by the scroll check below
-        // — otherwise a scrolled-past row's lines are never consumed and
+        // - otherwise a scrolled-past row's lines are never consumed and
         // every column desyncs from `row` for the rest of the frame.
         var lines: [3][]const u8 = .{ "", "", "" };
         for (0..n) |i| {
@@ -328,7 +328,7 @@ fn drawSynthMain(app: anytype, w: *std.Io.Writer, max_rows: usize, cols: usize) 
     while (written < max_rows) : (written += 1) try endLine(w);
 }
 
-/// `mod_sections`' render functions — the `.mod` counterpart to
+/// `mod_sections`' render functions - the `.mod` counterpart to
 /// `main_render_fns`.
 const mod_render_fns = [_]RenderFn{
     secMatrix, secLfo, secLfo2, secLfo3, secEnv3, secMacro,
@@ -338,8 +338,8 @@ comptime {
         @compileError("views/synth.zig: mod_render_fns must mirror synth_layout.mod_sections 1:1");
 }
 
-/// The "mod" subview: modulation sources — the matrix, LFO 1-3, ENV 3,
-/// macros — packed the same way `drawSynthMain` packs MAIN's cards. See
+/// The "mod" subview: modulation sources - the matrix, LFO 1-3, ENV 3,
+/// macros - packed the same way `drawSynthMain` packs MAIN's cards. See
 /// that function's doc comment; the only difference is which table/render-fn
 /// array it reads.
 fn drawSynthMod(app: anytype, w: *std.Io.Writer, max_rows: usize, cols: usize) !void {
@@ -442,12 +442,12 @@ fn drawSynthMod(app: anytype, w: *std.Io.Writer, max_rows: usize, cols: usize) !
 
 /// The `.fx` subview's chain strip: `IN▶` + each on unit's short label in
 /// `fx_order` sequence + a `+` insert affordance + `▶OUT`, all read from
-/// `synth_ed.stripLayout` — the single source of truth this and
+/// `synth_ed.stripLayout` - the single source of truth this and
 /// `editors/synth.zig`'s click handler (`stripSlotAt`) both use, so a click
 /// can never land somewhere this didn't draw. The focused unit's label is
 /// bold/white; others green. Mirrors the track/master chain's own strip
 /// closely enough to feel like the same control, minus the multi-row box
-/// border — this one stays a single fixed row above the scrolled section
+/// border - this one stays a single fixed row above the scrolled section
 /// list (see drawSynthEditor's call site).
 fn drawFxStrip(app: anytype, w: *std.Io.Writer, c: u8, cols: usize) !void {
     var buf: [14]synth_ed.StripSlot = undefined;
@@ -470,7 +470,7 @@ fn drawFxStrip(app: anytype, w: *std.Io.Writer, c: u8, cols: usize) !void {
 
 // The section renderers below emit one header row + one row per param each.
 // Which sections exist per subview, their order, and how they pack into
-// columns now lives in synth_layout.zig's comptime tables — see
+// columns now lives in synth_layout.zig's comptime tables - see
 // drawSynthMain/main_render_fns below for how MAIN consumes them. MOD/FX
 // keep their previous per-subview rendering for now (see synth_layout.zig's
 // module doc comment).
@@ -502,7 +502,7 @@ fn secOscA(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
         try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.unison_spread}));
 
     // uni.mode/warp/wt.pos: formerly the standalone UNI MODE/WARP/WAVETABLE
-    // sections' "osc a" rows — folded into this card so each oscillator's
+    // sections' "osc a" rows - folded into this card so each oscillator's
     // controls live in one place instead of three cross-cutting sections.
     try enumRow(w, c == 39, synth.unison <= 1, acc, "uni.mode", &uni_mode_names, uniModeIdx(synth.unison_mode));
     const warp_a_idx: usize = switch (synth.warp_mode) {
@@ -543,7 +543,7 @@ fn secOscB(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
     try barRow(w, c == 13, !b_on, acc, "uni.det", synth.osc_b_unison_detune, 100.0,
         try std.fmt.bufPrint(&buf, "{d:.1} ct", .{synth.osc_b_unison_detune}));
 
-    // uni.mode/warp/wt.pos — see secOscA's matching rows for why these live
+    // uni.mode/warp/wt.pos - see secOscA's matching rows for why these live
     // here now instead of in standalone UNI MODE/WARP/WAVETABLE sections.
     try enumRow(w, c == 40, !b_on or synth.osc_b_unison <= 1, acc, "uni.mode", &uni_mode_names, uniModeIdx(synth.osc_b_unison_mode));
     const warp_b_idx: usize = switch (synth.osc_b_warp_mode) {
@@ -673,7 +673,7 @@ fn secLfo3(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
         try std.fmt.bufPrint(&buf, "{d:.2} Hz", .{synth.lfo3_rate_hz}));
 }
 
-/// Four macro knobs — pure mod sources (mc1-mc4 on MATRIX rows), no sound
+/// Four macro knobs - pure mod sources (mc1-mc4 on MATRIX rows), no sound
 /// of their own, automatable as ids 99-102.
 fn secMacro(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
     var buf: [40]u8 = undefined;
@@ -703,7 +703,7 @@ fn arpModeName(mode: anytype) []const u8 {
     };
 }
 
-/// A step sequencer in front of note triggering — see PolySynth's own ARP
+/// A step sequencer in front of note triggering - see PolySynth's own ARP
 /// doc comment.
 fn secArp(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
     var buf: [40]u8 = undefined;
@@ -721,7 +721,7 @@ fn secArp(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
     try enumRow(w, c == 121, !on, bcyn, "hold", &on_off_names, if (synth.arp_hold) 0 else 1);
 }
 
-/// A third ADSR with no fixed destination — a pure MATRIX source (env3),
+/// A third ADSR with no fixed destination - a pure MATRIX source (env3),
 /// same shape as FENV but not tied to the filter.
 fn secEnv3(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
     var buf: [40]u8 = undefined;
@@ -825,7 +825,7 @@ fn secFilter2(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
     try enumRow(w, c == 49, !on, yel, "routing", &routing_names, routing_idx);
 }
 
-/// Plain additive 3rd oscillator — same row shape as OSC B, no mod/warp rows
+/// Plain additive 3rd oscillator - same row shape as OSC B, no mod/warp rows
 /// since OSC C doesn't participate in either (see PolySynth's own doc comment).
 fn secOscC(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
     var buf: [40]u8 = undefined;
@@ -869,7 +869,7 @@ fn modSrcIdx(src: anytype) usize {
 /// oscillator sections use.
 /// One line per slot: `N  <source>  <dest>  [bar]  <depth>`. `w`/`b` move
 /// the cursor between the source/dest/depth fields (see
-/// synth_layout.moveField — matrix rows are `fields = 3` entries); `j`/`k`
+/// synth_layout.moveField - matrix rows are `fields = 3` entries); `j`/`k`
 /// move between slots preserving whichever field was focused. Source/dest
 /// dim while the slot is off, matching the oscillator sections' on/off
 /// dimming convention.
@@ -925,7 +925,7 @@ fn secMatrix(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
 
 const on_off_names = [_][]const u8{ "on", "off" };
 
-/// Log-normalized 0..1 bar fill for a 20Hz-20kHz frequency param — same
+/// Log-normalized 0..1 bar fill for a 20Hz-20kHz frequency param - same
 /// formula `secFilter`'s cutoff bar already uses (a linear fill would cram
 /// almost the whole audible range into the bar's first few percent).
 fn freqBarVal(hz: f32) f32 {
@@ -933,7 +933,7 @@ fn freqBarVal(hz: f32) f32 {
 }
 
 /// Internal FX sections: post-mix, user-reorderable inside the synth
-/// itself, distinct from the track FX chain — these params are matrix and
+/// itself, distinct from the track FX chain - these params are matrix and
 /// automation targets (see PolySynth's FX field block).
 fn secFxGate(w: *std.Io.Writer, synth: anytype, c: u8) !void {
     var buf: [40]u8 = undefined;

@@ -7,7 +7,7 @@
 //! sectionStarts in editors/synth.zig) that had no compiler check keeping
 //! them in agreement.
 //!
-//! Engine param ids never move (persistence + automation reference them —
+//! Engine param ids never move (persistence + automation reference them -
 //! see dsp/synth.zig's param_specs), so this file is free to regroup them
 //! however reads best; only the *labels and grouping* are UI concerns.
 //!
@@ -22,7 +22,7 @@ const style = @import("style.zig");
 pub const ParamEntry = struct {
     id: u8,
     label: []const u8,
-    /// Consecutive ids folded into one on-screen row — 1 for every normal
+    /// Consecutive ids folded into one on-screen row - 1 for every normal
     /// param, 3 for a mod-matrix slot (source/dest/depth). `w`/`b` move the
     /// cursor within `[id, id+fields)`; `j`/`k` treat the whole entry as one
     /// stop, preserving the in-entry offset (which field was focused) when
@@ -131,7 +131,7 @@ pub const mod_sections = [_]SectionDef{
 pub const Placement = struct { col: usize, row0: usize };
 
 /// Greedy shortest-column-first packing, evaluated at comptime (both
-/// `sections` and `num_cols` are always compile-time known — see
+/// `sections` and `num_cols` are always compile-time known - see
 /// `main_order_*`/`mod_order_*` below). `row0` is the row within its column
 /// (0-based) where the section's own header lands; each section occupies a
 /// header, its params, and one blank row that separates adjacent cards.
@@ -182,7 +182,7 @@ pub const PositionedEntry = struct {
 /// (which is already row0-increasing within a column, since `packColumns`
 /// only ever appends to the currently-shortest column), then every entry
 /// within a section in declared order. This is the array `j`/`k`/`g`/`G`/
-/// `{`/`}` and the renderer all walk — there is no separate "wide" vs
+/// `{`/`}` and the renderer all walk - there is no separate "wide" vs
 /// "narrow" order, the 1-column bucket's order *is* today's narrow-mode
 /// order.
 fn computeOrder(comptime sections: []const SectionDef, comptime placements: [sections.len]Placement, comptime num_cols: usize) [totalEntries(sections)]PositionedEntry {
@@ -273,7 +273,7 @@ pub fn modHeights(n: usize) []const usize {
 }
 
 // ---------------------------------------------------------------------------
-// Navigation primitives — shared by MAIN and MOD (FX keeps its own
+// Navigation primitives - shared by MAIN and MOD (FX keeps its own
 // fx_order-aware walk in editors/synth.zig; these operate on whichever
 // `[]const PositionedEntry` the caller resolved via mainOrder/modOrder).
 // ---------------------------------------------------------------------------
@@ -307,7 +307,7 @@ pub fn moveField(order: []const PositionedEntry, cursor: u8, delta: i32) u8 {
 }
 
 /// `{`/`}`: jump to the next/previous section's first entry. No wrap past
-/// either end (matches the old sectionStarts-based behavior) — pressing
+/// either end (matches the old sectionStarts-based behavior) - pressing
 /// backward while already on a section's first entry goes to the *previous*
 /// section's first entry instead of no-op'ing, exactly like vim's `{`.
 pub fn jumpSection(order: []const PositionedEntry, cursor: u8, forward: bool) u8 {
@@ -338,7 +338,7 @@ pub fn lastEntry(order: []const PositionedEntry) u8 {
 }
 
 // ---------------------------------------------------------------------------
-// Completeness check — every id MAIN/MOD are supposed to own appears
+// Completeness check - every id MAIN/MOD are supposed to own appears
 // exactly once between them, and none collide with an id owned by FX, a
 // dead (retired) id, or an FX reorder-handle id. A bad regroup (dropped id,
 // duplicated id, accidental overlap with FX's range) fails the *build*,
@@ -368,7 +368,7 @@ comptime {
     }
     // Ids owned elsewhere: dead/retired (23, 30-31), FX unit params +
     // their reorder handles (mirrors editors/synth.zig's deadParam/
-    // inSubview(.fx)/reorderIdFor — verified against that file's ranges).
+    // inSubview(.fx)/reorderIdFor - verified against that file's ranges).
     const excluded = [_][2]u16{
         .{ 23, 23 },   .{ 30, 31 },   .{ 83, 94 },   .{ 103, 115 },
         .{ 126, 136 }, .{ 137, 143 }, .{ 144, 160 }, .{ 161, 166 },

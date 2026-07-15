@@ -1,7 +1,7 @@
 //! Project model: the document a user edits.
 //!
 //! Lives on the control side. The audio thread never touches this
-//! directly — edits are translated into engine commands.
+//! directly - edits are translated into engine commands.
 
 const std = @import("std");
 const types = @import("core/types.zig");
@@ -40,11 +40,11 @@ pub const Project = struct {
     sample_rate: u32 = types.default_sample_rate,
     tempo_bpm: f64 = 120.0,
     /// Beats per bar (the time signature's numerator; the unit stays /4).
-    /// Control-side source of truth — the transport mirrors it, exactly
+    /// Control-side source of truth - the transport mirrors it, exactly
     /// like `tempo_bpm`.
     beats_per_bar: u8 = 4,
     /// A/B loop region in bars (`loop_end_bar` exclusive; empty = no region).
-    /// Control-side source of truth — Session.syncLoop pushes it to the
+    /// Control-side source of truth - Session.syncLoop pushes it to the
     /// transport as frames whenever it (or the bar math) changes.
     loop_enabled: bool = false,
     loop_start_bar: u32 = 0,

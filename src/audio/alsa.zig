@@ -1,7 +1,7 @@
 //! ALSA playback backend (Linux). On modern systems the "default"
 //! device is served by PipeWire/PulseAudio's ALSA layer, so this one
 //! backend reaches every desktop setup. The blocking `snd_pcm_writei`
-//! paces the render thread off the device clock — no sleeping.
+//! paces the render thread off the device clock - no sleeping.
 
 const std = @import("std");
 const types = @import("../core/types.zig");

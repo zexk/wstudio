@@ -36,7 +36,7 @@ pub const Session = struct {
     engine: *Engine,
     /// Each *Rack is heap-allocated; pointers are stable for DSP self-refs.
     racks: std.ArrayListUnmanaged(*Rack),
-    /// Racks removed from active use but not yet freed — the audio thread may
+    /// Racks removed from active use but not yet freed - the audio thread may
     /// still be mid-frame referencing them. Freed at deinit.
     retired_racks: std.ArrayListUnmanaged(*Rack),
     /// Song-mode clip timeline, one lane per track (parallel to `racks`).
@@ -46,35 +46,35 @@ pub const Session = struct {
     /// the engine in song-mode playback.
     song_mode: bool = false,
     /// Click track on/off. Control-side source of truth, mirrored to the
-    /// engine via `set_metronome` — same pattern as `loop_enabled`/`song_mode`.
+    /// engine via `set_metronome` - same pattern as `loop_enabled`/`song_mode`.
     /// A monitoring aid, not song content, so it isn't persisted.
     metronome_enabled: bool = false,
     /// Master bus FX chain, applied to the summed mix before the master gain
-    /// and always-on limiter — same user-built `Fx` chain as a track's rack,
+    /// and always-on limiter - same user-built `Fx` chain as a track's rack,
     /// so any unit plugs into either the same way. Persisted
     /// (`Snapshot.master_fx_chain`, see persist.zig). Push param/membership
     /// changes to the audio thread with `syncMasterChain`.
     master_fx: rack_mod.Fx = .{},
     /// Track-grouping submix buses (see `Group`). Fixed bank of
-    /// `engine_mod.max_groups` slots, `null` = unused — same "fixed bank,
+    /// `engine_mod.max_groups` slots, `null` = unused - same "fixed bank,
     /// null-slot" shape `engine_mod.GroupState` mirrors on the audio-thread
     /// side. Persisted (`Snapshot.groups`, see persist.zig).
     groups: [engine_mod.max_groups]?Group = [_]?Group{null} ** engine_mod.max_groups,
 
     /// One track-grouping submix bus: a named FX chain every member track's
-    /// summed signal passes through before the master mix — same idea as
+    /// summed signal passes through before the master mix - same idea as
     /// `master_fx`, just scoped to whichever tracks point at it (see
     /// `Track.group`, `Session.assignTrackGroup`). The FX-chain editor UI is
     /// shared wholesale with tracks/master (tui/editors/spectrum.zig).
     pub const Group = struct {
         name: []u8,
         fx: rack_mod.Fx = .{},
-        /// Bus fader, dB — applied post-chain by the engine (see
+        /// Bus fader, dB - applied post-chain by the engine (see
         /// `GroupState.gain`). Same clamp range as track gain.
         gain_db: f32 = 0.0,
         /// Tracks-view fold state: when true the group's member rows are
-        /// hidden behind the group's own row. Pure UI state — the engine
-        /// never sees it — but persisted so a folded mixer stays folded
+        /// hidden behind the group's own row. Pure UI state - the engine
+        /// never sees it - but persisted so a folded mixer stays folded
         /// across save/load (`GroupSnap.folded`).
         folded: bool = false,
 
@@ -175,7 +175,7 @@ pub const Session = struct {
 
     /// Replace the instrument on `track_idx` with a fresh instance of `kind`.
     /// The replacement is built in a brand-new heap rack; the old rack is moved
-    /// to `retired_racks` rather than torn down in place — the audio thread may
+    /// to `retired_racks` rather than torn down in place - the audio thread may
     /// still be mid-block inside its devices (same policy as deleteTrack).
     /// Melodic kinds (synth, sampler) get a PatternPlayer so they are
     /// piano-roll sequenceable. Rebuilds the engine chain. Any allocation
@@ -208,7 +208,7 @@ pub const Session = struct {
                 rack.label = "slicer";
             },
         }
-        // Set AFTER the instrument lands in the heap rack — the player holds a
+        // Set AFTER the instrument lands in the heap rack - the player holds a
         // pointer into it. Slicer gets its own step grid, not a PatternPlayer,
         // same as drum_machine.
         switch (kind) {
@@ -245,7 +245,7 @@ pub const Session = struct {
     pub const DeleteTrackError = error{CannotDeleteLastTrack};
 
     /// Remove the track at `track_idx`. The displaced rack is moved to
-    /// `retired_racks` rather than freed immediately — the audio thread may
+    /// `retired_racks` rather than freed immediately - the audio thread may
     /// still be referencing it. Racks are freed at `deinit`.
     pub fn deleteTrack(self: *Session, track_idx: usize) DeleteTrackError!void {
         if (self.project.tracks.items.len <= 1) return error.CannotDeleteLastTrack;
@@ -262,7 +262,7 @@ pub const Session = struct {
         self.project.removeTrack(track_idx);
 
         // Compressors elsewhere may sidechain off a track index that just
-        // shifted (or off the deleted track itself) — rewrite and resync.
+        // shifted (or off the deleted track itself) - rewrite and resync.
         self.remapSidechainSources(.{ .delete = @intCast(track_idx) });
     }
 
@@ -279,11 +279,11 @@ pub const Session = struct {
     };
 
     /// Re-insert a previously-deleted track's full state at `at`, shifting
-    /// later tracks up by one — the undo-side counterpart to `deleteTrack`.
+    /// later tracks up by one - the undo-side counterpart to `deleteTrack`.
     /// Takes ownership of `rack` and `clips`: they land directly in session
     /// structures with no further copy, since the caller (undo's
     /// `TrackFullState`) already holds a deep copy made specifically for
-    /// this restore. Mirrors `insertTrack`'s exact call shape — including
+    /// this restore. Mirrors `insertTrack`'s exact call shape - including
     /// running `remapSidechainSources` only after the rack is already in
     /// `self.racks`, so a sidechain reference living on the RESTORED rack's
     /// own chain gets swept by the same pass as everyone else's.
@@ -317,8 +317,8 @@ pub const Session = struct {
         if (self.song_mode) self.rebuildSongData();
     }
 
-    /// Deep-copy `track_idx` — instrument, params, FX, pattern/pad audio, and
-    /// its arrangement clips — into a new track appended at the end. Appending
+    /// Deep-copy `track_idx` - instrument, params, FX, pattern/pad audio, and
+    /// its arrangement clips - into a new track appended at the end. Appending
     /// (rather than inserting right after the source) never reindexes an
     /// existing track, so undo history and editor-target indices stay valid,
     /// same rule as `addTrack`. Returns the new track's index.
@@ -372,12 +372,12 @@ pub const Session = struct {
     /// racks, arrangement lanes, engine state+chain). No allocation, cannot
     /// fail. A rack's own song-mode data travels with it, so no rebuild is
     /// needed. Callers should reset any per-instrument editor-target/undo
-    /// state tied to an absolute track index — a swap silently changes what
+    /// state tied to an absolute track index - a swap silently changes what
     /// index `a`/`b` mean, same rule as `deleteTrack`.
     pub fn swapTracks(self: *Session, a: usize, b: usize) void {
         if (a == b or a >= self.racks.items.len or b >= self.racks.items.len) return;
         // A note queued for either track right before the swap must not
-        // fire on the wrong instrument once reindexed — same rule
+        // fire on the wrong instrument once reindexed - same rule
         // setInstrument/deleteTrack/setSongMode already follow.
         _ = self.engine.send(.all_notes_off);
         self.project.swapTracks(a, b);
@@ -420,7 +420,7 @@ pub const Session = struct {
             },
             // Slicer patterns are the same 64-row step grid a drum bank is
             // (`Slicer.max_slices == DrumMachine.max_pads`), so they stamp
-            // as the same `.drum` clip content — no third clip kind.
+            // as the same `.drum` clip content - no third clip kind.
             .slicer => |*sl| {
                 var drum: Clip.Drum = .{
                     .pattern = undefined,
@@ -464,7 +464,7 @@ pub const Session = struct {
         if (on) {
             self.rebuildSongData();
         } else {
-            // Automation is meaningless off the arrangement timeline — leave
+            // Automation is meaningless off the arrangement timeline - leave
             // it armed and a stray transport position from live jamming
             // could yank a track's gain/pan. Clearing falls back to the
             // manual value, same as before automation existed.
@@ -492,7 +492,7 @@ pub const Session = struct {
 
     /// Push `rack`'s chain (instrument/pattern-player + active FX units) to
     /// the audio thread, AND the sidechain-detector routing for any
-    /// compressor in that chain (see `Rack.sidechainSources`) — the two
+    /// compressor in that chain (see `Rack.sidechainSources`) - the two
     /// always go together since the audio thread never introspects chain
     /// contents itself to discover sidechain routing live (see
     /// `Engine.setTrackSidechainSources`'s doc comment). Call after any
@@ -507,7 +507,7 @@ pub const Session = struct {
     }
 
     /// Push the master bus's active FX units (in chain order) to the audio
-    /// thread, plus their sidechain-detector routing — same idea as
+    /// thread, plus their sidechain-detector routing - same idea as
     /// `syncTrackChain`, but the master bus has no instrument slot, just
     /// `master_fx`. Call after inserting, removing, reordering, or bypassing
     /// a master FX unit, or changing a compressor's `sidechain_source`.
@@ -519,7 +519,7 @@ pub const Session = struct {
     }
 
     /// Push group `idx`'s active FX units (and their sidechain-detector
-    /// routing) to the audio thread — same idea as `syncMasterChain`, one
+    /// routing) to the audio thread - same idea as `syncMasterChain`, one
     /// group at a time. Call after inserting, removing, reordering, or
     /// bypassing a unit in that group's chain (or changing a compressor's
     /// `sidechain_source`), and once for every active group after loading a
@@ -552,7 +552,7 @@ pub const Session = struct {
 
     /// How a structural track change (delete/swap/insert) reshapes a track
     /// index. Shared by `remapSidechainSources` below and, via
-    /// `tui/undo.zig`'s re-export, `History.retarget` for undo entries — one
+    /// `tui/undo.zig`'s re-export, `History.retarget` for undo entries - one
     /// definition of "what happens to a track index" instead of two unions
     /// with the same three cases drifting apart.
     pub const TrackRemap = union(enum) {
@@ -563,7 +563,7 @@ pub const Session = struct {
         insert: u16,
 
         /// The track's new index, or null if it no longer exists (delete
-        /// only — neither a swap nor an insert ever removes a track).
+        /// only - neither a swap nor an insert ever removes a track).
         pub fn apply(self: TrackRemap, track: u16) ?u16 {
             return switch (self) {
                 .delete => |del| if (track == del) null else if (track > del) track - 1 else track,
@@ -577,7 +577,7 @@ pub const Session = struct {
     /// buses, master) after track indices shift, then push the refreshed
     /// routing to the engine. Without this a compressor keeps its raw
     /// index and silently starts detecting from whatever track slid into
-    /// it — the source is a persisted USER setting naming a specific
+    /// it - the source is a persisted USER setting naming a specific
     /// track, so it must follow that track (or clear when it's deleted),
     /// same reason `TrackState.group` values are per-track state the
     /// engine shifts in applyDeleteTrack.
@@ -608,7 +608,7 @@ pub const Session = struct {
     }
 
     /// Create a new group named `name` in the first free slot. Starts with
-    /// an empty FX chain — same "blank slate, user builds it" convention
+    /// an empty FX chain - same "blank slate, user builds it" convention
     /// `master_fx`/a fresh track's rack already follow.
     pub fn addGroup(self: *Session, name: []const u8) error{ GroupLimitReached, OutOfMemory }!u8 {
         for (&self.groups, 0..) |*slot, i| {
@@ -647,7 +647,7 @@ pub const Session = struct {
     }
 
     /// Assign (or clear, with `null`) which group track `track_idx` submixes
-    /// through. Validates `group` against an active slot — an out-of-range
+    /// through. Validates `group` against an active slot - an out-of-range
     /// or unused index is treated as `null` (ungrouped) rather than silently
     /// pointing at nothing, matching `renderTracks`'s own inactive-slot
     /// fallback on the audio thread.
@@ -736,7 +736,7 @@ pub const Session = struct {
                         const clip_start_beat = @as(f64, @floatFromInt(c.start_bar)) * bpb;
                         // The captured pattern repeats to fill the clip's own
                         // bar span (length_bars, edge-resizable in the
-                        // arrangement editor) — the same repeat-to-fill-span
+                        // arrangement editor) - the same repeat-to-fill-span
                         // rule DrumMachine.fireSongStep already applies to
                         // drum clips, just expressed in beats instead of a
                         // step modulo since melodic content has no fixed grid.
@@ -770,7 +770,7 @@ pub const Session = struct {
 
     /// Flatten one track's clips' gain/pan/synth-param breakpoints (clip-
     /// relative beats) into absolute-song-beat curves and push them to the
-    /// engine. Runs for every instrument kind — a drum/slicer/empty track's
+    /// engine. Runs for every instrument kind - a drum/slicer/empty track's
     /// `synth_params` list is simply always empty (the automation editor's
     /// picker only offers poly_synth/sampler tracks a param to automate),
     /// so this loop needs no extra guard. Clips are already stored start_bar-ascending
@@ -783,7 +783,7 @@ pub const Session = struct {
         var pan_n: usize = 0;
 
         // Distinct synth param ids used anywhere in this lane, first-seen
-        // order, capped at max_synth_slots — matches the engine's own
+        // order, capped at max_synth_slots - matches the engine's own
         // per-track slot bank exactly (Engine.setTrackSynthParam silently
         // drops any param past it, so collecting more here is wasted work).
         var param_ids: [engine_mod.max_synth_slots]u8 = undefined;
@@ -813,7 +813,7 @@ pub const Session = struct {
                     // zig fmt: on
                 }
                 if (slot == null) {
-                    if (param_n >= param_ids.len) continue; // slot cap reached — drop, matches engine's own cap
+                    if (param_n >= param_ids.len) continue; // slot cap reached - drop, matches engine's own cap
                     param_ids[param_n] = sp.param_id;
                     slot = param_n;
                     param_n += 1;
@@ -822,7 +822,7 @@ pub const Session = struct {
                 for (sp.points) |p| {
                     if (param_pt_n[s] >= param_pts[s].len) break;
                     // Already the unit PolySynth.setParamAbsolute expects
-                    // (Hz for cutoff, etc.) — no conversion needed, unlike
+                    // (Hz for cutoff, etc.) - no conversion needed, unlike
                     // gain's dB->linear.
                     param_pts[s][param_pt_n[s]] = .{ .beat = clip_start_beat + p.beat, .value = p.value };
                     param_pt_n[s] += 1;
@@ -831,7 +831,7 @@ pub const Session = struct {
         }
         self.engine.setTrackAutomation(track, .gain, gain_pts[0..gain_n]);
         self.engine.setTrackAutomation(track, .pan, pan_pts[0..pan_n]);
-        // Clear every slot first — a param removed from every clip since the
+        // Clear every slot first - a param removed from every clip since the
         // last rebuild must not linger in a stale slot forever.
         self.engine.clearTrackSynthParams(track);
         for (param_ids[0..param_n], 0..) |pid, idx| {
@@ -1123,7 +1123,7 @@ test "song mode repeats a melodic clip's pattern to fill an edge-resized span" {
     pp.length_beats = 4.0; // one bar in 4/4
     try s.stampClip(0, 0);
 
-    // Edge-resize the clip to 3 bars — 3x the captured pattern's length —
+    // Edge-resize the clip to 3 bars - 3x the captured pattern's length -
     // the same operation editors/arrangement.zig's resizeClip performs.
     const lane = s.arrangement.lane(0).?;
     lane.clips.items[0].length_bars = 3;
@@ -1150,9 +1150,9 @@ test "stampClip captures the active drum variant" {
     dm.toggleStep(1, 2); // variant B: pad 1 step 2 only
     dm.setStepVel(1, 2, 63); // at ~50% velocity
 
-    try s.stampClip(0, 0); // stamps B (active) — spans bars 0-1 (32 steps = 2 bars)
+    try s.stampClip(0, 0); // stamps B (active) - spans bars 0-1 (32 steps = 2 bars)
     dm.selectVariant(0);
-    try s.stampClip(0, 2); // stamps A — bar 2, past B's span so it isn't evicted
+    try s.stampClip(0, 2); // stamps A - bar 2, past B's span so it isn't evicted
 
     const lane = s.arrangement.lane(0).?;
     const b = lane.clips.items[0].content.drum;
@@ -1178,7 +1178,7 @@ test "song mode places a drum clip on the step timeline" {
     try std.testing.expectEqual(@as(u16, 1), dm.song_clip_count);
     // 4/4, 16th-note steps → 16 steps per bar, so bar 1 starts at step 16.
     try std.testing.expectEqual(@as(u32, 16), dm.song_clips[0].start_step);
-    // The clip's own pattern is 32 steps (2 bars) — the new default.
+    // The clip's own pattern is 32 steps (2 bars) - the new default.
     try std.testing.expectEqual(@as(u32, 32), dm.song_clips[0].span_steps);
     try std.testing.expectEqual(@as(u32, 1), dm.song_clips[0].pattern[0]);
     // Arrangement spans bars 0..3 (clip covers bars 1-2) → 48 steps.
@@ -1244,7 +1244,7 @@ test "syncTrackChain pushes a compressor's sidechain pad routing to the engine t
     try s.setInstrument(0, .drum_machine);
     const rack = s.racks.items[0];
 
-    // No pattern_player for a drum machine — instrument at slot 0, comp at 1.
+    // No pattern_player for a drum machine - instrument at slot 0, comp at 1.
     const comp_unit = try rack.fx.insert(s.allocator, 0, .comp, s.project.sample_rate);
     comp_unit.payload.comp.sidechain_source = .{ .track = 4, .pad = 2 };
     s.syncTrackChain(0, rack);
@@ -1325,7 +1325,7 @@ test "addGroup/assignTrackGroup/deleteGroup: CRUD, membership, and engine sync" 
     var block: [128]@import("core/types.zig").Sample = undefined;
     s.engine.process(&block); // set_track_group is queued; drain before checking the engine side
     try std.testing.expectEqual(@as(?u8, g), s.engine.tracks[0].group);
-    // Track 1 stays ungrouped — assigning one track never touches another.
+    // Track 1 stays ungrouped - assigning one track never touches another.
     try std.testing.expectEqual(@as(?u8, null), s.project.tracks.items[1].group);
 
     // Renaming and pushing an FX unit both reach the engine via syncGroupChain.
@@ -1336,7 +1336,7 @@ test "addGroup/assignTrackGroup/deleteGroup: CRUD, membership, and engine sync" 
     try std.testing.expectEqual(@as(usize, 1), s.engine.groups[g].chain_len);
 
     // Deleting the group unassigns its members and marks the engine slot
-    // inactive — track 0 falls back to the master mix, not a dangling index.
+    // inactive - track 0 falls back to the master mix, not a dangling index.
     s.deleteGroup(g);
     try std.testing.expectEqual(@as(?u8, null), s.project.tracks.items[0].group);
     s.engine.process(&block); // drain the unassign command deleteGroup queued
@@ -1356,7 +1356,7 @@ test "addGroup fails once every slot is taken; assignTrackGroup rejects an unuse
     try std.testing.expectError(error.GroupLimitReached, s.addGroup("one too many"));
 
     // A track pointed at a never-created group index resolves to ungrouped,
-    // not a dangling reference — mirrors renderTracks's own fallback.
+    // not a dangling reference - mirrors renderTracks's own fallback.
     s.deleteGroup(0);
     s.assignTrackGroup(0, 0);
     try std.testing.expectEqual(@as(?u8, null), s.project.tracks.items[0].group);
@@ -1383,7 +1383,7 @@ test "song-mode gain automation ramps a track's level down over the clip" {
     try s.setInstrument(0, .poly_synth);
 
     // A held note spanning the whole clip so the synth's own envelope stays
-    // at sustain level throughout — any amplitude change we measure comes
+    // at sustain level throughout - any amplitude change we measure comes
     // from the automation curve, not the note's own attack/release.
     const lane = s.arrangement.lane(0).?;
     const notes = [_]Note{.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 4.0, .velocity = 1.0 }};
@@ -1413,7 +1413,7 @@ test "song-mode gain automation ramps a track's level down over the clip" {
     }
     try std.testing.expect(quiet < loud * 0.05); // -40dB ≈ 1% amplitude
 
-    // Seeking back to the start re-evaluates the curve from scratch — proves
+    // Seeking back to the start re-evaluates the curve from scratch - proves
     // it's a live function of transport position, not a one-way latch.
     _ = s.engine.send(.{ .seek_frames = 0 });
     var back_loud: f32 = 0.0;

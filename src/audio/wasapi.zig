@@ -1,5 +1,5 @@
 //! WASAPI playback backend (Windows). Shared-mode, event-driven render on
-//! a dedicated thread — the Windows analogue of alsa.zig's blocking
+//! a dedicated thread - the Windows analogue of alsa.zig's blocking
 //! snd_pcm_writei loop, just paced by an auto-reset event instead of the
 //! write call itself.
 
@@ -88,7 +88,7 @@ pub const WasapiBackend = struct {
         };
 
         // Buffer duration in 100ns units (REFERENCE_TIME), four blocks or
-        // 20ms, whichever is larger — same floor ALSA's set_params uses.
+        // 20ms, whichever is larger - same floor ALSA's set_params uses.
         const block_hns: c.REFERENCE_TIME = @divTrunc(
             @as(c.REFERENCE_TIME, self.config.block_frames) * 10_000_000,
             @as(c.REFERENCE_TIME, self.config.sample_rate),
@@ -97,7 +97,7 @@ pub const WasapiBackend = struct {
 
         // Shared mode only accepts our rate/layout when it happens to match
         // the device mix format; AUTOCONVERTPCM has the audio engine resample
-        // instead of rejecting it — a plain 44.1kHz output device would
+        // instead of rejecting it - a plain 44.1kHz output device would
         // otherwise fail Initialize and drop the whole app to the silent
         // NullBackend. Same job as the soft_resample flag in alsa.zig.
         if (!ok(c.IAudioClient_Initialize(
@@ -160,7 +160,7 @@ pub const WasapiBackend = struct {
     }
 
     fn run(self: *WasapiBackend) void {
-        // COM apartments are per-thread — the render thread joins the same
+        // COM apartments are per-thread - the render thread joins the same
         // process-wide MTA as start()'s caller, which is what lets the audio
         // client interfaces be used safely off the thread that created them.
         if (!ok(c.CoInitializeEx(null, c.COINIT_MULTITHREADED))) return;
@@ -184,7 +184,7 @@ pub const WasapiBackend = struct {
 
             // `available` spans several blocks (the very first fill is the
             // whole device buffer), but the RenderFn contract is one block
-            // per call — the engine's scratch buffers are sized to
+            // per call - the engine's scratch buffers are sized to
             // max_block_frames, and commands/automation are drained per
             // block. Feed it block-sized slices, same chunking as
             // OfflineBackend.renderAll.

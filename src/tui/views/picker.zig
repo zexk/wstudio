@@ -47,8 +47,8 @@ const enumRow = style.enumRow;
 /// Names + one-line descriptions for the instrument picker. Order must match
 /// `app.picker_kinds`.
 const picker_menu = [_]struct { name: []const u8, desc: []const u8, icon: []const u8 }{
-    .{ .name = "Synth",        .desc = "subtractive/FM polysynth — piano-roll sequenceable",   .icon = icons.synth },
-    .{ .name = "Sampler",      .desc = "one clip played chromatically — :load-sample to swap", .icon = icons.sampler },
+    .{ .name = "Synth",        .desc = "subtractive/FM polysynth - piano-roll sequenceable",   .icon = icons.synth },
+    .{ .name = "Sampler",      .desc = "one clip played chromatically - :load-sample to swap", .icon = icons.sampler },
     .{ .name = "Drum Machine", .desc = "64-pad step sequencer with per-pad sampler",            .icon = icons.drum },
     .{ .name = "Slicer",       .desc = "chop one sample into slices, step-sequence the chops",  .icon = icons.slicer },
 };
@@ -81,7 +81,7 @@ pub fn drawInstrumentPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void 
     }
 
     // used = title(1) + blank(1) actually printed above, plus the menu rows
-    // — was "4 +" (stale from before the header/transport hr() rows were
+    // - was "4 +" (stale from before the header/transport hr() rows were
     // removed), leaving 2 rows of dead blank space above the footer.
     const used = 2 + picker_menu.len;
     for (used..@max(used, rows -| 4)) |_| try endLine(w);
@@ -158,7 +158,7 @@ pub fn drawFxPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void {
 
     // zig fmt: off
     // used = title(1) + blank(1) actually printed above, plus the menu rows
-    // — was "4 +" (stale from before the header/transport hr() rows were
+    // - was "4 +" (stale from before the header/transport hr() rows were
     // removed), leaving 2 rows of dead blank space above the footer.
     const used = 2 + @max(kinds.len, 1);
     for (used..@max(used, rows -| 4)) |_| try endLine(w);
@@ -166,7 +166,7 @@ pub fn drawFxPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void {
 
 // zig fmt: on
 
-/// The synth-internal FX chain's insert picker — same shape as
+/// The synth-internal FX chain's insert picker - same shape as
 /// `drawFxPicker`, just over `synth_ed.synthFxPickerKinds` (the currently-
 /// off units) instead of the track chain's fixed `fx_picker_menu`, and
 /// without the description column (the user already has each unit's full

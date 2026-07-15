@@ -1,4 +1,4 @@
-//! Drum-kit synthesis — the factory that generates the shipped sample kit.
+//! Drum-kit synthesis - the factory that generates the shipped sample kit.
 //!
 //! These generators are richer than the first-iteration one-shots: layered
 //! transients, inharmonic metal clusters, multi-burst claps, tuned bodies and
@@ -84,7 +84,7 @@ fn normalize(buf: []f32, target: f32) void {
 // ---------------------------------------------------------------------------
 // Generators
 
-/// Tunable knobs behind `kick()` — see `kickGen`. Defaults reproduce the
+/// Tunable knobs behind `kick()` - see `kickGen`. Defaults reproduce the
 /// original shipped kick exactly.
 pub const KickParams = struct {
     /// Pitch sweeps from `freq_end + freq_start_add` down to `freq_end` Hz.
@@ -103,7 +103,7 @@ pub const KickParams = struct {
 /// noise+click transient at the attack.
 fn kickGen(allocator: std.mem.Allocator, sr: u32, p: KickParams) std.mem.Allocator.Error![]f32 {
     const srf: f32 = @floatFromInt(sr);
-    // Short buffer — no long sub tail.
+    // Short buffer - no long sub tail.
     const buf = try allocator.alloc(f32, frames(sr, p.dur_s));
     var prng = std.Random.DefaultPrng.init(0x4b1c);
     const rand = prng.random();
@@ -112,7 +112,7 @@ fn kickGen(allocator: std.mem.Allocator, sr: u32, p: KickParams) std.mem.Allocat
     const click_a = cutoffAlpha(1200.0, srf);
     for (buf, 0..) |*s, i| {
         const t = @as(f32, @floatFromInt(i)) / srf;
-        // Body: fast, deep pitch drop — punch, not a held sub tone.
+        // Body: fast, deep pitch drop - punch, not a held sub tone.
         const freq = p.freq_end + p.freq_start_add * expEnv(t, p.pitch_decay);
         // Punchy amp env: sharp transient, quick decay (snappy, no ring-out).
         const body = @sin(tau * phase) * expEnv(t, p.body_decay);
@@ -132,7 +132,7 @@ fn kick(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
     return kickGen(allocator, sr, .{});
 }
 
-/// Tunable knobs behind `snare()` — see `snareGen`. Defaults reproduce the
+/// Tunable knobs behind `snare()` - see `snareGen`. Defaults reproduce the
 /// original shipped snare exactly.
 pub const SnareParams = struct {
     tone1_hz: f32 = 185.0,
@@ -183,7 +183,7 @@ fn snare(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
     return snareGen(allocator, sr, .{});
 }
 
-/// Tunable knobs behind the hihats — see `metalHat`.
+/// Tunable knobs behind the hihats - see `metalHat`.
 pub const HatParams = struct {
     dur_s: f32 = 0.09,
     decay: f32 = 65.0,
@@ -231,7 +231,7 @@ fn hihatOpen(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f3
     return metalHat(allocator, sr, .{ .dur_s = 0.42, .decay = 8.5 });
 }
 
-/// Tunable knobs behind `clap()` — see `clapGen`. Defaults reproduce the
+/// Tunable knobs behind `clap()` - see `clapGen`. Defaults reproduce the
 /// original shipped clap exactly.
 pub const ClapParams = struct {
     lp_hz: f32 = 3000.0,
@@ -275,7 +275,7 @@ fn clap(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
     return clapGen(allocator, sr, .{});
 }
 
-/// Tunable knobs behind the toms — see `tomGen`.
+/// Tunable knobs behind the toms - see `tomGen`.
 pub const TomParams = struct {
     freq_start: f32,
     freq_end: f32,
@@ -317,7 +317,7 @@ fn tom2(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
     return tomGen(allocator, sr, .{ .freq_start = 160.0, .freq_end = 80.0, .dur_s = 0.5, .seed = 0x702 });
 }
 
-/// Tunable knobs behind `rim()` — see `rimGen`. Defaults reproduce the
+/// Tunable knobs behind `rim()` - see `rimGen`. Defaults reproduce the
 /// original shipped rim exactly.
 pub const RimParams = struct {
     tone1_hz: f32 = 1720.0,
@@ -356,11 +356,11 @@ fn rim(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
 }
 
 // ---------------------------------------------------------------------------
-// Kit variants — alternate flavours of the same 8 drums, selectable at
+// Kit variants - alternate flavours of the same 8 drums, selectable at
 // runtime via `:drum-kit <name>` (see tui/commands.zig). Unlike `kit` above,
 // these are never rendered to WAV or embedded: picking one calls the
 // generators directly into the DrumMachine's pads, so extra kits cost zero
-// shipped bytes — just the parameter tables below.
+// shipped bytes - just the parameter tables below.
 
 // Each variant wrapper's generator params stay grouped on a couple of lines
 // (pitch family / decay family / character) so a whole drum reads at a glance.
@@ -568,7 +568,7 @@ fn rimGfunk(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32
     });
 }
 
-// City-pop: dry late-70s/80s studio character — punchy definite kick, a fat
+// City-pop: dry late-70s/80s studio character - punchy definite kick, a fat
 // snare cut short as if gated, clean hats, tight room clap, disco-ish toms.
 fn kickCitypop(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
     return kickGen(allocator, sr, .{
@@ -611,7 +611,7 @@ fn rimCitypop(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f
     });
 }
 
-// Technopop: precise early-machine minimalism — short clicky kick, thin
+// Technopop: precise early-machine minimalism - short clicky kick, thin
 // noise-forward snare, needle-fine hats, synthetic disco-tom sweeps.
 fn kickTechnopop(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
     return kickGen(allocator, sr, .{
@@ -654,7 +654,7 @@ fn rimTechnopop(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![
     });
 }
 
-// Kawaii: everything tuned up and cut tight — bouncy mid-weight kick, bright
+// Kawaii: everything tuned up and cut tight - bouncy mid-weight kick, bright
 // snappy snare, sparkly airy hats, cute high toms.
 fn kickKawaii(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
     return kickGen(allocator, sr, .{
@@ -697,7 +697,7 @@ fn rimKawaii(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f3
     });
 }
 
-// Vaporwave: everything behind a closed door — round clickless kick, muffled
+// Vaporwave: everything behind a closed door - round clickless kick, muffled
 // lazy snare, dull hats with a long wash, roomy clap that's mostly tail.
 fn kickVaporwave(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
     return kickGen(allocator, sr, .{
@@ -740,7 +740,7 @@ fn rimVaporwave(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![
     });
 }
 
-// Eurobeat: full-throttle dance floor — hard four-on-the-floor kick, big
+// Eurobeat: full-throttle dance floor - hard four-on-the-floor kick, big
 // driven snare, loud sustained open hat for the offbeats, energetic clap.
 fn kickEurobeat(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
     return kickGen(allocator, sr, .{
@@ -829,7 +829,7 @@ fn rimHardcore(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]
 // zig fmt: on
 
 /// One pad slot in a runtime kit variant: display name, generator, and
-/// default mixer gain — the same shape as `PadDef` minus the WAV filename
+/// default mixer gain - the same shape as `PadDef` minus the WAV filename
 /// (these are never written to disk).
 pub const VariantSlot = struct {
     name: []const u8,
@@ -839,7 +839,7 @@ pub const VariantSlot = struct {
 
 pub const KitVariant = struct {
     name: []const u8,
-    /// Sound character, not genre — mirrors `synth_presets.Preset.category`.
+    /// Sound character, not genre - mirrors `synth_presets.Preset.category`.
     category: []const u8,
     /// First tag is always "wstudio"; the rest are genre associations.
     tags: []const []const u8,

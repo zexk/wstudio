@@ -24,12 +24,12 @@ const fuzzy = @import("../fuzzy.zig");
 /// Which curve h/l + j/k currently edit. `gain`/`pan` are the two universal
 /// targets, always available on any clip (mix-bus params). `synth_param`
 /// names one of the current track's instrument's continuous params by its
-/// `setParamAbsolute` id — despite the name (kept from when only PolySynth
+/// `setParamAbsolute` id - despite the name (kept from when only PolySynth
 /// had automatable params), this now also covers Sampler tracks;
 /// `instrumentAutomatableParams`/`findAutomatableParam` below resolve the id
 /// against whichever instrument the track actually holds. The persisted
-/// storage (`Clip.Automation.synth_params`) was always instrument-agnostic —
-/// just a param-id-keyed list, see arrangement.zig — so no format change was
+/// storage (`Clip.Automation.synth_params`) was always instrument-agnostic -
+/// just a param-id-keyed list, see arrangement.zig - so no format change was
 /// needed to extend this past PolySynth.
 /// Replaces the old fixed 3-way gain/pan/filter_cutoff enum now that any
 /// continuous param can be targeted, not just cutoff.
@@ -40,29 +40,29 @@ pub const AutomationFocus = union(enum) {
 };
 
 /// Gain (dB, matches `:gain`/`Track.gain_db`) and pan (-1..1, matches
-/// `Track.pan`) ranges/steps — same clamps `persist.zig`'s loader enforces.
+/// `Track.pan`) ranges/steps - same clamps `persist.zig`'s loader enforces.
 /// Synth-param ranges/steps come from the current track's instrument's own
 /// `automatable_params` table instead (one entry per param, not two
-/// constants) — see `instrumentAutomatableParams`.
+/// constants) - see `instrumentAutomatableParams`.
 const gain_range = [2]f32{ -60.0, 12.0 };
 const pan_range = [2]f32{ -1.0, 1.0 };
 const gain_step: f32 = 1.0;
 const pan_step: f32 = 0.05;
 
 /// Open the automation editor on the clip under the arrangement cursor.
-/// `cursor_bar` need only fall inside the clip's span — the link is stored
+/// `cursor_bar` need only fall inside the clip's span - the link is stored
 /// against the clip's own `start_bar` (see `App.automation_clip`'s doc
 /// comment), matching `piano_clip_link`'s convention.
 pub fn switchTo(app: *App, track: u16, cursor_bar: u32) void {
     const lane = app.session.arrangement.lane(track) orelse return;
     const clip = lane.clipAt(cursor_bar) orelse {
-        app.setStatus("no clip here — enter stamps one, then 'a' automates it", .{});
+        app.setStatus("no clip here - enter stamps one, then 'a' automates it", .{});
         return;
     };
     app.automation_clip = .{ .track = track, .start_bar = clip.start_bar };
     app.automation_track = track;
     // A previous clip may have left the editor on a synth param this one
-    // doesn't have a lane for yet — fall back to gain rather than opening on
+    // doesn't have a lane for yet - fall back to gain rather than opening on
     // a curve this clip has no data for.
     if (std.meta.activeTag(app.automation_focus) == .synth_param) {
         if (clip.automation.findSynthParam(app.automation_focus.synth_param) == null) {
@@ -76,7 +76,7 @@ pub fn switchTo(app: *App, track: u16, cursor_bar: u32) void {
 
 /// Resolve `app.automation_clip` to a live pointer, relocating by (track,
 /// start_bar) since clip storage can move as the lane is edited. Null if the
-/// clip vanished from under the editor (deleted, moved) — `App.exitStaleEditors`
+/// clip vanished from under the editor (deleted, moved) - `App.exitStaleEditors`
 /// bounces the view back to arrangement in that case.
 pub fn currentClip(app: *App) ?*ws.Clip {
     const link = app.automation_clip orelse return null;
@@ -88,7 +88,7 @@ fn stepsPerBar(app: *App) u32 {
     return @as(u32, app.session.project.beats_per_bar) * 4;
 }
 
-/// Last valid cursor step: the clip's own end, inclusive — lets a fade
+/// Last valid cursor step: the clip's own end, inclusive - lets a fade
 /// resolve exactly at the clip's last instant, not one step short of it.
 fn maxStep(app: *App, clip: *const ws.Clip) u32 {
     return clip.length_bars * stepsPerBar(app);
@@ -98,7 +98,7 @@ fn maxStep(app: *App, clip: *const ws.Clip) u32 {
 /// param lane on demand if none exists yet. In practice a `.synth_param`
 /// focus is only ever reached via the picker (which creates the lane before
 /// switching focus) or `nextTarget` (which only offers params that already
-/// have one) — the on-demand create here is just defence in depth, not the
+/// have one) - the on-demand create here is just defence in depth, not the
 /// primary path.
 fn curvePoints(app: *App, clip: *ws.Clip, target: AutomationFocus) !*[]AutomationPoint {
     return switch (target) {
@@ -108,7 +108,7 @@ fn curvePoints(app: *App, clip: *ws.Clip, target: AutomationFocus) !*[]Automatio
     };
 }
 
-/// The current automation track's own `automatable_params` table — PolySynth's
+/// The current automation track's own `automatable_params` table - PolySynth's
 /// ~30, Sampler's 9, or empty for any other instrument kind (drum machine/
 /// slicer/empty have no `setParamAbsolute` id space, matching the picker's
 /// own gate in `openParamPicker`). `pub` so app.zig's picker key/mouse
@@ -146,7 +146,7 @@ fn curveStep(app: *App, target: AutomationFocus) f32 {
 
 /// `tab`'s cycle: gain -> pan -> whichever synth params already have a lane
 /// on THIS clip (in the order they were first added) -> back to gain. Unlike
-/// gain/pan, a synth param with no lane yet isn't offered — that's what the
+/// gain/pan, a synth param with no lane yet isn't offered - that's what the
 /// picker (`p`) is for, since offering all ~30 candidates via tab would make
 /// the common case (a handful of active lanes) slow to cycle through.
 fn nextTarget(clip: *const ws.Clip, cur: AutomationFocus) AutomationFocus {
@@ -159,7 +159,7 @@ fn nextTarget(clip: *const ws.Clip, cur: AutomationFocus) AutomationFocus {
                 if (sp.param_id != id) continue;
                 return if (i + 1 < items.len) .{ .synth_param = items[i + 1].param_id } else .gain;
             }
-            return .gain; // the focused param vanished from this clip — bounce home
+            return .gain; // the focused param vanished from this clip - bounce home
         },
     }
 }
@@ -204,7 +204,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 'G' => { app.automation_cursor_step = maxStep(app, clip); finishOperator(app, clip, op); return true; },
                 // dw/yw act on exactly the beat(s) through the end of the nth
                 // beat forward, not w's raw landing step (see piano.zig's
-                // identical comment — same vim dw nuance).
+                // identical comment - same vim dw nuance).
                 'w' => { operatorBarForward(app, clip, app.takeCount()); finishOperator(app, clip, op); return true; },
                 'b' => { operatorBarBackward(app, clip, app.takeCount()); finishOperator(app, clip, op); return true; },
                 else => { app.automation_visual_anchor = null; app.setStatus("cancelled", .{}); return true; },
@@ -234,21 +234,21 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             'g' => { app.automation_cursor_step = 0; return true; },
             'G' => { app.automation_cursor_step = maxStep(app, clip); return true; },
             // w/b: vim's word motion, one tier up from h/l's step
-            // ("char") granularity — jump to the start of the
+            // ("char") granularity - jump to the start of the
             // next/current-or-previous beat.
             'w' => { jumpBar(app, clip, app.takeCount()); return true; },
             'b' => { jumpBar(app, clip, -app.takeCount()); return true; },
             'x' => { deletePoint(app, clip); return true; },
-            // d/y are operators (see armOperator) — dd/yy act on the whole
+            // d/y are operators (see armOperator) - dd/yy act on the whole
             // curve.
             'd' => { armOperator(app, 'd'); return true; },
             'y' => { armOperator(app, 'y'); return true; },
             // Open the synth-param picker (poly_synth tracks only) to start
-            // automating a param that isn't on this clip yet — tab only
+            // automating a param that isn't on this clip yet - tab only
             // cycles curves that already have a lane (see nextTarget).
             'p' => { openParamPicker(app); return true; },
-            // 'p' is already the param-picker key (above), so paste — which
-            // piano/drum/arrangement all bind to plain p/P — lives on 'P'
+            // 'p' is already the param-picker key (above), so paste - which
+            // piano/drum/arrangement all bind to plain p/P - lives on 'P'
             // here instead. Calls the same pasteSelection visual mode's p/P
             // use; it doesn't require actually being in visual mode.
             'P' => { pasteSelection(app, clip); return true; },
@@ -370,7 +370,7 @@ fn deleteSelection(app: *App, clip: *ws.Clip) void {
 /// pressed since), starting at the cursor step.
 fn pasteSelection(app: *App, clip: *ws.Clip) void {
     const rc = app.automation_range_clip orelse {
-        app.setStatus("nothing yanked — select a range and y first", .{});
+        app.setStatus("nothing yanked - select a range and y first", .{});
         exitVisual(app);
         return;
     };
@@ -420,9 +420,9 @@ fn stepAt(app: *App, clip: *const ws.Clip, x: u16) ?u32 {
 }
 
 /// Row 0 is the title; any row below it (ruler, bar graph, or caret) picks a
-/// column the same way — clicking the ruler works just as well as clicking
+/// column the same way - clicking the ruler works just as well as clicking
 /// the bars. Click moves the cursor there; scroll moves it and nudges the
-/// value (matching the synth editor's scroll convention — ctrl = coarse).
+/// value (matching the synth editor's scroll convention - ctrl = coarse).
 pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize) void {
     const clip = currentClip(app) orelse return;
     if (row == 0) return;
@@ -446,8 +446,8 @@ fn moveCursor(app: *App, clip: *const ws.Clip, delta: i32) void {
     app.automation_cursor_step = @intCast(std.math.clamp(cur, 0, max_step));
 }
 
-/// "Bar" length in steps — despite the name, this is one beat (4 steps,
-/// always straight 16ths — automation has no grid toggle like the piano
+/// "Bar" length in steps - despite the name, this is one beat (4 steps,
+/// always straight 16ths - automation has no grid toggle like the piano
 /// roll's `T`), matching the drum grid's own hardcoded word-tier group and
 /// the piano roll's `barLenSteps` (see its own note on the earlier bug this
 /// mirrors: a real beats-per-bar multiply here would make w/b jump a full
@@ -458,7 +458,7 @@ fn barLenSteps(app: *App) u32 {
 }
 
 /// w/b: jump the cursor `delta` beats forward/back (vim's word motion, one
-/// tier up from h/l's step granularity) — snaps to the nearest beat boundary
+/// tier up from h/l's step granularity) - snaps to the nearest beat boundary
 /// first, then moves whole beats from there.
 fn jumpBar(app: *App, clip: *const ws.Clip, delta: i32) void {
     const bar_len = barLenSteps(app);
@@ -470,7 +470,7 @@ fn jumpBar(app: *App, clip: *const ws.Clip, delta: i32) void {
 }
 
 /// dw/yw's range end: the last step of the nth beat forward (inclusive), not
-/// w's own landing step (the *next* beat's first step) — see the
+/// w's own landing step (the *next* beat's first step) - see the
 /// operator-pending block's comment on 'w'.
 fn operatorBarForward(app: *App, clip: *const ws.Clip, n: i32) void {
     const bar_len = barLenSteps(app);
@@ -481,7 +481,7 @@ fn operatorBarForward(app: *App, clip: *const ws.Clip, n: i32) void {
     app.automation_cursor_step = @intCast(std.math.clamp(hi, 0, top));
 }
 
-/// db/yb's range start: the first step of the nth beat back — the anchor
+/// db/yb's range start: the first step of the nth beat back - the anchor
 /// (the cursor's position when `d`/`y` was pressed) stays the range's other
 /// (inclusive) end, so this covers "back to the start of this-or-an-earlier
 /// beat, through where you started."
@@ -510,7 +510,7 @@ fn finishOperator(app: *App, clip: *ws.Clip, op: u8) void {
 }
 
 /// Nudge the curve's value at the cursor's exact beat by `steps`, creating a
-/// point there if none exists — starting from whatever the curve currently
+/// point there if none exists - starting from whatever the curve currently
 /// interpolates to at that beat (0 if the curve is empty), so the first nudge
 /// on a bare stretch moves relative to what's already playing, not an
 /// arbitrary default.
@@ -530,7 +530,7 @@ fn nudgeValue(app: *App, clip: *ws.Clip, steps: i32) void {
         range[0], range[1],
         // zig fmt: on
     );
-    // Captured before the mutation — the whole lane, same granularity the
+    // Captured before the mutation - the whole lane, same granularity the
     // arrangement's own clip edits (move/delete) undo at.
     history.push(app, history.captureLane(app, app.automation_track));
     automation_mod.setPoint(app.allocator, points, beat, new_val) catch {
@@ -565,7 +565,7 @@ fn hasPointAt(points: []const AutomationPoint, beat: f64) bool {
     return false;
 }
 
-/// Open the synth-param picker (`p`) — poly_synth or sampler tracks only,
+/// Open the synth-param picker (`p`) - poly_synth or sampler tracks only,
 /// since no other instrument kind has a `setParamAbsolute` id space to
 /// automate (drum machine/slicer params are per-pad/per-slice, not a single
 /// per-track curve target, and were never in scope for this picker).
@@ -590,7 +590,7 @@ fn openParamPicker(app: *App) void {
     app.view = .automation_param_picker;
 }
 
-/// Chosen from the picker (enter/click) — creates an empty lane for the
+/// Chosen from the picker (enter/click) - creates an empty lane for the
 /// param on the current clip if none exists yet, switches focus to it, and
 /// returns to the automation view.
 pub fn selectParam(app: *App, param_id: u8) void {
@@ -605,10 +605,10 @@ pub fn selectParam(app: *App, param_id: u8) void {
 
 /// One printed row of the param picker: either a section header (dim label
 /// row, not selectable) or a param (index into the instrument's own
-/// `automatable_params` table — PolySynth's or Sampler's, whichever `params`
+/// `automatable_params` table - PolySynth's or Sampler's, whichever `params`
 /// the caller resolved via `instrumentAutomatableParams`). Shared by the
 /// picker's render (views/automation.zig) and its mouse hit-testing
-/// (App.automationParamPickerMouse) so the two can't drift out of sync —
+/// (App.automationParamPickerMouse) so the two can't drift out of sync -
 /// same "shared row math" convention views/synth.zig's import of
 /// editors/synth.zig's `paramRow` already uses.
 pub const ParamDisplayRow = union(enum) {
@@ -616,7 +616,7 @@ pub const ParamDisplayRow = union(enum) {
     param: usize,
 };
 
-/// Room for every param plus one header per distinct section — generous
+/// Room for every param plus one header per distinct section - generous
 /// fixed cap, not a computed expression, so it doesn't need updating if
 /// either instrument's `automatable_params` grows a little. PolySynth alone
 /// is past 100 params across 30+ sections now, so this has real headroom
@@ -628,7 +628,7 @@ pub const max_param_display_rows = 256;
 
 /// The `/` filter narrowing the param picker right now: the modal search
 /// buffer while it's being typed (live narrowing), else the last submitted
-/// pattern — same shape as `preset_ed.activeFilter`.
+/// pattern - same shape as `preset_ed.activeFilter`.
 pub fn activeParamFilter(app: *App) []const u8 {
     if (app.modal.mode == .search and app.view == .automation_param_picker)
         return app.modal.cmd_buf[0..app.modal.cmd_len];
@@ -641,7 +641,7 @@ fn paramMatches(p: ws.dsp.device.AutomatableParam, filter: []const u8) bool {
 }
 
 /// `params` is the current track's own `automatable_params` table (see
-/// `instrumentAutomatableParams`) — the caller resolves it, since views/
+/// `instrumentAutomatableParams`) - the caller resolves it, since views/
 /// automation.zig can't import `App` to call that helper itself (see its own
 /// `currentClip` doc comment for why view renderers take `app: anytype`).
 /// `filter` narrows to params (and their section) matching the fuzzy `/`

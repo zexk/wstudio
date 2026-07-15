@@ -99,14 +99,14 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                     return true;
                 },
                 // dw/yw act on exactly the beat(s) from the cursor through
-                // the end of the nth beat forward — not through w's raw
+                // the end of the nth beat forward - not through w's raw
                 // landing step (the *next* beat's first step), which would
                 // bleed one step into it. Mirrors vim's own dw: the motion
                 // still lands past the boundary for plain navigation, but
                 // an operator stops just short of it.
                 'w' => { operatorBarForward(app, max_step, app.takeCount()); finishOperator(app, pp, op); return true; },
                 // db/yb act on the beat(s) from the start of the nth beat
-                // back through the original cursor (inclusive) — the
+                // back through the original cursor (inclusive) - the
                 // anchor already holds that original position.
                 'b' => { operatorBarBackward(app, max_step, app.takeCount()); finishOperator(app, pp, op); return true; },
                 else => { app.piano_visual_anchor = null; app.setStatus("cancelled", .{}); return true; },
@@ -140,7 +140,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
         .ctrl_r => { history.doRedo(app); return true; },
         .char => |c| switch (c) {
             // 'i' falls through to modal.handle below, which enters insert
-            // mode — App.handleKey then stops routing keys through this
+            // mode - App.handleKey then stops routing keys through this
             // switch at all (see the piano_roll case) so the piano-keyboard
             // layout owns h/j/k/l instead of roll navigation. That's what
             // makes recordNote below reachable: play a take while the
@@ -169,7 +169,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 return true;
             },
             // w/b: vim's word motion, one tier up from h/l's step ("char")
-            // granularity — jump to the start of the next/current-or-
+            // granularity - jump to the start of the next/current-or-
             // previous beat (matches the drum grid's own w/b granularity).
             'w' => { jumpBar(app, max_step, app.takeCount()); return true; },
             'b' => { jumpBar(app, max_step, -app.takeCount()); return true; },
@@ -184,7 +184,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 history.push(app, history.captureMelodic(app, app.piano_track));
                 app.piano_grab = true;
                 app.piano_grab_delta = .{};
-                app.setStatus("moving note — h/l/j/k drag, esc drops", .{});
+                app.setStatus("moving note - h/l/j/k drag, esc drops", .{});
                 return true;
             },
             // </> nudge the velocity of the note under the cursor (count-scaled).
@@ -210,11 +210,11 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             's' => { spectrum.switchToTrack(app, app.piano_track); return true; },
             // n kept as an alias for muscle memory; enter is the canonical toggle.
             'n' => { insertNote(app); return true; },
-            // x: vim's char-delete — the note under the cursor, instantly,
+            // x: vim's char-delete - the note under the cursor, instantly,
             // no operator needed (the "char" tier of the note/beat/pattern
             // hierarchy; see the operator-pending block above).
             'x' => { deleteNote(app); return true; },
-            // d is an operator (see armOperator) — dd clears the cursor
+            // d is an operator (see armOperator) - dd clears the cursor
             // pitch's row, d + a motion (h/l/H/L/g/G/w/b) clears the range
             // it covers.
             'd' => { armOperator(app, 'd'); return true; },
@@ -277,7 +277,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
 
 /// Drag the grabbed note by `dstep` steps / `dpitch` semitones, cursor in
 /// tow, and write the edit through to a linked clip. Ends the grab if the
-/// note vanished from under the cursor (shouldn't happen — belt and braces).
+/// note vanished from under the cursor (shouldn't happen - belt and braces).
 /// Accumulates the session's total offset in `piano_grab_delta` so `.` can
 /// repeat the whole drag (as one transformation) once it's dropped.
 fn dragNote(app: *App, pp: *pattern_mod.PatternPlayer, max_step: u16, dstep: i32, dpitch: i32) void {
@@ -370,7 +370,7 @@ fn movePitch(app: *App, delta: i32) void {
 /// beat) and sixteenth-note triplets (6 steps/beat). Rescales the cursor
 /// step by its beat position so the view stays put on the same instant
 /// rather than jumping to an unrelated step index, and resets the default
-/// note length to one step of the new grid. Not undoable — a display/
+/// note length to one step of the new grid. Not undoable - a display/
 /// editing-grid setting, not song content (mirrors `piano_scale`).
 fn toggleGrid(app: *App) void {
     const old_beat = stepToBeat(app, app.piano_cursor_step);
@@ -436,7 +436,7 @@ fn toggleNote(app: *App) void {
 /// cursor pitch, using the active `:scale` to harmonize it correctly (e.g.
 /// `c` on the 2nd degree of C major stacks D-F-A). With no scale set,
 /// defaults to a plain major shape rooted at the cursor note. A single-key
-/// edit — like insert/toggle/delete — so it's not part of `.` repeat; press
+/// edit - like insert/toggle/delete - so it's not part of `.` repeat; press
 /// it again at a new cursor.
 fn stampChord(app: *App, seventh: bool) void {
     if (app.piano_track >= app.session.racks.items.len) return;
@@ -458,7 +458,7 @@ fn stampChord(app: *App, seventh: bool) void {
 
 /// Live recording: called from `App.applyAction`'s `.note` handler whenever
 /// insert mode plays a note on `app.piano_track`. Only writes something if
-/// the transport is actually rolling — a stopped transport has no playhead
+/// the transport is actually rolling - a stopped transport has no playhead
 /// to quantize against, so insert mode is pure audition in that case, same
 /// as everywhere else it's used. Quantizes to the playhead's current 16th
 /// step (the same grid `insertNote`/step-edit use) and skips a step that
@@ -506,7 +506,7 @@ fn insertNote(app: *App) void {
 }
 
 /// Resize the note starting under the cursor by `delta` beats (clamped to
-/// the loop length), or — if no note starts here — change the default length
+/// the loop length), or - if no note starts here - change the default length
 /// applied to newly placed notes.
 fn resizeOrLen(app: *App, delta: f64) void {
     if (app.piano_track >= app.session.racks.items.len) return;
@@ -565,7 +565,7 @@ pub fn syncLinkedClip(app: *App) void {
     };
     const clip = lane.clipAt(link.start_bar) orelse {
         app.piano_clip_link = null;
-        app.setStatus("clip gone — editing the live pattern now", .{});
+        app.setStatus("clip gone - editing the live pattern now", .{});
         return;
     };
     if (std.meta.activeTag(clip.content) != .melodic) {
@@ -602,7 +602,7 @@ fn yank(app: *App) void {
     app.setStatus("yanked {d} notes ({d:.0} beats)", .{ clip.count, clip.length_beats });
 }
 
-/// dd: delete every note on the cursor pitch's row — vim's line-delete,
+/// dd: delete every note on the cursor pitch's row - vim's line-delete,
 /// where a "line" is one pitch across the whole pattern. Whole-pattern
 /// clears are :clear or a full-range visual d; pitch-by-time selections
 /// are visual mode's job.
@@ -614,7 +614,7 @@ fn clearPitchRow(app: *App) void {
     var nbuf: [8]u8 = undefined;
     const name = midi.noteName(app.piano_cursor_pitch, &nbuf);
     // Capture before the edit, but only push it if something was actually
-    // removed — a dd on an empty row shouldn't dirty or record a no-op step.
+    // removed - a dd on an empty row shouldn't dirty or record a no-op step.
     var entry = history.captureMelodic(app, app.piano_track);
     const removed = pp.removeNotesAtPitch(app.piano_cursor_pitch);
     if (removed == 0) {
@@ -628,21 +628,21 @@ fn clearPitchRow(app: *App) void {
 }
 // zig fmt: on
 
-/// "Bar" length in steps under the current grid (straight/triplet) — despite
+/// "Bar" length in steps under the current grid (straight/triplet) - despite
 /// the name, this is one BEAT (stepsPerBeatF steps), matching the drum
 /// grid's own hardcoded 4-step word-tier group and the status line's own
-/// "bar X.Y" reading (which is a beat count, not a real musical bar — see
+/// "bar X.Y" reading (which is a beat count, not a real musical bar - see
 /// drawPianoRollStatus in views/piano.zig). Previously multiplied by
 /// beats_per_bar for a real musical bar, but that made w/b jump 4x further
 /// than the status line's own "bar" number implied and than the drum grid's
-/// equivalent motion — user correction: w/b should match the drum machine's
+/// equivalent motion - user correction: w/b should match the drum machine's
 /// granularity, one displayed unit at a time.
 fn barLenSteps(app: *App) u16 {
     return app.pianoStepsPerBeat();
 }
 
 /// w/b: jump the cursor `delta` beats forward/back (vim's word motion, one
-/// tier up from h/l's step granularity) — snaps to the nearest beat boundary
+/// tier up from h/l's step granularity) - snaps to the nearest beat boundary
 /// first, then moves whole beats from there.
 fn jumpBar(app: *App, max_step: u16, delta: i32) void {
     const bar_len = barLenSteps(app);
@@ -666,7 +666,7 @@ fn operatorBarForward(app: *App, max_step: u16, n: i32) void {
     app.piano_cursor_step = @intCast(std.math.clamp(hi, 0, top));
 }
 
-/// db/yb's range start: the first step of the nth beat back — the anchor
+/// db/yb's range start: the first step of the nth beat back - the anchor
 /// (the cursor's position when `d`/`y` was pressed) stays the range's other
 /// (inclusive) end, so this covers "back to the start of this-or-an-
 /// earlier beat, through where you started."
@@ -775,7 +775,7 @@ fn deleteSelection(app: *App, pp: *pattern_mod.PatternPlayer) void {
 /// whatever already sits at each destination pitch/step.
 fn pasteSelection(app: *App, pp: *pattern_mod.PatternPlayer) void {
     const clip = app.piano_range_clip orelse {
-        app.setStatus("nothing yanked — select a range and y first", .{});
+        app.setStatus("nothing yanked - select a range and y first", .{});
         exitVisual(app);
         return;
     };
@@ -805,7 +805,7 @@ fn paste(app: *App) void {
         pp.setNotes(clip.notes[0..clip.count], clip.length_beats);
         app.setStatus("pasted {d} notes ({d:.0} beats)", .{ clip.count, clip.length_beats });
         syncLinkedClip(app);
-    } else app.setStatus("nothing yanked — y copies the pattern", .{});
+    } else app.setStatus("nothing yanked - y copies the pattern", .{});
 }
 
 fn deleteNote(app: *App) void {
@@ -838,7 +838,7 @@ fn stepAt(scroll_step: u16, x: usize, cw: usize) ?u16 {
 }
 
 /// Click an empty cell to insert a note there (same as enter); click an
-/// existing note to grab it, same as pressing `M` — dragging then moves it
+/// existing note to grab it, same as pressing `M` - dragging then moves it
 /// (reusing `dragNote`), releasing without ever dragging is a plain click
 /// and toggles the note off instead (matching enter's toggle). Scroll moves
 /// the pitch cursor; **shift**+scroll moves the step cursor instead.
@@ -883,7 +883,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16) v
             const dpitch: i32 = @as(i32, pitch) - @as(i32, app.piano_cursor_pitch);
             if (dstep == 0 and dpitch == 0) return;
             if (!app.piano_grab_delta.moved) {
-                // First real motion of this grab — one undo entry covers
+                // First real motion of this grab - one undo entry covers
                 // the whole drag, same as the keyboard `M` path.
                 history.push(app, history.captureMelodic(app, app.piano_track));
                 app.piano_grab_delta.moved = true;

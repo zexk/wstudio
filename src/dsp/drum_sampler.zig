@@ -1,9 +1,9 @@
-//! Step-sequenced multisampler — the drum machine instrument.
+//! Step-sequenced multisampler - the drum machine instrument.
 //!
 //! Up to 64 pads (lazily allocated), each a full embedded `dsp.Sampler`
 //! (see sampler.zig): its own clip, start/end trim, pitch, amplitude ADSR,
 //! gain, pan, and reverse toggle. DrumMachine itself only adds the step
-//! sequencer on top — sample loading, param edits, and voice rendering are
+//! sequencer on top - sample loading, param edits, and voice rendering are
 //! delegated straight to each pad's Sampler, so there is exactly one place
 //! that owns that logic (shared with the standalone melodic Sampler track).
 //! A step trigger is `pad.resetAll()` + `pad.trigger(...)`: the reset forces
@@ -28,7 +28,7 @@
 //! Pads can also be assigned to a choke group (0 = none, 1..max_choke_groups):
 //! triggering a pad silences every other pad sharing its group, the classic
 //! closed/open-hihat behaviour. `choke_group` is a plain per-pad array (same
-//! race-tolerant convention as `step_count` — control thread writes, audio
+//! race-tolerant convention as `step_count` - control thread writes, audio
 //! thread reads, no atomics) nudged only by the rare `cycleChokeGroup` key.
 
 const std = @import("std");
@@ -74,7 +74,7 @@ pub const DrumMachine = struct {
     pub const swing_min: f32 = 50.0;
     pub const swing_max: f32 = 75.0;
 
-    /// Full-velocity value (127, MIDI-style max) — a fresh/toggled-on step's
+    /// Full-velocity value (127, MIDI-style max) - a fresh/toggled-on step's
     /// default.
     pub const vel_full: u8 = 127;
 
@@ -101,14 +101,14 @@ pub const DrumMachine = struct {
     /// here as plain data (control thread only).
     pub const Variant = struct {
         pattern: [max_pads]u64 = [_]u64{0} ** max_pads,
-        /// Per-step velocity (0-127; 127 = full). v12 — replaces the old
+        /// Per-step velocity (0-127; 127 = full). v12 - replaces the old
         /// 2-bit `vel_lo`/`vel_hi` bitplanes (see persist.zig's version doc).
         vel: [max_pads][max_steps]u8 = [_][max_steps]u8{[_]u8{vel_full} ** max_steps} ** max_pads,
         step_count: u8 = 16,
     };
 
     /// A drum clip flattened onto the arrangement's step timeline. `pattern` is
-    /// a plain snapshot of the source bitmask (no atomics — the audio thread
+    /// a plain snapshot of the source bitmask (no atomics - the audio thread
     /// reads it under `pad_lock`). The clip's own `step_count`-long pattern
     /// repeats to fill `span_steps` (its whole-bar length on the timeline).
     pub const SongClip = struct {
@@ -122,14 +122,14 @@ pub const DrumMachine = struct {
     /// Number of editable params per pad (see `adjustParam`).
     pub const pad_param_count: u8 = 10;
     /// Max simultaneous per-pad sidechain-detector capture requests one
-    /// block can carry — matches `Engine.max_sidechain_sources`, the real
+    /// block can carry - matches `Engine.max_sidechain_sources`, the real
     /// upper bound (every request this machine could ever receive in one
     /// block originates from that bank). Kept as its own small constant
     /// rather than importing audio/engine.zig just for it (engine.zig
-    /// already imports this file — see `Event.capture_pad`'s doc comment).
+    /// already imports this file - see `Event.capture_pad`'s doc comment).
     pub const max_pad_captures: u8 = 8;
 
-    /// One pad's per-block isolated-capture request — see `Event.
+    /// One pad's per-block isolated-capture request - see `Event.
     /// capture_pad`'s doc comment. `buf`'s lifetime is exactly one block:
     /// stashed here by `handleEvent`, consumed and cleared by the very next
     /// `processBlock` call.
@@ -137,7 +137,7 @@ pub const DrumMachine = struct {
     /// Id-space stride per pad. `set_param` ids are `pad << 4 | param`, so the
     /// stride is a power of two and pad/param decode with shift + mask.
     /// u16: at max_pads=64, `63 << 4 | param` is 1008+, past what a u8 id
-    /// could hold (this used to cap addressable pads at 15) — see
+    /// could hold (this used to cap addressable pads at 15) - see
     /// dsp/device.zig's Event.set_param doc comment.
     pub const param_stride: u16 = 16;
 
@@ -145,17 +145,17 @@ pub const DrumMachine = struct {
     sample_rate: u32,
     transport: *const Transport,
 
-    /// Up to 64 full Samplers, one per pad — lazily materialized. `null`
+    /// Up to 64 full Samplers, one per pad - lazily materialized. `null`
     /// means the pad has never had a sample loaded into it: no Sampler
     /// exists, no memory beyond the tag (a materialized Sampler carries a
     /// real audio buffer, ~115KB even for the generated default clip, which
     /// matters multiplied out to 64 pads if every unused slot paid it).
     /// Materializes on `loadPadWav`/`setPadSamples`; every accessor treats
-    /// null as "silent, nothing to do" — same "no override" shape
+    /// null as "silent, nothing to do" - same "no override" shape
     /// `AutomationCurve`'s null case already uses elsewhere. Each
     /// materialized pad guards its own clip buffer against concurrent reads
     /// (audio thread) and writes (control thread calling loadPadWav/
-    /// setPadSamples at runtime) — see Sampler.pad_lock.
+    /// setPadSamples at runtime) - see Sampler.pad_lock.
     pads: [max_pads]?Sampler,
     /// Guards `song_clips`/`song_clip_count`/`song_length_steps` against
     /// concurrent control-thread writes (setSongClips) while the audio
@@ -166,7 +166,7 @@ pub const DrumMachine = struct {
     /// Always mirrors the active variant; edits land here and are synced back
     /// to `variants[variant]` when switching away.
     pattern: [max_pads]std.atomic.Value(u64),
-    /// Per-step velocity (see `velGain`), one atomic u8 per step — no
+    /// Per-step velocity (see `velGain`), one atomic u8 per step - no
     /// bit-packing needed since each step's value is read/written whole.
     /// Atomic for the same UI-edits-while-audio-reads reason as `pattern`.
     vel: [max_pads][max_steps]std.atomic.Value(u8),
@@ -178,7 +178,7 @@ pub const DrumMachine = struct {
     choke_group: [max_pads]u8 = [_]u8{0} ** max_pads,
 
     // ── Pattern variants (control thread only) ──────────────────────────────
-    /// Bank slots. Slot `variant` is stale while active — read it through
+    /// Bank slots. Slot `variant` is stale while active - read it through
     /// `variantData`, which pulls the live atomics instead.
     variants: [max_variants]Variant = [_]Variant{.{}} ** max_variants,
     variant_count: u8 = 1,
@@ -202,7 +202,7 @@ pub const DrumMachine = struct {
 
     /// Current step index, published by the audio thread for UI display.
     current_step: std.atomic.Value(u8),
-    /// This block's registered pad-capture requests (see `PadCapture`) —
+    /// This block's registered pad-capture requests (see `PadCapture`) -
     /// audio-thread-only, filled by `handleEvent` right before `process()`
     /// runs and cleared at the end of the same `processBlock` call.
     pad_captures: [max_pad_captures]?PadCapture = [_]?PadCapture{null} ** max_pad_captures,
@@ -224,7 +224,7 @@ pub const DrumMachine = struct {
             .next_step_k = 0,
             .current_step = .init(0),
         };
-        for (&self.pads) |*p| p.* = null; // lazily materialized — see the field's doc comment
+        for (&self.pads) |*p| p.* = null; // lazily materialized - see the field's doc comment
         for (&self.pattern) |*p| p.* = .init(0);
         // zig fmt: off
         for (&self.vel) |*row| for (row) |*p| { p.* = .init(vel_full); };
@@ -240,7 +240,7 @@ pub const DrumMachine = struct {
             self.pads[i].?.pad.gain = slot.gain;
         }
 
-        // Default kit pads 2/3 (hihat/open) share choke group 1 — the
+        // Default kit pads 2/3 (hihat/open) share choke group 1 - the
         // classic pairing where an open hat ringing out gets cut by the
         // next closed-hat hit.
         self.choke_group[2] = 1;
@@ -257,7 +257,7 @@ pub const DrumMachine = struct {
     /// loads the embedded kit) so every buffer is uniquely allocated, then
     /// overwrites each pad with a dupe of this machine's actual clip audio
     /// (or leaves it null if the source pad was never loaded) and copies the
-    /// pattern bank, step count, and swing. Song-mode state isn't carried —
+    /// pattern bank, step count, and swing. Song-mode state isn't carried -
     /// the caller rebuilds it from the arrangement if needed.
     pub fn dupe(self: *const DrumMachine) !DrumMachine {
         var out = try DrumMachine.init(self.allocator, self.sample_rate, self.transport);
@@ -286,7 +286,7 @@ pub const DrumMachine = struct {
     // -----------------------------------------------------------------------
     // Pattern editing (UI thread)
 
-    /// Bitmask covering steps 0..n — the valid bits for an n-step pattern.
+    /// Bitmask covering steps 0..n - the valid bits for an n-step pattern.
     pub fn stepMask(n: u8) u64 {
         if (n >= 64) return ~@as(u64, 0);
         return (@as(u64, 1) << @intCast(n)) - 1;
@@ -294,7 +294,7 @@ pub const DrumMachine = struct {
 
     pub fn setStepCount(self: *DrumMachine, n: u8) void {
         self.step_count = std.math.clamp(n, 1, max_steps);
-        // Discard pattern bits beyond the new count — otherwise they'd
+        // Discard pattern bits beyond the new count - otherwise they'd
         // silently survive a shrink, reappear on grow, and be saved to disk.
         // Velocity gets the same hygiene: steps beyond the count reset to
         // full so a stray edit can't resurface invisibly on regrow either.
@@ -363,7 +363,7 @@ pub const DrumMachine = struct {
         self.selectVariant(@intCast(@mod(@as(i32, self.variant) + delta, n)));
     }
 
-    /// Duplicate the active variant into a new slot and switch to it — the
+    /// Duplicate the active variant into a new slot and switch to it - the
     /// live pattern already matches the copy. False when the bank is full.
     pub fn addVariant(self: *DrumMachine) bool {
         if (self.variant_count >= max_variants) return false;
@@ -441,7 +441,7 @@ pub const DrumMachine = struct {
         self.vel[pad][step].store(level, .release);
     }
 
-    /// Cycle through the named preset bands (127→95→63→31→127) — a quick
+    /// Cycle through the named preset bands (127→95→63→31→127) - a quick
     /// single-key gesture; `nudgeStepVel` covers the full 1-127 range.
     pub fn cycleStepVel(self: *DrumMachine, pad: u8, step: u8) void {
         const cur = self.stepVel(pad, step);
@@ -454,7 +454,7 @@ pub const DrumMachine = struct {
         self.setStepVel(pad, step, vel_presets[(idx + 1) % vel_presets.len]);
     }
 
-    /// Nudge one step's velocity by `delta`, clamped to 1..127 — 0 would be
+    /// Nudge one step's velocity by `delta`, clamped to 1..127 - 0 would be
     /// silent; use x/X to remove a step instead of zeroing its velocity.
     pub fn nudgeStepVel(self: *DrumMachine, pad: u8, step: u8, delta: i32) void {
         const cur: i32 = self.stepVel(pad, step);
@@ -482,7 +482,7 @@ pub const DrumMachine = struct {
         return "empty";
     }
 
-    /// Current sequencer step — read by the UI to highlight the playhead.
+    /// Current sequencer step - read by the UI to highlight the playhead.
     pub fn currentStep(self: *const DrumMachine) u8 {
         return self.current_step.load(.monotonic);
     }
@@ -496,9 +496,9 @@ pub const DrumMachine = struct {
     /// the audio thread via the `set_param` event so it never races the block
     /// reader, mirroring PolySynth.adjustParam. The pad index is the high bits
     /// of `id`; the param index is the low nibble (see `paramId`). Delegates
-    /// straight to the pad's own Sampler.adjustParam — pads only ever receive
+    /// straight to the pad's own Sampler.adjustParam - pads only ever receive
     /// param indices 0..9 (the drum grid never exposes Sampler's root-note
-    /// param 10). A no-op on an unloaded (null) pad — nothing to nudge.
+    /// param 10). A no-op on an unloaded (null) pad - nothing to nudge.
     pub fn adjustParam(self: *DrumMachine, id: u16, steps: i32) void {
         const pad_idx: u8 = @intCast(id >> 4);
         const param: u8 = @intCast(id & 0x0F);
@@ -507,7 +507,7 @@ pub const DrumMachine = struct {
     }
 
     /// Absolute-value counterpart to `adjustParam`, same pad-encoded id
-    /// space — for undo's capture/restore, delegating to the pad's own
+    /// space - for undo's capture/restore, delegating to the pad's own
     /// Sampler.setParamAbsolute. Runs on the audio thread via the
     /// `set_param_abs` event.
     pub fn setParamAbsolute(self: *DrumMachine, id: u16, value: f32) void {
@@ -518,7 +518,7 @@ pub const DrumMachine = struct {
     }
 
     /// Current value of pad-encoded param `id` (see `paramId`), the read
-    /// half of undo's capture/restore pair — null for an unloaded pad,
+    /// half of undo's capture/restore pair - null for an unloaded pad,
     /// matching `adjustParam`'s no-op there.
     pub fn paramValue(self: *const DrumMachine, id: u16) ?f32 {
         const pad_idx: u8 = @intCast(id >> 4);
@@ -543,7 +543,7 @@ pub const DrumMachine = struct {
 
     /// Replace pad `idx` with external mono f32 samples (must be allocated
     /// with `self.allocator`; the pad's Sampler takes ownership). Resets every
-    /// other pad param to its default — used for a clean-slate kit pad, not
+    /// other pad param to its default - used for a clean-slate kit pad, not
     /// user WAV loading (see `loadPadWav`, which preserves params).
     /// Materializes the pad if it was still null.
     pub fn setPadSamples(
@@ -554,16 +554,16 @@ pub const DrumMachine = struct {
     ) void {
         if (idx >= max_pads) return;
         const pad = self.ensurePad(idx) catch {
-            self.allocator.free(samples); // materialize failed — don't leak the caller's buffer
+            self.allocator.free(samples); // materialize failed - don't leak the caller's buffer
             return;
         };
         pad.setSamples(samples, name);
     }
 
-    /// Regenerate the kit variant's pads (always the first 8 — kits are an
+    /// Regenerate the kit variant's pads (always the first 8 - kits are an
     /// 8-pad concept regardless of `max_pads`; see `dsp/drum_kit.zig`'s
     /// `variants` table) from procedural generators. Runs them directly into
-    /// fresh pad buffers — nothing is read from disk or the binary's
+    /// fresh pad buffers - nothing is read from disk or the binary's
     /// embedded assets, so extra kit flavours cost no shipped bytes. Marks
     /// every pad as non-user so it isn't exported to the sample sidecar.
     pub fn loadKitVariant(self: *DrumMachine, variant: *const drum_kit.KitVariant) !void {
@@ -574,7 +574,7 @@ pub const DrumMachine = struct {
         }
     }
 
-    /// One pad's musical tuning, independent of its audio — what a
+    /// One pad's musical tuning, independent of its audio - what a
     /// user-saved kit persists (see tui/user_drum_kits.zig). Unlike
     /// `VariantSlot`, carries no generator/sample: applying a `PadTune`
     /// layers onto whatever audio a pad already holds rather than
@@ -591,7 +591,7 @@ pub const DrumMachine = struct {
         choke_group: u8 = 0,
     };
 
-    /// Snapshot pads 0-7's current tuning — the read half of a user kit
+    /// Snapshot pads 0-7's current tuning - the read half of a user kit
     /// save. A still-empty slot reports `PadTune{}` (its implicit defaults).
     pub fn tunePads(self: *const DrumMachine) [8]PadTune {
         var out: [8]PadTune = undefined;
@@ -615,7 +615,7 @@ pub const DrumMachine = struct {
         return out;
     }
 
-    /// Apply a saved tuning onto pads 0-7 — same 8-pad concept
+    /// Apply a saved tuning onto pads 0-7 - same 8-pad concept
     /// `loadKitVariant` uses, but skips a still-empty pad slot instead of
     /// materializing one, since a `PadTune` carries no audio to give it.
     pub fn applyPadTune(self: *DrumMachine, tune: *const [8]PadTune) void {
@@ -634,7 +634,7 @@ pub const DrumMachine = struct {
     }
 
     /// Parse raw WAV bytes into pad `idx`, keeping its other params (pitch,
-    /// trim, ADSR, gain, …) untouched — same as loading a new clip into the
+    /// trim, ADSR, gain, …) untouched - same as loading a new clip into the
     /// standalone Sampler. Resamples to engine rate if needed. Materializes
     /// the pad if it was still null.
     pub fn loadPadWav(self: *DrumMachine, idx: u8, wav_data: []const u8, name: []const u8) !void {
@@ -710,7 +710,7 @@ pub const DrumMachine = struct {
         // A pad with a pending capture request renders into its own scratch
         // buffer first (so its contribution can be copied out in isolation),
         // then that scratch sums into `buf` exactly like every other pad's
-        // direct `processBlock(buf)` call — never rendered twice, so voice
+        // direct `processBlock(buf)` call - never rendered twice, so voice
         // state (envelopes, playback position) advances only once either
         // way. Every other pad takes the cheap direct-into-`buf` path,
         // unchanged from before per-pad capture existed.
@@ -738,7 +738,7 @@ pub const DrumMachine = struct {
     }
 
     /// Fire pads for absolute step `step_k` from the song timeline. Past
-    /// `song_length_steps` this goes silent instead of wrapping — the
+    /// `song_length_steps` this goes silent instead of wrapping - the
     /// arrangement plays once through, not on a loop.
     fn fireSongStep(self: *DrumMachine, step_k: u64, fire_frame: u32) void {
         if (self.song_length_steps == 0 or step_k >= self.song_length_steps) return;
@@ -761,12 +761,12 @@ pub const DrumMachine = struct {
     }
 
     /// Trigger pad `p` at its own root (no chromatic shift) after clearing any
-    /// voice already in flight — a retrigger always chokes the previous hit,
+    /// voice already in flight - a retrigger always chokes the previous hit,
     /// the classic drum-machine convention, even though the underlying
     /// Sampler is itself polyphonic. If `p` belongs to a choke group (nonzero
     /// `choke_group`), every other pad sharing that group is silenced too
     /// (e.g. a closed-hat hit cutting an open hat's ring-out). A no-op on an
-    /// unloaded (null) pad — nothing to trigger.
+    /// unloaded (null) pad - nothing to trigger.
     fn chokeTrigger(self: *DrumMachine, p: u8, vel: f32, block_start: u32) void {
         const pad = if (self.pads[p]) |*s| s else return;
         const group = self.choke_group[p];
@@ -809,7 +809,7 @@ pub const DrumMachine = struct {
         }
     }
 
-    /// Stash a pad-capture request in the first free slot — extras past
+    /// Stash a pad-capture request in the first free slot - extras past
     /// `max_pad_captures` are silently dropped, same "bank of N" convention
     /// `Engine.registerSidechainSource` already uses.
     fn addPadCapture(self: *DrumMachine, pad: u8, buf: []Sample) void {
@@ -862,7 +862,7 @@ test "step sequencer fires pads at correct boundaries" {
     @memset(&buf, 0.0);
     dm.processBlock(&buf);
 
-    // Step 0 fires at frame 0 — pad 0 should be audible
+    // Step 0 fires at frame 0 - pad 0 should be audible
     var peak: f32 = 0;
     for (buf) |s| peak = @max(peak, @abs(s));
     try std.testing.expect(peak > 0.01);
@@ -1172,7 +1172,7 @@ test "variants: cycle wraps and remove shifts the bank down" {
     try std.testing.expectEqual(@as(u8, 0), dm.variant);
 
     _ = dm.addVariant(); // B
-    _ = dm.addVariant(); // C — mark it
+    _ = dm.addVariant(); // C - mark it
     for (&dm.pattern) |*p| p.store(0, .monotonic);
     dm.toggleStep(7, 7);
 

@@ -7,7 +7,7 @@
 //! layer converts steps to beats via step / 4.0.
 //!
 //! The target is a plain `dsp.Device`, so any note-driven instrument can be
-//! sequenced — note events go through the same vtable the live keyboard uses.
+//! sequenced - note events go through the same vtable the live keyboard uses.
 
 const std = @import("std");
 const types = @import("../core/types.zig");
@@ -18,7 +18,7 @@ const PolySynth = @import("synth.zig").PolySynth;
 pub const max_notes: u16 = 512;
 
 /// What a note lands at when nothing supplies a velocity (step edits, the
-/// qwerty piano) — recorded MIDI carries its own.
+/// qwerty piano) - recorded MIDI carries its own.
 pub const default_velocity: f32 = 0.85;
 
 // zig fmt: off
@@ -46,7 +46,7 @@ pub const PatternPlayer = struct {
     length_beats: f64 = 4.0,
     /// Swing percent (see `swing_min`/`swing_max`): every note landing on an
     /// off-beat 16th (odd step, 0.25 beat each) fires late by up to a
-    /// quarter of a step (75% = hardest shuffle) — mirrors DrumMachine's
+    /// quarter of a step (75% = hardest shuffle) - mirrors DrumMachine's
     /// swing exactly, so a melodic track can match a swung drum groove.
     swing: std.atomic.Value(f32) = .init(50.0),
 
@@ -61,7 +61,7 @@ pub const PatternPlayer = struct {
     song_notes:       [max_notes]Note = undefined,
     song_note_count:  u16 = 0,
     /// Loop length of the whole arrangement in beats. Past this point
-    /// process() goes silent instead of wrapping — the arrangement plays
+    /// process() goes silent instead of wrapping - the arrangement plays
     /// once through, unlike the live loop above.
     song_length_beats: f64 = 0.0,
 
@@ -146,7 +146,7 @@ pub const PatternPlayer = struct {
     }
 
     /// Copy notes whose start_beat falls in [lo_beat, hi_beat) into `out`,
-    /// rebased so `lo_beat` becomes 0 (UI thread). Returns the count copied —
+    /// rebased so `lo_beat` becomes 0 (UI thread). Returns the count copied -
     /// the yank half of the piano roll's visual-mode range clipboard.
     pub fn copyNotesInRange(self: *PatternPlayer, lo_beat: f64, hi_beat: f64, out: []Note) u16 {
         while (!self.notes_lock.tryLock()) std.atomic.spinLoopHint();
@@ -163,7 +163,7 @@ pub const PatternPlayer = struct {
     }
 
     /// Remove every note on one pitch, across the whole pattern (UI
-    /// thread). Returns the count removed — the piano roll's `dd`, where a
+    /// thread). Returns the count removed - the piano roll's `dd`, where a
     /// "line" is the cursor pitch's whole row.
     pub fn removeNotesAtPitch(self: *PatternPlayer, pitch: u7) u16 {
         while (!self.notes_lock.tryLock()) std.atomic.spinLoopHint();
@@ -181,7 +181,7 @@ pub const PatternPlayer = struct {
     }
 
     /// Remove every note whose start_beat falls in [lo_beat, hi_beat) (UI
-    /// thread). Returns the count removed — the delete half of the piano
+    /// thread). Returns the count removed - the delete half of the piano
     /// roll's visual-mode range selection.
     pub fn removeNotesInRange(self: *PatternPlayer, lo_beat: f64, hi_beat: f64) u16 {
         while (!self.notes_lock.tryLock()) std.atomic.spinLoopHint();
@@ -201,7 +201,7 @@ pub const PatternPlayer = struct {
 
     /// Jitters every live note's timing (±`amount_pct`% of one grid step,
     /// clamped inside the loop) and velocity (±`amount_pct`%, relative,
-    /// clamped to (0, 1]) — the `:humanize` command. Unlike `noteAt`'s
+    /// clamped to (0, 1]) - the `:humanize` command. Unlike `noteAt`'s
     /// callers this moves `start_beat`, so it takes the full lock rather
     /// than mutating in place.
     pub fn humanize(self: *PatternPlayer, amount_pct: f64, step_beats: f64, seed: u64) void {
@@ -219,7 +219,7 @@ pub const PatternPlayer = struct {
         }
     }
 
-    /// Set swing to `pct`, clamped to [swing_min, swing_max] — the
+    /// Set swing to `pct`, clamped to [swing_min, swing_max] - the
     /// `:swing` command. Audio-thread-safe (atomic store), not undo-tracked:
     /// a mixer-style live param, same as DrumMachine's own swing.
     pub fn setSwing(self: *PatternPlayer, pct: f32) void {
@@ -267,7 +267,7 @@ pub const PatternPlayer = struct {
     }
 
     /// Delay `beat` by up to a quarter-step if it lands on an off-beat 16th
-    /// (odd step, 0.25 beat each) — same shape as DrumMachine's per-step
+    /// (odd step, 0.25 beat each) - same shape as DrumMachine's per-step
     /// `swing_delay`, just expressed in beats instead of frames. Even steps
     /// stay exactly on the grid, so boundary positions stay non-decreasing.
     fn swungBeat(beat: f64, swing_pct: f32) f64 {
@@ -281,10 +281,10 @@ pub const PatternPlayer = struct {
     // ── Audio thread ─────────────────────────────────────────────────────────
 
     /// Fire note_offs then note_ons for notes whose (swung) boundaries fall
-    /// in [lo, hi). `lo` and `hi` are beat positions within [0, loop_beats) —
+    /// in [lo, hi). `lo` and `hi` are beat positions within [0, loop_beats) -
     /// non-wrapping. `swing_pct` shifts a note's start (and, to keep its
-    /// audible length exact, its matching note_off) as a single unit — never
-    /// the onset alone — so a swung note-off can never land before its own
+    /// audible length exact, its matching note_off) as a single unit - never
+    /// the onset alone - so a swung note-off can never land before its own
     /// swung onset.
     pub fn scanRange(
         notes: []const Note,
@@ -356,7 +356,7 @@ pub const PatternPlayer = struct {
 
         if (self.song_mode and start_beat >= loop) {
             // Past the end of the arrangement: silence anything left
-            // sounding and stop — the song plays once through, it doesn't
+            // sounding and stop - the song plays once through, it doesn't
             // wrap like the live loop does.
             for (0..128) |p| {
                 if (self.sounding[p]) {
@@ -372,7 +372,7 @@ pub const PatternPlayer = struct {
 
         const swing_pct = self.swing.load(.monotonic);
         if (self.song_mode) {
-            // No wraparound in song mode — clamp to the arrangement's end.
+            // No wraparound in song mode - clamp to the arrangement's end.
             scanRange(notes, loop, &self.sounding, self.target, s, @min(e, loop), swing_pct);
         } else if (e >= loop) {
             // Block spans the loop boundary: two non-wrapping scans.
@@ -432,7 +432,7 @@ test "swing delays a note on an off-beat 16th, mirroring DrumMachine's math" {
     try std.testing.expect(pp.sounding[60]);
 
     // Even steps (step 0, start_beat 0.0) stay exactly on the grid regardless
-    // of swing — only odd (off-beat) steps shift.
+    // of swing - only odd (off-beat) steps shift.
     pp.notes[0] = .{ .pitch = 62, .start_beat = 0.0, .duration_beat = 0.25 };
     PatternPlayer.scanRange(pp.notes[0..1], loop, &pp.sounding, synth.device(), 0.0, 0.1, 75.0);
     try std.testing.expect(pp.sounding[62]);

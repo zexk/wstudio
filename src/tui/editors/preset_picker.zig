@@ -2,16 +2,16 @@
 //! synth patches (factory dsp/synth_presets.zig + user tui/user_presets.zig,
 //! opened with `f` in the synth editor) and drum kits (factory
 //! dsp/drum_kit.zig, which carries its own audio, + user
-//! tui/user_drum_kits.zig, pad tuning only — see that file's own doc
+//! tui/user_drum_kits.zig, pad tuning only - see that file's own doc
 //! comment; `f` in the drum grid). The render half lives in
 //! views/preset_picker.zig; both layers share `buildDisplayRows` so cursor,
-//! mouse hit-testing and drawing can't drift — same convention the
+//! mouse hit-testing and drawing can't drift - same convention the
 //! automation param picker set with buildParamDisplayRows.
 //!
 //! `/` narrows the list live with the same fuzzy rule `/` search uses
 //! everywhere else, matched against a preset's name, category, any genre
 //! tag, and its author ("wstudio" for factory content, "user" for saved
-//! presets) — so `/trance` filters to a genre and `/user` to your own saves.
+//! presets) - so `/trance` filters to a genre and `/user` to your own saves.
 
 const std = @import("std");
 const ws = @import("wstudio");
@@ -232,7 +232,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) void {
 }
 
 /// Click an entry row to select + apply it (headers ignore the click);
-/// scroll moves the selection — same shape as the other pickers' mouse
+/// scroll moves the selection - same shape as the other pickers' mouse
 /// handlers. Row math mirrors views/preset_picker.zig's layout: title(1) +
 /// blank(1) preamble, then the display rows offset by the scroll.
 pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize) void {
@@ -321,7 +321,7 @@ fn deleteSelected(app: *App) void {
     app.setStatus("deleted preset: {s}", .{name_buf[0..shown_len]});
 }
 
-/// Apply the highlighted entry to the picker's target track — the same
+/// Apply the highlighted entry to the picker's target track - the same
 /// paths `:synth-preset`/`:drum-kit` take (PolySynth.applyPatch /
 /// DrumMachine.loadKitVariant/applyPadTune), then bounce back to the
 /// opening view. An apply error keeps the picker open with the error in the

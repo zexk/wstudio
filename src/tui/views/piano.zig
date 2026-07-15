@@ -111,11 +111,11 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
     // zig fmt: on
 
     // Steps per beat under the current grid (4 = straight 16ths, 6 = 16th
-    // triplets, toggled by `T` — see App.pianoStepsPerBeat).
+    // triplets, toggled by `T` - see App.pianoStepsPerBeat).
     const spb: u16 = app.pianoStepsPerBeat();
     const spbf: f64 = @floatFromInt(spb);
 
-    // Playhead step within the loop (maxInt when stopped — never matches a visible step).
+    // Playhead step within the loop (maxInt when stopped - never matches a visible step).
     const play_step: u16 = if (snap.playing) blk: {
         const sr: f64 = @floatFromInt(app.session.project.sample_rate);
         const bpm: f64 = app.session.project.tempo_bpm;
@@ -138,7 +138,7 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
         try w.writeAll(rst);
     } else if (app.session.song_mode) {
         // Unlinked + song mode: this is the scratch pattern buffer, not any
-        // clip already placed in the arrangement — it stays silent in the
+        // clip already placed in the arrangement - it stays silent in the
         // song until stamped (arrangement: enter). Flag it so editing here
         // doesn't get mistaken for editing what's actually playing.
         try w.writeAll("  " ++ red);

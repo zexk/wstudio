@@ -35,7 +35,7 @@ pub const picker_kinds = [_]FxKind{
     .gate, .comp, .mb_comp, .ott, .eq, .sat, .crush, .chorus, .flanger, .tape, .phaser, .freq_shift, .delay, .reverb,
 };
 
-/// The `/` filter narrowing the FX insert picker right now — same
+/// The `/` filter narrowing the FX insert picker right now - same
 /// live-while-typing rule `preset_ed.activeFilter` uses.
 pub fn activeFilter(app: *App) []const u8 {
     if (app.modal.mode == .search and app.view == .fx_picker)
@@ -116,7 +116,7 @@ pub fn paramCount(k: FxKind) usize {
     };
 }
 
-/// True if `track` currently hosts a drum machine — the only instrument
+/// True if `track` currently hosts a drum machine - the only instrument
 /// with individually addressable pads, so the only one `scpad` (see
 /// `visibleParamCount`) makes sense against.
 fn trackIsDrumMachine(app: *App, track: u16) bool {
@@ -127,7 +127,7 @@ fn trackIsDrumMachine(app: *App, track: u16) bool {
 /// `paramCount`, narrowed to what this specific unit instance should
 /// actually show/cycle through: `comp`'s `scpad` row (idx 6, "which pad on
 /// the sidechain track") only makes sense once a sidechain track is picked
-/// AND that track is a drum machine — every other instrument has no pad
+/// AND that track is a drum machine - every other instrument has no pad
 /// concept. Every other kind (and `comp` itself, absent that condition)
 /// falls through to the static `paramCount`.
 pub fn visibleParamCount(app: *App, k: FxKind, p: *const FxPayload) usize {
@@ -140,7 +140,7 @@ pub fn visibleParamCount(app: *App, k: FxKind, p: *const FxPayload) usize {
 
 /// Flat param list for a multiband compressor: 6 shared controls (crossover
 /// x2, attack, release, style, mix) followed by 3 fields (thresh/ratio/
-/// makeup) per band, low->mid->high — same "one sequential list" shape the
+/// makeup) per band, low->mid->high - same "one sequential list" shape the
 /// EQ's flattened band/field list already uses.
 pub const mb_xover_lo = 0;
 pub const mb_xover_hi = 1;
@@ -152,7 +152,7 @@ pub const mb_shared_count = 6;
 pub const mb_fields_per_band = 3; // thresh, ratio, makeup
 const mb_comp_param_count = mb_shared_count + multiband_comp.num_bands * mb_fields_per_band;
 
-/// The OTT unit's four params, in display order — the whole point of the
+/// The OTT unit's four params, in display order - the whole point of the
 /// kind is that this list stays this short (see dsp/ott.zig).
 pub const ott_depth = 0;
 pub const ott_time = 1;
@@ -166,9 +166,9 @@ pub fn mbBandField(idx: usize) MbBandField {
 
 /// EQ params are a flat `band*eq_fields_per_band + field` list (kind, freq,
 /// q, gain per band), the same "one sequential param list" shape every
-/// other multi-param unit here uses — no separate band/field navigation
+/// other multi-param unit here uses - no separate band/field navigation
 /// axis needed. `eq_field_gain`'s row is "gain" for a peak band or "slope"
-/// for a lowpass/highpass one (see `paramName`/`getParam`/`setParam`) —
+/// for a lowpass/highpass one (see `paramName`/`getParam`/`setParam`) -
 /// the two response families never apply at once (a filter band's gain is
 /// stored but the DSP ignores it), so they share the one flat slot instead
 /// of needing a fifth per-band field.
@@ -182,7 +182,7 @@ pub fn eqBandField(idx: usize) struct { band: usize, field: usize } {
     return .{ .band = idx / eq_fields_per_band, .field = idx % eq_fields_per_band };
 }
 
-/// Full-word label for a band's response type — `eq_field_kind`'s value.
+/// Full-word label for a band's response type - `eq_field_kind`'s value.
 pub fn eqKindLabel(kind: eq_mod.BandKind) []const u8 {
     return switch (kind) {
         .peak => "peak",
@@ -191,9 +191,9 @@ pub fn eqKindLabel(kind: eq_mod.BandKind) []const u8 {
     };
 }
 
-/// [band][field] name table (thresh/ratio/makeup x low/mid/high) — a static
+/// [band][field] name table (thresh/ratio/makeup x low/mid/high) - a static
 /// lookup instead of building the string at call time, matching every other
-/// param-name function here (no allocation). Every label stays <=9 chars —
+/// param-name function here (no allocation). Every label stays <=9 chars -
 /// `style.rowHead`'s label column is a fixed 9-wide field; "mid-makeup" (10
 /// chars) broke that alignment, so all three makeup labels use "*-mkup".
 const mb_band_param_names = [multiband_comp.num_bands][mb_fields_per_band][]const u8{
@@ -207,7 +207,7 @@ fn mbBandParamName(bf: MbBandField) []const u8 {
 }
 
 /// One row of the per-kind param table driving the 11 "plain" FX kinds
-/// below — everything that reduces to reading/writing one f32 field (or,
+/// below - everything that reduces to reading/writing one f32 field (or,
 /// for a couple of clamped/derived params, calling an existing method)
 /// against a static range. EQ, multiband comp, and comp's sidechain rows
 /// don't fit this shape (banded indexing, cross-field/`app`-derived state)
@@ -250,7 +250,7 @@ fn tableGet(self: anytype, comptime table: []const ParamSpec, idx: usize) f32 {
 }
 
 /// Clamps (and, for whole-number params, rounds) `value` to `spec`'s range
-/// before writing it — through the setter method if one's given, otherwise
+/// before writing it - through the setter method if one's given, otherwise
 /// straight into the field. The clamp always runs even when a setter also
 /// clamps internally (e.g. `Ott.setDepth`): harmless double-clamp there,
 /// load-bearing for `StereoDelay.setTime`, whose `seconds` param underflows
@@ -304,7 +304,7 @@ const phaser_specs = [_]ParamSpec{
 };
 
 /// Flanger's controls are the same shape as phaser's (mechanical copy when
-/// the unit was added — see docs/ FX chain notes).
+/// the unit was added - see docs/ FX chain notes).
 const flanger_specs = phaser_specs;
 
 const tape_specs = [_]ParamSpec{
@@ -342,7 +342,7 @@ const ott_specs = [_]ParamSpec{
     .{ .name = "out", .field = "gain_out_db", .min = -24.0, .max = 24.0, .step_fine = 0.5, .step_coarse = 3.0 },
 };
 
-/// `comp`'s first 5 params only — idx 5/6 are the sidechain track/pad
+/// `comp`'s first 5 params only - idx 5/6 are the sidechain track/pad
 /// spinners, which need `app` and cross-field state the table shape can't
 /// express, so they stay hand-written in every switch below.
 const comp_specs = [_]ParamSpec{
@@ -353,7 +353,7 @@ const comp_specs = [_]ParamSpec{
     .{ .name = "makeup", .field = "makeup_db", .min = -24.0, .max = 24.0, .step_fine = 0.5, .step_coarse = 3.0 },
 };
 
-/// Param name at `idx` in `p` — bounds match `paramCount`.
+/// Param name at `idx` in `p` - bounds match `paramCount`.
 pub fn paramName(p: *const FxPayload, idx: usize) []const u8 {
     return switch (p.*) {
         .eq => |*e| blk: {
@@ -393,7 +393,7 @@ pub fn paramName(p: *const FxPayload, idx: usize) []const u8 {
     };
 }
 
-/// Current value of param `idx` in `p` — bounds match `paramCount`.
+/// Current value of param `idx` in `p` - bounds match `paramCount`.
 pub fn getParam(p: *const FxPayload, idx: usize) f32 {
     return switch (p.*) {
         .eq => |*e| blk: {
@@ -425,11 +425,11 @@ pub fn getParam(p: *const FxPayload, idx: usize) f32 {
         },
         .comp => |*c| switch (idx) {
             // Sidechain source, encoded as 0 = none, N = 1-based track index
-            // (matches the tracks view's own 1-based row numbering) — lets
+            // (matches the tracks view's own 1-based row numbering) - lets
             // this slot share the same float-valued get/set/range/step shape
             // every other param here uses instead of a separate enum path.
             5 => if (c.sidechain_source) |s| @as(f32, @floatFromInt(s.track)) + 1.0 else 0.0,
-            // Sidechain pad, same 0=none/N=1-based encoding as idx 5 — only
+            // Sidechain pad, same 0=none/N=1-based encoding as idx 5 - only
             // meaningful once a track is picked there; see `setParam`.
             6 => if (c.sidechain_source) |s| (if (s.pad) |pd| @as(f32, @floatFromInt(pd)) + 1.0 else 0.0) else 0.0,
             else => tableGet(c, &comp_specs, idx),
@@ -448,7 +448,7 @@ pub fn getParam(p: *const FxPayload, idx: usize) f32 {
     };
 }
 
-/// [min, max] of param `idx` in a unit of kind `k` — the same bounds
+/// [min, max] of param `idx` in a unit of kind `k` - the same bounds
 /// `setParam` clamps to, exported so the view can draw each param as a
 /// filled bar (barRow wants a 0..1-ish normalised value).
 pub fn paramRange(app: *App, p: *const FxPayload, idx: usize) [2]f32 {
@@ -493,7 +493,7 @@ pub fn paramRange(app: *App, p: *const FxPayload, idx: usize) [2]f32 {
     };
 }
 
-/// Two-name label pair for a genuine on/off-style param — `views/spectrum.zig`
+/// Two-name label pair for a genuine on/off-style param - `views/spectrum.zig`
 /// draws these with `style.enumRow` (bracketed, discrete) instead of
 /// `barRow`'s filled slider, same as the synth/sampler editors already do
 /// for their own booleans (osc-b on/off, sampler reverse/mono-poly). A
@@ -510,7 +510,7 @@ pub fn paramToggleNames(k: FxKind, idx: usize) ?[2][]const u8 {
 }
 
 // zig fmt: off
-/// Clamped absolute set of param `idx` in `p` — bounds match `paramRange`.
+/// Clamped absolute set of param `idx` in `p` - bounds match `paramRange`.
 pub fn setParam(app: *App, p: *FxPayload, idx: usize, value: f32) void {
     switch (p.*) {
         .eq => |*e| {
@@ -557,7 +557,7 @@ pub fn setParam(app: *App, p: *FxPayload, idx: usize, value: f32) void {
                     c.sidechain_source = .{ .track = track, .pad = pad };
                 }
             },
-            // Only meaningful once a track is picked at idx 5 — a no-op
+            // Only meaningful once a track is picked at idx 5 - a no-op
             // otherwise, since there's nothing to attach a pad to.
             6 => if (c.sidechain_source) |sc| {
                 const rounded = std.math.clamp(@round(value), 0.0, @as(f32, @floatFromInt(DrumMachine.max_pads)));
@@ -583,13 +583,13 @@ pub fn setParam(app: *App, p: *FxPayload, idx: usize, value: f32) void {
 }
 // zig fmt: on
 
-/// Nudge step for `j`/`k` (`coarse` = `J`/`K`) — sized per param so a single
+/// Nudge step for `j`/`k` (`coarse` = `J`/`K`) - sized per param so a single
 /// press is a musically useful move (e.g. 1dB fine / 6dB coarse for EQ and
 /// comp threshold, fractions for the 0..1-ish delay/reverb knobs).
 fn paramStep(p: *const FxPayload, idx: usize, coarse: bool) f32 {
     return switch (p.*) {
         .eq => |*e| switch (eqBandField(idx).field) {
-            eq_field_kind => 1.0, // 3 discrete states — same nudge whether fine or coarse
+            eq_field_kind => 1.0, // 3 discrete states - same nudge whether fine or coarse
             eq_field_freq => if (coarse) @as(f32, 100.0) else 10.0,
             eq_field_q => if (coarse) @as(f32, 0.5) else 0.1,
             // gain steps normally; slope steps whole cascade stages, coarse
@@ -632,7 +632,7 @@ fn paramStep(p: *const FxPayload, idx: usize, coarse: bool) f32 {
 
 /// Which chain is in view: a track's rack, the master bus, or a group
 /// submix bus (see `Session.Group`). One shared FX-chain editor/view for
-/// all three — group chains build/edit exactly like a track's or the
+/// all three - group chains build/edit exactly like a track's or the
 /// master's.
 /// Nudge the viewed group's bus fader by `delta` dB (see Session.setGroupGain
 /// for the clamp) and echo the new level.
@@ -646,7 +646,7 @@ fn adjustGroupGain(app: *App, delta: f32) void {
 
 pub const EqTarget = enum { track, master, group };
 
-/// Derive the current target from `app.view` — `.track_spectrum` ->
+/// Derive the current target from `app.view` - `.track_spectrum` ->
 /// `.track`, `.group_spectrum` -> `.group`, everything else (including
 /// `.master_spectrum`) -> `.master`.
 pub fn currentTarget(app: *App) EqTarget {
@@ -713,7 +713,7 @@ fn syncAnalyzer(app: *App, target: EqTarget) void {
 }
 // zig fmt: on
 
-/// Change chain-slot focus — every focus change (Tab/[/]/picker-insert/
+/// Change chain-slot focus - every focus change (Tab/[/]/picker-insert/
 /// switching which chain is in view) ends any open FX param-nudge batch,
 /// since a batch is scoped to one (target, unit, param) triple.
 fn setFocus(app: *App, target: EqTarget, idx: usize) void {
@@ -737,9 +737,9 @@ pub fn switchToMaster(app: *App) void {
     setFocus(app, .master, 0);
 }
 
-/// Open group `idx`'s FX chain — same entry-point shape as
+/// Open group `idx`'s FX chain - same entry-point shape as
 /// `switchToTrack`/`switchToMaster`. No-op if the slot is unused (the
-/// caller — the tracks view's group-open key — checks first, this is just
+/// caller - the tracks view's group-open key - checks first, this is just
 /// a safety net against a stale index).
 pub fn switchToGroup(app: *App, idx: u8) void {
     if (idx >= ws.engine.max_groups or app.session.groups[idx] == null) return;
@@ -751,7 +751,7 @@ pub fn switchToGroup(app: *App, idx: u8) void {
 
 /// Open the FX picker for the chain in view. Inserting lands after the
 /// focused slot (at the front while the chain is empty). Parks the analyzer
-/// — the picker replaces the whole view, so nobody is watching it.
+/// - the picker replaces the whole view, so nobody is watching it.
 fn openPicker(app: *App, target: EqTarget) void {
     const fx = fxPtr(app, target) orelse return;
     if (fx.units.items.len >= Fx.max_units) {
@@ -773,7 +773,7 @@ pub fn insertFromPicker(app: *App, k: FxKind) void {
     const fx = fxPtr(app, target) orelse return;
     const pos = if (fx.units.items.len == 0) 0 else @min(app.fx_focus + 1, fx.units.items.len);
     // Captured before the attempt (not via history.recordFx) since insert
-    // can fail — a failed insert must not leave a spurious no-op undo step.
+    // can fail - a failed insert must not leave a spurious no-op undo step.
     history.flushFxNudge(app);
     const before = history.captureFx(app, target);
     _ = fx.insert(app.session.allocator, pos, k, app.session.project.sample_rate) catch |err| {
@@ -854,7 +854,7 @@ fn nudge(app: *App, target: EqTarget, key: u8) void {
     syncChain(app, target);
 }
 
-/// The focused unit, but only if it's an EQ — every EQ-specific key branch
+/// The focused unit, but only if it's an EQ - every EQ-specific key branch
 /// below gates on this instead of every other kind's flat param list.
 fn focusedEq(app: *App, target: EqTarget) ?*FxUnit {
     const fx = fxPtr(app, target) orelse return null;
@@ -881,7 +881,7 @@ fn moveEqBand(app: *App, key: u8) void {
 /// (3k, 4j, …). For every unit this walks its full flat param list; for an
 /// EQ unit in field-edit submode it's instead scoped to the current band's
 /// 4 fields (kind/freq/q/gain-or-slope) so it can't wander into another
-/// band's rows — band-select mode ignores j/k entirely, since h/l owns
+/// band's rows - band-select mode ignores j/k entirely, since h/l owns
 /// band navigation there (see `moveEqBand`).
 fn cycleParam(app: *App, target: EqTarget, dir: i2) void {
     if (focusedEq(app, target)) |_| {
@@ -906,14 +906,14 @@ fn cycleParam(app: *App, target: EqTarget, dir: i2) void {
 }
 
 /// Drops a `comp`'s `scpad` selection the moment its sidechain track (idx
-/// 5) stops being a drum machine — e.g. nudging the track picker off a
+/// 5) stops being a drum machine - e.g. nudging the track picker off a
 /// drum track, or onto one that's since had its instrument swapped out
 /// from under it. Left alone, a stale non-null `pad` silently breaks the
 /// detector instead of falling back to whole-track sidechain: the engine
 /// zeroes the per-pad capture buffer and only a `DrumMachine` device ever
 /// fills it back in (`Event.capture_pad` is a no-op on every other
 /// instrument), so the compressor would read permanent silence and never
-/// trigger — invisibly, since `visibleParamCount` also hides the row that
+/// trigger - invisibly, since `visibleParamCount` also hides the row that
 /// would let the user notice and fix it. A no-op whenever `pad` is already
 /// null or the track is still a drum machine.
 fn clearStaleSidechainPad(app: *App, p: *FxPayload) void {
@@ -932,7 +932,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
     const len = if (fxPtr(app, target)) |fx| fx.units.items.len else 0;
     switch (key) {
         .escape => {
-            // An EQ's field-edit submenu backs out to band-select first —
+            // An EQ's field-edit submenu backs out to band-select first -
             // esc/enter are a symmetric pair, and closing the whole chain
             // view on the first esc would undo two levels at once.
             if (focusedEq(app, target) != null and !app.eq_band_select) {
@@ -946,7 +946,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             return true;
         },
         .enter => {
-            // Opens the focused band's field submenu — resets to its
+            // Opens the focused band's field submenu - resets to its
             // "kind" row, the top of the detail section on screen.
             if (focusedEq(app, target) != null and app.eq_band_select) {
                 app.eq_band_select = false;
@@ -975,7 +975,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             '>' => { moveFocused(app, target, 1); return true; },
             'b' => { toggleBypass(app, target); return true; },
             // -/+ ride the group's bus fader from inside its chain view
-            // (1 dB per press, count-scaled) — a mixer move like track
+            // (1 dB per press, count-scaled) - a mixer move like track
             // gain, so deliberately not undo-tracked. Track/master chains
             // have their faders in the tracks view already.
             '-' => { if (target == .group) { adjustGroupGain(app, -1.0 * @as(f32, @floatFromInt(app.takeCount()))); return true; } return false; },
@@ -1024,7 +1024,7 @@ pub const body_row0: usize = 6;        // title + strip(3) + hint + section
 
 /// Short terminals can't fit the boxed strip + hint + the biggest editor
 /// body (comp's 5 rows) inside the rows-5 content budget, so below this
-/// the strip collapses to its middle row and the hint line is dropped —
+/// the strip collapses to its middle row and the hint line is dropped -
 /// keeping the app header pinned down to 13 rows, same floor as before
 /// the rack revamp. Uniform per-height (not per-focus) so the layout
 /// doesn't jump while tabbing between slots.
@@ -1051,7 +1051,7 @@ fn slotAt(x: usize, len: usize) ?usize {
 
 /// EQ-body row count below the graph+Hz-label: 2 all-band overview rows
 /// (glyph + freq), a "BAND N" header divider, then 4 detail rows for the
-/// focused band alone (kind/freq/q/gain-or-slope) — an EQ unit in focus
+/// focused band alone (kind/freq/q/gain-or-slope) - an EQ unit in focus
 /// always exists, chains only hold inserted units.
 pub const eq_band_rows: usize = 7;
 const eq_overview_rows: usize = 2;
@@ -1059,7 +1059,7 @@ const eq_header_rows: usize = 1;
 
 // EQ overview row: a 3-char gutter, then a 5-char cell per band
 // (bracket/glyph/bracket on the glyph row; a 5-wide centered field on the
-// freq row) — see drawFxView's EQ branch.
+// freq row) - see drawFxView's EQ branch.
 const eq_gutter: usize = 3;
 const eq_band_w: usize = 5;
 
@@ -1071,7 +1071,7 @@ fn eqBandAt(x: usize) ?usize {
 }
 
 /// Nudge the current param one wheel-notch (**ctrl** = coarse), reusing the
-/// same `nudge` the keyboard's j/J/k/K use — scroll up = increase (k/K),
+/// same `nudge` the keyboard's j/J/k/K use - scroll up = increase (k/K),
 /// scroll down = decrease (j/J).
 fn nudgeMouse(app: *App, target: EqTarget, ev: modal_mod.MouseEvent) void {
     const up = ev.kind == .scroll_up;
@@ -1097,14 +1097,14 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16, v
         return;
     }
     const body0 = bodyRow0(compact);
-    if (row < body0) return; // title / hint / section rows — not interactive
+    if (row < body0) return; // title / hint / section rows - not interactive
     const rel = row - body0;
 
     // zig fmt: off
     const unit = focusedUnit(app, fx) orelse return;
     if (unit.kind() == .eq) {
         // Same sizing as drawFxView: spectrum graph, then the Hz-label row,
-        // then the overview rows (glyph + freq, all bands — clicking either
+        // then the overview rows (glyph + freq, all bands - clicking either
         // re-targets which band the detail rows below show) and the header
         // + detail rows for the focused band alone (kind/freq/q/gain-or-
         // slope, one per row like every other unit's body).
@@ -1116,7 +1116,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16, v
             const idx = band * eq_fields_per_band + eqBandField(app.fx_param).field;
             switch (ev.kind) {
                 // Picking a band from the overview is band-select, same as
-                // h/l — it doesn't imply editing a field yet.
+                // h/l - it doesn't imply editing a field yet.
                 .press => { history.flushFxNudge(app); app.fx_param = idx; app.eq_band_select = true; },
                 .scroll_up, .scroll_down => {
                     app.fx_param = idx;
@@ -1131,7 +1131,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16, v
         const idx = cur_band * eq_fields_per_band + (rel - detail_row0);
         switch (ev.kind) {
             // Clicking a specific field row is the mouse equivalent of
-            // enter — it goes straight into that field's submenu.
+            // enter - it goes straight into that field's submenu.
             .press => { history.flushFxNudge(app); app.fx_param = idx; app.eq_band_select = false; },
             .scroll_up, .scroll_down => {
                 app.fx_param = idx;

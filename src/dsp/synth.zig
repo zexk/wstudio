@@ -40,9 +40,9 @@ fn enumFromValue(comptime E: type, value: f32) E {
 // zig fmt: off
 pub const Waveform   = enum { sine, saw, triangle, square, wavetable };
 /// lp/hp/bp/notch are 2-pole biquads. `ladder` is a Moog-style 4-pole
-/// lowpass (24 dB/oct, tanh-saturated feedback — self-oscillates near full
+/// lowpass (24 dB/oct, tanh-saturated feedback - self-oscillates near full
 /// resonance). `diode` is the same 4-stage cascade but with an asymmetric
-/// diode-style clip at each stage instead of Moog's symmetric tanh — the
+/// diode-style clip at each stage instead of Moog's symmetric tanh - the
 /// EMS/TB-303-family "thinner, brighter" resonant character. `comb` is a
 /// feedback comb whose fundamental sits at the cutoff frequency (resonance
 /// = feedback amount); its delay line bounds the low end at
@@ -57,10 +57,10 @@ pub const FilterType = enum { lp, hp, bp, notch, ladder, diode, comb, formant };
 /// identically to filter 1 alone) while `filter2_on` is false.
 pub const FilterRouting = enum { series, parallel };
 /// `sh` is sample & hold: a random level (uniform in [-1, 1)) redrawn each
-/// time the LFO's phase wraps — held state lives on PolySynth (`lfo_sh`),
+/// time the LFO's phase wraps - held state lives on PolySynth (`lfo_sh`),
 /// not derivable from phase alone like the other shapes. `chaos` is a
 /// Lorenz-attractor output (x-axis, normalized), continuously integrated
-/// every block at a rate set by the LFO's own rate knob — held state lives
+/// every block at a rate set by the LFO's own rate knob - held state lives
 /// on PolySynth (`lfo_chaos`), also not derivable from phase alone.
 pub const LfoShape   = enum { sine, triangle, saw, square, sh, chaos };
 /// Legacy fixed LFO routing, retired when the mod matrix absorbed it.
@@ -69,7 +69,7 @@ pub const LfoShape   = enum { sine, triangle, saw, square, sh, chaos };
 pub const LfoTarget  = enum { none, filter, pitch, amp };
 /// Modulation source for a mod-matrix row. The LFOs, `wheel`, and the four
 /// macro knobs are synth-global; fenv/aenv/velocity/keytrack are per-voice.
-/// Macros are plain 0..1 values fanned out through matrix rows — one knob
+/// Macros are plain 0..1 values fanned out through matrix rows - one knob
 /// (or one automation lane, ids 99-102) moving many destinations at once.
 pub const ModSource  = enum { none, lfo, fenv, aenv, velocity, keytrack, wheel, lfo2, lfo3, mac1, mac2, mac3, mac4, env3 };
 pub const VoiceMode  = enum { poly, mono, legato };
@@ -77,10 +77,10 @@ pub const SubShape   = enum { sine, square };
 pub const ModMode    = enum { none, ring, am_a_to_b, am_b_to_a, fm_a_to_b, fm_b_to_a };
 /// Detune curve across unison voices. `spread`: symmetric, total width =
 /// unison_detune cents (original behaviour). `step`: each voice offset by
-/// a full unison_detune-cents step from its neighbor — a chord/stack-style
+/// a full unison_detune-cents step from its neighbor - a chord/stack-style
 /// unison instead of a micro-detune blur. `harmonic`: voices bend upward
 /// toward the integer harmonic series (1x, 2x, 3x, ...); `ratio` toward the
-/// half-integer series (1x, 1.5x, 2x, ...) — a fifths/octaves power-chord
+/// half-integer series (1x, 1.5x, 2x, ...) - a fifths/octaves power-chord
 /// stack. For both, unison_detune is the blend: 0 = all voices at the
 /// fundamental, 100 = exact series.
 pub const UnisonMode  = enum { spread, step, harmonic, ratio };
@@ -95,19 +95,19 @@ pub const WarpMode    = enum { none, bend, mirror, sync };
 /// `updown`/`downup` ping-pong across the built sequence without repeating
 /// either endpoint (classic arp behaviour). `played` walks the held-note
 /// press order instead of pitch order. `chord` retriggers every held note
-/// together each step (ignores `arp_octaves` — see PolySynth.arpFireStep).
+/// together each step (ignores `arp_octaves` - see PolySynth.arpFireStep).
 pub const ArpMode     = enum { up, down, updown, downup, played, random, chord };
 // zig fmt: on
 
 /// Which insert-FX unit occupies each slot of the synth-internal chain's
 /// processing order. Every unit stays an always-present by-value field on
-/// `PolySynth` (same as before) — this only controls *sequence*, so it adds
+/// `PolySynth` (same as before) - this only controls *sequence*, so it adds
 /// no heap allocation and doesn't touch the mod-matrix/automation id space
 /// (every param keeps its existing stable id regardless of position). See
 /// `PolySynth.fx_order`'s own doc comment for the reorder mechanism.
 pub const FxUnitKind = enum { gate, eq, comp, mb_comp, ott, dist, crush, chorus, flanger, tape, phaser, freq_shift, delay, reverb };
 
-/// Starting chain order — preserves the relative order the original 6
+/// Starting chain order - preserves the relative order the original 6
 /// fixed units always ran in, so existing presets/projects sound unchanged
 /// on load; each unit added since is slotted in wherever it makes sense in
 /// a typical signal chain (gate first, ahead of everything else; comp/
@@ -116,7 +116,7 @@ pub const FxUnitKind = enum { gate, eq, comp, mb_comp, ott, dist, crush, chorus,
 pub const default_fx_order = [_]FxUnitKind{ .gate, .eq, .comp, .mb_comp, .ott, .dist, .crush, .chorus, .flanger, .tape, .phaser, .freq_shift, .delay, .reverb };
 
 /// Fixed-line stereo flanger for the synth's internal FX section. Unlike the
-/// master-bus Chorus it owns no heap delay line — PolySynth embeds by value
+/// master-bus Chorus it owns no heap delay line - PolySynth embeds by value
 /// in Rack and Rack.dupe copies it, so all state must be inline (same
 /// constraint that sized the comb filter's ring). The 1024-sample ring caps
 /// the sweep at ~21 ms at 48 kHz: flanger through light-chorus territory.
@@ -160,7 +160,7 @@ pub const Flanger = struct {
     }
 };
 
-/// Fixed-ring stereo chorus for the synth's internal FX section — same
+/// Fixed-ring stereo chorus for the synth's internal FX section - same
 /// algorithm as the track chain's own `dsp/chorus.zig` `Chorus` (single
 /// LFO-modulated tap around a fixed 12ms base, right channel a quarter
 /// cycle behind), ported to a fixed array since that one heap-allocates its
@@ -206,7 +206,7 @@ pub const Chorus = struct {
 };
 
 /// Fixed-line stereo slapback/echo delay for the synth's internal FX
-/// section. Same by-value constraint as Flanger — no heap. `max_len` caps
+/// section. Same by-value constraint as Flanger - no heap. `max_len` caps
 /// the settable time to max_len/sample_rate seconds (~0.68s at 48kHz);
 /// the track chain's own delay (dsp/delay.zig, up to 2s) still owns long
 /// ambient throws, this one is for short rhythmic slaps that a matrix row
@@ -316,7 +316,7 @@ pub const Reverb = struct {
         }
     }
 
-    /// room 0..0.98 (feedback — higher sustains longer); damp 0..1 (higher
+    /// room 0..0.98 (feedback - higher sustains longer); damp 0..1 (higher
     /// darkens the tail faster); mix 0=dry 1=wet.
     pub fn processBlock(self: *Reverb, buf: []Sample, room: f32, damp: f32, mix: f32) void {
         const frames = buf.len / 2;
@@ -348,8 +348,8 @@ pub const Reverb = struct {
 };
 
 /// One RBJ-cookbook biquad stage (Direct Form I), stereo. Coefficients are
-/// recomputed once per block from the effective (base + matrix) params —
-/// see PolySynth's FX pass — same pattern MultibandComp.setXovers already
+/// recomputed once per block from the effective (base + matrix) params -
+/// see PolySynth's FX pass - same pattern MultibandComp.setXovers already
 /// uses; the per-channel history is what actually needs to persist.
 /// Formulas verified against the Audio EQ Cookbook, not recalled from
 /// memory (shelf filters aren't in dsp/eq.zig, which only has peak/
@@ -365,7 +365,7 @@ const EqBiquad = struct {
     y1: [2]f32 = .{ 0.0, 0.0 },
     y2: [2]f32 = .{ 0.0, 0.0 },
 
-    /// Shelf slope fixed at S=1 ("maximally flat"/gentle knee) — the same
+    /// Shelf slope fixed at S=1 ("maximally flat"/gentle knee) - the same
     /// simplification a fixed-role channel-strip EQ (not a general
     /// adjustable-slope shelf) can afford; collapses the cookbook's alpha
     /// formula to `(sin_w0/2) * sqrt(2)`.
@@ -419,7 +419,7 @@ const EqBiquad = struct {
     }
 
     /// Same peaking-bell formula as dsp/eq.zig's (private) `EqBand.recompute`
-    /// `.peak` case — duplicated rather than exposed, same call this
+    /// `.peak` case - duplicated rather than exposed, same call this
     /// codebase already made for `dsp/multiband_comp.zig`'s crossover
     /// biquads (see that file's own doc comment on `Biquad`).
     fn setPeak(self: *EqBiquad, sr: f32, freq: f32, gain_db: f32, q: f32) void {
@@ -458,10 +458,10 @@ const EqBiquad = struct {
 };
 
 /// Scaled-down 3-band EQ for the synth's internal FX section: low-shelf,
-/// mid-peak, high-shelf — a channel-strip shape, not the track chain's
+/// mid-peak, high-shelf - a channel-strip shape, not the track chain's
 /// general 8-band parametric (`dsp/eq.zig`'s `ParametricEq`, which keeps
 /// its per-band type private and would blow past a flat-param-id budget at
-/// 8 bands x ~4 fields). Fixed roles mean no `kind`/band-index plumbing —
+/// 8 bands x ~4 fields). Fixed roles mean no `kind`/band-index plumbing -
 /// each field IS its role.
 pub const Eq3 = struct {
     low: EqBiquad = .{},
@@ -504,7 +504,7 @@ pub const Eq3 = struct {
 
 pub const PolySynth = struct {
     sample_rate: f32,
-    /// Owns the three oscillators' wavetable data (`wt_a`/`wt_b`/`wt_c`) —
+    /// Owns the three oscillators' wavetable data (`wt_a`/`wt_b`/`wt_c`) -
     /// the one heap allocation PolySynth needs, everything else stays
     /// embedded by value. See `deinit`/`dupe`.
     allocator: std.mem.Allocator,
@@ -513,12 +513,12 @@ pub const PolySynth = struct {
     waveform: Waveform = .saw,
     /// Pulse width for square wave (0.01–0.99).
     pulse_width: f32 = 0.5,
-    /// OSC A's `.wavetable` table data. Not part of `Patch` — same as
+    /// OSC A's `.wavetable` table data. Not part of `Patch` - same as
     /// Sampler's audio clip, table content isn't preset data. No default:
     /// only `init()` constructs a `PolySynth`, and it always sets this.
     wt: Wavetable,
     /// True once `wt` holds a `:load-wavetable`-imported table rather than
-    /// the bundled default — gates whether persistence sidecars it (same
+    /// the bundled default - gates whether persistence sidecars it (same
     /// convention as Sampler's `pad.user_sample`).
     wt_user: bool = false,
     /// OSC A's frame-scan position, 0..1. This one IS a plain `Patch` param.
@@ -552,7 +552,7 @@ pub const PolySynth = struct {
     osc_b_warp_mode:    WarpMode   = .none,
     osc_b_warp_amount:  f32       = 0.0,
     // zig fmt: on
-    /// OSC B's `.wavetable` table data — see `wt`'s doc comment.
+    /// OSC B's `.wavetable` table data - see `wt`'s doc comment.
     osc_b_wt: Wavetable,
     osc_b_wt_user: bool = false,
     osc_b_wt_pos: f32 = 0.0,
@@ -560,7 +560,7 @@ pub const PolySynth = struct {
 
     // ── OSC C ────────────────────────────────────────────────────────────────
     /// Plain additive 3rd oscillator: no MOD A<->B or warp participation,
-    /// same shape as OSC B otherwise. Kept simple deliberately — the mod
+    /// same shape as OSC B otherwise. Kept simple deliberately - the mod
     /// matrix and warp are per-A/B-slot features, not per-oscillator ones.
     osc_c_on:           bool     = false,
     osc_c_waveform:     Waveform = .saw,
@@ -572,7 +572,7 @@ pub const PolySynth = struct {
     osc_c_unison_detune: f32     = 15.0,
     osc_c_unison_mode:  UnisonMode = .spread,
     // zig fmt: on
-    /// OSC C's `.wavetable` table data — see `wt`'s doc comment. Its
+    /// OSC C's `.wavetable` table data - see `wt`'s doc comment. Its
     /// position param stays outside the mod matrix, like the rest of OSC C.
     osc_c_wt: Wavetable,
     osc_c_wt_user: bool = false,
@@ -655,11 +655,11 @@ pub const PolySynth = struct {
 
     // ── MOD MATRIX ──────────────────────────────────────────────────────────
     /// Free-assign modulation routing: each row sends one source to one
-    /// destination (a `mod_dest_ids` entry — an automatable param id or the
+    /// destination (a `mod_dest_ids` entry - an automatable param id or the
     /// virtual pitch/amp dests) with a bipolar depth. Evaluated per voice
     /// at block rate in processBlock; same-dest rows sum.
     mod_matrix: [max_mod_rows]ModRow = [_]ModRow{.{}} ** max_mod_rows,
-    /// MIDI mod wheel (CC1), 0..1 — the `.wheel` matrix source.
+    /// MIDI mod wheel (CC1), 0..1 - the `.wheel` matrix source.
     mod_wheel: f32 = 0.0,
 
     // ── VOICE ────────────────────────────────────────────────────────────────
@@ -707,14 +707,14 @@ pub const PolySynth = struct {
     // its own delay time or reverb mix per note/LFO cycle, which a chain
     // unit (set-and-forget per track) can't do.
     // zig fmt: off
-    /// Reuses the track-chain's own Gate unit (dsp/gate.zig) — same peak-
+    /// Reuses the track-chain's own Gate unit (dsp/gate.zig) - same peak-
     /// detector/attack/release math, just matrix-automatable and embedded
     /// by value here.
     fx_gate_on:          bool = false,
     fx_gate_threshold_db: f32 = -50.0,
     fx_gate_attack_ms:   f32  = 1.0,
     fx_gate_release_ms:  f32  = 100.0,
-    /// Scaled-down 3-band EQ (low-shelf/mid-peak/high-shelf) — see `Eq3`'s
+    /// Scaled-down 3-band EQ (low-shelf/mid-peak/high-shelf) - see `Eq3`'s
     /// own doc comment for why this isn't the track chain's 8-band
     /// `ParametricEq`.
     fx_eq_on:            bool = false,
@@ -725,7 +725,7 @@ pub const PolySynth = struct {
     fx_eq_mid_q:         f32  = 0.7,
     fx_eq_high_freq:     f32  = 6000.0,
     fx_eq_high_gain_db:  f32  = 0.0,
-    /// Reuses the track-chain's own Compressor unit (dsp/compressor.zig) —
+    /// Reuses the track-chain's own Compressor unit (dsp/compressor.zig) -
     /// same envelope/gain-computer math, just matrix-automatable and
     /// embedded by value here. `sidechain_source`/`detector` are never set
     /// (no per-track routing concept inside a single synth instance), so
@@ -737,7 +737,7 @@ pub const PolySynth = struct {
     fx_comp_release_ms:  f32  = 80.0,
     fx_comp_makeup_db:   f32  = 0.0,
     /// Reuses the track-chain's own MultibandComp unit (dsp/multiband_comp.zig)
-    /// directly — same LR4 3-band crossover + per-band feed-forward
+    /// directly - same LR4 3-band crossover + per-band feed-forward
     /// compressor, just matrix-automatable and embedded by value here.
     fx_mb_on:            bool = false,
     fx_mb_xover_lo:      f32  = 200.0,
@@ -755,7 +755,7 @@ pub const PolySynth = struct {
     fx_mb_high_threshold_db: f32 = -16.0,
     fx_mb_high_ratio:        f32 = 3.0,
     fx_mb_high_makeup_db:    f32 = 0.0,
-    /// Reuses the track-chain's own Ott unit (dsp/ott.zig) — fixed-tuning
+    /// Reuses the track-chain's own Ott unit (dsp/ott.zig) - fixed-tuning
     /// facade over MultibandComp exposing only depth/time/in/out, just
     /// matrix-automatable and embedded by value here.
     fx_ott_on:           bool = false,
@@ -771,7 +771,7 @@ pub const PolySynth = struct {
     fx_crush_rate:       f32  = 4.0,
     fx_crush_mix:        f32  = 1.0,
     /// Fixed-ring port of the track-chain's own Chorus unit
-    /// (dsp/chorus.zig) — see `Chorus`'s own doc comment.
+    /// (dsp/chorus.zig) - see `Chorus`'s own doc comment.
     fx_chorus_on:        bool = false,
     fx_chorus_rate_hz:   f32  = 0.8,
     fx_chorus_depth_ms:  f32  = 4.0,
@@ -781,7 +781,7 @@ pub const PolySynth = struct {
     fx_flanger_depth:    f32  = 0.7,
     fx_flanger_feedback: f32  = 0.5,
     fx_flanger_mix:      f32  = 0.5,
-    /// Reuses the track-chain's own Tape unit (dsp/tape.zig) — already
+    /// Reuses the track-chain's own Tape unit (dsp/tape.zig) - already
     /// value-only (fixed delay ring, no heap), just matrix-automatable and
     /// embedded by value here, same precedent as FreqShifter below.
     fx_tape_on:            bool = false,
@@ -790,7 +790,7 @@ pub const PolySynth = struct {
     fx_tape_flutter_rate_hz: f32 = 8.0,
     fx_tape_flutter_depth: f32  = 0.25,
     fx_tape_mix:           f32  = 1.0,
-    /// Reuses the track-chain's own Phaser unit (dsp/phaser.zig) — same
+    /// Reuses the track-chain's own Phaser unit (dsp/phaser.zig) - same
     /// allpass math, just matrix-automatable and embedded by value here
     /// instead of heap-allocated in the FX chain.
     fx_phaser_on:        bool = false,
@@ -798,26 +798,26 @@ pub const PolySynth = struct {
     fx_phaser_depth:     f32  = 0.9,
     fx_phaser_feedback:  f32  = 0.5,
     fx_phaser_mix:       f32  = 0.5,
-    /// Reuses the track-chain's own FreqShifter unit (dsp/freq_shift.zig) —
+    /// Reuses the track-chain's own FreqShifter unit (dsp/freq_shift.zig) -
     /// already value-only (Hilbert-pair state, no heap), just matrix-
     /// automatable and embedded by value here.
     fx_freq_shift_on:    bool = false,
     fx_freq_shift_hz:    f32  = 0.0,
     fx_freq_shift_mix:   f32  = 1.0,
-    /// Short rhythmic slap, not the track chain's long ambient throw — see
+    /// Short rhythmic slap, not the track chain's long ambient throw - see
     /// the Delay struct's own doc comment for the capacity trade-off.
     fx_delay_on:         bool = false,
     fx_delay_time_s:     f32  = 0.25,
     fx_delay_feedback:   f32  = 0.3,
     fx_delay_mix:        f32  = 0.3,
-    /// Small-room Freeverb voice, sized to fit inline — see the Reverb
+    /// Small-room Freeverb voice, sized to fit inline - see the Reverb
     /// struct's own doc comment.
     fx_reverb_on:        bool = false,
     fx_reverb_room:      f32  = 0.6,
     fx_reverb_damp:      f32  = 0.4,
     fx_reverb_mix:       f32  = 0.3,
     // zig fmt: on
-    /// Processing sequence for the FX section above — see `FxUnitKind`'s
+    /// Processing sequence for the FX section above - see `FxUnitKind`'s
     /// doc comment. Reordered via `adjustParam`'s dedicated reorder-handle
     /// ids, never written directly by the editor.
     fx_order: [14]FxUnitKind = default_fx_order,
@@ -838,8 +838,8 @@ pub const PolySynth = struct {
     // ── ARP ─────────────────────────────────────────────────────────────────
     // A step sequencer sitting in front of note triggering, pure Hz-rate
     // like the LFOs (PolySynth has no Transport access to sync to tempo).
-    // While on, noteOn/noteOff fully bypass voice_mode dispatch — see their
-    // own arp branches — and the step engine drives voices itself.
+    // While on, noteOn/noteOff fully bypass voice_mode dispatch - see their
+    // own arp branches - and the step engine drives voices itself.
     // zig fmt: off
     arp_on:      bool    = false,
     arp_mode:    ArpMode = .up,
@@ -854,7 +854,7 @@ pub const PolySynth = struct {
     /// fresh note (pressed from zero held keys) replaces them.
     arp_hold:    bool    = false,
 
-    // Runtime state only — not part of Patch, same as held_notes/lfo_phase.
+    // Runtime state only - not part of Patch, same as held_notes/lfo_phase.
     arp_phase:       f32     = 0.0,
     arp_index:       usize   = 0,
     arp_gate_open:   bool    = false,
@@ -871,7 +871,7 @@ pub const PolySynth = struct {
     // zig fmt: on
 
     // ── ENV 3 ───────────────────────────────────────────────────────────────
-    // A third ADSR with no fixed destination — a pure mod-matrix source
+    // A third ADSR with no fixed destination - a pure mod-matrix source
     // (.env3), same per-voice stage machine as amp/filter envelopes but
     // routed entirely through matrix rows. Trailing ids (122-125, after
     // ARP) per the append-after-the-max rule.
@@ -915,7 +915,7 @@ pub const PolySynth = struct {
     /// Automatable params that aren't legal matrix destinations: the global
     /// LFO rates (rate lives on the LFO row itself, not a modulation
     /// target), the matrix's own row depths (no self-modulation), the macro
-    /// knobs (already fan out to every dest their own rows target —
+    /// knobs (already fan out to every dest their own rows target -
     /// automating one would double-apply through rows that read it), and
     /// arp rate/gate (toggle-adjacent controls, not motion-worthy targets).
     const mod_dest_excluded_ids = [_]u8{
@@ -939,7 +939,7 @@ pub const PolySynth = struct {
     /// Legal matrix destinations: every `automatable_params` entry not in
     /// `mod_dest_excluded_ids`, consumed per-voice or once per block by
     /// `processBlock`'s FX pass, plus the two virtual dests. Derived instead
-    /// of hand-duplicated — the old hand-kept list once let id 187 (WT POS
+    /// of hand-duplicated - the old hand-kept list once let id 187 (WT POS
     /// C) exist in `automatable_params` but never make it into the matrix,
     /// silently unreachable from the mod-dest picker.
     pub const mod_dest_ids: [modDestCount()]u8 = blk: {
@@ -974,7 +974,7 @@ pub const PolySynth = struct {
     }
 
     /// Fold the retired fixed mod routes (filter-env amount, LFO target +
-    /// depth) into equivalent matrix rows — the load-time migration for
+    /// depth) into equivalent matrix rows - the load-time migration for
     /// pre-matrix presets and project files. Depth scales match the old
     /// units: fenv was ±4 oct at ±4, lfo→filter ±2 oct at depth 1 (the
     /// matrix cutoff dest spans ±4 oct at |depth| 1), lfo→pitch ±1 oct at
@@ -1006,7 +1006,7 @@ pub const PolySynth = struct {
 
     /// Comb delay line length per channel per slot. Sets the comb model's
     /// lowest reachable fundamental (sample_rate / comb_len) and dominates
-    /// Voice's size — keep it modest, PolySynth is embedded by value in Rack.
+    /// Voice's size - keep it modest, PolySynth is embedded by value in Rack.
     const comb_len: usize = 512;
 
     /// One vowel's first 3 formants: center frequency, bandwidth, relative
@@ -1081,7 +1081,7 @@ pub const PolySynth = struct {
         // Filter envelope
         env2:   f32   = 0.0,
         stage2: Stage = .attack,
-        // ENV 3: free-assignable, no fixed destination — pure matrix source.
+        // ENV 3: free-assignable, no fixed destination - pure matrix source.
         env3:   f32   = 0.0,
         stage3: Stage = .attack,
         // zig fmt: on
@@ -1098,7 +1098,7 @@ pub const PolySynth = struct {
         glide_rate: f32 = 0.0,
         // Sub oscillator
         sub_phase: f32 = 0.0,
-        // Noise oscillator — xorshift32 (must never be 0)
+        // Noise oscillator - xorshift32 (must never be 0)
         noise_rand_state: u32 = 1,
         noise_lp: f32 = 0.0,
     };
@@ -1183,7 +1183,7 @@ pub const PolySynth = struct {
     /// A full synth patch: every parameter `adjustParam`/`applyCC` can touch,
     /// minus per-instance state (sample_rate, voices, held-note stack, pitch
     /// bend, LFO phase). Presets in `synth_presets.zig` are just values of
-    /// this type — no audio is rendered or embedded to define one.
+    /// this type - no audio is rendered or embedded to define one.
     pub const Patch = struct {
         waveform: Waveform = .saw,
         pulse_width: f32 = 0.5,
@@ -1370,7 +1370,7 @@ pub const PolySynth = struct {
     };
 
     /// Load a patch onto this synth. Field-by-field so per-instance state
-    /// (sample_rate, voices, glide/held-note tracking) is untouched — notes
+    /// (sample_rate, voices, glide/held-note tracking) is untouched - notes
     /// already sounding pick up the new params on their next block, same as
     /// a single `adjustParam` nudge. Patch fields without a PolySynth
     /// counterpart are the legacy mod-route carriers, folded into matrix
@@ -1389,7 +1389,7 @@ pub const PolySynth = struct {
     }
 
     /// The inverse of `applyPatch`: snapshot this synth's current params into
-    /// a `Patch` (e.g. to save a hand-tuned sound as a reusable preset — see
+    /// a `Patch` (e.g. to save a hand-tuned sound as a reusable preset - see
     /// `tui/user_presets.zig`). The legacy carrier fields stay at their
     /// defaults, so a round-trip never re-triggers migration.
     pub fn toPatch(self: *const PolySynth) Patch {
@@ -1741,7 +1741,7 @@ pub const PolySynth = struct {
 
     /// `base` (a param's live value) shifted by the voice's matrix amount
     /// for that param, scaled to the param's full range and clamped to it.
-    /// Cutoffs and the virtual pitch/amp dests are NOT routed through here —
+    /// Cutoffs and the virtual pitch/amp dests are NOT routed through here -
     /// they modulate in octave/gain space at their use sites instead.
     fn eff(acc: *const ModAccum, id: u8, base: f32) f32 {
         const a = acc.amt(id);
@@ -1780,7 +1780,7 @@ pub const PolySynth = struct {
         for (&self.voices) |*v| {
             if (!v.active) continue;
 
-            // All matrix modulation below is block-rate per voice — the
+            // All matrix modulation below is block-rate per voice - the
             // same rate the retired fixed routes always ran at.
             const mods = self.evalMatrix(v, lfo_vals);
 
@@ -1927,7 +1927,7 @@ pub const PolySynth = struct {
                 + sub_level_v * sub_level_v
                 + noise_lvl_v * noise_lvl_v);
 
-            // Stereo pan gains per unison voice — constant-power, √2-compensated so
+            // Stereo pan gains per unison voice - constant-power, √2-compensated so
             // spread=0 gives the same per-channel amplitude as the original mono path.
             const uni_spread = eff(&mods, 5, self.unison_spread);
             const pan_scale = std.math.sqrt2;
@@ -1973,7 +1973,7 @@ pub const PolySynth = struct {
             for (0..frames) |i| {
                 var a_l: f32 = 0.0;
                 var a_r: f32 = 0.0;
-                var a_mono: f32 = 0.0; // arithmetic mean of A voices — used by mod modes
+                var a_mono: f32 = 0.0; // arithmetic mean of A voices - used by mod modes
                 var b_l: f32 = 0.0;
                 var b_r: f32 = 0.0;
                 var b_mono: f32 = 0.0;
@@ -2032,7 +2032,7 @@ pub const PolySynth = struct {
                     b_mono /= @as(f32, @floatFromInt(n_b));
                 }
 
-                // AM: post-hoc amplitude scaling — (1 + m·mod) / (1 + m) keeps peak = 1.
+                // AM: post-hoc amplitude scaling - (1 + m·mod) / (1 + m) keeps peak = 1.
                 // Clamped to [0,1]: mod_amount up to 8 can drive the formula negative otherwise.
                 if (self.osc_b_on) switch (self.mod_mode) {
                     .am_a_to_b => {
@@ -2084,7 +2084,7 @@ pub const PolySynth = struct {
                 }
 
                 // Stereo mix.
-                // Ring: dry↔ring crossfade — depth=0 → A unmodulated; depth=1 → A·b_mono.
+                // Ring: dry↔ring crossfade - depth=0 → A unmodulated; depth=1 → A·b_mono.
                 // Formula: (1-d) + d·b_mono stays in [-1,1] for d∈[0,1], b_mono∈[-1,1].
                 // FM/AM/none: standard A + B mix (B contribution already modulated above).
                 const ring_factor: f32 = if (self.osc_b_on and self.mod_mode == .ring) blk: {
@@ -2159,7 +2159,7 @@ pub const PolySynth = struct {
                     },
                 }
 
-                // ENV 3 (free-assign, no fixed destination — voice death is
+                // ENV 3 (free-assign, no fixed destination - voice death is
                 // still governed by the amp env above)
                 switch (v.stage3) {
                     .attack => {
@@ -2180,7 +2180,7 @@ pub const PolySynth = struct {
             }
         }
 
-        // ── Internal FX (post-mix, user-reorderable via fx_order — see
+        // ── Internal FX (post-mix, user-reorderable via fx_order - see
         // FxUnitKind) ── One global matrix evaluation per block: FX params
         // are shared by all voices, so the per-voice sources read from the
         // most recently triggered voice (env/velocity → drive style routes
@@ -2227,7 +2227,7 @@ pub const PolySynth = struct {
                     },
                     .mb_comp => if (self.fx_mb_on) {
                         // setXovers (not a bare field write) recomputes the
-                        // crossover biquads — required whenever the split
+                        // crossover biquads - required whenever the split
                         // points move, unlike the other unit's plain params.
                         // Individual band fields, not whole-struct literals:
                         // BandComp.env must persist across blocks or the
@@ -2256,7 +2256,7 @@ pub const PolySynth = struct {
                     .ott => if (self.fx_ott_on) {
                         // setDepth/setTime (not bare field writes) apply
                         // their own clamps and, for time, rescale the fixed
-                        // attack/release pair — matches Ott's own setter API.
+                        // attack/release pair - matches Ott's own setter API.
                         self.fx_ott_state.setDepth(eff(&mods, 162, self.fx_ott_depth));
                         self.fx_ott_state.setTime(eff(&mods, 163, self.fx_ott_time));
                         self.fx_ott_state.gain_in_db = eff(&mods, 164, self.fx_ott_gain_in_db);
@@ -2381,7 +2381,7 @@ pub const PolySynth = struct {
     }
 
     /// Lorenz attractor state (x, y, z) for one .chaos LFO slot. Defaults
-    /// off the origin — see PolySynth.lfo_chaos's doc comment.
+    /// off the origin - see PolySynth.lfo_chaos's doc comment.
     const ChaosState = struct { x: f32 = 0.1, y: f32 = 1.0, z: f32 = 1.0 };
 
     // Classic Lorenz parameters (butterfly attractor). x/y roughly range
@@ -2415,7 +2415,7 @@ pub const PolySynth = struct {
     /// Euler-integrates the Lorenz system by `dt_total`, split into
     /// substeps bounded to `max_step` (Euler-stable for this system) and
     /// capped at `max_substeps` so a large block/rate combination can't
-    /// spend unbounded time on the audio thread — it just under-integrates
+    /// spend unbounded time on the audio thread - it just under-integrates
     /// instead, which is inaudible for a modulation source.
     fn advanceChaos(state: *ChaosState, dt_total: f32) void {
         const max_step: f32 = 0.005;
@@ -2587,7 +2587,7 @@ pub const PolySynth = struct {
             .diode => {
                 // Same 4-stage one-pole cascade as .ladder, but each stage
                 // clips through diodeClip's asymmetric curve instead of a
-                // symmetric tanh — the diode pair's forward-conduction
+                // symmetric tanh - the diode pair's forward-conduction
                 // curve, and the source of the "thinner/brighter" diode
                 // ladder color vs the smoother Moog transistor ladder.
                 const in_sat = diodeClip(x - fc.k * st.s4);
@@ -2667,7 +2667,7 @@ pub const PolySynth = struct {
         };
     }
 
-    /// Wraps `cur` one variant forward (steps > 0) or backward — every
+    /// Wraps `cur` one variant forward (steps > 0) or backward - every
     /// `.cycle` `ParamSpec` kind below (and the mod matrix's source
     /// stepping) shares this instead of a bespoke forward/backward switch
     /// pair per enum: all of those pairs already reduced to a declaration-
@@ -2732,7 +2732,7 @@ pub const PolySynth = struct {
             .saw      => 2.0 * phase - 1.0,
             .triangle => 1.0 - 4.0 * @abs(phase - 0.5),
             .square   => if (phase < pw) 1.0 else -1.0,
-            // Callers branch to `wavetable.lookup` before reaching here —
+            // Callers branch to `wavetable.lookup` before reaching here -
             // this arm only exists to keep the switch exhaustive.
             .wavetable => 0.0,
             // zig fmt: on
@@ -2751,7 +2751,7 @@ pub const PolySynth = struct {
         self.fx_chorus_state = .{};
         self.fx_flanger_state = .{};
         self.fx_delay_state = .{};
-        // Reset(), not `= .{}` — a bare default would also clobber the
+        // Reset(), not `= .{}` - a bare default would also clobber the
         // sample-rate-derived state PolySynth.init set (Gate's, Compressor's,
         // MultibandComp's/Ott's, Phaser's and FreqShifter's sample_rate,
         // Reverb's per-line len), and Ott's/MultibandComp's fixed tuning
@@ -2813,7 +2813,7 @@ pub const PolySynth = struct {
     /// Move `kind`'s slot in `fx_order` toward the right (steps > 0) or left
     /// (steps < 0), `|steps|` times, clamping at either end instead of
     /// wrapping (matches a chain strip, not a cyclic enum). Drives the live
-    /// `<`/`>` keypress via `adjustParam`'s ids 126-131 — undo/redo instead
+    /// `<`/`>` keypress via `adjustParam`'s ids 126-131 - undo/redo instead
     /// goes through `setFxIndex` (see that fn's doc comment for why).
     fn reorderFx(self: *PolySynth, kind: FxUnitKind, steps: i32) void {
         const dir: i32 = if (steps >= 0) 1 else -1;
@@ -2826,11 +2826,11 @@ pub const PolySynth = struct {
         }
     }
 
-    /// `kind`'s current slot index in `fx_order`, 0-based — the "value" ids
+    /// `kind`'s current slot index in `fx_order`, 0-based - the "value" ids
     /// 126-131 report from `paramValue` and accept in `setParamAbsolute`.
     /// Undo/redo for every other param works by capturing an absolute
     /// before-value and restoring it later (see `history.zig`'s
-    /// `param_nudge` entry) — a reorder action needs *some* scalar that
+    /// `param_nudge` entry) - a reorder action needs *some* scalar that
     /// fully captures "where this unit was," and its index in the chain is
     /// exactly that, so the reorder ids piggyback on the same generic
     /// mechanism every other param already uses instead of a bespoke undo
@@ -2843,7 +2843,7 @@ pub const PolySynth = struct {
     /// old and new position by walking adjacent swaps (same primitive
     /// `reorderFx` uses, just driven to an absolute target instead of a
     /// relative count). This is what undo/redo actually calls, through
-    /// `setParamAbsolute`'s ids 126-131 — the live `<`/`>` keypress goes
+    /// `setParamAbsolute`'s ids 126-131 - the live `<`/`>` keypress goes
     /// through `reorderFx`/`adjustParam` instead.
     fn setFxIndex(self: *PolySynth, kind: FxUnitKind, idx: usize) void {
         const cur = std.mem.indexOfScalar(FxUnitKind, &self.fx_order, kind) orelse return;
@@ -2854,14 +2854,14 @@ pub const PolySynth = struct {
     }
 
     /// Editor-param kind, deciding how `adjustParam`/`setParamAbsolute`/
-    /// `paramValue` read and write a `param_specs` entry's field — see
+    /// `paramValue` read and write a `param_specs` entry's field - see
     /// `specAdjust`/`specSetAbs`/`specValue`. The great majority of the
     /// ~190 flat param ids reduce to one of these five shapes; what
-    /// doesn't — the mod matrix rows (59-82, banded/cross-field), the FX
+    /// doesn't - the mod matrix rows (59-82, banded/cross-field), the FX
     /// reorder handles (`fx_reorder_ids` below), and `fx_mb_style`'s id 149
     /// on the `adjustParam` side only (h/l picks classic/ott by direction,
-    /// not a wrap — its `setParamAbsolute`/`paramValue` behavior IS a plain
-    /// `.cycle` though, so it still gets a `param_specs` row) — keep their
+    /// not a wrap - its `setParamAbsolute`/`paramValue` behavior IS a plain
+    /// `.cycle` though, so it still gets a `param_specs` row) - keep their
     /// own switch arms around the table dispatch.
     const ParamKind = enum { cont, log_freq, toggle, cycle, int_cont };
 
@@ -2953,13 +2953,13 @@ pub const PolySynth = struct {
     }
 
     /// One row per flat param id `specAdjust`/`specSetAbs`/`specValue`
-    /// drive generically — `adjustParam`/`setParamAbsolute`/`paramValue`
+    /// drive generically - `adjustParam`/`setParamAbsolute`/`paramValue`
     /// used to repeat this id->field->range mapping three times over as
     /// parallel hand-written switches. `.log_freq` nudges by a semitone
     /// ratio per step instead of `.cont`'s linear `+step`, matching the
     /// old cutoff/xover/EQ-freq switch arms. IDs 188-193 (tape) existed in
     /// `automatable_params`/`mod_dest_ids` since the tape FX unit shipped
-    /// but were never actually wired into adjust/setAbs/paramValue — h/l,
+    /// but were never actually wired into adjust/setAbs/paramValue - h/l,
     /// undo, and automation curves all silently no-op'd on tape params
     /// until this table filled the gap.
     const param_specs = [_]ParamSpec{
@@ -2986,7 +2986,7 @@ pub const PolySynth = struct {
         .{ .id = 20, .field = "filter_type", .kind = .cycle, .enum_type = FilterType },
         .{ .id = 21, .field = "filter_cutoff", .kind = .log_freq, .min = 20.0, .max = 20_000.0 },
         .{ .id = 22, .field = "filter_res", .min = 0.0, .max = 1.0, .step = 0.01 },
-        // 23 (fenv amount) retired — absorbed into the mod matrix.
+        // 23 (fenv amount) retired - absorbed into the mod matrix.
         .{ .id = 24, .field = "fenv_attack_s", .min = 0.001, .max = 5.0, .step = 0.001 },
         .{ .id = 25, .field = "fenv_decay_s", .min = 0.001, .max = 5.0, .step = 0.005 },
         .{ .id = 26, .field = "fenv_sustain", .min = 0.0, .max = 1.0, .step = 0.01 },
@@ -3128,10 +3128,10 @@ pub const PolySynth = struct {
 
     /// `kind`'s reorder-handle id → the FX unit it walks in `fx_order`; not
     /// real params (no `automatable_params`/`mod_dest_ids` entry, no editor
-    /// row of its own — the FX subview's `</>` sends whichever unit's id
+    /// row of its own - the FX subview's `</>` sends whichever unit's id
     /// the cursor currently sits in). `adjustParam` calls `reorderFx`,
     /// `setParamAbsolute` calls `setFxIndex`, `paramValue` calls
-    /// `fxOrderIndex` — this list drives all three instead of repeating the
+    /// `fxOrderIndex` - this list drives all three instead of repeating the
     /// id->kind mapping three times over.
     const fx_reorder_ids = [_]struct { id: u8, kind: FxUnitKind }{
         .{ .id = 126, .kind = .dist },
@@ -3152,7 +3152,7 @@ pub const PolySynth = struct {
 
     /// Nudge the editor parameter at `id` by `steps` (h/l = ±1, H/L = ±10).
     /// Runs on the audio thread (via the `set_param` event) so it never races
-    /// the block reader — the editor sends edits over the command queue rather
+    /// the block reader - the editor sends edits over the command queue rather
     /// than writing these fields directly.
     pub fn adjustParam(self: *PolySynth, id: u8, steps: i32) void {
         switch (id) {
@@ -3162,7 +3162,7 @@ pub const PolySynth = struct {
                 self.fx_mb_style = if (steps > 0) .ott else .classic;
                 return;
             },
-            // MATRIX (59–82): 3 ids per row — source, dest, depth.
+            // MATRIX (59–82): 3 ids per row - source, dest, depth.
             59...82 => {
                 const row = &self.mod_matrix[(id - 59) / 3];
                 switch ((id - 59) % 3) {
@@ -3193,17 +3193,17 @@ pub const PolySynth = struct {
 
     /// Absolute-value counterpart to `adjustParam`, for automation curves
     /// (which know the value they want at a beat position directly, not a
-    /// delta from wherever the param last was — see `Event.set_param_abs`)
+    /// delta from wherever the param last was - see `Event.set_param_abs`)
     /// and for undo's capture/restore (`paramValue` is the read half).
     /// Every continuous param `adjustParam` handles is wired here with the
     /// exact same clamp range; enum/toggle ids take the variant's 0-based
-    /// ordinal (toggles: >= 0.5 is on) — automation never targets them
+    /// ordinal (toggles: >= 0.5 is on) - automation never targets them
     /// (they're not in `automatable_params`), only undo restores them this
     /// way.
     pub fn setParamAbsolute(self: *PolySynth, id: u8, value: f32) void {
         switch (id) {
             // MATRIX: dest takes the raw param id (falls back to cutoff if
-            // the value isn't a legal dest — e.g. a hand-edited curve).
+            // the value isn't a legal dest - e.g. a hand-edited curve).
             59...82 => {
                 const row = &self.mod_matrix[(id - 59) / 3];
                 switch ((id - 59) % 3) {
@@ -3236,7 +3236,7 @@ pub const PolySynth = struct {
     }
 
     /// Current value of editor param `id`, in the same unit/encoding
-    /// `setParamAbsolute` accepts (enums/toggles as 0-based ordinals) — the
+    /// `setParamAbsolute` accepts (enums/toggles as 0-based ordinals) - the
     /// read half of undo's capture/restore pair. A control-thread read of
     /// live fields, same race-tolerant convention the synth editor's own
     /// row rendering already uses. Null for unknown ids.
@@ -3262,12 +3262,12 @@ pub const PolySynth = struct {
         return null;
     }
 
-    /// One entry per `setParamAbsolute`-handled id — the shared metadata the
+    /// One entry per `setParamAbsolute`-handled id - the shared metadata the
     /// automation editor's param picker, curve labels, and h/l nudge step all
     /// need. `label` is the short in-graph tag (matches the synth editor's own
     /// row labels where practical); `section` groups the picker's listing the
     /// same way the synth editor's own KEY/OSC A/OSC B/... rows are grouped.
-    /// Shared shape with Sampler's own table — see `dsp.AutomatableParam`.
+    /// Shared shape with Sampler's own table - see `dsp.AutomatableParam`.
     pub const AutomatableParam = dsp.AutomatableParam;
 
     pub const automatable_params = [_]AutomatableParam{
@@ -3348,7 +3348,7 @@ pub const PolySynth = struct {
         .{ .id = 100, .label = "MACRO 2",   .section = "MACRO",   .range = .{ 0.0,    1.0 },     .step = 0.01 },
         .{ .id = 101, .label = "MACRO 3",   .section = "MACRO",   .range = .{ 0.0,    1.0 },     .step = 0.01 },
         .{ .id = 102, .label = "MACRO 4",   .section = "MACRO",   .range = .{ 0.0,    1.0 },     .step = 0.01 },
-        // Rate/gate only — like the LFO rates, not matrix dests (mode/
+        // Rate/gate only - like the LFO rates, not matrix dests (mode/
         // octaves/on/hold are enum/toggle-only, undo-restore reads them via
         // paramValue but automation curves never target them).
         .{ .id = 119, .label = "ARP RATE",  .section = "ARP",     .range = .{ 0.1,    20.0 },    .step = 0.1 },
@@ -3436,7 +3436,7 @@ pub const PolySynth = struct {
             .pitch_bend => |e| self.applyPitchBend(e.bend, 2.0),
             // e.id is u16 (wide enough for DrumMachine's pad-encoded ids);
             // PolySynth's own param space is well under 256, so truncate
-            // rather than @intCast — a stray wide id (can't happen in
+            // rather than @intCast - a stray wide id (can't happen in
             // practice, only DrumMachine ever constructs one) silently
             // no-ops here instead of panicking, matching adjustParam's own
             // unknown-id default arm.
@@ -3598,7 +3598,7 @@ test "diode ladder filter: closed cutoff attenuates like a lowpass" {
 
 test "formant filter: vowel scan produces distinct spectral content" {
     // Low cutoff scans toward vowel "a" (F1=600), high cutoff toward "u"
-    // (F1=350, F2=600) — different enough resonant peaks that RMS output
+    // (F1=350, F2=600) - different enough resonant peaks that RMS output
     // should differ meaningfully across the sweep, not just clamp flat.
     var low = try PolySynth.init(std.testing.allocator, 48_000);
     defer low.deinit();
@@ -4056,7 +4056,7 @@ test "glide: pitch slides over time (log-linear)" {
     synth.voice_mode = .mono;
     synth.glide_s    = 0.5; // half-second glide
     synth.noteOn(60, 1.0); // C4
-    // Trigger glide to A4 — voice was active so glide applies.
+    // Trigger glide to A4 - voice was active so glide applies.
     synth.noteOn(69, 1.0); // A4
     // glide_log_freq should still be at C4 (not yet advanced)
     const c4_log = std.math.log2(PolySynth.noteToFreq(60));
@@ -4121,7 +4121,7 @@ test "legato mode: no envelope retrigger on second note" {
     for (0..100) |_| { @memset(&buf, 0.0); synth.processBlock(&buf); }
     // zig fmt: on
     const env_before = synth.voices[0].env;
-    // Second note in legato — should not retrigger (env stays in sustain, not reset to 0)
+    // Second note in legato - should not retrigger (env stays in sustain, not reset to 0)
     synth.noteOn(64, 1.0);
     try std.testing.expectEqual(@as(u7, 64), synth.voices[0].note);
     try std.testing.expect(synth.voices[0].stage != .attack); // still in sustain
@@ -4830,7 +4830,7 @@ test "toggling arp off mid-note releases the stuck voice" {
 fn rmsTail(buf: []const Sample) f32 {
     var sum: f32 = 0.0;
     var n: usize = 0;
-    var i = buf.len / 2; // second half only — after the filter has settled
+    var i = buf.len / 2; // second half only - after the filter has settled
     while (i + 1 < buf.len) : (i += 2) {
         sum += buf[i] * buf[i];
         n += 1;

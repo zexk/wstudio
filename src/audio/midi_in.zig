@@ -19,7 +19,7 @@ pub const MidiIn = struct {
     /// Engine track index that receives all incoming MIDI. Write from UI thread.
     active_track: std.atomic.Value(u16) = .init(0),
     /// Set (release) by the reader thread whenever an incoming CC actually
-    /// mutates a saved instrument param (see dispatch's CONTROLLER branch —
+    /// mutates a saved instrument param (see dispatch's CONTROLLER branch -
     /// applyCC writes straight into e.g. PolySynth.gain/filter_cutoff/etc.,
     /// same fields `:w` persists). The UI thread swaps it (acquire) once per
     /// frame into `App.dirty`, since this thread has no App pointer to set
@@ -29,7 +29,7 @@ pub const MidiIn = struct {
     /// lands here, independent of the direct-to-engine audition send above.
     /// The UI thread drains it once per frame and feeds each note through
     /// the same `recordNote` insert-mode-recording path qwerty playing
-    /// already uses (App.zig's `.note` action handler) — this thread has no
+    /// already uses (App.zig's `.note` action handler) - this thread has no
     /// App pointer and doesn't know the current view/mode, so it always
     /// queues and lets the UI thread decide whether a given note actually
     /// lands in a pattern. A full queue just drops the note (audition
@@ -132,7 +132,7 @@ pub const MidiIn = struct {
             const cc: u7  = @intCast(ev.data.control.param & 0x7F);
             // zig fmt: on
             const val: u7 = @intCast(ev.data.control.value & 0x7F);
-            // Only mark dirty if the command actually landed — a full
+            // Only mark dirty if the command actually landed - a full
             // queue drops the event, and a false dirty flag would make
             // the project look unsaved over a change that never happened.
             if (eng.send(.{ .cc = .{ .track = track, .cc = cc, .value = val } }))

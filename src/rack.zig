@@ -23,7 +23,7 @@ const Transport = @import("transport.zig").Transport;
 
 /// A signal source: generates audio from MIDI events.
 /// Add new synthesiser/sampler variants here as the engine grows.
-/// `empty` is a track with no instrument inserted yet — it produces no
+/// `empty` is a track with no instrument inserted yet - it produces no
 /// device, so `chain()` omits it and the engine renders the track silent.
 pub const Instrument = union(enum) {
     empty,
@@ -34,7 +34,7 @@ pub const Instrument = union(enum) {
     /// The DrumMachine's internal `transport` pointer stays valid because the
     /// engine (and therefore its Transport) is heap-allocated.
     drum_machine: DrumMachine,
-    /// Step-sequenced sample chopper — one shared clip cut into
+    /// Step-sequenced sample chopper - one shared clip cut into
     /// independently-triggerable slices. Same `*const Transport` stability
     /// rule as `drum_machine`.
     slicer: Slicer,
@@ -56,12 +56,12 @@ pub const Instrument = union(enum) {
     }
 };
 
-/// The instrument variants, as a plain enum — used by the instrument picker
+/// The instrument variants, as a plain enum - used by the instrument picker
 /// and `Session.setInstrument` to name a kind without a payload.
 pub const InstrumentKind = std.meta.Tag(Instrument);
 
 /// One effect processor a chain slot can hold. Add new unit variants here as
-/// the engine grows — the TUI's picker and persistence key off `FxKind`.
+/// the engine grows - the TUI's picker and persistence key off `FxKind`.
 /// chorus/delay/reverb own heap buffers (mod/delay lines); deinit frees them.
 pub const FxPayload = union(enum) {
     gate: Gate,
@@ -97,7 +97,7 @@ pub const FxPayload = union(enum) {
     }
 
     /// Deep-copies one payload: chorus/delay/reverb get fresh lines (only
-    /// their params carry over — matches what project save/load already
+    /// their params carry over - matches what project save/load already
     /// does); the rest are plain value state and copy directly.
     pub fn dupe(self: *const FxPayload, allocator: std.mem.Allocator, sr: u32) !FxPayload {
         switch (self.*) {
@@ -127,7 +127,7 @@ pub const FxPayload = union(enum) {
     }
 };
 
-/// The effect variants as a plain enum — names a kind without a payload,
+/// The effect variants as a plain enum - names a kind without a payload,
 /// same role InstrumentKind plays for instruments.
 pub const FxKind = std.meta.Tag(FxPayload);
 
@@ -148,7 +148,7 @@ pub const FxUnit = struct {
 /// series after the instrument. Starts empty; the user inserts units where
 /// they want them (duplicates allowed), reorders, bypasses, and removes.
 /// Shared by every track's Rack and the engine's master bus
-/// (Session.master_fx) — the same units plug into either one the same way.
+/// (Session.master_fx) - the same units plug into either one the same way.
 pub const Fx = struct {
     units: std.ArrayListUnmanaged(*FxUnit) = .empty,
 
@@ -243,7 +243,7 @@ pub const Fx = struct {
     /// device ordering (same bypassed-skip rule, so the two always line up).
     /// Only `.comp` payloads with `sidechain_source` set produce a non-null
     /// entry; every other unit kind has no such concept. Feeds `Engine.
-    /// set*SidechainSources` — see `Session`'s chain-sync call sites, which
+    /// set*SidechainSources` - see `Session`'s chain-sync call sites, which
     /// call this alongside `chain()` any time the chain (re)syncs.
     pub fn sidechainSources(self: *const Fx, buf: *[max_units]?Compressor.SidechainSource) []const ?Compressor.SidechainSource {
         var len: usize = 0;
@@ -262,7 +262,7 @@ pub const Fx = struct {
     /// every owned buffer (delay/reverb lines, chorus mod line) so the copy
     /// shares no memory with the original and can be torn down
     /// independently. FX buffer *contents* (reverb tail, delay line) aren't
-    /// preserved, only params — same as project save/load and `Rack.dupe`,
+    /// preserved, only params - same as project save/load and `Rack.dupe`,
     /// which calls this for its own fx field.
     pub fn dupe(self: *const Fx, allocator: std.mem.Allocator, sr: u32) !Fx {
         var out: Fx = .{};
@@ -298,8 +298,8 @@ pub const Rack = struct {
     /// Deep-copies this rack for track duplication: fresh heap allocations
     /// for every owned buffer (pad audio, delay/reverb lines) so the two
     /// racks share no memory and can be torn down independently. FX buffer
-    /// *contents* (reverb tail, delay line) aren't preserved — only their
-    /// parameters — matching what project save/load already does.
+    /// *contents* (reverb tail, delay line) aren't preserved - only their
+    /// parameters - matching what project save/load already does.
     pub fn dupe(self: *const Rack, allocator: std.mem.Allocator, sr: u32, transport: *const Transport) !*Rack {
         const rack = try allocator.create(Rack);
         errdefer allocator.destroy(rack);
@@ -317,7 +317,7 @@ pub const Rack = struct {
             .drum_machine => |*dm| rack.instrument = .{ .drum_machine = try dm.dupe() },
             .slicer => |*sl| rack.instrument = .{ .slicer = try sl.dupe() },
         }
-        // Set AFTER the instrument lands in the heap rack — the player holds
+        // Set AFTER the instrument lands in the heap rack - the player holds
         // a pointer into it (same rule as Session.setInstrument).
         if (self.pattern_player) |*pp| {
             var new_pp = PatternPlayer.init(rack.instrument.device().?, transport);
@@ -350,7 +350,7 @@ pub const Rack = struct {
         return buf[0..len];
     }
 
-    /// Same shape as `chain()`, parallel slot-for-slot — a pattern-player or
+    /// Same shape as `chain()`, parallel slot-for-slot - a pattern-player or
     /// instrument slot is never a sidechain-detector consumer (null), only
     /// `fx`'s own units can be. Callers push this to `Engine.
     /// setTrackSidechainSources` alongside `chain()`'s own `setTrackChain`.
@@ -373,7 +373,7 @@ test "chain follows insertion order, not a fixed slot order" {
     defer rack.fx.deinit(std.testing.allocator);
     defer rack.instrument.deinit();
 
-    // Insert an EQ, then a comp *in front of it* — the old fixed rack would
+    // Insert an EQ, then a comp *in front of it* - the old fixed rack would
     // zig fmt: off
     // have forced comp → eq; the chain must play them as ordered.
     const eq   = try rack.fx.insert(std.testing.allocator, 0, .eq, 48_000);
@@ -401,7 +401,7 @@ test "Fx: duplicates allowed, bypass skips, remove frees, cap enforced" {
     var fx: Fx = .{};
     defer fx.deinit(allocator);
 
-    // Two saturators in one chain — impossible with the fixed rack.
+    // Two saturators in one chain - impossible with the fixed rack.
     _ = try fx.insert(allocator, 0, .sat, 48_000);
     _ = try fx.insert(allocator, 1, .sat, 48_000);
     var buf: [Fx.max_units]dsp.Device = undefined;
@@ -454,7 +454,7 @@ test "Fx.dupe deep-copies params and heap buffers independently (used by undo's 
     try std.testing.expectEqual(@as(f32, 0.42), dup.units.items[1].payload.delay.feedback);
     try std.testing.expect(dup.units.items[1].bypassed);
 
-    // Distinct unit + line memory — freeing one chain must not touch the
+    // Distinct unit + line memory - freeing one chain must not touch the
     // other's buffers (the crash-if-it-aliased check).
     try std.testing.expect(dup.units.items[1] != delay);
     try std.testing.expect(dup.units.items[1].payload.delay.lines[0].ptr != delay.payload.delay.lines[0].ptr);

@@ -8,7 +8,7 @@ const ws = @import("wstudio");
 const app = @import("tui/app.zig");
 
 /// Restore the terminal (cooked mode, mouse tracking off, alternate screen
-/// closed) before handing off to the normal trace printer — otherwise a
+/// closed) before handing off to the normal trace printer - otherwise a
 /// panic mid-session leaves raw mode + SGR mouse reporting on, so the shell
 /// reads garbled and the panic message itself never renders straight.
 /// `app.active_terminal` is only set while `App.run`'s raw-mode session is
@@ -55,7 +55,7 @@ fn printHelp(io: std.Io) !void {
     var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buffer);
     const stdout = &stdout_writer.interface;
     try stdout.print(
-        "wstudio {s} — terminal DAW\n\n" ++
+        "wstudio {s} - terminal DAW\n\n" ++
             "Usage:\n" ++
             "  wstudio [path]     Launch the TUI, optionally opening a .wsj project\n" ++
             "  wstudio render      Render the built-in demo melody to out.wav\n" ++

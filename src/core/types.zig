@@ -13,7 +13,7 @@ pub const default_sample_rate: u32 = 48_000;
 pub const default_block_frames: FrameCount = 256;
 
 /// Upper bound a backend may ask the engine to process in one call.
-/// Lets the engine use fixed scratch buffers — no allocation on the
+/// Lets the engine use fixed scratch buffers - no allocation on the
 /// audio thread.
 pub const max_block_frames: FrameCount = 4096;
 

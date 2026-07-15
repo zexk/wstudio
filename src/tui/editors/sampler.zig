@@ -1,4 +1,4 @@
-//! Sampler-editor input for both targets — a drum machine pad or a standalone
+//! Sampler-editor input for both targets - a drum machine pad or a standalone
 //! Sampler: param row navigation, h/l nudges (routed to the audio thread),
 //! pad jumps and audition. The render half lives in views/sampler.zig.
 
@@ -15,7 +15,7 @@ const sampler_view = @import("../views/sampler.zig");
 
 /// Number of editable params for the sampler editor's current target.
 /// A slice carries the same 10 pad params a drum pad does (start..reverse),
-/// minus nothing — root/mono stay sampler-only.
+/// minus nothing - root/mono stay sampler-only.
 fn paramCount(app: *App) u8 {
     return switch (app.sampler_target) {
         .drum => DrumMachine.pad_param_count,
@@ -31,7 +31,7 @@ fn paramCount(app: *App) u8 {
 /// esc/e return to the grid that opened it; for a standalone Sampler,
 /// esc/e return to the tracks view. a auditions the current pad/slice /
 /// the sampler's root note (mirrors the piano roll/drum grid's own
-/// audition key — 'p' is reserved for paste elsewhere, so it's kept free
+/// audition key - 'p' is reserved for paste elsewhere, so it's kept free
 /// here rather than meaning something different per view).
 pub fn handleKey(app: *App, key: modal_mod.Key) bool {
     const is_drum = app.sampler_target == .drum;
@@ -44,7 +44,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
         },
         .ctrl_r => { history.doRedo(app); return true; },
         .char => |c| switch (c) {
-            // Block insert mode — piano keys conflict with param navigation.
+            // Block insert mode - piano keys conflict with param navigation.
             'i' => return true,
             'e' => {
                 history.flushParamNudge(app);
@@ -63,7 +63,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             'L' => { adjustParam(app, 10 * app.takeCount()); return true; },
             'g' => { history.flushParamNudge(app); app.sampler_param = 0; return true; },
             'G' => { history.flushParamNudge(app); app.sampler_param = paramCount(app) - 1; return true; },
-            // J/K jump a whole bank of 8 pads/slices — same MPC-style
+            // J/K jump a whole bank of 8 pads/slices - same MPC-style
             // paging as the drum grid's own J/K (editors/drum.zig).
             'K' => {
                 if (!is_drum and !is_slice) return false;
@@ -79,7 +79,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             },
             '1'...'8' => {
                 // Only a meaningful jump on a drum pad's or a slice's
-                // sampler — a standalone Sampler has no pads, so let the
+                // sampler - a standalone Sampler has no pads, so let the
                 // digit fall through to become a count prefix instead
                 // (matches j/k now honoring `app.takeCount()` above).
                 // Bank-relative: "1" always means the first pad of
@@ -116,7 +116,7 @@ fn returnView(app: *App) app_mod.AppView {
 }
 
 /// Move the pad/slice cursor by `delta`, clamped to the target's slot count
-/// — shared by J/K here and editors/drum.zig's own movePad (kept separate
+/// - shared by J/K here and editors/drum.zig's own movePad (kept separate
 /// since the two files don't share a common cursor-motion module).
 fn movePadBank(app: *App, delta: i32) void {
     if (app.sampler_target == .slice) {
@@ -134,7 +134,7 @@ fn movePadBank(app: *App, delta: i32) void {
     ));
 }
 
-/// Move the param cursor by `delta` rows, clamped to the param list —
+/// Move the param cursor by `delta` rows, clamped to the param list -
 /// mirrors the synth editor's equivalent.
 fn moveCursor(app: *App, delta: i32) void {
     app.sampler_param = @intCast(std.math.clamp(
@@ -171,7 +171,7 @@ fn preview(app: *App) void {
 
 /// Nudge the selected sampler param. Routed over the command queue so the
 /// edit lands on the audio thread (DrumMachine/Sampler.adjustParam), never
-/// racing the block reader — mirrors the synth editor's adjustParam. Also
+/// racing the block reader - mirrors the synth editor's adjustParam. Also
 /// notes the nudge for undo (history.noteParamNudge), coalescing a run of
 /// h/l presses on the same param into one undo step.
 pub fn adjustParam(app: *App, steps: i32) void {
@@ -200,7 +200,7 @@ pub fn adjustParam(app: *App, steps: i32) void {
 // `paramRelRow` replicate that sizing/ordering rather than re-deriving it.
 
 /// Rows the waveform panel actually occupies (0 if there isn't room for
-/// one — drawSamplerEditor skips it below 2 rows). `body` is the view's
+/// one - drawSamplerEditor skips it below 2 rows). `body` is the view's
 /// content-row budget (`rows -| 5`, matching drawSamplerEditor).
 /// `pad_target` = drum pad or slice: 10 params, no KEY section.
 fn waveRows(pad_target: bool, body: usize) usize {
@@ -211,7 +211,7 @@ fn waveRows(pad_target: bool, body: usize) usize {
 
 // zig fmt: off
 /// Row of param `idx` relative to right after the waveform panel (title +
-/// waveform rows already excluded) — one row per section header, matching
+/// waveform rows already excluded) - one row per section header, matching
 /// drawSamplerEditor's emission order (SAMPLE's 3 params, AMP ENV's 4, OUT's
 /// 3, then KEY's 1 for a standalone sampler).
 fn paramRelRow(idx: u8) usize {
@@ -219,7 +219,7 @@ fn paramRelRow(idx: u8) usize {
         0 => 1, 1 => 2, 2 => 3, // SAMPLE (header at 0): start, end, pitch
         3 => 5, 4 => 6, 5 => 7, 6 => 8, // AMP ENV (header at 4): attack..release
         7 => 10, 8 => 11, 9 => 12, // OUT (header at 9): gain, pan, reverse
-        10 => 14, 11 => 15, // KEY (header at 13): root, voice — standalone sampler only
+        10 => 14, 11 => 15, // KEY (header at 13): root, voice - standalone sampler only
         else => 0,
     };
 }
@@ -253,7 +253,7 @@ fn waveformNorm(x: usize, cols: u16) ?f32 {
     return std.math.clamp(@as(f32, @floatFromInt(rel)) / @as(f32, @floatFromInt(width)), 0.0, 1.0);
 }
 
-/// The current target's start/end markers, read straight off its Pad —
+/// The current target's start/end markers, read straight off its Pad -
 /// same values views/sampler.zig's drawWaveformPad renders.
 fn currentNorms(app: *App) ?struct { start: f32, end: f32 } {
     switch (app.sampler_target) {
@@ -275,8 +275,8 @@ fn currentNorms(app: *App) ?struct { start: f32, end: f32 } {
 }
 
 /// Move `marker` to `target_norm` via the same discrete steps the keyboard
-/// uses — start/end move in exactly 0.01 increments (dsp/sampler.zig's
-/// Sampler.adjustParam) — so a click/drag never bypasses that clamping.
+/// uses - start/end move in exactly 0.01 increments (dsp/sampler.zig's
+/// Sampler.adjustParam) - so a click/drag never bypasses that clamping.
 fn moveMarkerTo(app: *App, marker: SamplerMarker, target_norm: f32) void {
     const norms = currentNorms(app) orelse return;
     const current: f32 = if (marker == .start) norms.start else norms.end;

@@ -9,12 +9,12 @@ const Mode = ws.input.Mode;
 
 pub const spectrum_rows: usize = 18;
 pub const spectrum_band_count: usize = 80;
-/// Number of editable synth parameters (ids 23/30/31 are retired — absorbed
-/// into the mod matrix — and skipped by the cursor, but stay inside the
+/// Number of editable synth parameters (ids 23/30/31 are retired - absorbed
+/// into the mod matrix - and skipped by the cursor, but stay inside the
 /// count so every other id keeps its meaning). This is a flat id -> engine
 /// field cross-reference in numeric order; it is NOT the editor's UI
 /// grouping (params are freely regrouped into cards/sections there without
-/// ever renumbering ids) — see src/tui/synth_layout.zig for MAIN/MOD's
+/// ever renumbering ids) - see src/tui/synth_layout.zig for MAIN/MOD's
 /// actual section tables, and editors/synth.zig's fxFirstId/fxIdCount for
 /// FX's per-unit ranges.
 /// 0:waveform 1:pulse_width 2:detune 3:unison 4:uni.det 5:uni.spread
@@ -32,7 +32,7 @@ pub const spectrum_band_count: usize = 80;
 /// 41:warp_mode 42:warp_amount 43:osc_b_warp_mode 44:osc_b_warp_amount
 /// 45:filter2_on 46:filter2_type 47:filter2_cutoff 48:filter2_res 49:filter_routing
 /// 50:osc_c_on 51:c_waveform 52:c_pw 53:c_semi 54:c_detune 55:c_level 56:c_unison 57:c_uni.det 58:c_uni.mode
-/// 59..82: mod matrix — 8 rows x (source, dest, depth)
+/// 59..82: mod matrix - 8 rows x (source, dest, depth)
 /// 83:fx_dist_on 84:fx_dist_drive_db 85:fx_dist_mix
 /// 86:fx_crush_on 87:fx_crush_bits 88:fx_crush_rate 89:fx_crush_mix
 /// 90:fx_flanger_on 91:fx_flanger_rate_hz 92:fx_flanger_depth 93:fx_flanger_feedback 94:fx_flanger_mix
@@ -44,11 +44,11 @@ pub const spectrum_band_count: usize = 80;
 /// 112:fx_reverb_on 113:fx_reverb_room 114:fx_reverb_damp 115:fx_reverb_mix
 /// 116:arp_on 117:arp_mode 118:arp_octaves 119:arp_rate_hz 120:arp_gate 121:arp_hold
 /// 122:env3_attack_s 123:env3_decay_s 124:env3_sustain 125:env3_release_s
-/// 126-131: FX reorder handles (dist/crush/flanger/phaser/delay/reverb) — not
+/// 126-131: FX reorder handles (dist/crush/flanger/phaser/delay/reverb) - not
 ///   real params (no editor row); value is the unit's fx_order slot index,
 ///   see PolySynth.setFxIndex.
 /// 132:fx_gate_on 133:fx_gate_threshold_db 134:fx_gate_attack_ms 135:fx_gate_release_ms
-///   136:reorder handle (gate) — same "not a real param" note as 126-131.
+///   136:reorder handle (gate) - same "not a real param" note as 126-131.
 /// 137:fx_comp_on 138:fx_comp_threshold_db 139:fx_comp_ratio 140:fx_comp_attack_ms
 ///   141:fx_comp_release_ms 142:fx_comp_makeup_db 143:reorder handle (comp)
 /// 144:fx_mb_on 145:xover_lo 146:xover_hi 147:attack 148:release 149:style 150:mix
@@ -64,7 +64,7 @@ pub const spectrum_band_count: usize = 80;
 pub const synth_param_count: u8 = 195;
 
 // ---------------------------------------------------------------------------
-// Palette — all colour codes go here; never raw \x1b sequences elsewhere
+// Palette - all colour codes go here; never raw \x1b sequences elsewhere
 // ---------------------------------------------------------------------------
 
 // zig fmt: off
@@ -84,7 +84,7 @@ pub const bwht = "\x1b[97m";   // bright white – selected value
 
 /// Fixed per-track color palette (see `Track.color`, cycled with `[`/`]`
 /// in the tracks view). Reuses the existing semantic constants above rather
-/// than inventing new ANSI codes — a track color and, say, the mute
+/// than inventing new ANSI codes - a track color and, say, the mute
 /// indicator's yellow are different row segments, so sharing a hue causes
 /// no real ambiguity. `color == 0` (not in this array) means uncolored.
 pub const track_palette = [_][]const u8{ red, yel, grn, acc, blu, mag, bwht };
@@ -95,7 +95,7 @@ comptime {
 }
 
 /// Background counterparts of the three mode colours (SGR 40-47), used only
-/// by the status-line mode badge below — everywhere else in the TUI gets
+/// by the status-line mode badge below - everywhere else in the TUI gets
 /// its block look from `sel` (reverse video) instead, since that adapts to
 /// whatever the terminal's real background is. The badge needs a literal
 /// background code (reverse video would work fine here too, actually, but
@@ -116,7 +116,7 @@ fn modeBadgeBg(mode: Mode) []const u8 {
         .insert => bg_yel,
         .visual => bg_mag,
         // The `:`/`/` prompt itself lives on its own row now (see
-        // App.draw's prompt row) — the status row still shows a badge,
+        // App.draw's prompt row) - the status row still shows a badge,
         // cyan so both ends of the row visibly flag "you're typing".
         .command, .search => bg_cyn,
     };
@@ -220,7 +220,7 @@ fn visibleWidth(raw: []const u8) usize {
 /// column per UTF-8 lead byte. Footer status lines are built from several
 /// independent `w.print` calls with no shared width budget, so a verbose
 /// status message can silently overflow past the terminal's right edge and
-/// wrap onto a new row — which pushes the whole frame down by one line and
+/// wrap onto a new row - which pushes the whole frame down by one line and
 /// scrolls the header off the top. This is the guard against that.
 pub fn writeClamped(w: *std.Io.Writer, raw: []const u8, max_cols: usize) !void {
     var i: usize = 0;
@@ -243,12 +243,12 @@ pub fn writeClamped(w: *std.Io.Writer, raw: []const u8, max_cols: usize) !void {
 }
 
 /// Writes `left` then right-aligns `right` flush against `cols` (padding
-/// the gap between them with spaces) — the lualine "sections" look: mode/
+/// the gap between them with spaces) - the lualine "sections" look: mode/
 /// position info reading left-to-right, identity info (current view, L/R
 /// meters) pinned to the right edge instead of trailing wherever the left
 /// content happens to end. Both `left` and `right` may contain ANSI SGR
 /// sequences. If they'd collide (combined width leaves no gap), `right` is
-/// dropped and `left` is clamped instead — same "truncate rather than
+/// dropped and `left` is clamped instead - same "truncate rather than
 /// corrupt" rule writeClamped already follows, so a narrow terminal loses
 /// the right-aligned extra before it loses the primary content.
 pub fn writeSplitRow(w: *std.Io.Writer, left: []const u8, right: []const u8, cols: usize) !void {
@@ -266,7 +266,7 @@ pub fn writeSplitRow(w: *std.Io.Writer, left: []const u8, right: []const u8, col
 }
 
 /// writeClamped, then pad with spaces out to exactly `width` visible
-/// columns — the building block for side-by-side column layouts (the synth
+/// columns - the building block for side-by-side column layouts (the synth
 /// editor's wide two-column mode zips lines through this).
 pub fn writePadded(w: *std.Io.Writer, raw: []const u8, width: usize) !void {
     try writeClamped(w, raw, width);
@@ -288,7 +288,7 @@ pub fn meter(w: *std.Io.Writer, peak: f32) !void {
 }
 
 // ---------------------------------------------------------------------------
-// Form-row primitives — shared by the synth and sampler editors
+// Form-row primitives - shared by the synth and sampler editors
 // ---------------------------------------------------------------------------
 
 pub const form_bar_w_default: usize = 18;
@@ -296,7 +296,7 @@ pub const form_section_w_default: usize = 42;
 /// Width knobs for the form-row primitives below (synthBar's cell count and
 /// synthSection's fill width). App.draw resets both to the compact defaults
 /// at the top of every frame; wide-layout views then opt in for that frame
-/// only — so no view ever inherits another view's widths.
+/// only - so no view ever inherits another view's widths.
 pub var form_bar_w: usize = form_bar_w_default;
 pub var form_section_w: usize = form_section_w_default;
 
@@ -308,7 +308,7 @@ pub fn synthBar(w: *std.Io.Writer, value: f32, max_val: f32, is_sel: bool, color
     const frac = std.math.clamp(value / max_val, 0.0, 1.0) * @as(f32, @floatFromInt(bar_w));
     const full: usize = @intFromFloat(@floor(frac));
     const rem = frac - @floor(frac);
-    // U+258F..U+2589 — 1/8 .. 7/8 left blocks.
+    // U+258F..U+2589 - 1/8 .. 7/8 left blocks.
     const eighths = [_][]const u8{ "", "\u{258F}", "\u{258E}", "\u{258D}", "\u{258C}", "\u{258B}", "\u{258A}", "\u{2589}" };
     const e: usize = @intFromFloat(rem * 8.0);
     const has_part = full < bar_w and e > 0;

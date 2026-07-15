@@ -1,6 +1,6 @@
 //! Scale + diatonic chord theory shared by the piano roll's scale
 //! highlighting (`App.piano_scale`, set via `:scale`) and its chord-stamp
-//! keys (`c` / `C`). Pure theory — no TUI or DSP dependency.
+//! keys (`c` / `C`). Pure theory - no TUI or DSP dependency.
 
 const std = @import("std");
 
@@ -65,7 +65,7 @@ pub fn pitchClassName(pc: u4) []const u8 {
 }
 
 /// Parses a note letter (A-G, case-insensitive) with an optional trailing
-/// `#`/`s` (sharp) or `b` (flat) — e.g. "c", "F#", "Bb". Null on anything else.
+/// `#`/`s` (sharp) or `b` (flat) - e.g. "c", "F#", "Bb". Null on anything else.
 pub fn parsePitchClass(s: []const u8) ?u4 {
     if (s.len == 0 or s.len > 2) return null;
     const base: i32 = switch (std.ascii.toUpper(s[0])) {
@@ -104,7 +104,7 @@ pub const Scale = struct {
     };
 
     /// The diatonic triad (`seventh = false`) or seventh chord stacked from
-    /// `pitch` using this scale's degrees — e.g. in C major, chordAt(D,
+    /// `pitch` using this scale's degrees - e.g. in C major, chordAt(D,
     /// false) gives D-F-A (ii). Falls back to a plain major/major-7th shape
     /// rooted at `pitch` when it doesn't sit on the scale (a chromatic
     /// passing tone) or the scale is pentatonic/chromatic, where stacking

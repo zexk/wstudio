@@ -1,7 +1,7 @@
 //! Persisted `:` command history: `~/.config/wstudio/cmd_history.json`, same
 //! JSON + tmp-rename convention user_presets.zig uses. Loaded once at
 //! App.init, the whole list rewritten every time a new entry lands in
-//! `App.cmd_history` (see `App.pushCommandHistory`) — cheap at the
+//! `App.cmd_history` (see `App.pushCommandHistory`) - cheap at the
 //! `cmd_history_cap`=50 cap.
 
 const std = @import("std");
@@ -15,7 +15,7 @@ const FileSnapshot = struct {
 const filename = "cmd_history.json";
 
 /// Load saved history, oldest first. Empty (not an error) if the file
-/// doesn't exist yet or `$HOME` is unset — a missing history file should
+/// doesn't exist yet or `$HOME` is unset - a missing history file should
 /// never block startup, same spirit as a missing sample sidecar. A file
 /// that exists but fails to parse is quarantined rather than silently
 /// treated as empty, so a later save can't clobber it.
@@ -35,7 +35,7 @@ pub fn load(allocator: std.mem.Allocator, io: std.Io) std.ArrayListUnmanaged([]c
 }
 
 /// Write every entry in `list` to disk, creating `~/.config/wstudio/` first
-/// if needed. Best-effort from the caller's side — a failure here (no
+/// if needed. Best-effort from the caller's side - a failure here (no
 /// `$HOME`, disk full) never blocks command entry, it just means history
 /// doesn't outlive this run.
 pub fn save(allocator: std.mem.Allocator, io: std.Io, list: []const []const u8) !void {

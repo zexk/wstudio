@@ -1,6 +1,6 @@
 //! Drum-grid input: step/pad cursor, step + velocity toggles, pattern
 //! variants, swing, choke groups, yank/paste, visual-mode range select
-//! (v, then y/d/p), and operator+motion grammar (x/w/b/d/y — see the
+//! (v, then y/d/p), and operator+motion grammar (x/w/b/d/y - see the
 //! step/bar/pattern hierarchy on the operator-pending block below). The
 //! render half lives in views/drum.zig; the machine itself in
 //! dsp/drum_sampler.zig.
@@ -56,7 +56,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 },
                 // dw/yw act on exactly the bar(s) through the end of the
                 // nth bar forward, not w's raw landing step (see
-                // piano.zig's identical comment — same vim dw nuance).
+                // piano.zig's identical comment - same vim dw nuance).
                 'w' => { operatorBarForward(app, app.takeCount()); finishOperator(app, op); return true; },
                 'b' => { operatorBarBackward(app, app.takeCount()); finishOperator(app, op); return true; },
                 else => { app.drum_visual_anchor = null; app.setStatus("cancelled", .{}); return true; },
@@ -86,21 +86,21 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 'L' => moveStep(app, 4 * app.takeCount()),
                 'k' => movePad(app, -app.takeCount()),
                 'j' => movePad(app, app.takeCount()),
-                // J/K jump a whole bank of 8 pads at once — MPC-style paging
+                // J/K jump a whole bank of 8 pads at once - MPC-style paging
                 // rather than a smooth scroll (views/drum.zig windows the
                 // grid to the cursor's bank, floor(pad/8)).
                 'K' => movePad(app, -8 * app.takeCount()),
                 'J' => movePad(app, 8 * app.takeCount()),
                 // g/G jump the step cursor to pattern start/end, matching
-                // the piano roll's convention. Choke-group cycling — that
-                // used to squat on 'G' — lives on 'C' instead (see below).
+                // the piano roll's convention. Choke-group cycling - that
+                // used to squat on 'G' - lives on 'C' instead (see below).
                 'g' => app.drum_cursor[1] = 0,
                 'G' => {
                     const dm = app.drumMachine();
                     if (dm.step_count > 0) step.* = dm.step_count - 1;
                 },
                 // w/b: vim's word motion, one tier up from h/l's step
-                // ("char") granularity — jump to the start of the
+                // ("char") granularity - jump to the start of the
                 // next/current-or-previous 4-step group (see barLenSteps).
                 'w' => jumpBar(app, app.takeCount()),
                 'b' => jumpBar(app, -app.takeCount()),
@@ -130,17 +130,17 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                         history.push(app, history.captureDrum(app, app.drum_track));
                         dm.cycleStepVel(pad.*, step.*);
                         app.setStatus("vel {d}", .{dm.stepVel(pad.*, step.*)});
-                    } else app.setStatus("no step here — enter places one", .{});
+                    } else app.setStatus("no step here - enter places one", .{});
                 },
                 // {/}: fine velocity nudge (±1, count-scaled) over the full
-                // 1-127 range — 'c' above only cycles the named presets.
+                // 1-127 range - 'c' above only cycles the named presets.
                 '{' => {
                     const dm = app.drumMachine();
                     if (dm.stepActive(pad.*, step.*)) {
                         history.push(app, history.captureDrum(app, app.drum_track));
                         dm.nudgeStepVel(pad.*, step.*, -app.takeCount());
                         app.setStatus("vel {d}", .{dm.stepVel(pad.*, step.*)});
-                    } else app.setStatus("no step here — enter places one", .{});
+                    } else app.setStatus("no step here - enter places one", .{});
                 },
                 '}' => {
                     const dm = app.drumMachine();
@@ -148,17 +148,17 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                         history.push(app, history.captureDrum(app, app.drum_track));
                         dm.nudgeStepVel(pad.*, step.*, app.takeCount());
                         app.setStatus("vel {d}", .{dm.stepVel(pad.*, step.*)});
-                    } else app.setStatus("no step here — enter places one", .{});
+                    } else app.setStatus("no step here - enter places one", .{});
                 },
                 'v' => {
                     app.drum_visual_anchor = step.*;
                     app.modal.mode = .visual;
                     app.setStatus("visual: hjkl extend, y/d/p act on the range, esc cancels", .{});
                 },
-                // x: vim's char-delete — clears just the (pad, step) under
+                // x: vim's char-delete - clears just the (pad, step) under
                 // the cursor, instantly, no operator needed.
                 'x' => clearCursorStep(app),
-                // d is an operator (see armOperator) — dd clears the cursor
+                // d is an operator (see armOperator) - dd clears the cursor
                 // pad's row (like X), d + a motion (h/l/H/L/g/G/w/b) clears
                 // the range it covers.
                 'd' => armOperator(app, 'd'),
@@ -189,7 +189,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                         dm.applyVariant(clip);
                         if (step.* >= dm.step_count) step.* = dm.step_count - 1;
                         app.setStatus("pasted into pattern {c}", .{DrumMachine.variantLetter(dm.variant)});
-                    } else app.setStatus("nothing yanked — y copies the pattern", .{});
+                    } else app.setStatus("nothing yanked - y copies the pattern", .{});
                 },
                 '.' => repeatLastEdit(app),
                 // zig fmt: off
@@ -215,12 +215,12 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                         history.push(app, history.captureDrum(app, app.drum_track));
                     if (dm.removeVariant()) {
                         if (step.* >= dm.step_count) step.* = dm.step_count - 1;
-                        app.setStatus("deleted pattern — now on {c}", .{DrumMachine.variantLetter(dm.variant)});
+                        app.setStatus("deleted pattern - now on {c}", .{DrumMachine.variantLetter(dm.variant)});
                     } else app.setStatus("can't delete the only pattern", .{});
                 },
                 // zig fmt: off
                 's' => { spectrum.switchToTrack(app, app.drum_track); return true; },
-                // f browses kit variants — same apply path as :drum-kit.
+                // f browses kit variants - same apply path as :drum-kit.
                 'f' => { preset_picker.open(app, .drum, app.drum_track); return true; },
                 'R' => { startPadRenamePrompt(app); return true; },
                 // zig fmt: on
@@ -281,18 +281,18 @@ fn zoom(app: *App, delta: i8) void {
     app.setStatus("zoom: {s}", .{@tagName(app.drum_zoom)});
 }
 
-/// w/b: jump the step cursor `delta` 4-step groups forward/back — see
+/// w/b: jump the step cursor `delta` 4-step groups forward/back - see
 /// step_grid.jumpBar for the bar-width rationale.
 fn jumpBar(app: *App, delta: i32) void {
     step_grid.jumpBar(&app.drum_cursor[1], delta, app.drumMachine().step_count);
 }
 
-/// dw/yw's range end — see step_grid.operatorBarForward.
+/// dw/yw's range end - see step_grid.operatorBarForward.
 fn operatorBarForward(app: *App, n: i32) void {
     step_grid.operatorBarForward(&app.drum_cursor[1], n, app.drumMachine().step_count);
 }
 
-/// db/yb's range start — see step_grid.operatorBarBackward.
+/// db/yb's range start - see step_grid.operatorBarBackward.
 fn operatorBarBackward(app: *App, n: i32) void {
     step_grid.operatorBarBackward(&app.drum_cursor[1], n, app.drumMachine().step_count);
 }
@@ -316,7 +316,7 @@ fn finishOperator(app: *App, op: u8) void {
     if (op == 'd') deleteSelection(app) else yankSelection(app);
 }
 
-/// `x`: vim's char-delete — clears just the (pad, step) under the cursor,
+/// `x`: vim's char-delete - clears just the (pad, step) under the cursor,
 /// instantly, no operator needed.
 fn clearCursorStep(app: *App) void {
     const dm = app.drumMachine();
@@ -330,7 +330,7 @@ fn clearCursorStep(app: *App) void {
     app.setStatus("cleared step", .{});
 }
 
-/// `dd`: clear every step on the cursor pad's row — vim's line-delete,
+/// `dd`: clear every step on the cursor pad's row - vim's line-delete,
 /// where a "line" is one pad across the whole pattern (the same clear `X`
 /// does). Whole-pattern clears are a full-range visual d; pad-by-time
 /// selections are visual mode's job.
@@ -427,7 +427,7 @@ fn deleteSelection(app: *App) void {
 /// whatever already sits at each destination step (all pads).
 fn pasteSelection(app: *App) void {
     const clip = app.drum_range_clip orelse {
-        app.setStatus("nothing yanked — select a range and y first", .{});
+        app.setStatus("nothing yanked - select a range and y first", .{});
         exitVisual(app);
         return;
     };
@@ -456,7 +456,7 @@ fn repeatLastEdit(app: *App) void {
 }
 
 /// R opens the command prompt pre-filled with `:pad-rename <n> ` for the
-/// cursor pad — type the new name and hit enter (esc cancels), same
+/// cursor pad - type the new name and hit enter (esc cancels), same
 /// mechanism as the tracks view's own rename prompt. Pad index is 1-based,
 /// matching the 1-8 direct pad-select keys.
 fn startPadRenamePrompt(app: *App) void {
@@ -476,7 +476,7 @@ fn adjustSwing(app: *App, delta: f32) void {
 }
 
 /// Step the cursor pad's choke group forward (none → 1..max → none). A
-/// mixer-style param like swing — not undo-tracked.
+/// mixer-style param like swing - not undo-tracked.
 fn cycleChokeGroup(app: *App, pad: u8) void {
     const dm = app.drumMachine();
     dm.cycleChokeGroup(pad);
@@ -490,7 +490,7 @@ fn cycleChokeGroup(app: *App, pad: u8) void {
 fn cycleVariant(app: *App, delta: i32) void {
     const dm = app.drumMachine();
     if (dm.variant_count <= 1) {
-        app.setStatus("one pattern — N creates another", .{});
+        app.setStatus("one pattern - N creates another", .{});
         return;
     }
     dm.cycleVariant(delta);
@@ -501,7 +501,7 @@ fn cycleVariant(app: *App, delta: i32) void {
     });
 }
 
-/// Step index at column `x` within a pad row — see step_grid.stepAt.
+/// Step index at column `x` within a pad row - see step_grid.stepAt.
 fn stepAt(app: *const App, scroll: u32, step_count: u8, x: usize) ?u8 {
     return step_grid.stepAt(drum_view.gutter, app.drumCellWidth(), scroll, step_count, x);
 }
@@ -509,9 +509,9 @@ fn stepAt(app: *const App, scroll: u32, step_count: u8, x: usize) ?u8 {
 /// Click a step cell to toggle it (same as enter); click the pad-name
 /// gutter to just select that pad row. Dragging with the button held paints
 /// (rather than toggles) every newly-entered cell to the state the initial
-/// click produced — `setStep` is idempotent, so repeated motion events over
-/// the same cell are harmless. Scroll moves the step cursor, or — over the
-/// gutter — the pad cursor, regardless of which row the mouse sits on.
+/// click produced - `setStep` is idempotent, so repeated motion events over
+/// the same cell are harmless. Scroll moves the step cursor, or - over the
+/// gutter - the pad cursor, regardless of which row the mouse sits on.
 pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, view_rows: usize) void {
     switch (ev.kind) {
         .scroll_up, .scroll_down => {
@@ -522,8 +522,8 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, view_rows: u
         else => {},
     }
 
-    if (row < 2) return; // title / step-number header rows — see views/drum.zig
-    // Row 2 is the visible bank window's first pad, not absolute pad 0 —
+    if (row < 2) return; // title / step-number header rows - see views/drum.zig
+    // Row 2 is the visible bank window's first pad, not absolute pad 0 -
     // mirrors views/drum.zig's bankWindowStart/banksShown windowing. A dim
     // rule separates stacked banks, so banks occupy pads_per_bank + 1 rows
     // past the first; the rule rows themselves map to no pad.

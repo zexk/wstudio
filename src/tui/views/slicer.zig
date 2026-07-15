@@ -63,7 +63,7 @@ pub fn layout(slice_count: u8, rows: usize) Layout {
     return .{ .wave_rows = if (wave >= wave_min_rows) wave else 0, .bank_rows = bank_rows };
 }
 
-/// How many steps fit in `cols` — same periodic-separator math as
+/// How many steps fit in `cols` - same periodic-separator math as
 /// views/drum.zig's visibleSteps.
 fn visibleSteps(cols: usize) u32 {
     if (cols <= gutter) return 1;
@@ -79,7 +79,7 @@ fn visibleSteps(cols: usize) u32 {
 }
 
 /// Normalized 0..1 clip position at column `x` within the waveform pane,
-/// or null outside it — editors/slicer.zig's mouse slice-select uses this.
+/// or null outside it - editors/slicer.zig's mouse slice-select uses this.
 pub fn waveNorm(x: usize, cols: u16) ?f32 {
     if (x < wave_indent) return null;
     const width = @min(@as(usize, cols) -| wave_indent, wave_max_w);
@@ -89,7 +89,7 @@ pub fn waveNorm(x: usize, cols: u16) ?f32 {
     return std.math.clamp(@as(f32, @floatFromInt(rel)) / @as(f32, @floatFromInt(width)), 0.0, 1.0);
 }
 
-/// Ruler label for slice `i` (0-based): 1-9, then a-z, then '+' past 35 —
+/// Ruler label for slice `i` (0-based): 1-9, then a-z, then '+' past 35 -
 /// one column per label, MPC-bank style.
 fn sliceLabel(i: usize) u8 {
     if (i < 9) return @intCast('1' + i);
@@ -106,7 +106,7 @@ fn normCol(norm: f32, width: usize) usize {
 /// Render the waveform pane + ruler: per-column peak fill, every slice
 /// start (and the last slice's end) drawn as a bright marker, the cursor
 /// slice's own region and markers highlighted. With no slices yet the
-/// whole clip draws in accent — the "look at what you loaded, then chop"
+/// whole clip draws in accent - the "look at what you loaded, then chop"
 /// state.
 fn drawWavePane(
     app: anytype,
@@ -256,7 +256,7 @@ pub fn drawSlicerGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize,
     }
 
     if (slice_count == 0) {
-        try w.writeAll(dim ++ "  no slices yet — :chop finds the transients, :slice <n> equal-divides" ++ rst);
+        try w.writeAll(dim ++ "  no slices yet - :chop finds the transients, :slice <n> equal-divides" ++ rst);
         try endLine(w);
         try w.writeAll(dim ++ "  (:load-slice [file.wav] loads your own clip)" ++ rst);
         try endLine(w);
@@ -265,7 +265,7 @@ pub fn drawSlicerGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize,
         return;
     }
 
-    // Step header — only the visible scroll window is shown.
+    // Step header - only the visible scroll window is shown.
     try w.writeAll(dim ++ "          ");
     var col: u32 = 0;
     while (col < visible and scroll + col < step_count_u32) : (col += 1) {
@@ -276,7 +276,7 @@ pub fn drawSlicerGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize,
     try endLine(w);
     written += 1;
 
-    // One tint per choke group so grouped slices read as a set — same
+    // One tint per choke group so grouped slices read as a set - same
     // palette order as the drum grid's pad names.
     const choke_colors = [_][]const u8{ yel, mag, blu, red };
     for (bank_start..bank_end) |sIdx| {
@@ -310,7 +310,7 @@ pub fn drawSlicerGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize,
             } else {
                 try w.writeAll(dim);
             }
-            // Glyph tracks the step's velocity — same five bands as the
+            // Glyph tracks the step's velocity - same five bands as the
             // drum grid.
             try w.writeAll(if (!active) "[ ]" else switch (sl.stepVel(@intCast(sIdx), @intCast(s))) {
                 102...127 => "[X]",

@@ -49,7 +49,7 @@ pub const ModalInput = input.ModalInput;
 
 /// A 16-glyph subset of "Symbols Nerd Font Mono" (MIT; see
 /// assets/fonts/LICENSE) used for the TUI's icons (tui/icons.zig). Exposed
-/// here — rather than embedded directly in tui/icons.zig — so the
+/// here - rather than embedded directly in tui/icons.zig - so the
 /// `install-font` build tool can reach it too: @embedFile can't cross a
 /// module's root, and tools only import this "wstudio" module, not raw
 /// paths under src/tui/.

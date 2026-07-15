@@ -4,11 +4,11 @@
 //! Hilbert transform (two cascaded allpass filter banks, ~0.7° phase error
 //! from 20Hz to Nyquist at 44.1/48kHz), then multiplied by a complex
 //! quadrature oscillator and the real part taken. A signed `shift_hz` picks
-//! the direction: positive shifts up, negative down — the classic single
+//! the direction: positive shifts up, negative down - the classic single
 //! bipolar control a Bode/Moog frequency shifter exposes.
 //!
 //! Hilbert transform structure and coefficients: Olli Niemitalo, "Hilbert
-//! transform" (yehar.com/blog/?p=368) — the four-section, ~0.7° design.
+//! transform" (yehar.com/blog/?p=368) - the four-section, ~0.7° design.
 
 const std = @import("std");
 const types = @import("../core/types.zig");
@@ -18,9 +18,9 @@ const Sample = types.Sample;
 
 const num_sections = 4;
 
-/// Branch 2 (the "real" component) — no extra delay.
+/// Branch 2 (the "real" component) - no extra delay.
 const branch2_a = [num_sections]f32{ 0.4021921162426, 0.8561710882420, 0.9722909545651, 0.9952884791278 };
-/// Branch 1 (the "imaginary" component) — gets a trailing one-sample delay
+/// Branch 1 (the "imaginary" component) - gets a trailing one-sample delay
 /// (see `Channel.process`) so its poles/zeros interleave with branch 2's on
 /// the real axis, which is what gives the pair its low ripple.
 const branch1_a = [num_sections]f32{ 0.6923878, 0.9360654322959, 0.9882295226860, 0.9987488452737 };
@@ -159,7 +159,7 @@ test "silence in, silence out" {
     for (buf) |s| try std.testing.expectEqual(@as(Sample, 0.0), s);
 }
 
-/// Single-frequency magnitude via a direct O(N) DFT bin (Goertzel-equivalent) —
+/// Single-frequency magnitude via a direct O(N) DFT bin (Goertzel-equivalent) -
 /// good enough at test size to tell "energy moved to the shifted frequency"
 /// from "energy stayed put", which is the property that actually matters:
 /// a sign error in the Hilbert combine would shift down instead of up (or
