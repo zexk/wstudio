@@ -912,31 +912,50 @@ pub const PolySynth = struct {
         depth: f32 = 0.0,
     };
 
-    /// Legal matrix destinations: every automatable param that is consumed
-    /// per voice (excludes the global LFO rates, the macro knobs, and the
-    /// matrix's own depth ids — no self-modulation), the internal FX params
-    /// (consumed globally,
-    /// once per block — see processBlock's FX pass), plus the two virtual
-    /// dests.
-    pub const mod_dest_ids = [_]u8{
-        // zig fmt: off
-        1, 2, 3, 4, 5, 8, 9, 10, 11, 12, 13, 15, 16, 17, 18, 19,
-        21, 22, 24, 25, 26, 27, 33, 34, 36, 37, 38, 42, 44, 47, 48,
-        52, 53, 54, 55, 56, 57,
-        84, 85, 87, 88, 89, 91, 92, 93, 94, 104, 105, 106, 107,
-        109, 110, 111, 113, 114, 115,
-        122, 123, 124, 125,
-        133, 134, 135,
-        138, 139, 140, 141, 142,
-        145, 146, 147, 148, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159,
-        162, 163, 164, 165,
-        168, 169, 170, 171, 172, 173, 174,
-        177, 178, 179,
-        182, 183,
-        185, 186,
-        189, 190, 191, 192, 193,
-        dest_pitch, dest_amp,
-        // zig fmt: on
+    /// Automatable params that aren't legal matrix destinations: the global
+    /// LFO rates (rate lives on the LFO row itself, not a modulation
+    /// target), the matrix's own row depths (no self-modulation), the macro
+    /// knobs (already fan out to every dest their own rows target —
+    /// automating one would double-apply through rows that read it), and
+    /// arp rate/gate (toggle-adjacent controls, not motion-worthy targets).
+    const mod_dest_excluded_ids = [_]u8{
+        29, 61, 64, 67, 70, 73, 76, 79, 82, 96, 98, 99, 100, 101, 102, 119, 120,
+    };
+
+    fn isModDestExcluded(id: u8) bool {
+        for (mod_dest_excluded_ids) |e| if (e == id) return true;
+        return false;
+    }
+
+    fn modDestCount() usize {
+        @setEvalBranchQuota(20000);
+        var n: usize = 2; // dest_pitch, dest_amp
+        for (automatable_params) |p| {
+            if (!isModDestExcluded(p.id)) n += 1;
+        }
+        return n;
+    }
+
+    /// Legal matrix destinations: every `automatable_params` entry not in
+    /// `mod_dest_excluded_ids`, consumed per-voice or once per block by
+    /// `processBlock`'s FX pass, plus the two virtual dests. Derived instead
+    /// of hand-duplicated — the old hand-kept list once let id 187 (WT POS
+    /// C) exist in `automatable_params` but never make it into the matrix,
+    /// silently unreachable from the mod-dest picker.
+    pub const mod_dest_ids: [modDestCount()]u8 = blk: {
+        @setEvalBranchQuota(20000);
+        var out: [modDestCount()]u8 = undefined;
+        var i: usize = 0;
+        for (automatable_params) |p| {
+            if (isModDestExcluded(p.id)) continue;
+            out[i] = p.id;
+            i += 1;
+        }
+        out[i] = dest_pitch;
+        i += 1;
+        out[i] = dest_amp;
+        i += 1;
+        break :blk out;
     };
 
     pub fn modDestLabel(dest: u8) []const u8 {
@@ -3895,6 +3914,13 @@ test "adjustParam: matrix dest walks the dest table and wraps" {
     try std.testing.expectEqual(PolySynth.mod_dest_ids[idx_cutoff - 1], s.mod_matrix[0].dest);
     s.adjustParam(60, 1);
     try std.testing.expectEqual(@as(u8, 21), s.mod_matrix[0].dest);
+}
+
+test "mod_dest_ids covers every non-excluded automatable param" {
+    for (PolySynth.automatable_params) |p| {
+        if (PolySynth.isModDestExcluded(p.id)) continue;
+        try std.testing.expect(PolySynth.modDestIndex(p.id) != null);
+    }
 }
 
 test "LFO 2 tremolo via matrix: square trough at depth=1 silences the voice" {
