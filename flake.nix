@@ -13,6 +13,19 @@
         "aarch64-darwin"
       ];
       forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
+      neutralTerminal = pkgs:
+        pkgs.writeShellApplication {
+          name = "wstudio-neutral-terminal";
+          runtimeInputs = [ pkgs.kitty ];
+          text = ''
+            export FONTCONFIG_FILE=${pkgs.makeFontsConf {
+              fontDirectories = [ pkgs.nerd-fonts.jetbrains-mono ];
+            }}
+            exec kitty --config NONE \\
+              --override font_family='JetBrainsMono Nerd Font Mono' \\
+              --override font_size=14.0 "$@"
+          '';
+        };
     in
     {
       devShells = forAllSystems (pkgs: {
@@ -33,6 +46,8 @@
       });
 
       packages = forAllSystems (pkgs: {
+        neutral-terminal = neutralTerminal pkgs;
+
         default = pkgs.stdenv.mkDerivation {
           pname = "wstudio";
           version = "0.1.0";
@@ -54,6 +69,13 @@
           src = self;
           nativeBuildInputs = [ pkgs.zig.hook ];
           zigBuildFlags = [ "-Dtarget=x86_64-windows-gnu" ];
+        };
+      });
+
+      apps = forAllSystems (pkgs: {
+        neutral-terminal = {
+          type = "app";
+          program = "${neutralTerminal pkgs}/bin/wstudio-neutral-terminal";
         };
       });
 
