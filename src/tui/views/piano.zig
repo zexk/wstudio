@@ -170,7 +170,11 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
     const cw: usize = app.pianoCellWidth();
     const loop_step: u16 = @intFromFloat(pp.length_beats * spbf);
     const max_step_cols: usize = (cols -| 6) / cw;
-    const vis_cols: usize = @min(@as(usize, loop_step), max_step_cols);
+    // `left` can be non-zero after horizontal autoscroll. Do not keep
+    // drawing a full-loop-sized window from that offset: it would produce
+    // phantom steps (and beat labels) past the loop end.
+    const remaining_steps: usize = @as(usize, loop_step -| left);
+    const vis_cols: usize = @min(remaining_steps, max_step_cols);
 
     // Column header: beat numbers sit on the boundary column BEFORE their
     // beat (the same column the note grid's │ separator ticks occupy) while

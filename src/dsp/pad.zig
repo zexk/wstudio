@@ -50,22 +50,26 @@ pub const param_count: u8 = 10;
 /// by Sampler and Slicer, whose per-slice params were previously hand-copied
 /// switches over the same fields/ranges.
 pub fn adjustParam(pad: *Pad, id: u8, steps: i32) void {
-    const s: f32 = @floatFromInt(steps);
-    switch (id) {
-        0 => pad.start_norm = std.math.clamp(pad.start_norm + s * 0.01, 0.0, pad.end_norm - 0.01),
-        // zig fmt: off
-        1 => pad.end_norm   = std.math.clamp(pad.end_norm   + s * 0.01, pad.start_norm + 0.01, 1.0),
-        2 => pad.pitch_semitones = std.math.clamp(pad.pitch_semitones + s * 1.0, -24.0, 24.0),
-        3 => pad.attack_s   = std.math.clamp(pad.attack_s   + s * 0.001, 0.0, 5.0),
-        4 => pad.decay_s    = std.math.clamp(pad.decay_s    + s * 0.005, 0.0, 5.0),
-        5 => pad.sustain    = std.math.clamp(pad.sustain    + s * 0.01, 0.0, 1.0),
-        6 => pad.release_s  = std.math.clamp(pad.release_s  + s * 0.005, 0.001, 5.0),
-        7 => pad.gain       = std.math.clamp(pad.gain       + s * 0.01, 0.0, 2.0),
-        8 => pad.pan        = std.math.clamp(pad.pan        + s * 0.05, -1.0, 1.0),
-        9 => if (steps != 0) { pad.reverse = !pad.reverse; },
-        // zig fmt: on
-        else => {},
+    if (id == 9) {
+        if (steps != 0) pad.reverse = !pad.reverse;
+        return;
     }
+    const value = paramValue(pad, id) orelse return;
+    setParamAbsolute(pad, id, value + @as(f32, @floatFromInt(steps)) * paramStep(id));
+}
+
+/// Amount a one-step nudge changes each continuous pad parameter. Keeping
+/// these increments next to the canonical setter prevents the nudge and
+/// restore paths from drifting apart when a parameter range changes.
+fn paramStep(id: u8) f32 {
+    return switch (id) {
+        0, 1, 5, 7 => 0.01,
+        2 => 1.0,
+        3 => 0.001,
+        4, 6 => 0.005,
+        8 => 0.05,
+        else => 0.0,
+    };
 }
 
 /// Absolute-value counterpart to `adjustParam`, same id space and clamp
@@ -257,4 +261,35 @@ test "resampleLinear preserves amplitude" {
     // Output should be longer and all values in [-1, 1]
     try std.testing.expect(out.len > src.len);
     for (out) |s| try std.testing.expect(@abs(s) <= 1.0 + 1e-6);
+}
+
+test "adjustParam uses the same bounds as absolute parameter assignment" {
+    const testing = std.testing;
+    const initial = Pad{
+        .samples = &.{},
+        .start_norm = 0.2,
+        .end_norm = 0.8,
+        .pitch_semitones = 3.0,
+        .attack_s = 0.2,
+        .decay_s = 0.3,
+        .sustain = 0.7,
+        .release_s = 0.4,
+        .gain = 0.9,
+        .pan = -0.2,
+    };
+
+    for (0..9) |raw_id| {
+        const id: u8 = @intCast(raw_id);
+        var nudged = initial;
+        var assigned = initial;
+        adjustParam(&nudged, id, 3);
+        setParamAbsolute(&assigned, id, paramValue(&initial, id).? + 3.0 * paramStep(id));
+        try testing.expectApproxEqAbs(paramValue(&assigned, id).?, paramValue(&nudged, id).?, 1e-6);
+    }
+
+    var toggled = initial;
+    adjustParam(&toggled, 9, 1);
+    try testing.expect(toggled.reverse);
+    adjustParam(&toggled, 9, 0);
+    try testing.expect(toggled.reverse);
 }

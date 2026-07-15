@@ -48,6 +48,10 @@ pub const OfflineBackend = struct {
     pub fn renderAll(self: *OfflineBackend, out: []types.Sample) void {
         const ch = self.config.channels;
         const block_samples: usize = @as(usize, self.config.block_frames) * ch;
+        // A zero-sized block cannot advance `offset`; treating an invalid
+        // offline configuration as a no-op avoids an otherwise infinite
+        // render loop.
+        if (block_samples == 0) return;
         var offset: usize = 0;
         while (offset < out.len) {
             const end = @min(offset + block_samples, out.len);
@@ -56,6 +60,26 @@ pub const OfflineBackend = struct {
         }
     }
 };
+
+test "offline backend ignores a zero-sized render block" {
+    const Counter = struct {
+        fn render(ctx: *anyopaque, out: []types.Sample) void {
+            const calls: *u8 = @ptrCast(@alignCast(ctx));
+            calls.* += 1;
+            @memset(out, 0.0);
+        }
+    };
+
+    var calls: u8 = 0;
+    var backend = OfflineBackend{
+        .config = .{ .block_frames = 0 },
+        .render = Counter.render,
+        .ctx = &calls,
+    };
+    var out = [_]types.Sample{0.0} ** 4;
+    backend.renderAll(&out);
+    try std.testing.expectEqual(@as(u8, 0), calls);
+}
 
 /// Real-time pacing without a sound card: a thread calls the render
 /// callback at wall-clock block rate and discards the audio. Keeps the
@@ -73,6 +97,10 @@ pub const NullBackend = struct {
     const max_channels = 2;
 
     pub fn start(self: *NullBackend, io: std.Io) !void {
+        if (self.config.sample_rate == 0 or self.config.block_frames == 0 or
+            self.config.channels == 0 or self.config.channels > max_channels or
+            self.config.block_frames > types.max_block_frames)
+            return error.InvalidConfig;
         std.debug.assert(self.config.channels <= max_channels);
         std.debug.assert(self.config.block_frames <= types.max_block_frames);
         self.io = io;
@@ -129,6 +157,19 @@ test "null backend drives the render callback in real time" {
         try io.sleep(.fromMilliseconds(5), .awake);
     }
     try std.testing.expect(counter.calls.load(.monotonic) >= 2);
+}
+
+test "null backend rejects an invalid zero sample rate" {
+    var threaded: std.Io.Threaded = .init(std.testing.allocator, .{});
+    defer threaded.deinit();
+    var backend = NullBackend{
+        .config = .{ .sample_rate = 0 },
+        .render = struct {
+            fn render(_: *anyopaque, _: []types.Sample) void {}
+        }.render,
+        .ctx = @ptrFromInt(1),
+    };
+    try std.testing.expectError(error.InvalidConfig, backend.start(threaded.io()));
 }
 
 test "offline backend delivers every frame exactly once" {

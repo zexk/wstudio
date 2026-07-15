@@ -39,6 +39,7 @@ pub const WasapiBackend = struct {
     const max_channels = 2;
 
     pub const Error = error{
+        InvalidConfig,
         ComInitFailed,
         DeviceOpenFailed,
         DeviceConfigFailed,
@@ -46,6 +47,10 @@ pub const WasapiBackend = struct {
     };
 
     pub fn start(self: *WasapiBackend) Error!void {
+        if (self.config.sample_rate == 0 or self.config.block_frames == 0 or
+            self.config.channels == 0 or self.config.channels > max_channels or
+            self.config.block_frames > types.max_block_frames)
+            return error.InvalidConfig;
         std.debug.assert(self.config.channels <= max_channels);
         std.debug.assert(self.config.block_frames <= types.max_block_frames);
 

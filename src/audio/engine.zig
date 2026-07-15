@@ -305,6 +305,10 @@ pub const Engine = struct {
     /// Construct the Engine directly through `self` (no multi-MB stack
     /// temporaries — see `init`). On error `self` is left undefined.
     pub fn initInPlace(self: *Engine, allocator: std.mem.Allocator, sample_rate: u32) !void {
+        // Sample rate reaches every oscillator, filter, spectrum band, and
+        // metronome calculation below. Reject it before those paths can
+        // divide by zero when loading a malformed project/config.
+        if (sample_rate == 0) return error.InvalidSampleRate;
         var track_spec = try SpectrumAnalyzer.init(allocator, sample_rate);
         errdefer track_spec.deinit(allocator);
         var master_spec = try SpectrumAnalyzer.init(allocator, sample_rate);
@@ -1049,6 +1053,10 @@ pub const Engine = struct {
 const PolySynth = @import("../dsp/synth.zig").PolySynth;
 const DrumMachine = @import("../dsp/drum_sampler.zig").DrumMachine;
 const Compressor = @import("../dsp/compressor.zig").Compressor;
+
+test "engine rejects a zero sample rate" {
+    try std.testing.expectError(error.InvalidSampleRate, Engine.init(std.testing.allocator, 0));
+}
 
 test "renderTracks pushes filter-cutoff automation into the synth before it processes the block" {
     var synth = try PolySynth.init(std.testing.allocator, 48_000);
