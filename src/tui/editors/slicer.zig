@@ -14,6 +14,7 @@ const App = app_mod.App;
 const SlicerRangeClip = app_mod.SlicerRangeClip;
 const history = @import("../history.zig");
 const slicer_view = @import("../views/slicer.zig");
+const step_grid = @import("step_grid.zig");
 
 pub fn handleKey(app: *App, key: modal_mod.Key) bool {
     const slice = &app.slicer_cursor[0];
@@ -288,48 +289,28 @@ pub fn recordNote(app: *App, pitch: u7, vel: u8) void {
 
 /// Move the step cursor by `delta` steps, clamped to the pattern length.
 fn moveStep(app: *App, delta: i32) void {
-    const sl = app.slicerInst();
-    const top = @as(i32, sl.step_count) - 1;
-    app.slicer_cursor[1] = @intCast(std.math.clamp(@as(i32, app.slicer_cursor[1]) + delta, 0, top));
+    step_grid.moveClamped(&app.slicer_cursor[1], delta, app.slicerInst().step_count);
 }
 
 /// Move the slice cursor by `delta` rows, clamped to the slice count.
 fn moveSlice(app: *App, delta: i32) void {
-    const sl = app.slicerInst();
-    const top = @as(i32, sl.slice_count) - 1;
-    // zig fmt: off
-    if (top < 0) { app.slicer_cursor[0] = 0; return; }
-    // zig fmt: on
-    app.slicer_cursor[0] = @intCast(std.math.clamp(@as(i32, app.slicer_cursor[0]) + delta, 0, top));
+    step_grid.moveClamped(&app.slicer_cursor[0], delta, app.slicerInst().slice_count);
 }
 
-/// w/b: jump the step cursor by 4-step groups — the grid's own `│`
-/// separator granularity, same tier as the drum grid's w/b.
+/// w/b: jump the step cursor by 4-step groups — see step_grid.jumpBar for
+/// the bar-width rationale (same tier as the drum grid's w/b).
 fn jumpBar(app: *App, delta: i32) void {
-    const bar_len: i32 = 4;
-    const cur_bar = @divFloor(@as(i32, app.slicer_cursor[1]), bar_len);
-    const target_step = (cur_bar + delta) * bar_len;
-    const top = @as(i32, app.slicerInst().step_count) - 1;
-    app.slicer_cursor[1] = @intCast(std.math.clamp(target_step, 0, top));
+    step_grid.jumpBar(&app.slicer_cursor[1], delta, app.slicerInst().step_count);
 }
 
-/// dw/yw's range end: the last step of the nth bar forward (inclusive) —
-/// see piano.zig's `operatorBarForward` for the vim dw nuance.
+/// dw/yw's range end — see step_grid.operatorBarForward.
 fn operatorBarForward(app: *App, n: i32) void {
-    const bar_len: i32 = 4;
-    const cur_bar = @divFloor(@as(i32, app.slicer_cursor[1]), bar_len);
-    const hi = (cur_bar + n) * bar_len - 1;
-    const top = @as(i32, app.slicerInst().step_count) - 1;
-    app.slicer_cursor[1] = @intCast(std.math.clamp(hi, 0, top));
+    step_grid.operatorBarForward(&app.slicer_cursor[1], n, app.slicerInst().step_count);
 }
 
-/// db/yb's range start: the first step of the nth bar back.
+/// db/yb's range start — see step_grid.operatorBarBackward.
 fn operatorBarBackward(app: *App, n: i32) void {
-    const bar_len: i32 = 4;
-    const cur_bar = @divFloor(@as(i32, app.slicer_cursor[1]), bar_len);
-    const lo = (cur_bar - n + 1) * bar_len;
-    const top = @as(i32, app.slicerInst().step_count) - 1;
-    app.slicer_cursor[1] = @intCast(std.math.clamp(lo, 0, top));
+    step_grid.operatorBarBackward(&app.slicer_cursor[1], n, app.slicerInst().step_count);
 }
 
 /// Arm `d`/`y` as a pending operator, remembering the cursor step as the
@@ -421,18 +402,16 @@ fn exitVisual(app: *App) void {
     app.slicer_visual_anchor = null;
 }
 
-const StepRange = struct { lo: u8, hi: u8 };
+const StepRange = step_grid.StepRange;
 
 fn selectionRange(app: *App) StepRange {
-    const anchor = app.slicer_visual_anchor orelse app.slicer_cursor[1];
-    return .{ .lo = @min(anchor, app.slicer_cursor[1]), .hi = @max(anchor, app.slicer_cursor[1]) };
+    return step_grid.selectionRange(app.slicer_visual_anchor, app.slicer_cursor[1]);
 }
 
 /// Force one step to a given active/velocity state via the public toggle +
 /// velocity API. Also used by handleMouse to paint a drag stroke.
 pub fn setStep(sl: *Slicer, slice: u8, step: u8, active: bool, vel: u8) void {
-    if (sl.stepActive(slice, step) != active) sl.toggleStep(slice, step);
-    if (active) sl.setStepVel(slice, step, vel);
+    step_grid.setStep(sl, slice, step, active, vel);
 }
 
 /// Yank every slice's steps within the selected range into the range
@@ -440,16 +419,7 @@ pub fn setStep(sl: *Slicer, slice: u8, step: u8, active: bool, vel: u8) void {
 fn yankSelection(app: *App) void {
     const sl = app.slicerInst();
     const r = selectionRange(app);
-    var clip: SlicerRangeClip = .{ .width = r.hi - r.lo + 1 };
-    for (0..Slicer.max_slices) |slice| {
-        var s: u8 = r.lo;
-        while (s <= r.hi) : (s += 1) {
-            if (!sl.stepActive(@intCast(slice), s)) continue;
-            const bit = @as(u64, 1) << @intCast(s - r.lo);
-            clip.active[slice] |= bit;
-            clip.vel[slice][s - r.lo] = sl.stepVel(@intCast(slice), s);
-        }
-    }
+    const clip = step_grid.yankRange(SlicerRangeClip, sl, Slicer.max_slices, r);
     app.slicer_range_clip = clip;
     app.setStatus("yanked {d} steps", .{clip.width});
     exitVisual(app);
@@ -460,10 +430,7 @@ fn deleteSelection(app: *App) void {
     const sl = app.slicerInst();
     const r = selectionRange(app);
     history.push(app, history.captureSlicer(app, app.slicer_track));
-    for (0..Slicer.max_slices) |slice| {
-        var s: u8 = r.lo;
-        while (s <= r.hi) : (s += 1) setStep(sl, @intCast(slice), s, false, 0);
-    }
+    step_grid.clearRange(sl, Slicer.max_slices, r);
     app.last_edit = .{ .slicer_range_delete = .{ .width = r.hi - r.lo + 1 } };
     app.setStatus("cleared {d} steps", .{r.hi - r.lo + 1});
     exitVisual(app);
@@ -479,19 +446,9 @@ fn pasteSelection(app: *App) void {
     };
     const sl = app.slicerInst();
     history.push(app, history.captureSlicer(app, app.slicer_track));
-    const base = app.slicer_cursor[1];
-    var i: u8 = 0;
-    while (i < clip.width) : (i += 1) {
-        const target = base +| i;
-        if (target >= sl.step_count) break;
-        for (0..Slicer.max_slices) |slice| {
-            const bit = @as(u64, 1) << @intCast(i);
-            const active = clip.active[slice] & bit != 0;
-            setStep(sl, @intCast(slice), target, active, clip.vel[slice][i]);
-        }
-    }
+    const n = step_grid.pasteRange(sl, Slicer.max_slices, clip, app.slicer_cursor[1]);
     app.last_edit = .slicer_range_paste;
-    app.setStatus("pasted {d} steps", .{i});
+    app.setStatus("pasted {d} steps", .{n});
     exitVisual(app);
 }
 
@@ -510,18 +467,9 @@ fn repeatLastEdit(app: *App) void {
     }
 }
 
-/// Step index at column `x` within a slice row — same column math as the
-/// drum grid's `stepAt` (gutter, a 1-char "│" every 4 steps, 3-char cells).
+/// Step index at column `x` within a slice row — see step_grid.stepAt.
 fn stepAt(scroll: u32, step_count: u8, x: usize) ?u8 {
-    if (x < slicer_view.gutter) return null;
-    var col = slicer_view.gutter;
-    var s: u32 = scroll;
-    while (s < step_count) : (s += 1) {
-        if (s % 4 == 0) col += 1;
-        if (x < col + 3) return if (x < col) null else @intCast(s); // `x < col`: landed on the separator itself
-        col += 3;
-    }
-    return null;
+    return step_grid.stepAt(slicer_view.gutter, scroll, step_count, x);
 }
 
 /// Click a step cell to toggle it; drag to paint. Click inside the

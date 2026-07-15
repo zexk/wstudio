@@ -16,6 +16,7 @@ const history = @import("../history.zig");
 const spectrum = @import("spectrum.zig");
 const preset_picker = @import("preset_picker.zig");
 const drum_view = @import("../views/drum.zig");
+const step_grid = @import("step_grid.zig");
 
 pub fn handleKey(app: *App, key: modal_mod.Key) bool {
     const pad = &app.drum_cursor[0];
@@ -259,59 +260,28 @@ pub fn recordNote(app: *App, pitch: u7, vel: u8) void {
 
 /// Move the step cursor by `delta` steps, clamped to the pattern length.
 fn moveStep(app: *App, delta: i32) void {
-    const top = @as(i32, app.drumMachine().step_count) - 1;
-    app.drum_cursor[1] = @intCast(std.math.clamp(@as(i32, app.drum_cursor[1]) + delta, 0, top));
+    step_grid.moveClamped(&app.drum_cursor[1], delta, app.drumMachine().step_count);
 }
 
 /// Move the pad cursor by `delta` rows, clamped to the pad count.
 fn movePad(app: *App, delta: i32) void {
-    app.drum_cursor[0] = @intCast(std.math.clamp(@as(i32, app.drum_cursor[0]) + delta, 0, DrumMachine.max_pads - 1));
+    step_grid.moveClamped(&app.drum_cursor[0], delta, DrumMachine.max_pads);
 }
 
-/// w/b's jump granularity: 4 steps, matching the grid's own `│` separators
-/// (views/drum.zig draws one every 4 steps, independent of time signature).
-/// A full musical bar (beats_per_bar * 4 steps) turned out to be too coarse
-/// in practice — with the default 16-step pattern that's the whole visible
-/// grid in one jump, so w/b now move by the same "decorative bar" grouping
-/// the separators already show on screen.
-fn barLenSteps(app: *App) u8 {
-    _ = app;
-    return 4;
-}
-
-/// w/b: jump the step cursor `delta` 4-step groups forward/back (vim's word
-/// motion, one tier up from h/l's step granularity) — snaps to the nearest
-/// group boundary first, then moves whole groups from there.
+/// w/b: jump the step cursor `delta` 4-step groups forward/back — see
+/// step_grid.jumpBar for the bar-width rationale.
 fn jumpBar(app: *App, delta: i32) void {
-    const bar_len = barLenSteps(app);
-    if (bar_len == 0) return;
-    const cur_bar = @divFloor(@as(i32, app.drum_cursor[1]), @as(i32, bar_len));
-    const target_step = (cur_bar + delta) * @as(i32, bar_len);
-    const top = @as(i32, app.drumMachine().step_count) - 1;
-    app.drum_cursor[1] = @intCast(std.math.clamp(target_step, 0, top));
+    step_grid.jumpBar(&app.drum_cursor[1], delta, app.drumMachine().step_count);
 }
 
-/// dw/yw's range end: the last step of the nth bar forward (inclusive),
-/// not w's own landing step — see piano.zig's `operatorBarForward`.
+/// dw/yw's range end — see step_grid.operatorBarForward.
 fn operatorBarForward(app: *App, n: i32) void {
-    const bar_len = barLenSteps(app);
-    if (bar_len == 0) return;
-    const cur_bar = @divFloor(@as(i32, app.drum_cursor[1]), @as(i32, bar_len));
-    const hi = (cur_bar + n) * @as(i32, bar_len) - 1;
-    const top = @as(i32, app.drumMachine().step_count) - 1;
-    app.drum_cursor[1] = @intCast(std.math.clamp(hi, 0, top));
+    step_grid.operatorBarForward(&app.drum_cursor[1], n, app.drumMachine().step_count);
 }
 
-/// db/yb's range start: the first step of the nth bar back, paired with
-/// the anchor (original cursor) as the range's other end — see piano.zig's
-/// `operatorBarBackward`.
+/// db/yb's range start — see step_grid.operatorBarBackward.
 fn operatorBarBackward(app: *App, n: i32) void {
-    const bar_len = barLenSteps(app);
-    if (bar_len == 0) return;
-    const cur_bar = @divFloor(@as(i32, app.drum_cursor[1]), @as(i32, bar_len));
-    const lo = (cur_bar - n + 1) * @as(i32, bar_len);
-    const top = @as(i32, app.drumMachine().step_count) - 1;
-    app.drum_cursor[1] = @intCast(std.math.clamp(lo, 0, top));
+    step_grid.operatorBarBackward(&app.drum_cursor[1], n, app.drumMachine().step_count);
 }
 
 /// Arm `d`/`y` as a pending operator (see the operator-pending block in
@@ -413,11 +383,10 @@ fn exitVisual(app: *App) void {
     app.drum_visual_anchor = null;
 }
 
-const StepRange = struct { lo: u8, hi: u8 };
+const StepRange = step_grid.StepRange;
 
 fn selectionRange(app: *App) StepRange {
-    const anchor = app.drum_visual_anchor orelse app.drum_cursor[1];
-    return .{ .lo = @min(anchor, app.drum_cursor[1]), .hi = @max(anchor, app.drum_cursor[1]) };
+    return step_grid.selectionRange(app.drum_visual_anchor, app.drum_cursor[1]);
 }
 
 /// Force one step to a given active/velocity state via the public toggle +
@@ -425,8 +394,7 @@ fn selectionRange(app: *App) StepRange {
 /// whatever DrumMachine does internally on toggle). Also used by handleMouse
 /// to paint a drag stroke.
 pub fn setStep(dm: *DrumMachine, pad: u8, step: u8, active: bool, vel: u8) void {
-    if (dm.stepActive(pad, step) != active) dm.toggleStep(pad, step);
-    if (active) dm.setStepVel(pad, step, vel);
+    step_grid.setStep(dm, pad, step, active, vel);
 }
 
 /// Yank every pad's steps within the selected range into the range
@@ -434,16 +402,7 @@ pub fn setStep(dm: *DrumMachine, pad: u8, step: u8, active: bool, vel: u8) void 
 fn yankSelection(app: *App) void {
     const dm = app.drumMachine();
     const r = selectionRange(app);
-    var clip: DrumRangeClip = .{ .width = r.hi - r.lo + 1 };
-    for (0..DrumMachine.max_pads) |pad| {
-        var s: u8 = r.lo;
-        while (s <= r.hi) : (s += 1) {
-            if (!dm.stepActive(@intCast(pad), s)) continue;
-            const bit = @as(u64, 1) << @intCast(s - r.lo);
-            clip.active[pad] |= bit;
-            clip.vel[pad][s - r.lo] = dm.stepVel(@intCast(pad), s);
-        }
-    }
+    const clip = step_grid.yankRange(DrumRangeClip, dm, DrumMachine.max_pads, r);
     app.drum_range_clip = clip;
     app.drum_last_yank = .range;
     app.setStatus("yanked {d} steps", .{clip.width});
@@ -455,10 +414,7 @@ fn deleteSelection(app: *App) void {
     const dm = app.drumMachine();
     const r = selectionRange(app);
     history.push(app, history.captureDrum(app, app.drum_track));
-    for (0..DrumMachine.max_pads) |pad| {
-        var s: u8 = r.lo;
-        while (s <= r.hi) : (s += 1) setStep(dm, @intCast(pad), s, false, 0);
-    }
+    step_grid.clearRange(dm, DrumMachine.max_pads, r);
     app.last_edit = .{ .drum_range_delete = .{ .width = r.hi - r.lo + 1 } };
     app.setStatus("cleared {d} steps", .{r.hi - r.lo + 1});
     exitVisual(app);
@@ -474,19 +430,9 @@ fn pasteSelection(app: *App) void {
     };
     const dm = app.drumMachine();
     history.push(app, history.captureDrum(app, app.drum_track));
-    const base = app.drum_cursor[1];
-    var i: u8 = 0;
-    while (i < clip.width) : (i += 1) {
-        const target = base +| i;
-        if (target >= dm.step_count) break;
-        for (0..DrumMachine.max_pads) |pad| {
-            const bit = @as(u64, 1) << @intCast(i);
-            const active = clip.active[pad] & bit != 0;
-            setStep(dm, @intCast(pad), target, active, clip.vel[pad][i]);
-        }
-    }
+    const n = step_grid.pasteRange(dm, DrumMachine.max_pads, clip, app.drum_cursor[1]);
     app.last_edit = .drum_range_paste;
-    app.setStatus("pasted {d} steps", .{i});
+    app.setStatus("pasted {d} steps", .{n});
     exitVisual(app);
 }
 
@@ -552,24 +498,9 @@ fn cycleVariant(app: *App, delta: i32) void {
     });
 }
 
-/// Left-gutter width before the step grid starts — matches views/drum.zig's
-/// `" {s: <8} "` pad-name column in drawDrumGrid.
-const gutter: usize = 10;
-
-/// Step index at column `x` within a pad row, or null if `x` falls in the
-/// gutter or past the last visible step. Replays the exact column math
-/// views/drum.zig's render loop uses (starting from `scroll`, a 1-char "│"
-/// every 4 steps, then a 3-char cell) rather than deriving a closed form.
+/// Step index at column `x` within a pad row — see step_grid.stepAt.
 fn stepAt(scroll: u32, step_count: u8, x: usize) ?u8 {
-    if (x < gutter) return null;
-    var col = gutter;
-    var s: u32 = scroll;
-    while (s < step_count) : (s += 1) {
-        if (s % 4 == 0) col += 1;
-        if (x < col + 3) return if (x < col) null else @intCast(s); // `x < col`: landed on the separator itself
-        col += 3;
-    }
-    return null;
+    return step_grid.stepAt(drum_view.gutter, scroll, step_count, x);
 }
 
 /// Click a step cell to toggle it (same as enter); click the pad-name
@@ -582,7 +513,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, view_rows: u
     switch (ev.kind) {
         .scroll_up, .scroll_down => {
             const delta: i32 = if (ev.kind == .scroll_up) -1 else 1;
-            if (ev.x < gutter) movePad(app, delta) else moveStep(app, delta);
+            if (ev.x < drum_view.gutter) movePad(app, delta) else moveStep(app, delta);
             return;
         },
         else => {},
