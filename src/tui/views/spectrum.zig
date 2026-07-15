@@ -547,8 +547,20 @@ fn formatFxValue(app: anytype, buf: []u8, p: *const ws.FxPayload, idx: usize) []
                 const name = app.session.project.tracks.items[track].name;
                 break :blk std.fmt.bufPrint(buf, "{d:.0}:{s}", .{ v, name[0..@min(name.len, 9)] }) catch "?";
             },
-            // 0 = whole track, N = 1-based pad index — see getParam's doc comment.
-            6 => if (v < 0.5) "-" else std.fmt.bufPrint(buf, "pad {d:.0}", .{v}) catch "?",
+            // As with the track picker, keep the number visible while
+            // adding the name users actually recognize from the drum grid.
+            6 => if (v < 0.5) "-" else blk: {
+                const source = p.comp.sidechain_source orelse
+                    break :blk std.fmt.bufPrint(buf, "pad {d:.0}", .{v}) catch "?";
+                if (source.track >= app.session.racks.items.len)
+                    break :blk std.fmt.bufPrint(buf, "pad {d:.0}", .{v}) catch "?";
+                const rack = app.session.racks.items[source.track];
+                const name = switch (rack.instrument) {
+                    .drum_machine => |*dm| dm.padName(@intFromFloat(v - 1.0)),
+                    else => break :blk std.fmt.bufPrint(buf, "pad {d:.0}", .{v}) catch "?",
+                };
+                break :blk std.fmt.bufPrint(buf, "{d:.0}:{s}", .{ v, name[0..@min(name.len, 9)] }) catch "?";
+            },
             else => "?",
         },
         .mb_comp => switch (idx) {
