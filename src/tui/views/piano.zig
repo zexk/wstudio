@@ -204,8 +204,10 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
     // beat tick rides in the same trailing-padding column the note-grid
     // separator uses (writeStepPad above) so the two lines stay vertically
     // aligned; play/loop markers stay at the step's own leading column since
-    // they mark an exact position, not a beat boundary.
-    try w.writeAll(dim ++ "      " ++ rst);
+    // they mark an exact position, not a beat boundary. The prefix itself
+    // carries the note rows' permanent │ separator so beat 1's boundary
+    // line starts here instead of one row down.
+    try w.writeAll(dim ++ "     │" ++ rst);
     for (0..vis_cols) |col| {
         const step = left + @as(u16, @intCast(col));
         if (step == play_step) {
@@ -269,7 +271,7 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
             // beat number; at cw==1 there is no padding to borrow, so the
             // fallback below colours the downbeat dot itself instead
             // (mirrors arrangement.zig's compact ruler).
-            const next_downbeat = col + 1 < vis_cols and (step + 1) % spb == 0;
+            const next_downbeat = (col + 1 < vis_cols or step + 1 == loop_step) and (step + 1) % spb == 0;
             const tick_color = if (in_sel) yel else dim;
 
             // zig fmt: off
