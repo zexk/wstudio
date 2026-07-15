@@ -1,0 +1,14 @@
+{
+  "version": 22,
+  "tracks": [
+    { "name": "ticks" }
+  ],
+  "racks": [
+    { "label": "ticks", "kind": "empty" }
+  ],
+  "arrangement": [
+    { "clips": [
+      { "start_tick": 4, "length_ticks": 12 }
+    ] }
+  ]
+}

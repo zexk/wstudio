@@ -1,4 +1,4 @@
-//! Song arrangement: per-track clips placed on a bar timeline.
+//! Song arrangement: per-track clips placed on an exact musical tick timeline.
 //! See docs/arrangement-playback.md for the ownership and playback design.
 
 const std = @import("std");
@@ -7,12 +7,10 @@ const DrumMachine = @import("dsp/drum_sampler.zig").DrumMachine;
 const automation_mod = @import("dsp/automation.zig");
 const AutomationPoint = automation_mod.AutomationPoint;
 
-/// A clip placed on a track lane. Spans whole bars; owns its content.
+/// A clip placed on a track lane. Positions use `time_grid.ticks_per_beat`.
 pub const Clip = struct {
-    /// Bar index where the clip begins (0-based).
-    start_bar: u32,
-    /// Length in whole bars (>= 1).
-    length_bars: u32,
+    start_tick: u32,
+    length_ticks: u32,
     content: Content,
     /// Gain/pan automation for this clip's span, in clip-relative beats (0 =
     /// clip start). Independent of `content` - every clip kind (melodic or
@@ -130,24 +128,24 @@ pub const Clip = struct {
     /// Build a melodic clip, duplicating `notes` so the clip owns them.
     pub fn initMelodic(
         allocator: std.mem.Allocator,
-        start_bar: u32,
-        length_bars: u32,
+        start_tick: u32,
+        length_ticks: u32,
         notes: []const Note,
         length_beats: f64,
     ) !Clip {
         const owned = try allocator.dupe(Note, notes);
         return .{
-            .start_bar = start_bar,
-            .length_bars = @max(1, length_bars),
+            .start_tick = start_tick,
+            .length_ticks = @max(1, length_ticks),
             .content = .{ .melodic = .{ .notes = owned, .length_beats = @max(1.0, length_beats) } },
         };
     }
 
     /// Build a drum clip from a copied payload. No allocation.
-    pub fn initDrum(start_bar: u32, length_bars: u32, drum: Drum) Clip {
+    pub fn initDrum(start_tick: u32, length_ticks: u32, drum: Drum) Clip {
         return .{
-            .start_bar = start_bar,
-            .length_bars = @max(1, length_bars),
+            .start_tick = start_tick,
+            .length_ticks = @max(1, length_ticks),
             .content = .{ .drum = drum },
         };
     }
@@ -167,28 +165,26 @@ pub const Clip = struct {
         var out: Clip = switch (self.content) {
             .melodic => |m| try initMelodic(
                 // zig fmt: off
-                allocator, self.start_bar, self.length_bars, m.notes, m.length_beats,
+                allocator, self.start_tick, self.length_ticks, m.notes, m.length_beats,
                 // zig fmt: on
             ),
-            .drum => |d| initDrum(self.start_bar, self.length_bars, d),
+            .drum => |d| initDrum(self.start_tick, self.length_ticks, d),
         };
         errdefer out.deinit(allocator);
         out.automation = try self.automation.dupe(allocator);
         return out;
     }
 
-    /// First bar past the clip (exclusive end).
-    pub fn endBar(self: Clip) u32 {
-        return self.start_bar +| self.length_bars;
+    pub fn endTick(self: Clip) u32 {
+        return self.start_tick +| self.length_ticks;
     }
 
-    /// True if `bar` falls within [start_bar, endBar).
-    pub fn covers(self: Clip, bar: u32) bool {
-        return bar >= self.start_bar and bar < self.endBar();
+    pub fn covers(self: Clip, tick: u32) bool {
+        return tick >= self.start_tick and tick < self.endTick();
     }
 
     fn overlaps(self: Clip, start: u32, end: u32) bool {
-        return self.start_bar < end and start < self.endBar();
+        return self.start_tick < end and start < self.endTick();
     }
 };
 
@@ -210,8 +206,8 @@ pub const Lane = struct {
             owned.deinit(allocator);
             return err;
         };
-        const start = clip.start_bar;
-        const end = clip.endBar();
+        const start = clip.start_tick;
+        const end = clip.endTick();
         var i: usize = 0;
         while (i < self.clips.items.len) {
             if (self.clips.items[i].overlaps(start, end)) {
@@ -222,7 +218,7 @@ pub const Lane = struct {
         // Insert at the first clip starting after `start`.
         var idx: usize = self.clips.items.len;
         for (self.clips.items, 0..) |c, j| {
-            if (c.start_bar > start) {
+            if (c.start_tick > start) {
                 idx = j;
                 break;
             }
@@ -257,9 +253,9 @@ pub const Lane = struct {
     }
 
     /// First bar past the last clip - the lane's content length in bars.
-    pub fn lengthBars(self: *const Lane) u32 {
+    pub fn lengthTicks(self: *const Lane) u32 {
         var end: u32 = 0;
-        for (self.clips.items) |c| end = @max(end, c.endBar());
+        for (self.clips.items) |c| end = @max(end, c.endTick());
         return end;
     }
 };
@@ -302,9 +298,9 @@ pub const Arrangement = struct {
     }
 
     /// Song length in bars: the longest lane.
-    pub fn lengthBars(self: *const Arrangement) u32 {
+    pub fn lengthTicks(self: *const Arrangement) u32 {
         var end: u32 = 0;
-        for (self.lanes.items) |l| end = @max(end, l.lengthBars());
+        for (self.lanes.items) |l| end = @max(end, l.lengthTicks());
         return end;
     }
 };
@@ -325,10 +321,10 @@ test "place inserts sorted and reports lane length" {
     try lane.place(a, Clip.initDrum(2, 2, .{ .pattern = [_]u64{0} ** DrumMachine.max_pads, .step_count = 16 }));
 
     try testing.expectEqual(@as(usize, 3), lane.clips.items.len);
-    try testing.expectEqual(@as(u32, 0), lane.clips.items[0].start_bar);
-    try testing.expectEqual(@as(u32, 2), lane.clips.items[1].start_bar);
-    try testing.expectEqual(@as(u32, 4), lane.clips.items[2].start_bar);
-    try testing.expectEqual(@as(u32, 6), lane.lengthBars());
+    try testing.expectEqual(@as(u32, 0), lane.clips.items[0].start_tick);
+    try testing.expectEqual(@as(u32, 2), lane.clips.items[1].start_tick);
+    try testing.expectEqual(@as(u32, 4), lane.clips.items[2].start_tick);
+    try testing.expectEqual(@as(u32, 6), lane.lengthTicks());
 }
 
 test "place evicts overlapping clips" {
@@ -341,18 +337,18 @@ test "place evicts overlapping clips" {
     try lane.place(a, Clip.initDrum(2, 2, .{ .pattern = [_]u64{0} ** DrumMachine.max_pads, .step_count = 16 }));
 
     try testing.expectEqual(@as(usize, 1), lane.clips.items.len);
-    try testing.expectEqual(@as(u32, 2), lane.clips.items[0].start_bar);
+    try testing.expectEqual(@as(u32, 2), lane.clips.items[0].start_tick);
 }
 
 test "clip constructors enforce non-empty lengths" {
     const a = testing.allocator;
     var melodic = try Clip.initMelodic(a, 0, 0, &.{}, 0.0);
     defer melodic.deinit(a);
-    try testing.expectEqual(@as(u32, 1), melodic.length_bars);
+    try testing.expectEqual(@as(u32, 1), melodic.length_ticks);
     try testing.expectEqual(@as(f64, 1.0), melodic.content.melodic.length_beats);
 
     const drum = Clip.initDrum(0, 0, .{ .pattern = [_]u64{0} ** DrumMachine.max_pads, .step_count = 16 });
-    try testing.expectEqual(@as(u32, 1), drum.length_bars);
+    try testing.expectEqual(@as(u32, 1), drum.length_ticks);
 }
 
 test "clip end and lane length saturate at the timeline limit" {
@@ -363,8 +359,8 @@ test "clip end and lane length saturate at the timeline limit" {
         .pattern = [_]u64{0} ** DrumMachine.max_pads,
         .step_count = 16,
     }));
-    try testing.expectEqual(std.math.maxInt(u32), lane.clips.items[0].endBar());
-    try testing.expectEqual(std.math.maxInt(u32), lane.lengthBars());
+    try testing.expectEqual(std.math.maxInt(u32), lane.clips.items[0].endTick());
+    try testing.expectEqual(std.math.maxInt(u32), lane.lengthTicks());
 }
 
 test "clipAt and removeAt cover the clip's whole span" {
@@ -420,9 +416,9 @@ test "arrangement adds and removes lanes" {
     try arr.addLane(a);
     try arr.addLane(a);
     try arr.lane(0).?.place(a, Clip.initDrum(0, 5, .{ .pattern = [_]u64{0} ** DrumMachine.max_pads, .step_count = 16 }));
-    try testing.expectEqual(@as(u32, 5), arr.lengthBars());
+    try testing.expectEqual(@as(u32, 5), arr.lengthTicks());
 
     arr.removeLane(a, 0);
     try testing.expectEqual(@as(usize, 1), arr.lanes.items.len);
-    try testing.expectEqual(@as(u32, 0), arr.lengthBars());
+    try testing.expectEqual(@as(u32, 0), arr.lengthTicks());
 }

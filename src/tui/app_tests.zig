@@ -1241,6 +1241,26 @@ test "z and Z select arrangement grid subdivisions" {
     try std.testing.expectEqual(ws.time_grid.Division.thirty_second, app.arr_grid);
 }
 
+test "arrangement places moves and cuts clips on the 1/128 grid" {
+    var app = try testApp();
+    defer app.deinit();
+    app.view = .arrangement;
+    app.cursor = 0;
+    for (0..5) |_| app.handleKey(.{ .char = 'z' }, 0);
+    try std.testing.expectEqual(ws.time_grid.Division.one_twenty_eighth, app.arr_grid);
+
+    app.arr_cursor_bar = 1;
+    app.handleKey(.enter, 0);
+    const lane = app.session.arrangement.lane(0).?;
+    try std.testing.expectEqual(@as(u32, 1), lane.clips.items[0].start_tick);
+    const old_len = lane.clips.items[0].length_ticks;
+    app.arr_cursor_bar = 1;
+    app.handleKey(.{ .char = '-' }, 0);
+    try std.testing.expectEqual(old_len - 1, lane.clips.items[0].length_ticks);
+    app.handleKey(.{ .char = '>' }, 0);
+    try std.testing.expectEqual(@as(u32, 2), lane.clips.items[0].start_tick);
+}
+
 test "automation editor: nudge, `.` repeat, and visual range yank/delete/paste" {
     var app = try testApp();
     defer app.deinit();
@@ -1293,7 +1313,7 @@ test "automation editor visual mode: w/b extend the selection by beat, matching 
     try app.session.stampClip(0, 0);
     automation_ed.switchTo(&app, 0, 0);
     const clip = automation_ed.currentClip(&app).?;
-    clip.length_bars = 2;
+    clip.length_ticks = 256;
 
     // Points at step 0, step 4 (w's landing step, included like v3l's is),
     // and step 8 (outside the w-extended range).
@@ -1330,7 +1350,7 @@ test "automation editor normal-mode P pastes a range yank without re-entering vi
     try app.session.stampClip(0, 0);
     automation_ed.switchTo(&app, 0, 0);
     const clip = automation_ed.currentClip(&app).?;
-    clip.length_bars = 2;
+    clip.length_ticks = 256;
 
     app.automation_cursor_step = 0;
     _ = automation_ed.handleKey(&app, .{ .char = 'j' }); // point at step 0
@@ -1401,7 +1421,7 @@ test "automation editor char/word tiers: x deletes the point under the cursor, w
     // Extend the clip to 2 bars so there's plenty of beat boundaries to jump to.
     automation_ed.switchTo(&app, 0, 0);
     const clip = automation_ed.currentClip(&app).?;
-    clip.length_bars = 2;
+    clip.length_ticks = 256;
 
     app.automation_cursor_step = 0;
     _ = automation_ed.handleKey(&app, .{ .char = 'j' }); // point at step 0
@@ -1969,7 +1989,7 @@ test "arrangement g plays from the cursor bar" {
     // 120 bpm 4/4 at 48kHz → 96_000 frames per bar; the seek lands at bar 2
     // and the block advances 256 frames because playback started.
     try std.testing.expect(app.session.engine.transport.playing);
-    try std.testing.expectEqual(@as(u64, 192_256), app.session.engine.transport.position_frames);
+    try std.testing.expectEqual(@as(u64, 48_256), app.session.engine.transport.position_frames);
 }
 
 test "commands reject non-finite numbers, malformed signatures, and overflowing seeks" {
@@ -2875,7 +2895,7 @@ test ":sig sets beats per bar and reshapes bar math" {
     // (8 beats doesn't divide evenly into 3-beat bars, so it rounds up).
     try app.session.stampClip(2, 0);
     const clip = app.session.arrangement.lane(2).?.clips.items[0];
-    try std.testing.expectEqual(@as(u32, 3), clip.length_bars);
+    try std.testing.expectEqual(@as(u32, 288), clip.length_ticks);
 
     // Bad input is rejected and leaves the setting alone.
     for (":sig 3/8") |c| app.handleKey(.{ .char = c }, 0);
@@ -3545,14 +3565,14 @@ test "arrangement clips: yank/paste, count-move, kind guard, undo" {
     app.handleKey(.{ .char = 'P' }, 0);
     const lane = app.session.arrangement.lane(0).?;
     try std.testing.expectEqual(@as(usize, 2), lane.clips.items.len);
-    try std.testing.expect(lane.clipAt(4) != null);
-    try std.testing.expectEqual(@as(u32, 5), app.arr_cursor_bar);
+    try std.testing.expect(lane.clipAt(128) != null);
+    try std.testing.expectEqual(@as(u32, 8), app.arr_cursor_bar);
 
     // Move the pasted clip right two bars with a count; cursor follows.
     app.arr_cursor_bar = 4;
     for ("2>") |c| app.handleKey(.{ .char = c }, 0);
-    try std.testing.expect(lane.clipAt(4) == null);
-    try std.testing.expect(lane.clipAt(6) != null);
+    try std.testing.expect(lane.clipAt(128) == null);
+    try std.testing.expect(lane.clipAt(192) != null);
     try std.testing.expectEqual(@as(u32, 6), app.arr_cursor_bar);
 
     // Kind guard: the melodic clip won't paste onto the drum lane.
@@ -3563,8 +3583,8 @@ test "arrangement clips: yank/paste, count-move, kind guard, undo" {
 
     // Undo restores the pre-move layout (entry targets lane 0).
     app.handleKey(.{ .char = 'u' }, 0);
-    try std.testing.expect(lane.clipAt(4) != null);
-    try std.testing.expect(lane.clipAt(6) == null);
+    try std.testing.expect(lane.clipAt(128) != null);
+    try std.testing.expectEqual(@as(u32, 128), lane.clipAt(192).?.start_tick);
 }
 
 test "arrangement visual mode selects a bar range on the current lane for y/d/P" {
@@ -3581,30 +3601,30 @@ test "arrangement visual mode selects a bar range on the current lane for y/d/P"
     app.arr_cursor_bar = 0;
     app.handleKey(.{ .char = 'v' }, 0);
     try std.testing.expectEqual(ws.input.Mode.visual, app.modal.mode);
-    app.handleKey(.{ .char = 'l' }, 0); // extend to bar 1 - covers both stamped clips
+    for ("4l") |c| app.handleKey(.{ .char = c }, 0);
 
     app.handleKey(.{ .char = 'y' }, 0);
     try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
     try std.testing.expectEqual(@as(usize, 2), app.arr_range_clip.?.clips.len);
 
     const lane = app.session.arrangement.lane(0).?;
-    app.arr_cursor_bar = 10;
+    app.arr_cursor_bar = 40;
     app.handleKey(.{ .char = 'v' }, 0);
     app.handleKey(.{ .char = 'P' }, 0);
     try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
-    try std.testing.expect(lane.clipAt(10) != null);
-    try std.testing.expect(lane.clipAt(11) != null);
-    try std.testing.expect(lane.clipAt(5) != null); // untouched by the paste
+    try std.testing.expect(lane.clipAt(1280) != null);
+    try std.testing.expect(lane.clipAt(1408) != null);
+    try std.testing.expect(lane.clipAt(640) != null);
 
     // Select the original range again and delete it.
     app.arr_cursor_bar = 0;
     app.handleKey(.{ .char = 'v' }, 0);
-    app.handleKey(.{ .char = 'l' }, 0);
+    for ("4l") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.{ .char = 'd' }, 0);
     try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
     try std.testing.expect(lane.clipAt(0) == null);
-    try std.testing.expect(lane.clipAt(1) == null);
-    try std.testing.expect(lane.clipAt(5) != null);
+    try std.testing.expect(lane.clipAt(128) == null);
+    try std.testing.expect(lane.clipAt(640) != null);
 }
 
 test "arrangement operator+motion: d3l / y3l act on a bar range without entering visual mode" {
@@ -3619,24 +3639,24 @@ test "arrangement operator+motion: d3l / y3l act on a bar range without entering
     app.view = .arrangement;
     app.cursor = 0;
     app.arr_cursor_bar = 0;
-    for ("y1l") |c| app.handleKey(.{ .char = c }, 0); // y + motion: yank bars 0-1
+    for ("y4l") |c| app.handleKey(.{ .char = c }, 0);
     try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
     try std.testing.expectEqual(@as(usize, 2), app.arr_range_clip.?.clips.len);
-    try std.testing.expectEqual(@as(u32, 1), app.arr_cursor_bar); // cursor follows the motion
+    try std.testing.expectEqual(@as(u32, 4), app.arr_cursor_bar);
 
     const lane = app.session.arrangement.lane(0).?;
     app.arr_cursor_bar = 0;
-    for ("d1l") |c| app.handleKey(.{ .char = c }, 0); // d + motion: delete bars 0-1
+    for ("d4l") |c| app.handleKey(.{ .char = c }, 0);
     try std.testing.expect(lane.clipAt(0) == null);
-    try std.testing.expect(lane.clipAt(1) == null);
-    try std.testing.expect(lane.clipAt(5) != null); // untouched, outside the range
+    try std.testing.expect(lane.clipAt(128) == null);
+    try std.testing.expect(lane.clipAt(640) != null);
 
     // dd/yy are the tier above a bar range: the whole lane. x stays the
     // single-clip instant delete (this editor's "char", one bar).
     try app.session.stampClip(0, 0);
-    app.arr_cursor_bar = 5;
+    app.arr_cursor_bar = 20;
     app.handleKey(.{ .char = 'x' }, 0);
-    try std.testing.expect(lane.clipAt(5) == null);
+    try std.testing.expect(lane.clipAt(640) == null);
 
     for ("yy") |c| app.handleKey(.{ .char = c }, 0);
     try std.testing.expectEqual(@as(usize, 1), app.arr_range_clip.?.clips.len); // just bar 0's clip left
@@ -3644,10 +3664,10 @@ test "arrangement operator+motion: d3l / y3l act on a bar range without entering
     try std.testing.expectEqual(@as(usize, 0), lane.clips.items.len);
 
     // p/P paste from that same whole-lane yank; cursor jumps past it.
-    app.arr_cursor_bar = 10;
+    app.arr_cursor_bar = 40;
     app.handleKey(.{ .char = 'p' }, 0);
-    try std.testing.expect(lane.clipAt(10) != null);
-    try std.testing.expectEqual(@as(u32, 11), app.arr_cursor_bar);
+    try std.testing.expect(lane.clipAt(1280) != null);
+    try std.testing.expectEqual(@as(u32, 44), app.arr_cursor_bar);
 }
 
 test "arrangement +/- edge-resize a clip; undo/dot-repeat, min clamp, growth evicts" {
@@ -3662,26 +3682,26 @@ test "arrangement +/- edge-resize a clip; undo/dot-repeat, min clamp, growth evi
     app.cursor = 0;
     app.arr_cursor_bar = 0;
     const lane = app.session.arrangement.lane(0).?;
-    try std.testing.expectEqual(@as(u32, 1), lane.clipAt(0).?.length_bars);
+    try std.testing.expectEqual(@as(u32, 128), lane.clipAt(0).?.length_ticks);
 
     // '+' grows the clip by 3 bars (endBar 0+4=4); count-prefixed like '<'/'>'.
-    for ("3+") |c| app.handleKey(.{ .char = c }, 0);
-    try std.testing.expectEqual(@as(u32, 4), lane.clipAt(0).?.length_bars);
+    for ("12+") |c| app.handleKey(.{ .char = c }, 0);
+    try std.testing.expectEqual(@as(u32, 512), lane.clipAt(0).?.length_ticks);
     // Growth now overlaps and evicts the clip stamped at bar 3.
     try std.testing.expectEqual(@as(usize, 1), lane.clips.items.len);
-    try std.testing.expect(lane.clipAt(3) != null);
+    try std.testing.expect(lane.clipAt(384) != null);
 
     // '.' repeats the last resize (another +3 bars) at the cursor.
     app.handleKey(.{ .char = '.' }, 0);
-    try std.testing.expectEqual(@as(u32, 7), lane.clipAt(0).?.length_bars);
+    try std.testing.expectEqual(@as(u32, 896), lane.clipAt(0).?.length_ticks);
 
     // '-' shrinks it back down, clamped to a minimum of 1 bar.
-    for ("9-") |c| app.handleKey(.{ .char = c }, 0);
-    try std.testing.expectEqual(@as(u32, 1), lane.clipAt(0).?.length_bars);
+    for ("36-") |c| app.handleKey(.{ .char = c }, 0);
+    try std.testing.expectEqual(@as(u32, 1), lane.clipAt(0).?.length_ticks);
 
     // Undo restores the length from before the shrink.
     app.handleKey(.{ .char = 'u' }, 0);
-    try std.testing.expectEqual(@as(u32, 7), lane.clipAt(0).?.length_bars);
+    try std.testing.expectEqual(@as(u32, 896), lane.clipAt(0).?.length_ticks);
 
     // No clip under the cursor: a clean no-op, not a crash.
     app.arr_cursor_bar = 50;
@@ -3831,9 +3851,9 @@ test "piano/drum/arrangement . repeats a visual range delete/paste at the new cu
     app.handleKey(.{ .char = 'd' }, 0);
     const lane = app.session.arrangement.lane(0).?;
     try std.testing.expect(lane.clipAt(0) == null);
-    app.arr_cursor_bar = 10;
+    app.arr_cursor_bar = 40;
     app.handleKey(.{ .char = '.' }, 0); // repeat: delete bars 10-11
-    try std.testing.expect(lane.clipAt(10) == null);
+    try std.testing.expect(lane.clipAt(1280) == null);
 }
 
 test "arrangement . repeats the last clip move at the new cursor" {
@@ -3847,15 +3867,15 @@ test "arrangement . repeats the last clip move at the new cursor" {
     app.view = .arrangement;
     app.cursor = 0;
     app.arr_cursor_bar = 0;
-    for ("2>") |c| app.handleKey(.{ .char = c }, 0); // move the bar-0 clip to bar 2
+    for ("8>") |c| app.handleKey(.{ .char = c }, 0);
     const lane = app.session.arrangement.lane(0).?;
-    try std.testing.expect(lane.clipAt(2) != null);
+    try std.testing.expect(lane.clipAt(256) != null);
     try std.testing.expect(lane.clipAt(0) == null);
 
-    app.arr_cursor_bar = 5;
+    app.arr_cursor_bar = 20;
     app.handleKey(.{ .char = '.' }, 0); // repeat: move the bar-5 clip by +2 too
-    try std.testing.expect(lane.clipAt(7) != null);
-    try std.testing.expect(lane.clipAt(5) == null);
+    try std.testing.expect(lane.clipAt(896) != null);
+    try std.testing.expect(lane.clipAt(640) == null);
 }
 
 test "\".\" is a no-op with nothing to repeat, or after switching to a different editor" {
@@ -3887,9 +3907,9 @@ test "A/B loop: ( ) b arm the region and the transport wraps inside it" {
     app.view = .arrangement;
 
     // ( at bar 1, ) at bar 2 → loop bars 2–3 (region [1, 3)), armed.
-    app.arr_cursor_bar = 1;
+    app.arr_cursor_bar = 4;
     app.handleKey(.{ .char = '(' }, 0);
-    app.arr_cursor_bar = 2;
+    app.arr_cursor_bar = 8;
     app.handleKey(.{ .char = ')' }, 0);
     const p = &app.session.project;
     try std.testing.expect(p.loop_enabled);
@@ -4542,8 +4562,8 @@ test ":load-clip refuses without a sampler track, then loads a whole-clip note a
 
     const lane = app.session.arrangement.lane(0).?;
     try std.testing.expectEqual(@as(usize, 1), lane.clips.items.len);
-    try std.testing.expectEqual(@as(u32, 2), lane.clips.items[0].start_bar);
-    try std.testing.expectEqual(@as(u32, 2), lane.clips.items[0].length_bars); // ceil(5 beats / 4 per bar)
+    try std.testing.expectEqual(@as(u32, 64), lane.clips.items[0].start_tick);
+    try std.testing.expectEqual(@as(u32, 256), lane.clips.items[0].length_ticks); // ceil(5 beats / 4 per bar)
 }
 
 test ":e with no path always browses; selecting a file refuses when dirty" {
@@ -4767,7 +4787,7 @@ test "mouse drag moves an arrangement clip" {
 
     app.handleMouse(.{ .x = 22, .y = row, .button = .left, .kind = .drag }, 80, 24, 0);
     try std.testing.expect(lane.clipAt(0) == null);
-    try std.testing.expect(lane.clipAt(2) != null);
+    try std.testing.expect(lane.clipAt(64) != null);
 
     app.handleMouse(.{ .x = 22, .y = row, .button = .left, .kind = .release }, 80, 24, 0);
     try std.testing.expect(app.arr_drag_bar == null);

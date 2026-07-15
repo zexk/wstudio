@@ -42,8 +42,7 @@ fn playheadBar(app: anytype, snap: engine_mod.UiSnapshot) ?u32 {
         .tempo_bpm = app.session.project.tempo_bpm,
         .position_frames = snap.position_frames,
     };
-    const bpb: f64 = @floatFromInt(app.session.project.beats_per_bar);
-    return @intFromFloat(t.positionBeats() / bpb);
+    return @intFromFloat(t.positionBeats() * ws.time_grid.ticks_per_beat);
 }
 
 pub fn drawArrangement(
@@ -53,7 +52,8 @@ pub fn drawArrangement(
     cols: usize,
     snap: engine_mod.UiSnapshot,
 ) !void {
-    const bpb: u32 = app.session.project.beats_per_bar;
+    const ticks_per_bar = ws.time_grid.barTicks(app.session.project.beats_per_bar);
+    const grid_ticks = app.arr_grid.ticks();
     const cw: usize = app.arrCellWidth();
     const visible = visibleBars(cols, cw);
 
@@ -62,8 +62,8 @@ pub fn drawArrangement(
     if (app.arr_cursor_bar < app.arr_scroll_bar) app.arr_scroll_bar = app.arr_cursor_bar;
     if (app.arr_cursor_bar >= app.arr_scroll_bar + vis) app.arr_scroll_bar = app.arr_cursor_bar - vis + 1;
 
-    const scroll = app.arr_scroll_bar;
-    const cur_bar = app.arr_cursor_bar;
+    const scroll = app.arr_scroll_bar * grid_ticks;
+    const cur_bar = app.arr_cursor_bar * grid_ticks;
     const playhead = playheadBar(app, snap);
 
     const mode_tag: []const u8 = if (app.session.song_mode) grn ++ "SONG" ++ rst else dim ++ "PATTERN" ++ rst;
@@ -77,16 +77,16 @@ pub fn drawArrangement(
     const loop_on = p.loop_enabled and p.loop_end_bar > p.loop_start_bar;
     for (0..gutter - 1) |_| try w.writeByte(' ');
     for (0..visible) |c| {
-        const bar = scroll + @as(u32, @intCast(c));
-        const downbeat = bar % bpb == 0;
-        const in_loop = loop_on and bar >= p.loop_start_bar and bar < p.loop_end_bar;
+        const bar = scroll + @as(u32, @intCast(c)) * grid_ticks;
+        const downbeat = bar % ticks_per_bar == 0;
+        const in_loop = loop_on and bar >= p.loop_start_bar * ticks_per_bar and bar < p.loop_end_bar * ticks_per_bar;
         try w.writeAll(if (in_loop) yel ++ "│" ++ rst else if (downbeat) blu ++ "│" ++ rst else dim ++ "│" ++ rst);
         if (cw == 2) {
             // Compact: no room for a bar number without corrupting column
             // alignment - the separator's colour already marks downbeat/loop.
             try w.writeAll(if (in_loop) yel ++ "·" ++ rst else " ");
         } else if (downbeat) {
-            try w.print("{s}{d: <3}{s}", .{ if (in_loop) yel else dim, bar + 1, rst });
+            try w.print("{s}{d: <3}{s}", .{ if (in_loop) yel else dim, bar / ticks_per_bar + 1, rst });
             try w.splatByteAll(' ', cw - 4);
         } else if (in_loop) {
             try w.writeAll(yel ++ "···" ++ rst);
@@ -99,7 +99,7 @@ pub fn drawArrangement(
 
     // Visual-mode selection: a bar range on the current lane only.
     const visual_active = app.modal.mode == .visual;
-    const sel_anchor = app.arr_visual_anchor orelse cur_bar;
+    const sel_anchor = (app.arr_visual_anchor orelse app.arr_cursor_bar) * grid_ticks;
     const sel_lo: u32 = @min(sel_anchor, cur_bar);
     const sel_hi: u32 = @max(sel_anchor, cur_bar);
 
@@ -137,13 +137,13 @@ pub fn drawArrangement(
         if (is_sel_lane) try w.writeAll(rst);
 
         for (0..visible) |c| {
-            const bar = scroll + @as(u32, @intCast(c));
-            const downbeat = bar % bpb == 0;
+            const bar = scroll + @as(u32, @intCast(c)) * grid_ticks;
+            const downbeat = bar % ticks_per_bar == 0;
             try w.writeAll(if (downbeat) blu ++ "│" ++ rst else dim ++ "│" ++ rst);
 
             const clip = if (lane) |l| l.clipAt(bar) else null;
             const covered = clip != null;
-            const is_start = covered and clip.?.start_bar == bar;
+            const is_start = covered and clip.?.start_tick == bar;
             const is_cursor = is_sel_lane and bar == cur_bar;
             const is_play = playhead == bar;
             const in_sel = visual_active and is_sel_lane and bar >= sel_lo and bar <= sel_hi;
@@ -208,8 +208,8 @@ pub fn drawArrangementStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Wri
         try style.writeViewBadgeColored(right, "PATTERN", .yellow);
     }
 
-    try w.writeAll(dim ++ "  bar " ++ rst);
-    try w.print("{d}", .{app.arr_cursor_bar + 1});
+    try w.writeAll(dim ++ "  tick " ++ rst);
+    try w.print("{d}", .{app.arr_cursor_bar * app.arr_grid.ticks()});
     try w.writeAll(dim ++ "  track " ++ rst);
     try w.print("{d}/{d}", .{ app.cursor + 1, app.session.project.tracks.items.len });
 
@@ -236,7 +236,7 @@ pub fn drawArrangementStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Wri
     if (app.session.arrangement.lane(app.cursor)) |lane| {
         if (lane.clipAt(app.arr_cursor_bar)) |clip| {
             try w.writeAll(dim ++ "  clip " ++ rst);
-            try w.print("{d}\u{2192}{d}", .{ clip.start_bar + 1, clip.endBar() });
+            try w.print("{d}t\u{2192}{d}t", .{ clip.start_tick, clip.endTick() });
             switch (clip.content) {
                 .drum => |d| try w.print(" {s}pat{s} {c}", .{
                     dim, rst, ws.dsp.DrumMachine.variantLetter(d.variant),

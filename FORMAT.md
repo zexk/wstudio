@@ -19,7 +19,7 @@ a sidecar directory, not embedded in the JSON. See
 
 ## Versioning policy
 
-`persist.zig`'s `file_version` (currently 21) is the newest format version
+`persist.zig`'s `file_version` (currently 22) is the newest format version
 this build can write and read. Loading enforces one rule:
 
 - **A file whose `version` is newer than `file_version` is hard-rejected**
@@ -74,13 +74,14 @@ they showed up in the same week as one.
 | v19 | The flanger FX unit (`FxUnitSnap.flanger`: `rate_hz`/`depth`/`feedback`/`mix` over a modulated delay line, see `dsp/flanger.zig`). Purely additive, same rationale as v15/v16/v18. |
 | v20 | The wavetable oscillator: a new `Waveform.wavetable` variant (`waveform`/`osc_b_waveform`/`osc_c_waveform` can now hold it), same enum-growth rationale as v15/v16/v18/v19 - the bump makes pre-v20 builds hard-reject a file using it instead of failing on an unknown enum name. Frame-scan position (`SynthSnap.wt_pos`/`osc_b_wt_pos`/`osc_c_wt_pos`) and the sidecar path fields (`wt_file`/`osc_b_wt_file`/`osc_c_wt_file`, see below) are purely additive and would not have needed a bump on their own. |
 | v21 | The tape FX unit (`FxUnitSnap.tape`: `wow_rate_hz`/`wow_depth`/`flutter_rate_hz`/`flutter_depth`/`mix` over a dual-LFO modulated delay, see `dsp/tape.zig`). Purely additive, same rationale as v15/v16/v18/v19. |
+| v22 | Arrangement clip placement changed from whole bars to exact musical ticks at 32 ticks per quarter note, allowing starts, cuts, moves, and edge resizes through 1/128 notes. Older `start_bar`/`length_bars` clips migrate using the saved time signature. |
 
 Since v11, every field added has been the additive/no-bump kind described
 above (v12/v13/v14 above are the exceptions - genuine semantic changes, not
 additive). Check `persist.zig`'s per-field doc comments for specifics (e.g.
 `Sampler.mono`, `PatternPlayer.swing`, `:bounce`'s bit-depth option).
 
-`test/fixtures/wsj/v1.wsj` through `v21.wsj` are tiny, hand-written fixtures
+`test/fixtures/wsj/v1.wsj` through `v22.wsj` are tiny, hand-written fixtures
 of each historical shape (no `variants` for v2, no `master_fx_chain` for v9,
 etc.), one per row of the table above. `persist.zig`'s "golden-file corpus"
 test loads every file in that directory and fails loudly if one stops

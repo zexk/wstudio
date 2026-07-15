@@ -124,7 +124,7 @@ pub fn drawAutomation(
     try w.writeAll(bold ++ " AUTOMATION" ++ rst);
     try w.print("  \"{s}\"", .{track_name});
     try w.writeAll(dim ++ "  clip " ++ rst);
-    try w.print("{d}\u{2192}{d}", .{ clip.start_bar + 1, clip.endBar() });
+    try w.print("{d}t\u{2192}{d}t", .{ clip.start_tick, clip.endTick() });
     try w.writeAll(dim ++ "  " ++ rst ++ acc ++ bold);
     try w.print(" {s} ", .{target_label});
     try w.writeAll(rst ++ dim ++ " (tab: switch curve, p: pick param)" ++ rst);
@@ -132,7 +132,7 @@ pub fn drawAutomation(
 
     const bpb = app.session.project.beats_per_bar;
     const steps_per_bar: u32 = @as(u32, bpb) * 4;
-    const total_steps = clip.length_bars * steps_per_bar;
+    const total_steps = @max(1, (clip.length_ticks + 7) / 8);
     const visible: u32 = @intCast(@max(1, cols -| gutter));
 
     if (app.automation_cursor_step < app.automation_scroll) app.automation_scroll = app.automation_cursor_step;

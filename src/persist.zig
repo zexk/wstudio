@@ -19,6 +19,7 @@ const Session = @import("session.zig").Session;
 const wav = @import("core/wav.zig");
 const Project = @import("project.zig").Project;
 const ws_arrangement = @import("arrangement.zig");
+const time_grid = @import("time_grid.zig");
 const rack_mod = @import("rack.zig");
 const Rack = rack_mod.Rack;
 const Fx = rack_mod.Fx;
@@ -53,7 +54,7 @@ const AutomationPoint = automation_mod.AutomationPoint;
 /// added and what older files load as) and the bump-vs-additive policy
 /// live in FORMAT.md; per-field migration specifics stay as doc comments
 /// on the snapshot fields they concern.
-pub const file_version: u32 = 21;
+pub const file_version: u32 = 22;
 
 pub const AutomationPointSnap = struct {
     beat: f64,
@@ -691,8 +692,12 @@ pub const ClipKind = enum { melodic, drum };
 /// One placed clip. Melodic clips carry a private note copy + loop length; drum
 /// clips carry a step-count and per-pad bitmask. Mirrors `arrangement.Clip`.
 pub const ClipSnap = struct {
-    start_bar: u32,
-    length_bars: u32,
+    /// Legacy whole-bar placement, read for files through v21.
+    start_bar: u32 = 0,
+    length_bars: u32 = 1,
+    /// v22 exact placement at 32 ticks per quarter-note beat.
+    start_tick: ?u32 = null,
+    length_ticks: ?u32 = null,
     kind: ClipKind = .melodic,
     // melodic
     notes: []const NoteSnap = &.{},
@@ -1258,7 +1263,7 @@ fn notesToSnap(aa: std.mem.Allocator, pp: *PatternPlayer) ![]const NoteSnap {
 /// Serialise one arrangement clip. Melodic clips duplicate their notes into
 /// freshly allocated NoteSnaps; drum clips copy the bitmask by value.
 fn clipToSnap(aa: std.mem.Allocator, clip: ws_arrangement.Clip) !ClipSnap {
-    var c: ClipSnap = .{ .start_bar = clip.start_bar, .length_bars = clip.length_bars };
+    var c: ClipSnap = .{ .start_tick = clip.start_tick, .length_ticks = clip.length_ticks };
     switch (clip.content) {
         .melodic => |m| {
             c.kind = .melodic;
@@ -1458,7 +1463,10 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
     const max_song_bars = std.math.maxInt(u32) / steps_per_bar;
     for (snap.arrangement) |lane| {
         for (lane.clips) |clip| {
-            if (clip.length_bars == 0 or
+            if (clip.length_ticks) |length| {
+                const start = clip.start_tick orelse 0;
+                if (length == 0 or start > std.math.maxInt(u32) - length) return error.MalformedProject;
+            } else if (clip.length_bars == 0 or
                 clip.start_bar > max_song_bars or
                 clip.length_bars > max_song_bars - clip.start_bar)
                 return error.MalformedProject;
@@ -1745,7 +1753,7 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
     // device song buffers from the clips just placed).
     for (snap.arrangement, 0..) |ls, li| {
         const lane = self.arrangement.lane(li) orelse break;
-        for (ls.clips) |cs| try lane.place(allocator, try clipFromSnap(allocator, cs));
+        for (ls.clips) |cs| try lane.place(allocator, try clipFromSnap(allocator, cs, snap.beats_per_bar));
     }
     self.setSongMode(snap.song_mode);
 
@@ -1804,7 +1812,10 @@ fn applyVelSnap(
 // zig fmt: off
 /// Rebuild an arrangement clip from its snapshot. Melodic clips copy notes
 /// through a stack buffer into a fresh owned allocation; drum clips are inline.
-fn clipFromSnap(allocator: std.mem.Allocator, cs: ClipSnap) !ws_arrangement.Clip {
+fn clipFromSnap(allocator: std.mem.Allocator, cs: ClipSnap, beats_per_bar: u8) !ws_arrangement.Clip {
+    const ticks_per_bar = @as(u32, beats_per_bar) * time_grid.ticks_per_beat;
+    const start_tick = cs.start_tick orelse cs.start_bar *| ticks_per_bar;
+    const length_ticks = cs.length_ticks orelse cs.length_bars *| ticks_per_bar;
     var out: ws_arrangement.Clip = switch (cs.kind) {
         .melodic => blk: {
             var tmp: [pattern_mod.max_notes]pattern_mod.Note = undefined;
@@ -1812,8 +1823,8 @@ fn clipFromSnap(allocator: std.mem.Allocator, cs: ClipSnap) !ws_arrangement.Clip
             for (cs.notes[0..count], tmp[0..count]) |n, *o| o.* = sanitizeNote(n);
             break :blk try ws_arrangement.Clip.initMelodic(
                 allocator,
-                cs.start_bar,
-                cs.length_bars,
+                start_tick,
+                length_ticks,
                 tmp[0..count],
                 finiteClamp(f64, cs.length_beats, 1.0, std.math.floatMax(f64), 1.0),
             );
@@ -1826,7 +1837,7 @@ fn clipFromSnap(allocator: std.mem.Allocator, cs: ClipSnap) !ws_arrangement.Clip
                 .variant = @min(cs.variant, DrumMachine.max_variants - 1),
             };
             applyVelSnap(&d.vel, cs.drum_vel, cs.drum_vel_lo, cs.drum_vel_hi);
-            break :blk2 ws_arrangement.Clip.initDrum(cs.start_bar, cs.length_bars, d);
+            break :blk2 ws_arrangement.Clip.initDrum(start_tick, length_ticks, d);
         },
     };
     errdefer out.deinit(allocator);
@@ -2703,7 +2714,7 @@ test "buildSession: arrangement clips and song_mode round-trip" {
     const lane0 = session.arrangement.lane(0).?;
     try testing.expectEqual(@as(usize, 1), lane0.clips.items.len);
     const c0 = lane0.clips.items[0];
-    try testing.expectEqual(@as(u32, 2), c0.start_bar);
+    try testing.expectEqual(@as(u32, 256), c0.start_tick);
     try testing.expectEqual(@as(usize, 1), c0.content.melodic.notes.len);
     try testing.expectEqual(@as(u7, 64), c0.content.melodic.notes[0].pitch);
 
@@ -2738,7 +2749,7 @@ test "clipToSnap/clipFromSnap round-trip gain/pan automation" {
     try testing.expectApproxEqAbs(@as(f32, -6.0), snap.gain_automation[0].value, 1e-6);
     try testing.expectEqual(@as(usize, 1), snap.pan_automation.len);
 
-    var restored = try clipFromSnap(testing.allocator, snap);
+    var restored = try clipFromSnap(testing.allocator, snap, 4);
     defer restored.deinit(testing.allocator);
     try testing.expectEqual(@as(usize, 2), restored.automation.gain.len);
     try testing.expectApproxEqAbs(@as(f64, 0.0), restored.automation.gain[0].beat, 1e-9);
@@ -2820,7 +2831,7 @@ test "clip load clamps invalid loop, step, and velocity values" {
         .start_bar = 0,
         .length_bars = 1,
         .length_beats = std.math.nan(f64),
-    });
+    }, 4);
     defer melodic.deinit(testing.allocator);
     try testing.expectEqual(@as(f64, 1.0), melodic.content.melodic.length_beats);
 
@@ -2830,7 +2841,7 @@ test "clip load clamps invalid loop, step, and velocity values" {
         .kind = .drum,
         .step_count = 0,
         .drum_vel = &.{&.{255}},
-    });
+    }, 4);
     defer drum.deinit(testing.allocator);
     try testing.expectEqual(@as(u8, 1), drum.content.drum.step_count);
     try testing.expectEqual(DrumMachine.vel_full, drum.content.drum.vel[0][0]);
@@ -3173,7 +3184,7 @@ test "clip snapshots carry the drum variant label" {
     const cs = try clipToSnap(arena.allocator(), session.arrangement.lane(0).?.clips.items[0]);
     try testing.expectEqual(@as(u8, 1), cs.variant);
 
-    var clip = try clipFromSnap(testing.allocator, cs);
+    var clip = try clipFromSnap(testing.allocator, cs, 4);
     defer clip.deinit(testing.allocator);
     try testing.expectEqual(@as(u8, 1), clip.content.drum.variant);
 }
@@ -3687,7 +3698,7 @@ test "golden-file corpus: every historical .wsj fixture still loads" {
     }
 
     // Guards against a misconfigured path silently turning this into a no-op.
-    try testing.expectEqual(@as(usize, 21), count);
+    try testing.expectEqual(@as(usize, 22), count);
 }
 
 test "golden-file corpus: v17's mod matrix loads its rows" {

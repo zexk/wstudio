@@ -59,7 +59,7 @@ pub fn switchTo(app: *App, track: u16, cursor_bar: u32) void {
         app.setStatus("no clip here - enter stamps one, then 'a' automates it", .{});
         return;
     };
-    app.automation_clip = .{ .track = track, .start_bar = clip.start_bar };
+    app.automation_clip = .{ .track = track, .start_bar = clip.start_tick };
     app.automation_track = track;
     // A previous clip may have left the editor on a synth param this one
     // doesn't have a lane for yet - fall back to gain rather than opening on
@@ -90,8 +90,8 @@ fn stepsPerBar(app: *App) u32 {
 
 /// Last valid cursor step: the clip's own end, inclusive - lets a fade
 /// resolve exactly at the clip's last instant, not one step short of it.
-fn maxStep(app: *App, clip: *const ws.Clip) u32 {
-    return clip.length_bars * stepsPerBar(app);
+fn maxStep(_: *App, clip: *const ws.Clip) u32 {
+    return @max(1, clip.length_ticks / 8);
 }
 
 /// The mutable points-slice pointer for `target`, creating an empty synth-

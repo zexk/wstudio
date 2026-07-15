@@ -28,6 +28,7 @@ const Arrangement = arr_mod.Arrangement;
 const Clip = arr_mod.Clip;
 const automation_mod = @import("dsp/automation.zig");
 const AutomationPoint = automation_mod.AutomationPoint;
+const time_grid = @import("time_grid.zig");
 
 pub const Session = struct {
     allocator: std.mem.Allocator,
@@ -389,15 +390,21 @@ pub const Session = struct {
         self.remapSidechainSources(.{ .swap = .{ .a = @intCast(a), .b = @intCast(b) } });
     }
 
-    /// Capture `track_idx`'s current live pattern as a clip at `start_bar`.
+    /// Backward-compatible whole-bar stamping entry point.
     /// Melodic tracks copy their piano-roll notes; drum tracks copy the step
     /// bitmask. The clip's bar length is derived from the pattern length. No-op
     /// for empty tracks. Replaces any clips it overlaps (see `Lane.place`).
     pub fn stampClip(self: *Session, track_idx: usize, start_bar: u32) !void {
+        return self.stampClipAtTick(track_idx, start_bar * time_grid.barTicks(self.project.beats_per_bar));
+    }
+
+    /// Capture a live pattern at an exact musical tick.
+    pub fn stampClipAtTick(self: *Session, track_idx: usize, start_tick: u32) !void {
         if (track_idx >= self.racks.items.len) return;
         const lane = self.arrangement.lane(track_idx) orelse return;
         const rack = self.racks.items[track_idx];
         const bpb: f64 = @floatFromInt(self.project.beats_per_bar);
+        const ticks_per_bar = time_grid.barTicks(self.project.beats_per_bar);
 
         switch (rack.instrument) {
             .empty => return,
@@ -415,7 +422,7 @@ pub const Session = struct {
                 const len_beats = @as(f64, @floatFromInt(dm.step_count)) / @as(f64, @floatFromInt(dm.steps_per_beat));
                 try lane.place(self.allocator, Clip.initDrum(
                     // zig fmt: off
-                    start_bar, barsFor(len_beats, bpb), drum,
+                    start_tick, barsFor(len_beats, bpb) * ticks_per_bar, drum,
                     // zig fmt: on
                 ));
             },
@@ -435,7 +442,7 @@ pub const Session = struct {
                 const len_beats = @as(f64, @floatFromInt(sl.step_count)) / 4.0;
                 try lane.place(self.allocator, Clip.initDrum(
                     // zig fmt: off
-                    start_bar, barsFor(len_beats, bpb), drum,
+                    start_tick, barsFor(len_beats, bpb) * ticks_per_bar, drum,
                     // zig fmt: on
                 ));
             },
@@ -450,7 +457,7 @@ pub const Session = struct {
                 pp.notes_lock.unlock();
                 try lane.place(self.allocator, try Clip.initMelodic(
                     // zig fmt: off
-                    self.allocator, start_bar, barsFor(len_beats, bpb), tmp[0..count], len_beats,
+                    self.allocator, start_tick, barsFor(len_beats, bpb) * ticks_per_bar, tmp[0..count], len_beats,
                     // zig fmt: on
                 ));
             },
@@ -678,12 +685,8 @@ pub const Session = struct {
     /// devices share the same total length. Call after any clip edit while in
     /// song mode. Control thread only.
     pub fn rebuildSongData(self: *Session) void {
-        const bpb_u = self.project.beats_per_bar;
-        const bpb: f64 = @floatFromInt(bpb_u);
-        const total_bars = self.arrangement.lengthBars();
-        const song_len_beats = @as(f64, @floatFromInt(total_bars)) * bpb;
-        const steps_per_bar: u32 = @as(u32, bpb_u) * 4;
-        const song_len_steps = total_bars * steps_per_bar;
+        const total_ticks = self.arrangement.lengthTicks();
+        const song_len_beats = time_grid.tickToBeat(total_ticks);
 
         for (self.racks.items, 0..) |rack, i| {
             const lane = self.arrangement.lane(i) orelse continue;
@@ -691,20 +694,15 @@ pub const Session = struct {
                 .drum_machine => |*dm| {
                     var clips: [DrumMachine.max_song_clips]DrumMachine.SongClip = undefined;
                     var n: usize = 0;
-                    var song_spb: u8 = dm.steps_per_beat;
-                    for (lane.clips.items) |c| switch (c.content) {
-                        .drum => |d| song_spb = @max(song_spb, d.steps_per_beat),
-                        .melodic => {},
-                    };
-                    const drum_steps_per_bar: u32 = @as(u32, bpb_u) * song_spb;
+                    const song_spb: u8 = 32;
                     for (lane.clips.items) |c| {
                         if (n >= clips.len) break;
                         // zig fmt: off
                         const drum = switch (c.content) { .drum => |d| d, .melodic => continue };
                         // zig fmt: on
                         clips[n] = .{
-                            .start_step = c.start_bar * drum_steps_per_bar,
-                            .span_steps = c.length_bars * drum_steps_per_bar,
+                            .start_step = c.start_tick,
+                            .span_steps = c.length_ticks,
                             .step_count = drum.step_count,
                             .steps_per_beat = drum.steps_per_beat,
                             .pattern = drum.pattern,
@@ -712,7 +710,7 @@ pub const Session = struct {
                         };
                         n += 1;
                     }
-                    dm.setSongClips(clips[0..n], total_bars * drum_steps_per_bar, song_spb);
+                    dm.setSongClips(clips[0..n], total_ticks, song_spb);
                 },
                 .slicer => |*sl| {
                     var clips: [Slicer.max_song_clips]Slicer.SongClip = undefined;
@@ -723,15 +721,15 @@ pub const Session = struct {
                         const drum = switch (c.content) { .drum => |d| d, .melodic => continue };
                         // zig fmt: on
                         clips[n] = .{
-                            .start_step = c.start_bar * steps_per_bar,
-                            .span_steps = c.length_bars * steps_per_bar,
+                            .start_step = c.start_tick / 8,
+                            .span_steps = @max(1, c.length_ticks / 8),
                             .step_count = drum.step_count,
                             .pattern = drum.pattern,
                             .vel = drum.vel,
                         };
                         n += 1;
                     }
-                    sl.setSongClips(clips[0..n], song_len_steps);
+                    sl.setSongClips(clips[0..n], @max(1, total_ticks / 8));
                 },
                 .poly_synth, .sampler => {
                     const pp = if (rack.pattern_player) |*p| p else continue;
@@ -741,14 +739,14 @@ pub const Session = struct {
                         // zig fmt: off
                         const mel = switch (c.content) { .melodic => |m| m, .drum => continue };
                         // zig fmt: on
-                        const clip_start_beat = @as(f64, @floatFromInt(c.start_bar)) * bpb;
+                        const clip_start_beat = time_grid.tickToBeat(c.start_tick);
                         // The captured pattern repeats to fill the clip's own
                         // bar span (length_bars, edge-resizable in the
                         // arrangement editor) - the same repeat-to-fill-span
                         // rule DrumMachine.fireSongStep already applies to
                         // drum clips, just expressed in beats instead of a
                         // step modulo since melodic content has no fixed grid.
-                        const clip_span_beats = @as(f64, @floatFromInt(c.length_bars)) * bpb;
+                        const clip_span_beats = time_grid.tickToBeat(c.length_ticks);
                         if (mel.length_beats <= 0) continue;
                         var rep_start: f64 = 0;
                         while (rep_start < clip_span_beats) : (rep_start += mel.length_beats) {
@@ -772,7 +770,7 @@ pub const Session = struct {
                 },
                 .empty => {},
             }
-            self.flattenClipAutomation(@intCast(i), lane, bpb);
+            self.flattenClipAutomation(@intCast(i), lane);
         }
     }
 
@@ -784,7 +782,7 @@ pub const Session = struct {
     /// so this loop needs no extra guard. Clips are already stored start_bar-ascending
     /// (`Lane.place`) and each clip's own points are beat-ascending
     /// (`automation.setPoint`), so appending in clip order needs no extra sort.
-    fn flattenClipAutomation(self: *Session, track: u16, lane: *arr_mod.Lane, bpb: f64) void {
+    fn flattenClipAutomation(self: *Session, track: u16, lane: *arr_mod.Lane) void {
         var gain_pts: [automation_mod.max_points]AutomationPoint = undefined;
         var gain_n: usize = 0;
         var pan_pts: [automation_mod.max_points]AutomationPoint = undefined;
@@ -800,7 +798,7 @@ pub const Session = struct {
         var param_pt_n: [engine_mod.max_synth_slots]usize = [_]usize{0} ** engine_mod.max_synth_slots;
 
         for (lane.clips.items) |c| {
-            const clip_start_beat = @as(f64, @floatFromInt(c.start_bar)) * bpb;
+            const clip_start_beat = time_grid.tickToBeat(c.start_tick);
             for (c.automation.gain) |p| {
                 if (gain_n >= gain_pts.len) break;
                 // Points are edited in dB; the engine curve stores linear
@@ -1089,8 +1087,8 @@ test "stampClip captures the live melodic pattern as a clip" {
     const lane = s.arrangement.lane(0).?;
     try std.testing.expectEqual(@as(usize, 1), lane.clips.items.len);
     const clip = lane.clips.items[0];
-    try std.testing.expectEqual(@as(u32, 2), clip.start_bar);
-    try std.testing.expectEqual(@as(u32, 2), clip.length_bars);
+    try std.testing.expectEqual(@as(u32, 256), clip.start_tick);
+    try std.testing.expectEqual(@as(u32, 256), clip.length_ticks);
     try std.testing.expectEqual(@as(usize, 1), clip.content.melodic.notes.len);
 }
 
@@ -1134,7 +1132,7 @@ test "song mode repeats a melodic clip's pattern to fill an edge-resized span" {
     // Edge-resize the clip to 3 bars - 3x the captured pattern's length -
     // the same operation editors/arrangement.zig's resizeClip performs.
     const lane = s.arrangement.lane(0).?;
-    lane.clips.items[0].length_bars = 3;
+    lane.clips.items[0].length_ticks = 384;
 
     s.setSongMode(true);
     // The one-note pattern should repeat 3 times: beats 0, 4, 8.
@@ -1185,12 +1183,12 @@ test "song mode places a drum clip on the step timeline" {
     try std.testing.expect(dm.song_mode);
     try std.testing.expectEqual(@as(u16, 1), dm.song_clip_count);
     // 4/4, 16th-note steps → 16 steps per bar, so bar 1 starts at step 16.
-    try std.testing.expectEqual(@as(u32, 16), dm.song_clips[0].start_step);
+    try std.testing.expectEqual(@as(u32, 128), dm.song_clips[0].start_step);
     // The clip's own pattern is 32 steps (2 bars) - the new default.
-    try std.testing.expectEqual(@as(u32, 32), dm.song_clips[0].span_steps);
+    try std.testing.expectEqual(@as(u32, 256), dm.song_clips[0].span_steps);
     try std.testing.expectEqual(@as(u32, 1), dm.song_clips[0].pattern[0]);
     // Arrangement spans bars 0..3 (clip covers bars 1-2) → 48 steps.
-    try std.testing.expectEqual(@as(u32, 48), dm.song_length_steps);
+    try std.testing.expectEqual(@as(u32, 384), dm.song_length_steps);
 }
 
 test "setMetronome mirrors to the engine" {

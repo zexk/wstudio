@@ -1063,7 +1063,7 @@ pub fn loadClipFromPath(app: *App, path: []const u8) void {
     app.session.racks.items[track].pattern_player.?.setNotes(&notes, length_beats);
 
     history.push(app, history.captureLane(app, @intCast(track)));
-    app.session.stampClip(track, app.arr_cursor_bar) catch {
+    app.session.stampClipAtTick(track, app.arr_cursor_bar * app.arr_grid.ticks()) catch {
         app.setStatus("load-clip: stamp failed (out of memory)", .{});
         return;
     };
@@ -1242,8 +1242,7 @@ fn computeBounceRange(app: *App) BounceRange {
     const start_frame: u64 = if (has_loop_region) loop.loop_start_frames else 0;
     const content_frames: u64 = if (has_loop_region) loop.loop_end_frames - loop.loop_start_frames else blk: {
         const max_beats = if (app.session.song_mode) inner: {
-            const bpb: f64 = @floatFromInt(app.session.project.beats_per_bar);
-            break :inner @max(1.0, @as(f64, @floatFromInt(app.session.arrangement.lengthBars())) * bpb);
+            break :inner @max(1.0, ws.time_grid.tickToBeat(app.session.arrangement.lengthTicks()));
         } else @max(1.0, app.contentBeats());
         break :blk @intFromFloat(engine.transport.framesPerBeat() * max_beats);
     };

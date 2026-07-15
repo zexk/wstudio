@@ -115,7 +115,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             'N' => { app.searchArrangement(-1); return true; },
             '[' => { cycleDrumVariant(app, -1); return true; },
             ']' => { cycleDrumVariant(app, 1); return true; },
-            'a' => { automation.switchTo(app, @intCast(app.cursor), app.arr_cursor_bar); return true; },
+            'a' => { automation.switchTo(app, @intCast(app.cursor), app.arr_cursor_bar * app.arr_grid.ticks()); return true; },
             '(' => { setLoopStart(app); return true; },
             ')' => { setLoopEnd(app); return true; },
             'b' => { toggleLoop(app); return true; },
@@ -157,7 +157,7 @@ fn finishOperator(app: *App, op: u8) void {
 /// lane doesn't otherwise move the cursor, like vim's dd/yy don't jump far.
 fn wholeLaneRange(app: *App, lane: *ws.arrangement.Lane, act: *const fn (*App) void) void {
     var hi: u32 = 0;
-    for (lane.clips.items) |c| hi = @max(hi, c.endBar() -| 1);
+    for (lane.clips.items) |c| hi = @max(hi, (c.endTick() -| 1) / app.arr_grid.ticks());
     const saved_cursor = app.arr_cursor_bar;
     app.arr_visual_anchor = 0;
     app.arr_cursor_bar = hi;
@@ -220,7 +220,8 @@ const BarRange = struct { lo: u32, hi: u32 };
 
 fn selectionRange(app: *App) BarRange {
     const anchor = app.arr_visual_anchor orelse app.arr_cursor_bar;
-    return .{ .lo = @min(anchor, app.arr_cursor_bar), .hi = @max(anchor, app.arr_cursor_bar) };
+    const ticks = app.arr_grid.ticks();
+    return .{ .lo = @min(anchor, app.arr_cursor_bar) * ticks, .hi = @max(anchor, app.arr_cursor_bar) * ticks };
 }
 
 /// Yank every clip on the current lane whose start_bar falls within the
@@ -230,14 +231,14 @@ fn yankSelection(app: *App) void {
     const r = selectionRange(app);
     var list: std.ArrayListUnmanaged(ws.Clip) = .empty;
     for (lane.clips.items) |c| {
-        if (c.start_bar < r.lo or c.start_bar > r.hi) continue;
+        if (c.start_tick < r.lo or c.start_tick > r.hi) continue;
         var copy = c.dupe(app.allocator) catch {
             for (list.items) |*done| done.deinit(app.allocator);
             list.deinit(app.allocator);
             app.setStatus("yank failed (out of memory)", .{});
             return;
         };
-        copy.start_bar -= r.lo;
+        copy.start_tick -= r.lo;
         list.append(app.allocator, copy) catch {
             copy.deinit(app.allocator);
             for (list.items) |*done| done.deinit(app.allocator);
@@ -270,13 +271,13 @@ fn deleteSelection(app: *App) void {
     var removed: u32 = 0;
     var i: usize = 0;
     while (i < lane.clips.items.len) {
-        if (lane.clips.items[i].start_bar >= r.lo and lane.clips.items[i].start_bar <= r.hi) {
+        if (lane.clips.items[i].start_tick >= r.lo and lane.clips.items[i].start_tick <= r.hi) {
             var c = lane.clips.orderedRemove(i);
             c.deinit(app.allocator);
             removed += 1;
         } else i += 1;
     }
-    app.last_edit = .{ .arr_range_delete = .{ .width = r.hi - r.lo + 1 } };
+    app.last_edit = .{ .arr_range_delete = .{ .width = (r.hi - r.lo) / app.arr_grid.ticks() + 1 } };
     app.setStatus("deleted {d} clip(s)", .{removed});
     if (app.session.song_mode) app.session.rebuildSongData();
     exitVisual(app);
@@ -322,16 +323,17 @@ fn pasteSelection(app: *App) void {
     }
     history.push(app, history.captureLane(app, @intCast(app.cursor)));
     var pasted: u32 = 0;
-    var end_bar = app.arr_cursor_bar;
+    const cursor_tick = app.arr_cursor_bar * app.arr_grid.ticks();
+    var end_bar = cursor_tick;
     for (clip.clips) |c| {
         if (!kind_ok(rack, c)) continue;
         var copy = c.dupe(app.allocator) catch continue;
-        copy.start_bar += app.arr_cursor_bar;
-        end_bar = @max(end_bar, copy.endBar());
+        copy.start_tick += cursor_tick;
+        end_bar = @max(end_bar, copy.endTick());
         lane.place(app.allocator, copy) catch continue;
         pasted += 1;
     }
-    if (pasted > 0) app.arr_cursor_bar = end_bar;
+    if (pasted > 0) app.arr_cursor_bar = end_bar / app.arr_grid.ticks();
     app.last_edit = .arr_range_paste;
     if (app.session.song_mode) app.session.rebuildSongData();
     app.setStatus("pasted {d} clip(s)", .{pasted});
@@ -362,7 +364,9 @@ fn moveBar(app: *App, delta: i64) void {
 
 /// `z`/`Z`: enlarge/compact horizontal cells without moving bar indices.
 fn zoom(app: *App, delta: i8) void {
+    const tick = app.arr_cursor_bar * app.arr_grid.ticks();
     app.arr_grid = if (delta > 0) app.arr_grid.finer() else app.arr_grid.coarser();
+    app.arr_cursor_bar = tick / app.arr_grid.ticks();
     app.setStatus("grid: {s}", .{app.arr_grid.label()});
 }
 
@@ -378,9 +382,9 @@ fn moveLane(app: *App, lane_count: usize, delta: i32) void {
 fn playFromCursor(app: *App) void {
     const sr = @as(f64, @floatFromInt(app.session.project.sample_rate));
     const bpm = @max(app.session.project.tempo_bpm, 1.0);
-    const bpb: f64 = @floatFromInt(app.session.project.beats_per_bar);
-    const frames_per_bar: u64 = @intFromFloat(sr * 60.0 / bpm * bpb);
-    _ = app.session.engine.send(.{ .seek_frames = app.arr_cursor_bar * frames_per_bar });
+    const frames_per_tick: f64 = sr * 60.0 / bpm / ws.time_grid.ticks_per_beat;
+    const tick = app.arr_cursor_bar * app.arr_grid.ticks();
+    _ = app.session.engine.send(.{ .seek_frames = @as(u64, @intFromFloat(@as(f64, @floatFromInt(tick)) * frames_per_tick)) });
     if (!app.session.engine.uiSnapshot().playing) _ = app.session.engine.send(.play);
     app.setStatus("play from bar {d}", .{app.arr_cursor_bar + 1});
 }
@@ -431,19 +435,20 @@ fn stampClip(app: *App) void {
     }
     // Stamping may evict overlapped clips; the lane snapshot covers both.
     history.push(app, history.captureLane(app, @intCast(app.cursor)));
-    app.session.stampClip(app.cursor, app.arr_cursor_bar) catch {
+    const cursor_tick = app.arr_cursor_bar * app.arr_grid.ticks();
+    app.session.stampClipAtTick(app.cursor, cursor_tick) catch {
         app.setStatus("stamp failed (out of memory)", .{});
         return;
     };
     if (app.session.arrangement.lane(app.cursor)) |lane| {
-        if (lane.clipAt(app.arr_cursor_bar)) |clip| {
+        if (lane.clipAt(cursor_tick)) |clip| {
             switch (clip.content) {
                 .drum => |d| app.setStatus("stamped {d}-bar clip (pat {c})", .{
-                    clip.length_bars, DrumMachine.variantLetter(d.variant),
+                    clip.length_ticks / ws.time_grid.ticks_per_beat, DrumMachine.variantLetter(d.variant),
                 }),
-                .melodic => app.setStatus("stamped {d}-bar clip", .{clip.length_bars}),
+                .melodic => app.setStatus("stamped {d} ticks", .{clip.length_ticks}),
             }
-            app.arr_cursor_bar = clip.endBar();
+            app.arr_cursor_bar = clip.endTick() / app.arr_grid.ticks();
         }
     }
     // Keep song playback in sync with the edit if it's driving the transport.
@@ -457,7 +462,7 @@ fn stampClip(app: *App) void {
 /// data; the player is just the surface it's edited and played on.
 fn editClip(app: *App) void {
     const lane = app.session.arrangement.lane(app.cursor) orelse return;
-    const clip = lane.clipAt(app.arr_cursor_bar) orelse {
+    const clip = lane.clipAt(app.arr_cursor_bar * app.arr_grid.ticks()) orelse {
         app.setStatus("no clip here - enter stamps one", .{});
         return;
     };
@@ -478,8 +483,8 @@ fn editClip(app: *App) void {
             }
             history.push(app, pre);
             app.session.racks.items[track].pattern_player.?.setNotes(m.notes, m.length_beats);
-            app.piano_clip_link = .{ .track = track, .start_bar = clip.start_bar };
-            app.setStatus("editing clip @ bar {d} - edits land in the clip", .{clip.start_bar + 1});
+            app.piano_clip_link = .{ .track = track, .start_bar = clip.start_tick };
+            app.setStatus("editing clip @ tick {d} - edits land in the clip", .{clip.start_tick});
         },
         .drum => app.setStatus("pattern clips play from their stamp - edit variants in the grid", .{}),
     }
@@ -489,7 +494,8 @@ fn editClip(app: *App) void {
 /// region arms the loop immediately (b toggles it after).
 fn setLoopStart(app: *App) void {
     const p = &app.session.project;
-    p.loop_start_bar = app.arr_cursor_bar;
+    const tpb = ws.time_grid.barTicks(p.beats_per_bar);
+    p.loop_start_bar = app.arr_cursor_bar * app.arr_grid.ticks() / tpb;
     if (p.loop_end_bar > p.loop_start_bar) {
         p.loop_enabled = true;
         app.setStatus("loop: bars {d}–{d}", .{ p.loop_start_bar + 1, p.loop_end_bar });
@@ -503,7 +509,8 @@ fn setLoopStart(app: *App) void {
 /// ) sets the loop end after the cursor bar (the bar is included).
 fn setLoopEnd(app: *App) void {
     const p = &app.session.project;
-    p.loop_end_bar = app.arr_cursor_bar + 1;
+    const tpb = ws.time_grid.barTicks(p.beats_per_bar);
+    p.loop_end_bar = (app.arr_cursor_bar * app.arr_grid.ticks() + tpb) / tpb;
     if (p.loop_end_bar > p.loop_start_bar) {
         p.loop_enabled = true;
         app.setStatus("loop: bars {d}–{d}", .{ p.loop_start_bar + 1, p.loop_end_bar });
@@ -537,24 +544,26 @@ fn toggleLoop(app: *App) void {
 /// it lands on are evicted - the same overwrite rule as stamping and pasting.
 fn moveClip(app: *App, delta: i32) void {
     const lane = app.session.arrangement.lane(app.cursor) orelse return;
-    const clip = lane.clipAt(app.arr_cursor_bar) orelse {
+    const cursor_tick = app.arr_cursor_bar * app.arr_grid.ticks();
+    const clip = lane.clipAt(cursor_tick) orelse {
         app.setStatus("no clip here", .{});
         return;
     };
-    const new_start: u32 = @intCast(@max(@as(i64, clip.start_bar) + delta, 0));
-    if (new_start == clip.start_bar) return;
+    const amount = @as(i64, delta) * app.arr_grid.ticks();
+    const new_start: u32 = @intCast(@max(@as(i64, clip.start_tick) + amount, 0));
+    if (new_start == clip.start_tick) return;
     history.push(app, history.captureLane(app, @intCast(app.cursor)));
     app.last_edit = .{ .arr_move_clip = .{ .delta = delta } };
     // Detach the clip (keeping ownership of its content), retarget, re-place.
     var moved: ws.Clip = for (lane.clips.items, 0..) |c, i| {
-        if (c.covers(app.arr_cursor_bar)) break lane.clips.orderedRemove(i);
+        if (c.covers(cursor_tick)) break lane.clips.orderedRemove(i);
     } else unreachable; // clipAt() above proved a covering clip exists
-    moved.start_bar = new_start;
+    moved.start_tick = new_start;
     lane.place(app.allocator, moved) catch {
         app.setStatus("move failed (out of memory)", .{});
         return;
     };
-    app.arr_cursor_bar = new_start;
+    app.arr_cursor_bar = new_start / app.arr_grid.ticks();
     if (app.session.song_mode) app.session.rebuildSongData();
     app.setStatus("clip → bar {d}", .{new_start + 1});
 }
@@ -568,34 +577,37 @@ fn moveClip(app: *App, delta: i32) void {
 /// exactly how it repeats across a longer phrase.
 fn resizeClip(app: *App, delta: i32) void {
     const lane = app.session.arrangement.lane(app.cursor) orelse return;
-    const clip = lane.clipAt(app.arr_cursor_bar) orelse {
+    const cursor_tick = app.arr_cursor_bar * app.arr_grid.ticks();
+    const clip = lane.clipAt(cursor_tick) orelse {
         app.setStatus("no clip here", .{});
         return;
     };
-    const new_len: u32 = @intCast(@max(@as(i64, clip.length_bars) + delta, 1));
-    if (new_len == clip.length_bars) return;
+    const amount = @as(i64, delta) * app.arr_grid.ticks();
+    const new_len: u32 = @intCast(@max(@as(i64, clip.length_ticks) + amount, 1));
+    if (new_len == clip.length_ticks) return;
     history.push(app, history.captureLane(app, @intCast(app.cursor)));
     app.last_edit = .{ .arr_resize_clip = .{ .delta = delta } };
     var resized: ws.Clip = for (lane.clips.items, 0..) |c, i| {
-        if (c.covers(app.arr_cursor_bar)) break lane.clips.orderedRemove(i);
+        if (c.covers(cursor_tick)) break lane.clips.orderedRemove(i);
     } else unreachable; // clipAt() above proved a covering clip exists
-    resized.length_bars = new_len;
+    resized.length_ticks = new_len;
     lane.place(app.allocator, resized) catch {
         app.setStatus("resize failed (out of memory)", .{});
         return;
     };
     if (app.session.song_mode) app.session.rebuildSongData();
-    app.setStatus("clip length → {d} bar(s)", .{new_len});
+    app.setStatus("clip length: {d} ticks", .{new_len});
 }
 
 fn deleteClip(app: *App) void {
     const lane = app.session.arrangement.lane(app.cursor) orelse return;
-    if (lane.clipAt(app.arr_cursor_bar) == null) {
+    const cursor_tick = app.arr_cursor_bar * app.arr_grid.ticks();
+    if (lane.clipAt(cursor_tick) == null) {
         app.setStatus("no clip here", .{});
         return;
     }
     history.push(app, history.captureLane(app, @intCast(app.cursor)));
-    _ = lane.removeAt(app.allocator, app.arr_cursor_bar);
+    _ = lane.removeAt(app.allocator, cursor_tick);
     app.setStatus("deleted clip", .{});
     if (app.session.song_mode) app.session.rebuildSongData();
 }
