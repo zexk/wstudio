@@ -101,11 +101,18 @@ pub fn paramCount(k: FxKind) usize {
     return switch (k) {
         .eq => eq_mod.num_eq_bands * eq_fields_per_band,
         .mb_comp => mb_comp_param_count,
-        .comp => 7,
-        .ott, .phaser, .flanger => 4,
-        .tape => 5,
-        .freq_shift => 2,
-        .gate, .sat, .crush, .chorus, .delay, .reverb => 3,
+        .comp => comp_specs.len + 2, // + sidechain track + sidechain pad
+        .gate => gate_specs.len,
+        .sat => sat_specs.len,
+        .crush => crush_specs.len,
+        .chorus => chorus_specs.len,
+        .phaser => phaser_specs.len,
+        .flanger => flanger_specs.len,
+        .tape => tape_specs.len,
+        .freq_shift => freq_shift_specs.len,
+        .reverb => reverb_specs.len,
+        .delay => delay_specs.len,
+        .ott => ott_specs.len,
     };
 }
 
@@ -201,7 +208,153 @@ fn mbBandParamName(bf: MbBandField) []const u8 {
     return mb_band_param_names[bf.band][bf.field];
 }
 
-// zig fmt: off
+/// One row of the per-kind param table driving the 11 "plain" FX kinds
+/// below — everything that reduces to reading/writing one f32 field (or,
+/// for a couple of clamped/derived params, calling an existing method)
+/// against a static range. EQ, multiband comp, and comp's sidechain rows
+/// don't fit this shape (banded indexing, cross-field/`app`-derived state)
+/// and keep their own switch arms instead.
+const ParamSpec = struct {
+    name: []const u8,
+    field: []const u8 = "",
+    getter: ?[]const u8 = null,
+    setter: ?[]const u8 = null,
+    min: f32,
+    max: f32,
+    step_fine: f32,
+    step_coarse: f32,
+    round: bool = false,
+};
+
+fn tableName(comptime table: []const ParamSpec, idx: usize) []const u8 {
+    inline for (table, 0..) |spec, i| if (i == idx) return spec.name;
+    return "?";
+}
+
+fn tableRange(comptime table: []const ParamSpec, idx: usize) [2]f32 {
+    inline for (table, 0..) |spec, i| if (i == idx) return .{ spec.min, spec.max };
+    return .{ 0.0, 1.0 };
+}
+
+fn tableStep(comptime table: []const ParamSpec, idx: usize, coarse: bool) f32 {
+    inline for (table, 0..) |spec, i| if (i == idx) return if (coarse) spec.step_coarse else spec.step_fine;
+    return 1.0;
+}
+
+fn tableGet(self: anytype, comptime table: []const ParamSpec, idx: usize) f32 {
+    inline for (table, 0..) |spec, i| {
+        if (i == idx) {
+            if (spec.getter) |g| return @field(@TypeOf(self.*), g)(self);
+            return @field(self.*, spec.field);
+        }
+    }
+    return 0;
+}
+
+/// Clamps (and, for whole-number params, rounds) `value` to `spec`'s range
+/// before writing it — through the setter method if one's given, otherwise
+/// straight into the field. The clamp always runs even when a setter also
+/// clamps internally (e.g. `Ott.setDepth`): harmless double-clamp there,
+/// load-bearing for `StereoDelay.setTime`, whose `seconds` param underflows
+/// `usize` on a negative input.
+fn tableSet(self: anytype, comptime table: []const ParamSpec, idx: usize, value: f32) void {
+    inline for (table, 0..) |spec, i| {
+        if (i == idx) {
+            const clamped = if (spec.round)
+                std.math.clamp(@round(value), spec.min, spec.max)
+            else
+                std.math.clamp(value, spec.min, spec.max);
+            if (spec.setter) |s| {
+                @field(@TypeOf(self.*), s)(self, clamped);
+            } else {
+                @field(self.*, spec.field) = clamped;
+            }
+            return;
+        }
+    }
+}
+
+const gate_specs = [_]ParamSpec{
+    .{ .name = "thresh", .field = "threshold_db", .min = -80.0, .max = 0.0, .step_fine = 1.0, .step_coarse = 6.0 },
+    .{ .name = "attack", .field = "attack_ms", .min = 0.1, .max = 50.0, .step_fine = 0.5, .step_coarse = 5.0 },
+    .{ .name = "release", .field = "release_ms", .min = 5.0, .max = 1000.0, .step_fine = 10.0, .step_coarse = 100.0 },
+};
+
+const sat_specs = [_]ParamSpec{
+    .{ .name = "drive", .field = "drive_db", .min = 0.0, .max = 36.0, .step_fine = 1.0, .step_coarse = 6.0 },
+    .{ .name = "output", .field = "out_db", .min = -24.0, .max = 24.0, .step_fine = 0.5, .step_coarse = 3.0 },
+    .{ .name = "mix", .field = "mix", .min = 0.0, .max = 1.0, .step_fine = 0.05, .step_coarse = 0.2 },
+};
+
+const crush_specs = [_]ParamSpec{
+    .{ .name = "bits", .field = "bits", .min = 1.0, .max = 16.0, .step_fine = 1.0, .step_coarse = 4.0, .round = true },
+    .{ .name = "downsmp", .field = "downsample", .min = 1.0, .max = 32.0, .step_fine = 1.0, .step_coarse = 4.0, .round = true },
+    .{ .name = "mix", .field = "mix", .min = 0.0, .max = 1.0, .step_fine = 0.05, .step_coarse = 0.2 },
+};
+
+const chorus_specs = [_]ParamSpec{
+    .{ .name = "rate", .field = "rate_hz", .min = 0.05, .max = 5.0, .step_fine = 0.05, .step_coarse = 0.5 },
+    .{ .name = "depth", .field = "depth_ms", .min = 0.0, .max = chorus_mod.max_depth_ms, .step_fine = 0.5, .step_coarse = 2.0 },
+    .{ .name = "mix", .field = "mix", .min = 0.0, .max = 1.0, .step_fine = 0.05, .step_coarse = 0.2 },
+};
+
+const phaser_specs = [_]ParamSpec{
+    .{ .name = "rate", .field = "rate_hz", .min = 0.05, .max = 5.0, .step_fine = 0.05, .step_coarse = 0.5 },
+    .{ .name = "depth", .field = "depth", .min = 0.0, .max = 1.0, .step_fine = 0.05, .step_coarse = 0.2 },
+    .{ .name = "feedback", .field = "feedback", .min = 0.0, .max = 0.9, .step_fine = 0.05, .step_coarse = 0.2 },
+    .{ .name = "mix", .field = "mix", .min = 0.0, .max = 1.0, .step_fine = 0.05, .step_coarse = 0.2 },
+};
+
+/// Flanger's controls are the same shape as phaser's (mechanical copy when
+/// the unit was added — see docs/ FX chain notes).
+const flanger_specs = phaser_specs;
+
+const tape_specs = [_]ParamSpec{
+    .{ .name = "wow rate", .field = "wow_rate_hz", .min = 0.05, .max = 3.0, .step_fine = 0.05, .step_coarse = 0.3 },
+    .{ .name = "wow depth", .field = "wow_depth", .min = 0.0, .max = 1.0, .step_fine = 0.05, .step_coarse = 0.2 },
+    .{ .name = "flutter rate", .field = "flutter_rate_hz", .min = 3.0, .max = 15.0, .step_fine = 0.5, .step_coarse = 2.0 },
+    .{ .name = "flutter depth", .field = "flutter_depth", .min = 0.0, .max = 1.0, .step_fine = 0.05, .step_coarse = 0.2 },
+    .{ .name = "mix", .field = "mix", .min = 0.0, .max = 1.0, .step_fine = 0.05, .step_coarse = 0.2 },
+};
+
+const freq_shift_specs = [_]ParamSpec{
+    .{ .name = "shift", .field = "shift_hz", .min = -2000.0, .max = 2000.0, .step_fine = 10.0, .step_coarse = 100.0 },
+    .{ .name = "mix", .field = "mix", .min = 0.0, .max = 1.0, .step_fine = 0.05, .step_coarse = 0.2 },
+};
+
+const reverb_specs = [_]ParamSpec{
+    .{ .name = "room", .field = "room", .min = 0.0, .max = 0.98, .step_fine = 0.02, .step_coarse = 0.1 },
+    .{ .name = "damp", .field = "damp", .min = 0.0, .max = 1.0, .step_fine = 0.05, .step_coarse = 0.2 },
+    .{ .name = "mix", .field = "mix", .min = 0.0, .max = 1.0, .step_fine = 0.05, .step_coarse = 0.2 },
+};
+
+/// `time`'s range matches the 2.0s line `StereoDelay.init` allocates at
+/// every call site; the clamp is also what keeps a stray negative seconds
+/// value from underflowing `setTime`'s `usize` frame count (see `tableSet`).
+const delay_specs = [_]ParamSpec{
+    .{ .name = "time", .getter = "timeSeconds", .setter = "setTime", .min = 0.01, .max = 2.0, .step_fine = 0.01, .step_coarse = 0.1 },
+    .{ .name = "feedback", .field = "feedback", .min = 0.0, .max = 0.95, .step_fine = 0.05, .step_coarse = 0.2 },
+    .{ .name = "mix", .field = "mix", .min = 0.0, .max = 1.0, .step_fine = 0.05, .step_coarse = 0.2 },
+};
+
+const ott_specs = [_]ParamSpec{
+    .{ .name = "depth", .getter = "depth", .setter = "setDepth", .min = 0.0, .max = 1.0, .step_fine = 0.05, .step_coarse = 0.2 },
+    .{ .name = "time", .field = "time", .setter = "setTime", .min = 0.25, .max = 4.0, .step_fine = 0.05, .step_coarse = 0.5 },
+    .{ .name = "in", .field = "gain_in_db", .min = -24.0, .max = 24.0, .step_fine = 0.5, .step_coarse = 3.0 },
+    .{ .name = "out", .field = "gain_out_db", .min = -24.0, .max = 24.0, .step_fine = 0.5, .step_coarse = 3.0 },
+};
+
+/// `comp`'s first 5 params only — idx 5/6 are the sidechain track/pad
+/// spinners, which need `app` and cross-field state the table shape can't
+/// express, so they stay hand-written in every switch below.
+const comp_specs = [_]ParamSpec{
+    .{ .name = "thresh", .field = "threshold_db", .min = -60.0, .max = 0.0, .step_fine = 1.0, .step_coarse = 6.0 },
+    .{ .name = "ratio", .field = "ratio", .min = 1.0, .max = 20.0, .step_fine = 0.5, .step_coarse = 2.0 },
+    .{ .name = "attack", .field = "attack_ms", .min = 0.1, .max = 500.0, .step_fine = 5.0, .step_coarse = 50.0 },
+    .{ .name = "release", .field = "release_ms", .min = 1.0, .max = 2000.0, .step_fine = 20.0, .step_coarse = 200.0 },
+    .{ .name = "makeup", .field = "makeup_db", .min = -24.0, .max = 24.0, .step_fine = 0.5, .step_coarse = 3.0 },
+};
+
 /// Param name at `idx` in `p` — bounds match `paramCount`.
 pub fn paramName(p: *const FxPayload, idx: usize) []const u8 {
     return switch (p.*) {
@@ -223,57 +376,22 @@ pub fn paramName(p: *const FxPayload, idx: usize) []const u8 {
             mb_mix => "mix",
             else => mbBandParamName(mbBandField(idx)),
         },
-        .ott => switch (idx) {
-            ott_depth => "depth",
-            ott_time => "time",
-            ott_in => "in",
-            ott_out => "out",
-            else => "?",
-        },
         .comp => switch (idx) {
-            0 => "thresh", 1 => "ratio", 2 => "attack", 3 => "release", 4 => "makeup", 5 => "sidechain", 6 => "scpad",
-            else => "?",
+            5 => "sidechain",
+            6 => "scpad",
+            else => tableName(&comp_specs, idx),
         },
-        .delay => switch (idx) {
-            0 => "time", 1 => "feedback", 2 => "mix",
-            else => "?",
-        },
-        .reverb => switch (idx) {
-            0 => "room", 1 => "damp", 2 => "mix",
-            else => "?",
-        },
-        .gate => switch (idx) {
-            0 => "thresh", 1 => "attack", 2 => "release",
-            else => "?",
-        },
-        .sat => switch (idx) {
-            0 => "drive", 1 => "output", 2 => "mix",
-            else => "?",
-        },
-        .crush => switch (idx) {
-            0 => "bits", 1 => "downsmp", 2 => "mix",
-            else => "?",
-        },
-        .chorus => switch (idx) {
-            0 => "rate", 1 => "depth", 2 => "mix",
-            else => "?",
-        },
-        .phaser => switch (idx) {
-            0 => "rate", 1 => "depth", 2 => "feedback", 3 => "mix",
-            else => "?",
-        },
-        .flanger => switch (idx) {
-            0 => "rate", 1 => "depth", 2 => "feedback", 3 => "mix",
-            else => "?",
-        },
-        .tape => switch (idx) {
-            0 => "wow rate", 1 => "wow depth", 2 => "flutter rate", 3 => "flutter depth", 4 => "mix",
-            else => "?",
-        },
-        .freq_shift => switch (idx) {
-            0 => "shift", 1 => "mix",
-            else => "?",
-        },
+        .gate => tableName(&gate_specs, idx),
+        .sat => tableName(&sat_specs, idx),
+        .crush => tableName(&crush_specs, idx),
+        .chorus => tableName(&chorus_specs, idx),
+        .phaser => tableName(&phaser_specs, idx),
+        .flanger => tableName(&flanger_specs, idx),
+        .tape => tableName(&tape_specs, idx),
+        .freq_shift => tableName(&freq_shift_specs, idx),
+        .reverb => tableName(&reverb_specs, idx),
+        .delay => tableName(&delay_specs, idx),
+        .ott => tableName(&ott_specs, idx),
     };
 }
 
@@ -307,15 +425,7 @@ pub fn getParam(p: *const FxPayload, idx: usize) f32 {
                 };
             },
         },
-        .ott => |*o| switch (idx) {
-            ott_depth => o.depth(),
-            ott_time => o.time,
-            ott_in => o.gain_in_db,
-            ott_out => o.gain_out_db,
-            else => 0,
-        },
         .comp => |*c| switch (idx) {
-            0 => c.threshold_db, 1 => c.ratio, 2 => c.attack_ms, 3 => c.release_ms, 4 => c.makeup_db,
             // Sidechain source, encoded as 0 = none, N = 1-based track index
             // (matches the tracks view's own 1-based row numbering) — lets
             // this slot share the same float-valued get/set/range/step shape
@@ -324,52 +434,21 @@ pub fn getParam(p: *const FxPayload, idx: usize) f32 {
             // Sidechain pad, same 0=none/N=1-based encoding as idx 5 — only
             // meaningful once a track is picked there; see `setParam`.
             6 => if (c.sidechain_source) |s| (if (s.pad) |pd| @as(f32, @floatFromInt(pd)) + 1.0 else 0.0) else 0.0,
-            else => 0,
+            else => tableGet(c, &comp_specs, idx),
         },
-        .delay => |*d| switch (idx) {
-            0 => @as(f32, @floatFromInt(d.delay_frames)) / @as(f32, @floatFromInt(d.sample_rate)),
-            1 => d.feedback, 2 => d.mix,
-            else => 0,
-        },
-        .reverb => |*r| switch (idx) {
-            0 => r.room, 1 => r.damp, 2 => r.mix,
-            else => 0,
-        },
-        .gate => |*g| switch (idx) {
-            0 => g.threshold_db, 1 => g.attack_ms, 2 => g.release_ms,
-            else => 0,
-        },
-        .sat => |*s| switch (idx) {
-            0 => s.drive_db, 1 => s.out_db, 2 => s.mix,
-            else => 0,
-        },
-        .crush => |*c| switch (idx) {
-            0 => c.bits, 1 => c.downsample, 2 => c.mix,
-            else => 0,
-        },
-        .chorus => |*c| switch (idx) {
-            0 => c.rate_hz, 1 => c.depth_ms, 2 => c.mix,
-            else => 0,
-        },
-        .phaser => |*p2| switch (idx) {
-            0 => p2.rate_hz, 1 => p2.depth, 2 => p2.feedback, 3 => p2.mix,
-            else => 0,
-        },
-        .flanger => |*fl| switch (idx) {
-            0 => fl.rate_hz, 1 => fl.depth, 2 => fl.feedback, 3 => fl.mix,
-            else => 0,
-        },
-        .tape => |*t| switch (idx) {
-            0 => t.wow_rate_hz, 1 => t.wow_depth, 2 => t.flutter_rate_hz, 3 => t.flutter_depth, 4 => t.mix,
-            else => 0,
-        },
-        .freq_shift => |*f| switch (idx) {
-            0 => f.shift_hz, 1 => f.mix,
-            else => 0,
-        },
+        .gate => |*g| tableGet(g, &gate_specs, idx),
+        .sat => |*s| tableGet(s, &sat_specs, idx),
+        .crush => |*c| tableGet(c, &crush_specs, idx),
+        .chorus => |*c| tableGet(c, &chorus_specs, idx),
+        .phaser => |*p2| tableGet(p2, &phaser_specs, idx),
+        .flanger => |*fl| tableGet(fl, &flanger_specs, idx),
+        .tape => |*t| tableGet(t, &tape_specs, idx),
+        .freq_shift => |*f| tableGet(f, &freq_shift_specs, idx),
+        .reverb => |*r| tableGet(r, &reverb_specs, idx),
+        .delay => |*d| tableGet(d, &delay_specs, idx),
+        .ott => |*o| tableGet(o, &ott_specs, idx),
     };
 }
-// zig fmt: on
 
 /// [min, max] of param `idx` in a unit of kind `k` — the same bounds
 /// `setParam` clamps to, exported so the view can draw each param as a
@@ -397,70 +476,22 @@ pub fn paramRange(app: *App, p: *const FxPayload, idx: usize) [2]f32 {
                 else => .{ -24.0, 24.0 }, // makeup
             },
         },
-        .ott => switch (idx) {
-            ott_depth => .{ 0.0, 1.0 },
-            ott_time => .{ 0.25, 4.0 },
-            else => .{ -24.0, 24.0 }, // in/out gain
-        },
         .comp => switch (idx) {
-            0 => .{ -60.0, 0.0 },
-            1 => .{ 1.0, 20.0 },
-            2 => .{ 0.1, 500.0 },
-            3 => .{ 1.0, 2000.0 },
-            4 => .{ -24.0, 24.0 },
             5 => .{ 0.0, @floatFromInt(app.session.project.tracks.items.len) },
             6 => .{ 0.0, @floatFromInt(DrumMachine.max_pads) },
-            else => .{ 0.0, 1.0 },
+            else => tableRange(&comp_specs, idx),
         },
-        .delay => switch (idx) {
-            0 => .{ 0.01, 2.0 }, // matches the 2.0s line StereoDelay.init allocates
-            1 => .{ 0.0, 0.95 },
-            else => .{ 0.0, 1.0 },
-        },
-        .reverb => switch (idx) {
-            0 => .{ 0.0, 0.98 },
-            else => .{ 0.0, 1.0 },
-        },
-        .gate => switch (idx) {
-            0 => .{ -80.0, 0.0 },
-            1 => .{ 0.1, 50.0 },
-            2 => .{ 5.0, 1000.0 },
-            else => .{ 0.0, 1.0 },
-        },
-        .sat => switch (idx) {
-            0 => .{ 0.0, 36.0 },
-            1 => .{ -24.0, 24.0 },
-            else => .{ 0.0, 1.0 },
-        },
-        .crush => switch (idx) {
-            0 => .{ 1.0, 16.0 },
-            1 => .{ 1.0, 32.0 },
-            else => .{ 0.0, 1.0 },
-        },
-        .chorus => switch (idx) {
-            0 => .{ 0.05, 5.0 },
-            1 => .{ 0.0, chorus_mod.max_depth_ms },
-            else => .{ 0.0, 1.0 },
-        },
-        .phaser => switch (idx) {
-            0 => .{ 0.05, 5.0 },
-            2 => .{ 0.0, 0.9 },
-            else => .{ 0.0, 1.0 },
-        },
-        .flanger => switch (idx) {
-            0 => .{ 0.05, 5.0 },
-            2 => .{ 0.0, 0.9 },
-            else => .{ 0.0, 1.0 },
-        },
-        .tape => switch (idx) {
-            0 => .{ 0.05, 3.0 },
-            2 => .{ 3.0, 15.0 },
-            else => .{ 0.0, 1.0 },
-        },
-        .freq_shift => switch (idx) {
-            0 => .{ -2000.0, 2000.0 },
-            else => .{ 0.0, 1.0 },
-        },
+        .gate => tableRange(&gate_specs, idx),
+        .sat => tableRange(&sat_specs, idx),
+        .crush => tableRange(&crush_specs, idx),
+        .chorus => tableRange(&chorus_specs, idx),
+        .phaser => tableRange(&phaser_specs, idx),
+        .flanger => tableRange(&flanger_specs, idx),
+        .tape => tableRange(&tape_specs, idx),
+        .freq_shift => tableRange(&freq_shift_specs, idx),
+        .reverb => tableRange(&reverb_specs, idx),
+        .delay => tableRange(&delay_specs, idx),
+        .ott => tableRange(&ott_specs, idx),
     };
 }
 
@@ -517,19 +548,7 @@ pub fn setParam(app: *App, p: *FxPayload, idx: usize, value: f32) void {
                 }
             },
         },
-        .ott => |*o| switch (idx) {
-            ott_depth => o.setDepth(value),
-            ott_time => o.setTime(value),
-            ott_in => o.gain_in_db = std.math.clamp(value, -24.0, 24.0),
-            ott_out => o.gain_out_db = std.math.clamp(value, -24.0, 24.0),
-            else => {},
-        },
         .comp => |*c| switch (idx) {
-            0 => c.threshold_db = std.math.clamp(value, -60.0, 0.0),
-            1 => c.ratio = std.math.clamp(value, 1.0, 20.0),
-            2 => c.attack_ms = std.math.clamp(value, 0.1, 500.0),
-            3 => c.release_ms = std.math.clamp(value, 1.0, 2000.0),
-            4 => c.makeup_db = std.math.clamp(value, -24.0, 24.0),
             5 => {
                 const rounded = std.math.clamp(@round(value), 0.0, @as(f32, @floatFromInt(app.session.project.tracks.items.len)));
                 if (rounded < 0.5) {
@@ -549,74 +568,19 @@ pub fn setParam(app: *App, p: *FxPayload, idx: usize, value: f32) void {
                     .pad = if (rounded < 0.5) null else @intFromFloat(rounded - 1.0),
                 };
             },
-            else => {},
+            else => tableSet(c, &comp_specs, idx, value),
         },
-        .delay => |*d| switch (idx) {
-            0 => d.setTime(std.math.clamp(
-                value, 0.01,
-                @as(f32, @floatFromInt(d.lines[0].len)) / @as(f32, @floatFromInt(d.sample_rate)),
-            )),
-            1 => d.feedback = std.math.clamp(value, 0.0, 0.95),
-            2 => d.mix = std.math.clamp(value, 0.0, 1.0),
-            else => {},
-        },
-        .reverb => |*r| switch (idx) {
-            0 => r.room = std.math.clamp(value, 0.0, 0.98),
-            1 => r.damp = std.math.clamp(value, 0.0, 1.0),
-            2 => r.mix = std.math.clamp(value, 0.0, 1.0),
-            else => {},
-        },
-        .gate => |*g| switch (idx) {
-            0 => g.threshold_db = std.math.clamp(value, -80.0, 0.0),
-            1 => g.attack_ms = std.math.clamp(value, 0.1, 50.0),
-            2 => g.release_ms = std.math.clamp(value, 5.0, 1000.0),
-            else => {},
-        },
-        .sat => |*s| switch (idx) {
-            0 => s.drive_db = std.math.clamp(value, 0.0, 36.0),
-            1 => s.out_db = std.math.clamp(value, -24.0, 24.0),
-            2 => s.mix = std.math.clamp(value, 0.0, 1.0),
-            else => {},
-        },
-        .crush => |*c| switch (idx) {
-            0 => c.bits = std.math.clamp(@round(value), 1.0, 16.0),
-            1 => c.downsample = std.math.clamp(@round(value), 1.0, 32.0),
-            2 => c.mix = std.math.clamp(value, 0.0, 1.0),
-            else => {},
-        },
-        .chorus => |*c| switch (idx) {
-            0 => c.rate_hz = std.math.clamp(value, 0.05, 5.0),
-            1 => c.depth_ms = std.math.clamp(value, 0.0, chorus_mod.max_depth_ms),
-            2 => c.mix = std.math.clamp(value, 0.0, 1.0),
-            else => {},
-        },
-        .phaser => |*p2| switch (idx) {
-            0 => p2.rate_hz = std.math.clamp(value, 0.05, 5.0),
-            1 => p2.depth = std.math.clamp(value, 0.0, 1.0),
-            2 => p2.feedback = std.math.clamp(value, 0.0, 0.9),
-            3 => p2.mix = std.math.clamp(value, 0.0, 1.0),
-            else => {},
-        },
-        .flanger => |*fl| switch (idx) {
-            0 => fl.rate_hz = std.math.clamp(value, 0.05, 5.0),
-            1 => fl.depth = std.math.clamp(value, 0.0, 1.0),
-            2 => fl.feedback = std.math.clamp(value, 0.0, 0.9),
-            3 => fl.mix = std.math.clamp(value, 0.0, 1.0),
-            else => {},
-        },
-        .tape => |*t| switch (idx) {
-            0 => t.wow_rate_hz = std.math.clamp(value, 0.05, 3.0),
-            1 => t.wow_depth = std.math.clamp(value, 0.0, 1.0),
-            2 => t.flutter_rate_hz = std.math.clamp(value, 3.0, 15.0),
-            3 => t.flutter_depth = std.math.clamp(value, 0.0, 1.0),
-            4 => t.mix = std.math.clamp(value, 0.0, 1.0),
-            else => {},
-        },
-        .freq_shift => |*f| switch (idx) {
-            0 => f.shift_hz = std.math.clamp(value, -2000.0, 2000.0),
-            1 => f.mix = std.math.clamp(value, 0.0, 1.0),
-            else => {},
-        },
+        .gate => |*g| tableSet(g, &gate_specs, idx, value),
+        .sat => |*s| tableSet(s, &sat_specs, idx, value),
+        .crush => |*c| tableSet(c, &crush_specs, idx, value),
+        .chorus => |*c| tableSet(c, &chorus_specs, idx, value),
+        .phaser => |*p2| tableSet(p2, &phaser_specs, idx, value),
+        .flanger => |*fl| tableSet(fl, &flanger_specs, idx, value),
+        .tape => |*t| tableSet(t, &tape_specs, idx, value),
+        .freq_shift => |*f| tableSet(f, &freq_shift_specs, idx, value),
+        .reverb => |*r| tableSet(r, &reverb_specs, idx, value),
+        .delay => |*d| tableSet(d, &delay_specs, idx, value),
+        .ott => |*o| tableSet(o, &ott_specs, idx, value),
     }
 }
 // zig fmt: on
@@ -649,65 +613,22 @@ fn paramStep(p: *const FxPayload, idx: usize, coarse: bool) f32 {
                 else => if (coarse) @as(f32, 3.0) else 0.5, // makeup
             },
         },
-        .ott => switch (idx) {
-            ott_depth => if (coarse) @as(f32, 0.2) else 0.05,
-            ott_time => if (coarse) @as(f32, 0.5) else 0.05,
-            else => if (coarse) @as(f32, 3.0) else 0.5, // in/out gain
-        },
         .comp => switch (idx) {
-            0 => if (coarse) @as(f32, 6.0) else 1.0,
-            1 => if (coarse) @as(f32, 2.0) else 0.5,
-            2 => if (coarse) @as(f32, 50.0) else 5.0,
-            3 => if (coarse) @as(f32, 200.0) else 20.0,
-            4 => if (coarse) @as(f32, 3.0) else 0.5,
             5 => if (coarse) @as(f32, 5.0) else 1.0, // step whole track indices
-            else => 1.0,
+            6 => 1.0,
+            else => tableStep(&comp_specs, idx, coarse),
         },
-        .delay => switch (idx) {
-            0 => if (coarse) @as(f32, 0.1) else 0.01,
-            else => if (coarse) @as(f32, 0.2) else 0.05,
-        },
-        .reverb => switch (idx) {
-            0 => if (coarse) @as(f32, 0.1) else 0.02,
-            else => if (coarse) @as(f32, 0.2) else 0.05,
-        },
-        .gate => switch (idx) {
-            0 => if (coarse) @as(f32, 6.0) else 1.0,
-            1 => if (coarse) @as(f32, 5.0) else 0.5,
-            2 => if (coarse) @as(f32, 100.0) else 10.0,
-            else => 1.0,
-        },
-        .sat => switch (idx) {
-            0 => if (coarse) @as(f32, 6.0) else 1.0,
-            1 => if (coarse) @as(f32, 3.0) else 0.5,
-            else => if (coarse) @as(f32, 0.2) else 0.05,
-        },
-        .crush => switch (idx) {
-            0, 1 => if (coarse) @as(f32, 4.0) else 1.0,
-            else => if (coarse) @as(f32, 0.2) else 0.05,
-        },
-        .chorus => switch (idx) {
-            0 => if (coarse) @as(f32, 0.5) else 0.05,
-            1 => if (coarse) @as(f32, 2.0) else 0.5,
-            else => if (coarse) @as(f32, 0.2) else 0.05,
-        },
-        .phaser => switch (idx) {
-            0 => if (coarse) @as(f32, 0.5) else 0.05,
-            else => if (coarse) @as(f32, 0.2) else 0.05,
-        },
-        .flanger => switch (idx) {
-            0 => if (coarse) @as(f32, 0.5) else 0.05,
-            else => if (coarse) @as(f32, 0.2) else 0.05,
-        },
-        .tape => switch (idx) {
-            0 => if (coarse) @as(f32, 0.3) else 0.05,
-            2 => if (coarse) @as(f32, 2.0) else 0.5,
-            else => if (coarse) @as(f32, 0.2) else 0.05,
-        },
-        .freq_shift => switch (idx) {
-            0 => if (coarse) @as(f32, 100.0) else 10.0,
-            else => if (coarse) @as(f32, 0.2) else 0.05,
-        },
+        .gate => tableStep(&gate_specs, idx, coarse),
+        .sat => tableStep(&sat_specs, idx, coarse),
+        .crush => tableStep(&crush_specs, idx, coarse),
+        .chorus => tableStep(&chorus_specs, idx, coarse),
+        .phaser => tableStep(&phaser_specs, idx, coarse),
+        .flanger => tableStep(&flanger_specs, idx, coarse),
+        .tape => tableStep(&tape_specs, idx, coarse),
+        .freq_shift => tableStep(&freq_shift_specs, idx, coarse),
+        .reverb => tableStep(&reverb_specs, idx, coarse),
+        .delay => tableStep(&delay_specs, idx, coarse),
+        .ott => tableStep(&ott_specs, idx, coarse),
     };
 }
 

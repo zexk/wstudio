@@ -46,6 +46,10 @@ pub const StereoDelay = struct {
         self.reset();
     }
 
+    pub fn timeSeconds(self: *const StereoDelay) f32 {
+        return @as(f32, @floatFromInt(self.delay_frames)) / @as(f32, @floatFromInt(self.sample_rate));
+    }
+
     pub fn reset(self: *StereoDelay) void {
         @memset(self.lines[0], 0.0);
         @memset(self.lines[1], 0.0);
