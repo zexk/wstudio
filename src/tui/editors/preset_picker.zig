@@ -211,8 +211,44 @@ fn moveCursor(app: *App, delta: i32) void {
     app.preset_picker_cursor = @intCast(std.math.clamp(cur + delta, 0, @as(i64, @intCast(count - 1))));
 }
 
-/// j/k move, g/G jump, enter/space apply, `/` is routed to the modal search
-/// prompt by App.handleKey before this runs. Esc/q close without applying.
+/// Jump to the first preset in the previous/next displayed section. The
+/// synth library is deliberately grouped by sound role, so this makes the
+/// unfiltered 100-preset list browsable without forcing a search term.
+fn jumpSection(app: *App, direction: i32) void {
+    var buf: [max_display_rows]DisplayRow = undefined;
+    const rows = buildDisplayRows(app, &buf);
+    var starts: [32]usize = undefined;
+    var start_count: usize = 0;
+    var ordinal: usize = 0;
+    var after_header = false;
+    for (rows) |row| switch (row) {
+        .header => after_header = true,
+        .entry => {
+            if (after_header and start_count < starts.len) {
+                starts[start_count] = ordinal;
+                start_count += 1;
+            }
+            after_header = false;
+            ordinal += 1;
+        },
+    };
+    if (start_count == 0) return;
+
+    const cursor = @min(app.preset_picker_cursor, ordinal -| 1);
+    var section: usize = 0;
+    while (section + 1 < start_count and starts[section + 1] <= cursor) section += 1;
+    if (direction > 0) {
+        app.preset_picker_cursor = starts[@min(section + 1, start_count - 1)];
+    } else if (cursor > starts[section]) {
+        app.preset_picker_cursor = starts[section];
+    } else if (section > 0) {
+        app.preset_picker_cursor = starts[section - 1];
+    }
+}
+
+/// j/k move, J/K page, `[`/`]` jump sections, g/G jump to ends,
+/// enter/space apply. `/` is routed to the modal search prompt by
+/// App.handleKey before this runs. Esc/q close without applying.
 pub fn handleKey(app: *App, key: modal_mod.Key) void {
     switch (key) {
         .escape => close(app),
@@ -221,6 +257,10 @@ pub fn handleKey(app: *App, key: modal_mod.Key) void {
             'q' => close(app),
             'j' => moveCursor(app, 1),
             'k' => moveCursor(app, -1),
+            'J' => moveCursor(app, 10),
+            'K' => moveCursor(app, -10),
+            ']' => jumpSection(app, 1),
+            '[' => jumpSection(app, -1),
             'g' => app.preset_picker_cursor = 0,
             'G' => app.preset_picker_cursor = entryCount(app) -| 1,
             'd' => deleteSelected(app),

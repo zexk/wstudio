@@ -5189,6 +5189,27 @@ test "preset-picker filter reaches genre tags and user-saved presets" {
     try std.testing.expectApproxEqAbs(@as(f32, 0.42), s.gain, 1e-6);
 }
 
+test "synth preset picker pages and jumps between categories" {
+    var app = try testApp();
+    defer app.deinit();
+    app.synth_track = 0;
+    app.view = .synth_editor;
+    app.handleKey(.{ .char = 'f' }, 0);
+
+    app.handleKey(.{ .char = 'J' }, 0);
+    try std.testing.expectEqual(@as(usize, 10), app.preset_picker_cursor);
+    app.handleKey(.{ .char = 'K' }, 0);
+    try std.testing.expectEqual(@as(usize, 0), app.preset_picker_cursor);
+
+    // The first two factory sections are utility (init) and pad.
+    app.handleKey(.{ .char = ']' }, 0);
+    try std.testing.expectEqual(@as(usize, 1), app.preset_picker_cursor);
+    app.handleKey(.{ .char = ']' }, 0);
+    try std.testing.expect(app.preset_picker_cursor > 1);
+    app.handleKey(.{ .char = '[' }, 0);
+    try std.testing.expectEqual(@as(usize, 1), app.preset_picker_cursor);
+}
+
 test "f in the drum grid opens the kit picker and enter regenerates the pads" {
     var app = try testApp();
     defer app.deinit();

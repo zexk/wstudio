@@ -42,7 +42,11 @@ pub fn drawPresetPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void {
     try w.writeAll(rst ++ acc);
     try w.print("  \"{s}\"", .{track_name});
     try w.writeAll(rst ++ dim);
-    try w.print("  {d} match{s}", .{ count, if (count == 1) "" else "es" });
+    if (count > 0) {
+        try w.print("  {d}/{d}", .{ @min(app.preset_picker_cursor + 1, count), count });
+    } else {
+        try w.writeAll("  0 matches");
+    }
     const filter = preset_ed.activeFilter(app);
     if (filter.len > 0) {
         try w.writeAll(rst ++ yel);
@@ -124,9 +128,9 @@ pub fn drawPresetPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void {
 /// apply error surfaces even though this view owns the row - the exact
 /// dropped-setStatus trap the automation/slicer status rows had.
 pub fn drawPresetPickerStatus(app: anytype, w: *std.Io.Writer) !void {
-    try w.writeAll(" j/k: move   enter: apply");
-    if (app.preset_picker_kind == .synth) try w.writeAll("   d: delete saved");
-    try w.writeAll("   /: filter name/tag/author   esc: close");
+    try w.writeAll(" j/k move   J/K page");
+    if (app.preset_picker_kind == .synth) try w.writeAll("   [ ] category");
+    try w.writeAll("   / filter   enter apply   d delete saved   esc close");
     if (app.status_len > 0) {
         try w.writeAll(dim ++ "  " ++ rst);
         try w.writeAll(app.status_buf[0..app.status_len]);
