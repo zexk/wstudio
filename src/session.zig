@@ -243,6 +243,96 @@ pub const Session = struct {
         }
     }
 
+    /// Replace one drum-machine track with one sampler track per materialized
+    /// pad. Hit times and velocities become ordinary melodic notes, including
+    /// private MIDI copies for every arrangement clip.
+    pub fn decomposeDrumTrack(self: *Session, track_idx: usize) !u8 {
+        if (track_idx >= self.racks.items.len) return error.NotDrumMachine;
+        const dm = switch (self.racks.items[track_idx].instrument) {
+            .drum_machine => |*v| v,
+            else => return error.NotDrumMachine,
+        };
+        var pads: [DrumMachine.max_pads]u8 = undefined;
+        var pad_count: u8 = 0;
+        for (dm.pads, 0..) |pad, i| {
+            if (pad == null) continue;
+            pads[pad_count] = @intCast(i);
+            pad_count += 1;
+        }
+        if (pad_count == 0) return error.NoPads;
+        const final_count = self.project.tracks.items.len - 1 + pad_count;
+        if (final_count > engine_mod.max_tracks) return error.TrackLimitReached;
+
+        var inserted: u8 = 0;
+        errdefer while (inserted > 0) {
+            inserted -= 1;
+            self.deleteTrack(track_idx + 1) catch {};
+        };
+
+        for (pads[0..pad_count]) |pad_idx| {
+            const name = dm.padName(pad_idx);
+            const out_idx = try self.insertTrack(@intCast(track_idx + 1 + inserted), name);
+            inserted += 1;
+            try self.setInstrument(out_idx, .sampler);
+            const out_rack = self.racks.items[out_idx];
+            const fresh = &out_rack.instrument.sampler;
+            const copied = try dm.pads[pad_idx].?.dupe();
+            fresh.deinit();
+            fresh.* = copied;
+
+            const pp = &out_rack.pattern_player.?;
+            var notes: [DrumMachine.max_steps]Note = undefined;
+            var note_count: usize = 0;
+            var step: u8 = 0;
+            while (step < dm.step_count) : (step += 1) {
+                if (!dm.stepActive(pad_idx, step)) continue;
+                notes[note_count] = .{
+                    .pitch = fresh.root_note,
+                    .start_beat = @as(f64, @floatFromInt(step)) / @as(f64, @floatFromInt(dm.steps_per_beat)),
+                    .duration_beat = 1.0 / @as(f64, @floatFromInt(dm.steps_per_beat)),
+                    .velocity = DrumMachine.velGain(dm.stepVel(pad_idx, step)),
+                };
+                note_count += 1;
+            }
+            const live_length = @as(f64, @floatFromInt(dm.step_count)) / @as(f64, @floatFromInt(dm.steps_per_beat));
+            pp.setNotes(notes[0..note_count], live_length);
+
+            const source_lane = self.arrangement.lane(track_idx).?;
+            const out_lane = self.arrangement.lane(out_idx).?;
+            for (source_lane.clips.items) |clip| {
+                const drum = switch (clip.content) {
+                    .drum => |v| v,
+                    .melodic => continue,
+                };
+                note_count = 0;
+                step = 0;
+                while (step < drum.step_count) : (step += 1) {
+                    const bit = @as(u64, 1) << @intCast(step);
+                    if (drum.pattern[pad_idx] & bit == 0) continue;
+                    notes[note_count] = .{
+                        .pitch = fresh.root_note,
+                        .start_beat = @as(f64, @floatFromInt(step)) / @as(f64, @floatFromInt(drum.steps_per_beat)),
+                        .duration_beat = 1.0 / @as(f64, @floatFromInt(drum.steps_per_beat)),
+                        .velocity = DrumMachine.velGain(drum.vel[pad_idx][step]),
+                    };
+                    note_count += 1;
+                }
+                const pattern_beats = @as(f64, @floatFromInt(drum.step_count)) / @as(f64, @floatFromInt(drum.steps_per_beat));
+                try out_lane.place(self.allocator, try Clip.initMelodic(
+                    self.allocator,
+                    clip.start_tick,
+                    clip.length_ticks,
+                    notes[0..note_count],
+                    pattern_beats,
+                ));
+            }
+        }
+
+        self.deleteTrack(track_idx) catch unreachable;
+        if (self.song_mode) self.rebuildSongData();
+        return pad_count;
+    }
+
     pub const DeleteTrackError = error{CannotDeleteLastTrack};
 
     /// Remove the track at `track_idx`. The displaced rack is moved to
@@ -1189,6 +1279,27 @@ test "song mode places a drum clip on the step timeline" {
     try std.testing.expectEqual(@as(u32, 1), dm.song_clips[0].pattern[0]);
     // Arrangement spans bars 0..3 (clip covers bars 1-2) → 48 steps.
     try std.testing.expectEqual(@as(u32, 384), dm.song_length_steps);
+}
+
+test "decompose drum track creates sampler MIDI tracks and arrangement clips" {
+    var s = try Session.initDefault(std.testing.allocator);
+    defer s.deinit();
+    try s.setInstrument(0, .drum_machine);
+    const dm = &s.racks.items[0].instrument.drum_machine;
+    dm.toggleStep(0, 1);
+    dm.setStepVel(0, 1, 95);
+    try s.stampClip(0, 1);
+
+    const count = try s.decomposeDrumTrack(0);
+    try std.testing.expectEqual(@as(u8, 8), count);
+    try std.testing.expectEqual(@as(usize, 8), s.racks.items.len);
+    try std.testing.expect(s.racks.items[0].instrument == .sampler);
+    const pp = &s.racks.items[0].pattern_player.?;
+    const hit = pp.noteAt(pp.notes[0].pitch, 0.25).?;
+    try std.testing.expectApproxEqAbs(@as(f32, 95.0 / 127.0), hit.velocity, 1e-6);
+    const clip = s.arrangement.lane(0).?.clips.items[0];
+    try std.testing.expectEqual(@as(u32, 128), clip.start_tick);
+    try std.testing.expectEqual(@as(usize, 1), clip.content.melodic.notes.len);
 }
 
 test "setMetronome mirrors to the engine" {
