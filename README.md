@@ -135,6 +135,10 @@ Longer-form design notes (the shared vim editing grammar, TUI layout
 conventions) live in [docs/](docs/README.md); the save format and its
 version history in [FORMAT.md](FORMAT.md).
 
+Bug reports and focused contributions are welcome during the beta. See
+[CONTRIBUTING.md](CONTRIBUTING.md) for the reporting checklist and development
+checks.
+
 ## Building
 
 ```sh
