@@ -12,3 +12,7 @@ dist/
 !src/assets/wavetable/
 !src/assets/wavetable/*.wav
 *~
+
+# Local launch planning, not project documentation.
+/docs/community-launch.md
+/docs/reddit-posts.md
