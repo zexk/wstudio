@@ -47,9 +47,10 @@ const synth_ed = @import("../editors/synth.zig");
 /// Render the synth editor into `w`, applying vertical scroll so it fits
 /// within `max_rows`. Always shows the title line, then slices the current
 /// subview's body to keep the cursor in view. `app.synth_subview` picks one
-/// of three panes (see synth_ed.Subview): "main" packs its cards into 1-3
-/// columns by terminal width (see `drawSynthMain`/synth_layout.zig); "fx"
-/// and "matrix" are still a single full-width list regardless of width.
+/// of three panes (see synth_ed.Subview): "main"/"mod" each pack their
+/// cards into 1-3 columns by terminal width (see `drawSynthMain`/
+/// `drawSynthMod`/synth_layout.zig); "fx" is still a single full-width list
+/// regardless of width.
 pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, snap: engine_mod.UiSnapshot) !void {
     _ = snap;
     // Available rows for the view body (excludes the caller's header +
@@ -61,8 +62,12 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize
         try drawSynthMain(app, w, max_rows, cols);
         return;
     }
+    if (subview == .mod) {
+        try drawSynthMod(app, w, max_rows, cols);
+        return;
+    }
 
-    // .fx / .matrix — single full-width list.
+    // .fx — single full-width list.
     style.form_bar_w = @min(style.form_bar_w_default + (cols -| 100) / 2, 40);
     style.form_section_w = style.form_section_w_default + (style.form_bar_w - style.form_bar_w_default);
 
@@ -73,8 +78,7 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize
     const cursor_row = synth_ed.paramRow(subview, app.synth_cursor, synth_ed.currentFxOrder(app));
     const body_rows: usize = switch (subview) {
         .fx => synth_ed.body_rows_fx,
-        .matrix => synth_ed.body_rows_matrix,
-        .main => unreachable,
+        .main, .mod => unreachable,
     };
     var scroll = @min(app.synth_scroll, (body_rows + 1) -| max_rows);
     if (cursor_row < scroll) scroll = cursor_row;
@@ -146,8 +150,7 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize
                 .reverb => try secFxReverb(&tw, synth, c),
             }
         },
-        .matrix => try secMatrix(&tw, synth, c),
-        .main => unreachable,
+        .main, .mod => unreachable,
     }
 
     var line_it = std.mem.splitSequence(u8, tw.buffered(), "\r\n");
@@ -260,6 +263,100 @@ fn drawSynthMain(app: anytype, w: *std.Io.Writer, max_rows: usize, cols: usize) 
         // whether the row is about to be skipped by the scroll check below
         // — otherwise a scrolled-past row's lines are never consumed and
         // every column desyncs from `row` for the rest of the frame.
+        var lines: [3][]const u8 = .{ "", "", "" };
+        for (0..n) |i| {
+            if (row < heights[i]) lines[i] = iters[i].next() orelse "";
+        }
+        if (written >= max_rows) break;
+        if (row < scroll) continue;
+        for (0..n) |i| {
+            if (i + 1 < n) {
+                try style.writePadded(w, lines[i], col_w);
+            } else {
+                try style.writeClamped(w, lines[i], cols -| col_w * (n - 1));
+            }
+        }
+        try endLine(w);
+        written += 1;
+    }
+    while (written < max_rows) : (written += 1) try endLine(w);
+}
+
+/// `mod_sections`' render functions — the `.mod` counterpart to
+/// `main_render_fns`.
+const mod_render_fns = [_]RenderFn{
+    secMatrix, secLfo, secLfo2, secLfo3, secEnv3, secMacro,
+};
+comptime {
+    if (mod_render_fns.len != synth_layout.mod_sections.len)
+        @compileError("views/synth.zig: mod_render_fns must mirror synth_layout.mod_sections 1:1");
+}
+
+/// The "mod" subview: modulation sources — the matrix, LFO 1-3, ENV 3,
+/// macros — packed the same way `drawSynthMain` packs MAIN's cards. See
+/// that function's doc comment; the only difference is which table/render-fn
+/// array it reads.
+fn drawSynthMod(app: anytype, w: *std.Io.Writer, max_rows: usize, cols: usize) !void {
+    const n = synth_layout.numCols(cols);
+    const col_w = synth_layout.colWidth(cols, n);
+    style.form_bar_w = @min(style.form_bar_w_default + (col_w -| 100) / 2, 40);
+    style.form_section_w = style.form_section_w_default + (style.form_bar_w - style.form_bar_w_default);
+
+    const order = synth_layout.modOrder(n);
+    const heights = synth_layout.modHeights(n);
+    var body_rows: usize = 0;
+    for (heights) |h| body_rows = @max(body_rows, h);
+
+    const idx = synth_layout.indexContaining(order, app.synth_cursor) orelse 0;
+    const cursor_row = if (order.len > 0) order[idx].row else 0;
+
+    var scroll = @min(app.synth_scroll, body_rows -| max_rows);
+    if (cursor_row < scroll) scroll = cursor_row;
+    if (cursor_row >= scroll + max_rows) scroll = cursor_row -| max_rows + 1;
+    app.synth_scroll = scroll;
+
+    if (app.synth_track >= app.session.racks.items.len) {
+        for (0..max_rows) |_| try endLine(w);
+        return;
+    }
+    const rack = app.session.racks.items[app.synth_track];
+    switch (rack.instrument) {
+        .poly_synth => {},
+        else => {
+            for (0..max_rows) |_| try endLine(w);
+            return;
+        },
+    }
+    const synth = &rack.instrument.poly_synth;
+    const c = app.synth_cursor;
+
+    // zig fmt: off
+    const name = if (app.synth_track < app.session.project.tracks.items.len)
+        app.session.project.tracks.items[app.synth_track].name
+    else "?";
+    // zig fmt: on
+
+    try w.writeAll(bcyn ++ bold ++ " \u{2593} " ++ icons.synth ++ " SYNTH " ++ rst);
+    try w.writeAll(dim ++ "[MOD] " ++ rst);
+    try w.writeAll(acc);
+    try w.print("\"{s}\"", .{name});
+    try w.writeAll(rst);
+    try endLine(w);
+    var written: usize = 1;
+
+    var bufs: [3][16 * 1024]u8 = undefined;
+    var writers: [3]std.Io.Writer = undefined;
+    for (0..n) |i| writers[i] = std.Io.Writer.fixed(&bufs[i]);
+    for (synth_layout.mod_sections, 0..) |_, si| {
+        const col = sectionCol(order, si);
+        try mod_render_fns[si](&writers[col], synth, c);
+    }
+
+    var iters: [3]std.mem.SplitIterator(u8, .sequence) = undefined;
+    for (0..n) |i| iters[i] = std.mem.splitSequence(u8, writers[i].buffered(), "\r\n");
+
+    var row: usize = 0;
+    while (row < body_rows) : (row += 1) {
         var lines: [3][]const u8 = .{ "", "", "" };
         for (0..n) |i| {
             if (row < heights[i]) lines[i] = iters[i].next() orelse "";
@@ -486,9 +583,9 @@ fn lfoShapeName(shape: anytype) []const u8 {
 
 /// Shape + rate only: the LFO is a pure mod source, its routing lives on
 /// MATRIX rows (the matrix absorbed the old depth/target params).
-fn secLfo(w: *std.Io.Writer, synth: anytype, c: u8) !void {
+fn secLfo(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
     var buf: [40]u8 = undefined;
-    try synthSection(w, "LFO", mag);
+    try synthSection(w, "LFO 1", mag);
 
     try enumRow(w, c == 28, false, mag, "shape", &lfo_shape_names, lfoShapeIdx(synth.lfo_shape));
 
@@ -496,9 +593,7 @@ fn secLfo(w: *std.Io.Writer, synth: anytype, c: u8) !void {
         try std.fmt.bufPrint(&buf, "{d:.2} Hz", .{synth.lfo_rate_hz}));
 }
 
-/// LFO 2/3: trailing sections (ids append after the current max — see
-/// PolySynth's stable-id rule) even though they belong beside LFO 1.
-fn secLfo2(w: *std.Io.Writer, synth: anytype, c: u8) !void {
+fn secLfo2(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
     var buf: [40]u8 = undefined;
     try synthSection(w, "LFO 2", mag);
     try enumRow(w, c == 95, false, mag, "shape", &lfo_shape_names, lfoShapeIdx(synth.lfo2_shape));
@@ -506,7 +601,7 @@ fn secLfo2(w: *std.Io.Writer, synth: anytype, c: u8) !void {
         try std.fmt.bufPrint(&buf, "{d:.2} Hz", .{synth.lfo2_rate_hz}));
 }
 
-fn secLfo3(w: *std.Io.Writer, synth: anytype, c: u8) !void {
+fn secLfo3(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
     var buf: [40]u8 = undefined;
     try synthSection(w, "LFO 3", mag);
     try enumRow(w, c == 97, false, mag, "shape", &lfo_shape_names, lfoShapeIdx(synth.lfo3_shape));
@@ -516,7 +611,7 @@ fn secLfo3(w: *std.Io.Writer, synth: anytype, c: u8) !void {
 
 /// Four macro knobs — pure mod sources (mc1-mc4 on MATRIX rows), no sound
 /// of their own, automatable as ids 99-102.
-fn secMacro(w: *std.Io.Writer, synth: anytype, c: u8) !void {
+fn secMacro(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
     var buf: [40]u8 = undefined;
     try synthSection(w, "MACRO", bcyn);
     const vals = [4]f32{ synth.macro1, synth.macro2, synth.macro3, synth.macro4 };
@@ -563,9 +658,8 @@ fn secArp(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
 }
 
 /// A third ADSR with no fixed destination — a pure MATRIX source (env3),
-/// same shape as FENV but not tied to the filter. Trailing section (ids
-/// 122-125, appended after ARP), same pattern LFO2/LFO3/ARP used.
-fn secEnv3(w: *std.Io.Writer, synth: anytype, c: u8) !void {
+/// same shape as FENV but not tied to the filter.
+fn secEnv3(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
     var buf: [40]u8 = undefined;
     try synthSection(w, "ENV 3", grn);
 
@@ -709,31 +803,59 @@ fn modSrcIdx(src: anytype) usize {
 /// 8 mod-matrix rows, 3 editor rows each (source / dest / depth). Dest and
 /// depth dim while the row's source is off, mirroring the on/off gating the
 /// oscillator sections use.
-fn secMatrix(w: *std.Io.Writer, synth: anytype, c: u8) !void {
-    var buf: [40]u8 = undefined;
+/// One line per slot: `N  <source>  <dest>  [bar]  <depth>`. `w`/`b` move
+/// the cursor between the source/dest/depth fields (see
+/// synth_layout.moveField — matrix rows are `fields = 3` entries); `j`/`k`
+/// move between slots preserving whichever field was focused. Source/dest
+/// dim while the slot is off, matching the oscillator sections' on/off
+/// dimming convention.
+fn secMatrix(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
     try synthSection(w, "MATRIX", mag);
 
     for (synth.mod_matrix, 0..) |row, k| {
         const base: u8 = @intCast(59 + k * 3);
         const off = row.source == .none;
-        var lbl: [12]u8 = undefined;
+        const sel_src = c == base;
+        const sel_dst = c == base + 1;
+        const sel_dep = c == base + 2;
+        const focused = sel_src or sel_dst or sel_dep;
 
-        // Value-only like the dest row beneath (not an enumRow menu): 13
-        // sources at enumRow's 7 cells each would wrap the 80-col minimum.
-        const src_lbl = try std.fmt.bufPrint(&lbl, "{d} source", .{k + 1});
-        try rowHead(w, c == base, false, src_lbl);
-        try rowVal(w, c == base, false, mod_src_names[modSrcIdx(row.source)]);
-        try endLine(w);
+        if (focused) {
+            try w.writeAll(bcyn ++ bold);
+            try w.print("\u{25B8} {d}  ", .{k + 1});
+        } else {
+            try w.print("  {d}  ", .{k + 1});
+        }
+        try w.writeAll(rst);
 
-        const dst_lbl = try std.fmt.bufPrint(&lbl, "{d} dest", .{k + 1});
-        try rowHead(w, c == base + 1, off, dst_lbl);
-        try rowVal(w, c == base + 1, off, ws.dsp.PolySynth.modDestLabel(row.dest));
-        try endLine(w);
+        if (sel_src) {
+            try w.writeAll(bwht ++ bold);
+        } else if (off) {
+            try w.writeAll(dim);
+        }
+        try w.print("{s: <5}", .{mod_src_names[modSrcIdx(row.source)]});
+        try w.writeAll(rst ++ "  ");
 
-        const dep_lbl = try std.fmt.bufPrint(&lbl, "{d} depth", .{k + 1});
+        if (sel_dst) {
+            try w.writeAll(bwht ++ bold);
+        } else if (off) {
+            try w.writeAll(dim);
+        }
+        try w.print("{s: <14}", .{ws.dsp.PolySynth.modDestLabel(row.dest)});
+        try w.writeAll(rst ++ "  ");
+
+        const bc = if (sel_dep) bcyn else if (off) dim else mag;
+        try synthBar(w, row.depth + 1.0, 2.0, sel_dep, bc);
+        try w.writeAll("  ");
+        if (sel_dep) {
+            try w.writeAll(bwht ++ bold);
+        } else if (off) {
+            try w.writeAll(dim);
+        }
         const sign: []const u8 = if (row.depth >= 0.0) "+" else "";
-        try barRow(w, c == base + 2, off, mag, dep_lbl, row.depth + 1.0, 2.0,
-            try std.fmt.bufPrint(&buf, "{s}{d:.2}", .{ sign, row.depth }));
+        try w.print("{s}{d:.2}", .{ sign, row.depth });
+        try w.writeAll(rst);
+        try endLine(w);
     }
 }
 

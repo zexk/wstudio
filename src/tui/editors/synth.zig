@@ -13,16 +13,17 @@ const history = @import("../history.zig");
 const fuzzy = @import("../fuzzy.zig");
 const synth_layout = @import("../synth_layout.zig");
 
-/// The synth editor's three panes, cycled by Tab: the oscillator/envelope/
-/// filter/mod-source params ("main"), the internal FX section, and the mod
-/// matrix. `App.synth_cursor` stays one flat param-id space across all
-/// three (it IS the PolySynth param id — engine commands and undo key off
-/// it directly) — the subview only changes which ids are reachable and how
-/// they're laid out on screen. 126 params in one scrolling list needed
-/// `G`/`{`/`}` just to get around; splitting by section ownership also
-/// simplifies the row-math tables below (three small per-view ranges
-/// instead of one 138-row list).
-pub const Subview = enum { main, fx, matrix };
+/// The synth editor's three panes, cycled by Tab: oscillator/envelope/
+/// filter/voice params ("main"), modulation sources — the matrix, LFOs,
+/// ENV 3, macros — ("mod"), and the internal FX section ("fx").
+/// `App.synth_cursor` stays one flat param-id space across all three (it
+/// IS the PolySynth param id — engine commands and undo key off it
+/// directly) — the subview only changes which ids are reachable and how
+/// they're laid out on screen. `main`/`mod` are driven by synth_layout.zig's
+/// comptime section tables (see `mainOrderNow`/`modOrderNow`); `fx` stays
+/// runtime-dynamic (its section set depends on `fx_order` + each unit's
+/// on/off flag) and keeps its own machinery below.
+pub const Subview = enum { main, mod, fx };
 
 const FxUnitKind = ws.dsp.synth.FxUnitKind;
 
@@ -107,16 +108,27 @@ fn mainOrderNow(app: *App) []const synth_layout.PositionedEntry {
     return synth_layout.mainOrder(synth_layout.numCols(app.last_cols));
 }
 
-/// `g`/`G`/Tab's target id for the current subview: `.main` walks the
-/// column-grid visual order (see synth_layout.zig), `.fx`/`.matrix` keep
-/// `fxAwareFirstId`/`fxAwareLastId`'s existing behavior unchanged.
+/// `.mod`'s counterpart to `mainOrderNow`.
+fn modOrderNow(app: *App) []const synth_layout.PositionedEntry {
+    return synth_layout.modOrder(synth_layout.numCols(app.last_cols));
+}
+
+/// `g`/`G`/Tab's target id for the current subview: `.main`/`.mod` walk
+/// their column-grid visual order (see synth_layout.zig), `.fx` keeps
+/// `fxAwareFirstId`/`fxAwareLastId`'s existing behavior.
 fn cursorFirst(app: *App) u8 {
-    if (app.synth_subview == .main) return synth_layout.firstEntry(mainOrderNow(app));
-    return fxAwareFirstId(app);
+    return switch (app.synth_subview) {
+        .main => synth_layout.firstEntry(mainOrderNow(app)),
+        .mod => synth_layout.firstEntry(modOrderNow(app)),
+        .fx => fxAwareFirstId(app),
+    };
 }
 fn cursorLast(app: *App) u8 {
-    if (app.synth_subview == .main) return synth_layout.lastEntry(mainOrderNow(app));
-    return fxAwareLastId(app);
+    return switch (app.synth_subview) {
+        .main => synth_layout.lastEntry(mainOrderNow(app)),
+        .mod => synth_layout.lastEntry(modOrderNow(app)),
+        .fx => fxAwareLastId(app),
+    };
 }
 
 /// Which unit's id range `id` falls in, if any — the reverse of
@@ -397,53 +409,41 @@ fn jumpFxSection(app: *App, forward: bool) void {
     }
 }
 
-/// First/last param id belonging to `subview`, for `g`/`G` and moveCursor's
-/// clamp bounds. Not a claim that every id in [first,last] belongs to the
-/// subview — `fx`'s range spans the matrix/lfo2/lfo3/macro ids too (they're
-/// appended after the matrix in the global id space); `inSubview` is the
-/// real membership test.
+/// First/last param id belonging to `subview` — only ever consulted for
+/// `.fx` now (`.main`/`.mod` are fully routed through synth_layout.zig's
+/// comptime tables; these arms are dead but kept so the switch stays
+/// exhaustive until the phase-5 cleanup pass deletes this function).
 fn firstId(subview: Subview) u8 {
     return switch (subview) {
         .main => 0,
+        .mod => 59,
         .fx => 83,
-        .matrix => 59,
     };
 }
 fn lastId(subview: Subview) u8 {
     return switch (subview) {
         .main => 187,
+        .mod => 125,
         .fx => 193,
-        .matrix => 82,
     };
 }
 
-/// Whether `id` is rendered/reachable in `subview`. `main` excludes the 3
-/// retired matrix-absorbed ids (23/30/31) same as before, plus the whole
-/// 59-94/103-183 range now that matrix/FX moved to their own panes; `fx`
-/// has ten disjoint ranges (83-94, 103-115, 132-135 for gate, 137-142 for
-/// comp, 144-159 for mb_comp, 161-165 for ott, 167-174 for eq, 176-179 for
-/// chorus, 181-183 for freq_shift, 188-193 for tape — matrix and LFO2/LFO3/
-/// MACRO sit between the first two in the global id space, ARP/ENV3/the
-/// reorder-handle ids between the rest). Reorder-handle ids (126-131, 136,
-/// 143, 160, 166, 175, 180, 184, 194) are never cursor-reachable — see
-/// `reorderIdFor`. ARP (116-121) and ENV 3 (122-125) trail after MACRO in
-/// `main`, same append-after-the-max pattern every prior pickup used.
-/// WAVETABLE (185-187, one frame-pos param per oscillator) trails after ENV
-/// 3, same pattern again; TAPE (188-193) trails after that in `.fx`.
+/// Whether `id` is rendered/reachable in `subview` — only ever consulted
+/// for `.fx` now, see `firstId`'s doc comment.
 fn inSubview(id: u8, subview: Subview) bool {
     return switch (subview) {
         .main => (id <= 58 and !deadParam(id)) or (id >= 95 and id <= 102) or (id >= 116 and id <= 125) or (id >= 185 and id <= 187),
         .fx => (id >= 83 and id <= 94) or (id >= 103 and id <= 115) or (id >= 132 and id <= 135) or (id >= 137 and id <= 142) or (id >= 144 and id <= 159) or (id >= 161 and id <= 165) or (id >= 167 and id <= 174) or (id >= 176 and id <= 179) or (id >= 181 and id <= 183) or (id >= 188 and id <= 193),
-        .matrix => id >= 59 and id <= 82,
+        .mod => id >= 59 and id <= 82,
     };
 }
 
 fn sectionStarts(subview: Subview) []const u8 {
     return switch (subview) {
         // zig fmt: off
-        .main   => &[_]u8{ 0, 6, 14, 16, 20, 24, 28, 32, 34, 36, 38, 39, 41, 45, 50, 95, 97, 99, 116, 122, 185 },
-        .fx     => &[_]u8{ 83, 86, 90, 103, 108, 112, 188 },
-        .matrix => &[_]u8{59},
+        .main => &[_]u8{ 0, 6, 14, 16, 20, 24, 28, 32, 34, 36, 38, 39, 41, 45, 50, 95, 97, 99, 116, 122, 185 },
+        .fx   => &[_]u8{ 83, 86, 90, 103, 108, 112, 188 },
+        .mod  => &[_]u8{59},
         // zig fmt: on
     };
 }
@@ -453,8 +453,8 @@ fn sectionStarts(subview: Subview) []const u8 {
 pub fn subviewLabel(subview: Subview) []const u8 {
     return switch (subview) {
         .main => "",
+        .mod => "MOD",
         .fx => "FX",
-        .matrix => "MATRIX",
     };
 }
 
@@ -466,7 +466,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
         .tab => {
             history.flushParamNudge(app);
             app.synth_subview = switch (app.synth_subview) {
-                .main => .fx, .fx => .matrix, .matrix => .main,
+                .main => .mod, .mod => .fx, .fx => .main,
             };
             app.synth_cursor = cursorFirst(app);
             updateScroll(app);
@@ -497,6 +497,11 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             'L' => { adjustParam(app, 10 * app.takeCount()); return true; },
             'g' => { history.flushParamNudge(app); app.synth_cursor = cursorFirst(app); updateScroll(app); return true; },
             'G' => { history.flushParamNudge(app); app.synth_cursor = cursorLast(app); updateScroll(app); return true; },
+            // Shift focus within a multi-field entry (a mod-matrix slot's
+            // source/dest/depth) — a no-op everywhere else, since every
+            // other entry has exactly one field. Safe to bind unconditionally.
+            'w' => { shiftField(app, 1); return true; },
+            'b' => { shiftField(app, -1); return true; },
             // Reorders the FX chain — see reorderSelectedFx. No-op outside .fx.
             '<' => { reorderSelectedFx(app, -1); return true; },
             '>' => { reorderSelectedFx(app, 1); return true; },
@@ -517,6 +522,8 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                     jumpFxSection(app, c == '}');
                 } else if (app.synth_subview == .main) {
                     app.synth_cursor = synth_layout.jumpSection(mainOrderNow(app), app.synth_cursor, c == '}');
+                } else if (app.synth_subview == .mod) {
+                    app.synth_cursor = synth_layout.jumpSection(modOrderNow(app), app.synth_cursor, c == '}');
                 } else {
                     const starts = sectionStarts(app.synth_subview);
                     if (c == '}') {
@@ -554,10 +561,11 @@ fn deadParam(id: u8) bool {
 }
 
 /// Move the param cursor by `delta` rows within the current subview.
-/// `.main` walks the column-grid visual order (see synth_layout.zig —
-/// this is column-major, not numeric id order, once the terminal is wide
-/// enough to pack more than one column). `.fx` and `.matrix` keep their
-/// prior behavior unchanged.
+/// `.main`/`.mod` walk their column-grid visual order (see synth_layout.zig
+/// — column-major, not numeric id order, once the terminal is wide enough
+/// to pack more than one column; a mod-matrix slot's 3 fields count as one
+/// row here, preserving whichever field was focused — see
+/// synth_layout.moveEntry). `.fx` keeps its prior fx_order-aware behavior.
 fn moveCursor(app: *App, delta: i32) void {
     const view = app.synth_subview;
     if (view == .main) {
@@ -565,27 +573,34 @@ fn moveCursor(app: *App, delta: i32) void {
         updateScroll(app);
         return;
     }
-    if (view == .fx) {
-        // .fx's on-screen order follows fx_order, not numeric id order —
-        // walking raw ids (like .matrix below) would get stuck at a unit's
-        // numeric id extreme even mid-screen once reordering makes id
-        // order diverge from visual order. See fxVisualIds.
-        var buf: [96]u8 = undefined;
-        const ids = fxVisualIds(currentFxOrder(app), &buf);
-        if (ids.len == 0) return;
-        const cur: i32 = @intCast(std.mem.indexOfScalar(u8, ids, app.synth_cursor) orelse 0);
-        const pos = std.math.clamp(cur + delta, 0, @as(i32, @intCast(ids.len - 1)));
-        app.synth_cursor = ids[@intCast(pos)];
+    if (view == .mod) {
+        app.synth_cursor = synth_layout.moveEntry(modOrderNow(app), app.synth_cursor, delta);
         updateScroll(app);
         return;
     }
-    var c: i32 = std.math.clamp(
-        @as(i32, app.synth_cursor) + delta, firstId(view), lastId(view),
-    );
-    const dir: i32 = if (delta >= 0) 1 else -1;
-    while (!inSubview(@intCast(c), view)) c += dir;
-    app.synth_cursor = @intCast(c);
+    // .fx's on-screen order follows fx_order, not numeric id order —
+    // walking raw ids would get stuck at a unit's numeric id extreme even
+    // mid-screen once reordering makes id order diverge from visual
+    // order. See fxVisualIds.
+    var buf: [96]u8 = undefined;
+    const ids = fxVisualIds(currentFxOrder(app), &buf);
+    if (ids.len == 0) return;
+    const cur: i32 = @intCast(std.mem.indexOfScalar(u8, ids, app.synth_cursor) orelse 0);
+    const pos = std.math.clamp(cur + delta, 0, @as(i32, @intCast(ids.len - 1)));
+    app.synth_cursor = ids[@intCast(pos)];
     updateScroll(app);
+}
+
+/// `w`/`b`: shift focus within the current entry's fields (a mod-matrix
+/// slot's source/dest/depth) — see synth_layout.moveField. No-op for `.fx`
+/// (no multi-field entries there) and for any `fields == 1` entry.
+fn shiftField(app: *App, delta: i32) void {
+    const order = switch (app.synth_subview) {
+        .main => mainOrderNow(app),
+        .mod => modOrderNow(app),
+        .fx => return,
+    };
+    app.synth_cursor = synth_layout.moveField(order, app.synth_cursor, delta);
 }
 // zig fmt: on
 
@@ -698,7 +713,7 @@ pub fn paramRow(subview: Subview, cursor: u8, fx_order: []const FxUnitKind) usiz
             }
             break :blk 0;
         },
-        .matrix => switch (cursor) {
+        .mod => switch (cursor) {
             59...82 => 2 + @as(usize, cursor - 59), // MATRIX (header at 1)
             else    => 0,
         },
@@ -713,11 +728,11 @@ pub fn updateScroll(app: *App) void {
     // Was 20 (tuned against the old rows-|5 body budget, pre-hr()-removal);
     // bumped by the same +2 the real budget gained.
     const max_rows: usize = 22;
-    if (app.synth_subview == .main) {
+    if (app.synth_subview == .main or app.synth_subview == .mod) {
         // 0-based column-local row numbering — see synth_layout.zig's
-        // PositionedEntry / views/synth.zig's drawSynthMain, which this
-        // must stay in lockstep with.
-        const order = mainOrderNow(app);
+        // PositionedEntry / views/synth.zig's drawSynthMain/drawSynthMod,
+        // which this must stay in lockstep with.
+        const order = if (app.synth_subview == .main) mainOrderNow(app) else modOrderNow(app);
         const idx = synth_layout.indexContaining(order, app.synth_cursor) orelse 0;
         const row = if (order.len > 0) order[idx].row else 0;
         if (row < app.synth_scroll) app.synth_scroll = row;
@@ -755,19 +770,21 @@ fn adjustParam(app: *App, steps: i32) void {
 
 /// The param index whose row (in the *scrolled* on-screen layout) is `row`,
 /// or null for the title row / a row that doesn't land on any param (a
-/// section-header line). `.main` resolves against `synth_layout`'s
+/// section-header line). `.main`/`.mod` resolve against `synth_layout`'s
 /// comptime column/row positions (0-based content-row numbering — see
-/// `drawSynthMain`); `.fx`/`.matrix` keep scanning `paramRow`'s 1-based
-/// numbering as before.
+/// `drawSynthMain`/`drawSynthMod`); `.fx` keeps scanning `paramRow`'s
+/// 1-based numbering as before. A mod-matrix slot's dest/depth fields
+/// aren't individually mouse-addressable — a click anywhere on the slot's
+/// one line lands on its source field (offset 0); `w`/`b` refine from there.
 fn paramAtRow(app: *App, row: usize, x: usize, cols: u16) ?u8 {
     if (row == 0) return null; // title
     const view = app.synth_subview;
-    if (view == .main) {
+    if (view == .main or view == .mod) {
         const full_row = app.synth_scroll + row - 1;
         const n = synth_layout.numCols(cols);
         const cw = synth_layout.colWidth(cols, n);
         const col = @min(@as(usize, x) / cw, n - 1);
-        const order = synth_layout.mainOrder(n);
+        const order = if (view == .main) synth_layout.mainOrder(n) else synth_layout.modOrder(n);
         for (order) |pe| {
             if (pe.col == col and pe.row == full_row) return pe.id;
         }
