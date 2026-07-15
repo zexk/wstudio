@@ -930,7 +930,12 @@ pub fn loadSampleFromPath(app: *App, path: []const u8) void {
     };
     s.pad.user_sample = true;
     app.dirty = true;
-    app.setStatus("sample loaded: {s}", .{stem});
+    if (s.detectRootNote()) |r| {
+        var nbuf: [8]u8 = undefined;
+        app.setStatus("sample loaded: {s} (root {s} detected)", .{ stem, ws.midi.noteName(r.note, &nbuf) });
+    } else {
+        app.setStatus("sample loaded: {s}", .{stem});
+    }
 }
 
 /// Which oscillator slot `:load-wavetable` targets when invoked from inside

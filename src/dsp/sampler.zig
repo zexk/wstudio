@@ -17,6 +17,7 @@ const dsp = @import("device.zig");
 const pad_dsp = @import("pad.zig");
 const Pad = pad_dsp.Pad;
 const Voice = pad_dsp.Voice;
+const pitch = @import("pitch.zig");
 
 const Sample = types.Sample;
 
@@ -216,6 +217,20 @@ pub const Sampler = struct {
         self.pad.name = n;
     }
 
+    /// Guess the root note from the currently loaded clip via YIN pitch
+    /// detection (see `dsp/pitch.zig`) and, if confident, set `root_note` to
+    /// it. Returns the detection result so callers (the `:load-sample`
+    /// command) can report it; returns null and leaves `root_note` untouched
+    /// for percussive/noisy material with no clear single pitch. Not called
+    /// from `loadWav` itself — project-file restores set `root_note` from
+    /// the save explicitly and shouldn't pay for/override that with a fresh
+    /// detection pass.
+    pub fn detectRootNote(self: *Sampler) ?pitch.Result {
+        const r = pitch.detect(self.pad.samples, self.sample_rate) orelse return null;
+        self.root_note = r.note;
+        return r;
+    }
+
     /// Replace the clip with already-decoded samples, resetting every other
     /// pad param to its default (gain 1.0, unity trim, flat ADSR, etc). Used
     /// when a caller wants a clean slate rather than `loadWav`'s in-place swap
@@ -407,6 +422,41 @@ test "mono mode chokes a still-ringing voice on retrigger" {
     for (s.voices) |nv| { if (nv.active) active_count += 1; }
     // zig fmt: on
     try std.testing.expectEqual(@as(usize, 1), active_count);
+}
+
+test "detectRootNote sets root_note from a melodic clip" {
+    var s = try Sampler.init(std.testing.allocator, 48_000);
+    defer s.deinit();
+
+    const clip = try std.testing.allocator.alloc(f32, 24_000); // 0.5s @ 48kHz
+    defer std.testing.allocator.free(clip);
+    const freq: f32 = 220.0; // A3
+    for (clip, 0..) |*v, i| {
+        const t = @as(f32, @floatFromInt(i)) / 48_000.0;
+        v.* = @sin(2.0 * std.math.pi * freq * t);
+    }
+    s.setSamples(try std.testing.allocator.dupe(f32, clip), "a3tone");
+
+    s.root_note = 60; // starts elsewhere so the assertion is meaningful
+    const r = s.detectRootNote() orelse return error.NoPitchDetected;
+    try std.testing.expectEqual(@as(u7, 57), r.note); // A3 = MIDI 57
+    try std.testing.expectEqual(@as(u7, 57), s.root_note);
+}
+
+test "detectRootNote leaves root_note alone on noisy material" {
+    var s = try Sampler.init(std.testing.allocator, 48_000);
+    defer s.deinit();
+
+    const clip = try std.testing.allocator.alloc(f32, 24_000);
+    defer std.testing.allocator.free(clip);
+    var prng = std.Random.DefaultPrng.init(7);
+    const rand = prng.random();
+    for (clip) |*v| v.* = rand.float(f32) * 2.0 - 1.0;
+    s.setSamples(try std.testing.allocator.dupe(f32, clip), "noise");
+
+    s.root_note = 60;
+    try std.testing.expectEqual(@as(?pitch.Result, null), s.detectRootNote());
+    try std.testing.expectEqual(@as(u7, 60), s.root_note);
 }
 
 test "adjustParam toggles mono" {

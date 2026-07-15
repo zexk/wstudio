@@ -248,7 +248,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("J / K",        "jump a whole bank of 8 pads/slices (same slot, next/prev bank)");
     t.key("a",            "audition current pad/slice");
     t.key("esc / e",      "back to the grid that opened this editor (tracks view for a sampler)");
-    t.key(":load-sample", "[file.wav]  load a sample into the cursor pad or sampler track (omit the file to browse)");
+    t.key(":load-sample", "[file.wav]  load a sample into the cursor pad or sampler track (omit the file to browse); sampler tracks auto-detect the clip's root note");
 
     t.taggedSection(.synth_editor, "SYNTH EDITOR");
     t.key("tab",          "cycle subview — main params / FX section / mod matrix");

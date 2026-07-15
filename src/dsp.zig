@@ -27,6 +27,7 @@ pub const DrumMachine = @import("dsp/drum_sampler.zig").DrumMachine;
 pub const Pad = @import("dsp/pad.zig").Pad;
 pub const pad = @import("dsp/pad.zig");
 pub const Sampler = @import("dsp/sampler.zig").Sampler;
+pub const pitch = @import("dsp/pitch.zig");
 pub const drum_kit = @import("dsp/drum_kit.zig");
 pub const Slicer = @import("dsp/slicer.zig").Slicer;
 
@@ -65,6 +66,7 @@ test {
     _ = DrumMachine;
     _ = pad;
     _ = Sampler;
+    _ = pitch;
     _ = drum_kit;
     _ = Slicer;
     _ = pattern;
