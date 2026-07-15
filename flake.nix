@@ -80,9 +80,10 @@
         neutral-terminal = {
           type = "app";
           program = "${neutralTerminal pkgs}/bin/wstudio-neutral-terminal";
+          meta.description = "Launch wstudio in a terminal with a known-good font configuration";
         };
       });
 
-      formatter = forAllSystems (pkgs: pkgs.nixfmt-rfc-style);
+      formatter = forAllSystems (pkgs: pkgs.nixfmt);
     };
 }
