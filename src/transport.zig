@@ -25,7 +25,12 @@ pub const Transport = struct {
     loop_end_frames: u64 = 0,
 
     pub fn framesPerBeat(self: *const Transport) f64 {
-        return @as(f64, @floatFromInt(self.sample_rate)) * 60.0 / self.tempo_bpm;
+        const sample_rate = @max(self.sample_rate, 1);
+        const tempo = if (std.math.isFinite(self.tempo_bpm) and self.tempo_bpm > 0.0)
+            self.tempo_bpm
+        else
+            120.0;
+        return @as(f64, @floatFromInt(sample_rate)) * 60.0 / tempo;
     }
 
     pub fn positionBeats(self: *const Transport) f64 {
@@ -33,20 +38,20 @@ pub const Transport = struct {
     }
 
     pub fn positionSeconds(self: *const Transport) f64 {
-        return @as(f64, @floatFromInt(self.position_frames)) / @as(f64, @floatFromInt(self.sample_rate));
+        return @as(f64, @floatFromInt(self.position_frames)) / @as(f64, @floatFromInt(@max(self.sample_rate, 1)));
     }
 
     /// Bar/beat as shown in a position display (zero-based).
     pub fn positionBarBeat(self: *const Transport) struct { bar: u64, beat: u64 } {
         const total_beats: u64 = @intFromFloat(self.positionBeats());
-        const bpb: u64 = self.time_signature.beats_per_bar;
+        const bpb: u64 = @max(self.time_signature.beats_per_bar, 1);
         return .{ .bar = total_beats / bpb, .beat = total_beats % bpb };
     }
 
     /// Called once per processed block, after rendering it.
     pub fn advance(self: *Transport, frames: u32) void {
         if (!self.playing) return;
-        self.position_frames += frames;
+        self.position_frames +|= frames;
         if (self.loop_enabled and self.loop_end_frames > self.loop_start_frames and
             self.position_frames >= self.loop_end_frames)
         {
@@ -107,4 +112,23 @@ test "musical time at 120 bpm" {
     const pos = t.positionBarBeat();
     try std.testing.expectEqual(@as(u64, 1), pos.bar);
     try std.testing.expectEqual(@as(u64, 2), pos.beat);
+}
+
+test "invalid timing fields retain finite position calculations" {
+    var t: Transport = .{ .sample_rate = 0, .tempo_bpm = std.math.nan(f64) };
+    t.time_signature.beats_per_bar = 0;
+    t.position_frames = 48_000;
+    try std.testing.expect(std.math.isFinite(t.framesPerBeat()));
+    try std.testing.expect(std.math.isFinite(t.positionBeats()));
+    try std.testing.expect(std.math.isFinite(t.positionSeconds()));
+    const pos = t.positionBarBeat();
+    try std.testing.expectEqual(@as(u64, 96_000), pos.bar);
+    try std.testing.expectEqual(@as(u64, 0), pos.beat);
+}
+
+test "advance saturates at the frame counter limit" {
+    var t: Transport = .{ .sample_rate = 48_000, .playing = true };
+    t.position_frames = std.math.maxInt(u64) - 10;
+    t.advance(256);
+    try std.testing.expectEqual(std.math.maxInt(u64), t.position_frames);
 }
