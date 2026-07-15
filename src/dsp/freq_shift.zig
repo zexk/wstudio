@@ -93,7 +93,7 @@ pub const FreqShifter = struct {
     ch: [2]Channel = .{ .{}, .{} },
 
     pub fn init(sample_rate: u32) FreqShifter {
-        return .{ .sample_rate = @floatFromInt(sample_rate) };
+        return .{ .sample_rate = @floatFromInt(@max(sample_rate, 1)) };
     }
 
     pub const device = dsp.deviceOf(@This());

@@ -464,6 +464,21 @@ test "Fx.dupe deep-copies params and heap buffers independently (used by undo's 
     try std.testing.expectEqual(@as(f32, -12.0), dup.units.items[0].payload.comp.threshold_db);
 }
 
+test "every FX payload stays finite when constructed with zero sample rate" {
+    const allocator = std.testing.allocator;
+    const kinds = [_]FxKind{
+        .gate,   .comp,   .mb_comp, .ott,  .eq,         .sat,   .crush,
+        .chorus, .phaser, .flanger, .tape, .freq_shift, .delay, .reverb,
+    };
+    for (kinds) |kind| {
+        var payload = try Fx.initPayload(allocator, kind, 0);
+        defer payload.deinit(allocator);
+        var buf = [_]f32{ 0.25, -0.25, 0.5, -0.5 };
+        payload.device().process(&buf);
+        for (buf) |sample| try std.testing.expect(std.math.isFinite(sample));
+    }
+}
+
 test "drum_machine Instrument variant: device ptr stable inside heap Rack" {
     var transport: Transport = .{ .sample_rate = 48_000 };
 

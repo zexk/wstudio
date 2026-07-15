@@ -21,7 +21,7 @@ pub const Gate = struct {
     gain: f32 = 0.0,
 
     pub fn init(sample_rate: u32) Gate {
-        return .{ .sample_rate = @floatFromInt(sample_rate) };
+        return .{ .sample_rate = @floatFromInt(@max(sample_rate, 1)) };
     }
 
     pub const device = dsp.deviceOf(@This());

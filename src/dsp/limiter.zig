@@ -21,7 +21,7 @@ pub const Limiter = struct {
     gain: f32 = 1.0,
 
     pub fn init(sample_rate: u32) Limiter {
-        return .{ .sample_rate = @floatFromInt(sample_rate) };
+        return .{ .sample_rate = @floatFromInt(@max(sample_rate, 1)) };
     }
 
     pub fn reset(self: *Limiter) void {
@@ -48,6 +48,14 @@ pub const Limiter = struct {
 
 // ---------------------------------------------------------------------------
 // Tests
+
+test "zero sample rate falls back to a finite limiter rate" {
+    var limiter = Limiter.init(0);
+    try std.testing.expectEqual(@as(f32, 1.0), limiter.sample_rate);
+    var buf = [_]Sample{ 2.0, -2.0 };
+    limiter.processBlock(&buf);
+    for (buf) |sample| try std.testing.expect(std.math.isFinite(sample));
+}
 
 test "loud input never exceeds the ceiling" {
     var lim = Limiter.init(48_000);

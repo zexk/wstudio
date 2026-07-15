@@ -133,7 +133,7 @@ pub const ParametricEq = struct {
 
     pub fn init(sample_rate: u32) ParametricEq {
         var self: ParametricEq = .{
-            .sr = @floatFromInt(sample_rate),
+            .sr = @floatFromInt(@max(sample_rate, 1)),
             .bands = undefined,
         };
         for (&self.bands, &default_frequencies) |*b, f| {

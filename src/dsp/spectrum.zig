@@ -56,7 +56,7 @@ pub const SpectrumAnalyzer = struct {
         var self: SpectrumAnalyzer = .{
             .fft_size = fsize,
             .hop_size = hsize,
-            .sample_rate = sample_rate,
+            .sample_rate = @max(sample_rate, 1),
             .buffer = buffer,
             .accumulated = 0,
             .real = real,
@@ -178,6 +178,12 @@ pub const SpectrumAnalyzer = struct {
         return null;
     }
 };
+
+test "zero sample rate falls back to a finite analyzer rate" {
+    var sa = try SpectrumAnalyzer.init(std.testing.allocator, 0);
+    defer sa.deinit(std.testing.allocator);
+    try std.testing.expectEqual(@as(u32, 1), sa.sample_rate);
+}
 
 test "SpectrumAnalyzer produces non-zero output for sine" {
     var sa = try SpectrumAnalyzer.init(std.testing.allocator, 48_000);

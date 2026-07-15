@@ -24,9 +24,10 @@ pub const Metronome = struct {
     block_start: u32 = 0,
 
     pub fn init(allocator: std.mem.Allocator, sample_rate: u32) !Metronome {
-        const accent_click = try genClick(allocator, sample_rate, 1600.0, 0.9);
+        const safe_rate = @max(sample_rate, 1);
+        const accent_click = try genClick(allocator, safe_rate, 1600.0, 0.9);
         errdefer allocator.free(accent_click);
-        const click = try genClick(allocator, sample_rate, 1000.0, 0.6);
+        const click = try genClick(allocator, safe_rate, 1000.0, 0.6);
         return .{ .allocator = allocator, .accent_click = accent_click, .click = click };
     }
 
@@ -72,6 +73,15 @@ fn genClick(allocator: std.mem.Allocator, sample_rate: u32, freq: f32, gain: f32
         s.* = gain * @exp(-t / tau) * @sin(2.0 * std.math.pi * freq * t);
     }
     return out;
+}
+
+test "zero sample rate still produces finite clicks" {
+    var m = try Metronome.init(std.testing.allocator, 0);
+    defer m.deinit();
+    try std.testing.expect(m.click.len > 0);
+    try std.testing.expect(m.accent_click.len > 0);
+    for (m.click) |sample| try std.testing.expect(std.math.isFinite(sample));
+    for (m.accent_click) |sample| try std.testing.expect(std.math.isFinite(sample));
 }
 
 test "click decays to near-silence by the end of the buffer" {

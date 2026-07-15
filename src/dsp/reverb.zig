@@ -40,7 +40,7 @@ pub const Reverb = struct {
 
     pub fn init(allocator: std.mem.Allocator, sample_rate: u32) !Reverb {
         var self: Reverb = .{ .channels = undefined };
-        const scale = @as(f64, @floatFromInt(sample_rate)) / 44_100.0;
+        const scale = @as(f64, @floatFromInt(@max(sample_rate, 1))) / 44_100.0;
         for (&self.channels, 0..) |*ch, ch_i| {
             const spread = ch_i * stereo_spread;
             for (&ch.combs, comb_tunings) |*comb, tuning| {

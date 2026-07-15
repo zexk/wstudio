@@ -204,7 +204,7 @@ pub const MultibandComp = struct {
     crossover: [2]Crossover = .{ .{}, .{} },
 
     pub fn init(sample_rate: u32) MultibandComp {
-        var self: MultibandComp = .{ .sample_rate = @floatFromInt(sample_rate) };
+        var self: MultibandComp = .{ .sample_rate = @floatFromInt(@max(sample_rate, 1)) };
         self.recomputeCrossover();
         return self;
     }

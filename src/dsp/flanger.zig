@@ -30,7 +30,7 @@ pub const Flanger = struct {
     pub const len: usize = 1024;
 
     pub fn init(sample_rate: u32) Flanger {
-        return .{ .sample_rate = @floatFromInt(sample_rate) };
+        return .{ .sample_rate = @floatFromInt(@max(sample_rate, 1)) };
     }
 
     pub const device = dsp.deviceOf(@This());

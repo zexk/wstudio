@@ -34,7 +34,7 @@ pub const Tape = struct {
     const max_flutter_ms: f32 = 1.5;
 
     pub fn init(sample_rate: u32) Tape {
-        return .{ .sample_rate = @floatFromInt(sample_rate) };
+        return .{ .sample_rate = @floatFromInt(@max(sample_rate, 1)) };
     }
 
     pub const device = dsp.deviceOf(@This());

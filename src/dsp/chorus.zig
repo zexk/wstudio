@@ -27,15 +27,16 @@ pub const Chorus = struct {
     phase: f32 = 0.0,
 
     pub fn init(allocator: std.mem.Allocator, sample_rate: u32) !Chorus {
+        const safe_rate = @max(sample_rate, 1);
         const line_ms = base_delay_ms + max_depth_ms + 2.0; // +2ms interp margin
-        const frames: usize = @intFromFloat(line_ms * 0.001 * @as(f32, @floatFromInt(sample_rate)));
+        const frames: usize = @intFromFloat(line_ms * 0.001 * @as(f32, @floatFromInt(safe_rate)));
         const left = try allocator.alloc(Sample, @max(frames, 4));
         errdefer allocator.free(left);
         const right = try allocator.alloc(Sample, @max(frames, 4));
         @memset(left, 0.0);
         @memset(right, 0.0);
         return .{
-            .sample_rate = sample_rate,
+            .sample_rate = safe_rate,
             .lines = .{ left, right },
         };
     }
