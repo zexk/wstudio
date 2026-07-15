@@ -205,14 +205,18 @@ pub const presets = [_]Preset{
         .gain = 0.28,
     } },
 
-    // rhodes-keys — velocity into FM depth for the tine bark, chorus like
-    // the suitcase's stereo vibrato
+    // rhodes-keys — fenv->MOD AMT gives the tine bark its own fast-decaying
+    // envelope (the DX7 EP recipe, same trick as fm-epiano/shaolin-bell —
+    // FM index spikes on attack and settles low for sustain, using the
+    // engine's default fenv timing which is already attack-fast/decay-fast),
+    // chorus like the suitcase's stereo vibrato
     .{ .name = "rhodes-keys", .category = "keys", .tags = &.{ "wstudio", "hip-hop" }, .patch = .{
         .waveform = .sine, .osc_b_on = true, .osc_b_waveform = .sine, .osc_b_semi = 14.0, .osc_b_detune_cents = 3.0,
-        .mod_mode = .fm_b_to_a, .mod_amount = 1.8,
+        .mod_mode = .fm_b_to_a, .mod_amount = 1.0,
         .attack_s = 0.002, .decay_s = 1.4, .sustain = 0.25, .release_s = 0.9,
         .filter_type = .lp, .filter_cutoff = 3800.0, .filter_res = 0.05,
         .mod_matrix = mods(&.{
+            .{ .source = .fenv,     .dest = 15,  .depth = 0.1 },
             .{ .source = .velocity, .dest = 15,  .depth = 0.15 },
             .{ .source = .velocity, .dest = 21,  .depth = 0.25 },
             .{ .source = .mac1,     .dest = 21,  .depth = 0.4 },
@@ -257,7 +261,7 @@ pub const presets = [_]Preset{
             .{ .source = .mac3, .dest = 115, .depth = 0.4 },
             .{ .source = .mac4, .dest = 89,  .depth = 0.4 },
         }),
-        .fx_crush_on = true, .fx_crush_bits = 10.0, .fx_crush_rate = 3.0, .fx_crush_mix = 0.25,
+        .fx_crush_on = true, .fx_crush_bits = 12.0, .fx_crush_rate = 2.0, .fx_crush_mix = 0.25,
         .fx_reverb_on = true, .fx_reverb_room = 0.65, .fx_reverb_damp = 0.55, .fx_reverb_mix = 0.2,
         .gain = 0.25,
     } },
@@ -836,17 +840,21 @@ pub const presets = [_]Preset{
         .gain = 0.32,
     } },
 
-    // hip-hop — the whiny G-funk portamento lead
-    .{ .name = "gfunk-lead", .category = "lead", .tags = &.{ "wstudio", "hip-hop" }, .patch = .{
-        .waveform = .saw, .voice_mode = .mono, .glide_s = 0.06,
-        .attack_s = 0.01, .decay_s = 0.2, .sustain = 0.8, .release_s = 0.2,
-        .filter_type = .ladder, .filter_cutoff = 3500.0, .filter_res = 0.15,
-        .lfo_shape = .sine, .lfo_rate_hz = 5.5,
+    // hip-hop — the whiny G-funk portamento lead. "The whine" is a slow-
+    // opening filter envelope at shallow depth, not vibrato (a reconstructed
+    // Dre-era patch has zero pitch-LFO on it); two tight-detuned saws stand
+    // in for the real patch's +1/-1 cent pair
+    .{ .name = "gfunk-lead", .category = "lead", .tags = &.{ "wstudio", "hip-hop", "g-funk" }, .patch = .{
+        .waveform = .saw, .detune_cents = -1.0,
+        .osc_b_on = true, .osc_b_waveform = .saw, .osc_b_semi = 0.0, .osc_b_detune_cents = 1.0, .osc_b_level = 0.9,
+        .voice_mode = .legato, .glide_s = 0.01,
+        .attack_s = 0.001, .decay_s = 0.05, .sustain = 1.0, .release_s = 0.02,
+        .filter_type = .ladder, .filter_cutoff = 3400.0, .filter_res = 0.15,
+        .fenv_attack_s = 2.15, .fenv_decay_s = 0.3, .fenv_sustain = 1.0, .fenv_release_s = 0.2,
         .mod_matrix = mods(&.{
-            .{ .source = .lfo,      .dest = dP,  .depth = 0.15 },
-            .{ .source = .velocity, .dest = 21,  .depth = 0.25 },
-            .{ .source = .mac1,     .dest = 21,  .depth = 0.4 },
-            .{ .source = .mac3,     .dest = 111, .depth = 0.4 },
+            .{ .source = .fenv, .dest = 21,  .depth = 0.1 },
+            .{ .source = .mac1, .dest = 21,  .depth = 0.4 },
+            .{ .source = .mac3, .dest = 111, .depth = 0.35 },
         }),
         .fx_delay_on = true, .fx_delay_time_s = 0.28, .fx_delay_feedback = 0.3, .fx_delay_mix = 0.2,
         .gain = 0.28,
@@ -1159,14 +1167,21 @@ pub const presets = [_]Preset{
     // === Round 3: Japanese genres + 90s hip-hop deep dive ===
 
     // city-pop — glassy FM tine e-piano (the 3:1-ratio DX-style keys under
-    // every late-night Tokyo track); velocity bark + mandatory DX chorus
+    // every late-night Tokyo track); the real DX7 EP1 patch's signature is
+    // its 14:1 modulator ratio decaying fast on its OWN envelope (bright
+    // attack, dull sustain) — fenv->MOD AMT reproduces that per-operator
+    // envelope-over-FM-index trick; osc C adds a plain additive body layer
+    // under the FM pair
     .{ .name = "fm-epiano", .category = "keys", .tags = &.{ "wstudio", "city-pop" }, .patch = .{
         .waveform = .sine, .osc_b_on = true, .osc_b_waveform = .sine, .osc_b_semi = 19.0, .osc_b_detune_cents = 3.0, .osc_b_level = 0.8,
-        .mod_mode = .fm_b_to_a, .mod_amount = 2.2,
+        .osc_c_on = true, .osc_c_waveform = .sine, .osc_c_semi = 0.0, .osc_c_level = 0.3,
+        .mod_mode = .fm_b_to_a, .mod_amount = 0.9,
         .attack_s = 0.001, .decay_s = 1.2, .sustain = 0.15, .release_s = 0.5,
         .filter_type = .lp, .filter_cutoff = 6500.0, .filter_res = 0.0,
+        .fenv_attack_s = 0.001, .fenv_decay_s = 0.18, .fenv_sustain = 0.0, .fenv_release_s = 0.1,
         .lfo_shape = .sine, .lfo_rate_hz = 4.5,
         .mod_matrix = mods(&.{
+            .{ .source = .fenv,     .dest = 15,  .depth = 0.16 },
             .{ .source = .lfo,      .dest = dA,  .depth = 0.04 },
             .{ .source = .velocity, .dest = 15,  .depth = 0.2 },
             .{ .source = .mac2,     .dest = 15,  .depth = 0.25 },
@@ -1266,33 +1281,38 @@ pub const presets = [_]Preset{
         .gain = 0.3,
     } },
 
-    // vaporwave — slow watery detuned pad; sample&hold jitter on LFO 2 for
-    // the tape-transport wobble, crushed and washed in reverb
+    // vaporwave — slow watery detuned pad; the dedicated tape unit now does
+    // the wow+flutter directly instead of the old LFO2-S&H pitch-jitter
+    // workaround (that gap closed when the tape FX unit shipped), master
+    // lowpass shelf above 15kHz + a near-fully-wet plate for the source
+    // material's own "heavy reverb into a wobbly chorus" recipe
     .{ .name = "vapor-pad", .category = "pad", .tags = &.{ "wstudio", "vaporwave" }, .patch = .{
         .waveform = .saw, .unison = 3, .unison_detune = 10.0, .unison_spread = 0.6,
         .osc_b_on = true, .osc_b_waveform = .triangle, .osc_b_semi = 0.0, .osc_b_detune_cents = 9.0, .osc_b_level = 0.7,
         .attack_s = 2.2, .decay_s = 1.0, .sustain = 0.8, .release_s = 2.8,
         .filter_type = .lp, .filter_cutoff = 2400.0, .filter_res = 0.08,
         .lfo_shape = .sine, .lfo_rate_hz = 0.8,
-        .lfo2_shape = .sh, .lfo2_rate_hz = 6.0,
         .mod_matrix = mods(&.{
             .{ .source = .lfo,  .dest = dP,  .depth = 0.08 },
-            .{ .source = .lfo2, .dest = dP,  .depth = 0.012 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.4 },
             .{ .source = .mac3, .dest = 115, .depth = 0.4 },
             .{ .source = .mac4, .dest = 89,  .depth = 0.3 },
         }),
         .fx_crush_on = true, .fx_crush_bits = 12.0, .fx_crush_rate = 2.0, .fx_crush_mix = 0.2,
-        .fx_chorus_on = true, .fx_chorus_rate_hz = 0.4, .fx_chorus_depth_ms = 6.0, .fx_chorus_mix = 0.45,
-        .fx_reverb_on = true, .fx_reverb_room = 0.9, .fx_reverb_damp = 0.45, .fx_reverb_mix = 0.4,
+        .fx_tape_on = true, .fx_tape_wow_rate_hz = 0.6, .fx_tape_wow_depth = 0.35, .fx_tape_flutter_rate_hz = 7.0, .fx_tape_flutter_depth = 0.2, .fx_tape_mix = 1.0,
+        .fx_chorus_on = true, .fx_chorus_rate_hz = 0.5, .fx_chorus_depth_ms = 6.0, .fx_chorus_mix = 0.45,
+        .fx_eq_on = true, .fx_eq_high_freq = 15_000.0, .fx_eq_high_gain_db = -6.0,
+        .fx_reverb_on = true, .fx_reverb_room = 0.95, .fx_reverb_damp = 0.3, .fx_reverb_mix = 0.55,
         .gain = 0.24,
     } },
 
-    // eurobeat — bright punchy unison lead, top end lifted, echo behind
+    // eurobeat — bright punchy unison lead, HP'd above 150Hz JP-8000-style
+    // so it doesn't fight the bass, top end lifted, echo behind
     .{ .name = "eurobeat-lead", .category = "lead", .tags = &.{ "wstudio", "eurobeat" }, .patch = .{
         .waveform = .saw, .unison = 4, .unison_detune = 14.0, .unison_spread = 0.6,
         .attack_s = 0.004, .decay_s = 0.15, .sustain = 0.85, .release_s = 0.12,
         .filter_type = .lp, .filter_cutoff = 6000.0, .filter_res = 0.1,
+        .filter2_on = true, .filter2_type = .hp, .filter2_cutoff = 150.0, .filter_routing = .series,
         .lfo_shape = .sine, .lfo_rate_hz = 5.5,
         .mod_matrix = mods(&.{
             .{ .source = .lfo,      .dest = dP,  .depth = 0.08 },
@@ -1420,14 +1440,15 @@ pub const presets = [_]Preset{
             .{ .source = .mac1,     .dest = 21, .depth = 0.4 },
             .{ .source = .mac4,     .dest = 89, .depth = 0.3 },
         }),
-        .fx_crush_on = true, .fx_crush_bits = 9.0, .fx_crush_rate = 3.0, .fx_crush_mix = 0.3,
+        .fx_crush_on = true, .fx_crush_bits = 11.0, .fx_crush_rate = 2.0, .fx_crush_mix = 0.3,
         .fx_reverb_on = true, .fx_reverb_room = 0.6, .fx_reverb_damp = 0.7, .fx_reverb_mix = 0.25,
         .gain = 0.3,
     } },
 
     // boom-bap — warped out-of-tune bell (dusty 36-chambers tape flavor:
-    // the detuned FM partial beats against the carrier), crushed like the
-    // SP-1200 pass it deserves
+    // the detuned FM partial beats against the carrier), crushed to the
+    // actual measured SP-1200 spec (12-bit, ~26kHz -> downsample 2 at 48k)
+    // rather than a generic heavy crush
     .{ .name = "shaolin-bell", .category = "keys", .tags = &.{ "wstudio", "hip-hop", "boom-bap" }, .patch = .{
         .waveform = .sine, .osc_b_on = true, .osc_b_waveform = .sine, .osc_b_semi = 24.0, .osc_b_detune_cents = 18.0, .osc_b_level = 0.7,
         .mod_mode = .fm_b_to_a, .mod_amount = 2.8,
@@ -1438,7 +1459,7 @@ pub const presets = [_]Preset{
             .{ .source = .mac2,     .dest = 15, .depth = 0.25 },
             .{ .source = .mac4,     .dest = 89, .depth = 0.3 },
         }),
-        .fx_crush_on = true, .fx_crush_bits = 8.0, .fx_crush_rate = 4.0, .fx_crush_mix = 0.35,
+        .fx_crush_on = true, .fx_crush_bits = 12.0, .fx_crush_rate = 2.0, .fx_crush_mix = 0.35,
         .fx_reverb_on = true, .fx_reverb_room = 0.7, .fx_reverb_damp = 0.6, .fx_reverb_mix = 0.3,
         .gain = 0.28,
     } },
@@ -1462,20 +1483,25 @@ pub const presets = [_]Preset{
         .gain = 0.28,
     } },
 
-    // j-core/gabber — Mentasm-style hoover: detuned saw+square unison with a
-    // fast-closing filter env for that morphing "hoover" swell; ENV 3 adds
-    // the pitch scoop and the distortion does the gabber crunch
+    // j-core/gabber — Mentasm-style hoover. The real Alpha Juno patch's
+    // "hoovering" motion is a fast-attack/quick-release PITCH envelope
+    // sweeping ~12 semitones, with the filter comparatively static — ENV 3
+    // now carries that sweep at max legal depth instead of the filter env
+    // doing the morph; a fast triangle LFO into PW B stands in for the
+    // heavy PWM swirl on the real 3-oscillator patch
     .{ .name = "hoover-stab", .category = "stab", .tags = &.{ "wstudio", "hardcore", "gabber" }, .patch = .{
         .waveform = .saw, .unison = 4, .unison_detune = 28.0, .unison_spread = 0.85,
-        .osc_b_on = true, .osc_b_waveform = .square, .osc_b_semi = 0.0, .osc_b_detune_cents = 20.0, .osc_b_level = 0.75,
+        .osc_b_on = true, .osc_b_waveform = .square, .osc_b_pulse_width = 0.35, .osc_b_semi = 0.0, .osc_b_detune_cents = 20.0, .osc_b_level = 0.75,
         .osc_c_on = true, .osc_c_waveform = .saw, .osc_c_semi = -12.0, .osc_c_level = 0.6,
         .attack_s = 0.008, .decay_s = 0.32, .sustain = 0.15, .release_s = 0.18,
-        .filter_type = .lp, .filter_cutoff = 5200.0, .filter_res = 0.45,
+        .filter_type = .lp, .filter_cutoff = 2500.0, .filter_res = 0.4,
         .fenv_attack_s = 0.005, .fenv_decay_s = 0.28, .fenv_sustain = 0.05, .fenv_release_s = 0.15,
-        .env3_attack_s = 0.001, .env3_decay_s = 0.12, .env3_sustain = 0.0, .env3_release_s = 0.08,
+        .env3_attack_s = 0.006, .env3_decay_s = 0.22, .env3_sustain = 0.0, .env3_release_s = 0.06,
+        .lfo_shape = .triangle, .lfo_rate_hz = 6.5,
         .mod_matrix = mods(&.{
-            .{ .source = .fenv, .dest = 21, .depth = -0.8 },
-            .{ .source = .env3, .dest = dP, .depth = -0.4 },
+            .{ .source = .env3, .dest = dP, .depth = 1.0 },
+            .{ .source = .fenv, .dest = 21, .depth = -0.2 },
+            .{ .source = .lfo,  .dest = 8,  .depth = 0.3 },
             .{ .source = .mac1, .dest = 21, .depth = 0.5 },
             .{ .source = .mac4, .dest = 85, .depth = 0.3 },
         }),
@@ -1484,22 +1510,26 @@ pub const presets = [_]Preset{
         .gain = 0.3,
     } },
 
-    // hardstyle — near-self-oscillating bandpass screech lead, LFO-wobbled
-    // for the classic "talking" shriek and pushed hard into distortion
+    // hardstyle — the real technique is a formant filter vowel-scan, not a
+    // resonant bandpass: heavy 7-voice unison into `.formant` with the LFO
+    // sweeping cutoff a->e->i->o for the "talking" shriek, EQ bump at the
+    // 500-1kHz growl band ahead of the clip stage, HP'd clean at the tail
     .{ .name = "screech-lead", .category = "lead", .tags = &.{ "wstudio", "hardstyle", "hardcore" }, .patch = .{
-        .waveform = .saw, .unison = 3, .unison_detune = 20.0, .unison_spread = 0.6,
+        .waveform = .saw, .unison = 7, .unison_detune = 32.0, .unison_spread = 0.75,
         .voice_mode = .mono, .glide_s = 0.03,
         .attack_s = 0.004, .decay_s = 0.2, .sustain = 0.55, .release_s = 0.12,
-        .filter_type = .bp, .filter_cutoff = 2000.0, .filter_res = 0.9,
-        .fenv_attack_s = 0.01, .fenv_decay_s = 0.35, .fenv_sustain = 0.25, .fenv_release_s = 0.2,
-        .lfo_shape = .sine, .lfo_rate_hz = 5.5,
+        .filter_type = .formant, .filter_cutoff = 300.0, .filter_res = 0.55,
+        .filter2_on = true, .filter2_type = .hp, .filter2_cutoff = 200.0, .filter_routing = .series,
+        .fenv_attack_s = 0.01, .fenv_decay_s = 0.15, .fenv_sustain = 0.3, .fenv_release_s = 0.15,
+        .lfo_shape = .sine, .lfo_rate_hz = 3.5,
         .mod_matrix = mods(&.{
-            .{ .source = .fenv, .dest = 21, .depth = 0.95 },
-            .{ .source = .lfo,  .dest = 21, .depth = 0.15 },
+            .{ .source = .lfo,  .dest = 21, .depth = 1.0 },
+            .{ .source = .fenv, .dest = 21, .depth = 0.3 },
             .{ .source = .mac1, .dest = 21, .depth = 0.4 },
             .{ .source = .mac2, .dest = 22, .depth = 0.2 },
             .{ .source = .mac4, .dest = 85, .depth = 0.3 },
         }),
+        .fx_eq_on = true, .fx_eq_mid_freq = 750.0, .fx_eq_mid_gain_db = 4.0, .fx_eq_mid_q = 1.0,
         .fx_dist_on = true, .fx_dist_drive_db = 18.0, .fx_dist_mix = 0.7,
         .fx_delay_on = true, .fx_delay_time_s = 0.19, .fx_delay_feedback = 0.3, .fx_delay_mix = 0.2,
         .gain = 0.26,
