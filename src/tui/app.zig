@@ -333,6 +333,9 @@ pub const App = struct {
     /// `synth_cursor` stays one flat param-id space across all three; only
     /// which ids are reachable/rendered changes with the subview.
     synth_subview: synth_ed.Subview = .main,
+    /// `z` in MAIN/MOD isolates the section containing `synth_cursor`.
+    /// Editor-local display state, deliberately not persisted with a project.
+    synth_section_focus: bool = false,
     /// Terminal width as of the last `draw()` call. `handleKey` runs outside
     /// `draw`'s call chain with no terminal-size parameter of its own, but
     /// the synth editor's column-grid navigation (`synth_layout.numCols`)
@@ -1427,6 +1430,7 @@ pub const App = struct {
                 self.synth_track = @intCast(cursor);
                 self.synth_cursor = 0;
                 self.synth_subview = .main;
+                self.synth_section_focus = false;
                 self.view = .synth_editor;
             },
             .sampler => {

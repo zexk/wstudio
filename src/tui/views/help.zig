@@ -260,7 +260,8 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key(":load-sample", "[file.wav]  load a sample into the cursor pad or sampler track (omit the file to browse); sampler tracks auto-detect the clip's root note");
 
     t.taggedSection(.synth_editor, "SYNTH EDITOR");
-    t.key("tab",          "cycle subview — main params / FX section / mod matrix");
+    t.key("tab",          "cycle subview: main params / mod matrix / FX section");
+    t.key("z",            "focus the current MAIN/MOD section; z again restores the full grid");
     t.key("j / k",        "select parameter");
     t.key("g / G",        "jump to first / last parameter (within the current subview)");
     t.key("{ / }",        "prev / next section (within the current subview)");

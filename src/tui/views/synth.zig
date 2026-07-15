@@ -44,7 +44,7 @@ const enumRow = style.enumRow;
 
 const synth_ed = @import("../editors/synth.zig");
 
-fn drawSynthTitle(w: *std.Io.Writer, subview: synth_ed.Subview, name: []const u8) !void {
+fn drawSynthTitle(w: *std.Io.Writer, subview: synth_ed.Subview, name: []const u8, focused: bool) !void {
     try w.writeAll(bcyn ++ bold ++ " \u{2593} " ++ icons.synth ++ " SYNTH " ++ rst);
     inline for (.{ synth_ed.Subview.main, synth_ed.Subview.mod, synth_ed.Subview.fx }) |tab| {
         const label = switch (tab) {
@@ -61,6 +61,7 @@ fn drawSynthTitle(w: *std.Io.Writer, subview: synth_ed.Subview, name: []const u8
         }
         try w.writeAll(rst);
     }
+    if (focused) try w.writeAll(bcyn ++ bold ++ "  FOCUS" ++ rst);
     try w.writeAll("  " ++ acc);
     try w.print("\"{s}\"", .{name});
     try w.writeAll(rst);
@@ -136,7 +137,7 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize
     // zig fmt: on
 
     // Title (row 0) is always emitted outside the scroll window.
-    try drawSynthTitle(w, subview, name);
+    try drawSynthTitle(w, subview, name, false);
     var written: usize = 1;
 
     // The FX strip is a fixed row above the scrolled section list (like the
@@ -268,8 +269,27 @@ fn drawSynthMain(app: anytype, w: *std.Io.Writer, max_rows: usize, cols: usize) 
     else "?";
     // zig fmt: on
 
-    try drawSynthTitle(w, .main, name);
+    try drawSynthTitle(w, .main, name, app.synth_section_focus);
     var written: usize = 1;
+
+    if (app.synth_section_focus) {
+        const section = order[idx].section;
+        style.form_bar_w = @min(style.form_bar_w_default + (cols -| 100) / 2, 40);
+        style.form_section_w = style.form_section_w_default + (style.form_bar_w - style.form_bar_w_default);
+        var focus_buf: [16 * 1024]u8 = undefined;
+        var fw = std.Io.Writer.fixed(&focus_buf);
+        try main_render_fns[section](&fw, synth, c);
+        var lines = std.mem.splitSequence(u8, fw.buffered(), "\r\n");
+        while (lines.next()) |line| {
+            if (written >= max_rows) break;
+            try style.writeClamped(w, line, cols);
+            try endLine(w);
+            written += 1;
+        }
+        while (written < max_rows) : (written += 1) try endLine(w);
+        app.synth_scroll = 0;
+        return;
+    }
 
     var bufs: [3][16 * 1024]u8 = undefined;
     var writers: [3]std.Io.Writer = undefined;
@@ -365,8 +385,27 @@ fn drawSynthMod(app: anytype, w: *std.Io.Writer, max_rows: usize, cols: usize) !
     else "?";
     // zig fmt: on
 
-    try drawSynthTitle(w, .mod, name);
+    try drawSynthTitle(w, .mod, name, app.synth_section_focus);
     var written: usize = 1;
+
+    if (app.synth_section_focus) {
+        const section = order[idx].section;
+        style.form_bar_w = @min(style.form_bar_w_default + (cols -| 100) / 2, 40);
+        style.form_section_w = style.form_section_w_default + (style.form_bar_w - style.form_bar_w_default);
+        var focus_buf: [16 * 1024]u8 = undefined;
+        var fw = std.Io.Writer.fixed(&focus_buf);
+        try mod_render_fns[section](&fw, synth, c);
+        var lines = std.mem.splitSequence(u8, fw.buffered(), "\r\n");
+        while (lines.next()) |line| {
+            if (written >= max_rows) break;
+            try style.writeClamped(w, line, cols);
+            try endLine(w);
+            written += 1;
+        }
+        while (written < max_rows) : (written += 1) try endLine(w);
+        app.synth_scroll = 0;
+        return;
+    }
 
     var bufs: [3][16 * 1024]u8 = undefined;
     var writers: [3]std.Io.Writer = undefined;

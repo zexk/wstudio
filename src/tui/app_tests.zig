@@ -2900,6 +2900,34 @@ test "draw renders synth editor without errors" {
     try std.testing.expect(std.mem.indexOf(u8, frame, "sustain") != null);
 }
 
+test "synth section focus isolates navigation and rendering" {
+    var app = try testApp();
+    defer app.deinit();
+
+    app.handleKey(.enter, 0);
+    app.handleKey(.{ .char = 'z' }, 0);
+    try std.testing.expect(app.synth_section_focus);
+
+    app.handleKey(.{ .char = 'G' }, 0);
+    try std.testing.expectEqual(@as(u8, 185), app.synth_cursor);
+    app.handleKey(.{ .char = 'j' }, 0);
+    try std.testing.expectEqual(@as(u8, 185), app.synth_cursor);
+
+    var buf: [32 * 1024]u8 = undefined;
+    var w = std.Io.Writer.fixed(&buf);
+    try app.draw(&w, .{ .cols = 120, .rows = 30 });
+    const frame = w.buffered();
+    try std.testing.expect(std.mem.indexOf(u8, frame, "FOCUS") != null);
+    try std.testing.expect(std.mem.indexOf(u8, frame, "OSC A") != null);
+    try std.testing.expect(std.mem.indexOf(u8, frame, "OSC B") == null);
+
+    app.handleKey(.{ .char = '}' }, 0);
+    // At 120 columns, the next card in column-major visual order is OSC C.
+    try std.testing.expectEqual(@as(u8, 50), app.synth_cursor);
+    app.handleKey(.{ .char = 'z' }, 0);
+    try std.testing.expect(!app.synth_section_focus);
+}
+
 test "synth editor g/G jump to the first/last parameter" {
     var app = try testApp();
     defer app.deinit();

@@ -268,20 +268,40 @@ fn modOrderNow(app: *App) []const synth_layout.PositionedEntry {
     return synth_layout.modOrder(synth_layout.numCols(app.last_cols));
 }
 
+fn sectionOrder(order: []const synth_layout.PositionedEntry, cursor: u8) []const synth_layout.PositionedEntry {
+    const idx = synth_layout.indexContaining(order, cursor) orelse return order;
+    const section = order[idx].section;
+    var first = idx;
+    while (first > 0 and order[first - 1].section == section) first -= 1;
+    var last = idx + 1;
+    while (last < order.len and order[last].section == section) last += 1;
+    return order[first..last];
+}
+
+fn activeMainOrder(app: *App) []const synth_layout.PositionedEntry {
+    const order = mainOrderNow(app);
+    return if (app.synth_section_focus) sectionOrder(order, app.synth_cursor) else order;
+}
+
+fn activeModOrder(app: *App) []const synth_layout.PositionedEntry {
+    const order = modOrderNow(app);
+    return if (app.synth_section_focus) sectionOrder(order, app.synth_cursor) else order;
+}
+
 /// `g`/`G`/Tab's target id for the current subview: `.main`/`.mod` walk
 /// their column-grid visual order (see synth_layout.zig), `.fx` keeps
 /// `fxAwareFirstId`/`fxAwareLastId`'s existing behavior.
 fn cursorFirst(app: *App) u8 {
     return switch (app.synth_subview) {
-        .main => synth_layout.firstEntry(mainOrderNow(app)),
-        .mod => synth_layout.firstEntry(modOrderNow(app)),
+        .main => synth_layout.firstEntry(activeMainOrder(app)),
+        .mod => synth_layout.firstEntry(activeModOrder(app)),
         .fx => fxAwareFirstId(app),
     };
 }
 fn cursorLast(app: *App) u8 {
     return switch (app.synth_subview) {
-        .main => synth_layout.lastEntry(mainOrderNow(app)),
-        .mod => synth_layout.lastEntry(modOrderNow(app)),
+        .main => synth_layout.lastEntry(activeMainOrder(app)),
+        .mod => synth_layout.lastEntry(activeModOrder(app)),
         .fx => fxAwareLastId(app),
     };
 }
@@ -622,6 +642,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
         .ctrl_r => { history.doRedo(app); return true; },
         .tab => {
             history.flushParamNudge(app);
+            app.synth_section_focus = false;
             app.synth_subview = switch (app.synth_subview) {
                 .main => .mod, .mod => .fx, .fx => .main,
             };
@@ -645,6 +666,13 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             'f' => { history.flushParamNudge(app); preset_picker.open(app, .synth, app.synth_track); return true; },
             'u' => { history.doUndo(app); return true; },
             'U' => { history.doRedo(app); return true; },
+            'z' => {
+                if (app.synth_subview != .fx) {
+                    app.synth_section_focus = !app.synth_section_focus;
+                    app.synth_scroll = 0;
+                }
+                return true;
+            },
             // j/k rows and h/l nudges take a vim count prefix (3j, 5l, …).
             'j' => { moveCursor(app, app.takeCount()); return true; },
             'k' => { moveCursor(app, -app.takeCount()); return true; },
@@ -701,12 +729,12 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
 fn moveCursor(app: *App, delta: i32) void {
     const view = app.synth_subview;
     if (view == .main) {
-        app.synth_cursor = synth_layout.moveEntry(mainOrderNow(app), app.synth_cursor, delta);
+        app.synth_cursor = synth_layout.moveEntry(activeMainOrder(app), app.synth_cursor, delta);
         updateScroll(app);
         return;
     }
     if (view == .mod) {
-        app.synth_cursor = synth_layout.moveEntry(modOrderNow(app), app.synth_cursor, delta);
+        app.synth_cursor = synth_layout.moveEntry(activeModOrder(app), app.synth_cursor, delta);
         updateScroll(app);
         return;
     }
@@ -729,8 +757,8 @@ fn moveCursor(app: *App, delta: i32) void {
 /// (no multi-field entries there) and for any `fields == 1` entry.
 fn shiftField(app: *App, delta: i32) void {
     const order = switch (app.synth_subview) {
-        .main => mainOrderNow(app),
-        .mod => modOrderNow(app),
+        .main => activeMainOrder(app),
+        .mod => activeModOrder(app),
         .fx => return,
     };
     app.synth_cursor = synth_layout.moveField(order, app.synth_cursor, delta);
@@ -763,6 +791,10 @@ pub fn fxRow(cursor: u8, fx_order: []const FxUnitKind) usize {
 // zig fmt: on
 
 pub fn updateScroll(app: *App) void {
+    if (app.synth_section_focus and app.synth_subview != .fx) {
+        app.synth_scroll = 0;
+        return;
+    }
     // Will be re-clamped against the real max_rows at draw time (views/
     // synth.zig's drawSynthEditor); this is just a same-ballpark estimate
     // so the scroll is already reasonable before that first real draw.
@@ -822,6 +854,13 @@ fn paramAtRow(app: *App, row: usize, x: usize, cols: u16) ?u8 {
     if (row == 0) return null; // title
     const view = app.synth_subview;
     if (view == .main or view == .mod) {
+        if (app.synth_section_focus) {
+            if (row < 2) return null;
+            const order = if (view == .main) mainOrderNow(app) else modOrderNow(app);
+            const focused = sectionOrder(order, app.synth_cursor);
+            const param_row = row - 2;
+            return if (param_row < focused.len) focused[param_row].id else null;
+        }
         const full_row = app.synth_scroll + row - 1;
         const n = synth_layout.numCols(cols);
         const cw = synth_layout.colWidth(cols, n);
