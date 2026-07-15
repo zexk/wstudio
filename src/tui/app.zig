@@ -331,6 +331,15 @@ pub const App = struct {
     /// `synth_cursor` stays one flat param-id space across all three; only
     /// which ids are reachable/rendered changes with the subview.
     synth_subview: synth_ed.Subview = .main,
+    /// Terminal width as of the last `draw()` call. `handleKey` runs outside
+    /// `draw`'s call chain with no terminal-size parameter of its own, but
+    /// the synth editor's column-grid navigation (`synth_layout.numCols`)
+    /// needs to know the current column-count bucket to walk the same
+    /// visual order the last frame rendered — cheaper than threading a
+    /// `cols` parameter through the whole key-handling dispatch chain for
+    /// one view. Defaults to 80 (== `min_cols`) so pre-first-draw nav
+    /// (tests) still gets a sane single-column bucket.
+    last_cols: u16 = 80,
     piano_track: u16 = 0,
     piano_cursor_step: u16 = 0,
     piano_cursor_pitch: u7 = 60,
@@ -2970,6 +2979,7 @@ pub const App = struct {
     pub const min_rows: usize = 14;
 
     pub fn draw(self: *App, w: *std.Io.Writer, size: terminal_mod.Size) !void {
+        self.last_cols = size.cols;
         if (size.cols < min_cols or size.rows < min_rows) {
             try drawTooSmall(w, size);
             return;
