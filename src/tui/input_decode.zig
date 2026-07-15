@@ -17,12 +17,17 @@ fn parseSgrMouse(params: []const u8, is_press: bool) ?Key {
     const cb = std.fmt.parseInt(u16, it.next() orelse return null, 10) catch return null;
     const cx = std.fmt.parseInt(u16, it.next() orelse return null, 10) catch return null;
     const cy = std.fmt.parseInt(u16, it.next() orelse return null, 10) catch return null;
+    if (it.next() != null or cx == 0 or cy == 0) return null;
 
     const is_wheel = cb & 0x40 != 0;
     const is_motion = cb & 0x20 != 0;
     const btn_bits = cb & 0x3;
     const ctrl = cb & 0x10 != 0;
     const shift = cb & 0x4 != 0;
+
+    // SGR reserves wheel button codes 2 and 3 for horizontal scrolling,
+    // which the TUI has no key representation for.
+    if (is_wheel and btn_bits >= 2) return null;
 
     const button: modal_mod.MouseButton = if (is_wheel) .none else switch (btn_bits) {
         0 => .left,
@@ -236,4 +241,13 @@ test "decode SGR mouse wheel and modifiers" {
     try std.testing.expect(keys[0].mouse.ctrl);
     n = decode("\x1b[<4;1;1M", &keys);
     try std.testing.expect(keys[0].mouse.shift);
+}
+
+test "decode rejects malformed and unsupported SGR mouse reports" {
+    var keys: [4]Key = undefined;
+    try std.testing.expectEqual(@as(usize, 0), decode("\x1b[<0;0;1M", &keys));
+    try std.testing.expectEqual(@as(usize, 0), decode("\x1b[<0;1;0M", &keys));
+    try std.testing.expectEqual(@as(usize, 0), decode("\x1b[<0;1;1;9M", &keys));
+    try std.testing.expectEqual(@as(usize, 0), decode("\x1b[<66;1;1M", &keys));
+    try std.testing.expectEqual(@as(usize, 0), decode("\x1b[<67;1;1M", &keys));
 }
