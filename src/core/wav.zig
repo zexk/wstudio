@@ -124,13 +124,18 @@ pub fn parseAlloc(
             errdefer allocator.free(buf);
             for (0..frame_count) |i| {
                 if (num_channels == 1) {
-                    buf[i] = decodeSample(chunk[i * bytes_per_sample ..], bits_per_sample, audio_format);
+                    const sample = decodeSample(chunk[i * bytes_per_sample ..], bits_per_sample, audio_format);
+                    if (!std.math.isFinite(sample)) return error.BadFmt;
+                    buf[i] = sample;
                 } else {
                     const stride = num_channels * bytes_per_sample;
                     var sum: f32 = 0;
                     for (0..num_channels) |ch| {
-                        sum += decodeSample(chunk[i * stride + ch * bytes_per_sample ..], bits_per_sample, audio_format);
+                        const sample = decodeSample(chunk[i * stride + ch * bytes_per_sample ..], bits_per_sample, audio_format);
+                        if (!std.math.isFinite(sample)) return error.BadFmt;
+                        sum += sample;
                     }
+                    if (!std.math.isFinite(sum)) return error.BadFmt;
                     buf[i] = sum / @as(f32, @floatFromInt(num_channels));
                 }
             }
@@ -227,4 +232,24 @@ test "rejects invalid IEEE float bit depth" {
     const wav = w.buffered();
     std.mem.writeInt(u16, wav[20..22], 3, .little);
     try std.testing.expectError(error.UnsupportedBitDepth, parseAlloc(std.testing.allocator, wav));
+}
+
+test "rejects non-finite IEEE float samples" {
+    var raw: [64]u8 = undefined;
+    var w = std.Io.Writer.fixed(&raw);
+    try w.writeAll("RIFF");
+    try w.writeInt(u32, 40, .little);
+    try w.writeAll("WAVEfmt ");
+    try w.writeInt(u32, 16, .little);
+    try w.writeInt(u16, 3, .little);
+    try w.writeInt(u16, 1, .little);
+    try w.writeInt(u32, 48_000, .little);
+    try w.writeInt(u32, 192_000, .little);
+    try w.writeInt(u16, 4, .little);
+    try w.writeInt(u16, 32, .little);
+    try w.writeAll("data");
+    try w.writeInt(u32, 4, .little);
+    try w.writeInt(u32, @bitCast(std.math.nan(f32)), .little);
+
+    try std.testing.expectError(error.BadFmt, parseAlloc(std.testing.allocator, w.buffered()));
 }
