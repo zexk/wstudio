@@ -1598,6 +1598,309 @@ pub const presets = [_]Preset{
         .fx_delay_on = true, .fx_delay_time_s = 0.18, .fx_delay_feedback = 0.3, .fx_delay_mix = 0.2,
         .gain = 0.26,
     } },
+
+    // === Round 4: reinforce the least-covered genres ===
+
+    // dnb: a short minor-chord rave hit with velocity bite and wide room
+    .{ .name = "dnb-stab", .category = "stab", .tags = &.{ "wstudio", "dnb", "jungle" }, .patch = .{
+        .waveform = .saw, .unison = 3, .unison_detune = 12.0, .unison_spread = 0.55,
+        .osc_b_on = true, .osc_b_waveform = .square, .osc_b_semi = 3.0, .osc_b_level = 0.55,
+        .osc_c_on = true, .osc_c_waveform = .saw, .osc_c_semi = 7.0, .osc_c_level = 0.45,
+        .attack_s = 0.003, .decay_s = 0.22, .sustain = 0.05, .release_s = 0.18,
+        .filter_type = .lp, .filter_cutoff = 2400.0, .filter_res = 0.18,
+        .fenv_attack_s = 0.001, .fenv_decay_s = 0.18, .fenv_sustain = 0.0, .fenv_release_s = 0.12,
+        .mod_matrix = mods(&.{
+            .{ .source = .fenv,     .dest = 21,  .depth = 0.45 },
+            .{ .source = .velocity, .dest = 21,  .depth = 0.3 },
+            .{ .source = .mac1,     .dest = 21,  .depth = 0.45 },
+            .{ .source = .mac3,     .dest = 115, .depth = 0.35 },
+            .{ .source = .mac4,     .dest = 85,  .depth = 0.25 },
+        }),
+        .fx_dist_on = true, .fx_dist_drive_db = 7.0, .fx_dist_mix = 0.12,
+        .fx_reverb_on = true, .fx_reverb_room = 0.55, .fx_reverb_damp = 0.5, .fx_reverb_mix = 0.16,
+        .gain = 0.28,
+    } },
+
+    // dnb: airy sampled-choir color for breakdowns and liquid intros
+    .{ .name = "jungle-atmos", .category = "pad", .tags = &.{ "wstudio", "dnb", "jungle" }, .patch = .{
+        .waveform = .wavetable, .wt_pos = 0.7, .unison = 4, .unison_detune = 9.0, .unison_spread = 0.75,
+        .noise_level = 0.08, .noise_color = 0.65,
+        .attack_s = 1.1, .decay_s = 0.8, .sustain = 0.75, .release_s = 2.2,
+        .filter_type = .formant, .filter_cutoff = 520.0, .filter_res = 0.18,
+        .filter2_on = true, .filter2_type = .hp, .filter2_cutoff = 170.0, .filter_routing = .series,
+        .lfo_shape = .sine, .lfo_rate_hz = 0.17,
+        .mod_matrix = mods(&.{
+            .{ .source = .lfo,  .dest = 185, .depth = 0.12 },
+            .{ .source = .mac1, .dest = 21,  .depth = 0.35 },
+            .{ .source = .mac2, .dest = 185, .depth = 0.3 },
+            .{ .source = .mac3, .dest = 115, .depth = 0.45 },
+        }),
+        .fx_chorus_on = true, .fx_chorus_rate_hz = 0.35, .fx_chorus_depth_ms = 5.0, .fx_chorus_mix = 0.3,
+        .fx_reverb_on = true, .fx_reverb_room = 0.9, .fx_reverb_damp = 0.45, .fx_reverb_mix = 0.4,
+        .gain = 0.24,
+    } },
+
+    // dubstep: narrow pulse lead with formant motion and controlled abrasion
+    .{ .name = "talkbox-lead", .category = "lead", .tags = &.{ "wstudio", "dubstep" }, .patch = .{
+        .waveform = .square, .pulse_width = 0.3, .unison = 3, .unison_detune = 15.0, .voice_mode = .mono, .glide_s = 0.035,
+        .attack_s = 0.004, .decay_s = 0.2, .sustain = 0.75, .release_s = 0.1,
+        .filter_type = .formant, .filter_cutoff = 420.0, .filter_res = 0.5,
+        .lfo_shape = .triangle, .lfo_rate_hz = 3.0,
+        .mod_matrix = mods(&.{
+            .{ .source = .lfo,  .dest = 21, .depth = 0.45 },
+            .{ .source = .mac1, .dest = 21, .depth = 0.5 },
+            .{ .source = .mac2, .dest = 1,  .depth = 0.25 },
+            .{ .source = .mac3, .dest = 111, .depth = 0.3 },
+            .{ .source = .mac4, .dest = 85, .depth = 0.35 },
+        }),
+        .fx_dist_on = true, .fx_dist_drive_db = 12.0, .fx_dist_mix = 0.35,
+        .fx_delay_on = true, .fx_delay_time_s = 0.19, .fx_delay_feedback = 0.28, .fx_delay_mix = 0.16,
+        .gain = 0.28,
+    } },
+
+    // dubstep: dark suspended pad that leaves the sub range clear
+    .{ .name = "dubstep-void", .category = "pad", .tags = &.{ "wstudio", "dubstep" }, .patch = .{
+        .waveform = .wavetable, .wt_pos = 0.25, .unison = 5, .unison_detune = 20.0, .unison_spread = 0.85,
+        .osc_b_on = true, .osc_b_waveform = .triangle, .osc_b_semi = 7.0, .osc_b_level = 0.35,
+        .attack_s = 1.6, .decay_s = 0.8, .sustain = 0.8, .release_s = 2.5,
+        .filter_type = .lp, .filter_cutoff = 1800.0, .filter_res = 0.2,
+        .filter2_on = true, .filter2_type = .hp, .filter2_cutoff = 220.0, .filter_routing = .series,
+        .lfo2_shape = .chaos, .lfo2_rate_hz = 0.22,
+        .mod_matrix = mods(&.{
+            .{ .source = .lfo2, .dest = 185, .depth = 0.18 },
+            .{ .source = .mac1, .dest = 21,  .depth = 0.4 },
+            .{ .source = .mac2, .dest = 185, .depth = 0.35 },
+            .{ .source = .mac3, .dest = 115, .depth = 0.45 },
+            .{ .source = .mac4, .dest = 89,  .depth = 0.25 },
+        }),
+        .fx_crush_on = true, .fx_crush_bits = 10.0, .fx_crush_rate = 2.0, .fx_crush_mix = 0.12,
+        .fx_reverb_on = true, .fx_reverb_room = 0.9, .fx_reverb_damp = 0.55, .fx_reverb_mix = 0.38,
+        .gain = 0.23,
+    } },
+
+    // future bass: elastic mono low end with a bright wavetable snap
+    .{ .name = "future-bassline", .category = "bass", .tags = &.{ "wstudio", "future-bass" }, .patch = .{
+        .waveform = .wavetable, .wt_pos = 0.42, .voice_mode = .mono, .glide_s = 0.025,
+        .sub_level = 0.55, .sub_shape = .sine,
+        .attack_s = 0.003, .decay_s = 0.16, .sustain = 0.7, .release_s = 0.1,
+        .filter_type = .ladder, .filter_cutoff = 720.0, .filter_res = 0.18,
+        .fenv_attack_s = 0.001, .fenv_decay_s = 0.13, .fenv_sustain = 0.2, .fenv_release_s = 0.08,
+        .mod_matrix = mods(&.{
+            .{ .source = .fenv,     .dest = 21,  .depth = 0.35 },
+            .{ .source = .velocity, .dest = 185, .depth = 0.2 },
+            .{ .source = .mac1,     .dest = 21,  .depth = 0.45 },
+            .{ .source = .mac2,     .dest = 185, .depth = 0.4 },
+            .{ .source = .mac4,     .dest = 85,  .depth = 0.3 },
+        }),
+        .fx_dist_on = true, .fx_dist_drive_db = 8.0, .fx_dist_mix = 0.18,
+        .fx_comp_on = true, .fx_comp_threshold_db = -18.0, .fx_comp_ratio = 4.0, .fx_comp_attack_ms = 6.0, .fx_comp_release_ms = 80.0,
+        .gain = 0.34,
+    } },
+
+    // future bass: breathy vocal bed for wide chords and breakdowns
+    .{ .name = "future-vox", .category = "pad", .tags = &.{ "wstudio", "future-bass" }, .patch = .{
+        .waveform = .wavetable, .wt_pos = 0.62, .unison = 6, .unison_detune = 17.0, .unison_spread = 0.9,
+        .attack_s = 0.45, .decay_s = 0.5, .sustain = 0.8, .release_s = 1.4,
+        .filter_type = .formant, .filter_cutoff = 650.0, .filter_res = 0.3,
+        .lfo_shape = .sine, .lfo_rate_hz = 0.3,
+        .mod_matrix = mods(&.{
+            .{ .source = .lfo,  .dest = 21,  .depth = 0.16 },
+            .{ .source = .mac1, .dest = 21,  .depth = 0.45 },
+            .{ .source = .mac2, .dest = 185, .depth = 0.4 },
+            .{ .source = .mac3, .dest = 115, .depth = 0.45 },
+            .{ .source = .mac4, .dest = 85,  .depth = 0.2 },
+        }),
+        .fx_dist_on = true, .fx_dist_drive_db = 5.0, .fx_dist_mix = 0.08,
+        .fx_chorus_on = true, .fx_chorus_rate_hz = 0.5, .fx_chorus_depth_ms = 5.5, .fx_chorus_mix = 0.42,
+        .fx_reverb_on = true, .fx_reverb_room = 0.85, .fx_reverb_damp = 0.35, .fx_reverb_mix = 0.32,
+        .gain = 0.22,
+    } },
+
+    // deep house: muted chord pluck with a soft filter-envelope knock
+    .{ .name = "deep-pluck", .category = "pluck", .tags = &.{ "wstudio", "deep-house" }, .patch = .{
+        .waveform = .triangle, .unison = 2, .unison_detune = 5.0, .unison_spread = 0.35,
+        .osc_b_on = true, .osc_b_waveform = .sine, .osc_b_semi = 12.0, .osc_b_level = 0.3,
+        .attack_s = 0.002, .decay_s = 0.24, .sustain = 0.0, .release_s = 0.18,
+        .filter_type = .ladder, .filter_cutoff = 780.0, .filter_res = 0.22,
+        .fenv_attack_s = 0.001, .fenv_decay_s = 0.2, .fenv_sustain = 0.0, .fenv_release_s = 0.12,
+        .mod_matrix = mods(&.{
+            .{ .source = .fenv,     .dest = 21,  .depth = 0.5 },
+            .{ .source = .velocity, .dest = 21,  .depth = 0.3 },
+            .{ .source = .mac1,     .dest = 21,  .depth = 0.4 },
+            .{ .source = .mac2,     .dest = 22,  .depth = 0.2 },
+            .{ .source = .mac3,     .dest = 111, .depth = 0.35 },
+        }),
+        .fx_delay_on = true, .fx_delay_time_s = 0.33, .fx_delay_feedback = 0.26, .fx_delay_mix = 0.14,
+        .gain = 0.32,
+    } },
+
+    // deep house: smooth mono lead with restrained glide and chorus
+    .{ .name = "deep-lead", .category = "lead", .tags = &.{ "wstudio", "deep-house" }, .patch = .{
+        .waveform = .triangle, .voice_mode = .legato, .glide_s = 0.055,
+        .osc_b_on = true, .osc_b_waveform = .square, .osc_b_pulse_width = 0.42, .osc_b_semi = 0.0, .osc_b_level = 0.35,
+        .attack_s = 0.015, .decay_s = 0.25, .sustain = 0.75, .release_s = 0.22,
+        .filter_type = .lp, .filter_cutoff = 1900.0, .filter_res = 0.2,
+        .lfo_shape = .sine, .lfo_rate_hz = 5.0,
+        .mod_matrix = mods(&.{
+            .{ .source = .lfo,  .dest = dP,  .depth = 0.035 },
+            .{ .source = .mac1, .dest = 21,  .depth = 0.45 },
+            .{ .source = .mac2, .dest = 8,   .depth = 0.22 },
+            .{ .source = .mac3, .dest = 179, .depth = 0.35 },
+        }),
+        .fx_chorus_on = true, .fx_chorus_rate_hz = 0.55, .fx_chorus_depth_ms = 3.5, .fx_chorus_mix = 0.22,
+        .gain = 0.3,
+    } },
+
+    // dub: short minor organ chord made for long feedback-delay throws
+    .{ .name = "dub-chord", .category = "stab", .tags = &.{ "wstudio", "dub", "reggae" }, .patch = .{
+        .waveform = .square, .pulse_width = 0.47,
+        .osc_b_on = true, .osc_b_waveform = .sine, .osc_b_semi = 3.0, .osc_b_level = 0.5,
+        .osc_c_on = true, .osc_c_waveform = .sine, .osc_c_semi = 7.0, .osc_c_level = 0.4,
+        .attack_s = 0.004, .decay_s = 0.2, .sustain = 0.0, .release_s = 0.16,
+        .filter_type = .ladder, .filter_cutoff = 1300.0, .filter_res = 0.28,
+        .mod_matrix = mods(&.{
+            .{ .source = .velocity, .dest = 21,  .depth = 0.3 },
+            .{ .source = .mac1,     .dest = 21,  .depth = 0.45 },
+            .{ .source = .mac2,     .dest = 22,  .depth = 0.2 },
+            .{ .source = .mac3,     .dest = 111, .depth = 0.55 },
+            .{ .source = .mac4,     .dest = 85,  .depth = 0.22 },
+        }),
+        .fx_dist_on = true, .fx_dist_drive_db = 5.0, .fx_dist_mix = 0.1,
+        .fx_delay_on = true, .fx_delay_time_s = 0.5, .fx_delay_feedback = 0.58, .fx_delay_mix = 0.28,
+        .gain = 0.3,
+    } },
+
+    // dub: airy bubble organ with pulse motion and spring-like ambience
+    .{ .name = "bubble-organ", .category = "keys", .tags = &.{ "wstudio", "dub", "reggae" }, .patch = .{
+        .waveform = .square, .pulse_width = 0.38,
+        .osc_b_on = true, .osc_b_waveform = .sine, .osc_b_semi = 12.0, .osc_b_level = 0.45,
+        .attack_s = 0.003, .decay_s = 0.11, .sustain = 0.35, .release_s = 0.08,
+        .filter_type = .lp, .filter_cutoff = 2600.0, .filter_res = 0.12,
+        .lfo_shape = .sine, .lfo_rate_hz = 0.8,
+        .mod_matrix = mods(&.{
+            .{ .source = .lfo,  .dest = 1,   .depth = 0.12 },
+            .{ .source = .mac1, .dest = 21,  .depth = 0.4 },
+            .{ .source = .mac2, .dest = 1,   .depth = 0.25 },
+            .{ .source = .mac3, .dest = 115, .depth = 0.4 },
+        }),
+        .fx_reverb_on = true, .fx_reverb_room = 0.45, .fx_reverb_damp = 0.65, .fx_reverb_mix = 0.2,
+        .gain = 0.32,
+    } },
+
+    // soul: warm electric-piano body with velocity-controlled tine bark
+    .{ .name = "soul-epiano", .category = "keys", .tags = &.{ "wstudio", "soul", "neo-soul" }, .patch = .{
+        .waveform = .sine,
+        .osc_b_on = true, .osc_b_waveform = .sine, .osc_b_semi = 14.0, .osc_b_level = 0.7,
+        .mod_mode = .fm_b_to_a, .mod_amount = 0.85,
+        .attack_s = 0.003, .decay_s = 1.5, .sustain = 0.3, .release_s = 1.0,
+        .filter_type = .lp, .filter_cutoff = 4200.0, .filter_res = 0.04,
+        .fenv_attack_s = 0.001, .fenv_decay_s = 0.16, .fenv_sustain = 0.0, .fenv_release_s = 0.1,
+        .mod_matrix = mods(&.{
+            .{ .source = .fenv,     .dest = 15,  .depth = 0.1 },
+            .{ .source = .velocity, .dest = 15,  .depth = 0.16 },
+            .{ .source = .mac1,     .dest = 21,  .depth = 0.35 },
+            .{ .source = .mac2,     .dest = 15,  .depth = 0.25 },
+            .{ .source = .mac3,     .dest = 179, .depth = 0.35 },
+        }),
+        .fx_chorus_on = true, .fx_chorus_rate_hz = 0.7, .fx_chorus_depth_ms = 3.5, .fx_chorus_mix = 0.24,
+        .gain = 0.3,
+    } },
+
+    // soul: rounded finger bass with a small upper-harmonic layer
+    .{ .name = "soul-bass", .category = "bass", .tags = &.{ "wstudio", "soul", "neo-soul" }, .patch = .{
+        .waveform = .triangle, .voice_mode = .mono, .glide_s = 0.012,
+        .osc_b_on = true, .osc_b_waveform = .sine, .osc_b_semi = 12.0, .osc_b_level = 0.2,
+        .sub_level = 0.5, .sub_shape = .sine,
+        .attack_s = 0.006, .decay_s = 0.18, .sustain = 0.72, .release_s = 0.16,
+        .filter_type = .ladder, .filter_cutoff = 720.0, .filter_res = 0.08,
+        .fenv_attack_s = 0.002, .fenv_decay_s = 0.16, .fenv_sustain = 0.25, .fenv_release_s = 0.1,
+        .mod_matrix = mods(&.{
+            .{ .source = .fenv,     .dest = 21, .depth = 0.22 },
+            .{ .source = .velocity, .dest = 21, .depth = 0.25 },
+            .{ .source = .mac1,     .dest = 21, .depth = 0.4 },
+            .{ .source = .mac2,     .dest = 11, .depth = 0.25 },
+            .{ .source = .mac4,     .dest = 85, .depth = 0.2 },
+        }),
+        .fx_dist_on = true, .fx_dist_drive_db = 5.0, .fx_dist_mix = 0.1,
+        .fx_comp_on = true, .fx_comp_threshold_db = -20.0, .fx_comp_ratio = 3.0, .fx_comp_attack_ms = 14.0, .fx_comp_release_ms = 120.0,
+        .gain = 0.38,
+    } },
+
+    // vaporwave: softened electric keys with tape drift and a long tail
+    .{ .name = "vapor-keys", .category = "keys", .tags = &.{ "wstudio", "vaporwave" }, .patch = .{
+        .waveform = .triangle, .detune_cents = -5.0,
+        .osc_b_on = true, .osc_b_waveform = .sine, .osc_b_semi = 12.0, .osc_b_detune_cents = 7.0, .osc_b_level = 0.42,
+        .attack_s = 0.008, .decay_s = 1.1, .sustain = 0.18, .release_s = 1.2,
+        .filter_type = .lp, .filter_cutoff = 2600.0, .filter_res = 0.06,
+        .mod_matrix = mods(&.{
+            .{ .source = .velocity, .dest = 21,  .depth = 0.2 },
+            .{ .source = .mac1,     .dest = 21,  .depth = 0.35 },
+            .{ .source = .mac2,     .dest = 11,  .depth = 0.22 },
+            .{ .source = .mac3,     .dest = 115, .depth = 0.45 },
+            .{ .source = .mac4,     .dest = 89,  .depth = 0.28 },
+        }),
+        .fx_crush_on = true, .fx_crush_bits = 12.0, .fx_crush_rate = 2.0, .fx_crush_mix = 0.14,
+        .fx_tape_on = true, .fx_tape_wow_rate_hz = 0.45, .fx_tape_wow_depth = 0.28, .fx_tape_flutter_rate_hz = 6.0, .fx_tape_flutter_depth = 0.14, .fx_tape_mix = 1.0,
+        .fx_reverb_on = true, .fx_reverb_room = 0.9, .fx_reverb_damp = 0.55, .fx_reverb_mix = 0.38,
+        .gain = 0.26,
+    } },
+
+    // vaporwave: slow rounded bass with degraded sampler edges
+    .{ .name = "vapor-bass", .category = "bass", .tags = &.{ "wstudio", "vaporwave" }, .patch = .{
+        .waveform = .sine, .voice_mode = .mono, .glide_s = 0.04,
+        .osc_b_on = true, .osc_b_waveform = .triangle, .osc_b_semi = 0.0, .osc_b_detune_cents = -7.0, .osc_b_level = 0.35,
+        .sub_level = 0.5, .sub_shape = .sine,
+        .attack_s = 0.012, .decay_s = 0.3, .sustain = 0.82, .release_s = 0.3,
+        .filter_type = .lp, .filter_cutoff = 650.0, .filter_res = 0.08,
+        .mod_matrix = mods(&.{
+            .{ .source = .keytrack, .dest = 21, .depth = 0.18 },
+            .{ .source = .mac1,     .dest = 21, .depth = 0.35 },
+            .{ .source = .mac2,     .dest = 11, .depth = 0.22 },
+            .{ .source = .mac4,     .dest = 89, .depth = 0.3 },
+        }),
+        .fx_crush_on = true, .fx_crush_bits = 12.0, .fx_crush_rate = 2.0, .fx_crush_mix = 0.16,
+        .fx_tape_on = true, .fx_tape_wow_rate_hz = 0.35, .fx_tape_wow_depth = 0.2, .fx_tape_flutter_rate_hz = 5.5, .fx_tape_flutter_depth = 0.08, .fx_tape_mix = 1.0,
+        .gain = 0.38,
+    } },
+
+    // anime: expressive bright lead with portamento and delayed vibrato feel
+    .{ .name = "anime-lead", .category = "lead", .tags = &.{ "wstudio", "anime", "j-pop" }, .patch = .{
+        .waveform = .saw, .unison = 3, .unison_detune = 10.0, .unison_spread = 0.5, .voice_mode = .legato, .glide_s = 0.045,
+        .osc_b_on = true, .osc_b_waveform = .square, .osc_b_pulse_width = 0.4, .osc_b_semi = 12.0, .osc_b_level = 0.3,
+        .attack_s = 0.008, .decay_s = 0.18, .sustain = 0.82, .release_s = 0.2,
+        .filter_type = .lp, .filter_cutoff = 5200.0, .filter_res = 0.14,
+        .filter2_on = true, .filter2_type = .hp, .filter2_cutoff = 140.0, .filter_routing = .series,
+        .lfo_shape = .sine, .lfo_rate_hz = 5.6,
+        .mod_matrix = mods(&.{
+            .{ .source = .lfo,  .dest = dP,  .depth = 0.06 },
+            .{ .source = .mac1, .dest = 21,  .depth = 0.45 },
+            .{ .source = .mac2, .dest = 8,   .depth = 0.2 },
+            .{ .source = .mac3, .dest = 111, .depth = 0.35 },
+            .{ .source = .mac3, .dest = 115, .depth = 0.3 },
+        }),
+        .fx_delay_on = true, .fx_delay_time_s = 0.28, .fx_delay_feedback = 0.3, .fx_delay_mix = 0.18,
+        .fx_reverb_on = true, .fx_reverb_room = 0.65, .fx_reverb_damp = 0.35, .fx_reverb_mix = 0.18,
+        .gain = 0.27,
+    } },
+
+    // anime: glossy string ensemble for themes and emotional lifts
+    .{ .name = "anime-strings", .category = "pad", .tags = &.{ "wstudio", "anime", "j-pop" }, .patch = .{
+        .waveform = .saw, .unison = 5, .unison_detune = 11.0, .unison_spread = 0.78,
+        .osc_b_on = true, .osc_b_waveform = .square, .osc_b_pulse_width = 0.45, .osc_b_semi = 0.0, .osc_b_level = 0.35,
+        .attack_s = 0.55, .decay_s = 0.5, .sustain = 0.85, .release_s = 1.5,
+        .filter_type = .lp, .filter_cutoff = 3600.0, .filter_res = 0.08,
+        .filter2_on = true, .filter2_type = .hp, .filter2_cutoff = 130.0, .filter_routing = .series,
+        .lfo2_shape = .sine, .lfo2_rate_hz = 0.32,
+        .mod_matrix = mods(&.{
+            .{ .source = .lfo2, .dest = 8,   .depth = 0.16 },
+            .{ .source = .mac1, .dest = 21,  .depth = 0.42 },
+            .{ .source = .mac2, .dest = 8,   .depth = 0.2 },
+            .{ .source = .mac3, .dest = 115, .depth = 0.4 },
+        }),
+        .fx_chorus_on = true, .fx_chorus_rate_hz = 0.45, .fx_chorus_depth_ms = 5.0, .fx_chorus_mix = 0.38,
+        .fx_reverb_on = true, .fx_reverb_room = 0.78, .fx_reverb_damp = 0.42, .fx_reverb_mix = 0.28,
+        .gain = 0.25,
+    } },
 };
 // zig fmt: on
 
@@ -1607,6 +1910,10 @@ pub fn find(name: []const u8) ?Patch {
         if (std.ascii.eqlIgnoreCase(p.name, name)) return p.patch;
     }
     return null;
+}
+
+test "factory library holds exactly 100 presets" {
+    try std.testing.expectEqual(@as(usize, 100), presets.len);
 }
 
 test "factory presets are matrix-native (no legacy mod-route carriers)" {
