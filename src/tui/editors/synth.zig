@@ -101,6 +101,125 @@ pub fn fxBodyRows(order: []const FxUnitKind) usize {
     return row;
 }
 
+/// `id`'s display label for an FX param — the only ids left needing a
+/// hardcoded lookup, since FX intentionally has no synth_layout table (see
+/// that file's module doc comment). Reorder-handle ids are never
+/// cursor-reachable so they fall to "-" along with any other gap.
+pub fn fxParamLabel(id: u8) []const u8 {
+    return switch (id) {
+        // zig fmt: off
+        83 => "dist.on", 84 => "dist.drive", 85 => "dist.mix",
+        86 => "crush.on", 87 => "crush.bits", 88 => "crush.rate", 89 => "crush.mix",
+        90 => "flng.on", 91 => "flng.rate", 92 => "flng.depth", 93 => "flng.fdbk", 94 => "flng.mix",
+        103 => "phsr.on", 104 => "phsr.rate", 105 => "phsr.depth", 106 => "phsr.fdbk", 107 => "phsr.mix",
+        108 => "dly.on", 109 => "dly.time", 110 => "dly.fdbk", 111 => "dly.mix",
+        112 => "vrb.on", 113 => "vrb.room", 114 => "vrb.damp", 115 => "vrb.mix",
+        132 => "gate.on", 133 => "gate.thresh", 134 => "gate.attack", 135 => "gate.release",
+        137 => "comp.on", 138 => "comp.thresh", 139 => "comp.ratio", 140 => "comp.attack", 141 => "comp.release", 142 => "comp.makeup",
+        144 => "mb.on", 145 => "mb.xover.lo", 146 => "mb.xover.hi", 147 => "mb.attack", 148 => "mb.release", 149 => "mb.style", 150 => "mb.mix",
+        151 => "mb.lo.thresh", 152 => "mb.lo.ratio", 153 => "mb.lo.makeup",
+        154 => "mb.mid.thresh", 155 => "mb.mid.ratio", 156 => "mb.mid.makeup",
+        157 => "mb.hi.thresh", 158 => "mb.hi.ratio", 159 => "mb.hi.makeup",
+        161 => "ott.on", 162 => "ott.depth", 163 => "ott.time", 164 => "ott.gain.in", 165 => "ott.gain.out",
+        167 => "eq.on", 168 => "eq.lo.freq", 169 => "eq.lo.gain", 170 => "eq.mid.freq", 171 => "eq.mid.gain",
+        172 => "eq.mid.q", 173 => "eq.hi.freq", 174 => "eq.hi.gain",
+        176 => "chor.on", 177 => "chor.rate", 178 => "chor.depth", 179 => "chor.mix",
+        181 => "frqs.on", 182 => "frqs.shift", 183 => "frqs.mix",
+        188 => "tape.on", 189 => "tape.wow.rate", 190 => "tape.wow.depth",
+        191 => "tape.flt.rate", 192 => "tape.flt.depth", 193 => "tape.mix",
+        else => "-",
+        // zig fmt: on
+    };
+}
+
+/// `p`'s field-suffixed label for a matrix slot (`fields == 3`) id, e.g.
+/// "1 source"/"1 dest"/"1 depth" — the format `secMatrix` (views/synth.zig)
+/// itself renders.
+fn matrixFieldLabel(p: synth_layout.ParamEntry, id: u8, buf: []u8) []const u8 {
+    const field: []const u8 = switch (id - p.id) {
+        0 => "source",
+        1 => "dest",
+        else => "depth",
+    };
+    return std.fmt.bufPrint(buf, "{s} {s}", .{ p.label, field }) catch p.label;
+}
+
+/// `id`'s display label — the single source both the status bar
+/// (views/synth.zig's `drawSynthStatus`) and `/` search (`searchCandidates`
+/// below, via `App.searchSynthParams`) resolve through. Searches MAIN then
+/// MOD's synth_layout tables (the single source of truth for those ids'
+/// groupings) before falling back to `fxParamLabel` for the range
+/// synth_layout intentionally doesn't cover. `buf` only gets written for a
+/// matrix field id (`fields > 1`); every other id returns its static label
+/// directly.
+pub fn paramLabel(id: u8, buf: []u8) []const u8 {
+    for (synth_layout.main_sections) |sec| {
+        for (sec.params) |p| {
+            if (id < p.id or id >= p.id + p.fields) continue;
+            if (p.fields == 1) return p.label;
+            return matrixFieldLabel(p, id, buf);
+        }
+    }
+    for (synth_layout.mod_sections) |sec| {
+        for (sec.params) |p| {
+            if (id < p.id or id >= p.id + p.fields) continue;
+            if (p.fields == 1) return p.label;
+            return matrixFieldLabel(p, id, buf);
+        }
+    }
+    return fxParamLabel(id);
+}
+
+/// One `/`-searchable param: which subview it lives in plus its engine id
+/// (its label is resolved on demand via `paramLabel` — not stored here, so
+/// this stays a plain value with no buffer to own).
+pub const SearchCandidate = struct { subview: Subview, id: u8 };
+
+/// Every param across all 3 subviews, in a stable order (MAIN's
+/// declaration order, then MOD's, then the current on-only `fx_order`
+/// sequence) — the flat list `App.searchSynthParams` walks. A matrix slot
+/// (`fields == 3`) contributes one candidate per field, matching
+/// `paramLabel`'s per-field labels. Takes a caller-owned buffer since the
+/// FX portion is runtime-sized (only on units, in whatever order the user
+/// left them).
+pub fn searchCandidates(app: *App, buf: []SearchCandidate) []const SearchCandidate {
+    var n: usize = 0;
+    for (synth_layout.main_sections) |sec| {
+        for (sec.params) |p| {
+            var f: u8 = 0;
+            while (f < p.fields) : (f += 1) {
+                buf[n] = .{ .subview = .main, .id = p.id + f };
+                n += 1;
+            }
+        }
+    }
+    for (synth_layout.mod_sections) |sec| {
+        for (sec.params) |p| {
+            var f: u8 = 0;
+            while (f < p.fields) : (f += 1) {
+                buf[n] = .{ .subview = .mod, .id = p.id + f };
+                n += 1;
+            }
+        }
+    }
+    var kbuf: [14]FxUnitKind = undefined;
+    for (fxOnOrder(app, &kbuf)) |kind| {
+        const first = fxFirstId(kind);
+        const count = fxIdCount(kind);
+        var i: u8 = 0;
+        while (i < count) : (i += 1) {
+            buf[n] = .{ .subview = .fx, .id = first + i };
+            n += 1;
+        }
+    }
+    return buf[0..n];
+}
+
+/// Upper bound on `searchCandidates`' output — MAIN's 63 fields=1 entries +
+/// MOD's 38 (24 matrix fields + 14 lfo/env3/macro) + FX's worst case (all
+/// 14 units on, 51 ids). Sized with headroom, not tuned tight.
+pub const max_search_candidates: usize = 160;
+
 /// Every cursor-reachable `.fx` id, in on-screen (fx_order) sequence rather
 /// than numeric order — the list j/k and g/G walk. Sized generously above
 /// the current real total (51 ids across 9 units) for headroom as more
@@ -535,6 +654,11 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             'L' => { adjustParam(app, 10 * app.takeCount()); return true; },
             'g' => { history.flushParamNudge(app); app.synth_cursor = cursorFirst(app); updateScroll(app); return true; },
             'G' => { history.flushParamNudge(app); app.synth_cursor = cursorLast(app); updateScroll(app); return true; },
+            // `/` isn't bound here — it falls through to modal.handle's
+            // generic normal-mode search entry (App.searchSynthParams
+            // handles the submit). n/N repeat, same as every other view.
+            'n' => { app.searchSynthParams(1); return true; },
+            'N' => { app.searchSynthParams(-1); return true; },
             // Shift focus within a multi-field entry (a mod-matrix slot's
             // source/dest/depth) — a no-op everywhere else, since every
             // other entry has exactly one field. Safe to bind unconditionally.

@@ -2018,6 +2018,7 @@ pub const App = struct {
                     .file_browser => self.searchBrowser(1),
                     .help => self.searchHelp(1),
                     .arrangement => self.searchArrangement(1),
+                    .synth_editor => self.searchSynthParams(1),
                     // The picker's `/` is a list filter, not a cursor jump:
                     // submitting commits the pattern (empty clears it) and
                     // rests the cursor on the narrowed list's first entry.
@@ -2156,6 +2157,42 @@ pub const App = struct {
             if (fuzzy.matches(pattern, tracks[idx].name)) {
                 self.cursor = idx;
                 self.setStatus("/{s}  [{d}/{d}]", .{ pattern, idx + 1, tracks.len });
+                return;
+            }
+        }
+        self.setStatus("no match for '{s}'", .{pattern});
+    }
+
+    /// `/` search + `n`/`N` repeat over every param across all three synth
+    /// subviews (`synth_ed.searchCandidates`), wrapping the same way
+    /// `searchTracks` does — a hit in a different subview than the current
+    /// one switches to it, matching vim's own `/` having no notion of
+    /// "current pane" within one buffer.
+    pub fn searchSynthParams(self: *App, dir: i64) void {
+        const pattern = self.searchPattern();
+        if (pattern.len == 0) { self.setStatus("no previous search pattern", .{}); return; }
+        var cbuf: [synth_ed.max_search_candidates]synth_ed.SearchCandidate = undefined;
+        const candidates = synth_ed.searchCandidates(self, &cbuf);
+        const n: i64 = @intCast(candidates.len);
+        if (n == 0) { self.setStatus("no params to search", .{}); return; }
+        var start: i64 = 0;
+        for (candidates, 0..) |cand, i| {
+            if (cand.subview == self.synth_subview and cand.id == self.synth_cursor) {
+                start = @intCast(i);
+                break;
+            }
+        }
+        var lbuf: [24]u8 = undefined;
+        var step: i64 = 1;
+        while (step <= n) : (step += 1) {
+            const idx: usize = @intCast(@mod(start + dir * step, n));
+            const cand = candidates[idx];
+            if (fuzzy.matches(pattern, synth_ed.paramLabel(cand.id, &lbuf))) {
+                history.flushParamNudge(self);
+                self.synth_subview = cand.subview;
+                self.synth_cursor = cand.id;
+                synth_ed.updateScroll(self);
+                self.setStatus("/{s}  [{d}/{d}]", .{ pattern, idx + 1, candidates.len });
                 return;
             }
         }

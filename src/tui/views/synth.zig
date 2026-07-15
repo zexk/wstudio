@@ -1117,72 +1117,6 @@ fn secFxReverb(w: *std.Io.Writer, synth: anytype, c: u8) !void {
         try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.fx_reverb_mix}));
 }
 
-/// `id`'s status-bar label for an FX param — the only ids left needing a
-/// hardcoded lookup, since FX intentionally has no synth_layout table (see
-/// that file's module doc comment). Reorder-handle ids are never
-/// cursor-reachable so they fall to "-" along with any other gap.
-fn fxParamLabel(id: u8) []const u8 {
-    return switch (id) {
-        // zig fmt: off
-        83 => "dist.on", 84 => "dist.drive", 85 => "dist.mix",
-        86 => "crush.on", 87 => "crush.bits", 88 => "crush.rate", 89 => "crush.mix",
-        90 => "flng.on", 91 => "flng.rate", 92 => "flng.depth", 93 => "flng.fdbk", 94 => "flng.mix",
-        103 => "phsr.on", 104 => "phsr.rate", 105 => "phsr.depth", 106 => "phsr.fdbk", 107 => "phsr.mix",
-        108 => "dly.on", 109 => "dly.time", 110 => "dly.fdbk", 111 => "dly.mix",
-        112 => "vrb.on", 113 => "vrb.room", 114 => "vrb.damp", 115 => "vrb.mix",
-        132 => "gate.on", 133 => "gate.thresh", 134 => "gate.attack", 135 => "gate.release",
-        137 => "comp.on", 138 => "comp.thresh", 139 => "comp.ratio", 140 => "comp.attack", 141 => "comp.release", 142 => "comp.makeup",
-        144 => "mb.on", 145 => "mb.xover.lo", 146 => "mb.xover.hi", 147 => "mb.attack", 148 => "mb.release", 149 => "mb.style", 150 => "mb.mix",
-        151 => "mb.lo.thresh", 152 => "mb.lo.ratio", 153 => "mb.lo.makeup",
-        154 => "mb.mid.thresh", 155 => "mb.mid.ratio", 156 => "mb.mid.makeup",
-        157 => "mb.hi.thresh", 158 => "mb.hi.ratio", 159 => "mb.hi.makeup",
-        161 => "ott.on", 162 => "ott.depth", 163 => "ott.time", 164 => "ott.gain.in", 165 => "ott.gain.out",
-        167 => "eq.on", 168 => "eq.lo.freq", 169 => "eq.lo.gain", 170 => "eq.mid.freq", 171 => "eq.mid.gain",
-        172 => "eq.mid.q", 173 => "eq.hi.freq", 174 => "eq.hi.gain",
-        176 => "chor.on", 177 => "chor.rate", 178 => "chor.depth", 179 => "chor.mix",
-        181 => "frqs.on", 182 => "frqs.shift", 183 => "frqs.mix",
-        188 => "tape.on", 189 => "tape.wow.rate", 190 => "tape.wow.depth",
-        191 => "tape.flt.rate", 192 => "tape.flt.depth", 193 => "tape.mix",
-        else => "-",
-        // zig fmt: on
-    };
-}
-
-/// `p`'s field-suffixed label for a matrix slot (`fields == 3`) id, e.g.
-/// "1 source"/"1 dest"/"1 depth" — mirrors the pre-collapse 3-row matrix's
-/// own label format (`secMatrix`'s old per-row labels), unaffected by the
-/// switch to one line per slot.
-fn writeMatrixFieldLabel(w: *std.Io.Writer, p: synth_layout.ParamEntry, id: u8) !void {
-    const field: []const u8 = switch (id - p.id) {
-        0 => "source",
-        1 => "dest",
-        else => "depth",
-    };
-    try w.print("{s} {s}", .{ p.label, field });
-}
-
-/// `id`'s status-bar label, searching MAIN then MOD's synth_layout tables
-/// (the single source of truth for those ids' groupings — see that file's
-/// module doc comment) before falling back to `fxParamLabel` for the FX
-/// range it intentionally doesn't cover.
-fn writeParamLabel(w: *std.Io.Writer, id: u8) !void {
-    for (synth_layout.main_sections) |sec| {
-        for (sec.params) |p| {
-            if (id < p.id or id >= p.id + p.fields) continue;
-            if (p.fields == 1) return w.writeAll(p.label);
-            return writeMatrixFieldLabel(w, p, id);
-        }
-    }
-    for (synth_layout.mod_sections) |sec| {
-        for (sec.params) |p| {
-            if (id < p.id or id >= p.id + p.fields) continue;
-            if (p.fields == 1) return w.writeAll(p.label);
-            return writeMatrixFieldLabel(w, p, id);
-        }
-    }
-    try w.writeAll(fxParamLabel(id));
-}
-
 pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !void {
     if (app.synth_track >= app.session.racks.items.len) return;
     const rack = app.session.racks.items[app.synth_track];
@@ -1195,7 +1129,8 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !
     try style.writeModeBadge(w, app.modal.mode);
     try style.writeViewBadge(right, "SYNTH", app.modal.mode);
     try w.writeAll(dim ++ "  " ++ rst);
-    try writeParamLabel(w, app.synth_cursor);
+    var label_buf: [24]u8 = undefined;
+    try w.writeAll(synth_ed.paramLabel(app.synth_cursor, &label_buf));
     try w.writeAll(dim ++ ": " ++ rst);
     try w.writeAll(acc);
     switch (app.synth_cursor) {
