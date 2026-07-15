@@ -329,10 +329,7 @@ fn pasteSelection(app: *App) void {
         var copy = c.dupe(app.allocator) catch continue;
         copy.start_bar += app.arr_cursor_bar;
         end_bar = @max(end_bar, copy.endBar());
-        lane.place(app.allocator, copy) catch {
-            copy.deinit(app.allocator);
-            continue;
-        };
+        lane.place(app.allocator, copy) catch continue;
         pasted += 1;
     }
     if (pasted > 0) app.arr_cursor_bar = end_bar;
