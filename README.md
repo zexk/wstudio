@@ -141,6 +141,7 @@ zig build run        # launch the TUI (space = play, i = piano mode, :q = quit)
 zig build run -- demo.wsj  # open the curated four-track demo project
 zig build run -- render  # offline demo: melody through the chain -> out.wav
 zig build test       # all tests
+zig build check      # all tests plus a fresh wstudio executable build
 zig build genkit     # re-render the embedded drum kit (after editing drum_kit.zig)
 zig build gendemo    # re-write demo.wsj (after editing tools/gendemo.zig)
 zig build install-font # install the TUI's icon font (see below)
