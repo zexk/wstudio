@@ -105,7 +105,12 @@ pub fn parseAlloc(
             sample_rate = std.mem.readInt(u32, chunk[4..8], .little);
             bits_per_sample = std.mem.readInt(u16, chunk[14..16], .little);
             if (audio_format != 1 and audio_format != 3) return error.UnsupportedFormat;
-            if (bits_per_sample != 16 and bits_per_sample != 24 and bits_per_sample != 32)
+            const supported_depth = switch (audio_format) {
+                1 => bits_per_sample == 16 or bits_per_sample == 24 or bits_per_sample == 32,
+                3 => bits_per_sample == 32,
+                else => unreachable,
+            };
+            if (!supported_depth)
                 return error.UnsupportedBitDepth;
             if (num_channels == 0 or sample_rate == 0) return error.BadFmt;
             fmt_ok = true;
@@ -212,4 +217,14 @@ test "round-trip: write then parse" {
     // 16-bit round-trip introduces at most 1/32768 error
     try std.testing.expectApproxEqAbs(@as(f32, 0.5), result.samples[0], 1.0 / 32768.0 + 1e-6);
     try std.testing.expectApproxEqAbs(@as(f32, -0.5), result.samples[1], 1.0 / 32768.0 + 1e-6);
+}
+
+test "rejects invalid IEEE float bit depth" {
+    var raw: [128]u8 = undefined;
+    var w = std.Io.Writer.fixed(&raw);
+    try write(&w, 48_000, 1, &.{0.5}, .pcm16);
+
+    const wav = w.buffered();
+    std.mem.writeInt(u16, wav[20..22], 3, .little);
+    try std.testing.expectError(error.UnsupportedBitDepth, parseAlloc(std.testing.allocator, wav));
 }
