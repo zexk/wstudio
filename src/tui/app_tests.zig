@@ -2403,6 +2403,46 @@ test "dd on a group row lands the row cursor on the row that takes its place" {
     try std.testing.expectEqual(@as(usize, 1), app.cursor);
 }
 
+test "J/K moves a track across a group folder and keeps its row cursor in sync" {
+    var app = try testApp();
+    defer app.deinit();
+    _ = try app.session.addTrack("t3");
+    try app.session.setInstrument(3, .poly_synth);
+
+    const g = try app.session.addGroup("bus");
+    app.session.assignTrackGroup(1, g);
+    app.session.assignTrackGroup(3, g);
+    app.tracksRowSync();
+    // Folder order is [t0, G, t1, t3, t2]. Moving t2 up crosses the
+    // entire folder, leaving it immediately before the group rather than
+    // with a stale row cursor inside the reshaped list.
+    app.setTrackRow(4); // t2
+    app.handleKey(.{ .char = 'K' }, 0);
+    app.tracksRowSync();
+
+    try std.testing.expectEqual(@as(usize, 1), app.cursor);
+    try std.testing.expectEqual(@as(usize, 1), app.track_row);
+    try std.testing.expectEqual(@as(?u16, 1), app.cursorTrack());
+    try std.testing.expectEqual(@as(u16, 0), app.track_rows_buf[0].track);
+    try std.testing.expectEqual(@as(u16, 1), app.track_rows_buf[1].track);
+    try std.testing.expectEqual(g, app.track_rows_buf[2].group);
+    try std.testing.expectEqual(@as(u16, 2), app.track_rows_buf[3].track);
+    try std.testing.expectEqual(@as(u16, 3), app.track_rows_buf[4].track);
+
+    // Moving back down restores both the backing track order and the
+    // folder's original display position.
+    app.handleKey(.{ .char = 'J' }, 0);
+    app.tracksRowSync();
+    try std.testing.expectEqual(@as(usize, 2), app.cursor);
+    try std.testing.expectEqual(@as(usize, 4), app.track_row);
+    try std.testing.expectEqual(@as(?u16, 2), app.cursorTrack());
+    try std.testing.expectEqual(@as(u16, 0), app.track_rows_buf[0].track);
+    try std.testing.expectEqual(g, app.track_rows_buf[1].group);
+    try std.testing.expectEqual(@as(u16, 1), app.track_rows_buf[2].track);
+    try std.testing.expectEqual(@as(u16, 3), app.track_rows_buf[3].track);
+    try std.testing.expectEqual(@as(u16, 2), app.track_rows_buf[4].track);
+}
+
 test "track delete shifts the automation editor's clip link and track with it" {
     var app = try testApp();
     defer app.deinit();
