@@ -1035,6 +1035,34 @@ test "T toggles the piano roll grid between straight and triplet" {
     try std.testing.expectApproxEqAbs(@as(f64, 0.25), app.piano_note_len, 1e-9);
 }
 
+test "piano roll n/N step-enter notes and rests by the default note length" {
+    var app = try testApp();
+    defer app.deinit();
+    app.view = .piano_roll;
+    app.piano_track = 0;
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    pp.length_beats = 4.0;
+    app.piano_cursor_pitch = 60;
+    app.piano_note_len = 0.5;
+
+    _ = piano_ed.handleKey(&app, .{ .char = 'n' });
+    try std.testing.expect(pp.noteAt(60, 0.0) != null);
+    try std.testing.expectEqual(@as(u16, 2), app.piano_cursor_step);
+
+    _ = piano_ed.handleKey(&app, .{ .char = 'N' });
+    try std.testing.expect(pp.noteAt(60, 0.5) == null);
+    try std.testing.expectEqual(@as(u16, 4), app.piano_cursor_step);
+
+    _ = piano_ed.handleKey(&app, .{ .char = 'n' });
+    try std.testing.expect(pp.noteAt(60, 1.0) != null);
+    try std.testing.expectEqual(@as(u16, 6), app.piano_cursor_step);
+
+    // Enter remains a stationary toggle for precise edits.
+    _ = piano_ed.handleKey(&app, .enter);
+    try std.testing.expect(pp.noteAt(60, 1.5) != null);
+    try std.testing.expectEqual(@as(u16, 6), app.piano_cursor_step);
+}
+
 test "z and Z zoom piano roll cells in and out" {
     var app = try testApp();
     defer app.deinit();

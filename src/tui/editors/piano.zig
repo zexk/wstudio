@@ -208,8 +208,10 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 return true;
             },
             's' => { spectrum.switchToTrack(app, app.piano_track); return true; },
-            // n kept as an alias for muscle memory; enter is the canonical toggle.
-            'n' => { insertNote(app); return true; },
+            // Step entry: n places a note and advances by its length; N leaves
+            // a rest of the same size. Enter remains the stationary toggle.
+            'n' => { stepEnter(app, max_step, true); return true; },
+            'N' => { stepEnter(app, max_step, false); return true; },
             // x: vim's char-delete - the note under the cursor, instantly,
             // no operator needed (the "char" tier of the note/beat/pattern
             // hierarchy; see the operator-pending block above).
@@ -503,6 +505,18 @@ fn insertNote(app: *App) void {
     var nbuf: [5]u8 = undefined;
     app.setStatus("added {s}", .{midi.noteName(app.piano_cursor_pitch, &nbuf)});
     syncLinkedClip(app);
+}
+
+/// `n`/`N`: enter a note or rest, then advance by the current default note
+/// length. This makes a monophonic line a single-key workflow while Enter
+/// remains available for stationary toggles and chord construction.
+fn stepEnter(app: *App, max_step: u16, place_note: bool) void {
+    if (place_note) insertNote(app);
+    const advance: i32 = @max(1, @as(i32, @intFromFloat(@round(app.piano_note_len * stepsPerBeatF(app)))));
+    moveStep(app, max_step, advance);
+    if (!place_note) {
+        app.setStatus("rest: advanced {d} step{s}", .{ advance, if (advance == 1) "" else "s" });
+    }
 }
 
 /// Resize the note starting under the cursor by `delta` beats (clamped to

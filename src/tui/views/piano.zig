@@ -387,7 +387,7 @@ pub fn drawPianoRollStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Write
     } else if (note != null) {
         try w.writeAll(dim ++ "  [ ]: resize  < >: velocity  M: move" ++ rst);
     } else {
-        try w.writeAll(dim ++ "  enter: add  a: hear  i: play/record" ++ rst);
+        try w.writeAll(dim ++ "  n/N: note/rest + advance  enter: toggle  a: hear" ++ rst);
     }
 }
 

@@ -286,7 +286,8 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("J / K",        "move cursor down / up (one octave)");
     t.key("g / G",        "jump cursor to loop start / end");
     t.key("w / b",        "jump to the next / previous beat boundary");
-    t.key("enter / n",    "toggle / insert note at cursor");
+    t.key("enter",        "toggle note at cursor without moving");
+    t.key("n / N",        "enter note / rest, then advance by the default note length");
     t.key("x",            "delete note at cursor");
     t.key("M",            "grab note at cursor - h/l/j/k drag it, esc drops");
     t.key("a",            "preview note at cursor");
