@@ -1433,6 +1433,12 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
     if (snap.version > file_version) return error.UnsupportedVersion;
     if (snap.tracks.len != snap.racks.len) return error.MalformedProject;
     if (snap.sample_rate < 8_000 or snap.sample_rate > 384_000) return error.InvalidSampleRate;
+    for (snap.arrangement) |lane| {
+        for (lane.clips) |clip| {
+            if (clip.length_bars == 0 or clip.length_bars > std.math.maxInt(u32) - clip.start_bar)
+                return error.MalformedProject;
+        }
+    }
 
     var project = Project.init(allocator);
     errdefer project.deinit();
@@ -3074,6 +3080,18 @@ test "buildSession: rejects malformed and future files" {
         .sample_rate = 0,
         .tracks = &.{.{ .name = "a" }},
         .racks = &.{.{ .label = "e", .kind = .empty }},
+    }));
+
+    // Clip spans must be non-empty and fit the u32 bar timeline.
+    try testing.expectError(error.MalformedProject, buildSession(testing.allocator, &.{
+        .tracks = &.{.{ .name = "a" }},
+        .racks = &.{.{ .label = "e", .kind = .empty }},
+        .arrangement = &.{.{ .clips = &.{.{ .start_bar = 1, .length_bars = 0 }} }},
+    }));
+    try testing.expectError(error.MalformedProject, buildSession(testing.allocator, &.{
+        .tracks = &.{.{ .name = "a" }},
+        .racks = &.{.{ .label = "e", .kind = .empty }},
+        .arrangement = &.{.{ .clips = &.{.{ .start_bar = std.math.maxInt(u32), .length_bars = 1 }} }},
     }));
 }
 
