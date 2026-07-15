@@ -5260,6 +5260,32 @@ test "synth preset picker pages and jumps between categories" {
     try std.testing.expectEqual(@as(usize, 1), app.preset_picker_cursor);
 }
 
+test "synth preset audition plays C3 and cancel restores the original patch" {
+    var app = try testApp();
+    defer app.deinit();
+    app.synth_track = 0;
+    app.view = .synth_editor;
+    const original = app.session.racks.items[0].instrument.poly_synth.toPatch();
+    app.handleKey(.{ .char = 'f' }, 0);
+
+    // Move off init, audition without accepting, and remain in the picker.
+    app.handleKey(.{ .char = 'j' }, 0);
+    app.handleKey(.{ .char = 'a' }, 123);
+    try std.testing.expectEqual(AppView.preset_picker, app.view);
+    try std.testing.expect(!app.dirty);
+    try std.testing.expectEqual(@as(usize, 1), app.note_off_len);
+    try std.testing.expectEqual(@as(u7, 48), app.note_offs[0].note);
+    try std.testing.expect(std.mem.indexOf(u8, app.status_buf[0..app.status_len], "C3") != null);
+    const auditioned = app.session.racks.items[0].instrument.poly_synth.toPatch();
+    try std.testing.expect(auditioned.waveform != original.waveform or auditioned.filter_cutoff != original.filter_cutoff);
+
+    app.handleKey(.escape, 124);
+    try std.testing.expectEqual(AppView.synth_editor, app.view);
+    const restored = app.session.racks.items[0].instrument.poly_synth.toPatch();
+    try std.testing.expectEqualDeep(original, restored);
+    try std.testing.expect(!app.dirty);
+}
+
 test "f in the drum grid opens the kit picker and enter regenerates the pads" {
     var app = try testApp();
     defer app.deinit();

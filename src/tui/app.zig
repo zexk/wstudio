@@ -575,6 +575,11 @@ pub const App = struct {
     /// `automation_param_scroll`.
     preset_picker_cursor: usize = 0,
     preset_picker_scroll: usize = 0,
+    /// Synth state before the picker opened. Audition applies patches to the
+    /// live synth, so cancel restores this snapshot instead of committing the
+    /// last sound heard while browsing.
+    preset_audition_original: ws.dsp.PolySynth.Patch = .{},
+    preset_audition_active: bool = false,
     /// Last submitted `/` filter for the preset picker - separate from the
     /// global search register because it narrows a list rather than jumping
     /// a cursor, and clears on every open. While the prompt is still being

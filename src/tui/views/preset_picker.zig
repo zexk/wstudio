@@ -132,7 +132,7 @@ pub fn drawPresetPickerStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Wr
         try w.writeAll(dim ++ "  " ++ rst);
         try w.writeAll(app.status_buf[0..app.status_len]);
     }
-    try w.writeAll(dim ++ "  " ++ rst ++ "j/k: move  J/K: page");
-    if (app.preset_picker_kind == .synth) try w.writeAll("   [ ] category");
-    try w.writeAll("  /: filter  enter: apply  d: delete saved  esc: close");
+    try w.writeAll(dim ++ "  " ++ rst ++ "j/k: move");
+    if (app.preset_picker_kind == .synth) try w.writeAll("  a: audition C3");
+    try w.writeAll("  enter: apply  /: filter  d: delete  esc: close");
 }

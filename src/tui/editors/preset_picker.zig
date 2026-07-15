@@ -197,10 +197,18 @@ pub fn open(app: *App, kind: Kind, track: u16) void {
     app.preset_picker_cursor = 0;
     app.preset_picker_scroll = 0;
     app.preset_filter_len = 0;
+    app.preset_audition_active = false;
+    if (kind == .synth) {
+        if (targetSynth(app)) |s| app.preset_audition_original = s.toPatch();
+    }
     app.view = .preset_picker;
 }
 
 pub fn close(app: *App) void {
+    if (app.preset_audition_active) {
+        if (targetSynth(app)) |s| s.applyPatch(app.preset_audition_original);
+        app.preset_audition_active = false;
+    }
     app.view = app.preset_picker_return;
 }
 
@@ -247,8 +255,9 @@ fn jumpSection(app: *App, direction: i32) void {
 }
 
 /// j/k move, J/K page, `[`/`]` jump sections, g/G jump to ends,
-/// enter/space apply. `/` is routed to the modal search prompt by
-/// App.handleKey before this runs. Esc/q close without applying.
+/// enter/space apply. For synth presets, `a` applies the highlighted patch
+/// temporarily and sounds C3; cancel restores the pre-picker patch. `/` is
+/// routed to the modal search prompt by App.handleKey before this runs.
 pub fn handleKey(app: *App, key: modal_mod.Key) void {
     switch (key) {
         .escape => close(app),
@@ -263,12 +272,28 @@ pub fn handleKey(app: *App, key: modal_mod.Key) void {
             '[' => jumpSection(app, -1),
             'g' => app.preset_picker_cursor = 0,
             'G' => app.preset_picker_cursor = entryCount(app) -| 1,
+            'a' => auditionSelected(app),
             'd' => deleteSelected(app),
             ' ' => applySelected(app),
             else => {},
         },
         else => {},
     }
+}
+
+fn auditionSelected(app: *App) void {
+    if (app.preset_picker_kind != .synth) return;
+    var buf: [max_display_rows]DisplayRow = undefined;
+    const chosen = selectedEntry(buildDisplayRows(app, &buf), app.preset_picker_cursor) orelse return;
+    const s = targetSynth(app) orelse return;
+    switch (chosen.source) {
+        .user => |i| s.applyPatch(app.user_synth_presets.items[i].patch),
+        .factory => |i| s.applyPatch(ws.dsp.synth_presets.presets[i].patch),
+        .kit => return,
+    }
+    app.preset_audition_active = true;
+    app.playNote(app.preset_picker_track, 48, app.now_ns);
+    app.setStatus("audition: {s}  C3", .{chosen.name});
 }
 
 /// Click an entry row to select + apply it (headers ignore the click);
@@ -399,5 +424,6 @@ pub fn applySelected(app: *App) void {
         },
     }
     app.dirty = true;
+    app.preset_audition_active = false;
     close(app);
 }

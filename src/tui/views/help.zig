@@ -270,6 +270,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("p",            "open piano roll for this track");
     t.key("s",            "FX chain for this track");
     t.key("f",            "preset picker - factory + saved patches, / filters by name/tag/author, d deletes a save");
+    t.key("a (in picker)", "audition the highlighted synth preset with C3; esc restores the original sound");
     t.key(":synth-preset-save", "<name>  save the current params as a reusable preset");
     t.push(dim ++ "  ARP and ENV 3 sections sit after MACRO in the main subview (j/k reaches them).", .{});
     t.push(dim ++ "  the FX subview reuses the FX-chain a/x/</> keys documented under FX CHAIN below.", .{});
