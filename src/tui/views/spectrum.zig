@@ -472,7 +472,7 @@ pub fn drawFxView(
             const norm = std.math.clamp((v - range[0]) / (range[1] - range[0]), 0.0, 1.0);
             var vbuf: [16]u8 = undefined;
             try barRow(w, in_submenu and cur_field == field, false, sectionColor(.eq),
-                spectrum_ed.paramName(&unit.payload, idx), norm, 1.0, formatFxValue(&vbuf, &unit.payload, idx));
+                spectrum_ed.paramName(&unit.payload, idx), norm, 1.0, formatFxValue(app, &vbuf, &unit.payload, idx));
                 // zig fmt: on
         }
 
@@ -494,7 +494,7 @@ pub fn drawFxView(
             const range = spectrum_ed.paramRange(app, &unit.payload, i);
             const norm = std.math.clamp((v - range[0]) / (range[1] - range[0]), 0.0, 1.0);
             var vbuf: [16]u8 = undefined;
-            try barRow(w, is_sel, false, sectionColor(k), spectrum_ed.paramName(&unit.payload, i), norm, 1.0, formatFxValue(&vbuf, &unit.payload, i));
+            try barRow(w, is_sel, false, sectionColor(k), spectrum_ed.paramName(&unit.payload, i), norm, 1.0, formatFxValue(app, &vbuf, &unit.payload, i));
         }
         body_lines = visible_count;
         if (unit.bypassed) {
@@ -514,7 +514,7 @@ pub fn drawFxView(
 
 /// Formats param `idx` of payload `p` with a unit-appropriate suffix, e.g.
 /// "-6.0dB", "4.0:1", "120ms", "35%".
-fn formatFxValue(buf: []u8, p: *const ws.FxPayload, idx: usize) []const u8 {
+fn formatFxValue(app: anytype, buf: []u8, p: *const ws.FxPayload, idx: usize) []const u8 {
     const v = spectrum_ed.getParam(p, idx);
     return switch (p.*) {
         .eq => |*e| blk: {
@@ -537,8 +537,16 @@ fn formatFxValue(buf: []u8, p: *const ws.FxPayload, idx: usize) []const u8 {
             0, 4 => std.fmt.bufPrint(buf, "{d:.1}dB", .{v}) catch "?",
             1 => std.fmt.bufPrint(buf, "{d:.1}:1", .{v}) catch "?",
             2, 3 => std.fmt.bufPrint(buf, "{d:.0}ms", .{v}) catch "?",
-            // 0 = none, N = 1-based track index — see getParam's doc comment.
-            5 => if (v < 0.5) "none" else std.fmt.bufPrint(buf, "trk {d:.0}", .{v}) catch "?",
+            // Include the track name so changing this routing does not
+            // require memorizing which numbered row holds the kick. Keep
+            // the number too, since that is what h/l is cycling through.
+            5 => if (v < 0.5) "none" else blk: {
+                const track: usize = @intFromFloat(v - 1.0);
+                if (track >= app.session.project.tracks.items.len)
+                    break :blk std.fmt.bufPrint(buf, "trk {d:.0}", .{v}) catch "?";
+                const name = app.session.project.tracks.items[track].name;
+                break :blk std.fmt.bufPrint(buf, "{d:.0}:{s}", .{ v, name[0..@min(name.len, 9)] }) catch "?";
+            },
             // 0 = whole track, N = 1-based pad index — see getParam's doc comment.
             6 => if (v < 0.5) "-" else std.fmt.bufPrint(buf, "pad {d:.0}", .{v}) catch "?",
             else => "?",
@@ -624,11 +632,11 @@ pub fn drawFxStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer, targ
                 try w.print("band {d}/{d}", .{ bf.band + 1, eq_mod.num_eq_bands });
             } else {
                 var vbuf: [16]u8 = undefined;
-                try w.print("b{d} {s} {s}", .{ bf.band + 1, spectrum_ed.paramName(&unit.payload, app.fx_param), formatFxValue(&vbuf, &unit.payload, app.fx_param) });
+                try w.print("b{d} {s} {s}", .{ bf.band + 1, spectrum_ed.paramName(&unit.payload, app.fx_param), formatFxValue(app, &vbuf, &unit.payload, app.fx_param) });
             },
             else => {
                 var vbuf: [16]u8 = undefined;
-                try w.print("{s} {s}", .{ spectrum_ed.paramName(&unit.payload, app.fx_param), formatFxValue(&vbuf, &unit.payload, app.fx_param) });
+                try w.print("{s} {s}", .{ spectrum_ed.paramName(&unit.payload, app.fx_param), formatFxValue(app, &vbuf, &unit.payload, app.fx_param) });
             },
         }
         if (!eq_band_select) {
