@@ -217,11 +217,13 @@ pub const MultibandComp = struct {
     /// degenerate/negative-width mid band would make the crossover math
     /// produce nonsense coefficients).
     pub fn setXoverLo(self: *MultibandComp, hz: f32) void {
+        if (!std.math.isFinite(hz)) return;
         self.xover_lo_hz = std.math.clamp(hz, 20.0, self.xover_hi_hz - 20.0);
         self.recomputeCrossover();
     }
 
     pub fn setXoverHi(self: *MultibandComp, hz: f32) void {
+        if (!std.math.isFinite(hz)) return;
         self.xover_hi_hz = std.math.clamp(hz, self.xover_lo_hz + 20.0, 20_000.0);
         self.recomputeCrossover();
     }
@@ -233,6 +235,7 @@ pub const MultibandComp = struct {
     /// lo=2500/hi=8000 pair down to lo=1980. `lo` is set first against only
     /// the absolute floor, then `hi` clamps against the now-final `lo`.
     pub fn setXovers(self: *MultibandComp, lo: f32, hi: f32) void {
+        if (!std.math.isFinite(lo) or !std.math.isFinite(hi)) return;
         self.xover_lo_hz = std.math.clamp(lo, 20.0, 20_000.0 - 20.0);
         self.xover_hi_hz = std.math.clamp(hi, self.xover_lo_hz + 20.0, 20_000.0);
         self.recomputeCrossover();
@@ -372,6 +375,17 @@ test "setXoverLo/Hi keep the two crossover points from crossing" {
     mb.setXoverLo(1000.0);
     mb.setXoverHi(200.0); // would cross 1000Hz - must clamp above it instead
     try std.testing.expect(mb.xover_hi_hz > mb.xover_lo_hz);
+}
+
+test "crossover setters ignore non-finite values" {
+    var mb = MultibandComp.init(48_000);
+    const lo = mb.xover_lo_hz;
+    const hi = mb.xover_hi_hz;
+    mb.setXoverLo(std.math.nan(f32));
+    mb.setXoverHi(std.math.inf(f32));
+    mb.setXovers(-std.math.inf(f32), 1000.0);
+    try std.testing.expectEqual(lo, mb.xover_lo_hz);
+    try std.testing.expectEqual(hi, mb.xover_hi_hz);
 }
 
 test "reset clears crossover filter state and band envelopes" {

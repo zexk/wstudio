@@ -584,6 +584,7 @@ pub const Slicer = struct {
     }
 
     pub fn setSwing(self: *Slicer, pct: f32) void {
+        if (!std.math.isFinite(pct)) return;
         self.swing.store(std.math.clamp(pct, swing_min, swing_max), .monotonic);
     }
 
@@ -839,6 +840,17 @@ test "slicer starts with no sample" {
     try std.testing.expectEqual(@as(usize, 0), s.samples.len);
     try std.testing.expectEqualStrings("", s.clipName());
     try std.testing.expectEqual(@as(u8, 0), s.slice_count);
+}
+
+test "setSwing ignores non-finite values" {
+    var transport = Transport{ .sample_rate = 48_000 };
+    var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
+    defer s.deinit();
+    s.setSwing(62.0);
+    s.setSwing(std.math.nan(f32));
+    try std.testing.expectEqual(@as(f32, 62.0), s.swing.load(.monotonic));
+    s.setSwing(std.math.inf(f32));
+    try std.testing.expectEqual(@as(f32, 62.0), s.swing.load(.monotonic));
 }
 
 test "sliceInto equal-divides the clip and clamps out-of-range counts" {

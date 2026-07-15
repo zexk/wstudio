@@ -47,10 +47,12 @@ pub const Ott = struct {
     }
 
     pub fn setDepth(self: *Ott, v: f32) void {
+        if (!std.math.isFinite(v)) return;
         self.mb.mix = std.math.clamp(v, 0.0, 1.0);
     }
 
     pub fn setTime(self: *Ott, v: f32) void {
+        if (!std.math.isFinite(v)) return;
         self.time = std.math.clamp(v, 0.25, 4.0);
         self.mb.attack_ms = base_attack_ms * self.time;
         self.mb.release_ms = base_release_ms * self.time;
@@ -113,6 +115,16 @@ test "setTime scales the shared attack/release pair and clamps" {
     try std.testing.expectApproxEqAbs(base_release_ms * 2.0, ott.mb.release_ms, 1e-3);
     ott.setTime(100.0);
     try std.testing.expectEqual(@as(f32, 4.0), ott.time);
+}
+
+test "setters ignore non-finite values" {
+    var ott = Ott.init(48_000);
+    const depth = ott.depth();
+    const time = ott.time;
+    ott.setDepth(std.math.nan(f32));
+    ott.setTime(std.math.inf(f32));
+    try std.testing.expectEqual(depth, ott.depth());
+    try std.testing.expectEqual(time, ott.time);
 }
 
 test "out gain applies after the squash" {

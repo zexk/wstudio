@@ -75,6 +75,7 @@ fn paramStep(id: u8) f32 {
 /// Absolute-value counterpart to `adjustParam`, same id space and clamp
 /// ranges - for undo's capture/restore. Toggle (reverse, id 9): >= 0.5 is on.
 pub fn setParamAbsolute(pad: *Pad, id: u8, value: f32) void {
+    if (!std.math.isFinite(value)) return;
     switch (id) {
         0 => pad.start_norm = std.math.clamp(value, 0.0, pad.end_norm - 0.01),
         // zig fmt: off
@@ -89,6 +90,17 @@ pub fn setParamAbsolute(pad: *Pad, id: u8, value: f32) void {
         9 => pad.reverse    = value >= 0.5,
         // zig fmt: on
         else => {},
+    }
+}
+
+test "setParamAbsolute ignores non-finite values for every pad parameter" {
+    var pad: Pad = .{ .samples = &.{} };
+    for (0..param_count) |id| {
+        const before = paramValue(&pad, @intCast(id)).?;
+        setParamAbsolute(&pad, @intCast(id), std.math.nan(f32));
+        try std.testing.expectEqual(before, paramValue(&pad, @intCast(id)).?);
+        setParamAbsolute(&pad, @intCast(id), std.math.inf(f32));
+        try std.testing.expectEqual(before, paramValue(&pad, @intCast(id)).?);
     }
 }
 

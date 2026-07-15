@@ -223,6 +223,7 @@ pub const PatternPlayer = struct {
     /// `:swing` command. Audio-thread-safe (atomic store), not undo-tracked:
     /// a mixer-style live param, same as DrumMachine's own swing.
     pub fn setSwing(self: *PatternPlayer, pct: f32) void {
+        if (!std.math.isFinite(pct)) return;
         self.swing.store(std.math.clamp(pct, swing_min, swing_max), .monotonic);
     }
 
@@ -449,6 +450,10 @@ test "setSwing clamps to [swing_min, swing_max]" {
     pp.setSwing(-1000.0);
     try std.testing.expectApproxEqAbs(PatternPlayer.swing_min, pp.swing.load(.monotonic), 1e-6);
     pp.setSwing(62.0);
+    try std.testing.expectApproxEqAbs(@as(f32, 62.0), pp.swing.load(.monotonic), 1e-6);
+    pp.setSwing(std.math.nan(f32));
+    try std.testing.expectApproxEqAbs(@as(f32, 62.0), pp.swing.load(.monotonic), 1e-6);
+    pp.setSwing(std.math.inf(f32));
     try std.testing.expectApproxEqAbs(@as(f32, 62.0), pp.swing.load(.monotonic), 1e-6);
 }
 

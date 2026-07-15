@@ -144,19 +144,19 @@ pub const ParametricEq = struct {
     }
 
     pub fn setGain(self: *ParametricEq, index: usize, gain_db: f32) void {
-        if (index >= num_eq_bands) return;
+        if (index >= num_eq_bands or !std.math.isFinite(gain_db)) return;
         self.bands[index].gain_db = std.math.clamp(gain_db, gain_min, gain_max);
         self.bands[index].recompute(self.sr);
     }
 
     pub fn setFreq(self: *ParametricEq, index: usize, freq_hz: f32) void {
-        if (index >= num_eq_bands) return;
+        if (index >= num_eq_bands or !std.math.isFinite(freq_hz)) return;
         self.bands[index].freq = std.math.clamp(freq_hz, freq_min, freq_max);
         self.bands[index].recompute(self.sr);
     }
 
     pub fn setQ(self: *ParametricEq, index: usize, q: f32) void {
-        if (index >= num_eq_bands) return;
+        if (index >= num_eq_bands or !std.math.isFinite(q)) return;
         self.bands[index].q = std.math.clamp(q, q_min, q_max);
         self.bands[index].recompute(self.sr);
     }
@@ -192,6 +192,17 @@ pub const ParametricEq = struct {
 
     pub const device = dsp.deviceOf(@This());
 };
+
+test "parameter setters ignore non-finite values" {
+    var eq = ParametricEq.init(48_000);
+    const before = eq.bands[0];
+    eq.setGain(0, std.math.nan(f32));
+    eq.setFreq(0, std.math.inf(f32));
+    eq.setQ(0, -std.math.inf(f32));
+    try std.testing.expectEqual(before.gain_db, eq.bands[0].gain_db);
+    try std.testing.expectEqual(before.freq, eq.bands[0].freq);
+    try std.testing.expectEqual(before.q, eq.bands[0].q);
+}
 
 test "highpass band blocks DC, lowpass band passes it" {
     var eq = ParametricEq.init(48_000);

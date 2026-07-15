@@ -21,14 +21,20 @@ pub const StereoDelay = struct {
         sample_rate: u32,
         max_delay_s: f32,
     ) !StereoDelay {
-        const max_frames: usize = @intFromFloat(max_delay_s * @as(f32, @floatFromInt(sample_rate)));
+        const safe_rate = @max(sample_rate, 1);
+        const safe_max_s = if (std.math.isFinite(max_delay_s) and max_delay_s > 0.0) max_delay_s else 1.0;
+        const max_frames_f = safe_max_s * @as(f32, @floatFromInt(safe_rate));
+        const max_frames: usize = if (max_frames_f >= @as(f32, @floatFromInt(std.math.maxInt(usize))))
+            std.math.maxInt(usize)
+        else
+            @intFromFloat(max_frames_f);
         const left = try allocator.alloc(Sample, @max(max_frames, 1));
         errdefer allocator.free(left);
         const right = try allocator.alloc(Sample, @max(max_frames, 1));
         @memset(left, 0.0);
         @memset(right, 0.0);
         return .{
-            .sample_rate = sample_rate,
+            .sample_rate = safe_rate,
             .lines = .{ left, right },
             .delay_frames = left.len,
         };
@@ -41,8 +47,12 @@ pub const StereoDelay = struct {
 
     /// Control side; not RT-safe (clears the lines).
     pub fn setTime(self: *StereoDelay, seconds: f32) void {
-        const frames: usize = @intFromFloat(seconds * @as(f32, @floatFromInt(self.sample_rate)));
-        self.delay_frames = std.math.clamp(frames, 1, self.lines[0].len);
+        if (!std.math.isFinite(seconds)) return;
+        const frames_f = @max(seconds, 0.0) * @as(f32, @floatFromInt(self.sample_rate));
+        self.delay_frames = if (frames_f >= @as(f32, @floatFromInt(self.lines[0].len)))
+            self.lines[0].len
+        else
+            @max(@as(usize, @intFromFloat(frames_f)), 1);
         self.reset();
     }
 
@@ -91,4 +101,19 @@ test "impulse echoes at the delay time with feedback decay" {
     try std.testing.expectApproxEqAbs(@as(Sample, 0.5), buf[100 * 2], 1e-6); // first echo
     try std.testing.expectApproxEqAbs(@as(Sample, 0.25), buf[200 * 2], 1e-6); // second echo
     try std.testing.expectEqual(@as(Sample, 0.0), buf[50 * 2]); // silence between
+}
+
+test "invalid delay timing inputs stay safe" {
+    var delay = try StereoDelay.init(std.testing.allocator, 0, std.math.nan(f32));
+    defer delay.deinit(std.testing.allocator);
+    try std.testing.expectEqual(@as(u32, 1), delay.sample_rate);
+    try std.testing.expectEqual(@as(usize, 1), delay.delay_frames);
+    try std.testing.expectEqual(@as(f32, 1.0), delay.timeSeconds());
+
+    delay.setTime(std.math.nan(f32));
+    try std.testing.expectEqual(@as(usize, 1), delay.delay_frames);
+    delay.setTime(std.math.inf(f32));
+    try std.testing.expectEqual(@as(usize, 1), delay.delay_frames);
+    delay.setTime(-1.0);
+    try std.testing.expectEqual(@as(usize, 1), delay.delay_frames);
 }
