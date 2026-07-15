@@ -588,7 +588,7 @@ pub const InstrumentKind = enum { empty, poly_synth, sampler, drum_machine, slic
 
 /// A single-clip sampler: the pad's params, its root note, and the piano-roll
 /// pattern. User-loaded clip audio rides along via `pad.sample_file` (v5);
-/// without it the default clip is regenerated on load.
+/// without it the sampler remains empty on load.
 pub const SamplerSnap = struct {
     pad: PadSnap = .{},
     root_note: u8 = 60,
@@ -1377,7 +1377,7 @@ fn restoreSamples(
             },
             .slicer => |*sl| {
                 const sls = rs.slicer orelse continue;
-                if (sls.sample_file.len == 0) continue; // default clip, nothing to restore
+                if (sls.sample_file.len == 0) continue; // empty slicer, nothing to restore
                 const data = readWsjRel(allocator, io, path, sls.sample_file) orelse continue;
                 defer allocator.free(data);
                 const name = if (sls.name.len > 0) sls.name else std.fs.path.stem(sls.sample_file);

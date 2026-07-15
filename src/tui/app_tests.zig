@@ -52,6 +52,14 @@ fn testApp() !App {
     return app;
 }
 
+fn installSlicerTestClip(app: *App) !void {
+    const sl = app.slicerInst();
+    std.testing.allocator.free(sl.samples);
+    sl.samples = try std.testing.allocator.alloc(f32, 1024);
+    @memset(sl.samples, 0.5);
+    for (&sl.slices) |*p| p.samples = sl.samples;
+}
+
 test "cursor movement clamps to track range, plus one for the master row" {
     var app = try testApp();
     defer app.deinit();
@@ -381,6 +389,7 @@ test "slicer grid: slice, step toggle, play triggers the right slice" {
     try app.session.setInstrument(0, .slicer);
     app.slicer_track = 0;
     app.view = .slicer_grid;
+    try installSlicerTestClip(&app);
 
     commands.run(&app, "slice 8");
     try std.testing.expectEqual(@as(u8, 8), app.slicerInst().slice_count);
@@ -600,6 +609,7 @@ test "arrangement: slicer lane stamps a clip and song mode plays it" {
     defer app.deinit();
     try app.session.setInstrument(0, .slicer);
     app.slicer_track = 0;
+    try installSlicerTestClip(&app);
     app.slicerInst().sliceInto(4);
     app.slicerInst().toggleStep(2, 0);
 

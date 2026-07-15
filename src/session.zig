@@ -919,6 +919,10 @@ test "slicer instrument: slices into the engine chain and triggers audibly" {
     try s.setInstrument(0, .slicer);
 
     const sl = &s.racks.items[0].instrument.slicer;
+    std.testing.allocator.free(sl.samples);
+    sl.samples = try std.testing.allocator.alloc(f32, 1024);
+    @memset(sl.samples, 0.5);
+    for (&sl.slices) |*p| p.samples = sl.samples;
     sl.sliceInto(8);
     try std.testing.expectEqual(@as(u8, 8), sl.slice_count);
 
@@ -1001,6 +1005,10 @@ test "duplicateTrack deep-copies sampler audio and drum kit pads" {
     var s = try Session.initDefault(std.testing.allocator);
     defer s.deinit();
     try s.setInstrument(0, .sampler);
+    s.racks.items[0].instrument.sampler.setSamples(
+        try std.testing.allocator.dupe(f32, &[_]f32{ 0.25, -0.25 }),
+        "test",
+    );
     const idx = try s.duplicateTrack(0);
 
     const orig_samples = s.racks.items[0].instrument.sampler.pad.samples;

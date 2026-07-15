@@ -532,12 +532,8 @@ pub const DrumMachine = struct {
     // Sample loading (call from control side only, not while audio thread runs)
 
     /// Materialize pad `idx` if it's still null (never loaded), returning a
-    /// pointer to it either way. A freshly materialized Sampler briefly
-    /// carries the generated default clip — the caller (setPadSamples/
-    /// loadPadWav) immediately replaces it, so this is a transient
-    /// allocation, not a persistent cost (see the `pads` field's own doc
-    /// comment for why lazy materialization matters at 64 slots). Caller
-    /// must have already bounds-checked `idx`.
+    /// pointer to it either way. Caller must have already bounds-checked
+    /// `idx`.
     fn ensurePad(self: *DrumMachine, idx: u8) !*Sampler {
         if (self.pads[idx] == null) {
             self.pads[idx] = try Sampler.init(self.allocator, self.sample_rate);

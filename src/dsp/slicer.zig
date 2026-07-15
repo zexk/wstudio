@@ -158,15 +158,12 @@ pub const Slicer = struct {
     current_step: std.atomic.Value(u8) = .init(0),
 
     pub fn init(allocator: std.mem.Allocator, sample_rate: u32, transport: *const Transport) !Slicer {
-        const samples = try generateDefaultClip(allocator, sample_rate);
-        var name: [8]u8 = [_]u8{' '} ** 8;
-        @memcpy(name[0..5], "slice");
+        const samples = try allocator.alloc(f32, 0);
         var self: Slicer = .{
             .allocator = allocator,
             .sample_rate = sample_rate,
             .transport = transport,
             .samples = samples,
-            .name = name,
         };
         for (&self.slices) |*p| p.* = .{ .samples = samples };
         // zig fmt: off
@@ -824,27 +821,25 @@ pub fn detectOnsets(samples: []const f32, sample_rate: u32, sensitivity: u8, out
     return count;
 }
 
-/// A short plucked C4 tone, same generator `dsp/sampler.zig` uses for its
-/// own default clip — so a freshly inserted Slicer has real audio to chop
-/// immediately (`:slice 8` works before any WAV is loaded), replaced by
-/// `loadWav`.
-fn generateDefaultClip(allocator: std.mem.Allocator, sample_rate: u32) ![]f32 {
-    const sr: f32 = @floatFromInt(sample_rate);
-    const len: usize = @intFromFloat(sr * 0.6);
-    const out = try allocator.alloc(f32, len);
-    const freq: f32 = 261.6256; // C4
-    const tau: f32 = 0.18;
-    for (out, 0..) |*s, i| {
-        const t = @as(f32, @floatFromInt(i)) / sr;
-        const env = @exp(-t / tau);
-        const phase = 2.0 * std.math.pi * freq * t;
-        s.* = env * (0.9 * @sin(phase) + 0.2 * @sin(2.0 * phase));
-    }
-    return out;
-}
-
 // ---------------------------------------------------------------------------
 // Tests
+
+fn installTestClip(s: *Slicer) !void {
+    s.allocator.free(s.samples);
+    s.samples = try s.allocator.alloc(f32, 1024);
+    @memset(s.samples, 0.5);
+    for (&s.slices) |*p| p.samples = s.samples;
+}
+
+test "slicer starts with no sample" {
+    var transport = Transport{ .sample_rate = 48_000 };
+    var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
+    defer s.deinit();
+
+    try std.testing.expectEqual(@as(usize, 0), s.samples.len);
+    try std.testing.expectEqualStrings("", s.clipName());
+    try std.testing.expectEqual(@as(u8, 0), s.slice_count);
+}
 
 test "sliceInto equal-divides the clip and clamps out-of-range counts" {
     var transport = Transport{ .sample_rate = 48_000 };
@@ -878,6 +873,7 @@ test "triggerSlice renders only within its own region" {
     var transport = Transport{ .sample_rate = 48_000 };
     var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
     defer s.deinit();
+    try installTestClip(&s);
     s.sliceInto(2);
     s.triggerSlice(1, 1.0, 0);
 
@@ -906,6 +902,7 @@ test "step sequencer fires the right slice on schedule" {
     transport.play();
     var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
     defer s.deinit();
+    try installTestClip(&s);
     s.sliceInto(4);
     s.toggleStep(2, 0); // slice 2 fires on step 0
     s.setStepCount(16);
@@ -1146,6 +1143,7 @@ test "song mode fires the clip covering the playhead, silent past the end" {
     transport.play();
     var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
     defer s.deinit();
+    try installTestClip(&s);
     s.sliceInto(4);
     // Live pattern has slice 0 on step 0 — must NOT fire in song mode.
     s.toggleStep(0, 0);

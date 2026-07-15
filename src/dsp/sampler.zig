@@ -57,13 +57,10 @@ pub const Sampler = struct {
     next_age: u64 = 0,
 
     pub fn init(allocator: std.mem.Allocator, sample_rate: u32) !Sampler {
-        const samples = try generateDefaultClip(allocator, sample_rate);
-        var name: [8]u8 = [_]u8{' '} ** 8;
-        @memcpy(name[0..4], "tone");
         return .{
             .allocator = allocator,
             .sample_rate = sample_rate,
-            .pad = .{ .samples = samples, .name = name },
+            .pad = .{ .samples = try allocator.alloc(f32, 0) },
             .voices = [_]NoteVoice{.{}} ** max_voices,
         };
     }
@@ -329,10 +326,7 @@ pub const Sampler = struct {
     }
 };
 
-/// A short plucked C4 (≈261.6 Hz) tone with exponential decay, so a freshly
-/// inserted sampler is immediately audible at root note 60. Replaced by
-/// `loadWav`.
-fn generateDefaultClip(allocator: std.mem.Allocator, sample_rate: u32) ![]f32 {
+fn generateTestClip(allocator: std.mem.Allocator, sample_rate: u32) ![]f32 {
     const sr: f32 = @floatFromInt(sample_rate);
     const len: usize = @intFromFloat(sr * 0.6);
     const out = try allocator.alloc(f32, len);
@@ -351,9 +345,18 @@ fn generateDefaultClip(allocator: std.mem.Allocator, sample_rate: u32) ![]f32 {
 // -----------------------------------------------------------------------
 // Tests
 
-test "default sampler is audible at root note" {
+test "sampler starts with no sample" {
     var s = try Sampler.init(std.testing.allocator, 48_000);
     defer s.deinit();
+
+    try std.testing.expectEqual(@as(usize, 0), s.pad.samples.len);
+    try std.testing.expectEqualStrings("", s.clipName());
+}
+
+test "loaded sampler is audible at root note" {
+    var s = try Sampler.init(std.testing.allocator, 48_000);
+    defer s.deinit();
+    s.setSamples(try generateTestClip(std.testing.allocator, 48_000), "tone");
 
     const dev = s.device();
     dev.sendEvent(.{ .note_on = .{ .note = 60, .velocity = 1.0 } });
@@ -370,6 +373,7 @@ test "default sampler is audible at root note" {
 test "higher note plays back faster (chromatic transpose)" {
     var s = try Sampler.init(std.testing.allocator, 48_000);
     defer s.deinit();
+    s.setSamples(try generateTestClip(std.testing.allocator, 48_000), "tone");
 
     // An octave up consumes the region twice as fast, so its voice deactivates
     // in fewer blocks than the root note.
@@ -485,6 +489,7 @@ test "adjustParam edits clip params and root note" {
 test "a mid-block trigger renders from its block_start offset, not the block top" {
     var s = try Sampler.init(std.testing.allocator, 48_000);
     defer s.deinit();
+    s.setSamples(try generateTestClip(std.testing.allocator, 48_000), "tone");
 
     s.trigger(s.root_note, 1.0, 100); // fire 100 frames into the block
     var buf: [512]Sample = undefined; // 256 frames stereo
