@@ -396,9 +396,7 @@ fn handleVisual(app: *App, key: modal_mod.Key) bool {
 }
 
 fn exitVisual(app: *App) void {
-    app.modal.mode = .normal;
-    app.modal.count = 0;
-    app.modal.pending = null;
+    _ = app.modal.setMode(.normal);
     app.slicer_visual_anchor = null;
 }
 

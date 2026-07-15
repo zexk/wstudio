@@ -156,8 +156,6 @@ const mb_comp_param_count = mb_shared_count + multiband_comp.num_bands * mb_fiel
 /// kind is that this list stays this short (see dsp/ott.zig).
 pub const ott_depth = 0;
 pub const ott_time = 1;
-pub const ott_in = 2;
-pub const ott_out = 3;
 
 pub const MbBandField = struct { band: usize, field: usize };
 

@@ -1290,9 +1290,7 @@ pub const App = struct {
     // zig fmt: on
 
     fn exitTracksVisual(self: *App) void {
-        self.modal.mode = .normal;
-        self.modal.count = 0;
-        self.modal.pending = null;
+        _ = self.modal.setMode(.normal);
         self.tracks_visual_anchor = null;
     }
 

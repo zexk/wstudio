@@ -153,7 +153,7 @@ pub const ModalInput = struct {
         };
     }
 
-    fn setMode(self: *ModalInput, mode: Mode) Action {
+    pub fn setMode(self: *ModalInput, mode: Mode) Action {
         self.mode = mode;
         self.count = 0;
         self.pending = null;

@@ -299,9 +299,7 @@ fn handleVisual(app: *App, key: modal_mod.Key, clip: *ws.Clip) bool {
 
 /// Leave visual mode, clearing the anchor so the selection can't linger.
 fn exitVisual(app: *App) void {
-    app.modal.mode = .normal;
-    app.modal.count = 0;
-    app.modal.pending = null;
+    _ = app.modal.setMode(.normal);
     app.automation_visual_anchor = null;
 }
 

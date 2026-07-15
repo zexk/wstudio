@@ -100,7 +100,6 @@ pub const drawSamplerEditor = sampler.drawSamplerEditor;
 pub const drawSamplerStatus = sampler.drawSamplerStatus;
 pub const drawArrangement = arrangement.drawArrangement;
 pub const drawArrangementStatus = arrangement.drawArrangementStatus;
-pub const arr_visibleBars = arrangement.visibleBars;
 pub const drawFileBrowser = browser.drawFileBrowser;
 pub const drawFileBrowserStatus = browser.drawFileBrowserStatus;
 pub const drawAutomation = automation.drawAutomation;
