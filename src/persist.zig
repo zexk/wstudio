@@ -1426,6 +1426,11 @@ fn sampleName(ps: PadSnap) []const u8 {
     return if (ps.name.len > 0) ps.name else std.fs.path.stem(ps.sample_file);
 }
 
+fn finiteClamp(comptime T: type, value: T, lo: T, hi: T, fallback: T) T {
+    if (!std.math.isFinite(value)) return fallback;
+    return std.math.clamp(value, lo, hi);
+}
+
 fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
     // Reject files this build cannot represent; clamp what can be clamped.
     // Racks, tracks, and lanes are parallel arrays everywhere downstream
@@ -1448,7 +1453,7 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
     var project = Project.init(allocator);
     errdefer project.deinit();
     project.sample_rate = snap.sample_rate;
-    project.tempo_bpm = std.math.clamp(snap.tempo_bpm, 20.0, 400.0);
+    project.tempo_bpm = finiteClamp(f64, snap.tempo_bpm, 20.0, 400.0, 120.0);
     project.beats_per_bar = beats_per_bar;
     project.loop_start_bar = snap.loop_start_bar;
     project.loop_end_bar = snap.loop_end_bar;
@@ -1464,7 +1469,9 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
         // slot is actually an active group gets swept below, once
         // `snap.groups` itself has been loaded.
         _ = try project.addTrack(.{
-            .name = t.name, .gain_db = t.gain_db, .pan = t.pan,
+            .name = t.name,
+            .gain_db = finiteClamp(f32, t.gain_db, -60.0, 12.0, 0.0),
+            .pan = finiteClamp(f32, t.pan, -1.0, 1.0, 0.0),
             .muted = t.muted, .soloed = t.soloed, .color = @min(t.color, 7),
             .group = if (t.group) |g| (if (g < engine_mod.max_groups) g else null) else null,
         });
@@ -1702,7 +1709,11 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
     for (snap.groups[0..group_count], 0..) |gs, i| {
         if (!gs.active) continue;
         const idx: u8 = @intCast(i);
-        self.groups[idx] = .{ .name = try allocator.dupe(u8, gs.name), .gain_db = gs.gain_db, .folded = gs.folded };
+        self.groups[idx] = .{
+            .name = try allocator.dupe(u8, gs.name),
+            .gain_db = finiteClamp(f32, gs.gain_db, -60.0, 12.0, 0.0),
+            .folded = gs.folded,
+        };
         try applyFxChain(allocator, &self.groups[idx].?.fx, gs.fx_chain, sr);
         self.syncGroupChain(idx);
     }
@@ -1758,7 +1769,7 @@ fn applyVelSnap(
         const pn = @min(vel.len, dst.len);
         for (vel[0..pn], dst[0..pn]) |row, *dst_row| {
             const sn = @min(row.len, dst_row.len);
-            @memcpy(dst_row[0..sn], row[0..sn]);
+            for (row[0..sn], dst_row[0..sn]) |level, *dst_level| dst_level.* = @min(level, DrumMachine.vel_full);
         }
         return;
     }
@@ -1782,13 +1793,17 @@ fn clipFromSnap(allocator: std.mem.Allocator, cs: ClipSnap) !ws_arrangement.Clip
             const count = @min(cs.notes.len, @as(usize, pattern_mod.max_notes));
             for (cs.notes[0..count], tmp[0..count]) |n, *o| o.* = sanitizeNote(n);
             break :blk try ws_arrangement.Clip.initMelodic(
-                allocator, cs.start_bar, cs.length_bars, tmp[0..count], cs.length_beats,
+                allocator,
+                cs.start_bar,
+                cs.length_bars,
+                tmp[0..count],
+                finiteClamp(f64, cs.length_beats, 1.0, std.math.floatMax(f64), 1.0),
             );
         },
         .drum => blk2: {
             var d: ws_arrangement.Clip.Drum = .{
                 .pattern = padBitplane(cs.drum_pattern),
-                .step_count = cs.step_count,
+                .step_count = std.math.clamp(cs.step_count, 1, DrumMachine.max_steps),
                 .variant = @min(cs.variant, DrumMachine.max_variants - 1),
             };
             applyVelSnap(&d.vel, cs.drum_vel, cs.drum_vel_lo, cs.drum_vel_hi);
@@ -1845,8 +1860,8 @@ fn automationFromSnap(
 ) ![]AutomationPoint {
     const out = try allocator.alloc(AutomationPoint, snaps.len);
     for (snaps, out) |s, *o| o.* = .{
-        .beat = @max(0.0, s.beat),
-        .value = std.math.clamp(s.value, lo, hi),
+        .beat = finiteClamp(f64, s.beat, 0.0, std.math.floatMax(f64), 0.0),
+        .value = finiteClamp(f32, s.value, lo, hi, std.math.clamp(0.0, lo, hi)),
     };
     std.mem.sort(AutomationPoint, out, {}, struct {
         fn lessThan(_: void, a: AutomationPoint, b: AutomationPoint) bool {
@@ -1862,16 +1877,16 @@ fn automationFromSnap(
 /// would otherwise trip adjustParam's clamp bounds (lower > upper) on the
 /// audio thread, or index past buffers in the waveform view.
 fn applyPadSnap(p: *Pad, ps: PadSnap) void {
-    p.gain            = std.math.clamp(ps.gain, 0.0, 2.0);
-    p.pan             = std.math.clamp(ps.pan, -1.0, 1.0);
-    p.pitch_semitones = std.math.clamp(ps.pitch_semitones, -24.0, 24.0);
-    p.start_norm      = std.math.clamp(ps.start_norm, 0.0, 0.99);
-    p.end_norm        = std.math.clamp(ps.end_norm, p.start_norm + 0.01, 1.0);
+    p.gain            = finiteClamp(f32, ps.gain, 0.0, 2.0, 1.0);
+    p.pan             = finiteClamp(f32, ps.pan, -1.0, 1.0, 0.0);
+    p.pitch_semitones = finiteClamp(f32, ps.pitch_semitones, -24.0, 24.0, 0.0);
+    p.start_norm      = finiteClamp(f32, ps.start_norm, 0.0, 0.99, 0.0);
+    p.end_norm        = finiteClamp(f32, ps.end_norm, p.start_norm + 0.01, 1.0, 1.0);
     p.reverse         = ps.reverse;
-    p.attack_s        = std.math.clamp(ps.attack_s, 0.0, 5.0);
-    p.decay_s         = std.math.clamp(ps.decay_s, 0.0, 5.0);
-    p.sustain         = std.math.clamp(ps.sustain, 0.0, 1.0);
-    p.release_s       = std.math.clamp(ps.release_s, 0.001, 5.0);
+    p.attack_s        = finiteClamp(f32, ps.attack_s, 0.0, 5.0, 0.001);
+    p.decay_s         = finiteClamp(f32, ps.decay_s, 0.0, 5.0, 0.0);
+    p.sustain         = finiteClamp(f32, ps.sustain, 0.0, 1.0, 1.0);
+    p.release_s       = finiteClamp(f32, ps.release_s, 0.001, 5.0, 0.005);
 }
 // zig fmt: on
 
@@ -1879,9 +1894,9 @@ fn applyPadSnap(p: *Pad, ps: PadSnap) void {
 fn sanitizeNote(n: NoteSnap) pattern_mod.Note {
     return .{
         .pitch = @intCast(@min(n.pitch, 127)),
-        .start_beat = @max(0.0, n.start_beat),
-        .duration_beat = @max(0.0, n.duration_beat),
-        .velocity = std.math.clamp(n.velocity, 0.0, 1.0),
+        .start_beat = finiteClamp(f64, n.start_beat, 0.0, std.math.floatMax(f64), 0.0),
+        .duration_beat = finiteClamp(f64, n.duration_beat, 0.0, std.math.floatMax(f64), 0.0),
+        .velocity = finiteClamp(f32, n.velocity, 0.0, 1.0, pattern_mod.default_velocity),
     };
 }
 
@@ -2720,6 +2735,79 @@ test "automationFromSnap sorts unsorted points and clamps out-of-range values" {
     try testing.expectApproxEqAbs(@as(f32, -60.0), pts[0].value, 1e-6);
     try testing.expectApproxEqAbs(@as(f64, 3.0), pts[1].beat, 1e-9);
     try testing.expectApproxEqAbs(@as(f32, 12.0), pts[1].value, 1e-6);
+}
+
+test "load sanitizes non-finite project, automation, pad, and note fields" {
+    const testing = std.testing;
+    const nan32 = std.math.nan(f32);
+    const nan64 = std.math.nan(f64);
+
+    const snap: Snapshot = .{
+        .tempo_bpm = nan64,
+        .tracks = &.{.{ .name = "bad", .gain_db = nan32, .pan = nan32 }},
+        .racks = &.{.{ .label = "empty", .kind = .empty }},
+        .groups = &.{.{ .active = true, .name = "bad", .gain_db = nan32 }},
+    };
+    var session = try buildSession(testing.allocator, &snap);
+    defer session.deinit();
+    try testing.expectEqual(@as(f64, 120.0), session.project.tempo_bpm);
+    try testing.expectEqual(@as(f32, 0.0), session.project.tracks.items[0].gain_db);
+    try testing.expectEqual(@as(f32, 0.0), session.project.tracks.items[0].pan);
+    try testing.expectEqual(@as(f32, 0.0), session.groups[0].?.gain_db);
+
+    const points = try automationFromSnap(testing.allocator, &.{.{ .beat = nan64, .value = nan32 }}, -1.0, 1.0);
+    defer testing.allocator.free(points);
+    try testing.expectEqual(@as(f64, 0.0), points[0].beat);
+    try testing.expectEqual(@as(f32, 0.0), points[0].value);
+
+    var pad: Pad = .{ .samples = &.{} };
+    applyPadSnap(&pad, .{
+        .gain = nan32,
+        .pan = nan32,
+        .pitch_semitones = nan32,
+        .start_norm = nan32,
+        .end_norm = nan32,
+        .attack_s = nan32,
+        .decay_s = nan32,
+        .sustain = nan32,
+        .release_s = nan32,
+    });
+    try testing.expectEqual(@as(f32, 1.0), pad.gain);
+    try testing.expectEqual(@as(f32, 0.0), pad.pan);
+    try testing.expectEqual(@as(f32, 0.0), pad.pitch_semitones);
+    try testing.expectEqual(@as(f32, 0.0), pad.start_norm);
+    try testing.expectEqual(@as(f32, 1.0), pad.end_norm);
+    try testing.expectEqual(@as(f32, 0.001), pad.attack_s);
+    try testing.expectEqual(@as(f32, 0.0), pad.decay_s);
+    try testing.expectEqual(@as(f32, 1.0), pad.sustain);
+    try testing.expectEqual(@as(f32, 0.005), pad.release_s);
+
+    const note = sanitizeNote(.{ .pitch = 60, .start_beat = nan64, .duration_beat = nan64, .velocity = nan32 });
+    try testing.expectEqual(@as(f64, 0.0), note.start_beat);
+    try testing.expectEqual(@as(f64, 0.0), note.duration_beat);
+    try testing.expectEqual(pattern_mod.default_velocity, note.velocity);
+}
+
+test "clip load clamps invalid loop, step, and velocity values" {
+    const testing = std.testing;
+    var melodic = try clipFromSnap(testing.allocator, .{
+        .start_bar = 0,
+        .length_bars = 1,
+        .length_beats = std.math.nan(f64),
+    });
+    defer melodic.deinit(testing.allocator);
+    try testing.expectEqual(@as(f64, 1.0), melodic.content.melodic.length_beats);
+
+    var drum = try clipFromSnap(testing.allocator, .{
+        .start_bar = 0,
+        .length_bars = 1,
+        .kind = .drum,
+        .step_count = 0,
+        .drum_vel = &.{&.{255}},
+    });
+    defer drum.deinit(testing.allocator);
+    try testing.expectEqual(@as(u8, 1), drum.content.drum.step_count);
+    try testing.expectEqual(DrumMachine.vel_full, drum.content.drum.vel[0][0]);
 }
 
 // zig fmt: off
