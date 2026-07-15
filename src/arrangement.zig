@@ -69,7 +69,10 @@ pub const Clip = struct {
             }
             for (self.synth_params.items) |sp| {
                 const points = try allocator.dupe(AutomationPoint, sp.points);
-                try synth_params.append(allocator, .{ .param_id = sp.param_id, .points = points });
+                synth_params.append(allocator, .{ .param_id = sp.param_id, .points = points }) catch |err| {
+                    allocator.free(points);
+                    return err;
+                };
             }
             return .{ .gain = gain, .pan = pan, .synth_params = synth_params };
         }
@@ -134,8 +137,8 @@ pub const Clip = struct {
         const owned = try allocator.dupe(Note, notes);
         return .{
             .start_bar = start_bar,
-            .length_bars = length_bars,
-            .content = .{ .melodic = .{ .notes = owned, .length_beats = length_beats } },
+            .length_bars = @max(1, length_bars),
+            .content = .{ .melodic = .{ .notes = owned, .length_beats = @max(1.0, length_beats) } },
         };
     }
 
@@ -143,7 +146,7 @@ pub const Clip = struct {
     pub fn initDrum(start_bar: u32, length_bars: u32, drum: Drum) Clip {
         return .{
             .start_bar = start_bar,
-            .length_bars = length_bars,
+            .length_bars = @max(1, length_bars),
             .content = .{ .drum = drum },
         };
     }
@@ -175,7 +178,7 @@ pub const Clip = struct {
 
     /// First bar past the clip (exclusive end).
     pub fn endBar(self: Clip) u32 {
-        return self.start_bar + self.length_bars;
+        return self.start_bar +| self.length_bars;
     }
 
     /// True if `bar` falls within [start_bar, endBar).
@@ -201,6 +204,11 @@ pub const Lane = struct {
     /// list sorted by `start_bar`. Takes ownership of the clip's content -
     /// including on failure, when the content is freed.
     pub fn place(self: *Lane, allocator: std.mem.Allocator, clip: Clip) !void {
+        self.clips.ensureUnusedCapacity(allocator, 1) catch |err| {
+            var owned = clip;
+            owned.deinit(allocator);
+            return err;
+        };
         const start = clip.start_bar;
         const end = clip.endBar();
         var i: usize = 0;
@@ -218,11 +226,7 @@ pub const Lane = struct {
                 break;
             }
         }
-        self.clips.insert(allocator, idx, clip) catch |err| {
-            var owned = clip;
-            owned.deinit(allocator);
-            return err;
-        };
+        self.clips.insertAssumeCapacity(idx, clip);
     }
 
     /// Remove the clip covering `bar`, if any. Returns true if one was removed.
@@ -337,6 +341,29 @@ test "place evicts overlapping clips" {
 
     try testing.expectEqual(@as(usize, 1), lane.clips.items.len);
     try testing.expectEqual(@as(u32, 2), lane.clips.items[0].start_bar);
+}
+
+test "clip constructors enforce non-empty lengths" {
+    const a = testing.allocator;
+    var melodic = try Clip.initMelodic(a, 0, 0, &.{}, 0.0);
+    defer melodic.deinit(a);
+    try testing.expectEqual(@as(u32, 1), melodic.length_bars);
+    try testing.expectEqual(@as(f64, 1.0), melodic.content.melodic.length_beats);
+
+    const drum = Clip.initDrum(0, 0, .{ .pattern = [_]u64{0} ** DrumMachine.max_pads, .step_count = 16 });
+    try testing.expectEqual(@as(u32, 1), drum.length_bars);
+}
+
+test "clip end and lane length saturate at the timeline limit" {
+    const a = testing.allocator;
+    var lane: Lane = .{};
+    defer lane.deinit(a);
+    try lane.place(a, Clip.initDrum(std.math.maxInt(u32) - 1, 4, .{
+        .pattern = [_]u64{0} ** DrumMachine.max_pads,
+        .step_count = 16,
+    }));
+    try testing.expectEqual(std.math.maxInt(u32), lane.clips.items[0].endBar());
+    try testing.expectEqual(std.math.maxInt(u32), lane.lengthBars());
 }
 
 test "clipAt and removeAt cover the clip's whole span" {
