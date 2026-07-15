@@ -167,6 +167,15 @@ pub const ModalInput = struct {
         return @intCast(n);
     }
 
+    fn appendCountDigit(self: *ModalInput, digit: u32) void {
+        const limit: u32 = std.math.maxInt(i32);
+        if (self.count > (limit - digit) / 10) {
+            self.count = limit;
+        } else {
+            self.count = self.count * 10 + digit;
+        }
+    }
+
     fn handleNormal(self: *ModalInput, key: Key) Action {
         const c = switch (key) {
             .char => |c| c,
@@ -189,11 +198,11 @@ pub const ModalInput = struct {
 
         switch (c) {
             '1'...'9' => {
-                self.count = self.count * 10 + (c - '0');
+                self.appendCountDigit(c - '0');
                 return .none;
             },
             '0' => {
-                if (self.count > 0) self.count *= 10;
+                if (self.count > 0) self.appendCountDigit(0);
                 return .none;
             },
             'h' => return .{ .move = .{ .dx = -self.takeCount() } },
@@ -447,4 +456,15 @@ test "space toggles transport, escape cancels count" {
     _ = press(&input, "42");
     _ = input.handle(.escape);
     try std.testing.expectEqual(Action{ .move = .{ .dy = 1 } }, press(&input, "j"));
+}
+
+test "normal mode count saturates without overflowing" {
+    var input: ModalInput = .{};
+    for (0..32) |_| _ = input.handle(.{ .char = '9' });
+
+    try std.testing.expectEqual(
+        Action{ .move = .{ .dx = std.math.maxInt(i32) } },
+        input.handle(.{ .char = 'l' }),
+    );
+    try std.testing.expectEqual(@as(u32, 0), input.count);
 }
