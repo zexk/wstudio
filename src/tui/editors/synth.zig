@@ -119,24 +119,22 @@ fn fxVisualIds(order: []const FxUnitKind, buf: []u8) []const u8 {
     return buf[0..n];
 }
 
-/// `g`/`G`'s target ids for the current subview: `.main`/`.matrix` just use
-/// `firstId`/`lastId` (numeric id order matches visual order there), `.fx`
-/// instead jumps to the top/bottom of `fx_order`'s on-screen sequence —
-/// see `fxVisualIds`'s doc comment for why numeric extremes are wrong once
-/// a unit's been reordered away from its numeric position.
+/// `.fx`'s `g`/`G` target: the top/bottom of the on-only `fx_order`
+/// sequence — see `fxVisualIds`'s doc comment for why numeric extremes
+/// would be wrong once a unit's been reordered away from its numeric
+/// position. Falls back to `fx_first_id`/`fx_last_id` for an empty chain
+/// (harmless — nothing renders there for the cursor to land on anyway).
 fn fxAwareFirstId(app: *App) u8 {
-    if (app.synth_subview != .fx) return firstId(app.synth_subview);
     var kbuf: [14]FxUnitKind = undefined;
     var buf: [96]u8 = undefined;
     const ids = fxVisualIds(fxOnOrder(app, &kbuf), &buf);
-    return if (ids.len > 0) ids[0] else firstId(.fx);
+    return if (ids.len > 0) ids[0] else fx_first_id;
 }
 fn fxAwareLastId(app: *App) u8 {
-    if (app.synth_subview != .fx) return lastId(app.synth_subview);
     var kbuf: [14]FxUnitKind = undefined;
     var buf: [96]u8 = undefined;
     const ids = fxVisualIds(fxOnOrder(app, &kbuf), &buf);
-    return if (ids.len > 0) ids[ids.len - 1] else lastId(.fx);
+    return if (ids.len > 0) ids[ids.len - 1] else fx_last_id;
 }
 
 /// `.main`'s `mainOrder` (comptime, width-aware) for the terminal width as
@@ -452,7 +450,7 @@ fn removeFocusedFx(app: *App) void {
 /// `}`/`{` in the FX subview: moves the cursor to the next/previous
 /// section's first id in `fx_order`'s current sequence (not id order — see
 /// the `'}', '{'` key handler's own comment). No wrap, matching `.main`/
-/// `.matrix`'s sectionStarts-based behavior: past either end, the cursor
+/// `.mod`'s synth_layout.jumpSection behavior: past either end, the cursor
 /// just stays on the current section's own first id.
 fn jumpFxSection(app: *App, forward: bool) void {
     var kbuf: [14]FxUnitKind = undefined;
@@ -474,43 +472,18 @@ fn jumpFxSection(app: *App, forward: bool) void {
     }
 }
 
-/// First/last param id belonging to `subview` — only ever consulted for
-/// `.fx` now (`.main`/`.mod` are fully routed through synth_layout.zig's
-/// comptime tables; these arms are dead but kept so the switch stays
-/// exhaustive until the phase-5 cleanup pass deletes this function).
-fn firstId(subview: Subview) u8 {
-    return switch (subview) {
-        .main => 0,
-        .mod => 59,
-        .fx => 83,
-    };
-}
-fn lastId(subview: Subview) u8 {
-    return switch (subview) {
-        .main => 187,
-        .mod => 125,
-        .fx => 193,
-    };
-}
+/// `.fx`'s numeric id bounds — the range `paramAtRow`'s fallback scan
+/// walks. `.main`/`.mod` don't need this (see synth_layout.zig).
+const fx_first_id: u8 = 83;
+const fx_last_id: u8 = 193;
 
-/// Whether `id` is rendered/reachable in `subview` — only ever consulted
-/// for `.fx` now, see `firstId`'s doc comment.
-fn inSubview(id: u8, subview: Subview) bool {
-    return switch (subview) {
-        .main => (id <= 58 and !deadParam(id)) or (id >= 95 and id <= 102) or (id >= 116 and id <= 125) or (id >= 185 and id <= 187),
-        .fx => (id >= 83 and id <= 94) or (id >= 103 and id <= 115) or (id >= 132 and id <= 135) or (id >= 137 and id <= 142) or (id >= 144 and id <= 159) or (id >= 161 and id <= 165) or (id >= 167 and id <= 174) or (id >= 176 and id <= 179) or (id >= 181 and id <= 183) or (id >= 188 and id <= 193),
-        .mod => id >= 59 and id <= 82,
-    };
-}
-
-fn sectionStarts(subview: Subview) []const u8 {
-    return switch (subview) {
-        // zig fmt: off
-        .main => &[_]u8{ 0, 6, 14, 16, 20, 24, 28, 32, 34, 36, 38, 39, 41, 45, 50, 95, 97, 99, 116, 122, 185 },
-        .fx   => &[_]u8{ 83, 86, 90, 103, 108, 112, 188 },
-        .mod  => &[_]u8{59},
-        // zig fmt: on
-    };
+/// Whether `id` belongs to some FX unit's param range — the ten disjoint
+/// ranges dist/crush/flanger, phaser/delay/reverb, gate, comp, mb_comp,
+/// ott, eq, chorus, freq_shift, and tape occupy in the global id space
+/// (matrix/LFO2-3/macro/arp/env3/wavetable ids sit between them, owned by
+/// `.main`/`.mod` — see synth_layout.zig).
+fn inFx(id: u8) bool {
+    return (id >= 83 and id <= 94) or (id >= 103 and id <= 115) or (id >= 132 and id <= 135) or (id >= 137 and id <= 142) or (id >= 144 and id <= 159) or (id >= 161 and id <= 165) or (id >= 167 and id <= 174) or (id >= 176 and id <= 179) or (id >= 181 and id <= 183) or (id >= 188 and id <= 193);
 }
 
 /// Short tag for the editor title when not on the main pane (main shows no
@@ -574,41 +547,17 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             // removeFocusedFx. No-op outside .fx.
             'a' => { openFxPicker(app); return true; },
             'x' => { removeFocusedFx(app); return true; },
+            // Jumps to the next/prev section's first id. `.fx`'s order
+            // follows fx_order, which need not be id-sorted once the user
+            // has reordered — jumpFxSection walks it by position, not by
+            // numeric id. `.main`/`.mod` walk their synth_layout order the
+            // same way (synth_layout.jumpSection).
             '}', '{' => {
                 history.flushParamNudge(app);
-                if (app.synth_subview == .fx) {
-                    // .fx's section order follows fx_order, which need not
-                    // be id-sorted once the user has reordered — walking a
-                    // "first id greater than cursor" list (like .matrix's
-                    // sectionStarts below) would jump to whatever section
-                    // happens to have the next-highest id, not the next
-                    // section on screen. Jump by position in fx_order
-                    // instead.
-                    jumpFxSection(app, c == '}');
-                } else if (app.synth_subview == .main) {
-                    app.synth_cursor = synth_layout.jumpSection(mainOrderNow(app), app.synth_cursor, c == '}');
-                } else if (app.synth_subview == .mod) {
-                    app.synth_cursor = synth_layout.jumpSection(modOrderNow(app), app.synth_cursor, c == '}');
-                } else {
-                    const starts = sectionStarts(app.synth_subview);
-                    if (c == '}') {
-                        for (starts) |s| {
-                            if (s > app.synth_cursor) {
-                                app.synth_cursor = s;
-                                break;
-                            }
-                        }
-                    } else {
-                        var sec_idx: usize = 0;
-                        for (starts, 0..) |s, idx| {
-                            if (s <= app.synth_cursor) sec_idx = idx;
-                        }
-                        if (app.synth_cursor == starts[sec_idx] and sec_idx > 0) {
-                            app.synth_cursor = starts[sec_idx - 1];
-                        } else {
-                            app.synth_cursor = starts[sec_idx];
-                        }
-                    }
+                switch (app.synth_subview) {
+                    .fx => jumpFxSection(app, c == '}'),
+                    .main => app.synth_cursor = synth_layout.jumpSection(mainOrderNow(app), app.synth_cursor, c == '}'),
+                    .mod => app.synth_cursor = synth_layout.jumpSection(modOrderNow(app), app.synth_cursor, c == '}'),
                 }
                 updateScroll(app);
                 return true;
@@ -617,12 +566,6 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
         },
         else => return false,
     }
-}
-
-/// Retired param ids (absorbed into the mod matrix) that no longer have an
-/// editor row; the cursor steps over them.
-fn deadParam(id: u8) bool {
-    return id == 23 or id == 30 or id == 31;
 }
 
 /// Move the param cursor by `delta` rows within the current subview.
@@ -677,113 +620,21 @@ fn shiftField(app: *App, delta: i32) void {
 /// columns comfortably above their own widest row (OSC B's 9-row block).
 /// The FX and matrix subviews always render as a single full-width list
 /// regardless of width — neither has an OSC-A/B-style pairing to split.
-pub const two_col_min_cols: usize = 108;
-
-pub fn twoCol(cols: usize) bool {
-    return cols >= two_col_min_cols;
-}
-
-/// Left column's width in the OSC A/B top block; the right column takes the rest.
-pub fn colWidth(cols: usize) usize {
-    return cols / 2;
-}
-
-/// Row budget of the OSC A/B top block (max of OSC A's 7 rows and OSC B's 9).
-pub const top_h: usize = 9;
-
-/// Total body rows (below the shared title) in the "main" subview's wide
-/// A/B-over-C layout.
-pub const body_rows_wide: usize = 91;
-/// Total body rows in the "main" subview's single-column layout.
-pub const body_rows_single: usize = 99;
-/// Total body rows in the "fx" subview (always single-column).
-pub const body_rows_fx: usize = 91;
-/// Total body rows in the "matrix" subview (always single-column).
-pub const body_rows_matrix: usize = 25;
-
 // zig fmt: off
-/// Column + row of `cursor` within the "main" subview's wide layout (row 0
-/// is the shared title). OSC A/B (rows 1-9) are side by side, col
-/// meaningful; everything else is a single full-width column and col is
-/// unused. Must stay in sync with secOscA/secOscB/drawSynthBottom in
-/// views/synth.zig, exactly like paramRow mirrors the single-column order.
-/// Retired ids (23/30/31) map to row 0, which never matches a body row.
-/// Only meaningful for ids `inSubview(id, .main)` — never called otherwise.
-pub fn paramColRow(cursor: u8) struct { col: u1, row: usize } {
-    return switch (cursor) {
-        0...5   => .{ .col = 0, .row = 2  + @as(usize, cursor) },        // OSC A (header at 1)
-        6...13  => .{ .col = 1, .row = 2  + @as(usize, cursor - 6) },    // OSC B (header at 1)
-        14...15 => .{ .col = 0, .row = 11 + @as(usize, cursor - 14) },   // MOD (header at 10)
-        16...19 => .{ .col = 0, .row = 14 + @as(usize, cursor - 16) },   // ENV (header at 13)
-        20...22 => .{ .col = 0, .row = 19 + @as(usize, cursor - 20) },   // FILTER (header at 18)
-        24...27 => .{ .col = 0, .row = 23 + @as(usize, cursor - 24) },   // FENV (header at 22)
-        28...29 => .{ .col = 0, .row = 28 + @as(usize, cursor - 28) },   // LFO (header at 27)
-        32...33 => .{ .col = 0, .row = 31 + @as(usize, cursor - 32) },   // VOICE (header at 30)
-        34...35 => .{ .col = 0, .row = 34 + @as(usize, cursor - 34) },   // SUB (header at 33)
-        36...37 => .{ .col = 0, .row = 37 + @as(usize, cursor - 36) },   // NOISE (header at 36)
-        38      => .{ .col = 0, .row = 40 },                             // OUT (header at 39)
-        39...40 => .{ .col = 0, .row = 42 + @as(usize, cursor - 39) },   // UNI MODE (header at 41)
-        41...44 => .{ .col = 0, .row = 45 + @as(usize, cursor - 41) },   // WARP (header at 44)
-        45...49 => .{ .col = 0, .row = 50 + @as(usize, cursor - 45) },   // FILTER 2 (header at 49)
-        50...58 => .{ .col = 0, .row = 56 + @as(usize, cursor - 50) },   // OSC C (header at 55)
-        95...96 => .{ .col = 0, .row = 66 + @as(usize, cursor - 95) },   // LFO 2 (header at 65)
-        97...98 => .{ .col = 0, .row = 69 + @as(usize, cursor - 97) },   // LFO 3 (header at 68)
-        99...102 => .{ .col = 0, .row = 72 + @as(usize, cursor - 99) },  // MACRO (header at 71)
-        116...121 => .{ .col = 0, .row = 77 + @as(usize, cursor - 116) }, // ARP (header at 76)
-        122...125 => .{ .col = 0, .row = 84 + @as(usize, cursor - 122) }, // ENV 3 (header at 83)
-        185...187 => .{ .col = 0, .row = 89 + @as(usize, cursor - 185) }, // WAVETABLE (header at 88)
-        else    => .{ .col = 0, .row = 0 },
-    };
-}
-
-/// Row index of `cursor` within `subview`'s single-column rendering (0-based,
-/// title excluded). Must stay in sync with the section calls in
-/// views/synth.zig's drawSynthEditor/drawSynthBottom. `fx_order` is only
-/// consulted for `.fx` (see `currentFxOrder`) — pass whatever's convenient
-/// for `.main`/`.matrix` callers.
-pub fn paramRow(subview: Subview, cursor: u8, fx_order: []const FxUnitKind) usize {
-    return switch (subview) {
-        .main => switch (cursor) {
-            0...5  => 2 + @as(usize, cursor),          // OSC A (header at row 1)
-            6...13 => 9 + @as(usize, cursor - 6),      // OSC B (header at row 8)
-            14...15 => 18 + @as(usize, cursor - 14),   // MOD (header at 17)
-            16...19 => 21 + @as(usize, cursor - 16),   // ENV (header at 20)
-            20...22 => 26 + @as(usize, cursor - 20),   // FILTER (header at 25)
-            24...27 => 30 + @as(usize, cursor - 24),   // FENV (header at 29)
-            28...29 => 35 + @as(usize, cursor - 28),   // LFO (header at 34)
-            32...33 => 39 + @as(usize, cursor - 32),   // VOICE (header at 38)
-            34...35 => 42 + @as(usize, cursor - 34),   // SUB (header at 41)
-            36...37 => 45 + @as(usize, cursor - 36),   // NOISE (header at 44)
-            38      => 48,                              // OUT (header at 47)
-            39...40 => 50 + @as(usize, cursor - 39),   // UNI MODE (header at 49)
-            41...44 => 53 + @as(usize, cursor - 41),   // WARP (header at 52)
-            45...49 => 58 + @as(usize, cursor - 45),   // FILTER 2 (header at 57)
-            50...58 => 64 + @as(usize, cursor - 50),   // OSC C (header at 63)
-            95...96 => 74 + @as(usize, cursor - 95),   // LFO 2 (header at 73)
-            97...98 => 77 + @as(usize, cursor - 97),   // LFO 3 (header at 76)
-            99...102 => 80 + @as(usize, cursor - 99),  // MACRO (header at 79)
-            116...121 => 85 + @as(usize, cursor - 116), // ARP (header at 84)
-            122...125 => 92 + @as(usize, cursor - 122), // ENV 3 (header at 91)
-            185...187 => 97 + @as(usize, cursor - 185), // WAVETABLE (header at 96)
-            else    => 0,
-        },
-        .fx => blk: {
-            var row: usize = 1;
-            for (fx_order) |kind| {
-                const first = fxFirstId(kind);
-                const count = fxIdCount(kind);
-                if (cursor >= first and cursor < first + count) {
-                    break :blk row + 1 + (cursor - first); // +1 for this section's own header row
-                }
-                row += 1 + count;
-            }
-            break :blk 0;
-        },
-        .mod => switch (cursor) {
-            59...82 => 2 + @as(usize, cursor - 59), // MATRIX (header at 1)
-            else    => 0,
-        },
-    };
+/// Row index of `cursor` within the `.fx` subview's single-column
+/// rendering (0-based, title excluded). Must stay in sync with the
+/// section calls in views/synth.zig's `drawSynthEditor`.
+pub fn fxRow(cursor: u8, fx_order: []const FxUnitKind) usize {
+    var row: usize = 1;
+    for (fx_order) |kind| {
+        const first = fxFirstId(kind);
+        const count = fxIdCount(kind);
+        if (cursor >= first and cursor < first + count) {
+            return row + 1 + (cursor - first); // +1 for this section's own header row
+        }
+        row += 1 + count;
+    }
+    return 0;
 }
 // zig fmt: on
 
@@ -806,7 +657,7 @@ pub fn updateScroll(app: *App) void {
         return;
     }
     var kbuf: [14]FxUnitKind = undefined;
-    const row = paramRow(app.synth_subview, app.synth_cursor, fxOnOrder(app, &kbuf));
+    const row = fxRow(app.synth_cursor, fxOnOrder(app, &kbuf));
     if (row < app.synth_scroll) app.synth_scroll = row;
     if (row >= app.synth_scroll + max_rows) app.synth_scroll = row - max_rows + 1;
 }
@@ -839,10 +690,10 @@ fn adjustParam(app: *App, steps: i32) void {
 /// or null for the title row / a row that doesn't land on any param (a
 /// section-header line). `.main`/`.mod` resolve against `synth_layout`'s
 /// comptime column/row positions (0-based content-row numbering — see
-/// `drawSynthMain`/`drawSynthMod`); `.fx` keeps scanning `paramRow`'s
-/// 1-based numbering as before. A mod-matrix slot's dest/depth fields
-/// aren't individually mouse-addressable — a click anywhere on the slot's
-/// one line lands on its source field (offset 0); `w`/`b` refine from there.
+/// `drawSynthMain`/`drawSynthMod`); `.fx` keeps scanning `fxRow`'s 1-based
+/// numbering as before. A mod-matrix slot's dest/depth fields aren't
+/// individually mouse-addressable — a click anywhere on the slot's one
+/// line lands on its source field (offset 0); `w`/`b` refine from there.
 fn paramAtRow(app: *App, row: usize, x: usize, cols: u16) ?u8 {
     if (row == 0) return null; // title
     const view = app.synth_subview;
@@ -860,10 +711,10 @@ fn paramAtRow(app: *App, row: usize, x: usize, cols: u16) ?u8 {
     const full_row = app.synth_scroll + row;
     var kbuf: [14]FxUnitKind = undefined;
     const fx_order = fxOnOrder(app, &kbuf);
-    var i: u8 = firstId(view);
-    while (i <= lastId(view)) : (i += 1) {
-        if (!inSubview(i, view)) continue;
-        const row_i = paramRow(view, i, fx_order);
+    var i: u8 = fx_first_id;
+    while (i <= fx_last_id) : (i += 1) {
+        if (!inFx(i)) continue;
+        const row_i = fxRow(i, fx_order);
         if (row_i == full_row) return i;
     }
     return null;

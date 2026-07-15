@@ -79,7 +79,7 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize
     // past the layout's last row (the layouts' heights differ per subview,
     // so a stale offset from a different one must not survive a resize or a
     // Tab subview switch).
-    const cursor_row = synth_ed.paramRow(subview, app.synth_cursor, fx_order);
+    const cursor_row = synth_ed.fxRow(app.synth_cursor, fx_order);
     const body_rows: usize = switch (subview) {
         .fx => synth_ed.fxBodyRows(fx_order),
         .main, .mod => unreachable,
@@ -127,7 +127,7 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize
     // The FX strip is a fixed row above the scrolled section list (like the
     // title above it), not part of `tw`/`scroll` — mirrors the track/master
     // chain's own strip, which likewise sits outside its focused unit's
-    // scrollable body. editors/synth.zig's `paramRow`/`handleMouse` account
+    // scrollable body. editors/synth.zig's `fxRow`/`handleMouse` account
     // for this same +1 row offset.
     if (subview == .fx and written < max_rows) {
         try drawFxStrip(app, w, c, cols);

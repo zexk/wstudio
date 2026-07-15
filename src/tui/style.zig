@@ -11,50 +11,55 @@ pub const spectrum_rows: usize = 18;
 pub const spectrum_band_count: usize = 80;
 /// Number of editable synth parameters (ids 23/30/31 are retired — absorbed
 /// into the mod matrix — and skipped by the cursor, but stay inside the
-/// count so every other id keeps its meaning).
-/// OSC A : 0:waveform 1:pulse_width 2:detune 3:unison 4:uni.det 5:uni.spread
-/// OSC B : 6:b_on 7:b_waveform 8:b_pw 9:b_semi 10:b_detune 11:b_level 12:b_unison 13:b_uni.det
-/// MOD   : 14:mod_mode 15:mod_amount
-/// ENV   : 16:attack 17:decay 18:sustain 19:release
-/// FILTER: 20:filter_type 21:cutoff 22:res (23 retired)
-/// FENV  : 24:fenv_attack 25:fenv_decay 26:fenv_sustain 27:fenv_release
-/// LFO   : 28:lfo_shape 29:lfo_rate (30/31 retired)
-/// VOICE : 32:voice_mode 33:glide
-/// SUB   : 34:sub_level 35:sub_shape
-/// NOISE : 36:noise_level 37:noise_color
-/// OUT   : 38:gain
-/// UNI MODE: 39:unison_mode 40:osc_b_unison_mode
-/// WARP  : 41:warp_mode 42:warp_amount 43:osc_b_warp_mode 44:osc_b_warp_amount
-/// FILTER 2: 45:filter2_on 46:filter2_type 47:filter2_cutoff 48:filter2_res 49:filter_routing
-/// OSC C : 50:c_on 51:c_waveform 52:c_pw 53:c_semi 54:c_detune 55:c_level 56:c_unison 57:c_uni.det 58:c_uni.mode
-/// MATRIX: 59..82 — 8 rows x (source, dest, depth)
-/// FX DIST : 83:fx_dist_on 84:fx_dist_drive_db 85:fx_dist_mix
-/// FX CRUSH: 86:fx_crush_on 87:fx_crush_bits 88:fx_crush_rate 89:fx_crush_mix
-/// FX FLNG : 90:fx_flanger_on 91:fx_flanger_rate_hz 92:fx_flanger_depth 93:fx_flanger_feedback 94:fx_flanger_mix
-/// LFO 2   : 95:lfo2_shape 96:lfo2_rate_hz
-/// LFO 3   : 97:lfo3_shape 98:lfo3_rate_hz
-/// MACRO   : 99:macro1 100:macro2 101:macro3 102:macro4
-/// FX PHSR : 103:fx_phaser_on 104:fx_phaser_rate_hz 105:fx_phaser_depth 106:fx_phaser_feedback 107:fx_phaser_mix
-/// FX DELAY: 108:fx_delay_on 109:fx_delay_time_s 110:fx_delay_feedback 111:fx_delay_mix
-/// FX VERB : 112:fx_reverb_on 113:fx_reverb_room 114:fx_reverb_damp 115:fx_reverb_mix
-/// ARP     : 116:arp_on 117:arp_mode 118:arp_octaves 119:arp_rate_hz 120:arp_gate 121:arp_hold
-/// ENV 3   : 122:env3_attack_s 123:env3_decay_s 124:env3_sustain 125:env3_release_s
-/// FX REORDER: 126:dist 127:crush 128:flanger 129:phaser 130:delay 131:reverb — not real
-///   params (no editor row); value is the unit's fx_order slot index, see
-///   PolySynth.setFxIndex.
-/// FX GATE : 132:fx_gate_on 133:fx_gate_threshold_db 134:fx_gate_attack_ms 135:fx_gate_release_ms
+/// count so every other id keeps its meaning). This is a flat id -> engine
+/// field cross-reference in numeric order; it is NOT the editor's UI
+/// grouping (params are freely regrouped into cards/sections there without
+/// ever renumbering ids) — see src/tui/synth_layout.zig for MAIN/MOD's
+/// actual section tables, and editors/synth.zig's fxFirstId/fxIdCount for
+/// FX's per-unit ranges.
+/// 0:waveform 1:pulse_width 2:detune 3:unison 4:uni.det 5:uni.spread
+/// 6:osc_b_on 7:b_waveform 8:b_pw 9:b_semi 10:b_detune 11:b_level 12:b_unison 13:b_uni.det
+/// 14:mod_mode 15:mod_amount
+/// 16:attack 17:decay 18:sustain 19:release
+/// 20:filter_type 21:cutoff 22:res (23 retired)
+/// 24:fenv_attack 25:fenv_decay 26:fenv_sustain 27:fenv_release
+/// 28:lfo_shape 29:lfo_rate (30/31 retired)
+/// 32:voice_mode 33:glide
+/// 34:sub_level 35:sub_shape
+/// 36:noise_level 37:noise_color
+/// 38:gain
+/// 39:unison_mode 40:osc_b_unison_mode
+/// 41:warp_mode 42:warp_amount 43:osc_b_warp_mode 44:osc_b_warp_amount
+/// 45:filter2_on 46:filter2_type 47:filter2_cutoff 48:filter2_res 49:filter_routing
+/// 50:osc_c_on 51:c_waveform 52:c_pw 53:c_semi 54:c_detune 55:c_level 56:c_unison 57:c_uni.det 58:c_uni.mode
+/// 59..82: mod matrix — 8 rows x (source, dest, depth)
+/// 83:fx_dist_on 84:fx_dist_drive_db 85:fx_dist_mix
+/// 86:fx_crush_on 87:fx_crush_bits 88:fx_crush_rate 89:fx_crush_mix
+/// 90:fx_flanger_on 91:fx_flanger_rate_hz 92:fx_flanger_depth 93:fx_flanger_feedback 94:fx_flanger_mix
+/// 95:lfo2_shape 96:lfo2_rate_hz
+/// 97:lfo3_shape 98:lfo3_rate_hz
+/// 99:macro1 100:macro2 101:macro3 102:macro4
+/// 103:fx_phaser_on 104:fx_phaser_rate_hz 105:fx_phaser_depth 106:fx_phaser_feedback 107:fx_phaser_mix
+/// 108:fx_delay_on 109:fx_delay_time_s 110:fx_delay_feedback 111:fx_delay_mix
+/// 112:fx_reverb_on 113:fx_reverb_room 114:fx_reverb_damp 115:fx_reverb_mix
+/// 116:arp_on 117:arp_mode 118:arp_octaves 119:arp_rate_hz 120:arp_gate 121:arp_hold
+/// 122:env3_attack_s 123:env3_decay_s 124:env3_sustain 125:env3_release_s
+/// 126-131: FX reorder handles (dist/crush/flanger/phaser/delay/reverb) — not
+///   real params (no editor row); value is the unit's fx_order slot index,
+///   see PolySynth.setFxIndex.
+/// 132:fx_gate_on 133:fx_gate_threshold_db 134:fx_gate_attack_ms 135:fx_gate_release_ms
 ///   136:reorder handle (gate) — same "not a real param" note as 126-131.
-/// FX COMP : 137:fx_comp_on 138:fx_comp_threshold_db 139:fx_comp_ratio 140:fx_comp_attack_ms
+/// 137:fx_comp_on 138:fx_comp_threshold_db 139:fx_comp_ratio 140:fx_comp_attack_ms
 ///   141:fx_comp_release_ms 142:fx_comp_makeup_db 143:reorder handle (comp)
-/// FX MB   : 144:fx_mb_on 145:xover_lo 146:xover_hi 147:attack 148:release 149:style 150:mix
+/// 144:fx_mb_on 145:xover_lo 146:xover_hi 147:attack 148:release 149:style 150:mix
 ///   151-153:low(thresh,ratio,makeup) 154-156:mid(...) 157-159:high(...) 160:reorder handle
-/// FX OTT  : 161:fx_ott_on 162:depth 163:time 164:gain_in 165:gain_out 166:reorder handle
-/// FX EQ   : 167:fx_eq_on 168:lo_freq 169:lo_gain 170:mid_freq 171:mid_gain 172:mid_q
+/// 161:fx_ott_on 162:depth 163:time 164:gain_in 165:gain_out 166:reorder handle
+/// 167:fx_eq_on 168:lo_freq 169:lo_gain 170:mid_freq 171:mid_gain 172:mid_q
 ///   173:hi_freq 174:hi_gain 175:reorder handle
-/// FX CHOR : 176:fx_chorus_on 177:rate_hz 178:depth_ms 179:mix 180:reorder handle
-/// FX FRQS : 181:fx_freq_shift_on 182:shift_hz 183:mix 184:reorder handle
-/// WAVETABLE: 185:wt_pos_a 186:wt_pos_b 187:wt_pos_c
-/// FX TAPE : 188:fx_tape_on 189:wow_rate_hz 190:wow_depth 191:flutter_rate_hz
+/// 176:fx_chorus_on 177:rate_hz 178:depth_ms 179:mix 180:reorder handle
+/// 181:fx_freq_shift_on 182:shift_hz 183:mix 184:reorder handle
+/// 185:wt_pos_a 186:wt_pos_b 187:wt_pos_c
+/// 188:fx_tape_on 189:wow_rate_hz 190:wow_depth 191:flutter_rate_hz
 ///   192:flutter_depth 193:mix 194:reorder handle
 pub const synth_param_count: u8 = 195;
 
