@@ -40,11 +40,11 @@ pub fn write(
     try w.writeInt(u32, data_len, .little);
     switch (bit_depth) {
         .pcm16 => for (samples) |s| {
-            const clamped = std.math.clamp(s, -1.0, 1.0);
+            const clamped = if (std.math.isFinite(s)) std.math.clamp(s, -1.0, 1.0) else 0.0;
             try w.writeInt(i16, @intFromFloat(clamped * 32767.0), .little);
         },
         .pcm24 => for (samples) |s| {
-            const clamped = std.math.clamp(s, -1.0, 1.0);
+            const clamped = if (std.math.isFinite(s)) std.math.clamp(s, -1.0, 1.0) else 0.0;
             const v: i32 = @intFromFloat(clamped * 8_388_607.0);
             try w.writeInt(u8, @truncate(@as(u32, @bitCast(v))), .little);
             try w.writeInt(u8, @truncate(@as(u32, @bitCast(v)) >> 8), .little);
@@ -110,6 +110,8 @@ pub fn parseAlloc(
             audio_format = std.mem.readInt(u16, chunk[0..2], .little);
             num_channels = std.mem.readInt(u16, chunk[2..4], .little);
             sample_rate = std.mem.readInt(u32, chunk[4..8], .little);
+            const byte_rate = std.mem.readInt(u32, chunk[8..12], .little);
+            const block_align = std.mem.readInt(u16, chunk[12..14], .little);
             bits_per_sample = std.mem.readInt(u16, chunk[14..16], .little);
             if (audio_format != 1 and audio_format != 3) return error.UnsupportedFormat;
             const supported_depth = switch (audio_format) {
@@ -120,6 +122,12 @@ pub fn parseAlloc(
             if (!supported_depth)
                 return error.UnsupportedBitDepth;
             if (num_channels == 0 or sample_rate == 0) return error.BadFmt;
+            const bytes_per_sample = bits_per_sample / 8;
+            const expected_align = @as(u32, num_channels) * bytes_per_sample;
+            const expected_rate = @as(u64, sample_rate) * expected_align;
+            if (expected_align > std.math.maxInt(u16) or block_align != expected_align or
+                expected_rate > std.math.maxInt(u32) or byte_rate != expected_rate)
+                return error.BadFmt;
             fmt_ok = true;
         } else if (std.mem.eql(u8, id, "data") and out == null) {
             // First data chunk wins; decoding a second would leak the first.
@@ -157,6 +165,8 @@ pub fn parseAlloc(
             pos += 1; // WAV chunks are word-aligned
         }
     }
+
+    if (pos != riff_end) return error.Truncated;
 
     return .{
         .samples = out orelse return error.NoData,
@@ -222,6 +232,42 @@ test "24-bit header and sample encoding" {
     try std.testing.expectApproxEqAbs(@as(f32, -1.0), result.samples[2], 1.0 / 8_388_608.0 + 1e-6);
 }
 
+test "writer replaces non-finite samples with silence" {
+    inline for ([_]BitDepth{ .pcm16, .pcm24 }) |depth| {
+        var raw: [128]u8 = undefined;
+        var w = std.Io.Writer.fixed(&raw);
+        try write(&w, 48_000, 1, &.{ std.math.nan(f32), std.math.inf(f32), -std.math.inf(f32) }, depth);
+        const result = try parseAlloc(std.testing.allocator, w.buffered());
+        defer std.testing.allocator.free(result.samples);
+        try std.testing.expectEqualSlices(f32, &.{ 0.0, 0.0, 0.0 }, result.samples);
+    }
+}
+
+test "rejects inconsistent format byte rate and block alignment" {
+    var raw: [128]u8 = undefined;
+    var w = std.Io.Writer.fixed(&raw);
+    try write(&w, 48_000, 2, &.{ 0.0, 0.0 }, .pcm16);
+
+    const wav = w.buffered();
+    const byte_rate = std.mem.readInt(u32, wav[28..32], .little);
+    std.mem.writeInt(u32, wav[28..32], byte_rate + 1, .little);
+    try std.testing.expectError(error.BadFmt, parseAlloc(std.testing.allocator, wav));
+    std.mem.writeInt(u32, wav[28..32], byte_rate, .little);
+
+    const frame_align = std.mem.readInt(u16, wav[32..34], .little);
+    std.mem.writeInt(u16, wav[32..34], frame_align + 1, .little);
+    try std.testing.expectError(error.BadFmt, parseAlloc(std.testing.allocator, wav));
+}
+
+test "rejects dangling bytes at the end of RIFF contents" {
+    var raw: [128]u8 = undefined;
+    var w = std.Io.Writer.fixed(&raw);
+    try write(&w, 48_000, 1, &.{0.0}, .pcm16);
+    try w.writeByte(0);
+    std.mem.writeInt(u32, w.buffered()[4..8], @intCast(w.buffered().len - 8), .little);
+    try std.testing.expectError(error.Truncated, parseAlloc(std.testing.allocator, w.buffered()));
+}
+
 test "round-trip: write then parse" {
     var raw: [512]u8 = undefined;
     var w = std.Io.Writer.fixed(&raw);
@@ -275,6 +321,8 @@ test "rejects a partial interleaved frame" {
 
     const wav = w.buffered();
     std.mem.writeInt(u16, wav[22..24], 2, .little);
+    std.mem.writeInt(u32, wav[28..32], 192_000, .little);
+    std.mem.writeInt(u16, wav[32..34], 4, .little);
     try std.testing.expectError(error.Truncated, parseAlloc(std.testing.allocator, wav));
 }
 
