@@ -2631,7 +2631,7 @@ test "[/] cycle the cursor track's color, wrapping through none" {
     try std.testing.expect(std.mem.indexOf(u8, app.status_buf[0..app.status_len], "n/a") != null);
 }
 
-test "tracks visual mode: v/j selects a range, g groups it and opens the rename prompt" {
+test "tracks visual mode: v/j selects a range and g creates an untitled group" {
     var app = try testApp(); // synth(0), sampler(1), drums(2)
     defer app.deinit();
     app.cursor = 0;
@@ -2647,12 +2647,8 @@ test "tracks visual mode: v/j selects a range, g groups it and opens the rename 
     try std.testing.expectEqual(g, app.session.project.tracks.items[1].group.?);
     try std.testing.expectEqual(@as(?u8, null), app.session.project.tracks.items[2].group);
     try std.testing.expect(app.session.groups[g] != null);
-
-    // The rename prompt is pre-filled, matching R's own convention.
-    try std.testing.expectEqual(ws.input.Mode.command, app.modal.mode);
-    var buf: [64]u8 = undefined;
-    const expected = std.fmt.bufPrint(&buf, "group-rename {d} ", .{g + 1}) catch unreachable;
-    try std.testing.expectEqualStrings(expected, app.modal.cmd_buf[0..app.modal.cmd_len]);
+    try std.testing.expectEqualStrings("untitled group", app.session.groups[g].?.name);
+    try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
 }
 
 test "tracks visual mode: esc cancels; master row can't enter it" {
@@ -2674,9 +2670,9 @@ test ":group-add/:group-rename/:group-del/:track-group/:group-fx" {
     var app = try testApp();
     defer app.deinit();
 
-    for (":group-add drums") |c| app.handleKey(.{ .char = c }, 0);
+    for (":group-add") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.enter, 0);
-    try std.testing.expectEqualStrings("drums", app.session.groups[0].?.name);
+    try std.testing.expectEqualStrings("untitled group", app.session.groups[0].?.name);
 
     for (":group-rename 1 drum bus") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.enter, 0);
@@ -5101,12 +5097,11 @@ test "tracks view: visual g groups the selected rows and lands on the new group'
     try std.testing.expectEqual(ws.input.Mode.visual, app.modal.mode);
     app.handleKey(.{ .char = 'j' }, 0);
     app.handleKey(.{ .char = 'g' }, 0);
-    // g created the group and dropped into the :group-rename prompt.
-    try std.testing.expectEqual(ws.input.Mode.command, app.modal.mode);
+    // g created the group and returned to normal mode on its row.
+    try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
     try std.testing.expectEqual(@as(?u8, 0), app.session.project.tracks.items[0].group);
     try std.testing.expectEqual(@as(?u8, 0), app.session.project.tracks.items[1].group);
     try std.testing.expectEqual(@as(?u8, null), app.session.project.tracks.items[2].group);
-    app.handleKey(.escape, 0);
     app.tracksRowSync();
     try std.testing.expectEqual(@as(?u8, 0), app.cursorGroup());
 }

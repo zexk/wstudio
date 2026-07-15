@@ -79,7 +79,7 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "track-del",   .desc = "[n]  delete track n (default: cursor)", .run = wrap(cmdTrackDel) },
     .{ .name = "d",           .desc = "[n]  delete track n (alias for :track-del)", .run = wrap(cmdTrackDel) },
     .{ .name = "track-rename",.desc = "[<n>] <name>  rename track n (no n: cursor track)", .run = wrap(cmdTrackRename) },
-    .{ .name = "group-add",   .desc = "<name>  create a new track-grouping submix bus", .run = wrap(cmdGroupAdd) },
+    .{ .name = "group-add",   .desc = "create an untitled track-grouping submix bus", .run = wrap(cmdGroupAdd) },
     .{ .name = "group-rename",.desc = "<n> <name>  rename group n", .run = wrap(cmdGroupRename) },
     .{ .name = "group-gain",  .desc = "<n> [<dB>]  group bus fader, post-FX (-60..12; no dB: report)", .run = wrap(cmdGroupGain) },
     .{ .name = "group-del",   .desc = "<n>  delete group n (members fall back to the master mix)", .run = wrap(cmdGroupDel) },
@@ -448,11 +448,11 @@ fn cmdTrackRename(app: *App, args: []const u8) void {
 }
 
 fn cmdGroupAdd(app: *App, args: []const u8) void {
-    const name = std.mem.trim(u8, args, " ");
-    if (name.len == 0) {
-        app.setStatus("usage: group-add <name>", .{});
+    if (std.mem.trim(u8, args, " ").len != 0) {
+        app.setStatus("usage: group-add", .{});
         return;
     }
+    const name = "untitled group";
     const idx = app.session.addGroup(name) catch |err| {
         app.setStatus("group-add: {s}", .{switch (err) {
             error.GroupLimitReached => "bank full (8 groups)",

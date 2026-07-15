@@ -1310,11 +1310,9 @@ pub const App = struct {
         self.tracks_visual_anchor = null;
     }
 
-    /// `g` in tracks-view visual mode: create a new group from the selected
-    /// rows and open the rename prompt for it immediately (same prefill
-    /// pattern `startRenamePrompt` uses) so the user names it right away
-    /// instead of living with an auto-generated "Group N". The selection
-    /// takes what's on screen: track rows join directly and a *folded*
+    /// `g` in tracks-view visual mode: create a new untitled group from the
+    /// selected rows. The selection takes what's on screen: track rows join
+    /// directly and a *folded*
     /// group row brings its hidden members along; an unfolded group's own
     /// row contributes nothing — its members are rows of their own.
     fn groupSelectedTracks(self: *App) void {
@@ -1338,7 +1336,7 @@ pub const App = struct {
         if (count == 0) { self.setStatus("no tracks selected", .{}); return; }
         // zig fmt: on
 
-        const idx = self.session.addGroup("Group") catch |err| {
+        const idx = self.session.addGroup("untitled group") catch |err| {
             self.setStatus("group: {s}", .{switch (err) {
                 error.GroupLimitReached => "bank full (8 groups)",
                 error.OutOfMemory => "out of memory",
@@ -1357,10 +1355,9 @@ pub const App = struct {
         self.dirty = true;
         self.rebuildTrackRows();
         self.setTrackRow(self.rowOfGroup(idx) orelse 0);
-        self.startGroupRenamePrompt(idx);
     }
 
-    /// Same prefill pattern as `startRenamePrompt`, for a just-created group.
+    /// Same prefill pattern as `startRenamePrompt`, targeting a group row.
     fn startGroupRenamePrompt(self: *App, idx: u8) void {
         self.modal.mode = .command;
         self.cmd_history_pos = self.cmd_history.items.len;
