@@ -25,20 +25,19 @@ pub fn main(init: std.process.Init) !void {
     defer args.deinit();
     _ = args.skip(); // argv0
 
-    // Copied out of the iterator's own buffer (freed by defer above, and
-    // owned by the OS on POSIX) rather than borrowed, so it stays valid
-    // for the life of the run below.
-    var path_buf: [256]u8 = undefined;
-    var init_path: ?[]const u8 = null;
     if (args.next()) |cmd| {
         if (std.mem.eql(u8, cmd, "render")) return renderDemo(init.gpa, init.io);
         if (std.mem.eql(u8, cmd, "--version") or std.mem.eql(u8, cmd, "-v")) return printVersion(init.io);
         if (std.mem.eql(u8, cmd, "--help") or std.mem.eql(u8, cmd, "-h")) return printHelp(init.io);
-        const len = @min(cmd.len, path_buf.len);
-        @memcpy(path_buf[0..len], cmd[0..len]);
-        init_path = path_buf[0..len];
+        const init_path = try dupeInitPath(init.gpa, cmd);
+        defer init.gpa.free(init_path);
+        return @import("tui/app.zig").run(init.gpa, init.io, init_path);
     }
-    return @import("tui/app.zig").run(init.gpa, init.io, init_path);
+    return @import("tui/app.zig").run(init.gpa, init.io, null);
+}
+
+fn dupeInitPath(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
+    return allocator.dupe(u8, path);
 }
 
 const version = "1.0.0";
@@ -190,4 +189,12 @@ test "frontend links against the engine library" {
     var block: [64]ws.types.Sample = undefined;
     engine.process(&block);
     try std.testing.expect(engine.transport.playing);
+}
+
+test "project paths are not truncated" {
+    const path = "nested/" ++ ("a" ** 512) ++ "/song.wsj";
+    const owned = try dupeInitPath(std.testing.allocator, path);
+    defer std.testing.allocator.free(owned);
+
+    try std.testing.expectEqualStrings(path, owned);
 }
