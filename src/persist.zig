@@ -1433,9 +1433,14 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
     if (snap.version > file_version) return error.UnsupportedVersion;
     if (snap.tracks.len != snap.racks.len) return error.MalformedProject;
     if (snap.sample_rate < 8_000 or snap.sample_rate > 384_000) return error.InvalidSampleRate;
+    const beats_per_bar = std.math.clamp(snap.beats_per_bar, 1, 16);
+    const steps_per_bar = @as(u32, beats_per_bar) * 4;
+    const max_song_bars = std.math.maxInt(u32) / steps_per_bar;
     for (snap.arrangement) |lane| {
         for (lane.clips) |clip| {
-            if (clip.length_bars == 0 or clip.length_bars > std.math.maxInt(u32) - clip.start_bar)
+            if (clip.length_bars == 0 or
+                clip.start_bar > max_song_bars or
+                clip.length_bars > max_song_bars - clip.start_bar)
                 return error.MalformedProject;
         }
     }
@@ -1444,7 +1449,7 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
     errdefer project.deinit();
     project.sample_rate = snap.sample_rate;
     project.tempo_bpm = std.math.clamp(snap.tempo_bpm, 20.0, 400.0);
-    project.beats_per_bar = std.math.clamp(snap.beats_per_bar, 1, 16);
+    project.beats_per_bar = beats_per_bar;
     project.loop_start_bar = snap.loop_start_bar;
     project.loop_end_bar = snap.loop_end_bar;
     project.loop_enabled = snap.loop_enabled and snap.loop_end_bar > snap.loop_start_bar;
@@ -3092,6 +3097,14 @@ test "buildSession: rejects malformed and future files" {
         .tracks = &.{.{ .name = "a" }},
         .racks = &.{.{ .label = "e", .kind = .empty }},
         .arrangement = &.{.{ .clips = &.{.{ .start_bar = std.math.maxInt(u32), .length_bars = 1 }} }},
+    }));
+    try testing.expectError(error.MalformedProject, buildSession(testing.allocator, &.{
+        .tracks = &.{.{ .name = "a" }},
+        .racks = &.{.{ .label = "e", .kind = .empty }},
+        .arrangement = &.{.{ .clips = &.{.{
+            .start_bar = std.math.maxInt(u32) / 16,
+            .length_bars = 2,
+        }} }},
     }));
 }
 
