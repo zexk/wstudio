@@ -1117,159 +1117,197 @@ fn secFxReverb(w: *std.Io.Writer, synth: anytype, c: u8) !void {
         try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.fx_reverb_mix}));
 }
 
+/// `id`'s status-bar label for an FX param — the only ids left needing a
+/// hardcoded lookup, since FX intentionally has no synth_layout table (see
+/// that file's module doc comment). Reorder-handle ids are never
+/// cursor-reachable so they fall to "-" along with any other gap.
+fn fxParamLabel(id: u8) []const u8 {
+    return switch (id) {
+        // zig fmt: off
+        83 => "dist.on", 84 => "dist.drive", 85 => "dist.mix",
+        86 => "crush.on", 87 => "crush.bits", 88 => "crush.rate", 89 => "crush.mix",
+        90 => "flng.on", 91 => "flng.rate", 92 => "flng.depth", 93 => "flng.fdbk", 94 => "flng.mix",
+        103 => "phsr.on", 104 => "phsr.rate", 105 => "phsr.depth", 106 => "phsr.fdbk", 107 => "phsr.mix",
+        108 => "dly.on", 109 => "dly.time", 110 => "dly.fdbk", 111 => "dly.mix",
+        112 => "vrb.on", 113 => "vrb.room", 114 => "vrb.damp", 115 => "vrb.mix",
+        132 => "gate.on", 133 => "gate.thresh", 134 => "gate.attack", 135 => "gate.release",
+        137 => "comp.on", 138 => "comp.thresh", 139 => "comp.ratio", 140 => "comp.attack", 141 => "comp.release", 142 => "comp.makeup",
+        144 => "mb.on", 145 => "mb.xover.lo", 146 => "mb.xover.hi", 147 => "mb.attack", 148 => "mb.release", 149 => "mb.style", 150 => "mb.mix",
+        151 => "mb.lo.thresh", 152 => "mb.lo.ratio", 153 => "mb.lo.makeup",
+        154 => "mb.mid.thresh", 155 => "mb.mid.ratio", 156 => "mb.mid.makeup",
+        157 => "mb.hi.thresh", 158 => "mb.hi.ratio", 159 => "mb.hi.makeup",
+        161 => "ott.on", 162 => "ott.depth", 163 => "ott.time", 164 => "ott.gain.in", 165 => "ott.gain.out",
+        167 => "eq.on", 168 => "eq.lo.freq", 169 => "eq.lo.gain", 170 => "eq.mid.freq", 171 => "eq.mid.gain",
+        172 => "eq.mid.q", 173 => "eq.hi.freq", 174 => "eq.hi.gain",
+        176 => "chor.on", 177 => "chor.rate", 178 => "chor.depth", 179 => "chor.mix",
+        181 => "frqs.on", 182 => "frqs.shift", 183 => "frqs.mix",
+        188 => "tape.on", 189 => "tape.wow.rate", 190 => "tape.wow.depth",
+        191 => "tape.flt.rate", 192 => "tape.flt.depth", 193 => "tape.mix",
+        else => "-",
+        // zig fmt: on
+    };
+}
+
+/// `p`'s field-suffixed label for a matrix slot (`fields == 3`) id, e.g.
+/// "1 source"/"1 dest"/"1 depth" — mirrors the pre-collapse 3-row matrix's
+/// own label format (`secMatrix`'s old per-row labels), unaffected by the
+/// switch to one line per slot.
+fn writeMatrixFieldLabel(w: *std.Io.Writer, p: synth_layout.ParamEntry, id: u8) !void {
+    const field: []const u8 = switch (id - p.id) {
+        0 => "source",
+        1 => "dest",
+        else => "depth",
+    };
+    try w.print("{s} {s}", .{ p.label, field });
+}
+
+/// `id`'s status-bar label, searching MAIN then MOD's synth_layout tables
+/// (the single source of truth for those ids' groupings — see that file's
+/// module doc comment) before falling back to `fxParamLabel` for the FX
+/// range it intentionally doesn't cover.
+fn writeParamLabel(w: *std.Io.Writer, id: u8) !void {
+    for (synth_layout.main_sections) |sec| {
+        for (sec.params) |p| {
+            if (id < p.id or id >= p.id + p.fields) continue;
+            if (p.fields == 1) return w.writeAll(p.label);
+            return writeMatrixFieldLabel(w, p, id);
+        }
+    }
+    for (synth_layout.mod_sections) |sec| {
+        for (sec.params) |p| {
+            if (id < p.id or id >= p.id + p.fields) continue;
+            if (p.fields == 1) return w.writeAll(p.label);
+            return writeMatrixFieldLabel(w, p, id);
+        }
+    }
+    try w.writeAll(fxParamLabel(id));
+}
+
 pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !void {
     if (app.synth_track >= app.session.racks.items.len) return;
     const rack = app.session.racks.items[app.synth_track];
-    switch (rack.instrument) { .poly_synth => {}, else => return }
+    switch (rack.instrument) {
+        .poly_synth => {},
+        else => return,
+    }
     const synth = &rack.instrument.poly_synth;
 
-    // Ids 23/30/31 are retired (absorbed into the matrix) and never land
-    // under the cursor — their entries are placeholders keeping the array
-    // aligned with param ids.
-    const labels = [_][]const u8{
-        "waveform", "pls.width", "detune", "unison", "uni.det", "spread",
-        "b.on", "b.waveform", "b.pw", "b.semi", "b.detune", "b.level", "b.unison", "b.uni.det",
-        "mod.mode", "mod.amount",
-        "attack", "decay", "sustain", "release",
-        "filt.type", "cutoff", "res", "-",
-        "f.attack", "f.decay", "f.sustain", "f.release",
-        "lfo.shape", "lfo.rate", "-", "-",
-        "voice.mode", "glide",
-        "sub.level", "sub.shape",
-        "noise.level", "noise.color",
-        "gain",
-        "uni.mode a", "uni.mode b",
-        "warp.mode a", "warp.amt a", "warp.mode b", "warp.amt b",
-        "filt2.on", "filt2.type", "filt2.cutoff", "filt2.res", "filt2.routing",
-        "c.on", "c.waveform", "c.pw", "c.semi", "c.detune", "c.level", "c.unison", "c.uni.det", "c.uni.mode",
-        "mtx1.src", "mtx1.dest", "mtx1.depth", "mtx2.src", "mtx2.dest", "mtx2.depth",
-        "mtx3.src", "mtx3.dest", "mtx3.depth", "mtx4.src", "mtx4.dest", "mtx4.depth",
-        "mtx5.src", "mtx5.dest", "mtx5.depth", "mtx6.src", "mtx6.dest", "mtx6.depth",
-        "mtx7.src", "mtx7.dest", "mtx7.depth", "mtx8.src", "mtx8.dest", "mtx8.depth",
-        "dist.on", "dist.drive", "dist.mix",
-        "crush.on", "crush.bits", "crush.rate", "crush.mix",
-        "flng.on", "flng.rate", "flng.depth", "flng.fdbk", "flng.mix",
-        "lfo2.shape", "lfo2.rate", "lfo3.shape", "lfo3.rate",
-        "macro 1", "macro 2", "macro 3", "macro 4",
-        "phsr.on", "phsr.rate", "phsr.depth", "phsr.fdbk", "phsr.mix",
-        "dly.on", "dly.time", "dly.fdbk", "dly.mix",
-        "vrb.on", "vrb.room", "vrb.damp", "vrb.mix",
-        "arp.on", "arp.mode", "arp.octaves", "arp.rate", "arp.gate", "arp.hold",
-        "e3.attack", "e3.decay", "e3.sustain", "e3.release",
-        "-", "-", "-", "-", "-", "-", // 126-131: FX reorder handles, never cursor-reachable
-        "gate.on", "gate.thresh", "gate.attack", "gate.release",
-        "-", // 136: gate's reorder handle, never cursor-reachable
-        "comp.on", "comp.thresh", "comp.ratio", "comp.attack", "comp.release", "comp.makeup",
-        "-", // 143: comp's reorder handle, never cursor-reachable
-        "mb.on", "mb.xover.lo", "mb.xover.hi", "mb.attack", "mb.release", "mb.style", "mb.mix",
-        "mb.lo.thresh", "mb.lo.ratio", "mb.lo.makeup",
-        "mb.mid.thresh", "mb.mid.ratio", "mb.mid.makeup",
-        "mb.hi.thresh", "mb.hi.ratio", "mb.hi.makeup",
-        "-", // 160: mb_comp's reorder handle, never cursor-reachable
-        "ott.on", "ott.depth", "ott.time", "ott.gain.in", "ott.gain.out",
-        "-", // 166: ott's reorder handle, never cursor-reachable
-        "eq.on", "eq.lo.freq", "eq.lo.gain", "eq.mid.freq", "eq.mid.gain", "eq.mid.q",
-        "eq.hi.freq", "eq.hi.gain",
-        "-", // 175: eq's reorder handle, never cursor-reachable
-        "chor.on", "chor.rate", "chor.depth", "chor.mix",
-        "-", // 180: chorus's reorder handle, never cursor-reachable
-        "frqs.on", "frqs.shift", "frqs.mix",
-        "-", // 184: freq_shift's reorder handle, never cursor-reachable
-        "wt.pos a", "wt.pos b", "wt.pos c",
-        "tape.on", "tape.wow.rate", "tape.wow.depth", "tape.flt.rate", "tape.flt.depth", "tape.mix",
-        "-", // 194: tape's reorder handle, never cursor-reachable
-    };
-    const cur = @min(@as(usize, app.synth_cursor), labels.len - 1);
     try style.writeModeBadge(w, app.modal.mode);
     try style.writeViewBadge(right, "SYNTH", app.modal.mode);
     try w.writeAll(dim ++ "  " ++ rst);
-    try w.writeAll(labels[cur]);
+    try writeParamLabel(w, app.synth_cursor);
     try w.writeAll(dim ++ ": " ++ rst);
     try w.writeAll(acc);
     switch (app.synth_cursor) {
-        0  => try w.writeAll(switch (synth.waveform) {
-            .sine => "sine", .saw => "saw", .triangle => "tri", .square => "sqr", .wavetable => "wt",
+        0 => try w.writeAll(switch (synth.waveform) {
+            .sine => "sine",
+            .saw => "saw",
+            .triangle => "tri",
+            .square => "sqr",
+            .wavetable => "wt",
         }),
-        1  => try w.print("{d:.2}",       .{synth.pulse_width}),
-        2  => try w.print("{d:.0} ct",    .{synth.detune_cents}),
-        3  => try w.print("{d}",           .{synth.unison}),
-        4  => try w.print("{d:.1} ct",    .{synth.unison_detune}),
-        5  => try w.print("{d:.2}",       .{synth.unison_spread}),
-        6  => try w.writeAll(if (synth.osc_b_on) "on" else "off"),
-        7  => try w.writeAll(switch (synth.osc_b_waveform) {
-            .sine => "sine", .saw => "saw", .triangle => "tri", .square => "sqr", .wavetable => "wt",
+        1 => try w.print("{d:.2}", .{synth.pulse_width}),
+        2 => try w.print("{d:.0} ct", .{synth.detune_cents}),
+        3 => try w.print("{d}", .{synth.unison}),
+        4 => try w.print("{d:.1} ct", .{synth.unison_detune}),
+        5 => try w.print("{d:.2}", .{synth.unison_spread}),
+        6 => try w.writeAll(if (synth.osc_b_on) "on" else "off"),
+        7 => try w.writeAll(switch (synth.osc_b_waveform) {
+            .sine => "sine",
+            .saw => "saw",
+            .triangle => "tri",
+            .square => "sqr",
+            .wavetable => "wt",
         }),
-        8  => try w.print("{d:.2}",       .{synth.osc_b_pulse_width}),
-        9  => try w.print("{d:.0} st",    .{synth.osc_b_semi}),
-        10 => try w.print("{d:.0} ct",    .{synth.osc_b_detune_cents}),
-        11 => try w.print("{d:.2}",       .{synth.osc_b_level}),
-        12 => try w.print("{d}",           .{synth.osc_b_unison}),
-        13 => try w.print("{d:.1} ct",    .{synth.osc_b_unison_detune}),
+        8 => try w.print("{d:.2}", .{synth.osc_b_pulse_width}),
+        9 => try w.print("{d:.0} st", .{synth.osc_b_semi}),
+        10 => try w.print("{d:.0} ct", .{synth.osc_b_detune_cents}),
+        11 => try w.print("{d:.2}", .{synth.osc_b_level}),
+        12 => try w.print("{d}", .{synth.osc_b_unison}),
+        13 => try w.print("{d:.1} ct", .{synth.osc_b_unison_detune}),
         14 => try w.writeAll(switch (synth.mod_mode) {
-            .none => "off", .ring => "ring",
-            .am_a_to_b => "AM A\u{2192}B", .am_b_to_a => "AM B\u{2192}A",
-            .fm_a_to_b => "FM A\u{2192}B", .fm_b_to_a => "FM B\u{2192}A",
+            .none => "off",
+            .ring => "ring",
+            .am_a_to_b => "AM A\u{2192}B",
+            .am_b_to_a => "AM B\u{2192}A",
+            .fm_a_to_b => "FM A\u{2192}B",
+            .fm_b_to_a => "FM B\u{2192}A",
         }),
         15 => switch (synth.mod_mode) {
             .fm_a_to_b, .fm_b_to_a => try w.print("\u{03b2}={d:.2}", .{synth.mod_amount}),
-            else                    => try w.print("{d:.2}",          .{synth.mod_amount}),
+            else => try w.print("{d:.2}", .{synth.mod_amount}),
         },
-        16 => try w.print("{d:.3} s",     .{synth.attack_s}),
-        17 => try w.print("{d:.3} s",     .{synth.decay_s}),
-        18 => try w.print("{d:.3}",       .{synth.sustain}),
-        19 => try w.print("{d:.3} s",     .{synth.release_s}),
+        16 => try w.print("{d:.3} s", .{synth.attack_s}),
+        17 => try w.print("{d:.3} s", .{synth.decay_s}),
+        18 => try w.print("{d:.3}", .{synth.sustain}),
+        19 => try w.print("{d:.3} s", .{synth.release_s}),
         20 => try w.writeAll(filterTypeName(synth.filter_type)),
         21 => if (synth.filter_cutoff >= 1_000.0)
             try w.print("{d:.2} kHz", .{synth.filter_cutoff / 1_000.0})
         else
-            try w.print("{d:.0} Hz",  .{synth.filter_cutoff}),
-        22 => try w.print("{d:.3}",       .{synth.filter_res}),
-        24 => try w.print("{d:.3} s",     .{synth.fenv_attack_s}),
-        25 => try w.print("{d:.3} s",     .{synth.fenv_decay_s}),
-        26 => try w.print("{d:.3}",       .{synth.fenv_sustain}),
-        27 => try w.print("{d:.3} s",     .{synth.fenv_release_s}),
+            try w.print("{d:.0} Hz", .{synth.filter_cutoff}),
+        22 => try w.print("{d:.3}", .{synth.filter_res}),
+        24 => try w.print("{d:.3} s", .{synth.fenv_attack_s}),
+        25 => try w.print("{d:.3} s", .{synth.fenv_decay_s}),
+        26 => try w.print("{d:.3}", .{synth.fenv_sustain}),
+        27 => try w.print("{d:.3} s", .{synth.fenv_release_s}),
         28 => try w.writeAll(lfoShapeName(synth.lfo_shape)),
-        29 => try w.print("{d:.2} Hz",    .{synth.lfo_rate_hz}),
+        29 => try w.print("{d:.2} Hz", .{synth.lfo_rate_hz}),
         32 => try w.writeAll(switch (synth.voice_mode) {
-            .poly => "poly", .mono => "mono", .legato => "legato",
+            .poly => "poly",
+            .mono => "mono",
+            .legato => "legato",
         }),
-        33 => if (synth.glide_s == 0.0) try w.writeAll("off")
-              else try w.print("{d:.3} s", .{synth.glide_s}),
-        34 => if (synth.sub_level == 0.0) try w.writeAll("off")
-              else try w.print("{d:.2}",   .{synth.sub_level}),
-        35 => try w.writeAll(switch (synth.sub_shape) { .sine => "sine", .square => "sqr" }),
-        36 => if (synth.noise_level == 0.0) try w.writeAll("off")
-              else try w.print("{d:.2}",   .{synth.noise_level}),
-        37 => try w.print("{d:.2}",       .{synth.noise_color}),
-        38 => try w.print("{d:.3}",       .{synth.gain}),
+        33 => if (synth.glide_s == 0.0) try w.writeAll("off") else try w.print("{d:.3} s", .{synth.glide_s}),
+        34 => if (synth.sub_level == 0.0) try w.writeAll("off") else try w.print("{d:.2}", .{synth.sub_level}),
+        35 => try w.writeAll(switch (synth.sub_shape) {
+            .sine => "sine",
+            .square => "sqr",
+        }),
+        36 => if (synth.noise_level == 0.0) try w.writeAll("off") else try w.print("{d:.2}", .{synth.noise_level}),
+        37 => try w.print("{d:.2}", .{synth.noise_color}),
+        38 => try w.print("{d:.3}", .{synth.gain}),
         39 => try w.writeAll(uniModeName(synth.unison_mode)),
         40 => try w.writeAll(uniModeName(synth.osc_b_unison_mode)),
         41 => try w.writeAll(switch (synth.warp_mode) {
-            .none => "none", .bend => "bend", .mirror => "mirror", .sync => "sync",
+            .none => "none",
+            .bend => "bend",
+            .mirror => "mirror",
+            .sync => "sync",
         }),
-        42 => try w.print("{d:.2}",       .{synth.warp_amount}),
+        42 => try w.print("{d:.2}", .{synth.warp_amount}),
         43 => try w.writeAll(switch (synth.osc_b_warp_mode) {
-            .none => "none", .bend => "bend", .mirror => "mirror", .sync => "sync",
+            .none => "none",
+            .bend => "bend",
+            .mirror => "mirror",
+            .sync => "sync",
         }),
-        44 => try w.print("{d:.2}",       .{synth.osc_b_warp_amount}),
+        44 => try w.print("{d:.2}", .{synth.osc_b_warp_amount}),
         45 => try w.writeAll(if (synth.filter2_on) "on" else "off"),
         46 => try w.writeAll(filterTypeName(synth.filter2_type)),
         47 => if (synth.filter2_cutoff >= 1_000.0)
             try w.print("{d:.2} kHz", .{synth.filter2_cutoff / 1_000.0})
         else
-            try w.print("{d:.0} Hz",  .{synth.filter2_cutoff}),
-        48 => try w.print("{d:.3}",       .{synth.filter2_res}),
-        49 => try w.writeAll(switch (synth.filter_routing) { .series => "series", .parallel => "parallel" }),
+            try w.print("{d:.0} Hz", .{synth.filter2_cutoff}),
+        48 => try w.print("{d:.3}", .{synth.filter2_res}),
+        49 => try w.writeAll(switch (synth.filter_routing) {
+            .series => "series",
+            .parallel => "parallel",
+        }),
         50 => try w.writeAll(if (synth.osc_c_on) "on" else "off"),
         51 => try w.writeAll(switch (synth.osc_c_waveform) {
-            .sine => "sine", .saw => "saw", .triangle => "tri", .square => "sqr", .wavetable => "wt",
+            .sine => "sine",
+            .saw => "saw",
+            .triangle => "tri",
+            .square => "sqr",
+            .wavetable => "wt",
         }),
-        52 => try w.print("{d:.2}",       .{synth.osc_c_pulse_width}),
-        53 => try w.print("{d:.0} st",    .{synth.osc_c_semi}),
-        54 => try w.print("{d:.0} ct",    .{synth.osc_c_detune_cents}),
-        55 => try w.print("{d:.2}",       .{synth.osc_c_level}),
-        56 => try w.print("{d}",           .{synth.osc_c_unison}),
-        57 => try w.print("{d:.1} ct",    .{synth.osc_c_unison_detune}),
+        52 => try w.print("{d:.2}", .{synth.osc_c_pulse_width}),
+        53 => try w.print("{d:.0} st", .{synth.osc_c_semi}),
+        54 => try w.print("{d:.0} ct", .{synth.osc_c_detune_cents}),
+        55 => try w.print("{d:.2}", .{synth.osc_c_level}),
+        56 => try w.print("{d}", .{synth.osc_c_unison}),
+        57 => try w.print("{d:.1} ct", .{synth.osc_c_unison_detune}),
         58 => try w.writeAll(uniModeName(synth.osc_c_unison_mode)),
         59...82 => {
             const row = synth.mod_matrix[(app.synth_cursor - 59) / 3];
