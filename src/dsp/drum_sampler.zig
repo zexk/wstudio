@@ -10,10 +10,10 @@
 //! single-voice "choke" behaviour (a retrigger cuts the previous hit, the
 //! classic drum-machine convention) even though Sampler itself is polyphonic.
 //!
-//! A 64-step bitmask per pad stores the pattern; each bit is a u64 atomic
-//! so the UI thread can flip bits safely while the audio thread reads them.
-//! A parallel per-step array holds each step's velocity (0-127, MIDI-style)
-//! as its own atomic u8. The sequencer fires on step boundaries derived
+//! Each pad step is stored as a compact MIDI note. Atomic bitmask and
+//! velocity projections let the UI, persistence, and audio threads exchange
+//! fixed-size snapshots without copying the larger editable representation.
+//! The sequencer fires on step boundaries derived
 //! from the transport, using a monotonic step counter to avoid the
 //! double-fire and float-truncation bugs that arise from recomputing the
 //! boundary position every block; MPC-style swing (50–75%) delays each
@@ -38,6 +38,7 @@ const Transport = @import("../transport.zig").Transport;
 const pad_mod = @import("pad.zig");
 const drum_kit = @import("drum_kit.zig");
 const Sampler = @import("sampler.zig").Sampler;
+const Note = @import("pattern.zig").Note;
 
 const Sample = types.Sample;
 
@@ -78,6 +79,24 @@ pub const DrumMachine = struct {
     /// default.
     pub const vel_full: u8 = 127;
 
+    /// Compact canonical note for the drum grid. Timing is integral in the
+    /// pattern's native grid, so 1/128 notes remain exact and cheap to store.
+    pub const MidiNote = struct {
+        pitch: u7,
+        step: u8,
+        duration_steps: u8 = 1,
+        velocity: u7 = vel_full,
+
+        pub fn toPattern(self: MidiNote, steps_per_beat: u8) Note {
+            return .{
+                .pitch = self.pitch,
+                .start_beat = @as(f64, @floatFromInt(self.step)) / @as(f64, @floatFromInt(steps_per_beat)),
+                .duration_beat = @as(f64, @floatFromInt(self.duration_steps)) / @as(f64, @floatFromInt(steps_per_beat)),
+                .velocity = velGain(self.velocity),
+            };
+        }
+    };
+
     /// Named preset bands `cycleStepVel`'s quick single-key gesture steps
     /// through: 127→95→63→31→127 (the same 100/75/25/25% feel the old 2-bit
     /// encoding had, just at the new resolution). Also doubles as the
@@ -107,6 +126,8 @@ pub const DrumMachine = struct {
         step_count: u8 = 16,
         /// Number of sequencer steps in one quarter-note beat.
         steps_per_beat: u8 = 4,
+        /// Canonical MIDI data edited by the pad grid.
+        midi: [max_pads][max_steps]?MidiNote = [_][max_steps]?MidiNote{[_]?MidiNote{null} ** max_steps} ** max_pads,
     };
 
     /// A drum clip flattened onto the arrangement's step timeline. `pattern` is
@@ -173,6 +194,9 @@ pub const DrumMachine = struct {
     /// bit-packing needed since each step's value is read/written whole.
     /// Atomic for the same UI-edits-while-audio-reads reason as `pattern`.
     vel: [max_pads][max_steps]std.atomic.Value(u8),
+    /// Canonical live pattern. `pattern` and `vel` above are compatibility
+    /// projections used by persistence and older control-side snapshots.
+    midi: [max_pads][max_steps]?MidiNote,
     step_count: u8,
     /// Native timing resolution of the active pattern. Four is 1/16 notes;
     /// 32 is 1/128 notes.
@@ -226,6 +250,7 @@ pub const DrumMachine = struct {
             .pads = undefined,
             .pattern = undefined,
             .vel = undefined,
+            .midi = [_][max_steps]?MidiNote{[_]?MidiNote{null} ** max_steps} ** max_pads,
             .step_count = 32, // default 2 bars; user can extend to max_steps with >
 
             .next_step_k = 0,
@@ -278,6 +303,7 @@ pub const DrumMachine = struct {
         for (&out.vel, &self.vel) |*dst_row, *src_row| {
             for (dst_row, src_row) |*dst, *src| dst.store(src.load(.acquire), .monotonic);
         }
+        out.midi = self.midi;
         out.step_count = self.step_count;
         out.steps_per_beat = self.steps_per_beat;
         out.swing.store(self.swing.load(.monotonic), .monotonic);
@@ -311,6 +337,52 @@ pub const DrumMachine = struct {
         for (&self.vel) |*row| {
             for (row[self.step_count..]) |*p| p.store(vel_full, .release);
         }
+        for (&self.midi) |*row| {
+            for (row[self.step_count..]) |*note| note.* = null;
+        }
+    }
+
+    pub fn gridNote(pad: u8, step: u8, velocity: u8) MidiNote {
+        return .{
+            .pitch = @intCast(pad),
+            .step = step,
+            .velocity = @intCast(@min(velocity, vel_full)),
+        };
+    }
+
+    /// Import the legacy bitmask projection after loading an old project.
+    pub fn rebuildMidiFromProjection(self: *DrumMachine) void {
+        for (&self.midi, 0..) |*row, pad| {
+            for (row, 0..) |*note, step| {
+                note.* = if (step < self.step_count and (self.pattern[pad].load(.acquire) >> @intCast(step)) & 1 == 1)
+                    gridNote(@intCast(pad), @intCast(step), self.vel[pad][step].load(.acquire))
+                else
+                    null;
+            }
+        }
+    }
+
+    pub fn rebuildVariantMidi(slot: *Variant) void {
+        for (&slot.midi, 0..) |*row, pad| {
+            for (row, 0..) |*note, step| {
+                note.* = if (step < slot.step_count and (slot.pattern[pad] >> @intCast(step)) & 1 == 1)
+                    gridNote(@intCast(pad), @intCast(step), slot.vel[pad][step])
+                else
+                    null;
+            }
+        }
+    }
+
+    pub fn copyPadMidi(self: *const DrumMachine, pad: u8, out: []Note) u16 {
+        if (pad >= max_pads) return 0;
+        var count: u16 = 0;
+        for (self.midi[pad][0..self.step_count]) |maybe_note| {
+            const note = maybe_note orelse continue;
+            if (count >= out.len) break;
+            out[count] = note.toPattern(self.steps_per_beat);
+            count += 1;
+        }
+        return count;
     }
 
     /// Nudge swing by `delta` percent, clamped to [swing_min, swing_max].
@@ -339,6 +411,7 @@ pub const DrumMachine = struct {
         }
         slot.step_count = self.step_count;
         slot.steps_per_beat = self.steps_per_beat;
+        slot.midi = self.midi;
     }
 
     /// Replace the live pattern with `slot`'s data (control thread). Used to
@@ -351,6 +424,7 @@ pub const DrumMachine = struct {
         }
         self.setStepCount(slot.step_count);
         self.steps_per_beat = slot.steps_per_beat;
+        self.midi = slot.midi;
     }
 
     /// Load bank slot `v` into the live pattern.
@@ -406,6 +480,7 @@ pub const DrumMachine = struct {
             for (&out.vel, &self.vel) |*dst_row, *live_row| {
                 for (dst_row, live_row) |*dst, *live| dst.* = live.load(.acquire);
             }
+            out.midi = self.midi;
             return out;
         }
         return self.variants[@min(v, max_variants - 1)];
@@ -434,6 +509,10 @@ pub const DrumMachine = struct {
         _ = self.pattern[pad].fetchXor(bit, .acq_rel);
         // A toggled step always (re)starts at full velocity.
         self.vel[pad][step].store(vel_full, .release);
+        self.midi[pad][step] = if (self.pattern[pad].load(.acquire) & bit != 0)
+            gridNote(pad, step, vel_full)
+        else
+            null;
     }
 
     /// Change the native grid without moving hits in musical time. Returns
@@ -464,23 +543,26 @@ pub const DrumMachine = struct {
         for (&self.vel, next_vel) |*dst_row, src_row| {
             for (dst_row, src_row) |*dst, level| dst.store(level, .release);
         }
+        self.rebuildMidiFromProjection();
         return true;
     }
 
     pub fn stepActive(self: *const DrumMachine, pad: u8, step: u8) bool {
         if (pad >= max_pads or step >= max_steps) return false;
-        return (self.pattern[pad].load(.acquire) >> @intCast(step)) & 1 == 1;
+        return self.midi[pad][step] != null;
     }
 
     /// One step's velocity, 0-127 (127 = full, see velGain).
     pub fn stepVel(self: *const DrumMachine, pad: u8, step: u8) u8 {
         if (pad >= max_pads or step >= max_steps) return vel_full;
-        return self.vel[pad][step].load(.acquire);
+        const note = self.midi[pad][step] orelse return self.vel[pad][step].load(.acquire);
+        return note.velocity;
     }
 
     pub fn setStepVel(self: *DrumMachine, pad: u8, step: u8, level: u8) void {
         if (pad >= max_pads or step >= max_steps) return;
         self.vel[pad][step].store(level, .release);
+        if (self.midi[pad][step]) |*note| note.velocity = @intCast(@min(level, vel_full));
     }
 
     /// Cycle through the named preset bands (127→95→63→31→127) - a quick
@@ -508,6 +590,7 @@ pub const DrumMachine = struct {
     pub fn clearPad(self: *DrumMachine, pad: u8) void {
         if (pad >= max_pads) return;
         self.pattern[pad].store(0, .release);
+        @memset(&self.midi[pad], null);
         for (&self.vel[pad]) |*p| p.store(vel_full, .release);
     }
 
@@ -515,6 +598,10 @@ pub const DrumMachine = struct {
     pub fn fillPad(self: *DrumMachine, pad: u8) void {
         if (pad >= max_pads) return;
         self.pattern[pad].store(stepMask(self.step_count), .release);
+        for (&self.midi[pad], 0..) |*note, step| note.* = if (step < self.step_count)
+            gridNote(pad, @intCast(step), vel_full)
+        else
+            null;
         for (&self.vel[pad]) |*p| p.store(vel_full, .release);
     }
 
@@ -736,11 +823,9 @@ pub const DrumMachine = struct {
                     self.fireSongStep(step_k, fire_frame);
                 } else {
                     const step_idx: u8 = @intCast(step_k % self.step_count);
-                    for (0..max_pads) |p| {
-                        if ((self.pattern[p].load(.acquire) >> @intCast(step_idx)) & 1 == 1) {
-                            self.chokeTrigger(@intCast(p), velGain(self.stepVel(@intCast(p), step_idx)), fire_frame);
-                        }
-                    }
+                    const bit = @as(u64, 1) << @intCast(step_idx);
+                    for (0..max_pads) |p| if (self.pattern[p].load(.acquire) & bit != 0)
+                        self.chokeTrigger(@intCast(p), velGain(self.vel[p][step_idx].load(.acquire)), fire_frame);
                     self.current_step.store(step_idx, .monotonic);
                 }
                 step_k += 1;
@@ -792,11 +877,9 @@ pub const DrumMachine = struct {
             const scaled = elapsed * clip.steps_per_beat;
             if (scaled % self.song_steps_per_beat != 0) continue;
             const local: u32 = scaled / self.song_steps_per_beat % clip.step_count;
-            for (0..max_pads) |p| {
-                if ((clip.pattern[p] >> @intCast(local)) & 1 == 1) {
-                    self.chokeTrigger(@intCast(p), velGain(clip.vel[p][local]), fire_frame);
-                }
-            }
+            const bit = @as(u64, 1) << @intCast(local);
+            for (0..max_pads) |p| if (clip.pattern[p] & bit != 0)
+                self.chokeTrigger(@intCast(p), velGain(clip.vel[p][local]), fire_frame);
             self.current_step.store(@intCast(local), .monotonic);
             return; // clips never overlap
         }
@@ -900,6 +983,7 @@ test "step sequencer fires pads at correct boundaries" {
     // Clear all defaults; enable only pad 0 on step 0
     for (&dm.pattern) |*p| p.store(0, .monotonic);
     dm.pattern[0].store(1, .monotonic); // step 0 active
+    dm.rebuildMidiFromProjection();
 
     // At 120bpm, 16th note = 6000 frames. Start playing at frame 0.
     transport.play();
@@ -939,6 +1023,26 @@ test "step sequencer fires pads at correct boundaries" {
     peak = 0;
     for (buf) |s| peak = @max(peak, @abs(s));
     try std.testing.expect(peak > 0.01);
+}
+
+test "pad grid stores canonical MIDI notes" {
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    defer dm.deinit();
+
+    dm.toggleStep(3, 7);
+    dm.setStepVel(3, 7, 95);
+
+    const midi = dm.midi[3][7].?;
+    try std.testing.expectEqual(@as(u7, 3), midi.pitch);
+    try std.testing.expectEqual(@as(u8, 7), midi.step);
+    try std.testing.expectEqual(@as(u8, 1), midi.duration_steps);
+    try std.testing.expectEqual(@as(u7, 95), midi.velocity);
+
+    var notes: [DrumMachine.max_steps]Note = undefined;
+    try std.testing.expectEqual(@as(u16, 1), dm.copyPadMidi(3, &notes));
+    try std.testing.expectApproxEqAbs(@as(f64, 1.75), notes[0].start_beat, 1e-9);
+    try std.testing.expectApproxEqAbs(@as(f32, 95.0 / 127.0), notes[0].velocity, 1e-6);
 }
 
 test "song mode fires the clip covering the playhead" {
@@ -1114,6 +1218,7 @@ test "swing delays the off-beat step" {
     // frames; swing 75% pushes step 1's hit from 6000 to 9000.
     for (&dm.pattern) |*p| p.store(0, .monotonic);
     dm.pattern[0].store(1 << 1, .monotonic);
+    dm.rebuildMidiFromProjection();
     dm.adjustSwing(100.0); // clamps at swing_max = 75
     try std.testing.expectApproxEqAbs(DrumMachine.swing_max, dm.swing.load(.monotonic), 1e-6);
 

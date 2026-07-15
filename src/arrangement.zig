@@ -115,6 +115,8 @@ pub const Clip = struct {
     /// wholesale rather than adding a third.
     pub const Drum = struct {
         pattern: [DrumMachine.max_pads]u64,
+        midi: [DrumMachine.max_pads][DrumMachine.max_steps]?DrumMachine.MidiNote =
+            [_][DrumMachine.max_steps]?DrumMachine.MidiNote{[_]?DrumMachine.MidiNote{null} ** DrumMachine.max_steps} ** DrumMachine.max_pads,
         /// Per-step velocity (0-127; 127 = full, see DrumMachine.velGain).
         vel: [DrumMachine.max_pads][DrumMachine.max_steps]u8 =
             [_][DrumMachine.max_steps]u8{[_]u8{DrumMachine.vel_full} ** DrumMachine.max_steps} ** DrumMachine.max_pads,

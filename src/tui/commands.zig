@@ -119,7 +119,7 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "synth-preset-save", .desc = "<name>  save the cursor track's current synth params as a reusable preset", .run = wrap(cmdSynthPresetSave), .scope = .synth },
     .{ .name = "drum-kit",    .desc = "[name]  apply a factory or saved kit to the cursor drum machine (no args: list names)", .run = wrap(cmdDrumKit), .scope = .drum },
     .{ .name = "drum-kit-save", .desc = "<name>  save the cursor drum machine's pad tuning (name/gain/pan/pitch/ADSR/choke, no audio) as a reusable kit", .run = wrap(cmdDrumKitSave), .scope = .drum },
-    .{ .name = "decompose",   .desc = "replace the drum machine with one sampler + MIDI track per loaded pad", .run = wrap(cmdDecompose), .scope = .drum },
+    .{ .name = "split-drums", .desc = "replace the drum machine with one sampler + MIDI track per loaded pad", .run = wrap(cmdSplitDrums), .scope = .drum },
     .{ .name = "undo",         .desc = "undo the last edit (alias for the u key)",   .run = wrap(cmdUndo) },
     .{ .name = "redo",         .desc = "redo the last undone edit (alias for the U key)", .run = wrap(cmdRedo) },
     // zig fmt: on
@@ -390,21 +390,21 @@ fn cmdTrackAdd(app: *App, args: []const u8) void {
     app.doTrackAdd(if (name.len > 0) name else null);
 }
 
-fn cmdDecompose(app: *App, args: []const u8) void {
+fn cmdSplitDrums(app: *App, args: []const u8) void {
     if (std.mem.trim(u8, args, " ").len != 0) {
-        app.setStatus("decompose: takes no arguments", .{});
+        app.setStatus("split-drums: takes no arguments", .{});
         return;
     }
     if (app.cursor >= app.session.racks.items.len) {
-        app.setStatus("decompose: select a drum track", .{});
+        app.setStatus("split-drums: select a drum track", .{});
         return;
     }
-    const count = app.session.decomposeDrumTrack(app.cursor) catch |err| {
-        app.setStatus("decompose: {s}", .{@errorName(err)});
+    const count = app.session.splitDrumTrack(app.cursor) catch |err| {
+        app.setStatus("split-drums: {s}", .{@errorName(err)});
         return;
     };
     app.dirty = true;
-    app.setStatus("decomposed into {d} sampler tracks", .{count});
+    app.setStatus("split into {d} sampler tracks", .{count});
 }
 
 fn cmdTrackDel(app: *App, args: []const u8) void {

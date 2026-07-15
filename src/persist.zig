@@ -1583,6 +1583,7 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
                             const pn = @min(vs.pattern.len, slot.pattern.len);
                             for (vs.pattern[0..pn], slot.pattern[0..pn]) |bits, *p| p.* = bits & mask;
                             applyVelSnap(&slot.vel, vs.vel, vs.vel_lo, vs.vel_hi);
+                            DrumMachine.rebuildVariantMidi(slot);
                         }
                         dmp.variant_count = count;
                         dmp.variant = @min(ds.variant, count - 1);
@@ -1595,6 +1596,7 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
                         }
                         dmp.setStepCount(active.step_count);
                         dmp.steps_per_beat = active.steps_per_beat;
+                        dmp.rebuildMidiFromProjection();
                     } else {
                         // v2: one variant from the legacy fields. Bits first:
                         // setStepCount masks off any pattern bits the file
@@ -1605,6 +1607,7 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
                         }
                         dmp.setStepCount(ds.step_count);
                         dmp.steps_per_beat = std.math.clamp(ds.steps_per_beat, 1, 32);
+                        dmp.rebuildMidiFromProjection();
                     }
                     dmp.swing.store(
                         std.math.clamp(ds.swing, DrumMachine.swing_min, DrumMachine.swing_max),
@@ -1837,6 +1840,14 @@ fn clipFromSnap(allocator: std.mem.Allocator, cs: ClipSnap, beats_per_bar: u8) !
                 .variant = @min(cs.variant, DrumMachine.max_variants - 1),
             };
             applyVelSnap(&d.vel, cs.drum_vel, cs.drum_vel_lo, cs.drum_vel_hi);
+            for (&d.midi, 0..) |*row, pad| {
+                for (row, 0..) |*note, step| {
+                    note.* = if (step < d.step_count and (d.pattern[pad] >> @intCast(step)) & 1 == 1)
+                        DrumMachine.gridNote(@intCast(pad), @intCast(step), d.vel[pad][step])
+                    else
+                        null;
+                }
+            }
             break :blk2 ws_arrangement.Clip.initDrum(start_tick, length_ticks, d);
         },
     };

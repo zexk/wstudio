@@ -246,7 +246,7 @@ pub const Session = struct {
     /// Replace one drum-machine track with one sampler track per materialized
     /// pad. Hit times and velocities become ordinary melodic notes, including
     /// private MIDI copies for every arrangement clip.
-    pub fn decomposeDrumTrack(self: *Session, track_idx: usize) !u8 {
+    pub fn splitDrumTrack(self: *Session, track_idx: usize) !u8 {
         if (track_idx >= self.racks.items.len) return error.NotDrumMachine;
         const dm = switch (self.racks.items[track_idx].instrument) {
             .drum_machine => |*v| v,
@@ -282,18 +282,8 @@ pub const Session = struct {
 
             const pp = &out_rack.pattern_player.?;
             var notes: [DrumMachine.max_steps]Note = undefined;
-            var note_count: usize = 0;
-            var step: u8 = 0;
-            while (step < dm.step_count) : (step += 1) {
-                if (!dm.stepActive(pad_idx, step)) continue;
-                notes[note_count] = .{
-                    .pitch = fresh.root_note,
-                    .start_beat = @as(f64, @floatFromInt(step)) / @as(f64, @floatFromInt(dm.steps_per_beat)),
-                    .duration_beat = 1.0 / @as(f64, @floatFromInt(dm.steps_per_beat)),
-                    .velocity = DrumMachine.velGain(dm.stepVel(pad_idx, step)),
-                };
-                note_count += 1;
-            }
+            var note_count: usize = dm.copyPadMidi(pad_idx, &notes);
+            for (notes[0..note_count]) |*note| note.pitch = fresh.root_note;
             const live_length = @as(f64, @floatFromInt(dm.step_count)) / @as(f64, @floatFromInt(dm.steps_per_beat));
             pp.setNotes(notes[0..note_count], live_length);
 
@@ -305,16 +295,10 @@ pub const Session = struct {
                     .melodic => continue,
                 };
                 note_count = 0;
-                step = 0;
-                while (step < drum.step_count) : (step += 1) {
-                    const bit = @as(u64, 1) << @intCast(step);
-                    if (drum.pattern[pad_idx] & bit == 0) continue;
-                    notes[note_count] = .{
-                        .pitch = fresh.root_note,
-                        .start_beat = @as(f64, @floatFromInt(step)) / @as(f64, @floatFromInt(drum.steps_per_beat)),
-                        .duration_beat = 1.0 / @as(f64, @floatFromInt(drum.steps_per_beat)),
-                        .velocity = DrumMachine.velGain(drum.vel[pad_idx][step]),
-                    };
+                for (drum.midi[pad_idx][0..drum.step_count]) |maybe_note| {
+                    var note = (maybe_note orelse continue).toPattern(drum.steps_per_beat);
+                    note.pitch = fresh.root_note;
+                    notes[note_count] = note;
                     note_count += 1;
                 }
                 const pattern_beats = @as(f64, @floatFromInt(drum.step_count)) / @as(f64, @floatFromInt(drum.steps_per_beat));
@@ -481,9 +465,10 @@ pub const Session = struct {
     }
 
     /// Backward-compatible whole-bar stamping entry point.
-    /// Melodic tracks copy their piano-roll notes; drum tracks copy the step
-    /// bitmask. The clip's bar length is derived from the pattern length. No-op
-    /// for empty tracks. Replaces any clips it overlaps (see `Lane.place`).
+    /// Melodic tracks copy their piano-roll notes; drum tracks copy their MIDI
+    /// notes and playback projection. The clip's bar length is derived from
+    /// the pattern length. No-op for empty tracks. Replaces any clips it
+    /// overlaps (see `Lane.place`).
     pub fn stampClip(self: *Session, track_idx: usize, start_bar: u32) !void {
         return self.stampClipAtTick(track_idx, start_bar * time_grid.barTicks(self.project.beats_per_bar));
     }
@@ -501,6 +486,7 @@ pub const Session = struct {
             .drum_machine => |*dm| {
                 var drum: Clip.Drum = .{
                     .pattern = undefined,
+                    .midi = dm.midi,
                     .step_count = dm.step_count,
                     .steps_per_beat = dm.steps_per_beat,
                     .variant = dm.variant,
@@ -1281,7 +1267,7 @@ test "song mode places a drum clip on the step timeline" {
     try std.testing.expectEqual(@as(u32, 384), dm.song_length_steps);
 }
 
-test "decompose drum track creates sampler MIDI tracks and arrangement clips" {
+test "split drum track creates sampler MIDI tracks and arrangement clips" {
     var s = try Session.initDefault(std.testing.allocator);
     defer s.deinit();
     try s.setInstrument(0, .drum_machine);
@@ -1290,7 +1276,7 @@ test "decompose drum track creates sampler MIDI tracks and arrangement clips" {
     dm.setStepVel(0, 1, 95);
     try s.stampClip(0, 1);
 
-    const count = try s.decomposeDrumTrack(0);
+    const count = try s.splitDrumTrack(0);
     try std.testing.expectEqual(@as(u8, 8), count);
     try std.testing.expectEqual(@as(usize, 8), s.racks.items.len);
     try std.testing.expect(s.racks.items[0].instrument == .sampler);
