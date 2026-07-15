@@ -80,6 +80,8 @@ pub const Parser = struct {
                 self.running_status = status;
                 self.have_d1 = false;
             } else {
+                self.running_status = 0;
+                self.have_d1 = false;
                 return null; // system-common not implemented
             }
         }
@@ -293,6 +295,22 @@ test "parser: split message across two calls" {
     // zig fmt: on
     try std.testing.expect(r.msg == .note_on);
     try std.testing.expectEqual(@as(u7, 60), r.msg.note_on.note);
+}
+
+test "parser: system-common status cancels running status" {
+    var p: Parser = .{};
+    _ = p.feed(&.{ 0x90, 60, 80 });
+    try std.testing.expect(p.feed(&.{0xF1}) == null);
+    try std.testing.expect(p.feed(&.{ 62, 90 }) == null);
+}
+
+test "parser: system-common status cancels partial channel message" {
+    var p: Parser = .{};
+    try std.testing.expect(p.feed(&.{ 0x90, 60 }) == null);
+    try std.testing.expect(p.have_d1);
+    try std.testing.expect(p.feed(&.{0xF2}) == null);
+    try std.testing.expect(!p.have_d1);
+    try std.testing.expect(p.feed(&.{80}) == null);
 }
 
 test "noteName: spot checks" {
