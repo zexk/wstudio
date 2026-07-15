@@ -214,8 +214,11 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
             try w.writeAll(grn ++ bold ++ "▾" ++ rst);
             if (cw > 1) try w.splatByteAll(' ', cw - 1);
         } else if (step + 1 == loop_step) {
-            try w.writeAll(acc ++ "┤" ++ rst);
+            // Unlike the playhead (an exact frame position, leading column),
+            // the loop end is a beat-style boundary, so it rides the
+            // trailing pad like the beat ticks/numbers so all three line up.
             if (cw > 1) try w.splatByteAll(' ', cw - 1);
+            try w.writeAll(acc ++ "┤" ++ rst);
         } else if (cw == 1) {
             if (step % spb == 0) try w.writeAll(dim ++ "│" ++ rst) else try w.writeAll(" ");
         } else {
