@@ -19,11 +19,12 @@ pub fn write(
     const bits_per_sample: u16 = @intFromEnum(bit_depth);
     const bytes_per_sample: u32 = bits_per_sample / 8;
     const data_len: u32 = @intCast(samples.len * bytes_per_sample);
+    const data_pad: u32 = data_len & 1;
     const byte_rate = sample_rate * channel_count * bytes_per_sample;
     const block_align = channel_count * bytes_per_sample;
 
     try w.writeAll("RIFF");
-    try w.writeInt(u32, 36 + data_len, .little);
+    try w.writeInt(u32, 36 + data_len + data_pad, .little);
     try w.writeAll("WAVE");
 
     try w.writeAll("fmt ");
@@ -50,6 +51,7 @@ pub fn write(
             try w.writeInt(u8, @truncate(@as(u32, @bitCast(v)) >> 16), .little);
         },
     }
+    if (data_pad != 0) try w.writeByte(0);
 }
 
 // ---------------------------------------------------------------------------
@@ -150,7 +152,10 @@ pub fn parseAlloc(
         }
 
         pos += chunk_size;
-        if (chunk_size & 1 != 0) pos += 1; // WAV chunks are word-aligned
+        if (chunk_size & 1 != 0) {
+            if (pos >= riff_end) return error.Truncated;
+            pos += 1; // WAV chunks are word-aligned
+        }
     }
 
     return .{
@@ -207,6 +212,8 @@ test "24-bit header and sample encoding" {
     try std.testing.expectEqual(@as(u16, 24), std.mem.readInt(u16, out[34..36], .little));
     // data chunk size: 3 samples * 3 bytes
     try std.testing.expectEqual(@as(u32, 9), std.mem.readInt(u32, out[40..44], .little));
+    try std.testing.expectEqual(@as(usize, 54), out.len);
+    try std.testing.expectEqual(@as(u8, 0), out[out.len - 1]);
 
     const result = try parseAlloc(std.testing.allocator, out);
     defer std.testing.allocator.free(result.samples);
@@ -297,4 +304,16 @@ test "rejects a RIFF size larger than the available data" {
     const wav = w.buffered();
     std.mem.writeInt(u32, wav[4..8], std.mem.readInt(u32, wav[4..8], .little) + 1, .little);
     try std.testing.expectError(error.Truncated, parseAlloc(std.testing.allocator, wav));
+}
+
+test "rejects an odd chunk without its alignment byte" {
+    var raw: [32]u8 = undefined;
+    var w = std.Io.Writer.fixed(&raw);
+    try w.writeAll("RIFF");
+    try w.writeInt(u32, 13, .little);
+    try w.writeAll("WAVEJUNK");
+    try w.writeInt(u32, 1, .little);
+    try w.writeByte(0);
+
+    try std.testing.expectError(error.Truncated, parseAlloc(std.testing.allocator, w.buffered()));
 }
