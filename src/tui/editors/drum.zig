@@ -253,7 +253,7 @@ pub fn recordNote(app: *App, pitch: u7, vel: u8) void {
     const step = dm.currentStep();
     if (dm.stepActive(pad, step)) return;
     history.push(app, history.captureDrum(app, app.drum_track));
-    setStep(dm, pad, step, true, vel);
+    step_grid.setStep(dm, pad, step, true, vel);
     app.drum_cursor = .{ pad, step };
     app.setStatus("rec: pad {d} step {d}", .{ pad + 1, step + 1 });
 }
@@ -313,7 +313,7 @@ fn clearCursorStep(app: *App) void {
     if (!dm.stepActive(pad, step)) { app.setStatus("no step here", .{}); return; }
     // zig fmt: on
     history.push(app, history.captureDrum(app, app.drum_track));
-    setStep(dm, pad, step, false, 0);
+    step_grid.setStep(dm, pad, step, false, 0);
     app.setStatus("cleared step", .{});
 }
 
@@ -385,14 +385,6 @@ const StepRange = step_grid.StepRange;
 
 fn selectionRange(app: *App) StepRange {
     return step_grid.selectionRange(app.drum_visual_anchor, app.drum_cursor[1]);
-}
-
-/// Force one step to a given active/velocity state via the public toggle +
-/// velocity API (no direct bitmask poking, so this stays in step with
-/// whatever DrumMachine does internally on toggle). Also used by handleMouse
-/// to paint a drag stroke.
-pub fn setStep(dm: *DrumMachine, pad: u8, step: u8, active: bool, vel: u8) void {
-    step_grid.setStep(dm, pad, step, active, vel);
 }
 
 /// Yank every pad's steps within the selected range into the range
@@ -551,7 +543,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, view_rows: u
             const step = stepAt(app.drum_step_scroll, dm.step_count, ev.x) orelse return;
             app.drum_cursor[0] = @intCast(pad);
             app.drum_cursor[1] = step;
-            setStep(dm, @intCast(pad), step, state, DrumMachine.vel_full);
+            step_grid.setStep(dm, @intCast(pad), step, state, DrumMachine.vel_full);
         },
         .release => app.drum_paint_state = null,
         else => {},

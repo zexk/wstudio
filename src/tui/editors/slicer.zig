@@ -339,7 +339,7 @@ fn clearCursorStep(app: *App) void {
     if (!sl.stepActive(slice, step)) { app.setStatus("no step here", .{}); return; }
     // zig fmt: on
     history.push(app, history.captureSlicer(app, app.slicer_track));
-    setStep(sl, slice, step, false, 0);
+    step_grid.setStep(sl, slice, step, false, 0);
     app.setStatus("cleared step", .{});
 }
 
@@ -404,12 +404,6 @@ const StepRange = step_grid.StepRange;
 
 fn selectionRange(app: *App) StepRange {
     return step_grid.selectionRange(app.slicer_visual_anchor, app.slicer_cursor[1]);
-}
-
-/// Force one step to a given active/velocity state via the public toggle +
-/// velocity API. Also used by handleMouse to paint a drag stroke.
-pub fn setStep(sl: *Slicer, slice: u8, step: u8, active: bool, vel: u8) void {
-    step_grid.setStep(sl, slice, step, active, vel);
 }
 
 /// Yank every slice's steps within the selected range into the range
@@ -525,7 +519,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16, v
             const step = stepAt(app.slicer_step_scroll, sl.step_count, ev.x) orelse return;
             app.slicer_cursor[0] = @intCast(slice);
             app.slicer_cursor[1] = step;
-            setStep(sl, @intCast(slice), step, state, Slicer.vel_full);
+            step_grid.setStep(sl, @intCast(slice), step, state, Slicer.vel_full);
         },
         .release => app.slicer_paint_state = null,
         else => {},

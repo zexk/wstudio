@@ -48,11 +48,6 @@ pub const Slicer = struct {
     /// without Sampler's full 16 (a slicer track can have up to 64 of these
     /// pools live at once, unlike Sampler's single pad).
     pub const max_voices_per_slice: u8 = 4;
-    /// Editable params per slice (mirrors `Sampler.adjustParam`'s ids 0-8
-    /// exactly — start/end/pitch/attack/decay/sustain/release/gain/pan —
-    /// minus `root_note`/`mono`, which don't apply to an unpitched one-shot
-    /// region triggered by its own slice index, not a MIDI note).
-    pub const slice_param_count: u8 = 9;
     /// `set_param`/`set_param_abs` ids are `slice << 4 | param` — same shape
     /// DrumMachine.paramId uses for its own per-pad params.
     pub const param_stride: u16 = 16;
