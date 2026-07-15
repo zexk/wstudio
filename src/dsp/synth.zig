@@ -2906,6 +2906,33 @@ pub const PolySynth = struct {
         };
     }
 
+    /// Copies+clamps every `param_specs` field from `snap` (any struct with
+    /// matching field names, typically persist.zig's `SynthSnap`) onto
+    /// `self`, applying the same per-kind range `specSetAbs` uses. Lets
+    /// file-load validation share the id->field->range table instead of
+    /// persist.zig hand-maintaining a fourth parallel copy of it (that copy
+    /// had already drifted: ids 188-193's tape fields were missing from it
+    /// entirely, so a saved tape setting silently reset to defaults on
+    /// reload). Fields on `snap` with no `param_specs` row (`mod_matrix`,
+    /// `fx_order`, pattern-player fields, ...) are the caller's job.
+    pub fn applyParamSpecs(self: *PolySynth, snap: anytype) void {
+        const Snap = @TypeOf(snap.*);
+        inline for (param_specs) |spec| {
+            if (@hasField(Snap, spec.field)) {
+                const val = @field(snap.*, spec.field);
+                switch (spec.kind) {
+                    .cont, .log_freq => @field(self.*, spec.field) = std.math.clamp(val, spec.min, spec.max),
+                    .toggle, .cycle => @field(self.*, spec.field) = val,
+                    .int_cont => {
+                        const lo: i32 = @intFromFloat(spec.min);
+                        const hi: i32 = @intFromFloat(spec.max);
+                        @field(self.*, spec.field) = @intCast(std.math.clamp(@as(i32, val), lo, hi));
+                    },
+                }
+            }
+        }
+    }
+
     /// One row per flat param id `specAdjust`/`specSetAbs`/`specValue`
     /// drive generically — `adjustParam`/`setParamAbsolute`/`paramValue`
     /// used to repeat this id->field->range mapping three times over as

@@ -243,6 +243,16 @@ pub const SynthSnap = struct {
     fx_reverb_room: f32 = 0.6,
     fx_reverb_damp: f32 = 0.4,
     fx_reverb_mix: f32 = 0.3,
+    /// Additive field: missing since the tape unit shipped (7ab2e3c), so a
+    /// synth's own tape settings silently reset to defaults on save/reload
+    /// even though the track/master-chain tape unit persisted fine via its
+    /// own `FxUnitSnap.tape` variant.
+    fx_tape_on: bool = false,
+    fx_tape_wow_rate_hz: f32 = 0.6,
+    fx_tape_wow_depth: f32 = 0.4,
+    fx_tape_flutter_rate_hz: f32 = 8.0,
+    fx_tape_flutter_depth: f32 = 0.25,
+    fx_tape_mix: f32 = 1.0,
     fx_order: [14]synth_mod.FxUnitKind = synth_mod.default_fx_order,
     // Arpeggiator (additive optional-with-default fields, no version bump)
     arp_on: bool = false,
@@ -1890,64 +1900,12 @@ fn isValidFxOrder(order: [14]synth_mod.FxUnitKind) bool {
 /// rejects any value that isn't one of the declared tags at parse time.
 fn applyToSynth(s: *PolySynth, ss: *const SynthSnap) void {
     const clamp = std.math.clamp;
-    s.waveform = ss.waveform;
-    s.pulse_width = clamp(ss.pulse_width, 0.01, 0.99);
-    s.detune_cents = clamp(ss.detune_cents, -100.0, 100.0);
-    s.unison = @intCast(clamp(@as(i32, ss.unison), 1, 16));
-    s.unison_detune = clamp(ss.unison_detune, 0.0, 100.0);
-    s.unison_spread = clamp(ss.unison_spread, 0.0, 1.0);
-    s.unison_mode = ss.unison_mode;
-    s.warp_mode = ss.warp_mode;
-    s.warp_amount = clamp(ss.warp_amount, 0.0, 1.0);
-    s.osc_b_on = ss.osc_b_on;
-    s.osc_b_waveform = ss.osc_b_waveform;
-    s.osc_b_pulse_width = clamp(ss.osc_b_pulse_width, 0.01, 0.99);
-    s.osc_b_semi = clamp(ss.osc_b_semi, -24.0, 24.0);
-    s.osc_b_detune_cents = clamp(ss.osc_b_detune_cents, -100.0, 100.0);
-    s.osc_b_level = clamp(ss.osc_b_level, 0.0, 1.0);
-    s.osc_b_unison = @intCast(clamp(@as(i32, ss.osc_b_unison), 1, 16));
-    s.osc_b_unison_detune = clamp(ss.osc_b_unison_detune, 0.0, 100.0);
-    s.osc_b_unison_mode = ss.osc_b_unison_mode;
-    s.osc_b_warp_mode = ss.osc_b_warp_mode;
-    s.osc_b_warp_amount = clamp(ss.osc_b_warp_amount, 0.0, 1.0);
-    s.osc_c_on = ss.osc_c_on;
-    s.osc_c_waveform = ss.osc_c_waveform;
-    s.osc_c_pulse_width = clamp(ss.osc_c_pulse_width, 0.01, 0.99);
-    s.osc_c_semi = clamp(ss.osc_c_semi, -24.0, 24.0);
-    s.osc_c_detune_cents = clamp(ss.osc_c_detune_cents, -100.0, 100.0);
-    s.osc_c_level = clamp(ss.osc_c_level, 0.0, 1.0);
-    s.osc_c_unison = @intCast(clamp(@as(i32, ss.osc_c_unison), 1, 16));
-    s.osc_c_unison_detune = clamp(ss.osc_c_unison_detune, 0.0, 100.0);
-    s.osc_c_unison_mode = ss.osc_c_unison_mode;
-    s.wt_pos = clamp(ss.wt_pos, 0.0, 1.0);
-    s.osc_b_wt_pos = clamp(ss.osc_b_wt_pos, 0.0, 1.0);
-    s.osc_c_wt_pos = clamp(ss.osc_c_wt_pos, 0.0, 1.0);
-    s.attack_s = clamp(ss.attack_s, 0.001, 5.0);
-    s.decay_s = clamp(ss.decay_s, 0.001, 5.0);
-    s.sustain = clamp(ss.sustain, 0.0, 1.0);
-    s.release_s = clamp(ss.release_s, 0.001, 10.0);
-    s.filter_type = ss.filter_type;
-    s.filter_cutoff = clamp(ss.filter_cutoff, 20.0, 20_000.0);
-    s.filter_res = clamp(ss.filter_res, 0.0, 1.0);
-    s.filter2_on = ss.filter2_on;
-    s.filter2_type = ss.filter2_type;
-    s.filter2_cutoff = clamp(ss.filter2_cutoff, 20.0, 20_000.0);
-    s.filter2_res = clamp(ss.filter2_res, 0.0, 1.0);
-    s.filter_routing = ss.filter_routing;
-    s.fenv_attack_s = clamp(ss.fenv_attack_s, 0.001, 5.0);
-    s.fenv_decay_s = clamp(ss.fenv_decay_s, 0.001, 5.0);
-    s.fenv_sustain = clamp(ss.fenv_sustain, 0.0, 1.0);
-    s.fenv_release_s = clamp(ss.fenv_release_s, 0.001, 10.0);
-    s.lfo_shape = ss.lfo_shape;
-    s.lfo_rate_hz = clamp(ss.lfo_rate_hz, 0.01, 20.0);
-    s.lfo2_shape = ss.lfo2_shape;
-    s.lfo2_rate_hz = clamp(ss.lfo2_rate_hz, 0.01, 20.0);
-    s.lfo3_shape = ss.lfo3_shape;
-    s.lfo3_rate_hz = clamp(ss.lfo3_rate_hz, 0.01, 20.0);
-    s.macro1 = clamp(ss.macro1, 0.0, 1.0);
-    s.macro2 = clamp(ss.macro2, 0.0, 1.0);
-    s.macro3 = clamp(ss.macro3, 0.0, 1.0);
-    s.macro4 = clamp(ss.macro4, 0.0, 1.0);
+    // Every plain param_specs field (id->field->range, shared with the live
+    // h/l-nudge and automation paths) — see PolySynth.applyParamSpecs. What's
+    // left below is what param_specs deliberately excludes: the mod matrix
+    // (fixed array vs. optional slice, plus pre-v17 legacy migration) and
+    // fx_order (needs isValidFxOrder validation, not a plain clamp).
+    s.applyParamSpecs(ss);
     if (ss.mod_matrix) |rows| {
         // v17 file: take the rows as saved (clamped; a bad dest falls back
         // to cutoff inside setParamAbsolute's rules — mirror them here).
@@ -1972,97 +1930,9 @@ fn applyToSynth(s: *PolySynth, ss: *const SynthSnap) void {
         s.mod_matrix[0] = rows[0];
         s.mod_matrix[1] = rows[1];
     }
-    s.voice_mode = ss.voice_mode;
-    s.glide_s = clamp(ss.glide_s, 0.0, 10.0);
-    s.sub_level = clamp(ss.sub_level, 0.0, 1.0);
-    s.sub_shape = ss.sub_shape;
-    s.noise_level = clamp(ss.noise_level, 0.0, 1.0);
-    s.noise_color = clamp(ss.noise_color, 0.0, 1.0);
-    s.mod_mode = ss.mod_mode;
-    s.mod_amount = clamp(ss.mod_amount, 0.0, 8.0);
-    s.gain = clamp(ss.gain, 0.01, 1.0);
-    s.fx_gate_on = ss.fx_gate_on;
-    s.fx_gate_threshold_db = clamp(ss.fx_gate_threshold_db, -80.0, 0.0);
-    s.fx_gate_attack_ms = clamp(ss.fx_gate_attack_ms, 0.1, 50.0);
-    s.fx_gate_release_ms = clamp(ss.fx_gate_release_ms, 5.0, 1000.0);
-    s.fx_eq_on = ss.fx_eq_on;
-    s.fx_eq_low_freq = clamp(ss.fx_eq_low_freq, 20.0, 20_000.0);
-    s.fx_eq_low_gain_db = clamp(ss.fx_eq_low_gain_db, -18.0, 18.0);
-    s.fx_eq_mid_freq = clamp(ss.fx_eq_mid_freq, 20.0, 20_000.0);
-    s.fx_eq_mid_gain_db = clamp(ss.fx_eq_mid_gain_db, -18.0, 18.0);
-    s.fx_eq_mid_q = clamp(ss.fx_eq_mid_q, 0.1, 10.0);
-    s.fx_eq_high_freq = clamp(ss.fx_eq_high_freq, 20.0, 20_000.0);
-    s.fx_eq_high_gain_db = clamp(ss.fx_eq_high_gain_db, -18.0, 18.0);
-    s.fx_comp_on = ss.fx_comp_on;
-    s.fx_comp_threshold_db = clamp(ss.fx_comp_threshold_db, -60.0, 0.0);
-    s.fx_comp_ratio = clamp(ss.fx_comp_ratio, 1.0, 20.0);
-    s.fx_comp_attack_ms = clamp(ss.fx_comp_attack_ms, 0.1, 500.0);
-    s.fx_comp_release_ms = clamp(ss.fx_comp_release_ms, 1.0, 2000.0);
-    s.fx_comp_makeup_db = clamp(ss.fx_comp_makeup_db, -24.0, 24.0);
-    s.fx_mb_on = ss.fx_mb_on;
-    s.fx_mb_xover_lo = clamp(ss.fx_mb_xover_lo, 20.0, 20_000.0);
-    s.fx_mb_xover_hi = clamp(ss.fx_mb_xover_hi, 20.0, 20_000.0);
-    s.fx_mb_attack_ms = clamp(ss.fx_mb_attack_ms, 0.1, 500.0);
-    s.fx_mb_release_ms = clamp(ss.fx_mb_release_ms, 1.0, 2000.0);
-    s.fx_mb_style = ss.fx_mb_style;
-    s.fx_mb_mix = clamp(ss.fx_mb_mix, 0.0, 1.0);
-    s.fx_mb_low_threshold_db = clamp(ss.fx_mb_low_threshold_db, -60.0, 0.0);
-    s.fx_mb_low_ratio = clamp(ss.fx_mb_low_ratio, 1.0, 20.0);
-    s.fx_mb_low_makeup_db = clamp(ss.fx_mb_low_makeup_db, -24.0, 24.0);
-    s.fx_mb_mid_threshold_db = clamp(ss.fx_mb_mid_threshold_db, -60.0, 0.0);
-    s.fx_mb_mid_ratio = clamp(ss.fx_mb_mid_ratio, 1.0, 20.0);
-    s.fx_mb_mid_makeup_db = clamp(ss.fx_mb_mid_makeup_db, -24.0, 24.0);
-    s.fx_mb_high_threshold_db = clamp(ss.fx_mb_high_threshold_db, -60.0, 0.0);
-    s.fx_mb_high_ratio = clamp(ss.fx_mb_high_ratio, 1.0, 20.0);
-    s.fx_mb_high_makeup_db = clamp(ss.fx_mb_high_makeup_db, -24.0, 24.0);
-    s.fx_ott_on = ss.fx_ott_on;
-    s.fx_ott_depth = clamp(ss.fx_ott_depth, 0.0, 1.0);
-    s.fx_ott_time = clamp(ss.fx_ott_time, 0.25, 4.0);
-    s.fx_ott_gain_in_db = clamp(ss.fx_ott_gain_in_db, -24.0, 24.0);
-    s.fx_ott_gain_out_db = clamp(ss.fx_ott_gain_out_db, -24.0, 24.0);
-    s.fx_dist_on = ss.fx_dist_on;
-    s.fx_dist_drive_db = clamp(ss.fx_dist_drive_db, 0.0, 36.0);
-    s.fx_dist_mix = clamp(ss.fx_dist_mix, 0.0, 1.0);
-    s.fx_crush_on = ss.fx_crush_on;
-    s.fx_crush_bits = clamp(ss.fx_crush_bits, 1.0, 16.0);
-    s.fx_crush_rate = clamp(ss.fx_crush_rate, 1.0, 64.0);
-    s.fx_crush_mix = clamp(ss.fx_crush_mix, 0.0, 1.0);
-    s.fx_chorus_on = ss.fx_chorus_on;
-    s.fx_chorus_rate_hz = clamp(ss.fx_chorus_rate_hz, 0.05, 5.0);
-    s.fx_chorus_depth_ms = clamp(ss.fx_chorus_depth_ms, 0.0, synth_mod.Chorus.max_depth_ms);
-    s.fx_chorus_mix = clamp(ss.fx_chorus_mix, 0.0, 1.0);
-    s.fx_flanger_on = ss.fx_flanger_on;
-    s.fx_flanger_rate_hz = clamp(ss.fx_flanger_rate_hz, 0.02, 8.0);
-    s.fx_flanger_depth = clamp(ss.fx_flanger_depth, 0.0, 1.0);
-    s.fx_flanger_feedback = clamp(ss.fx_flanger_feedback, 0.0, 0.95);
-    s.fx_flanger_mix = clamp(ss.fx_flanger_mix, 0.0, 1.0);
-    s.fx_phaser_on = ss.fx_phaser_on;
-    s.fx_phaser_rate_hz = clamp(ss.fx_phaser_rate_hz, 0.02, 8.0);
-    s.fx_phaser_depth = clamp(ss.fx_phaser_depth, 0.0, 1.0);
-    s.fx_phaser_feedback = clamp(ss.fx_phaser_feedback, 0.0, 0.95);
-    s.fx_phaser_mix = clamp(ss.fx_phaser_mix, 0.0, 1.0);
-    s.fx_freq_shift_on = ss.fx_freq_shift_on;
-    s.fx_freq_shift_hz = clamp(ss.fx_freq_shift_hz, -2000.0, 2000.0);
-    s.fx_freq_shift_mix = clamp(ss.fx_freq_shift_mix, 0.0, 1.0);
-    s.fx_delay_on = ss.fx_delay_on;
-    s.fx_delay_time_s = clamp(ss.fx_delay_time_s, 0.001, synth_mod.Delay.max_time_s);
-    s.fx_delay_feedback = clamp(ss.fx_delay_feedback, 0.0, 0.95);
-    s.fx_delay_mix = clamp(ss.fx_delay_mix, 0.0, 1.0);
-    s.fx_reverb_on = ss.fx_reverb_on;
-    s.fx_reverb_room = clamp(ss.fx_reverb_room, 0.0, 0.98);
-    s.fx_reverb_damp = clamp(ss.fx_reverb_damp, 0.0, 1.0);
-    s.fx_reverb_mix = clamp(ss.fx_reverb_mix, 0.0, 1.0);
+    // fx_order needs isValidFxOrder validation (a hand-edited file could
+    // repeat or drop a unit kind), not a plain per-field clamp.
     s.fx_order = if (isValidFxOrder(ss.fx_order)) ss.fx_order else synth_mod.default_fx_order;
-    s.arp_on = ss.arp_on;
-    s.arp_mode = ss.arp_mode;
-    s.arp_octaves = @intCast(clamp(@as(i32, ss.arp_octaves), 1, PolySynth.max_arp_octaves));
-    s.arp_rate_hz = clamp(ss.arp_rate_hz, 0.1, 20.0);
-    s.arp_gate = clamp(ss.arp_gate, 0.02, 1.0);
-    s.arp_hold = ss.arp_hold;
-    s.env3_attack_s = clamp(ss.env3_attack_s, 0.001, 5.0);
-    s.env3_decay_s = clamp(ss.env3_decay_s, 0.001, 5.0);
-    s.env3_sustain = clamp(ss.env3_sustain, 0.0, 1.0);
-    s.env3_release_s = clamp(ss.env3_release_s, 0.001, 10.0);
 }
 
 // zig fmt: off
@@ -3348,6 +3218,7 @@ test "buildSession clamps malformed synth params from a hand-edited file" {
                     .pulse_width = 0.0,
                     .lfo_rate_hz = 0.0,
                     .swing = 999.0,
+                    .fx_tape_wow_rate_hz = 999.0,
                 },
             },
         },
@@ -3365,6 +3236,7 @@ test "buildSession clamps malformed synth params from a hand-edited file" {
     try testing.expect(s.sustain <= 1.0);
     try testing.expect(s.pulse_width >= 0.01);
     try testing.expect(s.lfo_rate_hz >= 0.01);
+    try testing.expect(s.fx_tape_wow_rate_hz <= 3.0);
 
     const pp = &session.racks.items[0].pattern_player.?;
     try testing.expectApproxEqAbs(PatternPlayer.swing_max, pp.swing.load(.monotonic), 1e-6);
@@ -3750,6 +3622,37 @@ test "golden-file corpus: v21's tape unit loads its params" {
     try testing.expectApproxEqAbs(@as(f32, 7.0), t.flutter_rate_hz, 1e-3);
     try testing.expectApproxEqAbs(@as(f32, 0.3), t.flutter_depth, 1e-3);
     try testing.expectApproxEqAbs(@as(f32, 0.9), t.mix, 1e-3);
+}
+
+test "save/load round-trip persists a synth's own tape FX settings" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [64]u8 = undefined;
+    const wsj_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/synth_tape.wsj", .{&tmp.sub_path});
+
+    var session = try Session.initDefault(testing.allocator);
+    defer session.deinit();
+    session.racks.items[0].instrument = .{ .poly_synth = try PolySynth.init(testing.allocator, session.project.sample_rate) };
+    const s = &session.racks.items[0].instrument.poly_synth;
+    // zig fmt: off
+    s.fx_tape_on = true;
+    s.fx_tape_wow_rate_hz = 1.1;      s.fx_tape_wow_depth = 0.7;
+    s.fx_tape_flutter_rate_hz = 10.0; s.fx_tape_flutter_depth = 0.5;
+    s.fx_tape_mix = 0.65;
+    // zig fmt: on
+
+    try save(testing.allocator, &session, testing.io, wsj_path);
+    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    defer loaded.deinit();
+
+    const ls = &loaded.racks.items[0].instrument.poly_synth;
+    try testing.expect(ls.fx_tape_on);
+    try testing.expectApproxEqAbs(@as(f32, 1.1), ls.fx_tape_wow_rate_hz, 1e-6);
+    try testing.expectApproxEqAbs(@as(f32, 0.7), ls.fx_tape_wow_depth, 1e-6);
+    try testing.expectApproxEqAbs(@as(f32, 10.0), ls.fx_tape_flutter_rate_hz, 1e-6);
+    try testing.expectApproxEqAbs(@as(f32, 0.5), ls.fx_tape_flutter_depth, 1e-6);
+    try testing.expectApproxEqAbs(@as(f32, 0.65), ls.fx_tape_mix, 1e-6);
 }
 
 test "save/load round-trip persists an EQ band's lowpass/highpass type and slope" {
