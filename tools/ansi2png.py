@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render a `tmux capture-pane -e -p` ANSI text dump to a PNG.
+"""Convert a `tmux capture-pane -e -p` ANSI text dump to a PNG.
 
 Usage: ansi2png.py input.ansi output.png [font_size]
 

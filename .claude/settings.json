@@ -1,9 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(zig build *)",
-      "Bash(nix develop --command zig build *)",
-      "Bash(tmux -L wst-shot capture-pane *)"
-    ]
-  }
-}

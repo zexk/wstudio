@@ -22,10 +22,10 @@ it's a separate build target. Before any interactive/tmux verification
 pass, run plain `zig build` first, or a passing test suite can mask a
 stale binary that looks like a real behavioral bug.
 
-To actually see the TUI (not just read code), use the
-`wstudio-tui-screenshot` skill - it drives a dedicated tmux socket and
-renders a real PNG, which catches bg-color/reverse-video/layout bugs
-that text captures miss.
+For visual verification of TUI changes, follow
+[`docs/tui-screenshots.md`](docs/tui-screenshots.md). It drives a dedicated
+tmux socket and renders a real PNG, which catches bg-color/reverse-video/
+layout bugs that text captures miss.
 
 ## Hard rules
 
