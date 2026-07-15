@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+
+      - name: Check formatting
+        run: nix develop --command zig fmt --check build.zig src tools
+
+      - name: Build and test
+        run: nix develop --command zig build check
+
+      - name: Build with runtime safety
+        run: nix develop --command zig build -Doptimize=ReleaseSafe
+
+      - name: Cross-build Windows
+        run: nix develop --command zig build -Dtarget=x86_64-windows-gnu
+
+      - name: Build Nix packages
+        run: nix build .#default .#windows
