@@ -2138,6 +2138,29 @@ test "blank track row shows the empty hint" {
     try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "?: help") != null);
 }
 
+test "picker footers preserve mode, view identity, and live feedback" {
+    var app = try testApp();
+    defer app.deinit();
+    var buf: [32 * 1024]u8 = undefined;
+
+    const cases = [_]struct { view: AppView, label: []const u8 }{
+        .{ .view = .instrument_picker, .label = "INSTRUMENT" },
+        .{ .view = .fx_picker, .label = "EFFECT" },
+        .{ .view = .synth_fx_picker, .label = "SYNTH FX" },
+        .{ .view = .preset_picker, .label = "PRESETS" },
+    };
+    for (cases) |case| {
+        app.view = case.view;
+        app.setStatus("picker feedback", .{});
+        var w = std.Io.Writer.fixed(&buf);
+        try app.draw(&w, .{ .cols = 120, .rows = 24 });
+        const frame = w.buffered();
+        try std.testing.expect(std.mem.indexOf(u8, frame, case.label) != null);
+        try std.testing.expect(std.mem.indexOf(u8, frame, "picker feedback") != null);
+        try std.testing.expect(std.mem.indexOf(u8, frame, "j/k: move") != null);
+    }
+}
+
 test "tracks view progressively discloses row and footer actions" {
     var app = try testApp();
     defer app.deinit();

@@ -3203,15 +3203,15 @@ pub const App = struct {
             .help            => try tui.drawHelpStatus(self, &status_w, &status_right_w),
             .track_spectrum, .master_spectrum, .group_spectrum =>
                 try tui.drawFxStatus(self, &status_w, &status_right_w, spectrum_ed.currentTarget(self)),
-            .instrument_picker => try status_w.writeAll(" j/k: move   g/G: top/bottom   enter: insert   esc: cancel"),
-            .fx_picker       => try status_w.writeAll(" j/k: move   g/G: top/bottom   /: filter   enter: insert   esc: cancel"),
-            .synth_fx_picker => try status_w.writeAll(" j/k: move   g/G: top/bottom   /: filter   enter: insert   esc: cancel"),
+            .instrument_picker => try tui.drawPickerStatus(self, &status_w, &status_right_w, "INSTRUMENT", "insert", false),
+            .fx_picker       => try tui.drawPickerStatus(self, &status_w, &status_right_w, "EFFECT", "insert", true),
+            .synth_fx_picker => try tui.drawPickerStatus(self, &status_w, &status_right_w, "SYNTH FX", "insert", true),
             .arrangement     => try tui.drawArrangementStatus(self, &status_w, &status_right_w),
             .file_browser    => try tui.drawFileBrowserStatus(self, &status_w, &status_right_w),
             .automation      => try tui.drawAutomationStatus(self, &status_w, &status_right_w),
-            .automation_param_picker => try status_w.writeAll(" j/k: move   g/G: top/bottom   /: filter   enter: pick   esc: cancel"),
+            .automation_param_picker => try tui.drawPickerStatus(self, &status_w, &status_right_w, "PARAM", "pick", true),
             .slicer_grid     => try tui.drawSlicerStatus(self, &status_w, &status_right_w),
-            .preset_picker   => try tui.drawPresetPickerStatus(self, &status_w),
+            .preset_picker   => try tui.drawPresetPickerStatus(self, &status_w, &status_right_w),
         }
         try style.writeSplitRow(w, status_w.buffered(), status_right_w.buffered(), size.cols -| 1);
         // Erase from cursor to end of screen so stale content from taller

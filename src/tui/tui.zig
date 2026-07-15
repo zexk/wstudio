@@ -83,6 +83,7 @@ pub const drawTracksStatus = tracks.drawTracksStatus;
 pub const drawInstrumentPicker = picker.drawInstrumentPicker;
 pub const drawFxPicker = picker.drawFxPicker;
 pub const drawSynthFxPicker = picker.drawSynthFxPicker;
+pub const drawPickerStatus = picker.drawPickerStatus;
 pub const drawDrumGrid = drum.drawDrumGrid;
 pub const drawDrumStatus = drum.drawDrumStatus;
 pub const drawSlicerGrid = slicer.drawSlicerGrid;
