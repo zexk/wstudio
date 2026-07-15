@@ -95,6 +95,7 @@ pub const Parser = struct {
         if (kind == 0xC or kind == 0xD) {
             if (i >= bytes.len) return null;
             if (realtimeMsg(bytes[i])) |msg| return .{ .msg = msg, .consumed = i + 1 };
+            if (bytes[i] & 0x80 != 0) return self.restartAtStatus(bytes, i);
             const d: u7 = @intCast(bytes[i] & 0x7F);
             i += 1;
             const msg: Msg = if (kind == 0xC)
@@ -114,6 +115,7 @@ pub const Parser = struct {
         } else {
             if (i >= bytes.len) return null;
             if (realtimeMsg(bytes[i])) |msg| return .{ .msg = msg, .consumed = i + 1 };
+            if (bytes[i] & 0x80 != 0) return self.restartAtStatus(bytes, i);
             d1 = @intCast(bytes[i] & 0x7F);
             i += 1;
         }
@@ -129,6 +131,7 @@ pub const Parser = struct {
             self.have_d1 = true;
             return .{ .msg = msg, .consumed = i + 1 };
         }
+        if (bytes[i] & 0x80 != 0) return self.restartAtStatus(bytes, i);
 
         const d2: u7 = @intCast(bytes[i] & 0x7F);
         i += 1;
@@ -151,6 +154,13 @@ pub const Parser = struct {
             else => return null,
         };
         return .{ .msg = msg, .consumed = i };
+    }
+
+    fn restartAtStatus(self: *Parser, bytes: []const u8, offset: usize) ?Result {
+        self.have_d1 = false;
+        var result = self.feed(bytes[offset..]) orelse return null;
+        result.consumed += offset;
+        return result;
     }
 
     pub fn reset(self: *Parser) void {
@@ -311,6 +321,25 @@ test "parser: system-common status cancels partial channel message" {
     try std.testing.expect(p.feed(&.{0xF2}) == null);
     try std.testing.expect(!p.have_d1);
     try std.testing.expect(p.feed(&.{80}) == null);
+}
+
+test "parser: new status replaces a channel message missing its second data byte" {
+    var p: Parser = .{};
+    const result = p.feed(&.{ 0x90, 60, 0x80, 61, 70 }).?;
+    try std.testing.expect(result.msg == .note_off);
+    try std.testing.expectEqual(@as(u7, 61), result.msg.note_off.note);
+    try std.testing.expectEqual(@as(u7, 70), result.msg.note_off.velocity);
+    try std.testing.expectEqual(@as(usize, 5), result.consumed);
+}
+
+test "parser: new status replaces a channel message missing its first data byte" {
+    var p: Parser = .{};
+    const result = p.feed(&.{ 0x90, 0xB2, 7, 100 }).?;
+    try std.testing.expect(result.msg == .control_change);
+    try std.testing.expectEqual(@as(Channel, 2), result.msg.control_change.ch);
+    try std.testing.expectEqual(@as(u7, 7), result.msg.control_change.cc);
+    try std.testing.expectEqual(@as(u7, 100), result.msg.control_change.value);
+    try std.testing.expectEqual(@as(usize, 4), result.consumed);
 }
 
 test "noteName: spot checks" {
