@@ -2940,7 +2940,9 @@ pub const PolySynth = struct {
             if (@hasField(Snap, spec.field)) {
                 const val = @field(snap.*, spec.field);
                 switch (spec.kind) {
-                    .cont, .log_freq => @field(self.*, spec.field) = std.math.clamp(val, spec.min, spec.max),
+                    .cont, .log_freq => if (std.math.isFinite(val)) {
+                        @field(self.*, spec.field) = std.math.clamp(val, spec.min, spec.max);
+                    },
                     .toggle, .cycle => @field(self.*, spec.field) = val,
                     .int_cont => {
                         const lo: i32 = @intFromFloat(spec.min);
@@ -3201,6 +3203,7 @@ pub const PolySynth = struct {
     /// (they're not in `automatable_params`), only undo restores them this
     /// way.
     pub fn setParamAbsolute(self: *PolySynth, id: u8, value: f32) void {
+        if (!std.math.isFinite(value)) return;
         switch (id) {
             // MATRIX: dest takes the raw param id (falls back to cutoff if
             // the value isn't a legal dest - e.g. a hand-edited curve).
@@ -4199,6 +4202,44 @@ test "setParamAbsolute: sets filter cutoff directly and clamps out-of-range" {
     try std.testing.expectApproxEqAbs(@as(f32, 1_000.0), synth.filter_cutoff, 1e-3);
 }
 
+test "setParamAbsolute ignores non-finite values for every table-driven parameter" {
+    @setEvalBranchQuota(100_000);
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    const nan = std.math.nan(f32);
+    const inf = std.math.inf(f32);
+
+    inline for (PolySynth.param_specs) |spec| {
+        const before = synth.paramValue(spec.id).?;
+        synth.setParamAbsolute(spec.id, nan);
+        try std.testing.expectEqual(before, synth.paramValue(spec.id).?);
+        synth.setParamAbsolute(spec.id, inf);
+        try std.testing.expectEqual(before, synth.paramValue(spec.id).?);
+    }
+
+    inline for ([_]u8{ 59, 60, 61, 126, 149, 194 }) |id| {
+        const before = synth.paramValue(id).?;
+        synth.setParamAbsolute(id, std.math.nan(f32));
+        try std.testing.expectEqual(before, synth.paramValue(id).?);
+        synth.setParamAbsolute(id, -std.math.inf(f32));
+        try std.testing.expectEqual(before, synth.paramValue(id).?);
+    }
+}
+
+test "applyParamSpecs ignores non-finite continuous snapshot fields" {
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    const pulse_width = synth.pulse_width;
+    const cutoff = synth.filter_cutoff;
+    const snap = .{
+        .pulse_width = std.math.nan(f32),
+        .filter_cutoff = std.math.inf(f32),
+    };
+    synth.applyParamSpecs(&snap);
+    try std.testing.expectEqual(pulse_width, synth.pulse_width);
+    try std.testing.expectEqual(cutoff, synth.filter_cutoff);
+}
+
 test "applyCC: waveform steps" {
     var synth = try PolySynth.init(std.testing.allocator, 48_000);
     defer synth.deinit();
@@ -4262,9 +4303,10 @@ test "paramValue/setParamAbsolute round-trip continuous, enum, and toggle params
     try std.testing.expect(b.osc_b_on);
     try std.testing.expectEqual(ModMode.fm_a_to_b, b.mod_mode);
 
-    // A garbage ordinal (hand-edited automation) degrades safely.
+    // A non-finite ordinal is ignored; a huge finite one clamps safely.
+    const filter_before = b.filter_type;
     b.setParamAbsolute(20, std.math.nan(f32));
-    try std.testing.expectEqual(FilterType.lp, b.filter_type);
+    try std.testing.expectEqual(filter_before, b.filter_type);
     b.setParamAbsolute(20, 1.0e30);
     try std.testing.expectEqual(FilterType.formant, b.filter_type);
 }
