@@ -39,6 +39,76 @@ pub const Pad = struct {
     release_s: f32 = 0.005,
 };
 
+/// Number of shared, continuous per-pad params `adjustParam`/`setParamAbsolute`/
+/// `paramValue` cover — start/end/pitch/attack/decay/sustain/release/gain/pan,
+/// plus the reverse toggle at id 9. Callers with extra ids of their own
+/// (Sampler's root_note/mono, ...) dispatch those separately and fall through
+/// to these for 0-9.
+pub const param_count: u8 = 10;
+
+/// Nudge shared pad param `id` (0-9) by `steps` (h/l = ±1, H/L = ±10). Shared
+/// by Sampler and Slicer, whose per-slice params were previously hand-copied
+/// switches over the same fields/ranges.
+pub fn adjustParam(pad: *Pad, id: u8, steps: i32) void {
+    const s: f32 = @floatFromInt(steps);
+    switch (id) {
+        0 => pad.start_norm = std.math.clamp(pad.start_norm + s * 0.01, 0.0, pad.end_norm - 0.01),
+        // zig fmt: off
+        1 => pad.end_norm   = std.math.clamp(pad.end_norm   + s * 0.01, pad.start_norm + 0.01, 1.0),
+        2 => pad.pitch_semitones = std.math.clamp(pad.pitch_semitones + s * 1.0, -24.0, 24.0),
+        3 => pad.attack_s   = std.math.clamp(pad.attack_s   + s * 0.001, 0.0, 5.0),
+        4 => pad.decay_s    = std.math.clamp(pad.decay_s    + s * 0.005, 0.0, 5.0),
+        5 => pad.sustain    = std.math.clamp(pad.sustain    + s * 0.01, 0.0, 1.0),
+        6 => pad.release_s  = std.math.clamp(pad.release_s  + s * 0.005, 0.001, 5.0),
+        7 => pad.gain       = std.math.clamp(pad.gain       + s * 0.01, 0.0, 2.0),
+        8 => pad.pan        = std.math.clamp(pad.pan        + s * 0.05, -1.0, 1.0),
+        9 => if (steps != 0) { pad.reverse = !pad.reverse; },
+        // zig fmt: on
+        else => {},
+    }
+}
+
+/// Absolute-value counterpart to `adjustParam`, same id space and clamp
+/// ranges — for undo's capture/restore. Toggle (reverse, id 9): >= 0.5 is on.
+pub fn setParamAbsolute(pad: *Pad, id: u8, value: f32) void {
+    switch (id) {
+        0 => pad.start_norm = std.math.clamp(value, 0.0, pad.end_norm - 0.01),
+        // zig fmt: off
+        1 => pad.end_norm   = std.math.clamp(value, pad.start_norm + 0.01, 1.0),
+        2 => pad.pitch_semitones = std.math.clamp(value, -24.0, 24.0),
+        3 => pad.attack_s   = std.math.clamp(value, 0.0, 5.0),
+        4 => pad.decay_s    = std.math.clamp(value, 0.0, 5.0),
+        5 => pad.sustain    = std.math.clamp(value, 0.0, 1.0),
+        6 => pad.release_s  = std.math.clamp(value, 0.001, 5.0),
+        7 => pad.gain       = std.math.clamp(value, 0.0, 2.0),
+        8 => pad.pan        = std.math.clamp(value, -1.0, 1.0),
+        9 => pad.reverse    = value >= 0.5,
+        // zig fmt: on
+        else => {},
+    }
+}
+
+/// Current value of shared pad param `id`, same unit/encoding
+/// `setParamAbsolute` accepts (reverse as 0/1) — the read half of undo's
+/// capture/restore pair.
+pub fn paramValue(pad: *const Pad, id: u8) ?f32 {
+    return switch (id) {
+        // zig fmt: off
+        0 => pad.start_norm,
+        1 => pad.end_norm,
+        2 => pad.pitch_semitones,
+        3 => pad.attack_s,
+        4 => pad.decay_s,
+        5 => pad.sustain,
+        6 => pad.release_s,
+        7 => pad.gain,
+        8 => pad.pan,
+        9 => if (pad.reverse) 1.0 else 0.0,
+        // zig fmt: on
+        else => null,
+    };
+}
+
 pub const Voice = struct {
     active: bool = false,
     /// Source frames consumed since the trigger, as a fractional count that

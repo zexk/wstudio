@@ -380,25 +380,9 @@ pub const Slicer = struct {
 
     pub fn adjustParam(self: *Slicer, id: u16, steps: i32) void {
         const slice_idx = id >> 4;
-        const param = id & 0x0F;
+        const param: u8 = @intCast(id & 0x0F);
         if (slice_idx >= max_slices) return;
-        const s: f32 = @floatFromInt(steps);
-        const pad = &self.slices[slice_idx];
-        switch (param) {
-            0 => pad.start_norm = std.math.clamp(pad.start_norm + s * 0.01, 0.0, pad.end_norm - 0.01),
-            // zig fmt: off
-            1 => pad.end_norm   = std.math.clamp(pad.end_norm   + s * 0.01, pad.start_norm + 0.01, 1.0),
-            2 => pad.pitch_semitones = std.math.clamp(pad.pitch_semitones + s * 1.0, -24.0, 24.0),
-            3 => pad.attack_s   = std.math.clamp(pad.attack_s   + s * 0.001, 0.0, 5.0),
-            4 => pad.decay_s    = std.math.clamp(pad.decay_s    + s * 0.005, 0.0, 5.0),
-            5 => pad.sustain    = std.math.clamp(pad.sustain    + s * 0.01, 0.0, 1.0),
-            6 => pad.release_s  = std.math.clamp(pad.release_s  + s * 0.005, 0.001, 5.0),
-            7 => pad.gain       = std.math.clamp(pad.gain       + s * 0.01, 0.0, 2.0),
-            8 => pad.pan        = std.math.clamp(pad.pan        + s * 0.05, -1.0, 1.0),
-            9 => if (steps != 0) { pad.reverse = !pad.reverse; },
-            // zig fmt: on
-            else => {},
-        }
+        pad_mod.adjustParam(&self.slices[slice_idx], param, steps);
     }
 
     pub fn paramId(slice: u8, param: u8) u16 {
@@ -410,24 +394,9 @@ pub const Slicer = struct {
     /// `DrumMachine.setParamAbsolute`.
     pub fn setParamAbsolute(self: *Slicer, id: u16, value: f32) void {
         const slice_idx = id >> 4;
-        const param = id & 0x0F;
+        const param: u8 = @intCast(id & 0x0F);
         if (slice_idx >= max_slices) return;
-        const pad = &self.slices[slice_idx];
-        switch (param) {
-            0 => pad.start_norm = std.math.clamp(value, 0.0, pad.end_norm - 0.01),
-            // zig fmt: off
-            1 => pad.end_norm   = std.math.clamp(value, pad.start_norm + 0.01, 1.0),
-            2 => pad.pitch_semitones = std.math.clamp(value, -24.0, 24.0),
-            3 => pad.attack_s   = std.math.clamp(value, 0.0, 5.0),
-            4 => pad.decay_s    = std.math.clamp(value, 0.0, 5.0),
-            5 => pad.sustain    = std.math.clamp(value, 0.0, 1.0),
-            6 => pad.release_s  = std.math.clamp(value, 0.001, 5.0),
-            7 => pad.gain       = std.math.clamp(value, 0.0, 2.0),
-            8 => pad.pan        = std.math.clamp(value, -1.0, 1.0),
-            9 => pad.reverse    = value >= 0.5,
-            // zig fmt: on
-            else => {},
-        }
+        pad_mod.setParamAbsolute(&self.slices[slice_idx], param, value);
     }
 
     /// Current value of slice-encoded param `id`, in `setParamAbsolute`'s
@@ -435,24 +404,9 @@ pub const Slicer = struct {
     /// slice count, so undo skips rather than editing an inert slot.
     pub fn paramValue(self: *const Slicer, id: u16) ?f32 {
         const slice_idx = id >> 4;
-        const param = id & 0x0F;
+        const param: u8 = @intCast(id & 0x0F);
         if (slice_idx >= self.slice_count) return null;
-        const pad = &self.slices[slice_idx];
-        return switch (param) {
-            // zig fmt: off
-            0 => pad.start_norm,
-            1 => pad.end_norm,
-            2 => pad.pitch_semitones,
-            3 => pad.attack_s,
-            4 => pad.decay_s,
-            5 => pad.sustain,
-            6 => pad.release_s,
-            7 => pad.gain,
-            8 => pad.pan,
-            9 => if (pad.reverse) 1.0 else 0.0,
-            // zig fmt: on
-            else => null,
-        };
+        return pad_mod.paramValue(&self.slices[slice_idx], param);
     }
 
     // -----------------------------------------------------------------------

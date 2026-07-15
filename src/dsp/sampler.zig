@@ -108,27 +108,18 @@ pub const Sampler = struct {
 
     /// Nudge param `id` by `steps` (h/l = ±1, H/L = ±10). Runs on the audio
     /// thread via the `set_param` event so it never races the block reader.
+    /// Ids 0-9 (region/pitch/ADSR/gain/pan/reverse) delegate to `pad.zig`'s
+    /// shared clamp table; 10-11 (root_note/mono) are Sampler-only.
     pub fn adjustParam(self: *Sampler, id: u8, steps: i32) void {
-        const s: f32 = @floatFromInt(steps);
-        const pad = &self.pad;
         switch (id) {
-            0 => pad.start_norm = std.math.clamp(pad.start_norm + s * 0.01, 0.0, pad.end_norm - 0.01),
-            // zig fmt: off
-            1 => pad.end_norm   = std.math.clamp(pad.end_norm   + s * 0.01, pad.start_norm + 0.01, 1.0),
-            2 => pad.pitch_semitones = std.math.clamp(pad.pitch_semitones + s * 1.0, -24.0, 24.0),
-            3 => pad.attack_s   = std.math.clamp(pad.attack_s   + s * 0.001, 0.0, 5.0),
-            4 => pad.decay_s    = std.math.clamp(pad.decay_s    + s * 0.005, 0.0, 5.0),
-            5 => pad.sustain    = std.math.clamp(pad.sustain    + s * 0.01, 0.0, 1.0),
-            6 => pad.release_s  = std.math.clamp(pad.release_s  + s * 0.005, 0.001, 5.0),
-            7 => pad.gain       = std.math.clamp(pad.gain       + s * 0.01, 0.0, 2.0),
-            8 => pad.pan        = std.math.clamp(pad.pan        + s * 0.05, -1.0, 1.0),
-            9 => if (steps != 0) { pad.reverse = !pad.reverse; },
+            0...9 => pad_dsp.adjustParam(&self.pad, id, steps),
             10 => {
                 const r = @as(i32, self.root_note) + steps;
                 self.root_note = @intCast(std.math.clamp(r, 0, 127));
             },
-            11 => if (steps != 0) { self.mono = !self.mono; },
-            // zig fmt: on
+            11 => if (steps != 0) {
+                self.mono = !self.mono;
+            },
             else => {},
         }
     }
@@ -138,24 +129,16 @@ pub const Sampler = struct {
     /// mirroring PolySynth's own pair. Toggles (reverse 9, mono 11): >= 0.5
     /// is on. Runs on the audio thread via the `set_param_abs` event.
     pub fn setParamAbsolute(self: *Sampler, id: u8, value: f32) void {
-        const pad = &self.pad;
         switch (id) {
-            0 => pad.start_norm = std.math.clamp(value, 0.0, pad.end_norm - 0.01),
-            // zig fmt: off
-            1 => pad.end_norm   = std.math.clamp(value, pad.start_norm + 0.01, 1.0),
-            2 => pad.pitch_semitones = std.math.clamp(value, -24.0, 24.0),
-            3 => pad.attack_s   = std.math.clamp(value, 0.0, 5.0),
-            4 => pad.decay_s    = std.math.clamp(value, 0.0, 5.0),
-            5 => pad.sustain    = std.math.clamp(value, 0.0, 1.0),
-            6 => pad.release_s  = std.math.clamp(value, 0.001, 5.0),
-            7 => pad.gain       = std.math.clamp(value, 0.0, 2.0),
-            8 => pad.pan        = std.math.clamp(value, -1.0, 1.0),
-            9 => pad.reverse    = value >= 0.5,
+            0...9 => pad_dsp.setParamAbsolute(&self.pad, id, value),
             10 => {
-                if (!(value > 0.0)) { self.root_note = 0; return; } // also catches NaN
-                if (value >= 127.0) { self.root_note = 127; return; }
-                // zig fmt: on
-                self.root_note = @intFromFloat(@round(value));
+                if (!(value > 0.0)) { // also catches NaN
+                    self.root_note = 0;
+                } else if (value >= 127.0) {
+                    self.root_note = 127;
+                } else {
+                    self.root_note = @intFromFloat(@round(value));
+                }
             },
             11 => self.mono = value >= 0.5,
             else => {},
@@ -167,18 +150,8 @@ pub const Sampler = struct {
     /// pair. A control-thread read of live fields, same race-tolerant
     /// convention the sampler editor's own row rendering already uses.
     pub fn paramValue(self: *const Sampler, id: u8) ?f32 {
-        const pad = &self.pad;
         return switch (id) {
-            0 => pad.start_norm,
-            1 => pad.end_norm,
-            2 => pad.pitch_semitones,
-            3 => pad.attack_s,
-            4 => pad.decay_s,
-            5 => pad.sustain,
-            6 => pad.release_s,
-            7 => pad.gain,
-            8 => pad.pan,
-            9 => if (pad.reverse) 1.0 else 0.0,
+            0...9 => pad_dsp.paramValue(&self.pad, id),
             10 => @floatFromInt(self.root_note),
             11 => if (self.mono) 1.0 else 0.0,
             else => null,
