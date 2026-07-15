@@ -997,6 +997,22 @@ fn rackToSnap(aa: std.mem.Allocator, rack: *Rack, sample_rate: u32) !RackSnap {
     return rs;
 }
 
+/// Copy a device's fields into its Snap type by name — for the FX kinds
+/// below where the two structs mirror 1:1 (device just carries extra
+/// runtime-state fields the Snap doesn't have). comp/mb_comp/ott/delay/eq
+/// keep hand-written cases since they transform or nest fields.
+fn snapFromDevice(comptime Snap: type, device: anytype) Snap {
+    var out: Snap = .{};
+    inline for (std.meta.fields(Snap)) |f| @field(out, f.name) = @field(device, f.name);
+    return out;
+}
+
+/// Inverse of `snapFromDevice`: write a Snap's fields onto a live device by
+/// name, leaving the device's other (runtime-state) fields untouched.
+fn applySnapToDevice(device: anytype, snap: anytype) void {
+    inline for (std.meta.fields(@TypeOf(snap))) |f| @field(device.*, f.name) = @field(snap, f.name);
+}
+
 // zig fmt: off
 /// Shared by track racks and the master bus — both hold a user-built `Fx`
 /// chain. One FxUnitSnap per slot, in chain order.
@@ -1026,7 +1042,7 @@ fn chainToSnap(aa: std.mem.Allocator, fx: *const Fx, sample_rate: u32) ![]FxUnit
                 .time_s = @as(f32, @floatFromInt(d.delay_frames)) / @as(f32, @floatFromInt(sample_rate)),
                 .feedback = d.feedback, .mix = d.mix,
             } },
-            .reverb => |r| .{ .kind = .reverb, .reverb = .{ .mix = r.mix, .room = r.room, .damp = r.damp } },
+            .reverb => |r| .{ .kind = .reverb, .reverb = snapFromDevice(ReverbSnap, r) },
             .eq => |e| blk: {
                 var bands: [eq_mod.num_eq_bands]EqBandSnap = undefined;
                 for (&e.bands, 0..) |*b, i| bands[i] = .{
@@ -1038,25 +1054,14 @@ fn chainToSnap(aa: std.mem.Allocator, fx: *const Fx, sample_rate: u32) ![]FxUnit
                 };
                 break :blk .{ .kind = .eq, .eq = .{ .bands = bands } };
             },
-            .gate => |g| .{ .kind = .gate, .gate = .{
-                .threshold_db = g.threshold_db, .attack_ms = g.attack_ms, .release_ms = g.release_ms,
-            } },
-            .sat => |s| .{ .kind = .sat, .sat = .{ .drive_db = s.drive_db, .out_db = s.out_db, .mix = s.mix } },
-            .crush => |c| .{ .kind = .crush, .crush = .{ .bits = c.bits, .downsample = c.downsample, .mix = c.mix } },
-            .chorus => |c| .{ .kind = .chorus, .chorus = .{ .rate_hz = c.rate_hz, .depth_ms = c.depth_ms, .mix = c.mix } },
-            .phaser => |p| .{ .kind = .phaser, .phaser = .{
-                .rate_hz = p.rate_hz, .depth = p.depth, .feedback = p.feedback, .mix = p.mix,
-            } },
-            .flanger => |fl| .{ .kind = .flanger, .flanger = .{
-                .rate_hz = fl.rate_hz, .depth = fl.depth, .feedback = fl.feedback, .mix = fl.mix,
-            } },
-            .tape => |t| .{ .kind = .tape, .tape = .{
-                .wow_rate_hz = t.wow_rate_hz, .wow_depth = t.wow_depth,
-                .flutter_rate_hz = t.flutter_rate_hz, .flutter_depth = t.flutter_depth, .mix = t.mix,
-            } },
-            .freq_shift => |f| .{ .kind = .freq_shift, .freq_shift = .{
-                .shift_hz = f.shift_hz, .mix = f.mix,
-            } },
+            .gate => |g| .{ .kind = .gate, .gate = snapFromDevice(GateSnap, g) },
+            .sat => |s| .{ .kind = .sat, .sat = snapFromDevice(SatSnap, s) },
+            .crush => |c| .{ .kind = .crush, .crush = snapFromDevice(CrushSnap, c) },
+            .chorus => |c| .{ .kind = .chorus, .chorus = snapFromDevice(ChorusSnap, c) },
+            .phaser => |p| .{ .kind = .phaser, .phaser = snapFromDevice(PhaserSnap, p) },
+            .flanger => |fl| .{ .kind = .flanger, .flanger = snapFromDevice(FlangerSnap, fl) },
+            .tape => |t| .{ .kind = .tape, .tape = snapFromDevice(TapeSnap, t) },
+            .freq_shift => |f| .{ .kind = .freq_shift, .freq_shift = snapFromDevice(FreqShiftSnap, f) },
         };
         us.bypassed = u.bypassed;
     }
@@ -1984,11 +1989,7 @@ fn applyFxChain(allocator: std.mem.Allocator, fx_out: *Fx, chain: []const FxUnit
                 d.feedback = ds.feedback;
                 d.mix = ds.mix;
             },
-            .reverb => |*r| if (us.reverb) |rs| {
-                r.mix = rs.mix;
-                r.room = rs.room;
-                r.damp = rs.damp;
-            },
+            .reverb => |*r| if (us.reverb) |rs| applySnapToDevice(r, rs),
             .eq => |*e| if (us.eq) |es| {
                 const bands = es.bands orelse
                     migrateEqBands(es.band_gains orelse [_]f32{0.0} ** legacy_eq_band_count);
@@ -2003,45 +2004,14 @@ fn applyFxChain(allocator: std.mem.Allocator, fx_out: *Fx, chain: []const FxUnit
                 // Legacy EQ-only bypass maps onto the slot's generic one.
                 if (es.bypass) unit.bypassed = true;
             },
-            .gate => |*g| if (us.gate) |gs| {
-                g.threshold_db = gs.threshold_db;
-                g.attack_ms = gs.attack_ms;
-                g.release_ms = gs.release_ms;
-            },
-            .sat => |*s| if (us.sat) |ss| {
-                s.* = .{ .drive_db = ss.drive_db, .out_db = ss.out_db, .mix = ss.mix };
-            },
-            .crush => |*c| if (us.crush) |cs| {
-                c.* = .{ .bits = cs.bits, .downsample = cs.downsample, .mix = cs.mix };
-            },
-            .chorus => |*c| if (us.chorus) |cs| {
-                c.rate_hz = cs.rate_hz;
-                c.depth_ms = cs.depth_ms;
-                c.mix = cs.mix;
-            },
-            .phaser => |*p| if (us.phaser) |ps| {
-                p.rate_hz = ps.rate_hz;
-                p.depth = ps.depth;
-                p.feedback = ps.feedback;
-                p.mix = ps.mix;
-            },
-            .flanger => |*fl| if (us.flanger) |fs| {
-                fl.rate_hz = fs.rate_hz;
-                fl.depth = fs.depth;
-                fl.feedback = fs.feedback;
-                fl.mix = fs.mix;
-            },
-            .tape => |*t| if (us.tape) |ts| {
-                t.wow_rate_hz = ts.wow_rate_hz;
-                t.wow_depth = ts.wow_depth;
-                t.flutter_rate_hz = ts.flutter_rate_hz;
-                t.flutter_depth = ts.flutter_depth;
-                t.mix = ts.mix;
-            },
-            .freq_shift => |*f| if (us.freq_shift) |fs| {
-                f.shift_hz = fs.shift_hz;
-                f.mix = fs.mix;
-            },
+            .gate => |*g| if (us.gate) |gs| applySnapToDevice(g, gs),
+            .sat => |*s| if (us.sat) |ss| applySnapToDevice(s, ss),
+            .crush => |*c| if (us.crush) |cs| applySnapToDevice(c, cs),
+            .chorus => |*c| if (us.chorus) |cs| applySnapToDevice(c, cs),
+            .phaser => |*p| if (us.phaser) |ps| applySnapToDevice(p, ps),
+            .flanger => |*fl| if (us.flanger) |fs| applySnapToDevice(fl, fs),
+            .tape => |*t| if (us.tape) |ts| applySnapToDevice(t, ts),
+            .freq_shift => |*f| if (us.freq_shift) |fs| applySnapToDevice(f, fs),
         }
     }
 }
