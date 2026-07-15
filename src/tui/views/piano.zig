@@ -170,7 +170,7 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
     const cw: usize = app.pianoCellWidth();
     const loop_step: u16 = @intFromFloat(pp.length_beats * spbf);
     const max_step_cols: usize = (cols -| 6) / cw;
-    const vis_cols: usize = @min(@as(usize, loop_step) + 1, max_step_cols);
+    const vis_cols: usize = @min(@as(usize, loop_step), max_step_cols);
 
     // Column header: beat numbers sit on the boundary column BEFORE their
     // beat (the same column the note grid's │ separator ticks occupy) while
@@ -190,7 +190,7 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
         const step = left + @as(u16, @intCast(col));
         if (cw == 1) {
             if (step % spb == 0) try w.writeAll(dim ++ "|" ++ rst) else try w.writeAll(" ");
-        } else if (col + 1 < vis_cols and (step + 1) % spb == 0) {
+        } else if ((col + 1 < vis_cols or step + 1 == loop_step) and (step + 1) % spb == 0) {
             try w.writeAll(dim);
             try w.print("·{d:>2}", .{(step + 1) / spb + 1});
             try w.writeAll(rst);
@@ -211,7 +211,7 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
         if (step == play_step) {
             try w.writeAll(grn ++ bold ++ "▾" ++ rst);
             if (cw > 1) try w.splatByteAll(' ', cw - 1);
-        } else if (step == loop_step) {
+        } else if (step + 1 == loop_step) {
             try w.writeAll(acc ++ "┤" ++ rst);
             if (cw > 1) try w.splatByteAll(' ', cw - 1);
         } else if (cw == 1) {
