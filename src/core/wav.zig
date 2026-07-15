@@ -99,6 +99,7 @@ pub fn parseAlloc(
         const chunk = data[pos .. pos + chunk_size];
 
         if (std.mem.eql(u8, id, "fmt ")) {
+            if (fmt_ok) return error.BadFmt;
             if (chunk_size < 16) return error.BadFmt;
             audio_format = std.mem.readInt(u16, chunk[0..2], .little);
             num_channels = std.mem.readInt(u16, chunk[2..4], .little);
@@ -264,4 +265,22 @@ test "rejects a partial interleaved frame" {
     const wav = w.buffered();
     std.mem.writeInt(u16, wav[22..24], 2, .little);
     try std.testing.expectError(error.Truncated, parseAlloc(std.testing.allocator, wav));
+}
+
+test "rejects duplicate format chunks" {
+    var raw: [128]u8 = undefined;
+    var w = std.Io.Writer.fixed(&raw);
+    try write(&w, 48_000, 1, &.{0.25}, .pcm16);
+
+    try w.writeAll("fmt ");
+    try w.writeInt(u32, 16, .little);
+    try w.writeInt(u16, 1, .little);
+    try w.writeInt(u16, 1, .little);
+    try w.writeInt(u32, 96_000, .little);
+    try w.writeInt(u32, 192_000, .little);
+    try w.writeInt(u16, 2, .little);
+    try w.writeInt(u16, 16, .little);
+    std.mem.writeInt(u32, w.buffered()[4..8], @intCast(w.buffered().len - 8), .little);
+
+    try std.testing.expectError(error.BadFmt, parseAlloc(std.testing.allocator, w.buffered()));
 }
