@@ -75,9 +75,9 @@ fn writeTrackRow(app: anytype, w: *std.Io.Writer, ti: u16, is_sel: bool, in_sel:
     const inst_tag = std.meta.activeTag(app.session.racks.items[ti].instrument);
     const is_empty = inst_tag == .empty;
     const label: []const u8 = if (is_empty) "-- empty --" else app.session.racks.items[ti].label;
-    const hint: []const u8 = switch (inst_tag) {
+    const hint: []const u8 = if (!is_sel) "" else switch (inst_tag) {
         .empty => dim ++ "[enter:insert]" ++ rst,
-        .drum_machine => dim ++ "[enter:grid]" ++ rst,
+        .drum_machine, .slicer => dim ++ "[enter:grid]" ++ rst,
         else => dim ++ "[enter:edit]" ++ rst,
     };
     // muted-but-not-selected rows get a dim wash over everything
@@ -223,7 +223,8 @@ fn writeGroupRow(app: anytype, w: *std.Io.Writer, gi: u8, is_sel: bool, in_sel: 
         try lw.print("  ({d} track{s})", .{ members, if (members == 1) "" else "s" });
         if (!is_sel) try lw.writeAll(rst);
     }
-    try style.writeSplitRow(w, row_w.buffered(), dim ++ "[enter:fx z:fold]" ++ rst, cols -| 1);
+    const hint: []const u8 = if (is_sel) dim ++ "[enter:fx z:fold]" ++ rst else "";
+    try style.writeSplitRow(w, row_w.buffered(), hint, cols -| 1);
 }
 // zig fmt: on
 
@@ -308,7 +309,8 @@ pub fn drawTracks(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, sna
                 try lw.print("  {s}{d:.0}dB", .{ sign, gdb });
             }
         }
-        try style.writeSplitRow(w, row_w.buffered(), dim ++ "[enter:fx]" ++ rst, cols -| 1);
+        const hint: []const u8 = if (is_sel) dim ++ "[enter:fx]" ++ rst else "";
+        try style.writeSplitRow(w, row_w.buffered(), hint, cols -| 1);
         try endLine(w);
     }
 
@@ -334,10 +336,17 @@ pub fn drawTracksStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) 
         try w.writeAll(app.status_buf[0..app.status_len]);
     } else {
         try w.writeAll(dim ++ "  " ++ rst);
-        if (app.session.racks.items.len == 1 and
-            app.session.racks.items[0].instrument == .empty)
-        {
-            try w.writeAll("enter: instrument  ?: help  space: play");
+        if (app.track_row == app.track_rows_len) {
+            try w.writeAll("enter/s: fx  -/+: gain  ?: help");
+        } else if (app.cursorGroup() != null) {
+            try w.writeAll("enter/s: fx  z: fold  -/+: gain  R: rename");
+        } else if (app.cursorTrack()) |ti| {
+            const track = app.session.project.tracks.items[ti];
+            switch (std.meta.activeTag(app.session.racks.items[ti].instrument)) {
+                .empty => try w.writeAll("enter: instrument  a: add track  ?: help"),
+                .poly_synth, .sampler => try w.print("enter: edit  p: piano  s: fx  m: {s}", .{if (track.muted) "unmute" else "mute"}),
+                .drum_machine, .slicer => try w.print("enter: grid  s: fx  m: {s}  R: rename", .{if (track.muted) "unmute" else "mute"}),
+            }
         } else {
             try w.writeAll("?: help  space: play  tab: song");
         }

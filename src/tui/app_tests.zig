@@ -2089,6 +2089,25 @@ test "blank track row shows the empty hint" {
     try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "?: help") != null);
 }
 
+test "tracks view progressively discloses row and footer actions" {
+    var app = try testApp();
+    defer app.deinit();
+    var buf: [32 * 1024]u8 = undefined;
+
+    var w = std.Io.Writer.fixed(&buf);
+    try app.draw(&w, .{ .cols = 100, .rows = 24 });
+    const track_frame = w.buffered();
+    try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, track_frame, "[enter:edit]"));
+    try std.testing.expect(std.mem.indexOf(u8, track_frame, "p: piano  s: fx  m: mute") != null);
+
+    app.setTrackRow(app.track_rows_len);
+    w = std.Io.Writer.fixed(&buf);
+    try app.draw(&w, .{ .cols = 100, .rows = 24 });
+    const master_frame = w.buffered();
+    try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, master_frame, "[enter:fx]"));
+    try std.testing.expect(std.mem.indexOf(u8, master_frame, "enter/s: fx  -/+: gain") != null);
+}
+
 test ":help opens on the current view's section; g jumps to COMMANDS; esc closes" {
     var app = try App.init(std.testing.allocator, std.Io.failing);
     defer app.deinit();
