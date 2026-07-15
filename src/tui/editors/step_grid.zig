@@ -90,6 +90,23 @@ pub fn setStep(inst: anytype, row: u8, step: u8, active: bool, vel: u8) void {
     if (active) inst.setStepVel(row, step, vel);
 }
 
+/// Double a loop and copy its first half, preserving every hit's velocity.
+/// Returns false when the loop is already too long to double without
+/// exceeding the instrument's fixed 64-step storage.
+pub fn doublePattern(inst: anytype, max_rows: usize) bool {
+    const old_count = inst.step_count;
+    if (old_count > 32) return false;
+    inst.setStepCount(old_count * 2);
+    for (0..max_rows) |row| {
+        var step: u8 = 0;
+        while (step < old_count) : (step += 1) {
+            const active = inst.stepActive(@intCast(row), step);
+            setStep(inst, @intCast(row), old_count + step, active, inst.stepVel(@intCast(row), step));
+        }
+    }
+    return true;
+}
+
 /// Yank every row's steps within `r` into a `Clip` (DrumRangeClip or
 /// SlicerRangeClip - both duck-type `width`/`active`/`vel`), rebased so the
 /// range's first step is bit 0.

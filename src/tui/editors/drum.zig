@@ -99,6 +99,9 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                     const dm = app.drumMachine();
                     if (dm.step_count > 0) step.* = dm.step_count - 1;
                 },
+                // Advancing entry complements Enter's stationary toggle: a
+                // count leaves space before the next hit (4n = every beat).
+                'n' => stepEnter(app),
                 // w/b: vim's word motion, one tier up from h/l's step
                 // ("char") granularity - jump to the start of the
                 // next/current-or-previous 4-step group (see barLenSteps).
@@ -124,6 +127,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                     history.push(app, history.captureDrum(app, app.drum_track));
                     app.drumMachine().setStepCount(app.drumMachine().step_count + 1);
                 },
+                'E' => doublePattern(app),
                 'c' => {
                     const dm = app.drumMachine();
                     if (dm.stepActive(pad.*, step.*)) {
@@ -268,6 +272,28 @@ fn moveStep(app: *App, delta: i32) void {
 /// Move the pad cursor by `delta` rows, clamped to the pad count.
 fn movePad(app: *App, delta: i32) void {
     step_grid.moveClamped(&app.drum_cursor[0], delta, DrumMachine.max_pads);
+}
+
+fn stepEnter(app: *App) void {
+    const dm = app.drumMachine();
+    const pad = app.drum_cursor[0];
+    const step = app.drum_cursor[1];
+    if (!dm.stepActive(pad, step)) {
+        history.push(app, history.captureDrum(app, app.drum_track));
+        step_grid.setStep(dm, pad, step, true, DrumMachine.vel_full);
+    }
+    moveStep(app, app.takeCount());
+}
+
+fn doublePattern(app: *App) void {
+    const dm = app.drumMachine();
+    if (dm.step_count > DrumMachine.max_steps / 2) {
+        app.setStatus("can't double {d} steps (64 max)", .{dm.step_count});
+        return;
+    }
+    history.push(app, history.captureDrum(app, app.drum_track));
+    _ = step_grid.doublePattern(dm, DrumMachine.max_pads);
+    app.setStatus("doubled loop to {d} steps", .{dm.step_count});
 }
 
 fn zoom(app: *App, delta: i8) void {

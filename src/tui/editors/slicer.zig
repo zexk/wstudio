@@ -86,6 +86,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 // zig fmt: off
                 'G' => { if (sl.step_count > 0) step.* = sl.step_count - 1; },
                 // zig fmt: on
+                'n' => stepEnter(app),
                 'w' => jumpBar(app, app.takeCount()),
                 'b' => jumpBar(app, -app.takeCount()),
                 'a' => {
@@ -105,6 +106,8 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                     history.push(app, history.captureSlicer(app, app.slicer_track));
                     sl.setStepCount(sl.step_count + 1);
                 },
+                'E' => doublePattern(app),
+                'O' => sequenceSourceOrder(app),
                 // Chop refinement: split the cursor slice in half / merge it
                 // into the one after it - the interactive loop that turns a
                 // rough :chop into the chops you actually wanted.
@@ -295,6 +298,46 @@ fn moveStep(app: *App, delta: i32) void {
 /// Move the slice cursor by `delta` rows, clamped to the slice count.
 fn moveSlice(app: *App, delta: i32) void {
     step_grid.moveClamped(&app.slicer_cursor[0], delta, app.slicerInst().slice_count);
+}
+
+fn stepEnter(app: *App) void {
+    const sl = app.slicerInst();
+    const slice = app.slicer_cursor[0];
+    const step = app.slicer_cursor[1];
+    if (!sl.stepActive(slice, step)) {
+        history.push(app, history.captureSlicer(app, app.slicer_track));
+        step_grid.setStep(sl, slice, step, true, Slicer.vel_full);
+    }
+    moveStep(app, app.takeCount());
+}
+
+fn doublePattern(app: *App) void {
+    const sl = app.slicerInst();
+    if (sl.step_count > Slicer.max_steps / 2) {
+        app.setStatus("can't double {d} steps (64 max)", .{sl.step_count});
+        return;
+    }
+    history.push(app, history.captureSlicer(app, app.slicer_track));
+    _ = step_grid.doublePattern(sl, Slicer.max_slices);
+    app.setStatus("doubled loop to {d} steps", .{sl.step_count});
+}
+
+/// Rebuild the grid as the source-order staircase produced by conventional
+/// slice-to-MIDI workflows: slice 1 on step 1, slice 2 on step 2, and so on.
+fn sequenceSourceOrder(app: *App) void {
+    const sl = app.slicerInst();
+    if (sl.slice_count == 0) {
+        app.setStatus("no slices to sequence", .{});
+        return;
+    }
+    history.push(app, history.captureSlicer(app, app.slicer_track));
+    sl.setStepCount(@max(sl.step_count, sl.slice_count));
+    for (0..Slicer.max_slices) |row| sl.clearSlice(@intCast(row));
+    for (0..sl.slice_count) |idx| {
+        step_grid.setStep(sl, @intCast(idx), @intCast(idx), true, Slicer.vel_full);
+    }
+    app.slicer_cursor = .{ 0, 0 };
+    app.setStatus("sequenced {d} slices in source order", .{sl.slice_count});
 }
 
 /// w/b: jump the step cursor by 4-step groups - see step_grid.jumpBar for

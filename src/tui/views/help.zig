@@ -184,7 +184,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("g / G",        "jump step cursor to pattern start / end");
     t.key("w / b",        "jump to the next / previous beat boundary");
     t.key("z / Z",        "zoom grid cells in / out (expanded, normal, compact)");
-    t.key("enter",        "toggle step on/off");
+    t.key("enter / n",    "toggle in place / place a hit and advance (count sets spacing)");
     t.key("x",            "clear the step at cursor");
     t.key("c",            "cycle step velocity presets (127/95/63/31)");
     t.key("{ / }",        "nudge step velocity down / up by 1 (count-scaled, full 1-127 range)");
@@ -202,6 +202,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("e",            "open sampler editor for current pad");
     t.key("s",            "FX chain for drum track");
     t.key("+ / -",        "lengthen / shorten loop (1–64 steps)");
+    t.key("E",            "double loop length and copy its content (up to 64 steps)");
     t.key("X",            "clear all steps on current pad");
     t.key("F",            "fill all steps on current pad");
     t.key("[ / ]",        "prev / next pattern variant (A–H)");
@@ -226,7 +227,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("j / k",        "move cursor down / up (slice)");
     t.key("J / K",        "jump a whole bank of 8 slices");
     t.key("g / G",        "jump step cursor to pattern start / end");
-    t.key("enter",        "toggle step on/off");
+    t.key("enter / n",    "toggle in place / place a slice and advance (count sets spacing)");
     t.key("x",            "clear step at cursor");
     t.key("X / F",        "clear / fill the cursor slice's row");
     t.key("c",            "cycle step velocity through presets (full/hard/mid/soft)");
@@ -239,6 +240,8 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("a",            "preview current slice");
     t.key("i",            "insert mode: trigger slices on the qwerty piano (pitch wraps to slice count)");
     t.key("+ / -",        "lengthen / shorten loop (1-64 steps)");
+    t.key("E",            "double loop length and copy its content (up to 64 steps)");
+    t.key("O",            "replace the grid with slices sequenced once in source order");
     t.key("[ / ]",        "nudge current slice's start earlier / later (watch the waveform)");
     t.key("{ / }",        "nudge current slice's end earlier / later");
     t.key("r",            "toggle current slice's reverse");

@@ -460,6 +460,34 @@ test "slicer grid: velocity cycle + fine nudge on an active step only" {
     try std.testing.expectEqual(@as(u8, 95), app.slicerInst().stepVel(0, 0));
 }
 
+test "slicer grid: advancing entry, pattern double, and source-order sequence" {
+    var app = try testApp();
+    defer app.deinit();
+    try app.session.setInstrument(0, .slicer);
+    app.slicer_track = 0;
+    app.view = .slicer_grid;
+    app.slicerInst().sliceInto(4);
+    app.slicerInst().setStepCount(8);
+
+    app.slicer_cursor = .{ 2, 1 };
+    app.modal.count = 3;
+    _ = slicer_ed.handleKey(&app, .{ .char = 'n' });
+    try std.testing.expect(app.slicerInst().stepActive(2, 1));
+    try std.testing.expectEqual(@as(u8, 4), app.slicer_cursor[1]);
+
+    app.slicerInst().setStepVel(2, 1, 63);
+    _ = slicer_ed.handleKey(&app, .{ .char = 'E' });
+    try std.testing.expectEqual(@as(u8, 16), app.slicerInst().step_count);
+    try std.testing.expect(app.slicerInst().stepActive(2, 9));
+    try std.testing.expectEqual(@as(u8, 63), app.slicerInst().stepVel(2, 9));
+
+    _ = slicer_ed.handleKey(&app, .{ .char = 'O' });
+    for (0..4) |idx| try std.testing.expect(app.slicerInst().stepActive(@intCast(idx), @intCast(idx)));
+    try std.testing.expect(!app.slicerInst().stepActive(2, 9));
+    _ = slicer_ed.handleKey(&app, .{ .char = 'u' });
+    try std.testing.expect(app.slicerInst().stepActive(2, 9));
+}
+
 test "slicer grid: undo restores steps AND chop layout through one stack" {
     var app = try testApp();
     defer app.deinit();
@@ -668,6 +696,29 @@ test "drum grid step toggle" {
     try std.testing.expect(app.drumMachine().stepActive(0, 0));
     _ = drum_ed.handleKey(&app, .enter);
     try std.testing.expect(!app.drumMachine().stepActive(0, 0));
+}
+
+test "drum grid advancing entry and pattern double preserve velocity" {
+    var app = try testApp();
+    defer app.deinit();
+    app.drum_track = 2;
+    app.drumMachine().setStepCount(8);
+    app.drum_cursor = .{ 1, 0 };
+
+    app.modal.count = 4;
+    _ = drum_ed.handleKey(&app, .{ .char = 'n' });
+    try std.testing.expect(app.drumMachine().stepActive(1, 0));
+    try std.testing.expectEqual(@as(u8, 4), app.drum_cursor[1]);
+
+    app.drumMachine().setStepVel(1, 0, 95);
+    _ = drum_ed.handleKey(&app, .{ .char = 'E' });
+    try std.testing.expectEqual(@as(u8, 16), app.drumMachine().step_count);
+    try std.testing.expect(app.drumMachine().stepActive(1, 8));
+    try std.testing.expectEqual(@as(u8, 95), app.drumMachine().stepVel(1, 8));
+
+    _ = drum_ed.handleKey(&app, .{ .char = 'u' });
+    try std.testing.expectEqual(@as(u8, 8), app.drumMachine().step_count);
+    try std.testing.expect(!app.drumMachine().stepActive(1, 8));
 }
 
 test "z and Z zoom drum grid cells in and out" {
