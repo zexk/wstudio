@@ -297,14 +297,8 @@ fn doublePattern(app: *App) void {
 }
 
 fn zoom(app: *App, delta: i8) void {
-    app.drum_zoom = if (delta > 0) switch (app.drum_zoom) {
-        .compact => .normal,
-        .normal, .expanded => .expanded,
-    } else switch (app.drum_zoom) {
-        .expanded => .normal,
-        .normal, .compact => .compact,
-    };
-    app.setStatus("zoom: {s}", .{@tagName(app.drum_zoom)});
+    app.drum_grid = if (delta > 0) app.drum_grid.finer() else app.drum_grid.coarser();
+    app.setStatus("grid: {s}", .{app.drum_grid.label()});
 }
 
 /// w/b: jump the step cursor `delta` 4-step groups forward/back - see

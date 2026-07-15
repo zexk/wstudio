@@ -69,7 +69,7 @@ pub fn drawArrangement(
     const mode_tag: []const u8 = if (app.session.song_mode) grn ++ "SONG" ++ rst else dim ++ "PATTERN" ++ rst;
     try w.writeAll(bold ++ " " ++ icons.arrangement ++ " ARRANGEMENT" ++ rst ++ "  ");
     try w.writeAll(mode_tag);
-    if (app.arr_zoom != .normal) try w.print("  " ++ bcyn ++ "{s}" ++ rst, .{@tagName(app.arr_zoom)});
+    try w.print("  " ++ bcyn ++ "{s}" ++ rst, .{app.arr_grid.label()});
     try endLine(w);
 
     // Bar ruler. Bars inside an armed loop region wear the accent colour.
@@ -201,7 +201,7 @@ pub fn drawArrangementStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Wri
     // rather than folding into the mode badge, keeping both pieces of info
     // the old single combined badge carried.
     try style.writeModeBadge(w, app.modal.mode);
-    if (app.arr_zoom != .normal) try right.print(bcyn ++ "{s}" ++ rst ++ "  ", .{@tagName(app.arr_zoom)});
+    try right.print(bcyn ++ "{s}" ++ rst ++ "  ", .{app.arr_grid.label()});
     if (app.session.song_mode) {
         try style.writeViewBadgeColored(right, "SONG", .green);
     } else {

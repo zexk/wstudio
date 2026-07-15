@@ -385,15 +385,13 @@ fn toggleGrid(app: *App) void {
 
 /// `z`/`Z`: enlarge/compact horizontal cells without moving step indices.
 fn zoom(app: *App, delta: i8) void {
-    app.piano_zoom = if (delta > 0) switch (app.piano_zoom) {
-        .compact => .normal,
-        .normal, .expanded => .expanded,
-    } else switch (app.piano_zoom) {
-        .expanded => .normal,
-        .normal, .compact => .compact,
-    };
+    const old_beat = stepToBeat(app, app.piano_cursor_step);
+    app.piano_grid = .straight;
+    app.piano_division = if (delta > 0) app.piano_division.finer() else app.piano_division.coarser();
+    app.piano_cursor_step = @intFromFloat(@round(old_beat * stepsPerBeatF(app)));
+    app.piano_note_len = 1.0 / stepsPerBeatF(app);
     ensureVisible(app);
-    app.setStatus("zoom: {s}", .{@tagName(app.piano_zoom)});
+    app.setStatus("grid: {s}", .{app.piano_division.label()});
 }
 
 // zig fmt: off
@@ -401,7 +399,7 @@ fn ensureVisible(app: *App) void {
     // Compact packs 3x the steps into the same screen width, so widen the
     // autoscroll window to match (both are rough approximations, independent
     // of the real terminal width like the pre-existing `16` was).
-    const vis_cols: u16 = switch (app.piano_zoom) { .compact => 48, .normal => 16, .expanded => 10 };
+    const vis_cols: u16 = 16;
     const vis_rows: u8  = 16;
     // horizontal
     if (app.piano_cursor_step < app.piano_scroll_step) {

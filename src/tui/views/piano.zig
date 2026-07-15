@@ -153,9 +153,7 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
     if (app.piano_grid == .triplet) {
         try w.writeAll("  " ++ yel ++ "triplet" ++ rst);
     }
-    if (app.piano_zoom != .normal) {
-        try w.print("  " ++ bcyn ++ "{s}" ++ rst, .{@tagName(app.piano_zoom)});
-    }
+    try w.print("  " ++ bcyn ++ "{s}" ++ rst, .{app.piano_division.label()});
     if (app.piano_ghost) {
         try w.writeAll("  " ++ dim ++ "ghost" ++ rst);
     }
@@ -366,7 +364,7 @@ pub fn drawPianoRollStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Write
 
     // zig fmt: off
     try style.writeModeBadge(w, app.modal.mode);
-    if (app.piano_zoom != .normal) try right.print(bcyn ++ "{s}" ++ rst ++ "  ", .{@tagName(app.piano_zoom)});
+    try right.print(bcyn ++ "{s}" ++ rst ++ "  ", .{app.piano_division.label()});
     try style.writeViewBadge(right, "PIANO", app.modal.mode);
     try w.writeAll(dim ++ "  " ++ rst);
     try w.print("{s}", .{label});

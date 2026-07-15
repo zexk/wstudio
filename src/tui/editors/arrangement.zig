@@ -362,14 +362,8 @@ fn moveBar(app: *App, delta: i64) void {
 
 /// `z`/`Z`: enlarge/compact horizontal cells without moving bar indices.
 fn zoom(app: *App, delta: i8) void {
-    app.arr_zoom = if (delta > 0) switch (app.arr_zoom) {
-        .compact => .normal,
-        .normal, .expanded => .expanded,
-    } else switch (app.arr_zoom) {
-        .expanded => .normal,
-        .normal, .compact => .compact,
-    };
-    app.setStatus("zoom: {s}", .{@tagName(app.arr_zoom)});
+    app.arr_grid = if (delta > 0) app.arr_grid.finer() else app.arr_grid.coarser();
+    app.setStatus("grid: {s}", .{app.arr_grid.label()});
 }
 
 /// Move the lane cursor by `delta`, clamped to the track list.

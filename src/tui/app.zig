@@ -62,7 +62,7 @@ const autosave_interval_ns: i96 = 30 * std.time.ns_per_s;
 pub const default_project_path = "project.wsj";
 
 pub const AppView = enum { tracks, drum_grid, synth_editor, sampler_editor, help, track_spectrum, master_spectrum, group_spectrum, piano_roll, instrument_picker, fx_picker, synth_fx_picker, arrangement, file_browser, automation, automation_param_picker, slicer_grid, preset_picker };
-pub const GridZoom = enum { compact, normal, expanded };
+pub const GridDivision = ws.time_grid.Division;
 
 /// One tracks-view display row: a real track, or a group's own row (its
 /// header when unfolded, the whole group when folded). The pinned master row
@@ -245,7 +245,7 @@ pub const App = struct {
     /// (drawDrumGrid updates it; step_count can exceed a terminal's width
     /// at max_steps = 64).
     drum_step_scroll: u32 = 0,
-    drum_zoom: GridZoom = .normal,
+    drum_grid: GridDivision = .sixteenth,
     /// Track currently shown in the drum_grid view (a drum_machine rack).
     drum_track: u16 = 0,
     /// [slice, step] cursor for the slicer_grid view - same shape as
@@ -358,7 +358,7 @@ pub const App = struct {
     /// Piano-roll horizontal zoom: `z` enlarges cells and `Z` compacts them.
     /// Global and not persisted, in the same bucket
     /// as `piano_grid`/`piano_scale`.
-    piano_zoom: GridZoom = .normal,
+    piano_division: GridDivision = .sixteenth,
     /// True while `M` holds the piano-roll note under the cursor - h/l/j/k
     /// then drag the note instead of the cursor; esc/M (or any other key)
     /// drop it. See editors/piano.zig.
@@ -374,7 +374,7 @@ pub const App = struct {
     arr_scroll_lane: usize = 0,
     /// Arrangement horizontal zoom: `z` enlarges cells and `Z` compacts them.
     /// Mirrors `App.piano_zoom`. Not persisted - a display aid.
-    arr_zoom: GridZoom = .normal,
+    arr_grid: GridDivision = .quarter,
     /// Pattern clipboards (y yank / P paste), app-wide so patterns can move
     /// between tracks. Whole-pattern granularity; one slot per editor kind.
     piano_clip: ?PianoClip = null,
@@ -679,36 +679,24 @@ pub const App = struct {
     /// conversion in editors/piano.zig and views/piano.zig goes through
     /// this so `T` can retune the whole grid in one place.
     pub fn pianoStepsPerBeat(self: *const App) u16 {
-        return if (self.piano_grid == .triplet) 6 else 4;
+        return if (self.piano_grid == .triplet) 6 else @as(u16, self.piano_division.denominator()) / 4;
     }
 
     /// Terminal columns per step under the current zoom: 1, 3, or 5.
     /// and views/piano.zig goes through this.
-    pub fn pianoCellWidth(self: *const App) usize {
-        return switch (self.piano_zoom) {
-            .compact => 1,
-            .normal => 3,
-            .expanded => 5,
-        };
+    pub fn pianoCellWidth(_: *const App) usize {
+        return 3;
     }
 
-    pub fn drumCellWidth(self: *const App) usize {
-        return switch (self.drum_zoom) {
-            .compact => 1,
-            .normal => 3,
-            .expanded => 5,
-        };
+    pub fn drumCellWidth(_: *const App) usize {
+        return 3;
     }
 
     /// Terminal columns per bar under the current zoom: 2, 4, or 6.
     /// Every column-width computation in editors/arrangement.zig
     /// and views/arrangement.zig goes through this.
-    pub fn arrCellWidth(self: *const App) usize {
-        return switch (self.arr_zoom) {
-            .compact => 2,
-            .normal => 4,
-            .expanded => 6,
-        };
+    pub fn arrCellWidth(_: *const App) usize {
+        return 4;
     }
 
     pub fn handleKey(self: *App, key_in: modal_mod.Key, now_ns: i96) void {

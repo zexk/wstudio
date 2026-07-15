@@ -721,18 +721,18 @@ test "drum grid advancing entry and pattern double preserve velocity" {
     try std.testing.expect(!app.drumMachine().stepActive(1, 8));
 }
 
-test "z and Z zoom drum grid cells in and out" {
+test "z and Z select drum grid subdivisions" {
     var app = try testApp();
     defer app.deinit();
     app.drum_track = 2;
 
-    try std.testing.expectEqual(@as(usize, 3), app.drumCellWidth());
+    try std.testing.expectEqual(ws.time_grid.Division.sixteenth, app.drum_grid);
     _ = drum_ed.handleKey(&app, .{ .char = 'Z' });
-    try std.testing.expectEqual(@as(usize, 1), app.drumCellWidth());
+    try std.testing.expectEqual(ws.time_grid.Division.eighth, app.drum_grid);
     _ = drum_ed.handleKey(&app, .{ .char = 'z' });
-    try std.testing.expectEqual(@as(usize, 3), app.drumCellWidth());
+    try std.testing.expectEqual(ws.time_grid.Division.sixteenth, app.drum_grid);
     _ = drum_ed.handleKey(&app, .{ .char = 'z' });
-    try std.testing.expectEqual(@as(usize, 5), app.drumCellWidth());
+    try std.testing.expectEqual(ws.time_grid.Division.thirty_second, app.drum_grid);
 }
 
 test "drum grid g jumps the step cursor to the pattern start" {
@@ -1114,7 +1114,7 @@ test "piano roll n/N step-enter notes and rests by the default note length" {
     try std.testing.expectEqual(@as(u16, 6), app.piano_cursor_step);
 }
 
-test "z and Z zoom piano roll cells in and out" {
+test "z and Z select piano roll subdivisions through 1/128" {
     var app = try testApp();
     defer app.deinit();
     app.view = .piano_roll;
@@ -1123,27 +1123,32 @@ test "z and Z zoom piano roll cells in and out" {
     pp.length_beats = 16.0;
     pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.25 });
 
-    try std.testing.expectEqual(@as(usize, 3), app.pianoCellWidth());
+    try std.testing.expectEqual(ws.time_grid.Division.sixteenth, app.piano_division);
     var buf: [32 * 1024]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
     try app.draw(&w, .{ .cols = 80, .rows = 24 });
-    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "compact") == null);
+    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "1/16") != null);
 
     _ = piano_ed.handleKey(&app, .{ .char = 'Z' });
-    try std.testing.expectEqual(@as(usize, 1), app.pianoCellWidth());
+    try std.testing.expectEqual(ws.time_grid.Division.eighth, app.piano_division);
 
     w = std.Io.Writer.fixed(&buf);
     try app.draw(&w, .{ .cols = 80, .rows = 24 });
     const frame = w.buffered();
     try std.testing.expect(std.mem.indexOf(u8, frame, "PIANO ROLL") != null);
-    try std.testing.expect(std.mem.indexOf(u8, frame, "compact") != null);
+    try std.testing.expect(std.mem.indexOf(u8, frame, "1/8") != null);
 
     _ = piano_ed.handleKey(&app, .{ .char = 'z' });
-    try std.testing.expectEqual(@as(usize, 3), app.pianoCellWidth());
+    try std.testing.expectEqual(ws.time_grid.Division.sixteenth, app.piano_division);
     _ = piano_ed.handleKey(&app, .{ .char = 'z' });
-    try std.testing.expectEqual(@as(usize, 5), app.pianoCellWidth());
+    try std.testing.expectEqual(ws.time_grid.Division.thirty_second, app.piano_division);
     _ = piano_ed.handleKey(&app, .{ .char = 'z' });
-    try std.testing.expectEqual(@as(usize, 5), app.pianoCellWidth());
+    _ = piano_ed.handleKey(&app, .{ .char = 'z' });
+    _ = piano_ed.handleKey(&app, .{ .char = 'z' });
+    try std.testing.expectEqual(ws.time_grid.Division.one_twenty_eighth, app.piano_division);
+    app.piano_cursor_step = 1;
+    _ = piano_ed.handleKey(&app, .enter);
+    try std.testing.expect(pp.noteAt(60, 1.0 / 32.0) != null);
 }
 
 test "piano roll flags an unlinked scratch pattern in song mode, not pattern mode" {
@@ -1207,33 +1212,33 @@ test "view switches nudge song mode while stopped, never while playing" {
     try std.testing.expect(app.session.song_mode);
 }
 
-test "z and Z zoom arrangement cells in and out" {
+test "z and Z select arrangement grid subdivisions" {
     var app = try testApp();
     defer app.deinit();
     app.view = .arrangement;
     try app.session.stampClip(0, 0);
 
-    try std.testing.expectEqual(@as(usize, 4), app.arrCellWidth());
+    try std.testing.expectEqual(ws.time_grid.Division.quarter, app.arr_grid);
     var buf: [32 * 1024]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
     try app.draw(&w, .{ .cols = 80, .rows = 24 });
-    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "compact") == null);
+    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "1/4") != null);
 
     app.handleKey(.{ .char = 'Z' }, 0);
-    try std.testing.expectEqual(@as(usize, 2), app.arrCellWidth());
+    try std.testing.expectEqual(ws.time_grid.Division.quarter, app.arr_grid);
 
     w = std.Io.Writer.fixed(&buf);
     try app.draw(&w, .{ .cols = 80, .rows = 24 });
     const frame = w.buffered();
     try std.testing.expect(std.mem.indexOf(u8, frame, "ARRANGEMENT") != null);
-    try std.testing.expect(std.mem.indexOf(u8, frame, "compact") != null);
+    try std.testing.expect(std.mem.indexOf(u8, frame, "1/4") != null);
 
     app.handleKey(.{ .char = 'z' }, 0);
-    try std.testing.expectEqual(@as(usize, 4), app.arrCellWidth());
+    try std.testing.expectEqual(ws.time_grid.Division.eighth, app.arr_grid);
     app.handleKey(.{ .char = 'z' }, 0);
-    try std.testing.expectEqual(@as(usize, 6), app.arrCellWidth());
+    try std.testing.expectEqual(ws.time_grid.Division.sixteenth, app.arr_grid);
     app.handleKey(.{ .char = 'z' }, 0);
-    try std.testing.expectEqual(@as(usize, 6), app.arrCellWidth());
+    try std.testing.expectEqual(ws.time_grid.Division.thirty_second, app.arr_grid);
 }
 
 test "automation editor: nudge, `.` repeat, and visual range yank/delete/paste" {
