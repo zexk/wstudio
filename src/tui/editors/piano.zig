@@ -38,6 +38,19 @@ pub fn switchTo(app: *App, track: u16) void {
     app.piano_track = track;
     app.piano_cursor_step = 0;
     app.piano_scroll_step = 0;
+    // Existing patterns should open on musical content instead of an empty
+    // C4 viewport. The earliest note is a stable, useful starting point and
+    // leaves genuinely empty patterns at the familiar C4 origin.
+    if (app.session.racks.items[track].pattern_player) |*pp| {
+        if (pp.note_count > 0) {
+            var first = pp.notes[0];
+            for (pp.notes[1..pp.note_count]) |note| {
+                if (note.start_beat < first.start_beat) first = note;
+            }
+            app.piano_cursor_step = @intFromFloat(@round(first.start_beat * stepsPerBeatF(app)));
+            app.piano_cursor_pitch = first.pitch;
+        }
+    }
     // Center the 16-row viewport on the cursor pitch.
     app.piano_scroll_pitch = @intCast(@min(@as(u32, app.piano_cursor_pitch) + 8, 127));
     // A plain open edits the live pattern; the arrangement's editClip re-links after.

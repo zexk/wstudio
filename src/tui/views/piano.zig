@@ -156,6 +156,9 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
     if (app.piano_zoom == .compact) {
         try w.writeAll("  " ++ bcyn ++ "zoom" ++ rst);
     }
+    if (app.piano_ghost) {
+        try w.writeAll("  " ++ dim ++ "ghost" ++ rst);
+    }
     try endLine(w);
 
     // 3 internal header rows (title + col labels + loop marker) + vis_rows note
@@ -258,9 +261,10 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
 
         var lbuf: [5]u8 = undefined;
         const label = pitchLabel(@intCast(pitch), &lbuf);
-        if (row_dim) try w.writeAll(dim);
+        const is_scale_root = if (app.piano_scale) |s| pitch % 12 == s.root else false;
+        if (is_scale_root) try w.writeAll(mag ++ bold) else if (row_dim) try w.writeAll(dim);
         try w.print(" {s: <4}", .{label});
-        if (row_dim) try w.writeAll(rst);
+        if (is_scale_root or row_dim) try w.writeAll(rst);
         try w.writeAll(dim ++ "│" ++ rst);
 
         for (0..vis_cols) |col| {
@@ -352,8 +356,12 @@ pub fn drawPianoRollStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Write
     const label = pitchLabel(@intCast(app.piano_cursor_pitch), &lbuf);
     const spb: u16 = app.pianoStepsPerBeat();
     const beat_pos = @as(f64, @floatFromInt(app.piano_cursor_step)) / @as(f64, @floatFromInt(spb));
-    const bar = app.piano_cursor_step / spb + 1;
+    const beat_index = app.piano_cursor_step / spb;
+    const beats_per_bar: u16 = app.session.project.beats_per_bar;
+    const bar = beat_index / beats_per_bar + 1;
+    const beat = beat_index % beats_per_bar + 1;
     const sub = app.piano_cursor_step % spb + 1;
+    const note = pp.noteAt(app.piano_cursor_pitch, beat_pos);
 
     // zig fmt: off
     try style.writeModeBadge(w, app.modal.mode);
@@ -361,32 +369,24 @@ pub fn drawPianoRollStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Write
     try style.writeViewBadge(right, "PIANO", app.modal.mode);
     try w.writeAll(dim ++ "  " ++ rst);
     try w.print("{s}", .{label});
-    try w.writeAll(dim ++ "  bar " ++ rst);
-    try w.print("{d}.{d}", .{ bar, sub });
-    try w.writeAll(dim ++ "  len " ++ rst);
-    try w.print("{d:.2}b", .{app.piano_note_len});
-    try w.writeAll(dim ++ "  loop " ++ rst);
-    try w.print("{d:.0}b", .{pp.length_beats});
-    try w.writeAll(dim ++ "  grid " ++ rst);
-    try w.writeAll(if (app.piano_grid == .triplet) "1/16T" else "1/16");
-    // Swing only shown when it's off the straight default (50%) — a plain
-    // pattern shouldn't pay status-line width for a param it isn't using.
-    const swing_pct = pp.swing.load(.monotonic);
-    if (swing_pct != 50.0) {
-        try w.writeAll(dim ++ "  swing " ++ rst);
-        try w.print("{d:.0}%", .{swing_pct});
+    try w.writeAll(dim ++ "  pos " ++ rst);
+    try w.print("{d}.{d}.{d}", .{ bar, beat, sub });
+    if (note) |n| {
+        try w.writeAll(dim ++ "  note " ++ rst);
+        try w.print("{d:.2}b", .{n.duration_beat});
+        try w.writeAll(dim ++ "  vel " ++ rst);
+        try w.print("{d:.0}%", .{n.velocity * 100.0});
+    } else {
+        try w.writeAll(dim ++ "  new " ++ rst);
+        try w.print("{d:.2}b", .{app.piano_note_len});
     }
-    // Note count at cursor pitch
-    var n_here: usize = 0;
-    _ = beat_pos;
-    for (pp.notes[0..pp.note_count]) |n| {
-        if (n.pitch == app.piano_cursor_pitch) n_here += 1;
-    }
-    try w.writeAll(dim ++ "  notes " ++ rst);
-    try w.print("{d}/{d}", .{ n_here, pp.note_count });
     if (app.status_len > 0) {
         try w.writeAll(dim ++ "  " ++ rst);
         try w.writeAll(app.status_buf[0..app.status_len]);
+    } else if (note != null) {
+        try w.writeAll(dim ++ "  [ ]: resize  < >: velocity  M: move" ++ rst);
+    } else {
+        try w.writeAll(dim ++ "  enter: add  a: hear  i: play/record" ++ rst);
     }
 }
 

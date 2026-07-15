@@ -3072,6 +3072,27 @@ test "p key opens piano roll for synth track" {
     try std.testing.expectEqual(AppView.tracks, app.view);
 }
 
+test "piano roll opens existing patterns at their earliest note" {
+    var app = try testApp();
+    defer app.deinit();
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    pp.addNote(.{ .pitch = 72, .start_beat = 2.0, .duration_beat = 0.5, .velocity = 0.7 });
+    pp.addNote(.{ .pitch = 67, .start_beat = 1.0, .duration_beat = 0.25, .velocity = 0.9 });
+
+    piano_ed.switchTo(&app, 0);
+    try std.testing.expectEqual(@as(u7, 67), app.piano_cursor_pitch);
+    try std.testing.expectEqual(@as(u16, 4), app.piano_cursor_step);
+
+    var buf: [32 * 1024]u8 = undefined;
+    var w = std.Io.Writer.fixed(&buf);
+    try app.draw(&w, .{ .cols = 100, .rows = 24 });
+    const frame = w.buffered();
+    try std.testing.expect(std.mem.indexOf(u8, frame, "1.2.1") != null);
+    try std.testing.expect(std.mem.indexOf(u8, frame, "0.25b") != null);
+    try std.testing.expect(std.mem.indexOf(u8, frame, "90%") != null);
+    try std.testing.expect(std.mem.indexOf(u8, frame, "[ ]: resize") != null);
+}
+
 test "p key opens piano roll for sampler track" {
     var app = try testApp();
     defer app.deinit();
