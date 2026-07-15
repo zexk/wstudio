@@ -332,6 +332,15 @@ pub fn drawTracksStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) 
     if (app.status_len > 0) {
         try w.writeAll(dim ++ "  " ++ rst);
         try w.writeAll(app.status_buf[0..app.status_len]);
+    } else {
+        try w.writeAll(dim ++ "  " ++ rst);
+        if (app.session.racks.items.len == 1 and
+            app.session.racks.items[0].instrument == .empty)
+        {
+            try w.writeAll("enter: instrument  ?: help  space: play");
+        } else {
+            try w.writeAll("?: help  space: play  tab: song");
+        }
     }
 }
 

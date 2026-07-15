@@ -97,6 +97,10 @@ const HelpText = struct {
         self.section(title);
     }
 
+    fn group(self: *HelpText, title: []const u8) void {
+        self.push(dim ++ "  {s}" ++ rst, .{title});
+    }
+
     fn key(self: *HelpText, keys: []const u8, desc: []const u8) void {
         self.push(acc ++ "  {s: <16}" ++ rst ++ dim ++ "{s}", .{ keys, desc });
     }
@@ -135,6 +139,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("shift+drag",   "bypass wstudio — your terminal's native text selection (for copy/paste)");
 
     t.taggedSection(.tracks, "TRACKS");
+    t.group("BASICS");
     t.key("j / k",        "move cursor down / up over rows — tracks, group rows, then MASTER last");
     t.key("enter",        "edit track (synth or drum grid) — on a group row / MASTER: open its FX chain");
     t.key("p",            "piano roll for melodic tracks (synth or sampler)");
@@ -148,6 +153,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("dd",           "delete selected track, no confirm — on a group row: delete the group (members ungroup)");
     t.key("Y",            "duplicate selected track (instrument, FX, clips) at the end");
     t.key("J / K",        "move selected track down / up");
+    t.group("ORGANIZE AND MIX");
     t.key("[ / ]",        "cycle selected track's color (7 colors + none)");
     t.key("R",            "rename selected track (opens :track-rename <n>) — group row: :group-rename <n>");
     t.key("v",            "visual mode: select a row range — g groups it (opens :group-rename)");
@@ -170,12 +176,13 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("z / x",                 "octave down / up");
 
     t.taggedSection(.drum_grid, "DRUM GRID");
+    t.group("BASICS");
     t.key("h / l",        "move cursor left / right (one step)");
     t.key("H / L",        "move cursor left / right (one beat, coarse)");
     t.key("j / k",        "move cursor down / up (pad)");
     t.key("J / K",        "jump a whole bank of 8 pads (64 pads total, paged 8 at a time)");
     t.key("g / G",        "jump step cursor to pattern start / end");
-    t.key("w / b",        "jump to the next / previous bar start");
+    t.key("w / b",        "jump to the next / previous beat boundary");
     t.key("enter",        "toggle step on/off");
     t.key("x",            "clear the step at cursor");
     t.key("c",            "cycle step velocity presets (127/95/63/31)");
@@ -187,6 +194,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("i",            "insert mode: play pads on the qwerty piano (pitch wraps to pad 1-64)");
     t.key("(insert) space","start recording — clicks a one-bar count-in first if stopped");
     t.key("(insert) esc", "back to normal — while playing, hits recorded at the playhead");
+    t.group("SOUND AND PATTERNS");
     t.key("f",            "kit picker — factory + saved kits, / filters by name/tag/author, d deletes a save");
     t.key(":drum-kit-save", "<name>  save pads 0-7's tuning (name/gain/pan/pitch/ADSR/choke, no audio) as a reusable kit");
     t.key("R",            "rename current pad (opens :pad-rename <n>, 8 chars max)");
@@ -268,12 +276,13 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.push(dim ++ "  rows sum. MACRO knobs only act through matrix rows (mc1-mc4).", .{});
 
     t.taggedSection(.piano_roll, "PIANO ROLL");
+    t.group("BASICS");
     t.key("h / l",        "move cursor left / right (one step)");
     t.key("H / L",        "move cursor left / right (one beat, coarse)");
     t.key("j / k",        "move cursor down / up (pitch)");
     t.key("J / K",        "move cursor down / up (one octave)");
     t.key("g / G",        "jump cursor to loop start / end");
-    t.key("w / b",        "jump to the next / previous bar start");
+    t.key("w / b",        "jump to the next / previous beat boundary");
     t.key("enter / n",    "toggle / insert note at cursor");
     t.key("x",            "delete note at cursor");
     t.key("M",            "grab note at cursor — h/l/j/k drag it, esc drops");
@@ -281,6 +290,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("i",            "insert mode: play the qwerty piano (a-row/q-row, z/x octave)");
     t.key("(insert) space","start recording — clicks a one-bar count-in first if stopped");
     t.key("(insert) esc", "back to normal — while playing, notes recorded at the playhead");
+    t.group("EDIT AND SHAPE");
     t.key("< / >",        "decrease / increase velocity of note at cursor (count-scaled)");
     t.key("e",            "open synth editor for this track");
     t.key("s",            "FX chain for this track");
@@ -451,7 +461,7 @@ fn writeHighlighted(w: *std.Io.Writer, line: []const u8) !void {
 /// Renders a scroll window of the help text. `scroll` is clamped in place so
 /// the caller's stored offset can never run past the last screenful. `hit`
 /// (the last `/` search match, if any) renders reverse-video when in view.
-pub fn drawHelp(w: *std.Io.Writer, rows: usize, cmds: []const cmd_mod.Def, scroll: *usize, hit: ?usize) !void {
+pub fn drawHelp(w: *std.Io.Writer, rows: usize, cols: usize, cmds: []const cmd_mod.Def, scroll: *usize, hit: ?usize) !void {
     var t = HelpText{};
     buildHelp(&t, cmds);
 
@@ -474,7 +484,12 @@ pub fn drawHelp(w: *std.Io.Writer, rows: usize, cmds: []const cmd_mod.Def, scrol
 
     var i = off;
     while (i < end) : (i += 1) {
-        if (hit == i) try writeHighlighted(w, t.line(i)) else try w.writeAll(t.line(i));
+        if (hit == i) {
+            var line_buf: [1024]u8 = undefined;
+            var line_w = std.Io.Writer.fixed(&line_buf);
+            try writeHighlighted(&line_w, t.line(i));
+            try style.writeClamped(w, line_w.buffered(), cols);
+        } else try style.writeClamped(w, t.line(i), cols);
         try endLine(w);
     }
 

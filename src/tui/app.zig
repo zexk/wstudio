@@ -1463,7 +1463,14 @@ pub const App = struct {
             return;
         };
         self.dirty = true;
-        self.setStatus("inserted {s}", .{picker_labels[self.picker_cursor]});
+        const hint: []const u8 = switch (kind) {
+            .empty => "?: help",
+            .poly_synth => "j/k: move  h/l: adjust  i: play  ?: help",
+            .sampler => "j/k: move  h/l: adjust  i: play  ?: help",
+            .drum_machine => "enter: step  i: play  space: record  ?: help",
+            .slicer => "enter: step  i: play  :load-slice  ?: help",
+        };
+        self.setStatus("{s} inserted  {s}", .{ picker_labels[self.picker_cursor], hint });
         self.view = .tracks;
         self.openTrack(self.cursor);
     }
@@ -3057,7 +3064,7 @@ pub const App = struct {
             .synth_editor    => try tui.drawSynthEditor(self, w, content_rows, size.cols, snap),
             .sampler_editor  => try tui.drawSamplerEditor(self, w, content_rows, size.cols, snap),
             .piano_roll      => try tui.drawPianoRoll(self, w, content_rows, size.cols, snap),
-            .help            => try tui.drawHelp(w, content_rows, commands.cmds, &self.help_scroll, self.help_search_hit),
+            .help            => try tui.drawHelp(w, content_rows, size.cols, commands.cmds, &self.help_scroll, self.help_search_hit),
             .track_spectrum, .master_spectrum, .group_spectrum =>
                 try tui.drawFxView(self, w, content_rows, size.cols, snap, spectrum_ed.currentTarget(self)),
             .instrument_picker => try tui.drawInstrumentPicker(self, w, content_rows),

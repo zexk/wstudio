@@ -2075,6 +2075,8 @@ test "blank track row shows the empty hint" {
     var w = std.Io.Writer.fixed(&buf);
     try app.draw(&w, .{ .cols = 80, .rows = 24 });
     try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "empty") != null);
+    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "enter: instrument") != null);
+    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "?: help") != null);
 }
 
 test ":help opens on the current view's section; g jumps to COMMANDS; esc closes" {
@@ -2090,6 +2092,10 @@ test ":help opens on the current view's section; g jumps to COMMANDS; esc closes
     var w = std.Io.Writer.fixed(&buf);
     try app.draw(&w, .{ .cols = 80, .rows = 24 });
     try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "TRACKS") != null);
+    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "BASICS") != null);
+    // Long entries are clamped by the renderer instead of relying on the
+    // terminal to wrap them into unbudgeted rows.
+    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "then MASTER last") == null);
 
     // g still jumps all the way back up to the command table.
     app.handleKey(.{ .char = 'g' }, 0);

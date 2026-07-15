@@ -14,9 +14,9 @@ model from vim:
 
 - **normal**: navigate the project, drive the transport (`space`
   play/stop, `hjkl` with counts, `gg`/`G`, ...)
-- **insert**: the keyboard becomes a piano, tracker-style layout where
-  the z-row is one octave (`z` = C, `s` = C#, `x` = D, ...) and the q-row
-  the next; `-`/`=` shift octaves
+- **insert**: the keyboard becomes a piano: the a-row plays white keys
+  (`a` = C, `s` = D, `d` = E, ...) and the q-row plays black keys;
+  `z`/`x` shift octaves
 - **visual**: `v` selects a range (steps in the piano roll/drum grid,
   bars in the arrangement); `y`/`d`/`P` yank, clear, or paste it, `esc`
   cancels
