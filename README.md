@@ -170,12 +170,12 @@ to `/etc/xdg/wstudio/init.lua`. The initial API supports a default tempo for
 new projects:
 
 ```lua
-wstudio.set_option("default_tempo", 128)
-wstudio.set_option("default_sample_rate", 48000)
-wstudio.set_option("default_beats_per_bar", 4)
-wstudio.set_option("frame_poll_ms", 30)
-wstudio.set_option("audio_block_frames", 256)
-wstudio.set_option("tap_timeout_ms", 2000)
+wstudio.o.default_tempo = 128
+wstudio.o.default_sample_rate = 48000
+wstudio.o.default_beats_per_bar = 4
+wstudio.o.frame_poll_ms = 30
+wstudio.o.audio_block_frames = 256
+wstudio.o.tap_timeout_ms = 2000
 ```
 
 The same Lua state remains alive while wstudio runs so the API can grow into
@@ -186,7 +186,7 @@ Manager and NixOS modules also accept the Lua source directly:
 ```nix
 programs.wstudio = {
   enable = true;
-  luaConfig = ''wstudio.set_option("default_tempo", 128)'';
+  luaConfig = ''wstudio.o.default_tempo = 128'';
 };
 ```
 

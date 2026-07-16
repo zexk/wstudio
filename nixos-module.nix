@@ -20,7 +20,7 @@ in
     luaConfig = lib.mkOption {
       type = lib.types.lines;
       default = "";
-      example = ''wstudio.set_option("default_tempo", 128)'';
+      example = "wstudio.o.default_tempo = 128";
       description = "System-wide Lua configuration for wstudio.";
     };
   };
