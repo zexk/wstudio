@@ -476,13 +476,29 @@ fn drawMixerRow(app: *App, track: ws.Track, rack: *ws.Rack, index: usize) void {
         .col = color(row_bg),
         .rounding = 3,
     });
-    if (selected or in_visual or hovered) draw.addRect(.{
-        .pmin = origin,
-        .pmax = .{ origin[0] + width, origin[1] + height - 2 },
-        .col = color(if (in_visual and !selected) patina.fg0 else if (colored) patina.bg0 else patina.focus),
-        .rounding = 2,
-        .thickness = if (selected or in_visual) 2 else 1,
-    });
+    if (selected) {
+        draw.addRectFilled(.{
+            .pmin = .{ origin[0] + 1, origin[1] + 1 },
+            .pmax = .{ origin[0] + width - 1, origin[1] + height - 3 },
+            .col = color(.{ patina.focus[0], patina.focus[1], patina.focus[2], 0.18 }),
+            .rounding = 2,
+        });
+        draw.addRect(.{
+            .pmin = .{ origin[0] + 1, origin[1] + 1 },
+            .pmax = .{ origin[0] + width - 1, origin[1] + height - 3 },
+            .col = color(patina.focus),
+            .rounding = 2,
+            .thickness = 2,
+        });
+    } else if (in_visual or hovered) {
+        draw.addRect(.{
+            .pmin = origin,
+            .pmax = .{ origin[0] + width, origin[1] + height - 2 },
+            .col = color(if (in_visual) patina.fg0 else patina.focus),
+            .rounding = 2,
+            .thickness = if (in_visual) 2 else 1,
+        });
+    }
     draw.addText(.{ origin[0] + 13, origin[1] + 5 }, color(row_fg), "{d:0>2}  {s}", .{ index + 1, track.name });
     draw.addText(.{ origin[0] + 41, origin[1] + 23 }, color(row_muted), "{s}", .{rack.label});
 
