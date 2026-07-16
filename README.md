@@ -166,8 +166,9 @@ zig build -Dtarget=x86_64-windows-gnu  # cross-compile the Windows build
 
 wstudio loads `~/.config/wstudio/init.lua` at startup, or
 `$XDG_CONFIG_HOME/wstudio/init.lua` when that variable is set, then falls back
-to `/etc/xdg/wstudio/init.lua`. The API covers options, keymaps, user `:`
-commands, autocmd events, and transport/track scripting:
+to `/etc/xdg/wstudio/init.lua`. When neither file exists, wstudio creates the
+user file from its embedded configuration template. The API covers options,
+keymaps, user `:` commands, autocmd events, and transport/track scripting:
 
 ```lua
 wstudio.o.default_tempo = 128
@@ -177,10 +178,11 @@ wstudio.api.create_autocmd("PlaybackStart", { callback = function(ev)
 end })
 ```
 
-[examples/init.lua](examples/init.lua) is the fully documented template:
-every option with its default and range, the key notation, all events, and
-the whole `wstudio.api` surface. Copy it as your config and uncomment what
-you need; [docs/lua-api.md](docs/lua-api.md) covers the design. A broken
+[examples/init.lua](examples/init.lua) is the fully documented template used
+for first-run generation: every option with its default and range, the key
+notation, all events, and
+the whole `wstudio.api` surface. Uncomment what you need in the generated file;
+[docs/lua-api.md](docs/lua-api.md) covers the design. A broken
 config never blocks startup. Nix users can enable wstudio
 through `nixosModules.default` or `homeManagerModules.default`. The Home
 Manager and NixOS modules also accept the Lua source directly:

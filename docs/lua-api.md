@@ -2,13 +2,15 @@
 
 Design for wstudio's user-facing Lua API. The bootstrap already ships on this
 branch: a bundled Lua 5.4 interpreter (built from source in `build.zig`, no
-system dependency), `~/.config/wstudio/init.lua` loaded at startup, and a
-`wstudio.o` option proxy backed by `src/config.zig`. This document defines
+system dependency), `~/.config/wstudio/init.lua` loaded at startup, automatic
+first-run generation from `examples/init.lua`, and a `wstudio.o` option proxy
+backed by `src/config.zig`. This document defines
 where the API goes from there.
 
-The user-facing reference is [examples/init.lua](../examples/init.lua), a
-fully documented template config covering every option, keymap notation,
-event, and API function; this document covers the design behind it.
+The user-facing reference is [examples/init.lua](../examples/init.lua), the
+fully documented template used to generate a missing user config. It covers
+every option, keymap notation, event, and API function; this document covers
+the design behind it.
 
 Neovim is the reference. Its API survived a decade of GUIs, plugins, and
 embedders because of a few structural decisions, not because of any single

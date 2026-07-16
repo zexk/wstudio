@@ -6,6 +6,7 @@
 //! that route `wstudio.notify`/`wstudio.cmd` into the live App.
 
 const std = @import("std");
+const init_lua_template = @import("init_template").source;
 const ws_input = @import("wstudio").input;
 const cmd_mod = @import("tui/cmd.zig");
 const tui_app = @import("tui/app.zig");
@@ -15,6 +16,8 @@ const c = @cImport({
     @cInclude("lauxlib.h");
     @cInclude("lualib.h");
 });
+
+const system_config_path = "/etc/xdg/wstudio/init.lua";
 
 pub const GuiTheme = enum { patina, patina_light, graphite, umbra };
 
@@ -470,11 +473,16 @@ pub const Runtime = struct {
     pub fn loadUserConfig(self: *Runtime, io: std.Io) !bool {
         var path_buf: [std.fs.max_path_bytes]u8 = undefined;
         if (userConfigPath(&path_buf)) |path| {
-            if (loadIfPresent(self, io, path)) |loaded| {
-                if (loaded) return true;
-            } else |err| return err;
+            return self.loadOrGenerateUserConfig(io, path, system_config_path);
         }
-        return loadIfPresent(self, io, "/etc/xdg/wstudio/init.lua");
+        return loadIfPresent(self, io, system_config_path);
+    }
+
+    fn loadOrGenerateUserConfig(self: *Runtime, io: std.Io, user_path: []const u8, fallback_path: []const u8) !bool {
+        if (try loadIfPresent(self, io, user_path)) return true;
+        if (try loadIfPresent(self, io, fallback_path)) return true;
+        _ = try generateUserConfig(io, user_path);
+        return loadIfPresent(self, io, user_path);
     }
 
     fn registerApi(self: *Runtime) void {
@@ -578,6 +586,22 @@ fn loadIfPresent(self: *Runtime, io: std.Io, path: []const u8) !bool {
         else => return err,
     };
     try self.loadFile(path);
+    return true;
+}
+
+fn generateUserConfig(io: std.Io, path: []const u8) !bool {
+    const dir = std.fs.path.dirname(path) orelse return error.InvalidPath;
+    try std.Io.Dir.cwd().createDirPath(io, dir);
+    const file = std.Io.Dir.cwd().createFile(io, path, .{ .exclusive = true }) catch |err| switch (err) {
+        error.PathAlreadyExists => return false,
+        else => return err,
+    };
+    defer file.close(io);
+    errdefer std.Io.Dir.cwd().deleteFile(io, path) catch {};
+    var buffer: [8192]u8 = undefined;
+    var writer = file.writer(io, &buffer);
+    try writer.interface.writeAll(init_lua_template);
+    try writer.interface.flush();
     return true;
 }
 
@@ -1236,6 +1260,78 @@ fn delAutocmd(state: ?*c.lua_State) callconv(.c) c_int {
         }
     }
     return c.luaL_error(l, "no such autocmd");
+}
+
+test "missing user config is generated from the embedded template" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var user_buf: [256]u8 = undefined;
+    const user_path = try std.fmt.bufPrint(&user_buf, ".zig-cache/tmp/{s}/user/wstudio/init.lua", .{&tmp.sub_path});
+    var fallback_buf: [256]u8 = undefined;
+    const fallback_path = try std.fmt.bufPrint(&fallback_buf, ".zig-cache/tmp/{s}/system/init.lua", .{&tmp.sub_path});
+
+    var rt = try Runtime.init(.tui);
+    defer rt.deinit();
+    try testing.expect(try rt.loadOrGenerateUserConfig(testing.io, user_path, fallback_path));
+
+    const generated = try std.Io.Dir.cwd().readFileAlloc(testing.io, user_path, testing.allocator, .limited(init_lua_template.len + 1));
+    defer testing.allocator.free(generated);
+    try testing.expectEqualStrings(init_lua_template, generated);
+}
+
+test "existing user config is loaded without being overwritten" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var user_buf: [256]u8 = undefined;
+    const user_path = try std.fmt.bufPrint(&user_buf, ".zig-cache/tmp/{s}/user/wstudio/init.lua", .{&tmp.sub_path});
+    var fallback_buf: [256]u8 = undefined;
+    const fallback_path = try std.fmt.bufPrint(&fallback_buf, ".zig-cache/tmp/{s}/system/init.lua", .{&tmp.sub_path});
+    try std.Io.Dir.cwd().createDirPath(testing.io, std.fs.path.dirname(user_path).?);
+    const source = "wstudio.o.default_tempo = 133\n";
+    {
+        const file = try std.Io.Dir.cwd().createFile(testing.io, user_path, .{});
+        defer file.close(testing.io);
+        var buffer: [64]u8 = undefined;
+        var writer = file.writer(testing.io, &buffer);
+        try writer.interface.writeAll(source);
+        try writer.interface.flush();
+    }
+
+    var rt = try Runtime.init(.tui);
+    defer rt.deinit();
+    try testing.expect(try rt.loadOrGenerateUserConfig(testing.io, user_path, fallback_path));
+    try testing.expectEqual(@as(f64, 133), rt.config.default_tempo);
+    try testing.expect(!try generateUserConfig(testing.io, user_path));
+    const preserved = try std.Io.Dir.cwd().readFileAlloc(testing.io, user_path, testing.allocator, .limited(64));
+    defer testing.allocator.free(preserved);
+    try testing.expectEqualStrings(source, preserved);
+}
+
+test "system config prevents user template generation" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var user_buf: [256]u8 = undefined;
+    const user_path = try std.fmt.bufPrint(&user_buf, ".zig-cache/tmp/{s}/user/wstudio/init.lua", .{&tmp.sub_path});
+    var fallback_buf: [256]u8 = undefined;
+    const fallback_path = try std.fmt.bufPrint(&fallback_buf, ".zig-cache/tmp/{s}/system/init.lua", .{&tmp.sub_path});
+    try std.Io.Dir.cwd().createDirPath(testing.io, std.fs.path.dirname(fallback_path).?);
+    {
+        const file = try std.Io.Dir.cwd().createFile(testing.io, fallback_path, .{});
+        defer file.close(testing.io);
+        var buffer: [64]u8 = undefined;
+        var writer = file.writer(testing.io, &buffer);
+        try writer.interface.writeAll("wstudio.o.default_tempo = 144\n");
+        try writer.interface.flush();
+    }
+
+    var rt = try Runtime.init(.tui);
+    defer rt.deinit();
+    try testing.expect(try rt.loadOrGenerateUserConfig(testing.io, user_path, fallback_path));
+    try testing.expectEqual(@as(f64, 144), rt.config.default_tempo);
+    try testing.expectError(error.FileNotFound, std.Io.Dir.cwd().access(testing.io, user_path, .{}));
 }
 
 test "Lua API sets and reads options" {

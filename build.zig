@@ -8,6 +8,9 @@ pub fn build(b: *std.Build) void {
     const build_options = b.addOptions();
     build_options.addOption(bool, "tui", enable_tui);
     build_options.addOption(bool, "gui", enable_gui);
+    const init_template_mod = b.createModule(.{
+        .root_source_file = b.path("examples/init_template.zig"),
+    });
     const lua_dep = b.dependency("lua", .{});
     const lua = buildLua(b, lua_dep, target, optimize);
 
@@ -44,6 +47,7 @@ pub fn build(b: *std.Build) void {
             .imports = &.{
                 .{ .name = "wstudio", .module = wstudio_mod },
                 .{ .name = "build_options", .module = build_options.createModule() },
+                .{ .name = "init_template", .module = init_template_mod },
             },
         }),
     });

@@ -1,10 +1,10 @@
 -- wstudio configuration template
 --
--- Copy this file to ~/.config/wstudio/init.lua (or
--- $XDG_CONFIG_HOME/wstudio/init.lua) and uncomment what you want to
--- change. Every setting below shows its default, so the file as shipped
--- changes nothing. A system-wide fallback is read from
--- /etc/xdg/wstudio/init.lua when no user config exists.
+-- wstudio creates ~/.config/wstudio/init.lua (or
+-- $XDG_CONFIG_HOME/wstudio/init.lua) from this template on first startup.
+-- Uncomment what you want to change. Every setting below shows its default,
+-- so the file as generated changes nothing. A system-wide fallback is read
+-- from /etc/xdg/wstudio/init.lua before a user template is generated.
 --
 -- This is plain Lua 5.4 (bundled, no system dependency). A broken config
 -- never blocks startup: the error is reported and wstudio continues with
