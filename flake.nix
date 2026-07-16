@@ -66,7 +66,7 @@
           src = self;
           zigDeps = pkgs.zig.fetchDeps {
             inherit (finalAttrs) pname version src;
-            hash = "sha256-xIlAq8X3rm5l9kaBsdnsF0h8DFlmV+8zO8IlRskto8I=";
+            hash = "sha256-U4HA3J4+mxUbSMWyr6W3JjWa1TthohTYCGJnzZR2qFQ=";
           };
           nativeBuildInputs = [
             pkgs.zig.hook
@@ -94,7 +94,7 @@
           src = self;
           zigDeps = pkgs.zig.fetchDeps {
             inherit (finalAttrs) pname version src;
-            hash = "sha256-J4QVx6y7XZiAkMK/NHdbhuU1wVxuZnjz12My8v49kfs=";
+            hash = "sha256-U4HA3J4+mxUbSMWyr6W3JjWa1TthohTYCGJnzZR2qFQ=";
           };
           nativeBuildInputs = [ pkgs.zig.hook ];
           postConfigure = ''

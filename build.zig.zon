@@ -26,6 +26,7 @@
         "build.zig.zon",
         "src",
         "tools",
+        "examples",
         "README.md",
         "CONTRIBUTING.md",
         "LICENSE",
