@@ -4,6 +4,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const ws = @import("wstudio");
+const tui_app = @import("../tui/app.zig");
 const glfw = @import("zglfw");
 const zgui = @import("zgui");
 const zopengl = @import("zopengl");
@@ -11,15 +12,9 @@ const zopengl = @import("zopengl");
 const gl = zopengl.bindings;
 
 const App = struct {
-    allocator: std.mem.Allocator,
-    io: std.Io,
-    session: ws.Session,
-    modal: ws.ModalInput = .{},
-    master_gain_db: f32 = 0,
+    core: tui_app.App,
     held_notes: [piano_keys.len]?HeldNote = [_]?HeldNote{null} ** piano_keys.len,
-    selected_track: usize = 0,
-    view: View = .arrangement,
-    picker_return_view: View = .arrangement,
+    picker_return_view: tui_app.AppView = .tracks,
     picker_popup_pending: bool = false,
     picker_popup_visible: bool = false,
     browser_selection: ?u8 = null,
@@ -35,61 +30,47 @@ const App = struct {
     const BrowserEntry = struct { name: []u8, is_dir: bool };
     const AutomationTarget = enum { gain, pan };
 
-    const View = enum {
-        tracks,
-        arrangement,
-        piano_roll,
-        drum_grid,
-        slicer_grid,
-        synth,
-        sampler,
-        devices,
-        spectrum,
-        automation,
-        instrument_picker,
-        fx_picker,
-        preset_picker,
-        file_browser,
-        help,
-    };
-
     fn init(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8) !App {
-        const session = if (init_path) |path|
-            try ws.persist.load(allocator, io, path)
-        else
-            try ws.Session.initDefault(allocator);
-        return .{ .allocator = allocator, .io = io, .session = session };
+        var core = try tui_app.App.init(allocator, io);
+        errdefer core.deinit();
+        if (init_path) |path| {
+            const session = try ws.persist.load(allocator, io, path);
+            core.session.deinit();
+            core.session = session;
+            core.setProjectPath(path);
+        }
+        return .{ .core = core };
     }
 
     fn deinit(self: *App) void {
         self.clearBrowser();
-        self.browser_entries.deinit(self.allocator);
-        if (self.browser_dir.len > 0) self.allocator.free(self.browser_dir);
-        if (self.pending_project_path) |path| self.allocator.free(path);
-        self.session.deinit();
+        self.browser_entries.deinit(self.core.allocator);
+        if (self.browser_dir.len > 0) self.core.allocator.free(self.browser_dir);
+        if (self.pending_project_path) |path| self.core.allocator.free(path);
+        self.core.deinit();
     }
 
     fn clearBrowser(self: *App) void {
-        for (self.browser_entries.items) |entry| self.allocator.free(entry.name);
+        for (self.browser_entries.items) |entry| self.core.allocator.free(entry.name);
         self.browser_entries.clearRetainingCapacity();
     }
 
     fn setBrowserDir(self: *App, path: []const u8) !void {
-        const canon = try std.Io.Dir.cwd().realPathFileAlloc(self.io, path, self.allocator);
-        errdefer self.allocator.free(canon);
-        var dir = try std.Io.Dir.cwd().openDir(self.io, canon, .{ .iterate = true });
-        defer dir.close(self.io);
+        const canon = try std.Io.Dir.cwd().realPathFileAlloc(self.core.io, path, self.core.allocator);
+        errdefer self.core.allocator.free(canon);
+        var dir = try std.Io.Dir.cwd().openDir(self.core.io, canon, .{ .iterate = true });
+        defer dir.close(self.core.io);
         var entries: std.ArrayListUnmanaged(BrowserEntry) = .empty;
         errdefer {
-            for (entries.items) |entry| self.allocator.free(entry.name);
-            entries.deinit(self.allocator);
+            for (entries.items) |entry| self.core.allocator.free(entry.name);
+            entries.deinit(self.core.allocator);
         }
         var it = dir.iterate();
-        while (try it.next(self.io)) |entry| {
+        while (try it.next(self.core.io)) |entry| {
             if (entry.name.len == 0 or entry.name[0] == '.') continue;
             const is_dir = entry.kind == .directory;
             if (!is_dir and !std.ascii.endsWithIgnoreCase(entry.name, ".wsj")) continue;
-            try entries.append(self.allocator, .{ .name = try self.allocator.dupe(u8, entry.name), .is_dir = is_dir });
+            try entries.append(self.core.allocator, .{ .name = try self.core.allocator.dupe(u8, entry.name), .is_dir = is_dir });
         }
         std.mem.sort(BrowserEntry, entries.items, {}, struct {
             fn less(_: void, a: BrowserEntry, b: BrowserEntry) bool {
@@ -98,36 +79,33 @@ const App = struct {
             }
         }.less);
         self.clearBrowser();
-        self.browser_entries.deinit(self.allocator);
-        if (self.browser_dir.len > 0) self.allocator.free(self.browser_dir);
+        self.browser_entries.deinit(self.core.allocator);
+        if (self.browser_dir.len > 0) self.core.allocator.free(self.browser_dir);
         self.browser_dir = canon;
         self.browser_entries = entries;
     }
 
     fn activateBrowserEntry(self: *App, entry: BrowserEntry) void {
-        const joined = std.fs.path.join(self.allocator, &.{ self.browser_dir, entry.name }) catch return;
+        const joined = std.fs.path.join(self.core.allocator, &.{ self.browser_dir, entry.name }) catch return;
         if (entry.is_dir) {
-            defer self.allocator.free(joined);
+            defer self.core.allocator.free(joined);
             self.setBrowserDir(joined) catch {};
         } else {
-            if (self.pending_project_path) |old| self.allocator.free(old);
+            if (self.pending_project_path) |old| self.core.allocator.free(old);
             self.pending_project_path = joined;
         }
     }
 
     fn draw(self: *App, audio_label: []const u8) void {
         drawTransport(self);
-        drawBrowser(self);
-        drawTracks(self);
         drawWorkspace(self);
-        drawInspector(self);
         drawStatus(self, audio_label);
     }
 
     fn handleShortcuts(self: *App) void {
         for (piano_keys, 0..) |entry, i| {
             if (self.held_notes[i]) |note| if (zgui.isKeyReleased(entry.key)) {
-                _ = self.session.engine.send(.{ .note_off = .{
+                _ = self.core.session.engine.send(.{ .note_off = .{
                     .track = note.track,
                     .note = note.pitch,
                 } });
@@ -136,93 +114,35 @@ const App = struct {
         }
         if (zgui.isAnyItemActive()) return;
         if (zgui.isKeyPressed(.f1, false)) {
-            self.view = .help;
+            self.core.handleKey(.{ .char = '?' }, std.Io.Timestamp.now(self.core.io, .awake).nanoseconds);
             return;
         }
-        if (pressedModalKey(self.modal.mode)) |key| {
-            if (self.modal.mode == .normal and key == .char and key.char == '?') {
-                self.view = .help;
-                return;
-            }
-            self.applyAction(self.modal.handle(key));
+        if (pressedModalKey(self.core.modal.mode)) |key| {
+            self.core.handleKey(key, std.Io.Timestamp.now(self.core.io, .awake).nanoseconds);
         }
     }
 
-    fn applyAction(self: *App, action: ws.input.Action) void {
-        switch (action) {
-            .none, .octave_down, .octave_up, .command_submit, .search_submit => {},
-            .mode_changed => |mode| if (mode == .normal) {
-                for (&self.held_notes) |*held| held.* = null;
-                _ = self.session.engine.send(.all_notes_off);
-            },
-            .move => |move| {
-                const target = @as(i64, @intCast(self.selected_track)) + move.dy;
-                const last: i64 = @intCast(self.session.project.tracks.items.len - 1);
-                self.selected_track = @intCast(std.math.clamp(target, 0, last));
-            },
-            .goto_start => _ = self.session.engine.send(.{ .seek_frames = 0 }),
-            .goto_end => {
-                var end_tick: u32 = 0;
-                for (self.session.arrangement.lanes.items) |lane| for (lane.clips.items) |clip| {
-                    end_tick = @max(end_tick, clip.start_tick + clip.length_ticks);
-                };
-                const beats = @as(f64, @floatFromInt(end_tick)) / ws.time_grid.ticks_per_beat;
-                const frames: u64 = @intFromFloat(beats * self.session.engine.transport.framesPerBeat());
-                _ = self.session.engine.send(.{ .seek_frames = frames });
-            },
-            .toggle_play => {
-                const playing = self.session.engine.uiSnapshot().playing;
-                _ = self.session.engine.send(if (playing) .stop else .play);
-            },
-            .toggle_mute => {
-                const track = &self.session.project.tracks.items[self.selected_track];
-                track.muted = !track.muted;
-                _ = self.session.engine.send(.{ .set_track_mute = .{ .track = @intCast(self.selected_track), .muted = track.muted } });
-            },
-            .toggle_solo => {
-                const track = &self.session.project.tracks.items[self.selected_track];
-                track.soloed = !track.soloed;
-                _ = self.session.engine.send(.{ .set_track_solo = .{ .track = @intCast(self.selected_track), .soloed = track.soloed } });
-            },
-            .volume_delta => |delta| {
-                self.master_gain_db = std.math.clamp(self.master_gain_db + @as(f32, @floatFromInt(delta)), -40, 6);
-                _ = self.session.engine.send(.{ .set_master_gain = ws.types.dbToGain(self.master_gain_db) });
-            },
-            .note => |note| {
-                _ = self.session.engine.send(.{ .note_on = .{
-                    .track = @intCast(self.selected_track),
-                    .note = note.pitch,
-                    .velocity = 0.9,
-                } });
-                for (piano_keys, 0..) |entry, i| if (zgui.isKeyPressed(entry.key, false)) {
-                    self.held_notes[i] = .{ .track = @intCast(self.selected_track), .pitch = note.pitch };
-                    break;
-                };
-            },
-        }
-    }
-
-    fn openPicker(self: *App, picker: View) void {
+    fn openPicker(self: *App, picker: tui_app.AppView) void {
         if (!isPicker(picker)) return;
-        if (!isPicker(self.view)) self.picker_return_view = self.view;
-        self.view = picker;
+        if (!isPicker(self.core.view)) self.picker_return_view = self.core.view;
+        self.core.view = picker;
         self.picker_popup_pending = true;
     }
 
-    fn closePicker(self: *App, destination: ?View) void {
+    fn closePicker(self: *App, destination: ?tui_app.AppView) void {
         zgui.closeCurrentPopup();
-        self.view = destination orelse self.picker_return_view;
+        self.core.view = destination orelse self.picker_return_view;
         self.picker_popup_pending = false;
         self.picker_popup_visible = false;
     }
 };
 
-fn isPicker(view: App.View) bool {
+fn isPicker(view: tui_app.AppView) bool {
     return view == .instrument_picker or view == .fx_picker or view == .preset_picker;
 }
 
-fn workspaceView(app: *const App) App.View {
-    return if (isPicker(app.view)) app.picker_return_view else app.view;
+fn workspaceView(app: *const App) tui_app.AppView {
+    return if (isPicker(app.core.view)) app.picker_return_view else app.core.view;
 }
 
 const HeldNote = struct { track: u16, pitch: u7 };
@@ -236,10 +156,15 @@ const piano_keys = [_]struct { key: zgui.Key, char: u8 }{
     .{ .key = .i, .char = 'i' },         .{ .key = .o, .char = 'o' }, .{ .key = .p, .char = 'p' },
 };
 
-fn pressedModalKey(mode: ws.input.Mode) ?ws.input.Key {
+fn pressedModalKey(_: ws.input.Mode) ?ws.input.Key {
+    const ctrl = zgui.isKeyDown(.mod_ctrl);
+    if (ctrl and zgui.isKeyPressed(.c, false)) return .ctrl_c;
+    if (ctrl and zgui.isKeyPressed(.r, false)) return .ctrl_r;
+    if (ctrl and zgui.isKeyPressed(.w, false)) return .ctrl_w;
     const special = [_]struct { gui: zgui.Key, modal: ws.input.Key }{
         .{ .gui = .escape, .modal = .escape },
         .{ .gui = .enter, .modal = .enter },
+        .{ .gui = .tab, .modal = .tab },
         .{ .gui = .back_space, .modal = .backspace },
         .{ .gui = .home, .modal = .home },
         .{ .gui = .end, .modal = .end },
@@ -248,13 +173,7 @@ fn pressedModalKey(mode: ws.input.Mode) ?ws.input.Key {
         .{ .gui = .left_arrow, .modal = .arrow_left },
         .{ .gui = .right_arrow, .modal = .arrow_right },
     };
-    for (special) |entry| if (zgui.isKeyPressed(entry.gui, false)) return switch (entry.modal) {
-        .arrow_up => if (mode == .command or mode == .search) entry.modal else .{ .char = 'k' },
-        .arrow_down => if (mode == .command or mode == .search) entry.modal else .{ .char = 'j' },
-        .arrow_left => if (mode == .command or mode == .search) entry.modal else .{ .char = 'h' },
-        .arrow_right => if (mode == .command or mode == .search) entry.modal else .{ .char = 'l' },
-        else => entry.modal,
-    };
+    for (special) |entry| if (zgui.isKeyPressed(entry.gui, false)) return entry.modal;
 
     if (zgui.isKeyPressed(.space, false)) return .{ .char = ' ' };
     const shifted = zgui.isKeyDown(.mod_shift);
@@ -269,10 +188,17 @@ fn pressedModalKey(mode: ws.input.Mode) ?ws.input.Key {
         if (zgui.isKeyPressed(key, false)) return .{ .char = c };
     }
     const punctuation = [_]struct { key: zgui.Key, plain: u8, shifted: u8 }{
+        .{ .key = .apostrophe, .plain = '\'', .shifted = '"' },
+        .{ .key = .comma, .plain = ',', .shifted = '<' },
+        .{ .key = .minus, .plain = '-', .shifted = '_' },
+        .{ .key = .period, .plain = '.', .shifted = '>' },
         .{ .key = .semicolon, .plain = ';', .shifted = ':' },
         .{ .key = .slash, .plain = '/', .shifted = '?' },
+        .{ .key = .equal, .plain = '=', .shifted = '+' },
         .{ .key = .left_bracket, .plain = '[', .shifted = '{' },
+        .{ .key = .back_slash, .plain = '\\', .shifted = '|' },
         .{ .key = .right_bracket, .plain = ']', .shifted = '}' },
+        .{ .key = .grave_accent, .plain = '`', .shifted = '~' },
     };
     for (punctuation) |entry| if (zgui.isKeyPressed(entry.key, false))
         return .{ .char = if (shifted) entry.shifted else entry.plain };
@@ -378,22 +304,49 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8) !void {
         var title_buf: [1024]u8 = undefined;
         if (std.fmt.bufPrintZ(&title_buf, "wstudio GUI prototype - {s}", .{path})) |title| window.setTitle(title) else |_| {}
     }
-    var audio = GuiAudio.init(app.session.project.sample_rate, app.session.engine);
+    var audio = GuiAudio.init(app.core.session.project.sample_rate, app.core.session.engine);
     try audio.start(init.io);
     defer audio.stop();
 
-    while (!window.shouldClose()) {
+    while (!window.shouldClose() and !app.core.should_quit) {
         glfw.pollEvents();
+        app.core.tick(std.Io.Timestamp.now(init.io, .awake).nanoseconds);
+        if (app.core.pending_reload != .none) {
+            const kind = app.core.pending_reload;
+            app.core.pending_reload = .none;
+            const loaded: ?ws.Session = switch (kind) {
+                .blank => ws.Session.initDefault(init.gpa) catch null,
+                .load, .restore_backup => ws.persist.load(init.gpa, init.io, app.core.pendingReloadPath()) catch |err| blk: {
+                    app.core.setStatus("cannot load '{s}': {s}", .{ app.core.pendingReloadPath(), @errorName(err) });
+                    break :blk null;
+                },
+                .none => unreachable,
+            };
+            if (loaded) |session| {
+                audio.stop();
+                app.core.session.deinit();
+                app.core.session = session;
+                app.core.cursor = 0;
+                switch (kind) {
+                    .load => app.core.setProjectPath(app.core.pendingReloadPath()),
+                    .restore_backup => app.core.setStatus("restored from autosave backup; :write to keep it", .{}),
+                    .blank => app.core.clearProjectPath(),
+                    .none => unreachable,
+                }
+                audio = GuiAudio.init(app.core.session.project.sample_rate, app.core.session.engine);
+                try audio.start(init.io);
+            }
+        }
         if (app.pending_project_path) |path| {
             app.pending_project_path = null;
             defer init.gpa.free(path);
             if (ws.persist.load(init.gpa, init.io, path)) |loaded| {
                 audio.stop();
-                app.session.deinit();
-                app.session = loaded;
-                app.selected_track = 0;
+                app.core.session.deinit();
+                app.core.session = loaded;
+                app.core.cursor = 0;
                 app.automation_clip = 0;
-                audio = GuiAudio.init(app.session.project.sample_rate, app.session.engine);
+                audio = GuiAudio.init(app.core.session.project.sample_rate, app.core.session.engine);
                 try audio.start(init.io);
                 var title_buf: [1024]u8 = undefined;
                 if (std.fmt.bufPrintZ(&title_buf, "wstudio GUI prototype - {s}", .{path})) |title| window.setTitle(title) else |_| {}
@@ -420,7 +373,7 @@ fn renderAudio(ctx: *anyopaque, out: []ws.types.Sample) void {
 }
 
 fn drawTransport(app: *App) void {
-    const snap = app.session.engine.uiSnapshot();
+    const snap = app.core.session.engine.uiSnapshot();
     const playing_color = if (snap.playing) umbra.red else umbra.iris;
     zgui.setNextWindowPos(.{ .x = 0, .y = 0, .cond = .always });
     zgui.setNextWindowSize(.{ .w = zgui.io.getDisplaySize()[0], .h = 64, .cond = .always });
@@ -431,30 +384,30 @@ fn drawTransport(app: *App) void {
         zgui.pushStyleColor4f(.{ .idx = .text, .c = umbra.bg0 });
         zgui.pushStyleVar1f(.{ .idx = .frame_rounding, .v = 3 });
         if (zgui.button(if (snap.playing) "STOP" else "PLAY", .{ .w = 82, .h = 40 })) {
-            _ = app.session.engine.send(if (snap.playing) .stop else .play);
+            _ = app.core.session.engine.send(if (snap.playing) .stop else .play);
         }
         zgui.popStyleVar(.{});
         zgui.popStyleColor(.{ .count = 4 });
 
-        const beat = ws.types.framesToSeconds(snap.position_frames, app.session.project.sample_rate) * app.session.project.tempo_bpm / 60.0;
+        const beat = ws.types.framesToSeconds(snap.position_frames, app.core.session.project.sample_rate) * app.core.session.project.tempo_bpm / 60.0;
         const beat_index: u32 = @intFromFloat(beat);
         var tempo_buf: [32]u8 = undefined;
-        const tempo = std.fmt.bufPrint(&tempo_buf, "{d:.1} BPM", .{app.session.project.tempo_bpm}) catch "tempo";
+        const tempo = std.fmt.bufPrint(&tempo_buf, "{d:.1} BPM", .{app.core.session.project.tempo_bpm}) catch "tempo";
         var position_buf: [32]u8 = undefined;
         const position = std.fmt.bufPrint(&position_buf, "{d:0>3}.{d}", .{
-            beat_index / app.session.project.beats_per_bar + 1,
-            beat_index % app.session.project.beats_per_bar + 1,
+            beat_index / app.core.session.project.beats_per_bar + 1,
+            beat_index % app.core.session.project.beats_per_bar + 1,
         }) catch "position";
         var meter_buf: [32]u8 = undefined;
-        const meter = std.fmt.bufPrint(&meter_buf, "{d}/4", .{app.session.project.beats_per_bar}) catch "meter";
+        const meter = std.fmt.bufPrint(&meter_buf, "{d}/4", .{app.core.session.project.beats_per_bar}) catch "meter";
         var rate_buf: [32]u8 = undefined;
-        const rate = std.fmt.bufPrint(&rate_buf, "{d:.1} kHz", .{@as(f32, @floatFromInt(app.session.project.sample_rate)) / 1000.0}) catch "rate";
+        const rate = std.fmt.bufPrint(&rate_buf, "{d:.1} kHz", .{@as(f32, @floatFromInt(app.core.session.project.sample_rate)) / 1000.0}) catch "rate";
 
         drawTransportReadout("TEMPO", tempo);
         drawTransportReadout("POSITION", position);
         drawTransportReadout("METER", meter);
         drawTransportReadout("RATE", rate);
-        drawTransportReadout("PROJECT", app.session.project.name);
+        drawTransportReadout("PROJECT", app.core.session.project.name);
     }
     zgui.end();
 }
@@ -474,7 +427,7 @@ fn drawBrowser(app: *App) void {
     if (zgui.begin("Browser", .{ .flags = .{ .no_move = true, .no_resize = true, .no_collapse = true, .no_docking = true } })) {
         zgui.textDisabled("LIBRARY", .{});
         zgui.separator();
-        const entries = [_]struct { label: []const u8, hint: []const u8, view: App.View, accent: [4]f32 }{
+        const entries = [_]struct { label: []const u8, hint: []const u8, view: tui_app.AppView, accent: [4]f32 }{
             .{ .label = "Instruments", .hint = "Devices", .view = .instrument_picker, .accent = umbra.iris },
             .{ .label = "Samples", .hint = "Audio files", .view = .file_browser, .accent = umbra.cyan },
             .{ .label = "Drum Kits", .hint = "Patterns", .view = .drum_grid, .accent = umbra.yellow },
@@ -486,7 +439,7 @@ fn drawBrowser(app: *App) void {
     zgui.end();
 }
 
-fn drawBrowserRow(app: *App, label: []const u8, hint: []const u8, view: App.View, accent: [4]f32, index: u8) void {
+fn drawBrowserRow(app: *App, label: []const u8, hint: []const u8, view: tui_app.AppView, accent: [4]f32, index: u8) void {
     const height: f32 = 44;
     const width = zgui.getContentRegionAvail()[0];
     const origin = zgui.getCursorScreenPos();
@@ -494,7 +447,7 @@ fn drawBrowserRow(app: *App, label: []const u8, hint: []const u8, view: App.View
     const id = std.fmt.bufPrintZ(&id_buf, "browser-row-{d}", .{index}) catch return;
     const clicked = zgui.invisibleButton(id, .{ .w = width, .h = height });
     const hovered = zgui.isItemHovered(.{});
-    const selected = app.browser_selection == index and app.view == view;
+    const selected = app.browser_selection == index and app.core.view == view;
     const draw = zgui.getWindowDrawList();
 
     if (selected or hovered) draw.addRectFilled(.{
@@ -513,7 +466,7 @@ fn drawBrowserRow(app: *App, label: []const u8, hint: []const u8, view: App.View
     draw.addText(.{ origin[0] + 22, origin[1] + 23 }, color(umbra.fg3), "{s}", .{hint});
     if (clicked) {
         app.browser_selection = index;
-        if (isPicker(view)) app.openPicker(view) else app.view = view;
+        if (isPicker(view)) app.openPicker(view) else app.core.view = view;
     }
 }
 
@@ -524,18 +477,18 @@ fn drawTracks(app: *App) void {
     if (zgui.begin("Tracks", .{ .flags = .{ .no_move = true, .no_resize = true, .no_collapse = true, .no_docking = true } })) {
         zgui.textDisabled("TRACKS", .{});
         zgui.sameLine(.{});
-        zgui.textColored(umbra.fg2, "{d}", .{app.session.project.tracks.items.len});
+        zgui.textColored(umbra.fg2, "{d}", .{app.core.session.project.tracks.items.len});
         zgui.separator();
-        for (app.session.project.tracks.items, 0..) |track, i| drawTrackRow(app, track, i);
+        for (app.core.session.project.tracks.items, 0..) |track, i| drawTrackRow(app, track, i);
         zgui.spacing();
         zgui.separator();
         zgui.pushStyleColor4f(.{ .idx = .button, .c = umbra.bg2 });
         zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = umbra.bg3 });
         if (zgui.button("+  NEW TRACK", .{ .w = -1, .h = 30 })) {
-            const idx = app.session.project.tracks.items.len + 1;
+            const idx = app.core.session.project.tracks.items.len + 1;
             var name_buf: [32]u8 = undefined;
             const name = std.fmt.bufPrint(&name_buf, "track {d}", .{idx}) catch "track";
-            _ = app.session.addTrack(name) catch {};
+            _ = app.core.session.addTrack(name) catch {};
         }
         zgui.popStyleColor(.{ .count = 2 });
     }
@@ -550,7 +503,7 @@ fn drawTrackRow(app: *App, track: ws.Track, index: usize) void {
     const id = std.fmt.bufPrintZ(&id_buf, "track-row-{d}", .{index}) catch return;
     const clicked = zgui.invisibleButton(id, .{ .w = width, .h = height });
     const hovered = zgui.isItemHovered(.{});
-    const selected = app.selected_track == index;
+    const selected = app.core.cursor == index;
     const draw = zgui.getWindowDrawList();
 
     if (selected or hovered) draw.addRectFilled(.{
@@ -578,7 +531,7 @@ fn drawTrackRow(app: *App, track: ws.Track, index: usize) void {
         badge_x -= 18;
         drawTrackBadge(draw, badge_x, origin[1] + 7, "M", umbra.red);
     }
-    if (clicked) app.selected_track = index;
+    if (clicked) app.core.cursor = index;
 }
 
 fn drawTrackBadge(draw: zgui.DrawList, x: f32, y: f32, label: []const u8, bg: [4]f32) void {
@@ -594,33 +547,36 @@ fn trackColor(index: u8) [4]f32 {
 
 fn drawWorkspace(app: *App) void {
     const layout = Layout.current();
-    zgui.setNextWindowPos(.{ .x = layout.browser_w + layout.tracks_w, .y = 64, .cond = .always });
-    zgui.setNextWindowSize(.{ .w = layout.workspace_w, .h = layout.body_h, .cond = .always });
+    zgui.setNextWindowPos(.{ .x = 0, .y = 64, .cond = .always });
+    zgui.setNextWindowSize(.{ .w = zgui.io.getDisplaySize()[0], .h = layout.body_h, .cond = .always });
     if (zgui.begin("Workspace", .{ .flags = .{ .no_move = true, .no_resize = true, .no_collapse = true, .no_docking = true } })) {
-        drawViewNav(app);
+        zgui.textColored(umbra.fg3, "{s}", .{@tagName(app.core.view)});
+        zgui.sameLine(.{ .spacing = 18 });
+        zgui.textDisabled("j/k move   enter open   esc back   tab arrange/tracks   : command   ? help", .{});
         zgui.separator();
-        switch (workspaceView(app)) {
+        switch (app.core.view) {
             .tracks => drawTrackOverview(app),
             .arrangement => drawArrangement(app),
             .piano_roll => drawPianoRoll(app),
             .drum_grid => drawDrumGrid(app),
             .slicer_grid => drawSlicerGrid(app),
-            .synth => drawSynth(app),
-            .sampler => drawSampler(app),
-            .devices => drawDevices(app),
-            .spectrum => drawSpectrum(app),
+            .synth_editor => drawSynth(app),
+            .sampler_editor => drawSampler(app),
+            .track_spectrum, .master_spectrum, .group_spectrum => drawSpectrum(app),
             .automation => drawAutomation(app),
-            .instrument_picker, .fx_picker, .preset_picker => unreachable,
+            .instrument_picker => drawInstrumentPicker(app),
+            .fx_picker, .synth_fx_picker => drawFxPicker(app),
+            .preset_picker => drawPresetPicker(app),
+            .automation_param_picker => drawAutomation(app),
             .file_browser => drawFileBrowser(app),
             .help => drawHelp(app),
         }
-        drawPickerPopup(app);
     }
     zgui.end();
 }
 
 fn drawPickerPopup(app: *App) void {
-    if (!isPicker(app.view)) return;
+    if (!isPicker(app.core.view)) return;
     const popup_name: [:0]const u8 = "Command Palette";
     if (app.picker_popup_pending) {
         zgui.openPopup(popup_name, .{});
@@ -644,7 +600,7 @@ fn drawPickerPopup(app: *App) void {
         app.picker_popup_visible = true;
         zgui.textColored(umbra.fg3, "SELECT A RESULT   ESC TO CLOSE", .{});
         zgui.separator();
-        switch (app.view) {
+        switch (app.core.view) {
             .instrument_picker => drawInstrumentPicker(app),
             .fx_picker => drawFxPicker(app),
             .preset_picker => drawPresetPicker(app),
@@ -653,21 +609,21 @@ fn drawPickerPopup(app: *App) void {
         zgui.endPopup();
     } else if (app.picker_popup_visible) {
         app.picker_popup_visible = false;
-        app.view = app.picker_return_view;
+        app.core.view = app.picker_return_view;
     }
 }
 
 fn drawViewNav(app: *App) void {
-    const entries = [_]struct { label: [:0]const u8, view: App.View }{
+    const entries = [_]struct { label: [:0]const u8, view: tui_app.AppView }{
         .{ .label = "Tracks", .view = .tracks },
         .{ .label = "Arrange", .view = .arrangement },
         .{ .label = "Piano", .view = .piano_roll },
         .{ .label = "Drums", .view = .drum_grid },
         .{ .label = "Slicer", .view = .slicer_grid },
-        .{ .label = "Synth", .view = .synth },
-        .{ .label = "Sampler", .view = .sampler },
-        .{ .label = "FX", .view = .devices },
-        .{ .label = "Scope", .view = .spectrum },
+        .{ .label = "Synth", .view = .synth_editor },
+        .{ .label = "Sampler", .view = .sampler_editor },
+        .{ .label = "FX", .view = .track_spectrum },
+        .{ .label = "Scope", .view = .track_spectrum },
         .{ .label = "Auto", .view = .automation },
         .{ .label = "Pick", .view = .instrument_picker },
         .{ .label = "More", .view = .help },
@@ -687,7 +643,7 @@ fn drawViewNav(app: *App) void {
     }
 }
 
-fn drawViewTab(app: *App, label: [:0]const u8, view: App.View, width: f32) void {
+fn drawViewTab(app: *App, label: [:0]const u8, view: tui_app.AppView, width: f32) void {
     const height: f32 = 27;
     const origin = zgui.getCursorScreenPos();
     var id_buf: [32]u8 = undefined;
@@ -715,17 +671,17 @@ fn drawViewTab(app: *App, label: [:0]const u8, view: App.View, width: f32) void 
         origin[1] + (height - text_size[1]) / 2 - 1,
     }, color(if (selected) umbra.fg0 else umbra.fg2), "{s}", .{label});
     if (clicked) {
-        if (isPicker(view)) app.openPicker(view) else app.view = view;
+        if (isPicker(view)) app.openPicker(view) else app.core.view = view;
     }
 }
 
 fn drawTrackOverview(app: *App) void {
     zgui.textDisabled("MIXER OVERVIEW", .{});
     zgui.sameLine(.{});
-    zgui.textColored(umbra.fg2, "{d} channels", .{app.session.project.tracks.items.len});
+    zgui.textColored(umbra.fg2, "{d} channels", .{app.core.session.project.tracks.items.len});
     zgui.separator();
-    for (app.session.project.tracks.items, 0..) |track, i| {
-        drawMixerRow(app, track, app.session.racks.items[i], i);
+    for (app.core.session.project.tracks.items, 0..) |track, i| {
+        drawMixerRow(app, track, app.core.session.racks.items[i], i);
     }
 }
 
@@ -737,7 +693,7 @@ fn drawMixerRow(app: *App, track: ws.Track, rack: *ws.Rack, index: usize) void {
     const id = std.fmt.bufPrintZ(&id_buf, "mixer-row-{d}", .{index}) catch return;
     const clicked = zgui.invisibleButton(id, .{ .w = width, .h = height });
     const hovered = zgui.isItemHovered(.{});
-    const selected = app.selected_track == index;
+    const selected = app.core.cursor == index;
     const draw = zgui.getWindowDrawList();
 
     draw.addRectFilled(.{
@@ -774,16 +730,16 @@ fn drawMixerRow(app: *App, track: ws.Track, rack: *ws.Rack, index: usize) void {
         badge_x -= 18;
         drawTrackBadge(draw, badge_x, origin[1] + 12, "M", umbra.red);
     }
-    if (clicked) app.selected_track = index;
+    if (clicked) app.core.cursor = index;
 }
 
 fn drawArrangement(app: *App) void {
     zgui.textDisabled("ARRANGEMENT", .{});
-    const track_count = app.session.project.tracks.items.len;
+    const track_count = app.core.session.project.tracks.items.len;
     const ticks_per_beat = ws.time_grid.ticks_per_beat;
-    const beats_per_bar: u32 = app.session.project.beats_per_bar;
-    const ticks_per_bar = ws.time_grid.barTicks(app.session.project.beats_per_bar);
-    const content_ticks = app.session.arrangement.lengthTicks();
+    const beats_per_bar: u32 = app.core.session.project.beats_per_bar;
+    const ticks_per_bar = ws.time_grid.barTicks(app.core.session.project.beats_per_bar);
+    const content_ticks = app.core.session.arrangement.lengthTicks();
     const bar_count: u32 = @max(8, (content_ticks + ticks_per_bar - 1) / ticks_per_bar);
     zgui.text("{d} tracks   {d} bars", .{ track_count, bar_count });
     zgui.sameLine(.{ .spacing = 18 });
@@ -810,11 +766,11 @@ fn drawArrangement(app: *App) void {
 
     for (0..track_count) |ti| {
         const y = origin[1] + ruler_h + @as(f32, @floatFromInt(ti)) * lane_h;
-        const selected = ti == app.selected_track;
+        const selected = ti == app.core.cursor;
         draw.addRectFilled(.{ .pmin = .{ origin[0], y }, .pmax = .{ timeline_x, y + lane_h }, .col = color(if (selected) .{ 0.12, 0.17, 0.18, 1 } else .{ 0.075, 0.085, 0.095, 1 }) });
         draw.addRectFilled(.{ .pmin = .{ timeline_x, y }, .pmax = .{ origin[0] + canvas_w, y + lane_h }, .col = color(if (selected) .{ 0.075, 0.095, 0.10, 1 } else if (ti % 2 == 0) .{ 0.065, 0.075, 0.085, 1 } else .{ 0.055, 0.065, 0.075, 1 }) });
-        draw.addText(.{ origin[0] + 10, y + 11 }, color(if (selected) .{ 0.75, 0.95, 0.88, 1 } else .{ 0.68, 0.70, 0.72, 1 }), "{d:0>2}  {s}", .{ ti + 1, app.session.project.tracks.items[ti].name });
-        draw.addText(.{ origin[0] + 34, y + 32 }, color(.{ 0.36, 0.39, 0.42, 1 }), "{s}", .{@tagName(app.session.project.tracks.items[ti].kind)});
+        draw.addText(.{ origin[0] + 10, y + 11 }, color(if (selected) .{ 0.75, 0.95, 0.88, 1 } else .{ 0.68, 0.70, 0.72, 1 }), "{d:0>2}  {s}", .{ ti + 1, app.core.session.project.tracks.items[ti].name });
+        draw.addText(.{ origin[0] + 34, y + 32 }, color(.{ 0.36, 0.39, 0.42, 1 }), "{s}", .{@tagName(app.core.session.project.tracks.items[ti].kind)});
         draw.addLine(.{ .p1 = .{ origin[0], y + lane_h }, .p2 = .{ origin[0] + canvas_w, y + lane_h }, .col = color(.{ 0.13, 0.14, 0.16, 1 }), .thickness = 1 });
     }
 
@@ -825,7 +781,7 @@ fn drawArrangement(app: *App) void {
         if (on_bar and beat_index < bar_count * beats_per_bar) draw.addText(.{ x + 7, origin[1] + 7 }, color(.{ 0.64, 0.67, 0.70, 1 }), "{d}", .{beat_index / beats_per_bar + 1});
     }
 
-    for (app.session.arrangement.lanes.items, 0..) |lane, ti| {
+    for (app.core.session.arrangement.lanes.items, 0..) |lane, ti| {
         if (ti >= track_count) break;
         const lane_y = origin[1] + ruler_h + @as(f32, @floatFromInt(ti)) * lane_h;
         for (lane.clips.items, 0..) |clip, ci| {
@@ -873,20 +829,20 @@ fn drawArrangement(app: *App) void {
         }
     }
 
-    const snap = app.session.engine.uiSnapshot();
+    const snap = app.core.session.engine.uiSnapshot();
     if (snap.playing) {
-        const play_beat = @as(f64, @floatFromInt(snap.position_frames)) / 48000.0 * @as(f64, app.session.project.tempo_bpm) / 60.0;
+        const play_beat = @as(f64, @floatFromInt(snap.position_frames)) / 48000.0 * @as(f64, app.core.session.project.tempo_bpm) / 60.0;
         const x = timeline_x + @as(f32, @floatCast(play_beat)) * beat_w;
         if (x <= origin[0] + canvas_w) draw.addLine(.{ .p1 = .{ x, origin[1] }, .p2 = .{ x, origin[1] + canvas_h }, .col = color(.{ 1.0, 0.34, 0.28, 0.95 }), .thickness = 2 });
     }
 
     if (clicked and hovered and mouse[1] >= origin[1] + ruler_h) {
         const ti = @min(track_count - 1, @as(usize, @intFromFloat((mouse[1] - origin[1] - ruler_h) / lane_h)));
-        app.selected_track = ti;
+        app.core.cursor = ti;
         app.arrangement_clip = null;
-        if (mouse[0] >= timeline_x and ti < app.session.arrangement.lanes.items.len) {
+        if (mouse[0] >= timeline_x and ti < app.core.session.arrangement.lanes.items.len) {
             const tick: u32 = @intFromFloat((mouse[0] - timeline_x) / beat_w * @as(f32, @floatFromInt(ticks_per_beat)));
-            for (app.session.arrangement.lanes.items[ti].clips.items, 0..) |clip, ci| {
+            for (app.core.session.arrangement.lanes.items[ti].clips.items, 0..) |clip, ci| {
                 if (tick >= clip.start_tick and tick < clip.start_tick + clip.length_ticks) {
                     app.arrangement_clip = .{ .track = ti, .clip = ci };
                     break;
@@ -898,7 +854,7 @@ fn drawArrangement(app: *App) void {
 
 fn drawPianoRoll(app: *App) void {
     zgui.textDisabled("PIANO ROLL", .{});
-    const rack = app.session.racks.items[app.selected_track];
+    const rack = app.core.session.racks.items[app.core.cursor];
     const pp = if (rack.pattern_player) |*p| p else {
         zgui.textDisabled("This instrument has no melodic pattern. Choose Synth or Sampler.", .{});
         return;
@@ -962,9 +918,9 @@ fn drawPianoRoll(app: *App) void {
     }
     pp.notes_lock.unlock();
 
-    const snap = app.session.engine.uiSnapshot();
+    const snap = app.core.session.engine.uiSnapshot();
     if (snap.playing) {
-        const play_beat = @mod(@as(f64, @floatFromInt(snap.position_frames)) / 48000.0 * @as(f64, app.session.project.tempo_bpm) / 60.0, pp.length_beats);
+        const play_beat = @mod(@as(f64, @floatFromInt(snap.position_frames)) / 48000.0 * @as(f64, app.core.session.project.tempo_bpm) / 60.0, pp.length_beats);
         const x = grid_x + @as(f32, @floatCast(play_beat)) * beat_w;
         draw.addLine(.{ .p1 = .{ x, origin[1] }, .p2 = .{ x, origin[1] + canvas_h }, .col = color(.{ 1.0, 0.34, 0.28, 0.95 }), .thickness = 2 });
     }
@@ -996,7 +952,7 @@ fn isBlackKey(pitch: u7) bool {
 
 fn drawDrumGrid(app: *App) void {
     zgui.textDisabled("DRUM GRID", .{});
-    const rack = app.session.racks.items[app.selected_track];
+    const rack = app.core.session.racks.items[app.core.cursor];
     const drum = switch (rack.instrument) {
         .drum_machine => |*d| d,
         else => {
@@ -1010,7 +966,7 @@ fn drawDrumGrid(app: *App) void {
 
 fn drawSlicerGrid(app: *App) void {
     zgui.textDisabled("SLICER GRID", .{});
-    const rack = app.session.racks.items[app.selected_track];
+    const rack = app.core.session.racks.items[app.core.cursor];
     const slicer = switch (rack.instrument) {
         .slicer => |*s| s,
         else => {
@@ -1096,7 +1052,7 @@ fn drawStepGridCanvas(comptime kind: StepGridKind, instrument: anytype, row_coun
 }
 
 fn drawDevices(app: *App) void {
-    const rack = app.session.racks.items[app.selected_track];
+    const rack = app.core.session.racks.items[app.core.cursor];
     zgui.textDisabled("DEVICE CHAIN", .{});
     zgui.sameLine(.{});
     zgui.textColored(umbra.fg2, "{d} effects", .{rack.fx.units.items.len});
@@ -1114,10 +1070,10 @@ fn drawDevices(app: *App) void {
         const action = drawFxCard(unit, i);
         if (action == .bypass) {
             unit.bypassed = !unit.bypassed;
-            app.session.syncTrackChain(@intCast(app.selected_track), rack);
+            app.core.session.syncTrackChain(@intCast(app.core.cursor), rack);
         } else if (action == .remove) {
-            rack.fx.remove(app.session.allocator, i);
-            app.session.syncTrackChain(@intCast(app.selected_track), rack);
+            rack.fx.remove(app.core.session.allocator, i);
+            app.core.session.syncTrackChain(@intCast(app.core.cursor), rack);
             break;
         }
     }
@@ -1167,7 +1123,7 @@ fn drawFxCard(unit: *ws.FxUnit, index: usize) FxCardAction {
 
 fn drawSynth(app: *App) void {
     zgui.textDisabled("SYNTH EDITOR", .{});
-    const synth = switch (app.session.racks.items[app.selected_track].instrument) {
+    const synth = switch (app.core.session.racks.items[app.core.cursor].instrument) {
         .poly_synth => |*s| s,
         else => {
             zgui.textDisabled("Select a Synth track.", .{});
@@ -1180,14 +1136,14 @@ fn drawSynth(app: *App) void {
         var label: [64]u8 = undefined;
         const zlabel = std.fmt.bufPrintZ(&label, "{s}##synth-{d}", .{ param.label, param.id }) catch continue;
         if (zgui.sliderFloat(zlabel, .{ .v = &value, .min = param.range[0], .max = param.range[1] })) {
-            _ = app.session.engine.send(.{ .set_track_param_abs = .{ .track = @intCast(app.selected_track), .id = param.id, .value = value } });
+            _ = app.core.session.engine.send(.{ .set_track_param_abs = .{ .track = @intCast(app.core.cursor), .id = param.id, .value = value } });
         }
     }
 }
 
 fn drawSampler(app: *App) void {
     zgui.textDisabled("SAMPLER EDITOR", .{});
-    const sampler = switch (app.session.racks.items[app.selected_track].instrument) {
+    const sampler = switch (app.core.session.racks.items[app.core.cursor].instrument) {
         .sampler => |*s| s,
         else => {
             zgui.textDisabled("Select a Sampler track.", .{});
@@ -1214,7 +1170,7 @@ fn drawSampler(app: *App) void {
         var label: [48]u8 = undefined;
         const zlabel = std.fmt.bufPrintZ(&label, "{s}##sampler-{d}", .{ name, id }) catch continue;
         if (zgui.sliderFloat(zlabel, .{ .v = &value, .min = range[0], .max = range[1] })) {
-            _ = app.session.engine.send(.{ .set_track_param_abs = .{ .track = @intCast(app.selected_track), .id = @intCast(id), .value = value } });
+            _ = app.core.session.engine.send(.{ .set_track_param_abs = .{ .track = @intCast(app.core.cursor), .id = @intCast(id), .value = value } });
         }
     }
 }
@@ -1247,18 +1203,20 @@ fn drawWaveform(label: [:0]const u8, samples: []const f32) void {
 
 fn drawSpectrum(app: *App) void {
     zgui.textDisabled("SPECTRUM / MIXER", .{});
-    const snap = app.session.engine.uiSnapshot();
+    const snap = app.core.session.engine.uiSnapshot();
     zgui.text("Master L", .{});
     zgui.progressBar(.{ .fraction = std.math.clamp(snap.peak[0], 0, 1), .w = -1, .h = 22 });
     zgui.text("Master R", .{});
     zgui.progressBar(.{ .fraction = std.math.clamp(snap.peak[1], 0, 1), .w = -1, .h = 22 });
-    zgui.spacing();
-    drawDevices(app);
+    if (app.core.view == .track_spectrum and app.core.cursor < app.core.session.racks.items.len) {
+        zgui.spacing();
+        drawDevices(app);
+    }
 }
 
 fn drawAutomation(app: *App) void {
     zgui.textDisabled("AUTOMATION", .{});
-    const lane = if (app.selected_track < app.session.arrangement.lanes.items.len) &app.session.arrangement.lanes.items[app.selected_track] else null;
+    const lane = if (app.core.cursor < app.core.session.arrangement.lanes.items.len) &app.core.session.arrangement.lanes.items[app.core.cursor] else null;
     if (lane == null or lane.?.clips.items.len == 0) {
         zgui.textDisabled("Place a clip in the arrangement to edit its automation.", .{});
         return;
@@ -1289,12 +1247,12 @@ fn drawAutomation(app: *App) void {
         .pan => &clip.automation.pan,
     };
     if (zgui.button("Add / update point", .{})) {
-        ws.dsp.automation.setPoint(app.allocator, points, app.automation_beat, app.automation_value) catch {};
-        app.session.rebuildSongData();
+        ws.dsp.automation.setPoint(app.core.allocator, points, app.automation_beat, app.automation_value) catch {};
+        app.core.session.rebuildSongData();
     }
     zgui.sameLine(.{});
     if (zgui.button("Delete point", .{})) {
-        if (ws.dsp.automation.removePoint(app.allocator, points, app.automation_beat)) app.session.rebuildSongData();
+        if (ws.dsp.automation.removePoint(app.core.allocator, points, app.automation_beat)) app.core.session.rebuildSongData();
     }
     zgui.separatorText("Points");
     for (points.*, 0..) |point, i| {
@@ -1310,31 +1268,26 @@ fn drawInstrumentPicker(app: *App) void {
         .{ .label = "Drum Machine", .kind = .drum_machine },
         .{ .label = "Slicer", .kind = .slicer },
     };
-    for (entries) |entry| {
-        if (zgui.button(entry.label, .{ .w = 240, .h = 42 })) {
-            app.session.setInstrument(app.selected_track, entry.kind) catch return;
-            app.closePicker(switch (entry.kind) {
-                .poly_synth => .synth,
-                .sampler => .sampler,
-                .drum_machine => .drum_grid,
-                .slicer => .slicer_grid,
-                .empty => .tracks,
-            });
+    zgui.textDisabled("j/k move   enter insert   esc cancel", .{});
+    for (entries, 0..) |entry, i| {
+        if (zgui.selectable(entry.label, .{ .selected = app.core.picker_cursor == i, .w = 240, .h = 42 })) {
+            app.core.picker_cursor = @intCast(i);
+            app.core.handleKey(.enter, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
         }
     }
 }
 
 fn drawFxPicker(app: *App) void {
     zgui.textDisabled("FX PICKER", .{});
-    const rack = app.session.racks.items[app.selected_track];
+    const rack = app.core.session.racks.items[app.core.cursor];
     const kinds = std.meta.tags(ws.FxKind);
     for (kinds, 0..) |kind, i| {
         var label_buf: [48]u8 = undefined;
         const label = std.fmt.bufPrintZ(&label_buf, "{s}##fx-{d}", .{ @tagName(kind), i }) catch continue;
         if (zgui.button(label, .{ .w = 180 })) {
-            _ = rack.fx.insert(app.session.allocator, rack.fx.units.items.len, kind, app.session.project.sample_rate) catch continue;
-            app.session.syncTrackChain(@intCast(app.selected_track), rack);
-            app.closePicker(.devices);
+            _ = rack.fx.insert(app.core.session.allocator, rack.fx.units.items.len, kind, app.core.session.project.sample_rate) catch continue;
+            app.core.session.syncTrackChain(@intCast(app.core.cursor), rack);
+            app.closePicker(.track_spectrum);
         }
         zgui.sameLine(.{});
     }
@@ -1343,7 +1296,7 @@ fn drawFxPicker(app: *App) void {
 
 fn drawPresetPicker(app: *App) void {
     zgui.textDisabled("SYNTH PRESET PICKER", .{});
-    const synth = switch (app.session.racks.items[app.selected_track].instrument) {
+    const synth = switch (app.core.session.racks.items[app.core.cursor].instrument) {
         .poly_synth => |*s| s,
         else => {
             zgui.textDisabled("Select a Synth track to use presets.", .{});
@@ -1355,9 +1308,9 @@ fn drawPresetPicker(app: *App) void {
             var label_buf: [128]u8 = undefined;
             const label = std.fmt.bufPrintZ(&label_buf, "{s}  [{s}]", .{ preset.name, preset.category }) catch continue;
             if (zgui.selectable(label, .{})) {
-                _ = app.session.engine.send(.stop);
+                _ = app.core.session.engine.send(.stop);
                 synth.applyPatch(preset.patch);
-                app.closePicker(.synth);
+                app.closePicker(.synth_editor);
             }
         }
     }
@@ -1366,26 +1319,16 @@ fn drawPresetPicker(app: *App) void {
 
 fn drawFileBrowser(app: *App) void {
     zgui.textDisabled("FILE BROWSER", .{});
-    if (app.browser_dir.len == 0) app.setBrowserDir(".") catch {
-        zgui.textDisabled("Cannot read the current directory.", .{});
-        return;
-    };
-    zgui.text("{s}", .{app.browser_dir});
-    if (zgui.button("Up", .{})) {
-        if (std.fs.path.dirname(app.browser_dir)) |parent| app.setBrowserDir(parent) catch {};
-    }
-    zgui.sameLine(.{});
-    if (zgui.button("Refresh", .{})) app.setBrowserDir(app.browser_dir) catch {};
+    zgui.text("{s}", .{app.core.browser_dir});
+    zgui.textDisabled("j/k move   enter open   h parent   r refresh   esc back", .{});
     zgui.separator();
     if (zgui.beginChild("files", .{ .w = 0, .h = -1, .child_flags = .{ .border = true } })) {
-        var i: usize = 0;
-        while (i < app.browser_entries.items.len) : (i += 1) {
-            const entry = app.browser_entries.items[i];
+        for (app.core.browser_entries.items, 0..) |entry, i| {
             var label_buf: [512]u8 = undefined;
             const label = std.fmt.bufPrintZ(&label_buf, "{s} {s}", .{ if (entry.is_dir) "[DIR]" else "     ", entry.name }) catch continue;
-            if (zgui.selectable(label, .{ .flags = .{ .allow_double_click = true } }) and zgui.isMouseDoubleClicked(.left)) {
-                app.activateBrowserEntry(entry);
-                break;
+            if (zgui.selectable(label, .{ .selected = app.core.browser_cursor == i })) {
+                app.core.browser_cursor = i;
+                app.core.handleKey(.enter, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
             }
         }
     }
@@ -1423,7 +1366,7 @@ fn drawHelp(app: *App) void {
     zgui.sameLine(.{});
     if (zgui.button("Preset picker", .{})) app.openPicker(.preset_picker);
     zgui.sameLine(.{});
-    if (zgui.button("File browser", .{})) app.view = .file_browser;
+    if (zgui.button("File browser", .{})) app.core.view = .file_browser;
 }
 
 fn drawInspector(app: *App) void {
@@ -1431,12 +1374,12 @@ fn drawInspector(app: *App) void {
     zgui.setNextWindowPos(.{ .x = layout.browser_w + layout.tracks_w + layout.workspace_w, .y = 64, .cond = .always });
     zgui.setNextWindowSize(.{ .w = layout.inspector_w, .h = layout.body_h, .cond = .always });
     if (zgui.begin("Inspector", .{ .flags = .{ .no_move = true, .no_resize = true, .no_collapse = true, .no_docking = true } })) {
-        const track = &app.session.project.tracks.items[app.selected_track];
-        const rack = app.session.racks.items[app.selected_track];
+        const track = &app.core.session.project.tracks.items[app.core.cursor];
+        const rack = app.core.session.racks.items[app.core.cursor];
         zgui.textDisabled("INSPECTOR", .{});
         zgui.separator();
         const accent = trackColor(track.color);
-        zgui.textColored(accent, "{d:0>2}", .{app.selected_track + 1});
+        zgui.textColored(accent, "{d:0>2}", .{app.core.cursor + 1});
         zgui.sameLine(.{});
         zgui.textColored(umbra.fg0, "{s}", .{track.name});
         zgui.textColored(umbra.fg3, "{s}", .{rack.label});
@@ -1445,26 +1388,26 @@ fn drawInspector(app: *App) void {
 
         zgui.textDisabled("GAIN", .{});
         if (zgui.sliderFloat("##gain", .{ .v = &track.gain_db, .min = -60, .max = 12, .cfmt = "%.1f dB" })) {
-            _ = app.session.engine.send(.{ .set_track_gain = .{
-                .track = @intCast(app.selected_track),
+            _ = app.core.session.engine.send(.{ .set_track_gain = .{
+                .track = @intCast(app.core.cursor),
                 .gain = ws.types.dbToGain(track.gain_db),
             } });
         }
         zgui.spacing();
         zgui.textDisabled("PAN", .{});
         if (zgui.sliderFloat("##pan", .{ .v = &track.pan, .min = -1, .max = 1, .cfmt = "%.2f" })) {
-            _ = app.session.engine.send(.{ .set_track_pan = .{ .track = @intCast(app.selected_track), .pan = track.pan } });
+            _ = app.core.session.engine.send(.{ .set_track_pan = .{ .track = @intCast(app.core.cursor), .pan = track.pan } });
         }
         zgui.spacing();
         const toggle_width = (zgui.getContentRegionAvail()[0] - 6) / 2;
         if (drawInspectorToggle("MUTE##inspector", track.muted, umbra.red, toggle_width)) {
             track.muted = !track.muted;
-            _ = app.session.engine.send(.{ .set_track_mute = .{ .track = @intCast(app.selected_track), .muted = track.muted } });
+            _ = app.core.session.engine.send(.{ .set_track_mute = .{ .track = @intCast(app.core.cursor), .muted = track.muted } });
         }
         zgui.sameLine(.{ .spacing = 6 });
         if (drawInspectorToggle("SOLO##inspector", track.soloed, umbra.yellow, toggle_width)) {
             track.soloed = !track.soloed;
-            _ = app.session.engine.send(.{ .set_track_solo = .{ .track = @intCast(app.selected_track), .soloed = track.soloed } });
+            _ = app.core.session.engine.send(.{ .set_track_solo = .{ .track = @intCast(app.core.cursor), .soloed = track.soloed } });
         }
     }
     zgui.end();
@@ -1489,35 +1432,36 @@ fn drawStatus(app: *App, audio_label: []const u8) void {
         const size = zgui.getWindowSize();
         draw.addRectFilled(.{ .pmin = pos, .pmax = .{ pos[0] + size[0], pos[1] + size[1] }, .col = color(umbra.bg1) });
 
-        if (app.modal.mode == .command or app.modal.mode == .search) {
+        if (app.core.modal.mode == .command or app.core.modal.mode == .search) {
             drawCommandBar(app, draw, pos, size);
             zgui.end();
             return;
         }
 
         var x = pos[0];
-        x = drawStatusSegment(draw, x, pos[1], size[1], umbra.iris, umbra.bg0, @tagName(app.modal.mode));
-        x = drawStatusSegment(draw, x, pos[1], size[1], umbra.bg4, umbra.fg0, @tagName(app.view));
+        x = drawStatusSegment(draw, x, pos[1], size[1], umbra.iris, umbra.bg0, @tagName(app.core.modal.mode));
+        x = drawStatusSegment(draw, x, pos[1], size[1], umbra.bg4, umbra.fg0, @tagName(app.core.view));
 
-        const track = app.session.project.tracks.items[app.selected_track];
         var track_buf: [160]u8 = undefined;
-        const track_label = std.fmt.bufPrint(&track_buf, "{d:0>2}  {s}", .{ app.selected_track + 1, track.name }) catch "track";
+        const track_label = if (app.core.cursor < app.core.session.project.tracks.items.len) blk: {
+            const track = app.core.session.project.tracks.items[app.core.cursor];
+            break :blk std.fmt.bufPrint(&track_buf, "{d:0>2}  {s}", .{ app.core.cursor + 1, track.name }) catch "track";
+        } else "MASTER";
         x = drawStatusSegment(draw, x, pos[1], size[1], umbra.bg2, umbra.fg1, track_label);
 
-        var project_buf: [160]u8 = undefined;
-        const project_label = std.fmt.bufPrint(&project_buf, "{s}  {d:.0} bpm  {d}/4", .{ app.session.project.name, app.session.project.tempo_bpm, app.session.project.beats_per_bar }) catch "project";
-        const project_size = zgui.calcTextSize(project_label, .{});
-        if (x + project_size[0] + 260 < pos[0] + size[0]) {
-            draw.addText(.{ x + 12, pos[1] + (size[1] - project_size[1]) / 2 }, color(umbra.fg3), "{s}", .{project_label});
+        const status = app.core.statusText();
+        const status_size = zgui.calcTextSize(status, .{});
+        if (status.len > 0 and x + status_size[0] + 260 < pos[0] + size[0]) {
+            draw.addText(.{ x + 12, pos[1] + (size[1] - status_size[1]) / 2 }, color(umbra.fg1), "{s}", .{status});
         }
 
-        const snap = app.session.engine.uiSnapshot();
-        const beat = ws.types.framesToSeconds(snap.position_frames, app.session.project.sample_rate) * app.session.project.tempo_bpm / 60.0;
+        const snap = app.core.session.engine.uiSnapshot();
+        const beat = ws.types.framesToSeconds(snap.position_frames, app.core.session.project.sample_rate) * app.core.session.project.tempo_bpm / 60.0;
         var right_buf: [192]u8 = undefined;
         const right_label = std.fmt.bufPrint(&right_buf, "{s}  {d}.{d}   AUDIO {s}", .{
             if (snap.playing) "PLAY" else "STOP",
-            @as(u32, @intFromFloat(beat)) / app.session.project.beats_per_bar + 1,
-            @mod(@as(u32, @intFromFloat(beat)), app.session.project.beats_per_bar) + 1,
+            @as(u32, @intFromFloat(beat)) / app.core.session.project.beats_per_bar + 1,
+            @mod(@as(u32, @intFromFloat(beat)), app.core.session.project.beats_per_bar) + 1,
             audio_label,
         }) catch "audio";
         drawStatusSegmentRight(draw, pos[0] + size[0], pos[1], size[1], if (snap.playing) umbra.iris_soft else umbra.bg2, umbra.fg0, right_label);
@@ -1526,11 +1470,11 @@ fn drawStatus(app: *App, audio_label: []const u8) void {
 }
 
 fn drawCommandBar(app: *const App, draw: zgui.DrawList, pos: [2]f32, size: [2]f32) void {
-    const prompt: []const u8 = if (app.modal.mode == .command) ":" else "/";
+    const prompt: []const u8 = if (app.core.modal.mode == .command) ":" else "/";
     const text_y = pos[1] + (size[1] - zgui.getTextLineHeight()) / 2;
     const prompt_x = pos[0] + 13;
     const input_x = prompt_x + zgui.calcTextSize(prompt, .{})[0] + 4;
-    const input = app.modal.cmd_buf[0..app.modal.cmd_len];
+    const input = app.core.modal.cmd_buf[0..app.core.modal.cmd_len];
 
     draw.addRectFilled(.{
         .pmin = pos,
@@ -1545,7 +1489,7 @@ fn drawCommandBar(app: *const App, draw: zgui.DrawList, pos: [2]f32, size: [2]f3
     draw.addText(.{ prompt_x, text_y }, color(umbra.iris), "{s}", .{prompt});
     draw.addText(.{ input_x, text_y }, color(umbra.fg0), "{s}", .{input});
 
-    const before_cursor = input[0..app.modal.cmd_cursor];
+    const before_cursor = input[0..app.core.modal.cmd_cursor];
     const cursor_x = input_x + zgui.calcTextSize(before_cursor, .{})[0];
     draw.addRectFilled(.{
         .pmin = .{ cursor_x, text_y },

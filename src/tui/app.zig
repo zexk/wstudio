@@ -2950,6 +2950,10 @@ pub const App = struct {
         self.project_path_len = len;
     }
 
+    pub fn clearProjectPath(self: *App) void {
+        self.project_path_len = 0;
+    }
+
     /// Ask `run()` to load `path` (or start a blank session when null) on
     /// its next loop iteration - see the field doc on `pending_reload`.
     pub fn requestReload(self: *App, path: ?[]const u8) void {
@@ -3002,6 +3006,10 @@ pub const App = struct {
         const msg = std.fmt.bufPrint(&self.status_buf, fmt, args) catch &self.status_buf;
         self.status_len = msg.len;
         self.status_ttl = 100;
+    }
+
+    pub fn statusText(self: *const App) []const u8 {
+        return self.status_buf[0..self.status_len];
     }
 
     // -----------------------------------------------------------------------
