@@ -129,13 +129,20 @@
         # Windows machine or MSVC toolchain needed to build this, only to
         # run it. WASAPI/ole32 come from build.zig's own target-conditional
         # linking, so no extra buildInputs here.
-        windows = pkgs.stdenv.mkDerivation {
+        windows = pkgs.stdenv.mkDerivation (finalAttrs: {
           pname = "wstudio";
           inherit version;
           src = self;
+          zigDeps = pkgs.zig.fetchDeps {
+            inherit (finalAttrs) pname version src;
+            hash = "sha256-J4QVx6y7XZiAkMK/NHdbhuU1wVxuZnjz12My8v49kfs=";
+          };
           nativeBuildInputs = [ pkgs.zig.hook ];
+          postConfigure = ''
+            ln -s ${finalAttrs.zigDeps} "$ZIG_GLOBAL_CACHE_DIR/p"
+          '';
           zigBuildFlags = [ "-Dtarget=x86_64-windows-gnu" ];
-        };
+        });
       });
 
       apps = forAllSystems (pkgs: {
