@@ -8,7 +8,15 @@ const color = style.color;
 const umbra = style.umbra;
 
 pub fn draw(app: anytype) void {
-    const sampler = switch (app.core.session.racks.items[app.core.cursor].instrument) {
+    const track = switch (app.core.sampler_target) {
+        .sampler => |t| t,
+        else => {
+            zgui.textDisabled("Pad and slice sampler targets are shown in their grid editors.", .{});
+            return;
+        },
+    };
+    if (track >= app.core.session.racks.items.len) return;
+    const sampler = switch (app.core.session.racks.items[track].instrument) {
         .sampler => |*s| s,
         else => {
             zgui.textDisabled("Select a Sampler track.", .{});
@@ -63,7 +71,11 @@ fn drawHeader(app: anytype, sampler: *const ws.dsp.Sampler) void {
     draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(umbra.bg2), .rounding = 4 });
     draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + 5, origin[1] + height }, .col = color(umbra.iris), .rounding = 3 });
     draw_list.addText(.{ origin[0] + 17, origin[1] + 10 }, color(umbra.fg3), "SAMPLER", .{});
-    draw_list.addText(.{ origin[0] + 17, origin[1] + 35 }, color(umbra.fg0), "{s}", .{app.core.session.project.tracks.items[app.core.cursor].name});
+    const track = switch (app.core.sampler_target) {
+        .sampler => |t| t,
+        else => return,
+    };
+    draw_list.addText(.{ origin[0] + 17, origin[1] + 35 }, color(umbra.fg0), "{s}", .{app.core.session.project.tracks.items[track].name});
     draw_list.addText(.{ origin[0] + width - 310, origin[1] + 12 }, color(umbra.iris), "{s}", .{sampler.clipName()});
     draw_list.addText(.{ origin[0] + width - 310, origin[1] + 39 }, color(umbra.fg3), "{d} SAMPLES  ROOT {d}", .{ sampler.pad.samples.len, sampler.root_note });
 }
@@ -89,7 +101,11 @@ fn drawParam(app: anytype, sampler: *ws.dsp.Sampler, id: u8, label_text: []const
     style.pushControlFocus(focused, umbra.iris);
     defer style.popControlFocus(focused);
     if (zgui.sliderFloat(label, .{ .v = &value, .min = range[0], .max = range[1], .cfmt = format })) {
-        _ = app.core.session.engine.send(.{ .set_track_param_abs = .{ .track = @intCast(app.core.cursor), .id = id, .value = value } });
+        const track = switch (app.core.sampler_target) {
+            .sampler => |t| t,
+            else => return,
+        };
+        _ = app.core.session.engine.send(.{ .set_track_param_abs = .{ .track = track, .id = id, .value = value } });
     }
     if (zgui.isItemActivated()) app.core.sampler_param = id;
 }
@@ -102,7 +118,11 @@ fn drawToggle(app: anytype, sampler: *ws.dsp.Sampler, id: u8, on_label: [:0]cons
     zgui.pushStyleColor4f(.{ .idx = .text, .c = if (active) umbra.bg0 else if (focused) umbra.iris else umbra.fg2 });
     if (zgui.button(if (active) on_label else off_label, .{ .w = 106, .h = 32 })) {
         app.core.sampler_param = id;
-        _ = app.core.session.engine.send(.{ .set_track_param_abs = .{ .track = @intCast(app.core.cursor), .id = id, .value = if (active) 0 else 1 } });
+        const track = switch (app.core.sampler_target) {
+            .sampler => |t| t,
+            else => return,
+        };
+        _ = app.core.session.engine.send(.{ .set_track_param_abs = .{ .track = track, .id = id, .value = if (active) 0 else 1 } });
     }
     zgui.popStyleColor(.{ .count = 2 });
 }

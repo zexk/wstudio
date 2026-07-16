@@ -60,12 +60,14 @@ pub fn draw(
         draw_list.addRectFilled(.{ .pmin = .{ grid_x, y }, .pmax = .{ origin[0] + canvas_w, y + row_h }, .col = color(if (row % 2 == 0) umbra.bg1 else umbra.bg0) });
         if (selected) draw_list.addRectFilled(.{ .pmin = .{ origin[0], y + 4 }, .pmax = .{ origin[0] + 4, y + row_h - 4 }, .col = color(accent), .rounding = 2 });
         if (kind == .drum) {
+            const choke = instrument.choke_group[row];
             if (instrument.pads[row]) |*sample|
-                draw_list.addText(.{ origin[0] + 9, y + 8 }, color(if (selected) umbra.fg0 else umbra.fg1), "{d:0>2}  {s}", .{ row + 1, sample.clipName() })
+                draw_list.addText(.{ origin[0] + 9, y + 8 }, color(if (selected) umbra.fg0 else umbra.fg1), "{d:0>2}  {s}  C{d}", .{ row + 1, sample.clipName(), choke })
             else
-                draw_list.addText(.{ origin[0] + 9, y + 8 }, color(if (selected) umbra.fg0 else umbra.fg2), "{d:0>2}  Pad", .{row + 1});
+                draw_list.addText(.{ origin[0] + 9, y + 8 }, color(if (selected) umbra.fg0 else umbra.fg2), "{d:0>2}  Pad  C{d}", .{ row + 1, choke });
         } else {
-            draw_list.addText(.{ origin[0] + 9, y + 8 }, color(if (selected) umbra.fg0 else umbra.fg1), "{d:0>2}  Slice {d}", .{ row + 1, row + 1 });
+            const slice = instrument.slices[row];
+            draw_list.addText(.{ origin[0] + 9, y + 8 }, color(if (selected) umbra.fg0 else umbra.fg1), "{d:0>2}  {d:.0}-{d:.0}% C{d}", .{ row + 1, slice.start_norm * 100, slice.end_norm * 100, instrument.choke_group[row] });
         }
         draw_list.addLine(.{ .p1 = .{ origin[0], y + row_h }, .p2 = .{ origin[0] + canvas_w, y + row_h }, .col = color(umbra.line), .thickness = 1 });
     }

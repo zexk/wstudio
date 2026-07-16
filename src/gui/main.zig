@@ -808,7 +808,7 @@ fn drawArrangement(app: *App) void {
     const cursor_tick = app.core.arr_cursor_bar * app.core.arr_grid.ticks();
     const cursor_bar_count = cursor_tick / ticks_per_bar + 1;
     const bar_count: u32 = @max(8, @max((content_ticks + ticks_per_bar - 1) / ticks_per_bar, cursor_bar_count));
-    zgui.text("{d} tracks   {d} bars", .{ track_count, bar_count });
+    zgui.text("{d} tracks   {d} bars   grid {s}", .{ track_count, bar_count, app.core.arr_grid.label() });
     zgui.sameLine(.{ .spacing = 18 });
     zgui.textDisabled("click a clip to select", .{});
 
@@ -1219,7 +1219,9 @@ fn isBlackKey(pitch: u7) bool {
 }
 
 fn drawDrumGrid(app: *App) void {
-    const rack = app.core.session.racks.items[app.core.cursor];
+    const track = app.core.drum_track;
+    if (track >= app.core.session.racks.items.len) return;
+    const rack = app.core.session.racks.items[track];
     const drum = switch (rack.instrument) {
         .drum_machine => |*d| d,
         else => {
@@ -1250,7 +1252,7 @@ fn drawDrumHeader(app: *App, drum: *ws.dsp.DrumMachine, playing: bool) void {
     draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + 62 }, .col = color(umbra.bg2), .rounding = 4 });
     draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + 5, origin[1] + 62 }, .col = color(if (playing) umbra.red else umbra.yellow), .rounding = 3 });
     draw.addText(.{ origin[0] + 17, origin[1] + 9 }, color(umbra.fg3), "DRUM MACHINE", .{});
-    draw.addText(.{ origin[0] + 17, origin[1] + 31 }, color(umbra.fg0), "{s}", .{app.core.session.project.tracks.items[app.core.cursor].name});
+    draw.addText(.{ origin[0] + 17, origin[1] + 31 }, color(umbra.fg0), "{s}", .{app.core.session.project.tracks.items[app.core.drum_track].name});
 
     const mode = if (drum.song_mode) "SONG" else "PATTERN";
     const state = if (playing) "PLAYING" else "STOPPED";
@@ -1333,7 +1335,9 @@ fn drawFxCard(unit: *ws.FxUnit, index: usize) FxCardAction {
 }
 
 fn drawSynth(app: *App) void {
-    const synth = switch (app.core.session.racks.items[app.core.cursor].instrument) {
+    const track = app.core.synth_track;
+    if (track >= app.core.session.racks.items.len) return;
+    const synth = switch (app.core.session.racks.items[track].instrument) {
         .poly_synth => |*s| s,
         else => {
             zgui.textDisabled("Select a Synth track.", .{});
@@ -1486,7 +1490,7 @@ fn drawSynthWaveButtons(app: *App, synth: *const ws.dsp.PolySynth) void {
         zgui.pushStyleColor4f(.{ .idx = .text, .c = if (active) umbra.bg0 else if (focused) umbra.iris else umbra.fg2 });
         if (zgui.button(entry.label, .{ .h = 28 })) {
             app.core.synth_cursor = 0;
-            _ = app.core.session.engine.send(.{ .set_track_param_abs = .{ .track = @intCast(app.core.cursor), .id = 0, .value = @floatFromInt(@intFromEnum(entry.waveform)) } });
+            _ = app.core.session.engine.send(.{ .set_track_param_abs = .{ .track = app.core.synth_track, .id = 0, .value = @floatFromInt(@intFromEnum(entry.waveform)) } });
         }
         zgui.popStyleColor(.{ .count = 2 });
     }
@@ -1501,7 +1505,7 @@ fn drawSynthParam(app: *App, synth: *ws.dsp.PolySynth, id: u8, label_text: []con
     gui_style.pushControlFocus(focused, umbra.iris);
     defer gui_style.popControlFocus(focused);
     if (zgui.sliderFloat(zlabel, .{ .v = &value, .min = param.range[0], .max = param.range[1], .cfmt = format })) {
-        _ = app.core.session.engine.send(.{ .set_track_param_abs = .{ .track = @intCast(app.core.cursor), .id = id, .value = value } });
+        _ = app.core.session.engine.send(.{ .set_track_param_abs = .{ .track = app.core.synth_track, .id = id, .value = value } });
     }
     if (zgui.isItemActivated()) app.core.synth_cursor = id;
 }
