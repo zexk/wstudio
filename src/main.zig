@@ -7,6 +7,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const ws = @import("wstudio");
 const build_options = @import("build_options");
+const config_mod = @import("config.zig");
 
 /// Restore the terminal (cooked mode, mouse tracking off, alternate screen
 /// closed) before handing off to the normal trace printer - otherwise a
@@ -40,10 +41,16 @@ pub fn main(init: std.process.Init) !void {
         if (!build_options.tui) return frontendDisabled(init.io, "TUI");
         const init_path = try dupeInitPath(init.gpa, cmd);
         defer init.gpa.free(init_path);
-        return @import("tui/app.zig").run(init.gpa, init.io, init_path);
+        var runtime = try config_mod.Runtime.init();
+        defer runtime.deinit();
+        _ = try runtime.loadUserConfig(init.io);
+        return @import("tui/app.zig").run(init.gpa, init.io, init_path, runtime.config);
     }
     if (!build_options.tui) return frontendDisabled(init.io, "TUI");
-    return @import("tui/app.zig").run(init.gpa, init.io, null);
+    var runtime = try config_mod.Runtime.init();
+    defer runtime.deinit();
+    _ = try runtime.loadUserConfig(init.io);
+    return @import("tui/app.zig").run(init.gpa, init.io, null, runtime.config);
 }
 
 fn frontendDisabled(io: std.Io, name: []const u8) !void {
@@ -190,6 +197,7 @@ fn renderDemo(allocator: std.mem.Allocator, io: std.Io) !void {
 }
 
 test {
+    _ = config_mod;
     _ = @import("tui/app.zig");
     _ = @import("tui/tui.zig");
     _ = @import("tui/input_decode.zig");

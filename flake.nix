@@ -32,6 +32,9 @@
         };
     in
     {
+      nixosModules.default = import ./nixos-module.nix { inherit self; };
+      homeManagerModules.default = import ./home-manager-module.nix { inherit self; };
+
       devShells = forAllSystems (pkgs: {
         default = pkgs.mkShell {
           packages =
@@ -57,10 +60,14 @@
       packages = forAllSystems (pkgs: {
         neutral-terminal = neutralTerminal pkgs;
 
-        default = pkgs.stdenv.mkDerivation {
+        default = pkgs.stdenv.mkDerivation (finalAttrs: {
           pname = "wstudio";
           inherit version;
           src = self;
+          zigDeps = pkgs.zig.fetchDeps {
+            inherit (finalAttrs) pname version src;
+            hash = "sha256-xIlAq8X3rm5l9kaBsdnsF0h8DFlmV+8zO8IlRskto8I=";
+          };
           nativeBuildInputs = [
             pkgs.zig.hook
             pkgs.pkg-config
@@ -74,7 +81,8 @@
             pkgs.libxinerama
             pkgs.libxrandr
           ];
-        };
+          postConfigure = ''ln -s ${finalAttrs.zigDeps} "$ZIG_GLOBAL_CACHE_DIR/p"'';
+        });
 
         # Cross-compiled with zig's bundled mingw-w64 headers/CRT - no
         # Windows machine or MSVC toolchain needed to build this, only to

@@ -3253,7 +3253,7 @@ fn renderTrampoline(ctx: *anyopaque, out: []types.Sample) void {
 pub var active_terminal: ?*terminal_mod.Terminal = null;
 
 // zig fmt: off
-pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8) !void {
+pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8, user_config: @import("../config.zig").Config) !void {
     var term = terminal_mod.Terminal.init(io) catch {
         std.debug.print(
             "wstudio: stdin is not a terminal (try `wstudio render` for the offline demo)\n",
@@ -3267,6 +3267,10 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8) !vo
 
     var app = try App.init(allocator, io);
     defer app.deinit();
+    if (init_path == null) {
+        app.session.project.tempo_bpm = user_config.default_tempo;
+        _ = app.session.engine.send(.{ .set_tempo = user_config.default_tempo });
+    }
     icons.font_installed = icons.detectFontInstalled(io);
 
     // Surface a raw-mode setup failure once there's a status line to put it

@@ -162,6 +162,29 @@ nix build            # packaged build via zig.hook
 zig build -Dtarget=x86_64-windows-gnu  # cross-compile the Windows build
 ```
 
+### Lua configuration
+
+wstudio loads `~/.config/wstudio/init.lua` at startup, or
+`$XDG_CONFIG_HOME/wstudio/init.lua` when that variable is set, then falls back
+to `/etc/xdg/wstudio/init.lua`. The initial API supports a default tempo for
+new projects:
+
+```lua
+wstudio.set_option("default_tempo", 128)
+```
+
+The same Lua state remains alive while wstudio runs so the API can grow into
+commands, plugins, and interactive scripting. Nix users can enable wstudio
+through `nixosModules.default` or `homeManagerModules.default`. The Home
+Manager and NixOS modules also accept the Lua source directly:
+
+```nix
+programs.wstudio = {
+  enable = true;
+  luaConfig = ''wstudio.set_option("default_tempo", 128)'';
+};
+```
+
 ### Icons
 
 The TUI uses a 16-glyph subset of [Symbols Nerd Font

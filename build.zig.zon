@@ -16,6 +16,10 @@
             .url = "https://github.com/zig-gamedev/zopengl/archive/29908b1ba2d91baf91e348f6cd192630488d77b6.tar.gz",
             .hash = "zopengl-0.6.0-dev-5-tnz32mDgB82moljuLD0fmbj1mU3NSCXjzttpmoV2iP",
         },
+        .lua = .{
+            .url = "https://www.lua.org/ftp/lua-5.4.8.tar.gz",
+            .hash = "N-V-__8AAKEzFAAA695b9LXBhUSVK5MAV_VKSm1mEj3Acbze",
+        },
     },
     .paths = .{
         "build.zig",

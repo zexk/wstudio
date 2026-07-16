@@ -8,6 +8,8 @@ pub fn build(b: *std.Build) void {
     const build_options = b.addOptions();
     build_options.addOption(bool, "tui", enable_tui);
     build_options.addOption(bool, "gui", enable_gui);
+    const lua_dep = b.dependency("lua", .{});
+    const lua = buildLua(b, lua_dep, target, optimize);
 
     // The engine as a reusable library module. Frontends import this and
     // never reach into engine internals.
@@ -45,6 +47,8 @@ pub fn build(b: *std.Build) void {
             },
         }),
     });
+    exe.root_module.addIncludePath(lua_dep.path("src/"));
+    exe.root_module.linkLibrary(lua);
     // The frontend's own module reaches OS-specific code too (the terminal
     // backend, tui/terminal_windows.zig on Windows) via tui/app.zig - not
     // through the wstudio import - so it needs the same linking/macros.
@@ -164,4 +168,24 @@ pub fn build(b: *std.Build) void {
     const check_step = b.step("check", "Build wstudio and run all tests");
     check_step.dependOn(&exe.step);
     check_step.dependOn(test_step);
+}
+
+fn buildLua(b: *std.Build, dep: *std.Build.Dependency, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) *std.Build.Step.Compile {
+    const lua = b.addLibrary(.{
+        .name = "lua",
+        .root_module = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true }),
+    });
+    lua.root_module.addIncludePath(dep.path("src/"));
+    lua.root_module.addCSourceFiles(.{
+        .root = dep.path("src/"),
+        .files = &.{
+            "lapi.c",    "lauxlib.c",  "lbaselib.c", "lcode.c",    "lcorolib.c", "lctype.c",
+            "ldblib.c",  "ldebug.c",   "ldo.c",      "ldump.c",    "lfunc.c",    "lgc.c",
+            "linit.c",   "liolib.c",   "llex.c",     "lmathlib.c", "lmem.c",     "loadlib.c",
+            "lobject.c", "lopcodes.c", "loslib.c",   "lparser.c",  "lstate.c",   "lstring.c",
+            "lstrlib.c", "ltable.c",   "ltablib.c",  "ltm.c",      "lundump.c",  "lutf8lib.c",
+            "lvm.c",     "lzio.c",
+        },
+    });
+    return lua;
 }
