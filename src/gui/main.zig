@@ -537,8 +537,8 @@ fn trackRowInVisual(core: *const tui_app.App, display_row: usize) bool {
 
 fn drawTrackRowCursor(draw: zgui.DrawList, origin: [2]f32, width: f32, height: f32, selected: bool, in_visual: bool, hovered: bool) void {
     if (selected) {
-        draw.addRectFilled(.{ .pmin = .{ origin[0] + 1, origin[1] + 1 }, .pmax = .{ origin[0] + width - 1, origin[1] + height - 3 }, .col = color(.{ patina.focus[0], patina.focus[1], patina.focus[2], 0.18 }), .rounding = 2 });
-        draw.addRect(.{ .pmin = .{ origin[0] + 1, origin[1] + 1 }, .pmax = .{ origin[0] + width - 1, origin[1] + height - 3 }, .col = color(patina.focus), .rounding = 2, .thickness = 2 });
+        draw.addRectFilled(.{ .pmin = .{ origin[0] + 1, origin[1] + 1 }, .pmax = .{ origin[0] + width - 1, origin[1] + height - 3 }, .col = color(.{ patina.track_cursor[0], patina.track_cursor[1], patina.track_cursor[2], 0.18 }), .rounding = 2 });
+        draw.addRect(.{ .pmin = .{ origin[0] + 1, origin[1] + 1 }, .pmax = .{ origin[0] + width - 1, origin[1] + height - 3 }, .col = color(patina.track_cursor), .rounding = 2, .thickness = 2 });
     } else if (in_visual or hovered) {
         draw.addRect(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height - 2 }, .col = color(if (in_visual) patina.fg0 else patina.focus), .rounding = 2, .thickness = if (in_visual) 2 else 1 });
     }

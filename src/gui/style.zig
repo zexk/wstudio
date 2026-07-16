@@ -1,3 +1,4 @@
+const std = @import("std");
 const zgui = @import("zgui");
 const ws = @import("wstudio");
 const config_mod = @import("../config.zig");
@@ -31,6 +32,7 @@ pub const Palette = struct {
     line_soft: [4]f32,
     focus: [4]f32,
     focus_soft: [4]f32,
+    track_cursor: [4]f32,
     modulation: [4]f32,
     danger: [4]f32,
     rhythm: [4]f32,
@@ -55,6 +57,7 @@ const patina_colors: Palette = .{
     .line_soft = rgb(0x0d201b),
     .focus = rgb(0xf08777),
     .focus_soft = rgb(0xb76559),
+    .track_cursor = rgb(0xf2eadb),
     .modulation = rgb(0xd69ac0),
     .danger = rgb(0xf06468),
     .rhythm = rgb(0xc9cf73),
@@ -79,6 +82,7 @@ const patina_light_colors: Palette = .{
     .line_soft = rgb(0xe1e6dc),
     .focus = rgb(0xad493f),
     .focus_soft = rgb(0xd88475),
+    .track_cursor = rgb(0x17231f),
     .modulation = rgb(0x964778),
     .danger = rgb(0xb93640),
     .rhythm = rgb(0x626a19),
@@ -105,6 +109,7 @@ const graphite_colors: Palette = .{
     .line_soft = rgb(0x17171b),
     .focus = rgb(0xf08777),
     .focus_soft = rgb(0xb76559),
+    .track_cursor = rgb(0xf2eadb),
     .modulation = rgb(0xd69ac0),
     .danger = rgb(0xf06468),
     .rhythm = rgb(0xc9cf73),
@@ -128,6 +133,7 @@ const umbra_colors: Palette = .{
     .line_soft = rgb(0x130915),
     .focus = rgb(0xb07bbc),
     .focus_soft = rgb(0x886498),
+    .track_cursor = rgb(0xd9d1da),
     .modulation = rgb(0xc68fc1),
     .danger = rgb(0xb97873),
     .rhythm = rgb(0xc1a77b),
@@ -139,6 +145,12 @@ const umbra_colors: Palette = .{
 /// `const patina = &style.palette;` alias), so `selectPalette` at startup
 /// re-skins the whole GUI. Mutated once, before the first frame.
 pub var palette: Palette = patina_colors;
+
+test "track cursor stays outside every theme's track rotation" {
+    for ([_]Palette{ patina_colors, patina_light_colors, graphite_colors, umbra_colors }) |theme| {
+        for (theme.tracks) |track| try std.testing.expect(!std.meta.eql(theme.track_cursor, track));
+    }
+}
 
 pub fn selectPalette(theme: config_mod.GuiTheme) void {
     palette = switch (theme) {

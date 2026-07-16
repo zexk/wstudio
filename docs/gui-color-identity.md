@@ -41,6 +41,7 @@ mineral family instead of becoming a generic rainbow.
 | muted text | `#9a9282` | metadata |
 | disabled text | `#6f7569` | disabled and tertiary labels |
 | focus | `#f08777` | cursor, selected control, primary action |
+| track cursor | `#f2eadb` | high-contrast track-row cursor outside the track rotation |
 | modulation | `#d69ac0` | automation and modulation |
 | rhythm | `#c9cf73` | drums, loops, timing, ranges |
 | audio | `#71b9ac` | waveforms, samples, signal flow |
@@ -70,6 +71,7 @@ accent is darkened enough to remain legible on the light application surface.
 | disabled text | `#7e897f` | disabled and tertiary labels |
 | focus | `#ad493f` | cursor, selected control, primary action |
 | focus soft | `#d88475` | pressed controls and selection fills |
+| track cursor | `#17231f` | high-contrast track-row cursor outside the track rotation |
 | modulation | `#964778` | automation and modulation |
 | rhythm | `#626a19` | drums, loops, timing, ranges |
 | audio | `#247067` | waveforms, samples, signal flow |
