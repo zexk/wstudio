@@ -150,7 +150,7 @@ fn pressedModalKey(_: ws.input.Mode) ?ws.input.Key {
     const digits = "0123456789";
     inline for (digits, 0..) |c, i| {
         const key: zgui.Key = @enumFromInt(@intFromEnum(zgui.Key.zero) + i);
-        if (zgui.isKeyPressed(key, false)) return .{ .char = c };
+        if (zgui.isKeyPressed(key, false)) return .{ .char = numberRowChar(c, shifted) };
     }
     const punctuation = [_]struct { key: zgui.Key, plain: u8, shifted: u8 }{
         .{ .key = .apostrophe, .plain = '\'', .shifted = '"' },
@@ -168,6 +168,22 @@ fn pressedModalKey(_: ws.input.Mode) ?ws.input.Key {
     for (punctuation) |entry| if (zgui.isKeyPressed(entry.key, false))
         return .{ .char = if (shifted) entry.shifted else entry.plain };
     return null;
+}
+
+fn numberRowChar(digit: u8, shifted: bool) u8 {
+    if (!shifted) return digit;
+    return ")!@#$%^&*("[digit - '0'];
+}
+
+test "GUI number row respects shift" {
+    var plain: [10]u8 = undefined;
+    var shifted: [10]u8 = undefined;
+    for ("0123456789", 0..) |digit, i| {
+        plain[i] = numberRowChar(digit, false);
+        shifted[i] = numberRowChar(digit, true);
+    }
+    try std.testing.expectEqualStrings("0123456789", &plain);
+    try std.testing.expectEqualStrings(")!@#$%^&*(", &shifted);
 }
 
 const NativeBackend = if (builtin.os.tag == .linux)
