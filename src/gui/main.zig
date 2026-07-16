@@ -41,6 +41,8 @@ pub const App = struct {
     automation_target: AutomationTarget = .gain,
     automation_beat: f32 = 0,
     automation_value: f32 = 0,
+    eq_drag_band: ?u8 = null,
+    eq_analyzer_key: ?u32 = null,
 
     const BrowserEntry = struct { name: []u8, is_dir: bool };
     const AutomationTarget = enum { gain, pan };
@@ -560,6 +562,10 @@ fn drawTrackBadge(draw: zgui.DrawList, x: f32, y: f32, label: []const u8, bg: [4
 }
 
 fn drawWorkspace(app: *App) void {
+    if (app.core.view != .track_spectrum and app.core.view != .master_spectrum and app.core.view != .group_spectrum and app.eq_analyzer_key != null) {
+        _ = app.core.session.engine.send(.{ .set_spectrum_active = .{ .source = .none, .track = 0 } });
+        app.eq_analyzer_key = null;
+    }
     const layout = Layout.current(app.core.modal.mode == .command or app.core.modal.mode == .search);
     zgui.setNextWindowPos(.{ .x = 0, .y = 64, .cond = .always });
     zgui.setNextWindowSize(.{ .w = zgui.io.getDisplaySize()[0], .h = layout.body_h, .cond = .always });
