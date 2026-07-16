@@ -26,7 +26,7 @@ pub fn draw(app: anytype) void {
     }
     zgui.spacing();
     widgets.sectionTitle("SLICE SEQUENCE", umbra.iris);
-    step_grid.draw(.slicer, slicer, @min(@as(usize, 12), slicer.slice_count), slicer.step_count, null);
+    step_grid.draw(.slicer, slicer, slicer.slice_count, slicer.step_count, null, &app.core.slicer_cursor);
 }
 
 fn drawHeader(app: anytype, slicer: *const ws.dsp.Slicer) void {

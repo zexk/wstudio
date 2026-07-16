@@ -37,6 +37,7 @@ pub const App = struct {
     browser_entries: std.ArrayListUnmanaged(BrowserEntry) = .empty,
     pending_project_path: ?[]u8 = null,
     arrangement_clip: ?struct { track: usize, clip: usize } = null,
+    piano_top_pitch: u7 = 84,
     automation_clip: usize = 0,
     automation_target: AutomationTarget = .gain,
     automation_beat: f32 = 0,
@@ -760,7 +761,9 @@ fn drawArrangement(app: *App) void {
     const beats_per_bar: u32 = app.core.session.project.beats_per_bar;
     const ticks_per_bar = ws.time_grid.barTicks(app.core.session.project.beats_per_bar);
     const content_ticks = app.core.session.arrangement.lengthTicks();
-    const bar_count: u32 = @max(8, (content_ticks + ticks_per_bar - 1) / ticks_per_bar);
+    const cursor_tick = app.core.arr_cursor_bar * app.core.arr_grid.ticks();
+    const cursor_bar_count = cursor_tick / ticks_per_bar + 1;
+    const bar_count: u32 = @max(8, @max((content_ticks + ticks_per_bar - 1) / ticks_per_bar, cursor_bar_count));
     zgui.text("{d} tracks   {d} bars", .{ track_count, bar_count });
     zgui.sameLine(.{ .spacing = 18 });
     zgui.textDisabled("click a clip to select", .{});
@@ -849,6 +852,23 @@ fn drawArrangement(app: *App) void {
         }
     }
 
+    if (app.core.cursor < track_count) {
+        const cursor_x = timeline_x + @as(f32, @floatFromInt(cursor_tick)) / @as(f32, @floatFromInt(ticks_per_beat)) * beat_w;
+        const cursor_w = @max(2, @as(f32, @floatFromInt(app.core.arr_grid.ticks())) / @as(f32, @floatFromInt(ticks_per_beat)) * beat_w);
+        const cursor_y = origin[1] + ruler_h + @as(f32, @floatFromInt(app.core.cursor)) * lane_h;
+        draw.addRectFilled(.{
+            .pmin = .{ cursor_x + 1, cursor_y + 1 },
+            .pmax = .{ @min(cursor_x + cursor_w, origin[0] + canvas_w - 1), cursor_y + lane_h - 1 },
+            .col = color(.{ umbra.iris[0], umbra.iris[1], umbra.iris[2], 0.16 }),
+        });
+        draw.addRect(.{
+            .pmin = .{ cursor_x + 1, cursor_y + 1 },
+            .pmax = .{ @min(cursor_x + cursor_w, origin[0] + canvas_w - 1), cursor_y + lane_h - 1 },
+            .col = color(umbra.iris),
+            .thickness = 2,
+        });
+    }
+
     const snap = app.core.session.engine.uiSnapshot();
     if (snap.playing) {
         const play_beat = @as(f64, @floatFromInt(snap.position_frames)) / 48000.0 * @as(f64, app.core.session.project.tempo_bpm) / 60.0;
@@ -862,6 +882,7 @@ fn drawArrangement(app: *App) void {
         app.arrangement_clip = null;
         if (mouse[0] >= timeline_x and ti < app.core.session.arrangement.lanes.items.len) {
             const tick: u32 = @intFromFloat((mouse[0] - timeline_x) / beat_w * @as(f32, @floatFromInt(ticks_per_beat)));
+            app.core.arr_cursor_bar = tick / app.core.arr_grid.ticks();
             for (app.core.session.arrangement.lanes.items[ti].clips.items, 0..) |clip, ci| {
                 if (tick >= clip.start_tick and tick < clip.start_tick + clip.length_ticks) {
                     app.arrangement_clip = .{ .track = ti, .clip = ci };
@@ -886,9 +907,14 @@ fn drawPianoRoll(app: *App) void {
     const gutter_w: f32 = 58;
     const ruler_h: f32 = 24;
     const row_h: f32 = 18;
-    const top_pitch: u7 = 84;
-    const bottom_pitch: u7 = 48;
-    const row_count: usize = top_pitch - bottom_pitch + 1;
+    const row_count: usize = 37;
+    const cursor_pitch: usize = app.core.piano_cursor_pitch;
+    const current_top: usize = app.piano_top_pitch;
+    const current_bottom = current_top -| (row_count - 1);
+    if (cursor_pitch > current_top) app.piano_top_pitch = @intCast(cursor_pitch);
+    if (cursor_pitch < current_bottom) app.piano_top_pitch = @intCast(@min(127, cursor_pitch + row_count - 1));
+    const top_pitch: u7 = app.piano_top_pitch;
+    const bottom_pitch: u7 = top_pitch -| @as(u7, @intCast(row_count - 1));
     const available = zgui.getContentRegionAvail();
     const canvas_w = @max(320, available[0]);
     const canvas_h = ruler_h + row_h * @as(f32, @floatFromInt(row_count));
@@ -917,13 +943,14 @@ fn drawPianoRoll(app: *App) void {
         if (@mod(pitch, 12) == 0) draw.addText(.{ origin[0] + 40, y + 1 }, color(.{ 0.20, 0.22, 0.24, 1 }), "C{d}", .{pitch / 12 - 1});
     }
 
-    const steps: usize = @intFromFloat(@ceil(beats * 4));
+    const steps_per_beat: usize = app.core.pianoStepsPerBeat();
+    const steps: usize = @intFromFloat(@ceil(beats * @as(f32, @floatFromInt(steps_per_beat))));
     for (0..steps + 1) |step| {
-        const x = grid_x + @as(f32, @floatFromInt(step)) * beat_w / 4;
-        const on_beat = step % 4 == 0;
-        const on_bar = step % 16 == 0;
+        const x = grid_x + @as(f32, @floatFromInt(step)) * beat_w / @as(f32, @floatFromInt(steps_per_beat));
+        const on_beat = step % steps_per_beat == 0;
+        const on_bar = step % (steps_per_beat * app.core.session.project.beats_per_bar) == 0;
         draw.addLine(.{ .p1 = .{ x, if (on_beat) origin[1] else grid_y }, .p2 = .{ x, origin[1] + canvas_h }, .col = color(if (on_bar) .{ 0.34, 0.37, 0.40, 1 } else if (on_beat) .{ 0.24, 0.26, 0.28, 1 } else .{ 0.13, 0.14, 0.15, 1 }), .thickness = if (on_bar) 2 else 1 });
-        if (on_beat and step < steps) draw.addText(.{ x + 5, origin[1] + 4 }, color(.{ 0.62, 0.65, 0.68, 1 }), "{d}.{d}", .{ step / 16 + 1, step / 4 % 4 + 1 });
+        if (on_beat and step < steps) draw.addText(.{ x + 5, origin[1] + 4 }, color(.{ 0.62, 0.65, 0.68, 1 }), "{d}.{d}", .{ step / (steps_per_beat * app.core.session.project.beats_per_bar) + 1, step / steps_per_beat % app.core.session.project.beats_per_bar + 1 });
     }
 
     while (!pp.notes_lock.tryLock()) std.atomic.spinLoopHint();
@@ -938,6 +965,25 @@ fn drawPianoRoll(app: *App) void {
     }
     pp.notes_lock.unlock();
 
+    if (app.core.piano_cursor_pitch >= bottom_pitch and app.core.piano_cursor_pitch <= top_pitch and app.core.piano_cursor_step < steps) {
+        const cursor_x = grid_x + @as(f32, @floatFromInt(app.core.piano_cursor_step)) * beat_w / @as(f32, @floatFromInt(steps_per_beat));
+        const cursor_y = grid_y + @as(f32, @floatFromInt(top_pitch - app.core.piano_cursor_pitch)) * row_h;
+        const cursor_w = beat_w / @as(f32, @floatFromInt(steps_per_beat));
+        draw.addRectFilled(.{
+            .pmin = .{ cursor_x + 1, cursor_y + 1 },
+            .pmax = .{ cursor_x + cursor_w - 1, cursor_y + row_h - 1 },
+            .col = color(.{ umbra.iris[0], umbra.iris[1], umbra.iris[2], 0.18 }),
+            .rounding = 2,
+        });
+        draw.addRect(.{
+            .pmin = .{ cursor_x + 1, cursor_y + 1 },
+            .pmax = .{ cursor_x + cursor_w - 1, cursor_y + row_h - 1 },
+            .col = color(umbra.iris),
+            .rounding = 2,
+            .thickness = 2,
+        });
+    }
+
     const snap = app.core.session.engine.uiSnapshot();
     if (snap.playing) {
         const play_beat = @mod(@as(f64, @floatFromInt(snap.position_frames)) / 48000.0 * @as(f64, app.core.session.project.tempo_bpm) / 60.0, pp.length_beats);
@@ -946,15 +992,22 @@ fn drawPianoRoll(app: *App) void {
     }
 
     if (hovered and mouse[0] >= grid_x and mouse[1] >= grid_y) {
-        const step = @min(steps - 1, @as(usize, @intFromFloat((mouse[0] - grid_x) / (beat_w / 4))));
+        const step = @min(steps - 1, @as(usize, @intFromFloat((mouse[0] - grid_x) / (beat_w / @as(f32, @floatFromInt(steps_per_beat))))));
         const row = @min(row_count - 1, @as(usize, @intFromFloat((mouse[1] - grid_y) / row_h)));
-        const x = grid_x + @as(f32, @floatFromInt(step)) * beat_w / 4;
+        const x = grid_x + @as(f32, @floatFromInt(step)) * beat_w / @as(f32, @floatFromInt(steps_per_beat));
         const y = grid_y + @as(f32, @floatFromInt(row)) * row_h;
-        draw.addRectFilled(.{ .pmin = .{ x + 1, y + 1 }, .pmax = .{ x + beat_w / 4 - 1, y + row_h - 1 }, .col = color(.{ 0.48, 0.91, 0.72, 0.18 }), .rounding = 2 });
+        draw.addRectFilled(.{ .pmin = .{ x + 1, y + 1 }, .pmax = .{ x + beat_w / @as(f32, @floatFromInt(steps_per_beat)) - 1, y + row_h - 1 }, .col = color(.{ 0.48, 0.91, 0.72, 0.18 }), .rounding = 2 });
         if (clicked) {
             const pitch: u7 = top_pitch - @as(u7, @intCast(row));
-            const beat = @as(f64, @floatFromInt(step)) / 4.0;
-            if (pp.noteAt(pitch, beat)) |_| pp.removeNote(pitch, beat) else pp.addNote(.{ .pitch = pitch, .start_beat = beat, .duration_beat = 0.25, .velocity = 0.85 });
+            app.core.piano_cursor_pitch = pitch;
+            app.core.piano_cursor_step = @intCast(step);
+            const beat = @as(f64, @floatFromInt(step)) / @as(f64, @floatFromInt(steps_per_beat));
+            if (pp.noteAt(pitch, beat)) |_| pp.removeNote(pitch, beat) else pp.addNote(.{
+                .pitch = pitch,
+                .start_beat = beat,
+                .duration_beat = 1.0 / @as(f64, @floatFromInt(steps_per_beat)),
+                .velocity = 0.85,
+            });
         }
     }
 }
@@ -979,7 +1032,7 @@ fn drawDrumGrid(app: *App) void {
     const play_step: ?usize = if (snap.playing) drum.currentStep() else null;
     drawDrumHeader(app, drum, snap.playing);
     zgui.spacing();
-    step_grid.draw(.drum, drum, @min(@as(usize, 12), drum.pads.len), drum.step_count, play_step);
+    step_grid.draw(.drum, drum, drum.pads.len, drum.step_count, play_step, &app.core.drum_cursor);
 }
 
 fn drawDrumHeader(app: *App, drum: *ws.dsp.DrumMachine, playing: bool) void {

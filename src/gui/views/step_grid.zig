@@ -6,8 +6,12 @@ const umbra = style.umbra;
 
 pub const Kind = enum { drum, slicer };
 
-pub fn draw(comptime kind: Kind, instrument: anytype, row_count: usize, step_count_raw: u8, play_step: ?usize) void {
+pub fn draw(comptime kind: Kind, instrument: anytype, total_rows: usize, step_count_raw: u8, play_step: ?usize, cursor: *[2]u8) void {
     const step_count: usize = @max(1, step_count_raw);
+    const row_count = @min(@as(usize, 12), total_rows);
+    const cursor_row = @min(@as(usize, cursor[0]), total_rows -| 1);
+    const row_start = if (row_count == 0) 0 else cursor_row / row_count * row_count;
+    const row_end = @min(total_rows, row_start + row_count);
     const gutter_w: f32 = 132;
     const ruler_h: f32 = 27;
     const row_h: f32 = 32;
@@ -28,9 +32,10 @@ pub fn draw(comptime kind: Kind, instrument: anytype, row_count: usize, step_cou
 
     draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + canvas_w, origin[1] + canvas_h }, .col = color(umbra.bg0) });
     draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + canvas_w, grid_y }, .col = color(umbra.bg2) });
-    for (0..row_count) |row| {
-        const y = grid_y + @as(f32, @floatFromInt(row)) * row_h;
-        draw_list.addRectFilled(.{ .pmin = .{ origin[0], y }, .pmax = .{ grid_x, y + row_h }, .col = color(if (row % 2 == 0) umbra.bg2 else umbra.bg1) });
+    for (row_start..row_end, 0..) |row, display_row| {
+        const y = grid_y + @as(f32, @floatFromInt(display_row)) * row_h;
+        const selected = row == cursor_row;
+        draw_list.addRectFilled(.{ .pmin = .{ origin[0], y }, .pmax = .{ grid_x, y + row_h }, .col = color(if (selected) umbra.bg4 else if (row % 2 == 0) umbra.bg2 else umbra.bg1) });
         draw_list.addRectFilled(.{ .pmin = .{ grid_x, y }, .pmax = .{ origin[0] + canvas_w, y + row_h }, .col = color(if (row % 2 == 0) umbra.bg1 else umbra.bg0) });
         if (kind == .drum) {
             if (instrument.pads[row]) |*sample|
@@ -57,12 +62,12 @@ pub fn draw(comptime kind: Kind, instrument: anytype, row_count: usize, step_cou
         draw_list.addTriangleFilled(.{ .p1 = .{ x - 4, grid_y - 7 }, .p2 = .{ x + 4, grid_y - 7 }, .p3 = .{ x, grid_y - 2 }, .col = color(umbra.red) });
     }
 
-    for (0..row_count) |row| {
+    for (row_start..row_end, 0..) |row, display_row| {
         for (0..step_count) |step| {
             if (!instrument.stepActive(@intCast(row), @intCast(step))) continue;
             const velocity = @as(f32, @floatFromInt(instrument.stepVel(@intCast(row), @intCast(step)))) / 127.0;
             const x = grid_x + @as(f32, @floatFromInt(step)) * cell_w;
-            const y = grid_y + @as(f32, @floatFromInt(row)) * row_h;
+            const y = grid_y + @as(f32, @floatFromInt(display_row)) * row_h;
             const inset = @min(3, cell_w * 0.15);
             const height = 8 + velocity * (row_h - 13);
             const hit_color = if (kind == .drum) umbra.iris else umbra.cyan;
@@ -70,12 +75,34 @@ pub fn draw(comptime kind: Kind, instrument: anytype, row_count: usize, step_cou
         }
     }
 
+    if (row_count > 0) {
+        const cursor_step = @min(@as(usize, cursor[1]), step_count - 1);
+        const display_row = cursor_row - row_start;
+        const x = grid_x + @as(f32, @floatFromInt(cursor_step)) * cell_w;
+        const y = grid_y + @as(f32, @floatFromInt(display_row)) * row_h;
+        draw_list.addRectFilled(.{
+            .pmin = .{ x + 1, y + 1 },
+            .pmax = .{ x + cell_w - 1, y + row_h - 1 },
+            .col = color(.{ umbra.iris[0], umbra.iris[1], umbra.iris[2], 0.18 }),
+        });
+        draw_list.addRect(.{
+            .pmin = .{ x + 1, y + 1 },
+            .pmax = .{ x + cell_w - 1, y + row_h - 1 },
+            .col = color(umbra.iris),
+            .thickness = 2,
+        });
+    }
+
     if (hovered and mouse[0] >= grid_x and mouse[1] >= grid_y and row_count > 0) {
         const step = @min(step_count - 1, @as(usize, @intFromFloat((mouse[0] - grid_x) / cell_w)));
-        const row = @min(row_count - 1, @as(usize, @intFromFloat((mouse[1] - grid_y) / row_h)));
+        const display_row = @min(row_count - 1, @as(usize, @intFromFloat((mouse[1] - grid_y) / row_h)));
+        const row = row_start + display_row;
         const x = grid_x + @as(f32, @floatFromInt(step)) * cell_w;
-        const y = grid_y + @as(f32, @floatFromInt(row)) * row_h;
+        const y = grid_y + @as(f32, @floatFromInt(display_row)) * row_h;
         draw_list.addRectFilled(.{ .pmin = .{ x + 1, y + 1 }, .pmax = .{ x + cell_w - 1, y + row_h - 1 }, .col = color(.{ umbra.mauve[0], umbra.mauve[1], umbra.mauve[2], 0.22 }) });
-        if (clicked) instrument.toggleStep(@intCast(row), @intCast(step));
+        if (clicked) {
+            cursor.* = .{ @intCast(row), @intCast(step) };
+            instrument.toggleStep(@intCast(row), @intCast(step));
+        }
     }
 }
