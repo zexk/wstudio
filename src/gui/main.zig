@@ -270,7 +270,7 @@ pub fn main(init: std.process.Init) !void {
         const fb = window.getFramebufferSize();
         if (fb[0] <= 0 or fb[1] <= 0) continue;
         gl.viewport(0, 0, fb[0], fb[1]);
-        gl.clearColor(0.035, 0.039, 0.047, 1.0);
+        gl.clearColor(umbra.bg0[0], umbra.bg0[1], umbra.bg0[2], 1.0);
         gl.clear(gl.COLOR_BUFFER_BIT);
         zgui.backend.newFrame(@intCast(fb[0]), @intCast(fb[1]));
         app.handleShortcuts();
@@ -638,27 +638,7 @@ fn drawDrumGrid(app: *App) void {
         },
     };
     zgui.text("Pattern {c}   {d} steps", .{ 'A' + drum.variant, drum.step_count });
-    if (zgui.beginTable("drum-grid", .{ .column = 17, .flags = .{ .borders = .inner, .sizing = .fixed_same }, .outer_size = .{ 0, -1 } })) {
-        defer zgui.endTable();
-        zgui.tableSetupColumn("Pad", .{ .init_width_or_height = 64 });
-        for (0..16) |step| {
-            var header: [8]u8 = undefined;
-            zgui.tableSetupColumn(std.fmt.bufPrintZ(&header, "{d}", .{step + 1}) catch "?", .{});
-        }
-        zgui.tableHeadersRow();
-        for (0..@min(@as(usize, 12), drum.pads.len)) |pad| {
-            zgui.tableNextRow(.{});
-            _ = zgui.tableSetColumnIndex(0);
-            if (drum.pads[pad]) |*sample| zgui.text("{s}", .{sample.clipName()}) else zgui.text("Pad {d}", .{pad + 1});
-            for (0..@min(@as(usize, 16), drum.step_count)) |step| {
-                _ = zgui.tableSetColumnIndex(@intCast(step + 1));
-                const active = (drum.pattern[pad].load(.acquire) >> @intCast(step)) & 1 != 0;
-                var label: [24]u8 = undefined;
-                const text = std.fmt.bufPrintZ(&label, "{s}##d{d}-{d}", .{ if (active) "x" else " ", pad, step }) catch "?";
-                if (zgui.smallButton(text)) drum.toggleStep(@intCast(pad), @intCast(step));
-            }
-        }
-    }
+    drawStepGridCanvas(.drum, drum, @min(@as(usize, 12), drum.pads.len), drum.step_count);
 }
 
 fn drawSlicerGrid(app: *App) void {
@@ -676,26 +656,75 @@ fn drawSlicerGrid(app: *App) void {
         defer slicer.sample_lock.unlock();
         drawWaveform("##slicer-wave", slicer.samples);
     }
-    if (zgui.beginTable("slicer-grid", .{ .column = 17, .flags = .{ .borders = .inner, .sizing = .fixed_same }, .outer_size = .{ 0, -1 } })) {
-        defer zgui.endTable();
-        zgui.tableSetupColumn("Slice", .{ .init_width_or_height = 64 });
-        for (0..16) |step| {
-            var header: [8]u8 = undefined;
-            zgui.tableSetupColumn(std.fmt.bufPrintZ(&header, "{d}", .{step + 1}) catch "?", .{});
+    drawStepGridCanvas(.slicer, slicer, @min(@as(usize, 12), slicer.slice_count), slicer.step_count);
+}
+
+const StepGridKind = enum { drum, slicer };
+
+fn drawStepGridCanvas(comptime kind: StepGridKind, instrument: anytype, row_count: usize, step_count_raw: u8) void {
+    const step_count: usize = @max(1, step_count_raw);
+    const gutter_w: f32 = 132;
+    const ruler_h: f32 = 27;
+    const row_h: f32 = 32;
+    const available = zgui.getContentRegionAvail();
+    const canvas_w = @max(360, available[0]);
+    const canvas_h = ruler_h + row_h * @as(f32, @floatFromInt(row_count));
+    const origin = zgui.getCursorScreenPos();
+    const id = if (kind == .drum) "drum-grid-canvas" else "slicer-grid-canvas";
+    const clicked = zgui.invisibleButton(id, .{ .w = canvas_w, .h = canvas_h });
+    const hovered = zgui.isItemHovered(.{});
+    const mouse = zgui.getMousePos();
+    const draw = zgui.getWindowDrawList();
+    const grid_x = origin[0] + gutter_w;
+    const grid_y = origin[1] + ruler_h;
+    const grid_w = canvas_w - gutter_w;
+    const cell_w = grid_w / @as(f32, @floatFromInt(step_count));
+    const steps_per_beat: usize = if (kind == .drum) instrument.steps_per_beat else 4;
+
+    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + canvas_w, origin[1] + canvas_h }, .col = color(umbra.bg0) });
+    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + canvas_w, grid_y }, .col = color(umbra.bg2) });
+    for (0..row_count) |row| {
+        const y = grid_y + @as(f32, @floatFromInt(row)) * row_h;
+        draw.addRectFilled(.{ .pmin = .{ origin[0], y }, .pmax = .{ grid_x, y + row_h }, .col = color(if (row % 2 == 0) umbra.bg2 else umbra.bg1) });
+        draw.addRectFilled(.{ .pmin = .{ grid_x, y }, .pmax = .{ origin[0] + canvas_w, y + row_h }, .col = color(if (row % 2 == 0) umbra.bg1 else umbra.bg0) });
+        if (kind == .drum) {
+            if (instrument.pads[row]) |*sample|
+                draw.addText(.{ origin[0] + 9, y + 8 }, color(umbra.fg1), "{d:0>2}  {s}", .{ row + 1, sample.clipName() })
+            else
+                draw.addText(.{ origin[0] + 9, y + 8 }, color(umbra.fg2), "{d:0>2}  Pad", .{row + 1});
+        } else {
+            draw.addText(.{ origin[0] + 9, y + 8 }, color(umbra.fg1), "{d:0>2}  Slice {d}", .{ row + 1, row + 1 });
         }
-        zgui.tableHeadersRow();
-        for (0..@min(@as(usize, 12), slicer.slice_count)) |slice| {
-            zgui.tableNextRow(.{});
-            _ = zgui.tableSetColumnIndex(0);
-            zgui.text("Slice {d}", .{slice + 1});
-            for (0..@min(@as(usize, 16), slicer.step_count)) |step| {
-                _ = zgui.tableSetColumnIndex(@intCast(step + 1));
-                const active = slicer.stepActive(@intCast(slice), @intCast(step));
-                var label: [24]u8 = undefined;
-                const text = std.fmt.bufPrintZ(&label, "{s}##s{d}-{d}", .{ if (active) "x" else " ", slice, step }) catch "?";
-                if (zgui.smallButton(text)) slicer.toggleStep(@intCast(slice), @intCast(step));
-            }
+        draw.addLine(.{ .p1 = .{ origin[0], y + row_h }, .p2 = .{ origin[0] + canvas_w, y + row_h }, .col = color(umbra.line), .thickness = 1 });
+    }
+
+    for (0..step_count + 1) |step| {
+        const x = grid_x + @as(f32, @floatFromInt(step)) * cell_w;
+        const on_beat = step % steps_per_beat == 0;
+        draw.addLine(.{ .p1 = .{ x, if (on_beat) origin[1] else grid_y }, .p2 = .{ x, origin[1] + canvas_h }, .col = color(if (on_beat) umbra.bg5 else umbra.line_soft), .thickness = if (on_beat) 1.5 else 1 });
+        if (on_beat and step < step_count) draw.addText(.{ x + 5, origin[1] + 5 }, color(umbra.fg2), "{d}", .{step / steps_per_beat + 1});
+    }
+
+    for (0..row_count) |row| {
+        for (0..step_count) |step| {
+            if (!instrument.stepActive(@intCast(row), @intCast(step))) continue;
+            const velocity = @as(f32, @floatFromInt(instrument.stepVel(@intCast(row), @intCast(step)))) / 127.0;
+            const x = grid_x + @as(f32, @floatFromInt(step)) * cell_w;
+            const y = grid_y + @as(f32, @floatFromInt(row)) * row_h;
+            const inset = @min(3, cell_w * 0.15);
+            const height = 8 + velocity * (row_h - 13);
+            const hit_color = if (kind == .drum) umbra.iris else umbra.cyan;
+            draw.addRectFilled(.{ .pmin = .{ x + inset, y + row_h - height - 3 }, .pmax = .{ x + cell_w - inset, y + row_h - 3 }, .col = color(.{ hit_color[0], hit_color[1], hit_color[2], 0.62 + velocity * 0.38 }) });
         }
+    }
+
+    if (hovered and mouse[0] >= grid_x and mouse[1] >= grid_y and row_count > 0) {
+        const step = @min(step_count - 1, @as(usize, @intFromFloat((mouse[0] - grid_x) / cell_w)));
+        const row = @min(row_count - 1, @as(usize, @intFromFloat((mouse[1] - grid_y) / row_h)));
+        const x = grid_x + @as(f32, @floatFromInt(step)) * cell_w;
+        const y = grid_y + @as(f32, @floatFromInt(row)) * row_h;
+        draw.addRectFilled(.{ .pmin = .{ x + 1, y + 1 }, .pmax = .{ x + cell_w - 1, y + row_h - 1 }, .col = color(.{ umbra.mauve[0], umbra.mauve[1], umbra.mauve[2], 0.22 }) });
+        if (clicked) instrument.toggleStep(@intCast(row), @intCast(step));
     }
 }
 
@@ -963,7 +992,7 @@ fn drawHelp(app: *App) void {
         .{ .key = "Auto", .text = "Clip automation summary" },
     };
     for (rows) |row| {
-        zgui.textColored(.{ 0.47, 0.82, 0.69, 1 }, "{s}", .{row.key});
+        zgui.textColored(umbra.mauve, "{s}", .{row.key});
         zgui.sameLine(.{ .offset_from_start_x = 150 });
         zgui.text("{s}", .{row.text});
     }
@@ -1011,19 +1040,94 @@ fn drawStatus(app: *App, audio_label: []const u8) void {
     zgui.setNextWindowPos(.{ .x = 0, .y = display[1] - 34, .cond = .always });
     zgui.setNextWindowSize(.{ .w = display[0], .h = 34, .cond = .always });
     if (zgui.begin("Status", .{ .flags = .{ .no_title_bar = true, .no_resize = true, .no_move = true, .no_docking = true } })) {
-        zgui.textColored(.{ 0.47, 0.82, 0.69, 1 }, "NORMAL", .{});
+        zgui.textColored(umbra.mauve, "NORMAL", .{});
         zgui.sameLine(.{ .spacing = 18 });
         zgui.textDisabled("Space play/stop    H/L view    J/K track    F1 help    audio: {s}", .{audio_label});
     }
     zgui.end();
 }
 
+fn rgb(comptime value: u24) [4]f32 {
+    return .{
+        @as(f32, @floatFromInt(value >> 16)) / 255.0,
+        @as(f32, @floatFromInt(value >> 8 & 0xff)) / 255.0,
+        @as(f32, @floatFromInt(value & 0xff)) / 255.0,
+        1.0,
+    };
+}
+
+const umbra = struct {
+    const bg0 = rgb(0x0c040f);
+    const bg1 = rgb(0x160a19);
+    const bg2 = rgb(0x231426);
+    const bg3 = rgb(0x301f34);
+    const bg4 = rgb(0x412d45);
+    const bg5 = rgb(0x553e5a);
+    const fg0 = rgb(0xd9d1da);
+    const fg1 = rgb(0xb1a7b3);
+    const fg2 = rgb(0x887b8c);
+    const fg3 = rgb(0x645567);
+    const line = rgb(0x1d1120);
+    const line_soft = rgb(0x130915);
+    const iris = rgb(0xb07bbc);
+    const iris_soft = rgb(0x886498);
+    const mauve = rgb(0xc68fc1);
+    const red = rgb(0xb97873);
+    const yellow = rgb(0xc1a77b);
+    const cyan = rgb(0x7cb0af);
+};
+
 fn setTheme() void {
     const style = zgui.getStyle();
     zgui.styleColorsDark(style);
-    style.window_rounding = 3;
-    style.frame_rounding = 3;
-    style.grab_rounding = 3;
+    style.setColor(.text, umbra.fg0);
+    style.setColor(.text_disabled, umbra.fg3);
+    style.setColor(.window_bg, umbra.bg1);
+    style.setColor(.child_bg, umbra.bg1);
+    style.setColor(.popup_bg, umbra.bg2);
+    style.setColor(.border, umbra.line);
+    style.setColor(.border_shadow, .{ 0, 0, 0, 0 });
+    style.setColor(.frame_bg, umbra.bg2);
+    style.setColor(.frame_bg_hovered, umbra.bg3);
+    style.setColor(.frame_bg_active, umbra.bg4);
+    style.setColor(.title_bg, umbra.bg0);
+    style.setColor(.title_bg_active, umbra.bg2);
+    style.setColor(.title_bg_collapsed, umbra.bg0);
+    style.setColor(.menu_bar_bg, umbra.bg2);
+    style.setColor(.scrollbar_bg, umbra.bg0);
+    style.setColor(.scrollbar_grab, umbra.bg4);
+    style.setColor(.scrollbar_grab_hovered, umbra.bg5);
+    style.setColor(.scrollbar_grab_active, umbra.iris_soft);
+    style.setColor(.check_mark, umbra.mauve);
+    style.setColor(.slider_grab, umbra.iris_soft);
+    style.setColor(.slider_grab_active, umbra.iris);
+    style.setColor(.button, umbra.bg3);
+    style.setColor(.button_hovered, umbra.bg4);
+    style.setColor(.button_active, umbra.iris_soft);
+    style.setColor(.header, umbra.bg3);
+    style.setColor(.header_hovered, umbra.bg4);
+    style.setColor(.header_active, umbra.iris_soft);
+    style.setColor(.separator, umbra.line);
+    style.setColor(.separator_hovered, umbra.iris_soft);
+    style.setColor(.separator_active, umbra.iris);
+    style.setColor(.plot_lines, umbra.cyan);
+    style.setColor(.plot_lines_hovered, umbra.mauve);
+    style.setColor(.plot_histogram, umbra.iris);
+    style.setColor(.plot_histogram_hovered, umbra.mauve);
+    style.setColor(.table_header_bg, umbra.bg2);
+    style.setColor(.table_border_strong, umbra.bg5);
+    style.setColor(.table_border_light, umbra.line);
+    style.setColor(.table_row_bg_alt, .{ umbra.bg2[0], umbra.bg2[1], umbra.bg2[2], 0.45 });
+    style.setColor(.text_selected_bg, .{ umbra.iris[0], umbra.iris[1], umbra.iris[2], 0.35 });
+    style.setColor(.nav_cursor, umbra.iris);
+    style.setColor(.modal_window_dim_bg, .{ umbra.bg0[0], umbra.bg0[1], umbra.bg0[2], 0.78 });
+    style.window_rounding = 0;
+    style.child_rounding = 0;
+    style.popup_rounding = 0;
+    style.tab_rounding = 0;
+    style.frame_rounding = 2;
+    style.grab_rounding = 2;
+    style.scrollbar_rounding = 0;
     style.window_padding = .{ 12, 12 };
     style.frame_padding = .{ 8, 6 };
     style.item_spacing = .{ 8, 8 };
