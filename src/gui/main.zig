@@ -78,7 +78,6 @@ pub const App = struct {
     }
 
     fn draw(self: *App, audio_label: []const u8) void {
-        self.clampTrackCursor();
         if (self.core.view != .piano_roll) self.piano_mouse_edit = null;
         drawTransport(self, audio_label);
         drawWorkspace(self);
@@ -94,16 +93,7 @@ pub const App = struct {
         }
         if (pressedModalKey(self.core.modal.mode)) |key| {
             self.core.handleKey(key, std.Io.Timestamp.now(self.core.io, .awake).nanoseconds);
-            self.clampTrackCursor();
         }
-    }
-
-    fn clampTrackCursor(self: *App) void {
-        if (self.core.view != .tracks) return;
-        const clamped = guiTrackCursor(self.core.cursor, self.core.session.project.tracks.items.len);
-        if (clamped == self.core.cursor) return;
-        self.core.cursor = clamped;
-        self.core.invalidateTrackRow();
     }
 
     pub fn openPicker(self: *App, picker: tui_app.AppView) void {
@@ -117,17 +107,6 @@ pub const App = struct {
         self.core.view = destination orelse self.picker_return_view;
     }
 };
-
-fn guiTrackCursor(cursor: usize, track_count: usize) usize {
-    if (track_count == 0) return 0;
-    return @min(cursor, track_count - 1);
-}
-
-test "GUI tracks cursor excludes the TUI master sentinel" {
-    try std.testing.expectEqual(@as(usize, 3), guiTrackCursor(4, 4));
-    try std.testing.expectEqual(@as(usize, 3), guiTrackCursor(3, 4));
-    try std.testing.expectEqual(@as(usize, 0), guiTrackCursor(1, 0));
-}
 
 test "GUI status text strips terminal styling" {
     var out: [64]u8 = undefined;
@@ -436,26 +415,31 @@ fn drawWorkspace(app: *App) void {
 }
 
 fn drawTrackOverview(app: *App) void {
-    zgui.textDisabled(icons.master ++ "  MIXER OVERVIEW", .{});
-    zgui.sameLine(.{});
-    zgui.textColored(patina.fg2, "{d} channels", .{app.core.session.project.tracks.items.len});
+    app.core.tracksRowSync();
+    zgui.textDisabled("TRACKS", .{});
     zgui.separator();
-    for (app.core.session.project.tracks.items, 0..) |track, i| {
-        drawMixerRow(app, track, app.core.session.racks.items[i], i);
+    for (app.core.trackRows(), 0..) |row, display_row| {
+        switch (row) {
+            .track => |track_index| drawMixerRow(app, track_index, display_row),
+            .group => |group_index| drawGroupRow(app, group_index, display_row),
+        }
     }
+    zgui.separator();
+    drawMasterRow(app);
 }
 
-fn drawMixerRow(app: *App, track: ws.Track, rack: *ws.Rack, index: usize) void {
+fn drawMixerRow(app: *App, track_index: u16, display_row: usize) void {
+    const track = app.core.session.project.tracks.items[track_index];
+    const rack = app.core.session.racks.items[track_index];
     const height: f32 = 44;
     const width = zgui.getContentRegionAvail()[0];
     const origin = zgui.getCursorScreenPos();
     var id_buf: [32]u8 = undefined;
-    const id = std.fmt.bufPrintZ(&id_buf, "mixer-row-{d}", .{index}) catch return;
+    const id = std.fmt.bufPrintZ(&id_buf, "mixer-row-{d}", .{track_index}) catch return;
     const clicked = zgui.invisibleButton(id, .{ .w = width, .h = height });
     const hovered = zgui.isItemHovered(.{});
-    const selected = app.core.cursor == index;
-    const visual_anchor = app.core.tracks_visual_anchor orelse app.core.cursor;
-    const in_visual = app.core.modal.mode == .visual and index >= @min(visual_anchor, app.core.cursor) and index <= @max(visual_anchor, app.core.cursor);
+    const selected = app.core.track_row == display_row;
+    const in_visual = trackRowInVisual(&app.core, display_row);
     const draw = zgui.getWindowDrawList();
     const accent = trackColor(track.color);
     const colored = track.color > 0 and track.color <= ws.track_color_count;
@@ -472,31 +456,13 @@ fn drawMixerRow(app: *App, track: ws.Track, rack: *ws.Rack, index: usize) void {
         .col = color(row_bg),
         .rounding = 3,
     });
-    if (selected) {
-        draw.addRectFilled(.{
-            .pmin = .{ origin[0] + 1, origin[1] + 1 },
-            .pmax = .{ origin[0] + width - 1, origin[1] + height - 3 },
-            .col = color(.{ patina.focus[0], patina.focus[1], patina.focus[2], 0.18 }),
-            .rounding = 2,
-        });
-        draw.addRect(.{
-            .pmin = .{ origin[0] + 1, origin[1] + 1 },
-            .pmax = .{ origin[0] + width - 1, origin[1] + height - 3 },
-            .col = color(patina.focus),
-            .rounding = 2,
-            .thickness = 2,
-        });
-    } else if (in_visual or hovered) {
-        draw.addRect(.{
-            .pmin = origin,
-            .pmax = .{ origin[0] + width, origin[1] + height - 2 },
-            .col = color(if (in_visual) patina.fg0 else patina.focus),
-            .rounding = 2,
-            .thickness = if (in_visual) 2 else 1,
-        });
-    }
-    draw.addText(.{ origin[0] + 13, origin[1] + 5 }, color(row_fg), "{d:0>2}  {s}", .{ index + 1, track.name });
-    draw.addText(.{ origin[0] + 41, origin[1] + 23 }, color(row_muted), "{s}", .{rack.label});
+    drawTrackRowCursor(draw, origin, width, height, selected, in_visual, hovered);
+    const grouped = if (track.group) |group| group < ws.engine.max_groups and app.core.session.groups[group] != null else false;
+    const text_x = origin[0] + 13 + @as(f32, if (grouped) 18 else 0);
+    const rack_label: []const u8 = if (std.meta.activeTag(rack.instrument) == .empty) "-- empty --" else rack.label;
+    draw.addText(.{ text_x, origin[1] + 5 }, color(row_fg), "{d:0>2}  {s}", .{ track_index + 1, track.name });
+    draw.addText(.{ text_x + 28, origin[1] + 23 }, color(row_muted), "[{s}]", .{rack_label});
+    drawFxChips(draw, &rack.fx, origin[0] + width - 430, origin[1] + 12, origin[0] + width - 215);
 
     var gain_buf: [24]u8 = undefined;
     const gain = std.fmt.bufPrint(&gain_buf, "{d:.1} dB", .{track.gain_db}) catch "gain";
@@ -517,7 +483,81 @@ fn drawMixerRow(app: *App, track: ws.Track, rack: *ws.Rack, index: usize) void {
         badge_x -= 18;
         drawTrackBadge(draw, badge_x, origin[1] + 12, "M", patina.danger);
     }
-    if (clicked) app.core.cursor = index;
+    if (clicked) app.core.setTrackRow(display_row);
+}
+
+fn drawGroupRow(app: *App, group_index: u8, display_row: usize) void {
+    const group = &app.core.session.groups[group_index].?;
+    const height: f32 = 44;
+    const width = zgui.getContentRegionAvail()[0];
+    const origin = zgui.getCursorScreenPos();
+    var id_buf: [32]u8 = undefined;
+    const id = std.fmt.bufPrintZ(&id_buf, "group-row-{d}", .{group_index}) catch return;
+    const clicked = zgui.invisibleButton(id, .{ .w = width, .h = height });
+    const hovered = zgui.isItemHovered(.{});
+    const selected = app.core.track_row == display_row;
+    const in_visual = trackRowInVisual(&app.core, display_row);
+    const draw = zgui.getWindowDrawList();
+    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height - 2 }, .col = color(if (selected) patina.bg3 else if (hovered) patina.bg2 else patina.bg1), .rounding = 3 });
+    drawTrackRowCursor(draw, origin, width, height, selected, in_visual, hovered);
+
+    var member_count: usize = 0;
+    for (app.core.session.project.tracks.items) |track| if (track.group == group_index) {
+        member_count += 1;
+    };
+    draw.addText(.{ origin[0] + 13, origin[1] + 5 }, color(if (selected) patina.fg0 else patina.modulation), "{s} {d:0>2}  {s}", .{ if (group.folded) ">" else "v", group_index + 1, group.name });
+    draw.addText(.{ origin[0] + 41, origin[1] + 23 }, color(patina.fg3), "[group]  {d} track{s}", .{ member_count, if (member_count == 1) "" else "s" });
+    drawFxChips(draw, &group.fx, origin[0] + width - 430, origin[1] + 12, origin[0] + width - 215);
+    draw.addText(.{ origin[0] + width - 190, origin[1] + 14 }, color(if (selected) patina.fg0 else patina.fg1), "{d:.1} dB", .{group.gain_db});
+    if (clicked) app.core.setTrackRow(display_row);
+}
+
+fn drawMasterRow(app: *App) void {
+    const height: f32 = 44;
+    const width = zgui.getContentRegionAvail()[0];
+    const origin = zgui.getCursorScreenPos();
+    const clicked = zgui.invisibleButton("master-row", .{ .w = width, .h = height });
+    const hovered = zgui.isItemHovered(.{});
+    const selected = app.core.track_row == app.core.track_rows_len;
+    const draw = zgui.getWindowDrawList();
+    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height - 2 }, .col = color(if (selected) patina.bg3 else if (hovered) patina.bg2 else patina.bg1), .rounding = 3 });
+    drawTrackRowCursor(draw, origin, width, height, selected, false, hovered);
+    draw.addText(.{ origin[0] + 13, origin[1] + 5 }, color(if (selected) patina.fg0 else patina.modulation), "MASTER", .{});
+    draw.addText(.{ origin[0] + 41, origin[1] + 23 }, color(patina.fg3), "[bus]", .{});
+    drawFxChips(draw, &app.core.session.master_fx, origin[0] + width - 430, origin[1] + 12, origin[0] + width - 215);
+    draw.addText(.{ origin[0] + width - 190, origin[1] + 14 }, color(if (selected) patina.fg0 else patina.fg1), "{d:.1} dB", .{app.core.master_gain_db});
+    if (clicked) app.core.setTrackRow(app.core.track_rows_len);
+}
+
+fn trackRowInVisual(core: *const tui_app.App, display_row: usize) bool {
+    if (core.modal.mode != .visual) return false;
+    const anchor = core.tracks_visual_anchor orelse core.track_row;
+    return display_row >= @min(anchor, core.track_row) and display_row <= @max(anchor, core.track_row);
+}
+
+fn drawTrackRowCursor(draw: zgui.DrawList, origin: [2]f32, width: f32, height: f32, selected: bool, in_visual: bool, hovered: bool) void {
+    if (selected) {
+        draw.addRectFilled(.{ .pmin = .{ origin[0] + 1, origin[1] + 1 }, .pmax = .{ origin[0] + width - 1, origin[1] + height - 3 }, .col = color(.{ patina.focus[0], patina.focus[1], patina.focus[2], 0.18 }), .rounding = 2 });
+        draw.addRect(.{ .pmin = .{ origin[0] + 1, origin[1] + 1 }, .pmax = .{ origin[0] + width - 1, origin[1] + height - 3 }, .col = color(patina.focus), .rounding = 2, .thickness = 2 });
+    } else if (in_visual or hovered) {
+        draw.addRect(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height - 2 }, .col = color(if (in_visual) patina.fg0 else patina.focus), .rounding = 2, .thickness = if (in_visual) 2 else 1 });
+    }
+}
+
+fn drawFxChips(draw: zgui.DrawList, fx: *const ws.Fx, start_x: f32, y: f32, max_x: f32) void {
+    var x = start_x;
+    for (fx.units.items, 0..) |unit, index| {
+        if (index == 4) {
+            draw.addText(.{ x, y + 2 }, color(patina.fg3), "+{d}", .{fx.units.items.len - index});
+            break;
+        }
+        const label = spectrum_ed.stripLabel(unit.kind());
+        const chip_w = zgui.calcTextSize(label, .{})[0] + 12;
+        if (x + chip_w > max_x) break;
+        draw.addRectFilled(.{ .pmin = .{ x, y }, .pmax = .{ x + chip_w, y + 20 }, .col = color(patina.bg2), .rounding = 2 });
+        draw.addText(.{ x + 6, y + 2 }, color(if (unit.bypassed) patina.fg3 else patina.audio), "{s}", .{label});
+        x += chip_w + 4;
+    }
 }
 
 fn drawArrangement(app: *App) void {
