@@ -123,6 +123,7 @@ pub const App = struct {
     }
 
     fn draw(self: *App, audio_label: []const u8) void {
+        self.clampTrackCursor();
         drawTransport(self, audio_label);
         drawWorkspace(self);
         drawStatus(self);
@@ -146,7 +147,16 @@ pub const App = struct {
         }
         if (pressedModalKey(self.core.modal.mode)) |key| {
             self.core.handleKey(key, std.Io.Timestamp.now(self.core.io, .awake).nanoseconds);
+            self.clampTrackCursor();
         }
+    }
+
+    fn clampTrackCursor(self: *App) void {
+        if (self.core.view != .tracks) return;
+        const clamped = guiTrackCursor(self.core.cursor, self.core.session.project.tracks.items.len);
+        if (clamped == self.core.cursor) return;
+        self.core.cursor = clamped;
+        self.core.invalidateTrackRow();
     }
 
     pub fn openPicker(self: *App, picker: tui_app.AppView) void {
@@ -164,6 +174,17 @@ pub const App = struct {
         self.picker_popup_visible = false;
     }
 };
+
+fn guiTrackCursor(cursor: usize, track_count: usize) usize {
+    if (track_count == 0) return 0;
+    return @min(cursor, track_count - 1);
+}
+
+test "GUI tracks cursor excludes the TUI master sentinel" {
+    try std.testing.expectEqual(@as(usize, 3), guiTrackCursor(4, 4));
+    try std.testing.expectEqual(@as(usize, 3), guiTrackCursor(3, 4));
+    try std.testing.expectEqual(@as(usize, 0), guiTrackCursor(1, 0));
+}
 
 fn isPicker(view: tui_app.AppView) bool {
     return view == .instrument_picker or view == .fx_picker or view == .preset_picker;
