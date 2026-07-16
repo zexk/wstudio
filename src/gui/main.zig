@@ -476,20 +476,74 @@ fn drawTracks(app: *App) void {
     zgui.setNextWindowPos(.{ .x = layout.browser_w, .y = 64, .cond = .always });
     zgui.setNextWindowSize(.{ .w = layout.tracks_w, .h = layout.body_h, .cond = .always });
     if (zgui.begin("Tracks", .{ .flags = .{ .no_move = true, .no_resize = true, .no_collapse = true, .no_docking = true } })) {
-        for (app.session.project.tracks.items, 0..) |track, i| {
-            var label_buf: [160]u8 = undefined;
-            const label = std.fmt.bufPrintZ(&label_buf, "{d:0>2}  {s}", .{ i + 1, track.name }) catch continue;
-            if (zgui.selectable(label, .{ .selected = app.selected_track == i })) app.selected_track = i;
-        }
+        zgui.textDisabled("TRACKS", .{});
+        zgui.sameLine(.{});
+        zgui.textColored(umbra.fg2, "{d}", .{app.session.project.tracks.items.len});
         zgui.separator();
-        if (zgui.button("+ Add track", .{ .w = -1 })) {
+        for (app.session.project.tracks.items, 0..) |track, i| drawTrackRow(app, track, i);
+        zgui.spacing();
+        zgui.separator();
+        zgui.pushStyleColor4f(.{ .idx = .button, .c = umbra.bg2 });
+        zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = umbra.bg3 });
+        if (zgui.button("+  NEW TRACK", .{ .w = -1, .h = 30 })) {
             const idx = app.session.project.tracks.items.len + 1;
             var name_buf: [32]u8 = undefined;
             const name = std.fmt.bufPrint(&name_buf, "track {d}", .{idx}) catch "track";
             _ = app.session.addTrack(name) catch {};
         }
+        zgui.popStyleColor(.{ .count = 2 });
     }
     zgui.end();
+}
+
+fn drawTrackRow(app: *App, track: ws.Track, index: usize) void {
+    const height: f32 = 32;
+    const width = zgui.getContentRegionAvail()[0];
+    const origin = zgui.getCursorScreenPos();
+    var id_buf: [32]u8 = undefined;
+    const id = std.fmt.bufPrintZ(&id_buf, "track-row-{d}", .{index}) catch return;
+    const clicked = zgui.invisibleButton(id, .{ .w = width, .h = height });
+    const hovered = zgui.isItemHovered(.{});
+    const selected = app.selected_track == index;
+    const draw = zgui.getWindowDrawList();
+
+    if (selected or hovered) draw.addRectFilled(.{
+        .pmin = origin,
+        .pmax = .{ origin[0] + width, origin[1] + height },
+        .col = color(if (selected) umbra.bg4 else umbra.bg2),
+        .rounding = 3,
+    });
+    const accent = trackColor(track.color);
+    draw.addRectFilled(.{
+        .pmin = .{ origin[0], origin[1] + 5 },
+        .pmax = .{ origin[0] + 3, origin[1] + height - 5 },
+        .col = color(accent),
+        .rounding = 2,
+    });
+    draw.addText(.{ origin[0] + 11, origin[1] + 8 }, color(umbra.fg3), "{d:0>2}", .{index + 1});
+    draw.addText(.{ origin[0] + 39, origin[1] + 8 }, color(if (selected) umbra.fg0 else umbra.fg1), "{s}", .{track.name});
+
+    var badge_x = origin[0] + width - 10;
+    if (track.soloed) {
+        badge_x -= 18;
+        drawTrackBadge(draw, badge_x, origin[1] + 7, "S", umbra.yellow);
+    }
+    if (track.muted) {
+        badge_x -= 18;
+        drawTrackBadge(draw, badge_x, origin[1] + 7, "M", umbra.red);
+    }
+    if (clicked) app.selected_track = index;
+}
+
+fn drawTrackBadge(draw: zgui.DrawList, x: f32, y: f32, label: []const u8, bg: [4]f32) void {
+    draw.addRectFilled(.{ .pmin = .{ x, y }, .pmax = .{ x + 15, y + 18 }, .col = color(bg), .rounding = 2 });
+    draw.addText(.{ x + 4, y + 2 }, color(umbra.bg0), "{s}", .{label});
+}
+
+fn trackColor(index: u8) [4]f32 {
+    const palette = [_][4]f32{ umbra.iris, umbra.red, umbra.yellow, umbra.cyan, umbra.mauve, rgb(0x7899c1), rgb(0x86b978) };
+    if (index == 0 or index > palette.len) return umbra.fg3;
+    return palette[index - 1];
 }
 
 fn drawWorkspace(app: *App) void {
