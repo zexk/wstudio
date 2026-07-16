@@ -58,7 +58,7 @@ fn drawStandalone(app: anytype) void {
         drawParam(app, sampler, 6, "Release", "%.3f s");
         zgui.spacing();
         widgets.sectionTitle("OUTPUT", patina.audio);
-        drawParam(app, sampler, 7, "Gain", "%.1f dB");
+        drawParam(app, sampler, 7, "Gain", "%.2f");
         drawParam(app, sampler, 8, "Pan", "%.2f");
     }
     zgui.endChild();
@@ -143,15 +143,14 @@ fn drawPadHeader(app: anytype, track: u16, kind: PadTargetKind, index: u8, pad: 
     draw_list.addText(.{ origin[0] + width - 280, origin[1] + 39 }, color(patina.fg3), "pitch {d:.1} st   {s}", .{ pad.pitch_semitones, if (pad.reverse) "REVERSE" else "FORWARD" });
 }
 
-fn padParamRange(id: u8) [2]f32 {
-    return switch (id) {
-        0, 1, 5 => .{ 0, 1 },
-        2 => .{ -24, 24 },
-        3, 4, 6 => .{ 0, 5 },
-        7 => .{ 0, 2 },
-        8 => .{ -1, 1 },
-        else => .{ 0, 1 },
-    };
+// Slider bounds come from the dsp-side spec table so they can never drift
+// from what setParamAbsolute actually clamps to. Pad ids 0-8 are the same
+// params the standalone sampler routes to dsp/pad.zig, so one table covers
+// both targets; root note (10) is the only continuous id outside it.
+fn paramRange(id: u8) [2]f32 {
+    if (ws.dsp.Sampler.findAutomatableParam(id)) |param| return param.range;
+    if (id == 10) return .{ 0, 127 };
+    return .{ 0, 1 };
 }
 
 fn padParamId(kind: PadTargetKind, index: u8, param: u8) u16 {
@@ -160,7 +159,7 @@ fn padParamId(kind: PadTargetKind, index: u8, param: u8) u16 {
 
 fn drawPadParam(app: anytype, track: u16, kind: PadTargetKind, index: u8, pad: *ws.dsp.Pad, id: u8, label_text: []const u8, format: [:0]const u8) void {
     var value = ws.dsp.pad.paramValue(pad, id) orelse return;
-    const range = padParamRange(id);
+    const range = paramRange(id);
     var label_buf: [64]u8 = undefined;
     const label = std.fmt.bufPrintZ(&label_buf, "{s}##pad-target-{d}", .{ label_text, id }) catch return;
     const focused = app.core.sampler_param == id;
@@ -199,18 +198,6 @@ fn drawHeader(app: anytype, sampler: *const ws.dsp.Sampler) void {
     draw_list.addText(.{ origin[0] + 17, origin[1] + 35 }, color(patina.fg0), "{s}", .{app.core.session.project.tracks.items[track].name});
     draw_list.addText(.{ origin[0] + width - 310, origin[1] + 12 }, color(patina.focus), "{s}", .{sampler.clipName()});
     draw_list.addText(.{ origin[0] + width - 310, origin[1] + 39 }, color(patina.fg3), "{d} SAMPLES  ROOT {d}", .{ sampler.pad.samples.len, sampler.root_note });
-}
-
-fn paramRange(id: u8) [2]f32 {
-    return switch (id) {
-        0, 1, 5, 8, 9, 11 => .{ 0, 1 },
-        2 => .{ -48, 48 },
-        3, 4 => .{ 0, 5 },
-        6 => .{ 0, 10 },
-        7 => .{ -60, 12 },
-        10 => .{ 0, 127 },
-        else => .{ 0, 1 },
-    };
 }
 
 fn drawParam(app: anytype, sampler: *ws.dsp.Sampler, id: u8, label_text: []const u8, format: [:0]const u8) void {
