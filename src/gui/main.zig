@@ -414,10 +414,6 @@ fn drawWorkspace(app: *App) void {
     zgui.setNextWindowPos(.{ .x = 0, .y = 64, .cond = .always });
     zgui.setNextWindowSize(.{ .w = zgui.io.getDisplaySize()[0], .h = body_h, .cond = .always });
     if (zgui.begin("Workspace", .{ .flags = .{ .no_move = true, .no_resize = true, .no_collapse = true, .no_docking = true } })) {
-        zgui.textColored(patina.fg3, "{s}", .{@tagName(app.core.view)});
-        zgui.sameLine(.{ .spacing = 18 });
-        zgui.textDisabled("j/k move   enter open   esc back   tab arrange/tracks   : command   ? help", .{});
-        zgui.separator();
         switch (app.core.view) {
             .tracks => drawTrackOverview(app),
             .arrangement => drawArrangement(app),
