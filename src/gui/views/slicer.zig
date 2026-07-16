@@ -1,11 +1,10 @@
-const std = @import("std");
 const ws = @import("wstudio");
 const zgui = @import("zgui");
+const icons = @import("../../tui/icons.zig");
 const style = @import("../style.zig");
 const widgets = @import("../widgets.zig");
 const step_grid = @import("step_grid.zig");
 
-const color = style.color;
 const patina = &style.palette;
 
 pub fn draw(app: anytype) void {
@@ -44,19 +43,23 @@ pub fn draw(app: anytype) void {
 }
 
 fn drawHeader(app: anytype, slicer: *const ws.dsp.Slicer) void {
-    const width = zgui.getContentRegionAvail()[0];
-    const height: f32 = 72;
-    const origin = zgui.getCursorScreenPos();
-    _ = zgui.invisibleButton("slicer-header", .{ .w = width, .h = height });
-    const draw_list = zgui.getWindowDrawList();
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(patina.bg2), .rounding = 4 });
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + 5, origin[1] + height }, .col = color(patina.audio), .rounding = 3 });
-    draw_list.addText(.{ origin[0] + 17, origin[1] + 10 }, color(patina.fg3), "SAMPLE SLICER", .{});
-    draw_list.addText(.{ origin[0] + 17, origin[1] + 35 }, color(patina.fg0), "{s}", .{app.core.session.project.tracks.items[app.core.slicer_track].name});
-    draw_list.addText(.{ origin[0] + width - 310, origin[1] + 12 }, color(patina.audio), "{d} SLICES", .{slicer.slice_count});
-    draw_list.addText(.{ origin[0] + width - 190, origin[1] + 12 }, color(patina.fg1), "{d} STEPS", .{slicer.step_count});
-    draw_list.addText(.{ origin[0] + width - 310, origin[1] + 39 }, color(patina.fg3), "{s}", .{std.mem.trimEnd(u8, &slicer.name, " ")});
-    draw_list.addText(.{ origin[0] + width - 190, origin[1] + 39 }, color(patina.fg3), "{s} {c}  {d:.0}% swing", .{ if (slicer.song_mode) "song" else "pattern", 'A' + slicer.variant, slicer.swing.load(.monotonic) });
+    const slices_per_bank = 8;
+    const bank_count = if (slicer.slice_count == 0) 1 else (slicer.slice_count + slices_per_bank - 1) / slices_per_bank;
+    zgui.textDisabled(icons.slicer ++ "  SLICER", .{});
+    zgui.sameLine(.{});
+    zgui.text("\"{s}\"", .{app.core.session.project.tracks.items[app.core.slicer_track].name});
+    zgui.sameLine(.{});
+    zgui.textDisabled("\"{s}\"  slices {d}", .{ slicer.clipName(), slicer.slice_count });
+    zgui.sameLine(.{});
+    zgui.textColored(patina.audio, "pat {c}", .{'A' + slicer.variant});
+    if (slicer.variant_count > 1) {
+        zgui.sameLine(.{});
+        zgui.textDisabled("{d}/{d}", .{ slicer.variant + 1, slicer.variant_count });
+    }
+    if (bank_count > 1) {
+        zgui.sameLine(.{});
+        zgui.textDisabled("bank {d}/{d}", .{ app.core.slicer_cursor[0] / slices_per_bank + 1, bank_count });
+    }
 }
 
 fn drawSliceState(app: anytype, slicer: *const ws.dsp.Slicer) void {
