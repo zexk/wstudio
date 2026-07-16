@@ -443,17 +443,11 @@ fn exitVisual(app: *App) void {
     app.slicer_visual_anchor = null;
 }
 
-const StepRange = step_grid.StepRange;
-
-fn selectionRange(app: *App) StepRange {
-    return step_grid.selectionRange(app.slicer_visual_anchor, app.slicer_cursor[1]);
-}
-
 /// Yank every slice's steps within the selected range into the range
 /// clipboard, rebased so the range's first step is bit 0.
 fn yankSelection(app: *App) void {
     const sl = app.slicerInst();
-    const r = selectionRange(app);
+    const r = step_grid.selectionRange(app.slicer_visual_anchor, app.slicer_cursor[1]);
     const clip = step_grid.yankRange(SlicerRangeClip, sl, Slicer.max_slices, r);
     app.slicer_range_clip = clip;
     app.setStatus("yanked {d} steps", .{clip.width});
@@ -463,7 +457,7 @@ fn yankSelection(app: *App) void {
 /// Clear every slice's steps within the selected range.
 fn deleteSelection(app: *App) void {
     const sl = app.slicerInst();
-    const r = selectionRange(app);
+    const r = step_grid.selectionRange(app.slicer_visual_anchor, app.slicer_cursor[1]);
     history.push(app, history.captureSlicer(app, app.slicer_track));
     step_grid.clearRange(sl, Slicer.max_slices, r);
     app.last_edit = .{ .slicer_range_delete = .{ .width = r.hi - r.lo + 1 } };
@@ -500,11 +494,6 @@ fn repeatLastEdit(app: *App) void {
         .slicer_range_paste => pasteSelection(app),
         else => app.setStatus("nothing to repeat", .{}),
     }
-}
-
-/// Step index at column `x` within a slice row - see step_grid.stepAt.
-fn stepAt(scroll: u32, step_count: u8, x: usize) ?u8 {
-    return step_grid.stepAt(slicer_view.gutter, 3, scroll, step_count, x);
 }
 
 /// Click a step cell to toggle it; drag to paint. Click inside the
@@ -548,7 +537,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16, v
     switch (ev.kind) {
         .press => {
             app.slicer_cursor[0] = @intCast(slice);
-            const step = stepAt(app.slicer_step_scroll, sl.step_count, ev.x) orelse {
+            const step = step_grid.stepAt(slicer_view.gutter, 3, app.slicer_step_scroll, sl.step_count, ev.x) orelse {
                 app.slicer_paint_state = null;
                 return;
             };
@@ -559,7 +548,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16, v
         },
         .drag => {
             const state = app.slicer_paint_state orelse return;
-            const step = stepAt(app.slicer_step_scroll, sl.step_count, ev.x) orelse return;
+            const step = step_grid.stepAt(slicer_view.gutter, 3, app.slicer_step_scroll, sl.step_count, ev.x) orelse return;
             app.slicer_cursor[0] = @intCast(slice);
             app.slicer_cursor[1] = step;
             step_grid.setStep(sl, @intCast(slice), step, state, Slicer.vel_full);

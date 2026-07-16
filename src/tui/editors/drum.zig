@@ -424,17 +424,11 @@ fn exitVisual(app: *App) void {
     app.drum_visual_anchor = null;
 }
 
-const StepRange = step_grid.StepRange;
-
-fn selectionRange(app: *App) StepRange {
-    return step_grid.selectionRange(app.drum_visual_anchor, app.drum_cursor[1]);
-}
-
 /// Yank every pad's steps within the selected range into the range
 /// clipboard, rebased so the range's first step is bit 0.
 fn yankSelection(app: *App) void {
     const dm = app.drumMachine();
-    const r = selectionRange(app);
+    const r = step_grid.selectionRange(app.drum_visual_anchor, app.drum_cursor[1]);
     const clip = step_grid.yankRange(DrumRangeClip, dm, DrumMachine.max_pads, r);
     app.drum_range_clip = clip;
     app.drum_last_yank = .range;
@@ -445,7 +439,7 @@ fn yankSelection(app: *App) void {
 /// Clear every pad's steps within the selected range.
 fn deleteSelection(app: *App) void {
     const dm = app.drumMachine();
-    const r = selectionRange(app);
+    const r = step_grid.selectionRange(app.drum_visual_anchor, app.drum_cursor[1]);
     history.push(app, history.captureDrum(app, app.drum_track));
     step_grid.clearRange(dm, DrumMachine.max_pads, r);
     app.last_edit = .{ .drum_range_delete = .{ .width = r.hi - r.lo + 1 } };
@@ -531,11 +525,6 @@ fn cycleVariant(app: *App, delta: i32) void {
     });
 }
 
-/// Step index at column `x` within a pad row - see step_grid.stepAt.
-fn stepAt(app: *const App, scroll: u32, step_count: u8, x: usize) ?u8 {
-    return step_grid.stepAt(drum_view.gutter, app.drumCellWidth(), scroll, step_count, x);
-}
-
 /// Click a step cell to toggle it (same as enter); click the pad-name
 /// gutter to just select that pad row. Dragging with the button held paints
 /// (rather than toggles) every newly-entered cell to the state the initial
@@ -571,7 +560,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, view_rows: u
         .press => {
             app.drum_cursor[0] = @intCast(pad);
             const dm = app.drumMachine();
-            const step = stepAt(app, app.drum_step_scroll, dm.step_count, ev.x) orelse {
+            const step = step_grid.stepAt(drum_view.gutter, app.drumCellWidth(), app.drum_step_scroll, dm.step_count, ev.x) orelse {
                 app.drum_paint_state = null;
                 return;
             };
@@ -583,7 +572,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, view_rows: u
         .drag => {
             const state = app.drum_paint_state orelse return;
             const dm = app.drumMachine();
-            const step = stepAt(app, app.drum_step_scroll, dm.step_count, ev.x) orelse return;
+            const step = step_grid.stepAt(drum_view.gutter, app.drumCellWidth(), app.drum_step_scroll, dm.step_count, ev.x) orelse return;
             app.drum_cursor[0] = @intCast(pad);
             app.drum_cursor[1] = step;
             step_grid.setStep(dm, @intCast(pad), step, state, DrumMachine.vel_full);
