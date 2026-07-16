@@ -8,13 +8,22 @@ const tui_app = @import("../tui/app.zig");
 const tui_cmd = @import("../tui/cmd.zig");
 const tui_commands = @import("../tui/commands.zig");
 const spectrum_ed = @import("../tui/editors/spectrum.zig");
+const gui_style = @import("style.zig");
+const fx_view = @import("views/fx.zig");
+const sampler_view = @import("views/sampler.zig");
+const slicer_view = @import("views/slicer.zig");
+const step_grid = @import("views/step_grid.zig");
 const glfw = @import("zglfw");
 const zgui = @import("zgui");
 const zopengl = @import("zopengl");
 
 const gl = zopengl.bindings;
+const color = gui_style.color;
+const rgb = gui_style.rgb;
+const trackColor = gui_style.trackColor;
+const umbra = gui_style.umbra;
 
-const App = struct {
+pub const App = struct {
     core: tui_app.App,
     held_notes: [piano_keys.len]?HeldNote = [_]?HeldNote{null} ** piano_keys.len,
     picker_return_view: tui_app.AppView = .tracks,
@@ -126,7 +135,7 @@ const App = struct {
         }
     }
 
-    fn openPicker(self: *App, picker: tui_app.AppView) void {
+    pub fn openPicker(self: *App, picker: tui_app.AppView) void {
         if (!isPicker(picker)) return;
         if (!isPicker(self.core.view)) self.picker_return_view = self.core.view;
         if (picker == .fx_picker) self.core.fx_picker_return = self.picker_return_view;
@@ -134,7 +143,7 @@ const App = struct {
         self.picker_popup_pending = true;
     }
 
-    fn closePicker(self: *App, destination: ?tui_app.AppView) void {
+    pub fn closePicker(self: *App, destination: ?tui_app.AppView) void {
         zgui.closeCurrentPopup();
         self.core.view = destination orelse self.picker_return_view;
         self.picker_popup_pending = false;
@@ -299,7 +308,7 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8) !void {
     defer zgui.plot.deinit();
     zgui.io.setConfigFlags(.{ .nav_enable_keyboard = true });
     zgui.io.setIniFilename(null);
-    setTheme();
+    gui_style.setTheme();
     zgui.backend.init(window);
     defer zgui.backend.deinit();
 
@@ -547,12 +556,6 @@ fn drawTrackBadge(draw: zgui.DrawList, x: f32, y: f32, label: []const u8, bg: [4
     draw.addText(.{ x + 4, y + 2 }, color(umbra.bg0), "{s}", .{label});
 }
 
-fn trackColor(index: u8) [4]f32 {
-    const palette = [_][4]f32{ umbra.iris, umbra.red, umbra.yellow, umbra.cyan, umbra.mauve, rgb(0x7899c1), rgb(0x86b978) };
-    if (index == 0 or index > palette.len) return umbra.fg3;
-    return palette[index - 1];
-}
-
 fn drawWorkspace(app: *App) void {
     const layout = Layout.current(app.core.modal.mode == .command or app.core.modal.mode == .search);
     zgui.setNextWindowPos(.{ .x = 0, .y = 64, .cond = .always });
@@ -567,10 +570,10 @@ fn drawWorkspace(app: *App) void {
             .arrangement => drawArrangement(app),
             .piano_roll => drawPianoRoll(app),
             .drum_grid => drawDrumGrid(app),
-            .slicer_grid => drawSlicerGrid(app),
+            .slicer_grid => slicer_view.draw(app),
             .synth_editor => drawSynth(app),
-            .sampler_editor => drawSampler(app),
-            .track_spectrum, .master_spectrum, .group_spectrum => drawSpectrum(app),
+            .sampler_editor => sampler_view.draw(app),
+            .track_spectrum, .master_spectrum, .group_spectrum => fx_view.draw(app),
             .automation => drawAutomation(app),
             .instrument_picker => drawInstrumentPicker(app),
             .fx_picker, .synth_fx_picker => drawFxPicker(app),
@@ -947,10 +950,6 @@ fn drawPianoRoll(app: *App) void {
     }
 }
 
-fn color(rgba: [4]f32) u32 {
-    return zgui.colorConvertFloat4ToU32(rgba);
-}
-
 fn isBlackKey(pitch: u7) bool {
     return switch (@mod(pitch, 12)) {
         1, 3, 6, 8, 10 => true,
@@ -971,7 +970,7 @@ fn drawDrumGrid(app: *App) void {
     const play_step: ?usize = if (snap.playing) drum.currentStep() else null;
     drawDrumHeader(app, drum, snap.playing);
     zgui.spacing();
-    drawStepGridCanvas(.drum, drum, @min(@as(usize, 12), drum.pads.len), drum.step_count, play_step);
+    step_grid.draw(.drum, drum, @min(@as(usize, 12), drum.pads.len), drum.step_count, play_step);
 }
 
 fn drawDrumHeader(app: *App, drum: *ws.dsp.DrumMachine, playing: bool) void {
@@ -992,118 +991,6 @@ fn drawDrumHeader(app: *App, drum: *ws.dsp.DrumMachine, playing: bool) void {
     draw.addText(.{ origin[0] + width - 360, origin[1] + 34 }, color(umbra.fg3), "1/{d} GRID", .{drum.steps_per_beat * 4});
     draw.addText(.{ origin[0] + width - 270, origin[1] + 34 }, color(umbra.fg3), "{d:.0}% SWING", .{drum.swing.load(.monotonic)});
     draw.addText(.{ origin[0] + width - 150, origin[1] + 34 }, color(umbra.fg3), "VARIANT {d}/{d}", .{ drum.variant + 1, drum.variant_count });
-}
-
-fn drawSlicerGrid(app: *App) void {
-    const rack = app.core.session.racks.items[app.core.cursor];
-    const slicer = switch (rack.instrument) {
-        .slicer => |*s| s,
-        else => {
-            zgui.textDisabled("Select a Slicer track.", .{});
-            return;
-        },
-    };
-    drawSlicerHeader(app, slicer);
-    zgui.spacing();
-    drawInstrumentSectionTitle("SOURCE WAVEFORM", umbra.cyan);
-    if (slicer.sample_lock.tryLock()) {
-        defer slicer.sample_lock.unlock();
-        drawWaveform("##slicer-wave", slicer.samples);
-    }
-    zgui.spacing();
-    drawInstrumentSectionTitle("SLICE SEQUENCE", umbra.iris);
-    drawStepGridCanvas(.slicer, slicer, @min(@as(usize, 12), slicer.slice_count), slicer.step_count, null);
-}
-
-fn drawSlicerHeader(app: *App, slicer: *const ws.dsp.Slicer) void {
-    const width = zgui.getContentRegionAvail()[0];
-    const height: f32 = 72;
-    const origin = zgui.getCursorScreenPos();
-    _ = zgui.invisibleButton("slicer-header", .{ .w = width, .h = height });
-    const draw = zgui.getWindowDrawList();
-    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(umbra.bg2), .rounding = 4 });
-    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + 5, origin[1] + height }, .col = color(umbra.cyan), .rounding = 3 });
-    draw.addText(.{ origin[0] + 17, origin[1] + 10 }, color(umbra.fg3), "SAMPLE SLICER", .{});
-    draw.addText(.{ origin[0] + 17, origin[1] + 35 }, color(umbra.fg0), "{s}", .{app.core.session.project.tracks.items[app.core.cursor].name});
-    draw.addText(.{ origin[0] + width - 310, origin[1] + 12 }, color(umbra.cyan), "{d} SLICES", .{slicer.slice_count});
-    draw.addText(.{ origin[0] + width - 190, origin[1] + 12 }, color(umbra.fg1), "{d} STEPS", .{slicer.step_count});
-    draw.addText(.{ origin[0] + width - 310, origin[1] + 39 }, color(umbra.fg3), "{s}", .{std.mem.trimEnd(u8, &slicer.name, " ")});
-}
-
-const StepGridKind = enum { drum, slicer };
-
-fn drawStepGridCanvas(comptime kind: StepGridKind, instrument: anytype, row_count: usize, step_count_raw: u8, play_step: ?usize) void {
-    const step_count: usize = @max(1, step_count_raw);
-    const gutter_w: f32 = 132;
-    const ruler_h: f32 = 27;
-    const row_h: f32 = 32;
-    const available = zgui.getContentRegionAvail();
-    const canvas_w = @max(360, available[0]);
-    const canvas_h = ruler_h + row_h * @as(f32, @floatFromInt(row_count));
-    const origin = zgui.getCursorScreenPos();
-    const id = if (kind == .drum) "drum-grid-canvas" else "slicer-grid-canvas";
-    const clicked = zgui.invisibleButton(id, .{ .w = canvas_w, .h = canvas_h });
-    const hovered = zgui.isItemHovered(.{});
-    const mouse = zgui.getMousePos();
-    const draw = zgui.getWindowDrawList();
-    const grid_x = origin[0] + gutter_w;
-    const grid_y = origin[1] + ruler_h;
-    const grid_w = canvas_w - gutter_w;
-    const cell_w = grid_w / @as(f32, @floatFromInt(step_count));
-    const steps_per_beat: usize = if (kind == .drum) instrument.steps_per_beat else 4;
-
-    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + canvas_w, origin[1] + canvas_h }, .col = color(umbra.bg0) });
-    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + canvas_w, grid_y }, .col = color(umbra.bg2) });
-    for (0..row_count) |row| {
-        const y = grid_y + @as(f32, @floatFromInt(row)) * row_h;
-        draw.addRectFilled(.{ .pmin = .{ origin[0], y }, .pmax = .{ grid_x, y + row_h }, .col = color(if (row % 2 == 0) umbra.bg2 else umbra.bg1) });
-        draw.addRectFilled(.{ .pmin = .{ grid_x, y }, .pmax = .{ origin[0] + canvas_w, y + row_h }, .col = color(if (row % 2 == 0) umbra.bg1 else umbra.bg0) });
-        if (kind == .drum) {
-            if (instrument.pads[row]) |*sample|
-                draw.addText(.{ origin[0] + 9, y + 8 }, color(umbra.fg1), "{d:0>2}  {s}", .{ row + 1, sample.clipName() })
-            else
-                draw.addText(.{ origin[0] + 9, y + 8 }, color(umbra.fg2), "{d:0>2}  Pad", .{row + 1});
-        } else {
-            draw.addText(.{ origin[0] + 9, y + 8 }, color(umbra.fg1), "{d:0>2}  Slice {d}", .{ row + 1, row + 1 });
-        }
-        draw.addLine(.{ .p1 = .{ origin[0], y + row_h }, .p2 = .{ origin[0] + canvas_w, y + row_h }, .col = color(umbra.line), .thickness = 1 });
-    }
-
-    for (0..step_count + 1) |step| {
-        const x = grid_x + @as(f32, @floatFromInt(step)) * cell_w;
-        const on_beat = step % steps_per_beat == 0;
-        draw.addLine(.{ .p1 = .{ x, if (on_beat) origin[1] else grid_y }, .p2 = .{ x, origin[1] + canvas_h }, .col = color(if (on_beat) umbra.bg5 else umbra.line_soft), .thickness = if (on_beat) 1.5 else 1 });
-        if (on_beat and step < step_count) draw.addText(.{ x + 5, origin[1] + 5 }, color(umbra.fg2), "{d}", .{step / steps_per_beat + 1});
-    }
-
-    if (play_step) |step| {
-        const x = grid_x + @as(f32, @floatFromInt(step % step_count)) * cell_w;
-        draw.addRectFilled(.{ .pmin = .{ x, origin[1] }, .pmax = .{ x + cell_w, grid_y }, .col = color(.{ umbra.red[0], umbra.red[1], umbra.red[2], 0.28 }) });
-        draw.addLine(.{ .p1 = .{ x, origin[1] }, .p2 = .{ x, origin[1] + canvas_h }, .col = color(umbra.red), .thickness = 2 });
-        draw.addTriangleFilled(.{ .p1 = .{ x - 4, grid_y - 7 }, .p2 = .{ x + 4, grid_y - 7 }, .p3 = .{ x, grid_y - 2 }, .col = color(umbra.red) });
-    }
-
-    for (0..row_count) |row| {
-        for (0..step_count) |step| {
-            if (!instrument.stepActive(@intCast(row), @intCast(step))) continue;
-            const velocity = @as(f32, @floatFromInt(instrument.stepVel(@intCast(row), @intCast(step)))) / 127.0;
-            const x = grid_x + @as(f32, @floatFromInt(step)) * cell_w;
-            const y = grid_y + @as(f32, @floatFromInt(row)) * row_h;
-            const inset = @min(3, cell_w * 0.15);
-            const height = 8 + velocity * (row_h - 13);
-            const hit_color = if (kind == .drum) umbra.iris else umbra.cyan;
-            draw.addRectFilled(.{ .pmin = .{ x + inset, y + row_h - height - 3 }, .pmax = .{ x + cell_w - inset, y + row_h - 3 }, .col = color(.{ hit_color[0], hit_color[1], hit_color[2], 0.62 + velocity * 0.38 }) });
-        }
-    }
-
-    if (hovered and mouse[0] >= grid_x and mouse[1] >= grid_y and row_count > 0) {
-        const step = @min(step_count - 1, @as(usize, @intFromFloat((mouse[0] - grid_x) / cell_w)));
-        const row = @min(row_count - 1, @as(usize, @intFromFloat((mouse[1] - grid_y) / row_h)));
-        const x = grid_x + @as(f32, @floatFromInt(step)) * cell_w;
-        const y = grid_y + @as(f32, @floatFromInt(row)) * row_h;
-        draw.addRectFilled(.{ .pmin = .{ x + 1, y + 1 }, .pmax = .{ x + cell_w - 1, y + row_h - 1 }, .col = color(.{ umbra.mauve[0], umbra.mauve[1], umbra.mauve[2], 0.22 }) });
-        if (clicked) instrument.toggleStep(@intCast(row), @intCast(step));
-    }
 }
 
 fn drawDevices(app: *App) void {
@@ -1342,340 +1229,6 @@ fn drawSynthParam(app: *App, synth: *ws.dsp.PolySynth, id: u8, label_text: []con
     if (zgui.sliderFloat(zlabel, .{ .v = &value, .min = param.range[0], .max = param.range[1], .cfmt = format })) {
         _ = app.core.session.engine.send(.{ .set_track_param_abs = .{ .track = @intCast(app.core.cursor), .id = id, .value = value } });
     }
-}
-
-fn drawSampler(app: *App) void {
-    const sampler = switch (app.core.session.racks.items[app.core.cursor].instrument) {
-        .sampler => |*s| s,
-        else => {
-            zgui.textDisabled("Select a Sampler track.", .{});
-            return;
-        },
-    };
-    drawSamplerHeader(app, sampler);
-    zgui.spacing();
-    drawInstrumentSectionTitle("SAMPLE WAVEFORM", umbra.cyan);
-    if (sampler.pad_lock.tryLock()) {
-        defer sampler.pad_lock.unlock();
-        drawWaveform("##sampler-wave", sampler.pad.samples);
-    }
-    zgui.spacing();
-
-    const gap: f32 = 10;
-    const column_w = @max(300, (zgui.getContentRegionAvail()[0] - gap) / 2);
-    if (zgui.beginChild("sampler-left", .{ .w = column_w, .h = 0, .child_flags = .{ .border = true } })) {
-        drawInstrumentSectionTitle("PLAYBACK", umbra.iris);
-        drawSamplerParam(app, sampler, 0, "Start", "%.3f");
-        drawSamplerParam(app, sampler, 1, "End", "%.3f");
-        drawSamplerParam(app, sampler, 2, "Pitch", "%.0f st");
-        drawSamplerParam(app, sampler, 10, "Root note", "%.0f");
-        zgui.spacing();
-        drawInstrumentSectionTitle("MODE", umbra.mauve);
-        drawSamplerToggle(app, sampler, 9, "REVERSE", "FORWARD");
-        zgui.sameLine(.{ .spacing = 6 });
-        drawSamplerToggle(app, sampler, 11, "MONO", "POLY");
-    }
-    zgui.endChild();
-    zgui.sameLine(.{ .spacing = gap });
-    if (zgui.beginChild("sampler-right", .{ .w = 0, .h = 0, .child_flags = .{ .border = true } })) {
-        drawInstrumentSectionTitle("AMPLITUDE ENVELOPE", umbra.yellow);
-        drawSamplerParam(app, sampler, 3, "Attack", "%.3f s");
-        drawSamplerParam(app, sampler, 4, "Decay", "%.3f s");
-        drawSamplerParam(app, sampler, 5, "Sustain", "%.2f");
-        drawSamplerParam(app, sampler, 6, "Release", "%.3f s");
-        zgui.spacing();
-        drawInstrumentSectionTitle("OUTPUT", umbra.cyan);
-        drawSamplerParam(app, sampler, 7, "Gain", "%.1f dB");
-        drawSamplerParam(app, sampler, 8, "Pan", "%.2f");
-    }
-    zgui.endChild();
-}
-
-fn drawSamplerHeader(app: *App, sampler: *const ws.dsp.Sampler) void {
-    const width = zgui.getContentRegionAvail()[0];
-    const height: f32 = 72;
-    const origin = zgui.getCursorScreenPos();
-    _ = zgui.invisibleButton("sampler-header", .{ .w = width, .h = height });
-    const draw = zgui.getWindowDrawList();
-    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(umbra.bg2), .rounding = 4 });
-    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + 5, origin[1] + height }, .col = color(umbra.iris), .rounding = 3 });
-    draw.addText(.{ origin[0] + 17, origin[1] + 10 }, color(umbra.fg3), "SAMPLER", .{});
-    draw.addText(.{ origin[0] + 17, origin[1] + 35 }, color(umbra.fg0), "{s}", .{app.core.session.project.tracks.items[app.core.cursor].name});
-    draw.addText(.{ origin[0] + width - 310, origin[1] + 12 }, color(umbra.iris), "{s}", .{sampler.clipName()});
-    draw.addText(.{ origin[0] + width - 310, origin[1] + 39 }, color(umbra.fg3), "{d} SAMPLES  ROOT {d}", .{ sampler.pad.samples.len, sampler.root_note });
-}
-
-fn drawInstrumentSectionTitle(label: []const u8, accent: [4]f32) void {
-    zgui.textColored(accent, "{s}", .{label});
-    zgui.separator();
-}
-
-fn samplerParamRange(id: u8) [2]f32 {
-    return switch (id) {
-        0, 1, 5, 8, 9, 11 => .{ 0, 1 },
-        2 => .{ -48, 48 },
-        3, 4 => .{ 0, 5 },
-        6 => .{ 0, 10 },
-        7 => .{ -60, 12 },
-        10 => .{ 0, 127 },
-        else => .{ 0, 1 },
-    };
-}
-
-fn drawSamplerParam(app: *App, sampler: *ws.dsp.Sampler, id: u8, label_text: []const u8, format: [:0]const u8) void {
-    var value = sampler.paramValue(id) orelse return;
-    const range = samplerParamRange(id);
-    var label_buf: [64]u8 = undefined;
-    const label = std.fmt.bufPrintZ(&label_buf, "{s}##sampler-{d}", .{ label_text, id }) catch return;
-    if (zgui.sliderFloat(label, .{ .v = &value, .min = range[0], .max = range[1], .cfmt = format })) {
-        _ = app.core.session.engine.send(.{ .set_track_param_abs = .{ .track = @intCast(app.core.cursor), .id = id, .value = value } });
-    }
-}
-
-fn drawSamplerToggle(app: *App, sampler: *ws.dsp.Sampler, id: u8, on_label: [:0]const u8, off_label: [:0]const u8) void {
-    const value = sampler.paramValue(id) orelse return;
-    const active = value >= 0.5;
-    zgui.pushStyleColor4f(.{ .idx = .button, .c = if (active) umbra.iris else umbra.bg2 });
-    zgui.pushStyleColor4f(.{ .idx = .text, .c = if (active) umbra.bg0 else umbra.fg2 });
-    if (zgui.button(if (active) on_label else off_label, .{ .w = 106, .h = 32 })) {
-        _ = app.core.session.engine.send(.{ .set_track_param_abs = .{ .track = @intCast(app.core.cursor), .id = id, .value = if (active) 0 else 1 } });
-    }
-    zgui.popStyleColor(.{ .count = 2 });
-}
-
-fn drawWaveform(label: [:0]const u8, samples: []const f32) void {
-    if (samples.len == 0) {
-        zgui.textDisabled("No sample loaded.", .{});
-        return;
-    }
-    var overview: [1024]f32 = undefined;
-    const count = @min(samples.len, overview.len);
-    for (overview[0..count], 0..) |*out, i| {
-        const start = i * samples.len / count;
-        const end = @max(start + 1, (i + 1) * samples.len / count);
-        var peak: f32 = 0;
-        for (samples[start..@min(end, samples.len)]) |sample| if (@abs(sample) > @abs(peak)) {
-            peak = sample;
-        };
-        out.* = peak;
-    }
-    if (zgui.plot.beginPlot(label, .{ .h = 150, .flags = .canvas_only })) {
-        zgui.plot.setupAxis(.x1, .{ .flags = .no_decorations });
-        zgui.plot.setupAxis(.y1, .{ .flags = .no_decorations });
-        zgui.plot.setupAxisLimits(.x1, .{ .min = 0, .max = @floatFromInt(count), .cond = .always });
-        zgui.plot.setupAxisLimits(.y1, .{ .min = -1, .max = 1, .cond = .always });
-        zgui.plot.plotLineValues("wave", f32, .{ .v = overview[0..count] });
-        zgui.plot.endPlot();
-    }
-}
-
-fn drawSpectrum(app: *App) void {
-    const target = spectrum_ed.currentTarget(&app.core);
-    const fx = spectrum_ed.fxPtr(&app.core, target) orelse {
-        zgui.textDisabled("This FX chain is no longer available.", .{});
-        return;
-    };
-    if (fx.units.items.len > 0) app.core.fx_focus = @min(app.core.fx_focus, fx.units.items.len - 1);
-
-    const snap = app.core.session.engine.uiSnapshot();
-    drawFxHeader(app, target, fx, snap);
-    zgui.spacing();
-    drawFxSignalChain(app, target, fx);
-    zgui.spacing();
-
-    if (spectrum_ed.focusedUnit(&app.core, fx)) |unit| {
-        drawFxEditor(app, target, unit);
-    } else {
-        drawFxEmptyState(app);
-    }
-}
-
-fn drawFxHeader(app: *App, target: spectrum_ed.EqTarget, fx: *const ws.Fx, snap: ws.engine.UiSnapshot) void {
-    const width = zgui.getContentRegionAvail()[0];
-    const height: f32 = 94;
-    const origin = zgui.getCursorScreenPos();
-    _ = zgui.invisibleButton("fx-header", .{ .w = width, .h = height });
-    const draw = zgui.getWindowDrawList();
-    const accent = fxTargetAccent(app, target);
-    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(umbra.bg2), .rounding = 4 });
-    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + 5, origin[1] + height }, .col = color(accent), .rounding = 3 });
-    draw.addText(.{ origin[0] + 17, origin[1] + 10 }, color(umbra.fg3), "FX RACK", .{});
-    draw.addText(.{ origin[0] + 17, origin[1] + 31 }, color(umbra.fg0), "{s}", .{fxTargetName(app, target)});
-    draw.addText(.{ origin[0] + 17, origin[1] + 62 }, color(umbra.fg2), "{d}/{d} UNITS", .{ fx.units.items.len, ws.Fx.max_units });
-
-    const meter_w: f32 = @min(210, width * 0.28);
-    const meter_x = origin[0] + width - meter_w - 17;
-    draw.addText(.{ meter_x, origin[1] + 11 }, color(umbra.fg3), "MASTER OUTPUT", .{});
-    drawFxMeter(draw, .{ meter_x, origin[1] + 34 }, meter_w, snap.peak[0], "L");
-    drawFxMeter(draw, .{ meter_x, origin[1] + 60 }, meter_w, snap.peak[1], "R");
-}
-
-fn drawFxMeter(draw: zgui.DrawList, pos: [2]f32, width: f32, value: f32, label: []const u8) void {
-    const meter_x = pos[0] + 18;
-    const meter_w = width - 18;
-    const level = std.math.clamp(value, 0, 1);
-    draw.addText(.{ pos[0], pos[1] - 2 }, color(umbra.fg3), "{s}", .{label});
-    draw.addRectFilled(.{ .pmin = .{ meter_x, pos[1] }, .pmax = .{ meter_x + meter_w, pos[1] + 10 }, .col = color(umbra.bg0), .rounding = 2 });
-    draw.addRectFilled(.{ .pmin = .{ meter_x, pos[1] }, .pmax = .{ meter_x + meter_w * level, pos[1] + 10 }, .col = color(if (level > 0.9) umbra.red else umbra.cyan), .rounding = 2 });
-}
-
-fn fxTargetName(app: *const App, target: spectrum_ed.EqTarget) []const u8 {
-    return switch (target) {
-        .track => if (app.core.eq_track < app.core.session.project.tracks.items.len)
-            app.core.session.project.tracks.items[app.core.eq_track].name
-        else
-            "Track",
-        .master => "Master bus",
-        .group => if (app.core.eq_group < ws.engine.max_groups)
-            if (app.core.session.groups[app.core.eq_group]) |group| group.name else "Group bus"
-        else
-            "Group bus",
-    };
-}
-
-fn fxTargetAccent(app: *const App, target: spectrum_ed.EqTarget) [4]f32 {
-    return switch (target) {
-        .track => if (app.core.eq_track < app.core.session.project.tracks.items.len)
-            trackColor(app.core.session.project.tracks.items[app.core.eq_track].color)
-        else
-            umbra.iris,
-        .master => umbra.mauve,
-        .group => umbra.cyan,
-    };
-}
-
-fn drawFxSignalChain(app: *App, target: spectrum_ed.EqTarget, fx: *ws.Fx) void {
-    zgui.textDisabled("SIGNAL FLOW", .{});
-    zgui.sameLine(.{});
-    zgui.textColored(umbra.fg3, "INPUT  >  PROCESSING  >  OUTPUT", .{});
-
-    const gap: f32 = 6;
-    const count = fx.units.items.len + @as(usize, if (fx.units.items.len < ws.Fx.max_units) 1 else 0);
-    const available = zgui.getContentRegionAvail()[0];
-    const slot_w = std.math.clamp((available - gap * @as(f32, @floatFromInt(count -| 1))) / @as(f32, @floatFromInt(@max(count, 1))), 72, 126);
-    for (fx.units.items, 0..) |unit, i| {
-        if (i > 0) zgui.sameLine(.{ .spacing = gap });
-        drawFxSlot(app, target, unit, i, slot_w);
-    }
-    if (fx.units.items.len < ws.Fx.max_units) {
-        if (fx.units.items.len > 0) zgui.sameLine(.{ .spacing = gap });
-        zgui.pushStyleColor4f(.{ .idx = .button, .c = umbra.bg2 });
-        zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = umbra.iris_soft });
-        if (zgui.button("+  ADD##fx-chain-add", .{ .w = slot_w, .h = 58 })) app.openPicker(.fx_picker);
-        zgui.popStyleColor(.{ .count = 2 });
-    }
-}
-
-fn drawFxSlot(app: *App, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, index: usize, width: f32) void {
-    const origin = zgui.getCursorScreenPos();
-    var id_buf: [32]u8 = undefined;
-    const id = std.fmt.bufPrintZ(&id_buf, "fx-slot-{d}", .{index}) catch return;
-    const clicked = zgui.invisibleButton(id, .{ .w = width, .h = 58 });
-    const hovered = zgui.isItemHovered(.{});
-    const selected = app.core.fx_focus == index;
-    const draw = zgui.getWindowDrawList();
-    const accent = if (unit.bypassed) umbra.fg3 else fxKindAccent(unit.kind());
-    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + 58 }, .col = color(if (selected) umbra.bg4 else if (hovered) umbra.bg3 else umbra.bg2), .rounding = 4 });
-    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + 3 }, .col = color(accent), .rounding = 2 });
-    draw.addText(.{ origin[0] + 9, origin[1] + 10 }, color(umbra.fg3), "{d:0>2}", .{index + 1});
-    draw.addText(.{ origin[0] + 9, origin[1] + 31 }, color(if (unit.bypassed) umbra.fg3 else umbra.fg0), "{s}", .{spectrum_ed.stripLabel(unit.kind())});
-    if (clicked and !selected) spectrum_ed.setFocus(&app.core, target, index);
-}
-
-fn fxKindAccent(kind: ws.FxKind) [4]f32 {
-    return switch (kind) {
-        .gate, .comp, .mb_comp, .ott => umbra.red,
-        .eq => umbra.yellow,
-        .sat, .crush, .tape => umbra.mauve,
-        .chorus, .flanger, .phaser, .freq_shift => umbra.iris,
-        .delay, .reverb => umbra.cyan,
-    };
-}
-
-fn drawFxEditor(app: *App, target: spectrum_ed.EqTarget, unit: *ws.FxUnit) void {
-    const accent = fxKindAccent(unit.kind());
-    const width = zgui.getContentRegionAvail()[0];
-    const origin = zgui.getCursorScreenPos();
-    _ = zgui.invisibleButton("fx-editor-heading", .{ .w = width, .h = 52 });
-    const draw = zgui.getWindowDrawList();
-    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + 52 }, .col = color(umbra.bg2), .rounding = 4 });
-    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + 4, origin[1] + 52 }, .col = color(accent), .rounding = 2 });
-    draw.addText(.{ origin[0] + 15, origin[1] + 8 }, color(accent), "{s}", .{spectrum_ed.unitLabel(unit.kind())});
-    draw.addText(.{ origin[0] + 15, origin[1] + 29 }, color(umbra.fg3), "UNIT {d:0>2}  {s}", .{ app.core.fx_focus + 1, if (unit.bypassed) "BYPASSED" else "ACTIVE" });
-
-    zgui.setCursorScreenPos(.{ origin[0] + width - 282, origin[1] + 11 });
-    if (zgui.button(if (unit.bypassed) "ENABLE" else "BYPASS", .{ .w = 78, .h = 30 })) spectrum_ed.toggleBypass(&app.core, target);
-    zgui.sameLine(.{ .spacing = 5 });
-    if (zgui.button("<##fx-left", .{ .w = 38, .h = 30 })) spectrum_ed.moveFocused(&app.core, target, -1);
-    zgui.sameLine(.{ .spacing = 5 });
-    if (zgui.button(">##fx-right", .{ .w = 38, .h = 30 })) spectrum_ed.moveFocused(&app.core, target, 1);
-    zgui.sameLine(.{ .spacing = 5 });
-    zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = umbra.red });
-    const removed = zgui.button("REMOVE", .{ .w = 78, .h = 30 });
-    if (removed) spectrum_ed.removeFocused(&app.core, target);
-    zgui.popStyleColor(.{});
-    zgui.setCursorScreenPos(.{ origin[0], origin[1] + 58 });
-    if (removed) return;
-
-    if (zgui.beginChild("fx-parameters", .{ .w = 0, .h = 0, .child_flags = .{ .border = true } })) {
-        zgui.textColored(accent, "PARAMETERS", .{});
-        zgui.separator();
-        const param_count = spectrum_ed.visibleParamCount(&app.core, unit.kind(), &unit.payload);
-        const gap: f32 = 18;
-        const column_w = @max(240, (zgui.getContentRegionAvail()[0] - gap) / 2);
-        if (zgui.beginChild("fx-params-left", .{ .w = column_w, .h = 0 })) {
-            for (0..(param_count + 1) / 2) |i| drawFxParam(app, target, unit, i);
-        }
-        zgui.endChild();
-        zgui.sameLine(.{ .spacing = gap });
-        if (zgui.beginChild("fx-params-right", .{ .w = 0, .h = 0 })) {
-            for ((param_count + 1) / 2..param_count) |i| drawFxParam(app, target, unit, i);
-        }
-        zgui.endChild();
-    }
-    zgui.endChild();
-}
-
-fn drawFxParam(app: *App, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, index: usize) void {
-    var value = spectrum_ed.getParam(&unit.payload, index);
-    const range = spectrum_ed.paramRange(&app.core, &unit.payload, index);
-    const format: [:0]const u8 = if (range[1] >= 100) "%.0f" else "%.2f";
-    var label_buf: [80]u8 = undefined;
-    const label = std.fmt.bufPrintZ(&label_buf, "{s}##gui-fx-{d}", .{ spectrum_ed.paramName(&unit.payload, index), index }) catch return;
-    if (zgui.sliderFloat(label, .{ .v = &value, .min = range[0], .max = range[1], .cfmt = format })) {
-        spectrum_ed.setParam(&app.core, &unit.payload, index, value);
-        spectrum_ed.clearStaleSidechainPad(&app.core, &unit.payload);
-        app.core.fx_param = index;
-        app.core.dirty = true;
-        syncGuiFxChain(app, target);
-    }
-}
-
-fn syncGuiFxChain(app: *App, target: spectrum_ed.EqTarget) void {
-    switch (target) {
-        .track => if (app.core.eq_track < app.core.session.racks.items.len) {
-            const rack = app.core.session.racks.items[app.core.eq_track];
-            app.core.session.syncTrackChain(app.core.eq_track, rack);
-        },
-        .master => app.core.session.syncMasterChain(),
-        .group => app.core.session.syncGroupChain(app.core.eq_group),
-    }
-}
-
-fn drawFxEmptyState(app: *App) void {
-    const width = zgui.getContentRegionAvail()[0];
-    const origin = zgui.getCursorScreenPos();
-    _ = zgui.invisibleButton("fx-empty-state", .{ .w = width, .h = 180 });
-    const draw = zgui.getWindowDrawList();
-    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + 180 }, .col = color(umbra.bg2), .rounding = 4 });
-    draw.addText(.{ origin[0] + 22, origin[1] + 28 }, color(umbra.fg0), "Build your signal chain", .{});
-    draw.addText(.{ origin[0] + 22, origin[1] + 55 }, color(umbra.fg3), "Add dynamics, tone, modulation, and space in series.", .{});
-    zgui.setCursorScreenPos(.{ origin[0] + 22, origin[1] + 96 });
-    zgui.pushStyleColor4f(.{ .idx = .button, .c = umbra.iris_soft });
-    zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = umbra.iris });
-    if (zgui.button("+  ADD FIRST EFFECT", .{ .w = 190, .h = 36 })) app.openPicker(.fx_picker);
-    zgui.popStyleColor(.{ .count = 2 });
-    zgui.setCursorScreenPos(.{ origin[0], origin[1] + 180 });
 }
 
 fn drawAutomation(app: *App) void {
@@ -2056,94 +1609,4 @@ fn drawStatusSegmentRight(draw: zgui.DrawList, right: f32, y: f32, height: f32, 
     const x = right - width;
     draw.addRectFilled(.{ .pmin = .{ x, y }, .pmax = .{ right, y + height }, .col = color(bg) });
     draw.addText(.{ x + padding, y + (height - text_size[1]) / 2 }, color(fg), "{s}", .{label});
-}
-
-fn rgb(comptime value: u24) [4]f32 {
-    return .{
-        @as(f32, @floatFromInt(value >> 16)) / 255.0,
-        @as(f32, @floatFromInt(value >> 8 & 0xff)) / 255.0,
-        @as(f32, @floatFromInt(value & 0xff)) / 255.0,
-        1.0,
-    };
-}
-
-const umbra = struct {
-    const bg0 = rgb(0x0c040f);
-    const bg1 = rgb(0x160a19);
-    const bg2 = rgb(0x231426);
-    const bg3 = rgb(0x301f34);
-    const bg4 = rgb(0x412d45);
-    const bg5 = rgb(0x553e5a);
-    const fg0 = rgb(0xd9d1da);
-    const fg1 = rgb(0xb1a7b3);
-    const fg2 = rgb(0x887b8c);
-    const fg3 = rgb(0x645567);
-    const line = rgb(0x1d1120);
-    const line_soft = rgb(0x130915);
-    const iris = rgb(0xb07bbc);
-    const iris_soft = rgb(0x886498);
-    const mauve = rgb(0xc68fc1);
-    const red = rgb(0xb97873);
-    const yellow = rgb(0xc1a77b);
-    const cyan = rgb(0x7cb0af);
-};
-
-fn setTheme() void {
-    const style = zgui.getStyle();
-    zgui.styleColorsDark(style);
-    style.setColor(.text, umbra.fg0);
-    style.setColor(.text_disabled, umbra.fg3);
-    style.setColor(.window_bg, umbra.bg1);
-    style.setColor(.child_bg, umbra.bg1);
-    style.setColor(.popup_bg, umbra.bg2);
-    style.setColor(.border, umbra.line);
-    style.setColor(.border_shadow, .{ 0, 0, 0, 0 });
-    style.setColor(.frame_bg, umbra.bg2);
-    style.setColor(.frame_bg_hovered, umbra.bg3);
-    style.setColor(.frame_bg_active, umbra.bg4);
-    style.setColor(.title_bg, umbra.bg0);
-    style.setColor(.title_bg_active, umbra.bg2);
-    style.setColor(.title_bg_collapsed, umbra.bg0);
-    style.setColor(.menu_bar_bg, umbra.bg2);
-    style.setColor(.scrollbar_bg, umbra.bg0);
-    style.setColor(.scrollbar_grab, umbra.bg4);
-    style.setColor(.scrollbar_grab_hovered, umbra.bg5);
-    style.setColor(.scrollbar_grab_active, umbra.iris_soft);
-    style.setColor(.check_mark, umbra.mauve);
-    style.setColor(.slider_grab, umbra.iris_soft);
-    style.setColor(.slider_grab_active, umbra.iris);
-    style.setColor(.button, umbra.bg3);
-    style.setColor(.button_hovered, umbra.bg4);
-    style.setColor(.button_active, umbra.iris_soft);
-    style.setColor(.header, umbra.bg3);
-    style.setColor(.header_hovered, umbra.bg4);
-    style.setColor(.header_active, umbra.iris_soft);
-    style.setColor(.separator, umbra.line);
-    style.setColor(.separator_hovered, umbra.iris_soft);
-    style.setColor(.separator_active, umbra.iris);
-    style.setColor(.plot_lines, umbra.cyan);
-    style.setColor(.plot_lines_hovered, umbra.mauve);
-    style.setColor(.plot_histogram, umbra.iris);
-    style.setColor(.plot_histogram_hovered, umbra.mauve);
-    style.setColor(.table_header_bg, umbra.bg2);
-    style.setColor(.table_border_strong, umbra.bg5);
-    style.setColor(.table_border_light, umbra.line);
-    style.setColor(.table_row_bg_alt, .{ umbra.bg2[0], umbra.bg2[1], umbra.bg2[2], 0.45 });
-    style.setColor(.text_selected_bg, .{ umbra.iris[0], umbra.iris[1], umbra.iris[2], 0.35 });
-    style.setColor(.nav_cursor, umbra.iris);
-    style.setColor(.modal_window_dim_bg, .{ umbra.bg0[0], umbra.bg0[1], umbra.bg0[2], 0.78 });
-    style.window_rounding = 0;
-    style.child_rounding = 0;
-    style.popup_rounding = 0;
-    style.tab_rounding = 0;
-    style.frame_rounding = 2;
-    style.grab_rounding = 2;
-    style.scrollbar_rounding = 0;
-    style.frame_padding = .{ 6, 5 };
-    style.item_spacing = .{ 8, 6 };
-    style.item_inner_spacing = .{ 6, 5 };
-    style.scrollbar_size = 14;
-    style.window_padding = .{ 12, 12 };
-    style.frame_padding = .{ 8, 6 };
-    style.item_spacing = .{ 8, 8 };
 }
