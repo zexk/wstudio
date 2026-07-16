@@ -5,6 +5,8 @@ const std = @import("std");
 const builtin = @import("builtin");
 const ws = @import("wstudio");
 const tui_app = @import("../tui/app.zig");
+const tui_cmd = @import("../tui/cmd.zig");
+const tui_commands = @import("../tui/commands.zig");
 const glfw = @import("zglfw");
 const zgui = @import("zgui");
 const zopengl = @import("zopengl");
@@ -100,6 +102,7 @@ const App = struct {
         drawTransport(self);
         drawWorkspace(self);
         drawStatus(self, audio_label);
+        drawCommandPrompt(self);
     }
 
     fn handleShortcuts(self: *App) void {
@@ -255,7 +258,7 @@ const Layout = struct {
     inspector_w: f32,
     body_h: f32,
 
-    fn current() Layout {
+    fn current(prompt_open: bool) Layout {
         const display = zgui.io.getDisplaySize();
         const browser_w = std.math.clamp(display[0] * 0.14, 140, 220);
         const tracks_w = std.math.clamp(display[0] * 0.18, 180, 260);
@@ -265,7 +268,7 @@ const Layout = struct {
             .tracks_w = tracks_w,
             .workspace_w = display[0] - browser_w - tracks_w - inspector_w,
             .inspector_w = inspector_w,
-            .body_h = display[1] - 98,
+            .body_h = display[1] - 98 - @as(f32, if (prompt_open) 38 else 0),
         };
     }
 };
@@ -421,7 +424,7 @@ fn drawTransportReadout(label: []const u8, value: []const u8) void {
 }
 
 fn drawBrowser(app: *App) void {
-    const layout = Layout.current();
+    const layout = Layout.current(app.core.modal.mode == .command or app.core.modal.mode == .search);
     zgui.setNextWindowPos(.{ .x = 0, .y = 64, .cond = .always });
     zgui.setNextWindowSize(.{ .w = layout.browser_w, .h = layout.body_h, .cond = .always });
     if (zgui.begin("Browser", .{ .flags = .{ .no_move = true, .no_resize = true, .no_collapse = true, .no_docking = true } })) {
@@ -471,7 +474,7 @@ fn drawBrowserRow(app: *App, label: []const u8, hint: []const u8, view: tui_app.
 }
 
 fn drawTracks(app: *App) void {
-    const layout = Layout.current();
+    const layout = Layout.current(app.core.modal.mode == .command or app.core.modal.mode == .search);
     zgui.setNextWindowPos(.{ .x = layout.browser_w, .y = 64, .cond = .always });
     zgui.setNextWindowSize(.{ .w = layout.tracks_w, .h = layout.body_h, .cond = .always });
     if (zgui.begin("Tracks", .{ .flags = .{ .no_move = true, .no_resize = true, .no_collapse = true, .no_docking = true } })) {
@@ -546,7 +549,7 @@ fn trackColor(index: u8) [4]f32 {
 }
 
 fn drawWorkspace(app: *App) void {
-    const layout = Layout.current();
+    const layout = Layout.current(app.core.modal.mode == .command or app.core.modal.mode == .search);
     zgui.setNextWindowPos(.{ .x = 0, .y = 64, .cond = .always });
     zgui.setNextWindowSize(.{ .w = zgui.io.getDisplaySize()[0], .h = layout.body_h, .cond = .always });
     if (zgui.begin("Workspace", .{ .flags = .{ .no_move = true, .no_resize = true, .no_collapse = true, .no_docking = true } })) {
@@ -1547,7 +1550,7 @@ fn drawHelp(app: *App) void {
 }
 
 fn drawInspector(app: *App) void {
-    const layout = Layout.current();
+    const layout = Layout.current(app.core.modal.mode == .command or app.core.modal.mode == .search);
     zgui.setNextWindowPos(.{ .x = layout.browser_w + layout.tracks_w + layout.workspace_w, .y = 64, .cond = .always });
     zgui.setNextWindowSize(.{ .w = layout.inspector_w, .h = layout.body_h, .cond = .always });
     if (zgui.begin("Inspector", .{ .flags = .{ .no_move = true, .no_resize = true, .no_collapse = true, .no_docking = true } })) {
@@ -1609,12 +1612,6 @@ fn drawStatus(app: *App, audio_label: []const u8) void {
         const size = zgui.getWindowSize();
         draw.addRectFilled(.{ .pmin = pos, .pmax = .{ pos[0] + size[0], pos[1] + size[1] }, .col = color(umbra.bg1) });
 
-        if (app.core.modal.mode == .command or app.core.modal.mode == .search) {
-            drawCommandBar(app, draw, pos, size);
-            zgui.end();
-            return;
-        }
-
         var x = pos[0];
         x = drawStatusSegment(draw, x, pos[1], size[1], umbra.iris, umbra.bg0, @tagName(app.core.modal.mode));
         x = drawStatusSegment(draw, x, pos[1], size[1], umbra.bg4, umbra.fg0, @tagName(app.core.view));
@@ -1646,6 +1643,67 @@ fn drawStatus(app: *App, audio_label: []const u8) void {
     zgui.end();
 }
 
+fn drawCommandPrompt(app: *App) void {
+    const mode = app.core.modal.mode;
+    if (mode != .command and mode != .search) return;
+
+    const display = zgui.io.getDisplaySize();
+    const prompt_h: f32 = 38;
+    const prompt_y = display[1] - 34 - prompt_h;
+    zgui.setNextWindowPos(.{ .x = 0, .y = prompt_y, .cond = .always });
+    zgui.setNextWindowSize(.{ .w = display[0], .h = prompt_h, .cond = .always });
+    if (zgui.begin("Command Prompt", .{ .flags = .{ .no_title_bar = true, .no_resize = true, .no_move = true, .no_docking = true, .no_saved_settings = true } })) {
+        drawCommandBar(app, zgui.getWindowDrawList(), zgui.getWindowPos(), zgui.getWindowSize());
+    }
+    zgui.end();
+
+    if (mode != .command) return;
+    const filter = app.core.suggestionFilterText();
+    if (filter.len == 0) return;
+    const active = tui_commands.activeScope(&app.core);
+    const count = tui_cmd.suggestionCount(tui_commands.cmds, filter, active);
+    if (count < 2) return;
+    const rows = @min(count, 8);
+    const row_h: f32 = 39;
+    const popup_w = @min(@as(f32, 620), display[0] - 24);
+    const popup_h = 31 + row_h * @as(f32, @floatFromInt(rows));
+    zgui.setNextWindowPos(.{ .x = 12, .y = prompt_y - popup_h - 6, .cond = .always });
+    zgui.setNextWindowSize(.{ .w = popup_w, .h = popup_h, .cond = .always });
+    if (zgui.begin("Command Suggestions", .{ .flags = .{ .no_title_bar = true, .no_resize = true, .no_move = true, .no_docking = true, .no_saved_settings = true, .no_inputs = true } })) {
+        drawCommandSuggestions(app, active, filter, rows);
+    }
+    zgui.end();
+}
+
+fn drawCommandSuggestions(app: *const App, active: tui_cmd.Scope, filter: []const u8, max_rows: usize) void {
+    const draw = zgui.getWindowDrawList();
+    const origin = zgui.getWindowPos();
+    const size = zgui.getWindowSize();
+    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + size[0], origin[1] + size[1] }, .col = color(umbra.bg1), .rounding = 4 });
+    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + 4, origin[1] + size[1] }, .col = color(umbra.iris), .rounding = 2 });
+    draw.addText(.{ origin[0] + 14, origin[1] + 8 }, color(umbra.fg3), "COMMANDS", .{});
+    draw.addText(.{ origin[0] + size[0] - 96, origin[1] + 8 }, color(umbra.fg3), "TAB TO CYCLE", .{});
+
+    const selected = app.core.suggestionSelected(active);
+    var match_index: usize = 0;
+    var drawn: usize = 0;
+    for (tui_commands.cmds) |command| {
+        if (tui_cmd.hiddenFromCompletion(command) or !tui_cmd.visible(command, active)) continue;
+        if (!std.mem.startsWith(u8, command.name, filter)) continue;
+        if (drawn >= max_rows) break;
+        const y = origin[1] + 30 + @as(f32, @floatFromInt(drawn)) * 39;
+        const is_selected = match_index == selected;
+        if (is_selected) {
+            draw.addRectFilled(.{ .pmin = .{ origin[0] + 7, y }, .pmax = .{ origin[0] + size[0] - 7, y + 35 }, .col = color(umbra.bg4), .rounding = 3 });
+            draw.addRectFilled(.{ .pmin = .{ origin[0] + 7, y }, .pmax = .{ origin[0] + 10, y + 35 }, .col = color(umbra.iris), .rounding = 2 });
+        }
+        draw.addText(.{ origin[0] + 20, y + 4 }, color(if (is_selected) umbra.fg0 else umbra.fg1), ":{s}", .{command.name});
+        draw.addText(.{ origin[0] + 185, y + 4 }, color(if (is_selected) umbra.fg2 else umbra.fg3), "{s}", .{command.desc});
+        match_index += 1;
+        drawn += 1;
+    }
+}
+
 fn drawCommandBar(app: *const App, draw: zgui.DrawList, pos: [2]f32, size: [2]f32) void {
     const prompt: []const u8 = if (app.core.modal.mode == .command) ":" else "/";
     const text_y = pos[1] + (size[1] - zgui.getTextLineHeight()) / 2;
@@ -1665,6 +1723,21 @@ fn drawCommandBar(app: *const App, draw: zgui.DrawList, pos: [2]f32, size: [2]f3
     });
     draw.addText(.{ prompt_x, text_y }, color(umbra.iris), "{s}", .{prompt});
     draw.addText(.{ input_x, text_y }, color(umbra.fg0), "{s}", .{input});
+
+    if (app.core.modal.mode == .command) {
+        if (std.mem.indexOfScalar(u8, input, ' ')) |space| {
+            const name = input[0..space];
+            for (tui_commands.cmds) |command| {
+                if (!std.mem.eql(u8, command.name, name)) continue;
+                const hint_x = input_x + zgui.calcTextSize(input, .{})[0] + 18;
+                draw.addText(.{ hint_x, text_y }, color(umbra.fg3), "{s}", .{command.desc});
+                break;
+            }
+        }
+        draw.addText(.{ pos[0] + size[0] - 150, text_y }, color(umbra.fg3), "TAB complete   ESC close", .{});
+    } else {
+        draw.addText(.{ pos[0] + size[0] - 102, text_y }, color(umbra.fg3), "ENTER search", .{});
+    }
 
     const before_cursor = input[0..app.core.modal.cmd_cursor];
     const cursor_x = input_x + zgui.calcTextSize(before_cursor, .{})[0];

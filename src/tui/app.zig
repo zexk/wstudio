@@ -2462,7 +2462,7 @@ pub const App = struct {
     ///
     /// Re-derive the position from the popup's filtered enumeration rather
     /// than coupling rendering to the completion cycle's internal index.
-    fn suggestionSelected(self: *const App, active: cmd_mod.Scope) usize {
+    pub fn suggestionSelected(self: *const App, active: cmd_mod.Scope) usize {
         const tc = self.activeCommandCycle() orelse return 0;
         var idx: usize = 0;
         for (commands.cmds) |c| {
@@ -2486,7 +2486,7 @@ pub const App = struct {
     /// supposed to reveal. While a cycle is active, filter on its
     /// `stem` (what was actually typed) instead; only fall back to the
     /// live buffer when there's no cycle to track (plain typing).
-    fn suggestionFilterText(self: *const App) []const u8 {
+    pub fn suggestionFilterText(self: *const App) []const u8 {
         if (self.activeCommandCycle()) |tc| return tc.stem();
         return self.modal.cmd_buf[0..self.modal.cmd_len];
     }
