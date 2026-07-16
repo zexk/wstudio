@@ -14,7 +14,6 @@ const ws = @import("wstudio");
 const modal_mod = ws.input;
 const automation_mod = ws.dsp.automation;
 const AutomationPoint = automation_mod.AutomationPoint;
-const engine_mod = ws.engine;
 const synth_mod = ws.dsp.synth;
 const App = @import("../app.zig").App;
 const history = @import("../history.zig");

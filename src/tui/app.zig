@@ -39,7 +39,6 @@ const bookmark_store = @import("bookmark_store.zig");
 const fuzzy = @import("fuzzy.zig");
 
 const Engine = engine_mod.Engine;
-const synth_mod = ws.dsp.synth;
 const Sampler = ws.dsp.Sampler;
 const InstrumentKind = ws.InstrumentKind;
 const pattern_mod = ws.dsp.pattern;

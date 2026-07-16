@@ -20,7 +20,6 @@ const grn = style.grn;
 const yel = style.yel;
 const sel = style.sel;
 const blu = style.blu;
-const mag = style.mag;
 const bcyn = style.bcyn;
 const endLine = style.endLine;
 

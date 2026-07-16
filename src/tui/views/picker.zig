@@ -6,10 +6,6 @@ const types = ws.types;
 const Project = ws.Project;
 const Transport = ws.Transport;
 const DrumMachine = ws.dsp.DrumMachine;
-const eq_mod = ws.dsp.eq;
-const cmd_mod = @import("../cmd.zig");
-const engine_mod = ws.engine;
-const pattern_mod = ws.dsp.pattern;
 const midi = ws.midi;
 const style = @import("../style.zig");
 const icons = @import("../icons.zig");
@@ -22,26 +18,10 @@ const rst = style.rst;
 const bold = style.bold;
 const dim = style.dim;
 const acc = style.acc;
-const grn = style.grn;
 const yel = style.yel;
-const red = style.red;
 const sel = style.sel;
-const blu = style.blu;
-const mag = style.mag;
-const bcyn = style.bcyn;
-const bwht = style.bwht;
 const endLine = style.endLine;
 const hr = style.hr;
-const meter = style.meter;
-const spectrum_rows = style.spectrum_rows;
-const spectrum_band_count = style.spectrum_band_count;
-const synth_param_count = style.synth_param_count;
-const synthBar = style.synthBar;
-const synthSection = style.synthSection;
-const rowHead = style.rowHead;
-const rowVal = style.rowVal;
-const barRow = style.barRow;
-const enumRow = style.enumRow;
 
 // zig fmt: off
 /// Names + one-line descriptions for the instrument picker. Order must match

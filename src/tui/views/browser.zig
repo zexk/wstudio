@@ -3,7 +3,6 @@
 //! `App.openBrowser`/`App.handleBrowserKey` for the input side.
 
 const std = @import("std");
-const ws = @import("wstudio");
 const app_mod = @import("../app.zig");
 const style = @import("../style.zig");
 const fuzzy = @import("../fuzzy.zig");

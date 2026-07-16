@@ -6,9 +6,7 @@ const types = ws.types;
 const Project = ws.Project;
 const Transport = ws.Transport;
 const DrumMachine = ws.dsp.DrumMachine;
-const eq_mod = ws.dsp.eq;
 const engine_mod = ws.engine;
-const pattern_mod = ws.dsp.pattern;
 const midi = ws.midi;
 const style = @import("../style.zig");
 const icons = @import("../icons.zig");
@@ -26,19 +24,7 @@ const sel = style.sel;
 const blu = style.blu;
 const mag = style.mag;
 const bcyn = style.bcyn;
-const bwht = style.bwht;
 const endLine = style.endLine;
-const hr = style.hr;
-const meter = style.meter;
-const spectrum_rows = style.spectrum_rows;
-const spectrum_band_count = style.spectrum_band_count;
-const synth_param_count = style.synth_param_count;
-const synthBar = style.synthBar;
-const synthSection = style.synthSection;
-const rowHead = style.rowHead;
-const rowVal = style.rowVal;
-const barRow = style.barRow;
-const enumRow = style.enumRow;
 
 /// Left gutter before the step columns start (matches editors/drum.zig's
 /// `stepAt` column math) and each step cell's width (a 1-char "│" every 4
