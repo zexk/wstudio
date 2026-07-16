@@ -2,6 +2,7 @@ const std = @import("std");
 const ws = @import("wstudio");
 const zgui = @import("zgui");
 const spectrum_ed = @import("../../tui/editors/spectrum.zig");
+const synth_ed = @import("../../tui/editors/synth.zig");
 const style = @import("../style.zig");
 
 const color = style.color;
@@ -36,14 +37,28 @@ pub fn drawFx(app: anytype) void {
     zgui.sameLine(.{});
     zgui.textDisabled("Inserted after the focused unit", .{});
     zgui.separator();
+    var synth_buf: [14]ws.dsp.synth.FxUnitKind = undefined;
+    const synth_kinds = if (app.core.view == .synth_fx_picker) synth_ed.filteredSynthFxPickerKinds(&app.core, &synth_buf) else &.{};
     const kinds = spectrum_ed.picker_kinds;
     const gap: f32 = 8;
     const width = (zgui.getContentRegionAvail()[0] - gap) / 2;
-    for (kinds, 0..) |kind, i| {
+    const count = if (app.core.view == .synth_fx_picker) synth_kinds.len else kinds.len;
+    for (0..count) |i| {
+        const kind = if (app.core.view == .synth_fx_picker) synth_ed.asFxKind(synth_kinds[i]) else kinds[i];
         if (i % 2 == 1) zgui.sameLine(.{ .spacing = gap });
         var id_buf: [48]u8 = undefined;
         const id = std.fmt.bufPrintZ(&id_buf, "fx-picker-card-{d}", .{i}) catch continue;
-        if (drawCard(id, spectrum_ed.unitLabel(kind), fxDescription(kind), fxAccent(kind), app.core.fx_picker_cursor == i, width)) activateFx(app, kind);
+        const selected = if (app.core.view == .synth_fx_picker) app.core.synth_fx_picker_cursor == i else app.core.fx_picker_cursor == i;
+        if (drawCard(id, spectrum_ed.unitLabel(kind), fxDescription(kind), fxAccent(kind), selected, width)) {
+            if (app.core.view == .synth_fx_picker) {
+                app.core.synth_fx_picker_cursor = @intCast(i);
+                synth_ed.insertFromSynthFxPicker(&app.core, synth_kinds[i]);
+                app.closePicker(.synth_editor);
+            } else {
+                app.core.fx_picker_cursor = @intCast(i);
+                activateFx(app, kind);
+            }
+        }
     }
 }
 
@@ -120,7 +135,9 @@ pub fn drawPreset(app: anytype) void {
         for (ws.dsp.synth_presets.presets, 0..) |preset, i| {
             var id_buf: [48]u8 = undefined;
             const id = std.fmt.bufPrintZ(&id_buf, "preset-card-{d}", .{i}) catch continue;
-            if (drawCard(id, preset.name, preset.category, umbra.iris, false, zgui.getContentRegionAvail()[0])) {
+            const selected = app.core.preset_picker_cursor == i;
+            if (drawCard(id, preset.name, preset.category, umbra.iris, selected, zgui.getContentRegionAvail()[0])) {
+                app.core.preset_picker_cursor = i;
                 _ = app.core.session.engine.send(.stop);
                 synth.applyPatch(preset.patch);
                 app.closePicker(.synth_editor);

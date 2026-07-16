@@ -1274,9 +1274,11 @@ fn drawSynthWaveButtons(app: *App, synth: *const ws.dsp.PolySynth) void {
     for (entries, 0..) |entry, i| {
         if (i > 0) zgui.sameLine(.{ .spacing = 4 });
         const active = synth.waveform == entry.waveform;
-        zgui.pushStyleColor4f(.{ .idx = .button, .c = if (active) umbra.iris else umbra.bg2 });
-        zgui.pushStyleColor4f(.{ .idx = .text, .c = if (active) umbra.bg0 else umbra.fg2 });
+        const focused = app.core.synth_cursor == 0;
+        zgui.pushStyleColor4f(.{ .idx = .button, .c = if (active) umbra.iris else if (focused) umbra.bg4 else umbra.bg2 });
+        zgui.pushStyleColor4f(.{ .idx = .text, .c = if (active) umbra.bg0 else if (focused) umbra.iris else umbra.fg2 });
         if (zgui.button(entry.label, .{ .h = 28 })) {
+            app.core.synth_cursor = 0;
             _ = app.core.session.engine.send(.{ .set_track_param_abs = .{ .track = @intCast(app.core.cursor), .id = 0, .value = @floatFromInt(@intFromEnum(entry.waveform)) } });
         }
         zgui.popStyleColor(.{ .count = 2 });
@@ -1288,9 +1290,13 @@ fn drawSynthParam(app: *App, synth: *ws.dsp.PolySynth, id: u8, label_text: []con
     var value = synth.paramValue(id) orelse return;
     var label: [80]u8 = undefined;
     const zlabel = std.fmt.bufPrintZ(&label, "{s}##gui-synth-{d}", .{ label_text, id }) catch return;
+    const focused = app.core.synth_cursor == id;
+    gui_style.pushControlFocus(focused, umbra.iris);
+    defer gui_style.popControlFocus(focused);
     if (zgui.sliderFloat(zlabel, .{ .v = &value, .min = param.range[0], .max = param.range[1], .cfmt = format })) {
         _ = app.core.session.engine.send(.{ .set_track_param_abs = .{ .track = @intCast(app.core.cursor), .id = id, .value = value } });
     }
+    if (zgui.isItemActivated()) app.core.synth_cursor = id;
 }
 
 fn drawInspector(app: *App) void {

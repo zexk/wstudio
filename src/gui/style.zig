@@ -40,6 +40,18 @@ pub fn trackColor(index: u8) [4]f32 {
     return palette[index - 1];
 }
 
+pub fn pushControlFocus(focused: bool, accent: [4]f32) void {
+    if (!focused) return;
+    zgui.pushStyleColor4f(.{ .idx = .frame_bg, .c = umbra.bg4 });
+    zgui.pushStyleColor4f(.{ .idx = .frame_bg_hovered, .c = umbra.bg5 });
+    zgui.pushStyleColor4f(.{ .idx = .slider_grab, .c = accent });
+    zgui.pushStyleColor4f(.{ .idx = .text, .c = accent });
+}
+
+pub fn popControlFocus(focused: bool) void {
+    if (focused) zgui.popStyleColor(.{ .count = 4 });
+}
+
 pub fn setTheme() void {
     const style = zgui.getStyle();
     zgui.styleColorsDark(style);

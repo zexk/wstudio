@@ -85,17 +85,23 @@ fn drawParam(app: anytype, sampler: *ws.dsp.Sampler, id: u8, label_text: []const
     const range = paramRange(id);
     var label_buf: [64]u8 = undefined;
     const label = std.fmt.bufPrintZ(&label_buf, "{s}##sampler-{d}", .{ label_text, id }) catch return;
+    const focused = app.core.sampler_param == id;
+    style.pushControlFocus(focused, umbra.iris);
+    defer style.popControlFocus(focused);
     if (zgui.sliderFloat(label, .{ .v = &value, .min = range[0], .max = range[1], .cfmt = format })) {
         _ = app.core.session.engine.send(.{ .set_track_param_abs = .{ .track = @intCast(app.core.cursor), .id = id, .value = value } });
     }
+    if (zgui.isItemActivated()) app.core.sampler_param = id;
 }
 
 fn drawToggle(app: anytype, sampler: *ws.dsp.Sampler, id: u8, on_label: [:0]const u8, off_label: [:0]const u8) void {
     const value = sampler.paramValue(id) orelse return;
     const active = value >= 0.5;
-    zgui.pushStyleColor4f(.{ .idx = .button, .c = if (active) umbra.iris else umbra.bg2 });
-    zgui.pushStyleColor4f(.{ .idx = .text, .c = if (active) umbra.bg0 else umbra.fg2 });
+    const focused = app.core.sampler_param == id;
+    zgui.pushStyleColor4f(.{ .idx = .button, .c = if (active) umbra.iris else if (focused) umbra.bg4 else umbra.bg2 });
+    zgui.pushStyleColor4f(.{ .idx = .text, .c = if (active) umbra.bg0 else if (focused) umbra.iris else umbra.fg2 });
     if (zgui.button(if (active) on_label else off_label, .{ .w = 106, .h = 32 })) {
+        app.core.sampler_param = id;
         _ = app.core.session.engine.send(.{ .set_track_param_abs = .{ .track = @intCast(app.core.cursor), .id = id, .value = if (active) 0 else 1 } });
     }
     zgui.popStyleColor(.{ .count = 2 });

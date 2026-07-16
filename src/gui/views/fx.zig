@@ -389,12 +389,19 @@ fn drawEqSlider(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, in
     const range = spectrum_ed.paramRange(&app.core, &unit.payload, index);
     var label_buf: [64]u8 = undefined;
     const label = std.fmt.bufPrintZ(&label_buf, "{s}##eq-control-{d}", .{ label_text, index }) catch return;
+    const focused = !app.core.eq_band_select and app.core.fx_param == index;
+    style.pushControlFocus(focused, eqBandColor(index / spectrum_ed.eq_fields_per_band));
+    defer style.popControlFocus(focused);
     if (zgui.sliderFloat(label, .{ .v = &value, .min = range[0], .max = range[1], .cfmt = format, .flags = .{ .logarithmic = logarithmic } })) {
         history.noteFxNudge(&app.core, target, app.core.fx_focus, index);
         spectrum_ed.setParam(&app.core, &unit.payload, index, value);
         app.core.fx_param = index;
         app.core.dirty = true;
         syncChain(app, target);
+    }
+    if (zgui.isItemActivated()) {
+        app.core.fx_param = index;
+        app.core.eq_band_select = false;
     }
 }
 
@@ -477,6 +484,9 @@ fn drawParam(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, index
     const format: [:0]const u8 = if (range[1] >= 100) "%.0f" else "%.2f";
     var label_buf: [80]u8 = undefined;
     const label = std.fmt.bufPrintZ(&label_buf, "{s}##gui-fx-{d}", .{ spectrum_ed.paramName(&unit.payload, index), index }) catch return;
+    const focused = app.core.fx_param == index;
+    style.pushControlFocus(focused, kindAccent(unit.kind()));
+    defer style.popControlFocus(focused);
     if (zgui.sliderFloat(label, .{ .v = &value, .min = range[0], .max = range[1], .cfmt = format })) {
         spectrum_ed.setParam(&app.core, &unit.payload, index, value);
         spectrum_ed.clearStaleSidechainPad(&app.core, &unit.payload);
@@ -484,6 +494,7 @@ fn drawParam(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, index
         app.core.dirty = true;
         syncChain(app, target);
     }
+    if (zgui.isItemActivated()) app.core.fx_param = index;
 }
 
 fn syncChain(app: anytype, target: spectrum_ed.EqTarget) void {
