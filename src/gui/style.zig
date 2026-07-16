@@ -16,6 +16,7 @@ pub fn color(rgba: [4]f32) u32 {
 }
 
 pub const Palette = struct {
+    light: bool = false,
     bg0: [4]f32,
     bg1: [4]f32,
     bg2: [4]f32,
@@ -34,6 +35,7 @@ pub const Palette = struct {
     danger: [4]f32,
     rhythm: [4]f32,
     audio: [4]f32,
+    tracks: [7][4]f32,
 };
 
 /// The Patina identity is intentionally green through the full surface stack,
@@ -57,6 +59,31 @@ const patina_colors: Palette = .{
     .danger = rgb(0xf06468),
     .rhythm = rgb(0xc9cf73),
     .audio = rgb(0x71b9ac),
+    .tracks = .{ rgb(0xf08777), rgb(0xf06468), rgb(0xc9cf73), rgb(0x71b9ac), rgb(0xd69ac0), rgb(0xd6a15f), rgb(0x9b9acb) },
+};
+
+/// Light counterpart specified alongside Patina in the color identity doc.
+const patina_light_colors: Palette = .{
+    .light = true,
+    .bg0 = rgb(0xdce6dd),
+    .bg1 = rgb(0xf3efe4),
+    .bg2 = rgb(0xebe4d6),
+    .bg3 = rgb(0xd9e2d8),
+    .bg4 = rgb(0xc7d8cd),
+    .bg5 = rgb(0xa9c0b2),
+    .fg0 = rgb(0x17231f),
+    .fg1 = rgb(0x34463f),
+    .fg2 = rgb(0x5f6e66),
+    .fg3 = rgb(0x7e897f),
+    .line = rgb(0xc7d8cd),
+    .line_soft = rgb(0xe1e6dc),
+    .focus = rgb(0xad493f),
+    .focus_soft = rgb(0xd88475),
+    .modulation = rgb(0x964778),
+    .danger = rgb(0xb93640),
+    .rhythm = rgb(0x626a19),
+    .audio = rgb(0x247067),
+    .tracks = .{ rgb(0xd86f61), rgb(0xde6870), rgb(0xb6bd5f), rgb(0x65aaa0), rgb(0xc787ac), rgb(0xc9964d), rgb(0x8b8abd) },
 };
 
 /// Neutral-charcoal counterpart: the same lightness ramp and warm text with
@@ -82,6 +109,30 @@ const graphite_colors: Palette = .{
     .danger = rgb(0xf06468),
     .rhythm = rgb(0xc9cf73),
     .audio = rgb(0x71b9ac),
+    .tracks = .{ rgb(0xf08777), rgb(0xf06468), rgb(0xc9cf73), rgb(0x71b9ac), rgb(0xd69ac0), rgb(0xd6a15f), rgb(0x9b9acb) },
+};
+
+/// The original violet GUI palette, restored as an optional theme.
+const umbra_colors: Palette = .{
+    .bg0 = rgb(0x0c040f),
+    .bg1 = rgb(0x160a19),
+    .bg2 = rgb(0x231426),
+    .bg3 = rgb(0x301f34),
+    .bg4 = rgb(0x412d45),
+    .bg5 = rgb(0x553e5a),
+    .fg0 = rgb(0xd9d1da),
+    .fg1 = rgb(0xb1a7b3),
+    .fg2 = rgb(0x887b8c),
+    .fg3 = rgb(0x645567),
+    .line = rgb(0x1d1120),
+    .line_soft = rgb(0x130915),
+    .focus = rgb(0xb07bbc),
+    .focus_soft = rgb(0x886498),
+    .modulation = rgb(0xc68fc1),
+    .danger = rgb(0xb97873),
+    .rhythm = rgb(0xc1a77b),
+    .audio = rgb(0x7cb0af),
+    .tracks = .{ rgb(0xb07bbc), rgb(0xb97873), rgb(0xc1a77b), rgb(0x7cb0af), rgb(0xc68fc1), rgb(0x7899c1), rgb(0x86b978) },
 };
 
 /// The active palette. Every draw site reads through this (via each file's
@@ -92,14 +143,15 @@ pub var palette: Palette = patina_colors;
 pub fn selectPalette(theme: config_mod.GuiTheme) void {
     palette = switch (theme) {
         .patina => patina_colors,
+        .patina_light => patina_light_colors,
         .graphite => graphite_colors,
+        .umbra => umbra_colors,
     };
 }
 
 pub fn trackColor(index: u8) [4]f32 {
-    const accents = [_][4]f32{ palette.focus, palette.danger, palette.rhythm, palette.audio, palette.modulation, rgb(0xd6a15f), rgb(0x9b9acb) };
-    if (index == 0 or index > accents.len) return palette.fg3;
-    return accents[index - 1];
+    if (index == 0 or index > palette.tracks.len) return palette.fg3;
+    return palette.tracks[index - 1];
 }
 
 /// One accent per FX family, shared by the rack slots and the picker cards
@@ -128,7 +180,7 @@ pub fn popControlFocus(focused: bool) void {
 
 pub fn setTheme() void {
     const style = zgui.getStyle();
-    zgui.styleColorsDark(style);
+    if (palette.light) zgui.styleColorsLight(style) else zgui.styleColorsDark(style);
     style.setColor(.text, palette.fg0);
     style.setColor(.text_disabled, palette.fg3);
     style.setColor(.window_bg, palette.bg1);

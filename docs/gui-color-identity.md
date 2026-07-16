@@ -51,10 +51,10 @@ colors should share Patina's moderate saturation and warm, weathered character.
 
 ## Patina Light specification
 
-Patina Light is a palette specification only. It is not implemented. It keeps
-the warm and weathered character of Patina without simply inverting the dark
-theme. Paper and pale sage replace spruce-black, while every semantic accent
-is darkened enough to remain legible on the light application surface.
+Patina Light is selectable with `wstudio.o.gui_theme = "patina_light"`. It
+keeps the warm and weathered character of Patina without simply inverting the
+dark theme. Paper and pale sage replace spruce-black, while every semantic
+accent is darkened enough to remain legible on the light application surface.
 
 | Role | Hex | Use |
 | --- | --- | --- |
@@ -75,7 +75,7 @@ is darkened enough to remain legible on the light application surface.
 | audio | `#247067` | waveforms, samples, signal flow |
 | danger | `#b93640` | record, errors, mute, destructive action |
 
-The proposed light track palette is coral `#d86f61`, red `#de6870`, lichen
+The light track palette is coral `#d86f61`, red `#de6870`, lichen
 `#b6bd5f`, mineral teal `#65aaa0`, dusty rose `#c787ac`, ochre `#c9964d`, and
 lavender `#8b8abd`. Track rows use these as full fills with primary ink
 `#17231f` for their text. Uncolored tracks use the normal surface ladder.

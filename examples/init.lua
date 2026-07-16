@@ -67,8 +67,7 @@
 -- [gui] Vertical sync. false trades tearing for lower input latency.
 -- wstudio.o.gui_vsync = true
 
--- [gui] Color theme: "patina" (the green identity) or "graphite" (the
--- same lightness ramp and accents on neutral charcoal).
+-- [gui] Color theme: "patina", "patina_light", "graphite", or "umbra".
 -- wstudio.o.gui_theme = "patina"
 
 -- [gui] Initial window size, in pixels. Width range 960-7680, height

@@ -16,7 +16,7 @@ const c = @cImport({
     @cInclude("lualib.h");
 });
 
-pub const GuiTheme = enum { patina, graphite };
+pub const GuiTheme = enum { patina, patina_light, graphite, umbra };
 
 pub const Config = struct {
     default_tempo: f64 = 120.0,
@@ -1271,8 +1271,10 @@ test "Lua API handles enum options as strings" {
     defer rt.deinit();
     try rt.loadString("assert(wstudio.o.gui_theme == 'patina'); wstudio.o.gui_theme = 'graphite'; assert(wstudio.o.gui_theme == 'graphite')");
     try std.testing.expectEqual(GuiTheme.graphite, rt.config.gui_theme);
+    try rt.loadString("wstudio.o.gui_theme = 'patina_light'; assert(wstudio.o.gui_theme == 'patina_light'); wstudio.o.gui_theme = 'umbra'");
+    try std.testing.expectEqual(GuiTheme.umbra, rt.config.gui_theme);
     try std.testing.expectError(error.LuaError, rt.loadString("wstudio.o.gui_theme = 'neon'"));
-    try rt.loadString("local ok, err = pcall(function() wstudio.o.gui_theme = 'neon' end); assert(err:find('patina, graphite') ~= nil)");
+    try rt.loadString("local ok, err = pcall(function() wstudio.o.gui_theme = 'neon' end); assert(err:find('patina, patina_light, graphite, umbra') ~= nil)");
 }
 
 test "Lua API round 2 options set and read" {
