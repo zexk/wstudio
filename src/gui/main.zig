@@ -14,6 +14,9 @@ const App = struct {
     allocator: std.mem.Allocator,
     io: std.Io,
     session: ws.Session,
+    modal: ws.ModalInput = .{},
+    master_gain_db: f32 = 0,
+    held_notes: [piano_keys.len]?HeldNote = [_]?HeldNote{null} ** piano_keys.len,
     selected_track: usize = 0,
     view: View = .arrangement,
     browser_dir: []u8 = &.{},
@@ -118,27 +121,139 @@ const App = struct {
     }
 
     fn handleShortcuts(self: *App) void {
-        if (zgui.isKeyPressed(.space, false)) {
-            const playing = self.session.engine.uiSnapshot().playing;
-            _ = self.session.engine.send(if (playing) .stop else .play);
+        for (piano_keys, 0..) |entry, i| {
+            if (self.held_notes[i]) |note| if (zgui.isKeyReleased(entry.key)) {
+                _ = self.session.engine.send(.{ .note_off = .{
+                    .track = note.track,
+                    .note = note.pitch,
+                } });
+                self.held_notes[i] = null;
+            };
         }
-        if ((zgui.isKeyPressed(.j, false) or zgui.isKeyPressed(.down_arrow, false)) and
-            self.selected_track + 1 < self.session.project.tracks.items.len)
-            self.selected_track += 1;
-        if ((zgui.isKeyPressed(.k, false) or zgui.isKeyPressed(.up_arrow, false)) and self.selected_track > 0)
-            self.selected_track -= 1;
-        if (zgui.isKeyPressed(.h, false) or zgui.isKeyPressed(.left_arrow, false)) self.changeView(-1);
-        if (zgui.isKeyPressed(.l, false) or zgui.isKeyPressed(.right_arrow, false)) self.changeView(1);
-        if (zgui.isKeyPressed(.f1, false)) self.view = .help;
+        if (zgui.isAnyItemActive()) return;
+        if (zgui.isKeyPressed(.f1, false)) {
+            self.view = .help;
+            return;
+        }
+        if (pressedModalKey()) |key| {
+            if (self.modal.mode == .normal and key == .char and key.char == '?') {
+                self.view = .help;
+                return;
+            }
+            // Command and search prompts do not have GUI text fields yet.
+            if (self.modal.mode == .normal and key == .char and (key.char == ':' or key.char == '/')) return;
+            self.applyAction(self.modal.handle(key));
+        }
     }
 
-    fn changeView(self: *App, delta: i8) void {
-        const count = @typeInfo(View).@"enum".fields.len;
-        const current: usize = @intFromEnum(self.view);
-        const next = if (delta < 0) (current + count - 1) % count else (current + 1) % count;
-        self.view = @enumFromInt(next);
+    fn applyAction(self: *App, action: ws.input.Action) void {
+        switch (action) {
+            .none, .octave_down, .octave_up, .command_submit, .search_submit => {},
+            .mode_changed => |mode| if (mode == .normal) {
+                for (&self.held_notes) |*held| held.* = null;
+                _ = self.session.engine.send(.all_notes_off);
+            },
+            .move => |move| {
+                const target = @as(i64, @intCast(self.selected_track)) + move.dy;
+                const last: i64 = @intCast(self.session.project.tracks.items.len - 1);
+                self.selected_track = @intCast(std.math.clamp(target, 0, last));
+            },
+            .goto_start => _ = self.session.engine.send(.{ .seek_frames = 0 }),
+            .goto_end => {
+                var end_tick: u32 = 0;
+                for (self.session.arrangement.lanes.items) |lane| for (lane.clips.items) |clip| {
+                    end_tick = @max(end_tick, clip.start_tick + clip.length_ticks);
+                };
+                const beats = @as(f64, @floatFromInt(end_tick)) / ws.time_grid.ticks_per_beat;
+                const frames: u64 = @intFromFloat(beats * self.session.engine.transport.framesPerBeat());
+                _ = self.session.engine.send(.{ .seek_frames = frames });
+            },
+            .toggle_play => {
+                const playing = self.session.engine.uiSnapshot().playing;
+                _ = self.session.engine.send(if (playing) .stop else .play);
+            },
+            .toggle_mute => {
+                const track = &self.session.project.tracks.items[self.selected_track];
+                track.muted = !track.muted;
+                _ = self.session.engine.send(.{ .set_track_mute = .{ .track = @intCast(self.selected_track), .muted = track.muted } });
+            },
+            .toggle_solo => {
+                const track = &self.session.project.tracks.items[self.selected_track];
+                track.soloed = !track.soloed;
+                _ = self.session.engine.send(.{ .set_track_solo = .{ .track = @intCast(self.selected_track), .soloed = track.soloed } });
+            },
+            .volume_delta => |delta| {
+                self.master_gain_db = std.math.clamp(self.master_gain_db + @as(f32, @floatFromInt(delta)), -40, 6);
+                _ = self.session.engine.send(.{ .set_master_gain = ws.types.dbToGain(self.master_gain_db) });
+            },
+            .note => |note| {
+                _ = self.session.engine.send(.{ .note_on = .{
+                    .track = @intCast(self.selected_track),
+                    .note = note.pitch,
+                    .velocity = 0.9,
+                } });
+                for (piano_keys, 0..) |entry, i| if (zgui.isKeyPressed(entry.key, false)) {
+                    self.held_notes[i] = .{ .track = @intCast(self.selected_track), .pitch = note.pitch };
+                    break;
+                };
+            },
+        }
     }
 };
+
+const HeldNote = struct { track: u16, pitch: u7 };
+
+const piano_keys = [_]struct { key: zgui.Key, char: u8 }{
+    .{ .key = .a, .char = 'a' },         .{ .key = .s, .char = 's' }, .{ .key = .d, .char = 'd' },
+    .{ .key = .f, .char = 'f' },         .{ .key = .g, .char = 'g' }, .{ .key = .h, .char = 'h' },
+    .{ .key = .j, .char = 'j' },         .{ .key = .k, .char = 'k' }, .{ .key = .l, .char = 'l' },
+    .{ .key = .semicolon, .char = ';' }, .{ .key = .q, .char = 'q' }, .{ .key = .w, .char = 'w' },
+    .{ .key = .r, .char = 'r' },         .{ .key = .t, .char = 't' }, .{ .key = .y, .char = 'y' },
+    .{ .key = .i, .char = 'i' },         .{ .key = .o, .char = 'o' }, .{ .key = .p, .char = 'p' },
+};
+
+fn pressedModalKey() ?ws.input.Key {
+    const special = [_]struct { gui: zgui.Key, modal: ws.input.Key }{
+        .{ .gui = .escape, .modal = .escape },
+        .{ .gui = .enter, .modal = .enter },
+        .{ .gui = .back_space, .modal = .backspace },
+        .{ .gui = .home, .modal = .home },
+        .{ .gui = .end, .modal = .end },
+        .{ .gui = .up_arrow, .modal = .arrow_up },
+        .{ .gui = .down_arrow, .modal = .arrow_down },
+        .{ .gui = .left_arrow, .modal = .arrow_left },
+        .{ .gui = .right_arrow, .modal = .arrow_right },
+    };
+    for (special) |entry| if (zgui.isKeyPressed(entry.gui, false)) return switch (entry.modal) {
+        .arrow_up => .{ .char = 'k' },
+        .arrow_down => .{ .char = 'j' },
+        .arrow_left => .{ .char = 'h' },
+        .arrow_right => .{ .char = 'l' },
+        else => entry.modal,
+    };
+
+    if (zgui.isKeyPressed(.space, false)) return .{ .char = ' ' };
+    const shifted = zgui.isKeyDown(.mod_shift);
+    const letters = "abcdefghijklmnopqrstuvwxyz";
+    inline for (letters, 0..) |c, i| {
+        const key: zgui.Key = @enumFromInt(@intFromEnum(zgui.Key.a) + i);
+        if (zgui.isKeyPressed(key, false)) return .{ .char = if (shifted) std.ascii.toUpper(c) else c };
+    }
+    const digits = "0123456789";
+    inline for (digits, 0..) |c, i| {
+        const key: zgui.Key = @enumFromInt(@intFromEnum(zgui.Key.zero) + i);
+        if (zgui.isKeyPressed(key, false)) return .{ .char = c };
+    }
+    const punctuation = [_]struct { key: zgui.Key, plain: u8, shifted: u8 }{
+        .{ .key = .semicolon, .plain = ';', .shifted = ':' },
+        .{ .key = .slash, .plain = '/', .shifted = '?' },
+        .{ .key = .left_bracket, .plain = '[', .shifted = '{' },
+        .{ .key = .right_bracket, .plain = ']', .shifted = '}' },
+    };
+    for (punctuation) |entry| if (zgui.isKeyPressed(entry.key, false))
+        return .{ .char = if (shifted) entry.shifted else entry.plain };
+    return null;
+}
 
 const NativeBackend = if (builtin.os.tag == .linux)
     ws.alsa.AlsaBackend
@@ -982,6 +1097,14 @@ fn drawHelp(app: *App) void {
     zgui.textDisabled("HELP / VIEW INDEX", .{});
     const rows = [_]struct { key: []const u8, text: []const u8 }{
         .{ .key = "Space", .text = "Play or stop" },
+        .{ .key = "j / k, arrows", .text = "Select track (accepts counts)" },
+        .{ .key = "gg / Home", .text = "Seek to start" },
+        .{ .key = "G / End", .text = "Seek to arrangement end" },
+        .{ .key = "m / S", .text = "Mute / solo selected track" },
+        .{ .key = "[ / ]", .text = "Master volume down / up (accepts counts)" },
+        .{ .key = "i / Esc", .text = "Enter / leave piano keyboard mode" },
+        .{ .key = "a..p, z / x", .text = "Play notes, octave down / up in insert mode" },
+        .{ .key = "? / F1", .text = "Show help" },
         .{ .key = "Tracks", .text = "Track list and mixer state" },
         .{ .key = "Arrange", .text = "Song clips by bar" },
         .{ .key = "Piano", .text = "Melodic step editing" },
@@ -1045,7 +1168,7 @@ fn drawStatus(app: *App, audio_label: []const u8) void {
         draw.addRectFilled(.{ .pmin = pos, .pmax = .{ pos[0] + size[0], pos[1] + size[1] }, .col = color(umbra.bg1) });
 
         var x = pos[0];
-        x = drawStatusSegment(draw, x, pos[1], size[1], umbra.iris, umbra.bg0, "NORMAL");
+        x = drawStatusSegment(draw, x, pos[1], size[1], umbra.iris, umbra.bg0, @tagName(app.modal.mode));
         x = drawStatusSegment(draw, x, pos[1], size[1], umbra.bg4, umbra.fg0, @tagName(app.view));
 
         const track = app.session.project.tracks.items[app.selected_track];
