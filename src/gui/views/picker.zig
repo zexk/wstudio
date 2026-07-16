@@ -2,6 +2,7 @@ const std = @import("std");
 const ws = @import("wstudio");
 const zgui = @import("zgui");
 const spectrum_ed = @import("../../tui/editors/spectrum.zig");
+const preset_ed = @import("../../tui/editors/preset_picker.zig");
 const synth_ed = @import("../../tui/editors/synth.zig");
 const style = @import("../style.zig");
 
@@ -120,29 +121,43 @@ fn drawCard(id: [:0]const u8, label: []const u8, desc: []const u8, accent: [4]f3
 }
 
 pub fn drawPreset(app: anytype) void {
-    zgui.textColored(umbra.iris, "SYNTH PRESETS", .{});
+    var rows_buf: [preset_ed.max_display_rows]preset_ed.DisplayRow = undefined;
+    const rows = preset_ed.buildDisplayRows(&app.core, &rows_buf);
+    const count = preset_ed.entryCountOf(rows);
+    const kind_label = if (app.core.preset_picker_kind == .synth) "SYNTH PRESETS" else "DRUM KITS";
+    zgui.textColored(if (app.core.preset_picker_kind == .synth) umbra.iris else umbra.yellow, "{s}", .{kind_label});
     zgui.sameLine(.{});
-    zgui.textDisabled("Load a complete sound", .{});
+    zgui.textDisabled("{d} matches for track {d:0>2}", .{ count, app.core.preset_picker_track + 1 });
+    const filter = preset_ed.activeFilter(&app.core);
+    if (filter.len > 0) {
+        zgui.sameLine(.{ .spacing = 14 });
+        zgui.textColored(umbra.cyan, "filter: {s}", .{filter});
+    }
     zgui.separator();
-    const synth = switch (app.core.session.racks.items[app.core.cursor].instrument) {
-        .poly_synth => |*s| s,
-        else => {
-            zgui.textDisabled("Select a Synth track to use presets.", .{});
-            return;
-        },
-    };
+    zgui.textDisabled("ENTER APPLY   A AUDITION   / FILTER   [ ] CATEGORY   D DELETE SAVED", .{});
+    zgui.spacing();
     if (zgui.beginChild("presets", .{ .w = 0, .h = -1, .child_flags = .{ .border = true } })) {
-        for (ws.dsp.synth_presets.presets, 0..) |preset, i| {
-            var id_buf: [48]u8 = undefined;
-            const id = std.fmt.bufPrintZ(&id_buf, "preset-card-{d}", .{i}) catch continue;
-            const selected = app.core.preset_picker_cursor == i;
-            if (drawCard(id, preset.name, preset.category, umbra.iris, selected, zgui.getContentRegionAvail()[0])) {
-                app.core.preset_picker_cursor = i;
-                _ = app.core.session.engine.send(.stop);
-                synth.applyPatch(preset.patch);
-                app.closePicker(.synth_editor);
-            }
-        }
+        var ordinal: usize = 0;
+        for (rows, 0..) |row, row_index| switch (row) {
+            .header => |header| {
+                zgui.spacing();
+                zgui.textColored(umbra.fg2, "{s}", .{header});
+                zgui.separator();
+            },
+            .entry => |entry| {
+                var id_buf: [48]u8 = undefined;
+                const id = std.fmt.bufPrintZ(&id_buf, "preset-card-{d}", .{row_index}) catch continue;
+                var desc_buf: [96]u8 = undefined;
+                const desc = std.fmt.bufPrint(&desc_buf, "{s}   {s}", .{ entry.category, entry.author }) catch entry.category;
+                const selected = app.core.preset_picker_cursor == ordinal;
+                const accent = if (app.core.preset_picker_kind == .synth) umbra.iris else umbra.yellow;
+                if (drawCard(id, entry.name, desc, accent, selected, zgui.getContentRegionAvail()[0])) {
+                    app.core.preset_picker_cursor = ordinal;
+                    app.core.handleKey(.enter, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
+                }
+                ordinal += 1;
+            },
+        };
     }
     zgui.endChild();
 }
