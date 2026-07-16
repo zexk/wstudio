@@ -42,9 +42,14 @@
               pkg-config
             ]
             ++ lib.optionals stdenv.hostPlatform.isLinux [
-              # audio backends (linked once the native backends land)
               alsa-lib
+              libGL
               pipewire
+              libx11
+              libxcursor
+              libxi
+              libxinerama
+              libxrandr
             ];
         };
       });
@@ -60,7 +65,15 @@
             pkgs.zig.hook
             pkgs.pkg-config
           ];
-          buildInputs = pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.alsa-lib ];
+          buildInputs = pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [
+            pkgs.alsa-lib
+            pkgs.libGL
+            pkgs.libx11
+            pkgs.libxcursor
+            pkgs.libxi
+            pkgs.libxinerama
+            pkgs.libxrandr
+          ];
         };
 
         # Cross-compiled with zig's bundled mingw-w64 headers/CRT - no

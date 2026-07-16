@@ -54,6 +54,46 @@ pub fn build(b: *std.Build) void {
     const run_step = b.step("run", "Run wstudio");
     run_step.dependOn(&run_cmd.step);
 
+    // GUI prototype. Kept as a separate artifact so the stable TUI and its
+    // dependency surface remain unchanged while the desktop frontend evolves.
+    const zglfw = b.dependency("zglfw", .{
+        .target = target,
+        .optimize = optimize,
+        .wayland = false,
+    });
+    const zgui = b.dependency("zgui", .{
+        .target = target,
+        .optimize = optimize,
+        .backend = .glfw_opengl3,
+        .with_implot = true,
+    });
+    zgui.artifact("imgui").root_module.addCMacro("GLFW_INCLUDE_NONE", "1");
+    const zopengl = b.dependency("zopengl", .{});
+    const gui_exe = b.addExecutable(.{
+        .name = "wstudio-gui",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/gui/main.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "wstudio", .module = wstudio_mod },
+                .{ .name = "zglfw", .module = zglfw.module("root") },
+                .{ .name = "zgui", .module = zgui.module("root") },
+                .{ .name = "zopengl", .module = zopengl.module("root") },
+            },
+        }),
+    });
+    gui_exe.root_module.linkLibrary(zglfw.artifact("glfw"));
+    gui_exe.root_module.linkLibrary(zgui.artifact("imgui"));
+    const install_gui = b.addInstallArtifact(gui_exe, .{});
+    const gui_check_step = b.step("gui-check", "Build the experimental GUI frontend");
+    gui_check_step.dependOn(&gui_exe.step);
+    const run_gui_cmd = b.addRunArtifact(gui_exe);
+    run_gui_cmd.step.dependOn(&install_gui.step);
+    if (b.args) |args| run_gui_cmd.addArgs(args);
+    const gui_step = b.step("gui", "Run the experimental GLFW + ImGui frontend");
+    gui_step.dependOn(&run_gui_cmd.step);
+
     // `zig build genkit` renders the drum kit to assets/kit/*.wav. Run once
     // after editing src/dsp/drum_kit.zig, then commit the refreshed WAVs.
     const genkit = b.addExecutable(.{
