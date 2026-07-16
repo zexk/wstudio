@@ -10,10 +10,22 @@ const zopengl = @import("zopengl");
 const gl = zopengl.bindings;
 
 const App = struct {
+    allocator: std.mem.Allocator,
+    io: std.Io,
     session: ws.Session,
     selected_track: usize = 0,
     view: View = .arrangement,
     space_down: bool = false,
+    browser_dir: []u8 = &.{},
+    browser_entries: std.ArrayListUnmanaged(BrowserEntry) = .empty,
+    pending_project_path: ?[]u8 = null,
+    automation_clip: usize = 0,
+    automation_target: AutomationTarget = .gain,
+    automation_beat: f32 = 0,
+    automation_value: f32 = 0,
+
+    const BrowserEntry = struct { name: []u8, is_dir: bool };
+    const AutomationTarget = enum { gain, pan };
 
     const View = enum {
         tracks,
@@ -38,11 +50,61 @@ const App = struct {
             try ws.persist.load(allocator, io, path)
         else
             try ws.Session.initDefault(allocator);
-        return .{ .session = session };
+        return .{ .allocator = allocator, .io = io, .session = session };
     }
 
     fn deinit(self: *App) void {
+        self.clearBrowser();
+        self.browser_entries.deinit(self.allocator);
+        if (self.browser_dir.len > 0) self.allocator.free(self.browser_dir);
+        if (self.pending_project_path) |path| self.allocator.free(path);
         self.session.deinit();
+    }
+
+    fn clearBrowser(self: *App) void {
+        for (self.browser_entries.items) |entry| self.allocator.free(entry.name);
+        self.browser_entries.clearRetainingCapacity();
+    }
+
+    fn setBrowserDir(self: *App, path: []const u8) !void {
+        const canon = try std.Io.Dir.cwd().realPathFileAlloc(self.io, path, self.allocator);
+        errdefer self.allocator.free(canon);
+        var dir = try std.Io.Dir.cwd().openDir(self.io, canon, .{ .iterate = true });
+        defer dir.close(self.io);
+        var entries: std.ArrayListUnmanaged(BrowserEntry) = .empty;
+        errdefer {
+            for (entries.items) |entry| self.allocator.free(entry.name);
+            entries.deinit(self.allocator);
+        }
+        var it = dir.iterate();
+        while (try it.next(self.io)) |entry| {
+            if (entry.name.len == 0 or entry.name[0] == '.') continue;
+            const is_dir = entry.kind == .directory;
+            if (!is_dir and !std.ascii.endsWithIgnoreCase(entry.name, ".wsj")) continue;
+            try entries.append(self.allocator, .{ .name = try self.allocator.dupe(u8, entry.name), .is_dir = is_dir });
+        }
+        std.mem.sort(BrowserEntry, entries.items, {}, struct {
+            fn less(_: void, a: BrowserEntry, b: BrowserEntry) bool {
+                if (a.is_dir != b.is_dir) return a.is_dir;
+                return std.ascii.lessThanIgnoreCase(a.name, b.name);
+            }
+        }.less);
+        self.clearBrowser();
+        self.browser_entries.deinit(self.allocator);
+        if (self.browser_dir.len > 0) self.allocator.free(self.browser_dir);
+        self.browser_dir = canon;
+        self.browser_entries = entries;
+    }
+
+    fn activateBrowserEntry(self: *App, entry: BrowserEntry) void {
+        const joined = std.fs.path.join(self.allocator, &.{ self.browser_dir, entry.name }) catch return;
+        if (entry.is_dir) {
+            defer self.allocator.free(joined);
+            self.setBrowserDir(joined) catch {};
+        } else {
+            if (self.pending_project_path) |old| self.allocator.free(old);
+            self.pending_project_path = joined;
+        }
     }
 
     fn draw(self: *App) void {
@@ -86,6 +148,8 @@ pub fn main(init: std.process.Init) !void {
 
     zgui.init(init.gpa);
     defer zgui.deinit();
+    zgui.plot.init();
+    defer zgui.plot.deinit();
     zgui.io.setConfigFlags(.{ .nav_enable_keyboard = true, .dock_enable = true });
     setTheme();
     zgui.backend.init(window);
@@ -110,6 +174,27 @@ pub fn main(init: std.process.Init) !void {
 
     while (!window.shouldClose()) {
         glfw.pollEvents();
+        if (app.pending_project_path) |path| {
+            app.pending_project_path = null;
+            defer init.gpa.free(path);
+            if (ws.persist.load(init.gpa, init.io, path)) |loaded| {
+                audio.stop();
+                app.session.deinit();
+                app.session = loaded;
+                app.selected_track = 0;
+                app.automation_clip = 0;
+                audio = .{
+                    .config = .{ .sample_rate = app.session.project.sample_rate },
+                    .render = renderAudio,
+                    .ctx = app.session.engine,
+                };
+                try audio.start(init.io);
+                var title_buf: [1024]u8 = undefined;
+                if (std.fmt.bufPrintZ(&title_buf, "wstudio GUI prototype - {s}", .{path})) |title| window.setTitle(title) else |_| {}
+            } else |err| {
+                std.debug.print("wstudio-gui: cannot load '{s}': {s}\n", .{ path, @errorName(err) });
+            }
+        }
         const fb = window.getFramebufferSize();
         if (fb[0] <= 0 or fb[1] <= 0) continue;
         gl.viewport(0, 0, fb[0], fb[1]);
@@ -210,7 +295,7 @@ fn drawWorkspace(app: *App) void {
             .instrument_picker => drawInstrumentPicker(app),
             .fx_picker => drawFxPicker(app),
             .preset_picker => drawPresetPicker(app),
-            .file_browser => drawFileBrowser(),
+            .file_browser => drawFileBrowser(app),
             .help => drawHelp(app),
         }
     }
@@ -377,6 +462,10 @@ fn drawSlicerGrid(app: *App) void {
         },
     };
     zgui.text("{s}   {d} slices   {d} steps", .{ std.mem.trimEnd(u8, &slicer.name, " "), slicer.slice_count, slicer.step_count });
+    if (slicer.sample_lock.tryLock()) {
+        defer slicer.sample_lock.unlock();
+        drawWaveform("##slicer-wave", slicer.samples);
+    }
     if (zgui.beginTable("slicer-grid", .{ .column = 17, .flags = .{ .borders = .inner, .sizing = .fixed_same }, .outer_size = .{ 0, -1 } })) {
         defer zgui.endTable();
         zgui.tableSetupColumn("Slice", .{ .init_width_or_height = 64 });
@@ -453,6 +542,10 @@ fn drawSampler(app: *App) void {
         },
     };
     zgui.text("{s}   {d} samples   root {d}", .{ sampler.clipName(), sampler.pad.samples.len, sampler.root_note });
+    if (sampler.pad_lock.tryLock()) {
+        defer sampler.pad_lock.unlock();
+        drawWaveform("##sampler-wave", sampler.pad.samples);
+    }
     const names = [_][:0]const u8{ "Start", "End", "Pitch", "Attack", "Decay", "Sustain", "Release", "Gain", "Pan", "Reverse", "Root", "Mono" };
     for (names, 0..) |name, id| {
         var value = sampler.paramValue(@intCast(id)) orelse continue;
@@ -470,6 +563,32 @@ fn drawSampler(app: *App) void {
         if (zgui.sliderFloat(zlabel, .{ .v = &value, .min = range[0], .max = range[1] })) {
             _ = app.session.engine.send(.{ .set_track_param_abs = .{ .track = @intCast(app.selected_track), .id = @intCast(id), .value = value } });
         }
+    }
+}
+
+fn drawWaveform(label: [:0]const u8, samples: []const f32) void {
+    if (samples.len == 0) {
+        zgui.textDisabled("No sample loaded.", .{});
+        return;
+    }
+    var overview: [1024]f32 = undefined;
+    const count = @min(samples.len, overview.len);
+    for (overview[0..count], 0..) |*out, i| {
+        const start = i * samples.len / count;
+        const end = @max(start + 1, (i + 1) * samples.len / count);
+        var peak: f32 = 0;
+        for (samples[start..@min(end, samples.len)]) |sample| if (@abs(sample) > @abs(peak)) {
+            peak = sample;
+        };
+        out.* = peak;
+    }
+    if (zgui.plot.beginPlot(label, .{ .h = 150, .flags = .canvas_only })) {
+        zgui.plot.setupAxis(.x1, .{ .flags = .no_decorations });
+        zgui.plot.setupAxis(.y1, .{ .flags = .no_decorations });
+        zgui.plot.setupAxisLimits(.x1, .{ .min = 0, .max = @floatFromInt(count), .cond = .always });
+        zgui.plot.setupAxisLimits(.y1, .{ .min = -1, .max = 1, .cond = .always });
+        zgui.plot.plotLineValues("wave", f32, .{ .v = overview[0..count] });
+        zgui.plot.endPlot();
     }
 }
 
@@ -491,12 +610,43 @@ fn drawAutomation(app: *App) void {
         zgui.textDisabled("Place a clip in the arrangement to edit its automation.", .{});
         return;
     }
+    app.automation_clip = @min(app.automation_clip, lane.?.clips.items.len - 1);
     for (lane.?.clips.items, 0..) |clip, i| {
-        zgui.separatorText("Clip");
-        zgui.text("Clip {d}: tick {d}, length {d}", .{ i + 1, clip.start_tick, clip.length_ticks });
-        zgui.text("Gain points {d}   Pan points {d}   Parameter lanes {d}", .{ clip.automation.gain.len, clip.automation.pan.len, clip.automation.synth_params.items.len });
+        var label_buf: [64]u8 = undefined;
+        const label = std.fmt.bufPrintZ(&label_buf, "Clip {d}##auto-clip-{d}", .{ i + 1, i }) catch continue;
+        if (zgui.selectable(label, .{ .selected = app.automation_clip == i, .w = 100 })) app.automation_clip = i;
+        zgui.sameLine(.{});
+        zgui.textDisabled("tick {d}, length {d}", .{ clip.start_tick, clip.length_ticks });
     }
-    zgui.textDisabled("Point dragging and curve creation are the next automation pass.", .{});
+    const clip = &lane.?.clips.items[app.automation_clip];
+    zgui.separator();
+    if (zgui.button("Gain", .{})) app.automation_target = .gain;
+    zgui.sameLine(.{});
+    if (zgui.button("Pan", .{})) app.automation_target = .pan;
+    zgui.sameLine(.{});
+    zgui.text("Editing {s}", .{@tagName(app.automation_target)});
+
+    const length_beats: f32 = @floatCast(ws.time_grid.tickToBeat(clip.length_ticks));
+    _ = zgui.sliderFloat("Beat", .{ .v = &app.automation_beat, .min = 0, .max = @max(0.25, length_beats), .cfmt = "%.2f" });
+    const value_range: [2]f32 = if (app.automation_target == .gain) .{ -60, 12 } else .{ -1, 1 };
+    app.automation_value = std.math.clamp(app.automation_value, value_range[0], value_range[1]);
+    _ = zgui.sliderFloat("Value", .{ .v = &app.automation_value, .min = value_range[0], .max = value_range[1] });
+    const points: *[]ws.dsp.automation.AutomationPoint = switch (app.automation_target) {
+        .gain => &clip.automation.gain,
+        .pan => &clip.automation.pan,
+    };
+    if (zgui.button("Add / update point", .{})) {
+        ws.dsp.automation.setPoint(app.allocator, points, app.automation_beat, app.automation_value) catch {};
+        app.session.rebuildSongData();
+    }
+    zgui.sameLine(.{});
+    if (zgui.button("Delete point", .{})) {
+        if (ws.dsp.automation.removePoint(app.allocator, points, app.automation_beat)) app.session.rebuildSongData();
+    }
+    zgui.separatorText("Points");
+    for (points.*, 0..) |point, i| {
+        zgui.text("{d: >2}. beat {d:.2}   value {d:.3}", .{ i + 1, point.beat, point.value });
+    }
 }
 
 fn drawInstrumentPicker(app: *App) void {
@@ -561,13 +711,32 @@ fn drawPresetPicker(app: *App) void {
     zgui.endChild();
 }
 
-fn drawFileBrowser() void {
+fn drawFileBrowser(app: *App) void {
     zgui.textDisabled("FILE BROWSER", .{});
-    zgui.text("Project and sample loading are available from the launch path:", .{});
-    zgui.bulletText("zig build gui -- project.wsj", .{});
-    zgui.bulletText("wstudio-gui project.wsj", .{});
-    zgui.spacing();
-    zgui.textDisabled("Native file-dialog integration is intentionally deferred until the view port is complete.", .{});
+    if (app.browser_dir.len == 0) app.setBrowserDir(".") catch {
+        zgui.textDisabled("Cannot read the current directory.", .{});
+        return;
+    };
+    zgui.text("{s}", .{app.browser_dir});
+    if (zgui.button("Up", .{})) {
+        if (std.fs.path.dirname(app.browser_dir)) |parent| app.setBrowserDir(parent) catch {};
+    }
+    zgui.sameLine(.{});
+    if (zgui.button("Refresh", .{})) app.setBrowserDir(app.browser_dir) catch {};
+    zgui.separator();
+    if (zgui.beginChild("files", .{ .w = 0, .h = -1, .child_flags = .{ .border = true } })) {
+        var i: usize = 0;
+        while (i < app.browser_entries.items.len) : (i += 1) {
+            const entry = app.browser_entries.items[i];
+            var label_buf: [512]u8 = undefined;
+            const label = std.fmt.bufPrintZ(&label_buf, "{s} {s}", .{ if (entry.is_dir) "[DIR]" else "     ", entry.name }) catch continue;
+            if (zgui.selectable(label, .{ .flags = .{ .allow_double_click = true } }) and zgui.isMouseDoubleClicked(.left)) {
+                app.activateBrowserEntry(entry);
+                break;
+            }
+        }
+    }
+    zgui.endChild();
 }
 
 fn drawHelp(app: *App) void {
