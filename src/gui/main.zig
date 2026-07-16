@@ -846,22 +846,14 @@ fn drawPianoRoll(app: *App) void {
             .unscaled_black => patina.bg1,
         };
         draw.addRectFilled(.{ .pmin = .{ grid_x, y }, .pmax = .{ origin[0] + canvas_w, y + row_h }, .col = color(row_color) });
-        const key_color = switch (tone) {
-            .root => patina.focus,
-            .out_scale => patina.bg3,
-            else => if (black) patina.bg1 else patina.fg1,
-        };
+        const key_color = if (black) patina.bg1 else patina.fg1;
         draw.addRectFilled(.{ .pmin = .{ origin[0], y }, .pmax = .{ grid_x, y + row_h }, .col = color(key_color) });
-        if (black and tone != .root and tone != .out_scale) draw.addRectFilled(.{ .pmin = .{ origin[0], y + 1 }, .pmax = .{ origin[0] + 37, y + row_h - 1 }, .col = color(patina.bg0) });
+        if (black) draw.addRectFilled(.{ .pmin = .{ origin[0], y + 1 }, .pmax = .{ origin[0] + 37, y + row_h - 1 }, .col = color(patina.bg0) });
         draw.addLine(.{ .p1 = .{ origin[0], y + row_h }, .p2 = .{ origin[0] + canvas_w, y + row_h }, .col = color(patina.line), .thickness = if (@mod(pitch, 12) == 0) 1.5 else 1 });
         var note_buf: [5]u8 = undefined;
         const note_name = ws.midi.noteName(pitch, &note_buf);
-        const label_color = switch (tone) {
-            .root => patina.bg0,
-            .out_scale => patina.fg3,
-            else => if (black) patina.fg0 else patina.bg0,
-        };
-        draw.addText(.{ origin[0] + 39, y + 1 }, color(label_color), "{s}", .{note_name});
+        const label_x = grid_x - zgui.calcTextSize(note_name, .{})[0] - 4;
+        draw.addText(.{ label_x, y + 1 }, color(if (black) patina.fg0 else patina.bg0), "{s}", .{note_name});
     }
 
     const steps_per_beat: usize = app.core.pianoStepsPerBeat();
@@ -957,12 +949,6 @@ fn drawPianoRoll(app: *App) void {
     const pointer_pitch: u7 = top_pitch - @as(u7, @intCast(pointer_row));
 
     if (hovered and mouse[0] >= grid_x and mouse[1] >= grid_y) {
-        const step = pointer_step;
-        const row = pointer_row;
-        const x = grid_x + @as(f32, @floatFromInt(step)) * beat_w / @as(f32, @floatFromInt(steps_per_beat));
-        const y = grid_y + @as(f32, @floatFromInt(row)) * row_h;
-        draw.addRectFilled(.{ .pmin = .{ x + 1, y + 1 }, .pmax = .{ x + beat_w / @as(f32, @floatFromInt(steps_per_beat)) - 1, y + row_h - 1 }, .col = color(.{ patina.focus[0], patina.focus[1], patina.focus[2], 0.18 }), .rounding = 2 });
-
         const pointer_beat = @as(f64, @floatCast((mouse[0] - grid_x) / beat_w));
         if (zgui.isMouseClicked(.left)) {
             if (pianoNoteCovering(pp, pointer_pitch, pointer_beat)) |note| {
