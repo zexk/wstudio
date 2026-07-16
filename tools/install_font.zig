@@ -23,7 +23,7 @@ pub fn main(init: std.process.Init) !void {
     const stdout = &stdout_writer.interface;
 
     var path_buf: [1024]u8 = undefined;
-    const dir = fontDir(&path_buf) catch {
+    const dir = ws.iconFontDir(&path_buf) catch {
         try stdout.writeAll(
             "install-font: could not determine a font directory " ++
                 "(neither $XDG_DATA_HOME nor $HOME is set)\n",
@@ -53,15 +53,4 @@ pub fn main(init: std.process.Init) !void {
         .{full_path},
     );
     try stdout.flush();
-}
-
-/// `$XDG_DATA_HOME/fonts`, falling back to `$HOME/.local/share/fonts`.
-fn fontDir(buf: []u8) ![]const u8 {
-    if (std.c.getenv("XDG_DATA_HOME")) |xdg| {
-        return std.fmt.bufPrint(buf, "{s}/fonts", .{std.mem.sliceTo(xdg, 0)});
-    }
-    if (std.c.getenv("HOME")) |home| {
-        return std.fmt.bufPrint(buf, "{s}/.local/share/fonts", .{std.mem.sliceTo(home, 0)});
-    }
-    return error.NoFontDir;
 }

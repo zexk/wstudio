@@ -48,6 +48,15 @@ pub const theory = @import("theory.zig");
 pub const input = @import("input/modal.zig");
 pub const ModalInput = input.ModalInput;
 
+const std = @import("std");
+
+/// `$XDG_DATA_HOME/fonts`, falling back to `$HOME/.local/share/fonts`.
+pub fn iconFontDir(buf: []u8) ![]const u8 {
+    if (std.c.getenv("XDG_DATA_HOME")) |xdg| return std.fmt.bufPrint(buf, "{s}/fonts", .{std.mem.sliceTo(xdg, 0)});
+    if (std.c.getenv("HOME")) |home| return std.fmt.bufPrint(buf, "{s}/.local/share/fonts", .{std.mem.sliceTo(home, 0)});
+    return error.NoFontDir;
+}
+
 /// A 16-glyph subset of "Symbols Nerd Font Mono" (MIT; see
 /// assets/fonts/LICENSE) used for the TUI's icons (tui/icons.zig). Exposed
 /// here - rather than embedded directly in tui/icons.zig - so the

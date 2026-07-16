@@ -52,24 +52,11 @@ pub var font_installed: bool = false;
 /// in `font_installed` rather than calling it per frame.
 pub fn detectFontInstalled(io: std.Io) bool {
     var path_buf: [1024]u8 = undefined;
-    const dir = fontDir(&path_buf) catch return false;
+    const dir = ws.iconFontDir(&path_buf) catch return false;
     var full_buf: [1024]u8 = undefined;
     const full_path = std.fmt.bufPrint(&full_buf, "{s}/wstudio-icons.ttf", .{dir}) catch return false;
     std.Io.Dir.cwd().access(io, full_path, .{}) catch return false;
     return true;
-}
-
-/// `$XDG_DATA_HOME/fonts`, falling back to `$HOME/.local/share/fonts` -
-/// mirrors tools/install_font.zig's fontDir (kept separate since tools/ only
-/// imports the wstudio library module, not this one).
-fn fontDir(buf: []u8) ![]const u8 {
-    if (std.c.getenv("XDG_DATA_HOME")) |xdg| {
-        return std.fmt.bufPrint(buf, "{s}/fonts", .{std.mem.sliceTo(xdg, 0)});
-    }
-    if (std.c.getenv("HOME")) |home| {
-        return std.fmt.bufPrint(buf, "{s}/.local/share/fonts", .{std.mem.sliceTo(home, 0)});
-    }
-    return error.NoFontDir;
 }
 
 test "every icon decodes to exactly one codepoint" {
