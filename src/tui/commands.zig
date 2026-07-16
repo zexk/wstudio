@@ -135,7 +135,7 @@ pub const cmds: []const cmd_mod.Def = &.{
 /// Look up `text` in the command table and run it, reporting unknown commands
 /// in the status line.
 pub fn run(app: *App, text: []const u8) void {
-    if (!cmd_mod.dispatch(cmds, app, text)) {
+    if (!cmd_mod.dispatch(app.allCmds(), app, text)) {
         app.setStatus("not a command: {s}  (try :help)", .{text});
     }
 }

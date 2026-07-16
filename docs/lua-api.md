@@ -308,8 +308,8 @@ Design decisions:
    config loading on the GUI path; `wstudio.frontend`; `package.path` for
    `~/.config/wstudio/lua/`; `wstudio.notify`; `wstudio.cmd` /
    `wstudio.api.exec` (needs the Runtime threaded into `App`).
-3. **Commands.** `create_user_command` / `del_user_command`, `:help` and
-   completion integration.
+3. **Commands (shipped).** `create_user_command` / `del_user_command`,
+   `:help` and completion integration.
 4. **Keymaps.** Notation parser, registry, `handleKey` hook, `keymap.set`/
    `keymap.del`.
 5. **Events.** Registry, core emission points, the initial event table.

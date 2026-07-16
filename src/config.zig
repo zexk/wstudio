@@ -6,6 +6,7 @@
 //! that route `wstudio.notify`/`wstudio.cmd` into the live App.
 
 const std = @import("std");
+const cmd_mod = @import("tui/cmd.zig");
 
 const c = @cImport({
     @cInclude("lua.h");
@@ -76,11 +77,40 @@ pub const Host = struct {
 /// Registry slot holding `wstudio.cmd` lines issued before a host attaches.
 const pending_cmds_key = "wstudio.pending_cmds";
 
+/// Same "small fixed bank" convention as drum banks/Fx.max_units: a config
+/// registering more than this many `:` commands is not a real config.
+pub const max_user_cmds = 64;
+const user_cmd_name_cap = 32;
+const user_cmd_desc_cap = 64;
+
+/// One Lua-registered `:` command. The handler lives in the Lua registry
+/// (`ref`); Zig owns only the metadata the command table needs. Slices from
+/// `name`/`desc` point into the embedded buffers, so take them through a
+/// pointer into `Runtime.user_cmds`, never through a copied entry.
+pub const UserCmd = struct {
+    name_buf: [user_cmd_name_cap]u8,
+    name_len: u8,
+    desc_buf: [user_cmd_desc_cap]u8,
+    desc_len: u8,
+    scope: cmd_mod.Scope,
+    ref: c_int,
+
+    pub fn name(self: *const UserCmd) []const u8 {
+        return self.name_buf[0..self.name_len];
+    }
+
+    pub fn desc(self: *const UserCmd) []const u8 {
+        return self.desc_buf[0..self.desc_len];
+    }
+};
+
 pub const Runtime = struct {
     state: *c.lua_State,
     frontend: Frontend,
     config: Config = .{},
     host: ?Host = null,
+    user_cmds: [max_user_cmds]UserCmd = undefined,
+    user_cmds_len: usize = 0,
 
     pub fn init(frontend: Frontend) !Runtime {
         const state = c.luaL_newstate() orelse return error.OutOfMemory;
@@ -112,6 +142,35 @@ pub const Runtime = struct {
         c.lua_settop(l, -2);
         c.lua_pushnil(l);
         c.lua_setfield(l, c.LUA_REGISTRYINDEX, pending_cmds_key);
+    }
+
+    pub fn userCommands(self: *const Runtime) []const UserCmd {
+        return self.user_cmds[0..self.user_cmds_len];
+    }
+
+    /// Call user command `index`'s Lua handler with the Neovim-shaped opts
+    /// table (`opts.args` = the raw argument tail). Handler errors report
+    /// once (status line via the host, else stderr) and never propagate -
+    /// a failing command must not take the session down.
+    pub fn runUserCommand(self: *Runtime, index: usize, args: []const u8) void {
+        if (index >= self.user_cmds_len) return;
+        const l = self.state;
+        _ = c.lua_rawgeti(l, c.LUA_REGISTRYINDEX, self.user_cmds[index].ref);
+        c.lua_createtable(l, 0, 1); // opts
+        _ = c.lua_pushlstring(l, args.ptr, args.len);
+        c.lua_setfield(l, -2, "args");
+        if (c.lua_pcallk(l, 1, 0, 0, 0, null) != c.LUA_OK) {
+            const err = c.lua_tolstring(l, -1, null);
+            const text = if (err != null) std.mem.span(err) else "unknown error";
+            if (self.host) |h| {
+                var msg_buf: [256]u8 = undefined;
+                const msg = std.fmt.bufPrint(&msg_buf, "Lua: {s}", .{text[0..@min(text.len, msg_buf.len - 8)]}) catch "Lua error";
+                h.notify(h.ctx, msg);
+            } else {
+                std.debug.print("wstudio: Lua error: {s}\n", .{text});
+            }
+            c.lua_settop(l, -2);
+        }
     }
 
     pub fn loadFile(self: *Runtime, path: []const u8) !void {
@@ -164,10 +223,16 @@ pub const Runtime = struct {
         c.lua_pushlightuserdata(self.state, self);
         c.lua_pushcclosure(self.state, exec, 1);
         c.lua_setfield(self.state, -2, "cmd"); // wstudio.cmd
-        c.lua_createtable(self.state, 0, 1); // wstudio.api
+        c.lua_createtable(self.state, 0, 3); // wstudio.api
         c.lua_pushlightuserdata(self.state, self);
         c.lua_pushcclosure(self.state, exec, 1);
         c.lua_setfield(self.state, -2, "exec"); // wstudio.api.exec
+        c.lua_pushlightuserdata(self.state, self);
+        c.lua_pushcclosure(self.state, createUserCommand, 1);
+        c.lua_setfield(self.state, -2, "create_user_command");
+        c.lua_pushlightuserdata(self.state, self);
+        c.lua_pushcclosure(self.state, delUserCommand, 1);
+        c.lua_setfield(self.state, -2, "del_user_command");
         c.lua_setfield(self.state, -2, "api");
         c.lua_setglobal(self.state, "wstudio");
     }
@@ -305,6 +370,93 @@ fn exec(state: ?*c.lua_State) callconv(.c) c_int {
     return 0;
 }
 
+/// `wstudio.api.create_user_command(name, handler, opts?)` - opts takes
+/// `desc` (shown by :help and the completion popup) and `scope` (a
+/// `cmd.Scope` name gating completion visibility). Re-registering a name
+/// replaces its handler, so a config can be re-run idempotently. Built-in
+/// commands always win at dispatch (they come first in the combined
+/// table), so a clashing name here is shadowed, not an error.
+fn createUserCommand(state: ?*c.lua_State) callconv(.c) c_int {
+    const l = state.?;
+    var name_len: usize = 0;
+    const name_c = c.luaL_checklstring(l, 1, &name_len);
+    c.luaL_checktype(l, 2, c.LUA_TFUNCTION);
+    const cmd_name = name_c[0..name_len];
+    if (cmd_name.len == 0) return c.luaL_error(l, "command name is empty");
+    if (cmd_name.len > user_cmd_name_cap) return c.luaL_error(l, "command name is longer than 32 bytes");
+    if (std.mem.indexOfScalar(u8, cmd_name, ' ') != null) return c.luaL_error(l, "command name cannot contain spaces");
+
+    var scope: cmd_mod.Scope = .any;
+    var desc_buf: [user_cmd_desc_cap]u8 = undefined;
+    var desc: []const u8 = "";
+    if (c.lua_gettop(l) >= 3 and c.lua_type(l, 3) != c.LUA_TNIL) {
+        c.luaL_checktype(l, 3, c.LUA_TTABLE);
+        switch (c.lua_getfield(l, 3, "scope")) {
+            c.LUA_TNIL => {},
+            c.LUA_TSTRING => {
+                const s = std.mem.span(c.lua_tolstring(l, -1, null));
+                scope = std.meta.stringToEnum(cmd_mod.Scope, s) orelse
+                    return c.luaL_error(l, "invalid scope (any, drum, sampler, synth, slicer)");
+            },
+            else => return c.luaL_error(l, "scope must be a string"),
+        }
+        c.lua_settop(l, -2);
+        switch (c.lua_getfield(l, 3, "desc")) {
+            c.LUA_TNIL => {},
+            c.LUA_TSTRING => {
+                var dlen: usize = 0;
+                const d = c.lua_tolstring(l, -1, &dlen);
+                const kept = @min(dlen, desc_buf.len);
+                @memcpy(desc_buf[0..kept], d[0..kept]);
+                desc = desc_buf[0..kept];
+            },
+            else => return c.luaL_error(l, "desc must be a string"),
+        }
+        c.lua_settop(l, -2);
+    }
+
+    const rt = runtime(l);
+    const slot: *UserCmd = blk: {
+        for (rt.user_cmds[0..rt.user_cmds_len]) |*uc| {
+            if (std.mem.eql(u8, uc.name(), cmd_name)) {
+                c.luaL_unref(l, c.LUA_REGISTRYINDEX, uc.ref);
+                break :blk uc;
+            }
+        }
+        if (rt.user_cmds_len == max_user_cmds) return c.luaL_error(l, "too many user commands");
+        rt.user_cmds_len += 1;
+        break :blk &rt.user_cmds[rt.user_cmds_len - 1];
+    };
+    c.lua_pushvalue(l, 2);
+    slot.* = .{
+        .name_buf = undefined,
+        .name_len = @intCast(cmd_name.len),
+        .desc_buf = undefined,
+        .desc_len = @intCast(desc.len),
+        .scope = scope,
+        .ref = c.luaL_ref(l, c.LUA_REGISTRYINDEX),
+    };
+    @memcpy(slot.name_buf[0..cmd_name.len], cmd_name);
+    @memcpy(slot.desc_buf[0..desc.len], desc);
+    return 0;
+}
+
+fn delUserCommand(state: ?*c.lua_State) callconv(.c) c_int {
+    const l = state.?;
+    var name_len: usize = 0;
+    const name_c = c.luaL_checklstring(l, 1, &name_len);
+    const cmd_name = name_c[0..name_len];
+    const rt = runtime(l);
+    for (rt.user_cmds[0..rt.user_cmds_len], 0..) |*uc, i| {
+        if (!std.mem.eql(u8, uc.name(), cmd_name)) continue;
+        c.luaL_unref(l, c.LUA_REGISTRYINDEX, uc.ref);
+        std.mem.copyForwards(UserCmd, rt.user_cmds[i .. rt.user_cmds_len - 1], rt.user_cmds[i + 1 .. rt.user_cmds_len]);
+        rt.user_cmds_len -= 1;
+        return 0;
+    }
+    return c.luaL_error(l, "no such user command");
+}
+
 test "Lua API sets and reads options" {
     var rt = try Runtime.init(.tui);
     defer rt.deinit();
@@ -348,18 +500,21 @@ test "require path includes the user lua dir" {
 }
 
 const TestHost = struct {
-    log: [128]u8 = undefined,
+    log: [512]u8 = undefined,
     len: usize = 0,
 
     fn append(self: *TestHost, tag: []const u8, text: []const u8) void {
         for (tag) |b| {
+            if (self.len == self.log.len) return;
             self.log[self.len] = b;
             self.len += 1;
         }
         for (text) |b| {
+            if (self.len == self.log.len) return;
             self.log[self.len] = b;
             self.len += 1;
         }
+        if (self.len == self.log.len) return;
         self.log[self.len] = '\n';
         self.len += 1;
     }
@@ -392,6 +547,51 @@ test "wstudio.cmd queues until a host attaches, then runs live" {
     try std.testing.expectEqualStrings("exec:bpm 140\nexec:play\nexec:stop\n", th.log[0..th.len]);
     rt.attachHost(th.host());
     try std.testing.expectEqualStrings("exec:bpm 140\nexec:play\nexec:stop\n", th.log[0..th.len]);
+}
+
+test "user commands register, run with opts.args, and delete" {
+    var rt = try Runtime.init(.tui);
+    defer rt.deinit();
+    try rt.loadString("wstudio.api.create_user_command('swing', function(o) hit = o.args end, { desc = '<amount>  set swing feel', scope = 'drum' })");
+    try std.testing.expectEqual(@as(usize, 1), rt.userCommands().len);
+    try std.testing.expectEqualStrings("swing", rt.userCommands()[0].name());
+    try std.testing.expectEqualStrings("<amount>  set swing feel", rt.userCommands()[0].desc());
+    try std.testing.expectEqual(cmd_mod.Scope.drum, rt.userCommands()[0].scope);
+    rt.runUserCommand(0, "42");
+    try rt.loadString("assert(hit == '42')");
+    try rt.loadString("wstudio.api.del_user_command('swing')");
+    try std.testing.expectEqual(@as(usize, 0), rt.userCommands().len);
+}
+
+test "re-registering a user command replaces its handler" {
+    var rt = try Runtime.init(.tui);
+    defer rt.deinit();
+    try rt.loadString("wstudio.api.create_user_command('x', function() hit = 'old' end)");
+    try rt.loadString("wstudio.api.create_user_command('x', function() hit = 'new' end)");
+    try std.testing.expectEqual(@as(usize, 1), rt.userCommands().len);
+    rt.runUserCommand(0, "");
+    try rt.loadString("assert(hit == 'new')");
+}
+
+test "user command registration rejects bad input" {
+    var rt = try Runtime.init(.tui);
+    defer rt.deinit();
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.create_user_command('a b', function() end)"));
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.create_user_command('', function() end)"));
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.create_user_command('x', function() end, { scope = 'nope' })"));
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.del_user_command('nope')"));
+    try std.testing.expectEqual(@as(usize, 0), rt.userCommands().len);
+}
+
+test "user command handler errors report to the host" {
+    var rt = try Runtime.init(.tui);
+    defer rt.deinit();
+    try rt.loadString("wstudio.api.create_user_command('boom', function() error('kaboom') end)");
+    var th: TestHost = .{};
+    rt.attachHost(th.host());
+    rt.runUserCommand(0, "");
+    try std.testing.expect(std.mem.indexOf(u8, th.log[0..th.len], "notify:Lua:") != null);
+    try std.testing.expect(std.mem.indexOf(u8, th.log[0..th.len], "kaboom") != null);
 }
 
 test "wstudio.notify reaches the attached host" {

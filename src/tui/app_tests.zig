@@ -5443,3 +5443,31 @@ test "esc leaves the preset picker without applying anything" {
     try std.testing.expectEqual(AppView.synth_editor, app.view);
     try std.testing.expectApproxEqAbs(gain_before, app.session.racks.items[0].instrument.poly_synth.gain, 1e-6);
 }
+
+test "Lua user commands dispatch through :, builtins win collisions" {
+    var app = try testApp();
+    defer app.deinit();
+    var rt = try @import("../config.zig").Runtime.init(.tui);
+    defer rt.deinit();
+    try rt.loadString("wstudio.api.create_user_command('greet', function(o) hit = o.args end); wstudio.api.create_user_command('bpm', function() shadowed = true end)");
+    app.lua_runtime = &rt;
+    app.rebuildCmdTable();
+
+    commands.run(&app, "greet from-test");
+    try rt.loadString("assert(hit == 'from-test')");
+
+    // A user command named like a builtin is shadowed: :bpm still sets tempo.
+    commands.run(&app, "bpm 133");
+    try std.testing.expectEqual(@as(f64, 133), app.session.project.tempo_bpm);
+    try rt.loadString("assert(shadowed == nil)");
+
+    // Unknown names still report with user commands in the table.
+    commands.run(&app, "definitely-not-a-command");
+    try std.testing.expect(std.mem.indexOf(u8, app.status_buf[0..app.status_len], "not a command") != null);
+
+    // Deleting the command and rebuilding drops it from dispatch.
+    try rt.loadString("wstudio.api.del_user_command('greet'); hit = nil");
+    app.rebuildCmdTable();
+    commands.run(&app, "greet again");
+    try rt.loadString("assert(hit == nil)");
+}

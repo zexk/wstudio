@@ -207,6 +207,17 @@ pub const App = struct {
     /// than showing it live on every keystroke. Reset on fresh entry into
     /// command mode (applyAction's `.mode_changed`); set by `completeCommand`.
     suggest_popup_open: bool = false,
+    /// The Lua scripting runtime, attached by both frontends' run paths
+    /// once the app is initialized (null in headless tests without one).
+    /// Owned by main.zig; outlives the App.
+    lua_runtime: ?*config_mod.Runtime = null,
+    /// Combined command table: built-ins first (so dispatch's first-match
+    /// rule makes them win name collisions), then Lua user commands. Every
+    /// dispatch/completion/help consumer reads `allCmds()`, so user
+    /// commands appear everywhere automatically. Rebuilt by
+    /// `rebuildCmdTable` at init and when the Lua registry changes.
+    all_cmds_buf: [cmds_cap]cmd_mod.Def = undefined,
+    all_cmds_len: usize = 0,
     cursor: usize = 0,
     /// Tracks-view display rows: tracks in folder order - a group's row
     /// followed by its (indented) member tracks, folded groups hiding
@@ -596,7 +607,7 @@ pub const App = struct {
 
     pub fn initWithSampleRate(allocator: std.mem.Allocator, io: std.Io, sample_rate: u32) !App {
         const cmd_history = cmd_history_store.load(allocator, io);
-        return .{
+        var app: App = .{
             .allocator = allocator,
             .io = io,
             .session = try ws.Session.initDefaultWithSampleRate(allocator, sample_rate),
@@ -606,6 +617,33 @@ pub const App = struct {
             .cmd_history_pos = cmd_history.items.len,
             .bookmarks = bookmark_store.load(allocator, io),
         };
+        app.rebuildCmdTable();
+        return app;
+    }
+
+    pub const cmds_cap = commands.cmds.len + config_mod.max_user_cmds;
+
+    pub fn allCmds(self: *const App) []const cmd_mod.Def {
+        return self.all_cmds_buf[0..self.all_cmds_len];
+    }
+
+    /// See `all_cmds_buf`. Call after any change to the Lua user-command
+    /// registry - entry order and trampoline indices must match it.
+    pub fn rebuildCmdTable(self: *App) void {
+        @memcpy(self.all_cmds_buf[0..commands.cmds.len], commands.cmds);
+        var n: usize = commands.cmds.len;
+        if (self.lua_runtime) |rt| {
+            for (rt.userCommands(), 0..) |*uc, i| {
+                self.all_cmds_buf[n] = .{
+                    .name = uc.name(),
+                    .desc = uc.desc(),
+                    .run = user_cmd_runners[i],
+                    .scope = uc.scope,
+                };
+                n += 1;
+            }
+        }
+        self.all_cmds_len = n;
     }
 
     pub fn deinit(self: *App) void {
@@ -2124,7 +2162,7 @@ pub const App = struct {
         const pattern = self.searchPattern();
         if (pattern.len == 0) { self.setStatus("no previous search pattern", .{}); return; }
         const start = self.help_search_hit orelse self.help_scroll;
-        if (tui.helpSearch(commands.cmds, pattern, start, dir)) |idx| {
+        if (tui.helpSearch(self.allCmds(), pattern, start, dir)) |idx| {
             self.help_search_hit = idx;
             self.help_scroll = idx;
             self.setStatus("/{s}  [line {d}]", .{ pattern, idx + 1 });
@@ -2311,9 +2349,9 @@ pub const App = struct {
         // Offer the same in-scope, mnemonic names as the popup. Compatibility
         // aliases and force variants remain dispatchable when typed in full.
         const active = commands.activeScope(self);
-        var name_buf: [commands.cmds.len][]const u8 = undefined;
+        var name_buf: [cmds_cap][]const u8 = undefined;
         var n: usize = 0;
-        for (commands.cmds) |c| {
+        for (self.allCmds()) |c| {
             if (cmd_mod.hiddenFromCompletion(c) or !cmd_mod.visible(c, active)) continue;
             name_buf[n] = c.name;
             n += 1;
@@ -2469,7 +2507,7 @@ pub const App = struct {
     pub fn suggestionSelected(self: *const App, active: cmd_mod.Scope) usize {
         const tc = self.activeCommandCycle() orelse return 0;
         var idx: usize = 0;
-        for (commands.cmds) |c| {
+        for (self.allCmds()) |c| {
             if (cmd_mod.hiddenFromCompletion(c) or !cmd_mod.visible(c, active)) continue;
             if (!std.mem.startsWith(u8, c.name, tc.stem())) continue;
             if (std.mem.eql(u8, c.name, tc.last_written)) return idx;
@@ -3048,7 +3086,7 @@ pub const App = struct {
         // budget up front so the frame never grows taller than the terminal.
         const max_suggestion_rows = 10;
         const suggestion_rows: usize = if (self.modal.mode == .command and self.suggest_popup_open)
-            cmd_mod.suggestionRows(commands.cmds, self.suggestionFilterText(), commands.activeScope(self), max_suggestion_rows)
+            cmd_mod.suggestionRows(self.allCmds(), self.suggestionFilterText(), commands.activeScope(self), max_suggestion_rows)
         else
             0;
         const content_rows = rows -| suggestion_rows;
@@ -3072,7 +3110,7 @@ pub const App = struct {
             .synth_editor    => try tui.drawSynthEditor(self, w, content_rows, size.cols, snap),
             .sampler_editor  => try tui.drawSamplerEditor(self, w, content_rows, size.cols, snap),
             .piano_roll      => try tui.drawPianoRoll(self, w, content_rows, size.cols, snap),
-            .help            => try tui.drawHelp(w, content_rows, size.cols, commands.cmds, &self.help_scroll, self.help_search_hit),
+            .help            => try tui.drawHelp(w, content_rows, size.cols, self.allCmds(), &self.help_scroll, self.help_search_hit),
             .track_spectrum, .master_spectrum, .group_spectrum =>
                 try tui.drawFxView(self, w, content_rows, size.cols, snap, spectrum_ed.currentTarget(self)),
             .instrument_picker => try tui.drawInstrumentPicker(self, w, content_rows),
@@ -3154,7 +3192,7 @@ pub const App = struct {
         var prompt_scratch: [1024]u8 = undefined;
         var prompt_w = std.Io.Writer.fixed(&prompt_scratch);
         switch (self.modal.mode) {
-            .command => try cmd_mod.writePrompt(&prompt_w, commands.cmds, self.modal.cmd_buf[0..self.modal.cmd_len], self.modal.cmd_cursor, 60),
+            .command => try cmd_mod.writePrompt(&prompt_w, self.allCmds(), self.modal.cmd_buf[0..self.modal.cmd_len], self.modal.cmd_cursor, 60),
             .search => try cmd_mod.writeSearchPrompt(&prompt_w, self.modal.cmd_buf[0..self.modal.cmd_len], self.modal.cmd_cursor),
             else => {},
         }
@@ -3164,7 +3202,7 @@ pub const App = struct {
         if (suggestion_rows > 0) {
             try cmd_mod.writeSuggestionBox(
                 w,
-                commands.cmds,
+                self.allCmds(),
                 self.suggestionFilterText(),
                 commands.activeScope(self),
                 self.suggestionSelected(commands.activeScope(self)),
@@ -3257,6 +3295,25 @@ fn renderTrampoline(ctx: *anyopaque, out: []types.Sample) void {
 pub var active_terminal: ?*terminal_mod.Terminal = null;
 
 // zig fmt: off
+/// Per-slot trampolines bridging `cmd.Def.run`'s context-free signature to
+/// `Runtime.runUserCommand(index, ...)` - a Def can't carry which Lua
+/// handler it belongs to, so the slot index is baked in at comptime.
+const user_cmd_runners: [config_mod.max_user_cmds]*const fn (*anyopaque, []const u8) void = blk: {
+    var fns: [config_mod.max_user_cmds]*const fn (*anyopaque, []const u8) void = undefined;
+    for (0..config_mod.max_user_cmds) |i| fns[i] = userCmdRunner(i);
+    break :blk fns;
+};
+
+fn userCmdRunner(comptime index: usize) *const fn (*anyopaque, []const u8) void {
+    return struct {
+        fn call(ctx: *anyopaque, args: []const u8) void {
+            const app: *App = @ptrCast(@alignCast(ctx));
+            const rt = app.lua_runtime orelse return;
+            rt.runUserCommand(index, args);
+        }
+    }.call;
+}
+
 /// The `config.Host` hooks both frontends hand to the Lua runtime: notify
 /// lands on the status line, exec goes through the `:` command dispatcher.
 pub fn luaHost(app: *App) config_mod.Host {
@@ -3324,7 +3381,11 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8, run
     }
 
     // The app is fully initialized: route `wstudio.notify`/`wstudio.cmd`
-    // into it and flush command lines queued while init.lua ran.
+    // into it and flush command lines queued while init.lua ran. The
+    // command table must include Lua user commands before the flush, since
+    // queued lines may invoke them.
+    app.lua_runtime = runtime;
+    app.rebuildCmdTable();
     runtime.attachHost(luaHost(&app));
     defer runtime.host = null;
 

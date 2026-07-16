@@ -378,7 +378,11 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
     };
     defer app.deinit();
     // Same hooks as the TUI: `wstudio.notify`/`wstudio.cmd` land on the
-    // shared core, and init.lua's queued command lines flush here.
+    // shared core, and init.lua's queued command lines flush here. The
+    // command table must include Lua user commands before the flush, since
+    // queued lines may invoke them.
+    app.core.lua_runtime = runtime;
+    app.core.rebuildCmdTable();
     runtime.attachHost(tui_app.luaHost(&app.core));
     defer runtime.host = null;
     if (init_path) |path| {
@@ -1826,7 +1830,7 @@ fn drawCommandPrompt(app: *App) void {
     const filter = app.core.suggestionFilterText();
     if (filter.len == 0) return;
     const active = tui_commands.activeScope(&app.core);
-    const count = tui_cmd.suggestionCount(tui_commands.cmds, filter, active);
+    const count = tui_cmd.suggestionCount(app.core.allCmds(), filter, active);
     if (count < 2) return;
     const rows = @min(count, 8);
     const row_h: f32 = 39;
@@ -1852,7 +1856,7 @@ fn drawCommandSuggestions(app: *const App, active: tui_cmd.Scope, filter: []cons
     const selected = app.core.suggestionSelected(active);
     var match_index: usize = 0;
     var drawn: usize = 0;
-    for (tui_commands.cmds) |command| {
+    for (app.core.allCmds()) |command| {
         if (tui_cmd.hiddenFromCompletion(command) or !tui_cmd.visible(command, active)) continue;
         if (!std.mem.startsWith(u8, command.name, filter)) continue;
         if (drawn >= max_rows) break;
@@ -1892,7 +1896,7 @@ fn drawCommandBar(app: *const App, draw: zgui.DrawList, pos: [2]f32, size: [2]f3
     if (app.core.modal.mode == .command) {
         if (std.mem.indexOfScalar(u8, input, ' ')) |space| {
             const name = input[0..space];
-            for (tui_commands.cmds) |command| {
+            for (app.core.allCmds()) |command| {
                 if (!std.mem.eql(u8, command.name, name)) continue;
                 const hint_x = input_x + zgui.calcTextSize(input, .{})[0] + 18;
                 draw.addText(.{ hint_x, text_y }, color(patina.fg3), "{s}", .{command.desc});
