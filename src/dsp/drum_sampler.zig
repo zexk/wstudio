@@ -220,8 +220,11 @@ pub const DrumMachine = struct {
     /// When true, processBlock fires from `song_clips` under the playhead
     /// instead of the live `pattern`. Set via Session.setSongMode.
     song_mode: bool = false,
-    /// The lane's clips placed on the arrangement's step timeline.
-    song_clips: [max_song_clips]SongClip = undefined,
+    /// The lane's clips placed on the arrangement's step timeline. Heap
+    /// slice of length `max_song_clips` (owned, freed in deinit): inline it
+    /// would be ~1.2MB, pushing @sizeOf(DrumMachine) past what by-value
+    /// construction (init/dupe through Session.setInstrument) can stack.
+    song_clips: []SongClip,
     song_clip_count: u16 = 0,
     /// Whole-arrangement length in steps; the song loops at this boundary.
     song_length_steps: u32 = 0,
@@ -243,6 +246,8 @@ pub const DrumMachine = struct {
         sample_rate: u32,
         transport: *const Transport,
     ) !DrumMachine {
+        const song_clips = try allocator.alloc(SongClip, max_song_clips);
+        errdefer allocator.free(song_clips);
         var self: DrumMachine = .{
             .allocator = allocator,
             .sample_rate = sample_rate,
@@ -250,6 +255,7 @@ pub const DrumMachine = struct {
             .pads = undefined,
             .pattern = undefined,
             .vel = undefined,
+            .song_clips = song_clips,
             .midi = [_][max_steps]?MidiNote{[_]?MidiNote{null} ** max_steps} ** max_pads,
             .step_count = 32, // default 2 bars; user can extend to max_steps with >
 
@@ -283,6 +289,7 @@ pub const DrumMachine = struct {
 
     pub fn deinit(self: *DrumMachine) void {
         for (&self.pads) |*p| if (p.*) |*s| s.deinit();
+        self.allocator.free(self.song_clips);
     }
 
     /// Deep copy for track duplication: starts from a fresh `init` (which

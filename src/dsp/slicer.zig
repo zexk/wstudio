@@ -148,7 +148,9 @@ pub const Slicer = struct {
     /// When true, processBlock fires from `song_clips` under the playhead
     /// instead of looping the live pattern - same switch DrumMachine has.
     song_mode: bool = false,
-    song_clips: [max_song_clips]SongClip = undefined,
+    /// Heap slice of length `max_song_clips` (owned, freed in deinit) for
+    /// the same struct-size reason as `DrumMachine.song_clips`.
+    song_clips: []SongClip,
     song_clip_count: u16 = 0,
     /// Whole-arrangement length in steps; silent past this (no wrap).
     song_length_steps: u32 = 0,
@@ -159,11 +161,14 @@ pub const Slicer = struct {
 
     pub fn init(allocator: std.mem.Allocator, sample_rate: u32, transport: *const Transport) !Slicer {
         const samples = try allocator.alloc(f32, 0);
+        errdefer allocator.free(samples);
+        const song_clips = try allocator.alloc(SongClip, max_song_clips);
         var self: Slicer = .{
             .allocator = allocator,
             .sample_rate = sample_rate,
             .transport = transport,
             .samples = samples,
+            .song_clips = song_clips,
         };
         for (&self.slices) |*p| p.* = .{ .samples = samples };
         // zig fmt: off
@@ -176,6 +181,7 @@ pub const Slicer = struct {
 
     pub fn deinit(self: *Slicer) void {
         self.allocator.free(self.samples);
+        self.allocator.free(self.song_clips);
     }
 
     /// Deep copy for track duplication: the clip audio gets a fresh
@@ -184,6 +190,8 @@ pub const Slicer = struct {
     pub fn dupe(self: *const Slicer) !Slicer {
         var copy = self.*;
         copy.samples = try self.allocator.dupe(f32, self.samples);
+        errdefer self.allocator.free(copy.samples);
+        copy.song_clips = try self.allocator.dupe(SongClip, self.song_clips);
         for (&copy.slices) |*p| p.samples = copy.samples;
         copy.sample_lock = .unlocked;
         // zig fmt: off
