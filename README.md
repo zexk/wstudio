@@ -152,6 +152,8 @@ zig build run -- demo.wsj  # open the curated four-track demo project
 zig build run -- render  # offline demo: melody through the chain -> out.wav
 zig build gui          # launch the experimental GLFW + Dear ImGui frontend
 zig build gui-check    # compile the GUI frontend without launching it
+nix build .#gui        # build the experimental GUI as a Nix package
+nix build .#gui-windows # cross-build the experimental Windows GUI package
 zig build test       # all tests
 zig build check      # all tests plus a fresh wstudio executable build
 zig build genkit     # re-render the embedded drum kit (after editing drum_kit.zig)

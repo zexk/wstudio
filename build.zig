@@ -88,6 +88,8 @@ pub fn build(b: *std.Build) void {
     const install_gui = b.addInstallArtifact(gui_exe, .{});
     const gui_check_step = b.step("gui-check", "Build the experimental GUI frontend");
     gui_check_step.dependOn(&gui_exe.step);
+    const gui_install_step = b.step("gui-install", "Install the experimental GUI frontend");
+    gui_install_step.dependOn(&install_gui.step);
     const run_gui_cmd = b.addRunArtifact(gui_exe);
     run_gui_cmd.step.dependOn(&install_gui.step);
     if (b.args) |args| run_gui_cmd.addArgs(args);
