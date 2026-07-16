@@ -65,7 +65,10 @@
             inherit (finalAttrs) pname version src;
             hash = "sha256-J4QVx6y7XZiAkMK/NHdbhuU1wVxuZnjz12My8v49kfs=";
           };
-          nativeBuildInputs = [ pkgs.zig.hook ];
+          nativeBuildInputs = [
+            pkgs.zig.hook
+            pkgs.makeWrapper
+          ];
           buildInputs = pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [
             pkgs.alsa-lib
             pkgs.libGL
@@ -84,6 +87,10 @@
             runHook postBuild
           '';
           installPhase = "true";
+          postFixup = pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
+            wrapProgram "$out/bin/wstudio-gui" \
+              --prefix LD_LIBRARY_PATH : "${pkgs.lib.makeLibraryPath finalAttrs.buildInputs}"
+          '';
         });
 
         gui-windows = pkgs.stdenv.mkDerivation (finalAttrs: {
