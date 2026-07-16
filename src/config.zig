@@ -804,6 +804,11 @@ fn createUserCommand(state: ?*c.lua_State) callconv(.c) c_int {
     };
     @memcpy(slot.name_buf[0..cmd_name.len], cmd_name);
     @memcpy(slot.desc_buf[0..desc.len], desc);
+    // Registered at runtime (autocmd/keymap handler, not init.lua): the
+    // App's combined command table holds slices into `user_cmds` and its
+    // trampoline indices must match entry order, so rebuild it now. Null
+    // before attachHost, where the frontends rebuild themselves.
+    if (rt.app) |app| app.rebuildCmdTable();
     return 0;
 }
 
@@ -818,6 +823,9 @@ fn delUserCommand(state: ?*c.lua_State) callconv(.c) c_int {
         c.luaL_unref(l, c.LUA_REGISTRYINDEX, uc.ref);
         std.mem.copyForwards(UserCmd, rt.user_cmds[i .. rt.user_cmds_len - 1], rt.user_cmds[i + 1 .. rt.user_cmds_len]);
         rt.user_cmds_len -= 1;
+        // Deleting shifts the array the App's table points into - see
+        // createUserCommand's matching rebuild.
+        if (rt.app) |app| app.rebuildCmdTable();
         return 0;
     }
     return c.luaL_error(l, "no such user command");

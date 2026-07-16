@@ -5527,6 +5527,30 @@ test "Lua user commands dispatch through :, builtins win collisions" {
     try rt.loadString("assert(hit == nil)");
 }
 
+test "user commands registered at runtime rebuild the dispatch table" {
+    var app = try testApp();
+    defer app.deinit();
+    var rt = try @import("../config.zig").Runtime.init(.tui);
+    defer rt.deinit();
+    app.lua_runtime = &rt;
+    app.rebuildCmdTable();
+    rt.app = &app; // attached: registry changes must self-rebuild
+
+    // Registered after startup (as from an autocmd) - no manual rebuild.
+    try rt.loadString("wstudio.api.create_user_command('aa', function() aahit = true end);" ++
+        "wstudio.api.create_user_command('bb', function() bbhit = true end)");
+    commands.run(&app, "bb");
+    try rt.loadString("assert(bbhit == true)");
+
+    // Deleting 'aa' shifts 'bb' down a slot; the table must follow so :bb
+    // still runs bb's handler and :aa stops matching anything.
+    try rt.loadString("wstudio.api.del_user_command('aa'); bbhit = nil");
+    commands.run(&app, "bb");
+    try rt.loadString("assert(bbhit == true)");
+    commands.run(&app, "aa");
+    try rt.loadString("assert(aahit == nil)");
+}
+
 test "Lua keymaps intercept keys, chord, and fall through" {
     var app = try testApp();
     defer app.deinit();
