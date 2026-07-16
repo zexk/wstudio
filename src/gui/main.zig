@@ -292,6 +292,9 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8) !void {
 
     zgui.init(init.gpa);
     defer zgui.deinit();
+    var font_config = zgui.FontConfig.init();
+    font_config.size_pixels = 16;
+    zgui.io.setDefaultFont(zgui.io.addFontDefault(font_config));
     zgui.plot.init();
     defer zgui.plot.deinit();
     zgui.io.setConfigFlags(.{ .nav_enable_keyboard = true });
@@ -2053,6 +2056,10 @@ fn setTheme() void {
     style.frame_rounding = 2;
     style.grab_rounding = 2;
     style.scrollbar_rounding = 0;
+    style.frame_padding = .{ 6, 5 };
+    style.item_spacing = .{ 8, 6 };
+    style.item_inner_spacing = .{ 6, 5 };
+    style.scrollbar_size = 14;
     style.window_padding = .{ 12, 12 };
     style.frame_padding = .{ 8, 6 };
     style.item_spacing = .{ 8, 8 };
