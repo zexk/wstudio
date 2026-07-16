@@ -30,7 +30,7 @@ const gl = zopengl.bindings;
 const color = gui_style.color;
 const rgb = gui_style.rgb;
 const trackColor = gui_style.trackColor;
-const umbra = gui_style.umbra;
+const patina = gui_style.patina;
 
 const icon_glyph_ranges = [_]zgui.Wchar{
     0xec1a,  0xec1a,  0xee32,  0xee32,  0xef9d,  0xef9d,
@@ -417,7 +417,7 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8) !void {
         const fb = window.getFramebufferSize();
         if (fb[0] <= 0 or fb[1] <= 0) continue;
         gl.viewport(0, 0, fb[0], fb[1]);
-        gl.clearColor(umbra.bg0[0], umbra.bg0[1], umbra.bg0[2], 1.0);
+        gl.clearColor(patina.bg0[0], patina.bg0[1], patina.bg0[2], 1.0);
         gl.clear(gl.COLOR_BUFFER_BIT);
         zgui.backend.newFrame(@intCast(fb[0]), @intCast(fb[1]));
         app.handleShortcuts();
@@ -481,8 +481,8 @@ fn drawTransport(app: *App, audio_label: []const u8) void {
 fn drawTransportReadout(label: []const u8, value: []const u8, first: bool) void {
     if (!first) zgui.sameLine(.{ .spacing = 24 });
     zgui.beginGroup();
-    zgui.textColored(umbra.fg3, "{s}", .{label});
-    zgui.textColored(umbra.fg0, "{s}", .{value});
+    zgui.textColored(patina.fg3, "{s}", .{label});
+    zgui.textColored(patina.fg0, "{s}", .{value});
     zgui.endGroup();
 }
 
@@ -494,11 +494,11 @@ fn drawBrowser(app: *App) void {
         zgui.textDisabled(icons.logo ++ "  LIBRARY", .{});
         zgui.separator();
         const entries = [_]struct { label: []const u8, hint: []const u8, view: tui_app.AppView, accent: [4]f32 }{
-            .{ .label = icons.synth ++ "  Instruments", .hint = "Devices", .view = .instrument_picker, .accent = umbra.iris },
-            .{ .label = icons.sampler ++ "  Samples", .hint = "Audio files", .view = .file_browser, .accent = umbra.cyan },
-            .{ .label = icons.drum ++ "  Drum Kits", .hint = "Patterns", .view = .drum_grid, .accent = umbra.yellow },
-            .{ .label = icons.save ++ "  Presets", .hint = "Saved sounds", .view = .preset_picker, .accent = umbra.mauve },
-            .{ .label = icons.arrangement ++ "  Projects", .hint = "Songs on disk", .view = .file_browser, .accent = umbra.red },
+            .{ .label = icons.synth ++ "  Instruments", .hint = "Devices", .view = .instrument_picker, .accent = patina.focus },
+            .{ .label = icons.sampler ++ "  Samples", .hint = "Audio files", .view = .file_browser, .accent = patina.audio },
+            .{ .label = icons.drum ++ "  Drum Kits", .hint = "Patterns", .view = .drum_grid, .accent = patina.rhythm },
+            .{ .label = icons.save ++ "  Presets", .hint = "Saved sounds", .view = .preset_picker, .accent = patina.modulation },
+            .{ .label = icons.arrangement ++ "  Projects", .hint = "Songs on disk", .view = .file_browser, .accent = patina.danger },
         };
         for (entries, 0..) |entry, i| drawBrowserRow(app, entry.label, entry.hint, entry.view, entry.accent, @intCast(i));
     }
@@ -519,7 +519,7 @@ fn drawBrowserRow(app: *App, label: []const u8, hint: []const u8, view: tui_app.
     if (selected or hovered) draw.addRectFilled(.{
         .pmin = origin,
         .pmax = .{ origin[0] + width, origin[1] + height },
-        .col = color(if (selected) umbra.bg3 else umbra.bg2),
+        .col = color(if (selected) patina.bg3 else patina.bg2),
         .rounding = 3,
     });
     draw.addRectFilled(.{
@@ -528,8 +528,8 @@ fn drawBrowserRow(app: *App, label: []const u8, hint: []const u8, view: tui_app.
         .col = color(accent),
         .rounding = 2,
     });
-    draw.addText(.{ origin[0] + 22, origin[1] + 6 }, color(if (selected) umbra.fg0 else umbra.fg1), "{s}", .{label});
-    draw.addText(.{ origin[0] + 22, origin[1] + 23 }, color(umbra.fg3), "{s}", .{hint});
+    draw.addText(.{ origin[0] + 22, origin[1] + 6 }, color(if (selected) patina.fg0 else patina.fg1), "{s}", .{label});
+    draw.addText(.{ origin[0] + 22, origin[1] + 23 }, color(patina.fg3), "{s}", .{hint});
     if (clicked) {
         app.browser_selection = index;
         if (isPicker(view)) app.openPicker(view) else app.core.view = view;
@@ -543,13 +543,13 @@ fn drawTracks(app: *App) void {
     if (zgui.begin("Tracks", .{ .flags = .{ .no_move = true, .no_resize = true, .no_collapse = true, .no_docking = true } })) {
         zgui.textDisabled(icons.master ++ "  TRACKS", .{});
         zgui.sameLine(.{});
-        zgui.textColored(umbra.fg2, "{d}", .{app.core.session.project.tracks.items.len});
+        zgui.textColored(patina.fg2, "{d}", .{app.core.session.project.tracks.items.len});
         zgui.separator();
         for (app.core.session.project.tracks.items, 0..) |track, i| drawTrackRow(app, track, i);
         zgui.spacing();
         zgui.separator();
-        zgui.pushStyleColor4f(.{ .idx = .button, .c = umbra.bg2 });
-        zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = umbra.bg3 });
+        zgui.pushStyleColor4f(.{ .idx = .button, .c = patina.bg2 });
+        zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = patina.bg3 });
         if (zgui.button(icons.synth ++ "  NEW TRACK", .{ .w = -1, .h = 30 })) {
             const idx = app.core.session.project.tracks.items.len + 1;
             var name_buf: [32]u8 = undefined;
@@ -575,7 +575,7 @@ fn drawTrackRow(app: *App, track: ws.Track, index: usize) void {
     if (selected or hovered) draw.addRectFilled(.{
         .pmin = origin,
         .pmax = .{ origin[0] + width, origin[1] + height },
-        .col = color(if (selected) umbra.bg4 else umbra.bg2),
+        .col = color(if (selected) patina.bg4 else patina.bg2),
         .rounding = 3,
     });
     const accent = trackColor(track.color);
@@ -585,24 +585,24 @@ fn drawTrackRow(app: *App, track: ws.Track, index: usize) void {
         .col = color(accent),
         .rounding = 2,
     });
-    draw.addText(.{ origin[0] + 11, origin[1] + 8 }, color(umbra.fg3), "{d:0>2}", .{index + 1});
-    draw.addText(.{ origin[0] + 39, origin[1] + 8 }, color(if (selected) umbra.fg0 else umbra.fg1), "{s}", .{track.name});
+    draw.addText(.{ origin[0] + 11, origin[1] + 8 }, color(patina.fg3), "{d:0>2}", .{index + 1});
+    draw.addText(.{ origin[0] + 39, origin[1] + 8 }, color(if (selected) patina.fg0 else patina.fg1), "{s}", .{track.name});
 
     var badge_x = origin[0] + width - 10;
     if (track.soloed) {
         badge_x -= 18;
-        drawTrackBadge(draw, badge_x, origin[1] + 7, "S", umbra.yellow);
+        drawTrackBadge(draw, badge_x, origin[1] + 7, "S", patina.rhythm);
     }
     if (track.muted) {
         badge_x -= 18;
-        drawTrackBadge(draw, badge_x, origin[1] + 7, "M", umbra.red);
+        drawTrackBadge(draw, badge_x, origin[1] + 7, "M", patina.danger);
     }
     if (clicked) app.core.cursor = index;
 }
 
 fn drawTrackBadge(draw: zgui.DrawList, x: f32, y: f32, label: []const u8, bg: [4]f32) void {
     draw.addRectFilled(.{ .pmin = .{ x, y }, .pmax = .{ x + 15, y + 18 }, .col = color(bg), .rounding = 2 });
-    draw.addText(.{ x + 4, y + 2 }, color(umbra.bg0), "{s}", .{label});
+    draw.addText(.{ x + 4, y + 2 }, color(patina.bg0), "{s}", .{label});
 }
 
 fn drawWorkspace(app: *App) void {
@@ -614,7 +614,7 @@ fn drawWorkspace(app: *App) void {
     zgui.setNextWindowPos(.{ .x = 0, .y = 64, .cond = .always });
     zgui.setNextWindowSize(.{ .w = zgui.io.getDisplaySize()[0], .h = layout.body_h, .cond = .always });
     if (zgui.begin("Workspace", .{ .flags = .{ .no_move = true, .no_resize = true, .no_collapse = true, .no_docking = true } })) {
-        zgui.textColored(umbra.fg3, "{s}", .{@tagName(app.core.view)});
+        zgui.textColored(patina.fg3, "{s}", .{@tagName(app.core.view)});
         zgui.sameLine(.{ .spacing = 18 });
         zgui.textDisabled("j/k move   enter open   esc back   tab arrange/tracks   : command   ? help", .{});
         zgui.separator();
@@ -662,7 +662,7 @@ fn drawPickerPopup(app: *App) void {
     });
     if (zgui.beginPopupModal(popup_name, .{ .flags = .{ .no_resize = true, .no_saved_settings = true } })) {
         app.picker_popup_visible = true;
-        zgui.textColored(umbra.fg3, "SELECT A RESULT   ESC TO CLOSE", .{});
+        zgui.textColored(patina.fg3, "SELECT A RESULT   ESC TO CLOSE", .{});
         zgui.separator();
         switch (app.core.view) {
             .instrument_picker => picker_view.drawInstrument(app),
@@ -720,20 +720,20 @@ fn drawViewTab(app: *App, label: [:0]const u8, view: tui_app.AppView, width: f32
     if (selected or hovered) draw.addRectFilled(.{
         .pmin = origin,
         .pmax = .{ origin[0] + width, origin[1] + height },
-        .col = color(if (selected) umbra.bg3 else umbra.bg2),
+        .col = color(if (selected) patina.bg3 else patina.bg2),
         .rounding = 3,
     });
     if (selected) draw.addRectFilled(.{
         .pmin = .{ origin[0] + 5, origin[1] + height - 3 },
         .pmax = .{ origin[0] + width - 5, origin[1] + height },
-        .col = color(umbra.iris),
+        .col = color(patina.focus),
         .rounding = 2,
     });
     const text_size = zgui.calcTextSize(label, .{});
     draw.addText(.{
         origin[0] + (width - text_size[0]) / 2,
         origin[1] + (height - text_size[1]) / 2 - 1,
-    }, color(if (selected) umbra.fg0 else umbra.fg2), "{s}", .{label});
+    }, color(if (selected) patina.fg0 else patina.fg2), "{s}", .{label});
     if (clicked) {
         if (isPicker(view)) app.openPicker(view) else app.core.view = view;
     }
@@ -742,7 +742,7 @@ fn drawViewTab(app: *App, label: [:0]const u8, view: tui_app.AppView, width: f32
 fn drawTrackOverview(app: *App) void {
     zgui.textDisabled(icons.master ++ "  MIXER OVERVIEW", .{});
     zgui.sameLine(.{});
-    zgui.textColored(umbra.fg2, "{d} channels", .{app.core.session.project.tracks.items.len});
+    zgui.textColored(patina.fg2, "{d} channels", .{app.core.session.project.tracks.items.len});
     zgui.separator();
     for (app.core.session.project.tracks.items, 0..) |track, i| {
         drawMixerRow(app, track, app.core.session.racks.items[i], i);
@@ -765,7 +765,7 @@ fn drawMixerRow(app: *App, track: ws.Track, rack: *ws.Rack, index: usize) void {
     draw.addRectFilled(.{
         .pmin = origin,
         .pmax = .{ origin[0] + width, origin[1] + height - 2 },
-        .col = color(if (selected) umbra.bg3 else if (in_visual) .{ umbra.yellow[0], umbra.yellow[1], umbra.yellow[2], 0.16 } else if (hovered) umbra.bg2 else umbra.bg1),
+        .col = color(if (selected) patina.bg3 else if (in_visual) .{ patina.rhythm[0], patina.rhythm[1], patina.rhythm[2], 0.16 } else if (hovered) patina.bg2 else patina.bg1),
         .rounding = 3,
     });
     draw.addRectFilled(.{
@@ -774,8 +774,8 @@ fn drawMixerRow(app: *App, track: ws.Track, rack: *ws.Rack, index: usize) void {
         .col = color(trackColor(track.color)),
         .rounding = 2,
     });
-    draw.addText(.{ origin[0] + 13, origin[1] + 5 }, color(if (selected) umbra.fg0 else umbra.fg1), "{d:0>2}  {s}", .{ index + 1, track.name });
-    draw.addText(.{ origin[0] + 41, origin[1] + 23 }, color(umbra.fg3), "{s}", .{rack.label});
+    draw.addText(.{ origin[0] + 13, origin[1] + 5 }, color(if (selected) patina.fg0 else patina.fg1), "{d:0>2}  {s}", .{ index + 1, track.name });
+    draw.addText(.{ origin[0] + 41, origin[1] + 23 }, color(patina.fg3), "{s}", .{rack.label});
 
     var gain_buf: [24]u8 = undefined;
     const gain = std.fmt.bufPrint(&gain_buf, "{d:.1} dB", .{track.gain_db}) catch "gain";
@@ -784,17 +784,17 @@ fn drawMixerRow(app: *App, track: ws.Track, rack: *ws.Rack, index: usize) void {
         "C"
     else
         std.fmt.bufPrint(&pan_buf, "{c}{d:.2}", .{ if (track.pan < 0) @as(u8, 'L') else 'R', @abs(track.pan) }) catch "pan";
-    draw.addText(.{ origin[0] + width - 190, origin[1] + 14 }, color(umbra.fg1), "{s}", .{gain});
-    draw.addText(.{ origin[0] + width - 112, origin[1] + 14 }, color(umbra.fg2), "{s}", .{pan});
+    draw.addText(.{ origin[0] + width - 190, origin[1] + 14 }, color(patina.fg1), "{s}", .{gain});
+    draw.addText(.{ origin[0] + width - 112, origin[1] + 14 }, color(patina.fg2), "{s}", .{pan});
 
     var badge_x = origin[0] + width - 9;
     if (track.soloed) {
         badge_x -= 18;
-        drawTrackBadge(draw, badge_x, origin[1] + 12, "S", umbra.yellow);
+        drawTrackBadge(draw, badge_x, origin[1] + 12, "S", patina.rhythm);
     }
     if (track.muted) {
         badge_x -= 18;
-        drawTrackBadge(draw, badge_x, origin[1] + 12, "M", umbra.red);
+        drawTrackBadge(draw, badge_x, origin[1] + 12, "M", patina.danger);
     }
     if (clicked) app.core.cursor = index;
 }
@@ -829,24 +829,24 @@ fn drawArrangement(app: *App) void {
     const total_beats: f32 = @floatFromInt(bar_count * beats_per_bar);
     const beat_w = timeline_w / total_beats;
 
-    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + canvas_w, origin[1] + canvas_h }, .col = color(.{ 0.05, 0.06, 0.07, 1 }) });
-    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + canvas_w, origin[1] + ruler_h }, .col = color(.{ 0.085, 0.095, 0.11, 1 }) });
+    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + canvas_w, origin[1] + canvas_h }, .col = color(patina.bg0) });
+    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + canvas_w, origin[1] + ruler_h }, .col = color(patina.bg2) });
 
     for (0..track_count) |ti| {
         const y = origin[1] + ruler_h + @as(f32, @floatFromInt(ti)) * lane_h;
         const selected = ti == app.core.cursor;
-        draw.addRectFilled(.{ .pmin = .{ origin[0], y }, .pmax = .{ timeline_x, y + lane_h }, .col = color(if (selected) .{ 0.12, 0.17, 0.18, 1 } else .{ 0.075, 0.085, 0.095, 1 }) });
-        draw.addRectFilled(.{ .pmin = .{ timeline_x, y }, .pmax = .{ origin[0] + canvas_w, y + lane_h }, .col = color(if (selected) .{ 0.075, 0.095, 0.10, 1 } else if (ti % 2 == 0) .{ 0.065, 0.075, 0.085, 1 } else .{ 0.055, 0.065, 0.075, 1 }) });
-        draw.addText(.{ origin[0] + 10, y + 11 }, color(if (selected) .{ 0.75, 0.95, 0.88, 1 } else .{ 0.68, 0.70, 0.72, 1 }), "{d:0>2}  {s}", .{ ti + 1, app.core.session.project.tracks.items[ti].name });
-        draw.addText(.{ origin[0] + 34, y + 32 }, color(.{ 0.36, 0.39, 0.42, 1 }), "{s}", .{@tagName(app.core.session.project.tracks.items[ti].kind)});
-        draw.addLine(.{ .p1 = .{ origin[0], y + lane_h }, .p2 = .{ origin[0] + canvas_w, y + lane_h }, .col = color(.{ 0.13, 0.14, 0.16, 1 }), .thickness = 1 });
+        draw.addRectFilled(.{ .pmin = .{ origin[0], y }, .pmax = .{ timeline_x, y + lane_h }, .col = color(if (selected) patina.bg4 else patina.bg2) });
+        draw.addRectFilled(.{ .pmin = .{ timeline_x, y }, .pmax = .{ origin[0] + canvas_w, y + lane_h }, .col = color(if (selected) patina.bg3 else if (ti % 2 == 0) patina.bg1 else patina.bg0) });
+        draw.addText(.{ origin[0] + 10, y + 11 }, color(if (selected) patina.fg0 else patina.fg1), "{d:0>2}  {s}", .{ ti + 1, app.core.session.project.tracks.items[ti].name });
+        draw.addText(.{ origin[0] + 34, y + 32 }, color(patina.fg3), "{s}", .{@tagName(app.core.session.project.tracks.items[ti].kind)});
+        draw.addLine(.{ .p1 = .{ origin[0], y + lane_h }, .p2 = .{ origin[0] + canvas_w, y + lane_h }, .col = color(patina.line), .thickness = 1 });
     }
 
     for (0..bar_count * beats_per_bar + 1) |beat_index| {
         const x = timeline_x + @as(f32, @floatFromInt(beat_index)) * beat_w;
         const on_bar = beat_index % beats_per_bar == 0;
-        draw.addLine(.{ .p1 = .{ x, if (on_bar) origin[1] else origin[1] + ruler_h }, .p2 = .{ x, origin[1] + canvas_h }, .col = color(if (on_bar) .{ 0.29, 0.32, 0.35, 1 } else .{ 0.12, 0.135, 0.15, 1 }), .thickness = if (on_bar) 1.5 else 1 });
-        if (on_bar and beat_index < bar_count * beats_per_bar) draw.addText(.{ x + 7, origin[1] + 7 }, color(.{ 0.64, 0.67, 0.70, 1 }), "{d}", .{beat_index / beats_per_bar + 1});
+        draw.addLine(.{ .p1 = .{ x, if (on_bar) origin[1] else origin[1] + ruler_h }, .p2 = .{ x, origin[1] + canvas_h }, .col = color(if (on_bar) patina.bg5 else patina.line), .thickness = if (on_bar) 1.5 else 1 });
+        if (on_bar and beat_index < bar_count * beats_per_bar) draw.addText(.{ x + 7, origin[1] + 7 }, color(patina.fg2), "{d}", .{beat_index / beats_per_bar + 1});
     }
 
     if (app.core.modal.mode == .visual and app.core.cursor < track_count) {
@@ -856,8 +856,8 @@ fn drawArrangement(app: *App) void {
         const x1 = timeline_x + @as(f32, @floatFromInt(lo)) / @as(f32, @floatFromInt(ticks_per_beat)) * beat_w;
         const x2 = timeline_x + @as(f32, @floatFromInt(hi)) / @as(f32, @floatFromInt(ticks_per_beat)) * beat_w;
         const y = origin[1] + ruler_h + @as(f32, @floatFromInt(app.core.cursor)) * lane_h;
-        draw.addRectFilled(.{ .pmin = .{ x1, y }, .pmax = .{ x2, y + lane_h }, .col = color(.{ umbra.yellow[0], umbra.yellow[1], umbra.yellow[2], 0.14 }) });
-        draw.addRect(.{ .pmin = .{ x1 + 1, y + 1 }, .pmax = .{ x2 - 1, y + lane_h - 1 }, .col = color(.{ umbra.yellow[0], umbra.yellow[1], umbra.yellow[2], 0.6 }), .thickness = 1 });
+        draw.addRectFilled(.{ .pmin = .{ x1, y }, .pmax = .{ x2, y + lane_h }, .col = color(.{ patina.rhythm[0], patina.rhythm[1], patina.rhythm[2], 0.14 }) });
+        draw.addRect(.{ .pmin = .{ x1 + 1, y + 1 }, .pmax = .{ x2 - 1, y + lane_h - 1 }, .col = color(.{ patina.rhythm[0], patina.rhythm[1], patina.rhythm[2], 0.6 }), .thickness = 1 });
     }
 
     for (app.core.session.arrangement.lanes.items, 0..) |lane, ti| {
@@ -870,14 +870,14 @@ fn drawArrangement(app: *App) void {
             const pmax = [2]f32{ @min(x + clip_w, origin[0] + canvas_w - 1), lane_y + lane_h - 5 };
             const selected = if (app.arrangement_clip) |selection| selection.track == ti and selection.clip == ci else false;
             const clip_color: [4]f32 = switch (clip.content) {
-                .melodic => if (selected) .{ 0.25, 0.78, 0.60, 1 } else .{ 0.16, 0.53, 0.43, 1 },
-                .drum => if (selected) .{ 0.82, 0.55, 0.28, 1 } else .{ 0.57, 0.35, 0.17, 1 },
+                .melodic => .{ patina.audio[0], patina.audio[1], patina.audio[2], if (selected) 1 else 0.68 },
+                .drum => .{ patina.rhythm[0], patina.rhythm[1], patina.rhythm[2], if (selected) 1 else 0.68 },
             };
             draw.addRectFilled(.{ .pmin = pmin, .pmax = pmax, .col = color(clip_color), .rounding = 4 });
-            if (selected) draw.addRect(.{ .pmin = pmin, .pmax = pmax, .col = color(.{ 0.85, 1.0, 0.94, 0.95 }), .rounding = 4, .thickness = 2 });
+            if (selected) draw.addRect(.{ .pmin = pmin, .pmax = pmax, .col = color(patina.fg0), .rounding = 4, .thickness = 2 });
             switch (clip.content) {
                 .melodic => |melodic| {
-                    draw.addText(.{ pmin[0] + 7, pmin[1] + 4 }, color(.{ 0.88, 1.0, 0.95, 1 }), "MIDI  {d}", .{melodic.notes.len});
+                    draw.addText(.{ pmin[0] + 7, pmin[1] + 4 }, color(patina.fg0), "MIDI  {d}", .{melodic.notes.len});
                     var min_pitch: u7 = 127;
                     var max_pitch: u7 = 0;
                     for (melodic.notes) |note| {
@@ -889,22 +889,22 @@ fn drawArrangement(app: *App) void {
                         const note_x = pmin[0] + @as(f32, @floatCast(note.start_beat / melodic.length_beats)) * (pmax[0] - pmin[0]);
                         const note_y = pmin[1] + 23 + @as(f32, @floatFromInt(max_pitch - note.pitch)) / pitch_span * 17;
                         const note_w = @max(2, @as(f32, @floatCast(note.duration_beat / melodic.length_beats)) * (pmax[0] - pmin[0]));
-                        draw.addLine(.{ .p1 = .{ note_x, note_y }, .p2 = .{ @min(note_x + note_w, pmax[0] - 2), note_y }, .col = color(.{ 0.70, 0.96, 0.84, 0.8 }), .thickness = 2 });
+                        draw.addLine(.{ .p1 = .{ note_x, note_y }, .p2 = .{ @min(note_x + note_w, pmax[0] - 2), note_y }, .col = color(.{ patina.fg0[0], patina.fg0[1], patina.fg0[2], 0.72 }), .thickness = 2 });
                     }
                 },
                 .drum => |drum| {
-                    draw.addText(.{ pmin[0] + 7, pmin[1] + 4 }, color(.{ 1.0, 0.91, 0.78, 1 }), "PATTERN {c}", .{'A' + drum.variant});
+                    draw.addText(.{ pmin[0] + 7, pmin[1] + 4 }, color(patina.bg0), "PATTERN {c}", .{'A' + drum.variant});
                     for (0..drum.step_count) |step| {
                         var hits: u8 = 0;
                         for (drum.pattern) |pattern| hits += @intCast((pattern >> @intCast(step)) & 1);
                         if (hits == 0) continue;
                         const hit_x = pmin[0] + (@as(f32, @floatFromInt(step)) + 0.5) / @as(f32, @floatFromInt(drum.step_count)) * (pmax[0] - pmin[0]);
                         const hit_h = @min(15, @as(f32, @floatFromInt(hits)) * 2);
-                        draw.addLine(.{ .p1 = .{ hit_x, pmax[1] - 6 }, .p2 = .{ hit_x, pmax[1] - 6 - hit_h }, .col = color(.{ 1.0, 0.82, 0.54, 0.85 }), .thickness = 2 });
+                        draw.addLine(.{ .p1 = .{ hit_x, pmax[1] - 6 }, .p2 = .{ hit_x, pmax[1] - 6 - hit_h }, .col = color(.{ patina.bg0[0], patina.bg0[1], patina.bg0[2], 0.72 }), .thickness = 2 });
                     }
                 },
             }
-            if (clip.automation.gain.len + clip.automation.pan.len + clip.automation.synth_params.items.len > 0) draw.addText(.{ pmax[0] - 16, pmin[1] + 4 }, color(.{ 0.94, 0.88, 1.0, 1 }), "A", .{});
+            if (clip.automation.gain.len + clip.automation.pan.len + clip.automation.synth_params.items.len > 0) draw.addText(.{ pmax[0] - 16, pmin[1] + 4 }, color(patina.modulation), "A", .{});
         }
     }
 
@@ -915,12 +915,12 @@ fn drawArrangement(app: *App) void {
         draw.addRectFilled(.{
             .pmin = .{ cursor_x + 1, cursor_y + 1 },
             .pmax = .{ @min(cursor_x + cursor_w, origin[0] + canvas_w - 1), cursor_y + lane_h - 1 },
-            .col = color(.{ umbra.iris[0], umbra.iris[1], umbra.iris[2], 0.16 }),
+            .col = color(.{ patina.focus[0], patina.focus[1], patina.focus[2], 0.16 }),
         });
         draw.addRect(.{
             .pmin = .{ cursor_x + 1, cursor_y + 1 },
             .pmax = .{ @min(cursor_x + cursor_w, origin[0] + canvas_w - 1), cursor_y + lane_h - 1 },
-            .col = color(umbra.iris),
+            .col = color(patina.focus),
             .thickness = 2,
         });
     }
@@ -929,7 +929,7 @@ fn drawArrangement(app: *App) void {
     if (snap.playing) {
         const play_beat = @as(f64, @floatFromInt(snap.position_frames)) / 48000.0 * @as(f64, app.core.session.project.tempo_bpm) / 60.0;
         const x = timeline_x + @as(f32, @floatCast(play_beat)) * beat_w;
-        if (x <= origin[0] + canvas_w) draw.addLine(.{ .p1 = .{ x, origin[1] }, .p2 = .{ x, origin[1] + canvas_h }, .col = color(.{ 1.0, 0.34, 0.28, 0.95 }), .thickness = 2 });
+        if (x <= origin[0] + canvas_w) draw.addLine(.{ .p1 = .{ x, origin[1] }, .p2 = .{ x, origin[1] + canvas_h }, .col = color(patina.danger), .thickness = 2 });
     }
 
     if (clicked and hovered and mouse[1] >= origin[1] + ruler_h) {
@@ -983,7 +983,7 @@ fn drawPianoToolbar(app: *App) void {
         app.core.handleKey(.{ .char = 'Z' }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
     }
     zgui.sameLine(.{ .spacing = 4 });
-    zgui.textColored(umbra.cyan, "{s}", .{app.core.piano_division.label()});
+    zgui.textColored(patina.audio, "{s}", .{app.core.piano_division.label()});
     zgui.sameLine(.{ .spacing = 4 });
     if (zgui.button("+ GRID##piano-grid-up", .{ .h = 27 })) {
         app.core.handleKey(.{ .char = 'z' }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
@@ -1037,8 +1037,8 @@ fn drawPianoRoll(app: *App) void {
     const beats: f32 = @floatCast(@max(1.0, pp.length_beats));
     const beat_w = grid_w / beats;
 
-    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + canvas_w, origin[1] + canvas_h }, .col = color(.{ 0.055, 0.065, 0.075, 1 }) });
-    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + gutter_w, origin[1] + ruler_h }, .col = color(.{ 0.09, 0.10, 0.12, 1 }) });
+    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + canvas_w, origin[1] + canvas_h }, .col = color(patina.bg0) });
+    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + gutter_w, origin[1] + ruler_h }, .col = color(patina.bg2) });
 
     for (0..row_count) |row| {
         const pitch: u7 = top_pitch - @as(u7, @intCast(row));
@@ -1046,21 +1046,21 @@ fn drawPianoRoll(app: *App) void {
         const black = isBlackKey(pitch);
         const in_scale = if (app.core.piano_scale) |scale| scale.contains(pitch) else true;
         const scale_root = if (app.core.piano_scale) |scale| pitch % 12 == scale.root else false;
-        const row_color: [4]f32 = if (!in_scale)
-            .{ 0.052, 0.058, 0.065, 1 }
+        const row_color = if (!in_scale)
+            patina.line_soft
         else if (scale_root)
-            .{ 0.125, 0.09, 0.145, 1 }
+            patina.bg3
         else if (black)
-            .{ 0.07, 0.08, 0.09, 1 }
+            patina.bg1
         else
-            .{ 0.095, 0.105, 0.115, 1 };
+            patina.bg2;
         draw.addRectFilled(.{ .pmin = .{ grid_x, y }, .pmax = .{ origin[0] + canvas_w, y + row_h }, .col = color(row_color) });
-        draw.addRectFilled(.{ .pmin = .{ origin[0], y }, .pmax = .{ grid_x, y + row_h }, .col = color(if (!in_scale) .{ 0.12, 0.125, 0.13, 1 } else if (scale_root) .{ 0.55, 0.36, 0.64, 1 } else if (black) .{ 0.10, 0.11, 0.12, 1 } else .{ 0.76, 0.77, 0.74, 1 }) });
-        if (black) draw.addRectFilled(.{ .pmin = .{ origin[0], y + 1 }, .pmax = .{ origin[0] + 37, y + row_h - 1 }, .col = color(.{ 0.025, 0.03, 0.035, 1 }) });
-        draw.addLine(.{ .p1 = .{ origin[0], y + row_h }, .p2 = .{ origin[0] + canvas_w, y + row_h }, .col = color(.{ 0.15, 0.16, 0.17, 1 }), .thickness = if (@mod(pitch, 12) == 0) 1.5 else 1 });
+        draw.addRectFilled(.{ .pmin = .{ origin[0], y }, .pmax = .{ grid_x, y + row_h }, .col = color(if (!in_scale) patina.bg3 else if (scale_root) patina.focus else if (black) patina.bg1 else patina.fg1) });
+        if (black) draw.addRectFilled(.{ .pmin = .{ origin[0], y + 1 }, .pmax = .{ origin[0] + 37, y + row_h - 1 }, .col = color(patina.bg0) });
+        draw.addLine(.{ .p1 = .{ origin[0], y + row_h }, .p2 = .{ origin[0] + canvas_w, y + row_h }, .col = color(patina.line), .thickness = if (@mod(pitch, 12) == 0) 1.5 else 1 });
         var note_buf: [5]u8 = undefined;
         const note_name = ws.midi.noteName(pitch, &note_buf);
-        draw.addText(.{ origin[0] + 39, y + 1 }, color(if (!in_scale) umbra.fg3 else if (scale_root) umbra.bg0 else if (black) umbra.fg2 else umbra.bg0), "{s}", .{note_name});
+        draw.addText(.{ origin[0] + 39, y + 1 }, color(if (!in_scale) patina.fg3 else if (scale_root) patina.bg0 else if (black) patina.fg2 else patina.bg0), "{s}", .{note_name});
     }
 
     const steps_per_beat: usize = app.core.pianoStepsPerBeat();
@@ -1072,15 +1072,15 @@ fn drawPianoRoll(app: *App) void {
         const hi = @max(anchor, cursor_step);
         const x1 = grid_x + @as(f32, @floatFromInt(lo)) * beat_w / @as(f32, @floatFromInt(steps_per_beat));
         const x2 = grid_x + @as(f32, @floatFromInt(hi + 1)) * beat_w / @as(f32, @floatFromInt(steps_per_beat));
-        draw.addRectFilled(.{ .pmin = .{ x1, grid_y }, .pmax = .{ x2, origin[1] + canvas_h }, .col = color(.{ umbra.yellow[0], umbra.yellow[1], umbra.yellow[2], 0.12 }) });
-        draw.addRect(.{ .pmin = .{ x1 + 1, grid_y + 1 }, .pmax = .{ x2 - 1, origin[1] + canvas_h - 1 }, .col = color(.{ umbra.yellow[0], umbra.yellow[1], umbra.yellow[2], 0.55 }), .thickness = 1 });
+        draw.addRectFilled(.{ .pmin = .{ x1, grid_y }, .pmax = .{ x2, origin[1] + canvas_h }, .col = color(.{ patina.rhythm[0], patina.rhythm[1], patina.rhythm[2], 0.12 }) });
+        draw.addRect(.{ .pmin = .{ x1 + 1, grid_y + 1 }, .pmax = .{ x2 - 1, origin[1] + canvas_h - 1 }, .col = color(.{ patina.rhythm[0], patina.rhythm[1], patina.rhythm[2], 0.55 }), .thickness = 1 });
     }
     for (0..steps + 1) |step| {
         const x = grid_x + @as(f32, @floatFromInt(step)) * beat_w / @as(f32, @floatFromInt(steps_per_beat));
         const on_beat = step % steps_per_beat == 0;
         const on_bar = step % (steps_per_beat * app.core.session.project.beats_per_bar) == 0;
-        draw.addLine(.{ .p1 = .{ x, if (on_beat) origin[1] else grid_y }, .p2 = .{ x, origin[1] + canvas_h }, .col = color(if (on_bar) .{ 0.34, 0.37, 0.40, 1 } else if (on_beat) .{ 0.24, 0.26, 0.28, 1 } else .{ 0.13, 0.14, 0.15, 1 }), .thickness = if (on_bar) 2 else 1 });
-        if (on_beat and step < steps) draw.addText(.{ x + 5, origin[1] + 4 }, color(.{ 0.62, 0.65, 0.68, 1 }), "{d}.{d}", .{ step / (steps_per_beat * app.core.session.project.beats_per_bar) + 1, step / steps_per_beat % app.core.session.project.beats_per_bar + 1 });
+        draw.addLine(.{ .p1 = .{ x, if (on_beat) origin[1] else grid_y }, .p2 = .{ x, origin[1] + canvas_h }, .col = color(if (on_bar) patina.bg5 else if (on_beat) patina.bg4 else patina.line), .thickness = if (on_bar) 2 else 1 });
+        if (on_beat and step < steps) draw.addText(.{ x + 5, origin[1] + 4 }, color(patina.fg2), "{d}.{d}", .{ step / (steps_per_beat * app.core.session.project.beats_per_bar) + 1, step / steps_per_beat % app.core.session.project.beats_per_bar + 1 });
     }
 
     if (app.core.piano_ghost) {
@@ -1111,12 +1111,12 @@ fn drawPianoRoll(app: *App) void {
         const right = @min(x + width, origin[0] + canvas_w - 1);
         const start_step: u16 = @intFromFloat(@round(note.start_beat * @as(f64, @floatFromInt(steps_per_beat))));
         const selected = app.core.piano_cursor_pitch == note.pitch and app.core.piano_cursor_step == start_step;
-        const brightness = 0.52 + std.math.clamp(note.velocity, 0, 1) * 0.30;
-        draw.addRectFilled(.{ .pmin = .{ x + 1, y }, .pmax = .{ right, y + row_h - 4 }, .col = color(.{ 0.18, brightness, 0.56, 1 }), .rounding = 3 });
-        draw.addLine(.{ .p1 = .{ x + 3, y + 2 }, .p2 = .{ x + 3, y + row_h - 6 }, .col = color(.{ 0.72, 1.0, 0.88, 0.75 }), .thickness = 2 });
+        const note_alpha = 0.62 + std.math.clamp(note.velocity, 0, 1) * 0.38;
+        draw.addRectFilled(.{ .pmin = .{ x + 1, y }, .pmax = .{ right, y + row_h - 4 }, .col = color(.{ patina.audio[0], patina.audio[1], patina.audio[2], note_alpha }), .rounding = 3 });
+        draw.addLine(.{ .p1 = .{ x + 3, y + 2 }, .p2 = .{ x + 3, y + row_h - 6 }, .col = color(.{ patina.fg0[0], patina.fg0[1], patina.fg0[2], 0.72 }), .thickness = 2 });
         if (selected) {
-            draw.addRect(.{ .pmin = .{ x, y - 1 }, .pmax = .{ right + 1, y + row_h - 3 }, .col = color(umbra.yellow), .rounding = 3, .thickness = 2 });
-            draw.addRectFilled(.{ .pmin = .{ @max(x + 2, right - 5), y + 2 }, .pmax = .{ right, y + row_h - 6 }, .col = color(umbra.yellow), .rounding = 1 });
+            draw.addRect(.{ .pmin = .{ x, y - 1 }, .pmax = .{ right + 1, y + row_h - 3 }, .col = color(patina.rhythm), .rounding = 3, .thickness = 2 });
+            draw.addRectFilled(.{ .pmin = .{ @max(x + 2, right - 5), y + 2 }, .pmax = .{ right, y + row_h - 6 }, .col = color(patina.rhythm), .rounding = 1 });
         }
     }
     pp.notes_lock.unlock();
@@ -1128,13 +1128,13 @@ fn drawPianoRoll(app: *App) void {
         draw.addRectFilled(.{
             .pmin = .{ cursor_x + 1, cursor_y + 1 },
             .pmax = .{ cursor_x + cursor_w - 1, cursor_y + row_h - 1 },
-            .col = color(.{ umbra.iris[0], umbra.iris[1], umbra.iris[2], 0.18 }),
+            .col = color(.{ patina.focus[0], patina.focus[1], patina.focus[2], 0.18 }),
             .rounding = 2,
         });
         draw.addRect(.{
             .pmin = .{ cursor_x + 1, cursor_y + 1 },
             .pmax = .{ cursor_x + cursor_w - 1, cursor_y + row_h - 1 },
-            .col = color(umbra.iris),
+            .col = color(patina.focus),
             .rounding = 2,
             .thickness = 2,
         });
@@ -1144,7 +1144,7 @@ fn drawPianoRoll(app: *App) void {
     if (snap.playing) {
         const play_beat = @mod(@as(f64, @floatFromInt(snap.position_frames)) / 48000.0 * @as(f64, app.core.session.project.tempo_bpm) / 60.0, pp.length_beats);
         const x = grid_x + @as(f32, @floatCast(play_beat)) * beat_w;
-        draw.addLine(.{ .p1 = .{ x, origin[1] }, .p2 = .{ x, origin[1] + canvas_h }, .col = color(.{ 1.0, 0.34, 0.28, 0.95 }), .thickness = 2 });
+        draw.addLine(.{ .p1 = .{ x, origin[1] }, .p2 = .{ x, origin[1] + canvas_h }, .col = color(patina.danger), .thickness = 2 });
     }
 
     const cell_w = beat_w / @as(f32, @floatFromInt(steps_per_beat));
@@ -1157,7 +1157,7 @@ fn drawPianoRoll(app: *App) void {
         const row = pointer_row;
         const x = grid_x + @as(f32, @floatFromInt(step)) * beat_w / @as(f32, @floatFromInt(steps_per_beat));
         const y = grid_y + @as(f32, @floatFromInt(row)) * row_h;
-        draw.addRectFilled(.{ .pmin = .{ x + 1, y + 1 }, .pmax = .{ x + beat_w / @as(f32, @floatFromInt(steps_per_beat)) - 1, y + row_h - 1 }, .col = color(.{ 0.48, 0.91, 0.72, 0.18 }), .rounding = 2 });
+        draw.addRectFilled(.{ .pmin = .{ x + 1, y + 1 }, .pmax = .{ x + beat_w / @as(f32, @floatFromInt(steps_per_beat)) - 1, y + row_h - 1 }, .col = color(.{ patina.focus[0], patina.focus[1], patina.focus[2], 0.18 }), .rounding = 2 });
 
         const pointer_beat = @as(f64, @floatCast((mouse[0] - grid_x) / beat_w));
         if (zgui.isMouseClicked(.left)) {
@@ -1250,33 +1250,33 @@ fn drawDrumHeader(app: *App, drum: *ws.dsp.DrumMachine, playing: bool) void {
     const origin = zgui.getCursorScreenPos();
     _ = zgui.invisibleButton("drum-header", .{ .w = width, .h = 62 });
     const draw = zgui.getWindowDrawList();
-    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + 62 }, .col = color(umbra.bg2), .rounding = 4 });
-    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + 5, origin[1] + 62 }, .col = color(if (playing) umbra.red else umbra.yellow), .rounding = 3 });
-    draw.addText(.{ origin[0] + 17, origin[1] + 9 }, color(umbra.fg3), "DRUM MACHINE", .{});
-    draw.addText(.{ origin[0] + 17, origin[1] + 31 }, color(umbra.fg0), "{s}", .{app.core.session.project.tracks.items[app.core.drum_track].name});
+    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + 62 }, .col = color(patina.bg2), .rounding = 4 });
+    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + 5, origin[1] + 62 }, .col = color(if (playing) patina.danger else patina.rhythm), .rounding = 3 });
+    draw.addText(.{ origin[0] + 17, origin[1] + 9 }, color(patina.fg3), "DRUM MACHINE", .{});
+    draw.addText(.{ origin[0] + 17, origin[1] + 31 }, color(patina.fg0), "{s}", .{app.core.session.project.tracks.items[app.core.drum_track].name});
 
     const mode = if (drum.song_mode) "SONG" else "PATTERN";
     const state = if (playing) "PLAYING" else "STOPPED";
-    draw.addText(.{ origin[0] + width - 360, origin[1] + 11 }, color(if (playing) umbra.red else umbra.fg2), "{s}", .{state});
-    draw.addText(.{ origin[0] + width - 270, origin[1] + 11 }, color(umbra.yellow), "{s} {c}", .{ mode, 'A' + drum.variant });
-    draw.addText(.{ origin[0] + width - 150, origin[1] + 11 }, color(umbra.fg1), "{d} STEPS", .{drum.step_count});
-    draw.addText(.{ origin[0] + width - 360, origin[1] + 34 }, color(umbra.fg3), "1/{d} GRID", .{drum.steps_per_beat * 4});
-    draw.addText(.{ origin[0] + width - 270, origin[1] + 34 }, color(umbra.fg3), "{d:.0}% SWING", .{drum.swing.load(.monotonic)});
-    draw.addText(.{ origin[0] + width - 150, origin[1] + 34 }, color(umbra.fg3), "VARIANT {d}/{d}", .{ drum.variant + 1, drum.variant_count });
+    draw.addText(.{ origin[0] + width - 360, origin[1] + 11 }, color(if (playing) patina.danger else patina.fg2), "{s}", .{state});
+    draw.addText(.{ origin[0] + width - 270, origin[1] + 11 }, color(patina.rhythm), "{s} {c}", .{ mode, 'A' + drum.variant });
+    draw.addText(.{ origin[0] + width - 150, origin[1] + 11 }, color(patina.fg1), "{d} STEPS", .{drum.step_count});
+    draw.addText(.{ origin[0] + width - 360, origin[1] + 34 }, color(patina.fg3), "1/{d} GRID", .{drum.steps_per_beat * 4});
+    draw.addText(.{ origin[0] + width - 270, origin[1] + 34 }, color(patina.fg3), "{d:.0}% SWING", .{drum.swing.load(.monotonic)});
+    draw.addText(.{ origin[0] + width - 150, origin[1] + 34 }, color(patina.fg3), "VARIANT {d}/{d}", .{ drum.variant + 1, drum.variant_count });
 }
 
 fn drawDevices(app: *App) void {
     const rack = app.core.session.racks.items[app.core.cursor];
     zgui.textDisabled(icons.eq ++ "  DEVICE CHAIN", .{});
     zgui.sameLine(.{});
-    zgui.textColored(umbra.fg2, "{d} effects", .{rack.fx.units.items.len});
+    zgui.textColored(patina.fg2, "{d} effects", .{rack.fx.units.items.len});
     zgui.separator();
     drawInstrumentCard(rack);
     zgui.spacing();
     zgui.textDisabled("EFFECTS", .{});
     if (rack.fx.units.items.len == 0) {
         zgui.spacing();
-        zgui.textColored(umbra.fg3, "The signal path is clean.", .{});
+        zgui.textColored(patina.fg3, "The signal path is clean.", .{});
         zgui.textDisabled("Add an effect to shape this track.", .{});
         zgui.spacing();
     }
@@ -1292,8 +1292,8 @@ fn drawDevices(app: *App) void {
         }
     }
     zgui.spacing();
-    zgui.pushStyleColor4f(.{ .idx = .button, .c = umbra.iris_soft });
-    zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = umbra.iris });
+    zgui.pushStyleColor4f(.{ .idx = .button, .c = patina.focus_soft });
+    zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = patina.focus });
     if (zgui.button(icons.eq ++ "  ADD EFFECT", .{ .w = 150, .h = 32 })) app.openPicker(.fx_picker);
     zgui.popStyleColor(.{ .count = 2 });
 }
@@ -1303,10 +1303,10 @@ fn drawInstrumentCard(rack: *ws.Rack) void {
     const origin = zgui.getCursorScreenPos();
     _ = zgui.invisibleButton("instrument-card", .{ .w = width, .h = 54 });
     const draw = zgui.getWindowDrawList();
-    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + 54 }, .col = color(umbra.bg2), .rounding = 4 });
-    draw.addRectFilled(.{ .pmin = .{ origin[0], origin[1] + 6 }, .pmax = .{ origin[0] + 4, origin[1] + 48 }, .col = color(umbra.iris), .rounding = 2 });
-    draw.addText(.{ origin[0] + 14, origin[1] + 8 }, color(umbra.fg3), "INSTRUMENT", .{});
-    draw.addText(.{ origin[0] + 14, origin[1] + 27 }, color(umbra.fg0), "{s}", .{rack.label});
+    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + 54 }, .col = color(patina.bg2), .rounding = 4 });
+    draw.addRectFilled(.{ .pmin = .{ origin[0], origin[1] + 6 }, .pmax = .{ origin[0] + 4, origin[1] + 48 }, .col = color(patina.focus), .rounding = 2 });
+    draw.addText(.{ origin[0] + 14, origin[1] + 8 }, color(patina.fg3), "INSTRUMENT", .{});
+    draw.addText(.{ origin[0] + 14, origin[1] + 27 }, color(patina.fg0), "{s}", .{rack.label});
 }
 
 const FxCardAction = enum { none, bypass, remove };
@@ -1318,15 +1318,15 @@ fn drawFxCard(unit: *ws.FxUnit, index: usize) FxCardAction {
     const card_id = std.fmt.bufPrintZ(&card_id_buf, "fx-card-{d}", .{index}) catch return .none;
     _ = zgui.invisibleButton(card_id, .{ .w = width, .h = 58 });
     const draw = zgui.getWindowDrawList();
-    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + 56 }, .col = color(umbra.bg2), .rounding = 4 });
-    draw.addRectFilled(.{ .pmin = .{ origin[0], origin[1] + 7 }, .pmax = .{ origin[0] + 4, origin[1] + 49 }, .col = color(if (unit.bypassed) umbra.fg3 else umbra.cyan), .rounding = 2 });
-    draw.addText(.{ origin[0] + 14, origin[1] + 9 }, color(umbra.fg3), "FX {d:0>2}", .{index + 1});
-    draw.addText(.{ origin[0] + 14, origin[1] + 29 }, color(if (unit.bypassed) umbra.fg3 else umbra.fg0), "{s}", .{@tagName(unit.kind())});
+    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + 56 }, .col = color(patina.bg2), .rounding = 4 });
+    draw.addRectFilled(.{ .pmin = .{ origin[0], origin[1] + 7 }, .pmax = .{ origin[0] + 4, origin[1] + 49 }, .col = color(if (unit.bypassed) patina.fg3 else patina.audio), .rounding = 2 });
+    draw.addText(.{ origin[0] + 14, origin[1] + 9 }, color(patina.fg3), "FX {d:0>2}", .{index + 1});
+    draw.addText(.{ origin[0] + 14, origin[1] + 29 }, color(if (unit.bypassed) patina.fg3 else patina.fg0), "{s}", .{@tagName(unit.kind())});
 
     zgui.setCursorScreenPos(.{ origin[0] + width - 154, origin[1] + 14 });
     var bypass_id_buf: [32]u8 = undefined;
     const bypass_id = std.fmt.bufPrintZ(&bypass_id_buf, "{s}##fx-bypass-{d}", .{ if (unit.bypassed) "ENABLE" else "BYPASS", index }) catch return .none;
-    var action: FxCardAction = if (drawInspectorToggle(bypass_id, unit.bypassed, umbra.red, 82)) .bypass else .none;
+    var action: FxCardAction = if (drawInspectorToggle(bypass_id, unit.bypassed, patina.danger, 82)) .bypass else .none;
     zgui.sameLine(.{ .spacing = 6 });
     var remove_id_buf: [32]u8 = undefined;
     const remove_id = std.fmt.bufPrintZ(&remove_id_buf, "X##fx-remove-{d}", .{index}) catch return .none;
@@ -1365,8 +1365,8 @@ fn drawSynthTabs(app: *App) void {
     for (tabs, 0..) |tab, i| {
         if (i > 0) zgui.sameLine(.{ .spacing = 5 });
         const active = app.core.synth_subview == tab.subview;
-        zgui.pushStyleColor4f(.{ .idx = .button, .c = if (active) umbra.iris else umbra.bg2 });
-        zgui.pushStyleColor4f(.{ .idx = .text, .c = if (active) umbra.bg0 else umbra.fg2 });
+        zgui.pushStyleColor4f(.{ .idx = .button, .c = if (active) patina.focus else patina.bg2 });
+        zgui.pushStyleColor4f(.{ .idx = .text, .c = if (active) patina.bg0 else patina.fg2 });
         if (zgui.button(tab.label, .{ .w = 125, .h = 30 })) setSynthSubview(app, tab.subview);
         zgui.popStyleColor(.{ .count = 2 });
     }
@@ -1409,11 +1409,11 @@ fn drawSynthSections(app: *App, synth: *ws.dsp.PolySynth, comptime sections: []c
 
 fn synthSectionColor(index: usize) [4]f32 {
     return switch (index % 5) {
-        0 => umbra.iris,
-        1 => umbra.cyan,
-        2 => umbra.mauve,
-        3 => umbra.yellow,
-        else => umbra.red,
+        0 => patina.focus,
+        1 => patina.audio,
+        2 => patina.modulation,
+        3 => patina.rhythm,
+        else => patina.danger,
     };
 }
 
@@ -1422,17 +1422,17 @@ fn drawSynthFx(app: *App, synth: *ws.dsp.PolySynth) void {
     const order = synth_ed.fxOnOrder(&app.core, &order_buf);
     zgui.textDisabled("SIGNAL FLOW", .{});
     zgui.sameLine(.{ .spacing = 12 });
-    zgui.textColored(umbra.cyan, "IN", .{});
+    zgui.textColored(patina.audio, "IN", .{});
     for (order) |kind| {
         zgui.sameLine(.{ .spacing = 7 });
         zgui.textDisabled(">", .{});
         zgui.sameLine(.{ .spacing = 7 });
-        zgui.textColored(umbra.fg1, "{s}", .{spectrum_ed.stripLabel(synth_ed.asFxKind(kind))});
+        zgui.textColored(patina.fg1, "{s}", .{spectrum_ed.stripLabel(synth_ed.asFxKind(kind))});
     }
     zgui.sameLine(.{ .spacing = 7 });
     zgui.textDisabled(">", .{});
     zgui.sameLine(.{ .spacing = 7 });
-    zgui.textColored(umbra.cyan, "OUT", .{});
+    zgui.textColored(patina.audio, "OUT", .{});
     if (order.len == 0) {
         zgui.spacing();
         zgui.textDisabled("No internal effects are enabled. Press i to insert one.", .{});
@@ -1447,7 +1447,7 @@ fn drawSynthFx(app: *App, synth: *ws.dsp.PolySynth) void {
             const kind = synth_ed.fxKindOfId(candidate.id) orelse continue;
             if (previous_kind == null or previous_kind.? != kind) {
                 if (previous_kind != null) zgui.spacing();
-                drawSynthSectionTitle(spectrum_ed.unitLabel(synth_ed.asFxKind(kind)), umbra.cyan);
+                drawSynthSectionTitle(spectrum_ed.unitLabel(synth_ed.asFxKind(kind)), patina.audio);
                 previous_kind = kind;
             }
             drawSynthAnyParam(app, synth, candidate.id, synth_ed.fxParamLabel(candidate.id));
@@ -1462,7 +1462,7 @@ fn drawSynthAnyParam(app: *App, synth: *ws.dsp.PolySynth, id: u8, label_text: []
         var label_buf: [96]u8 = undefined;
         const label = std.fmt.bufPrintZ(&label_buf, "{s}##gui-synth-{d}", .{ label_text, id }) catch return;
         const focused = app.core.synth_cursor == id;
-        gui_style.pushControlFocus(focused, umbra.iris);
+        gui_style.pushControlFocus(focused, patina.focus);
         defer gui_style.popControlFocus(focused);
         if (zgui.sliderFloat(label, .{ .v = &value, .min = param.range[0], .max = param.range[1], .cfmt = "%.3f" })) {
             _ = app.core.session.engine.send(.{ .set_track_param_abs = .{ .track = app.core.synth_track, .id = id, .value = value } });
@@ -1477,7 +1477,7 @@ fn drawSynthAnyParam(app: *App, synth: *ws.dsp.PolySynth, id: u8, label_text: []
     const minus = std.fmt.bufPrintZ(&minus_buf, "-##synth-minus-{d}", .{id}) catch return;
     if (zgui.smallButton(minus)) nudgeSynthParam(app, id, 'h');
     zgui.sameLine(.{ .spacing = 5 });
-    zgui.textColored(if (app.core.synth_cursor == id) umbra.iris else umbra.fg1, "{d:.2}", .{value});
+    zgui.textColored(if (app.core.synth_cursor == id) patina.focus else patina.fg1, "{d:.2}", .{value});
     zgui.sameLine(.{ .spacing = 5 });
     var plus_buf: [32]u8 = undefined;
     const plus = std.fmt.bufPrintZ(&plus_buf, "+##synth-plus-{d}", .{id}) catch return;
@@ -1495,27 +1495,27 @@ fn drawSynthHeader(app: *App, synth: *ws.dsp.PolySynth) void {
     const origin = zgui.getCursorScreenPos();
     _ = zgui.invisibleButton("synth-overview", .{ .w = width, .h = height });
     const draw = zgui.getWindowDrawList();
-    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(umbra.bg2), .rounding = 4 });
-    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + 5, origin[1] + height }, .col = color(umbra.iris), .rounding = 3 });
-    draw.addText(.{ origin[0] + 17, origin[1] + 10 }, color(umbra.fg3), "POLYPHONIC SYNTH", .{});
-    draw.addText(.{ origin[0] + 17, origin[1] + 31 }, color(umbra.fg0), "{s}", .{app.core.session.project.tracks.items[app.core.synth_track].name});
+    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(patina.bg2), .rounding = 4 });
+    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + 5, origin[1] + height }, .col = color(patina.focus), .rounding = 3 });
+    draw.addText(.{ origin[0] + 17, origin[1] + 10 }, color(patina.fg3), "POLYPHONIC SYNTH", .{});
+    draw.addText(.{ origin[0] + 17, origin[1] + 31 }, color(patina.fg0), "{s}", .{app.core.session.project.tracks.items[app.core.synth_track].name});
 
     const panel_y = origin[1] + 59;
     const panel_h: f32 = 80;
     const panel_gap: f32 = 9;
     const panel_w = (width - 43 - panel_gap * 2) / 3;
-    drawSynthOverviewPanel(draw, .{ origin[0] + 17, panel_y }, .{ panel_w, panel_h }, "OSCILLATOR", umbra.iris);
-    drawSynthOverviewPanel(draw, .{ origin[0] + 17 + panel_w + panel_gap, panel_y }, .{ panel_w, panel_h }, "ENVELOPE", umbra.yellow);
-    drawSynthOverviewPanel(draw, .{ origin[0] + 17 + (panel_w + panel_gap) * 2, panel_y }, .{ panel_w, panel_h }, "FILTER", umbra.cyan);
+    drawSynthOverviewPanel(draw, .{ origin[0] + 17, panel_y }, .{ panel_w, panel_h }, "OSCILLATOR", patina.focus);
+    drawSynthOverviewPanel(draw, .{ origin[0] + 17 + panel_w + panel_gap, panel_y }, .{ panel_w, panel_h }, "ENVELOPE", patina.rhythm);
+    drawSynthOverviewPanel(draw, .{ origin[0] + 17 + (panel_w + panel_gap) * 2, panel_y }, .{ panel_w, panel_h }, "FILTER", patina.audio);
     drawOscillatorShape(draw, .{ origin[0] + 29, panel_y + 31 }, .{ panel_w - 24, 35 }, synth.waveform);
     drawEnvelopeShape(draw, .{ origin[0] + 29 + panel_w + panel_gap, panel_y + 31 }, .{ panel_w - 24, 35 }, synth);
     drawFilterShape(draw, .{ origin[0] + 29 + (panel_w + panel_gap) * 2, panel_y + 31 }, .{ panel_w - 24, 35 }, synth);
 }
 
 fn drawSynthOverviewPanel(draw: zgui.DrawList, pos: [2]f32, size: [2]f32, label: []const u8, accent: [4]f32) void {
-    draw.addRectFilled(.{ .pmin = pos, .pmax = .{ pos[0] + size[0], pos[1] + size[1] }, .col = color(umbra.bg1), .rounding = 3 });
+    draw.addRectFilled(.{ .pmin = pos, .pmax = .{ pos[0] + size[0], pos[1] + size[1] }, .col = color(patina.bg1), .rounding = 3 });
     draw.addRectFilled(.{ .pmin = pos, .pmax = .{ pos[0] + 3, pos[1] + size[1] }, .col = color(accent), .rounding = 2 });
-    draw.addText(.{ pos[0] + 12, pos[1] + 8 }, color(umbra.fg3), "{s}", .{label});
+    draw.addText(.{ pos[0] + 12, pos[1] + 8 }, color(patina.fg3), "{s}", .{label});
 }
 
 fn drawOscillatorShape(draw: zgui.DrawList, pos: [2]f32, size: [2]f32, waveform: ws.dsp.synth.Waveform) void {
@@ -1529,7 +1529,7 @@ fn drawOscillatorShape(draw: zgui.DrawList, pos: [2]f32, size: [2]f32, waveform:
             .square => if (@mod(phase, 1.0) < 0.5) 1.0 else -1.0,
         };
         const point = [2]f32{ pos[0] + size[0] * @as(f32, @floatFromInt(i)) / 48.0, pos[1] + size[1] * (0.5 - sample * 0.42) };
-        if (i > 1) draw.addLine(.{ .p1 = prev, .p2 = point, .col = color(umbra.iris), .thickness = 2 });
+        if (i > 1) draw.addLine(.{ .p1 = prev, .p2 = point, .col = color(patina.focus), .thickness = 2 });
         prev = point;
     }
 }
@@ -1541,7 +1541,7 @@ fn drawEnvelopeShape(draw: zgui.DrawList, pos: [2]f32, size: [2]f32, synth: *con
     const release_x = pos[0] + size[0] * 0.78;
     const sustain_y = pos[1] + size[1] * (1.0 - synth.sustain);
     const points = [_][2]f32{ .{ pos[0], pos[1] + size[1] }, .{ attack_x, pos[1] }, .{ decay_x, sustain_y }, .{ release_x, sustain_y }, .{ pos[0] + size[0], pos[1] + size[1] } };
-    for (0..points.len - 1) |i| draw.addLine(.{ .p1 = points[i], .p2 = points[i + 1], .col = color(umbra.yellow), .thickness = 2 });
+    for (0..points.len - 1) |i| draw.addLine(.{ .p1 = points[i], .p2 = points[i + 1], .col = color(patina.rhythm), .thickness = 2 });
 }
 
 fn drawFilterShape(draw: zgui.DrawList, pos: [2]f32, size: [2]f32, synth: *const ws.dsp.PolySynth) void {
@@ -1554,20 +1554,20 @@ fn drawFilterShape(draw: zgui.DrawList, pos: [2]f32, size: [2]f32, synth: *const
     const bottom_right = [2]f32{ pos[0] + size[0], pos[1] + size[1] };
     switch (synth.filter_type) {
         .lp, .ladder, .diode => {
-            draw.addLine(.{ .p1 = left, .p2 = .{ knee_x, peak_y }, .col = color(umbra.cyan), .thickness = 2 });
-            draw.addLine(.{ .p1 = .{ knee_x, peak_y }, .p2 = bottom_right, .col = color(umbra.cyan), .thickness = 2 });
+            draw.addLine(.{ .p1 = left, .p2 = .{ knee_x, peak_y }, .col = color(patina.audio), .thickness = 2 });
+            draw.addLine(.{ .p1 = .{ knee_x, peak_y }, .p2 = bottom_right, .col = color(patina.audio), .thickness = 2 });
         },
         .hp => {
-            draw.addLine(.{ .p1 = bottom_left, .p2 = .{ knee_x, peak_y }, .col = color(umbra.cyan), .thickness = 2 });
-            draw.addLine(.{ .p1 = .{ knee_x, peak_y }, .p2 = right, .col = color(umbra.cyan), .thickness = 2 });
+            draw.addLine(.{ .p1 = bottom_left, .p2 = .{ knee_x, peak_y }, .col = color(patina.audio), .thickness = 2 });
+            draw.addLine(.{ .p1 = .{ knee_x, peak_y }, .p2 = right, .col = color(patina.audio), .thickness = 2 });
         },
         .bp, .formant => {
-            draw.addLine(.{ .p1 = bottom_left, .p2 = .{ knee_x, peak_y }, .col = color(umbra.cyan), .thickness = 2 });
-            draw.addLine(.{ .p1 = .{ knee_x, peak_y }, .p2 = bottom_right, .col = color(umbra.cyan), .thickness = 2 });
+            draw.addLine(.{ .p1 = bottom_left, .p2 = .{ knee_x, peak_y }, .col = color(patina.audio), .thickness = 2 });
+            draw.addLine(.{ .p1 = .{ knee_x, peak_y }, .p2 = bottom_right, .col = color(patina.audio), .thickness = 2 });
         },
         .notch, .comb => {
-            draw.addLine(.{ .p1 = left, .p2 = .{ knee_x, pos[1] + size[1] * 0.85 }, .col = color(umbra.cyan), .thickness = 2 });
-            draw.addLine(.{ .p1 = .{ knee_x, pos[1] + size[1] * 0.85 }, .p2 = right, .col = color(umbra.cyan), .thickness = 2 });
+            draw.addLine(.{ .p1 = left, .p2 = .{ knee_x, pos[1] + size[1] * 0.85 }, .col = color(patina.audio), .thickness = 2 });
+            draw.addLine(.{ .p1 = .{ knee_x, pos[1] + size[1] * 0.85 }, .p2 = right, .col = color(patina.audio), .thickness = 2 });
         },
     }
 }
@@ -1585,8 +1585,8 @@ fn drawSynthWaveButtons(app: *App, synth: *const ws.dsp.PolySynth) void {
         if (i > 0) zgui.sameLine(.{ .spacing = 4 });
         const active = synth.waveform == entry.waveform;
         const focused = app.core.synth_cursor == 0;
-        zgui.pushStyleColor4f(.{ .idx = .button, .c = if (active) umbra.iris else if (focused) umbra.bg4 else umbra.bg2 });
-        zgui.pushStyleColor4f(.{ .idx = .text, .c = if (active) umbra.bg0 else if (focused) umbra.iris else umbra.fg2 });
+        zgui.pushStyleColor4f(.{ .idx = .button, .c = if (active) patina.focus else if (focused) patina.bg4 else patina.bg2 });
+        zgui.pushStyleColor4f(.{ .idx = .text, .c = if (active) patina.bg0 else if (focused) patina.focus else patina.fg2 });
         if (zgui.button(entry.label, .{ .h = 28 })) {
             app.core.synth_cursor = 0;
             _ = app.core.session.engine.send(.{ .set_track_param_abs = .{ .track = app.core.synth_track, .id = 0, .value = @floatFromInt(@intFromEnum(entry.waveform)) } });
@@ -1601,7 +1601,7 @@ fn drawSynthParam(app: *App, synth: *ws.dsp.PolySynth, id: u8, label_text: []con
     var label: [80]u8 = undefined;
     const zlabel = std.fmt.bufPrintZ(&label, "{s}##gui-synth-{d}", .{ label_text, id }) catch return;
     const focused = app.core.synth_cursor == id;
-    gui_style.pushControlFocus(focused, umbra.iris);
+    gui_style.pushControlFocus(focused, patina.focus);
     defer gui_style.popControlFocus(focused);
     if (zgui.sliderFloat(zlabel, .{ .v = &value, .min = param.range[0], .max = param.range[1], .cfmt = format })) {
         _ = app.core.session.engine.send(.{ .set_track_param_abs = .{ .track = app.core.synth_track, .id = id, .value = value } });
@@ -1621,8 +1621,8 @@ fn drawInspector(app: *App) void {
         const accent = trackColor(track.color);
         zgui.textColored(accent, "{d:0>2}", .{app.core.cursor + 1});
         zgui.sameLine(.{});
-        zgui.textColored(umbra.fg0, "{s}", .{track.name});
-        zgui.textColored(umbra.fg3, "{s}", .{rack.label});
+        zgui.textColored(patina.fg0, "{s}", .{track.name});
+        zgui.textColored(patina.fg3, "{s}", .{rack.label});
         zgui.spacing();
         zgui.separatorText("MIX");
 
@@ -1640,12 +1640,12 @@ fn drawInspector(app: *App) void {
         }
         zgui.spacing();
         const toggle_width = (zgui.getContentRegionAvail()[0] - 6) / 2;
-        if (drawInspectorToggle("MUTE##inspector", track.muted, umbra.red, toggle_width)) {
+        if (drawInspectorToggle("MUTE##inspector", track.muted, patina.danger, toggle_width)) {
             track.muted = !track.muted;
             _ = app.core.session.engine.send(.{ .set_track_mute = .{ .track = @intCast(app.core.cursor), .muted = track.muted } });
         }
         zgui.sameLine(.{ .spacing = 6 });
-        if (drawInspectorToggle("SOLO##inspector", track.soloed, umbra.yellow, toggle_width)) {
+        if (drawInspectorToggle("SOLO##inspector", track.soloed, patina.rhythm, toggle_width)) {
             track.soloed = !track.soloed;
             _ = app.core.session.engine.send(.{ .set_track_solo = .{ .track = @intCast(app.core.cursor), .soloed = track.soloed } });
         }
@@ -1654,10 +1654,10 @@ fn drawInspector(app: *App) void {
 }
 
 fn drawInspectorToggle(label: [:0]const u8, active: bool, accent: [4]f32, width: f32) bool {
-    zgui.pushStyleColor4f(.{ .idx = .button, .c = if (active) accent else umbra.bg2 });
-    zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = if (active) accent else umbra.bg3 });
-    zgui.pushStyleColor4f(.{ .idx = .button_active, .c = umbra.fg0 });
-    zgui.pushStyleColor4f(.{ .idx = .text, .c = if (active) umbra.bg0 else umbra.fg2 });
+    zgui.pushStyleColor4f(.{ .idx = .button, .c = if (active) accent else patina.bg2 });
+    zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = if (active) accent else patina.bg3 });
+    zgui.pushStyleColor4f(.{ .idx = .button_active, .c = patina.fg0 });
+    zgui.pushStyleColor4f(.{ .idx = .text, .c = if (active) patina.bg0 else patina.fg2 });
     defer zgui.popStyleColor(.{ .count = 4 });
     return zgui.button(label, .{ .w = width, .h = 30 });
 }
@@ -1670,27 +1670,27 @@ fn drawStatus(app: *App) void {
         const draw = zgui.getWindowDrawList();
         const pos = zgui.getWindowPos();
         const size = zgui.getWindowSize();
-        draw.addRectFilled(.{ .pmin = pos, .pmax = .{ pos[0] + size[0], pos[1] + size[1] }, .col = color(umbra.bg1) });
+        draw.addRectFilled(.{ .pmin = pos, .pmax = .{ pos[0] + size[0], pos[1] + size[1] }, .col = color(patina.bg1) });
 
         var x = pos[0];
-        x = drawStatusSegment(draw, x, pos[1], size[1], umbra.iris, umbra.bg0, @tagName(app.core.modal.mode));
-        x = drawStatusSegment(draw, x, pos[1], size[1], umbra.bg4, umbra.fg0, @tagName(app.core.view));
+        x = drawStatusSegment(draw, x, pos[1], size[1], patina.focus, patina.bg0, @tagName(app.core.modal.mode));
+        x = drawStatusSegment(draw, x, pos[1], size[1], patina.bg4, patina.fg0, @tagName(app.core.view));
 
         var track_buf: [160]u8 = undefined;
         const track_label = if (app.core.cursor < app.core.session.project.tracks.items.len) blk: {
             const track = app.core.session.project.tracks.items[app.core.cursor];
             break :blk std.fmt.bufPrint(&track_buf, "{d:0>2}  {s}", .{ app.core.cursor + 1, track.name }) catch "track";
         } else "MASTER";
-        x = drawStatusSegment(draw, x, pos[1], size[1], umbra.bg2, umbra.fg1, track_label);
+        x = drawStatusSegment(draw, x, pos[1], size[1], patina.bg2, patina.fg1, track_label);
 
         var cursor_buf: [160]u8 = undefined;
         const cursor_label = cursorContext(app, &cursor_buf);
-        if (cursor_label.len > 0) x = drawStatusSegment(draw, x, pos[1], size[1], umbra.bg0, umbra.fg2, cursor_label);
+        if (cursor_label.len > 0) x = drawStatusSegment(draw, x, pos[1], size[1], patina.bg0, patina.fg2, cursor_label);
 
         const status = app.core.statusText();
         const status_size = zgui.calcTextSize(status, .{});
         if (status.len > 0 and x + status_size[0] + 260 < pos[0] + size[0]) {
-            draw.addText(.{ x + 12, pos[1] + (size[1] - status_size[1]) / 2 }, color(umbra.fg1), "{s}", .{status});
+            draw.addText(.{ x + 12, pos[1] + (size[1] - status_size[1]) / 2 }, color(patina.fg1), "{s}", .{status});
         }
 
         const snap = app.core.session.engine.uiSnapshot();
@@ -1702,7 +1702,7 @@ fn drawStatus(app: *App) void {
             @as(u32, @intFromFloat(beat)) / app.core.session.project.beats_per_bar + 1,
             @mod(@as(u32, @intFromFloat(beat)), app.core.session.project.beats_per_bar) + 1,
         }) catch "transport";
-        drawStatusSegmentRight(draw, pos[0] + size[0], pos[1], size[1], if (snap.playing) umbra.iris_soft else umbra.bg2, umbra.fg0, right_label);
+        drawStatusSegmentRight(draw, pos[0] + size[0], pos[1], size[1], if (snap.playing) patina.focus_soft else patina.bg2, patina.fg0, right_label);
     }
     zgui.end();
 }
@@ -1796,10 +1796,10 @@ fn drawCommandSuggestions(app: *const App, active: tui_cmd.Scope, filter: []cons
     const draw = zgui.getWindowDrawList();
     const origin = zgui.getWindowPos();
     const size = zgui.getWindowSize();
-    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + size[0], origin[1] + size[1] }, .col = color(umbra.bg1), .rounding = 4 });
-    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + 4, origin[1] + size[1] }, .col = color(umbra.iris), .rounding = 2 });
-    draw.addText(.{ origin[0] + 14, origin[1] + 8 }, color(umbra.fg3), "COMMANDS", .{});
-    draw.addText(.{ origin[0] + size[0] - 96, origin[1] + 8 }, color(umbra.fg3), "TAB TO CYCLE", .{});
+    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + size[0], origin[1] + size[1] }, .col = color(patina.bg1), .rounding = 4 });
+    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + 4, origin[1] + size[1] }, .col = color(patina.focus), .rounding = 2 });
+    draw.addText(.{ origin[0] + 14, origin[1] + 8 }, color(patina.fg3), "COMMANDS", .{});
+    draw.addText(.{ origin[0] + size[0] - 96, origin[1] + 8 }, color(patina.fg3), "TAB TO CYCLE", .{});
 
     const selected = app.core.suggestionSelected(active);
     var match_index: usize = 0;
@@ -1811,11 +1811,11 @@ fn drawCommandSuggestions(app: *const App, active: tui_cmd.Scope, filter: []cons
         const y = origin[1] + 30 + @as(f32, @floatFromInt(drawn)) * 39;
         const is_selected = match_index == selected;
         if (is_selected) {
-            draw.addRectFilled(.{ .pmin = .{ origin[0] + 7, y }, .pmax = .{ origin[0] + size[0] - 7, y + 35 }, .col = color(umbra.bg4), .rounding = 3 });
-            draw.addRectFilled(.{ .pmin = .{ origin[0] + 7, y }, .pmax = .{ origin[0] + 10, y + 35 }, .col = color(umbra.iris), .rounding = 2 });
+            draw.addRectFilled(.{ .pmin = .{ origin[0] + 7, y }, .pmax = .{ origin[0] + size[0] - 7, y + 35 }, .col = color(patina.bg4), .rounding = 3 });
+            draw.addRectFilled(.{ .pmin = .{ origin[0] + 7, y }, .pmax = .{ origin[0] + 10, y + 35 }, .col = color(patina.focus), .rounding = 2 });
         }
-        draw.addText(.{ origin[0] + 20, y + 4 }, color(if (is_selected) umbra.fg0 else umbra.fg1), ":{s}", .{command.name});
-        draw.addText(.{ origin[0] + 185, y + 4 }, color(if (is_selected) umbra.fg2 else umbra.fg3), "{s}", .{command.desc});
+        draw.addText(.{ origin[0] + 20, y + 4 }, color(if (is_selected) patina.fg0 else patina.fg1), ":{s}", .{command.name});
+        draw.addText(.{ origin[0] + 185, y + 4 }, color(if (is_selected) patina.fg2 else patina.fg3), "{s}", .{command.desc});
         match_index += 1;
         drawn += 1;
     }
@@ -1831,15 +1831,15 @@ fn drawCommandBar(app: *const App, draw: zgui.DrawList, pos: [2]f32, size: [2]f3
     draw.addRectFilled(.{
         .pmin = pos,
         .pmax = .{ pos[0] + size[0], pos[1] + size[1] },
-        .col = color(umbra.bg2),
+        .col = color(patina.bg2),
     });
     draw.addRectFilled(.{
         .pmin = pos,
         .pmax = .{ pos[0] + 4, pos[1] + size[1] },
-        .col = color(umbra.iris),
+        .col = color(patina.focus),
     });
-    draw.addText(.{ prompt_x, text_y }, color(umbra.iris), "{s}", .{prompt});
-    draw.addText(.{ input_x, text_y }, color(umbra.fg0), "{s}", .{input});
+    draw.addText(.{ prompt_x, text_y }, color(patina.focus), "{s}", .{prompt});
+    draw.addText(.{ input_x, text_y }, color(patina.fg0), "{s}", .{input});
 
     if (app.core.modal.mode == .command) {
         if (std.mem.indexOfScalar(u8, input, ' ')) |space| {
@@ -1847,13 +1847,13 @@ fn drawCommandBar(app: *const App, draw: zgui.DrawList, pos: [2]f32, size: [2]f3
             for (tui_commands.cmds) |command| {
                 if (!std.mem.eql(u8, command.name, name)) continue;
                 const hint_x = input_x + zgui.calcTextSize(input, .{})[0] + 18;
-                draw.addText(.{ hint_x, text_y }, color(umbra.fg3), "{s}", .{command.desc});
+                draw.addText(.{ hint_x, text_y }, color(patina.fg3), "{s}", .{command.desc});
                 break;
             }
         }
-        draw.addText(.{ pos[0] + size[0] - 150, text_y }, color(umbra.fg3), "TAB complete   ESC close", .{});
+        draw.addText(.{ pos[0] + size[0] - 150, text_y }, color(patina.fg3), "TAB complete   ESC close", .{});
     } else {
-        draw.addText(.{ pos[0] + size[0] - 102, text_y }, color(umbra.fg3), "ENTER search", .{});
+        draw.addText(.{ pos[0] + size[0] - 102, text_y }, color(patina.fg3), "ENTER search", .{});
     }
 
     const before_cursor = input[0..app.core.modal.cmd_cursor];
@@ -1861,7 +1861,7 @@ fn drawCommandBar(app: *const App, draw: zgui.DrawList, pos: [2]f32, size: [2]f3
     draw.addRectFilled(.{
         .pmin = .{ cursor_x, text_y },
         .pmax = .{ cursor_x + 1, text_y + zgui.getTextLineHeight() },
-        .col = color(umbra.fg0),
+        .col = color(patina.fg0),
     });
 }
 

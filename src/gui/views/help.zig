@@ -2,7 +2,7 @@ const zgui = @import("zgui");
 const style = @import("../style.zig");
 
 const color = style.color;
-const umbra = style.umbra;
+const patina = style.patina;
 
 const Row = struct { key: []const u8, text: []const u8 };
 
@@ -43,16 +43,16 @@ pub fn draw(app: anytype) void {
     const gap: f32 = 10;
     const column_w = @max(320, (zgui.getContentRegionAvail()[0] - gap) / 2);
     if (zgui.beginChild("help-left", .{ .w = column_w, .h = 0 })) {
-        drawPanel("help-transport", "TRANSPORT", umbra.red, &transport_rows);
+        drawPanel("help-transport", "TRANSPORT", patina.danger, &transport_rows);
         zgui.spacing();
-        drawPanel("help-editing", "KEYBOARD EDITING", umbra.yellow, &editing_rows);
+        drawPanel("help-editing", "KEYBOARD EDITING", patina.rhythm, &editing_rows);
     }
     zgui.endChild();
     zgui.sameLine(.{ .spacing = gap });
     if (zgui.beginChild("help-right", .{ .w = 0, .h = 0 })) {
-        drawPanel("help-workspaces", "WORKSPACES", umbra.iris, &workspace_rows);
+        drawPanel("help-workspaces", "WORKSPACES", patina.focus, &workspace_rows);
         zgui.spacing();
-        drawPanel("help-devices", "DEVICES AND DATA", umbra.cyan, &device_rows);
+        drawPanel("help-devices", "DEVICES AND DATA", patina.audio, &device_rows);
         zgui.spacing();
         drawLaunchers(app);
     }
@@ -65,11 +65,11 @@ fn drawHeader() void {
     const origin = zgui.getCursorScreenPos();
     _ = zgui.invisibleButton("help-header", .{ .w = width, .h = height });
     const draw_list = zgui.getWindowDrawList();
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(umbra.bg2), .rounding = 4 });
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + 5, origin[1] + height }, .col = color(umbra.mauve), .rounding = 3 });
-    draw_list.addText(.{ origin[0] + 17, origin[1] + 10 }, color(umbra.fg3), "WSTUDIO REFERENCE", .{});
-    draw_list.addText(.{ origin[0] + 17, origin[1] + 35 }, color(umbra.fg0), "Keyboard first, mouse friendly", .{});
-    draw_list.addText(.{ origin[0] + width - 180, origin[1] + 27 }, color(umbra.mauve), "VIM MODAL WORKFLOW", .{});
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(patina.bg2), .rounding = 4 });
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + 5, origin[1] + height }, .col = color(patina.modulation), .rounding = 3 });
+    draw_list.addText(.{ origin[0] + 17, origin[1] + 10 }, color(patina.fg3), "WSTUDIO REFERENCE", .{});
+    draw_list.addText(.{ origin[0] + 17, origin[1] + 35 }, color(patina.fg0), "Keyboard first, mouse friendly", .{});
+    draw_list.addText(.{ origin[0] + width - 180, origin[1] + 27 }, color(patina.modulation), "VIM MODAL WORKFLOW", .{});
 }
 
 fn drawPanel(id: [:0]const u8, title: []const u8, accent: [4]f32, rows: []const Row) void {
@@ -86,17 +86,17 @@ fn drawRow(row: Row, accent: [4]f32) void {
     const origin = zgui.getCursorScreenPos();
     const draw_list = zgui.getWindowDrawList();
     const key_w: f32 = 112;
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + key_w, origin[1] + 27 }, .col = color(umbra.bg2), .rounding = 3 });
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + key_w, origin[1] + 27 }, .col = color(patina.bg2), .rounding = 3 });
     draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + 3, origin[1] + 27 }, .col = color(accent), .rounding = 2 });
-    draw_list.addText(.{ origin[0] + 10, origin[1] + 5 }, color(umbra.fg0), "{s}", .{row.key});
-    draw_list.addText(.{ origin[0] + key_w + 13, origin[1] + 5 }, color(umbra.fg1), "{s}", .{row.text});
+    draw_list.addText(.{ origin[0] + 10, origin[1] + 5 }, color(patina.fg0), "{s}", .{row.key});
+    draw_list.addText(.{ origin[0] + key_w + 13, origin[1] + 5 }, color(patina.fg1), "{s}", .{row.text});
     zgui.dummy(.{ .w = 0, .h = 28 });
 }
 
 fn drawLaunchers(app: anytype) void {
     zgui.textDisabled("QUICK OPEN", .{});
     zgui.separator();
-    zgui.pushStyleColor4f(.{ .idx = .button, .c = umbra.iris_soft });
+    zgui.pushStyleColor4f(.{ .idx = .button, .c = patina.focus_soft });
     if (zgui.button("INSTRUMENTS", .{ .h = 34 })) app.openPicker(.instrument_picker);
     zgui.popStyleColor(.{});
     zgui.sameLine(.{ .spacing = 6 });

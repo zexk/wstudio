@@ -3,14 +3,14 @@ const zgui = @import("zgui");
 const style = @import("../style.zig");
 
 const color = style.color;
-const umbra = style.umbra;
+const patina = style.patina;
 
 pub fn draw(app: anytype) void {
     drawHeader(app);
     zgui.spacing();
     zgui.textDisabled("{s}", .{if (app.core.browser_bookmark_mode) "BOOKMARKS" else "FILES"});
     zgui.sameLine(.{});
-    zgui.textColored(umbra.fg3, "{s}", .{if (app.core.browser_bookmark_mode) "ENTER JUMP   D DELETE   B CLOSE" else "ENTER OPEN   H PARENT   B MARK   SHIFT+B BOOKMARKS   / SEARCH"});
+    zgui.textColored(patina.fg3, "{s}", .{if (app.core.browser_bookmark_mode) "ENTER JUMP   D DELETE   B CLOSE" else "ENTER OPEN   H PARENT   B MARK   SHIFT+B BOOKMARKS   / SEARCH"});
     zgui.separator();
 
     if (app.core.browser_bookmark_mode) {
@@ -20,7 +20,7 @@ pub fn draw(app: anytype) void {
 
     if (app.core.browser_entries.items.len == 0) {
         zgui.spacing();
-        zgui.textColored(umbra.fg1, "This folder is empty.", .{});
+        zgui.textColored(patina.fg1, "This folder is empty.", .{});
         zgui.textDisabled("Only folders and files compatible with this operation are shown.", .{});
         return;
     }
@@ -42,17 +42,17 @@ fn drawHeader(app: anytype) void {
     const origin = zgui.getCursorScreenPos();
     _ = zgui.invisibleButton("file-browser-header", .{ .w = width, .h = height });
     const draw_list = zgui.getWindowDrawList();
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(umbra.bg2), .rounding = 4 });
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + 5, origin[1] + height }, .col = color(umbra.cyan), .rounding = 3 });
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(patina.bg2), .rounding = 4 });
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + 5, origin[1] + height }, .col = color(patina.audio), .rounding = 3 });
     var purpose_buf: [64]u8 = undefined;
     const purpose = purposeLabel(app.core.browser_purpose, &purpose_buf);
-    draw_list.addText(.{ origin[0] + 17, origin[1] + 10 }, color(umbra.fg3), "FILE BROWSER", .{});
-    draw_list.addText(.{ origin[0] + 17, origin[1] + 36 }, color(umbra.fg0), "{s}", .{std.fs.path.basename(app.core.browser_dir)});
-    draw_list.addText(.{ origin[0] + 17, origin[1] + 61 }, color(umbra.fg3), "{s}", .{app.core.browser_dir});
-    draw_list.addText(.{ origin[0] + width - 300, origin[1] + 13 }, color(umbra.cyan), "{s}", .{purpose});
-    draw_list.addText(.{ origin[0] + width - 110, origin[1] + 40 }, color(umbra.fg2), "{d} ITEMS", .{app.core.browser_entries.items.len});
+    draw_list.addText(.{ origin[0] + 17, origin[1] + 10 }, color(patina.fg3), "FILE BROWSER", .{});
+    draw_list.addText(.{ origin[0] + 17, origin[1] + 36 }, color(patina.fg0), "{s}", .{std.fs.path.basename(app.core.browser_dir)});
+    draw_list.addText(.{ origin[0] + 17, origin[1] + 61 }, color(patina.fg3), "{s}", .{app.core.browser_dir});
+    draw_list.addText(.{ origin[0] + width - 300, origin[1] + 13 }, color(patina.audio), "{s}", .{purpose});
+    draw_list.addText(.{ origin[0] + width - 110, origin[1] + 40 }, color(patina.fg2), "{d} ITEMS", .{app.core.browser_entries.items.len});
     const pattern = app.core.searchPattern();
-    if (pattern.len > 0) draw_list.addText(.{ origin[0] + width - 300, origin[1] + 63 }, color(umbra.mauve), "search: {s}", .{pattern});
+    if (pattern.len > 0) draw_list.addText(.{ origin[0] + width - 300, origin[1] + 63 }, color(patina.modulation), "search: {s}", .{pattern});
 }
 
 fn purposeLabel(purpose: anytype, buf: []u8) []const u8 {
@@ -91,16 +91,16 @@ fn drawEntry(name: []const u8, is_dir: bool, selected: bool, index: usize) bool 
     const clicked = zgui.invisibleButton(id, .{ .w = width, .h = height });
     const hovered = zgui.isItemHovered(.{});
     const draw_list = zgui.getWindowDrawList();
-    const accent = if (is_dir) umbra.cyan else umbra.iris;
+    const accent = if (is_dir) patina.audio else patina.focus;
     if (selected or hovered) draw_list.addRectFilled(.{
         .pmin = origin,
         .pmax = .{ origin[0] + width, origin[1] + height },
-        .col = color(if (selected) umbra.bg4 else umbra.bg2),
+        .col = color(if (selected) patina.bg4 else patina.bg2),
         .rounding = 3,
     });
     draw_list.addRectFilled(.{ .pmin = .{ origin[0], origin[1] + 8 }, .pmax = .{ origin[0] + 4, origin[1] + height - 8 }, .col = color(accent), .rounding = 2 });
-    draw_list.addText(.{ origin[0] + 15, origin[1] + 8 }, color(if (selected) umbra.fg0 else umbra.fg1), "{s}", .{name});
-    draw_list.addText(.{ origin[0] + 15, origin[1] + 29 }, color(umbra.fg3), "{s}", .{if (is_dir) "FOLDER" else std.fs.path.extension(name)});
+    draw_list.addText(.{ origin[0] + 15, origin[1] + 8 }, color(if (selected) patina.fg0 else patina.fg1), "{s}", .{name});
+    draw_list.addText(.{ origin[0] + 15, origin[1] + 29 }, color(patina.fg3), "{s}", .{if (is_dir) "FOLDER" else std.fs.path.extension(name)});
     draw_list.addText(.{ origin[0] + width - 28, origin[1] + 15 }, color(accent), "{s}", .{if (is_dir) ">" else "*"});
     return clicked;
 }

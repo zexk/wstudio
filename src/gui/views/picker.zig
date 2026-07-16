@@ -7,18 +7,18 @@ const synth_ed = @import("../../tui/editors/synth.zig");
 const style = @import("../style.zig");
 
 const color = style.color;
-const umbra = style.umbra;
+const patina = style.patina;
 
 pub fn drawInstrument(app: anytype) void {
-    zgui.textColored(umbra.iris, "ADD INSTRUMENT", .{});
+    zgui.textColored(patina.focus, "ADD INSTRUMENT", .{});
     zgui.sameLine(.{});
     zgui.textDisabled("Choose the track's sound source", .{});
     zgui.separator();
     const entries = [_]struct { label: []const u8, desc: []const u8, kind: ws.InstrumentKind, accent: [4]f32 }{
-        .{ .label = "POLY SYNTH", .desc = "Oscillators, filters, modulation", .kind = .poly_synth, .accent = umbra.iris },
-        .{ .label = "SAMPLER", .desc = "Map and shape a single sample", .kind = .sampler, .accent = umbra.cyan },
-        .{ .label = "DRUM MACHINE", .desc = "Velocity-aware pad sequencer", .kind = .drum_machine, .accent = umbra.yellow },
-        .{ .label = "SLICER", .desc = "Cut audio into playable slices", .kind = .slicer, .accent = umbra.mauve },
+        .{ .label = "POLY SYNTH", .desc = "Oscillators, filters, modulation", .kind = .poly_synth, .accent = patina.focus },
+        .{ .label = "SAMPLER", .desc = "Map and shape a single sample", .kind = .sampler, .accent = patina.audio },
+        .{ .label = "DRUM MACHINE", .desc = "Velocity-aware pad sequencer", .kind = .drum_machine, .accent = patina.rhythm },
+        .{ .label = "SLICER", .desc = "Cut audio into playable slices", .kind = .slicer, .accent = patina.modulation },
     };
     const gap: f32 = 8;
     const width = (zgui.getContentRegionAvail()[0] - gap) / 2;
@@ -34,7 +34,7 @@ pub fn drawInstrument(app: anytype) void {
 }
 
 pub fn drawFx(app: anytype) void {
-    zgui.textColored(umbra.mauve, "ADD EFFECT", .{});
+    zgui.textColored(patina.modulation, "ADD EFFECT", .{});
     zgui.sameLine(.{});
     zgui.textDisabled("Inserted after the focused unit", .{});
     zgui.separator();
@@ -99,11 +99,11 @@ fn fxDescription(kind: ws.FxKind) []const u8 {
 
 fn fxAccent(kind: ws.FxKind) [4]f32 {
     return switch (kind) {
-        .gate, .comp, .mb_comp, .ott => umbra.red,
-        .eq => umbra.yellow,
-        .sat, .crush, .tape => umbra.mauve,
-        .chorus, .flanger, .phaser, .freq_shift => umbra.iris,
-        .delay, .reverb => umbra.cyan,
+        .gate, .comp, .mb_comp, .ott => patina.danger,
+        .eq => patina.rhythm,
+        .sat, .crush, .tape => patina.modulation,
+        .chorus, .flanger, .phaser, .freq_shift => patina.focus,
+        .delay, .reverb => patina.audio,
     };
 }
 
@@ -113,10 +113,10 @@ fn drawCard(id: [:0]const u8, label: []const u8, desc: []const u8, accent: [4]f3
     const clicked = zgui.invisibleButton(id, .{ .w = width, .h = height });
     const hovered = zgui.isItemHovered(.{});
     const draw_list = zgui.getWindowDrawList();
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(if (selected) umbra.bg4 else if (hovered) umbra.bg3 else umbra.bg2), .rounding = 4 });
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(if (selected) patina.bg4 else if (hovered) patina.bg3 else patina.bg2), .rounding = 4 });
     draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + 4, origin[1] + height }, .col = color(accent), .rounding = 2 });
-    draw_list.addText(.{ origin[0] + 14, origin[1] + 10 }, color(if (selected) accent else umbra.fg0), "{s}", .{label});
-    draw_list.addText(.{ origin[0] + 14, origin[1] + 35 }, color(umbra.fg3), "{s}", .{desc});
+    draw_list.addText(.{ origin[0] + 14, origin[1] + 10 }, color(if (selected) accent else patina.fg0), "{s}", .{label});
+    draw_list.addText(.{ origin[0] + 14, origin[1] + 35 }, color(patina.fg3), "{s}", .{desc});
     return clicked;
 }
 
@@ -125,13 +125,13 @@ pub fn drawPreset(app: anytype) void {
     const rows = preset_ed.buildDisplayRows(&app.core, &rows_buf);
     const count = preset_ed.entryCountOf(rows);
     const kind_label = if (app.core.preset_picker_kind == .synth) "SYNTH PRESETS" else "DRUM KITS";
-    zgui.textColored(if (app.core.preset_picker_kind == .synth) umbra.iris else umbra.yellow, "{s}", .{kind_label});
+    zgui.textColored(if (app.core.preset_picker_kind == .synth) patina.focus else patina.rhythm, "{s}", .{kind_label});
     zgui.sameLine(.{});
     zgui.textDisabled("{d} matches for track {d:0>2}", .{ count, app.core.preset_picker_track + 1 });
     const filter = preset_ed.activeFilter(&app.core);
     if (filter.len > 0) {
         zgui.sameLine(.{ .spacing = 14 });
-        zgui.textColored(umbra.cyan, "filter: {s}", .{filter});
+        zgui.textColored(patina.audio, "filter: {s}", .{filter});
     }
     zgui.separator();
     zgui.textDisabled("ENTER APPLY   A AUDITION   / FILTER   [ ] CATEGORY   D DELETE SAVED", .{});
@@ -141,7 +141,7 @@ pub fn drawPreset(app: anytype) void {
         for (rows, 0..) |row, row_index| switch (row) {
             .header => |header| {
                 zgui.spacing();
-                zgui.textColored(umbra.fg2, "{s}", .{header});
+                zgui.textColored(patina.fg2, "{s}", .{header});
                 zgui.separator();
             },
             .entry => |entry| {
@@ -150,7 +150,7 @@ pub fn drawPreset(app: anytype) void {
                 var desc_buf: [96]u8 = undefined;
                 const desc = std.fmt.bufPrint(&desc_buf, "{s}   {s}", .{ entry.category, entry.author }) catch entry.category;
                 const selected = app.core.preset_picker_cursor == ordinal;
-                const accent = if (app.core.preset_picker_kind == .synth) umbra.iris else umbra.yellow;
+                const accent = if (app.core.preset_picker_kind == .synth) patina.focus else patina.rhythm;
                 if (drawCard(id, entry.name, desc, accent, selected, zgui.getContentRegionAvail()[0])) {
                     app.core.preset_picker_cursor = ordinal;
                     app.core.handleKey(.enter, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);

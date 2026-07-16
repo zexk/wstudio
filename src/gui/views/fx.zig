@@ -8,7 +8,7 @@ const style = @import("../style.zig");
 const color = style.color;
 const rgb = style.rgb;
 const trackColor = style.trackColor;
-const umbra = style.umbra;
+const patina = style.patina;
 
 pub fn draw(app: anytype) void {
     const target = spectrum_ed.currentTarget(&app.core);
@@ -38,15 +38,15 @@ fn drawHeader(app: anytype, target: spectrum_ed.EqTarget, fx: *const ws.Fx, snap
     _ = zgui.invisibleButton("fx-header", .{ .w = width, .h = height });
     const draw_list = zgui.getWindowDrawList();
     const accent = targetAccent(app, target);
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(umbra.bg2), .rounding = 4 });
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(patina.bg2), .rounding = 4 });
     draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + 5, origin[1] + height }, .col = color(accent), .rounding = 3 });
-    draw_list.addText(.{ origin[0] + 17, origin[1] + 10 }, color(umbra.fg3), "FX RACK", .{});
-    draw_list.addText(.{ origin[0] + 17, origin[1] + 31 }, color(umbra.fg0), "{s}", .{targetName(app, target)});
-    draw_list.addText(.{ origin[0] + 17, origin[1] + 62 }, color(umbra.fg2), "{d}/{d} UNITS", .{ fx.units.items.len, ws.Fx.max_units });
+    draw_list.addText(.{ origin[0] + 17, origin[1] + 10 }, color(patina.fg3), "FX RACK", .{});
+    draw_list.addText(.{ origin[0] + 17, origin[1] + 31 }, color(patina.fg0), "{s}", .{targetName(app, target)});
+    draw_list.addText(.{ origin[0] + 17, origin[1] + 62 }, color(patina.fg2), "{d}/{d} UNITS", .{ fx.units.items.len, ws.Fx.max_units });
 
     const meter_w: f32 = @min(210, width * 0.28);
     const meter_x = origin[0] + width - meter_w - 17;
-    draw_list.addText(.{ meter_x, origin[1] + 11 }, color(umbra.fg3), "MASTER OUTPUT", .{});
+    draw_list.addText(.{ meter_x, origin[1] + 11 }, color(patina.fg3), "MASTER OUTPUT", .{});
     drawMeter(draw_list, .{ meter_x, origin[1] + 34 }, meter_w, snap.peak[0], "L");
     drawMeter(draw_list, .{ meter_x, origin[1] + 60 }, meter_w, snap.peak[1], "R");
 }
@@ -55,9 +55,9 @@ fn drawMeter(draw_list: zgui.DrawList, pos: [2]f32, width: f32, value: f32, labe
     const meter_x = pos[0] + 18;
     const meter_w = width - 18;
     const level = std.math.clamp(value, 0, 1);
-    draw_list.addText(.{ pos[0], pos[1] - 2 }, color(umbra.fg3), "{s}", .{label});
-    draw_list.addRectFilled(.{ .pmin = .{ meter_x, pos[1] }, .pmax = .{ meter_x + meter_w, pos[1] + 10 }, .col = color(umbra.bg0), .rounding = 2 });
-    draw_list.addRectFilled(.{ .pmin = .{ meter_x, pos[1] }, .pmax = .{ meter_x + meter_w * level, pos[1] + 10 }, .col = color(if (level > 0.9) umbra.red else umbra.cyan), .rounding = 2 });
+    draw_list.addText(.{ pos[0], pos[1] - 2 }, color(patina.fg3), "{s}", .{label});
+    draw_list.addRectFilled(.{ .pmin = .{ meter_x, pos[1] }, .pmax = .{ meter_x + meter_w, pos[1] + 10 }, .col = color(patina.bg0), .rounding = 2 });
+    draw_list.addRectFilled(.{ .pmin = .{ meter_x, pos[1] }, .pmax = .{ meter_x + meter_w * level, pos[1] + 10 }, .col = color(if (level > 0.9) patina.danger else patina.audio), .rounding = 2 });
 }
 
 fn targetName(app: anytype, target: spectrum_ed.EqTarget) []const u8 {
@@ -79,16 +79,16 @@ fn targetAccent(app: anytype, target: spectrum_ed.EqTarget) [4]f32 {
         .track => if (app.core.eq_track < app.core.session.project.tracks.items.len)
             trackColor(app.core.session.project.tracks.items[app.core.eq_track].color)
         else
-            umbra.iris,
-        .master => umbra.mauve,
-        .group => umbra.cyan,
+            patina.focus,
+        .master => patina.modulation,
+        .group => patina.audio,
     };
 }
 
 fn drawSignalChain(app: anytype, target: spectrum_ed.EqTarget, fx: *ws.Fx) void {
     zgui.textDisabled("SIGNAL FLOW", .{});
     zgui.sameLine(.{});
-    zgui.textColored(umbra.fg3, "INPUT  >  PROCESSING  >  OUTPUT", .{});
+    zgui.textColored(patina.fg3, "INPUT  >  PROCESSING  >  OUTPUT", .{});
 
     const gap: f32 = 6;
     const count = fx.units.items.len + @as(usize, if (fx.units.items.len < ws.Fx.max_units) 1 else 0);
@@ -100,8 +100,8 @@ fn drawSignalChain(app: anytype, target: spectrum_ed.EqTarget, fx: *ws.Fx) void 
     }
     if (fx.units.items.len < ws.Fx.max_units) {
         if (fx.units.items.len > 0) zgui.sameLine(.{ .spacing = gap });
-        zgui.pushStyleColor4f(.{ .idx = .button, .c = umbra.bg2 });
-        zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = umbra.iris_soft });
+        zgui.pushStyleColor4f(.{ .idx = .button, .c = patina.bg2 });
+        zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = patina.focus_soft });
         if (zgui.button("+  ADD##fx-chain-add", .{ .w = slot_w, .h = 58 })) app.openPicker(.fx_picker);
         zgui.popStyleColor(.{ .count = 2 });
     }
@@ -115,21 +115,21 @@ fn drawSlot(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, index:
     const hovered = zgui.isItemHovered(.{});
     const selected = app.core.fx_focus == index;
     const draw_list = zgui.getWindowDrawList();
-    const accent = if (unit.bypassed) umbra.fg3 else kindAccent(unit.kind());
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + 58 }, .col = color(if (selected) umbra.bg4 else if (hovered) umbra.bg3 else umbra.bg2), .rounding = 4 });
+    const accent = if (unit.bypassed) patina.fg3 else kindAccent(unit.kind());
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + 58 }, .col = color(if (selected) patina.bg4 else if (hovered) patina.bg3 else patina.bg2), .rounding = 4 });
     draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + 3 }, .col = color(accent), .rounding = 2 });
-    draw_list.addText(.{ origin[0] + 9, origin[1] + 10 }, color(umbra.fg3), "{d:0>2}", .{index + 1});
-    draw_list.addText(.{ origin[0] + 9, origin[1] + 31 }, color(if (unit.bypassed) umbra.fg3 else umbra.fg0), "{s}", .{spectrum_ed.stripLabel(unit.kind())});
+    draw_list.addText(.{ origin[0] + 9, origin[1] + 10 }, color(patina.fg3), "{d:0>2}", .{index + 1});
+    draw_list.addText(.{ origin[0] + 9, origin[1] + 31 }, color(if (unit.bypassed) patina.fg3 else patina.fg0), "{s}", .{spectrum_ed.stripLabel(unit.kind())});
     if (clicked and !selected) spectrum_ed.setFocus(&app.core, target, index);
 }
 
 fn kindAccent(kind: ws.FxKind) [4]f32 {
     return switch (kind) {
-        .gate, .comp, .mb_comp, .ott => umbra.red,
-        .eq => umbra.yellow,
-        .sat, .crush, .tape => umbra.mauve,
-        .chorus, .flanger, .phaser, .freq_shift => umbra.iris,
-        .delay, .reverb => umbra.cyan,
+        .gate, .comp, .mb_comp, .ott => patina.danger,
+        .eq => patina.rhythm,
+        .sat, .crush, .tape => patina.modulation,
+        .chorus, .flanger, .phaser, .freq_shift => patina.focus,
+        .delay, .reverb => patina.audio,
     };
 }
 
@@ -139,10 +139,10 @@ fn drawEditor(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit) void
     const origin = zgui.getCursorScreenPos();
     _ = zgui.invisibleButton("fx-editor-heading", .{ .w = width, .h = 52 });
     const draw_list = zgui.getWindowDrawList();
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + 52 }, .col = color(umbra.bg2), .rounding = 4 });
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + 52 }, .col = color(patina.bg2), .rounding = 4 });
     draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + 4, origin[1] + 52 }, .col = color(accent), .rounding = 2 });
     draw_list.addText(.{ origin[0] + 15, origin[1] + 8 }, color(accent), "{s}", .{spectrum_ed.unitLabel(unit.kind())});
-    draw_list.addText(.{ origin[0] + 15, origin[1] + 29 }, color(umbra.fg3), "UNIT {d:0>2}  {s}", .{ app.core.fx_focus + 1, if (unit.bypassed) "BYPASSED" else "ACTIVE" });
+    draw_list.addText(.{ origin[0] + 15, origin[1] + 29 }, color(patina.fg3), "UNIT {d:0>2}  {s}", .{ app.core.fx_focus + 1, if (unit.bypassed) "BYPASSED" else "ACTIVE" });
 
     zgui.setCursorScreenPos(.{ origin[0] + width - 282, origin[1] + 11 });
     if (zgui.button(if (unit.bypassed) "ENABLE" else "BYPASS", .{ .w = 78, .h = 30 })) spectrum_ed.toggleBypass(&app.core, target);
@@ -151,7 +151,7 @@ fn drawEditor(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit) void
     zgui.sameLine(.{ .spacing = 5 });
     if (zgui.button(">##fx-right", .{ .w = 38, .h = 30 })) spectrum_ed.moveFocused(&app.core, target, 1);
     zgui.sameLine(.{ .spacing = 5 });
-    zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = umbra.red });
+    zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = patina.danger });
     const removed = zgui.button("REMOVE", .{ .w = 78, .h = 30 });
     if (removed) spectrum_ed.removeFocused(&app.core, target);
     zgui.popStyleColor(.{});
@@ -230,13 +230,13 @@ fn drawEqGraph(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, sel
     const hovered = zgui.isItemHovered(.{});
     const mouse = zgui.getMousePos();
     const draw_list = zgui.getWindowDrawList();
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(umbra.bg0), .rounding = 4 });
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(patina.bg0), .rounding = 4 });
 
     const db_ticks = [_]f32{ -18, -12, -6, 0, 6, 12, 18 };
     for (db_ticks) |db| {
         const y = eqDbY(origin[1], height, db);
-        draw_list.addLine(.{ .p1 = .{ origin[0], y }, .p2 = .{ origin[0] + width, y }, .col = color(if (db == 0) umbra.bg5 else umbra.line), .thickness = if (db == 0) 1.5 else 1 });
-        if (db != 18 and db != -18) draw_list.addText(.{ origin[0] + 6, y - 9 }, color(umbra.fg3), "{d:.0}", .{db});
+        draw_list.addLine(.{ .p1 = .{ origin[0], y }, .p2 = .{ origin[0] + width, y }, .col = color(if (db == 0) patina.bg5 else patina.line), .thickness = if (db == 0) 1.5 else 1 });
+        if (db != 18 and db != -18) draw_list.addText(.{ origin[0] + 6, y - 9 }, color(patina.fg3), "{d:.0}", .{db});
     }
     const freq_ticks = [_]struct { hz: f32, label: []const u8 }{
         .{ .hz = 20, .label = "20" },     .{ .hz = 50, .label = "50" },     .{ .hz = 100, .label = "100" }, .{ .hz = 200, .label = "200" },
@@ -245,8 +245,8 @@ fn drawEqGraph(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, sel
     };
     for (freq_ticks) |tick| {
         const x = eqFreqX(origin[0], width, tick.hz);
-        draw_list.addLine(.{ .p1 = .{ x, origin[1] }, .p2 = .{ x, origin[1] + height }, .col = color(if (tick.hz == 1000) umbra.bg5 else umbra.line), .thickness = 1 });
-        draw_list.addText(.{ x + 4, origin[1] + height - 20 }, color(umbra.fg3), "{s}", .{tick.label});
+        draw_list.addLine(.{ .p1 = .{ x, origin[1] }, .p2 = .{ x, origin[1] + height }, .col = color(if (tick.hz == 1000) patina.bg5 else patina.line), .thickness = 1 });
+        draw_list.addText(.{ x + 4, origin[1] + height - 20 }, color(patina.fg3), "{s}", .{tick.label});
     }
 
     const spectrum_snap = switch (target) {
@@ -255,7 +255,7 @@ fn drawEqGraph(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, sel
         .group => app.core.session.engine.groupSpectrumSnapshot(app.core.eq_group),
     };
     if (spectrum_snap) |snap| {
-        const spectrum_color = color(.{ umbra.cyan[0], umbra.cyan[1], umbra.cyan[2], 0.22 });
+        const spectrum_color = color(.{ patina.audio[0], patina.audio[1], patina.audio[2], 0.22 });
         for (snap.bins, 0..) |db, i| {
             const x = origin[0] + width * @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(snap.bins.len - 1));
             const norm = std.math.clamp((db + 90.0) / 90.0, 0, 1);
@@ -271,20 +271,20 @@ fn drawEqGraph(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, sel
         const db = combinedResponseDb(&unit.payload.eq, freq);
         point.* = .{ origin[0] + norm * width, eqDbY(origin[1], height, db) };
     }
-    const fill_color = color(.{ umbra.yellow[0], umbra.yellow[1], umbra.yellow[2], 0.10 });
+    const fill_color = color(.{ patina.rhythm[0], patina.rhythm[1], patina.rhythm[2], 0.10 });
     const zero_y = eqDbY(origin[1], height, 0);
     for (response_points[0 .. response_points.len - 1], response_points[1..]) |a, b| {
         draw_list.addLine(.{ .p1 = .{ a[0], zero_y }, .p2 = a, .col = fill_color, .thickness = @max(1, b[0] - a[0] + 1) });
     }
-    draw_list.addPolyline(&response_points, .{ .col = color(umbra.yellow), .thickness = 2.5 });
+    draw_list.addPolyline(&response_points, .{ .col = color(patina.rhythm), .thickness = 2.5 });
 
     for (unit.payload.eq.bands, 0..) |band, i| {
         const node = eqBandPoint(origin, .{ width, height }, band);
         const accent = eqBandColor(i);
         const selected = i == selected_band;
         draw_list.addCircleFilled(.{ .p = node, .r = if (selected) 10 else 8, .col = color(if (selected) accent else .{ accent[0], accent[1], accent[2], 0.72 }) });
-        draw_list.addCircle(.{ .p = node, .r = if (selected) 12 else 10, .col = color(if (selected) umbra.fg0 else accent), .thickness = if (selected) 2 else 1 });
-        draw_list.addText(.{ node[0] - 4, node[1] - 8 }, color(umbra.bg0), "{d}", .{i + 1});
+        draw_list.addCircle(.{ .p = node, .r = if (selected) 12 else 10, .col = color(if (selected) patina.fg0 else accent), .thickness = if (selected) 2 else 1 });
+        draw_list.addText(.{ node[0] - 4, node[1] - 8 }, color(patina.bg0), "{d}", .{i + 1});
     }
 
     if (hovered and zgui.isMouseClicked(.left)) {
@@ -325,7 +325,7 @@ fn drawEqGraph(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, sel
 fn drawEqBandStrip(app: anytype, unit: *ws.FxUnit, selected_band: usize) void {
     zgui.textDisabled("BANDS", .{});
     zgui.sameLine(.{});
-    zgui.textColored(umbra.fg3, "DRAG NODES TO SET FREQUENCY AND GAIN", .{});
+    zgui.textColored(patina.fg3, "DRAG NODES TO SET FREQUENCY AND GAIN", .{});
     const gap: f32 = 5;
     const available = zgui.getContentRegionAvail()[0];
     const columns: usize = if (available < 600) 4 else 8;
@@ -334,8 +334,8 @@ fn drawEqBandStrip(app: anytype, unit: *ws.FxUnit, selected_band: usize) void {
         if (i % columns != 0) zgui.sameLine(.{ .spacing = gap });
         const selected = i == selected_band;
         const accent = eqBandColor(i);
-        zgui.pushStyleColor4f(.{ .idx = .button, .c = if (selected) accent else umbra.bg2 });
-        zgui.pushStyleColor4f(.{ .idx = .text, .c = if (selected) umbra.bg0 else accent });
+        zgui.pushStyleColor4f(.{ .idx = .button, .c = if (selected) accent else patina.bg2 });
+        zgui.pushStyleColor4f(.{ .idx = .text, .c = if (selected) patina.bg0 else accent });
         var label_buf: [32]u8 = undefined;
         const label = std.fmt.bufPrintZ(&label_buf, "{d}  {s}##eq-band-{d}", .{ i + 1, eqBandKindShort(band.kind), i }) catch continue;
         if (zgui.button(label, .{ .w = width, .h = 34 })) {
@@ -363,8 +363,8 @@ fn drawEqBandControls(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUn
     for (types, 0..) |entry, i| {
         if (i > 0) zgui.sameLine(.{ .spacing = 5 });
         const active = @as(u8, @intFromEnum(band.kind)) == @as(u8, @intFromFloat(entry.value));
-        zgui.pushStyleColor4f(.{ .idx = .button, .c = if (active) accent else umbra.bg2 });
-        zgui.pushStyleColor4f(.{ .idx = .text, .c = if (active) umbra.bg0 else umbra.fg2 });
+        zgui.pushStyleColor4f(.{ .idx = .button, .c = if (active) accent else patina.bg2 });
+        zgui.pushStyleColor4f(.{ .idx = .text, .c = if (active) patina.bg0 else patina.fg2 });
         if (zgui.button(entry.label, .{ .h = 32 }) and !active) {
             history.noteFxNudge(&app.core, target, app.core.fx_focus, kind_idx);
             spectrum_ed.setParam(&app.core, &unit.payload, kind_idx, entry.value);
@@ -513,12 +513,12 @@ fn drawEmptyState(app: anytype) void {
     const origin = zgui.getCursorScreenPos();
     _ = zgui.invisibleButton("fx-empty-state", .{ .w = width, .h = 180 });
     const draw_list = zgui.getWindowDrawList();
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + 180 }, .col = color(umbra.bg2), .rounding = 4 });
-    draw_list.addText(.{ origin[0] + 22, origin[1] + 28 }, color(umbra.fg0), "Build your signal chain", .{});
-    draw_list.addText(.{ origin[0] + 22, origin[1] + 55 }, color(umbra.fg3), "Add dynamics, tone, modulation, and space in series.", .{});
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + 180 }, .col = color(patina.bg2), .rounding = 4 });
+    draw_list.addText(.{ origin[0] + 22, origin[1] + 28 }, color(patina.fg0), "Build your signal chain", .{});
+    draw_list.addText(.{ origin[0] + 22, origin[1] + 55 }, color(patina.fg3), "Add dynamics, tone, modulation, and space in series.", .{});
     zgui.setCursorScreenPos(.{ origin[0] + 22, origin[1] + 96 });
-    zgui.pushStyleColor4f(.{ .idx = .button, .c = umbra.iris_soft });
-    zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = umbra.iris });
+    zgui.pushStyleColor4f(.{ .idx = .button, .c = patina.focus_soft });
+    zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = patina.focus });
     if (zgui.button("+  ADD FIRST EFFECT", .{ .w = 190, .h = 36 })) app.openPicker(.fx_picker);
     zgui.popStyleColor(.{ .count = 2 });
     zgui.setCursorScreenPos(.{ origin[0], origin[1] + 180 });

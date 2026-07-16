@@ -18,6 +18,8 @@ code keeps a one-line pointer.
 - [ui-conventions.md](ui-conventions.md): TUI layout and chrome
   conventions (row budget, status row, prompt row, frame bracketing,
   icon fallback) plus the design decisions behind them.
+- [gui-color-identity.md](gui-color-identity.md): the GUI's Patina palette,
+  semantic color roles, and the category patterns it intentionally avoids.
 
 Related documents that predate this directory and stay where they are:
 `README.md` (pitch, layout, usage), `FORMAT.md` (the `.wsj` save format,

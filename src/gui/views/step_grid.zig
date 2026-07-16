@@ -2,7 +2,7 @@ const zgui = @import("zgui");
 const style = @import("../style.zig");
 
 const color = style.color;
-const umbra = style.umbra;
+const patina = style.patina;
 
 pub const Kind = enum { drum, slicer };
 
@@ -38,16 +38,16 @@ pub fn draw(
     const cell_w = grid_w / @as(f32, @floatFromInt(step_count));
     const steps_per_beat: usize = if (kind == .drum) instrument.steps_per_beat else 4;
     const cursor_step = @min(@as(usize, cursor[1]), step_count - 1);
-    const accent = if (kind == .drum) umbra.yellow else umbra.cyan;
+    const accent = if (kind == .drum) patina.rhythm else patina.audio;
 
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + canvas_w, origin[1] + canvas_h }, .col = color(umbra.bg0) });
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + canvas_w, grid_y }, .col = color(umbra.bg2) });
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + canvas_w, origin[1] + canvas_h }, .col = color(patina.bg0) });
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + canvas_w, grid_y }, .col = color(patina.bg2) });
     draw_list.addRectFilled(.{
         .pmin = .{ grid_x + @as(f32, @floatFromInt(cursor_step)) * cell_w, origin[1] },
         .pmax = .{ grid_x + @as(f32, @floatFromInt(cursor_step + 1)) * cell_w, grid_y },
         .col = color(.{ accent[0], accent[1], accent[2], 0.18 }),
     });
-    draw_list.addText(.{ origin[0] + 9, origin[1] + 5 }, color(umbra.fg3), "{s} {d}-{d}  /  {d}", .{
+    draw_list.addText(.{ origin[0] + 9, origin[1] + 5 }, color(patina.fg3), "{s} {d}-{d}  /  {d}", .{
         if (kind == .drum) "PADS" else "SLICES",
         if (row_count == 0) 0 else row_start + 1,
         row_end,
@@ -56,20 +56,20 @@ pub fn draw(
     for (row_start..row_end, 0..) |row, display_row| {
         const y = grid_y + @as(f32, @floatFromInt(display_row)) * row_h;
         const selected = row == cursor_row;
-        draw_list.addRectFilled(.{ .pmin = .{ origin[0], y }, .pmax = .{ grid_x, y + row_h }, .col = color(if (selected) umbra.bg4 else if (row % 2 == 0) umbra.bg2 else umbra.bg1) });
-        draw_list.addRectFilled(.{ .pmin = .{ grid_x, y }, .pmax = .{ origin[0] + canvas_w, y + row_h }, .col = color(if (row % 2 == 0) umbra.bg1 else umbra.bg0) });
+        draw_list.addRectFilled(.{ .pmin = .{ origin[0], y }, .pmax = .{ grid_x, y + row_h }, .col = color(if (selected) patina.bg4 else if (row % 2 == 0) patina.bg2 else patina.bg1) });
+        draw_list.addRectFilled(.{ .pmin = .{ grid_x, y }, .pmax = .{ origin[0] + canvas_w, y + row_h }, .col = color(if (row % 2 == 0) patina.bg1 else patina.bg0) });
         if (selected) draw_list.addRectFilled(.{ .pmin = .{ origin[0], y + 4 }, .pmax = .{ origin[0] + 4, y + row_h - 4 }, .col = color(accent), .rounding = 2 });
         if (kind == .drum) {
             const choke = instrument.choke_group[row];
             if (instrument.pads[row]) |*sample|
-                draw_list.addText(.{ origin[0] + 9, y + 8 }, color(if (selected) umbra.fg0 else umbra.fg1), "{d:0>2}  {s}  C{d}", .{ row + 1, sample.clipName(), choke })
+                draw_list.addText(.{ origin[0] + 9, y + 8 }, color(if (selected) patina.fg0 else patina.fg1), "{d:0>2}  {s}  C{d}", .{ row + 1, sample.clipName(), choke })
             else
-                draw_list.addText(.{ origin[0] + 9, y + 8 }, color(if (selected) umbra.fg0 else umbra.fg2), "{d:0>2}  Pad  C{d}", .{ row + 1, choke });
+                draw_list.addText(.{ origin[0] + 9, y + 8 }, color(if (selected) patina.fg0 else patina.fg2), "{d:0>2}  Pad  C{d}", .{ row + 1, choke });
         } else {
             const slice = instrument.slices[row];
-            draw_list.addText(.{ origin[0] + 9, y + 8 }, color(if (selected) umbra.fg0 else umbra.fg1), "{d:0>2}  {d:.0}-{d:.0}% C{d}", .{ row + 1, slice.start_norm * 100, slice.end_norm * 100, instrument.choke_group[row] });
+            draw_list.addText(.{ origin[0] + 9, y + 8 }, color(if (selected) patina.fg0 else patina.fg1), "{d:0>2}  {d:.0}-{d:.0}% C{d}", .{ row + 1, slice.start_norm * 100, slice.end_norm * 100, instrument.choke_group[row] });
         }
-        draw_list.addLine(.{ .p1 = .{ origin[0], y + row_h }, .p2 = .{ origin[0] + canvas_w, y + row_h }, .col = color(umbra.line), .thickness = 1 });
+        draw_list.addLine(.{ .p1 = .{ origin[0], y + row_h }, .p2 = .{ origin[0] + canvas_w, y + row_h }, .col = color(patina.line), .thickness = 1 });
     }
 
     for (0..step_count) |step| {
@@ -79,7 +79,7 @@ pub fn draw(
         draw_list.addRectFilled(.{
             .pmin = .{ x, grid_y },
             .pmax = .{ x + cell_w, origin[1] + canvas_h },
-            .col = color(.{ umbra.fg0[0], umbra.fg0[1], umbra.fg0[2], 0.018 }),
+            .col = color(.{ patina.fg0[0], patina.fg0[1], patina.fg0[2], 0.018 }),
         });
     }
 
@@ -92,12 +92,12 @@ pub fn draw(
         draw_list.addRectFilled(.{
             .pmin = .{ x1, grid_y },
             .pmax = .{ x2, origin[1] + canvas_h },
-            .col = color(.{ umbra.yellow[0], umbra.yellow[1], umbra.yellow[2], 0.12 }),
+            .col = color(.{ patina.rhythm[0], patina.rhythm[1], patina.rhythm[2], 0.12 }),
         });
         draw_list.addRect(.{
             .pmin = .{ x1 + 1, grid_y + 1 },
             .pmax = .{ x2 - 1, origin[1] + canvas_h - 1 },
-            .col = color(.{ umbra.yellow[0], umbra.yellow[1], umbra.yellow[2], 0.55 }),
+            .col = color(.{ patina.rhythm[0], patina.rhythm[1], patina.rhythm[2], 0.55 }),
             .thickness = 1,
         });
     }
@@ -106,15 +106,15 @@ pub fn draw(
         const x = grid_x + @as(f32, @floatFromInt(step)) * cell_w;
         const on_beat = step % steps_per_beat == 0;
         const on_bar = step % (steps_per_beat * 4) == 0;
-        draw_list.addLine(.{ .p1 = .{ x, if (on_beat) origin[1] else grid_y }, .p2 = .{ x, origin[1] + canvas_h }, .col = color(if (on_bar) umbra.fg3 else if (on_beat) umbra.bg5 else umbra.line_soft), .thickness = if (on_bar) 2 else if (on_beat) 1.5 else 1 });
-        if (on_beat and step < step_count) draw_list.addText(.{ x + 5, origin[1] + 5 }, color(umbra.fg2), "{d}", .{step / steps_per_beat + 1});
+        draw_list.addLine(.{ .p1 = .{ x, if (on_beat) origin[1] else grid_y }, .p2 = .{ x, origin[1] + canvas_h }, .col = color(if (on_bar) patina.fg3 else if (on_beat) patina.bg5 else patina.line_soft), .thickness = if (on_bar) 2 else if (on_beat) 1.5 else 1 });
+        if (on_beat and step < step_count) draw_list.addText(.{ x + 5, origin[1] + 5 }, color(patina.fg2), "{d}", .{step / steps_per_beat + 1});
     }
 
     if (play_step) |step| {
         const x = grid_x + @as(f32, @floatFromInt(step % step_count)) * cell_w;
-        draw_list.addRectFilled(.{ .pmin = .{ x, origin[1] }, .pmax = .{ x + cell_w, grid_y }, .col = color(.{ umbra.red[0], umbra.red[1], umbra.red[2], 0.28 }) });
-        draw_list.addLine(.{ .p1 = .{ x, origin[1] }, .p2 = .{ x, origin[1] + canvas_h }, .col = color(umbra.red), .thickness = 2 });
-        draw_list.addTriangleFilled(.{ .p1 = .{ x - 4, grid_y - 7 }, .p2 = .{ x + 4, grid_y - 7 }, .p3 = .{ x, grid_y - 2 }, .col = color(umbra.red) });
+        draw_list.addRectFilled(.{ .pmin = .{ x, origin[1] }, .pmax = .{ x + cell_w, grid_y }, .col = color(.{ patina.danger[0], patina.danger[1], patina.danger[2], 0.28 }) });
+        draw_list.addLine(.{ .p1 = .{ x, origin[1] }, .p2 = .{ x, origin[1] + canvas_h }, .col = color(patina.danger), .thickness = 2 });
+        draw_list.addTriangleFilled(.{ .p1 = .{ x - 4, grid_y - 7 }, .p2 = .{ x + 4, grid_y - 7 }, .p3 = .{ x, grid_y - 2 }, .col = color(patina.danger) });
     }
 
     for (row_start..row_end, 0..) |row, display_row| {
@@ -125,11 +125,11 @@ pub fn draw(
             const y = grid_y + @as(f32, @floatFromInt(display_row)) * row_h;
             const inset = @min(3, cell_w * 0.15);
             const height = 8 + velocity * (row_h - 13);
-            const hit_color = if (kind == .drum) umbra.iris else umbra.cyan;
+            const hit_color = if (kind == .drum) patina.focus else patina.audio;
             const pmin = [2]f32{ x + inset, y + row_h - height - 3 };
             const pmax = [2]f32{ x + cell_w - inset, y + row_h - 3 };
             draw_list.addRectFilled(.{ .pmin = pmin, .pmax = pmax, .col = color(.{ hit_color[0], hit_color[1], hit_color[2], 0.62 + velocity * 0.38 }), .rounding = @min(3, cell_w * 0.12) });
-            draw_list.addLine(.{ .p1 = .{ pmin[0] + 1, pmin[1] + 1 }, .p2 = .{ pmax[0] - 1, pmin[1] + 1 }, .col = color(.{ umbra.fg0[0], umbra.fg0[1], umbra.fg0[2], 0.38 }), .thickness = 1 });
+            draw_list.addLine(.{ .p1 = .{ pmin[0] + 1, pmin[1] + 1 }, .p2 = .{ pmax[0] - 1, pmin[1] + 1 }, .col = color(.{ patina.fg0[0], patina.fg0[1], patina.fg0[2], 0.38 }), .thickness = 1 });
         }
     }
 
@@ -140,7 +140,7 @@ pub fn draw(
         draw_list.addRectFilled(.{
             .pmin = .{ x + 1, y + 1 },
             .pmax = .{ x + cell_w - 1, y + row_h - 1 },
-            .col = color(.{ umbra.iris[0], umbra.iris[1], umbra.iris[2], 0.18 }),
+            .col = color(.{ patina.focus[0], patina.focus[1], patina.focus[2], 0.18 }),
         });
         draw_list.addRect(.{
             .pmin = .{ x + 1, y + 1 },
@@ -156,7 +156,7 @@ pub fn draw(
         const row = row_start + display_row;
         const x = grid_x + @as(f32, @floatFromInt(step)) * cell_w;
         const y = grid_y + @as(f32, @floatFromInt(display_row)) * row_h;
-        draw_list.addRect(.{ .pmin = .{ x + 1, y + 1 }, .pmax = .{ x + cell_w - 1, y + row_h - 1 }, .col = color(umbra.mauve), .thickness = 1.5 });
+        draw_list.addRect(.{ .pmin = .{ x + 1, y + 1 }, .pmax = .{ x + cell_w - 1, y + row_h - 1 }, .col = color(patina.modulation), .thickness = 1.5 });
         if (clicked) {
             cursor.* = .{ @intCast(row), @intCast(step) };
             instrument.toggleStep(@intCast(row), @intCast(step));
