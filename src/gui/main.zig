@@ -123,9 +123,9 @@ pub const App = struct {
     }
 
     fn draw(self: *App, audio_label: []const u8) void {
-        drawTransport(self);
+        drawTransport(self, audio_label);
         drawWorkspace(self);
-        drawStatus(self, audio_label);
+        drawStatus(self);
         drawCommandPrompt(self);
     }
 
@@ -417,23 +417,11 @@ fn renderAudio(ctx: *anyopaque, out: []ws.types.Sample) void {
     engine.process(out);
 }
 
-fn drawTransport(app: *App) void {
+fn drawTransport(app: *App, audio_label: []const u8) void {
     const snap = app.core.session.engine.uiSnapshot();
-    const playing_color = if (snap.playing) umbra.red else umbra.iris;
     zgui.setNextWindowPos(.{ .x = 0, .y = 0, .cond = .always });
     zgui.setNextWindowSize(.{ .w = zgui.io.getDisplaySize()[0], .h = 64, .cond = .always });
-    if (zgui.begin("Transport", .{ .flags = .{ .no_title_bar = true, .no_resize = true, .no_move = true, .no_docking = true } })) {
-        zgui.pushStyleColor4f(.{ .idx = .button, .c = playing_color });
-        zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = if (snap.playing) umbra.mauve else umbra.yellow });
-        zgui.pushStyleColor4f(.{ .idx = .button_active, .c = umbra.fg0 });
-        zgui.pushStyleColor4f(.{ .idx = .text, .c = umbra.bg0 });
-        zgui.pushStyleVar1f(.{ .idx = .frame_rounding, .v = 3 });
-        if (zgui.button(if (snap.playing) icons.stop ++ "  STOP" else icons.play ++ "  PLAY", .{ .w = 82, .h = 40 })) {
-            _ = app.core.session.engine.send(if (snap.playing) .stop else .play);
-        }
-        zgui.popStyleVar(.{});
-        zgui.popStyleColor(.{ .count = 4 });
-
+    if (zgui.begin("Transport", .{ .flags = .{ .no_title_bar = true, .no_resize = true, .no_move = true, .no_docking = true, .no_scrollbar = true, .no_scroll_with_mouse = true } })) {
         const beat = ws.types.framesToSeconds(snap.position_frames, app.core.session.project.sample_rate) * app.core.session.project.tempo_bpm / 60.0;
         const beat_index: u32 = @intFromFloat(beat);
         var tempo_buf: [32]u8 = undefined;
@@ -448,17 +436,18 @@ fn drawTransport(app: *App) void {
         var rate_buf: [32]u8 = undefined;
         const rate = std.fmt.bufPrint(&rate_buf, "{d:.1} kHz", .{@as(f32, @floatFromInt(app.core.session.project.sample_rate)) / 1000.0}) catch "rate";
 
-        drawTransportReadout("TEMPO", tempo);
-        drawTransportReadout("POSITION", position);
-        drawTransportReadout("METER", meter);
-        drawTransportReadout("RATE", rate);
-        drawTransportReadout("PROJECT", app.core.session.project.name);
+        drawTransportReadout(icons.tempo ++ "  TEMPO", tempo, true);
+        drawTransportReadout("POSITION", position, false);
+        drawTransportReadout("METER", meter, false);
+        drawTransportReadout("RATE", rate, false);
+        drawTransportReadout(icons.save ++ "  PROJECT", app.core.session.project.name, false);
+        drawTransportReadout(icons.master ++ "  AUDIO", audio_label, false);
     }
     zgui.end();
 }
 
-fn drawTransportReadout(label: []const u8, value: []const u8) void {
-    zgui.sameLine(.{ .spacing = 24 });
+fn drawTransportReadout(label: []const u8, value: []const u8, first: bool) void {
+    if (!first) zgui.sameLine(.{ .spacing = 24 });
     zgui.beginGroup();
     zgui.textColored(umbra.fg3, "{s}", .{label});
     zgui.textColored(umbra.fg0, "{s}", .{value});
@@ -470,14 +459,14 @@ fn drawBrowser(app: *App) void {
     zgui.setNextWindowPos(.{ .x = 0, .y = 64, .cond = .always });
     zgui.setNextWindowSize(.{ .w = layout.browser_w, .h = layout.body_h, .cond = .always });
     if (zgui.begin("Browser", .{ .flags = .{ .no_move = true, .no_resize = true, .no_collapse = true, .no_docking = true } })) {
-        zgui.textDisabled("LIBRARY", .{});
+        zgui.textDisabled(icons.logo ++ "  LIBRARY", .{});
         zgui.separator();
         const entries = [_]struct { label: []const u8, hint: []const u8, view: tui_app.AppView, accent: [4]f32 }{
-            .{ .label = "Instruments", .hint = "Devices", .view = .instrument_picker, .accent = umbra.iris },
-            .{ .label = "Samples", .hint = "Audio files", .view = .file_browser, .accent = umbra.cyan },
-            .{ .label = "Drum Kits", .hint = "Patterns", .view = .drum_grid, .accent = umbra.yellow },
-            .{ .label = "Presets", .hint = "Saved sounds", .view = .preset_picker, .accent = umbra.mauve },
-            .{ .label = "Projects", .hint = "Songs on disk", .view = .file_browser, .accent = umbra.red },
+            .{ .label = icons.synth ++ "  Instruments", .hint = "Devices", .view = .instrument_picker, .accent = umbra.iris },
+            .{ .label = icons.sampler ++ "  Samples", .hint = "Audio files", .view = .file_browser, .accent = umbra.cyan },
+            .{ .label = icons.drum ++ "  Drum Kits", .hint = "Patterns", .view = .drum_grid, .accent = umbra.yellow },
+            .{ .label = icons.save ++ "  Presets", .hint = "Saved sounds", .view = .preset_picker, .accent = umbra.mauve },
+            .{ .label = icons.arrangement ++ "  Projects", .hint = "Songs on disk", .view = .file_browser, .accent = umbra.red },
         };
         for (entries, 0..) |entry, i| drawBrowserRow(app, entry.label, entry.hint, entry.view, entry.accent, @intCast(i));
     }
@@ -520,7 +509,7 @@ fn drawTracks(app: *App) void {
     zgui.setNextWindowPos(.{ .x = layout.browser_w, .y = 64, .cond = .always });
     zgui.setNextWindowSize(.{ .w = layout.tracks_w, .h = layout.body_h, .cond = .always });
     if (zgui.begin("Tracks", .{ .flags = .{ .no_move = true, .no_resize = true, .no_collapse = true, .no_docking = true } })) {
-        zgui.textDisabled("TRACKS", .{});
+        zgui.textDisabled(icons.master ++ "  TRACKS", .{});
         zgui.sameLine(.{});
         zgui.textColored(umbra.fg2, "{d}", .{app.core.session.project.tracks.items.len});
         zgui.separator();
@@ -529,7 +518,7 @@ fn drawTracks(app: *App) void {
         zgui.separator();
         zgui.pushStyleColor4f(.{ .idx = .button, .c = umbra.bg2 });
         zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = umbra.bg3 });
-        if (zgui.button("+  NEW TRACK", .{ .w = -1, .h = 30 })) {
+        if (zgui.button(icons.synth ++ "  NEW TRACK", .{ .w = -1, .h = 30 })) {
             const idx = app.core.session.project.tracks.items.len + 1;
             var name_buf: [32]u8 = undefined;
             const name = std.fmt.bufPrint(&name_buf, "track {d}", .{idx}) catch "track";
@@ -719,7 +708,7 @@ fn drawViewTab(app: *App, label: [:0]const u8, view: tui_app.AppView, width: f32
 }
 
 fn drawTrackOverview(app: *App) void {
-    zgui.textDisabled("MIXER OVERVIEW", .{});
+    zgui.textDisabled(icons.master ++ "  MIXER OVERVIEW", .{});
     zgui.sameLine(.{});
     zgui.textColored(umbra.fg2, "{d} channels", .{app.core.session.project.tracks.items.len});
     zgui.separator();
@@ -779,7 +768,7 @@ fn drawMixerRow(app: *App, track: ws.Track, rack: *ws.Rack, index: usize) void {
 }
 
 fn drawArrangement(app: *App) void {
-    zgui.textDisabled("ARRANGEMENT", .{});
+    zgui.textDisabled(icons.arrangement ++ "  ARRANGEMENT", .{});
     const track_count = app.core.session.project.tracks.items.len;
     const ticks_per_beat = ws.time_grid.ticks_per_beat;
     const beats_per_bar: u32 = app.core.session.project.beats_per_bar;
@@ -929,7 +918,7 @@ fn drawArrangement(app: *App) void {
 }
 
 fn drawPianoRoll(app: *App) void {
-    zgui.textDisabled("PIANO ROLL", .{});
+    zgui.textDisabled(icons.synth ++ "  PIANO ROLL", .{});
     const rack = app.core.session.racks.items[app.core.cursor];
     const pp = if (rack.pattern_player) |*p| p else {
         zgui.textDisabled("This instrument has no melodic pattern. Choose Synth or Sampler.", .{});
@@ -1110,7 +1099,7 @@ fn drawDrumHeader(app: *App, drum: *ws.dsp.DrumMachine, playing: bool) void {
 
 fn drawDevices(app: *App) void {
     const rack = app.core.session.racks.items[app.core.cursor];
-    zgui.textDisabled("DEVICE CHAIN", .{});
+    zgui.textDisabled(icons.eq ++ "  DEVICE CHAIN", .{});
     zgui.sameLine(.{});
     zgui.textColored(umbra.fg2, "{d} effects", .{rack.fx.units.items.len});
     zgui.separator();
@@ -1137,7 +1126,7 @@ fn drawDevices(app: *App) void {
     zgui.spacing();
     zgui.pushStyleColor4f(.{ .idx = .button, .c = umbra.iris_soft });
     zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = umbra.iris });
-    if (zgui.button("+  ADD EFFECT", .{ .w = 150, .h = 32 })) app.openPicker(.fx_picker);
+    if (zgui.button(icons.eq ++ "  ADD EFFECT", .{ .w = 150, .h = 32 })) app.openPicker(.fx_picker);
     zgui.popStyleColor(.{ .count = 2 });
 }
 
@@ -1359,7 +1348,7 @@ fn drawInspector(app: *App) void {
     if (zgui.begin("Inspector", .{ .flags = .{ .no_move = true, .no_resize = true, .no_collapse = true, .no_docking = true } })) {
         const track = &app.core.session.project.tracks.items[app.core.cursor];
         const rack = app.core.session.racks.items[app.core.cursor];
-        zgui.textDisabled("INSPECTOR", .{});
+        zgui.textDisabled(icons.logo ++ "  INSPECTOR", .{});
         zgui.separator();
         const accent = trackColor(track.color);
         zgui.textColored(accent, "{d:0>2}", .{app.core.cursor + 1});
@@ -1405,7 +1394,7 @@ fn drawInspectorToggle(label: [:0]const u8, active: bool, accent: [4]f32, width:
     return zgui.button(label, .{ .w = width, .h = 30 });
 }
 
-fn drawStatus(app: *App, audio_label: []const u8) void {
+fn drawStatus(app: *App) void {
     const display = zgui.io.getDisplaySize();
     zgui.setNextWindowPos(.{ .x = 0, .y = display[1] - 34, .cond = .always });
     zgui.setNextWindowSize(.{ .w = display[0], .h = 34, .cond = .always });
@@ -1439,12 +1428,12 @@ fn drawStatus(app: *App, audio_label: []const u8) void {
         const snap = app.core.session.engine.uiSnapshot();
         const beat = ws.types.framesToSeconds(snap.position_frames, app.core.session.project.sample_rate) * app.core.session.project.tempo_bpm / 60.0;
         var right_buf: [192]u8 = undefined;
-        const right_label = std.fmt.bufPrint(&right_buf, "{s}  {d}.{d}   AUDIO {s}", .{
+        const right_label = std.fmt.bufPrint(&right_buf, "{s}  {s}  {d}.{d}", .{
+            if (snap.playing) icons.play else icons.stop,
             if (snap.playing) "PLAY" else "STOP",
             @as(u32, @intFromFloat(beat)) / app.core.session.project.beats_per_bar + 1,
             @mod(@as(u32, @intFromFloat(beat)), app.core.session.project.beats_per_bar) + 1,
-            audio_label,
-        }) catch "audio";
+        }) catch "transport";
         drawStatusSegmentRight(draw, pos[0] + size[0], pos[1], size[1], if (snap.playing) umbra.iris_soft else umbra.bg2, umbra.fg0, right_label);
     }
     zgui.end();
