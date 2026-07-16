@@ -1,10 +1,10 @@
 const std = @import("std");
 const ws = @import("wstudio");
 const zgui = @import("zgui");
+const icons = @import("../../tui/icons.zig");
 const style = @import("../style.zig");
 const widgets = @import("../widgets.zig");
 
-const color = style.color;
 const patina = &style.palette;
 
 pub fn draw(app: anytype) void {
@@ -34,34 +34,25 @@ fn drawStandalone(app: anytype) void {
     }
     zgui.spacing();
 
-    const gap: f32 = 10;
-    const column_w = @max(300, (zgui.getContentRegionAvail()[0] - gap) / 2);
-    if (zgui.beginChild("sampler-left", .{ .w = column_w, .h = 0, .child_flags = .{ .border = true } })) {
-        widgets.sectionTitle("PLAYBACK", patina.focus);
-        drawParam(app, sampler, 0, "Start", "%.3f");
-        drawParam(app, sampler, 1, "End", "%.3f");
-        drawParam(app, sampler, 2, "Pitch", "%.0f st");
-        drawParam(app, sampler, 10, "Root note", "%.0f");
-        zgui.spacing();
-        widgets.sectionTitle("MODE", patina.modulation);
-        drawToggle(app, sampler, 9, "REVERSE", "FORWARD");
-        zgui.sameLine(.{ .spacing = 6 });
-        drawToggle(app, sampler, 11, "MONO", "POLY");
-    }
-    zgui.endChild();
-    zgui.sameLine(.{ .spacing = gap });
-    if (zgui.beginChild("sampler-right", .{ .w = 0, .h = 0, .child_flags = .{ .border = true } })) {
-        widgets.sectionTitle("AMPLITUDE ENVELOPE", patina.rhythm);
-        drawParam(app, sampler, 3, "Attack", "%.3f s");
-        drawParam(app, sampler, 4, "Decay", "%.3f s");
-        drawParam(app, sampler, 5, "Sustain", "%.2f");
-        drawParam(app, sampler, 6, "Release", "%.3f s");
-        zgui.spacing();
-        widgets.sectionTitle("OUTPUT", patina.audio);
-        drawParam(app, sampler, 7, "Gain", "%.2f");
-        drawParam(app, sampler, 8, "Pan", "%.2f");
-    }
-    zgui.endChild();
+    widgets.sectionTitle("SAMPLE", patina.focus);
+    drawParam(app, sampler, 0, "Start", "%.3f");
+    drawParam(app, sampler, 1, "End", "%.3f");
+    drawParam(app, sampler, 2, "Pitch", "%.0f st");
+    zgui.spacing();
+    widgets.sectionTitle("AMP ENV", patina.rhythm);
+    drawParam(app, sampler, 3, "Attack", "%.3f s");
+    drawParam(app, sampler, 4, "Decay", "%.3f s");
+    drawParam(app, sampler, 5, "Sustain", "%.2f");
+    drawParam(app, sampler, 6, "Release", "%.3f s");
+    zgui.spacing();
+    widgets.sectionTitle("OUT", patina.audio);
+    drawParam(app, sampler, 7, "Gain", "%.2f");
+    drawParam(app, sampler, 8, "Pan", "%.2f");
+    drawToggle(app, sampler, 9, "REVERSE", "FORWARD");
+    zgui.spacing();
+    widgets.sectionTitle("KEY", patina.rhythm);
+    drawParam(app, sampler, 10, "Root note", "%.0f");
+    drawToggle(app, sampler, 11, "MONO", "POLY");
 }
 
 const PadTargetKind = enum { drum, slice };
@@ -94,53 +85,52 @@ fn drawPadTarget(app: anytype, track: u16, kind: PadTargetKind) void {
         },
     };
 
-    drawPadHeader(app, track, kind, index, pad);
+    drawPadHeader(app, track, kind, index);
     zgui.spacing();
     widgets.sectionTitle("PLAY REGION", patina.audio);
     widgets.waveform("##pad-target-wave", pad.samples);
     zgui.textDisabled("Region {d:.1}-{d:.1}% of {d} samples", .{ pad.start_norm * 100, pad.end_norm * 100, pad.samples.len });
     zgui.spacing();
 
-    const gap: f32 = 10;
-    const column_w = @max(300, (zgui.getContentRegionAvail()[0] - gap) / 2);
-    if (zgui.beginChild("pad-target-left", .{ .w = column_w, .h = 0, .child_flags = .{ .border = true } })) {
-        widgets.sectionTitle("PLAYBACK", patina.focus);
-        drawPadParam(app, track, kind, index, pad, 0, "Start", "%.3f");
-        drawPadParam(app, track, kind, index, pad, 1, "End", "%.3f");
-        drawPadParam(app, track, kind, index, pad, 2, "Pitch", "%.0f st");
-        zgui.spacing();
-        widgets.sectionTitle("MODE", patina.modulation);
-        drawPadToggle(app, track, kind, index, pad);
-    }
-    zgui.endChild();
-    zgui.sameLine(.{ .spacing = gap });
-    if (zgui.beginChild("pad-target-right", .{ .w = 0, .h = 0, .child_flags = .{ .border = true } })) {
-        widgets.sectionTitle("AMPLITUDE ENVELOPE", patina.rhythm);
-        drawPadParam(app, track, kind, index, pad, 3, "Attack", "%.3f s");
-        drawPadParam(app, track, kind, index, pad, 4, "Decay", "%.3f s");
-        drawPadParam(app, track, kind, index, pad, 5, "Sustain", "%.2f");
-        drawPadParam(app, track, kind, index, pad, 6, "Release", "%.3f s");
-        zgui.spacing();
-        widgets.sectionTitle("OUTPUT", patina.audio);
-        drawPadParam(app, track, kind, index, pad, 7, "Gain", "%.2f");
-        drawPadParam(app, track, kind, index, pad, 8, "Pan", "%.2f");
-    }
-    zgui.endChild();
+    widgets.sectionTitle("SAMPLE", patina.focus);
+    drawPadParam(app, track, kind, index, pad, 0, "Start", "%.3f");
+    drawPadParam(app, track, kind, index, pad, 1, "End", "%.3f");
+    drawPadParam(app, track, kind, index, pad, 2, "Pitch", "%.0f st");
+    zgui.spacing();
+    widgets.sectionTitle("AMP ENV", patina.rhythm);
+    drawPadParam(app, track, kind, index, pad, 3, "Attack", "%.3f s");
+    drawPadParam(app, track, kind, index, pad, 4, "Decay", "%.3f s");
+    drawPadParam(app, track, kind, index, pad, 5, "Sustain", "%.2f");
+    drawPadParam(app, track, kind, index, pad, 6, "Release", "%.3f s");
+    zgui.spacing();
+    widgets.sectionTitle("OUT", patina.audio);
+    drawPadParam(app, track, kind, index, pad, 7, "Gain", "%.2f");
+    drawPadParam(app, track, kind, index, pad, 8, "Pan", "%.2f");
+    drawPadToggle(app, track, kind, index, pad);
 }
 
-fn drawPadHeader(app: anytype, track: u16, kind: PadTargetKind, index: u8, pad: *const ws.dsp.Pad) void {
-    const width = zgui.getContentRegionAvail()[0];
-    const height: f32 = 72;
-    const origin = zgui.getCursorScreenPos();
-    _ = zgui.invisibleButton("pad-target-header", .{ .w = width, .h = height });
-    const draw_list = zgui.getWindowDrawList();
-    const accent = if (kind == .drum) patina.rhythm else patina.audio;
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(patina.bg2), .rounding = 4 });
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + 5, origin[1] + height }, .col = color(accent), .rounding = 3 });
-    draw_list.addText(.{ origin[0] + 17, origin[1] + 10 }, color(patina.fg3), "{s} SAMPLER", .{if (kind == .drum) "PAD" else "SLICE"});
-    draw_list.addText(.{ origin[0] + 17, origin[1] + 35 }, color(patina.fg0), "{s}", .{app.core.session.project.tracks.items[track].name});
-    draw_list.addText(.{ origin[0] + width - 280, origin[1] + 12 }, color(accent), "{s} {d:0>2}", .{ if (kind == .drum) "PAD" else "SLICE", index + 1 });
-    draw_list.addText(.{ origin[0] + width - 280, origin[1] + 39 }, color(patina.fg3), "pitch {d:.1} st   {s}", .{ pad.pitch_semitones, if (pad.reverse) "REVERSE" else "FORWARD" });
+fn drawPadHeader(app: anytype, track: u16, kind: PadTargetKind, index: u8) void {
+    switch (kind) {
+        .drum => zgui.textDisabled(icons.drum ++ "  SAMPLER", .{}),
+        .slice => zgui.textDisabled(icons.slicer ++ "  SLICE", .{}),
+    }
+    zgui.sameLine(.{});
+    zgui.text("\"{s}\"", .{app.core.session.project.tracks.items[track].name});
+    zgui.sameLine(.{});
+    switch (kind) {
+        .drum => {
+            const drum = &app.core.session.racks.items[track].instrument.drum_machine;
+            zgui.textDisabled("pad {d}/{d}", .{ index + 1, ws.dsp.DrumMachine.max_pads });
+            zgui.sameLine(.{});
+            zgui.textColored(patina.rhythm, "\"{s}\"", .{drum.padName(index)});
+        },
+        .slice => {
+            const slicer = &app.core.session.racks.items[track].instrument.slicer;
+            zgui.textDisabled("slice {d}/{d}", .{ index + 1, slicer.slice_count });
+            zgui.sameLine(.{});
+            zgui.textColored(patina.audio, "\"{s}\"", .{slicer.clipName()});
+        },
+    }
 }
 
 // Slider bounds come from the dsp-side spec table so they can never drift
@@ -183,21 +173,15 @@ fn drawPadToggle(app: anytype, track: u16, kind: PadTargetKind, index: u8, pad: 
 }
 
 fn drawHeader(app: anytype, sampler: *const ws.dsp.Sampler) void {
-    const width = zgui.getContentRegionAvail()[0];
-    const height: f32 = 72;
-    const origin = zgui.getCursorScreenPos();
-    _ = zgui.invisibleButton("sampler-header", .{ .w = width, .h = height });
-    const draw_list = zgui.getWindowDrawList();
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(patina.bg2), .rounding = 4 });
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + 5, origin[1] + height }, .col = color(patina.focus), .rounding = 3 });
-    draw_list.addText(.{ origin[0] + 17, origin[1] + 10 }, color(patina.fg3), "SAMPLER", .{});
     const track = switch (app.core.sampler_target) {
         .sampler => |t| t,
         else => return,
     };
-    draw_list.addText(.{ origin[0] + 17, origin[1] + 35 }, color(patina.fg0), "{s}", .{app.core.session.project.tracks.items[track].name});
-    draw_list.addText(.{ origin[0] + width - 310, origin[1] + 12 }, color(patina.focus), "{s}", .{sampler.clipName()});
-    draw_list.addText(.{ origin[0] + width - 310, origin[1] + 39 }, color(patina.fg3), "{d} SAMPLES  ROOT {d}", .{ sampler.pad.samples.len, sampler.root_note });
+    zgui.textDisabled(icons.sampler ++ "  SAMPLER", .{});
+    zgui.sameLine(.{});
+    zgui.text("\"{s}\"", .{app.core.session.project.tracks.items[track].name});
+    zgui.sameLine(.{});
+    zgui.textColored(patina.focus, "\"{s}\"", .{sampler.clipName()});
 }
 
 fn drawParam(app: anytype, sampler: *ws.dsp.Sampler, id: u8, label_text: []const u8, format: [:0]const u8) void {
