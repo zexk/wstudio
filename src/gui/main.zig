@@ -1012,7 +1012,7 @@ fn drawDrumGrid(app: *App) void {
     };
     const snap = app.core.session.engine.uiSnapshot();
     const play_step: ?usize = if (snap.playing) drum.currentStep() else null;
-    drawDrumHeader(app, drum, snap.playing);
+    drawDrumTitle(app, drum);
     zgui.spacing();
     step_grid.draw(
         .drum,
@@ -1025,24 +1025,16 @@ fn drawDrumGrid(app: *App) void {
     );
 }
 
-fn drawDrumHeader(app: *App, drum: *ws.dsp.DrumMachine, playing: bool) void {
-    const width = zgui.getContentRegionAvail()[0];
-    const origin = zgui.getCursorScreenPos();
-    _ = zgui.invisibleButton("drum-header", .{ .w = width, .h = 62 });
-    const draw = zgui.getWindowDrawList();
-    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + 62 }, .col = color(patina.bg2), .rounding = 4 });
-    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + 5, origin[1] + 62 }, .col = color(if (playing) patina.danger else patina.rhythm), .rounding = 3 });
-    draw.addText(.{ origin[0] + 17, origin[1] + 9 }, color(patina.fg3), "DRUM MACHINE", .{});
-    draw.addText(.{ origin[0] + 17, origin[1] + 31 }, color(patina.fg0), "{s}", .{app.core.session.project.tracks.items[app.core.drum_track].name});
-
-    const mode = if (drum.song_mode) "SONG" else "PATTERN";
-    const state = if (playing) "PLAYING" else "STOPPED";
-    draw.addText(.{ origin[0] + width - 360, origin[1] + 11 }, color(if (playing) patina.danger else patina.fg2), "{s}", .{state});
-    draw.addText(.{ origin[0] + width - 270, origin[1] + 11 }, color(patina.rhythm), "{s} {c}", .{ mode, 'A' + drum.variant });
-    draw.addText(.{ origin[0] + width - 150, origin[1] + 11 }, color(patina.fg1), "{d} STEPS", .{drum.step_count});
-    draw.addText(.{ origin[0] + width - 360, origin[1] + 34 }, color(patina.fg3), "1/{d} GRID", .{drum.steps_per_beat * 4});
-    draw.addText(.{ origin[0] + width - 270, origin[1] + 34 }, color(patina.fg3), "{d:.0}% SWING", .{drum.swing.load(.monotonic)});
-    draw.addText(.{ origin[0] + width - 150, origin[1] + 34 }, color(patina.fg3), "VARIANT {d}/{d}", .{ drum.variant + 1, drum.variant_count });
+fn drawDrumTitle(app: *App, drum: *const ws.dsp.DrumMachine) void {
+    const pads_per_bank = 8;
+    const bank_count = (ws.dsp.DrumMachine.max_pads + pads_per_bank - 1) / pads_per_bank;
+    zgui.textDisabled(icons.drum ++ "  DRUMS", .{});
+    zgui.sameLine(.{});
+    zgui.text("\"{s}\"", .{app.core.session.project.tracks.items[app.core.drum_track].name});
+    zgui.sameLine(.{});
+    zgui.textColored(patina.rhythm, "pat {c}", .{'A' + drum.variant});
+    zgui.sameLine(.{});
+    zgui.textDisabled("{d}/{d}  bank {d}/{d}", .{ drum.variant + 1, drum.variant_count, app.core.drum_cursor[0] / pads_per_bank + 1, bank_count });
 }
 
 fn drawSynth(app: *App) void {
