@@ -52,21 +52,12 @@ const PianoMouseEdit = struct {
 
 pub const App = struct {
     core: tui_app.App,
-    held_notes: [piano_keys.len]?HeldNote = [_]?HeldNote{null} ** piano_keys.len,
     picker_return_view: tui_app.AppView = .tracks,
-    picker_popup_pending: bool = false,
-    picker_popup_visible: bool = false,
-    browser_selection: ?u8 = null,
-    browser_dir: []u8 = &.{},
-    browser_entries: std.ArrayListUnmanaged(BrowserEntry) = .empty,
-    pending_project_path: ?[]u8 = null,
     arrangement_clip: ?struct { track: usize, clip: usize } = null,
     piano_top_pitch: u7 = 84,
     piano_mouse_edit: ?PianoMouseEdit = null,
     eq_drag_band: ?u8 = null,
     eq_analyzer_key: ?u32 = null,
-
-    const BrowserEntry = struct { name: []u8, is_dir: bool };
 
     fn init(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8, user_config: config_mod.Config) !App {
         var core = try tui_app.App.initWithSampleRate(allocator, io, user_config.default_sample_rate);
@@ -82,57 +73,7 @@ pub const App = struct {
     }
 
     fn deinit(self: *App) void {
-        self.clearBrowser();
-        self.browser_entries.deinit(self.core.allocator);
-        if (self.browser_dir.len > 0) self.core.allocator.free(self.browser_dir);
-        if (self.pending_project_path) |path| self.core.allocator.free(path);
         self.core.deinit();
-    }
-
-    fn clearBrowser(self: *App) void {
-        for (self.browser_entries.items) |entry| self.core.allocator.free(entry.name);
-        self.browser_entries.clearRetainingCapacity();
-    }
-
-    fn setBrowserDir(self: *App, path: []const u8) !void {
-        const canon = try std.Io.Dir.cwd().realPathFileAlloc(self.core.io, path, self.core.allocator);
-        errdefer self.core.allocator.free(canon);
-        var dir = try std.Io.Dir.cwd().openDir(self.core.io, canon, .{ .iterate = true });
-        defer dir.close(self.core.io);
-        var entries: std.ArrayListUnmanaged(BrowserEntry) = .empty;
-        errdefer {
-            for (entries.items) |entry| self.core.allocator.free(entry.name);
-            entries.deinit(self.core.allocator);
-        }
-        var it = dir.iterate();
-        while (try it.next(self.core.io)) |entry| {
-            if (entry.name.len == 0 or entry.name[0] == '.') continue;
-            const is_dir = entry.kind == .directory;
-            if (!is_dir and !std.ascii.endsWithIgnoreCase(entry.name, ".wsj")) continue;
-            try entries.append(self.core.allocator, .{ .name = try self.core.allocator.dupe(u8, entry.name), .is_dir = is_dir });
-        }
-        std.mem.sort(BrowserEntry, entries.items, {}, struct {
-            fn less(_: void, a: BrowserEntry, b: BrowserEntry) bool {
-                if (a.is_dir != b.is_dir) return a.is_dir;
-                return std.ascii.lessThanIgnoreCase(a.name, b.name);
-            }
-        }.less);
-        self.clearBrowser();
-        self.browser_entries.deinit(self.core.allocator);
-        if (self.browser_dir.len > 0) self.core.allocator.free(self.browser_dir);
-        self.browser_dir = canon;
-        self.browser_entries = entries;
-    }
-
-    fn activateBrowserEntry(self: *App, entry: BrowserEntry) void {
-        const joined = std.fs.path.join(self.core.allocator, &.{ self.browser_dir, entry.name }) catch return;
-        if (entry.is_dir) {
-            defer self.core.allocator.free(joined);
-            self.setBrowserDir(joined) catch {};
-        } else {
-            if (self.pending_project_path) |old| self.core.allocator.free(old);
-            self.pending_project_path = joined;
-        }
     }
 
     fn draw(self: *App, audio_label: []const u8) void {
@@ -145,15 +86,6 @@ pub const App = struct {
     }
 
     fn handleShortcuts(self: *App) void {
-        for (piano_keys, 0..) |entry, i| {
-            if (self.held_notes[i]) |note| if (zgui.isKeyReleased(entry.key)) {
-                _ = self.core.session.engine.send(.{ .note_off = .{
-                    .track = note.track,
-                    .note = note.pitch,
-                } });
-                self.held_notes[i] = null;
-            };
-        }
         if (zgui.isAnyItemActive()) return;
         if (zgui.isKeyPressed(.f1, false)) {
             self.core.handleKey(.{ .char = '?' }, std.Io.Timestamp.now(self.core.io, .awake).nanoseconds);
@@ -178,14 +110,10 @@ pub const App = struct {
         if (!isPicker(self.core.view)) self.picker_return_view = self.core.view;
         if (picker == .fx_picker) self.core.fx_picker_return = self.picker_return_view;
         self.core.view = picker;
-        self.picker_popup_pending = true;
     }
 
     pub fn closePicker(self: *App, destination: ?tui_app.AppView) void {
-        zgui.closeCurrentPopup();
         self.core.view = destination orelse self.picker_return_view;
-        self.picker_popup_pending = false;
-        self.picker_popup_visible = false;
     }
 };
 
@@ -212,17 +140,6 @@ fn isPicker(view: tui_app.AppView) bool {
 fn workspaceView(app: *const App) tui_app.AppView {
     return if (isPicker(app.core.view)) app.picker_return_view else app.core.view;
 }
-
-const HeldNote = struct { track: u16, pitch: u7 };
-
-const piano_keys = [_]struct { key: zgui.Key, char: u8 }{
-    .{ .key = .a, .char = 'a' },         .{ .key = .s, .char = 's' }, .{ .key = .d, .char = 'd' },
-    .{ .key = .f, .char = 'f' },         .{ .key = .g, .char = 'g' }, .{ .key = .h, .char = 'h' },
-    .{ .key = .j, .char = 'j' },         .{ .key = .k, .char = 'k' }, .{ .key = .l, .char = 'l' },
-    .{ .key = .semicolon, .char = ';' }, .{ .key = .q, .char = 'q' }, .{ .key = .w, .char = 'w' },
-    .{ .key = .r, .char = 'r' },         .{ .key = .t, .char = 't' }, .{ .key = .y, .char = 'y' },
-    .{ .key = .i, .char = 'i' },         .{ .key = .o, .char = 'o' }, .{ .key = .p, .char = 'p' },
-};
 
 fn pressedModalKey(_: ws.input.Mode) ?ws.input.Key {
     const ctrl = zgui.isKeyDown(.mod_ctrl);
@@ -316,27 +233,9 @@ const GuiAudio = struct {
     }
 };
 
-const Layout = struct {
-    browser_w: f32,
-    tracks_w: f32,
-    workspace_w: f32,
-    inspector_w: f32,
-    body_h: f32,
-
-    fn current(prompt_open: bool) Layout {
-        const display = zgui.io.getDisplaySize();
-        const browser_w = std.math.clamp(display[0] * 0.14, 140, 220);
-        const tracks_w = std.math.clamp(display[0] * 0.18, 180, 260);
-        const inspector_w = std.math.clamp(display[0] * 0.16, 180, 240);
-        return .{
-            .browser_w = browser_w,
-            .tracks_w = tracks_w,
-            .workspace_w = display[0] - browser_w - tracks_w - inspector_w,
-            .inspector_w = inspector_w,
-            .body_h = display[1] - 98 - @as(f32, if (prompt_open) 38 else 0),
-        };
-    }
-};
+fn bodyHeight(prompt_open: bool) f32 {
+    return zgui.io.getDisplaySize()[1] - 98 - @as(f32, if (prompt_open) 38 else 0);
+}
 
 pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.Runtime) !void {
     const user_config = runtime.config;
@@ -425,23 +324,6 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
                 try audio.start(init.io);
             }
         }
-        if (app.pending_project_path) |path| {
-            app.pending_project_path = null;
-            defer init.gpa.free(path);
-            if (ws.persist.load(init.gpa, init.io, path)) |loaded| {
-                audio.stop();
-                app.core.session.deinit();
-                app.core.session = loaded;
-                app.core.cursor = 0;
-                audio = GuiAudio.init(app.core.session.project.sample_rate, user_config.audio_block_frames, app.core.session.engine);
-                try audio.start(init.io);
-                var title_buf: [1024]u8 = undefined;
-                if (std.fmt.bufPrintZ(&title_buf, "wstudio GUI prototype - {s}", .{path})) |title| window.setTitle(title) else |_| {}
-                app.core.emitEvent(.{ .ProjectLoadPost = .{ .path = path } });
-            } else |err| {
-                std.debug.print("wstudio: cannot load '{s}': {s}\n", .{ path, @errorName(err) });
-            }
-        }
         const fb = window.getFramebufferSize();
         if (fb[0] <= 0 or fb[1] <= 0) continue;
         gl.viewport(0, 0, fb[0], fb[1]);
@@ -517,128 +399,6 @@ fn drawTransportReadout(label: []const u8, value: []const u8, first: bool) void 
     zgui.endGroup();
 }
 
-fn drawBrowser(app: *App) void {
-    const layout = Layout.current(app.core.modal.mode == .command or app.core.modal.mode == .search);
-    zgui.setNextWindowPos(.{ .x = 0, .y = 64, .cond = .always });
-    zgui.setNextWindowSize(.{ .w = layout.browser_w, .h = layout.body_h, .cond = .always });
-    if (zgui.begin("Browser", .{ .flags = .{ .no_move = true, .no_resize = true, .no_collapse = true, .no_docking = true } })) {
-        zgui.textDisabled(icons.logo ++ "  LIBRARY", .{});
-        zgui.separator();
-        const entries = [_]struct { label: []const u8, hint: []const u8, view: tui_app.AppView, accent: [4]f32 }{
-            .{ .label = icons.synth ++ "  Instruments", .hint = "Devices", .view = .instrument_picker, .accent = patina.focus },
-            .{ .label = icons.sampler ++ "  Samples", .hint = "Audio files", .view = .file_browser, .accent = patina.audio },
-            .{ .label = icons.drum ++ "  Drum Kits", .hint = "Patterns", .view = .drum_grid, .accent = patina.rhythm },
-            .{ .label = icons.save ++ "  Presets", .hint = "Saved sounds", .view = .preset_picker, .accent = patina.modulation },
-            .{ .label = icons.arrangement ++ "  Projects", .hint = "Songs on disk", .view = .file_browser, .accent = patina.danger },
-        };
-        for (entries, 0..) |entry, i| drawBrowserRow(app, entry.label, entry.hint, entry.view, entry.accent, @intCast(i));
-    }
-    zgui.end();
-}
-
-fn drawBrowserRow(app: *App, label: []const u8, hint: []const u8, view: tui_app.AppView, accent: [4]f32, index: u8) void {
-    const height: f32 = 44;
-    const width = zgui.getContentRegionAvail()[0];
-    const origin = zgui.getCursorScreenPos();
-    var id_buf: [32]u8 = undefined;
-    const id = std.fmt.bufPrintZ(&id_buf, "browser-row-{d}", .{index}) catch return;
-    const clicked = zgui.invisibleButton(id, .{ .w = width, .h = height });
-    const hovered = zgui.isItemHovered(.{});
-    const selected = app.browser_selection == index and app.core.view == view;
-    const draw = zgui.getWindowDrawList();
-
-    if (selected or hovered) draw.addRectFilled(.{
-        .pmin = origin,
-        .pmax = .{ origin[0] + width, origin[1] + height },
-        .col = color(if (selected) patina.bg3 else patina.bg2),
-        .rounding = 3,
-    });
-    draw.addRectFilled(.{
-        .pmin = .{ origin[0] + 7, origin[1] + 9 },
-        .pmax = .{ origin[0] + 11, origin[1] + height - 9 },
-        .col = color(accent),
-        .rounding = 2,
-    });
-    draw.addText(.{ origin[0] + 22, origin[1] + 6 }, color(if (selected) patina.fg0 else patina.fg1), "{s}", .{label});
-    draw.addText(.{ origin[0] + 22, origin[1] + 23 }, color(patina.fg3), "{s}", .{hint});
-    if (clicked) {
-        app.browser_selection = index;
-        if (isPicker(view)) app.openPicker(view) else app.core.view = view;
-    }
-}
-
-fn drawTracks(app: *App) void {
-    const layout = Layout.current(app.core.modal.mode == .command or app.core.modal.mode == .search);
-    zgui.setNextWindowPos(.{ .x = layout.browser_w, .y = 64, .cond = .always });
-    zgui.setNextWindowSize(.{ .w = layout.tracks_w, .h = layout.body_h, .cond = .always });
-    if (zgui.begin("Tracks", .{ .flags = .{ .no_move = true, .no_resize = true, .no_collapse = true, .no_docking = true } })) {
-        zgui.textDisabled(icons.master ++ "  TRACKS", .{});
-        zgui.sameLine(.{});
-        zgui.textColored(patina.fg2, "{d}", .{app.core.session.project.tracks.items.len});
-        zgui.separator();
-        for (app.core.session.project.tracks.items, 0..) |track, i| drawTrackRow(app, track, i);
-        zgui.spacing();
-        zgui.separator();
-        zgui.pushStyleColor4f(.{ .idx = .button, .c = patina.bg2 });
-        zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = patina.bg3 });
-        if (zgui.button(icons.synth ++ "  NEW TRACK", .{ .w = -1, .h = 30 })) {
-            const idx = app.core.session.project.tracks.items.len + 1;
-            var name_buf: [32]u8 = undefined;
-            const name = std.fmt.bufPrint(&name_buf, "track {d}", .{idx}) catch "track";
-            _ = app.core.session.addTrack(name) catch {};
-        }
-        zgui.popStyleColor(.{ .count = 2 });
-    }
-    zgui.end();
-}
-
-fn drawTrackRow(app: *App, track: ws.Track, index: usize) void {
-    const height: f32 = 32;
-    const width = zgui.getContentRegionAvail()[0];
-    const origin = zgui.getCursorScreenPos();
-    var id_buf: [32]u8 = undefined;
-    const id = std.fmt.bufPrintZ(&id_buf, "track-row-{d}", .{index}) catch return;
-    const clicked = zgui.invisibleButton(id, .{ .w = width, .h = height });
-    const hovered = zgui.isItemHovered(.{});
-    const selected = app.core.cursor == index;
-    const draw = zgui.getWindowDrawList();
-    const accent = trackColor(track.color);
-    const colored = track.color > 0 and track.color <= ws.track_color_count;
-    const row_bg = if (colored) accent else if (selected) patina.bg4 else if (hovered) patina.bg2 else patina.bg1;
-    const row_fg = if (colored) patina.bg0 else if (selected) patina.fg0 else patina.fg1;
-    const row_muted = if (colored)
-        [4]f32{ patina.bg0[0], patina.bg0[1], patina.bg0[2], 0.62 }
-    else
-        patina.fg3;
-
-    draw.addRectFilled(.{
-        .pmin = origin,
-        .pmax = .{ origin[0] + width, origin[1] + height },
-        .col = color(row_bg),
-        .rounding = 3,
-    });
-    if (selected or hovered) draw.addRect(.{
-        .pmin = origin,
-        .pmax = .{ origin[0] + width, origin[1] + height },
-        .col = color(if (colored) patina.bg0 else patina.focus),
-        .rounding = 2,
-        .thickness = if (selected) 2 else 1,
-    });
-    draw.addText(.{ origin[0] + 11, origin[1] + 8 }, color(row_muted), "{d:0>2}", .{index + 1});
-    draw.addText(.{ origin[0] + 39, origin[1] + 8 }, color(row_fg), "{s}", .{track.name});
-
-    var badge_x = origin[0] + width - 10;
-    if (track.soloed) {
-        badge_x -= 18;
-        drawTrackBadge(draw, badge_x, origin[1] + 7, "S", patina.rhythm);
-    }
-    if (track.muted) {
-        badge_x -= 18;
-        drawTrackBadge(draw, badge_x, origin[1] + 7, "M", patina.danger);
-    }
-    if (clicked) app.core.cursor = index;
-}
-
 fn drawTrackBadge(draw: zgui.DrawList, x: f32, y: f32, label: []const u8, bg: [4]f32) void {
     draw.addRectFilled(.{ .pmin = .{ x, y }, .pmax = .{ x + 15, y + 18 }, .col = color(bg), .rounding = 2 });
     draw.addText(.{ x + 4, y + 2 }, color(patina.bg0), "{s}", .{label});
@@ -649,9 +409,9 @@ fn drawWorkspace(app: *App) void {
         _ = app.core.session.engine.send(.{ .set_spectrum_active = .{ .source = .none, .track = 0 } });
         app.eq_analyzer_key = null;
     }
-    const layout = Layout.current(app.core.modal.mode == .command or app.core.modal.mode == .search);
+    const body_h = bodyHeight(app.core.modal.mode == .command or app.core.modal.mode == .search);
     zgui.setNextWindowPos(.{ .x = 0, .y = 64, .cond = .always });
-    zgui.setNextWindowSize(.{ .w = zgui.io.getDisplaySize()[0], .h = layout.body_h, .cond = .always });
+    zgui.setNextWindowSize(.{ .w = zgui.io.getDisplaySize()[0], .h = body_h, .cond = .always });
     if (zgui.begin("Workspace", .{ .flags = .{ .no_move = true, .no_resize = true, .no_collapse = true, .no_docking = true } })) {
         zgui.textColored(patina.fg3, "{s}", .{@tagName(app.core.view)});
         zgui.sameLine(.{ .spacing = 18 });
@@ -676,106 +436,6 @@ fn drawWorkspace(app: *App) void {
         }
     }
     zgui.end();
-}
-
-fn drawPickerPopup(app: *App) void {
-    if (!isPicker(app.core.view)) return;
-    const popup_name: [:0]const u8 = "Command Palette";
-    if (app.picker_popup_pending) {
-        zgui.openPopup(popup_name, .{});
-        app.picker_popup_pending = false;
-    }
-
-    const display = zgui.io.getDisplaySize();
-    zgui.setNextWindowPos(.{
-        .x = display[0] / 2,
-        .y = display[1] / 2,
-        .cond = .appearing,
-        .pivot_x = 0.5,
-        .pivot_y = 0.5,
-    });
-    zgui.setNextWindowSize(.{
-        .w = @min(680, display[0] - 80),
-        .h = @min(520, display[1] - 80),
-        .cond = .appearing,
-    });
-    if (zgui.beginPopupModal(popup_name, .{ .flags = .{ .no_resize = true, .no_saved_settings = true } })) {
-        app.picker_popup_visible = true;
-        zgui.textColored(patina.fg3, "SELECT A RESULT   ESC TO CLOSE", .{});
-        zgui.separator();
-        switch (app.core.view) {
-            .instrument_picker => picker_view.drawInstrument(app),
-            .fx_picker => picker_view.drawFx(app),
-            .preset_picker => picker_view.drawPreset(app),
-            else => unreachable,
-        }
-        zgui.endPopup();
-    } else if (app.picker_popup_visible) {
-        app.picker_popup_visible = false;
-        app.core.view = app.picker_return_view;
-    }
-}
-
-fn drawViewNav(app: *App) void {
-    const entries = [_]struct { label: [:0]const u8, view: tui_app.AppView }{
-        .{ .label = icons.master ++ " Tracks", .view = .tracks },
-        .{ .label = icons.arrangement ++ " Arrange", .view = .arrangement },
-        .{ .label = icons.synth ++ " Piano", .view = .piano_roll },
-        .{ .label = icons.drum ++ " Drums", .view = .drum_grid },
-        .{ .label = icons.slicer ++ " Slicer", .view = .slicer_grid },
-        .{ .label = icons.synth ++ " Synth", .view = .synth_editor },
-        .{ .label = icons.sampler ++ " Sampler", .view = .sampler_editor },
-        .{ .label = icons.eq ++ " FX", .view = .track_spectrum },
-        .{ .label = icons.eq ++ " Scope", .view = .track_spectrum },
-        .{ .label = icons.arrangement ++ " Auto", .view = .automation },
-        .{ .label = icons.logo ++ " Pick", .view = .instrument_picker },
-        .{ .label = icons.help ++ " More", .view = .help },
-    };
-    const available = zgui.getContentRegionAvail()[0];
-    var row_width: f32 = 0;
-    for (entries, 0..) |entry, i| {
-        const width = zgui.calcTextSize(entry.label, .{})[0] + 20;
-        if (i != 0 and row_width + width + 4 <= available) {
-            zgui.sameLine(.{ .spacing = 4 });
-            row_width += 4;
-        } else if (i != 0) {
-            row_width = 0;
-        }
-        drawViewTab(app, entry.label, entry.view, width);
-        row_width += width;
-    }
-}
-
-fn drawViewTab(app: *App, label: [:0]const u8, view: tui_app.AppView, width: f32) void {
-    const height: f32 = 27;
-    const origin = zgui.getCursorScreenPos();
-    var id_buf: [32]u8 = undefined;
-    const id = std.fmt.bufPrintZ(&id_buf, "view-tab-{s}", .{label}) catch return;
-    const clicked = zgui.invisibleButton(id, .{ .w = width, .h = height });
-    const hovered = zgui.isItemHovered(.{});
-    const selected = workspaceView(app) == view;
-    const draw = zgui.getWindowDrawList();
-
-    if (selected or hovered) draw.addRectFilled(.{
-        .pmin = origin,
-        .pmax = .{ origin[0] + width, origin[1] + height },
-        .col = color(if (selected) patina.bg3 else patina.bg2),
-        .rounding = 3,
-    });
-    if (selected) draw.addRectFilled(.{
-        .pmin = .{ origin[0] + 5, origin[1] + height - 3 },
-        .pmax = .{ origin[0] + width - 5, origin[1] + height },
-        .col = color(patina.focus),
-        .rounding = 2,
-    });
-    const text_size = zgui.calcTextSize(label, .{});
-    draw.addText(.{
-        origin[0] + (width - text_size[0]) / 2,
-        origin[1] + (height - text_size[1]) / 2 - 1,
-    }, color(if (selected) patina.fg0 else patina.fg2), "{s}", .{label});
-    if (clicked) {
-        if (isPicker(view)) app.openPicker(view) else app.core.view = view;
-    }
 }
 
 fn drawTrackOverview(app: *App) void {
@@ -1313,76 +973,6 @@ fn drawDrumHeader(app: *App, drum: *ws.dsp.DrumMachine, playing: bool) void {
     draw.addText(.{ origin[0] + width - 150, origin[1] + 34 }, color(patina.fg3), "VARIANT {d}/{d}", .{ drum.variant + 1, drum.variant_count });
 }
 
-fn drawDevices(app: *App) void {
-    const rack = app.core.session.racks.items[app.core.cursor];
-    zgui.textDisabled(icons.eq ++ "  DEVICE CHAIN", .{});
-    zgui.sameLine(.{});
-    zgui.textColored(patina.fg2, "{d} effects", .{rack.fx.units.items.len});
-    zgui.separator();
-    drawInstrumentCard(rack);
-    zgui.spacing();
-    zgui.textDisabled("EFFECTS", .{});
-    if (rack.fx.units.items.len == 0) {
-        zgui.spacing();
-        zgui.textColored(patina.fg3, "The signal path is clean.", .{});
-        zgui.textDisabled("Add an effect to shape this track.", .{});
-        zgui.spacing();
-    }
-    for (rack.fx.units.items, 0..) |unit, i| {
-        const action = drawFxCard(unit, i);
-        if (action == .bypass) {
-            unit.bypassed = !unit.bypassed;
-            app.core.session.syncTrackChain(@intCast(app.core.cursor), rack);
-        } else if (action == .remove) {
-            rack.fx.remove(app.core.session.allocator, i);
-            app.core.session.syncTrackChain(@intCast(app.core.cursor), rack);
-            break;
-        }
-    }
-    zgui.spacing();
-    zgui.pushStyleColor4f(.{ .idx = .button, .c = patina.focus_soft });
-    zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = patina.focus });
-    if (zgui.button(icons.eq ++ "  ADD EFFECT", .{ .w = 150, .h = 32 })) app.openPicker(.fx_picker);
-    zgui.popStyleColor(.{ .count = 2 });
-}
-
-fn drawInstrumentCard(rack: *ws.Rack) void {
-    const width = zgui.getContentRegionAvail()[0];
-    const origin = zgui.getCursorScreenPos();
-    _ = zgui.invisibleButton("instrument-card", .{ .w = width, .h = 54 });
-    const draw = zgui.getWindowDrawList();
-    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + 54 }, .col = color(patina.bg2), .rounding = 4 });
-    draw.addRectFilled(.{ .pmin = .{ origin[0], origin[1] + 6 }, .pmax = .{ origin[0] + 4, origin[1] + 48 }, .col = color(patina.focus), .rounding = 2 });
-    draw.addText(.{ origin[0] + 14, origin[1] + 8 }, color(patina.fg3), "INSTRUMENT", .{});
-    draw.addText(.{ origin[0] + 14, origin[1] + 27 }, color(patina.fg0), "{s}", .{rack.label});
-}
-
-const FxCardAction = enum { none, bypass, remove };
-
-fn drawFxCard(unit: *ws.FxUnit, index: usize) FxCardAction {
-    const width = zgui.getContentRegionAvail()[0];
-    const origin = zgui.getCursorScreenPos();
-    var card_id_buf: [32]u8 = undefined;
-    const card_id = std.fmt.bufPrintZ(&card_id_buf, "fx-card-{d}", .{index}) catch return .none;
-    _ = zgui.invisibleButton(card_id, .{ .w = width, .h = 58 });
-    const draw = zgui.getWindowDrawList();
-    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + 56 }, .col = color(patina.bg2), .rounding = 4 });
-    draw.addRectFilled(.{ .pmin = .{ origin[0], origin[1] + 7 }, .pmax = .{ origin[0] + 4, origin[1] + 49 }, .col = color(if (unit.bypassed) patina.fg3 else patina.audio), .rounding = 2 });
-    draw.addText(.{ origin[0] + 14, origin[1] + 9 }, color(patina.fg3), "FX {d:0>2}", .{index + 1});
-    draw.addText(.{ origin[0] + 14, origin[1] + 29 }, color(if (unit.bypassed) patina.fg3 else patina.fg0), "{s}", .{@tagName(unit.kind())});
-
-    zgui.setCursorScreenPos(.{ origin[0] + width - 154, origin[1] + 14 });
-    var bypass_id_buf: [32]u8 = undefined;
-    const bypass_id = std.fmt.bufPrintZ(&bypass_id_buf, "{s}##fx-bypass-{d}", .{ if (unit.bypassed) "ENABLE" else "BYPASS", index }) catch return .none;
-    var action: FxCardAction = if (drawInspectorToggle(bypass_id, unit.bypassed, patina.danger, 82)) .bypass else .none;
-    zgui.sameLine(.{ .spacing = 6 });
-    var remove_id_buf: [32]u8 = undefined;
-    const remove_id = std.fmt.bufPrintZ(&remove_id_buf, "X##fx-remove-{d}", .{index}) catch return .none;
-    if (zgui.button(remove_id, .{ .w = 42, .h = 30 })) action = .remove;
-    zgui.setCursorScreenPos(.{ origin[0], origin[1] + 58 });
-    return action;
-}
-
 fn drawSynth(app: *App) void {
     const track = app.core.synth_track;
     if (track >= app.core.session.racks.items.len) return;
@@ -1623,91 +1213,6 @@ fn drawFilterShape(draw: zgui.DrawList, pos: [2]f32, size: [2]f32, synth: *const
 fn drawSynthSectionTitle(label: []const u8, accent: [4]f32) void {
     zgui.textColored(accent, "{s}", .{label});
     zgui.separator();
-}
-
-fn drawSynthWaveButtons(app: *App, synth: *const ws.dsp.PolySynth) void {
-    const entries = [_]struct { label: [:0]const u8, waveform: ws.dsp.synth.Waveform }{
-        .{ .label = "SINE", .waveform = .sine }, .{ .label = "SAW", .waveform = .saw }, .{ .label = "TRI", .waveform = .triangle }, .{ .label = "SQUARE", .waveform = .square }, .{ .label = "WT", .waveform = .wavetable },
-    };
-    for (entries, 0..) |entry, i| {
-        if (i > 0) zgui.sameLine(.{ .spacing = 4 });
-        const active = synth.waveform == entry.waveform;
-        const focused = app.core.synth_cursor == 0;
-        zgui.pushStyleColor4f(.{ .idx = .button, .c = if (active) patina.focus else if (focused) patina.bg4 else patina.bg2 });
-        zgui.pushStyleColor4f(.{ .idx = .text, .c = if (active) patina.bg0 else if (focused) patina.focus else patina.fg2 });
-        if (zgui.button(entry.label, .{ .h = 28 })) {
-            app.core.synth_cursor = 0;
-            _ = app.core.session.engine.send(.{ .set_track_param_abs = .{ .track = app.core.synth_track, .id = 0, .value = @floatFromInt(@intFromEnum(entry.waveform)) } });
-        }
-        zgui.popStyleColor(.{ .count = 2 });
-    }
-}
-
-fn drawSynthParam(app: *App, synth: *ws.dsp.PolySynth, id: u8, label_text: []const u8, format: [:0]const u8) void {
-    const param = ws.dsp.PolySynth.findAutomatableParam(id) orelse return;
-    var value = synth.paramValue(id) orelse return;
-    var label: [80]u8 = undefined;
-    const zlabel = std.fmt.bufPrintZ(&label, "{s}##gui-synth-{d}", .{ label_text, id }) catch return;
-    const focused = app.core.synth_cursor == id;
-    gui_style.pushControlFocus(focused, patina.focus);
-    defer gui_style.popControlFocus(focused);
-    if (zgui.sliderFloat(zlabel, .{ .v = &value, .min = param.range[0], .max = param.range[1], .cfmt = format })) {
-        _ = app.core.session.engine.send(.{ .set_track_param_abs = .{ .track = app.core.synth_track, .id = id, .value = value } });
-    }
-    if (zgui.isItemActivated()) app.core.synth_cursor = id;
-}
-
-fn drawInspector(app: *App) void {
-    const layout = Layout.current(app.core.modal.mode == .command or app.core.modal.mode == .search);
-    zgui.setNextWindowPos(.{ .x = layout.browser_w + layout.tracks_w + layout.workspace_w, .y = 64, .cond = .always });
-    zgui.setNextWindowSize(.{ .w = layout.inspector_w, .h = layout.body_h, .cond = .always });
-    if (zgui.begin("Inspector", .{ .flags = .{ .no_move = true, .no_resize = true, .no_collapse = true, .no_docking = true } })) {
-        const track = &app.core.session.project.tracks.items[app.core.cursor];
-        const rack = app.core.session.racks.items[app.core.cursor];
-        zgui.textDisabled(icons.logo ++ "  INSPECTOR", .{});
-        zgui.separator();
-        const accent = trackColor(track.color);
-        zgui.textColored(accent, "{d:0>2}", .{app.core.cursor + 1});
-        zgui.sameLine(.{});
-        zgui.textColored(patina.fg0, "{s}", .{track.name});
-        zgui.textColored(patina.fg3, "{s}", .{rack.label});
-        zgui.spacing();
-        zgui.separatorText("MIX");
-
-        zgui.textDisabled("GAIN", .{});
-        if (zgui.sliderFloat("##gain", .{ .v = &track.gain_db, .min = -60, .max = 12, .cfmt = "%.1f dB" })) {
-            _ = app.core.session.engine.send(.{ .set_track_gain = .{
-                .track = @intCast(app.core.cursor),
-                .gain = ws.types.dbToGain(track.gain_db),
-            } });
-        }
-        zgui.spacing();
-        zgui.textDisabled("PAN", .{});
-        if (zgui.sliderFloat("##pan", .{ .v = &track.pan, .min = -1, .max = 1, .cfmt = "%.2f" })) {
-            _ = app.core.session.engine.send(.{ .set_track_pan = .{ .track = @intCast(app.core.cursor), .pan = track.pan } });
-        }
-        zgui.spacing();
-        const toggle_width = (zgui.getContentRegionAvail()[0] - 6) / 2;
-        if (drawInspectorToggle("MUTE##inspector", track.muted, patina.danger, toggle_width)) {
-            track.muted = !track.muted;
-            _ = app.core.session.engine.send(.{ .set_track_mute = .{ .track = @intCast(app.core.cursor), .muted = track.muted } });
-        }
-        zgui.sameLine(.{ .spacing = 6 });
-        if (drawInspectorToggle("SOLO##inspector", track.soloed, patina.rhythm, toggle_width)) {
-            track.soloed = !track.soloed;
-            _ = app.core.session.engine.send(.{ .set_track_solo = .{ .track = @intCast(app.core.cursor), .soloed = track.soloed } });
-        }
-    }
-    zgui.end();
-}
-
-fn drawInspectorToggle(label: [:0]const u8, active: bool, accent: [4]f32, width: f32) bool {
-    zgui.pushStyleColor4f(.{ .idx = .button, .c = if (active) accent else patina.bg2 });
-    zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = if (active) accent else patina.bg3 });
-    zgui.pushStyleColor4f(.{ .idx = .button_active, .c = patina.fg0 });
-    zgui.pushStyleColor4f(.{ .idx = .text, .c = if (active) patina.bg0 else patina.fg2 });
-    defer zgui.popStyleColor(.{ .count = 4 });
-    return zgui.button(label, .{ .w = width, .h = 30 });
 }
 
 fn drawStatus(app: *App) void {
