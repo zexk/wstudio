@@ -1,6 +1,7 @@
 const std = @import("std");
 const ws = @import("wstudio");
 const zgui = @import("zgui");
+const automation_ed = @import("../../tui/editors/automation.zig");
 const style = @import("../style.zig");
 const widgets = @import("../widgets.zig");
 
@@ -9,58 +10,48 @@ const trackColor = style.trackColor;
 const umbra = style.umbra;
 
 pub fn draw(app: anytype) void {
-    const lane = if (app.core.cursor < app.core.session.arrangement.lanes.items.len) &app.core.session.arrangement.lanes.items[app.core.cursor] else null;
-    drawHeader(app, if (lane) |l| l.clips.items.len else 0);
+    const clip = automation_ed.currentClip(&app.core);
+    drawHeader(app, clip);
     zgui.spacing();
-    if (lane == null or lane.?.clips.items.len == 0) {
+    if (clip == null) {
         drawEmptyState();
         return;
     }
 
-    app.automation_clip = @min(app.automation_clip, lane.?.clips.items.len - 1);
-    widgets.sectionTitle("CLIP", umbra.iris);
-    for (lane.?.clips.items, 0..) |clip, i| {
-        if (i > 0) zgui.sameLine(.{ .spacing = 6 });
-        var label_buf: [64]u8 = undefined;
-        const label = std.fmt.bufPrintZ(&label_buf, "CLIP {d}##auto-clip-{d}", .{ i + 1, i }) catch continue;
-        const active = app.automation_clip == i;
-        zgui.pushStyleColor4f(.{ .idx = .button, .c = if (active) umbra.iris else umbra.bg2 });
-        zgui.pushStyleColor4f(.{ .idx = .text, .c = if (active) umbra.bg0 else umbra.fg2 });
-        if (zgui.button(label, .{ .h = 32 })) app.automation_clip = i;
-        zgui.popStyleColor(.{ .count = 2 });
-        _ = clip;
-    }
-
-    const clip = &lane.?.clips.items[app.automation_clip];
-    const length_beats: f32 = @floatCast(ws.time_grid.tickToBeat(clip.length_ticks));
-    const value_range: [2]f32 = if (app.automation_target == .gain) .{ -60, 12 } else .{ -1, 1 };
-    app.automation_value = std.math.clamp(app.automation_value, value_range[0], value_range[1]);
-    const points: *[]ws.dsp.automation.AutomationPoint = switch (app.automation_target) {
-        .gain => &clip.automation.gain,
-        .pan => &clip.automation.pan,
+    const live_clip = clip.?;
+    const length_beats: f32 = @floatCast(ws.time_grid.tickToBeat(live_clip.length_ticks));
+    const value_range = automation_ed.curveRange(&app.core, app.core.automation_focus);
+    const points = automation_ed.curvePoints(&app.core, live_clip, app.core.automation_focus) catch {
+        drawEmptyState();
+        return;
     };
 
+    drawTargetStrip(app, live_clip);
     zgui.spacing();
     widgets.sectionTitle("ENVELOPE", umbra.mauve);
-    drawCurve(app, points.*, @max(0.25, length_beats), value_range);
+    drawCurve(app, points, @max(0.25, length_beats), value_range);
     zgui.spacing();
     drawEditor(app, points, @max(0.25, length_beats), value_range);
 }
 
-fn drawHeader(app: anytype, clip_count: usize) void {
+fn drawHeader(app: anytype, clip: ?*const ws.Clip) void {
     const width = zgui.getContentRegionAvail()[0];
     const height: f32 = 72;
     const origin = zgui.getCursorScreenPos();
     _ = zgui.invisibleButton("automation-header", .{ .w = width, .h = height });
     const draw_list = zgui.getWindowDrawList();
-    const track = app.core.session.project.tracks.items[app.core.cursor];
+    const track_idx = @min(@as(usize, app.core.automation_track), app.core.session.project.tracks.items.len -| 1);
+    const track = app.core.session.project.tracks.items[track_idx];
     const accent = trackColor(track.color);
     draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(umbra.bg2), .rounding = 4 });
     draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + 5, origin[1] + height }, .col = color(accent), .rounding = 3 });
     draw_list.addText(.{ origin[0] + 17, origin[1] + 10 }, color(umbra.fg3), "CLIP AUTOMATION", .{});
     draw_list.addText(.{ origin[0] + 17, origin[1] + 35 }, color(umbra.fg0), "{s}", .{track.name});
-    draw_list.addText(.{ origin[0] + width - 150, origin[1] + 13 }, color(accent), "{d} CLIPS", .{clip_count});
-    draw_list.addText(.{ origin[0] + width - 150, origin[1] + 39 }, color(umbra.fg3), "GAIN / PAN", .{});
+    if (clip) |c| {
+        const ticks_per_bar = ws.time_grid.barTicks(app.core.session.project.beats_per_bar);
+        draw_list.addText(.{ origin[0] + width - 190, origin[1] + 13 }, color(accent), "CLIP @ BAR {d}", .{c.start_tick / ticks_per_bar + 1});
+        draw_list.addText(.{ origin[0] + width - 190, origin[1] + 39 }, color(umbra.fg3), "{d:.2} BEATS", .{ws.time_grid.tickToBeat(c.length_ticks)});
+    }
 }
 
 fn drawEmptyState() void {
@@ -70,12 +61,38 @@ fn drawEmptyState() void {
     const draw_list = zgui.getWindowDrawList();
     draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + 150 }, .col = color(umbra.bg2), .rounding = 4 });
     draw_list.addText(.{ origin[0] + 22, origin[1] + 29 }, color(umbra.fg0), "No clip selected", .{});
-    draw_list.addText(.{ origin[0] + 22, origin[1] + 59 }, color(umbra.fg3), "Place a clip in the arrangement to shape its automation.", .{});
+    draw_list.addText(.{ origin[0] + 22, origin[1] + 59 }, color(umbra.fg3), "Place a clip, then press a on it in the arrangement.", .{});
 }
 
-fn drawCurve(app: anytype, points: []const ws.dsp.automation.AutomationPoint, length_beats: f32, value_range: [2]f32) void {
+fn drawTargetStrip(app: anytype, clip: *ws.Clip) void {
+    widgets.sectionTitle("CURVE", umbra.iris);
+    drawTargetButton(app, "GAIN", .gain, 0);
+    zgui.sameLine(.{ .spacing = 6 });
+    drawTargetButton(app, "PAN", .pan, 1);
+    for (clip.automation.synth_params.items, 0..) |lane, i| {
+        zgui.sameLine(.{ .spacing = 6 });
+        const label = if (automation_ed.findAutomatableParam(&app.core, lane.param_id)) |p| p.label else "PARAM";
+        drawTargetButton(app, label, .{ .synth_param = lane.param_id }, i + 2);
+    }
+    zgui.sameLine(.{ .spacing = 8 });
+    if (zgui.button("+ PARAM##automation-param", .{ .h = 32 })) {
+        app.core.handleKey(.{ .char = 'p' }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
+    }
+}
+
+fn drawTargetButton(app: anytype, text: []const u8, target: automation_ed.AutomationFocus, index: usize) void {
+    var buf: [80]u8 = undefined;
+    const label = std.fmt.bufPrintZ(&buf, "{s}##automation-target-{d}", .{ text, index }) catch return;
+    const active = std.meta.eql(app.core.automation_focus, target);
+    zgui.pushStyleColor4f(.{ .idx = .button, .c = if (active) umbra.iris else umbra.bg2 });
+    zgui.pushStyleColor4f(.{ .idx = .text, .c = if (active) umbra.bg0 else umbra.fg2 });
+    if (zgui.button(label, .{ .h = 32 })) app.core.automation_focus = target;
+    zgui.popStyleColor(.{ .count = 2 });
+}
+
+fn drawCurve(app: anytype, points: *[]ws.dsp.automation.AutomationPoint, length_beats: f32, value_range: [2]f32) void {
     const width = zgui.getContentRegionAvail()[0];
-    const height: f32 = 210;
+    const height: f32 = 240;
     const origin = zgui.getCursorScreenPos();
     const clicked = zgui.invisibleButton("automation-curve", .{ .w = width, .h = height });
     const hovered = zgui.isItemHovered(.{});
@@ -92,8 +109,17 @@ fn drawCurve(app: anytype, points: []const ws.dsp.automation.AutomationPoint, le
         draw_list.addLine(.{ .p1 = .{ origin[0], y }, .p2 = .{ origin[0] + width, y }, .col = color(umbra.line), .thickness = 1 });
     }
 
+    if (app.core.modal.mode == .visual) {
+        const anchor = app.core.automation_visual_anchor orelse app.core.automation_cursor_step;
+        const lo = @min(anchor, app.core.automation_cursor_step);
+        const hi = @max(anchor, app.core.automation_cursor_step) + 1;
+        const x1 = origin[0] + @as(f32, @floatFromInt(lo)) * 0.25 / length_beats * width;
+        const x2 = origin[0] + @as(f32, @floatFromInt(hi)) * 0.25 / length_beats * width;
+        draw_list.addRectFilled(.{ .pmin = .{ x1, origin[1] }, .pmax = .{ @min(x2, origin[0] + width), origin[1] + height }, .col = color(.{ umbra.yellow[0], umbra.yellow[1], umbra.yellow[2], 0.12 }) });
+    }
+
     var previous: ?[2]f32 = null;
-    for (points) |point| {
+    for (points.*) |point| {
         const p = curvePoint(origin, .{ width, height }, @floatCast(point.beat), point.value, length_beats, value_range);
         if (previous) |prev| draw_list.addLine(.{ .p1 = prev, .p2 = p, .col = color(umbra.mauve), .thickness = 2 });
         draw_list.addCircleFilled(.{ .p = p, .r = 5, .col = color(umbra.mauve) });
@@ -101,14 +127,19 @@ fn drawCurve(app: anytype, points: []const ws.dsp.automation.AutomationPoint, le
         previous = p;
     }
 
-    const cursor = curvePoint(origin, .{ width, height }, app.automation_beat, app.automation_value, length_beats, value_range);
-    draw_list.addLine(.{ .p1 = .{ cursor[0], origin[1] }, .p2 = .{ cursor[0], origin[1] + height }, .col = color(umbra.iris), .thickness = 1 });
-    draw_list.addCircleFilled(.{ .p = cursor, .r = 4, .col = color(umbra.iris) });
+    const cursor_beat = @as(f32, @floatFromInt(app.core.automation_cursor_step)) * 0.25;
+    const cursor_value = ws.dsp.automation.interpolate(points.*, cursor_beat) orelse 0;
+    const cursor = curvePoint(origin, .{ width, height }, cursor_beat, cursor_value, length_beats, value_range);
+    draw_list.addLine(.{ .p1 = .{ cursor[0], origin[1] }, .p2 = .{ cursor[0], origin[1] + height }, .col = color(umbra.iris), .thickness = 2 });
+    draw_list.addCircleFilled(.{ .p = cursor, .r = 5, .col = color(umbra.iris) });
+    draw_list.addCircle(.{ .p = cursor, .r = 8, .col = color(umbra.fg0), .thickness = 1 });
 
     if (hovered and clicked) {
-        app.automation_beat = std.math.clamp((mouse[0] - origin[0]) / width * length_beats, 0, length_beats);
+        const beat = std.math.clamp((mouse[0] - origin[0]) / width * length_beats, 0, length_beats);
+        app.core.automation_cursor_step = @intFromFloat(@round(beat * 4));
         const norm = 1.0 - std.math.clamp((mouse[1] - origin[1]) / height, 0, 1);
-        app.automation_value = value_range[0] + norm * (value_range[1] - value_range[0]);
+        const value = value_range[0] + norm * (value_range[1] - value_range[0]);
+        setPoint(app, points, value);
     }
 }
 
@@ -121,30 +152,64 @@ fn curvePoint(origin: [2]f32, size: [2]f32, beat: f32, value: f32, length_beats:
 fn drawEditor(app: anytype, points: *[]ws.dsp.automation.AutomationPoint, length_beats: f32, value_range: [2]f32) void {
     if (zgui.beginChild("automation-editor", .{ .w = 0, .h = 0, .child_flags = .{ .border = true } })) {
         widgets.sectionTitle("POINT EDITOR", umbra.iris);
-        const gain_active = app.automation_target == .gain;
-        zgui.pushStyleColor4f(.{ .idx = .button, .c = if (gain_active) umbra.iris else umbra.bg2 });
-        if (zgui.button("GAIN", .{ .w = 82, .h = 32 })) app.automation_target = .gain;
-        zgui.popStyleColor(.{});
-        zgui.sameLine(.{ .spacing = 6 });
-        zgui.pushStyleColor4f(.{ .idx = .button, .c = if (!gain_active) umbra.iris else umbra.bg2 });
-        if (zgui.button("PAN", .{ .w = 82, .h = 32 })) app.automation_target = .pan;
-        zgui.popStyleColor(.{});
-        zgui.spacing();
-        _ = zgui.sliderFloat("Beat", .{ .v = &app.automation_beat, .min = 0, .max = length_beats, .cfmt = "%.2f" });
-        _ = zgui.sliderFloat("Value", .{ .v = &app.automation_value, .min = value_range[0], .max = value_range[1], .cfmt = if (gain_active) "%.1f dB" else "%.2f" });
+        var beat = @as(f32, @floatFromInt(app.core.automation_cursor_step)) * 0.25;
+        if (zgui.sliderFloat("Beat", .{ .v = &beat, .min = 0, .max = length_beats, .cfmt = "%.2f" })) app.core.automation_cursor_step = @intFromFloat(@round(beat * 4));
+        const cursor_beat = @as(f64, @floatFromInt(app.core.automation_cursor_step)) * 0.25;
+        var value = ws.dsp.automation.interpolate(points.*, cursor_beat) orelse 0;
+        if (zgui.sliderFloat("Value", .{ .v = &value, .min = value_range[0], .max = value_range[1], .cfmt = if (std.meta.activeTag(app.core.automation_focus) == .gain) "%.1f dB" else "%.2f" })) setPoint(app, points, value);
         zgui.spacing();
         zgui.pushStyleColor4f(.{ .idx = .button, .c = umbra.iris_soft });
-        if (zgui.button("ADD / UPDATE POINT", .{ .h = 34 })) {
-            ws.dsp.automation.setPoint(app.core.allocator, points, app.automation_beat, app.automation_value) catch {};
-            app.core.session.rebuildSongData();
-        }
+        if (zgui.button("ADD / UPDATE POINT", .{ .h = 34 })) setPoint(app, points, value);
         zgui.popStyleColor(.{});
         zgui.sameLine(.{ .spacing = 6 });
         if (zgui.button("DELETE POINT", .{ .h = 34 })) {
-            if (ws.dsp.automation.removePoint(app.core.allocator, points, app.automation_beat)) app.core.session.rebuildSongData();
+            if (ws.dsp.automation.removePoint(app.core.allocator, points, cursor_beat)) {
+                app.core.dirty = true;
+                app.core.session.rebuildSongData();
+            }
         }
         zgui.sameLine(.{});
         zgui.textDisabled("{d} points", .{points.*.len});
+    }
+    zgui.endChild();
+}
+
+fn setPoint(app: anytype, points: *[]ws.dsp.automation.AutomationPoint, value: f32) void {
+    const beat = @as(f64, @floatFromInt(app.core.automation_cursor_step)) * 0.25;
+    ws.dsp.automation.setPoint(app.core.allocator, points, beat, value) catch return;
+    app.core.dirty = true;
+    app.core.session.rebuildSongData();
+}
+
+pub fn drawParamPicker(app: anytype) void {
+    zgui.textColored(umbra.iris, "AUTOMATION PARAMETER", .{});
+    zgui.sameLine(.{});
+    zgui.textDisabled("ENTER ADD   ESC BACK   / FILTER", .{});
+    zgui.separator();
+    const params = automation_ed.instrumentAutomatableParams(&app.core);
+    var buf: [automation_ed.max_param_display_rows]automation_ed.ParamDisplayRow = undefined;
+    const rows = automation_ed.buildParamDisplayRows(params, automation_ed.activeParamFilter(&app.core), &buf);
+    if (zgui.beginChild("automation-params", .{ .w = 0, .h = -1, .child_flags = .{ .border = true } })) {
+        for (rows) |row| switch (row) {
+            .header => |name| {
+                zgui.spacing();
+                zgui.textColored(umbra.fg3, "{s}", .{name});
+                zgui.separator();
+            },
+            .param => |i| {
+                const p = params[i];
+                const selected = app.core.automation_param_cursor == i;
+                zgui.pushStyleColor4f(.{ .idx = .button, .c = if (selected) umbra.bg4 else umbra.bg2 });
+                zgui.pushStyleColor4f(.{ .idx = .text, .c = if (selected) umbra.iris else umbra.fg1 });
+                var label_buf: [128]u8 = undefined;
+                const label = std.fmt.bufPrintZ(&label_buf, "{s}   {d:.2} .. {d:.2}##automation-param-{d}", .{ p.label, p.range[0], p.range[1], i }) catch continue;
+                if (zgui.button(label, .{ .w = -1, .h = 34 })) {
+                    app.core.automation_param_cursor = @intCast(i);
+                    automation_ed.selectParam(&app.core, p.id);
+                }
+                zgui.popStyleColor(.{ .count = 2 });
+            },
+        };
     }
     zgui.endChild();
 }

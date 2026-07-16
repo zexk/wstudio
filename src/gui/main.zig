@@ -7,6 +7,9 @@ const ws = @import("wstudio");
 const tui_app = @import("../tui/app.zig");
 const tui_cmd = @import("../tui/cmd.zig");
 const tui_commands = @import("../tui/commands.zig");
+const automation_ed = @import("../tui/editors/automation.zig");
+const spectrum_ed = @import("../tui/editors/spectrum.zig");
+const synth_ed = @import("../tui/editors/synth.zig");
 const gui_style = @import("style.zig");
 const automation_view = @import("views/automation.zig");
 const file_browser_view = @import("views/file_browser.zig");
@@ -38,15 +41,10 @@ pub const App = struct {
     pending_project_path: ?[]u8 = null,
     arrangement_clip: ?struct { track: usize, clip: usize } = null,
     piano_top_pitch: u7 = 84,
-    automation_clip: usize = 0,
-    automation_target: AutomationTarget = .gain,
-    automation_beat: f32 = 0,
-    automation_value: f32 = 0,
     eq_drag_band: ?u8 = null,
     eq_analyzer_key: ?u32 = null,
 
     const BrowserEntry = struct { name: []u8, is_dir: bool };
-    const AutomationTarget = enum { gain, pan };
 
     fn init(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8) !App {
         var core = try tui_app.App.init(allocator, io);
@@ -368,7 +366,6 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8) !void {
                 app.core.session.deinit();
                 app.core.session = loaded;
                 app.core.cursor = 0;
-                app.automation_clip = 0;
                 audio = GuiAudio.init(app.core.session.project.sample_rate, app.core.session.engine);
                 try audio.start(init.io);
                 var title_buf: [1024]u8 = undefined;
@@ -588,7 +585,7 @@ fn drawWorkspace(app: *App) void {
             .instrument_picker => picker_view.drawInstrument(app),
             .fx_picker, .synth_fx_picker => picker_view.drawFx(app),
             .preset_picker => picker_view.drawPreset(app),
-            .automation_param_picker => automation_view.draw(app),
+            .automation_param_picker => automation_view.drawParamPicker(app),
             .file_browser => file_browser_view.draw(app),
             .help => help_view.draw(app),
         }
@@ -1404,6 +1401,10 @@ fn drawStatus(app: *App, audio_label: []const u8) void {
         } else "MASTER";
         x = drawStatusSegment(draw, x, pos[1], size[1], umbra.bg2, umbra.fg1, track_label);
 
+        var cursor_buf: [160]u8 = undefined;
+        const cursor_label = cursorContext(app, &cursor_buf);
+        if (cursor_label.len > 0) x = drawStatusSegment(draw, x, pos[1], size[1], umbra.bg0, umbra.fg2, cursor_label);
+
         const status = app.core.statusText();
         const status_size = zgui.calcTextSize(status, .{});
         if (status.len > 0 and x + status_size[0] + 260 < pos[0] + size[0]) {
@@ -1422,6 +1423,50 @@ fn drawStatus(app: *App, audio_label: []const u8) void {
         drawStatusSegmentRight(draw, pos[0] + size[0], pos[1], size[1], if (snap.playing) umbra.iris_soft else umbra.bg2, umbra.fg0, right_label);
     }
     zgui.end();
+}
+
+fn cursorContext(app: *App, buf: []u8) []const u8 {
+    const core = &app.core;
+    return switch (core.view) {
+        .tracks => std.fmt.bufPrint(buf, "row {d}/{d}", .{ core.cursor + 1, core.session.project.tracks.items.len }) catch "",
+        .arrangement => std.fmt.bufPrint(buf, "track {d}  tick {d}", .{ core.cursor + 1, core.arr_cursor_bar * core.arr_grid.ticks() }) catch "",
+        .piano_roll => blk: {
+            var note_buf: [5]u8 = undefined;
+            break :blk std.fmt.bufPrint(buf, "{s}  step {d}", .{ ws.midi.noteName(core.piano_cursor_pitch, &note_buf), core.piano_cursor_step + 1 }) catch "";
+        },
+        .drum_grid => std.fmt.bufPrint(buf, "pad {d}  step {d}", .{ core.drum_cursor[0] + 1, core.drum_cursor[1] + 1 }) catch "",
+        .slicer_grid => std.fmt.bufPrint(buf, "slice {d}  step {d}", .{ core.slicer_cursor[0] + 1, core.slicer_cursor[1] + 1 }) catch "",
+        .synth_editor => blk: {
+            var label_buf: [64]u8 = undefined;
+            break :blk std.fmt.bufPrint(buf, "param {s}", .{synth_ed.paramLabel(core.synth_cursor, &label_buf)}) catch "";
+        },
+        .sampler_editor => blk: {
+            const labels = [_][]const u8{ "start", "end", "pitch", "attack", "decay", "sustain", "release", "gain", "pan", "reverse", "root", "voice" };
+            const label = if (core.sampler_param < labels.len) labels[core.sampler_param] else "param";
+            break :blk std.fmt.bufPrint(buf, "param {s}", .{label}) catch "";
+        },
+        .track_spectrum, .master_spectrum, .group_spectrum => blk: {
+            const target = spectrum_ed.currentTarget(core);
+            const fx = spectrum_ed.fxPtr(core, target) orelse break :blk "";
+            const unit = spectrum_ed.focusedUnit(core, fx) orelse break :blk "";
+            break :blk std.fmt.bufPrint(buf, "unit {d}  {s}", .{ core.fx_focus + 1, spectrum_ed.paramName(&unit.payload, core.fx_param) }) catch "";
+        },
+        .automation => blk: {
+            const label = switch (core.automation_focus) {
+                .gain => "gain",
+                .pan => "pan",
+                .synth_param => |id| if (automation_ed.findAutomatableParam(core, id)) |p| p.label else "param",
+            };
+            break :blk std.fmt.bufPrint(buf, "{s}  beat {d:.2}", .{ label, @as(f32, @floatFromInt(core.automation_cursor_step)) * 0.25 }) catch "";
+        },
+        .instrument_picker => std.fmt.bufPrint(buf, "item {d}/4", .{core.picker_cursor + 1}) catch "",
+        .fx_picker => std.fmt.bufPrint(buf, "effect {d}", .{core.fx_picker_cursor + 1}) catch "",
+        .synth_fx_picker => std.fmt.bufPrint(buf, "effect {d}", .{core.synth_fx_picker_cursor + 1}) catch "",
+        .preset_picker => std.fmt.bufPrint(buf, "preset {d}", .{core.preset_picker_cursor + 1}) catch "",
+        .automation_param_picker => std.fmt.bufPrint(buf, "param {d}", .{core.automation_param_cursor + 1}) catch "",
+        .file_browser => std.fmt.bufPrint(buf, "item {d}/{d}", .{ core.browser_cursor + 1, core.browser_entries.items.len }) catch "",
+        .help => "",
+    };
 }
 
 fn drawCommandPrompt(app: *App) void {

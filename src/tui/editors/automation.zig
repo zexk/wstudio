@@ -95,7 +95,7 @@ fn maxStep(_: *App, clip: *const ws.Clip) u32 {
 /// switching focus) or `nextTarget` (which only offers params that already
 /// have one) - the on-demand create here is just defence in depth, not the
 /// primary path.
-fn curvePoints(app: *App, clip: *ws.Clip, target: AutomationFocus) !*[]AutomationPoint {
+pub fn curvePoints(app: *App, clip: *ws.Clip, target: AutomationFocus) !*[]AutomationPoint {
     return switch (target) {
         .gain => &clip.automation.gain,
         .pan => &clip.automation.pan,
@@ -118,12 +118,12 @@ pub fn instrumentAutomatableParams(app: *App) []const ws.dsp.device.AutomatableP
     };
 }
 
-fn findAutomatableParam(app: *App, id: u8) ?*const ws.dsp.device.AutomatableParam {
+pub fn findAutomatableParam(app: *App, id: u8) ?*const ws.dsp.device.AutomatableParam {
     for (instrumentAutomatableParams(app)) |*p| if (p.id == id) return p;
     return null;
 }
 
-fn curveRange(app: *App, target: AutomationFocus) [2]f32 {
+pub fn curveRange(app: *App, target: AutomationFocus) [2]f32 {
     return switch (target) {
         .gain => gain_range,
         .pan => pan_range,
