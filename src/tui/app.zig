@@ -1848,7 +1848,7 @@ pub const App = struct {
             // refusal that skips there for a given path belongs here
             // instead, since browsing itself was allowed through regardless.
             .open_project => if (self.dirty) {
-                self.setStatus("unsaved changes - :w to save, :e! to discard", .{});
+                self.setStatus("unsaved changes - :write to save, :edit! to discard", .{});
             } else {
                 self.requestReload(joined);
             },
@@ -2305,16 +2305,13 @@ pub const App = struct {
         }
 
         self.suggest_popup_open = true;
-        // Only offer in-scope names (cmd.visible) - aliases and `!`-bang
-        // variants are still valid cycle targets here even though the
-        // popup hides them (cmd.hiddenFromCompletion): typing enough of
-        // "export" or "q!" to disambiguate and pressing Tab should still
-        // reach them, same as before the popup grew that filter.
+        // Offer the same in-scope, mnemonic names as the popup. Compatibility
+        // aliases and force variants remain dispatchable when typed in full.
         const active = commands.activeScope(self);
         var name_buf: [commands.cmds.len][]const u8 = undefined;
         var n: usize = 0;
         for (commands.cmds) |c| {
-            if (!cmd_mod.visible(c, active)) continue;
+            if (cmd_mod.hiddenFromCompletion(c) or !cmd_mod.visible(c, active)) continue;
             name_buf[n] = c.name;
             n += 1;
         }
@@ -2464,15 +2461,8 @@ pub const App = struct {
     /// otherwise 0 - the top match, matching Neovim's wildmenu highlighting
     /// the first candidate before Tab has ever been pressed.
     ///
-    /// Deliberately NOT `tc.index`: that's a position in `completeCommand`'s
-    /// own candidate list, which (unlike the popup) still counts
-    /// aliases/bang variants (see `cmd_mod.hiddenFromCompletion`) since
-    /// those stay valid Tab-cycle targets. Whenever one of those sits
-    /// between two popup-visible names in `commands.cmds` order (e.g. stem
-    /// "d" → `d` (alias, hidden) then `drum-kit`, `drum-kit-save`), `tc.index`
-    /// runs ahead of the popup's own row count and highlights the wrong
-    /// row (or none). Re-deriving the position from `tc.last_written`
-    /// against the popup's own filtered enumeration keeps the two in sync.
+    /// Re-derive the position from the popup's filtered enumeration rather
+    /// than coupling rendering to the completion cycle's internal index.
     fn suggestionSelected(self: *const App, active: cmd_mod.Scope) usize {
         const tc = self.activeCommandCycle() orelse return 0;
         var idx: usize = 0;
@@ -3399,7 +3389,7 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8) !vo
                     // Keep the original project path - the backup's content
                     // replaces the in-memory session but `:w` should still
                     // write back to the real file, not `<path>~`.
-                    .restore_backup => { app.dirty = true; app.setStatus("restored from autosave backup - :w to keep it", .{}); },
+                    .restore_backup => { app.dirty = true; app.setStatus("restored from autosave backup - :write to keep it", .{}); },
                     .blank => app.project_path_len = 0,
                     .none => unreachable,
                 }

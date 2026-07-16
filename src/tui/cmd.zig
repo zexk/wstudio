@@ -98,28 +98,14 @@ pub fn writeSearchPrompt(w: *std.Io.Writer, buf: []const u8, cursor: usize) !voi
 /// True for entries whose `desc` marks them as an alias of another command
 /// (e.g. "quit (alias for :q)") - these carry no information beyond the
 /// canonical name they duplicate, so the suggestion popup skips them.
-fn isAlias(c: Def) bool {
+pub fn isAlias(c: Def) bool {
     return std.mem.indexOf(u8, c.desc, "alias for") != null;
 }
 
-/// True for a `!`-suffixed name (`q!`, `e!`, `new!`) - vim's force-flag
-/// convention, modeled here as its own dispatch entry rather than a `!`
-/// `dispatch` strips off before matching the base command. It's a modifier
-/// on the base command (typed by hand, right after it), not a distinct
-/// name worth showing in the popup's own list - same reasoning as
-/// `isAlias`. Still fully dispatchable when typed out in full, and still a
-/// valid `App.completeCommand` Tab-cycle target (typing "q" + Tab can still
-/// step to "q!"): this only affects what the popup *displays*.
-fn isBangVariant(c: Def) bool {
-    return std.mem.endsWith(u8, c.name, "!");
-}
-
-/// True for entries the suggestion popup (`suggestionCount`/
-/// `writeSuggestionBox`) shouldn't list - see `isAlias`/`isBangVariant`.
-/// Deliberately popup-only: `App.completeCommand`'s Tab-cycling still
-/// offers these as candidates (see its own comment for why).
+/// True for compatibility names the mnemonic command surface should omit.
+/// Force variants with a mnemonic base, such as `edit!`, remain visible.
 pub fn hiddenFromCompletion(c: Def) bool {
-    return isAlias(c) or isBangVariant(c);
+    return isAlias(c);
 }
 
 /// Number of command names starting with `buf` under `active` scope - 0
@@ -188,9 +174,9 @@ test "suggestionCount/suggestionRows gate on 2+ matches and a space" {
     // "bpm" matches only itself - no popup.
     try std.testing.expectEqual(@as(usize, 1), suggestionCount(test_cmds, "bpm", .any));
     try std.testing.expectEqual(@as(usize, 0), suggestionRows(test_cmds, "bpm", .any, 10));
-    // "q" matches q / qa ("qa!" is a bang variant - see the dedicated test below).
-    try std.testing.expectEqual(@as(usize, 2), suggestionCount(test_cmds, "q", .any));
-    try std.testing.expectEqual(@as(usize, 2), suggestionRows(test_cmds, "q", .any, 10));
+    // All three entries in this low-level fixture are visible candidates.
+    try std.testing.expectEqual(@as(usize, 3), suggestionCount(test_cmds, "q", .any));
+    try std.testing.expectEqual(@as(usize, 3), suggestionRows(test_cmds, "q", .any, 10));
     // Capped by max_rows.
     try std.testing.expectEqual(@as(usize, 1), suggestionRows(test_cmds, "q", .any, 1));
     // A space means we're past the command name - no popup at all.
@@ -219,17 +205,15 @@ test "writeSuggestionBox truncates at max_rows" {
     try std.testing.expect(std.mem.indexOf(u8, text, "qa") == null);
 }
 
-test "suggestionCount/writeSuggestionBox skip `!`-suffixed bang-variant entries" {
-    // "qa!" is the force variant of "qa" - a modifier typed by hand right
-    // after the base name, not a name worth Tab-completing to on its own.
-    try std.testing.expectEqual(@as(usize, 2), suggestionCount(test_cmds, "q", .any));
+test "suggestionCount/writeSuggestionBox include force variants" {
+    try std.testing.expectEqual(@as(usize, 3), suggestionCount(test_cmds, "q", .any));
     try std.testing.expectEqual(@as(usize, 0), suggestionRows(test_cmds, "qa!", .any, 10));
 
     var out: [256]u8 = undefined;
     var w: std.Io.Writer = .fixed(&out);
     try writeSuggestionBox(&w, test_cmds, "q", .any, 0, 10);
     const text = w.buffered();
-    try std.testing.expect(std.mem.indexOf(u8, text, "qa!") == null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "qa!") != null);
 }
 
 const alias_test_cmds: []const Def = &.{

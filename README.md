@@ -54,15 +54,15 @@ stamped from the live patterns are placed on a bar timeline; on drum
 lanes `[`/`]` pick which variant to stamp (clips show their letter),
 and `T` toggles between pattern and song playback. `:load-sample
 <file>` swaps a sampler's clip; `:load-pad <1-64> <file>` swaps a drum
-pad. File paths given to `:load-pad`, `:load-sample`, `:save`/`:w`, and
+pad. File paths given to `:load-pad`, `:load-sample`, `:write`, and
 `:bounce`/`:export`/`:bounce-stems` expand a leading `~` to `$HOME`.
 `:bounce`/`:export` take an optional trailing `16`/`24` to pick the WAV
 bit depth (default 16) and bounce exactly an armed A/B loop region
 instead of the whole song/pattern when one is set; `:bounce-stems
 [dir] [16|24]` renders every non-empty track soloed in turn to
-`<dir>/<track-name>.wav` (default `stems/`). `:e <file>` opens
+`<dir>/<track-name>.wav` (default `stems/`). `:edit <file>` opens
 a different project without restarting wstudio (refusing on unsaved
-changes; `:e!` forces it, and `:e!` alone reverts to the last save);
+changes; `:edit!` forces it, and `:edit!` alone reverts to the last save);
 `:new`/`:new!` start a blank project the same way.
 
 ## Architecture
@@ -147,7 +147,7 @@ checks.
 
 ```sh
 nix develop          # zig, zls, audio libs
-zig build run        # launch the TUI (space = play, i = piano mode, :q = quit)
+zig build run        # launch the TUI (space = play, i = piano mode, :quit = quit)
 zig build run -- demo.wsj  # open the curated four-track demo project
 zig build run -- render  # offline demo: melody through the chain -> out.wav
 zig build test       # all tests

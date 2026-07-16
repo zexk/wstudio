@@ -4110,14 +4110,13 @@ test "t taps the tempo from the average interval; a long gap restarts it" {
     try std.testing.expectApproxEqAbs(@as(f64, 60.0), app.session.project.tempo_bpm, 0.5);
 }
 
-test ":e Tab completes an unambiguous command name and adds a trailing space" {
+test "Tab completes an unambiguous mnemonic command name and adds a trailing space" {
     var app = try App.init(std.testing.allocator, std.Io.failing);
     defer app.deinit();
 
-    // "boun" is now ambiguous (bounce / bounce-stems); "expor" still isn't.
-    for (":expor") |c| app.handleKey(.{ .char = c }, 0);
+    for (":restore") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.tab, 0);
-    try std.testing.expectEqualStrings("export ", app.modal.cmd_buf[0..app.modal.cmd_len]);
+    try std.testing.expectEqualStrings("restore-backup ", app.modal.cmd_buf[0..app.modal.cmd_len]);
 }
 
 test "command Tab-completion hides instrument-scoped commands under the wrong track" {
@@ -4139,25 +4138,29 @@ test "command Tab-completion hides instrument-scoped commands under the wrong tr
     try std.testing.expectEqualStrings("pad-rename ", app.modal.cmd_buf[0..app.modal.cmd_len]);
 }
 
-test "Tab cycles through multiple command-name matches instead of stalling at a common prefix" {
+test "Tab cycles mnemonic command names and ignores compatibility aliases" {
     var app = try App.init(std.testing.allocator, std.Io.failing);
     defer app.deinit();
 
-    // "q" matches q / q! / quit / qa / qa! (table order) - Tab steps
-    // through all five in turn and wraps back to the first.
+    // The short q/qa spellings remain dispatchable but completion only
+    // offers the mnemonic quit names.
     for (":q") |c| app.handleKey(.{ .char = c }, 0);
-    app.handleKey(.tab, 0);
-    try std.testing.expectEqualStrings("q", app.modal.cmd_buf[0..app.modal.cmd_len]);
-    app.handleKey(.tab, 0);
-    try std.testing.expectEqualStrings("q!", app.modal.cmd_buf[0..app.modal.cmd_len]);
     app.handleKey(.tab, 0);
     try std.testing.expectEqualStrings("quit", app.modal.cmd_buf[0..app.modal.cmd_len]);
     app.handleKey(.tab, 0);
-    try std.testing.expectEqualStrings("qa", app.modal.cmd_buf[0..app.modal.cmd_len]);
+    try std.testing.expectEqualStrings("quit!", app.modal.cmd_buf[0..app.modal.cmd_len]);
     app.handleKey(.tab, 0);
-    try std.testing.expectEqualStrings("qa!", app.modal.cmd_buf[0..app.modal.cmd_len]);
+    try std.testing.expectEqualStrings("quit", app.modal.cmd_buf[0..app.modal.cmd_len]);
+
+    // The same rule turns the short write spelling into mnemonic commands,
+    // never the w/wa/wq compatibility forms or the save fallback.
+    app.modal.cmd_len = 0;
+    app.modal.cmd_cursor = 0;
+    for ("w") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.tab, 0);
-    try std.testing.expectEqualStrings("q", app.modal.cmd_buf[0..app.modal.cmd_len]);
+    try std.testing.expectEqualStrings("write", app.modal.cmd_buf[0..app.modal.cmd_len]);
+    app.handleKey(.tab, 0);
+    try std.testing.expectEqualStrings("write-quit", app.modal.cmd_buf[0..app.modal.cmd_len]);
 
     // "track" matches only the track-* commands (table order: add/del/rename).
     app.modal.cmd_len = 0;
@@ -4171,14 +4174,13 @@ test "Tab cycles through multiple command-name matches instead of stalling at a 
     try std.testing.expectEqualStrings("track-rename", app.modal.cmd_buf[0..app.modal.cmd_len]);
 }
 
-test "suggestion popup highlight tracks the completed candidate past a hidden alias in the stem" {
+test "suggestion popup highlight tracks the completed candidate" {
     var app = try testApp(); // synth(0), sampler(1), drums(2)
     defer app.deinit();
     app.cursor = 2; // drum track: "d" stem now also matches drum-kit/drum-kit-save
 
     for (":d") |c| app.handleKey(.{ .char = c }, 0);
-    app.handleKey(.tab, 0); // -> "d" (the alias - table order puts it first, still hidden from the popup)
-    app.handleKey(.tab, 0); // -> "drum-kit"
+    app.handleKey(.tab, 0); // -> "drum-kit"; the short d alias is ignored
     try std.testing.expectEqualStrings("drum-kit", app.modal.cmd_buf[0..app.modal.cmd_len]);
 
     var buf: [32 * 1024]u8 = undefined;
@@ -4202,18 +4204,16 @@ test "typing after a Tab-cycle starts a fresh cycle instead of continuing the ol
     defer app.deinit();
 
     for (":q") |c| app.handleKey(.{ .char = c }, 0);
-    app.handleKey(.tab, 0); // -> "q"
-    app.handleKey(.tab, 0); // -> "q!"
-    try std.testing.expectEqualStrings("q!", app.modal.cmd_buf[0..app.modal.cmd_len]);
+    app.handleKey(.tab, 0); // -> "quit"
+    app.handleKey(.tab, 0); // -> "quit!"
+    try std.testing.expectEqualStrings("quit!", app.modal.cmd_buf[0..app.modal.cmd_len]);
 
-    // Clearing back to "q" and typing "uit" makes "quit" - an unambiguous
-    // command name, so Tab completes it in full (+ trailing space) instead
-    // of resuming the stale q!/quit/qa/qa! cycle at its old index.
-    app.handleKey(.backspace, 0);
-    app.handleKey(.backspace, 0);
+    // Replacing the completed text and typing "quit" starts a new cycle
+    // instead of resuming the stale one at its old index.
+    for (0..5) |_| app.handleKey(.backspace, 0);
     for ("quit") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.tab, 0);
-    try std.testing.expectEqualStrings("quit ", app.modal.cmd_buf[0..app.modal.cmd_len]);
+    try std.testing.expectEqualStrings("quit", app.modal.cmd_buf[0..app.modal.cmd_len]);
 }
 
 test "Tab does nothing past the command word for commands with no fixed argument set" {

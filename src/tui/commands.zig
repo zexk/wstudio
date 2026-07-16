@@ -64,15 +64,18 @@ fn expandHome(buf: []u8, path: []const u8) []const u8 {
 // zig fmt: off
 pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "q",           .desc = "quit (alias for :quit)",              .run = wrap(cmdQuit) },
-    .{ .name = "q!",          .desc = "quit, discarding unsaved changes",    .run = wrap(cmdQuitForce) },
     .{ .name = "quit",        .desc = "quit (refuses if unsaved changes)",   .run = wrap(cmdQuit) },
+    .{ .name = "quit!",       .desc = "quit, discarding unsaved changes",    .run = wrap(cmdQuitForce) },
+    .{ .name = "q!",          .desc = "quit, discarding unsaved changes (alias for :quit!)", .run = wrap(cmdQuitForce) },
     .{ .name = "qa",          .desc = "quit (alias for :quit)",              .run = wrap(cmdQuit) },
-    .{ .name = "qa!",         .desc = "quit, discarding changes (alias for :q!)", .run = wrap(cmdQuitForce) },
+    .{ .name = "qa!",         .desc = "quit, discarding changes (alias for :quit!)", .run = wrap(cmdQuitForce) },
     .{ .name = "bpm",         .desc = "[<value>]  tempo in BPM (20–400)",    .run = wrap(cmdBpm) },
-    .{ .name = "sig",         .desc = "[<n>[/4]]  time signature (1–16 beats per bar)", .run = wrap(cmdSig) },
+    .{ .name = "signature",   .desc = "[<n>[/4]]  time signature (1–16 beats per bar)", .run = wrap(cmdSig) },
+    .{ .name = "sig",         .desc = "[<n>[/4]]  time signature (alias for :signature)", .run = wrap(cmdSig) },
     .{ .name = "gain",        .desc = "[<track>] [<dB>]  track gain (no track: cursor track)", .run = wrap(cmdGain) },
     .{ .name = "pan",         .desc = "[<track>] [<-1..1>]  track pan (no track: cursor track)", .run = wrap(cmdPan) },
-    .{ .name = "vol",         .desc = "[<dB>]  master volume (–40 to +6)",   .run = wrap(cmdVol) },
+    .{ .name = "volume",      .desc = "[<dB>]  master volume (–40 to +6)",   .run = wrap(cmdVol) },
+    .{ .name = "vol",         .desc = "[<dB>]  master volume (alias for :volume)", .run = wrap(cmdVol) },
     .{ .name = "seek",        .desc = "<bar>  move playhead to bar",         .run = wrap(cmdSeek) },
     .{ .name = "pad-rename",  .desc = "<1-64> <name>  rename a loaded drum pad (up to 8 chars)", .run = wrap(cmdPadRename), .scope = .drum },
     .{ .name = "load-sample", .desc = "[file]  load WAV into the cursor pad (drum track) or the sampler (sampler track); omit the file to browse", .run = wrap(cmdLoadSample) },
@@ -81,8 +84,10 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "load-wavetable", .desc = "[file]  load a WAV as a wavetable into the oscillator under the synth editor's cursor (defaults to OSC A elsewhere; omit the file to browse)", .run = wrap(cmdLoadWavetable), .scope = .synth },
     .{ .name = "slice",       .desc = "<n>  equal-divide the slicer's loaded clip into n slices (1-64)", .run = wrap(cmdSlice), .scope = .slicer },
     .{ .name = "chop",        .desc = "[1-9]  chop the slicer's clip at detected transients (sensitivity, default 5)", .run = wrap(cmdChop), .scope = .slicer },
-    .{ .name = "e",           .desc = "[file]  open a project (refuses if unsaved changes; omit the file to browse)", .run = wrap(cmdEdit) },
-    .{ .name = "e!",          .desc = "[file]  open a project, discarding changes; no file reverts the current one", .run = wrap(cmdEditForce) },
+    .{ .name = "edit",        .desc = "[file]  open a project (refuses if unsaved changes; omit the file to browse)", .run = wrap(cmdEdit) },
+    .{ .name = "edit!",       .desc = "[file]  open a project, discarding changes; no file reverts the current one", .run = wrap(cmdEditForce) },
+    .{ .name = "e",           .desc = "[file]  open a project (alias for :edit)", .run = wrap(cmdEdit) },
+    .{ .name = "e!",          .desc = "[file]  open a project, discarding changes (alias for :edit!)", .run = wrap(cmdEditForce) },
     .{ .name = "restore-backup", .desc = "load the <project>~ autosave backup over the current session", .run = wrap(cmdRestoreBackup) },
     .{ .name = "new",         .desc = "start a blank project (refuses if unsaved changes)", .run = wrap(cmdNew) },
     .{ .name = "new!",        .desc = "start a blank project, discarding unsaved changes", .run = wrap(cmdNewForce) },
@@ -98,13 +103,15 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "group-del",   .desc = "<n>  delete group n (members fall back to the master mix)", .run = wrap(cmdGroupDel) },
     .{ .name = "group-fx",    .desc = "<n>  open group n's FX chain", .run = wrap(cmdGroupFx) },
     .{ .name = "track-group", .desc = "<track> <group|none>  assign (or clear) which group a track submixes through", .run = wrap(cmdTrackGroup) },
-    .{ .name = "save",        .desc = "[file]  save project (default: project.wsj)", .run = wrap(cmdSave) },
-    .{ .name = "w",           .desc = "[file]  save project (alias for :save)",      .run = wrap(cmdSave) },
-    .{ .name = "wa",          .desc = "[file]  save project (alias for :save)",      .run = wrap(cmdSave) },
-    .{ .name = "wq",          .desc = "[file]  save project and quit",               .run = wrap(cmdWriteQuit) },
-    .{ .name = "x",           .desc = "[file]  save project and quit (alias for :wq)", .run = wrap(cmdWriteQuit) },
-    .{ .name = "wq!",         .desc = "[file]  save project and quit (alias for :wq)", .run = wrap(cmdWriteQuit) },
-    .{ .name = "xa",          .desc = "[file]  save project and quit (alias for :wq)", .run = wrap(cmdWriteQuit) },
+    .{ .name = "write",       .desc = "[file]  save project (default: project.wsj)", .run = wrap(cmdSave) },
+    .{ .name = "save",        .desc = "[file]  save project (alias for :write)",     .run = wrap(cmdSave) },
+    .{ .name = "w",           .desc = "[file]  save project (alias for :write)",     .run = wrap(cmdSave) },
+    .{ .name = "wa",          .desc = "[file]  save project (alias for :write)",     .run = wrap(cmdSave) },
+    .{ .name = "write-quit",  .desc = "[file]  save project and quit",               .run = wrap(cmdWriteQuit) },
+    .{ .name = "wq",          .desc = "[file]  save project and quit (alias for :write-quit)", .run = wrap(cmdWriteQuit) },
+    .{ .name = "x",           .desc = "[file]  save project and quit (alias for :write-quit)", .run = wrap(cmdWriteQuit) },
+    .{ .name = "wq!",         .desc = "[file]  save project and quit (alias for :write-quit)", .run = wrap(cmdWriteQuit) },
+    .{ .name = "xa",          .desc = "[file]  save project and quit (alias for :write-quit)", .run = wrap(cmdWriteQuit) },
     .{ .name = "bounce",       .desc = "[file] [16|24]  render session to WAV (default: bounce.wav, 16-bit)", .run = wrap(cmdBounce) },
     .{ .name = "export",       .desc = "[file] [16|24]  render session to WAV (alias for :bounce)",          .run = wrap(cmdBounce) },
     .{ .name = "bounce-stems", .desc = "[dir] [16|24]  render each non-empty track soloed to <dir>/<track>.wav (default: stems/)", .run = wrap(cmdBounceStems) },
@@ -137,7 +144,7 @@ pub fn run(app: *App, text: []const u8) void {
 /// file doesn't (`App.dirty`). :q! / :qa! force, ctrl-c always exits.
 fn cmdQuit(app: *App, _: []const u8) void {
     if (app.dirty) {
-        app.setStatus("unsaved changes - :w to save, :q! to discard", .{});
+        app.setStatus("unsaved changes - :write to save, :quit! to discard", .{});
         return;
     }
     app.deleteBackupIfPresent();
@@ -164,11 +171,11 @@ fn editOrRevert(app: *App, args: []const u8, force: bool) void {
     // any, they'll end up picking).
     if (trimmed.len == 0 and !force) {
         app.openBrowser(.open_project);
-        if (app.dirty) app.setStatus("unsaved changes - :w to save, :e! to discard", .{});
+        if (app.dirty) app.setStatus("unsaved changes - :write to save, :edit! to discard", .{});
         return;
     }
     if (!force and app.dirty) {
-        app.setStatus("unsaved changes - :w to save, :e! to discard", .{});
+        app.setStatus("unsaved changes - :write to save, :edit! to discard", .{});
         return;
     }
     var path_buf: [path_buf_len]u8 = undefined;
@@ -176,7 +183,7 @@ fn editOrRevert(app: *App, args: []const u8, force: bool) void {
         expandHome(&path_buf, trimmed)
     else
         app.projectPath() orelse {
-            app.setStatus("e!: no project loaded yet - :e! needs a path", .{});
+            app.setStatus("edit!: no project loaded yet - :edit! needs a path", .{});
             return;
         };
     app.requestReload(path);
@@ -207,7 +214,7 @@ fn cmdNewForce(app: *App, _: []const u8) void { newOrForce(app, true); }
 /// it. Same reload path as `:e` - see `App.requestReload`.
 fn newOrForce(app: *App, force: bool) void {
     if (!force and app.dirty) {
-        app.setStatus("unsaved changes - :w to save, :new! to discard", .{});
+        app.setStatus("unsaved changes - :write to save, :new! to discard", .{});
         return;
     }
     app.requestReload(null);
@@ -1517,7 +1524,7 @@ fn cmdSig(app: *App, args: []const u8) void {
     }
     var it = std.mem.splitScalar(u8, trimmed, '/');
     const n = std.fmt.parseInt(u8, it.first(), 10) catch {
-        app.setStatus("sig: expected beats per bar, e.g. :sig 3", .{});
+        app.setStatus("signature: expected beats per bar, e.g. :signature 3", .{});
         return;
     };
     if (it.next()) |unit| {
@@ -1526,7 +1533,7 @@ fn cmdSig(app: *App, args: []const u8) void {
             return;
         }
         if (it.next() != null) {
-            app.setStatus("sig: expected beats per bar, e.g. :sig 3/4", .{});
+            app.setStatus("signature: expected beats per bar, e.g. :signature 3/4", .{});
             return;
         }
     }
@@ -1660,7 +1667,7 @@ fn cmdVol(app: *App, args: []const u8) void {
         return;
     }
     const db = parseFiniteFloat(f32, trimmed) catch {
-        app.setStatus("vol: expected a dB value, e.g. :vol -6", .{});
+        app.setStatus("volume: expected a dB value, e.g. :volume -6", .{});
         return;
     };
     app.master_gain_db = std.math.clamp(db, -40.0, 6.0);

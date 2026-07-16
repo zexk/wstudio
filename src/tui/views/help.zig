@@ -113,7 +113,10 @@ const HelpText = struct {
 
 fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.section("COMMANDS");
-    for (cmds) |c| t.push(acc ++ "  :{s: <14}" ++ rst ++ dim ++ "{s}", .{ c.name, c.desc });
+    for (cmds) |c| {
+        if (cmd_mod.hiddenFromCompletion(c)) continue;
+        t.push(acc ++ "  :{s: <14}" ++ rst ++ dim ++ "{s}", .{ c.name, c.desc });
+    }
 
     t.section("ALL VIEWS");
     // zig fmt: off
@@ -385,7 +388,7 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("",             "  full Multiband unit instead when you want the crossovers or per-band control");
     t.key("- / +",        "group chain only: bus fader for the whole submix, post-FX (also :group-gain)");
 
-    t.taggedSection(.file_browser, "FILE BROWSER  (netrw-style; opens on :e, :load-sample, :load-clip with no path)");
+    t.taggedSection(.file_browser, "FILE BROWSER  (netrw-style; opens on :edit, :load-sample, :load-clip with no path)");
     t.key("j / k",        "move cursor");
     t.key("enter / l",    "open directory / pick file");
     t.key("h / backspace","up to the parent directory");
@@ -543,4 +546,14 @@ test "help text fits its buffers - nothing silently truncated" {
     // the buffer deliberately, not creep up on the blank-lines cliff again.
     try std.testing.expect(t.len + 8192 <= t.buf.len);
     try std.testing.expect(t.count + 64 <= t.ends.len);
+}
+
+test "help lists mnemonic commands and omits compatibility aliases" {
+    const commands = @import("../commands.zig");
+    var t = HelpText{};
+    buildHelp(&t, commands.cmds);
+    const text = t.buf[0..t.len];
+    try std.testing.expect(std.mem.indexOf(u8, text, ":write") != null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "  :w             ") == null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "  :save          ") == null);
 }
