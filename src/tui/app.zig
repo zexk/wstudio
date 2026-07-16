@@ -17,6 +17,7 @@ const DrumMachine = ws.dsp.DrumMachine;
 const Slicer = ws.dsp.Slicer;
 const commands = @import("commands.zig");
 const cmd_mod = @import("cmd.zig");
+const config_mod = @import("../config.zig");
 const undo_mod = @import("undo.zig");
 const history = @import("history.zig");
 const tui = @import("tui.zig");
@@ -3256,7 +3257,24 @@ fn renderTrampoline(ctx: *anyopaque, out: []types.Sample) void {
 pub var active_terminal: ?*terminal_mod.Terminal = null;
 
 // zig fmt: off
-pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8, user_config: @import("../config.zig").Config) !void {
+/// The `config.Host` hooks both frontends hand to the Lua runtime: notify
+/// lands on the status line, exec goes through the `:` command dispatcher.
+pub fn luaHost(app: *App) config_mod.Host {
+    const hooks = struct {
+        fn notify(ctx: *anyopaque, msg: []const u8) void {
+            const a: *App = @ptrCast(@alignCast(ctx));
+            a.setStatus("{s}", .{msg});
+        }
+        fn exec(ctx: *anyopaque, line: []const u8) void {
+            const a: *App = @ptrCast(@alignCast(ctx));
+            commands.run(a, line);
+        }
+    };
+    return .{ .ctx = app, .notify = hooks.notify, .exec = hooks.exec };
+}
+
+pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8, runtime: *config_mod.Runtime) !void {
+    const user_config = runtime.config;
     var term = terminal_mod.Terminal.init(io) catch {
         std.debug.print(
             "wstudio: stdin is not a terminal (try `wstudio render` for the offline demo)\n",
@@ -3304,6 +3322,11 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8, use
         // blank start checks the same spot the pathed start does.
         app.promptIfBackupNewer(default_project_path);
     }
+
+    // The app is fully initialized: route `wstudio.notify`/`wstudio.cmd`
+    // into it and flush command lines queued while init.lua ran.
+    runtime.attachHost(luaHost(&app));
+    defer runtime.host = null;
 
     var config: backend_mod.Config = .{
         .sample_rate = app.session.project.sample_rate,

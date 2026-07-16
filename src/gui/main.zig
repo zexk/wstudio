@@ -4,6 +4,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const ws = @import("wstudio");
+const config_mod = @import("../config.zig");
 const tui_app = @import("../tui/app.zig");
 const tui_cmd = @import("../tui/cmd.zig");
 const tui_commands = @import("../tui/commands.zig");
@@ -67,14 +68,22 @@ pub const App = struct {
 
     const BrowserEntry = struct { name: []u8, is_dir: bool };
 
-    fn init(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8) !App {
-        var core = try tui_app.App.init(allocator, io);
+    fn init(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8, user_config: config_mod.Config) !App {
+        var core = try tui_app.App.initWithSampleRate(allocator, io, user_config.default_sample_rate);
         errdefer core.deinit();
+        core.tap_timeout_ns = @as(i96, user_config.tap_timeout_ms) * std.time.ns_per_ms;
         if (init_path) |path| {
             const session = try ws.persist.load(allocator, io, path);
             core.session.deinit();
             core.session = session;
             core.setProjectPath(path);
+        } else {
+            // Same blank-start defaults the TUI's run() applies.
+            core.session.project.tempo_bpm = user_config.default_tempo;
+            core.session.project.beats_per_bar = user_config.default_beats_per_bar;
+            _ = core.session.engine.send(.{ .set_tempo = user_config.default_tempo });
+            _ = core.session.engine.send(.{ .set_time_signature = user_config.default_beats_per_bar });
+            core.session.syncLoop();
         }
         return .{ .core = core };
     }
@@ -283,8 +292,8 @@ const GuiAudio = struct {
     fallback: ws.backend.NullBackend,
     using_native: bool = false,
 
-    fn init(sample_rate: u32, engine: *ws.Engine) GuiAudio {
-        const config: ws.backend.Config = .{ .sample_rate = sample_rate };
+    fn init(sample_rate: u32, block_frames: u32, engine: *ws.Engine) GuiAudio {
+        const config: ws.backend.Config = .{ .sample_rate = sample_rate, .block_frames = block_frames };
         return .{
             .native = .{ .config = config, .render = renderAudio, .ctx = engine },
             .fallback = .{ .config = config, .render = renderAudio, .ctx = engine },
@@ -336,7 +345,8 @@ const Layout = struct {
     }
 };
 
-pub fn run(init: std.process.Init, init_path: ?[]const u8) !void {
+pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.Runtime) !void {
+    const user_config = runtime.config;
     try glfw.init();
     defer glfw.terminate();
 
@@ -348,12 +358,12 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8) !void {
     defer window.destroy();
     window.setSizeLimits(960, 600, -1, -1);
     glfw.makeContextCurrent(window);
-    glfw.swapInterval(1);
+    glfw.swapInterval(if (user_config.gui_vsync) 1 else 0);
     try zopengl.loadCoreProfile(glfw.getProcAddress, 3, 3);
 
     zgui.init(init.gpa);
     defer zgui.deinit();
-    configureFonts();
+    configureFonts(user_config.gui_font_size);
     zgui.plot.init();
     defer zgui.plot.deinit();
     zgui.io.setConfigFlags(.{ .nav_enable_keyboard = true });
@@ -362,16 +372,20 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8) !void {
     zgui.backend.init(window);
     defer zgui.backend.deinit();
 
-    var app = App.init(init.gpa, init.io, init_path) catch |err| {
+    var app = App.init(init.gpa, init.io, init_path, user_config) catch |err| {
         if (init_path) |path| std.debug.print("wstudio: cannot load '{s}': {s}\n", .{ path, @errorName(err) });
         return err;
     };
     defer app.deinit();
+    // Same hooks as the TUI: `wstudio.notify`/`wstudio.cmd` land on the
+    // shared core, and init.lua's queued command lines flush here.
+    runtime.attachHost(tui_app.luaHost(&app.core));
+    defer runtime.host = null;
     if (init_path) |path| {
         var title_buf: [1024]u8 = undefined;
         if (std.fmt.bufPrintZ(&title_buf, "wstudio GUI prototype - {s}", .{path})) |title| window.setTitle(title) else |_| {}
     }
-    var audio = GuiAudio.init(app.core.session.project.sample_rate, app.core.session.engine);
+    var audio = GuiAudio.init(app.core.session.project.sample_rate, user_config.audio_block_frames, app.core.session.engine);
     try audio.start(init.io);
     defer audio.stop();
 
@@ -400,7 +414,7 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8) !void {
                     .blank => app.core.clearProjectPath(),
                     .none => unreachable,
                 }
-                audio = GuiAudio.init(app.core.session.project.sample_rate, app.core.session.engine);
+                audio = GuiAudio.init(app.core.session.project.sample_rate, user_config.audio_block_frames, app.core.session.engine);
                 try audio.start(init.io);
             }
         }
@@ -412,7 +426,7 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8) !void {
                 app.core.session.deinit();
                 app.core.session = loaded;
                 app.core.cursor = 0;
-                audio = GuiAudio.init(app.core.session.project.sample_rate, app.core.session.engine);
+                audio = GuiAudio.init(app.core.session.project.sample_rate, user_config.audio_block_frames, app.core.session.engine);
                 try audio.start(init.io);
                 var title_buf: [1024]u8 = undefined;
                 if (std.fmt.bufPrintZ(&title_buf, "wstudio GUI prototype - {s}", .{path})) |title| window.setTitle(title) else |_| {}
@@ -433,20 +447,20 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8) !void {
     }
 }
 
-fn configureFonts() void {
+fn configureFonts(size: f32) void {
     var text_config = zgui.FontConfig.init();
     text_config.font_data_owned_by_atlas = false;
     text_config.oversample_h = 2;
     text_config.oversample_v = 2;
-    const text_font = zgui.io.addFontFromMemoryWithConfig(ws.gui_font_ttf, 15, text_config, null);
+    const text_font = zgui.io.addFontFromMemoryWithConfig(ws.gui_font_ttf, size, text_config, null);
 
     var icon_config = zgui.FontConfig.init();
     icon_config.font_data_owned_by_atlas = false;
     icon_config.merge_mode = true;
     icon_config.pixel_snap_h = true;
     icon_config.pixel_snap_v = true;
-    icon_config.glyph_min_advance_x = 15;
-    _ = zgui.io.addFontFromMemoryWithConfig(ws.icon_font_ttf, 15, icon_config, &icon_glyph_ranges);
+    icon_config.glyph_min_advance_x = size;
+    _ = zgui.io.addFontFromMemoryWithConfig(ws.icon_font_ttf, size, icon_config, &icon_glyph_ranges);
     zgui.io.setDefaultFont(text_font);
 }
 

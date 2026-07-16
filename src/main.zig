@@ -36,21 +36,26 @@ pub fn main(init: std.process.Init) !void {
         if (std.mem.eql(u8, cmd, "--help") or std.mem.eql(u8, cmd, "-h")) return printHelp(init.io);
         if (std.mem.eql(u8, cmd, "--gui")) {
             if (!build_options.gui) return frontendDisabled(init.io, "GUI");
-            return @import("gui/main.zig").run(init, args.next());
+            var runtime = try config_mod.Runtime.init(.gui);
+            defer runtime.deinit();
+            // A broken init.lua reports (see Runtime.luaError) and falls
+            // back to defaults - it must never prevent startup.
+            _ = runtime.loadUserConfig(init.io) catch false;
+            return @import("gui/main.zig").run(init, args.next(), &runtime);
         }
         if (!build_options.tui) return frontendDisabled(init.io, "TUI");
         const init_path = try dupeInitPath(init.gpa, cmd);
         defer init.gpa.free(init_path);
-        var runtime = try config_mod.Runtime.init();
+        var runtime = try config_mod.Runtime.init(.tui);
         defer runtime.deinit();
-        _ = try runtime.loadUserConfig(init.io);
-        return @import("tui/app.zig").run(init.gpa, init.io, init_path, runtime.config);
+        _ = runtime.loadUserConfig(init.io) catch false;
+        return @import("tui/app.zig").run(init.gpa, init.io, init_path, &runtime);
     }
     if (!build_options.tui) return frontendDisabled(init.io, "TUI");
-    var runtime = try config_mod.Runtime.init();
+    var runtime = try config_mod.Runtime.init(.tui);
     defer runtime.deinit();
-    _ = try runtime.loadUserConfig(init.io);
-    return @import("tui/app.zig").run(init.gpa, init.io, null, runtime.config);
+    _ = runtime.loadUserConfig(init.io) catch false;
+    return @import("tui/app.zig").run(init.gpa, init.io, null, &runtime);
 }
 
 fn frontendDisabled(io: std.Io, name: []const u8) !void {

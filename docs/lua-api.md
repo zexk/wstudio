@@ -304,7 +304,7 @@ Design decisions:
 
 1. **Shipped.** Lua runtime, `init.lua` loading, `wstudio.o` with six
    options, Nix modules.
-2. **Foundations.** Comptime option spec table replacing the if-chains;
+2. **Foundations (shipped).** Comptime option spec table replacing the if-chains;
    config loading on the GUI path; `wstudio.frontend`; `package.path` for
    `~/.config/wstudio/lua/`; `wstudio.notify`; `wstudio.cmd` /
    `wstudio.api.exec` (needs the Runtime threaded into `App`).
