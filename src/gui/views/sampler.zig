@@ -8,13 +8,15 @@ const color = style.color;
 const umbra = style.umbra;
 
 pub fn draw(app: anytype) void {
-    const track = switch (app.core.sampler_target) {
-        .sampler => |t| t,
-        else => {
-            zgui.textDisabled("Pad and slice sampler targets are shown in their grid editors.", .{});
-            return;
-        },
-    };
+    switch (app.core.sampler_target) {
+        .sampler => drawStandalone(app),
+        .drum => |track| drawPadTarget(app, track, .drum),
+        .slice => |track| drawPadTarget(app, track, .slice),
+    }
+}
+
+fn drawStandalone(app: anytype) void {
+    const track = app.core.sampler_target.sampler;
     if (track >= app.core.session.racks.items.len) return;
     const sampler = switch (app.core.session.racks.items[track].instrument) {
         .sampler => |*s| s,
@@ -60,6 +62,125 @@ pub fn draw(app: anytype) void {
         drawParam(app, sampler, 8, "Pan", "%.2f");
     }
     zgui.endChild();
+}
+
+const PadTargetKind = enum { drum, slice };
+
+fn drawPadTarget(app: anytype, track: u16, kind: PadTargetKind) void {
+    if (track >= app.core.session.racks.items.len) return;
+    const index: u8 = if (kind == .drum) app.core.drum_cursor[0] else app.core.slicer_cursor[0];
+    const pad: *ws.dsp.Pad = switch (kind) {
+        .drum => blk: {
+            const drum = switch (app.core.session.racks.items[track].instrument) {
+                .drum_machine => |*d| d,
+                else => return,
+            };
+            if (index >= drum.pads.len or drum.pads[index] == null) {
+                zgui.textDisabled("This drum pad has no sample loaded.", .{});
+                return;
+            }
+            break :blk &drum.pads[index].?.pad;
+        },
+        .slice => blk: {
+            const slicer = switch (app.core.session.racks.items[track].instrument) {
+                .slicer => |*s| s,
+                else => return,
+            };
+            if (index >= slicer.slice_count) {
+                zgui.textDisabled("This slicer has no slice at the selected row.", .{});
+                return;
+            }
+            break :blk &slicer.slices[index];
+        },
+    };
+
+    drawPadHeader(app, track, kind, index, pad);
+    zgui.spacing();
+    widgets.sectionTitle("PLAY REGION", umbra.cyan);
+    widgets.waveform("##pad-target-wave", pad.samples);
+    zgui.textDisabled("Region {d:.1}-{d:.1}% of {d} samples", .{ pad.start_norm * 100, pad.end_norm * 100, pad.samples.len });
+    zgui.spacing();
+
+    const gap: f32 = 10;
+    const column_w = @max(300, (zgui.getContentRegionAvail()[0] - gap) / 2);
+    if (zgui.beginChild("pad-target-left", .{ .w = column_w, .h = 0, .child_flags = .{ .border = true } })) {
+        widgets.sectionTitle("PLAYBACK", umbra.iris);
+        drawPadParam(app, track, kind, index, pad, 0, "Start", "%.3f");
+        drawPadParam(app, track, kind, index, pad, 1, "End", "%.3f");
+        drawPadParam(app, track, kind, index, pad, 2, "Pitch", "%.0f st");
+        zgui.spacing();
+        widgets.sectionTitle("MODE", umbra.mauve);
+        drawPadToggle(app, track, kind, index, pad);
+    }
+    zgui.endChild();
+    zgui.sameLine(.{ .spacing = gap });
+    if (zgui.beginChild("pad-target-right", .{ .w = 0, .h = 0, .child_flags = .{ .border = true } })) {
+        widgets.sectionTitle("AMPLITUDE ENVELOPE", umbra.yellow);
+        drawPadParam(app, track, kind, index, pad, 3, "Attack", "%.3f s");
+        drawPadParam(app, track, kind, index, pad, 4, "Decay", "%.3f s");
+        drawPadParam(app, track, kind, index, pad, 5, "Sustain", "%.2f");
+        drawPadParam(app, track, kind, index, pad, 6, "Release", "%.3f s");
+        zgui.spacing();
+        widgets.sectionTitle("OUTPUT", umbra.cyan);
+        drawPadParam(app, track, kind, index, pad, 7, "Gain", "%.2f");
+        drawPadParam(app, track, kind, index, pad, 8, "Pan", "%.2f");
+    }
+    zgui.endChild();
+}
+
+fn drawPadHeader(app: anytype, track: u16, kind: PadTargetKind, index: u8, pad: *const ws.dsp.Pad) void {
+    const width = zgui.getContentRegionAvail()[0];
+    const height: f32 = 72;
+    const origin = zgui.getCursorScreenPos();
+    _ = zgui.invisibleButton("pad-target-header", .{ .w = width, .h = height });
+    const draw_list = zgui.getWindowDrawList();
+    const accent = if (kind == .drum) umbra.yellow else umbra.cyan;
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(umbra.bg2), .rounding = 4 });
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + 5, origin[1] + height }, .col = color(accent), .rounding = 3 });
+    draw_list.addText(.{ origin[0] + 17, origin[1] + 10 }, color(umbra.fg3), "{s} SAMPLER", .{if (kind == .drum) "PAD" else "SLICE"});
+    draw_list.addText(.{ origin[0] + 17, origin[1] + 35 }, color(umbra.fg0), "{s}", .{app.core.session.project.tracks.items[track].name});
+    draw_list.addText(.{ origin[0] + width - 280, origin[1] + 12 }, color(accent), "{s} {d:0>2}", .{ if (kind == .drum) "PAD" else "SLICE", index + 1 });
+    draw_list.addText(.{ origin[0] + width - 280, origin[1] + 39 }, color(umbra.fg3), "pitch {d:.1} st   {s}", .{ pad.pitch_semitones, if (pad.reverse) "REVERSE" else "FORWARD" });
+}
+
+fn padParamRange(id: u8) [2]f32 {
+    return switch (id) {
+        0, 1, 5 => .{ 0, 1 },
+        2 => .{ -24, 24 },
+        3, 4, 6 => .{ 0, 5 },
+        7 => .{ 0, 2 },
+        8 => .{ -1, 1 },
+        else => .{ 0, 1 },
+    };
+}
+
+fn padParamId(kind: PadTargetKind, index: u8, param: u8) u16 {
+    return if (kind == .drum) ws.dsp.DrumMachine.paramId(index, param) else ws.dsp.Slicer.paramId(index, param);
+}
+
+fn drawPadParam(app: anytype, track: u16, kind: PadTargetKind, index: u8, pad: *ws.dsp.Pad, id: u8, label_text: []const u8, format: [:0]const u8) void {
+    var value = ws.dsp.pad.paramValue(pad, id) orelse return;
+    const range = padParamRange(id);
+    var label_buf: [64]u8 = undefined;
+    const label = std.fmt.bufPrintZ(&label_buf, "{s}##pad-target-{d}", .{ label_text, id }) catch return;
+    const focused = app.core.sampler_param == id;
+    style.pushControlFocus(focused, umbra.iris);
+    defer style.popControlFocus(focused);
+    if (zgui.sliderFloat(label, .{ .v = &value, .min = range[0], .max = range[1], .cfmt = format })) {
+        _ = app.core.session.engine.send(.{ .set_track_param_abs = .{ .track = track, .id = padParamId(kind, index, id), .value = value } });
+    }
+    if (zgui.isItemActivated()) app.core.sampler_param = id;
+}
+
+fn drawPadToggle(app: anytype, track: u16, kind: PadTargetKind, index: u8, pad: *ws.dsp.Pad) void {
+    const focused = app.core.sampler_param == 9;
+    zgui.pushStyleColor4f(.{ .idx = .button, .c = if (pad.reverse) umbra.mauve else if (focused) umbra.bg4 else umbra.bg2 });
+    zgui.pushStyleColor4f(.{ .idx = .text, .c = if (pad.reverse) umbra.bg0 else if (focused) umbra.iris else umbra.fg2 });
+    if (zgui.button(if (pad.reverse) "REVERSE" else "FORWARD", .{ .w = 106, .h = 32 })) {
+        app.core.sampler_param = 9;
+        _ = app.core.session.engine.send(.{ .set_track_param_abs = .{ .track = track, .id = padParamId(kind, index, 9), .value = if (pad.reverse) 0 else 1 } });
+    }
+    zgui.popStyleColor(.{ .count = 2 });
 }
 
 fn drawHeader(app: anytype, sampler: *const ws.dsp.Sampler) void {
