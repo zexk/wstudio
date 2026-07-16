@@ -19,6 +19,9 @@ const App = struct {
     held_notes: [piano_keys.len]?HeldNote = [_]?HeldNote{null} ** piano_keys.len,
     selected_track: usize = 0,
     view: View = .arrangement,
+    picker_return_view: View = .arrangement,
+    picker_popup_pending: bool = false,
+    picker_popup_visible: bool = false,
     browser_selection: ?u8 = null,
     browser_dir: []u8 = &.{},
     browser_entries: std.ArrayListUnmanaged(BrowserEntry) = .empty,
@@ -200,7 +203,29 @@ const App = struct {
             },
         }
     }
+
+    fn openPicker(self: *App, picker: View) void {
+        if (!isPicker(picker)) return;
+        if (!isPicker(self.view)) self.picker_return_view = self.view;
+        self.view = picker;
+        self.picker_popup_pending = true;
+    }
+
+    fn closePicker(self: *App, destination: ?View) void {
+        zgui.closeCurrentPopup();
+        self.view = destination orelse self.picker_return_view;
+        self.picker_popup_pending = false;
+        self.picker_popup_visible = false;
+    }
 };
+
+fn isPicker(view: App.View) bool {
+    return view == .instrument_picker or view == .fx_picker or view == .preset_picker;
+}
+
+fn workspaceView(app: *const App) App.View {
+    return if (isPicker(app.view)) app.picker_return_view else app.view;
+}
 
 const HeldNote = struct { track: u16, pitch: u7 };
 
@@ -495,7 +520,7 @@ fn drawBrowserRow(app: *App, label: []const u8, hint: []const u8, view: App.View
     draw.addText(.{ origin[0] + 22, origin[1] + 23 }, color(umbra.fg3), "{s}", .{hint});
     if (clicked) {
         app.browser_selection = index;
-        app.view = view;
+        if (isPicker(view)) app.openPicker(view) else app.view = view;
     }
 }
 
@@ -581,7 +606,7 @@ fn drawWorkspace(app: *App) void {
     if (zgui.begin("Workspace", .{ .flags = .{ .no_move = true, .no_resize = true, .no_collapse = true, .no_docking = true } })) {
         drawViewNav(app);
         zgui.separator();
-        switch (app.view) {
+        switch (workspaceView(app)) {
             .tracks => drawTrackOverview(app),
             .arrangement => drawArrangement(app),
             .piano_roll => drawPianoRoll(app),
@@ -592,14 +617,51 @@ fn drawWorkspace(app: *App) void {
             .devices => drawDevices(app),
             .spectrum => drawSpectrum(app),
             .automation => drawAutomation(app),
-            .instrument_picker => drawInstrumentPicker(app),
-            .fx_picker => drawFxPicker(app),
-            .preset_picker => drawPresetPicker(app),
+            .instrument_picker, .fx_picker, .preset_picker => unreachable,
             .file_browser => drawFileBrowser(app),
             .help => drawHelp(app),
         }
+        drawPickerPopup(app);
     }
     zgui.end();
+}
+
+fn drawPickerPopup(app: *App) void {
+    if (!isPicker(app.view)) return;
+    const popup_name: [:0]const u8 = "Command Palette";
+    if (app.picker_popup_pending) {
+        zgui.openPopup(popup_name, .{});
+        app.picker_popup_pending = false;
+    }
+
+    const display = zgui.io.getDisplaySize();
+    zgui.setNextWindowPos(.{
+        .x = display[0] / 2,
+        .y = display[1] / 2,
+        .cond = .appearing,
+        .pivot_x = 0.5,
+        .pivot_y = 0.5,
+    });
+    zgui.setNextWindowSize(.{
+        .w = @min(680, display[0] - 80),
+        .h = @min(520, display[1] - 80),
+        .cond = .appearing,
+    });
+    if (zgui.beginPopupModal(popup_name, .{ .flags = .{ .no_resize = true, .no_saved_settings = true } })) {
+        app.picker_popup_visible = true;
+        zgui.textColored(umbra.fg3, "SELECT A RESULT   ESC TO CLOSE", .{});
+        zgui.separator();
+        switch (app.view) {
+            .instrument_picker => drawInstrumentPicker(app),
+            .fx_picker => drawFxPicker(app),
+            .preset_picker => drawPresetPicker(app),
+            else => unreachable,
+        }
+        zgui.endPopup();
+    } else if (app.picker_popup_visible) {
+        app.picker_popup_visible = false;
+        app.view = app.picker_return_view;
+    }
 }
 
 fn drawViewNav(app: *App) void {
@@ -639,7 +701,7 @@ fn drawViewTab(app: *App, label: [:0]const u8, view: App.View, width: f32) void 
     const id = std.fmt.bufPrintZ(&id_buf, "view-tab-{s}", .{label}) catch return;
     const clicked = zgui.invisibleButton(id, .{ .w = width, .h = height });
     const hovered = zgui.isItemHovered(.{});
-    const selected = app.view == view;
+    const selected = workspaceView(app) == view;
     const draw = zgui.getWindowDrawList();
 
     if (selected or hovered) draw.addRectFilled(.{
@@ -659,7 +721,9 @@ fn drawViewTab(app: *App, label: [:0]const u8, view: App.View, width: f32) void 
         origin[0] + (width - text_size[0]) / 2,
         origin[1] + (height - text_size[1]) / 2 - 1,
     }, color(if (selected) umbra.fg0 else umbra.fg2), "{s}", .{label});
-    if (clicked) app.view = view;
+    if (clicked) {
+        if (isPicker(view)) app.openPicker(view) else app.view = view;
+    }
 }
 
 fn drawTrackOverview(app: *App) void {
@@ -1067,7 +1131,7 @@ fn drawDevices(app: *App) void {
     zgui.spacing();
     zgui.pushStyleColor4f(.{ .idx = .button, .c = umbra.iris_soft });
     zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = umbra.iris });
-    if (zgui.button("+  ADD EFFECT", .{ .w = 150, .h = 32 })) app.view = .fx_picker;
+    if (zgui.button("+  ADD EFFECT", .{ .w = 150, .h = 32 })) app.openPicker(.fx_picker);
     zgui.popStyleColor(.{ .count = 2 });
 }
 
@@ -1256,13 +1320,13 @@ fn drawInstrumentPicker(app: *App) void {
     for (entries) |entry| {
         if (zgui.button(entry.label, .{ .w = 240, .h = 42 })) {
             app.session.setInstrument(app.selected_track, entry.kind) catch return;
-            app.view = switch (entry.kind) {
+            app.closePicker(switch (entry.kind) {
                 .poly_synth => .synth,
                 .sampler => .sampler,
                 .drum_machine => .drum_grid,
                 .slicer => .slicer_grid,
                 .empty => .tracks,
-            };
+            });
         }
     }
 }
@@ -1277,7 +1341,7 @@ fn drawFxPicker(app: *App) void {
         if (zgui.button(label, .{ .w = 180 })) {
             _ = rack.fx.insert(app.session.allocator, rack.fx.units.items.len, kind, app.session.project.sample_rate) catch continue;
             app.session.syncTrackChain(@intCast(app.selected_track), rack);
-            app.view = .devices;
+            app.closePicker(.devices);
         }
         zgui.sameLine(.{});
     }
@@ -1300,7 +1364,7 @@ fn drawPresetPicker(app: *App) void {
             if (zgui.selectable(label, .{})) {
                 _ = app.session.engine.send(.stop);
                 synth.applyPatch(preset.patch);
-                app.view = .synth;
+                app.closePicker(.synth);
             }
         }
     }
@@ -1362,9 +1426,9 @@ fn drawHelp(app: *App) void {
         zgui.text("{s}", .{row.text});
     }
     zgui.separator();
-    if (zgui.button("Instrument picker", .{})) app.view = .instrument_picker;
+    if (zgui.button("Instrument picker", .{})) app.openPicker(.instrument_picker);
     zgui.sameLine(.{});
-    if (zgui.button("Preset picker", .{})) app.view = .preset_picker;
+    if (zgui.button("Preset picker", .{})) app.openPicker(.preset_picker);
     zgui.sameLine(.{});
     if (zgui.button("File browser", .{})) app.view = .file_browser;
 }
