@@ -663,16 +663,61 @@ fn drawViewTab(app: *App, label: [:0]const u8, view: App.View, width: f32) void 
 }
 
 fn drawTrackOverview(app: *App) void {
-    zgui.textDisabled("TRACKS", .{});
+    zgui.textDisabled("MIXER OVERVIEW", .{});
+    zgui.sameLine(.{});
+    zgui.textColored(umbra.fg2, "{d} channels", .{app.session.project.tracks.items.len});
+    zgui.separator();
     for (app.session.project.tracks.items, 0..) |track, i| {
-        zgui.pushIntId(@intCast(i));
-        defer zgui.popId();
-        var name_buf: [256]u8 = undefined;
-        const name = std.fmt.bufPrintZ(&name_buf, "{s}", .{track.name}) catch "track";
-        if (zgui.selectable(name, .{ .selected = app.selected_track == i })) app.selected_track = i;
-        zgui.sameLine(.{ .offset_from_start_x = 230 });
-        zgui.text("{d:.1} dB   pan {d:.2}{s}{s}", .{ track.gain_db, track.pan, if (track.muted) "   M" else "", if (track.soloed) "   S" else "" });
+        drawMixerRow(app, track, app.session.racks.items[i], i);
     }
+}
+
+fn drawMixerRow(app: *App, track: ws.Track, rack: *ws.Rack, index: usize) void {
+    const height: f32 = 44;
+    const width = zgui.getContentRegionAvail()[0];
+    const origin = zgui.getCursorScreenPos();
+    var id_buf: [32]u8 = undefined;
+    const id = std.fmt.bufPrintZ(&id_buf, "mixer-row-{d}", .{index}) catch return;
+    const clicked = zgui.invisibleButton(id, .{ .w = width, .h = height });
+    const hovered = zgui.isItemHovered(.{});
+    const selected = app.selected_track == index;
+    const draw = zgui.getWindowDrawList();
+
+    draw.addRectFilled(.{
+        .pmin = origin,
+        .pmax = .{ origin[0] + width, origin[1] + height - 2 },
+        .col = color(if (selected) umbra.bg3 else if (hovered) umbra.bg2 else umbra.bg1),
+        .rounding = 3,
+    });
+    draw.addRectFilled(.{
+        .pmin = .{ origin[0], origin[1] + 6 },
+        .pmax = .{ origin[0] + 4, origin[1] + height - 8 },
+        .col = color(trackColor(track.color)),
+        .rounding = 2,
+    });
+    draw.addText(.{ origin[0] + 13, origin[1] + 5 }, color(if (selected) umbra.fg0 else umbra.fg1), "{d:0>2}  {s}", .{ index + 1, track.name });
+    draw.addText(.{ origin[0] + 41, origin[1] + 23 }, color(umbra.fg3), "{s}", .{rack.label});
+
+    var gain_buf: [24]u8 = undefined;
+    const gain = std.fmt.bufPrint(&gain_buf, "{d:.1} dB", .{track.gain_db}) catch "gain";
+    var pan_buf: [24]u8 = undefined;
+    const pan = if (@abs(track.pan) < 0.005)
+        "C"
+    else
+        std.fmt.bufPrint(&pan_buf, "{c}{d:.2}", .{ if (track.pan < 0) @as(u8, 'L') else 'R', @abs(track.pan) }) catch "pan";
+    draw.addText(.{ origin[0] + width - 190, origin[1] + 14 }, color(umbra.fg1), "{s}", .{gain});
+    draw.addText(.{ origin[0] + width - 112, origin[1] + 14 }, color(umbra.fg2), "{s}", .{pan});
+
+    var badge_x = origin[0] + width - 9;
+    if (track.soloed) {
+        badge_x -= 18;
+        drawTrackBadge(draw, badge_x, origin[1] + 12, "S", umbra.yellow);
+    }
+    if (track.muted) {
+        badge_x -= 18;
+        drawTrackBadge(draw, badge_x, origin[1] + 12, "M", umbra.red);
+    }
+    if (clicked) app.selected_track = index;
 }
 
 fn drawArrangement(app: *App) void {
