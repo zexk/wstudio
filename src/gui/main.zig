@@ -951,7 +951,6 @@ fn isBlackKey(pitch: u7) bool {
 }
 
 fn drawDrumGrid(app: *App) void {
-    zgui.textDisabled("DRUM GRID", .{});
     const rack = app.core.session.racks.items[app.core.cursor];
     const drum = switch (rack.instrument) {
         .drum_machine => |*d| d,
@@ -960,8 +959,31 @@ fn drawDrumGrid(app: *App) void {
             return;
         },
     };
-    zgui.text("Pattern {c}   {d} steps", .{ 'A' + drum.variant, drum.step_count });
-    drawStepGridCanvas(.drum, drum, @min(@as(usize, 12), drum.pads.len), drum.step_count);
+    const snap = app.core.session.engine.uiSnapshot();
+    const play_step: ?usize = if (snap.playing) drum.currentStep() else null;
+    drawDrumHeader(app, drum, snap.playing);
+    zgui.spacing();
+    drawStepGridCanvas(.drum, drum, @min(@as(usize, 12), drum.pads.len), drum.step_count, play_step);
+}
+
+fn drawDrumHeader(app: *App, drum: *ws.dsp.DrumMachine, playing: bool) void {
+    const width = zgui.getContentRegionAvail()[0];
+    const origin = zgui.getCursorScreenPos();
+    _ = zgui.invisibleButton("drum-header", .{ .w = width, .h = 62 });
+    const draw = zgui.getWindowDrawList();
+    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + 62 }, .col = color(umbra.bg2), .rounding = 4 });
+    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + 5, origin[1] + 62 }, .col = color(if (playing) umbra.red else umbra.yellow), .rounding = 3 });
+    draw.addText(.{ origin[0] + 17, origin[1] + 9 }, color(umbra.fg3), "DRUM MACHINE", .{});
+    draw.addText(.{ origin[0] + 17, origin[1] + 31 }, color(umbra.fg0), "{s}", .{app.core.session.project.tracks.items[app.core.cursor].name});
+
+    const mode = if (drum.song_mode) "SONG" else "PATTERN";
+    const state = if (playing) "PLAYING" else "STOPPED";
+    draw.addText(.{ origin[0] + width - 360, origin[1] + 11 }, color(if (playing) umbra.red else umbra.fg2), "{s}", .{state});
+    draw.addText(.{ origin[0] + width - 270, origin[1] + 11 }, color(umbra.yellow), "{s} {c}", .{ mode, 'A' + drum.variant });
+    draw.addText(.{ origin[0] + width - 150, origin[1] + 11 }, color(umbra.fg1), "{d} STEPS", .{drum.step_count});
+    draw.addText(.{ origin[0] + width - 360, origin[1] + 34 }, color(umbra.fg3), "1/{d} GRID", .{drum.steps_per_beat * 4});
+    draw.addText(.{ origin[0] + width - 270, origin[1] + 34 }, color(umbra.fg3), "{d:.0}% SWING", .{drum.swing.load(.monotonic)});
+    draw.addText(.{ origin[0] + width - 150, origin[1] + 34 }, color(umbra.fg3), "VARIANT {d}/{d}", .{ drum.variant + 1, drum.variant_count });
 }
 
 fn drawSlicerGrid(app: *App) void {
@@ -979,12 +1001,12 @@ fn drawSlicerGrid(app: *App) void {
         defer slicer.sample_lock.unlock();
         drawWaveform("##slicer-wave", slicer.samples);
     }
-    drawStepGridCanvas(.slicer, slicer, @min(@as(usize, 12), slicer.slice_count), slicer.step_count);
+    drawStepGridCanvas(.slicer, slicer, @min(@as(usize, 12), slicer.slice_count), slicer.step_count, null);
 }
 
 const StepGridKind = enum { drum, slicer };
 
-fn drawStepGridCanvas(comptime kind: StepGridKind, instrument: anytype, row_count: usize, step_count_raw: u8) void {
+fn drawStepGridCanvas(comptime kind: StepGridKind, instrument: anytype, row_count: usize, step_count_raw: u8, play_step: ?usize) void {
     const step_count: usize = @max(1, step_count_raw);
     const gutter_w: f32 = 132;
     const ruler_h: f32 = 27;
@@ -1026,6 +1048,13 @@ fn drawStepGridCanvas(comptime kind: StepGridKind, instrument: anytype, row_coun
         const on_beat = step % steps_per_beat == 0;
         draw.addLine(.{ .p1 = .{ x, if (on_beat) origin[1] else grid_y }, .p2 = .{ x, origin[1] + canvas_h }, .col = color(if (on_beat) umbra.bg5 else umbra.line_soft), .thickness = if (on_beat) 1.5 else 1 });
         if (on_beat and step < step_count) draw.addText(.{ x + 5, origin[1] + 5 }, color(umbra.fg2), "{d}", .{step / steps_per_beat + 1});
+    }
+
+    if (play_step) |step| {
+        const x = grid_x + @as(f32, @floatFromInt(step % step_count)) * cell_w;
+        draw.addRectFilled(.{ .pmin = .{ x, origin[1] }, .pmax = .{ x + cell_w, grid_y }, .col = color(.{ umbra.red[0], umbra.red[1], umbra.red[2], 0.28 }) });
+        draw.addLine(.{ .p1 = .{ x, origin[1] }, .p2 = .{ x, origin[1] + canvas_h }, .col = color(umbra.red), .thickness = 2 });
+        draw.addTriangleFilled(.{ .p1 = .{ x - 4, grid_y - 7 }, .p2 = .{ x + 4, grid_y - 7 }, .p3 = .{ x, grid_y - 2 }, .col = color(umbra.red) });
     }
 
     for (0..row_count) |row| {
@@ -1122,7 +1151,6 @@ fn drawFxCard(unit: *ws.FxUnit, index: usize) FxCardAction {
 }
 
 fn drawSynth(app: *App) void {
-    zgui.textDisabled("SYNTH EDITOR", .{});
     const synth = switch (app.core.session.racks.items[app.core.cursor].instrument) {
         .poly_synth => |*s| s,
         else => {
@@ -1130,14 +1158,163 @@ fn drawSynth(app: *App) void {
             return;
         },
     };
-    zgui.text("Wave {s}   Filter {s}", .{ @tagName(synth.waveform), @tagName(synth.filter_type) });
-    for (ws.dsp.PolySynth.automatable_params[0..@min(18, ws.dsp.PolySynth.automatable_params.len)]) |param| {
-        var value = synth.paramValue(param.id) orelse continue;
-        var label: [64]u8 = undefined;
-        const zlabel = std.fmt.bufPrintZ(&label, "{s}##synth-{d}", .{ param.label, param.id }) catch continue;
-        if (zgui.sliderFloat(zlabel, .{ .v = &value, .min = param.range[0], .max = param.range[1] })) {
-            _ = app.core.session.engine.send(.{ .set_track_param_abs = .{ .track = @intCast(app.core.cursor), .id = param.id, .value = value } });
+    drawSynthHeader(app, synth);
+    zgui.spacing();
+
+    const gap: f32 = 10;
+    const column_w = @max(300, (zgui.getContentRegionAvail()[0] - gap) / 2);
+    if (zgui.beginChild("synth-left", .{ .w = column_w, .h = 0, .child_flags = .{ .border = true } })) {
+        drawSynthSectionTitle("OSCILLATORS", umbra.iris);
+        drawSynthWaveButtons(app, synth);
+        drawSynthParam(app, synth, 2, "Fine tune", "%.0f ct");
+        drawSynthParam(app, synth, 3, "Voices", "%.0f");
+        drawSynthParam(app, synth, 4, "Unison detune", "%.0f ct");
+        drawSynthParam(app, synth, 5, "Stereo spread", "%.2f");
+        zgui.spacing();
+        drawSynthSectionTitle("OSCILLATOR B", umbra.cyan);
+        drawSynthParam(app, synth, 9, "Transpose", "%.0f st");
+        drawSynthParam(app, synth, 10, "Fine tune", "%.0f ct");
+        drawSynthParam(app, synth, 11, "Level", "%.2f");
+        zgui.spacing();
+        drawSynthSectionTitle("OUTPUT", umbra.mauve);
+        drawSynthParam(app, synth, 34, "Sub", "%.2f");
+        drawSynthParam(app, synth, 36, "Noise", "%.2f");
+        drawSynthParam(app, synth, 38, "Gain", "%.2f");
+    }
+    zgui.endChild();
+    zgui.sameLine(.{ .spacing = gap });
+    if (zgui.beginChild("synth-right", .{ .w = 0, .h = 0, .child_flags = .{ .border = true } })) {
+        drawSynthSectionTitle("AMPLIFIER ENVELOPE", umbra.yellow);
+        drawSynthParam(app, synth, 16, "Attack", "%.3f s");
+        drawSynthParam(app, synth, 17, "Decay", "%.3f s");
+        drawSynthParam(app, synth, 18, "Sustain", "%.2f");
+        drawSynthParam(app, synth, 19, "Release", "%.3f s");
+        zgui.spacing();
+        drawSynthSectionTitle("FILTER", umbra.yellow);
+        zgui.textColored(umbra.fg2, "{s}", .{@tagName(synth.filter_type)});
+        drawSynthParam(app, synth, 21, "Cutoff", "%.0f Hz");
+        drawSynthParam(app, synth, 22, "Resonance", "%.2f");
+        zgui.spacing();
+        drawSynthSectionTitle("FILTER ENVELOPE", umbra.red);
+        drawSynthParam(app, synth, 24, "Attack", "%.3f s");
+        drawSynthParam(app, synth, 25, "Decay", "%.3f s");
+        drawSynthParam(app, synth, 26, "Sustain", "%.2f");
+        drawSynthParam(app, synth, 27, "Release", "%.3f s");
+    }
+    zgui.endChild();
+}
+
+fn drawSynthHeader(app: *App, synth: *ws.dsp.PolySynth) void {
+    const width = zgui.getContentRegionAvail()[0];
+    const height: f32 = 156;
+    const origin = zgui.getCursorScreenPos();
+    _ = zgui.invisibleButton("synth-overview", .{ .w = width, .h = height });
+    const draw = zgui.getWindowDrawList();
+    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(umbra.bg2), .rounding = 4 });
+    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + 5, origin[1] + height }, .col = color(umbra.iris), .rounding = 3 });
+    draw.addText(.{ origin[0] + 17, origin[1] + 10 }, color(umbra.fg3), "POLYPHONIC SYNTH", .{});
+    draw.addText(.{ origin[0] + 17, origin[1] + 31 }, color(umbra.fg0), "{s}", .{app.core.session.project.tracks.items[app.core.cursor].name});
+
+    const panel_y = origin[1] + 59;
+    const panel_h: f32 = 80;
+    const panel_gap: f32 = 9;
+    const panel_w = (width - 43 - panel_gap * 2) / 3;
+    drawSynthOverviewPanel(draw, .{ origin[0] + 17, panel_y }, .{ panel_w, panel_h }, "OSCILLATOR", umbra.iris);
+    drawSynthOverviewPanel(draw, .{ origin[0] + 17 + panel_w + panel_gap, panel_y }, .{ panel_w, panel_h }, "ENVELOPE", umbra.yellow);
+    drawSynthOverviewPanel(draw, .{ origin[0] + 17 + (panel_w + panel_gap) * 2, panel_y }, .{ panel_w, panel_h }, "FILTER", umbra.cyan);
+    drawOscillatorShape(draw, .{ origin[0] + 29, panel_y + 31 }, .{ panel_w - 24, 35 }, synth.waveform);
+    drawEnvelopeShape(draw, .{ origin[0] + 29 + panel_w + panel_gap, panel_y + 31 }, .{ panel_w - 24, 35 }, synth);
+    drawFilterShape(draw, .{ origin[0] + 29 + (panel_w + panel_gap) * 2, panel_y + 31 }, .{ panel_w - 24, 35 }, synth);
+}
+
+fn drawSynthOverviewPanel(draw: zgui.DrawList, pos: [2]f32, size: [2]f32, label: []const u8, accent: [4]f32) void {
+    draw.addRectFilled(.{ .pmin = pos, .pmax = .{ pos[0] + size[0], pos[1] + size[1] }, .col = color(umbra.bg1), .rounding = 3 });
+    draw.addRectFilled(.{ .pmin = pos, .pmax = .{ pos[0] + 3, pos[1] + size[1] }, .col = color(accent), .rounding = 2 });
+    draw.addText(.{ pos[0] + 12, pos[1] + 8 }, color(umbra.fg3), "{s}", .{label});
+}
+
+fn drawOscillatorShape(draw: zgui.DrawList, pos: [2]f32, size: [2]f32, waveform: ws.dsp.synth.Waveform) void {
+    var prev = pos;
+    for (1..49) |i| {
+        const phase = @as(f32, @floatFromInt(i)) / 48.0 * 2.0;
+        const sample: f32 = switch (waveform) {
+            .sine => @sin(phase * std.math.pi * 2.0),
+            .saw, .wavetable => phase - @floor(phase) * 2.0 - 1.0,
+            .triangle => 1.0 - 4.0 * @abs(@round(phase) - phase),
+            .square => if (@mod(phase, 1.0) < 0.5) 1.0 else -1.0,
+        };
+        const point = [2]f32{ pos[0] + size[0] * @as(f32, @floatFromInt(i)) / 48.0, pos[1] + size[1] * (0.5 - sample * 0.42) };
+        if (i > 1) draw.addLine(.{ .p1 = prev, .p2 = point, .col = color(umbra.iris), .thickness = 2 });
+        prev = point;
+    }
+}
+
+fn drawEnvelopeShape(draw: zgui.DrawList, pos: [2]f32, size: [2]f32, synth: *const ws.dsp.PolySynth) void {
+    const ad_total = @max(0.01, synth.attack_s + synth.decay_s);
+    const attack_x = pos[0] + size[0] * 0.55 * synth.attack_s / ad_total;
+    const decay_x = pos[0] + size[0] * 0.55;
+    const release_x = pos[0] + size[0] * 0.78;
+    const sustain_y = pos[1] + size[1] * (1.0 - synth.sustain);
+    const points = [_][2]f32{ .{ pos[0], pos[1] + size[1] }, .{ attack_x, pos[1] }, .{ decay_x, sustain_y }, .{ release_x, sustain_y }, .{ pos[0] + size[0], pos[1] + size[1] } };
+    for (0..points.len - 1) |i| draw.addLine(.{ .p1 = points[i], .p2 = points[i + 1], .col = color(umbra.yellow), .thickness = 2 });
+}
+
+fn drawFilterShape(draw: zgui.DrawList, pos: [2]f32, size: [2]f32, synth: *const ws.dsp.PolySynth) void {
+    const cutoff = std.math.clamp(@log10(synth.filter_cutoff / 20.0) / 3.0, 0, 1);
+    const knee_x = pos[0] + size[0] * cutoff;
+    const peak_y = pos[1] + size[1] * (0.45 - synth.filter_res * 0.35);
+    const left = [2]f32{ pos[0], pos[1] + size[1] * 0.45 };
+    const right = [2]f32{ pos[0] + size[0], pos[1] + size[1] * 0.45 };
+    const bottom_left = [2]f32{ pos[0], pos[1] + size[1] };
+    const bottom_right = [2]f32{ pos[0] + size[0], pos[1] + size[1] };
+    switch (synth.filter_type) {
+        .lp, .ladder, .diode => {
+            draw.addLine(.{ .p1 = left, .p2 = .{ knee_x, peak_y }, .col = color(umbra.cyan), .thickness = 2 });
+            draw.addLine(.{ .p1 = .{ knee_x, peak_y }, .p2 = bottom_right, .col = color(umbra.cyan), .thickness = 2 });
+        },
+        .hp => {
+            draw.addLine(.{ .p1 = bottom_left, .p2 = .{ knee_x, peak_y }, .col = color(umbra.cyan), .thickness = 2 });
+            draw.addLine(.{ .p1 = .{ knee_x, peak_y }, .p2 = right, .col = color(umbra.cyan), .thickness = 2 });
+        },
+        .bp, .formant => {
+            draw.addLine(.{ .p1 = bottom_left, .p2 = .{ knee_x, peak_y }, .col = color(umbra.cyan), .thickness = 2 });
+            draw.addLine(.{ .p1 = .{ knee_x, peak_y }, .p2 = bottom_right, .col = color(umbra.cyan), .thickness = 2 });
+        },
+        .notch, .comb => {
+            draw.addLine(.{ .p1 = left, .p2 = .{ knee_x, pos[1] + size[1] * 0.85 }, .col = color(umbra.cyan), .thickness = 2 });
+            draw.addLine(.{ .p1 = .{ knee_x, pos[1] + size[1] * 0.85 }, .p2 = right, .col = color(umbra.cyan), .thickness = 2 });
+        },
+    }
+}
+
+fn drawSynthSectionTitle(label: []const u8, accent: [4]f32) void {
+    zgui.textColored(accent, "{s}", .{label});
+    zgui.separator();
+}
+
+fn drawSynthWaveButtons(app: *App, synth: *const ws.dsp.PolySynth) void {
+    const entries = [_]struct { label: [:0]const u8, waveform: ws.dsp.synth.Waveform }{
+        .{ .label = "SINE", .waveform = .sine }, .{ .label = "SAW", .waveform = .saw }, .{ .label = "TRI", .waveform = .triangle }, .{ .label = "SQUARE", .waveform = .square }, .{ .label = "WT", .waveform = .wavetable },
+    };
+    for (entries, 0..) |entry, i| {
+        if (i > 0) zgui.sameLine(.{ .spacing = 4 });
+        const active = synth.waveform == entry.waveform;
+        zgui.pushStyleColor4f(.{ .idx = .button, .c = if (active) umbra.iris else umbra.bg2 });
+        zgui.pushStyleColor4f(.{ .idx = .text, .c = if (active) umbra.bg0 else umbra.fg2 });
+        if (zgui.button(entry.label, .{ .h = 28 })) {
+            _ = app.core.session.engine.send(.{ .set_track_param_abs = .{ .track = @intCast(app.core.cursor), .id = 0, .value = @floatFromInt(@intFromEnum(entry.waveform)) } });
         }
+        zgui.popStyleColor(.{ .count = 2 });
+    }
+}
+
+fn drawSynthParam(app: *App, synth: *ws.dsp.PolySynth, id: u8, label_text: []const u8, format: [:0]const u8) void {
+    const param = ws.dsp.PolySynth.findAutomatableParam(id) orelse return;
+    var value = synth.paramValue(id) orelse return;
+    var label: [80]u8 = undefined;
+    const zlabel = std.fmt.bufPrintZ(&label, "{s}##gui-synth-{d}", .{ label_text, id }) catch return;
+    if (zgui.sliderFloat(zlabel, .{ .v = &value, .min = param.range[0], .max = param.range[1], .cfmt = format })) {
+        _ = app.core.session.engine.send(.{ .set_track_param_abs = .{ .track = @intCast(app.core.cursor), .id = id, .value = value } });
     }
 }
 
