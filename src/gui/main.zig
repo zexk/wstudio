@@ -1198,24 +1198,20 @@ fn drawStatus(app: *App, audio_label: []const u8) void {
 }
 
 fn drawStatusSegment(draw: zgui.DrawList, x: f32, y: f32, height: f32, bg: [4]f32, fg: [4]f32, label: []const u8) f32 {
-    const arrow_w: f32 = 9;
     const padding: f32 = 13;
     const text_size = zgui.calcTextSize(label, .{});
     const width = text_size[0] + padding * 2;
     draw.addRectFilled(.{ .pmin = .{ x, y }, .pmax = .{ x + width, y + height }, .col = color(bg) });
-    draw.addTriangleFilled(.{ .p1 = .{ x + width, y }, .p2 = .{ x + width + arrow_w, y + height / 2 }, .p3 = .{ x + width, y + height }, .col = color(bg) });
     draw.addText(.{ x + padding, y + (height - text_size[1]) / 2 }, color(fg), "{s}", .{label});
-    return x + width + arrow_w;
+    return x + width;
 }
 
 fn drawStatusSegmentRight(draw: zgui.DrawList, right: f32, y: f32, height: f32, bg: [4]f32, fg: [4]f32, label: []const u8) void {
-    const arrow_w: f32 = 9;
     const padding: f32 = 13;
     const text_size = zgui.calcTextSize(label, .{});
     const width = text_size[0] + padding * 2;
     const x = right - width;
     draw.addRectFilled(.{ .pmin = .{ x, y }, .pmax = .{ right, y + height }, .col = color(bg) });
-    draw.addTriangleFilled(.{ .p1 = .{ x, y }, .p2 = .{ x - arrow_w, y + height / 2 }, .p3 = .{ x, y + height }, .col = color(bg) });
     draw.addText(.{ x + padding, y + (height - text_size[1]) / 2 }, color(fg), "{s}", .{label});
 }
 
