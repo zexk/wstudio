@@ -1541,7 +1541,10 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
                 rack.pattern_player = PatternPlayer.init(rack.instrument.device().?, &engine.transport);
                 if (rs.synth) |ss| {
                     applyToSynth(&rack.instrument.poly_synth, &ss);
-                    rack.pattern_player.?.length_beats = ss.length_beats;
+                    // Same clamp the clip loader applies: a zero/negative/
+                    // non-finite loop length breaks the piano roll's step
+                    // math and the playback wrap.
+                    rack.pattern_player.?.length_beats = finiteClamp(f64, ss.length_beats, 1.0, std.math.floatMax(f64), 4.0);
                     loadNotes(&rack.pattern_player.?, ss.notes);
                     rack.pattern_player.?.setSwing(ss.swing);
                 }
@@ -1554,7 +1557,7 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
                     applyPadSnap(&s.pad, smp.pad);
                     s.root_note = @intCast(@min(smp.root_note, 127));
                     s.mono = smp.mono;
-                    rack.pattern_player.?.length_beats = smp.length_beats;
+                    rack.pattern_player.?.length_beats = finiteClamp(f64, smp.length_beats, 1.0, std.math.floatMax(f64), 4.0);
                     loadNotes(&rack.pattern_player.?, smp.notes);
                     rack.pattern_player.?.setSwing(smp.swing);
                 }
@@ -3363,6 +3366,27 @@ test "buildSession: clamps out-of-range pad and note values" {
     // The invariant adjustParam relies on: clamp bounds stay ordered.
     session.racks.items[0].instrument.drum_machine.adjustParam(DrumMachine.paramId(0, 0), 1);
     session.racks.items[0].instrument.drum_machine.adjustParam(DrumMachine.paramId(0, 1), -1);
+}
+
+test "buildSession: clamps a zero or negative pattern loop length" {
+    const testing = std.testing;
+
+    const snap: Snapshot = .{
+        .tracks = &.{ .{ .name = "lead" }, .{ .name = "keys" } },
+        .racks = &.{
+            .{ .label = "synth", .kind = .poly_synth, .synth = .{ .length_beats = 0.0 } },
+            .{ .label = "sampler", .kind = .sampler, .sampler = .{ .length_beats = -8.0 } },
+        },
+    };
+
+    var session = try buildSession(testing.allocator, &snap);
+    defer session.deinit();
+
+    // A hand-edited zero/negative loop length breaks the piano roll's step
+    // math (steps - 1 underflow) and the playback wrap - same clamp the
+    // clip loader already applies.
+    try testing.expectEqual(@as(f64, 1.0), session.racks.items[0].pattern_player.?.length_beats);
+    try testing.expectEqual(@as(f64, 1.0), session.racks.items[1].pattern_player.?.length_beats);
 }
 
 test "buildSession: track color round-trips and clamps out-of-range values" {
