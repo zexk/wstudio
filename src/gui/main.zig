@@ -402,21 +402,50 @@ fn renderAudio(ctx: *anyopaque, out: []ws.types.Sample) void {
 
 fn drawTransport(app: *App) void {
     const snap = app.session.engine.uiSnapshot();
+    const playing_color = if (snap.playing) umbra.red else umbra.iris;
     zgui.setNextWindowPos(.{ .x = 0, .y = 0, .cond = .always });
     zgui.setNextWindowSize(.{ .w = zgui.io.getDisplaySize()[0], .h = 64, .cond = .always });
     if (zgui.begin("Transport", .{ .flags = .{ .no_title_bar = true, .no_resize = true, .no_move = true, .no_docking = true } })) {
-        if (zgui.button(if (snap.playing) "Stop" else "Play", .{ .w = 76, .h = 34 })) {
+        zgui.pushStyleColor4f(.{ .idx = .button, .c = playing_color });
+        zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = if (snap.playing) umbra.mauve else umbra.yellow });
+        zgui.pushStyleColor4f(.{ .idx = .button_active, .c = umbra.fg0 });
+        zgui.pushStyleColor4f(.{ .idx = .text, .c = umbra.bg0 });
+        zgui.pushStyleVar1f(.{ .idx = .frame_rounding, .v = 3 });
+        if (zgui.button(if (snap.playing) "STOP" else "PLAY", .{ .w = 82, .h = 40 })) {
             _ = app.session.engine.send(if (snap.playing) .stop else .play);
         }
-        zgui.sameLine(.{ .spacing = 18 });
-        zgui.text("{d:0>3.0} BPM", .{app.session.project.tempo_bpm});
-        zgui.sameLine(.{ .spacing = 28 });
+        zgui.popStyleVar(.{});
+        zgui.popStyleColor(.{ .count = 4 });
+
         const beat = ws.types.framesToSeconds(snap.position_frames, app.session.project.sample_rate) * app.session.project.tempo_bpm / 60.0;
-        zgui.text("{d:0>3.0}.{d:0>2.0}", .{ @floor(beat / 4.0) + 1.0, @mod(@as(u32, @intFromFloat(beat)), 4) + 1 });
-        zgui.sameLine(.{ .spacing = 28 });
-        zgui.textDisabled("PATTERN    4/4    48 kHz", .{});
+        const beat_index: u32 = @intFromFloat(beat);
+        var tempo_buf: [32]u8 = undefined;
+        const tempo = std.fmt.bufPrint(&tempo_buf, "{d:.1} BPM", .{app.session.project.tempo_bpm}) catch "tempo";
+        var position_buf: [32]u8 = undefined;
+        const position = std.fmt.bufPrint(&position_buf, "{d:0>3}.{d}", .{
+            beat_index / app.session.project.beats_per_bar + 1,
+            beat_index % app.session.project.beats_per_bar + 1,
+        }) catch "position";
+        var meter_buf: [32]u8 = undefined;
+        const meter = std.fmt.bufPrint(&meter_buf, "{d}/4", .{app.session.project.beats_per_bar}) catch "meter";
+        var rate_buf: [32]u8 = undefined;
+        const rate = std.fmt.bufPrint(&rate_buf, "{d:.1} kHz", .{@as(f32, @floatFromInt(app.session.project.sample_rate)) / 1000.0}) catch "rate";
+
+        drawTransportReadout("TEMPO", tempo);
+        drawTransportReadout("POSITION", position);
+        drawTransportReadout("METER", meter);
+        drawTransportReadout("RATE", rate);
+        drawTransportReadout("PROJECT", app.session.project.name);
     }
     zgui.end();
+}
+
+fn drawTransportReadout(label: []const u8, value: []const u8) void {
+    zgui.sameLine(.{ .spacing = 24 });
+    zgui.beginGroup();
+    zgui.textColored(umbra.fg3, "{s}", .{label});
+    zgui.textColored(umbra.fg0, "{s}", .{value});
+    zgui.endGroup();
 }
 
 fn drawBrowser(app: *App) void {
