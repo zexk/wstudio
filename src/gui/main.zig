@@ -571,22 +571,30 @@ fn drawTrackRow(app: *App, track: ws.Track, index: usize) void {
     const hovered = zgui.isItemHovered(.{});
     const selected = app.core.cursor == index;
     const draw = zgui.getWindowDrawList();
+    const accent = trackColor(track.color);
+    const colored = track.color > 0 and track.color <= ws.track_color_count;
+    const row_bg = if (colored) accent else if (selected) patina.bg4 else if (hovered) patina.bg2 else patina.bg1;
+    const row_fg = if (colored) patina.bg0 else if (selected) patina.fg0 else patina.fg1;
+    const row_muted = if (colored)
+        [4]f32{ patina.bg0[0], patina.bg0[1], patina.bg0[2], 0.62 }
+    else
+        patina.fg3;
 
-    if (selected or hovered) draw.addRectFilled(.{
+    draw.addRectFilled(.{
         .pmin = origin,
         .pmax = .{ origin[0] + width, origin[1] + height },
-        .col = color(if (selected) patina.bg4 else patina.bg2),
+        .col = color(row_bg),
         .rounding = 3,
     });
-    const accent = trackColor(track.color);
-    draw.addRectFilled(.{
-        .pmin = .{ origin[0], origin[1] + 5 },
-        .pmax = .{ origin[0] + 3, origin[1] + height - 5 },
-        .col = color(accent),
+    if (selected or hovered) draw.addRect(.{
+        .pmin = origin,
+        .pmax = .{ origin[0] + width, origin[1] + height },
+        .col = color(if (colored) patina.bg0 else patina.focus),
         .rounding = 2,
+        .thickness = if (selected) 2 else 1,
     });
-    draw.addText(.{ origin[0] + 11, origin[1] + 8 }, color(patina.fg3), "{d:0>2}", .{index + 1});
-    draw.addText(.{ origin[0] + 39, origin[1] + 8 }, color(if (selected) patina.fg0 else patina.fg1), "{s}", .{track.name});
+    draw.addText(.{ origin[0] + 11, origin[1] + 8 }, color(row_muted), "{d:0>2}", .{index + 1});
+    draw.addText(.{ origin[0] + 39, origin[1] + 8 }, color(row_fg), "{s}", .{track.name});
 
     var badge_x = origin[0] + width - 10;
     if (track.soloed) {
@@ -761,21 +769,30 @@ fn drawMixerRow(app: *App, track: ws.Track, rack: *ws.Rack, index: usize) void {
     const visual_anchor = app.core.tracks_visual_anchor orelse app.core.cursor;
     const in_visual = app.core.modal.mode == .visual and index >= @min(visual_anchor, app.core.cursor) and index <= @max(visual_anchor, app.core.cursor);
     const draw = zgui.getWindowDrawList();
+    const accent = trackColor(track.color);
+    const colored = track.color > 0 and track.color <= ws.track_color_count;
+    const row_bg = if (colored) accent else if (selected) patina.bg3 else if (hovered) patina.bg2 else patina.bg1;
+    const row_fg = if (colored) patina.bg0 else if (selected) patina.fg0 else patina.fg1;
+    const row_muted = if (colored)
+        [4]f32{ patina.bg0[0], patina.bg0[1], patina.bg0[2], 0.62 }
+    else
+        patina.fg3;
 
     draw.addRectFilled(.{
         .pmin = origin,
         .pmax = .{ origin[0] + width, origin[1] + height - 2 },
-        .col = color(if (selected) patina.bg3 else if (in_visual) .{ patina.rhythm[0], patina.rhythm[1], patina.rhythm[2], 0.16 } else if (hovered) patina.bg2 else patina.bg1),
+        .col = color(row_bg),
         .rounding = 3,
     });
-    draw.addRectFilled(.{
-        .pmin = .{ origin[0], origin[1] + 6 },
-        .pmax = .{ origin[0] + 4, origin[1] + height - 8 },
-        .col = color(trackColor(track.color)),
+    if (selected or in_visual or hovered) draw.addRect(.{
+        .pmin = origin,
+        .pmax = .{ origin[0] + width, origin[1] + height - 2 },
+        .col = color(if (in_visual and !selected) patina.fg0 else if (colored) patina.bg0 else patina.focus),
         .rounding = 2,
+        .thickness = if (selected or in_visual) 2 else 1,
     });
-    draw.addText(.{ origin[0] + 13, origin[1] + 5 }, color(if (selected) patina.fg0 else patina.fg1), "{d:0>2}  {s}", .{ index + 1, track.name });
-    draw.addText(.{ origin[0] + 41, origin[1] + 23 }, color(patina.fg3), "{s}", .{rack.label});
+    draw.addText(.{ origin[0] + 13, origin[1] + 5 }, color(row_fg), "{d:0>2}  {s}", .{ index + 1, track.name });
+    draw.addText(.{ origin[0] + 41, origin[1] + 23 }, color(row_muted), "{s}", .{rack.label});
 
     var gain_buf: [24]u8 = undefined;
     const gain = std.fmt.bufPrint(&gain_buf, "{d:.1} dB", .{track.gain_db}) catch "gain";
@@ -784,8 +801,8 @@ fn drawMixerRow(app: *App, track: ws.Track, rack: *ws.Rack, index: usize) void {
         "C"
     else
         std.fmt.bufPrint(&pan_buf, "{c}{d:.2}", .{ if (track.pan < 0) @as(u8, 'L') else 'R', @abs(track.pan) }) catch "pan";
-    draw.addText(.{ origin[0] + width - 190, origin[1] + 14 }, color(patina.fg1), "{s}", .{gain});
-    draw.addText(.{ origin[0] + width - 112, origin[1] + 14 }, color(patina.fg2), "{s}", .{pan});
+    draw.addText(.{ origin[0] + width - 190, origin[1] + 14 }, color(row_fg), "{s}", .{gain});
+    draw.addText(.{ origin[0] + width - 112, origin[1] + 14 }, color(row_muted), "{s}", .{pan});
 
     var badge_x = origin[0] + width - 9;
     if (track.soloed) {

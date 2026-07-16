@@ -49,6 +49,37 @@ mineral family instead of becoming a generic rainbow.
 When extending the GUI, reuse these semantic roles before adding a color. New
 colors should share Patina's moderate saturation and warm, weathered character.
 
+## Patina Light specification
+
+Patina Light is a palette specification only. It is not implemented. It keeps
+the warm and weathered character of Patina without simply inverting the dark
+theme. Paper and pale sage replace spruce-black, while every semantic accent
+is darkened enough to remain legible on the light application surface.
+
+| Role | Hex | Use |
+| --- | --- | --- |
+| deepest surface | `#dce6dd` | canvas and recessed regions |
+| application surface | `#f3efe4` | windows and main panels |
+| raised surface | `#ebe4d6` | cards, frames, menus |
+| hover surface | `#d9e2d8` | hover and low emphasis selection |
+| active surface | `#c7d8cd` | active controls |
+| strongest surface | `#a9c0b2` | grabs and structural emphasis |
+| primary text | `#17231f` | values and high emphasis labels |
+| secondary text | `#34463f` | normal labels |
+| muted text | `#5f6e66` | metadata |
+| disabled text | `#7e897f` | disabled and tertiary labels |
+| focus | `#ad493f` | cursor, selected control, primary action |
+| focus soft | `#d88475` | pressed controls and selection fills |
+| modulation | `#964778` | automation and modulation |
+| rhythm | `#626a19` | drums, loops, timing, ranges |
+| audio | `#247067` | waveforms, samples, signal flow |
+| danger | `#b93640` | record, errors, mute, destructive action |
+
+The proposed light track palette is coral `#d86f61`, red `#de6870`, lichen
+`#b6bd5f`, mineral teal `#65aaa0`, dusty rose `#c787ac`, ochre `#c9964d`, and
+lavender `#8b8abd`. Track rows use these as full fills with primary ink
+`#17231f` for their text. Uncolored tracks use the normal surface ladder.
+
 ## Research references
 
 - [Ableton Live interface](https://www.ableton.com/en/live/learn-live/interface/)
