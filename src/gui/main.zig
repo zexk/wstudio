@@ -1041,24 +1041,71 @@ fn drawStepGridCanvas(comptime kind: StepGridKind, instrument: anytype, row_coun
 fn drawDevices(app: *App) void {
     const rack = app.session.racks.items[app.selected_track];
     zgui.textDisabled("DEVICE CHAIN", .{});
-    zgui.separatorText("Instrument");
-    zgui.text("{s}", .{rack.label});
-    zgui.separatorText("Effects");
-    if (rack.fx.units.items.len == 0) zgui.textDisabled("No effects. Open FX Picker to insert one.", .{});
+    zgui.sameLine(.{});
+    zgui.textColored(umbra.fg2, "{d} effects", .{rack.fx.units.items.len});
+    zgui.separator();
+    drawInstrumentCard(rack);
+    zgui.spacing();
+    zgui.textDisabled("EFFECTS", .{});
+    if (rack.fx.units.items.len == 0) {
+        zgui.spacing();
+        zgui.textColored(umbra.fg3, "The signal path is clean.", .{});
+        zgui.textDisabled("Add an effect to shape this track.", .{});
+        zgui.spacing();
+    }
     for (rack.fx.units.items, 0..) |unit, i| {
-        zgui.pushIntId(@intCast(i));
-        defer zgui.popId();
-        zgui.text("{d}. {s}", .{ i + 1, @tagName(unit.kind()) });
-        zgui.sameLine(.{ .offset_from_start_x = 220 });
-        if (zgui.checkbox("Bypass", .{ .v = &unit.bypassed })) app.session.syncTrackChain(@intCast(app.selected_track), rack);
-        zgui.sameLine(.{});
-        if (zgui.smallButton("Remove")) {
+        const action = drawFxCard(unit, i);
+        if (action == .bypass) {
+            unit.bypassed = !unit.bypassed;
+            app.session.syncTrackChain(@intCast(app.selected_track), rack);
+        } else if (action == .remove) {
             rack.fx.remove(app.session.allocator, i);
             app.session.syncTrackChain(@intCast(app.selected_track), rack);
             break;
         }
     }
-    if (zgui.button("Add effect", .{})) app.view = .fx_picker;
+    zgui.spacing();
+    zgui.pushStyleColor4f(.{ .idx = .button, .c = umbra.iris_soft });
+    zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = umbra.iris });
+    if (zgui.button("+  ADD EFFECT", .{ .w = 150, .h = 32 })) app.view = .fx_picker;
+    zgui.popStyleColor(.{ .count = 2 });
+}
+
+fn drawInstrumentCard(rack: *ws.Rack) void {
+    const width = zgui.getContentRegionAvail()[0];
+    const origin = zgui.getCursorScreenPos();
+    _ = zgui.invisibleButton("instrument-card", .{ .w = width, .h = 54 });
+    const draw = zgui.getWindowDrawList();
+    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + 54 }, .col = color(umbra.bg2), .rounding = 4 });
+    draw.addRectFilled(.{ .pmin = .{ origin[0], origin[1] + 6 }, .pmax = .{ origin[0] + 4, origin[1] + 48 }, .col = color(umbra.iris), .rounding = 2 });
+    draw.addText(.{ origin[0] + 14, origin[1] + 8 }, color(umbra.fg3), "INSTRUMENT", .{});
+    draw.addText(.{ origin[0] + 14, origin[1] + 27 }, color(umbra.fg0), "{s}", .{rack.label});
+}
+
+const FxCardAction = enum { none, bypass, remove };
+
+fn drawFxCard(unit: *ws.FxUnit, index: usize) FxCardAction {
+    const width = zgui.getContentRegionAvail()[0];
+    const origin = zgui.getCursorScreenPos();
+    var card_id_buf: [32]u8 = undefined;
+    const card_id = std.fmt.bufPrintZ(&card_id_buf, "fx-card-{d}", .{index}) catch return .none;
+    _ = zgui.invisibleButton(card_id, .{ .w = width, .h = 58 });
+    const draw = zgui.getWindowDrawList();
+    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + 56 }, .col = color(umbra.bg2), .rounding = 4 });
+    draw.addRectFilled(.{ .pmin = .{ origin[0], origin[1] + 7 }, .pmax = .{ origin[0] + 4, origin[1] + 49 }, .col = color(if (unit.bypassed) umbra.fg3 else umbra.cyan), .rounding = 2 });
+    draw.addText(.{ origin[0] + 14, origin[1] + 9 }, color(umbra.fg3), "FX {d:0>2}", .{index + 1});
+    draw.addText(.{ origin[0] + 14, origin[1] + 29 }, color(if (unit.bypassed) umbra.fg3 else umbra.fg0), "{s}", .{@tagName(unit.kind())});
+
+    zgui.setCursorScreenPos(.{ origin[0] + width - 154, origin[1] + 14 });
+    var bypass_id_buf: [32]u8 = undefined;
+    const bypass_id = std.fmt.bufPrintZ(&bypass_id_buf, "{s}##fx-bypass-{d}", .{ if (unit.bypassed) "ENABLE" else "BYPASS", index }) catch return .none;
+    var action: FxCardAction = if (drawInspectorToggle(bypass_id, unit.bypassed, umbra.red, 82)) .bypass else .none;
+    zgui.sameLine(.{ .spacing = 6 });
+    var remove_id_buf: [32]u8 = undefined;
+    const remove_id = std.fmt.bufPrintZ(&remove_id_buf, "X##fx-remove-{d}", .{index}) catch return .none;
+    if (zgui.button(remove_id, .{ .w = 42, .h = 30 })) action = .remove;
+    zgui.setCursorScreenPos(.{ origin[0], origin[1] + 58 });
+    return action;
 }
 
 fn drawSynth(app: *App) void {
