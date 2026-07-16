@@ -13,11 +13,16 @@ const App = struct {
     session: ws.Session,
     selected_track: usize = 0,
     view: View = .arrangement,
+    space_down: bool = false,
 
     const View = enum { arrangement, piano_roll, devices };
 
-    fn init(allocator: std.mem.Allocator) !App {
-        return .{ .session = try ws.Session.initDefault(allocator) };
+    fn init(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8) !App {
+        const session = if (init_path) |path|
+            try ws.persist.load(allocator, io, path)
+        else
+            try ws.Session.initDefault(allocator);
+        return .{ .session = session };
     }
 
     fn deinit(self: *App) void {
@@ -32,9 +37,23 @@ const App = struct {
         drawInspector(self);
         drawStatus(self);
     }
+
+    fn handleShortcuts(self: *App, window: *glfw.Window) void {
+        const down = window.getKey(.space) == .press;
+        if (down and !self.space_down and !zgui.io.getWantCaptureKeyboard()) {
+            const playing = self.session.engine.uiSnapshot().playing;
+            _ = self.session.engine.send(if (playing) .stop else .play);
+        }
+        self.space_down = down;
+    }
 };
 
 pub fn main(init: std.process.Init) !void {
+    var args = try std.process.Args.Iterator.initAllocator(init.minimal.args, init.gpa);
+    defer args.deinit();
+    _ = args.skip();
+    const init_path = args.next();
+
     try glfw.init();
     defer glfw.terminate();
 
@@ -56,8 +75,15 @@ pub fn main(init: std.process.Init) !void {
     zgui.backend.init(window);
     defer zgui.backend.deinit();
 
-    var app = try App.init(init.gpa);
+    var app = App.init(init.gpa, init.io, init_path) catch |err| {
+        if (init_path) |path| std.debug.print("wstudio-gui: cannot load '{s}': {s}\n", .{ path, @errorName(err) });
+        return err;
+    };
     defer app.deinit();
+    if (init_path) |path| {
+        var title_buf: [1024]u8 = undefined;
+        if (std.fmt.bufPrintZ(&title_buf, "wstudio GUI prototype - {s}", .{path})) |title| window.setTitle(title) else |_| {}
+    }
     var audio = ws.backend.NullBackend{
         .config = .{ .sample_rate = app.session.project.sample_rate },
         .render = renderAudio,
@@ -75,6 +101,7 @@ pub fn main(init: std.process.Init) !void {
         gl.clear(gl.COLOR_BUFFER_BIT);
         zgui.backend.newFrame(@intCast(fb[0]), @intCast(fb[1]));
         _ = zgui.dockSpaceOverViewport(0, zgui.getMainViewport(), .{});
+        app.handleShortcuts(window);
         app.draw();
         zgui.backend.draw();
         window.swapBuffers();
@@ -169,15 +196,33 @@ fn drawArrangement(app: *App) void {
             zgui.tableSetupColumn(std.fmt.bufPrintZ(&buf, "{d}", .{bar}) catch "?", .{});
         }
         zgui.tableHeadersRow();
+        const ticks_per_bar = ws.time_grid.barTicks(app.session.project.beats_per_bar);
         for (app.session.project.tracks.items, 0..) |track, ti| {
             zgui.tableNextRow(.{});
             _ = zgui.tableSetColumnIndex(0);
             zgui.text("{s}", .{track.name});
             for (1..9) |col| {
                 _ = zgui.tableSetColumnIndex(@intCast(col));
-                zgui.dummy(.{ .w = 54, .h = 46 });
+                const tick: u32 = @intCast((col - 1) * ticks_per_bar);
+                const clip = if (ti < app.session.arrangement.lanes.items.len)
+                    app.session.arrangement.lanes.items[ti].clipAt(tick)
+                else
+                    null;
+                if (clip) |c| {
+                    var label_buf: [32]u8 = undefined;
+                    const at_start = c.start_tick / ticks_per_bar == col - 1;
+                    const label = if (at_start)
+                        std.fmt.bufPrintZ(&label_buf, "{s}##{d}-{d}", .{ switch (c.content) {
+                            .melodic => "MIDI",
+                            .drum => |d| @as([]const u8, &[_]u8{'A' + d.variant}),
+                        }, ti, col }) catch "clip"
+                    else
+                        std.fmt.bufPrintZ(&label_buf, "...##{d}-{d}", .{ ti, col }) catch "...";
+                    _ = zgui.selectable(label, .{ .w = 54, .h = 46 });
+                } else {
+                    zgui.dummy(.{ .w = 54, .h = 46 });
+                }
             }
-            _ = ti;
         }
     }
 }
