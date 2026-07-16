@@ -152,7 +152,9 @@ pub fn draw(
 
     if (hovered and mouse[0] >= grid_x and mouse[1] >= grid_y and row_count > 0) {
         const step = @min(step_count - 1, @as(usize, @intFromFloat((mouse[0] - grid_x) / cell_w)));
-        const display_row = @min(row_count - 1, @as(usize, @intFromFloat((mouse[1] - grid_y) / row_h)));
+        // Clamp to the rows actually on this page - the last page can be
+        // partial, and a click below it must not edit an invisible row.
+        const display_row = @min(row_end - row_start - 1, @as(usize, @intFromFloat((mouse[1] - grid_y) / row_h)));
         const row = row_start + display_row;
         const x = grid_x + @as(f32, @floatFromInt(step)) * cell_w;
         const y = grid_y + @as(f32, @floatFromInt(display_row)) * row_h;
