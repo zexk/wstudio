@@ -84,10 +84,6 @@ pub fn currentClip(app: *App) ?*ws.Clip {
     return lane.clipAt(link.start_bar);
 }
 
-fn stepsPerBar(app: *App) u32 {
-    return @as(u32, app.session.project.beats_per_bar) * 4;
-}
-
 /// Last valid cursor step: the clip's own end, inclusive - lets a fade
 /// resolve exactly at the clip's last instant, not one step short of it.
 fn maxStep(_: *App, clip: *const ws.Clip) u32 {
