@@ -71,13 +71,6 @@ pub fn magnitude(re: f32, im: f32) f32 {
     return std.math.sqrt(re * re + im * im);
 }
 
-pub fn magnitudeSpectrum(real: []const f32, imag: []const f32, out: []f32) void {
-    const n = @min(real.len, out.len);
-    for (0..n) |i| {
-        out[i] = magnitude(real[i], imag[i]);
-    }
-}
-
 pub fn toDb(buf: []f32) void {
     for (buf) |*s| {
         s.* = if (s.* <= 1.0e-6) -120.0 else 20.0 * std.math.log10(s.*);

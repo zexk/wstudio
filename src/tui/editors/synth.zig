@@ -625,16 +625,6 @@ fn inFx(id: u8) bool {
     return (id >= 83 and id <= 94) or (id >= 103 and id <= 115) or (id >= 132 and id <= 135) or (id >= 137 and id <= 142) or (id >= 144 and id <= 159) or (id >= 161 and id <= 165) or (id >= 167 and id <= 174) or (id >= 176 and id <= 179) or (id >= 181 and id <= 183) or (id >= 188 and id <= 193);
 }
 
-/// Short tag for the editor title when not on the main pane (main shows no
-/// tag at all, matching the pre-subview look).
-pub fn subviewLabel(subview: Subview) []const u8 {
-    return switch (subview) {
-        .main => "",
-        .mod => "MOD",
-        .fx => "FX",
-    };
-}
-
 // zig fmt: off
 pub fn handleKey(app: *App, key: modal_mod.Key) bool {
     switch (key) {
