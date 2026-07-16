@@ -2898,6 +2898,7 @@ pub const App = struct {
         if (self.eq_track >= idx) self.eq_track += 1;
         if (self.slicer_track >= idx) self.slicer_track += 1;
         if (self.automation_track >= idx) self.automation_track += 1;
+        if (self.preset_picker_track >= idx) self.preset_picker_track += 1;
         switch (self.sampler_target) {
             .drum => |*t| if (t.* >= idx) { t.* += 1; },
             .sampler => |*t| if (t.* >= idx) { t.* += 1; },
@@ -2924,6 +2925,7 @@ pub const App = struct {
         if (idx < self.eq_track and self.eq_track > 0) self.eq_track -= 1;
         if (idx < self.slicer_track and self.slicer_track > 0) self.slicer_track -= 1;
         if (idx < self.automation_track and self.automation_track > 0) self.automation_track -= 1;
+        if (idx < self.preset_picker_track and self.preset_picker_track > 0) self.preset_picker_track -= 1;
         if (self.piano_clip_link) |link| {
             if (link.track == idx) {
                 self.piano_clip_link = null;
@@ -3141,6 +3143,7 @@ pub const App = struct {
         swap(&self.eq_track, cur, other);
         swap(&self.slicer_track, cur, other);
         swap(&self.automation_track, cur, other);
+        swap(&self.preset_picker_track, cur, other);
         switch (self.sampler_target) {
             .drum => |*t| swap(t, cur, other),
             .sampler => |*t| swap(t, cur, other),

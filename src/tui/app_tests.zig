@@ -2698,6 +2698,31 @@ test "track delete/move remap pending qwerty note-offs so held notes still stop"
     try std.testing.expectEqual(@as(u16, 0), app.note_offs[0].track);
 }
 
+test "track add/delete/move remap the preset picker's target track" {
+    var app = try testApp();
+    defer app.deinit();
+
+    // Picker open over the drum machine at track 2; the track list can
+    // still change under it (`:` commands, Lua api) while it's up.
+    preset_ed.open(&app, .drum, 2);
+
+    // Insert at 1 shifts the drum machine to 3.
+    app.cursor = 0;
+    app.doTrackAdd(null);
+    try std.testing.expectEqual(@as(u16, 3), app.preset_picker_track);
+
+    // Deleting track 0 shifts it back down to 2; the picker survives
+    // because its target still holds a drum machine.
+    app.doTrackDel(0);
+    try std.testing.expectEqual(@as(u16, 2), app.preset_picker_track);
+    try std.testing.expectEqual(AppView.preset_picker, app.view);
+
+    // Swapping the target with its neighbor follows it too.
+    app.cursor = 2;
+    app.doTrackMove(-1);
+    try std.testing.expectEqual(@as(u16, 1), app.preset_picker_track);
+}
+
 test "J/K track swap remaps an undo entry to follow the moved track" {
     var app = try testApp();
     defer app.deinit();
