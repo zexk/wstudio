@@ -715,12 +715,14 @@ fn drawMixerRow(app: *App, track: ws.Track, rack: *ws.Rack, index: usize) void {
     const clicked = zgui.invisibleButton(id, .{ .w = width, .h = height });
     const hovered = zgui.isItemHovered(.{});
     const selected = app.core.cursor == index;
+    const visual_anchor = app.core.tracks_visual_anchor orelse app.core.cursor;
+    const in_visual = app.core.modal.mode == .visual and index >= @min(visual_anchor, app.core.cursor) and index <= @max(visual_anchor, app.core.cursor);
     const draw = zgui.getWindowDrawList();
 
     draw.addRectFilled(.{
         .pmin = origin,
         .pmax = .{ origin[0] + width, origin[1] + height - 2 },
-        .col = color(if (selected) umbra.bg3 else if (hovered) umbra.bg2 else umbra.bg1),
+        .col = color(if (selected) umbra.bg3 else if (in_visual) .{ umbra.yellow[0], umbra.yellow[1], umbra.yellow[2], 0.16 } else if (hovered) umbra.bg2 else umbra.bg1),
         .rounding = 3,
     });
     draw.addRectFilled(.{
@@ -802,6 +804,17 @@ fn drawArrangement(app: *App) void {
         const on_bar = beat_index % beats_per_bar == 0;
         draw.addLine(.{ .p1 = .{ x, if (on_bar) origin[1] else origin[1] + ruler_h }, .p2 = .{ x, origin[1] + canvas_h }, .col = color(if (on_bar) .{ 0.29, 0.32, 0.35, 1 } else .{ 0.12, 0.135, 0.15, 1 }), .thickness = if (on_bar) 1.5 else 1 });
         if (on_bar and beat_index < bar_count * beats_per_bar) draw.addText(.{ x + 7, origin[1] + 7 }, color(.{ 0.64, 0.67, 0.70, 1 }), "{d}", .{beat_index / beats_per_bar + 1});
+    }
+
+    if (app.core.modal.mode == .visual and app.core.cursor < track_count) {
+        const anchor = (app.core.arr_visual_anchor orelse app.core.arr_cursor_bar) * app.core.arr_grid.ticks();
+        const lo = @min(anchor, cursor_tick);
+        const hi = @max(anchor, cursor_tick) + app.core.arr_grid.ticks();
+        const x1 = timeline_x + @as(f32, @floatFromInt(lo)) / @as(f32, @floatFromInt(ticks_per_beat)) * beat_w;
+        const x2 = timeline_x + @as(f32, @floatFromInt(hi)) / @as(f32, @floatFromInt(ticks_per_beat)) * beat_w;
+        const y = origin[1] + ruler_h + @as(f32, @floatFromInt(app.core.cursor)) * lane_h;
+        draw.addRectFilled(.{ .pmin = .{ x1, y }, .pmax = .{ x2, y + lane_h }, .col = color(.{ umbra.yellow[0], umbra.yellow[1], umbra.yellow[2], 0.14 }) });
+        draw.addRect(.{ .pmin = .{ x1 + 1, y + 1 }, .pmax = .{ x2 - 1, y + lane_h - 1 }, .col = color(.{ umbra.yellow[0], umbra.yellow[1], umbra.yellow[2], 0.6 }), .thickness = 1 });
     }
 
     for (app.core.session.arrangement.lanes.items, 0..) |lane, ti| {
@@ -945,6 +958,16 @@ fn drawPianoRoll(app: *App) void {
 
     const steps_per_beat: usize = app.core.pianoStepsPerBeat();
     const steps: usize = @intFromFloat(@ceil(beats * @as(f32, @floatFromInt(steps_per_beat))));
+    if (app.core.modal.mode == .visual) {
+        const anchor = @min(@as(usize, app.core.piano_visual_anchor orelse app.core.piano_cursor_step), steps - 1);
+        const cursor_step = @min(@as(usize, app.core.piano_cursor_step), steps - 1);
+        const lo = @min(anchor, cursor_step);
+        const hi = @max(anchor, cursor_step);
+        const x1 = grid_x + @as(f32, @floatFromInt(lo)) * beat_w / @as(f32, @floatFromInt(steps_per_beat));
+        const x2 = grid_x + @as(f32, @floatFromInt(hi + 1)) * beat_w / @as(f32, @floatFromInt(steps_per_beat));
+        draw.addRectFilled(.{ .pmin = .{ x1, grid_y }, .pmax = .{ x2, origin[1] + canvas_h }, .col = color(.{ umbra.yellow[0], umbra.yellow[1], umbra.yellow[2], 0.12 }) });
+        draw.addRect(.{ .pmin = .{ x1 + 1, grid_y + 1 }, .pmax = .{ x2 - 1, origin[1] + canvas_h - 1 }, .col = color(.{ umbra.yellow[0], umbra.yellow[1], umbra.yellow[2], 0.55 }), .thickness = 1 });
+    }
     for (0..steps + 1) |step| {
         const x = grid_x + @as(f32, @floatFromInt(step)) * beat_w / @as(f32, @floatFromInt(steps_per_beat));
         const on_beat = step % steps_per_beat == 0;
@@ -1032,7 +1055,15 @@ fn drawDrumGrid(app: *App) void {
     const play_step: ?usize = if (snap.playing) drum.currentStep() else null;
     drawDrumHeader(app, drum, snap.playing);
     zgui.spacing();
-    step_grid.draw(.drum, drum, drum.pads.len, drum.step_count, play_step, &app.core.drum_cursor);
+    step_grid.draw(
+        .drum,
+        drum,
+        drum.pads.len,
+        drum.step_count,
+        play_step,
+        &app.core.drum_cursor,
+        if (app.core.modal.mode == .visual) app.core.drum_visual_anchor else null,
+    );
 }
 
 fn drawDrumHeader(app: *App, drum: *ws.dsp.DrumMachine, playing: bool) void {
