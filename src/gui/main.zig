@@ -306,7 +306,11 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8) !void {
     zgui.init(init.gpa);
     defer zgui.deinit();
     var font_config = zgui.FontConfig.init();
-    font_config.size_pixels = 16;
+    font_config.size_pixels = 13;
+    font_config.oversample_h = 1;
+    font_config.oversample_v = 1;
+    font_config.pixel_snap_h = true;
+    font_config.pixel_snap_v = true;
     zgui.io.setDefaultFont(zgui.io.addFontDefault(font_config));
     zgui.plot.init();
     defer zgui.plot.deinit();
