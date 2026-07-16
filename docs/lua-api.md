@@ -310,8 +310,9 @@ Design decisions:
    `wstudio.api.exec` (needs the Runtime threaded into `App`).
 3. **Commands (shipped).** `create_user_command` / `del_user_command`,
    `:help` and completion integration.
-4. **Keymaps.** Notation parser, registry, `handleKey` hook, `keymap.set`/
-   `keymap.del`.
+4. **Keymaps (shipped).** Notation parser, registry, `handleKey` hook,
+   `keymap.set`/`keymap.del`. Chords resolve on the next key
+   (vim-notimeout-style), never by timeout.
 5. **Events.** Registry, core emission points, the initial event table.
 6. **Project API.** Transport and track functions above.
 7. **Parked.** RPC server over `wstudio.api`, API metadata, clips/notes/FX

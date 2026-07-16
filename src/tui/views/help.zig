@@ -7,6 +7,7 @@ const Project = ws.Project;
 const Transport = ws.Transport;
 const DrumMachine = ws.dsp.DrumMachine;
 const cmd_mod = @import("../cmd.zig");
+const config_mod = @import("../../config.zig");
 const midi = ws.midi;
 const style = @import("../style.zig");
 const icons = @import("../icons.zig");
@@ -90,7 +91,9 @@ const HelpText = struct {
     }
 };
 
-fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
+fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const config_mod.Keymap) void {
+    // The user-keymap section renders LAST (see end of this function) so
+    // registering maps never shifts the tagged sections' scroll offsets.
     t.section("COMMANDS");
     for (cmds) |c| {
         if (cmd_mod.hiddenFromCompletion(c)) continue;
@@ -378,15 +381,32 @@ fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def) void {
     t.key("B",            "open the bookmark list - enter/l jumps, d removes, esc/q back");
     t.key("esc / q",      "cancel back to the previous view");
     // zig fmt: on
+
+    if (keymaps.len > 0) {
+        t.section("USER KEYMAPS  (from init.lua; modes n/i/v, then the keys)");
+        for (keymaps) |*km| {
+            var mode_buf: [3]u8 = undefined;
+            var lhs_buf: [48]u8 = undefined;
+            var col_buf: [64]u8 = undefined;
+            const col = std.fmt.bufPrint(&col_buf, "{s} {s}", .{ km.modeText(&mode_buf), km.lhsText(&lhs_buf) }) catch continue;
+            if (km.desc().len > 0) {
+                t.key(col, km.desc());
+            } else if (km.rhs == .command) {
+                t.push(acc ++ "  {s: <16}" ++ rst ++ dim ++ ":{s}", .{ col, km.cmd() });
+            } else {
+                t.key(col, "lua function");
+            }
+        }
+    }
 }
 
 /// Line offset where `section`'s content starts, so opening help from a
 /// given view can land on its own keybindings instead of always the top.
 /// `null` (views with no dedicated section, e.g. the instrument picker) opens
 /// on COMMANDS as before.
-pub fn scrollForSection(section: ?Section, cmds: []const cmd_mod.Def) usize {
+pub fn scrollForSection(section: ?Section, cmds: []const cmd_mod.Def, keymaps: []const config_mod.Keymap) usize {
     var t = HelpText{};
-    buildHelp(&t, cmds);
+    buildHelp(&t, cmds, keymaps);
     return if (section) |s| t.section_start.get(s) else 0;
 }
 
@@ -418,9 +438,9 @@ fn stripAnsi(raw: []const u8, buf: []u8) []const u8 {
 /// loose that "sidechain" matches "edit track (synth or drum grid)…" long
 /// before the actual sidechain line. Fuzzy earns its keep on short names;
 /// prose needs the stricter rule.
-pub fn search(cmds: []const cmd_mod.Def, pattern: []const u8, start: usize, dir: i64) ?usize {
+pub fn search(cmds: []const cmd_mod.Def, keymaps: []const config_mod.Keymap, pattern: []const u8, start: usize, dir: i64) ?usize {
     var t = HelpText{};
-    buildHelp(&t, cmds);
+    buildHelp(&t, cmds, keymaps);
     if (t.count == 0) return null;
     const n: i64 = @intCast(t.count);
     const anchor: i64 = @intCast(@min(start, t.count - 1));
@@ -450,9 +470,9 @@ fn writeHighlighted(w: *std.Io.Writer, line: []const u8) !void {
 /// Renders a scroll window of the help text. `scroll` is clamped in place so
 /// the caller's stored offset can never run past the last screenful. `hit`
 /// (the last `/` search match, if any) renders reverse-video when in view.
-pub fn drawHelp(w: *std.Io.Writer, rows: usize, cols: usize, cmds: []const cmd_mod.Def, scroll: *usize, hit: ?usize) !void {
+pub fn drawHelp(w: *std.Io.Writer, rows: usize, cols: usize, cmds: []const cmd_mod.Def, keymaps: []const config_mod.Keymap, scroll: *usize, hit: ?usize) !void {
     var t = HelpText{};
-    buildHelp(&t, cmds);
+    buildHelp(&t, cmds, keymaps);
 
     const body = rows -| 4; // lines available below the caller's header, above transport/status
     const visible = body -| 1; // one row reserved for the sticky title
@@ -512,14 +532,14 @@ test "help search wraps forward from the end; no match is null" {
     const commands = @import("../commands.zig");
     // "master volume" lives in the ALL VIEWS section near the top, so an
     // anchor past the last line (clamped there) only finds it by wrapping.
-    try std.testing.expect(search(commands.cmds, "master volume", 100000, 1) != null);
-    try std.testing.expectEqual(@as(?usize, null), search(commands.cmds, "zzqqxxjj", 0, 1));
+    try std.testing.expect(search(commands.cmds, &.{}, "master volume", 100000, 1) != null);
+    try std.testing.expectEqual(@as(?usize, null), search(commands.cmds, &.{}, "zzqqxxjj", 0, 1));
 }
 
 test "help text fits its buffers - nothing silently truncated" {
     const commands = @import("../commands.zig");
     var t = HelpText{};
-    buildHelp(&t, commands.cmds);
+    buildHelp(&t, commands.cmds, &.{});
     try std.testing.expect(!t.truncated);
     // Early warning well before the hard cap: growing content should bump
     // the buffer deliberately, not creep up on the blank-lines cliff again.
@@ -530,7 +550,7 @@ test "help text fits its buffers - nothing silently truncated" {
 test "help lists mnemonic commands and omits compatibility aliases" {
     const commands = @import("../commands.zig");
     var t = HelpText{};
-    buildHelp(&t, commands.cmds);
+    buildHelp(&t, commands.cmds, &.{});
     const text = t.buf[0..t.len];
     try std.testing.expect(std.mem.indexOf(u8, text, ":write") != null);
     try std.testing.expect(std.mem.indexOf(u8, text, "  :w             ") == null);

@@ -218,6 +218,10 @@ pub const App = struct {
     /// `rebuildCmdTable` at init and when the Lua registry changes.
     all_cmds_buf: [cmds_cap]cmd_mod.Def = undefined,
     all_cmds_len: usize = 0,
+    /// Half-typed Lua keymap chord - see `userKeymapIntercept`. Resolved on
+    /// the next key (fire, extend, or replay), never by timeout.
+    keymap_pending_buf: [config_mod.max_keymap_lhs]modal_mod.Key = undefined,
+    keymap_pending_len: usize = 0,
     cursor: usize = 0,
     /// Tracks-view display rows: tracks in folder order - a group's row
     /// followed by its (indented) member tracks, folded groups hiding
@@ -741,6 +745,84 @@ pub const App = struct {
     }
 
     pub fn handleKey(self: *App, key_in: modal_mod.Key, now_ns: i96) void {
+        self.now_ns = now_ns;
+        // ctrl-c (the unbreakable quit path) and mouse events bypass user
+        // keymaps entirely; so do the `:`/`/` prompts (not mappable modes,
+        // enforced inside the intercept), keeping :help always reachable.
+        if (key_in != .ctrl_c and key_in != .mouse) {
+            if (self.userKeymapIntercept(key_in, now_ns)) return;
+        }
+        self.handleKeyBuiltin(key_in, now_ns);
+    }
+
+    /// Consume `key` when it fires or extends a Lua keymap (docs/lua-api.md
+    /// phase 4). A key extending at least one longer chord buffers with no
+    /// timeout - the chord resolves on the next key, vim-notimeout-style. A
+    /// key breaking a buffered chord first resolves what was buffered (a
+    /// complete shorter map fires; otherwise the raw keys replay through
+    /// the built-in path), then retries on its own.
+    fn userKeymapIntercept(self: *App, key: modal_mod.Key, now_ns: i96) bool {
+        const rt = self.lua_runtime orelse return false;
+        if (rt.userKeymaps().len == 0 and self.keymap_pending_len == 0) return false;
+        const mode = self.modal.mode;
+        if (mode != .normal and mode != .insert and mode != .visual) {
+            self.keymap_pending_len = 0;
+            return false;
+        }
+
+        var seq: [config_mod.max_keymap_lhs]modal_mod.Key = undefined;
+        const pend = self.keymap_pending_len;
+        @memcpy(seq[0..pend], self.keymap_pending_buf[0..pend]);
+        seq[pend] = key;
+        const len = pend + 1;
+
+        var exact: ?usize = null;
+        var has_longer = false;
+        for (rt.userKeymaps(), 0..) |*km, i| {
+            if (!km.appliesTo(mode, self.view)) continue;
+            if (km.lhs_len < len or !config_mod.keysEqual(km.lhs()[0..len], seq[0..len])) continue;
+            if (km.lhs_len == len) exact = i else has_longer = true;
+        }
+        if (has_longer) {
+            @memcpy(self.keymap_pending_buf[0..len], seq[0..len]);
+            self.keymap_pending_len = len;
+            return true;
+        }
+        if (exact) |i| {
+            self.keymap_pending_len = 0;
+            rt.runKeymap(i);
+            return true;
+        }
+        if (pend > 0) {
+            var replay: [config_mod.max_keymap_lhs]modal_mod.Key = undefined;
+            @memcpy(replay[0..pend], self.keymap_pending_buf[0..pend]);
+            self.keymap_pending_len = 0;
+            if (self.findExactKeymap(replay[0..pend])) |i| {
+                rt.runKeymap(i);
+            } else {
+                for (replay[0..pend]) |k| self.handleKeyBuiltin(k, now_ns);
+            }
+            // Pending is now empty, so this recursion terminates; the
+            // breaking key may itself start (or be) another map.
+            return self.userKeymapIntercept(key, now_ns);
+        }
+        return false;
+    }
+
+    fn findExactKeymap(self: *App, seq: []const modal_mod.Key) ?usize {
+        const rt = self.lua_runtime orelse return null;
+        for (rt.userKeymaps(), 0..) |*km, i| {
+            if (!km.appliesTo(self.modal.mode, self.view)) continue;
+            if (km.lhs_len == seq.len and config_mod.keysEqual(km.lhs(), seq)) return i;
+        }
+        return null;
+    }
+
+    pub fn userKeymapsSlice(self: *const App) []const config_mod.Keymap {
+        return if (self.lua_runtime) |rt| rt.userKeymaps() else &.{};
+    }
+
+    fn handleKeyBuiltin(self: *App, key_in: modal_mod.Key, now_ns: i96) void {
         self.now_ns = now_ns;
         if (key_in == .ctrl_c) {
             // ctrl-c always exits, even with unsaved changes - but the least
@@ -2162,7 +2244,7 @@ pub const App = struct {
         const pattern = self.searchPattern();
         if (pattern.len == 0) { self.setStatus("no previous search pattern", .{}); return; }
         const start = self.help_search_hit orelse self.help_scroll;
-        if (tui.helpSearch(self.allCmds(), pattern, start, dir)) |idx| {
+        if (tui.helpSearch(self.allCmds(), self.userKeymapsSlice(), pattern, start, dir)) |idx| {
             self.help_search_hit = idx;
             self.help_scroll = idx;
             self.setStatus("/{s}  [line {d}]", .{ pattern, idx + 1 });
@@ -3110,7 +3192,7 @@ pub const App = struct {
             .synth_editor    => try tui.drawSynthEditor(self, w, content_rows, size.cols, snap),
             .sampler_editor  => try tui.drawSamplerEditor(self, w, content_rows, size.cols, snap),
             .piano_roll      => try tui.drawPianoRoll(self, w, content_rows, size.cols, snap),
-            .help            => try tui.drawHelp(w, content_rows, size.cols, self.allCmds(), &self.help_scroll, self.help_search_hit),
+            .help            => try tui.drawHelp(w, content_rows, size.cols, self.allCmds(), self.userKeymapsSlice(), &self.help_scroll, self.help_search_hit),
             .track_spectrum, .master_spectrum, .group_spectrum =>
                 try tui.drawFxView(self, w, content_rows, size.cols, snap, spectrum_ed.currentTarget(self)),
             .instrument_picker => try tui.drawInstrumentPicker(self, w, content_rows),

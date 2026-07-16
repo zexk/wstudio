@@ -5471,3 +5471,37 @@ test "Lua user commands dispatch through :, builtins win collisions" {
     commands.run(&app, "greet again");
     try rt.loadString("assert(hit == nil)");
 }
+
+test "Lua keymaps intercept keys, chord, and fall through" {
+    var app = try testApp();
+    defer app.deinit();
+    var rt = try @import("../config.zig").Runtime.init(.tui);
+    defer rt.deinit();
+    try rt.loadString("wstudio.keymap.set('n', 'Q', function() qhit = (qhit or 0) + 1 end);" ++
+        "wstudio.keymap.set('n', 'Qp', function() qphit = (qphit or 0) + 1 end);" ++
+        "wstudio.keymap.set('n', 'j', function() jhit = true end, { view = 'piano_roll' })");
+    app.lua_runtime = &rt;
+
+    // View-restricted map: in the tracks view j falls through to the
+    // builtin row motion.
+    try std.testing.expectEqual(@as(usize, 0), app.track_row);
+    app.handleKey(.{ .char = 'j' }, 0);
+    try std.testing.expectEqual(@as(usize, 1), app.track_row);
+    try rt.loadString("assert(jhit == nil)");
+
+    // Chord: Q buffers (a longer candidate exists), p completes it. The
+    // buffered Q must not reach the builtin path, and p must not open the
+    // piano roll.
+    app.handleKey(.{ .char = 'Q' }, 0);
+    try std.testing.expectEqual(@as(usize, 1), app.track_row);
+    app.handleKey(.{ .char = 'p' }, 0);
+    try std.testing.expectEqual(AppView.tracks, app.view);
+    try rt.loadString("assert(qphit == 1 and qhit == nil)");
+
+    // Broken chord: Q buffers, j breaks it - the complete shorter Q map
+    // fires and j falls through as the builtin motion.
+    app.handleKey(.{ .char = 'Q' }, 0);
+    app.handleKey(.{ .char = 'j' }, 0);
+    try rt.loadString("assert(qhit == 1 and qphit == 1)");
+    try std.testing.expectEqual(@as(usize, 2), app.track_row);
+}
