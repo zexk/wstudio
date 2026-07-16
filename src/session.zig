@@ -89,8 +89,13 @@ pub const Session = struct {
     /// per-track via `setInstrument`; the shipped `demo.wsj` is the curated
     /// multi-track starting point (load it with `wstudio demo.wsj`).
     pub fn initDefault(allocator: std.mem.Allocator) !Session {
+        return initDefaultWithSampleRate(allocator, types.default_sample_rate);
+    }
+
+    pub fn initDefaultWithSampleRate(allocator: std.mem.Allocator, sample_rate: u32) !Session {
         var project = Project.init(allocator);
         errdefer project.deinit();
+        project.sample_rate = sample_rate;
         _ = try project.addTrack(.{ .name = "untitled track", .color = 1 });
         const sr = project.sample_rate;
 

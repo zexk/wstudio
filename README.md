@@ -171,6 +171,11 @@ new projects:
 
 ```lua
 wstudio.set_option("default_tempo", 128)
+wstudio.set_option("default_sample_rate", 48000)
+wstudio.set_option("default_beats_per_bar", 4)
+wstudio.set_option("frame_poll_ms", 30)
+wstudio.set_option("audio_block_frames", 256)
+wstudio.set_option("tap_timeout_ms", 2000)
 ```
 
 The same Lua state remains alive while wstudio runs so the API can grow into

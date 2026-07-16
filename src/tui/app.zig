@@ -48,12 +48,10 @@ pub const note_ms = 220;
 /// the `hr` divider beneath it. Mouse hit-testing subtracts this before
 /// handing a row to a view's own handler - see `App.handleMouse`.
 pub const content_top: u16 = 2;
-const frame_poll_ms = 30;
 const cmd_history_cap: usize = 50;
 /// Big enough for any real filesystem path; mirrors commands.path_buf_len.
 const reload_path_buf_len: usize = 1024;
 /// A pause longer than this between taps starts a fresh tap-tempo run.
-const tap_timeout_ns: i96 = 2 * std.time.ns_per_s;
 /// Minimum gap between silent `<path>~` backups; see `maybeAutosave`.
 const autosave_interval_ns: i96 = 30 * std.time.ns_per_s;
 /// Where a plain `:w` lands when no project path is known yet - also what
@@ -276,6 +274,7 @@ pub const App = struct {
     // Last timestamp seen by handleKey; lets sub-view handlers schedule note-offs
     // (e.g. piano-roll preview) without threading now_ns through every signature.
     now_ns: i96 = 0,
+    tap_timeout_ns: i96 = 2 * std.time.ns_per_s,
     /// An open coalescing batch of synth/sampler param nudges (h/l/H/L),
     /// flushed to `history` once the cursor moves off that param - see
     /// history.zig's noteParamNudge/flushParamNudge.
@@ -591,11 +590,15 @@ pub const App = struct {
     const NoteOff = struct { at_ns: i96, track: u16, note: u7 };
 
     pub fn init(allocator: std.mem.Allocator, io: std.Io) !App {
+        return initWithSampleRate(allocator, io, ws.types.default_sample_rate);
+    }
+
+    pub fn initWithSampleRate(allocator: std.mem.Allocator, io: std.Io, sample_rate: u32) !App {
         const cmd_history = cmd_history_store.load(allocator, io);
         return .{
             .allocator = allocator,
             .io = io,
-            .session = try ws.Session.initDefault(allocator),
+            .session = try ws.Session.initDefaultWithSampleRate(allocator, sample_rate),
             .user_synth_presets = user_presets.load(allocator, io),
             .user_drum_kits = user_drum_kits.load(allocator, io),
             .cmd_history = cmd_history,
@@ -1370,7 +1373,7 @@ pub const App = struct {
     /// longer than `tap_timeout_ns` starts a fresh run instead of averaging
     /// across it.
     fn tapTempo(self: *App, now_ns: i96) void {
-        if (self.tap_count > 0 and now_ns - self.tap_times[self.tap_count - 1] > tap_timeout_ns) {
+        if (self.tap_count > 0 and now_ns - self.tap_times[self.tap_count - 1] > self.tap_timeout_ns) {
             self.tap_count = 0;
         }
         if (self.tap_count == self.tap_times.len) {
@@ -3265,11 +3268,15 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8, use
     defer { term.deinit(); active_terminal = null; }
     // zig fmt: on
 
-    var app = try App.init(allocator, io);
+    var app = try App.initWithSampleRate(allocator, io, user_config.default_sample_rate);
     defer app.deinit();
+    app.tap_timeout_ns = @as(i96, user_config.tap_timeout_ms) * std.time.ns_per_ms;
     if (init_path == null) {
         app.session.project.tempo_bpm = user_config.default_tempo;
+        app.session.project.beats_per_bar = user_config.default_beats_per_bar;
         _ = app.session.engine.send(.{ .set_tempo = user_config.default_tempo });
+        _ = app.session.engine.send(.{ .set_time_signature = user_config.default_beats_per_bar });
+        app.session.syncLoop();
     }
     icons.font_installed = icons.detectFontInstalled(io);
 
@@ -3298,7 +3305,10 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8, use
         app.promptIfBackupNewer(default_project_path);
     }
 
-    var config: backend_mod.Config = .{ .sample_rate = app.session.project.sample_rate };
+    var config: backend_mod.Config = .{
+        .sample_rate = app.session.project.sample_rate,
+        .block_frames = user_config.audio_block_frames,
+    };
 
     // zig fmt: off
     const has_alsa = builtin.os.tag == .linux;
@@ -3351,7 +3361,7 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8, use
     var keys: [64]modal_mod.Key = undefined;
 
     while (!app.should_quit) {
-        const bytes = try term.readInput(&input_buf, frame_poll_ms);
+        const bytes = try term.readInput(&input_buf, user_config.frame_poll_ms);
         const now = std.Io.Timestamp.now(io, .awake).nanoseconds;
         const n = terminal_mod.decode(bytes, &keys);
         for (keys[0..n]) |key| switch (key) {

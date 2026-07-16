@@ -10,6 +10,11 @@ const c = @cImport({
 
 pub const Config = struct {
     default_tempo: f64 = 120.0,
+    default_sample_rate: u32 = 48_000,
+    default_beats_per_bar: u8 = 4,
+    frame_poll_ms: u16 = 30,
+    audio_block_frames: u32 = 256,
+    tap_timeout_ms: u32 = 2000,
 };
 
 pub const Runtime = struct {
@@ -101,6 +106,36 @@ fn setOption(state: ?*c.lua_State) callconv(.c) c_int {
         runtime(l).config.default_tempo = value;
         return 0;
     }
+    if (std.mem.eql(u8, name, "default_sample_rate")) {
+        const value = c.luaL_checkinteger(l, 2);
+        if (value < 8000 or value > 192000) return c.luaL_error(l, "default_sample_rate must be between 8000 and 192000");
+        runtime(l).config.default_sample_rate = @intCast(value);
+        return 0;
+    }
+    if (std.mem.eql(u8, name, "default_beats_per_bar")) {
+        const value = c.luaL_checkinteger(l, 2);
+        if (value < 1 or value > 16) return c.luaL_error(l, "default_beats_per_bar must be between 1 and 16");
+        runtime(l).config.default_beats_per_bar = @intCast(value);
+        return 0;
+    }
+    if (std.mem.eql(u8, name, "frame_poll_ms")) {
+        const value = c.luaL_checkinteger(l, 2);
+        if (value < 5 or value > 1000) return c.luaL_error(l, "frame_poll_ms must be between 5 and 1000");
+        runtime(l).config.frame_poll_ms = @intCast(value);
+        return 0;
+    }
+    if (std.mem.eql(u8, name, "audio_block_frames")) {
+        const value = c.luaL_checkinteger(l, 2);
+        if (value < 16 or value > 4096) return c.luaL_error(l, "audio_block_frames must be between 16 and 4096");
+        runtime(l).config.audio_block_frames = @intCast(value);
+        return 0;
+    }
+    if (std.mem.eql(u8, name, "tap_timeout_ms")) {
+        const value = c.luaL_checkinteger(l, 2);
+        if (value < 100 or value > 10000) return c.luaL_error(l, "tap_timeout_ms must be between 100 and 10000");
+        runtime(l).config.tap_timeout_ms = @intCast(value);
+        return 0;
+    }
     return c.luaL_error(l, "unknown option");
 }
 
@@ -111,14 +146,39 @@ fn getOption(state: ?*c.lua_State) callconv(.c) c_int {
         c.lua_pushnumber(l, runtime(l).config.default_tempo);
         return 1;
     }
+    if (std.mem.eql(u8, name, "default_sample_rate")) {
+        c.lua_pushinteger(l, runtime(l).config.default_sample_rate);
+        return 1;
+    }
+    if (std.mem.eql(u8, name, "default_beats_per_bar")) {
+        c.lua_pushinteger(l, runtime(l).config.default_beats_per_bar);
+        return 1;
+    }
+    if (std.mem.eql(u8, name, "frame_poll_ms")) {
+        c.lua_pushinteger(l, runtime(l).config.frame_poll_ms);
+        return 1;
+    }
+    if (std.mem.eql(u8, name, "audio_block_frames")) {
+        c.lua_pushinteger(l, runtime(l).config.audio_block_frames);
+        return 1;
+    }
+    if (std.mem.eql(u8, name, "tap_timeout_ms")) {
+        c.lua_pushinteger(l, runtime(l).config.tap_timeout_ms);
+        return 1;
+    }
     return c.luaL_error(l, "unknown option");
 }
 
 test "Lua API sets and reads options" {
     var rt = try Runtime.init();
     defer rt.deinit();
-    try rt.loadString("wstudio.set_option('default_tempo', 132); assert(wstudio.get_option('default_tempo') == 132)");
+    try rt.loadString("wstudio.set_option('default_tempo', 132); wstudio.set_option('default_sample_rate', 44100); wstudio.set_option('default_beats_per_bar', 7); wstudio.set_option('frame_poll_ms', 45); wstudio.set_option('audio_block_frames', 512); wstudio.set_option('tap_timeout_ms', 1500); assert(wstudio.get_option('default_tempo') == 132)");
     try std.testing.expectEqual(@as(f64, 132), rt.config.default_tempo);
+    try std.testing.expectEqual(@as(u32, 44100), rt.config.default_sample_rate);
+    try std.testing.expectEqual(@as(u8, 7), rt.config.default_beats_per_bar);
+    try std.testing.expectEqual(@as(u16, 45), rt.config.frame_poll_ms);
+    try std.testing.expectEqual(@as(u32, 512), rt.config.audio_block_frames);
+    try std.testing.expectEqual(@as(u32, 1500), rt.config.tap_timeout_ms);
 }
 
 test "Lua API rejects invalid option values" {
