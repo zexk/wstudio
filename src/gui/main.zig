@@ -1035,16 +1035,65 @@ fn drawInspector(app: *App) void {
 }
 
 fn drawStatus(app: *App, audio_label: []const u8) void {
-    _ = app;
     const display = zgui.io.getDisplaySize();
     zgui.setNextWindowPos(.{ .x = 0, .y = display[1] - 34, .cond = .always });
     zgui.setNextWindowSize(.{ .w = display[0], .h = 34, .cond = .always });
     if (zgui.begin("Status", .{ .flags = .{ .no_title_bar = true, .no_resize = true, .no_move = true, .no_docking = true } })) {
-        zgui.textColored(umbra.mauve, "NORMAL", .{});
-        zgui.sameLine(.{ .spacing = 18 });
-        zgui.textDisabled("Space play/stop    H/L view    J/K track    F1 help    audio: {s}", .{audio_label});
+        const draw = zgui.getWindowDrawList();
+        const pos = zgui.getWindowPos();
+        const size = zgui.getWindowSize();
+        draw.addRectFilled(.{ .pmin = pos, .pmax = .{ pos[0] + size[0], pos[1] + size[1] }, .col = color(umbra.bg1) });
+
+        var x = pos[0];
+        x = drawStatusSegment(draw, x, pos[1], size[1], umbra.iris, umbra.bg0, "NORMAL");
+        x = drawStatusSegment(draw, x, pos[1], size[1], umbra.bg4, umbra.fg0, @tagName(app.view));
+
+        const track = app.session.project.tracks.items[app.selected_track];
+        var track_buf: [160]u8 = undefined;
+        const track_label = std.fmt.bufPrint(&track_buf, "{d:0>2}  {s}", .{ app.selected_track + 1, track.name }) catch "track";
+        x = drawStatusSegment(draw, x, pos[1], size[1], umbra.bg2, umbra.fg1, track_label);
+
+        var project_buf: [160]u8 = undefined;
+        const project_label = std.fmt.bufPrint(&project_buf, "{s}  {d:.0} bpm  {d}/4", .{ app.session.project.name, app.session.project.tempo_bpm, app.session.project.beats_per_bar }) catch "project";
+        const project_size = zgui.calcTextSize(project_label, .{});
+        if (x + project_size[0] + 260 < pos[0] + size[0]) {
+            draw.addText(.{ x + 12, pos[1] + (size[1] - project_size[1]) / 2 }, color(umbra.fg3), "{s}", .{project_label});
+        }
+
+        const snap = app.session.engine.uiSnapshot();
+        const beat = ws.types.framesToSeconds(snap.position_frames, app.session.project.sample_rate) * app.session.project.tempo_bpm / 60.0;
+        var right_buf: [192]u8 = undefined;
+        const right_label = std.fmt.bufPrint(&right_buf, "{s}  {d}.{d}   AUDIO {s}", .{
+            if (snap.playing) "PLAY" else "STOP",
+            @as(u32, @intFromFloat(beat)) / app.session.project.beats_per_bar + 1,
+            @mod(@as(u32, @intFromFloat(beat)), app.session.project.beats_per_bar) + 1,
+            audio_label,
+        }) catch "audio";
+        drawStatusSegmentRight(draw, pos[0] + size[0], pos[1], size[1], if (snap.playing) umbra.iris_soft else umbra.bg2, umbra.fg0, right_label);
     }
     zgui.end();
+}
+
+fn drawStatusSegment(draw: zgui.DrawList, x: f32, y: f32, height: f32, bg: [4]f32, fg: [4]f32, label: []const u8) f32 {
+    const arrow_w: f32 = 9;
+    const padding: f32 = 13;
+    const text_size = zgui.calcTextSize(label, .{});
+    const width = text_size[0] + padding * 2;
+    draw.addRectFilled(.{ .pmin = .{ x, y }, .pmax = .{ x + width, y + height }, .col = color(bg) });
+    draw.addTriangleFilled(.{ .p1 = .{ x + width, y }, .p2 = .{ x + width + arrow_w, y + height / 2 }, .p3 = .{ x + width, y + height }, .col = color(bg) });
+    draw.addText(.{ x + padding, y + (height - text_size[1]) / 2 }, color(fg), "{s}", .{label});
+    return x + width + arrow_w;
+}
+
+fn drawStatusSegmentRight(draw: zgui.DrawList, right: f32, y: f32, height: f32, bg: [4]f32, fg: [4]f32, label: []const u8) void {
+    const arrow_w: f32 = 9;
+    const padding: f32 = 13;
+    const text_size = zgui.calcTextSize(label, .{});
+    const width = text_size[0] + padding * 2;
+    const x = right - width;
+    draw.addRectFilled(.{ .pmin = .{ x, y }, .pmax = .{ right, y + height }, .col = color(bg) });
+    draw.addTriangleFilled(.{ .p1 = .{ x, y }, .p2 = .{ x - arrow_w, y + height / 2 }, .p3 = .{ x, y + height }, .col = color(bg) });
+    draw.addText(.{ x + padding, y + (height - text_size[1]) / 2 }, color(fg), "{s}", .{label});
 }
 
 fn rgb(comptime value: u24) [4]f32 {
