@@ -617,10 +617,49 @@ fn drawViewNav(app: *App) void {
         .{ .label = "Pick", .view = .instrument_picker },
         .{ .label = "More", .view = .help },
     };
+    const available = zgui.getContentRegionAvail()[0];
+    var row_width: f32 = 0;
     for (entries, 0..) |entry, i| {
-        if (i != 0) zgui.sameLine(.{});
-        if (zgui.smallButton(entry.label)) app.view = entry.view;
+        const width = zgui.calcTextSize(entry.label, .{})[0] + 20;
+        if (i != 0 and row_width + width + 4 <= available) {
+            zgui.sameLine(.{ .spacing = 4 });
+            row_width += 4;
+        } else if (i != 0) {
+            row_width = 0;
+        }
+        drawViewTab(app, entry.label, entry.view, width);
+        row_width += width;
     }
+}
+
+fn drawViewTab(app: *App, label: [:0]const u8, view: App.View, width: f32) void {
+    const height: f32 = 27;
+    const origin = zgui.getCursorScreenPos();
+    var id_buf: [32]u8 = undefined;
+    const id = std.fmt.bufPrintZ(&id_buf, "view-tab-{s}", .{label}) catch return;
+    const clicked = zgui.invisibleButton(id, .{ .w = width, .h = height });
+    const hovered = zgui.isItemHovered(.{});
+    const selected = app.view == view;
+    const draw = zgui.getWindowDrawList();
+
+    if (selected or hovered) draw.addRectFilled(.{
+        .pmin = origin,
+        .pmax = .{ origin[0] + width, origin[1] + height },
+        .col = color(if (selected) umbra.bg3 else umbra.bg2),
+        .rounding = 3,
+    });
+    if (selected) draw.addRectFilled(.{
+        .pmin = .{ origin[0] + 5, origin[1] + height - 3 },
+        .pmax = .{ origin[0] + width - 5, origin[1] + height },
+        .col = color(umbra.iris),
+        .rounding = 2,
+    });
+    const text_size = zgui.calcTextSize(label, .{});
+    draw.addText(.{
+        origin[0] + (width - text_size[0]) / 2,
+        origin[1] + (height - text_size[1]) / 2 - 1,
+    }, color(if (selected) umbra.fg0 else umbra.fg2), "{s}", .{label});
+    if (clicked) app.view = view;
 }
 
 fn drawTrackOverview(app: *App) void {
