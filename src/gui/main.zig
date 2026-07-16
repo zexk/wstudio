@@ -7,6 +7,7 @@ const ws = @import("wstudio");
 const tui_app = @import("../tui/app.zig");
 const tui_cmd = @import("../tui/cmd.zig");
 const tui_commands = @import("../tui/commands.zig");
+const icons = @import("../tui/icons.zig");
 const automation_ed = @import("../tui/editors/automation.zig");
 const spectrum_ed = @import("../tui/editors/spectrum.zig");
 const synth_ed = @import("../tui/editors/synth.zig");
@@ -28,6 +29,15 @@ const color = gui_style.color;
 const rgb = gui_style.rgb;
 const trackColor = gui_style.trackColor;
 const umbra = gui_style.umbra;
+
+const icon_glyph_ranges = [_]zgui.Wchar{
+    0xec1a,  0xec1a,  0xee32,  0xee32,  0xef9d,  0xef9d,
+    0xf005,  0xf005,  0xf025,  0xf025,  0xf04b,  0xf04d,
+    0xf071,  0xf071,  0xf0c7,  0xf0c7,  0xf1de,  0xf1de,
+    0xf02d7, 0xf02d7, 0xf0547, 0xf0547, 0xf075f, 0xf075f,
+    0xf07da, 0xf07da, 0xf0bd1, 0xf0bd1, 0xf0ea2, 0xf0ea2,
+    0,
+};
 
 pub const App = struct {
     core: tui_app.App,
@@ -305,13 +315,7 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8) !void {
 
     zgui.init(init.gpa);
     defer zgui.deinit();
-    var font_config = zgui.FontConfig.init();
-    font_config.size_pixels = 13;
-    font_config.oversample_h = 1;
-    font_config.oversample_v = 1;
-    font_config.pixel_snap_h = true;
-    font_config.pixel_snap_v = true;
-    zgui.io.setDefaultFont(zgui.io.addFontDefault(font_config));
+    configureFonts();
     zgui.plot.init();
     defer zgui.plot.deinit();
     zgui.io.setConfigFlags(.{ .nav_enable_keyboard = true });
@@ -391,6 +395,23 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8) !void {
     }
 }
 
+fn configureFonts() void {
+    var text_config = zgui.FontConfig.init();
+    text_config.font_data_owned_by_atlas = false;
+    text_config.oversample_h = 2;
+    text_config.oversample_v = 2;
+    const text_font = zgui.io.addFontFromMemoryWithConfig(ws.gui_font_ttf, 15, text_config, null);
+
+    var icon_config = zgui.FontConfig.init();
+    icon_config.font_data_owned_by_atlas = false;
+    icon_config.merge_mode = true;
+    icon_config.pixel_snap_h = true;
+    icon_config.pixel_snap_v = true;
+    icon_config.glyph_min_advance_x = 15;
+    _ = zgui.io.addFontFromMemoryWithConfig(ws.icon_font_ttf, 15, icon_config, &icon_glyph_ranges);
+    zgui.io.setDefaultFont(text_font);
+}
+
 fn renderAudio(ctx: *anyopaque, out: []ws.types.Sample) void {
     const engine: *ws.Engine = @ptrCast(@alignCast(ctx));
     engine.process(out);
@@ -407,7 +428,7 @@ fn drawTransport(app: *App) void {
         zgui.pushStyleColor4f(.{ .idx = .button_active, .c = umbra.fg0 });
         zgui.pushStyleColor4f(.{ .idx = .text, .c = umbra.bg0 });
         zgui.pushStyleVar1f(.{ .idx = .frame_rounding, .v = 3 });
-        if (zgui.button(if (snap.playing) "STOP" else "PLAY", .{ .w = 82, .h = 40 })) {
+        if (zgui.button(if (snap.playing) icons.stop ++ "  STOP" else icons.play ++ "  PLAY", .{ .w = 82, .h = 40 })) {
             _ = app.core.session.engine.send(if (snap.playing) .stop else .play);
         }
         zgui.popStyleVar(.{});
@@ -637,18 +658,18 @@ fn drawPickerPopup(app: *App) void {
 
 fn drawViewNav(app: *App) void {
     const entries = [_]struct { label: [:0]const u8, view: tui_app.AppView }{
-        .{ .label = "Tracks", .view = .tracks },
-        .{ .label = "Arrange", .view = .arrangement },
-        .{ .label = "Piano", .view = .piano_roll },
-        .{ .label = "Drums", .view = .drum_grid },
-        .{ .label = "Slicer", .view = .slicer_grid },
-        .{ .label = "Synth", .view = .synth_editor },
-        .{ .label = "Sampler", .view = .sampler_editor },
-        .{ .label = "FX", .view = .track_spectrum },
-        .{ .label = "Scope", .view = .track_spectrum },
-        .{ .label = "Auto", .view = .automation },
-        .{ .label = "Pick", .view = .instrument_picker },
-        .{ .label = "More", .view = .help },
+        .{ .label = icons.master ++ " Tracks", .view = .tracks },
+        .{ .label = icons.arrangement ++ " Arrange", .view = .arrangement },
+        .{ .label = icons.synth ++ " Piano", .view = .piano_roll },
+        .{ .label = icons.drum ++ " Drums", .view = .drum_grid },
+        .{ .label = icons.slicer ++ " Slicer", .view = .slicer_grid },
+        .{ .label = icons.synth ++ " Synth", .view = .synth_editor },
+        .{ .label = icons.sampler ++ " Sampler", .view = .sampler_editor },
+        .{ .label = icons.eq ++ " FX", .view = .track_spectrum },
+        .{ .label = icons.eq ++ " Scope", .view = .track_spectrum },
+        .{ .label = icons.arrangement ++ " Auto", .view = .automation },
+        .{ .label = icons.logo ++ " Pick", .view = .instrument_picker },
+        .{ .label = icons.help ++ " More", .view = .help },
     };
     const available = zgui.getContentRegionAvail()[0];
     var row_width: f32 = 0;

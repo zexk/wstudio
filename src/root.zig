@@ -65,6 +65,15 @@ pub fn iconFontDir(buf: []u8) ![]const u8 {
 /// paths under src/tui/.
 pub const icon_font_ttf: []const u8 = @embedFile("assets/fonts/wstudio-icons.ttf");
 
+/// DejaVu Sans is the GUI's bundled text face. Keeping it embedded makes the
+/// desktop frontend independent of host font configuration.
+pub const gui_font_ttf: []const u8 = @embedFile("assets/fonts/DejaVuSans.ttf");
+
+test "embedded GUI face looks like a valid TrueType font" {
+    try std.testing.expectEqualStrings("\x00\x01\x00\x00", gui_font_ttf[0..4]);
+    try std.testing.expect(gui_font_ttf.len > 100 * 1024 and gui_font_ttf.len < 1024 * 1024);
+}
+
 test {
     _ = midi;
     _ = midi_in;

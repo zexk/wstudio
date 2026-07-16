@@ -71,6 +71,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
             .backend = .glfw_opengl3,
             .with_implot = true,
+            .use_wchar32 = true,
         });
         zgui.artifact("imgui").root_module.addCMacro("GLFW_INCLUDE_NONE", "1");
         const zopengl = b.dependency("zopengl", .{});
