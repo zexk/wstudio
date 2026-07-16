@@ -148,6 +148,7 @@ Current option set (see examples/init.lua for defaults and ranges):
 
 | option | scope |
 | --- | --- |
+| `preferred_frontend` | core |
 | `default_tempo`, `default_sample_rate`, `default_beats_per_bar` | core |
 | `default_octave`, `autosave_interval_s` | core |
 | `audio_block_frames`, `tap_timeout_ms` | core |
@@ -155,8 +156,15 @@ Current option set (see examples/init.lua for defaults and ranges):
 | `gui_font_size`, `gui_vsync`, `gui_theme` | gui |
 | `gui_window_width`, `gui_window_height` | gui |
 
-Enum-typed options (`gui_theme`) read and write as strings; the spec table
-derives the valid-name list and its error message from the Zig enum.
+Enum-typed options (`gui_theme`, `preferred_frontend`) read and write as
+strings; the spec table derives the valid-name list and its error message
+from the Zig enum.
+
+`preferred_frontend` picks the frontend a flagless `wstudio` launch runs
+(`--tui`/`--gui` always win, as does a build carrying only one frontend).
+Because init.lua itself decides the frontend on such a launch,
+`wstudio.frontend` still reads `"tui"` while init.lua runs flagless; it is
+corrected before ConfigDone fires.
 
 Project-level values (tempo of the open project, etc.) are **not** options;
 they are engine state, reached through `wstudio.api`. Options are

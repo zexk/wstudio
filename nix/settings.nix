@@ -18,6 +18,16 @@ let
 in
 {
   options = {
+    preferred_frontend = mkOption {
+      type = types.nullOr (
+        types.enum [
+          "tui"
+          "gui"
+        ]
+      );
+      default = null;
+      description = "Frontend a flagless `wstudio` launch runs. --tui/--gui always win.";
+    };
     default_tempo = rangedNumber 20 999 "Tempo of new projects, in BPM.";
     default_sample_rate = rangedInt 8000 192000 "Sample rate of new projects, in Hz.";
     default_beats_per_bar = rangedInt 1 16 "Beats per bar of new projects.";

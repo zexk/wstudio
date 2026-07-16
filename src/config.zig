@@ -22,6 +22,7 @@ const system_config_path = "/etc/xdg/wstudio/init.lua";
 pub const GuiTheme = enum { patina, patina_light, graphite, umbra };
 
 pub const Config = struct {
+    preferred_frontend: Frontend = .tui,
     default_tempo: f64 = 120.0,
     default_sample_rate: u32 = 48_000,
     default_beats_per_bar: u8 = 4,
@@ -59,6 +60,7 @@ const OptionSpec = struct {
 /// validation all derive from this table; adding an option is one row here
 /// plus its `Config` field.
 const option_specs = [_]OptionSpec{
+    .{ .name = "preferred_frontend" },
     .{ .name = "default_tempo", .min = 20, .max = 999 },
     .{ .name = "default_sample_rate", .min = 8000, .max = 192000 },
     .{ .name = "default_beats_per_bar", .min = 1, .max = 16 },
@@ -298,6 +300,21 @@ pub const Runtime = struct {
 
     pub fn deinit(self: *Runtime) void {
         c.lua_close(self.state);
+    }
+
+    /// Launching without a frontend flag resolves the frontend from
+    /// `wstudio.o.preferred_frontend` *after* init.lua ran, so the runtime
+    /// starts provisional and is corrected here. Updates `wstudio.frontend`
+    /// too, so ConfigDone autocmds and later callbacks see the truth;
+    /// init.lua itself sees the provisional value (documented).
+    pub fn setFrontend(self: *Runtime, frontend: Frontend) void {
+        self.frontend = frontend;
+        const l = self.state;
+        if (c.lua_getglobal(l, "wstudio") == c.LUA_TTABLE) {
+            _ = c.lua_pushstring(l, @tagName(frontend));
+            c.lua_setfield(l, -2, "frontend");
+        }
+        c.lua_settop(l, -2);
     }
 
     /// Point the Lua hooks at a live frontend and flush any `wstudio.cmd`
@@ -1390,6 +1407,17 @@ test "Lua API round 2 options set and read" {
 test "wstudio.frontend reports the active frontend" {
     var rt = try Runtime.init(.gui);
     defer rt.deinit();
+    try rt.loadString("assert(wstudio.frontend == 'gui')");
+}
+
+test "preferred_frontend option and setFrontend correction" {
+    var rt = try Runtime.init(.tui);
+    defer rt.deinit();
+    try rt.loadString("assert(wstudio.o.preferred_frontend == 'tui'); wstudio.o.preferred_frontend = 'gui'");
+    try std.testing.expectEqual(Frontend.gui, rt.config.preferred_frontend);
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.o.preferred_frontend = 'web'"));
+    rt.setFrontend(rt.config.preferred_frontend);
+    try std.testing.expectEqual(Frontend.gui, rt.frontend);
     try rt.loadString("assert(wstudio.frontend == 'gui')");
 }
 

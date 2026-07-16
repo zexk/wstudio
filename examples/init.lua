@@ -26,6 +26,12 @@
 -- only affect that frontend; setting them in the other is harmless, so one
 -- config serves both.
 
+-- Which frontend `wstudio` (no --tui/--gui flag) launches: "tui" or "gui".
+-- An explicit flag always wins. Note this file runs before the frontend is
+-- chosen on a flagless launch, so wstudio.frontend still reads "tui" here;
+-- it is corrected before ConfigDone fires.
+-- wstudio.o.preferred_frontend = "tui"
+
 -- Tempo of new (blank) projects, in BPM. Range 20-999.
 -- wstudio.o.default_tempo = 120
 

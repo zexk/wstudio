@@ -1,5 +1,6 @@
-//! Executable entry point. `wstudio` launches the TUI, `wstudio --gui`
-//! launches the GUI, and `wstudio render` runs the
+//! Executable entry point. `wstudio` launches the frontend picked by
+//! init.lua's `wstudio.o.preferred_frontend` (default: TUI), `--tui` and
+//! `--gui` force one, and `wstudio render` runs the
 //! offline pipeline demo: keystrokes -> modal input -> note events ->
 //! synth -> compressor -> delay -> reverb, bounced to a WAV.
 
@@ -34,28 +35,57 @@ pub fn main(init: std.process.Init) !void {
         if (std.mem.eql(u8, cmd, "render")) return renderDemo(init.gpa, init.io);
         if (std.mem.eql(u8, cmd, "--version") or std.mem.eql(u8, cmd, "-v")) return printVersion(init.io);
         if (std.mem.eql(u8, cmd, "--help") or std.mem.eql(u8, cmd, "-h")) return printHelp(init.io);
-        if (std.mem.eql(u8, cmd, "--gui")) {
-            if (!build_options.gui) return frontendDisabled(init.io, "GUI");
-            var runtime = try config_mod.Runtime.init(.gui);
-            defer runtime.deinit();
-            // A broken init.lua reports (see Runtime.luaError) and falls
-            // back to defaults - it must never prevent startup.
-            _ = runtime.loadUserConfig(init.io) catch false;
-            return @import("gui/main.zig").run(init, args.next(), &runtime);
-        }
-        if (!build_options.tui) return frontendDisabled(init.io, "TUI");
-        const init_path = try dupeInitPath(init.gpa, cmd);
-        defer init.gpa.free(init_path);
-        var runtime = try config_mod.Runtime.init(.tui);
-        defer runtime.deinit();
-        _ = runtime.loadUserConfig(init.io) catch false;
-        return @import("tui/app.zig").run(init.gpa, init.io, init_path, &runtime);
+        if (std.mem.eql(u8, cmd, "--gui")) return runFrontend(init, .gui, args.next());
+        if (std.mem.eql(u8, cmd, "--tui")) return runFrontend(init, .tui, args.next());
+        return runPreferred(init, cmd);
     }
-    if (!build_options.tui) return frontendDisabled(init.io, "TUI");
+    return runPreferred(init, null);
+}
+
+/// Launch an explicitly requested frontend, erroring if it was disabled at
+/// build time.
+fn runFrontend(init: std.process.Init, frontend: config_mod.Frontend, path: ?[]const u8) !void {
+    switch (frontend) {
+        .gui => if (!build_options.gui) return frontendDisabled(init.io, "GUI"),
+        .tui => if (!build_options.tui) return frontendDisabled(init.io, "TUI"),
+    }
+    var runtime = try config_mod.Runtime.init(frontend);
+    defer runtime.deinit();
+    // A broken init.lua reports (see Runtime.luaError) and falls back to
+    // defaults - it must never prevent startup.
+    _ = runtime.loadUserConfig(init.io) catch false;
+    return startFrontend(init, frontend, path, &runtime);
+}
+
+/// No frontend flag: init.lua's `wstudio.o.preferred_frontend` picks the
+/// frontend, constrained to what this build carries. The runtime starts
+/// provisional on the single-flavor default (config still has to load to
+/// read the option), then `setFrontend` corrects it before launch.
+fn runPreferred(init: std.process.Init, path: ?[]const u8) !void {
+    if (!build_options.tui and !build_options.gui) return frontendDisabled(init.io, "TUI");
+    if (!build_options.tui) return runFrontend(init, .gui, path);
+    if (!build_options.gui) return runFrontend(init, .tui, path);
     var runtime = try config_mod.Runtime.init(.tui);
     defer runtime.deinit();
     _ = runtime.loadUserConfig(init.io) catch false;
-    return @import("tui/app.zig").run(init.gpa, init.io, null, &runtime);
+    const frontend = runtime.config.preferred_frontend;
+    runtime.setFrontend(frontend);
+    return startFrontend(init, frontend, path, &runtime);
+}
+
+/// The `build_options` guards are comptime-known, so a disabled frontend's
+/// module is never analyzed (callers already ruled the branch out).
+fn startFrontend(init: std.process.Init, frontend: config_mod.Frontend, path: ?[]const u8, runtime: *config_mod.Runtime) !void {
+    switch (frontend) {
+        .gui => if (build_options.gui) {
+            return @import("gui/main.zig").run(init, path, runtime);
+        } else unreachable,
+        .tui => if (build_options.tui) {
+            const init_path: ?[]u8 = if (path) |p| try dupeInitPath(init.gpa, p) else null;
+            defer if (init_path) |p| init.gpa.free(p);
+            return @import("tui/app.zig").run(init.gpa, init.io, init_path, runtime);
+        } else unreachable,
+    }
 }
 
 fn frontendDisabled(io: std.Io, name: []const u8) !void {
@@ -87,7 +117,9 @@ fn printHelp(io: std.Io) !void {
     try stdout.print(
         "wstudio {s} - digital audio workstation\n\n" ++
             "Usage:\n" ++
-            "  wstudio [path]      Launch the TUI, optionally opening a .wsj project\n" ++
+            "  wstudio [path]      Launch the preferred frontend (wstudio.o.preferred_frontend,\n" ++
+            "                      default tui), optionally opening a .wsj project\n" ++
+            "  wstudio --tui [path] Launch the TUI, optionally opening a .wsj project\n" ++
             "  wstudio --gui [path] Launch the GUI, optionally opening a .wsj project\n" ++
             "  wstudio render      Render the built-in demo melody to out.wav\n" ++
             "  wstudio --version   Print the version\n" ++
