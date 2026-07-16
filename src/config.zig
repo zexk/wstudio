@@ -259,6 +259,11 @@ pub const Runtime = struct {
     frontend: Frontend,
     config: Config = .{},
     host: ?Host = null,
+    /// The live App the `wstudio.api` project functions act on. Set by the
+    /// frontends alongside `attachHost`; null while init.lua runs, where
+    /// those functions raise (startup scripting belongs in a ConfigDone
+    /// autocmd or queued `wstudio.cmd` lines).
+    app: ?*tui_app.App = null,
     user_cmds: [max_user_cmds]UserCmd = undefined,
     user_cmds_len: usize = 0,
     keymaps: [max_keymaps]Keymap = undefined,
@@ -506,6 +511,26 @@ pub const Runtime = struct {
         c.lua_pushlightuserdata(self.state, self);
         c.lua_pushcclosure(self.state, delAutocmd, 1);
         c.lua_setfield(self.state, -2, "del_autocmd");
+        c.lua_pushlightuserdata(self.state, self);
+        c.lua_pushcclosure(self.state, notify, 1);
+        c.lua_setfield(self.state, -2, "notify"); // wstudio.notify's core twin
+        const api_fns = [_]struct { name: [:0]const u8, func: c.lua_CFunction }{
+            .{ .name = "play", .func = apiPlay },
+            .{ .name = "stop", .func = apiStop },
+            .{ .name = "is_playing", .func = apiIsPlaying },
+            .{ .name = "get_tempo", .func = apiGetTempo },
+            .{ .name = "set_tempo", .func = apiSetTempo },
+            .{ .name = "track_count", .func = apiTrackCount },
+            .{ .name = "track_get", .func = apiTrackGet },
+            .{ .name = "track_set", .func = apiTrackSet },
+            .{ .name = "track_add", .func = apiTrackAdd },
+            .{ .name = "track_del", .func = apiTrackDel },
+        };
+        for (api_fns) |f| {
+            c.lua_pushlightuserdata(self.state, self);
+            c.lua_pushcclosure(self.state, f.func, 1);
+            c.lua_setfield(self.state, -2, f.name);
+        }
         c.lua_setfield(self.state, -2, "api");
         c.lua_setglobal(self.state, "wstudio");
     }
@@ -957,6 +982,169 @@ fn keymapDel(state: ?*c.lua_State) callconv(.c) c_int {
     return 0;
 }
 
+fn requireApp(l: *c.lua_State) *tui_app.App {
+    if (runtime(l).app) |app| return app;
+    _ = c.luaL_error(l, "no session yet - init.lua runs before the app starts; use a ConfigDone autocmd or wstudio.cmd");
+    unreachable;
+}
+
+/// 1-based Lua track index -> 0-based internal index; 0 means the track
+/// under the cursor (the API's "current" convention).
+fn checkTrackIndex(l: *c.lua_State, arg: c_int, app: *tui_app.App) usize {
+    const n = c.luaL_checkinteger(l, arg);
+    const count = app.session.project.tracks.items.len;
+    if (n == 0) {
+        if (app.cursor < count) return app.cursor;
+        _ = c.luaL_error(l, "the cursor is not on a track");
+        unreachable;
+    }
+    if (n < 1 or n > count) {
+        _ = c.luaL_error(l, "track index out of range (1-%d)", @as(c_int, @intCast(count)));
+        unreachable;
+    }
+    return @intCast(n - 1);
+}
+
+fn apiPlay(state: ?*c.lua_State) callconv(.c) c_int {
+    requireApp(state.?).apiPlay();
+    return 0;
+}
+
+fn apiStop(state: ?*c.lua_State) callconv(.c) c_int {
+    requireApp(state.?).apiStop();
+    return 0;
+}
+
+fn apiIsPlaying(state: ?*c.lua_State) callconv(.c) c_int {
+    const l = state.?;
+    c.lua_pushboolean(l, @intFromBool(requireApp(l).apiIsPlaying()));
+    return 1;
+}
+
+fn apiGetTempo(state: ?*c.lua_State) callconv(.c) c_int {
+    const l = state.?;
+    c.lua_pushnumber(l, requireApp(l).apiGetTempo());
+    return 1;
+}
+
+fn apiSetTempo(state: ?*c.lua_State) callconv(.c) c_int {
+    const l = state.?;
+    const app = requireApp(l);
+    const bpm = c.luaL_checknumber(l, 1);
+    if (!app.apiSetTempo(bpm)) return c.luaL_error(l, "tempo must be between 20 and 400");
+    return 0;
+}
+
+fn apiTrackCount(state: ?*c.lua_State) callconv(.c) c_int {
+    const l = state.?;
+    c.lua_pushinteger(l, @intCast(requireApp(l).session.project.tracks.items.len));
+    return 1;
+}
+
+fn apiTrackGet(state: ?*c.lua_State) callconv(.c) c_int {
+    const l = state.?;
+    const app = requireApp(l);
+    const idx = checkTrackIndex(l, 1, app);
+    const info = app.apiTrackInfo(idx);
+    c.lua_createtable(l, 0, 7);
+    _ = c.lua_pushlstring(l, info.name.ptr, info.name.len);
+    c.lua_setfield(l, -2, "name");
+    _ = c.lua_pushlstring(l, info.kind.ptr, info.kind.len);
+    c.lua_setfield(l, -2, "kind");
+    c.lua_pushnumber(l, info.gain_db);
+    c.lua_setfield(l, -2, "gain_db");
+    c.lua_pushnumber(l, info.pan);
+    c.lua_setfield(l, -2, "pan");
+    c.lua_pushboolean(l, @intFromBool(info.muted));
+    c.lua_setfield(l, -2, "muted");
+    c.lua_pushboolean(l, @intFromBool(info.soloed));
+    c.lua_setfield(l, -2, "soloed");
+    if (info.group) |g| {
+        c.lua_pushinteger(l, g);
+        c.lua_setfield(l, -2, "group");
+    }
+    return 1;
+}
+
+/// `wstudio.api.track_set(i, { gain_db = -3, muted = true, ... })` - each
+/// named field applies through the same path the equivalent UI gesture
+/// takes; unknown fields are a loud error (docs/lua-api.md).
+fn apiTrackSet(state: ?*c.lua_State) callconv(.c) c_int {
+    const l = state.?;
+    const app = requireApp(l);
+    const idx = checkTrackIndex(l, 1, app);
+    c.luaL_checktype(l, 2, c.LUA_TTABLE);
+    c.lua_pushnil(l);
+    while (c.lua_next(l, 2) != 0) {
+        if (c.lua_type(l, -2) != c.LUA_TSTRING) return c.luaL_error(l, "track_set keys must be strings");
+        const key = std.mem.span(c.lua_tolstring(l, -2, null));
+        if (std.mem.eql(u8, key, "gain_db")) {
+            if (c.lua_isnumber(l, -1) == 0) return c.luaL_error(l, "gain_db must be a number");
+            app.apiSetTrackGainDb(idx, @floatCast(c.lua_tonumberx(l, -1, null)));
+        } else if (std.mem.eql(u8, key, "pan")) {
+            if (c.lua_isnumber(l, -1) == 0) return c.luaL_error(l, "pan must be a number");
+            app.apiSetTrackPan(idx, @floatCast(c.lua_tonumberx(l, -1, null)));
+        } else if (std.mem.eql(u8, key, "muted")) {
+            if (c.lua_type(l, -1) != c.LUA_TBOOLEAN) return c.luaL_error(l, "muted must be a boolean");
+            app.apiSetTrackMuted(idx, c.lua_toboolean(l, -1) != 0);
+        } else if (std.mem.eql(u8, key, "soloed")) {
+            if (c.lua_type(l, -1) != c.LUA_TBOOLEAN) return c.luaL_error(l, "soloed must be a boolean");
+            app.apiSetTrackSoloed(idx, c.lua_toboolean(l, -1) != 0);
+        } else if (std.mem.eql(u8, key, "name")) {
+            if (c.lua_type(l, -1) != c.LUA_TSTRING) return c.luaL_error(l, "name must be a string");
+            var len: usize = 0;
+            const s = c.lua_tolstring(l, -1, &len);
+            if (!app.apiRenameTrack(idx, s[0..len])) return c.luaL_error(l, "rename failed");
+        } else {
+            return c.luaL_error(l, "unknown track field '%s'", c.lua_tolstring(l, -2, null));
+        }
+        c.lua_settop(l, -2); // pop the value, keep the key for lua_next
+    }
+    return 0;
+}
+
+fn apiTrackAdd(state: ?*c.lua_State) callconv(.c) c_int {
+    const l = state.?;
+    const app = requireApp(l);
+    var kind: @import("wstudio").InstrumentKind = .poly_synth;
+    var name: ?[]const u8 = null;
+    if (c.lua_gettop(l) >= 1 and c.lua_type(l, 1) != c.LUA_TNIL) {
+        c.luaL_checktype(l, 1, c.LUA_TTABLE);
+        switch (c.lua_getfield(l, 1, "kind")) {
+            c.LUA_TNIL => {},
+            c.LUA_TSTRING => {
+                const s = std.mem.span(c.lua_tolstring(l, -1, null));
+                kind = tui_app.apiKindFromName(s) orelse
+                    return c.luaL_error(l, "unknown kind (synth, drum, sampler, slicer)");
+            },
+            else => return c.luaL_error(l, "kind must be a string"),
+        }
+        c.lua_settop(l, -2);
+        // The name string stays on the Lua stack until the call below so
+        // the slice can't be collected out from under it.
+        switch (c.lua_getfield(l, 1, "name")) {
+            c.LUA_TNIL => {},
+            c.LUA_TSTRING => {
+                var len: usize = 0;
+                const s = c.lua_tolstring(l, -1, &len);
+                name = s[0..len];
+            },
+            else => return c.luaL_error(l, "name must be a string"),
+        }
+    }
+    const idx = app.apiTrackAdd(kind, name) orelse return c.luaL_error(l, "track limit reached");
+    c.lua_pushinteger(l, @intCast(idx + 1));
+    return 1;
+}
+
+fn apiTrackDel(state: ?*c.lua_State) callconv(.c) c_int {
+    const l = state.?;
+    const app = requireApp(l);
+    const idx = checkTrackIndex(l, 1, app);
+    if (!app.apiTrackDel(idx)) return c.luaL_error(l, "cannot delete the last track");
+    return 0;
+}
+
 /// `wstudio.api.create_autocmd(event|{events}, { callback, once? })` ->
 /// integer id for del_autocmd. Neovim's shape minus patterns and groups.
 /// The registry ref is taken last so a validation longjmp can't leak it.
@@ -1294,4 +1482,11 @@ test "wstudio.notify reaches the attached host" {
     rt.attachHost(th.host());
     try rt.loadString("wstudio.notify('hello')");
     try std.testing.expectEqualStrings("notify:hello\n", th.log[0..th.len]);
+}
+
+test "api project functions raise before a session attaches" {
+    var rt = try Runtime.init(.tui);
+    defer rt.deinit();
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.play()"));
+    try rt.loadString("local ok, err = pcall(wstudio.api.track_count); assert(ok == false and err:find('no session') ~= nil)");
 }

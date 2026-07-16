@@ -383,8 +383,12 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
     // queued lines may invoke them.
     app.core.lua_runtime = runtime;
     app.core.rebuildCmdTable();
+    runtime.app = &app.core;
     runtime.attachHost(tui_app.luaHost(&app.core));
-    defer runtime.host = null;
+    defer {
+        runtime.host = null;
+        runtime.app = null;
+    }
     // A project opened on the command line loaded before the runtime
     // attached, so its event fires here, right after ConfigDone.
     if (app.core.projectPath()) |p| app.core.emitEvent(.{ .ProjectLoadPost = .{ .path = p } });

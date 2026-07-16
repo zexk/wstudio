@@ -283,6 +283,9 @@ Design decisions:
   a loud error.
 - **`kind` strings** match the `cmd.Scope` names already user-visible in
   `:help`: `"synth"`, `"drum"`, `"sampler"`, `"slicer"`.
+- **These functions need a live session.** During init.lua they raise;
+  startup scripting belongs in a `ConfigDone` autocmd (or queued
+  `wstudio.cmd` lines), after which the full surface is available.
 - Deeper surface (clips, notes, FX chains, automation) is deliberately
   deferred. Each will follow the same pattern (`clip_get(track, i)`,
   `fx_add(track, kind)`), but designing them before anyone scripts them
@@ -316,7 +319,7 @@ Design decisions:
 5. **Events (shipped).** Registry, core emission points, the initial event
    table. ViewEnter and PlaybackStart/Stop are watched at the frame
    boundary (`tick`) rather than instrumented at every assignment site.
-6. **Project API.** Transport and track functions above.
+6. **Project API (shipped).** Transport and track functions above.
 7. **Parked.** RPC server over `wstudio.api`, API metadata, clips/notes/FX
    surface, stable track ids, timers/async.
 

@@ -5546,3 +5546,48 @@ test "Lua autocmds fire from core emission points" {
     commands.run(&app, "write nowhere.wsj");
     try rt.loadString("assert(log[6] == 'ProjectSavePre:nowhere.wsj', log[6]); assert(#log == 6)");
 }
+
+test "wstudio.api transport and track surface" {
+    var app = try testApp();
+    defer app.deinit();
+    var rt = try @import("../config.zig").Runtime.init(.tui);
+    defer rt.deinit();
+    rt.app = &app;
+    app.lua_runtime = &rt;
+
+    // Transport: play/stop route through the engine command queue, so the
+    // snapshot flips once the (test-driven) process call drains it.
+    var block: [64]ws.types.Sample = undefined;
+    try rt.loadString("assert(wstudio.api.is_playing() == false); wstudio.api.play()");
+    app.session.engine.process(&block);
+    try rt.loadString("assert(wstudio.api.is_playing() == true); wstudio.api.stop()");
+    app.session.engine.process(&block);
+    try rt.loadString("assert(wstudio.api.is_playing() == false)");
+    try rt.loadString("assert(wstudio.api.get_tempo() == 120); wstudio.api.set_tempo(93); assert(wstudio.api.get_tempo() == 93)");
+    try std.testing.expectEqual(@as(f64, 93), app.session.project.tempo_bpm);
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.set_tempo(1000)"));
+
+    // track_get reads the control-side mirror; 0 means the cursor track.
+    try rt.loadString("assert(wstudio.api.track_count() == 3)");
+    try rt.loadString("t = wstudio.api.track_get(2); assert(t.name == 'samp' and t.kind == 'sampler' and t.muted == false and t.group == nil)");
+    app.cursor = 2;
+    try rt.loadString("t = wstudio.api.track_get(0); assert(t.name == 'drums' and t.kind == 'drum')");
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.track_get(99)"));
+
+    // track_set applies each field through the UI's own paths (pan clamps).
+    try rt.loadString("wstudio.api.track_set(1, { gain_db = -6, pan = -1.5, muted = true, soloed = true, name = 'bass' })");
+    const t = app.session.project.tracks.items[0];
+    try std.testing.expectApproxEqAbs(@as(f32, -6), t.gain_db, 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, -1), t.pan, 1e-6);
+    try std.testing.expect(t.muted and t.soloed);
+    try std.testing.expectEqualStrings("bass", t.name);
+    try rt.loadString("assert(wstudio.api.track_get(1).gain_db == -6.0)");
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.track_set(1, { bogus = 1 })"));
+
+    // track_add returns the new 1-based index with the instrument applied;
+    // track_del removes it again.
+    try rt.loadString("i = wstudio.api.track_add({ kind = 'drum', name = 'beats' })");
+    try rt.loadString("t = wstudio.api.track_get(i); assert(t.kind == 'drum' and t.name == 'beats')");
+    try rt.loadString("n = wstudio.api.track_count(); wstudio.api.track_del(i); assert(wstudio.api.track_count() == n - 1)");
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.track_add({ kind = 'nope' })"));
+}

@@ -833,6 +833,119 @@ pub const App = struct {
         if (self.lua_runtime) |rt| rt.emit(data);
     }
 
+    // ------------------------------------------------------------------
+    // wstudio.api surface (docs/lua-api.md phase 6). Validated entry points
+    // for the Lua runtime - each mirrors the exact code path the equivalent
+    // UI gesture takes, so scripts and keys can't diverge. Writes go
+    // through the same engine.send commands, reads hit the control-side
+    // project mirror.
+
+    pub fn apiIsPlaying(self: *App) bool {
+        return self.session.engine.uiSnapshot().playing;
+    }
+
+    pub fn apiPlay(self: *App) void {
+        _ = self.session.engine.send(.play);
+    }
+
+    pub fn apiStop(self: *App) void {
+        _ = self.session.engine.send(.stop);
+    }
+
+    pub fn apiGetTempo(self: *const App) f64 {
+        return self.session.project.tempo_bpm;
+    }
+
+    /// False when out of the :bpm command's 20-400 range (or not finite).
+    pub fn apiSetTempo(self: *App, bpm: f64) bool {
+        if (!std.math.isFinite(bpm) or bpm < 20.0 or bpm > 400.0) return false;
+        self.session.project.tempo_bpm = bpm;
+        _ = self.session.engine.send(.{ .set_tempo = bpm });
+        // The loop region is stored in bars; its frame mirror just moved.
+        self.session.syncLoop();
+        self.dirty = true;
+        return true;
+    }
+
+    pub const ApiTrackInfo = struct {
+        name: []const u8,
+        kind: []const u8,
+        gain_db: f32,
+        pan: f32,
+        muted: bool,
+        soloed: bool,
+        /// 1-based for Lua, like track indices.
+        group: ?u8,
+    };
+
+    pub fn apiTrackInfo(self: *const App, idx: usize) ApiTrackInfo {
+        const t = self.session.project.tracks.items[idx];
+        return .{
+            .name = t.name,
+            .kind = apiKindName(std.meta.activeTag(self.session.racks.items[idx].instrument)),
+            .gain_db = t.gain_db,
+            .pan = t.pan,
+            .muted = t.muted,
+            .soloed = t.soloed,
+            .group = if (t.group) |g| g + 1 else null,
+        };
+    }
+
+    pub fn apiSetTrackGainDb(self: *App, idx: usize, db: f32) void {
+        const t = &self.session.project.tracks.items[idx];
+        t.gain_db = std.math.clamp(db, -60.0, 12.0);
+        self.dirty = true;
+        _ = self.session.engine.send(.{ .set_track_gain = .{ .track = @intCast(idx), .gain = types.dbToGain(t.gain_db) } });
+    }
+
+    pub fn apiSetTrackPan(self: *App, idx: usize, pan: f32) void {
+        const t = &self.session.project.tracks.items[idx];
+        t.pan = std.math.clamp(pan, -1.0, 1.0);
+        self.dirty = true;
+        _ = self.session.engine.send(.{ .set_track_pan = .{ .track = @intCast(idx), .pan = t.pan } });
+    }
+
+    pub fn apiSetTrackMuted(self: *App, idx: usize, muted: bool) void {
+        const t = &self.session.project.tracks.items[idx];
+        t.muted = muted;
+        self.dirty = true;
+        _ = self.session.engine.send(.{ .set_track_mute = .{ .track = @intCast(idx), .muted = muted } });
+    }
+
+    pub fn apiSetTrackSoloed(self: *App, idx: usize, soloed: bool) void {
+        const t = &self.session.project.tracks.items[idx];
+        t.soloed = soloed;
+        self.dirty = true;
+        _ = self.session.engine.send(.{ .set_track_solo = .{ .track = @intCast(idx), .soloed = soloed } });
+    }
+
+    pub fn apiRenameTrack(self: *App, idx: usize, name: []const u8) bool {
+        self.session.project.renameTrack(idx, name) catch return false;
+        self.dirty = true;
+        return true;
+    }
+
+    /// Null when the track limit is hit. Reuses doTrackAdd for insert
+    /// position, undo remapping, and the TrackAdd event; the instrument is
+    /// set right after (so a TrackAdd callback still sees kind "empty").
+    pub fn apiTrackAdd(self: *App, kind: ws.InstrumentKind, name: ?[]const u8) ?usize {
+        const before = self.session.project.tracks.items.len;
+        self.doTrackAdd(name);
+        if (self.session.project.tracks.items.len == before) return null;
+        const idx = self.cursor;
+        if (kind != .empty) self.session.setInstrument(idx, kind) catch {
+            self.setStatus("out of memory setting instrument", .{});
+        };
+        return idx;
+    }
+
+    /// False when the delete was refused (the last remaining track).
+    pub fn apiTrackDel(self: *App, idx: usize) bool {
+        const before = self.session.project.tracks.items.len;
+        self.doTrackDel(idx);
+        return self.session.project.tracks.items.len < before;
+    }
+
     fn handleKeyBuiltin(self: *App, key_in: modal_mod.Key, now_ns: i96) void {
         self.now_ns = now_ns;
         if (key_in == .ctrl_c) {
@@ -3413,6 +3526,29 @@ const user_cmd_runners: [config_mod.max_user_cmds]*const fn (*anyopaque, []const
     break :blk fns;
 };
 
+/// Lua-facing instrument kind names - the same ones `cmd.Scope` and the
+/// design doc use ("synth" not "poly_synth", "drum" not "drum_machine").
+pub fn apiKindName(kind: ws.InstrumentKind) []const u8 {
+    return switch (kind) {
+        .empty => "empty",
+        .poly_synth => "synth",
+        .sampler => "sampler",
+        .drum_machine => "drum",
+        .slicer => "slicer",
+    };
+}
+
+/// Inverse of `apiKindName` for `track_add`'s opts.kind ("empty" is not
+/// creatable on purpose - an empty track is the no-opts default state, not
+/// something a script should ask for by name).
+pub fn apiKindFromName(name: []const u8) ?ws.InstrumentKind {
+    if (std.mem.eql(u8, name, "synth")) return .poly_synth;
+    if (std.mem.eql(u8, name, "sampler")) return .sampler;
+    if (std.mem.eql(u8, name, "drum")) return .drum_machine;
+    if (std.mem.eql(u8, name, "slicer")) return .slicer;
+    return null;
+}
+
 fn userCmdRunner(comptime index: usize) *const fn (*anyopaque, []const u8) void {
     return struct {
         fn call(ctx: *anyopaque, args: []const u8) void {
@@ -3495,8 +3631,12 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8, run
     // queued lines may invoke them.
     app.lua_runtime = runtime;
     app.rebuildCmdTable();
+    runtime.app = &app;
     runtime.attachHost(luaHost(&app));
-    defer runtime.host = null;
+    defer {
+        runtime.host = null;
+        runtime.app = null;
+    }
     // A project opened on the command line loaded before the runtime
     // attached, so its event fires here, right after ConfigDone.
     if (app.projectPath()) |p| app.emitEvent(.{ .ProjectLoadPost = .{ .path = p } });
