@@ -7,9 +7,12 @@ const ws = @import("wstudio");
 const tui_app = @import("../tui/app.zig");
 const tui_cmd = @import("../tui/cmd.zig");
 const tui_commands = @import("../tui/commands.zig");
-const spectrum_ed = @import("../tui/editors/spectrum.zig");
 const gui_style = @import("style.zig");
+const automation_view = @import("views/automation.zig");
+const file_browser_view = @import("views/file_browser.zig");
 const fx_view = @import("views/fx.zig");
+const help_view = @import("views/help.zig");
+const picker_view = @import("views/picker.zig");
 const sampler_view = @import("views/sampler.zig");
 const slicer_view = @import("views/slicer.zig");
 const step_grid = @import("views/step_grid.zig");
@@ -574,13 +577,13 @@ fn drawWorkspace(app: *App) void {
             .synth_editor => drawSynth(app),
             .sampler_editor => sampler_view.draw(app),
             .track_spectrum, .master_spectrum, .group_spectrum => fx_view.draw(app),
-            .automation => drawAutomation(app),
-            .instrument_picker => drawInstrumentPicker(app),
-            .fx_picker, .synth_fx_picker => drawFxPicker(app),
-            .preset_picker => drawPresetPicker(app),
-            .automation_param_picker => drawAutomation(app),
-            .file_browser => drawFileBrowser(app),
-            .help => drawHelp(app),
+            .automation => automation_view.draw(app),
+            .instrument_picker => picker_view.drawInstrument(app),
+            .fx_picker, .synth_fx_picker => picker_view.drawFx(app),
+            .preset_picker => picker_view.drawPreset(app),
+            .automation_param_picker => automation_view.draw(app),
+            .file_browser => file_browser_view.draw(app),
+            .help => help_view.draw(app),
         }
     }
     zgui.end();
@@ -612,9 +615,9 @@ fn drawPickerPopup(app: *App) void {
         zgui.textColored(umbra.fg3, "SELECT A RESULT   ESC TO CLOSE", .{});
         zgui.separator();
         switch (app.core.view) {
-            .instrument_picker => drawInstrumentPicker(app),
-            .fx_picker => drawFxPicker(app),
-            .preset_picker => drawPresetPicker(app),
+            .instrument_picker => picker_view.drawInstrument(app),
+            .fx_picker => picker_view.drawFx(app),
+            .preset_picker => picker_view.drawPreset(app),
             else => unreachable,
         }
         zgui.endPopup();
@@ -1229,169 +1232,6 @@ fn drawSynthParam(app: *App, synth: *ws.dsp.PolySynth, id: u8, label_text: []con
     if (zgui.sliderFloat(zlabel, .{ .v = &value, .min = param.range[0], .max = param.range[1], .cfmt = format })) {
         _ = app.core.session.engine.send(.{ .set_track_param_abs = .{ .track = @intCast(app.core.cursor), .id = id, .value = value } });
     }
-}
-
-fn drawAutomation(app: *App) void {
-    zgui.textDisabled("AUTOMATION", .{});
-    const lane = if (app.core.cursor < app.core.session.arrangement.lanes.items.len) &app.core.session.arrangement.lanes.items[app.core.cursor] else null;
-    if (lane == null or lane.?.clips.items.len == 0) {
-        zgui.textDisabled("Place a clip in the arrangement to edit its automation.", .{});
-        return;
-    }
-    app.automation_clip = @min(app.automation_clip, lane.?.clips.items.len - 1);
-    for (lane.?.clips.items, 0..) |clip, i| {
-        var label_buf: [64]u8 = undefined;
-        const label = std.fmt.bufPrintZ(&label_buf, "Clip {d}##auto-clip-{d}", .{ i + 1, i }) catch continue;
-        if (zgui.selectable(label, .{ .selected = app.automation_clip == i, .w = 100 })) app.automation_clip = i;
-        zgui.sameLine(.{});
-        zgui.textDisabled("tick {d}, length {d}", .{ clip.start_tick, clip.length_ticks });
-    }
-    const clip = &lane.?.clips.items[app.automation_clip];
-    zgui.separator();
-    if (zgui.button("Gain", .{})) app.automation_target = .gain;
-    zgui.sameLine(.{});
-    if (zgui.button("Pan", .{})) app.automation_target = .pan;
-    zgui.sameLine(.{});
-    zgui.text("Editing {s}", .{@tagName(app.automation_target)});
-
-    const length_beats: f32 = @floatCast(ws.time_grid.tickToBeat(clip.length_ticks));
-    _ = zgui.sliderFloat("Beat", .{ .v = &app.automation_beat, .min = 0, .max = @max(0.25, length_beats), .cfmt = "%.2f" });
-    const value_range: [2]f32 = if (app.automation_target == .gain) .{ -60, 12 } else .{ -1, 1 };
-    app.automation_value = std.math.clamp(app.automation_value, value_range[0], value_range[1]);
-    _ = zgui.sliderFloat("Value", .{ .v = &app.automation_value, .min = value_range[0], .max = value_range[1] });
-    const points: *[]ws.dsp.automation.AutomationPoint = switch (app.automation_target) {
-        .gain => &clip.automation.gain,
-        .pan => &clip.automation.pan,
-    };
-    if (zgui.button("Add / update point", .{})) {
-        ws.dsp.automation.setPoint(app.core.allocator, points, app.automation_beat, app.automation_value) catch {};
-        app.core.session.rebuildSongData();
-    }
-    zgui.sameLine(.{});
-    if (zgui.button("Delete point", .{})) {
-        if (ws.dsp.automation.removePoint(app.core.allocator, points, app.automation_beat)) app.core.session.rebuildSongData();
-    }
-    zgui.separatorText("Points");
-    for (points.*, 0..) |point, i| {
-        zgui.text("{d: >2}. beat {d:.2}   value {d:.3}", .{ i + 1, point.beat, point.value });
-    }
-}
-
-fn drawInstrumentPicker(app: *App) void {
-    zgui.textDisabled("INSTRUMENT PICKER", .{});
-    const entries = [_]struct { label: [:0]const u8, kind: ws.InstrumentKind }{
-        .{ .label = "Synth", .kind = .poly_synth },
-        .{ .label = "Sampler", .kind = .sampler },
-        .{ .label = "Drum Machine", .kind = .drum_machine },
-        .{ .label = "Slicer", .kind = .slicer },
-    };
-    zgui.textDisabled("j/k move   enter insert   esc cancel", .{});
-    for (entries, 0..) |entry, i| {
-        if (zgui.selectable(entry.label, .{ .selected = app.core.picker_cursor == i, .w = 240, .h = 42 })) {
-            app.core.picker_cursor = @intCast(i);
-            app.core.handleKey(.enter, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
-        }
-    }
-}
-
-fn drawFxPicker(app: *App) void {
-    zgui.textDisabled("FX PICKER", .{});
-    const rack = app.core.session.racks.items[app.core.cursor];
-    const kinds = std.meta.tags(ws.FxKind);
-    for (kinds, 0..) |kind, i| {
-        var label_buf: [48]u8 = undefined;
-        const label = std.fmt.bufPrintZ(&label_buf, "{s}##fx-{d}", .{ @tagName(kind), i }) catch continue;
-        if (zgui.button(label, .{ .w = 180 })) {
-            switch (app.core.fx_picker_return) {
-                .track_spectrum, .master_spectrum, .group_spectrum => {
-                    spectrum_ed.insertFromPicker(&app.core, kind);
-                    app.closePicker(app.core.view);
-                },
-                else => {
-                    _ = rack.fx.insert(app.core.session.allocator, rack.fx.units.items.len, kind, app.core.session.project.sample_rate) catch continue;
-                    app.core.session.syncTrackChain(@intCast(app.core.cursor), rack);
-                    app.closePicker(.track_spectrum);
-                },
-            }
-        }
-        zgui.sameLine(.{});
-    }
-    zgui.newLine();
-}
-
-fn drawPresetPicker(app: *App) void {
-    zgui.textDisabled("SYNTH PRESET PICKER", .{});
-    const synth = switch (app.core.session.racks.items[app.core.cursor].instrument) {
-        .poly_synth => |*s| s,
-        else => {
-            zgui.textDisabled("Select a Synth track to use presets.", .{});
-            return;
-        },
-    };
-    if (zgui.beginChild("presets", .{ .w = 0, .h = -1, .child_flags = .{ .border = true } })) {
-        for (ws.dsp.synth_presets.presets) |preset| {
-            var label_buf: [128]u8 = undefined;
-            const label = std.fmt.bufPrintZ(&label_buf, "{s}  [{s}]", .{ preset.name, preset.category }) catch continue;
-            if (zgui.selectable(label, .{})) {
-                _ = app.core.session.engine.send(.stop);
-                synth.applyPatch(preset.patch);
-                app.closePicker(.synth_editor);
-            }
-        }
-    }
-    zgui.endChild();
-}
-
-fn drawFileBrowser(app: *App) void {
-    zgui.textDisabled("FILE BROWSER", .{});
-    zgui.text("{s}", .{app.core.browser_dir});
-    zgui.textDisabled("j/k move   enter open   h parent   r refresh   esc back", .{});
-    zgui.separator();
-    if (zgui.beginChild("files", .{ .w = 0, .h = -1, .child_flags = .{ .border = true } })) {
-        for (app.core.browser_entries.items, 0..) |entry, i| {
-            var label_buf: [512]u8 = undefined;
-            const label = std.fmt.bufPrintZ(&label_buf, "{s} {s}", .{ if (entry.is_dir) "[DIR]" else "     ", entry.name }) catch continue;
-            if (zgui.selectable(label, .{ .selected = app.core.browser_cursor == i })) {
-                app.core.browser_cursor = i;
-                app.core.handleKey(.enter, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
-            }
-        }
-    }
-    zgui.endChild();
-}
-
-fn drawHelp(app: *App) void {
-    zgui.textDisabled("HELP / VIEW INDEX", .{});
-    const rows = [_]struct { key: []const u8, text: []const u8 }{
-        .{ .key = "Space", .text = "Play or stop" },
-        .{ .key = "j / k, arrows", .text = "Select track (accepts counts)" },
-        .{ .key = "gg / Home", .text = "Seek to start" },
-        .{ .key = "G / End", .text = "Seek to arrangement end" },
-        .{ .key = "m / S", .text = "Mute / solo selected track" },
-        .{ .key = "[ / ]", .text = "Master volume down / up (accepts counts)" },
-        .{ .key = "i / Esc", .text = "Enter / leave piano keyboard mode" },
-        .{ .key = "a..p, z / x", .text = "Play notes, octave down / up in insert mode" },
-        .{ .key = "? / F1", .text = "Show help" },
-        .{ .key = "Tracks", .text = "Track list and mixer state" },
-        .{ .key = "Arrange", .text = "Song clips by bar" },
-        .{ .key = "Piano", .text = "Melodic step editing" },
-        .{ .key = "Drums / Slicer", .text = "Step toggles" },
-        .{ .key = "Synth / Sampler", .text = "Instrument parameters" },
-        .{ .key = "FX", .text = "Chain, bypass, insert, and remove" },
-        .{ .key = "Scope", .text = "Master meters and chain" },
-        .{ .key = "Auto", .text = "Clip automation summary" },
-    };
-    for (rows) |row| {
-        zgui.textColored(umbra.mauve, "{s}", .{row.key});
-        zgui.sameLine(.{ .offset_from_start_x = 150 });
-        zgui.text("{s}", .{row.text});
-    }
-    zgui.separator();
-    if (zgui.button("Instrument picker", .{})) app.openPicker(.instrument_picker);
-    zgui.sameLine(.{});
-    if (zgui.button("Preset picker", .{})) app.openPicker(.preset_picker);
-    zgui.sameLine(.{});
-    if (zgui.button("File browser", .{})) app.core.view = .file_browser;
 }
 
 fn drawInspector(app: *App) void {
