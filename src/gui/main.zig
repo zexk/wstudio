@@ -19,6 +19,7 @@ const App = struct {
     held_notes: [piano_keys.len]?HeldNote = [_]?HeldNote{null} ** piano_keys.len,
     selected_track: usize = 0,
     view: View = .arrangement,
+    browser_selection: ?u8 = null,
     browser_dir: []u8 = &.{},
     browser_entries: std.ArrayListUnmanaged(BrowserEntry) = .empty,
     pending_project_path: ?[]u8 = null,
@@ -455,20 +456,47 @@ fn drawBrowser(app: *App) void {
     if (zgui.begin("Browser", .{ .flags = .{ .no_move = true, .no_resize = true, .no_collapse = true, .no_docking = true } })) {
         zgui.textDisabled("LIBRARY", .{});
         zgui.separator();
-        const entries = [_]struct { label: [:0]const u8, view: App.View }{
-            .{ .label = "Instruments", .view = .instrument_picker },
-            .{ .label = "Samples", .view = .file_browser },
-            .{ .label = "Drum Kits", .view = .drum_grid },
-            .{ .label = "Presets", .view = .preset_picker },
-            .{ .label = "Projects", .view = .file_browser },
+        const entries = [_]struct { label: []const u8, hint: []const u8, view: App.View, accent: [4]f32 }{
+            .{ .label = "Instruments", .hint = "Devices", .view = .instrument_picker, .accent = umbra.iris },
+            .{ .label = "Samples", .hint = "Audio files", .view = .file_browser, .accent = umbra.cyan },
+            .{ .label = "Drum Kits", .hint = "Patterns", .view = .drum_grid, .accent = umbra.yellow },
+            .{ .label = "Presets", .hint = "Saved sounds", .view = .preset_picker, .accent = umbra.mauve },
+            .{ .label = "Projects", .hint = "Songs on disk", .view = .file_browser, .accent = umbra.red },
         };
-        for (entries) |entry| if (zgui.selectable(entry.label, .{})) {
-            app.view = entry.view;
-        };
-        zgui.spacing();
-        zgui.textDisabled("Prototype: browsing lands next", .{});
+        for (entries, 0..) |entry, i| drawBrowserRow(app, entry.label, entry.hint, entry.view, entry.accent, @intCast(i));
     }
     zgui.end();
+}
+
+fn drawBrowserRow(app: *App, label: []const u8, hint: []const u8, view: App.View, accent: [4]f32, index: u8) void {
+    const height: f32 = 44;
+    const width = zgui.getContentRegionAvail()[0];
+    const origin = zgui.getCursorScreenPos();
+    var id_buf: [32]u8 = undefined;
+    const id = std.fmt.bufPrintZ(&id_buf, "browser-row-{d}", .{index}) catch return;
+    const clicked = zgui.invisibleButton(id, .{ .w = width, .h = height });
+    const hovered = zgui.isItemHovered(.{});
+    const selected = app.browser_selection == index and app.view == view;
+    const draw = zgui.getWindowDrawList();
+
+    if (selected or hovered) draw.addRectFilled(.{
+        .pmin = origin,
+        .pmax = .{ origin[0] + width, origin[1] + height },
+        .col = color(if (selected) umbra.bg3 else umbra.bg2),
+        .rounding = 3,
+    });
+    draw.addRectFilled(.{
+        .pmin = .{ origin[0] + 7, origin[1] + 9 },
+        .pmax = .{ origin[0] + 11, origin[1] + height - 9 },
+        .col = color(accent),
+        .rounding = 2,
+    });
+    draw.addText(.{ origin[0] + 22, origin[1] + 6 }, color(if (selected) umbra.fg0 else umbra.fg1), "{s}", .{label});
+    draw.addText(.{ origin[0] + 22, origin[1] + 23 }, color(umbra.fg3), "{s}", .{hint});
+    if (clicked) {
+        app.browser_selection = index;
+        app.view = view;
+    }
 }
 
 fn drawTracks(app: *App) void {
