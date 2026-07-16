@@ -19,6 +19,7 @@ const App = struct {
     browser_dir: []u8 = &.{},
     browser_entries: std.ArrayListUnmanaged(BrowserEntry) = .empty,
     pending_project_path: ?[]u8 = null,
+    arrangement_clip: ?struct { track: usize, clip: usize } = null,
     automation_clip: usize = 0,
     automation_target: AutomationTarget = .gain,
     automation_beat: f32 = 0,
@@ -411,40 +412,117 @@ fn drawTrackOverview(app: *App) void {
 
 fn drawArrangement(app: *App) void {
     zgui.textDisabled("ARRANGEMENT", .{});
-    zgui.spacing();
-    if (zgui.beginTable("arrangement", .{ .column = 9, .flags = .{ .borders = .inner, .row_bg = true }, .outer_size = .{ 0, -1 } })) {
-        defer zgui.endTable();
-        zgui.tableSetupColumn("Track", .{ .flags = .{ .width_fixed = true }, .init_width_or_height = 150 });
-        for (1..9) |bar| {
-            var buf: [8]u8 = undefined;
-            zgui.tableSetupColumn(std.fmt.bufPrintZ(&buf, "{d}", .{bar}) catch "?", .{});
+    const track_count = app.session.project.tracks.items.len;
+    const ticks_per_beat = ws.time_grid.ticks_per_beat;
+    const beats_per_bar: u32 = app.session.project.beats_per_bar;
+    const ticks_per_bar = ws.time_grid.barTicks(app.session.project.beats_per_bar);
+    const content_ticks = app.session.arrangement.lengthTicks();
+    const bar_count: u32 = @max(8, (content_ticks + ticks_per_bar - 1) / ticks_per_bar);
+    zgui.text("{d} tracks   {d} bars", .{ track_count, bar_count });
+    zgui.sameLine(.{ .spacing = 18 });
+    zgui.textDisabled("click a clip to select", .{});
+
+    const gutter_w: f32 = 132;
+    const ruler_h: f32 = 30;
+    const lane_h: f32 = 58;
+    const available = zgui.getContentRegionAvail();
+    const canvas_w = @max(420, available[0]);
+    const canvas_h = ruler_h + lane_h * @as(f32, @floatFromInt(track_count));
+    const origin = zgui.getCursorScreenPos();
+    const clicked = zgui.invisibleButton("arrangement-canvas", .{ .w = canvas_w, .h = canvas_h });
+    const hovered = zgui.isItemHovered(.{});
+    const mouse = zgui.getMousePos();
+    const draw = zgui.getWindowDrawList();
+    const timeline_x = origin[0] + gutter_w;
+    const timeline_w = canvas_w - gutter_w;
+    const total_beats: f32 = @floatFromInt(bar_count * beats_per_bar);
+    const beat_w = timeline_w / total_beats;
+
+    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + canvas_w, origin[1] + canvas_h }, .col = color(.{ 0.05, 0.06, 0.07, 1 }) });
+    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + canvas_w, origin[1] + ruler_h }, .col = color(.{ 0.085, 0.095, 0.11, 1 }) });
+
+    for (0..track_count) |ti| {
+        const y = origin[1] + ruler_h + @as(f32, @floatFromInt(ti)) * lane_h;
+        const selected = ti == app.selected_track;
+        draw.addRectFilled(.{ .pmin = .{ origin[0], y }, .pmax = .{ timeline_x, y + lane_h }, .col = color(if (selected) .{ 0.12, 0.17, 0.18, 1 } else .{ 0.075, 0.085, 0.095, 1 }) });
+        draw.addRectFilled(.{ .pmin = .{ timeline_x, y }, .pmax = .{ origin[0] + canvas_w, y + lane_h }, .col = color(if (selected) .{ 0.075, 0.095, 0.10, 1 } else if (ti % 2 == 0) .{ 0.065, 0.075, 0.085, 1 } else .{ 0.055, 0.065, 0.075, 1 }) });
+        draw.addText(.{ origin[0] + 10, y + 11 }, color(if (selected) .{ 0.75, 0.95, 0.88, 1 } else .{ 0.68, 0.70, 0.72, 1 }), "{d:0>2}  {s}", .{ ti + 1, app.session.project.tracks.items[ti].name });
+        draw.addText(.{ origin[0] + 34, y + 32 }, color(.{ 0.36, 0.39, 0.42, 1 }), "{s}", .{@tagName(app.session.project.tracks.items[ti].kind)});
+        draw.addLine(.{ .p1 = .{ origin[0], y + lane_h }, .p2 = .{ origin[0] + canvas_w, y + lane_h }, .col = color(.{ 0.13, 0.14, 0.16, 1 }), .thickness = 1 });
+    }
+
+    for (0..bar_count * beats_per_bar + 1) |beat_index| {
+        const x = timeline_x + @as(f32, @floatFromInt(beat_index)) * beat_w;
+        const on_bar = beat_index % beats_per_bar == 0;
+        draw.addLine(.{ .p1 = .{ x, if (on_bar) origin[1] else origin[1] + ruler_h }, .p2 = .{ x, origin[1] + canvas_h }, .col = color(if (on_bar) .{ 0.29, 0.32, 0.35, 1 } else .{ 0.12, 0.135, 0.15, 1 }), .thickness = if (on_bar) 1.5 else 1 });
+        if (on_bar and beat_index < bar_count * beats_per_bar) draw.addText(.{ x + 7, origin[1] + 7 }, color(.{ 0.64, 0.67, 0.70, 1 }), "{d}", .{beat_index / beats_per_bar + 1});
+    }
+
+    for (app.session.arrangement.lanes.items, 0..) |lane, ti| {
+        if (ti >= track_count) break;
+        const lane_y = origin[1] + ruler_h + @as(f32, @floatFromInt(ti)) * lane_h;
+        for (lane.clips.items, 0..) |clip, ci| {
+            const x = timeline_x + @as(f32, @floatFromInt(clip.start_tick)) / @as(f32, @floatFromInt(ticks_per_beat)) * beat_w;
+            const clip_w = @max(8, @as(f32, @floatFromInt(clip.length_ticks)) / @as(f32, @floatFromInt(ticks_per_beat)) * beat_w - 2);
+            const pmin = [2]f32{ x + 1, lane_y + 5 };
+            const pmax = [2]f32{ @min(x + clip_w, origin[0] + canvas_w - 1), lane_y + lane_h - 5 };
+            const selected = if (app.arrangement_clip) |selection| selection.track == ti and selection.clip == ci else false;
+            const clip_color: [4]f32 = switch (clip.content) {
+                .melodic => if (selected) .{ 0.25, 0.78, 0.60, 1 } else .{ 0.16, 0.53, 0.43, 1 },
+                .drum => if (selected) .{ 0.82, 0.55, 0.28, 1 } else .{ 0.57, 0.35, 0.17, 1 },
+            };
+            draw.addRectFilled(.{ .pmin = pmin, .pmax = pmax, .col = color(clip_color), .rounding = 4 });
+            if (selected) draw.addRect(.{ .pmin = pmin, .pmax = pmax, .col = color(.{ 0.85, 1.0, 0.94, 0.95 }), .rounding = 4, .thickness = 2 });
+            switch (clip.content) {
+                .melodic => |melodic| {
+                    draw.addText(.{ pmin[0] + 7, pmin[1] + 4 }, color(.{ 0.88, 1.0, 0.95, 1 }), "MIDI  {d}", .{melodic.notes.len});
+                    var min_pitch: u7 = 127;
+                    var max_pitch: u7 = 0;
+                    for (melodic.notes) |note| {
+                        min_pitch = @min(min_pitch, note.pitch);
+                        max_pitch = @max(max_pitch, note.pitch);
+                    }
+                    const pitch_span: f32 = @floatFromInt(@max(12, max_pitch -| min_pitch));
+                    for (melodic.notes) |note| {
+                        const note_x = pmin[0] + @as(f32, @floatCast(note.start_beat / melodic.length_beats)) * (pmax[0] - pmin[0]);
+                        const note_y = pmin[1] + 23 + @as(f32, @floatFromInt(max_pitch - note.pitch)) / pitch_span * 17;
+                        const note_w = @max(2, @as(f32, @floatCast(note.duration_beat / melodic.length_beats)) * (pmax[0] - pmin[0]));
+                        draw.addLine(.{ .p1 = .{ note_x, note_y }, .p2 = .{ @min(note_x + note_w, pmax[0] - 2), note_y }, .col = color(.{ 0.70, 0.96, 0.84, 0.8 }), .thickness = 2 });
+                    }
+                },
+                .drum => |drum| {
+                    draw.addText(.{ pmin[0] + 7, pmin[1] + 4 }, color(.{ 1.0, 0.91, 0.78, 1 }), "PATTERN {c}", .{'A' + drum.variant});
+                    for (0..drum.step_count) |step| {
+                        var hits: u8 = 0;
+                        for (drum.pattern) |pattern| hits += @intCast((pattern >> @intCast(step)) & 1);
+                        if (hits == 0) continue;
+                        const hit_x = pmin[0] + (@as(f32, @floatFromInt(step)) + 0.5) / @as(f32, @floatFromInt(drum.step_count)) * (pmax[0] - pmin[0]);
+                        const hit_h = @min(15, @as(f32, @floatFromInt(hits)) * 2);
+                        draw.addLine(.{ .p1 = .{ hit_x, pmax[1] - 6 }, .p2 = .{ hit_x, pmax[1] - 6 - hit_h }, .col = color(.{ 1.0, 0.82, 0.54, 0.85 }), .thickness = 2 });
+                    }
+                },
+            }
+            if (clip.automation.gain.len + clip.automation.pan.len + clip.automation.synth_params.items.len > 0) draw.addText(.{ pmax[0] - 16, pmin[1] + 4 }, color(.{ 0.94, 0.88, 1.0, 1 }), "A", .{});
         }
-        zgui.tableHeadersRow();
-        const ticks_per_bar = ws.time_grid.barTicks(app.session.project.beats_per_bar);
-        for (app.session.project.tracks.items, 0..) |track, ti| {
-            zgui.tableNextRow(.{});
-            _ = zgui.tableSetColumnIndex(0);
-            zgui.text("{s}", .{track.name});
-            for (1..9) |col| {
-                _ = zgui.tableSetColumnIndex(@intCast(col));
-                const tick: u32 = @intCast((col - 1) * ticks_per_bar);
-                const clip = if (ti < app.session.arrangement.lanes.items.len)
-                    app.session.arrangement.lanes.items[ti].clipAt(tick)
-                else
-                    null;
-                if (clip) |c| {
-                    var label_buf: [32]u8 = undefined;
-                    const at_start = c.start_tick / ticks_per_bar == col - 1;
-                    const label = if (at_start)
-                        std.fmt.bufPrintZ(&label_buf, "{s}##{d}-{d}", .{ switch (c.content) {
-                            .melodic => "MIDI",
-                            .drum => |d| @as([]const u8, &[_]u8{'A' + d.variant}),
-                        }, ti, col }) catch "clip"
-                    else
-                        std.fmt.bufPrintZ(&label_buf, "...##{d}-{d}", .{ ti, col }) catch "...";
-                    _ = zgui.selectable(label, .{ .w = 54, .h = 46 });
-                } else {
-                    zgui.dummy(.{ .w = 54, .h = 46 });
+    }
+
+    const snap = app.session.engine.uiSnapshot();
+    if (snap.playing) {
+        const play_beat = @as(f64, @floatFromInt(snap.position_frames)) / 48000.0 * @as(f64, app.session.project.tempo_bpm) / 60.0;
+        const x = timeline_x + @as(f32, @floatCast(play_beat)) * beat_w;
+        if (x <= origin[0] + canvas_w) draw.addLine(.{ .p1 = .{ x, origin[1] }, .p2 = .{ x, origin[1] + canvas_h }, .col = color(.{ 1.0, 0.34, 0.28, 0.95 }), .thickness = 2 });
+    }
+
+    if (clicked and hovered and mouse[1] >= origin[1] + ruler_h) {
+        const ti = @min(track_count - 1, @as(usize, @intFromFloat((mouse[1] - origin[1] - ruler_h) / lane_h)));
+        app.selected_track = ti;
+        app.arrangement_clip = null;
+        if (mouse[0] >= timeline_x and ti < app.session.arrangement.lanes.items.len) {
+            const tick: u32 = @intFromFloat((mouse[0] - timeline_x) / beat_w * @as(f32, @floatFromInt(ticks_per_beat)));
+            for (app.session.arrangement.lanes.items[ti].clips.items, 0..) |clip, ci| {
+                if (tick >= clip.start_tick and tick < clip.start_tick + clip.length_ticks) {
+                    app.arrangement_clip = .{ .track = ti, .clip = ci };
+                    break;
                 }
             }
         }
