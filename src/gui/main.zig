@@ -139,13 +139,11 @@ const App = struct {
             self.view = .help;
             return;
         }
-        if (pressedModalKey()) |key| {
+        if (pressedModalKey(self.modal.mode)) |key| {
             if (self.modal.mode == .normal and key == .char and key.char == '?') {
                 self.view = .help;
                 return;
             }
-            // Command and search prompts do not have GUI text fields yet.
-            if (self.modal.mode == .normal and key == .char and (key.char == ':' or key.char == '/')) return;
             self.applyAction(self.modal.handle(key));
         }
     }
@@ -238,7 +236,7 @@ const piano_keys = [_]struct { key: zgui.Key, char: u8 }{
     .{ .key = .i, .char = 'i' },         .{ .key = .o, .char = 'o' }, .{ .key = .p, .char = 'p' },
 };
 
-fn pressedModalKey() ?ws.input.Key {
+fn pressedModalKey(mode: ws.input.Mode) ?ws.input.Key {
     const special = [_]struct { gui: zgui.Key, modal: ws.input.Key }{
         .{ .gui = .escape, .modal = .escape },
         .{ .gui = .enter, .modal = .enter },
@@ -251,10 +249,10 @@ fn pressedModalKey() ?ws.input.Key {
         .{ .gui = .right_arrow, .modal = .arrow_right },
     };
     for (special) |entry| if (zgui.isKeyPressed(entry.gui, false)) return switch (entry.modal) {
-        .arrow_up => .{ .char = 'k' },
-        .arrow_down => .{ .char = 'j' },
-        .arrow_left => .{ .char = 'h' },
-        .arrow_right => .{ .char = 'l' },
+        .arrow_up => if (mode == .command or mode == .search) entry.modal else .{ .char = 'k' },
+        .arrow_down => if (mode == .command or mode == .search) entry.modal else .{ .char = 'j' },
+        .arrow_left => if (mode == .command or mode == .search) entry.modal else .{ .char = 'h' },
+        .arrow_right => if (mode == .command or mode == .search) entry.modal else .{ .char = 'l' },
         else => entry.modal,
     };
 
@@ -1491,6 +1489,12 @@ fn drawStatus(app: *App, audio_label: []const u8) void {
         const size = zgui.getWindowSize();
         draw.addRectFilled(.{ .pmin = pos, .pmax = .{ pos[0] + size[0], pos[1] + size[1] }, .col = color(umbra.bg1) });
 
+        if (app.modal.mode == .command or app.modal.mode == .search) {
+            drawCommandBar(app, draw, pos, size);
+            zgui.end();
+            return;
+        }
+
         var x = pos[0];
         x = drawStatusSegment(draw, x, pos[1], size[1], umbra.iris, umbra.bg0, @tagName(app.modal.mode));
         x = drawStatusSegment(draw, x, pos[1], size[1], umbra.bg4, umbra.fg0, @tagName(app.view));
@@ -1519,6 +1523,35 @@ fn drawStatus(app: *App, audio_label: []const u8) void {
         drawStatusSegmentRight(draw, pos[0] + size[0], pos[1], size[1], if (snap.playing) umbra.iris_soft else umbra.bg2, umbra.fg0, right_label);
     }
     zgui.end();
+}
+
+fn drawCommandBar(app: *const App, draw: zgui.DrawList, pos: [2]f32, size: [2]f32) void {
+    const prompt: []const u8 = if (app.modal.mode == .command) ":" else "/";
+    const text_y = pos[1] + (size[1] - zgui.getTextLineHeight()) / 2;
+    const prompt_x = pos[0] + 13;
+    const input_x = prompt_x + zgui.calcTextSize(prompt, .{})[0] + 4;
+    const input = app.modal.cmd_buf[0..app.modal.cmd_len];
+
+    draw.addRectFilled(.{
+        .pmin = pos,
+        .pmax = .{ pos[0] + size[0], pos[1] + size[1] },
+        .col = color(umbra.bg2),
+    });
+    draw.addRectFilled(.{
+        .pmin = pos,
+        .pmax = .{ pos[0] + 4, pos[1] + size[1] },
+        .col = color(umbra.iris),
+    });
+    draw.addText(.{ prompt_x, text_y }, color(umbra.iris), "{s}", .{prompt});
+    draw.addText(.{ input_x, text_y }, color(umbra.fg0), "{s}", .{input});
+
+    const before_cursor = input[0..app.modal.cmd_cursor];
+    const cursor_x = input_x + zgui.calcTextSize(before_cursor, .{})[0];
+    draw.addRectFilled(.{
+        .pmin = .{ cursor_x, text_y },
+        .pmax = .{ cursor_x + 1, text_y + zgui.getTextLineHeight() },
+        .col = color(umbra.fg0),
+    });
 }
 
 fn drawStatusSegment(draw: zgui.DrawList, x: f32, y: f32, height: f32, bg: [4]f32, fg: [4]f32, label: []const u8) f32 {
