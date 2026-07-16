@@ -1283,28 +1283,51 @@ fn drawInspector(app: *App) void {
     zgui.setNextWindowSize(.{ .w = layout.inspector_w, .h = layout.body_h, .cond = .always });
     if (zgui.begin("Inspector", .{ .flags = .{ .no_move = true, .no_resize = true, .no_collapse = true, .no_docking = true } })) {
         const track = &app.session.project.tracks.items[app.selected_track];
-        zgui.text("{s}", .{track.name});
+        const rack = app.session.racks.items[app.selected_track];
+        zgui.textDisabled("INSPECTOR", .{});
         zgui.separator();
-        zgui.textDisabled("Gain", .{});
+        const accent = trackColor(track.color);
+        zgui.textColored(accent, "{d:0>2}", .{app.selected_track + 1});
+        zgui.sameLine(.{});
+        zgui.textColored(umbra.fg0, "{s}", .{track.name});
+        zgui.textColored(umbra.fg3, "{s}", .{rack.label});
+        zgui.spacing();
+        zgui.separatorText("MIX");
+
+        zgui.textDisabled("GAIN", .{});
         if (zgui.sliderFloat("##gain", .{ .v = &track.gain_db, .min = -60, .max = 12, .cfmt = "%.1f dB" })) {
             _ = app.session.engine.send(.{ .set_track_gain = .{
                 .track = @intCast(app.selected_track),
                 .gain = ws.types.dbToGain(track.gain_db),
             } });
         }
-        zgui.textDisabled("Pan", .{});
+        zgui.spacing();
+        zgui.textDisabled("PAN", .{});
         if (zgui.sliderFloat("##pan", .{ .v = &track.pan, .min = -1, .max = 1, .cfmt = "%.2f" })) {
             _ = app.session.engine.send(.{ .set_track_pan = .{ .track = @intCast(app.selected_track), .pan = track.pan } });
         }
-        if (zgui.checkbox("Mute", .{ .v = &track.muted })) {
+        zgui.spacing();
+        const toggle_width = (zgui.getContentRegionAvail()[0] - 6) / 2;
+        if (drawInspectorToggle("MUTE##inspector", track.muted, umbra.red, toggle_width)) {
+            track.muted = !track.muted;
             _ = app.session.engine.send(.{ .set_track_mute = .{ .track = @intCast(app.selected_track), .muted = track.muted } });
         }
-        zgui.sameLine(.{});
-        if (zgui.checkbox("Solo", .{ .v = &track.soloed })) {
+        zgui.sameLine(.{ .spacing = 6 });
+        if (drawInspectorToggle("SOLO##inspector", track.soloed, umbra.yellow, toggle_width)) {
+            track.soloed = !track.soloed;
             _ = app.session.engine.send(.{ .set_track_solo = .{ .track = @intCast(app.selected_track), .soloed = track.soloed } });
         }
     }
     zgui.end();
+}
+
+fn drawInspectorToggle(label: [:0]const u8, active: bool, accent: [4]f32, width: f32) bool {
+    zgui.pushStyleColor4f(.{ .idx = .button, .c = if (active) accent else umbra.bg2 });
+    zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = if (active) accent else umbra.bg3 });
+    zgui.pushStyleColor4f(.{ .idx = .button_active, .c = umbra.fg0 });
+    zgui.pushStyleColor4f(.{ .idx = .text, .c = if (active) umbra.bg0 else umbra.fg2 });
+    defer zgui.popStyleColor(.{ .count = 4 });
+    return zgui.button(label, .{ .w = width, .h = 30 });
 }
 
 fn drawStatus(app: *App, audio_label: []const u8) void {
