@@ -6,6 +6,10 @@ system dependency), `~/.config/wstudio/init.lua` loaded at startup, and a
 `wstudio.o` option proxy backed by `src/config.zig`. This document defines
 where the API goes from there.
 
+The user-facing reference is [examples/init.lua](../examples/init.lua), a
+fully documented template config covering every option, keymap notation,
+event, and API function; this document covers the design behind it.
+
 Neovim is the reference. Its API survived a decade of GUIs, plugins, and
 embedders because of a few structural decisions, not because of any single
 function. Those decisions are what we copy. Sources studied: `runtime/doc/
