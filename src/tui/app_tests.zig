@@ -3802,6 +3802,27 @@ test "piano roll . repeats a count-scaled velocity nudge and a resize" {
     try std.testing.expectApproxEqAbs(@as(f64, 0.25 + 0.5), pp.noteAt(60, 1.0).?.duration_beat, 1e-9);
 }
 
+test "GUI piano adapters move and resize through editor history" {
+    var app = try testApp();
+    defer app.deinit();
+    app.view = .piano_roll;
+    app.piano_track = 0;
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.25 });
+
+    try std.testing.expect(piano_ed.moveNoteTo(&app, 60, 0, 62, 2));
+    try std.testing.expect(pp.noteAt(60, 0.0) == null);
+    try std.testing.expect(pp.noteAt(62, 0.5) != null);
+
+    try std.testing.expect(piano_ed.resizeNoteSteps(&app, 62, 2, 3));
+    try std.testing.expectApproxEqAbs(@as(f64, 0.75), pp.noteAt(62, 0.5).?.duration_beat, 1e-9);
+
+    history.doUndo(&app);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.25), pp.noteAt(62, 0.5).?.duration_beat, 1e-9);
+    history.doUndo(&app);
+    try std.testing.expect(pp.noteAt(60, 0.0) != null);
+}
+
 test "piano/drum/arrangement . repeats a visual range delete/paste at the new cursor" {
     var app = try testApp();
     defer app.deinit();

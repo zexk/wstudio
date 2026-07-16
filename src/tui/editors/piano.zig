@@ -538,6 +538,45 @@ fn resizeOrLen(app: *App, delta: f64) void {
     }
 }
 
+/// GUI drag adapter: move one note through the same history, cursor, status,
+/// and linked-clip path as keyboard grab mode.
+pub fn moveNoteTo(app: *App, source_pitch: u7, source_step: u16, target_pitch: u7, target_step: u16) bool {
+    if (app.piano_track >= app.session.racks.items.len) return false;
+    const pp = if (app.session.racks.items[app.piano_track].pattern_player != null)
+        &app.session.racks.items[app.piano_track].pattern_player.?
+    else return false;
+    const max_step: u16 = @intFromFloat(pp.length_beats * stepsPerBeatF(app));
+    app.piano_cursor_pitch = source_pitch;
+    app.piano_cursor_step = source_step;
+    if (pp.noteAt(source_pitch, stepToBeat(app, source_step)) == null) return false;
+    const dstep = @as(i32, target_step) - @as(i32, source_step);
+    const dpitch = @as(i32, target_pitch) - @as(i32, source_pitch);
+    if (dstep == 0 and dpitch == 0) return false;
+    history.push(app, history.captureMelodic(app, app.piano_track));
+    app.piano_grab = true;
+    app.piano_grab_delta = .{};
+    dragNote(app, pp, max_step, dstep, dpitch);
+    dropGrab(app);
+    return true;
+}
+
+/// GUI resize adapter: set a note's grid length with one undo entry and the
+/// same linked-clip writeback used by `[` and `]`.
+pub fn resizeNoteSteps(app: *App, pitch: u7, start_step: u16, duration_steps: u16) bool {
+    if (app.piano_track >= app.session.racks.items.len) return false;
+    const pp = if (app.session.racks.items[app.piano_track].pattern_player != null)
+        &app.session.racks.items[app.piano_track].pattern_player.?
+    else return false;
+    app.piano_cursor_pitch = pitch;
+    app.piano_cursor_step = start_step;
+    const note = pp.noteAt(pitch, stepToBeat(app, start_step)) orelse return false;
+    const wanted = @as(f64, @floatFromInt(@max(duration_steps, 1))) / stepsPerBeatF(app);
+    const delta = wanted - note.duration_beat;
+    if (@abs(delta) < 1e-9) return false;
+    resizeOrLen(app, delta);
+    return true;
+}
+
 /// Nudge the velocity of the note under the cursor by `delta` (clamped 0.05–1).
 fn nudgeVelocity(app: *App, delta: f32) void {
     if (app.piano_track >= app.session.racks.items.len) return;
