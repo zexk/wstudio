@@ -64,6 +64,15 @@ pub fn pitchClassName(pc: u4) []const u8 {
     return pc_names[pc];
 }
 
+/// Whether the pitch lands on a piano black key - the accidental pitch
+/// classes. Both frontends shade keyboard gutters and grid rows with this.
+pub fn isBlackKey(pitch: u7) bool {
+    return switch (pitch % 12) {
+        1, 3, 6, 8, 10 => true,
+        else => false,
+    };
+}
+
 /// Parses a note letter (A-G, case-insensitive) with an optional trailing
 /// `#`/`s` (sharp) or `b` (flat) - e.g. "c", "F#", "Bb". Null on anything else.
 pub fn parsePitchClass(s: []const u8) ?u4 {

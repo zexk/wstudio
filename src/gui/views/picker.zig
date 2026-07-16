@@ -97,15 +97,7 @@ fn fxDescription(kind: ws.FxKind) []const u8 {
     };
 }
 
-fn fxAccent(kind: ws.FxKind) [4]f32 {
-    return switch (kind) {
-        .gate, .comp, .mb_comp, .ott => patina.danger,
-        .eq => patina.rhythm,
-        .sat, .crush, .tape => patina.modulation,
-        .chorus, .flanger, .phaser, .freq_shift => patina.focus,
-        .delay, .reverb => patina.audio,
-    };
-}
+const fxAccent = style.fxKindAccent;
 
 fn drawCard(id: [:0]const u8, label: []const u8, desc: []const u8, accent: [4]f32, selected: bool, width: f32) bool {
     const height: f32 = 62;

@@ -67,12 +67,7 @@ fn writeStepPad(w: *std.Io.Writer, pad: usize, tick: bool, tick_color: []const u
     try w.writeAll(rst);
 }
 
-fn isBlackKey(pitch: u7) bool {
-    return switch (pitch % 12) {
-        1, 3, 6, 8, 10 => true,
-        else => false,
-    };
-}
+const isBlackKey = theory.isBlackKey;
 
 /// Whether some OTHER melodic track has a note starting or covering this
 /// pitch/beat, for `:ghost`'s background overlay. Cheap enough to call per

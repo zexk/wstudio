@@ -123,15 +123,7 @@ fn drawSlot(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, index:
     if (clicked and !selected) spectrum_ed.setFocus(&app.core, target, index);
 }
 
-fn kindAccent(kind: ws.FxKind) [4]f32 {
-    return switch (kind) {
-        .gate, .comp, .mb_comp, .ott => patina.danger,
-        .eq => patina.rhythm,
-        .sat, .crush, .tape => patina.modulation,
-        .chorus, .flanger, .phaser, .freq_shift => patina.focus,
-        .delay, .reverb => patina.audio,
-    };
-}
+const kindAccent = style.fxKindAccent;
 
 fn drawEditor(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit) void {
     const accent = kindAccent(unit.kind());

@@ -24,6 +24,7 @@ const picker_view = @import("views/picker.zig");
 const sampler_view = @import("views/sampler.zig");
 const slicer_view = @import("views/slicer.zig");
 const step_grid = @import("views/step_grid.zig");
+const widgets = @import("widgets.zig");
 const glfw = @import("zglfw");
 const zgui = @import("zgui");
 const zopengl = @import("zopengl");
@@ -920,12 +921,7 @@ fn pianoNoteCovering(pp: *ws.dsp.PatternPlayer, pitch: u7, beat: f64) ?ws.dsp.pa
     return null;
 }
 
-fn isBlackKey(pitch: u7) bool {
-    return switch (@mod(pitch, 12)) {
-        1, 3, 6, 8, 10 => true,
-        else => false,
-    };
-}
+const isBlackKey = ws.theory.isBlackKey;
 
 fn drawDrumGrid(app: *App) void {
     const track = app.core.drum_track;
@@ -1030,7 +1026,7 @@ fn drawSynthSections(app: *App, synth: *ws.dsp.PolySynth, comptime sections: []c
         if (zgui.beginChild(child_id, .{ .w = if (column == 0) column_w else 0, .h = 0, .child_flags = .{ .border = true } })) {
             inline for (sections, 0..) |section, section_index| {
                 if (section_index % 2 != column) continue;
-                drawSynthSectionTitle(section.title, synthSectionColor(section_index));
+                widgets.sectionTitle(section.title, synthSectionColor(section_index));
                 inline for (section.params) |entry| {
                     inline for (0..entry.fields) |field| {
                         var label_buf: [48]u8 = undefined;
@@ -1085,7 +1081,7 @@ fn drawSynthFx(app: *App, synth: *ws.dsp.PolySynth) void {
             const kind = synth_ed.fxKindOfId(candidate.id) orelse continue;
             if (previous_kind == null or previous_kind.? != kind) {
                 if (previous_kind != null) zgui.spacing();
-                drawSynthSectionTitle(spectrum_ed.unitLabel(synth_ed.asFxKind(kind)), patina.audio);
+                widgets.sectionTitle(spectrum_ed.unitLabel(synth_ed.asFxKind(kind)), patina.audio);
                 previous_kind = kind;
             }
             drawSynthAnyParam(app, synth, candidate.id, synth_ed.fxParamLabel(candidate.id));
@@ -1208,11 +1204,6 @@ fn drawFilterShape(draw: zgui.DrawList, pos: [2]f32, size: [2]f32, synth: *const
             draw.addLine(.{ .p1 = .{ knee_x, pos[1] + size[1] * 0.85 }, .p2 = right, .col = color(patina.audio), .thickness = 2 });
         },
     }
-}
-
-fn drawSynthSectionTitle(label: []const u8, accent: [4]f32) void {
-    zgui.textColored(accent, "{s}", .{label});
-    zgui.separator();
 }
 
 fn drawStatus(app: *App) void {

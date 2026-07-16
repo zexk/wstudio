@@ -1,4 +1,5 @@
 const zgui = @import("zgui");
+const ws = @import("wstudio");
 const config_mod = @import("../config.zig");
 
 pub fn rgb(comptime value: u24) [4]f32 {
@@ -99,6 +100,18 @@ pub fn trackColor(index: u8) [4]f32 {
     const accents = [_][4]f32{ palette.focus, palette.danger, palette.rhythm, palette.audio, palette.modulation, rgb(0xd6a15f), rgb(0x9b9acb) };
     if (index == 0 or index > accents.len) return palette.fg3;
     return accents[index - 1];
+}
+
+/// One accent per FX family, shared by the rack slots and the picker cards
+/// so a unit keeps its color from browse to edit.
+pub fn fxKindAccent(kind: ws.FxKind) [4]f32 {
+    return switch (kind) {
+        .gate, .comp, .mb_comp, .ott => palette.danger,
+        .eq => palette.rhythm,
+        .sat, .crush, .tape => palette.modulation,
+        .chorus, .flanger, .phaser, .freq_shift => palette.focus,
+        .delay, .reverb => palette.audio,
+    };
 }
 
 pub fn pushControlFocus(focused: bool, accent: [4]f32) void {
