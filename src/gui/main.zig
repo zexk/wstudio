@@ -838,23 +838,30 @@ fn drawPianoRoll(app: *App) void {
         const pitch: u7 = top_pitch - @as(u7, @intCast(row));
         const y = grid_y + @as(f32, @floatFromInt(row)) * row_h;
         const black = isBlackKey(pitch);
-        const in_scale = if (app.core.piano_scale) |scale| scale.contains(pitch) else true;
-        const scale_root = if (app.core.piano_scale) |scale| pitch % 12 == scale.root else false;
-        const row_color = if (!in_scale)
-            patina.line_soft
-        else if (scale_root)
-            patina.bg3
-        else if (black)
-            patina.bg1
-        else
-            patina.bg2;
+        const tone = pianoScaleTone(app.core.piano_scale, pitch);
+        const row_color = switch (tone) {
+            .root => patina.bg3,
+            .out_scale => patina.line_soft,
+            .in_scale, .unscaled_white => patina.bg2,
+            .unscaled_black => patina.bg1,
+        };
         draw.addRectFilled(.{ .pmin = .{ grid_x, y }, .pmax = .{ origin[0] + canvas_w, y + row_h }, .col = color(row_color) });
-        draw.addRectFilled(.{ .pmin = .{ origin[0], y }, .pmax = .{ grid_x, y + row_h }, .col = color(if (!in_scale) patina.bg3 else if (scale_root) patina.focus else if (black) patina.bg1 else patina.fg1) });
-        if (black) draw.addRectFilled(.{ .pmin = .{ origin[0], y + 1 }, .pmax = .{ origin[0] + 37, y + row_h - 1 }, .col = color(patina.bg0) });
+        const key_color = switch (tone) {
+            .root => patina.focus,
+            .out_scale => patina.bg3,
+            else => if (black) patina.bg1 else patina.fg1,
+        };
+        draw.addRectFilled(.{ .pmin = .{ origin[0], y }, .pmax = .{ grid_x, y + row_h }, .col = color(key_color) });
+        if (black and tone != .root and tone != .out_scale) draw.addRectFilled(.{ .pmin = .{ origin[0], y + 1 }, .pmax = .{ origin[0] + 37, y + row_h - 1 }, .col = color(patina.bg0) });
         draw.addLine(.{ .p1 = .{ origin[0], y + row_h }, .p2 = .{ origin[0] + canvas_w, y + row_h }, .col = color(patina.line), .thickness = if (@mod(pitch, 12) == 0) 1.5 else 1 });
         var note_buf: [5]u8 = undefined;
         const note_name = ws.midi.noteName(pitch, &note_buf);
-        draw.addText(.{ origin[0] + 39, y + 1 }, color(if (!in_scale) patina.fg3 else if (scale_root) patina.bg0 else if (black) patina.fg2 else patina.bg0), "{s}", .{note_name});
+        const label_color = switch (tone) {
+            .root => patina.bg0,
+            .out_scale => patina.fg3,
+            else => if (black) patina.fg0 else patina.bg0,
+        };
+        draw.addText(.{ origin[0] + 39, y + 1 }, color(label_color), "{s}", .{note_name});
     }
 
     const steps_per_beat: usize = app.core.pianoStepsPerBeat();
@@ -1010,6 +1017,24 @@ fn pianoNoteCovering(pp: *ws.dsp.PatternPlayer, pitch: u7, beat: f64) ?ws.dsp.pa
 }
 
 const isBlackKey = ws.theory.isBlackKey;
+
+const PianoScaleTone = enum { root, in_scale, out_scale, unscaled_black, unscaled_white };
+
+fn pianoScaleTone(scale: ?ws.theory.Scale, pitch: u7) PianoScaleTone {
+    if (scale) |active| {
+        if (pitch % 12 == active.root) return .root;
+        return if (active.contains(pitch)) .in_scale else .out_scale;
+    }
+    return if (isBlackKey(pitch)) .unscaled_black else .unscaled_white;
+}
+
+test "GUI piano scale keeps black-key members highlighted" {
+    const f_minor: ws.theory.Scale = .{ .root = 5, .kind = .minor };
+    try std.testing.expectEqual(PianoScaleTone.root, pianoScaleTone(f_minor, 65));
+    try std.testing.expectEqual(PianoScaleTone.in_scale, pianoScaleTone(f_minor, 68));
+    try std.testing.expectEqual(PianoScaleTone.out_scale, pianoScaleTone(f_minor, 66));
+    try std.testing.expectEqual(PianoScaleTone.unscaled_black, pianoScaleTone(null, 68));
+}
 
 fn drawDrumGrid(app: *App) void {
     const track = app.core.drum_track;
