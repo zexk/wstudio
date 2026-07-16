@@ -1205,6 +1205,7 @@ fn savePath(app: *App, args: []const u8, buf: []u8) []const u8 {
 fn cmdSave(app: *App, args: []const u8) void {
     var path_buf: [path_buf_len]u8 = undefined;
     const path = savePath(app, args, &path_buf);
+    app.emitEvent(.{ .ProjectSavePre = .{ .path = path } });
     ws.persist.save(app.allocator, &app.session, app.io, path) catch |e| {
         app.setStatus("save: {s}: {s}", .{ path, @errorName(e) });
         return;
@@ -1213,6 +1214,7 @@ fn cmdSave(app: *App, args: []const u8) void {
     app.setProjectPath(path);
     app.dirty = false;
     app.setStatus("saved: {s}", .{path});
+    app.emitEvent(.{ .ProjectSavePost = .{ .path = path } });
 }
 
 /// Vim-style write-and-quit: save the project, then exit. Only quits when
@@ -1220,6 +1222,7 @@ fn cmdSave(app: *App, args: []const u8) void {
 fn cmdWriteQuit(app: *App, args: []const u8) void {
     var path_buf: [path_buf_len]u8 = undefined;
     const path = savePath(app, args, &path_buf);
+    app.emitEvent(.{ .ProjectSavePre = .{ .path = path } });
     ws.persist.save(app.allocator, &app.session, app.io, path) catch |e| {
         app.setStatus("save: {s}: {s}", .{ path, @errorName(e) });
         return;
@@ -1227,6 +1230,7 @@ fn cmdWriteQuit(app: *App, args: []const u8) void {
     app.deleteBackupIfPresent(); // stale for the path we just moved off of
     app.setProjectPath(path);
     app.dirty = false;
+    app.emitEvent(.{ .ProjectSavePost = .{ .path = path } });
     app.should_quit = true;
 }
 

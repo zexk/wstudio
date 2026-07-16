@@ -222,6 +222,11 @@ pub const App = struct {
     /// the next key (fire, extend, or replay), never by timeout.
     keymap_pending_buf: [config_mod.max_keymap_lhs]modal_mod.Key = undefined,
     keymap_pending_len: usize = 0,
+    /// Last states the `tick` event watchers saw - ViewEnter and
+    /// PlaybackStart/Stop are detected at the frame boundary rather than
+    /// instrumented at every `self.view =` / `engine.send(.play)` site.
+    last_view: AppView = .tracks,
+    last_playing: bool = false,
     cursor: usize = 0,
     /// Tracks-view display rows: tracks in folder order - a group's row
     /// followed by its (indented) member tracks, folded groups hiding
@@ -820,6 +825,12 @@ pub const App = struct {
 
     pub fn userKeymapsSlice(self: *const App) []const config_mod.Keymap {
         return if (self.lua_runtime) |rt| rt.userKeymaps() else &.{};
+    }
+
+    /// Fire a Lua autocmd event (no-op without a runtime attached). Every
+    /// emission site is core code, so both frontends fire identically.
+    pub fn emitEvent(self: *App, data: config_mod.EventData) void {
+        if (self.lua_runtime) |rt| rt.emit(data);
     }
 
     fn handleKeyBuiltin(self: *App, key_in: modal_mod.Key, now_ns: i96) void {
@@ -2650,6 +2661,19 @@ pub const App = struct {
             }
         }
         self.maybeAutosave(now_ns);
+
+        // Frame-boundary Lua event watchers - see the `last_view` field doc.
+        if (self.view != self.last_view) {
+            const prev = self.last_view;
+            self.last_view = self.view;
+            self.emitEvent(.{ .ViewEnter = .{ .view = @tagName(self.view), .prev = @tagName(prev) } });
+        }
+        const playing = self.session.engine.uiSnapshot().playing;
+        if (playing != self.last_playing) {
+            self.last_playing = playing;
+            const tempo = self.session.project.tempo_bpm;
+            self.emitEvent(if (playing) .{ .PlaybackStart = .{ .tempo = tempo } } else .{ .PlaybackStop = .{ .tempo = tempo } });
+        }
     }
 
     /// Every `autosave_interval_ns`, if there are unsaved changes, silently
@@ -2825,6 +2849,7 @@ pub const App = struct {
         self.invalidateTrackRow();
         self.dirty = true;
         self.setStatus("added \"{s}\" (track {d})", .{ name, idx + 1 });
+        self.emitEvent(.{ .TrackAdd = .{ .track = idx + 1 } });
     }
 
     pub fn doTrackDel(self: *App, track_idx: usize) void {
@@ -2870,6 +2895,7 @@ pub const App = struct {
         } else {
             self.setStatus("deleted track {d}", .{track_idx + 1});
         }
+        self.emitEvent(.{ .TrackDel = .{ .track = track_idx + 1 } });
     }
 
     /// After a structural change (delete), bail out of any per-instrument editor
@@ -2950,6 +2976,7 @@ pub const App = struct {
         self.cursor = idx;
         self.dirty = true;
         self.setStatus("duplicated track {d} -> {d}", .{ track_idx + 1, idx + 1 });
+        self.emitEvent(.{ .TrackAdd = .{ .track = idx + 1 } });
     }
 
     /// Swap the cursor's track with its neighbor (`dir` < 0 = up, > 0 =
@@ -3470,6 +3497,9 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8, run
     app.rebuildCmdTable();
     runtime.attachHost(luaHost(&app));
     defer runtime.host = null;
+    // A project opened on the command line loaded before the runtime
+    // attached, so its event fires here, right after ConfigDone.
+    if (app.projectPath()) |p| app.emitEvent(.{ .ProjectLoadPost = .{ .path = p } });
 
     var config: backend_mod.Config = .{
         .sample_rate = app.session.project.sample_rate,
@@ -3580,6 +3610,8 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8, run
                     .blank => app.project_path_len = 0,
                     .none => unreachable,
                 }
+                // A blank session is a new project, not a load - no event.
+                if (kind != .blank) app.emitEvent(.{ .ProjectLoadPost = .{ .path = app.pendingReloadPath() } });
 
                 config = .{ .sample_rate = app.session.project.sample_rate };
                 null_backend = .{ .config = config, .render = renderTrampoline, .ctx = app.session.engine };
@@ -3650,6 +3682,9 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8, run
         w.writeAll(terminal_mod.end_sync) catch {};
         term.write(w.buffered());
     }
+
+    // The main loop broke on should_quit: the session is still alive.
+    app.emitEvent(.QuitPre);
 }
 
 // ---------------------------------------------------------------------------

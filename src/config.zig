@@ -263,6 +263,9 @@ pub const Runtime = struct {
     user_cmds_len: usize = 0,
     keymaps: [max_keymaps]Keymap = undefined,
     keymaps_len: usize = 0,
+    autocmds: [max_autocmds]Autocmd = undefined,
+    autocmds_len: usize = 0,
+    next_autocmd_id: u32 = 1,
 
     pub fn init(frontend: Frontend) !Runtime {
         const state = c.luaL_newstate() orelse return error.OutOfMemory;
@@ -294,6 +297,7 @@ pub const Runtime = struct {
         c.lua_settop(l, -2);
         c.lua_pushnil(l);
         c.lua_setfield(l, c.LUA_REGISTRYINDEX, pending_cmds_key);
+        self.emit(.ConfigDone);
     }
 
     pub fn userCommands(self: *const Runtime) []const UserCmd {
@@ -332,6 +336,83 @@ pub const Runtime = struct {
                 if (c.lua_pcallk(l, 0, 0, 0, 0, null) != c.LUA_OK) self.reportCallbackError();
             },
         }
+    }
+
+    /// Fire `data`'s event on every subscribed autocmd, in registration
+    /// order. Ids are snapshotted first: callbacks may create or delete
+    /// autocmds mid-emit, and ones created during an emit must not fire
+    /// for it. A callback returning a truthy value (or registered with
+    /// `once`) is removed; an erroring callback reports and the rest still
+    /// run.
+    pub fn emit(self: *Runtime, data: EventData) void {
+        var ids: [max_autocmds]u32 = undefined;
+        var n: usize = 0;
+        for (self.autocmds[0..self.autocmds_len]) |*ac| {
+            if (ac.events.contains(std.meta.activeTag(data))) {
+                ids[n] = ac.id;
+                n += 1;
+            }
+        }
+        for (ids[0..n]) |id| {
+            const idx = self.findAutocmd(id) orelse continue; // deleted mid-emit
+            const ref = self.autocmds[idx].ref;
+            const once = self.autocmds[idx].once;
+            const asked_removal = self.fireAutocmd(ref, data);
+            if (asked_removal or once) {
+                if (self.findAutocmd(id)) |live| self.removeAutocmd(live);
+            }
+        }
+    }
+
+    fn findAutocmd(self: *const Runtime, id: u32) ?usize {
+        for (self.autocmds[0..self.autocmds_len], 0..) |*ac, i| {
+            if (ac.id == id) return i;
+        }
+        return null;
+    }
+
+    fn removeAutocmd(self: *Runtime, idx: usize) void {
+        c.luaL_unref(self.state, c.LUA_REGISTRYINDEX, self.autocmds[idx].ref);
+        std.mem.copyForwards(Autocmd, self.autocmds[idx .. self.autocmds_len - 1], self.autocmds[idx + 1 .. self.autocmds_len]);
+        self.autocmds_len -= 1;
+    }
+
+    /// Returns whether the callback asked for its own removal (returned a
+    /// truthy value, Neovim's convention).
+    fn fireAutocmd(self: *Runtime, ref: c_int, data: EventData) bool {
+        const l = self.state;
+        _ = c.lua_rawgeti(l, c.LUA_REGISTRYINDEX, ref);
+        c.lua_createtable(l, 0, 3); // ev
+        _ = c.lua_pushstring(l, @tagName(data));
+        c.lua_setfield(l, -2, "event");
+        switch (data) {
+            .ConfigDone, .QuitPre => {},
+            .ProjectLoadPost, .ProjectSavePre, .ProjectSavePost => |p| {
+                _ = c.lua_pushlstring(l, p.path.ptr, p.path.len);
+                c.lua_setfield(l, -2, "path");
+            },
+            .PlaybackStart, .PlaybackStop => |t| {
+                c.lua_pushnumber(l, t.tempo);
+                c.lua_setfield(l, -2, "tempo");
+            },
+            .TrackAdd, .TrackDel => |t| {
+                c.lua_pushinteger(l, @intCast(t.track));
+                c.lua_setfield(l, -2, "track");
+            },
+            .ViewEnter => |v| {
+                _ = c.lua_pushlstring(l, v.view.ptr, v.view.len);
+                c.lua_setfield(l, -2, "view");
+                _ = c.lua_pushlstring(l, v.prev.ptr, v.prev.len);
+                c.lua_setfield(l, -2, "prev");
+            },
+        }
+        if (c.lua_pcallk(l, 1, 1, 0, 0, null) != c.LUA_OK) {
+            self.reportCallbackError();
+            return false;
+        }
+        const asked = c.lua_toboolean(l, -1) != 0;
+        c.lua_settop(l, -2);
+        return asked;
     }
 
     /// Pop and report a handler error left on the stack by a failed pcall:
@@ -419,6 +500,12 @@ pub const Runtime = struct {
         c.lua_pushlightuserdata(self.state, self);
         c.lua_pushcclosure(self.state, delUserCommand, 1);
         c.lua_setfield(self.state, -2, "del_user_command");
+        c.lua_pushlightuserdata(self.state, self);
+        c.lua_pushcclosure(self.state, createAutocmd, 1);
+        c.lua_setfield(self.state, -2, "create_autocmd");
+        c.lua_pushlightuserdata(self.state, self);
+        c.lua_pushcclosure(self.state, delAutocmd, 1);
+        c.lua_setfield(self.state, -2, "del_autocmd");
         c.lua_setfield(self.state, -2, "api");
         c.lua_setglobal(self.state, "wstudio");
     }
@@ -643,6 +730,52 @@ fn delUserCommand(state: ?*c.lua_State) callconv(.c) c_int {
     return c.luaL_error(l, "no such user command");
 }
 
+pub const max_autocmds = 128;
+
+/// The autocmd event set (docs/lua-api.md phase 5). Lua-facing names are
+/// these exact tags.
+pub const Event = enum {
+    ConfigDone,
+    ProjectLoadPost,
+    ProjectSavePre,
+    ProjectSavePost,
+    PlaybackStart,
+    PlaybackStop,
+    TrackAdd,
+    TrackDel,
+    ViewEnter,
+    QuitPre,
+};
+
+pub const PathEvent = struct { path: []const u8 };
+pub const TempoEvent = struct { tempo: f64 };
+/// 1-based, matching the API's track indexing.
+pub const TrackEvent = struct { track: usize };
+pub const ViewEvent = struct { view: []const u8, prev: []const u8 };
+
+/// A typed event emission - the payload becomes fields on the Lua `ev`
+/// table (plus `ev.event`, the tag name). Slices only need to live for the
+/// duration of the emit call; Lua copies them.
+pub const EventData = union(Event) {
+    ConfigDone: void,
+    ProjectLoadPost: PathEvent,
+    ProjectSavePre: PathEvent,
+    ProjectSavePost: PathEvent,
+    PlaybackStart: TempoEvent,
+    PlaybackStop: TempoEvent,
+    TrackAdd: TrackEvent,
+    TrackDel: TrackEvent,
+    ViewEnter: ViewEvent,
+    QuitPre: void,
+};
+
+pub const Autocmd = struct {
+    id: u32,
+    events: std.EnumSet(Event),
+    ref: c_int,
+    once: bool,
+};
+
 /// Raises a Lua error (longjmp) on anything but "n"/"i"/"v" or a list
 /// thereof. Only called from C callbacks with no cleanup pending.
 fn checkModes(l: *c.lua_State, idx: c_int) ModeMask {
@@ -822,6 +955,72 @@ fn keymapDel(state: ?*c.lua_State) callconv(.c) c_int {
         return c.luaL_error(l, "no such keymap");
     }
     return 0;
+}
+
+/// `wstudio.api.create_autocmd(event|{events}, { callback, once? })` ->
+/// integer id for del_autocmd. Neovim's shape minus patterns and groups.
+/// The registry ref is taken last so a validation longjmp can't leak it.
+fn createAutocmd(state: ?*c.lua_State) callconv(.c) c_int {
+    const l = state.?;
+    var events = std.EnumSet(Event).initEmpty();
+    switch (c.lua_type(l, 1)) {
+        c.LUA_TSTRING => events.insert(eventFromString(l, 1)),
+        c.LUA_TTABLE => {
+            const n: c.lua_Integer = @intCast(c.lua_rawlen(l, 1));
+            if (n == 0) return c.luaL_error(l, "events list is empty");
+            var i: c.lua_Integer = 1;
+            while (i <= n) : (i += 1) {
+                _ = c.lua_rawgeti(l, 1, i);
+                events.insert(eventFromString(l, -1));
+                c.lua_settop(l, -2);
+            }
+        },
+        else => return c.luaL_error(l, "events must be a string or a list of strings"),
+    }
+    c.luaL_checktype(l, 2, c.LUA_TTABLE);
+    var once = false;
+    switch (c.lua_getfield(l, 2, "once")) {
+        c.LUA_TNIL => {},
+        c.LUA_TBOOLEAN => once = c.lua_toboolean(l, -1) != 0,
+        else => return c.luaL_error(l, "once must be a boolean"),
+    }
+    c.lua_settop(l, -2);
+    const rt = runtime(l);
+    if (rt.autocmds_len == max_autocmds) return c.luaL_error(l, "too many autocmds");
+    if (c.lua_getfield(l, 2, "callback") != c.LUA_TFUNCTION) return c.luaL_error(l, "callback must be a function");
+    const id = rt.next_autocmd_id;
+    rt.next_autocmd_id += 1;
+    rt.autocmds[rt.autocmds_len] = .{
+        .id = id,
+        .events = events,
+        .ref = c.luaL_ref(l, c.LUA_REGISTRYINDEX),
+        .once = once,
+    };
+    rt.autocmds_len += 1;
+    c.lua_pushinteger(l, id);
+    return 1;
+}
+
+fn eventFromString(l: *c.lua_State, idx: c_int) Event {
+    if (c.lua_type(l, idx) == c.LUA_TSTRING) {
+        const s = std.mem.span(c.lua_tolstring(l, idx, null));
+        if (std.meta.stringToEnum(Event, s)) |e| return e;
+    }
+    _ = c.luaL_error(l, "unknown event");
+    unreachable;
+}
+
+fn delAutocmd(state: ?*c.lua_State) callconv(.c) c_int {
+    const l = state.?;
+    const id = c.luaL_checkinteger(l, 1);
+    const rt = runtime(l);
+    for (rt.autocmds[0..rt.autocmds_len], 0..) |*ac, i| {
+        if (ac.id == id) {
+            rt.removeAutocmd(i);
+            return 0;
+        }
+    }
+    return c.luaL_error(l, "no such autocmd");
 }
 
 test "Lua API sets and reads options" {
@@ -1024,6 +1223,68 @@ test "keymap command rhs runs through the host" {
     rt.attachHost(th.host());
     rt.runKeymap(0);
     try std.testing.expectEqualStrings("exec:q\n", th.log[0..th.len]);
+}
+
+test "autocmds fire in registration order with payload fields" {
+    var rt = try Runtime.init(.tui);
+    defer rt.deinit();
+    try rt.loadString("log = {};" ++
+        "wstudio.api.create_autocmd('ProjectSavePost', { callback = function(ev) log[#log+1] = 'a:' .. ev.event .. ':' .. ev.path end });" ++
+        "wstudio.api.create_autocmd({'ProjectSavePost','PlaybackStart'}, { callback = function(ev) log[#log+1] = 'b:' .. (ev.path or ev.tempo) end })");
+    rt.emit(.{ .ProjectSavePost = .{ .path = "song.wsj" } });
+    rt.emit(.{ .PlaybackStart = .{ .tempo = 141 } });
+    rt.emit(.{ .TrackAdd = .{ .track = 2 } }); // no subscriber, must be a no-op
+    try rt.loadString("assert(table.concat(log, ' ') == 'a:ProjectSavePost:song.wsj b:song.wsj b:141.0')");
+}
+
+test "autocmds remove via once, truthy return, and del_autocmd" {
+    var rt = try Runtime.init(.tui);
+    defer rt.deinit();
+    try rt.loadString("n = 0; m = 0;" ++
+        "wstudio.api.create_autocmd('PlaybackStop', { callback = function() n = n + 1 end, once = true });" ++
+        "wstudio.api.create_autocmd('PlaybackStop', { callback = function() m = m + 1; return m >= 2 end });" ++
+        "keep_id = wstudio.api.create_autocmd('PlaybackStop', { callback = function() end })");
+    try std.testing.expectEqual(@as(usize, 3), rt.autocmds_len);
+    rt.emit(.{ .PlaybackStop = .{ .tempo = 120 } });
+    try std.testing.expectEqual(@as(usize, 2), rt.autocmds_len); // once dropped
+    rt.emit(.{ .PlaybackStop = .{ .tempo = 120 } });
+    try std.testing.expectEqual(@as(usize, 1), rt.autocmds_len); // truthy return dropped
+    try rt.loadString("assert(n == 1 and m == 2); wstudio.api.del_autocmd(keep_id)");
+    try std.testing.expectEqual(@as(usize, 0), rt.autocmds_len);
+    try rt.loadString("ok = pcall(wstudio.api.del_autocmd, keep_id); assert(ok == false)");
+}
+
+test "an erroring autocmd reports and the rest still run" {
+    var rt = try Runtime.init(.tui);
+    defer rt.deinit();
+    try rt.loadString("wstudio.api.create_autocmd('QuitPre', { callback = function() error('boom') end });" ++
+        "wstudio.api.create_autocmd('QuitPre', { callback = function() survived = true end })");
+    var th: TestHost = .{};
+    rt.attachHost(th.host());
+    rt.emit(.QuitPre);
+    try rt.loadString("assert(survived == true)");
+    try std.testing.expect(std.mem.indexOf(u8, th.log[0..th.len], "notify:Lua:") != null);
+    try std.testing.expect(std.mem.indexOf(u8, th.log[0..th.len], "boom") != null);
+}
+
+test "create_autocmd rejects bad input" {
+    var rt = try Runtime.init(.tui);
+    defer rt.deinit();
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.create_autocmd('NoSuchEvent', { callback = function() end })"));
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.create_autocmd('QuitPre', {})"));
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.create_autocmd('QuitPre', { callback = 'nope' })"));
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.create_autocmd({}, { callback = function() end })"));
+    try std.testing.expectEqual(@as(usize, 0), rt.autocmds_len);
+}
+
+test "attachHost emits ConfigDone after the queued cmds drain" {
+    var rt = try Runtime.init(.tui);
+    defer rt.deinit();
+    try rt.loadString("wstudio.cmd('bpm 100');" ++
+        "wstudio.api.create_autocmd('ConfigDone', { callback = function() wstudio.notify('ready') end })");
+    var th: TestHost = .{};
+    rt.attachHost(th.host());
+    try std.testing.expectEqualStrings("exec:bpm 100\nnotify:ready\n", th.log[0..th.len]);
 }
 
 test "wstudio.notify reaches the attached host" {

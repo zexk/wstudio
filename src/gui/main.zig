@@ -385,6 +385,9 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
     app.core.rebuildCmdTable();
     runtime.attachHost(tui_app.luaHost(&app.core));
     defer runtime.host = null;
+    // A project opened on the command line loaded before the runtime
+    // attached, so its event fires here, right after ConfigDone.
+    if (app.core.projectPath()) |p| app.core.emitEvent(.{ .ProjectLoadPost = .{ .path = p } });
     if (init_path) |path| {
         var title_buf: [1024]u8 = undefined;
         if (std.fmt.bufPrintZ(&title_buf, "wstudio GUI prototype - {s}", .{path})) |title| window.setTitle(title) else |_| {}
@@ -418,6 +421,8 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
                     .blank => app.core.clearProjectPath(),
                     .none => unreachable,
                 }
+                // A blank session is a new project, not a load - no event.
+                if (kind != .blank) app.core.emitEvent(.{ .ProjectLoadPost = .{ .path = app.core.pendingReloadPath() } });
                 audio = GuiAudio.init(app.core.session.project.sample_rate, user_config.audio_block_frames, app.core.session.engine);
                 try audio.start(init.io);
             }
@@ -434,6 +439,7 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
                 try audio.start(init.io);
                 var title_buf: [1024]u8 = undefined;
                 if (std.fmt.bufPrintZ(&title_buf, "wstudio GUI prototype - {s}", .{path})) |title| window.setTitle(title) else |_| {}
+                app.core.emitEvent(.{ .ProjectLoadPost = .{ .path = path } });
             } else |err| {
                 std.debug.print("wstudio: cannot load '{s}': {s}\n", .{ path, @errorName(err) });
             }
@@ -449,6 +455,9 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
         zgui.backend.draw();
         window.swapBuffers();
     }
+
+    // The main loop broke on quit/window close: the session is still alive.
+    app.core.emitEvent(.QuitPre);
 }
 
 fn configureFonts(size: f32) void {

@@ -5505,3 +5505,44 @@ test "Lua keymaps intercept keys, chord, and fall through" {
     try rt.loadString("assert(qhit == 1 and qphit == 1)");
     try std.testing.expectEqual(@as(usize, 2), app.track_row);
 }
+
+test "Lua autocmds fire from core emission points" {
+    var app = try testApp();
+    defer app.deinit();
+    var rt = try @import("../config.zig").Runtime.init(.tui);
+    defer rt.deinit();
+    try rt.loadString("log = {};" ++
+        "wstudio.api.create_autocmd({'ViewEnter','PlaybackStart','PlaybackStop','TrackAdd','TrackDel','ProjectSavePre'}, " ++
+        "{ callback = function(ev) log[#log+1] = ev.event .. ':' .. (ev.view or ev.track or ev.tempo or ev.path) end })");
+    app.lua_runtime = &rt;
+
+    // View switches surface at the frame boundary (tick), not mid-keypress.
+    app.view = .arrangement;
+    app.tick(0);
+    try rt.loadString("assert(log[1] == 'ViewEnter:arrangement', log[1])");
+
+    // Transport start/stop is watched off the engine's UI snapshot.
+    _ = app.session.engine.send(.play);
+    var block: [64]ws.types.Sample = undefined;
+    app.session.engine.process(&block);
+    app.tick(0);
+    try rt.loadString("assert(log[2] == 'PlaybackStart:120.0', log[2])");
+    _ = app.session.engine.send(.stop);
+    app.session.engine.process(&block);
+    app.tick(0);
+    try rt.loadString("assert(log[3] == 'PlaybackStop:120.0', log[3])");
+
+    // Track list changes emit 1-based indices immediately (doTrackAdd
+    // parks the cursor on the inserted track, so that's the expected one).
+    app.doTrackAdd("lead");
+    const added = app.cursor;
+    var check_buf: [64]u8 = undefined;
+    try rt.loadString(try std.fmt.bufPrintZ(&check_buf, "assert(log[4] == 'TrackAdd:{d}', log[4])", .{added + 1}));
+    app.doTrackDel(added);
+    try rt.loadString(try std.fmt.bufPrintZ(&check_buf, "assert(log[5] == 'TrackDel:{d}', log[5])", .{added + 1}));
+
+    // :write emits SavePre before touching the disk (Post only on success -
+    // this App runs on failing io, so the save errors after the Pre event).
+    commands.run(&app, "write nowhere.wsj");
+    try rt.loadString("assert(log[6] == 'ProjectSavePre:nowhere.wsj', log[6]); assert(#log == 6)");
+}

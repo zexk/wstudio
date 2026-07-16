@@ -313,7 +313,9 @@ Design decisions:
 4. **Keymaps (shipped).** Notation parser, registry, `handleKey` hook,
    `keymap.set`/`keymap.del`. Chords resolve on the next key
    (vim-notimeout-style), never by timeout.
-5. **Events.** Registry, core emission points, the initial event table.
+5. **Events (shipped).** Registry, core emission points, the initial event
+   table. ViewEnter and PlaybackStart/Stop are watched at the frame
+   boundary (`tick`) rather than instrumented at every assignment site.
 6. **Project API.** Transport and track functions above.
 7. **Parked.** RPC server over `wstudio.api`, API metadata, clips/notes/FX
    surface, stable track ids, timers/async.
