@@ -716,7 +716,7 @@ fn syncAnalyzer(app: *App, target: EqTarget) void {
 /// Change chain-slot focus - every focus change (Tab/[/]/picker-insert/
 /// switching which chain is in view) ends any open FX param-nudge batch,
 /// since a batch is scoped to one (target, unit, param) triple.
-fn setFocus(app: *App, target: EqTarget, idx: usize) void {
+pub fn setFocus(app: *App, target: EqTarget, idx: usize) void {
     history.flushFxNudge(app);
     app.fx_focus = idx;
     app.fx_param = 0;
@@ -798,7 +798,7 @@ pub fn cancelPicker(app: *App) void {
     syncAnalyzer(app, currentTarget(app));
 }
 
-fn removeFocused(app: *App, target: EqTarget) void {
+pub fn removeFocused(app: *App, target: EqTarget) void {
     const fx = fxPtr(app, target) orelse return;
     if (app.fx_focus >= fx.units.items.len) return;
     history.recordFx(app, target);
@@ -818,7 +818,7 @@ fn removeFocused(app: *App, target: EqTarget) void {
 }
 
 /// Move the focused unit one slot along the chain; focus follows it.
-fn moveFocused(app: *App, target: EqTarget, dir: i2) void {
+pub fn moveFocused(app: *App, target: EqTarget, dir: i2) void {
     const fx = fxPtr(app, target) orelse return;
     if (focusedUnit(app, fx) == null) return;
     const other = if (dir < 0) app.fx_focus -% 1 else app.fx_focus + 1;
@@ -830,7 +830,7 @@ fn moveFocused(app: *App, target: EqTarget, dir: i2) void {
     syncChain(app, target);
 }
 
-fn toggleBypass(app: *App, target: EqTarget) void {
+pub fn toggleBypass(app: *App, target: EqTarget) void {
     const fx = fxPtr(app, target) orelse return;
     const u = focusedUnit(app, fx) orelse return;
     history.recordFx(app, target);
@@ -916,7 +916,7 @@ fn cycleParam(app: *App, target: EqTarget, dir: i2) void {
 /// trigger - invisibly, since `visibleParamCount` also hides the row that
 /// would let the user notice and fix it. A no-op whenever `pad` is already
 /// null or the track is still a drum machine.
-fn clearStaleSidechainPad(app: *App, p: *FxPayload) void {
+pub fn clearStaleSidechainPad(app: *App, p: *FxPayload) void {
     switch (p.*) {
         .comp => |*c| if (c.sidechain_source) |sc| {
             if (sc.pad != null and !trackIsDrumMachine(app, sc.track))

@@ -7,6 +7,7 @@ const ws = @import("wstudio");
 const tui_app = @import("../tui/app.zig");
 const tui_cmd = @import("../tui/cmd.zig");
 const tui_commands = @import("../tui/commands.zig");
+const spectrum_ed = @import("../tui/editors/spectrum.zig");
 const glfw = @import("zglfw");
 const zgui = @import("zgui");
 const zopengl = @import("zopengl");
@@ -128,6 +129,7 @@ const App = struct {
     fn openPicker(self: *App, picker: tui_app.AppView) void {
         if (!isPicker(picker)) return;
         if (!isPicker(self.core.view)) self.picker_return_view = self.core.view;
+        if (picker == .fx_picker) self.core.fx_picker_return = self.picker_return_view;
         self.core.view = picker;
         self.picker_popup_pending = true;
     }
@@ -1382,16 +1384,212 @@ fn drawWaveform(label: [:0]const u8, samples: []const f32) void {
 }
 
 fn drawSpectrum(app: *App) void {
-    zgui.textDisabled("SPECTRUM / MIXER", .{});
+    const target = spectrum_ed.currentTarget(&app.core);
+    const fx = spectrum_ed.fxPtr(&app.core, target) orelse {
+        zgui.textDisabled("This FX chain is no longer available.", .{});
+        return;
+    };
+    if (fx.units.items.len > 0) app.core.fx_focus = @min(app.core.fx_focus, fx.units.items.len - 1);
+
     const snap = app.core.session.engine.uiSnapshot();
-    zgui.text("Master L", .{});
-    zgui.progressBar(.{ .fraction = std.math.clamp(snap.peak[0], 0, 1), .w = -1, .h = 22 });
-    zgui.text("Master R", .{});
-    zgui.progressBar(.{ .fraction = std.math.clamp(snap.peak[1], 0, 1), .w = -1, .h = 22 });
-    if (app.core.view == .track_spectrum and app.core.cursor < app.core.session.racks.items.len) {
-        zgui.spacing();
-        drawDevices(app);
+    drawFxHeader(app, target, fx, snap);
+    zgui.spacing();
+    drawFxSignalChain(app, target, fx);
+    zgui.spacing();
+
+    if (spectrum_ed.focusedUnit(&app.core, fx)) |unit| {
+        drawFxEditor(app, target, unit);
+    } else {
+        drawFxEmptyState(app);
     }
+}
+
+fn drawFxHeader(app: *App, target: spectrum_ed.EqTarget, fx: *const ws.Fx, snap: ws.engine.UiSnapshot) void {
+    const width = zgui.getContentRegionAvail()[0];
+    const height: f32 = 94;
+    const origin = zgui.getCursorScreenPos();
+    _ = zgui.invisibleButton("fx-header", .{ .w = width, .h = height });
+    const draw = zgui.getWindowDrawList();
+    const accent = fxTargetAccent(app, target);
+    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(umbra.bg2), .rounding = 4 });
+    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + 5, origin[1] + height }, .col = color(accent), .rounding = 3 });
+    draw.addText(.{ origin[0] + 17, origin[1] + 10 }, color(umbra.fg3), "FX RACK", .{});
+    draw.addText(.{ origin[0] + 17, origin[1] + 31 }, color(umbra.fg0), "{s}", .{fxTargetName(app, target)});
+    draw.addText(.{ origin[0] + 17, origin[1] + 62 }, color(umbra.fg2), "{d}/{d} UNITS", .{ fx.units.items.len, ws.Fx.max_units });
+
+    const meter_w: f32 = @min(210, width * 0.28);
+    const meter_x = origin[0] + width - meter_w - 17;
+    draw.addText(.{ meter_x, origin[1] + 11 }, color(umbra.fg3), "MASTER OUTPUT", .{});
+    drawFxMeter(draw, .{ meter_x, origin[1] + 34 }, meter_w, snap.peak[0], "L");
+    drawFxMeter(draw, .{ meter_x, origin[1] + 60 }, meter_w, snap.peak[1], "R");
+}
+
+fn drawFxMeter(draw: zgui.DrawList, pos: [2]f32, width: f32, value: f32, label: []const u8) void {
+    const meter_x = pos[0] + 18;
+    const meter_w = width - 18;
+    const level = std.math.clamp(value, 0, 1);
+    draw.addText(.{ pos[0], pos[1] - 2 }, color(umbra.fg3), "{s}", .{label});
+    draw.addRectFilled(.{ .pmin = .{ meter_x, pos[1] }, .pmax = .{ meter_x + meter_w, pos[1] + 10 }, .col = color(umbra.bg0), .rounding = 2 });
+    draw.addRectFilled(.{ .pmin = .{ meter_x, pos[1] }, .pmax = .{ meter_x + meter_w * level, pos[1] + 10 }, .col = color(if (level > 0.9) umbra.red else umbra.cyan), .rounding = 2 });
+}
+
+fn fxTargetName(app: *const App, target: spectrum_ed.EqTarget) []const u8 {
+    return switch (target) {
+        .track => if (app.core.eq_track < app.core.session.project.tracks.items.len)
+            app.core.session.project.tracks.items[app.core.eq_track].name
+        else
+            "Track",
+        .master => "Master bus",
+        .group => if (app.core.eq_group < ws.engine.max_groups)
+            if (app.core.session.groups[app.core.eq_group]) |group| group.name else "Group bus"
+        else
+            "Group bus",
+    };
+}
+
+fn fxTargetAccent(app: *const App, target: spectrum_ed.EqTarget) [4]f32 {
+    return switch (target) {
+        .track => if (app.core.eq_track < app.core.session.project.tracks.items.len)
+            trackColor(app.core.session.project.tracks.items[app.core.eq_track].color)
+        else
+            umbra.iris,
+        .master => umbra.mauve,
+        .group => umbra.cyan,
+    };
+}
+
+fn drawFxSignalChain(app: *App, target: spectrum_ed.EqTarget, fx: *ws.Fx) void {
+    zgui.textDisabled("SIGNAL FLOW", .{});
+    zgui.sameLine(.{});
+    zgui.textColored(umbra.fg3, "INPUT  >  PROCESSING  >  OUTPUT", .{});
+
+    const gap: f32 = 6;
+    const count = fx.units.items.len + @as(usize, if (fx.units.items.len < ws.Fx.max_units) 1 else 0);
+    const available = zgui.getContentRegionAvail()[0];
+    const slot_w = std.math.clamp((available - gap * @as(f32, @floatFromInt(count -| 1))) / @as(f32, @floatFromInt(@max(count, 1))), 72, 126);
+    for (fx.units.items, 0..) |unit, i| {
+        if (i > 0) zgui.sameLine(.{ .spacing = gap });
+        drawFxSlot(app, target, unit, i, slot_w);
+    }
+    if (fx.units.items.len < ws.Fx.max_units) {
+        if (fx.units.items.len > 0) zgui.sameLine(.{ .spacing = gap });
+        zgui.pushStyleColor4f(.{ .idx = .button, .c = umbra.bg2 });
+        zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = umbra.iris_soft });
+        if (zgui.button("+  ADD##fx-chain-add", .{ .w = slot_w, .h = 58 })) app.openPicker(.fx_picker);
+        zgui.popStyleColor(.{ .count = 2 });
+    }
+}
+
+fn drawFxSlot(app: *App, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, index: usize, width: f32) void {
+    const origin = zgui.getCursorScreenPos();
+    var id_buf: [32]u8 = undefined;
+    const id = std.fmt.bufPrintZ(&id_buf, "fx-slot-{d}", .{index}) catch return;
+    const clicked = zgui.invisibleButton(id, .{ .w = width, .h = 58 });
+    const hovered = zgui.isItemHovered(.{});
+    const selected = app.core.fx_focus == index;
+    const draw = zgui.getWindowDrawList();
+    const accent = if (unit.bypassed) umbra.fg3 else fxKindAccent(unit.kind());
+    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + 58 }, .col = color(if (selected) umbra.bg4 else if (hovered) umbra.bg3 else umbra.bg2), .rounding = 4 });
+    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + 3 }, .col = color(accent), .rounding = 2 });
+    draw.addText(.{ origin[0] + 9, origin[1] + 10 }, color(umbra.fg3), "{d:0>2}", .{index + 1});
+    draw.addText(.{ origin[0] + 9, origin[1] + 31 }, color(if (unit.bypassed) umbra.fg3 else umbra.fg0), "{s}", .{spectrum_ed.stripLabel(unit.kind())});
+    if (clicked and !selected) spectrum_ed.setFocus(&app.core, target, index);
+}
+
+fn fxKindAccent(kind: ws.FxKind) [4]f32 {
+    return switch (kind) {
+        .gate, .comp, .mb_comp, .ott => umbra.red,
+        .eq => umbra.yellow,
+        .sat, .crush, .tape => umbra.mauve,
+        .chorus, .flanger, .phaser, .freq_shift => umbra.iris,
+        .delay, .reverb => umbra.cyan,
+    };
+}
+
+fn drawFxEditor(app: *App, target: spectrum_ed.EqTarget, unit: *ws.FxUnit) void {
+    const accent = fxKindAccent(unit.kind());
+    const width = zgui.getContentRegionAvail()[0];
+    const origin = zgui.getCursorScreenPos();
+    _ = zgui.invisibleButton("fx-editor-heading", .{ .w = width, .h = 52 });
+    const draw = zgui.getWindowDrawList();
+    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + 52 }, .col = color(umbra.bg2), .rounding = 4 });
+    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + 4, origin[1] + 52 }, .col = color(accent), .rounding = 2 });
+    draw.addText(.{ origin[0] + 15, origin[1] + 8 }, color(accent), "{s}", .{spectrum_ed.unitLabel(unit.kind())});
+    draw.addText(.{ origin[0] + 15, origin[1] + 29 }, color(umbra.fg3), "UNIT {d:0>2}  {s}", .{ app.core.fx_focus + 1, if (unit.bypassed) "BYPASSED" else "ACTIVE" });
+
+    zgui.setCursorScreenPos(.{ origin[0] + width - 282, origin[1] + 11 });
+    if (zgui.button(if (unit.bypassed) "ENABLE" else "BYPASS", .{ .w = 78, .h = 30 })) spectrum_ed.toggleBypass(&app.core, target);
+    zgui.sameLine(.{ .spacing = 5 });
+    if (zgui.button("<##fx-left", .{ .w = 38, .h = 30 })) spectrum_ed.moveFocused(&app.core, target, -1);
+    zgui.sameLine(.{ .spacing = 5 });
+    if (zgui.button(">##fx-right", .{ .w = 38, .h = 30 })) spectrum_ed.moveFocused(&app.core, target, 1);
+    zgui.sameLine(.{ .spacing = 5 });
+    zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = umbra.red });
+    const removed = zgui.button("REMOVE", .{ .w = 78, .h = 30 });
+    if (removed) spectrum_ed.removeFocused(&app.core, target);
+    zgui.popStyleColor(.{});
+    zgui.setCursorScreenPos(.{ origin[0], origin[1] + 58 });
+    if (removed) return;
+
+    if (zgui.beginChild("fx-parameters", .{ .w = 0, .h = 0, .child_flags = .{ .border = true } })) {
+        zgui.textColored(accent, "PARAMETERS", .{});
+        zgui.separator();
+        const param_count = spectrum_ed.visibleParamCount(&app.core, unit.kind(), &unit.payload);
+        const gap: f32 = 18;
+        const column_w = @max(240, (zgui.getContentRegionAvail()[0] - gap) / 2);
+        if (zgui.beginChild("fx-params-left", .{ .w = column_w, .h = 0 })) {
+            for (0..(param_count + 1) / 2) |i| drawFxParam(app, target, unit, i);
+        }
+        zgui.endChild();
+        zgui.sameLine(.{ .spacing = gap });
+        if (zgui.beginChild("fx-params-right", .{ .w = 0, .h = 0 })) {
+            for ((param_count + 1) / 2..param_count) |i| drawFxParam(app, target, unit, i);
+        }
+        zgui.endChild();
+    }
+    zgui.endChild();
+}
+
+fn drawFxParam(app: *App, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, index: usize) void {
+    var value = spectrum_ed.getParam(&unit.payload, index);
+    const range = spectrum_ed.paramRange(&app.core, &unit.payload, index);
+    const format: [:0]const u8 = if (range[1] >= 100) "%.0f" else "%.2f";
+    var label_buf: [80]u8 = undefined;
+    const label = std.fmt.bufPrintZ(&label_buf, "{s}##gui-fx-{d}", .{ spectrum_ed.paramName(&unit.payload, index), index }) catch return;
+    if (zgui.sliderFloat(label, .{ .v = &value, .min = range[0], .max = range[1], .cfmt = format })) {
+        spectrum_ed.setParam(&app.core, &unit.payload, index, value);
+        spectrum_ed.clearStaleSidechainPad(&app.core, &unit.payload);
+        app.core.fx_param = index;
+        app.core.dirty = true;
+        syncGuiFxChain(app, target);
+    }
+}
+
+fn syncGuiFxChain(app: *App, target: spectrum_ed.EqTarget) void {
+    switch (target) {
+        .track => if (app.core.eq_track < app.core.session.racks.items.len) {
+            const rack = app.core.session.racks.items[app.core.eq_track];
+            app.core.session.syncTrackChain(app.core.eq_track, rack);
+        },
+        .master => app.core.session.syncMasterChain(),
+        .group => app.core.session.syncGroupChain(app.core.eq_group),
+    }
+}
+
+fn drawFxEmptyState(app: *App) void {
+    const width = zgui.getContentRegionAvail()[0];
+    const origin = zgui.getCursorScreenPos();
+    _ = zgui.invisibleButton("fx-empty-state", .{ .w = width, .h = 180 });
+    const draw = zgui.getWindowDrawList();
+    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + 180 }, .col = color(umbra.bg2), .rounding = 4 });
+    draw.addText(.{ origin[0] + 22, origin[1] + 28 }, color(umbra.fg0), "Build your signal chain", .{});
+    draw.addText(.{ origin[0] + 22, origin[1] + 55 }, color(umbra.fg3), "Add dynamics, tone, modulation, and space in series.", .{});
+    zgui.setCursorScreenPos(.{ origin[0] + 22, origin[1] + 96 });
+    zgui.pushStyleColor4f(.{ .idx = .button, .c = umbra.iris_soft });
+    zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = umbra.iris });
+    if (zgui.button("+  ADD FIRST EFFECT", .{ .w = 190, .h = 36 })) app.openPicker(.fx_picker);
+    zgui.popStyleColor(.{ .count = 2 });
+    zgui.setCursorScreenPos(.{ origin[0], origin[1] + 180 });
 }
 
 fn drawAutomation(app: *App) void {
@@ -1465,9 +1663,17 @@ fn drawFxPicker(app: *App) void {
         var label_buf: [48]u8 = undefined;
         const label = std.fmt.bufPrintZ(&label_buf, "{s}##fx-{d}", .{ @tagName(kind), i }) catch continue;
         if (zgui.button(label, .{ .w = 180 })) {
-            _ = rack.fx.insert(app.core.session.allocator, rack.fx.units.items.len, kind, app.core.session.project.sample_rate) catch continue;
-            app.core.session.syncTrackChain(@intCast(app.core.cursor), rack);
-            app.closePicker(.track_spectrum);
+            switch (app.core.fx_picker_return) {
+                .track_spectrum, .master_spectrum, .group_spectrum => {
+                    spectrum_ed.insertFromPicker(&app.core, kind);
+                    app.closePicker(app.core.view);
+                },
+                else => {
+                    _ = rack.fx.insert(app.core.session.allocator, rack.fx.units.items.len, kind, app.core.session.project.sample_rate) catch continue;
+                    app.core.session.syncTrackChain(@intCast(app.core.cursor), rack);
+                    app.closePicker(.track_spectrum);
+                },
+            }
         }
         zgui.sameLine(.{});
     }
