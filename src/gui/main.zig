@@ -453,41 +453,100 @@ fn drawArrangement(app: *App) void {
 
 fn drawPianoRoll(app: *App) void {
     zgui.textDisabled("PIANO ROLL", .{});
-    zgui.spacing();
     const rack = app.session.racks.items[app.selected_track];
     const pp = if (rack.pattern_player) |*p| p else {
         zgui.textDisabled("This instrument has no melodic pattern. Choose Synth or Sampler.", .{});
         return;
     };
-    zgui.text("{d} notes   {d:.1} beats", .{ pp.note_count, pp.length_beats });
-    if (zgui.beginTable("piano-grid", .{ .column = 17, .flags = .{ .borders = .inner, .sizing = .fixed_same }, .outer_size = .{ 0, -1 } })) {
-        defer zgui.endTable();
-        zgui.tableSetupColumn("Note", .{ .init_width_or_height = 54 });
-        for (0..16) |step| {
-            var header: [8]u8 = undefined;
-            zgui.tableSetupColumn(std.fmt.bufPrintZ(&header, "{d}", .{step + 1}) catch "?", .{});
-        }
-        zgui.tableHeadersRow();
-        for (0..12) |row| {
-            const pitch: u7 = @intCast(71 - row);
-            zgui.tableNextRow(.{});
-            _ = zgui.tableSetColumnIndex(0);
-            zgui.text("{d}", .{pitch});
-            for (0..16) |step| {
-                _ = zgui.tableSetColumnIndex(@intCast(step + 1));
-                const beat = @as(f64, @floatFromInt(step)) / 4.0;
-                var active = false;
-                for (pp.notes[0..pp.note_count]) |note| {
-                    if (note.pitch == pitch and @abs(note.start_beat - beat) < 0.001) active = true;
-                }
-                var label: [24]u8 = undefined;
-                const text = std.fmt.bufPrintZ(&label, "{s}##n{d}-{d}", .{ if (active) "x" else " ", pitch, step }) catch "?";
-                if (zgui.smallButton(text)) {
-                    if (active) pp.removeNote(pitch, beat) else pp.addNote(.{ .pitch = pitch, .start_beat = beat, .duration_beat = 0.25, .velocity = 0.8 });
-                }
-            }
+    zgui.text("{d} notes   {d:.1} beats   1/16 grid", .{ pp.note_count, pp.length_beats });
+    zgui.sameLine(.{ .spacing = 18 });
+    zgui.textDisabled("click to draw / erase", .{});
+
+    const gutter_w: f32 = 58;
+    const ruler_h: f32 = 24;
+    const row_h: f32 = 18;
+    const top_pitch: u7 = 84;
+    const bottom_pitch: u7 = 48;
+    const row_count: usize = top_pitch - bottom_pitch + 1;
+    const available = zgui.getContentRegionAvail();
+    const canvas_w = @max(320, available[0]);
+    const canvas_h = ruler_h + row_h * @as(f32, @floatFromInt(row_count));
+    const origin = zgui.getCursorScreenPos();
+    const clicked = zgui.invisibleButton("piano-roll-canvas", .{ .w = canvas_w, .h = canvas_h });
+    const hovered = zgui.isItemHovered(.{});
+    const mouse = zgui.getMousePos();
+    const draw = zgui.getWindowDrawList();
+    const grid_x = origin[0] + gutter_w;
+    const grid_y = origin[1] + ruler_h;
+    const grid_w = canvas_w - gutter_w;
+    const beats: f32 = @floatCast(@max(1.0, pp.length_beats));
+    const beat_w = grid_w / beats;
+
+    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + canvas_w, origin[1] + canvas_h }, .col = color(.{ 0.055, 0.065, 0.075, 1 }) });
+    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + gutter_w, origin[1] + ruler_h }, .col = color(.{ 0.09, 0.10, 0.12, 1 }) });
+
+    for (0..row_count) |row| {
+        const pitch: u7 = top_pitch - @as(u7, @intCast(row));
+        const y = grid_y + @as(f32, @floatFromInt(row)) * row_h;
+        const black = isBlackKey(pitch);
+        draw.addRectFilled(.{ .pmin = .{ grid_x, y }, .pmax = .{ origin[0] + canvas_w, y + row_h }, .col = color(if (black) .{ 0.07, 0.08, 0.09, 1 } else .{ 0.095, 0.105, 0.115, 1 }) });
+        draw.addRectFilled(.{ .pmin = .{ origin[0], y }, .pmax = .{ grid_x, y + row_h }, .col = color(if (black) .{ 0.10, 0.11, 0.12, 1 } else .{ 0.76, 0.77, 0.74, 1 }) });
+        if (black) draw.addRectFilled(.{ .pmin = .{ origin[0], y + 1 }, .pmax = .{ origin[0] + 37, y + row_h - 1 }, .col = color(.{ 0.025, 0.03, 0.035, 1 }) });
+        draw.addLine(.{ .p1 = .{ origin[0], y + row_h }, .p2 = .{ origin[0] + canvas_w, y + row_h }, .col = color(.{ 0.15, 0.16, 0.17, 1 }), .thickness = if (@mod(pitch, 12) == 0) 1.5 else 1 });
+        if (@mod(pitch, 12) == 0) draw.addText(.{ origin[0] + 40, y + 1 }, color(.{ 0.20, 0.22, 0.24, 1 }), "C{d}", .{pitch / 12 - 1});
+    }
+
+    const steps: usize = @intFromFloat(@ceil(beats * 4));
+    for (0..steps + 1) |step| {
+        const x = grid_x + @as(f32, @floatFromInt(step)) * beat_w / 4;
+        const on_beat = step % 4 == 0;
+        const on_bar = step % 16 == 0;
+        draw.addLine(.{ .p1 = .{ x, if (on_beat) origin[1] else grid_y }, .p2 = .{ x, origin[1] + canvas_h }, .col = color(if (on_bar) .{ 0.34, 0.37, 0.40, 1 } else if (on_beat) .{ 0.24, 0.26, 0.28, 1 } else .{ 0.13, 0.14, 0.15, 1 }), .thickness = if (on_bar) 2 else 1 });
+        if (on_beat and step < steps) draw.addText(.{ x + 5, origin[1] + 4 }, color(.{ 0.62, 0.65, 0.68, 1 }), "{d}.{d}", .{ step / 16 + 1, step / 4 % 4 + 1 });
+    }
+
+    while (!pp.notes_lock.tryLock()) std.atomic.spinLoopHint();
+    for (pp.notes[0..pp.note_count]) |note| {
+        if (note.pitch < bottom_pitch or note.pitch > top_pitch) continue;
+        const x = grid_x + @as(f32, @floatCast(note.start_beat)) * beat_w;
+        const width = @max(3, @as(f32, @floatCast(note.duration_beat)) * beat_w - 2);
+        const y = grid_y + @as(f32, @floatFromInt(top_pitch - note.pitch)) * row_h + 2;
+        const brightness = 0.52 + std.math.clamp(note.velocity, 0, 1) * 0.30;
+        draw.addRectFilled(.{ .pmin = .{ x + 1, y }, .pmax = .{ @min(x + width, origin[0] + canvas_w - 1), y + row_h - 4 }, .col = color(.{ 0.18, brightness, 0.56, 1 }), .rounding = 3 });
+        draw.addLine(.{ .p1 = .{ x + 3, y + 2 }, .p2 = .{ x + 3, y + row_h - 6 }, .col = color(.{ 0.72, 1.0, 0.88, 0.75 }), .thickness = 2 });
+    }
+    pp.notes_lock.unlock();
+
+    const snap = app.session.engine.uiSnapshot();
+    if (snap.playing) {
+        const play_beat = @mod(@as(f64, @floatFromInt(snap.position_frames)) / 48000.0 * @as(f64, app.session.project.tempo_bpm) / 60.0, pp.length_beats);
+        const x = grid_x + @as(f32, @floatCast(play_beat)) * beat_w;
+        draw.addLine(.{ .p1 = .{ x, origin[1] }, .p2 = .{ x, origin[1] + canvas_h }, .col = color(.{ 1.0, 0.34, 0.28, 0.95 }), .thickness = 2 });
+    }
+
+    if (hovered and mouse[0] >= grid_x and mouse[1] >= grid_y) {
+        const step = @min(steps - 1, @as(usize, @intFromFloat((mouse[0] - grid_x) / (beat_w / 4))));
+        const row = @min(row_count - 1, @as(usize, @intFromFloat((mouse[1] - grid_y) / row_h)));
+        const x = grid_x + @as(f32, @floatFromInt(step)) * beat_w / 4;
+        const y = grid_y + @as(f32, @floatFromInt(row)) * row_h;
+        draw.addRectFilled(.{ .pmin = .{ x + 1, y + 1 }, .pmax = .{ x + beat_w / 4 - 1, y + row_h - 1 }, .col = color(.{ 0.48, 0.91, 0.72, 0.18 }), .rounding = 2 });
+        if (clicked) {
+            const pitch: u7 = top_pitch - @as(u7, @intCast(row));
+            const beat = @as(f64, @floatFromInt(step)) / 4.0;
+            if (pp.noteAt(pitch, beat)) |_| pp.removeNote(pitch, beat) else pp.addNote(.{ .pitch = pitch, .start_beat = beat, .duration_beat = 0.25, .velocity = 0.85 });
         }
     }
+}
+
+fn color(rgba: [4]f32) u32 {
+    return zgui.colorConvertFloat4ToU32(rgba);
+}
+
+fn isBlackKey(pitch: u7) bool {
+    return switch (@mod(pitch, 12)) {
+        1, 3, 6, 8, 10 => true,
+        else => false,
+    };
 }
 
 fn drawDrumGrid(app: *App) void {
