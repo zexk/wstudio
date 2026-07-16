@@ -975,7 +975,7 @@ fn drawArrangement(app: *App) void {
 
     const snap = app.core.session.engine.uiSnapshot();
     if (snap.playing) {
-        const play_beat = @as(f64, @floatFromInt(snap.position_frames)) / 48000.0 * @as(f64, app.core.session.project.tempo_bpm) / 60.0;
+        const play_beat = ws.types.framesToSeconds(snap.position_frames, app.core.session.project.sample_rate) * app.core.session.project.tempo_bpm / 60.0;
         const x = timeline_x + @as(f32, @floatCast(play_beat)) * beat_w;
         if (x <= origin[0] + canvas_w) draw.addLine(.{ .p1 = .{ x, origin[1] }, .p2 = .{ x, origin[1] + canvas_h }, .col = color(patina.danger), .thickness = 2 });
     }
@@ -1190,7 +1190,7 @@ fn drawPianoRoll(app: *App) void {
 
     const snap = app.core.session.engine.uiSnapshot();
     if (snap.playing) {
-        const play_beat = @mod(@as(f64, @floatFromInt(snap.position_frames)) / 48000.0 * @as(f64, app.core.session.project.tempo_bpm) / 60.0, pp.length_beats);
+        const play_beat = @mod(ws.types.framesToSeconds(snap.position_frames, app.core.session.project.sample_rate) * app.core.session.project.tempo_bpm / 60.0, pp.length_beats);
         const x = grid_x + @as(f32, @floatCast(play_beat)) * beat_w;
         draw.addLine(.{ .p1 = .{ x, origin[1] }, .p2 = .{ x, origin[1] + canvas_h }, .col = color(patina.danger), .thickness = 2 });
     }
