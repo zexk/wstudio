@@ -207,9 +207,6 @@ pub fn drawAutomation(
     }
     try endLine(w);
 
-    // used = title(1) + ruler(1) + caret row(1) actually printed, plus the
-    // graph's own rows - was "5 +" (stale from before the header/transport
-    // hr() rows were removed), leaving 2 rows of dead blank space above the footer.
     const used = 3 + graph_rows;
     for (used..@max(used, rows -| 4)) |_| try endLine(w);
 }

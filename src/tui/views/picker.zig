@@ -60,9 +60,6 @@ pub fn drawInstrumentPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void 
         try endLine(w);
     }
 
-    // used = title(1) + blank(1) actually printed above, plus the menu rows
-    // - was "4 +" (stale from before the header/transport hr() rows were
-    // removed), leaving 2 rows of dead blank space above the footer.
     const used = 2 + picker_menu.len;
     for (used..@max(used, rows -| 4)) |_| try endLine(w);
 }
@@ -137,9 +134,6 @@ pub fn drawFxPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void {
     }
 
     // zig fmt: off
-    // used = title(1) + blank(1) actually printed above, plus the menu rows
-    // - was "4 +" (stale from before the header/transport hr() rows were
-    // removed), leaving 2 rows of dead blank space above the footer.
     const used = 2 + @max(kinds.len, 1);
     for (used..@max(used, rows -| 4)) |_| try endLine(w);
 }

@@ -187,9 +187,6 @@ pub fn drawArrangement(
         try endLine(w);
     }
 
-    // used = title(1) + ruler(1) actually printed above, plus the visible
-    // lane rows - was "4 +" (stale from before the header/transport hr()
-    // rows were removed), leaving 2 rows of dead blank space above the footer.
     const used = 2 + (last_lane - lane_scroll);
     for (used..@max(used, rows -| 4)) |_| try endLine(w);
 }
