@@ -5591,3 +5591,25 @@ test "wstudio.api transport and track surface" {
     try rt.loadString("n = wstudio.api.track_count(); wstudio.api.track_del(i); assert(wstudio.api.track_count() == n - 1)");
     try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.track_add({ kind = 'nope' })"));
 }
+
+test "applyUserConfig plumbs the round-2 options" {
+    var app = try testApp();
+    defer app.deinit();
+    var cfg: @import("../config.zig").Config = .{};
+    cfg.tap_timeout_ms = 500;
+    cfg.autosave_interval_s = 0;
+    cfg.default_octave = 2;
+    cfg.default_tempo = 93;
+    cfg.default_beats_per_bar = 3;
+    app.applyUserConfig(cfg, true);
+    try std.testing.expectEqual(@as(i96, 500 * std.time.ns_per_ms), app.tap_timeout_ns);
+    try std.testing.expectEqual(@as(i96, 0), app.autosave_interval_ns);
+    try std.testing.expectEqual(@as(u4, 2), app.modal.octave);
+    try std.testing.expectEqual(@as(f64, 93), app.session.project.tempo_bpm);
+    try std.testing.expectEqual(@as(u8, 3), app.session.project.beats_per_bar);
+
+    // blank = false leaves the (loaded) project's tempo alone.
+    cfg.default_tempo = 200;
+    app.applyUserConfig(cfg, false);
+    try std.testing.expectEqual(@as(f64, 93), app.session.project.tempo_bpm);
+}

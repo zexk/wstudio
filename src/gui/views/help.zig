@@ -2,7 +2,7 @@ const zgui = @import("zgui");
 const style = @import("../style.zig");
 
 const color = style.color;
-const patina = style.patina;
+const patina = &style.palette;
 
 const Row = struct { key: []const u8, text: []const u8 };
 

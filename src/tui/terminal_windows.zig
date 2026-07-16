@@ -41,7 +41,9 @@ pub const Terminal = struct {
     /// surfaces this as a status message once `App` exists.
     raw_mode_ok: bool,
 
-    pub fn init(io: std.Io) !Terminal {
+    /// `mouse` = report clicks/scroll/drag as VT sequences (the `tui_mouse`
+    /// option). Off, QuickEdit-style native selection stays available.
+    pub fn init(io: std.Io, mouse: bool) !Terminal {
         const stdin = c.GetStdHandle(c.STD_INPUT_HANDLE);
         const stdout = c.GetStdHandle(c.STD_OUTPUT_HANDLE);
         if (stdin == c.INVALID_HANDLE_VALUE or stdout == c.INVALID_HANDLE_VALUE)
@@ -73,8 +75,9 @@ pub const Terminal = struct {
         // to the freeze this file's `readInput` poll loop exists to avoid.
         // Resize is already handled every frame since `term.size()` is
         // re-queried unconditionally on each draw.
+        const mouse_flags: c.DWORD = if (mouse) c.ENABLE_MOUSE_INPUT else 0;
         const raw_in_mode: c.DWORD = (original_in_mode | c.ENABLE_VIRTUAL_TERMINAL_INPUT |
-            c.ENABLE_MOUSE_INPUT | c.ENABLE_EXTENDED_FLAGS) &
+            mouse_flags | c.ENABLE_EXTENDED_FLAGS) &
             ~@as(c.DWORD, c.ENABLE_ECHO_INPUT | c.ENABLE_LINE_INPUT |
                 c.ENABLE_PROCESSED_INPUT | c.ENABLE_QUICK_EDIT_MODE);
         const raw_mode_ok = c.SetConsoleMode(stdin, raw_in_mode) != 0;
@@ -93,7 +96,8 @@ pub const Terminal = struct {
             .original_out_cp = original_out_cp,
             .raw_mode_ok = raw_mode_ok,
         };
-        self.write(enter_alt_screen ++ hide_cursor ++ enable_mouse);
+        self.write(enter_alt_screen ++ hide_cursor);
+        if (mouse) self.write(enable_mouse);
         return self;
     }
 

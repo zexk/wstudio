@@ -36,6 +36,14 @@
 -- Range 1-16.
 -- wstudio.o.default_beats_per_bar = 4
 
+-- Starting octave for the qwerty piano layout ('a' = C of this octave).
+-- Range 0-8.
+-- wstudio.o.default_octave = 4
+
+-- How often unsaved changes are backed up to <project>~, in seconds.
+-- 0 disables autosave entirely. Range 0-600.
+-- wstudio.o.autosave_interval_s = 30
+
 -- Audio buffer size, in frames. Lower = less latency, higher = safer on
 -- slow machines. Range 16-4096.
 -- wstudio.o.audio_block_frames = 256
@@ -48,11 +56,25 @@
 -- maximum frame time. Range 5-1000.
 -- wstudio.o.frame_poll_ms = 30
 
+-- [tui] Capture the mouse (clicks, scroll, drag). false leaves your
+-- terminal's native text selection untouched; all mouse gestures have
+-- keyboard equivalents.
+-- wstudio.o.tui_mouse = true
+
 -- [gui] Font size, in pixels. Range 8-40.
 -- wstudio.o.gui_font_size = 15
 
 -- [gui] Vertical sync. false trades tearing for lower input latency.
 -- wstudio.o.gui_vsync = true
+
+-- [gui] Color theme: "patina" (the green identity) or "graphite" (the
+-- same lightness ramp and accents on neutral charcoal).
+-- wstudio.o.gui_theme = "patina"
+
+-- [gui] Initial window size, in pixels. Width range 960-7680, height
+-- range 600-4320 (the window stays freely resizable).
+-- wstudio.o.gui_window_width = 1440
+-- wstudio.o.gui_window_height = 900
 
 -- ---------------------------------------------------------------------------
 -- KEYMAPS: wstudio.keymap

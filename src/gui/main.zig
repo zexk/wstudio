@@ -32,7 +32,7 @@ const gl = zopengl.bindings;
 const color = gui_style.color;
 const rgb = gui_style.rgb;
 const trackColor = gui_style.trackColor;
-const patina = gui_style.patina;
+const patina = &gui_style.palette;
 
 const icon_glyph_ranges = [_]zgui.Wchar{
     0xec1a,  0xec1a,  0xee32,  0xee32,  0xef9d,  0xef9d,
@@ -71,20 +71,13 @@ pub const App = struct {
     fn init(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8, user_config: config_mod.Config) !App {
         var core = try tui_app.App.initWithSampleRate(allocator, io, user_config.default_sample_rate);
         errdefer core.deinit();
-        core.tap_timeout_ns = @as(i96, user_config.tap_timeout_ms) * std.time.ns_per_ms;
         if (init_path) |path| {
             const session = try ws.persist.load(allocator, io, path);
             core.session.deinit();
             core.session = session;
             core.setProjectPath(path);
-        } else {
-            // Same blank-start defaults the TUI's run() applies.
-            core.session.project.tempo_bpm = user_config.default_tempo;
-            core.session.project.beats_per_bar = user_config.default_beats_per_bar;
-            _ = core.session.engine.send(.{ .set_tempo = user_config.default_tempo });
-            _ = core.session.engine.send(.{ .set_time_signature = user_config.default_beats_per_bar });
-            core.session.syncLoop();
         }
+        core.applyUserConfig(user_config, init_path == null);
         return .{ .core = core };
     }
 
@@ -354,7 +347,7 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
     glfw.windowHint(.context_version_minor, 3);
     glfw.windowHint(.opengl_profile, .opengl_core_profile);
     glfw.windowHint(.opengl_forward_compat, true);
-    const window = try glfw.Window.create(1440, 900, "wstudio GUI prototype", null, null);
+    const window = try glfw.Window.create(user_config.gui_window_width, user_config.gui_window_height, "wstudio GUI prototype", null, null);
     defer window.destroy();
     window.setSizeLimits(960, 600, -1, -1);
     glfw.makeContextCurrent(window);
@@ -368,6 +361,7 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
     defer zgui.plot.deinit();
     zgui.io.setConfigFlags(.{ .nav_enable_keyboard = true });
     zgui.io.setIniFilename(null);
+    gui_style.selectPalette(user_config.gui_theme);
     gui_style.setTheme();
     zgui.backend.init(window);
     defer zgui.backend.deinit();

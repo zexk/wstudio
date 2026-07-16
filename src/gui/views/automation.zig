@@ -7,7 +7,7 @@ const widgets = @import("../widgets.zig");
 
 const color = style.color;
 const trackColor = style.trackColor;
-const patina = style.patina;
+const patina = &style.palette;
 
 pub fn draw(app: anytype) void {
     const clip = automation_ed.currentClip(&app.core);

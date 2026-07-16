@@ -16,15 +16,23 @@ const c = @cImport({
     @cInclude("lualib.h");
 });
 
+pub const GuiTheme = enum { patina, graphite };
+
 pub const Config = struct {
     default_tempo: f64 = 120.0,
     default_sample_rate: u32 = 48_000,
     default_beats_per_bar: u8 = 4,
+    default_octave: u8 = 4,
+    autosave_interval_s: u16 = 30,
     frame_poll_ms: u16 = 30,
     audio_block_frames: u32 = 256,
     tap_timeout_ms: u32 = 2000,
+    tui_mouse: bool = true,
     gui_font_size: f32 = 15.0,
     gui_vsync: bool = true,
+    gui_theme: GuiTheme = .patina,
+    gui_window_width: u16 = 1440,
+    gui_window_height: u16 = 900,
 };
 
 pub const Frontend = enum { tui, gui };
@@ -36,9 +44,9 @@ pub const Scope = enum { core, tui, gui };
 
 const OptionSpec = struct {
     name: [:0]const u8,
-    /// Valid range, ignored for bool fields. All current bounds are whole
-    /// numbers, so comptime_int keeps them comparable against both the
-    /// integer and float values Lua hands over.
+    /// Valid range, ignored for bool and enum fields. All current bounds
+    /// are whole numbers, so comptime_int keeps them comparable against
+    /// both the integer and float values Lua hands over.
     min: comptime_int = 0,
     max: comptime_int = 0,
     scope: Scope = .core,
@@ -51,11 +59,17 @@ const option_specs = [_]OptionSpec{
     .{ .name = "default_tempo", .min = 20, .max = 999 },
     .{ .name = "default_sample_rate", .min = 8000, .max = 192000 },
     .{ .name = "default_beats_per_bar", .min = 1, .max = 16 },
+    .{ .name = "default_octave", .min = 0, .max = 8 },
+    .{ .name = "autosave_interval_s", .min = 0, .max = 600 },
     .{ .name = "frame_poll_ms", .min = 5, .max = 1000, .scope = .tui },
     .{ .name = "audio_block_frames", .min = 16, .max = 4096 },
     .{ .name = "tap_timeout_ms", .min = 100, .max = 10000 },
+    .{ .name = "tui_mouse", .scope = .tui },
     .{ .name = "gui_font_size", .min = 8, .max = 40, .scope = .gui },
     .{ .name = "gui_vsync", .scope = .gui },
+    .{ .name = "gui_theme", .scope = .gui },
+    .{ .name = "gui_window_width", .min = 960, .max = 7680, .scope = .gui },
+    .{ .name = "gui_window_height", .min = 600, .max = 4320, .scope = .gui },
 };
 
 comptime {
@@ -604,6 +618,18 @@ fn setOption(state: ?*c.lua_State) callconv(.c) c_int {
                     if (value < spec.min or value > spec.max) return c.luaL_error(l, range_msg);
                     break :blk @intCast(value);
                 },
+                .@"enum" => |info| blk: {
+                    const names = comptime names: {
+                        var s: []const u8 = "";
+                        for (info.fields, 0..) |f, i| s = s ++ (if (i == 0) "" else ", ") ++ f.name;
+                        break :names s;
+                    };
+                    const enum_msg = std.fmt.comptimePrint("{s} must be one of: {s}", .{ spec.name, names });
+                    var slen: usize = 0;
+                    const s = c.luaL_checklstring(l, 3, &slen);
+                    break :blk std.meta.stringToEnum(@FieldType(Config, spec.name), s[0..slen]) orelse
+                        return c.luaL_error(l, enum_msg);
+                },
                 else => comptime unreachable,
             };
             return 0;
@@ -622,6 +648,7 @@ fn getOption(state: ?*c.lua_State) callconv(.c) c_int {
                 .bool => c.lua_pushboolean(l, @intFromBool(value)),
                 .float => c.lua_pushnumber(l, value),
                 .int => c.lua_pushinteger(l, value),
+                .@"enum" => _ = c.lua_pushstring(l, @tagName(value)),
                 else => comptime unreachable,
             }
             return 1;
@@ -1237,6 +1264,29 @@ test "Lua API handles bool and float GUI options" {
     try rt.loadString("wstudio.o.gui_vsync = false; wstudio.o.gui_font_size = 18; assert(wstudio.o.gui_vsync == false); assert(wstudio.o.gui_font_size == 18)");
     try std.testing.expectEqual(false, rt.config.gui_vsync);
     try std.testing.expectEqual(@as(f32, 18), rt.config.gui_font_size);
+}
+
+test "Lua API handles enum options as strings" {
+    var rt = try Runtime.init(.gui);
+    defer rt.deinit();
+    try rt.loadString("assert(wstudio.o.gui_theme == 'patina'); wstudio.o.gui_theme = 'graphite'; assert(wstudio.o.gui_theme == 'graphite')");
+    try std.testing.expectEqual(GuiTheme.graphite, rt.config.gui_theme);
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.o.gui_theme = 'neon'"));
+    try rt.loadString("local ok, err = pcall(function() wstudio.o.gui_theme = 'neon' end); assert(err:find('patina, graphite') ~= nil)");
+}
+
+test "Lua API round 2 options set and read" {
+    var rt = try Runtime.init(.tui);
+    defer rt.deinit();
+    try rt.loadString("wstudio.o.default_octave = 2; wstudio.o.autosave_interval_s = 0; wstudio.o.tui_mouse = false;" ++
+        "wstudio.o.gui_window_width = 1920; wstudio.o.gui_window_height = 1080");
+    try std.testing.expectEqual(@as(u8, 2), rt.config.default_octave);
+    try std.testing.expectEqual(@as(u16, 0), rt.config.autosave_interval_s);
+    try std.testing.expectEqual(false, rt.config.tui_mouse);
+    try std.testing.expectEqual(@as(u16, 1920), rt.config.gui_window_width);
+    try std.testing.expectEqual(@as(u16, 1080), rt.config.gui_window_height);
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.o.default_octave = 9"));
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.o.gui_window_width = 100"));
 }
 
 test "wstudio.frontend reports the active frontend" {

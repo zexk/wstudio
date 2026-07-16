@@ -142,14 +142,19 @@ Two changes to the implementation, no change to the surface:
    control: a TUI session may still set `gui_*` options, they just have no
    effect, so one config file serves both frontends without branching.
 
-Initial option set (current six plus GUI candidates):
+Current option set (see examples/init.lua for defaults and ranges):
 
 | option | scope |
 | --- | --- |
 | `default_tempo`, `default_sample_rate`, `default_beats_per_bar` | core |
+| `default_octave`, `autosave_interval_s` | core |
 | `audio_block_frames`, `tap_timeout_ms` | core |
-| `frame_poll_ms` | tui |
-| `gui_font_size`, `gui_vsync` | gui |
+| `frame_poll_ms`, `tui_mouse` | tui |
+| `gui_font_size`, `gui_vsync`, `gui_theme` | gui |
+| `gui_window_width`, `gui_window_height` | gui |
+
+Enum-typed options (`gui_theme`) read and write as strings; the spec table
+derives the valid-name list and its error message from the Zig enum.
 
 Project-level values (tempo of the open project, etc.) are **not** options;
 they are engine state, reached through `wstudio.api`. Options are

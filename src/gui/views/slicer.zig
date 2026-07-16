@@ -6,7 +6,7 @@ const widgets = @import("../widgets.zig");
 const step_grid = @import("step_grid.zig");
 
 const color = style.color;
-const patina = style.patina;
+const patina = &style.palette;
 
 pub fn draw(app: anytype) void {
     const track = app.core.slicer_track;

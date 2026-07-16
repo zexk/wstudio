@@ -7,7 +7,7 @@ const synth_ed = @import("../../tui/editors/synth.zig");
 const style = @import("../style.zig");
 
 const color = style.color;
-const patina = style.patina;
+const patina = &style.palette;
 
 pub fn drawInstrument(app: anytype) void {
     zgui.textColored(patina.focus, "ADD INSTRUMENT", .{});

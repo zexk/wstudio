@@ -32,7 +32,9 @@ pub const Terminal = struct {
     stdout_fd: std.posix.fd_t,
     original: std.posix.termios,
 
-    pub fn init(io: std.Io) !Terminal {
+    /// `mouse` = report clicks/scroll/drag as SGR sequences (the `tui_mouse`
+    /// option). Off, the terminal keeps its native text selection instead.
+    pub fn init(io: std.Io, mouse: bool) !Terminal {
         const stdin_fd: std.posix.fd_t = 0;
         const stdout_fd: std.posix.fd_t = 1;
         const original = std.posix.tcgetattr(stdin_fd) catch return error.NotATerminal;
@@ -58,11 +60,13 @@ pub const Terminal = struct {
             .stdout_fd = stdout_fd,
             .original = original,
         };
-        self.write(enter_alt_screen ++ hide_cursor ++ enable_mouse);
+        self.write(enter_alt_screen ++ hide_cursor);
+        if (mouse) self.write(enable_mouse);
         return self;
     }
 
     pub fn deinit(self: *Terminal) void {
+        // disable_mouse when tracking was never enabled is a harmless no-op.
         self.write(disable_mouse ++ show_cursor ++ leave_alt_screen);
         std.posix.tcsetattr(self.stdin_fd, .FLUSH, self.original) catch {};
     }

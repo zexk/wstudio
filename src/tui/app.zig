@@ -54,7 +54,7 @@ const cmd_history_cap: usize = 50;
 const reload_path_buf_len: usize = 1024;
 /// A pause longer than this between taps starts a fresh tap-tempo run.
 /// Minimum gap between silent `<path>~` backups; see `maybeAutosave`.
-const autosave_interval_ns: i96 = 30 * std.time.ns_per_s;
+const default_autosave_interval_ns: i96 = 30 * std.time.ns_per_s;
 /// Where a plain `:w` lands when no project path is known yet - also what
 /// a pathless session's autosave backs up next to (see `App.backupPath`).
 pub const default_project_path = "project.wsj";
@@ -296,6 +296,9 @@ pub const App = struct {
     // (e.g. piano-roll preview) without threading now_ns through every signature.
     now_ns: i96 = 0,
     tap_timeout_ns: i96 = 2 * std.time.ns_per_s,
+    /// Backup cadence (see maybeAutosave); 0 disables. Set from the
+    /// `autosave_interval_s` option by `applyUserConfig`.
+    autosave_interval_ns: i96 = default_autosave_interval_ns,
     /// An open coalescing batch of synth/sampler param nudges (h/l/H/L),
     /// flushed to `history` once the cursor moves off that param - see
     /// history.zig's noteParamNudge/flushParamNudge.
@@ -831,6 +834,23 @@ pub const App = struct {
     /// emission site is core code, so both frontends fire identically.
     pub fn emitEvent(self: *App, data: config_mod.EventData) void {
         if (self.lua_runtime) |rt| rt.emit(data);
+    }
+
+    /// Config values both frontends apply identically after App init
+    /// (sample rate is the exception: initWithSampleRate needs it at
+    /// construction). `blank` = started without a project argument, which
+    /// additionally seeds the new-project defaults.
+    pub fn applyUserConfig(self: *App, user_config: config_mod.Config, blank: bool) void {
+        self.tap_timeout_ns = @as(i96, user_config.tap_timeout_ms) * std.time.ns_per_ms;
+        self.autosave_interval_ns = @as(i96, user_config.autosave_interval_s) * std.time.ns_per_s;
+        self.modal.octave = @intCast(user_config.default_octave);
+        if (blank) {
+            self.session.project.tempo_bpm = user_config.default_tempo;
+            self.session.project.beats_per_bar = user_config.default_beats_per_bar;
+            _ = self.session.engine.send(.{ .set_tempo = user_config.default_tempo });
+            _ = self.session.engine.send(.{ .set_time_signature = user_config.default_beats_per_bar });
+            self.session.syncLoop();
+        }
     }
 
     // ------------------------------------------------------------------
@@ -2797,8 +2817,9 @@ pub const App = struct {
     /// (best-effort); a status message every 30s would just be noise during
     /// active work.
     fn maybeAutosave(self: *App, now_ns: i96) void {
+        if (self.autosave_interval_ns == 0) return; // autosave_interval_s = 0 disables
         if (!self.dirty) return;
-        if (now_ns - self.last_autosave_ns < autosave_interval_ns) return;
+        if (now_ns - self.last_autosave_ns < self.autosave_interval_ns) return;
         self.last_autosave_ns = now_ns;
         self.writeBackup();
     }
@@ -3577,7 +3598,7 @@ pub fn luaHost(app: *App) config_mod.Host {
 
 pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8, runtime: *config_mod.Runtime) !void {
     const user_config = runtime.config;
-    var term = terminal_mod.Terminal.init(io) catch {
+    var term = terminal_mod.Terminal.init(io, user_config.tui_mouse) catch {
         std.debug.print(
             "wstudio: stdin is not a terminal (try `wstudio render` for the offline demo)\n",
             .{},
@@ -3590,14 +3611,7 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8, run
 
     var app = try App.initWithSampleRate(allocator, io, user_config.default_sample_rate);
     defer app.deinit();
-    app.tap_timeout_ns = @as(i96, user_config.tap_timeout_ms) * std.time.ns_per_ms;
-    if (init_path == null) {
-        app.session.project.tempo_bpm = user_config.default_tempo;
-        app.session.project.beats_per_bar = user_config.default_beats_per_bar;
-        _ = app.session.engine.send(.{ .set_tempo = user_config.default_tempo });
-        _ = app.session.engine.send(.{ .set_time_signature = user_config.default_beats_per_bar });
-        app.session.syncLoop();
-    }
+    app.applyUserConfig(user_config, init_path == null);
     icons.font_installed = icons.detectFontInstalled(io);
 
     // Surface a raw-mode setup failure once there's a status line to put it

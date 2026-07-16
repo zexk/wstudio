@@ -8,7 +8,7 @@ const style = @import("../style.zig");
 const color = style.color;
 const rgb = style.rgb;
 const trackColor = style.trackColor;
-const patina = style.patina;
+const patina = &style.palette;
 
 pub fn draw(app: anytype) void {
     const target = spectrum_ed.currentTarget(&app.core);
