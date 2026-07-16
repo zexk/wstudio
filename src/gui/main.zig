@@ -307,7 +307,7 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
                 audio.stop();
                 app.core.session.deinit();
                 app.core.session = session;
-                app.core.cursor = 0;
+                app.core.resetForNewSession();
                 switch (kind) {
                     .load => app.core.setProjectPath(app.core.pendingReloadPath()),
                     .restore_backup => app.core.setStatus("restored from autosave backup; :write to keep it", .{}),

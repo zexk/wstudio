@@ -3242,6 +3242,38 @@ pub const App = struct {
         self.project_path_len = 0;
     }
 
+    /// Reset every piece of App state that describes or snapshots the old
+    /// session, right after `run()` swapped in a new one (`:e`/`:new`/
+    /// `:restore-backup`). Undo entries, pending nudge batches, and note-offs
+    /// hold old-session content or track indices; editor views and targets
+    /// may point past the new track list or at a different instrument kind.
+    /// The doTrackDel-time remaps/guards never see any of this because the
+    /// whole session changed at once. Both frontends call this after
+    /// `app.session = loaded`. `last_view` deliberately stays: the next
+    /// tick() then emits ViewEnter for the forced jump to `.tracks`.
+    pub fn resetForNewSession(self: *App) void {
+        self.history.clear(self.allocator);
+        self.pending_param_nudge = null;
+        if (self.pending_fx_nudge) |*p| p.deinit(self.allocator);
+        self.pending_fx_nudge = null;
+        self.note_off_len = 0;
+        self.piano_clip_link = null;
+        self.automation_clip = null;
+        if (self.modal.mode != .normal) _ = self.modal.setMode(.normal);
+        self.view = .tracks;
+        self.prev_view = .tracks;
+        self.cursor = 0;
+        self.invalidateTrackRow();
+        self.synth_track = 0;
+        self.drum_track = 0;
+        self.piano_track = 0;
+        self.eq_track = 0;
+        self.slicer_track = 0;
+        self.automation_track = 0;
+        self.preset_picker_track = 0;
+        self.sampler_target = .{ .drum = 0 };
+    }
+
     /// Ask `run()` to load `path` (or start a blank session when null) on
     /// its next loop iteration - see the field doc on `pending_reload`.
     pub fn requestReload(self: *App, path: ?[]const u8) void {
@@ -3758,6 +3790,7 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8, run
 
                 app.session.deinit();
                 app.session = loaded;
+                app.resetForNewSession();
                 switch (kind) {
                     .load => app.setProjectPath(app.pendingReloadPath()),
                     // Keep the original project path - the backup's content

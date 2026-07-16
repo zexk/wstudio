@@ -232,6 +232,15 @@ pub const History = struct {
         self.redo_stack.deinit(allocator);
     }
 
+    /// Drop both stacks: entries snapshot content of a specific session, so
+    /// they must not survive a session swap (`:e`/`:new`) into another one.
+    pub fn clear(self: *History, allocator: std.mem.Allocator) void {
+        for (self.undo_stack.items) |*e| e.deinit(allocator);
+        self.undo_stack.clearRetainingCapacity();
+        for (self.redo_stack.items) |*e| e.deinit(allocator);
+        self.redo_stack.clearRetainingCapacity();
+    }
+
     /// Record a pre-edit state. A fresh edit invalidates the redo branch.
     /// Takes ownership of `entry` (freed on overflow or append failure).
     pub fn push(self: *History, allocator: std.mem.Allocator, entry: Entry) void {

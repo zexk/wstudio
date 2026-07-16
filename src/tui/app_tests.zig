@@ -2698,6 +2698,36 @@ test "track delete/move remap pending qwerty note-offs so held notes still stop"
     try std.testing.expectEqual(@as(u16, 0), app.note_offs[0].track);
 }
 
+test "session swap resets view, editor targets, and undo history" {
+    var app = try testApp();
+    defer app.deinit();
+
+    // Editor open on the drum machine at track 2, with session-scoped
+    // state an :e reload must not carry over: an undo snapshot of THIS
+    // session's content, a pending note-off, a clip link.
+    app.view = .drum_grid;
+    app.drum_track = 2;
+    history.push(&app, history.captureDrum(&app, 2));
+    app.playNote(2, 60, 0);
+    app.piano_clip_link = .{ .track = 2, .start_bar = 0 };
+    try std.testing.expectEqual(@as(usize, 1), app.history.undo_stack.items.len);
+
+    // The swap run() performs for :e/:new, minus the audio backend.
+    const loaded = try ws.Session.initDefault(std.testing.allocator);
+    app.session.deinit();
+    app.session = loaded;
+    app.resetForNewSession();
+
+    // The old project's undo entries must not apply to the new one, the
+    // drum grid must not draw with a stale (here out-of-range) target.
+    try std.testing.expectEqual(AppView.tracks, app.view);
+    try std.testing.expectEqual(@as(usize, 0), app.history.undo_stack.items.len);
+    try std.testing.expectEqual(@as(usize, 0), app.note_off_len);
+    try std.testing.expectEqual(@as(u16, 0), app.drum_track);
+    try std.testing.expectEqual(@as(usize, 0), app.cursor);
+    try std.testing.expect(app.piano_clip_link == null);
+}
+
 test "track add/delete/move remap the preset picker's target track" {
     var app = try testApp();
     defer app.deinit();
