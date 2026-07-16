@@ -7,6 +7,7 @@ const ws = @import("wstudio");
 const tui_app = @import("../tui/app.zig");
 const tui_cmd = @import("../tui/cmd.zig");
 const tui_commands = @import("../tui/commands.zig");
+const tui = @import("../tui/tui.zig");
 const icons = @import("../tui/icons.zig");
 const automation_ed = @import("../tui/editors/automation.zig");
 const piano_ed = @import("../tui/editors/piano.zig");
@@ -195,6 +196,11 @@ test "GUI tracks cursor excludes the TUI master sentinel" {
     try std.testing.expectEqual(@as(usize, 3), guiTrackCursor(4, 4));
     try std.testing.expectEqual(@as(usize, 3), guiTrackCursor(3, 4));
     try std.testing.expectEqual(@as(usize, 0), guiTrackCursor(1, 0));
+}
+
+test "GUI status text strips terminal styling" {
+    var out: [64]u8 = undefined;
+    try std.testing.expectEqualStrings(" N   1/5  oct 4", stripAnsi("\x1b[42m\x1b[30m N \x1b[0m  \x1b[2m1/5  oct \x1b[0m4", &out));
 }
 
 fn isPicker(view: tui_app.AppView) bool {
@@ -1689,91 +1695,102 @@ fn drawStatus(app: *App) void {
         const size = zgui.getWindowSize();
         draw.addRectFilled(.{ .pmin = pos, .pmax = .{ pos[0] + size[0], pos[1] + size[1] }, .col = color(patina.bg1) });
 
-        var x = pos[0];
-        x = drawStatusSegment(draw, x, pos[1], size[1], patina.focus, patina.bg0, @tagName(app.core.modal.mode));
-        x = drawStatusSegment(draw, x, pos[1], size[1], patina.bg4, patina.fg0, @tagName(app.core.view));
-
-        var track_buf: [160]u8 = undefined;
-        const track_label = if (app.core.cursor < app.core.session.project.tracks.items.len) blk: {
-            const track = app.core.session.project.tracks.items[app.core.cursor];
-            break :blk std.fmt.bufPrint(&track_buf, "{d:0>2}  {s}", .{ app.core.cursor + 1, track.name }) catch "track";
-        } else "MASTER";
-        x = drawStatusSegment(draw, x, pos[1], size[1], patina.bg2, patina.fg1, track_label);
-
-        var cursor_buf: [160]u8 = undefined;
-        const cursor_label = cursorContext(app, &cursor_buf);
-        if (cursor_label.len > 0) x = drawStatusSegment(draw, x, pos[1], size[1], patina.bg0, patina.fg2, cursor_label);
-
-        const status = app.core.statusText();
-        const status_size = zgui.calcTextSize(status, .{});
-        if (status.len > 0 and x + status_size[0] + 260 < pos[0] + size[0]) {
-            draw.addText(.{ x + 12, pos[1] + (size[1] - status_size[1]) / 2 }, color(patina.fg1), "{s}", .{status});
+        var left_buf: [2048]u8 = undefined;
+        var right_buf: [256]u8 = undefined;
+        const status = tuiStatusText(app, &left_buf, &right_buf);
+        const mode_label = statusModeLabel(app.core.modal.mode);
+        const x = drawStatusSegment(draw, pos[0], pos[1], size[1], statusModeColor(app.core.modal.mode), patina.bg0, mode_label);
+        const context = std.mem.trim(u8, status.left, " ");
+        if (context.len > 0) {
+            const text_size = zgui.calcTextSize(context, .{});
+            draw.addText(.{ x + 12, pos[1] + (size[1] - text_size[1]) / 2 }, color(patina.fg1), "{s}", .{context});
         }
-
-        const snap = app.core.session.engine.uiSnapshot();
-        const beat = ws.types.framesToSeconds(snap.position_frames, app.core.session.project.sample_rate) * app.core.session.project.tempo_bpm / 60.0;
-        var right_buf: [192]u8 = undefined;
-        const right_label = std.fmt.bufPrint(&right_buf, "{s}  {s}  {d}.{d}", .{
-            if (snap.playing) icons.play else icons.stop,
-            if (snap.playing) "PLAY" else "STOP",
-            @as(u32, @intFromFloat(beat)) / app.core.session.project.beats_per_bar + 1,
-            @mod(@as(u32, @intFromFloat(beat)), app.core.session.project.beats_per_bar) + 1,
-        }) catch "transport";
-        drawStatusSegmentRight(draw, pos[0] + size[0], pos[1], size[1], if (snap.playing) patina.focus_soft else patina.bg2, patina.fg0, right_label);
+        if (status.right.len > 0) {
+            const right_color = if (app.core.view == .arrangement)
+                if (app.core.session.song_mode) patina.audio else patina.rhythm
+            else
+                statusModeColor(app.core.modal.mode);
+            drawStatusSegmentRight(draw, pos[0] + size[0], pos[1], size[1], right_color, patina.bg0, status.right);
+        }
     }
     zgui.end();
 }
 
-fn cursorContext(app: *App, buf: []u8) []const u8 {
+const StatusText = struct { left: []const u8, right: []const u8 };
+
+// TUI status renderers are the canonical footer content; the GUI strips SGR
+// codes and supplies its own presentation so both frontends stay in sync.
+fn tuiStatusText(app: *App, left_out: []u8, right_out: []u8) StatusText {
+    var left_ansi: [2048]u8 = undefined;
+    var right_ansi: [256]u8 = undefined;
+    var left_writer = std.Io.Writer.fixed(&left_ansi);
+    var right_writer = std.Io.Writer.fixed(&right_ansi);
     const core = &app.core;
-    return switch (core.view) {
-        .tracks => std.fmt.bufPrint(buf, "row {d}/{d}", .{ core.cursor + 1, core.session.project.tracks.items.len }) catch "",
-        .arrangement => std.fmt.bufPrint(buf, "track {d}  tick {d}", .{ core.cursor + 1, core.arr_cursor_bar * core.arr_grid.ticks() }) catch "",
-        .piano_roll => blk: {
-            var note_buf: [5]u8 = undefined;
-            const name = ws.midi.noteName(core.piano_cursor_pitch, &note_buf);
-            if (core.piano_track < core.session.racks.items.len) {
-                if (core.session.racks.items[core.piano_track].pattern_player) |*pp| {
-                    const beat = @as(f64, @floatFromInt(core.piano_cursor_step)) / @as(f64, @floatFromInt(core.pianoStepsPerBeat()));
-                    if (pp.noteAt(core.piano_cursor_pitch, beat)) |note| {
-                        break :blk std.fmt.bufPrint(buf, "{s}  step {d}  len {d:.2}b  vel {d:.0}%", .{ name, core.piano_cursor_step + 1, note.duration_beat, note.velocity * 100 }) catch "";
-                    }
+    if (core.view == .tracks) core.tracksRowSync();
+    (switch (core.view) {
+        .tracks => tui.drawTracksStatus(core, &left_writer, &right_writer),
+        .drum_grid => tui.drawDrumStatus(core, &left_writer, &right_writer),
+        .synth_editor => tui.drawSynthStatus(core, &left_writer, &right_writer),
+        .sampler_editor => tui.drawSamplerStatus(core, &left_writer, &right_writer),
+        .piano_roll => tui.drawPianoRollStatus(core, &left_writer, &right_writer),
+        .help => tui.drawHelpStatus(core, &left_writer, &right_writer),
+        .track_spectrum, .master_spectrum, .group_spectrum => tui.drawFxStatus(core, &left_writer, &right_writer, spectrum_ed.currentTarget(core)),
+        .instrument_picker => tui.drawPickerStatus(core, &left_writer, &right_writer, "INSTRUMENT", "insert", false),
+        .fx_picker => tui.drawPickerStatus(core, &left_writer, &right_writer, "EFFECT", "insert", true),
+        .synth_fx_picker => tui.drawPickerStatus(core, &left_writer, &right_writer, "SYNTH FX", "insert", true),
+        .arrangement => tui.drawArrangementStatus(core, &left_writer, &right_writer),
+        .file_browser => tui.drawFileBrowserStatus(core, &left_writer, &right_writer),
+        .automation => tui.drawAutomationStatus(core, &left_writer, &right_writer),
+        .automation_param_picker => tui.drawPickerStatus(core, &left_writer, &right_writer, "PARAM", "pick", true),
+        .slicer_grid => tui.drawSlicerStatus(core, &left_writer, &right_writer),
+        .preset_picker => tui.drawPresetPickerStatus(core, &left_writer, &right_writer),
+    }) catch return .{ .left = "", .right = "" };
+
+    const plain_left = stripAnsi(left_writer.buffered(), left_out);
+    const without_mode = if (plain_left.len >= 3) plain_left[3..] else plain_left;
+    return .{
+        .left = without_mode,
+        .right = std.mem.trim(u8, stripAnsi(right_writer.buffered(), right_out), " "),
+    };
+}
+
+fn stripAnsi(input: []const u8, out: []u8) []const u8 {
+    var src: usize = 0;
+    var dst: usize = 0;
+    while (src < input.len and dst < out.len) {
+        if (input[src] == 0x1b and src + 1 < input.len and input[src + 1] == '[') {
+            src += 2;
+            while (src < input.len) : (src += 1) {
+                if (input[src] >= 0x40 and input[src] <= 0x7e) {
+                    src += 1;
+                    break;
                 }
             }
-            break :blk std.fmt.bufPrint(buf, "{s}  step {d}  default {d:.2}b", .{ name, core.piano_cursor_step + 1, core.piano_note_len }) catch "";
-        },
-        .drum_grid => std.fmt.bufPrint(buf, "pad {d}  step {d}", .{ core.drum_cursor[0] + 1, core.drum_cursor[1] + 1 }) catch "",
-        .slicer_grid => std.fmt.bufPrint(buf, "slice {d}  step {d}", .{ core.slicer_cursor[0] + 1, core.slicer_cursor[1] + 1 }) catch "",
-        .synth_editor => blk: {
-            var label_buf: [64]u8 = undefined;
-            break :blk std.fmt.bufPrint(buf, "param {s}", .{synth_ed.paramLabel(core.synth_cursor, &label_buf)}) catch "";
-        },
-        .sampler_editor => blk: {
-            const labels = [_][]const u8{ "start", "end", "pitch", "attack", "decay", "sustain", "release", "gain", "pan", "reverse", "root", "voice" };
-            const label = if (core.sampler_param < labels.len) labels[core.sampler_param] else "param";
-            break :blk std.fmt.bufPrint(buf, "param {s}", .{label}) catch "";
-        },
-        .track_spectrum, .master_spectrum, .group_spectrum => blk: {
-            const target = spectrum_ed.currentTarget(core);
-            const fx = spectrum_ed.fxPtr(core, target) orelse break :blk "";
-            const unit = spectrum_ed.focusedUnit(core, fx) orelse break :blk "";
-            break :blk std.fmt.bufPrint(buf, "unit {d}  {s}", .{ core.fx_focus + 1, spectrum_ed.paramName(&unit.payload, core.fx_param) }) catch "";
-        },
-        .automation => blk: {
-            const label = switch (core.automation_focus) {
-                .gain => "gain",
-                .pan => "pan",
-                .synth_param => |id| if (automation_ed.findAutomatableParam(core, id)) |p| p.label else "param",
-            };
-            break :blk std.fmt.bufPrint(buf, "{s}  beat {d:.2}", .{ label, @as(f32, @floatFromInt(core.automation_cursor_step)) * 0.25 }) catch "";
-        },
-        .instrument_picker => std.fmt.bufPrint(buf, "item {d}/4", .{core.picker_cursor + 1}) catch "",
-        .fx_picker => std.fmt.bufPrint(buf, "effect {d}", .{core.fx_picker_cursor + 1}) catch "",
-        .synth_fx_picker => std.fmt.bufPrint(buf, "effect {d}", .{core.synth_fx_picker_cursor + 1}) catch "",
-        .preset_picker => std.fmt.bufPrint(buf, "preset {d}", .{core.preset_picker_cursor + 1}) catch "",
-        .automation_param_picker => std.fmt.bufPrint(buf, "param {d}", .{core.automation_param_cursor + 1}) catch "",
-        .file_browser => std.fmt.bufPrint(buf, "item {d}/{d}", .{ core.browser_cursor + 1, core.browser_entries.items.len }) catch "",
-        .help => "",
+            continue;
+        }
+        out[dst] = input[src];
+        dst += 1;
+        src += 1;
+    }
+    return out[0..dst];
+}
+
+fn statusModeLabel(mode: ws.input.Mode) []const u8 {
+    return switch (mode) {
+        .normal => "N",
+        .insert => "I",
+        .visual => "V",
+        .command => "C",
+        .search => "S",
+    };
+}
+
+fn statusModeColor(mode: ws.input.Mode) [4]f32 {
+    return switch (mode) {
+        .normal => patina.audio,
+        .insert => patina.rhythm,
+        .visual => patina.modulation,
+        .command, .search => patina.focus,
     };
 }
 
