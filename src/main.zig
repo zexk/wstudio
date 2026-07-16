@@ -1,11 +1,12 @@
-//! CLI frontend. `wstudio` launches the TUI; `wstudio render` runs the
+//! Executable entry point. `wstudio` launches the TUI, `wstudio --gui`
+//! launches the GUI, and `wstudio render` runs the
 //! offline pipeline demo: keystrokes -> modal input -> note events ->
 //! synth -> compressor -> delay -> reverb, bounced to a WAV.
 
 const std = @import("std");
 const builtin = @import("builtin");
 const ws = @import("wstudio");
-const app = @import("tui/app.zig");
+const build_options = @import("build_options");
 
 /// Restore the terminal (cooked mode, mouse tracking off, alternate screen
 /// closed) before handing off to the normal trace printer - otherwise a
@@ -16,7 +17,10 @@ const app = @import("tui/app.zig");
 pub const panic = std.debug.FullPanic(panicHandler);
 
 fn panicHandler(msg: []const u8, first_trace_addr: ?usize) noreturn {
-    if (app.active_terminal) |t| t.deinit();
+    if (build_options.tui) {
+        const app = @import("tui/app.zig");
+        if (app.active_terminal) |t| t.deinit();
+    }
     std.debug.defaultPanic(msg, first_trace_addr);
 }
 
@@ -29,11 +33,25 @@ pub fn main(init: std.process.Init) !void {
         if (std.mem.eql(u8, cmd, "render")) return renderDemo(init.gpa, init.io);
         if (std.mem.eql(u8, cmd, "--version") or std.mem.eql(u8, cmd, "-v")) return printVersion(init.io);
         if (std.mem.eql(u8, cmd, "--help") or std.mem.eql(u8, cmd, "-h")) return printHelp(init.io);
+        if (std.mem.eql(u8, cmd, "--gui")) {
+            if (!build_options.gui) return frontendDisabled(init.io, "GUI");
+            return @import("gui/main.zig").run(init, args.next());
+        }
+        if (!build_options.tui) return frontendDisabled(init.io, "TUI");
         const init_path = try dupeInitPath(init.gpa, cmd);
         defer init.gpa.free(init_path);
         return @import("tui/app.zig").run(init.gpa, init.io, init_path);
     }
+    if (!build_options.tui) return frontendDisabled(init.io, "TUI");
     return @import("tui/app.zig").run(init.gpa, init.io, null);
+}
+
+fn frontendDisabled(io: std.Io, name: []const u8) !void {
+    var stderr_buffer: [128]u8 = undefined;
+    var stderr_writer = std.Io.File.stderr().writer(io, &stderr_buffer);
+    try stderr_writer.interface.print("wstudio: {s} frontend was disabled at build time\n", .{name});
+    try stderr_writer.interface.flush();
+    return error.FrontendDisabled;
 }
 
 fn dupeInitPath(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
@@ -55,9 +73,10 @@ fn printHelp(io: std.Io) !void {
     var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buffer);
     const stdout = &stdout_writer.interface;
     try stdout.print(
-        "wstudio {s} - terminal DAW\n\n" ++
+        "wstudio {s} - digital audio workstation\n\n" ++
             "Usage:\n" ++
-            "  wstudio [path]     Launch the TUI, optionally opening a .wsj project\n" ++
+            "  wstudio [path]      Launch the TUI, optionally opening a .wsj project\n" ++
+            "  wstudio --gui [path] Launch the GUI, optionally opening a .wsj project\n" ++
             "  wstudio render      Render the built-in demo melody to out.wav\n" ++
             "  wstudio --version   Print the version\n" ++
             "  wstudio --help      Print this message\n",

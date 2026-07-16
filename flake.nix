@@ -57,62 +57,6 @@
       packages = forAllSystems (pkgs: {
         neutral-terminal = neutralTerminal pkgs;
 
-        gui = pkgs.stdenv.mkDerivation (finalAttrs: {
-          pname = "wstudio-gui";
-          inherit version;
-          src = self;
-          zigDeps = pkgs.zig.fetchDeps {
-            inherit (finalAttrs) pname version src;
-            hash = "sha256-J4QVx6y7XZiAkMK/NHdbhuU1wVxuZnjz12My8v49kfs=";
-          };
-          nativeBuildInputs = [
-            pkgs.zig.hook
-            pkgs.makeWrapper
-          ];
-          buildInputs = pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [
-            pkgs.alsa-lib
-            pkgs.libGL
-            pkgs.libx11
-            pkgs.libxcursor
-            pkgs.libxi
-            pkgs.libxinerama
-            pkgs.libxrandr
-          ];
-          postConfigure = ''
-            ln -s ${finalAttrs.zigDeps} "$ZIG_GLOBAL_CACHE_DIR/p"
-          '';
-          buildPhase = ''
-            runHook preBuild
-            zig build gui-install -Dcpu=baseline --release=safe --prefix "$out"
-            runHook postBuild
-          '';
-          installPhase = "true";
-          postFixup = pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
-            wrapProgram "$out/bin/wstudio-gui" \
-              --prefix LD_LIBRARY_PATH : "${pkgs.lib.makeLibraryPath finalAttrs.buildInputs}"
-          '';
-        });
-
-        gui-windows = pkgs.stdenv.mkDerivation (finalAttrs: {
-          pname = "wstudio-gui-windows";
-          inherit version;
-          src = self;
-          zigDeps = pkgs.zig.fetchDeps {
-            inherit (finalAttrs) pname version src;
-            hash = "sha256-J4QVx6y7XZiAkMK/NHdbhuU1wVxuZnjz12My8v49kfs=";
-          };
-          nativeBuildInputs = [ pkgs.zig.hook ];
-          postConfigure = ''
-            ln -s ${finalAttrs.zigDeps} "$ZIG_GLOBAL_CACHE_DIR/p"
-          '';
-          buildPhase = ''
-            runHook preBuild
-            zig build gui-install -Dtarget=x86_64-windows-gnu -Dcpu=baseline --release=safe --prefix "$out"
-            runHook postBuild
-          '';
-          installPhase = "true";
-        });
-
         default = pkgs.stdenv.mkDerivation {
           pname = "wstudio";
           inherit version;

@@ -346,12 +346,7 @@ const Layout = struct {
     }
 };
 
-pub fn main(init: std.process.Init) !void {
-    var args = try std.process.Args.Iterator.initAllocator(init.minimal.args, init.gpa);
-    defer args.deinit();
-    _ = args.skip();
-    const init_path = args.next();
-
+pub fn run(init: std.process.Init, init_path: ?[]const u8) !void {
     try glfw.init();
     defer glfw.terminate();
 
@@ -377,7 +372,7 @@ pub fn main(init: std.process.Init) !void {
     defer zgui.backend.deinit();
 
     var app = App.init(init.gpa, init.io, init_path) catch |err| {
-        if (init_path) |path| std.debug.print("wstudio-gui: cannot load '{s}': {s}\n", .{ path, @errorName(err) });
+        if (init_path) |path| std.debug.print("wstudio: cannot load '{s}': {s}\n", .{ path, @errorName(err) });
         return err;
     };
     defer app.deinit();
@@ -405,7 +400,7 @@ pub fn main(init: std.process.Init) !void {
                 var title_buf: [1024]u8 = undefined;
                 if (std.fmt.bufPrintZ(&title_buf, "wstudio GUI prototype - {s}", .{path})) |title| window.setTitle(title) else |_| {}
             } else |err| {
-                std.debug.print("wstudio-gui: cannot load '{s}': {s}\n", .{ path, @errorName(err) });
+                std.debug.print("wstudio: cannot load '{s}': {s}\n", .{ path, @errorName(err) });
             }
         }
         const fb = window.getFramebufferSize();

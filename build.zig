@@ -3,9 +3,14 @@ const std = @import("std");
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+    const enable_tui = b.option(bool, "tui", "Build the terminal frontend") orelse true;
+    const enable_gui = b.option(bool, "gui", "Build the graphical frontend") orelse true;
+    const build_options = b.addOptions();
+    build_options.addOption(bool, "tui", enable_tui);
+    build_options.addOption(bool, "gui", enable_gui);
 
-    // The engine as a reusable library module. Frontends (CLI today,
-    // GUI later) import this and never reach into engine internals.
+    // The engine as a reusable library module. Frontends import this and
+    // never reach into engine internals.
     const wstudio_mod = b.addModule("wstudio", .{
         .root_source_file = b.path("src/root.zig"),
         .target = target,
@@ -36,6 +41,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
             .imports = &.{
                 .{ .name = "wstudio", .module = wstudio_mod },
+                .{ .name = "build_options", .module = build_options.createModule() },
             },
         }),
     });
@@ -54,47 +60,26 @@ pub fn build(b: *std.Build) void {
     const run_step = b.step("run", "Run wstudio");
     run_step.dependOn(&run_cmd.step);
 
-    // GUI prototype. Kept as a separate artifact so the stable TUI and its
-    // dependency surface remain unchanged while the desktop frontend evolves.
-    const zglfw = b.dependency("zglfw", .{
-        .target = target,
-        .optimize = optimize,
-        .wayland = false,
-    });
-    const zgui = b.dependency("zgui", .{
-        .target = target,
-        .optimize = optimize,
-        .backend = .glfw_opengl3,
-        .with_implot = true,
-    });
-    zgui.artifact("imgui").root_module.addCMacro("GLFW_INCLUDE_NONE", "1");
-    const zopengl = b.dependency("zopengl", .{});
-    const gui_exe = b.addExecutable(.{
-        .name = "wstudio-gui",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/gui/main.zig"),
+    if (enable_gui) {
+        const zglfw = b.dependency("zglfw", .{
             .target = target,
             .optimize = optimize,
-            .imports = &.{
-                .{ .name = "wstudio", .module = wstudio_mod },
-                .{ .name = "zglfw", .module = zglfw.module("root") },
-                .{ .name = "zgui", .module = zgui.module("root") },
-                .{ .name = "zopengl", .module = zopengl.module("root") },
-            },
-        }),
-    });
-    gui_exe.root_module.linkLibrary(zglfw.artifact("glfw"));
-    gui_exe.root_module.linkLibrary(zgui.artifact("imgui"));
-    const install_gui = b.addInstallArtifact(gui_exe, .{});
-    const gui_check_step = b.step("gui-check", "Build the experimental GUI frontend");
-    gui_check_step.dependOn(&gui_exe.step);
-    const gui_install_step = b.step("gui-install", "Install the experimental GUI frontend");
-    gui_install_step.dependOn(&install_gui.step);
-    const run_gui_cmd = b.addRunArtifact(gui_exe);
-    run_gui_cmd.step.dependOn(&install_gui.step);
-    if (b.args) |args| run_gui_cmd.addArgs(args);
-    const gui_step = b.step("gui", "Run the experimental GLFW + ImGui frontend");
-    gui_step.dependOn(&run_gui_cmd.step);
+            .wayland = false,
+        });
+        const zgui = b.dependency("zgui", .{
+            .target = target,
+            .optimize = optimize,
+            .backend = .glfw_opengl3,
+            .with_implot = true,
+        });
+        zgui.artifact("imgui").root_module.addCMacro("GLFW_INCLUDE_NONE", "1");
+        const zopengl = b.dependency("zopengl", .{});
+        exe.root_module.addImport("zglfw", zglfw.module("root"));
+        exe.root_module.addImport("zgui", zgui.module("root"));
+        exe.root_module.addImport("zopengl", zopengl.module("root"));
+        exe.root_module.linkLibrary(zglfw.artifact("glfw"));
+        exe.root_module.linkLibrary(zgui.artifact("imgui"));
+    }
 
     // `zig build genkit` renders the drum kit to assets/kit/*.wav. Run once
     // after editing src/dsp/drum_kit.zig, then commit the refreshed WAVs.
