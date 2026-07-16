@@ -672,8 +672,17 @@ fn drawArrangement(app: *App) void {
     }
 
     if (app.core.cursor < track_count) {
-        const cursor_x = timeline_x + @as(f32, @floatFromInt(cursor_tick)) / @as(f32, @floatFromInt(ticks_per_beat)) * beat_w;
-        const cursor_w = @max(2, @as(f32, @floatFromInt(app.core.arr_grid.ticks())) / @as(f32, @floatFromInt(ticks_per_beat)) * beat_w);
+        var cursor_start_tick = cursor_tick;
+        var cursor_span_ticks = app.core.session.stampLengthTicks(app.core.cursor);
+        if (app.core.session.arrangement.lane(app.core.cursor)) |lane| {
+            if (lane.clipAt(cursor_tick)) |clip| {
+                cursor_start_tick = clip.start_tick;
+                cursor_span_ticks = clip.length_ticks;
+            }
+        }
+        cursor_span_ticks = @max(cursor_span_ticks, app.core.arr_grid.ticks());
+        const cursor_x = timeline_x + @as(f32, @floatFromInt(cursor_start_tick)) / @as(f32, @floatFromInt(ticks_per_beat)) * beat_w;
+        const cursor_w = @max(2, @as(f32, @floatFromInt(cursor_span_ticks)) / @as(f32, @floatFromInt(ticks_per_beat)) * beat_w);
         const cursor_y = origin[1] + ruler_h + @as(f32, @floatFromInt(app.core.cursor)) * lane_h;
         draw.addRectFilled(.{
             .pmin = .{ cursor_x + 1, cursor_y + 1 },
@@ -909,16 +918,19 @@ fn drawPianoRoll(app: *App) void {
     if (app.core.piano_cursor_pitch >= bottom_pitch and app.core.piano_cursor_pitch <= top_pitch and app.core.piano_cursor_step < steps) {
         const cursor_x = grid_x + @as(f32, @floatFromInt(app.core.piano_cursor_step)) * beat_w / @as(f32, @floatFromInt(steps_per_beat));
         const cursor_y = grid_y + @as(f32, @floatFromInt(top_pitch - app.core.piano_cursor_pitch)) * row_h;
-        const cursor_w = beat_w / @as(f32, @floatFromInt(steps_per_beat));
+        const cursor_beat = @as(f64, @floatFromInt(app.core.piano_cursor_step)) / @as(f64, @floatFromInt(steps_per_beat));
+        const cursor_beats = if (pp.noteAt(app.core.piano_cursor_pitch, cursor_beat)) |note| note.duration_beat else app.core.piano_note_len;
+        const cursor_w = @max(2, @as(f32, @floatCast(cursor_beats)) * beat_w);
+        const cursor_right = @min(cursor_x + cursor_w - 1, origin[0] + canvas_w - 1);
         draw.addRectFilled(.{
             .pmin = .{ cursor_x + 1, cursor_y + 1 },
-            .pmax = .{ cursor_x + cursor_w - 1, cursor_y + row_h - 1 },
+            .pmax = .{ cursor_right, cursor_y + row_h - 1 },
             .col = color(.{ patina.focus[0], patina.focus[1], patina.focus[2], 0.18 }),
             .rounding = 2,
         });
         draw.addRect(.{
             .pmin = .{ cursor_x + 1, cursor_y + 1 },
-            .pmax = .{ cursor_x + cursor_w - 1, cursor_y + row_h - 1 },
+            .pmax = .{ cursor_right, cursor_y + row_h - 1 },
             .col = color(patina.focus),
             .rounding = 2,
             .thickness = 2,

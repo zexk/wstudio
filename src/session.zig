@@ -478,13 +478,27 @@ pub const Session = struct {
         return self.stampClipAtTick(track_idx, start_bar * time_grid.barTicks(self.project.beats_per_bar));
     }
 
+    /// Length of the clip `stampClipAtTick` would create for a track.
+    /// Editors use this for insertion previews, so the cursor and the
+    /// resulting clip cannot disagree about pattern rounding.
+    pub fn stampLengthTicks(self: *const Session, track_idx: usize) u32 {
+        if (track_idx >= self.racks.items.len) return 0;
+        const rack = self.racks.items[track_idx];
+        const len_beats: f64 = switch (rack.instrument) {
+            .empty => return 0,
+            .drum_machine => |*dm| @as(f64, @floatFromInt(dm.step_count)) / @as(f64, @floatFromInt(dm.steps_per_beat)),
+            .slicer => |*sl| @as(f64, @floatFromInt(sl.step_count)) / 4.0,
+            else => if (rack.pattern_player) |*pp| pp.length_beats else return 0,
+        };
+        const beats_per_bar: f64 = @floatFromInt(self.project.beats_per_bar);
+        return barsFor(len_beats, beats_per_bar) * time_grid.barTicks(self.project.beats_per_bar);
+    }
+
     /// Capture a live pattern at an exact musical tick.
     pub fn stampClipAtTick(self: *Session, track_idx: usize, start_tick: u32) !void {
         if (track_idx >= self.racks.items.len) return;
         const lane = self.arrangement.lane(track_idx) orelse return;
         const rack = self.racks.items[track_idx];
-        const bpb: f64 = @floatFromInt(self.project.beats_per_bar);
-        const ticks_per_bar = time_grid.barTicks(self.project.beats_per_bar);
 
         switch (rack.instrument) {
             .empty => return,
@@ -500,10 +514,9 @@ pub const Session = struct {
                     p.* = dm.pattern[i].load(.acquire);
                     for (vel_row, &dm.vel[i]) |*v, *live| v.* = live.load(.acquire);
                 }
-                const len_beats = @as(f64, @floatFromInt(dm.step_count)) / @as(f64, @floatFromInt(dm.steps_per_beat));
                 try lane.place(self.allocator, Clip.initDrum(
                     // zig fmt: off
-                    start_tick, barsFor(len_beats, bpb) * ticks_per_bar, drum,
+                    start_tick, self.stampLengthTicks(track_idx), drum,
                     // zig fmt: on
                 ));
             },
@@ -520,10 +533,9 @@ pub const Session = struct {
                     p.* = sl.pattern[i].load(.acquire);
                     for (vel_row, &sl.vel[i]) |*v, *live| v.* = live.load(.acquire);
                 }
-                const len_beats = @as(f64, @floatFromInt(sl.step_count)) / 4.0;
                 try lane.place(self.allocator, Clip.initDrum(
                     // zig fmt: off
-                    start_tick, barsFor(len_beats, bpb) * ticks_per_bar, drum,
+                    start_tick, self.stampLengthTicks(track_idx), drum,
                     // zig fmt: on
                 ));
             },
@@ -538,7 +550,7 @@ pub const Session = struct {
                 pp.notes_lock.unlock();
                 try lane.place(self.allocator, try Clip.initMelodic(
                     // zig fmt: off
-                    self.allocator, start_tick, barsFor(len_beats, bpb) * ticks_per_bar, tmp[0..count], len_beats,
+                    self.allocator, start_tick, self.stampLengthTicks(track_idx), tmp[0..count], len_beats,
                     // zig fmt: on
                 ));
             },
@@ -1164,6 +1176,7 @@ test "stampClip captures the live melodic pattern as a clip" {
     pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 1.0 });
     pp.length_beats = 8.0; // two bars in 4/4
 
+    try std.testing.expectEqual(@as(u32, 256), s.stampLengthTicks(0));
     try s.stampClip(0, 2);
     const lane = s.arrangement.lane(0).?;
     try std.testing.expectEqual(@as(usize, 1), lane.clips.items.len);
@@ -1176,6 +1189,7 @@ test "stampClip captures the live melodic pattern as a clip" {
 test "stampClip on empty track is a no-op" {
     var s = try Session.initDefault(std.testing.allocator);
     defer s.deinit();
+    try std.testing.expectEqual(@as(u32, 0), s.stampLengthTicks(0));
     try s.stampClip(0, 0);
     try std.testing.expectEqual(@as(usize, 0), s.arrangement.lane(0).?.clips.items.len);
 }
