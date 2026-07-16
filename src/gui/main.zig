@@ -2,6 +2,7 @@
 //! file owns only GLFW/ImGui lifecycle and GUI-specific presentation state.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const ws = @import("wstudio");
 const glfw = @import("zglfw");
 const zgui = @import("zgui");
@@ -15,7 +16,6 @@ const App = struct {
     session: ws.Session,
     selected_track: usize = 0,
     view: View = .arrangement,
-    space_down: bool = false,
     browser_dir: []u8 = &.{},
     browser_entries: std.ArrayListUnmanaged(BrowserEntry) = .empty,
     pending_project_path: ?[]u8 = null,
@@ -107,22 +107,100 @@ const App = struct {
         }
     }
 
-    fn draw(self: *App) void {
+    fn draw(self: *App, audio_label: []const u8) void {
         drawTransport(self);
         drawBrowser(self);
         drawTracks(self);
         drawWorkspace(self);
         drawInspector(self);
-        drawStatus(self);
+        drawStatus(self, audio_label);
     }
 
-    fn handleShortcuts(self: *App, window: *glfw.Window) void {
-        const down = window.getKey(.space) == .press;
-        if (down and !self.space_down and !zgui.io.getWantCaptureKeyboard()) {
+    fn handleShortcuts(self: *App) void {
+        if (zgui.isKeyPressed(.space, false)) {
             const playing = self.session.engine.uiSnapshot().playing;
             _ = self.session.engine.send(if (playing) .stop else .play);
         }
-        self.space_down = down;
+        if ((zgui.isKeyPressed(.j, false) or zgui.isKeyPressed(.down_arrow, false)) and
+            self.selected_track + 1 < self.session.project.tracks.items.len)
+            self.selected_track += 1;
+        if ((zgui.isKeyPressed(.k, false) or zgui.isKeyPressed(.up_arrow, false)) and self.selected_track > 0)
+            self.selected_track -= 1;
+        if (zgui.isKeyPressed(.h, false) or zgui.isKeyPressed(.left_arrow, false)) self.changeView(-1);
+        if (zgui.isKeyPressed(.l, false) or zgui.isKeyPressed(.right_arrow, false)) self.changeView(1);
+        if (zgui.isKeyPressed(.f1, false)) self.view = .help;
+    }
+
+    fn changeView(self: *App, delta: i8) void {
+        const count = @typeInfo(View).@"enum".fields.len;
+        const current: usize = @intFromEnum(self.view);
+        const next = if (delta < 0) (current + count - 1) % count else (current + 1) % count;
+        self.view = @enumFromInt(next);
+    }
+};
+
+const NativeBackend = if (builtin.os.tag == .linux)
+    ws.alsa.AlsaBackend
+else if (builtin.os.tag == .windows)
+    ws.wasapi.WasapiBackend
+else
+    ws.backend.NullBackend;
+
+const GuiAudio = struct {
+    native: NativeBackend,
+    fallback: ws.backend.NullBackend,
+    using_native: bool = false,
+
+    fn init(sample_rate: u32, engine: *ws.Engine) GuiAudio {
+        const config: ws.backend.Config = .{ .sample_rate = sample_rate };
+        return .{
+            .native = .{ .config = config, .render = renderAudio, .ctx = engine },
+            .fallback = .{ .config = config, .render = renderAudio, .ctx = engine },
+        };
+    }
+
+    fn start(self: *GuiAudio, io: std.Io) !void {
+        if (builtin.os.tag == .linux or builtin.os.tag == .windows) {
+            self.native.start() catch {
+                try self.fallback.start(io);
+                return;
+            };
+            self.using_native = true;
+        } else {
+            try self.fallback.start(io);
+        }
+    }
+
+    fn stop(self: *GuiAudio) void {
+        if (self.using_native) self.native.stop() else self.fallback.stop();
+        self.using_native = false;
+    }
+
+    fn label(self: *const GuiAudio) []const u8 {
+        if (!self.using_native) return "none (silent)";
+        return if (builtin.os.tag == .linux) "alsa" else "wasapi";
+    }
+};
+
+const Layout = struct {
+    browser_w: f32,
+    tracks_w: f32,
+    workspace_w: f32,
+    inspector_w: f32,
+    body_h: f32,
+
+    fn current() Layout {
+        const display = zgui.io.getDisplaySize();
+        const browser_w = std.math.clamp(display[0] * 0.14, 140, 220);
+        const tracks_w = std.math.clamp(display[0] * 0.18, 180, 260);
+        const inspector_w = std.math.clamp(display[0] * 0.16, 180, 240);
+        return .{
+            .browser_w = browser_w,
+            .tracks_w = tracks_w,
+            .workspace_w = display[0] - browser_w - tracks_w - inspector_w,
+            .inspector_w = inspector_w,
+            .body_h = display[1] - 98,
+        };
     }
 };
 
@@ -150,7 +228,8 @@ pub fn main(init: std.process.Init) !void {
     defer zgui.deinit();
     zgui.plot.init();
     defer zgui.plot.deinit();
-    zgui.io.setConfigFlags(.{ .nav_enable_keyboard = true, .dock_enable = true });
+    zgui.io.setConfigFlags(.{ .nav_enable_keyboard = true });
+    zgui.io.setIniFilename(null);
     setTheme();
     zgui.backend.init(window);
     defer zgui.backend.deinit();
@@ -164,11 +243,7 @@ pub fn main(init: std.process.Init) !void {
         var title_buf: [1024]u8 = undefined;
         if (std.fmt.bufPrintZ(&title_buf, "wstudio GUI prototype - {s}", .{path})) |title| window.setTitle(title) else |_| {}
     }
-    var audio = ws.backend.NullBackend{
-        .config = .{ .sample_rate = app.session.project.sample_rate },
-        .render = renderAudio,
-        .ctx = app.session.engine,
-    };
+    var audio = GuiAudio.init(app.session.project.sample_rate, app.session.engine);
     try audio.start(init.io);
     defer audio.stop();
 
@@ -183,11 +258,7 @@ pub fn main(init: std.process.Init) !void {
                 app.session = loaded;
                 app.selected_track = 0;
                 app.automation_clip = 0;
-                audio = .{
-                    .config = .{ .sample_rate = app.session.project.sample_rate },
-                    .render = renderAudio,
-                    .ctx = app.session.engine,
-                };
+                audio = GuiAudio.init(app.session.project.sample_rate, app.session.engine);
                 try audio.start(init.io);
                 var title_buf: [1024]u8 = undefined;
                 if (std.fmt.bufPrintZ(&title_buf, "wstudio GUI prototype - {s}", .{path})) |title| window.setTitle(title) else |_| {}
@@ -201,9 +272,8 @@ pub fn main(init: std.process.Init) !void {
         gl.clearColor(0.035, 0.039, 0.047, 1.0);
         gl.clear(gl.COLOR_BUFFER_BIT);
         zgui.backend.newFrame(@intCast(fb[0]), @intCast(fb[1]));
-        _ = zgui.dockSpaceOverViewport(0, zgui.getMainViewport(), .{});
-        app.handleShortcuts(window);
-        app.draw();
+        app.handleShortcuts();
+        app.draw(audio.label());
         zgui.backend.draw();
         window.swapBuffers();
     }
@@ -234,9 +304,10 @@ fn drawTransport(app: *App) void {
 }
 
 fn drawBrowser(app: *App) void {
-    zgui.setNextWindowPos(.{ .x = 0, .y = 64, .cond = .first_use_ever });
-    zgui.setNextWindowSize(.{ .w = 220, .h = 760, .cond = .first_use_ever });
-    if (zgui.begin("Browser", .{})) {
+    const layout = Layout.current();
+    zgui.setNextWindowPos(.{ .x = 0, .y = 64, .cond = .always });
+    zgui.setNextWindowSize(.{ .w = layout.browser_w, .h = layout.body_h, .cond = .always });
+    if (zgui.begin("Browser", .{ .flags = .{ .no_move = true, .no_resize = true, .no_collapse = true, .no_docking = true } })) {
         zgui.textDisabled("LIBRARY", .{});
         zgui.separator();
         const entries = [_]struct { label: [:0]const u8, view: App.View }{
@@ -256,9 +327,10 @@ fn drawBrowser(app: *App) void {
 }
 
 fn drawTracks(app: *App) void {
-    zgui.setNextWindowPos(.{ .x = 220, .y = 64, .cond = .first_use_ever });
-    zgui.setNextWindowSize(.{ .w = 280, .h = 420, .cond = .first_use_ever });
-    if (zgui.begin("Tracks", .{})) {
+    const layout = Layout.current();
+    zgui.setNextWindowPos(.{ .x = layout.browser_w, .y = 64, .cond = .always });
+    zgui.setNextWindowSize(.{ .w = layout.tracks_w, .h = layout.body_h, .cond = .always });
+    if (zgui.begin("Tracks", .{ .flags = .{ .no_move = true, .no_resize = true, .no_collapse = true, .no_docking = true } })) {
         for (app.session.project.tracks.items, 0..) |track, i| {
             var label_buf: [160]u8 = undefined;
             const label = std.fmt.bufPrintZ(&label_buf, "{d:0>2}  {s}", .{ i + 1, track.name }) catch continue;
@@ -276,9 +348,10 @@ fn drawTracks(app: *App) void {
 }
 
 fn drawWorkspace(app: *App) void {
-    zgui.setNextWindowPos(.{ .x = 500, .y = 64, .cond = .first_use_ever });
-    zgui.setNextWindowSize(.{ .w = 700, .h = 620, .cond = .first_use_ever });
-    if (zgui.begin("Workspace", .{})) {
+    const layout = Layout.current();
+    zgui.setNextWindowPos(.{ .x = layout.browser_w + layout.tracks_w, .y = 64, .cond = .always });
+    zgui.setNextWindowSize(.{ .w = layout.workspace_w, .h = layout.body_h, .cond = .always });
+    if (zgui.begin("Workspace", .{ .flags = .{ .no_move = true, .no_resize = true, .no_collapse = true, .no_docking = true } })) {
         drawViewNav(app);
         zgui.separator();
         switch (app.view) {
@@ -766,9 +839,10 @@ fn drawHelp(app: *App) void {
 }
 
 fn drawInspector(app: *App) void {
-    zgui.setNextWindowPos(.{ .x = 1200, .y = 64, .cond = .first_use_ever });
-    zgui.setNextWindowSize(.{ .w = 240, .h = 620, .cond = .first_use_ever });
-    if (zgui.begin("Inspector", .{})) {
+    const layout = Layout.current();
+    zgui.setNextWindowPos(.{ .x = layout.browser_w + layout.tracks_w + layout.workspace_w, .y = 64, .cond = .always });
+    zgui.setNextWindowSize(.{ .w = layout.inspector_w, .h = layout.body_h, .cond = .always });
+    if (zgui.begin("Inspector", .{ .flags = .{ .no_move = true, .no_resize = true, .no_collapse = true, .no_docking = true } })) {
         const track = &app.session.project.tracks.items[app.selected_track];
         zgui.text("{s}", .{track.name});
         zgui.separator();
@@ -794,7 +868,7 @@ fn drawInspector(app: *App) void {
     zgui.end();
 }
 
-fn drawStatus(app: *App) void {
+fn drawStatus(app: *App, audio_label: []const u8) void {
     _ = app;
     const display = zgui.io.getDisplaySize();
     zgui.setNextWindowPos(.{ .x = 0, .y = display[1] - 34, .cond = .always });
@@ -802,7 +876,7 @@ fn drawStatus(app: *App) void {
     if (zgui.begin("Status", .{ .flags = .{ .no_title_bar = true, .no_resize = true, .no_move = true, .no_docking = true } })) {
         zgui.textColored(.{ 0.47, 0.82, 0.69, 1 }, "NORMAL", .{});
         zgui.sameLine(.{ .spacing = 18 });
-        zgui.textDisabled("Space play/stop    prototype/gui    engine online", .{});
+        zgui.textDisabled("Space play/stop    H/L view    J/K track    F1 help    audio: {s}", .{audio_label});
     }
     zgui.end();
 }
