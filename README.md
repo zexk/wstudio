@@ -183,16 +183,24 @@ for first-run generation: every option with its default and range, the key
 notation, all events, and
 the whole `wstudio.api` surface. Uncomment what you need in the generated file;
 [docs/lua-api.md](docs/lua-api.md) covers the design. A broken
-config never blocks startup. Nix users can enable wstudio
-through `nixosModules.default` or `homeManagerModules.default`. The Home
-Manager and NixOS modules also accept the Lua source directly:
+config never blocks startup. Nix users can enable wstudio through
+`nixosModules.default` or `homeManagerModules.default`. The Home Manager and
+NixOS modules offer typed settings or raw Lua as mutually exclusive
+configuration methods:
 
 ```nix
 programs.wstudio = {
   enable = true;
-  luaConfig = ''wstudio.o.default_tempo = 128'';
+  settings = {
+    default_tempo = 128;
+    tui_mouse = false;
+    gui_theme = "patina_light";
+  };
 };
 ```
+
+Use `luaConfig` instead when configuring keymaps, commands, or other parts of
+the Lua API.
 
 ### Icons
 
