@@ -562,6 +562,10 @@ fn drawFxChips(draw: zgui.DrawList, fx: *const ws.Fx, start_x: f32, y: f32, max_
 
 fn drawArrangement(app: *App) void {
     zgui.textDisabled(icons.arrangement ++ "  ARRANGEMENT", .{});
+    zgui.sameLine(.{});
+    zgui.textColored(if (app.core.session.song_mode) patina.audio else patina.fg3, "{s}", .{if (app.core.session.song_mode) "SONG" else "PATTERN"});
+    zgui.sameLine(.{});
+    zgui.textColored(patina.audio, "{s}", .{app.core.arr_grid.label()});
     const track_count = app.core.session.project.tracks.items.len;
     const ticks_per_beat = ws.time_grid.ticks_per_beat;
     const beats_per_bar: u32 = app.core.session.project.beats_per_bar;
@@ -570,10 +574,6 @@ fn drawArrangement(app: *App) void {
     const cursor_tick = app.core.arr_cursor_bar * app.core.arr_grid.ticks();
     const cursor_bar_count = cursor_tick / ticks_per_bar + 1;
     const bar_count: u32 = @max(8, @max((content_ticks + ticks_per_bar - 1) / ticks_per_bar, cursor_bar_count));
-    zgui.text("{d} tracks   {d} bars   grid {s}", .{ track_count, bar_count, app.core.arr_grid.label() });
-    zgui.sameLine(.{ .spacing = 18 });
-    zgui.textDisabled("click a clip to select", .{});
-
     const gutter_w: f32 = 132;
     const ruler_h: f32 = 30;
     const lane_h: f32 = 58;
@@ -599,7 +599,9 @@ fn drawArrangement(app: *App) void {
         draw.addRectFilled(.{ .pmin = .{ origin[0], y }, .pmax = .{ timeline_x, y + lane_h }, .col = color(if (selected) patina.bg4 else patina.bg2) });
         draw.addRectFilled(.{ .pmin = .{ timeline_x, y }, .pmax = .{ origin[0] + canvas_w, y + lane_h }, .col = color(if (selected) patina.bg3 else if (ti % 2 == 0) patina.bg1 else patina.bg0) });
         draw.addText(.{ origin[0] + 10, y + 11 }, color(if (selected) patina.fg0 else patina.fg1), "{d:0>2}  {s}", .{ ti + 1, app.core.session.project.tracks.items[ti].name });
-        draw.addText(.{ origin[0] + 34, y + 32 }, color(patina.fg3), "{s}", .{@tagName(app.core.session.project.tracks.items[ti].kind)});
+        const rack = app.core.session.racks.items[ti];
+        const rack_label: []const u8 = if (std.meta.activeTag(rack.instrument) == .empty) "-- empty --" else rack.label;
+        draw.addText(.{ origin[0] + 34, y + 32 }, color(patina.fg3), "[{s}]", .{rack_label});
         draw.addLine(.{ .p1 = .{ origin[0], y + lane_h }, .p2 = .{ origin[0] + canvas_w, y + lane_h }, .col = color(patina.line), .thickness = 1 });
     }
 
@@ -761,17 +763,39 @@ fn drawPianoToolbar(app: *App) void {
 }
 
 fn drawPianoRoll(app: *App) void {
-    zgui.textDisabled(icons.synth ++ "  PIANO ROLL", .{});
     if (app.core.piano_track >= app.core.session.racks.items.len) return;
     const rack = app.core.session.racks.items[app.core.piano_track];
     const pp = if (rack.pattern_player) |*p| p else {
         zgui.textDisabled("This instrument has no melodic pattern. Choose Synth or Sampler.", .{});
         return;
     };
-    zgui.text("{d} notes   {d:.1} beats", .{ pp.note_count, pp.length_beats });
-    zgui.sameLine(.{ .spacing = 18 });
-    zgui.textDisabled("click empty to draw   drag note to move   drag handle to resize   right-click to erase", .{});
+    const track_name = app.core.session.project.tracks.items[app.core.piano_track].name;
+    zgui.textDisabled(icons.synth ++ "  PIANO ROLL", .{});
+    zgui.sameLine(.{});
+    zgui.text("\"{s}\"", .{track_name});
+    if (app.core.piano_clip_link) |link| {
+        zgui.sameLine(.{});
+        zgui.textColored(patina.focus, "clip@bar {d}", .{link.start_bar + 1});
+    } else if (app.core.session.song_mode) {
+        zgui.sameLine(.{});
+        zgui.textColored(patina.danger, "scratch: not in song until stamped from arrangement", .{});
+    }
+    if (app.core.piano_scale) |scale| {
+        zgui.sameLine(.{});
+        zgui.textColored(patina.modulation, "scale {s} {s}", .{ ws.theory.pitchClassName(scale.root), scale.kind.label() });
+    }
+    if (app.core.piano_grid == .triplet) {
+        zgui.sameLine(.{});
+        zgui.textColored(patina.rhythm, "triplet", .{});
+    }
+    zgui.sameLine(.{});
+    zgui.textColored(patina.audio, "{s}", .{app.core.piano_division.label()});
+    if (app.core.piano_ghost) {
+        zgui.sameLine(.{});
+        zgui.textDisabled("ghost", .{});
+    }
     drawPianoToolbar(app);
+    zgui.textDisabled("click empty: draw   drag note: move   drag handle: resize   right-click: erase", .{});
 
     const gutter_w: f32 = 58;
     const ruler_h: f32 = 24;
