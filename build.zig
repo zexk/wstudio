@@ -69,10 +69,14 @@ pub fn build(b: *std.Build) void {
     run_step.dependOn(&run_cmd.step);
 
     if (enable_gui) {
+        // Both Linux backends compile in (zglfw vendors the generated
+        // wayland protocol headers); GLFW picks at runtime and every
+        // platform library is dlopened, not linked - see the runtime rpath
+        // in flake.nix.
         const zglfw = b.dependency("zglfw", .{
             .target = target,
             .optimize = optimize,
-            .wayland = false,
+            .wayland = true,
         });
         const zgui = b.dependency("zgui", .{
             .target = target,

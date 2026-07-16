@@ -82,6 +82,24 @@
             pkgs.libxrandr
           ];
           postConfigure = ''ln -s ${finalAttrs.zigDeps} "$ZIG_GLOBAL_CACHE_DIR/p"'';
+          # GLFW loads every platform library at runtime with dlopen (X11,
+          # Wayland, and GL alike), so nothing below shows up as DT_NEEDED
+          # and autoPatchelf can't help; put them on the binary's rpath.
+          postFixup = pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
+            patchelf --add-rpath ${
+              pkgs.lib.makeLibraryPath [
+                pkgs.libGL
+                pkgs.libx11
+                pkgs.libxcursor
+                pkgs.libxi
+                pkgs.libxinerama
+                pkgs.libxrandr
+                pkgs.wayland
+                pkgs.libxkbcommon
+                pkgs.libdecor
+              ]
+            } $out/bin/wstudio
+          '';
         });
 
         # Cross-compiled with zig's bundled mingw-w64 headers/CRT - no
