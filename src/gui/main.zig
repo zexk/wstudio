@@ -1669,7 +1669,7 @@ fn drawCommandPrompt(app: *App) void {
     const popup_h = 31 + row_h * @as(f32, @floatFromInt(rows));
     zgui.setNextWindowPos(.{ .x = 12, .y = prompt_y - popup_h - 6, .cond = .always });
     zgui.setNextWindowSize(.{ .w = popup_w, .h = popup_h, .cond = .always });
-    if (zgui.begin("Command Suggestions", .{ .flags = .{ .no_title_bar = true, .no_resize = true, .no_move = true, .no_docking = true, .no_saved_settings = true, .no_inputs = true } })) {
+    if (zgui.begin("Command Suggestions", .{ .flags = .{ .no_title_bar = true, .no_resize = true, .no_move = true, .no_docking = true, .no_saved_settings = true, .no_mouse_inputs = true, .no_nav_inputs = true, .no_nav_focus = true } })) {
         drawCommandSuggestions(app, active, filter, rows);
     }
     zgui.end();
