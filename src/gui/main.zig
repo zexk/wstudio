@@ -12,6 +12,7 @@ const automation_ed = @import("../tui/editors/automation.zig");
 const piano_ed = @import("../tui/editors/piano.zig");
 const spectrum_ed = @import("../tui/editors/spectrum.zig");
 const synth_ed = @import("../tui/editors/synth.zig");
+const synth_layout = @import("../tui/synth_layout.zig");
 const gui_style = @import("style.zig");
 const automation_view = @import("views/automation.zig");
 const file_browser_view = @import("views/file_browser.zig");
@@ -1346,48 +1347,146 @@ fn drawSynth(app: *App) void {
     };
     drawSynthHeader(app, synth);
     zgui.spacing();
+    drawSynthTabs(app);
+    zgui.spacing();
+    switch (app.core.synth_subview) {
+        .main => drawSynthSections(app, synth, &synth_layout.main_sections, "synth-main"),
+        .mod => drawSynthSections(app, synth, &synth_layout.mod_sections, "synth-mod"),
+        .fx => drawSynthFx(app, synth),
+    }
+}
 
+fn drawSynthTabs(app: *App) void {
+    const tabs = [_]struct { label: [:0]const u8, subview: synth_ed.Subview }{
+        .{ .label = "MAIN", .subview = .main },
+        .{ .label = "MODULATION", .subview = .mod },
+        .{ .label = "INTERNAL FX", .subview = .fx },
+    };
+    for (tabs, 0..) |tab, i| {
+        if (i > 0) zgui.sameLine(.{ .spacing = 5 });
+        const active = app.core.synth_subview == tab.subview;
+        zgui.pushStyleColor4f(.{ .idx = .button, .c = if (active) umbra.iris else umbra.bg2 });
+        zgui.pushStyleColor4f(.{ .idx = .text, .c = if (active) umbra.bg0 else umbra.fg2 });
+        if (zgui.button(tab.label, .{ .w = 125, .h = 30 })) setSynthSubview(app, tab.subview);
+        zgui.popStyleColor(.{ .count = 2 });
+    }
+}
+
+fn setSynthSubview(app: *App, subview: synth_ed.Subview) void {
+    app.core.synth_subview = subview;
+    var candidates_buf: [synth_ed.max_search_candidates]synth_ed.SearchCandidate = undefined;
+    for (synth_ed.searchCandidates(&app.core, &candidates_buf)) |candidate| {
+        if (candidate.subview == subview) {
+            app.core.synth_cursor = candidate.id;
+            break;
+        }
+    }
+}
+
+fn drawSynthSections(app: *App, synth: *ws.dsp.PolySynth, comptime sections: []const synth_layout.SectionDef, comptime child_prefix: []const u8) void {
     const gap: f32 = 10;
     const column_w = @max(300, (zgui.getContentRegionAvail()[0] - gap) / 2);
-    if (zgui.beginChild("synth-left", .{ .w = column_w, .h = 0, .child_flags = .{ .border = true } })) {
-        drawSynthSectionTitle("OSCILLATORS", umbra.iris);
-        drawSynthWaveButtons(app, synth);
-        drawSynthParam(app, synth, 2, "Fine tune", "%.0f ct");
-        drawSynthParam(app, synth, 3, "Voices", "%.0f");
-        drawSynthParam(app, synth, 4, "Unison detune", "%.0f ct");
-        drawSynthParam(app, synth, 5, "Stereo spread", "%.2f");
+    inline for (0..2) |column| {
+        if (column > 0) zgui.sameLine(.{ .spacing = gap });
+        const child_id = child_prefix ++ if (column == 0) "-left" else "-right";
+        if (zgui.beginChild(child_id, .{ .w = if (column == 0) column_w else 0, .h = 0, .child_flags = .{ .border = true } })) {
+            inline for (sections, 0..) |section, section_index| {
+                if (section_index % 2 != column) continue;
+                drawSynthSectionTitle(section.title, synthSectionColor(section_index));
+                inline for (section.params) |entry| {
+                    inline for (0..entry.fields) |field| {
+                        var label_buf: [48]u8 = undefined;
+                        const id = entry.id + field;
+                        drawSynthAnyParam(app, synth, id, synth_ed.paramLabel(id, &label_buf));
+                    }
+                }
+                zgui.spacing();
+            }
+        }
+        zgui.endChild();
+    }
+}
+
+fn synthSectionColor(index: usize) [4]f32 {
+    return switch (index % 5) {
+        0 => umbra.iris,
+        1 => umbra.cyan,
+        2 => umbra.mauve,
+        3 => umbra.yellow,
+        else => umbra.red,
+    };
+}
+
+fn drawSynthFx(app: *App, synth: *ws.dsp.PolySynth) void {
+    var order_buf: [14]ws.dsp.synth.FxUnitKind = undefined;
+    const order = synth_ed.fxOnOrder(&app.core, &order_buf);
+    zgui.textDisabled("SIGNAL FLOW", .{});
+    zgui.sameLine(.{ .spacing = 12 });
+    zgui.textColored(umbra.cyan, "IN", .{});
+    for (order) |kind| {
+        zgui.sameLine(.{ .spacing = 7 });
+        zgui.textDisabled(">", .{});
+        zgui.sameLine(.{ .spacing = 7 });
+        zgui.textColored(umbra.fg1, "{s}", .{spectrum_ed.stripLabel(synth_ed.asFxKind(kind))});
+    }
+    zgui.sameLine(.{ .spacing = 7 });
+    zgui.textDisabled(">", .{});
+    zgui.sameLine(.{ .spacing = 7 });
+    zgui.textColored(umbra.cyan, "OUT", .{});
+    if (order.len == 0) {
         zgui.spacing();
-        drawSynthSectionTitle("OSCILLATOR B", umbra.cyan);
-        drawSynthParam(app, synth, 9, "Transpose", "%.0f st");
-        drawSynthParam(app, synth, 10, "Fine tune", "%.0f ct");
-        drawSynthParam(app, synth, 11, "Level", "%.2f");
-        zgui.spacing();
-        drawSynthSectionTitle("OUTPUT", umbra.mauve);
-        drawSynthParam(app, synth, 34, "Sub", "%.2f");
-        drawSynthParam(app, synth, 36, "Noise", "%.2f");
-        drawSynthParam(app, synth, 38, "Gain", "%.2f");
+        zgui.textDisabled("No internal effects are enabled. Press i to insert one.", .{});
+        return;
+    }
+    zgui.spacing();
+    if (zgui.beginChild("synth-fx-params", .{ .w = 0, .h = 0, .child_flags = .{ .border = true } })) {
+        var candidates_buf: [synth_ed.max_search_candidates]synth_ed.SearchCandidate = undefined;
+        var previous_kind: ?ws.dsp.synth.FxUnitKind = null;
+        for (synth_ed.searchCandidates(&app.core, &candidates_buf)) |candidate| {
+            if (candidate.subview != .fx) continue;
+            const kind = synth_ed.fxKindOfId(candidate.id) orelse continue;
+            if (previous_kind == null or previous_kind.? != kind) {
+                if (previous_kind != null) zgui.spacing();
+                drawSynthSectionTitle(spectrum_ed.unitLabel(synth_ed.asFxKind(kind)), umbra.cyan);
+                previous_kind = kind;
+            }
+            drawSynthAnyParam(app, synth, candidate.id, synth_ed.fxParamLabel(candidate.id));
+        }
     }
     zgui.endChild();
-    zgui.sameLine(.{ .spacing = gap });
-    if (zgui.beginChild("synth-right", .{ .w = 0, .h = 0, .child_flags = .{ .border = true } })) {
-        drawSynthSectionTitle("AMPLIFIER ENVELOPE", umbra.yellow);
-        drawSynthParam(app, synth, 16, "Attack", "%.3f s");
-        drawSynthParam(app, synth, 17, "Decay", "%.3f s");
-        drawSynthParam(app, synth, 18, "Sustain", "%.2f");
-        drawSynthParam(app, synth, 19, "Release", "%.3f s");
-        zgui.spacing();
-        drawSynthSectionTitle("FILTER", umbra.yellow);
-        zgui.textColored(umbra.fg2, "{s}", .{@tagName(synth.filter_type)});
-        drawSynthParam(app, synth, 21, "Cutoff", "%.0f Hz");
-        drawSynthParam(app, synth, 22, "Resonance", "%.2f");
-        zgui.spacing();
-        drawSynthSectionTitle("FILTER ENVELOPE", umbra.red);
-        drawSynthParam(app, synth, 24, "Attack", "%.3f s");
-        drawSynthParam(app, synth, 25, "Decay", "%.3f s");
-        drawSynthParam(app, synth, 26, "Sustain", "%.2f");
-        drawSynthParam(app, synth, 27, "Release", "%.3f s");
+}
+
+fn drawSynthAnyParam(app: *App, synth: *ws.dsp.PolySynth, id: u8, label_text: []const u8) void {
+    if (ws.dsp.PolySynth.findAutomatableParam(id)) |param| {
+        var value = synth.paramValue(id) orelse return;
+        var label_buf: [96]u8 = undefined;
+        const label = std.fmt.bufPrintZ(&label_buf, "{s}##gui-synth-{d}", .{ label_text, id }) catch return;
+        const focused = app.core.synth_cursor == id;
+        gui_style.pushControlFocus(focused, umbra.iris);
+        defer gui_style.popControlFocus(focused);
+        if (zgui.sliderFloat(label, .{ .v = &value, .min = param.range[0], .max = param.range[1], .cfmt = "%.3f" })) {
+            _ = app.core.session.engine.send(.{ .set_track_param_abs = .{ .track = app.core.synth_track, .id = id, .value = value } });
+        }
+        if (zgui.isItemActivated()) app.core.synth_cursor = id;
+        return;
     }
-    zgui.endChild();
+    const value = synth.paramValue(id) orelse return;
+    zgui.text("{s}", .{label_text});
+    zgui.sameLine(.{ .spacing = 8 });
+    var minus_buf: [32]u8 = undefined;
+    const minus = std.fmt.bufPrintZ(&minus_buf, "-##synth-minus-{d}", .{id}) catch return;
+    if (zgui.smallButton(minus)) nudgeSynthParam(app, id, 'h');
+    zgui.sameLine(.{ .spacing = 5 });
+    zgui.textColored(if (app.core.synth_cursor == id) umbra.iris else umbra.fg1, "{d:.2}", .{value});
+    zgui.sameLine(.{ .spacing = 5 });
+    var plus_buf: [32]u8 = undefined;
+    const plus = std.fmt.bufPrintZ(&plus_buf, "+##synth-plus-{d}", .{id}) catch return;
+    if (zgui.smallButton(plus)) nudgeSynthParam(app, id, 'l');
+}
+
+fn nudgeSynthParam(app: *App, id: u8, key: u8) void {
+    app.core.synth_cursor = id;
+    app.core.handleKey(.{ .char = key }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
 }
 
 fn drawSynthHeader(app: *App, synth: *ws.dsp.PolySynth) void {
@@ -1399,7 +1498,7 @@ fn drawSynthHeader(app: *App, synth: *ws.dsp.PolySynth) void {
     draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(umbra.bg2), .rounding = 4 });
     draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + 5, origin[1] + height }, .col = color(umbra.iris), .rounding = 3 });
     draw.addText(.{ origin[0] + 17, origin[1] + 10 }, color(umbra.fg3), "POLYPHONIC SYNTH", .{});
-    draw.addText(.{ origin[0] + 17, origin[1] + 31 }, color(umbra.fg0), "{s}", .{app.core.session.project.tracks.items[app.core.cursor].name});
+    draw.addText(.{ origin[0] + 17, origin[1] + 31 }, color(umbra.fg0), "{s}", .{app.core.session.project.tracks.items[app.core.synth_track].name});
 
     const panel_y = origin[1] + 59;
     const panel_h: f32 = 80;
