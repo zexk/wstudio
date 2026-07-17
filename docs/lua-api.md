@@ -150,8 +150,10 @@ Current option set (see examples/init.lua for defaults and ranges):
 | --- | --- |
 | `preferred_frontend` | core |
 | `default_tempo`, `default_sample_rate`, `default_beats_per_bar` | core |
-| `default_octave`, `autosave_interval_s` | core |
+| `default_octave`, `default_velocity`, `autosave_interval_s` | core |
 | `audio_block_frames`, `audio_backend`, `tap_timeout_ms` | core |
+| `note_preview_ms`, `cmd_history_lines`, `status_message_ms` | core |
+| `default_browse_dir` | core |
 | `frame_poll_ms`, `tui_mouse`, `tui_theme` | tui |
 | `gui_font_size`, `gui_vsync`, `gui_theme` | gui |
 | `gui_window_width`, `gui_window_height` | gui |

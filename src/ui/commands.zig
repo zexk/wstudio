@@ -55,7 +55,7 @@ test "parseFiniteFloat rejects non-finite values" {
 /// a single-user TUI). Returns `path` unchanged when there's nothing to
 /// expand, when $HOME isn't set, or when the expansion wouldn't fit `buf`.
 /// $USERPROFILE is the fallback because Windows has no $HOME.
-fn expandHome(buf: []u8, path: []const u8) []const u8 {
+pub fn expandHome(buf: []u8, path: []const u8) []const u8 {
     if (path.len == 0 or path[0] != '~') return path;
     if (path.len > 1 and path[1] != '/') return path;
     const home = std.c.getenv("HOME") orelse std.c.getenv("USERPROFILE") orelse return path;

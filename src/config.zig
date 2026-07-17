@@ -33,17 +33,36 @@ pub const GuiTheme = theme_identity.Name;
 /// their terminal colors on purpose - see tui/theme.zig.
 pub const TuiTheme = enum { none, patina, patina_light, graphite, umbra };
 
+/// A config-owned path buffer for string-typed `wstudio.o` options (only
+/// `default_browse_dir` today). `Config` is copied by value and reset
+/// wholesale on `:reload-config` (`resetForReload`'s `self.config = .{}`),
+/// so this owns its bytes rather than holding a Lua-owned slice that
+/// wouldn't outlive the assignment.
+pub const PathBuf = struct {
+    buf: [std.fs.max_path_bytes]u8 = undefined,
+    len: u16 = 0,
+
+    pub fn slice(self: *const PathBuf) []const u8 {
+        return self.buf[0..self.len];
+    }
+};
+
 pub const Config = struct {
     preferred_frontend: Frontend = .tui,
     default_tempo: f64 = 120.0,
     default_sample_rate: u32 = 48_000,
     default_beats_per_bar: u8 = 4,
     default_octave: u8 = 4,
+    default_velocity: f32 = 0.85,
     autosave_interval_s: u16 = 30,
     frame_poll_ms: u16 = 30,
     audio_block_frames: u32 = 256,
     audio_backend: @import("wstudio").audio_host.Choice = .auto,
     tap_timeout_ms: u32 = 2000,
+    note_preview_ms: u16 = 220,
+    cmd_history_lines: u16 = 50,
+    status_message_ms: u16 = 3000,
+    default_browse_dir: PathBuf = .{},
     tui_mouse: bool = true,
     tui_theme: TuiTheme = .none,
     gui_font_size: f32 = 15.0,
@@ -62,9 +81,9 @@ pub const Scope = enum { core, tui, gui };
 
 const OptionSpec = struct {
     name: [:0]const u8,
-    /// Valid range, ignored for bool and enum fields. All current bounds
-    /// are whole numbers, so comptime_int keeps them comparable against
-    /// both the integer and float values Lua hands over.
+    /// Valid range, ignored for bool, enum, and path (`PathBuf`) fields.
+    /// All current bounds are whole numbers, so comptime_int keeps them
+    /// comparable against both the integer and float values Lua hands over.
     min: comptime_int = 0,
     max: comptime_int = 0,
     scope: Scope = .core,
@@ -79,11 +98,16 @@ const option_specs = [_]OptionSpec{
     .{ .name = "default_sample_rate", .min = 8000, .max = 192000 },
     .{ .name = "default_beats_per_bar", .min = 1, .max = 16 },
     .{ .name = "default_octave", .min = 0, .max = 8 },
+    .{ .name = "default_velocity", .min = 0, .max = 1 },
     .{ .name = "autosave_interval_s", .min = 0, .max = 600 },
     .{ .name = "frame_poll_ms", .min = 5, .max = 1000, .scope = .tui },
     .{ .name = "audio_block_frames", .min = 16, .max = 4096 },
     .{ .name = "audio_backend" },
     .{ .name = "tap_timeout_ms", .min = 100, .max = 10000 },
+    .{ .name = "note_preview_ms", .min = 20, .max = 2000 },
+    .{ .name = "cmd_history_lines", .min = 10, .max = 500 },
+    .{ .name = "status_message_ms", .min = 200, .max = 10000 },
+    .{ .name = "default_browse_dir" },
     .{ .name = "tui_mouse", .scope = .tui },
     .{ .name = "tui_theme", .scope = .tui },
     .{ .name = "gui_font_size", .min = 8, .max = 40, .scope = .gui },
@@ -749,6 +773,16 @@ fn setOption(state: ?*c.lua_State) callconv(.c) c_int {
                     break :blk std.meta.stringToEnum(@FieldType(Config, spec.name), s[0..slen]) orelse
                         return c.luaL_error(l, enum_msg);
                 },
+                // Only `PathBuf` fields (`default_browse_dir` today) reach here.
+                .@"struct" => blk: {
+                    var slen: usize = 0;
+                    const s = c.luaL_checklstring(l, 3, &slen);
+                    var pb: PathBuf = .{};
+                    if (slen > pb.buf.len) return c.luaL_error(l, spec.name ++ " path is too long");
+                    @memcpy(pb.buf[0..slen], s[0..slen]);
+                    pb.len = @intCast(slen);
+                    break :blk pb;
+                },
                 else => comptime unreachable,
             };
             return 0;
@@ -768,6 +802,7 @@ fn getOption(state: ?*c.lua_State) callconv(.c) c_int {
                 .float => c.lua_pushnumber(l, value),
                 .int => c.lua_pushinteger(l, value),
                 .@"enum" => _ = c.lua_pushstring(l, @tagName(value)),
+                .@"struct" => _ = c.lua_pushlstring(l, &value.buf, value.len),
                 else => comptime unreachable,
             }
             return 1;
@@ -1493,6 +1528,36 @@ test "Lua API round 2 options set and read" {
     try std.testing.expectEqual(@as(u16, 1080), rt.config.gui_window_height);
     try std.testing.expectError(error.LuaError, rt.loadString("wstudio.o.default_octave = 9"));
     try std.testing.expectError(error.LuaError, rt.loadString("wstudio.o.gui_window_width = 100"));
+}
+
+test "Lua API round 3 options set and read" {
+    var rt = try Runtime.init(.tui);
+    defer rt.deinit();
+    try rt.loadString("wstudio.o.default_velocity = 0.5; wstudio.o.note_preview_ms = 500;" ++
+        "wstudio.o.cmd_history_lines = 200; wstudio.o.status_message_ms = 1500");
+    try std.testing.expectEqual(@as(f32, 0.5), rt.config.default_velocity);
+    try std.testing.expectEqual(@as(u16, 500), rt.config.note_preview_ms);
+    try std.testing.expectEqual(@as(u16, 200), rt.config.cmd_history_lines);
+    try std.testing.expectEqual(@as(u16, 1500), rt.config.status_message_ms);
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.o.default_velocity = 1.5"));
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.o.note_preview_ms = 3"));
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.o.cmd_history_lines = 1000"));
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.o.status_message_ms = 100"));
+}
+
+test "default_browse_dir reads and writes as a string, rejecting oversized paths" {
+    var rt = try Runtime.init(.tui);
+    defer rt.deinit();
+    try rt.loadString("assert(wstudio.o.default_browse_dir == '')");
+    try rt.loadString("wstudio.o.default_browse_dir = '~/Music/Samples'; assert(wstudio.o.default_browse_dir == '~/Music/Samples')");
+    try std.testing.expectEqualStrings("~/Music/Samples", rt.config.default_browse_dir.slice());
+    const prefix = "wstudio.o.default_browse_dir = '";
+    var src_buf: [prefix.len + std.fs.max_path_bytes + 1 + 2:0]u8 = undefined;
+    @memcpy(src_buf[0..prefix.len], prefix);
+    @memset(src_buf[prefix.len .. prefix.len + std.fs.max_path_bytes + 1], 'a');
+    src_buf[prefix.len + std.fs.max_path_bytes + 1] = '\'';
+    src_buf[prefix.len + std.fs.max_path_bytes + 2] = 0;
+    try std.testing.expectError(error.LuaError, rt.loadString(src_buf[0 .. prefix.len + std.fs.max_path_bytes + 2 :0]));
 }
 
 test "wstudio.frontend reports the active frontend" {

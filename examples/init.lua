@@ -50,6 +50,10 @@
 -- Range 0-8.
 -- wstudio.o.default_octave = 4
 
+-- Velocity for keyboard/step-recorded notes and audition previews.
+-- Range 0-1.
+-- wstudio.o.default_velocity = 0.85
+
 -- How often unsaved changes are backed up to <project>~, in seconds.
 -- 0 disables autosave entirely. Range 0-600.
 -- wstudio.o.autosave_interval_s = 30
@@ -68,6 +72,23 @@
 -- Multi-key timeout, in milliseconds: how long tap-tempo taps and similar
 -- key sequences stay connected. Range 100-10000.
 -- wstudio.o.tap_timeout_ms = 2000
+
+-- How long an audition/record-preview note rings before its automatic
+-- note-off, in milliseconds. Range 20-2000.
+-- wstudio.o.note_preview_ms = 220
+
+-- Max `:` command history entries kept (up/down recall in the command
+-- prompt). Range 10-500.
+-- wstudio.o.cmd_history_lines = 50
+
+-- How long a status-line message stays up before clearing, in
+-- milliseconds. Range 200-10000.
+-- wstudio.o.status_message_ms = 3000
+
+-- Starting directory for the file browser (:e, :load-sample, ...) when no
+-- project path is known yet - a fresh session's first open. Leading `~`
+-- expands to $HOME. Empty (the default) starts in the current directory.
+-- wstudio.o.default_browse_dir = ""
 
 -- [tui] Input poll interval, in milliseconds - effectively the TUI's
 -- maximum frame time. Range 5-1000.

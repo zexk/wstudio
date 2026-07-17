@@ -44,12 +44,14 @@ const Sampler = ws.dsp.Sampler;
 const InstrumentKind = ws.InstrumentKind;
 const pattern_mod = ws.dsp.pattern;
 
+/// Default note-preview release time (`note_preview_ms` option); the field
+/// default below and `tui/app_tests.zig`'s note-off timing test both key off
+/// this constant.
 pub const note_ms = 220;
 /// Rows every view's content starts after in `App.draw`: the header line +
 /// the `hr` divider beneath it. Mouse hit-testing subtracts this before
 /// handing a row to a view's own handler - see `App.handleMouse`.
 pub const content_top: u16 = 2;
-const cmd_history_cap: usize = 50;
 /// Big enough for any real filesystem path; mirrors commands.path_buf_len.
 const reload_path_buf_len: usize = 1024;
 /// A pause longer than this between taps starts a fresh tap-tempo run.
@@ -289,7 +291,14 @@ pub const App = struct {
     should_quit: bool = false,
     status_buf: [256]u8 = undefined,
     status_len: usize = 0,
-    status_ttl: u32 = 0,
+    /// How long a status message stays up, from `status_message_ms`.
+    /// `setStatus` can't compute an absolute deadline (no reliable "now" at
+    /// every call site - see `now_ns` below), so it just flags
+    /// `status_pending`; `tick` turns that into `status_expire_ns` using its
+    /// own real timestamp on the next frame.
+    status_message_ns: i96 = 3000 * std.time.ns_per_ms,
+    status_expire_ns: i96 = 0,
+    status_pending: bool = false,
     note_offs: [32]NoteOff = undefined,
     note_off_len: usize = 0,
     // Last timestamp seen by handleKey; lets sub-view handlers schedule note-offs
@@ -299,6 +308,19 @@ pub const App = struct {
     /// Backup cadence (see maybeAutosave); 0 disables. Set from the
     /// `autosave_interval_s` option by `applyUserConfig`.
     autosave_interval_ns: i96 = default_autosave_interval_ns,
+    /// Release delay for an audition/record-preview note, from
+    /// `note_preview_ms` - see `playNote`.
+    note_preview_ns: i96 = note_ms * std.time.ns_per_ms,
+    /// Max `:` command history entries kept, from `cmd_history_lines` - see
+    /// the push site in the command-submit path.
+    cmd_history_cap: usize = 50,
+    /// Velocity for keyboard/step-recorded notes and audition previews, from
+    /// `default_velocity`.
+    default_velocity: f32 = pattern_mod.default_velocity,
+    /// Fallback starting directory for the file browser when no project
+    /// path is known yet, from `default_browse_dir`. Empty means "cwd", the
+    /// pre-existing behavior - see `openBrowser`.
+    default_browse_dir: config_mod.PathBuf = .{},
     /// An open coalescing batch of synth/sampler param nudges (h/l/H/L),
     /// flushed to `history` once the cursor moves off that param - see
     /// history.zig's noteParamNudge/flushParamNudge.
@@ -856,6 +878,11 @@ pub const App = struct {
     pub fn applyUserConfig(self: *App, user_config: config_mod.Config, blank: bool) void {
         self.tap_timeout_ns = @as(i96, user_config.tap_timeout_ms) * std.time.ns_per_ms;
         self.autosave_interval_ns = @as(i96, user_config.autosave_interval_s) * std.time.ns_per_s;
+        self.note_preview_ns = @as(i96, user_config.note_preview_ms) * std.time.ns_per_ms;
+        self.status_message_ns = @as(i96, user_config.status_message_ms) * std.time.ns_per_ms;
+        self.cmd_history_cap = user_config.cmd_history_lines;
+        self.default_velocity = user_config.default_velocity;
+        self.default_browse_dir = user_config.default_browse_dir;
         self.modal.octave = @intCast(user_config.default_octave);
         if (blank) {
             self.session.project.tempo_bpm = user_config.default_tempo;
@@ -1927,12 +1954,16 @@ pub const App = struct {
     // -----------------------------------------------------------------------
 
     /// Enter the browser for `purpose`, starting in the current project's
-    /// directory (or cwd if none is set yet). Leaves the view untouched if
-    /// that starting directory can't be listed.
+    /// directory, or `default_browse_dir` (cwd if unset) when no project
+    /// path is known yet. Leaves the view untouched if that starting
+    /// directory can't be listed.
     pub fn openBrowser(self: *App, purpose: BrowserPurpose) void {
         self.browser_purpose = purpose;
+        var expand_buf: [reload_path_buf_len]u8 = undefined;
         const start: []const u8 = if (self.projectPath()) |p|
             (std.fs.path.dirname(p) orelse ".")
+        else if (self.default_browse_dir.len > 0)
+            commands.expandHome(&expand_buf, self.default_browse_dir.slice())
         else
             ".";
         self.setBrowserDir(start) catch |e| {
@@ -2307,7 +2338,7 @@ pub const App = struct {
                     },
                     .poly_synth, .sampler => {
                         self.playNote(track_idx, n.pitch, now_ns);
-                        if (self.view == .piano_roll) piano_ed.recordNote(self, n.pitch, pattern_mod.default_velocity);
+                        if (self.view == .piano_roll) piano_ed.recordNote(self, n.pitch, self.default_velocity);
                     },
                     .empty => {},
                 }
@@ -2515,7 +2546,7 @@ pub const App = struct {
             return;
         }
         const owned = self.allocator.dupe(u8, text) catch return;
-        if (self.cmd_history.items.len >= cmd_history_cap) {
+        if (self.cmd_history.items.len >= self.cmd_history_cap) {
             self.allocator.free(self.cmd_history.orderedRemove(0));
         }
         self.cmd_history.append(self.allocator, owned) catch {
@@ -2796,10 +2827,10 @@ pub const App = struct {
         return self.modal.cmd_buf[0..self.modal.cmd_len];
     }
 
-    /// Fire a preview note and schedule its release ~220ms later (see `tick`).
-    /// Pub for the editor modules' audition keys.
+    /// Fire a preview note and schedule its release `note_preview_ns` later
+    /// (see `tick`). Pub for the editor modules' audition keys.
     pub fn playNote(self: *App, track: u16, pitch: u7, now_ns: i96) void {
-        _ = self.session.engine.send(.{ .note_on = .{ .track = track, .note = pitch, .velocity = 0.85 } });
+        _ = self.session.engine.send(.{ .note_on = .{ .track = track, .note = pitch, .velocity = self.default_velocity } });
         if (self.note_off_len == self.note_offs.len) {
             const oldest = self.note_offs[0];
             _ = self.session.engine.send(.{ .note_off = .{ .track = oldest.track, .note = oldest.note } });
@@ -2807,7 +2838,7 @@ pub const App = struct {
             self.note_off_len -= 1;
         }
         self.note_offs[self.note_off_len] = .{
-            .at_ns = now_ns + note_ms * std.time.ns_per_ms,
+            .at_ns = now_ns + self.note_preview_ns,
             .track = track,
             .note = pitch,
         };
@@ -2815,9 +2846,15 @@ pub const App = struct {
     }
 
     pub fn tick(self: *App, now_ns: i96) void {
-        if (self.status_ttl > 0) {
-            self.status_ttl -= 1;
-            if (self.status_ttl == 0) self.status_len = 0;
+        // `setStatus` can't stamp an absolute deadline (see `status_pending`'s
+        // doc comment); do it here, on the first tick after it fired.
+        if (self.status_pending) {
+            self.status_expire_ns = now_ns + self.status_message_ns;
+            self.status_pending = false;
+        }
+        if (self.status_expire_ns != 0 and now_ns >= self.status_expire_ns) {
+            self.status_len = 0;
+            self.status_expire_ns = 0;
         }
         var i: usize = 0;
         while (i < self.note_off_len) {
@@ -3362,7 +3399,7 @@ pub const App = struct {
     pub fn setStatus(self: *App, comptime fmt: []const u8, args: anytype) void {
         const msg = std.fmt.bufPrint(&self.status_buf, fmt, args) catch &self.status_buf;
         self.status_len = msg.len;
-        self.status_ttl = 100;
+        self.status_pending = true;
     }
 };
 

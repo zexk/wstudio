@@ -5685,6 +5685,56 @@ test "applyUserConfig plumbs the round-2 options" {
     try std.testing.expectEqual(@as(f64, 93), app.session.project.tempo_bpm);
 }
 
+test "applyUserConfig plumbs the round-3 options" {
+    var app = try testApp();
+    defer app.deinit();
+    var cfg: @import("../config.zig").Config = .{};
+    cfg.default_velocity = 0.4;
+    cfg.note_preview_ms = 500;
+    cfg.cmd_history_lines = 3;
+    cfg.status_message_ms = 1234;
+    cfg.default_browse_dir.buf[0..4].* = "/tmp".*;
+    cfg.default_browse_dir.len = 4;
+    app.applyUserConfig(cfg, true);
+    try std.testing.expectEqual(@as(f32, 0.4), app.default_velocity);
+    try std.testing.expectEqual(@as(i96, 500 * std.time.ns_per_ms), app.note_preview_ns);
+    try std.testing.expectEqual(@as(usize, 3), app.cmd_history_cap);
+    try std.testing.expectEqual(@as(i96, 1234 * std.time.ns_per_ms), app.status_message_ns);
+    try std.testing.expectEqualStrings("/tmp", app.default_browse_dir.slice());
+
+    // The lowered cmd_history_cap trims on the next push, not retroactively.
+    for ([_][]const u8{ ":bpm 121", ":bpm 122", ":bpm 123", ":bpm 124" }) |line| {
+        for (line) |c| app.handleKey(.{ .char = c }, 0);
+        app.handleKey(.enter, 0);
+    }
+    try std.testing.expectEqual(@as(usize, 3), app.cmd_history.items.len);
+    try std.testing.expectEqualStrings("bpm 122", app.cmd_history.items[0]);
+}
+
+test "openBrowser falls back to default_browse_dir when no project path is known" {
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "kick.wav", .data = "x" });
+
+    var app = try App.init(std.testing.allocator, std.testing.io);
+    defer app.deinit();
+    try app.session.setInstrument(0, .sampler);
+
+    var cfg: @import("../config.zig").Config = .{};
+    var dir_buf: [96]u8 = undefined;
+    const dir = try std.fmt.bufPrint(&dir_buf, ".zig-cache/tmp/{s}", .{&tmp.sub_path});
+    @memcpy(cfg.default_browse_dir.buf[0..dir.len], dir);
+    cfg.default_browse_dir.len = @intCast(dir.len);
+    app.applyUserConfig(cfg, true);
+
+    // No project path set, so openBrowser falls back to the configured
+    // directory instead of cwd - see `openBrowser`.
+    app.openBrowser(.load_sample);
+    try std.testing.expectEqual(AppView.file_browser, app.view);
+    try std.testing.expectEqual(@as(usize, 1), app.browser_entries.items.len);
+    try std.testing.expectEqualStrings("kick.wav", app.browser_entries.items[0].name);
+}
+
 test ":colorscheme reports, switches (scoped per frontend), and rejects bad names" {
     var app = try testApp();
     defer app.deinit();
