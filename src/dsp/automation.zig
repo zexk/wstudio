@@ -45,6 +45,7 @@ fn lessThanBeat(_: void, a: AutomationPoint, b: AutomationPoint) bool {
 /// Insert or update (same-beat match within epsilon) a point, keeping the
 /// slice sorted by `beat`. `points` is reassigned to the new allocation.
 pub fn setPoint(allocator: std.mem.Allocator, points: *[]AutomationPoint, beat: f64, value: f32) !void {
+    if (!std.math.isFinite(beat) or !std.math.isFinite(value)) return error.InvalidPoint;
     for (points.*) |*p| {
         if (@abs(p.beat - beat) < 1e-9) {
             p.value = value;
@@ -144,6 +145,18 @@ test "setPoint inserts sorted and updates in place" {
     try setPoint(testing.allocator, &points, 1.0, 0.9);
     try testing.expectEqual(@as(usize, 3), points.len);
     try testing.expectApproxEqAbs(@as(f32, 0.9), points[1].value, 1e-6);
+}
+
+test "setPoint rejects non-finite coordinates without changing the curve" {
+    var points: []AutomationPoint = &.{};
+    defer testing.allocator.free(points);
+    try setPoint(testing.allocator, &points, 1.0, 0.5);
+
+    try testing.expectError(error.InvalidPoint, setPoint(testing.allocator, &points, std.math.nan(f64), 1.0));
+    try testing.expectError(error.InvalidPoint, setPoint(testing.allocator, &points, 2.0, std.math.inf(f32)));
+    try testing.expectEqual(@as(usize, 1), points.len);
+    try testing.expectApproxEqAbs(@as(f64, 1.0), points[0].beat, 1e-9);
+    try testing.expectApproxEqAbs(@as(f32, 0.5), points[0].value, 1e-6);
 }
 
 test "removePoint drops the matching point" {
