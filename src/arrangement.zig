@@ -296,6 +296,7 @@ pub const Arrangement = struct {
 
     /// Swap two lanes' positions (mirrors Session.swapTracks). No allocation.
     pub fn swapLanes(self: *Arrangement, a: usize, b: usize) void {
+        if (a >= self.lanes.items.len or b >= self.lanes.items.len) return;
         std.mem.swap(Lane, &self.lanes.items[a], &self.lanes.items[b]);
     }
 
@@ -423,4 +424,14 @@ test "arrangement adds and removes lanes" {
     arr.removeLane(a, 0);
     try testing.expectEqual(@as(usize, 1), arr.lanes.items.len);
     try testing.expectEqual(@as(u32, 0), arr.lengthTicks());
+}
+
+test "swapLanes ignores invalid indices" {
+    const a = testing.allocator;
+    var arrangement: Arrangement = .{};
+    defer arrangement.deinit(a);
+    try arrangement.addLane(a);
+
+    arrangement.swapLanes(0, 99);
+    try testing.expectEqual(@as(usize, 1), arrangement.lanes.items.len);
 }
