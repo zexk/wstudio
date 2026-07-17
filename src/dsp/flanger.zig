@@ -38,7 +38,12 @@ pub const Flanger = struct {
     pub fn processBlock(self: *Flanger, buf: []Sample) void {
         const len_f: f32 = @floatFromInt(len);
         const max_delay: f32 = len_f - 4.0;
-        const inc = self.rate_hz / self.sample_rate;
+        const rate = if (std.math.isFinite(self.rate_hz)) std.math.clamp(self.rate_hz, 0.05, 5.0) else 0.3;
+        const depth = if (std.math.isFinite(self.depth)) std.math.clamp(self.depth, 0.0, 1.0) else 0.7;
+        const feedback = if (std.math.isFinite(self.feedback)) std.math.clamp(self.feedback, 0.0, 0.9) else 0.5;
+        const mix = if (std.math.isFinite(self.mix)) std.math.clamp(self.mix, 0.0, 1.0) else 0.5;
+        if (!std.math.isFinite(self.phase)) self.phase = 0.0;
+        const inc = rate / self.sample_rate;
         var i: usize = 0;
         while (i + 1 < buf.len) : (i += 2) {
             inline for (0..2) |ch| {
@@ -46,7 +51,7 @@ pub const Flanger = struct {
                 const lfo = 0.5 + 0.5 * @sin(ph * 2.0 * std.math.pi);
                 // >= 1 sample of delay so the fractional read below never
                 // touches the frame being written this iteration.
-                const delay = 1.0 + lfo * self.depth * (max_delay - 1.0);
+                const delay = 1.0 + lfo * depth * (max_delay - 1.0);
                 var rp = @as(f32, @floatFromInt(self.pos)) - delay;
                 if (rp < 0.0) rp += len_f;
                 const tap_i: usize = @intFromFloat(rp);
@@ -54,8 +59,8 @@ pub const Flanger = struct {
                 const tap = self.ring[ch][tap_i % len] * (1.0 - frac) +
                     self.ring[ch][(tap_i + 1) % len] * frac;
                 const dry = buf[i + ch];
-                self.ring[ch][self.pos] = dry + tap * self.feedback;
-                buf[i + ch] = dry * (1.0 - self.mix) + tap * self.mix;
+                self.ring[ch][self.pos] = dry + tap * feedback;
+                buf[i + ch] = dry * (1.0 - mix) + tap * mix;
             }
             self.pos = (self.pos + 1) % len;
             self.phase += inc;
@@ -103,4 +108,16 @@ test "silence in, silence out" {
     var buf = [_]Sample{0.0} ** 256;
     flanger.processBlock(&buf);
     for (buf) |s| try std.testing.expectEqual(@as(Sample, 0.0), s);
+}
+
+test "invalid parameters cannot trap or poison output" {
+    var flanger = Flanger.init(48_000);
+    flanger.rate_hz = std.math.nan(f32);
+    flanger.depth = -std.math.inf(f32);
+    flanger.feedback = std.math.inf(f32);
+    flanger.mix = std.math.nan(f32);
+    flanger.phase = std.math.inf(f32);
+    var buf = [_]Sample{ 0.3, -0.7, 0.05, 0.9 };
+    flanger.processBlock(&buf);
+    for (buf) |sample| try std.testing.expect(std.math.isFinite(sample));
 }
