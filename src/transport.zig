@@ -43,7 +43,12 @@ pub const Transport = struct {
 
     /// Bar/beat as shown in a position display (zero-based).
     pub fn positionBarBeat(self: *const Transport) struct { bar: u64, beat: u64 } {
-        const total_beats: u64 = @intFromFloat(self.positionBeats());
+        const beats = self.positionBeats();
+        const total_beats: u64 = if (!std.math.isFinite(beats) or
+            beats >= @as(f64, @floatFromInt(std.math.maxInt(u64))))
+            std.math.maxInt(u64)
+        else
+            @intFromFloat(@max(beats, 0.0));
         const bpb: u64 = @max(self.time_signature.beats_per_bar, 1);
         return .{ .bar = total_beats / bpb, .beat = total_beats % bpb };
     }
@@ -124,6 +129,17 @@ test "invalid timing fields retain finite position calculations" {
     const pos = t.positionBarBeat();
     try std.testing.expectEqual(@as(u64, 96_000), pos.bar);
     try std.testing.expectEqual(@as(u64, 0), pos.beat);
+}
+
+test "position display saturates when beat count exceeds u64" {
+    var t: Transport = .{
+        .sample_rate = 1,
+        .tempo_bpm = std.math.floatMax(f64),
+        .position_frames = std.math.maxInt(u64),
+    };
+    const pos = t.positionBarBeat();
+    try std.testing.expectEqual(std.math.maxInt(u64) / 4, pos.bar);
+    try std.testing.expectEqual(std.math.maxInt(u64) % 4, pos.beat);
 }
 
 test "advance saturates at the frame counter limit" {
