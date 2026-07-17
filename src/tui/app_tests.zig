@@ -5016,7 +5016,7 @@ test "FX chain: </> reorder and b bypass reach the engine chain" {
     _ = try fx.insert(alloc, 0, .comp, sr);
     _ = try fx.insert(alloc, 1, .delay, sr);
     app.session.syncMasterChain();
-    try std.testing.expectEqual(@as(usize, 2), app.session.engine.master_chain_len);
+    try std.testing.expectEqual(@as(usize, 2), app.session.engine.master_chain.slice().len);
 
     // '>' moves the focused comp after the delay; focus follows it.
     app.fx_focus = 0;
@@ -5032,9 +5032,9 @@ test "FX chain: </> reorder and b bypass reach the engine chain" {
     // engine's device list.
     _ = spectrum_ed.handleKey(&app, .{ .char = 'b' });
     try std.testing.expect(fx.units.items[1].bypassed);
-    try std.testing.expectEqual(@as(usize, 1), app.session.engine.master_chain_len);
+    try std.testing.expectEqual(@as(usize, 1), app.session.engine.master_chain.slice().len);
     _ = spectrum_ed.handleKey(&app, .{ .char = 'b' });
-    try std.testing.expectEqual(@as(usize, 2), app.session.engine.master_chain_len);
+    try std.testing.expectEqual(@as(usize, 2), app.session.engine.master_chain.slice().len);
 }
 
 test "FX chain: param nudges coalesce into one undo step, u right after nudging still undoes it" {
@@ -5253,12 +5253,12 @@ test "FX chain: switchToGroup opens a group's chain via the same shared editor" 
     spectrum_ed.insertFromPicker(&app, .comp);
     try std.testing.expectEqual(AppView.group_spectrum, app.view);
     try std.testing.expectEqual(@as(usize, 1), app.session.groups[g].?.fx.units.items.len);
-    try std.testing.expectEqual(@as(usize, 1), app.session.engine.groups[g].chain_len);
+    try std.testing.expectEqual(@as(usize, 1), app.session.engine.groups[g].chain.slice().len);
 
     // 'x' removes it, reaching the engine the same way.
     _ = spectrum_ed.handleKey(&app, .{ .char = 'x' });
     try std.testing.expectEqual(@as(usize, 0), app.session.groups[g].?.fx.units.items.len);
-    try std.testing.expectEqual(@as(usize, 0), app.session.engine.groups[g].chain_len);
+    try std.testing.expectEqual(@as(usize, 0), app.session.engine.groups[g].chain.slice().len);
 
     // esc leaves group_spectrum cleanly, back to whatever opened it.
     _ = spectrum_ed.handleKey(&app, .escape);

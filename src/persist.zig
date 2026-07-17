@@ -2281,7 +2281,7 @@ test "buildSession: legacy master FX loads in the old fixed order" {
     const eq = &session.master_fx.units.items[1].payload.eq;
     try testing.expectApproxEqAbs(@as(f32, 2.0), eq.bands[0].gain_db, 1e-4);
     // Both units should have reached the engine's master chain.
-    try testing.expectEqual(@as(usize, 2), session.engine.master_chain_len);
+    try testing.expectEqual(@as(usize, 2), session.engine.master_chain.slice().len);
 }
 
 test "buildSession: v10 fx_chain keeps user order, duplicates, and bypass" {
@@ -2314,7 +2314,7 @@ test "buildSession: v10 fx_chain keeps user order, duplicates, and bypass" {
     // Missing params field (.comp) loads with defaults.
     try testing.expectApproxEqAbs(@as(f32, -18.0), units[4].payload.comp.threshold_db, 1e-4);
     // The bypassed crusher is skipped by chain(): 4 of 5 reach the engine.
-    try testing.expectEqual(@as(usize, 4), session.engine.master_chain_len);
+    try testing.expectEqual(@as(usize, 4), session.engine.master_chain.slice().len);
 }
 
 // zig fmt: off
@@ -2570,7 +2570,7 @@ test "save/load round-trip persists master FX" {
     try testing.expectApproxEqAbs(@as(f32, 0.7), units[4].payload.phaser.feedback, 1e-4);
     try testing.expectApproxEqAbs(@as(f32, -9.0), units[5].payload.comp.threshold_db, 1e-4);
     // The bypassed crusher stays out of the live chain.
-    try testing.expectEqual(@as(usize, 5), loaded.engine.master_chain_len);
+    try testing.expectEqual(@as(usize, 5), loaded.engine.master_chain.slice().len);
 }
 
 test "save/load round-trip persists a multiband compressor's crossover, style, and per-band params" {
@@ -2620,7 +2620,7 @@ test "save/load round-trip persists a multiband compressor's crossover, style, a
     try testing.expectApproxEqAbs(@as(f32, 6.0), m.bands[1].ratio, 1e-4);
     try testing.expectApproxEqAbs(@as(f32, -15.0), m.bands[2].threshold_db, 1e-4);
     try testing.expectApproxEqAbs(@as(f32, 2.5), m.bands[2].ratio, 1e-4);
-    try testing.expectEqual(@as(usize, 1), loaded.engine.master_chain_len);
+    try testing.expectEqual(@as(usize, 1), loaded.engine.master_chain.slice().len);
 }
 
 test "save/load round-trip persists an OTT unit's depth/time/gains and rederives its attack/release" {
@@ -2656,7 +2656,7 @@ test "save/load round-trip persists an OTT unit's depth/time/gains and rederives
     // Derived from `time` through setTime on load, not stored in the file.
     try testing.expectApproxEqAbs(unit.payload.ott.mb.attack_ms, o.mb.attack_ms, 1e-4);
     try testing.expectApproxEqAbs(unit.payload.ott.mb.release_ms, o.mb.release_ms, 1e-4);
-    try testing.expectEqual(@as(usize, 1), loaded.engine.master_chain_len);
+    try testing.expectEqual(@as(usize, 1), loaded.engine.master_chain.slice().len);
 }
 
 test "save/load round-trip persists a frequency shifter's shift and mix" {
@@ -2685,7 +2685,7 @@ test "save/load round-trip persists a frequency shifter's shift and mix" {
     const f = units[0].payload.freq_shift;
     try testing.expectApproxEqAbs(@as(f32, -350.0), f.shift_hz, 1e-4);
     try testing.expectApproxEqAbs(@as(f32, 0.65), f.mix, 1e-4);
-    try testing.expectEqual(@as(usize, 1), loaded.engine.master_chain_len);
+    try testing.expectEqual(@as(usize, 1), loaded.engine.master_chain.slice().len);
 }
 
 test "buildSession: arrangement clips and song_mode round-trip" {
@@ -3114,7 +3114,7 @@ test "buildSession: groups round-trip name, FX chain, and track membership" {
     try testing.expectEqualStrings("drum bus", session.groups[2].?.name);
     try testing.expectEqual(@as(usize, 1), session.groups[2].?.fx.units.items.len);
     try testing.expect(session.engine.groups[2].active);
-    try testing.expectEqual(@as(usize, 1), session.engine.groups[2].chain_len);
+    try testing.expectEqual(@as(usize, 1), session.engine.groups[2].chain.slice().len);
 
     try testing.expectEqual(@as(?u8, 2), session.project.tracks.items[0].group);
     try testing.expectEqual(@as(?u8, null), session.project.tracks.items[1].group);

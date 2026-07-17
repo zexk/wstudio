@@ -100,14 +100,59 @@ const SynthAutomationSlot = struct {
     curve: AutomationCurve = .{},
 };
 
+/// A device chain (track/master/group FX chain) as read by the audio
+/// thread while the control thread may be replacing it wholesale (adding,
+/// removing, or reordering FX/instrument slots) with no other
+/// synchronization between the two. `dsp.Device` is a two-word ptr+vtable
+/// pair (see `dsp/device.zig`), not atomically writable as a single unit -
+/// an audio-thread read torn mid-overwrite could pair one device's data
+/// pointer with a DIFFERENT device type's vtable, calling the wrong
+/// `process` function against the wrong memory layout (not just "stale
+/// sound for one block" the way a torn scalar field would be - real type
+/// confusion, crash-capable). Double-buffered instead: `set` (control
+/// thread) stages the whole new chain into whichever buffer isn't
+/// currently active, then atomically flips `active` - `slice()` (audio
+/// thread) always observes one buffer's contents wholesale, old or new,
+/// never a mix. Same "audio thread never blocks, control thread does the
+/// work" discipline `AutomationCurve`'s lock already applies to gain/pan
+/// automation, just via a swap instead of a spin since a whole chain can't
+/// be copied under a lock without risking the audio thread blocking on it.
+fn ChainBank(comptime max: usize) type {
+    return struct {
+        bufs: [2][max]dsp.Device = undefined,
+        counts: [2]usize = .{ 0, 0 },
+        /// 0 or 1 - which of `bufs`/`counts` is live. `u8`, not `u1`:
+        /// `std.atomic.Value` needs an extern-compatible int width.
+        active: std.atomic.Value(u8) = .init(0),
+
+        /// Audio-thread read. Snapshot the result once per use (don't call
+        /// `slice()` again later in the same render pass) - the buffer can
+        /// flip between two calls, and a chain must be read as one
+        /// consistent whole for a given block. `pub` so tests elsewhere in
+        /// the crate can assert chain length without a dedicated accessor.
+        pub fn slice(self: *const @This()) []const dsp.Device {
+            const idx = self.active.load(.acquire);
+            return self.bufs[idx][0..self.counts[idx]];
+        }
+
+        /// Control-thread write.
+        fn set(self: *@This(), devices: []const dsp.Device) void {
+            const next: u8 = self.active.load(.monotonic) ^ 1;
+            const n = @min(devices.len, max);
+            self.counts[next] = n;
+            for (devices[0..n], self.bufs[next][0..n]) |src, *dst| dst.* = src;
+            self.active.store(next, .release);
+        }
+    };
+}
+
 const TrackState = struct {
     active: bool = false,
     gain: f32 = 1.0,
     pan: f32 = 0.0,
     muted: bool = false,
     soloed: bool = false,
-    chain: [max_chain_devices]dsp.Device = undefined,
-    chain_len: usize = 0,
+    chain: ChainBank(max_chain_devices) = .{},
     /// Which group submix bus (see `max_groups`) this track's post-gain/pan
     /// signal routes through instead of straight to the master mix. `null`
     /// (the default) is the pre-grouping behaviour, unchanged.
@@ -153,8 +198,7 @@ const GroupState = struct {
     /// Same fixed width as `master_chain` (Fx.max_units, hardcoded here the
     /// same way master_chain's own field already does rather than importing
     /// rack.zig just for the constant).
-    chain: [9]dsp.Device = undefined,
-    chain_len: usize = 0,
+    chain: ChainBank(9) = .{},
     /// Per-chain-slot sidechain-detector source, parallel to `chain` - see
     /// `TrackSidechainSlots`'s doc comment for why this lives directly on
     /// GroupState (safe here, unlike on TrackState) rather than as a
@@ -233,8 +277,7 @@ pub const Engine = struct {
     /// mix before `master_gain` and the always-on limiter. Devices are fat
     /// pointers into `Session.master_fx`'s heap units, see `setMasterChain`.
     /// Sized to Fx.max_units.
-    master_chain: [9]dsp.Device = undefined,
-    master_chain_len: usize = 0,
+    master_chain: ChainBank(9) = .{},
     metronome: Metronome,
     metronome_enabled: bool = false,
     /// Monotonic count of beats fired so far - same resync-on-discontinuity
@@ -394,7 +437,6 @@ pub const Engine = struct {
             .gain = gain,
             .pan = pan,
             .muted = muted,
-            .chain_len = 0,
         };
         self.track_sidechain[idx] = [_]?Compressor.SidechainSource{null} ** max_chain_devices;
         self.automation[idx] = .{};
@@ -506,11 +548,7 @@ pub const Engine = struct {
     }
 
     pub fn setTrackChain(self: *Engine, track: u16, devices: []const dsp.Device) void {
-        const state = self.trackAt(track);
-        state.chain_len = @min(devices.len, max_chain_devices);
-        for (devices[0..state.chain_len], state.chain[0..state.chain_len]) |src, *dst| {
-            dst.* = src;
-        }
+        self.trackAt(track).chain.set(devices);
     }
 
     /// Replace a track's per-chain-slot sidechain-detector routing (see
@@ -583,10 +621,7 @@ pub const Engine = struct {
     /// Same shape as `setTrackChain` but for the master bus - no instrument
     /// slot, just whichever FX stages `Session.master_fx` has active.
     pub fn setMasterChain(self: *Engine, devices: []const dsp.Device) void {
-        self.master_chain_len = @min(devices.len, self.master_chain.len);
-        for (devices[0..self.master_chain_len], self.master_chain[0..self.master_chain_len]) |src, *dst| {
-            dst.* = src;
-        }
+        self.master_chain.set(devices);
     }
 
     /// Same shape as `setTrackSidechainSources` but for the master chain.
@@ -605,8 +640,7 @@ pub const Engine = struct {
         if (idx >= max_groups) return;
         const g = &self.groups[idx];
         g.active = active;
-        g.chain_len = @min(devices.len, g.chain.len);
-        for (devices[0..g.chain_len], g.chain[0..g.chain_len]) |src, *dst| dst.* = src;
+        g.chain.set(devices);
     }
 
     /// Same shape as `setTrackSidechainSources` but for group submix bus `idx`.
@@ -638,7 +672,7 @@ pub const Engine = struct {
             if (self.metronome_enabled) self.fireMetronome(out, frames);
         }
 
-        for (self.master_chain[0..self.master_chain_len], 0..) |dev, slot| {
+        for (self.master_chain.slice(), 0..) |dev, slot| {
             if (self.master_sidechain_sources[slot]) |src| {
                 if (self.sidechainCapture(src, frames)) |buf| dev.sendEvent(.{ .set_sidechain_buf = .{ .buf = buf } });
             }
@@ -730,7 +764,7 @@ pub const Engine = struct {
                 .note_off = .{ .note = c.note },
             }),
             .all_notes_off => for (self.tracks) |*t| {
-                for (t.chain[0..t.chain_len]) |dev| dev.sendEvent(.all_off);
+                for (t.chain.slice()) |dev| dev.sendEvent(.all_off);
             },
             // zig fmt: off
             .cc         => |c| self.sendTrackEvent(c.track, .{ .cc         = .{ .cc   = c.cc,   .value = c.value } }),
@@ -783,7 +817,7 @@ pub const Engine = struct {
 
     fn sendTrackEvent(self: *Engine, track: u16, ev: dsp.Event) void {
         const state = self.trackAt(track);
-        for (state.chain[0..state.chain_len]) |dev| dev.sendEvent(ev);
+        for (state.chain.slice()) |dev| dev.sendEvent(ev);
     }
 
     /// This block's captured signal for `track`, if it was registered and
@@ -834,7 +868,12 @@ pub const Engine = struct {
     /// one block).
     fn renderOneTrack(self: *Engine, ti: u16, out: []Sample, frames: u32, beat_pos: f64, any_solo: bool) void {
         const track = self.trackAt(ti);
-        if (!track.active or track.chain_len == 0) return;
+        // One snapshot for this whole render pass - the control thread may
+        // flip `track.chain`'s active buffer between calls to `slice()`, so
+        // every use below must share the same snapshot rather than each
+        // re-reading it (which could observe the chain change mid-render).
+        const chain = track.chain.slice();
+        if (!track.active or chain.len == 0) return;
 
         const auto = &self.automation[ti];
         // Instrument-param automation must reach the device before it
@@ -866,7 +905,7 @@ pub const Engine = struct {
             const pad = src.pad orelse continue;
             const dest = c.buf[0 .. frames * channels];
             @memset(dest, 0.0);
-            for (track.chain[0..track.chain_len]) |dev| {
+            for (chain) |dev| {
                 dev.sendEvent(.{ .capture_pad = .{ .pad = pad, .buf = dest } });
             }
             // Mark it captured NOW rather than in the post-chain finalize
@@ -884,7 +923,7 @@ pub const Engine = struct {
         }
 
         const sc_slots = &self.track_sidechain[ti];
-        for (track.chain[0..track.chain_len], 0..) |dev, slot| {
+        for (chain, 0..) |dev, slot| {
             if (sc_slots[slot]) |src| {
                 if (self.sidechainCapture(src, frames)) |buf| dev.sendEvent(.{ .set_sidechain_buf = .{ .buf = buf } });
             }
@@ -976,18 +1015,19 @@ pub const Engine = struct {
             c.captured = false;
         }
         for (self.tracks, 0..) |*t, ti| {
-            if (!t.active or t.chain_len == 0) continue;
-            for (self.track_sidechain[ti][0..t.chain_len]) |src| {
+            const clen = t.chain.slice().len;
+            if (!t.active or clen == 0) continue;
+            for (self.track_sidechain[ti][0..clen]) |src| {
                 if (src) |s| self.registerSidechainSource(s);
             }
         }
         for (&self.groups) |*g| {
             if (!g.active) continue;
-            for (g.sidechain_sources[0..g.chain_len]) |src| {
+            for (g.sidechain_sources[0..g.chain.slice().len]) |src| {
                 if (src) |s| self.registerSidechainSource(s);
             }
         }
-        for (self.master_sidechain_sources[0..self.master_chain_len]) |src| {
+        for (self.master_sidechain_sources[0..self.master_chain.slice().len]) |src| {
             if (src) |s| self.registerSidechainSource(s);
         }
 
@@ -1040,7 +1080,7 @@ pub const Engine = struct {
         for (&self.groups, 0..) |*g, gi| {
             if (!g.active) continue;
             const gscratch = self.group_scratch[gi][0 .. frames * channels];
-            for (g.chain[0..g.chain_len], 0..) |dev, slot| {
+            for (g.chain.slice(), 0..) |dev, slot| {
                 if (g.sidechain_sources[slot]) |src| {
                     if (self.sidechainCapture(src, frames)) |buf| dev.sendEvent(.{ .set_sidechain_buf = .{ .buf = buf } });
                 }
@@ -1742,7 +1782,7 @@ test "applyInsertTrack shifts drum and inits new slot" {
 
     try std.testing.expect(engine.tracks[1].active);
     try std.testing.expectApproxEqAbs(@as(f32, 1.0), engine.tracks[1].gain, 1e-6);
-    try std.testing.expectEqual(@as(usize, 0), engine.tracks[1].chain_len);
+    try std.testing.expectEqual(@as(usize, 0), engine.tracks[1].chain.slice().len);
     // Drum shifted to slot 2
     try std.testing.expectApproxEqAbs(@as(f32, 0.8), engine.tracks[2].gain, 1e-6);
 }

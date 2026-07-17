@@ -1364,16 +1364,16 @@ test "setMetronome mirrors to the engine" {
 test "syncMasterChain pushes master_fx's active units to the engine" {
     var s = try Session.initDefault(std.testing.allocator);
     defer s.deinit();
-    try std.testing.expectEqual(@as(usize, 0), s.engine.master_chain_len);
+    try std.testing.expectEqual(@as(usize, 0), s.engine.master_chain.slice().len);
 
     _ = try s.master_fx.insert(s.allocator, 0, .comp, s.project.sample_rate);
     _ = try s.master_fx.insert(s.allocator, 1, .eq, s.project.sample_rate);
     s.syncMasterChain();
-    try std.testing.expectEqual(@as(usize, 2), s.engine.master_chain_len);
+    try std.testing.expectEqual(@as(usize, 2), s.engine.master_chain.slice().len);
 
     s.master_fx.remove(s.allocator, 0);
     s.syncMasterChain();
-    try std.testing.expectEqual(@as(usize, 1), s.engine.master_chain_len);
+    try std.testing.expectEqual(@as(usize, 1), s.engine.master_chain.slice().len);
 }
 
 test "syncTrackChain pushes a compressor's sidechain_source to the engine, parallel to the chain" {
@@ -1493,7 +1493,7 @@ test "addGroup/assignTrackGroup/deleteGroup: CRUD, membership, and engine sync" 
     try std.testing.expectEqualStrings("drum bus", s.groups[g].?.name);
     _ = try s.groups[g].?.fx.insert(s.allocator, 0, .comp, s.project.sample_rate);
     s.syncGroupChain(g);
-    try std.testing.expectEqual(@as(usize, 1), s.engine.groups[g].chain_len);
+    try std.testing.expectEqual(@as(usize, 1), s.engine.groups[g].chain.slice().len);
 
     // Deleting the group unassigns its members and marks the engine slot
     // inactive - track 0 falls back to the master mix, not a dangling index.
