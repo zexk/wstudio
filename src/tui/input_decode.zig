@@ -8,6 +8,45 @@ const Key = modal_mod.Key;
 
 pub const Size = struct { cols: u16, rows: u16 };
 
+/// Carries a terminal escape sequence across reads. PTYs may split even a
+/// short arrow or mouse report at any byte boundary.
+pub const StreamDecoder = struct {
+    pending: [256]u8 = undefined,
+    pending_len: usize = 0,
+
+    pub fn feed(self: *StreamDecoder, bytes: []const u8, out: []Key) usize {
+        const kept = @min(bytes.len, self.pending.len - self.pending_len);
+        @memcpy(self.pending[self.pending_len..][0..kept], bytes[0..kept]);
+        self.pending_len += kept;
+
+        var end: usize = 0;
+        while (end < self.pending_len) {
+            if (self.pending[end] != 0x1b) {
+                end += 1;
+                continue;
+            }
+            if (end + 1 == self.pending_len) break;
+            if (self.pending[end + 1] != '[') {
+                end += 1;
+                continue;
+            }
+            var final = end + 2;
+            while (final < self.pending_len and (self.pending[final] < 0x40 or self.pending[final] > 0x7e)) final += 1;
+            if (final == self.pending_len) break;
+            end = final + 1;
+        }
+
+        // An isolated escape is only distinguishable from the start of a
+        // split sequence after one poll returns no further bytes.
+        if (bytes.len == 0 and self.pending_len == 1 and self.pending[0] == 0x1b) end = 1;
+
+        const count = decode(self.pending[0..end], out);
+        std.mem.copyForwards(u8, self.pending[0 .. self.pending_len - end], self.pending[end..self.pending_len]);
+        self.pending_len -= end;
+        return count;
+    }
+};
+
 /// Parses the parameter block of an SGR mouse report (everything between the
 /// leading `<` and the final `M`/`m`): `Cb;Cx;Cy`. `is_press` is true when the
 /// sequence's final byte was `M` (press or motion), false for `m` (release -
@@ -187,6 +226,29 @@ test "lone escape vs CSI arrow sequences" {
 
     // unknown CSI (e.g. F1 variants) is dropped, not misread
     try std.testing.expectEqual(@as(usize, 0), decode("\x1b[15~", &keys));
+}
+
+test "stream decoder preserves escape sequences split across reads" {
+    var decoder: StreamDecoder = .{};
+    var keys: [4]Key = undefined;
+
+    try std.testing.expectEqual(@as(usize, 0), decoder.feed("\x1b[", &keys));
+    try std.testing.expectEqual(@as(usize, 1), decoder.feed("A", &keys));
+    try std.testing.expectEqual(Key.arrow_up, keys[0]);
+
+    try std.testing.expectEqual(@as(usize, 0), decoder.feed("\x1b[<0;12;", &keys));
+    try std.testing.expectEqual(@as(usize, 1), decoder.feed("7M", &keys));
+    try std.testing.expectEqual(Key.mouse, std.meta.activeTag(keys[0]));
+    try std.testing.expectEqual(@as(u16, 11), keys[0].mouse.x);
+    try std.testing.expectEqual(@as(u16, 6), keys[0].mouse.y);
+}
+
+test "stream decoder defers a lone escape for one poll" {
+    var decoder: StreamDecoder = .{};
+    var keys: [1]Key = undefined;
+    try std.testing.expectEqual(@as(usize, 0), decoder.feed("\x1b", &keys));
+    try std.testing.expectEqual(@as(usize, 1), decoder.feed("", &keys));
+    try std.testing.expectEqual(Key.escape, keys[0]);
 }
 
 test "decode Home/End CSI sequences" {

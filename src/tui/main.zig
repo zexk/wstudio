@@ -366,11 +366,12 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8, run
     var frame_buf: [160 * 1024]u8 = undefined;
     var input_buf: [128]u8 = undefined;
     var keys: [64]modal_mod.Key = undefined;
+    var input_decoder: terminal_mod.StreamDecoder = .{};
 
     while (!app.should_quit) {
         const bytes = try term.readInput(&input_buf, user_config.frame_poll_ms);
         const now = std.Io.Timestamp.now(io, .awake).nanoseconds;
-        const n = terminal_mod.decode(bytes, &keys);
+        const n = input_decoder.feed(bytes, &keys);
         for (keys[0..n]) |key| switch (key) {
             .mouse => |ev| {
                 const sz = term.size();

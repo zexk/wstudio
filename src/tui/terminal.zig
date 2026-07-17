@@ -8,6 +8,7 @@ const input_decode = @import("input_decode.zig");
 
 pub const Size = input_decode.Size;
 pub const decode = input_decode.decode;
+pub const StreamDecoder = input_decode.StreamDecoder;
 
 const esc = "\x1b";
 const enter_alt_screen = esc ++ "[?1049h";
