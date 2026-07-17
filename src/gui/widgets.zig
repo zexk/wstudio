@@ -147,6 +147,233 @@ pub fn paramKnob(label_text: []const u8, id: [:0]const u8, args: Knob) KnobResul
     return result;
 }
 
+/// A 2D pad for a correlated pair of params (e.g. filter cutoff+resonance):
+/// click/drag anywhere in the square to set both at once from the cursor's
+/// absolute position, unlike the knob's relative drag (a position in 2D has
+/// no ambiguous "starting angle" the way a 1D rotation does).
+pub const XYPad = struct {
+    x: *f32,
+    y: *f32,
+    x_range: [2]f32,
+    y_range: [2]f32,
+    x_cfmt: [:0]const u8 = "%.2f",
+    y_cfmt: [:0]const u8 = "%.2f",
+    x_logarithmic: bool = false,
+    accent: [4]f32,
+    focused: bool = false,
+    size: f32 = 96,
+};
+
+pub fn xyPad(label: [:0]const u8, args: XYPad) KnobResult {
+    const patina = &gui_style.palette;
+    const origin = zgui.getCursorScreenPos();
+    const draw_list = zgui.getWindowDrawList();
+
+    _ = zgui.invisibleButton(label, .{ .w = args.size, .h = args.size });
+    const active = zgui.isItemActive();
+    const hovered = zgui.isItemHovered(.{});
+    const activated = zgui.isItemActivated();
+    var changed = false;
+
+    if (active) {
+        const mouse = zgui.getMousePos();
+        const tx = std.math.clamp((mouse[0] - origin[0]) / args.size, 0, 1);
+        const ty = std.math.clamp((mouse[1] - origin[1]) / args.size, 0, 1);
+        const new_x = knobTToValue(args.x_range[0], args.x_range[1], tx, args.x_logarithmic);
+        const new_y = knobTToValue(args.y_range[0], args.y_range[1], 1.0 - ty, false);
+        if (new_x != args.x.* or new_y != args.y.*) changed = true;
+        args.x.* = new_x;
+        args.y.* = new_y;
+    }
+
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + args.size, origin[1] + args.size }, .col = gui_style.color(patina.bg2), .rounding = 3 });
+    const mid = args.size * 0.5;
+    draw_list.addLine(.{ .p1 = .{ origin[0] + mid, origin[1] }, .p2 = .{ origin[0] + mid, origin[1] + args.size }, .col = gui_style.color(patina.line), .thickness = 1 });
+    draw_list.addLine(.{ .p1 = .{ origin[0], origin[1] + mid }, .p2 = .{ origin[0] + args.size, origin[1] + mid }, .col = gui_style.color(patina.line), .thickness = 1 });
+    draw_list.addRect(.{ .pmin = origin, .pmax = .{ origin[0] + args.size, origin[1] + args.size }, .col = gui_style.color(if (args.focused) args.accent else patina.bg4), .rounding = 3, .thickness = if (args.focused) 2 else 1 });
+
+    const tx = knobValueToT(args.x_range[0], args.x_range[1], args.x.*, args.x_logarithmic);
+    const ty = 1.0 - knobValueToT(args.y_range[0], args.y_range[1], args.y.*, false);
+    const dot = [2]f32{ origin[0] + tx * args.size, origin[1] + ty * args.size };
+    const crosshair = [4]f32{ args.accent[0], args.accent[1], args.accent[2], 0.35 };
+    draw_list.addLine(.{ .p1 = .{ origin[0], dot[1] }, .p2 = .{ origin[0] + args.size, dot[1] }, .col = gui_style.color(crosshair), .thickness = 1 });
+    draw_list.addLine(.{ .p1 = .{ dot[0], origin[1] }, .p2 = .{ dot[0], origin[1] + args.size }, .col = gui_style.color(crosshair), .thickness = 1 });
+    draw_list.addCircleFilled(.{ .p = dot, .r = 6, .col = gui_style.color(if (active or hovered) args.accent else patina.fg1) });
+    if (args.focused) draw_list.addCircle(.{ .p = dot, .r = 9, .col = gui_style.color(args.accent), .thickness = 1.5 });
+
+    if (hovered or active) {
+        var x_buf: [32]u8 = undefined;
+        var y_buf: [32]u8 = undefined;
+        _ = zgui.beginTooltip();
+        zgui.text("{s}  /  {s}", .{ knobFormatValue(&x_buf, args.x_cfmt, args.x.*), knobFormatValue(&y_buf, args.y_cfmt, args.y.*) });
+        zgui.endTooltip();
+    }
+
+    return .{ .changed = changed, .activated = activated };
+}
+
+/// An attack/decay/sustain/release envelope shape you edit by dragging its
+/// own nodes: the attack peak and release tail each move along one axis
+/// (they're durations only), the decay/sustain corner moves on both -
+/// dragging it sideways is decay time, up/down is sustain level, the same
+/// "one gesture, two correlated params" idea as `xyPad`. Segment widths use
+/// sqrt(duration) so a 5s release doesn't swallow a 5ms attack on screen;
+/// this is a visual compromise only, not a to-scale time axis.
+pub const Adsr = struct {
+    attack: *f32,
+    decay: *f32,
+    sustain: *f32,
+    release: *f32,
+    attack_range: [2]f32,
+    decay_range: [2]f32,
+    release_range: [2]f32,
+    accent: [4]f32,
+    /// 0=attack, 1=decay/sustain, 2=release - which node (if any) the
+    /// external cursor is currently parked on, for the focus ring.
+    focused_stage: ?u2 = null,
+    height: f32 = 90,
+};
+
+pub const AdsrResult = struct {
+    /// attack, decay, sustain, release
+    changed: [4]bool = .{ false, false, false, false },
+    activated_stage: ?u2 = null,
+};
+
+const adsr_sustain_frac: f32 = 0.16;
+const adsr_drag_pixels: f32 = 140;
+const adsr_handle_r: f32 = 5;
+
+fn adsrSegFracs(attack: f32, decay: f32, release: f32) [3]f32 {
+    const raw = [3]f32{ @sqrt(@max(attack, 0.001)), @sqrt(@max(decay, 0.001)), @sqrt(@max(release, 0.001)) };
+    const sum = raw[0] + raw[1] + raw[2];
+    const avail = 1.0 - adsr_sustain_frac;
+    return .{ avail * raw[0] / sum, avail * raw[1] / sum, avail * raw[2] / sum };
+}
+
+fn adsrStageIs(stage: ?u2, n: u2) bool {
+    return stage != null and stage.? == n;
+}
+
+fn adsrHandle(draw_list: zgui.DrawList, patina: *const gui_style.Palette, p: [2]f32, lit: bool, focused: bool, accent: [4]f32) void {
+    draw_list.addCircleFilled(.{ .p = p, .r = adsr_handle_r, .col = gui_style.color(if (lit) accent else patina.fg1) });
+    if (focused) draw_list.addCircle(.{ .p = p, .r = adsr_handle_r + 3, .col = gui_style.color(accent), .thickness = 1.5 });
+}
+
+pub fn adsrEditor(label: [:0]const u8, args: Adsr) AdsrResult {
+    const patina = &gui_style.palette;
+    const width = zgui.getContentRegionAvail()[0];
+    const height = args.height;
+    const origin = zgui.getCursorScreenPos();
+    const draw_list = zgui.getWindowDrawList();
+    zgui.dummy(.{ .w = width, .h = height });
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = gui_style.color(patina.bg2), .rounding = 3 });
+
+    const fracs = adsrSegFracs(args.attack.*, args.decay.*, args.release.*);
+    const xs = [_]f32{
+        0,
+        fracs[0],
+        fracs[0] + fracs[1],
+        fracs[0] + fracs[1] + adsr_sustain_frac,
+        fracs[0] + fracs[1] + adsr_sustain_frac + fracs[2],
+    };
+    const sustain_t = std.math.clamp(args.sustain.*, 0, 1);
+    const pad: f32 = 10;
+    const inner_h = height - pad * 2;
+    const at = struct {
+        fn f(o: [2]f32, w: f32, h: f32, p2: f32, x: f32, y: f32) [2]f32 {
+            return .{ o[0] + x * w, o[1] + p2 + (1.0 - y) * h };
+        }
+    }.f;
+    const points = [_][2]f32{
+        at(origin, width, inner_h, pad, xs[0], 0),
+        at(origin, width, inner_h, pad, xs[1], 1),
+        at(origin, width, inner_h, pad, xs[2], sustain_t),
+        at(origin, width, inner_h, pad, xs[3], sustain_t),
+        at(origin, width, inner_h, pad, xs[4], 0),
+    };
+
+    draw_list.pathClear();
+    draw_list.pathLineTo(.{ points[0][0], origin[1] + height - pad });
+    for (points) |p| draw_list.pathLineTo(p);
+    draw_list.pathLineTo(.{ points[4][0], origin[1] + height - pad });
+    draw_list.pathFillConvex(gui_style.color(.{ args.accent[0], args.accent[1], args.accent[2], 0.18 }));
+    for (0..points.len - 1) |i| draw_list.addLine(.{ .p1 = points[i], .p2 = points[i + 1], .col = gui_style.color(args.accent), .thickness = 2 });
+
+    var result = AdsrResult{};
+
+    // Attack node: horizontal drag only (duration).
+    {
+        const p = points[1];
+        zgui.setCursorScreenPos(.{ p[0] - adsr_handle_r, p[1] - adsr_handle_r });
+        var id_buf: [96]u8 = undefined;
+        const nid = std.fmt.bufPrintZ(&id_buf, "{s}-a", .{label}) catch label;
+        _ = zgui.invisibleButton(nid, .{ .w = adsr_handle_r * 2, .h = adsr_handle_r * 2 });
+        const node_active = zgui.isItemActive();
+        const node_hovered = zgui.isItemHovered(.{});
+        if (zgui.isItemActivated()) result.activated_stage = 0;
+        if (node_active) {
+            const delta = zgui.getMouseDragDelta(.left, .{});
+            if (delta[0] != 0) {
+                args.attack.* = std.math.clamp(args.attack.* * @exp(delta[0] / adsr_drag_pixels), args.attack_range[0], args.attack_range[1]);
+                result.changed[0] = true;
+                zgui.resetMouseDragDelta(.left);
+            }
+        }
+        adsrHandle(draw_list, patina, p, node_active or node_hovered, adsrStageIs(args.focused_stage, 0), args.accent);
+    }
+
+    // Decay/sustain corner: horizontal drag is decay time, vertical is
+    // sustain level - one gesture, two params, same idea as `xyPad`.
+    {
+        const p = points[2];
+        zgui.setCursorScreenPos(.{ p[0] - adsr_handle_r, p[1] - adsr_handle_r });
+        var id_buf: [96]u8 = undefined;
+        const nid = std.fmt.bufPrintZ(&id_buf, "{s}-ds", .{label}) catch label;
+        _ = zgui.invisibleButton(nid, .{ .w = adsr_handle_r * 2, .h = adsr_handle_r * 2 });
+        const node_active = zgui.isItemActive();
+        const node_hovered = zgui.isItemHovered(.{});
+        if (zgui.isItemActivated()) result.activated_stage = 1;
+        if (node_active) {
+            const delta = zgui.getMouseDragDelta(.left, .{});
+            if (delta[0] != 0) {
+                args.decay.* = std.math.clamp(args.decay.* * @exp(delta[0] / adsr_drag_pixels), args.decay_range[0], args.decay_range[1]);
+                result.changed[1] = true;
+            }
+            if (delta[1] != 0) {
+                args.sustain.* = std.math.clamp(args.sustain.* - delta[1] / adsr_drag_pixels, 0, 1);
+                result.changed[2] = true;
+            }
+            if (delta[0] != 0 or delta[1] != 0) zgui.resetMouseDragDelta(.left);
+        }
+        adsrHandle(draw_list, patina, p, node_active or node_hovered, adsrStageIs(args.focused_stage, 1), args.accent);
+    }
+
+    // Release node: horizontal drag only (duration).
+    {
+        const p = points[4];
+        zgui.setCursorScreenPos(.{ p[0] - adsr_handle_r, p[1] - adsr_handle_r });
+        var id_buf: [96]u8 = undefined;
+        const nid = std.fmt.bufPrintZ(&id_buf, "{s}-r", .{label}) catch label;
+        _ = zgui.invisibleButton(nid, .{ .w = adsr_handle_r * 2, .h = adsr_handle_r * 2 });
+        const node_active = zgui.isItemActive();
+        const node_hovered = zgui.isItemHovered(.{});
+        if (zgui.isItemActivated()) result.activated_stage = 2;
+        if (node_active) {
+            const delta = zgui.getMouseDragDelta(.left, .{});
+            if (delta[0] != 0) {
+                args.release.* = std.math.clamp(args.release.* * @exp(delta[0] / adsr_drag_pixels), args.release_range[0], args.release_range[1]);
+                result.changed[3] = true;
+                zgui.resetMouseDragDelta(.left);
+            }
+        }
+        adsrHandle(draw_list, patina, p, node_active or node_hovered, adsrStageIs(args.focused_stage, 2), args.accent);
+    }
+
+    zgui.setCursorScreenPos(.{ origin[0], origin[1] + height });
+    return result;
+}
+
 pub fn waveform(label: [:0]const u8, samples: []const f32) void {
     if (samples.len == 0) {
         zgui.textDisabled("No sample loaded.", .{});

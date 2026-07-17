@@ -72,10 +72,16 @@ fn drawSections(app: anytype, synth: *ws.dsp.PolySynth, comptime sections: []con
                 if (section_index % 2 != column) continue;
                 widgets.sectionTitle(section.title, sectionColor(section_index));
                 inline for (section.params) |entry| {
-                    inline for (0..entry.fields) |field| {
-                        var label_buf: [48]u8 = undefined;
-                        const id = entry.id + field;
-                        drawAnyParam(app, synth, id, synth_ed.paramLabel(id, &label_buf));
+                    if (isEnvelopeBase(entry.id)) {
+                        drawEnvelope(app, synth, entry.id);
+                    } else if (isFilterCutoff(entry.id)) {
+                        drawFilterPad(app, synth, entry.id);
+                    } else if (!isEnvelopeTail(entry.id) and !isFilterResonance(entry.id)) {
+                        inline for (0..entry.fields) |field| {
+                            var label_buf: [48]u8 = undefined;
+                            const id = entry.id + field;
+                            drawAnyParam(app, synth, id, synth_ed.paramLabel(id, &label_buf));
+                        }
                     }
                 }
                 zgui.spacing();
@@ -83,6 +89,101 @@ fn drawSections(app: anytype, synth: *ws.dsp.PolySynth, comptime sections: []con
         }
         zgui.endChild();
     }
+}
+
+// AMP ENV (16-19), FILTER ENV (24-27), and ENV 3 (122-125) each pack
+// attack/decay/sustain/release at base_id+0..3 - see synth_layout.zig's
+// comment on why engine param ids never move. That fixed layout is what
+// lets one drawEnvelope cover all three instead of three near-identical
+// knob rows.
+fn isEnvelopeBase(id: u8) bool {
+    return id == 16 or id == 24 or id == 122;
+}
+
+fn isEnvelopeTail(id: u8) bool {
+    return switch (id) {
+        17, 18, 19, 25, 26, 27, 123, 124, 125 => true,
+        else => false,
+    };
+}
+
+fn isFilterCutoff(id: u8) bool {
+    return id == 21 or id == 47;
+}
+
+fn isFilterResonance(id: u8) bool {
+    return id == 22 or id == 48;
+}
+
+fn sendParam(app: anytype, id: u8, value: f32) void {
+    _ = app.core.session.engine.send(.{ .set_track_param_abs = .{ .track = app.core.synth_track, .id = id, .value = value } });
+}
+
+fn drawEnvelope(app: anytype, synth: *ws.dsp.PolySynth, base_id: u8) void {
+    var attack = synth.paramValue(base_id) orelse return;
+    var decay = synth.paramValue(base_id + 1) orelse return;
+    var sustain = synth.paramValue(base_id + 2) orelse return;
+    var release = synth.paramValue(base_id + 3) orelse return;
+    const a_range = (ws.dsp.PolySynth.findAutomatableParam(base_id) orelse return).range;
+    const d_range = (ws.dsp.PolySynth.findAutomatableParam(base_id + 1) orelse return).range;
+    const r_range = (ws.dsp.PolySynth.findAutomatableParam(base_id + 3) orelse return).range;
+
+    var label_buf: [32]u8 = undefined;
+    const label = std.fmt.bufPrintZ(&label_buf, "adsr##gui-synth-{d}", .{base_id}) catch return;
+    const cursor = app.core.synth_cursor;
+    const focused_stage: ?u2 = if (cursor == base_id) 0 else if (cursor == base_id + 1 or cursor == base_id + 2) 1 else if (cursor == base_id + 3) 2 else null;
+
+    const result = widgets.adsrEditor(label, .{
+        .attack = &attack,
+        .decay = &decay,
+        .sustain = &sustain,
+        .release = &release,
+        .attack_range = a_range,
+        .decay_range = d_range,
+        .release_range = r_range,
+        .accent = patina.rhythm,
+        .focused_stage = focused_stage,
+    });
+    if (result.changed[0]) sendParam(app, base_id, attack);
+    if (result.changed[1]) sendParam(app, base_id + 1, decay);
+    if (result.changed[2]) sendParam(app, base_id + 2, sustain);
+    if (result.changed[3]) sendParam(app, base_id + 3, release);
+    if (result.activated_stage) |stage| app.core.synth_cursor = switch (stage) {
+        0 => base_id,
+        1 => base_id + 1,
+        else => base_id + 3,
+    };
+    zgui.textDisabled("A {d:.3}s  D {d:.3}s  S {d:.2}  R {d:.3}s", .{ attack, decay, sustain, release });
+}
+
+fn drawFilterPad(app: anytype, synth: *ws.dsp.PolySynth, cutoff_id: u8) void {
+    const res_id = cutoff_id + 1;
+    var cutoff = synth.paramValue(cutoff_id) orelse return;
+    var res = synth.paramValue(res_id) orelse return;
+    const c_range = (ws.dsp.PolySynth.findAutomatableParam(cutoff_id) orelse return).range;
+    const r_range = (ws.dsp.PolySynth.findAutomatableParam(res_id) orelse return).range;
+
+    var label_buf: [32]u8 = undefined;
+    const label = std.fmt.bufPrintZ(&label_buf, "xy##gui-synth-{d}", .{cutoff_id}) catch return;
+    const focused = app.core.synth_cursor == cutoff_id or app.core.synth_cursor == res_id;
+
+    zgui.textDisabled("cutoff / res", .{});
+    const result = widgets.xyPad(label, .{
+        .x = &cutoff,
+        .y = &res,
+        .x_range = c_range,
+        .y_range = r_range,
+        .x_cfmt = "%.0f Hz",
+        .y_cfmt = "%.2f",
+        .x_logarithmic = true,
+        .accent = patina.audio,
+        .focused = focused,
+    });
+    if (result.changed) {
+        sendParam(app, cutoff_id, cutoff);
+        sendParam(app, res_id, res);
+    }
+    if (result.activated) app.core.synth_cursor = cutoff_id;
 }
 
 fn sectionColor(index: usize) [4]f32 {
@@ -141,9 +242,7 @@ fn drawAnyParam(app: anytype, synth: *ws.dsp.PolySynth, id: u8, label_text: []co
         const label = std.fmt.bufPrintZ(&label_buf, "{s}##gui-synth-{d}", .{ label_text, id }) catch return;
         const focused = app.core.synth_cursor == id;
         const result = widgets.paramKnob(label_text, label, .{ .v = &value, .min = param.range[0], .max = param.range[1], .cfmt = "%.3f", .accent = patina.focus, .focused = focused });
-        if (result.changed) {
-            _ = app.core.session.engine.send(.{ .set_track_param_abs = .{ .track = app.core.synth_track, .id = id, .value = value } });
-        }
+        if (result.changed) sendParam(app, id, value);
         if (result.activated) app.core.synth_cursor = id;
         return;
     }
