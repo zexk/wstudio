@@ -1,7 +1,7 @@
 # wstudio
 
 <p align="center">
-  <img src="docs/assets/wstudio-logo-patina.png" alt="wstudio pixel logo" width="320">
+  <img src="docs/assets/promo/wstudio-profile-header-1500x500.png" alt="wstudio: make music without leaving the home row" width="100%">
 </p>
 
 A keyboard-centric digital audio workstation written in
