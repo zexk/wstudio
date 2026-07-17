@@ -560,6 +560,13 @@ pub const App = struct {
     /// live `Terminal`/window a theme change needs to re-paint, and (TUI)
     /// the `user_config` copy its loop reads every frame.
     pending_config_reload: bool = false,
+    /// Set by `:colorscheme` to ask `run()` to repaint from the
+    /// `gui_theme`/`tui_theme` `cmdColorscheme` already wrote into
+    /// `lua_runtime.config` - same "only run() can touch this" reason as
+    /// `pending_config_reload`, but lighter: no re-source, no keymap/
+    /// command/autocmd churn, just the one field, mirroring how Neovim's
+    /// `:colorscheme` only ever touches highlighting.
+    pending_colorscheme: bool = false,
     /// Tap-tempo ring (`t` in the tracks view; see `tapTempo`).
     tap_times: [8]i96 = undefined,
     tap_count: u8 = 0,
@@ -2566,7 +2573,7 @@ pub const App = struct {
         index: usize,
         last_written: []const u8,
 
-        const Source = enum { command_name, drum_kit, synth_preset, metronome, scale };
+        const Source = enum { command_name, drum_kit, synth_preset, metronome, scale, colorscheme };
 
         fn stem(self: *const TabCycle) []const u8 {
             return self.stem_buf[0..self.stem_len];
@@ -2651,6 +2658,20 @@ pub const App = struct {
                 n += 1;
             }
             self.cycleCompletion(name_end + 1, arg, .scale, name_buf[0..n]);
+        } else if (std.mem.eql(u8, name, "colorscheme") or std.mem.eql(u8, name, "colo")) {
+            // TUI also offers "none" (turns the terminal-palette theme back
+            // off); the GUI panel skin has no such state.
+            const frontend: config_mod.Frontend = if (self.lua_runtime) |rt| rt.frontend else .tui;
+            var n: usize = 0;
+            if (frontend == .tui) {
+                name_buf[n] = "none";
+                n += 1;
+            }
+            for (std.meta.tags(ws.theme_identity.Name)) |t| {
+                name_buf[n] = @tagName(t);
+                n += 1;
+            }
+            self.cycleCompletion(name_end + 1, arg, .colorscheme, name_buf[0..n]);
         }
     }
 

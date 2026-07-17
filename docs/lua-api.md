@@ -166,11 +166,12 @@ One named color identity per theme (`src/theme_identity.zig`: `patina`,
 `patina_light`, `graphite`, `umbra`), rendered through two different
 pipelines - Neovim's `:colorscheme` + highlight-group split, but with the
 "one highlight table, many things read it" idea stretched across frontends
-instead of across syntax groups:
+instead of across syntax groups. wstudio's own `:colorscheme` (below) picks
+one by name at runtime, same as Neovim's.
 
 - **GUI** (`gui_theme`, default `"patina"`): the identity's hex values
   become the imgui panel skin's float RGBA (`gui/style.zig`). Applies at
-  startup and on `:reload-config`.
+  startup, on `:colorscheme`, and on `:reload-config`.
 - **TUI** (`tui_theme`, default `"none"`): the identity is instead pushed
   into the *terminal's* ANSI palette via OSC 4 (16-color slots) and OSC
   10/11 (default fg/bg) - see `src/tui/theme.zig`. This means none of the
@@ -287,6 +288,7 @@ them identically:
 | `PlaybackStart` / `PlaybackStop` | `tempo` | transport start/stop |
 | `TrackAdd` / `TrackDel` | `track` | track list changes |
 | `ViewEnter` | `view`, `prev` | `AppView` switches |
+| `ColorScheme` | `name` | after `:colorscheme` switches the running frontend's theme |
 | `QuitPre` | | before shutdown, project still alive |
 
 Callbacks fire on the frame loop in registration order. An error in one
@@ -320,6 +322,34 @@ Applies live: every `core`-scope option, `tui_mouse`, `tui_theme`,
 audio backend from inside the frame loop - the same hazard `:e`'s session
 swap already has to special-case), `gui_font_size`, `gui_window_width`,
 `gui_window_height` (font atlas / window recreation).
+
+## Colorscheme switching: `:colorscheme` (alias `:colo`)
+
+Neovim's command, name and abbreviation both. `:colorscheme <name>` switches
+the *running frontend's* theme immediately - `gui_theme` under the GUI,
+`tui_theme` under the TUI (a `wstudio` process is one or the other, never
+both, so there's one option to touch and no ambiguity about which). No name
+reports the active one instead of switching (`:colorscheme` alone, same as
+Neovim).
+
+Unlike `:reload-config`, this is narrow on purpose - matching how Neovim's
+own `:colorscheme` only ever touches highlighting: no re-source, no keymap/
+user-command/autocmd churn, no other option touched. It just writes the one
+field (`rt.config.gui_theme` or `.tui_theme`) and asks the frontend to
+repaint from it. Fires `ColorScheme` (see the events table above) with
+`name` set to whatever was typed - hook that instead of `ConfigDone` for
+setup that should redo itself on a theme switch specifically.
+
+```lua
+wstudio.keymap.set("n", "<space>tu", ":colorscheme umbra")
+wstudio.api.create_autocmd("ColorScheme", {
+  callback = function(ev) wstudio.notify("theme: " .. ev.name) end,
+})
+```
+
+The TUI accepts `"none"` here too (turns terminal-palette theming back off);
+the GUI panel skin has no such state, so `gui_theme` only ever takes one of
+the four names.
 
 ## Scripting the project: `wstudio.api`
 

@@ -182,6 +182,15 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
                 app.core.setStatus("reload-config: {s}", .{@errorName(e)});
             }
         }
+        // `:colorscheme` - narrower than the block above: `cmdColorscheme`
+        // already wrote the new `gui_theme` into `runtime.config`, this
+        // just repaints from it.
+        if (app.core.pending_colorscheme) {
+            app.core.pending_colorscheme = false;
+            user_config.gui_theme = runtime.config.gui_theme;
+            gui_style.selectPalette(user_config.gui_theme);
+            gui_style.setTheme();
+        }
         drawFrame();
     }
 

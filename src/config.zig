@@ -460,6 +460,10 @@ pub const Runtime = struct {
                 _ = c.lua_pushlstring(l, v.prev.ptr, v.prev.len);
                 c.lua_setfield(l, -2, "prev");
             },
+            .ColorScheme => |cs| {
+                _ = c.lua_pushlstring(l, cs.name.ptr, cs.name.len);
+                c.lua_setfield(l, -2, "name");
+            },
         }
         if (c.lua_pcallk(l, 1, 1, 0, 0, null) != c.LUA_OK) {
             self.reportCallbackError();
@@ -919,6 +923,7 @@ pub const Event = enum {
     TrackAdd,
     TrackDel,
     ViewEnter,
+    ColorScheme,
     QuitPre,
 };
 
@@ -927,6 +932,9 @@ pub const TempoEvent = struct { tempo: f64 };
 /// 1-based, matching the API's track indexing.
 pub const TrackEvent = struct { track: usize };
 pub const ViewEvent = struct { view: []const u8, prev: []const u8 };
+/// Neovim's `ColorScheme` autocmd payload, minus `pattern` (there's no glob
+/// matching here yet - see create_autocmd's docs/lua-api.md note).
+pub const ColorSchemeEvent = struct { name: []const u8 };
 
 /// A typed event emission - the payload becomes fields on the Lua `ev`
 /// table (plus `ev.event`, the tag name). Slices only need to live for the
@@ -941,6 +949,7 @@ pub const EventData = union(Event) {
     TrackAdd: TrackEvent,
     TrackDel: TrackEvent,
     ViewEnter: ViewEvent,
+    ColorScheme: ColorSchemeEvent,
     QuitPre: void,
 };
 

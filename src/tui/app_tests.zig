@@ -5684,3 +5684,47 @@ test "applyUserConfig plumbs the round-2 options" {
     app.applyUserConfig(cfg, false);
     try std.testing.expectEqual(@as(f64, 93), app.session.project.tempo_bpm);
 }
+
+test ":colorscheme reports, switches (scoped per frontend), and rejects bad names" {
+    var app = try testApp();
+    defer app.deinit();
+    var rt = try @import("../config.zig").Runtime.init(.tui);
+    defer rt.deinit();
+    app.lua_runtime = &rt;
+
+    // No argument reports the active theme; nothing pending yet.
+    commands.run(&app, "colorscheme");
+    try std.testing.expect(std.mem.indexOf(u8, app.status_buf[0..app.status_len], "none") != null);
+    try std.testing.expect(!app.pending_colorscheme);
+
+    // A TUI runtime accepts "none" (turns theming back off) and the 4 names.
+    commands.run(&app, "colorscheme patina");
+    try std.testing.expectEqual(@import("../config.zig").TuiTheme.patina, rt.config.tui_theme);
+    try std.testing.expect(app.pending_colorscheme);
+    try std.testing.expect(std.mem.indexOf(u8, app.status_buf[0..app.status_len], "patina") != null);
+
+    // The alias dispatches the same handler.
+    app.pending_colorscheme = false;
+    commands.run(&app, "colo umbra");
+    try std.testing.expectEqual(@import("../config.zig").TuiTheme.umbra, rt.config.tui_theme);
+    try std.testing.expect(app.pending_colorscheme);
+
+    // A bad name reports and changes nothing.
+    app.pending_colorscheme = false;
+    commands.run(&app, "colorscheme neon");
+    try std.testing.expectEqual(@import("../config.zig").TuiTheme.umbra, rt.config.tui_theme);
+    try std.testing.expect(!app.pending_colorscheme);
+    try std.testing.expect(std.mem.indexOf(u8, app.status_buf[0..app.status_len], "must be one of") != null);
+
+    // A GUI runtime doesn't offer (or accept) "none" - there's no such
+    // state for the panel skin - and writes gui_theme instead.
+    var gui_rt = try @import("../config.zig").Runtime.init(.gui);
+    defer gui_rt.deinit();
+    app.lua_runtime = &gui_rt;
+    commands.run(&app, "colorscheme none");
+    try std.testing.expectEqual(@import("../config.zig").GuiTheme.patina, gui_rt.config.gui_theme);
+    try std.testing.expect(!app.pending_colorscheme);
+    commands.run(&app, "colorscheme graphite");
+    try std.testing.expectEqual(@import("../config.zig").GuiTheme.graphite, gui_rt.config.gui_theme);
+    try std.testing.expect(app.pending_colorscheme);
+}

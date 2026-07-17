@@ -13,6 +13,7 @@ const DrumMachine = ws.dsp.DrumMachine;
 const Sampler = ws.dsp.Sampler;
 const Slicer = ws.dsp.Slicer;
 const cmd_mod = @import("cmd.zig");
+const config_mod = @import("../config.zig");
 const app_mod = @import("app.zig");
 const App = app_mod.App;
 const history = @import("history.zig");
@@ -131,6 +132,8 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "redo",         .desc = "redo the last undone edit (alias for the U key)", .run = wrap(cmdRedo) },
     .{ .name = "reload-config", .desc = "re-run init.lua (options, keymaps, user commands, theme)", .run = wrap(cmdReloadConfig) },
     .{ .name = "so",           .desc = "re-run init.lua (alias for :reload-config)", .run = wrap(cmdReloadConfig) },
+    .{ .name = "colorscheme", .desc = "[name]  switch the running frontend's color theme now (no name: report it)", .run = wrap(cmdColorscheme) },
+    .{ .name = "colo",        .desc = "[name]  switch the color theme (alias for :colorscheme)", .run = wrap(cmdColorscheme) },
     // zig fmt: on
 };
 
@@ -308,6 +311,46 @@ fn cmdRedo(app: *App, _: []const u8) void { history.doRedo(app); }
 /// it notices `pending_config_reload`. See `App.afterConfigReload`.
 fn cmdReloadConfig(app: *App, _: []const u8) void {
     app.pending_config_reload = true;
+}
+
+/// `:colorscheme [name]` (Neovim's command; `:colo` is its own real
+/// abbreviation, kept here too). Scoped to whichever theme option the
+/// running frontend actually reads - `gui_theme` or `tui_theme`, see
+/// config.zig - and, unlike `:reload-config`, touches nothing else: no
+/// re-source, no keymap/command/autocmd churn, matching how Neovim's
+/// `:colorscheme` only ever touches highlighting. No name reports the
+/// active one. `run()` does the actual repaint once it notices
+/// `pending_colorscheme` - see `App.pending_colorscheme`'s doc comment.
+fn cmdColorscheme(app: *App, args: []const u8) void {
+    const rt = app.lua_runtime orelse return;
+    const trimmed = std.mem.trim(u8, args, " ");
+    if (trimmed.len == 0) {
+        const current: []const u8 = switch (rt.frontend) {
+            .gui => @tagName(rt.config.gui_theme),
+            .tui => @tagName(rt.config.tui_theme),
+        };
+        app.setStatus("colorscheme: {s}", .{current});
+        return;
+    }
+    switch (rt.frontend) {
+        .gui => {
+            const name = std.meta.stringToEnum(config_mod.GuiTheme, trimmed) orelse {
+                app.setStatus("colorscheme: must be one of patina, patina_light, graphite, umbra", .{});
+                return;
+            };
+            rt.config.gui_theme = name;
+        },
+        .tui => {
+            const name = std.meta.stringToEnum(config_mod.TuiTheme, trimmed) orelse {
+                app.setStatus("colorscheme: must be one of none, patina, patina_light, graphite, umbra", .{});
+                return;
+            };
+            rt.config.tui_theme = name;
+        },
+    }
+    app.pending_colorscheme = true;
+    app.emitEvent(.{ .ColorScheme = .{ .name = trimmed } });
+    app.setStatus("colorscheme: {s}", .{trimmed});
 }
 
 pub fn cmdHelp(app: *App, _: []const u8) void {

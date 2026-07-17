@@ -475,6 +475,21 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8, run
             }
         }
 
+        // `:colorscheme` - narrower than the block above: `cmdColorscheme`
+        // already wrote the new `tui_theme` into `runtime.config`, so this
+        // just repaints from it (the local `user_config` copy is what
+        // `oscFor`'s startup/reload call sites read, so it has to track
+        // this too).
+        if (app.pending_colorscheme) {
+            app.pending_colorscheme = false;
+            const prev_theme = user_config.tui_theme;
+            user_config.tui_theme = runtime.config.tui_theme;
+            if (user_config.tui_theme != prev_theme) {
+                tui_theme.reset(&term, prev_theme);
+                tui_theme.apply(&term, user_config.tui_theme);
+            }
+        }
+
         // MIDI input follows the TUI cursor so live playing always targets the
         // currently selected track. Written from the UI thread, read (monotonic)
         // in the MIDI reader thread.

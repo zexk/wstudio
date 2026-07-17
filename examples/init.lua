@@ -84,7 +84,8 @@
 -- (unlike gui_theme) because this recolors the whole physical terminal for
 -- as long as wstudio runs, not just wstudio's own window - under
 -- tmux/screen that means every other pane sharing the terminal too. Reset
--- on quit either way.
+-- on quit either way. Try one out without editing this file: `:colorscheme
+-- umbra` switches it live, no restart (`:colorscheme` alone reports it).
 -- wstudio.o.tui_theme = "none"
 
 -- [gui] Font size, in pixels. Range 8-40.
@@ -94,6 +95,8 @@
 -- wstudio.o.gui_vsync = true
 
 -- [gui] Color theme: "patina", "patina_light", "graphite", or "umbra".
+-- `:colorscheme <name>` switches it live too (`:colorscheme` alone reports
+-- the active one).
 -- wstudio.o.gui_theme = "patina"
 
 -- [gui] Initial window size, in pixels. Width range 960-7680, height
@@ -195,6 +198,7 @@
 --   TrackAdd          track       a track was added (1-based index)
 --   TrackDel          track       a track was deleted (its former index)
 --   ViewEnter         view, prev  the active view changed
+--   ColorScheme       name        :colorscheme switched the running theme
 --   QuitPre                       right before shutdown, project still open
 
 -- Examples:
