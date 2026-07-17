@@ -42,6 +42,8 @@ pub const SpectrumAnalyzer = struct {
     }
 
     pub fn initConfig(allocator: std.mem.Allocator, sample_rate: u32, fsize: usize, hsize: usize) !SpectrumAnalyzer {
+        if (fsize < 2 or !std.math.isPowerOfTwo(fsize) or hsize == 0 or hsize > fsize)
+            return error.InvalidConfig;
         const buffer = try allocator.alloc(f32, fsize);
         errdefer allocator.free(buffer);
         const real = try allocator.alloc(f32, fsize);
@@ -183,6 +185,21 @@ test "zero sample rate falls back to a finite analyzer rate" {
     var sa = try SpectrumAnalyzer.init(std.testing.allocator, 0);
     defer sa.deinit(std.testing.allocator);
     try std.testing.expectEqual(@as(u32, 1), sa.sample_rate);
+}
+
+test "invalid analyzer sizes are rejected before allocation" {
+    inline for ([_]struct { fft: usize, hop: usize }{
+        .{ .fft = 0, .hop = 1 },
+        .{ .fft = 1, .hop = 1 },
+        .{ .fft = 1000, .hop = 500 },
+        .{ .fft = 1024, .hop = 0 },
+        .{ .fft = 1024, .hop = 2048 },
+    }) |cfg| {
+        try std.testing.expectError(
+            error.InvalidConfig,
+            SpectrumAnalyzer.initConfig(std.testing.allocator, 48_000, cfg.fft, cfg.hop),
+        );
+    }
 }
 
 test "SpectrumAnalyzer produces non-zero output for sine" {
