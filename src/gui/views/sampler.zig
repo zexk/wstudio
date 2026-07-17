@@ -201,12 +201,11 @@ fn drawParam(app: anytype, target: Target, id: u8, label_text: []const u8, forma
     var label_buf: [64]u8 = undefined;
     const label = std.fmt.bufPrintZ(&label_buf, "{s}##sampler-target-{d}", .{ label_text, id }) catch return;
     const focused = app.core.sampler_param == id;
-    style.pushControlFocus(focused, patina.focus);
-    defer style.popControlFocus(focused);
-    if (zgui.sliderFloat(label, .{ .v = &value, .min = range[0], .max = range[1], .cfmt = format })) {
+    const result = widgets.paramKnob(label_text, label, .{ .v = &value, .min = range[0], .max = range[1], .cfmt = format, .accent = patina.focus, .focused = focused });
+    if (result.changed) {
         _ = app.core.session.engine.send(.{ .set_track_param_abs = .{ .track = target.track(), .id = target.engineId(id), .value = value } });
     }
-    if (zgui.isItemActivated()) app.core.sampler_param = id;
+    if (result.activated) app.core.sampler_param = id;
 }
 
 fn drawToggle(app: anytype, target: Target, id: u8, on_label: [:0]const u8, off_label: [:0]const u8, active_color: [4]f32) void {

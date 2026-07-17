@@ -4,6 +4,7 @@ const zgui = @import("zgui");
 const spectrum_ed = @import("../../ui/editors/spectrum.zig");
 const history = @import("../../ui/history.zig");
 const style = @import("../style.zig");
+const widgets = @import("../widgets.zig");
 
 const color = style.color;
 const rgb = style.rgb;
@@ -357,16 +358,16 @@ fn drawEqSlider(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, in
     var label_buf: [64]u8 = undefined;
     const label = std.fmt.bufPrintZ(&label_buf, "{s}##eq-control-{d}", .{ label_text, index }) catch return;
     const focused = !app.core.eq_band_select and app.core.fx_param == index;
-    style.pushControlFocus(focused, eqBandColor(index / spectrum_ed.eq_fields_per_band));
-    defer style.popControlFocus(focused);
-    if (zgui.sliderFloat(label, .{ .v = &value, .min = range[0], .max = range[1], .cfmt = format, .flags = .{ .logarithmic = logarithmic } })) {
+    const accent = eqBandColor(index / spectrum_ed.eq_fields_per_band);
+    const result = widgets.paramKnob(label_text, label, .{ .v = &value, .min = range[0], .max = range[1], .cfmt = format, .accent = accent, .focused = focused, .logarithmic = logarithmic });
+    if (result.changed) {
         history.noteFxNudge(&app.core, target, app.core.fx_focus, index);
         spectrum_ed.setParam(&app.core, &unit.payload, index, value);
         app.core.fx_param = index;
         app.core.dirty = true;
         syncChain(app, target);
     }
-    if (zgui.isItemActivated()) {
+    if (result.activated) {
         app.core.fx_param = index;
         app.core.eq_band_select = false;
     }
@@ -461,16 +462,15 @@ fn drawParam(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, index
     var label_buf: [80]u8 = undefined;
     const label = std.fmt.bufPrintZ(&label_buf, "{s}##gui-fx-{d}", .{ spectrum_ed.paramName(&unit.payload, index), index }) catch return;
     const focused = app.core.fx_param == index;
-    style.pushControlFocus(focused, kindAccent(unit.kind()));
-    defer style.popControlFocus(focused);
-    if (zgui.sliderFloat(label, .{ .v = &value, .min = range[0], .max = range[1], .cfmt = format })) {
+    const result = widgets.paramKnob(spectrum_ed.paramName(&unit.payload, index), label, .{ .v = &value, .min = range[0], .max = range[1], .cfmt = format, .accent = kindAccent(unit.kind()), .focused = focused });
+    if (result.changed) {
         spectrum_ed.setParam(&app.core, &unit.payload, index, value);
         spectrum_ed.clearStaleSidechainPad(&app.core, &unit.payload);
         app.core.fx_param = index;
         app.core.dirty = true;
         syncChain(app, target);
     }
-    if (zgui.isItemActivated()) app.core.fx_param = index;
+    if (result.activated) app.core.fx_param = index;
 }
 
 fn syncChain(app: anytype, target: spectrum_ed.EqTarget) void {

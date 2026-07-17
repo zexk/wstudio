@@ -140,12 +140,11 @@ fn drawAnyParam(app: anytype, synth: *ws.dsp.PolySynth, id: u8, label_text: []co
         var label_buf: [96]u8 = undefined;
         const label = std.fmt.bufPrintZ(&label_buf, "{s}##gui-synth-{d}", .{ label_text, id }) catch return;
         const focused = app.core.synth_cursor == id;
-        gui_style.pushControlFocus(focused, patina.focus);
-        defer gui_style.popControlFocus(focused);
-        if (zgui.sliderFloat(label, .{ .v = &value, .min = param.range[0], .max = param.range[1], .cfmt = "%.3f" })) {
+        const result = widgets.paramKnob(label_text, label, .{ .v = &value, .min = param.range[0], .max = param.range[1], .cfmt = "%.3f", .accent = patina.focus, .focused = focused });
+        if (result.changed) {
             _ = app.core.session.engine.send(.{ .set_track_param_abs = .{ .track = app.core.synth_track, .id = id, .value = value } });
         }
-        if (zgui.isItemActivated()) app.core.synth_cursor = id;
+        if (result.activated) app.core.synth_cursor = id;
         return;
     }
     const value = synth.paramValue(id) orelse return;
