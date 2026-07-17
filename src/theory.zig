@@ -61,7 +61,7 @@ pub const ScaleType = enum {
 const pc_names = [_][]const u8{ "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
 
 pub fn pitchClassName(pc: u4) []const u8 {
-    return pc_names[pc];
+    return pc_names[pc % 12];
 }
 
 /// Whether the pitch lands on a piano black key - the accidental pitch
@@ -170,6 +170,11 @@ test "Scale.contains: C major" {
     try std.testing.expect(s.contains(60)); // C4
     try std.testing.expect(s.contains(62)); // D4
     try std.testing.expect(!s.contains(61)); // C#4
+}
+
+test "pitchClassName wraps the full u4 domain" {
+    try std.testing.expectEqualStrings("C", pitchClassName(12));
+    try std.testing.expectEqualStrings("D#", pitchClassName(15));
 }
 
 test "Scale.contains: root transposed" {
