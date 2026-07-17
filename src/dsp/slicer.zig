@@ -349,7 +349,7 @@ pub const Slicer = struct {
     /// where they collide), and every later slice shifts up one. Returns
     /// false when `idx` is the last slice or out of range.
     pub fn mergeSliceRight(self: *Slicer, idx: u8) bool {
-        if (idx + 1 >= self.slice_count) return false;
+        if (idx >= self.slice_count or @as(u16, idx) + 1 >= self.slice_count) return false;
         while (!self.sample_lock.tryLock()) std.atomic.spinLoopHint();
         defer self.sample_lock.unlock();
         self.slices[idx].end_norm = self.slices[idx + 1].end_norm;
@@ -1074,6 +1074,14 @@ test "mergeSliceRight ORs patterns and shifts later rows up" {
     // Old slice 3 shifted up to row 2.
     try std.testing.expect(s.stepActive(2, 3));
     try std.testing.expect(!s.mergeSliceRight(2)); // last slice: nothing to its right
+}
+
+test "mergeSliceRight rejects the maximum sentinel index" {
+    var transport = Transport{ .sample_rate = 48_000 };
+    var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
+    defer s.deinit();
+    s.sliceInto(4);
+    try std.testing.expect(!s.mergeSliceRight(std.math.maxInt(u8)));
 }
 
 test "setParamAbsolute/paramValue roundtrip, null past slice_count" {
