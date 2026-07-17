@@ -94,11 +94,13 @@ pub const Project = struct {
     }
 
     pub fn removeTrack(self: *Project, index: usize) void {
+        if (index >= self.tracks.items.len) return;
         const t = self.tracks.orderedRemove(index);
         self.allocator.free(t.name);
     }
 
     pub fn renameTrack(self: *Project, index: usize, new_name: []const u8) !void {
+        if (index >= self.tracks.items.len) return error.InvalidTrack;
         const name = try self.allocator.dupe(u8, new_name);
         self.allocator.free(self.tracks.items[index].name);
         self.tracks.items[index].name = name;
@@ -106,6 +108,7 @@ pub const Project = struct {
 
     /// Swap two tracks' positions. No allocation, cannot fail.
     pub fn swapTracks(self: *Project, a: usize, b: usize) void {
+        if (a >= self.tracks.items.len or b >= self.tracks.items.len) return;
         std.mem.swap(Track, &self.tracks.items[a], &self.tracks.items[b]);
     }
 };
@@ -142,6 +145,18 @@ test "rename track" {
     _ = try p.addTrack(.{ .name = "old" });
     try p.renameTrack(0, "new");
     try std.testing.expectEqualStrings("new", p.tracks.items[0].name);
+}
+
+test "track mutations reject invalid indices" {
+    var p = Project.init(std.testing.allocator);
+    defer p.deinit();
+    _ = try p.addTrack(.{ .name = "only" });
+
+    p.removeTrack(99);
+    p.swapTracks(0, 99);
+    try std.testing.expectError(error.InvalidTrack, p.renameTrack(99, "bad"));
+    try std.testing.expectEqual(@as(usize, 1), p.tracks.items.len);
+    try std.testing.expectEqualStrings("only", p.tracks.items[0].name);
 }
 
 test "framesPerBar remains valid with invalid timing fields" {
