@@ -28,11 +28,17 @@ pub const Gate = struct {
 
     /// Gate an interleaved stereo buffer in place.
     pub fn processBlock(self: *Gate, buf: []Sample) void {
+        // A negative/zero attack_ms or release_ms flips the exponent
+        // positive, giving a decay coefficient >= 1 - the envelope/gain
+        // recurrences below then diverge geometrically within one block.
+        const threshold_db = if (std.math.isFinite(self.threshold_db)) std.math.clamp(self.threshold_db, -80.0, 0.0) else -50.0;
+        const attack_ms = if (std.math.isFinite(self.attack_ms)) std.math.clamp(self.attack_ms, 0.1, 50.0) else 1.0;
+        const release_ms = if (std.math.isFinite(self.release_ms)) std.math.clamp(self.release_ms, 5.0, 1000.0) else 100.0;
         // zig fmt: off
-        const thresh    = std.math.pow(f32, 10.0, self.threshold_db / 20.0);
+        const thresh    = std.math.pow(f32, 10.0, threshold_db / 20.0);
         const det_decay = @exp(-1.0 / (0.050 * self.sample_rate));
-        const attack    = @exp(-1.0 / (self.attack_ms * 0.001 * self.sample_rate));
-        const release   = @exp(-1.0 / (self.release_ms * 0.001 * self.sample_rate));
+        const attack    = @exp(-1.0 / (attack_ms * 0.001 * self.sample_rate));
+        const release   = @exp(-1.0 / (release_ms * 0.001 * self.sample_rate));
         var i: usize = 0;
         while (i + 1 < buf.len) : (i += 2) {
             const peak = @max(@abs(buf[i]), @abs(buf[i + 1]));
@@ -76,6 +82,17 @@ test "sub-threshold input stays shut" {
     for (&buf, 0..) |*s, i| s.* = 0.01 * @sin(@as(f32, @floatFromInt(i)) * 0.1);
     gate.processBlock(&buf);
     for (buf) |s| try std.testing.expectEqual(@as(Sample, 0.0), s);
+}
+
+test "invalid parameters cannot trap or poison output" {
+    var gate = Gate.init(48_000);
+    gate.threshold_db = std.math.nan(f32);
+    gate.attack_ms = -1.0;
+    gate.release_ms = std.math.inf(f32);
+    var buf: [256]Sample = undefined;
+    for (&buf, 0..) |*s, i| s.* = if (i % 4 < 2) 0.5 else -0.5;
+    gate.processBlock(&buf);
+    for (buf) |sample| try std.testing.expect(std.math.isFinite(sample));
 }
 
 test "gate falls shut after the input drops away" {
