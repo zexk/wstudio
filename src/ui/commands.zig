@@ -201,7 +201,7 @@ fn editOrRevert(app: *App, args: []const u8, force: bool) void {
 fn cmdRestoreBackup(app: *App, _: []const u8) void {
     // Same pathless fallback as App.backupPath: a never-saved session's
     // autosave lives next to :w's default target.
-    const path = app.projectPath() orelse app_mod.default_project_path;
+    const path = app.projectPath() orelse app.defaultProjectPath();
     var buf: [path_buf_len]u8 = undefined;
     const backup = std.fmt.bufPrint(&buf, "{s}~", .{path}) catch {
         app.setStatus("restore-backup: path too long", .{});
@@ -1249,7 +1249,7 @@ fn cmdChop(app: *App, args: []const u8) void {
 fn savePath(app: *App, args: []const u8, buf: []u8) []const u8 {
     const arg = std.mem.trim(u8, args, " ");
     if (arg.len > 0) return expandHome(buf, arg);
-    const p = app.projectPath() orelse app_mod.default_project_path;
+    const p = app.projectPath() orelse app.defaultProjectPath();
     const len = @min(p.len, buf.len);
     @memcpy(buf[0..len], p[0..len]);
     return buf[0..len];

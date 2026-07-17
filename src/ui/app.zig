@@ -57,10 +57,6 @@ const reload_path_buf_len: usize = 1024;
 /// A pause longer than this between taps starts a fresh tap-tempo run.
 /// Minimum gap between silent `<path>~` backups; see `maybeAutosave`.
 const default_autosave_interval_ns: i96 = 30 * std.time.ns_per_s;
-/// Where a plain `:w` lands when no project path is known yet - also what
-/// a pathless session's autosave backs up next to (see `App.backupPath`).
-pub const default_project_path = "project.wsj";
-
 pub const AppView = enum { tracks, drum_grid, synth_editor, sampler_editor, help, track_spectrum, master_spectrum, group_spectrum, piano_roll, instrument_picker, fx_picker, synth_fx_picker, arrangement, file_browser, automation, automation_param_picker, slicer_grid, preset_picker };
 pub const GridDivision = ws.time_grid.Division;
 
@@ -321,6 +317,10 @@ pub const App = struct {
     /// path is known yet, from `default_browse_dir`. Empty means "cwd", the
     /// pre-existing behavior - see `openBrowser`.
     default_browse_dir: config_mod.PathBuf = .{},
+    /// Where a plain `:w` and a pathless autosave land.
+    default_project_path: config_mod.PathBuf = config_mod.PathBuf.init("project.wsj"),
+    /// Whether dotfiles and dot-directories appear in the file browser.
+    file_browser_show_hidden: bool = false,
     /// An open coalescing batch of synth/sampler param nudges (h/l/H/L),
     /// flushed to `history` once the cursor moves off that param - see
     /// history.zig's noteParamNudge/flushParamNudge.
@@ -883,9 +883,17 @@ pub const App = struct {
         self.cmd_history_cap = user_config.cmd_history_lines;
         self.default_velocity = user_config.default_velocity;
         self.default_browse_dir = user_config.default_browse_dir;
+        var project_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+        const project_path = commands.expandHome(&project_path_buf, user_config.default_project_path.slice());
+        self.default_project_path = .{};
+        @memcpy(self.default_project_path.buf[0..project_path.len], project_path);
+        self.default_project_path.len = @intCast(project_path.len);
+        self.file_browser_show_hidden = user_config.file_browser_show_hidden;
         self.drum_grid = user_config.default_drum_grid;
         self.piano_division = user_config.default_piano_grid;
-        self.piano_note_len = 4.0 / @as(f64, @floatFromInt(user_config.default_piano_grid.denominator()));
+        self.piano_grid = if (user_config.default_piano_triplet_grid) .triplet else .straight;
+        self.piano_note_len = @as(f64, @floatFromInt(user_config.default_piano_note_length_steps)) /
+            @as(f64, @floatFromInt(self.pianoStepsPerBeat()));
         self.arr_grid = user_config.default_arrangement_grid;
         self.piano_ghost = user_config.piano_ghost_notes;
         self.modal.octave = @intCast(user_config.default_octave);
@@ -2003,7 +2011,7 @@ pub const App = struct {
         }
         var it = dir.iterate();
         while (try it.next(self.io)) |entry| {
-            if (entry.name.len == 0 or entry.name[0] == '.') continue; // hidden, netrw-style
+            if (entry.name.len == 0 or (!self.file_browser_show_hidden and entry.name[0] == '.')) continue;
             const is_dir = entry.kind == .directory;
             if (!is_dir and !std.ascii.endsWithIgnoreCase(entry.name, self.browser_purpose.ext())) continue;
             const name = try self.allocator.dupe(u8, entry.name);
@@ -3311,6 +3319,10 @@ pub const App = struct {
         return if (self.project_path_len > 0) self.project_path_buf[0..self.project_path_len] else null;
     }
 
+    pub fn defaultProjectPath(self: *const App) []const u8 {
+        return self.default_project_path.slice();
+    }
+
     pub fn setProjectPath(self: *App, path: []const u8) void {
         const len = @min(path.len, self.project_path_buf.len);
         @memcpy(self.project_path_buf[0..len], path[0..len]);
@@ -3388,7 +3400,7 @@ pub const App = struct {
     /// never-saved session still gets the full autosave/restore cycle
     /// instead of no safety net at all.
     fn backupPath(self: *const App, buf: []u8) ?[]const u8 {
-        const path = self.projectPath() orelse default_project_path;
+        const path = self.projectPath() orelse self.defaultProjectPath();
         return std.fmt.bufPrint(buf, "{s}~", .{path}) catch null;
     }
 

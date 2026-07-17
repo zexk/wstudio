@@ -90,6 +90,13 @@
 -- expands to $HOME. Empty (the default) starts in the current directory.
 -- wstudio.o.default_browse_dir = ""
 
+-- Filename used by :w and autosave before a project has a known path.
+-- Leading `~` expands to $HOME.
+-- wstudio.o.default_project_path = "project.wsj"
+
+-- Include dotfiles and dot-directories in the file browser.
+-- wstudio.o.file_browser_show_hidden = false
+
 -- Initial grid divisions for the drum grid, piano roll, and arrangement.
 -- Values: "quarter", "eighth", "sixteenth", "thirty_second",
 -- "sixty_fourth", or "one_twenty_eighth". Each editor can change its grid
@@ -97,6 +104,13 @@
 -- wstudio.o.default_drum_grid = "sixteenth"
 -- wstudio.o.default_piano_grid = "sixteenth"
 -- wstudio.o.default_arrangement_grid = "quarter"
+
+-- Start the piano roll on its six-steps-per-beat triplet grid.
+-- wstudio.o.default_piano_triplet_grid = false
+
+-- Initial piano-roll note length, measured in current grid steps.
+-- Range 1-16.
+-- wstudio.o.default_piano_note_length_steps = 1
 
 -- Draw notes from the other tracks behind the active piano roll.
 -- wstudio.o.piano_ghost_notes = false

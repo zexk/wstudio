@@ -308,7 +308,7 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8, run
         // No project argument: a crashed pathless session's autosave lands
         // next to `:w`'s default target (see backupPath's fallback), so the
         // blank start checks the same spot the pathed start does.
-        app.promptIfBackupNewer(app_mod.default_project_path);
+        app.promptIfBackupNewer(app.defaultProjectPath());
     }
 
     // The app is fully initialized: route `wstudio.notify`/`wstudio.cmd`

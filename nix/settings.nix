@@ -58,6 +58,16 @@ in
       default = null;
       description = "Initial file-browser directory when no project path is known.";
     };
+    default_project_path = mkOption {
+      type = types.nullOr (types.strMatching ".+");
+      default = null;
+      description = "Fallback project filename for saving and autosave.";
+    };
+    file_browser_show_hidden = mkOption {
+      type = types.nullOr types.bool;
+      default = null;
+      description = "Whether the file browser includes dotfiles and dot-directories.";
+    };
     default_drum_grid = mkOption {
       type = types.nullOr (
         types.enum [
@@ -86,6 +96,12 @@ in
       default = null;
       description = "Initial piano-roll grid division.";
     };
+    default_piano_triplet_grid = mkOption {
+      type = types.nullOr types.bool;
+      default = null;
+      description = "Whether the piano roll starts on its triplet grid.";
+    };
+    default_piano_note_length_steps = rangedInt 1 16 "Initial piano-roll note length in grid steps.";
     default_arrangement_grid = mkOption {
       type = types.nullOr (
         types.enum [

@@ -33,14 +33,22 @@ pub const GuiTheme = theme_identity.Name;
 /// their terminal colors on purpose - see tui/theme.zig.
 pub const TuiTheme = enum { none, patina, patina_light, graphite, umbra };
 
-/// A config-owned path buffer for string-typed `wstudio.o` options (only
-/// `default_browse_dir` today). `Config` is copied by value and reset
+/// A config-owned path buffer for string-typed `wstudio.o` options.
+/// `Config` is copied by value and reset
 /// wholesale on `:reload-config` (`resetForReload`'s `self.config = .{}`),
 /// so this owns its bytes rather than holding a Lua-owned slice that
 /// wouldn't outlive the assignment.
 pub const PathBuf = struct {
     buf: [std.fs.max_path_bytes]u8 = undefined,
     len: u16 = 0,
+
+    pub fn init(comptime value: []const u8) PathBuf {
+        if (value.len > std.fs.max_path_bytes) @compileError("default path is too long");
+        var result: PathBuf = .{};
+        @memcpy(result.buf[0..value.len], value);
+        result.len = value.len;
+        return result;
+    }
 
     pub fn slice(self: *const PathBuf) []const u8 {
         return self.buf[0..self.len];
@@ -63,8 +71,12 @@ pub const Config = struct {
     cmd_history_lines: u16 = 50,
     status_message_ms: u16 = 3000,
     default_browse_dir: PathBuf = .{},
+    default_project_path: PathBuf = PathBuf.init("project.wsj"),
+    file_browser_show_hidden: bool = false,
     default_drum_grid: @import("wstudio").time_grid.Division = .sixteenth,
     default_piano_grid: @import("wstudio").time_grid.Division = .sixteenth,
+    default_piano_triplet_grid: bool = false,
+    default_piano_note_length_steps: u8 = 1,
     default_arrangement_grid: @import("wstudio").time_grid.Division = .quarter,
     piano_ghost_notes: bool = false,
     tui_mouse: bool = true,
@@ -91,6 +103,7 @@ const OptionSpec = struct {
     min: comptime_int = 0,
     max: comptime_int = 0,
     scope: Scope = .core,
+    allow_empty: bool = true,
 };
 
 /// One row per `wstudio.o` option. The Lua getter, setter, and range
@@ -112,8 +125,12 @@ const option_specs = [_]OptionSpec{
     .{ .name = "cmd_history_lines", .min = 10, .max = 500 },
     .{ .name = "status_message_ms", .min = 200, .max = 10000 },
     .{ .name = "default_browse_dir" },
+    .{ .name = "default_project_path", .allow_empty = false },
+    .{ .name = "file_browser_show_hidden" },
     .{ .name = "default_drum_grid" },
     .{ .name = "default_piano_grid" },
+    .{ .name = "default_piano_triplet_grid" },
+    .{ .name = "default_piano_note_length_steps", .min = 1, .max = 16 },
     .{ .name = "default_arrangement_grid" },
     .{ .name = "piano_ghost_notes" },
     .{ .name = "tui_mouse", .scope = .tui },
@@ -785,6 +802,7 @@ fn setOption(state: ?*c.lua_State) callconv(.c) c_int {
                 .@"struct" => blk: {
                     var slen: usize = 0;
                     const s = c.luaL_checklstring(l, 3, &slen);
+                    if (!spec.allow_empty and slen == 0) return c.luaL_error(l, spec.name ++ " cannot be empty");
                     var pb: PathBuf = .{};
                     if (slen > pb.buf.len) return c.luaL_error(l, spec.name ++ " path is too long");
                     @memcpy(pb.buf[0..slen], s[0..slen]);
@@ -1565,6 +1583,21 @@ test "Lua API round 4 editor options set and read" {
     try std.testing.expectEqual(@import("wstudio").time_grid.Division.sixteenth, rt.config.default_arrangement_grid);
     try std.testing.expect(rt.config.piano_ghost_notes);
     try std.testing.expectError(error.LuaError, rt.loadString("wstudio.o.default_piano_grid = 'third'"));
+}
+
+test "Lua API round 5 workflow options set and read" {
+    var rt = try Runtime.init(.tui);
+    defer rt.deinit();
+    try rt.loadString("wstudio.o.default_project_path = '~/Music/untitled.wsj';" ++
+        "wstudio.o.file_browser_show_hidden = true;" ++
+        "wstudio.o.default_piano_triplet_grid = true;" ++
+        "wstudio.o.default_piano_note_length_steps = 3");
+    try std.testing.expectEqualStrings("~/Music/untitled.wsj", rt.config.default_project_path.slice());
+    try std.testing.expect(rt.config.file_browser_show_hidden);
+    try std.testing.expect(rt.config.default_piano_triplet_grid);
+    try std.testing.expectEqual(@as(u8, 3), rt.config.default_piano_note_length_steps);
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.o.default_project_path = ''"));
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.o.default_piano_note_length_steps = 0"));
 }
 
 test "default_browse_dir reads and writes as a string, rejecting oversized paths" {

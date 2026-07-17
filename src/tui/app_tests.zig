@@ -5727,10 +5727,26 @@ test "applyUserConfig plumbs the round-4 editor options" {
     try std.testing.expect(app.piano_ghost);
 }
 
+test "applyUserConfig plumbs the round-5 workflow options" {
+    var app = try testApp();
+    defer app.deinit();
+    var cfg: @import("../config.zig").Config = .{};
+    cfg.default_project_path = @import("../config.zig").PathBuf.init("untitled.wsj");
+    cfg.file_browser_show_hidden = true;
+    cfg.default_piano_triplet_grid = true;
+    cfg.default_piano_note_length_steps = 3;
+    app.applyUserConfig(cfg, true);
+    try std.testing.expectEqualStrings("untitled.wsj", app.defaultProjectPath());
+    try std.testing.expect(app.file_browser_show_hidden);
+    try std.testing.expectEqual(.triplet, app.piano_grid);
+    try std.testing.expectEqual(@as(f64, 0.5), app.piano_note_len);
+}
+
 test "openBrowser falls back to default_browse_dir when no project path is known" {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
     try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "kick.wav", .data = "x" });
+    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = ".hidden.wav", .data = "x" });
 
     var app = try App.init(std.testing.allocator, std.testing.io);
     defer app.deinit();
@@ -5749,6 +5765,12 @@ test "openBrowser falls back to default_browse_dir when no project path is known
     try std.testing.expectEqual(AppView.file_browser, app.view);
     try std.testing.expectEqual(@as(usize, 1), app.browser_entries.items.len);
     try std.testing.expectEqualStrings("kick.wav", app.browser_entries.items[0].name);
+
+    cfg.file_browser_show_hidden = true;
+    app.applyUserConfig(cfg, true);
+    app.openBrowser(.load_sample);
+    try std.testing.expectEqual(@as(usize, 2), app.browser_entries.items.len);
+    try std.testing.expectEqualStrings(".hidden.wav", app.browser_entries.items[0].name);
 }
 
 test ":colorscheme reports, switches (scoped per frontend), and rejects bad names" {
