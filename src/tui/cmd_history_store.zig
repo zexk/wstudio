@@ -48,17 +48,11 @@ pub fn deinit(allocator: std.mem.Allocator, list: *std.ArrayListUnmanaged([]cons
 // Tests
 // ---------------------------------------------------------------------------
 
-// Not exposed by std.c on this target; declared directly (libc is already
-// linked) so tests can redirect `configPath` at a scratch dir.
-extern "c" fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
-
 test "save writes entries and load reads them back in order" {
     const testing = std.testing;
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
-    var home_buf: [128]u8 = undefined;
-    const home = try std.fmt.bufPrintZ(&home_buf, ".zig-cache/tmp/{s}", .{&tmp.sub_path});
-    _ = setenv("HOME", home.ptr, 1);
+    try json_store.testRedirectHome(&tmp);
 
     try save(testing.allocator, testing.io, &.{ "gain 1 3", "bounce out.wav" });
 
@@ -73,9 +67,7 @@ test "load on a missing file returns an empty list, not an error" {
     const testing = std.testing;
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
-    var home_buf: [128]u8 = undefined;
-    const home = try std.fmt.bufPrintZ(&home_buf, ".zig-cache/tmp/{s}", .{&tmp.sub_path});
-    _ = setenv("HOME", home.ptr, 1);
+    try json_store.testRedirectHome(&tmp);
 
     var loaded = load(testing.allocator, testing.io);
     defer deinit(testing.allocator, &loaded);
@@ -86,28 +78,13 @@ test "a corrupt history file is quarantined instead of silently emptied" {
     const testing = std.testing;
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
-    var home_buf: [128]u8 = undefined;
-    const home = try std.fmt.bufPrintZ(&home_buf, ".zig-cache/tmp/{s}", .{&tmp.sub_path});
-    _ = setenv("HOME", home.ptr, 1);
+    try json_store.testRedirectHome(&tmp);
 
     var path_buf: [512]u8 = undefined;
-    const path = json_store.configPath(&path_buf, filename).?;
-    try std.Io.Dir.cwd().createDirPath(testing.io, std.fs.path.dirname(path).?);
-    {
-        const file = try std.Io.Dir.cwd().createFile(testing.io, path, .{});
-        defer file.close(testing.io);
-        var buf: [64]u8 = undefined;
-        var fw = file.writer(testing.io, &buf);
-        try fw.interface.writeAll("not json");
-        try fw.interface.flush();
-    }
+    const path = try json_store.testWriteCorrupt(testing.io, &path_buf, filename);
 
     var loaded = load(testing.allocator, testing.io);
     defer deinit(testing.allocator, &loaded);
     try testing.expectEqual(@as(usize, 0), loaded.items.len);
-
-    var quarantine_path_buf: [520]u8 = undefined;
-    const quarantine_path = try std.fmt.bufPrint(&quarantine_path_buf, "{s}.corrupt", .{path});
-    var file = try std.Io.Dir.cwd().openFile(testing.io, quarantine_path, .{});
-    file.close(testing.io);
+    try json_store.testExpectQuarantined(testing.io, path);
 }

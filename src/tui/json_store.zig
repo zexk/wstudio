@@ -80,3 +80,43 @@ pub fn save(
     }
     try std.Io.Dir.cwd().rename(tmp_path, std.Io.Dir.cwd(), path, io);
 }
+
+// ---------------------------------------------------------------------------
+// Test support - shared by every store module's tests
+// ---------------------------------------------------------------------------
+
+// Not exposed by std.c on this target; declared directly (libc is already
+// linked) so tests can redirect `configPath` at a scratch dir.
+extern "c" fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
+
+/// Point `$HOME` at `tmp` so `configPath` lands in the test's scratch dir.
+/// setenv copies its value, so the local buffer is safe to drop.
+pub fn testRedirectHome(tmp: *const std.testing.TmpDir) !void {
+    var home_buf: [128]u8 = undefined;
+    const home = try std.fmt.bufPrintZ(&home_buf, ".zig-cache/tmp/{s}", .{&tmp.sub_path});
+    _ = setenv("HOME", home.ptr, 1);
+}
+
+/// Write unparseable bytes at `filename`'s config path and return that path
+/// (sliced into `path_buf`), for exercising the quarantine path.
+pub fn testWriteCorrupt(io: std.Io, path_buf: []u8, comptime filename: []const u8) ![]const u8 {
+    const path = configPath(path_buf, filename).?;
+    try std.Io.Dir.cwd().createDirPath(io, std.fs.path.dirname(path).?);
+    const file = try std.Io.Dir.cwd().createFile(io, path, .{});
+    defer file.close(io);
+    var buf: [64]u8 = undefined;
+    var fw = file.writer(io, &buf);
+    try fw.interface.writeAll("not json");
+    try fw.interface.flush();
+    return path;
+}
+
+/// Assert the malformed file moved aside instead of vanishing: the original
+/// path is gone and `<path>.corrupt` exists.
+pub fn testExpectQuarantined(io: std.Io, path: []const u8) !void {
+    try std.testing.expectError(error.FileNotFound, std.Io.Dir.cwd().openFile(io, path, .{}));
+    var buf: [520]u8 = undefined;
+    const quarantine_path = try std.fmt.bufPrint(&buf, "{s}.corrupt", .{path});
+    var file = try std.Io.Dir.cwd().openFile(io, quarantine_path, .{});
+    file.close(io);
+}

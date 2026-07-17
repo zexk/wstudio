@@ -25,20 +25,11 @@ const preset_ed = @import("editors/preset_picker.zig");
 const icons = @import("icons.zig");
 const modal_mod = ws.input;
 
-// Not exposed by std.c on this target; declared directly (libc is already
-// linked) so tests using real io can redirect $HOME at a scratch dir.
-extern "c" fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
-
 /// Redirects $HOME at `tmp` for tests that build an App with real io (not
 /// `std.Io.failing`) and dispatch real commands - otherwise cmd-history/
 /// synth-preset persistence would leak writes into the developer's actual
-/// `~/.config/wstudio/`. Same convention user_presets.zig's own tests use.
-/// setenv is process-global but tests run single-threaded, so this is safe.
-fn redirectHome(tmp: *std.testing.TmpDir) !void {
-    var buf: [128]u8 = undefined;
-    const home = try std.fmt.bufPrintZ(&buf, ".zig-cache/tmp/{s}", .{&tmp.sub_path});
-    _ = setenv("HOME", home.ptr, 1);
-}
+/// `~/.config/wstudio/`.
+const redirectHome = @import("json_store.zig").testRedirectHome;
 
 /// Build a deterministic 3-track app for tests: synth(0), sampler(1), drums(2).
 fn testApp() !App {

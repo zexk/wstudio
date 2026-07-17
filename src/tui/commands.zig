@@ -1756,17 +1756,12 @@ test ":synth-preset with no args lists names without touching the synth" {
     try std.testing.expect(!app.dirty);
 }
 
-// Not exposed by std.c on this target; declared directly (libc is already
-// linked). Redirects $HOME at a scratch dir so :synth-preset-save's test
-// never writes to the real ~/.config/wstudio/synth_presets.json.
-extern "c" fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
-
 test ":synth-preset-save persists a hand-tuned patch, then :synth-preset re-applies it" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
-    var home_buf: [128]u8 = undefined;
-    const home = try std.fmt.bufPrintZ(&home_buf, ".zig-cache/tmp/{s}", .{&tmp.sub_path});
-    _ = setenv("HOME", home.ptr, 1);
+    // $HOME redirected at a scratch dir so this never writes to the real
+    // ~/.config/wstudio/synth_presets.json.
+    try @import("json_store.zig").testRedirectHome(&tmp);
 
     var app = try App.init(std.testing.allocator, std.testing.io);
     defer app.deinit();

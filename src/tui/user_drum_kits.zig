@@ -130,20 +130,11 @@ pub fn deinit(allocator: std.mem.Allocator, list: *std.ArrayListUnmanaged(UserKi
 // Tests
 // ---------------------------------------------------------------------------
 
-extern "c" fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
-
-fn redirectHome(tmp: *std.testing.TmpDir, buf: []u8) [:0]const u8 {
-    const home = std.fmt.bufPrintZ(buf, ".zig-cache/tmp/{s}", .{&tmp.sub_path}) catch unreachable;
-    _ = setenv("HOME", home.ptr, 1);
-    return home;
-}
-
 test "upsert saves and load reads a kit back" {
     const testing = std.testing;
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
-    var home_buf: [128]u8 = undefined;
-    _ = redirectHome(&tmp, &home_buf);
+    try json_store.testRedirectHome(&tmp);
 
     var list: std.ArrayListUnmanaged(UserKit) = .empty;
     defer deinit(testing.allocator, &list);
@@ -174,8 +165,7 @@ test "remove deletes by name (any case) and persists the shrunk set" {
     const testing = std.testing;
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
-    var home_buf: [128]u8 = undefined;
-    _ = redirectHome(&tmp, &home_buf);
+    try json_store.testRedirectHome(&tmp);
 
     const blank: [8]PadTune = [_]PadTune{.{}} ** 8;
     var list: std.ArrayListUnmanaged(UserKit) = .empty;
@@ -197,39 +187,22 @@ test "a malformed kits file is quarantined, not silently discarded" {
     const testing = std.testing;
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
-    var home_buf: [128]u8 = undefined;
-    const home = redirectHome(&tmp, &home_buf);
+    try json_store.testRedirectHome(&tmp);
 
-    const dir = try std.fmt.allocPrint(testing.allocator, "{s}/.config/wstudio", .{home});
-    defer testing.allocator.free(dir);
-    try std.Io.Dir.cwd().createDirPath(testing.io, dir);
-    const path = try std.fmt.allocPrint(testing.allocator, "{s}/.config/wstudio/drum_kits.json", .{home});
-    defer testing.allocator.free(path);
-    {
-        const file = try std.Io.Dir.cwd().createFile(testing.io, path, .{});
-        defer file.close(testing.io);
-        var buf: [64]u8 = undefined;
-        var fw = file.writer(testing.io, &buf);
-        try fw.interface.writeAll("not valid json {{{");
-        try fw.interface.flush();
-    }
+    var path_buf: [512]u8 = undefined;
+    const path = try json_store.testWriteCorrupt(testing.io, &path_buf, filename);
 
     var loaded = load(testing.allocator, testing.io);
     defer deinit(testing.allocator, &loaded);
     try testing.expectEqual(@as(usize, 0), loaded.items.len);
-
-    try testing.expectError(error.FileNotFound, std.Io.Dir.cwd().openFile(testing.io, path, .{}));
-    const quarantined = try std.fmt.allocPrint(testing.allocator, "{s}.corrupt", .{path});
-    defer testing.allocator.free(quarantined);
-    (try std.Io.Dir.cwd().openFile(testing.io, quarantined, .{})).close(testing.io);
+    try json_store.testExpectQuarantined(testing.io, path);
 }
 
 test "load returns an empty list when there's nothing saved yet" {
     const testing = std.testing;
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
-    var home_buf: [128]u8 = undefined;
-    _ = redirectHome(&tmp, &home_buf);
+    try json_store.testRedirectHome(&tmp);
 
     var list = load(testing.allocator, testing.io);
     defer deinit(testing.allocator, &list);
