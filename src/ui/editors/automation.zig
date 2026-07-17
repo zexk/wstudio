@@ -462,10 +462,14 @@ fn barLenSteps(app: *App) u32 {
 fn jumpBar(app: *App, clip: *const ws.Clip, delta: i32) void {
     const bar_len = barLenSteps(app);
     if (bar_len == 0) return;
-    const cur_bar = @divFloor(@as(i32, @intCast(app.automation_cursor_step)), @as(i32, @intCast(bar_len)));
-    const target_step = (cur_bar + delta) * @as(i32, @intCast(bar_len));
-    const top: i32 = @intCast(maxStep(app, clip));
+    const target_step = barTarget(app.automation_cursor_step, delta, bar_len, 0);
+    const top: i64 = maxStep(app, clip);
     app.automation_cursor_step = @intCast(std.math.clamp(target_step, 0, top));
+}
+
+fn barTarget(step: u32, delta: i64, bar_len: u32, offset: i64) i64 {
+    const cur_bar = @divFloor(@as(i64, step), @as(i64, bar_len));
+    return (cur_bar + delta) * @as(i64, bar_len) + offset;
 }
 
 /// dw/yw's range end: the last step of the nth beat forward (inclusive), not
@@ -474,9 +478,8 @@ fn jumpBar(app: *App, clip: *const ws.Clip, delta: i32) void {
 fn operatorBarForward(app: *App, clip: *const ws.Clip, n: i32) void {
     const bar_len = barLenSteps(app);
     if (bar_len == 0) return;
-    const cur_bar = @divFloor(@as(i32, @intCast(app.automation_cursor_step)), @as(i32, @intCast(bar_len)));
-    const hi = (cur_bar + n) * @as(i32, @intCast(bar_len)) - 1;
-    const top: i32 = @intCast(maxStep(app, clip));
+    const hi = barTarget(app.automation_cursor_step, n, bar_len, -1);
+    const top: i64 = maxStep(app, clip);
     app.automation_cursor_step = @intCast(std.math.clamp(hi, 0, top));
 }
 
@@ -487,9 +490,8 @@ fn operatorBarForward(app: *App, clip: *const ws.Clip, n: i32) void {
 fn operatorBarBackward(app: *App, clip: *const ws.Clip, n: i32) void {
     const bar_len = barLenSteps(app);
     if (bar_len == 0) return;
-    const cur_bar = @divFloor(@as(i32, @intCast(app.automation_cursor_step)), @as(i32, @intCast(bar_len)));
-    const lo = (cur_bar - n + 1) * @as(i32, @intCast(bar_len));
-    const top: i32 = @intCast(maxStep(app, clip));
+    const lo = barTarget(app.automation_cursor_step, -@as(i64, n) + 1, bar_len, 0);
+    const top: i64 = maxStep(app, clip);
     app.automation_cursor_step = @intCast(std.math.clamp(lo, 0, top));
 }
 
@@ -714,4 +716,9 @@ pub fn lastParamCursor(app: *App) u8 {
         .header => {},
     };
     return @intCast(last);
+}
+
+test "bar motions accommodate maximum command counts" {
+    try std.testing.expect(barTarget(0, std.math.maxInt(i32), 4, 0) > std.math.maxInt(i32));
+    try std.testing.expect(barTarget(12, std.math.minInt(i32), 4, 0) < std.math.minInt(i32));
 }
