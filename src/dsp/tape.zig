@@ -54,8 +54,7 @@ pub const Tape = struct {
                 wow * self.wow_depth * max_wow_samples +
                 flutter * self.flutter_depth * max_flutter_samples;
             inline for (0..2) |ch| {
-                var rp = @as(f32, @floatFromInt(self.pos)) - delay;
-                if (rp < 0.0) rp += len_f;
+                const rp = @mod(@as(f32, @floatFromInt(self.pos)) - delay, len_f);
                 const tap_i: usize = @intFromFloat(rp);
                 const frac = rp - @floor(rp);
                 const tap = self.ring[ch][tap_i % len] * (1.0 - frac) +
@@ -112,4 +111,15 @@ test "silence in, silence out" {
     var buf = [_]Sample{0.0} ** 256;
     tape.processBlock(&buf);
     for (buf) |s| try std.testing.expectEqual(@as(Sample, 0.0), s);
+}
+
+test "high sample rates wrap taps that span more than one ring" {
+    var tape = Tape.init(384_000);
+    tape.phase_wow = 0.25;
+    tape.phase_flutter = 0.25;
+    tape.wow_depth = 1.0;
+    tape.flutter_depth = 1.0;
+    var buf = [_]Sample{ 0.25, -0.25 };
+    tape.processBlock(&buf);
+    for (buf) |sample| try std.testing.expect(std.math.isFinite(sample));
 }
