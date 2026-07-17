@@ -15,6 +15,72 @@ pub fn draw(app: anytype) void {
     }
 }
 
+const PadTargetKind = enum { drum, slice };
+
+/// The two editable targets this view can point at. Both expose the shared
+/// dsp/pad.zig param ids 0-9; they differ in where a value is read from and
+/// which engine param id a slider write maps to.
+const Target = union(enum) {
+    standalone: struct { sampler: *ws.dsp.Sampler, track: u16 },
+    pad: struct { pad: *ws.dsp.Pad, track: u16, kind: PadTargetKind, index: u8 },
+
+    fn value(self: Target, id: u8) ?f32 {
+        return switch (self) {
+            .standalone => |t| t.sampler.paramValue(id),
+            .pad => |t| ws.dsp.pad.paramValue(t.pad, id),
+        };
+    }
+
+    fn track(self: Target) u16 {
+        return switch (self) {
+            .standalone => |t| t.track,
+            .pad => |t| t.track,
+        };
+    }
+
+    fn engineId(self: Target, id: u8) u16 {
+        return switch (self) {
+            .standalone => id,
+            .pad => |t| if (t.kind == .drum) ws.dsp.DrumMachine.paramId(t.index, id) else ws.dsp.Slicer.paramId(t.index, id),
+        };
+    }
+};
+
+// The param sections both targets share (dsp/pad.zig ids); the standalone
+// sampler appends its KEY section (root note, voice mode) after these.
+// zig fmt: off
+const ParamRow = struct { id: u8, label: []const u8, fmt: [:0]const u8 };
+const Section = struct { title: [:0]const u8, color: *const [4]f32, rows: []const ParamRow };
+const shared_sections = [_]Section{
+    .{ .title = "SAMPLE", .color = &patina.focus, .rows = &.{
+        .{ .id = 0, .label = "Start",   .fmt = "%.3f" },
+        .{ .id = 1, .label = "End",     .fmt = "%.3f" },
+        .{ .id = 2, .label = "Pitch",   .fmt = "%.0f st" },
+    } },
+    .{ .title = "AMP ENV", .color = &patina.rhythm, .rows = &.{
+        .{ .id = 3, .label = "Attack",  .fmt = "%.3f s" },
+        .{ .id = 4, .label = "Decay",   .fmt = "%.3f s" },
+        .{ .id = 5, .label = "Sustain", .fmt = "%.2f" },
+        .{ .id = 6, .label = "Release", .fmt = "%.3f s" },
+    } },
+    .{ .title = "OUT", .color = &patina.audio, .rows = &.{
+        .{ .id = 7, .label = "Gain",    .fmt = "%.2f" },
+        .{ .id = 8, .label = "Pan",     .fmt = "%.2f" },
+    } },
+};
+// zig fmt: on
+
+fn drawSharedSections(app: anytype, target: Target) void {
+    for (shared_sections) |section| {
+        widgets.sectionTitle(section.title, section.color.*);
+        for (section.rows) |row| drawParam(app, target, row.id, row.label, row.fmt);
+        if (section.rows[section.rows.len - 1].id == 8) {
+            drawToggle(app, target, 9, "REVERSE", "FORWARD", if (target == .pad) patina.modulation else patina.focus);
+        }
+        zgui.spacing();
+    }
+}
+
 fn drawStandalone(app: anytype) void {
     const track = app.core.sampler_target.sampler;
     if (track >= app.core.session.racks.items.len) return;
@@ -34,28 +100,12 @@ fn drawStandalone(app: anytype) void {
     }
     zgui.spacing();
 
-    widgets.sectionTitle("SAMPLE", patina.focus);
-    drawParam(app, sampler, 0, "Start", "%.3f");
-    drawParam(app, sampler, 1, "End", "%.3f");
-    drawParam(app, sampler, 2, "Pitch", "%.0f st");
-    zgui.spacing();
-    widgets.sectionTitle("AMP ENV", patina.rhythm);
-    drawParam(app, sampler, 3, "Attack", "%.3f s");
-    drawParam(app, sampler, 4, "Decay", "%.3f s");
-    drawParam(app, sampler, 5, "Sustain", "%.2f");
-    drawParam(app, sampler, 6, "Release", "%.3f s");
-    zgui.spacing();
-    widgets.sectionTitle("OUT", patina.audio);
-    drawParam(app, sampler, 7, "Gain", "%.2f");
-    drawParam(app, sampler, 8, "Pan", "%.2f");
-    drawToggle(app, sampler, 9, "REVERSE", "FORWARD");
-    zgui.spacing();
+    const target: Target = .{ .standalone = .{ .sampler = sampler, .track = track } };
+    drawSharedSections(app, target);
     widgets.sectionTitle("KEY", patina.rhythm);
-    drawParam(app, sampler, 10, "Root note", "%.0f");
-    drawToggle(app, sampler, 11, "MONO", "POLY");
+    drawParam(app, target, 10, "Root note", "%.0f");
+    drawToggle(app, target, 11, "MONO", "POLY", patina.focus);
 }
-
-const PadTargetKind = enum { drum, slice };
 
 fn drawPadTarget(app: anytype, track: u16, kind: PadTargetKind) void {
     if (track >= app.core.session.racks.items.len) return;
@@ -92,21 +142,7 @@ fn drawPadTarget(app: anytype, track: u16, kind: PadTargetKind) void {
     zgui.textDisabled("Region {d:.1}-{d:.1}% of {d} samples", .{ pad.start_norm * 100, pad.end_norm * 100, pad.samples.len });
     zgui.spacing();
 
-    widgets.sectionTitle("SAMPLE", patina.focus);
-    drawPadParam(app, track, kind, index, pad, 0, "Start", "%.3f");
-    drawPadParam(app, track, kind, index, pad, 1, "End", "%.3f");
-    drawPadParam(app, track, kind, index, pad, 2, "Pitch", "%.0f st");
-    zgui.spacing();
-    widgets.sectionTitle("AMP ENV", patina.rhythm);
-    drawPadParam(app, track, kind, index, pad, 3, "Attack", "%.3f s");
-    drawPadParam(app, track, kind, index, pad, 4, "Decay", "%.3f s");
-    drawPadParam(app, track, kind, index, pad, 5, "Sustain", "%.2f");
-    drawPadParam(app, track, kind, index, pad, 6, "Release", "%.3f s");
-    zgui.spacing();
-    widgets.sectionTitle("OUT", patina.audio);
-    drawPadParam(app, track, kind, index, pad, 7, "Gain", "%.2f");
-    drawPadParam(app, track, kind, index, pad, 8, "Pan", "%.2f");
-    drawPadToggle(app, track, kind, index, pad);
+    drawSharedSections(app, .{ .pad = .{ .pad = pad, .track = track, .kind = kind, .index = index } });
 }
 
 fn drawPadHeader(app: anytype, track: u16, kind: PadTargetKind, index: u8) void {
@@ -133,45 +169,6 @@ fn drawPadHeader(app: anytype, track: u16, kind: PadTargetKind, index: u8) void 
     }
 }
 
-// Slider bounds come from the dsp-side spec table so they can never drift
-// from what setParamAbsolute actually clamps to. Pad ids 0-8 are the same
-// params the standalone sampler routes to dsp/pad.zig, so one table covers
-// both targets; root note (10) is the only continuous id outside it.
-fn paramRange(id: u8) [2]f32 {
-    if (ws.dsp.Sampler.findAutomatableParam(id)) |param| return param.range;
-    if (id == 10) return .{ 0, 127 };
-    return .{ 0, 1 };
-}
-
-fn padParamId(kind: PadTargetKind, index: u8, param: u8) u16 {
-    return if (kind == .drum) ws.dsp.DrumMachine.paramId(index, param) else ws.dsp.Slicer.paramId(index, param);
-}
-
-fn drawPadParam(app: anytype, track: u16, kind: PadTargetKind, index: u8, pad: *ws.dsp.Pad, id: u8, label_text: []const u8, format: [:0]const u8) void {
-    var value = ws.dsp.pad.paramValue(pad, id) orelse return;
-    const range = paramRange(id);
-    var label_buf: [64]u8 = undefined;
-    const label = std.fmt.bufPrintZ(&label_buf, "{s}##pad-target-{d}", .{ label_text, id }) catch return;
-    const focused = app.core.sampler_param == id;
-    style.pushControlFocus(focused, patina.focus);
-    defer style.popControlFocus(focused);
-    if (zgui.sliderFloat(label, .{ .v = &value, .min = range[0], .max = range[1], .cfmt = format })) {
-        _ = app.core.session.engine.send(.{ .set_track_param_abs = .{ .track = track, .id = padParamId(kind, index, id), .value = value } });
-    }
-    if (zgui.isItemActivated()) app.core.sampler_param = id;
-}
-
-fn drawPadToggle(app: anytype, track: u16, kind: PadTargetKind, index: u8, pad: *ws.dsp.Pad) void {
-    const focused = app.core.sampler_param == 9;
-    zgui.pushStyleColor4f(.{ .idx = .button, .c = if (pad.reverse) patina.modulation else if (focused) patina.bg4 else patina.bg2 });
-    zgui.pushStyleColor4f(.{ .idx = .text, .c = if (pad.reverse) patina.bg0 else if (focused) patina.focus else patina.fg2 });
-    if (zgui.button(if (pad.reverse) "REVERSE" else "FORWARD", .{ .w = 106, .h = 32 })) {
-        app.core.sampler_param = 9;
-        _ = app.core.session.engine.send(.{ .set_track_param_abs = .{ .track = track, .id = padParamId(kind, index, 9), .value = if (pad.reverse) 0 else 1 } });
-    }
-    zgui.popStyleColor(.{ .count = 2 });
-}
-
 fn drawHeader(app: anytype, sampler: *const ws.dsp.Sampler) void {
     const track = switch (app.core.sampler_target) {
         .sampler => |t| t,
@@ -184,37 +181,39 @@ fn drawHeader(app: anytype, sampler: *const ws.dsp.Sampler) void {
     zgui.textColored(patina.focus, "\"{s}\"", .{sampler.clipName()});
 }
 
-fn drawParam(app: anytype, sampler: *ws.dsp.Sampler, id: u8, label_text: []const u8, format: [:0]const u8) void {
-    var value = sampler.paramValue(id) orelse return;
+// Slider bounds come from the dsp-side spec table so they can never drift
+// from what setParamAbsolute actually clamps to. Pad ids 0-8 are the same
+// params the standalone sampler routes to dsp/pad.zig, so one table covers
+// both targets; root note (10) is the only continuous id outside it.
+fn paramRange(id: u8) [2]f32 {
+    if (ws.dsp.Sampler.findAutomatableParam(id)) |param| return param.range;
+    if (id == 10) return .{ 0, 127 };
+    return .{ 0, 1 };
+}
+
+fn drawParam(app: anytype, target: Target, id: u8, label_text: []const u8, format: [:0]const u8) void {
+    var value = target.value(id) orelse return;
     const range = paramRange(id);
     var label_buf: [64]u8 = undefined;
-    const label = std.fmt.bufPrintZ(&label_buf, "{s}##sampler-{d}", .{ label_text, id }) catch return;
+    const label = std.fmt.bufPrintZ(&label_buf, "{s}##sampler-target-{d}", .{ label_text, id }) catch return;
     const focused = app.core.sampler_param == id;
     style.pushControlFocus(focused, patina.focus);
     defer style.popControlFocus(focused);
     if (zgui.sliderFloat(label, .{ .v = &value, .min = range[0], .max = range[1], .cfmt = format })) {
-        const track = switch (app.core.sampler_target) {
-            .sampler => |t| t,
-            else => return,
-        };
-        _ = app.core.session.engine.send(.{ .set_track_param_abs = .{ .track = track, .id = id, .value = value } });
+        _ = app.core.session.engine.send(.{ .set_track_param_abs = .{ .track = target.track(), .id = target.engineId(id), .value = value } });
     }
     if (zgui.isItemActivated()) app.core.sampler_param = id;
 }
 
-fn drawToggle(app: anytype, sampler: *ws.dsp.Sampler, id: u8, on_label: [:0]const u8, off_label: [:0]const u8) void {
-    const value = sampler.paramValue(id) orelse return;
+fn drawToggle(app: anytype, target: Target, id: u8, on_label: [:0]const u8, off_label: [:0]const u8, active_color: [4]f32) void {
+    const value = target.value(id) orelse return;
     const active = value >= 0.5;
     const focused = app.core.sampler_param == id;
-    zgui.pushStyleColor4f(.{ .idx = .button, .c = if (active) patina.focus else if (focused) patina.bg4 else patina.bg2 });
+    zgui.pushStyleColor4f(.{ .idx = .button, .c = if (active) active_color else if (focused) patina.bg4 else patina.bg2 });
     zgui.pushStyleColor4f(.{ .idx = .text, .c = if (active) patina.bg0 else if (focused) patina.focus else patina.fg2 });
     if (zgui.button(if (active) on_label else off_label, .{ .w = 106, .h = 32 })) {
         app.core.sampler_param = id;
-        const track = switch (app.core.sampler_target) {
-            .sampler => |t| t,
-            else => return,
-        };
-        _ = app.core.session.engine.send(.{ .set_track_param_abs = .{ .track = track, .id = id, .value = if (active) 0 else 1 } });
+        _ = app.core.session.engine.send(.{ .set_track_param_abs = .{ .track = target.track(), .id = target.engineId(id), .value = if (active) 0 else 1 } });
     }
     zgui.popStyleColor(.{ .count = 2 });
 }

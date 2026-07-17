@@ -94,6 +94,17 @@ pub fn hr(w: *std.Io.Writer, cols: u16) !void {
     try endLine(w);
 }
 
+/// SGR prefix for one step-grid cell - the same cursor > playhead >
+/// selection > active precedence in the drum and slicer grids, so the two
+/// views can't drift apart on step colors (their glyphs stay bespoke).
+pub fn stepCellSgr(active: bool, is_cursor: bool, is_play: bool, in_sel: bool) []const u8 {
+    if (is_cursor) return sel;
+    if (is_play) return grn ++ bold;
+    if (in_sel) return if (active) yel ++ bold else yel;
+    if (active) return acc;
+    return dim;
+}
+
 /// Copy `raw`'s visible bytes (ANSI escape sequences dropped) into `buf`,
 /// truncating if it wouldn't fit. Used wherever styled TUI output must be
 /// matched or re-rendered as plain text (help search, GUI status line).

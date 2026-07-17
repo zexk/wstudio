@@ -40,29 +40,20 @@ const Biquad = struct {
 
     const q: f32 = 0.70710678;
 
-    fn setLowpass(self: *Biquad, sr: f32, freq: f32) void {
+    // RBJ cookbook LP/HP - identical denominators, the numerator flips
+    // sign with the passband.
+    fn set(self: *Biquad, sr: f32, freq: f32, kind: enum { lowpass, highpass }) void {
         const w0 = 2.0 * std.math.pi * freq / sr;
         const cos_w0 = std.math.cos(w0);
         const alpha = std.math.sin(w0) / (2.0 * q);
-        const b0r = (1.0 - cos_w0) / 2.0;
-        const b1r = 1.0 - cos_w0;
-        const a0r = 1.0 + alpha;
-        const a1r = -2.0 * cos_w0;
-        const a2r = 1.0 - alpha;
-        const inv = 1.0 / a0r;
-        self.b0 = b0r * inv;
-        self.b1 = b1r * inv;
-        self.b2 = b0r * inv;
-        self.a1 = a1r * inv;
-        self.a2 = a2r * inv;
-    }
-
-    fn setHighpass(self: *Biquad, sr: f32, freq: f32) void {
-        const w0 = 2.0 * std.math.pi * freq / sr;
-        const cos_w0 = std.math.cos(w0);
-        const alpha = std.math.sin(w0) / (2.0 * q);
-        const b0r = (1.0 + cos_w0) / 2.0;
-        const b1r = -(1.0 + cos_w0);
+        const b0r = switch (kind) {
+            .lowpass => (1.0 - cos_w0) / 2.0,
+            .highpass => (1.0 + cos_w0) / 2.0,
+        };
+        const b1r = switch (kind) {
+            .lowpass => 1.0 - cos_w0,
+            .highpass => -(1.0 + cos_w0),
+        };
         const a0r = 1.0 + alpha;
         const a1r = -2.0 * cos_w0;
         const a2r = 1.0 - alpha;
@@ -99,13 +90,13 @@ const LrFilter = struct {
     stage: [2]Biquad = .{ .{}, .{} },
 
     fn setLowpass(self: *LrFilter, sr: f32, freq: f32) void {
-        self.stage[0].setLowpass(sr, freq);
-        self.stage[1].setLowpass(sr, freq);
+        self.stage[0].set(sr, freq, .lowpass);
+        self.stage[1].set(sr, freq, .lowpass);
     }
 
     fn setHighpass(self: *LrFilter, sr: f32, freq: f32) void {
-        self.stage[0].setHighpass(sr, freq);
-        self.stage[1].setHighpass(sr, freq);
+        self.stage[0].set(sr, freq, .highpass);
+        self.stage[1].set(sr, freq, .highpass);
     }
 
     fn process(self: *LrFilter, x: f32) f32 {

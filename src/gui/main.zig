@@ -426,28 +426,20 @@ fn drawTrackOverview(app: *App) void {
     drawMasterRow(app);
 }
 
-fn drawMixerRow(app: *App, track_index: u16, display_row: usize) void {
-    const track = app.core.session.project.tracks.items[track_index];
-    const rack = app.core.session.racks.items[track_index];
+/// Shared chrome for one 44px row in the track overview: hit-test button,
+/// state-colored background, cursor/visual outline, click-to-select. The
+/// mixer row overrides the background with the track's own color chip.
+const RowChrome = struct { draw: zgui.DrawList, origin: [2]f32, width: f32, selected: bool };
+
+fn drawRowChrome(app: *App, id: [:0]const u8, display_row: usize, in_visual: bool, bg_override: ?[4]f32) RowChrome {
     const height: f32 = 44;
     const width = zgui.getContentRegionAvail()[0];
     const origin = zgui.getCursorScreenPos();
-    var id_buf: [32]u8 = undefined;
-    const id = std.fmt.bufPrintZ(&id_buf, "mixer-row-{d}", .{track_index}) catch return;
     const clicked = zgui.invisibleButton(id, .{ .w = width, .h = height });
     const hovered = zgui.isItemHovered(.{});
     const selected = app.core.track_row == display_row;
-    const in_visual = trackRowInVisual(&app.core, display_row);
     const draw = zgui.getWindowDrawList();
-    const accent = trackColor(track.color);
-    const colored = track.color > 0 and track.color <= ws.track_color_count;
-    const row_bg = if (colored) accent else if (selected) patina.bg3 else if (hovered) patina.bg2 else patina.bg1;
-    const row_fg = if (colored) patina.bg0 else if (selected) patina.fg0 else patina.fg1;
-    const row_muted = if (colored)
-        [4]f32{ patina.bg0[0], patina.bg0[1], patina.bg0[2], 0.62 }
-    else
-        patina.fg3;
-
+    const row_bg = bg_override orelse if (selected) patina.bg3 else if (hovered) patina.bg2 else patina.bg1;
     draw.addRectFilled(.{
         .pmin = origin,
         .pmax = .{ origin[0] + width, origin[1] + height - 2 },
@@ -455,6 +447,28 @@ fn drawMixerRow(app: *App, track_index: u16, display_row: usize) void {
         .rounding = 3,
     });
     drawTrackRowCursor(draw, origin, width, height, selected, in_visual, hovered);
+    if (clicked) app.core.setTrackRow(display_row);
+    return .{ .draw = draw, .origin = origin, .width = width, .selected = selected };
+}
+
+fn drawMixerRow(app: *App, track_index: u16, display_row: usize) void {
+    const track = app.core.session.project.tracks.items[track_index];
+    const rack = app.core.session.racks.items[track_index];
+    var id_buf: [32]u8 = undefined;
+    const id = std.fmt.bufPrintZ(&id_buf, "mixer-row-{d}", .{track_index}) catch return;
+    const accent = trackColor(track.color);
+    const colored = track.color > 0 and track.color <= ws.track_color_count;
+    const chrome = drawRowChrome(app, id, display_row, trackRowInVisual(&app.core, display_row), if (colored) accent else null);
+    const draw = chrome.draw;
+    const origin = chrome.origin;
+    const width = chrome.width;
+    const selected = chrome.selected;
+    const row_fg = if (colored) patina.bg0 else if (selected) patina.fg0 else patina.fg1;
+    const row_muted = if (colored)
+        [4]f32{ patina.bg0[0], patina.bg0[1], patina.bg0[2], 0.62 }
+    else
+        patina.fg3;
+
     const grouped = if (track.group) |group| group < ws.engine.max_groups and app.core.session.groups[group] != null else false;
     const text_x = origin[0] + 13 + @as(f32, if (grouped) 18 else 0);
     const rack_label: []const u8 = if (std.meta.activeTag(rack.instrument) == .empty) "-- empty --" else rack.label;
@@ -481,23 +495,17 @@ fn drawMixerRow(app: *App, track_index: u16, display_row: usize) void {
         badge_x -= 18;
         drawTrackBadge(draw, badge_x, origin[1] + 12, "M", patina.danger);
     }
-    if (clicked) app.core.setTrackRow(display_row);
 }
 
 fn drawGroupRow(app: *App, group_index: u8, display_row: usize) void {
     const group = &app.core.session.groups[group_index].?;
-    const height: f32 = 44;
-    const width = zgui.getContentRegionAvail()[0];
-    const origin = zgui.getCursorScreenPos();
     var id_buf: [32]u8 = undefined;
     const id = std.fmt.bufPrintZ(&id_buf, "group-row-{d}", .{group_index}) catch return;
-    const clicked = zgui.invisibleButton(id, .{ .w = width, .h = height });
-    const hovered = zgui.isItemHovered(.{});
-    const selected = app.core.track_row == display_row;
-    const in_visual = trackRowInVisual(&app.core, display_row);
-    const draw = zgui.getWindowDrawList();
-    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height - 2 }, .col = color(if (selected) patina.bg3 else if (hovered) patina.bg2 else patina.bg1), .rounding = 3 });
-    drawTrackRowCursor(draw, origin, width, height, selected, in_visual, hovered);
+    const chrome = drawRowChrome(app, id, display_row, trackRowInVisual(&app.core, display_row), null);
+    const draw = chrome.draw;
+    const origin = chrome.origin;
+    const width = chrome.width;
+    const selected = chrome.selected;
 
     var member_count: usize = 0;
     for (app.core.session.project.tracks.items) |track| if (track.group == group_index) {
@@ -507,24 +515,18 @@ fn drawGroupRow(app: *App, group_index: u8, display_row: usize) void {
     draw.addText(.{ origin[0] + 41, origin[1] + 23 }, color(patina.fg3), "[group]  {d} track{s}", .{ member_count, if (member_count == 1) "" else "s" });
     drawFxChips(draw, &group.fx, origin[0] + width - 430, origin[1] + 12, origin[0] + width - 215);
     draw.addText(.{ origin[0] + width - 190, origin[1] + 14 }, color(if (selected) patina.fg0 else patina.fg1), "{d:.1} dB", .{group.gain_db});
-    if (clicked) app.core.setTrackRow(display_row);
 }
 
 fn drawMasterRow(app: *App) void {
-    const height: f32 = 44;
-    const width = zgui.getContentRegionAvail()[0];
-    const origin = zgui.getCursorScreenPos();
-    const clicked = zgui.invisibleButton("master-row", .{ .w = width, .h = height });
-    const hovered = zgui.isItemHovered(.{});
-    const selected = app.core.track_row == app.core.track_rows_len;
-    const draw = zgui.getWindowDrawList();
-    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height - 2 }, .col = color(if (selected) patina.bg3 else if (hovered) patina.bg2 else patina.bg1), .rounding = 3 });
-    drawTrackRowCursor(draw, origin, width, height, selected, false, hovered);
+    const chrome = drawRowChrome(app, "master-row", app.core.track_rows_len, false, null);
+    const draw = chrome.draw;
+    const origin = chrome.origin;
+    const width = chrome.width;
+    const selected = chrome.selected;
     draw.addText(.{ origin[0] + 13, origin[1] + 5 }, color(if (selected) patina.fg0 else patina.modulation), "MASTER", .{});
     draw.addText(.{ origin[0] + 41, origin[1] + 23 }, color(patina.fg3), "[bus]", .{});
     drawFxChips(draw, &app.core.session.master_fx, origin[0] + width - 430, origin[1] + 12, origin[0] + width - 215);
     draw.addText(.{ origin[0] + width - 190, origin[1] + 14 }, color(if (selected) patina.fg0 else patina.fg1), "{d:.1} dB", .{app.core.master_gain_db});
-    if (clicked) app.core.setTrackRow(app.core.track_rows_len);
 }
 
 fn trackRowInVisual(core: *const tui_app.App, display_row: usize) bool {

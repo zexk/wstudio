@@ -298,18 +298,7 @@ pub fn drawSlicerGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize,
             const is_cursor = (sIdx == cur_slice and s == cur_step_u32);
             const is_play = is_playing and (s == playing_step);
             const in_sel = visual_active and s >= sel_lo and s <= sel_hi;
-
-            if (is_cursor) {
-                try w.writeAll(sel);
-            } else if (is_play) {
-                try w.writeAll(grn ++ bold);
-            } else if (in_sel) {
-                try w.writeAll(if (active) yel ++ bold else yel);
-            } else if (active) {
-                try w.writeAll(acc);
-            } else {
-                try w.writeAll(dim);
-            }
+            try w.writeAll(style.stepCellSgr(active, is_cursor, is_play, in_sel));
             // Glyph tracks the step's velocity - same five bands as the
             // drum grid.
             try w.writeAll(if (!active) "[ ]" else switch (sl.stepVel(@intCast(sIdx), @intCast(s))) {

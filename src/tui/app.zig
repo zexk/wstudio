@@ -2345,40 +2345,47 @@ pub const App = struct {
     }
 
     // zig fmt: off
-    /// `/` search + `n`/`N` repeat over track names, wrapping around the
-    /// list like vim's own search. `dir` is +1 for `n`/a fresh `/`, -1 for
-    /// `N` (repeat in reverse). The master row has no name and is skipped -
-    /// search only ever lands on a real track.
+    /// Wrapping scan shared by the list `/` searches: visits every index
+    /// once, starting one past `start` in `dir` (+1 for `n`/a fresh `/`,
+    /// -1 for `N`) and wrapping around like vim's own search. `items` is
+    /// anything indexable whose elements carry a `.name` field.
+    fn fuzzyWrapIndex(pattern: []const u8, items: anytype, start: usize, dir: i64) ?usize {
+        const n: i64 = @intCast(items.len);
+        const anchor: i64 = @min(@as(i64, @intCast(start)), n - 1);
+        var step: i64 = 1;
+        while (step <= n) : (step += 1) {
+            const idx: usize = @intCast(@mod(anchor + dir * step, n));
+            if (fuzzy.matches(pattern, items[idx].name)) return idx;
+        }
+        return null;
+    }
+
+    /// `/` search + `n`/`N` repeat over track names. The master row has no
+    /// name and is skipped - search only ever lands on a real track.
     pub fn searchTracks(self: *App, dir: i64) void {
         const pattern = self.searchPattern();
         if (pattern.len == 0) { self.setStatus("no previous search pattern", .{}); return; }
         const tracks = self.session.project.tracks.items;
-        const n: i64 = @intCast(tracks.len);
-        if (n == 0) { self.setStatus("no tracks to search", .{}); return; }
-        const start: i64 = @min(@as(i64, @intCast(self.cursor)), n - 1);
-        var step: i64 = 1;
-        while (step <= n) : (step += 1) {
-            const idx: usize = @intCast(@mod(start + dir * step, n));
-            if (fuzzy.matches(pattern, tracks[idx].name)) {
-                self.cursor = idx;
-                // A hit hidden inside a folded group unfolds it - vim's own
-                // open-fold-on-search behaviour - so the cursor can actually
-                // land on (and n can cycle past) the matching row.
-                if (tracks[idx].group) |g| {
-                    if (g < engine_mod.max_groups) {
-                        if (self.session.groups[g]) |*grp| {
-                            // The unfold reshapes the row list, and a hit on
-                            // the cursor's own track leaves `cursor`'s value
-                            // unchanged - force the re-heal explicitly.
-                            if (grp.folded) { grp.folded = false; self.dirty = true; self.invalidateTrackRow(); }
-                        }
-                    }
+        if (tracks.len == 0) { self.setStatus("no tracks to search", .{}); return; }
+        const idx = fuzzyWrapIndex(pattern, tracks, self.cursor, dir) orelse {
+            self.setStatus("no match for '{s}'", .{pattern});
+            return;
+        };
+        self.cursor = idx;
+        // A hit hidden inside a folded group unfolds it - vim's own
+        // open-fold-on-search behaviour - so the cursor can actually
+        // land on (and n can cycle past) the matching row.
+        if (tracks[idx].group) |g| {
+            if (g < engine_mod.max_groups) {
+                if (self.session.groups[g]) |*grp| {
+                    // The unfold reshapes the row list, and a hit on
+                    // the cursor's own track leaves `cursor`'s value
+                    // unchanged - force the re-heal explicitly.
+                    if (grp.folded) { grp.folded = false; self.dirty = true; self.invalidateTrackRow(); }
                 }
-                self.setStatus("/{s}  [{d}/{d}]", .{ pattern, idx + 1, tracks.len });
-                return;
             }
         }
-        self.setStatus("no match for '{s}'", .{pattern});
+        self.setStatus("/{s}  [{d}/{d}]", .{ pattern, idx + 1, tracks.len });
     }
 
     /// `/` search + `n`/`N` repeat over the help view's rendered lines
@@ -2403,19 +2410,13 @@ pub const App = struct {
         const pattern = self.searchPattern();
         if (pattern.len == 0) { self.setStatus("no previous search pattern", .{}); return; }
         const entries = self.browser_entries.items;
-        const n: i64 = @intCast(entries.len);
-        if (n == 0) { self.setStatus("no entries to search", .{}); return; }
-        const start: i64 = @min(@as(i64, @intCast(self.browser_cursor)), n - 1);
-        var step: i64 = 1;
-        while (step <= n) : (step += 1) {
-            const idx: usize = @intCast(@mod(start + dir * step, n));
-            if (fuzzy.matches(pattern, entries[idx].name)) {
-                self.browser_cursor = idx;
-                self.setStatus("/{s}  [{d}/{d}]", .{ pattern, idx + 1, entries.len });
-                return;
-            }
-        }
-        self.setStatus("no match for '{s}'", .{pattern});
+        if (entries.len == 0) { self.setStatus("no entries to search", .{}); return; }
+        const idx = fuzzyWrapIndex(pattern, entries, self.browser_cursor, dir) orelse {
+            self.setStatus("no match for '{s}'", .{pattern});
+            return;
+        };
+        self.browser_cursor = idx;
+        self.setStatus("/{s}  [{d}/{d}]", .{ pattern, idx + 1, entries.len });
     }
 
     /// `/` search + `n`/`N` repeat over arrangement lane names, wrapping the
@@ -2427,19 +2428,13 @@ pub const App = struct {
         const pattern = self.searchPattern();
         if (pattern.len == 0) { self.setStatus("no previous search pattern", .{}); return; }
         const tracks = self.session.project.tracks.items;
-        const n: i64 = @intCast(tracks.len);
-        if (n == 0) { self.setStatus("no tracks to search", .{}); return; }
-        const start: i64 = @min(@as(i64, @intCast(self.cursor)), n - 1);
-        var step: i64 = 1;
-        while (step <= n) : (step += 1) {
-            const idx: usize = @intCast(@mod(start + dir * step, n));
-            if (fuzzy.matches(pattern, tracks[idx].name)) {
-                self.cursor = idx;
-                self.setStatus("/{s}  [{d}/{d}]", .{ pattern, idx + 1, tracks.len });
-                return;
-            }
-        }
-        self.setStatus("no match for '{s}'", .{pattern});
+        if (tracks.len == 0) { self.setStatus("no tracks to search", .{}); return; }
+        const idx = fuzzyWrapIndex(pattern, tracks, self.cursor, dir) orelse {
+            self.setStatus("no match for '{s}'", .{pattern});
+            return;
+        };
+        self.cursor = idx;
+        self.setStatus("/{s}  [{d}/{d}]", .{ pattern, idx + 1, tracks.len });
     }
 
     /// `/` search + `n`/`N` repeat over every param across all three synth

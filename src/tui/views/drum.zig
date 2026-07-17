@@ -165,18 +165,7 @@ pub fn drawDrumGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, s
             const is_cursor = (p == cur_pad and s == cur_step_u32);
             const is_play = is_playing and (s == playing_step_u32);
             const in_sel = visual_active and s >= sel_lo and s <= sel_hi;
-
-            if (is_cursor) {
-                try w.writeAll(sel);
-            } else if (is_play) {
-                try w.writeAll(grn ++ bold);
-            } else if (in_sel) {
-                try w.writeAll(if (active) yel ++ bold else yel);
-            } else if (active) {
-                try w.writeAll(acc);
-            } else {
-                try w.writeAll(dim);
-            }
+            try w.writeAll(style.stepCellSgr(active, is_cursor, is_play, in_sel));
 
             // Glyph tracks the step's velocity (0-127): full → quietest,
             // five bands now that velocity isn't a 2-bit level anymore.
