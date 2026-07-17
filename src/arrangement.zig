@@ -136,10 +136,14 @@ pub const Clip = struct {
         length_beats: f64,
     ) !Clip {
         const owned = try allocator.dupe(Note, notes);
+        const safe_length_beats = if (std.math.isFinite(length_beats))
+            @max(1.0, length_beats)
+        else
+            1.0;
         return .{
             .start_tick = start_tick,
             .length_ticks = @max(1, length_ticks),
-            .content = .{ .melodic = .{ .notes = owned, .length_beats = @max(1.0, length_beats) } },
+            .content = .{ .melodic = .{ .notes = owned, .length_beats = safe_length_beats } },
         };
     }
 
@@ -364,6 +368,12 @@ test "clip end and lane length saturate at the timeline limit" {
     }));
     try testing.expectEqual(std.math.maxInt(u32), lane.clips.items[0].endTick());
     try testing.expectEqual(std.math.maxInt(u32), lane.lengthTicks());
+}
+
+test "melodic clip replaces non-finite beat length" {
+    var clip = try Clip.initMelodic(testing.allocator, 0, 1, &.{}, std.math.nan(f64));
+    defer clip.deinit(testing.allocator);
+    try testing.expectEqual(@as(f64, 1.0), clip.content.melodic.length_beats);
 }
 
 test "clipAt and removeAt cover the clip's whole span" {
