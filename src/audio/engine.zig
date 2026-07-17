@@ -248,7 +248,12 @@ pub const Engine = struct {
     pre_roll_frames_remaining: u64 = 0,
     pre_roll_elapsed: u64 = 0,
     pre_roll_next_beat: u64 = 0,
-    tracks: [max_tracks]TrackState,
+    /// One mixer/chain state per track slot. Heap slice of length
+    /// `max_tracks` (owned, freed in deinit) like `automation`/
+    /// `track_sidechain` below: inline it is ~1.9MB, which made by-value
+    /// Engine construction (init returning through an error union stacks
+    /// several copies in Debug) overflow test-frame stacks.
+    tracks: []TrackState,
     scratch: [types.max_block_frames * channels]Sample = undefined,
     /// Group submix buses (see `TrackState.group`/`renderTracks`). Fixed
     /// bank of `max_groups` (8), not multiplied by `max_tracks` - negligible
@@ -290,19 +295,17 @@ pub const Engine = struct {
         peak_bits: [channels]std.atomic.Value(u32) = .{ .init(0), .init(0) },
     };
 
-    /// By-value init, for tests that keep a small Engine on their own frame.
-    /// Heap-allocated engines (Session, persist.buildSession) must use
-    /// `initInPlace` instead: Engine embeds `max_tracks` TrackStates (~2MB),
-    /// and the by-value error-union return stacks several copies of that in
-    /// Debug builds - deep in the project-load path that overflows the 8MB
-    /// main-thread stack.
+    /// By-value init, for tests that keep an Engine on their own frame -
+    /// affordable since the per-track banks live on the heap (see
+    /// `tracks`). Heap-allocated engines (Session, persist.buildSession)
+    /// still use `initInPlace` to skip the remaining ~0.5MB of copies.
     pub fn init(allocator: std.mem.Allocator, sample_rate: u32) !Engine {
         var self: Engine = undefined;
         try initInPlace(&self, allocator, sample_rate);
         return self;
     }
 
-    /// Construct the Engine directly through `self` (no multi-MB stack
+    /// Construct the Engine directly through `self` (no big stack
     /// temporaries - see `init`). On error `self` is left undefined.
     pub fn initInPlace(self: *Engine, allocator: std.mem.Allocator, sample_rate: u32) !void {
         // Sample rate reaches every oscillator, filter, spectrum band, and
@@ -321,19 +324,21 @@ pub const Engine = struct {
         const track_sidechain = try allocator.alloc(TrackSidechainSlots, max_tracks);
         errdefer allocator.free(track_sidechain);
         for (track_sidechain) |*s| s.* = [_]?Compressor.SidechainSource{null} ** max_chain_devices;
+        const tracks = try allocator.alloc(TrackState, max_tracks);
+        errdefer allocator.free(tracks);
+        for (tracks) |*t| t.* = .{};
 
         self.* = .{
             .allocator = allocator,
             .transport = .{ .sample_rate = sample_rate },
             .limiter = Limiter.init(sample_rate),
             .metronome = metronome,
-            .tracks = undefined,
+            .tracks = tracks,
             .track_spectrum = track_spec,
             .master_spectrum = master_spec,
             .automation = automation,
             .track_sidechain = track_sidechain,
         };
-        for (&self.tracks) |*t| t.* = .{};
     }
 
     pub fn deinit(self: *Engine) void {
@@ -342,6 +347,7 @@ pub const Engine = struct {
         self.track_spectrum.deinit(self.allocator);
         self.allocator.free(self.automation);
         self.allocator.free(self.track_sidechain);
+        self.allocator.free(self.tracks);
     }
 
     pub fn loadProject(self: *Engine, project: *const Project) void {
@@ -352,7 +358,7 @@ pub const Engine = struct {
             project.loop_end_bar > project.loop_start_bar;
         self.transport.loop_start_frames = @as(u64, project.loop_start_bar) * fpb;
         self.transport.loop_end_frames = @as(u64, project.loop_end_bar) * fpb;
-        for (&self.tracks, 0..) |*state, i| {
+        for (self.tracks, 0..) |*state, i| {
             if (i < project.tracks.items.len) {
                 const t = project.tracks.items[i];
                 state.* = .{
@@ -723,7 +729,7 @@ pub const Engine = struct {
             .note_off => |c| self.sendTrackEvent(c.track, .{
                 .note_off = .{ .note = c.note },
             }),
-            .all_notes_off => for (&self.tracks) |*t| {
+            .all_notes_off => for (self.tracks) |*t| {
                 for (t.chain[0..t.chain_len]) |dev| dev.sendEvent(.all_off);
             },
             // zig fmt: off
@@ -941,7 +947,7 @@ pub const Engine = struct {
     fn renderTracks(self: *Engine, out: []Sample, frames: u32) void {
         // When any track is soloed, only soloed tracks are audible.
         var any_solo = false;
-        for (&self.tracks) |*t| {
+        for (self.tracks) |*t| {
             if (t.active and t.soloed) {
                 any_solo = true;
                 break;
@@ -969,7 +975,7 @@ pub const Engine = struct {
             c.source = null;
             c.captured = false;
         }
-        for (&self.tracks, 0..) |*t, ti| {
+        for (self.tracks, 0..) |*t, ti| {
             if (!t.active or t.chain_len == 0) continue;
             for (self.track_sidechain[ti][0..t.chain_len]) |src| {
                 if (src) |s| self.registerSidechainSource(s);
