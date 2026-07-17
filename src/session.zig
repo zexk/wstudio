@@ -34,6 +34,10 @@ fn loopFrame(bar: u32, frames_per_bar: u64) u64 {
     return @as(u64, bar) *| frames_per_bar;
 }
 
+fn ticksForBars(bars: u32, beats_per_bar: u8) u32 {
+    return bars *| time_grid.barTicks(beats_per_bar);
+}
+
 pub const Session = struct {
     allocator: std.mem.Allocator,
     project: Project,
@@ -479,7 +483,7 @@ pub const Session = struct {
     /// the pattern length. No-op for empty tracks. Replaces any clips it
     /// overlaps (see `Lane.place`).
     pub fn stampClip(self: *Session, track_idx: usize, start_bar: u32) !void {
-        return self.stampClipAtTick(track_idx, start_bar * time_grid.barTicks(self.project.beats_per_bar));
+        return self.stampClipAtTick(track_idx, ticksForBars(start_bar, self.project.beats_per_bar));
     }
 
     /// Length of the clip `stampClipAtTick` would create for a track.
@@ -495,7 +499,7 @@ pub const Session = struct {
             else => if (rack.pattern_player) |*pp| pp.length_beats else return 0,
         };
         const beats_per_bar: f64 = @floatFromInt(self.project.beats_per_bar);
-        return barsFor(len_beats, beats_per_bar) * time_grid.barTicks(self.project.beats_per_bar);
+        return ticksForBars(barsFor(len_beats, beats_per_bar), self.project.beats_per_bar);
     }
 
     /// Capture a live pattern at an exact musical tick.
@@ -945,7 +949,10 @@ pub const Session = struct {
     /// Whole bars needed to hold `len_beats`, at least one.
     fn barsFor(len_beats: f64, beats_per_bar: f64) u32 {
         if (len_beats <= 0 or beats_per_bar <= 0) return 1;
-        return @max(1, @as(u32, @intFromFloat(@ceil(len_beats / beats_per_bar))));
+        const bars = @ceil(len_beats / beats_per_bar);
+        if (!std.math.isFinite(bars) or bars >= @as(f64, @floatFromInt(std.math.maxInt(u32))))
+            return std.math.maxInt(u32);
+        return @max(1, @as(u32, @intFromFloat(bars)));
     }
 
     pub fn deinit(self: *Session) void {
@@ -967,6 +974,12 @@ pub const Session = struct {
 test "loop frame conversion saturates at the transport limit" {
     try std.testing.expectEqual(@as(u64, 48_000), loopFrame(2, 24_000));
     try std.testing.expectEqual(std.math.maxInt(u64), loopFrame(std.math.maxInt(u32), std.math.maxInt(u64)));
+}
+
+test "clip stamp timeline math saturates" {
+    try std.testing.expectEqual(@as(u32, 256), ticksForBars(2, 4));
+    try std.testing.expectEqual(std.math.maxInt(u32), ticksForBars(std.math.maxInt(u32), std.math.maxInt(u8)));
+    try std.testing.expectEqual(std.math.maxInt(u32), Session.barsFor(std.math.floatMax(f64), 1.0));
 }
 
 test "initDefault builds one blank track" {
