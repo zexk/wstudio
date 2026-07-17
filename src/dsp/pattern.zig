@@ -214,11 +214,12 @@ pub const PatternPlayer = struct {
     /// callers this moves `start_beat`, so it takes the full lock rather
     /// than mutating in place.
     pub fn humanize(self: *PatternPlayer, amount_pct: f64, step_beats: f64, seed: u64) void {
+        if (!std.math.isFinite(amount_pct) or !std.math.isFinite(step_beats) or step_beats <= 0.0) return;
         while (!self.notes_lock.tryLock()) std.atomic.spinLoopHint();
         defer self.notes_lock.unlock();
         var prng = std.Random.DefaultPrng.init(seed);
         const rand = prng.random();
-        const frac = amount_pct / 100.0;
+        const frac = std.math.clamp(amount_pct, 0.0, 100.0) / 100.0;
         const max_start = @max(0.0, self.length_beats - step_beats);
         for (self.notes[0..self.note_count]) |*n| {
             const dt = (rand.float(f64) * 2.0 - 1.0) * frac * step_beats;
@@ -559,6 +560,20 @@ test "humanize jitters timing/velocity within bounds; 0% is a no-op" {
         pp.notes[0].velocity != 0.8 or pp.notes[1].velocity != 0.5,
         // zig fmt: on
     );
+}
+
+test "humanize ignores invalid parameters" {
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    var pp = PatternPlayer.init(synth.device(), &transport);
+    pp.addNote(.{ .pitch = 60, .start_beat = 1.0, .duration_beat = 0.5, .velocity = 0.8 });
+    const original = pp.notes[0];
+
+    pp.humanize(std.math.nan(f64), 0.25, 1);
+    pp.humanize(50.0, std.math.inf(f64), 1);
+    pp.humanize(50.0, 0.0, 1);
+    try std.testing.expectEqualDeep(original, pp.notes[0]);
 }
 
 test "PatternPlayer sequences note against transport" {
