@@ -25,6 +25,7 @@ const slicer_ed = @import("../ui/editors/slicer.zig");
 const piano_ed = @import("../ui/editors/piano.zig");
 const tui = @import("tui.zig");
 const style = @import("style.zig");
+const tui_theme = @import("theme.zig");
 
 /// Smallest terminal the layouts are actually built for: the FX chain's
 /// slot strip is sized "nine boxes + ▶OUT = 78 cols" for 80-col
@@ -263,7 +264,7 @@ pub var active_terminal: ?*terminal_mod.Terminal = null;
 
 // zig fmt: off
 pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8, runtime: *config_mod.Runtime) !void {
-    const user_config = runtime.config;
+    var user_config = runtime.config;
     var term = terminal_mod.Terminal.init(io, user_config.tui_mouse) catch {
         std.debug.print(
             "wstudio: stdin is not a terminal (try `wstudio render` for the offline demo)\n",
@@ -273,6 +274,11 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8, run
     };
     active_terminal = &term;
     defer { term.deinit(); active_terminal = null; }
+    // Registered after the deinit defer above, so it runs first at unwind
+    // (LIFO) - the terminal's palette must be back to normal before
+    // deinit's own leave-alt-screen sequence, not after.
+    defer tui_theme.reset(&term, user_config.tui_theme);
+    tui_theme.apply(&term, user_config.tui_theme);
     // zig fmt: on
 
     var app = try App.initWithSampleRate(allocator, io, user_config.default_sample_rate);
@@ -440,6 +446,32 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8, run
                     .restore_backup => {},
                     .none => unreachable,
                 }
+            }
+        }
+
+        // `:reload-config` - re-source init.lua, then re-apply whatever it
+        // changed that main() only set up once at startup. `audio_backend`/
+        // `audio_block_frames` are deliberately not among these: rebuilding
+        // the audio backend from inside the frame loop is the same
+        // "shouldn't happen from inside a key handler" hazard `pending_reload`
+        // exists for above, and a config reload is rare enough that asking
+        // for a restart to pick up a backend change is a fair trade.
+        if (app.pending_config_reload) {
+            app.pending_config_reload = false;
+            const prev = user_config;
+            if (runtime.reload(io)) |_| {
+                user_config = runtime.config;
+                app.afterConfigReload(user_config);
+                if (user_config.tui_theme != prev.tui_theme) {
+                    tui_theme.reset(&term, prev.tui_theme);
+                    tui_theme.apply(&term, user_config.tui_theme);
+                }
+                if (user_config.tui_mouse != prev.tui_mouse) term.setMouse(user_config.tui_mouse);
+                app.setStatus("config reloaded", .{});
+            } else |e| {
+                user_config = runtime.config;
+                app.afterConfigReload(user_config);
+                app.setStatus("reload-config: {s}", .{@errorName(e)});
             }
         }
 

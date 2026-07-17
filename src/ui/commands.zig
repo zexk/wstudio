@@ -129,6 +129,8 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "split-drums", .desc = "replace the drum machine with one sampler + MIDI track per loaded pad", .run = wrap(cmdSplitDrums), .scope = .drum },
     .{ .name = "undo",         .desc = "undo the last edit (alias for the u key)",   .run = wrap(cmdUndo) },
     .{ .name = "redo",         .desc = "redo the last undone edit (alias for the U key)", .run = wrap(cmdRedo) },
+    .{ .name = "reload-config", .desc = "re-run init.lua (options, keymaps, user commands, theme)", .run = wrap(cmdReloadConfig) },
+    .{ .name = "so",           .desc = "re-run init.lua (alias for :reload-config)", .run = wrap(cmdReloadConfig) },
     // zig fmt: on
 };
 
@@ -299,6 +301,14 @@ fn cmdSwing(app: *App, args: []const u8) void {
 fn cmdUndo(app: *App, _: []const u8) void { history.doUndo(app); }
 fn cmdRedo(app: *App, _: []const u8) void { history.doRedo(app); }
 // zig fmt: on
+
+/// Only sets a flag - the actual re-source needs the live `Runtime` (not
+/// reachable from a command handler) plus frontend-only follow-up (repaint
+/// the GUI theme, reprogram the TUI's OSC palette); `run()` does both once
+/// it notices `pending_config_reload`. See `App.afterConfigReload`.
+fn cmdReloadConfig(app: *App, _: []const u8) void {
+    app.pending_config_reload = true;
+}
 
 pub fn cmdHelp(app: *App, _: []const u8) void {
     const section: ?help_view.Section = switch (app.view) {

@@ -75,6 +75,12 @@ pub const Terminal = struct {
         std.Io.File.stdout().writeStreamingAll(self.io, bytes) catch {};
     }
 
+    /// Toggle mouse reporting after startup - `:reload-config` picking up a
+    /// changed `tui_mouse` without a restart.
+    pub fn setMouse(self: *const Terminal, on: bool) void {
+        self.write(if (on) enable_mouse else disable_mouse);
+    }
+
     pub fn size(self: *const Terminal) Size {
         var ws: std.posix.winsize = undefined;
         const rc = std.posix.system.ioctl(

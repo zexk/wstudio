@@ -152,13 +152,41 @@ Current option set (see examples/init.lua for defaults and ranges):
 | `default_tempo`, `default_sample_rate`, `default_beats_per_bar` | core |
 | `default_octave`, `autosave_interval_s` | core |
 | `audio_block_frames`, `audio_backend`, `tap_timeout_ms` | core |
-| `frame_poll_ms`, `tui_mouse` | tui |
+| `frame_poll_ms`, `tui_mouse`, `tui_theme` | tui |
 | `gui_font_size`, `gui_vsync`, `gui_theme` | gui |
 | `gui_window_width`, `gui_window_height` | gui |
 
-Enum-typed options (`gui_theme`, `preferred_frontend`, `audio_backend`)
-read and write as strings; the spec table derives the valid-name list and
-its error message from the Zig enum.
+Enum-typed options (`gui_theme`, `tui_theme`, `preferred_frontend`,
+`audio_backend`) read and write as strings; the spec table derives the
+valid-name list and its error message from the Zig enum.
+
+### Theming: `gui_theme` / `tui_theme`
+
+One named color identity per theme (`src/theme_identity.zig`: `patina`,
+`patina_light`, `graphite`, `umbra`), rendered through two different
+pipelines - Neovim's `:colorscheme` + highlight-group split, but with the
+"one highlight table, many things read it" idea stretched across frontends
+instead of across syntax groups:
+
+- **GUI** (`gui_theme`, default `"patina"`): the identity's hex values
+  become the imgui panel skin's float RGBA (`gui/style.zig`). Applies at
+  startup and on `:reload-config`.
+- **TUI** (`tui_theme`, default `"none"`): the identity is instead pushed
+  into the *terminal's* ANSI palette via OSC 4 (16-color slots) and OSC
+  10/11 (default fg/bg) - see `src/tui/theme.zig`. This means none of the
+  ~30 view files that print `ansi.zig`'s `acc`/`grn`/`yel`/... constants
+  needed to change; those stay literal comptime SGR strings (still safe to
+  `++`-concatenate with `bold`/`dim` at their existing call sites), and only
+  what a given ANSI index *renders as* changes.
+
+  `tui_theme` defaults to `"none"` (the terminal's own palette, untouched)
+  rather than mirroring `gui_theme`'s branded default, because OSC 4/10/11
+  recolor the whole physical terminal, not a window wstudio owns - under
+  tmux/screen (which forward these codes by default) every other pane
+  sharing that terminal repaints too, for as long as wstudio runs (it's
+  reset via OSC 104/110/111 on quit or when the option changes back to
+  `"none"`). That's a call worth making on purpose, not a default to spring
+  on someone who already picked their terminal's colors.
 
 `audio_backend` picks the playback backend: `"auto"` (the default) tries
 PipeWire, then JACK, then ALSA, falling through to the silent wall-clock
@@ -264,6 +292,34 @@ them identically:
 Callbacks fire on the frame loop in registration order. An error in one
 callback reports to the status line and does not stop the others (Neovim
 semantics).
+
+## Hot reload: `:reload-config` (alias `:so`)
+
+Neovim's `:source $MYVIMRC`, under a name that doesn't presuppose a path.
+Re-runs init.lua (and the same system fallback startup would have used) in
+place, with no restart:
+
+1. Every keymap, user command, and autocmd the runtime is currently holding
+   is dropped first (`Runtime.reload`, `src/config.zig`) and `wstudio.o`
+   resets to build defaults - otherwise a second `:reload-config` would
+   only ever *add* keymaps/commands/autocmds rather than replace them.
+   Neovim leaves this same problem to user configs (augroups declared with
+   `clear = true`); there's no equivalent unit here to ask users to manage,
+   so the runtime clears everything itself instead. This means a reload
+   really does put the session back to "what init.lua says right now",
+   including any option init.lua doesn't set reverting to its default.
+2. init.lua runs again.
+3. `ConfigDone` fires again - there's no separate "config reloaded" event;
+   an autocmd that wants to redo its own setup after a reload should hang
+   it off `ConfigDone`, same as at startup.
+
+Applies live: every `core`-scope option, `tui_mouse`, `tui_theme`,
+`gui_theme`, `gui_vsync`, and of course keymaps/commands/autocmds. Does
+**not** apply live (a message says so; change these and restart instead):
+`audio_backend`, `audio_block_frames` (would mean tearing down the running
+audio backend from inside the frame loop - the same hazard `:e`'s session
+swap already has to special-case), `gui_font_size`, `gui_window_width`,
+`gui_window_height` (font atlas / window recreation).
 
 ## Scripting the project: `wstudio.api`
 

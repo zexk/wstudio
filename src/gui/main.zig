@@ -67,7 +67,7 @@ fn drawFrame() void {
 }
 
 pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.Runtime) !void {
-    const user_config = runtime.config;
+    var user_config = runtime.config;
     try glfw.init();
     defer glfw.terminate();
 
@@ -159,6 +159,27 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
                 if (kind != .blank) app.core.emitEvent(.{ .ProjectLoadPost = .{ .path = app.core.pendingReloadPath() } });
                 audio = guiAudio(app.core.session.project.sample_rate, user_config.audio_block_frames, app.core.session.engine);
                 try audio.start(init.io, user_config.audio_backend);
+            }
+        }
+        // `:reload-config` - re-source init.lua and re-apply whatever it
+        // changed that startup only set up once. `audio_backend`/
+        // `audio_block_frames`/`gui_font_size`/`gui_window_*` deliberately
+        // aren't among these (font atlas rebuilds and backend restarts are
+        // out of scope for a rare, frame-loop-triggered reload) - see
+        // tui/main.zig's matching block for the same call.
+        if (app.core.pending_config_reload) {
+            app.core.pending_config_reload = false;
+            if (runtime.reload(init.io)) |_| {
+                user_config = runtime.config;
+                app.core.afterConfigReload(user_config);
+                gui_style.selectPalette(user_config.gui_theme);
+                gui_style.setTheme();
+                glfw.swapInterval(if (user_config.gui_vsync) 1 else 0);
+                app.core.setStatus("config reloaded", .{});
+            } else |e| {
+                user_config = runtime.config;
+                app.core.afterConfigReload(user_config);
+                app.core.setStatus("reload-config: {s}", .{@errorName(e)});
             }
         }
         drawFrame();

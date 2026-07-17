@@ -15,6 +15,10 @@
 --   wstudio.version    -- e.g. "1.0.0-beta.1"
 --   wstudio.frontend   -- "tui" or "gui", set before this file runs
 --
+-- Edited this file mid-session? `:reload-config` (alias `:so`) re-runs it
+-- in place - no restart needed. See docs/lua-api.md's "Hot reload" section
+-- for exactly what does and doesn't apply live.
+--
 -- The full API design lives in docs/lua-api.md in the wstudio repo.
 
 -- ---------------------------------------------------------------------------
@@ -73,6 +77,15 @@
 -- terminal's native text selection untouched; all mouse gestures have
 -- keyboard equivalents.
 -- wstudio.o.tui_mouse = true
+
+-- [tui] Color theme, applied by reprogramming the terminal's own ANSI
+-- palette (OSC 4/10/11): "none" (leaves your terminal's colors alone),
+-- "patina", "patina_light", "graphite", or "umbra". Defaults to "none"
+-- (unlike gui_theme) because this recolors the whole physical terminal for
+-- as long as wstudio runs, not just wstudio's own window - under
+-- tmux/screen that means every other pane sharing the terminal too. Reset
+-- on quit either way.
+-- wstudio.o.tui_theme = "none"
 
 -- [gui] Font size, in pixels. Range 8-40.
 -- wstudio.o.gui_font_size = 15

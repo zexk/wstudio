@@ -9,6 +9,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const init_lua_template = @import("init_template").source;
 const ws_input = @import("wstudio").input;
+const theme_identity = @import("wstudio").theme_identity;
 const cmd_mod = @import("ui/cmd.zig");
 const tui_app = @import("ui/app.zig");
 
@@ -20,7 +21,17 @@ const c = @cImport({
 
 const system_config_path = "/etc/xdg/wstudio/init.lua";
 
-pub const GuiTheme = enum { patina, patina_light, graphite, umbra };
+/// One name, one hex table (src/theme_identity.zig) - the GUI's panel skin
+/// and the TUI's OSC palette theming (tui/theme.zig) both read it.
+pub const GuiTheme = theme_identity.Name;
+
+/// `.none` (the default) never touches the terminal: OSC 4/10/11 palette
+/// reprogramming is global to the physical terminal, not scoped to
+/// wstudio's alternate screen, so under tmux/screen it would recolor other
+/// panes sharing that terminal too. Opting into a name is a deliberate
+/// choice, not something a first run should spring on someone who picked
+/// their terminal colors on purpose - see tui/theme.zig.
+pub const TuiTheme = enum { none, patina, patina_light, graphite, umbra };
 
 pub const Config = struct {
     preferred_frontend: Frontend = .tui,
@@ -34,6 +45,7 @@ pub const Config = struct {
     audio_backend: @import("wstudio").audio_host.Choice = .auto,
     tap_timeout_ms: u32 = 2000,
     tui_mouse: bool = true,
+    tui_theme: TuiTheme = .none,
     gui_font_size: f32 = 15.0,
     gui_vsync: bool = true,
     gui_theme: GuiTheme = .patina,
@@ -73,6 +85,7 @@ const option_specs = [_]OptionSpec{
     .{ .name = "audio_backend" },
     .{ .name = "tap_timeout_ms", .min = 100, .max = 10000 },
     .{ .name = "tui_mouse", .scope = .tui },
+    .{ .name = "tui_theme", .scope = .tui },
     .{ .name = "gui_font_size", .min = 8, .max = 40, .scope = .gui },
     .{ .name = "gui_vsync", .scope = .gui },
     .{ .name = "gui_theme", .scope = .gui },
@@ -496,6 +509,37 @@ pub const Runtime = struct {
             return self.loadOrGenerateUserConfig(io, path, system_config_path);
         }
         return loadIfPresent(self, io, system_config_path);
+    }
+
+    /// Re-run the user's Lua config from scratch: drop every keymap, user
+    /// command, and autocmd it registered so far (unref'ing their Lua
+    /// callbacks) and reset `config` to build defaults, then load exactly
+    /// like startup did. Without the reset first, re-sourcing would only
+    /// ever append to those lists - Neovim's `:source $MYVIMRC` has the same
+    /// gap in principle, but leaves it to user configs to guard their own
+    /// state (augroups with `clear = true`); there's no equivalent unit here
+    /// to ask users to manage, so the runtime clears everything itself. The
+    /// `:reload-config` command (ui/commands.zig) is the only caller; the
+    /// frontend still has to rebuild its command table and re-apply the
+    /// (possibly changed) config afterwards - see `App.afterConfigReload`.
+    pub fn reload(self: *Runtime, io: std.Io) !bool {
+        self.resetForReload();
+        return self.loadUserConfig(io);
+    }
+
+    /// The no-I/O half of `reload`, split out so it's testable without
+    /// touching the real filesystem (`loadUserConfig` reads `$XDG_CONFIG_HOME`
+    /// et al., which a unit test shouldn't depend on).
+    fn resetForReload(self: *Runtime) void {
+        for (self.user_cmds[0..self.user_cmds_len]) |*uc| c.luaL_unref(self.state, c.LUA_REGISTRYINDEX, uc.ref);
+        self.user_cmds_len = 0;
+        for (self.keymaps[0..self.keymaps_len]) |*km| {
+            if (km.rhs == .lua_fn) c.luaL_unref(self.state, c.LUA_REGISTRYINDEX, km.ref);
+        }
+        self.keymaps_len = 0;
+        for (self.autocmds[0..self.autocmds_len]) |*ac| c.luaL_unref(self.state, c.LUA_REGISTRYINDEX, ac.ref);
+        self.autocmds_len = 0;
+        self.config = .{};
     }
 
     fn loadOrGenerateUserConfig(self: *Runtime, io: std.Io, user_path: []const u8, fallback_path: []const u8) !bool {
@@ -1711,4 +1755,31 @@ test "api project functions raise before a session attaches" {
     defer rt.deinit();
     try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.play()"));
     try rt.loadString("local ok, err = pcall(wstudio.api.track_count); assert(ok == false and err:find('no session') ~= nil)");
+}
+
+test "resetForReload clears keymaps, user commands, autocmds, and options" {
+    var rt = try Runtime.init(.tui);
+    defer rt.deinit();
+    try rt.loadString(
+        \\wstudio.o.default_tempo = 140
+        \\wstudio.keymap.set("n", "gp", function() end)
+        \\wstudio.api.create_user_command("swing", function() end)
+        \\wstudio.api.create_autocmd("QuitPre", { callback = function() end })
+    );
+    try std.testing.expectEqual(@as(f64, 140.0), rt.config.default_tempo);
+    try std.testing.expectEqual(@as(usize, 1), rt.userKeymaps().len);
+    try std.testing.expectEqual(@as(usize, 1), rt.userCommands().len);
+    try std.testing.expectEqual(@as(usize, 1), rt.autocmds_len);
+
+    rt.resetForReload();
+
+    try std.testing.expectEqual(@as(f64, 120.0), rt.config.default_tempo);
+    try std.testing.expectEqual(@as(usize, 0), rt.userKeymaps().len);
+    try std.testing.expectEqual(@as(usize, 0), rt.userCommands().len);
+    try std.testing.expectEqual(@as(usize, 0), rt.autocmds_len);
+
+    // The Lua state itself survives (unlike a fresh Runtime.init) - a
+    // subsequent load still works and its global state persists.
+    try rt.loadString("wstudio.o.default_tempo = 90");
+    try std.testing.expectEqual(@as(f64, 90.0), rt.config.default_tempo);
 }

@@ -114,6 +114,12 @@ pub const Terminal = struct {
         _ = c.WriteFile(self.stdout, bytes.ptr, @intCast(bytes.len), &written, null);
     }
 
+    /// Toggle mouse reporting after startup - `:reload-config` picking up a
+    /// changed `tui_mouse` without a restart.
+    pub fn setMouse(self: *const Terminal, on: bool) void {
+        self.write(if (on) enable_mouse else disable_mouse);
+    }
+
     pub fn size(self: *const Terminal) Size {
         var info: c.CONSOLE_SCREEN_BUFFER_INFO = undefined;
         if (c.GetConsoleScreenBufferInfo(self.stdout, &info) == 0) return .{ .cols = 80, .rows = 24 };

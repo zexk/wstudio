@@ -554,6 +554,12 @@ pub const App = struct {
     pending_reload: ReloadRequest = .none,
     pending_reload_buf: [reload_path_buf_len]u8 = undefined,
     pending_reload_len: usize = 0,
+    /// Set by `:reload-config` to ask `run()` to re-source init.lua on the
+    /// next loop iteration. Same reason this can't happen inside the
+    /// command handler as `pending_reload` above: only `run()` holds the
+    /// live `Terminal`/window a theme change needs to re-paint, and (TUI)
+    /// the `user_config` copy its loop reads every frame.
+    pending_config_reload: bool = false,
     /// Tap-tempo ring (`t` in the tracks view; see `tapTempo`).
     tap_times: [8]i96 = undefined,
     tap_count: u8 = 0,
@@ -851,6 +857,21 @@ pub const App = struct {
             _ = self.session.engine.send(.{ .set_time_signature = user_config.default_beats_per_bar });
             self.session.syncLoop();
         }
+    }
+
+    /// Frontend-neutral half of `:reload-config` (ui/commands.zig sets
+    /// `pending_config_reload`; `run()` calls `runtime.reload()` then this,
+    /// once it's back holding the fresh `Config`). Re-fires `ConfigDone` -
+    /// there's no dedicated "config was reloaded" event, and treating a
+    /// reload as a second config-done moment is the more useful reading for
+    /// autocmds that want to redo their own setup after one. Frontend-only
+    /// side effects (GUI theme repaint, TUI OSC palette, the frame-loop's
+    /// own `user_config` copy) are `run()`'s job, not this one's - see
+    /// tui/main.zig and gui/main.zig's `pending_config_reload` handling.
+    pub fn afterConfigReload(self: *App, user_config: config_mod.Config) void {
+        self.rebuildCmdTable();
+        self.applyUserConfig(user_config, false);
+        self.emitEvent(.ConfigDone);
     }
 
     // ------------------------------------------------------------------

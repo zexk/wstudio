@@ -1,6 +1,7 @@
 pub const types = @import("core/types.zig");
 pub const ring_buffer = @import("core/ring_buffer.zig");
 pub const wav = @import("core/wav.zig");
+pub const theme_identity = @import("theme_identity.zig");
 
 pub const Transport = @import("transport.zig").Transport;
 pub const TimeSignature = @import("transport.zig").TimeSignature;
