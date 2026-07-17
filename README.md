@@ -1,7 +1,7 @@
 # wstudio
 
 <p align="center">
-  <img src="docs/assets/promo/wstudio-profile-header-1500x500.png" alt="wstudio: make music without leaving the home row" width="100%">
+  <img src="docs/assets/promo/wstudio-github-banner-1500x300.png" alt="wstudio: make music the vim way" width="100%">
 </p>
 
 A keyboard-centric digital audio workstation written in
@@ -9,8 +9,7 @@ A keyboard-centric digital audio workstation written in
 
 ## Pitch
 
-Making music without leaving the home row. wstudio borrows the modal
-model from vim:
+Make music the vim way. wstudio borrows the modal model from vim:
 
 - **normal**: navigate the project, drive the transport (`space`
   play/stop, `hjkl` with counts, `gg`/`G`, ...)
