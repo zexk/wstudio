@@ -3,7 +3,7 @@
 //! `App.openBrowser`/`App.handleBrowserKey` for the input side.
 
 const std = @import("std");
-const app_mod = @import("../app.zig");
+const app_mod = @import("../../ui/app.zig");
 const style = @import("../style.zig");
 const fuzzy = @import("../../ui/fuzzy.zig");
 

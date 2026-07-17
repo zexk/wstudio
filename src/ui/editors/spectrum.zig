@@ -23,7 +23,7 @@ const Fx = ws.Fx;
 const FxKind = ws.FxKind;
 const FxUnit = ws.FxUnit;
 const FxPayload = ws.FxPayload;
-const App = @import("../../tui/app.zig").App;
+const App = @import("../app.zig").App;
 const history = @import("../history.zig");
 const fuzzy = @import("../fuzzy.zig");
 

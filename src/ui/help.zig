@@ -429,7 +429,7 @@ pub fn search(cmds: []const cmd_mod.Def, keymaps: []const config_mod.Keymap, pat
 }
 
 test "help search wraps forward from the end; no match is null" {
-    const commands = @import("../tui/commands.zig");
+    const commands = @import("commands.zig");
     // "master volume" lives in the ALL VIEWS section near the top, so an
     // anchor past the last line (clamped there) only finds it by wrapping.
     try std.testing.expect(search(commands.cmds, &.{}, "master volume", 100000, 1) != null);
@@ -437,7 +437,7 @@ test "help search wraps forward from the end; no match is null" {
 }
 
 test "help text fits its buffers - nothing silently truncated" {
-    const commands = @import("../tui/commands.zig");
+    const commands = @import("commands.zig");
     var t = HelpText{};
     buildHelp(&t, commands.cmds, &.{});
     try std.testing.expect(!t.truncated);
@@ -448,7 +448,7 @@ test "help text fits its buffers - nothing silently truncated" {
 }
 
 test "help lists mnemonic commands and omits compatibility aliases" {
-    const commands = @import("../tui/commands.zig");
+    const commands = @import("commands.zig");
     var t = HelpText{};
     buildHelp(&t, commands.cmds, &.{});
     const text = t.buf[0..t.len];

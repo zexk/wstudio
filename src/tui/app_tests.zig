@@ -8,12 +8,13 @@ const types = ws.types;
 const engine_mod = ws.engine;
 const eq_mod = ws.dsp.eq;
 const InstrumentKind = ws.InstrumentKind;
-const app_mod = @import("app.zig");
+const app_mod = @import("../ui/app.zig");
+const main_mod = @import("main.zig");
 const App = app_mod.App;
 const history = @import("../ui/history.zig");
 const AppView = app_mod.AppView;
 const note_ms = app_mod.note_ms;
-const commands = @import("commands.zig");
+const commands = @import("../ui/commands.zig");
 const drum_ed = @import("../ui/editors/drum.zig");
 const slicer_ed = @import("../ui/editors/slicer.zig");
 const automation_ed = @import("../ui/editors/automation.zig");
@@ -770,14 +771,14 @@ test ":ghost overlays another melodic track's notes, dimmed, only when on" {
 
     var buf: [32 * 1024]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
-    try app.draw(&w, .{ .cols = 100, .rows = 30 });
+    try main_mod.draw(&app, &w, .{ .cols = 100, .rows = 30 });
     const off_output = w.buffered();
     try std.testing.expect(std.mem.indexOf(u8, off_output, style.dim ++ "[") == null);
 
     app.piano_ghost = true;
     var buf2: [32 * 1024]u8 = undefined;
     var w2 = std.Io.Writer.fixed(&buf2);
-    try app.draw(&w2, .{ .cols = 100, .rows = 30 });
+    try main_mod.draw(&app, &w2, .{ .cols = 100, .rows = 30 });
     try std.testing.expect(std.mem.indexOf(u8, w2.buffered(), style.dim ++ "[") != null);
 }
 
@@ -793,14 +794,14 @@ test "arrangement view colors a lane and its clips with the track's color" {
 
     var buf: [32 * 1024]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
-    try app.draw(&w, .{ .cols = 100, .rows = 30 });
+    try main_mod.draw(&app, &w, .{ .cols = 100, .rows = 30 });
     // Uncolored (default): the clip cell still wears the generic accent.
     try std.testing.expect(std.mem.indexOf(u8, w.buffered(), style.acc) != null);
 
     app.session.project.tracks.items[0].color = 1; // red, index 0 of the palette
     var buf2: [32 * 1024]u8 = undefined;
     var w2 = std.Io.Writer.fixed(&buf2);
-    try app.draw(&w2, .{ .cols = 100, .rows = 30 });
+    try main_mod.draw(&app, &w2, .{ .cols = 100, .rows = 30 });
     try std.testing.expect(std.mem.indexOf(u8, w2.buffered(), style.red) != null);
 }
 
@@ -1117,14 +1118,14 @@ test "z and Z select piano roll subdivisions through 1/128" {
     try std.testing.expectEqual(ws.time_grid.Division.sixteenth, app.piano_division);
     var buf: [32 * 1024]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
-    try app.draw(&w, .{ .cols = 80, .rows = 24 });
+    try main_mod.draw(&app, &w, .{ .cols = 80, .rows = 24 });
     try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "1/16") != null);
 
     _ = piano_ed.handleKey(&app, .{ .char = 'Z' });
     try std.testing.expectEqual(ws.time_grid.Division.eighth, app.piano_division);
 
     w = std.Io.Writer.fixed(&buf);
-    try app.draw(&w, .{ .cols = 80, .rows = 24 });
+    try main_mod.draw(&app, &w, .{ .cols = 80, .rows = 24 });
     const frame = w.buffered();
     try std.testing.expect(std.mem.indexOf(u8, frame, "PIANO ROLL") != null);
     try std.testing.expect(std.mem.indexOf(u8, frame, "1/8") != null);
@@ -1151,13 +1152,13 @@ test "piano roll flags an unlinked scratch pattern in song mode, not pattern mod
 
     // Pattern mode: the live pattern IS what plays - no scratch warning.
     var w = std.Io.Writer.fixed(&buf);
-    try app.draw(&w, .{ .cols = 100, .rows = 24 });
+    try main_mod.draw(&app, &w, .{ .cols = 100, .rows = 24 });
     try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "scratch") == null);
 
     // Song mode, unlinked to any clip: flagged.
     app.session.setSongMode(true);
     w = std.Io.Writer.fixed(&buf);
-    try app.draw(&w, .{ .cols = 100, .rows = 24 });
+    try main_mod.draw(&app, &w, .{ .cols = 100, .rows = 24 });
     try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "scratch: not in the song until stamped") != null);
 
     // Linked to a clip (arrangement's 'e'): no warning even in song mode.
@@ -1166,7 +1167,7 @@ test "piano roll flags an unlinked scratch pattern in song mode, not pattern mod
     app.handleKey(.{ .char = 'e' }, 0);
     try std.testing.expectEqual(AppView.piano_roll, app.view);
     w = std.Io.Writer.fixed(&buf);
-    try app.draw(&w, .{ .cols = 100, .rows = 24 });
+    try main_mod.draw(&app, &w, .{ .cols = 100, .rows = 24 });
     try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "scratch") == null);
 }
 
@@ -1212,14 +1213,14 @@ test "z and Z select arrangement grid subdivisions" {
     try std.testing.expectEqual(ws.time_grid.Division.quarter, app.arr_grid);
     var buf: [32 * 1024]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
-    try app.draw(&w, .{ .cols = 80, .rows = 24 });
+    try main_mod.draw(&app, &w, .{ .cols = 80, .rows = 24 });
     try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "1/4") != null);
 
     app.handleKey(.{ .char = 'Z' }, 0);
     try std.testing.expectEqual(ws.time_grid.Division.quarter, app.arr_grid);
 
     w = std.Io.Writer.fixed(&buf);
-    try app.draw(&w, .{ .cols = 80, .rows = 24 });
+    try main_mod.draw(&app, &w, .{ .cols = 80, .rows = 24 });
     const frame = w.buffered();
     try std.testing.expect(std.mem.indexOf(u8, frame, "ARRANGEMENT") != null);
     try std.testing.expect(std.mem.indexOf(u8, frame, "1/4") != null);
@@ -2036,7 +2037,7 @@ test "draw renders drum_grid view without overflowing" {
     app.view = .drum_grid;
     var buf: [32 * 1024]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
-    try app.draw(&w, .{ .cols = 80, .rows = 24 });
+    try main_mod.draw(&app, &w, .{ .cols = 80, .rows = 24 });
     const frame = w.buffered();
     try std.testing.expect(std.mem.indexOf(u8, frame, "DRUMS") != null);
     try std.testing.expect(std.mem.indexOf(u8, frame, "kick") != null);
@@ -2103,7 +2104,7 @@ test "draw renders drum-pad sampler editor without overflowing" {
     app.view = .sampler_editor;
     var buf: [64 * 1024]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
-    try app.draw(&w, .{ .cols = 80, .rows = 30 });
+    try main_mod.draw(&app, &w, .{ .cols = 80, .rows = 30 });
     const frame = w.buffered();
     try std.testing.expect(std.mem.indexOf(u8, frame, "SAMPLER") != null);
     try std.testing.expect(std.mem.indexOf(u8, frame, "attack") != null);
@@ -2117,7 +2118,7 @@ test "draw renders standalone sampler editor with root row" {
     app.view = .sampler_editor;
     var buf: [64 * 1024]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
-    try app.draw(&w, .{ .cols = 80, .rows = 34 });
+    try main_mod.draw(&app, &w, .{ .cols = 80, .rows = 34 });
     const frame = w.buffered();
     try std.testing.expect(std.mem.indexOf(u8, frame, "SAMPLER") != null);
     try std.testing.expect(std.mem.indexOf(u8, frame, "root") != null);
@@ -2155,7 +2156,7 @@ test "draw renders tracks view without overflowing" {
 
     var buf: [32 * 1024]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
-    try app.draw(&w, .{ .cols = 80, .rows = 24 });
+    try main_mod.draw(&app, &w, .{ .cols = 80, .rows = 24 });
     const frame = w.buffered();
     try std.testing.expect(std.mem.indexOf(u8, frame, "TRACKS") != null);
     try std.testing.expect(std.mem.indexOf(u8, frame, "synth") != null);
@@ -2172,13 +2173,13 @@ test "draw shows a dirty-flag warning icon in the header once edited" {
 
     var buf: [32 * 1024]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
-    try app.draw(&w, .{ .cols = 80, .rows = 24 });
+    try main_mod.draw(&app, &w, .{ .cols = 80, .rows = 24 });
     try std.testing.expect(std.mem.indexOf(u8, w.buffered(), icons.warn) == null);
 
     app.applyAction(.toggle_mute, 0);
     try std.testing.expect(app.dirty);
     w = std.Io.Writer.fixed(&buf);
-    try app.draw(&w, .{ .cols = 80, .rows = 24 });
+    try main_mod.draw(&app, &w, .{ .cols = 80, .rows = 24 });
     try std.testing.expect(std.mem.indexOf(u8, w.buffered(), icons.warn) != null);
 }
 
@@ -2190,13 +2191,13 @@ test "transport indicator shows the unicode glyph without the font, the icon wit
 
     icons.font_installed = false;
     var w = std.Io.Writer.fixed(&buf);
-    try app.draw(&w, .{ .cols = 80, .rows = 24 });
+    try main_mod.draw(&app, &w, .{ .cols = 80, .rows = 24 });
     try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "\u{25A0}") != null);
     try std.testing.expect(std.mem.indexOf(u8, w.buffered(), icons.stop) == null);
 
     icons.font_installed = true;
     w = std.Io.Writer.fixed(&buf);
-    try app.draw(&w, .{ .cols = 80, .rows = 24 });
+    try main_mod.draw(&app, &w, .{ .cols = 80, .rows = 24 });
     try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "\u{25A0}") == null);
     try std.testing.expect(std.mem.indexOf(u8, w.buffered(), icons.stop) != null);
 
@@ -2205,13 +2206,13 @@ test "transport indicator shows the unicode glyph without the font, the icon wit
     app.session.engine.process(&block);
 
     w = std.Io.Writer.fixed(&buf);
-    try app.draw(&w, .{ .cols = 80, .rows = 24 });
+    try main_mod.draw(&app, &w, .{ .cols = 80, .rows = 24 });
     try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "\u{25BA}") == null);
     try std.testing.expect(std.mem.indexOf(u8, w.buffered(), icons.play) != null);
 
     icons.font_installed = false;
     w = std.Io.Writer.fixed(&buf);
-    try app.draw(&w, .{ .cols = 80, .rows = 24 });
+    try main_mod.draw(&app, &w, .{ .cols = 80, .rows = 24 });
     try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "\u{25BA}") != null);
     try std.testing.expect(std.mem.indexOf(u8, w.buffered(), icons.play) == null);
 }
@@ -2227,7 +2228,7 @@ test "blank track row shows the empty hint" {
     defer app.deinit();
     var buf: [32 * 1024]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
-    try app.draw(&w, .{ .cols = 80, .rows = 24 });
+    try main_mod.draw(&app, &w, .{ .cols = 80, .rows = 24 });
     try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "empty") != null);
     try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "enter: instrument") != null);
     try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "?: help") != null);
@@ -2248,7 +2249,7 @@ test "picker footers preserve mode, view identity, and live feedback" {
         app.view = case.view;
         app.setStatus("picker feedback", .{});
         var w = std.Io.Writer.fixed(&buf);
-        try app.draw(&w, .{ .cols = 120, .rows = 24 });
+        try main_mod.draw(&app, &w, .{ .cols = 120, .rows = 24 });
         const frame = w.buffered();
         try std.testing.expect(std.mem.indexOf(u8, frame, case.label) != null);
         try std.testing.expect(std.mem.indexOf(u8, frame, "picker feedback") != null);
@@ -2262,14 +2263,14 @@ test "tracks view progressively discloses row and footer actions" {
     var buf: [32 * 1024]u8 = undefined;
 
     var w = std.Io.Writer.fixed(&buf);
-    try app.draw(&w, .{ .cols = 100, .rows = 24 });
+    try main_mod.draw(&app, &w, .{ .cols = 100, .rows = 24 });
     const track_frame = w.buffered();
     try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, track_frame, "[enter:edit]"));
     try std.testing.expect(std.mem.indexOf(u8, track_frame, "p: piano  s: fx  m: mute") != null);
 
     app.setTrackRow(app.track_rows_len);
     w = std.Io.Writer.fixed(&buf);
-    try app.draw(&w, .{ .cols = 100, .rows = 24 });
+    try main_mod.draw(&app, &w, .{ .cols = 100, .rows = 24 });
     const master_frame = w.buffered();
     try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, master_frame, "[enter:fx]"));
     try std.testing.expect(std.mem.indexOf(u8, master_frame, "enter/s: fx  -/+: gain") != null);
@@ -2286,7 +2287,7 @@ test ":help opens on the current view's section; g jumps to COMMANDS; esc closes
 
     var buf: [32 * 1024]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
-    try app.draw(&w, .{ .cols = 80, .rows = 24 });
+    try main_mod.draw(&app, &w, .{ .cols = 80, .rows = 24 });
     try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "TRACKS") != null);
     try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "BASICS") != null);
     // Long entries are clamped by the renderer instead of relying on the
@@ -2296,7 +2297,7 @@ test ":help opens on the current view's section; g jumps to COMMANDS; esc closes
     // g still jumps all the way back up to the command table.
     app.handleKey(.{ .char = 'g' }, 0);
     w = std.Io.Writer.fixed(&buf);
-    try app.draw(&w, .{ .cols = 80, .rows = 24 });
+    try main_mod.draw(&app, &w, .{ .cols = 80, .rows = 24 });
     const frame = w.buffered();
     try std.testing.expect(std.mem.indexOf(u8, frame, "COMMANDS") != null);
     try std.testing.expect(std.mem.indexOf(u8, frame, ":bpm") != null);
@@ -2334,7 +2335,7 @@ test "draw renders spectrum view without errors" {
     app.view = .master_spectrum;
     var buf: [32 * 1024]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
-    try app.draw(&w, .{ .cols = 80, .rows = 24 });
+    try main_mod.draw(&app, &w, .{ .cols = 80, .rows = 24 });
     try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "FX CHAIN") != null);
     // A fresh chain is empty - the body is the insert hint.
     try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "chain empty") != null);
@@ -2346,7 +2347,7 @@ test "draw renders track_spectrum after pressing s" {
     app.handleKey(.{ .char = 's' }, 0);
     var buf: [32 * 1024]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
-    try app.draw(&w, .{ .cols = 80, .rows = 24 });
+    try main_mod.draw(&app, &w, .{ .cols = 80, .rows = 24 });
     try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "FX CHAIN") != null);
 }
 
@@ -2367,7 +2368,7 @@ test "spectrum fills FFT buffer and draws with real data" {
 
     var buf: [64 * 1024]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
-    try app.draw(&w, .{ .cols = 120, .rows = 40 });
+    try main_mod.draw(&app, &w, .{ .cols = 120, .rows = 40 });
     try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "SPECTRUM") != null);
 }
 
@@ -3089,7 +3090,7 @@ test "draw renders synth editor without errors" {
     // reflection of exactly where AMP ENV happens to land in the order.
     var buf: [32 * 1024]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
-    try app.draw(&w, .{ .cols = 80, .rows = 100 });
+    try main_mod.draw(&app, &w, .{ .cols = 80, .rows = 100 });
     const frame = w.buffered();
     try std.testing.expect(std.mem.indexOf(u8, frame, "SYNTH") != null);
     try std.testing.expect(std.mem.indexOf(u8, frame, "attack") != null);
@@ -3111,7 +3112,7 @@ test "synth section focus isolates navigation and rendering" {
 
     var buf: [32 * 1024]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
-    try app.draw(&w, .{ .cols = 120, .rows = 30 });
+    try main_mod.draw(&app, &w, .{ .cols = 120, .rows = 30 });
     const frame = w.buffered();
     try std.testing.expect(std.mem.indexOf(u8, frame, "FOCUS") != null);
     try std.testing.expect(std.mem.indexOf(u8, frame, "OSC A") != null);
@@ -3286,7 +3287,7 @@ test "escape returns from track_spectrum to tracks" {
 
     var buf: [32 * 1024]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
-    try app.draw(&w, .{ .cols = 80, .rows = 24 });
+    try main_mod.draw(&app, &w, .{ .cols = 80, .rows = 24 });
     try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "TRACKS") != null);
 }
 
@@ -3300,7 +3301,7 @@ test "p key opens piano roll for synth track" {
 
     var buf: [64 * 1024]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
-    try app.draw(&w, .{ .cols = 120, .rows = 36 });
+    try main_mod.draw(&app, &w, .{ .cols = 120, .rows = 36 });
     try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "PIANO ROLL") != null);
 
     app.piano_cursor_step = 0;
@@ -3331,7 +3332,7 @@ test "piano roll opens existing patterns at their earliest note" {
 
     var buf: [32 * 1024]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
-    try app.draw(&w, .{ .cols = 100, .rows = 24 });
+    try main_mod.draw(&app, &w, .{ .cols = 100, .rows = 24 });
     const frame = w.buffered();
     try std.testing.expect(std.mem.indexOf(u8, frame, "1.2.1") != null);
     try std.testing.expect(std.mem.indexOf(u8, frame, "0.25b") != null);
@@ -4252,7 +4253,7 @@ test "suggestion popup highlight tracks the completed candidate" {
 
     var buf: [32 * 1024]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
-    try app.draw(&w, .{ .cols = 100, .rows = 30 });
+    try main_mod.draw(&app, &w, .{ .cols = 100, .rows = 30 });
     const frame = w.buffered();
 
     // The row actually highlighted must be the one the buffer holds, not
@@ -4677,7 +4678,7 @@ test "mouse click on a tracks-view row selects and opens it" {
     // under scrolling - see App.tracksMouse).
     var buf: [8 * 1024]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
-    try app.draw(&w, .{ .cols = 80, .rows = 24 });
+    try main_mod.draw(&app, &w, .{ .cols = 80, .rows = 24 });
 
     // row 0 = "TRACKS" title; track i sits at row i+1 (see App.tracksMouse).
     app.handleMouse(.{ .x = 5, .y = app_mod.content_top + 3, .button = .left, .kind = .press }, 80, 24, 0);
@@ -4710,7 +4711,7 @@ test "tracks view scrolls to keep the cursor visible with many tracks" {
 
     app.cursor = track_count - 1;
     w = std.Io.Writer.fixed(&buf);
-    try app.draw(&w, .{ .cols = 80, .rows = 15 });
+    try main_mod.draw(&app, &w, .{ .cols = 80, .rows = 15 });
     const frame = w.buffered();
     // The cursor's track must actually be drawn on screen...
     try std.testing.expect(std.mem.indexOf(u8, frame, ">") != null);
@@ -4720,7 +4721,7 @@ test "tracks view scrolls to keep the cursor visible with many tracks" {
     // Scrolling back to the top must bring track 1 back into view.
     app.cursor = 0;
     w = std.Io.Writer.fixed(&buf);
-    try app.draw(&w, .{ .cols = 80, .rows = 15 });
+    try main_mod.draw(&app, &w, .{ .cols = 80, .rows = 15 });
     try std.testing.expectEqual(@as(usize, 0), app.track_scroll);
 }
 
@@ -4737,7 +4738,7 @@ test "arrangement view scrolls lanes to keep the cursor visible with many tracks
     var w = std.Io.Writer.fixed(&buf);
 
     app.cursor = lane_count - 1;
-    try app.draw(&w, .{ .cols = 80, .rows = 15 });
+    try main_mod.draw(&app, &w, .{ .cols = 80, .rows = 15 });
     const frame = w.buffered();
     // The cursor's lane must actually be on screen - every auto-added
     // track's name truncates to the same "track " (6 chars, digits cut
@@ -4754,7 +4755,7 @@ test "arrangement view scrolls lanes to keep the cursor visible with many tracks
     // Scrolling back to the top must bring lane 0 back into view.
     app.cursor = 0;
     w = std.Io.Writer.fixed(&buf);
-    try app.draw(&w, .{ .cols = 80, .rows = 15 });
+    try main_mod.draw(&app, &w, .{ .cols = 80, .rows = 15 });
     try std.testing.expectEqual(@as(usize, 0), app.arr_scroll_lane);
 }
 
@@ -5129,7 +5130,7 @@ test "multiband compressor style renders as a bracketed toggle, not a slider" {
 
     var buf: [32 * 1024]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
-    try app.draw(&w, .{ .cols = 100, .rows = 30 });
+    try main_mod.draw(&app, &w, .{ .cols = 100, .rows = 30 });
     try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "[classic]") != null);
 
     _ = spectrum_ed.handleKey(&app, .{ .char = 'l' });
@@ -5137,7 +5138,7 @@ test "multiband compressor style renders as a bracketed toggle, not a slider" {
     try std.testing.expectEqual(ws.dsp.multiband_comp.Style.ott, fx.units.items[0].payload.mb_comp.style);
 
     w = std.Io.Writer.fixed(&buf);
-    try app.draw(&w, .{ .cols = 100, .rows = 30 });
+    try main_mod.draw(&app, &w, .{ .cols = 100, .rows = 30 });
     try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "[OTT") != null);
 }
 
@@ -5163,7 +5164,7 @@ test "compressor's scpad row only shows once the sidechain track is a drum machi
 
     var buf: [32 * 1024]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
-    try app.draw(&w, .{ .cols = 100, .rows = 30 });
+    try main_mod.draw(&app, &w, .{ .cols = 100, .rows = 30 });
     try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "scpad") != null);
 
     // Pick a pad, then nudge the sidechain track (idx 5) off the drum
@@ -5179,7 +5180,7 @@ test "compressor's scpad row only shows once the sidechain track is a drum machi
     try std.testing.expectEqual(@as(usize, 6), spectrum_ed.visibleParamCount(&app, .comp, payload));
 
     w = std.Io.Writer.fixed(&buf);
-    try app.draw(&w, .{ .cols = 100, .rows = 30 });
+    try main_mod.draw(&app, &w, .{ .cols = 100, .rows = 30 });
     try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "scpad") == null);
 }
 
@@ -5333,7 +5334,7 @@ test "below the minimum terminal size, draw gates to the too-small notice" {
 
     var buf: [32 * 1024]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
-    try app.draw(&w, .{ .cols = 40, .rows = 10 });
+    try main_mod.draw(&app, &w, .{ .cols = 40, .rows = 10 });
     const out = w.buffered();
     try std.testing.expect(std.mem.indexOf(u8, out, "terminal too small") != null);
     try std.testing.expect(std.mem.indexOf(u8, out, "need 80x14, have 40x10") != null);
@@ -5343,7 +5344,7 @@ test "below the minimum terminal size, draw gates to the too-small notice" {
     // At exactly the minimum the real frame renders.
     var buf2: [32 * 1024]u8 = undefined;
     var w2 = std.Io.Writer.fixed(&buf2);
-    try app.draw(&w2, .{ .cols = 80, .rows = 14 });
+    try main_mod.draw(&app, &w2, .{ .cols = 80, .rows = 14 });
     const out2 = w2.buffered();
     try std.testing.expect(std.mem.indexOf(u8, out2, "terminal too small") == null);
     try std.testing.expect(std.mem.indexOf(u8, out2, "TRACKS") != null);

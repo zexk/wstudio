@@ -15,7 +15,7 @@ const modal_mod = ws.input;
 const automation_mod = ws.dsp.automation;
 const AutomationPoint = automation_mod.AutomationPoint;
 const synth_mod = ws.dsp.synth;
-const App = @import("../../tui/app.zig").App;
+const App = @import("../app.zig").App;
 const history = @import("../history.zig");
 const fuzzy = @import("../fuzzy.zig");
 

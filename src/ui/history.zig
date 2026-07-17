@@ -6,7 +6,7 @@ const std = @import("std");
 const ws = @import("wstudio");
 const pattern_mod = ws.dsp.pattern;
 const undo_mod = @import("undo.zig");
-const App = @import("../tui/app.zig").App;
+const App = @import("app.zig").App;
 const piano = @import("editors/piano.zig");
 const spectrum = @import("editors/spectrum.zig");
 
