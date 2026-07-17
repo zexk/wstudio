@@ -25,14 +25,17 @@ pub const Saturator = struct {
 
     /// Shape an interleaved stereo buffer in place.
     pub fn processBlock(self: *Saturator, buf: []Sample) void {
+        const drive_db = if (std.math.isFinite(self.drive_db)) std.math.clamp(self.drive_db, 0.0, 36.0) else 12.0;
+        const out_db = if (std.math.isFinite(self.out_db)) std.math.clamp(self.out_db, -24.0, 24.0) else 0.0;
+        const mix = if (std.math.isFinite(self.mix)) std.math.clamp(self.mix, 0.0, 1.0) else 1.0;
         // zig fmt: off
-        const pre  = std.math.pow(f32, 10.0, self.drive_db / 20.0);
+        const pre  = std.math.pow(f32, 10.0, drive_db / 20.0);
         // zig fmt: on
-        const post = std.math.pow(f32, 10.0, self.out_db / 20.0);
+        const post = std.math.pow(f32, 10.0, out_db / 20.0);
         const norm = 1.0 / std.math.tanh(pre); // full-scale in → full-scale out
         for (buf) |*s| {
             const wet = std.math.tanh(s.* * pre) * norm * post;
-            s.* = s.* * (1.0 - self.mix) + wet * self.mix;
+            s.* = s.* * (1.0 - mix) + wet * mix;
         }
     }
 };
@@ -62,4 +65,15 @@ test "mix 0 passes the input untouched" {
     const expected = buf;
     sat.processBlock(&buf);
     for (buf, expected) |got, want| try std.testing.expectApproxEqAbs(want, got, 1e-6);
+}
+
+test "invalid parameters cannot poison output" {
+    var sat = Saturator{
+        .drive_db = std.math.inf(f32),
+        .out_db = -std.math.inf(f32),
+        .mix = std.math.nan(f32),
+    };
+    var buf = [_]Sample{ 0.0, -0.7, 0.05, 0.9 };
+    sat.processBlock(&buf);
+    for (buf) |sample| try std.testing.expect(std.math.isFinite(sample));
 }
