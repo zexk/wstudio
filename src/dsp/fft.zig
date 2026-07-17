@@ -74,7 +74,7 @@ pub fn magnitude(re: f32, im: f32) f32 {
 
 pub fn toDb(buf: []f32) void {
     for (buf) |*s| {
-        s.* = if (s.* <= 1.0e-6) -120.0 else 20.0 * std.math.log10(s.*);
+        s.* = if (!std.math.isFinite(s.*) or s.* <= 1.0e-6) -120.0 else 20.0 * std.math.log10(s.*);
     }
 }
 
@@ -117,6 +117,12 @@ test "toDb clamps at -120" {
     try std.testing.expectApproxEqAbs(@as(f32, -6.02), buf[1], 0.01);
     try std.testing.expectEqual(@as(f32, -120.0), buf[2]);
     try std.testing.expectEqual(@as(f32, -120.0), buf[3]);
+}
+
+test "toDb replaces non-finite magnitudes with the silence floor" {
+    var buf = [_]f32{ std.math.nan(f32), std.math.inf(f32), -std.math.inf(f32) };
+    toDb(&buf);
+    for (buf) |value| try std.testing.expectEqual(@as(f32, -120.0), value);
 }
 
 test "hannWindow handles empty and single-sample buffers" {
