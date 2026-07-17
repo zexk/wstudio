@@ -298,12 +298,19 @@ pub const Slicer = struct {
         const count: u8 = @intCast(std.math.clamp(positions.len, 1, max_slices));
         while (!self.sample_lock.tryLock()) std.atomic.spinLoopHint();
         defer self.sample_lock.unlock();
+        var start: f32 = 0.0;
         for (0..count) |i| {
+            const next_raw = if (i + 1 < count) positions[i + 1] else 1.0;
+            const next = if (std.math.isFinite(next_raw))
+                std.math.clamp(next_raw, start, 1.0)
+            else
+                start;
             self.slices[i] = .{
                 .samples = self.samples,
-                .start_norm = if (i == 0) 0.0 else std.math.clamp(positions[i], 0.0, 1.0),
-                .end_norm = if (i + 1 < count) std.math.clamp(positions[i + 1], 0.0, 1.0) else 1.0,
+                .start_norm = start,
+                .end_norm = if (i + 1 < count) next else 1.0,
             };
+            start = next;
         }
         self.slice_count = count;
     }
@@ -877,6 +884,24 @@ test "sliceInto equal-divides the clip and clamps out-of-range counts" {
     try std.testing.expectEqual(@as(u8, 1), s.slice_count);
     s.sliceInto(200); // clamps down to max_slices
     try std.testing.expectEqual(Slicer.max_slices, s.slice_count);
+}
+
+test "chopAt normalizes non-finite and descending boundaries" {
+    var transport = Transport{ .sample_rate = 48_000 };
+    var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
+    defer s.deinit();
+
+    s.chopAt(&.{ 0.0, 0.75, std.math.nan(f32), 0.25, std.math.inf(f32) });
+    try std.testing.expectEqual(@as(u8, 5), s.slice_count);
+    var previous: f32 = 0.0;
+    for (s.slices[0..s.slice_count]) |slice| {
+        try std.testing.expect(std.math.isFinite(slice.start_norm));
+        try std.testing.expect(std.math.isFinite(slice.end_norm));
+        try std.testing.expect(slice.start_norm >= previous);
+        try std.testing.expect(slice.end_norm >= slice.start_norm);
+        previous = slice.end_norm;
+    }
+    try std.testing.expectEqual(@as(f32, 1.0), previous);
 }
 
 test "every slice aliases the same underlying buffer (no duplication)" {
