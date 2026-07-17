@@ -377,7 +377,7 @@ fn applyEntry(app: *App, entry: undo_mod.Entry) ?undo_mod.Entry {
             // Restore the chop layout under the sample lock (processBlock
             // holds it for the whole block), re-pointing every slice at the
             // CURRENT buffer - captured `samples` aliases may predate a
-            // :load-slice (see SlicerState's doc comment).
+            // :load in the slicer view (see SlicerState's doc comment).
             while (!sl.sample_lock.tryLock()) std.atomic.spinLoopHint();
             sl.slice_count = d.slice_count;
             sl.slices = d.slices;

@@ -54,9 +54,10 @@ per-pad sampler editor and `[`/`]`/`N` manage up to 8 pattern variants
 (A to H) per machine. `A` opens the arrangement view, where clips
 stamped from the live patterns are placed on a bar timeline; on drum
 lanes `[`/`]` pick which variant to stamp (clips show their letter),
-and `T` toggles between pattern and song playback. `:load-sample
-<file>` swaps a sampler's clip; `:load-pad <1-64> <file>` swaps a drum
-pad. File paths given to `:load-pad`, `:load-sample`, `:write`, and
+and `T` toggles between pattern and song playback. `:load <file>` loads
+the WAV type appropriate to the current view: a sampler or drum pad sample,
+a slicer clip, a synth wavetable, or a whole sampler clip in Arrangement.
+File paths given to `:load`, `:write`, and
 `:bounce`/`:export`/`:bounce-stems` expand a leading `~` to `$HOME`.
 `:bounce`/`:export` take an optional trailing `16`/`24` to pick the WAV
 bit depth (default 16) and bounce exactly an armed A/B loop region

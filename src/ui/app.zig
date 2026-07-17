@@ -595,7 +595,7 @@ pub const App = struct {
     /// Wall-clock ns of the last autosave backup attempt (0 = never tried).
     /// See `maybeAutosave`.
     last_autosave_ns: i96 = 0,
-    /// Minimal netrw/dired-style file browser: `:e` and `:load-sample`
+    /// Minimal netrw/dired-style file browser: `:e` and `:load`
     /// open it when called with no path. `browser_dir` is the
     /// canonical (realpath'd) directory currently listed in `browser_entries`
     /// - both are owned and freed together (see `closeBrowser`).
@@ -1810,7 +1810,7 @@ pub const App = struct {
             .poly_synth => "j/k: move  h/l: adjust  i: play  ?: help",
             .sampler => "j/k: move  h/l: adjust  i: play  ?: help",
             .drum_machine => "enter: step  i: play  space: record  ?: help",
-            .slicer => "enter: step  i: play  :load-slice  ?: help",
+            .slicer => "enter: step  i: play  :load  ?: help",
         };
         self.setStatus("{s} inserted  {s}", .{ picker_labels[self.picker_cursor], hint });
         self.view = .tracks;
@@ -1962,7 +1962,7 @@ pub const App = struct {
     // zig fmt: on
 
     // -----------------------------------------------------------------------
-    // File browser (netrw/dired-style; `:e`, `:load-sample` with
+    // File browser (netrw/dired-style; `:e`, `:load` with
     // no path open it - see commands.zig)
     // -----------------------------------------------------------------------
 

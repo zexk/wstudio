@@ -217,7 +217,7 @@ pub fn drawSlicerGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize,
     if (slice_count == 0) {
         try w.writeAll(dim ++ "  no slices yet - :chop finds the transients, :slice <n> equal-divides" ++ rst);
         try endLine(w);
-        try w.writeAll(dim ++ "  (:load-slice [file.wav] loads your own clip)" ++ rst);
+        try w.writeAll(dim ++ "  (:load [file.wav] loads your own clip)" ++ rst);
         try endLine(w);
         written += 2;
         for (written..@max(written, rows -| 4)) |_| try endLine(w);

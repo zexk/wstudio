@@ -46,7 +46,7 @@ pub const DrumState = struct {
 /// clip was loaded at capture time and is NOT restored - applying
 /// re-points every slice at the slicer's CURRENT buffer (same rule
 /// persist.zig's `reset_slices = false` load path documents), so an entry
-/// captured before a `:load-slice` still applies safely after it. Swing
+/// captured before a slicer-view `:load` still applies safely after it. Swing
 /// and choke groups are mixer-style params, not captured - same call
 /// DrumState made.
 pub const SlicerState = struct {

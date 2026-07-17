@@ -4428,7 +4428,7 @@ test "autosave is a no-op when clean or when no project path is known" {
 // ---------------------------------------------------------------------------
 
 /// Points a fresh App's project path at `tmp` (without a real project file
-/// there - `openBrowser` only needs the directory) so `:e`/`:load-sample`'s
+/// there - `openBrowser` only needs the directory) so `:e`/`:load`'s
 /// no-arg browse starts inside the sandbox instead of the repo root.
 fn appRootedAt(tmp: *std.testing.TmpDir) !App {
     try redirectHome(tmp);
@@ -4565,7 +4565,7 @@ test "file browser: esc/q cancels without picking, restoring the previous view" 
     try std.testing.expect(!app.session.racks.items[0].instrument.sampler.pad.user_sample);
 }
 
-test ":load-sample with no path browse; refuse first with no matching track; targets pad on a drum track" {
+test ":load with no path browses and targets the selected instrument" {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
@@ -4573,39 +4573,68 @@ test ":load-sample with no path browse; refuse first with no matching track; tar
     defer app.deinit();
 
     // Blank track 0: no sampler/drum-machine to receive the load.
-    for (":load-sample") |c| app.handleKey(.{ .char = c }, 0);
+    for (":load") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(AppView.tracks, app.view);
-    try std.testing.expectStringStartsWith(app.status_buf[0..app.status_len], "load-sample: select");
+    try std.testing.expectStringStartsWith(app.status_buf[0..app.status_len], "load: select");
 
-    // With a sampler track selected, :load-sample opens the browser.
+    // With a sampler track selected, :load opens the sample browser.
     try app.session.setInstrument(0, .sampler);
-    for (":load-sample") |c| app.handleKey(.{ .char = c }, 0);
+    for (":load") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(AppView.file_browser, app.view);
     app.handleKey(.escape, 0);
 
-    // With a drum-machine track selected, :load-sample targets the cursor pad.
+    // With a drum-machine track selected, :load targets the cursor pad.
     try app.session.setInstrument(0, .drum_machine);
     app.drum_cursor[0] = 2;
-    for (":load-sample") |c| app.handleKey(.{ .char = c }, 0);
+    for (":load") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(AppView.file_browser, app.view);
     try std.testing.expectEqual(@as(u8, 2), app.browser_purpose.load_pad);
 }
 
-test ":load-clip refuses without a sampler track, then loads a whole-clip note and stamps it" {
+test ":load routes synth and slicer editor views to their audio types" {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
     var app = try appRootedAt(&tmp);
     defer app.deinit();
 
-    for (":load-clip") |c| app.handleKey(.{ .char = c }, 0);
+    try app.session.setInstrument(0, .poly_synth);
+    app.view = .synth_editor;
+    app.synth_cursor = 6; // OSC B
+    for (":load") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.enter, 0);
-    try std.testing.expectStringStartsWith(app.status_buf[0..app.status_len], "load-clip: select");
+    try std.testing.expectEqual(ws.dsp.PolySynth.OscSlot.b, app.browser_purpose.load_wavetable);
+    app.handleKey(.escape, 0);
+
+    try app.session.setInstrument(0, .slicer);
+    app.view = .slicer_grid;
+    for (":load") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqual(app_mod.BrowserPurpose.load_slice, app.browser_purpose);
+}
+
+test ":load in arrangement refuses without a sampler track, then targets a whole clip" {
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    var app = try appRootedAt(&tmp);
+    defer app.deinit();
+
+    app.view = .arrangement;
+    for (":load") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expectStringStartsWith(app.status_buf[0..app.status_len], "load: select");
 
     try app.session.setInstrument(0, .sampler);
+    for (":load") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqual(AppView.file_browser, app.view);
+    try std.testing.expectEqual(app_mod.BrowserPurpose.load_clip, app.browser_purpose);
+    app.handleKey(.escape, 0);
+
     // Contrived tempo so 1 frame = 1 beat exactly (sr*60/bpm == 1), keeping
     // the wav tiny while the beats math stays exact and easy to assert on.
     app.session.project.tempo_bpm = @as(f64, @floatFromInt(app.session.project.sample_rate)) * 60.0;

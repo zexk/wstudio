@@ -79,10 +79,7 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "vol",         .desc = "[<dB>]  master volume (alias for :volume)", .run = wrap(cmdVol) },
     .{ .name = "seek",        .desc = "<bar>  move playhead to bar",         .run = wrap(cmdSeek) },
     .{ .name = "pad-rename",  .desc = "<1-64> <name>  rename a loaded drum pad (up to 8 chars)", .run = wrap(cmdPadRename), .scope = .drum },
-    .{ .name = "load-sample", .desc = "[file]  load WAV into the cursor pad (drum track) or the sampler (sampler track); omit the file to browse", .run = wrap(cmdLoadSample) },
-    .{ .name = "load-clip",   .desc = "[file]  load a WAV as a whole audio clip and stamp it at the arrangement cursor (sampler track, omit the file to browse)", .run = wrap(cmdLoadClip), .scope = .sampler },
-    .{ .name = "load-slice",  .desc = "[file]  load a WAV as the slicer's shared clip (omit the file to browse)", .run = wrap(cmdLoadSlice), .scope = .slicer },
-    .{ .name = "load-wavetable", .desc = "[file]  load a WAV as a wavetable into the oscillator under the synth editor's cursor (defaults to OSC A elsewhere; omit the file to browse)", .run = wrap(cmdLoadWavetable), .scope = .synth },
+    .{ .name = "load",        .desc = "[file]  load the WAV type for the current view and selected instrument; omit the file to browse", .run = wrap(cmdLoad) },
     .{ .name = "slice",       .desc = "<n>  equal-divide the slicer's loaded clip into n slices (1-64)", .run = wrap(cmdSlice), .scope = .slicer },
     .{ .name = "chop",        .desc = "[1-9]  chop the slicer's clip at detected transients (sensitivity, default 5)", .run = wrap(cmdChop), .scope = .slicer },
     .{ .name = "edit",        .desc = "[file]  open a project (refuses if unsaved changes; omit the file to browse)", .run = wrap(cmdEdit) },
@@ -710,7 +707,7 @@ fn cmdPadRename(app: *App, args: []const u8) void {
         return;
     };
     if (dm.pads[pad_idx] == null) {
-        app.setStatus("pad-rename: pad {d} is empty - :load-sample it first", .{pad_num});
+        app.setStatus("pad-rename: pad {d} is empty - :load it first", .{pad_num});
         return;
     }
     dm.pads[pad_idx].?.rename(name);
@@ -718,7 +715,7 @@ fn cmdPadRename(app: *App, args: []const u8) void {
     app.setStatus("pad {d} renamed: {s}", .{ pad_num, dm.pads[pad_idx].?.clipName() });
 }
 
-/// Shared by `:load-sample`'s drum-track branch and the file browser's
+/// Shared by `:load`'s drum-track branch and the file browser's
 /// pad-load purpose (the browser hands over an already-resolved path - no
 /// `~` to expand).
 pub fn loadPadFromPath(app: *App, pad_idx: u8, path: []const u8) void {
@@ -728,18 +725,18 @@ pub fn loadPadFromPath(app: *App, pad_idx: u8, path: []const u8) void {
         app.allocator,
         .limited(64 * 1024 * 1024),
     ) catch |e| {
-        app.setStatus("load-sample: cannot read '{s}': {s}", .{ path, @errorName(e) });
+        app.setStatus("load: cannot read '{s}': {s}", .{ path, @errorName(e) });
         return;
     };
     defer app.allocator.free(data);
     const dm = cursorDrumMachine(app) orelse {
-        app.setStatus("load-sample: select a drum-machine track first", .{});
+        app.setStatus("load: select a drum-machine track first", .{});
         return;
     };
     const basename = std.fs.path.basename(path);
     const stem = if (std.mem.lastIndexOf(u8, basename, ".")) |dot| basename[0..dot] else basename;
     dm.loadPadWav(pad_idx, data, stem) catch |e| {
-        app.setStatus("load-sample: parse error: {s}", .{@errorName(e)});
+        app.setStatus("load: parse error: {s}", .{@errorName(e)});
         return;
     };
     dm.pads[pad_idx].?.pad.user_sample = true; // loadPadWav above materialized it
@@ -967,10 +964,27 @@ fn cmdDrumKitSave(app: *App, args: []const u8) void {
     app.setStatus("saved drum kit: {s}", .{name});
 }
 
-/// Generic sample loader: targets the cursor pad on a drum-machine track,
-/// or the single Sampler on a sampler track. Which one applies is decided
-/// by `cursorDrumMachine`/`cursorSampler` (drum wins on the rare case where
-/// somehow both matched), same precedence `activeScope` already uses.
+/// Load the kind of audio represented by the current view. Arrangement is
+/// the one special case within an instrument scope: a sampler WAV becomes a
+/// stamped whole clip there, while it replaces the playable sample elsewhere.
+fn cmdLoad(app: *App, args: []const u8) void {
+    switch (app.view) {
+        .arrangement => return cmdLoadClip(app, args),
+        .synth_editor => return cmdLoadWavetable(app, args),
+        .slicer_grid => return cmdLoadSlice(app, args),
+        else => {},
+    }
+    switch (activeScope(app)) {
+        .drum, .sampler => cmdLoadSample(app, args),
+        .synth => cmdLoadWavetable(app, args),
+        .slicer => cmdLoadSlice(app, args),
+        .any => app.setStatus("load: select an instrument track first", .{}),
+    }
+}
+
+/// Sample loading targets the cursor pad on a drum-machine track or the
+/// single Sampler on a sampler track. Drum wins if both somehow match, the
+/// same precedence `activeScope` uses.
 fn cmdLoadSample(app: *App, args: []const u8) void {
     const trimmed = std.mem.trim(u8, args, " ");
     if (cursorDrumMachine(app) != null) {
@@ -984,7 +998,7 @@ fn cmdLoadSample(app: *App, args: []const u8) void {
         return;
     }
     if (cursorSampler(app) == null) {
-        app.setStatus("load-sample: select a drum-machine or sampler track first", .{});
+        app.setStatus("load: select a drum-machine or sampler track first", .{});
         return;
     }
     if (trimmed.len == 0) {
@@ -995,12 +1009,12 @@ fn cmdLoadSample(app: *App, args: []const u8) void {
     loadSampleFromPath(app, expandHome(&path_buf, trimmed));
 }
 
-/// Shared by `:load-sample <file>` and the file browser's sample-load
+/// Shared by `:load <file>` and the file browser's sample-load
 /// purpose (the browser hands over an already-resolved path - no `~` to
 /// expand).
 pub fn loadSampleFromPath(app: *App, path: []const u8) void {
     const s = cursorSampler(app) orelse {
-        app.setStatus("load-sample: select a sampler track first", .{});
+        app.setStatus("load: select a sampler track first", .{});
         return;
     };
     const data = std.Io.Dir.cwd().readFileAlloc(
@@ -1009,14 +1023,14 @@ pub fn loadSampleFromPath(app: *App, path: []const u8) void {
         app.allocator,
         .limited(64 * 1024 * 1024),
     ) catch |e| {
-        app.setStatus("load-sample: cannot read '{s}': {s}", .{ path, @errorName(e) });
+        app.setStatus("load: cannot read '{s}': {s}", .{ path, @errorName(e) });
         return;
     };
     defer app.allocator.free(data);
     const basename = std.fs.path.basename(path);
     const stem = if (std.mem.lastIndexOf(u8, basename, ".")) |dot| basename[0..dot] else basename;
     s.loadWav(data, stem) catch |e| {
-        app.setStatus("load-sample: parse error: {s}", .{@errorName(e)});
+        app.setStatus("load: parse error: {s}", .{@errorName(e)});
         return;
     };
     s.pad.user_sample = true;
@@ -1029,11 +1043,11 @@ pub fn loadSampleFromPath(app: *App, path: []const u8) void {
     }
 }
 
-/// Which oscillator slot `:load-wavetable` targets when invoked from inside
+/// Which oscillator slot `:load` targets when invoked from inside
 /// the synth editor: whichever section `app.synth_cursor` currently sits in
 /// (the WAVETABLE section's own three rows included). Any other view (or an
 /// unrecognized id) falls back to OSC A - the single-target convention
-/// `:load-sample`/`:load-clip` already use for instruments with only one
+/// `:load` already uses for instruments with only one
 /// possible destination.
 fn oscSlotForCursor(id: u8) ws.dsp.PolySynth.OscSlot {
     return switch (id) {
@@ -1045,7 +1059,7 @@ fn oscSlotForCursor(id: u8) ws.dsp.PolySynth.OscSlot {
 
 fn cmdLoadWavetable(app: *App, args: []const u8) void {
     if (cursorSynth(app) == null) {
-        app.setStatus("load-wavetable: select a synth track first", .{});
+        app.setStatus("load: select a synth track first", .{});
         return;
     }
     const slot = if (app.view == .synth_editor)
@@ -1061,12 +1075,12 @@ fn cmdLoadWavetable(app: *App, args: []const u8) void {
     loadWavetableFromPath(app, slot, expandHome(&path_buf, trimmed));
 }
 
-/// Shared by `:load-wavetable <file>` and the file browser's wavetable-load
+/// Shared by `:load <file>` and the file browser's wavetable-load
 /// purpose (the browser hands over an already-resolved path - no `~` to
 /// expand).
 pub fn loadWavetableFromPath(app: *App, slot: ws.dsp.PolySynth.OscSlot, path: []const u8) void {
     const s = cursorSynth(app) orelse {
-        app.setStatus("load-wavetable: select a synth track first", .{});
+        app.setStatus("load: select a synth track first", .{});
         return;
     };
     const data = std.Io.Dir.cwd().readFileAlloc(
@@ -1075,12 +1089,12 @@ pub fn loadWavetableFromPath(app: *App, slot: ws.dsp.PolySynth.OscSlot, path: []
         app.allocator,
         .limited(64 * 1024 * 1024),
     ) catch |e| {
-        app.setStatus("load-wavetable: cannot read '{s}': {s}", .{ path, @errorName(e) });
+        app.setStatus("load: cannot read '{s}': {s}", .{ path, @errorName(e) });
         return;
     };
     defer app.allocator.free(data);
     s.loadWavetable(slot, data) catch |e| {
-        app.setStatus("load-wavetable: parse error: {s}", .{@errorName(e)});
+        app.setStatus("load: parse error: {s}", .{@errorName(e)});
         return;
     };
     app.dirty = true;
@@ -1091,7 +1105,7 @@ fn cmdLoadClip(app: *App, args: []const u8) void {
     const trimmed = std.mem.trim(u8, args, " ");
     if (trimmed.len == 0) {
         if (cursorSampler(app) == null) {
-            app.setStatus("load-clip: select a sampler track first", .{});
+            app.setStatus("load: select a sampler track first", .{});
             return;
         }
         app.openBrowser(.load_clip);
@@ -1101,7 +1115,7 @@ fn cmdLoadClip(app: *App, args: []const u8) void {
     loadClipFromPath(app, expandHome(&path_buf, trimmed));
 }
 
-/// Shared by `:load-clip <file>` and the file browser's clip-load purpose.
+/// Shared by `:load <file>` and the file browser's clip-load purpose.
 /// "Audio clips" reuse the standalone Sampler + PatternPlayer wholesale
 /// rather than a bespoke instrument: load the WAV, replace the track's live
 /// pattern with one whole-clip note (Sampler ignores note-off, so the note
@@ -1112,7 +1126,7 @@ fn cmdLoadClip(app: *App, args: []const u8) void {
 pub fn loadClipFromPath(app: *App, path: []const u8) void {
     const track = app.cursor;
     const s = cursorSampler(app) orelse {
-        app.setStatus("load-clip: select a sampler track first", .{});
+        app.setStatus("load: select a sampler track first", .{});
         return;
     };
     const data = std.Io.Dir.cwd().readFileAlloc(
@@ -1121,14 +1135,14 @@ pub fn loadClipFromPath(app: *App, path: []const u8) void {
         app.allocator,
         .limited(64 * 1024 * 1024),
     ) catch |e| {
-        app.setStatus("load-clip: cannot read '{s}': {s}", .{ path, @errorName(e) });
+        app.setStatus("load: cannot read '{s}': {s}", .{ path, @errorName(e) });
         return;
     };
     defer app.allocator.free(data);
     const basename = std.fs.path.basename(path);
     const stem = if (std.mem.lastIndexOf(u8, basename, ".")) |dot| basename[0..dot] else basename;
     s.loadWav(data, stem) catch |e| {
-        app.setStatus("load-clip: parse error: {s}", .{@errorName(e)});
+        app.setStatus("load: parse error: {s}", .{@errorName(e)});
         return;
     };
     s.pad.user_sample = true;
@@ -1142,7 +1156,7 @@ pub fn loadClipFromPath(app: *App, path: []const u8) void {
 
     history.push(app, history.captureLane(app, @intCast(track)));
     app.session.stampClipAtTick(track, app.arr_cursor_bar * app.arr_grid.ticks()) catch {
-        app.setStatus("load-clip: stamp failed (out of memory)", .{});
+        app.setStatus("load: stamp failed (out of memory)", .{});
         return;
     };
     if (app.session.song_mode) app.session.rebuildSongData();
@@ -1155,7 +1169,7 @@ fn cmdLoadSlice(app: *App, args: []const u8) void {
     const trimmed = std.mem.trim(u8, args, " ");
     if (trimmed.len == 0) {
         if (cursorSlicer(app) == null) {
-            app.setStatus("load-slice: select a slicer track first", .{});
+            app.setStatus("load: select a slicer track first", .{});
             return;
         }
         app.openBrowser(.load_slice);
@@ -1165,7 +1179,7 @@ fn cmdLoadSlice(app: *App, args: []const u8) void {
     loadSliceFromPath(app, expandHome(&path_buf, trimmed));
 }
 
-/// Shared by `:load-slice <file>` and the file browser's slice-load purpose.
+/// Shared by `:load <file>` and the file browser's slice-load purpose.
 /// `reset_slices = true` - an interactively-loaded clip's old slice
 /// boundaries (fractions of the PREVIOUS clip's length) are meaningless
 /// against new audio, so this always re-chops with a fresh `:slice`
@@ -1173,7 +1187,7 @@ fn cmdLoadSlice(app: *App, args: []const u8) void {
 /// the saved boundaries - see `Slicer.loadWav`'s own doc comment).
 pub fn loadSliceFromPath(app: *App, path: []const u8) void {
     const sl = cursorSlicer(app) orelse {
-        app.setStatus("load-slice: select a slicer track first", .{});
+        app.setStatus("load: select a slicer track first", .{});
         return;
     };
     const data = std.Io.Dir.cwd().readFileAlloc(
@@ -1182,14 +1196,14 @@ pub fn loadSliceFromPath(app: *App, path: []const u8) void {
         app.allocator,
         .limited(64 * 1024 * 1024),
     ) catch |e| {
-        app.setStatus("load-slice: cannot read '{s}': {s}", .{ path, @errorName(e) });
+        app.setStatus("load: cannot read '{s}': {s}", .{ path, @errorName(e) });
         return;
     };
     defer app.allocator.free(data);
     const basename = std.fs.path.basename(path);
     const stem = if (std.mem.lastIndexOf(u8, basename, ".")) |dot| basename[0..dot] else basename;
     sl.loadWav(data, stem, true) catch |e| {
-        app.setStatus("load-slice: parse error: {s}", .{@errorName(e)});
+        app.setStatus("load: parse error: {s}", .{@errorName(e)});
         return;
     };
     app.dirty = true;
@@ -1866,7 +1880,7 @@ test ":drum-kit regenerates the cursor drum machine's pads" {
     try std.testing.expect(std.mem.indexOf(u8, status, "analog") != null);
 }
 
-test ":load-sample reports the expanded path on a missing file (drum track)" {
+test ":load reports the expanded path on a missing file (drum track)" {
     var app = try App.init(std.testing.allocator, std.testing.io);
     defer app.deinit();
     try app.session.setInstrument(0, .drum_machine);
@@ -1874,7 +1888,7 @@ test ":load-sample reports the expanded path on a missing file (drum track)" {
     const home = std.mem.sliceTo(home_c, 0);
 
     var cmd_buf: [80]u8 = undefined;
-    const cmd = try std.fmt.bufPrint(&cmd_buf, ":load-sample ~/__wstudio_missing__.wav", .{});
+    const cmd = try std.fmt.bufPrint(&cmd_buf, ":load ~/__wstudio_missing__.wav", .{});
     for (cmd) |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.enter, 0);
     const status = app.status_buf[0..app.status_len];

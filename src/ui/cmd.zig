@@ -238,27 +238,27 @@ test "suggestionCount/writeSuggestionBox skip alias entries" {
 
 const scoped_test_cmds: []const Def = &.{
     // zig fmt: off
-    .{ .name = "bpm",       .desc = "tempo",    .run = undefined },
-    .{ .name = "load-pad",  .desc = "load pad", .run = undefined, .scope = .drum },
+    .{ .name = "bpm",       .desc = "tempo",      .run = undefined },
+    .{ .name = "drum-kit",  .desc = "choose kit", .run = undefined, .scope = .drum },
     // zig fmt: on
-    .{ .name = "load-sample", .desc = "load sample", .run = undefined, .scope = .sampler },
+    .{ .name = "synth-preset", .desc = "choose preset", .run = undefined, .scope = .synth },
 };
 
 test "suggestionCount/writeSuggestionBox hide out-of-scope commands" {
     // "bpm" is unscoped - visible under any active scope, including .any
     // (e.g. the cursor sitting on an empty track).
     try std.testing.expectEqual(@as(usize, 1), suggestionCount(scoped_test_cmds, "b", .any));
-    // Under .any, both load-* commands are scoped out entirely.
-    try std.testing.expectEqual(@as(usize, 0), suggestionCount(scoped_test_cmds, "l", .any));
-    // Under .drum, the drum-scoped one joins; the sampler-scoped one stays hidden.
-    try std.testing.expectEqual(@as(usize, 1), suggestionCount(scoped_test_cmds, "l", .drum));
+    // Under .any, both instrument commands are scoped out entirely.
+    try std.testing.expectEqual(@as(usize, 0), suggestionCount(scoped_test_cmds, "d", .any));
+    // Under .drum, the drum-scoped one joins; the synth-scoped one stays hidden.
+    try std.testing.expectEqual(@as(usize, 1), suggestionCount(scoped_test_cmds, "d", .drum));
 
     var out: [256]u8 = undefined;
     var w: std.Io.Writer = .fixed(&out);
-    try writeSuggestionBox(&w, scoped_test_cmds, "l", .drum, 0, 10);
+    try writeSuggestionBox(&w, scoped_test_cmds, "d", .drum, 0, 10);
     const text = w.buffered();
-    try std.testing.expect(std.mem.indexOf(u8, text, "load-pad") != null);
-    try std.testing.expect(std.mem.indexOf(u8, text, "load-sample") == null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "drum-kit") != null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "synth-preset") == null);
 }
 
 test "writePrompt shows the usage hint once a space follows an exact command name" {

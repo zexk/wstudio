@@ -195,7 +195,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.taggedSection(.slicer_grid, "SLICER");
     t.key("",             "chop one loaded sample into slices, step-sequence the chops; the top");
     t.key("",             "  waveform shows every boundary - the cursor slice is highlighted");
-    t.key(":load-slice",  "[file.wav]  load a WAV as the shared clip (opens the file browser with no path)");
+    t.key(":load",        "[file.wav]  load a WAV as the shared clip (opens the file browser with no path)");
     t.key(":chop",        "[1-9]  chop at detected transients (sensitivity, default 5 - higher finds more)");
     t.key(":slice",       "<n>  equal-divide the loaded clip into n slices (1-64)");
     t.key("s / m",        "split cursor slice in half / merge it into the next (patterns follow)");
@@ -238,7 +238,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("J / K",        "jump a whole bank of 8 pads/slices (same slot, next/prev bank)");
     t.key("a",            "audition current pad/slice");
     t.key("esc / e",      "back to the grid that opened this editor (tracks view for a sampler)");
-    t.key(":load-sample", "[file.wav]  load a sample into the cursor pad or sampler track (omit the file to browse); sampler tracks auto-detect the clip's root note");
+    t.key(":load",        "[file.wav]  load a sample into the cursor pad or sampler track (omit the file to browse); sampler tracks auto-detect the clip's root note");
 
     t.taggedSection(.synth_editor, "SYNTH EDITOR");
     t.key("tab",          "cycle subview: main params / mod matrix / FX section");
@@ -299,7 +299,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("j / k",        "move between track lanes");
     t.key("enter",        "stamp the live pattern as a clip");
     t.key("e",            "edit melodic clip in the piano roll (edits save into the clip)");
-    t.key(":load-clip",   "[file.wav]  load a WAV onto a sampler track and stamp it whole at the cursor bar");
+    t.key(":load",        "[file.wav]  load a WAV onto a sampler track and stamp it whole at the cursor bar");
     t.key("[ / ]",        "cycle drum/slicer pattern variant to stamp");
     t.key("x",            "delete clip at cursor");
     t.key("y / p",        "yank / paste clip (matching track kind)");
@@ -363,7 +363,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("",             "  full Multiband unit instead when you want the crossovers or per-band control");
     t.key("- / +",        "group chain only: bus fader for the whole submix, post-FX (also :group-gain)");
 
-    t.taggedSection(.file_browser, "FILE BROWSER  (netrw-style; opens on :edit, :load-sample, :load-clip with no path)");
+    t.taggedSection(.file_browser, "FILE BROWSER  (netrw-style; opens on :edit or :load with no path)");
     t.key("j / k",        "move cursor");
     t.key("enter / l",    "open directory / pick file");
     t.key("h / backspace","up to the parent directory");
