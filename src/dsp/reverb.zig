@@ -80,6 +80,12 @@ pub const Reverb = struct {
     pub const device = dsp.deviceOf(@This());
 
     pub fn processBlock(self: *Reverb, buf: []Sample) void {
+        // room >= 1 makes each comb's own feedback loop gain >= 1, so
+        // energy grows every time a sample cycles back through its delay
+        // line instead of decaying.
+        const room = if (std.math.isFinite(self.room)) std.math.clamp(self.room, 0.0, 0.98) else 0.84;
+        const damp = if (std.math.isFinite(self.damp)) std.math.clamp(self.damp, 0.0, 1.0) else 0.25;
+        const mix = if (std.math.isFinite(self.mix)) std.math.clamp(self.mix, 0.0, 1.0) else 0.3;
         const frames = buf.len / 2;
         for (0..frames) |i| {
             inline for (0..2) |ch_i| {
@@ -90,8 +96,8 @@ pub const Reverb = struct {
                 var wet: f32 = 0.0;
                 for (&ch.combs) |*comb| {
                     const y = comb.buf[comb.idx];
-                    comb.store = y * (1.0 - self.damp) + comb.store * self.damp;
-                    comb.buf[comb.idx] = input + comb.store * self.room;
+                    comb.store = y * (1.0 - damp) + comb.store * damp;
+                    comb.buf[comb.idx] = input + comb.store * room;
                     comb.idx = (comb.idx + 1) % comb.buf.len;
                     wet += y;
                 }
@@ -102,7 +108,7 @@ pub const Reverb = struct {
                     wet = y - wet;
                 }
 
-                buf[i * 2 + ch_i] = dry * (1.0 - self.mix) + wet * self.mix;
+                buf[i * 2 + ch_i] = dry * (1.0 - mix) + wet * mix;
             }
         }
     }
@@ -126,4 +132,18 @@ test "impulse produces a decaying tail, not an explosion" {
     }
     try std.testing.expect(tail_energy > 0.0); // reverb tail exists
     try std.testing.expect(peak < 1.0); // and stays bounded
+}
+
+test "invalid parameters cannot trap or poison output" {
+    var reverb = try Reverb.init(std.testing.allocator, 48_000);
+    defer reverb.deinit(std.testing.allocator);
+    reverb.room = std.math.inf(f32);
+    reverb.damp = std.math.nan(f32);
+    reverb.mix = -std.math.inf(f32);
+
+    var buf = [_]Sample{0.0} ** (2048 * 2);
+    buf[0] = 1.0;
+    buf[1] = 1.0;
+    reverb.processBlock(&buf);
+    for (buf) |sample| try std.testing.expect(std.math.isFinite(sample));
 }
