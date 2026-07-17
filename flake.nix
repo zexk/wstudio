@@ -83,8 +83,10 @@
           ];
           postConfigure = ''ln -s ${finalAttrs.zigDeps} "$ZIG_GLOBAL_CACHE_DIR/p"'';
           # GLFW loads every platform library at runtime with dlopen (X11,
-          # Wayland, and GL alike), so nothing below shows up as DT_NEEDED
-          # and autoPatchelf can't help; put them on the binary's rpath.
+          # Wayland, and GL alike), and the PipeWire/JACK audio backends
+          # dlopen their libraries the same way, so nothing below shows up
+          # as DT_NEEDED and autoPatchelf can't help; put them on the
+          # binary's rpath.
           postFixup = pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
             patchelf --add-rpath ${
               pkgs.lib.makeLibraryPath [
@@ -97,6 +99,8 @@
                 pkgs.wayland
                 pkgs.libxkbcommon
                 pkgs.libdecor
+                pkgs.pipewire
+                pkgs.libjack2
               ]
             } $out/bin/wstudio
           '';

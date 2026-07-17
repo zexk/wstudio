@@ -34,9 +34,11 @@ backups are recommended while the format continues to evolve. `wstudio` opens
 a TUI with a single blank
 track; press `enter` to pick an instrument (synth, sampler, or drum
 machine) and a per-track FX rack. Vim-style modal control drives it,
-with live keyboard playing through ALSA on Linux (PipeWire/PulseAudio
-serve its `default` device, so any desktop works) or WASAPI on Windows;
-a silent wall-clock backend takes over when no device exists. Terminals
+with live keyboard playing through PipeWire, JACK, or ALSA on Linux
+(tried in that order; PipeWire and JACK are loaded at runtime, so any
+desktop works) or WASAPI on Windows; a silent wall-clock backend takes
+over when no device exists, and `wstudio.o.audio_backend` in init.lua
+forces a specific one. Terminals
 smaller than 80x14 get a resize notice instead of a layout.
 
 - `wstudio`: new, empty session (one blank track)
@@ -119,6 +121,9 @@ src/
     │                   mixing, metering, atomic UI snapshots
     ├── backend.zig     backend interface, offline renderer,
     │                   real-time-paced null backend
+    ├── host.zig        backend selection shared by both frontends
+    ├── pipewire.zig    PipeWire playback backend (dlopened, RT stream)
+    ├── jack.zig        JACK playback backend (dlopened, callback-driven)
     ├── alsa.zig        ALSA playback backend (device-clock paced)
     ├── wasapi.zig      WASAPI playback backend (Windows, event-driven)
     └── midi_in.zig     ALSA sequencer MIDI input (virtual port)
