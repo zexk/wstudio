@@ -57,9 +57,11 @@ pub const Project = struct {
 
     /// Frames in one bar at the current tempo and time signature.
     pub fn framesPerBar(self: *const Project) u64 {
-        const sr = @as(f64, @floatFromInt(self.sample_rate));
-        const bpm = @max(self.tempo_bpm, 1.0);
-        return @intFromFloat(sr * 60.0 / bpm * @as(f64, @floatFromInt(self.beats_per_bar)));
+        const sr = @as(f64, @floatFromInt(@max(self.sample_rate, 1)));
+        const bpm = if (std.math.isFinite(self.tempo_bpm) and self.tempo_bpm > 0.0) self.tempo_bpm else 120.0;
+        const beats_per_bar = @max(self.beats_per_bar, 1);
+        const frames: u64 = @intFromFloat(sr * 60.0 / bpm * @as(f64, @floatFromInt(beats_per_bar)));
+        return @max(frames, 1);
     }
 
     pub fn deinit(self: *Project) void {
@@ -137,4 +139,12 @@ test "rename track" {
     _ = try p.addTrack(.{ .name = "old" });
     try p.renameTrack(0, "new");
     try std.testing.expectEqualStrings("new", p.tracks.items[0].name);
+}
+
+test "framesPerBar remains valid with invalid timing fields" {
+    var p = Project.init(std.testing.allocator);
+    p.sample_rate = 0;
+    p.tempo_bpm = std.math.nan(f64);
+    p.beats_per_bar = 0;
+    try std.testing.expectEqual(@as(u64, 1), p.framesPerBar());
 }
