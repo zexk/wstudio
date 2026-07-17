@@ -30,6 +30,10 @@ const automation_mod = @import("dsp/automation.zig");
 const AutomationPoint = automation_mod.AutomationPoint;
 const time_grid = @import("time_grid.zig");
 
+fn loopFrame(bar: u32, frames_per_bar: u64) u64 {
+    return @as(u64, bar) *| frames_per_bar;
+}
+
 pub const Session = struct {
     allocator: std.mem.Allocator,
     project: Project,
@@ -767,8 +771,8 @@ pub const Session = struct {
         _ = self.engine.send(.{ .set_loop = .{
             .enabled = self.project.loop_enabled and
                 self.project.loop_end_bar > self.project.loop_start_bar,
-            .start_frames = @as(u64, self.project.loop_start_bar) * fpb,
-            .end_frames = @as(u64, self.project.loop_end_bar) * fpb,
+            .start_frames = loopFrame(self.project.loop_start_bar, fpb),
+            .end_frames = loopFrame(self.project.loop_end_bar, fpb),
         } });
     }
 
@@ -959,6 +963,11 @@ pub const Session = struct {
         self.project.deinit();
     }
 };
+
+test "loop frame conversion saturates at the transport limit" {
+    try std.testing.expectEqual(@as(u64, 48_000), loopFrame(2, 24_000));
+    try std.testing.expectEqual(std.math.maxInt(u64), loopFrame(std.math.maxInt(u32), std.math.maxInt(u64)));
+}
 
 test "initDefault builds one blank track" {
     var s = try Session.initDefault(std.testing.allocator);
