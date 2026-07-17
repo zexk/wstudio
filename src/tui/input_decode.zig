@@ -36,9 +36,17 @@ pub const StreamDecoder = struct {
             end = final + 1;
         }
 
-        // An isolated escape is only distinguishable from the start of a
-        // split sequence after one poll returns no further bytes.
-        if (bytes.len == 0 and self.pending_len == 1 and self.pending[0] == 0x1b) end = 1;
+        // An escape prefix is only distinguishable from a split sequence
+        // after one poll returns no further bytes. On timeout, emit Escape
+        // and decode the remaining bytes literally so a truncated CSI cannot
+        // swallow the next real key indefinitely.
+        if (bytes.len == 0 and self.pending_len > 0 and self.pending[0] == 0x1b and end == 0) {
+            if (out.len == 0) return 0;
+            out[0] = .escape;
+            const tail_count = decode(self.pending[1..self.pending_len], out[1..]);
+            self.pending_len = 0;
+            return tail_count + 1;
+        }
 
         const count = decode(self.pending[0..end], out);
         std.mem.copyForwards(u8, self.pending[0 .. self.pending_len - end], self.pending[end..self.pending_len]);
@@ -249,6 +257,18 @@ test "stream decoder defers a lone escape for one poll" {
     try std.testing.expectEqual(@as(usize, 0), decoder.feed("\x1b", &keys));
     try std.testing.expectEqual(@as(usize, 1), decoder.feed("", &keys));
     try std.testing.expectEqual(Key.escape, keys[0]);
+}
+
+test "stream decoder times out a truncated CSI without swallowing later keys" {
+    var decoder: StreamDecoder = .{};
+    var keys: [4]Key = undefined;
+    try std.testing.expectEqual(@as(usize, 0), decoder.feed("\x1b[", &keys));
+    try std.testing.expectEqual(@as(usize, 2), decoder.feed("", &keys));
+    try std.testing.expectEqual(Key.escape, keys[0]);
+    try std.testing.expectEqual(Key{ .char = '[' }, keys[1]);
+
+    try std.testing.expectEqual(@as(usize, 1), decoder.feed("a", &keys));
+    try std.testing.expectEqual(Key{ .char = 'a' }, keys[0]);
 }
 
 test "decode Home/End CSI sequences" {
