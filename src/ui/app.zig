@@ -1,7 +1,7 @@
 //! The frontend-agnostic application core: view/modal state, key and mouse
 //! dispatch, track add/delete, session lifecycle, and the Lua host hooks.
 //! Both frontends embed this App - the TUI's terminal loop and frame
-//! rendering live in tui/main.zig, the GUI's in gui/main.zig. Per-view
+//! rendering live in tui/main.zig, the GUI's in gui/gui.zig. Per-view
 //! input is in editors/<name>.zig, undo glue in history.zig, the
 //! `:command` layer in commands.zig, and the integration tests in
 //! tui/app_tests.zig.
@@ -874,7 +874,7 @@ pub const App = struct {
     /// autocmds that want to redo their own setup after one. Frontend-only
     /// side effects (GUI theme repaint, TUI OSC palette, the frame-loop's
     /// own `user_config` copy) are `run()`'s job, not this one's - see
-    /// tui/main.zig and gui/main.zig's `pending_config_reload` handling.
+    /// tui/main.zig and gui/gui.zig's `pending_config_reload` handling.
     pub fn afterConfigReload(self: *App, user_config: config_mod.Config) void {
         self.rebuildCmdTable();
         self.applyUserConfig(user_config, false);

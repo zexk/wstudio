@@ -78,7 +78,7 @@ fn runPreferred(init: std.process.Init, path: ?[]const u8) !void {
 fn startFrontend(init: std.process.Init, frontend: config_mod.Frontend, path: ?[]const u8, runtime: *config_mod.Runtime) !void {
     switch (frontend) {
         .gui => if (build_options.gui) {
-            return @import("gui/main.zig").run(init, path, runtime);
+            return @import("gui/gui.zig").run(init, path, runtime);
         } else unreachable,
         .tui => if (build_options.tui) {
             const init_path: ?[]u8 = if (path) |p| try dupeInitPath(init.gpa, p) else null;
