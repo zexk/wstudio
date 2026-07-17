@@ -87,7 +87,10 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
     configureFonts(user_config.gui_font_size);
     zgui.plot.init();
     defer zgui.plot.deinit();
-    zgui.io.setConfigFlags(.{ .nav_enable_keyboard = true });
+    // Keyboard nav is deliberately left off: ImGui's arrow-key widget
+    // highlighting steals the same keys the modal editors bind for
+    // cursor movement (h/j/k/l and the arrows), so leaving it on made
+    // buttons light up instead of moving the app cursor.
     zgui.io.setIniFilename(null);
     gui_style.selectPalette(user_config.gui_theme);
     gui_style.setTheme();
