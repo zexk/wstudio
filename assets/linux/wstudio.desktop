@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=wstudio
+GenericName=Digital Audio Workstation
+Comment=Keyboard-centric DAW with synths, samplers, a drum machine, and a full effects rack
+Exec=wstudio --gui %f
+TryExec=wstudio
+Icon=wstudio
+Terminal=false
+Categories=AudioVideo;Audio;Music;
+Keywords=DAW;audio;music;synth;sampler;sequencer;vim;

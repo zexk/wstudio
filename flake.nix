@@ -71,6 +71,7 @@
           nativeBuildInputs = [
             pkgs.zig.hook
             pkgs.pkg-config
+            pkgs.installShellFiles
           ];
           buildInputs = pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [
             pkgs.alsa-lib
@@ -82,6 +83,19 @@
             pkgs.libxrandr
           ];
           postConfigure = ''ln -s ${finalAttrs.zigDeps} "$ZIG_GLOBAL_CACHE_DIR/p"'';
+          postInstall =
+            ''
+              installManPage docs/wstudio.1
+            ''
+            + pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
+              install -Dm444 assets/linux/wstudio.desktop \
+                "$out/share/applications/wstudio.desktop"
+              for size in 16 22 24 32 48 64 128 256 512; do
+                install -Dm444 "assets/icon/hicolor/''${size}x''${size}/apps/wstudio.png" \
+                  "$out/share/icons/hicolor/''${size}x''${size}/apps/wstudio.png"
+              done
+              install -Dm444 assets/icon/wstudio.png "$out/share/pixmaps/wstudio.png"
+            '';
           # GLFW loads every platform library at runtime with dlopen (X11,
           # Wayland, and GL alike), and the PipeWire/JACK audio backends
           # dlopen their libraries the same way, so nothing below shows up

@@ -1,0 +1,104 @@
+.TH WSTUDIO 1 "2026-07-18" "wstudio 1.0.0-beta.1" "User Commands"
+.SH NAME
+wstudio \- keyboard-centric digital audio workstation
+.SH SYNOPSIS
+.B wstudio
+.RI [ path ]
+.br
+.B wstudio
+.B \-\-tui
+.RI [ path ]
+.br
+.B wstudio
+.B \-\-gui
+.RI [ path ]
+.br
+.B wstudio
+.B render
+.br
+.B wstudio
+.RB { \-v | \-\-version }
+.br
+.B wstudio
+.RB { \-h | \-\-help }
+.SH DESCRIPTION
+.B wstudio
+is a digital audio workstation for the terminal and as a native GUI.
+It borrows vim's modal editing model instead of a mouse-first workflow:
+.B normal
+mode navigates the project and drives the transport,
+.B insert
+turns the keyboard into a piano,
+.B visual
+selects and yanks ranges, and
+.B command
+mode runs
+.B :
+commands. It ships with synths, samplers, a drum machine, a
+sample-chopping slicer, and a full effects rack (gate, compression, EQ,
+saturation, bitcrush, chorus, phaser, delay, reverb) built in.
+.PP
+With no arguments,
+.B wstudio
+launches on a blank project using the frontend selected by
+.I wstudio.o.preferred_frontend
+in the user's Lua configuration (default: the terminal frontend). Pass a
+path to a
+.I .wsj
+project file to open it instead of starting blank.
+.SH OPTIONS
+.TP
+.RI [ path ]
+Open the given
+.I .wsj
+project file instead of starting on a blank project.
+.TP
+.B \-\-tui
+Force the terminal frontend for this run, overriding
+.IR wstudio.o.preferred_frontend .
+Errors if the terminal frontend was disabled at build time.
+.TP
+.B \-\-gui
+Force the native GUI frontend for this run, overriding
+.IR wstudio.o.preferred_frontend .
+Errors if the GUI frontend was disabled at build time.
+.TP
+.B render
+Render a built-in demo melody through a synth, compressor, delay, and
+reverb to
+.I out.wav
+in the current directory, then exit. Does not open a frontend; useful for
+sanity-checking the audio pipeline.
+.TP
+.BR \-v ", " \-\-version
+Print the version and exit.
+.TP
+.BR \-h ", " \-\-help
+Print usage and exit.
+.SH CONFIGURATION
+.B wstudio
+is scripted with Lua: options, keymaps, custom
+.B :
+commands, and autocmds. On first run it writes a fully documented
+template to the user configuration file below. A broken configuration is
+reported but never blocks startup.
+.SH FILES
+.TP
+.I $XDG_CONFIG_HOME/wstudio/init.lua
+.RI ( ~/.config/wstudio/init.lua " when " XDG_CONFIG_HOME " is unset)
+Per-user Lua configuration, generated on first run if missing.
+.TP
+.I /etc/xdg/wstudio/init.lua
+Optional system-wide Lua configuration, read before the user
+configuration. On NixOS this is written by the
+.I programs.wstudio
+module.
+.TP
+.I *.wsj
+wstudio project files, passed as the optional
+.I path
+argument.
+.SH SEE ALSO
+The Lua configuration API and file format history ship with the source
+distribution under
+.IR docs/lua-api.md " and " FORMAT.md .

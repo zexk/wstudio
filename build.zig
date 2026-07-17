@@ -38,6 +38,11 @@ pub fn build(b: *std.Build) void {
         wstudio_mod.addCMacro("_FORTIFY_SOURCE", "0");
     }
 
+    const win32_icon: ?std.Build.Module.RcSourceFile = if (target.result.os.tag == .windows)
+        .{ .file = b.path("assets/icon/wstudio.rc") }
+    else
+        null;
+
     const exe = b.addExecutable(.{
         .name = "wstudio",
         .root_module = b.createModule(.{
@@ -53,6 +58,7 @@ pub fn build(b: *std.Build) void {
     });
     exe.root_module.addIncludePath(lua_dep.path("src/"));
     exe.root_module.linkLibrary(lua);
+    if (win32_icon) |icon| exe.root_module.addWin32ResourceFile(icon);
     // The frontend's own module reaches OS-specific code too (the terminal
     // backend, tui/terminal_windows.zig on Windows) via tui/app.zig - not
     // through the wstudio import - so it needs the same linking/macros.
