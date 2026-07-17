@@ -7,6 +7,10 @@ const widgets = @import("../widgets.zig");
 
 const patina = &style.palette;
 
+/// Which region edge a waveform drag is currently moving. Lives on the GUI
+/// App so it survives across frames while the mouse button is held.
+pub const RegionHandle = enum { start, end };
+
 pub fn draw(app: anytype) void {
     switch (app.core.sampler_target) {
         .sampler => drawStandalone(app),
@@ -93,14 +97,14 @@ fn drawStandalone(app: anytype) void {
     };
     drawHeader(app, sampler);
     zgui.spacing();
+    const target: Target = .{ .standalone = .{ .sampler = sampler, .track = track } };
     widgets.sectionTitle("SAMPLE WAVEFORM", patina.audio);
     if (sampler.pad_lock.tryLock()) {
         defer sampler.pad_lock.unlock();
-        widgets.waveform("##sampler-wave", sampler.pad.samples);
+        drawWaveformRegion(app, target, sampler.pad.samples);
     }
     zgui.spacing();
 
-    const target: Target = .{ .standalone = .{ .sampler = sampler, .track = track } };
     drawSharedSections(app, target);
     widgets.sectionTitle("KEY", patina.rhythm);
     drawParam(app, target, 10, "Root note", "%.0f");
@@ -137,12 +141,12 @@ fn drawPadTarget(app: anytype, track: u16, kind: PadTargetKind) void {
 
     drawPadHeader(app, track, kind, index);
     zgui.spacing();
+    const target: Target = .{ .pad = .{ .pad = pad, .track = track, .kind = kind, .index = index } };
     widgets.sectionTitle("PLAY REGION", patina.audio);
-    widgets.waveform("##pad-target-wave", pad.samples);
-    zgui.textDisabled("Region {d:.1}-{d:.1}% of {d} samples", .{ pad.start_norm * 100, pad.end_norm * 100, pad.samples.len });
+    drawWaveformRegion(app, target, pad.samples);
     zgui.spacing();
 
-    drawSharedSections(app, .{ .pad = .{ .pad = pad, .track = track, .kind = kind, .index = index } });
+    drawSharedSections(app, target);
 }
 
 fn drawPadHeader(app: anytype, track: u16, kind: PadTargetKind, index: u8) void {
@@ -216,4 +220,79 @@ fn drawToggle(app: anytype, target: Target, id: u8, on_label: [:0]const u8, off_
         _ = app.core.session.engine.send(.{ .set_track_param_abs = .{ .track = target.track(), .id = target.engineId(id), .value = if (active) 0 else 1 } });
     }
     zgui.popStyleColor(.{ .count = 2 });
+}
+
+// A terminal can only show region bounds as numbers; dragging the trim
+// points against the actual waveform shape is GUI-only. Start/end share
+// param ids 0/1 across every target the `Target` union covers, so one
+// drag implementation serves the standalone sampler and both pad kinds.
+fn drawWaveformRegion(app: anytype, target: Target, samples: []const f32) void {
+    if (samples.len == 0) {
+        zgui.textDisabled("No sample loaded.", .{});
+        return;
+    }
+    const start = target.value(0) orelse 0;
+    const end = target.value(1) orelse 1;
+
+    const width = zgui.getContentRegionAvail()[0];
+    const height: f32 = 150;
+    const origin = zgui.getCursorScreenPos();
+    _ = zgui.invisibleButton("##waveform-region", .{ .w = width, .h = height });
+    const hovered = zgui.isItemHovered(.{});
+    const mouse = zgui.getMousePos();
+    const draw_list = zgui.getWindowDrawList();
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = style.color(patina.bg0), .rounding = 3 });
+
+    var overview: [512]f32 = undefined;
+    const count = @min(samples.len, overview.len);
+    for (overview[0..count], 0..) |*out, i| {
+        const s = i * samples.len / count;
+        const e = @max(s + 1, (i + 1) * samples.len / count);
+        var peak: f32 = 0;
+        for (samples[s..@min(e, samples.len)]) |v| peak = @max(peak, @abs(v));
+        out.* = peak;
+    }
+    const mid_y = origin[1] + height / 2;
+    const start_x = origin[0] + start * width;
+    const end_x = origin[0] + end * width;
+    for (overview[0..count], 0..) |peak, i| {
+        const x = origin[0] + width * @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(count));
+        const h = @max(1, peak * height / 2 * 0.94);
+        const in_region = x >= start_x - 0.5 and x <= end_x + 0.5;
+        const line_color = if (in_region) patina.audio else [4]f32{ patina.fg3[0], patina.fg3[1], patina.fg3[2], 0.55 };
+        draw_list.addLine(.{ .p1 = .{ x, mid_y - h }, .p2 = .{ x, mid_y + h }, .col = style.color(line_color), .thickness = 1 });
+    }
+    draw_list.addLine(.{ .p1 = .{ origin[0], mid_y }, .p2 = .{ origin[0] + width, mid_y }, .col = style.color(patina.line), .thickness = 1 });
+
+    if (start > 0) draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ start_x, origin[1] + height }, .col = style.color(.{ patina.bg0[0], patina.bg0[1], patina.bg0[2], 0.6 }) });
+    if (end < 1) draw_list.addRectFilled(.{ .pmin = .{ end_x, origin[1] }, .pmax = .{ origin[0] + width, origin[1] + height }, .col = style.color(.{ patina.bg0[0], patina.bg0[1], patina.bg0[2], 0.6 }) });
+
+    drawRegionHandle(draw_list, start_x, origin[1], height, patina.focus, app.waveform_drag == .start);
+    drawRegionHandle(draw_list, end_x, origin[1], height, patina.rhythm, app.waveform_drag == .end);
+
+    const near_handle = hovered and (@abs(mouse[0] - start_x) <= 8 or @abs(mouse[0] - end_x) <= 8);
+    if (hovered and zgui.isMouseClicked(.left) and near_handle) {
+        app.waveform_drag = if (@abs(mouse[0] - start_x) <= @abs(mouse[0] - end_x)) .start else .end;
+    }
+    if (app.waveform_drag) |handle| {
+        if (zgui.isMouseDown(.left)) {
+            const norm = std.math.clamp((mouse[0] - origin[0]) / width, 0, 1);
+            const id: u8 = if (handle == .start) 0 else 1;
+            _ = app.core.session.engine.send(.{ .set_track_param_abs = .{ .track = target.track(), .id = target.engineId(id), .value = norm } });
+            app.core.sampler_param = id;
+            app.core.dirty = true;
+        } else {
+            app.waveform_drag = null;
+        }
+    } else if (near_handle) {
+        zgui.setMouseCursor(.resize_ew);
+    }
+
+    zgui.textDisabled("drag markers to trim   region {d:.1}-{d:.1}% of {d} samples", .{ start * 100, end * 100, samples.len });
+}
+
+fn drawRegionHandle(draw_list: zgui.DrawList, x: f32, top: f32, height: f32, accent: [4]f32, active: bool) void {
+    const line_color = if (active) accent else [4]f32{ accent[0], accent[1], accent[2], 0.7 };
+    draw_list.addLine(.{ .p1 = .{ x, top }, .p2 = .{ x, top + height }, .col = style.color(line_color), .thickness = if (active) 2 else 1.5 });
+    draw_list.addTriangleFilled(.{ .p1 = .{ x - 5, top }, .p2 = .{ x + 5, top }, .p3 = .{ x, top + 8 }, .col = style.color(line_color) });
 }

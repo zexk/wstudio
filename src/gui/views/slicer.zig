@@ -1,3 +1,4 @@
+const std = @import("std");
 const ws = @import("wstudio");
 const zgui = @import("zgui");
 const icons = @import("../../ui/icons.zig");
@@ -23,7 +24,7 @@ pub fn draw(app: anytype) void {
     widgets.sectionTitle("SOURCE WAVEFORM", patina.audio);
     if (slicer.sample_lock.tryLock()) {
         defer slicer.sample_lock.unlock();
-        widgets.waveform("##slicer-wave", slicer.samples);
+        drawSourceWaveform(app, slicer);
     }
     zgui.spacing();
     drawSliceState(app, slicer);
@@ -59,6 +60,72 @@ fn drawHeader(app: anytype, slicer: *const ws.dsp.Slicer) void {
     if (bank_count > 1) {
         zgui.sameLine(.{});
         zgui.textDisabled("bank {d}/{d}", .{ app.core.slicer_cursor[0] / slices_per_bank + 1, bank_count });
+    }
+}
+
+// Terminal slicer views can only list slice bounds as numbers; drawing the
+// actual waveform with every slice boundary overlaid, and letting a click
+// jump the cursor to the slice under the mouse, is GUI-only.
+fn drawSourceWaveform(app: anytype, slicer: *const ws.dsp.Slicer) void {
+    if (slicer.samples.len == 0) {
+        zgui.textDisabled("No sample loaded.", .{});
+        return;
+    }
+    const width = zgui.getContentRegionAvail()[0];
+    const height: f32 = 150;
+    const origin = zgui.getCursorScreenPos();
+    _ = zgui.invisibleButton("##slicer-source-wave", .{ .w = width, .h = height });
+    const hovered = zgui.isItemHovered(.{});
+    const mouse = zgui.getMousePos();
+    const draw_list = zgui.getWindowDrawList();
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = style.color(patina.bg0), .rounding = 3 });
+
+    var overview: [512]f32 = undefined;
+    const count = @min(slicer.samples.len, overview.len);
+    for (overview[0..count], 0..) |*out, i| {
+        const s = i * slicer.samples.len / count;
+        const e = @max(s + 1, (i + 1) * slicer.samples.len / count);
+        var peak: f32 = 0;
+        for (slicer.samples[s..@min(e, slicer.samples.len)]) |v| peak = @max(peak, @abs(v));
+        out.* = peak;
+    }
+    const mid_y = origin[1] + height / 2;
+    const selected: ?u8 = if (slicer.slice_count == 0) null else @min(app.core.slicer_cursor[0], slicer.slice_count - 1);
+
+    if (selected) |index| {
+        const slice = slicer.slices[index];
+        draw_list.addRectFilled(.{
+            .pmin = .{ origin[0] + slice.start_norm * width, origin[1] },
+            .pmax = .{ origin[0] + slice.end_norm * width, origin[1] + height },
+            .col = style.color(.{ patina.focus[0], patina.focus[1], patina.focus[2], 0.16 }),
+        });
+    }
+
+    for (overview[0..count], 0..) |peak, i| {
+        const x = origin[0] + width * @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(count));
+        const h = @max(1, peak * height / 2 * 0.94);
+        draw_list.addLine(.{ .p1 = .{ x, mid_y - h }, .p2 = .{ x, mid_y + h }, .col = style.color(patina.audio), .thickness = 1 });
+    }
+    draw_list.addLine(.{ .p1 = .{ origin[0], mid_y }, .p2 = .{ origin[0] + width, mid_y }, .col = style.color(patina.line), .thickness = 1 });
+
+    for (slicer.slices[0..slicer.slice_count], 0..) |slice, i| {
+        const active = selected != null and selected.? == i;
+        const x = origin[0] + slice.start_norm * width;
+        draw_list.addLine(.{ .p1 = .{ x, origin[1] }, .p2 = .{ x, origin[1] + height }, .col = style.color(if (active) patina.focus else patina.rhythm), .thickness = if (active) 2 else 1 });
+    }
+    if (slicer.slice_count > 0) {
+        const end_x = origin[0] + slicer.slices[slicer.slice_count - 1].end_norm * width;
+        draw_list.addLine(.{ .p1 = .{ end_x, origin[1] }, .p2 = .{ end_x, origin[1] + height }, .col = style.color(patina.rhythm), .thickness = 1 });
+    }
+
+    if (hovered and zgui.isMouseClicked(.left)) {
+        const norm = std.math.clamp((mouse[0] - origin[0]) / width, 0, 1);
+        for (slicer.slices[0..slicer.slice_count], 0..) |slice, i| {
+            if (norm >= slice.start_norm and norm < slice.end_norm) {
+                app.core.slicer_cursor[0] = @intCast(i);
+                break;
+            }
+        }
     }
 }
 

@@ -29,6 +29,9 @@ pub const App = struct {
     piano_mouse_edit: ?piano_view.MouseEdit = null,
     eq_drag_band: ?u8 = null,
     eq_analyzer_key: ?u32 = null,
+    waveform_drag: ?sampler_view.RegionHandle = null,
+    meter_hold_db: [2]f32 = .{ -100, -100 },
+    meter_last_ns: i128 = 0,
 
     pub fn init(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8, user_config: config_mod.Config) !App {
         var core = try tui_app.App.initWithSampleRate(allocator, io, user_config.default_sample_rate);
