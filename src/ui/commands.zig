@@ -715,26 +715,37 @@ fn cmdPadRename(app: *App, args: []const u8) void {
     app.setStatus("pad {d} renamed: {s}", .{ pad_num, dm.pads[pad_idx].?.clipName() });
 }
 
-/// Shared by `:load`'s drum-track branch and the file browser's
-/// pad-load purpose (the browser hands over an already-resolved path - no
-/// `~` to expand).
-pub fn loadPadFromPath(app: *App, pad_idx: u8, path: []const u8) void {
-    const data = std.Io.Dir.cwd().readFileAlloc(
+/// Reads a `:load`-family source file, setting status and returning `null`
+/// on failure. Shared by every `load*FromPath` handler below.
+fn readFileForLoad(app: *App, path: []const u8) ?[]u8 {
+    return std.Io.Dir.cwd().readFileAlloc(
         app.io,
         path,
         app.allocator,
         .limited(64 * 1024 * 1024),
     ) catch |e| {
         app.setStatus("load: cannot read '{s}': {s}", .{ path, @errorName(e) });
-        return;
+        return null;
     };
+}
+
+/// The filename minus its extension, for status messages and clip naming.
+fn stemOf(path: []const u8) []const u8 {
+    const basename = std.fs.path.basename(path);
+    return if (std.mem.lastIndexOf(u8, basename, ".")) |dot| basename[0..dot] else basename;
+}
+
+/// Shared by `:load`'s drum-track branch and the file browser's
+/// pad-load purpose (the browser hands over an already-resolved path - no
+/// `~` to expand).
+pub fn loadPadFromPath(app: *App, pad_idx: u8, path: []const u8) void {
+    const data = readFileForLoad(app, path) orelse return;
     defer app.allocator.free(data);
     const dm = cursorDrumMachine(app) orelse {
         app.setStatus("load: select a drum-machine track first", .{});
         return;
     };
-    const basename = std.fs.path.basename(path);
-    const stem = if (std.mem.lastIndexOf(u8, basename, ".")) |dot| basename[0..dot] else basename;
+    const stem = stemOf(path);
     dm.loadPadWav(pad_idx, data, stem) catch |e| {
         app.setStatus("load: parse error: {s}", .{@errorName(e)});
         return;
@@ -1017,18 +1028,9 @@ pub fn loadSampleFromPath(app: *App, path: []const u8) void {
         app.setStatus("load: select a sampler track first", .{});
         return;
     };
-    const data = std.Io.Dir.cwd().readFileAlloc(
-        app.io,
-        path,
-        app.allocator,
-        .limited(64 * 1024 * 1024),
-    ) catch |e| {
-        app.setStatus("load: cannot read '{s}': {s}", .{ path, @errorName(e) });
-        return;
-    };
+    const data = readFileForLoad(app, path) orelse return;
     defer app.allocator.free(data);
-    const basename = std.fs.path.basename(path);
-    const stem = if (std.mem.lastIndexOf(u8, basename, ".")) |dot| basename[0..dot] else basename;
+    const stem = stemOf(path);
     s.loadWav(data, stem) catch |e| {
         app.setStatus("load: parse error: {s}", .{@errorName(e)});
         return;
@@ -1083,15 +1085,7 @@ pub fn loadWavetableFromPath(app: *App, slot: ws.dsp.PolySynth.OscSlot, path: []
         app.setStatus("load: select a synth track first", .{});
         return;
     };
-    const data = std.Io.Dir.cwd().readFileAlloc(
-        app.io,
-        path,
-        app.allocator,
-        .limited(64 * 1024 * 1024),
-    ) catch |e| {
-        app.setStatus("load: cannot read '{s}': {s}", .{ path, @errorName(e) });
-        return;
-    };
+    const data = readFileForLoad(app, path) orelse return;
     defer app.allocator.free(data);
     s.loadWavetable(slot, data) catch |e| {
         app.setStatus("load: parse error: {s}", .{@errorName(e)});
@@ -1129,18 +1123,9 @@ pub fn loadClipFromPath(app: *App, path: []const u8) void {
         app.setStatus("load: select a sampler track first", .{});
         return;
     };
-    const data = std.Io.Dir.cwd().readFileAlloc(
-        app.io,
-        path,
-        app.allocator,
-        .limited(64 * 1024 * 1024),
-    ) catch |e| {
-        app.setStatus("load: cannot read '{s}': {s}", .{ path, @errorName(e) });
-        return;
-    };
+    const data = readFileForLoad(app, path) orelse return;
     defer app.allocator.free(data);
-    const basename = std.fs.path.basename(path);
-    const stem = if (std.mem.lastIndexOf(u8, basename, ".")) |dot| basename[0..dot] else basename;
+    const stem = stemOf(path);
     s.loadWav(data, stem) catch |e| {
         app.setStatus("load: parse error: {s}", .{@errorName(e)});
         return;
@@ -1190,18 +1175,9 @@ pub fn loadSliceFromPath(app: *App, path: []const u8) void {
         app.setStatus("load: select a slicer track first", .{});
         return;
     };
-    const data = std.Io.Dir.cwd().readFileAlloc(
-        app.io,
-        path,
-        app.allocator,
-        .limited(64 * 1024 * 1024),
-    ) catch |e| {
-        app.setStatus("load: cannot read '{s}': {s}", .{ path, @errorName(e) });
-        return;
-    };
+    const data = readFileForLoad(app, path) orelse return;
     defer app.allocator.free(data);
-    const basename = std.fs.path.basename(path);
-    const stem = if (std.mem.lastIndexOf(u8, basename, ".")) |dot| basename[0..dot] else basename;
+    const stem = stemOf(path);
     sl.loadWav(data, stem, true) catch |e| {
         app.setStatus("load: parse error: {s}", .{@errorName(e)});
         return;
