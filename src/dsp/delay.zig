@@ -69,6 +69,10 @@ pub const StereoDelay = struct {
     pub const device = dsp.deviceOf(@This());
 
     pub fn processBlock(self: *StereoDelay, buf: []Sample) void {
+        // feedback >= 1 makes the line's own recurrence grow unbounded on
+        // every repeat instead of decaying.
+        const feedback = if (std.math.isFinite(self.feedback)) std.math.clamp(self.feedback, 0.0, 0.95) else 0.35;
+        const mix = if (std.math.isFinite(self.mix)) std.math.clamp(self.mix, 0.0, 1.0) else 0.25;
         const frames = buf.len / 2;
         for (0..frames) |i| {
             inline for (0..2) |ch| {
@@ -76,9 +80,9 @@ pub const StereoDelay = struct {
                 const line = self.lines[ch];
                 const idx = self.index[ch];
                 const wet = line[idx];
-                line[idx] = dry + wet * self.feedback;
+                line[idx] = dry + wet * feedback;
                 self.index[ch] = (idx + 1) % self.delay_frames;
-                buf[i * 2 + ch] = dry * (1.0 - self.mix) + wet * self.mix;
+                buf[i * 2 + ch] = dry * (1.0 - mix) + wet * mix;
             }
         }
     }
@@ -101,6 +105,17 @@ test "impulse echoes at the delay time with feedback decay" {
     try std.testing.expectApproxEqAbs(@as(Sample, 0.5), buf[100 * 2], 1e-6); // first echo
     try std.testing.expectApproxEqAbs(@as(Sample, 0.25), buf[200 * 2], 1e-6); // second echo
     try std.testing.expectEqual(@as(Sample, 0.0), buf[50 * 2]); // silence between
+}
+
+test "invalid feedback/mix cannot poison output" {
+    var delay = try StereoDelay.init(std.testing.allocator, 1000, 1.0);
+    defer delay.deinit(std.testing.allocator);
+    delay.setTime(0.1);
+    delay.feedback = std.math.inf(f32);
+    delay.mix = std.math.nan(f32);
+    var buf = [_]Sample{0.5} ** 800;
+    delay.processBlock(&buf);
+    for (buf) |sample| try std.testing.expect(std.math.isFinite(sample));
 }
 
 test "invalid delay timing inputs stay safe" {
