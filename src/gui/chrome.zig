@@ -40,8 +40,60 @@ pub fn drawTransport(app: anytype, audio_label: []const u8) void {
         drawTransportReadout("RATE", rate, false);
         drawTransportReadout(icons.save ++ "  PROJECT", app.core.session.project.name, false);
         drawTransportReadout(icons.master ++ "  AUDIO", audio_label, false);
+        drawLevelMeters(app, snap.peak);
     }
     zgui.end();
+}
+
+// A terminal meter is a handful of colored block cells; a GUI can afford a
+// true continuous fill with a per-pixel color gradient and a decaying peak
+// hold, so the master bus gets that treatment here instead of reusing the
+// TUI's block-cell renderer.
+const meter_db_min: f32 = -50.0;
+const meter_yellow_db: f32 = -6.0;
+const meter_red_db: f32 = -1.0;
+const meter_decay_db_per_s: f32 = 24.0;
+
+fn drawLevelMeters(app: anytype, peak: [2]f32) void {
+    const now = std.Io.Timestamp.now(app.core.io, .awake).nanoseconds;
+    const dt: f32 = if (app.meter_last_ns == 0) 0 else @max(0.0, @as(f32, @floatFromInt(now - app.meter_last_ns)) / 1_000_000_000.0);
+    app.meter_last_ns = now;
+    for (0..2) |ch| {
+        const db = ws.types.gainToDb(peak[ch]);
+        app.meter_hold_db[ch] = @max(db, app.meter_hold_db[ch] - meter_decay_db_per_s * dt);
+    }
+
+    zgui.sameLine(.{ .spacing = 24 });
+    zgui.beginGroup();
+    zgui.textColored(patina.fg3, "LEVEL", .{});
+    const origin = zgui.getCursorScreenPos();
+    const bar_w: f32 = 110;
+    const bar_h: f32 = 8;
+    const gap: f32 = 3;
+    const draw_list = zgui.getWindowDrawList();
+    for (0..2) |ch| {
+        const y = origin[1] + @as(f32, @floatFromInt(ch)) * (bar_h + gap);
+        draw_list.addRectFilled(.{ .pmin = .{ origin[0], y }, .pmax = .{ origin[0] + bar_w, y + bar_h }, .col = color(patina.bg2), .rounding = 2 });
+        const norm = std.math.clamp((app.meter_hold_db[ch] - meter_db_min) / -meter_db_min, 0, 1);
+        drawMeterFill(draw_list, origin[0], y, bar_w, bar_h, norm);
+    }
+    zgui.dummy(.{ .w = bar_w, .h = bar_h * 2 + gap });
+    zgui.endGroup();
+}
+
+fn drawMeterFill(draw_list: zgui.DrawList, x: f32, y: f32, w: f32, h: f32, norm: f32) void {
+    if (norm <= 0) return;
+    const yellow_norm = (meter_yellow_db - meter_db_min) / -meter_db_min;
+    const red_norm = (meter_red_db - meter_db_min) / -meter_db_min;
+    const fill_w = w * norm;
+    const green_w = @min(fill_w, w * yellow_norm);
+    draw_list.addRectFilled(.{ .pmin = .{ x, y }, .pmax = .{ x + green_w, y + h }, .col = color(patina.audio), .rounding = 2 });
+    if (fill_w > w * yellow_norm) {
+        draw_list.addRectFilled(.{ .pmin = .{ x + w * yellow_norm, y }, .pmax = .{ x + @min(fill_w, w * red_norm), y + h }, .col = color(patina.rhythm) });
+    }
+    if (fill_w > w * red_norm) {
+        draw_list.addRectFilled(.{ .pmin = .{ x + w * red_norm, y }, .pmax = .{ x + fill_w, y + h }, .col = color(patina.danger) });
+    }
 }
 
 fn drawTransportReadout(label: []const u8, value: []const u8, first: bool) void {
