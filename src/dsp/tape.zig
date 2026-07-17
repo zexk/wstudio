@@ -44,15 +44,22 @@ pub const Tape = struct {
         const center = len_f / 2.0;
         const max_wow_samples = max_wow_ms * 0.001 * self.sample_rate;
         const max_flutter_samples = max_flutter_ms * 0.001 * self.sample_rate;
-        const wow_inc = self.wow_rate_hz / self.sample_rate;
-        const flutter_inc = self.flutter_rate_hz / self.sample_rate;
+        const wow_rate = if (std.math.isFinite(self.wow_rate_hz)) std.math.clamp(self.wow_rate_hz, 0.05, 3.0) else 0.6;
+        const wow_depth = if (std.math.isFinite(self.wow_depth)) std.math.clamp(self.wow_depth, 0.0, 1.0) else 0.4;
+        const flutter_rate = if (std.math.isFinite(self.flutter_rate_hz)) std.math.clamp(self.flutter_rate_hz, 3.0, 15.0) else 8.0;
+        const flutter_depth = if (std.math.isFinite(self.flutter_depth)) std.math.clamp(self.flutter_depth, 0.0, 1.0) else 0.25;
+        const mix = if (std.math.isFinite(self.mix)) std.math.clamp(self.mix, 0.0, 1.0) else 1.0;
+        if (!std.math.isFinite(self.phase_wow)) self.phase_wow = 0.0;
+        if (!std.math.isFinite(self.phase_flutter)) self.phase_flutter = 0.0;
+        const wow_inc = wow_rate / self.sample_rate;
+        const flutter_inc = flutter_rate / self.sample_rate;
         var i: usize = 0;
         while (i + 1 < buf.len) : (i += 2) {
             const wow = @sin(self.phase_wow * 2.0 * std.math.pi);
             const flutter = @sin(self.phase_flutter * 2.0 * std.math.pi);
             const delay = center +
-                wow * self.wow_depth * max_wow_samples +
-                flutter * self.flutter_depth * max_flutter_samples;
+                wow * wow_depth * max_wow_samples +
+                flutter * flutter_depth * max_flutter_samples;
             inline for (0..2) |ch| {
                 const rp = @mod(@as(f32, @floatFromInt(self.pos)) - delay, len_f);
                 const tap_i: usize = @intFromFloat(rp);
@@ -61,7 +68,7 @@ pub const Tape = struct {
                     self.ring[ch][(tap_i + 1) % len] * frac;
                 const dry = buf[i + ch];
                 self.ring[ch][self.pos] = dry;
-                buf[i + ch] = dry * (1.0 - self.mix) + tap * self.mix;
+                buf[i + ch] = dry * (1.0 - mix) + tap * mix;
             }
             self.pos = (self.pos + 1) % len;
             self.phase_wow += wow_inc;
@@ -120,6 +127,20 @@ test "high sample rates wrap taps that span more than one ring" {
     tape.wow_depth = 1.0;
     tape.flutter_depth = 1.0;
     var buf = [_]Sample{ 0.25, -0.25 };
+    tape.processBlock(&buf);
+    for (buf) |sample| try std.testing.expect(std.math.isFinite(sample));
+}
+
+test "invalid parameters cannot trap or poison output" {
+    var tape = Tape.init(48_000);
+    tape.wow_rate_hz = std.math.nan(f32);
+    tape.wow_depth = -std.math.inf(f32);
+    tape.flutter_rate_hz = std.math.inf(f32);
+    tape.flutter_depth = std.math.nan(f32);
+    tape.mix = std.math.inf(f32);
+    tape.phase_wow = std.math.nan(f32);
+    tape.phase_flutter = std.math.inf(f32);
+    var buf = [_]Sample{ 0.3, -0.7, 0.05, 0.9 };
     tape.processBlock(&buf);
     for (buf) |sample| try std.testing.expect(std.math.isFinite(sample));
 }
