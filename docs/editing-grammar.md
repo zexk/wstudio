@@ -3,7 +3,7 @@
 The five pattern editors (piano roll, drum grid, slicer grid,
 arrangement, automation) share one vim-flavored grammar. Each editor's
 input file
-(`src/tui/editors/<name>.zig`) implements it against its own axes; this
+(`src/ui/editors/<name>.zig`) implements it against its own axes; this
 page is the canonical description, so per-editor comments only note
 where that editor deviates.
 

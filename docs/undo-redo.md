@@ -16,6 +16,6 @@ creation and deletion, instrument swaps, swing, and mixer gain and pan are out
 of scope. The history is bounded, and failure to allocate a snapshot does not
 block the edit.
 
-The entry types and swap mechanics live in `src/tui/undo.zig`. Capture,
+The entry types and swap mechanics live in `src/ui/undo.zig`. Capture,
 restoration, coalescing, and the shared `u`/`U` entry points live in
-`src/tui/history.zig`.
+`src/ui/history.zig`.

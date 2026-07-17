@@ -80,16 +80,32 @@ src/
 ├── input/
 │   └── modal.zig       vim-style modal input: modes, counts, sequences,
 │                       piano key layout; pure state machine, UI-agnostic
+├── ui/                 frontend-agnostic layer shared by tui/ and gui/
+│   ├── app.zig         the App: view/modal state, key+mouse dispatch,
+│   │                   session lifecycle, Lua host hooks
+│   ├── commands.zig    the `:command` layer (table-driven via cmd.zig)
+│   ├── editors/        per-view input logic: one handler per view
+│   ├── status.zig      per-view footer renderers (both frontends draw them)
+│   ├── help.zig        help content model: sections, text build, search
+│   ├── history.zig / undo.zig   undo/redo capture and swap mechanics
+│   ├── ansi.zig         shared SGR palette + status badge helpers
+│   ├── icons.zig        Nerd Font icon glyphs (see assets/fonts/LICENSE)
+│   └── cmd.zig, synth_layout.zig, fuzzy.zig, json_store.zig,
+│       user_presets.zig, user_drum_kits.zig, bookmark_store.zig,
+│       cmd_history_store.zig   smaller shared stores/utilities
 ├── tui/
 │   ├── terminal.zig    raw mode + ANSI frames (POSIX termios)
 │   ├── terminal_windows.zig  same, via the Windows Console VT100 mode
 │   ├── input_decode.zig  ANSI/VT byte decoding shared by both terminals
-│   ├── app.zig         TUI app: action dispatch, run loop
-│   ├── commands.zig    the `:command` layer (table-driven via cmd.zig)
-│   ├── style.zig       shared palette and output primitives
-│   ├── icons.zig       Nerd Font icon glyphs (see assets/fonts/LICENSE)
-│   └── views/          one renderer per view: tracks, piano roll, drum
-│                       grid, sampler editor, arrangement, spectrum, ...
+│   ├── main.zig         TUI shell: terminal lifecycle, run loop, frame draw
+│   ├── style.zig        TUI-only output primitives (re-exports ui/ansi.zig)
+│   └── views/           one renderer per view: tracks, piano roll, drum
+│                        grid, sampler editor, arrangement, spectrum, ...
+├── gui/
+│   ├── main.zig         GLFW/ImGui lifecycle, fonts, audio host, run loop
+│   ├── app.zig          GUI App wrapper, input mapping, view dispatch
+│   ├── chrome.zig       transport/status/command-prompt chrome
+│   └── views/           one ImGui renderer per view
 ├── transport.zig       playhead, tempo, musical time
 ├── project.zig         the document: tracks, settings (control side)
 ├── session.zig         session factory, track lifecycle, engine wiring
@@ -134,7 +150,7 @@ Three rules hold everything together:
 1. **The audio thread never blocks.** `Engine.process` is allocation-free
    and lock-free; all mutation arrives via the SPSC command queue.
    Device buffers are allocated up front, never in `process`.
-2. **The engine is a library.** Frontends (TUI now, GUI later) import
+2. **The engine is a library.** Frontends (TUI and GUI) import
    `wstudio` and talk to the engine only through its public API.
 3. **Input is a pure state machine.** Key to action mapping lives in
    `input/modal.zig` with no UI dependency, so bindings are unit-tested
@@ -214,7 +230,7 @@ The TUI uses a 16-glyph subset of [Symbols Nerd Font
 Mono](https://github.com/ryanoasis/nerd-fonts) (MIT; see
 `src/assets/fonts/LICENSE`) for instrument-kind markers, transport
 play/stop, loop/help/EQ/timeline titles, and an unsaved-changes warning.
-The subset is embedded in the binary and defined in `src/tui/icons.zig`.
+The subset is embedded in the binary and defined in `src/ui/icons.zig`.
 The icons are additive: every icon sits next to existing
 text/ASCII, never replacing it, so the TUI stays fully legible without
 the font. To see them rendered, run `zig build install-font` (writes

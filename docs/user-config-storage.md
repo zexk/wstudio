@@ -26,7 +26,7 @@ file. If an existing file cannot be parsed, it is renamed to a quarantine path
 instead of being treated as an ordinary empty collection. A later save can
 then create a valid file without destroying the unreadable original.
 
-`src/tui/json_store.zig` implements the shared path, load, quarantine, and
+`src/ui/json_store.zig` implements the shared path, load, quarantine, and
 atomic-write operations. Each caller retains its own snapshot type and
 allocation logic because entries range from plain strings to structures with
 nested owned fields.

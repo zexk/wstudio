@@ -60,11 +60,11 @@ Per-scope option variants (`vim.bo`/`vim.wo`): wstudio options are global.
 
 ### One core, two frontends
 
-The GUI wraps the TUI `App` as its model (`core: tui_app.App` in
-`src/gui/main.zig`), forwards keyboard input into `core.handleKey`, and
-renders the same `commands.cmds` table in its own command palette. That
-means the entire Lua integration lives in the shared core, and both
-frontends get it for free:
+The frontend-agnostic `App` lives in `src/ui/app.zig`. The GUI wraps it as
+its model (`core: app_mod.App` in `src/gui/app.zig`), forwards keyboard
+input into `core.handleKey`, and renders the same `commands.cmds` table in
+its own command palette. That means the entire Lua integration lives in the
+shared core, and both frontends get it for free:
 
 - Keymaps hook `App.handleKey`, which both frontends call.
 - User commands append to the same dispatch table both frontends consult.
