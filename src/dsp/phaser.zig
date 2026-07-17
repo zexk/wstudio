@@ -39,21 +39,28 @@ pub const Phaser = struct {
 
     /// Phase an interleaved stereo buffer in place.
     pub fn processBlock(self: *Phaser, buf: []Sample) void {
-        const phase_inc = 2.0 * std.math.pi * self.rate_hz / self.sample_rate;
+        // feedback >= 1 makes the allpass cascade's own recurrence grow
+        // unbounded on every repeat instead of decaying.
+        const rate_hz = if (std.math.isFinite(self.rate_hz)) std.math.clamp(self.rate_hz, 0.05, 5.0) else 0.4;
+        const depth = if (std.math.isFinite(self.depth)) std.math.clamp(self.depth, 0.0, 1.0) else 0.9;
+        const feedback = if (std.math.isFinite(self.feedback)) std.math.clamp(self.feedback, 0.0, 0.9) else 0.5;
+        const mix = if (std.math.isFinite(self.mix)) std.math.clamp(self.mix, 0.0, 1.0) else 0.5;
+        if (!std.math.isFinite(self.phase)) self.phase = 0.0;
+        const phase_inc = 2.0 * std.math.pi * rate_hz / self.sample_rate;
         const frames = buf.len / 2;
         for (0..frames) |i| {
             inline for (0..2) |ch| {
                 // LFO 0..1, mapped exponentially across the sweep range.
                 const lfo = (@sin(self.phase - @as(f32, @floatFromInt(ch)) * (std.math.pi / 2.0)) + 1.0) * 0.5;
                 const fc = @min(
-                    sweep_lo_hz * std.math.pow(f32, 2.0, lfo * self.depth * sweep_octaves),
+                    sweep_lo_hz * std.math.pow(f32, 2.0, lfo * depth * sweep_octaves),
                     self.sample_rate * 0.45,
                 );
                 const t = std.math.tan(std.math.pi * fc / self.sample_rate);
                 const a = (t - 1.0) / (t + 1.0);
 
                 const dry = buf[i * 2 + ch];
-                var s = dry + self.fb[ch] * self.feedback;
+                var s = dry + self.fb[ch] * feedback;
                 inline for (0..num_stages) |st| {
                     const y = a * s + self.x1[ch][st] - a * self.y1[ch][st];
                     self.x1[ch][st] = s;
@@ -61,7 +68,7 @@ pub const Phaser = struct {
                     s = y;
                 }
                 self.fb[ch] = s;
-                buf[i * 2 + ch] = dry * (1.0 - self.mix) + s * self.mix;
+                buf[i * 2 + ch] = dry * (1.0 - mix) + s * mix;
             }
             self.phase += phase_inc;
             if (self.phase >= 2.0 * std.math.pi) self.phase -= 2.0 * std.math.pi;
@@ -109,4 +116,16 @@ test "silence in, silence out" {
     var buf = [_]Sample{0.0} ** 256;
     phaser.processBlock(&buf);
     for (buf) |s| try std.testing.expectEqual(@as(Sample, 0.0), s);
+}
+
+test "invalid parameters cannot trap or poison output" {
+    var phaser = Phaser.init(48_000);
+    phaser.rate_hz = std.math.nan(f32);
+    phaser.depth = -std.math.inf(f32);
+    phaser.feedback = std.math.inf(f32);
+    phaser.mix = std.math.nan(f32);
+    phaser.phase = std.math.inf(f32);
+    var buf = [_]Sample{ 0.3, -0.7, 0.05, 0.9 };
+    phaser.processBlock(&buf);
+    for (buf) |sample| try std.testing.expect(std.math.isFinite(sample));
 }
