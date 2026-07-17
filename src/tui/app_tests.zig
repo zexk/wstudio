@@ -316,7 +316,7 @@ test "toggle_mute flips project state and reaches the engine" {
 
     var block: [64]types.Sample = undefined;
     app.session.engine.process(&block);
-    try std.testing.expect(app.session.engine.tracks[0].muted);
+    try std.testing.expect(app.session.engine.trackAt(0).*.muted);
 }
 
 test "toggle_solo flips project state and reaches the engine" {
@@ -328,7 +328,7 @@ test "toggle_solo flips project state and reaches the engine" {
 
     var block: [64]types.Sample = undefined;
     app.session.engine.process(&block);
-    try std.testing.expect(app.session.engine.tracks[0].soloed);
+    try std.testing.expect(app.session.engine.trackAt(0).*.soloed);
 }
 
 test "notes route to a synth track and queue their own release" {

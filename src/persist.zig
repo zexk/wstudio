@@ -3118,7 +3118,7 @@ test "buildSession: groups round-trip name, FX chain, and track membership" {
 
     try testing.expectEqual(@as(?u8, 2), session.project.tracks.items[0].group);
     try testing.expectEqual(@as(?u8, null), session.project.tracks.items[1].group);
-    try testing.expectEqual(@as(?u8, 2), session.engine.tracks[0].group);
+    try testing.expectEqual(@as(?u8, 2), session.engine.trackAt(0).*.group);
 
     // Unused slots (0, 1, 3..) stay unloaded - no phantom groups.
     try testing.expect(session.groups[0] == null);

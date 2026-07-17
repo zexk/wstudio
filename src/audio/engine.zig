@@ -291,12 +291,24 @@ pub const Engine = struct {
     pre_roll_frames_remaining: u64 = 0,
     pre_roll_elapsed: u64 = 0,
     pre_roll_next_beat: u64 = 0,
-    /// One mixer/chain state per track slot. Heap slice of length
-    /// `max_tracks` (owned, freed in deinit) like `automation`/
-    /// `track_sidechain` below: inline it is ~1.9MB, which made by-value
-    /// Engine construction (init returning through an error union stacks
-    /// several copies in Debug) overflow test-frame stacks.
-    tracks: []TrackState,
+    /// Index layer over `track_pool`: `tracks[i]` is which pooled
+    /// `TrackState` object logical slot `i` currently refers to. Insert/
+    /// delete/swap (control thread, called while the audio thread may be
+    /// mid-`process()`) shift POINTERS here rather than copying `TrackState`
+    /// values between slots - a raw struct copy would drag a live
+    /// `ChainBank`'s buffer bytes across index positions non-atomically,
+    /// the same crash-capable torn-read risk `ChainBank` itself closes for
+    /// direct chain edits. Swapping a pointer is a single atomic store; the
+    /// backing object it points to is never moved or partially overwritten
+    /// while any other slot might still reference it (see
+    /// `applyInsertTrack`/`applyDeleteTrack`/`swapTracks`). Heap slice of
+    /// length `max_tracks`, owned, freed in `deinit`.
+    tracks: []std.atomic.Value(*TrackState),
+    /// Stable backing storage `tracks` indexes into by pointer - a fixed
+    /// pool of `max_tracks` objects, never moved once allocated. Heap slice
+    /// (owned, freed in `deinit`) for the same by-value-construction/stack
+    /// size reason `automation`/`track_sidechain` are: inline it is ~3.2MB.
+    track_pool: []TrackState,
     scratch: [types.max_block_frames * channels]Sample = undefined,
     /// Group submix buses (see `TrackState.group`/`renderTracks`). Fixed
     /// bank of `max_groups` (8), not multiplied by `max_tracks` - negligible
@@ -367,9 +379,12 @@ pub const Engine = struct {
         const track_sidechain = try allocator.alloc(TrackSidechainSlots, max_tracks);
         errdefer allocator.free(track_sidechain);
         for (track_sidechain) |*s| s.* = [_]?Compressor.SidechainSource{null} ** max_chain_devices;
-        const tracks = try allocator.alloc(TrackState, max_tracks);
+        const track_pool = try allocator.alloc(TrackState, max_tracks);
+        errdefer allocator.free(track_pool);
+        for (track_pool) |*t| t.* = .{};
+        const tracks = try allocator.alloc(std.atomic.Value(*TrackState), max_tracks);
         errdefer allocator.free(tracks);
-        for (tracks) |*t| t.* = .{};
+        for (tracks, track_pool) |*slot, *t| slot.* = .init(t);
 
         self.* = .{
             .allocator = allocator,
@@ -377,6 +392,7 @@ pub const Engine = struct {
             .limiter = Limiter.init(sample_rate),
             .metronome = metronome,
             .tracks = tracks,
+            .track_pool = track_pool,
             .track_spectrum = track_spec,
             .master_spectrum = master_spec,
             .automation = automation,
@@ -391,6 +407,7 @@ pub const Engine = struct {
         self.allocator.free(self.automation);
         self.allocator.free(self.track_sidechain);
         self.allocator.free(self.tracks);
+        self.allocator.free(self.track_pool);
     }
 
     pub fn loadProject(self: *Engine, project: *const Project) void {
@@ -401,7 +418,12 @@ pub const Engine = struct {
             project.loop_end_bar > project.loop_start_bar;
         self.transport.loop_start_frames = @as(u64, project.loop_start_bar) * fpb;
         self.transport.loop_end_frames = @as(u64, project.loop_end_bar) * fpb;
-        for (self.tracks, 0..) |*state, i| {
+        // Safe to write straight into the pooled `TrackState`s (bypassing
+        // ChainBank's atomic swap): `loadProject` only ever runs right
+        // after `initInPlace`, on an `Engine` no audio thread has been
+        // started against yet (see callers) - not a live mutation.
+        for (self.tracks, 0..) |*slot, i| {
+            const state = slot.load(.monotonic);
             if (i < project.tracks.items.len) {
                 const t = project.tracks.items[i];
                 state.* = .{
@@ -424,34 +446,62 @@ pub const Engine = struct {
     /// per-track heap arrays (`automation`, `track_sidechain`) in the same
     /// motion - they are indexed the same as `tracks` and would otherwise
     /// stay keyed to the pre-shift indices.
-    /// Called from the UI/control thread - same class of race as setTrackChain.
+    ///
+    /// Called from the UI/control thread while the audio thread may be
+    /// mid-`process()`. Shifts POINTERS (single-word atomic stores), never
+    /// `TrackState` values - see `tracks`'s doc comment for why a raw
+    /// struct copy would be crash-capable here. `track_sidechain`/
+    /// `automation` stay plain value shifts (small POD arrays, no fat
+    /// pointers to tear) - same lower-severity "stale for one block" race
+    /// they already tolerated before this change, unaffected by it.
+    ///
+    /// Note: a multi-slot shift still can't be made atomic as a WHOLE
+    /// through per-slot pointer stores alone - for one instant mid-shift,
+    /// two adjacent slots briefly point at the same backing track, so an
+    /// audio-thread render pass unlucky enough to land in that window
+    /// could render that one track's instrument twice in the same block
+    /// (an audible glitch, self-corrects next block, not a crash). That
+    /// residual is pre-existing (the original value-copy version had the
+    /// same window) and out of scope here; only the type-confusion/crash
+    /// risk from copying `TrackState`'s `ChainBank` by value is what this
+    /// change closes.
     pub fn applyInsertTrack(self: *Engine, idx: u16, total: u16, gain: f32, pan: f32, muted: bool) void {
         var i: usize = @min(total, max_tracks - 1);
+        // The pointer about to be evicted from the visible range - nothing
+        // in [idx, total] still needs its CURRENT content, so it's safe to
+        // reset in place before being republished at `idx` below.
+        const fresh = self.tracks[i].load(.monotonic);
         while (i > idx) : (i -= 1) {
-            self.tracks[i] = self.tracks[i - 1];
+            self.tracks[i].store(self.tracks[i - 1].load(.monotonic), .release);
             self.track_sidechain[i] = self.track_sidechain[i - 1];
             self.automation[i].copyFrom(&self.automation[i - 1]);
         }
-        self.tracks[idx] = .{
+        fresh.* = .{
             .active = true,
             .gain = gain,
             .pan = pan,
             .muted = muted,
         };
+        self.tracks[idx].store(fresh, .release);
         self.track_sidechain[idx] = [_]?Compressor.SidechainSource{null} ** max_chain_devices;
         self.automation[idx] = .{};
     }
 
     /// Shift engine slots [idx+1, total) down by one, clearing the last slot.
-    /// Same parallel-array rule as `applyInsertTrack`.
-    /// Called from the UI/control thread - same class of race as setTrackChain.
+    /// Same parallel-array rule, and same pointer-vs-value/residual-glitch
+    /// notes, as `applyInsertTrack`.
     pub fn applyDeleteTrack(self: *Engine, idx: u16, total: u16) void {
+        // The track actually being deleted - overwritten out of the visible
+        // range by the very first loop iteration below, so nothing else
+        // needs its content past this point.
+        const evicted = self.tracks[idx].load(.monotonic);
         for (idx..total - 1) |i| {
-            self.tracks[i] = self.tracks[i + 1];
+            self.tracks[i].store(self.tracks[i + 1].load(.monotonic), .release);
             self.track_sidechain[i] = self.track_sidechain[i + 1];
             self.automation[i].copyFrom(&self.automation[i + 1]);
         }
-        self.tracks[total - 1] = .{};
+        evicted.* = .{};
+        self.tracks[total - 1].store(evicted, .release);
         self.track_sidechain[total - 1] = [_]?Compressor.SidechainSource{null} ** max_chain_devices;
         self.automation[total - 1] = .{};
     }
@@ -459,9 +509,13 @@ pub const Engine = struct {
     /// Swap two tracks' engine slots (state + chain + the parallel
     /// automation/sidechain rows) in place. Same race class as
     /// applyInsertTrack/applyDeleteTrack - called from the UI/control
-    /// thread while the audio thread may be mid-block.
+    /// thread while the audio thread may be mid-block. Pointer swap, not a
+    /// value swap - see `tracks`'s doc comment.
     pub fn swapTracks(self: *Engine, a: u16, b: u16) void {
-        std.mem.swap(TrackState, &self.tracks[a], &self.tracks[b]);
+        const pa = self.tracks[a].load(.monotonic);
+        const pb = self.tracks[b].load(.monotonic);
+        self.tracks[a].store(pb, .release);
+        self.tracks[b].store(pa, .release);
         std.mem.swap(TrackSidechainSlots, &self.track_sidechain[a], &self.track_sidechain[b]);
         var tmp: AutomationPair = undefined;
         tmp.copyFrom(&self.automation[a]);
@@ -763,7 +817,8 @@ pub const Engine = struct {
             .note_off => |c| self.sendTrackEvent(c.track, .{
                 .note_off = .{ .note = c.note },
             }),
-            .all_notes_off => for (self.tracks) |*t| {
+            .all_notes_off => for (self.tracks) |*slot| {
+                const t = slot.load(.acquire);
                 for (t.chain.slice()) |dev| dev.sendEvent(.all_off);
             },
             // zig fmt: off
@@ -811,8 +866,10 @@ pub const Engine = struct {
         };
     }
 
-    fn trackAt(self: *Engine, index: u16) *TrackState {
-        return &self.tracks[@min(index, max_tracks - 1)];
+    /// `pub` so tests elsewhere in the crate can reach a track's state
+    /// without duplicating the pointer-indirection load.
+    pub fn trackAt(self: *Engine, index: u16) *TrackState {
+        return self.tracks[@min(index, max_tracks - 1)].load(.acquire);
     }
 
     fn sendTrackEvent(self: *Engine, track: u16, ev: dsp.Event) void {
@@ -986,7 +1043,8 @@ pub const Engine = struct {
     fn renderTracks(self: *Engine, out: []Sample, frames: u32) void {
         // When any track is soloed, only soloed tracks are audible.
         var any_solo = false;
-        for (self.tracks) |*t| {
+        for (self.tracks) |*slot| {
+            const t = slot.load(.acquire);
             if (t.active and t.soloed) {
                 any_solo = true;
                 break;
@@ -1014,7 +1072,8 @@ pub const Engine = struct {
             c.source = null;
             c.captured = false;
         }
-        for (self.tracks, 0..) |*t, ti| {
+        for (self.tracks, 0..) |*slot, ti| {
+            const t = slot.load(.acquire);
             const clen = t.chain.slice().len;
             if (!t.active or clen == 0) continue;
             for (self.track_sidechain[ti][0..clen]) |src| {
@@ -1110,7 +1169,7 @@ test "renderTracks pushes filter-cutoff automation into the synth before it proc
     synth.filter_cutoff = 1_000.0; // manual value - automation should override it
     var engine = try Engine.init(std.testing.allocator, 48_000);
     defer engine.deinit();
-    engine.tracks[0] = .{ .active = true };
+    engine.trackAt(0).* = .{ .active = true };
     engine.setTrackChain(0, &.{synth.device()});
     engine.setTrackSynthParam(0, 21, &.{.{ .beat = 0.0, .value = 5_000.0 }});
 
@@ -1131,7 +1190,7 @@ test "renderTracks handles multiple simultaneous synth-param automation slots" {
     defer synth.deinit();
     var engine = try Engine.init(std.testing.allocator, 48_000);
     defer engine.deinit();
-    engine.tracks[0] = .{ .active = true };
+    engine.trackAt(0).* = .{ .active = true };
     engine.setTrackChain(0, &.{synth.device()});
     engine.setTrackSynthParam(0, 21, &.{.{ .beat = 0.0, .value = 5_000.0 }}); // filter cutoff
     engine.setTrackSynthParam(0, 29, &.{.{ .beat = 0.0, .value = 8.0 }}); // lfo rate
@@ -1173,7 +1232,7 @@ test "notes sound even while transport is stopped (live preview)" {
     defer synth.deinit();
     var engine = try Engine.init(std.testing.allocator, 48_000);
     defer engine.deinit();
-    engine.tracks[0] = .{ .active = true };
+    engine.trackAt(0).* = .{ .active = true };
     engine.setTrackChain(0, &.{synth.device()});
 
     var block: [512]Sample = undefined;
@@ -1291,7 +1350,7 @@ test "mute command silences a track" {
     defer synth.deinit();
     var engine = try Engine.init(std.testing.allocator, 48_000);
     defer engine.deinit();
-    engine.tracks[0] = .{ .active = true };
+    engine.trackAt(0).* = .{ .active = true };
     engine.setTrackChain(0, &.{synth.device()});
     _ = engine.send(.{ .note_on = .{ .track = 0, .note = 60, .velocity = 1.0 } });
     _ = engine.send(.{ .set_track_mute = .{ .track = 0, .muted = true } });
@@ -1306,7 +1365,7 @@ test "master limiter keeps a hot mix under the ceiling" {
     defer synth.deinit();
     var engine = try Engine.init(std.testing.allocator, 48_000);
     defer engine.deinit();
-    engine.tracks[0] = .{ .active = true };
+    engine.trackAt(0).* = .{ .active = true };
     engine.setTrackChain(0, &.{synth.device()});
     _ = engine.send(.{ .set_master_gain = 16.0 }); // way past clipping
     _ = engine.send(.{ .note_on = .{ .track = 0, .note = 60, .velocity = 1.0 } });
@@ -1326,7 +1385,7 @@ test "master FX chain processes the summed mix before gain/limiter" {
     defer synth.deinit();
     var engine = try Engine.init(std.testing.allocator, 48_000);
     defer engine.deinit();
-    engine.tracks[0] = .{ .active = true };
+    engine.trackAt(0).* = .{ .active = true };
     engine.setTrackChain(0, &.{synth.device()});
     _ = engine.send(.{ .note_on = .{ .track = 0, .note = 60, .velocity = 1.0 } });
 
@@ -1360,8 +1419,8 @@ test "grouped tracks submix through their group's FX chain; ungrouped tracks are
     defer synth2.deinit();
     var engine = try Engine.init(std.testing.allocator, 48_000);
     defer engine.deinit();
-    engine.tracks[0] = .{ .active = true };
-    engine.tracks[1] = .{ .active = true };
+    engine.trackAt(0).* = .{ .active = true };
+    engine.trackAt(1).* = .{ .active = true };
     engine.setTrackChain(0, &.{synth1.device()});
     engine.setTrackChain(1, &.{synth2.device()});
     _ = engine.send(.{ .note_on = .{ .track = 0, .note = 60, .velocity = 1.0 } });
@@ -1407,8 +1466,8 @@ test "renderTracks routes a compressor's sidechain detector from a different (so
 
     var engine = try Engine.init(std.testing.allocator, 48_000);
     defer engine.deinit();
-    engine.tracks[0] = .{ .active = true }; // kick (sidechain source)
-    engine.tracks[1] = .{ .active = true }; // bass (has the compressor)
+    engine.trackAt(0).* = .{ .active = true }; // kick (sidechain source)
+    engine.trackAt(1).* = .{ .active = true }; // bass (has the compressor)
     engine.setTrackChain(0, &.{kick.device()});
     engine.setTrackChain(1, &.{ bass.device(), comp.device() });
     // slot 0 (bass itself) has no sidechain; slot 1 (comp) detects from track 0.
@@ -1450,8 +1509,8 @@ test "renderTracks routes a compressor's sidechain detector from a single drum p
     defer engine.deinit();
     var drum = try DrumMachine.init(std.testing.allocator, 48_000, &engine.transport);
     defer drum.deinit();
-    engine.tracks[0] = .{ .active = true }; // drum kit (sidechain source)
-    engine.tracks[1] = .{ .active = true }; // bass (has the compressor)
+    engine.trackAt(0).* = .{ .active = true }; // drum kit (sidechain source)
+    engine.trackAt(1).* = .{ .active = true }; // bass (has the compressor)
     engine.setTrackChain(0, &.{drum.device()});
     engine.setTrackChain(1, &.{ bass.device(), comp.device() });
     // slot 0 (bass itself) has no sidechain; slot 1 (comp) detects from
@@ -1479,7 +1538,7 @@ test "renderTracks routes a compressor's sidechain detector from a single drum p
     comp2.release_ms = 0.1;
     var engine2 = try Engine.init(std.testing.allocator, 48_000);
     defer engine2.deinit();
-    engine2.tracks[1] = .{ .active = true };
+    engine2.trackAt(1).* = .{ .active = true };
     engine2.setTrackChain(1, &.{ bass2.device(), comp2.device() });
     _ = engine2.send(.{ .note_on = .{ .track = 1, .note = 60, .velocity = 0.02 } });
     var baseline: [512]Sample = undefined;
@@ -1504,8 +1563,8 @@ test "renderTracks routes a compressor's sidechain detector from a single drum p
     defer engine3.deinit();
     var drum3 = try DrumMachine.init(std.testing.allocator, 48_000, &engine3.transport);
     defer drum3.deinit();
-    engine3.tracks[0] = .{ .active = true };
-    engine3.tracks[1] = .{ .active = true };
+    engine3.trackAt(0).* = .{ .active = true };
+    engine3.trackAt(1).* = .{ .active = true };
     engine3.setTrackChain(0, &.{drum3.device()});
     engine3.setTrackChain(1, &.{ bass3.device(), comp3.device() });
     engine3.setTrackSidechainSources(1, &.{ null, .{ .track = 0, .pad = 0 } });
@@ -1546,7 +1605,7 @@ test "a compressor keyed to a pad on its OWN track reads the pad, not self-detec
     defer engine.deinit();
     var drum = try DrumMachine.init(std.testing.allocator, 48_000, &engine.transport);
     defer drum.deinit();
-    engine.tracks[0] = .{ .active = true };
+    engine.trackAt(0).* = .{ .active = true };
     engine.setTrackChain(0, &.{ drum.device(), comp.device() });
     engine.setTrackSidechainSources(0, &.{ null, .{ .track = 0, .pad = 0 } });
     _ = engine.send(.{ .note_on = .{ .track = 0, .note = 1, .velocity = 1.0 } }); // snare, kick silent
@@ -1567,7 +1626,7 @@ test "a compressor keyed to a pad on its OWN track reads the pad, not self-detec
     defer engine2.deinit();
     var drum2 = try DrumMachine.init(std.testing.allocator, 48_000, &engine2.transport);
     defer drum2.deinit();
-    engine2.tracks[0] = .{ .active = true };
+    engine2.trackAt(0).* = .{ .active = true };
     engine2.setTrackChain(0, &.{ drum2.device(), comp2.device() });
     _ = engine2.send(.{ .note_on = .{ .track = 0, .note = 1, .velocity = 1.0 } });
 
@@ -1596,7 +1655,7 @@ test "a sidechain source that never renders falls back to self-detection, not a 
 
     var engine = try Engine.init(std.testing.allocator, 48_000);
     defer engine.deinit();
-    engine.tracks[1] = .{ .active = true }; // track 0 stays inactive on purpose
+    engine.trackAt(1).* = .{ .active = true }; // track 0 stays inactive on purpose
     engine.setTrackChain(1, &.{ bass.device(), comp.device() });
     engine.setTrackSidechainSources(1, &.{ null, .{ .track = 0 } });
 
@@ -1616,7 +1675,7 @@ test "a sidechain source that never renders falls back to self-detection, not a 
     comp2.release_ms = 0.1;
     var engine2 = try Engine.init(std.testing.allocator, 48_000);
     defer engine2.deinit();
-    engine2.tracks[1] = .{ .active = true };
+    engine2.trackAt(1).* = .{ .active = true };
     engine2.setTrackChain(1, &.{ bass2.device(), comp2.device() });
 
     _ = engine2.send(.{ .note_on = .{ .track = 1, .note = 60, .velocity = 0.02 } });
@@ -1632,7 +1691,7 @@ test "a sidechain source track is rendered exactly once, not double-mixed" {
     defer kick_a.deinit();
     var engine_a = try Engine.init(std.testing.allocator, 48_000);
     defer engine_a.deinit();
-    engine_a.tracks[0] = .{ .active = true };
+    engine_a.trackAt(0).* = .{ .active = true };
     engine_a.setTrackChain(0, &.{kick_a.device()});
     _ = engine_a.send(.{ .note_on = .{ .track = 0, .note = 60, .velocity = 1.0 } });
     var block_a: [512]Sample = undefined;
@@ -1651,8 +1710,8 @@ test "a sidechain source track is rendered exactly once, not double-mixed" {
     var comp_b = Compressor.init(48_000);
     var engine_b = try Engine.init(std.testing.allocator, 48_000);
     defer engine_b.deinit();
-    engine_b.tracks[0] = .{ .active = true };
-    engine_b.tracks[1] = .{ .active = true };
+    engine_b.trackAt(0).* = .{ .active = true };
+    engine_b.trackAt(1).* = .{ .active = true };
     engine_b.setTrackChain(0, &.{kick_b.device()});
     engine_b.setTrackChain(1, &.{ bass_b.device(), comp_b.device() });
     engine_b.setTrackSidechainSources(1, &.{ null, .{ .track = 0 } });
@@ -1669,7 +1728,7 @@ test "a track pointed at an inactive group slot falls back to the master mix" {
     defer synth.deinit();
     var engine = try Engine.init(std.testing.allocator, 48_000);
     defer engine.deinit();
-    engine.tracks[0] = .{ .active = true, .group = 2 }; // group 2 never activated
+    engine.trackAt(0).* = .{ .active = true, .group = 2 }; // group 2 never activated
     engine.setTrackChain(0, &.{synth.device()});
     _ = engine.send(.{ .note_on = .{ .track = 0, .note = 60, .velocity = 1.0 } });
 
@@ -1687,8 +1746,8 @@ test "solo silences other tracks but keeps the soloed one" {
     defer pad.deinit();
     var engine = try Engine.init(std.testing.allocator, 48_000);
     defer engine.deinit();
-    engine.tracks[0] = .{ .active = true };
-    engine.tracks[1] = .{ .active = true };
+    engine.trackAt(0).* = .{ .active = true };
+    engine.trackAt(1).* = .{ .active = true };
     engine.setTrackChain(0, &.{lead.device()});
     engine.setTrackChain(1, &.{pad.device()});
     _ = engine.send(.{ .note_on = .{ .track = 0, .note = 60, .velocity = 1.0 } });
@@ -1712,7 +1771,7 @@ test "uiSnapshot publishes transport and meter state" {
     defer synth.deinit();
     var engine = try Engine.init(std.testing.allocator, 48_000);
     defer engine.deinit();
-    engine.tracks[0] = .{ .active = true };
+    engine.trackAt(0).* = .{ .active = true };
     engine.setTrackChain(0, &.{synth.device()});
     _ = engine.send(.play);
     _ = engine.send(.{ .note_on = .{ .track = 0, .note = 60, .velocity = 1.0 } });
@@ -1739,7 +1798,7 @@ test "spectrum snapshot returns data when active" {
     defer synth.deinit();
     var engine = try Engine.init(std.testing.allocator, 48_000);
     defer engine.deinit();
-    engine.tracks[0] = .{ .active = true };
+    engine.trackAt(0).* = .{ .active = true };
     engine.setTrackChain(0, &.{synth.device()});
     _ = engine.send(.{ .note_on = .{ .track = 0, .note = 60, .velocity = 1.0 } });
     _ = engine.send(.{ .set_spectrum_active = .{ .source = .track, .track = 0 } });
@@ -1765,68 +1824,68 @@ test "loadProject mirrors track settings" {
     defer engine.deinit();
     engine.loadProject(&project);
 
-    try std.testing.expect(engine.tracks[0].active);
-    try std.testing.expect(!engine.tracks[1].active);
-    try std.testing.expectApproxEqAbs(@as(f32, 0.5), engine.tracks[0].gain, 1e-4);
+    try std.testing.expect(engine.trackAt(0).*.active);
+    try std.testing.expect(!engine.trackAt(1).*.active);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.5), engine.trackAt(0).*.gain, 1e-4);
 }
 
 test "applyInsertTrack shifts drum and inits new slot" {
     var engine = try Engine.init(std.testing.allocator, 48_000);
     defer engine.deinit();
 
-    engine.tracks[0] = .{ .active = true, .gain = 0.5 }; // lead
-    engine.tracks[1] = .{ .active = true, .gain = 0.8 }; // drum at slot 1
+    engine.trackAt(0).* = .{ .active = true, .gain = 0.5 }; // lead
+    engine.trackAt(1).* = .{ .active = true, .gain = 0.8 }; // drum at slot 1
 
     // Insert before drum (at idx=1, 2 tracks present)
     engine.applyInsertTrack(1, 2, 1.0, 0.0, false);
 
-    try std.testing.expect(engine.tracks[1].active);
-    try std.testing.expectApproxEqAbs(@as(f32, 1.0), engine.tracks[1].gain, 1e-6);
-    try std.testing.expectEqual(@as(usize, 0), engine.tracks[1].chain.slice().len);
+    try std.testing.expect(engine.trackAt(1).*.active);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), engine.trackAt(1).*.gain, 1e-6);
+    try std.testing.expectEqual(@as(usize, 0), engine.trackAt(1).*.chain.slice().len);
     // Drum shifted to slot 2
-    try std.testing.expectApproxEqAbs(@as(f32, 0.8), engine.tracks[2].gain, 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.8), engine.trackAt(2).*.gain, 1e-6);
 }
 
 test "applyInsertTrack in the middle shifts every later slot" {
     var engine = try Engine.init(std.testing.allocator, 48_000);
     defer engine.deinit();
 
-    engine.tracks[0] = .{ .active = true, .gain = 0.1 };
-    engine.tracks[1] = .{ .active = true, .gain = 0.2 };
-    engine.tracks[2] = .{ .active = true, .gain = 0.3 };
+    engine.trackAt(0).* = .{ .active = true, .gain = 0.1 };
+    engine.trackAt(1).* = .{ .active = true, .gain = 0.2 };
+    engine.trackAt(2).* = .{ .active = true, .gain = 0.3 };
 
     engine.applyInsertTrack(1, 3, 1.0, 0.0, false);
 
-    try std.testing.expectApproxEqAbs(@as(f32, 0.1), engine.tracks[0].gain, 1e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 1.0), engine.tracks[1].gain, 1e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 0.2), engine.tracks[2].gain, 1e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 0.3), engine.tracks[3].gain, 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.1), engine.trackAt(0).*.gain, 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), engine.trackAt(1).*.gain, 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.2), engine.trackAt(2).*.gain, 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.3), engine.trackAt(3).*.gain, 1e-6);
 }
 
 test "applyDeleteTrack shifts tracks down" {
     var engine = try Engine.init(std.testing.allocator, 48_000);
     defer engine.deinit();
 
-    engine.tracks[0] = .{ .active = true, .gain = 0.1 };
-    engine.tracks[1] = .{ .active = true, .gain = 0.2 }; // deleted
-    engine.tracks[2] = .{ .active = true, .gain = 0.3 };
-    engine.tracks[3] = .{ .active = true, .gain = 0.4 }; // drum
+    engine.trackAt(0).* = .{ .active = true, .gain = 0.1 };
+    engine.trackAt(1).* = .{ .active = true, .gain = 0.2 }; // deleted
+    engine.trackAt(2).* = .{ .active = true, .gain = 0.3 };
+    engine.trackAt(3).* = .{ .active = true, .gain = 0.4 }; // drum
 
     engine.applyDeleteTrack(1, 4);
 
-    try std.testing.expectApproxEqAbs(@as(f32, 0.1), engine.tracks[0].gain, 1e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 0.3), engine.tracks[1].gain, 1e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 0.4), engine.tracks[2].gain, 1e-6);
-    try std.testing.expect(!engine.tracks[3].active); // cleared
+    try std.testing.expectApproxEqAbs(@as(f32, 0.1), engine.trackAt(0).*.gain, 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.3), engine.trackAt(1).*.gain, 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.4), engine.trackAt(2).*.gain, 1e-6);
+    try std.testing.expect(!engine.trackAt(3).*.active); // cleared
 }
 
 test "applyDeleteTrack shifts the parallel automation and sidechain rows with the tracks" {
     var engine = try Engine.init(std.testing.allocator, 48_000);
     defer engine.deinit();
 
-    engine.tracks[0] = .{ .active = true };
-    engine.tracks[1] = .{ .active = true }; // deleted
-    engine.tracks[2] = .{ .active = true };
+    engine.trackAt(0).* = .{ .active = true };
+    engine.trackAt(1).* = .{ .active = true }; // deleted
+    engine.trackAt(2).* = .{ .active = true };
 
     engine.setTrackAutomation(2, .gain, &.{.{ .beat = 0.0, .value = 0.7 }});
     engine.setTrackSynthParam(2, 21, &.{.{ .beat = 0.0, .value = 5_000.0 }});
@@ -1848,8 +1907,8 @@ test "swapTracks exchanges the parallel automation and sidechain rows too" {
     var engine = try Engine.init(std.testing.allocator, 48_000);
     defer engine.deinit();
 
-    engine.tracks[0] = .{ .active = true };
-    engine.tracks[1] = .{ .active = true };
+    engine.trackAt(0).* = .{ .active = true };
+    engine.trackAt(1).* = .{ .active = true };
     engine.setTrackAutomation(0, .pan, &.{.{ .beat = 0.0, .value = -0.5 }});
     engine.setTrackSidechainSources(1, &.{.{ .track = 3 }});
 

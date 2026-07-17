@@ -1484,7 +1484,7 @@ test "addGroup/assignTrackGroup/deleteGroup: CRUD, membership, and engine sync" 
     try std.testing.expectEqual(@as(?u8, g), s.project.tracks.items[0].group);
     var block: [128]@import("core/types.zig").Sample = undefined;
     s.engine.process(&block); // set_track_group is queued; drain before checking the engine side
-    try std.testing.expectEqual(@as(?u8, g), s.engine.tracks[0].group);
+    try std.testing.expectEqual(@as(?u8, g), s.engine.trackAt(0).*.group);
     // Track 1 stays ungrouped - assigning one track never touches another.
     try std.testing.expectEqual(@as(?u8, null), s.project.tracks.items[1].group);
 
@@ -1500,7 +1500,7 @@ test "addGroup/assignTrackGroup/deleteGroup: CRUD, membership, and engine sync" 
     s.deleteGroup(g);
     try std.testing.expectEqual(@as(?u8, null), s.project.tracks.items[0].group);
     s.engine.process(&block); // drain the unassign command deleteGroup queued
-    try std.testing.expectEqual(@as(?u8, null), s.engine.tracks[0].group);
+    try std.testing.expectEqual(@as(?u8, null), s.engine.trackAt(0).*.group);
     try std.testing.expect(s.groups[g] == null);
     try std.testing.expect(!s.engine.groups[g].active);
 }
@@ -1534,7 +1534,7 @@ test "duplicateTrack carries color and group along with gain/pan/mute/solo" {
     try std.testing.expectEqual(@as(?u8, g), s.project.tracks.items[dup].group);
     var block: [128]@import("core/types.zig").Sample = undefined;
     s.engine.process(&block); // duplicateTrack's set_track_group is queued
-    try std.testing.expectEqual(@as(?u8, g), s.engine.tracks[dup].group);
+    try std.testing.expectEqual(@as(?u8, g), s.engine.trackAt(dup).*.group);
 }
 
 test "song-mode gain automation ramps a track's level down over the clip" {
