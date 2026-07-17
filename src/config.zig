@@ -63,6 +63,10 @@ pub const Config = struct {
     cmd_history_lines: u16 = 50,
     status_message_ms: u16 = 3000,
     default_browse_dir: PathBuf = .{},
+    default_drum_grid: @import("wstudio").time_grid.Division = .sixteenth,
+    default_piano_grid: @import("wstudio").time_grid.Division = .sixteenth,
+    default_arrangement_grid: @import("wstudio").time_grid.Division = .quarter,
+    piano_ghost_notes: bool = false,
     tui_mouse: bool = true,
     tui_theme: TuiTheme = .none,
     gui_font_size: f32 = 15.0,
@@ -108,6 +112,10 @@ const option_specs = [_]OptionSpec{
     .{ .name = "cmd_history_lines", .min = 10, .max = 500 },
     .{ .name = "status_message_ms", .min = 200, .max = 10000 },
     .{ .name = "default_browse_dir" },
+    .{ .name = "default_drum_grid" },
+    .{ .name = "default_piano_grid" },
+    .{ .name = "default_arrangement_grid" },
+    .{ .name = "piano_ghost_notes" },
     .{ .name = "tui_mouse", .scope = .tui },
     .{ .name = "tui_theme", .scope = .tui },
     .{ .name = "gui_font_size", .min = 8, .max = 40, .scope = .gui },
@@ -1543,6 +1551,20 @@ test "Lua API round 3 options set and read" {
     try std.testing.expectError(error.LuaError, rt.loadString("wstudio.o.note_preview_ms = 3"));
     try std.testing.expectError(error.LuaError, rt.loadString("wstudio.o.cmd_history_lines = 1000"));
     try std.testing.expectError(error.LuaError, rt.loadString("wstudio.o.status_message_ms = 100"));
+}
+
+test "Lua API round 4 editor options set and read" {
+    var rt = try Runtime.init(.tui);
+    defer rt.deinit();
+    try rt.loadString("wstudio.o.default_drum_grid = 'eighth';" ++
+        "wstudio.o.default_piano_grid = 'thirty_second';" ++
+        "wstudio.o.default_arrangement_grid = 'sixteenth';" ++
+        "wstudio.o.piano_ghost_notes = true");
+    try std.testing.expectEqual(@import("wstudio").time_grid.Division.eighth, rt.config.default_drum_grid);
+    try std.testing.expectEqual(@import("wstudio").time_grid.Division.thirty_second, rt.config.default_piano_grid);
+    try std.testing.expectEqual(@import("wstudio").time_grid.Division.sixteenth, rt.config.default_arrangement_grid);
+    try std.testing.expect(rt.config.piano_ghost_notes);
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.o.default_piano_grid = 'third'"));
 }
 
 test "default_browse_dir reads and writes as a string, rejecting oversized paths" {

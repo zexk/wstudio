@@ -5711,6 +5711,22 @@ test "applyUserConfig plumbs the round-3 options" {
     try std.testing.expectEqualStrings("bpm 122", app.cmd_history.items[0]);
 }
 
+test "applyUserConfig plumbs the round-4 editor options" {
+    var app = try testApp();
+    defer app.deinit();
+    var cfg: @import("../config.zig").Config = .{};
+    cfg.default_drum_grid = .eighth;
+    cfg.default_piano_grid = .thirty_second;
+    cfg.default_arrangement_grid = .sixteenth;
+    cfg.piano_ghost_notes = true;
+    app.applyUserConfig(cfg, true);
+    try std.testing.expectEqual(ws.time_grid.Division.eighth, app.drum_grid);
+    try std.testing.expectEqual(ws.time_grid.Division.thirty_second, app.piano_division);
+    try std.testing.expectEqual(@as(f64, 0.125), app.piano_note_len);
+    try std.testing.expectEqual(ws.time_grid.Division.sixteenth, app.arr_grid);
+    try std.testing.expect(app.piano_ghost);
+}
+
 test "openBrowser falls back to default_browse_dir when no project path is known" {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();

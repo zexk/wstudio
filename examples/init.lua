@@ -90,6 +90,17 @@
 -- expands to $HOME. Empty (the default) starts in the current directory.
 -- wstudio.o.default_browse_dir = ""
 
+-- Initial grid divisions for the drum grid, piano roll, and arrangement.
+-- Values: "quarter", "eighth", "sixteenth", "thirty_second",
+-- "sixty_fourth", or "one_twenty_eighth". Each editor can change its grid
+-- during the session with [ and ].
+-- wstudio.o.default_drum_grid = "sixteenth"
+-- wstudio.o.default_piano_grid = "sixteenth"
+-- wstudio.o.default_arrangement_grid = "quarter"
+
+-- Draw notes from the other tracks behind the active piano roll.
+-- wstudio.o.piano_ghost_notes = false
+
 -- [tui] Input poll interval, in milliseconds - effectively the TUI's
 -- maximum frame time. Range 5-1000.
 -- wstudio.o.frame_poll_ms = 30

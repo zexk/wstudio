@@ -883,6 +883,11 @@ pub const App = struct {
         self.cmd_history_cap = user_config.cmd_history_lines;
         self.default_velocity = user_config.default_velocity;
         self.default_browse_dir = user_config.default_browse_dir;
+        self.drum_grid = user_config.default_drum_grid;
+        self.piano_division = user_config.default_piano_grid;
+        self.piano_note_len = 4.0 / @as(f64, @floatFromInt(user_config.default_piano_grid.denominator()));
+        self.arr_grid = user_config.default_arrangement_grid;
+        self.piano_ghost = user_config.piano_ghost_notes;
         self.modal.octave = @intCast(user_config.default_octave);
         if (blank) {
             self.session.project.tempo_bpm = user_config.default_tempo;
