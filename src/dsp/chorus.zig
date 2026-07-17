@@ -58,8 +58,11 @@ pub const Chorus = struct {
     /// Chorus an interleaved stereo buffer in place.
     pub fn processBlock(self: *Chorus, buf: []Sample) void {
         const sr = @as(f32, @floatFromInt(self.sample_rate));
-        const phase_inc = 2.0 * std.math.pi * self.rate_hz / sr;
-        const depth = @min(self.depth_ms, max_depth_ms);
+        const rate = if (std.math.isFinite(self.rate_hz)) std.math.clamp(self.rate_hz, 0.05, 5.0) else 0.8;
+        const depth = if (std.math.isFinite(self.depth_ms)) std.math.clamp(self.depth_ms, 0.0, max_depth_ms) else 4.0;
+        const mix = if (std.math.isFinite(self.mix)) std.math.clamp(self.mix, 0.0, 1.0) else 0.5;
+        if (!std.math.isFinite(self.phase)) self.phase = 0.0;
+        const phase_inc = 2.0 * std.math.pi * rate / sr;
         const frames = buf.len / 2;
         for (0..frames) |i| {
             inline for (0..2) |ch| {
@@ -76,7 +79,7 @@ pub const Chorus = struct {
                 const idx1 = (idx0 + 1) % line.len;
                 const wet = line[idx0] * (1.0 - frac) + line[idx1] * frac;
 
-                buf[i * 2 + ch] = buf[i * 2 + ch] * (1.0 - self.mix) + wet * self.mix;
+                buf[i * 2 + ch] = buf[i * 2 + ch] * (1.0 - mix) + wet * mix;
             }
             self.index = (self.index + 1) % self.lines[0].len;
             self.phase += phase_inc;
@@ -112,4 +115,16 @@ test "mix 0 passes the input untouched" {
     const expected = buf;
     chorus.processBlock(&buf);
     for (buf, expected) |got, want| try std.testing.expectApproxEqAbs(want, got, 1e-6);
+}
+
+test "invalid parameters cannot poison output" {
+    var chorus = try Chorus.init(std.testing.allocator, 48_000);
+    defer chorus.deinit(std.testing.allocator);
+    chorus.rate_hz = std.math.nan(f32);
+    chorus.depth_ms = -std.math.inf(f32);
+    chorus.mix = std.math.inf(f32);
+    chorus.phase = std.math.nan(f32);
+    var buf = [_]Sample{ 0.3, -0.7, 0.05, 0.9 };
+    chorus.processBlock(&buf);
+    for (buf) |sample| try std.testing.expect(std.math.isFinite(sample));
 }
