@@ -28,7 +28,8 @@ pub const Wavetable = struct {
 /// trailing partial frame's worth of silence in rather than dropping data,
 /// so any WAV length still produces at least one full frame.
 pub fn fromSamples(allocator: std.mem.Allocator, samples: []const f32) !Wavetable {
-    const frame_count = @max(1, samples.len / frame_len);
+    const complete = samples.len / frame_len;
+    const frame_count = @max(1, complete + @intFromBool(samples.len % frame_len != 0));
     const total = frame_count * frame_len;
     const frames = try allocator.alloc(f32, total);
     const n = @min(total, samples.len);
@@ -111,6 +112,18 @@ test "lookup: frame_pos crossfades between distinct frames" {
     try std.testing.expectApproxEqAbs(@as(f32, -1.0), lookup(table, 0.0, 0.1), 0.0001);
     try std.testing.expectApproxEqAbs(@as(f32, 1.0), lookup(table, 1.0, 0.1), 0.0001);
     try std.testing.expectApproxEqAbs(@as(f32, 0.0), lookup(table, 0.5, 0.1), 0.0001);
+}
+
+test "fromSamples pads a trailing partial frame instead of dropping it" {
+    const allocator = std.testing.allocator;
+    var samples = [_]f32{0.0} ** (frame_len + 1);
+    samples[frame_len] = 0.75;
+    var table = try fromSamples(allocator, &samples);
+    defer deinit(&table, allocator);
+
+    try std.testing.expectEqual(@as(usize, 2), table.frame_count);
+    try std.testing.expectEqual(@as(f32, 0.75), table.frames[frame_len]);
+    for (table.frames[frame_len + 1 ..]) |sample| try std.testing.expectEqual(@as(f32, 0.0), sample);
 }
 
 test "loadDefault: bundled basic-shapes table has 4 frames" {
