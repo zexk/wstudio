@@ -17,8 +17,21 @@ pub fn configPath(buf: []u8, comptime filename: []const u8) ?[]const u8 {
 /// whatever it held.
 pub fn quarantine(io: std.Io, path: []const u8) void {
     var buf: [520]u8 = undefined;
-    const dest = std.fmt.bufPrint(&buf, "{s}.corrupt", .{path}) catch return;
-    std.Io.Dir.cwd().rename(path, std.Io.Dir.cwd(), dest, io) catch {};
+    var suffix: usize = 0;
+    while (suffix < 100) : (suffix += 1) {
+        const dest = if (suffix == 0)
+            std.fmt.bufPrint(&buf, "{s}.corrupt", .{path}) catch return
+        else
+            std.fmt.bufPrint(&buf, "{s}.corrupt.{d}", .{ path, suffix }) catch return;
+        _ = std.Io.Dir.cwd().statFile(io, dest, .{}) catch |err| switch (err) {
+            error.FileNotFound => {
+                std.Io.Dir.cwd().rename(path, std.Io.Dir.cwd(), dest, io) catch return;
+                return;
+            },
+            else => return,
+        };
+        continue;
+    }
 }
 
 /// Read and parse `Snapshot` from `~/.config/wstudio/<filename>`. Null
@@ -119,4 +132,26 @@ pub fn testExpectQuarantined(io: std.Io, path: []const u8) !void {
     const quarantine_path = try std.fmt.bufPrint(&buf, "{s}.corrupt", .{path});
     var file = try std.Io.Dir.cwd().openFile(io, quarantine_path, .{});
     file.close(io);
+}
+
+test "quarantine preserves an earlier corrupt file" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try testRedirectHome(&tmp);
+
+    var path_buf: [512]u8 = undefined;
+    const path = try testWriteCorrupt(std.testing.io, &path_buf, "collision.json");
+    var corrupt_buf: [520]u8 = undefined;
+    const corrupt = try std.fmt.bufPrint(&corrupt_buf, "{s}.corrupt", .{path});
+    try std.Io.Dir.cwd().rename(path, std.Io.Dir.cwd(), corrupt, std.testing.io);
+    _ = try testWriteCorrupt(std.testing.io, &path_buf, "collision.json");
+
+    quarantine(std.testing.io, path);
+    try std.testing.expectError(error.FileNotFound, std.Io.Dir.cwd().openFile(std.testing.io, path, .{}));
+    var first = try std.Io.Dir.cwd().openFile(std.testing.io, corrupt, .{});
+    first.close(std.testing.io);
+    var numbered_buf: [524]u8 = undefined;
+    const numbered = try std.fmt.bufPrint(&numbered_buf, "{s}.1", .{corrupt});
+    var second = try std.Io.Dir.cwd().openFile(std.testing.io, numbered, .{});
+    second.close(std.testing.io);
 }
