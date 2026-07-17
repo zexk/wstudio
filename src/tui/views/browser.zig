@@ -127,21 +127,3 @@ fn drawBookmarkList(app: anytype, w: *std.Io.Writer, rows: usize) !void {
     }
     for (end - off..visible) |_| try endLine(w);
 }
-
-pub fn drawFileBrowserStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !void {
-    try style.writeModeBadge(w, app.modal.mode);
-    try style.writeViewBadge(right, "FILES", app.modal.mode);
-    // Status message BEFORE the key hints: the row clamps at the terminal
-    // edge, so whatever prints last is what a narrow window silently drops -
-    // that must be the static hints, never live feedback (bookmarked/
-    // unbookmarked, search "no match", …).
-    if (app.status_len > 0) {
-        try w.writeAll(dim ++ "  " ++ rst);
-        try w.writeAll(app.status_buf[0..app.status_len]);
-    }
-    if (app.browser_bookmark_mode) {
-        try w.writeAll(dim ++ "  " ++ rst ++ "j/k: move  enter/l: jump  d: remove  esc/q: back");
-    } else {
-        try w.writeAll(dim ++ "  " ++ rst ++ "j/k: move  enter/l: open  h/bs: up  ~: home  /: search  b/B: mark/list  esc/q: cancel");
-    }
-}

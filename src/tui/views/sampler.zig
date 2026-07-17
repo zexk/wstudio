@@ -22,12 +22,6 @@ const synthSection = style.synthSection;
 const barRow = style.barRow;
 const enumRow = style.enumRow;
 
-/// Names for the sampler param rows, indexed by `app.sampler_param`. Indices
-/// 10-11 (root, voice) apply only to the standalone Sampler, not drum pads.
-const sampler_param_labels = [_][]const u8{
-    "start", "end", "pitch", "attack", "decay", "sustain", "release", "gain", "pan", "reverse", "root", "voice",
-};
-
 // Waveform panel caps live with the editor (ui/editors/sampler.zig) since
 // its waveformNorm/waveRows mouse hit-testing mirrors this draw path.
 const sampler_ed = @import("../../ui/editors/sampler.zig");
@@ -265,57 +259,6 @@ fn drawWaveformPad(
             }
         }
         try endLine(w);
-    }
-}
-
-pub fn drawSamplerStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !void {
-    const is_drum = app.sampler_target == .drum;
-    const is_slice = app.sampler_target == .slice;
-    const pad_idx = app.drum_cursor[0];
-    const pad: *const ws.dsp.Pad = if (is_drum) padOf(app.drumMachine(), pad_idx) else if (is_slice) sliceOf(app) else blk: {
-        if (app.editingSampler()) |s| break :blk &s.pad;
-        break :blk placeholderPad();
-    };
-    const cur = @min(@as(usize, app.sampler_param), sampler_param_labels.len - 1);
-
-    // zig fmt: off
-    try style.writeModeBadge(w, app.modal.mode);
-    try style.writeViewBadge(right, if (is_slice) "SLICE" else "SAMPLER", app.modal.mode);
-    if (is_drum) {
-        try w.writeAll(dim ++ "  pad " ++ rst);
-        try w.print("{d}", .{pad_idx + 1});
-    }
-    if (is_slice) {
-        try w.writeAll(dim ++ "  slice " ++ rst);
-        try w.print("{d}", .{app.slicer_cursor[0] + 1});
-    }
-    try w.writeAll(dim ++ "  " ++ rst);
-    try w.writeAll(sampler_param_labels[cur]);
-    try w.writeAll(dim ++ ": " ++ rst);
-    try w.writeAll(acc);
-    switch (app.sampler_param) {
-        0 => try w.print("{d:.2}", .{pad.start_norm}),
-        1 => try w.print("{d:.2}", .{pad.end_norm}),
-        2 => try w.print("{s}{d:.0} st", .{ if (pad.pitch_semitones >= 0) "+" else "", pad.pitch_semitones }),
-        3 => try w.print("{d:.3} s", .{pad.attack_s}),
-        4 => try w.print("{d:.3} s", .{pad.decay_s}),
-        5 => try w.print("{d:.3}", .{pad.sustain}),
-        6 => try w.print("{d:.3} s", .{pad.release_s}),
-        7 => try w.print("{d:.2}", .{pad.gain}),
-        8 => try w.writeAll(if (@abs(pad.pan) < 0.005) "C" else if (pad.pan < 0) "L" else "R"),
-        9 => try w.writeAll(if (pad.reverse) "on" else "off"),
-        10 => {
-            const root: u7 = if (app.editingSampler()) |s| s.root_note else 60;
-            var nbuf: [5]u8 = undefined;
-            try w.writeAll(midi.noteName(root, &nbuf));
-        },
-        11 => try w.writeAll(if (app.editingSampler()) |s| (if (s.mono) "mono" else "poly") else "poly"),
-        else => {},
-    }
-    try w.writeAll(rst);
-    if (app.status_len > 0) {
-        try w.writeAll(dim ++ "  " ++ rst);
-        try w.writeAll(app.status_buf[0..app.status_len]);
     }
 }
 

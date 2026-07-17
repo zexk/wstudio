@@ -180,17 +180,3 @@ pub fn drawSynthFxPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void {
     const used = 2 + @max(kinds.len, 1);
     for (used..@max(used, rows -| 4)) |_| try endLine(w);
 }
-
-/// Shared footer keeps selection views inside the same status contract as the
-/// editors: mode and identity stay visible while filtering or showing errors.
-pub fn drawPickerStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer, label: []const u8, action: []const u8, filterable: bool) !void {
-    try style.writeModeBadge(w, app.modal.mode);
-    try style.writeViewBadge(right, label, app.modal.mode);
-    if (app.status_len > 0) {
-        try w.writeAll(dim ++ "  " ++ rst);
-        try w.writeAll(app.status_buf[0..app.status_len]);
-    }
-    try w.writeAll(dim ++ "  " ++ rst ++ "j/k: move  g/G: ends");
-    if (filterable) try w.writeAll("  /: filter");
-    try w.print("  enter: {s}  esc: cancel", .{action});
-}

@@ -460,7 +460,7 @@ pub fn drawFxView(
             const norm = std.math.clamp((v - range[0]) / (range[1] - range[0]), 0.0, 1.0);
             var vbuf: [16]u8 = undefined;
             try barRow(w, in_submenu and cur_field == field, false, sectionColor(.eq),
-                spectrum_ed.paramName(&unit.payload, idx), norm, 1.0, formatFxValue(app, &vbuf, &unit.payload, idx));
+                spectrum_ed.paramName(&unit.payload, idx), norm, 1.0, spectrum_ed.formatValue(app, &vbuf, &unit.payload, idx));
                 // zig fmt: on
         }
 
@@ -482,7 +482,7 @@ pub fn drawFxView(
             const range = spectrum_ed.paramRange(app, &unit.payload, i);
             const norm = std.math.clamp((v - range[0]) / (range[1] - range[0]), 0.0, 1.0);
             var vbuf: [16]u8 = undefined;
-            try barRow(w, is_sel, false, sectionColor(k), spectrum_ed.paramName(&unit.payload, i), norm, 1.0, formatFxValue(app, &vbuf, &unit.payload, i));
+            try barRow(w, is_sel, false, sectionColor(k), spectrum_ed.paramName(&unit.payload, i), norm, 1.0, spectrum_ed.formatValue(app, &vbuf, &unit.payload, i));
         }
         body_lines = visible_count;
         if (unit.bypassed) {
@@ -498,159 +498,4 @@ pub fn drawFxView(
     const prelude: usize = if (compact) 3 else 6;
     const used = prelude + body_lines;
     for (used..@max(used, rows -| 4)) |_| try endLine(w);
-}
-
-/// Formats param `idx` of payload `p` with a unit-appropriate suffix, e.g.
-/// "-6.0dB", "4.0:1", "120ms", "35%".
-fn formatFxValue(app: anytype, buf: []u8, p: *const ws.FxPayload, idx: usize) []const u8 {
-    const v = spectrum_ed.getParam(p, idx);
-    return switch (p.*) {
-        .eq => |*e| blk: {
-            const bf = spectrum_ed.eqBandField(idx);
-            break :blk switch (bf.field) {
-                spectrum_ed.eq_field_kind => spectrum_ed.eqKindLabel(e.bands[bf.band].kind),
-                spectrum_ed.eq_field_freq => std.fmt.bufPrint(buf, "{d:.0}Hz", .{v}) catch "?",
-                spectrum_ed.eq_field_q => std.fmt.bufPrint(buf, "{d:.2}", .{v}) catch "?",
-                // Gain for a peak band; a filter band's "slope" instead,
-                // stored as a stage count (1..max_slope) - show it in
-                // dB/oct (12 per cascade stage) since that's the unit a
-                // user actually thinks in.
-                else => if (e.bands[bf.band].kind == .peak)
-                    std.fmt.bufPrint(buf, "{d:.1}dB", .{v}) catch "?"
-                else
-                    std.fmt.bufPrint(buf, "{d:.0}dB/oct", .{v * 12.0}) catch "?",
-            };
-        },
-        .comp => switch (idx) {
-            0, 4 => std.fmt.bufPrint(buf, "{d:.1}dB", .{v}) catch "?",
-            1 => std.fmt.bufPrint(buf, "{d:.1}:1", .{v}) catch "?",
-            2, 3 => std.fmt.bufPrint(buf, "{d:.0}ms", .{v}) catch "?",
-            // Include the track name so changing this routing does not
-            // require memorizing which numbered row holds the kick. Keep
-            // the number too, since that is what h/l is cycling through.
-            5 => if (v < 0.5) "none" else blk: {
-                const track: usize = @intFromFloat(v - 1.0);
-                if (track >= app.session.project.tracks.items.len)
-                    break :blk std.fmt.bufPrint(buf, "trk {d:.0}", .{v}) catch "?";
-                const name = app.session.project.tracks.items[track].name;
-                break :blk std.fmt.bufPrint(buf, "{d:.0}:{s}", .{ v, name[0..@min(name.len, 9)] }) catch "?";
-            },
-            // As with the track picker, keep the number visible while
-            // adding the name users actually recognize from the drum grid.
-            6 => if (v < 0.5) "-" else blk: {
-                const source = p.comp.sidechain_source orelse
-                    break :blk std.fmt.bufPrint(buf, "pad {d:.0}", .{v}) catch "?";
-                if (source.track >= app.session.racks.items.len)
-                    break :blk std.fmt.bufPrint(buf, "pad {d:.0}", .{v}) catch "?";
-                const rack = app.session.racks.items[source.track];
-                const name = switch (rack.instrument) {
-                    .drum_machine => |*dm| dm.padName(@intFromFloat(v - 1.0)),
-                    else => break :blk std.fmt.bufPrint(buf, "pad {d:.0}", .{v}) catch "?",
-                };
-                break :blk std.fmt.bufPrint(buf, "{d:.0}:{s}", .{ v, name[0..@min(name.len, 9)] }) catch "?";
-            },
-            else => "?",
-        },
-        .mb_comp => switch (idx) {
-            spectrum_ed.mb_xover_lo, spectrum_ed.mb_xover_hi => std.fmt.bufPrint(buf, "{d:.0}Hz", .{v}) catch "?",
-            spectrum_ed.mb_attack, spectrum_ed.mb_release => std.fmt.bufPrint(buf, "{d:.0}ms", .{v}) catch "?",
-            spectrum_ed.mb_style => if (v < 0.5) "classic" else "OTT",
-            spectrum_ed.mb_mix => std.fmt.bufPrint(buf, "{d:.0}%", .{v * 100.0}) catch "?",
-            else => switch (spectrum_ed.mbBandField(idx).field) {
-                0 => std.fmt.bufPrint(buf, "{d:.1}dB", .{v}) catch "?", // threshold
-                1 => std.fmt.bufPrint(buf, "{d:.1}:1", .{v}) catch "?", // ratio
-                else => std.fmt.bufPrint(buf, "{d:.1}dB", .{v}) catch "?", // makeup
-            },
-        },
-        .ott => switch (idx) {
-            spectrum_ed.ott_depth => std.fmt.bufPrint(buf, "{d:.0}%", .{v * 100.0}) catch "?",
-            spectrum_ed.ott_time => std.fmt.bufPrint(buf, "{d:.2}x", .{v}) catch "?",
-            else => std.fmt.bufPrint(buf, "{d:.1}dB", .{v}) catch "?", // in/out gain
-        },
-        .delay => switch (idx) {
-            0 => std.fmt.bufPrint(buf, "{d:.0}ms", .{v * 1000.0}) catch "?",
-            else => std.fmt.bufPrint(buf, "{d:.0}%", .{v * 100.0}) catch "?",
-        },
-        .reverb => std.fmt.bufPrint(buf, "{d:.0}%", .{v * 100.0}) catch "?",
-        .gate => switch (idx) {
-            0 => std.fmt.bufPrint(buf, "{d:.1}dB", .{v}) catch "?",
-            else => std.fmt.bufPrint(buf, "{d:.0}ms", .{v}) catch "?",
-        },
-        .sat => switch (idx) {
-            0, 1 => std.fmt.bufPrint(buf, "{d:.1}dB", .{v}) catch "?",
-            else => std.fmt.bufPrint(buf, "{d:.0}%", .{v * 100.0}) catch "?",
-        },
-        .crush => switch (idx) {
-            0 => std.fmt.bufPrint(buf, "{d:.0}bit", .{v}) catch "?",
-            1 => std.fmt.bufPrint(buf, "{d:.0}x", .{v}) catch "?",
-            else => std.fmt.bufPrint(buf, "{d:.0}%", .{v * 100.0}) catch "?",
-        },
-        .chorus => switch (idx) {
-            0 => std.fmt.bufPrint(buf, "{d:.2}Hz", .{v}) catch "?",
-            1 => std.fmt.bufPrint(buf, "{d:.1}ms", .{v}) catch "?",
-            else => std.fmt.bufPrint(buf, "{d:.0}%", .{v * 100.0}) catch "?",
-        },
-        .phaser => switch (idx) {
-            0 => std.fmt.bufPrint(buf, "{d:.2}Hz", .{v}) catch "?",
-            else => std.fmt.bufPrint(buf, "{d:.0}%", .{v * 100.0}) catch "?",
-        },
-        .flanger => switch (idx) {
-            0 => std.fmt.bufPrint(buf, "{d:.2}Hz", .{v}) catch "?",
-            else => std.fmt.bufPrint(buf, "{d:.0}%", .{v * 100.0}) catch "?",
-        },
-        .tape => switch (idx) {
-            0, 2 => std.fmt.bufPrint(buf, "{d:.2}Hz", .{v}) catch "?",
-            else => std.fmt.bufPrint(buf, "{d:.0}%", .{v * 100.0}) catch "?",
-        },
-        .freq_shift => switch (idx) {
-            0 => std.fmt.bufPrint(buf, "{s}{d:.0}Hz", .{ if (v >= 0.0) "+" else "", v }) catch "?",
-            else => std.fmt.bufPrint(buf, "{d:.0}%", .{v * 100.0}) catch "?",
-        },
-    };
-}
-
-pub fn drawFxStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer, target: spectrum_ed.EqTarget) !void {
-    const fx = spectrum_ed.fxPtr(app, target) orelse {
-        if (app.status_len > 0) try w.print(" {s}", .{app.status_buf[0..app.status_len]});
-        return;
-    };
-    if (spectrum_ed.focusedUnit(app, fx)) |unit| {
-        const k = unit.kind();
-        try style.writeModeBadge(w, app.modal.mode);
-        try style.writeViewBadge(right, "FX", app.modal.mode);
-        try w.writeAll(dim ++ "  " ++ rst);
-        try w.print("{d}/{d} {s}", .{ app.fx_focus + 1, fx.units.items.len, spectrum_ed.unitLabel(k) });
-        try w.writeAll(dim ++ "  " ++ rst);
-        if (unit.bypassed) try w.writeAll(red ++ "BYP" ++ rst ++ "  ");
-        const bf = spectrum_ed.eqBandField(app.fx_param);
-        const eq_band_select = k == .eq and app.eq_band_select;
-        switch (k) {
-            // Band-select mode: no field is actually live yet, so show
-            // which band instead of a param/value pair that h/l can't
-            // touch until `enter` opens it.
-            .eq => if (eq_band_select) {
-                try w.print("band {d}/{d}", .{ bf.band + 1, eq_mod.num_eq_bands });
-            } else {
-                var vbuf: [16]u8 = undefined;
-                try w.print("b{d} {s} {s}", .{ bf.band + 1, spectrum_ed.paramName(&unit.payload, app.fx_param), formatFxValue(app, &vbuf, &unit.payload, app.fx_param) });
-            },
-            else => {
-                var vbuf: [16]u8 = undefined;
-                try w.print("{s} {s}", .{ spectrum_ed.paramName(&unit.payload, app.fx_param), formatFxValue(app, &vbuf, &unit.payload, app.fx_param) });
-            },
-        }
-        if (!eq_band_select) {
-            try w.writeAll(dim ++ "  [" ++ rst);
-            try w.print("{d}/{d}", .{ app.fx_param + 1, spectrum_ed.visibleParamCount(app, k, &unit.payload) });
-            try w.writeAll(dim ++ "]" ++ rst);
-        }
-    } else {
-        try style.writeModeBadge(w, app.modal.mode);
-        try style.writeViewBadge(right, "FX", app.modal.mode);
-        try w.writeAll(dim ++ "  chain empty: 'a' inserts an effect" ++ rst);
-    }
-    if (app.status_len > 0) {
-        try w.writeAll(dim ++ "  " ++ rst);
-        try w.writeAll(app.status_buf[0..app.status_len]);
-    }
 }

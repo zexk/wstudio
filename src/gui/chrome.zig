@@ -3,10 +3,10 @@
 
 const std = @import("std");
 const ws = @import("wstudio");
-const tui = @import("../tui/tui.zig");
+const status = @import("../ui/status.zig");
 const tui_cmd = @import("../ui/cmd.zig");
 const tui_commands = @import("../ui/commands.zig");
-const tui_style = @import("../tui/style.zig");
+const ansi = @import("../ui/ansi.zig");
 const icons = @import("../ui/icons.zig");
 const spectrum_ed = @import("../ui/editors/spectrum.zig");
 const gui_style = @import("style.zig");
@@ -64,20 +64,20 @@ pub fn drawStatus(app: anytype) void {
 
         var left_buf: [2048]u8 = undefined;
         var right_buf: [256]u8 = undefined;
-        const status = tuiStatusText(app, &left_buf, &right_buf);
+        const text = tuiStatusText(app, &left_buf, &right_buf);
         const mode_label = statusModeLabel(app.core.modal.mode);
         const x = drawStatusSegment(draw, pos[0], pos[1], size[1], statusModeColor(app.core.modal.mode), patina.bg0, mode_label);
-        const context = std.mem.trim(u8, status.left, " ");
+        const context = std.mem.trim(u8, text.left, " ");
         if (context.len > 0) {
             const text_size = zgui.calcTextSize(context, .{});
             draw.addText(.{ x + 12, pos[1] + (size[1] - text_size[1]) / 2 }, color(patina.fg1), "{s}", .{context});
         }
-        if (status.right.len > 0) {
+        if (text.right.len > 0) {
             const right_color = if (app.core.view == .arrangement)
                 if (app.core.session.song_mode) patina.audio else patina.rhythm
             else
                 statusModeColor(app.core.modal.mode);
-            drawStatusSegmentRight(draw, pos[0] + size[0], pos[1], size[1], right_color, patina.bg0, status.right);
+            drawStatusSegmentRight(draw, pos[0] + size[0], pos[1], size[1], right_color, patina.bg0, text.right);
         }
     }
     zgui.end();
@@ -85,8 +85,9 @@ pub fn drawStatus(app: anytype) void {
 
 const StatusText = struct { left: []const u8, right: []const u8 };
 
-// TUI status renderers are the canonical footer content; the GUI strips SGR
-// codes and supplies its own presentation so both frontends stay in sync.
+// ui/status.zig's renderers are the canonical footer content for both
+// frontends; the GUI strips their SGR codes and supplies its own
+// presentation so the two stay in sync.
 fn tuiStatusText(app: anytype, left_out: []u8, right_out: []u8) StatusText {
     var left_ansi: [2048]u8 = undefined;
     var right_ansi: [256]u8 = undefined;
@@ -95,29 +96,29 @@ fn tuiStatusText(app: anytype, left_out: []u8, right_out: []u8) StatusText {
     const core = &app.core;
     if (core.view == .tracks) core.tracksRowSync();
     (switch (core.view) {
-        .tracks => tui.drawTracksStatus(core, &left_writer, &right_writer),
-        .drum_grid => tui.drawDrumStatus(core, &left_writer, &right_writer),
-        .synth_editor => tui.drawSynthStatus(core, &left_writer, &right_writer),
-        .sampler_editor => tui.drawSamplerStatus(core, &left_writer, &right_writer),
-        .piano_roll => tui.drawPianoRollStatus(core, &left_writer, &right_writer),
-        .help => tui.drawHelpStatus(core, &left_writer, &right_writer),
-        .track_spectrum, .master_spectrum, .group_spectrum => tui.drawFxStatus(core, &left_writer, &right_writer, spectrum_ed.currentTarget(core)),
-        .instrument_picker => tui.drawPickerStatus(core, &left_writer, &right_writer, "INSTRUMENT", "insert", false),
-        .fx_picker => tui.drawPickerStatus(core, &left_writer, &right_writer, "EFFECT", "insert", true),
-        .synth_fx_picker => tui.drawPickerStatus(core, &left_writer, &right_writer, "SYNTH FX", "insert", true),
-        .arrangement => tui.drawArrangementStatus(core, &left_writer, &right_writer),
-        .file_browser => tui.drawFileBrowserStatus(core, &left_writer, &right_writer),
-        .automation => tui.drawAutomationStatus(core, &left_writer, &right_writer),
-        .automation_param_picker => tui.drawPickerStatus(core, &left_writer, &right_writer, "PARAM", "pick", true),
-        .slicer_grid => tui.drawSlicerStatus(core, &left_writer, &right_writer),
-        .preset_picker => tui.drawPresetPickerStatus(core, &left_writer, &right_writer),
+        .tracks => status.drawTracksStatus(core, &left_writer, &right_writer),
+        .drum_grid => status.drawDrumStatus(core, &left_writer, &right_writer),
+        .synth_editor => status.drawSynthStatus(core, &left_writer, &right_writer),
+        .sampler_editor => status.drawSamplerStatus(core, &left_writer, &right_writer),
+        .piano_roll => status.drawPianoRollStatus(core, &left_writer, &right_writer),
+        .help => status.drawHelpStatus(core, &left_writer, &right_writer),
+        .track_spectrum, .master_spectrum, .group_spectrum => status.drawFxStatus(core, &left_writer, &right_writer, spectrum_ed.currentTarget(core)),
+        .instrument_picker => status.drawPickerStatus(core, &left_writer, &right_writer, "INSTRUMENT", "insert", false),
+        .fx_picker => status.drawPickerStatus(core, &left_writer, &right_writer, "EFFECT", "insert", true),
+        .synth_fx_picker => status.drawPickerStatus(core, &left_writer, &right_writer, "SYNTH FX", "insert", true),
+        .arrangement => status.drawArrangementStatus(core, &left_writer, &right_writer),
+        .file_browser => status.drawFileBrowserStatus(core, &left_writer, &right_writer),
+        .automation => status.drawAutomationStatus(core, &left_writer, &right_writer),
+        .automation_param_picker => status.drawPickerStatus(core, &left_writer, &right_writer, "PARAM", "pick", true),
+        .slicer_grid => status.drawSlicerStatus(core, &left_writer, &right_writer),
+        .preset_picker => status.drawPresetPickerStatus(core, &left_writer, &right_writer),
     }) catch return .{ .left = "", .right = "" };
 
-    const plain_left = tui_style.stripAnsi(left_writer.buffered(), left_out);
+    const plain_left = ansi.stripAnsi(left_writer.buffered(), left_out);
     const without_mode = if (plain_left.len >= 3) plain_left[3..] else plain_left;
     return .{
         .left = without_mode,
-        .right = std.mem.trim(u8, tui_style.stripAnsi(right_writer.buffered(), right_out), " "),
+        .right = std.mem.trim(u8, ansi.stripAnsi(right_writer.buffered(), right_out), " "),
     };
 }
 

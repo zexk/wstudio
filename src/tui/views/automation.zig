@@ -210,59 +210,6 @@ pub fn drawAutomation(
     for (used..@max(used, rows -| 4)) |_| try endLine(w);
 }
 
-pub fn drawAutomationStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !void {
-    const clip = currentClip(app) orelse {
-        try w.writeAll(dim ++ "clip gone - esc" ++ rst);
-        return;
-    };
-
-    const bpb = app.session.project.beats_per_bar;
-    const steps_per_bar: u32 = @as(u32, bpb) * 4;
-    const bar = app.automation_cursor_step / steps_per_bar;
-    const step_in_bar = app.automation_cursor_step % steps_per_bar;
-    const beat = @as(f64, @floatFromInt(app.automation_cursor_step)) * 0.25;
-
-    try style.writeModeBadge(w, app.modal.mode);
-    try style.writeViewBadge(right, "AUTOMATION", app.modal.mode);
-    try w.writeAll(dim ++ "  " ++ rst);
-    try w.print("{d}.{d}", .{ bar + 1, step_in_bar + 1 });
-
-    const target = app.automation_focus;
-    const points = curvePoints(clip, target);
-    if (automation_mod.interpolate(points, beat)) |v| {
-        const explicit = hasPointAt(points, beat);
-        try w.writeAll(dim ++ "  " ++ rst);
-        if (explicit) try w.writeAll(bold);
-        switch (target) {
-            .gain => try w.print("{d:.1}dB", .{v}),
-            .pan => try w.print("{d:.2}", .{v}),
-            // Cutoff keeps its own kHz breakdown for parity with the synth
-            // editor's own readout; every other synth param gets a plain
-            // generic format (no per-param unit table needed for ~29 params).
-            .synth_param => |id| if (id == 21) {
-                if (v >= 1_000.0) try w.print("{d:.2}kHz", .{v / 1_000.0}) else try w.print("{d:.0}Hz", .{v});
-            } else if (@abs(v) >= 10.0) {
-                try w.print("{d:.1}", .{v});
-            } else {
-                try w.print("{d:.2}", .{v});
-            },
-        }
-        if (explicit) {
-            try w.writeAll(rst);
-            try w.writeAll(dim ++ " (point)" ++ rst);
-        } else {
-            try w.writeAll(dim ++ " (interpolated)" ++ rst);
-        }
-    } else {
-        try w.writeAll(dim ++ "  no automation yet - j/k adds a point" ++ rst);
-    }
-
-    if (app.status_len > 0) {
-        try w.writeAll(dim ++ "  " ++ rst);
-        try w.writeAll(app.status_buf[0..app.status_len]);
-    }
-}
-
 /// Synth-param automation picker (`p` in the automation editor): every
 /// continuous param in the current track's own `automatable_params` table
 /// (PolySynth's or Sampler's - see `instrumentAutomatableParams`), grouped by

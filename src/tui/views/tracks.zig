@@ -297,35 +297,5 @@ pub fn drawTracks(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, sna
 }
 
 // zig fmt: off
-pub fn drawTracksStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !void {
-    try style.writeModeBadge(w, app.modal.mode);
-    try style.writeViewBadge(right, "TRACKS", app.modal.mode);
-    // row position - display rows (tracks + groups) + 1 for master
-    try w.writeAll(dim ++ "  " ++ rst);
-    try w.print("{d}/{d}", .{ app.track_row + 1, app.track_rows_len + 1 });
-    try w.writeAll(dim ++ "  oct " ++ rst);
-    try w.print("{d}", .{app.modal.octave});
-    if (app.modal.count > 0) try w.print("  {d}", .{app.modal.count});
-    if (app.status_len > 0) {
-        try w.writeAll(dim ++ "  " ++ rst);
-        try w.writeAll(app.status_buf[0..app.status_len]);
-    } else {
-        try w.writeAll(dim ++ "  " ++ rst);
-        if (app.track_row == app.track_rows_len) {
-            try w.writeAll("enter/s: fx  -/+: gain  ?: help");
-        } else if (app.cursorGroup() != null) {
-            try w.writeAll("enter/s: fx  z: fold  -/+: gain  R: rename");
-        } else if (app.cursorTrack()) |ti| {
-            const track = app.session.project.tracks.items[ti];
-            switch (std.meta.activeTag(app.session.racks.items[ti].instrument)) {
-                .empty => try w.writeAll("enter: instrument  a: add track  ?: help"),
-                .poly_synth, .sampler => try w.print("enter: edit  p: piano  s: fx  m: {s}", .{if (track.muted) "unmute" else "mute"}),
-                .drum_machine, .slicer => try w.print("enter: grid  s: fx  m: {s}  R: rename", .{if (track.muted) "unmute" else "mute"}),
-            }
-        } else {
-            try w.writeAll("?: help  space: play  tab: song");
-        }
-    }
-}
 
 // zig fmt: on

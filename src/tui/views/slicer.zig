@@ -280,37 +280,3 @@ pub fn drawSlicerGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize,
 
     for (written..@max(written, rows -| 4)) |_| try endLine(w);
 }
-
-pub fn drawSlicerStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !void {
-    const sl = app.slicerInst();
-    const sIdx = app.slicer_cursor[0];
-    const s = app.slicer_cursor[1];
-    try style.writeModeBadge(w, app.modal.mode);
-    try style.writeViewBadge(right, "SLICER", app.modal.mode);
-    try w.writeAll(dim ++ "  pat " ++ rst);
-    try w.print("{c}", .{Slicer.variantLetter(sl.variant)});
-    try w.writeAll(dim ++ "  slice " ++ rst);
-    try w.print("{d}/{d}", .{ sIdx + 1, sl.slice_count });
-    try w.writeAll(dim ++ "  step " ++ rst);
-    try w.print("{d}/{d}", .{ s + 1, sl.step_count });
-    if (sl.stepActive(sIdx, s)) {
-        try w.writeAll(dim ++ "  vel " ++ rst);
-        try w.print("{d}", .{sl.stepVel(sIdx, s)});
-    }
-    try w.writeAll(dim ++ "  swing " ++ rst);
-    try w.print("{d:.0}%", .{sl.swing.load(.monotonic)});
-    if (sIdx < sl.slice_count) {
-        const pad = &sl.slices[sIdx];
-        try w.writeAll(dim ++ "  " ++ rst);
-        try w.print("{d:.0}-{d:.0}%", .{ pad.start_norm * 100.0, pad.end_norm * 100.0 });
-        if (@abs(pad.pitch_semitones) > 0.01) {
-            try w.writeAll(dim ++ "  pitch " ++ rst);
-            try w.print("{s}{d:.0}", .{ if (pad.pitch_semitones >= 0) "+" else "", pad.pitch_semitones });
-        }
-        if (pad.reverse) try w.writeAll(dim ++ "  " ++ blu ++ "rev" ++ rst);
-    }
-    if (app.status_len > 0) {
-        try w.writeAll(dim ++ "  " ++ rst);
-        try w.writeAll(app.status_buf[0..app.status_len]);
-    }
-}

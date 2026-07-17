@@ -452,6 +452,10 @@ pub fn getParam(p: *const FxPayload, idx: usize) f32 {
     };
 }
 
+/// Display string for param `idx`'s current value in `p` - the units and
+/// precision each FX kind's values read in (Hz, dB, %, ms, ...). Shared by
+/// the TUI chain view and the status renderers (ui/status.zig); `app` is
+/// only used by the compressor's sidechain rows to resolve a track/pad name.
 /// [min, max] of param `idx` in a unit of kind `k` - the same bounds
 /// `setParam` clamps to, exported so the view can draw each param as a
 /// filled bar (barRow wants a 0..1-ish normalised value).
@@ -1157,3 +1161,109 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16, v
     }
 }
 // zig fmt: on
+pub fn formatValue(app: anytype, buf: []u8, p: *const ws.FxPayload, idx: usize) []const u8 {
+    const v = getParam(p, idx);
+    return switch (p.*) {
+        .eq => |*e| blk: {
+            const bf = eqBandField(idx);
+            break :blk switch (bf.field) {
+                eq_field_kind => eqKindLabel(e.bands[bf.band].kind),
+                eq_field_freq => std.fmt.bufPrint(buf, "{d:.0}Hz", .{v}) catch "?",
+                eq_field_q => std.fmt.bufPrint(buf, "{d:.2}", .{v}) catch "?",
+                // Gain for a peak band; a filter band's "slope" instead,
+                // stored as a stage count (1..max_slope) - show it in
+                // dB/oct (12 per cascade stage) since that's the unit a
+                // user actually thinks in.
+                else => if (e.bands[bf.band].kind == .peak)
+                    std.fmt.bufPrint(buf, "{d:.1}dB", .{v}) catch "?"
+                else
+                    std.fmt.bufPrint(buf, "{d:.0}dB/oct", .{v * 12.0}) catch "?",
+            };
+        },
+        .comp => switch (idx) {
+            0, 4 => std.fmt.bufPrint(buf, "{d:.1}dB", .{v}) catch "?",
+            1 => std.fmt.bufPrint(buf, "{d:.1}:1", .{v}) catch "?",
+            2, 3 => std.fmt.bufPrint(buf, "{d:.0}ms", .{v}) catch "?",
+            // Include the track name so changing this routing does not
+            // require memorizing which numbered row holds the kick. Keep
+            // the number too, since that is what h/l is cycling through.
+            5 => if (v < 0.5) "none" else blk: {
+                const track: usize = @intFromFloat(v - 1.0);
+                if (track >= app.session.project.tracks.items.len)
+                    break :blk std.fmt.bufPrint(buf, "trk {d:.0}", .{v}) catch "?";
+                const name = app.session.project.tracks.items[track].name;
+                break :blk std.fmt.bufPrint(buf, "{d:.0}:{s}", .{ v, name[0..@min(name.len, 9)] }) catch "?";
+            },
+            // As with the track picker, keep the number visible while
+            // adding the name users actually recognize from the drum grid.
+            6 => if (v < 0.5) "-" else blk: {
+                const source = p.comp.sidechain_source orelse
+                    break :blk std.fmt.bufPrint(buf, "pad {d:.0}", .{v}) catch "?";
+                if (source.track >= app.session.racks.items.len)
+                    break :blk std.fmt.bufPrint(buf, "pad {d:.0}", .{v}) catch "?";
+                const rack = app.session.racks.items[source.track];
+                const name = switch (rack.instrument) {
+                    .drum_machine => |*dm| dm.padName(@intFromFloat(v - 1.0)),
+                    else => break :blk std.fmt.bufPrint(buf, "pad {d:.0}", .{v}) catch "?",
+                };
+                break :blk std.fmt.bufPrint(buf, "{d:.0}:{s}", .{ v, name[0..@min(name.len, 9)] }) catch "?";
+            },
+            else => "?",
+        },
+        .mb_comp => switch (idx) {
+            mb_xover_lo, mb_xover_hi => std.fmt.bufPrint(buf, "{d:.0}Hz", .{v}) catch "?",
+            mb_attack, mb_release => std.fmt.bufPrint(buf, "{d:.0}ms", .{v}) catch "?",
+            mb_style => if (v < 0.5) "classic" else "OTT",
+            mb_mix => std.fmt.bufPrint(buf, "{d:.0}%", .{v * 100.0}) catch "?",
+            else => switch (mbBandField(idx).field) {
+                0 => std.fmt.bufPrint(buf, "{d:.1}dB", .{v}) catch "?", // threshold
+                1 => std.fmt.bufPrint(buf, "{d:.1}:1", .{v}) catch "?", // ratio
+                else => std.fmt.bufPrint(buf, "{d:.1}dB", .{v}) catch "?", // makeup
+            },
+        },
+        .ott => switch (idx) {
+            ott_depth => std.fmt.bufPrint(buf, "{d:.0}%", .{v * 100.0}) catch "?",
+            ott_time => std.fmt.bufPrint(buf, "{d:.2}x", .{v}) catch "?",
+            else => std.fmt.bufPrint(buf, "{d:.1}dB", .{v}) catch "?", // in/out gain
+        },
+        .delay => switch (idx) {
+            0 => std.fmt.bufPrint(buf, "{d:.0}ms", .{v * 1000.0}) catch "?",
+            else => std.fmt.bufPrint(buf, "{d:.0}%", .{v * 100.0}) catch "?",
+        },
+        .reverb => std.fmt.bufPrint(buf, "{d:.0}%", .{v * 100.0}) catch "?",
+        .gate => switch (idx) {
+            0 => std.fmt.bufPrint(buf, "{d:.1}dB", .{v}) catch "?",
+            else => std.fmt.bufPrint(buf, "{d:.0}ms", .{v}) catch "?",
+        },
+        .sat => switch (idx) {
+            0, 1 => std.fmt.bufPrint(buf, "{d:.1}dB", .{v}) catch "?",
+            else => std.fmt.bufPrint(buf, "{d:.0}%", .{v * 100.0}) catch "?",
+        },
+        .crush => switch (idx) {
+            0 => std.fmt.bufPrint(buf, "{d:.0}bit", .{v}) catch "?",
+            1 => std.fmt.bufPrint(buf, "{d:.0}x", .{v}) catch "?",
+            else => std.fmt.bufPrint(buf, "{d:.0}%", .{v * 100.0}) catch "?",
+        },
+        .chorus => switch (idx) {
+            0 => std.fmt.bufPrint(buf, "{d:.2}Hz", .{v}) catch "?",
+            1 => std.fmt.bufPrint(buf, "{d:.1}ms", .{v}) catch "?",
+            else => std.fmt.bufPrint(buf, "{d:.0}%", .{v * 100.0}) catch "?",
+        },
+        .phaser => switch (idx) {
+            0 => std.fmt.bufPrint(buf, "{d:.2}Hz", .{v}) catch "?",
+            else => std.fmt.bufPrint(buf, "{d:.0}%", .{v * 100.0}) catch "?",
+        },
+        .flanger => switch (idx) {
+            0 => std.fmt.bufPrint(buf, "{d:.2}Hz", .{v}) catch "?",
+            else => std.fmt.bufPrint(buf, "{d:.0}%", .{v * 100.0}) catch "?",
+        },
+        .tape => switch (idx) {
+            0, 2 => std.fmt.bufPrint(buf, "{d:.2}Hz", .{v}) catch "?",
+            else => std.fmt.bufPrint(buf, "{d:.0}%", .{v * 100.0}) catch "?",
+        },
+        .freq_shift => switch (idx) {
+            0 => std.fmt.bufPrint(buf, "{s}{d:.0}Hz", .{ if (v >= 0.0) "+" else "", v }) catch "?",
+            else => std.fmt.bufPrint(buf, "{d:.0}%", .{v * 100.0}) catch "?",
+        },
+    };
+}

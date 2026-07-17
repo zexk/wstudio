@@ -493,10 +493,6 @@ fn filterTypeIdx(ft: anytype) usize {
     return switch (ft) { .lp => 0, .hp => 1, .bp => 2, .notch => 3, .ladder => 4, .diode => 5, .comb => 6, .formant => 7 };
 }
 
-fn filterTypeName(ft: anytype) []const u8 {
-    return switch (ft) { .lp => "lp", .hp => "hp", .bp => "bp", .notch => "notch", .ladder => "ladder", .diode => "diode", .comb => "comb", .formant => "formant" };
-}
-
 fn secFilter(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
     var buf: [40]u8 = undefined;
     try synthSection(w, "FILTER 1", yel);
@@ -534,10 +530,6 @@ const lfo_shape_names = [_][]const u8{ "sine", "tri", "saw", "sqr", "s&h", "cha"
 
 fn lfoShapeIdx(shape: anytype) usize {
     return switch (shape) { .sine => 0, .triangle => 1, .saw => 2, .square => 3, .sh => 4, .chaos => 5 };
-}
-
-fn lfoShapeName(shape: anytype) []const u8 {
-    return switch (shape) { .sine => "sine", .triangle => "tri", .saw => "saw", .square => "sqr", .sh => "s&h", .chaos => "chaos" };
 }
 
 /// Shape + rate only: the LFO is a pure mod source, its routing lives on
@@ -588,13 +580,6 @@ fn arpModeIdx(mode: anytype) usize {
     return switch (mode) {
         .up => 0, .down => 1, .updown => 2, .downup => 3,
         .played => 4, .random => 5, .chord => 6,
-    };
-}
-
-fn arpModeName(mode: anytype) []const u8 {
-    return switch (mode) {
-        .up => "up", .down => "down", .updown => "up/dn", .downup => "dn/up",
-        .played => "played", .random => "random", .chord => "chord",
     };
 }
 
@@ -685,10 +670,6 @@ const uni_mode_names = [_][]const u8{ "spread", "step", "harm", "ratio" };
 
 fn uniModeIdx(mode: anytype) usize {
     return switch (mode) { .spread => 0, .step => 1, .harmonic => 2, .ratio => 3 };
-}
-
-fn uniModeName(mode: anytype) []const u8 {
-    return switch (mode) { .spread => "spread", .step => "step", .harmonic => "harmonic", .ratio => "ratio" };
 }
 
 const warp_mode_names = [_][]const u8{ "none", "bend", "mirror", "sync" };
@@ -1069,251 +1050,5 @@ fn secFxReverb(w: *std.Io.Writer, synth: anytype, c: u8) !void {
         try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.fx_reverb_mix}));
 }
 
-pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !void {
-    if (app.synth_track >= app.session.racks.items.len) return;
-    const rack = app.session.racks.items[app.synth_track];
-    switch (rack.instrument) {
-        .poly_synth => {},
-        else => return,
-    }
-    const synth = &rack.instrument.poly_synth;
-
-    try style.writeModeBadge(w, app.modal.mode);
-    try style.writeViewBadge(right, "SYNTH", app.modal.mode);
-    try w.writeAll(dim ++ "  " ++ rst);
-    var label_buf: [24]u8 = undefined;
-    try w.writeAll(synth_ed.paramLabel(app.synth_cursor, &label_buf));
-    try w.writeAll(dim ++ ": " ++ rst);
-    try w.writeAll(acc);
-    switch (app.synth_cursor) {
-        0 => try w.writeAll(switch (synth.waveform) {
-            .sine => "sine",
-            .saw => "saw",
-            .triangle => "tri",
-            .square => "sqr",
-            .wavetable => "wt",
-        }),
-        1 => try w.print("{d:.2}", .{synth.pulse_width}),
-        2 => try w.print("{d:.0} ct", .{synth.detune_cents}),
-        3 => try w.print("{d}", .{synth.unison}),
-        4 => try w.print("{d:.1} ct", .{synth.unison_detune}),
-        5 => try w.print("{d:.2}", .{synth.unison_spread}),
-        6 => try w.writeAll(if (synth.osc_b_on) "on" else "off"),
-        7 => try w.writeAll(switch (synth.osc_b_waveform) {
-            .sine => "sine",
-            .saw => "saw",
-            .triangle => "tri",
-            .square => "sqr",
-            .wavetable => "wt",
-        }),
-        8 => try w.print("{d:.2}", .{synth.osc_b_pulse_width}),
-        9 => try w.print("{d:.0} st", .{synth.osc_b_semi}),
-        10 => try w.print("{d:.0} ct", .{synth.osc_b_detune_cents}),
-        11 => try w.print("{d:.2}", .{synth.osc_b_level}),
-        12 => try w.print("{d}", .{synth.osc_b_unison}),
-        13 => try w.print("{d:.1} ct", .{synth.osc_b_unison_detune}),
-        14 => try w.writeAll(switch (synth.mod_mode) {
-            .none => "off",
-            .ring => "ring",
-            .am_a_to_b => "AM A\u{2192}B",
-            .am_b_to_a => "AM B\u{2192}A",
-            .fm_a_to_b => "FM A\u{2192}B",
-            .fm_b_to_a => "FM B\u{2192}A",
-        }),
-        15 => switch (synth.mod_mode) {
-            .fm_a_to_b, .fm_b_to_a => try w.print("\u{03b2}={d:.2}", .{synth.mod_amount}),
-            else => try w.print("{d:.2}", .{synth.mod_amount}),
-        },
-        16 => try w.print("{d:.3} s", .{synth.attack_s}),
-        17 => try w.print("{d:.3} s", .{synth.decay_s}),
-        18 => try w.print("{d:.3}", .{synth.sustain}),
-        19 => try w.print("{d:.3} s", .{synth.release_s}),
-        20 => try w.writeAll(filterTypeName(synth.filter_type)),
-        21 => if (synth.filter_cutoff >= 1_000.0)
-            try w.print("{d:.2} kHz", .{synth.filter_cutoff / 1_000.0})
-        else
-            try w.print("{d:.0} Hz", .{synth.filter_cutoff}),
-        22 => try w.print("{d:.3}", .{synth.filter_res}),
-        24 => try w.print("{d:.3} s", .{synth.fenv_attack_s}),
-        25 => try w.print("{d:.3} s", .{synth.fenv_decay_s}),
-        26 => try w.print("{d:.3}", .{synth.fenv_sustain}),
-        27 => try w.print("{d:.3} s", .{synth.fenv_release_s}),
-        28 => try w.writeAll(lfoShapeName(synth.lfo_shape)),
-        29 => try w.print("{d:.2} Hz", .{synth.lfo_rate_hz}),
-        32 => try w.writeAll(switch (synth.voice_mode) {
-            .poly => "poly",
-            .mono => "mono",
-            .legato => "legato",
-        }),
-        33 => if (synth.glide_s == 0.0) try w.writeAll("off") else try w.print("{d:.3} s", .{synth.glide_s}),
-        34 => if (synth.sub_level == 0.0) try w.writeAll("off") else try w.print("{d:.2}", .{synth.sub_level}),
-        35 => try w.writeAll(switch (synth.sub_shape) {
-            .sine => "sine",
-            .square => "sqr",
-        }),
-        36 => if (synth.noise_level == 0.0) try w.writeAll("off") else try w.print("{d:.2}", .{synth.noise_level}),
-        37 => try w.print("{d:.2}", .{synth.noise_color}),
-        38 => try w.print("{d:.3}", .{synth.gain}),
-        39 => try w.writeAll(uniModeName(synth.unison_mode)),
-        40 => try w.writeAll(uniModeName(synth.osc_b_unison_mode)),
-        41 => try w.writeAll(switch (synth.warp_mode) {
-            .none => "none",
-            .bend => "bend",
-            .mirror => "mirror",
-            .sync => "sync",
-        }),
-        42 => try w.print("{d:.2}", .{synth.warp_amount}),
-        43 => try w.writeAll(switch (synth.osc_b_warp_mode) {
-            .none => "none",
-            .bend => "bend",
-            .mirror => "mirror",
-            .sync => "sync",
-        }),
-        44 => try w.print("{d:.2}", .{synth.osc_b_warp_amount}),
-        45 => try w.writeAll(if (synth.filter2_on) "on" else "off"),
-        46 => try w.writeAll(filterTypeName(synth.filter2_type)),
-        47 => if (synth.filter2_cutoff >= 1_000.0)
-            try w.print("{d:.2} kHz", .{synth.filter2_cutoff / 1_000.0})
-        else
-            try w.print("{d:.0} Hz", .{synth.filter2_cutoff}),
-        48 => try w.print("{d:.3}", .{synth.filter2_res}),
-        49 => try w.writeAll(switch (synth.filter_routing) {
-            .series => "series",
-            .parallel => "parallel",
-        }),
-        50 => try w.writeAll(if (synth.osc_c_on) "on" else "off"),
-        51 => try w.writeAll(switch (synth.osc_c_waveform) {
-            .sine => "sine",
-            .saw => "saw",
-            .triangle => "tri",
-            .square => "sqr",
-            .wavetable => "wt",
-        }),
-        52 => try w.print("{d:.2}", .{synth.osc_c_pulse_width}),
-        53 => try w.print("{d:.0} st", .{synth.osc_c_semi}),
-        54 => try w.print("{d:.0} ct", .{synth.osc_c_detune_cents}),
-        55 => try w.print("{d:.2}", .{synth.osc_c_level}),
-        56 => try w.print("{d}", .{synth.osc_c_unison}),
-        57 => try w.print("{d:.1} ct", .{synth.osc_c_unison_detune}),
-        58 => try w.writeAll(uniModeName(synth.osc_c_unison_mode)),
-        59...82 => {
-            const row = synth.mod_matrix[(app.synth_cursor - 59) / 3];
-            switch ((app.synth_cursor - 59) % 3) {
-                // zig fmt: off
-                0 => try w.writeAll(mod_src_names[modSrcIdx(row.source)]),
-                1 => try w.writeAll(ws.dsp.PolySynth.modDestLabel(row.dest)),
-                2 => try w.print("{s}{d:.2}", .{ @as([]const u8, if (row.depth >= 0.0) "+" else ""), row.depth }),
-                // zig fmt: on
-                else => {},
-            }
-        },
-        // zig fmt: off
-        83 => try w.writeAll(if (synth.fx_dist_on) "on" else "off"),
-        84 => try w.print("{d:.1} dB",    .{synth.fx_dist_drive_db}),
-        85 => try w.print("{d:.2}",       .{synth.fx_dist_mix}),
-        86 => try w.writeAll(if (synth.fx_crush_on) "on" else "off"),
-        87 => try w.print("{d:.0}",       .{synth.fx_crush_bits}),
-        88 => try w.print("1/{d:.0}",     .{synth.fx_crush_rate}),
-        89 => try w.print("{d:.2}",       .{synth.fx_crush_mix}),
-        90 => try w.writeAll(if (synth.fx_flanger_on) "on" else "off"),
-        91 => try w.print("{d:.2} Hz",    .{synth.fx_flanger_rate_hz}),
-        92 => try w.print("{d:.2}",       .{synth.fx_flanger_depth}),
-        93 => try w.print("{d:.2}",       .{synth.fx_flanger_feedback}),
-        94 => try w.print("{d:.2}",       .{synth.fx_flanger_mix}),
-        95 => try w.writeAll(lfoShapeName(synth.lfo2_shape)),
-        96 => try w.print("{d:.2} Hz",    .{synth.lfo2_rate_hz}),
-        97 => try w.writeAll(lfoShapeName(synth.lfo3_shape)),
-        98 => try w.print("{d:.2} Hz",    .{synth.lfo3_rate_hz}),
-        99  => try w.print("{d:.2}",      .{synth.macro1}),
-        100 => try w.print("{d:.2}",      .{synth.macro2}),
-        101 => try w.print("{d:.2}",      .{synth.macro3}),
-        102 => try w.print("{d:.2}",      .{synth.macro4}),
-        103 => try w.writeAll(if (synth.fx_phaser_on) "on" else "off"),
-        104 => try w.print("{d:.2} Hz",    .{synth.fx_phaser_rate_hz}),
-        105 => try w.print("{d:.2}",       .{synth.fx_phaser_depth}),
-        106 => try w.print("{d:.2}",       .{synth.fx_phaser_feedback}),
-        107 => try w.print("{d:.2}",       .{synth.fx_phaser_mix}),
-        108 => try w.writeAll(if (synth.fx_delay_on) "on" else "off"),
-        109 => try w.print("{d:.3} s",     .{synth.fx_delay_time_s}),
-        110 => try w.print("{d:.2}",       .{synth.fx_delay_feedback}),
-        111 => try w.print("{d:.2}",       .{synth.fx_delay_mix}),
-        112 => try w.writeAll(if (synth.fx_reverb_on) "on" else "off"),
-        113 => try w.print("{d:.2}",       .{synth.fx_reverb_room}),
-        114 => try w.print("{d:.2}",       .{synth.fx_reverb_damp}),
-        115 => try w.print("{d:.2}",       .{synth.fx_reverb_mix}),
-        116 => try w.writeAll(if (synth.arp_on) "on" else "off"),
-        117 => try w.writeAll(arpModeName(synth.arp_mode)),
-        118 => try w.print("{d}",          .{synth.arp_octaves}),
-        119 => try w.print("{d:.1} Hz",    .{synth.arp_rate_hz}),
-        120 => try w.print("{d:.2}",       .{synth.arp_gate}),
-        121 => try w.writeAll(if (synth.arp_hold) "on" else "off"),
-        122 => try w.print("{d:.3} s",     .{synth.env3_attack_s}),
-        123 => try w.print("{d:.3} s",     .{synth.env3_decay_s}),
-        124 => try w.print("{d:.3}",       .{synth.env3_sustain}),
-        125 => try w.print("{d:.3} s",     .{synth.env3_release_s}),
-        132 => try w.writeAll(if (synth.fx_gate_on) "on" else "off"),
-        133 => try w.print("{d:.0} dB",    .{synth.fx_gate_threshold_db}),
-        134 => try w.print("{d:.1} ms",    .{synth.fx_gate_attack_ms}),
-        135 => try w.print("{d:.0} ms",    .{synth.fx_gate_release_ms}),
-        137 => try w.writeAll(if (synth.fx_comp_on) "on" else "off"),
-        138 => try w.print("{d:.0} dB",    .{synth.fx_comp_threshold_db}),
-        139 => try w.print("{d:.1}:1",     .{synth.fx_comp_ratio}),
-        140 => try w.print("{d:.1} ms",    .{synth.fx_comp_attack_ms}),
-        141 => try w.print("{d:.0} ms",    .{synth.fx_comp_release_ms}),
-        142 => try w.print("{d:.1} dB",    .{synth.fx_comp_makeup_db}),
-        144 => try w.writeAll(if (synth.fx_mb_on) "on" else "off"),
-        145 => try w.print("{d:.0} Hz",    .{synth.fx_mb_xover_lo}),
-        146 => try w.print("{d:.0} Hz",    .{synth.fx_mb_xover_hi}),
-        147 => try w.print("{d:.1} ms",    .{synth.fx_mb_attack_ms}),
-        148 => try w.print("{d:.0} ms",    .{synth.fx_mb_release_ms}),
-        149 => try w.writeAll(if (synth.fx_mb_style == .ott) "OTT" else "classic"),
-        150 => try w.print("{d:.2}",       .{synth.fx_mb_mix}),
-        151 => try w.print("{d:.0} dB",    .{synth.fx_mb_low_threshold_db}),
-        152 => try w.print("{d:.1}:1",     .{synth.fx_mb_low_ratio}),
-        153 => try w.print("{d:.1} dB",    .{synth.fx_mb_low_makeup_db}),
-        154 => try w.print("{d:.0} dB",    .{synth.fx_mb_mid_threshold_db}),
-        155 => try w.print("{d:.1}:1",     .{synth.fx_mb_mid_ratio}),
-        156 => try w.print("{d:.1} dB",    .{synth.fx_mb_mid_makeup_db}),
-        157 => try w.print("{d:.0} dB",    .{synth.fx_mb_high_threshold_db}),
-        158 => try w.print("{d:.1}:1",     .{synth.fx_mb_high_ratio}),
-        159 => try w.print("{d:.1} dB",    .{synth.fx_mb_high_makeup_db}),
-        161 => try w.writeAll(if (synth.fx_ott_on) "on" else "off"),
-        162 => try w.print("{d:.2}",       .{synth.fx_ott_depth}),
-        163 => try w.print("{d:.2}x",      .{synth.fx_ott_time}),
-        164 => try w.print("{d:.1} dB",    .{synth.fx_ott_gain_in_db}),
-        165 => try w.print("{d:.1} dB",    .{synth.fx_ott_gain_out_db}),
-        167 => try w.writeAll(if (synth.fx_eq_on) "on" else "off"),
-        168 => try w.print("{d:.0} Hz",    .{synth.fx_eq_low_freq}),
-        169 => try w.print("{d:.1} dB",    .{synth.fx_eq_low_gain_db}),
-        170 => try w.print("{d:.0} Hz",    .{synth.fx_eq_mid_freq}),
-        171 => try w.print("{d:.1} dB",    .{synth.fx_eq_mid_gain_db}),
-        172 => try w.print("{d:.2}",       .{synth.fx_eq_mid_q}),
-        173 => try w.print("{d:.0} Hz",    .{synth.fx_eq_high_freq}),
-        174 => try w.print("{d:.1} dB",    .{synth.fx_eq_high_gain_db}),
-        176 => try w.writeAll(if (synth.fx_chorus_on) "on" else "off"),
-        177 => try w.print("{d:.2} Hz",    .{synth.fx_chorus_rate_hz}),
-        178 => try w.print("{d:.1} ms",    .{synth.fx_chorus_depth_ms}),
-        179 => try w.print("{d:.2}",       .{synth.fx_chorus_mix}),
-        181 => try w.writeAll(if (synth.fx_freq_shift_on) "on" else "off"),
-        182 => try w.print("{d:.0} Hz",    .{synth.fx_freq_shift_hz}),
-        183 => try w.print("{d:.2}",       .{synth.fx_freq_shift_mix}),
-        185 => try w.print("{d:.2}",       .{synth.wt_pos}),
-        186 => try w.print("{d:.2}",       .{synth.osc_b_wt_pos}),
-        187 => try w.print("{d:.2}",       .{synth.osc_c_wt_pos}),
-        188 => try w.writeAll(if (synth.fx_tape_on) "on" else "off"),
-        189 => try w.print("{d:.2} Hz",    .{synth.fx_tape_wow_rate_hz}),
-        190 => try w.print("{d:.2}",       .{synth.fx_tape_wow_depth}),
-        191 => try w.print("{d:.2} Hz",    .{synth.fx_tape_flutter_rate_hz}),
-        192 => try w.print("{d:.2}",       .{synth.fx_tape_flutter_depth}),
-        193 => try w.print("{d:.2}",       .{synth.fx_tape_mix}),
-        // zig fmt: on
-        else => {},
-    }
-    try w.writeAll(rst);
-    if (app.status_len > 0) {
-        try w.writeAll(dim ++ "  " ++ rst);
-        try w.writeAll(app.status_buf[0..app.status_len]);
-    }
-}
 
 // zig fmt: on

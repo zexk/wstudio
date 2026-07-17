@@ -77,19 +77,6 @@ pub fn drawHelp(w: *std.Io.Writer, rows: usize, cols: usize, cmds: []const cmd_m
     for (1 + (end - off)..body) |_| try endLine(w);
 }
 
-/// Help's footer status row: the live `/` prompt while typing, otherwise
-/// mode badge + any pending status message + the key hints - same
-/// message-before-hints clamp ordering views/browser.zig documents.
-pub fn drawHelpStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !void {
-    try style.writeModeBadge(w, app.modal.mode);
-    try style.writeViewBadge(right, "HELP", app.modal.mode);
-    if (app.status_len > 0) {
-        try w.writeAll(dim ++ "  " ++ rst);
-        try w.writeAll(app.status_buf[0..app.status_len]);
-    }
-    try w.writeAll(dim ++ "  " ++ rst ++ "j/k: scroll  d/u: page  g/G: top/bottom  /: search  n/N: next/prev  ?/esc: close");
-}
-
 test {
     _ = help_model;
 }

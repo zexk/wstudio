@@ -11,6 +11,7 @@ const ws = @import("wstudio");
 const Transport = ws.Transport;
 const style = @import("style.zig");
 const icons = @import("../ui/icons.zig");
+const status = @import("../ui/status.zig");
 
 const rst = style.rst;
 const bold = style.bold;
@@ -74,32 +75,35 @@ const automation = @import("views/automation.zig");
 const preset_picker = @import("views/preset_picker.zig");
 
 pub const drawTracks = tracks.drawTracks;
-pub const drawTracksStatus = tracks.drawTracksStatus;
 pub const drawInstrumentPicker = picker.drawInstrumentPicker;
 pub const drawFxPicker = picker.drawFxPicker;
 pub const drawSynthFxPicker = picker.drawSynthFxPicker;
-pub const drawPickerStatus = picker.drawPickerStatus;
 pub const drawDrumGrid = drum.drawDrumGrid;
-pub const drawDrumStatus = drum.drawDrumStatus;
 pub const drawSlicerGrid = slicer.drawSlicerGrid;
-pub const drawSlicerStatus = slicer.drawSlicerStatus;
 pub const drawHelp = help.drawHelp;
-pub const drawHelpStatus = help.drawHelpStatus;
 pub const helpSearch = help.search;
 pub const drawFxView = spectrum.drawFxView;
-pub const drawFxStatus = spectrum.drawFxStatus;
 pub const drawSynthEditor = synth.drawSynthEditor;
-pub const drawSynthStatus = synth.drawSynthStatus;
 pub const drawPianoRoll = piano.drawPianoRoll;
-pub const drawPianoRollStatus = piano.drawPianoRollStatus;
 pub const drawSamplerEditor = sampler.drawSamplerEditor;
-pub const drawSamplerStatus = sampler.drawSamplerStatus;
 pub const drawArrangement = arrangement.drawArrangement;
-pub const drawArrangementStatus = arrangement.drawArrangementStatus;
 pub const drawFileBrowser = browser.drawFileBrowser;
-pub const drawFileBrowserStatus = browser.drawFileBrowserStatus;
 pub const drawAutomation = automation.drawAutomation;
-pub const drawAutomationStatus = automation.drawAutomationStatus;
 pub const drawAutomationParamPicker = automation.drawAutomationParamPicker;
 pub const drawPresetPicker = preset_picker.drawPresetPicker;
-pub const drawPresetPickerStatus = preset_picker.drawPresetPickerStatus;
+
+// Status renderers are shared with the GUI (which strips the SGR codes and
+// re-renders the plain text) - the model lives in ui/status.zig, not per-view.
+pub const drawTracksStatus = status.drawTracksStatus;
+pub const drawPickerStatus = status.drawPickerStatus;
+pub const drawDrumStatus = status.drawDrumStatus;
+pub const drawSlicerStatus = status.drawSlicerStatus;
+pub const drawHelpStatus = status.drawHelpStatus;
+pub const drawFxStatus = status.drawFxStatus;
+pub const drawSynthStatus = status.drawSynthStatus;
+pub const drawPianoRollStatus = status.drawPianoRollStatus;
+pub const drawSamplerStatus = status.drawSamplerStatus;
+pub const drawArrangementStatus = status.drawArrangementStatus;
+pub const drawFileBrowserStatus = status.drawFileBrowserStatus;
+pub const drawAutomationStatus = status.drawAutomationStatus;
+pub const drawPresetPickerStatus = status.drawPresetPickerStatus;

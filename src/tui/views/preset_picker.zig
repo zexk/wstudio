@@ -122,17 +122,3 @@ pub fn drawPresetPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void {
     const used = 2 + printed;
     for (used..@max(used, rows -| 4)) |_| try endLine(w);
 }
-
-/// Status row keeps apply errors ahead of lower-priority key hints so narrow
-/// terminals preserve the feedback when the shared row clamps.
-pub fn drawPresetPickerStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !void {
-    try style.writeModeBadge(w, app.modal.mode);
-    try style.writeViewBadge(right, "PRESETS", app.modal.mode);
-    if (app.status_len > 0) {
-        try w.writeAll(dim ++ "  " ++ rst);
-        try w.writeAll(app.status_buf[0..app.status_len]);
-    }
-    try w.writeAll(dim ++ "  " ++ rst ++ "j/k: move");
-    if (app.preset_picker_kind == .synth) try w.writeAll("  a: audition C3");
-    try w.writeAll("  enter: apply  /: filter  d: delete  esc: close");
-}

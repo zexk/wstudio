@@ -8,7 +8,6 @@ const ansi = @import("../ui/ansi.zig");
 const types = ws.types;
 const Mode = ws.input.Mode;
 
-
 // The SGR palette lives in ui/ansi.zig (shared with the GUI's strip-and-
 // re-render path); re-exported here so TUI code keeps saying `style.acc`.
 pub const rst = ansi.rst;
@@ -27,44 +26,6 @@ pub const track_palette = ansi.track_palette;
 pub const track_color_names = ansi.track_color_names;
 pub const stripAnsi = ansi.stripAnsi;
 pub const endLine = ansi.endLine;
-
-/// Background counterparts of the three mode colours (SGR 40-47), used only
-/// by the status-line mode badge below - everywhere else in the TUI gets
-/// its block look from `sel` (reverse video) instead, since that adapts to
-/// whatever the terminal's real background is. The badge needs a literal
-/// background code (reverse video would work fine here too, actually, but
-/// this keeps the badge's look independent of whatever `sel` is doing
-/// elsewhere on the same row).
-const bg_grn = "\x1b[42m";
-const bg_yel = "\x1b[43m";
-const bg_mag = "\x1b[45m";
-const bg_cyn = "\x1b[46m";
-/// Bold black text reads cleanly on all three badge background colours
-/// above (they're all ANSI "normal" intensity, so black-on-them has good
-/// contrast regardless of the terminal's light/dark theme).
-const badge_fg = "\x1b[30m" ++ bold;
-
-fn modeBadgeBg(mode: Mode) []const u8 {
-    return switch (mode) {
-        .normal => bg_grn,
-        .insert => bg_yel,
-        .visual => bg_mag,
-        // The `:`/`/` prompt itself lives on its own row now (see
-        // App.draw's prompt row) - the status row still shows a badge,
-        // cyan so both ends of the row visibly flag "you're typing".
-        .command, .search => bg_cyn,
-    };
-}
-
-fn modeBadgeLetter(mode: Mode) []const u8 {
-    return switch (mode) {
-        .normal => "N",
-        .insert => "I",
-        .visual => "V",
-        .command => "C",
-        .search => "S",
-    };
-}
 
 // ---------------------------------------------------------------------------
 // Primitive helpers
@@ -95,45 +56,10 @@ pub fn writeChromeRow(w: *std.Io.Writer, raw: []const u8, cols: u16) !void {
     try endLine(w);
 }
 
-/// Writes the lualine-style mode badge: a single letter (N/I/V, plus C/S
-/// for command/search) on a colour-coded background, deliberately with no
-/// divider glyph or second chip (docs/ui-conventions.md has the design
-/// story). Callers print the view name and status content as plain text
-/// right after. The `:`/`/` prompt renders on its own row (App.draw), so
-/// the status row stays informative while typing.
-pub fn writeModeBadge(w: *std.Io.Writer, mode: Mode) !void {
-    try w.writeAll(modeBadgeBg(mode));
-    try w.writeAll(badge_fg);
-    try w.print(" {s} ", .{modeBadgeLetter(mode)});
-    try w.writeAll(rst);
-}
-
-/// Right-edge view-name chip, matching writeModeBadge's look (solid colour
-/// block, bold black text) so the status row's two ends read as a pair.
-/// Shares the mode badge's background colour rather than a fixed hue, so
-/// both ends of the row visibly change together when the mode changes.
-/// `tone` covers callers whose chip doubles as a state flag instead of the
-/// mode (the arrangement's SONG/PATTERN toggle keeps its own green/yellow
-/// regardless of mode).
-pub const BadgeTone = enum { cyan, green, yellow };
-
-pub fn writeViewBadge(w: *std.Io.Writer, name: []const u8, mode: Mode) !void {
-    try w.writeAll(modeBadgeBg(mode));
-    try w.writeAll(badge_fg);
-    try w.print(" {s} ", .{name});
-    try w.writeAll(rst);
-}
-
-pub fn writeViewBadgeColored(w: *std.Io.Writer, name: []const u8, tone: BadgeTone) !void {
-    try w.writeAll(switch (tone) {
-        // zig fmt: off
-        .cyan => bg_cyn, .green => bg_grn, .yellow => bg_yel,
-        // zig fmt: on
-    });
-    try w.writeAll(badge_fg);
-    try w.print(" {s} ", .{name});
-    try w.writeAll(rst);
-}
+pub const writeModeBadge = ansi.writeModeBadge;
+pub const BadgeTone = ansi.BadgeTone;
+pub const writeViewBadge = ansi.writeViewBadge;
+pub const writeViewBadgeColored = ansi.writeViewBadgeColored;
 
 /// Visible column width of `raw` (may contain ANSI SGR sequences): escapes
 /// cost nothing, everything else counts as one column per UTF-8 lead byte.

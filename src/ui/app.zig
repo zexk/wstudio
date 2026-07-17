@@ -3322,7 +3322,6 @@ pub const App = struct {
         self.status_len = msg.len;
         self.status_ttl = 100;
     }
-
 };
 
 // zig fmt: off
