@@ -63,13 +63,16 @@ pub fn dupe(table: Wavetable, allocator: std.mem.Allocator) !Wavetable {
 /// and phase `phase` (wrapped to 0..1), bilinearly interpolating across
 /// both frame and sample axes.
 pub fn lookup(table: Wavetable, frame_pos: f32, phase: f32) Sample {
+    if (table.frame_count == 0 or table.frames.len < table.frame_count *| frame_len) return 0.0;
+    const safe_frame_pos = if (std.math.isFinite(frame_pos)) frame_pos else 0.0;
+    const safe_phase = if (std.math.isFinite(phase)) phase else 0.0;
     const fc: f32 = @floatFromInt(table.frame_count - 1);
-    const fp = std.math.clamp(frame_pos, 0.0, 1.0) * fc;
+    const fp = std.math.clamp(safe_frame_pos, 0.0, 1.0) * fc;
     const f0: usize = @intFromFloat(@floor(fp));
     const f1: usize = @min(f0 + 1, table.frame_count - 1);
     const frac_f = fp - @floor(fp);
 
-    const ph = phase - @floor(phase);
+    const ph = safe_phase - @floor(safe_phase);
     const sp = ph * @as(f32, @floatFromInt(frame_len));
     const s0: usize = @intFromFloat(@floor(sp));
     const s1: usize = (s0 + 1) % frame_len;
@@ -145,4 +148,18 @@ test "dupe: independent buffer, same content" {
 
     copy.frames[0] = -0.5;
     try std.testing.expectEqual(@as(f32, 0.5), table.frames[0]);
+}
+
+test "lookup handles invalid coordinates and malformed tables safely" {
+    var empty_frames: [0]f32 = .{};
+    const empty = Wavetable{ .frames = &empty_frames, .frame_count = 0 };
+    try std.testing.expectEqual(@as(f32, 0.0), lookup(empty, 0.0, 0.0));
+
+    var short_frames = [_]f32{0.5};
+    const short = Wavetable{ .frames = &short_frames, .frame_count = 1 };
+    try std.testing.expectEqual(@as(f32, 0.0), lookup(short, 0.0, 0.0));
+
+    var table = try fromSamples(std.testing.allocator, &.{0.25});
+    defer deinit(&table, std.testing.allocator);
+    try std.testing.expectEqual(lookup(table, 0.0, 0.0), lookup(table, std.math.nan(f32), std.math.inf(f32)));
 }
