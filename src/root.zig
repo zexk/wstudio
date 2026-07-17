@@ -23,8 +23,18 @@ pub const FxKind = @import("rack.zig").FxKind;
 pub const engine = @import("audio/engine.zig");
 pub const Engine = engine.Engine;
 pub const backend = @import("audio/backend.zig");
+pub const audio_host = @import("audio/host.zig");
+pub const AudioHost = audio_host.AudioHost;
 pub const alsa = if (@import("builtin").os.tag == .linux)
     @import("audio/alsa.zig")
+else
+    struct {};
+pub const pipewire = if (@import("builtin").os.tag == .linux)
+    @import("audio/pipewire.zig")
+else
+    struct {};
+pub const jack = if (@import("builtin").os.tag == .linux)
+    @import("audio/jack.zig")
 else
     struct {};
 pub const wasapi = if (@import("builtin").os.tag == .windows)
@@ -84,7 +94,10 @@ test {
     _ = Project;
     _ = engine;
     _ = backend;
+    _ = audio_host;
     _ = alsa;
+    _ = pipewire;
+    _ = jack;
     _ = wasapi;
     _ = dsp;
     _ = Session;
