@@ -60,7 +60,10 @@ pub const Project = struct {
         const sr = @as(f64, @floatFromInt(@max(self.sample_rate, 1)));
         const bpm = if (std.math.isFinite(self.tempo_bpm) and self.tempo_bpm > 0.0) self.tempo_bpm else 120.0;
         const beats_per_bar = @max(self.beats_per_bar, 1);
-        const frames: u64 = @intFromFloat(sr * 60.0 / bpm * @as(f64, @floatFromInt(beats_per_bar)));
+        const frames_f = sr * 60.0 / bpm * @as(f64, @floatFromInt(beats_per_bar));
+        if (!std.math.isFinite(frames_f) or frames_f >= @as(f64, @floatFromInt(std.math.maxInt(u64))))
+            return std.math.maxInt(u64);
+        const frames: u64 = @intFromFloat(frames_f);
         return @max(frames, 1);
     }
 
@@ -147,4 +150,9 @@ test "framesPerBar remains valid with invalid timing fields" {
     p.tempo_bpm = std.math.nan(f64);
     p.beats_per_bar = 0;
     try std.testing.expectEqual(@as(u64, 1), p.framesPerBar());
+
+    p.sample_rate = std.math.maxInt(u32);
+    p.tempo_bpm = std.math.floatMin(f64);
+    p.beats_per_bar = std.math.maxInt(u8);
+    try std.testing.expectEqual(std.math.maxInt(u64), p.framesPerBar());
 }
