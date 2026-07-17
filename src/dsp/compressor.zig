@@ -79,9 +79,17 @@ pub const Compressor = struct {
 
     pub fn processBlock(self: *Compressor, buf: []Sample) void {
         const frames = buf.len / 2;
-        const attack = self.smoothingCoef(self.attack_ms);
-        const release = self.smoothingCoef(self.release_ms);
-        const makeup = types.dbToGain(self.makeup_db);
+        // A non-positive attack_ms/release_ms flips smoothingCoef's exponent
+        // positive (coef >= 1, diverges within a block); a ratio near/under
+        // 0 sends downwardReductionDb's `1/ratio` toward +-inf.
+        const attack_ms = if (std.math.isFinite(self.attack_ms)) std.math.clamp(self.attack_ms, 0.1, 500.0) else 10.0;
+        const release_ms = if (std.math.isFinite(self.release_ms)) std.math.clamp(self.release_ms, 1.0, 2000.0) else 80.0;
+        const ratio = if (std.math.isFinite(self.ratio)) std.math.clamp(self.ratio, 1.0, 20.0) else 4.0;
+        const threshold_db = if (std.math.isFinite(self.threshold_db)) std.math.clamp(self.threshold_db, -60.0, 0.0) else -18.0;
+        const makeup_db = if (std.math.isFinite(self.makeup_db)) std.math.clamp(self.makeup_db, -24.0, 24.0) else 0.0;
+        const attack = self.smoothingCoef(attack_ms);
+        const release = self.smoothingCoef(release_ms);
+        const makeup = types.dbToGain(makeup_db);
         // Detector buffer must match this block's frame count to be safe to
         // index alongside `buf` - a mismatched length (chain resync landed
         // mid-block, or the source track rendered a short final block) falls
@@ -94,8 +102,8 @@ pub const Compressor = struct {
                 @max(@abs(d[i * 2]), @abs(d[i * 2 + 1]))
             else
                 @max(@abs(buf[i * 2]), @abs(buf[i * 2 + 1]));
-            const over_db = envelopeOverDb(&self.env, level, attack, release, self.threshold_db);
-            const reduction_db = downwardReductionDb(over_db, self.ratio);
+            const over_db = envelopeOverDb(&self.env, level, attack, release, threshold_db);
+            const reduction_db = downwardReductionDb(over_db, ratio);
             const gain = types.dbToGain(reduction_db) * makeup;
 
             buf[i * 2] *= gain;
@@ -163,6 +171,19 @@ test "sidechain detector overrides self-detection, and is consumed after one blo
     var quiet2 = [_]Sample{0.05} ** 9600;
     comp.processBlock(&quiet2);
     try std.testing.expectApproxEqAbs(@as(Sample, 0.05), quiet2[quiet2.len - 2], 1e-3);
+}
+
+test "invalid parameters cannot trap or poison output" {
+    var comp = Compressor.init(48_000);
+    comp.threshold_db = std.math.nan(f32);
+    comp.ratio = 0.0;
+    comp.attack_ms = -5.0;
+    comp.release_ms = std.math.inf(f32);
+    comp.makeup_db = std.math.inf(f32);
+    var buf: [256]Sample = undefined;
+    for (&buf, 0..) |*s, i| s.* = if (i % 4 < 2) 0.3 else -0.7;
+    comp.processBlock(&buf);
+    for (buf) |sample| try std.testing.expect(std.math.isFinite(sample));
 }
 
 test "detector length mismatch falls back to self-detection instead of an out-of-bounds read" {
