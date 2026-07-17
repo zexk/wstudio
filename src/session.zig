@@ -330,12 +330,13 @@ pub const Session = struct {
         return pad_count;
     }
 
-    pub const DeleteTrackError = error{CannotDeleteLastTrack};
+    pub const DeleteTrackError = error{ CannotDeleteLastTrack, InvalidTrack };
 
     /// Remove the track at `track_idx`. The displaced rack is moved to
     /// `retired_racks` rather than freed immediately - the audio thread may
     /// still be referencing it. Racks are freed at `deinit`.
     pub fn deleteTrack(self: *Session, track_idx: usize) DeleteTrackError!void {
+        if (track_idx >= self.project.tracks.items.len) return error.InvalidTrack;
         if (self.project.tracks.items.len <= 1) return error.CannotDeleteLastTrack;
 
         _ = self.engine.send(.all_notes_off);
@@ -1093,6 +1094,16 @@ test "deleteTrack rejects last track" {
     var s = try Session.initDefault(std.testing.allocator);
     defer s.deinit();
     try std.testing.expectError(error.CannotDeleteLastTrack, s.deleteTrack(0));
+}
+
+test "deleteTrack rejects invalid index without mutating session" {
+    var s = try Session.initDefault(std.testing.allocator);
+    defer s.deinit();
+    _ = try s.addTrack("two");
+
+    try std.testing.expectError(error.InvalidTrack, s.deleteTrack(99));
+    try std.testing.expectEqual(@as(usize, 2), s.project.tracks.items.len);
+    try std.testing.expectEqual(@as(usize, 2), s.racks.items.len);
 }
 
 test "duplicateTrack copies params and appends at the end" {
