@@ -28,8 +28,9 @@ pub fn moveClamped(cursor: *u8, delta: i32, count: usize) void {
         cursor.* = 0;
         return;
     }
-    const top: i32 = @intCast(count - 1);
-    cursor.* = @intCast(std.math.clamp(@as(i32, cursor.*) + delta, 0, top));
+    const top: i64 = @intCast(count - 1);
+    const target = @as(i64, cursor.*) + delta;
+    cursor.* = @intCast(std.math.clamp(target, 0, top));
 }
 
 // w/b's jump granularity: 4 steps, matching the grid's own `│` separators
@@ -42,26 +43,38 @@ const bar_len: i32 = 4;
 /// w/b: jump the step cursor `delta` 4-step groups forward/back - snaps to
 /// the nearest group boundary first, then moves whole groups from there.
 pub fn jumpBar(cursor: *u8, delta: i32, step_count: u8) void {
-    const cur_bar = @divFloor(@as(i32, cursor.*), bar_len);
+    if (step_count == 0) {
+        cursor.* = 0;
+        return;
+    }
+    const cur_bar = @divFloor(@as(i64, cursor.*), bar_len);
     const target = (cur_bar + delta) * bar_len;
-    const top = @as(i32, step_count) - 1;
+    const top = @as(i64, step_count) - 1;
     cursor.* = @intCast(std.math.clamp(target, 0, top));
 }
 
 /// dw/yw's range end: the last step of the nth bar forward (inclusive),
 /// not w's own landing step (see piano.zig's identical vim dw nuance).
 pub fn operatorBarForward(cursor: *u8, n: i32, step_count: u8) void {
-    const cur_bar = @divFloor(@as(i32, cursor.*), bar_len);
+    if (step_count == 0) {
+        cursor.* = 0;
+        return;
+    }
+    const cur_bar = @divFloor(@as(i64, cursor.*), bar_len);
     const hi = (cur_bar + n) * bar_len - 1;
-    const top = @as(i32, step_count) - 1;
+    const top = @as(i64, step_count) - 1;
     cursor.* = @intCast(std.math.clamp(hi, 0, top));
 }
 
 /// db/yb's range start: the first step of the nth bar back.
 pub fn operatorBarBackward(cursor: *u8, n: i32, step_count: u8) void {
-    const cur_bar = @divFloor(@as(i32, cursor.*), bar_len);
+    if (step_count == 0) {
+        cursor.* = 0;
+        return;
+    }
+    const cur_bar = @divFloor(@as(i64, cursor.*), bar_len);
     const lo = (cur_bar - n + 1) * bar_len;
-    const top = @as(i32, step_count) - 1;
+    const top = @as(i64, step_count) - 1;
     cursor.* = @intCast(std.math.clamp(lo, 0, top));
 }
 
@@ -147,4 +160,28 @@ pub fn pasteRange(inst: anytype, max_rows: usize, clip: anytype, base: u8) u8 {
         }
     }
     return i;
+}
+
+test "cursor motions clamp maximum count prefixes without overflow" {
+    var cursor: u8 = 7;
+    moveClamped(&cursor, std.math.maxInt(i32), 16);
+    try std.testing.expectEqual(@as(u8, 15), cursor);
+    moveClamped(&cursor, std.math.minInt(i32), 16);
+    try std.testing.expectEqual(@as(u8, 0), cursor);
+
+    jumpBar(&cursor, std.math.maxInt(i32), 16);
+    try std.testing.expectEqual(@as(u8, 15), cursor);
+    operatorBarForward(&cursor, std.math.maxInt(i32), 16);
+    try std.testing.expectEqual(@as(u8, 15), cursor);
+    operatorBarBackward(&cursor, std.math.maxInt(i32), 16);
+    try std.testing.expectEqual(@as(u8, 0), cursor);
+}
+
+test "bar motions handle an empty grid" {
+    var cursor: u8 = 12;
+    jumpBar(&cursor, 1, 0);
+    try std.testing.expectEqual(@as(u8, 0), cursor);
+    operatorBarForward(&cursor, 1, 0);
+    operatorBarBackward(&cursor, 1, 0);
+    try std.testing.expectEqual(@as(u8, 0), cursor);
 }
