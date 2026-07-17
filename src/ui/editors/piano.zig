@@ -357,14 +357,18 @@ fn repeatLastEdit(app: *App, pp: *pattern_mod.PatternPlayer, max_step: u16) void
 
 /// Move the step cursor by `delta` steps, clamped to the loop.
 fn moveStep(app: *App, max_step: u16, delta: i32) void {
-    const top = @max(@as(i32, max_step) - 1, 0);
-    app.piano_cursor_step = @intCast(std.math.clamp(@as(i32, app.piano_cursor_step) + delta, 0, top));
+    const top = @max(@as(i64, max_step) - 1, 0);
+    app.piano_cursor_step = @intCast(clampDelta(app.piano_cursor_step, delta, top));
     ensureVisible(app);
+}
+
+fn clampDelta(value: anytype, delta: i32, top: i64) i64 {
+    return std.math.clamp(@as(i64, value) + @as(i64, delta), 0, top);
 }
 
 /// Move the pitch cursor by `delta` semitones, clamped to the MIDI range.
 fn movePitch(app: *App, delta: i32) void {
-    app.piano_cursor_pitch = @intCast(std.math.clamp(@as(i32, app.piano_cursor_pitch) + delta, 0, 127));
+    app.piano_cursor_pitch = @intCast(clampDelta(app.piano_cursor_pitch, delta, 127));
     ensureVisible(app);
 }
 
@@ -698,9 +702,9 @@ fn barLenSteps(app: *App) u16 {
 fn jumpBar(app: *App, max_step: u16, delta: i32) void {
     const bar_len = barLenSteps(app);
     if (bar_len == 0) return;
-    const cur_bar = @divFloor(@as(i32, app.piano_cursor_step), @as(i32, bar_len));
-    const target_step = (cur_bar + delta) * @as(i32, bar_len);
-    const top = @max(@as(i32, max_step) - 1, 0);
+    const cur_bar = @divFloor(@as(i64, app.piano_cursor_step), @as(i64, bar_len));
+    const target_step = (cur_bar + @as(i64, delta)) * @as(i64, bar_len);
+    const top = @max(@as(i64, max_step) - 1, 0);
     app.piano_cursor_step = @intCast(std.math.clamp(target_step, 0, top));
     ensureVisible(app);
 }
@@ -711,9 +715,9 @@ fn jumpBar(app: *App, max_step: u16, delta: i32) void {
 fn operatorBarForward(app: *App, max_step: u16, n: i32) void {
     const bar_len = barLenSteps(app);
     if (bar_len == 0) return;
-    const cur_bar = @divFloor(@as(i32, app.piano_cursor_step), @as(i32, bar_len));
-    const hi = (cur_bar + n) * @as(i32, bar_len) - 1;
-    const top = @max(@as(i32, max_step) - 1, 0);
+    const cur_bar = @divFloor(@as(i64, app.piano_cursor_step), @as(i64, bar_len));
+    const hi = (cur_bar + @as(i64, n)) * @as(i64, bar_len) - 1;
+    const top = @max(@as(i64, max_step) - 1, 0);
     app.piano_cursor_step = @intCast(std.math.clamp(hi, 0, top));
 }
 
@@ -724,9 +728,9 @@ fn operatorBarForward(app: *App, max_step: u16, n: i32) void {
 fn operatorBarBackward(app: *App, max_step: u16, n: i32) void {
     const bar_len = barLenSteps(app);
     if (bar_len == 0) return;
-    const cur_bar = @divFloor(@as(i32, app.piano_cursor_step), @as(i32, bar_len));
-    const lo = (cur_bar - n + 1) * @as(i32, bar_len);
-    const top = @max(@as(i32, max_step) - 1, 0);
+    const cur_bar = @divFloor(@as(i64, app.piano_cursor_step), @as(i64, bar_len));
+    const lo = (cur_bar - @as(i64, n) + 1) * @as(i64, bar_len);
+    const top = @max(@as(i64, max_step) - 1, 0);
     app.piano_cursor_step = @intCast(std.math.clamp(lo, 0, top));
 }
 
@@ -953,4 +957,9 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16) v
         },
         else => {},
     }
+}
+
+test "cursor deltas saturate for maximum command counts" {
+    try std.testing.expectEqual(@as(i64, 127), clampDelta(@as(u7, 60), std.math.maxInt(i32), 127));
+    try std.testing.expectEqual(@as(i64, 0), clampDelta(@as(u16, 12), std.math.minInt(i32), 63));
 }
