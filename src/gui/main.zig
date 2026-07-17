@@ -198,6 +198,38 @@ fn bodyHeight(prompt_open: bool) f32 {
     return zgui.io.getDisplaySize()[1] - 98 - @as(f32, if (prompt_open) 38 else 0);
 }
 
+// On Windows, glfw.pollEvents blocks inside the Win32 modal loop for the
+// whole resize/move drag, so the main loop renders nothing until release.
+// GLFW delivers refresh/size callbacks from inside that loop; rendering a
+// frame there keeps the window live. zglfw doesn't wrap the refresh
+// callback, so declare it against the statically linked GLFW.
+extern fn glfwSetWindowRefreshCallback(*glfw.Window, ?*const fn (*glfw.Window) callconv(.c) void) ?*const fn (*glfw.Window) callconv(.c) void;
+
+const FrameCtx = struct { window: *glfw.Window, app: *App, audio: *ws.AudioHost };
+var frame_ctx: ?FrameCtx = null;
+
+fn onWindowRefresh(_: *glfw.Window) callconv(.c) void {
+    drawFrame();
+}
+
+fn onFramebufferSize(_: *glfw.Window, _: c_int, _: c_int) callconv(.c) void {
+    drawFrame();
+}
+
+fn drawFrame() void {
+    const ctx = frame_ctx orelse return;
+    const fb = ctx.window.getFramebufferSize();
+    if (fb[0] <= 0 or fb[1] <= 0) return;
+    gl.viewport(0, 0, fb[0], fb[1]);
+    gl.clearColor(patina.bg0[0], patina.bg0[1], patina.bg0[2], 1.0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    zgui.backend.newFrame(@intCast(fb[0]), @intCast(fb[1]));
+    ctx.app.handleShortcuts();
+    ctx.app.draw(ctx.audio.label());
+    zgui.backend.draw();
+    ctx.window.swapBuffers();
+}
+
 pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.Runtime) !void {
     const user_config = runtime.config;
     try glfw.init();
@@ -254,6 +286,11 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
     try audio.start(init.io, user_config.audio_backend);
     defer audio.stop();
 
+    frame_ctx = .{ .window = window, .app = &app, .audio = &audio };
+    defer frame_ctx = null;
+    _ = glfwSetWindowRefreshCallback(window, onWindowRefresh);
+    _ = window.setFramebufferSizeCallback(onFramebufferSize);
+
     while (!window.shouldClose() and !app.core.should_quit) {
         glfw.pollEvents();
         app.core.tick(std.Io.Timestamp.now(init.io, .awake).nanoseconds);
@@ -285,16 +322,7 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
                 try audio.start(init.io, user_config.audio_backend);
             }
         }
-        const fb = window.getFramebufferSize();
-        if (fb[0] <= 0 or fb[1] <= 0) continue;
-        gl.viewport(0, 0, fb[0], fb[1]);
-        gl.clearColor(patina.bg0[0], patina.bg0[1], patina.bg0[2], 1.0);
-        gl.clear(gl.COLOR_BUFFER_BIT);
-        zgui.backend.newFrame(@intCast(fb[0]), @intCast(fb[1]));
-        app.handleShortcuts();
-        app.draw(audio.label());
-        zgui.backend.draw();
-        window.swapBuffers();
+        drawFrame();
     }
 
     // The main loop broke on quit/window close: the session is still alive.
