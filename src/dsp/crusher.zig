@@ -27,9 +27,12 @@ pub const Crusher = struct {
 
     /// Crush an interleaved stereo buffer in place.
     pub fn processBlock(self: *Crusher, buf: []Sample) void {
+        const bits = if (std.math.isFinite(self.bits)) std.math.clamp(self.bits, 1.0, 16.0) else 8.0;
+        const downsample = if (std.math.isFinite(self.downsample)) std.math.clamp(self.downsample, 1.0, 32.0) else 4.0;
+        const mix = if (std.math.isFinite(self.mix)) std.math.clamp(self.mix, 0.0, 1.0) else 1.0;
         // zig fmt: off
-        const q    = std.math.pow(f32, 2.0, @round(self.bits) - 1.0);
-        const step = @max(@as(u32, @intFromFloat(@round(self.downsample))), 1);
+        const q    = std.math.pow(f32, 2.0, @round(bits) - 1.0);
+        const step: u32 = @intFromFloat(@round(downsample));
         var i: usize = 0;
         while (i + 1 < buf.len) : (i += 2) {
             if (self.counter == 0) {
@@ -37,9 +40,9 @@ pub const Crusher = struct {
                 self.hold[1] = @round(buf[i + 1] * q) / q;
             }
             self.counter = (self.counter + 1) % step;
-            buf[i]     = buf[i] * (1.0 - self.mix) + self.hold[0] * self.mix;
+            buf[i]     = buf[i] * (1.0 - mix) + self.hold[0] * mix;
             // zig fmt: on
-            buf[i + 1] = buf[i + 1] * (1.0 - self.mix) + self.hold[1] * self.mix;
+            buf[i + 1] = buf[i + 1] * (1.0 - mix) + self.hold[1] * mix;
         }
     }
 };
@@ -72,4 +75,11 @@ test "mix 0 passes the input untouched" {
     const expected = buf;
     crush.processBlock(&buf);
     for (buf, expected) |got, want| try std.testing.expectApproxEqAbs(want, got, 1e-6);
+}
+
+test "invalid parameters cannot trap or poison output" {
+    var crush = Crusher{ .bits = std.math.nan(f32), .downsample = std.math.inf(f32), .mix = -std.math.inf(f32) };
+    var buf = [_]Sample{ 0.3, -0.7, 0.05, 0.9 };
+    crush.processBlock(&buf);
+    for (buf) |sample| try std.testing.expect(std.math.isFinite(sample));
 }
