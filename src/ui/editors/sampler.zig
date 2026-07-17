@@ -124,28 +124,24 @@ fn returnView(app: *App) app_mod.AppView {
 /// since the two files don't share a common cursor-motion module).
 fn movePadBank(app: *App, delta: i32) void {
     if (app.sampler_target == .slice) {
-        const top = @as(i32, app.slicerInst().slice_count) - 1;
+        const top = @as(i64, app.slicerInst().slice_count) - 1;
         // zig fmt: off
         if (top < 0) { app.slicer_cursor[0] = 0; return; }
         // zig fmt: on
-        app.slicer_cursor[0] = @intCast(std.math.clamp(@as(i32, app.slicer_cursor[0]) + delta, 0, top));
+        app.slicer_cursor[0] = @intCast(clampCursor(app.slicer_cursor[0], delta, top));
         return;
     }
-    app.drum_cursor[0] = @intCast(std.math.clamp(
-        @as(i32, app.drum_cursor[0]) + delta,
-        0,
-        @as(i32, DrumMachine.max_pads) - 1,
-    ));
+    app.drum_cursor[0] = @intCast(clampCursor(app.drum_cursor[0], delta, DrumMachine.max_pads - 1));
+}
+
+fn clampCursor(value: u8, delta: i32, top: i64) i64 {
+    return std.math.clamp(@as(i64, value) + @as(i64, delta), 0, top);
 }
 
 /// Move the param cursor by `delta` rows, clamped to the param list -
 /// mirrors the synth editor's equivalent.
 fn moveCursor(app: *App, delta: i32) void {
-    app.sampler_param = @intCast(std.math.clamp(
-        @as(i32, app.sampler_param) + delta,
-        0,
-        @as(i32, paramCount(app)) - 1,
-    ));
+    app.sampler_param = @intCast(clampCursor(app.sampler_param, delta, @as(i64, paramCount(app)) - 1));
 }
 
 /// Audition the sampler editor's current target.
@@ -330,4 +326,9 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16, v
             adjustParam(app, dir * (if (ev.ctrl) @as(i32, 10) else 1));
         },
     }
+}
+
+test "sampler cursor motions saturate for maximum counts" {
+    try std.testing.expectEqual(@as(i64, 63), clampCursor(4, std.math.maxInt(i32), 63));
+    try std.testing.expectEqual(@as(i64, 0), clampCursor(4, std.math.minInt(i32), 63));
 }
