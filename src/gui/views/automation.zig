@@ -92,52 +92,85 @@ fn drawTargetButton(app: anytype, text: []const u8, target: automation_ed.Automa
 
 fn drawCurve(app: anytype, points: *[]ws.dsp.automation.AutomationPoint, length_beats: f32, value_range: [2]f32) void {
     const width = zgui.getContentRegionAvail()[0];
-    const height: f32 = 240;
+    const height: f32 = 280;
     const origin = zgui.getCursorScreenPos();
-    const clicked = zgui.invisibleButton("automation-curve", .{ .w = width, .h = height });
-    const hovered = zgui.isItemHovered(.{});
+    _ = zgui.invisibleButton("automation-curve", .{ .w = width, .h = height });
+    const active = zgui.isItemActive();
     const mouse = zgui.getMousePos();
     const draw_list = zgui.getWindowDrawList();
     draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(patina.bg0), .rounding = 4 });
 
-    for (1..8) |i| {
-        const x = origin[0] + width * @as(f32, @floatFromInt(i)) / 8;
-        draw_list.addLine(.{ .p1 = .{ x, origin[1] }, .p2 = .{ x, origin[1] + height }, .col = color(if (i % 4 == 0) patina.bg5 else patina.line), .thickness = 1 });
+    const plot_origin = [2]f32{ origin[0] + 58, origin[1] + 14 };
+    const plot_size = [2]f32{ @max(1, width - 72), height - 42 };
+    const plot_end = [2]f32{ plot_origin[0] + plot_size[0], plot_origin[1] + plot_size[1] };
+    draw_list.addRectFilled(.{ .pmin = plot_origin, .pmax = plot_end, .col = color(patina.bg1) });
+
+    const beats_per_bar: u8 = app.core.session.project.beats_per_bar;
+    const label_stride = @max(1, @as(u32, @intFromFloat(@ceil(58.0 / (plot_size[0] / length_beats)))));
+    const last_beat: u32 = @intFromFloat(@floor(length_beats));
+    for (0..last_beat + 1) |beat_index| {
+        const beat: f32 = @floatFromInt(beat_index);
+        const x = plot_origin[0] + beat / length_beats * plot_size[0];
+        const bar_line = beat_index % beats_per_bar == 0;
+        draw_list.addLine(.{ .p1 = .{ x, plot_origin[1] }, .p2 = .{ x, plot_end[1] }, .col = color(if (bar_line) patina.bg5 else patina.line), .thickness = if (bar_line) 1.5 else 1 });
+        if (beat_index % label_stride == 0) {
+            draw_list.addText(.{ x + 4, plot_end[1] + 7 }, color(if (bar_line) patina.fg2 else patina.fg3), "{d}", .{beat_index + 1});
+        }
     }
     for (1..4) |i| {
-        const y = origin[1] + height * @as(f32, @floatFromInt(i)) / 4;
-        draw_list.addLine(.{ .p1 = .{ origin[0], y }, .p2 = .{ origin[0] + width, y }, .col = color(patina.line), .thickness = 1 });
+        const fraction = @as(f32, @floatFromInt(i)) / 4;
+        const y = plot_origin[1] + plot_size[1] * fraction;
+        draw_list.addLine(.{ .p1 = .{ plot_origin[0], y }, .p2 = .{ plot_end[0], y }, .col = color(patina.line), .thickness = 1 });
+    }
+    for (0..5) |i| {
+        const fraction = @as(f32, @floatFromInt(i)) / 4;
+        const value = value_range[1] - fraction * (value_range[1] - value_range[0]);
+        const y = plot_origin[1] + plot_size[1] * fraction;
+        if (std.meta.activeTag(app.core.automation_focus) == .gain) {
+            draw_list.addText(.{ origin[0] + 8, y - 7 }, color(patina.fg3), "{d:.0}", .{value});
+        } else {
+            draw_list.addText(.{ origin[0] + 8, y - 7 }, color(patina.fg3), "{d:.2}", .{value});
+        }
+    }
+    if (value_range[0] < 0 and value_range[1] > 0) {
+        const zero = curvePoint(plot_origin, plot_size, 0, 0, length_beats, value_range);
+        draw_list.addLine(.{ .p1 = .{ plot_origin[0], zero[1] }, .p2 = .{ plot_end[0], zero[1] }, .col = color(.{ patina.fg3[0], patina.fg3[1], patina.fg3[2], 0.45 }), .thickness = 1.5 });
     }
 
     if (app.core.modal.mode == .visual) {
         const anchor = app.core.automation_visual_anchor orelse app.core.automation_cursor_step;
         const lo = @min(anchor, app.core.automation_cursor_step);
         const hi = @max(anchor, app.core.automation_cursor_step) + 1;
-        const x1 = origin[0] + @as(f32, @floatFromInt(lo)) * 0.25 / length_beats * width;
-        const x2 = origin[0] + @as(f32, @floatFromInt(hi)) * 0.25 / length_beats * width;
-        draw_list.addRectFilled(.{ .pmin = .{ x1, origin[1] }, .pmax = .{ @min(x2, origin[0] + width), origin[1] + height }, .col = color(.{ patina.rhythm[0], patina.rhythm[1], patina.rhythm[2], 0.12 }) });
+        const x1 = plot_origin[0] + @as(f32, @floatFromInt(lo)) * 0.25 / length_beats * plot_size[0];
+        const x2 = plot_origin[0] + @as(f32, @floatFromInt(hi)) * 0.25 / length_beats * plot_size[0];
+        draw_list.addRectFilled(.{ .pmin = .{ x1, plot_origin[1] }, .pmax = .{ @min(x2, plot_end[0]), plot_end[1] }, .col = color(.{ patina.rhythm[0], patina.rhythm[1], patina.rhythm[2], 0.12 }) });
     }
 
-    var previous: ?[2]f32 = null;
+    var previous: ?[2]f32 = if (points.*.len > 0) curvePoint(plot_origin, plot_size, 0, points.*[0].value, length_beats, value_range) else null;
     for (points.*) |point| {
-        const p = curvePoint(origin, .{ width, height }, @floatCast(point.beat), point.value, length_beats, value_range);
+        const p = curvePoint(plot_origin, plot_size, @floatCast(point.beat), point.value, length_beats, value_range);
         if (previous) |prev| draw_list.addLine(.{ .p1 = prev, .p2 = p, .col = color(patina.modulation), .thickness = 2 });
         draw_list.addCircleFilled(.{ .p = p, .r = 5, .col = color(patina.modulation) });
         draw_list.addCircle(.{ .p = p, .r = 7, .col = color(patina.fg0), .thickness = 1 });
         previous = p;
     }
+    if (previous) |prev| {
+        draw_list.addLine(.{ .p1 = prev, .p2 = .{ plot_end[0], prev[1] }, .col = color(patina.modulation), .thickness = 2 });
+    }
 
     const cursor_beat = @as(f32, @floatFromInt(app.core.automation_cursor_step)) * 0.25;
     const cursor_value = ws.dsp.automation.interpolate(points.*, cursor_beat) orelse 0;
-    const cursor = curvePoint(origin, .{ width, height }, cursor_beat, cursor_value, length_beats, value_range);
-    draw_list.addLine(.{ .p1 = .{ cursor[0], origin[1] }, .p2 = .{ cursor[0], origin[1] + height }, .col = color(patina.focus), .thickness = 2 });
+    const cursor = curvePoint(plot_origin, plot_size, cursor_beat, cursor_value, length_beats, value_range);
+    draw_list.addLine(.{ .p1 = .{ cursor[0], plot_origin[1] }, .p2 = .{ cursor[0], plot_end[1] }, .col = color(patina.focus), .thickness = 2 });
     draw_list.addCircleFilled(.{ .p = cursor, .r = 5, .col = color(patina.focus) });
     draw_list.addCircle(.{ .p = cursor, .r = 8, .col = color(patina.fg0), .thickness = 1 });
+    draw_list.addText(.{ @min(cursor[0] + 9, plot_end[0] - 86), plot_origin[1] + 8 }, color(patina.fg0), "{d:.2}  {d:.2}", .{ cursor_beat, cursor_value });
+    draw_list.addRect(.{ .pmin = plot_origin, .pmax = plot_end, .col = color(patina.bg5), .rounding = 2, .thickness = 1 });
 
-    if (hovered and clicked) {
-        const beat = std.math.clamp((mouse[0] - origin[0]) / width * length_beats, 0, length_beats);
+    if (active) {
+        const beat = std.math.clamp((mouse[0] - plot_origin[0]) / plot_size[0] * length_beats, 0, length_beats);
         app.core.automation_cursor_step = @intFromFloat(@round(beat * 4));
-        const norm = 1.0 - std.math.clamp((mouse[1] - origin[1]) / height, 0, 1);
+        const norm = 1.0 - std.math.clamp((mouse[1] - plot_origin[1]) / plot_size[1], 0, 1);
         const value = value_range[0] + norm * (value_range[1] - value_range[0]);
         setPoint(app, points, value);
     }
