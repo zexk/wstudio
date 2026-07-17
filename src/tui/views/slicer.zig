@@ -8,7 +8,7 @@ const ws = @import("wstudio");
 const Slicer = ws.dsp.Slicer;
 const engine_mod = ws.engine;
 const style = @import("../style.zig");
-const icons = @import("../icons.zig");
+const icons = @import("../../ui/icons.zig");
 
 const rst = style.rst;
 const bold = style.bold;

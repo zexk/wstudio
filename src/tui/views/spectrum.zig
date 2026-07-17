@@ -13,7 +13,7 @@ const eq_mod = ws.dsp.eq;
 const spectrum_ed = @import("../editors/spectrum.zig");
 const engine_mod = ws.engine;
 const style = @import("../style.zig");
-const icons = @import("../icons.zig");
+const icons = @import("../../ui/icons.zig");
 
 // Aliases so the render bodies reference the shared palette/primitives
 // by their original bare names.

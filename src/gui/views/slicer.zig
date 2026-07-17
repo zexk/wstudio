@@ -1,6 +1,6 @@
 const ws = @import("wstudio");
 const zgui = @import("zgui");
-const icons = @import("../../tui/icons.zig");
+const icons = @import("../../ui/icons.zig");
 const style = @import("../style.zig");
 const widgets = @import("../widgets.zig");
 const step_grid = @import("step_grid.zig");

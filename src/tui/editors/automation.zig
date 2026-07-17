@@ -18,7 +18,7 @@ const synth_mod = ws.dsp.synth;
 const App = @import("../app.zig").App;
 const history = @import("../history.zig");
 const view = @import("../views/automation.zig");
-const fuzzy = @import("../fuzzy.zig");
+const fuzzy = @import("../../ui/fuzzy.zig");
 
 /// Which curve h/l + j/k currently edit. `gain`/`pan` are the two universal
 /// targets, always available on any clip (mix-bus params). `synth_param`

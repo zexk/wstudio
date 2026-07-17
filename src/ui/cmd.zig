@@ -6,7 +6,7 @@
 //! this module free of circular dependencies.
 
 const std = @import("std");
-const style = @import("style.zig");
+const style = @import("ansi.zig");
 
 /// Which instrument kind a command only makes sense for - `.any` (the
 /// default) means every track/view. Gates the Tab-completion popup only

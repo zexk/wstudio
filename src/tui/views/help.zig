@@ -2,10 +2,10 @@
 
 const std = @import("std");
 const ws = @import("wstudio");
-const cmd_mod = @import("../cmd.zig");
+const cmd_mod = @import("../../ui/cmd.zig");
 const config_mod = @import("../../config.zig");
 const style = @import("../style.zig");
-const icons = @import("../icons.zig");
+const icons = @import("../../ui/icons.zig");
 
 // Aliases so the moved render bodies reference the shared palette/primitives
 // by their original bare names.

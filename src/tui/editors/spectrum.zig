@@ -26,7 +26,7 @@ const FxUnit = ws.FxUnit;
 const FxPayload = ws.FxPayload;
 const App = @import("../app.zig").App;
 const history = @import("../history.zig");
-const fuzzy = @import("../fuzzy.zig");
+const fuzzy = @import("../../ui/fuzzy.zig");
 
 /// The insertable kinds in picker display order (signal-flow-ish: dynamics,
 /// tone, character, modulation, time). Parallel to `picker_menu` in

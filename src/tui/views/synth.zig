@@ -5,8 +5,8 @@ const ws = @import("wstudio");
 const PolySynth = ws.dsp.PolySynth;
 const engine_mod = ws.engine;
 const style = @import("../style.zig");
-const icons = @import("../icons.zig");
-const synth_layout = @import("../synth_layout.zig");
+const icons = @import("../../ui/icons.zig");
+const synth_layout = @import("../../ui/synth_layout.zig");
 
 // Aliases so the moved render bodies reference the shared palette/primitives
 // by their original bare names.

@@ -22,14 +22,14 @@ const piano_ed = @import("editors/piano.zig");
 const sampler_ed = @import("editors/sampler.zig");
 const spectrum_ed = @import("editors/spectrum.zig");
 const preset_ed = @import("editors/preset_picker.zig");
-const icons = @import("icons.zig");
+const icons = @import("../ui/icons.zig");
 const modal_mod = ws.input;
 
 /// Redirects $HOME at `tmp` for tests that build an App with real io (not
 /// `std.Io.failing`) and dispatch real commands - otherwise cmd-history/
 /// synth-preset persistence would leak writes into the developer's actual
 /// `~/.config/wstudio/`.
-const redirectHome = @import("json_store.zig").testRedirectHome;
+const redirectHome = @import("../ui/json_store.zig").testRedirectHome;
 
 /// Build a deterministic 3-track app for tests: synth(0), sampler(1), drums(2).
 fn testApp() !App {

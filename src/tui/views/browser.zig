@@ -5,7 +5,7 @@
 const std = @import("std");
 const app_mod = @import("../app.zig");
 const style = @import("../style.zig");
-const fuzzy = @import("../fuzzy.zig");
+const fuzzy = @import("../../ui/fuzzy.zig");
 
 const rst = style.rst;
 const bold = style.bold;

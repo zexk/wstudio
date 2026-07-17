@@ -10,7 +10,7 @@ const std = @import("std");
 const ws = @import("wstudio");
 const Transport = ws.Transport;
 const style = @import("style.zig");
-const icons = @import("icons.zig");
+const icons = @import("../ui/icons.zig");
 
 const rst = style.rst;
 const bold = style.bold;

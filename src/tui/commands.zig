@@ -12,7 +12,7 @@ const dsp = ws.dsp.device;
 const DrumMachine = ws.dsp.DrumMachine;
 const Sampler = ws.dsp.Sampler;
 const Slicer = ws.dsp.Slicer;
-const cmd_mod = @import("cmd.zig");
+const cmd_mod = @import("../ui/cmd.zig");
 const app_mod = @import("app.zig");
 const App = app_mod.App;
 const history = @import("history.zig");
@@ -20,8 +20,8 @@ const piano_ed = @import("editors/piano.zig");
 const spectrum_ed = @import("editors/spectrum.zig");
 const theory = ws.theory;
 const pattern_mod = ws.dsp.pattern;
-const user_presets = @import("user_presets.zig");
-const user_drum_kits = @import("user_drum_kits.zig");
+const user_presets = @import("../ui/user_presets.zig");
+const user_drum_kits = @import("../ui/user_drum_kits.zig");
 const help_view = @import("views/help.zig");
 
 fn wrap(comptime f: fn (*App, []const u8) void) *const fn (*anyopaque, []const u8) void {
@@ -1761,7 +1761,7 @@ test ":synth-preset-save persists a hand-tuned patch, then :synth-preset re-appl
     defer tmp.cleanup();
     // $HOME redirected at a scratch dir so this never writes to the real
     // ~/.config/wstudio/synth_presets.json.
-    try @import("json_store.zig").testRedirectHome(&tmp);
+    try @import("../ui/json_store.zig").testRedirectHome(&tmp);
 
     var app = try App.init(std.testing.allocator, std.testing.io);
     defer app.deinit();

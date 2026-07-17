@@ -17,9 +17,9 @@ const std = @import("std");
 const ws = @import("wstudio");
 const modal_mod = ws.input;
 const App = @import("../app.zig").App;
-const fuzzy = @import("../fuzzy.zig");
-const user_presets = @import("../user_presets.zig");
-const user_drum_kits = @import("../user_drum_kits.zig");
+const fuzzy = @import("../../ui/fuzzy.zig");
+const user_presets = @import("../../ui/user_presets.zig");
+const user_drum_kits = @import("../../ui/user_drum_kits.zig");
 
 pub const Kind = enum { synth, drum };
 

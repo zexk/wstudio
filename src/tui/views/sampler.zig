@@ -6,7 +6,7 @@ const DrumMachine = ws.dsp.DrumMachine;
 const engine_mod = ws.engine;
 const midi = ws.midi;
 const style = @import("../style.zig");
-const icons = @import("../icons.zig");
+const icons = @import("../../ui/icons.zig");
 
 // Aliases so the moved render bodies reference the shared palette/primitives
 // by their original bare names.

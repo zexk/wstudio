@@ -243,7 +243,7 @@ test {
     } else {
         _ = @import("tui/terminal.zig");
     }
-    _ = @import("tui/icons.zig");
+    _ = @import("ui/icons.zig");
 }
 
 test "frontend links against the engine library" {

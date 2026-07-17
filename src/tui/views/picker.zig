@@ -3,7 +3,7 @@
 const std = @import("std");
 const ws = @import("wstudio");
 const style = @import("../style.zig");
-const icons = @import("../icons.zig");
+const icons = @import("../../ui/icons.zig");
 const synth_ed = @import("../editors/synth.zig");
 const spectrum_ed = @import("../editors/spectrum.zig");
 

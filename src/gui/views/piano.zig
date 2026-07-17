@@ -3,7 +3,7 @@
 
 const std = @import("std");
 const ws = @import("wstudio");
-const icons = @import("../../tui/icons.zig");
+const icons = @import("../../ui/icons.zig");
 const piano_ed = @import("../../tui/editors/piano.zig");
 const gui_style = @import("../style.zig");
 const zgui = @import("zgui");

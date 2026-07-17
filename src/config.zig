@@ -9,7 +9,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const init_lua_template = @import("init_template").source;
 const ws_input = @import("wstudio").input;
-const cmd_mod = @import("tui/cmd.zig");
+const cmd_mod = @import("ui/cmd.zig");
 const tui_app = @import("tui/app.zig");
 
 const c = @cImport({

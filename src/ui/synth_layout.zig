@@ -17,7 +17,7 @@
 //! than forcing a runtime-shaped subview through a comptime-static one.
 
 const std = @import("std");
-const style = @import("style.zig");
+const style = @import("ansi.zig");
 
 pub const ParamEntry = struct {
     id: u8,

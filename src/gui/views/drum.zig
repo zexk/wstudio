@@ -1,7 +1,7 @@
 //! Drum machine grid: title strip plus the shared step-grid renderer.
 
 const ws = @import("wstudio");
-const icons = @import("../../tui/icons.zig");
+const icons = @import("../../ui/icons.zig");
 const gui_style = @import("../style.zig");
 const step_grid = @import("step_grid.zig");
 const zgui = @import("zgui");
