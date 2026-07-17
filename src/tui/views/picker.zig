@@ -2,11 +2,6 @@
 
 const std = @import("std");
 const ws = @import("wstudio");
-const types = ws.types;
-const Project = ws.Project;
-const Transport = ws.Transport;
-const DrumMachine = ws.dsp.DrumMachine;
-const midi = ws.midi;
 const style = @import("../style.zig");
 const icons = @import("../icons.zig");
 const synth_ed = @import("../editors/synth.zig");
@@ -21,7 +16,6 @@ const acc = style.acc;
 const yel = style.yel;
 const sel = style.sel;
 const endLine = style.endLine;
-const hr = style.hr;
 
 // zig fmt: off
 /// Names + one-line descriptions for the instrument picker. Order must match

@@ -9,59 +9,6 @@ const Mode = ws.input.Mode;
 
 pub const spectrum_rows: usize = 18;
 pub const spectrum_band_count: usize = 80;
-/// Number of editable synth parameters (ids 23/30/31 are retired - absorbed
-/// into the mod matrix - and skipped by the cursor, but stay inside the
-/// count so every other id keeps its meaning). This is a flat id -> engine
-/// field cross-reference in numeric order; it is NOT the editor's UI
-/// grouping (params are freely regrouped into cards/sections there without
-/// ever renumbering ids) - see src/tui/synth_layout.zig for MAIN/MOD's
-/// actual section tables, and editors/synth.zig's fxFirstId/fxIdCount for
-/// FX's per-unit ranges.
-/// 0:waveform 1:pulse_width 2:detune 3:unison 4:uni.det 5:uni.spread
-/// 6:osc_b_on 7:b_waveform 8:b_pw 9:b_semi 10:b_detune 11:b_level 12:b_unison 13:b_uni.det
-/// 14:mod_mode 15:mod_amount
-/// 16:attack 17:decay 18:sustain 19:release
-/// 20:filter_type 21:cutoff 22:res (23 retired)
-/// 24:fenv_attack 25:fenv_decay 26:fenv_sustain 27:fenv_release
-/// 28:lfo_shape 29:lfo_rate (30/31 retired)
-/// 32:voice_mode 33:glide
-/// 34:sub_level 35:sub_shape
-/// 36:noise_level 37:noise_color
-/// 38:gain
-/// 39:unison_mode 40:osc_b_unison_mode
-/// 41:warp_mode 42:warp_amount 43:osc_b_warp_mode 44:osc_b_warp_amount
-/// 45:filter2_on 46:filter2_type 47:filter2_cutoff 48:filter2_res 49:filter_routing
-/// 50:osc_c_on 51:c_waveform 52:c_pw 53:c_semi 54:c_detune 55:c_level 56:c_unison 57:c_uni.det 58:c_uni.mode
-/// 59..82: mod matrix - 8 rows x (source, dest, depth)
-/// 83:fx_dist_on 84:fx_dist_drive_db 85:fx_dist_mix
-/// 86:fx_crush_on 87:fx_crush_bits 88:fx_crush_rate 89:fx_crush_mix
-/// 90:fx_flanger_on 91:fx_flanger_rate_hz 92:fx_flanger_depth 93:fx_flanger_feedback 94:fx_flanger_mix
-/// 95:lfo2_shape 96:lfo2_rate_hz
-/// 97:lfo3_shape 98:lfo3_rate_hz
-/// 99:macro1 100:macro2 101:macro3 102:macro4
-/// 103:fx_phaser_on 104:fx_phaser_rate_hz 105:fx_phaser_depth 106:fx_phaser_feedback 107:fx_phaser_mix
-/// 108:fx_delay_on 109:fx_delay_time_s 110:fx_delay_feedback 111:fx_delay_mix
-/// 112:fx_reverb_on 113:fx_reverb_room 114:fx_reverb_damp 115:fx_reverb_mix
-/// 116:arp_on 117:arp_mode 118:arp_octaves 119:arp_rate_hz 120:arp_gate 121:arp_hold
-/// 122:env3_attack_s 123:env3_decay_s 124:env3_sustain 125:env3_release_s
-/// 126-131: FX reorder handles (dist/crush/flanger/phaser/delay/reverb) - not
-///   real params (no editor row); value is the unit's fx_order slot index,
-///   see PolySynth.setFxIndex.
-/// 132:fx_gate_on 133:fx_gate_threshold_db 134:fx_gate_attack_ms 135:fx_gate_release_ms
-///   136:reorder handle (gate) - same "not a real param" note as 126-131.
-/// 137:fx_comp_on 138:fx_comp_threshold_db 139:fx_comp_ratio 140:fx_comp_attack_ms
-///   141:fx_comp_release_ms 142:fx_comp_makeup_db 143:reorder handle (comp)
-/// 144:fx_mb_on 145:xover_lo 146:xover_hi 147:attack 148:release 149:style 150:mix
-///   151-153:low(thresh,ratio,makeup) 154-156:mid(...) 157-159:high(...) 160:reorder handle
-/// 161:fx_ott_on 162:depth 163:time 164:gain_in 165:gain_out 166:reorder handle
-/// 167:fx_eq_on 168:lo_freq 169:lo_gain 170:mid_freq 171:mid_gain 172:mid_q
-///   173:hi_freq 174:hi_gain 175:reorder handle
-/// 176:fx_chorus_on 177:rate_hz 178:depth_ms 179:mix 180:reorder handle
-/// 181:fx_freq_shift_on 182:shift_hz 183:mix 184:reorder handle
-/// 185:wt_pos_a 186:wt_pos_b 187:wt_pos_c
-/// 188:fx_tape_on 189:wow_rate_hz 190:wow_depth 191:flutter_rate_hz
-///   192:flutter_depth 193:mix 194:reorder handle
-pub const synth_param_count: u8 = 195;
 
 // ---------------------------------------------------------------------------
 // Palette - all colour codes go here; never raw \x1b sequences elsewhere
@@ -145,6 +92,32 @@ pub fn hr(w: *std.Io.Writer, cols: u16) !void {
     try w.writeAll(dim);
     for (0..@min(cols, 200)) |_| try w.writeAll("─");
     try endLine(w);
+}
+
+/// Copy `raw`'s visible bytes (ANSI escape sequences dropped) into `buf`,
+/// truncating if it wouldn't fit. Used wherever styled TUI output must be
+/// matched or re-rendered as plain text (help search, GUI status line).
+pub fn stripAnsi(raw: []const u8, buf: []u8) []const u8 {
+    var i: usize = 0;
+    var len: usize = 0;
+    while (i < raw.len) : (i += 1) {
+        if (raw[i] == 0x1b and i + 1 < raw.len and raw[i + 1] == '[') {
+            i += 2;
+            while (i < raw.len and !(raw[i] >= 0x40 and raw[i] <= 0x7e)) : (i += 1) {}
+            continue; // the loop's own i += 1 consumes the terminator byte
+        }
+        if (len >= buf.len) break;
+        buf[len] = raw[i];
+        len += 1;
+    }
+    return buf[0..len];
+}
+
+test "stripAnsi drops SGR sequences, keeps visible bytes" {
+    var buf: [64]u8 = undefined;
+    try std.testing.expectEqualStrings("  hi there", stripAnsi("\x1b[36m  hi \x1b[0m\x1b[2mthere", &buf));
+    try std.testing.expectEqualStrings("plain", stripAnsi("plain", &buf));
+    try std.testing.expectEqualStrings(" N   1/5  oct 4", stripAnsi("\x1b[42m\x1b[30m N \x1b[0m  \x1b[2m1/5  oct \x1b[0m4", &buf));
 }
 
 /// Renders `raw` (may contain ANSI SGR sequences) as a header/transport

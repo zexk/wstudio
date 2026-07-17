@@ -3,7 +3,6 @@
 //! on the audio thread, so implementations must not allocate or block
 //! inside `process` - buffers are allocated up front at init time.
 
-const std = @import("std");
 const types = @import("../core/types.zig");
 
 pub const Event = union(enum) {

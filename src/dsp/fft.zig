@@ -1,5 +1,4 @@
 const std = @import("std");
-const types = @import("../core/types.zig");
 
 fn log2Int(x: usize) usize {
     var n: usize = 0;

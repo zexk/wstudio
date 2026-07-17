@@ -5,7 +5,6 @@
 //! (editors/drum.zig), on top of the chop-specific gestures. The render
 //! half lives in views/slicer.zig; the machine itself in dsp/slicer.zig.
 
-const std = @import("std");
 const ws = @import("wstudio");
 const modal_mod = ws.input;
 const Slicer = ws.dsp.Slicer;

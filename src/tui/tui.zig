@@ -19,11 +19,6 @@ const acc = style.acc;
 const yel = style.yel;
 
 // Shared palette consts / primitives re-exported for callers.
-pub const spectrum_rows = style.spectrum_rows;
-pub const spectrum_band_count = style.spectrum_band_count;
-pub const synth_param_count = style.synth_param_count;
-pub const endLine = style.endLine;
-pub const hr = style.hr;
 pub const meter = style.meter;
 
 // ---------------------------------------------------------------------------

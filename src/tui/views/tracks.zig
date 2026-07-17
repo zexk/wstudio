@@ -2,12 +2,7 @@
 
 const std = @import("std");
 const ws = @import("wstudio");
-const types = ws.types;
-const Project = ws.Project;
-const Transport = ws.Transport;
-const DrumMachine = ws.dsp.DrumMachine;
 const engine_mod = ws.engine;
-const midi = ws.midi;
 const style = @import("../style.zig");
 const icons = @import("../icons.zig");
 
@@ -22,7 +17,6 @@ const yel = style.yel;
 const sel = style.sel;
 const mag = style.mag;
 const endLine = style.endLine;
-const hr = style.hr;
 
 // zig fmt: off
 /// Row-badge chips for a rack's FX chain, in signal-flow order. Chains can

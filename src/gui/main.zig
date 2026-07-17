@@ -2,15 +2,14 @@
 //! file owns only GLFW/ImGui lifecycle and GUI-specific presentation state.
 
 const std = @import("std");
-const builtin = @import("builtin");
 const ws = @import("wstudio");
 const config_mod = @import("../config.zig");
 const tui_app = @import("../tui/app.zig");
 const tui_cmd = @import("../tui/cmd.zig");
 const tui_commands = @import("../tui/commands.zig");
 const tui = @import("../tui/tui.zig");
+const tui_style = @import("../tui/style.zig");
 const icons = @import("../tui/icons.zig");
-const automation_ed = @import("../tui/editors/automation.zig");
 const piano_ed = @import("../tui/editors/piano.zig");
 const spectrum_ed = @import("../tui/editors/spectrum.zig");
 const synth_ed = @import("../tui/editors/synth.zig");
@@ -31,7 +30,6 @@ const zopengl = @import("zopengl");
 
 const gl = zopengl.bindings;
 const color = gui_style.color;
-const rgb = gui_style.rgb;
 const trackColor = gui_style.trackColor;
 const patina = &gui_style.palette;
 
@@ -108,17 +106,8 @@ pub const App = struct {
     }
 };
 
-test "GUI status text strips terminal styling" {
-    var out: [64]u8 = undefined;
-    try std.testing.expectEqualStrings(" N   1/5  oct 4", stripAnsi("\x1b[42m\x1b[30m N \x1b[0m  \x1b[2m1/5  oct \x1b[0m4", &out));
-}
-
 fn isPicker(view: tui_app.AppView) bool {
     return view == .instrument_picker or view == .fx_picker or view == .preset_picker;
-}
-
-fn workspaceView(app: *const App) tui_app.AppView {
-    return if (isPicker(app.core.view)) app.picker_return_view else app.core.view;
 }
 
 fn pressedModalKey(_: ws.input.Mode) ?ws.input.Key {
@@ -1367,33 +1356,12 @@ fn tuiStatusText(app: *App, left_out: []u8, right_out: []u8) StatusText {
         .preset_picker => tui.drawPresetPickerStatus(core, &left_writer, &right_writer),
     }) catch return .{ .left = "", .right = "" };
 
-    const plain_left = stripAnsi(left_writer.buffered(), left_out);
+    const plain_left = tui_style.stripAnsi(left_writer.buffered(), left_out);
     const without_mode = if (plain_left.len >= 3) plain_left[3..] else plain_left;
     return .{
         .left = without_mode,
-        .right = std.mem.trim(u8, stripAnsi(right_writer.buffered(), right_out), " "),
+        .right = std.mem.trim(u8, tui_style.stripAnsi(right_writer.buffered(), right_out), " "),
     };
-}
-
-fn stripAnsi(input: []const u8, out: []u8) []const u8 {
-    var src: usize = 0;
-    var dst: usize = 0;
-    while (src < input.len and dst < out.len) {
-        if (input[src] == 0x1b and src + 1 < input.len and input[src + 1] == '[') {
-            src += 2;
-            while (src < input.len) : (src += 1) {
-                if (input[src] >= 0x40 and input[src] <= 0x7e) {
-                    src += 1;
-                    break;
-                }
-            }
-            continue;
-        }
-        out[dst] = input[src];
-        dst += 1;
-        src += 1;
-    }
-    return out[0..dst];
 }
 
 fn statusModeLabel(mode: ws.input.Mode) []const u8 {

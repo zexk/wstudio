@@ -1,4 +1,3 @@
-const std = @import("std");
 const zgui = @import("zgui");
 
 pub fn sectionTitle(label: []const u8, accent: [4]f32) void {

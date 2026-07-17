@@ -2,13 +2,8 @@
 
 const std = @import("std");
 const ws = @import("wstudio");
-const types = ws.types;
-const Project = ws.Project;
-const Transport = ws.Transport;
-const DrumMachine = ws.dsp.DrumMachine;
 const cmd_mod = @import("../cmd.zig");
 const config_mod = @import("../../config.zig");
-const midi = ws.midi;
 const style = @import("../style.zig");
 const icons = @import("../icons.zig");
 
@@ -410,26 +405,6 @@ pub fn scrollForSection(section: ?Section, cmds: []const cmd_mod.Def, keymaps: [
     return if (section) |s| t.section_start.get(s) else 0;
 }
 
-/// Copy `raw`'s visible bytes (ANSI SGR sequences dropped) into `buf`,
-/// truncating if it wouldn't fit. Search matches against this, never the
-/// raw line - otherwise a pattern could "match" color-code bytes the user
-/// can't see.
-fn stripAnsi(raw: []const u8, buf: []u8) []const u8 {
-    var i: usize = 0;
-    var len: usize = 0;
-    while (i < raw.len) : (i += 1) {
-        if (raw[i] == 0x1b and i + 1 < raw.len and raw[i + 1] == '[') {
-            i += 2;
-            while (i < raw.len and !((raw[i] >= 'A' and raw[i] <= 'Z') or (raw[i] >= 'a' and raw[i] <= 'z'))) : (i += 1) {}
-            continue; // the loop's own i += 1 consumes the terminator letter
-        }
-        if (len >= buf.len) break;
-        buf[len] = raw[i];
-        len += 1;
-    }
-    return buf[0..len];
-}
-
 /// Match `pattern` against the help's rendered lines, starting one line
 /// past `start` in `dir` (+1 forward, -1 backward) and wrapping around the
 /// whole text - the same walk App.searchTracks/searchBrowser do over their
@@ -448,7 +423,9 @@ pub fn search(cmds: []const cmd_mod.Def, keymaps: []const config_mod.Keymap, pat
     while (step <= n) : (step += 1) {
         const idx: usize = @intCast(@mod(anchor + dir * step, n));
         var plain_buf: [512]u8 = undefined;
-        if (std.ascii.indexOfIgnoreCase(stripAnsi(t.line(idx), &plain_buf), pattern) != null) return idx;
+        // Search matches visible bytes only, never the raw line - otherwise a
+        // pattern could "match" color-code bytes the user can't see.
+        if (std.ascii.indexOfIgnoreCase(style.stripAnsi(t.line(idx), &plain_buf), pattern) != null) return idx;
     }
     return null;
 }
@@ -517,15 +494,6 @@ pub fn drawHelpStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !v
         try w.writeAll(app.status_buf[0..app.status_len]);
     }
     try w.writeAll(dim ++ "  " ++ rst ++ "j/k: scroll  d/u: page  g/G: top/bottom  /: search  n/N: next/prev  ?/esc: close");
-}
-
-// zig fmt: off
-
-// zig fmt: on
-test "stripAnsi drops SGR sequences, keeps visible bytes" {
-    var buf: [64]u8 = undefined;
-    try std.testing.expectEqualStrings("  hi there", stripAnsi("\x1b[36m  hi \x1b[0m\x1b[2mthere", &buf));
-    try std.testing.expectEqualStrings("plain", stripAnsi("plain", &buf));
 }
 
 test "help search wraps forward from the end; no match is null" {

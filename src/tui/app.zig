@@ -3328,10 +3328,6 @@ pub const App = struct {
         self.status_ttl = 100;
     }
 
-    pub fn statusText(self: *const App) []const u8 {
-        return self.status_buf[0..self.status_len];
-    }
-
     // -----------------------------------------------------------------------
     // Rendering (delegates to tui.zig)
     // -----------------------------------------------------------------------

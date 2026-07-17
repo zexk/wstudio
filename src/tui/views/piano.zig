@@ -2,12 +2,7 @@
 
 const std = @import("std");
 const ws = @import("wstudio");
-const types = ws.types;
-const Project = ws.Project;
-const Transport = ws.Transport;
-const DrumMachine = ws.dsp.DrumMachine;
 const engine_mod = ws.engine;
-const midi = ws.midi;
 const style = @import("../style.zig");
 const icons = @import("../icons.zig");
 const theory = ws.theory;
