@@ -99,7 +99,10 @@ pub const FreqShifter = struct {
     pub const device = dsp.deviceOf(@This());
 
     pub fn processBlock(self: *FreqShifter, buf: []Sample) void {
-        const phase_inc = 2.0 * std.math.pi * self.shift_hz / self.sample_rate;
+        const shift = if (std.math.isFinite(self.shift_hz)) std.math.clamp(self.shift_hz, -2000.0, 2000.0) else 0.0;
+        const mix = if (std.math.isFinite(self.mix)) std.math.clamp(self.mix, 0.0, 1.0) else 1.0;
+        if (!std.math.isFinite(self.phase)) self.phase = 0.0;
+        const phase_inc = 2.0 * std.math.pi * shift / self.sample_rate;
         const frames = buf.len / 2;
         for (0..frames) |i| {
             const c = @cos(self.phase);
@@ -108,7 +111,7 @@ pub const FreqShifter = struct {
                 const dry = buf[i * 2 + ch];
                 const iq = self.ch[ch].process(dry);
                 const wet = iq.re * c - iq.im * s;
-                buf[i * 2 + ch] = dry * (1.0 - self.mix) + wet * self.mix;
+                buf[i * 2 + ch] = dry * (1.0 - mix) + wet * mix;
             }
             self.phase += phase_inc;
             if (self.phase >= 2.0 * std.math.pi) self.phase -= 2.0 * std.math.pi;
@@ -157,6 +160,16 @@ test "silence in, silence out" {
     var buf = [_]Sample{0.0} ** 256;
     fs.processBlock(&buf);
     for (buf) |s| try std.testing.expectEqual(@as(Sample, 0.0), s);
+}
+
+test "invalid parameters cannot poison output" {
+    var fs = FreqShifter.init(48_000);
+    fs.shift_hz = std.math.inf(f32);
+    fs.mix = std.math.nan(f32);
+    fs.phase = -std.math.inf(f32);
+    var buf = [_]Sample{ 0.3, -0.7, 0.05, 0.9 };
+    fs.processBlock(&buf);
+    for (buf) |sample| try std.testing.expect(std.math.isFinite(sample));
 }
 
 /// Single-frequency magnitude via a direct O(N) DFT bin (Goertzel-equivalent) -
