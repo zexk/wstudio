@@ -59,6 +59,7 @@ pub const App = struct {
     }
 
     pub fn handleShortcuts(self: *App) void {
+        defer queued_char = null;
         if (zgui.isAnyItemActive()) return;
         if (zgui.isKeyPressed(.f1, false)) {
             self.core.handleKey(.{ .char = '?' }, std.Io.Timestamp.now(self.core.io, .awake).nanoseconds);
@@ -119,6 +120,22 @@ fn drawWorkspace(app: *App) void {
     zgui.end();
 }
 
+/// The character GLFW's char callback delivered this frame (see
+/// `pushChar`/gui.zig's `onChar`), read by the OEM-key fallback below.
+/// Unlike the named `zgui.Key` punctuation tokens - which identify a
+/// physical key position, not what it types - this reflects the actual
+/// OS-layout-produced character, so it stays correct on non-US layouts
+/// (e.g. Italian, where `;`/`:` sit where US has `,`/`.`, not `l`'s
+/// neighbor). Cleared every frame in `handleShortcuts` regardless of
+/// whether it was consumed.
+var queued_char: ?u8 = null;
+
+/// Called from gui.zig's GLFW char callback with the Unicode codepoint the
+/// OS produced for the current keyboard layout.
+pub fn pushChar(codepoint: u21) void {
+    if (codepoint >= 0x20 and codepoint < 0x7f) queued_char = @intCast(codepoint);
+}
+
 fn pressedModalKey(_: ws.input.Mode) ?ws.input.Key {
     const ctrl = zgui.isKeyDown(.mod_ctrl);
     if (ctrl and zgui.isKeyPressed(.c, false)) return .ctrl_c;
@@ -150,21 +167,19 @@ fn pressedModalKey(_: ws.input.Mode) ?ws.input.Key {
         const key: zgui.Key = @enumFromInt(@intFromEnum(zgui.Key.zero) + i);
         if (zgui.isKeyPressed(key, false)) return .{ .char = numberRowChar(c, shifted) };
     }
-    const punctuation = [_]struct { key: zgui.Key, plain: u8, shifted: u8 }{
-        .{ .key = .apostrophe, .plain = '\'', .shifted = '"' },
-        .{ .key = .comma, .plain = ',', .shifted = '<' },
-        .{ .key = .minus, .plain = '-', .shifted = '_' },
-        .{ .key = .period, .plain = '.', .shifted = '>' },
-        .{ .key = .semicolon, .plain = ';', .shifted = ':' },
-        .{ .key = .slash, .plain = '/', .shifted = '?' },
-        .{ .key = .equal, .plain = '=', .shifted = '+' },
-        .{ .key = .left_bracket, .plain = '[', .shifted = '{' },
-        .{ .key = .back_slash, .plain = '\\', .shifted = '|' },
-        .{ .key = .right_bracket, .plain = ']', .shifted = '}' },
-        .{ .key = .grave_accent, .plain = '`', .shifted = '~' },
+    // Edge-detect on the named OEM key (so holding it doesn't repeat-fire,
+    // matching every other normal-mode binding), but resolve the character
+    // from `queued_char` rather than a hardcoded US-layout shift table -
+    // see the doc comment on `queued_char` above.
+    const oem_keys = [_]zgui.Key{
+        .apostrophe, .comma,         .minus,        .period,
+        .semicolon,  .slash,         .equal,        .left_bracket,
+        .back_slash, .right_bracket, .grave_accent,
     };
-    for (punctuation) |entry| if (zgui.isKeyPressed(entry.key, false))
-        return .{ .char = if (shifted) entry.shifted else entry.plain };
+    for (oem_keys) |key| if (zgui.isKeyPressed(key, false)) {
+        if (queued_char) |c| return .{ .char = c };
+        return null;
+    };
     return null;
 }
 

@@ -52,6 +52,21 @@ fn onFramebufferSize(_: *glfw.Window, _: c_int, _: c_int) callconv(.c) void {
     drawFrame();
 }
 
+// zgui.backend.init installs ImGui's own GLFW char callback; replacing it
+// here (glfwSetCharCallback only keeps one) means we must forward the
+// codepoint to ImGui ourselves so widgets that take typed text (inputFloat,
+// sliderFloat's ctrl-click edit) keep working. app_mod.pushChar stashes the
+// same codepoint for the modal layer - see its doc comment for why that
+// beats guessing the character from the named OEM key.
+fn onChar(_: *glfw.Window, codepoint: u32) callconv(.c) void {
+    const cp = std.math.cast(u21, codepoint) orelse return;
+    app_mod.pushChar(cp);
+    var buf: [5]u8 = undefined;
+    const len = std.unicode.utf8Encode(cp, buf[0..4]) catch return;
+    buf[len] = 0;
+    zgui.io.addInputCharactersUTF8(buf[0..len :0]);
+}
+
 fn drawFrame() void {
     const ctx = frame_ctx orelse return;
     const fb = ctx.window.getFramebufferSize();
@@ -96,6 +111,9 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
     gui_style.setTheme();
     zgui.backend.init(window);
     defer zgui.backend.deinit();
+    // Takes over from the char callback zgui.backend.init just installed -
+    // see onChar's doc comment for why, and why it re-forwards to ImGui.
+    _ = window.setCharCallback(onChar);
 
     var app = App.init(init.gpa, init.io, init_path, user_config) catch |err| {
         if (init_path) |path| std.debug.print("wstudio: cannot load '{s}': {s}\n", .{ path, @errorName(err) });
