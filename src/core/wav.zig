@@ -6,6 +6,7 @@ const types = @import("types.zig");
 
 /// Output PCM bit depth for `write`.
 pub const BitDepth = enum(u16) { pcm16 = 16, pcm24 = 24 };
+pub const WriteError = std.Io.Writer.Error || error{ InvalidFormat, FileTooLarge };
 
 /// Writes a PCM WAV at the given bit depth. `samples` is interleaved f32 in
 /// [-1, 1] (values outside are clamped). Caller flushes the writer.
@@ -15,13 +16,20 @@ pub fn write(
     channel_count: u16,
     samples: []const types.Sample,
     bit_depth: BitDepth,
-) std.Io.Writer.Error!void {
+) WriteError!void {
+    if (sample_rate == 0 or channel_count == 0) return error.InvalidFormat;
     const bits_per_sample: u16 = @intFromEnum(bit_depth);
     const bytes_per_sample: u32 = bits_per_sample / 8;
-    const data_len: u32 = @intCast(samples.len * bytes_per_sample);
+    const data_len_usize = std.math.mul(usize, samples.len, bytes_per_sample) catch return error.FileTooLarge;
+    if (data_len_usize > std.math.maxInt(u32) - 36) return error.FileTooLarge;
+    const data_len: u32 = @intCast(data_len_usize);
     const data_pad: u32 = data_len & 1;
-    const byte_rate = sample_rate * channel_count * bytes_per_sample;
-    const block_align = channel_count * bytes_per_sample;
+    const block_align_u32 = @as(u32, channel_count) * bytes_per_sample;
+    if (block_align_u32 > std.math.maxInt(u16)) return error.InvalidFormat;
+    const byte_rate_u64 = @as(u64, sample_rate) * block_align_u32;
+    if (byte_rate_u64 > std.math.maxInt(u32)) return error.InvalidFormat;
+    const byte_rate: u32 = @intCast(byte_rate_u64);
+    const block_align: u16 = @intCast(block_align_u32);
 
     try w.writeAll("RIFF");
     try w.writeInt(u32, 36 + data_len + data_pad, .little);
@@ -33,7 +41,7 @@ pub fn write(
     try w.writeInt(u16, channel_count, .little);
     try w.writeInt(u32, sample_rate, .little);
     try w.writeInt(u32, byte_rate, .little);
-    try w.writeInt(u16, @intCast(block_align), .little);
+    try w.writeInt(u16, block_align, .little);
     try w.writeInt(u16, bits_per_sample, .little);
 
     try w.writeAll("data");
@@ -241,6 +249,15 @@ test "writer replaces non-finite samples with silence" {
         defer std.testing.allocator.free(result.samples);
         try std.testing.expectEqualSlices(f32, &.{ 0.0, 0.0, 0.0 }, result.samples);
     }
+}
+
+test "writer rejects invalid and overflowing format metadata" {
+    var raw: [64]u8 = undefined;
+    var w = std.Io.Writer.fixed(&raw);
+    try std.testing.expectError(error.InvalidFormat, write(&w, 0, 1, &.{}, .pcm16));
+    try std.testing.expectError(error.InvalidFormat, write(&w, 48_000, 0, &.{}, .pcm16));
+    try std.testing.expectError(error.InvalidFormat, write(&w, std.math.maxInt(u32), 2, &.{}, .pcm24));
+    try std.testing.expectEqual(@as(usize, 0), w.buffered().len);
 }
 
 test "rejects inconsistent format byte rate and block alignment" {
