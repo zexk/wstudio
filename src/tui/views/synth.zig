@@ -58,8 +58,8 @@ fn drawSynthTitle(w: *std.Io.Writer, subview: synth_ed.Subview, name: []const u8
 /// within `max_rows`. Always shows the title line, then slices the current
 /// subview's body to keep the cursor in view. `app.synth_subview` picks one
 /// of three panes (see synth_ed.Subview): "main"/"mod" each pack their
-/// cards into 1-3 columns by terminal width (see `drawSynthMain`/
-/// `drawSynthMod`/synth_layout.zig); "fx" is still a single full-width list
+/// cards into 1-3 columns by terminal width (see `drawSynthGrid`/
+/// synth_layout.zig); "fx" is still a single full-width list
 /// regardless of width.
 pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, snap: engine_mod.UiSnapshot) !void {
     _ = snap;
@@ -69,11 +69,11 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize
     const subview = app.synth_subview;
 
     if (subview == .main) {
-        try drawSynthMain(app, w, max_rows, cols);
+        try drawSynthGrid(app, w, max_rows, cols, .main);
         return;
     }
     if (subview == .mod) {
-        try drawSynthMod(app, w, max_rows, cols);
+        try drawSynthGrid(app, w, max_rows, cols, .mod);
         return;
     }
 
@@ -201,21 +201,32 @@ fn sectionCol(order: []const synth_layout.PositionedEntry, si: usize) usize {
     return 0;
 }
 
-/// The "main" subview: every `main_sections` card packed into 1-3 columns
+/// The "main"/"mod" subviews: every section card packed into 1-3 columns
 /// by `cols` (see synth_layout.numCols), each column rendered into its own
 /// temp buffer and then zipped row-by-row - the same technique the old
 /// wide-mode OSC A/B split used, generalized from "2 fixed columns, top
 /// block only" to "N columns, every section". The whole grid scrolls
 /// together (one `scroll` offset shared by every column), matching
-/// `editors/synth.zig`'s `updateScroll`/`moveEntry`.
-fn drawSynthMain(app: anytype, w: *std.Io.Writer, max_rows: usize, cols: usize) !void {
+/// `editors/synth.zig`'s `updateScroll`/`moveEntry`. `subview` picks which
+/// section/render-fn tables the grid reads; everything else is identical.
+fn drawSynthGrid(app: anytype, w: *std.Io.Writer, max_rows: usize, cols: usize, comptime subview: synth_ed.Subview) !void {
+    const sections = comptime switch (subview) {
+        .main => &synth_layout.main_sections,
+        .mod => &synth_layout.mod_sections,
+        .fx => unreachable,
+    };
+    const render_fns = comptime switch (subview) {
+        .main => &main_render_fns,
+        .mod => &mod_render_fns,
+        .fx => unreachable,
+    };
     const n = synth_layout.numCols(cols);
     const col_w = synth_layout.colWidth(cols, n);
     style.form_bar_w = @min(style.form_bar_w_default + (col_w -| 100) / 2, 40);
     style.form_section_w = style.form_section_w_default + (style.form_bar_w - style.form_bar_w_default);
 
-    const order = synth_layout.mainOrder(n);
-    const heights = synth_layout.mainHeights(n);
+    const order = if (subview == .main) synth_layout.mainOrder(n) else synth_layout.modOrder(n);
+    const heights = if (subview == .main) synth_layout.mainHeights(n) else synth_layout.modHeights(n);
     var body_rows: usize = 0;
     for (heights) |h| body_rows = @max(body_rows, h);
 
@@ -255,7 +266,7 @@ fn drawSynthMain(app: anytype, w: *std.Io.Writer, max_rows: usize, cols: usize) 
     else "?";
     // zig fmt: on
 
-    try drawSynthTitle(w, .main, name, app.synth_section_focus);
+    try drawSynthTitle(w, subview, name, app.synth_section_focus);
     var written: usize = 1;
 
     if (app.synth_section_focus) {
@@ -264,7 +275,7 @@ fn drawSynthMain(app: anytype, w: *std.Io.Writer, max_rows: usize, cols: usize) 
         style.form_section_w = style.form_section_w_default + (style.form_bar_w - style.form_bar_w_default);
         var focus_buf: [16 * 1024]u8 = undefined;
         var fw = std.Io.Writer.fixed(&focus_buf);
-        try main_render_fns[section](&fw, synth, c);
+        try render_fns[section](&fw, synth, c);
         var lines = std.mem.splitSequence(u8, fw.buffered(), "\r\n");
         while (lines.next()) |line| {
             if (written >= max_rows) break;
@@ -280,9 +291,9 @@ fn drawSynthMain(app: anytype, w: *std.Io.Writer, max_rows: usize, cols: usize) 
     var bufs: [3][16 * 1024]u8 = undefined;
     var writers: [3]std.Io.Writer = undefined;
     for (0..n) |i| writers[i] = std.Io.Writer.fixed(&bufs[i]);
-    for (synth_layout.main_sections, 0..) |_, si| {
+    for (sections, 0..) |_, si| {
         const col = sectionCol(order, si);
-        try main_render_fns[si](&writers[col], synth, c);
+        try render_fns[si](&writers[col], synth, c);
         try endLine(&writers[col]);
     }
 
@@ -324,108 +335,6 @@ comptime {
         @compileError("views/synth.zig: mod_render_fns must mirror synth_layout.mod_sections 1:1");
 }
 
-/// The "mod" subview: modulation sources - the matrix, LFO 1-3, ENV 3,
-/// macros - packed the same way `drawSynthMain` packs MAIN's cards. See
-/// that function's doc comment; the only difference is which table/render-fn
-/// array it reads.
-fn drawSynthMod(app: anytype, w: *std.Io.Writer, max_rows: usize, cols: usize) !void {
-    const n = synth_layout.numCols(cols);
-    const col_w = synth_layout.colWidth(cols, n);
-    style.form_bar_w = @min(style.form_bar_w_default + (col_w -| 100) / 2, 40);
-    style.form_section_w = style.form_section_w_default + (style.form_bar_w - style.form_bar_w_default);
-
-    const order = synth_layout.modOrder(n);
-    const heights = synth_layout.modHeights(n);
-    var body_rows: usize = 0;
-    for (heights) |h| body_rows = @max(body_rows, h);
-
-    const idx = synth_layout.indexContaining(order, app.synth_cursor) orelse 0;
-    const cursor_row = if (order.len > 0) order[idx].row else 0;
-
-    // See drawSynthMain's matching comment: the scroll window is content
-    // rows only, `max_rows` also counts the never-scrolling title row.
-    const content_rows = max_rows -| 1;
-    var scroll = @min(app.synth_scroll, body_rows -| content_rows);
-    if (cursor_row < scroll) scroll = cursor_row;
-    if (cursor_row >= scroll + content_rows) scroll = cursor_row -| content_rows + 1;
-    app.synth_scroll = scroll;
-
-    if (app.synth_track >= app.session.racks.items.len) {
-        for (0..max_rows) |_| try endLine(w);
-        return;
-    }
-    const rack = app.session.racks.items[app.synth_track];
-    switch (rack.instrument) {
-        .poly_synth => {},
-        else => {
-            for (0..max_rows) |_| try endLine(w);
-            return;
-        },
-    }
-    const synth = &rack.instrument.poly_synth;
-    const c = app.synth_cursor;
-
-    // zig fmt: off
-    const name = if (app.synth_track < app.session.project.tracks.items.len)
-        app.session.project.tracks.items[app.synth_track].name
-    else "?";
-    // zig fmt: on
-
-    try drawSynthTitle(w, .mod, name, app.synth_section_focus);
-    var written: usize = 1;
-
-    if (app.synth_section_focus) {
-        const section = order[idx].section;
-        style.form_bar_w = @min(style.form_bar_w_default + (cols -| 100) / 2, 40);
-        style.form_section_w = style.form_section_w_default + (style.form_bar_w - style.form_bar_w_default);
-        var focus_buf: [16 * 1024]u8 = undefined;
-        var fw = std.Io.Writer.fixed(&focus_buf);
-        try mod_render_fns[section](&fw, synth, c);
-        var lines = std.mem.splitSequence(u8, fw.buffered(), "\r\n");
-        while (lines.next()) |line| {
-            if (written >= max_rows) break;
-            try style.writeClamped(w, line, cols);
-            try endLine(w);
-            written += 1;
-        }
-        while (written < max_rows) : (written += 1) try endLine(w);
-        app.synth_scroll = 0;
-        return;
-    }
-
-    var bufs: [3][16 * 1024]u8 = undefined;
-    var writers: [3]std.Io.Writer = undefined;
-    for (0..n) |i| writers[i] = std.Io.Writer.fixed(&bufs[i]);
-    for (synth_layout.mod_sections, 0..) |_, si| {
-        const col = sectionCol(order, si);
-        try mod_render_fns[si](&writers[col], synth, c);
-        try endLine(&writers[col]);
-    }
-
-    var iters: [3]std.mem.SplitIterator(u8, .sequence) = undefined;
-    for (0..n) |i| iters[i] = std.mem.splitSequence(u8, writers[i].buffered(), "\r\n");
-
-    var row: usize = 0;
-    while (row < body_rows) : (row += 1) {
-        var lines: [3][]const u8 = .{ "", "", "" };
-        for (0..n) |i| {
-            if (row < heights[i]) lines[i] = iters[i].next() orelse "";
-        }
-        if (written >= max_rows) break;
-        if (row < scroll) continue;
-        for (0..n) |i| {
-            if (i + 1 < n) {
-                try style.writePadded(w, lines[i], col_w);
-            } else {
-                try style.writeClamped(w, lines[i], cols -| col_w * (n - 1));
-            }
-        }
-        try endLine(w);
-        written += 1;
-    }
-    while (written < max_rows) : (written += 1) try endLine(w);
-}
-
 /// The `.fx` subview's chain strip: `IN▶` + each on unit's short label in
 /// `fx_order` sequence + a `+` insert affordance + `▶OUT`, all read from
 /// `synth_ed.stripLayout` - the single source of truth this and
@@ -457,7 +366,7 @@ fn drawFxStrip(app: anytype, w: *std.Io.Writer, c: u8, cols: usize) !void {
 // The section renderers below emit one header row + one row per param each.
 // Which sections exist per subview, their order, and how they pack into
 // columns now lives in synth_layout.zig's comptime tables - see
-// drawSynthMain/main_render_fns below for how MAIN consumes them. MOD/FX
+// drawSynthGrid/main_render_fns below for how MAIN consumes them. MOD/FX
 // keep their previous per-subview rendering for now (see synth_layout.zig's
 // module doc comment).
 

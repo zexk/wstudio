@@ -793,7 +793,7 @@ pub fn updateScroll(app: *App) void {
     const max_rows: usize = 22;
     if (app.synth_subview == .main or app.synth_subview == .mod) {
         // 0-based column-local row numbering - see synth_layout.zig's
-        // PositionedEntry / views/synth.zig's drawSynthMain/drawSynthMod,
+        // PositionedEntry / views/synth.zig's drawSynthGrid,
         // which this must stay in lockstep with.
         const order = if (app.synth_subview == .main) mainOrderNow(app) else modOrderNow(app);
         const idx = synth_layout.indexContaining(order, app.synth_cursor) orelse 0;
@@ -836,7 +836,7 @@ fn adjustParam(app: *App, steps: i32) void {
 /// or null for the title row / a row that doesn't land on any param (a
 /// section-header line). `.main`/`.mod` resolve against `synth_layout`'s
 /// comptime column/row positions (0-based content-row numbering - see
-/// `drawSynthMain`/`drawSynthMod`); `.fx` keeps scanning `fxRow`'s 1-based
+/// `drawSynthGrid`); `.fx` keeps scanning `fxRow`'s 1-based
 /// numbering as before. A mod-matrix slot's dest/depth fields aren't
 /// individually mouse-addressable - a click anywhere on the slot's one
 /// line lands on its source field (offset 0); `w`/`b` refine from there.

@@ -3500,10 +3500,14 @@ test "filter: all types stay finite under resonance" {
     }
 }
 
-test "filter: closed LP cutoff attenuates high-frequency content" {
+/// Shared body for the "closed cutoff attenuates like a lowpass" test
+/// family: a saw at 200 Hz cutoff must carry <10% of the RMS energy the
+/// same saw has with the filter wide open.
+fn expectClosedCutoffAttenuates(filter_type: FilterType) !void {
     var open = try PolySynth.init(std.testing.allocator, 48_000);
     defer open.deinit();
     open.waveform = .saw;
+    open.filter_type = filter_type;
     open.filter_cutoff = 18_000.0;
     open.filter_res = 0.0;
     open.noteOn(84, 1.0);
@@ -3511,6 +3515,7 @@ test "filter: closed LP cutoff attenuates high-frequency content" {
     var closed = try PolySynth.init(std.testing.allocator, 48_000);
     defer closed.deinit();
     closed.waveform = .saw;
+    closed.filter_type = filter_type;
     closed.filter_cutoff = 200.0;
     closed.filter_res = 0.0;
     closed.noteOn(84, 1.0);
@@ -3518,85 +3523,31 @@ test "filter: closed LP cutoff attenuates high-frequency content" {
     var buf_open: [512]Sample = undefined;
     var buf_closed: [512]Sample = undefined;
     for (0..20) |_| {
-        // zig fmt: off
-        @memset(&buf_open, 0.0);   open.processBlock(&buf_open);
-        @memset(&buf_closed, 0.0); closed.processBlock(&buf_closed);
+        @memset(&buf_open, 0.0);
+        open.processBlock(&buf_open);
+        @memset(&buf_closed, 0.0);
+        closed.processBlock(&buf_closed);
     }
 
     var rms_open: f32 = 0.0;
     var rms_closed: f32 = 0.0;
     for (buf_open, buf_closed) |o, c| {
-        rms_open   += o * o;
-        // zig fmt: on
+        rms_open += o * o;
         rms_closed += c * c;
     }
     try std.testing.expect(rms_closed < rms_open * 0.1);
+}
+
+test "filter: closed LP cutoff attenuates high-frequency content" {
+    try expectClosedCutoffAttenuates(.lp);
 }
 
 test "ladder filter: closed cutoff attenuates like a lowpass" {
-    var open = try PolySynth.init(std.testing.allocator, 48_000);
-    defer open.deinit();
-    open.waveform = .saw;
-    open.filter_type = .ladder;
-    open.filter_cutoff = 18_000.0;
-    open.noteOn(84, 1.0);
-
-    var closed = try PolySynth.init(std.testing.allocator, 48_000);
-    defer closed.deinit();
-    closed.waveform = .saw;
-    closed.filter_type = .ladder;
-    closed.filter_cutoff = 200.0;
-    closed.noteOn(84, 1.0);
-
-    var buf_open: [512]Sample = undefined;
-    var buf_closed: [512]Sample = undefined;
-    for (0..20) |_| {
-        // zig fmt: off
-        @memset(&buf_open, 0.0);   open.processBlock(&buf_open);
-        @memset(&buf_closed, 0.0); closed.processBlock(&buf_closed);
-    }
-
-    var rms_open: f32 = 0.0;
-    var rms_closed: f32 = 0.0;
-    for (buf_open, buf_closed) |o, c| {
-        rms_open   += o * o;
-        // zig fmt: on
-        rms_closed += c * c;
-    }
-    try std.testing.expect(rms_closed < rms_open * 0.1);
+    try expectClosedCutoffAttenuates(.ladder);
 }
 
 test "diode ladder filter: closed cutoff attenuates like a lowpass" {
-    var open = try PolySynth.init(std.testing.allocator, 48_000);
-    defer open.deinit();
-    open.waveform = .saw;
-    open.filter_type = .diode;
-    open.filter_cutoff = 18_000.0;
-    open.noteOn(84, 1.0);
-
-    var closed = try PolySynth.init(std.testing.allocator, 48_000);
-    defer closed.deinit();
-    closed.waveform = .saw;
-    closed.filter_type = .diode;
-    closed.filter_cutoff = 200.0;
-    closed.noteOn(84, 1.0);
-
-    var buf_open: [512]Sample = undefined;
-    var buf_closed: [512]Sample = undefined;
-    for (0..20) |_| {
-        // zig fmt: off
-        @memset(&buf_open, 0.0);   open.processBlock(&buf_open);
-        @memset(&buf_closed, 0.0); closed.processBlock(&buf_closed);
-    }
-
-    var rms_open: f32 = 0.0;
-    var rms_closed: f32 = 0.0;
-    for (buf_open, buf_closed) |o, c| {
-        rms_open   += o * o;
-        // zig fmt: on
-        rms_closed += c * c;
-    }
-    try std.testing.expect(rms_closed < rms_open * 0.1);
+    try expectClosedCutoffAttenuates(.diode);
 }
 
 test "formant filter: vowel scan produces distinct spectral content" {
@@ -4334,14 +4285,16 @@ test "FX param ids round-trip through paramValue/setParamAbsolute" {
     try std.testing.expect(!b.fx_crush_on);
 }
 
-test "internal FX: flanger at mix 0 passes the synth output untouched" {
+/// Shared body for the "unit at mix 0 is a bit-exact bypass" test family:
+/// `overrides` enables one FX unit with its mix (and any feedback) zeroed,
+/// and the output must match a unit-less synth sample for sample.
+fn expectMixZeroBypass(overrides: anytype) !void {
     var a = try PolySynth.init(std.testing.allocator, 48_000);
     defer a.deinit();
     var b = try PolySynth.init(std.testing.allocator, 48_000);
     defer b.deinit();
-    b.fx_flanger_on = true;
-    b.fx_flanger_mix = 0.0;
-    b.fx_flanger_feedback = 0.0;
+    inline for (@typeInfo(@TypeOf(overrides)).@"struct".fields) |field|
+        @field(b, field.name) = @field(overrides, field.name);
     a.noteOn(60, 1.0);
     b.noteOn(60, 1.0);
 
@@ -4354,6 +4307,10 @@ test "internal FX: flanger at mix 0 passes the synth output untouched" {
         b.processBlock(&buf_b);
         for (buf_a, buf_b) |sa, sb| try std.testing.expectApproxEqAbs(sa, sb, 1e-6);
     }
+}
+
+test "internal FX: flanger at mix 0 passes the synth output untouched" {
+    try expectMixZeroBypass(.{ .fx_flanger_on = true, .fx_flanger_mix = @as(f32, 0.0), .fx_flanger_feedback = @as(f32, 0.0) });
 }
 
 test "internal FX: distortion drives the synth output hotter" {
@@ -4452,25 +4409,7 @@ test "FX phaser param ids round-trip through paramValue/setParamAbsolute" {
 }
 
 test "internal FX: phaser at mix 0 passes the synth output untouched" {
-    var a = try PolySynth.init(std.testing.allocator, 48_000);
-    defer a.deinit();
-    var b = try PolySynth.init(std.testing.allocator, 48_000);
-    defer b.deinit();
-    b.fx_phaser_on = true;
-    b.fx_phaser_mix = 0.0;
-    b.fx_phaser_feedback = 0.0;
-    a.noteOn(60, 1.0);
-    b.noteOn(60, 1.0);
-
-    var buf_a: [512]Sample = undefined;
-    var buf_b: [512]Sample = undefined;
-    for (0..8) |_| {
-        @memset(&buf_a, 0.0);
-        @memset(&buf_b, 0.0);
-        a.processBlock(&buf_a);
-        b.processBlock(&buf_b);
-        for (buf_a, buf_b) |sa, sb| try std.testing.expectApproxEqAbs(sa, sb, 1e-6);
-    }
+    try expectMixZeroBypass(.{ .fx_phaser_on = true, .fx_phaser_mix = @as(f32, 0.0), .fx_phaser_feedback = @as(f32, 0.0) });
 }
 
 test "internal FX: phaser stays finite at max feedback and depth" {
@@ -4600,45 +4539,11 @@ test "internal FX: delay echoes at the set time with feedback decay" {
 }
 
 test "internal FX: delay at mix 0 passes the synth output untouched" {
-    var a = try PolySynth.init(std.testing.allocator, 48_000);
-    defer a.deinit();
-    var b = try PolySynth.init(std.testing.allocator, 48_000);
-    defer b.deinit();
-    b.fx_delay_on = true;
-    b.fx_delay_mix = 0.0;
-    a.noteOn(60, 1.0);
-    b.noteOn(60, 1.0);
-
-    var buf_a: [512]Sample = undefined;
-    var buf_b: [512]Sample = undefined;
-    for (0..8) |_| {
-        @memset(&buf_a, 0.0);
-        @memset(&buf_b, 0.0);
-        a.processBlock(&buf_a);
-        b.processBlock(&buf_b);
-        for (buf_a, buf_b) |sa, sb| try std.testing.expectApproxEqAbs(sa, sb, 1e-6);
-    }
+    try expectMixZeroBypass(.{ .fx_delay_on = true, .fx_delay_mix = @as(f32, 0.0) });
 }
 
 test "internal FX: reverb at mix 0 passes the synth output untouched" {
-    var a = try PolySynth.init(std.testing.allocator, 48_000);
-    defer a.deinit();
-    var b = try PolySynth.init(std.testing.allocator, 48_000);
-    defer b.deinit();
-    b.fx_reverb_on = true;
-    b.fx_reverb_mix = 0.0;
-    a.noteOn(60, 1.0);
-    b.noteOn(60, 1.0);
-
-    var buf_a: [512]Sample = undefined;
-    var buf_b: [512]Sample = undefined;
-    for (0..8) |_| {
-        @memset(&buf_a, 0.0);
-        @memset(&buf_b, 0.0);
-        a.processBlock(&buf_a);
-        b.processBlock(&buf_b);
-        for (buf_a, buf_b) |sa, sb| try std.testing.expectApproxEqAbs(sa, sb, 1e-6);
-    }
+    try expectMixZeroBypass(.{ .fx_reverb_on = true, .fx_reverb_mix = @as(f32, 0.0) });
 }
 
 test "internal FX: reverb produces a decaying tail and stays bounded" {
