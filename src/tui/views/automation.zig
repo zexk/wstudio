@@ -7,7 +7,7 @@ const engine_mod = ws.engine;
 const automation_mod = ws.dsp.automation;
 const AutomationPoint = automation_mod.AutomationPoint;
 const synth_mod = ws.dsp.synth;
-const automation_ed = @import("../editors/automation.zig");
+const automation_ed = @import("../../ui/editors/automation.zig");
 const AutomationFocus = automation_ed.AutomationFocus;
 const style = @import("../style.zig");
 
@@ -38,10 +38,9 @@ fn valueLevel(val: ?f32, range: [2]f32, graph_rows: usize) usize {
     return @max(lvl, 1); // floor values keep a visible ▁ baseline
 }
 
-/// Left indent before the step columns start - shared with
-/// editors/automation.zig's mouse handler so a click/scroll's column maps to
-/// the same step the bar graph/caret row actually draw it at.
-pub const gutter: usize = 3;
+// Left indent lives with the editor (ui/editors/automation.zig) so its mouse
+// handler and this draw path agree on the step columns.
+const gutter = automation_ed.gutter;
 
 fn hasPointAt(points: []const AutomationPoint, beat: f64) bool {
     for (points) |p| {

@@ -5,15 +5,67 @@
 //! (editors/drum.zig), on top of the chop-specific gestures. The render
 //! half lives in views/slicer.zig; the machine itself in dsp/slicer.zig.
 
+const std = @import("std");
 const ws = @import("wstudio");
 const modal_mod = ws.input;
 const Slicer = ws.dsp.Slicer;
-const app_mod = @import("../app.zig");
+const app_mod = @import("../../tui/app.zig");
 const App = app_mod.App;
 const SlicerRangeClip = app_mod.SlicerRangeClip;
 const history = @import("../history.zig");
-const slicer_view = @import("../views/slicer.zig");
 const step_grid = @import("step_grid.zig");
+
+/// Grid/waveform geometry shared with the TUI render half
+/// (views/slicer.zig): the mouse hit-testing below and the draw path must
+/// agree on every column and row, so the layout math lives here once.
+/// Left gutter before the step columns (matches views/drum.zig's shape).
+pub const gutter: usize = 10;
+
+/// Waveform pane: 2-column indent (mirrored by `waveNorm`), width cap
+/// shared with the sampler editor's pane, height fed by whatever the row
+/// budget leaves over the fixed grid rows.
+pub const wave_indent: usize = 2;
+pub const wave_max_w: usize = 240;
+const wave_max_rows: usize = 10;
+const wave_min_rows: usize = 3;
+
+/// Row layout of the slicer grid, shared between the draw path and the
+/// mouse hit-testing here: title(1) + waveform pane + ruler(1, only with
+/// the pane) + step header(1) + a fixed 8-row bank window. The pane soaks
+/// up leftover height and disappears entirely on short terminals (below
+/// `wave_min_rows` there's no room to read it).
+pub const Layout = struct {
+    wave_rows: usize,
+    bank_rows: usize,
+
+    pub fn rulerRows(self: Layout) usize {
+        return @intFromBool(self.wave_rows > 0);
+    }
+    /// View-content row of the step-number header.
+    pub fn headerRow(self: Layout) usize {
+        return 1 + self.wave_rows + self.rulerRows();
+    }
+};
+
+pub fn layout(slice_count: u8, rows: usize) Layout {
+    const budget = rows -| 4;
+    const bank_rows: usize = if (slice_count == 0) 0 else 8;
+    const fixed = 1 + 1 + bank_rows; // title + header + bank window
+    const spare = budget -| (fixed + 1); // +1: the ruler rides with the pane
+    const wave: usize = @min(wave_max_rows, spare);
+    return .{ .wave_rows = if (wave >= wave_min_rows) wave else 0, .bank_rows = bank_rows };
+}
+
+/// Normalized 0..1 clip position at column `x` within the waveform pane,
+/// or null outside it - the mouse slice-select below uses this.
+pub fn waveNorm(x: usize, cols: u16) ?f32 {
+    if (x < wave_indent) return null;
+    const width = @min(@as(usize, cols) -| wave_indent, wave_max_w);
+    if (width == 0) return null;
+    const rel = x - wave_indent;
+    if (rel >= width) return null;
+    return std.math.clamp(@as(f32, @floatFromInt(rel)) / @as(f32, @floatFromInt(width)), 0.0, 1.0);
+}
 
 pub fn handleKey(app: *App, key: modal_mod.Key) bool {
     const slice = &app.slicer_cursor[0];
@@ -505,18 +557,18 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16, v
     switch (ev.kind) {
         .scroll_up, .scroll_down => {
             const delta: i32 = if (ev.kind == .scroll_up) -1 else 1;
-            if (ev.x < slicer_view.gutter) moveSlice(app, delta) else moveStep(app, delta);
+            if (ev.x < gutter) moveSlice(app, delta) else moveStep(app, delta);
             return;
         },
         else => {},
     }
 
-    const lay = slicer_view.layout(sl.slice_count, view_rows);
+    const lay = layout(sl.slice_count, view_rows);
     if (lay.wave_rows > 0 and row >= 1 and row < 1 + lay.wave_rows) {
         // Waveform pane: press selects the slice whose region covers the
         // clicked column.
         if (ev.kind != .press) return;
-        const norm = slicer_view.waveNorm(ev.x, cols) orelse return;
+        const norm = waveNorm(ev.x, cols) orelse return;
         for (0..sl.slice_count) |i| {
             const p = &sl.slices[i];
             if (norm >= p.start_norm and norm < p.end_norm) {
@@ -536,7 +588,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16, v
     switch (ev.kind) {
         .press => {
             app.slicer_cursor[0] = @intCast(slice);
-            const step = step_grid.stepAt(slicer_view.gutter, 3, app.slicer_step_scroll, sl.step_count, ev.x) orelse {
+            const step = step_grid.stepAt(gutter, 3, app.slicer_step_scroll, sl.step_count, ev.x) orelse {
                 app.slicer_paint_state = null;
                 return;
             };
@@ -547,7 +599,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16, v
         },
         .drag => {
             const state = app.slicer_paint_state orelse return;
-            const step = step_grid.stepAt(slicer_view.gutter, 3, app.slicer_step_scroll, sl.step_count, ev.x) orelse return;
+            const step = step_grid.stepAt(gutter, 3, app.slicer_step_scroll, sl.step_count, ev.x) orelse return;
             app.slicer_cursor[0] = @intCast(slice);
             app.slicer_cursor[1] = step;
             step_grid.setStep(sl, @intCast(slice), step, state, Slicer.vel_full);

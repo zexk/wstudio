@@ -8,7 +8,7 @@ const tui_cmd = @import("../ui/cmd.zig");
 const tui_commands = @import("../tui/commands.zig");
 const tui_style = @import("../tui/style.zig");
 const icons = @import("../ui/icons.zig");
-const spectrum_ed = @import("../tui/editors/spectrum.zig");
+const spectrum_ed = @import("../ui/editors/spectrum.zig");
 const gui_style = @import("style.zig");
 const zgui = @import("zgui");
 

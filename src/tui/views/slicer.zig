@@ -23,45 +23,15 @@ const mag = style.mag;
 const bcyn = style.bcyn;
 const endLine = style.endLine;
 
-/// Left gutter before the step columns start (matches views/drum.zig's own
-/// gutter/cell-width shape and editors/slicer.zig's `stepAt` column math).
-pub const gutter: usize = 10;
+// Grid/waveform geometry lives with the editor (ui/editors/slicer.zig)
+// since its mouse hit-testing shares the exact same layout math.
+const slicer_ed = @import("../../ui/editors/slicer.zig");
+const gutter = slicer_ed.gutter;
 const cell_width: usize = 3;
-
-/// Waveform pane: 2-column indent (mirrored by `waveNorm`), width cap
-/// shared with the sampler editor's pane, height fed by whatever the row
-/// budget leaves over the fixed grid rows.
-const wave_indent: usize = 2;
-pub const wave_max_w: usize = 240;
-const wave_max_rows: usize = 10;
-const wave_min_rows: usize = 3;
-
-/// Row layout of the slicer grid, shared between the draw path and
-/// editors/slicer.zig's mouse hit-testing: title(1) + waveform pane +
-/// ruler(1, only with the pane) + step header(1) + a fixed 8-row bank
-/// window. The pane soaks up leftover height and disappears entirely on
-/// short terminals (below `wave_min_rows` there's no room to read it).
-pub const Layout = struct {
-    wave_rows: usize,
-    bank_rows: usize,
-
-    pub fn rulerRows(self: Layout) usize {
-        return @intFromBool(self.wave_rows > 0);
-    }
-    /// View-content row of the step-number header.
-    pub fn headerRow(self: Layout) usize {
-        return 1 + self.wave_rows + self.rulerRows();
-    }
-};
-
-pub fn layout(slice_count: u8, rows: usize) Layout {
-    const budget = rows -| 4;
-    const bank_rows: usize = if (slice_count == 0) 0 else 8;
-    const fixed = 1 + 1 + bank_rows; // title + header + bank window
-    const spare = budget -| (fixed + 1); // +1: the ruler rides with the pane
-    const wave: usize = @min(wave_max_rows, spare);
-    return .{ .wave_rows = if (wave >= wave_min_rows) wave else 0, .bank_rows = bank_rows };
-}
+const wave_indent = slicer_ed.wave_indent;
+const wave_max_w = slicer_ed.wave_max_w;
+const Layout = slicer_ed.Layout;
+const layout = slicer_ed.layout;
 
 /// How many steps fit in `cols` - same periodic-separator math as
 /// views/drum.zig's visibleSteps.
@@ -76,17 +46,6 @@ fn visibleSteps(cols: usize) u32 {
         n = next;
     }
     return @max(1, n);
-}
-
-/// Normalized 0..1 clip position at column `x` within the waveform pane,
-/// or null outside it - editors/slicer.zig's mouse slice-select uses this.
-pub fn waveNorm(x: usize, cols: u16) ?f32 {
-    if (x < wave_indent) return null;
-    const width = @min(@as(usize, cols) -| wave_indent, wave_max_w);
-    if (width == 0) return null;
-    const rel = x - wave_indent;
-    if (rel >= width) return null;
-    return std.math.clamp(@as(f32, @floatFromInt(rel)) / @as(f32, @floatFromInt(width)), 0.0, 1.0);
 }
 
 /// Ruler label for slice `i` (0-based): 1-9, then a-z, then '+' past 35 -

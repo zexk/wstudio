@@ -7,11 +7,15 @@ const ws = @import("wstudio");
 const modal_mod = ws.input;
 const DrumMachine = ws.dsp.DrumMachine;
 const Sampler = ws.dsp.Sampler;
-const app_mod = @import("../app.zig");
+const app_mod = @import("../../tui/app.zig");
 const App = app_mod.App;
 const SamplerMarker = app_mod.SamplerMarker;
 const history = @import("../history.zig");
-const sampler_view = @import("../views/sampler.zig");
+/// Waveform panel caps, shared with the TUI render half (views/sampler.zig):
+/// width in columns and height in rows (min'd against the leftover row
+/// budget). The mouse hit-testing below mirrors the draw path exactly.
+pub const wave_max_w: usize = 240;
+pub const wave_max_rows: usize = 14;
 
 /// Number of editable params for the sampler editor's current target.
 /// A slice carries the same 10 pad params a drum pad does (start..reverse),
@@ -205,7 +209,7 @@ pub fn adjustParam(app: *App, steps: i32) void {
 /// `pad_target` = drum pad or slice: 10 params, no KEY section.
 fn waveRows(pad_target: bool, body: usize) usize {
     const param_lines: usize = if (pad_target) 13 else 17;
-    const wr = @min(sampler_view.wave_max_rows, body -| (1 + param_lines));
+    const wr = @min(wave_max_rows, body -| (1 + param_lines));
     return if (wr >= 2) wr else 0;
 }
 
@@ -246,7 +250,7 @@ fn paramAtRow(app: *App, row: usize, view_rows: usize) ?u8 {
 fn waveformNorm(x: usize, cols: u16) ?f32 {
     const gutter = 2;
     if (x < gutter) return null;
-    const width = @min(@as(usize, cols) -| gutter, sampler_view.wave_max_w);
+    const width = @min(@as(usize, cols) -| gutter, wave_max_w);
     if (width == 0) return null;
     const rel = x - gutter;
     if (rel >= width) return null;

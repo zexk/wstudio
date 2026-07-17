@@ -8,8 +8,6 @@ const ansi = @import("../ui/ansi.zig");
 const types = ws.types;
 const Mode = ws.input.Mode;
 
-pub const spectrum_rows: usize = 18;
-pub const spectrum_band_count: usize = 80;
 
 // The SGR palette lives in ui/ansi.zig (shared with the GUI's strip-and-
 // re-render path); re-exported here so TUI code keeps saying `style.acc`.

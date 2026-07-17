@@ -1,8 +1,8 @@
 const std = @import("std");
 const ws = @import("wstudio");
 const zgui = @import("zgui");
-const spectrum_ed = @import("../../tui/editors/spectrum.zig");
-const history = @import("../../tui/history.zig");
+const spectrum_ed = @import("../../ui/editors/spectrum.zig");
+const history = @import("../../ui/history.zig");
 const style = @import("../style.zig");
 
 const color = style.color;

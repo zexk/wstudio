@@ -17,16 +17,20 @@ const modal_mod = ws.input;
 const dsp = ws.dsp.device;
 const eq_mod = ws.dsp.eq;
 const multiband_comp = ws.dsp.multiband_comp;
-const style = @import("../style.zig");
 const chorus_mod = ws.dsp.chorus;
 const DrumMachine = ws.dsp.DrumMachine;
 const Fx = ws.Fx;
 const FxKind = ws.FxKind;
 const FxUnit = ws.FxUnit;
 const FxPayload = ws.FxPayload;
-const App = @import("../app.zig").App;
+const App = @import("../../tui/app.zig").App;
 const history = @import("../history.zig");
-const fuzzy = @import("../../ui/fuzzy.zig");
+const fuzzy = @import("../fuzzy.zig");
+
+/// Spectrum-analyzer pane geometry, shared with the TUI render half
+/// (views/spectrum.zig) so the mouse row math here and the draw path agree.
+pub const spectrum_rows: usize = 18;
+pub const spectrum_band_count: usize = 80;
 
 /// The insertable kinds in picker display order (signal-flow-ish: dynamics,
 /// tone, character, modulation, time). Parallel to `picker_menu` in
@@ -1108,7 +1112,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16, v
         // re-targets which band the detail rows below show) and the header
         // + detail rows for the focused band alone (kind/freq/q/gain-or-
         // slope, one per row like every other unit's body).
-        const visual_rows: usize = @min(style.spectrum_rows, view_rows -| ((if (compact) @as(usize, 9) else 12) + eq_band_rows));
+        const visual_rows: usize = @min(spectrum_rows, view_rows -| ((if (compact) @as(usize, 9) else 12) + eq_band_rows));
         const overview_row0 = visual_rows + 1;
         const detail_row0 = overview_row0 + eq_overview_rows + eq_header_rows;
         if (rel >= overview_row0 and rel < overview_row0 + eq_overview_rows) {

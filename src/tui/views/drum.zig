@@ -6,6 +6,7 @@ const DrumMachine = ws.dsp.DrumMachine;
 const engine_mod = ws.engine;
 const style = @import("../style.zig");
 const icons = @import("../../ui/icons.zig");
+const drum_ed = @import("../../ui/editors/drum.zig");
 
 // Aliases so the moved render bodies reference the shared palette/primitives
 // by their original bare names.
@@ -22,35 +23,12 @@ const mag = style.mag;
 const bcyn = style.bcyn;
 const endLine = style.endLine;
 
-/// Left gutter before the step columns start (matches editors/drum.zig's
-/// `stepAt` column math) and each step cell's width (a 1-char "│" every 4
-/// steps, then a 3-char "[X]"-shaped cell).
-pub const gutter: usize = 10;
-pub const pads_per_bank: usize = 8;
-
-/// How many 8-pad banks the grid stacks at once: tall terminals show 2/4/8
-/// banks instead of leaving the rows blank. Snapped to divisors of the bank
-/// count so the paging groups always align. Every bank after the first
-/// costs pads_per_bank + 1 rows (a dim rule marks the bank boundary).
-/// `rows` is the view's content-row budget (drawDrumGrid's
-/// `rows` / handleMouse's view_rows); pad rows fit while used = title(1) +
-/// header(1) + bank rows + 2 stays inside rows - 4.
-pub fn banksShown(rows: usize) usize {
-    const budget = rows -| 8;
-    inline for ([_]usize{ 8, 4, 2 }) |n| {
-        if (n * pads_per_bank + (n - 1) <= budget) return n;
-    }
-    return 1;
-}
-
-/// First pad of the window showing the bank group that contains `cur_pad`
-/// (always a multiple of pads_per_bank). Mirrored by editors/drum.zig's
-/// mouse pad mapping - keep both on this helper.
-pub fn bankWindowStart(cur_pad: u8, rows: usize) usize {
-    const shown = banksShown(rows);
-    const bank = @as(usize, cur_pad) / pads_per_bank;
-    return (bank / shown) * shown * pads_per_bank;
-}
+// Grid geometry lives with the editor (ui/editors/drum.zig) since its mouse
+// hit-testing shares the exact same column/bank math.
+const gutter = drum_ed.gutter;
+const pads_per_bank = drum_ed.pads_per_bank;
+const banksShown = drum_ed.banksShown;
+const bankWindowStart = drum_ed.bankWindowStart;
 
 /// How many steps fit in `cols` at cell_width each, PLUS the periodic "│"
 /// separator (one extra column every 4 steps) - a plain `(cols-gutter)/

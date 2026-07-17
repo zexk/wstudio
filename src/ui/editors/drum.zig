@@ -9,14 +9,43 @@ const std = @import("std");
 const ws = @import("wstudio");
 const modal_mod = ws.input;
 const DrumMachine = ws.dsp.DrumMachine;
-const app_mod = @import("../app.zig");
+const app_mod = @import("../../tui/app.zig");
 const App = app_mod.App;
 const DrumRangeClip = app_mod.DrumRangeClip;
 const history = @import("../history.zig");
 const spectrum = @import("spectrum.zig");
 const preset_picker = @import("preset_picker.zig");
-const drum_view = @import("../views/drum.zig");
 const step_grid = @import("step_grid.zig");
+
+/// Left gutter before the step columns start (mirrored by the TUI drum
+/// view's column math) and the 8-pad bank geometry shared between mouse
+/// hit-testing here and the bank window the view renders.
+pub const gutter: usize = 10;
+pub const pads_per_bank: usize = 8;
+
+/// How many 8-pad banks the grid stacks at once: tall terminals show 2/4/8
+/// banks instead of leaving the rows blank. Snapped to divisors of the bank
+/// count so the paging groups always align. Every bank after the first
+/// costs pads_per_bank + 1 rows (a dim rule marks the bank boundary).
+/// `rows` is the view's content-row budget (drawDrumGrid's
+/// `rows` / handleMouse's view_rows); pad rows fit while used = title(1) +
+/// header(1) + bank rows + 2 stays inside rows - 4.
+pub fn banksShown(rows: usize) usize {
+    const budget = rows -| 8;
+    inline for ([_]usize{ 8, 4, 2 }) |n| {
+        if (n * pads_per_bank + (n - 1) <= budget) return n;
+    }
+    return 1;
+}
+
+/// First pad of the window showing the bank group that contains `cur_pad`
+/// (always a multiple of pads_per_bank). Shared with views/drum.zig's
+/// rendering - keep both on this helper.
+pub fn bankWindowStart(cur_pad: u8, rows: usize) usize {
+    const shown = banksShown(rows);
+    const bank = @as(usize, cur_pad) / pads_per_bank;
+    return (bank / shown) * shown * pads_per_bank;
+}
 
 pub fn handleKey(app: *App, key: modal_mod.Key) bool {
     const pad = &app.drum_cursor[0];
@@ -535,7 +564,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, view_rows: u
     switch (ev.kind) {
         .scroll_up, .scroll_down => {
             const delta: i32 = if (ev.kind == .scroll_up) -1 else 1;
-            if (ev.x < drum_view.gutter) movePad(app, delta) else moveStep(app, delta);
+            if (ev.x < gutter) movePad(app, delta) else moveStep(app, delta);
             return;
         },
         else => {},
@@ -546,13 +575,13 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, view_rows: u
     // mirrors views/drum.zig's bankWindowStart/banksShown windowing. A dim
     // rule separates stacked banks, so banks occupy pads_per_bank + 1 rows
     // past the first; the rule rows themselves map to no pad.
-    const per_bank = drum_view.pads_per_bank;
+    const per_bank = pads_per_bank;
     const rel = row - 2;
     const block = rel / (per_bank + 1);
     const within = rel % (per_bank + 1);
     if (within == per_bank) return; // the rule between stacked banks
-    if (block >= drum_view.banksShown(view_rows)) return;
-    const bank_start = drum_view.bankWindowStart(app.drum_cursor[0], view_rows);
+    if (block >= banksShown(view_rows)) return;
+    const bank_start = bankWindowStart(app.drum_cursor[0], view_rows);
     const pad = bank_start + block * per_bank + within;
     if (pad >= DrumMachine.max_pads) return;
 
@@ -560,7 +589,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, view_rows: u
         .press => {
             app.drum_cursor[0] = @intCast(pad);
             const dm = app.drumMachine();
-            const step = step_grid.stepAt(drum_view.gutter, app.drumCellWidth(), app.drum_step_scroll, dm.step_count, ev.x) orelse {
+            const step = step_grid.stepAt(gutter, app.drumCellWidth(), app.drum_step_scroll, dm.step_count, ev.x) orelse {
                 app.drum_paint_state = null;
                 return;
             };
@@ -572,7 +601,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, view_rows: u
         .drag => {
             const state = app.drum_paint_state orelse return;
             const dm = app.drumMachine();
-            const step = step_grid.stepAt(drum_view.gutter, app.drumCellWidth(), app.drum_step_scroll, dm.step_count, ev.x) orelse return;
+            const step = step_grid.stepAt(gutter, app.drumCellWidth(), app.drum_step_scroll, dm.step_count, ev.x) orelse return;
             app.drum_cursor[0] = @intCast(pad);
             app.drum_cursor[1] = step;
             step_grid.setStep(dm, @intCast(pad), step, state, DrumMachine.vel_full);

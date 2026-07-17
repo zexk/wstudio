@@ -10,11 +10,16 @@ const std = @import("std");
 const ws = @import("wstudio");
 const modal_mod = ws.input;
 const DrumMachine = ws.dsp.DrumMachine;
-const App = @import("../app.zig").App;
+const App = @import("../../tui/app.zig").App;
 const history = @import("../history.zig");
 const piano = @import("piano.zig");
 const automation = @import("automation.zig");
-const view = @import("../views/arrangement.zig");
+
+/// Left gutter: " NN name " then the lane's leading separator - shared with
+/// the TUI view's draw path so mouse column math and rendering agree. The
+/// name field is 8 wide ("e-piano"-sized names showed as "e-pian" at the
+/// old 6).
+pub const gutter: usize = 13;
 
 /// Arrangement (song timeline) input. A bar is the atomic unit: h/l move
 /// by bars, enter stamps the live pattern as a clip, </> shift and +/-
@@ -616,8 +621,8 @@ fn deleteClip(app: *App) void {
 /// views/arrangement.zig's `gutter`/`App.arrCellWidth()` - each bar column
 /// is a 1-char separator plus the current-width content cell.
 fn barAt(scroll_bar: u32, x: usize, cw: usize) ?u32 {
-    if (x < view.gutter) return null;
-    const col: u32 = @intCast((x - view.gutter) / cw);
+    if (x < gutter) return null;
+    const col: u32 = @intCast((x - gutter) / cw);
     return scroll_bar + col;
 }
 
@@ -634,8 +639,8 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16) v
 
     switch (ev.kind) {
         // zig fmt: off
-        .scroll_up => { if (ev.x < view.gutter) moveLane(app, lane_count, -1) else moveBar(app, -1); return; },
-        .scroll_down => { if (ev.x < view.gutter) moveLane(app, lane_count, 1) else moveBar(app, 1); return; },
+        .scroll_up => { if (ev.x < gutter) moveLane(app, lane_count, -1) else moveBar(app, -1); return; },
+        .scroll_down => { if (ev.x < gutter) moveLane(app, lane_count, 1) else moveBar(app, 1); return; },
         // zig fmt: on
         else => {},
     }

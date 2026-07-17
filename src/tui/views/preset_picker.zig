@@ -2,7 +2,7 @@
 //! input half and the shared row model live in editors/preset_picker.zig.
 
 const std = @import("std");
-const preset_ed = @import("../editors/preset_picker.zig");
+const preset_ed = @import("../../ui/editors/preset_picker.zig");
 const style = @import("../style.zig");
 
 const rst = style.rst;

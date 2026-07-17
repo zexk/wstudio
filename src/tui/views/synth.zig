@@ -28,7 +28,7 @@ const synthSection = style.synthSection;
 const barRow = style.barRow;
 const enumRow = style.enumRow;
 
-const synth_ed = @import("../editors/synth.zig");
+const synth_ed = @import("../../ui/editors/synth.zig");
 
 fn drawSynthTitle(w: *std.Io.Writer, subview: synth_ed.Subview, name: []const u8, focused: bool) !void {
     try w.writeAll(bcyn ++ bold ++ " \u{2593} " ++ icons.synth ++ " SYNTH " ++ rst);

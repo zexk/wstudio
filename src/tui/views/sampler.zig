@@ -28,12 +28,11 @@ const sampler_param_labels = [_][]const u8{
     "start", "end", "pitch", "attack", "decay", "sustain", "release", "gain", "pan", "reverse", "root", "voice",
 };
 
-/// Waveform panel caps: width in columns (was 120 - bumped so wide terminals
-/// use their space) and height in rows (min'd against the leftover row
-/// budget, so short terminals see the same 7-8 rows as before). Mirrored by
-/// editors/sampler.zig's waveformNorm/waveRows for mouse hit-testing.
-pub const wave_max_w: usize = 240;
-pub const wave_max_rows: usize = 14;
+// Waveform panel caps live with the editor (ui/editors/sampler.zig) since
+// its waveformNorm/waveRows mouse hit-testing mirrors this draw path.
+const sampler_ed = @import("../../ui/editors/sampler.zig");
+const wave_max_w = sampler_ed.wave_max_w;
+const wave_max_rows = sampler_ed.wave_max_rows;
 
 pub fn drawSamplerEditor(
     app: anytype,

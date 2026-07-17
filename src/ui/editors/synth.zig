@@ -5,13 +5,13 @@
 const std = @import("std");
 const ws = @import("wstudio");
 const modal_mod = ws.input;
-const App = @import("../app.zig").App;
+const App = @import("../../tui/app.zig").App;
 const spectrum = @import("spectrum.zig");
 const piano = @import("piano.zig");
 const preset_picker = @import("preset_picker.zig");
 const history = @import("../history.zig");
-const fuzzy = @import("../../ui/fuzzy.zig");
-const synth_layout = @import("../../ui/synth_layout.zig");
+const fuzzy = @import("../fuzzy.zig");
+const synth_layout = @import("../synth_layout.zig");
 
 /// The synth editor's three panes, cycled by Tab: oscillator/envelope/
 /// filter/voice params ("main"), modulation sources - the matrix, LFOs,

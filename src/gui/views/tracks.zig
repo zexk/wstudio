@@ -2,7 +2,7 @@
 
 const std = @import("std");
 const ws = @import("wstudio");
-const spectrum_ed = @import("../../tui/editors/spectrum.zig");
+const spectrum_ed = @import("../../ui/editors/spectrum.zig");
 const gui_style = @import("../style.zig");
 const zgui = @import("zgui");
 

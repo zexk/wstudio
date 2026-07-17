@@ -15,10 +15,14 @@ const modal_mod = ws.input;
 const automation_mod = ws.dsp.automation;
 const AutomationPoint = automation_mod.AutomationPoint;
 const synth_mod = ws.dsp.synth;
-const App = @import("../app.zig").App;
+const App = @import("../../tui/app.zig").App;
 const history = @import("../history.zig");
-const view = @import("../views/automation.zig");
-const fuzzy = @import("../../ui/fuzzy.zig");
+const fuzzy = @import("../fuzzy.zig");
+
+/// Left indent before the step columns start - shared with the TUI view's
+/// draw path so a click/scroll's column maps to the same step the bar
+/// graph/caret row actually draw it at.
+pub const gutter: usize = 3;
 
 /// Which curve h/l + j/k currently edit. `gain`/`pan` are the two universal
 /// targets, always available on any clip (mix-bus params). `synth_param`
@@ -407,7 +411,7 @@ fn repeatLastEdit(app: *App, clip: *ws.Clip) void {
 /// The step under screen column `x`, or null if `x` falls in the left
 /// gutter or past the clip's own end. Shared logic for click and scroll.
 fn stepAt(app: *App, clip: *const ws.Clip, x: u16) ?u32 {
-    const g: u32 = @intCast(view.gutter);
+    const g: u32 = @intCast(gutter);
     if (x < g) return null;
     const step = app.automation_scroll + (@as(u32, x) - g);
     if (step > maxStep(app, clip)) return null;

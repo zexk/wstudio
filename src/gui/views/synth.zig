@@ -3,8 +3,8 @@
 
 const std = @import("std");
 const ws = @import("wstudio");
-const spectrum_ed = @import("../../tui/editors/spectrum.zig");
-const synth_ed = @import("../../tui/editors/synth.zig");
+const spectrum_ed = @import("../../ui/editors/spectrum.zig");
+const synth_ed = @import("../../ui/editors/synth.zig");
 const synth_layout = @import("../../ui/synth_layout.zig");
 const gui_style = @import("../style.zig");
 const widgets = @import("../widgets.zig");

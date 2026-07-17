@@ -23,9 +23,10 @@ const blu = style.blu;
 const bcyn = style.bcyn;
 const endLine = style.endLine;
 
-/// Left gutter: " NN name " then the lane's leading separator. The name field
-/// is 8 wide - "e-piano"-sized names showed as "e-pian" at the old 6.
-pub const gutter: usize = 13;
+// The gutter width lives with the editor (ui/editors/arrangement.zig) since
+// its mouse column math must agree with this draw path.
+const arrangement_ed = @import("../../ui/editors/arrangement.zig");
+const gutter = arrangement_ed.gutter;
 
 /// Bars that fit in the timeline area for a terminal `cols` wide, at cell
 /// width `cw` from `App.arrCellWidth()`.

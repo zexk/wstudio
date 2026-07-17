@@ -1,7 +1,7 @@
 const std = @import("std");
 const ws = @import("wstudio");
 const zgui = @import("zgui");
-const automation_ed = @import("../../tui/editors/automation.zig");
+const automation_ed = @import("../../ui/editors/automation.zig");
 const style = @import("../style.zig");
 const widgets = @import("../widgets.zig");
 

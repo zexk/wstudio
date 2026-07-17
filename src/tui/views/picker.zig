@@ -4,8 +4,8 @@ const std = @import("std");
 const ws = @import("wstudio");
 const style = @import("../style.zig");
 const icons = @import("../../ui/icons.zig");
-const synth_ed = @import("../editors/synth.zig");
-const spectrum_ed = @import("../editors/spectrum.zig");
+const synth_ed = @import("../../ui/editors/synth.zig");
+const spectrum_ed = @import("../../ui/editors/spectrum.zig");
 
 // Aliases so the moved render bodies reference the shared palette/primitives
 // by their original bare names.
