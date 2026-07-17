@@ -1,7 +1,7 @@
 # wstudio
 
 <p align="center">
-  <img src="docs/assets/wstudio-logo.png?raw=true&amp;v=patina" alt="wstudio pixel logo" width="320">
+  <img src="docs/assets/wstudio-logo-patina.png" alt="wstudio pixel logo" width="320">
 </p>
 
 A keyboard-centric digital audio workstation written in
