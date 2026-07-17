@@ -157,17 +157,22 @@ const BandComp = struct {
     env: f32 = 0.0,
 
     fn gainFor(self: *BandComp, level: f32, attack: f32, release: f32, style: Style) f32 {
-        const over_db = Compressor.envelopeOverDb(&self.env, level, attack, release, self.threshold_db);
+        // A ratio near/under 0 sends downwardReductionDb's `1/ratio` toward
+        // +-inf, same instability as the plain `Compressor`.
+        const threshold_db = if (std.math.isFinite(self.threshold_db)) std.math.clamp(self.threshold_db, -60.0, 0.0) else -18.0;
+        const ratio = if (std.math.isFinite(self.ratio)) std.math.clamp(self.ratio, 1.0, 20.0) else 4.0;
+        const makeup_db = if (std.math.isFinite(self.makeup_db)) std.math.clamp(self.makeup_db, -24.0, 24.0) else 0.0;
+        const over_db = Compressor.envelopeOverDb(&self.env, level, attack, release, threshold_db);
         // Downward: pull the excess above threshold down by `ratio` - same
         // envelope/ratio math as the plain `Compressor`.
-        var reduction_db = Compressor.downwardReductionDb(over_db, self.ratio);
+        var reduction_db = Compressor.downwardReductionDb(over_db, ratio);
         if (over_db <= 0.0 and style == .ott) {
             // Upward (OTT only): push signal below threshold up toward it
             // by the same `ratio` - mirrors the downward formula around the
             // threshold instead of introducing a second ratio param.
-            reduction_db = -over_db * (1.0 - 1.0 / self.ratio);
+            reduction_db = -over_db * (1.0 - 1.0 / ratio);
         }
-        return types.dbToGain(reduction_db) * types.dbToGain(self.makeup_db);
+        return types.dbToGain(reduction_db) * types.dbToGain(makeup_db);
     }
 
     fn reset(self: *BandComp) void {
@@ -238,8 +243,14 @@ pub const MultibandComp = struct {
 
     pub fn processBlock(self: *MultibandComp, buf: []Sample) void {
         const frames = buf.len / 2;
-        const attack = self.smoothingCoef(self.attack_ms);
-        const release = self.smoothingCoef(self.release_ms);
+        // A non-positive attack_ms/release_ms flips smoothingCoef's exponent
+        // positive (coef >= 1, diverges within a block) - same instability
+        // as the plain `Compressor`.
+        const attack_ms = if (std.math.isFinite(self.attack_ms)) std.math.clamp(self.attack_ms, 0.1, 500.0) else 10.0;
+        const release_ms = if (std.math.isFinite(self.release_ms)) std.math.clamp(self.release_ms, 1.0, 2000.0) else 80.0;
+        const mix = if (std.math.isFinite(self.mix)) std.math.clamp(self.mix, 0.0, 1.0) else 1.0;
+        const attack = self.smoothingCoef(attack_ms);
+        const release = self.smoothingCoef(release_ms);
 
         for (0..frames) |i| {
             const dry_l = buf[i * 2];
@@ -256,8 +267,8 @@ pub const MultibandComp = struct {
                 wet_r += bands_r[b] * gain;
             }
 
-            buf[i * 2] = dry_l + (wet_l - dry_l) * self.mix;
-            buf[i * 2 + 1] = dry_r + (wet_r - dry_r) * self.mix;
+            buf[i * 2] = dry_l + (wet_l - dry_l) * mix;
+            buf[i * 2 + 1] = dry_r + (wet_r - dry_r) * mix;
         }
     }
 
@@ -355,6 +366,25 @@ test "mix blends between dry and fully-processed" {
     // mix=0 must pass the input through unchanged regardless of how hard
     // the (unheard) wet path would otherwise squash it.
     try std.testing.expectApproxEqAbs(@as(Sample, 0.5), buf[510], 1e-4);
+}
+
+test "invalid parameters cannot trap or poison output" {
+    var mb = MultibandComp.init(48_000);
+    mb.attack_ms = -1.0;
+    mb.release_ms = std.math.inf(f32);
+    mb.mix = std.math.nan(f32);
+    for (&mb.bands) |*b| {
+        b.threshold_db = std.math.nan(f32);
+        b.ratio = 0.0;
+        b.makeup_db = std.math.inf(f32);
+    }
+    var buf: [512]Sample = undefined;
+    for (0..256) |i| {
+        buf[i * 2] = 0.5;
+        buf[i * 2 + 1] = 0.5;
+    }
+    mb.processBlock(&buf);
+    for (buf) |sample| try std.testing.expect(std.math.isFinite(sample));
 }
 
 test "setXoverLo/Hi keep the two crossover points from crossing" {
