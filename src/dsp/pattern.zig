@@ -81,11 +81,20 @@ pub const PatternPlayer = struct {
 
     // ── UI-thread note editing ───────────────────────────────────────────────
 
+    fn sanitizeNote(note: Note) Note {
+        return .{
+            .pitch = note.pitch,
+            .start_beat = if (std.math.isFinite(note.start_beat) and note.start_beat >= 0.0) note.start_beat else 0.0,
+            .duration_beat = if (std.math.isFinite(note.duration_beat) and note.duration_beat >= 0.0) note.duration_beat else 0.0,
+            .velocity = if (std.math.isFinite(note.velocity)) std.math.clamp(note.velocity, 0.0, 1.0) else default_velocity,
+        };
+    }
+
     pub fn addNote(self: *PatternPlayer, note: Note) void {
         while (!self.notes_lock.tryLock()) std.atomic.spinLoopHint();
         defer self.notes_lock.unlock();
         if (self.note_count >= max_notes) return;
-        self.notes[self.note_count] = note;
+        self.notes[self.note_count] = sanitizeNote(note);
         self.note_count += 1;
     }
 
@@ -112,9 +121,9 @@ pub const PatternPlayer = struct {
         while (!self.notes_lock.tryLock()) std.atomic.spinLoopHint();
         defer self.notes_lock.unlock();
         const count = @min(notes.len, @as(usize, max_notes));
-        for (notes[0..count], self.song_notes[0..count]) |n, *dst| dst.* = n;
+        for (notes[0..count], self.song_notes[0..count]) |n, *dst| dst.* = sanitizeNote(n);
         self.song_note_count = @intCast(count);
-        self.song_length_beats = length_beats;
+        self.song_length_beats = if (std.math.isFinite(length_beats) and length_beats >= 0.0) length_beats else 0.0;
     }
 
     /// Copy the live notes into `out` (UI thread). Returns the count copied.
@@ -133,9 +142,9 @@ pub const PatternPlayer = struct {
         while (!self.notes_lock.tryLock()) std.atomic.spinLoopHint();
         defer self.notes_lock.unlock();
         const count = @min(notes.len, @as(usize, max_notes));
-        for (notes[0..count], self.notes[0..count]) |n, *dst| dst.* = n;
+        for (notes[0..count], self.notes[0..count]) |n, *dst| dst.* = sanitizeNote(n);
         self.note_count = @intCast(count);
-        self.length_beats = @max(1.0, length_beats);
+        self.length_beats = if (std.math.isFinite(length_beats)) @max(1.0, length_beats) else 4.0;
     }
 
     /// Remove every note (UI thread). Used by :clear.
@@ -497,6 +506,32 @@ test "copyNotes/setNotes round-trip a pattern between players" {
     try std.testing.expectEqual(@as(u7, 64), dst.notes[1].pitch);
     try std.testing.expectApproxEqAbs(@as(f32, 0.5), dst.notes[1].velocity, 1e-6);
     try std.testing.expectApproxEqAbs(@as(f64, 8.0), dst.length_beats, 1e-9);
+}
+
+test "note mutation APIs sanitize non-finite playback data" {
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    var pp = PatternPlayer.init(synth.device(), &transport);
+    const bad = Note{
+        .pitch = 60,
+        .start_beat = std.math.nan(f64),
+        .duration_beat = std.math.inf(f64),
+        .velocity = std.math.nan(f32),
+    };
+
+    pp.addNote(bad);
+    try std.testing.expectEqual(@as(f64, 0.0), pp.notes[0].start_beat);
+    try std.testing.expectEqual(@as(f64, 0.0), pp.notes[0].duration_beat);
+    try std.testing.expectEqual(default_velocity, pp.notes[0].velocity);
+
+    pp.setNotes(&.{bad}, std.math.nan(f64));
+    try std.testing.expectEqual(@as(f64, 4.0), pp.length_beats);
+    try std.testing.expect(std.math.isFinite(pp.notes[0].start_beat));
+
+    pp.setSongNotes(&.{bad}, std.math.inf(f64));
+    try std.testing.expectEqual(@as(f64, 0.0), pp.song_length_beats);
+    try std.testing.expect(std.math.isFinite(pp.song_notes[0].start_beat));
 }
 
 test "humanize jitters timing/velocity within bounds; 0% is a no-op" {
