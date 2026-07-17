@@ -31,7 +31,7 @@ pub const GuiTheme = theme_identity.Name;
 /// panes sharing that terminal too. Opting into a name is a deliberate
 /// choice, not something a first run should spring on someone who picked
 /// their terminal colors on purpose - see tui/theme.zig.
-pub const TuiTheme = enum { none, patina, patina_light, graphite, umbra };
+pub const TuiTheme = enum { none, patina, patina_light, graphite, graphite_light, umbra };
 
 /// A config-owned path buffer for string-typed `wstudio.o` options.
 /// `Config` is copied by value and reset
@@ -1539,7 +1539,7 @@ test "Lua API handles enum options as strings" {
     try rt.loadString("wstudio.o.gui_theme = 'patina_light'; assert(wstudio.o.gui_theme == 'patina_light'); wstudio.o.gui_theme = 'umbra'");
     try std.testing.expectEqual(GuiTheme.umbra, rt.config.gui_theme);
     try std.testing.expectError(error.LuaError, rt.loadString("wstudio.o.gui_theme = 'neon'"));
-    try rt.loadString("local ok, err = pcall(function() wstudio.o.gui_theme = 'neon' end); assert(err:find('patina, patina_light, graphite, umbra') ~= nil)");
+    try rt.loadString("local ok, err = pcall(function() wstudio.o.gui_theme = 'neon' end); assert(err:find('patina, patina_light, graphite, graphite_light, umbra') ~= nil)");
 }
 
 test "Lua API round 2 options set and read" {

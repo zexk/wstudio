@@ -167,7 +167,7 @@ valid-name list and its error message from the Zig enum.
 ### Theming: `gui_theme` / `tui_theme`
 
 One named color identity per theme (`src/theme_identity.zig`: `patina`,
-`patina_light`, `graphite`, `umbra`), rendered through two different
+`patina_light`, `graphite`, `graphite_light`, `umbra`), rendered through two different
 pipelines - Neovim's `:colorscheme` + highlight-group split, but with the
 "one highlight table, many things read it" idea stretched across frontends
 instead of across syntax groups. wstudio's own `:colorscheme` (below) picks

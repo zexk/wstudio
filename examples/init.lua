@@ -126,7 +126,7 @@
 
 -- [tui] Color theme, applied by reprogramming the terminal's own ANSI
 -- palette (OSC 4/10/11): "none" (leaves your terminal's colors alone),
--- "patina", "patina_light", "graphite", or "umbra". Defaults to "none"
+-- "patina", "patina_light", "graphite", "graphite_light", or "umbra". Defaults to "none"
 -- (unlike gui_theme) because this recolors the whole physical terminal for
 -- as long as wstudio runs, not just wstudio's own window - under
 -- tmux/screen that means every other pane sharing the terminal too. Reset
@@ -140,7 +140,7 @@
 -- [gui] Vertical sync. false trades tearing for lower input latency.
 -- wstudio.o.gui_vsync = true
 
--- [gui] Color theme: "patina", "patina_light", "graphite", or "umbra".
+-- [gui] Color theme: "patina", "patina_light", "graphite", "graphite_light", or "umbra".
 -- `:colorscheme <name>` switches it live too (`:colorscheme` alone reports
 -- the active one).
 -- wstudio.o.gui_theme = "patina"

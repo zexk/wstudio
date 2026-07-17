@@ -115,6 +115,36 @@ pub const graphite: Identity = .{
     .tracks = .{ 0xf08777, 0xf06468, 0xc9cf73, 0x71b9ac, 0xd69ac0, 0xd6a15f, 0x9b9acb },
 };
 
+/// Light counterpart to `graphite`, by the same derivation the doc uses for
+/// `patina_light`: same lightness ramp as `patina_light`, green tint bled
+/// out of both the background ramp and the text column (unlike dark
+/// `graphite`, `patina_light`'s fg0-fg3 do carry the green cast, so all four
+/// get neutralized here, not just fg3). Accents are untouched.
+pub const graphite_light: Identity = .{
+    .light = true,
+    .bg0 = 0xe1e1e7,
+    .bg1 = 0xf1f1f6,
+    .bg2 = 0xe8e8ed,
+    .bg3 = 0xdedee2,
+    .bg4 = 0xd0d0d6,
+    .bg5 = 0xb5b5bc,
+    .fg0 = 0x1d1d18,
+    .fg1 = 0x3d3d38,
+    .fg2 = 0x676762,
+    .fg3 = 0x84847f,
+    .line = 0xd0d0d6,
+    .line_soft = 0xe4e4e9,
+    .focus = 0xad493f,
+    .focus_soft = 0xd88475,
+    .track_cursor = 0x1d1d18,
+    .modulation = 0x964778,
+    .danger = 0xb93640,
+    .rhythm = 0x626a19,
+    .audio = 0x247067,
+    .blue = 0x8b8abd,
+    .tracks = .{ 0xd86f61, 0xde6870, 0xb6bd5f, 0x65aaa0, 0xc787ac, 0xc9964d, 0x8b8abd },
+};
+
 /// The original violet GUI palette, restored as an optional theme.
 pub const umbra: Identity = .{
     .bg0 = 0x0c040f,
@@ -140,13 +170,14 @@ pub const umbra: Identity = .{
     .tracks = .{ 0xb07bbc, 0xb97873, 0xc1a77b, 0x7cb0af, 0xc68fc1, 0x7899c1, 0x86b978 },
 };
 
-pub const Name = enum { patina, patina_light, graphite, umbra };
+pub const Name = enum { patina, patina_light, graphite, graphite_light, umbra };
 
 pub fn get(name: Name) *const Identity {
     return switch (name) {
         .patina => &patina,
         .patina_light => &patina_light,
         .graphite => &graphite,
+        .graphite_light => &graphite_light,
         .umbra => &umbra,
     };
 }

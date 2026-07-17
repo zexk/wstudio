@@ -62,6 +62,7 @@ pub fn oscFor(theme: config_mod.TuiTheme, buf: []u8) []const u8 {
         .patina => .patina,
         .patina_light => .patina_light,
         .graphite => .graphite,
+        .graphite_light => .graphite_light,
         .umbra => .umbra,
     };
     const id = ws.theme_identity.get(name);

@@ -73,6 +73,7 @@ fn fromIdentity(comptime id: ws.theme_identity.Identity) Palette {
 const patina_colors: Palette = fromIdentity(ws.theme_identity.patina);
 const patina_light_colors: Palette = fromIdentity(ws.theme_identity.patina_light);
 const graphite_colors: Palette = fromIdentity(ws.theme_identity.graphite);
+const graphite_light_colors: Palette = fromIdentity(ws.theme_identity.graphite_light);
 const umbra_colors: Palette = fromIdentity(ws.theme_identity.umbra);
 
 /// The active palette. Every draw site reads through this (via each file's
@@ -81,7 +82,7 @@ const umbra_colors: Palette = fromIdentity(ws.theme_identity.umbra);
 pub var palette: Palette = patina_colors;
 
 test "track cursor stays outside every theme's track rotation" {
-    for ([_]Palette{ patina_colors, patina_light_colors, graphite_colors, umbra_colors }) |theme| {
+    for ([_]Palette{ patina_colors, patina_light_colors, graphite_colors, graphite_light_colors, umbra_colors }) |theme| {
         for (theme.tracks) |track| try std.testing.expect(!std.meta.eql(theme.track_cursor, track));
     }
 }
@@ -91,6 +92,7 @@ pub fn selectPalette(theme: config_mod.GuiTheme) void {
         .patina => patina_colors,
         .patina_light => patina_light_colors,
         .graphite => graphite_colors,
+        .graphite_light => graphite_light_colors,
         .umbra => umbra_colors,
     };
 }
