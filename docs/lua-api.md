@@ -2,9 +2,9 @@
 
 Design for wstudio's user-facing Lua API. The bootstrap already ships on this
 branch: a bundled Lua 5.4 interpreter (built from source in `build.zig`, no
-system dependency), `~/.config/wstudio/init.lua` loaded at startup, automatic
-first-run generation from `examples/init.lua`, and a `wstudio.o` option proxy
-backed by `src/config.zig`. This document defines
+system dependency), the platform user config `init.lua` loaded at startup,
+automatic first-run generation from `examples/init.lua`, and a `wstudio.o`
+option proxy backed by `src/config.zig`. This document defines
 where the API goes from there.
 
 The user-facing reference is [examples/init.lua](../examples/init.lua), the
@@ -120,9 +120,9 @@ wstudio.api              -- the core API (the contract)
 ```
 
 `require` of user modules works out of the box: startup prepends
-`~/.config/wstudio/lua/?.lua` (and `?/init.lua`) to `package.path`, mirroring
-Neovim's `lua/` runtime directory. That is the whole plugin story for now
-and it costs a few lines.
+the user config directory's `lua/?.lua` (and `?/init.lua`) to `package.path`,
+mirroring Neovim's `lua/` runtime directory. That is the whole plugin story
+for now and it costs a few lines.
 
 ## Options: `wstudio.o`
 

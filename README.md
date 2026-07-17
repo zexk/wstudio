@@ -164,10 +164,11 @@ zig build -Dtarget=x86_64-windows-gnu  # cross-compile the Windows build
 
 ### Lua configuration
 
-wstudio loads `~/.config/wstudio/init.lua` at startup, or
-`$XDG_CONFIG_HOME/wstudio/init.lua` when that variable is set, then falls back
-to `/etc/xdg/wstudio/init.lua`. When neither file exists, wstudio creates the
-user file from its embedded configuration template. The API covers options,
+wstudio loads `$XDG_CONFIG_HOME/wstudio/init.lua` when that variable is set.
+Otherwise it loads `~/.config/wstudio/init.lua` on Unix-like systems and
+`%APPDATA%\wstudio\init.lua` on Windows, then falls back to
+`/etc/xdg/wstudio/init.lua`. When neither file exists, wstudio creates the user
+file from its embedded configuration template. The API covers options,
 keymaps, user `:` commands, autocmd events, and transport/track scripting:
 
 ```lua

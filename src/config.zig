@@ -6,6 +6,7 @@
 //! that route `wstudio.notify`/`wstudio.cmd` into the live App.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const init_lua_template = @import("init_template").source;
 const ws_input = @import("wstudio").input;
 const cmd_mod = @import("tui/cmd.zig");
@@ -623,15 +624,42 @@ fn generateUserConfig(io: std.Io, path: []const u8) !bool {
 }
 
 pub fn userConfigDir(buf: []u8) ?[]const u8 {
-    if (std.c.getenv("XDG_CONFIG_HOME")) |xdg| return std.fmt.bufPrint(buf, "{s}/wstudio", .{std.mem.sliceTo(xdg, 0)}) catch null;
-    if (std.c.getenv("HOME")) |home| return std.fmt.bufPrint(buf, "{s}/.config/wstudio", .{std.mem.sliceTo(home, 0)}) catch null;
+    return configDirFromEnv(
+        buf,
+        builtin.os.tag,
+        envValue("XDG_CONFIG_HOME"),
+        envValue("APPDATA"),
+        envValue("HOME"),
+    );
+}
+
+fn envValue(name: [*:0]const u8) ?[]const u8 {
+    const value = std.mem.sliceTo(std.c.getenv(name) orelse return null, 0);
+    return if (value.len == 0) null else value;
+}
+
+fn configDirFromEnv(buf: []u8, os: std.Target.Os.Tag, xdg: ?[]const u8, appdata: ?[]const u8, home: ?[]const u8) ?[]const u8 {
+    const sep: u8 = if (os == .windows) '\\' else '/';
+    if (xdg) |dir| return std.fmt.bufPrint(buf, "{s}{c}wstudio", .{ dir, sep }) catch null;
+    if (os == .windows) {
+        if (appdata) |dir| return std.fmt.bufPrint(buf, "{s}{c}wstudio", .{ dir, sep }) catch null;
+    }
+    if (home) |dir| return std.fmt.bufPrint(buf, "{s}{c}.config{c}wstudio", .{ dir, sep, sep }) catch null;
     return null;
 }
 
 pub fn userConfigPath(buf: []u8) ?[]const u8 {
     var dir_buf: [std.fs.max_path_bytes]u8 = undefined;
     const dir = userConfigDir(&dir_buf) orelse return null;
-    return std.fmt.bufPrint(buf, "{s}/init.lua", .{dir}) catch null;
+    const sep: u8 = if (builtin.os.tag == .windows) '\\' else '/';
+    return std.fmt.bufPrint(buf, "{s}{c}init.lua", .{ dir, sep }) catch null;
+}
+
+test "config directory follows platform conventions" {
+    var buf: [256]u8 = undefined;
+    try std.testing.expectEqualStrings("C:\\Users\\Ada\\AppData\\Roaming\\wstudio", configDirFromEnv(&buf, .windows, null, "C:\\Users\\Ada\\AppData\\Roaming", null).?);
+    try std.testing.expectEqualStrings("D:\\xdg\\wstudio", configDirFromEnv(&buf, .windows, "D:\\xdg", "C:\\AppData", "C:\\Users\\Ada").?);
+    try std.testing.expectEqualStrings("/home/ada/.config/wstudio", configDirFromEnv(&buf, .linux, null, null, "/home/ada").?);
 }
 
 fn runtime(state: *c.lua_State) *Runtime {
@@ -1431,7 +1459,7 @@ test "preferred_frontend option and setFrontend correction" {
 
 test "require path includes the user lua dir" {
     var dir_buf: [std.fs.max_path_bytes]u8 = undefined;
-    if (userConfigDir(&dir_buf) == null) return; // no HOME/XDG in env
+    if (userConfigDir(&dir_buf) == null) return; // no platform config directory in env
     var rt = try Runtime.init(.tui);
     defer rt.deinit();
     try rt.loadString("assert(package.path:find('wstudio/lua/?.lua', 1, true) ~= nil)");
