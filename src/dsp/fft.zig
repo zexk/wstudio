@@ -61,6 +61,8 @@ pub fn fft(n: usize, real: []f32, imag: []f32) void {
 
 pub fn hannWindow(buf: []f32) void {
     const n = buf.len;
+    if (n == 0) return;
+    if (n == 1) return;
     for (buf, 0..) |*s, i| {
         s.* *= 0.5 * (1.0 - std.math.cos(2.0 * std.math.pi * @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(n - 1))));
     }
@@ -115,6 +117,15 @@ test "toDb clamps at -120" {
     try std.testing.expectApproxEqAbs(@as(f32, -6.02), buf[1], 0.01);
     try std.testing.expectEqual(@as(f32, -120.0), buf[2]);
     try std.testing.expectEqual(@as(f32, -120.0), buf[3]);
+}
+
+test "hannWindow handles empty and single-sample buffers" {
+    var empty: [0]f32 = .{};
+    hannWindow(&empty);
+
+    var single = [_]f32{1.0};
+    hannWindow(&single);
+    try std.testing.expectEqual(@as(f32, 1.0), single[0]);
 }
 
 test "bitReverse round-trip" {
