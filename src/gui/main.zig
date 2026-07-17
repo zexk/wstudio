@@ -186,48 +186,13 @@ test "GUI number row respects shift" {
     try std.testing.expectEqualStrings(")!@#$%^&*(", &shifted);
 }
 
-const NativeBackend = if (builtin.os.tag == .linux)
-    ws.alsa.AlsaBackend
-else if (builtin.os.tag == .windows)
-    ws.wasapi.WasapiBackend
-else
-    ws.backend.NullBackend;
-
-const GuiAudio = struct {
-    native: NativeBackend,
-    fallback: ws.backend.NullBackend,
-    using_native: bool = false,
-
-    fn init(sample_rate: u32, block_frames: u32, engine: *ws.Engine) GuiAudio {
-        const config: ws.backend.Config = .{ .sample_rate = sample_rate, .block_frames = block_frames };
-        return .{
-            .native = .{ .config = config, .render = renderAudio, .ctx = engine },
-            .fallback = .{ .config = config, .render = renderAudio, .ctx = engine },
-        };
-    }
-
-    fn start(self: *GuiAudio, io: std.Io) !void {
-        if (builtin.os.tag == .linux or builtin.os.tag == .windows) {
-            self.native.start() catch {
-                try self.fallback.start(io);
-                return;
-            };
-            self.using_native = true;
-        } else {
-            try self.fallback.start(io);
-        }
-    }
-
-    fn stop(self: *GuiAudio) void {
-        if (self.using_native) self.native.stop() else self.fallback.stop();
-        self.using_native = false;
-    }
-
-    fn label(self: *const GuiAudio) []const u8 {
-        if (!self.using_native) return "none (silent)";
-        return if (builtin.os.tag == .linux) "alsa" else "wasapi";
-    }
-};
+fn guiAudio(sample_rate: u32, block_frames: u32, engine: *ws.Engine) ws.AudioHost {
+    return ws.AudioHost.init(
+        .{ .sample_rate = sample_rate, .block_frames = block_frames },
+        renderAudio,
+        engine,
+    );
+}
 
 fn bodyHeight(prompt_open: bool) f32 {
     return zgui.io.getDisplaySize()[1] - 98 - @as(f32, if (prompt_open) 38 else 0);
@@ -285,8 +250,8 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
         var title_buf: [1024]u8 = undefined;
         if (std.fmt.bufPrintZ(&title_buf, "wstudio GUI prototype - {s}", .{path})) |title| window.setTitle(title) else |_| {}
     }
-    var audio = GuiAudio.init(app.core.session.project.sample_rate, user_config.audio_block_frames, app.core.session.engine);
-    try audio.start(init.io);
+    var audio = guiAudio(app.core.session.project.sample_rate, user_config.audio_block_frames, app.core.session.engine);
+    try audio.start(init.io, user_config.audio_backend);
     defer audio.stop();
 
     while (!window.shouldClose() and !app.core.should_quit) {
@@ -316,8 +281,8 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
                 }
                 // A blank session is a new project, not a load - no event.
                 if (kind != .blank) app.core.emitEvent(.{ .ProjectLoadPost = .{ .path = app.core.pendingReloadPath() } });
-                audio = GuiAudio.init(app.core.session.project.sample_rate, user_config.audio_block_frames, app.core.session.engine);
-                try audio.start(init.io);
+                audio = guiAudio(app.core.session.project.sample_rate, user_config.audio_block_frames, app.core.session.engine);
+                try audio.start(init.io, user_config.audio_backend);
             }
         }
         const fb = window.getFramebufferSize();

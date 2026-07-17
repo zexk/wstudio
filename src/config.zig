@@ -31,6 +31,7 @@ pub const Config = struct {
     autosave_interval_s: u16 = 30,
     frame_poll_ms: u16 = 30,
     audio_block_frames: u32 = 256,
+    audio_backend: @import("wstudio").audio_host.Choice = .auto,
     tap_timeout_ms: u32 = 2000,
     tui_mouse: bool = true,
     gui_font_size: f32 = 15.0,
@@ -69,6 +70,7 @@ const option_specs = [_]OptionSpec{
     .{ .name = "autosave_interval_s", .min = 0, .max = 600 },
     .{ .name = "frame_poll_ms", .min = 5, .max = 1000, .scope = .tui },
     .{ .name = "audio_block_frames", .min = 16, .max = 4096 },
+    .{ .name = "audio_backend" },
     .{ .name = "tap_timeout_ms", .min = 100, .max = 10000 },
     .{ .name = "tui_mouse", .scope = .tui },
     .{ .name = "gui_font_size", .min = 8, .max = 40, .scope = .gui },
@@ -1444,6 +1446,14 @@ test "wstudio.frontend reports the active frontend" {
     var rt = try Runtime.init(.gui);
     defer rt.deinit();
     try rt.loadString("assert(wstudio.frontend == 'gui')");
+}
+
+test "audio_backend option accepts backend names and rejects unknowns" {
+    var rt = try Runtime.init(.tui);
+    defer rt.deinit();
+    try rt.loadString("assert(wstudio.o.audio_backend == 'auto'); wstudio.o.audio_backend = 'jack'");
+    try std.testing.expectEqual(@import("wstudio").audio_host.Choice.jack, rt.config.audio_backend);
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.o.audio_backend = 'pulse'"));
 }
 
 test "preferred_frontend option and setFrontend correction" {

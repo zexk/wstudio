@@ -3697,42 +3697,27 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8, run
 
     // zig fmt: off
     const has_alsa = builtin.os.tag == .linux;
-    const has_wasapi = builtin.os.tag == .windows;
-    const NativeBackend = if (has_alsa) ws.alsa.AlsaBackend else if (has_wasapi) ws.wasapi.WasapiBackend else void;
-    const MidiIn        = if (has_alsa) ws.midi_in.MidiIn else void;
-    var native_backend: NativeBackend = undefined;
-    var midi_in:        MidiIn        = undefined;
-    var null_backend = backend_mod.NullBackend{
-        .config = config,
-        .render = renderTrampoline,
-        .ctx = app.session.engine,
-    };
+    const MidiIn   = if (has_alsa) ws.midi_in.MidiIn else void;
+    var midi_in: MidiIn = undefined;
     // zig fmt: on
 
-    var using_native = false;
+    var audio = ws.AudioHost.init(config, renderTrampoline, app.session.engine);
+    try audio.start(io, user_config.audio_backend);
+    defer audio.stop();
+
     var using_midi = false;
     if (has_alsa) {
-        native_backend = .{ .config = config, .render = renderTrampoline, .ctx = app.session.engine };
-        if (native_backend.start()) {
-            using_native = true;
-        } else |_| {}
-
         // zig fmt: off
         midi_in = .{ .engine = app.session.engine };
         if (midi_in.start()) {
             using_midi = true;
         } else |_| {}
-    } else if (has_wasapi) {
-        native_backend = .{ .config = config, .render = renderTrampoline, .ctx = app.session.engine };
-        if (native_backend.start()) {
-            using_native = true;
-        } else |_| {}
+        // zig fmt: on
     }
-    if (!using_native) try null_backend.start(io);
-    defer if (using_native) native_backend.stop() else null_backend.stop();
+    // zig fmt: off
     defer if (has_alsa) { if (using_midi) midi_in.stop(); };
-    app.audio_label = if (using_native) (if (has_alsa) "alsa" else "wasapi") else "none (silent)";
     // zig fmt: on
+    app.audio_label = audio.label();
 
     // Sized to comfortably fit the heaviest single-view frame: the drum
     // grid at max pads (64) x max steps (64), where every cell carries its
@@ -3785,7 +3770,7 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8, run
                 },
             };
             if (new_session) |loaded| {
-                if (using_native) native_backend.stop() else null_backend.stop();
+                audio.stop();
                 if (has_alsa) { if (using_midi) midi_in.stop(); }
 
                 app.session.deinit();
@@ -3803,23 +3788,20 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8, run
                 // A blank session is a new project, not a load - no event.
                 if (kind != .blank) app.emitEvent(.{ .ProjectLoadPost = .{ .path = app.pendingReloadPath() } });
 
-                config = .{ .sample_rate = app.session.project.sample_rate };
-                null_backend = .{ .config = config, .render = renderTrampoline, .ctx = app.session.engine };
-                using_native = false;
-                using_midi = false;
-                if (has_alsa) {
-                    native_backend = .{ .config = config, .render = renderTrampoline, .ctx = app.session.engine };
-                    if (native_backend.start()) { using_native = true; } else |_| {}
-                    midi_in = .{ .engine = app.session.engine };
-                    if (midi_in.start()) { using_midi = true; } else |_| {}
-                } else if (has_wasapi) {
-                    native_backend = .{ .config = config, .render = renderTrampoline, .ctx = app.session.engine };
-                    if (native_backend.start()) { using_native = true; } else |_| {}
-                }
+                config = .{
+                    .sample_rate = app.session.project.sample_rate,
+                    .block_frames = user_config.audio_block_frames,
+                };
+                audio = ws.AudioHost.init(config, renderTrampoline, app.session.engine);
                 // A restart failure here just leaves the session silent
                 // rather than tearing down the whole running app.
-                if (!using_native) null_backend.start(io) catch {};
-                app.audio_label = if (using_native) (if (has_alsa) "alsa" else "wasapi") else "none (silent)";
+                audio.start(io, user_config.audio_backend) catch {};
+                using_midi = false;
+                if (has_alsa) {
+                    midi_in = .{ .engine = app.session.engine };
+                    if (midi_in.start()) { using_midi = true; } else |_| {}
+                }
+                app.audio_label = audio.label();
                 switch (kind) {
                     .load => app.setStatus("loaded: {s}", .{app.projectPath().?}),
                     .blank => app.setStatus("new project", .{}),

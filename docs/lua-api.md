@@ -151,14 +151,22 @@ Current option set (see examples/init.lua for defaults and ranges):
 | `preferred_frontend` | core |
 | `default_tempo`, `default_sample_rate`, `default_beats_per_bar` | core |
 | `default_octave`, `autosave_interval_s` | core |
-| `audio_block_frames`, `tap_timeout_ms` | core |
+| `audio_block_frames`, `audio_backend`, `tap_timeout_ms` | core |
 | `frame_poll_ms`, `tui_mouse` | tui |
 | `gui_font_size`, `gui_vsync`, `gui_theme` | gui |
 | `gui_window_width`, `gui_window_height` | gui |
 
-Enum-typed options (`gui_theme`, `preferred_frontend`) read and write as
-strings; the spec table derives the valid-name list and its error message
-from the Zig enum.
+Enum-typed options (`gui_theme`, `preferred_frontend`, `audio_backend`)
+read and write as strings; the spec table derives the valid-name list and
+its error message from the Zig enum.
+
+`audio_backend` picks the playback backend: `"auto"` (the default) tries
+PipeWire, then JACK, then ALSA, falling through to the silent wall-clock
+backend; the other names force one backend (still falling back to silence
+when it cannot start). On Windows everything except `"none"` means WASAPI.
+PipeWire and JACK are loaded at runtime, so a missing library behaves like
+a missing server. JACK cannot resample: a server running at a different
+rate than the project fails over to ALSA under `"auto"`.
 
 `preferred_frontend` picks the frontend a flagless `wstudio` launch runs
 (`--tui`/`--gui` always win, as does a build carrying only one frontend).

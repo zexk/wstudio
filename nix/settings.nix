@@ -35,6 +35,19 @@ in
     autosave_interval_s = rangedInt 0 600 "Autosave interval in seconds. Zero disables autosave.";
     frame_poll_ms = rangedInt 5 1000 "TUI input poll interval in milliseconds.";
     audio_block_frames = rangedInt 16 4096 "Audio buffer size in frames.";
+    audio_backend = mkOption {
+      type = types.nullOr (
+        types.enum [
+          "auto"
+          "pipewire"
+          "jack"
+          "alsa"
+          "none"
+        ]
+      );
+      default = null;
+      description = "Audio backend. auto tries PipeWire, then JACK, then ALSA, then silence.";
+    };
     tap_timeout_ms = rangedInt 100 10000 "Multi-key timeout in milliseconds.";
     tui_mouse = mkOption {
       type = types.nullOr types.bool;

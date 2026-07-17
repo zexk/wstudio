@@ -54,6 +54,13 @@
 -- slow machines. Range 16-4096.
 -- wstudio.o.audio_block_frames = 256
 
+-- Audio backend: "auto", "pipewire", "jack", "alsa", or "none" (silent).
+-- "auto" tries PipeWire, then JACK, then ALSA; whatever fails falls back
+-- to the next one and finally to silence. On Windows everything except
+-- "none" means WASAPI. JACK requires the server to run at the project's
+-- sample rate; "auto" falls through to ALSA when it doesn't.
+-- wstudio.o.audio_backend = "auto"
+
 -- Multi-key timeout, in milliseconds: how long tap-tempo taps and similar
 -- key sequences stay connected. Range 100-10000.
 -- wstudio.o.tap_timeout_ms = 2000
