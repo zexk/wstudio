@@ -325,12 +325,12 @@ pub const Session = struct {
             }
         }
 
-        self.deleteTrack(track_idx) catch unreachable;
+        try self.deleteTrack(track_idx);
         if (self.song_mode) self.rebuildSongData();
         return pad_count;
     }
 
-    pub const DeleteTrackError = error{ CannotDeleteLastTrack, InvalidTrack };
+    pub const DeleteTrackError = error{ CannotDeleteLastTrack, InvalidTrack, OutOfMemory };
 
     /// Remove the track at `track_idx`. The displaced rack is moved to
     /// `retired_racks` rather than freed immediately - the audio thread may
@@ -339,13 +339,18 @@ pub const Session = struct {
         if (track_idx >= self.project.tracks.items.len) return error.InvalidTrack;
         if (self.project.tracks.items.len <= 1) return error.CannotDeleteLastTrack;
 
+        // Reserved before anything is mutated, so a failure here bails out
+        // clean instead of leaving `racks` desynced from `project.tracks`
+        // (and the removed rack's pointer, un-owned by anything, leaked).
+        try self.retired_racks.ensureUnusedCapacity(self.allocator, 1);
+
         _ = self.engine.send(.all_notes_off);
 
         const total: u16 = @intCast(self.project.tracks.items.len);
         self.engine.applyDeleteTrack(@intCast(track_idx), total);
 
         const rack = self.racks.orderedRemove(track_idx);
-        self.retired_racks.append(self.allocator, rack) catch {};
+        self.retired_racks.appendAssumeCapacity(rack);
 
         self.arrangement.removeLane(self.allocator, track_idx);
         self.project.removeTrack(track_idx);
