@@ -112,18 +112,6 @@ pub fn fxKindAccent(kind: ws.FxKind) [4]f32 {
     };
 }
 
-pub fn pushControlFocus(focused: bool, accent: [4]f32) void {
-    if (!focused) return;
-    zgui.pushStyleColor4f(.{ .idx = .frame_bg, .c = palette.bg4 });
-    zgui.pushStyleColor4f(.{ .idx = .frame_bg_hovered, .c = palette.bg5 });
-    zgui.pushStyleColor4f(.{ .idx = .slider_grab, .c = accent });
-    zgui.pushStyleColor4f(.{ .idx = .text, .c = accent });
-}
-
-pub fn popControlFocus(focused: bool) void {
-    if (focused) zgui.popStyleColor(.{ .count = 4 });
-}
-
 pub fn setTheme() void {
     const style = zgui.getStyle();
     if (palette.light) zgui.styleColorsLight(style) else zgui.styleColorsDark(style);
