@@ -63,13 +63,20 @@ fn setSubview(app: anytype, subview: synth_ed.Subview) void {
 
 fn drawSections(app: anytype, synth: *ws.dsp.PolySynth, comptime sections: []const synth_layout.SectionDef, comptime child_prefix: []const u8) void {
     const gap: f32 = 10;
-    const column_w = @max(300, (zgui.getContentRegionAvail()[0] - gap) / 2);
-    inline for (0..2) |column| {
+    const available_width = zgui.getContentRegionAvail()[0];
+    const columns: usize = if (available_width >= 1080) 3 else if (available_width >= 650) 2 else 1;
+    const column_w = @max(280, (available_width - gap * @as(f32, @floatFromInt(columns - 1))) / @as(f32, @floatFromInt(columns)));
+    inline for (0..3) |column| {
+        if (column >= columns) continue;
         if (column > 0) zgui.sameLine(.{ .spacing = gap });
-        const child_id = child_prefix ++ if (column == 0) "-left" else "-right";
-        if (zgui.beginChild(child_id, .{ .w = if (column == 0) column_w else 0, .h = 0, .child_flags = .{ .border = true } })) {
+        const child_id = child_prefix ++ switch (column) {
+            0 => "-left",
+            1 => "-middle",
+            else => "-right",
+        };
+        if (zgui.beginChild(child_id, .{ .w = if (column + 1 == columns) 0 else column_w, .h = 0, .child_flags = .{ .border = true } })) {
             inline for (sections, 0..) |section, section_index| {
-                if (section_index % 2 != column) continue;
+                if (section_index % columns != column) continue;
                 widgets.sectionTitle(section.title, sectionColor(section_index));
                 inline for (section.params) |entry| {
                     if (isEnvelopeBase(entry.id)) {
