@@ -12,7 +12,6 @@
 
 const std = @import("std");
 const types = @import("../core/types.zig");
-const wav = @import("../core/wav.zig");
 const dsp = @import("device.zig");
 const pad_dsp = @import("pad.zig");
 const Pad = pad_dsp.Pad;
@@ -188,21 +187,7 @@ pub const Sampler = struct {
     /// Parse raw WAV bytes into the clip, keeping every other pad param as-is.
     /// Resamples to engine rate if needed.
     pub fn loadWav(self: *Sampler, wav_data: []const u8, name: []const u8) !void {
-        const result = try wav.parseAlloc(self.allocator, wav_data);
-        errdefer self.allocator.free(result.samples);
-
-        const samples = if (result.sample_rate == self.sample_rate)
-            result.samples
-        else blk: {
-            const resampled = try pad_dsp.resampleLinear(
-                self.allocator,
-                result.samples,
-                result.sample_rate,
-                self.sample_rate,
-            );
-            self.allocator.free(result.samples);
-            break :blk resampled;
-        };
+        const samples = try pad_dsp.decodeWav(self.allocator, wav_data, self.sample_rate);
 
         while (!self.pad_lock.tryLock()) std.atomic.spinLoopHint();
         defer self.pad_lock.unlock();
