@@ -12,6 +12,12 @@ pub const Version = extern struct {
 pub const version: Version = .{ .major = 1, .minor = 2, .revision = 10 };
 pub const plugin_factory_id: [*:0]const u8 = "clap.plugin-factory";
 pub const ext_audio_ports: [*:0]const u8 = "clap.audio-ports";
+pub const ext_params: [*:0]const u8 = "clap.params";
+pub const ext_state: [*:0]const u8 = "clap.state";
+pub const ext_latency: [*:0]const u8 = "clap.latency";
+pub const ext_tail: [*:0]const u8 = "clap.tail";
+pub const ext_thread_check: [*:0]const u8 = "clap.thread-check";
+pub const ext_log: [*:0]const u8 = "clap.log";
 pub const invalid_id: u32 = 0xffffffff;
 
 pub const EventHeader = extern struct {
@@ -37,9 +43,21 @@ pub const EventMidi = extern struct {
     data: [3]u8,
 };
 
+pub const EventParamValue = extern struct {
+    header: EventHeader,
+    param_id: u32,
+    cookie: ?*anyopaque,
+    note_id: i32,
+    port_index: i16,
+    channel: i16,
+    key: i16,
+    value: f64,
+};
+
 pub const event_note_on: u16 = 0;
 pub const event_note_off: u16 = 1;
 pub const event_note_choke: u16 = 2;
+pub const event_param_value: u16 = 5;
 pub const event_midi: u16 = 10;
 pub const core_event_space_id: u16 = 0;
 
@@ -66,6 +84,76 @@ pub const AudioPortInfo = extern struct {
 pub const PluginAudioPorts = extern struct {
     count: *const fn (*const Plugin, bool) callconv(.c) u32,
     get: *const fn (*const Plugin, u32, bool, *AudioPortInfo) callconv(.c) bool,
+};
+
+pub const ParamInfo = extern struct {
+    id: u32,
+    flags: u32,
+    cookie: ?*anyopaque,
+    name: [256]u8,
+    module: [1024]u8,
+    min_value: f64,
+    max_value: f64,
+    default_value: f64,
+};
+
+pub const PluginParams = extern struct {
+    count: *const fn (*const Plugin) callconv(.c) u32,
+    get_info: *const fn (*const Plugin, u32, *ParamInfo) callconv(.c) bool,
+    get_value: *const fn (*const Plugin, u32, *f64) callconv(.c) bool,
+    value_to_text: *const fn (*const Plugin, u32, f64, [*]u8, u32) callconv(.c) bool,
+    text_to_value: *const fn (*const Plugin, u32, [*:0]const u8, *f64) callconv(.c) bool,
+    flush: *const fn (*const Plugin, *const InputEvents, *const OutputEvents) callconv(.c) void,
+};
+
+pub const HostParams = extern struct {
+    rescan: *const fn (*const Host, u32) callconv(.c) void,
+    clear: *const fn (*const Host, u32, u32) callconv(.c) void,
+    request_flush: *const fn (*const Host) callconv(.c) void,
+};
+
+pub const InputStream = extern struct {
+    ctx: *anyopaque,
+    read: *const fn (*const InputStream, *anyopaque, u64) callconv(.c) i64,
+};
+
+pub const OutputStream = extern struct {
+    ctx: *anyopaque,
+    write: *const fn (*const OutputStream, *const anyopaque, u64) callconv(.c) i64,
+};
+
+pub const PluginState = extern struct {
+    save: *const fn (*const Plugin, *const OutputStream) callconv(.c) bool,
+    load: *const fn (*const Plugin, *const InputStream) callconv(.c) bool,
+};
+
+pub const HostState = extern struct {
+    mark_dirty: *const fn (*const Host) callconv(.c) void,
+};
+
+pub const PluginLatency = extern struct {
+    get: *const fn (*const Plugin) callconv(.c) u32,
+};
+
+pub const HostLatency = extern struct {
+    changed: *const fn (*const Host) callconv(.c) void,
+};
+
+pub const PluginTail = extern struct {
+    get: *const fn (*const Plugin) callconv(.c) u32,
+};
+
+pub const HostTail = extern struct {
+    changed: *const fn (*const Host) callconv(.c) void,
+};
+
+pub const HostThreadCheck = extern struct {
+    is_main_thread: *const fn (*const Host) callconv(.c) bool,
+    is_audio_thread: *const fn (*const Host) callconv(.c) bool,
+};
+
+pub const HostLog = extern struct {
+    log: *const fn (*const Host, i32, [*:0]const u8) callconv(.c) void,
 };
 
 pub const AudioBuffer = extern struct {

@@ -7,23 +7,18 @@ const types = @import("../core/types.zig");
 
 const max_events = 256;
 
-fn discardOutputEvent(_: ?*const abi.OutputEvents, _: *const abi.EventHeader) callconv(.c) bool {
-    return false;
-}
-
-const discard_output_events: abi.OutputEvents = .{
-    .ctx = null,
-    .try_push = discardOutputEvent,
-};
+threadlocal var on_audio_thread = false;
 
 const StoredEvent = union(enum) {
     note: abi.EventNote,
     midi: abi.EventMidi,
+    param: abi.EventParamValue,
 
     fn header(self: *const StoredEvent) *const abi.EventHeader {
         return switch (self.*) {
             .note => |*event| &event.header,
             .midi => |*event| &event.header,
+            .param => |*event| &event.header,
         };
     }
 };
@@ -70,6 +65,12 @@ const HostContext = struct {
     restart_requested: std.atomic.Value(bool) = .init(false),
     process_requested: std.atomic.Value(bool) = .init(false),
     callback_requested: std.atomic.Value(bool) = .init(false),
+    param_flush_requested: std.atomic.Value(bool) = .init(false),
+    param_rescan_flags: std.atomic.Value(u32) = .init(0),
+    state_dirty: std.atomic.Value(bool) = .init(false),
+    latency_changed: std.atomic.Value(bool) = .init(false),
+    tail_changed: std.atomic.Value(bool) = .init(false),
+    main_thread_id: std.Thread.Id,
 
     fn init() HostContext {
         return .{
@@ -85,6 +86,7 @@ const HostContext = struct {
                 .request_process = requestProcess,
                 .request_callback = requestCallback,
             },
+            .main_thread_id = std.Thread.getCurrentId(),
         };
     }
 
@@ -96,7 +98,14 @@ const HostContext = struct {
         return @ptrCast(@alignCast(host.host_data.?));
     }
 
-    fn getExtension(_: *const abi.Host, _: [*:0]const u8) callconv(.c) ?*const anyopaque {
+    fn getExtension(_: *const abi.Host, id: [*:0]const u8) callconv(.c) ?*const anyopaque {
+        const name = std.mem.span(id);
+        if (std.mem.eql(u8, name, std.mem.span(abi.ext_params))) return &host_params;
+        if (std.mem.eql(u8, name, std.mem.span(abi.ext_state))) return &host_state;
+        if (std.mem.eql(u8, name, std.mem.span(abi.ext_latency))) return &host_latency;
+        if (std.mem.eql(u8, name, std.mem.span(abi.ext_tail))) return &host_tail;
+        if (std.mem.eql(u8, name, std.mem.span(abi.ext_thread_check))) return &host_thread_check;
+        if (std.mem.eql(u8, name, std.mem.span(abi.ext_log))) return &host_log;
         return null;
     }
 
@@ -111,7 +120,68 @@ const HostContext = struct {
     fn requestCallback(host: *const abi.Host) callconv(.c) void {
         fromHost(host).callback_requested.store(true, .release);
     }
+
+    fn paramsRescan(host: *const abi.Host, flags: u32) callconv(.c) void {
+        _ = fromHost(host).param_rescan_flags.fetchOr(flags, .release);
+    }
+
+    fn paramsClear(_: *const abi.Host, _: u32, _: u32) callconv(.c) void {}
+
+    fn paramsRequestFlush(host: *const abi.Host) callconv(.c) void {
+        fromHost(host).param_flush_requested.store(true, .release);
+    }
+
+    fn stateMarkDirty(host: *const abi.Host) callconv(.c) void {
+        fromHost(host).state_dirty.store(true, .release);
+    }
+
+    fn latencyChanged(host: *const abi.Host) callconv(.c) void {
+        fromHost(host).latency_changed.store(true, .release);
+    }
+
+    fn tailChanged(host: *const abi.Host) callconv(.c) void {
+        fromHost(host).tail_changed.store(true, .release);
+    }
+
+    fn isMainThread(host: *const abi.Host) callconv(.c) bool {
+        return fromHost(host).main_thread_id == std.Thread.getCurrentId();
+    }
+
+    fn isAudioThread(_: *const abi.Host) callconv(.c) bool {
+        return on_audio_thread;
+    }
+
+    fn log(_: *const abi.Host, severity: i32, message: [*:0]const u8) callconv(.c) void {
+        const text = std.mem.span(message);
+        switch (severity) {
+            0, 1 => std.log.info("CLAP: {s}", .{text}),
+            2 => std.log.warn("CLAP: {s}", .{text}),
+            else => std.log.err("CLAP: {s}", .{text}),
+        }
+    }
+
+    const host_params: abi.HostParams = .{
+        .rescan = paramsRescan,
+        .clear = paramsClear,
+        .request_flush = paramsRequestFlush,
+    };
+    const host_state: abi.HostState = .{ .mark_dirty = stateMarkDirty };
+    const host_latency: abi.HostLatency = .{ .changed = latencyChanged };
+    const host_tail: abi.HostTail = .{ .changed = tailChanged };
+    const host_thread_check: abi.HostThreadCheck = .{
+        .is_main_thread = isMainThread,
+        .is_audio_thread = isAudioThread,
+    };
+    const host_log: abi.HostLog = .{ .log = log };
 };
+
+fn acceptOutputEvent(list: ?*const abi.OutputEvents, event: *const abi.EventHeader) callconv(.c) bool {
+    const context: *HostContext = @ptrCast(@alignCast(list.?.ctx.?));
+    if (event.space_id != abi.core_event_space_id or event.event_type != abi.event_param_value)
+        return false;
+    context.state_dirty.store(true, .release);
+    return true;
+}
 
 pub const ClapPlugin = struct {
     allocator: std.mem.Allocator,
@@ -127,6 +197,7 @@ pub const ClapPlugin = struct {
     input_channel_ptrs: [2]?[*]f32 = .{ null, null },
     output_channel_ptrs: [2]?[*]f32 = .{ null, null },
     events: EventList = EventList.init(),
+    output_events: abi.OutputEvents,
     audio_inputs_count: u32,
     steady_time: i64 = 0,
     started: bool = false,
@@ -151,15 +222,15 @@ pub const ClapPlugin = struct {
 
         const factory_raw = entry.get_factory(abi.plugin_factory_id) orelse return error.MissingPluginFactory;
         const factory: *const abi.PluginFactory = @ptrCast(@alignCast(factory_raw));
-        const id = try selectPluginId(allocator, factory, plugin_id);
-        defer allocator.free(id);
+        const selected_id = try selectPluginId(allocator, factory, plugin_id);
+        defer allocator.free(selected_id);
 
         const host_context = try allocator.create(HostContext);
         errdefer allocator.destroy(host_context);
         host_context.* = HostContext.init();
         host_context.bind();
 
-        const plugin = factory.create_plugin(factory, &host_context.host, id.ptr) orelse
+        const plugin = factory.create_plugin(factory, &host_context.host, selected_id.ptr) orelse
             return error.PluginCreateFailed;
         errdefer plugin.destroy(plugin);
         if (!abi.versionIsCompatible(plugin.desc.clap_version)) return error.IncompatibleClapVersion;
@@ -191,6 +262,7 @@ pub const ClapPlugin = struct {
             .output_left = output_left,
             .output_right = output_right,
             .audio_inputs_count = audio_inputs_count,
+            .output_events = .{ .ctx = host_context, .try_push = acceptOutputEvent },
         };
         self.events.bind();
         return self;
@@ -288,8 +360,10 @@ pub const ClapPlugin = struct {
             .audio_inputs_count = self.audio_inputs_count,
             .audio_outputs_count = 1,
             .in_events = &self.events.interface,
-            .out_events = &discard_output_events,
+            .out_events = &self.output_events,
         };
+        on_audio_thread = true;
+        defer on_audio_thread = false;
         const status = self.plugin.process(self.plugin, &process);
         self.events.len = 0;
         self.steady_time += @intCast(frames);
@@ -345,9 +419,156 @@ pub const ClapPlugin = struct {
         } });
     }
 
+    pub fn pluginPath(self: *const ClapPlugin) []const u8 {
+        return self.path_z;
+    }
+
+    pub fn id(self: *const ClapPlugin) []const u8 {
+        return std.mem.span(self.plugin.desc.id);
+    }
+
+    pub fn name(self: *const ClapPlugin) []const u8 {
+        return std.mem.span(self.plugin.desc.name);
+    }
+
+    fn paramsExtension(self: *const ClapPlugin) ?*const abi.PluginParams {
+        const raw = self.plugin.get_extension(self.plugin, abi.ext_params) orelse return null;
+        return @ptrCast(@alignCast(raw));
+    }
+
+    pub fn parameterCount(self: *const ClapPlugin) u32 {
+        const params = self.paramsExtension() orelse return 0;
+        return params.count(self.plugin);
+    }
+
+    pub fn parameterInfo(self: *const ClapPlugin, index: u32) ?abi.ParamInfo {
+        const params = self.paramsExtension() orelse return null;
+        var info: abi.ParamInfo = undefined;
+        if (!params.get_info(self.plugin, index, &info)) return null;
+        return info;
+    }
+
+    pub fn parameterValue(self: *const ClapPlugin, id_value: u32) ?f64 {
+        const params = self.paramsExtension() orelse return null;
+        var value: f64 = undefined;
+        if (!params.get_value(self.plugin, id_value, &value)) return null;
+        return value;
+    }
+
+    pub fn formatParameter(
+        self: *const ClapPlugin,
+        id_value: u32,
+        value: f64,
+        buffer: []u8,
+    ) ?[]const u8 {
+        if (buffer.len == 0) return null;
+        const params = self.paramsExtension() orelse return null;
+        if (!params.value_to_text(self.plugin, id_value, value, buffer.ptr, @intCast(buffer.len)))
+            return null;
+        return std.mem.sliceTo(buffer, 0);
+    }
+
+    /// Queue a parameter edit for the next audio block. The caller must use
+    /// the engine command queue when it runs concurrently with audio.
+    pub fn setParameter(self: *ClapPlugin, id_value: u32, cookie: ?*anyopaque, value: f64) void {
+        self.events.push(.{ .param = .{
+            .header = .{
+                .size = @sizeOf(abi.EventParamValue),
+                .time = 0,
+                .space_id = abi.core_event_space_id,
+                .event_type = abi.event_param_value,
+                .flags = 0,
+            },
+            .param_id = id_value,
+            .cookie = cookie,
+            .note_id = -1,
+            .port_index = -1,
+            .channel = -1,
+            .key = -1,
+            .value = value,
+        } });
+        self.host_context.state_dirty.store(true, .release);
+    }
+
+    pub fn saveState(self: *ClapPlugin, allocator: std.mem.Allocator) !?[]u8 {
+        const raw = self.plugin.get_extension(self.plugin, abi.ext_state) orelse return null;
+        const state: *const abi.PluginState = @ptrCast(@alignCast(raw));
+        var writer = StateWriter{ .allocator = allocator };
+        errdefer writer.bytes.deinit(allocator);
+        var stream = abi.OutputStream{ .ctx = &writer, .write = StateWriter.write };
+        if (!state.save(self.plugin, &stream) or writer.failed) return error.PluginStateSaveFailed;
+        return try writer.bytes.toOwnedSlice(allocator);
+    }
+
+    pub fn loadState(self: *ClapPlugin, bytes: []const u8) !bool {
+        const raw = self.plugin.get_extension(self.plugin, abi.ext_state) orelse return false;
+        const state: *const abi.PluginState = @ptrCast(@alignCast(raw));
+        var reader = StateReader{ .bytes = bytes };
+        var stream = abi.InputStream{ .ctx = &reader, .read = StateReader.read };
+        if (!state.load(self.plugin, &stream)) return error.PluginStateLoadFailed;
+        self.host_context.state_dirty.store(false, .release);
+        return true;
+    }
+
+    pub fn latencyFrames(self: *const ClapPlugin) u32 {
+        const raw = self.plugin.get_extension(self.plugin, abi.ext_latency) orelse return 0;
+        const latency: *const abi.PluginLatency = @ptrCast(@alignCast(raw));
+        return latency.get(self.plugin);
+    }
+
+    pub fn tailFrames(self: *const ClapPlugin) ?u32 {
+        const raw = self.plugin.get_extension(self.plugin, abi.ext_tail) orelse return null;
+        const tail: *const abi.PluginTail = @ptrCast(@alignCast(raw));
+        return tail.get(self.plugin);
+    }
+
+    pub fn runMainThreadCallback(self: *ClapPlugin) void {
+        if (self.host_context.callback_requested.swap(false, .acquire))
+            self.plugin.on_main_thread(self.plugin);
+    }
+
+    pub fn stateIsDirty(self: *const ClapPlugin) bool {
+        return self.host_context.state_dirty.load(.acquire);
+    }
+
     pub fn reset(self: *ClapPlugin) void {
         self.events.len = 0;
         if (self.started) self.plugin.reset(self.plugin);
+    }
+};
+
+const StateWriter = struct {
+    allocator: std.mem.Allocator,
+    bytes: std.ArrayListUnmanaged(u8) = .empty,
+    failed: bool = false,
+
+    fn write(stream: *const abi.OutputStream, data: *const anyopaque, size: u64) callconv(.c) i64 {
+        const self: *StateWriter = @ptrCast(@alignCast(stream.ctx));
+        const len = std.math.cast(usize, size) orelse {
+            self.failed = true;
+            return -1;
+        };
+        const source: [*]const u8 = @ptrCast(data);
+        self.bytes.appendSlice(self.allocator, source[0..len]) catch {
+            self.failed = true;
+            return -1;
+        };
+        return @intCast(len);
+    }
+};
+
+const StateReader = struct {
+    bytes: []const u8,
+    offset: usize = 0,
+
+    fn read(stream: *const abi.InputStream, dest: *anyopaque, size: u64) callconv(.c) i64 {
+        const self: *StateReader = @ptrCast(@alignCast(stream.ctx));
+        const requested = std.math.cast(usize, size) orelse return -1;
+        const len = @min(requested, self.bytes.len - self.offset);
+        const output: [*]u8 = @ptrCast(dest);
+        @memcpy(output[0..len], self.bytes[self.offset..][0..len]);
+        self.offset += len;
+        return @intCast(len);
     }
 };
 
