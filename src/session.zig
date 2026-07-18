@@ -828,15 +828,15 @@ pub const Session = struct {
                         const drum = switch (c.content) { .drum => |d| d, .melodic => continue };
                         // zig fmt: on
                         clips[n] = .{
-                            .start_step = c.start_tick / 8,
-                            .span_steps = @max(1, c.length_ticks / 8),
+                            .start_step = c.start_tick,
+                            .span_steps = c.length_ticks,
                             .step_count = drum.step_count,
                             .pattern = drum.pattern,
                             .vel = drum.vel,
                         };
                         n += 1;
                     }
-                    sl.setSongClips(clips[0..n], @max(1, total_ticks / 8));
+                    sl.setSongClips(clips[0..n], total_ticks, 32);
                 },
                 .poly_synth, .sampler => {
                     const pp = if (rack.pattern_player) |*p| p else continue;
@@ -1342,6 +1342,24 @@ test "song mode places a drum clip on the step timeline" {
     try std.testing.expectEqual(@as(u32, 1), dm.song_clips[0].pattern[0]);
     // Arrangement spans bars 0..3 (clip covers bars 1-2) → 48 steps.
     try std.testing.expectEqual(@as(u32, 384), dm.song_length_steps);
+}
+
+test "song mode preserves fine-grid slicer clip timing" {
+    var s = try Session.initDefault(std.testing.allocator);
+    defer s.deinit();
+    try s.setInstrument(0, .slicer);
+    const sl = &s.racks.items[0].instrument.slicer;
+    sl.slice_count = 1;
+    sl.pattern[0].store(1, .monotonic);
+
+    // One arrangement tick is a 1/128 note. The old slicer flattening divided
+    // by eight, moving this clip back to tick zero.
+    try s.stampClipAtTick(0, 1);
+    s.setSongMode(true);
+
+    try std.testing.expectEqual(@as(u16, 1), sl.song_clip_count);
+    try std.testing.expectEqual(@as(u32, 1), sl.song_clips[0].start_step);
+    try std.testing.expectEqual(@as(u8, 32), sl.song_steps_per_beat);
 }
 
 test "split drum track creates sampler MIDI tracks and arrangement clips" {

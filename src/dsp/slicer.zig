@@ -154,6 +154,10 @@ pub const Slicer = struct {
     song_clip_count: u16 = 0,
     /// Whole-arrangement length in steps; silent past this (no wrap).
     song_length_steps: u32 = 0,
+    /// Resolution of the absolute song timeline. Live slicer patterns stay at
+    /// four steps per beat; arrangement clips use 32 so every editor grid
+    /// position remains exact.
+    song_steps_per_beat: u8 = 4,
 
     // Audio-thread-only state:
     next_step_k: u64 = 0,
@@ -509,13 +513,14 @@ pub const Slicer = struct {
     /// Replace the song-mode clip timeline (control thread). Taken under
     /// `sample_lock` - `processBlock` holds it for the whole block, so
     /// `fireSongStep` never reads a half-written list.
-    pub fn setSongClips(self: *Slicer, clips: []const SongClip, length_steps: u32) void {
+    pub fn setSongClips(self: *Slicer, clips: []const SongClip, length_steps: u32, steps_per_beat: u8) void {
         while (!self.sample_lock.tryLock()) std.atomic.spinLoopHint();
         defer self.sample_lock.unlock();
         const count = @min(clips.len, @as(usize, max_song_clips));
         for (clips[0..count], self.song_clips[0..count]) |src, *dst| dst.* = src;
         self.song_clip_count = @intCast(count);
         self.song_length_steps = length_steps;
+        self.song_steps_per_beat = std.math.clamp(steps_per_beat, 1, 32);
     }
 
     // -----------------------------------------------------------------------
@@ -651,10 +656,12 @@ pub const Slicer = struct {
     }
 
     fn framesPerStep(self: *const Slicer) f64 {
-        // One step = sixteenth note (1/4 beat) - matches DrumMachine.
+        // Live patterns use sixteenth notes; song mode uses the arrangement's
+        // finer timeline so clip boundaries remain exact.
         const bpm = @max(self.transport.tempo_bpm, 1.0);
         const fpb = @as(f64, @floatFromInt(self.sample_rate)) * 60.0 / bpm;
-        return @max(1.0, fpb / 4.0);
+        const spb = if (self.song_mode) self.song_steps_per_beat else 4;
+        return @max(1.0, fpb / @as(f64, @floatFromInt(spb)));
     }
 
     pub fn processBlock(self: *Slicer, buf: []Sample) void {
@@ -669,7 +676,6 @@ pub const Slicer = struct {
             const pos_f = @as(f64, @floatFromInt(self.transport.position_frames));
             const fps = self.framesPerStep();
             const swing_pct = self.swing.load(.monotonic);
-            const swing_delay: f64 = fps * @as(f64, swing_pct - 50.0) / 50.0;
             var step_k = self.next_step_k;
 
             const expected = @as(f64, @floatFromInt(step_k)) * fps;
@@ -679,7 +685,17 @@ pub const Slicer = struct {
 
             while (true) {
                 var fire_pos = @as(f64, @floatFromInt(step_k)) * fps;
-                if (step_k & 1 == 1) fire_pos += swing_delay;
+                if (self.song_mode) {
+                    const ticks_per_sixteenth = @max(@as(u8, 1), self.song_steps_per_beat / 4);
+                    if (step_k % ticks_per_sixteenth == 0 and
+                        (step_k / ticks_per_sixteenth) & 1 == 1)
+                    {
+                        fire_pos += fps * ticks_per_sixteenth *
+                            @as(f64, swing_pct - 50.0) / 50.0;
+                    }
+                } else if (step_k & 1 == 1) {
+                    fire_pos += fps * @as(f64, swing_pct - 50.0) / 50.0;
+                }
                 if (fire_pos >= pos_f + @as(f64, @floatFromInt(frames))) break;
 
                 const fire_frame: u32 = if (fire_pos <= pos_f)
@@ -729,7 +745,10 @@ pub const Slicer = struct {
         for (self.song_clips[0..self.song_clip_count]) |*clip| {
             if (lk < clip.start_step or lk >= clip.start_step + clip.span_steps) continue;
             if (clip.step_count == 0) return;
-            const local: u32 = (lk - clip.start_step) % clip.step_count;
+            const elapsed = lk - clip.start_step;
+            const scaled = elapsed * 4;
+            if (scaled % self.song_steps_per_beat != 0) continue;
+            const local: u32 = scaled / self.song_steps_per_beat % clip.step_count;
             for (0..self.slice_count) |s| {
                 if ((clip.pattern[s] >> @intCast(local)) & 1 == 1) {
                     self.chokeTrigger(@intCast(s), velGain(clip.vel[s][local]), fire_frame);
@@ -1208,7 +1227,7 @@ test "song mode fires the clip covering the playhead, silent past the end" {
         .pattern = [_]u64{0} ** Slicer.max_slices,
     };
     clip.pattern[2] = 1; // slice 2 on the clip's step 0
-    s.setSongClips(&.{clip}, 16);
+    s.setSongClips(&.{clip}, 16, 4);
     s.song_mode = true;
 
     var buf: [64]Sample = undefined;
@@ -1221,7 +1240,7 @@ test "song mode fires the clip covering the playhead, silent past the end" {
     var s2 = try Slicer.init(std.testing.allocator, 48_000, &transport);
     defer s2.deinit();
     s2.sliceInto(4);
-    s2.setSongClips(&.{clip}, 16);
+    s2.setSongClips(&.{clip}, 16, 4);
     s2.song_mode = true;
     var t2 = Transport{ .sample_rate = 48_000, .tempo_bpm = 120.0 };
     t2.play();
