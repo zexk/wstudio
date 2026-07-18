@@ -98,7 +98,7 @@ fn drawWorkspace(app: *App) void {
     const body_h = bodyHeight(app.core.modal.mode == .command or app.core.modal.mode == .search);
     zgui.setNextWindowPos(.{ .x = 0, .y = 64, .cond = .always });
     zgui.setNextWindowSize(.{ .w = zgui.io.getDisplaySize()[0], .h = body_h, .cond = .always });
-    if (zgui.begin("Workspace", .{ .flags = .{ .no_move = true, .no_resize = true, .no_collapse = true, .no_docking = true } })) {
+    if (zgui.begin("Workspace", .{ .flags = .{ .no_title_bar = true, .no_move = true, .no_resize = true, .no_collapse = true, .no_docking = true } })) {
         switch (app.core.view) {
             .tracks => tracks_view.draw(app),
             .arrangement => arrangement_view.draw(app),
