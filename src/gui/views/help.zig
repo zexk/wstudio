@@ -41,7 +41,20 @@ pub fn draw(app: anytype) void {
     drawHeader();
     zgui.spacing();
     const gap: f32 = 10;
-    const column_w = @max(320, (zgui.getContentRegionAvail()[0] - gap) / 2);
+    const available = zgui.getContentRegionAvail()[0];
+    if (available < 700) {
+        drawPanel("help-transport", "TRANSPORT", patina.danger, &transport_rows);
+        zgui.spacing();
+        drawPanel("help-editing", "KEYBOARD EDITING", patina.rhythm, &editing_rows);
+        zgui.spacing();
+        drawPanel("help-workspaces", "WORKSPACES", patina.focus, &workspace_rows);
+        zgui.spacing();
+        drawPanel("help-devices", "DEVICES AND DATA", patina.audio, &device_rows);
+        zgui.spacing();
+        drawLaunchers(app);
+        return;
+    }
+    const column_w = (available - gap) / 2;
     if (zgui.beginChild("help-left", .{ .w = column_w, .h = 0 })) {
         drawPanel("help-transport", "TRANSPORT", patina.danger, &transport_rows);
         zgui.spacing();
