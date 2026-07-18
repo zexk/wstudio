@@ -83,9 +83,7 @@ pub const Sampler = struct {
     pub const device = dsp.deviceOf(@This());
 
     pub fn clipName(self: *const Sampler) []const u8 {
-        var end: usize = self.pad.name.len;
-        while (end > 0 and self.pad.name[end - 1] == ' ') end -= 1;
-        return self.pad.name[0..end];
+        return pad_dsp.trimmedName(&self.pad.name);
     }
 
     /// Set the display name directly, independent of the loaded audio -
@@ -94,10 +92,7 @@ pub const Sampler = struct {
     pub fn rename(self: *Sampler, name: []const u8) void {
         while (!self.pad_lock.tryLock()) std.atomic.spinLoopHint();
         defer self.pad_lock.unlock();
-        var n: [8]u8 = [_]u8{' '} ** 8;
-        const len = @min(name.len, 8);
-        @memcpy(n[0..len], name[0..len]);
-        self.pad.name = n;
+        self.pad.name = pad_dsp.fixedName(name);
     }
 
     // -----------------------------------------------------------------------
@@ -192,11 +187,8 @@ pub const Sampler = struct {
         while (!self.pad_lock.tryLock()) std.atomic.spinLoopHint();
         defer self.pad_lock.unlock();
         self.allocator.free(self.pad.samples);
-        var n: [8]u8 = [_]u8{' '} ** 8;
-        const len = @min(name.len, 8);
-        @memcpy(n[0..len], name[0..len]);
         self.pad.samples = samples;
-        self.pad.name = n;
+        self.pad.name = pad_dsp.fixedName(name);
         self.resetAll();
     }
 
@@ -222,10 +214,7 @@ pub const Sampler = struct {
         while (!self.pad_lock.tryLock()) std.atomic.spinLoopHint();
         defer self.pad_lock.unlock();
         self.allocator.free(self.pad.samples);
-        var n: [8]u8 = [_]u8{' '} ** 8;
-        const len = @min(name.len, 8);
-        @memcpy(n[0..len], name[0..len]);
-        self.pad = .{ .samples = samples, .gain = 1.0, .name = n };
+        self.pad = .{ .samples = samples, .gain = 1.0, .name = pad_dsp.fixedName(name) };
         self.resetAll();
     }
 

@@ -23,28 +23,6 @@ const bcyn = style.bcyn;
 const endLine = style.endLine;
 const hr = style.hr;
 
-const note_names = [_][]const u8{
-    "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
-};
-
-fn pitchLabel(pitch: u7, buf: *[5]u8) []const u8 {
-    const octave: i32 = @divTrunc(@as(i32, pitch), 12) - 1;
-    const name = note_names[pitch % 12];
-    var len: usize = 0;
-    @memcpy(buf[0..name.len], name);
-    len += name.len;
-    if (octave < 0) {
-        buf[len] = '-';
-        len += 1;
-        buf[len] = '0' + @as(u8, @intCast(-octave));
-        len += 1;
-    } else {
-        buf[len] = '0' + @as(u8, @intCast(octave));
-        len += 1;
-    }
-    return buf[0..len];
-}
-
 // Writes the trailing padding after a step's glyph. When `tick` is set the
 // last padding column carries a decorative beat separator instead of a
 // blank: the separator rides in the trailing pad of the step BEFORE a
@@ -236,7 +214,7 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
         const row_dim = if (app.piano_scale) |s| !s.contains(pitch) else isBlackKey(pitch);
 
         var lbuf: [5]u8 = undefined;
-        const label = pitchLabel(@intCast(pitch), &lbuf);
+        const label = ws.midi.noteName(@intCast(pitch), &lbuf);
         const is_scale_root = if (app.piano_scale) |s| pitch % 12 == s.root else false;
         if (is_scale_root) try w.writeAll(mag ++ bold) else if (row_dim) try w.writeAll(dim);
         try w.print(" {s: <4}", .{label});

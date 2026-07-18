@@ -40,6 +40,19 @@ pub const Pad = struct {
     release_s: f32 = 0.005,
 };
 
+pub fn fixedName(name: []const u8) [8]u8 {
+    var out = [_]u8{' '} ** 8;
+    const len = @min(name.len, out.len);
+    @memcpy(out[0..len], name[0..len]);
+    return out;
+}
+
+pub fn trimmedName(name: *const [8]u8) []const u8 {
+    var end = name.len;
+    while (end > 0 and name[end - 1] == ' ') end -= 1;
+    return name[0..end];
+}
+
 /// Number of shared, continuous per-pad params `adjustParam`/`setParamAbsolute`/
 /// `paramValue` cover - start/end/pitch/attack/decay/sustain/release/gain/pan,
 /// plus the reverse toggle at id 9. Callers with extra ids of their own
