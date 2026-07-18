@@ -92,6 +92,19 @@ pub fn drawSamplerEditor(
     try endLine(w);
     written += 1;
 
+    if (is_drum and pad.samples.len == 0) {
+        try synthSection(w, "SAMPLE", acc);
+        written += 1;
+        try w.writeAll(dim ++ "  This pad has no sample." ++ rst);
+        try endLine(w);
+        written += 1;
+        try w.writeAll(acc ++ "  :load" ++ rst ++ dim ++ "  open the sample browser" ++ rst);
+        try endLine(w);
+        written += 1;
+        while (written < body) : (written += 1) try endLine(w);
+        return;
+    }
+
     // ── Waveform panel ───────────────────────────
     // The section headers + param rows need ~13 (pad/slice) / ~16 (sampler)
     // lines; give the waveform whatever vertical space remains, capped for
