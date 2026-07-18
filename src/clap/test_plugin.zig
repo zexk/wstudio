@@ -5,6 +5,8 @@ const abi = @import("abi.zig");
 const State = struct {
     active: bool = false,
     processing: bool = false,
+    destroyed: bool = false,
+    gain: f64 = 2,
 };
 
 var state: State = .{};
@@ -31,7 +33,10 @@ fn pluginInit(_: *const abi.Plugin) callconv(.c) bool {
     return true;
 }
 
-fn pluginDestroy(_: *const abi.Plugin) callconv(.c) void {}
+fn pluginDestroy(_: *const abi.Plugin) callconv(.c) void {
+    if (state.destroyed) @panic("plugin destroyed twice");
+    state.destroyed = true;
+}
 
 fn pluginActivate(_: *const abi.Plugin, _: f64, min_frames: u32, max_frames: u32) callconv(.c) bool {
     if (min_frames == 0 or max_frames < min_frames) return false;
@@ -67,9 +72,18 @@ fn process(_: *const abi.Plugin, block: *const abi.Process) callconv(.c) i32 {
     const right_in = input_channels[1] orelse return 0;
     const left_out = output_channels[0] orelse return 0;
     const right_out = output_channels[1] orelse return 0;
+    if (block.in_events) |events| {
+        for (0..events.size(events)) |index| {
+            const header = events.get(events, @intCast(index)) orelse continue;
+            if (header.space_id != abi.core_event_space_id or header.event_type != abi.event_param_value)
+                continue;
+            const event: *const abi.EventParamValue = @ptrCast(@alignCast(header));
+            if (event.param_id == 7) state.gain = event.value;
+        }
+    }
     for (0..block.frames_count) |frame| {
-        left_out[frame] = left_in[frame] * 2;
-        right_out[frame] = right_in[frame] * 2;
+        left_out[frame] = left_in[frame] * @as(f32, @floatCast(state.gain));
+        right_out[frame] = right_in[frame] * @as(f32, @floatCast(state.gain));
     }
     return 1;
 }
@@ -96,8 +110,99 @@ const audio_ports: abi.PluginAudioPorts = .{
     .get = getAudioPort,
 };
 
+fn paramCount(_: *const abi.Plugin) callconv(.c) u32 {
+    return 1;
+}
+
+fn paramInfo(_: *const abi.Plugin, index: u32, info: *abi.ParamInfo) callconv(.c) bool {
+    if (index != 0) return false;
+    info.* = .{
+        .id = 7,
+        .flags = 1 << 5,
+        .cookie = null,
+        .name = @splat(0),
+        .module = @splat(0),
+        .min_value = 0,
+        .max_value = 4,
+        .default_value = 2,
+    };
+    @memcpy(info.name[0..4], "Gain");
+    return true;
+}
+
+fn paramValue(_: *const abi.Plugin, id: u32, value: *f64) callconv(.c) bool {
+    if (id != 7) return false;
+    value.* = state.gain;
+    return true;
+}
+
+fn valueToText(
+    _: *const abi.Plugin,
+    id: u32,
+    value: f64,
+    output: [*]u8,
+    capacity: u32,
+) callconv(.c) bool {
+    if (id != 7 or capacity == 0) return false;
+    const text = @import("std").fmt.bufPrintZ(output[0..capacity], "{d:.2}x", .{value}) catch return false;
+    _ = text;
+    return true;
+}
+
+fn textToValue(_: *const abi.Plugin, _: u32, _: [*:0]const u8, _: *f64) callconv(.c) bool {
+    return false;
+}
+
+fn flushParams(
+    _: *const abi.Plugin,
+    _: *const abi.InputEvents,
+    _: *const abi.OutputEvents,
+) callconv(.c) void {}
+
+const params: abi.PluginParams = .{
+    .count = paramCount,
+    .get_info = paramInfo,
+    .get_value = paramValue,
+    .value_to_text = valueToText,
+    .text_to_value = textToValue,
+    .flush = flushParams,
+};
+
+fn saveState(_: *const abi.Plugin, stream: *const abi.OutputStream) callconv(.c) bool {
+    const bytes = @as([8]u8, @bitCast(state.gain));
+    return stream.write(stream, &bytes, bytes.len) == bytes.len;
+}
+
+fn loadState(_: *const abi.Plugin, stream: *const abi.InputStream) callconv(.c) bool {
+    var bytes: [8]u8 = undefined;
+    if (stream.read(stream, &bytes, bytes.len) != bytes.len) return false;
+    state.gain = @bitCast(bytes);
+    return true;
+}
+
+const plugin_state: abi.PluginState = .{
+    .save = saveState,
+    .load = loadState,
+};
+
+fn latency(_: *const abi.Plugin) callconv(.c) u32 {
+    return 16;
+}
+
+fn tail(_: *const abi.Plugin) callconv(.c) u32 {
+    return 48_000;
+}
+
+const plugin_latency: abi.PluginLatency = .{ .get = latency };
+const plugin_tail: abi.PluginTail = .{ .get = tail };
+
 fn getExtension(_: *const abi.Plugin, id: [*:0]const u8) callconv(.c) ?*const anyopaque {
-    if (@import("std").mem.eql(u8, @import("std").mem.span(id), "clap.audio-ports")) return &audio_ports;
+    const name = @import("std").mem.span(id);
+    if (@import("std").mem.eql(u8, name, "clap.audio-ports")) return &audio_ports;
+    if (@import("std").mem.eql(u8, name, "clap.params")) return &params;
+    if (@import("std").mem.eql(u8, name, "clap.state")) return &plugin_state;
+    if (@import("std").mem.eql(u8, name, "clap.latency")) return &plugin_latency;
+    if (@import("std").mem.eql(u8, name, "clap.tail")) return &plugin_tail;
     return null;
 }
 
