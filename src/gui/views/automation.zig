@@ -267,7 +267,10 @@ pub fn drawParamPicker(app: anytype) void {
     const params = automation_ed.instrumentAutomatableParams(&app.core);
     var buf: [automation_ed.max_param_display_rows]automation_ed.ParamDisplayRow = undefined;
     const rows = automation_ed.buildParamDisplayRows(params, automation_ed.activeParamFilter(&app.core), &buf);
-    if (zgui.beginChild("automation-params", .{ .w = 0, .h = -1, .child_flags = .{ .border = true } })) {
+    const available = zgui.getContentRegionAvail()[0];
+    const content_width = @min(available, 820);
+    if (available > content_width) zgui.setCursorPosX(zgui.getCursorPos()[0] + (available - content_width) * 0.5);
+    if (zgui.beginChild("automation-params", .{ .w = content_width, .h = -1, .child_flags = .{ .border = true } })) {
         for (rows) |row| switch (row) {
             .header => |name| {
                 zgui.spacing();
@@ -277,17 +280,37 @@ pub fn drawParamPicker(app: anytype) void {
             .param => |i| {
                 const p = params[i];
                 const selected = app.core.automation_param_cursor == i;
-                zgui.pushStyleColor4f(.{ .idx = .button, .c = if (selected) patina.bg4 else patina.bg2 });
-                zgui.pushStyleColor4f(.{ .idx = .text, .c = if (selected) patina.focus else patina.fg1 });
-                var label_buf: [128]u8 = undefined;
-                const label = std.fmt.bufPrintZ(&label_buf, "{s}   {d:.2} .. {d:.2}##automation-param-{d}", .{ p.label, p.range[0], p.range[1], i }) catch continue;
-                if (zgui.button(label, .{ .w = -1, .h = 34 })) {
+                var id_buf: [48]u8 = undefined;
+                const id = std.fmt.bufPrintZ(&id_buf, "automation-param-{d}", .{i}) catch continue;
+                const origin = zgui.getCursorScreenPos();
+                const width = zgui.getContentRegionAvail()[0];
+                const clicked = zgui.invisibleButton(id, .{ .w = width, .h = 36 });
+                const hovered = zgui.isItemHovered(.{});
+                const draw_list = zgui.getWindowDrawList();
+                draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + 34 }, .col = color(if (selected) patina.bg4 else if (hovered) patina.bg3 else patina.bg2), .rounding = 3 });
+                draw_list.addText(.{ origin[0] + 12, origin[1] + 8 }, color(if (selected) patina.focus else patina.fg1), "{s}", .{p.label});
+                var range_buf: [48]u8 = undefined;
+                const range = compactParamRange(&range_buf, p.label, p.range);
+                const range_width = zgui.calcTextSize(range, .{})[0];
+                draw_list.addText(.{ origin[0] + width - range_width - 12, origin[1] + 8 }, color(patina.fg2), "{s}", .{range});
+                if (clicked) {
                     app.core.automation_param_cursor = @intCast(i);
                     automation_ed.selectParam(&app.core, p.id);
                 }
-                zgui.popStyleColor(.{ .count = 2 });
             },
         };
     }
     zgui.endChild();
+}
+
+fn compactParamRange(buf: []u8, label: []const u8, range: [2]f32) []const u8 {
+    const unit: []const u8 = if (std.ascii.indexOfIgnoreCase(label, "freq") != null or std.ascii.indexOfIgnoreCase(label, "cutoff") != null)
+        " Hz"
+    else if (std.ascii.indexOfIgnoreCase(label, "gain") != null or std.ascii.indexOfIgnoreCase(label, "level") != null)
+        " dB"
+    else if (std.ascii.indexOfIgnoreCase(label, "pitch") != null or std.ascii.indexOfIgnoreCase(label, "tune") != null)
+        " st"
+    else
+        "";
+    return std.fmt.bufPrint(buf, "{d:.1} .. {d:.1}{s}", .{ range[0], range[1], unit }) catch "";
 }
