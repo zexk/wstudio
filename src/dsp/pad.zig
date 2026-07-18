@@ -53,6 +53,13 @@ pub fn trimmedName(name: *const [8]u8) []const u8 {
     return name[0..end];
 }
 
+pub fn emptyPad() *const Pad {
+    const holder = struct {
+        var pad: Pad = .{ .samples = &[_]f32{} };
+    };
+    return &holder.pad;
+}
+
 /// Number of shared, continuous per-pad params `adjustParam`/`setParamAbsolute`/
 /// `paramValue` cover - start/end/pitch/attack/decay/sustain/release/gain/pan,
 /// plus the reverse toggle at id 9. Callers with extra ids of their own

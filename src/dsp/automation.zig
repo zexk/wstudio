@@ -38,6 +38,13 @@ pub fn interpolate(points: []const AutomationPoint, beat: f64) ?f32 {
     return last.value;
 }
 
+pub fn hasPointAt(points: []const AutomationPoint, beat: f64) bool {
+    for (points) |point| {
+        if (@abs(point.beat - beat) < 1e-9) return true;
+    }
+    return false;
+}
+
 fn lessThanBeat(_: void, a: AutomationPoint, b: AutomationPoint) bool {
     return a.beat < b.beat;
 }

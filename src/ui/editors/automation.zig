@@ -547,7 +547,7 @@ fn deletePoint(app: *App, clip: *ws.Clip) void {
         app.setStatus("automation edit failed (out of memory)", .{});
         return;
     };
-    if (!hasPointAt(points.*, beat)) {
+    if (!automation_mod.hasPointAt(points.*, beat)) {
         app.setStatus("no point exactly here", .{});
         return;
     }
@@ -555,13 +555,6 @@ fn deletePoint(app: *App, clip: *ws.Clip) void {
     _ = automation_mod.removePoint(app.allocator, points, beat);
     if (app.session.song_mode) app.session.rebuildSongData();
     app.setStatus("point removed", .{});
-}
-
-fn hasPointAt(points: []const AutomationPoint, beat: f64) bool {
-    for (points) |p| {
-        if (@abs(p.beat - beat) < 1e-9) return true;
-    }
-    return false;
 }
 
 /// Open the synth-param picker (`p`) - poly_synth or sampler tracks only,

@@ -42,13 +42,6 @@ fn valueLevel(val: ?f32, range: [2]f32, graph_rows: usize) usize {
 // handler and this draw path agree on the step columns.
 const gutter = automation_ed.gutter;
 
-fn hasPointAt(points: []const AutomationPoint, beat: f64) bool {
-    for (points) |p| {
-        if (@abs(p.beat - beat) < 1e-9) return true;
-    }
-    return false;
-}
-
 /// Resolve the clip the view (and editors/automation.zig) are both bound to.
 /// Duplicated here rather than imported (see tui.zig's doc comment: view
 /// renderers take `app: anytype` and never import app.zig, so they can't
@@ -179,7 +172,7 @@ pub fn drawAutomation(
             const step = scroll + col;
             const beat = @as(f64, @floatFromInt(step)) * 0.25;
             const is_cursor = step == app.automation_cursor_step;
-            const is_point = hasPointAt(points, beat);
+            const is_point = automation_mod.hasPointAt(points, beat);
             const in_sel = visual_active and step >= sel_lo and step <= sel_hi;
             const val = automation_mod.interpolate(points, beat);
             const rem = @min(valueLevel(val, range, graph_rows) -| row_base, 8);

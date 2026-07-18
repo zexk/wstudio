@@ -112,35 +112,17 @@ fn arpModeName(mode: anytype) []const u8 {
 
 const midi = ws.midi;
 
-/// Duplicated from views/automation.zig (see currentClip's doc comment
-/// above) - shared by drawAutomationStatus below.
-fn hasPointAt(points: []const ws.dsp.automation.AutomationPoint, beat: f64) bool {
-    for (points) |p| {
-        if (@abs(p.beat - beat) < 1e-9) return true;
-    }
-    return false;
-}
-
-/// A shared zero-length pad used when an editor has no real pad to show -
-/// duplicated from views/sampler.zig (see currentClip's doc comment above).
-fn placeholderPad() *const ws.dsp.Pad {
-    const holder = struct {
-        var p: ws.dsp.Pad = .{ .samples = &[_]f32{} };
-    };
-    return &holder.p;
-}
-
 /// Return a const pointer to pad `idx`'s underlying Pad, or a placeholder if
 /// the pad is out of range or not yet materialized (lazy-alloc pads).
 fn padOf(dm: anytype, idx: u8) *const ws.dsp.Pad {
-    if (idx >= DrumMachine.max_pads) return placeholderPad();
-    return if (dm.pads[idx]) |*s| &s.pad else placeholderPad();
+    if (idx >= DrumMachine.max_pads) return ws.dsp.pad.emptyPad();
+    return if (dm.pads[idx]) |*s| &s.pad else ws.dsp.pad.emptyPad();
 }
 
 /// The cursor slice's Pad, or a placeholder past the slice count.
 fn sliceOf(app: anytype) *const ws.dsp.Pad {
     const sl = app.slicerInst();
-    if (app.slicer_cursor[0] >= sl.slice_count) return placeholderPad();
+    if (app.slicer_cursor[0] >= sl.slice_count) return ws.dsp.pad.emptyPad();
     return &sl.slices[app.slicer_cursor[0]];
 }
 
@@ -623,7 +605,7 @@ pub fn drawSamplerStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer)
     const pad_idx = app.drum_cursor[0];
     const pad: *const ws.dsp.Pad = if (is_drum) padOf(app.drumMachine(), pad_idx) else if (is_slice) sliceOf(app) else blk: {
         if (app.editingSampler()) |s| break :blk &s.pad;
-        break :blk placeholderPad();
+        break :blk ws.dsp.pad.emptyPad();
     };
     const cur = @min(@as(usize, app.sampler_param), sampler_param_labels.len - 1);
 
@@ -768,7 +750,7 @@ pub fn drawAutomationStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writ
     const target = app.automation_focus;
     const points = curvePoints(clip, target);
     if (automation_mod.interpolate(points, beat)) |v| {
-        const explicit = hasPointAt(points, beat);
+        const explicit = automation_mod.hasPointAt(points, beat);
         try w.writeAll(dim ++ "  " ++ rst);
         if (explicit) try w.writeAll(bold);
         switch (target) {
