@@ -21,6 +21,15 @@ pub fn draw(app: anytype) void {
     };
     drawHeader(app, slicer);
     zgui.spacing();
+    var has_audio = true;
+    if (slicer.sample_lock.tryLock()) {
+        has_audio = slicer.samples.len > 0;
+        slicer.sample_lock.unlock();
+    }
+    if (!has_audio) {
+        drawEmptyState();
+        return;
+    }
     widgets.sectionTitle("SOURCE WAVEFORM", patina.audio);
     if (slicer.sample_lock.tryLock()) {
         defer slicer.sample_lock.unlock();
@@ -41,6 +50,32 @@ pub fn draw(app: anytype) void {
         &app.core.slicer_cursor,
         if (app.core.modal.mode == .visual) app.core.slicer_visual_anchor else null,
     );
+}
+
+fn drawEmptyState() void {
+    const available = zgui.getContentRegionAvail();
+    const panel_width = @min(available[0], 520);
+    const panel_height: f32 = 172;
+    zgui.setCursorPos(.{
+        zgui.getCursorPos()[0] + @max(0, (available[0] - panel_width) * 0.5),
+        zgui.getCursorPos()[1] + @max(24, (available[1] - panel_height) * 0.36),
+    });
+    zgui.pushStyleColor4f(.{ .idx = .child_bg, .c = patina.bg2 });
+    if (zgui.beginChild("slicer-empty-state", .{ .w = panel_width, .h = panel_height, .child_flags = .{ .border = true } })) {
+        zgui.textColored(patina.audio, "LOAD AUDIO TO START SLICING", .{});
+        zgui.separator();
+        zgui.textDisabled("Choose a WAV file, then divide it into playable slices.", .{});
+        zgui.spacing();
+        zgui.textColored(patina.focus, ":load", .{});
+        zgui.sameLine(.{ .spacing = 12 });
+        zgui.text("open the audio browser", .{});
+        zgui.spacing();
+        zgui.textColored(patina.rhythm, ":slice <n>", .{});
+        zgui.sameLine(.{ .spacing = 12 });
+        zgui.text("create 1-64 equal slices", .{});
+    }
+    zgui.endChild();
+    zgui.popStyleColor(.{});
 }
 
 fn drawHeader(app: anytype, slicer: *const ws.dsp.Slicer) void {
@@ -72,7 +107,7 @@ fn drawSourceWaveform(app: anytype, slicer: *const ws.dsp.Slicer) void {
         return;
     }
     const width = zgui.getContentRegionAvail()[0];
-    const height: f32 = 150;
+    const height: f32 = std.math.clamp(zgui.getContentRegionAvail()[1] * 0.42, 180, 300);
     const origin = zgui.getCursorScreenPos();
     _ = zgui.invisibleButton("##slicer-source-wave", .{ .w = width, .h = height });
     const hovered = zgui.isItemHovered(.{});
