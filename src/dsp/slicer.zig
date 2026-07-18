@@ -679,7 +679,8 @@ pub const Slicer = struct {
             var step_k = self.next_step_k;
 
             const expected = @as(f64, @floatFromInt(step_k)) * fps;
-            if (@abs(expected - pos_f) > fps * 2.0) {
+            const resync_steps: u8 = if (self.song_mode) @max(2, self.song_steps_per_beat / 2) else 2;
+            if (@abs(expected - pos_f) > fps * @as(f64, @floatFromInt(resync_steps))) {
                 step_k = @intFromFloat(@ceil(pos_f / fps));
             }
 
