@@ -260,6 +260,7 @@ pub const Slicer = struct {
         } else {
             for (&self.slices) |*p| p.samples = samples;
         }
+        self.resetVoicesLocked();
     }
 
     /// Equal-divide the shared clip into `n` regions (clamped to
@@ -281,6 +282,7 @@ pub const Slicer = struct {
             };
         }
         self.slice_count = count;
+        self.resetVoicesLocked();
     }
 
     /// Re-chop at detected transients (the MPC "slice at attacks" workflow):
@@ -317,6 +319,7 @@ pub const Slicer = struct {
             start = next;
         }
         self.slice_count = count;
+        self.resetVoicesLocked();
     }
 
     /// Split the cursor slice at its region midpoint: the new right half is
@@ -931,6 +934,20 @@ test "every slice aliases the same underlying buffer (no duplication)" {
     s.sliceInto(8);
     for (s.slices[0..8]) |slice| {
         try std.testing.expectEqual(s.samples.ptr, slice.samples.ptr);
+    }
+}
+
+test "re-slicing clears voices tied to the old regions" {
+    var transport = Transport{ .sample_rate = 48_000 };
+    var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
+    defer s.deinit();
+    s.sliceInto(2);
+    s.triggerSlice(1, 1.0, 0);
+    try std.testing.expect(s.voices[1][0].active);
+
+    s.sliceInto(4);
+    for (s.voices) |pool| {
+        for (pool) |voice| try std.testing.expect(!voice.active);
     }
 }
 

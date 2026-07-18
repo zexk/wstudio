@@ -212,6 +212,7 @@ pub const Sampler = struct {
         @memcpy(n[0..len], name[0..len]);
         self.pad.samples = samples;
         self.pad.name = n;
+        self.resetAll();
     }
 
     /// Guess the root note from the currently loaded clip via YIN pitch
@@ -240,6 +241,7 @@ pub const Sampler = struct {
         const len = @min(name.len, 8);
         @memcpy(n[0..len], name[0..len]);
         self.pad = .{ .samples = samples, .gain = 1.0, .name = n };
+        self.resetAll();
     }
 
     // -----------------------------------------------------------------------
@@ -403,6 +405,17 @@ test "all_off clears voices" {
     try std.testing.expect(s.voices[0].active);
     s.device().sendEvent(.all_off);
     try std.testing.expect(!s.voices[0].active);
+}
+
+test "replacing the sample clears voices tied to the old clip" {
+    var s = try Sampler.init(std.testing.allocator, 48_000);
+    defer s.deinit();
+    s.setSamples(try generateTestClip(std.testing.allocator, 48_000), "old");
+    s.trigger(60, 1.0, 0);
+    try std.testing.expect(s.voices[0].active);
+
+    s.setSamples(try generateTestClip(std.testing.allocator, 48_000), "new");
+    for (s.voices) |voice| try std.testing.expect(!voice.active);
 }
 
 test "mono mode chokes a still-ringing voice on retrigger" {
