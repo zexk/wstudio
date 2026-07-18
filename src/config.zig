@@ -86,6 +86,16 @@ pub const Config = struct {
     gui_theme: GuiTheme = .patina,
     gui_window_width: u16 = 1440,
     gui_window_height: u16 = 900,
+    undo_history_entries: u16 = 64,
+    default_metronome_enabled: bool = false,
+    metronome_click_gain: f32 = 1.0,
+    count_in_bars: u8 = 1,
+    default_midi_velocity_curve: @import("wstudio").midi_velocity.VelocityCurve = .linear,
+    default_automation_gain_step_db: f32 = 1.0,
+    default_automation_pan_step: f32 = 0.05,
+    gui_knob_drag_pixels: f32 = 180.0,
+    gui_envelope_drag_pixels: f32 = 140.0,
+    gui_meter_decay_db_s: f32 = 24.0,
 };
 
 pub const Frontend = enum { tui, gui };
@@ -140,6 +150,16 @@ const option_specs = [_]OptionSpec{
     .{ .name = "gui_theme", .scope = .gui },
     .{ .name = "gui_window_width", .min = 960, .max = 7680, .scope = .gui },
     .{ .name = "gui_window_height", .min = 600, .max = 4320, .scope = .gui },
+    .{ .name = "undo_history_entries", .min = 8, .max = 512 },
+    .{ .name = "default_metronome_enabled" },
+    .{ .name = "metronome_click_gain", .min = 0, .max = 1 },
+    .{ .name = "count_in_bars", .min = 0, .max = 4 },
+    .{ .name = "default_midi_velocity_curve" },
+    .{ .name = "default_automation_gain_step_db", .min = 0, .max = 12 },
+    .{ .name = "default_automation_pan_step", .min = 0, .max = 1 },
+    .{ .name = "gui_knob_drag_pixels", .min = 40, .max = 600, .scope = .gui },
+    .{ .name = "gui_envelope_drag_pixels", .min = 40, .max = 600, .scope = .gui },
+    .{ .name = "gui_meter_decay_db_s", .min = 1, .max = 200, .scope = .gui },
 };
 
 comptime {

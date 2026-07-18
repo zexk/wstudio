@@ -22,6 +22,10 @@ pub const Metronome = struct {
     /// Frame offset within the current block where the click starts. 0 for
     /// a click continuing from a previous block (mirrors dsp/pad.zig's Voice).
     block_start: u32 = 0,
+    /// Overall click loudness, applied on top of the accent/regular ratio
+    /// baked into `accent_click`/`click` at `init`. See
+    /// `wstudio.o.metronome_click_gain`.
+    gain: f32 = 1.0,
 
     pub fn init(allocator: std.mem.Allocator, sample_rate: u32) !Metronome {
         const safe_rate = @max(sample_rate, 1);
@@ -53,7 +57,7 @@ pub const Metronome = struct {
             // zig fmt: off
             if (self.pos >= clip.len) { self.active = false; break; }
             // zig fmt: on
-            const s = clip[self.pos];
+            const s = clip[self.pos] * self.gain;
             for (0..channels) |ch| buf[i * channels + ch] += s;
             self.pos += 1;
         }

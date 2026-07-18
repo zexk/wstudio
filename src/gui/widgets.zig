@@ -68,7 +68,6 @@ pub const KnobResult = struct {
 
 const knob_angle_min: f32 = std.math.pi * 0.75;
 const knob_angle_max: f32 = std.math.pi * 2.25;
-const knob_drag_pixels: f32 = 180;
 
 fn knobValueToT(min: f32, max: f32, value: f32, logarithmic: bool) f32 {
     if (logarithmic and min > 0 and max > 0) {
@@ -117,7 +116,7 @@ pub fn knob(label: [:0]const u8, args: Knob) KnobResult {
         const delta = zgui.getMouseDragDelta(.left, .{});
         if (delta[1] != 0) {
             const t0 = knobValueToT(args.min, args.max, args.v.*, args.logarithmic);
-            const t1 = std.math.clamp(t0 - delta[1] / knob_drag_pixels, 0, 1);
+            const t1 = std.math.clamp(t0 - delta[1] / gui_style.knob_drag_pixels, 0, 1);
             args.v.* = knobTToValue(args.min, args.max, t1, args.logarithmic);
             changed = true;
             zgui.resetMouseDragDelta(.left);
@@ -277,7 +276,6 @@ pub const AdsrResult = struct {
 };
 
 const adsr_sustain_frac: f32 = 0.16;
-const adsr_drag_pixels: f32 = 140;
 const adsr_handle_r: f32 = 5;
 
 fn adsrSegFracs(attack: f32, decay: f32, release: f32) [3]f32 {
@@ -351,7 +349,7 @@ pub fn adsrEditor(label: [:0]const u8, args: Adsr) AdsrResult {
         if (node_active) {
             const delta = zgui.getMouseDragDelta(.left, .{});
             if (delta[0] != 0) {
-                args.attack.* = std.math.clamp(args.attack.* * @exp(delta[0] / adsr_drag_pixels), args.attack_range[0], args.attack_range[1]);
+                args.attack.* = std.math.clamp(args.attack.* * @exp(delta[0] / gui_style.envelope_drag_pixels), args.attack_range[0], args.attack_range[1]);
                 result.changed[0] = true;
                 zgui.resetMouseDragDelta(.left);
             }
@@ -373,11 +371,11 @@ pub fn adsrEditor(label: [:0]const u8, args: Adsr) AdsrResult {
         if (node_active) {
             const delta = zgui.getMouseDragDelta(.left, .{});
             if (delta[0] != 0) {
-                args.decay.* = std.math.clamp(args.decay.* * @exp(delta[0] / adsr_drag_pixels), args.decay_range[0], args.decay_range[1]);
+                args.decay.* = std.math.clamp(args.decay.* * @exp(delta[0] / gui_style.envelope_drag_pixels), args.decay_range[0], args.decay_range[1]);
                 result.changed[1] = true;
             }
             if (delta[1] != 0) {
-                args.sustain.* = std.math.clamp(args.sustain.* - delta[1] / adsr_drag_pixels, 0, 1);
+                args.sustain.* = std.math.clamp(args.sustain.* - delta[1] / gui_style.envelope_drag_pixels, 0, 1);
                 result.changed[2] = true;
             }
             if (delta[0] != 0 or delta[1] != 0) zgui.resetMouseDragDelta(.left);
@@ -398,7 +396,7 @@ pub fn adsrEditor(label: [:0]const u8, args: Adsr) AdsrResult {
         if (node_active) {
             const delta = zgui.getMouseDragDelta(.left, .{});
             if (delta[0] != 0) {
-                args.release.* = std.math.clamp(args.release.* * @exp(delta[0] / adsr_drag_pixels), args.release_range[0], args.release_range[1]);
+                args.release.* = std.math.clamp(args.release.* * @exp(delta[0] / gui_style.envelope_drag_pixels), args.release_range[0], args.release_range[1]);
                 result.changed[3] = true;
                 zgui.resetMouseDragDelta(.left);
             }

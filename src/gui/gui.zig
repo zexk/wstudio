@@ -109,6 +109,9 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
     zgui.io.setIniFilename(null);
     gui_style.selectPalette(user_config.gui_theme);
     gui_style.setTheme();
+    gui_style.knob_drag_pixels = user_config.gui_knob_drag_pixels;
+    gui_style.envelope_drag_pixels = user_config.gui_envelope_drag_pixels;
+    gui_style.meter_decay_db_per_s = user_config.gui_meter_decay_db_s;
     zgui.backend.init(window);
     defer zgui.backend.deinit();
     // Takes over from the char callback zgui.backend.init just installed -
@@ -192,6 +195,9 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
                 app.core.afterConfigReload(user_config);
                 gui_style.selectPalette(user_config.gui_theme);
                 gui_style.setTheme();
+                gui_style.knob_drag_pixels = user_config.gui_knob_drag_pixels;
+                gui_style.envelope_drag_pixels = user_config.gui_envelope_drag_pixels;
+                gui_style.meter_decay_db_per_s = user_config.gui_meter_decay_db_s;
                 glfw.swapInterval(if (user_config.gui_vsync) 1 else 0);
                 app.core.setStatus("config reloaded", .{});
             } else |e| {

@@ -7,6 +7,8 @@
 const std = @import("std");
 const Engine = @import("engine.zig").Engine;
 const Spsc = @import("../core/ring_buffer.zig").Spsc;
+const midi_velocity = @import("midi_velocity.zig");
+const VelocityCurve = midi_velocity.VelocityCurve;
 
 const c = @cImport(@cInclude("alsa/asoundlib.h"));
 
@@ -18,6 +20,9 @@ pub const MidiIn = struct {
     engine: *Engine,
     /// Engine track index that receives all incoming MIDI. Write from UI thread.
     active_track: std.atomic.Value(u16) = .init(0),
+    /// Raw velocity byte -> gain mapping, from `wstudio.o.default_midi_velocity_curve`.
+    /// Same write-from-UI/read-from-reader-thread pattern as `active_track`.
+    velocity_curve: std.atomic.Value(VelocityCurve) = .init(.linear),
     /// Set (release) by the reader thread whenever an incoming CC actually
     /// mutates a saved instrument param (see dispatch's CONTROLLER branch -
     /// applyCC writes straight into e.g. PolySynth.gain/filter_cutoff/etc.,
@@ -121,7 +126,7 @@ pub const MidiIn = struct {
                 _ = eng.send(.{ .note_on = .{
                     .track    = track,
                     .note     = note,
-                    .velocity = @as(f32, @floatFromInt(vel)) / 127.0,
+                    .velocity = midi_velocity.apply(self.velocity_curve.load(.monotonic), vel),
                 } });
                 _ = self.note_queue.push(.{ .pitch = note, .vel = vel });
             }

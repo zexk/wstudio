@@ -313,6 +313,13 @@ pub const App = struct {
     /// Velocity for keyboard/step-recorded notes and audition previews, from
     /// `default_velocity`.
     default_velocity: f32 = pattern_mod.default_velocity,
+    /// Bars clicked through before a record count-in starts playback, from
+    /// `count_in_bars` - see `toggle_play`'s insert-mode recording arm.
+    count_in_bars: u8 = 1,
+    /// j/k nudge sizes in the automation editor, from
+    /// `default_automation_gain_step_db`/`default_automation_pan_step`.
+    automation_gain_step_db: f32 = 1.0,
+    automation_pan_step: f32 = 0.05,
     /// Fallback starting directory for the file browser when no project
     /// path is known yet, from `default_browse_dir`. Empty means "cwd", the
     /// pre-existing behavior - see `openBrowser`.
@@ -894,6 +901,15 @@ pub const App = struct {
         self.status_message_ns = @as(i96, user_config.status_message_ms) * std.time.ns_per_ms;
         self.cmd_history_cap = user_config.cmd_history_lines;
         self.default_velocity = user_config.default_velocity;
+        self.count_in_bars = user_config.count_in_bars;
+        self.automation_gain_step_db = user_config.default_automation_gain_step_db;
+        self.automation_pan_step = user_config.default_automation_pan_step;
+        self.history.cap = user_config.undo_history_entries;
+        _ = self.session.engine.send(.{ .set_metronome_gain = user_config.metronome_click_gain });
+        // Not gated by `if (blank)`: `Session.metronome_enabled` is never
+        // persisted (see its doc comment), so every load - blank or from a
+        // project file - starts silent unless this restores the click.
+        self.session.setMetronome(user_config.default_metronome_enabled);
         self.default_browse_dir = user_config.default_browse_dir;
         var project_path_buf: [std.fs.max_path_bytes]u8 = undefined;
         const project_path = commands.expandHome(&project_path_buf, user_config.default_project_path.slice());
@@ -2298,12 +2314,14 @@ pub const App = struct {
                     (self.view == .piano_roll or self.view == .drum_grid))
                 {
                     // Starting playback to record (insert mode, piano roll or
-                    // drum grid, currently stopped) clicks a one-bar count-in
-                    // first so there's a cue to come in on. Already-rolling
-                    // playback (jumping into insert mode mid-song) needs none
-                    // of this - recordNote just quantizes to the live playhead.
-                    _ = self.session.engine.send(.record);
-                    self.setStatus("count-in...", .{});
+                    // drum grid, currently stopped) clicks a `count_in_bars`
+                    // count-in first so there's a cue to come in on (0 skips
+                    // it and starts immediately - see `wstudio.o.count_in_bars`).
+                    // Already-rolling playback (jumping into insert mode
+                    // mid-song) needs none of this - recordNote just
+                    // quantizes to the live playhead.
+                    _ = self.session.engine.send(.{ .record = self.count_in_bars });
+                    if (self.count_in_bars > 0) self.setStatus("count-in...", .{});
                 } else {
                     const cmd: engine_mod.Command = if (snap.playing) .stop else .play;
                     _ = self.session.engine.send(cmd);

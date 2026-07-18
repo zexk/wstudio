@@ -26,6 +26,7 @@ pub const Engine = engine.Engine;
 pub const backend = @import("audio/backend.zig");
 pub const audio_host = @import("audio/host.zig");
 pub const AudioHost = audio_host.AudioHost;
+pub const midi_velocity = @import("audio/midi_velocity.zig");
 pub const alsa = if (@import("builtin").os.tag == .linux)
     @import("audio/alsa.zig")
 else
@@ -96,6 +97,7 @@ test {
     _ = engine;
     _ = backend;
     _ = audio_host;
+    _ = midi_velocity;
     _ = alsa;
     _ = pipewire;
     _ = jack;

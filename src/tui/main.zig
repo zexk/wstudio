@@ -345,7 +345,7 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8, run
     var using_midi = false;
     if (has_alsa) {
         // zig fmt: off
-        midi_in = .{ .engine = app.session.engine };
+        midi_in = .{ .engine = app.session.engine, .velocity_curve = .init(user_config.default_midi_velocity_curve) };
         if (midi_in.start()) {
             using_midi = true;
         } else |_| {}
@@ -436,7 +436,7 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8, run
                 audio.start(io, user_config.audio_backend) catch {};
                 using_midi = false;
                 if (has_alsa) {
-                    midi_in = .{ .engine = app.session.engine };
+                    midi_in = .{ .engine = app.session.engine, .velocity_curve = .init(user_config.default_midi_velocity_curve) };
                     if (midi_in.start()) { using_midi = true; } else |_| {}
                 }
                 app.audio_label = audio.label();
@@ -468,6 +468,7 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8, run
                     tui_theme.apply(&term, user_config.tui_theme);
                 }
                 if (user_config.tui_mouse != prev.tui_mouse) term.setMouse(user_config.tui_mouse);
+                if (has_alsa and using_midi) midi_in.velocity_curve.store(user_config.default_midi_velocity_curve, .monotonic);
                 app.setStatus("config reloaded", .{});
             } else |e| {
                 user_config = runtime.config;

@@ -12,7 +12,8 @@ const Clip = ws.Clip;
 const Fx = ws.Fx;
 const Rack = ws.Rack;
 
-/// Entries kept on the undo side; the oldest fall off beyond this.
+/// Default entries kept on the undo side; the oldest fall off beyond this.
+/// Overridable per-session via `History.cap` (see `wstudio.o.undo_history_entries`).
 pub const max_entries: usize = 64;
 
 /// One track's live melodic pattern. When the piano roll was linked to an
@@ -224,6 +225,7 @@ pub const Entry = union(enum) {
 pub const History = struct {
     undo_stack: std.ArrayListUnmanaged(Entry) = .empty,
     redo_stack: std.ArrayListUnmanaged(Entry) = .empty,
+    cap: usize = max_entries,
 
     pub fn deinit(self: *History, allocator: std.mem.Allocator) void {
         for (self.undo_stack.items) |*e| e.deinit(allocator);
@@ -246,7 +248,7 @@ pub const History = struct {
     pub fn push(self: *History, allocator: std.mem.Allocator, entry: Entry) void {
         for (self.redo_stack.items) |*e| e.deinit(allocator);
         self.redo_stack.clearRetainingCapacity();
-        if (self.undo_stack.items.len >= max_entries) {
+        if (self.undo_stack.items.len >= self.cap) {
             var oldest = self.undo_stack.orderedRemove(0);
             oldest.deinit(allocator);
         }

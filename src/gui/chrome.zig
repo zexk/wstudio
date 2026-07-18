@@ -52,7 +52,6 @@ pub fn drawTransport(app: anytype, audio_label: []const u8) void {
 const meter_db_min: f32 = -50.0;
 const meter_yellow_db: f32 = -6.0;
 const meter_red_db: f32 = -1.0;
-const meter_decay_db_per_s: f32 = 24.0;
 
 fn drawLevelMeters(app: anytype, peak: [2]f32) void {
     const now = std.Io.Timestamp.now(app.core.io, .awake).nanoseconds;
@@ -60,7 +59,7 @@ fn drawLevelMeters(app: anytype, peak: [2]f32) void {
     app.meter_last_ns = now;
     for (0..2) |ch| {
         const db = ws.types.gainToDb(peak[ch]);
-        app.meter_hold_db[ch] = @max(db, app.meter_hold_db[ch] - meter_decay_db_per_s * dt);
+        app.meter_hold_db[ch] = @max(db, app.meter_hold_db[ch] - gui_style.meter_decay_db_per_s * dt);
     }
 
     zgui.sameLine(.{ .spacing = 24 });
