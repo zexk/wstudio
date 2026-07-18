@@ -101,7 +101,7 @@ fn focusedPointIndex(app: anytype, points: []const ws.dsp.automation.AutomationP
 
 fn drawCurve(app: anytype, points: *[]ws.dsp.automation.AutomationPoint, length_beats: f32, value_range: [2]f32) void {
     const width = zgui.getContentRegionAvail()[0];
-    const height: f32 = 280;
+    const height: f32 = std.math.clamp(zgui.getContentRegionAvail()[1] - 104, 280, 560);
     const origin = zgui.getCursorScreenPos();
     const draw_list = zgui.getWindowDrawList();
     draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(patina.bg0), .rounding = 4 });
@@ -204,9 +204,12 @@ fn drawCurve(app: anytype, points: *[]ws.dsp.automation.AutomationPoint, length_
     const cursor_value = ws.dsp.automation.interpolate(points.*, cursor_beat) orelse 0;
     const cursor = curvePoint(plot_origin, plot_size, cursor_beat, cursor_value, length_beats, value_range);
     draw_list.addLine(.{ .p1 = .{ cursor[0], plot_origin[1] }, .p2 = .{ cursor[0], plot_end[1] }, .col = color(patina.focus), .thickness = 2 });
+    draw_list.addLine(.{ .p1 = .{ plot_origin[0], cursor[1] }, .p2 = .{ plot_end[0], cursor[1] }, .col = color(.{ patina.focus[0], patina.focus[1], patina.focus[2], 0.48 }), .thickness = 1 });
     draw_list.addCircleFilled(.{ .p = cursor, .r = 5, .col = color(patina.focus) });
     draw_list.addCircle(.{ .p = cursor, .r = 8, .col = color(patina.fg0), .thickness = 1 });
-    draw_list.addText(.{ @min(cursor[0] + 9, plot_end[0] - 86), plot_origin[1] + 8 }, color(patina.fg0), "{d:.2}  {d:.2}", .{ cursor_beat, cursor_value });
+    const badge = [2]f32{ @min(cursor[0] + 9, plot_end[0] - 94), @max(plot_origin[1] + 7, cursor[1] - 29) };
+    draw_list.addRectFilled(.{ .pmin = badge, .pmax = .{ badge[0] + 88, badge[1] + 22 }, .col = color(patina.bg4), .rounding = 3 });
+    draw_list.addText(.{ badge[0] + 7, badge[1] + 2 }, color(patina.fg0), "{d:.2}  {d:.2}", .{ cursor_beat, cursor_value });
     draw_list.addRect(.{ .pmin = plot_origin, .pmax = plot_end, .col = color(patina.bg5), .rounding = 2, .thickness = 1 });
 }
 
@@ -217,26 +220,30 @@ fn curvePoint(origin: [2]f32, size: [2]f32, beat: f32, value: f32, length_beats:
 }
 
 fn drawEditor(app: anytype, points: *[]ws.dsp.automation.AutomationPoint, length_beats: f32, value_range: [2]f32) void {
-    if (zgui.beginChild("automation-editor", .{ .w = 0, .h = 0, .child_flags = .{ .border = true } })) {
-        widgets.sectionTitle("POINT EDITOR", patina.focus);
+    if (zgui.beginChild("automation-editor", .{ .w = 0, .h = 82, .child_flags = .{ .border = true } })) {
+        zgui.textColored(patina.focus, "POINT", .{});
+        zgui.sameLine(.{ .spacing = 12 });
         var beat = @as(f32, @floatFromInt(app.core.automation_cursor_step)) * 0.25;
+        zgui.setNextItemWidth(180);
         if (zgui.sliderFloat("Beat", .{ .v = &beat, .min = 0, .max = length_beats, .cfmt = "%.2f" })) app.core.automation_cursor_step = @intFromFloat(@round(beat * 4));
         const cursor_beat = @as(f64, @floatFromInt(app.core.automation_cursor_step)) * 0.25;
         var value = ws.dsp.automation.interpolate(points.*, cursor_beat) orelse 0;
+        zgui.sameLine(.{ .spacing = 16 });
+        zgui.setNextItemWidth(180);
         if (zgui.sliderFloat("Value", .{ .v = &value, .min = value_range[0], .max = value_range[1], .cfmt = if (std.meta.activeTag(app.core.automation_focus) == .gain) "%.1f dB" else "%.2f" })) setPoint(app, points, value);
-        zgui.spacing();
+        zgui.sameLine(.{ .spacing = 16 });
         zgui.pushStyleColor4f(.{ .idx = .button, .c = patina.focus_soft });
-        if (zgui.button("ADD / UPDATE POINT", .{ .h = 34 })) setPoint(app, points, value);
+        if (zgui.button("SET", .{ .h = 30 })) setPoint(app, points, value);
         zgui.popStyleColor(.{});
         zgui.sameLine(.{ .spacing = 6 });
-        if (zgui.button("DELETE POINT", .{ .h = 34 })) {
+        if (zgui.button("DELETE", .{ .h = 30 })) {
             if (ws.dsp.automation.removePoint(app.core.allocator, points, cursor_beat)) {
                 app.core.dirty = true;
                 app.core.session.rebuildSongData();
             }
         }
-        zgui.sameLine(.{});
-        zgui.textDisabled("{d} points", .{points.*.len});
+        zgui.sameLine(.{ .spacing = 12 });
+        zgui.textDisabled("{d} points   click graph to add   right-click to delete", .{points.*.len});
     }
     zgui.endChild();
 }
