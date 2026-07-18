@@ -335,15 +335,17 @@ pub const PatternPlayer = struct {
         }
     }
 
+    fn releaseSounding(self: *PatternPlayer) void {
+        for (&self.sounding, 0..) |*sounding, pitch| {
+            if (!sounding.*) continue;
+            self.target.sendEvent(.{ .note_off = .{ .note = @intCast(pitch) } });
+            sounding.* = false;
+        }
+    }
+
     pub fn processBlock(self: *PatternPlayer, buf: []types.Sample) void {
         if (!self.transport.playing) {
-            // Silence any notes that were left sounding.
-            for (0..128) |p| {
-                if (self.sounding[p]) {
-                    self.target.sendEvent(.{ .note_off = .{ .note = @intCast(p) } });
-                    self.sounding[p] = false;
-                }
-            }
+            self.releaseSounding();
             self.last_pos_frames = 0;
             return;
         }
@@ -369,14 +371,8 @@ pub const PatternPlayer = struct {
         }
 
         // Resync on seek or first play (same technique as DrumMachine).
-        if (self.last_pos_frames != 0 and pos != self.last_pos_frames) {
-            for (0..128) |p| {
-                if (self.sounding[p]) {
-                    self.target.sendEvent(.{ .note_off = .{ .note = @intCast(p) } });
-                    self.sounding[p] = false;
-                }
-            }
-        }
+        if (self.last_pos_frames != 0 and pos != self.last_pos_frames)
+            self.releaseSounding();
         self.last_pos_frames = pos + frames;
 
         // In song mode the arrangement's flattened clips drive playback and the
@@ -384,12 +380,7 @@ pub const PatternPlayer = struct {
         const notes = if (self.song_mode) self.song_notes[0..self.song_note_count] else self.notes[0..self.note_count];
         const loop = if (self.song_mode) self.song_length_beats else self.length_beats;
         if (notes.len == 0 or loop <= 0) {
-            for (0..128) |p| {
-                if (self.sounding[p]) {
-                    self.target.sendEvent(.{ .note_off = .{ .note = @intCast(p) } });
-                    self.sounding[p] = false;
-                }
-            }
+            self.releaseSounding();
             return;
         }
 
@@ -401,12 +392,7 @@ pub const PatternPlayer = struct {
             // Past the end of the arrangement: silence anything left
             // sounding and stop - the song plays once through, it doesn't
             // wrap like the live loop does.
-            for (0..128) |p| {
-                if (self.sounding[p]) {
-                    self.target.sendEvent(.{ .note_off = .{ .note = @intCast(p) } });
-                    self.sounding[p] = false;
-                }
-            }
+            self.releaseSounding();
             return;
         }
 
@@ -436,12 +422,7 @@ pub const PatternPlayer = struct {
     }
 
     pub fn reset(self: *PatternPlayer) void {
-        for (0..128) |p| {
-            if (self.sounding[p]) {
-                self.target.sendEvent(.{ .note_off = .{ .note = @intCast(p) } });
-                self.sounding[p] = false;
-            }
-        }
+        self.releaseSounding();
         self.last_pos_frames = 0;
     }
 };

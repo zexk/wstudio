@@ -260,7 +260,7 @@ pub const Slicer = struct {
         } else {
             for (&self.slices) |*p| p.samples = samples;
         }
-        self.resetVoicesLocked();
+        self.clearVoices();
     }
 
     /// Equal-divide the shared clip into `n` regions (clamped to
@@ -282,7 +282,7 @@ pub const Slicer = struct {
             };
         }
         self.slice_count = count;
-        self.resetVoicesLocked();
+        self.clearVoices();
     }
 
     /// Re-chop at detected transients (the MPC "slice at attacks" workflow):
@@ -319,7 +319,7 @@ pub const Slicer = struct {
             start = next;
         }
         self.slice_count = count;
-        self.resetVoicesLocked();
+        self.clearVoices();
     }
 
     /// Split the cursor slice at its region midpoint: the new right half is
@@ -347,7 +347,7 @@ pub const Slicer = struct {
         self.pattern[idx + 1].store(0, .release);
         for (&self.vel[idx + 1]) |*p| p.store(vel_full, .release);
         self.slice_count += 1;
-        self.resetVoicesLocked();
+        self.clearVoices();
         return true;
     }
 
@@ -376,14 +376,12 @@ pub const Slicer = struct {
         self.pattern[self.slice_count - 1].store(0, .release);
         for (&self.vel[self.slice_count - 1]) |*p| p.store(vel_full, .release);
         self.slice_count -= 1;
-        self.resetVoicesLocked();
+        self.clearVoices();
         return true;
     }
 
-    /// Kill every voice after a structural slice change (split/merge): the
-    /// pools are indexed by slice, so a shifted row's ringing tail would
-    /// finish through the wrong slice's params. Caller holds `sample_lock`.
-    fn resetVoicesLocked(self: *Slicer) void {
+    /// Kill every voice after audio or slice regions change.
+    fn clearVoices(self: *Slicer) void {
         // zig fmt: off
         for (&self.voices) |*row| for (row) |*v| { v.* = .{}; };
         // zig fmt: on
@@ -767,9 +765,7 @@ pub const Slicer = struct {
     }
 
     pub fn resetAll(self: *Slicer) void {
-        // zig fmt: off
-        for (&self.voices) |*row| for (row) |*sv| { sv.* = .{}; };
-        // zig fmt: on
+        self.clearVoices();
     }
 
     /// `deviceOf`'s expected name; forwards to `resetAll`.
