@@ -42,7 +42,10 @@ fn playheadBar(app: anytype, snap: engine_mod.UiSnapshot) ?u32 {
         .tempo_bpm = app.session.project.tempo_bpm,
         .position_frames = snap.position_frames,
     };
-    return @intFromFloat(t.positionBeats() * ws.time_grid.ticks_per_beat);
+    const tick = t.positionBeats() * ws.time_grid.ticks_per_beat;
+    if (!std.math.isFinite(tick) or tick >= @as(f64, @floatFromInt(std.math.maxInt(u32))))
+        return std.math.maxInt(u32);
+    return @intFromFloat(@max(tick, 0.0));
 }
 
 pub fn drawArrangement(
@@ -60,10 +63,10 @@ pub fn drawArrangement(
     // Keep the bar cursor inside the visible window.
     const vis: u32 = @intCast(visible);
     if (app.arr_cursor_bar < app.arr_scroll_bar) app.arr_scroll_bar = app.arr_cursor_bar;
-    if (app.arr_cursor_bar >= app.arr_scroll_bar + vis) app.arr_scroll_bar = app.arr_cursor_bar - vis + 1;
+    if (app.arr_cursor_bar >= app.arr_scroll_bar +| vis) app.arr_scroll_bar = app.arr_cursor_bar - vis + 1;
 
-    const scroll = app.arr_scroll_bar * grid_ticks;
-    const cur_bar = app.arr_cursor_bar * grid_ticks;
+    const scroll = app.arr_scroll_bar *| grid_ticks;
+    const cur_bar = app.arr_cursor_bar *| grid_ticks;
     const playhead = playheadBar(app, snap);
 
     const mode_tag: []const u8 = if (app.session.song_mode) grn ++ "SONG" ++ rst else dim ++ "PATTERN" ++ rst;
@@ -77,9 +80,11 @@ pub fn drawArrangement(
     const loop_on = p.loop_enabled and p.loop_end_bar > p.loop_start_bar;
     for (0..gutter - 1) |_| try w.writeByte(' ');
     for (0..visible) |c| {
-        const bar = scroll + @as(u32, @intCast(c)) * grid_ticks;
+        const bar = scroll +| @as(u32, @intCast(c)) *| grid_ticks;
         const downbeat = bar % ticks_per_bar == 0;
-        const in_loop = loop_on and bar >= p.loop_start_bar * ticks_per_bar and bar < p.loop_end_bar * ticks_per_bar;
+        const in_loop = loop_on and
+            bar >= p.loop_start_bar *| ticks_per_bar and
+            bar < p.loop_end_bar *| ticks_per_bar;
         try w.writeAll(if (in_loop) yel ++ "│" ++ rst else if (downbeat) blu ++ "│" ++ rst else dim ++ "│" ++ rst);
         if (cw == 2) {
             // Compact: no room for a bar number without corrupting column
@@ -99,7 +104,7 @@ pub fn drawArrangement(
 
     // Visual-mode selection: a bar range on the current lane only.
     const visual_active = app.modal.mode == .visual;
-    const sel_anchor = (app.arr_visual_anchor orelse app.arr_cursor_bar) * grid_ticks;
+    const sel_anchor = (app.arr_visual_anchor orelse app.arr_cursor_bar) *| grid_ticks;
     const sel_lo: u32 = @min(sel_anchor, cur_bar);
     const sel_hi: u32 = @max(sel_anchor, cur_bar);
 
@@ -137,7 +142,7 @@ pub fn drawArrangement(
         if (is_sel_lane) try w.writeAll(rst);
 
         for (0..visible) |c| {
-            const bar = scroll + @as(u32, @intCast(c)) * grid_ticks;
+            const bar = scroll +| @as(u32, @intCast(c)) *| grid_ticks;
             const downbeat = bar % ticks_per_bar == 0;
             try w.writeAll(if (downbeat) blu ++ "│" ++ rst else dim ++ "│" ++ rst);
 
@@ -190,4 +195,23 @@ pub fn drawArrangement(
 
     const used = 2 + (last_lane - lane_scroll);
     for (used..@max(used, rows -| 4)) |_| try endLine(w);
+}
+
+test "playhead tick saturates for positions beyond the arrangement range" {
+    const app = .{
+        .session = .{
+            .song_mode = true,
+            .project = .{
+                .sample_rate = @as(u32, 48_000),
+                .tempo_bpm = @as(f64, 120.0),
+            },
+        },
+    };
+    const snap: engine_mod.UiSnapshot = .{
+        .playing = true,
+        .pre_rolling = false,
+        .position_frames = std.math.maxInt(u64),
+        .peak = .{ 0.0, 0.0 },
+    };
+    try std.testing.expectEqual(@as(?u32, std.math.maxInt(u32)), playheadBar(app, snap));
 }
