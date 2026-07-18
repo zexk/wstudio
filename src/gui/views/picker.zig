@@ -15,13 +15,17 @@ pub fn drawInstrument(app: anytype) void {
     zgui.textDisabled("Choose the track's sound source", .{});
     zgui.separator();
     const entries = [_]struct { label: []const u8, desc: []const u8, kind: ws.InstrumentKind, accent: [4]f32 }{
-        .{ .label = "POLY SYNTH", .desc = "Oscillators, filters, modulation", .kind = .poly_synth, .accent = patina.focus },
-        .{ .label = "SAMPLER", .desc = "Map and shape a single sample", .kind = .sampler, .accent = patina.audio },
-        .{ .label = "DRUM MACHINE", .desc = "Velocity-aware pad sequencer", .kind = .drum_machine, .accent = patina.rhythm },
-        .{ .label = "SLICER", .desc = "Cut audio into playable slices", .kind = .slicer, .accent = patina.modulation },
+        .{ .label = "POLY SYNTH", .desc = "SYNTHESIS  POLY  MODULATION", .kind = .poly_synth, .accent = patina.focus },
+        .{ .label = "SAMPLER", .desc = "AUDIO  KEYMAP  ENVELOPE", .kind = .sampler, .accent = patina.audio },
+        .{ .label = "DRUM MACHINE", .desc = "PADS  VELOCITY  SEQUENCER", .kind = .drum_machine, .accent = patina.rhythm },
+        .{ .label = "SLICER", .desc = "AUDIO  SLICES  SEQUENCER", .kind = .slicer, .accent = patina.modulation },
     };
-    const width = zgui.getContentRegionAvail()[0];
+    const available = zgui.getContentRegionAvail()[0];
+    const gap: f32 = 10;
+    const columns: usize = if (available >= 720) 2 else 1;
+    const width = (available - gap * @as(f32, @floatFromInt(columns - 1))) / @as(f32, @floatFromInt(columns));
     for (entries, 0..) |entry, i| {
+        if (i % columns != 0) zgui.sameLine(.{ .spacing = gap });
         var id_buf: [48]u8 = undefined;
         const id = std.fmt.bufPrintZ(&id_buf, "instrument-card-{d}", .{i}) catch continue;
         if (drawCard(id, entry.label, entry.desc, entry.accent, app.core.picker_cursor == i, width)) {
