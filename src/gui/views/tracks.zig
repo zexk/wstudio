@@ -159,19 +159,31 @@ fn drawSelectedInspector(app: anytype) void {
             zgui.textDisabled("f FX chain   h/l gain", .{});
         } else switch (app.core.trackRows()[app.core.track_row]) {
             .track => |track_index| {
-                const track = app.core.session.project.tracks.items[track_index];
+                const track = &app.core.session.project.tracks.items[track_index];
                 const rack = app.core.session.racks.items[track_index];
                 zgui.textColored(trackColor(track.color), "SELECTED TRACK  {d:0>2}", .{track_index + 1});
                 zgui.separator();
                 zgui.text("{s}", .{track.name});
+                zgui.sameLine(.{ .spacing = 16 });
+                zgui.textDisabled("{s}", .{rack.label});
                 zgui.sameLine(.{ .spacing = 24 });
-                zgui.textDisabled("instrument  {s}", .{rack.label});
-                zgui.sameLine(.{ .spacing = 24 });
-                zgui.textDisabled("gain  {d:.1} dB", .{track.gain_db});
-                zgui.sameLine(.{ .spacing = 24 });
-                zgui.textDisabled("pan  {d:.2}", .{track.pan});
-                zgui.spacing();
-                zgui.textDisabled("m mute   s solo   a instrument   f FX chain   g route to group", .{});
+                var gain = track.gain_db;
+                zgui.setNextItemWidth(180);
+                if (zgui.sliderFloat("Gain", .{ .v = &gain, .min = -60, .max = 12, .cfmt = "%.1f dB" })) app.core.apiSetTrackGainDb(track_index, gain);
+                zgui.sameLine(.{ .spacing = 14 });
+                var pan = track.pan;
+                zgui.setNextItemWidth(150);
+                if (zgui.sliderFloat("Pan", .{ .v = &pan, .min = -1, .max = 1, .cfmt = "%.2f" })) app.core.apiSetTrackPan(track_index, pan);
+                zgui.sameLine(.{ .spacing = 14 });
+                var muted = track.muted;
+                if (zgui.checkbox("Mute", .{ .v = &muted })) app.core.apiSetTrackMuted(track_index, muted);
+                zgui.sameLine(.{ .spacing = 8 });
+                var soloed = track.soloed;
+                if (zgui.checkbox("Solo", .{ .v = &soloed })) app.core.apiSetTrackSoloed(track_index, soloed);
+                zgui.sameLine(.{ .spacing = 12 });
+                if (zgui.button("EDIT", .{ .h = 28 })) app.core.handleKey(.enter, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
+                zgui.sameLine(.{ .spacing = 6 });
+                if (zgui.button("FX", .{ .h = 28 })) app.core.handleKey(.{ .char = 's' }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
             },
             .group => |group_index| {
                 const group = app.core.session.groups[group_index].?;

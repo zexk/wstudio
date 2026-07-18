@@ -346,7 +346,7 @@ fn drawAnyParam(app: anytype, synth: *ws.dsp.PolySynth, id: u8, label_text: []co
         var label_buf: [96]u8 = undefined;
         const label = std.fmt.bufPrintZ(&label_buf, "{s}##gui-synth-{d}", .{ label_text, id }) catch return;
         const focused = app.core.synth_cursor == id;
-        const result = widgets.paramKnob(label_text, label, .{ .v = &value, .min = param.range[0], .max = param.range[1], .cfmt = "%.3f", .accent = patina.focus, .focused = focused });
+        const result = widgets.paramKnob(label_text, label, .{ .v = &value, .min = param.range[0], .max = param.range[1], .cfmt = "%.3f", .accent = patina.focus, .focused = focused, .diameter = 24 });
         if (result.changed) sendParam(app, id, value);
         if (result.activated) app.core.synth_cursor = id;
         return;

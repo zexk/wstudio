@@ -325,6 +325,21 @@ fn drawVelocityLane(app: anytype, pp: *ws.dsp.PatternPlayer, width: f32, gutter_
             .col = color(if (selected) patina.rhythm else .{ patina.audio[0], patina.audio[1], patina.audio[2], 0.72 }),
             .rounding = 2,
         });
+        if (selected) {
+            draw_list.addRect(.{
+                .pmin = .{ x, origin[1] + height - bar_height - 1 },
+                .pmax = .{ x + bar_width + 1, origin[1] + height - 1 },
+                .col = color(patina.fg0),
+                .rounding = 2,
+                .thickness = 2,
+            });
+            draw_list.addLine(.{
+                .p1 = .{ x + bar_width * 0.5, origin[1] },
+                .p2 = .{ x + bar_width * 0.5, origin[1] + height },
+                .col = color(.{ patina.rhythm[0], patina.rhythm[1], patina.rhythm[2], 0.42 }),
+                .thickness = 1,
+            });
+        }
     }
 }
 

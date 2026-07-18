@@ -2015,6 +2015,14 @@ pub const App = struct {
         self.view = .file_browser;
     }
 
+    /// GUI bookmark sidebar jump. Keeps path canonicalization and entry
+    /// filtering on the same path as keyboard-driven browser navigation.
+    pub fn browserJumpTo(self: *App, path: []const u8) void {
+        self.setBrowserDir(path) catch |err| {
+            self.setStatus("browse: cannot open '{s}': {s}", .{ path, @errorName(err) });
+        };
+    }
+
     /// Free the current entry list's owned names (keeps the list's capacity).
     fn freeBrowserEntries(self: *App) void {
         for (self.browser_entries.items) |e| self.allocator.free(e.name);
