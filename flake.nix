@@ -95,6 +95,8 @@
                   "$out/share/icons/hicolor/''${size}x''${size}/apps/wstudio.png"
               done
               install -Dm444 assets/icon/wstudio.png "$out/share/pixmaps/wstudio.png"
+              install -Dm444 assets/linux/wstudio-mime.xml \
+                "$out/share/mime/packages/wstudio.xml"
             '';
           # GLFW loads every platform library at runtime with dlopen (X11,
           # Wayland, and GL alike), and the PipeWire/JACK audio backends
