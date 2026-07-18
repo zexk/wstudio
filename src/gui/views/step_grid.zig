@@ -1,3 +1,4 @@
+const std = @import("std");
 const zgui = @import("zgui");
 const style = @import("../style.zig");
 
@@ -22,8 +23,11 @@ pub fn draw(
     const row_end = @min(total_rows, row_start + row_count);
     const gutter_w: f32 = 132;
     const ruler_h: f32 = 27;
-    const row_h: f32 = 32;
     const available = zgui.getContentRegionAvail();
+    const row_h: f32 = if (row_count == 0)
+        32
+    else
+        std.math.clamp((available[1] - ruler_h) / @as(f32, @floatFromInt(row_count)), 32, if (kind == .drum) 54 else 44);
     const canvas_w = @max(360, available[0]);
     const canvas_h = ruler_h + row_h * @as(f32, @floatFromInt(row_count));
     const origin = zgui.getCursorScreenPos();
