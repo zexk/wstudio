@@ -38,7 +38,11 @@ pub fn drawTransport(app: anytype, audio_label: []const u8) void {
         drawTransportReadout("POSITION", position, false);
         drawTransportReadout("METER", meter, false);
         drawTransportReadout("RATE", rate, false);
-        drawTransportReadout(icons.save ++ "  PROJECT", app.core.session.project.name, false);
+        const project_title: []const u8 = if (app.core.projectPath()) |path|
+            std.fs.path.basename(path)
+        else
+            app.core.session.project.name;
+        drawTransportReadout(icons.save ++ "  PROJECT", project_title, false);
         drawTransportReadout(icons.master ++ "  AUDIO", audio_label, false);
         drawLevelMeters(app, snap.peak);
     }
