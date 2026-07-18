@@ -359,7 +359,15 @@ pub const PatternPlayer = struct {
         // loop length is the whole song; otherwise the live one-bar-ish loop.
         const notes = if (self.song_mode) self.song_notes[0..self.song_note_count] else self.notes[0..self.note_count];
         const loop = if (self.song_mode) self.song_length_beats else self.length_beats;
-        if (notes.len == 0 or loop <= 0) return;
+        if (notes.len == 0 or loop <= 0) {
+            for (0..128) |p| {
+                if (self.sounding[p]) {
+                    self.target.sendEvent(.{ .note_off = .{ .note = @intCast(p) } });
+                    self.sounding[p] = false;
+                }
+            }
+            return;
+        }
 
         const fpb = self.transport.framesPerBeat();
         const start_beat = @as(f64, @floatFromInt(pos)) / fpb;
@@ -598,4 +606,22 @@ test "PatternPlayer sequences note against transport" {
     for (scratch) |s| if (@abs(s) > 1e-4) { has_signal = true; break; };
     // zig fmt: on
     try std.testing.expect(has_signal);
+}
+
+test "clearing the active pattern releases sounding notes" {
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    var pp = PatternPlayer.init(synth.device(), &transport);
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 1.0 });
+
+    transport.play();
+    var buf = [_]types.Sample{0.0} ** 512;
+    pp.processBlock(&buf);
+    try std.testing.expect(pp.sounding[60]);
+
+    pp.clearNotes();
+    transport.advance(256);
+    pp.processBlock(&buf);
+    try std.testing.expect(!pp.sounding[60]);
 }
