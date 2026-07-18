@@ -129,11 +129,25 @@ pub fn draw(
             const y = grid_y + @as(f32, @floatFromInt(display_row)) * row_h;
             const inset = @min(3, cell_w * 0.15);
             const height = 8 + velocity * (row_h - 13);
-            const hit_color = if (kind == .drum) patina.focus else patina.audio;
+            const accented = velocity >= 0.82;
+            const hit_color = if (kind == .drum)
+                if (accented) patina.rhythm else patina.focus
+            else if (accented)
+                patina.modulation
+            else
+                patina.audio;
             const pmin = [2]f32{ x + inset, y + row_h - height - 3 };
             const pmax = [2]f32{ x + cell_w - inset, y + row_h - 3 };
             draw_list.addRectFilled(.{ .pmin = pmin, .pmax = pmax, .col = color(.{ hit_color[0], hit_color[1], hit_color[2], 0.62 + velocity * 0.38 }), .rounding = @min(3, cell_w * 0.12) });
             draw_list.addLine(.{ .p1 = .{ pmin[0] + 1, pmin[1] + 1 }, .p2 = .{ pmax[0] - 1, pmin[1] + 1 }, .col = color(.{ patina.fg0[0], patina.fg0[1], patina.fg0[2], 0.38 }), .thickness = 1 });
+            if (accented) {
+                draw_list.addTriangleFilled(.{
+                    .p1 = .{ pmax[0] - 7, pmin[1] + 2 },
+                    .p2 = .{ pmax[0] - 2, pmin[1] + 2 },
+                    .p3 = .{ pmax[0] - 2, pmin[1] + 7 },
+                    .col = color(patina.fg0),
+                });
+            }
         }
     }
 
