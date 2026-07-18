@@ -179,6 +179,30 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_mod_tests.step);
     test_step.dependOn(&run_exe_tests.step);
 
+    const clap_test_plugin = b.addLibrary(.{
+        .name = "wstudio-clap-test",
+        .linkage = .dynamic,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/clap/test_plugin.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    const clap_integration_test = b.addExecutable(.{
+        .name = "clap-integration-test",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/clap/integration_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "wstudio", .module = wstudio_mod },
+            },
+        }),
+    });
+    const run_clap_integration_test = b.addRunArtifact(clap_integration_test);
+    run_clap_integration_test.addArtifactArg(clap_test_plugin);
+    test_step.dependOn(&run_clap_integration_test.step);
+
     const check_step = b.step("check", "Build wstudio and run all tests");
     check_step.dependOn(&exe.step);
     check_step.dependOn(test_step);
