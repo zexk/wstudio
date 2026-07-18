@@ -768,12 +768,6 @@ fn secOscC(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
         try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.osc_c_wt_pos}));
 }
 
-const mod_src_names = [_][]const u8{ "off", "lfo", "fenv", "aenv", "vel", "key", "whl", "lfo2", "lfo3", "mc1", "mc2", "mc3", "mc4", "env3" };
-
-fn modSrcIdx(src: anytype) usize {
-    return @intFromEnum(src);
-}
-
 /// 8 mod-matrix rows, 3 editor rows each (source / dest / depth). Dest and
 /// depth dim while the row's source is off, mirroring the on/off gating the
 /// oscillator sections use.
@@ -807,7 +801,7 @@ fn secMatrix(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
         } else if (off) {
             try w.writeAll(dim);
         }
-        try w.print("{s: <5}", .{mod_src_names[modSrcIdx(row.source)]});
+        try w.print("{s: <5}", .{synth_layout.modSourceName(row.source)});
         try w.writeAll(rst ++ "  ");
 
         if (sel_dst) {

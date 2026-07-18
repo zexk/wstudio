@@ -19,6 +19,12 @@
 const std = @import("std");
 const style = @import("ansi.zig");
 
+const mod_source_names = [_][]const u8{ "off", "lfo", "fenv", "aenv", "vel", "key", "whl", "lfo2", "lfo3", "mc1", "mc2", "mc3", "mc4", "env3" };
+
+pub fn modSourceName(source: anytype) []const u8 {
+    return mod_source_names[@intFromEnum(source)];
+}
+
 pub const ParamEntry = struct {
     id: u8,
     label: []const u8,

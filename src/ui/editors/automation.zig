@@ -104,6 +104,14 @@ pub fn curvePoints(app: *App, clip: *ws.Clip, target: AutomationFocus) !*[]Autom
     };
 }
 
+pub fn curvePointsConst(clip: *const ws.Clip, target: AutomationFocus) []const AutomationPoint {
+    return switch (target) {
+        .gain => clip.automation.gain,
+        .pan => clip.automation.pan,
+        .synth_param => |id| clip.automation.findSynthParam(id) orelse &.{},
+    };
+}
+
 /// The current automation track's own `automatable_params` table - PolySynth's
 /// ~30, Sampler's 9, or empty for any other instrument kind (drum machine/
 /// slicer/empty have no `setParamAbsolute` id space, matching the picker's

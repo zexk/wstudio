@@ -5,7 +5,6 @@ const std = @import("std");
 const ws = @import("wstudio");
 const engine_mod = ws.engine;
 const automation_mod = ws.dsp.automation;
-const AutomationPoint = automation_mod.AutomationPoint;
 const automation_ed = @import("../../ui/editors/automation.zig");
 const AutomationFocus = automation_ed.AutomationFocus;
 const style = @import("../style.zig");
@@ -57,14 +56,6 @@ fn curveRange(app: anytype, target: AutomationFocus) [2]f32 {
         // fade all the way to -60dB would otherwise pin the whole graph flat
         .pan => .{ -1.0, 1.0 },
         .synth_param => |id| if (findAutomatableParam(app, id)) |info| info.range else .{ 0.0, 1.0 },
-    };
-}
-
-fn curvePoints(clip: *const ws.Clip, target: AutomationFocus) []const AutomationPoint {
-    return switch (target) {
-        .gain => clip.automation.gain,
-        .pan => clip.automation.pan,
-        .synth_param => |id| clip.automation.findSynthParam(id) orelse &.{},
     };
 }
 
@@ -120,7 +111,7 @@ pub fn drawAutomation(
         app.automation_scroll = app.automation_cursor_step - visible + 1;
     const scroll = app.automation_scroll;
 
-    const points = curvePoints(clip, target);
+    const points = automation_ed.curvePointsConst(clip, target);
     const range = curveRange(app, target);
 
     // Visual-mode selection: a step range on the current curve only.
