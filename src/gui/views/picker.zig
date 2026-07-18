@@ -46,7 +46,7 @@ pub fn drawFx(app: anytype) void {
     const available = zgui.getContentRegionAvail()[0];
     const count = if (app.core.view == .synth_fx_picker) synth_kinds.len else kinds.len;
     const gap: f32 = 10;
-    const columns: usize = if (app.core.view == .synth_fx_picker and available >= 700) 2 else 1;
+    const columns: usize = if (available >= 700) 2 else 1;
     const width = (available - gap * @as(f32, @floatFromInt(columns - 1))) / @as(f32, @floatFromInt(columns));
     for (0..count) |i| {
         if (i % columns != 0) zgui.sameLine(.{ .spacing = gap });
@@ -54,7 +54,9 @@ pub fn drawFx(app: anytype) void {
         var id_buf: [48]u8 = undefined;
         const id = std.fmt.bufPrintZ(&id_buf, "fx-picker-card-{d}", .{i}) catch continue;
         const selected = if (app.core.view == .synth_fx_picker) app.core.synth_fx_picker_cursor == i else app.core.fx_picker_cursor == i;
-        if (drawCard(id, spectrum_ed.unitLabel(kind), fxDescription(kind), fxAccent(kind), selected, width)) {
+        var desc_buf: [96]u8 = undefined;
+        const desc = std.fmt.bufPrint(&desc_buf, "{s}  |  {s}", .{ fxCategory(kind), fxDescription(kind) }) catch fxDescription(kind);
+        if (drawCard(id, spectrum_ed.unitLabel(kind), desc, fxAccent(kind), selected, width)) {
             if (app.core.view == .synth_fx_picker) {
                 app.core.synth_fx_picker_cursor = @intCast(i);
                 synth_ed.insertFromSynthFxPicker(&app.core, synth_kinds[i]);
@@ -65,6 +67,16 @@ pub fn drawFx(app: anytype) void {
             }
         }
     }
+}
+
+fn fxCategory(kind: ws.FxKind) []const u8 {
+    return switch (kind) {
+        .gate, .comp, .mb_comp, .ott => "DYNAMICS",
+        .eq => "TONE",
+        .sat, .crush, .tape => "CHARACTER",
+        .chorus, .flanger, .phaser, .freq_shift => "MODULATION",
+        .delay, .reverb => "TIME",
+    };
 }
 
 fn activateFx(app: anytype, kind: ws.FxKind) void {
