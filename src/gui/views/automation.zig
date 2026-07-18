@@ -90,20 +90,71 @@ fn drawTargetButton(app: anytype, text: []const u8, target: automation_ed.Automa
     zgui.popStyleColor(.{ .count = 2 });
 }
 
+/// Point in `points` (if any) sitting within a half-step of the cursor
+/// beat - drives the curve widget's focus ring so the keyboard cursor and
+/// the mouse-draggable nodes stay visually in sync.
+fn focusedPointIndex(app: anytype, points: []const ws.dsp.automation.AutomationPoint) ?usize {
+    const cursor_beat = @as(f64, @floatFromInt(app.core.automation_cursor_step)) * 0.25;
+    for (points, 0..) |p, i| if (@abs(p.beat - cursor_beat) < 0.125) return i;
+    return null;
+}
+
 fn drawCurve(app: anytype, points: *[]ws.dsp.automation.AutomationPoint, length_beats: f32, value_range: [2]f32) void {
     const width = zgui.getContentRegionAvail()[0];
     const height: f32 = 280;
     const origin = zgui.getCursorScreenPos();
-    _ = zgui.invisibleButton("automation-curve", .{ .w = width, .h = height });
-    const active = zgui.isItemActive();
-    const mouse = zgui.getMousePos();
     const draw_list = zgui.getWindowDrawList();
     draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(patina.bg0), .rounding = 4 });
 
     const plot_origin = [2]f32{ origin[0] + 58, origin[1] + 14 };
     const plot_size = [2]f32{ @max(1, width - 72), height - 42 };
     const plot_end = [2]f32{ plot_origin[0] + plot_size[0], plot_origin[1] + plot_size[1] };
-    draw_list.addRectFilled(.{ .pmin = plot_origin, .pmax = plot_end, .col = color(patina.bg1) });
+
+    // The draggable/insertable/deletable curve itself - background, snap
+    // grid, connecting lines, and one node per point, all in one widget
+    // (widgets.zig's curveEditor). The view-specific chrome below (bar
+    // ruler, axis labels, zero line, cursor readout) draws on top of it.
+    var curve_buf: [128]widgets.CurvePoint = undefined;
+    const curve_n = @min(points.*.len, curve_buf.len);
+    for (points.*[0..curve_n], curve_buf[0..curve_n]) |src, *dst| dst.* = .{ .beat = src.beat, .value = src.value };
+    zgui.setCursorScreenPos(plot_origin);
+    const curve_result = widgets.curveEditor("automation-curve", .{
+        .points = curve_buf[0..curve_n],
+        .beat_hi = length_beats,
+        .value_lo = value_range[0],
+        .value_hi = value_range[1],
+        .snap_beats = 0.25,
+        .accent = patina.modulation,
+        .focused_index = focusedPointIndex(app, points.*),
+        .width = plot_size[0],
+        .height = plot_size[1],
+    });
+    if (curve_result.moved) |m| {
+        points.*[m.index] = .{ .beat = m.beat, .value = m.value };
+        app.core.automation_cursor_step = @intFromFloat(@round(m.beat * 4));
+        app.core.dirty = true;
+        app.core.session.rebuildSongData();
+    }
+    if (curve_result.inserted) |ins| {
+        app.core.automation_cursor_step = @intFromFloat(@round(ins.beat * 4));
+        setPointAt(app, points, ins.beat, ins.value);
+    }
+    if (curve_result.removed) |beat| {
+        if (ws.dsp.automation.removePoint(app.core.allocator, points, beat)) {
+            app.core.dirty = true;
+            app.core.session.rebuildSongData();
+        }
+    }
+    if (curve_result.activated_index) |i| {
+        if (i < points.*.len) app.core.automation_cursor_step = @intFromFloat(@round(points.*[i].beat * 4));
+    }
+
+    // The widget above only reserved plot_size's worth of layout space
+    // (it doesn't know about this view's outer margins) - reserve the rest
+    // so whatever draws after drawCurve starts below the full chrome, not
+    // wherever the widget's own cursor landed.
+    zgui.setCursorScreenPos(origin);
+    zgui.dummy(.{ .w = width, .h = height });
 
     const beats_per_bar: u8 = app.core.session.project.beats_per_bar;
     const label_stride = @max(1, @as(u32, @intFromFloat(@ceil(58.0 / (plot_size[0] / length_beats)))));
@@ -146,18 +197,9 @@ fn drawCurve(app: anytype, points: *[]ws.dsp.automation.AutomationPoint, length_
         draw_list.addRectFilled(.{ .pmin = .{ x1, plot_origin[1] }, .pmax = .{ @min(x2, plot_end[0]), plot_end[1] }, .col = color(.{ patina.rhythm[0], patina.rhythm[1], patina.rhythm[2], 0.12 }) });
     }
 
-    var previous: ?[2]f32 = if (points.*.len > 0) curvePoint(plot_origin, plot_size, 0, points.*[0].value, length_beats, value_range) else null;
-    for (points.*) |point| {
-        const p = curvePoint(plot_origin, plot_size, @floatCast(point.beat), point.value, length_beats, value_range);
-        if (previous) |prev| draw_list.addLine(.{ .p1 = prev, .p2 = p, .col = color(patina.modulation), .thickness = 2 });
-        draw_list.addCircleFilled(.{ .p = p, .r = 5, .col = color(patina.modulation) });
-        draw_list.addCircle(.{ .p = p, .r = 7, .col = color(patina.fg0), .thickness = 1 });
-        previous = p;
-    }
-    if (previous) |prev| {
-        draw_list.addLine(.{ .p1 = prev, .p2 = .{ plot_end[0], prev[1] }, .col = color(patina.modulation), .thickness = 2 });
-    }
-
+    // The curve line/nodes themselves are drawn by widgets.curveEditor
+    // above; just the keyboard-cursor readout (a separate notion from
+    // "a node is focused" - the cursor can sit between points) draws here.
     const cursor_beat = @as(f32, @floatFromInt(app.core.automation_cursor_step)) * 0.25;
     const cursor_value = ws.dsp.automation.interpolate(points.*, cursor_beat) orelse 0;
     const cursor = curvePoint(plot_origin, plot_size, cursor_beat, cursor_value, length_beats, value_range);
@@ -166,14 +208,6 @@ fn drawCurve(app: anytype, points: *[]ws.dsp.automation.AutomationPoint, length_
     draw_list.addCircle(.{ .p = cursor, .r = 8, .col = color(patina.fg0), .thickness = 1 });
     draw_list.addText(.{ @min(cursor[0] + 9, plot_end[0] - 86), plot_origin[1] + 8 }, color(patina.fg0), "{d:.2}  {d:.2}", .{ cursor_beat, cursor_value });
     draw_list.addRect(.{ .pmin = plot_origin, .pmax = plot_end, .col = color(patina.bg5), .rounding = 2, .thickness = 1 });
-
-    if (active) {
-        const beat = std.math.clamp((mouse[0] - plot_origin[0]) / plot_size[0] * length_beats, 0, length_beats);
-        app.core.automation_cursor_step = @intFromFloat(@round(beat * 4));
-        const norm = 1.0 - std.math.clamp((mouse[1] - plot_origin[1]) / plot_size[1], 0, 1);
-        const value = value_range[0] + norm * (value_range[1] - value_range[0]);
-        setPoint(app, points, value);
-    }
 }
 
 fn curvePoint(origin: [2]f32, size: [2]f32, beat: f32, value: f32, length_beats: f32, value_range: [2]f32) [2]f32 {
@@ -209,6 +243,10 @@ fn drawEditor(app: anytype, points: *[]ws.dsp.automation.AutomationPoint, length
 
 fn setPoint(app: anytype, points: *[]ws.dsp.automation.AutomationPoint, value: f32) void {
     const beat = @as(f64, @floatFromInt(app.core.automation_cursor_step)) * 0.25;
+    setPointAt(app, points, beat, value);
+}
+
+fn setPointAt(app: anytype, points: *[]ws.dsp.automation.AutomationPoint, beat: f64, value: f32) void {
     ws.dsp.automation.setPoint(app.core.allocator, points, beat, value) catch return;
     app.core.dirty = true;
     app.core.session.rebuildSongData();

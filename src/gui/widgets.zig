@@ -374,6 +374,153 @@ pub fn adsrEditor(label: [:0]const u8, args: Adsr) AdsrResult {
     return result;
 }
 
+/// A multi-point breakpoint curve, `adsrEditor`'s more elastic cousin: any
+/// number of points instead of 3 fixed-role ones, both axes draggable
+/// instead of duration-only, and points can be created and removed instead
+/// of just repositioned. Used by the automation view today; the point/range
+/// args carry nothing automation-specific, so an LFO shape editor can reuse
+/// it later the same way `xyPad` serves both filter cutoff and other
+/// correlated pairs.
+///
+/// Allocation-free like every other widget here: point count changes
+/// (insert/remove) go through the caller's own storage (e.g.
+/// `dsp/automation.zig`'s `setPoint`/`removePoint`), this just reports what
+/// the user asked for. A dragged point's beat is clamped between its
+/// immediate neighbors (never crosses them) specifically so its index into
+/// `args.points` stays stable for the whole drag - `moved` addresses the
+/// point by that index, not by beat, so the caller can mutate it in place
+/// with no search.
+pub const CurvePoint = struct { beat: f64, value: f32 };
+
+pub const Curve = struct {
+    points: []const CurvePoint,
+    /// Visible beat span, `[0, beat_hi]` - clips are always clip-relative
+    /// from beat 0, so there's no separate lower bound to carry.
+    beat_hi: f64,
+    value_lo: f32,
+    value_hi: f32,
+    /// Grid line spacing and drag/insert snap increment, in beats. 0
+    /// disables both the grid and snapping.
+    snap_beats: f64 = 0.25,
+    accent: [4]f32,
+    /// Which point (if any) the external cursor is currently parked on,
+    /// for the focus ring - mirrors `Adsr.focused_stage`.
+    focused_index: ?usize = null,
+    /// Defaults to the rest of the content region, like every other widget
+    /// here - override to inset the plot within a caller's own chrome
+    /// (axis labels, ruler, ...) instead of owning the full width.
+    width: ?f32 = null,
+    height: f32 = 220,
+};
+
+pub const CurveResult = struct {
+    /// An existing point was dragged - apply as `points[index] = .{beat,
+    /// value}` (safe in place: see the neighbor-clamp note above).
+    moved: ?struct { index: usize, beat: f64, value: f32 } = null,
+    /// A click on empty plot area - insert a new point here.
+    inserted: ?struct { beat: f64, value: f32 } = null,
+    /// A double-click on an existing point - remove whatever sits at this
+    /// exact beat.
+    removed: ?f64 = null,
+    activated_index: ?usize = null,
+};
+
+fn curveToScreen(origin: [2]f32, w: f32, h: f32, beat_hi: f64, vlo: f32, vhi: f32, beat: f64, value: f32) [2]f32 {
+    const tx: f32 = if (beat_hi > 0) @floatCast(std.math.clamp(beat / beat_hi, 0, 1)) else 0;
+    const vspan = vhi - vlo;
+    const ty: f32 = if (vspan != 0) std.math.clamp((value - vlo) / vspan, 0, 1) else 0;
+    return .{ origin[0] + tx * w, origin[1] + (1.0 - ty) * h };
+}
+
+pub fn curveEditor(label: [:0]const u8, args: Curve) CurveResult {
+    const patina = &gui_style.palette;
+    const width = args.width orelse zgui.getContentRegionAvail()[0];
+    const height = args.height;
+    const origin = zgui.getCursorScreenPos();
+    const draw_list = zgui.getWindowDrawList();
+    var result = CurveResult{};
+
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = gui_style.color(patina.bg1), .rounding = 3 });
+    if (args.snap_beats > 0 and args.beat_hi > 0) {
+        var b: f64 = 0;
+        while (b <= args.beat_hi) : (b += args.snap_beats) {
+            const x = origin[0] + @as(f32, @floatCast(b / args.beat_hi)) * width;
+            draw_list.addLine(.{ .p1 = .{ x, origin[1] }, .p2 = .{ x, origin[1] + height }, .col = gui_style.color(patina.line), .thickness = 1 });
+        }
+    }
+
+    // Background hit-region first so the per-node buttons below (submitted
+    // later) can still be interacted with despite overlapping it - a click
+    // that lands outside every node's small circle falls through to this
+    // and inserts a new point there. allowOverlap is required: imgui's
+    // default is the opposite (an earlier, larger item blocks hover to
+    // anything under it), so without this the nodes would never see clicks.
+    zgui.setCursorScreenPos(origin);
+    zgui.setNextItemAllowOverlap();
+    _ = zgui.invisibleButton(label, .{ .w = width, .h = height });
+    const bg_activated = zgui.isItemActivated();
+    const bg_mouse = zgui.getMousePos();
+
+    if (args.points.len > 0) {
+        const first = curveToScreen(origin, width, height, args.beat_hi, args.value_lo, args.value_hi, 0, args.points[0].value);
+        draw_list.addLine(.{ .p1 = .{ origin[0], first[1] }, .p2 = first, .col = gui_style.color(args.accent), .thickness = 2 });
+        var prev = first;
+        for (args.points) |p| {
+            const cur = curveToScreen(origin, width, height, args.beat_hi, args.value_lo, args.value_hi, p.beat, p.value);
+            draw_list.addLine(.{ .p1 = prev, .p2 = cur, .col = gui_style.color(args.accent), .thickness = 2 });
+            prev = cur;
+        }
+        const last = args.points[args.points.len - 1];
+        const last_screen = curveToScreen(origin, width, height, args.beat_hi, args.value_lo, args.value_hi, last.beat, last.value);
+        draw_list.addLine(.{ .p1 = last_screen, .p2 = .{ origin[0] + width, last_screen[1] }, .col = gui_style.color(args.accent), .thickness = 2 });
+    }
+
+    const handle_r: f32 = 6;
+    for (args.points, 0..) |p, i| {
+        const center = curveToScreen(origin, width, height, args.beat_hi, args.value_lo, args.value_hi, p.beat, p.value);
+        zgui.setCursorScreenPos(.{ center[0] - handle_r, center[1] - handle_r });
+        var id_buf: [96]u8 = undefined;
+        const nid = std.fmt.bufPrintZ(&id_buf, "{s}-{d}", .{ label, i }) catch label;
+        _ = zgui.invisibleButton(nid, .{ .w = handle_r * 2, .h = handle_r * 2 });
+        const node_active = zgui.isItemActive();
+        const node_hovered = zgui.isItemHovered(.{});
+        if (zgui.isItemActivated()) result.activated_index = i;
+        if (node_hovered and zgui.isMouseDoubleClicked(.left)) result.removed = p.beat;
+        if (node_active and result.removed == null) {
+            const mouse = zgui.getMousePos();
+            const lo_beat: f64 = if (i == 0) 0 else args.points[i - 1].beat + args.snap_beats;
+            const hi_beat: f64 = if (i + 1 == args.points.len) args.beat_hi else args.points[i + 1].beat - args.snap_beats;
+            const raw_beat: f64 = if (args.beat_hi > 0) @as(f64, (mouse[0] - origin[0]) / width) * args.beat_hi else p.beat;
+            var new_beat = std.math.clamp(raw_beat, @min(lo_beat, hi_beat), @max(lo_beat, hi_beat));
+            if (args.snap_beats > 0) new_beat = @round(new_beat / args.snap_beats) * args.snap_beats;
+            const norm = 1.0 - std.math.clamp((mouse[1] - origin[1]) / height, 0, 1);
+            const new_value = args.value_lo + norm * (args.value_hi - args.value_lo);
+            if (new_beat != p.beat or new_value != p.value) result.moved = .{ .index = i, .beat = new_beat, .value = new_value };
+        }
+        if (node_active or node_hovered) {
+            var buf: [32]u8 = undefined;
+            _ = zgui.beginTooltip();
+            zgui.text("{d:.2} beats  /  {s}", .{ p.beat, knobFormatValue(&buf, "%.2f", p.value) });
+            zgui.endTooltip();
+        }
+        draw_list.addCircleFilled(.{ .p = center, .r = handle_r - 1, .col = gui_style.color(if (node_active or node_hovered) args.accent else patina.fg1) });
+        if (args.focused_index != null and args.focused_index.? == i) draw_list.addCircle(.{ .p = center, .r = handle_r + 3, .col = gui_style.color(args.accent), .thickness = 1.5 });
+    }
+
+    if (bg_activated and result.moved == null and result.removed == null and result.activated_index == null) {
+        const raw_beat: f64 = if (args.beat_hi > 0) @as(f64, (bg_mouse[0] - origin[0]) / width) * args.beat_hi else 0;
+        var beat = std.math.clamp(raw_beat, 0, args.beat_hi);
+        if (args.snap_beats > 0) beat = @round(beat / args.snap_beats) * args.snap_beats;
+        const norm = 1.0 - std.math.clamp((bg_mouse[1] - origin[1]) / height, 0, 1);
+        const value = args.value_lo + norm * (args.value_hi - args.value_lo);
+        result.inserted = .{ .beat = beat, .value = value };
+    }
+
+    draw_list.addRect(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = gui_style.color(patina.bg4), .rounding = 3, .thickness = 1 });
+    zgui.setCursorScreenPos(.{ origin[0], origin[1] + height });
+    return result;
+}
+
 pub fn waveform(label: [:0]const u8, samples: []const f32) void {
     if (samples.len == 0) {
         zgui.textDisabled("No sample loaded.", .{});
