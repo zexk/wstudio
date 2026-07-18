@@ -307,6 +307,40 @@ test ":swing sets the cursor track's pattern swing, clamped, and reports with no
     try std.testing.expectApproxEqAbs(@as(f32, 75.0), pp.swing.load(.monotonic), 1e-6);
 }
 
+test ":export-midi then :import-midi round-trips the cursor track's pattern" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try redirectHome(&tmp);
+
+    var app = try App.init(std.testing.allocator, std.testing.io);
+    defer app.deinit();
+    try app.session.setInstrument(0, .poly_synth);
+    app.cursor = 0;
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    pp.setNotes(&.{
+        .{ .pitch = 60, .start_beat = 0.0, .duration_beat = 1.0, .velocity = 1.0 },
+        .{ .pitch = 64, .start_beat = 1.5, .duration_beat = 0.5, .velocity = 0.5 },
+    }, 4.0);
+
+    var cmd_buf: [96]u8 = undefined;
+    const export_cmd = try std.fmt.bufPrint(&cmd_buf, ":export-midi .zig-cache/tmp/{s}/p.mid", .{&tmp.sub_path});
+    for (export_cmd) |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+
+    pp.clearNotes(); // prove import repopulates it, not a no-op
+    var cmd_buf2: [96]u8 = undefined;
+    const import_cmd = try std.fmt.bufPrint(&cmd_buf2, ":import-midi .zig-cache/tmp/{s}/p.mid", .{&tmp.sub_path});
+    for (import_cmd) |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+
+    try std.testing.expectEqual(@as(u16, 2), pp.note_count);
+    try std.testing.expectEqual(@as(u7, 60), pp.notes[0].pitch);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.0), pp.notes[0].start_beat, 0.01);
+    try std.testing.expectApproxEqAbs(@as(f64, 1.0), pp.notes[0].duration_beat, 0.01);
+    try std.testing.expectEqual(@as(u7, 64), pp.notes[1].pitch);
+    try std.testing.expectApproxEqAbs(@as(f64, 1.5), pp.notes[1].start_beat, 0.01);
+}
+
 test "toggle_mute flips project state and reaches the engine" {
     var app = try testApp();
     defer app.deinit();

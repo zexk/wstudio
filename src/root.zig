@@ -54,6 +54,7 @@ pub const Session = @import("session.zig").Session;
 pub const persist = @import("persist.zig");
 
 pub const midi = @import("midi.zig");
+pub const midi_file = @import("midi_file.zig");
 
 pub const theory = @import("theory.zig");
 
@@ -88,6 +89,7 @@ test "embedded GUI face looks like a valid TrueType font" {
 
 test {
     _ = midi;
+    _ = midi_file;
     _ = midi_in;
     _ = types;
     _ = ring_buffer;

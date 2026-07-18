@@ -117,6 +117,8 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "%d",          .desc = "erase all notes in the pattern (alias for :clear)",  .run = wrap(cmdClear) },
     .{ .name = "humanize",    .desc = "[amount]  jitter the pattern's note timing/velocity 0-100% (default 15)", .run = wrap(cmdHumanize) },
     .{ .name = "swing",       .desc = "[percent]  piano-roll pattern swing 50-75% (default 50, straight) - matches the drum machine's", .run = wrap(cmdSwing) },
+    .{ .name = "import-midi", .desc = "<file>  replace the pattern with a Standard MIDI File's notes",     .run = wrap(cmdImportMidi) },
+    .{ .name = "export-midi", .desc = "<file>  write the pattern as a Standard MIDI File",                 .run = wrap(cmdExportMidi) },
     .{ .name = "metronome",   .desc = "[on|off]  toggle the click track",                   .run = wrap(cmdMetronome) },
     .{ .name = "scale",       .desc = "[<root> [<type>]|off]  piano-roll scale highlight + chord-stamp key", .run = wrap(cmdScale) },
     .{ .name = "ghost",       .desc = "[on|off]  dim every other melodic track's notes into the piano-roll background", .run = wrap(cmdGhost) },
@@ -295,6 +297,91 @@ fn cmdSwing(app: *App, args: []const u8) void {
     };
     pp.setSwing(pct);
     app.setStatus("swing: {d:.0}%", .{pp.swing.load(.monotonic)});
+}
+
+/// `:import-midi <file>` - replace the piano-roll pattern with a Standard
+/// MIDI File's notes (every track's events merged onto one timeline - see
+/// midi_file.zig's doc comment). Same track-resolution rule as `:clear`.
+/// Doesn't touch the project tempo - the file's own tempo is only reported
+/// in the status line, since silently retiming the project on import would
+/// surprise whoever's mid-session.
+fn cmdImportMidi(app: *App, args: []const u8) void {
+    const trimmed = std.mem.trim(u8, args, " ");
+    if (trimmed.len == 0) {
+        app.setStatus("import-midi: usage :import-midi <file>", .{});
+        return;
+    }
+    const track: usize = if (app.view == .piano_roll) app.piano_track else app.cursor;
+    if (track >= app.session.racks.items.len or
+        app.session.racks.items[track].pattern_player == null)
+    {
+        app.setStatus("import-midi: no piano-roll pattern", .{});
+        return;
+    }
+    var path_buf: [path_buf_len]u8 = undefined;
+    const path = expandHome(&path_buf, trimmed);
+    const data = readFileForLoad(app, path) orelse return;
+    defer app.allocator.free(data);
+    const result = ws.midi_file.parse(app.allocator, data) catch |e| {
+        app.setStatus("import-midi: parse error: {s}", .{@errorName(e)});
+        return;
+    };
+    defer app.allocator.free(result.notes);
+
+    const pp = &app.session.racks.items[track].pattern_player.?;
+    history.recordMelodic(app, @intCast(track));
+    pp.setNotes(result.notes, result.length_beats);
+    piano_ed.syncLinkedClip(app);
+    if (result.truncated)
+        app.setStatus("imported {d} notes (capped at {d}) at {d:.0} BPM", .{ result.notes.len, pattern_mod.max_notes, result.tempo_bpm })
+    else
+        app.setStatus("imported {d} notes at {d:.0} BPM", .{ result.notes.len, result.tempo_bpm });
+}
+
+/// `:export-midi <file>` - write the piano-roll pattern as a format-0
+/// Standard MIDI File at the project's tempo. Same track-resolution rule as
+/// `:clear`/`:import-midi`.
+fn cmdExportMidi(app: *App, args: []const u8) void {
+    const trimmed = std.mem.trim(u8, args, " ");
+    if (trimmed.len == 0) {
+        app.setStatus("export-midi: usage :export-midi <file>", .{});
+        return;
+    }
+    const track: usize = if (app.view == .piano_roll) app.piano_track else app.cursor;
+    if (track >= app.session.racks.items.len or
+        app.session.racks.items[track].pattern_player == null)
+    {
+        app.setStatus("export-midi: no piano-roll pattern", .{});
+        return;
+    }
+    const pp = &app.session.racks.items[track].pattern_player.?;
+    var note_buf: [pattern_mod.max_notes]pattern_mod.Note = undefined;
+    const count = pp.copyNotes(&note_buf);
+
+    const bytes = ws.midi_file.write(app.allocator, note_buf[0..count], app.session.project.tempo_bpm) catch {
+        app.setStatus("export-midi: out of memory", .{});
+        return;
+    };
+    defer app.allocator.free(bytes);
+
+    var path_buf: [path_buf_len]u8 = undefined;
+    const path = expandHome(&path_buf, trimmed);
+    const file = std.Io.Dir.cwd().createFile(app.io, path, .{}) catch |e| {
+        app.setStatus("export-midi: cannot write '{s}': {s}", .{ path, @errorName(e) });
+        return;
+    };
+    defer file.close(app.io);
+    var write_buf: [8192]u8 = undefined;
+    var fw = file.writer(app.io, &write_buf);
+    if (fw.interface.writeAll(bytes)) |_| {} else |e| {
+        app.setStatus("export-midi: write failed: {s}", .{@errorName(e)});
+        return;
+    }
+    fw.interface.flush() catch |e| {
+        app.setStatus("export-midi: write failed: {s}", .{@errorName(e)});
+        return;
+    };
+    app.setStatus("exported {d} notes: {s}", .{ count, path });
 }
 // zig fmt: off
 
