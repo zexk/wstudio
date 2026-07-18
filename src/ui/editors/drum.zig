@@ -501,37 +501,32 @@ fn exitVisual(app: *App) void {
 }
 
 /// Yank every pad's steps within the selected range into the range
-/// clipboard, rebased so the range's first step is bit 0. A range wider
-/// than 64 steps is capped (see `step_grid.clampRangeWidth`) - the
-/// clipboard is a fixed 64-bit bitmask regardless of pattern length.
+/// clipboard, rebased so the range's first step is bit 0. No width cap -
+/// the clipboard is heap-allocated to fit the range (see `DrumRangeClip`).
 fn yankSelection(app: *App) void {
     const dm = app.drumMachine();
-    const raw = step_grid.selectionRange(u16, app.drum_visual_anchor, app.drum_cursor[1]);
-    const capped = step_grid.clampRangeWidth(u16, raw);
-    const clip = step_grid.yankRange(DrumRangeClip, dm, DrumMachine.max_pads, capped.range);
+    const r = step_grid.selectionRange(u16, app.drum_visual_anchor, app.drum_cursor[1]);
+    const clip = step_grid.yankRangeDyn(DrumRangeClip, app.allocator, dm, DrumMachine.max_pads, r) catch {
+        app.setStatus("yank failed - out of memory", .{});
+        exitVisual(app);
+        return;
+    };
+    if (app.drum_range_clip) |*old| old.deinit(app.allocator);
     app.drum_range_clip = clip;
     app.drum_last_yank = .range;
-    if (capped.clamped)
-        app.setStatus("yanked {d} steps (range capped at 64)", .{clip.width})
-    else
-        app.setStatus("yanked {d} steps", .{clip.width});
+    app.setStatus("yanked {d} steps", .{clip.width});
     exitVisual(app);
 }
 
-/// Clear every pad's steps within the selected range (same 64-step
-/// clipboard cap as `yankSelection`).
+/// Clear every pad's steps within the selected range.
 fn deleteSelection(app: *App) void {
     const dm = app.drumMachine();
-    const raw = step_grid.selectionRange(u16, app.drum_visual_anchor, app.drum_cursor[1]);
-    const capped = step_grid.clampRangeWidth(u16, raw);
+    const r = step_grid.selectionRange(u16, app.drum_visual_anchor, app.drum_cursor[1]);
     history.push(app, history.captureDrum(app, app.drum_track));
-    step_grid.clearRange(dm, DrumMachine.max_pads, capped.range);
-    const width: u8 = @intCast(capped.range.hi - capped.range.lo + 1);
+    step_grid.clearRange(dm, DrumMachine.max_pads, r);
+    const width: u16 = r.hi - r.lo + 1;
     app.last_edit = .{ .drum_range_delete = .{ .width = width } };
-    if (capped.clamped)
-        app.setStatus("cleared {d} steps (range capped at 64)", .{width})
-    else
-        app.setStatus("cleared {d} steps", .{width});
+    app.setStatus("cleared {d} steps", .{width});
     exitVisual(app);
 }
 
@@ -545,7 +540,7 @@ fn pasteSelection(app: *App) void {
     };
     const dm = app.drumMachine();
     history.push(app, history.captureDrum(app, app.drum_track));
-    const n = step_grid.pasteRange(dm, DrumMachine.max_pads, clip, app.drum_cursor[1]);
+    const n = step_grid.pasteRangeDyn(dm, DrumMachine.max_pads, clip, app.drum_cursor[1]);
     app.last_edit = .drum_range_paste;
     app.setStatus("pasted {d} steps", .{n});
     exitVisual(app);
@@ -558,7 +553,7 @@ fn repeatLastEdit(app: *App) void {
     switch (app.last_edit) {
         .drum_range_delete => |v| {
             const dm = app.drumMachine();
-            const hi: u16 = @min(dm.step_count -| 1, app.drum_cursor[1] +| (@as(u16, v.width) -| 1));
+            const hi: u16 = @min(dm.step_count -| 1, app.drum_cursor[1] +| (v.width -| 1));
             app.drum_visual_anchor = hi;
             deleteSelection(app);
         },

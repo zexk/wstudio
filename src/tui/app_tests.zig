@@ -1630,7 +1630,7 @@ test "drum grid visual mode selects a step range across pads for y/d/P" {
     for ("3l") |c| app.handleKey(.{ .char = c }, 0); // extend to step 3
     app.handleKey(.{ .char = 'y' }, 0);
     try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
-    try std.testing.expectEqual(@as(u8, 4), app.drum_range_clip.?.width);
+    try std.testing.expectEqual(@as(u16, 4), app.drum_range_clip.?.width);
 
     // Paste at step 8 (all pads): P is a visual-mode action, so re-enter
     // visual first (v establishes the cursor as the paste point).
@@ -1652,6 +1652,34 @@ test "drum grid visual mode selects a step range across pads for y/d/P" {
     app.handleKey(.{ .char = 'd' }, 0);
     try std.testing.expect(!dm.stepActive(0, 0));
     try std.testing.expect(!dm.stepActive(1, 2));
+}
+
+test "drum grid visual mode yank/paste carries a range wider than the old 64-step clipboard cap" {
+    var app = try testApp();
+    defer app.deinit();
+    app.view = .drum_grid;
+    app.drum_track = 2;
+    const dm = app.drumMachine();
+    for (0..ws.dsp.DrumMachine.max_pads) |p| dm.clearPad(@intCast(p));
+    dm.setStepCount(200);
+    dm.toggleStep(0, 0);
+    dm.toggleStep(0, 90); // past the old 64-bit clipboard's reach
+    dm.setStepVel(0, 90, 50);
+
+    // Select steps 0-99 (100 wide) and yank.
+    app.drum_cursor = .{ 0, 0 };
+    app.handleKey(.{ .char = 'v' }, 0);
+    for ("99l") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.{ .char = 'y' }, 0);
+    try std.testing.expectEqual(@as(u16, 100), app.drum_range_clip.?.width);
+
+    // Paste at step 50 - step 90's offset (50) lands at step 140.
+    app.drum_cursor[1] = 50;
+    app.handleKey(.{ .char = 'v' }, 0);
+    app.handleKey(.{ .char = 'P' }, 0);
+    try std.testing.expect(dm.stepActive(0, 50));
+    try std.testing.expect(dm.stepActive(0, 140));
+    try std.testing.expectEqual(@as(u8, 50), dm.stepVel(0, 140));
 }
 
 test "drum grid visual mode: w/b extend the selection by bar, matching normal-mode jumpBar" {
@@ -1747,7 +1775,7 @@ test "drum grid operator+motion: d3l / y3l act on a range without entering visua
     app.drum_cursor = .{ 0, 0 };
     for ("y3l") |c| app.handleKey(.{ .char = c }, 0); // y + motion: yank steps 0-3
     try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
-    try std.testing.expectEqual(@as(u8, 4), app.drum_range_clip.?.width);
+    try std.testing.expectEqual(@as(u16, 4), app.drum_range_clip.?.width);
     try std.testing.expectEqual(@as(u8, 3), app.drum_cursor[1]); // cursor follows the motion
 
     app.drum_cursor = .{ 0, 0 };

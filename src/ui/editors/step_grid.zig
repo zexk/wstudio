@@ -16,12 +16,15 @@
 //! Cursor motion (`moveClamped`/`jumpBar`/`operatorBarForward`/
 //! `operatorBarBackward`) is generic over that width (`anytype`, dispatched
 //! on the pointee's type) so both editors share one implementation with no
-//! drift. The visual-mode clipboard (`yankRange`/`pasteRange`/`DrumRangeClip`/
-//! `SlicerRangeClip`) stays a fixed 64-bit-wide bitmask either way - a
-//! single yank/delete range is capped at 64 steps regardless of how long
-//! the pattern itself has grown (see `clampRangeWidth`), the same practical
-//! ceiling the whole grid used to have. `doublePattern`'s cap is an explicit
-//! parameter so the drum and slicer call sites can each pass their own.
+//! drift. The visual-mode clipboard now forks in two: Slicer's storage
+//! stays capped at `max_steps = 64`, so `SlicerRangeClip` keeps the original
+//! fixed 64-bit-wide bitmask and the plain `yankRange`/`pasteRange` below.
+//! The drum machine's own step storage is unbounded (heap-owned per-pad
+//! slice, see dsp/drum_sampler.zig), so `DrumRangeClip` is heap-allocated
+//! and sized to the yanked range's actual width - `yankRangeDyn`/
+//! `pasteRangeDyn` do the word-indexed bitset math that needs.
+//! `doublePattern`'s cap is an explicit parameter so the drum and slicer
+//! call sites can each pass their own.
 
 const std = @import("std");
 
@@ -34,16 +37,6 @@ pub fn StepRange(comptime T: type) type {
 pub fn selectionRange(comptime T: type, anchor: ?T, cursor: T) StepRange(T) {
     const a = anchor orelse cursor;
     return .{ .lo = @min(a, cursor), .hi = @max(a, cursor) };
-}
-
-/// Cap a range's width at 64 steps (keeping `lo` fixed) - the yank/paste
-/// clipboard (`DrumRangeClip`/`SlicerRangeClip`) is a fixed 64-bit bitmask
-/// regardless of how long the live pattern has grown. Returns whether the
-/// range was actually clamped, so callers can surface a status message.
-pub fn clampRangeWidth(comptime T: type, r: StepRange(T)) struct { range: StepRange(T), clamped: bool } {
-    const width = @as(u32, r.hi) - @as(u32, r.lo) + 1;
-    if (width <= 64) return .{ .range = r, .clamped = false };
-    return .{ .range = .{ .lo = r.lo, .hi = r.lo +| @as(T, 63) }, .clamped = true };
 }
 
 /// Move a cursor by `delta`, clamped to `[0, count-1]` (or 0 if `count`
@@ -149,10 +142,10 @@ pub fn doublePattern(inst: anytype, max_rows: usize, max_steps: anytype) bool {
     return true;
 }
 
-/// Yank every row's steps within `r` into a `Clip` (DrumRangeClip or
-/// SlicerRangeClip - both duck-type `width`/`active`/`vel`), rebased so the
-/// range's first step is bit 0. `r` must already be at most 64 steps wide
-/// (see `clampRangeWidth`) - the clip itself is a fixed 64-bit bitmask.
+/// Yank every row's steps within `r` into a `Clip` (SlicerRangeClip -
+/// duck-types `width`/`active`/`vel` as fixed arrays), rebased so the
+/// range's first step is bit 0. `r` can never be more than 64 steps wide
+/// here since Slicer's own step indices already top out at `max_steps = 64`.
 pub fn yankRange(comptime Clip: type, inst: anytype, max_rows: usize, r: anytype) Clip {
     var clip: Clip = .{ .width = @intCast(@as(u32, r.hi) - @as(u32, r.lo) + 1) };
     for (0..max_rows) |row| {
@@ -194,6 +187,56 @@ pub fn pasteRange(inst: anytype, max_rows: usize, clip: anytype, base: anytype) 
     return i;
 }
 
+/// `yankRange`'s heap-allocated counterpart for a `Clip` whose `active`/
+/// `vel` fields are per-row slices sized to the range's actual width (word
+/// `i / 64`, bit `i % 64` of `active[row]` is step `r.lo + i`) rather than a
+/// fixed 64-bit shape - see `DrumRangeClip`. `r` may be any width; the
+/// caller owns the result and must free it with `Clip.deinit`.
+pub fn yankRangeDyn(comptime Clip: type, allocator: std.mem.Allocator, inst: anytype, max_rows: usize, r: anytype) !Clip {
+    const width: u32 = @as(u32, r.hi) - @as(u32, r.lo) + 1;
+    const words = (width + 63) / 64;
+    var clip: Clip = .{ .width = @intCast(width), .active = undefined, .vel = undefined };
+    var row: usize = 0;
+    errdefer for (0..row) |i| {
+        allocator.free(clip.active[i]);
+        allocator.free(clip.vel[i]);
+    };
+    while (row < max_rows) : (row += 1) {
+        clip.active[row] = try allocator.alloc(u64, words);
+        @memset(clip.active[row], 0);
+        clip.vel[row] = allocator.alloc(u8, width) catch |err| {
+            allocator.free(clip.active[row]);
+            return err;
+        };
+        var s = r.lo;
+        while (s <= r.hi) : (s += 1) {
+            const offset: u32 = @as(u32, s) - @as(u32, r.lo);
+            clip.vel[row][offset] = inst.stepVel(@intCast(row), s);
+            if (!inst.stepActive(@intCast(row), s)) continue;
+            clip.active[row][offset / 64] |= @as(u64, 1) << @intCast(offset % 64);
+        }
+    }
+    return clip;
+}
+
+/// `pasteRange`'s counterpart for a dynamically-sized `clip` (see
+/// `yankRangeDyn`/`DrumRangeClip`).
+pub fn pasteRangeDyn(inst: anytype, max_rows: usize, clip: anytype, base: anytype) @TypeOf(base) {
+    const T = @TypeOf(base);
+    var i: T = 0;
+    while (i < clip.width) : (i += 1) {
+        const target = base +| i;
+        if (target >= inst.step_count) break;
+        const idx: usize = i;
+        for (0..max_rows) |row| {
+            const bit = @as(u64, 1) << @intCast(idx % 64);
+            const active = clip.active[row][idx / 64] & bit != 0;
+            setStep(inst, @intCast(row), target, active, clip.vel[row][idx]);
+        }
+    }
+    return i;
+}
+
 test "cursor motions clamp maximum count prefixes without overflow" {
     var cursor: u8 = 7;
     moveClamped(&cursor, std.math.maxInt(i32), 16);
@@ -226,17 +269,4 @@ test "cursor motions work at u16 width past the old u8 ceiling" {
     try std.testing.expectEqual(@as(u16, 304), cursor);
     moveClamped(&cursor, std.math.maxInt(i32), 1000);
     try std.testing.expectEqual(@as(u16, 999), cursor);
-}
-
-test "clampRangeWidth caps a wide selection at 64 steps" {
-    const r = selectionRange(u16, 10, 500);
-    const capped = clampRangeWidth(u16, r);
-    try std.testing.expect(capped.clamped);
-    try std.testing.expectEqual(@as(u16, 10), capped.range.lo);
-    try std.testing.expectEqual(@as(u16, 73), capped.range.hi);
-
-    const narrow = selectionRange(u16, 10, 20);
-    const uncapped = clampRangeWidth(u16, narrow);
-    try std.testing.expect(!uncapped.clamped);
-    try std.testing.expectEqual(@as(u16, 20), uncapped.range.hi);
 }

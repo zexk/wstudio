@@ -128,16 +128,24 @@ pub const PianoClip = struct {
 /// A visual-mode range yank from the drum grid: one step-range's worth of
 /// active/velocity bits across every pad, rebased so the selection's first
 /// step becomes bit 0. Paste places it starting at the cursor step.
-/// A single yank/delete range is capped at 64 steps regardless of how long
-/// the live pattern has grown (see `step_grid.clampRangeWidth`) - the clip
-/// itself stays this fixed 64-bit-wide bitmask either way, same shape
-/// `SlicerRangeClip` always had.
+/// Heap-owned and sized to the yanked range's actual width (word `i / 64`,
+/// bit `i % 64` of `active[pad]` is step `lo + i`) - the drum machine's own
+/// step storage dropped its 64-step ceiling (see dsp/drum_sampler.zig), so
+/// the clipboard no longer clamps range width either (see
+/// step_grid.yankRangeDyn/pasteRangeDyn). `SlicerRangeClip` keeps the old
+/// fixed 64-bit shape below since the slicer's own storage stays capped at
+/// `Slicer.max_steps = 64`.
 pub const DrumRangeClip = struct {
-    width: u8,
-    active: [DrumMachine.max_pads]u64 = [_]u64{0} ** DrumMachine.max_pads,
+    width: u16,
+    active: [DrumMachine.max_pads][]u64,
     /// Per-step velocity within the yanked range (index = step - range
-    /// start); sized to the 64-step clipboard cap, not `max_steps`.
-    vel: [DrumMachine.max_pads][64]u8 = [_][64]u8{[_]u8{DrumMachine.vel_full} ** 64} ** DrumMachine.max_pads,
+    /// start), one heap-owned `width`-long slice per pad.
+    vel: [DrumMachine.max_pads][]u8,
+
+    pub fn deinit(self: *const DrumRangeClip, allocator: std.mem.Allocator) void {
+        for (self.active) |a| allocator.free(a);
+        for (self.vel) |v| allocator.free(v);
+    }
 };
 
 /// A visual-mode range yank from the slicer grid - same shape as
@@ -177,7 +185,7 @@ pub const RepeatOp = union(enum) {
     piano_drag: struct { dstep: i32, dpitch: i32 },
     piano_range_delete: struct { width: u16 },
     piano_range_paste,
-    drum_range_delete: struct { width: u8 },
+    drum_range_delete: struct { width: u16 },
     drum_range_paste,
     slicer_range_delete: struct { width: u8 },
     slicer_range_paste,
@@ -724,6 +732,7 @@ pub const App = struct {
             self.allocator.free(r.clips);
         }
         if (self.automation_range_clip) |r| self.allocator.free(r.points);
+        if (self.drum_range_clip) |*c| c.deinit(self.allocator);
         if (self.drum_clip) |*c| DrumMachine.freeMidi(self.allocator, &c.midi);
         if (self.pending_fx_nudge) |*p| p.deinit(self.allocator);
         self.freeBrowserEntries();
