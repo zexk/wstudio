@@ -80,6 +80,8 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "seek",        .desc = "<bar>  move playhead to bar",         .run = wrap(cmdSeek) },
     .{ .name = "pad-rename",  .desc = "<1-64> <name>  rename a loaded drum pad (up to 8 chars)", .run = wrap(cmdPadRename), .scope = .drum },
     .{ .name = "load",        .desc = "[file]  load the WAV type for the current view and selected instrument; omit the file to browse", .run = wrap(cmdLoad) },
+    .{ .name = "clap-instrument", .desc = "<plugin-id> <path>  load a CLAP instrument on the cursor track", .run = wrap(cmdClapInstrument) },
+    .{ .name = "clap-fx",     .desc = "<plugin-id> <path>  append a CLAP effect to the cursor track", .run = wrap(cmdClapFx) },
     .{ .name = "slice",       .desc = "<n>  equal-divide the slicer's loaded clip into n slices (1-64)", .run = wrap(cmdSlice), .scope = .slicer },
     .{ .name = "chop",        .desc = "[1-9]  chop the slicer's clip at detected transients (sensitivity, default 5)", .run = wrap(cmdChop), .scope = .slicer },
     .{ .name = "edit",        .desc = "[file]  open a project (refuses if unsaved changes; omit the file to browse)", .run = wrap(cmdEdit) },
@@ -161,6 +163,66 @@ fn cmdQuitForce(app: *App, _: []const u8) void { app.should_quit = true; }
 fn cmdEdit(app: *App, args: []const u8) void { editOrRevert(app, args, false); }
 fn cmdEditForce(app: *App, args: []const u8) void { editOrRevert(app, args, true); }
 // zig fmt: on
+
+fn clapArgs(app: *App, args: []const u8, usage: []const u8) ?struct { id: []const u8, path: []const u8 } {
+    const trimmed = std.mem.trim(u8, args, " ");
+    const split = std.mem.indexOfScalar(u8, trimmed, ' ') orelse {
+        app.setStatus("usage: {s}", .{usage});
+        return null;
+    };
+    const id = trimmed[0..split];
+    const path = std.mem.trim(u8, trimmed[split + 1 ..], " ");
+    if (id.len == 0 or path.len == 0) {
+        app.setStatus("usage: {s}", .{usage});
+        return null;
+    }
+    return .{ .id = id, .path = path };
+}
+
+fn cmdClapInstrument(app: *App, args: []const u8) void {
+    const parsed = clapArgs(app, args, ":clap-instrument <plugin-id> <path>") orelse return;
+    var path_buf: [path_buf_len]u8 = undefined;
+    const path = expandHome(&path_buf, parsed.path);
+    const track = app.cursorTrack() orelse {
+        app.setStatus("select a track first", .{});
+        return;
+    };
+    app.session.setClapInstrument(track, path, parsed.id) catch |err| {
+        app.setStatus("CLAP instrument: {s}", .{@errorName(err)});
+        return;
+    };
+    app.dirty = true;
+    app.setStatus("CLAP instrument loaded: {s}", .{parsed.id});
+}
+
+fn cmdClapFx(app: *App, args: []const u8) void {
+    const parsed = clapArgs(app, args, ":clap-fx <plugin-id> <path>") orelse return;
+    var path_buf: [path_buf_len]u8 = undefined;
+    const path = expandHome(&path_buf, parsed.path);
+    const track = app.cursorTrack() orelse {
+        app.setStatus("select a track first", .{});
+        return;
+    };
+    const rack = app.session.racks.items[track];
+    const unit = rack.fx.insertClap(
+        app.session.allocator,
+        rack.fx.units.items.len,
+        path,
+        parsed.id,
+        app.session.project.sample_rate,
+    ) catch |err| {
+        app.setStatus("CLAP effect: {s}", .{@errorName(err)});
+        return;
+    };
+    if (unit.payload.clap.audio_inputs_count != 1) {
+        rack.fx.remove(app.session.allocator, rack.fx.units.items.len - 1);
+        app.setStatus("CLAP plugin has no stereo audio input", .{});
+        return;
+    }
+    app.session.syncTrackChain(@intCast(track), rack);
+    app.dirty = true;
+    app.setStatus("CLAP effect loaded: {s}", .{parsed.id});
+}
 
 /// `:e <file>` swaps in a different project (refusing on unsaved changes,
 /// like `:q`). `:e!` forces it; `:e!` alone (no path) reverts the current

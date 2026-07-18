@@ -81,6 +81,7 @@ fn fxCategory(kind: ws.FxKind) []const u8 {
         .sat, .crush, .tape => "CHARACTER",
         .chorus, .flanger, .phaser, .freq_shift => "MODULATION",
         .delay, .reverb => "TIME",
+        .clap => "PLUGIN",
     };
 }
 
@@ -118,6 +119,7 @@ fn fxDescription(kind: ws.FxKind) []const u8 {
         .freq_shift => "Shift the full frequency spectrum",
         .delay => "Stereo echoes with feedback",
         .reverb => "Place the sound in a room",
+        .clap => "External CLAP audio plugin",
     };
 }
 

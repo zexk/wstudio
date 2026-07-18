@@ -133,6 +133,7 @@ pub fn fxKindAccent(kind: ws.FxKind) [4]f32 {
         .sat, .crush, .tape => palette.modulation,
         .chorus, .flanger, .phaser, .freq_shift => palette.focus,
         .delay, .reverb => palette.audio,
+        .clap => palette.focus,
     };
 }
 
