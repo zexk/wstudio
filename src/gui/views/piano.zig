@@ -103,12 +103,13 @@ pub fn draw(app: anytype) void {
         zgui.textDisabled("ghost", .{});
     }
     drawToolbar(app);
-    zgui.textDisabled("click empty: draw   drag note: move   drag handle: resize   right-click: erase", .{});
 
     const gutter_w: f32 = 58;
     const ruler_h: f32 = 24;
     const row_h: f32 = 18;
-    const row_count: usize = 37;
+    const controller_h: f32 = 96;
+    const available = zgui.getContentRegionAvail();
+    const row_count: usize = @intFromFloat(std.math.clamp(@floor((available[1] - ruler_h - controller_h - 8) / row_h), 24, 37));
     const cursor_pitch: usize = app.core.piano_cursor_pitch;
     const current_top: usize = app.piano_top_pitch;
     const current_bottom = current_top -| (row_count - 1);
@@ -116,7 +117,6 @@ pub fn draw(app: anytype) void {
     if (cursor_pitch < current_bottom) app.piano_top_pitch = @intCast(@min(127, cursor_pitch + row_count - 1));
     const top_pitch: u7 = app.piano_top_pitch;
     const bottom_pitch: u7 = top_pitch -| @as(u7, @intCast(row_count - 1));
-    const available = zgui.getContentRegionAvail();
     const canvas_w = @max(320, available[0]);
     const canvas_h = ruler_h + row_h * @as(f32, @floatFromInt(row_count));
     const origin = zgui.getCursorScreenPos();
@@ -289,6 +289,42 @@ pub fn draw(app: anytype) void {
             }
             app.piano_mouse_edit = null;
         }
+    }
+    zgui.spacing();
+    drawVelocityLane(app, pp, canvas_w, gutter_w, beats, controller_h);
+}
+
+fn drawVelocityLane(app: anytype, pp: *ws.dsp.PatternPlayer, width: f32, gutter_w: f32, beats: f32, height: f32) void {
+    const origin = zgui.getCursorScreenPos();
+    _ = zgui.invisibleButton("piano-velocity-lane", .{ .w = width, .h = height });
+    const draw_list = zgui.getWindowDrawList();
+    const grid_x = origin[0] + gutter_w;
+    const grid_w = width - gutter_w;
+    const beat_w = grid_w / beats;
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(patina.bg0) });
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ grid_x, origin[1] + height }, .col = color(patina.bg2) });
+    draw_list.addText(.{ origin[0] + 8, origin[1] + 8 }, color(patina.rhythm), "VELOCITY", .{});
+    draw_list.addText(.{ origin[0] + 8, origin[1] + 30 }, color(patina.fg3), "</> nudge", .{});
+
+    const steps_per_beat = app.core.pianoStepsPerBeat();
+    for (0..@as(usize, @intFromFloat(@ceil(beats))) + 1) |beat| {
+        const x = grid_x + @as(f32, @floatFromInt(beat)) * beat_w;
+        draw_list.addLine(.{ .p1 = .{ x, origin[1] }, .p2 = .{ x, origin[1] + height }, .col = color(patina.line), .thickness = 1 });
+    }
+    while (!pp.notes_lock.tryLock()) std.atomic.spinLoopHint();
+    defer pp.notes_lock.unlock();
+    for (pp.notes[0..pp.note_count]) |note| {
+        const x = grid_x + @as(f32, @floatCast(note.start_beat)) * beat_w;
+        const bar_width = @max(3, beat_w / @as(f32, @floatFromInt(steps_per_beat)) - 2);
+        const bar_height = std.math.clamp(note.velocity, 0.05, 1) * (height - 16);
+        const start_step: u16 = @intFromFloat(@round(note.start_beat * @as(f64, @floatFromInt(steps_per_beat))));
+        const selected = note.pitch == app.core.piano_cursor_pitch and start_step == app.core.piano_cursor_step;
+        draw_list.addRectFilled(.{
+            .pmin = .{ x + 1, origin[1] + height - bar_height },
+            .pmax = .{ x + bar_width, origin[1] + height - 2 },
+            .col = color(if (selected) patina.rhythm else .{ patina.audio[0], patina.audio[1], patina.audio[2], 0.72 }),
+            .rounding = 2,
+        });
     }
 }
 
