@@ -809,15 +809,25 @@ pub fn cancelPicker(app: *App) void {
 pub fn removeFocused(app: *App, target: EqTarget) void {
     const fx = fxPtr(app, target) orelse return;
     if (app.fx_focus >= fx.units.items.len) return;
+    // Reserve retirement space before mutating anything, mirroring
+    // Session.deleteTrack - a failed reservation must leave the chain
+    // untouched rather than orphan the unit after it's already unlinked.
+    app.session.retired_fx.ensureUnusedCapacity(app.session.allocator, 1) catch {
+        app.setStatus("out of memory", .{});
+        return;
+    };
     history.recordFx(app, target);
-    // Unlink and push the shortened chain to the audio thread *before*
-    // freeing the unit, so a delay/reverb line can't be torn down while a
-    // freshly-fetched chain still points at it.
+    // Unlink and push the shortened chain to the audio thread, then retire
+    // (not free) the unit - ChainBank.set's atomic buffer flip only
+    // guarantees a whole-chain-consistent read, not that the audio thread
+    // has finished calling process() on a unit that was in the chain it
+    // read just before the flip. Freeing here immediately would be a
+    // crash-capable use-after-free race; retired_fx is freed at session
+    // deinit instead, same policy as retired_racks.
     const unit = fx.units.orderedRemove(app.fx_focus);
     syncChain(app, target);
     const label = unitLabel(unit.kind());
-    unit.payload.deinit(app.session.allocator);
-    app.session.allocator.destroy(unit);
+    app.session.retired_fx.appendAssumeCapacity(unit);
     if (app.fx_focus > 0 and app.fx_focus >= fx.units.items.len) app.fx_focus -= 1;
     app.fx_param = 0;
     app.dirty = true;
