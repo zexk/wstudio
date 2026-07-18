@@ -43,9 +43,13 @@ pub fn drawFx(app: anytype) void {
     var synth_buf: [14]ws.dsp.synth.FxUnitKind = undefined;
     const synth_kinds = if (app.core.view == .synth_fx_picker) synth_ed.filteredSynthFxPickerKinds(&app.core, &synth_buf) else &.{};
     const kinds = spectrum_ed.picker_kinds;
-    const width = zgui.getContentRegionAvail()[0];
+    const available = zgui.getContentRegionAvail()[0];
     const count = if (app.core.view == .synth_fx_picker) synth_kinds.len else kinds.len;
+    const gap: f32 = 10;
+    const columns: usize = if (app.core.view == .synth_fx_picker and available >= 700) 2 else 1;
+    const width = (available - gap * @as(f32, @floatFromInt(columns - 1))) / @as(f32, @floatFromInt(columns));
     for (0..count) |i| {
+        if (i % columns != 0) zgui.sameLine(.{ .spacing = gap });
         const kind = if (app.core.view == .synth_fx_picker) synth_ed.asFxKind(synth_kinds[i]) else kinds[i];
         var id_buf: [48]u8 = undefined;
         const id = std.fmt.bufPrintZ(&id_buf, "fx-picker-card-{d}", .{i}) catch continue;
