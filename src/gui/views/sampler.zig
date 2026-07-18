@@ -75,17 +75,26 @@ const shared_sections = [_]Section{
 // zig fmt: on
 
 fn drawSharedSections(app: anytype, target: Target) void {
-    for (shared_sections) |section| {
-        widgets.sectionTitle(section.title, section.color.*);
-        if (section.is_adsr) {
-            drawAmpEnvelope(app, target);
-        } else {
-            for (section.rows) |row| drawParam(app, target, row.id, row.label, row.fmt);
+    const available = zgui.getContentRegionAvail()[0];
+    const gap: f32 = 10;
+    const columns: usize = if (available >= 820) shared_sections.len else 1;
+    const column_width = (available - gap * @as(f32, @floatFromInt(columns - 1))) / @as(f32, @floatFromInt(columns));
+    for (shared_sections, 0..) |section, index| {
+        if (index > 0 and columns > 1) zgui.sameLine(.{ .spacing = gap });
+        var child_buf: [32]u8 = undefined;
+        const child_id = std.fmt.bufPrintZ(&child_buf, "sampler-module-{d}", .{index}) catch continue;
+        if (zgui.beginChild(child_id, .{ .w = if (columns > 1 and index + 1 < columns) column_width else 0, .h = 205, .child_flags = .{ .border = true } })) {
+            widgets.sectionTitle(section.title, section.color.*);
+            if (section.is_adsr) {
+                drawAmpEnvelope(app, target);
+            } else {
+                for (section.rows) |row| drawParam(app, target, row.id, row.label, row.fmt);
+            }
+            if (section.rows[section.rows.len - 1].id == 8) {
+                drawToggle(app, target, 9, "REVERSE", "FORWARD", if (target == .pad) patina.modulation else patina.focus);
+            }
         }
-        if (section.rows[section.rows.len - 1].id == 8) {
-            drawToggle(app, target, 9, "REVERSE", "FORWARD", if (target == .pad) patina.modulation else patina.focus);
-        }
-        zgui.spacing();
+        zgui.endChild();
     }
 }
 
@@ -142,9 +151,16 @@ fn drawStandalone(app: anytype) void {
     zgui.spacing();
     const target: Target = .{ .standalone = .{ .sampler = sampler, .track = track } };
     widgets.sectionTitle("SAMPLE WAVEFORM", patina.audio);
+    var has_sample = false;
     if (sampler.pad_lock.tryLock()) {
         defer sampler.pad_lock.unlock();
+        has_sample = sampler.pad.samples.len > 0;
         drawWaveformRegion(app, target, sampler.pad.samples);
+    }
+    if (!has_sample) {
+        zgui.spacing();
+        zgui.textDisabled("Load a sample before editing trim, pitch, envelope, or output controls.", .{});
+        return;
     }
     zgui.spacing();
 
@@ -275,7 +291,7 @@ fn drawWaveformRegion(app: anytype, target: Target, samples: []const f32) void {
     const end = target.value(1) orelse 1;
 
     const width = zgui.getContentRegionAvail()[0];
-    const height: f32 = 150;
+    const height: f32 = std.math.clamp(zgui.getContentRegionAvail()[1] * 0.42, 180, 300);
     const origin = zgui.getCursorScreenPos();
     _ = zgui.invisibleButton("##waveform-region", .{ .w = width, .h = height });
     const hovered = zgui.isItemHovered(.{});
