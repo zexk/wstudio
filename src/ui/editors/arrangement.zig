@@ -661,7 +661,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16) v
             app.cursor = lane;
             if (barAt(app.arr_scroll_bar, ev.x, cw)) |bar| app.arr_cursor_bar = bar;
             const has_clip = if (app.session.arrangement.lane(lane)) |l|
-                l.clipAt(app.arr_cursor_bar) != null
+                l.clipAt(app.arr_cursor_bar * app.arr_grid.ticks()) != null
             else
                 false;
             app.arr_drag_bar = if (has_clip) app.arr_cursor_bar else null;
