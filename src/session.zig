@@ -48,6 +48,12 @@ pub const Session = struct {
     /// Racks removed from active use but not yet freed - the audio thread may
     /// still be mid-frame referencing them. Freed at deinit.
     retired_racks: std.ArrayListUnmanaged(*Rack),
+    /// FX units removed from a track/master/group chain but not yet freed -
+    /// same rationale as `retired_racks`: `ChainBank.set`'s atomic buffer
+    /// flip only guarantees the audio thread reads a whole chain
+    /// consistently, not that it has finished calling `process` on a unit
+    /// dropped from the chain it read just before the flip. Freed at deinit.
+    retired_fx: std.ArrayListUnmanaged(*rack_mod.FxUnit),
     /// Song-mode clip timeline, one lane per track (parallel to `racks`).
     arrangement: Arrangement,
     /// When true, playback follows the arrangement timeline; when false, each
@@ -135,6 +141,7 @@ pub const Session = struct {
             .engine = engine,
             .racks = racks,
             .retired_racks = .empty,
+            .retired_fx = .empty,
             .arrangement = arrangement,
         };
         for (self.racks.items, 0..) |rack, i| {
@@ -968,8 +975,10 @@ pub const Session = struct {
         for (self.racks.items) |r| { r.deinit(self.allocator); self.allocator.destroy(r); }
         self.racks.deinit(self.allocator);
         for (self.retired_racks.items) |r| { r.deinit(self.allocator); self.allocator.destroy(r); }
+        for (self.retired_fx.items) |u| { u.payload.deinit(self.allocator); self.allocator.destroy(u); }
         // zig fmt: on
         self.retired_racks.deinit(self.allocator);
+        self.retired_fx.deinit(self.allocator);
         self.engine.deinit();
         self.allocator.destroy(self.engine);
         self.project.deinit();

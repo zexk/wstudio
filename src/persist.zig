@@ -1777,6 +1777,7 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
         .engine = engine,
         .racks = racks,
         .retired_racks = .empty,
+        .retired_fx = .empty,
         .arrangement = arrangement,
     };
     for (self.racks.items, 0..) |rack, i| {
