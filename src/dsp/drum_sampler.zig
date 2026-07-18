@@ -803,19 +803,29 @@ pub const DrumMachine = struct {
             // step (75% = hardest shuffle). Even steps stay on the grid, so
             // the boundary positions remain strictly increasing.
             const swing_pct = self.swing.load(.monotonic);
-            const swing_delay: f64 = fps * @as(f64, swing_pct - 50.0) / 50.0;
             var step_k = self.next_step_k;
 
             // Resync on discontinuity (seek, loop, first play after stop)
             const expected = @as(f64, @floatFromInt(step_k)) * fps;
-            if (@abs(expected - pos_f) > fps * 2.0) {
+            const resync_steps: u8 = if (self.song_mode) @max(2, self.song_steps_per_beat / 2) else 2;
+            if (@abs(expected - pos_f) > fps * @as(f64, @floatFromInt(resync_steps))) {
                 step_k = @intFromFloat(@ceil(pos_f / fps));
             }
 
             // Fire every step whose boundary falls inside [pos_f, pos_f+frames)
             while (true) {
                 var fire_pos = @as(f64, @floatFromInt(step_k)) * fps;
-                if (step_k & 1 == 1) fire_pos += swing_delay;
+                if (self.song_mode) {
+                    const ticks_per_sixteenth = @max(@as(u8, 1), self.song_steps_per_beat / 4);
+                    if (step_k % ticks_per_sixteenth == 0 and
+                        (step_k / ticks_per_sixteenth) & 1 == 1)
+                    {
+                        fire_pos += fps * ticks_per_sixteenth *
+                            @as(f64, swing_pct - 50.0) / 50.0;
+                    }
+                } else if (step_k & 1 == 1) {
+                    fire_pos += fps * @as(f64, swing_pct - 50.0) / 50.0;
+                }
                 if (fire_pos >= pos_f + @as(f64, @floatFromInt(frames))) break;
 
                 const fire_frame: u32 = if (fire_pos <= pos_f)
@@ -1089,6 +1099,42 @@ test "song mode fires the clip covering the playhead" {
     dm.processBlock(&buf);
     peak = 0;
     for (buf) |s| peak = @max(peak, @abs(s));
+    try std.testing.expect(peak > 0.01);
+}
+
+test "song mode swing follows the clip's sixteenth-note grid" {
+    var transport: Transport = .{ .sample_rate = 48_000, .tempo_bpm = 120.0 };
+    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    defer dm.deinit();
+
+    var pat = [_]u64{0} ** DrumMachine.max_pads;
+    pat[0] = 1 << 1;
+    const clip = DrumMachine.SongClip{
+        .start_step = 0,
+        .span_steps = 32,
+        .step_count = 16,
+        .steps_per_beat = 4,
+        .pattern = pat,
+    };
+    dm.setSongClips(&.{clip}, 32, 32);
+    dm.song_mode = true;
+    dm.adjustSwing(100.0);
+    transport.play();
+
+    var buf: [512]Sample = undefined;
+    while (transport.position_frames < 8960) {
+        @memset(&buf, 0.0);
+        dm.processBlock(&buf);
+        var peak: f32 = 0;
+        for (buf) |sample| peak = @max(peak, @abs(sample));
+        try std.testing.expect(peak < 0.01);
+        transport.advance(256);
+    }
+
+    @memset(&buf, 0.0);
+    dm.processBlock(&buf);
+    var peak: f32 = 0;
+    for (buf) |sample| peak = @max(peak, @abs(sample));
     try std.testing.expect(peak > 0.01);
 }
 
