@@ -26,8 +26,11 @@ pub fn draw(app: anytype) void {
     const bar_count: u32 = @max(8, @max((content_ticks + ticks_per_bar - 1) / ticks_per_bar, cursor_bar_count));
     const gutter_w: f32 = 132;
     const ruler_h: f32 = 30;
-    const lane_h: f32 = 58;
     const available = zgui.getContentRegionAvail();
+    const lane_h: f32 = if (track_count == 0)
+        58
+    else
+        std.math.clamp((available[1] * 0.76 - ruler_h) / @as(f32, @floatFromInt(track_count)), 58, 96);
     const canvas_w = @max(420, available[0]);
     const canvas_h = ruler_h + lane_h * @as(f32, @floatFromInt(track_count));
     const origin = zgui.getCursorScreenPos();
@@ -52,6 +55,10 @@ pub fn draw(app: anytype) void {
         const rack = app.core.session.racks.items[ti];
         const rack_label: []const u8 = if (std.meta.activeTag(rack.instrument) == .empty) "-- empty --" else rack.label;
         draw_list.addText(.{ origin[0] + 34, y + 32 }, color(patina.fg3), "[{s}]", .{rack_label});
+        const lane = app.core.session.arrangement.lane(@intCast(ti));
+        if (lane == null or lane.?.clips.items.len == 0) {
+            draw_list.addText(.{ timeline_x + 12, y + lane_h * 0.5 - 8 }, color(if (selected) patina.fg2 else patina.fg3), "{s}", .{if (selected) "Press s to stamp a clip at the cursor" else "Empty lane"});
+        }
         draw_list.addLine(.{ .p1 = .{ origin[0], y + lane_h }, .p2 = .{ origin[0] + canvas_w, y + lane_h }, .col = color(patina.line), .thickness = 1 });
     }
 
@@ -169,4 +176,36 @@ pub fn draw(app: anytype) void {
             }
         }
     }
+    zgui.spacing();
+    drawArrangementInspector(app);
+}
+
+fn drawArrangementInspector(app: anytype) void {
+    if (zgui.beginChild("arrangement-inspector", .{ .w = 0, .h = 0, .child_flags = .{ .border = true } })) {
+        if (app.arrangement_clip) |selection| {
+            const clip = app.core.session.arrangement.lanes.items[selection.track].clips.items[selection.clip];
+            zgui.textColored(patina.focus, "SELECTED CLIP", .{});
+            zgui.separator();
+            zgui.text("Track {d:0>2}", .{selection.track + 1});
+            zgui.sameLine(.{ .spacing = 24 });
+            zgui.textDisabled("start  {d:.2} beats", .{@as(f32, @floatFromInt(clip.start_tick)) / ws.time_grid.ticks_per_beat});
+            zgui.sameLine(.{ .spacing = 24 });
+            zgui.textDisabled("length  {d:.2} beats", .{@as(f32, @floatFromInt(clip.length_ticks)) / ws.time_grid.ticks_per_beat});
+            zgui.sameLine(.{ .spacing = 24 });
+            zgui.textDisabled("{s}", .{switch (clip.content) {
+                .melodic => "MIDI",
+                .drum => "DRUM PATTERN",
+            }});
+            zgui.spacing();
+            zgui.textDisabled("x delete   h/l move   H/L resize   a automation", .{});
+        } else if (app.core.cursor < app.core.session.project.tracks.items.len) {
+            const track = app.core.session.project.tracks.items[app.core.cursor];
+            zgui.textColored(patina.audio, "SELECTED LANE  {d:0>2}", .{app.core.cursor + 1});
+            zgui.separator();
+            zgui.text("{s}", .{track.name});
+            zgui.spacing();
+            zgui.textDisabled("s stamp clip   h/l move cursor   v select range", .{});
+        }
+    }
+    zgui.endChild();
 }
