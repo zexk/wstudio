@@ -30,6 +30,8 @@ pub const Sampler = @import("dsp/sampler.zig").Sampler;
 pub const pitch = @import("dsp/pitch.zig");
 pub const drum_kit = @import("dsp/drum_kit.zig");
 pub const Slicer = @import("dsp/slicer.zig").Slicer;
+pub const clap = @import("clap/plugin.zig");
+pub const ClapPlugin = clap.ClapPlugin;
 
 pub const pattern = @import("dsp/pattern.zig");
 pub const PatternPlayer = pattern.PatternPlayer;
@@ -69,6 +71,7 @@ test {
     _ = pitch;
     _ = drum_kit;
     _ = Slicer;
+    _ = clap;
     _ = pattern;
     _ = automation;
     _ = fft;
