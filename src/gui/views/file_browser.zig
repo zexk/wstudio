@@ -10,7 +10,7 @@ pub fn draw(app: anytype) void {
     zgui.spacing();
     zgui.textDisabled("{s}", .{if (app.core.browser_bookmark_mode) "BOOKMARKS" else "FILES"});
     zgui.sameLine(.{});
-    zgui.textColored(patina.fg3, "{s}", .{if (app.core.browser_bookmark_mode) "ENTER JUMP   D DELETE   B CLOSE" else "ENTER OPEN   H PARENT   B MARK   SHIFT+B BOOKMARKS   / SEARCH"});
+    zgui.textColored(patina.fg3, "{s}", .{if (app.core.browser_bookmark_mode) "ENTER JUMP   B CLOSE" else "ENTER OPEN   / SEARCH"});
     zgui.separator();
 
     if (app.core.browser_bookmark_mode) {

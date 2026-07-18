@@ -262,7 +262,7 @@ fn setPointAt(app: anytype, points: *[]ws.dsp.automation.AutomationPoint, beat: 
 pub fn drawParamPicker(app: anytype) void {
     zgui.textColored(patina.focus, "AUTOMATION PARAMETER", .{});
     zgui.sameLine(.{});
-    zgui.textDisabled("ENTER ADD   ESC BACK   / FILTER", .{});
+    zgui.textDisabled("ENTER ADD   / FILTER   ESC BACK", .{});
     zgui.separator();
     const params = automation_ed.instrumentAutomatableParams(&app.core);
     var buf: [automation_ed.max_param_display_rows]automation_ed.ParamDisplayRow = undefined;
