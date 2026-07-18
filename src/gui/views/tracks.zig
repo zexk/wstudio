@@ -14,14 +14,19 @@ pub fn draw(app: anytype) void {
     app.core.tracksRowSync();
     zgui.textDisabled("TRACKS", .{});
     zgui.separator();
+    const row_count = app.core.trackRows().len + 1;
+    const available_height = zgui.getContentRegionAvail()[1];
+    const row_height = std.math.clamp((available_height * 0.68) / @as(f32, @floatFromInt(row_count)), 52, 76);
     for (app.core.trackRows(), 0..) |row, display_row| {
         switch (row) {
-            .track => |track_index| drawMixerRow(app, track_index, display_row),
-            .group => |group_index| drawGroupRow(app, group_index, display_row),
+            .track => |track_index| drawMixerRow(app, track_index, display_row, row_height),
+            .group => |group_index| drawGroupRow(app, group_index, display_row, row_height),
         }
     }
     zgui.separator();
-    drawMasterRow(app);
+    drawMasterRow(app, @max(row_height, 64));
+    zgui.spacing();
+    drawSelectedInspector(app);
 }
 
 /// Shared chrome for one 44px row in the track overview: hit-test button,
@@ -29,8 +34,7 @@ pub fn draw(app: anytype) void {
 /// mixer row overrides the background with the track's own color chip.
 const RowChrome = struct { draw: zgui.DrawList, origin: [2]f32, width: f32, selected: bool };
 
-fn drawRowChrome(app: anytype, id: [:0]const u8, display_row: usize, in_visual: bool, bg_override: ?[4]f32) RowChrome {
-    const height: f32 = 44;
+fn drawRowChrome(app: anytype, id: [:0]const u8, display_row: usize, in_visual: bool, bg_override: ?[4]f32, height: f32) RowChrome {
     const width = zgui.getContentRegionAvail()[0];
     const origin = zgui.getCursorScreenPos();
     const clicked = zgui.invisibleButton(id, .{ .w = width, .h = height });
@@ -49,14 +53,14 @@ fn drawRowChrome(app: anytype, id: [:0]const u8, display_row: usize, in_visual: 
     return .{ .draw = draw_list, .origin = origin, .width = width, .selected = selected };
 }
 
-fn drawMixerRow(app: anytype, track_index: u16, display_row: usize) void {
+fn drawMixerRow(app: anytype, track_index: u16, display_row: usize, height: f32) void {
     const track = app.core.session.project.tracks.items[track_index];
     const rack = app.core.session.racks.items[track_index];
     var id_buf: [32]u8 = undefined;
     const id = std.fmt.bufPrintZ(&id_buf, "mixer-row-{d}", .{track_index}) catch return;
     const accent = trackColor(track.color);
     const colored = track.color > 0 and track.color <= ws.track_color_count;
-    const chrome = drawRowChrome(app, id, display_row, trackRowInVisual(&app.core, display_row), if (colored) accent else null);
+    const chrome = drawRowChrome(app, id, display_row, trackRowInVisual(&app.core, display_row), if (colored) accent else null, height);
     const draw_list = chrome.draw;
     const origin = chrome.origin;
     const width = chrome.width;
@@ -83,6 +87,7 @@ fn drawMixerRow(app: anytype, track_index: u16, display_row: usize) void {
         std.fmt.bufPrint(&pan_buf, "{c}{d:.2}", .{ if (track.pan < 0) @as(u8, 'L') else 'R', @abs(track.pan) }) catch "pan";
     draw_list.addText(.{ origin[0] + width - 190, origin[1] + 14 }, color(row_fg), "{s}", .{gain});
     draw_list.addText(.{ origin[0] + width - 112, origin[1] + 14 }, color(row_muted), "{s}", .{pan});
+    drawTrimMeter(draw_list, origin[0] + width - 205, origin[1] + height - 15, 105, track.gain_db, accent);
 
     var badge_x = origin[0] + width - 9;
     if (track.soloed) {
@@ -95,11 +100,11 @@ fn drawMixerRow(app: anytype, track_index: u16, display_row: usize) void {
     }
 }
 
-fn drawGroupRow(app: anytype, group_index: u8, display_row: usize) void {
+fn drawGroupRow(app: anytype, group_index: u8, display_row: usize, height: f32) void {
     const group = &app.core.session.groups[group_index].?;
     var id_buf: [32]u8 = undefined;
     const id = std.fmt.bufPrintZ(&id_buf, "group-row-{d}", .{group_index}) catch return;
-    const chrome = drawRowChrome(app, id, display_row, trackRowInVisual(&app.core, display_row), null);
+    const chrome = drawRowChrome(app, id, display_row, trackRowInVisual(&app.core, display_row), null, height);
     const draw_list = chrome.draw;
     const origin = chrome.origin;
     const width = chrome.width;
@@ -113,10 +118,11 @@ fn drawGroupRow(app: anytype, group_index: u8, display_row: usize) void {
     draw_list.addText(.{ origin[0] + 41, origin[1] + 23 }, color(patina.fg3), "[group]  {d} track{s}", .{ member_count, if (member_count == 1) "" else "s" });
     drawFxChips(draw_list, &group.fx, origin[0] + width - 430, origin[1] + 12, origin[0] + width - 215);
     draw_list.addText(.{ origin[0] + width - 190, origin[1] + 14 }, color(if (selected) patina.fg0 else patina.fg1), "{d:.1} dB", .{group.gain_db});
+    drawTrimMeter(draw_list, origin[0] + width - 205, origin[1] + height - 15, 105, group.gain_db, patina.modulation);
 }
 
-fn drawMasterRow(app: anytype) void {
-    const chrome = drawRowChrome(app, "master-row", app.core.track_rows_len, false, null);
+fn drawMasterRow(app: anytype, height: f32) void {
+    const chrome = drawRowChrome(app, "master-row", app.core.track_rows_len, false, null, height);
     const draw_list = chrome.draw;
     const origin = chrome.origin;
     const width = chrome.width;
@@ -125,6 +131,61 @@ fn drawMasterRow(app: anytype) void {
     draw_list.addText(.{ origin[0] + 41, origin[1] + 23 }, color(patina.fg3), "[bus]", .{});
     drawFxChips(draw_list, &app.core.session.master_fx, origin[0] + width - 430, origin[1] + 12, origin[0] + width - 215);
     draw_list.addText(.{ origin[0] + width - 190, origin[1] + 14 }, color(if (selected) patina.fg0 else patina.fg1), "{d:.1} dB", .{app.core.master_gain_db});
+    const meter = app.core.session.engine.uiSnapshot().peak;
+    drawStereoMeter(draw_list, origin[0] + width - 205, origin[1] + height - 21, 170, meter);
+}
+
+fn drawTrimMeter(draw_list: zgui.DrawList, x: f32, y: f32, width: f32, gain_db: f32, accent: [4]f32) void {
+    const level = std.math.clamp((gain_db + 60) / 72, 0, 1);
+    draw_list.addRectFilled(.{ .pmin = .{ x, y }, .pmax = .{ x + width, y + 5 }, .col = color(patina.bg0), .rounding = 2 });
+    draw_list.addRectFilled(.{ .pmin = .{ x, y }, .pmax = .{ x + width * level, y + 5 }, .col = color(accent), .rounding = 2 });
+}
+
+fn drawStereoMeter(draw_list: zgui.DrawList, x: f32, y: f32, width: f32, peak: [2]f32) void {
+    for (peak, 0..) |level, channel| {
+        const cy = y + @as(f32, @floatFromInt(channel)) * 8;
+        draw_list.addRectFilled(.{ .pmin = .{ x, cy }, .pmax = .{ x + width, cy + 5 }, .col = color(patina.bg0), .rounding = 2 });
+        draw_list.addRectFilled(.{ .pmin = .{ x, cy }, .pmax = .{ x + width * std.math.clamp(level, 0, 1), cy + 5 }, .col = color(if (level > 0.9) patina.danger else patina.audio), .rounding = 2 });
+    }
+}
+
+fn drawSelectedInspector(app: anytype) void {
+    if (zgui.beginChild("track-inspector", .{ .w = 0, .h = 0, .child_flags = .{ .border = true } })) {
+        if (app.core.track_row >= app.core.trackRows().len) {
+            zgui.textColored(patina.modulation, "MASTER OUTPUT", .{});
+            zgui.separator();
+            zgui.textDisabled("gain  {d:.1} dB", .{app.core.master_gain_db});
+            zgui.spacing();
+            zgui.textDisabled("f FX chain   h/l gain", .{});
+        } else switch (app.core.trackRows()[app.core.track_row]) {
+            .track => |track_index| {
+                const track = app.core.session.project.tracks.items[track_index];
+                const rack = app.core.session.racks.items[track_index];
+                zgui.textColored(trackColor(track.color), "SELECTED TRACK  {d:0>2}", .{track_index + 1});
+                zgui.separator();
+                zgui.text("{s}", .{track.name});
+                zgui.sameLine(.{ .spacing = 24 });
+                zgui.textDisabled("instrument  {s}", .{rack.label});
+                zgui.sameLine(.{ .spacing = 24 });
+                zgui.textDisabled("gain  {d:.1} dB", .{track.gain_db});
+                zgui.sameLine(.{ .spacing = 24 });
+                zgui.textDisabled("pan  {d:.2}", .{track.pan});
+                zgui.spacing();
+                zgui.textDisabled("m mute   s solo   a instrument   f FX chain   g route to group", .{});
+            },
+            .group => |group_index| {
+                const group = app.core.session.groups[group_index].?;
+                zgui.textColored(patina.modulation, "SELECTED GROUP  {d:0>2}", .{group_index + 1});
+                zgui.separator();
+                zgui.text("{s}", .{group.name});
+                zgui.sameLine(.{ .spacing = 24 });
+                zgui.textDisabled("gain  {d:.1} dB", .{group.gain_db});
+                zgui.spacing();
+                zgui.textDisabled("f FX chain   h/l gain   enter fold", .{});
+            },
+        }
+    }
+    zgui.endChild();
 }
 
 fn trackRowInVisual(core: anytype, display_row: usize) bool {
