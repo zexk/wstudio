@@ -30,37 +30,9 @@
               --override font_size=14.0 "$@"
           '';
         };
-    in
-    {
-      nixosModules.default = import ./nixos-module.nix { inherit self; };
-      homeManagerModules.default = import ./home-manager-module.nix { inherit self; };
-
-      devShells = forAllSystems (pkgs: {
-        default = pkgs.mkShell {
-          packages =
-            with pkgs;
-            [
-              zig
-              zls
-              pkg-config
-            ]
-            ++ lib.optionals stdenv.hostPlatform.isLinux [
-              alsa-lib
-              libGL
-              pipewire
-              libx11
-              libxcursor
-              libxi
-              libxinerama
-              libxrandr
-            ];
-        };
-      });
-
-      packages = forAllSystems (pkgs: {
-        neutral-terminal = neutralTerminal pkgs;
-
-        default = pkgs.stdenv.mkDerivation (finalAttrs: {
+      wstudioPackage =
+        pkgs:
+        pkgs.stdenv.mkDerivation (finalAttrs: {
           pname = "wstudio";
           inherit version;
           src = self;
@@ -121,6 +93,48 @@
             } $out/bin/wstudio
           '';
         });
+      # `-u NONE` (src/main.zig) skips loading any init.lua entirely - built-
+      # in defaults only, never touching `~/.config/wstudio/init.lua`. For
+      # trying out a stock build (or bisecting "is this a config problem or
+      # a wstudio problem") without disturbing a real setup.
+      defaultConfigLauncher =
+        pkgs:
+        pkgs.writeShellApplication {
+          name = "wstudio-default-config";
+          runtimeInputs = [ (wstudioPackage pkgs) ];
+          text = ''exec wstudio -u NONE "$@"'';
+        };
+    in
+    {
+      nixosModules.default = import ./nixos-module.nix { inherit self; };
+      homeManagerModules.default = import ./home-manager-module.nix { inherit self; };
+
+      devShells = forAllSystems (pkgs: {
+        default = pkgs.mkShell {
+          packages =
+            with pkgs;
+            [
+              zig
+              zls
+              pkg-config
+            ]
+            ++ lib.optionals stdenv.hostPlatform.isLinux [
+              alsa-lib
+              libGL
+              pipewire
+              libx11
+              libxcursor
+              libxi
+              libxinerama
+              libxrandr
+            ];
+        };
+      });
+
+      packages = forAllSystems (pkgs: {
+        neutral-terminal = neutralTerminal pkgs;
+
+        default = wstudioPackage pkgs;
 
         # Cross-compiled with zig's bundled mingw-w64 headers/CRT - no
         # Windows machine or MSVC toolchain needed to build this, only to
@@ -147,6 +161,11 @@
           type = "app";
           program = "${neutralTerminal pkgs}/bin/wstudio-neutral-terminal";
           meta.description = "Launch wstudio in a terminal with a known-good font configuration";
+        };
+        default-config = {
+          type = "app";
+          program = "${defaultConfigLauncher pkgs}/bin/wstudio-default-config";
+          meta.description = "Launch wstudio with its built-in defaults (-u NONE), never touching ~/.config/wstudio/init.lua";
         };
       });
 

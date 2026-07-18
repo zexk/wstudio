@@ -31,26 +31,52 @@ pub fn main(init: std.process.Init) !void {
     defer args.deinit();
     _ = args.skip(); // argv0
 
-    if (args.next()) |cmd| {
+    // `-u {path}` (Neovim's own flag name) can appear anywhere in the
+    // command line, so it's pulled out in its own pass rather than the
+    // simple positional handling below - the rest of argv is collected
+    // as-is and dispatched exactly like before `-u` existed.
+    var init_override: ?[]const u8 = null;
+    var rest: std.ArrayList([]const u8) = .empty;
+    defer rest.deinit(init.gpa);
+    while (args.next()) |a| {
+        if (std.mem.eql(u8, a, "-u")) {
+            init_override = args.next() orelse return missingInitArg(init.io);
+            continue;
+        }
+        try rest.append(init.gpa, a);
+    }
+
+    if (rest.items.len > 0) {
+        const cmd = rest.items[0];
+        const path: ?[]const u8 = if (rest.items.len > 1) rest.items[1] else null;
         if (std.mem.eql(u8, cmd, "render")) return renderDemo(init.gpa, init.io);
         if (std.mem.eql(u8, cmd, "--version") or std.mem.eql(u8, cmd, "-v")) return printVersion(init.io);
         if (std.mem.eql(u8, cmd, "--help") or std.mem.eql(u8, cmd, "-h")) return printHelp(init.io);
-        if (std.mem.eql(u8, cmd, "--gui")) return runFrontend(init, .gui, args.next());
-        if (std.mem.eql(u8, cmd, "--tui")) return runFrontend(init, .tui, args.next());
-        return runPreferred(init, cmd);
+        if (std.mem.eql(u8, cmd, "--gui")) return runFrontend(init, .gui, init_override, path);
+        if (std.mem.eql(u8, cmd, "--tui")) return runFrontend(init, .tui, init_override, path);
+        return runPreferred(init, init_override, cmd);
     }
-    return runPreferred(init, null);
+    return runPreferred(init, init_override, null);
+}
+
+fn missingInitArg(io: std.Io) !void {
+    var stderr_buffer: [64]u8 = undefined;
+    var stderr_writer = std.Io.File.stderr().writer(io, &stderr_buffer);
+    try stderr_writer.interface.print("wstudio: -u requires a path (or NONE)\n", .{});
+    try stderr_writer.interface.flush();
+    return error.MissingArgument;
 }
 
 /// Launch an explicitly requested frontend, erroring if it was disabled at
 /// build time.
-fn runFrontend(init: std.process.Init, frontend: config_mod.Frontend, path: ?[]const u8) !void {
+fn runFrontend(init: std.process.Init, frontend: config_mod.Frontend, init_override: ?[]const u8, path: ?[]const u8) !void {
     switch (frontend) {
         .gui => if (!build_options.gui) return frontendDisabled(init.io, "GUI"),
         .tui => if (!build_options.tui) return frontendDisabled(init.io, "TUI"),
     }
     var runtime = try config_mod.Runtime.init(frontend);
     defer runtime.deinit();
+    runtime.init_override = init_override;
     // A broken init.lua reports (see Runtime.luaError) and falls back to
     // defaults - it must never prevent startup.
     _ = runtime.loadUserConfig(init.io) catch false;
@@ -61,12 +87,13 @@ fn runFrontend(init: std.process.Init, frontend: config_mod.Frontend, path: ?[]c
 /// frontend, constrained to what this build carries. The runtime starts
 /// provisional on the single-flavor default (config still has to load to
 /// read the option), then `setFrontend` corrects it before launch.
-fn runPreferred(init: std.process.Init, path: ?[]const u8) !void {
+fn runPreferred(init: std.process.Init, init_override: ?[]const u8, path: ?[]const u8) !void {
     if (!build_options.tui and !build_options.gui) return frontendDisabled(init.io, "TUI");
-    if (!build_options.tui) return runFrontend(init, .gui, path);
-    if (!build_options.gui) return runFrontend(init, .tui, path);
+    if (!build_options.tui) return runFrontend(init, .gui, init_override, path);
+    if (!build_options.gui) return runFrontend(init, .tui, init_override, path);
     var runtime = try config_mod.Runtime.init(.tui);
     defer runtime.deinit();
+    runtime.init_override = init_override;
     _ = runtime.loadUserConfig(init.io) catch false;
     const frontend = runtime.config.preferred_frontend;
     runtime.setFrontend(frontend);
@@ -123,7 +150,11 @@ fn printHelp(io: std.Io) !void {
             "  wstudio --gui [path] Launch the GUI, optionally opening a .wsj project\n" ++
             "  wstudio render      Render the built-in demo melody to out.wav\n" ++
             "  wstudio --version   Print the version\n" ++
-            "  wstudio --help      Print this message\n",
+            "  wstudio --help      Print this message\n\n" ++
+            "  -u {{path}}           Load this init.lua instead of the usual search\n" ++
+            "                      (~/.config/wstudio/init.lua, then /etc/xdg/wstudio/init.lua);\n" ++
+            "                      -u NONE skips loading any config file. May appear\n" ++
+            "                      anywhere on the command line.\n",
         .{version},
     );
     try stdout.flush();

@@ -348,6 +348,13 @@ pub const Runtime = struct {
     /// those functions raise (startup scripting belongs in a ConfigDone
     /// autocmd or queued `wstudio.cmd` lines).
     app: ?*tui_app.App = null,
+    /// `-u {path}` (main.zig), stolen straight from Neovim's own flag: loads
+    /// this file instead of the usual `userConfigPath`/`system_config_path`
+    /// search, or - the literal value `"NONE"`, also Neovim's convention -
+    /// skips loading any config file at all. Set once before the first
+    /// `loadUserConfig` call; `:reload-config` re-reads whichever path was
+    /// active at startup since `reload` just calls `loadUserConfig` again.
+    init_override: ?[]const u8 = null,
     user_cmds: [max_user_cmds]UserCmd = undefined,
     user_cmds_len: usize = 0,
     keymaps: [max_keymaps]Keymap = undefined,
@@ -557,6 +564,10 @@ pub const Runtime = struct {
     }
 
     pub fn loadUserConfig(self: *Runtime, io: std.Io) !bool {
+        if (self.init_override) |p| {
+            if (std.mem.eql(u8, p, "NONE")) return false;
+            return loadIfPresent(self, io, p);
+        }
         var path_buf: [std.fs.max_path_bytes]u8 = undefined;
         if (userConfigPath(&path_buf)) |path| {
             return self.loadOrGenerateUserConfig(io, path, system_config_path);
