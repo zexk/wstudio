@@ -2370,8 +2370,9 @@ test "draw renders spectrum view without errors" {
     var w = std.Io.Writer.fixed(&buf);
     try main_mod.draw(&app, &w, .{ .cols = 80, .rows = 24 });
     try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "FX CHAIN") != null);
-    // A fresh chain is empty - the body is the insert hint.
-    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "chain empty") != null);
+    // A fresh chain explains both the direct path and how to insert.
+    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "directly from IN to OUT") != null);
+    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "insert an effect") != null);
 }
 
 test "draw renders track_spectrum after pressing s" {

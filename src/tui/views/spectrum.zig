@@ -258,9 +258,13 @@ pub fn drawFxView(
     var body_lines: usize = 0;
     if (focused == null) {
         try synthSection(w, "FX CHAIN", acc);
-        try w.writeAll(dim ++ "   chain empty: press 'a' to insert an effect" ++ rst);
+        try w.writeAll(dim ++ "   Audio passes directly from IN to OUT." ++ rst);
         try endLine(w);
-        body_lines = 1;
+        try w.writeAll(acc ++ "   a" ++ rst ++ dim ++ "  insert an effect" ++ rst);
+        try endLine(w);
+        try w.writeAll(dim ++ "   Start with EQ for tone shaping, Compressor for dynamics, or Reverb for space." ++ rst);
+        try endLine(w);
+        body_lines = 3;
     } else if (focused.?.kind() == .eq) {
         const unit = focused.?;
         try synthSection(w, sectionLabel(.eq), sectionColor(.eq));

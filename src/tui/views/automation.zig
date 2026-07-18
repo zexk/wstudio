@@ -122,8 +122,15 @@ pub fn drawAutomation(
 
     try w.writeAll(bold ++ " AUTOMATION" ++ rst);
     try w.print("  \"{s}\"", .{track_name});
-    try w.writeAll(dim ++ "  clip " ++ rst);
-    try w.print("{d}t\u{2192}{d}t", .{ clip.start_tick, clip.endTick() });
+    const ticks_per_bar = ws.time_grid.barTicks(app.session.project.beats_per_bar);
+    const start_bar = clip.start_tick / ticks_per_bar + 1;
+    const end_bar = (clip.endTick() -| 1) / ticks_per_bar + 1;
+    try w.writeAll(dim ++ "  bars " ++ rst);
+    if (start_bar == end_bar) {
+        try w.print("{d}", .{start_bar});
+    } else {
+        try w.print("{d}\u{2192}{d}", .{ start_bar, end_bar });
+    }
     try w.writeAll(dim ++ "  " ++ rst ++ acc ++ bold);
     try w.print(" {s} ", .{target_label});
     try w.writeAll(rst ++ dim ++ " (tab: switch curve, p: pick param)" ++ rst);
@@ -163,7 +170,7 @@ pub fn drawAutomation(
     // interpolated-only steps are dim, the cursor is reverse-video, a
     // visual-mode selection tints its range yellow (matching the piano
     // roll's `in_sel` convention).
-    const graph_rows: usize = @max(1, @min(8, rows -| 7));
+    const graph_rows: usize = @max(1, @min(18, rows -| 7));
     for (0..graph_rows) |line| {
         const row_base = (graph_rows - 1 - line) * 8; // eighth-blocks below this row
         try w.writeAll("   ");
