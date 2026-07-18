@@ -54,6 +54,14 @@ pub const Instrument = union(enum) {
             inline else => |*p| p.deinit(),
         }
     }
+
+    pub fn automatableParams(self: *const Instrument) []const dsp.AutomatableParam {
+        return switch (self.*) {
+            .poly_synth => &PolySynth.automatable_params,
+            .sampler => &Sampler.automatable_params,
+            .drum_machine, .slicer, .empty => &.{},
+        };
+    }
 };
 
 /// The instrument variants, as a plain enum - used by the instrument picker
