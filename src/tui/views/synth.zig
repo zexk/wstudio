@@ -377,10 +377,7 @@ fn secOscA(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
     try synthSection(w, "OSC A", acc);
 
     // zig fmt: off
-    const wf_idx: usize = switch (synth.waveform) {
-        .sine => 0, .saw => 1, .triangle => 2, .square => 3, .wavetable => 4,
-    };
-    try enumRow(w, c == 0, false, acc, "waveform", &wf_names, wf_idx);
+    try enumRow(w, c == 0, false, acc, "waveform", &wf_names, @intFromEnum(synth.waveform));
 
     // param 1: pulse width (only meaningful for square)
     try barRow(w, c == 1, synth.waveform != .square, acc, "pls.width", synth.pulse_width, 1.0,
@@ -399,11 +396,8 @@ fn secOscA(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
     // uni.mode/warp/wt.pos: formerly the standalone UNI MODE/WARP/WAVETABLE
     // sections' "osc a" rows - folded into this card so each oscillator's
     // controls live in one place instead of three cross-cutting sections.
-    try enumRow(w, c == 39, synth.unison <= 1, acc, "uni.mode", &uni_mode_names, uniModeIdx(synth.unison_mode));
-    const warp_a_idx: usize = switch (synth.warp_mode) {
-        .none => 0, .bend => 1, .mirror => 2, .sync => 3,
-    };
-    try enumRow(w, c == 41, false, acc, "warp", &warp_mode_names, warp_a_idx);
+    try enumRow(w, c == 39, synth.unison <= 1, acc, "uni.mode", &uni_mode_names, @intFromEnum(synth.unison_mode));
+    try enumRow(w, c == 41, false, acc, "warp", &warp_mode_names, @intFromEnum(synth.warp_mode));
     try barRow(w, c == 42, synth.warp_mode == .none, acc, "warp amt", synth.warp_amount, 1.0,
         try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.warp_amount}));
     try barRow(w, c == 185, synth.waveform != .wavetable, acc, "wt.pos", synth.wt_pos, 1.0,
@@ -420,10 +414,7 @@ fn secOscB(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
     try enumRow(w, c == 6, false, acc, "on/off", &on_names, if (b_on) 0 else 1);
 
     // zig fmt: off
-    const wfb_idx: usize = switch (synth.osc_b_waveform) {
-        .sine => 0, .saw => 1, .triangle => 2, .square => 3, .wavetable => 4,
-    };
-    try enumRow(w, c == 7, !b_on, acc, "waveform", &wf_names, wfb_idx);
+    try enumRow(w, c == 7, !b_on, acc, "waveform", &wf_names, @intFromEnum(synth.osc_b_waveform));
 
     try barRow(w, c == 8, !b_on, acc, "pls.width", synth.osc_b_pulse_width, 1.0,
         try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.osc_b_pulse_width}));
@@ -440,11 +431,8 @@ fn secOscB(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
 
     // uni.mode/warp/wt.pos - see secOscA's matching rows for why these live
     // here now instead of in standalone UNI MODE/WARP/WAVETABLE sections.
-    try enumRow(w, c == 40, !b_on or synth.osc_b_unison <= 1, acc, "uni.mode", &uni_mode_names, uniModeIdx(synth.osc_b_unison_mode));
-    const warp_b_idx: usize = switch (synth.osc_b_warp_mode) {
-        .none => 0, .bend => 1, .mirror => 2, .sync => 3,
-    };
-    try enumRow(w, c == 43, !b_on, acc, "warp", &warp_mode_names, warp_b_idx);
+    try enumRow(w, c == 40, !b_on or synth.osc_b_unison <= 1, acc, "uni.mode", &uni_mode_names, @intFromEnum(synth.osc_b_unison_mode));
+    try enumRow(w, c == 43, !b_on, acc, "warp", &warp_mode_names, @intFromEnum(synth.osc_b_warp_mode));
     try barRow(w, c == 44, !b_on or synth.osc_b_warp_mode == .none, acc, "warp amt", synth.osc_b_warp_amount, 1.0,
         try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.osc_b_warp_amount}));
     try barRow(w, c == 186, !b_on or synth.osc_b_waveform != .wavetable, acc, "wt.pos", synth.osc_b_wt_pos, 1.0,
@@ -489,15 +477,11 @@ fn secEnv(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
 
 const filter_type_names = [_][]const u8{ "lp", "hp", "bp", "ntch", "ladr", "diod", "comb", "frmt" };
 
-fn filterTypeIdx(ft: anytype) usize {
-    return switch (ft) { .lp => 0, .hp => 1, .bp => 2, .notch => 3, .ladder => 4, .diode => 5, .comb => 6, .formant => 7 };
-}
-
 fn secFilter(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
     var buf: [40]u8 = undefined;
     try synthSection(w, "FILTER 1", yel);
 
-    try enumRow(w, c == 20, false, yel, "type", &filter_type_names, filterTypeIdx(synth.filter_type));
+    try enumRow(w, c == 20, false, yel, "type", &filter_type_names, @intFromEnum(synth.filter_type));
 
     {
         const log_norm = std.math.log2(synth.filter_cutoff / 20.0) /
@@ -528,17 +512,13 @@ fn secFenv(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
 
 const lfo_shape_names = [_][]const u8{ "sine", "tri", "saw", "sqr", "s&h", "cha", "cus" };
 
-fn lfoShapeIdx(shape: anytype) usize {
-    return switch (shape) { .sine => 0, .triangle => 1, .saw => 2, .square => 3, .sh => 4, .chaos => 5, .custom => 6 };
-}
-
 /// Shape + rate only: the LFO is a pure mod source, its routing lives on
 /// MATRIX rows (the matrix absorbed the old depth/target params).
 fn secLfo(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
     var buf: [40]u8 = undefined;
     try synthSection(w, "LFO 1", mag);
 
-    try enumRow(w, c == 28, false, mag, "shape", &lfo_shape_names, lfoShapeIdx(synth.lfo_shape));
+    try enumRow(w, c == 28, false, mag, "shape", &lfo_shape_names, @intFromEnum(synth.lfo_shape));
 
     try barRow(w, c == 29, false, mag, "rate", synth.lfo_rate_hz, 20.0,
         try std.fmt.bufPrint(&buf, "{d:.2} Hz", .{synth.lfo_rate_hz}));
@@ -548,7 +528,7 @@ fn secLfo(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
 fn secLfo2(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
     var buf: [40]u8 = undefined;
     try synthSection(w, "LFO 2", mag);
-    try enumRow(w, c == 95, false, mag, "shape", &lfo_shape_names, lfoShapeIdx(synth.lfo2_shape));
+    try enumRow(w, c == 95, false, mag, "shape", &lfo_shape_names, @intFromEnum(synth.lfo2_shape));
     try barRow(w, c == 96, false, mag, "rate", synth.lfo2_rate_hz, 20.0,
         try std.fmt.bufPrint(&buf, "{d:.2} Hz", .{synth.lfo2_rate_hz}));
     if (synth.lfo2_shape == .custom) try secLfoCustom(w, synth, c, 1);
@@ -557,7 +537,7 @@ fn secLfo2(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
 fn secLfo3(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
     var buf: [40]u8 = undefined;
     try synthSection(w, "LFO 3", mag);
-    try enumRow(w, c == 97, false, mag, "shape", &lfo_shape_names, lfoShapeIdx(synth.lfo3_shape));
+    try enumRow(w, c == 97, false, mag, "shape", &lfo_shape_names, @intFromEnum(synth.lfo3_shape));
     try barRow(w, c == 98, false, mag, "rate", synth.lfo3_rate_hz, 20.0,
         try std.fmt.bufPrint(&buf, "{d:.2} Hz", .{synth.lfo3_rate_hz}));
     if (synth.lfo3_shape == .custom) try secLfoCustom(w, synth, c, 2);
@@ -610,13 +590,6 @@ fn secMacro(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
 
 const arp_mode_names = [_][]const u8{ "up", "down", "up/dn", "dn/up", "played", "random", "chord" };
 
-fn arpModeIdx(mode: anytype) usize {
-    return switch (mode) {
-        .up => 0, .down => 1, .updown => 2, .downup => 3,
-        .played => 4, .random => 5, .chord => 6,
-    };
-}
-
 /// A step sequencer in front of note triggering - see PolySynth's own ARP
 /// doc comment.
 fn secArp(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
@@ -625,7 +598,7 @@ fn secArp(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
 
     const on = synth.arp_on;
     try enumRow(w, c == 116, false, bcyn, "on/off", &on_off_names, if (on) 0 else 1);
-    try enumRow(w, c == 117, !on, bcyn, "mode", &arp_mode_names, arpModeIdx(synth.arp_mode));
+    try enumRow(w, c == 117, !on, bcyn, "mode", &arp_mode_names, @intFromEnum(synth.arp_mode));
     try barRow(w, c == 118, !on or synth.arp_mode == .chord, bcyn, "octaves", @floatFromInt(synth.arp_octaves), 4.0,
         try std.fmt.bufPrint(&buf, "{d}", .{synth.arp_octaves}));
     try barRow(w, c == 119, !on, bcyn, "rate", synth.arp_rate_hz, 20.0,
@@ -702,10 +675,6 @@ fn secOut(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
 
 const uni_mode_names = [_][]const u8{ "spread", "step", "harm", "ratio" };
 
-fn uniModeIdx(mode: anytype) usize {
-    return switch (mode) { .spread => 0, .step => 1, .harmonic => 2, .ratio => 3 };
-}
-
 const warp_mode_names = [_][]const u8{ "none", "bend", "mirror", "sync" };
 
 fn secFilter2(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
@@ -716,7 +685,7 @@ fn secFilter2(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
     try enumRow(w, c == 45, false, yel, "on/off", &on_names, if (synth.filter2_on) 0 else 1);
 
     const on = synth.filter2_on;
-    try enumRow(w, c == 46, !on, yel, "type", &filter_type_names, filterTypeIdx(synth.filter2_type));
+    try enumRow(w, c == 46, !on, yel, "type", &filter_type_names, @intFromEnum(synth.filter2_type));
 
     {
         const log_norm = std.math.log2(synth.filter2_cutoff / 20.0) /
@@ -745,10 +714,7 @@ fn secOscC(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
     const on_names = [_][]const u8{ "on", "off" };
     try enumRow(w, c == 50, false, acc, "on/off", &on_names, if (c_on) 0 else 1);
 
-    const wfc_idx: usize = switch (synth.osc_c_waveform) {
-        .sine => 0, .saw => 1, .triangle => 2, .square => 3, .wavetable => 4,
-    };
-    try enumRow(w, c == 51, !c_on, acc, "waveform", &wf_names, wfc_idx);
+    try enumRow(w, c == 51, !c_on, acc, "waveform", &wf_names, @intFromEnum(synth.osc_c_waveform));
 
     try barRow(w, c == 52, !c_on, acc, "pls.width", synth.osc_c_pulse_width, 1.0,
         try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.osc_c_pulse_width}));
@@ -763,7 +729,7 @@ fn secOscC(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
     try barRow(w, c == 57, !c_on, acc, "uni.det", synth.osc_c_unison_detune, 100.0,
         try std.fmt.bufPrint(&buf, "{d:.1} ct", .{synth.osc_c_unison_detune}));
 
-    try enumRow(w, c == 58, !c_on or synth.osc_c_unison <= 1, acc, "uni.mode", &uni_mode_names, uniModeIdx(synth.osc_c_unison_mode));
+    try enumRow(w, c == 58, !c_on or synth.osc_c_unison <= 1, acc, "uni.mode", &uni_mode_names, @intFromEnum(synth.osc_c_unison_mode));
     try barRow(w, c == 187, !c_on or synth.osc_c_waveform != .wavetable, acc, "wt.pos", synth.osc_c_wt_pos, 1.0,
         try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.osc_c_wt_pos}));
 }
