@@ -86,17 +86,17 @@ fn drawSignalChain(app: anytype, target: spectrum_ed.EqTarget, fx: *ws.Fx) void 
     zgui.sameLine(.{ .spacing = gap });
     zgui.textDisabled("> OUT", .{});
 
-    zgui.textDisabled("tab/[/]: slot   a: insert   x: remove   </>: move   b: bypass", .{});
+    zgui.textDisabled("a insert   tab select slot   b bypass", .{});
     if (spectrum_ed.focusedUnit(&app.core, fx)) |unit| {
         zgui.sameLine(.{});
         if (unit.kind() == .eq) {
             if (app.core.eq_band_select) {
-                zgui.textDisabled("h/l: band   enter: edit", .{});
+                zgui.textDisabled("h/l band   enter edit", .{});
             } else {
-                zgui.textDisabled("j/k: field   h/l: adjust   esc: back", .{});
+                zgui.textDisabled("j/k field   h/l adjust", .{});
             }
         } else {
-            zgui.textDisabled("j/k: param   h/l: adjust", .{});
+            zgui.textDisabled("j/k parameter   h/l adjust", .{});
         }
     }
 }
