@@ -1244,9 +1244,37 @@ fn writeSampleWav(
 /// Resolve a path stored relative to the .wsj against the .wsj's directory.
 /// Always returns an owned allocation.
 fn joinWsjRel(allocator: std.mem.Allocator, wsj_path: []const u8, rel: []const u8) ![]const u8 {
+    if (!isSafeWsjRel(rel)) return error.UnsafeRelativePath;
     if (std.fs.path.dirname(wsj_path)) |d|
         return std.fmt.allocPrint(allocator, "{s}/{s}", .{ d, rel });
     return allocator.dupe(u8, rel);
+}
+
+fn isSafeWsjRel(rel: []const u8) bool {
+    if (rel.len == 0 or rel[0] == '/' or rel[0] == '\\') return false;
+    if (rel.len >= 2 and std.ascii.isAlphabetic(rel[0]) and rel[1] == ':') return false;
+
+    var components = std.mem.tokenizeAny(u8, rel, "/\\");
+    while (components.next()) |component| {
+        if (std.mem.eql(u8, component, "..")) return false;
+    }
+    return true;
+}
+
+test "wsj-relative paths cannot escape the project directory" {
+    const allocator = std.testing.allocator;
+
+    const joined = try joinWsjRel(allocator, "songs/demo.wsj", "demo_samples/kick.wav");
+    defer allocator.free(joined);
+    try std.testing.expectEqualStrings("songs/demo_samples/kick.wav", joined);
+
+    try std.testing.expectError(error.UnsafeRelativePath, joinWsjRel(allocator, "songs/demo.wsj", "../kick.wav"));
+    try std.testing.expectError(error.UnsafeRelativePath, joinWsjRel(allocator, "songs/demo.wsj", "samples/../../kick.wav"));
+    try std.testing.expectError(error.UnsafeRelativePath, joinWsjRel(allocator, "songs/demo.wsj", "samples\\..\\kick.wav"));
+    try std.testing.expectError(error.UnsafeRelativePath, joinWsjRel(allocator, "songs/demo.wsj", "/tmp/kick.wav"));
+    try std.testing.expectError(error.UnsafeRelativePath, joinWsjRel(allocator, "songs/demo.wsj", "\\\\server\\kick.wav"));
+    try std.testing.expectError(error.UnsafeRelativePath, joinWsjRel(allocator, "songs/demo.wsj", "C:\\kick.wav"));
+    try std.testing.expectError(error.UnsafeRelativePath, joinWsjRel(allocator, "songs/demo.wsj", ""));
 }
 
 /// A pad's fixed 8-byte name buffer with the space padding trimmed.
