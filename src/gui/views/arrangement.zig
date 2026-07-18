@@ -21,9 +21,10 @@ pub fn draw(app: anytype) void {
     const beats_per_bar: u32 = app.core.session.project.beats_per_bar;
     const ticks_per_bar = ws.time_grid.barTicks(app.core.session.project.beats_per_bar);
     const content_ticks = app.core.session.arrangement.lengthTicks();
-    const cursor_tick = app.core.arr_cursor_bar * app.core.arr_grid.ticks();
+    const cursor_tick = app.core.arr_cursor_bar *| app.core.arr_grid.ticks();
     const cursor_bar_count = cursor_tick / ticks_per_bar + 1;
-    const bar_count: u32 = @max(8, @max((content_ticks + ticks_per_bar - 1) / ticks_per_bar, cursor_bar_count));
+    const content_bar_count = content_ticks / ticks_per_bar + @intFromBool(content_ticks % ticks_per_bar != 0);
+    const bar_count: u32 = @max(8, @max(content_bar_count, cursor_bar_count));
     const gutter_w: f32 = 132;
     const ruler_h: f32 = 30;
     const available = zgui.getContentRegionAvail();
@@ -41,7 +42,8 @@ pub fn draw(app: anytype) void {
     const draw_list = zgui.getWindowDrawList();
     const timeline_x = origin[0] + gutter_w;
     const timeline_w = canvas_w - gutter_w;
-    const total_beats: f32 = @floatFromInt(bar_count * beats_per_bar);
+    const total_beats_u64 = @as(u64, bar_count) * beats_per_bar;
+    const total_beats: f32 = @floatFromInt(total_beats_u64);
     const beat_w = timeline_w / total_beats;
 
     draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + canvas_w, origin[1] + canvas_h }, .col = color(patina.bg0) });
@@ -63,11 +65,14 @@ pub fn draw(app: anytype) void {
         draw_list.addLine(.{ .p1 = .{ origin[0], y + lane_h }, .p2 = .{ origin[0] + canvas_w, y + lane_h }, .col = color(patina.line), .thickness = 1 });
     }
 
-    for (0..bar_count * beats_per_bar + 1) |beat_index| {
+    const max_grid_lines = 4096;
+    const beat_stride: u64 = @max(1, (total_beats_u64 + max_grid_lines - 1) / max_grid_lines);
+    var beat_index: u64 = 0;
+    while (beat_index <= total_beats_u64) : (beat_index += beat_stride) {
         const x = timeline_x + @as(f32, @floatFromInt(beat_index)) * beat_w;
         const on_bar = beat_index % beats_per_bar == 0;
         draw_list.addLine(.{ .p1 = .{ x, if (on_bar) origin[1] else origin[1] + ruler_h }, .p2 = .{ x, origin[1] + canvas_h }, .col = color(if (on_bar) patina.bg5 else patina.line), .thickness = if (on_bar) 1.5 else 1 });
-        if (on_bar and beat_index < bar_count * beats_per_bar) draw_list.addText(.{ x + 7, origin[1] + 7 }, color(patina.fg2), "{d}", .{beat_index / beats_per_bar + 1});
+        if (on_bar and beat_index < total_beats_u64) draw_list.addText(.{ x + 7, origin[1] + 7 }, color(patina.fg2), "{d}", .{beat_index / beats_per_bar + 1});
     }
 
     if (app.core.modal.mode == .visual and app.core.cursor < track_count) {
@@ -192,7 +197,7 @@ pub fn draw(app: anytype) void {
             const tick: u32 = @intFromFloat((mouse[0] - timeline_x) / beat_w * @as(f32, @floatFromInt(ticks_per_beat)));
             app.core.arr_cursor_bar = tick / app.core.arr_grid.ticks();
             for (app.core.session.arrangement.lanes.items[ti].clips.items, 0..) |clip, ci| {
-                if (tick >= clip.start_tick and tick < clip.start_tick + clip.length_ticks) {
+                if (clip.covers(tick)) {
                     app.arrangement_clip = .{ .track = ti, .clip = ci };
                     break;
                 }

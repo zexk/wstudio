@@ -15,6 +15,8 @@ const history = @import("../history.zig");
 const piano = @import("piano.zig");
 const automation = @import("automation.zig");
 
+const max_timeline_tick = std.math.maxInt(u32);
+
 /// Left gutter: " NN name " then the lane's leading separator - shared with
 /// the TUI view's draw path so mouse column math and rendering agree. The
 /// name field is 8 wide ("e-piano"-sized names showed as "e-pian" at the
@@ -120,7 +122,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             'N' => { app.searchArrangement(-1); return true; },
             '[' => { cycleDrumVariant(app, -1); return true; },
             ']' => { cycleDrumVariant(app, 1); return true; },
-            'a' => { automation.switchTo(app, @intCast(app.cursor), app.arr_cursor_bar * app.arr_grid.ticks()); return true; },
+            'a' => { automation.switchTo(app, @intCast(app.cursor), cursorTick(app)); return true; },
             '(' => { setLoopStart(app); return true; },
             ')' => { setLoopEnd(app); return true; },
             'b' => { toggleLoop(app); return true; },
@@ -224,9 +226,18 @@ fn exitVisual(app: *App) void {
 const BarRange = struct { lo: u32, hi: u32 };
 
 fn selectionRange(app: *App) BarRange {
-    const anchor = app.arr_visual_anchor orelse app.arr_cursor_bar;
+    const anchor = @min(app.arr_visual_anchor orelse app.arr_cursor_bar, maxCursorBar(app));
+    const cursor = @min(app.arr_cursor_bar, maxCursorBar(app));
     const ticks = app.arr_grid.ticks();
-    return .{ .lo = @min(anchor, app.arr_cursor_bar) * ticks, .hi = @max(anchor, app.arr_cursor_bar) * ticks };
+    return .{ .lo = @min(anchor, cursor) * ticks, .hi = @max(anchor, cursor) * ticks };
+}
+
+fn maxCursorBar(app: *const App) u32 {
+    return (max_timeline_tick - 1) / app.arr_grid.ticks();
+}
+
+fn cursorTick(app: *const App) u32 {
+    return @min(app.arr_cursor_bar, maxCursorBar(app)) * app.arr_grid.ticks();
 }
 
 /// Yank every clip on the current lane whose start_bar falls within the
@@ -326,11 +337,17 @@ fn pasteSelection(app: *App) void {
     }
     history.push(app, history.captureLane(app, @intCast(app.cursor)));
     var pasted: u32 = 0;
-    const cursor_tick = app.arr_cursor_bar * app.arr_grid.ticks();
+    const cursor_tick = cursorTick(app);
     var end_bar = cursor_tick;
     for (clip.clips) |c| {
         if (!kind_ok(rack, c)) continue;
         var copy = c.dupe(app.allocator) catch continue;
+        if (copy.start_tick > max_timeline_tick - cursor_tick or
+            copy.length_ticks > max_timeline_tick - (copy.start_tick + cursor_tick))
+        {
+            copy.deinit(app.allocator);
+            continue;
+        }
         copy.start_tick += cursor_tick;
         end_bar = @max(end_bar, copy.endTick());
         lane.place(app.allocator, copy) catch continue;
@@ -352,7 +369,8 @@ fn repeatLastEdit(app: *App) void {
         .arr_move_clip => |v| moveClip(app, v.delta),
         .arr_resize_clip => |v| resizeClip(app, v.delta),
         .arr_range_delete => |v| {
-            app.arr_visual_anchor = app.arr_cursor_bar + (v.width - 1);
+            app.arr_visual_anchor = app.arr_cursor_bar +| (v.width - 1);
+            app.arr_visual_anchor.? = @min(app.arr_visual_anchor.?, maxCursorBar(app));
             deleteSelection(app);
         },
         .arr_range_paste => pasteSelection(app),
@@ -362,12 +380,12 @@ fn repeatLastEdit(app: *App) void {
 
 fn moveBar(app: *App, delta: i64) void {
     const nb = @as(i64, app.arr_cursor_bar) + delta;
-    app.arr_cursor_bar = @intCast(@max(@as(i64, 0), nb));
+    app.arr_cursor_bar = @intCast(std.math.clamp(nb, 0, maxCursorBar(app)));
 }
 
 /// `z`/`Z`: enlarge/compact horizontal cells without moving bar indices.
 fn zoom(app: *App, delta: i8) void {
-    const tick = app.arr_cursor_bar * app.arr_grid.ticks();
+    const tick = cursorTick(app);
     app.arr_grid = if (delta > 0) app.arr_grid.finer() else app.arr_grid.coarser();
     app.arr_cursor_bar = tick / app.arr_grid.ticks();
     app.setStatus("grid: {s}", .{app.arr_grid.label()});
@@ -386,7 +404,7 @@ fn playFromCursor(app: *App) void {
     const sr = @as(f64, @floatFromInt(app.session.project.sample_rate));
     const bpm = @max(app.session.project.tempo_bpm, 1.0);
     const frames_per_tick: f64 = sr * 60.0 / bpm / ws.time_grid.ticks_per_beat;
-    const tick = app.arr_cursor_bar * app.arr_grid.ticks();
+    const tick = cursorTick(app);
     _ = app.session.engine.send(.{ .seek_frames = @as(u64, @intFromFloat(@as(f64, @floatFromInt(tick)) * frames_per_tick)) });
     if (!app.session.engine.uiSnapshot().playing) _ = app.session.engine.send(.play);
     app.setStatus("play from bar {d}", .{app.arr_cursor_bar + 1});
@@ -438,7 +456,7 @@ fn stampClip(app: *App) void {
     }
     // Stamping may evict overlapped clips; the lane snapshot covers both.
     history.push(app, history.captureLane(app, @intCast(app.cursor)));
-    const cursor_tick = app.arr_cursor_bar * app.arr_grid.ticks();
+    const cursor_tick = cursorTick(app);
     app.session.stampClipAtTick(app.cursor, cursor_tick) catch {
         app.setStatus("stamp failed (out of memory)", .{});
         return;
@@ -465,7 +483,7 @@ fn stampClip(app: *App) void {
 /// data; the player is just the surface it's edited and played on.
 fn editClip(app: *App) void {
     const lane = app.session.arrangement.lane(app.cursor) orelse return;
-    const clip = lane.clipAt(app.arr_cursor_bar * app.arr_grid.ticks()) orelse {
+    const clip = lane.clipAt(cursorTick(app)) orelse {
         app.setStatus("no clip here - enter stamps one", .{});
         return;
     };
@@ -498,7 +516,7 @@ fn editClip(app: *App) void {
 fn setLoopStart(app: *App) void {
     const p = &app.session.project;
     const tpb = ws.time_grid.barTicks(p.beats_per_bar);
-    p.loop_start_bar = app.arr_cursor_bar * app.arr_grid.ticks() / tpb;
+    p.loop_start_bar = cursorTick(app) / tpb;
     if (p.loop_end_bar > p.loop_start_bar) {
         p.loop_enabled = true;
         app.setStatus("loop: bars {d}–{d}", .{ p.loop_start_bar + 1, p.loop_end_bar });
@@ -513,7 +531,7 @@ fn setLoopStart(app: *App) void {
 fn setLoopEnd(app: *App) void {
     const p = &app.session.project;
     const tpb = ws.time_grid.barTicks(p.beats_per_bar);
-    p.loop_end_bar = (app.arr_cursor_bar * app.arr_grid.ticks() + tpb) / tpb;
+    p.loop_end_bar = (cursorTick(app) +| tpb) / tpb;
     if (p.loop_end_bar > p.loop_start_bar) {
         p.loop_enabled = true;
         app.setStatus("loop: bars {d}–{d}", .{ p.loop_start_bar + 1, p.loop_end_bar });
@@ -547,13 +565,18 @@ fn toggleLoop(app: *App) void {
 /// it lands on are evicted - the same overwrite rule as stamping and pasting.
 fn moveClip(app: *App, delta: i32) void {
     const lane = app.session.arrangement.lane(app.cursor) orelse return;
-    const cursor_tick = app.arr_cursor_bar * app.arr_grid.ticks();
+    const cursor_tick = cursorTick(app);
     const clip = lane.clipAt(cursor_tick) orelse {
         app.setStatus("no clip here", .{});
         return;
     };
     const amount = @as(i64, delta) * app.arr_grid.ticks();
-    const new_start: u32 = @intCast(@max(@as(i64, clip.start_tick) + amount, 0));
+    const latest_start = max_timeline_tick - clip.length_ticks;
+    const new_start: u32 = @intCast(std.math.clamp(
+        @as(i64, clip.start_tick) + amount,
+        0,
+        latest_start,
+    ));
     if (new_start == clip.start_tick) return;
     history.push(app, history.captureLane(app, @intCast(app.cursor)));
     app.last_edit = .{ .arr_move_clip = .{ .delta = delta } };
@@ -568,7 +591,7 @@ fn moveClip(app: *App, delta: i32) void {
     };
     app.arr_cursor_bar = new_start / app.arr_grid.ticks();
     if (app.session.song_mode) app.session.rebuildSongData();
-    app.setStatus("clip → bar {d}", .{new_start + 1});
+    app.setStatus("clip → bar {d}", .{new_start / app.arr_grid.ticks() + 1});
 }
 
 /// `+`/`-`: edge-resize the clip under the cursor by `delta` bars (count-
@@ -580,13 +603,17 @@ fn moveClip(app: *App, delta: i32) void {
 /// exactly how it repeats across a longer phrase.
 fn resizeClip(app: *App, delta: i32) void {
     const lane = app.session.arrangement.lane(app.cursor) orelse return;
-    const cursor_tick = app.arr_cursor_bar * app.arr_grid.ticks();
+    const cursor_tick = cursorTick(app);
     const clip = lane.clipAt(cursor_tick) orelse {
         app.setStatus("no clip here", .{});
         return;
     };
     const amount = @as(i64, delta) * app.arr_grid.ticks();
-    const new_len: u32 = @intCast(@max(@as(i64, clip.length_ticks) + amount, 1));
+    const new_len: u32 = @intCast(std.math.clamp(
+        @as(i64, clip.length_ticks) + amount,
+        1,
+        max_timeline_tick - clip.start_tick,
+    ));
     if (new_len == clip.length_ticks) return;
     history.push(app, history.captureLane(app, @intCast(app.cursor)));
     app.last_edit = .{ .arr_resize_clip = .{ .delta = delta } };
@@ -607,7 +634,7 @@ fn resizeClip(app: *App, delta: i32) void {
 /// `Lane.cutRange`), instead of deleting the whole thing.
 fn deleteClip(app: *App) void {
     const lane = app.session.arrangement.lane(app.cursor) orelse return;
-    const cursor_tick = app.arr_cursor_bar * app.arr_grid.ticks();
+    const cursor_tick = cursorTick(app);
     if (lane.clipAt(cursor_tick) == null) {
         app.setStatus("no clip here", .{});
         return;
@@ -661,7 +688,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16) v
             app.cursor = lane;
             if (barAt(app.arr_scroll_bar, ev.x, cw)) |bar| app.arr_cursor_bar = bar;
             const has_clip = if (app.session.arrangement.lane(lane)) |l|
-                l.clipAt(app.arr_cursor_bar * app.arr_grid.ticks()) != null
+                l.clipAt(cursorTick(app)) != null
             else
                 false;
             app.arr_drag_bar = if (has_clip) app.arr_cursor_bar else null;

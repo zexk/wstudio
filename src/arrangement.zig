@@ -136,22 +136,25 @@ pub const Clip = struct {
         length_beats: f64,
     ) !Clip {
         const owned = try allocator.dupe(Note, notes);
+        const safe_start = @min(start_tick, std.math.maxInt(u32) - 1);
+        const safe_length = @min(@max(1, length_ticks), std.math.maxInt(u32) - safe_start);
         const safe_length_beats = if (std.math.isFinite(length_beats))
             @max(1.0, length_beats)
         else
             1.0;
         return .{
-            .start_tick = start_tick,
-            .length_ticks = @max(1, length_ticks),
+            .start_tick = safe_start,
+            .length_ticks = safe_length,
             .content = .{ .melodic = .{ .notes = owned, .length_beats = safe_length_beats } },
         };
     }
 
     /// Build a drum clip from a copied payload. No allocation.
     pub fn initDrum(start_tick: u32, length_ticks: u32, drum: Drum) Clip {
+        const safe_start = @min(start_tick, std.math.maxInt(u32) - 1);
         return .{
-            .start_tick = start_tick,
-            .length_ticks = @max(1, length_ticks),
+            .start_tick = safe_start,
+            .length_ticks = @min(@max(1, length_ticks), std.math.maxInt(u32) - safe_start),
             .content = .{ .drum = drum },
         };
     }
@@ -470,6 +473,21 @@ test "melodic clip owns a private note copy" {
 
     src[0].pitch = 0; // mutate the source after capture
     try testing.expectEqual(@as(u7, 60), clip.content.melodic.notes[0].pitch);
+}
+
+test "clip constructors keep the end tick representable" {
+    const drum = Clip.initDrum(std.math.maxInt(u32), 128, .{
+        .pattern = [_]u64{0} ** DrumMachine.max_pads,
+        .step_count = 16,
+    });
+    try testing.expectEqual(std.math.maxInt(u32) - 1, drum.start_tick);
+    try testing.expectEqual(@as(u32, 1), drum.length_ticks);
+    try testing.expectEqual(std.math.maxInt(u32), drum.endTick());
+
+    var melodic = try Clip.initMelodic(testing.allocator, std.math.maxInt(u32) - 8, 128, &.{}, 4.0);
+    defer melodic.deinit(testing.allocator);
+    try testing.expectEqual(@as(u32, 8), melodic.length_ticks);
+    try testing.expectEqual(std.math.maxInt(u32), melodic.endTick());
 }
 
 test "cutRange removes a clip fully inside the cut" {
