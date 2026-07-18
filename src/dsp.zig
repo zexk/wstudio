@@ -32,6 +32,7 @@ pub const drum_kit = @import("dsp/drum_kit.zig");
 pub const Slicer = @import("dsp/slicer.zig").Slicer;
 pub const clap = @import("clap/plugin.zig");
 pub const ClapPlugin = clap.ClapPlugin;
+pub const clap_scan = @import("clap/scan.zig");
 
 pub const pattern = @import("dsp/pattern.zig");
 pub const PatternPlayer = pattern.PatternPlayer;
@@ -72,6 +73,7 @@ test {
     _ = drum_kit;
     _ = Slicer;
     _ = clap;
+    _ = clap_scan;
     _ = pattern;
     _ = automation;
     _ = fft;
