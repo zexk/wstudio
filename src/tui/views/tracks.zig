@@ -34,6 +34,7 @@ fn writeFxBadges(w: *std.Io.Writer, fx: *const ws.Fx) !void {
             .gate => "gate", .comp => "cmp", .mb_comp => "mbc", .ott => "ott",
             .eq => "eq", .sat => "sat", .crush => "crs", .chorus => "cho",
             .phaser => "pha", .flanger => "fln", .tape => "tap", .freq_shift => "frq", .delay => "dly", .reverb => "rev",
+            .clap => "clp",
         });
     }
 }
@@ -91,6 +92,7 @@ fn writeTrackRow(app: anytype, w: *std.Io.Writer, ti: u16, is_sel: bool, in_sel:
         .sampler => icons.sampler,
         .drum_machine => icons.drum,
         .slicer => icons.slicer,
+        .clap => icons.synth,
     };
     try lw.writeAll(kind_icon);
     try lw.writeByte(' ');

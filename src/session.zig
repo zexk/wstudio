@@ -228,12 +228,13 @@ pub const Session = struct {
                 rack.instrument = .{ .slicer = try Slicer.init(self.allocator, sr, &self.engine.transport) };
                 rack.label = "slicer";
             },
+            .clap => return error.ClapPluginRequiresPath,
         }
         // Set AFTER the instrument lands in the heap rack - the player holds a
         // pointer into it. Slicer gets its own step grid, not a PatternPlayer,
         // same as drum_machine.
         switch (kind) {
-            .poly_synth, .sampler => rack.pattern_player = PatternPlayer.init(rack.instrument.device().?, &self.engine.transport),
+            .poly_synth, .sampler, .clap => rack.pattern_player = PatternPlayer.init(rack.instrument.device().?, &self.engine.transport),
             else => {},
         }
 
@@ -260,6 +261,36 @@ pub const Session = struct {
                 .slicer => |*sl| sl.song_mode = true,
                 else => {},
             }
+        }
+    }
+
+    pub fn setClapInstrument(
+        self: *Session,
+        track_idx: usize,
+        path: []const u8,
+        plugin_id: []const u8,
+    ) !void {
+        if (track_idx >= self.racks.items.len) return;
+        const plugin = try rack_mod.ClapPlugin.load(self.allocator, path, plugin_id, self.project.sample_rate);
+        errdefer plugin.deinit();
+        if (plugin.audio_inputs_count != 0) return error.ClapPluginIsNotInstrument;
+
+        const rack = try self.allocator.create(Rack);
+        errdefer self.allocator.destroy(rack);
+        rack.* = .{
+            .instrument = .{ .clap = plugin },
+            .label = plugin.name(),
+            .pattern_player = null,
+        };
+        rack.pattern_player = PatternPlayer.init(rack.instrument.device().?, &self.engine.transport);
+        try self.retired_racks.append(self.allocator, self.racks.items[track_idx]);
+        _ = self.engine.send(.all_notes_off);
+        if (self.arrangement.lane(track_idx)) |lane| lane.clear(self.allocator);
+        self.racks.items[track_idx] = rack;
+        self.syncTrackChain(@intCast(track_idx), rack);
+        if (self.song_mode) {
+            self.rebuildSongData();
+            rack.pattern_player.?.song_mode = true;
         }
     }
 
@@ -843,7 +874,7 @@ pub const Session = struct {
                     }
                     sl.setSongClips(clips[0..n], total_ticks, 32);
                 },
-                .poly_synth, .sampler => {
+                .poly_synth, .sampler, .clap => {
                     const pp = if (rack.pattern_player) |*p| p else continue;
                     var notes: [pattern_mod.max_notes]Note = undefined;
                     var n: usize = 0;

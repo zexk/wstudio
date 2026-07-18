@@ -109,6 +109,7 @@ fn sectionLabel(k: ws.FxKind) []const u8 {
         .freq_shift => "FREQ SHIFT",
         .delay => "DELAY",
         .reverb => "REVERB",
+        .clap => "CLAP PLUGIN",
     };
 }
 
@@ -129,6 +130,7 @@ fn sectionColor(k: ws.FxKind) []const u8 {
         .freq_shift => acc,
         .delay => blu,
         .reverb => mag,
+        .clap => acc,
     };
 }
 

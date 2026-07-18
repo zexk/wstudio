@@ -1816,6 +1816,10 @@ pub const App = struct {
                 self.view = .slicer_grid;
                 self.autoSongMode(false);
             },
+            .clap => {
+                self.piano_track = @intCast(cursor);
+                self.view = .piano_roll;
+            },
         }
     }
 
@@ -1854,6 +1858,7 @@ pub const App = struct {
             .sampler => "j/k: move  h/l: adjust  i: play  ?: help",
             .drum_machine => "enter: step  i: play  space: record  ?: help",
             .slicer => "enter: step  i: play  :load  ?: help",
+            .clap => "enter: piano roll  i: play  ?: help",
         };
         self.setStatus("{s} inserted  {s}", .{ picker_labels[self.picker_cursor], hint });
         self.view = .tracks;
@@ -2402,7 +2407,7 @@ pub const App = struct {
                         } });
                         if (self.view == .slicer_grid) slicer_ed.recordNote(self, n.pitch, Slicer.vel_full);
                     },
-                    .poly_synth, .sampler => {
+                    .poly_synth, .sampler, .clap => {
                         self.playNote(track_idx, n.pitch, now_ns);
                         if (self.view == .piano_roll) piano_ed.recordNote(self, n.pitch, self.default_velocity);
                     },
@@ -3516,6 +3521,7 @@ pub fn apiKindName(kind: ws.InstrumentKind) []const u8 {
         .sampler => "sampler",
         .drum_machine => "drum",
         .slicer => "slicer",
+        .clap => "clap",
     };
 }
 

@@ -51,7 +51,7 @@ const AutomationPoint = automation_mod.AutomationPoint;
 /// added and what older files load as) and the bump-vs-additive policy
 /// live in FORMAT.md; per-field migration specifics stay as doc comments
 /// on the snapshot fields they concern.
-pub const file_version: u32 = 23;
+pub const file_version: u32 = 24;
 
 /// Slicer.s own step-grid ceiling (mirrors arrangement.zig.s
 /// `slicer_max_steps`) - `velToSnap`/`applyVelSnap` only ever see Slicer.s
@@ -593,7 +593,16 @@ pub const FxSnap = struct {
 
 /// Mirrors rack.zig's FxKind - persist keeps its own copy so snapshots stay
 /// pure data, same pattern as `InstrumentKind` below.
-pub const FxKind = enum { gate, comp, mb_comp, ott, eq, sat, crush, chorus, phaser, flanger, tape, freq_shift, delay, reverb };
+pub const FxKind = enum { gate, comp, mb_comp, ott, eq, sat, crush, chorus, phaser, flanger, tape, freq_shift, delay, reverb, clap };
+
+pub const ClapSnap = struct {
+    path: []const u8 = "",
+    plugin_id: []const u8 = "",
+    state_base64: []const u8 = "",
+    notes: []const NoteSnap = &.{},
+    length_beats: f64 = 4.0,
+    swing: f32 = 50.0,
+};
 
 /// One chain slot (v10): its kind, bypass flag, and the params for that kind
 /// in the matching optional (the others stay null). A missing params field
@@ -615,9 +624,10 @@ pub const FxUnitSnap = struct {
     flanger: ?FlangerSnap = null,
     tape: ?TapeSnap = null,
     freq_shift: ?FreqShiftSnap = null,
+    clap: ?ClapSnap = null,
 };
 
-pub const InstrumentKind = enum { empty, poly_synth, sampler, drum_machine, slicer };
+pub const InstrumentKind = enum { empty, poly_synth, sampler, drum_machine, slicer, clap };
 
 /// A single-clip sampler: the pad's params, its root note, and the piano-roll
 /// pattern. User-loaded clip audio rides along via `pad.sample_file` (v5);
@@ -676,6 +686,7 @@ pub const RackSnap = struct {
     sampler: ?SamplerSnap = null,
     drum: ?DrumSnap = null,
     slicer: ?SlicerSnap = null,
+    clap: ?ClapSnap = null,
     /// Legacy fixed rack (v9 and older). Only read when `fx_chain` is null.
     fx: FxSnap = .{},
     /// v10: the user-built chain in signal-flow order.
@@ -1032,11 +1043,35 @@ fn rackToSnap(aa: std.mem.Allocator, rack: *Rack, sample_rate: u32) !RackSnap {
 
             rs.slicer = sls;
         },
+        .clap => |plugin| {
+            rs.kind = .clap;
+            var cs = try clapToSnap(aa, plugin);
+            if (rack.pattern_player) |*pp| {
+                cs.length_beats = pp.length_beats;
+                cs.notes = try notesToSnap(aa, pp);
+                cs.swing = pp.swing.load(.monotonic);
+            }
+            rs.clap = cs;
+        },
     }
 
     rs.fx_chain = try chainToSnap(aa, &rack.fx, sample_rate);
 
     return rs;
+}
+
+fn clapToSnap(aa: std.mem.Allocator, plugin: *rack_mod.ClapPlugin) !ClapSnap {
+    var state_base64: []const u8 = "";
+    if (try plugin.saveState(aa)) |state| {
+        defer aa.free(state);
+        const encoded = try aa.alloc(u8, std.base64.standard.Encoder.calcSize(state.len));
+        state_base64 = std.base64.standard.Encoder.encode(encoded, state);
+    }
+    return .{
+        .path = try aa.dupe(u8, plugin.pluginPath()),
+        .plugin_id = try aa.dupe(u8, plugin.id()),
+        .state_base64 = state_base64,
+    };
 }
 
 /// Copy a device's fields into its Snap type by name - for the FX kinds
@@ -1112,6 +1147,7 @@ fn chainToSnap(aa: std.mem.Allocator, fx: *const Fx, sample_rate: u32) ![]FxUnit
             .flanger => |fl| .{ .kind = .flanger, .flanger = snapFromDevice(FlangerSnap, fl) },
             .tape => |t| .{ .kind = .tape, .tape = snapFromDevice(TapeSnap, t) },
             .freq_shift => |f| .{ .kind = .freq_shift, .freq_shift = snapFromDevice(FreqShiftSnap, f) },
+            .clap => |plugin| .{ .kind = .clap, .clap = try clapToSnap(aa, plugin) },
         };
         us.bypassed = u.bypassed;
     }
@@ -1756,6 +1792,18 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
                     sl.setSwing(sls.swing);
                 }
             },
+            .clap => {
+                const cs = rs.clap orelse return error.MalformedProject;
+                if (cs.path.len == 0 or cs.plugin_id.len == 0) return error.MalformedProject;
+                const plugin = try rack_mod.ClapPlugin.load(allocator, cs.path, cs.plugin_id, sr);
+                errdefer plugin.deinit();
+                try loadClapState(allocator, plugin, cs.state_base64);
+                rack.instrument = .{ .clap = plugin };
+                rack.pattern_player = PatternPlayer.init(rack.instrument.device().?, &engine.transport);
+                rack.pattern_player.?.length_beats = finiteClamp(f64, cs.length_beats, 1.0, std.math.floatMax(f64), 4.0);
+                loadNotes(&rack.pattern_player.?, cs.notes);
+                rack.pattern_player.?.setSwing(cs.swing);
+            },
         }
 
         if (rs.fx_chain) |fc| try applyFxChain(allocator, &rack.fx, fc, sr)
@@ -1822,6 +1870,19 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
     self.setSongMode(snap.song_mode);
 
     return self;
+}
+
+fn loadClapState(
+    allocator: std.mem.Allocator,
+    plugin: *rack_mod.ClapPlugin,
+    encoded: []const u8,
+) !void {
+    if (encoded.len == 0) return;
+    const size = try std.base64.standard.Decoder.calcSizeForSlice(encoded);
+    const state = try allocator.alloc(u8, size);
+    defer allocator.free(state);
+    try std.base64.standard.Decoder.decode(state, encoded);
+    if (!try plugin.loadState(state)) return error.PluginStateUnsupported;
 }
 
 /// Widen a possibly-short (older/legacy) bitplane slice into a fixed
@@ -2174,13 +2235,24 @@ fn applyLfoCustomSnap(dst_points: *[synth_mod.max_lfo_shape_points]synth_mod.Lfo
 fn applyFxChain(allocator: std.mem.Allocator, fx_out: *Fx, chain: []const FxUnitSnap, sr: u32) !void {
     for (chain) |us| {
         if (fx_out.units.items.len >= Fx.max_units) break;
-        const kind: rack_mod.FxKind = switch (us.kind) {
-            .gate => .gate, .comp => .comp, .mb_comp => .mb_comp, .ott => .ott,
-            .eq => .eq, .sat => .sat, .crush => .crush, .chorus => .chorus,
-            .phaser => .phaser, .flanger => .flanger, .tape => .tape,
-            .freq_shift => .freq_shift, .delay => .delay, .reverb => .reverb,
+        const unit = switch (us.kind) {
+            .clap => blk: {
+                const cs = us.clap orelse return error.MalformedProject;
+                const loaded = try fx_out.insertClap(allocator, fx_out.units.items.len, cs.path, cs.plugin_id, sr);
+                try loadClapState(allocator, loaded.payload.clap, cs.state_base64);
+                break :blk loaded;
+            },
+            else => |saved_kind| blk: {
+                const kind: rack_mod.FxKind = switch (saved_kind) {
+                    .gate => .gate, .comp => .comp, .mb_comp => .mb_comp, .ott => .ott,
+                    .eq => .eq, .sat => .sat, .crush => .crush, .chorus => .chorus,
+                    .phaser => .phaser, .flanger => .flanger, .tape => .tape,
+                    .freq_shift => .freq_shift, .delay => .delay, .reverb => .reverb,
+                    .clap => unreachable,
+                };
+                break :blk try fx_out.insert(allocator, fx_out.units.items.len, kind, sr);
+            },
         };
-        const unit = try fx_out.insert(allocator, fx_out.units.items.len, kind, sr);
         unit.bypassed = us.bypassed;
         switch (unit.payload) {
             .comp => |*c| if (us.comp) |cs| {
@@ -2245,6 +2317,7 @@ fn applyFxChain(allocator: std.mem.Allocator, fx_out: *Fx, chain: []const FxUnit
             .flanger => |*fl| if (us.flanger) |fs| applySnapToDevice(fl, fs),
             .tape => |*t| if (us.tape) |ts| applySnapToDevice(t, ts),
             .freq_shift => |*f| if (us.freq_shift) |fs| applySnapToDevice(f, fs),
+            .clap => {},
         }
     }
 }

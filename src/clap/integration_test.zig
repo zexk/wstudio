@@ -34,4 +34,22 @@ pub fn main(init: std.process.Init) !void {
     try std.testing.expectEqual(@as(f64, 1), plugin.parameterValue(7).?);
     try std.testing.expect(try plugin.loadState(state));
     try std.testing.expectEqual(@as(f64, 3), plugin.parameterValue(7).?);
+
+    const project_path = ".zig-cache/clap-integration.wsj";
+    {
+        var session = try ws.Session.initDefault(init.gpa);
+        defer session.deinit();
+        try session.setClapInstrument(0, plugin_path, "studio.wstudio.test.instrument");
+        const instrument = session.racks.items[0].instrument.clap;
+        instrument.setParameter(7, null, 3);
+        var silent = [_]f32{0} ** 4;
+        instrument.device().process(&silent);
+        try ws.persist.save(init.gpa, &session, init.io, project_path);
+    }
+    defer std.Io.Dir.cwd().deleteFile(init.io, project_path) catch {};
+    var loaded = try ws.persist.load(init.gpa, init.io, project_path);
+    defer loaded.deinit();
+    const loaded_plugin = loaded.racks.items[0].instrument.clap;
+    try std.testing.expectEqualStrings("studio.wstudio.test.instrument", loaded_plugin.id());
+    try std.testing.expectEqual(@as(f64, 3), loaded_plugin.parameterValue(7).?);
 }

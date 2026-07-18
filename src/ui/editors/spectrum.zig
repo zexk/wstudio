@@ -76,6 +76,7 @@ pub fn unitLabel(k: FxKind) []const u8 {
         .freq_shift => "FREQ SHIFT",
         .delay => "DELAY",
         .reverb => "REVERB",
+        .clap => "CLAP",
     };
 }
 
@@ -98,6 +99,7 @@ pub fn stripLabel(k: FxKind) []const u8 {
         .freq_shift => "FRQS",
         .delay => "DLY",
         .reverb => "VERB",
+        .clap => "CLAP",
     };
 }
 
@@ -117,6 +119,7 @@ pub fn paramCount(k: FxKind) usize {
         .reverb => reverb_specs.len,
         .delay => delay_specs.len,
         .ott => ott_specs.len,
+        .clap => 0,
     };
 }
 
@@ -394,6 +397,7 @@ pub fn paramName(p: *const FxPayload, idx: usize) []const u8 {
         .reverb => tableName(&reverb_specs, idx),
         .delay => tableName(&delay_specs, idx),
         .ott => tableName(&ott_specs, idx),
+        .clap => "param",
     };
 }
 
@@ -449,6 +453,7 @@ pub fn getParam(p: *const FxPayload, idx: usize) f32 {
         .reverb => |*r| tableGet(r, &reverb_specs, idx),
         .delay => |*d| tableGet(d, &delay_specs, idx),
         .ott => |*o| tableGet(o, &ott_specs, idx),
+        .clap => 0,
     };
 }
 
@@ -498,6 +503,7 @@ pub fn paramRange(app: *App, p: *const FxPayload, idx: usize) [2]f32 {
         .reverb => tableRange(&reverb_specs, idx),
         .delay => tableRange(&delay_specs, idx),
         .ott => tableRange(&ott_specs, idx),
+        .clap => .{ 0, 1 },
     };
 }
 
@@ -587,6 +593,7 @@ pub fn setParam(app: *App, p: *FxPayload, idx: usize, value: f32) void {
         .reverb => |*r| tableSet(r, &reverb_specs, idx, value),
         .delay => |*d| tableSet(d, &delay_specs, idx, value),
         .ott => |*o| tableSet(o, &ott_specs, idx, value),
+        .clap => {},
     }
 }
 // zig fmt: on
@@ -635,6 +642,7 @@ fn paramStep(p: *const FxPayload, idx: usize, coarse: bool) f32 {
         .reverb => tableStep(&reverb_specs, idx, coarse),
         .delay => tableStep(&delay_specs, idx, coarse),
         .ott => tableStep(&ott_specs, idx, coarse),
+        .clap => 0,
     };
 }
 
@@ -789,6 +797,7 @@ pub fn insertFromPicker(app: *App, k: FxKind) void {
         switch (err) {
             error.ChainFull => app.setStatus("chain full ({d} units)", .{Fx.max_units}),
             error.OutOfMemory => app.setStatus("{s}: out of memory", .{unitLabel(k)}),
+            error.ClapPluginRequiresPath => app.setStatus("choose CLAP plugins from the plugin picker", .{}),
         }
         syncAnalyzer(app, target);
         return;
@@ -1275,5 +1284,6 @@ pub fn formatValue(app: anytype, buf: []u8, p: *const ws.FxPayload, idx: usize) 
             0 => std.fmt.bufPrint(buf, "{s}{d:.0}Hz", .{ if (v >= 0.0) "+" else "", v }) catch "?",
             else => std.fmt.bufPrint(buf, "{d:.0}%", .{v * 100.0}) catch "?",
         },
+        .clap => "?",
     };
 }

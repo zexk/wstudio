@@ -5,7 +5,6 @@ const abi = @import("abi.zig");
 const State = struct {
     active: bool = false,
     processing: bool = false,
-    destroyed: bool = false,
     gain: f64 = 2,
 };
 
@@ -29,14 +28,30 @@ const descriptor: abi.PluginDescriptor = .{
     .features = &features,
 };
 
+const instrument_features = [_:null]?[*:0]const u8{
+    "instrument",
+    "synthesizer",
+    "stereo",
+};
+
+const instrument_descriptor: abi.PluginDescriptor = .{
+    .clap_version = abi.version,
+    .id = "studio.wstudio.test.instrument",
+    .name = "wstudio CLAP instrument test",
+    .vendor = "wstudio",
+    .url = null,
+    .manual_url = null,
+    .support_url = null,
+    .plugin_version = "1.0",
+    .description = "Test instrument",
+    .features = &instrument_features,
+};
+
 fn pluginInit(_: *const abi.Plugin) callconv(.c) bool {
     return true;
 }
 
-fn pluginDestroy(_: *const abi.Plugin) callconv(.c) void {
-    if (state.destroyed) @panic("plugin destroyed twice");
-    state.destroyed = true;
-}
+fn pluginDestroy(_: *const abi.Plugin) callconv(.c) void {}
 
 fn pluginActivate(_: *const abi.Plugin, _: f64, min_frames: u32, max_frames: u32) callconv(.c) bool {
     if (min_frames == 0 or max_frames < min_frames) return false;
@@ -61,15 +76,11 @@ fn stopProcessing(_: *const abi.Plugin) callconv(.c) void {
 fn reset(_: *const abi.Plugin) callconv(.c) void {}
 
 fn process(_: *const abi.Plugin, block: *const abi.Process) callconv(.c) i32 {
-    if (!state.processing or block.audio_inputs_count != 1 or block.audio_outputs_count != 1)
+    if (!state.processing or block.audio_inputs_count > 1 or block.audio_outputs_count != 1)
         return 0;
-    const input = block.audio_inputs.?[0];
     const output = block.audio_outputs.?[0];
-    if (input.channel_count != 2 or output.channel_count != 2) return 0;
-    const input_channels = input.data32 orelse return 0;
+    if (output.channel_count != 2) return 0;
     const output_channels = output.data32 orelse return 0;
-    const left_in = input_channels[0] orelse return 0;
-    const right_in = input_channels[1] orelse return 0;
     const left_out = output_channels[0] orelse return 0;
     const right_out = output_channels[1] orelse return 0;
     if (block.in_events) |events| {
@@ -81,14 +92,27 @@ fn process(_: *const abi.Plugin, block: *const abi.Process) callconv(.c) i32 {
             if (event.param_id == 7) state.gain = event.value;
         }
     }
-    for (0..block.frames_count) |frame| {
-        left_out[frame] = left_in[frame] * @as(f32, @floatCast(state.gain));
-        right_out[frame] = right_in[frame] * @as(f32, @floatCast(state.gain));
+    if (block.audio_inputs_count == 1) {
+        const input = block.audio_inputs.?[0];
+        if (input.channel_count != 2) return 0;
+        const input_channels = input.data32 orelse return 0;
+        const left_in = input_channels[0] orelse return 0;
+        const right_in = input_channels[1] orelse return 0;
+        for (0..block.frames_count) |frame| {
+            left_out[frame] = left_in[frame] * @as(f32, @floatCast(state.gain));
+            right_out[frame] = right_in[frame] * @as(f32, @floatCast(state.gain));
+        }
+    } else {
+        for (0..block.frames_count) |frame| {
+            left_out[frame] = @floatCast(state.gain);
+            right_out[frame] = @floatCast(state.gain);
+        }
     }
     return 1;
 }
 
-fn audioPortCount(_: *const abi.Plugin, _: bool) callconv(.c) u32 {
+fn audioPortCount(plugin_ptr: *const abi.Plugin, is_input: bool) callconv(.c) u32 {
+    if (is_input and plugin_ptr.desc == &instrument_descriptor) return 0;
     return 1;
 }
 
@@ -223,12 +247,31 @@ const plugin: abi.Plugin = .{
     .on_main_thread = onMainThread,
 };
 
+const instrument_plugin: abi.Plugin = .{
+    .desc = &instrument_descriptor,
+    .plugin_data = &state,
+    .init = pluginInit,
+    .destroy = pluginDestroy,
+    .activate = pluginActivate,
+    .deactivate = pluginDeactivate,
+    .start_processing = startProcessing,
+    .stop_processing = stopProcessing,
+    .reset = reset,
+    .process = process,
+    .get_extension = getExtension,
+    .on_main_thread = onMainThread,
+};
+
 fn pluginCount(_: *const abi.PluginFactory) callconv(.c) u32 {
-    return 1;
+    return 2;
 }
 
 fn pluginDescriptor(_: *const abi.PluginFactory, index: u32) callconv(.c) ?*const abi.PluginDescriptor {
-    return if (index == 0) &descriptor else null;
+    return switch (index) {
+        0 => &descriptor,
+        1 => &instrument_descriptor,
+        else => null,
+    };
 }
 
 fn createPlugin(
@@ -236,10 +279,10 @@ fn createPlugin(
     _: *const abi.Host,
     id: [*:0]const u8,
 ) callconv(.c) ?*const abi.Plugin {
-    return if (@import("std").mem.eql(u8, @import("std").mem.span(id), @import("std").mem.span(descriptor.id)))
-        &plugin
-    else
-        null;
+    const requested = @import("std").mem.span(id);
+    if (@import("std").mem.eql(u8, requested, @import("std").mem.span(descriptor.id))) return &plugin;
+    if (@import("std").mem.eql(u8, requested, @import("std").mem.span(instrument_descriptor.id))) return &instrument_plugin;
+    return null;
 }
 
 const factory: abi.PluginFactory = .{
