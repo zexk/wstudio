@@ -59,13 +59,21 @@ pub const Ott = struct {
     }
 
     pub fn processBlock(self: *Ott, buf: []Sample) void {
-        const gin = types.dbToGain(self.gain_in_db);
-        const gout = types.dbToGain(self.gain_out_db);
-        if (self.gain_in_db != 0.0) for (buf) |*s| {
+        // Every other chain unit's processBlock guards its fields the same
+        // way at the process-time boundary, not just the setter - a raw
+        // field write (PolySynth's internal fixed OTT slot writes
+        // gain_in_db/gain_out_db directly, bypassing setDepth/setTime-style
+        // setters) currently always happens to arrive already clamped, but
+        // nothing here enforces that; this is the belt-and-braces layer.
+        const gain_in_db = if (std.math.isFinite(self.gain_in_db)) std.math.clamp(self.gain_in_db, -24.0, 24.0) else 0.0;
+        const gain_out_db = if (std.math.isFinite(self.gain_out_db)) std.math.clamp(self.gain_out_db, -24.0, 24.0) else 0.0;
+        const gin = types.dbToGain(gain_in_db);
+        const gout = types.dbToGain(gain_out_db);
+        if (gain_in_db != 0.0) for (buf) |*s| {
             s.* *= gin;
         };
         self.mb.processBlock(buf);
-        if (self.gain_out_db != 0.0) for (buf) |*s| {
+        if (gain_out_db != 0.0) for (buf) |*s| {
             s.* *= gout;
         };
     }
@@ -125,6 +133,17 @@ test "setters ignore non-finite values" {
     ott.setTime(std.math.inf(f32));
     try std.testing.expectEqual(depth, ott.depth());
     try std.testing.expectEqual(time, ott.time);
+}
+
+test "invalid gain fields cannot poison output" {
+    var ott = Ott.init(48_000);
+    // Direct field writes, not through a setter - matches how PolySynth's
+    // internal fixed OTT slot assigns these (see synth.zig fx_ott_state).
+    ott.gain_in_db = std.math.inf(f32);
+    ott.gain_out_db = std.math.nan(f32);
+    var buf = [_]Sample{ 0.0, -0.7, 0.05, 0.9 };
+    for (0..40) |_| ott.processBlock(&buf);
+    for (buf) |sample| try std.testing.expect(std.math.isFinite(sample));
 }
 
 test "out gain applies after the squash" {
