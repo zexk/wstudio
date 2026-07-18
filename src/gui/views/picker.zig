@@ -145,8 +145,36 @@ pub fn drawPreset(app: anytype) void {
         zgui.textColored(patina.audio, "filter: {s}", .{filter});
     }
     zgui.separator();
-    zgui.textDisabled("ENTER APPLY   A AUDITION   / FILTER   [ ] CATEGORY   D DELETE SAVED", .{});
-    zgui.spacing();
+    const available = zgui.getContentRegionAvail()[0];
+    const sidebar_width: f32 = if (available >= 820) 230 else 0;
+    if (sidebar_width > 0) {
+        if (zgui.beginChild("preset-sidebar", .{ .w = sidebar_width, .h = -1, .child_flags = .{ .border = true } })) {
+            zgui.textColored(patina.focus, "DISCOVER", .{});
+            zgui.separator();
+            zgui.textDisabled("/  filter presets", .{});
+            zgui.textDisabled("[ ]  change category", .{});
+            zgui.textDisabled("a  audition selected", .{});
+            zgui.spacing();
+            zgui.textColored(if (app.core.preset_audition_active) patina.audio else patina.fg3, "{s}", .{if (app.core.preset_audition_active) "AUDITION ACTIVE" else "AUDITION READY"});
+            zgui.spacing();
+            var selected_ordinal: usize = 0;
+            for (rows) |row| switch (row) {
+                .header => {},
+                .entry => |entry| {
+                    if (selected_ordinal == app.core.preset_picker_cursor) {
+                        zgui.separator();
+                        zgui.textColored(patina.fg0, "{s}", .{entry.name});
+                        zgui.textDisabled("{s}", .{entry.category});
+                        zgui.textDisabled("by {s}", .{entry.author});
+                        break;
+                    }
+                    selected_ordinal += 1;
+                },
+            };
+        }
+        zgui.endChild();
+        zgui.sameLine(.{ .spacing = 10 });
+    }
     if (zgui.beginChild("presets", .{ .w = 0, .h = -1, .child_flags = .{ .border = true } })) {
         var ordinal: usize = 0;
         for (rows, 0..) |row, row_index| switch (row) {
@@ -158,11 +186,9 @@ pub fn drawPreset(app: anytype) void {
             .entry => |entry| {
                 var id_buf: [48]u8 = undefined;
                 const id = std.fmt.bufPrintZ(&id_buf, "preset-card-{d}", .{row_index}) catch continue;
-                var desc_buf: [96]u8 = undefined;
-                const desc = std.fmt.bufPrint(&desc_buf, "{s}   {s}", .{ entry.category, entry.author }) catch entry.category;
                 const selected = app.core.preset_picker_cursor == ordinal;
                 const accent = if (app.core.preset_picker_kind == .synth) patina.focus else patina.rhythm;
-                if (drawCard(id, entry.name, desc, accent, selected, zgui.getContentRegionAvail()[0])) {
+                if (drawCard(id, entry.name, entry.author, accent, selected, zgui.getContentRegionAvail()[0])) {
                     app.core.preset_picker_cursor = ordinal;
                     app.core.handleKey(.enter, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
                 }
