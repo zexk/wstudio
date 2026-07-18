@@ -46,7 +46,12 @@ pub fn drawFx(app: anytype) void {
     const available = zgui.getContentRegionAvail()[0];
     const count = if (app.core.view == .synth_fx_picker) synth_kinds.len else kinds.len;
     const gap: f32 = 10;
-    const columns: usize = if (available >= 700) 2 else 1;
+    const columns: usize = if (app.core.view == .fx_picker and available >= 1120)
+        3
+    else if (available >= 700)
+        2
+    else
+        1;
     const width = (available - gap * @as(f32, @floatFromInt(columns - 1))) / @as(f32, @floatFromInt(columns));
     for (0..count) |i| {
         if (i % columns != 0) zgui.sameLine(.{ .spacing = gap });
