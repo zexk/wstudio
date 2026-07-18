@@ -29,6 +29,29 @@ and build the same way; see [CONTRIBUTING.md](CONTRIBUTING.md) for the
 full development setup. Once running: `enter` on a blank track opens the
 instrument picker, `space` plays/stops, and `:help` lists every command.
 
+## CLAP plugins
+
+wstudio hosts stereo CLAP instruments and effects using the
+[CLAP 1.2 ABI](https://github.com/free-audio/clap). Discovery follows
+`CLAP_PATH` and the platform paths required by the CLAP specification.
+
+```sh
+wstudio clap-scan
+```
+
+The scan prints `<plugin-id> <name> <path>`. In either frontend, select a
+track and use:
+
+```text
+:clap-instrument <plugin-id> <path>
+:clap-fx <plugin-id> <path>
+```
+
+CLAP audio, notes, MIDI, parameters, opaque state, latency, tails, logging,
+and host callbacks are supported. Plugin identity and state are saved in
+the `.wsj` project. Native plugin GUI windows, surround buses, polyphonic
+modulation, and plugin-requested thread pools are not supported yet.
+
 ## Status: beta
 
 The first public beta is live and audible. Expect rough edges, and keep
