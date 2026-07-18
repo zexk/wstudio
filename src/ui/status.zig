@@ -13,6 +13,7 @@ const ansi = @import("ansi.zig");
 const icons = @import("icons.zig");
 const spectrum_ed = @import("editors/spectrum.zig");
 const synth_ed = @import("editors/synth.zig");
+const synth_layout = @import("synth_layout.zig");
 const automation_ed = @import("editors/automation.zig");
 
 const rst = ansi.rst;
@@ -42,17 +43,6 @@ fn filterTypeName(ft: anytype) []const u8 {
     };
 }
 
-/// Duplicated from editors/automation.zig's own AutomationFocus-typed
-/// switch - status renderers can't import that concrete signature either
-/// (see currentClip's doc comment above).
-fn curvePoints(clip: *const ws.Clip, target: automation_ed.AutomationFocus) []const ws.dsp.automation.AutomationPoint {
-    return switch (target) {
-        .gain => clip.automation.gain,
-        .pan => clip.automation.pan,
-        .synth_param => |id| clip.automation.findSynthParam(id) orelse &.{},
-    };
-}
-
 const eq_mod = ws.dsp.eq;
 const automation_mod = ws.dsp.automation;
 
@@ -77,14 +67,6 @@ fn uniModeName(mode: anytype) []const u8 {
         .harmonic => "harmonic",
         .ratio => "ratio",
     };
-}
-
-/// Mod-matrix source abbreviations, duplicated from views/synth.zig (see
-/// currentClip's doc comment above) - shared by drawSynthStatus below.
-const mod_src_names = [_][]const u8{ "off", "lfo", "fenv", "aenv", "vel", "key", "whl", "lfo2", "lfo3", "mc1", "mc2", "mc3", "mc4", "env3" };
-
-fn modSrcIdx(src: anytype) usize {
-    return @intFromEnum(src);
 }
 
 /// Full-word label for an arpeggiator mode - shared by drawSynthStatus below.
@@ -420,7 +402,7 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !
             const row = synth.mod_matrix[(app.synth_cursor - 59) / 3];
             switch ((app.synth_cursor - 59) % 3) {
                 // zig fmt: off
-                0 => try w.writeAll(mod_src_names[modSrcIdx(row.source)]),
+                0 => try w.writeAll(synth_layout.modSourceName(row.source)),
                 1 => try w.writeAll(ws.dsp.PolySynth.modDestLabel(row.dest)),
                 2 => try w.print("{s}{d:.2}", .{ @as([]const u8, if (row.depth >= 0.0) "+" else ""), row.depth }),
                 // zig fmt: on
@@ -738,7 +720,7 @@ pub fn drawAutomationStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writ
     try w.print("{d}.{d}", .{ bar + 1, step_in_bar + 1 });
 
     const target = app.automation_focus;
-    const points = curvePoints(clip, target);
+    const points = automation_ed.curvePointsConst(clip, target);
     if (automation_mod.interpolate(points, beat)) |v| {
         const explicit = automation_mod.hasPointAt(points, beat);
         try w.writeAll(dim ++ "  " ++ rst);
