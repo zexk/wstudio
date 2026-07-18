@@ -68,6 +68,8 @@ pub const PatternPlayer = struct {
     // ── Audio-thread-only state ──────────────────────────────────────────────
     /// Which MIDI pitches are currently sounding (audio thread only).
     sounding:        [128]bool = [_]bool{false} ** 128,
+    /// Pitches removed by the UI thread before their scheduled note-off.
+    pending_note_off: [2]std.atomic.Value(u64) = .{ .init(0), .init(0) },
     // zig fmt: on
     /// Expected transport position at the start of the next block.
     /// 0 = first block or after a reset.
@@ -108,6 +110,7 @@ pub const PatternPlayer = struct {
             if (n.pitch == pitch and @abs(n.start_beat - start_beat) < 1e-9) {
                 self.notes[i] = self.notes[self.note_count - 1];
                 self.note_count -= 1;
+                self.queueNoteOff(pitch);
                 return;
             }
         }
@@ -186,6 +189,7 @@ pub const PatternPlayer = struct {
                 removed += 1;
             } else i += 1;
         }
+        if (removed > 0) self.queueNoteOff(pitch);
         return removed;
     }
 
@@ -202,10 +206,17 @@ pub const PatternPlayer = struct {
             if (n.start_beat >= lo_beat and n.start_beat < hi_beat) {
                 self.notes[i] = self.notes[self.note_count - 1];
                 self.note_count -= 1;
+                self.queueNoteOff(n.pitch);
                 removed += 1;
             } else i += 1;
         }
         return removed;
+    }
+
+    fn queueNoteOff(self: *PatternPlayer, pitch: u7) void {
+        const word: usize = pitch / 64;
+        const bit = @as(u64, 1) << @intCast(pitch % 64);
+        _ = self.pending_note_off[word].fetchOr(bit, .release);
     }
 
     /// Jitters every live note's timing (±`amount_pct`% of one grid step,
@@ -343,6 +354,19 @@ pub const PatternPlayer = struct {
 
         const frames: u64 = @intCast(buf.len / 2);
         const pos = self.transport.position_frames;
+
+        for (&self.pending_note_off, 0..) |*pending, word| {
+            var bits = pending.swap(0, .acq_rel);
+            while (bits != 0) {
+                const bit: u6 = @intCast(@ctz(bits));
+                const pitch: u7 = @intCast(word * 64 + bit);
+                if (self.sounding[pitch]) {
+                    self.target.sendEvent(.{ .note_off = .{ .note = pitch } });
+                    self.sounding[pitch] = false;
+                }
+                bits &= bits - 1;
+            }
+        }
 
         // Resync on seek or first play (same technique as DrumMachine).
         if (self.last_pos_frames != 0 and pos != self.last_pos_frames) {
@@ -624,4 +648,24 @@ test "clearing the active pattern releases sounding notes" {
     transport.advance(256);
     pp.processBlock(&buf);
     try std.testing.expect(!pp.sounding[60]);
+}
+
+test "deleting a sounding note releases it when other notes remain" {
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    var pp = PatternPlayer.init(synth.device(), &transport);
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 1.0 });
+    pp.addNote(.{ .pitch = 64, .start_beat = 2.0, .duration_beat = 1.0 });
+
+    transport.play();
+    var buf = [_]types.Sample{0.0} ** 512;
+    pp.processBlock(&buf);
+    try std.testing.expect(pp.sounding[60]);
+
+    pp.removeNote(60, 0.0);
+    transport.advance(256);
+    pp.processBlock(&buf);
+    try std.testing.expect(!pp.sounding[60]);
+    try std.testing.expectEqual(@as(u16, 1), pp.note_count);
 }
