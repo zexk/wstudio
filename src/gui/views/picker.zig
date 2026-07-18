@@ -131,7 +131,8 @@ fn drawCard(id: [:0]const u8, label: []const u8, desc: []const u8, accent: [4]f3
     const draw_list = zgui.getWindowDrawList();
     draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(if (selected) patina.bg4 else if (hovered) patina.bg3 else patina.bg2), .rounding = 4 });
     draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + 4, origin[1] + height }, .col = color(accent), .rounding = 2 });
-    draw_list.addText(.{ origin[0] + 14, origin[1] + 10 }, color(if (selected) accent else patina.fg0), "{s}", .{label});
+    if (selected) draw_list.addRect(.{ .pmin = .{ origin[0] + 1, origin[1] + 1 }, .pmax = .{ origin[0] + width - 1, origin[1] + height - 1 }, .col = color(patina.focus), .rounding = 4, .thickness = 2 });
+    draw_list.addText(.{ origin[0] + 14, origin[1] + 10 }, color(patina.fg0), "{s}", .{label});
     draw_list.addText(.{ origin[0] + 14, origin[1] + 35 }, color(patina.fg3), "{s}", .{desc});
     return clicked;
 }
