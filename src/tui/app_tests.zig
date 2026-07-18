@@ -3797,6 +3797,32 @@ test "arrangement +/- edge-resize a clip; undo/dot-repeat, min clamp, growth evi
     app.handleKey(.{ .char = '+' }, 0);
 }
 
+test "arrangement timeline operations clamp at the u32 boundary" {
+    var app = try testApp();
+    defer app.deinit();
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.5 });
+    try app.session.stampClip(0, 0);
+
+    app.view = .arrangement;
+    app.cursor = 0;
+    const lane = app.session.arrangement.lane(0).?;
+    const clip = &lane.clips.items[0];
+    clip.start_tick = std.math.maxInt(u32) - 255;
+    clip.length_ticks = 128;
+    app.arr_cursor_bar = clip.start_tick / app.arr_grid.ticks();
+
+    for ("4096>") |c| app.handleKey(.{ .char = c }, 0);
+    try std.testing.expectEqual(std.math.maxInt(u32), lane.clips.items[0].endTick());
+
+    for ("4096+") |c| app.handleKey(.{ .char = c }, 0);
+    try std.testing.expectEqual(std.math.maxInt(u32), lane.clips.items[0].endTick());
+
+    app.arr_cursor_bar = std.math.maxInt(u32);
+    app.handleKey(.{ .char = 'l' }, 0);
+    try std.testing.expectEqual((std.math.maxInt(u32) - 1) / app.arr_grid.ticks(), app.arr_cursor_bar);
+}
+
 test "piano roll enter on an empty cell starts a stamp session - j/k pitch, h/l length" {
     var app = try testApp();
     defer app.deinit();
