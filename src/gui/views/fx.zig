@@ -141,11 +141,8 @@ fn drawEditor(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit) void
     if (unit.kind() == .eq) {
         drawEqEditor(app, target, unit);
     } else {
-        if (app.eq_analyzer_key != null) {
-            _ = app.core.session.engine.send(.{ .set_spectrum_active = .{ .source = .none, .track = 0 } });
-            app.eq_analyzer_key = null;
-        }
-        drawEffectDisplay(app, unit);
+        ensureEqAnalyzer(app, target);
+        drawEffectDisplay(app, target, unit);
         zgui.spacing();
         const param_count = spectrum_ed.visibleParamCount(&app.core, unit.kind(), &unit.payload);
         drawParamColumns(app, target, unit, param_count);
@@ -153,7 +150,7 @@ fn drawEditor(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit) void
     }
 }
 
-fn drawEffectDisplay(app: anytype, unit: *ws.FxUnit) void {
+fn drawEffectDisplay(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit) void {
     const size = zgui.getContentRegionAvail();
     const height: f32 = std.math.clamp(size[1] * 0.48, 150, 260);
     const origin = zgui.getCursorScreenPos();
@@ -166,6 +163,21 @@ fn drawEffectDisplay(app: anytype, unit: *ws.FxUnit) void {
         const y = origin[1] + height * @as(f32, @floatFromInt(i)) / 4;
         draw_list.addLine(.{ .p1 = .{ x, origin[1] }, .p2 = .{ x, origin[1] + height }, .col = color(patina.line), .thickness = 1 });
         draw_list.addLine(.{ .p1 = .{ origin[0], y }, .p2 = .{ origin[0] + size[0], y }, .col = color(patina.line), .thickness = 1 });
+    }
+
+    const spectrum = switch (target) {
+        .track => app.core.session.engine.trackSpectrumSnapshot(app.core.eq_track),
+        .master => app.core.session.engine.masterSpectrumSnapshot(),
+        .group => app.core.session.engine.groupSpectrumSnapshot(app.core.eq_group),
+    };
+    if (spectrum) |snap| {
+        var spectrum_points: [snap.bins.len][2]f32 = undefined;
+        for (snap.bins, 0..) |db, i| {
+            const t = @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(snap.bins.len - 1));
+            const level = std.math.clamp((db + 90) / 90, 0, 1);
+            spectrum_points[i] = .{ origin[0] + t * size[0], origin[1] + (1 - level) * height };
+        }
+        draw_list.addPolyline(&spectrum_points, .{ .col = color(.{ patina.audio[0], patina.audio[1], patina.audio[2], 0.42 }), .thickness = 1.5 });
     }
 
     var points: [65][2]f32 = undefined;
