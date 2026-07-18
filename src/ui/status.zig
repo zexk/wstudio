@@ -121,30 +121,6 @@ fn hasPointAt(points: []const ws.dsp.automation.AutomationPoint, beat: f64) bool
     return false;
 }
 
-const note_names = [_][]const u8{
-    "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
-};
-
-/// Duplicated from views/piano.zig rather than imported (see currentClip's
-/// doc comment above).
-fn pitchLabel(pitch: u7, buf: *[5]u8) []const u8 {
-    const octave: i32 = @divTrunc(@as(i32, pitch), 12) - 1;
-    const name = note_names[pitch % 12];
-    var len: usize = 0;
-    @memcpy(buf[0..name.len], name);
-    len += name.len;
-    if (octave < 0) {
-        buf[len] = '-';
-        len += 1;
-        buf[len] = '0' + @as(u8, @intCast(-octave));
-        len += 1;
-    } else {
-        buf[len] = '0' + @as(u8, @intCast(octave));
-        len += 1;
-    }
-    return buf[0..len];
-}
-
 /// A shared zero-length pad used when an editor has no real pad to show -
 /// duplicated from views/sampler.zig (see currentClip's doc comment above).
 fn placeholderPad() *const ws.dsp.Pad {
@@ -598,7 +574,7 @@ pub fn drawPianoRollStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Write
     // zig fmt: on
 
     var lbuf: [5]u8 = undefined;
-    const label = pitchLabel(@intCast(app.piano_cursor_pitch), &lbuf);
+    const label = ws.midi.noteName(@intCast(app.piano_cursor_pitch), &lbuf);
     const spb: u16 = app.pianoStepsPerBeat();
     const beat_pos = @as(f64, @floatFromInt(app.piano_cursor_step)) / @as(f64, @floatFromInt(spb));
     const beat_index = app.piano_cursor_step / spb;

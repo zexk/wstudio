@@ -209,9 +209,7 @@ pub const Slicer = struct {
     pub const device = dsp.deviceOf(@This());
 
     pub fn clipName(self: *const Slicer) []const u8 {
-        var end: usize = self.name.len;
-        while (end > 0 and self.name[end - 1] == ' ') end -= 1;
-        return self.name[0..end];
+        return pad_mod.trimmedName(&self.name);
     }
 
     // -----------------------------------------------------------------------
@@ -233,11 +231,8 @@ pub const Slicer = struct {
         while (!self.sample_lock.tryLock()) std.atomic.spinLoopHint();
         defer self.sample_lock.unlock();
         self.allocator.free(self.samples);
-        var n: [8]u8 = [_]u8{' '} ** 8;
-        const len = @min(name.len, 8);
-        @memcpy(n[0..len], name[0..len]);
         self.samples = samples;
-        self.name = n;
+        self.name = pad_mod.fixedName(name);
         self.user_sample = true;
         if (reset_slices) {
             self.slice_count = 0;
