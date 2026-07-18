@@ -1904,6 +1904,7 @@ pub const PolySynth = struct {
             const warp_amt_b   = eff(&mods, 44, self.osc_b_warp_amount);
             const wt_pos_a     = eff(&mods, 185, self.wt_pos);
             const wt_pos_b     = eff(&mods, 186, self.osc_b_wt_pos);
+            const wt_pos_c     = eff(&mods, 187, self.osc_c_wt_pos);
             const mod_amount_v = eff(&mods, 15, self.mod_amount);
             const b_level      = eff(&mods, 11, self.osc_b_level);
             const c_level      = eff(&mods, 55, self.osc_c_level);
@@ -2096,7 +2097,7 @@ pub const PolySynth = struct {
                 if (self.osc_c_on) {
                     for (0..n_c) |ui| {
                         const samp = if (self.osc_c_waveform == .wavetable)
-                            wavetable.lookup(self.osc_c_wt, self.osc_c_wt_pos, v.phases_c[ui])
+                            wavetable.lookup(self.osc_c_wt, wt_pos_c, v.phases_c[ui])
                         else
                             oscWave(self.osc_c_waveform, v.phases_c[ui], pw_c);
                         c_l += samp * pan_l_c[ui];
