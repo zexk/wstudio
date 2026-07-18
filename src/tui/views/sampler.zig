@@ -58,7 +58,7 @@ pub fn drawSamplerEditor(
     const pad_idx = app.drum_cursor[0];
     const pad: *const ws.dsp.Pad = if (is_drum) padOf(app.drumMachine(), pad_idx) else if (is_slice) sliceOf(app) else blk: {
         if (app.editingSampler()) |s| break :blk &s.pad;
-        break :blk placeholderPad();
+        break :blk ws.dsp.pad.emptyPad();
     };
 
     // Body budget: the caller's header + transport + status (4 rows total,
@@ -186,26 +186,17 @@ pub fn drawSamplerEditor(
     while (written < body) : (written += 1) try endLine(w);
 }
 
-/// A shared zero-length pad used when an editor has no real pad to show - keeps
-/// drawing renderable without optionals or unreachable branches.
-fn placeholderPad() *const ws.dsp.Pad {
-    const holder = struct {
-        var p: ws.dsp.Pad = .{ .samples = &[_]f32{} };
-    };
-    return &holder.p;
-}
-
 /// Return a const pointer to pad `idx`'s underlying Pad, or a placeholder if
 /// the pad is out of range or not yet materialized (lazy-alloc pads).
 fn padOf(dm: anytype, idx: u8) *const ws.dsp.Pad {
-    if (idx >= DrumMachine.max_pads) return placeholderPad();
-    return if (dm.pads[idx]) |*s| &s.pad else placeholderPad();
+    if (idx >= DrumMachine.max_pads) return ws.dsp.pad.emptyPad();
+    return if (dm.pads[idx]) |*s| &s.pad else ws.dsp.pad.emptyPad();
 }
 
 /// The cursor slice's Pad, or a placeholder past the slice count.
 fn sliceOf(app: anytype) *const ws.dsp.Pad {
     const sl = app.slicerInst();
-    if (app.slicer_cursor[0] >= sl.slice_count) return placeholderPad();
+    if (app.slicer_cursor[0] >= sl.slice_count) return ws.dsp.pad.emptyPad();
     return &sl.slices[app.slicer_cursor[0]];
 }
 
