@@ -140,7 +140,7 @@ fn compactStatusContext(text: []const u8) []const u8 {
     var groups: usize = 0;
     while (std.mem.indexOfPos(u8, text, search_from, "   ")) |separator| {
         groups += 1;
-        if (groups == 2) return std.mem.trimRight(u8, text[0..separator], " ");
+        if (groups == 2) return std.mem.trimEnd(u8, text[0..separator], " ");
         search_from = separator + 3;
     }
     return text;
