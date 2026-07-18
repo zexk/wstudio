@@ -4,6 +4,7 @@ const std = @import("std");
 const abi = @import("abi.zig");
 const device_mod = @import("../dsp/device.zig");
 const types = @import("../core/types.zig");
+const Transport = @import("../transport.zig").Transport;
 
 const max_events = 256;
 
@@ -199,6 +200,7 @@ pub const ClapPlugin = struct {
     events: EventList = EventList.init(),
     output_events: abi.OutputEvents,
     audio_inputs_count: u32,
+    transport: ?*const Transport = null,
     steady_time: i64 = 0,
     started: bool = false,
 
@@ -351,10 +353,15 @@ pub const ClapPlugin = struct {
             .latency = 0,
             .constant_mask = 0,
         };
+        var transport_event: abi.EventTransport = undefined;
+        const transport_ptr: ?*const anyopaque = if (self.transport) |transport| blk: {
+            transport_event = makeTransportEvent(transport);
+            break :blk &transport_event;
+        } else null;
         var process = abi.Process{
             .steady_time = self.steady_time,
             .frames_count = @intCast(frames),
-            .transport = null,
+            .transport = transport_ptr,
             .audio_inputs = if (self.audio_inputs_count == 1) @ptrCast(&input_audio) else null,
             .audio_outputs = @ptrCast(&output_audio),
             .audio_inputs_count = self.audio_inputs_count,
@@ -425,6 +432,10 @@ pub const ClapPlugin = struct {
 
     pub fn pluginPath(self: *const ClapPlugin) []const u8 {
         return self.path_z;
+    }
+
+    pub fn attachTransport(self: *ClapPlugin, transport: *const Transport) void {
+        self.transport = transport;
     }
 
     pub fn id(self: *const ClapPlugin) []const u8 {
@@ -580,6 +591,57 @@ const StateReader = struct {
     }
 };
 
+fn fixedTime(value: f64) i64 {
+    const scaled = value * 2_147_483_648.0;
+    if (!std.math.isFinite(scaled)) return 0;
+    if (scaled >= @as(f64, @floatFromInt(std.math.maxInt(i64)))) return std.math.maxInt(i64);
+    if (scaled <= @as(f64, @floatFromInt(std.math.minInt(i64)))) return std.math.minInt(i64);
+    return @intFromFloat(scaled);
+}
+
+fn makeTransportEvent(transport: *const Transport) abi.EventTransport {
+    const sample_rate = @as(f64, @floatFromInt(@max(transport.sample_rate, 1)));
+    const frames_per_beat = transport.framesPerBeat();
+    const song_beats = transport.positionBeats();
+    const beats_per_bar = @as(f64, @floatFromInt(@max(transport.time_signature.beats_per_bar, 1)));
+    var flags = abi.transport_has_tempo |
+        abi.transport_has_beats_timeline |
+        abi.transport_has_seconds_timeline |
+        abi.transport_has_time_signature;
+    if (transport.playing) flags |= abi.transport_is_playing;
+    if (transport.loop_enabled and transport.loop_end_frames > transport.loop_start_frames)
+        flags |= abi.transport_is_loop_active;
+    const loop_start_beats = @as(f64, @floatFromInt(transport.loop_start_frames)) / frames_per_beat;
+    const loop_end_beats = @as(f64, @floatFromInt(transport.loop_end_frames)) / frames_per_beat;
+    const bar_number_f = @floor(song_beats / beats_per_bar);
+    const bar_number: i32 = if (bar_number_f >= @as(f64, @floatFromInt(std.math.maxInt(i32))))
+        std.math.maxInt(i32)
+    else
+        @intFromFloat(@max(bar_number_f, 0));
+    return .{
+        .header = .{
+            .size = @sizeOf(abi.EventTransport),
+            .time = 0,
+            .space_id = abi.core_event_space_id,
+            .event_type = abi.event_transport,
+            .flags = 0,
+        },
+        .flags = flags,
+        .song_pos_beats = fixedTime(song_beats),
+        .song_pos_seconds = fixedTime(transport.positionSeconds()),
+        .tempo = transport.tempo_bpm,
+        .tempo_inc = 0,
+        .loop_start_beats = fixedTime(loop_start_beats),
+        .loop_end_beats = fixedTime(loop_end_beats),
+        .loop_start_seconds = fixedTime(@as(f64, @floatFromInt(transport.loop_start_frames)) / sample_rate),
+        .loop_end_seconds = fixedTime(@as(f64, @floatFromInt(transport.loop_end_frames)) / sample_rate),
+        .bar_start = fixedTime(@as(f64, @floatFromInt(bar_number)) * beats_per_bar),
+        .bar_number = bar_number,
+        .tsig_num = transport.time_signature.beats_per_bar,
+        .tsig_denom = transport.time_signature.beat_unit,
+    };
+}
+
 test "CLAP event list preserves event order and ABI headers" {
     var list = EventList.init();
     list.bind();
@@ -599,4 +661,24 @@ test "CLAP event list preserves event order and ABI headers" {
     try std.testing.expectEqual(abi.event_midi, header.event_type);
     try std.testing.expectEqual(@as(u32, 4), header.time);
     try std.testing.expect(list.interface.get(&list.interface, 1) == null);
+}
+
+test "CLAP transport carries musical position loop and play state" {
+    var transport = Transport{
+        .sample_rate = 48_000,
+        .tempo_bpm = 120,
+        .playing = true,
+        .loop_enabled = true,
+        .loop_start_frames = 48_000,
+        .loop_end_frames = 96_000,
+        .position_frames = 72_000,
+    };
+    transport.time_signature.beats_per_bar = 3;
+    const event = makeTransportEvent(&transport);
+    try std.testing.expect(event.flags & abi.transport_is_playing != 0);
+    try std.testing.expect(event.flags & abi.transport_is_loop_active != 0);
+    try std.testing.expectApproxEqAbs(@as(f64, 3), @as(f64, @floatFromInt(event.song_pos_beats)) / 2_147_483_648.0, 1e-9);
+    try std.testing.expectEqual(@as(u16, 3), event.tsig_num);
+    try std.testing.expectEqual(@as(u16, 4), event.tsig_denom);
+    try std.testing.expectEqual(@as(i32, 1), event.bar_number);
 }

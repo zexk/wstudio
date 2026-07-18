@@ -54,12 +54,37 @@ pub const EventParamValue = extern struct {
     value: f64,
 };
 
+pub const EventTransport = extern struct {
+    header: EventHeader,
+    flags: u32,
+    song_pos_beats: i64,
+    song_pos_seconds: i64,
+    tempo: f64,
+    tempo_inc: f64,
+    loop_start_beats: i64,
+    loop_end_beats: i64,
+    loop_start_seconds: i64,
+    loop_end_seconds: i64,
+    bar_start: i64,
+    bar_number: i32,
+    tsig_num: u16,
+    tsig_denom: u16,
+};
+
 pub const event_note_on: u16 = 0;
 pub const event_note_off: u16 = 1;
 pub const event_note_choke: u16 = 2;
 pub const event_param_value: u16 = 5;
 pub const event_midi: u16 = 10;
+pub const event_transport: u16 = 9;
 pub const core_event_space_id: u16 = 0;
+
+pub const transport_has_tempo: u32 = 1 << 0;
+pub const transport_has_beats_timeline: u32 = 1 << 1;
+pub const transport_has_seconds_timeline: u32 = 1 << 2;
+pub const transport_has_time_signature: u32 = 1 << 3;
+pub const transport_is_playing: u32 = 1 << 4;
+pub const transport_is_loop_active: u32 = 1 << 6;
 
 pub const InputEvents = extern struct {
     ctx: ?*anyopaque,
