@@ -709,8 +709,13 @@ pub fn drawArrangementStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Wri
         try writeViewBadgeColored(right, "PATTERN", .yellow);
     }
 
-    try w.writeAll(dim ++ "  tick " ++ rst);
-    try w.print("{d}", .{app.arr_cursor_bar * app.arr_grid.ticks()});
+    const cursor_tick = app.arr_cursor_bar * app.arr_grid.ticks();
+    const ticks_per_bar = ws.time_grid.barTicks(app.session.project.beats_per_bar);
+    try w.writeAll(dim ++ "  bar " ++ rst);
+    try w.print("{d}.{d}", .{
+        cursor_tick / ticks_per_bar + 1,
+        (cursor_tick % ticks_per_bar) / ws.time_grid.ticks_per_beat + 1,
+    });
     try w.writeAll(dim ++ "  track " ++ rst);
     try w.print("{d}/{d}", .{ app.cursor + 1, app.session.project.tracks.items.len });
 
@@ -735,7 +740,7 @@ pub fn drawArrangementStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Wri
     }
 
     if (app.session.arrangement.lane(app.cursor)) |lane| {
-        if (lane.clipAt(app.arr_cursor_bar)) |clip| {
+        if (lane.clipAt(cursor_tick)) |clip| {
             try w.writeAll(dim ++ "  clip " ++ rst);
             try w.print("{d}t\u{2192}{d}t", .{ clip.start_tick, clip.endTick() });
             switch (clip.content) {
