@@ -54,14 +54,14 @@ const Target = union(enum) {
 // sampler appends its KEY section (root note, voice mode) after these.
 // zig fmt: off
 const ParamRow = struct { id: u8, label: []const u8, fmt: [:0]const u8 };
-const Section = struct { title: [:0]const u8, color: *const [4]f32, rows: []const ParamRow };
+const Section = struct { title: [:0]const u8, color: *const [4]f32, rows: []const ParamRow, is_adsr: bool = false };
 const shared_sections = [_]Section{
     .{ .title = "SAMPLE", .color = &patina.focus, .rows = &.{
         .{ .id = 0, .label = "Start",   .fmt = "%.3f" },
         .{ .id = 1, .label = "End",     .fmt = "%.3f" },
         .{ .id = 2, .label = "Pitch",   .fmt = "%.0f st" },
     } },
-    .{ .title = "AMP ENV", .color = &patina.rhythm, .rows = &.{
+    .{ .title = "AMP ENV", .color = &patina.rhythm, .is_adsr = true, .rows = &.{
         .{ .id = 3, .label = "Attack",  .fmt = "%.3f s" },
         .{ .id = 4, .label = "Decay",   .fmt = "%.3f s" },
         .{ .id = 5, .label = "Sustain", .fmt = "%.2f" },
@@ -77,12 +77,55 @@ const shared_sections = [_]Section{
 fn drawSharedSections(app: anytype, target: Target) void {
     for (shared_sections) |section| {
         widgets.sectionTitle(section.title, section.color.*);
-        for (section.rows) |row| drawParam(app, target, row.id, row.label, row.fmt);
+        if (section.is_adsr) {
+            drawAmpEnvelope(app, target);
+        } else {
+            for (section.rows) |row| drawParam(app, target, row.id, row.label, row.fmt);
+        }
         if (section.rows[section.rows.len - 1].id == 8) {
             drawToggle(app, target, 9, "REVERSE", "FORWARD", if (target == .pad) patina.modulation else patina.focus);
         }
         zgui.spacing();
     }
+}
+
+fn drawAmpEnvelope(app: anytype, target: Target) void {
+    var attack = target.value(3) orelse return;
+    var decay = target.value(4) orelse return;
+    var sustain = target.value(5) orelse return;
+    var release = target.value(6) orelse return;
+    const a_range = paramRange(3);
+    const d_range = paramRange(4);
+    const r_range = paramRange(6);
+
+    const cursor = app.core.sampler_param;
+    const focused_stage: ?u2 = if (cursor == 3) 0 else if (cursor == 4 or cursor == 5) 1 else if (cursor == 6) 2 else null;
+
+    const result = widgets.adsrEditor("adsr##sampler-target-env", .{
+        .attack = &attack,
+        .decay = &decay,
+        .sustain = &sustain,
+        .release = &release,
+        .attack_range = a_range,
+        .decay_range = d_range,
+        .release_range = r_range,
+        .accent = patina.rhythm,
+        .focused_stage = focused_stage,
+    });
+    if (result.changed[0]) setPadParam(app, target, 3, attack);
+    if (result.changed[1]) setPadParam(app, target, 4, decay);
+    if (result.changed[2]) setPadParam(app, target, 5, sustain);
+    if (result.changed[3]) setPadParam(app, target, 6, release);
+    if (result.activated_stage) |stage| app.core.sampler_param = switch (stage) {
+        0 => 3,
+        1 => 4,
+        else => 6,
+    };
+    zgui.textDisabled("A {d:.3}s  D {d:.3}s  S {d:.2}  R {d:.3}s", .{ attack, decay, sustain, release });
+}
+
+fn setPadParam(app: anytype, target: Target, id: u8, value: f32) void {
+    _ = app.core.session.engine.send(.{ .set_track_param_abs = .{ .track = target.track(), .id = target.engineId(id), .value = value } });
 }
 
 fn drawStandalone(app: anytype) void {
@@ -202,9 +245,7 @@ fn drawParam(app: anytype, target: Target, id: u8, label_text: []const u8, forma
     const label = std.fmt.bufPrintZ(&label_buf, "{s}##sampler-target-{d}", .{ label_text, id }) catch return;
     const focused = app.core.sampler_param == id;
     const result = widgets.paramKnob(label_text, label, .{ .v = &value, .min = range[0], .max = range[1], .cfmt = format, .accent = patina.focus, .focused = focused });
-    if (result.changed) {
-        _ = app.core.session.engine.send(.{ .set_track_param_abs = .{ .track = target.track(), .id = target.engineId(id), .value = value } });
-    }
+    if (result.changed) setPadParam(app, target, id, value);
     if (result.activated) app.core.sampler_param = id;
 }
 
@@ -216,7 +257,7 @@ fn drawToggle(app: anytype, target: Target, id: u8, on_label: [:0]const u8, off_
     zgui.pushStyleColor4f(.{ .idx = .text, .c = if (active) patina.bg0 else if (focused) patina.focus else patina.fg2 });
     if (zgui.button(if (active) on_label else off_label, .{ .w = 106, .h = 32 })) {
         app.core.sampler_param = id;
-        _ = app.core.session.engine.send(.{ .set_track_param_abs = .{ .track = target.track(), .id = target.engineId(id), .value = if (active) 0 else 1 } });
+        setPadParam(app, target, id, if (active) 0 else 1);
     }
     zgui.popStyleColor(.{ .count = 2 });
 }
