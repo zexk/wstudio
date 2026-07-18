@@ -999,7 +999,7 @@ fn cmdLoad(app: *App, args: []const u8) void {
 fn cmdLoadSample(app: *App, args: []const u8) void {
     const trimmed = std.mem.trim(u8, args, " ");
     if (cursorDrumMachine(app) != null) {
-        const pad_idx = app.drum_cursor[0];
+        const pad_idx: u8 = @intCast(app.drum_cursor[0]);
         if (trimmed.len == 0) {
             app.openBrowser(.{ .load_pad = pad_idx });
             return;

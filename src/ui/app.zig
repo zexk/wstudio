@@ -128,12 +128,16 @@ pub const PianoClip = struct {
 /// A visual-mode range yank from the drum grid: one step-range's worth of
 /// active/velocity bits across every pad, rebased so the selection's first
 /// step becomes bit 0. Paste places it starting at the cursor step.
+/// A single yank/delete range is capped at 64 steps regardless of how long
+/// the live pattern has grown (see `step_grid.clampRangeWidth`) - the clip
+/// itself stays this fixed 64-bit-wide bitmask either way, same shape
+/// `SlicerRangeClip` always had.
 pub const DrumRangeClip = struct {
     width: u8,
     active: [DrumMachine.max_pads]u64 = [_]u64{0} ** DrumMachine.max_pads,
     /// Per-step velocity within the yanked range (index = step - range
-    /// start); sized to match `active`'s bitmask width cap (`max_steps`).
-    vel: [DrumMachine.max_pads][DrumMachine.max_steps]u8 = [_][DrumMachine.max_steps]u8{[_]u8{DrumMachine.vel_full} ** DrumMachine.max_steps} ** DrumMachine.max_pads,
+    /// start); sized to the 64-step clipboard cap, not `max_steps`.
+    vel: [DrumMachine.max_pads][64]u8 = [_][64]u8{[_]u8{DrumMachine.vel_full} ** 64} ** DrumMachine.max_pads,
 };
 
 /// A visual-mode range yank from the slicer grid - same shape as
@@ -255,7 +259,7 @@ pub const App = struct {
     track_rows_shown: usize = 0,
     view: AppView = .tracks,
     prev_view: AppView = .tracks,
-    drum_cursor: [2]u8 = .{ 0, 0 },
+    drum_cursor: [2]u16 = .{ 0, 0 },
     /// First visible step column - cursor-follow horizontal scroll, same
     /// "clamped at draw" convention as `arr_scroll_bar`/`automation_scroll`
     /// (drawDrumGrid updates it; step_count can exceed a terminal's width
@@ -447,7 +451,7 @@ pub const App = struct {
     /// max(anchor,cursor)] on the view's time axis (step / step / bar); see
     /// editors/{piano,drum,arrangement}.zig's handleVisual.
     piano_visual_anchor: ?u16 = null,
-    drum_visual_anchor: ?u8 = null,
+    drum_visual_anchor: ?u16 = null,
     slicer_visual_anchor: ?u8 = null,
     arr_visual_anchor: ?u32 = null,
     /// Operator-pending state (normal mode, not `.visual`): set when `d`/`y`
@@ -720,6 +724,7 @@ pub const App = struct {
             self.allocator.free(r.clips);
         }
         if (self.automation_range_clip) |r| self.allocator.free(r.points);
+        if (self.drum_clip) |*c| DrumMachine.freeMidi(self.allocator, &c.midi);
         if (self.pending_fx_nudge) |*p| p.deinit(self.allocator);
         self.freeBrowserEntries();
         self.browser_entries.deinit(self.allocator);

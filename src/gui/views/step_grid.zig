@@ -11,10 +11,10 @@ pub fn draw(
     comptime kind: Kind,
     instrument: anytype,
     total_rows: usize,
-    step_count_raw: u8,
+    step_count_raw: anytype,
     play_step: ?usize,
-    cursor: *[2]u8,
-    visual_anchor: ?u8,
+    cursor: anytype,
+    visual_anchor: anytype,
 ) void {
     const step_count: usize = @max(1, step_count_raw);
     const row_count = @min(@as(usize, 12), total_rows);

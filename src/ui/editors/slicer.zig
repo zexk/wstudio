@@ -369,7 +369,7 @@ fn doublePattern(app: *App) void {
         return;
     }
     history.push(app, history.captureSlicer(app, app.slicer_track));
-    _ = step_grid.doublePattern(sl, Slicer.max_slices);
+    _ = step_grid.doublePattern(sl, Slicer.max_slices, Slicer.max_steps);
     app.setStatus("doubled loop to {d} steps", .{sl.step_count});
 }
 
@@ -385,7 +385,7 @@ fn sequenceSourceOrder(app: *App) void {
     sl.setStepCount(@max(sl.step_count, sl.slice_count));
     for (0..Slicer.max_slices) |row| sl.clearSlice(@intCast(row));
     for (0..sl.slice_count) |idx| {
-        step_grid.setStep(sl, @intCast(idx), @intCast(idx), true, Slicer.vel_full);
+        step_grid.setStep(sl, @intCast(idx), @as(u8, @intCast(idx)), true, Slicer.vel_full);
     }
     app.slicer_cursor = .{ 0, 0 };
     app.setStatus("sequenced {d} slices in source order", .{sl.slice_count});
@@ -498,7 +498,7 @@ fn exitVisual(app: *App) void {
 /// clipboard, rebased so the range's first step is bit 0.
 fn yankSelection(app: *App) void {
     const sl = app.slicerInst();
-    const r = step_grid.selectionRange(app.slicer_visual_anchor, app.slicer_cursor[1]);
+    const r = step_grid.selectionRange(u8, app.slicer_visual_anchor, app.slicer_cursor[1]);
     const clip = step_grid.yankRange(SlicerRangeClip, sl, Slicer.max_slices, r);
     app.slicer_range_clip = clip;
     app.setStatus("yanked {d} steps", .{clip.width});
@@ -508,7 +508,7 @@ fn yankSelection(app: *App) void {
 /// Clear every slice's steps within the selected range.
 fn deleteSelection(app: *App) void {
     const sl = app.slicerInst();
-    const r = step_grid.selectionRange(app.slicer_visual_anchor, app.slicer_cursor[1]);
+    const r = step_grid.selectionRange(u8, app.slicer_visual_anchor, app.slicer_cursor[1]);
     history.push(app, history.captureSlicer(app, app.slicer_track));
     step_grid.clearRange(sl, Slicer.max_slices, r);
     app.last_edit = .{ .slicer_range_delete = .{ .width = r.hi - r.lo + 1 } };
@@ -588,7 +588,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16, v
     switch (ev.kind) {
         .press => {
             app.slicer_cursor[0] = @intCast(slice);
-            const step = step_grid.stepAt(gutter, 3, app.slicer_step_scroll, sl.step_count, ev.x) orelse {
+            const step = step_grid.stepAt(u8, gutter, 3, app.slicer_step_scroll, sl.step_count, ev.x) orelse {
                 app.slicer_paint_state = null;
                 return;
             };
@@ -599,7 +599,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16, v
         },
         .drag => {
             const state = app.slicer_paint_state orelse return;
-            const step = step_grid.stepAt(gutter, 3, app.slicer_step_scroll, sl.step_count, ev.x) orelse return;
+            const step = step_grid.stepAt(u8, gutter, 3, app.slicer_step_scroll, sl.step_count, ev.x) orelse return;
             app.slicer_cursor[0] = @intCast(slice);
             app.slicer_cursor[1] = step;
             step_grid.setStep(sl, @intCast(slice), step, state, Slicer.vel_full);

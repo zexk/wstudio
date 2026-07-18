@@ -179,7 +179,7 @@ fn drawStandalone(app: anytype) void {
 
 fn drawPadTarget(app: anytype, track: u16, kind: PadTargetKind) void {
     if (track >= app.core.session.racks.items.len) return;
-    const index: u8 = if (kind == .drum) app.core.drum_cursor[0] else app.core.slicer_cursor[0];
+    const index: u8 = if (kind == .drum) @intCast(app.core.drum_cursor[0]) else app.core.slicer_cursor[0];
     drawPadHeader(app, track, kind, index);
     zgui.spacing();
     const pad: *ws.dsp.Pad = switch (kind) {

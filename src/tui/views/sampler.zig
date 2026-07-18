@@ -55,7 +55,7 @@ pub fn drawSamplerEditor(
         app.session.project.tracks.items[track_idx].name
     else
         "?";
-    const pad_idx = app.drum_cursor[0];
+    const pad_idx: u8 = @intCast(app.drum_cursor[0]);
     const pad: *const ws.dsp.Pad = if (is_drum) padOf(app.drumMachine(), pad_idx) else if (is_slice) sliceOf(app) else blk: {
         if (app.editingSampler()) |s| break :blk &s.pad;
         break :blk ws.dsp.pad.emptyPad();
