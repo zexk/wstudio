@@ -35,6 +35,17 @@ fn mods(comptime rows: []const ModRow) [PolySynth.max_mod_rows]ModRow {
     return out;
 }
 
+/// Pad one `.custom` LFO shape's breakpoints out to a full per-slot array
+/// (comptime only) - `mods`'s counterpart for LFO shapes instead of matrix
+/// rows. Pair with a matching `lfo_custom_count` entry; an unused slot
+/// (that LFO isn't `.custom`) can just be `lfoPoints(&.{})` since its
+/// padding is never read.
+fn lfoPoints(comptime points: []const synth.LfoShapePoint) [synth.max_lfo_shape_points]synth.LfoShapePoint {
+    var out = [_]synth.LfoShapePoint{.{}} ** synth.max_lfo_shape_points;
+    for (points, 0..) |p, i| out[i] = p;
+    return out;
+}
+
 pub const Preset = struct {
     name: []const u8,
     /// Sound role, not genre - e.g. "bass", "lead", "pad".
@@ -177,7 +188,25 @@ pub const presets = [_]Preset{
         .sub_level = 0.5,
         .attack_s = 0.005, .decay_s = 0.1, .sustain = 1.0, .release_s = 0.15,
         .filter_type = .ladder, .filter_cutoff = 400.0, .filter_res = 0.3,
-        .lfo_shape = .triangle, .lfo_rate_hz = 4.5,
+        // .custom, not .triangle: the genre-defining wobble is asymmetric -
+        // a fast bite open then a slower, curved close - not a symmetric
+        // rise/fall. Fast attack to the peak (10% of the cycle), then a
+        // two-stage decay (quick initial drop easing into a slow tail)
+        // approximates that curved knee out of straight-line segments.
+        .lfo_shape = .custom, .lfo_rate_hz = 4.5,
+        .lfo_custom = .{
+            lfoPoints(&.{
+                .{ .phase = 0.0,  .value = -1.0 },
+                .{ .phase = 0.1,  .value = 1.0 },
+                .{ .phase = 0.25, .value = 0.6 },
+                .{ .phase = 0.5,  .value = 0.0 },
+                .{ .phase = 0.85, .value = -0.8 },
+                .{ .phase = 1.0,  .value = -1.0 },
+            }),
+            lfoPoints(&.{}),
+            lfoPoints(&.{}),
+        },
+        .lfo_custom_count = .{ 6, 0, 0 },
         .mod_matrix = mods(&.{
             .{ .source = .lfo,  .dest = 21,  .depth = 0.45 },
             .{ .source = .lfo,  .dest = 185, .depth = 0.3 },
@@ -834,7 +863,24 @@ pub const presets = [_]Preset{
         .attack_s = 0.004, .decay_s = 0.15, .sustain = 1.0, .release_s = 0.12,
         .filter_type = .formant, .filter_cutoff = 300.0, .filter_res = 0.45,
         .filter2_on = true, .filter2_type = .lp, .filter2_cutoff = 2500.0, .filter2_res = 0.2, .filter_routing = .series,
-        .lfo_shape = .square, .lfo_rate_hz = 6.0,
+        // .custom, not .square: a square just flips between two vowel
+        // extremes on/off, it doesn't "talk". Dwelling briefly at each
+        // vowel with a quick transition between (not an instant flip)
+        // reads as actual formant speech instead of a switch.
+        .lfo_shape = .custom, .lfo_rate_hz = 6.0,
+        .lfo_custom = .{
+            lfoPoints(&.{
+                .{ .phase = 0.0,  .value = -1.0 },
+                .{ .phase = 0.15, .value = -1.0 },
+                .{ .phase = 0.25, .value = 1.0 },
+                .{ .phase = 0.55, .value = 1.0 },
+                .{ .phase = 0.7,  .value = -1.0 },
+                .{ .phase = 1.0,  .value = -1.0 },
+            }),
+            lfoPoints(&.{}),
+            lfoPoints(&.{}),
+        },
+        .lfo_custom_count = .{ 6, 0, 0 },
         .mod_matrix = mods(&.{
             .{ .source = .lfo,  .dest = 21, .depth = 0.4 },
             .{ .source = .mac1, .dest = 21, .depth = 0.5 },
@@ -998,7 +1044,7 @@ pub const presets = [_]Preset{
     } },
 
     // dub - reedy melodica with vibrato, sunk into King Tubby tape echo
-    .{ .name = "melodica", .category = "keys", .tags = &.{ "wstudio", "dub" }, .patch = .{
+    .{ .name = "melodica", .category = "keys", .tags = &.{ "wstudio", "dub", "reggae" }, .patch = .{
         .waveform = .square, .pulse_width = 0.5, .voice_mode = .mono, .glide_s = 0.0,
         .noise_level = 0.05, .noise_color = 0.7,
         .attack_s = 0.03, .decay_s = 0.2, .sustain = 0.7, .release_s = 0.2,
@@ -1530,7 +1576,29 @@ pub const presets = [_]Preset{
         .filter_type = .formant, .filter_cutoff = 300.0, .filter_res = 0.55,
         .filter2_on = true, .filter2_type = .hp, .filter2_cutoff = 200.0, .filter_routing = .series,
         .fenv_attack_s = 0.01, .fenv_decay_s = 0.15, .fenv_sustain = 0.3, .fenv_release_s = 0.15,
-        .lfo_shape = .sine, .lfo_rate_hz = 3.5,
+        // .custom, not .sine: the comment above promises a directional
+        // a->e->i->o sweep, but a sine only swings back and forth between
+        // two extremes - it can never visit 4 distinct vowel positions in
+        // sequence. Four dwell plateaus (a/e/i/o) with quick ramps between
+        // actually implements what was already being claimed; the hard
+        // snap back to `a` at the phase wrap is the classic aggressive
+        // "reset" zap this genre wants, not a bug.
+        .lfo_shape = .custom, .lfo_rate_hz = 3.5,
+        .lfo_custom = .{
+            lfoPoints(&.{
+                .{ .phase = 0.0,  .value = -1.0 },
+                .{ .phase = 0.2,  .value = -1.0 },
+                .{ .phase = 0.25, .value = -0.33 },
+                .{ .phase = 0.45, .value = -0.33 },
+                .{ .phase = 0.5,  .value = 0.33 },
+                .{ .phase = 0.7,  .value = 0.33 },
+                .{ .phase = 0.75, .value = 1.0 },
+                .{ .phase = 1.0,  .value = 1.0 },
+            }),
+            lfoPoints(&.{}),
+            lfoPoints(&.{}),
+        },
+        .lfo_custom_count = .{ 8, 0, 0 },
         .mod_matrix = mods(&.{
             .{ .source = .lfo,  .dest = 21, .depth = 1.0 },
             .{ .source = .fenv, .dest = 21, .depth = 0.3 },
@@ -1645,7 +1713,24 @@ pub const presets = [_]Preset{
         .waveform = .square, .pulse_width = 0.3, .unison = 3, .unison_detune = 15.0, .voice_mode = .mono, .glide_s = 0.035,
         .attack_s = 0.004, .decay_s = 0.2, .sustain = 0.75, .release_s = 0.1,
         .filter_type = .formant, .filter_cutoff = 420.0, .filter_res = 0.5,
-        .lfo_shape = .triangle, .lfo_rate_hz = 3.0,
+        // .custom, not .triangle: a talkbox's mouth motion is asymmetric
+        // (open dwells longer than closed) and its own shape distinct from
+        // growl-bass's harder vowel-snap above - this one loops seamlessly
+        // (the last point matches the first) for a smoother "ah-wah" motion
+        // instead of a hard reset each cycle.
+        .lfo_shape = .custom, .lfo_rate_hz = 3.0,
+        .lfo_custom = .{
+            lfoPoints(&.{
+                .{ .phase = 0.0,  .value = 1.0 },
+                .{ .phase = 0.35, .value = 1.0 },
+                .{ .phase = 0.5,  .value = -1.0 },
+                .{ .phase = 0.8,  .value = -1.0 },
+                .{ .phase = 1.0,  .value = 1.0 },
+            }),
+            lfoPoints(&.{}),
+            lfoPoints(&.{}),
+        },
+        .lfo_custom_count = .{ 5, 0, 0 },
         .mod_matrix = mods(&.{
             .{ .source = .lfo,  .dest = 21, .depth = 0.45 },
             .{ .source = .mac1, .dest = 21, .depth = 0.5 },
