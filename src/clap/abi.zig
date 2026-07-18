@@ -12,6 +12,7 @@ pub const Version = extern struct {
 pub const version: Version = .{ .major = 1, .minor = 2, .revision = 10 };
 pub const plugin_factory_id: [*:0]const u8 = "clap.plugin-factory";
 pub const ext_audio_ports: [*:0]const u8 = "clap.audio-ports";
+pub const ext_note_ports: [*:0]const u8 = "clap.note-ports";
 pub const ext_params: [*:0]const u8 = "clap.params";
 pub const ext_state: [*:0]const u8 = "clap.state";
 pub const ext_latency: [*:0]const u8 = "clap.latency";
@@ -110,6 +111,21 @@ pub const PluginAudioPorts = extern struct {
     count: *const fn (*const Plugin, bool) callconv(.c) u32,
     get: *const fn (*const Plugin, u32, bool, *AudioPortInfo) callconv(.c) bool,
 };
+
+pub const NotePortInfo = extern struct {
+    id: u32,
+    supported_dialects: u32,
+    preferred_dialect: u32,
+    name: [256]u8,
+};
+
+pub const PluginNotePorts = extern struct {
+    count: *const fn (*const Plugin, bool) callconv(.c) u32,
+    get: *const fn (*const Plugin, u32, bool, *NotePortInfo) callconv(.c) bool,
+};
+
+pub const note_dialect_clap: u32 = 1 << 0;
+pub const note_dialect_midi: u32 = 1 << 1;
 
 pub const ParamInfo = extern struct {
     id: u32,

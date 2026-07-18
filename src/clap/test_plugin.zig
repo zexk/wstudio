@@ -134,6 +134,26 @@ const audio_ports: abi.PluginAudioPorts = .{
     .get = getAudioPort,
 };
 
+fn notePortCount(_: *const abi.Plugin, is_input: bool) callconv(.c) u32 {
+    return if (is_input) 1 else 0;
+}
+
+fn getNotePort(_: *const abi.Plugin, index: u32, is_input: bool, info: *abi.NotePortInfo) callconv(.c) bool {
+    if (!is_input or index != 0) return false;
+    info.* = .{
+        .id = 0,
+        .supported_dialects = abi.note_dialect_clap | abi.note_dialect_midi,
+        .preferred_dialect = abi.note_dialect_clap,
+        .name = @splat(0),
+    };
+    return true;
+}
+
+const note_ports: abi.PluginNotePorts = .{
+    .count = notePortCount,
+    .get = getNotePort,
+};
+
 fn paramCount(_: *const abi.Plugin) callconv(.c) u32 {
     return 1;
 }
@@ -223,6 +243,7 @@ const plugin_tail: abi.PluginTail = .{ .get = tail };
 fn getExtension(_: *const abi.Plugin, id: [*:0]const u8) callconv(.c) ?*const anyopaque {
     const name = @import("std").mem.span(id);
     if (@import("std").mem.eql(u8, name, "clap.audio-ports")) return &audio_ports;
+    if (@import("std").mem.eql(u8, name, "clap.note-ports")) return &note_ports;
     if (@import("std").mem.eql(u8, name, "clap.params")) return &params;
     if (@import("std").mem.eql(u8, name, "clap.state")) return &plugin_state;
     if (@import("std").mem.eql(u8, name, "clap.latency")) return &plugin_latency;
