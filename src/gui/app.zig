@@ -7,6 +7,7 @@ const ws = @import("wstudio");
 const config_mod = @import("../config.zig");
 const tui_app = @import("../ui/app.zig");
 const chrome = @import("chrome.zig");
+const style = @import("style.zig");
 const arrangement_view = @import("views/arrangement.zig");
 const automation_view = @import("views/automation.zig");
 const drum_view = @import("views/drum.zig");
@@ -99,6 +100,7 @@ fn drawWorkspace(app: *App) void {
     zgui.setNextWindowPos(.{ .x = 0, .y = 64, .cond = .always });
     zgui.setNextWindowSize(.{ .w = zgui.io.getDisplaySize()[0], .h = body_h, .cond = .always });
     if (zgui.begin("Workspace", .{ .flags = .{ .no_title_bar = true, .no_move = true, .no_resize = true, .no_collapse = true, .no_docking = true } })) {
+        drawViewHeader(app.core.view);
         switch (app.core.view) {
             .tracks => tracks_view.draw(app),
             .arrangement => arrangement_view.draw(app),
@@ -118,6 +120,37 @@ fn drawWorkspace(app: *App) void {
         }
     }
     zgui.end();
+}
+
+fn drawViewHeader(view: tui_app.AppView) void {
+    zgui.textDisabled("WSTUDIO", .{});
+    zgui.sameLine(.{ .spacing = 10 });
+    zgui.textColored(style.palette.focus, "/  {s}", .{viewTitle(view)});
+    zgui.separator();
+    zgui.spacing();
+}
+
+fn viewTitle(view: tui_app.AppView) []const u8 {
+    return switch (view) {
+        .tracks => "TRACKS",
+        .arrangement => "ARRANGEMENT",
+        .piano_roll => "PIANO ROLL",
+        .drum_grid => "DRUM GRID",
+        .slicer_grid => "SLICER",
+        .synth_editor => "SYNTH",
+        .sampler_editor => "SAMPLER",
+        .track_spectrum => "TRACK FX",
+        .master_spectrum => "MASTER FX",
+        .group_spectrum => "GROUP FX",
+        .automation => "AUTOMATION",
+        .instrument_picker => "ADD INSTRUMENT",
+        .fx_picker => "ADD EFFECT",
+        .synth_fx_picker => "ADD SYNTH EFFECT",
+        .preset_picker => "PRESETS",
+        .automation_param_picker => "ADD AUTOMATION PARAMETER",
+        .file_browser => "FILES",
+        .help => "HELP",
+    };
 }
 
 /// The character GLFW's char callback delivered this frame (see
