@@ -862,10 +862,11 @@ pub const Session = struct {
                                 if (note.start_beat >= mel.length_beats) continue;
                                 const abs_start = rep_start + note.start_beat;
                                 if (abs_start >= clip_span_beats) continue;
+                                const remaining = clip_span_beats - abs_start;
                                 notes[n] = .{
                                     .pitch = note.pitch,
                                     .start_beat = clip_start_beat + abs_start,
-                                    .duration_beat = note.duration_beat,
+                                    .duration_beat = @min(note.duration_beat, remaining),
                                     .velocity = note.velocity,
                                 };
                                 n += 1;
@@ -1274,6 +1275,25 @@ test "song mode repeats a melodic clip's pattern to fill an edge-resized span" {
     try std.testing.expectApproxEqAbs(@as(f64, 4.0), pp.song_notes[1].start_beat, 1e-9);
     try std.testing.expectApproxEqAbs(@as(f64, 8.0), pp.song_notes[2].start_beat, 1e-9);
     try std.testing.expectApproxEqAbs(@as(f64, 12.0), pp.song_length_beats, 1e-9);
+}
+
+test "song mode clips melodic note duration at the arrangement edge" {
+    var s = try Session.initDefault(std.testing.allocator);
+    defer s.deinit();
+    try s.setInstrument(0, .poly_synth);
+    const pp = &s.racks.items[0].pattern_player.?;
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 4.0 });
+    pp.length_beats = 4.0;
+    try s.stampClip(0, 0);
+
+    // Shorten the arrangement clip to one beat. Its captured four-beat note
+    // must not ring through the three-beat gap after the clip.
+    s.arrangement.lane(0).?.clips.items[0].length_ticks = time_grid.ticks_per_beat;
+    s.setSongMode(true);
+
+    try std.testing.expectEqual(@as(u16, 1), pp.song_note_count);
+    try std.testing.expectApproxEqAbs(@as(f64, 1.0), pp.song_notes[0].duration_beat, 1e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 1.0), pp.song_length_beats, 1e-9);
 }
 
 test "stampClip captures the active drum variant" {
