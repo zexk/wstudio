@@ -55,9 +55,8 @@ fn drawBookmarkSidebar(app: anytype, width: f32) void {
             if (zgui.button("HOME", .{ .w = -1, .h = 32 })) app.core.browserJumpTo(std.mem.sliceTo(home_z, 0));
         }
         if (app.core.projectPath()) |project_path| {
-            if (std.fs.path.dirname(project_path)) |project_dir| {
-                if (zgui.button("PROJECT", .{ .w = -1, .h = 32 })) app.core.browserJumpTo(project_dir);
-            }
+            const project_dir = std.fs.path.dirname(project_path) orelse ".";
+            if (zgui.button("PROJECT", .{ .w = -1, .h = 32 })) app.core.browserJumpTo(project_dir);
         }
         zgui.spacing();
         zgui.textColored(patina.fg2, "BOOKMARKS", .{});

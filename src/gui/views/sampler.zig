@@ -208,6 +208,10 @@ fn drawPadTarget(app: anytype, track: u16, kind: PadTargetKind) void {
     };
 
     const target: Target = .{ .pad = .{ .pad = pad, .track = track, .kind = kind, .index = index } };
+    if (pad.samples.len == 0) {
+        drawPadEmptyState(app, if (kind == .drum) "LOAD A PAD SAMPLE" else "LOAD AUDIO TO CREATE SLICES", if (kind == .drum) "Choose a WAV file for this drum pad." else "Choose a WAV file before editing slice playback.");
+        return;
+    }
     widgets.sectionTitle("PLAY REGION", patina.audio);
     drawWaveformRegion(app, target, pad.samples);
     zgui.spacing();
