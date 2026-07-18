@@ -3022,17 +3022,25 @@ pub const App = struct {
     /// checklist can't drift between the two call sites - see
     /// project_bug_hunt_2026_07_11's "any NEW field... must join this list".
     pub fn shiftFieldsForInsert(self: *App, idx: usize) void {
-        if (self.synth_track >= idx) self.synth_track += 1;
-        if (self.drum_track >= idx) self.drum_track += 1;
-        if (self.piano_track >= idx) self.piano_track += 1;
-        if (self.eq_track >= idx) self.eq_track += 1;
-        if (self.slicer_track >= idx) self.slicer_track += 1;
-        if (self.automation_track >= idx) self.automation_track += 1;
-        if (self.preset_picker_track >= idx) self.preset_picker_track += 1;
+        // A field bounced to the invalid sentinel by shiftFieldsForDelete
+        // stays there - it names no track at all, so there's nothing for
+        // an insert to shift, and incrementing the sentinel would overflow.
+        const shiftIfValid = struct {
+            fn f(field: *u16, ins_idx: usize) void {
+                if (field.* != std.math.maxInt(u16) and field.* >= ins_idx) field.* += 1;
+            }
+        }.f;
+        shiftIfValid(&self.synth_track, idx);
+        shiftIfValid(&self.drum_track, idx);
+        shiftIfValid(&self.piano_track, idx);
+        shiftIfValid(&self.eq_track, idx);
+        shiftIfValid(&self.slicer_track, idx);
+        shiftIfValid(&self.automation_track, idx);
+        shiftIfValid(&self.preset_picker_track, idx);
         switch (self.sampler_target) {
-            .drum => |*t| if (t.* >= idx) { t.* += 1; },
-            .sampler => |*t| if (t.* >= idx) { t.* += 1; },
-            .slice => |*t| if (t.* >= idx) { t.* += 1; },
+            .drum => |*t| shiftIfValid(t, idx),
+            .sampler => |*t| shiftIfValid(t, idx),
+            .slice => |*t| shiftIfValid(t, idx),
         }
         if (self.piano_clip_link) |*link| {
             if (link.track >= idx) link.track += 1;
@@ -3049,13 +3057,29 @@ pub const App = struct {
     /// removed at `idx` - the mirror of `shiftFieldsForInsert`. Shared by
     /// `doTrackDel` and history's track-delete-redo apply.
     pub fn shiftFieldsForDelete(self: *App, idx: usize) void {
-        if (idx < self.synth_track and self.synth_track > 0) self.synth_track -= 1;
-        if (idx < self.drum_track and self.drum_track > 0) self.drum_track -= 1;
-        if (idx < self.piano_track and self.piano_track > 0) self.piano_track -= 1;
-        if (idx < self.eq_track and self.eq_track > 0) self.eq_track -= 1;
-        if (idx < self.slicer_track and self.slicer_track > 0) self.slicer_track -= 1;
-        if (idx < self.automation_track and self.automation_track > 0) self.automation_track -= 1;
-        if (idx < self.preset_picker_track and self.preset_picker_track > 0) self.preset_picker_track -= 1;
+        // A field naming the deleted track exactly must not merely survive
+        // unshifted - the slot it names gets reused by whatever track
+        // shifts down into it, so leaving the old value in place would
+        // silently rebind the field (and any open editor keyed on it) to
+        // that unrelated track. Bounce it out of range instead, so the
+        // kindIs()/`>= racks.len` checks in exitStaleEditors always treat
+        // it as gone, regardless of what the reused slot now holds.
+        const shiftOrInvalidate = struct {
+            fn f(field: *u16, del_idx: usize) void {
+                if (field.* == del_idx) {
+                    field.* = std.math.maxInt(u16);
+                } else if (del_idx < field.* and field.* > 0) {
+                    field.* -= 1;
+                }
+            }
+        }.f;
+        shiftOrInvalidate(&self.synth_track, idx);
+        shiftOrInvalidate(&self.drum_track, idx);
+        shiftOrInvalidate(&self.piano_track, idx);
+        shiftOrInvalidate(&self.eq_track, idx);
+        shiftOrInvalidate(&self.slicer_track, idx);
+        shiftOrInvalidate(&self.automation_track, idx);
+        shiftOrInvalidate(&self.preset_picker_track, idx);
         if (self.piano_clip_link) |link| {
             if (link.track == idx) {
                 self.piano_clip_link = null;
@@ -3086,9 +3110,9 @@ pub const App = struct {
             }
         }
         switch (self.sampler_target) {
-            .drum    => |*t| if (idx < t.* and t.* > 0) { t.* -= 1; },
-            .sampler => |*t| if (idx < t.* and t.* > 0) { t.* -= 1; },
-            .slice   => |*t| if (idx < t.* and t.* > 0) { t.* -= 1; },
+            .drum    => |*t| shiftOrInvalidate(t, idx),
+            .sampler => |*t| shiftOrInvalidate(t, idx),
+            .slice   => |*t| shiftOrInvalidate(t, idx),
         }
     }
     // zig fmt: on
