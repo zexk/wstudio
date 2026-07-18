@@ -119,7 +119,7 @@ pub fn drawStatus(app: anytype) void {
         const text = tuiStatusText(app, &left_buf, &right_buf);
         const mode_label = statusModeLabel(app.core.modal.mode);
         const x = drawStatusSegment(draw, pos[0], pos[1], size[1], statusModeColor(app.core.modal.mode), patina.bg0, mode_label);
-        const context = std.mem.trim(u8, text.left, " ");
+        const context = compactStatusContext(std.mem.trim(u8, text.left, " "));
         if (context.len > 0) {
             const text_size = zgui.calcTextSize(context, .{});
             draw.addText(.{ x + 12, pos[1] + (size[1] - text_size[1]) / 2 }, color(patina.fg1), "{s}", .{context});
@@ -133,6 +133,22 @@ pub fn drawStatus(app: anytype) void {
         }
     }
     zgui.end();
+}
+
+fn compactStatusContext(text: []const u8) []const u8 {
+    var search_from: usize = 0;
+    var groups: usize = 0;
+    while (std.mem.indexOfPos(u8, text, search_from, "   ")) |separator| {
+        groups += 1;
+        if (groups == 2) return std.mem.trimRight(u8, text[0..separator], " ");
+        search_from = separator + 3;
+    }
+    return text;
+}
+
+test "GUI status keeps selection and one contextual hint" {
+    try std.testing.expectEqualStrings("kick  vel 90%   enter toggle", compactStatusContext("kick  vel 90%   enter toggle   x clear   ?: help"));
+    try std.testing.expectEqualStrings("short status", compactStatusContext("short status"));
 }
 
 const StatusText = struct { left: []const u8, right: []const u8 };
