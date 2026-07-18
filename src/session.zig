@@ -294,8 +294,9 @@ pub const Session = struct {
             fresh.* = copied;
 
             const pp = &out_rack.pattern_player.?;
-            var notes: [DrumMachine.max_steps]Note = undefined;
-            var note_count: usize = dm.copyPadMidi(pad_idx, &notes);
+            const notes = try self.allocator.alloc(Note, @max(dm.step_count, 1));
+            defer self.allocator.free(notes);
+            const note_count: usize = dm.copyPadMidi(pad_idx, notes);
             for (notes[0..note_count]) |*note| note.pitch = fresh.root_note;
             const live_length = @as(f64, @floatFromInt(dm.step_count)) / @as(f64, @floatFromInt(dm.steps_per_beat));
             pp.setNotes(notes[0..note_count], live_length);
@@ -307,19 +308,21 @@ pub const Session = struct {
                     .drum => |v| v,
                     .melodic => continue,
                 };
-                note_count = 0;
-                for (drum.midi[pad_idx][0..drum.step_count]) |maybe_note| {
+                const clip_notes = try self.allocator.alloc(Note, @max(drum.step_count, 1));
+                defer self.allocator.free(clip_notes);
+                var clip_note_count: usize = 0;
+                for (drum.midi[pad_idx]) |maybe_note| {
                     var note = (maybe_note orelse continue).toPattern(drum.steps_per_beat);
                     note.pitch = fresh.root_note;
-                    notes[note_count] = note;
-                    note_count += 1;
+                    clip_notes[clip_note_count] = note;
+                    clip_note_count += 1;
                 }
                 const pattern_beats = @as(f64, @floatFromInt(drum.step_count)) / @as(f64, @floatFromInt(drum.steps_per_beat));
                 try out_lane.place(self.allocator, try Clip.initMelodic(
                     self.allocator,
                     clip.start_tick,
                     clip.length_ticks,
-                    notes[0..note_count],
+                    clip_notes[0..clip_note_count],
                     pattern_beats,
                 ));
             }
@@ -518,16 +521,12 @@ pub const Session = struct {
             .empty => return,
             .drum_machine => |*dm| {
                 var drum: Clip.Drum = .{
-                    .pattern = undefined,
-                    .midi = dm.midi,
+                    .midi = try DrumMachine.dupeMidi(self.allocator, &dm.midi),
                     .step_count = dm.step_count,
                     .steps_per_beat = dm.steps_per_beat,
                     .variant = dm.variant,
                 };
-                for (&drum.pattern, &drum.vel, 0..) |*p, *vel_row, i| {
-                    p.* = dm.pattern[i].load(.acquire);
-                    for (vel_row, &dm.vel[i]) |*v, *live| v.* = live.load(.acquire);
-                }
+                errdefer DrumMachine.freeMidi(self.allocator, &drum.midi);
                 try lane.place(self.allocator, Clip.initDrum(
                     // zig fmt: off
                     start_tick, self.stampLengthTicks(track_idx), drum,
@@ -812,8 +811,7 @@ pub const Session = struct {
                             .span_steps = c.length_ticks,
                             .step_count = drum.step_count,
                             .steps_per_beat = drum.steps_per_beat,
-                            .pattern = drum.pattern,
-                            .vel = drum.vel,
+                            .midi = DrumMachine.dupeMidi(self.allocator, &drum.midi) catch continue,
                         };
                         n += 1;
                     }
@@ -830,7 +828,7 @@ pub const Session = struct {
                         clips[n] = .{
                             .start_step = c.start_tick,
                             .span_steps = c.length_ticks,
-                            .step_count = drum.step_count,
+                            .step_count = @intCast(drum.step_count),
                             .pattern = drum.pattern,
                             .vel = drum.vel,
                         };
@@ -1301,7 +1299,6 @@ test "stampClip captures the active drum variant" {
     defer s.deinit();
     try s.setInstrument(0, .drum_machine);
     const dm = &s.racks.items[0].instrument.drum_machine;
-    for (&dm.pattern) |*p| p.store(0, .monotonic);
     dm.toggleStep(0, 0); // variant A: pad 0 step 0
 
     _ = dm.addVariant(); // variant B, copy of A
@@ -1317,11 +1314,11 @@ test "stampClip captures the active drum variant" {
     const b = lane.clips.items[0].content.drum;
     const a = lane.clips.items[1].content.drum;
     try std.testing.expectEqual(@as(u8, 1), b.variant);
-    try std.testing.expectEqual(@as(u32, 1 << 2), b.pattern[1]);
-    try std.testing.expectEqual(@as(u8, 63), b.vel[1][2]); // 50% carried
-    try std.testing.expectEqual(@as(u32, 0), b.pattern[0]);
+    try std.testing.expect(b.midi[1][2] != null);
+    try std.testing.expectEqual(@as(u8, 63), b.midi[1][2].?.velocity); // 50% carried
+    try std.testing.expect(b.midi[0][0] == null);
     try std.testing.expectEqual(@as(u8, 0), a.variant);
-    try std.testing.expectEqual(@as(u32, 1), a.pattern[0]);
+    try std.testing.expect(a.midi[0][0] != null);
 }
 
 test "song mode places a drum clip on the step timeline" {
@@ -1329,7 +1326,7 @@ test "song mode places a drum clip on the step timeline" {
     defer s.deinit();
     try s.setInstrument(0, .drum_machine);
     const dm = &s.racks.items[0].instrument.drum_machine;
-    dm.pattern[0].store(1, .monotonic); // pad 0, step 0
+    dm.toggleStep(0, 0); // pad 0, step 0
     try s.stampClip(0, 1); // bar 1
 
     s.setSongMode(true);
@@ -1339,7 +1336,7 @@ test "song mode places a drum clip on the step timeline" {
     try std.testing.expectEqual(@as(u32, 128), dm.song_clips[0].start_step);
     // The clip's own pattern is 32 steps (2 bars) - the new default.
     try std.testing.expectEqual(@as(u32, 256), dm.song_clips[0].span_steps);
-    try std.testing.expectEqual(@as(u32, 1), dm.song_clips[0].pattern[0]);
+    try std.testing.expect(dm.song_clips[0].midi[0][0] != null);
     // Arrangement spans bars 0..3 (clip covers bars 1-2) → 48 steps.
     try std.testing.expectEqual(@as(u32, 384), dm.song_length_steps);
 }

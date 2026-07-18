@@ -33,8 +33,9 @@ const bankWindowStart = drum_ed.bankWindowStart;
 /// How many steps fit in `cols` at cell_width each, PLUS the periodic "│"
 /// separator (one extra column every 4 steps) - a plain `(cols-gutter)/
 /// cell_width` overcounts by ignoring that extra column and overflows the
-/// terminal width once enough separators accumulate. Bounded to at most
-/// max_steps iterations, cheap to just compute directly once per frame.
+/// terminal width once enough separators accumulate. The loop itself exits
+/// as soon as the next step wouldn't fit, so it stays cheap regardless of
+/// how long the pattern has grown (`max_steps` is just the safety bound).
 fn visibleSteps(cols: usize, cell_width: usize) u32 {
     if (cols <= gutter) return 1;
     const avail = cols - gutter;
@@ -52,7 +53,7 @@ pub fn drawDrumGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, s
     _ = snap;
     const playing_step = app.drumMachine().currentStep();
     const is_playing = app.session.engine.uiSnapshot().playing;
-    const cur_pad = app.drum_cursor[0];
+    const cur_pad: u8 = @intCast(app.drum_cursor[0]);
     const cur_step = app.drum_cursor[1];
 
     const dm = app.drumMachine();

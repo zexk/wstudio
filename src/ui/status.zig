@@ -142,13 +142,11 @@ pub fn drawDrumStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !v
     try w.print("{d}/{d}", .{ s + 1, dm.step_count });
     try w.writeAll(dim ++ "  len " ++ rst);
     try w.print("{d}", .{dm.step_count});
-    try w.writeAll(dim ++ "/" ++ rst);
-    try w.print("{d}", .{DrumMachine.max_steps});
     try w.writeAll(dim ++ "  swing " ++ rst);
     try w.print("{d:.0}%", .{dm.swing.load(.monotonic)});
-    if (dm.stepActive(p, s)) {
+    if (dm.stepActive(@intCast(p), s)) {
         try w.writeAll(dim ++ "  vel " ++ rst);
-        try w.print("{d}", .{dm.stepVel(p, s)});
+        try w.print("{d}", .{dm.stepVel(@intCast(p), s)});
     }
     if (dm.choke_group[p] != 0) {
         try w.writeAll(dim ++ "  choke " ++ rst);
@@ -156,7 +154,7 @@ pub fn drawDrumStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !v
     }
     try w.writeAll("  ");
     try w.writeAll(bold);
-    try w.writeAll(dm.padName(p));
+    try w.writeAll(dm.padName(@intCast(p)));
     try w.writeAll(rst);
     if (app.status_len > 0) {
         try w.writeAll(dim ++ "  " ++ rst);
@@ -574,7 +572,7 @@ const sampler_param_labels = [_][]const u8{
 pub fn drawSamplerStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !void {
     const is_drum = app.sampler_target == .drum;
     const is_slice = app.sampler_target == .slice;
-    const pad_idx = app.drum_cursor[0];
+    const pad_idx: u8 = @intCast(app.drum_cursor[0]);
     const pad: *const ws.dsp.Pad = if (is_drum) padOf(app.drumMachine(), pad_idx) else if (is_slice) sliceOf(app) else blk: {
         if (app.editingSampler()) |s| break :blk &s.pad;
         break :blk ws.dsp.pad.emptyPad();

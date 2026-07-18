@@ -44,7 +44,11 @@ pub fn recordMelodic(app: *App, track: u16) void {
     push(app, captureMelodic(app, track));
 }
 
-/// Snapshot one drum machine's whole pattern bank.
+/// Snapshot one drum machine's whole pattern bank. Every captured slot's
+/// `midi` is a fresh, independent heap copy (`variantData` itself returns a
+/// borrowed view into the live machine, so this dupes before storing) -
+/// the undo entry must own its own data, since the live pattern keeps
+/// changing (and its old buffers keep getting freed) underneath it.
 pub fn captureDrum(app: *App, track: u16) ?undo_mod.Entry {
     if (track >= app.session.racks.items.len) return null;
     const dm = switch (app.session.racks.items[track].instrument) {
@@ -53,12 +57,21 @@ pub fn captureDrum(app: *App, track: u16) ?undo_mod.Entry {
     };
     var st: undo_mod.DrumState = .{
         .track = track,
-        .variants = dm.variants,
+        .variants = [_]ws.dsp.DrumMachine.Variant{.{}} ** ws.dsp.DrumMachine.max_variants,
         .variant_count = dm.variant_count,
         .variant = dm.variant,
     };
-    // The active slot in the bank is stale; read the live atomics.
-    st.variants[dm.variant] = dm.variantData(dm.variant);
+    for (0..dm.variant_count) |i| {
+        const v = dm.variantData(@intCast(i)); // borrowed view - dupe before storing
+        st.variants[i] = .{
+            .midi = ws.dsp.DrumMachine.dupeMidi(app.allocator, &v.midi) catch {
+                for (st.variants[0..i]) |*done| ws.dsp.DrumMachine.freeMidi(app.allocator, &done.midi);
+                return null;
+            },
+            .step_count = v.step_count,
+            .steps_per_beat = v.steps_per_beat,
+        };
+    }
     return .{ .drum = st };
 }
 
@@ -364,10 +377,18 @@ fn applyEntry(app: *App, entry: undo_mod.Entry) ?undo_mod.Entry {
         .drum => |d| {
             const displaced = captureDrum(app, d.track) orelse return null;
             const dm = &app.session.racks.items[d.track].instrument.drum_machine;
+            // `d` is being consumed here (see this function's doc comment):
+            // free the live bank's current slices, then transfer ownership
+            // of `d`'s own (already deep-copied by captureDrum) slices
+            // directly into `dm.variants` - no further dupe needed for the
+            // bank itself. `applyVariant` dupes the active slot again to
+            // build the live `dm.midi`, so `d`'s copy stays intact as the
+            // bank's own.
+            for (dm.variants[0..dm.variant_count]) |*slot| ws.dsp.DrumMachine.freeMidi(app.allocator, &slot.midi);
             dm.variants = d.variants;
             dm.variant_count = d.variant_count;
             dm.variant = @min(d.variant, d.variant_count - 1);
-            dm.applyVariant(d.variants[dm.variant]);
+            dm.applyVariant(dm.variants[dm.variant]);
             if (app.drum_cursor[1] >= dm.step_count) app.drum_cursor[1] = dm.step_count - 1;
             return displaced;
         },

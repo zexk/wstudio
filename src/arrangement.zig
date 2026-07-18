@@ -7,6 +7,12 @@ const DrumMachine = @import("dsp/drum_sampler.zig").DrumMachine;
 const automation_mod = @import("dsp/automation.zig");
 const AutomationPoint = automation_mod.AutomationPoint;
 
+/// Slicer's own step-grid ceiling (`Slicer.max_steps`, unimported here to
+/// avoid a cross-module dependency just for one constant) - `Clip.Drum`'s
+/// `vel` field mirrors it directly rather than `DrumMachine.max_steps`,
+/// since the two diverged once the drum machine's own ceiling grew.
+const slicer_max_steps: u16 = 64;
+
 /// A clip placed on a track lane. Positions use `time_grid.ticks_per_beat`.
 pub const Clip = struct {
     start_tick: u32,
@@ -112,18 +118,27 @@ pub const Clip = struct {
     /// A private copy of a drum-machine (or slicer) pattern - the two share
     /// the same 64-row step-grid shape (`Slicer.max_slices ==
     /// DrumMachine.max_pads`), so slicer clips reuse this content kind
-    /// wholesale rather than adding a third.
+    /// wholesale rather than adding a third. `pattern`/`vel` are Slicer's own
+    /// fixed-size bitmask+velocity data (Slicer keeps its own 64-step
+    /// ceiling, independent of DrumMachine's); `midi` is the drum-machine's
+    /// heap-owned per-pad note data (empty `&.{}` slices for a slicer stamp).
+    /// Callers know which side is live from the source track's instrument
+    /// kind, not from this struct - see `Session.stampClipAtTick`.
     pub const Drum = struct {
-        pattern: [DrumMachine.max_pads]u64,
-        midi: [DrumMachine.max_pads][DrumMachine.max_steps]?DrumMachine.MidiNote =
-            [_][DrumMachine.max_steps]?DrumMachine.MidiNote{[_]?DrumMachine.MidiNote{null} ** DrumMachine.max_steps} ** DrumMachine.max_pads,
-        /// Per-step velocity (0-127; 127 = full, see DrumMachine.velGain).
-        vel: [DrumMachine.max_pads][DrumMachine.max_steps]u8 =
-            [_][DrumMachine.max_steps]u8{[_]u8{DrumMachine.vel_full} ** DrumMachine.max_steps} ** DrumMachine.max_pads,
-        step_count: u8,
+        pattern: [DrumMachine.max_pads]u64 = [_]u64{0} ** DrumMachine.max_pads,
+        /// Per-step velocity (0-127; 127 = full, see DrumMachine.velGain) -
+        /// Slicer's own fixed-size step data.
+        vel: [DrumMachine.max_pads][slicer_max_steps]u8 =
+            [_][slicer_max_steps]u8{[_]u8{DrumMachine.vel_full} ** slicer_max_steps} ** DrumMachine.max_pads,
+        /// Drum-machine step data: heap-owned per-pad note slices, length ==
+        /// step_count. `Clip.deinit`/`Clip.dupe` own freeing/duping this.
+        midi: [DrumMachine.max_pads][]?DrumMachine.MidiNote =
+            [_][]?DrumMachine.MidiNote{&.{}} ** DrumMachine.max_pads,
+        step_count: u16,
         steps_per_beat: u8 = 4,
         /// Which variant (A..H) this was stamped from - display label only;
-        /// the pattern above is the payload, so bank edits never reach clips.
+        /// the pattern/vel/midi above are the payload, so bank edits never
+        /// reach clips.
         variant: u8 = 0,
     };
 
@@ -149,7 +164,9 @@ pub const Clip = struct {
         };
     }
 
-    /// Build a drum clip from a copied payload. No allocation.
+    /// Build a drum clip from a copied payload. No allocation - the caller
+    /// has already built `drum.midi`'s slices (if any); this just moves the
+    /// already-owned struct into place.
     pub fn initDrum(start_tick: u32, length_ticks: u32, drum: Drum) Clip {
         const safe_start = @min(start_tick, std.math.maxInt(u32) - 1);
         return .{
@@ -162,14 +179,15 @@ pub const Clip = struct {
     pub fn deinit(self: *Clip, allocator: std.mem.Allocator) void {
         switch (self.content) {
             .melodic => |m| allocator.free(m.notes),
-            .drum => {},
+            .drum => |*d| DrumMachine.freeMidi(allocator, &d.midi),
         }
         self.automation.deinit(allocator);
     }
 
-    /// Deep copy: melodic notes get a fresh allocation, drum payloads are
-    /// plain values, automation points get a fresh allocation either way.
-    /// Used by clip yank/paste and the undo lane snapshots.
+    /// Deep copy: melodic notes get a fresh allocation, drum payloads dupe
+    /// their heap-owned `midi` slices (`pattern`/`vel` stay plain values),
+    /// automation points get a fresh allocation either way. Used by clip
+    /// yank/paste and the undo lane snapshots.
     pub fn dupe(self: Clip, allocator: std.mem.Allocator) !Clip {
         var out: Clip = switch (self.content) {
             .melodic => |m| try initMelodic(
@@ -177,7 +195,11 @@ pub const Clip = struct {
                 allocator, self.start_tick, self.length_ticks, m.notes, m.length_beats,
                 // zig fmt: on
             ),
-            .drum => |d| initDrum(self.start_tick, self.length_ticks, d),
+            .drum => |d| blk: {
+                var copy = d;
+                copy.midi = try DrumMachine.dupeMidi(allocator, &d.midi);
+                break :blk initDrum(self.start_tick, self.length_ticks, copy);
+            },
         };
         errdefer out.deinit(allocator);
         out.automation = try self.automation.dupe(allocator);
@@ -463,6 +485,24 @@ test "clip dupe deep-copies automation independently of content kind" {
     // Mutating the source's points must not affect the copy.
     src.automation.gain[0].value = 0.0;
     try testing.expectApproxEqAbs(@as(f32, -6.0), copy.automation.gain[0].value, 1e-6);
+}
+
+test "clip dupe deep-copies drum midi notes independently" {
+    const a = testing.allocator;
+    var midi = try DrumMachine.allocMidi(a, 4);
+    midi[0][1] = DrumMachine.gridNote(0, 1, 95);
+    var src = Clip.initDrum(0, 2, .{ .midi = midi, .step_count = 4 });
+    defer src.deinit(a);
+
+    var copy = try src.dupe(a);
+    defer copy.deinit(a);
+
+    try testing.expect(copy.content.drum.midi[0][1].?.velocity == 95);
+    try testing.expect(copy.content.drum.midi[0].ptr != src.content.drum.midi[0].ptr);
+
+    // Mutating the source's notes must not affect the copy.
+    src.content.drum.midi[0][1] = null;
+    try testing.expect(copy.content.drum.midi[0][1] != null);
 }
 
 test "melodic clip owns a private note copy" {

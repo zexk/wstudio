@@ -97,7 +97,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                     if (slice < app.slicerInst().slice_count) app.slicer_cursor[0] = slice;
                 } else {
                     const bank = app.drum_cursor[0] / 8;
-                    const pad: u8 = bank * 8 + (c - '1');
+                    const pad: u8 = @intCast(bank * 8 + (c - '1'));
                     if (pad < DrumMachine.max_pads) app.drum_cursor[0] = pad;
                 }
                 return true;
@@ -131,7 +131,7 @@ fn movePadBank(app: *App, delta: i32) void {
         app.slicer_cursor[0] = @intCast(clampCursor(app.slicer_cursor[0], delta, top));
         return;
     }
-    app.drum_cursor[0] = @intCast(clampCursor(app.drum_cursor[0], delta, DrumMachine.max_pads - 1));
+    app.drum_cursor[0] = @intCast(clampCursor(@intCast(app.drum_cursor[0]), delta, DrumMachine.max_pads - 1));
 }
 
 fn clampCursor(value: u8, delta: i32, top: i64) i64 {
@@ -178,7 +178,7 @@ pub fn adjustParam(app: *App, steps: i32) void {
     app.dirty = true;
     switch (app.sampler_target) {
         .drum => |t| {
-            const id = DrumMachine.paramId(app.drum_cursor[0], app.sampler_param);
+            const id = DrumMachine.paramId(@intCast(app.drum_cursor[0]), app.sampler_param);
             history.noteParamNudge(app, t, id, steps);
             _ = app.session.engine.send(.{ .set_track_param = .{ .track = t, .id = id, .steps = steps } });
         },

@@ -1,5 +1,5 @@
 {
-  "version": 12,
+  "version": 23,
   "tracks": [
     { "name": "drums" }
   ],
@@ -9,12 +9,9 @@
       "kind": "drum_machine",
       "drum": {
         "step_count": 16,
-        "variants": [
-          {
-            "step_count": 16,
-            "pattern": [3],
-            "vel": [ [127, 64] ]
-          }
+        "notes": [
+          { "pad": 0, "step": 0, "velocity": 127 },
+          { "pad": 1, "step": 4, "velocity": 95 }
         ]
       }
     }

@@ -75,13 +75,15 @@ they showed up in the same week as one.
 | v20 | The wavetable oscillator: a new `Waveform.wavetable` variant (`waveform`/`osc_b_waveform`/`osc_c_waveform` can now hold it), same enum-growth rationale as v15/v16/v18/v19 - the bump makes pre-v20 builds hard-reject a file using it instead of failing on an unknown enum name. Frame-scan position (`SynthSnap.wt_pos`/`osc_b_wt_pos`/`osc_c_wt_pos`) and the sidecar path fields (`wt_file`/`osc_b_wt_file`/`osc_c_wt_file`, see below) are purely additive and would not have needed a bump on their own. |
 | v21 | The tape FX unit (`FxUnitSnap.tape`: `wow_rate_hz`/`wow_depth`/`flutter_rate_hz`/`flutter_depth`/`mix` over a dual-LFO modulated delay, see `dsp/tape.zig`). Purely additive, same rationale as v15/v16/v18/v19. |
 | v22 | Arrangement clip placement changed from whole bars to exact musical ticks at 32 ticks per quarter note, allowing starts, cuts, moves, and edge resizes through 1/128 notes. Older `start_bar`/`length_bars` clips migrate using the saved time signature. |
+| v23 | The drum machine's own step storage changed from a fixed 64-step-max per-pad `u64` bitmask + dense per-step velocity array to a heap-owned, effectively unbounded (u16 step index, ~65k steps) per-pad note list - steps are now a zoom/display granularity over that data, not a storage limit. `DrumSnap`/`VariantSnap`/`ClipSnap` gain a sparse `notes`/`drum_notes` field (`{pad, step, duration_steps, velocity}` entries) that new saves write instead of the old `pattern`/`vel`/`vel_lo`/`vel_hi` fields, which are kept read-only so older files still migrate (walking the dense bitmask, one entry per active step). Slicer is unaffected - it keeps its own separate 64-step bitmask+velocity shape (`SlicerSnap`/`VariantSnap.pattern`/`.vel`), since only the drum machine's ceiling grew. |
 
 Since v11, every field added has been the additive/no-bump kind described
 above (v12/v13/v14 above are the exceptions - genuine semantic changes, not
-additive). Check `persist.zig`'s per-field doc comments for specifics (e.g.
-`Sampler.mono`, `PatternPlayer.swing`, `:bounce`'s bit-depth option).
+additive; v23 is a third). Check `persist.zig`'s per-field doc comments for
+specifics (e.g. `Sampler.mono`, `PatternPlayer.swing`, `:bounce`'s bit-depth
+option).
 
-`test/fixtures/wsj/v1.wsj` through `v22.wsj` are tiny, hand-written fixtures
+`test/fixtures/wsj/v1.wsj` through `v23.wsj` are tiny, hand-written fixtures
 of each historical shape (no `variants` for v2, no `master_fx_chain` for v9,
 etc.), one per row of the table above. `persist.zig`'s "golden-file corpus"
 test loads every file in that directory and fails loudly if one stops

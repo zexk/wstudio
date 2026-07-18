@@ -31,12 +31,20 @@ pub const MelodicState = struct {
 };
 
 /// One drum machine's whole pattern bank, active slot read from the live
-/// atomics. Plain value - no allocation. Swing is a param, not captured.
+/// state. Each captured slot's `midi` is a heap-owned deep copy (see
+/// `history.captureDrum`) - `deinit` frees `variants[0..variant_count]`
+/// (slots past that were never captured, see `DrumMachine.removeVariant`'s
+/// doc comment on why the rest of the array can hold stale aliases).
+/// Swing is a param, not captured.
 pub const DrumState = struct {
     track: u16,
     variants: [DrumMachine.max_variants]DrumMachine.Variant,
     variant_count: u8,
     variant: u8,
+
+    pub fn deinit(self: *DrumState, allocator: std.mem.Allocator) void {
+        for (self.variants[0..self.variant_count]) |*v| DrumMachine.freeMidi(allocator, &v.midi);
+    }
 };
 
 /// One slicer's whole state: the chop layout (slice regions + per-slice
@@ -199,7 +207,7 @@ pub const Entry = union(enum) {
     pub fn deinit(self: *Entry, allocator: std.mem.Allocator) void {
         switch (self.*) {
             .melodic => |*m| m.deinit(allocator),
-            .drum => {},
+            .drum => |*d| d.deinit(allocator),
             .slicer => {},
             .lane => |*l| l.deinit(allocator),
             .fx => |*f| f.deinit(allocator),

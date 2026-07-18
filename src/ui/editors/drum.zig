@@ -119,8 +119,8 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
         .enter => {
             history.push(app, history.captureDrum(app, app.drum_track));
             const dm = app.drumMachine();
-            dm.toggleStep(pad.*, step.*);
-            if (dm.stepActive(pad.*, step.*)) {
+            dm.toggleStep(@intCast(pad.*), step.*);
+            if (dm.stepActive(@intCast(pad.*), step.*)) {
                 app.drum_stamp = true;
                 app.setStatus("stamping - j/k velocity, enter/esc drops", .{});
             }
@@ -183,28 +183,28 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 'E' => doublePattern(app),
                 'c' => {
                     const dm = app.drumMachine();
-                    if (dm.stepActive(pad.*, step.*)) {
+                    if (dm.stepActive(@intCast(pad.*), step.*)) {
                         history.push(app, history.captureDrum(app, app.drum_track));
-                        dm.cycleStepVel(pad.*, step.*);
-                        app.setStatus("vel {d}", .{dm.stepVel(pad.*, step.*)});
+                        dm.cycleStepVel(@intCast(pad.*), step.*);
+                        app.setStatus("vel {d}", .{dm.stepVel(@intCast(pad.*), step.*)});
                     } else app.setStatus("no step here - enter places one", .{});
                 },
                 // {/}: fine velocity nudge (±1, count-scaled) over the full
                 // 1-127 range - 'c' above only cycles the named presets.
                 '{' => {
                     const dm = app.drumMachine();
-                    if (dm.stepActive(pad.*, step.*)) {
+                    if (dm.stepActive(@intCast(pad.*), step.*)) {
                         history.push(app, history.captureDrum(app, app.drum_track));
-                        dm.nudgeStepVel(pad.*, step.*, -app.takeCount());
-                        app.setStatus("vel {d}", .{dm.stepVel(pad.*, step.*)});
+                        dm.nudgeStepVel(@intCast(pad.*), step.*, -app.takeCount());
+                        app.setStatus("vel {d}", .{dm.stepVel(@intCast(pad.*), step.*)});
                     } else app.setStatus("no step here - enter places one", .{});
                 },
                 '}' => {
                     const dm = app.drumMachine();
-                    if (dm.stepActive(pad.*, step.*)) {
+                    if (dm.stepActive(@intCast(pad.*), step.*)) {
                         history.push(app, history.captureDrum(app, app.drum_track));
-                        dm.nudgeStepVel(pad.*, step.*, app.takeCount());
-                        app.setStatus("vel {d}", .{dm.stepVel(pad.*, step.*)});
+                        dm.nudgeStepVel(@intCast(pad.*), step.*, app.takeCount());
+                        app.setStatus("vel {d}", .{dm.stepVel(@intCast(pad.*), step.*)});
                     } else app.setStatus("no step here - enter places one", .{});
                 },
                 'v' => {
@@ -221,14 +221,14 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 'd' => armOperator(app, 'd'),
                 '<' => adjustSwing(app, -1.0),
                 '>' => adjustSwing(app, 1.0),
-                'C' => cycleChokeGroup(app, pad.*),
+                'C' => cycleChokeGroup(app, @intCast(pad.*)),
                 'X' => {
                     history.push(app, history.captureDrum(app, app.drum_track));
-                    app.drumMachine().clearPad(pad.*);
+                    app.drumMachine().clearPad(@intCast(pad.*));
                 },
                 'F' => {
                     history.push(app, history.captureDrum(app, app.drum_track));
-                    app.drumMachine().fillPad(pad.*);
+                    app.drumMachine().fillPad(@intCast(pad.*));
                 },
                 'u' => history.doUndo(app),
                 'U' => history.doRedo(app),
@@ -322,7 +322,7 @@ pub fn recordNote(app: *App, pitch: u7, vel: u8) void {
 /// Drops the session instead if the step somehow isn't there any more.
 fn stampNudgeVel(app: *App, delta: i32) void {
     const dm = app.drumMachine();
-    const pad = app.drum_cursor[0];
+    const pad: u8 = @intCast(app.drum_cursor[0]);
     const step = app.drum_cursor[1];
     if (!dm.stepActive(pad, step)) {
         app.drum_stamp = false;
@@ -345,7 +345,7 @@ fn movePad(app: *App, delta: i32) void {
 
 fn stepEnter(app: *App) void {
     const dm = app.drumMachine();
-    const pad = app.drum_cursor[0];
+    const pad: u8 = @intCast(app.drum_cursor[0]);
     const step = app.drum_cursor[1];
     if (!dm.stepActive(pad, step)) {
         history.push(app, history.captureDrum(app, app.drum_track));
@@ -357,11 +357,11 @@ fn stepEnter(app: *App) void {
 fn doublePattern(app: *App) void {
     const dm = app.drumMachine();
     if (dm.step_count > DrumMachine.max_steps / 2) {
-        app.setStatus("can't double {d} steps (64 max)", .{dm.step_count});
+        app.setStatus("can't double {d} steps ({d} max)", .{ dm.step_count, DrumMachine.max_steps });
         return;
     }
     history.push(app, history.captureDrum(app, app.drum_track));
-    _ = step_grid.doublePattern(dm, DrumMachine.max_pads);
+    _ = step_grid.doublePattern(dm, DrumMachine.max_pads, DrumMachine.max_steps);
     app.setStatus("doubled loop to {d} steps", .{dm.step_count});
 }
 
@@ -370,8 +370,9 @@ fn zoom(app: *App, delta: i8) void {
     if (next == app.drum_grid) return;
     const spb = next.denominator() / 4;
     const dm = app.drumMachine();
-    if (@as(u16, dm.step_count) * spb / dm.steps_per_beat > DrumMachine.max_steps) {
-        app.setStatus("grid {s} needs more than 64 steps - shorten the pattern first", .{next.label()});
+    const new_count = @as(u32, dm.step_count) * spb / dm.steps_per_beat;
+    if (new_count == 0 or new_count > DrumMachine.max_steps) {
+        app.setStatus("grid {s} would exceed the step ceiling - shorten the pattern first", .{next.label()});
         return;
     }
     history.push(app, history.captureDrum(app, app.drum_track));
@@ -419,7 +420,7 @@ fn finishOperator(app: *App, op: u8) void {
 /// instantly, no operator needed.
 fn clearCursorStep(app: *App) void {
     const dm = app.drumMachine();
-    const pad = app.drum_cursor[0];
+    const pad: u8 = @intCast(app.drum_cursor[0]);
     const step = app.drum_cursor[1];
     // zig fmt: off
     if (!dm.stepActive(pad, step)) { app.setStatus("no step here", .{}); return; }
@@ -435,17 +436,23 @@ fn clearCursorStep(app: *App) void {
 /// selections are visual mode's job.
 fn clearPadRow(app: *App) void {
     const dm = app.drumMachine();
-    const pad = app.drum_cursor[0];
+    const pad: u8 = @intCast(app.drum_cursor[0]);
     history.push(app, history.captureDrum(app, app.drum_track));
     dm.clearPad(pad);
     app.setStatus("cleared pad {d}'s row", .{@as(u32, pad) + 1});
 }
 
 /// `yy`: yank the whole current pattern variant (the pre-grammar instant
-/// `y` action).
+/// `y` action). `variantData` returns a borrowed view into the live
+/// machine - dupe it before storing, or clearing/editing the live pad
+/// afterward would silently corrupt the yanked clip too (they'd share the
+/// same heap slices). Frees whatever was yanked before.
 fn yankWholePattern(app: *App) void {
     const dm = app.drumMachine();
-    app.drum_clip = dm.variantData(dm.variant);
+    const v = dm.variantData(dm.variant);
+    const fresh = DrumMachine.dupeMidi(app.allocator, &v.midi) catch return;
+    if (app.drum_clip) |*old| DrumMachine.freeMidi(app.allocator, &old.midi);
+    app.drum_clip = .{ .midi = fresh, .step_count = v.step_count, .steps_per_beat = v.steps_per_beat };
     app.drum_last_yank = .pattern;
     app.setStatus("yanked pattern {c}", .{DrumMachine.variantLetter(dm.variant)});
 }
@@ -494,25 +501,37 @@ fn exitVisual(app: *App) void {
 }
 
 /// Yank every pad's steps within the selected range into the range
-/// clipboard, rebased so the range's first step is bit 0.
+/// clipboard, rebased so the range's first step is bit 0. A range wider
+/// than 64 steps is capped (see `step_grid.clampRangeWidth`) - the
+/// clipboard is a fixed 64-bit bitmask regardless of pattern length.
 fn yankSelection(app: *App) void {
     const dm = app.drumMachine();
-    const r = step_grid.selectionRange(app.drum_visual_anchor, app.drum_cursor[1]);
-    const clip = step_grid.yankRange(DrumRangeClip, dm, DrumMachine.max_pads, r);
+    const raw = step_grid.selectionRange(u16, app.drum_visual_anchor, app.drum_cursor[1]);
+    const capped = step_grid.clampRangeWidth(u16, raw);
+    const clip = step_grid.yankRange(DrumRangeClip, dm, DrumMachine.max_pads, capped.range);
     app.drum_range_clip = clip;
     app.drum_last_yank = .range;
-    app.setStatus("yanked {d} steps", .{clip.width});
+    if (capped.clamped)
+        app.setStatus("yanked {d} steps (range capped at 64)", .{clip.width})
+    else
+        app.setStatus("yanked {d} steps", .{clip.width});
     exitVisual(app);
 }
 
-/// Clear every pad's steps within the selected range.
+/// Clear every pad's steps within the selected range (same 64-step
+/// clipboard cap as `yankSelection`).
 fn deleteSelection(app: *App) void {
     const dm = app.drumMachine();
-    const r = step_grid.selectionRange(app.drum_visual_anchor, app.drum_cursor[1]);
+    const raw = step_grid.selectionRange(u16, app.drum_visual_anchor, app.drum_cursor[1]);
+    const capped = step_grid.clampRangeWidth(u16, raw);
     history.push(app, history.captureDrum(app, app.drum_track));
-    step_grid.clearRange(dm, DrumMachine.max_pads, r);
-    app.last_edit = .{ .drum_range_delete = .{ .width = r.hi - r.lo + 1 } };
-    app.setStatus("cleared {d} steps", .{r.hi - r.lo + 1});
+    step_grid.clearRange(dm, DrumMachine.max_pads, capped.range);
+    const width: u8 = @intCast(capped.range.hi - capped.range.lo + 1);
+    app.last_edit = .{ .drum_range_delete = .{ .width = width } };
+    if (capped.clamped)
+        app.setStatus("cleared {d} steps (range capped at 64)", .{width})
+    else
+        app.setStatus("cleared {d} steps", .{width});
     exitVisual(app);
 }
 
@@ -539,7 +558,7 @@ fn repeatLastEdit(app: *App) void {
     switch (app.last_edit) {
         .drum_range_delete => |v| {
             const dm = app.drumMachine();
-            const hi: u8 = @min(dm.step_count -| 1, app.drum_cursor[1] +| (v.width - 1));
+            const hi: u16 = @min(dm.step_count -| 1, app.drum_cursor[1] +| (@as(u16, v.width) -| 1));
             app.drum_visual_anchor = hi;
             deleteSelection(app);
         },
@@ -621,7 +640,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, view_rows: u
     const within = rel % (per_bank + 1);
     if (within == per_bank) return; // the rule between stacked banks
     if (block >= banksShown(view_rows)) return;
-    const bank_start = bankWindowStart(app.drum_cursor[0], view_rows);
+    const bank_start = bankWindowStart(@intCast(app.drum_cursor[0]), view_rows);
     const pad = bank_start + block * per_bank + within;
     if (pad >= DrumMachine.max_pads) return;
 
@@ -629,7 +648,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, view_rows: u
         .press => {
             app.drum_cursor[0] = @intCast(pad);
             const dm = app.drumMachine();
-            const step = step_grid.stepAt(gutter, app.drumCellWidth(), app.drum_step_scroll, dm.step_count, ev.x) orelse {
+            const step = step_grid.stepAt(u16, gutter, app.drumCellWidth(), app.drum_step_scroll, dm.step_count, ev.x) orelse {
                 app.drum_paint_state = null;
                 return;
             };
@@ -641,7 +660,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, view_rows: u
         .drag => {
             const state = app.drum_paint_state orelse return;
             const dm = app.drumMachine();
-            const step = step_grid.stepAt(gutter, app.drumCellWidth(), app.drum_step_scroll, dm.step_count, ev.x) orelse return;
+            const step = step_grid.stepAt(u16, gutter, app.drumCellWidth(), app.drum_step_scroll, dm.step_count, ev.x) orelse return;
             app.drum_cursor[0] = @intCast(pad);
             app.drum_cursor[1] = step;
             step_grid.setStep(dm, @intCast(pad), step, state, DrumMachine.vel_full);

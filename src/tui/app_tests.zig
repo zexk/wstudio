@@ -1594,7 +1594,7 @@ test "drum grid yank/paste carries pattern, velocity, and length" {
     app.drum_track = 2;
     const dm = app.drumMachine();
 
-    for (&dm.pattern) |*p| p.store(0, .monotonic);
+    for (0..ws.dsp.DrumMachine.max_pads) |p| dm.clearPad(@intCast(p));
     dm.setStepCount(32);
     dm.toggleStep(0, 7);
     dm.setStepVel(0, 7, 63);
@@ -1617,7 +1617,7 @@ test "drum grid visual mode selects a step range across pads for y/d/P" {
     app.view = .drum_grid;
     app.drum_track = 2;
     const dm = app.drumMachine();
-    for (&dm.pattern) |*p| p.store(0, .monotonic);
+    for (0..ws.dsp.DrumMachine.max_pads) |p| dm.clearPad(@intCast(p));
     dm.setStepCount(16);
     dm.toggleStep(0, 0);
     dm.setStepVel(0, 0, 31);
@@ -1660,7 +1660,7 @@ test "drum grid visual mode: w/b extend the selection by bar, matching normal-mo
     app.view = .drum_grid;
     app.drum_track = 2;
     const dm = app.drumMachine();
-    for (&dm.pattern) |*p| p.store(0, .monotonic);
+    for (0..ws.dsp.DrumMachine.max_pads) |p| dm.clearPad(@intCast(p));
     dm.setStepCount(16);
     dm.toggleStep(0, 0);
     dm.toggleStep(0, 4); // last step of the first 4-step bar `w` should reach
@@ -1707,7 +1707,7 @@ test "drum grid normal-mode p pastes the most recent yank: range after visual y,
     app.view = .drum_grid;
     app.drum_track = 2;
     const dm = app.drumMachine();
-    for (&dm.pattern) |*p| p.store(0, .monotonic);
+    for (0..ws.dsp.DrumMachine.max_pads) |p| dm.clearPad(@intCast(p));
     dm.setStepCount(16);
     dm.toggleStep(0, 0);
     dm.setStepVel(0, 0, 31);
@@ -1738,7 +1738,7 @@ test "drum grid operator+motion: d3l / y3l act on a range without entering visua
     app.view = .drum_grid;
     app.drum_track = 2;
     const dm = app.drumMachine();
-    for (&dm.pattern) |*p| p.store(0, .monotonic);
+    for (0..ws.dsp.DrumMachine.max_pads) |p| dm.clearPad(@intCast(p));
     dm.setStepCount(16);
     dm.toggleStep(0, 0);
     dm.toggleStep(1, 2);
@@ -1777,7 +1777,7 @@ test "drum grid char/word tiers: x clears just this cell, w/b jump by 4-step gro
     app.view = .drum_grid;
     app.drum_track = 2;
     const dm = app.drumMachine();
-    for (&dm.pattern) |*p| p.store(0, .monotonic);
+    for (0..ws.dsp.DrumMachine.max_pads) |p| dm.clearPad(@intCast(p));
     dm.setStepCount(32);
     dm.toggleStep(0, 5); // outside the first 4-step group (0-3)
     dm.toggleStep(2, 5);
@@ -1811,9 +1811,9 @@ test "paste with an empty clipboard is a no-op" {
     defer app.deinit();
     app.drum_track = 2;
 
-    const before = app.drumMachine().pattern[0].load(.acquire);
+    const before = app.drumMachine().stepActive(0, 0);
     _ = drum_ed.handleKey(&app, .{ .char = 'P' });
-    try std.testing.expectEqual(before, app.drumMachine().pattern[0].load(.acquire));
+    try std.testing.expectEqual(before, app.drumMachine().stepActive(0, 0));
 
     app.piano_track = 0;
     _ = piano_ed.handleKey(&app, .{ .char = 'P' });
@@ -1849,7 +1849,7 @@ test "undo/redo round-trips a drum edit including velocity and variants" {
     defer app.deinit();
     app.drum_track = 2;
     const dm = app.drumMachine();
-    const kick_before = dm.pattern[0].load(.acquire);
+    const kick_before = dm.stepActive(0, 2);
 
     app.drum_cursor = .{ 0, 2 };
     _ = drum_ed.handleKey(&app, .enter); // toggle a step
@@ -1859,10 +1859,10 @@ test "undo/redo round-trips a drum edit including velocity and variants" {
     _ = drum_ed.handleKey(&app, .{ .char = 'u' }); // undo variant add
     try std.testing.expectEqual(@as(u8, 1), dm.variant_count);
     _ = drum_ed.handleKey(&app, .{ .char = 'u' }); // undo the toggle
-    try std.testing.expectEqual(kick_before, dm.pattern[0].load(.acquire));
+    try std.testing.expectEqual(kick_before, dm.stepActive(0, 2));
 
     _ = drum_ed.handleKey(&app, .{ .char = 'U' }); // redo the toggle
-    try std.testing.expectEqual(kick_before ^ (1 << 2), dm.pattern[0].load(.acquire));
+    try std.testing.expectEqual(!kick_before, dm.stepActive(0, 2));
     _ = drum_ed.handleKey(&app, .{ .char = 'U' }); // redo the variant add
     try std.testing.expectEqual(@as(u8, 2), dm.variant_count);
 }
@@ -2442,12 +2442,12 @@ test "track delete remaps a surviving track's undo entry instead of wiping histo
 
     // Capture the drum machine at track 2 (factory pattern), then toggle a
     // step so it diverges from the captured "before" state.
-    const before = app.session.racks.items[2].instrument.drum_machine.variantData(0).pattern[0];
+    const before = app.session.racks.items[2].instrument.drum_machine.variantData(0).midi[0][0];
     history.push(&app, history.captureDrum(&app, 2));
     app.session.racks.items[2].instrument.drum_machine.toggleStep(0, 0);
-    try std.testing.expect(app.session.racks.items[2].instrument.drum_machine.variantData(
+    try std.testing.expect(!std.meta.eql(app.session.racks.items[2].instrument.drum_machine.variantData(
         app.session.racks.items[2].instrument.drum_machine.variant,
-    ).pattern[0] != before);
+    ).midi[0][0], before));
 
     // Delete track 0 (the synth): track 2's drum machine shifts to index 1,
     // and the undo entry should follow it rather than the history getting
@@ -2466,14 +2466,14 @@ test "track delete remaps a surviving track's undo entry instead of wiping histo
     // Second undo reverts the drum toggle itself.
     app.handleKey(.{ .char = 'u' }, 0);
     const dm = &app.session.racks.items[2].instrument.drum_machine;
-    try std.testing.expectEqual(before, dm.variantData(dm.variant).pattern[0]);
+    try std.testing.expect(std.meta.eql(before, dm.variantData(dm.variant).midi[0][0]));
 }
 
 test "track delete drops an undo entry that named the deleted track" {
     var app = try testApp();
     defer app.deinit();
 
-    const before = app.session.racks.items[2].instrument.drum_machine.variantData(0).pattern[0];
+    const before = app.session.racks.items[2].instrument.drum_machine.variantData(0).midi[0][0];
     history.push(&app, history.captureDrum(&app, 2));
     app.session.racks.items[2].instrument.drum_machine.toggleStep(0, 0);
 
@@ -2488,7 +2488,7 @@ test "track delete drops an undo entry that named the deleted track" {
     // the toggle), independent of the dropped fine-grained entry.
     app.handleKey(.{ .char = 'u' }, 0);
     const dm = &app.session.racks.items[2].instrument.drum_machine;
-    try std.testing.expect(dm.variantData(dm.variant).pattern[0] != before);
+    try std.testing.expect(!std.meta.eql(dm.variantData(dm.variant).midi[0][0], before));
 }
 
 test "track delete remaps a still-open FX nudge batch, including the entry it flushes" {
@@ -2784,7 +2784,7 @@ test "J/K track swap remaps an undo entry to follow the moved track" {
     defer app.deinit();
 
     // Capture and edit the drum machine at track 2.
-    const before = app.session.racks.items[2].instrument.drum_machine.variantData(0).pattern[0];
+    const before = app.session.racks.items[2].instrument.drum_machine.variantData(0).midi[0][0];
     history.push(&app, history.captureDrum(&app, 2));
     app.session.racks.items[2].instrument.drum_machine.toggleStep(0, 0);
 
@@ -2797,7 +2797,7 @@ test "J/K track swap remaps an undo entry to follow the moved track" {
 
     app.handleKey(.{ .char = 'u' }, 0);
     const dm = &app.session.racks.items[1].instrument.drum_machine;
-    try std.testing.expectEqual(before, dm.variantData(dm.variant).pattern[0]);
+    try std.testing.expect(std.meta.eql(before, dm.variantData(dm.variant).midi[0][0]));
 }
 
 test "Y duplicates the selected track and jumps the cursor to the copy" {
@@ -3999,7 +3999,7 @@ test "piano/drum/arrangement . repeats a visual range delete/paste at the new cu
     app.view = .drum_grid;
     app.drum_track = 2;
     const dm = app.drumMachine();
-    for (&dm.pattern) |*p| p.store(0, .monotonic);
+    for (0..ws.dsp.DrumMachine.max_pads) |p| dm.clearPad(@intCast(p));
     dm.setStepCount(16);
     dm.toggleStep(0, 0);
     dm.toggleStep(0, 8);
