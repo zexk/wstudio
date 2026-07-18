@@ -68,7 +68,7 @@ pub fn draw(
             if (instrument.pads[row]) |*sample|
                 draw_list.addText(.{ origin[0] + 9, y + 8 }, color(if (selected) patina.fg0 else patina.fg1), "{d:0>2}  {s}  C{d}", .{ row + 1, sample.clipName(), choke })
             else
-                draw_list.addText(.{ origin[0] + 9, y + 8 }, color(if (selected) patina.fg0 else patina.fg2), "{d:0>2}  Pad  C{d}", .{ row + 1, choke });
+                draw_list.addText(.{ origin[0] + 9, y + 8 }, color(if (selected) patina.fg2 else patina.fg3), "{d:0>2}  empty pad", .{row + 1});
         } else {
             const slice = instrument.slices[row];
             draw_list.addText(.{ origin[0] + 9, y + 8 }, color(if (selected) patina.fg0 else patina.fg1), "{d:0>2}  {d:.0}-{d:.0}% C{d}", .{ row + 1, slice.start_norm * 100, slice.end_norm * 100, instrument.choke_group[row] });
