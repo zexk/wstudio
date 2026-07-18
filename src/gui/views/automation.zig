@@ -203,13 +203,24 @@ fn drawCurve(app: anytype, points: *[]ws.dsp.automation.AutomationPoint, length_
     const cursor_beat = @as(f32, @floatFromInt(app.core.automation_cursor_step)) * 0.25;
     const cursor_value = ws.dsp.automation.interpolate(points.*, cursor_beat) orelse 0;
     const cursor = curvePoint(plot_origin, plot_size, cursor_beat, cursor_value, length_beats, value_range);
+    const stored_point = focusedPointIndex(app, points.*) != null;
     draw_list.addLine(.{ .p1 = .{ cursor[0], plot_origin[1] }, .p2 = .{ cursor[0], plot_end[1] }, .col = color(patina.focus), .thickness = 2 });
     draw_list.addLine(.{ .p1 = .{ plot_origin[0], cursor[1] }, .p2 = .{ plot_end[0], cursor[1] }, .col = color(.{ patina.focus[0], patina.focus[1], patina.focus[2], 0.48 }), .thickness = 1 });
-    draw_list.addCircleFilled(.{ .p = cursor, .r = 5, .col = color(patina.focus) });
+    if (stored_point) {
+        draw_list.addCircleFilled(.{ .p = cursor, .r = 5, .col = color(patina.focus) });
+    } else {
+        draw_list.addLine(.{ .p1 = .{ cursor[0] - 5, cursor[1] }, .p2 = .{ cursor[0] + 5, cursor[1] }, .col = color(patina.focus), .thickness = 2 });
+        draw_list.addLine(.{ .p1 = .{ cursor[0], cursor[1] - 5 }, .p2 = .{ cursor[0], cursor[1] + 5 }, .col = color(patina.focus), .thickness = 2 });
+    }
     draw_list.addCircle(.{ .p = cursor, .r = 8, .col = color(patina.fg0), .thickness = 1 });
-    const badge = [2]f32{ @min(cursor[0] + 9, plot_end[0] - 94), @max(plot_origin[1] + 7, cursor[1] - 29) };
-    draw_list.addRectFilled(.{ .pmin = badge, .pmax = .{ badge[0] + 88, badge[1] + 22 }, .col = color(patina.bg4), .rounding = 3 });
-    draw_list.addText(.{ badge[0] + 7, badge[1] + 2 }, color(patina.fg0), "{d:.2}  {d:.2}", .{ cursor_beat, cursor_value });
+    const badge_width: f32 = if (stored_point) 88 else 134;
+    const badge = [2]f32{ @min(cursor[0] + 9, plot_end[0] - badge_width - 6), @max(plot_origin[1] + 7, cursor[1] - 29) };
+    draw_list.addRectFilled(.{ .pmin = badge, .pmax = .{ badge[0] + badge_width, badge[1] + 22 }, .col = color(patina.bg4), .rounding = 3 });
+    if (stored_point) {
+        draw_list.addText(.{ badge[0] + 7, badge[1] + 2 }, color(patina.fg0), "{d:.2}  {d:.2}", .{ cursor_beat, cursor_value });
+    } else {
+        draw_list.addText(.{ badge[0] + 7, badge[1] + 2 }, color(patina.fg1), "INSERT  {d:.2}  {d:.2}", .{ cursor_beat, cursor_value });
+    }
     draw_list.addRect(.{ .pmin = plot_origin, .pmax = plot_end, .col = color(patina.bg5), .rounding = 2, .thickness = 1 });
 }
 
@@ -222,6 +233,8 @@ fn curvePoint(origin: [2]f32, size: [2]f32, beat: f32, value: f32, length_beats:
 fn drawEditor(app: anytype, points: *[]ws.dsp.automation.AutomationPoint, length_beats: f32, value_range: [2]f32) void {
     if (zgui.beginChild("automation-editor", .{ .w = 0, .h = 82, .child_flags = .{ .border = true } })) {
         zgui.textColored(patina.focus, "POINT", .{});
+        zgui.sameLine(.{ .spacing = 6 });
+        zgui.textDisabled("{d} stored", .{points.*.len});
         zgui.sameLine(.{ .spacing = 12 });
         var beat = @as(f32, @floatFromInt(app.core.automation_cursor_step)) * 0.25;
         zgui.setNextItemWidth(180);
@@ -243,7 +256,7 @@ fn drawEditor(app: anytype, points: *[]ws.dsp.automation.AutomationPoint, length
             }
         }
         zgui.sameLine(.{ .spacing = 12 });
-        zgui.textDisabled("{d} points   click graph to add   right-click to delete", .{points.*.len});
+        zgui.textDisabled("click add   right-click delete", .{});
     }
     zgui.endChild();
 }
@@ -305,13 +318,25 @@ pub fn drawParamPicker(app: anytype) void {
 }
 
 fn compactParamRange(buf: []u8, label: []const u8, range: [2]f32) []const u8 {
-    const unit: []const u8 = if (std.ascii.indexOfIgnoreCase(label, "freq") != null or std.ascii.indexOfIgnoreCase(label, "cutoff") != null)
+    if (range[0] >= 0 and range[1] <= 1) {
+        return std.fmt.bufPrint(buf, "{d:.0} .. {d:.0}%", .{ range[0] * 100, range[1] * 100 }) catch "";
+    }
+    const unit: []const u8 = if (containsAny(label, &.{ "FREQ", "CUTOFF", "XOVER", "SHIFT" }))
         " Hz"
-    else if (std.ascii.indexOfIgnoreCase(label, "gain") != null or std.ascii.indexOfIgnoreCase(label, "level") != null)
-        " dB"
-    else if (std.ascii.indexOfIgnoreCase(label, "pitch") != null or std.ascii.indexOfIgnoreCase(label, "tune") != null)
+    else if (containsAny(label, &.{ "SEMI", "PITCH" }))
         " st"
+    else if (containsAny(label, &.{"DETUNE"}))
+        " ct"
+    else if (containsAny(label, &.{ "THRESH", "MAKEUP", "EQ LO GAIN", "EQ MID GAIN", "EQ HI GAIN", "GAIN IN", "GAIN OUT" }))
+        " dB"
     else
         "";
-    return std.fmt.bufPrint(buf, "{d:.1} .. {d:.1}{s}", .{ range[0], range[1], unit }) catch "";
+    return std.fmt.bufPrint(buf, "{d:.2} .. {d:.2}{s}", .{ range[0], range[1], unit }) catch "";
+}
+
+fn containsAny(label: []const u8, needles: []const []const u8) bool {
+    for (needles) |needle| {
+        if (std.ascii.indexOfIgnoreCase(label, needle) != null) return true;
+    }
+    return false;
 }
