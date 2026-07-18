@@ -27,7 +27,7 @@ pub fn draw(app: anytype) void {
         slicer.sample_lock.unlock();
     }
     if (!has_audio) {
-        drawEmptyState();
+        drawEmptyState(app);
         return;
     }
     widgets.sectionTitle("SOURCE WAVEFORM", patina.audio);
@@ -52,30 +52,25 @@ pub fn draw(app: anytype) void {
     );
 }
 
-fn drawEmptyState() void {
+fn drawEmptyState(app: anytype) void {
     const available = zgui.getContentRegionAvail();
-    const panel_width = @min(available[0], 520);
-    const panel_height: f32 = 172;
     zgui.setCursorPos(.{
-        zgui.getCursorPos()[0] + @max(0, (available[0] - panel_width) * 0.5),
-        zgui.getCursorPos()[1] + @max(24, (available[1] - panel_height) * 0.36),
+        zgui.getCursorPos()[0],
+        zgui.getCursorPos()[1] + @max(24, (available[1] - 122) * 0.36),
     });
-    zgui.pushStyleColor4f(.{ .idx = .child_bg, .c = patina.bg2 });
-    if (zgui.beginChild("slicer-empty-state", .{ .w = panel_width, .h = panel_height, .child_flags = .{ .border = true } })) {
-        zgui.textColored(patina.audio, "LOAD AUDIO TO START SLICING", .{});
-        zgui.separator();
-        zgui.textDisabled("Choose a WAV file, then divide it into playable slices.", .{});
-        zgui.spacing();
-        zgui.textColored(patina.focus, ":load", .{});
-        zgui.sameLine(.{ .spacing = 12 });
-        zgui.text("open the audio browser", .{});
-        zgui.spacing();
-        zgui.textColored(patina.rhythm, ":slice <n>", .{});
-        zgui.sameLine(.{ .spacing = 12 });
-        zgui.text("create 1-64 equal slices", .{});
+    if (widgets.emptyState(.{
+        .id = "slicer-empty-state",
+        .title = "LOAD AUDIO TO START SLICING",
+        .explanation = "Choose a WAV file, then divide it into playable slices.",
+        .shortcut = ":load",
+        .action = "LOAD AUDIO",
+        .accent = patina.audio,
+    })) {
+        const now = std.Io.Timestamp.now(app.core.io, .awake).nanoseconds;
+        app.core.handleKey(.{ .char = ':' }, now);
+        for ("load") |char| app.core.handleKey(.{ .char = char }, now);
+        app.core.handleKey(.enter, now);
     }
-    zgui.endChild();
-    zgui.popStyleColor(.{});
 }
 
 fn drawHeader(app: anytype, slicer: *const ws.dsp.Slicer) void {

@@ -582,25 +582,16 @@ fn drawEmptyState(app: anytype, target: spectrum_ed.EqTarget) void {
     ensureEqAnalyzer(app, target);
     drawBusMonitor(app, target);
     zgui.spacing();
-    const available = zgui.getContentRegionAvail()[0];
-    const panel_width = @min(available, 520);
-    if (available > panel_width) zgui.setCursorPosX(zgui.getCursorPos()[0] + (available - panel_width) * 0.5);
-    zgui.pushStyleColor4f(.{ .idx = .child_bg, .c = patina.bg2 });
-    if (zgui.beginChild("empty-fx-chain", .{ .w = panel_width, .h = 108, .child_flags = .{ .border = true } })) {
-        zgui.textColored(targetAccent(target), "BUILD THE SIGNAL CHAIN", .{});
-        zgui.textDisabled("Insert an effect to shape this {s}.", .{targetRole(target)});
-        zgui.spacing();
-        zgui.textDisabled("a", .{});
-        zgui.sameLine(.{ .spacing = 8 });
-        zgui.text("insert effect", .{});
-        zgui.sameLine(.{ .spacing = 18 });
-        zgui.pushStyleColor4f(.{ .idx = .button, .c = patina.focus_soft });
-        zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = patina.focus });
-        if (zgui.button("+ add effect", .{})) app.openPicker(.fx_picker);
-        zgui.popStyleColor(.{ .count = 2 });
-    }
-    zgui.endChild();
-    zgui.popStyleColor(.{});
+    var explanation_buf: [96]u8 = undefined;
+    const explanation = std.fmt.bufPrint(&explanation_buf, "Insert an effect to shape this {s}.", .{targetRole(target)}) catch "Insert an effect.";
+    if (widgets.emptyState(.{
+        .id = "empty-fx-chain",
+        .title = "BUILD THE SIGNAL CHAIN",
+        .explanation = explanation,
+        .shortcut = "a",
+        .action = "ADD EFFECT",
+        .accent = targetAccent(target),
+    })) app.openPicker(.fx_picker);
 }
 
 fn drawBusMonitor(app: anytype, target: spectrum_ed.EqTarget) void {
