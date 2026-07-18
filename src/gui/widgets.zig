@@ -5,6 +5,7 @@ const gui_style = @import("style.zig");
 pub fn sectionTitle(label: []const u8, accent: [4]f32) void {
     zgui.textColored(accent, "{s}", .{label});
     zgui.separator();
+    zgui.dummy(.{ .w = 0, .h = 3 });
 }
 
 /// A rotary control: drag vertically to change the value, double-click to

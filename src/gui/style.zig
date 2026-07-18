@@ -181,5 +181,7 @@ pub fn setTheme() void {
     style.frame_padding = .{ 8, 6 };
     style.item_spacing = .{ 8, 8 };
     style.item_inner_spacing = .{ 6, 5 };
+    style.cell_padding = .{ 10, 8 };
+    style.indent_spacing = 18;
     style.scrollbar_size = 14;
 }
