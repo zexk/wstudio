@@ -25,6 +25,7 @@ const Rack = rack_mod.Rack;
 const Fx = rack_mod.Fx;
 const engine_mod = @import("audio/engine.zig");
 const Engine = engine_mod.Engine;
+const Transport = @import("transport.zig").Transport;
 const synth_mod = @import("dsp/synth.zig");
 const PolySynth = synth_mod.PolySynth;
 const wavetable_mod = @import("dsp/wavetable.zig");
@@ -1797,6 +1798,7 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
                 if (cs.path.len == 0 or cs.plugin_id.len == 0) return error.MalformedProject;
                 const plugin = try rack_mod.ClapPlugin.load(allocator, cs.path, cs.plugin_id, sr);
                 errdefer plugin.deinit();
+                plugin.attachTransport(&engine.transport);
                 try loadClapState(allocator, plugin, cs.state_base64);
                 rack.instrument = .{ .clap = plugin };
                 rack.pattern_player = PatternPlayer.init(rack.instrument.device().?, &engine.transport);
@@ -1806,8 +1808,8 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
             },
         }
 
-        if (rs.fx_chain) |fc| try applyFxChain(allocator, &rack.fx, fc, sr)
-        else try applyLegacyFx(allocator, &rack.fx, rs.fx, sr);
+        if (rs.fx_chain) |fc| try applyFxChain(allocator, &rack.fx, fc, sr, &engine.transport)
+        else try applyLegacyFx(allocator, &rack.fx, rs.fx, sr, &engine.transport);
         try racks.append(allocator, rack);
     }
     // zig fmt: on
@@ -1832,8 +1834,8 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
         self.syncTrackChain(@intCast(i), rack);
     }
 
-    if (snap.master_fx_chain) |fc| try applyFxChain(allocator, &self.master_fx, fc, sr)
-    else try applyLegacyFx(allocator, &self.master_fx, snap.master_fx, sr);
+    if (snap.master_fx_chain) |fc| try applyFxChain(allocator, &self.master_fx, fc, sr, &self.engine.transport)
+    else try applyLegacyFx(allocator, &self.master_fx, snap.master_fx, sr, &self.engine.transport);
     self.syncMasterChain();
     // zig fmt: on
 
@@ -1852,7 +1854,7 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
             .gain_db = finiteClamp(f32, gs.gain_db, -60.0, 12.0, 0.0),
             .folded = gs.folded,
         };
-        try applyFxChain(allocator, &self.groups[idx].?.fx, gs.fx_chain, sr);
+        try applyFxChain(allocator, &self.groups[idx].?.fx, gs.fx_chain, sr, &self.engine.transport);
         self.syncGroupChain(idx);
     }
     for (self.project.tracks.items) |*t| {
@@ -2232,13 +2234,20 @@ fn applyLfoCustomSnap(dst_points: *[synth_mod.max_lfo_shape_points]synth_mod.Lfo
 /// racks and the master bus - both hold a user-built `Fx` chain. Snaps past
 /// the chain cap are dropped (only reachable by hand-editing the file).
 /// A unit whose params field is null keeps its defaults.
-fn applyFxChain(allocator: std.mem.Allocator, fx_out: *Fx, chain: []const FxUnitSnap, sr: u32) !void {
+fn applyFxChain(
+    allocator: std.mem.Allocator,
+    fx_out: *Fx,
+    chain: []const FxUnitSnap,
+    sr: u32,
+    transport: ?*const Transport,
+) !void {
     for (chain) |us| {
         if (fx_out.units.items.len >= Fx.max_units) break;
         const unit = switch (us.kind) {
             .clap => blk: {
                 const cs = us.clap orelse return error.MalformedProject;
                 const loaded = try fx_out.insertClap(allocator, fx_out.units.items.len, cs.path, cs.plugin_id, sr);
+                if (transport) |value| loaded.payload.clap.attachTransport(value);
                 try loadClapState(allocator, loaded.payload.clap, cs.state_base64);
                 break :blk loaded;
             },
@@ -2325,7 +2334,7 @@ fn applyFxChain(allocator: std.mem.Allocator, fx_out: *Fx, chain: []const FxUnit
 /// v9-and-older fallback: expand the fixed struct-of-optionals rack into
 /// unit snaps in the order the old `Fx.chain()` hard-wired, then load them
 /// through the same path as v10 chains.
-fn applyLegacyFx(allocator: std.mem.Allocator, fx_out: *Fx, fx: FxSnap, sr: u32) !void {
+fn applyLegacyFx(allocator: std.mem.Allocator, fx_out: *Fx, fx: FxSnap, sr: u32, transport: ?*const Transport) !void {
     var snaps: [Fx.max_units]FxUnitSnap = undefined;
     var n: usize = 0;
     if (fx.gate)   |gs| { snaps[n] = .{ .kind = .gate, .gate = gs };       n += 1; }
@@ -2337,7 +2346,7 @@ fn applyLegacyFx(allocator: std.mem.Allocator, fx_out: *Fx, fx: FxSnap, sr: u32)
     if (fx.phaser) |ps| { snaps[n] = .{ .kind = .phaser, .phaser = ps };   n += 1; }
     if (fx.delay)  |ds| { snaps[n] = .{ .kind = .delay, .delay = ds };     n += 1; }
     if (fx.reverb) |rs| { snaps[n] = .{ .kind = .reverb, .reverb = rs };   n += 1; }
-    try applyFxChain(allocator, fx_out, snaps[0..n], sr);
+    try applyFxChain(allocator, fx_out, snaps[0..n], sr, transport);
 }
 // zig fmt: on
 
@@ -3539,7 +3548,7 @@ test "specialized FX snapshot loading ignores non-finite fields" {
         } },
         .{ .kind = .ott, .ott = .{ .depth = nan, .time = nan, .gain_in_db = nan, .gain_out_db = nan } },
         .{ .kind = .delay, .delay = .{ .time_s = nan, .feedback = nan, .mix = nan } },
-    }, 48_000);
+    }, 48_000, null);
 
     const comp = &fx.units.items[0].payload.comp;
     try testing.expect(std.math.isFinite(comp.threshold_db));

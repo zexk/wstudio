@@ -220,6 +220,7 @@ fn cmdClapFx(app: *App, args: []const u8) void {
         app.setStatus("CLAP plugin has no stereo audio input", .{});
         return;
     }
+    unit.payload.clap.attachTransport(&app.session.engine.transport);
     app.session.syncTrackChain(@intCast(track), rack);
     app.dirty = true;
     app.setStatus("CLAP effect loaded: {s}", .{parsed.id});

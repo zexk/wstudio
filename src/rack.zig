@@ -140,6 +140,7 @@ pub const FxPayload = union(enum) {
             .clap => |plugin| {
                 const copy = try ClapPlugin.load(allocator, plugin.pluginPath(), plugin.id(), sr);
                 errdefer copy.deinit();
+                if (plugin.transport) |transport| copy.attachTransport(transport);
                 if (try plugin.saveState(allocator)) |state| {
                     defer allocator.free(state);
                     _ = try copy.loadState(state);
@@ -362,6 +363,7 @@ pub const Rack = struct {
             .clap => |plugin| {
                 const copy = try ClapPlugin.load(allocator, plugin.pluginPath(), plugin.id(), sr);
                 errdefer copy.deinit();
+                copy.attachTransport(transport);
                 if (try plugin.saveState(allocator)) |state| {
                     defer allocator.free(state);
                     _ = try copy.loadState(state);

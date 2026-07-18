@@ -274,6 +274,7 @@ pub const Session = struct {
         const plugin = try rack_mod.ClapPlugin.load(self.allocator, path, plugin_id, self.project.sample_rate);
         errdefer plugin.deinit();
         if (plugin.audio_inputs_count != 0) return error.ClapPluginIsNotInstrument;
+        plugin.attachTransport(&self.engine.transport);
 
         const rack = try self.allocator.create(Rack);
         errdefer self.allocator.destroy(rack);

@@ -48,8 +48,8 @@ track and use:
 :clap-param <1-based-index> [plain-value]
 ```
 
-CLAP audio, notes, MIDI, parameters, opaque state, latency, tails, logging,
-and host callbacks are supported. Plugin identity and state are saved in
+CLAP audio, notes, MIDI, transport, parameters, opaque state, latency, tails,
+logging, and host callbacks are supported. Plugin identity and state are saved in
 the `.wsj` project. Native plugin GUI windows, surround buses, polyphonic
 modulation, and plugin-requested thread pools are not supported yet.
 
