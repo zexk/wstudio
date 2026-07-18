@@ -24,7 +24,6 @@
 
 const std = @import("std");
 const types = @import("../core/types.zig");
-const wav = @import("../core/wav.zig");
 const dsp = @import("device.zig");
 const Transport = @import("../transport.zig").Transport;
 const pad_mod = @import("pad.zig");
@@ -229,21 +228,7 @@ pub const Slicer = struct {
     /// at the fresh buffer without touching `slice_count` or any slice's own
     /// params, or the just-restored slicing would be wiped out from under it.
     pub fn loadWav(self: *Slicer, wav_data: []const u8, name: []const u8, reset_slices: bool) !void {
-        const result = try wav.parseAlloc(self.allocator, wav_data);
-        errdefer self.allocator.free(result.samples);
-
-        const samples = if (result.sample_rate == self.sample_rate)
-            result.samples
-        else blk: {
-            const resampled = try pad_mod.resampleLinear(
-                self.allocator,
-                result.samples,
-                result.sample_rate,
-                self.sample_rate,
-            );
-            self.allocator.free(result.samples);
-            break :blk resampled;
-        };
+        const samples = try pad_mod.decodeWav(self.allocator, wav_data, self.sample_rate);
 
         while (!self.sample_lock.tryLock()) std.atomic.spinLoopHint();
         defer self.sample_lock.unlock();

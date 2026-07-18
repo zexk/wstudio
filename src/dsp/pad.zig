@@ -6,6 +6,7 @@
 
 const std = @import("std");
 const types = @import("../core/types.zig");
+const wav = @import("../core/wav.zig");
 
 const Sample = types.Sample;
 
@@ -235,6 +236,19 @@ fn releaseFade(left: f64, release_s: f32) f32 {
 
 // -----------------------------------------------------------------------
 // Linear resampler (control-side, allocates)
+
+pub fn decodeWav(
+    allocator: std.mem.Allocator,
+    bytes: []const u8,
+    sample_rate: u32,
+) ![]f32 {
+    const result = try wav.parseAlloc(allocator, bytes);
+    errdefer allocator.free(result.samples);
+    if (result.sample_rate == sample_rate) return result.samples;
+    const samples = try resampleLinear(allocator, result.samples, result.sample_rate, sample_rate);
+    allocator.free(result.samples);
+    return samples;
+}
 
 pub fn resampleLinear(
     allocator: std.mem.Allocator,
