@@ -18,12 +18,15 @@ pub fn write(
     bit_depth: BitDepth,
 ) WriteError!void {
     if (sample_rate == 0 or channel_count == 0) return error.InvalidFormat;
+    if (samples.len % channel_count != 0) return error.InvalidFormat;
     const bits_per_sample: u16 = @intFromEnum(bit_depth);
     const bytes_per_sample: u32 = bits_per_sample / 8;
     const data_len_usize = std.math.mul(usize, samples.len, bytes_per_sample) catch return error.FileTooLarge;
-    if (data_len_usize > std.math.maxInt(u32) - 36) return error.FileTooLarge;
+    const riff_size_u64 = @as(u64, 36) + data_len_usize + (data_len_usize & 1);
+    if (riff_size_u64 > std.math.maxInt(u32)) return error.FileTooLarge;
     const data_len: u32 = @intCast(data_len_usize);
     const data_pad: u32 = data_len & 1;
+    const riff_size: u32 = @intCast(riff_size_u64);
     const block_align_u32 = @as(u32, channel_count) * bytes_per_sample;
     if (block_align_u32 > std.math.maxInt(u16)) return error.InvalidFormat;
     const byte_rate_u64 = @as(u64, sample_rate) * block_align_u32;
@@ -32,7 +35,7 @@ pub fn write(
     const block_align: u16 = @intCast(block_align_u32);
 
     try w.writeAll("RIFF");
-    try w.writeInt(u32, 36 + data_len + data_pad, .little);
+    try w.writeInt(u32, riff_size, .little);
     try w.writeAll("WAVE");
 
     try w.writeAll("fmt ");
@@ -257,6 +260,7 @@ test "writer rejects invalid and overflowing format metadata" {
     try std.testing.expectError(error.InvalidFormat, write(&w, 0, 1, &.{}, .pcm16));
     try std.testing.expectError(error.InvalidFormat, write(&w, 48_000, 0, &.{}, .pcm16));
     try std.testing.expectError(error.InvalidFormat, write(&w, std.math.maxInt(u32), 2, &.{}, .pcm24));
+    try std.testing.expectError(error.InvalidFormat, write(&w, 48_000, 2, &.{0.0}, .pcm16));
     try std.testing.expectEqual(@as(usize, 0), w.buffered().len);
 }
 
