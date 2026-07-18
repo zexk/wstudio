@@ -133,10 +133,31 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
         }
     }
 
+    // Note-stamp mode: enter on an empty cell inserts a note and starts a
+    // live-shaping session mirroring grab mode above - j/k drag its pitch
+    // (cursor follows, via the same dragNote), h/l resize its length (via
+    // the same resizeOrLen `[`/`]` already use). enter/esc drop it; any
+    // other key drops it first and is then handled normally below.
+    if (app.piano_stamp) {
+        switch (key) {
+            .escape => { dropStamp(app); app.setStatus("note dropped", .{}); return true; },
+            .enter => { dropStamp(app); app.setStatus("note dropped", .{}); return true; },
+            .char => |c| switch (c) {
+                'j' => { dragNote(app, pp, max_step, 0, -1); return true; },
+                'k' => { dragNote(app, pp, max_step, 0, 1); return true; },
+                'h' => { resizeOrLen(app, -1.0 / stepsPerBeatF(app)); return true; },
+                'l' => { resizeOrLen(app, 1.0 / stepsPerBeatF(app)); return true; },
+                else => dropStamp(app),
+            },
+            else => dropStamp(app),
+        }
+    }
+
     switch (key) {
         .escape => { app.view = .tracks; return true; },
-        // enter toggles the note; space falls through to transport play/pause.
-        .enter => { toggleNote(app); return true; },
+        // enter toggles the note; a fresh insert starts a stamp session
+        // (see above); space falls through to transport play/pause.
+        .enter => { toggleOrStamp(app, pp); return true; },
         .ctrl_r => { history.doRedo(app); return true; },
         .char => |c| switch (c) {
             // 'i' falls through to modal.handle below, which enters insert
@@ -421,19 +442,29 @@ fn ensureVisible(app: *App) void {
 }
 
 /// Toggle the note at the cursor: remove it if one starts here on this pitch,
-/// otherwise add one with the current note length. Mirrors the drum grid's
-/// enter-to-toggle so both grid editors share the same place/erase gesture.
-fn toggleNote(app: *App) void {
-    if (app.piano_track >= app.session.racks.items.len) return;
-    const pp = if (app.session.racks.items[app.piano_track].pattern_player != null)
-        &app.session.racks.items[app.piano_track].pattern_player.?
-    else return;
+/// otherwise add one with the current note length and start a live-shaping
+/// stamp session (see the `piano_stamp` block in handleKey) so a drawing
+/// pass can shape each note right after placing it instead of coming back
+/// later. Mirrors the drum grid's enter-to-toggle so both grid editors
+/// share the same place/erase gesture.
+fn toggleOrStamp(app: *App, pp: *pattern_mod.PatternPlayer) void {
     const start_beat = stepToBeat(app, app.piano_cursor_step);
     if (pp.noteStartsAt(app.piano_cursor_pitch, start_beat)) {
         deleteNote(app);
-    } else {
-        insertNote(app);
+        return;
     }
+    insertNote(app);
+    app.piano_stamp = true;
+    app.piano_grab_delta = .{};
+    app.setStatus("stamping - j/k pitch, h/l length, enter/esc drops", .{});
+}
+
+/// Drop a live-shaping stamp session, recording its accumulated pitch drag
+/// (if any) as the repeatable edit - shares `piano_grab`'s own delta/
+/// last_edit bookkeeping since stamp's j/k reuses `dragNote` verbatim.
+fn dropStamp(app: *App) void {
+    app.piano_stamp = false;
+    dropGrab(app);
 }
 
 /// `c`/`C`: stamp a diatonic triad (`c`) or seventh chord (`C`) rooted at the

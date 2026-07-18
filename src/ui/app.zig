@@ -407,6 +407,18 @@ pub const App = struct {
     /// then drag the note instead of the cursor; esc/M (or any other key)
     /// drop it. See editors/piano.zig.
     piano_grab: bool = false,
+    /// True right after enter freshly inserts a note (not when it deletes
+    /// one) - a live-shaping session mirroring `piano_grab` starts
+    /// automatically: j/k drag the new note's pitch (reusing dragNote),
+    /// h/l resize its length (reusing resizeOrLen). enter/esc (or any other
+    /// key) drop it. Terminals have no key-up event, so "hold enter" becomes
+    /// "press enter to start, press enter/esc to drop" - see editors/piano.zig.
+    piano_stamp: bool = false,
+    /// Same idea as `piano_stamp` for the drum grid: enter freshly
+    /// activating a step starts a session where j/k live-nudge its
+    /// velocity (length has no meaning for a one-shot hit, so there's no
+    /// h/l equivalent). See editors/drum.zig.
+    drum_stamp: bool = false,
     /// Arrangement view: bar cursor and horizontal scroll (lane = `cursor`).
     arr_cursor_bar: u32 = 0,
     arr_scroll_bar: u32 = 0,

@@ -686,8 +686,39 @@ test "drum grid step toggle" {
     app.drum_cursor = .{ 0, 0 };
     _ = drum_ed.handleKey(&app, .enter);
     try std.testing.expect(app.drumMachine().stepActive(0, 0));
+    // The first enter also starts a velocity-stamp session; a second enter
+    // drops it (keeping the step active) instead of toggling it back off.
+    _ = drum_ed.handleKey(&app, .enter);
+    try std.testing.expect(app.drumMachine().stepActive(0, 0));
+    try std.testing.expect(!app.drum_stamp);
+    // A third enter, with the session already dropped, toggles it off.
     _ = drum_ed.handleKey(&app, .enter);
     try std.testing.expect(!app.drumMachine().stepActive(0, 0));
+}
+
+test "drum grid enter activating a step starts a stamp session - j/k velocity" {
+    var app = try testApp();
+    defer app.deinit();
+    app.drum_track = 2;
+    app.drum_cursor = .{ 0, 0 };
+
+    _ = drum_ed.handleKey(&app, .enter); // activate the step and start stamping
+    try std.testing.expect(app.drum_stamp);
+    try std.testing.expect(app.drumMachine().stepActive(0, 0));
+    try std.testing.expectEqual(@as(u8, ws.dsp.DrumMachine.vel_full), app.drumMachine().stepVel(0, 0));
+
+    _ = drum_ed.handleKey(&app, .{ .char = 'j' }); // nudge velocity down
+    try std.testing.expectEqual(@as(u8, ws.dsp.DrumMachine.vel_full - 1), app.drumMachine().stepVel(0, 0));
+    _ = drum_ed.handleKey(&app, .{ .char = 'j' });
+    try std.testing.expectEqual(@as(u8, ws.dsp.DrumMachine.vel_full - 2), app.drumMachine().stepVel(0, 0));
+    _ = drum_ed.handleKey(&app, .{ .char = 'k' }); // and back up
+    try std.testing.expectEqual(@as(u8, ws.dsp.DrumMachine.vel_full - 1), app.drumMachine().stepVel(0, 0));
+
+    // Escape drops the session without deactivating the step.
+    _ = drum_ed.handleKey(&app, .escape);
+    try std.testing.expect(!app.drum_stamp);
+    try std.testing.expect(app.drumMachine().stepActive(0, 0));
+    try std.testing.expectEqual(@as(u8, ws.dsp.DrumMachine.vel_full - 1), app.drumMachine().stepVel(0, 0));
 }
 
 test "drum grid advancing entry and pattern double preserve velocity" {
@@ -1065,10 +1096,12 @@ test "T toggles the piano roll grid between straight and triplet" {
     app.piano_cursor_pitch = 60;
     _ = piano_ed.handleKey(&app, .enter);
     try std.testing.expect(pp.noteAt(60, 0.0) != null);
+    _ = piano_ed.handleKey(&app, .escape); // drop the stamp session enter just started
 
     app.piano_cursor_step = 6;
     _ = piano_ed.handleKey(&app, .enter);
     try std.testing.expect(pp.noteAt(60, 1.0) != null);
+    _ = piano_ed.handleKey(&app, .escape);
 
     // Toggling back rescales the cursor by its beat position (step 6 @ 6
     // steps/beat = beat 1 = step 4 @ 4 steps/beat), not a raw index copy.
@@ -3763,6 +3796,40 @@ test "arrangement +/- edge-resize a clip; undo/dot-repeat, min clamp, growth evi
     app.handleKey(.{ .char = '+' }, 0);
 }
 
+test "piano roll enter on an empty cell starts a stamp session - j/k pitch, h/l length" {
+    var app = try testApp();
+    defer app.deinit();
+    app.view = .piano_roll;
+    app.piano_track = 0;
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    app.piano_cursor_step = 0;
+    app.piano_cursor_pitch = 60;
+
+    app.handleKey(.enter, 0); // insert C4 @ step 0 and start stamping
+    try std.testing.expect(app.piano_stamp);
+    try std.testing.expect(pp.noteAt(60, 0.0) != null);
+
+    app.handleKey(.{ .char = 'k' }, 0); // pitch up a semitone (cursor follows)
+    try std.testing.expect(pp.noteAt(61, 0.0) != null);
+    try std.testing.expect(pp.noteAt(60, 0.0) == null);
+    try std.testing.expectEqual(@as(u7, 61), app.piano_cursor_pitch);
+
+    app.handleKey(.{ .char = 'l' }, 0); // lengthen by one step
+    try std.testing.expectApproxEqAbs(@as(f64, 0.5), pp.noteAt(61, 0.0).?.duration_beat, 1e-9);
+
+    app.handleKey(.enter, 0); // drop - a second enter commits, doesn't re-toggle
+    try std.testing.expect(!app.piano_stamp);
+    try std.testing.expect(pp.noteAt(61, 0.0) != null);
+    try std.testing.expectEqual(AppView.piano_roll, app.view);
+
+    // With the session dropped, enter on the now-occupied cell toggles it
+    // off again like a plain (non-stamping) enter always has.
+    app.piano_cursor_step = 0;
+    app.piano_cursor_pitch = 61;
+    app.handleKey(.enter, 0);
+    try std.testing.expect(pp.noteAt(61, 0.0) == null);
+}
+
 test "piano roll M grabs a note; h/l/j/k drag it as one undo step" {
     var app = try testApp();
     defer app.deinit();
@@ -3803,8 +3870,10 @@ test "piano roll . repeats the last drag on whatever note sits under the new cur
     app.piano_cursor_step = 0;
     app.piano_cursor_pitch = 60;
     app.handleKey(.enter, 0); // C4 @ step 0
+    app.handleKey(.escape, 0); // drop the stamp session enter just started
     app.piano_cursor_step = 4;
     app.handleKey(.enter, 0); // C4 @ step 4 (a second note to repeat onto)
+    app.handleKey(.escape, 0); // drop this one too before M-grabbing below
 
     // Drag the first note: step 0 → 1, pitch 60 → 61 (one semitone up).
     app.piano_cursor_step = 0;
@@ -3837,9 +3906,11 @@ test "piano roll . repeats a count-scaled velocity nudge and a resize" {
     app.piano_cursor_step = 0;
     app.piano_cursor_pitch = 60;
     app.handleKey(.enter, 0);
+    app.handleKey(.escape, 0); // drop the stamp session enter just started
     app.piano_cursor_step = 4;
     app.piano_cursor_pitch = 60;
     app.handleKey(.enter, 0);
+    app.handleKey(.escape, 0);
 
     app.piano_cursor_step = 0;
     for ("3<") |c| app.handleKey(.{ .char = c }, 0); // -0.3 velocity (default is 0.85)

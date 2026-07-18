@@ -94,12 +94,36 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
         }
     }
 
+    // Step-stamp mode: enter freshly activating a step starts a live
+    // velocity-shaping session mirroring the piano roll's own note-stamp -
+    // j/k nudge the just-placed step's velocity (a one-shot hit has no
+    // length to shape, so there's no h/l equivalent here). enter/esc drop
+    // it; any other key drops it first and is then handled normally below.
+    if (app.drum_stamp) {
+        switch (key) {
+            .escape => { app.drum_stamp = false; app.setStatus("step dropped", .{}); return true; },
+            .enter => { app.drum_stamp = false; app.setStatus("step dropped", .{}); return true; },
+            .char => |c| switch (c) {
+                'j' => { stampNudgeVel(app, -1); return true; },
+                'k' => { stampNudgeVel(app, 1); return true; },
+                else => app.drum_stamp = false,
+            },
+            else => app.drum_stamp = false,
+        }
+    }
+
     switch (key) {
         .escape => { app.view = .tracks; return true; },
-        // enter toggles the step; space falls through to transport play/pause.
+        // enter toggles the step; a fresh activation starts a stamp session
+        // (see above); space falls through to transport play/pause.
         .enter => {
             history.push(app, history.captureDrum(app, app.drum_track));
-            app.drumMachine().toggleStep(pad.*, step.*);
+            const dm = app.drumMachine();
+            dm.toggleStep(pad.*, step.*);
+            if (dm.stepActive(pad.*, step.*)) {
+                app.drum_stamp = true;
+                app.setStatus("stamping - j/k velocity, enter/esc drops", .{});
+            }
             return true;
         },
         .ctrl_r => { history.doRedo(app); return true; },
@@ -291,6 +315,22 @@ pub fn recordNote(app: *App, pitch: u7, vel: u8) void {
     step_grid.setStep(dm, pad, step, true, vel);
     app.drum_cursor = .{ pad, step };
     app.setStatus("rec: pad {d} step {d}", .{ pad + 1, step + 1 });
+}
+
+/// j/k during a stamp session (see the `drum_stamp` block in handleKey):
+/// nudge the just-placed step's velocity by one, same path `{`/`}` use.
+/// Drops the session instead if the step somehow isn't there any more.
+fn stampNudgeVel(app: *App, delta: i32) void {
+    const dm = app.drumMachine();
+    const pad = app.drum_cursor[0];
+    const step = app.drum_cursor[1];
+    if (!dm.stepActive(pad, step)) {
+        app.drum_stamp = false;
+        return;
+    }
+    history.push(app, history.captureDrum(app, app.drum_track));
+    dm.nudgeStepVel(pad, step, delta);
+    app.setStatus("vel {d}", .{dm.stepVel(pad, step)});
 }
 
 /// Move the step cursor by `delta` steps, clamped to the pattern length.
