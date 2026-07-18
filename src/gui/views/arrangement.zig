@@ -27,10 +27,11 @@ pub fn draw(app: anytype) void {
     const gutter_w: f32 = 132;
     const ruler_h: f32 = 30;
     const available = zgui.getContentRegionAvail();
+    const inspector_h: f32 = if (app.arrangement_clip != null) 116 else 82;
     const lane_h: f32 = if (track_count == 0)
         58
     else
-        std.math.clamp((available[1] * 0.76 - ruler_h) / @as(f32, @floatFromInt(track_count)), 58, 96);
+        std.math.clamp((available[1] - inspector_h - ruler_h - 12) / @as(f32, @floatFromInt(track_count)), 58, 112);
     const canvas_w = @max(420, available[0]);
     const canvas_h = ruler_h + lane_h * @as(f32, @floatFromInt(track_count));
     const origin = zgui.getCursorScreenPos();
@@ -191,7 +192,8 @@ pub fn draw(app: anytype) void {
 }
 
 fn drawArrangementInspector(app: anytype) void {
-    if (zgui.beginChild("arrangement-inspector", .{ .w = 0, .h = 0, .child_flags = .{ .border = true } })) {
+    const height: f32 = if (app.arrangement_clip != null) 108 else 74;
+    if (zgui.beginChild("arrangement-inspector", .{ .w = 0, .h = height, .child_flags = .{ .border = true } })) {
         if (app.arrangement_clip) |selection| {
             const clip = app.core.session.arrangement.lanes.items[selection.track].clips.items[selection.clip];
             zgui.textColored(patina.focus, "SELECTED CLIP", .{});
@@ -211,9 +213,9 @@ fn drawArrangementInspector(app: anytype) void {
         } else if (app.core.cursor < app.core.session.project.tracks.items.len) {
             const track = app.core.session.project.tracks.items[app.core.cursor];
             zgui.textColored(patina.audio, "SELECTED LANE  {d:0>2}", .{app.core.cursor + 1});
-            zgui.separator();
+            zgui.sameLine(.{ .spacing = 18 });
             zgui.text("{s}", .{track.name});
-            zgui.spacing();
+            zgui.sameLine(.{ .spacing = 24 });
             zgui.textDisabled("s stamp clip   h/l move cursor   v select range", .{});
         }
     }

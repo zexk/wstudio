@@ -16,7 +16,7 @@ pub fn draw(app: anytype) void {
     zgui.separator();
     const row_count = app.core.trackRows().len + 1;
     const available_height = zgui.getContentRegionAvail()[1];
-    const row_height = std.math.clamp((available_height * 0.68) / @as(f32, @floatFromInt(row_count)), 52, 76);
+    const row_height = std.math.clamp((available_height - 154) / @as(f32, @floatFromInt(row_count)), 52, 82);
     for (app.core.trackRows(), 0..) |row, display_row| {
         switch (row) {
             .track => |track_index| drawMixerRow(app, track_index, display_row, row_height),
@@ -150,7 +150,7 @@ fn drawStereoMeter(draw_list: zgui.DrawList, x: f32, y: f32, width: f32, peak: [
 }
 
 fn drawSelectedInspector(app: anytype) void {
-    if (zgui.beginChild("track-inspector", .{ .w = 0, .h = 0, .child_flags = .{ .border = true } })) {
+    if (zgui.beginChild("track-inspector", .{ .w = 0, .h = 104, .child_flags = .{ .border = true } })) {
         if (app.core.track_row >= app.core.trackRows().len) {
             zgui.textColored(patina.modulation, "MASTER OUTPUT", .{});
             zgui.separator();
