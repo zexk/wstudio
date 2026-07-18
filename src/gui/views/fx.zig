@@ -26,7 +26,7 @@ pub fn draw(app: anytype) void {
     if (spectrum_ed.focusedUnit(&app.core, fx)) |unit| {
         drawEditor(app, target, unit);
     } else {
-        drawEmptyState(app);
+        drawEmptyState(app, target);
     }
 }
 
@@ -566,11 +566,81 @@ fn syncChain(app: anytype, target: spectrum_ed.EqTarget) void {
     }
 }
 
-fn drawEmptyState(app: anytype) void {
-    zgui.textColored(patina.focus, "FX CHAIN", .{});
-    zgui.textDisabled("chain empty: press 'a' to insert an effect", .{});
-    zgui.pushStyleColor4f(.{ .idx = .button, .c = patina.focus_soft });
-    zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = patina.focus });
-    if (zgui.button("+ add effect", .{})) app.openPicker(.fx_picker);
-    zgui.popStyleColor(.{ .count = 2 });
+fn drawEmptyState(app: anytype, target: spectrum_ed.EqTarget) void {
+    ensureEqAnalyzer(app, target);
+    drawBusMonitor(app, target);
+    zgui.spacing();
+    const available = zgui.getContentRegionAvail()[0];
+    const panel_width = @min(available, 520);
+    if (available > panel_width) zgui.setCursorPosX(zgui.getCursorPos()[0] + (available - panel_width) * 0.5);
+    zgui.pushStyleColor4f(.{ .idx = .child_bg, .c = patina.bg2 });
+    if (zgui.beginChild("empty-fx-chain", .{ .w = panel_width, .h = 108, .child_flags = .{ .border = true } })) {
+        zgui.textColored(targetAccent(target), "BUILD THE SIGNAL CHAIN", .{});
+        zgui.textDisabled("Insert an effect to shape this {s}.", .{targetRole(target)});
+        zgui.spacing();
+        zgui.textDisabled("a", .{});
+        zgui.sameLine(.{ .spacing = 8 });
+        zgui.text("insert effect", .{});
+        zgui.sameLine(.{ .spacing = 18 });
+        zgui.pushStyleColor4f(.{ .idx = .button, .c = patina.focus_soft });
+        zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = patina.focus });
+        if (zgui.button("+ add effect", .{})) app.openPicker(.fx_picker);
+        zgui.popStyleColor(.{ .count = 2 });
+    }
+    zgui.endChild();
+    zgui.popStyleColor(.{});
+}
+
+fn drawBusMonitor(app: anytype, target: spectrum_ed.EqTarget) void {
+    const available = zgui.getContentRegionAvail();
+    const height = std.math.clamp(available[1] * 0.62, 190, 330);
+    const origin = zgui.getCursorScreenPos();
+    _ = zgui.invisibleButton("empty-chain-monitor", .{ .w = available[0], .h = height });
+    const draw_list = zgui.getWindowDrawList();
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + available[0], origin[1] + height }, .col = color(patina.bg0), .rounding = 4 });
+    draw_list.addText(.{ origin[0] + 12, origin[1] + 10 }, color(targetAccent(target)), "{s} MONITOR", .{targetMonitorLabel(target)});
+
+    for (1..6) |i| {
+        const x = origin[0] + available[0] * @as(f32, @floatFromInt(i)) / 6;
+        draw_list.addLine(.{ .p1 = .{ x, origin[1] + 36 }, .p2 = .{ x, origin[1] + height - 28 }, .col = color(patina.line), .thickness = 1 });
+    }
+    for (1..4) |i| {
+        const y = origin[1] + 36 + (height - 64) * @as(f32, @floatFromInt(i)) / 4;
+        draw_list.addLine(.{ .p1 = .{ origin[0], y }, .p2 = .{ origin[0] + available[0], y }, .col = color(patina.line), .thickness = 1 });
+    }
+
+    const snap = switch (target) {
+        .track => app.core.session.engine.trackSpectrumSnapshot(app.core.eq_track),
+        .master => app.core.session.engine.masterSpectrumSnapshot(),
+        .group => app.core.session.engine.groupSpectrumSnapshot(app.core.eq_group),
+    };
+    if (snap) |spectrum| {
+        var points: [spectrum.bins.len][2]f32 = undefined;
+        for (spectrum.bins, 0..) |db, i| {
+            const x = origin[0] + available[0] * @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(spectrum.bins.len - 1));
+            const norm = std.math.clamp((db + 90) / 90, 0, 1);
+            points[i] = .{ x, origin[1] + 36 + (height - 64) * (1 - norm) };
+        }
+        draw_list.addPolyline(&points, .{ .col = color(targetAccent(target)), .thickness = 2 });
+    } else {
+        draw_list.addText(.{ origin[0] + 12, origin[1] + height - 24 }, color(patina.fg3), "Waiting for audio", .{});
+    }
+    draw_list.addText(.{ origin[0] + 12, origin[1] + height - 24 }, color(patina.fg3), "20 Hz", .{});
+    draw_list.addText(.{ origin[0] + available[0] - 52, origin[1] + height - 24 }, color(patina.fg3), "20 kHz", .{});
+}
+
+fn targetRole(target: spectrum_ed.EqTarget) []const u8 {
+    return switch (target) {
+        .track => "track",
+        .master => "master output",
+        .group => "group bus",
+    };
+}
+
+fn targetMonitorLabel(target: spectrum_ed.EqTarget) []const u8 {
+    return switch (target) {
+        .track => "TRACK SPECTRUM",
+        .master => "MASTER SPECTRUM",
+        .group => "GROUP SPECTRUM",
+    };
 }
