@@ -646,6 +646,12 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, view_rows: u
 
     switch (ev.kind) {
         .press => {
+            // A click elsewhere ends any active velocity-stamp session
+            // first - mouse input skips the keyboard-only stamp block in
+            // handleKey, so otherwise it stays set and silently
+            // reinterprets the next ordinary keystroke as a velocity nudge
+            // on whatever step the cursor now sits on.
+            app.drum_stamp = false;
             app.drum_cursor[0] = @intCast(pad);
             const dm = app.drumMachine();
             const step = step_grid.stepAt(u16, gutter, app.drumCellWidth(), app.drum_step_scroll, dm.step_count, ev.x) orelse {
