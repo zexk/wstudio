@@ -82,6 +82,7 @@ fn drawSections(app: anytype, synth: *ws.dsp.PolySynth, comptime sections: []con
                             const id = entry.id + field;
                             drawAnyParam(app, synth, id, synth_ed.paramLabel(id, &label_buf));
                         }
+                        if (lfoShapeSlot(entry.id)) |slot| drawLfoCustomCurve(app, synth, slot);
                     }
                 }
                 zgui.spacing();
@@ -184,6 +185,107 @@ fn drawFilterPad(app: anytype, synth: *ws.dsp.PolySynth, cutoff_id: u8) void {
         sendParam(app, res_id, res);
     }
     if (result.activated) app.core.synth_cursor = cutoff_id;
+}
+
+/// Which `.custom` LFO slot (0/1/2) a MOD section's "shape" entry drives -
+/// see `dsp.synth.lfo_custom_id_base`'s id-layout doc comment. `null` for
+/// every other id (rate, matrix rows, ...), so the extra draw call below is
+/// a no-op for them.
+fn lfoShapeSlot(id: u8) ?usize {
+    return switch (id) {
+        28 => 0,
+        95 => 1,
+        97 => 2,
+        else => null,
+    };
+}
+
+/// `.custom` LFO shape's breakpoint editor - drawn right under that LFO's
+/// shape/rate rows, only while the shape is actually set to `.custom`
+/// (picking any other shape via the +/- cycle above just hides it again).
+/// Reuses widgets.curveEditor exactly like the automation view does (see
+/// that view's own drawCurve for the fuller-chrome version); this one skips
+/// the bar-ruler/axis-label chrome since a single LFO cycle doesn't need
+/// them, just the plot.
+fn drawLfoCustomCurve(app: anytype, synth: *ws.dsp.PolySynth, slot: usize) void {
+    const shape = switch (slot) {
+        0 => synth.lfo_shape,
+        1 => synth.lfo2_shape,
+        else => synth.lfo3_shape,
+    };
+    if (shape != .custom) return;
+
+    const count = synth.lfo_custom_count[slot];
+    var curve_buf: [ws.dsp.synth.max_lfo_shape_points]widgets.CurvePoint = undefined;
+    for (synth.lfo_custom[slot][0..count], curve_buf[0..count]) |src, *dst| {
+        dst.* = .{ .beat = src.phase, .value = src.value };
+    }
+
+    var label_buf: [32]u8 = undefined;
+    const label = std.fmt.bufPrintZ(&label_buf, "lfo-custom##gui-synth-{d}", .{slot}) catch return;
+    const base: u8 = ws.dsp.synth.lfo_custom_id_base + @as(u8, @intCast(slot)) * ws.dsp.synth.lfo_custom_ids_per_slot;
+    const base_usize: usize = base;
+    const count_id: u8 = base + ws.dsp.synth.max_lfo_shape_points * 2;
+    const focused_index: ?usize = if (app.core.synth_cursor >= base and app.core.synth_cursor < count_id)
+        (app.core.synth_cursor - base) / 2
+    else
+        null;
+
+    const result = widgets.curveEditor(label, .{
+        .points = curve_buf[0..count],
+        .beat_hi = 1.0,
+        .value_lo = -1.0,
+        .value_hi = 1.0,
+        .snap_beats = 0,
+        .accent = patina.modulation,
+        .focused_index = focused_index,
+        .x_unit_label = "phase",
+        .height = 130,
+    });
+
+    if (result.moved) |m| {
+        const phase_id: u8 = @intCast(base_usize + m.index * 2);
+        sendParam(app, phase_id, @floatCast(m.beat));
+        sendParam(app, phase_id + 1, m.value);
+    }
+    if (result.inserted) |ins| {
+        if (count < ws.dsp.synth.max_lfo_shape_points) {
+            var k: usize = 0;
+            while (k < count and curve_buf[k].beat < ins.beat) : (k += 1) {}
+            var i: usize = count;
+            while (i > k) : (i -= 1) {
+                const src = curve_buf[i - 1];
+                const dst_phase_id: u8 = @intCast(base_usize + i * 2);
+                sendParam(app, dst_phase_id, @floatCast(src.beat));
+                sendParam(app, dst_phase_id + 1, src.value);
+            }
+            const new_phase_id: u8 = @intCast(base_usize + k * 2);
+            sendParam(app, new_phase_id, @floatCast(ins.beat));
+            sendParam(app, new_phase_id + 1, ins.value);
+            sendParam(app, count_id, @floatFromInt(count + 1));
+            app.core.synth_cursor = new_phase_id;
+        }
+    }
+    if (result.removed) |beat| {
+        var idx: ?usize = null;
+        for (curve_buf[0..count], 0..) |p, i| {
+            if (@abs(p.beat - beat) < 1e-6) {
+                idx = i;
+                break;
+            }
+        }
+        if (idx) |ix| {
+            var i: usize = ix;
+            while (i + 1 < count) : (i += 1) {
+                const src = curve_buf[i + 1];
+                const dst_phase_id: u8 = @intCast(base_usize + i * 2);
+                sendParam(app, dst_phase_id, @floatCast(src.beat));
+                sendParam(app, dst_phase_id + 1, src.value);
+            }
+            sendParam(app, count_id, @floatFromInt(count - 1));
+        }
+    }
+    if (result.activated_index) |i| app.core.synth_cursor = @intCast(base_usize + i * 2);
 }
 
 fn sectionColor(index: usize) [4]f32 {

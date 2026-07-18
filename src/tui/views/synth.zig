@@ -526,10 +526,10 @@ fn secFenv(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
         try std.fmt.bufPrint(&buf, "{d:.3} s", .{synth.fenv_release_s}));
 }
 
-const lfo_shape_names = [_][]const u8{ "sine", "tri", "saw", "sqr", "s&h", "cha" };
+const lfo_shape_names = [_][]const u8{ "sine", "tri", "saw", "sqr", "s&h", "cha", "cus" };
 
 fn lfoShapeIdx(shape: anytype) usize {
-    return switch (shape) { .sine => 0, .triangle => 1, .saw => 2, .square => 3, .sh => 4, .chaos => 5 };
+    return switch (shape) { .sine => 0, .triangle => 1, .saw => 2, .square => 3, .sh => 4, .chaos => 5, .custom => 6 };
 }
 
 /// Shape + rate only: the LFO is a pure mod source, its routing lives on
@@ -542,6 +542,7 @@ fn secLfo(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
 
     try barRow(w, c == 29, false, mag, "rate", synth.lfo_rate_hz, 20.0,
         try std.fmt.bufPrint(&buf, "{d:.2} Hz", .{synth.lfo_rate_hz}));
+    if (synth.lfo_shape == .custom) try secLfoCustom(w, synth, c, 0);
 }
 
 fn secLfo2(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
@@ -550,6 +551,7 @@ fn secLfo2(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
     try enumRow(w, c == 95, false, mag, "shape", &lfo_shape_names, lfoShapeIdx(synth.lfo2_shape));
     try barRow(w, c == 96, false, mag, "rate", synth.lfo2_rate_hz, 20.0,
         try std.fmt.bufPrint(&buf, "{d:.2} Hz", .{synth.lfo2_rate_hz}));
+    if (synth.lfo2_shape == .custom) try secLfoCustom(w, synth, c, 1);
 }
 
 fn secLfo3(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
@@ -558,6 +560,38 @@ fn secLfo3(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
     try enumRow(w, c == 97, false, mag, "shape", &lfo_shape_names, lfoShapeIdx(synth.lfo3_shape));
     try barRow(w, c == 98, false, mag, "rate", synth.lfo3_rate_hz, 20.0,
         try std.fmt.bufPrint(&buf, "{d:.2} Hz", .{synth.lfo3_rate_hz}));
+    if (synth.lfo3_shape == .custom) try secLfoCustom(w, synth, c, 2);
+}
+
+/// `.custom` shape's breakpoints, shown only while that LFO's shape is
+/// actually `.custom` (same "hidden until relevant" convention as the
+/// filter2/oscillator-B/C on-off sections). `points` bar-row rides the
+/// count id (h/l adds/removes a trailing point, same convention every
+/// other 0..cap bar already uses); each populated point gets a phase/value
+/// row pair addressed by `dsp.synth.lfo_custom_id_base`'s flat id scheme -
+/// see `PolySynth.decodeLfoCustomId`. The GUI's curve widget is the real
+/// drawing surface for this; these rows exist so the shape is still
+/// reachable keyboard-only.
+fn secLfoCustom(w: *std.Io.Writer, synth: *const PolySynth, c: u8, slot: u8) !void {
+    var buf: [40]u8 = undefined;
+    const base: u16 = @as(u16, ws.dsp.synth.lfo_custom_id_base) + @as(u16, slot) * ws.dsp.synth.lfo_custom_ids_per_slot;
+    const count_id: u8 = @intCast(base + ws.dsp.synth.max_lfo_shape_points * 2);
+    const count = synth.lfo_custom_count[slot];
+    try barRow(w, c == count_id, false, mag, "points", @floatFromInt(count), @floatFromInt(ws.dsp.synth.max_lfo_shape_points),
+        try std.fmt.bufPrint(&buf, "{d}", .{count}));
+    for (0..count) |i| {
+        const phase_id: u8 = @intCast(base + i * 2);
+        const value_id: u8 = phase_id + 1;
+        const point = synth.lfo_custom[slot][i];
+        var label_buf: [16]u8 = undefined;
+        const label = std.fmt.bufPrint(&label_buf, "pt{d} phase", .{i}) catch "pt phase";
+        try barRow(w, c == phase_id, false, mag, label, point.phase, 1.0,
+            try std.fmt.bufPrint(&buf, "{d:.2}", .{point.phase}));
+        // Bipolar (-1..1): shifted to 0..2 for the bar fill, same convention
+        // detune_cents/pan etc. already use - the printed value stays raw.
+        try barRow(w, c == value_id, false, mag, "  value", point.value + 1.0, 2.0,
+            try std.fmt.bufPrint(&buf, "{d:.2}", .{point.value}));
+    }
 }
 
 /// Four macro knobs - pure mod sources (mc1-mc4 on MATRIX rows), no sound

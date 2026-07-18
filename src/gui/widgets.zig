@@ -406,6 +406,11 @@ pub const Curve = struct {
     /// Which point (if any) the external cursor is currently parked on,
     /// for the focus ring - mirrors `Adsr.focused_stage`.
     focused_index: ?usize = null,
+    /// Unit name for the hover tooltip's x-axis reading (e.g. "0.40
+    /// beats"). Override for a non-timeline x-axis - the LFO shape editor
+    /// passes "phase" since its x-axis is a 0..1 cycle fraction, not a
+    /// musical beat position.
+    x_unit_label: []const u8 = "beats",
     /// Defaults to the rest of the content region, like every other widget
     /// here - override to inset the plot within a caller's own chrome
     /// (axis labels, ruler, ...) instead of owning the full width.
@@ -500,7 +505,7 @@ pub fn curveEditor(label: [:0]const u8, args: Curve) CurveResult {
         if (node_active or node_hovered) {
             var buf: [32]u8 = undefined;
             _ = zgui.beginTooltip();
-            zgui.text("{d:.2} beats  /  {s}", .{ p.beat, knobFormatValue(&buf, "%.2f", p.value) });
+            zgui.text("{d:.2} {s}  /  {s}", .{ p.beat, args.x_unit_label, knobFormatValue(&buf, "%.2f", p.value) });
             zgui.endTooltip();
         }
         draw_list.addCircleFilled(.{ .p = center, .r = handle_r - 1, .col = gui_style.color(if (node_active or node_hovered) args.accent else patina.fg1) });

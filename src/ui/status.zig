@@ -75,6 +75,7 @@ fn lfoShapeName(shape: anytype) []const u8 {
         .square => "sqr",
         .sh => "s&h",
         .chaos => "chaos",
+        .custom => "custom",
     };
 }
 

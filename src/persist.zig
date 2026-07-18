@@ -141,6 +141,20 @@ pub const SynthSnap = struct {
     lfo2_rate_hz: f32 = 1.0,
     lfo3_shape: synth_mod.LfoShape = .sine,
     lfo3_rate_hz: f32 = 1.0,
+    /// `.custom` shape points (additive optional-with-default field, no
+    /// version bump - a sane backward-compatible default exists and there's
+    /// no legacy representation to migrate from, unlike mod_matrix's null-
+    /// vs-empty split). Absence (every file predating the feature) reads as
+    /// "no custom points saved"; applyToSynth then leaves PolySynth's own
+    /// flat-zero default in place. Manual in synthToSnap/applyToSynth:
+    /// `lfo_custom` collides by name with PolySynth's fixed-array field of
+    /// the same name (different type - slice vs array), so it's excluded
+    /// from the generic reflection copy like mod_matrix; lfo2_custom/
+    /// lfo3_custom have no PolySynth counterpart at all (PolySynth keys all
+    /// three slots off one `[3][max_lfo_shape_points]LfoShapePoint` field).
+    lfo_custom: ?[]const synth_mod.LfoShapePoint = null,
+    lfo2_custom: ?[]const synth_mod.LfoShapePoint = null,
+    lfo3_custom: ?[]const synth_mod.LfoShapePoint = null,
     macro1: f32 = 0.0,
     macro2: f32 = 0.0,
     macro3: f32 = 0.0,
@@ -1311,6 +1325,7 @@ fn synthToSnap(s: *const PolySynth) SynthSnap {
     var snap: SynthSnap = .{};
     inline for (@typeInfo(SynthSnap).@"struct".fields) |f| {
         if (comptime std.mem.eql(u8, f.name, "mod_matrix")) continue;
+        if (comptime std.mem.eql(u8, f.name, "lfo_custom")) continue;
         if (@hasField(PolySynth, f.name)) {
             @field(snap, f.name) = @field(s, f.name);
         }
@@ -1318,6 +1333,9 @@ fn synthToSnap(s: *const PolySynth) SynthSnap {
     // Slices the live synth's rows - fine, the snapshot is serialized
     // synchronously in save() while the rack is alive.
     snap.mod_matrix = s.mod_matrix[0..];
+    snap.lfo_custom = s.lfo_custom[0][0..s.lfo_custom_count[0]];
+    snap.lfo2_custom = s.lfo_custom[1][0..s.lfo_custom_count[1]];
+    snap.lfo3_custom = s.lfo_custom[2][0..s.lfo_custom_count[2]];
     return snap;
 }
 
@@ -2005,6 +2023,27 @@ fn applyToSynth(s: *PolySynth, ss: *const SynthSnap) void {
     // fx_order needs isValidFxOrder validation (a hand-edited file could
     // repeat or drop a unit kind), not a plain per-field clamp.
     s.fx_order = if (isValidFxOrder(ss.fx_order)) ss.fx_order else synth_mod.default_fx_order;
+    applyLfoCustomSnap(&s.lfo_custom[0], &s.lfo_custom_count[0], ss.lfo_custom);
+    applyLfoCustomSnap(&s.lfo_custom[1], &s.lfo_custom_count[1], ss.lfo2_custom);
+    applyLfoCustomSnap(&s.lfo_custom[2], &s.lfo_custom_count[2], ss.lfo3_custom);
+}
+
+/// One `.custom` LFO slot's points from a snap onto the live fixed array +
+/// count, clamped to the same phase/value ranges `setParamAbsolute` enforces
+/// per-point. `null`/empty/over-capacity all collapse to "however many
+/// points fit, in file order" - a hand-edited file overrunning
+/// `max_lfo_shape_points` just gets truncated rather than rejected, same
+/// spirit as `mod_matrix`'s row cap above.
+fn applyLfoCustomSnap(dst_points: *[synth_mod.max_lfo_shape_points]synth_mod.LfoShapePoint, dst_count: *u8, src: ?[]const synth_mod.LfoShapePoint) void {
+    const pts = src orelse &.{};
+    const n = @min(pts.len, synth_mod.max_lfo_shape_points);
+    for (pts[0..n], dst_points[0..n]) |p, *d| {
+        d.* = .{
+            .phase = std.math.clamp(p.phase, 0.0, 1.0),
+            .value = std.math.clamp(p.value, -1.0, 1.0),
+        };
+    }
+    dst_count.* = @intCast(n);
 }
 
 // zig fmt: off
@@ -3798,6 +3837,57 @@ test "save/load round-trip persists LFO 2/3, macros, and their matrix sources" {
     try testing.expectEqual(synth_mod.ModSource.lfo2, ls.mod_matrix[0].source);
     try testing.expectEqual(synth_mod.ModSource.mac1, ls.mod_matrix[1].source);
     try testing.expectApproxEqAbs(@as(f32, -0.3), ls.mod_matrix[1].depth, 1e-6);
+}
+
+test "save/load round-trip persists a custom LFO shape's points" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [64]u8 = undefined;
+    const wsj_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/lfo_custom.wsj", .{&tmp.sub_path});
+
+    var session = try Session.initDefault(testing.allocator);
+    defer session.deinit();
+    session.racks.items[0].instrument = .{ .poly_synth = try PolySynth.init(testing.allocator, session.project.sample_rate) };
+    const s = &session.racks.items[0].instrument.poly_synth;
+    s.lfo_shape = .custom;
+    s.lfo_custom[0][0] = .{ .phase = 0.0, .value = -0.6 };
+    s.lfo_custom[0][1] = .{ .phase = 0.4, .value = 0.8 };
+    s.lfo_custom[0][2] = .{ .phase = 1.0, .value = -0.6 };
+    s.lfo_custom_count[0] = 3;
+    s.lfo3_shape = .custom;
+    s.lfo_custom[2][0] = .{ .phase = 0.0, .value = 1.0 };
+    s.lfo_custom[2][1] = .{ .phase = 1.0, .value = -1.0 };
+    s.lfo_custom_count[2] = 2;
+
+    try save(testing.allocator, &session, testing.io, wsj_path);
+    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    defer loaded.deinit();
+
+    const ls = &loaded.racks.items[0].instrument.poly_synth;
+    try testing.expectEqual(synth_mod.LfoShape.custom, ls.lfo_shape);
+    try testing.expectEqual(@as(u8, 3), ls.lfo_custom_count[0]);
+    try testing.expectApproxEqAbs(@as(f32, 0.4), ls.lfo_custom[0][1].phase, 1e-6);
+    try testing.expectApproxEqAbs(@as(f32, 0.8), ls.lfo_custom[0][1].value, 1e-6);
+    try testing.expectEqual(synth_mod.LfoShape.custom, ls.lfo3_shape);
+    try testing.expectEqual(@as(u8, 2), ls.lfo_custom_count[2]);
+    try testing.expectApproxEqAbs(@as(f32, -1.0), ls.lfo_custom[2][1].value, 1e-6);
+    // LFO 2 never got a custom shape - still round-trips its untouched
+    // flat-zero default (synthToSnap always serializes whatever's live,
+    // customized or not; only a file predating this field entirely hits
+    // the null/no-points fallback - see the golden-file test below).
+    try testing.expectEqual(@as(u8, 2), ls.lfo_custom_count[1]);
+    try testing.expectApproxEqAbs(@as(f32, 0.0), ls.lfo_custom[1][0].value, 1e-6);
+}
+
+test "golden-file corpus: pre-lfo-custom files load with no custom points on any LFO slot" {
+    const testing = std.testing;
+    var session = try load(testing.allocator, testing.io, "test/fixtures/wsj/v17.wsj");
+    defer session.deinit();
+    const s = &session.racks.items[0].instrument.poly_synth;
+    try testing.expectEqual(@as(u8, 0), s.lfo_custom_count[0]);
+    try testing.expectEqual(@as(u8, 0), s.lfo_custom_count[1]);
+    try testing.expectEqual(@as(u8, 0), s.lfo_custom_count[2]);
 }
 
 test "golden-file corpus: v14's parametric EQ bands load freq/Q/gain" {
