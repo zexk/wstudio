@@ -33,6 +33,7 @@ STATE_FILE="${WSTUDIO_GUI_SHOT_STATE:-/tmp/wstudio-gui-shot.env}"
 GEOMETRY="${WSTUDIO_GUI_SHOT_GEOMETRY:-1440x900x24}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BIN="$REPO_ROOT/zig-out/bin/wstudio"
+TEMPLATE_INIT="$REPO_ROOT/examples/init.lua"
 
 nx() {
   nix shell nixpkgs#xdotool nixpkgs#imagemagick --command "$@"
@@ -85,7 +86,12 @@ cmd_start() {
 
   # Force the X11 backend: GLFW prefers Wayland if WAYLAND_DISPLAY leaks
   # in from the real session, and Xvfb only speaks X11.
-  local -a args=(--gui)
+  #
+  # Always load the template config (-u), never the user's real
+  # ~/.config/wstudio/init.lua - a user-tuned gui_font_size (or window
+  # size, theme, ...) skews every layout measurement a screenshot pass
+  # would otherwise catch as a real bug.
+  local -a args=(-u "$TEMPLATE_INIT" --gui)
   [ -n "$project" ] && args+=("$project")
   (
     unset WAYLAND_DISPLAY

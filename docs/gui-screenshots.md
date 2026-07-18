@@ -63,6 +63,15 @@ updated to include the project path).
 is set in the environment, and Xvfb only speaks X11 - the script unsets
 it before launching wstudio so the X11 backend is always picked.
 
+**Always the template config, never the real one.** `start` passes `-u
+examples/init.lua` (see `docs/lua-api.md` and `cli: -u {path}`, stolen
+from Neovim). Without it wstudio would load `~/.config/wstudio/init.lua`
+- the user's own tuned `gui_font_size`, window size, or theme - and any
+layout bug the screenshot pass finds could just be personal config, not
+a real bug. The template is the fully-documented, all-defaults file
+used to generate a missing user config, so it's the closest thing to
+"what a fresh install looks like."
+
 **Screenshotting the root window**, not a specific window ID, is
 deliberate: the virtual display only ever has the one wstudio window on
 it (no window manager, no reparenting), so root capture is simpler and
