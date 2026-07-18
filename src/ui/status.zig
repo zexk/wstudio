@@ -120,7 +120,7 @@ pub fn drawTracksStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) 
             const track = app.session.project.tracks.items[ti];
             switch (std.meta.activeTag(app.session.racks.items[ti].instrument)) {
                 .empty => try w.writeAll("enter: instrument  a: add track  ?: help"),
-                .poly_synth, .sampler => try w.print("enter: edit  p: piano  s: fx  m: {s}", .{if (track.muted) "unmute" else "mute"}),
+                .poly_synth, .sampler, .clap => try w.print("enter: edit  p: piano  s: fx  m: {s}", .{if (track.muted) "unmute" else "mute"}),
                 .drum_machine, .slicer => try w.print("enter: grid  s: fx  m: {s}  R: rename", .{if (track.muted) "unmute" else "mute"}),
             }
         } else {

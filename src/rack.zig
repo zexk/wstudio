@@ -18,6 +18,7 @@ const Phaser = @import("dsp/phaser.zig").Phaser;
 const Flanger = @import("dsp/flanger.zig").Flanger;
 const Tape = @import("dsp/tape.zig").Tape;
 const FreqShifter = @import("dsp/freq_shift.zig").FreqShifter;
+pub const ClapPlugin = @import("clap/plugin.zig").ClapPlugin;
 const PatternPlayer = @import("dsp/pattern.zig").PatternPlayer;
 const Transport = @import("transport.zig").Transport;
 
@@ -38,12 +39,14 @@ pub const Instrument = union(enum) {
     /// independently-triggerable slices. Same `*const Transport` stability
     /// rule as `drum_machine`.
     slicer: Slicer,
+    clap: *ClapPlugin,
 
     /// Returns a dsp.Device fat-pointer whose `.ptr` is stable as long as
     /// the parent Rack (heap-allocated) is alive, or null for `empty`.
     pub fn device(self: *Instrument) ?dsp.Device {
         return switch (self.*) {
             .empty => null,
+            .clap => |plugin| plugin.device(),
             inline else => |*p| p.device(),
         };
     }
@@ -51,6 +54,7 @@ pub const Instrument = union(enum) {
     pub fn deinit(self: *Instrument) void {
         switch (self.*) {
             .empty => {},
+            .clap => |plugin| plugin.deinit(),
             inline else => |*p| p.deinit(),
         }
     }
@@ -59,7 +63,7 @@ pub const Instrument = union(enum) {
         return switch (self.*) {
             .poly_synth => &PolySynth.automatable_params,
             .sampler => &Sampler.automatable_params,
-            .drum_machine, .slicer, .empty => &.{},
+            .drum_machine, .slicer, .clap, .empty => &.{},
         };
     }
 };
@@ -86,17 +90,20 @@ pub const FxPayload = union(enum) {
     freq_shift: FreqShifter,
     delay: StereoDelay,
     reverb: Reverb,
+    clap: *ClapPlugin,
 
     /// Returns a dsp.Device fat-pointer whose `.ptr` is stable as long as
     /// the parent FxUnit (heap-allocated by Fx.insert) is alive.
     pub fn device(self: *FxPayload) dsp.Device {
         return switch (self.*) {
+            .clap => |plugin| plugin.device(),
             inline else => |*p| p.device(),
         };
     }
 
     pub fn deinit(self: *FxPayload, allocator: std.mem.Allocator) void {
         switch (self.*) {
+            .clap => |plugin| plugin.deinit(),
             .chorus => |*c| c.deinit(allocator),
             .delay => |*d| d.deinit(allocator),
             .reverb => |*r| r.deinit(allocator),
@@ -129,6 +136,15 @@ pub const FxPayload = union(enum) {
                 nr.room = r.room;
                 nr.damp = r.damp;
                 return .{ .reverb = nr };
+            },
+            .clap => |plugin| {
+                const copy = try ClapPlugin.load(allocator, plugin.pluginPath(), plugin.id(), sr);
+                errdefer copy.deinit();
+                if (try plugin.saveState(allocator)) |state| {
+                    defer allocator.free(state);
+                    _ = try copy.loadState(state);
+                }
+                return .{ .clap = copy };
             },
             else => return self.*,
         }
@@ -183,6 +199,7 @@ pub const Fx = struct {
             .freq_shift => .{ .freq_shift = FreqShifter.init(sr) },
             .delay   => .{ .delay = try StereoDelay.init(allocator, sr, 2.0) },
             .reverb  => .{ .reverb = try Reverb.init(allocator, sr) },
+            .clap    => return error.ClapPluginRequiresPath,
             // zig fmt: on
         };
     }
@@ -195,6 +212,24 @@ pub const Fx = struct {
         errdefer allocator.destroy(unit);
         unit.* = .{ .payload = try initPayload(allocator, kind, sr) };
         errdefer unit.payload.deinit(allocator);
+        try self.units.insert(allocator, @min(pos, self.units.items.len), unit);
+        return unit;
+    }
+
+    pub fn insertClap(
+        self: *Fx,
+        allocator: std.mem.Allocator,
+        pos: usize,
+        path: []const u8,
+        plugin_id: []const u8,
+        sr: u32,
+    ) !*FxUnit {
+        if (self.units.items.len >= max_units) return error.ChainFull;
+        const plugin = try ClapPlugin.load(allocator, path, plugin_id, sr);
+        errdefer plugin.deinit();
+        const unit = try allocator.create(FxUnit);
+        errdefer allocator.destroy(unit);
+        unit.* = .{ .payload = .{ .clap = plugin } };
         try self.units.insert(allocator, @min(pos, self.units.items.len), unit);
         return unit;
     }
@@ -324,6 +359,15 @@ pub const Rack = struct {
             .sampler => |*s| rack.instrument = .{ .sampler = try s.dupe() },
             .drum_machine => |*dm| rack.instrument = .{ .drum_machine = try dm.dupe() },
             .slicer => |*sl| rack.instrument = .{ .slicer = try sl.dupe() },
+            .clap => |plugin| {
+                const copy = try ClapPlugin.load(allocator, plugin.pluginPath(), plugin.id(), sr);
+                errdefer copy.deinit();
+                if (try plugin.saveState(allocator)) |state| {
+                    defer allocator.free(state);
+                    _ = try copy.loadState(state);
+                }
+                rack.instrument = .{ .clap = copy };
+            },
         }
         // Set AFTER the instrument lands in the heap rack - the player holds
         // a pointer into it (same rule as Session.setInstrument).
