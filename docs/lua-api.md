@@ -156,9 +156,13 @@ Current option set (see examples/init.lua for defaults and ranges):
 | `default_browse_dir`, `default_project_path`, `file_browser_show_hidden` | core |
 | `default_drum_grid`, `default_piano_grid`, `default_arrangement_grid` | core |
 | `default_piano_triplet_grid`, `default_piano_note_length_steps`, `piano_ghost_notes` | core |
+| `undo_history_entries`, `default_metronome_enabled`, `metronome_click_gain` | core |
+| `count_in_bars`, `default_midi_velocity_curve` | core |
+| `default_automation_gain_step_db`, `default_automation_pan_step` | core |
 | `frame_poll_ms`, `tui_mouse`, `tui_theme` | tui |
 | `gui_font_size`, `gui_vsync`, `gui_theme` | gui |
 | `gui_window_width`, `gui_window_height` | gui |
+| `gui_knob_drag_pixels`, `gui_envelope_drag_pixels`, `gui_meter_decay_db_s` | gui |
 
 Enum-typed options (`gui_theme`, `tui_theme`, `preferred_frontend`,
 `audio_backend`) read and write as strings; the spec table derives the

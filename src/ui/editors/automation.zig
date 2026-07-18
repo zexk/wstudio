@@ -49,8 +49,6 @@ pub const AutomationFocus = union(enum) {
 /// constants) - see `instrumentAutomatableParams`.
 const gain_range = [2]f32{ -60.0, 12.0 };
 const pan_range = [2]f32{ -1.0, 1.0 };
-const gain_step: f32 = 1.0;
-const pan_step: f32 = 0.05;
 
 /// Open the automation editor on the clip under the arrangement cursor.
 /// `cursor_bar` need only fall inside the clip's span - the link is stored
@@ -137,8 +135,8 @@ pub fn curveRange(app: *App, target: AutomationFocus) [2]f32 {
 
 fn curveStep(app: *App, target: AutomationFocus) f32 {
     return switch (target) {
-        .gain => gain_step,
-        .pan => pan_step,
+        .gain => app.automation_gain_step_db,
+        .pan => app.automation_pan_step,
         .synth_param => |id| if (findAutomatableParam(app, id)) |info| info.step else 0.01,
     };
 }

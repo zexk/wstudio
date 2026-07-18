@@ -68,11 +68,15 @@ pub const Command = union(enum) {
     /// A/B loop region (frames). See Transport.advance for the wrap.
     set_loop: struct { enabled: bool, start_frames: u64, end_frames: u64 },
     set_metronome: bool,
-    /// Arms a one-bar count-in at the current position: the metronome
-    /// clicks through a bar (regardless of `set_metronome`'s on/off state)
+    /// See `wstudio.o.metronome_click_gain`.
+    set_metronome_gain: f32,
+    /// Arms a `bars`-bar count-in at the current position: the metronome
+    /// clicks through it (regardless of `set_metronome`'s on/off state)
     /// while the transport stays stopped, then playback starts for real
-    /// exactly on the downbeat. See Engine.firePreRoll.
-    record,
+    /// exactly on the downbeat. `bars == 0` skips the count-in and starts
+    /// playback immediately. See Engine.firePreRoll and
+    /// `wstudio.o.count_in_bars`.
+    record: u8,
 };
 
 /// Which absolute value an `AutomationCurve` overrides. `gain`/`pan` are
@@ -837,11 +841,17 @@ pub const Engine = struct {
                 self.transport.loop_end_frames = c.end_frames;
             },
             .set_metronome => |v| self.metronome_enabled = v,
-            .record => {
-                const bpb: f64 = @floatFromInt(self.transport.time_signature.beats_per_bar);
-                self.pre_roll_frames_remaining = @intFromFloat(bpb * self.transport.framesPerBeat());
-                self.pre_roll_elapsed = 0;
-                self.pre_roll_next_beat = 0;
+            .set_metronome_gain => |g| self.metronome.gain = g,
+            .record => |bars| {
+                if (bars == 0) {
+                    self.transport.play();
+                } else {
+                    const bpb: f64 = @floatFromInt(self.transport.time_signature.beats_per_bar);
+                    const total_beats = @as(f64, @floatFromInt(bars)) * bpb;
+                    self.pre_roll_frames_remaining = @intFromFloat(total_beats * self.transport.framesPerBeat());
+                    self.pre_roll_elapsed = 0;
+                    self.pre_roll_next_beat = 0;
+                }
             },
             .set_spectrum_active => |c| {
                 // `.track` and `.group` sources share `track_spectrum`'s one
@@ -1286,7 +1296,7 @@ test "metronome accents beat 1 of every bar" {
 test "record count-in clicks immediately, keeps the transport stopped, then starts on the beat" {
     var engine = try Engine.init(std.testing.allocator, 48_000);
     defer engine.deinit();
-    _ = engine.send(.record);
+    _ = engine.send(.{ .record = 1 });
 
     // 512-Sample blocks are stereo-interleaved -> 256 frames/block. 120bpm
     // 4/4 at 48kHz is 96_000 frames (375 blocks) per bar.
@@ -1308,16 +1318,39 @@ test "record count-in clicks even when the regular metronome is off" {
     defer engine.deinit();
     try std.testing.expect(!engine.metronome_enabled);
 
-    _ = engine.send(.record);
+    _ = engine.send(.{ .record = 1 });
     var block: [512]Sample = undefined;
     engine.process(&block);
     try std.testing.expect(engine.peak[0] > 0.0);
 }
 
+test "record with 0 bars skips the count-in and starts playback immediately" {
+    var engine = try Engine.init(std.testing.allocator, 48_000);
+    defer engine.deinit();
+    _ = engine.send(.{ .record = 0 });
+
+    var block: [512]Sample = undefined;
+    engine.process(&block);
+    try std.testing.expect(engine.transport.playing);
+    try std.testing.expectEqual(@as(u64, 0), engine.pre_roll_frames_remaining);
+}
+
+test "record with 2 bars clicks through twice the frames of a 1-bar count-in" {
+    var engine = try Engine.init(std.testing.allocator, 48_000);
+    defer engine.deinit();
+    _ = engine.send(.{ .record = 2 });
+
+    var block: [512]Sample = undefined;
+    engine.process(&block);
+    // 120bpm 4/4 at 48kHz is 96_000 frames/bar; 512 stereo-interleaved
+    // Samples = 256 frames, already consumed by this first block.
+    try std.testing.expectEqual(@as(u64, 96_000 * 2 - 256), engine.pre_roll_frames_remaining);
+}
+
 test "stop cancels an in-flight record count-in" {
     var engine = try Engine.init(std.testing.allocator, 48_000);
     defer engine.deinit();
-    _ = engine.send(.record);
+    _ = engine.send(.{ .record = 1 });
     var block: [512]Sample = undefined;
     engine.process(&block);
     try std.testing.expect(engine.pre_roll_frames_remaining > 0);
@@ -1331,7 +1364,7 @@ test "stop cancels an in-flight record count-in" {
 test "uiSnapshot reports pre_rolling during count-in, then playing once it completes" {
     var engine = try Engine.init(std.testing.allocator, 48_000);
     defer engine.deinit();
-    _ = engine.send(.record);
+    _ = engine.send(.{ .record = 1 });
 
     var block: [512]Sample = undefined;
     engine.process(&block);

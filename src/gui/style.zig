@@ -81,6 +81,16 @@ const umbra_colors: Palette = fromIdentity(ws.theme_identity.umbra);
 /// re-skins the whole GUI. Mutated once, before the first frame.
 pub var palette: Palette = patina_colors;
 
+/// Vertical pixels of mouse travel to sweep a knob/envelope-node drag across
+/// its full range - `wstudio.o.gui_knob_drag_pixels`/`gui_envelope_drag_pixels`.
+/// Live-settable (unlike `palette`, which only changes on `:colorscheme`),
+/// applied by `gui.zig` at startup and on `:reload-config`.
+pub var knob_drag_pixels: f32 = 180.0;
+pub var envelope_drag_pixels: f32 = 140.0;
+
+/// Master-meter peak-hold fall rate in dB/s - `wstudio.o.gui_meter_decay_db_s`.
+pub var meter_decay_db_per_s: f32 = 24.0;
+
 test "track cursor stays outside every theme's track rotation" {
     for ([_]Palette{ patina_colors, patina_light_colors, graphite_colors, graphite_light_colors, umbra_colors }) |theme| {
         for (theme.tracks) |track| try std.testing.expect(!std.meta.eql(theme.track_cursor, track));

@@ -115,6 +115,33 @@
 -- Draw notes from the other tracks behind the active piano roll.
 -- wstudio.o.piano_ghost_notes = false
 
+-- Entries kept on the undo stack before the oldest start dropping off.
+-- Range 8-512.
+-- wstudio.o.undo_history_entries = 64
+
+-- Start every session with the click track on.
+-- wstudio.o.default_metronome_enabled = false
+
+-- Click track loudness, a multiplier on its built-in accent/regular ratio.
+-- Range 0-1.
+-- wstudio.o.metronome_click_gain = 1.0
+
+-- Bars the metronome clicks through before playback starts when recording
+-- (Enter in insert mode, piano roll or drum grid, while stopped). 0 skips
+-- the count-in and starts immediately. Range 0-4.
+-- wstudio.o.count_in_bars = 1
+
+-- Raw MIDI note-on velocity (0-127) -> gain mapping: "linear" (straight
+-- pass-through), "exponential" (soft touches read quieter, hard hits still
+-- reach full), or "fixed" (every hit lands at full velocity regardless of
+-- how hard it was struck).
+-- wstudio.o.default_midi_velocity_curve = "linear"
+
+-- j/k nudge size for gain (dB) and pan breakpoints in the automation
+-- editor. Gain range 0-12, pan range 0-1.
+-- wstudio.o.default_automation_gain_step_db = 1.0
+-- wstudio.o.default_automation_pan_step = 0.05
+
 -- [tui] Input poll interval, in milliseconds - effectively the TUI's
 -- maximum frame time. Range 5-1000.
 -- wstudio.o.frame_poll_ms = 30
@@ -149,6 +176,16 @@
 -- range 600-4320 (the window stays freely resizable).
 -- wstudio.o.gui_window_width = 1440
 -- wstudio.o.gui_window_height = 900
+
+-- [gui] Vertical pixels of mouse travel to sweep a knob, or an envelope
+-- node's attack/decay/release leg, across its full range. Lower = more
+-- sensitive. Range 40-600.
+-- wstudio.o.gui_knob_drag_pixels = 180
+-- wstudio.o.gui_envelope_drag_pixels = 140
+
+-- [gui] Master-meter peak-hold fall rate, in dB/s. Higher = the hold
+-- indicator drops faster. Range 1-200.
+-- wstudio.o.gui_meter_decay_db_s = 24
 
 -- ---------------------------------------------------------------------------
 -- KEYMAPS: wstudio.keymap
