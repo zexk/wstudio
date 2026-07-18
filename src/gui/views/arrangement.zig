@@ -94,7 +94,16 @@ pub fn draw(app: anytype) void {
                 .drum => .{ patina.rhythm[0], patina.rhythm[1], patina.rhythm[2], if (selected) 1 else 0.68 },
             };
             draw_list.addRectFilled(.{ .pmin = pmin, .pmax = pmax, .col = color(clip_color), .rounding = 4 });
-            if (selected) draw_list.addRect(.{ .pmin = pmin, .pmax = pmax, .col = color(patina.fg0), .rounding = 4, .thickness = 2 });
+            draw_list.addRectFilled(.{
+                .pmin = pmin,
+                .pmax = .{ pmax[0], @min(pmax[1], pmin[1] + 22) },
+                .col = color(.{ patina.bg0[0], patina.bg0[1], patina.bg0[2], if (selected) 0.58 else 0.38 }),
+                .rounding = 4,
+            });
+            if (selected) {
+                draw_list.addRect(.{ .pmin = .{ pmin[0] - 1, pmin[1] - 1 }, .pmax = .{ pmax[0] + 1, pmax[1] + 1 }, .col = color(patina.fg0), .rounding = 5, .thickness = 3 });
+                draw_list.addRectFilled(.{ .pmin = .{ pmin[0], pmin[1] }, .pmax = .{ pmin[0] + 5, pmax[1] }, .col = color(patina.focus), .rounding = 3 });
+            }
             switch (clip.content) {
                 .melodic => |melodic| {
                     draw_list.addText(.{ pmin[0] + 7, pmin[1] + 4 }, color(patina.fg0), "MIDI  {d}", .{melodic.notes.len});
@@ -107,7 +116,8 @@ pub fn draw(app: anytype) void {
                     const pitch_span: f32 = @floatFromInt(@max(12, max_pitch -| min_pitch));
                     for (melodic.notes) |note| {
                         const note_x = pmin[0] + @as(f32, @floatCast(note.start_beat / melodic.length_beats)) * (pmax[0] - pmin[0]);
-                        const note_y = pmin[1] + 23 + @as(f32, @floatFromInt(max_pitch - note.pitch)) / pitch_span * 17;
+                        const preview_height = @max(8, pmax[1] - pmin[1] - 29);
+                        const note_y = pmin[1] + 26 + @as(f32, @floatFromInt(max_pitch - note.pitch)) / pitch_span * preview_height;
                         const note_w = @max(2, @as(f32, @floatCast(note.duration_beat / melodic.length_beats)) * (pmax[0] - pmin[0]));
                         draw_list.addLine(.{ .p1 = .{ note_x, note_y }, .p2 = .{ @min(note_x + note_w, pmax[0] - 2), note_y }, .col = color(.{ patina.fg0[0], patina.fg0[1], patina.fg0[2], 0.72 }), .thickness = 2 });
                     }
