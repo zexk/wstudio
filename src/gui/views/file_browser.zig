@@ -126,6 +126,7 @@ fn drawEntry(name: []const u8, is_dir: bool, selected: bool, index: usize) bool 
         .col = color(if (selected) patina.bg4 else patina.bg2),
         .rounding = 3,
     });
+    if (selected) draw_list.addRect(.{ .pmin = .{ origin[0] + 1, origin[1] + 1 }, .pmax = .{ origin[0] + width - 1, origin[1] + height - 1 }, .col = color(patina.focus), .rounding = 3, .thickness = 2 });
     draw_list.addRectFilled(.{ .pmin = .{ origin[0], origin[1] + 8 }, .pmax = .{ origin[0] + 4, origin[1] + height - 8 }, .col = color(accent), .rounding = 2 });
     draw_list.addText(.{ origin[0] + 15, origin[1] + 8 }, color(if (selected) patina.fg0 else patina.fg1), "{s}", .{name});
     const type_label = if (is_dir) "FOLDER" else std.fs.path.extension(name);

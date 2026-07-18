@@ -288,7 +288,8 @@ pub fn drawParamPicker(app: anytype) void {
                 const hovered = zgui.isItemHovered(.{});
                 const draw_list = zgui.getWindowDrawList();
                 draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + 34 }, .col = color(if (selected) patina.bg4 else if (hovered) patina.bg3 else patina.bg2), .rounding = 3 });
-                draw_list.addText(.{ origin[0] + 12, origin[1] + 8 }, color(if (selected) patina.focus else patina.fg1), "{s}", .{p.label});
+                if (selected) draw_list.addRect(.{ .pmin = .{ origin[0] + 1, origin[1] + 1 }, .pmax = .{ origin[0] + width - 1, origin[1] + 33 }, .col = color(patina.focus), .rounding = 3, .thickness = 2 });
+                draw_list.addText(.{ origin[0] + 12, origin[1] + 8 }, color(if (selected) patina.fg0 else patina.fg1), "{s}", .{p.label});
                 var range_buf: [48]u8 = undefined;
                 const range = compactParamRange(&range_buf, p.label, p.range);
                 const range_width = zgui.calcTextSize(range, .{})[0];
