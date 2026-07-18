@@ -766,9 +766,9 @@ pub fn drawFileBrowserStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Wri
         try w.writeAll(app.status_buf[0..app.status_len]);
     }
     if (app.browser_bookmark_mode) {
-        try w.writeAll(dim ++ "  " ++ rst ++ "j/k: move  enter/l: jump  d: remove  esc/q: back");
+        try w.writeAll(dim ++ "  " ++ rst ++ "enter: jump  d: remove  esc: back");
     } else {
-        try w.writeAll(dim ++ "  " ++ rst ++ "j/k: move  enter/l: open  h/bs: up  ~: home  /: search  b/B: mark/list  esc/q: cancel");
+        try w.writeAll(dim ++ "  " ++ rst ++ "enter: open  /: search  B: locations  esc: cancel");
     }
 }
 
