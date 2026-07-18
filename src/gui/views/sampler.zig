@@ -166,12 +166,7 @@ fn drawStandalone(app: anytype) void {
             .shortcut = ":load",
             .action = "LOAD AUDIO",
             .accent = patina.audio,
-        })) {
-            const now = std.Io.Timestamp.now(app.core.io, .awake).nanoseconds;
-            app.core.handleKey(.{ .char = ':' }, now);
-            for ("load") |char| app.core.handleKey(.{ .char = char }, now);
-            app.core.handleKey(.enter, now);
-        }
+        })) openLoadCommand(app);
         return;
     }
     zgui.spacing();
@@ -185,6 +180,8 @@ fn drawStandalone(app: anytype) void {
 fn drawPadTarget(app: anytype, track: u16, kind: PadTargetKind) void {
     if (track >= app.core.session.racks.items.len) return;
     const index: u8 = if (kind == .drum) app.core.drum_cursor[0] else app.core.slicer_cursor[0];
+    drawPadHeader(app, track, kind, index);
+    zgui.spacing();
     const pad: *ws.dsp.Pad = switch (kind) {
         .drum => blk: {
             const drum = switch (app.core.session.racks.items[track].instrument) {
@@ -192,7 +189,7 @@ fn drawPadTarget(app: anytype, track: u16, kind: PadTargetKind) void {
                 else => return,
             };
             if (index >= drum.pads.len or drum.pads[index] == null) {
-                zgui.textDisabled("This drum pad has no sample loaded.", .{});
+                drawPadEmptyState(app, "LOAD A PAD SAMPLE", "Choose a WAV file for this drum pad.");
                 return;
             }
             break :blk &drum.pads[index].?.pad;
@@ -203,21 +200,39 @@ fn drawPadTarget(app: anytype, track: u16, kind: PadTargetKind) void {
                 else => return,
             };
             if (index >= slicer.slice_count) {
-                zgui.textDisabled("This slicer has no slice at the selected row.", .{});
+                drawPadEmptyState(app, "NO SLICE SELECTED", "Load and slice audio before editing a slice.");
                 return;
             }
             break :blk &slicer.slices[index];
         },
     };
 
-    drawPadHeader(app, track, kind, index);
-    zgui.spacing();
     const target: Target = .{ .pad = .{ .pad = pad, .track = track, .kind = kind, .index = index } };
     widgets.sectionTitle("PLAY REGION", patina.audio);
     drawWaveformRegion(app, target, pad.samples);
     zgui.spacing();
 
     drawSharedSections(app, target);
+}
+
+fn drawPadEmptyState(app: anytype, title: []const u8, explanation: []const u8) void {
+    widgets.sectionTitle("PLAY REGION", patina.audio);
+    zgui.spacing();
+    if (widgets.emptyState(.{
+        .id = "sampler-pad-empty-state",
+        .title = title,
+        .explanation = explanation,
+        .shortcut = ":load",
+        .action = "LOAD SAMPLE",
+        .accent = patina.audio,
+    })) openLoadCommand(app);
+}
+
+fn openLoadCommand(app: anytype) void {
+    const now = std.Io.Timestamp.now(app.core.io, .awake).nanoseconds;
+    app.core.handleKey(.{ .char = ':' }, now);
+    for ("load") |char| app.core.handleKey(.{ .char = char }, now);
+    app.core.handleKey(.enter, now);
 }
 
 fn drawPadHeader(app: anytype, track: u16, kind: PadTargetKind, index: u8) void {

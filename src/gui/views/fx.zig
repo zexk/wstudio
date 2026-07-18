@@ -617,6 +617,7 @@ fn drawBusMonitor(app: anytype, target: spectrum_ed.EqTarget) void {
         .master => app.core.session.engine.masterSpectrumSnapshot(),
         .group => app.core.session.engine.groupSpectrumSnapshot(app.core.eq_group),
     };
+    const playing = app.core.session.engine.uiSnapshot().playing;
     if (snap) |spectrum| {
         var points: [spectrum.bins.len][2]f32 = undefined;
         for (spectrum.bins, 0..) |db, i| {
@@ -625,8 +626,14 @@ fn drawBusMonitor(app: anytype, target: spectrum_ed.EqTarget) void {
             points[i] = .{ x, origin[1] + 36 + (height - 64) * (1 - norm) };
         }
         draw_list.addPolyline(&points, .{ .col = color(targetAccent(target)), .thickness = 2 });
-    } else {
-        draw_list.addText(.{ origin[0] + 12, origin[1] + height - 24 }, color(patina.fg3), "Waiting for audio", .{});
+    }
+    if (!playing or snap == null) {
+        const message = "Play the transport to monitor audio";
+        const text_size = zgui.calcTextSize(message, .{});
+        draw_list.addText(.{
+            origin[0] + (available[0] - text_size[0]) * 0.5,
+            origin[1] + height * 0.5 - text_size[1] * 0.5,
+        }, color(patina.fg3), "{s}", .{message});
     }
     draw_list.addText(.{ origin[0] + 12, origin[1] + height - 24 }, color(patina.fg3), "20 Hz", .{});
     draw_list.addText(.{ origin[0] + available[0] - 52, origin[1] + height - 24 }, color(patina.fg3), "20 kHz", .{});
