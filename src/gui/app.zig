@@ -100,26 +100,61 @@ fn drawWorkspace(app: *App) void {
     zgui.setNextWindowPos(.{ .x = 0, .y = 64, .cond = .always });
     zgui.setNextWindowSize(.{ .w = zgui.io.getDisplaySize()[0], .h = body_h, .cond = .always });
     if (zgui.begin("Workspace", .{ .flags = .{ .no_title_bar = true, .no_move = true, .no_resize = true, .no_collapse = true, .no_docking = true } })) {
-        drawViewHeader(app.core.view);
-        switch (app.core.view) {
-            .tracks => tracks_view.draw(app),
-            .arrangement => arrangement_view.draw(app),
-            .piano_roll => piano_view.draw(app),
-            .drum_grid => drum_view.draw(app),
-            .slicer_grid => slicer_view.draw(app),
-            .synth_editor => synth_view.draw(app),
-            .sampler_editor => sampler_view.draw(app),
-            .track_spectrum, .master_spectrum, .group_spectrum => fx_view.draw(app),
-            .automation => automation_view.draw(app),
-            .instrument_picker => picker_view.drawInstrument(app),
-            .fx_picker, .synth_fx_picker => picker_view.drawFx(app),
-            .preset_picker => picker_view.drawPreset(app),
-            .automation_param_picker => automation_view.drawParamPicker(app),
-            .file_browser => file_browser_view.draw(app),
-            .help => help_view.draw(app),
+        const overlay = isPickerView(app.core.view);
+        const workspace_view = if (overlay) pickerBaseView(app) else app.core.view;
+        drawViewHeader(workspace_view);
+        drawView(app, workspace_view);
+        if (overlay) {
+            picker_view.beginOverlay();
+            drawPicker(app);
         }
     }
     zgui.end();
+}
+
+fn drawView(app: *App, view: tui_app.AppView) void {
+    switch (view) {
+        .tracks => tracks_view.draw(app),
+        .arrangement => arrangement_view.draw(app),
+        .piano_roll => piano_view.draw(app),
+        .drum_grid => drum_view.draw(app),
+        .slicer_grid => slicer_view.draw(app),
+        .synth_editor => synth_view.draw(app),
+        .sampler_editor => sampler_view.draw(app),
+        .track_spectrum, .master_spectrum, .group_spectrum => fx_view.draw(app),
+        .automation => automation_view.draw(app),
+        .instrument_picker, .fx_picker, .synth_fx_picker, .preset_picker, .automation_param_picker => {},
+        .file_browser => file_browser_view.draw(app),
+        .help => help_view.draw(app),
+    }
+}
+
+fn drawPicker(app: *App) void {
+    switch (app.core.view) {
+        .instrument_picker => picker_view.drawInstrument(app),
+        .fx_picker, .synth_fx_picker => picker_view.drawFx(app),
+        .preset_picker => picker_view.drawPreset(app),
+        .automation_param_picker => automation_view.drawParamPicker(app),
+        else => unreachable,
+    }
+}
+
+fn isPickerView(view: tui_app.AppView) bool {
+    return switch (view) {
+        .instrument_picker, .fx_picker, .synth_fx_picker, .preset_picker, .automation_param_picker => true,
+        else => false,
+    };
+}
+
+fn pickerBaseView(app: *const App) tui_app.AppView {
+    return switch (app.core.view) {
+        .instrument_picker => .tracks,
+        .fx_picker => app.core.fx_picker_return,
+        .synth_fx_picker => .synth_editor,
+        .preset_picker => if (app.core.preset_picker_kind == .synth) .synth_editor else .drum_grid,
+        .automation_param_picker => .automation,
+        else => app.core.view,
+    };
 }
 
 fn drawViewHeader(view: tui_app.AppView) void {

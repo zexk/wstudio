@@ -9,6 +9,44 @@ const style = @import("../style.zig");
 const color = style.color;
 const patina = &style.palette;
 
+/// Paint a Telescope-style modal into the existing workspace window. This is
+/// deliberately draw-list geometry, not an ImGui popup or child window.
+pub fn beginOverlay() void {
+    const window_pos = zgui.getWindowPos();
+    const window_size = zgui.getWindowSize();
+    const draw_list = zgui.getWindowDrawList();
+    draw_list.addRectFilled(.{
+        .pmin = window_pos,
+        .pmax = .{ window_pos[0] + window_size[0], window_pos[1] + window_size[1] },
+        .col = color(.{ 0, 0, 0, 0.68 }),
+    });
+
+    const panel_w = @min(window_size[0] - 80, 920);
+    const panel_h = @min(window_size[1] - 64, 620);
+    const panel = .{
+        window_pos[0] + (window_size[0] - panel_w) * 0.5,
+        window_pos[1] + (window_size[1] - panel_h) * 0.42,
+    };
+    draw_list.addRectFilled(.{
+        .pmin = panel,
+        .pmax = .{ panel[0] + panel_w, panel[1] + panel_h },
+        .col = color(patina.bg1),
+        .rounding = 6,
+    });
+    draw_list.addRect(.{
+        .pmin = panel,
+        .pmax = .{ panel[0] + panel_w, panel[1] + panel_h },
+        .col = color(patina.focus),
+        .rounding = 6,
+        .thickness = 1,
+    });
+    zgui.setCursorScreenPos(.{ panel[0] + 18, panel[1] + 16 });
+}
+
+fn overlayWidth() f32 {
+    return @min(zgui.getContentRegionAvail()[0], 884);
+}
+
 pub fn drawInstrument(app: anytype) void {
     zgui.textColored(patina.focus, "ADD INSTRUMENT", .{});
     zgui.sameLine(.{});
@@ -20,7 +58,7 @@ pub fn drawInstrument(app: anytype) void {
         .{ .label = "DRUM MACHINE", .desc = "PADS  VELOCITY  SEQUENCER", .kind = .drum_machine, .accent = patina.rhythm },
         .{ .label = "SLICER", .desc = "AUDIO  SLICES  SEQUENCER", .kind = .slicer, .accent = patina.modulation },
     };
-    const available = zgui.getContentRegionAvail()[0];
+    const available = overlayWidth();
     const gap: f32 = 10;
     const columns: usize = if (available >= 720) 2 else 1;
     const width = (available - gap * @as(f32, @floatFromInt(columns - 1))) / @as(f32, @floatFromInt(columns));
@@ -63,7 +101,7 @@ pub fn drawFx(app: anytype) void {
     var synth_buf: [14]ws.dsp.synth.FxUnitKind = undefined;
     const synth_kinds = if (app.core.view == .synth_fx_picker) synth_ed.filteredSynthFxPickerKinds(&app.core, &synth_buf) else &.{};
     const kinds = spectrum_ed.picker_kinds;
-    const available = zgui.getContentRegionAvail()[0];
+    const available = overlayWidth();
     const count = if (app.core.view == .synth_fx_picker) synth_kinds.len else kinds.len;
     const gap: f32 = 10;
     const columns: usize = if (app.core.view == .fx_picker and available >= 1120)
@@ -195,56 +233,24 @@ pub fn drawPreset(app: anytype) void {
         zgui.textColored(patina.audio, "filter: {s}", .{filter});
     }
     zgui.separator();
-    const available = zgui.getContentRegionAvail()[0];
-    const sidebar_width: f32 = if (available >= 820) 230 else 0;
-    if (sidebar_width > 0) {
-        if (zgui.beginChild("preset-sidebar", .{ .w = sidebar_width, .h = -1, .child_flags = .{ .border = true } })) {
-            zgui.textColored(patina.focus, "DISCOVER", .{});
+    zgui.textDisabled("/ filter   j/k move   enter choose   esc close   [ ] category   a audition", .{});
+    zgui.spacing();
+    var ordinal: usize = 0;
+    for (rows, 0..) |row, row_index| switch (row) {
+        .header => |header| {
+            zgui.textColored(patina.fg2, "{s}", .{header});
             zgui.separator();
-            zgui.textDisabled("/  filter presets", .{});
-            zgui.textDisabled("[ ]  change category", .{});
-            zgui.textDisabled("a  audition selected", .{});
-            zgui.spacing();
-            zgui.textColored(if (app.core.preset_audition_active) patina.audio else patina.fg3, "{s}", .{if (app.core.preset_audition_active) "AUDITION ACTIVE" else "AUDITION READY"});
-            zgui.spacing();
-            var selected_ordinal: usize = 0;
-            for (rows) |row| switch (row) {
-                .header => {},
-                .entry => |entry| {
-                    if (selected_ordinal == app.core.preset_picker_cursor) {
-                        zgui.separator();
-                        zgui.textColored(patina.fg0, "{s}", .{entry.name});
-                        zgui.textDisabled("{s}", .{entry.category});
-                        zgui.textDisabled("by {s}", .{entry.author});
-                        break;
-                    }
-                    selected_ordinal += 1;
-                },
-            };
-        }
-        zgui.endChild();
-        zgui.sameLine(.{ .spacing = 10 });
-    }
-    if (zgui.beginChild("presets", .{ .w = 0, .h = -1, .child_flags = .{ .border = true } })) {
-        var ordinal: usize = 0;
-        for (rows, 0..) |row, row_index| switch (row) {
-            .header => |header| {
-                zgui.spacing();
-                zgui.textColored(patina.fg2, "{s}", .{header});
-                zgui.separator();
-            },
-            .entry => |entry| {
-                var id_buf: [48]u8 = undefined;
-                const id = std.fmt.bufPrintZ(&id_buf, "preset-card-{d}", .{row_index}) catch continue;
-                const selected = app.core.preset_picker_cursor == ordinal;
-                const accent = if (app.core.preset_picker_kind == .synth) patina.focus else patina.rhythm;
-                if (drawCard(id, entry.name, entry.author, accent, selected, zgui.getContentRegionAvail()[0])) {
-                    app.core.preset_picker_cursor = ordinal;
-                    app.core.handleKey(.enter, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
-                }
-                ordinal += 1;
-            },
-        };
-    }
-    zgui.endChild();
+        },
+        .entry => |entry| {
+            var id_buf: [48]u8 = undefined;
+            const id = std.fmt.bufPrintZ(&id_buf, "preset-card-{d}", .{row_index}) catch continue;
+            const selected = app.core.preset_picker_cursor == ordinal;
+            const accent = if (app.core.preset_picker_kind == .synth) patina.focus else patina.rhythm;
+            if (drawCard(id, entry.name, entry.author, accent, selected, overlayWidth())) {
+                app.core.preset_picker_cursor = ordinal;
+                app.core.handleKey(.enter, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
+            }
+            ordinal += 1;
+        },
+    };
 }

@@ -39,6 +39,7 @@ pub fn drawInstrumentPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void 
     try w.print("  \"{s}\"", .{track_name});
     try w.writeAll(rst);
     try endLine(w);
+    try w.writeAll(dim ++ " > select  " ++ rst ++ "j/k move  enter choose  esc close");
     try endLine(w);
 
     try w.writeAll(bold ++ " INTERNAL" ++ rst);
@@ -129,6 +130,8 @@ pub fn drawFxPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void {
     }
     try w.writeAll(rst);
     try endLine(w);
+    try w.writeAll(dim ++ " > /" ++ rst);
+    if (filter.len > 0) try w.writeAll(filter) else try w.writeAll(dim ++ "type to filter" ++ rst);
     try endLine(w);
 
     try w.writeAll(bold ++ " INTERNAL" ++ rst);
@@ -167,7 +170,7 @@ pub fn drawFxPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void {
     }
 
     // zig fmt: off
-    const used = 4 + @max(total_count, 1);
+    const used = 5 + @max(total_count, 1);
     for (used..@max(used, rows -| 4)) |_| try endLine(w);
 }
 
@@ -199,6 +202,8 @@ pub fn drawSynthFxPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void {
     }
     try w.writeAll(rst);
     try endLine(w);
+    try w.writeAll(dim ++ " > /" ++ rst);
+    if (filter.len > 0) try w.writeAll(filter) else try w.writeAll(dim ++ "type to filter" ++ rst);
     try endLine(w);
 
     for (kinds, 0..) |kind, i| {
@@ -216,6 +221,6 @@ pub fn drawSynthFxPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void {
         try endLine(w);
     }
 
-    const used = 2 + @max(kinds.len, 1);
+    const used = 3 + @max(kinds.len, 1);
     for (used..@max(used, rows -| 4)) |_| try endLine(w);
 }
