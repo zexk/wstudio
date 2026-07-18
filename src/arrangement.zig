@@ -258,6 +258,57 @@ pub const Lane = struct {
         self.clips.clearRetainingCapacity();
     }
 
+    /// Remove `[lo, hi)` from every clip it touches: a clip fully inside the
+    /// range is deleted outright, a clip the range only clips one edge of is
+    /// trimmed to whatever's left outside the range, and a clip the range
+    /// cuts clean through the middle of is split into a left and right
+    /// remainder - the right one `dupe`d off the original (content
+    /// re-triggers its own loop from its own start on the new span, same as
+    /// every other resize/move already does; see `dupe`). `hi` is exclusive,
+    /// so `(bar_tick, bar_tick + grid.ticks())` removes exactly one grid
+    /// cell out of whatever clip sits under it, instead of the whole clip.
+    pub fn cutRange(self: *Lane, allocator: std.mem.Allocator, lo: u32, hi: u32) !void {
+        if (hi <= lo) return;
+        var i: usize = 0;
+        while (i < self.clips.items.len) {
+            const c = &self.clips.items[i];
+            const start = c.start_tick;
+            const end = c.endTick();
+            if (end <= lo or start >= hi) {
+                i += 1;
+                continue;
+            }
+            if (start >= lo and end <= hi) {
+                var removed = self.clips.orderedRemove(i);
+                removed.deinit(allocator);
+                continue; // next clip just shifted into position i
+            }
+            if (start < lo and end > hi) {
+                // The cut is a strict interior range: split into two clips.
+                // Dupe (which only reads c) and mutate c's length before the
+                // insert below, which can reallocate and invalidate `c`.
+                var right = try c.dupe(allocator);
+                self.clips.ensureUnusedCapacity(allocator, 1) catch |err| {
+                    right.deinit(allocator);
+                    return err;
+                };
+                right.start_tick = hi;
+                right.length_ticks = end - hi;
+                c.length_ticks = lo - start;
+                self.clips.insertAssumeCapacity(i + 1, right);
+                i += 2;
+                continue;
+            }
+            if (start < lo) {
+                c.length_ticks = lo - start; // trim the tail
+            } else {
+                c.length_ticks = end - hi; // trim the head
+                c.start_tick = hi;
+            }
+            i += 1;
+        }
+    }
+
     /// First bar past the last clip - the lane's content length in bars.
     pub fn lengthTicks(self: *const Lane) u32 {
         var end: u32 = 0;
@@ -419,6 +470,70 @@ test "melodic clip owns a private note copy" {
 
     src[0].pitch = 0; // mutate the source after capture
     try testing.expectEqual(@as(u7, 60), clip.content.melodic.notes[0].pitch);
+}
+
+test "cutRange removes a clip fully inside the cut" {
+    const a = testing.allocator;
+    var lane: Lane = .{};
+    defer lane.deinit(a);
+    try lane.place(a, Clip.initDrum(2, 2, .{ .pattern = [_]u64{0} ** DrumMachine.max_pads, .step_count = 16 }));
+
+    try lane.cutRange(a, 0, 8);
+    try testing.expectEqual(@as(usize, 0), lane.clips.items.len);
+}
+
+test "cutRange trims the tail of a clip overlapping the cut's start" {
+    const a = testing.allocator;
+    var lane: Lane = .{};
+    defer lane.deinit(a);
+    try lane.place(a, Clip.initDrum(0, 4, .{ .pattern = [_]u64{0} ** DrumMachine.max_pads, .step_count = 16 }));
+
+    try lane.cutRange(a, 2, 6);
+    try testing.expectEqual(@as(usize, 1), lane.clips.items.len);
+    try testing.expectEqual(@as(u32, 0), lane.clips.items[0].start_tick);
+    try testing.expectEqual(@as(u32, 2), lane.clips.items[0].length_ticks);
+}
+
+test "cutRange trims the head of a clip overlapping the cut's end" {
+    const a = testing.allocator;
+    var lane: Lane = .{};
+    defer lane.deinit(a);
+    try lane.place(a, Clip.initDrum(4, 4, .{ .pattern = [_]u64{0} ** DrumMachine.max_pads, .step_count = 16 }));
+
+    try lane.cutRange(a, 0, 6);
+    try testing.expectEqual(@as(usize, 1), lane.clips.items.len);
+    try testing.expectEqual(@as(u32, 6), lane.clips.items[0].start_tick);
+    try testing.expectEqual(@as(u32, 2), lane.clips.items[0].length_ticks);
+}
+
+test "cutRange splits a clip the cut passes clean through the middle of" {
+    const a = testing.allocator;
+    var lane: Lane = .{};
+    defer lane.deinit(a);
+    // A 4-bar clip (ticks 0-4), cutting out bar 2 (ticks 2-3) should leave
+    // a 2-tick left remainder and a 1-tick right remainder.
+    try lane.place(a, Clip.initDrum(0, 4, .{ .pattern = [_]u64{0} ** DrumMachine.max_pads, .step_count = 16 }));
+
+    try lane.cutRange(a, 2, 3);
+    try testing.expectEqual(@as(usize, 2), lane.clips.items.len);
+    try testing.expectEqual(@as(u32, 0), lane.clips.items[0].start_tick);
+    try testing.expectEqual(@as(u32, 2), lane.clips.items[0].length_ticks);
+    try testing.expectEqual(@as(u32, 3), lane.clips.items[1].start_tick);
+    try testing.expectEqual(@as(u32, 1), lane.clips.items[1].length_ticks);
+}
+
+test "cutRange leaves clips outside the range untouched and no-ops on an empty range" {
+    const a = testing.allocator;
+    var lane: Lane = .{};
+    defer lane.deinit(a);
+    try lane.place(a, Clip.initDrum(0, 2, .{ .pattern = [_]u64{0} ** DrumMachine.max_pads, .step_count = 16 }));
+    try lane.place(a, Clip.initDrum(10, 2, .{ .pattern = [_]u64{0} ** DrumMachine.max_pads, .step_count = 16 }));
+
+    try lane.cutRange(a, 4, 6);
+    try testing.expectEqual(@as(usize, 2), lane.clips.items.len);
+
+    try lane.cutRange(a, 5, 5);
+    try testing.expectEqual(@as(usize, 2), lane.clips.items.len);
 }
 
 test "arrangement adds and removes lanes" {

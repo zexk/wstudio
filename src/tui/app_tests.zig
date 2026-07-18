@@ -3698,15 +3698,23 @@ test "arrangement operator+motion: d3l / y3l act on a bar range without entering
     try std.testing.expect(lane.clipAt(128) == null);
     try std.testing.expect(lane.clipAt(640) != null);
 
-    // dd/yy are the tier above a bar range: the whole lane. x stays the
-    // single-clip instant delete (this editor's "char", one bar).
-    try app.session.stampClip(0, 0);
-    app.arr_cursor_bar = 20;
+    // x cuts just the grid unit under the cursor - trimming the clip it
+    // sits inside of, not deleting the whole thing (see Lane.cutRange).
+    // The bar-5 clip survives as a shrunk remainder starting past the cut.
+    app.arr_cursor_bar = 20; // tick 640, the head of the bar-5 clip
     app.handleKey(.{ .char = 'x' }, 0);
     try std.testing.expect(lane.clipAt(640) == null);
+    const remainder = lane.clipAt(672) orelse return error.TestUnexpectedResult;
+    try std.testing.expectEqual(@as(u32, 672), remainder.start_tick);
+    try std.testing.expectEqual(@as(u32, 96), remainder.length_ticks);
 
+    // dd/yy are the tier above a bar range: the whole lane, whatever's left
+    // on it (clear it first so the fragments above don't confuse the count).
+    for ("dd") |c| app.handleKey(.{ .char = c }, 0);
+    try std.testing.expectEqual(@as(usize, 0), lane.clips.items.len);
+    try app.session.stampClip(0, 0);
     for ("yy") |c| app.handleKey(.{ .char = c }, 0);
-    try std.testing.expectEqual(@as(usize, 1), app.arr_range_clip.?.clips.len); // just bar 0's clip left
+    try std.testing.expectEqual(@as(usize, 1), app.arr_range_clip.?.clips.len); // just bar 0's clip
     for ("dd") |c| app.handleKey(.{ .char = c }, 0);
     try std.testing.expectEqual(@as(usize, 0), lane.clips.items.len);
 

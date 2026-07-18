@@ -267,23 +267,21 @@ fn yankSelection(app: *App) void {
     exitVisual(app);
 }
 
-/// Delete every clip on the current lane whose start_bar falls within the
-/// selected range.
+/// Cut the selected bar range out of the current lane: a clip fully inside
+/// the range is deleted, but a clip the range only overlaps part of is
+/// trimmed or split so the untouched rest of it survives (see
+/// `Lane.cutRange`) - `x`'s single-bar cousin, this editor's `d`/visual-`d`.
 fn deleteSelection(app: *App) void {
     const lane = app.session.arrangement.lane(app.cursor) orelse return;
     history.push(app, history.captureLane(app, @intCast(app.cursor)));
     const r = selectionRange(app);
-    var removed: u32 = 0;
-    var i: usize = 0;
-    while (i < lane.clips.items.len) {
-        if (lane.clips.items[i].start_tick >= r.lo and lane.clips.items[i].start_tick <= r.hi) {
-            var c = lane.clips.orderedRemove(i);
-            c.deinit(app.allocator);
-            removed += 1;
-        } else i += 1;
-    }
-    app.last_edit = .{ .arr_range_delete = .{ .width = (r.hi - r.lo) / app.arr_grid.ticks() + 1 } };
-    app.setStatus("deleted {d} clip(s)", .{removed});
+    const width = (r.hi - r.lo) / app.arr_grid.ticks() + 1;
+    lane.cutRange(app.allocator, r.lo, r.hi +| app.arr_grid.ticks()) catch {
+        app.setStatus("cut failed (out of memory)", .{});
+        return;
+    };
+    app.last_edit = .{ .arr_range_delete = .{ .width = width } };
+    app.setStatus("cut {d} bar(s)", .{width});
     if (app.session.song_mode) app.session.rebuildSongData();
     exitVisual(app);
 }
@@ -604,6 +602,9 @@ fn resizeClip(app: *App, delta: i32) void {
     app.setStatus("clip length: {d} ticks", .{new_len});
 }
 
+/// `x`: cut just the bar under the cursor out of whatever clip covers it -
+/// trims or splits the clip so the rest of it survives (see
+/// `Lane.cutRange`), instead of deleting the whole thing.
 fn deleteClip(app: *App) void {
     const lane = app.session.arrangement.lane(app.cursor) orelse return;
     const cursor_tick = app.arr_cursor_bar * app.arr_grid.ticks();
@@ -612,8 +613,11 @@ fn deleteClip(app: *App) void {
         return;
     }
     history.push(app, history.captureLane(app, @intCast(app.cursor)));
-    _ = lane.removeAt(app.allocator, cursor_tick);
-    app.setStatus("deleted clip", .{});
+    lane.cutRange(app.allocator, cursor_tick, cursor_tick +| app.arr_grid.ticks()) catch {
+        app.setStatus("cut failed (out of memory)", .{});
+        return;
+    };
+    app.setStatus("cut bar {d}", .{app.arr_cursor_bar + 1});
     if (app.session.song_mode) app.session.rebuildSongData();
 }
 
