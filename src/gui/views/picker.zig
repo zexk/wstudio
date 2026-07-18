@@ -24,6 +24,7 @@ pub fn drawInstrument(app: anytype) void {
     const gap: f32 = 10;
     const columns: usize = if (available >= 720) 2 else 1;
     const width = (available - gap * @as(f32, @floatFromInt(columns - 1))) / @as(f32, @floatFromInt(columns));
+    zgui.textColored(patina.fg2, "INTERNAL", .{});
     for (entries, 0..) |entry, i| {
         if (i % columns != 0) zgui.sameLine(.{ .spacing = gap });
         var id_buf: [48]u8 = undefined;
@@ -33,6 +34,25 @@ pub fn drawInstrument(app: anytype) void {
             app.core.handleKey(.enter, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
         }
     }
+    zgui.spacing();
+    zgui.textColored(patina.fg2, "EXTERNAL", .{});
+    zgui.sameLine(.{});
+    zgui.textDisabled("CLAP", .{});
+    const external_count = app.core.external_plugins.count(.instrument);
+    for (0..external_count) |external_i| {
+        const plugin = app.core.external_plugins.at(.instrument, external_i).?;
+        if (external_i % columns != 0) zgui.sameLine(.{ .spacing = gap });
+        var id_buf: [48]u8 = undefined;
+        const id = std.fmt.bufPrintZ(&id_buf, "instrument-plugin-card-{d}", .{external_i}) catch continue;
+        var desc_buf: [128]u8 = undefined;
+        const desc = std.fmt.bufPrint(&desc_buf, "CLAP  |  {s}", .{plugin.vendor}) catch "CLAP";
+        const ordinal = entries.len + external_i;
+        if (drawCard(id, plugin.name, desc, patina.focus, app.core.picker_cursor == ordinal, width)) {
+            app.core.picker_cursor = @intCast(ordinal);
+            app.core.handleKey(.enter, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
+        }
+    }
+    if (external_count == 0) zgui.textDisabled("No external instruments found", .{});
 }
 
 pub fn drawFx(app: anytype) void {
@@ -53,6 +73,7 @@ pub fn drawFx(app: anytype) void {
     else
         1;
     const width = (available - gap * @as(f32, @floatFromInt(columns - 1))) / @as(f32, @floatFromInt(columns));
+    if (app.core.view == .fx_picker) zgui.textColored(patina.fg2, "INTERNAL", .{});
     for (0..count) |i| {
         if (i % columns != 0) zgui.sameLine(.{ .spacing = gap });
         const kind = if (app.core.view == .synth_fx_picker) synth_ed.asFxKind(synth_kinds[i]) else kinds[i];
@@ -71,6 +92,27 @@ pub fn drawFx(app: anytype) void {
                 activateFx(app, kind);
             }
         }
+    }
+    if (app.core.view == .fx_picker) {
+        zgui.spacing();
+        zgui.textColored(patina.fg2, "EXTERNAL", .{});
+        zgui.sameLine(.{});
+        zgui.textDisabled("CLAP", .{});
+        const external_count = spectrum_ed.externalPickerCount(&app.core);
+        for (0..external_count) |external_i| {
+            const plugin = spectrum_ed.externalPickerAt(&app.core, external_i).?;
+            if (external_i % columns != 0) zgui.sameLine(.{ .spacing = gap });
+            var id_buf: [48]u8 = undefined;
+            const id = std.fmt.bufPrintZ(&id_buf, "fx-plugin-card-{d}", .{external_i}) catch continue;
+            var desc_buf: [128]u8 = undefined;
+            const desc = std.fmt.bufPrint(&desc_buf, "CLAP  |  {s}", .{plugin.vendor}) catch "CLAP";
+            const ordinal = count + external_i;
+            if (drawCard(id, plugin.name, desc, patina.focus, app.core.fx_picker_cursor == ordinal, width)) {
+                app.core.fx_picker_cursor = @intCast(ordinal);
+                spectrum_ed.insertExternalFromPicker(&app.core, plugin);
+            }
+        }
+        if (external_count == 0) zgui.textDisabled("No external effects found", .{});
     }
 }
 

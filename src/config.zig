@@ -71,6 +71,7 @@ pub const Config = struct {
     cmd_history_lines: u16 = 50,
     status_message_ms: u16 = 3000,
     default_browse_dir: PathBuf = .{},
+    clap_plugin_path: PathBuf = .{},
     default_project_path: PathBuf = PathBuf.init("project.wsj"),
     file_browser_show_hidden: bool = false,
     default_drum_grid: @import("wstudio").time_grid.Division = .sixteenth,
@@ -135,6 +136,7 @@ const option_specs = [_]OptionSpec{
     .{ .name = "cmd_history_lines", .min = 10, .max = 500 },
     .{ .name = "status_message_ms", .min = 200, .max = 10000 },
     .{ .name = "default_browse_dir" },
+    .{ .name = "clap_plugin_path" },
     .{ .name = "default_project_path", .allow_empty = false },
     .{ .name = "file_browser_show_hidden" },
     .{ .name = "default_drum_grid" },
@@ -829,7 +831,7 @@ fn setOption(state: ?*c.lua_State) callconv(.c) c_int {
                     break :blk std.meta.stringToEnum(@FieldType(Config, spec.name), s[0..slen]) orelse
                         return c.luaL_error(l, enum_msg);
                 },
-                // Only `PathBuf` fields (`default_browse_dir` today) reach here.
+                // Only config-owned path buffers reach here.
                 .@"struct" => blk: {
                     var slen: usize = 0;
                     const s = c.luaL_checklstring(l, 3, &slen);
@@ -1631,12 +1633,14 @@ test "Lua API round 5 workflow options set and read" {
     try std.testing.expectError(error.LuaError, rt.loadString("wstudio.o.default_piano_note_length_steps = 0"));
 }
 
-test "default_browse_dir reads and writes as a string, rejecting oversized paths" {
+test "path options read and write as strings, rejecting oversized paths" {
     var rt = try Runtime.init(.tui);
     defer rt.deinit();
     try rt.loadString("assert(wstudio.o.default_browse_dir == '')");
     try rt.loadString("wstudio.o.default_browse_dir = '~/Music/Samples'; assert(wstudio.o.default_browse_dir == '~/Music/Samples')");
     try std.testing.expectEqualStrings("~/Music/Samples", rt.config.default_browse_dir.slice());
+    try rt.loadString("wstudio.o.clap_plugin_path = '/opt/clap'; assert(wstudio.o.clap_plugin_path == '/opt/clap')");
+    try std.testing.expectEqualStrings("/opt/clap", rt.config.clap_plugin_path.slice());
     const prefix = "wstudio.o.default_browse_dir = '";
     var src_buf: [prefix.len + std.fs.max_path_bytes + 1 + 2:0]u8 = undefined;
     @memcpy(src_buf[0..prefix.len], prefix);

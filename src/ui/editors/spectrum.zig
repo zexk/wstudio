@@ -60,6 +60,29 @@ pub fn filteredPickerKinds(app: *App, buf: *[picker_kinds.len]FxKind) []FxKind {
     return buf[0..n];
 }
 
+pub fn externalPickerCount(app: *App) usize {
+    const filter = activeFilter(app);
+    var count: usize = 0;
+    for (app.external_plugins.plugins.items) |plugin| {
+        if (plugin.role != .effect) continue;
+        if (filter.len > 0 and !fuzzy.matches(filter, plugin.name)) continue;
+        count += 1;
+    }
+    return count;
+}
+
+pub fn externalPickerAt(app: *App, ordinal: usize) ?*const ws.plugin_catalog.Plugin {
+    const filter = activeFilter(app);
+    var index: usize = 0;
+    for (app.external_plugins.plugins.items) |*plugin| {
+        if (plugin.role != .effect) continue;
+        if (filter.len > 0 and !fuzzy.matches(filter, plugin.name)) continue;
+        if (index == ordinal) return plugin;
+        index += 1;
+    }
+    return null;
+}
+
 pub fn unitLabel(k: FxKind) []const u8 {
     return switch (k) {
         .gate => "GATE",
@@ -807,6 +830,30 @@ pub fn insertFromPicker(app: *App, k: FxKind) void {
     app.dirty = true;
     syncChain(app, target);
     app.setStatus("{s} inserted", .{unitLabel(k)});
+}
+
+pub fn insertExternalFromPicker(app: *App, plugin: *const ws.plugin_catalog.Plugin) void {
+    app.view = app.fx_picker_return;
+    const target = currentTarget(app);
+    const fx = fxPtr(app, target) orelse return;
+    const pos = if (fx.units.items.len == 0) 0 else @min(app.fx_focus + 1, fx.units.items.len);
+    history.flushFxNudge(app);
+    const before = history.captureFx(app, target);
+    const loaded = switch (plugin.format) {
+        .clap => fx.insertClap(app.session.allocator, pos, plugin.path, plugin.id, app.session.project.sample_rate),
+        .vst3, .vst2 => unreachable,
+    };
+    _ = loaded catch |err| {
+        history.pushFxIfOk(app, before, false);
+        app.setStatus("{s}: {s}", .{ plugin.name, @errorName(err) });
+        syncAnalyzer(app, target);
+        return;
+    };
+    history.pushFxIfOk(app, before, true);
+    setFocus(app, target, pos);
+    app.dirty = true;
+    syncChain(app, target);
+    app.setStatus("{s} inserted  {s}", .{ plugin.name, @tagName(plugin.format) });
 }
 
 /// Picker dismissed: back to the chain view, nothing inserted.

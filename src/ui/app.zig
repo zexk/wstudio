@@ -336,6 +336,9 @@ pub const App = struct {
     /// path is known yet, from `default_browse_dir`. Empty means "cwd", the
     /// pre-existing behavior - see `openBrowser`.
     default_browse_dir: config_mod.PathBuf = .{},
+    clap_plugin_path: config_mod.PathBuf = .{},
+    external_plugins: ws.plugin_catalog.Catalog,
+    environ: ?*const std.process.Environ.Map = null,
     /// Where a plain `:w` and a pathless autosave land.
     default_project_path: config_mod.PathBuf = config_mod.PathBuf.init("project.wsj"),
     /// Whether dotfiles and dot-directories appear in the file browser.
@@ -694,6 +697,7 @@ pub const App = struct {
             .cmd_history = cmd_history,
             .cmd_history_pos = cmd_history.items.len,
             .bookmarks = bookmark_store.load(allocator, io),
+            .external_plugins = ws.plugin_catalog.Catalog.init(allocator),
         };
         app.rebuildCmdTable();
         return app;
@@ -725,6 +729,7 @@ pub const App = struct {
     }
 
     pub fn deinit(self: *App) void {
+        self.external_plugins.deinit();
         user_presets.deinit(self.allocator, &self.user_synth_presets);
         user_drum_kits.deinit(self.allocator, &self.user_drum_kits);
         if (self.arr_range_clip) |r| {
@@ -925,6 +930,7 @@ pub const App = struct {
         // project file - starts silent unless this restores the click.
         self.session.setMetronome(user_config.default_metronome_enabled);
         self.default_browse_dir = user_config.default_browse_dir;
+        self.clap_plugin_path = user_config.clap_plugin_path;
         var project_path_buf: [std.fs.max_path_bytes]u8 = undefined;
         const project_path = commands.expandHome(&project_path_buf, user_config.default_project_path.slice());
         self.default_project_path = .{};
@@ -948,6 +954,25 @@ pub const App = struct {
         }
     }
 
+    pub fn scanExternalPlugins(self: *App, environ: *const std.process.Environ.Map) void {
+        self.environ = environ;
+        var expanded_buf: [std.fs.max_path_bytes]u8 = undefined;
+        const custom_path = commands.expandHome(&expanded_buf, self.clap_plugin_path.slice());
+        var custom = [_][]const u8{custom_path};
+        var owned_paths: std.ArrayListUnmanaged([]u8) = .empty;
+        const paths: []const []const u8 = if (self.clap_plugin_path.len > 0)
+            &custom
+        else blk: {
+            owned_paths = ws.dsp.clap_scan.searchPaths(self.allocator, environ) catch return;
+            break :blk owned_paths.items;
+        };
+        defer if (self.clap_plugin_path.len == 0)
+            ws.dsp.clap_scan.freeSearchPaths(self.allocator, &owned_paths);
+        self.external_plugins.scanClap(self.io, paths) catch |err| {
+            self.setStatus("plugin scan failed: {s}", .{@errorName(err)});
+        };
+    }
+
     /// Frontend-neutral half of `:reload-config` (ui/commands.zig sets
     /// `pending_config_reload`; `run()` calls `runtime.reload()` then this,
     /// once it's back holding the fresh `Config`). Re-fires `ConfigDone` -
@@ -960,6 +985,7 @@ pub const App = struct {
     pub fn afterConfigReload(self: *App, user_config: config_mod.Config) void {
         self.rebuildCmdTable();
         self.applyUserConfig(user_config, false);
+        if (self.environ) |environ| self.scanExternalPlugins(environ);
         self.emitEvent(.ConfigDone);
     }
 
@@ -1603,14 +1629,21 @@ pub const App = struct {
     /// Instrument picker: click a row to select + insert it (same as
     /// enter/space); scroll moves the highlight.
     fn pickerMouse(self: *App, ev: modal_mod.MouseEvent, row: usize) void {
+        const count = picker_kinds.len + self.external_plugins.count(.instrument);
         switch (ev.kind) {
             .press => {
-                if (row < 2 or row - 2 >= picker_kinds.len) return;
-                self.picker_cursor = @intCast(row - 2);
+                const item: ?usize = if (row >= 3 and row < 3 + picker_kinds.len)
+                    row - 3
+                else if (row >= 4 + picker_kinds.len)
+                    picker_kinds.len + row - (4 + picker_kinds.len)
+                else
+                    null;
+                if (item == null or item.? >= count) return;
+                self.picker_cursor = @intCast(item.?);
                 self.pickerInsert();
             },
             .scroll_up => { if (self.picker_cursor > 0) self.picker_cursor -= 1; },
-            .scroll_down => { if (self.picker_cursor + 1 < picker_kinds.len) self.picker_cursor += 1; },
+            .scroll_down => { if (self.picker_cursor + 1 < count) self.picker_cursor += 1; },
             else => {},
         }
     }
@@ -1827,14 +1860,15 @@ pub const App = struct {
     /// highlighted kind on the cursor track and jump to its editor, esc
     /// cancels back to tracks.
     fn handlePickerKey(self: *App, key: modal_mod.Key) void {
+        const count = picker_kinds.len + self.external_plugins.count(.instrument);
         switch (key) {
             .escape => self.view = .tracks,
             .enter => self.pickerInsert(),
             .char => |c| switch (c) {
                 'k' => { if (self.picker_cursor > 0) self.picker_cursor -= 1; },
-                'j' => { if (self.picker_cursor + 1 < picker_kinds.len) self.picker_cursor += 1; },
+                'j' => { if (self.picker_cursor + 1 < count) self.picker_cursor += 1; },
                 'g' => self.picker_cursor = 0,
-                'G' => self.picker_cursor = @intCast(picker_kinds.len - 1),
+                'G' => self.picker_cursor = @intCast(count -| 1),
                 ' ' => self.pickerInsert(),
                 'q' => self.view = .tracks,
                 else => {},
@@ -1845,6 +1879,21 @@ pub const App = struct {
     // zig fmt: on
 
     fn pickerInsert(self: *App) void {
+        if (self.picker_cursor >= picker_kinds.len) {
+            const plugin = self.external_plugins.at(.instrument, self.picker_cursor - picker_kinds.len) orelse return;
+            switch (plugin.format) {
+                .clap => self.session.setClapInstrument(self.cursor, plugin.path, plugin.id) catch |err| {
+                    self.setStatus("{s}: {s}", .{ plugin.name, @errorName(err) });
+                    return;
+                },
+                .vst3, .vst2 => unreachable,
+            }
+            self.dirty = true;
+            self.setStatus("{s} inserted  CLAP", .{plugin.name});
+            self.view = .tracks;
+            self.openTrack(self.cursor);
+            return;
+        }
         const kind = picker_kinds[self.picker_cursor];
         self.session.setInstrument(self.cursor, kind) catch {
             self.setStatus("insert failed (out of memory)", .{});
@@ -1875,20 +1924,29 @@ pub const App = struct {
     fn handleFxPickerKey(self: *App, key: modal_mod.Key) void {
         var buf: [spectrum_ed.picker_kinds.len]ws.FxKind = undefined;
         const kinds = spectrum_ed.filteredPickerKinds(self, &buf);
-        if (kinds.len > 0 and self.fx_picker_cursor >= kinds.len) self.fx_picker_cursor = @intCast(kinds.len - 1);
+        const count = kinds.len + spectrum_ed.externalPickerCount(self);
+        if (count > 0 and self.fx_picker_cursor >= count) self.fx_picker_cursor = @intCast(count - 1);
         switch (key) {
             .escape => spectrum_ed.cancelPicker(self),
-            .enter => if (self.fx_picker_cursor < kinds.len) spectrum_ed.insertFromPicker(self, kinds[self.fx_picker_cursor]),
+            .enter => self.activateFxPickerItem(kinds),
             .char => |c| switch (c) {
                 'k' => { if (self.fx_picker_cursor > 0) self.fx_picker_cursor -= 1; },
-                'j' => { if (self.fx_picker_cursor + 1 < kinds.len) self.fx_picker_cursor += 1; },
+                'j' => { if (self.fx_picker_cursor + 1 < count) self.fx_picker_cursor += 1; },
                 'g' => self.fx_picker_cursor = 0,
-                'G' => self.fx_picker_cursor = @intCast(kinds.len -| 1),
-                ' ' => if (self.fx_picker_cursor < kinds.len) spectrum_ed.insertFromPicker(self, kinds[self.fx_picker_cursor]),
+                'G' => self.fx_picker_cursor = @intCast(count -| 1),
+                ' ' => self.activateFxPickerItem(kinds),
                 'q' => spectrum_ed.cancelPicker(self),
                 else => {},
             },
             else => {},
+        }
+    }
+
+    fn activateFxPickerItem(self: *App, kinds: []const ws.FxKind) void {
+        if (self.fx_picker_cursor < kinds.len) {
+            spectrum_ed.insertFromPicker(self, kinds[self.fx_picker_cursor]);
+        } else if (spectrum_ed.externalPickerAt(self, self.fx_picker_cursor - kinds.len)) |plugin| {
+            spectrum_ed.insertExternalFromPicker(self, plugin);
         }
     }
 
@@ -1897,14 +1955,21 @@ pub const App = struct {
     fn fxPickerMouse(self: *App, ev: modal_mod.MouseEvent, row: usize) void {
         var buf: [spectrum_ed.picker_kinds.len]ws.FxKind = undefined;
         const kinds = spectrum_ed.filteredPickerKinds(self, &buf);
+        const external_count = spectrum_ed.externalPickerCount(self);
         switch (ev.kind) {
             .press => {
-                if (row < 2 or row - 2 >= kinds.len) return;
-                self.fx_picker_cursor = @intCast(row - 2);
-                spectrum_ed.insertFromPicker(self, kinds[self.fx_picker_cursor]);
+                const item: ?usize = if (row >= 3 and row < 3 + kinds.len)
+                    row - 3
+                else if (row >= 4 + kinds.len)
+                    kinds.len + row - (4 + kinds.len)
+                else
+                    null;
+                if (item == null or item.? >= kinds.len + external_count) return;
+                self.fx_picker_cursor = @intCast(item.?);
+                self.activateFxPickerItem(kinds);
             },
             .scroll_up => { if (self.fx_picker_cursor > 0) self.fx_picker_cursor -= 1; },
-            .scroll_down => { if (self.fx_picker_cursor + 1 < kinds.len) self.fx_picker_cursor += 1; },
+            .scroll_down => { if (self.fx_picker_cursor + 1 < kinds.len + external_count) self.fx_picker_cursor += 1; },
             else => {},
         }
     }

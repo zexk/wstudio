@@ -20,6 +20,7 @@ pub const Fx = @import("rack.zig").Fx;
 pub const FxUnit = @import("rack.zig").FxUnit;
 pub const FxPayload = @import("rack.zig").FxPayload;
 pub const FxKind = @import("rack.zig").FxKind;
+pub const plugin_catalog = @import("plugin_catalog.zig");
 
 pub const engine = @import("audio/engine.zig");
 pub const Engine = engine.Engine;
