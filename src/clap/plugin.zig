@@ -10,6 +10,8 @@ const max_events = 256;
 
 threadlocal var on_audio_thread = false;
 
+const NoteDialect = enum { none, clap, midi };
+
 const StoredEvent = union(enum) {
     note: abi.EventNote,
     midi: abi.EventMidi,
@@ -200,6 +202,8 @@ pub const ClapPlugin = struct {
     events: EventList = EventList.init(),
     output_events: abi.OutputEvents,
     audio_inputs_count: u32,
+    note_dialect: NoteDialect,
+    supports_midi: bool,
     transport: ?*const Transport = null,
     steady_time: i64 = 0,
     started: bool = false,
@@ -238,6 +242,7 @@ pub const ClapPlugin = struct {
         if (!abi.versionIsCompatible(plugin.desc.clap_version)) return error.IncompatibleClapVersion;
         if (!plugin.init(plugin)) return error.PluginInitFailed;
         const audio_inputs_count = try validateAudioPorts(plugin);
+        const note_support = detectNoteSupport(plugin);
         if (!plugin.activate(plugin, @floatFromInt(sample_rate), 1, types.max_block_frames))
             return error.PluginActivateFailed;
         errdefer plugin.deactivate(plugin);
@@ -264,6 +269,8 @@ pub const ClapPlugin = struct {
             .output_left = output_left,
             .output_right = output_right,
             .audio_inputs_count = audio_inputs_count,
+            .note_dialect = note_support.dialect,
+            .supports_midi = note_support.supports_midi,
             .output_events = .{ .ctx = host_context, .try_push = acceptOutputEvent },
         };
         self.events.bind();
@@ -287,6 +294,29 @@ pub const ClapPlugin = struct {
         if (!ports.get(plugin, 0, false, &output_info) or output_info.channel_count != 2)
             return error.UnsupportedAudioPortLayout;
         return input_count;
+    }
+
+    fn detectNoteSupport(plugin: *const abi.Plugin) struct {
+        dialect: NoteDialect,
+        supports_midi: bool,
+    } {
+        const raw = plugin.get_extension(plugin, abi.ext_note_ports) orelse
+            return .{ .dialect = .none, .supports_midi = false };
+        const ports: *const abi.PluginNotePorts = @ptrCast(@alignCast(raw));
+        if (ports.count(plugin, true) == 0) return .{ .dialect = .none, .supports_midi = false };
+        var info: abi.NotePortInfo = undefined;
+        if (!ports.get(plugin, 0, true, &info)) return .{ .dialect = .none, .supports_midi = false };
+        const supports_clap = info.supported_dialects & abi.note_dialect_clap != 0;
+        const supports_midi = info.supported_dialects & abi.note_dialect_midi != 0;
+        const dialect: NoteDialect = if (info.preferred_dialect == abi.note_dialect_midi and supports_midi)
+            .midi
+        else if (supports_clap)
+            .clap
+        else if (supports_midi)
+            .midi
+        else
+            .none;
+        return .{ .dialect = dialect, .supports_midi = supports_midi };
     }
 
     fn selectPluginId(
@@ -383,11 +413,24 @@ pub const ClapPlugin = struct {
 
     pub fn handleEvent(self: *ClapPlugin, event: device_mod.Event) void {
         switch (event) {
-            .note_on => |note| self.pushNote(abi.event_note_on, note.note, note.velocity),
-            .note_off => |note| self.pushNote(abi.event_note_off, note.note, 0),
-            .all_off => self.pushNote(abi.event_note_choke, null, 0),
-            .cc => |cc| self.pushMidi(.{ 0xb0, cc.cc, cc.value }),
+            .note_on => |note| switch (self.note_dialect) {
+                .clap => self.pushNote(abi.event_note_on, note.note, note.velocity),
+                .midi => self.pushMidi(.{ 0x90, note.note, @intFromFloat(std.math.clamp(note.velocity, 0, 1) * 127) }),
+                .none => {},
+            },
+            .note_off => |note| switch (self.note_dialect) {
+                .clap => self.pushNote(abi.event_note_off, note.note, 0),
+                .midi => self.pushMidi(.{ 0x80, note.note, 0 }),
+                .none => {},
+            },
+            .all_off => switch (self.note_dialect) {
+                .clap => self.pushNote(abi.event_note_choke, null, 0),
+                .midi => self.pushMidi(.{ 0xb0, 123, 0 }),
+                .none => {},
+            },
+            .cc => |cc| if (self.supports_midi) self.pushMidi(.{ 0xb0, cc.cc, cc.value }),
             .pitch_bend => |bend| {
+                if (!self.supports_midi) return;
                 const value: u14 = @intCast(@as(i32, bend.bend) + 8192);
                 self.pushMidi(.{ 0xe0, @truncate(value), @truncate(value >> 7) });
             },
