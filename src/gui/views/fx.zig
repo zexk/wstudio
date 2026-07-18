@@ -145,9 +145,91 @@ fn drawEditor(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit) void
             _ = app.core.session.engine.send(.{ .set_spectrum_active = .{ .source = .none, .track = 0 } });
             app.eq_analyzer_key = null;
         }
+        drawEffectDisplay(app, unit);
+        zgui.spacing();
         const param_count = spectrum_ed.visibleParamCount(&app.core, unit.kind(), &unit.payload);
-        for (0..param_count) |i| drawParam(app, target, unit, i);
+        drawParamColumns(app, target, unit, param_count);
         if (unit.bypassed) zgui.textColored(patina.danger, "BYPASSED  (b to re-enable)", .{});
+    }
+}
+
+fn drawEffectDisplay(app: anytype, unit: *ws.FxUnit) void {
+    const size = zgui.getContentRegionAvail();
+    const height: f32 = std.math.clamp(size[1] * 0.48, 150, 260);
+    const origin = zgui.getCursorScreenPos();
+    _ = zgui.invisibleButton("fx-effect-display", .{ .w = size[0], .h = height });
+    const draw_list = zgui.getWindowDrawList();
+    const accent = kindAccent(unit.kind());
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + size[0], origin[1] + height }, .col = color(patina.bg0), .rounding = 4 });
+    for (1..4) |i| {
+        const x = origin[0] + size[0] * @as(f32, @floatFromInt(i)) / 4;
+        const y = origin[1] + height * @as(f32, @floatFromInt(i)) / 4;
+        draw_list.addLine(.{ .p1 = .{ x, origin[1] }, .p2 = .{ x, origin[1] + height }, .col = color(patina.line), .thickness = 1 });
+        draw_list.addLine(.{ .p1 = .{ origin[0], y }, .p2 = .{ origin[0] + size[0], y }, .col = color(patina.line), .thickness = 1 });
+    }
+
+    var points: [65][2]f32 = undefined;
+    const amount = normalizedParam(app, unit, 0);
+    const shape = normalizedParam(app, unit, 1);
+    for (&points, 0..) |*point, i| {
+        const t = @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(points.len - 1));
+        const y = effectDisplayValue(unit.kind(), t, amount, shape);
+        point.* = .{ origin[0] + t * size[0], origin[1] + (1.0 - y) * height };
+    }
+    draw_list.addPolyline(&points, .{ .col = color(accent), .thickness = 2.5 });
+    draw_list.addText(.{ origin[0] + 10, origin[1] + 8 }, color(patina.fg2), "{s}", .{effectDisplayLabel(unit.kind())});
+    draw_list.addText(.{ origin[0] + 10, origin[1] + height - 24 }, color(patina.fg3), "IN", .{});
+    draw_list.addText(.{ origin[0] + size[0] - 34, origin[1] + 8 }, color(patina.fg3), "OUT", .{});
+}
+
+fn normalizedParam(app: anytype, unit: *ws.FxUnit, index: usize) f32 {
+    if (index >= spectrum_ed.paramCount(unit.kind())) return 0.5;
+    const range = spectrum_ed.paramRange(&app.core, &unit.payload, index);
+    if (range[1] <= range[0]) return 0.5;
+    return std.math.clamp((spectrum_ed.getParam(&unit.payload, index) - range[0]) / (range[1] - range[0]), 0, 1);
+}
+
+fn effectDisplayValue(kind: ws.FxKind, t: f32, amount: f32, shape: f32) f32 {
+    return switch (kind) {
+        .gate => if (t < amount * 0.8) 0.08 else t,
+        .comp, .mb_comp, .ott => if (t < amount) t else amount + (t - amount) * (0.2 + shape * 0.45),
+        .sat, .tape, .crush => 0.5 + std.math.atan((t - 0.5) * (2.0 + amount * 10.0)) / std.math.pi,
+        .chorus, .flanger, .phaser => std.math.clamp(t + @sin(t * std.math.pi * (4.0 + shape * 8.0)) * (0.05 + amount * 0.12), 0, 1),
+        .freq_shift => std.math.clamp(t + (amount - 0.5) * 0.35, 0, 1),
+        .delay => std.math.clamp(@exp(-t * (1.5 + shape * 4.0)) * (0.55 + 0.4 * @sin(t * std.math.pi * (6.0 + amount * 10.0))), 0, 1),
+        .reverb => std.math.clamp(@exp(-t * (0.8 + (1.0 - amount) * 4.0)) * (0.7 + 0.2 * @sin(t * std.math.pi * 26.0)), 0, 1),
+        .eq => t,
+    };
+}
+
+fn effectDisplayLabel(kind: ws.FxKind) []const u8 {
+    return switch (kind) {
+        .gate, .comp, .mb_comp, .ott => "TRANSFER",
+        .sat, .tape, .crush => "SHAPER",
+        .chorus, .flanger, .phaser, .freq_shift => "MODULATION",
+        .delay => "ECHO DECAY",
+        .reverb => "ROOM DECAY",
+        .eq => "RESPONSE",
+    };
+}
+
+fn drawParamColumns(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, param_count: usize) void {
+    const available = zgui.getContentRegionAvail()[0];
+    const columns: usize = if (available >= 720 and param_count >= 4) 3 else if (available >= 440 and param_count >= 3) 2 else 1;
+    const gap: f32 = 8;
+    const width = (available - gap * @as(f32, @floatFromInt(columns - 1))) / @as(f32, @floatFromInt(columns));
+    for (0..columns) |column| {
+        if (column > 0) zgui.sameLine(.{ .spacing = gap });
+        var id_buf: [32]u8 = undefined;
+        const id = std.fmt.bufPrintZ(&id_buf, "fx-param-column-{d}", .{column}) catch continue;
+        if (zgui.beginChild(id, .{ .w = if (column + 1 == columns) 0 else width, .h = 0, .child_flags = .{ .border = true } })) {
+            var index = column;
+            while (index < param_count) : (index += columns) {
+                drawParam(app, target, unit, index);
+                if (index + columns < param_count) zgui.spacing();
+            }
+        }
+        zgui.endChild();
     }
 }
 
