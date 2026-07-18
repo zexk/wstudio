@@ -111,7 +111,7 @@ fn startFrontend(init: std.process.Init, frontend: config_mod.Frontend, path: ?[
         .tui => if (build_options.tui) {
             const init_path: ?[]u8 = if (path) |p| try dupeInitPath(init.gpa, p) else null;
             defer if (init_path) |p| init.gpa.free(p);
-            return @import("tui/main.zig").run(init.gpa, init.io, init_path, runtime);
+            return @import("tui/main.zig").run(init.gpa, init.io, init.environ_map, init_path, runtime);
         } else unreachable,
     }
 }

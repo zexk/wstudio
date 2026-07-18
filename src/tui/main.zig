@@ -263,7 +263,7 @@ fn renderTrampoline(ctx: *anyopaque, out: []types.Sample) void {
 pub var active_terminal: ?*terminal_mod.Terminal = null;
 
 // zig fmt: off
-pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8, runtime: *config_mod.Runtime) !void {
+pub fn run(allocator: std.mem.Allocator, io: std.Io, environ: *const std.process.Environ.Map, init_path: ?[]const u8, runtime: *config_mod.Runtime) !void {
     var user_config = runtime.config;
     var term = terminal_mod.Terminal.init(io, user_config.tui_mouse) catch {
         std.debug.print(
@@ -284,6 +284,7 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8, run
     var app = try App.initWithSampleRate(allocator, io, user_config.default_sample_rate);
     defer app.deinit();
     app.applyUserConfig(user_config, init_path == null);
+    app.scanExternalPlugins(environ);
     icons.font_installed = icons.detectFontInstalled(io);
 
     // Surface a raw-mode setup failure once there's a status line to put it

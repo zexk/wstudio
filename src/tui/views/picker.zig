@@ -41,6 +41,8 @@ pub fn drawInstrumentPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void 
     try endLine(w);
     try endLine(w);
 
+    try w.writeAll(bold ++ " INTERNAL" ++ rst);
+    try endLine(w);
     for (picker_menu, 0..) |item, i| {
         const is_sel = (i == app.picker_cursor);
         if (is_sel) try w.writeAll(sel);
@@ -53,8 +55,27 @@ pub fn drawInstrumentPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void 
         try w.writeAll(rst);
         try endLine(w);
     }
+    try w.writeAll(bold ++ " EXTERNAL" ++ rst ++ dim ++ "  CLAP");
+    try endLine(w);
+    const external_count = app.external_plugins.count(.instrument);
+    for (0..external_count) |external_i| {
+        const plugin = app.external_plugins.at(.instrument, external_i).?;
+        const i = picker_menu.len + external_i;
+        const is_sel = (i == app.picker_cursor);
+        if (is_sel) try w.writeAll(sel);
+        try w.writeAll(if (is_sel) "  > " else "    ");
+        try w.print("{s: <15}", .{plugin.name});
+        if (!is_sel) try w.writeAll(dim);
+        try w.print(" CLAP  {s}", .{plugin.vendor});
+        try w.writeAll(rst);
+        try endLine(w);
+    }
+    if (external_count == 0) {
+        try w.writeAll(dim ++ "    no external instruments found" ++ rst);
+        try endLine(w);
+    }
 
-    const used = 2 + picker_menu.len;
+    const used = 4 + picker_menu.len + @max(external_count, 1);
     for (used..@max(used, rows -| 4)) |_| try endLine(w);
 }
 
@@ -93,13 +114,15 @@ pub fn drawFxPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void {
 
     var buf: [spectrum_ed.picker_kinds.len]ws.FxKind = undefined;
     const kinds = spectrum_ed.filteredPickerKinds(app, &buf);
+    const external_count = spectrum_ed.externalPickerCount(app);
+    const total_count = kinds.len + external_count;
     const filter = spectrum_ed.activeFilter(app);
 
     try w.writeAll(bold ++ " INSERT EFFECT" ++ rst);
     try w.writeAll(acc);
     try w.print("  \"{s}\"", .{target});
     try w.writeAll(rst ++ dim);
-    try w.print("  {d} match{s}", .{ kinds.len, if (kinds.len == 1) "" else "es" });
+    try w.print("  {d} match{s}", .{ total_count, if (total_count == 1) "" else "es" });
     if (filter.len > 0) {
         try w.writeAll(rst ++ yel);
         try w.print("  /{s}", .{filter});
@@ -108,6 +131,8 @@ pub fn drawFxPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void {
     try endLine(w);
     try endLine(w);
 
+    try w.writeAll(bold ++ " INTERNAL" ++ rst);
+    try endLine(w);
     for (kinds, 0..) |k, i| {
         const is_sel = (i == app.fx_picker_cursor);
         const menu_i = std.mem.indexOfScalar(ws.FxKind, &spectrum_ed.picker_kinds, k) orelse 0;
@@ -120,7 +145,21 @@ pub fn drawFxPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void {
         try w.writeAll(rst);
         try endLine(w);
     }
-    if (kinds.len == 0) {
+    try w.writeAll(bold ++ " EXTERNAL" ++ rst ++ dim ++ "  CLAP");
+    try endLine(w);
+    for (0..external_count) |external_i| {
+        const plugin = spectrum_ed.externalPickerAt(app, external_i).?;
+        const i = kinds.len + external_i;
+        const is_sel = (i == app.fx_picker_cursor);
+        if (is_sel) try w.writeAll(sel);
+        try w.writeAll(if (is_sel) "  > " else "    ");
+        try w.print("{s: <13}", .{plugin.name});
+        if (!is_sel) try w.writeAll(dim);
+        try w.print("CLAP  {s}", .{plugin.vendor});
+        try w.writeAll(rst);
+        try endLine(w);
+    }
+    if (total_count == 0) {
         try w.writeAll(dim);
         try w.print("    no match for /{s}", .{filter});
         try w.writeAll(rst);
@@ -128,7 +167,7 @@ pub fn drawFxPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void {
     }
 
     // zig fmt: off
-    const used = 2 + @max(kinds.len, 1);
+    const used = 4 + @max(total_count, 1);
     for (used..@max(used, rows -| 4)) |_| try endLine(w);
 }
 

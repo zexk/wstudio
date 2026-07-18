@@ -39,6 +39,12 @@ wstudio hosts stereo CLAP instruments and effects using the
 wstudio clap-scan
 ```
 
+The instrument and effect pickers divide devices into `Internal` and
+`External` sections. External CLAP plugins are scanned automatically from
+the platform's canonical directories. Set
+`wstudio.o.clap_plugin_path = "/path/to/clap"` in `init.lua` to scan only a
+fixed custom directory instead.
+
 The scan prints `<plugin-id> <name> <path>`. In either frontend, select a
 track and use:
 

@@ -123,6 +123,7 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
         return err;
     };
     defer app.deinit();
+    app.core.scanExternalPlugins(init.environ_map);
     // Same hooks as the TUI: `wstudio.notify`/`wstudio.cmd` land on the
     // shared core, and init.lua's queued command lines flush here. The
     // command table must include Lua user commands before the flush, since
