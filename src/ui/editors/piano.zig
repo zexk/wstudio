@@ -56,6 +56,7 @@ pub fn switchTo(app: *App, track: u16) void {
     // A plain open edits the live pattern; the arrangement's editClip re-links after.
     app.piano_clip_link = null;
     app.piano_grab = false;
+    app.piano_stamp = false;
     app.view = .piano_roll;
 }
 
@@ -953,6 +954,13 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16) v
 
     switch (ev.kind) {
         .press => {
+            // A click elsewhere ends any active grab/stamp session first -
+            // otherwise it stays set (mouse input skips the keyboard-only
+            // stamp/grab block in handleKey) and silently reinterprets the
+            // next ordinary keystroke as a drag/resize on whatever note the
+            // cursor now sits on.
+            if (app.piano_stamp) dropStamp(app);
+            if (app.piano_grab) dropGrab(app);
             app.piano_cursor_step = step;
             app.piano_cursor_pitch = pitch;
             const start_beat = stepToBeat(app, step);

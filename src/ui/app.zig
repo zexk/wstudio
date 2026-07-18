@@ -1798,6 +1798,7 @@ pub const App = struct {
             },
             .drum_machine => {
                 self.drum_track = @intCast(cursor);
+                self.drum_stamp = false;
                 self.view = .drum_grid;
                 self.autoSongMode(false);
             },
