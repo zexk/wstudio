@@ -155,11 +155,23 @@ fn drawStandalone(app: anytype) void {
     if (sampler.pad_lock.tryLock()) {
         defer sampler.pad_lock.unlock();
         has_sample = sampler.pad.samples.len > 0;
-        drawWaveformRegion(app, target, sampler.pad.samples);
+        if (has_sample) drawWaveformRegion(app, target, sampler.pad.samples);
     }
     if (!has_sample) {
         zgui.spacing();
-        zgui.textDisabled("Load a sample before editing trim, pitch, envelope, or output controls.", .{});
+        if (widgets.emptyState(.{
+            .id = "sampler-empty-state",
+            .title = "LOAD A SAMPLE",
+            .explanation = "Choose a WAV file before editing trim, pitch, envelope, or output.",
+            .shortcut = ":load",
+            .action = "LOAD AUDIO",
+            .accent = patina.audio,
+        })) {
+            const now = std.Io.Timestamp.now(app.core.io, .awake).nanoseconds;
+            app.core.handleKey(.{ .char = ':' }, now);
+            for ("load") |char| app.core.handleKey(.{ .char = char }, now);
+            app.core.handleKey(.enter, now);
+        }
         return;
     }
     zgui.spacing();

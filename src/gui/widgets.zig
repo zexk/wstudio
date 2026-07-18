@@ -8,6 +8,41 @@ pub fn sectionTitle(label: []const u8, accent: [4]f32) void {
     zgui.dummy(.{ .w = 0, .h = 3 });
 }
 
+pub const EmptyState = struct {
+    id: [:0]const u8,
+    title: []const u8,
+    explanation: []const u8,
+    shortcut: []const u8,
+    action: [:0]const u8,
+    accent: [4]f32,
+    width: f32 = 520,
+};
+
+/// Shared actionable empty state used by editors with missing source data.
+/// The caller owns the action so command routing stays in the view.
+pub fn emptyState(args: EmptyState) bool {
+    const patina = &gui_style.palette;
+    const available = zgui.getContentRegionAvail()[0];
+    const width = @min(available, args.width);
+    if (available > width) zgui.setCursorPosX(zgui.getCursorPos()[0] + (available - width) * 0.5);
+    var clicked = false;
+    zgui.pushStyleColor4f(.{ .idx = .child_bg, .c = patina.bg2 });
+    if (zgui.beginChild(args.id, .{ .w = width, .h = 122, .child_flags = .{ .border = true } })) {
+        zgui.textColored(args.accent, "{s}", .{args.title});
+        zgui.separator();
+        zgui.textDisabled("{s}", .{args.explanation});
+        zgui.spacing();
+        zgui.pushStyleColor4f(.{ .idx = .button, .c = patina.focus_soft });
+        clicked = zgui.button(args.action, .{ .h = 32 });
+        zgui.popStyleColor(.{});
+        zgui.sameLine(.{ .spacing = 12 });
+        zgui.textDisabled("{s}", .{args.shortcut});
+    }
+    zgui.endChild();
+    zgui.popStyleColor(.{});
+    return clicked;
+}
+
 /// A rotary control: drag vertically to change the value, double-click to
 /// type an exact one. Angle sweep and drag mapping follow the usual
 /// three-quarter-turn knob convention (135deg through the top to 405deg).
