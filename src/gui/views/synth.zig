@@ -66,27 +66,23 @@ fn drawSections(app: anytype, synth: *ws.dsp.PolySynth, comptime sections: []con
     const available_width = zgui.getContentRegionAvail()[0];
     const columns: usize = if (available_width >= 1080) 3 else if (available_width >= 650) 2 else 1;
     const column_w = @max(280, (available_width - gap * @as(f32, @floatFromInt(columns - 1))) / @as(f32, @floatFromInt(columns)));
-    inline for (0..3) |column| {
-        if (column >= columns) continue;
+    for (0..columns) |column| {
         if (column > 0) zgui.sameLine(.{ .spacing = gap });
-        const child_id = child_prefix ++ switch (column) {
-            0 => "-left",
-            1 => "-middle",
-            else => "-right",
-        };
+        var child_buf: [48]u8 = undefined;
+        const child_id = std.fmt.bufPrintZ(&child_buf, "{s}-{d}", .{ child_prefix, column }) catch continue;
         if (zgui.beginChild(child_id, .{ .w = if (column + 1 == columns) 0 else column_w, .h = 0, .child_flags = .{ .border = true } })) {
-            inline for (sections, 0..) |section, section_index| {
+            for (sections, 0..) |section, section_index| {
                 if (section_index % columns != column) continue;
                 widgets.sectionTitle(section.title, sectionColor(section_index));
-                inline for (section.params) |entry| {
+                for (section.params) |entry| {
                     if (isEnvelopeBase(entry.id)) {
                         drawEnvelope(app, synth, entry.id);
                     } else if (isFilterCutoff(entry.id)) {
                         drawFilterPad(app, synth, entry.id);
                     } else if (!isEnvelopeTail(entry.id) and !isFilterResonance(entry.id)) {
-                        inline for (0..entry.fields) |field| {
+                        for (0..entry.fields) |field| {
                             var label_buf: [48]u8 = undefined;
-                            const id = entry.id + field;
+                            const id: u8 = @intCast(@as(usize, entry.id) + field);
                             drawAnyParam(app, synth, id, synth_ed.paramLabel(id, &label_buf));
                         }
                         if (lfoShapeSlot(entry.id)) |slot| drawLfoCustomCurve(app, synth, slot);
