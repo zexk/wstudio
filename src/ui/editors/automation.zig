@@ -14,7 +14,6 @@ const ws = @import("wstudio");
 const modal_mod = ws.input;
 const automation_mod = ws.dsp.automation;
 const AutomationPoint = automation_mod.AutomationPoint;
-const synth_mod = ws.dsp.synth;
 const App = @import("../app.zig").App;
 const history = @import("../history.zig");
 const fuzzy = @import("../fuzzy.zig");
@@ -79,7 +78,7 @@ pub fn switchTo(app: *App, track: u16, cursor_bar: u32) void {
 /// start_bar) since clip storage can move as the lane is edited. Null if the
 /// clip vanished from under the editor (deleted, moved) - `App.exitStaleEditors`
 /// bounces the view back to arrangement in that case.
-pub fn currentClip(app: *App) ?*ws.Clip {
+pub fn currentClip(app: anytype) ?*ws.Clip {
     const link = app.automation_clip orelse return null;
     const lane = app.session.arrangement.lane(link.track) orelse return null;
     return lane.clipAt(link.start_bar);
@@ -113,15 +112,11 @@ pub fn curvePoints(app: *App, clip: *ws.Clip, target: AutomationFocus) !*[]Autom
 /// dispatch.
 pub fn instrumentAutomatableParams(app: *App) []const ws.dsp.device.AutomatableParam {
     if (app.automation_track >= app.session.racks.items.len) return &.{};
-    return switch (app.session.racks.items[app.automation_track].instrument) {
-        .poly_synth => &synth_mod.PolySynth.automatable_params,
-        .sampler => &ws.dsp.Sampler.automatable_params,
-        .drum_machine, .slicer, .empty => &.{},
-    };
+    return app.session.racks.items[app.automation_track].instrument.automatableParams();
 }
 
 pub fn findAutomatableParam(app: *App, id: u8) ?*const ws.dsp.device.AutomatableParam {
-    for (instrumentAutomatableParams(app)) |*p| if (p.id == id) return p;
+    for (instrumentAutomatableParams(app)) |*param| if (param.id == id) return param;
     return null;
 }
 

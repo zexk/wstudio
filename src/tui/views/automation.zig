@@ -6,7 +6,6 @@ const ws = @import("wstudio");
 const engine_mod = ws.engine;
 const automation_mod = ws.dsp.automation;
 const AutomationPoint = automation_mod.AutomationPoint;
-const synth_mod = ws.dsp.synth;
 const automation_ed = @import("../../ui/editors/automation.zig");
 const AutomationFocus = automation_ed.AutomationFocus;
 const style = @import("../style.zig");
@@ -42,31 +41,13 @@ fn valueLevel(val: ?f32, range: [2]f32, graph_rows: usize) usize {
 // handler and this draw path agree on the step columns.
 const gutter = automation_ed.gutter;
 
-/// Resolve the clip the view (and editors/automation.zig) are both bound to.
-/// Duplicated here rather than imported (see tui.zig's doc comment: view
-/// renderers take `app: anytype` and never import app.zig, so they can't
-/// share a helper typed against the concrete `*App`).
-fn currentClip(app: anytype) ?*const ws.Clip {
-    const link = app.automation_clip orelse return null;
-    const lane = app.session.arrangement.lane(link.track) orelse return null;
-    return lane.clipAt(link.start_bar);
-}
-
-/// Duplicated from editors/automation.zig's own `instrumentAutomatableParams`
-/// rather than imported - view renderers take `app: anytype` and never
-/// import app.zig (see `currentClip`'s doc comment above), so they can't
-/// share a helper typed against the concrete `*App` either.
 fn instrumentAutomatableParams(app: anytype) []const ws.dsp.device.AutomatableParam {
     if (app.automation_track >= app.session.racks.items.len) return &.{};
-    return switch (app.session.racks.items[app.automation_track].instrument) {
-        .poly_synth => &synth_mod.PolySynth.automatable_params,
-        .sampler => &ws.dsp.Sampler.automatable_params,
-        .drum_machine, .slicer, .empty => &.{},
-    };
+    return app.session.racks.items[app.automation_track].instrument.automatableParams();
 }
 
 fn findAutomatableParam(app: anytype, id: u8) ?*const ws.dsp.device.AutomatableParam {
-    for (instrumentAutomatableParams(app)) |*p| if (p.id == id) return p;
+    for (instrumentAutomatableParams(app)) |*param| if (param.id == id) return param;
     return null;
 }
 
@@ -95,7 +76,7 @@ pub fn drawAutomation(
     snap: engine_mod.UiSnapshot,
 ) !void {
     _ = snap;
-    const clip = currentClip(app) orelse {
+    const clip = automation_ed.currentClip(app) orelse {
         try w.writeAll(bold ++ " AUTOMATION" ++ rst ++ dim ++ "  clip gone - esc" ++ rst);
         try endLine(w);
         for (1..@max(1, rows -| 4)) |_| try endLine(w);
@@ -223,7 +204,7 @@ pub fn drawAutomationParamPicker(app: anytype, w: *std.Io.Writer, rows: usize) !
         app.session.project.tracks.items[app.automation_track].name
     else
         "?";
-    const clip = currentClip(app);
+    const clip = automation_ed.currentClip(app);
     const params = instrumentAutomatableParams(app);
     const filter = automation_ed.activeParamFilter(app);
 

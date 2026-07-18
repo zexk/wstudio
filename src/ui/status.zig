@@ -42,16 +42,6 @@ fn filterTypeName(ft: anytype) []const u8 {
     };
 }
 
-/// Resolve the automation editor's clip. Duplicated from
-/// editors/automation.zig rather than imported - status renderers take
-/// `app: anytype` (both a TUI *App and the GUI's *App wrapper reach this
-/// same code), so they can't share a helper typed against a concrete App.
-fn currentClip(app: anytype) ?*const ws.Clip {
-    const link = app.automation_clip orelse return null;
-    const lane = app.session.arrangement.lane(link.track) orelse return null;
-    return lane.clipAt(link.start_bar);
-}
-
 /// Duplicated from editors/automation.zig's own AutomationFocus-typed
 /// switch - status renderers can't import that concrete signature either
 /// (see currentClip's doc comment above).
@@ -731,7 +721,7 @@ pub fn drawFileBrowserStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Wri
 }
 
 pub fn drawAutomationStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !void {
-    const clip = currentClip(app) orelse {
+    const clip = automation_ed.currentClip(app) orelse {
         try w.writeAll(dim ++ "clip gone - esc" ++ rst);
         return;
     };
