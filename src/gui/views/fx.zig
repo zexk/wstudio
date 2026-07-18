@@ -31,7 +31,7 @@ pub fn draw(app: anytype) void {
 }
 
 fn drawTitle(app: anytype, target: spectrum_ed.EqTarget) void {
-    zgui.textColored(targetAccent(target), "FX CHAIN", .{});
+    zgui.textColored(targetAccent(target), "SPECTRUM / FX CHAIN", .{});
     zgui.sameLine(.{});
     zgui.text("\"{s}\"", .{targetName(app, target)});
     if (target == .group and app.core.eq_group < ws.engine.max_groups) {
