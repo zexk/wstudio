@@ -13,30 +13,47 @@ reverse-video badges, clamped/overlapping text) that plain
    if you just ran the tests. If a screenshot shows something that
    contradicts code you just read, suspect a stale binary before the code.
 
-2. **Always use the dedicated tmux socket `-L wst-shot`, never the
-   default one.** An automation session and the user's live session may
-   share the default tmux server; `kill-session`/`kill-server` on it is
-   one typo away from terminating a real session.
-   The private socket makes even `kill-server` safe. Prefix every tmux
-   command with `-L wst-shot`; there is no reason to omit it in this repo.
+2. **Use `tools/tui_screenshot.sh`.** It always uses the dedicated tmux
+   socket `wst-shot`, never the default one. An automation session and the
+   user's live session may share the default tmux server; `kill-session` or
+   `kill-server` on it is one typo away from terminating a real session.
 
    ```
-   tmux -L wst-shot new-session -d -s wst -x <cols> -y <rows>
-   tmux -L wst-shot send-keys -t wst "./zig-out/bin/wstudio demo.wsj" Enter
+   tools/tui_screenshot.sh start demo.wsj
+   tools/tui_screenshot.sh shot before.png
+   tools/tui_screenshot.sh run -- Tab
+   tools/tui_screenshot.sh shot arrangement.png
+   tools/tui_screenshot.sh stop
    ```
 
    Use `demo.wsj` for a populated project, or omit the arg for a blank
-   session. Drive further input with `send-keys`; verify you're on the
-   view you expect between steps with
-   `tmux -L wst-shot capture-pane -t wst -p | tail -1` (status row) rather
-   than assuming a key sequence landed - escape chains and a cursor
+   session. `run` forwards its arguments to `tmux send-keys`. Verify the
+   status row between steps rather than assuming a key sequence landed.
+   Escape chains and a cursor
    already on MASTER can silently swallow keys.
+
+   The tool enforces a clean terminal and application configuration:
+
+   - tmux runs with `-f /dev/null`, so the user's tmux configuration cannot
+     change colors, status bars, key handling, or terminal overrides;
+   - geometry defaults to 160x48 and terminal identity is fixed to
+     `TERM=tmux-256color`, `COLORTERM=truecolor`, and the C UTF-8 locale;
+   - the child gets an isolated temporary HOME, XDG config, and XDG state;
+   - wstudio always starts with `-u examples/init.lua`.
+   - a requested project is copied into that temporary HOME, so a local
+     autosave backup or other adjacent file cannot affect the capture.
+
+   Override geometry only when testing responsiveness:
+
+   ```
+   WSTUDIO_TUI_SHOT_COLS=100 WSTUDIO_TUI_SHOT_ROWS=30 \
+     tools/tui_screenshot.sh capture demo.wsj narrow.png
+   ```
 
 3. **Capture and render:**
 
    ```
-   tmux -L wst-shot capture-pane -t wst -e -p > shot.ansi
-   python3 tools/ansi2png.py shot.ansi shot.png
+   tools/tui_screenshot.sh shot shot.png
    ```
 
    `tools/ansi2png.py` is a ~250-line pure
@@ -69,8 +86,7 @@ reverse-video badges, clamped/overlapping text) that plain
 
 ## Cleanup
 
-`:q!` inside wstudio leaves a `demo.wsj~` autosave backup on disk that
-triggers a restore prompt on the next launch - `rm` it between runs if
-you relaunched with a fresh session. Kill only your own session when
-done: `tmux -L wst-shot kill-session -t wst` (or `kill-server` - safe
-only because it's the private socket).
+`tools/tui_screenshot.sh stop` removes the private session, state file,
+and isolated HOME. Always stop after a granular pass; `capture` does this
+automatically. If a run made project edits, remove any `demo.wsj~` backup
+before relaunching.
