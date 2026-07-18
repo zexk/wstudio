@@ -125,6 +125,18 @@ pub fn draw(app: anytype) void {
                 },
                 .drum => |drum| {
                     draw_list.addText(.{ pmin[0] + 7, pmin[1] + 4 }, color(patina.bg0), "PATTERN {c}", .{'A' + drum.variant});
+                    if (drum.step_count > 0) {
+                        for (0..drum.step_count) |step| {
+                            if (step % 4 != 0) continue;
+                            const grid_x = pmin[0] + (@as(f32, @floatFromInt(step)) + 0.5) / @as(f32, @floatFromInt(drum.step_count)) * (pmax[0] - pmin[0]);
+                            draw_list.addLine(.{
+                                .p1 = .{ grid_x, pmin[1] + 27 },
+                                .p2 = .{ grid_x, pmax[1] - 5 },
+                                .col = color(.{ patina.bg0[0], patina.bg0[1], patina.bg0[2], 0.24 }),
+                                .thickness = 1,
+                            });
+                        }
+                    }
                     for (0..drum.step_count) |step| {
                         var hits: u8 = 0;
                         for (drum.pattern) |pattern| hits += @intCast((pattern >> @intCast(step)) & 1);

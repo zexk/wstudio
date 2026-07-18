@@ -206,10 +206,6 @@ pub fn drawDrumStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !v
     try writeModeBadge(w, app.modal.mode);
     try right.print(bcyn ++ "{s}" ++ rst ++ "  ", .{app.drum_grid.label()});
     try writeViewBadge(right, "DRUM", app.modal.mode);
-    try w.writeAll(dim ++ "  pat " ++ rst);
-    try w.print("{c}", .{DrumMachine.variantLetter(dm.variant)});
-    try w.writeAll(dim ++ "/" ++ rst);
-    try w.print("{d}", .{dm.variant_count});
     try w.writeAll(dim ++ "  pad " ++ rst);
     try w.print("{d}/{d}", .{ p + 1, DrumMachine.max_pads });
     try w.writeAll(dim ++ "  step " ++ rst);
@@ -842,4 +838,3 @@ pub fn drawPresetPickerStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Wr
     if (app.preset_picker_kind == .synth) try w.writeAll("  a: audition C3");
     try w.writeAll("  enter: apply  /: filter  d: delete  esc: close");
 }
-

@@ -41,7 +41,9 @@ fn drawTitle(app: anytype, drum: *const ws.dsp.DrumMachine) void {
     zgui.sameLine(.{});
     zgui.text("\"{s}\"", .{app.core.session.project.tracks.items[app.core.drum_track].name});
     zgui.sameLine(.{});
-    zgui.textColored(patina.rhythm, "pat {c}", .{'A' + drum.variant});
+    zgui.textColored(patina.rhythm, "Pattern {c}", .{'A' + drum.variant});
     zgui.sameLine(.{});
-    zgui.textDisabled("{d}/{d}  bank {d}/{d}", .{ drum.variant + 1, drum.variant_count, app.core.drum_cursor[0] / pads_per_bank + 1, bank_count });
+    zgui.textDisabled("Variation {d}/{d}", .{ drum.variant + 1, drum.variant_count });
+    zgui.sameLine(.{});
+    zgui.textDisabled("Bank {d}/{d}", .{ app.core.drum_cursor[0] / pads_per_bank + 1, bank_count });
 }
