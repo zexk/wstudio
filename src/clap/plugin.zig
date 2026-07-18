@@ -384,6 +384,10 @@ pub const ClapPlugin = struct {
                 const value: u14 = @intCast(@as(i32, bend.bend) + 8192);
                 self.pushMidi(.{ 0xe0, @truncate(value), @truncate(value >> 7) });
             },
+            .clap_param => |param| {
+                if (param.target == @as(*anyopaque, @ptrCast(self)))
+                    self.pushParameter(param.id, param.cookie, param.value);
+            },
             else => {},
         }
     }
@@ -471,6 +475,10 @@ pub const ClapPlugin = struct {
     /// Queue a parameter edit for the next audio block. The caller must use
     /// the engine command queue when it runs concurrently with audio.
     pub fn setParameter(self: *ClapPlugin, id_value: u32, cookie: ?*anyopaque, value: f64) void {
+        self.pushParameter(id_value, cookie, value);
+    }
+
+    fn pushParameter(self: *ClapPlugin, id_value: u32, cookie: ?*anyopaque, value: f64) void {
         self.events.push(.{ .param = .{
             .header = .{
                 .size = @sizeOf(abi.EventParamValue),

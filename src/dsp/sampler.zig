@@ -295,7 +295,7 @@ pub const Sampler = struct {
             // identical arm.
             .set_param => |e| self.adjustParam(@truncate(e.id), e.steps),
             .set_param_abs => |e| self.setParamAbsolute(@truncate(e.id), e.value),
-            .note_off, .cc, .pitch_bend, .set_sidechain_buf, .capture_pad => {},
+            .note_off, .cc, .pitch_bend, .clap_param, .set_sidechain_buf, .capture_pad => {},
             .all_off   => self.resetAll(),
             // zig fmt: on
         }

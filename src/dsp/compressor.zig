@@ -114,7 +114,7 @@ pub const Compressor = struct {
     pub fn handleEvent(self: *Compressor, ev: dsp.Event) void {
         switch (ev) {
             .set_sidechain_buf => |e| self.detector = e.buf,
-            .note_on, .note_off, .all_off, .cc, .pitch_bend, .set_param, .set_param_abs, .capture_pad => {},
+            .note_on, .note_off, .all_off, .cc, .pitch_bend, .set_param, .set_param_abs, .clap_param, .capture_pad => {},
         }
     }
 

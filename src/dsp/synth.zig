@@ -3581,7 +3581,7 @@ pub const PolySynth = struct {
             .set_param  => |e| self.adjustParam(@truncate(e.id), e.steps),
             // zig fmt: on
             .set_param_abs => |e| self.setParamAbsolute(@truncate(e.id), e.value),
-            .set_sidechain_buf, .capture_pad => {},
+            .clap_param, .set_sidechain_buf, .capture_pad => {},
         }
     }
 

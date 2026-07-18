@@ -82,6 +82,7 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "load",        .desc = "[file]  load the WAV type for the current view and selected instrument; omit the file to browse", .run = wrap(cmdLoad) },
     .{ .name = "clap-instrument", .desc = "<plugin-id> <path>  load a CLAP instrument on the cursor track", .run = wrap(cmdClapInstrument) },
     .{ .name = "clap-fx",     .desc = "<plugin-id> <path>  append a CLAP effect to the cursor track", .run = wrap(cmdClapFx) },
+    .{ .name = "clap-param",  .desc = "<1-based-index> [value]  inspect or set a CLAP instrument parameter", .run = wrap(cmdClapParam) },
     .{ .name = "slice",       .desc = "<n>  equal-divide the slicer's loaded clip into n slices (1-64)", .run = wrap(cmdSlice), .scope = .slicer },
     .{ .name = "chop",        .desc = "[1-9]  chop the slicer's clip at detected transients (sensitivity, default 5)", .run = wrap(cmdChop), .scope = .slicer },
     .{ .name = "edit",        .desc = "[file]  open a project (refuses if unsaved changes; omit the file to browse)", .run = wrap(cmdEdit) },
@@ -222,6 +223,67 @@ fn cmdClapFx(app: *App, args: []const u8) void {
     app.session.syncTrackChain(@intCast(track), rack);
     app.dirty = true;
     app.setStatus("CLAP effect loaded: {s}", .{parsed.id});
+}
+
+fn cmdClapParam(app: *App, args: []const u8) void {
+    const track = app.cursorTrack() orelse {
+        app.setStatus("select a track first", .{});
+        return;
+    };
+    const plugin = switch (app.session.racks.items[track].instrument) {
+        .clap => |plugin| plugin,
+        else => {
+            app.setStatus("cursor track is not a CLAP instrument", .{});
+            return;
+        },
+    };
+    var words = std.mem.tokenizeScalar(u8, args, ' ');
+    const index_text = words.next() orelse {
+        app.setStatus("CLAP instrument has {d} parameters", .{plugin.parameterCount()});
+        return;
+    };
+    const one_based = std.fmt.parseInt(u32, index_text, 10) catch {
+        app.setStatus("parameter index must be 1-{d}", .{plugin.parameterCount()});
+        return;
+    };
+    if (one_based == 0 or one_based > plugin.parameterCount()) {
+        app.setStatus("parameter index must be 1-{d}", .{plugin.parameterCount()});
+        return;
+    }
+    const info = plugin.parameterInfo(one_based - 1) orelse {
+        app.setStatus("plugin rejected parameter {d}", .{one_based});
+        return;
+    };
+    if (words.next()) |value_text| {
+        const value = parseFiniteFloat(f64, value_text) catch {
+            app.setStatus("CLAP parameter value must be finite", .{});
+            return;
+        };
+        const clamped = std.math.clamp(value, info.min_value, info.max_value);
+        _ = app.session.engine.send(.{ .set_clap_param = .{
+            .track = track,
+            .target = plugin,
+            .id = info.id,
+            .cookie = info.cookie,
+            .value = clamped,
+        } });
+        app.dirty = true;
+        app.setStatus("CLAP param {d} queued: {d}", .{ one_based, clamped });
+        return;
+    }
+    const value = plugin.parameterValue(info.id) orelse {
+        app.setStatus("plugin rejected parameter {d}", .{one_based});
+        return;
+    };
+    var value_buf: [128]u8 = undefined;
+    const formatted = plugin.formatParameter(info.id, value, &value_buf) orelse
+        std.fmt.bufPrint(&value_buf, "{d}", .{value}) catch "?";
+    app.setStatus("{d}/{d} {s}: {s}", .{
+        one_based,
+        plugin.parameterCount(),
+        std.mem.sliceTo(&info.name, 0),
+        formatted,
+    });
 }
 
 /// `:e <file>` swaps in a different project (refusing on unsaved changes,

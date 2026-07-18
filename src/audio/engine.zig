@@ -56,6 +56,7 @@ pub const Command = union(enum) {
     /// Same route automation's own `Event.set_param_abs` already takes,
     /// just originating from the control-side command queue.
     set_track_param_abs: struct { track: u16, id: u16, value: f32 },
+    set_clap_param: struct { track: u16, target: *anyopaque, id: u32, cookie: ?*anyopaque, value: f64 },
     /// Which group (if any) `track` submixes through before the master bus.
     /// `null` routes straight to master, same as before grouping existed.
     set_track_group: struct { track: u16, group: ?u8 },
@@ -831,6 +832,12 @@ pub const Engine = struct {
             .pitch_bend => |c| self.sendTrackEvent(c.track, .{ .pitch_bend = .{ .bend = c.bend } }),
             .set_track_param => |c| self.sendTrackEvent(c.track, .{ .set_param = .{ .id = c.id, .steps = c.steps } }),
             .set_track_param_abs => |c| self.sendTrackEvent(c.track, .{ .set_param_abs = .{ .id = c.id, .value = c.value } }),
+            .set_clap_param => |c| self.sendTrackEvent(c.track, .{ .clap_param = .{
+                .target = c.target,
+                .id = c.id,
+                .cookie = c.cookie,
+                .value = c.value,
+            } }),
             .set_track_group => |c| self.trackAt(c.track).group = c.group,
             .set_group_gain => |c| if (c.group < max_groups) {
                 self.groups[c.group].gain = c.gain;

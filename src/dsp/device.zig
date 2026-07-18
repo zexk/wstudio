@@ -26,6 +26,9 @@ pub const Event = union(enum) {
     /// some ids are wired on a given device (see e.g.
     /// PolySynth.setParamAbsolute); unhandled ids are a no-op.
     set_param_abs: struct { id: u16, value: f32 },
+    /// CLAP parameters use stable opaque u32 IDs. `target` keeps a
+    /// track-wide event broadcast from changing every CLAP in the chain.
+    clap_param: struct { target: *anyopaque, id: u32, cookie: ?*anyopaque, value: f64 },
     /// Supply this block's external sidechain-detector signal - pushed by
     /// the engine to a single chain slot (not broadcast to a whole chain
     /// the way `sendTrackEvent` sends the other variants) right before that

@@ -45,6 +45,7 @@ track and use:
 ```text
 :clap-instrument <plugin-id> <path>
 :clap-fx <plugin-id> <path>
+:clap-param <1-based-index> [plain-value]
 ```
 
 CLAP audio, notes, MIDI, parameters, opaque state, latency, tails, logging,
