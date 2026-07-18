@@ -95,6 +95,18 @@ pub fn selectPalette(theme: config_mod.GuiTheme) void {
         .graphite_light => graphite_light_colors,
         .umbra => umbra_colors,
     };
+    // fg3 is explanatory text drawn directly by views. Keep it readable,
+    // while ImGui's disabled color below remains a separate, quieter tier.
+    palette.fg3 = mixColor(palette.fg3, palette.fg2, 0.32);
+}
+
+fn mixColor(a: [4]f32, b: [4]f32, amount: f32) [4]f32 {
+    return .{
+        a[0] + (b[0] - a[0]) * amount,
+        a[1] + (b[1] - a[1]) * amount,
+        a[2] + (b[2] - a[2]) * amount,
+        a[3] + (b[3] - a[3]) * amount,
+    };
 }
 
 pub fn trackColor(index: u8) [4]f32 {
@@ -118,7 +130,7 @@ pub fn setTheme() void {
     const style = zgui.getStyle();
     if (palette.light) zgui.styleColorsLight(style) else zgui.styleColorsDark(style);
     style.setColor(.text, palette.fg0);
-    style.setColor(.text_disabled, palette.fg3);
+    style.setColor(.text_disabled, mixColor(palette.fg3, palette.bg2, 0.22));
     style.setColor(.window_bg, palette.bg1);
     style.setColor(.child_bg, palette.bg1);
     style.setColor(.popup_bg, palette.bg2);
