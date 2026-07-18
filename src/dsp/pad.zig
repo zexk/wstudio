@@ -242,11 +242,13 @@ pub fn resampleLinear(
     src_rate: u32,
     dst_rate: u32,
 ) ![]f32 {
+    if (src_rate == 0 or dst_rate == 0) return error.InvalidSampleRate;
     if (src_rate == dst_rate) return allocator.dupe(f32, src);
     const ratio: f64 = @as(f64, @floatFromInt(src_rate)) / @as(f64, @floatFromInt(dst_rate));
-    const dst_len: usize = @as(usize, @intFromFloat(
-        @ceil(@as(f64, @floatFromInt(src.len)) / ratio),
-    ));
+    const scaled_len = @as(u128, src.len) * dst_rate;
+    const dst_len_u128 = (scaled_len + src_rate - 1) / src_rate;
+    if (dst_len_u128 > std.math.maxInt(usize)) return error.OutputTooLarge;
+    const dst_len: usize = @intCast(dst_len_u128);
     const out = try allocator.alloc(f32, dst_len);
     for (out, 0..) |*s, i| {
         const sp: f64 = @as(f64, @floatFromInt(i)) * ratio;
@@ -273,6 +275,21 @@ test "resampleLinear preserves amplitude" {
     // Output should be longer and all values in [-1, 1]
     try std.testing.expect(out.len > src.len);
     for (out) |s| try std.testing.expect(@abs(s) <= 1.0 + 1e-6);
+}
+
+test "resampleLinear validates rates and rounds output length up" {
+    try std.testing.expectError(
+        error.InvalidSampleRate,
+        resampleLinear(std.testing.allocator, &.{1.0}, 0, 48_000),
+    );
+    try std.testing.expectError(
+        error.InvalidSampleRate,
+        resampleLinear(std.testing.allocator, &.{1.0}, 48_000, 0),
+    );
+
+    const out = try resampleLinear(std.testing.allocator, &.{ 0.0, 0.5, 1.0 }, 2, 3);
+    defer std.testing.allocator.free(out);
+    try std.testing.expectEqual(@as(usize, 5), out.len);
 }
 
 test "adjustParam uses the same bounds as absolute parameter assignment" {
