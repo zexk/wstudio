@@ -316,7 +316,7 @@ fn drawFx(app: anytype, synth: *ws.dsp.PolySynth) void {
     zgui.textColored(patina.audio, "OUT", .{});
     if (order.len == 0) {
         zgui.spacing();
-        zgui.textDisabled("No internal effects are enabled. Press i to insert one.", .{});
+        zgui.textDisabled("No internal effects are enabled. Press a to insert one.", .{});
         return;
     }
     zgui.spacing();
