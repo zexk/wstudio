@@ -25,6 +25,7 @@ const endLine = style.endLine;
 
 // Grid/waveform geometry lives with the editor (ui/editors/slicer.zig)
 // since its mouse hit-testing shares the exact same layout math.
+const waveform = @import("../../ui/waveform.zig");
 const slicer_ed = @import("../../ui/editors/slicer.zig");
 const gutter = slicer_ed.gutter;
 const cell_width: usize = 3;
@@ -81,16 +82,9 @@ fn drawWavePane(
     // Per-column peak amplitude over the column's sample bucket, normalized
     // to the loudest column (same shape as views/sampler.zig's pane).
     var amp: [wave_max_w]f32 = undefined;
+    waveform.peakBuckets(samples, amp[0..width]);
     var peak: f32 = 1e-6;
-    for (0..width) |x| {
-        var a: f32 = 0;
-        const lo = x * samples.len / width;
-        const hi = @max(lo + 1, (x + 1) * samples.len / width);
-        var j = lo;
-        while (j < hi and j < samples.len) : (j += 1) a = @max(a, @abs(samples[j]));
-        amp[x] = a;
-        peak = @max(peak, a);
-    }
+    for (amp[0..width]) |a| peak = @max(peak, a);
     const inv_peak = 1.0 / peak;
 
     // Marker + region maps. 0 = no marker; otherwise the slice label (the

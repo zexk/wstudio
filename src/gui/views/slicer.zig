@@ -2,6 +2,7 @@ const std = @import("std");
 const ws = @import("wstudio");
 const zgui = @import("zgui");
 const icons = @import("../../ui/icons.zig");
+const waveform = @import("../../ui/waveform.zig");
 const style = @import("../style.zig");
 const widgets = @import("../widgets.zig");
 const step_grid = @import("step_grid.zig");
@@ -107,13 +108,7 @@ fn drawSourceWaveform(app: anytype, slicer: *const ws.dsp.Slicer) void {
 
     var overview: [512]f32 = undefined;
     const count = @min(slicer.samples.len, overview.len);
-    for (overview[0..count], 0..) |*out, i| {
-        const s = i * slicer.samples.len / count;
-        const e = @max(s + 1, (i + 1) * slicer.samples.len / count);
-        var peak: f32 = 0;
-        for (slicer.samples[s..@min(e, slicer.samples.len)]) |v| peak = @max(peak, @abs(v));
-        out.* = peak;
-    }
+    waveform.peakBuckets(slicer.samples, overview[0..count]);
     const mid_y = origin[1] + height / 2;
     const selected: ?u8 = if (slicer.slice_count == 0) null else @min(app.core.slicer_cursor[0], slicer.slice_count - 1);
 

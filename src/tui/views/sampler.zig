@@ -27,6 +27,7 @@ const enumRow = style.enumRow;
 const sampler_ed = @import("../../ui/editors/sampler.zig");
 const wave_max_w = sampler_ed.wave_max_w;
 const wave_max_rows = sampler_ed.wave_max_rows;
+const waveform = @import("../../ui/waveform.zig");
 
 pub fn drawSamplerEditor(
     app: anytype,
@@ -231,18 +232,9 @@ fn drawWaveformPad(
 
     // Per-column peak amplitude over the column's sample bucket.
     var amp: [wave_max_w]f32 = undefined;
+    waveform.peakBuckets(pad.samples, amp[0..width]);
     var peak: f32 = 1e-6;
-    for (0..width) |x| {
-        var a: f32 = 0;
-        if (len > 0) {
-            const lo = x * len / width;
-            const hi = @max(lo + 1, (x + 1) * len / width);
-            var j = lo;
-            while (j < hi and j < len) : (j += 1) a = @max(a, @abs(pad.samples[j]));
-        }
-        amp[x] = a;
-        peak = @max(peak, a);
-    }
+    for (amp[0..width]) |a| peak = @max(peak, a);
     // Normalise to the loudest column so quiet samples are still visible.
     const inv_peak = 1.0 / peak;
 
