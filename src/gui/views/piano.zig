@@ -137,7 +137,7 @@ pub fn draw(app: anytype) void {
         const pitch: u7 = top_pitch - @as(u7, @intCast(row));
         const y = grid_y + @as(f32, @floatFromInt(row)) * row_h;
         const black = isBlackKey(pitch);
-        const tone = pianoScaleTone(app.core.piano_scale, pitch);
+        const tone = piano_ed.scaleTone(app.core.piano_scale, pitch);
         const row_color = switch (tone) {
             .root => patina.bg3,
             .out_scale => patina.line_soft,
@@ -353,21 +353,3 @@ fn noteCovering(pp: *ws.dsp.PatternPlayer, pitch: u7, beat: f64) ?ws.dsp.pattern
 }
 
 const isBlackKey = ws.theory.isBlackKey;
-
-const PianoScaleTone = enum { root, in_scale, out_scale, unscaled_black, unscaled_white };
-
-fn pianoScaleTone(scale: ?ws.theory.Scale, pitch: u7) PianoScaleTone {
-    if (scale) |active| {
-        if (pitch % 12 == active.root) return .root;
-        return if (active.contains(pitch)) .in_scale else .out_scale;
-    }
-    return if (isBlackKey(pitch)) .unscaled_black else .unscaled_white;
-}
-
-test "GUI piano scale keeps black-key members highlighted" {
-    const f_minor: ws.theory.Scale = .{ .root = 5, .kind = .minor };
-    try std.testing.expectEqual(PianoScaleTone.root, pianoScaleTone(f_minor, 65));
-    try std.testing.expectEqual(PianoScaleTone.in_scale, pianoScaleTone(f_minor, 68));
-    try std.testing.expectEqual(PianoScaleTone.out_scale, pianoScaleTone(f_minor, 66));
-    try std.testing.expectEqual(PianoScaleTone.unscaled_black, pianoScaleTone(null, 68));
-}

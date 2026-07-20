@@ -5,6 +5,7 @@ const ws = @import("wstudio");
 const engine_mod = ws.engine;
 const style = @import("../style.zig");
 const icons = @import("../../ui/icons.zig");
+const piano_ed = @import("../../ui/editors/piano.zig");
 const theory = ws.theory;
 
 // Aliases so the moved render bodies reference the shared palette/primitives
@@ -39,8 +40,6 @@ fn writeStepPad(w: *std.Io.Writer, pad: usize, tick: bool, tick_color: []const u
     try w.writeAll("│");
     try w.writeAll(rst);
 }
-
-const isBlackKey = theory.isBlackKey;
 
 /// Whether some OTHER melodic track has a note starting or covering this
 /// pitch/beat, for `:ghost`'s background overlay. Cheap enough to call per
@@ -206,16 +205,12 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
         }
         const pitch: u7 = @intCast(pitch_i);
         const is_cur_row = (pitch == app.piano_cursor_pitch);
-        // With a scale active, dimming means "out of scale" only - a black
-        // key that IS a scale tone (e.g. Ab in F minor) must read the same
-        // as a white-key scale tone, or the highlight can't show scales that
-        // lean on black keys (most non-C-major ones). Off, fall back to the
-        // pre-scale-highlighting look: black keys dimmed, everything else lit.
-        const row_dim = if (app.piano_scale) |s| !s.contains(pitch) else isBlackKey(pitch);
+        const tone = piano_ed.scaleTone(app.piano_scale, pitch);
+        const row_dim = tone == .out_scale or tone == .unscaled_black;
 
         var lbuf: [5]u8 = undefined;
         const label = ws.midi.noteName(@intCast(pitch), &lbuf);
-        const is_scale_root = if (app.piano_scale) |s| pitch % 12 == s.root else false;
+        const is_scale_root = tone == .root;
         if (is_scale_root) try w.writeAll(mag ++ bold) else if (row_dim) try w.writeAll(dim);
         try w.print(" {s: <4}", .{label});
         if (is_scale_root or row_dim) try w.writeAll(rst);

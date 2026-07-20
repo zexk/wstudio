@@ -1007,3 +1007,27 @@ test "cursor deltas saturate for maximum command counts" {
     try std.testing.expectEqual(@as(i64, 127), clampDelta(@as(u7, 60), std.math.maxInt(i32), 127));
     try std.testing.expectEqual(@as(i64, 0), clampDelta(@as(u16, 12), std.math.minInt(i32), 63));
 }
+
+/// How a piano-roll row should read against the active scale (or, with no
+/// scale, the plain black/white keyboard look). `.root` and `.in_scale` are
+/// both scale members - a black-key scale tone (e.g. Ab in F minor) must
+/// classify the same as a white-key one, or the highlight can't show scales
+/// that lean on black keys (most non-C-major ones).
+pub const ScaleTone = enum { root, in_scale, out_scale, unscaled_black, unscaled_white };
+
+pub fn scaleTone(scale: ?theory.Scale, pitch: u7) ScaleTone {
+    if (scale) |active| {
+        if (pitch % 12 == active.root) return .root;
+        return if (active.contains(pitch)) .in_scale else .out_scale;
+    }
+    return if (theory.isBlackKey(pitch)) .unscaled_black else .unscaled_white;
+}
+
+test "scaleTone keeps black-key scale members off the out-of-scale dim path" {
+    const f_minor: theory.Scale = .{ .root = 5, .kind = .minor };
+    try std.testing.expectEqual(ScaleTone.root, scaleTone(f_minor, 65));
+    try std.testing.expectEqual(ScaleTone.in_scale, scaleTone(f_minor, 68));
+    try std.testing.expectEqual(ScaleTone.out_scale, scaleTone(f_minor, 66));
+    try std.testing.expectEqual(ScaleTone.unscaled_black, scaleTone(null, 68));
+    try std.testing.expectEqual(ScaleTone.unscaled_white, scaleTone(null, 60));
+}
