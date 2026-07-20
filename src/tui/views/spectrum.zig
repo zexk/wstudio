@@ -36,18 +36,6 @@ const synthSection = style.synthSection;
 const barRow = style.barRow;
 const enumRow = style.enumRow;
 
-/// Compact frequency label for a band's freq row: "823", "1.2k", "16k".
-fn freqLabel(buf: []u8, hz: f32) []const u8 {
-    if (hz >= 1000.0) {
-        const k = hz / 1000.0;
-        if (@abs(k - @round(k)) < 0.05) {
-            return std.fmt.bufPrint(buf, "{d:.0}k", .{k}) catch "?";
-        }
-        return std.fmt.bufPrint(buf, "{d:.1}k", .{k}) catch "?";
-    }
-    return std.fmt.bufPrint(buf, "{d:.0}", .{hz}) catch "?";
-}
-
 // Lower-eighths block glyphs, shortest (cut) to tallest (boost). 0dB lands
 // on the middle glyph so a flat band still reads as a visible bar.
 const eq_glyphs = [_][]const u8{
@@ -428,7 +416,7 @@ pub fn drawFxView(
         for (0..eq_mod.num_eq_bands) |b| {
             const is_cur = b == cur_band;
             var fbuf: [8]u8 = undefined;
-            const lbl = freqLabel(&fbuf, e.bands[b].freq);
+            const lbl = spectrum_ed.compactHz(&fbuf, e.bands[b].freq);
             if (is_cur) try w.writeAll(rst ++ acc ++ bold);
             try w.print("{s: ^5}", .{lbl});
             if (is_cur) try w.writeAll(rst ++ dim);

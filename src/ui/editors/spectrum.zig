@@ -126,6 +126,19 @@ pub fn stripLabel(k: FxKind) []const u8 {
     };
 }
 
+/// Compact frequency label for an EQ band's freq row/readout: "823", "1.2k",
+/// "16k" - shared by the TUI FX view and GUI FX view.
+pub fn compactHz(buf: []u8, hz: f32) []const u8 {
+    if (hz >= 1000.0) {
+        const k = hz / 1000.0;
+        if (@abs(k - @round(k)) < 0.05) {
+            return std.fmt.bufPrint(buf, "{d:.0}k", .{k}) catch "?";
+        }
+        return std.fmt.bufPrint(buf, "{d:.1}k", .{k}) catch "?";
+    }
+    return std.fmt.bufPrint(buf, "{d:.0}", .{hz}) catch "?";
+}
+
 pub fn paramCount(k: FxKind) usize {
     return switch (k) {
         .eq => eq_mod.num_eq_bands * eq_fields_per_band,
