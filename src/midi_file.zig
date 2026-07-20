@@ -126,7 +126,7 @@ pub fn parse(allocator: std.mem.Allocator, data: []const u8) ParseError!ParseRes
     if (header_len < 6 or data.len < 8 + header_len) return error.InvalidHeader;
     const ntrks = readU16Be(data[10..12]);
     const division = readU16Be(data[12..14]);
-    if (division & 0x8000 != 0) return error.UnsupportedDivision; // SMPTE, not supported
+    if (division & 0x8000 != 0 or division == 0) return error.UnsupportedDivision; // SMPTE or zero, not supported
     const ticks_per_beat: f64 = @floatFromInt(division);
 
     var notes: std.ArrayListUnmanaged(Note) = .empty;
@@ -388,7 +388,7 @@ test "parse handles a format-1 file with tracks split across channels, merging b
     var t1: std.ArrayListUnmanaged(u8) = .empty;
     defer t1.deinit(allocator);
     try t1.appendSlice(allocator, &.{ 0x00, 0x91, 64, 90 }); // ch1 note on
-    try t1.appendSlice(allocator, &.{ 0xF0, 0x03, 0x81, 0x00, 0x00 }); // note off after 480 ticks (VLQ)
+    try t1.appendSlice(allocator, &.{ 0x83, 0x60, 0x81, 64, 0 }); // note off after 480 ticks (two-byte VLQ)
     try t1.appendSlice(allocator, &.{ 0x00, 0xFF, 0x2F, 0x00 });
     try buf.appendSlice(allocator, "MTrk");
     try appendU32Be(allocator, &buf, @intCast(t1.items.len));
@@ -402,4 +402,17 @@ test "parse handles a format-1 file with tracks split across channels, merging b
     try std.testing.expectApproxEqAbs(@as(f64, 0.25), result.notes[0].duration_beat, 0.01);
     try std.testing.expectEqual(@as(u7, 64), result.notes[1].pitch);
     try std.testing.expectApproxEqAbs(@as(f64, 0.0), result.notes[1].start_beat, 0.01);
+    try std.testing.expectApproxEqAbs(@as(f64, 1.0), result.notes[1].duration_beat, 0.01);
+}
+
+test "parse rejects a zero division field" {
+    const allocator = std.testing.allocator;
+    var buf: std.ArrayListUnmanaged(u8) = .empty;
+    defer buf.deinit(allocator);
+    try buf.appendSlice(allocator, "MThd");
+    try appendU32Be(allocator, &buf, 6);
+    try appendU16Be(allocator, &buf, 0); // format 0
+    try appendU16Be(allocator, &buf, 1); // ntrks
+    try appendU16Be(allocator, &buf, 0); // division 0 - would zero every tick-to-beat divide
+    try std.testing.expectError(error.UnsupportedDivision, parse(allocator, buf.items));
 }
