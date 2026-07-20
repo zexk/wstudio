@@ -186,13 +186,21 @@ pub const Session = struct {
         const color: u8 = @intCast(@mod(total, project_mod.track_color_count) + 1);
         try self.project.insertTrack(idx, .{ .name = name, .color = color });
 
-        self.engine.applyInsertTrack(idx, total, 1.0, 0.0, false);
-        self.syncTrackChain(idx, rack);
-        // Existing tracks from `idx` on shifted up by one; any compressor
-        // sidechaining off one of them must follow.
-        self.remapSidechainSources(.{ .insert = idx });
+        self.finishTrackInsert(idx, total, rack, 1.0, 0.0, false);
 
         return idx;
+    }
+
+    /// Common tail of `insertTrack`/`restoreTrack`: syncs the engine's own
+    /// track-array copy to the just-inserted rack/track, then remaps any
+    /// compressor sidechaining off a track shifted up by this insert. Split
+    /// out because the two callers build the rack/`Project.Track` entry
+    /// itself differently (blank vs. restored-from-undo state) but finish
+    /// identically.
+    fn finishTrackInsert(self: *Session, idx: u16, total: u16, rack: *Rack, gain: f32, pan: f32, muted: bool) void {
+        self.engine.applyInsertTrack(idx, total, gain, pan, muted);
+        self.syncTrackChain(idx, rack);
+        self.remapSidechainSources(.{ .insert = idx });
     }
 
     /// Replace the instrument on `track_idx` with a fresh instance of `kind`.
@@ -449,9 +457,7 @@ pub const Session = struct {
             .group = meta.group,
         });
 
-        self.engine.applyInsertTrack(idx, total, types.dbToGain(meta.gain_db), meta.pan, meta.muted);
-        self.syncTrackChain(idx, rack);
-        self.remapSidechainSources(.{ .insert = idx });
+        self.finishTrackInsert(idx, total, rack, types.dbToGain(meta.gain_db), meta.pan, meta.muted);
         if (meta.soloed) _ = self.engine.send(.{ .set_track_solo = .{ .track = idx, .soloed = true } });
         if (meta.group) |g| _ = self.engine.send(.{ .set_track_group = .{ .track = idx, .group = g } });
 
