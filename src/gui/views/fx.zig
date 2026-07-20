@@ -399,7 +399,7 @@ fn drawEqBandStrip(app: anytype, unit: *ws.FxUnit, selected_band: usize) void {
         zgui.pushStyleColor4f(.{ .idx = .button, .c = if (selected) accent else patina.bg2 });
         zgui.pushStyleColor4f(.{ .idx = .text, .c = if (selected) patina.bg0 else accent });
         var freq_buf: [12]u8 = undefined;
-        const freq = compactFreq(&freq_buf, band.freq);
+        const freq = spectrum_ed.compactHz(&freq_buf, band.freq);
         var label_buf: [48]u8 = undefined;
         const label = std.fmt.bufPrintZ(&label_buf, "{d} {s}\n{s}##eq-band-{d}", .{ i + 1, eqBandKindShort(band.kind), freq, i }) catch continue;
         if (zgui.button(label, .{ .w = width, .h = 44 })) {
@@ -483,15 +483,6 @@ fn eqBandKindShort(kind: ws.dsp.eq.BandKind) []const u8 {
         .lowpass => "HC",
         .highpass => "LC",
     };
-}
-
-fn compactFreq(buf: []u8, hz: f32) []const u8 {
-    if (hz >= 1000) {
-        const khz = hz / 1000;
-        if (@abs(khz - @round(khz)) < 0.05) return std.fmt.bufPrint(buf, "{d:.0}k", .{khz}) catch "?";
-        return std.fmt.bufPrint(buf, "{d:.1}k", .{khz}) catch "?";
-    }
-    return std.fmt.bufPrint(buf, "{d:.0}", .{hz}) catch "?";
 }
 
 fn eqBandKindLabel(kind: ws.dsp.eq.BandKind) []const u8 {
