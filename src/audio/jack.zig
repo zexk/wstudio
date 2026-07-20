@@ -46,12 +46,7 @@ const Api = struct {
     free: *const fn (ptr: ?*anyopaque) callconv(.c) void,
 
     fn load(lib: *std.DynLib) error{SymbolNotFound}!Api {
-        var api: Api = undefined;
-        inline for (@typeInfo(Api).@"struct".fields) |field| {
-            const sym = lib.lookup(field.type, "jack_" ++ field.name) orelse return error.SymbolNotFound;
-            @field(api, field.name) = sym;
-        }
-        return api;
+        return backend_mod.loadApi(Api, lib, "jack_");
     }
 };
 

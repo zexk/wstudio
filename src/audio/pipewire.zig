@@ -105,12 +105,7 @@ const Api = struct {
     stream_queue_buffer: *const fn (stream: *Stream, buffer: *PwBuffer) callconv(.c) c_int,
 
     fn load(lib: *std.DynLib) error{SymbolNotFound}!Api {
-        var api: Api = undefined;
-        inline for (@typeInfo(Api).@"struct".fields) |field| {
-            const sym = lib.lookup(field.type, "pw_" ++ field.name) orelse return error.SymbolNotFound;
-            @field(api, field.name) = sym;
-        }
-        return api;
+        return backend_mod.loadApi(Api, lib, "pw_");
     }
 };
 
