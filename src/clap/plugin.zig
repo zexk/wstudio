@@ -5,6 +5,7 @@ const abi = @import("abi.zig");
 const device_mod = @import("../dsp/device.zig");
 const types = @import("../core/types.zig");
 const Transport = @import("../transport.zig").Transport;
+const dynlib_compat = @import("dynlib_compat.zig");
 
 const max_events = 256;
 
@@ -188,7 +189,7 @@ fn acceptOutputEvent(list: ?*const abi.OutputEvents, event: *const abi.EventHead
 
 pub const ClapPlugin = struct {
     allocator: std.mem.Allocator,
-    library: std.DynLib,
+    library: dynlib_compat.DynLib,
     entry: *const abi.PluginEntry,
     plugin: *const abi.Plugin,
     host_context: *HostContext,
@@ -216,7 +217,7 @@ pub const ClapPlugin = struct {
         plugin_id: ?[]const u8,
         sample_rate: u32,
     ) !*ClapPlugin {
-        var library = try std.DynLib.open(path);
+        var library = try dynlib_compat.DynLib.open(path);
         errdefer library.close();
         const entry = library.lookup(*const abi.PluginEntry, "clap_entry") orelse return error.MissingClapEntry;
         if (!abi.versionIsCompatible(entry.clap_version)) return error.IncompatibleClapVersion;
