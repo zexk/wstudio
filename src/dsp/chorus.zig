@@ -8,6 +8,7 @@ const std = @import("std");
 const types = @import("../core/types.zig");
 const dsp = @import("device.zig");
 const Lfo = @import("lfo.zig").Lfo;
+const delay_line = @import("delay_line.zig");
 
 const Sample = types.Sample;
 
@@ -73,12 +74,7 @@ pub const Chorus = struct {
                 // Right channel trails the LFO by a quarter cycle for width.
                 const lfo = self.lfo.sine(if (ch == 1) -0.25 else 0.0);
                 const delay_frames = (base_delay_ms + depth * lfo) * 0.001 * sr;
-                var pos = @as(f32, @floatFromInt(self.index)) - delay_frames;
-                if (pos < 0) pos += @floatFromInt(line.len);
-                const idx0: usize = @intFromFloat(pos);
-                const frac = pos - @as(f32, @floatFromInt(idx0));
-                const idx1 = (idx0 + 1) % line.len;
-                const wet = line[idx0] * (1.0 - frac) + line[idx1] * frac;
+                const wet = delay_line.readInterp(line, self.index, delay_frames);
 
                 buf[i * 2 + ch] = buf[i * 2 + ch] * (1.0 - mix) + wet * mix;
             }
