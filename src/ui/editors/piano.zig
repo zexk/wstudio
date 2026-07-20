@@ -26,6 +26,17 @@ fn stepToBeat(app: *App, step: u16) f64 {
     return @as(f64, @floatFromInt(step)) / stepsPerBeatF(app);
 }
 
+/// `app.piano_track`'s PatternPlayer, or null if the track index is stale
+/// (a deleted track) or the track isn't a melodic instrument - the guard
+/// every piano-roll edit/query starts with, used as `orelse return`/
+/// `orelse return false` at each call site.
+fn currentPatternPlayer(app: *App) ?*pattern_mod.PatternPlayer {
+    if (app.piano_track >= app.session.racks.items.len) return null;
+    const rack = app.session.racks.items[app.piano_track];
+    if (rack.pattern_player == null) return null;
+    return &app.session.racks.items[app.piano_track].pattern_player.?;
+}
+
 pub fn switchTo(app: *App, track: u16) void {
     if (track >= app.session.racks.items.len) return;
     switch (app.session.racks.items[track].instrument) {
@@ -61,9 +72,7 @@ pub fn switchTo(app: *App, track: u16) void {
 }
 
 pub fn handleKey(app: *App, key: modal_mod.Key) bool {
-    if (app.piano_track >= app.session.racks.items.len) return false;
-    const rack = app.session.racks.items[app.piano_track];
-    const pp = if (rack.pattern_player != null) &app.session.racks.items[app.piano_track].pattern_player.? else return false;
+    const pp = currentPatternPlayer(app) orelse return false;
 
     const max_step: u16 = @intFromFloat(pp.length_beats * stepsPerBeatF(app));
 
@@ -480,10 +489,7 @@ fn dropStamp(app: *App) void {
 /// edit - like insert/toggle/delete - so it's not part of `.` repeat; press
 /// it again at a new cursor.
 fn stampChord(app: *App, seventh: bool) void {
-    if (app.piano_track >= app.session.racks.items.len) return;
-    const pp = if (app.session.racks.items[app.piano_track].pattern_player != null)
-        &app.session.racks.items[app.piano_track].pattern_player.?
-    else return;
+    const pp = currentPatternPlayer(app) orelse return;
     const scale = app.piano_scale orelse
         theory.Scale{ .root = @intCast(app.piano_cursor_pitch % 12), .kind = .major };
     const chord = scale.chordAt(app.piano_cursor_pitch, seventh);
@@ -507,10 +513,7 @@ fn stampChord(app: *App, seventh: bool) void {
 /// duplicate. Cursor follows the recorded note so the roll shows where the
 /// take is landing in real time.
 pub fn recordNote(app: *App, pitch: u7, velocity: f32) void {
-    if (app.piano_track >= app.session.racks.items.len) return;
-    const pp = if (app.session.racks.items[app.piano_track].pattern_player != null)
-        &app.session.racks.items[app.piano_track].pattern_player.?
-    else return;
+    const pp = currentPatternPlayer(app) orelse return;
     const snap = app.session.engine.uiSnapshot();
     if (!snap.playing) return;
     const sr: f64 = @floatFromInt(app.session.project.sample_rate);
@@ -528,10 +531,7 @@ pub fn recordNote(app: *App, pitch: u7, velocity: f32) void {
 }
 
 fn insertNote(app: *App) void {
-    if (app.piano_track >= app.session.racks.items.len) return;
-    const pp = if (app.session.racks.items[app.piano_track].pattern_player != null)
-        &app.session.racks.items[app.piano_track].pattern_player.?
-    else return;
+    const pp = currentPatternPlayer(app) orelse return;
     const start_beat = stepToBeat(app, app.piano_cursor_step);
     // Don't insert if a note already starts here on this pitch
     if (pp.noteStartsAt(app.piano_cursor_pitch, start_beat)) return;
@@ -562,10 +562,7 @@ fn stepEnter(app: *App, max_step: u16, place_note: bool) void {
 /// the loop length), or - if no note starts here - change the default length
 /// applied to newly placed notes.
 fn resizeOrLen(app: *App, delta: f64) void {
-    if (app.piano_track >= app.session.racks.items.len) return;
-    const pp = if (app.session.racks.items[app.piano_track].pattern_player != null)
-        &app.session.racks.items[app.piano_track].pattern_player.?
-    else return;
+    const pp = currentPatternPlayer(app) orelse return;
     const start_beat = stepToBeat(app, app.piano_cursor_step);
     app.last_edit = .{ .piano_resize = .{ .delta = delta } };
     if (pp.noteAt(app.piano_cursor_pitch, start_beat)) |n| {
@@ -582,10 +579,7 @@ fn resizeOrLen(app: *App, delta: f64) void {
 /// GUI drag adapter: move one note through the same history, cursor, status,
 /// and linked-clip path as keyboard grab mode.
 pub fn moveNoteTo(app: *App, source_pitch: u7, source_step: u16, target_pitch: u7, target_step: u16) bool {
-    if (app.piano_track >= app.session.racks.items.len) return false;
-    const pp = if (app.session.racks.items[app.piano_track].pattern_player != null)
-        &app.session.racks.items[app.piano_track].pattern_player.?
-    else return false;
+    const pp = currentPatternPlayer(app) orelse return false;
     const max_step: u16 = @intFromFloat(pp.length_beats * stepsPerBeatF(app));
     app.piano_cursor_pitch = source_pitch;
     app.piano_cursor_step = source_step;
@@ -604,10 +598,7 @@ pub fn moveNoteTo(app: *App, source_pitch: u7, source_step: u16, target_pitch: u
 /// GUI resize adapter: set a note's grid length with one undo entry and the
 /// same linked-clip writeback used by `[` and `]`.
 pub fn resizeNoteSteps(app: *App, pitch: u7, start_step: u16, duration_steps: u16) bool {
-    if (app.piano_track >= app.session.racks.items.len) return false;
-    const pp = if (app.session.racks.items[app.piano_track].pattern_player != null)
-        &app.session.racks.items[app.piano_track].pattern_player.?
-    else return false;
+    const pp = currentPatternPlayer(app) orelse return false;
     app.piano_cursor_pitch = pitch;
     app.piano_cursor_step = start_step;
     const note = pp.noteAt(pitch, stepToBeat(app, start_step)) orelse return false;
@@ -620,10 +611,7 @@ pub fn resizeNoteSteps(app: *App, pitch: u7, start_step: u16, duration_steps: u1
 
 /// Nudge the velocity of the note under the cursor by `delta` (clamped 0.05–1).
 fn nudgeVelocity(app: *App, delta: f32) void {
-    if (app.piano_track >= app.session.racks.items.len) return;
-    const pp = if (app.session.racks.items[app.piano_track].pattern_player != null)
-        &app.session.racks.items[app.piano_track].pattern_player.?
-    else return;
+    const pp = currentPatternPlayer(app) orelse return;
     const start_beat = stepToBeat(app, app.piano_cursor_step);
     if (pp.noteAt(app.piano_cursor_pitch, start_beat)) |n| {
         history.push(app, history.captureMelodic(app, app.piano_track));
@@ -683,10 +671,7 @@ pub fn syncLinkedClip(app: *App) void {
 /// Yank the piano roll's whole pattern (notes + loop length) to the
 /// app clipboard.
 fn yank(app: *App) void {
-    if (app.piano_track >= app.session.racks.items.len) return;
-    const pp = if (app.session.racks.items[app.piano_track].pattern_player != null)
-        &app.session.racks.items[app.piano_track].pattern_player.?
-    else return;
+    const pp = currentPatternPlayer(app) orelse return;
     var clip: PianoClip = .{ .notes = undefined, .count = 0, .length_beats = pp.length_beats };
     clip.count = pp.copyNotes(&clip.notes);
     app.piano_clip = clip;
@@ -699,10 +684,7 @@ fn yank(app: *App) void {
 /// clears are :clear or a full-range visual d; pitch-by-time selections
 /// are visual mode's job.
 fn clearPitchRow(app: *App) void {
-    if (app.piano_track >= app.session.racks.items.len) return;
-    const pp = if (app.session.racks.items[app.piano_track].pattern_player != null)
-        &app.session.racks.items[app.piano_track].pattern_player.?
-    else return;
+    const pp = currentPatternPlayer(app) orelse return;
     var nbuf: [8]u8 = undefined;
     const name = midi.noteName(app.piano_cursor_pitch, &nbuf);
     // Capture before the edit, but only push it if something was actually
@@ -888,10 +870,7 @@ fn pasteSelection(app: *App, pp: *pattern_mod.PatternPlayer) void {
 // zig fmt: off
 /// Replace this track's pattern with the yanked one.
 fn paste(app: *App) void {
-    if (app.piano_track >= app.session.racks.items.len) return;
-    const pp = if (app.session.racks.items[app.piano_track].pattern_player != null)
-        &app.session.racks.items[app.piano_track].pattern_player.?
-    else return;
+    const pp = currentPatternPlayer(app) orelse return;
     if (app.piano_clip) |*clip| {
         history.push(app, history.captureMelodic(app, app.piano_track));
         pp.setNotes(clip.notes[0..clip.count], clip.length_beats);
@@ -901,10 +880,7 @@ fn paste(app: *App) void {
 }
 
 fn deleteNote(app: *App) void {
-    if (app.piano_track >= app.session.racks.items.len) return;
-    const pp = if (app.session.racks.items[app.piano_track].pattern_player != null)
-        &app.session.racks.items[app.piano_track].pattern_player.?
-    else return;
+    const pp = currentPatternPlayer(app) orelse return;
     const start_beat = stepToBeat(app, app.piano_cursor_step);
     if (!pp.noteStartsAt(app.piano_cursor_pitch, start_beat)) return;
     history.push(app, history.captureMelodic(app, app.piano_track));
@@ -936,9 +912,7 @@ fn stepAt(scroll_step: u16, x: usize, cw: usize) ?u16 {
 /// the pitch cursor; **shift**+scroll moves the step cursor instead.
 pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16) void {
     _ = cols; // column count is derived from scroll + cell width, not terminal-width-dependent
-    if (app.piano_track >= app.session.racks.items.len) return;
-    const rack = app.session.racks.items[app.piano_track];
-    const pp = if (rack.pattern_player != null) &app.session.racks.items[app.piano_track].pattern_player.? else return;
+    const pp = currentPatternPlayer(app) orelse return;
     const max_step: u16 = @intFromFloat(pp.length_beats * stepsPerBeatF(app));
 
     // zig fmt: off
