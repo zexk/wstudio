@@ -13,6 +13,16 @@ threadlocal var on_audio_thread = false;
 
 const NoteDialect = enum { none, clap, midi };
 
+/// Looks up CLAP extension `ext_id` on `plugin` and casts it to `*const T`,
+/// or null if the plugin doesn't implement it - shared by every extension
+/// query below, which otherwise each repeat the same
+/// get_extension+ptrCast+alignCast pair (the only place any of them cast
+/// the raw `?*const anyopaque`).
+fn getExt(comptime T: type, plugin: *const abi.Plugin, ext_id: [*:0]const u8) ?*const T {
+    const raw = plugin.get_extension(plugin, ext_id) orelse return null;
+    return @ptrCast(@alignCast(raw));
+}
+
 const StoredEvent = union(enum) {
     note: abi.EventNote,
     midi: abi.EventMidi,
@@ -279,9 +289,8 @@ pub const ClapPlugin = struct {
     }
 
     fn validateAudioPorts(plugin: *const abi.Plugin) !u32 {
-        const raw = plugin.get_extension(plugin, abi.ext_audio_ports) orelse
+        const ports = getExt(abi.PluginAudioPorts, plugin, abi.ext_audio_ports) orelse
             return error.MissingAudioPorts;
-        const ports: *const abi.PluginAudioPorts = @ptrCast(@alignCast(raw));
         const input_count = ports.count(plugin, true);
         const output_count = ports.count(plugin, false);
         if (input_count > 1 or output_count != 1) return error.UnsupportedAudioPortLayout;
@@ -301,9 +310,8 @@ pub const ClapPlugin = struct {
         dialect: NoteDialect,
         supports_midi: bool,
     } {
-        const raw = plugin.get_extension(plugin, abi.ext_note_ports) orelse
+        const ports = getExt(abi.PluginNotePorts, plugin, abi.ext_note_ports) orelse
             return .{ .dialect = .none, .supports_midi = false };
-        const ports: *const abi.PluginNotePorts = @ptrCast(@alignCast(raw));
         if (ports.count(plugin, true) == 0) return .{ .dialect = .none, .supports_midi = false };
         var info: abi.NotePortInfo = undefined;
         if (!ports.get(plugin, 0, true, &info)) return .{ .dialect = .none, .supports_midi = false };
@@ -491,8 +499,7 @@ pub const ClapPlugin = struct {
     }
 
     fn paramsExtension(self: *const ClapPlugin) ?*const abi.PluginParams {
-        const raw = self.plugin.get_extension(self.plugin, abi.ext_params) orelse return null;
-        return @ptrCast(@alignCast(raw));
+        return getExt(abi.PluginParams, self.plugin, abi.ext_params);
     }
 
     pub fn parameterCount(self: *const ClapPlugin) u32 {
@@ -554,8 +561,7 @@ pub const ClapPlugin = struct {
     }
 
     pub fn saveState(self: *ClapPlugin, allocator: std.mem.Allocator) !?[]u8 {
-        const raw = self.plugin.get_extension(self.plugin, abi.ext_state) orelse return null;
-        const state: *const abi.PluginState = @ptrCast(@alignCast(raw));
+        const state = getExt(abi.PluginState, self.plugin, abi.ext_state) orelse return null;
         var writer = StateWriter{ .allocator = allocator };
         errdefer writer.bytes.deinit(allocator);
         var stream = abi.OutputStream{ .ctx = &writer, .write = StateWriter.write };
@@ -564,8 +570,7 @@ pub const ClapPlugin = struct {
     }
 
     pub fn loadState(self: *ClapPlugin, bytes: []const u8) !bool {
-        const raw = self.plugin.get_extension(self.plugin, abi.ext_state) orelse return false;
-        const state: *const abi.PluginState = @ptrCast(@alignCast(raw));
+        const state = getExt(abi.PluginState, self.plugin, abi.ext_state) orelse return false;
         var reader = StateReader{ .bytes = bytes };
         var stream = abi.InputStream{ .ctx = &reader, .read = StateReader.read };
         if (!state.load(self.plugin, &stream)) return error.PluginStateLoadFailed;
@@ -574,14 +579,12 @@ pub const ClapPlugin = struct {
     }
 
     pub fn latencyFrames(self: *const ClapPlugin) u32 {
-        const raw = self.plugin.get_extension(self.plugin, abi.ext_latency) orelse return 0;
-        const latency: *const abi.PluginLatency = @ptrCast(@alignCast(raw));
+        const latency = getExt(abi.PluginLatency, self.plugin, abi.ext_latency) orelse return 0;
         return latency.get(self.plugin);
     }
 
     pub fn tailFrames(self: *const ClapPlugin) ?u32 {
-        const raw = self.plugin.get_extension(self.plugin, abi.ext_tail) orelse return null;
-        const tail: *const abi.PluginTail = @ptrCast(@alignCast(raw));
+        const tail = getExt(abi.PluginTail, self.plugin, abi.ext_tail) orelse return null;
         return tail.get(self.plugin);
     }
 
