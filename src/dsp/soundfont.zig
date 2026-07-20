@@ -481,7 +481,7 @@ fn parseImpl(allocator: std.mem.Allocator, bytes: []const u8, target_sample_rate
             while (try nextChunk(chunk.data, sp)) |sc| : (sp = sc.next) {
                 if (eqlId(sc.id, "smpl")) raw_sample_data = sc.data;
             }
-        } else if (eqlId(list_type, "pdta")) {
+        } else if (eqlId(list_type, "pdta") and hydra == null) {
             var phdr: []PresetHeader = &.{};
             var pbag: []Bag = &.{};
             var pgen: []GenRecord = &.{};
@@ -500,14 +500,17 @@ fn parseImpl(allocator: std.mem.Allocator, bytes: []const u8, target_sample_rate
             }
             var pp: usize = 4;
             while (try nextChunk(chunk.data, pp)) |sc| : (pp = sc.next) {
+                // A duplicated subchunk (malformed file) must not overwrite
+                // an already-read table - the first one wins, and the guard
+                // doubles as leak protection for the earlier allocation.
                 // zig fmt: off
-                if (eqlId(sc.id, "phdr")) { phdr = try readPresetHeaders(allocator, sc.data); }
-                else if (eqlId(sc.id, "pbag")) { pbag = try readBags(allocator, sc.data); }
-                else if (eqlId(sc.id, "pgen")) { pgen = try readGens(allocator, sc.data); }
-                else if (eqlId(sc.id, "inst")) { inst = try readInstHeaders(allocator, sc.data); }
-                else if (eqlId(sc.id, "ibag")) { ibag = try readBags(allocator, sc.data); }
-                else if (eqlId(sc.id, "igen")) { igen = try readGens(allocator, sc.data); }
-                else if (eqlId(sc.id, "shdr")) { shdr = try readSampleHeaders(allocator, sc.data); }
+                if (eqlId(sc.id, "phdr") and phdr.len == 0) { phdr = try readPresetHeaders(allocator, sc.data); }
+                else if (eqlId(sc.id, "pbag") and pbag.len == 0) { pbag = try readBags(allocator, sc.data); }
+                else if (eqlId(sc.id, "pgen") and pgen.len == 0) { pgen = try readGens(allocator, sc.data); }
+                else if (eqlId(sc.id, "inst") and inst.len == 0) { inst = try readInstHeaders(allocator, sc.data); }
+                else if (eqlId(sc.id, "ibag") and ibag.len == 0) { ibag = try readBags(allocator, sc.data); }
+                else if (eqlId(sc.id, "igen") and igen.len == 0) { igen = try readGens(allocator, sc.data); }
+                else if (eqlId(sc.id, "shdr") and shdr.len == 0) { shdr = try readSampleHeaders(allocator, sc.data); }
                 // pmod/imod (modulators) and every INFO/pdta string chunk are
                 // intentionally not read - see the file doc comment.
                 // zig fmt: on
@@ -1023,6 +1026,24 @@ test "parse: rejects non-RIFF and non-sfbk data" {
     const allocator = std.testing.allocator;
     try std.testing.expectError(error.NotSf2, SoundFont.parse(allocator, "not a soundfont", 48_000));
     try std.testing.expectError(error.NotSf2, SoundFont.parse(allocator, "RIFF\x00\x00\x00\x00WAVE", 48_000));
+}
+
+test "parse: a duplicated pdta LIST is ignored, not leaked" {
+    const allocator = std.testing.allocator;
+    const base = try buildTestSf2(allocator, false, 44_100);
+    defer allocator.free(base);
+
+    // Append a byte-identical second pdta LIST chunk - a malformed file the
+    // parser must treat as first-wins (std.testing.allocator turns the old
+    // overwrite-without-free behaviour into a test failure).
+    const pdta_off = std.mem.lastIndexOf(u8, base, "pdta").?;
+    const dup = try std.mem.concat(allocator, u8, &.{ base, base[pdta_off - 8 ..] });
+    defer allocator.free(dup);
+
+    var sf = try SoundFont.parse(allocator, dup, 44_100);
+    defer sf.deinit();
+    try std.testing.expectEqual(@as(usize, 1), sf.presets.len);
+    try std.testing.expectEqual(@as(usize, 1), sf.presets[0].regions.len);
 }
 
 test "dupe: independent buffers, same content" {
