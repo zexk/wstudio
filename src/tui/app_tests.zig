@@ -16,6 +16,7 @@ const AppView = app_mod.AppView;
 const note_ms = app_mod.note_ms;
 const commands = @import("../ui/commands.zig");
 const drum_ed = @import("../ui/editors/drum.zig");
+const step_grid = @import("../ui/editors/step_grid.zig");
 const slicer_ed = @import("../ui/editors/slicer.zig");
 const automation_ed = @import("../ui/editors/automation.zig");
 const style = @import("style.zig");
@@ -790,6 +791,46 @@ test "z and Z select drum grid subdivisions" {
     try std.testing.expectEqual(ws.time_grid.Division.sixteenth, app.drum_grid);
     _ = drum_ed.handleKey(&app, .{ .char = 'z' });
     try std.testing.expectEqual(ws.time_grid.Division.thirty_second, app.drum_grid);
+}
+
+test "drum grid +/- resize the loop by a bar, not a single step" {
+    var app = try testApp();
+    defer app.deinit();
+    app.drum_track = 2;
+    app.view = .drum_grid;
+    app.drum_cursor = .{ 0, 0 };
+    const dm = app.drumMachine();
+    const start = dm.step_count;
+
+    app.handleKey(.{ .char = '+' }, 0);
+    try std.testing.expectEqual(start + 4, dm.step_count);
+    app.handleKey(.{ .char = '-' }, 0);
+    try std.testing.expectEqual(start, dm.step_count);
+
+    // A count prefix scales the resize by whole bars too.
+    for ("2+") |c| app.handleKey(.{ .char = c }, 0);
+    try std.testing.expectEqual(start + 8, dm.step_count);
+}
+
+test "drum grid Z refuses to coarsen the grid when it would collide two hits" {
+    var app = try testApp();
+    defer app.deinit();
+    app.drum_track = 2;
+    const dm = app.drumMachine();
+
+    // Adjacent steps 1 and 2 (sixteenth-note grid) both round onto new
+    // step 1 when halving resolution to eighth notes.
+    step_grid.setStep(dm, 0, 1, true, ws.dsp.DrumMachine.vel_full);
+    step_grid.setStep(dm, 0, 2, true, ws.dsp.DrumMachine.vel_full);
+    const before_count = app.history.undo_stack.items.len;
+
+    _ = drum_ed.handleKey(&app, .{ .char = 'Z' });
+
+    try std.testing.expectEqual(ws.time_grid.Division.sixteenth, app.drum_grid);
+    try std.testing.expect(dm.stepActive(0, 1));
+    try std.testing.expect(dm.stepActive(0, 2));
+    try std.testing.expectEqual(before_count, app.history.undo_stack.items.len);
+    try std.testing.expectStringStartsWith(app.status_buf[0..app.status_len], "grid 1/8 would collide");
 }
 
 test "drum grid g jumps the step cursor to the pattern start" {
@@ -4782,6 +4823,35 @@ test ":load routes synth and slicer editor views to their audio types" {
     for (":load") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(app_mod.BrowserPurpose.load_slice, app.browser_purpose);
+}
+
+test "entering an empty slicer track from tracks view jumps straight to the file browser" {
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    var app = try appRootedAt(&tmp);
+    defer app.deinit();
+
+    try app.session.setInstrument(0, .slicer);
+    app.cursor = 0;
+    app.view = .tracks;
+    app.handleKey(.enter, 0);
+
+    try std.testing.expectEqual(AppView.file_browser, app.view);
+    try std.testing.expectEqual(app_mod.BrowserPurpose.load_slice, app.browser_purpose);
+    try std.testing.expectEqual(AppView.slicer_grid, app.prev_view);
+    app.handleKey(.escape, 0);
+    try std.testing.expectEqual(AppView.slicer_grid, app.view);
+
+    // Once a clip is loaded, re-entering the track lands in the grid
+    // itself instead of bouncing back to the browser.
+    const sl = app.slicerInst();
+    sl.sliceInto(1);
+    app.allocator.free(sl.samples);
+    sl.samples = try app.allocator.alloc(f32, 4);
+    app.view = .tracks;
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqual(AppView.slicer_grid, app.view);
 }
 
 test ":load in arrangement refuses without a sampler track, then targets a whole clip" {

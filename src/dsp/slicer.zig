@@ -225,6 +225,17 @@ pub const Slicer = struct {
     /// sample sidecar, so this must only re-point every slice's `.samples`
     /// at the fresh buffer without touching `slice_count` or any slice's own
     /// params, or the just-restored slicing would be wiped out from under it.
+    /// Best-effort check for whether a clip is loaded - used by editors
+    /// deciding whether to show an empty state (or, for the GUI/TUI slicer
+    /// entry point, jump straight to the file browser instead). Not the
+    /// audio thread's own gate, so a missed lock just reports "has audio"
+    /// rather than spinning.
+    pub fn hasAudio(self: *Slicer) bool {
+        if (!self.sample_lock.tryLock()) return true;
+        defer self.sample_lock.unlock();
+        return self.samples.len > 0;
+    }
+
     pub fn loadWav(self: *Slicer, wav_data: []const u8, name: []const u8, reset_slices: bool) !void {
         const samples = try pad_mod.decodeWav(self.allocator, wav_data, self.sample_rate);
 

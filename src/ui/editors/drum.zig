@@ -170,15 +170,23 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                     } });
                     app.setStatus("preview: pad {d}", .{pad.* + 1});
                 },
+                // Resize by a whole (decorative) bar, not a single step -
+                // now that pads hold real MIDI notes rather than on/off
+                // bits, nudging the loop by one grid cell at a time is a
+                // leftover from the old boolean step sequencer. Trailing
+                // notes past a shrink are dropped (see setStepCount's doc).
                 '-' => {
                     const dm = app.drumMachine();
+                    const delta: u16 = @intCast(step_grid.bar_len * app.takeCount());
                     history.push(app, history.captureDrum(app, app.drum_track));
-                    dm.setStepCount(dm.step_count - 1);
+                    dm.setStepCount(dm.step_count -| delta);
                     if (step.* >= dm.step_count) step.* = dm.step_count - 1;
                 },
                 '+' => {
+                    const dm = app.drumMachine();
+                    const delta: u16 = @intCast(step_grid.bar_len * app.takeCount());
                     history.push(app, history.captureDrum(app, app.drum_track));
-                    app.drumMachine().setStepCount(app.drumMachine().step_count + 1);
+                    dm.setStepCount(dm.step_count +| delta);
                 },
                 'E' => doublePattern(app),
                 'c' => {
@@ -375,8 +383,17 @@ fn zoom(app: *App, delta: i8) void {
         app.setStatus("grid {s} would exceed the step ceiling - shorten the pattern first", .{next.label()});
         return;
     }
-    history.push(app, history.captureDrum(app, app.drum_track));
-    if (!dm.setStepsPerBeatPreservingTime(spb)) return;
+    // Capture before mutating (undo needs the pre-change state) but only
+    // push it once the resize actually lands - `setStepsPerBeatPreservingTime`
+    // refuses in place rather than dropping a hit, and a refusal shouldn't
+    // leave a no-op undo entry behind.
+    var entry = history.captureDrum(app, app.drum_track);
+    if (!dm.setStepsPerBeatPreservingTime(spb)) {
+        if (entry) |*e| e.deinit(app.allocator);
+        app.setStatus("grid {s} would collide two hits onto one step - move or delete one first", .{next.label()});
+        return;
+    }
+    history.push(app, entry);
     app.drum_grid = next;
     app.setStatus("grid: {s} ({d} steps)", .{ app.drum_grid.label(), dm.step_count });
 }
