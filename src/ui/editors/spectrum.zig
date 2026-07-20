@@ -546,6 +546,20 @@ pub fn paramToggleNames(k: FxKind, idx: usize) ?[2][]const u8 {
     };
 }
 
+/// True for params whose value names a list entry - a track, a pad - rather
+/// than measuring a quantity. The TUI's bar-row rendering already reads
+/// fine either way (it shows the resolved name via `formatValue` regardless
+/// of what the bar fill implies), but a GUI knob's drag-to-scrub and filled
+/// arc are a "more/less" affordance that misreads for "which one of these";
+/// `views/fx.zig`'s `drawParam` checks this to draw a prev/next stepper
+/// instead, same reasoning as `paramToggleNames` above for 2-state params.
+pub fn isListParam(k: FxKind, idx: usize) bool {
+    return switch (k) {
+        .comp => idx == 5 or idx == 6,
+        else => false,
+    };
+}
+
 // zig fmt: off
 /// Clamped absolute set of param `idx` in `p` - bounds match `paramRange`.
 pub fn setParam(app: *App, p: *FxPayload, idx: usize, value: f32) void {

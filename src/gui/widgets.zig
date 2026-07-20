@@ -218,6 +218,54 @@ pub fn paramKnob(label_text: []const u8, id: [:0]const u8, args: Knob) KnobResul
     return result;
 }
 
+/// A param whose values name discrete list entries (a track, a pad, a
+/// mode) rather than measuring a continuum - a knob's drag-to-scrub and
+/// filled-arc both imply "more/less of a quantity", which misreads for
+/// "which one of these". Prev/next buttons plus the resolved name (not the
+/// raw number a knob would show) read as picking an item instead.
+pub const ListStepper = struct {
+    v: *f32,
+    min: f32,
+    max: f32,
+    display: []const u8,
+    accent: [4]f32,
+    focused: bool = false,
+};
+
+pub fn listStepper(label_text: []const u8, id: [:0]const u8, args: ListStepper) KnobResult {
+    const patina = &gui_style.palette;
+    var changed = false;
+    zgui.beginGroup();
+    zgui.textColored(if (args.focused) args.accent else patina.fg1, "{s}", .{label_text});
+    var prev_buf: [48]u8 = undefined;
+    const prev_id = std.fmt.bufPrintZ(&prev_buf, "-##{s}-prev", .{id}) catch "-##prev";
+    zgui.beginDisabled(.{ .disabled = args.v.* <= args.min });
+    if (zgui.smallButton(prev_id)) {
+        const next = std.math.clamp(args.v.* - 1, args.min, args.max);
+        if (next != args.v.*) {
+            args.v.* = next;
+            changed = true;
+        }
+    }
+    zgui.endDisabled();
+    zgui.sameLine(.{ .spacing = 6 });
+    zgui.textColored(if (args.focused) patina.fg0 else patina.fg2, "{s}", .{args.display});
+    zgui.sameLine(.{ .spacing = 6 });
+    var next_buf: [48]u8 = undefined;
+    const next_id = std.fmt.bufPrintZ(&next_buf, "+##{s}-next", .{id}) catch "+##next";
+    zgui.beginDisabled(.{ .disabled = args.v.* >= args.max });
+    if (zgui.smallButton(next_id)) {
+        const next = std.math.clamp(args.v.* + 1, args.min, args.max);
+        if (next != args.v.*) {
+            args.v.* = next;
+            changed = true;
+        }
+    }
+    zgui.endDisabled();
+    zgui.endGroup();
+    return .{ .changed = changed, .activated = changed };
+}
+
 /// A 2D pad for a correlated pair of params (e.g. filter cutoff+resonance):
 /// click/drag anywhere in the square to set both at once from the cursor's
 /// absolute position, unlike the knob's relative drag (a position in 2D has
