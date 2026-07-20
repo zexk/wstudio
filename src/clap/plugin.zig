@@ -450,15 +450,22 @@ pub const ClapPlugin = struct {
         }
     }
 
+    /// Builds a `size`-sized, now-timed CLAP core-space event header for
+    /// `event_type` - shared by pushNote/pushMidi/pushParameter, which
+    /// otherwise each repeat the same 5-field literal.
+    fn eventHeader(size: u32, event_type: u16) abi.EventHeader {
+        return .{
+            .size = size,
+            .time = 0,
+            .space_id = abi.core_event_space_id,
+            .event_type = event_type,
+            .flags = 0,
+        };
+    }
+
     fn pushNote(self: *ClapPlugin, event_type: u16, key: ?u7, velocity: f32) void {
         self.events.push(.{ .note = .{
-            .header = .{
-                .size = @sizeOf(abi.EventNote),
-                .time = 0,
-                .space_id = abi.core_event_space_id,
-                .event_type = event_type,
-                .flags = 0,
-            },
+            .header = eventHeader(@sizeOf(abi.EventNote), event_type),
             .note_id = -1,
             .port_index = if (key == null) -1 else 0,
             .channel = if (key == null) -1 else 0,
@@ -469,13 +476,7 @@ pub const ClapPlugin = struct {
 
     fn pushMidi(self: *ClapPlugin, data: [3]u8) void {
         self.events.push(.{ .midi = .{
-            .header = .{
-                .size = @sizeOf(abi.EventMidi),
-                .time = 0,
-                .space_id = abi.core_event_space_id,
-                .event_type = abi.event_midi,
-                .flags = 0,
-            },
+            .header = eventHeader(@sizeOf(abi.EventMidi), abi.event_midi),
             .port_index = 0,
             .data = data,
         } });
@@ -541,13 +542,7 @@ pub const ClapPlugin = struct {
 
     fn pushParameter(self: *ClapPlugin, id_value: u32, cookie: ?*anyopaque, value: f64) void {
         self.events.push(.{ .param = .{
-            .header = .{
-                .size = @sizeOf(abi.EventParamValue),
-                .time = 0,
-                .space_id = abi.core_event_space_id,
-                .event_type = abi.event_param_value,
-                .flags = 0,
-            },
+            .header = eventHeader(@sizeOf(abi.EventParamValue), abi.event_param_value),
             .param_id = id_value,
             .cookie = cookie,
             .note_id = -1,
