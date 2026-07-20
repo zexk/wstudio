@@ -625,9 +625,7 @@ pub const max_param_display_rows = 256;
 /// buffer while it's being typed (live narrowing), else the last submitted
 /// pattern - same shape as `preset_ed.activeFilter`.
 pub fn activeParamFilter(app: *App) []const u8 {
-    if (app.modal.mode == .search and app.view == .automation_param_picker)
-        return app.modal.cmd_buf[0..app.modal.cmd_len];
-    return app.automation_param_filter_buf[0..app.automation_param_filter_len];
+    return app.pickerFilterText(.automation_param_picker, &app.automation_param_filter_buf, app.automation_param_filter_len);
 }
 
 fn paramMatches(p: ws.dsp.device.AutomatableParam, filter: []const u8) bool {
