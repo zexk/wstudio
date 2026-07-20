@@ -18,7 +18,10 @@ jobs:
           version: 0.16.0
 
       - name: Install Linux build dependencies
-        run: sudo apt-get update && sudo apt-get install --yes libasound2-dev
+        run: |
+          sudo apt-get update && sudo apt-get install --yes \
+            libasound2-dev libgl1-mesa-dev libx11-dev libxcursor-dev \
+            libxi-dev libxinerama-dev libxrandr-dev
 
       - name: Build Linux release
         run: zig build -Doptimize=ReleaseSafe
