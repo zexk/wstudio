@@ -1,75 +1,26 @@
+//! Help view: a short header/launcher strip over the live keyboard/command
+//! reference. The reference itself is rendered from `ui/help.zig`'s shared
+//! `HelpText` model - the same command table + user keymaps the TUI's
+//! drawHelp reads - instead of a hand-kept, easily stale row list. `j/k/d/u`
+//! and `/` search are already wired generically in `ui/app.zig` (they just
+//! move `help_scroll`/`help_search_hit`); this file only has to render the
+//! window those fields point at.
+
+const std = @import("std");
 const zgui = @import("zgui");
+const help_model = @import("../../ui/help.zig");
+const ansi = @import("../../ui/ansi.zig");
 const style = @import("../style.zig");
 
 const color = style.color;
 const patina = &style.palette;
 
-const Row = struct { key: []const u8, text: []const u8 };
-
-const transport_rows = [_]Row{
-    .{ .key = "Space", .text = "Play or stop" },
-    .{ .key = "gg / Home", .text = "Seek to start" },
-    .{ .key = "G / End", .text = "Seek to arrangement end" },
-    .{ .key = "[ / ]", .text = "Master volume down / up" },
-};
-
-const editing_rows = [_]Row{
-    .{ .key = "j / k", .text = "Move the active selection" },
-    .{ .key = "m / S", .text = "Mute / solo selected track" },
-    .{ .key = "i / Esc", .text = "Enter / leave piano mode" },
-    .{ .key = "a..p", .text = "Play notes in insert mode" },
-    .{ .key = "z / x", .text = "Octave down / up" },
-};
-
-const workspace_rows = [_]Row{
-    .{ .key = "Tracks", .text = "Track list and mixer state" },
-    .{ .key = "Arrange", .text = "Song clips by bar" },
-    .{ .key = "Piano", .text = "Melodic step editing" },
-    .{ .key = "Drums", .text = "Pad step sequencer" },
-    .{ .key = "Slicer", .text = "Slice step sequencer" },
-};
-
-const device_rows = [_]Row{
-    .{ .key = "Synth", .text = "Oscillator and modulation editor" },
-    .{ .key = "Sampler", .text = "Sample playback and envelope" },
-    .{ .key = "FX", .text = "Chain, bypass, reorder, and remove" },
-    .{ .key = "Auto", .text = "Clip gain and pan envelopes" },
-    .{ .key = "? / F1", .text = "Return to this reference" },
-};
-
 pub fn draw(app: anytype) void {
     drawHeader();
     zgui.spacing();
-    const gap: f32 = 10;
-    const available = zgui.getContentRegionAvail()[0];
-    if (available < 700) {
-        drawPanel("help-transport", "TRANSPORT", patina.danger, &transport_rows);
-        zgui.spacing();
-        drawPanel("help-editing", "KEYBOARD EDITING", patina.rhythm, &editing_rows);
-        zgui.spacing();
-        drawPanel("help-workspaces", "WORKSPACES", patina.focus, &workspace_rows);
-        zgui.spacing();
-        drawPanel("help-devices", "DEVICES AND DATA", patina.audio, &device_rows);
-        zgui.spacing();
-        drawLaunchers(app);
-        return;
-    }
-    const column_w = (available - gap) / 2;
-    if (zgui.beginChild("help-left", .{ .w = column_w, .h = 0 })) {
-        drawPanel("help-transport", "TRANSPORT", patina.danger, &transport_rows);
-        zgui.spacing();
-        drawPanel("help-editing", "KEYBOARD EDITING", patina.rhythm, &editing_rows);
-    }
-    zgui.endChild();
-    zgui.sameLine(.{ .spacing = gap });
-    if (zgui.beginChild("help-right", .{ .w = 0, .h = 0 })) {
-        drawPanel("help-workspaces", "WORKSPACES", patina.focus, &workspace_rows);
-        zgui.spacing();
-        drawPanel("help-devices", "DEVICES AND DATA", patina.audio, &device_rows);
-        zgui.spacing();
-        drawLaunchers(app);
-    }
-    zgui.endChild();
+    drawLaunchers(app);
+    zgui.spacing();
+    drawReference(app);
 }
 
 fn drawHeader() void {
@@ -85,27 +36,9 @@ fn drawHeader() void {
     draw_list.addText(.{ origin[0] + width - 180, origin[1] + 27 }, color(patina.modulation), "VIM MODAL WORKFLOW", .{});
 }
 
-fn drawPanel(id: [:0]const u8, title: []const u8, accent: [4]f32, rows: []const Row) void {
-    const height = 52 + @as(f32, @floatFromInt(rows.len)) * 36;
-    if (zgui.beginChild(id, .{ .w = 0, .h = height, .child_flags = .{ .border = true } })) {
-        zgui.textColored(accent, "{s}", .{title});
-        zgui.separator();
-        for (rows) |row| drawRow(row, accent);
-    }
-    zgui.endChild();
-}
-
-fn drawRow(row: Row, accent: [4]f32) void {
-    const origin = zgui.getCursorScreenPos();
-    const draw_list = zgui.getWindowDrawList();
-    const key_w: f32 = 112;
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + key_w, origin[1] + 27 }, .col = color(patina.bg2), .rounding = 3 });
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + 3, origin[1] + 27 }, .col = color(accent), .rounding = 2 });
-    draw_list.addText(.{ origin[0] + 10, origin[1] + 5 }, color(patina.fg0), "{s}", .{row.key});
-    draw_list.addText(.{ origin[0] + key_w + 13, origin[1] + 5 }, color(patina.fg1), "{s}", .{row.text});
-    zgui.dummy(.{ .w = 0, .h = 28 });
-}
-
+/// Faster mouse-driven paths to views also reachable by keybind (enter on a
+/// blank track, `:preset`, tab to the file browser) - additive, not a
+/// second source of truth for what those views contain.
 fn drawLaunchers(app: anytype) void {
     zgui.textDisabled("QUICK OPEN", .{});
     zgui.separator();
@@ -116,4 +49,64 @@ fn drawLaunchers(app: anytype) void {
     if (zgui.button("PRESETS", .{ .h = 34 })) app.openPicker(.preset_picker);
     zgui.sameLine(.{ .spacing = 6 });
     if (zgui.button("PROJECTS", .{ .h = 34 })) app.core.view = .file_browser;
+}
+
+fn drawReference(app: anytype) void {
+    var t = help_model.HelpText{};
+    help_model.buildHelp(&t, app.core.allCmds(), app.core.userKeymapsSlice());
+    if (t.count == 0) return;
+
+    const line_h: f32 = 20;
+    const header_h: f32 = 26;
+    const body_h = @max(200, zgui.getContentRegionAvail()[1] - header_h);
+    const visible: usize = @intFromFloat(@max(1.0, body_h / line_h));
+    const max_scroll = t.count -| visible;
+    if (app.core.help_scroll > max_scroll) app.core.help_scroll = max_scroll;
+    const off = app.core.help_scroll;
+    const end = @min(off + visible, t.count);
+
+    zgui.textColored(patina.modulation, "REFERENCE", .{});
+    zgui.sameLine(.{ .spacing = 12 });
+    zgui.textDisabled("esc: close   j/k/d/u: scroll   /: search   {d}-{d}/{d}", .{ off + 1, end, t.count });
+    zgui.separator();
+
+    if (zgui.beginChild("help-reference-body", .{ .w = 0, .h = body_h })) {
+        var i = off;
+        while (i < end) : (i += 1) drawLine(app, t.line(i), i);
+    }
+    zgui.endChild();
+}
+
+/// Classifies one already-ANSI-formatted help line by which of
+/// `ui/help.zig`'s three row builders (`section`/`group`/`key`) produced
+/// it, and renders the GUI equivalent of that styling - same shared text,
+/// a GUI-appropriate paint instead of terminal SGR codes.
+fn drawLine(app: anytype, raw: []const u8, index: usize) void {
+    if (raw.len == 0) {
+        zgui.spacing();
+        return;
+    }
+    const hit = if (app.core.help_search_hit) |h| h == index else false;
+    const text_color = if (hit) patina.focus else patina.fg1;
+    var buf: [512]u8 = undefined;
+
+    if (std.mem.startsWith(u8, raw, ansi.bold)) {
+        zgui.spacing();
+        zgui.textColored(if (hit) patina.focus else patina.modulation, "{s}", .{ansi.stripAnsi(raw, &buf)});
+        return;
+    }
+    if (std.mem.startsWith(u8, raw, ansi.dim)) {
+        zgui.textColored(if (hit) patina.focus else patina.fg3, "{s}", .{ansi.stripAnsi(raw, &buf)});
+        return;
+    }
+    // A `key()` row: accent-colored key text, `rst`, then dim description.
+    var key_buf: [64]u8 = undefined;
+    var desc_buf: [448]u8 = undefined;
+    const split = std.mem.indexOf(u8, raw, ansi.rst) orelse raw.len;
+    const key_text = ansi.stripAnsi(raw[0..split], &key_buf);
+    const desc_text = if (split < raw.len) ansi.stripAnsi(raw[split + ansi.rst.len ..], &desc_buf) else "";
+    const padded_key = std.fmt.bufPrint(&buf, "{s: <18}", .{key_text}) catch key_text;
+    zgui.textColored(if (hit) patina.focus else patina.audio, "{s}", .{padded_key});
+    zgui.sameLine(.{ .spacing = 4 });
+    zgui.textColored(text_color, "{s}", .{desc_text});
 }
