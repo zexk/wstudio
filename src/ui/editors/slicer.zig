@@ -394,17 +394,17 @@ fn sequenceSourceOrder(app: *App) void {
 /// w/b: jump the step cursor by 4-step groups - see step_grid.jumpBar for
 /// the bar-width rationale (same tier as the drum grid's w/b).
 fn jumpBar(app: *App, delta: i32) void {
-    step_grid.jumpBar(&app.slicer_cursor[1], delta, app.slicerInst().step_count);
+    step_grid.jumpBar(&app.slicer_cursor[1], delta, app.slicerInst().step_count, step_grid.bar_len);
 }
 
 /// dw/yw's range end - see step_grid.operatorBarForward.
 fn operatorBarForward(app: *App, n: i32) void {
-    step_grid.operatorBarForward(&app.slicer_cursor[1], n, app.slicerInst().step_count);
+    step_grid.operatorBarForward(&app.slicer_cursor[1], n, app.slicerInst().step_count, step_grid.bar_len);
 }
 
 /// db/yb's range start - see step_grid.operatorBarBackward.
 fn operatorBarBackward(app: *App, n: i32) void {
-    step_grid.operatorBarBackward(&app.slicer_cursor[1], n, app.slicerInst().step_count);
+    step_grid.operatorBarBackward(&app.slicer_cursor[1], n, app.slicerInst().step_count, step_grid.bar_len);
 }
 
 /// Arm `d`/`y` as a pending operator, remembering the cursor step as the

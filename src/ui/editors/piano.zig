@@ -15,6 +15,7 @@ const history = @import("../history.zig");
 const spectrum = @import("spectrum.zig");
 const synth = @import("synth.zig");
 const theory = ws.theory;
+const step_grid = @import("step_grid.zig");
 
 /// Steps per beat as f64, driven by `App.piano_grid` (`T` toggles it).
 fn stepsPerBeatF(app: *App) f64 {
@@ -719,12 +720,7 @@ fn barLenSteps(app: *App) u16 {
 /// tier up from h/l's step granularity) - snaps to the nearest beat boundary
 /// first, then moves whole beats from there.
 fn jumpBar(app: *App, max_step: u16, delta: i32) void {
-    const bar_len = barLenSteps(app);
-    if (bar_len == 0) return;
-    const cur_bar = @divFloor(@as(i64, app.piano_cursor_step), @as(i64, bar_len));
-    const target_step = (cur_bar + @as(i64, delta)) * @as(i64, bar_len);
-    const top = @max(@as(i64, max_step) - 1, 0);
-    app.piano_cursor_step = @intCast(std.math.clamp(target_step, 0, top));
+    step_grid.jumpBar(&app.piano_cursor_step, delta, max_step, barLenSteps(app));
     ensureVisible(app);
 }
 
@@ -732,12 +728,7 @@ fn jumpBar(app: *App, max_step: u16, delta: i32) void {
 /// not w's own landing step (the *next* beat's first step): vim's dw
 /// word-end nuance, see docs/editing-grammar.md.
 fn operatorBarForward(app: *App, max_step: u16, n: i32) void {
-    const bar_len = barLenSteps(app);
-    if (bar_len == 0) return;
-    const cur_bar = @divFloor(@as(i64, app.piano_cursor_step), @as(i64, bar_len));
-    const hi = (cur_bar + @as(i64, n)) * @as(i64, bar_len) - 1;
-    const top = @max(@as(i64, max_step) - 1, 0);
-    app.piano_cursor_step = @intCast(std.math.clamp(hi, 0, top));
+    step_grid.operatorBarForward(&app.piano_cursor_step, n, max_step, barLenSteps(app));
 }
 
 /// db/yb's range start: the first step of the nth beat back - the anchor
@@ -745,12 +736,7 @@ fn operatorBarForward(app: *App, max_step: u16, n: i32) void {
 /// (inclusive) end, so this covers "back to the start of this-or-an-
 /// earlier beat, through where you started."
 fn operatorBarBackward(app: *App, max_step: u16, n: i32) void {
-    const bar_len = barLenSteps(app);
-    if (bar_len == 0) return;
-    const cur_bar = @divFloor(@as(i64, app.piano_cursor_step), @as(i64, bar_len));
-    const lo = (cur_bar - @as(i64, n) + 1) * @as(i64, bar_len);
-    const top = @max(@as(i64, max_step) - 1, 0);
-    app.piano_cursor_step = @intCast(std.math.clamp(lo, 0, top));
+    step_grid.operatorBarBackward(&app.piano_cursor_step, n, max_step, barLenSteps(app));
 }
 
 /// Arm `d`/`y` as a pending operator (see the operator-pending block in
@@ -810,12 +796,8 @@ fn exitVisual(app: *App) void {
     app.piano_visual_anchor = null;
 }
 
-/// The selected step range, inclusive both ends.
-const StepRange = struct { lo: u16, hi: u16 };
-
-fn selectionRange(app: *App) StepRange {
-    const anchor = app.piano_visual_anchor orelse app.piano_cursor_step;
-    return .{ .lo = @min(anchor, app.piano_cursor_step), .hi = @max(anchor, app.piano_cursor_step) };
+fn selectionRange(app: *App) step_grid.StepRange(u16) {
+    return step_grid.selectionRange(u16, app.piano_visual_anchor, app.piano_cursor_step);
 }
 
 /// Yank every note starting within the selected step range (any pitch) into
