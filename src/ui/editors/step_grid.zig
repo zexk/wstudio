@@ -8,6 +8,9 @@
 //! Key dispatch, undo/status wiring, and view-specific rendering stay in
 //! each editor; they differ enough (chop gestures, choke groups, pad
 //! rename, ...) that merging them would cost more than it'd save.
+//! `armOperator`/`exitVisual` are the one exception: thin enough (pure
+//! App-state, no instrument or undo involvement) that sharing them costs
+//! nothing extra to keep in sync.
 //!
 //! Step-index types differ between the two: Slicer keeps its original u8
 //! (max_steps=64); the drum machine widened to u16 once its own storage
@@ -119,6 +122,28 @@ pub fn stepAt(comptime T: type, gutter: usize, cell_width: usize, scroll: u32, s
         col += cell_width;
     }
     return null;
+}
+
+/// Arms `op` ('d' or 'y') as a pending operator (see the operator-pending
+/// block in each editor's `handleKey`): remembers the cursor as the range
+/// anchor - same field visual mode's `v` sets, so the eventual delete/yank
+/// reuses `selectionRange` as-is - and sets the status line. Shared body of
+/// drum.zig's/slicer.zig's `armOperator`, which differ only in field names
+/// and the row noun ("pad"/"slice") in the `d` status message.
+pub fn armOperator(app: anytype, anchor: anytype, cursor: anytype, op_pending: anytype, op: u8, row_noun: []const u8) void {
+    anchor.* = cursor.*;
+    op_pending.* = op;
+    if (op == 'd')
+        app.setStatus("d: h/l/H/L/g/G/w/b act on the range, dd clears the cursor {s}'s row", .{row_noun})
+    else
+        app.setStatus("y: h/l/H/L/g/G/w/b act on the range, yy yanks the whole pattern", .{});
+}
+
+/// Leave visual mode, clearing the anchor so the selection can't linger.
+/// Shared body of drum.zig's/slicer.zig's `exitVisual`.
+pub fn exitVisual(app: anytype, anchor: anytype) void {
+    _ = app.modal.setMode(.normal);
+    anchor.* = null;
 }
 
 /// Force one step to a given active/velocity state via the public toggle +
