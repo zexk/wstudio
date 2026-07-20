@@ -172,6 +172,12 @@
 -- the active one).
 -- wstudio.o.gui_theme = "patina"
 
+-- [gui] Panel/window corner style: "square" or "rounded". Only affects
+-- ImGui's own chrome (windows, panels, popups, buttons) - elements that
+-- are rounded by their own nature (piano-roll/step-grid note blocks,
+-- knobs) are untouched either way.
+-- wstudio.o.gui_panel_border = "square"
+
 -- [gui] Initial window size, in pixels. Width range 960-7680, height
 -- range 600-4320 (the window stays freely resizable).
 -- wstudio.o.gui_window_width = 1440

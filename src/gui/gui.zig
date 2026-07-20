@@ -108,7 +108,7 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
     // buttons light up instead of moving the app cursor.
     zgui.io.setIniFilename(null);
     gui_style.selectPalette(user_config.gui_theme);
-    gui_style.setTheme();
+    gui_style.setTheme(user_config.gui_panel_border);
     gui_style.knob_drag_pixels = user_config.gui_knob_drag_pixels;
     gui_style.envelope_drag_pixels = user_config.gui_envelope_drag_pixels;
     gui_style.meter_decay_db_per_s = user_config.gui_meter_decay_db_s;
@@ -195,7 +195,7 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
                 user_config = runtime.config;
                 app.core.afterConfigReload(user_config);
                 gui_style.selectPalette(user_config.gui_theme);
-                gui_style.setTheme();
+                gui_style.setTheme(user_config.gui_panel_border);
                 gui_style.knob_drag_pixels = user_config.gui_knob_drag_pixels;
                 gui_style.envelope_drag_pixels = user_config.gui_envelope_drag_pixels;
                 gui_style.meter_decay_db_per_s = user_config.gui_meter_decay_db_s;
@@ -214,7 +214,7 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
             app.core.pending_colorscheme = false;
             user_config.gui_theme = runtime.config.gui_theme;
             gui_style.selectPalette(user_config.gui_theme);
-            gui_style.setTheme();
+            gui_style.setTheme(user_config.gui_panel_border);
         }
         drawFrame();
     }

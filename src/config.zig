@@ -33,6 +33,13 @@ pub const GuiTheme = theme_identity.Name;
 /// their terminal colors on purpose - see tui/theme.zig.
 pub const TuiTheme = enum { none, patina, patina_light, graphite, graphite_light, umbra };
 
+/// GUI panel/window corner style. Scoped to ImGui's own chrome (windows,
+/// child panels, popups, buttons) via the global style vars this drives -
+/// elements that are rounded by their own nature rather than as GUI theming
+/// (piano-roll/step-grid note blocks, knobs) draw their own explicit
+/// `.rounding` per call and never read these, so they're untouched either way.
+pub const PanelBorder = enum { square, rounded };
+
 /// A config-owned path buffer for string-typed `wstudio.o` options.
 /// `Config` is copied by value and reset
 /// wholesale on `:reload-config` (`resetForReload`'s `self.config = .{}`),
@@ -85,6 +92,7 @@ pub const Config = struct {
     gui_font_size: f32 = 15.0,
     gui_vsync: bool = true,
     gui_theme: GuiTheme = .patina,
+    gui_panel_border: PanelBorder = .square,
     gui_window_width: u16 = 1440,
     gui_window_height: u16 = 900,
     undo_history_entries: u16 = 64,
@@ -150,6 +158,7 @@ const option_specs = [_]OptionSpec{
     .{ .name = "gui_font_size", .min = 8, .max = 40, .scope = .gui },
     .{ .name = "gui_vsync", .scope = .gui },
     .{ .name = "gui_theme", .scope = .gui },
+    .{ .name = "gui_panel_border", .scope = .gui },
     .{ .name = "gui_window_width", .min = 960, .max = 7680, .scope = .gui },
     .{ .name = "gui_window_height", .min = 600, .max = 4320, .scope = .gui },
     .{ .name = "undo_history_entries", .min = 8, .max = 512 },
@@ -1573,6 +1582,14 @@ test "Lua API handles enum options as strings" {
     try std.testing.expectEqual(GuiTheme.umbra, rt.config.gui_theme);
     try std.testing.expectError(error.LuaError, rt.loadString("wstudio.o.gui_theme = 'neon'"));
     try rt.loadString("local ok, err = pcall(function() wstudio.o.gui_theme = 'neon' end); assert(err:find('patina, patina_light, graphite, graphite_light, umbra') ~= nil)");
+}
+
+test "Lua API handles gui_panel_border as an enum string" {
+    var rt = try Runtime.init(.gui);
+    defer rt.deinit();
+    try rt.loadString("assert(wstudio.o.gui_panel_border == 'square'); wstudio.o.gui_panel_border = 'rounded'; assert(wstudio.o.gui_panel_border == 'rounded')");
+    try std.testing.expectEqual(PanelBorder.rounded, rt.config.gui_panel_border);
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.o.gui_panel_border = 'circular'"));
 }
 
 test "Lua API round 2 options set and read" {
