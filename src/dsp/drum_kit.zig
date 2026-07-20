@@ -147,6 +147,18 @@ pub const SnareParams = struct {
     hp_hz: f32 = 900.0,
 };
 
+/// Two-detuned-sine "shell" tone, exponentially decaying - shared by
+/// snareGen and rimGen. Advances and wraps the caller's own phase
+/// accumulators (`p1`/`p2`) in place.
+fn twoToneBody(p1: *f32, p2: *f32, hz1: f32, hz2: f32, srf: f32, t: f32, decay: f32) f32 {
+    const tone = (@sin(tau * p1.*) * 0.6 + @sin(tau * p2.*) * 0.4) * expEnv(t, decay);
+    p1.* += hz1 / srf;
+    p2.* += hz2 / srf;
+    if (p1.* >= 1.0) p1.* -= 1.0;
+    if (p2.* >= 1.0) p2.* -= 1.0;
+    return tone;
+}
+
 /// Tuned two-tone shell plus bandpassed noise for the snares.
 fn snareGen(allocator: std.mem.Allocator, sr: u32, p: SnareParams) std.mem.Allocator.Error![]f32 {
     const srf: f32 = @floatFromInt(sr);
@@ -164,11 +176,7 @@ fn snareGen(allocator: std.mem.Allocator, sr: u32, p: SnareParams) std.mem.Alloc
     for (buf, 0..) |*s, i| {
         const t = @as(f32, @floatFromInt(i)) / srf;
         // Shell: two detuned sines, fast decay.
-        const tone = (@sin(tau * p1) * 0.6 + @sin(tau * p2) * 0.4) * expEnv(t, p.tone_decay);
-        p1 += p.tone1_hz / srf;
-        p2 += p.tone2_hz / srf;
-        if (p1 >= 1.0) p1 -= 1.0;
-        if (p2 >= 1.0) p2 -= 1.0;
+        const tone = twoToneBody(&p1, &p2, p.tone1_hz, p.tone2_hz, srf, t, p.tone_decay);
         // Snare buzz: noise band-passed ~0.9–8.5 kHz, slightly longer decay.
         const n = rand.float(f32) * 2.0 - 1.0;
         const noise = hp.hp(lp.lp(n, lp_a), hp_a) * expEnv(t, p.noise_decay);
@@ -339,11 +347,7 @@ fn rimGen(allocator: std.mem.Allocator, sr: u32, p: RimParams) std.mem.Allocator
     var p2: f32 = 0;
     for (buf, 0..) |*s, i| {
         const t = @as(f32, @floatFromInt(i)) / srf;
-        const tone = (@sin(tau * p1) * 0.6 + @sin(tau * p2) * 0.4) * expEnv(t, p.tone_decay);
-        p1 += p.tone1_hz / srf;
-        p2 += p.tone2_hz / srf;
-        if (p1 >= 1.0) p1 -= 1.0;
-        if (p2 >= 1.0) p2 -= 1.0;
+        const tone = twoToneBody(&p1, &p2, p.tone1_hz, p.tone2_hz, srf, t, p.tone_decay);
         const click = (rand.float(f32) * 2.0 - 1.0) * expEnv(t, p.click_decay) * 0.5;
         s.* = saturate((tone + click) * p.drive, 1.0);
     }
