@@ -328,24 +328,35 @@ fn readInstHeaders(allocator: std.mem.Allocator, data: []const u8) ![]InstHeader
     return out;
 }
 
-fn readBags(allocator: std.mem.Allocator, data: []const u8) ![]Bag {
-    if (data.len % 4 != 0 or data.len == 0) return error.MalformedChunk;
-    const out = try allocator.alloc(Bag, data.len / 4);
-    for (out, 0..) |*b, i| {
+/// Parses `data` as back-to-back 4-byte {u16, u16} records into field0/
+/// field1 of `T` - shared shape of readBags/readGens, which otherwise
+/// differ only in field names and whether an empty chunk is malformed
+/// (bag/gen index arrays always carry at least the terminal sentinel
+/// record; a generator list may legitimately be empty).
+fn readPairRecords(
+    comptime T: type,
+    comptime field0: []const u8,
+    comptime field1: []const u8,
+    allocator: std.mem.Allocator,
+    data: []const u8,
+    reject_empty: bool,
+) ![]T {
+    if (data.len % 4 != 0 or (reject_empty and data.len == 0)) return error.MalformedChunk;
+    const out = try allocator.alloc(T, data.len / 4);
+    for (out, 0..) |*rec, i| {
         const r = data[i * 4 ..][0..4];
-        b.* = .{ .gen_ndx = readU16(r, 0), .mod_ndx = readU16(r, 2) };
+        @field(rec.*, field0) = readU16(r, 0);
+        @field(rec.*, field1) = readU16(r, 2);
     }
     return out;
 }
 
+fn readBags(allocator: std.mem.Allocator, data: []const u8) ![]Bag {
+    return readPairRecords(Bag, "gen_ndx", "mod_ndx", allocator, data, true);
+}
+
 fn readGens(allocator: std.mem.Allocator, data: []const u8) ![]GenRecord {
-    if (data.len % 4 != 0) return error.MalformedChunk;
-    const out = try allocator.alloc(GenRecord, data.len / 4);
-    for (out, 0..) |*g, i| {
-        const r = data[i * 4 ..][0..4];
-        g.* = .{ .id = readU16(r, 0), .raw = readU16(r, 2) };
-    }
-    return out;
+    return readPairRecords(GenRecord, "id", "raw", allocator, data, false);
 }
 
 fn readSampleHeaders(allocator: std.mem.Allocator, data: []const u8) ![]SampleHeader {
