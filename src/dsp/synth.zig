@@ -1521,14 +1521,16 @@ pub const PolySynth = struct {
         }
     }
 
-    fn noteOnPoly(self: *PolySynth, note: u7, velocity: f32) void {
-        self.newest_voice = self.allocVoice();
-        const v = &self.voices[self.newest_voice];
-        const was_active  = v.active;
-        const prev_log    = v.glide_log_freq;
-        const target_log  = std.math.log2(noteToFreq(note));
-        const start_log   = if (was_active and self.glide_s > 0.0) prev_log else target_log;
-        v.* = .{
+    /// Builds a freshly-triggered `Voice` for `note`/`velocity`, gliding
+    /// from `prev_log` (the outgoing voice's log-freq) if `was_active` and
+    /// glide is on, else starting flat at the target pitch - shared by
+    /// `noteOnPoly` (always takes this path) and `noteOnMono`'s
+    /// retrigger/first-note path (its legato path bypasses this entirely,
+    /// updating pitch on the still-running voice instead).
+    fn triggerVoice(self: *PolySynth, note: u7, velocity: f32, was_active: bool, prev_log: f32) Voice {
+        const target_log = std.math.log2(noteToFreq(note));
+        const start_log = if (was_active and self.glide_s > 0.0) prev_log else target_log;
+        return .{
             .active           = true,
             .note             = note,
             .velocity         = velocity,
@@ -1543,6 +1545,12 @@ pub const PolySynth = struct {
         };
     }
 
+    fn noteOnPoly(self: *PolySynth, note: u7, velocity: f32) void {
+        self.newest_voice = self.allocVoice();
+        const v = &self.voices[self.newest_voice];
+        v.* = self.triggerVoice(note, velocity, v.active, v.glide_log_freq);
+    }
+
     /// Activate or update the single mono/legato voice.
     /// retrigger=true → reset amplitude envelope from attack.
     fn noteOnMono(self: *PolySynth, note: u7, velocity: f32, retrigger: bool) void {
@@ -1551,21 +1559,7 @@ pub const PolySynth = struct {
         const was_active = v.active;
         const target_log = std.math.log2(noteToFreq(note));
         if (retrigger or !was_active) {
-            const start_log = if (was_active and self.glide_s > 0.0) v.glide_log_freq else target_log;
-            v.* = .{
-                .active           = true,
-                .note             = note,
-                .velocity         = velocity,
-                .stage            = .attack,
-                .stage2           = .attack,
-                .stage3           = .attack,
-                .glide_log_freq   = start_log,
-                .glide_rate       = if (was_active and self.glide_s > 0.0)
-                    (target_log - start_log) / @max(self.glide_s * self.sample_rate, 1.0)
-                else 0.0,
-                // zig fmt: on
-                .noise_rand_state = (@as(u32, note) *% 0x9E3779B9) | 1,
-            };
+            v.* = self.triggerVoice(note, velocity, was_active, v.glide_log_freq);
         } else {
             // Legato: update pitch only, envelope continues.
             v.note = note;
