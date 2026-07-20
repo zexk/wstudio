@@ -40,6 +40,10 @@ pub fn draw(app: anytype) void {
             if (drawEntry(entry.name, entry.is_dir, app.core.browser_cursor == i, i)) {
                 app.core.browser_cursor = i;
                 app.core.handleKey(.enter, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
+                // handleKey may have just freed/replaced browser_entries
+                // (descending into a directory, or closing the browser on a
+                // file pick) - the slice this loop is iterating is stale now.
+                break;
             }
         }
     }
@@ -116,6 +120,7 @@ fn drawBookmarks(app: anytype) void {
             if (drawEntry(bookmark.path, bookmark.is_dir, app.core.bookmark_cursor == i, i)) {
                 app.core.bookmark_cursor = i;
                 app.core.handleKey(.enter, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
+                break;
             }
         }
     }
