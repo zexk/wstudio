@@ -79,10 +79,11 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "vol",         .desc = "[<dB>]  master volume (alias for :volume)", .run = wrap(cmdVol) },
     .{ .name = "seek",        .desc = "<bar>  move playhead to bar",         .run = wrap(cmdSeek) },
     .{ .name = "pad-rename",  .desc = "<1-64> <name>  rename a loaded drum pad (up to 8 chars)", .run = wrap(cmdPadRename), .scope = .drum },
-    .{ .name = "load",        .desc = "[file]  load the WAV type for the current view and selected instrument; omit the file to browse", .run = wrap(cmdLoad) },
+    .{ .name = "load",        .desc = "[file]  load the WAV/SF2 type for the current view and selected instrument; omit the file to browse", .run = wrap(cmdLoad) },
     .{ .name = "clap-instrument", .desc = "<plugin-id> <path>  load a CLAP instrument on the cursor track", .run = wrap(cmdClapInstrument) },
     .{ .name = "clap-fx",     .desc = "<plugin-id> <path>  append a CLAP effect to the cursor track", .run = wrap(cmdClapFx) },
     .{ .name = "clap-param",  .desc = "<1-based-index> [value]  inspect or set a CLAP instrument parameter", .run = wrap(cmdClapParam) },
+    .{ .name = "sf-preset",   .desc = "<bank> <program>  jump to a SoundFont preset by its MIDI bank/program number", .run = wrap(cmdSfPreset), .scope = .soundfont },
     .{ .name = "slice",       .desc = "<n>  equal-divide the slicer's loaded clip into n slices (1-64)", .run = wrap(cmdSlice), .scope = .slicer },
     .{ .name = "chop",        .desc = "[1-9]  chop the slicer's clip at detected transients (sensitivity, default 5)", .run = wrap(cmdChop), .scope = .slicer },
     .{ .name = "edit",        .desc = "[file]  open a project (refuses if unsaved changes; omit the file to browse)", .run = wrap(cmdEdit) },
@@ -568,6 +569,7 @@ pub fn cmdHelp(app: *App, _: []const u8) void {
         .drum_grid => .drum_grid,
         .slicer_grid => .slicer_grid,
         .sampler_editor => .sampler_editor,
+        .soundfont_editor => .soundfont_editor,
         .synth_editor, .synth_fx_picker => .synth_editor,
         .piano_roll => .piano_roll,
         .arrangement => .arrangement,
@@ -1021,6 +1023,25 @@ fn cursorSlicer(app: *App) ?*Slicer {
     return &app.session.racks.items[t].instrument.slicer;
 }
 
+/// The SoundfontPlayer on the cursor's track, or - if the soundfont editor
+/// is open - the one being edited. Null when neither is a soundfont track.
+/// Mirrors `cursorDrumMachine`'s two-fallback shape.
+fn cursorSoundfont(app: *App) ?*ws.dsp.SoundfontPlayer {
+    if (app.cursor < app.session.racks.items.len) {
+        switch (app.session.racks.items[app.cursor].instrument) {
+            .soundfont => |*sf| return sf,
+            else => {},
+        }
+    }
+    if (app.view == .soundfont_editor and app.soundfont_track < app.session.racks.items.len) {
+        switch (app.session.racks.items[app.soundfont_track].instrument) {
+            .soundfont => |*sf| return sf,
+            else => {},
+        }
+    }
+    return null;
+}
+
 /// The cursor's track index, or null when it's on the master row (or out
 /// of range). Shared fallback for commands whose leading `<track>` arg is
 /// now optional - same "no args: act on the selection" convenience
@@ -1039,6 +1060,7 @@ pub fn activeScope(app: *App) cmd_mod.Scope {
     if (cursorSampler(app) != null) return .sampler;
     if (cursorSynth(app) != null) return .synth;
     if (cursorSlicer(app) != null) return .slicer;
+    if (cursorSoundfont(app) != null) return .soundfont;
     return .any;
 }
 
@@ -1195,12 +1217,14 @@ fn cmdLoad(app: *App, args: []const u8) void {
         .arrangement => return cmdLoadClip(app, args),
         .synth_editor => return cmdLoadWavetable(app, args),
         .slicer_grid => return cmdLoadSlice(app, args),
+        .soundfont_editor => return cmdLoadSoundfont(app, args),
         else => {},
     }
     switch (activeScope(app)) {
         .drum, .sampler => cmdLoadSample(app, args),
         .synth => cmdLoadWavetable(app, args),
         .slicer => cmdLoadSlice(app, args),
+        .soundfont => cmdLoadSoundfont(app, args),
         .any => app.setStatus("load: select an instrument track first", .{}),
     }
 }
@@ -1305,6 +1329,75 @@ pub fn loadWavetableFromPath(app: *App, slot: ws.dsp.PolySynth.OscSlot, path: []
     };
     app.dirty = true;
     app.setStatus("wavetable loaded into osc {s}: {s}", .{ @tagName(slot), std.fs.path.basename(path) });
+}
+
+fn cmdLoadSoundfont(app: *App, args: []const u8) void {
+    if (cursorSoundfont(app) == null) {
+        app.setStatus("load: select a soundfont track first", .{});
+        return;
+    }
+    const trimmed = std.mem.trim(u8, args, " ");
+    if (trimmed.len == 0) {
+        app.openBrowser(.load_soundfont);
+        return;
+    }
+    var path_buf: [path_buf_len]u8 = undefined;
+    loadSoundfontFromPath(app, expandHome(&path_buf, trimmed));
+}
+
+/// Shared by `:load <file.sf2>` and the file browser's soundfont-load
+/// purpose (the browser hands over an already-resolved path - no `~` to
+/// expand).
+pub fn loadSoundfontFromPath(app: *App, path: []const u8) void {
+    const sf = cursorSoundfont(app) orelse {
+        app.setStatus("load: select a soundfont track first", .{});
+        return;
+    };
+    const data = readFileForLoad(app, path) orelse return;
+    defer app.allocator.free(data);
+    sf.loadSf2(data) catch |e| {
+        app.setStatus("load: parse error: {s}", .{@errorName(e)});
+        return;
+    };
+    app.dirty = true;
+    if (sf.presetCount() == 0) {
+        app.setStatus("soundfont loaded: {s} (no presets found)", .{std.fs.path.basename(path)});
+    } else {
+        app.setStatus("soundfont loaded: {s}  preset: {s}", .{ std.fs.path.basename(path), sf.presetName() });
+    }
+}
+
+/// `:sf-preset <bank> <program>` - jump straight to a preset by its MIDI
+/// bank/program pair, for users who already know the numbers rather than
+/// stepping the PRESET param row one at a time.
+fn cmdSfPreset(app: *App, args: []const u8) void {
+    const sf = cursorSoundfont(app) orelse {
+        app.setStatus("sf-preset: select a soundfont track first", .{});
+        return;
+    };
+    var it = std.mem.tokenizeAny(u8, args, " ");
+    const bank_s = it.next() orelse {
+        app.setStatus("usage: sf-preset <bank> <program>", .{});
+        return;
+    };
+    const program_s = it.next() orelse {
+        app.setStatus("usage: sf-preset <bank> <program>", .{});
+        return;
+    };
+    const bank = std.fmt.parseInt(u16, bank_s, 10) catch {
+        app.setStatus("sf-preset: bank must be a number", .{});
+        return;
+    };
+    const program = std.fmt.parseInt(u16, program_s, 10) catch {
+        app.setStatus("sf-preset: program must be a number", .{});
+        return;
+    };
+    if (!sf.selectBankProgram(bank, program)) {
+        app.setStatus("sf-preset: no preset at bank {d} program {d}", .{ bank, program });
+        return;
+    }
+    app.dirty = true;
+    app.setStatus("preset: {s} (bank {d} program {d})", .{ sf.presetName(), bank, program });
 }
 
 fn cmdLoadClip(app: *App, args: []const u8) void {

@@ -57,6 +57,7 @@ pub fn drawInstrument(app: anytype) void {
         .{ .label = "SAMPLER", .desc = "AUDIO  KEYMAP  ENVELOPE", .kind = .sampler, .accent = patina.audio },
         .{ .label = "DRUM MACHINE", .desc = "PADS  VELOCITY  SEQUENCER", .kind = .drum_machine, .accent = patina.rhythm },
         .{ .label = "SLICER", .desc = "AUDIO  SLICES  SEQUENCER", .kind = .slicer, .accent = patina.modulation },
+        .{ .label = "SOUNDFONT", .desc = "SF2  MULTI-TIMBRAL  PRESETS", .kind = .soundfont, .accent = patina.audio },
     };
     const available = overlayWidth();
     const gap: f32 = 10;

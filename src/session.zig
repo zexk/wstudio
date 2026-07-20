@@ -21,6 +21,7 @@ const PatternPlayer = pattern_mod.PatternPlayer;
 const Note = pattern_mod.Note;
 const DrumMachine = @import("dsp/drum_sampler.zig").DrumMachine;
 const Slicer = @import("dsp/slicer.zig").Slicer;
+const SoundfontPlayer = @import("dsp/soundfont_player.zig").SoundfontPlayer;
 const Compressor = @import("dsp/compressor.zig").Compressor;
 const dsp = @import("dsp/device.zig");
 const arr_mod = @import("arrangement.zig");
@@ -229,12 +230,16 @@ pub const Session = struct {
                 rack.label = "slicer";
             },
             .clap => return error.ClapPluginRequiresPath,
+            .soundfont => {
+                rack.instrument = .{ .soundfont = SoundfontPlayer.init(self.allocator, sr) };
+                rack.label = "soundfont";
+            },
         }
         // Set AFTER the instrument lands in the heap rack - the player holds a
-        // pointer into it. Slicer gets its own step grid, not a PatternPlayer,
-        // same as drum_machine.
+        // pointer into it. Slicer/drum_machine get their own step grid, not a
+        // PatternPlayer.
         switch (kind) {
-            .poly_synth, .sampler, .clap => rack.pattern_player = PatternPlayer.init(rack.instrument.device().?, &self.engine.transport),
+            .poly_synth, .sampler, .clap, .soundfont => rack.pattern_player = PatternPlayer.init(rack.instrument.device().?, &self.engine.transport),
             else => {},
         }
 
@@ -875,7 +880,7 @@ pub const Session = struct {
                     }
                     sl.setSongClips(clips[0..n], total_ticks, 32);
                 },
-                .poly_synth, .sampler, .clap => {
+                .poly_synth, .sampler, .clap, .soundfont => {
                     const pp = if (rack.pattern_player) |*p| p else continue;
                     var notes: [pattern_mod.max_notes]Note = undefined;
                     var n: usize = 0;

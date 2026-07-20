@@ -34,6 +34,12 @@ pub const logo = "\u{f1de}"; // fa-sliders
 /// Same codepoint as `logo` - the app logo IS a sliders glyph, which happens
 /// to be a fitting icon for the Slicer instrument too. No new glyph needed.
 pub const slicer = logo;
+/// Same codepoint as `eq` - the embedded subset has no dedicated soundfont
+/// glyph (adding one means re-subsetting the font, a separate build-tooling
+/// task); an equalizer reads reasonably as "many programs/bands" for a
+/// multi-preset instrument bank, same "close enough, no new glyph" call
+/// `slicer` already makes.
+pub const soundfont = eq;
 
 const std = @import("std");
 const ws = @import("wstudio");

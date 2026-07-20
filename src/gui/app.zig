@@ -17,6 +17,7 @@ const help_view = @import("views/help.zig");
 const piano_view = @import("views/piano.zig");
 const picker_view = @import("views/picker.zig");
 const sampler_view = @import("views/sampler.zig");
+const soundfont_view = @import("views/soundfont.zig");
 const slicer_view = @import("views/slicer.zig");
 const synth_view = @import("views/synth.zig");
 const tracks_view = @import("views/tracks.zig");
@@ -121,6 +122,7 @@ fn drawView(app: *App, view: tui_app.AppView) void {
         .slicer_grid => slicer_view.draw(app),
         .synth_editor => synth_view.draw(app),
         .sampler_editor => sampler_view.draw(app),
+        .soundfont_editor => soundfont_view.draw(app),
         .track_spectrum, .master_spectrum, .group_spectrum => fx_view.draw(app),
         .automation => automation_view.draw(app),
         .instrument_picker, .fx_picker, .synth_fx_picker, .preset_picker, .automation_param_picker => {},
@@ -174,6 +176,7 @@ fn viewTitle(view: tui_app.AppView) []const u8 {
         .slicer_grid => "SLICER",
         .synth_editor => "SYNTH",
         .sampler_editor => "SAMPLER",
+        .soundfont_editor => "SOUNDFONT",
         .track_spectrum => "TRACK SPECTRUM + FX",
         .master_spectrum => "MASTER SPECTRUM + FX",
         .group_spectrum => "GROUP SPECTRUM + FX",

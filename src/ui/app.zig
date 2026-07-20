@@ -26,6 +26,7 @@ const drum_ed = @import("editors/drum.zig");
 const slicer_ed = @import("editors/slicer.zig");
 const synth_ed = @import("editors/synth.zig");
 const sampler_ed = @import("editors/sampler.zig");
+const soundfont_ed = @import("editors/soundfont.zig");
 const piano_ed = @import("editors/piano.zig");
 const spectrum_ed = @import("editors/spectrum.zig");
 const arrangement_ed = @import("editors/arrangement.zig");
@@ -57,7 +58,7 @@ const reload_path_buf_len: usize = 1024;
 /// A pause longer than this between taps starts a fresh tap-tempo run.
 /// Minimum gap between silent `<path>~` backups; see `maybeAutosave`.
 const default_autosave_interval_ns: i96 = 30 * std.time.ns_per_s;
-pub const AppView = enum { tracks, drum_grid, synth_editor, sampler_editor, help, track_spectrum, master_spectrum, group_spectrum, piano_roll, instrument_picker, fx_picker, synth_fx_picker, arrangement, file_browser, automation, automation_param_picker, slicer_grid, preset_picker };
+pub const AppView = enum { tracks, drum_grid, synth_editor, sampler_editor, help, track_spectrum, master_spectrum, group_spectrum, piano_roll, instrument_picker, fx_picker, synth_fx_picker, arrangement, file_browser, automation, automation_param_picker, slicer_grid, preset_picker, soundfont_editor };
 pub const GridDivision = ws.time_grid.Division;
 
 /// One tracks-view display row: a real track, or a group's own row (its
@@ -86,8 +87,8 @@ pub const SamplerTarget = union(enum) {
 // zig fmt: on
 
 /// The instruments the picker offers, in display order.
-pub const picker_kinds = [_]InstrumentKind{ .poly_synth, .sampler, .drum_machine, .slicer };
-pub const picker_labels = [_][]const u8{ "Synth", "Sampler", "Drum Machine", "Slicer" };
+pub const picker_kinds = [_]InstrumentKind{ .poly_synth, .sampler, .drum_machine, .slicer, .soundfont };
+pub const picker_labels = [_][]const u8{ "Synth", "Sampler", "Drum Machine", "Slicer", "SoundFont" };
 
 /// What a file picked in the netrw-style file browser (`file_browser` view)
 /// resolves to once selected. Set by `App.openBrowser`; read by
@@ -99,6 +100,7 @@ pub const BrowserPurpose = union(enum) {
     load_clip,
     load_slice,
     load_wavetable: ws.dsp.PolySynth.OscSlot,
+    load_soundfont,
 
     /// The extension the browser filters non-directory entries to (case
     /// insensitive); directories are always shown regardless.
@@ -106,6 +108,7 @@ pub const BrowserPurpose = union(enum) {
         return switch (self) {
             .open_project => ".wsj",
             .load_sample, .load_pad, .load_clip, .load_slice, .load_wavetable => ".wav",
+            .load_soundfont => ".sf2",
         };
     }
 };
@@ -394,6 +397,10 @@ pub const App = struct {
     synth_track: u16 = 0,
     synth_cursor: u8 = 0,
     synth_scroll: usize = 0,
+    /// Track currently shown in the soundfont_editor view.
+    soundfont_track: u16 = 0,
+    /// Selected param row in the soundfont editor (GAIN/PAN/TRANSPOSE/PRESET).
+    soundfont_param: u8 = 0,
     /// Which of the synth editor's three subviews (osc/env/filter params,
     /// the internal FX section, the mod matrix) is showing - cycled by Tab.
     /// `synth_cursor` stays one flat param-id space across all three; only
@@ -770,6 +777,14 @@ pub const App = struct {
         if (t >= self.session.racks.items.len) return null;
         return switch (self.session.racks.items[t].instrument) {
             .sampler => |*s| s, else => null,
+        };
+    }
+
+    /// The SoundfontPlayer currently open in the soundfont_editor view.
+    pub fn editingSoundfont(self: *App) ?*ws.dsp.SoundfontPlayer {
+        if (self.soundfont_track >= self.session.racks.items.len) return null;
+        return switch (self.session.racks.items[self.soundfont_track].instrument) {
+            .soundfont => |*sf| sf, else => null,
         };
     }
     // zig fmt: on
@@ -1209,6 +1224,9 @@ pub const App = struct {
             .sampler_editor => if (self.modal.mode != .normal or !sampler_ed.handleKey(self, key)) {
                 self.applyAction(self.modal.handle(key), now_ns);
             } else { self.modal.count = 0; },
+            .soundfont_editor => if (self.modal.mode != .normal or !soundfont_ed.handleKey(self, key)) {
+                self.applyAction(self.modal.handle(key), now_ns);
+            } else { self.modal.count = 0; },
             .track_spectrum, .master_spectrum, .group_spectrum => if (self.modal.mode == .command or self.modal.mode == .search or !spectrum_ed.handleKey(self, key)) {
                 self.applyAction(self.modal.handle(key), now_ns);
             } else { self.modal.count = 0; },
@@ -1405,6 +1423,7 @@ pub const App = struct {
             .drum_grid => drum_ed.handleMouse(self, ev, row, view_rows),
             .synth_editor => synth_ed.handleMouse(self, ev, row, cols),
             .sampler_editor => sampler_ed.handleMouse(self, ev, row, cols, view_rows),
+            .soundfont_editor => soundfont_ed.handleMouse(self, ev, row),
             .piano_roll => piano_ed.handleMouse(self, ev, row, cols),
             .track_spectrum, .master_spectrum, .group_spectrum => spectrum_ed.handleMouse(self, ev, row, cols, view_rows),
             .arrangement => arrangement_ed.handleMouse(self, ev, row, cols),
@@ -1853,6 +1872,11 @@ pub const App = struct {
                 self.piano_track = @intCast(cursor);
                 self.view = .piano_roll;
             },
+            .soundfont => {
+                self.soundfont_track = @intCast(cursor);
+                self.soundfont_param = 0;
+                self.view = .soundfont_editor;
+            },
         }
     }
 
@@ -1908,6 +1932,7 @@ pub const App = struct {
             .drum_machine => "enter: step  i: play  space: record  ?: help",
             .slicer => "enter: step  i: play  :load  ?: help",
             .clap => "enter: piano roll  i: play  ?: help",
+            .soundfont => "h/l: adjust  :load-soundfont  i: play  ?: help",
         };
         self.setStatus("{s} inserted  {s}", .{ picker_labels[self.picker_cursor], hint });
         self.view = .tracks;
@@ -2317,6 +2342,7 @@ pub const App = struct {
             .load_clip => commands.loadClipFromPath(self, joined),
             .load_slice => commands.loadSliceFromPath(self, joined),
             .load_wavetable => |slot| commands.loadWavetableFromPath(self, slot, joined),
+            .load_soundfont => commands.loadSoundfontFromPath(self, joined),
         }
         self.closeBrowser();
     }
@@ -2343,6 +2369,7 @@ pub const App = struct {
             .track_spectrum => self.eq_track,
             .automation     => self.automation_track,
             .preset_picker  => self.preset_picker_track,
+            .soundfont_editor => self.soundfont_track,
             else            => @intCast(self.cursor),
         };
     }
@@ -2472,7 +2499,7 @@ pub const App = struct {
                         } });
                         if (self.view == .slicer_grid) slicer_ed.recordNote(self, n.pitch, Slicer.vel_full);
                     },
-                    .poly_synth, .sampler, .clap => {
+                    .poly_synth, .sampler, .clap, .soundfont => {
                         self.playNote(track_idx, n.pitch, now_ns);
                         if (self.view == .piano_roll) piano_ed.recordNote(self, n.pitch, self.default_velocity);
                     },
@@ -3117,6 +3144,7 @@ pub const App = struct {
         shiftIfValid(&self.slicer_track, idx);
         shiftIfValid(&self.automation_track, idx);
         shiftIfValid(&self.preset_picker_track, idx);
+        shiftIfValid(&self.soundfont_track, idx);
         switch (self.sampler_target) {
             .drum => |*t| shiftIfValid(t, idx),
             .sampler => |*t| shiftIfValid(t, idx),
@@ -3160,6 +3188,7 @@ pub const App = struct {
         shiftOrInvalidate(&self.slicer_track, idx);
         shiftOrInvalidate(&self.automation_track, idx);
         shiftOrInvalidate(&self.preset_picker_track, idx);
+        shiftOrInvalidate(&self.soundfont_track, idx);
         if (self.piano_clip_link) |link| {
             if (link.track == idx) {
                 self.piano_clip_link = null;
@@ -3292,10 +3321,11 @@ pub const App = struct {
                 if (!ok) self.view = .tracks;
             },
             .piano_roll => if (self.piano_track >= racks.len or
-                switch (racks[self.piano_track].instrument) { .poly_synth, .sampler => false, else => true })
+                switch (racks[self.piano_track].instrument) { .poly_synth, .sampler, .soundfont => false, else => true })
             {
                 self.view = .tracks;
             },
+            .soundfont_editor => if (!kindIs(racks, self.soundfont_track, .soundfont)) { self.view = .tracks; },
             .track_spectrum => if (self.eq_track >= racks.len) {
                 _ = self.session.engine.send(.{ .set_spectrum_active = .{ .source = .none, .track = 0 } });
                 self.view = self.prev_view;
@@ -3378,6 +3408,7 @@ pub const App = struct {
         swap(&self.slicer_track, cur, other);
         swap(&self.automation_track, cur, other);
         swap(&self.preset_picker_track, cur, other);
+        swap(&self.soundfont_track, cur, other);
         switch (self.sampler_target) {
             .drum => |*t| swap(t, cur, other),
             .sampler => |*t| swap(t, cur, other),
@@ -3587,6 +3618,7 @@ pub fn apiKindName(kind: ws.InstrumentKind) []const u8 {
         .drum_machine => "drum",
         .slicer => "slicer",
         .clap => "clap",
+        .soundfont => "soundfont",
     };
 }
 
@@ -3598,6 +3630,7 @@ pub fn apiKindFromName(name: []const u8) ?ws.InstrumentKind {
     if (std.mem.eql(u8, name, "sampler")) return .sampler;
     if (std.mem.eql(u8, name, "drum")) return .drum_machine;
     if (std.mem.eql(u8, name, "slicer")) return .slicer;
+    if (std.mem.eql(u8, name, "soundfont")) return .soundfont;
     return null;
 }
 

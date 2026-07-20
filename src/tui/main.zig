@@ -78,6 +78,7 @@ pub fn draw(self: *App, w: *std.Io.Writer, size: terminal_mod.Size) !void {
         .drum_grid       => try tui.drawDrumGrid(self, w, content_rows, size.cols, snap),
         .synth_editor    => try tui.drawSynthEditor(self, w, content_rows, size.cols, snap),
         .sampler_editor  => try tui.drawSamplerEditor(self, w, content_rows, size.cols, snap),
+        .soundfont_editor => try tui.drawSoundfontEditor(self, w, content_rows, size.cols, snap),
         .piano_roll      => try tui.drawPianoRoll(self, w, content_rows, size.cols, snap),
         .help            => try tui.drawHelp(w, content_rows, size.cols, self.allCmds(), self.userKeymapsSlice(), &self.help_scroll, self.help_search_hit),
         .track_spectrum, .master_spectrum, .group_spectrum =>
@@ -200,6 +201,7 @@ pub fn draw(self: *App, w: *std.Io.Writer, size: terminal_mod.Size) !void {
         .drum_grid       => try tui.drawDrumStatus(self, &status_w, &status_right_w),
         .synth_editor    => try tui.drawSynthStatus(self, &status_w, &status_right_w),
         .sampler_editor  => try tui.drawSamplerStatus(self, &status_w, &status_right_w),
+        .soundfont_editor => try tui.drawSoundfontStatus(self, &status_w, &status_right_w),
         .piano_roll      => try tui.drawPianoRollStatus(self, &status_w, &status_right_w),
         .help            => try tui.drawHelpStatus(self, &status_w, &status_right_w),
         .track_spectrum, .master_spectrum, .group_spectrum =>

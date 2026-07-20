@@ -4,6 +4,7 @@ const PolySynth = @import("dsp/synth.zig").PolySynth;
 const Sampler = @import("dsp/sampler.zig").Sampler;
 const DrumMachine = @import("dsp/drum_sampler.zig").DrumMachine;
 const Slicer = @import("dsp/slicer.zig").Slicer;
+const SoundfontPlayer = @import("dsp/soundfont_player.zig").SoundfontPlayer;
 const Compressor = @import("dsp/compressor.zig").Compressor;
 const MultibandComp = @import("dsp/multiband_comp.zig").MultibandComp;
 const Ott = @import("dsp/ott.zig").Ott;
@@ -40,6 +41,9 @@ pub const Instrument = union(enum) {
     /// rule as `drum_machine`.
     slicer: Slicer,
     clap: *ClapPlugin,
+    /// SoundFont (.sf2) multi-timbral player - a preset picked from a
+    /// loaded font, played chromatically like `poly_synth`/`sampler`.
+    soundfont: SoundfontPlayer,
 
     /// Returns a dsp.Device fat-pointer whose `.ptr` is stable as long as
     /// the parent Rack (heap-allocated) is alive, or null for `empty`.
@@ -63,6 +67,7 @@ pub const Instrument = union(enum) {
         return switch (self.*) {
             .poly_synth => &PolySynth.automatable_params,
             .sampler => &Sampler.automatable_params,
+            .soundfont => &SoundfontPlayer.automatable_params,
             .drum_machine, .slicer, .clap, .empty => &.{},
         };
     }
@@ -370,6 +375,7 @@ pub const Rack = struct {
                 }
                 rack.instrument = .{ .clap = copy };
             },
+            .soundfont => |*sf| rack.instrument = .{ .soundfont = try sf.dupe() },
         }
         // Set AFTER the instrument lands in the heap rack - the player holds
         // a pointer into it (same rule as Session.setInstrument).

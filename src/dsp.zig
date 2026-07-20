@@ -33,6 +33,10 @@ pub const Slicer = @import("dsp/slicer.zig").Slicer;
 pub const clap = @import("clap/plugin.zig");
 pub const ClapPlugin = clap.ClapPlugin;
 pub const clap_scan = @import("clap/scan.zig");
+pub const soundfont = @import("dsp/soundfont.zig");
+pub const SoundFont = soundfont.SoundFont;
+pub const soundfont_player = @import("dsp/soundfont_player.zig");
+pub const SoundfontPlayer = soundfont_player.SoundfontPlayer;
 
 pub const pattern = @import("dsp/pattern.zig");
 pub const PatternPlayer = pattern.PatternPlayer;
@@ -74,6 +78,8 @@ test {
     _ = Slicer;
     _ = clap;
     _ = clap_scan;
+    _ = soundfont;
+    _ = soundfont_player;
     _ = pattern;
     _ = automation;
     _ = fft;

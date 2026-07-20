@@ -35,6 +35,8 @@ const DrumMachine = @import("dsp/drum_sampler.zig").DrumMachine;
 const Pad = @import("dsp/pad.zig").Pad;
 const Sampler = @import("dsp/sampler.zig").Sampler;
 const Slicer = @import("dsp/slicer.zig").Slicer;
+const SoundfontPlayer = @import("dsp/soundfont_player.zig").SoundfontPlayer;
+const soundfont_mod = @import("dsp/soundfont.zig");
 const Compressor = @import("dsp/compressor.zig").Compressor;
 const multiband_comp_mod = @import("dsp/multiband_comp.zig");
 const Reverb = @import("dsp/reverb.zig").Reverb;
@@ -52,7 +54,7 @@ const AutomationPoint = automation_mod.AutomationPoint;
 /// added and what older files load as) and the bump-vs-additive policy
 /// live in FORMAT.md; per-field migration specifics stay as doc comments
 /// on the snapshot fields they concern.
-pub const file_version: u32 = 24;
+pub const file_version: u32 = 25;
 
 /// Slicer.s own step-grid ceiling (mirrors arrangement.zig.s
 /// `slicer_max_steps`) - `velToSnap`/`applyVelSnap` only ever see Slicer.s
@@ -628,7 +630,7 @@ pub const FxUnitSnap = struct {
     clap: ?ClapSnap = null,
 };
 
-pub const InstrumentKind = enum { empty, poly_synth, sampler, drum_machine, slicer, clap };
+pub const InstrumentKind = enum { empty, poly_synth, sampler, drum_machine, slicer, clap, soundfont };
 
 /// A single-clip sampler: the pad's params, its root note, and the piano-roll
 /// pattern. User-loaded clip audio rides along via `pad.sample_file` (v5);
@@ -680,6 +682,24 @@ pub const SlicerSnap = struct {
     choke_group: []const u8 = &.{},
 };
 
+/// A SoundFont (.sf2) player track: the loaded font's sidecar path, the
+/// selected preset (by index into the parsed font - see `SoundfontPlayer.
+/// preset_index`'s own doc comment for why an index rather than bank/
+/// program), the OUT params, and the piano-roll pattern (v25: soundfont is
+/// melodic, gets a PatternPlayer like poly_synth/sampler). `sf2_file` empty
+/// means nothing was loaded - the track loads silent, same "no
+/// sample_file" convention `SamplerSnap.pad` already follows.
+pub const SoundfontSnap = struct {
+    sf2_file: []const u8 = "",
+    preset_index: u16 = 0,
+    gain: f32 = 1.0,
+    pan: f32 = 0.0,
+    transpose_semitones: f32 = 0.0,
+    notes: []const NoteSnap = &.{},
+    length_beats: f64 = 4.0,
+    swing: f32 = 50.0,
+};
+
 pub const RackSnap = struct {
     label: []const u8 = "synth",
     kind: InstrumentKind,
@@ -688,6 +708,7 @@ pub const RackSnap = struct {
     drum: ?DrumSnap = null,
     slicer: ?SlicerSnap = null,
     clap: ?ClapSnap = null,
+    soundfont: ?SoundfontSnap = null,
     /// Legacy fixed rack (v9 and older). Only read when `fx_chain` is null.
     fx: FxSnap = .{},
     /// v10: the user-built chain in signal-flow order.
@@ -1054,6 +1075,21 @@ fn rackToSnap(aa: std.mem.Allocator, rack: *Rack, sample_rate: u32) !RackSnap {
             }
             rs.clap = cs;
         },
+        .soundfont => |*sf| {
+            rs.kind = .soundfont;
+            var sfs: SoundfontSnap = .{
+                .preset_index = sf.preset_index,
+                .gain = sf.gain,
+                .pan = sf.pan,
+                .transpose_semitones = sf.transpose_semitones,
+            };
+            if (rack.pattern_player) |*pp| {
+                sfs.length_beats = pp.length_beats;
+                sfs.notes = try notesToSnap(aa, pp);
+                sfs.swing = pp.swing.load(.monotonic);
+            }
+            rs.soundfont = sfs;
+        },
     }
 
     rs.fx_chain = try chainToSnap(aa, &rack.fx, sample_rate);
@@ -1234,17 +1270,24 @@ fn exportSamples(
                 }
                 // zig fmt: on
             },
+            .soundfont => |*sf| if (sf.source_bytes.len > 0) {
+                const base = try std.fmt.allocPrint(aa, "t{d}.sf2", .{ti});
+                const rel = try std.fmt.allocPrint(aa, "{s}/{s}", .{ sidecar, base });
+                try writeSampleBytes(aa, io, path, rel, &dir_ready, sf.source_bytes);
+                rs.soundfont.?.sf2_file = rel;
+                try written.put(aa, base, {});
+            },
             else => {},
         }
     }
     try pruneOrphanSamples(aa, io, path, sidecar, &written);
 }
 
-/// Delete any `.wav` in the sample sidecar dir that wasn't written this
-/// save - leftovers from a track delete/reorder that changed which index
-/// each surviving sample's filename is keyed by. No-op if the sidecar dir
-/// doesn't exist (never had user samples, or `exportSamples` never created
-/// it because this save has none either).
+/// Delete any `.wav`/`.sf2` in the sample sidecar dir that wasn't written
+/// this save - leftovers from a track delete/reorder that changed which
+/// index each surviving sample's filename is keyed by. No-op if the sidecar
+/// dir doesn't exist (never had user samples, or `exportSamples` never
+/// created it because this save has none either).
 fn pruneOrphanSamples(
     aa: std.mem.Allocator,
     io: std.Io,
@@ -1260,7 +1303,7 @@ fn pruneOrphanSamples(
     var it = dir.iterate();
     while (try it.next(io)) |entry| {
         if (entry.kind != .file) continue;
-        if (!std.ascii.endsWithIgnoreCase(entry.name, ".wav")) continue;
+        if (!std.ascii.endsWithIgnoreCase(entry.name, ".wav") and !std.ascii.endsWithIgnoreCase(entry.name, ".sf2")) continue;
         if (written.contains(entry.name)) continue;
         try stale.append(aa, try aa.dupe(u8, entry.name));
     }
@@ -1293,6 +1336,36 @@ fn writeSampleWav(
         var buf: [8192]u8 = undefined;
         var fw = file.writer(io, &buf);
         try wav.write(&fw.interface, sample_rate, 1, samples, .pcm16);
+        try fw.interface.flush();
+    }
+    try std.Io.Dir.cwd().rename(tmp, std.Io.Dir.cwd(), full, io);
+}
+
+/// Write raw bytes verbatim at `rel` - the soundfont sidecar's counterpart
+/// to `writeSampleWav`. A loaded .sf2 can't be losslessly reconstructed
+/// from the parsed, already-resolved `SoundFont` (see dsp/soundfont.zig's
+/// doc comment), so the original file bytes are what gets persisted, not a
+/// re-encoding. Same .tmp + rename dance as every other sidecar write.
+fn writeSampleBytes(
+    aa: std.mem.Allocator,
+    io: std.Io,
+    wsj_path: []const u8,
+    rel: []const u8,
+    dir_ready: *bool,
+    bytes: []const u8,
+) !void {
+    const full = try joinWsjRel(aa, wsj_path, rel);
+    if (!dir_ready.*) {
+        try std.Io.Dir.cwd().createDirPath(io, std.fs.path.dirname(full).?);
+        dir_ready.* = true;
+    }
+    const tmp = try std.fmt.allocPrint(aa, "{s}.tmp", .{full});
+    {
+        const file = try std.Io.Dir.cwd().createFile(io, tmp, .{});
+        defer file.close(io);
+        var buf: [8192]u8 = undefined;
+        var fw = file.writer(io, &buf);
+        try fw.interface.writeAll(bytes);
         try fw.interface.flush();
     }
     try std.Io.Dir.cwd().rename(tmp, std.Io.Dir.cwd(), full, io);
@@ -1529,16 +1602,30 @@ fn restoreSamples(
                     }
                 }
             },
+            .soundfont => |*sf| {
+                const sfs = rs.soundfont orelse continue;
+                if (sfs.sf2_file.len == 0) continue; // nothing loaded
+                const data = readWsjRel(allocator, io, path, sfs.sf2_file) orelse continue;
+                defer allocator.free(data);
+                // loadSf2 resets preset_index to 0 - re-apply the saved
+                // selection only after it succeeds.
+                sf.loadSf2(data) catch continue;
+                sf.selectPresetIndex(sfs.preset_index);
+            },
             else => {},
         }
     }
 }
 
 /// Read a sample file stored relative to the .wsj. Null on any error.
+/// 512MiB covers every sidecar kind this reads, including a full GM
+/// SoundFont bank (real-world ones run tens to a couple hundred MB) - every
+/// other sidecar (a WAV clip/pad/wavetable) is far smaller in practice, so
+/// raising the ceiling for soundfonts costs nothing for them.
 fn readWsjRel(allocator: std.mem.Allocator, io: std.Io, wsj_path: []const u8, rel: []const u8) ?[]u8 {
     const full = joinWsjRel(allocator, wsj_path, rel) catch return null;
     defer allocator.free(full);
-    return std.Io.Dir.cwd().readFileAlloc(io, full, allocator, .limited(64 * 1024 * 1024)) catch null;
+    return std.Io.Dir.cwd().readFileAlloc(io, full, allocator, .limited(512 * 1024 * 1024)) catch null;
 }
 
 /// Display name for a restored sample: the saved name, else the file stem.
@@ -1805,6 +1892,22 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
                 rack.pattern_player.?.length_beats = finiteClamp(f64, cs.length_beats, 1.0, std.math.floatMax(f64), 4.0);
                 loadNotes(&rack.pattern_player.?, cs.notes);
                 rack.pattern_player.?.setSwing(cs.swing);
+            },
+            .soundfont => {
+                rack.instrument = .{ .soundfont = SoundfontPlayer.init(allocator, sr) };
+                rack.pattern_player = PatternPlayer.init(rack.instrument.device().?, &engine.transport);
+                if (rs.soundfont) |sfs| {
+                    const sf = &rack.instrument.soundfont;
+                    sf.gain = finiteClamp(f32, sfs.gain, 0.0, 2.0, 1.0);
+                    sf.pan = finiteClamp(f32, sfs.pan, -1.0, 1.0, 0.0);
+                    sf.transpose_semitones = finiteClamp(f32, sfs.transpose_semitones, -24.0, 24.0, 0.0);
+                    // preset_index is restored by restoreSamples, after the
+                    // sidecar .sf2 (if any) has actually loaded - loadSf2
+                    // resets it to 0, so setting it here would be wiped.
+                    rack.pattern_player.?.length_beats = finiteClamp(f64, sfs.length_beats, 1.0, std.math.floatMax(f64), 4.0);
+                    loadNotes(&rack.pattern_player.?, sfs.notes);
+                    rack.pattern_player.?.setSwing(sfs.swing);
+                }
             },
         }
 
@@ -3916,6 +4019,42 @@ test "save/load round-trip persists a :load-wavetable-imported table, default st
     try testing.expect(!ls.wt_user);
 }
 
+test "save/load round-trip persists a loaded soundfont, its sidecar .sf2, and the selected preset" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [64]u8 = undefined;
+    const wsj_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/proj.wsj", .{&tmp.sub_path});
+
+    var session = try Session.initDefault(testing.allocator);
+    defer session.deinit();
+    try session.setInstrument(0, .soundfont);
+    const sf = &session.racks.items[0].instrument.soundfont;
+
+    const sf2_bytes = try soundfont_mod.buildTestSf2(testing.allocator, true, session.project.sample_rate);
+    defer testing.allocator.free(sf2_bytes);
+    try sf.loadSf2(sf2_bytes);
+    sf.gain = 0.6;
+    sf.pan = 0.4;
+    sf.transpose_semitones = -5.0;
+
+    try save(testing.allocator, &session, testing.io, wsj_path);
+    var sidecar_path_buf: [64]u8 = undefined;
+    const sidecar_path = try std.fmt.bufPrint(&sidecar_path_buf, ".zig-cache/tmp/{s}/proj_samples/t0.sf2", .{&tmp.sub_path});
+    const sidecar_bytes = try std.Io.Dir.cwd().readFileAlloc(testing.io, sidecar_path, testing.allocator, .limited(1024 * 1024));
+    defer testing.allocator.free(sidecar_bytes);
+    try testing.expectEqualSlices(u8, sf2_bytes, sidecar_bytes);
+
+    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    defer loaded.deinit();
+    const ls = &loaded.racks.items[0].instrument.soundfont;
+    try testing.expectEqual(@as(usize, 1), ls.presetCount());
+    try testing.expectEqualStrings("Test Preset", ls.presetName());
+    try testing.expectApproxEqAbs(@as(f32, 0.6), ls.gain, 1e-6);
+    try testing.expectApproxEqAbs(@as(f32, 0.4), ls.pan, 1e-6);
+    try testing.expectApproxEqAbs(@as(f32, -5.0), ls.transpose_semitones, 1e-6);
+}
+
 test "buildSession: A/B loop region lands in project and transport" {
     const testing = std.testing;
     const snap: Snapshot = .{
@@ -3976,7 +4115,19 @@ test "golden-file corpus: every historical .wsj fixture still loads" {
     }
 
     // Guards against a misconfigured path silently turning this into a no-op.
-    try testing.expectEqual(@as(usize, 23), count);
+    try testing.expectEqual(@as(usize, 24), count);
+}
+
+test "golden-file corpus: v25's soundfont rack loads with no font (no sidecar to resolve) but keeps its OUT params" {
+    const testing = std.testing;
+    var session = try load(testing.allocator, testing.io, "test/fixtures/wsj/v25.wsj");
+    defer session.deinit();
+    const sf = &session.racks.items[0].instrument.soundfont;
+    try testing.expectEqual(@as(usize, 0), sf.presetCount());
+    try testing.expectApproxEqAbs(@as(f32, 0.8), sf.gain, 1e-6);
+    try testing.expectApproxEqAbs(@as(f32, -0.25), sf.pan, 1e-6);
+    try testing.expectApproxEqAbs(@as(f32, 3.0), sf.transpose_semitones, 1e-6);
+    try testing.expect(session.racks.items[0].pattern_player != null);
 }
 
 test "golden-file corpus: v23's sparse note list loads directly, no legacy migration" {
