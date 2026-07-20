@@ -209,32 +209,23 @@ pub fn draw(app: anytype) void {
 }
 
 fn drawArrangementInspector(app: anytype) void {
-    const height: f32 = if (app.arrangement_clip != null) 108 else 74;
-    if (zgui.beginChild("arrangement-inspector", .{ .w = 0, .h = height, .child_flags = .{ .border = true } })) {
-        if (app.arrangement_clip) |selection| {
-            const clip = app.core.session.arrangement.lanes.items[selection.track].clips.items[selection.clip];
-            zgui.textColored(patina.focus, "SELECTED CLIP", .{});
-            zgui.separator();
-            zgui.text("Track {d:0>2}", .{selection.track + 1});
-            zgui.sameLine(.{ .spacing = 24 });
-            zgui.textDisabled("start  {d:.2} beats", .{@as(f32, @floatFromInt(clip.start_tick)) / ws.time_grid.ticks_per_beat});
-            zgui.sameLine(.{ .spacing = 24 });
-            zgui.textDisabled("length  {d:.2} beats", .{@as(f32, @floatFromInt(clip.length_ticks)) / ws.time_grid.ticks_per_beat});
-            zgui.sameLine(.{ .spacing = 24 });
-            zgui.textDisabled("{s}", .{switch (clip.content) {
-                .melodic => "MIDI",
-                .drum => "DRUM PATTERN",
-            }});
-            zgui.spacing();
-            zgui.textDisabled("x delete   h/l move   H/L resize   a automation", .{});
-        } else if (app.core.cursor < app.core.session.project.tracks.items.len) {
-            const track = app.core.session.project.tracks.items[app.core.cursor];
-            zgui.textColored(patina.audio, "SELECTED LANE  {d:0>2}", .{app.core.cursor + 1});
-            zgui.sameLine(.{ .spacing = 18 });
-            zgui.text("{s}", .{track.name});
-            zgui.sameLine(.{ .spacing = 24 });
-            zgui.textDisabled("s stamp clip   h/l move cursor   v select range", .{});
-        }
+    const selection = app.arrangement_clip orelse return;
+    if (zgui.beginChild("arrangement-inspector", .{ .w = 0, .h = 108, .child_flags = .{ .border = true } })) {
+        const clip = app.core.session.arrangement.lanes.items[selection.track].clips.items[selection.clip];
+        zgui.textColored(patina.focus, "SELECTED CLIP", .{});
+        zgui.separator();
+        zgui.text("Track {d:0>2}", .{selection.track + 1});
+        zgui.sameLine(.{ .spacing = 24 });
+        zgui.textDisabled("start  {d:.2} beats", .{@as(f32, @floatFromInt(clip.start_tick)) / ws.time_grid.ticks_per_beat});
+        zgui.sameLine(.{ .spacing = 24 });
+        zgui.textDisabled("length  {d:.2} beats", .{@as(f32, @floatFromInt(clip.length_ticks)) / ws.time_grid.ticks_per_beat});
+        zgui.sameLine(.{ .spacing = 24 });
+        zgui.textDisabled("{s}", .{switch (clip.content) {
+            .melodic => "MIDI",
+            .drum => "DRUM PATTERN",
+        }});
+        zgui.spacing();
+        zgui.textDisabled("x delete   h/l move   H/L resize   a automation", .{});
     }
     zgui.endChild();
 }

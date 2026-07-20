@@ -41,7 +41,7 @@ pub fn draw(app: anytype) void {
 
     widgets.sectionTitle("OUT", patina.focus);
     drawParam(app, track, sf, 0, "Gain", "%.2f");
-    drawParam(app, track, sf, 1, "Pan", "%.2f");
+    drawParam(app, track, sf, 1, "Pan", widgets.pan_cfmt);
     drawParam(app, track, sf, 2, "Transpose", "%.0f st");
 }
 

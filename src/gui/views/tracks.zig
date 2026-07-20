@@ -25,8 +25,6 @@ pub fn draw(app: anytype) void {
     }
     zgui.separator();
     drawMasterRow(app, @max(row_height, 64));
-    zgui.spacing();
-    drawSelectedInspector(app);
 }
 
 /// Shared chrome for one 44px row in the track overview: hit-test button,
@@ -81,10 +79,10 @@ fn drawMixerRow(app: anytype, track_index: u16, display_row: usize, height: f32)
     var gain_buf: [24]u8 = undefined;
     const gain = std.fmt.bufPrint(&gain_buf, "{d:.1} dB", .{track.gain_db}) catch "gain";
     var pan_buf: [24]u8 = undefined;
-    const pan = if (@abs(track.pan) < 0.005)
+    const pan = if (track.pan == 0.0)
         "C"
     else
-        std.fmt.bufPrint(&pan_buf, "{c}{d:.2}", .{ if (track.pan < 0) @as(u8, 'L') else 'R', @abs(track.pan) }) catch "pan";
+        std.fmt.bufPrint(&pan_buf, "{c}{d}%", .{ if (track.pan < 0) @as(u8, 'L') else 'R', @as(u32, @intFromFloat(@abs(track.pan) * 100.0)) }) catch "pan";
     draw_list.addText(.{ origin[0] + width - 190, origin[1] + 14 }, color(row_fg), "{s}", .{gain});
     draw_list.addText(.{ origin[0] + width - 112, origin[1] + 14 }, color(row_muted), "{s}", .{pan});
     drawTrimMeter(draw_list, origin[0] + width - 205, origin[1] + height - 15, 105, track.gain_db, accent);
@@ -147,57 +145,6 @@ fn drawStereoMeter(draw_list: zgui.DrawList, x: f32, y: f32, width: f32, peak: [
         draw_list.addRectFilled(.{ .pmin = .{ x, cy }, .pmax = .{ x + width, cy + 5 }, .col = color(patina.bg0), .rounding = 2 });
         draw_list.addRectFilled(.{ .pmin = .{ x, cy }, .pmax = .{ x + width * std.math.clamp(level, 0, 1), cy + 5 }, .col = color(if (level > 0.9) patina.danger else patina.audio), .rounding = 2 });
     }
-}
-
-fn drawSelectedInspector(app: anytype) void {
-    if (zgui.beginChild("track-inspector", .{ .w = 0, .h = 104, .child_flags = .{ .border = true } })) {
-        if (app.core.track_row >= app.core.trackRows().len) {
-            zgui.textColored(patina.modulation, "MASTER OUTPUT", .{});
-            zgui.separator();
-            zgui.textDisabled("gain  {d:.1} dB", .{app.core.master_gain_db});
-            zgui.spacing();
-            zgui.textDisabled("f FX chain   h/l gain", .{});
-        } else switch (app.core.trackRows()[app.core.track_row]) {
-            .track => |track_index| {
-                const track = &app.core.session.project.tracks.items[track_index];
-                const rack = app.core.session.racks.items[track_index];
-                zgui.textColored(trackColor(track.color), "SELECTED TRACK  {d:0>2}", .{track_index + 1});
-                zgui.separator();
-                zgui.text("{s}", .{track.name});
-                zgui.sameLine(.{ .spacing = 16 });
-                zgui.textDisabled("{s}", .{rack.label});
-                zgui.sameLine(.{ .spacing = 24 });
-                var gain = track.gain_db;
-                zgui.setNextItemWidth(180);
-                if (zgui.sliderFloat("Gain", .{ .v = &gain, .min = -60, .max = 12, .cfmt = "%.1f dB" })) app.core.apiSetTrackGainDb(track_index, gain);
-                zgui.sameLine(.{ .spacing = 14 });
-                var pan = track.pan;
-                zgui.setNextItemWidth(150);
-                if (zgui.sliderFloat("Pan", .{ .v = &pan, .min = -1, .max = 1, .cfmt = "%.2f" })) app.core.apiSetTrackPan(track_index, pan);
-                zgui.sameLine(.{ .spacing = 14 });
-                var muted = track.muted;
-                if (zgui.checkbox("Mute", .{ .v = &muted })) app.core.apiSetTrackMuted(track_index, muted);
-                zgui.sameLine(.{ .spacing = 8 });
-                var soloed = track.soloed;
-                if (zgui.checkbox("Solo", .{ .v = &soloed })) app.core.apiSetTrackSoloed(track_index, soloed);
-                zgui.sameLine(.{ .spacing = 12 });
-                if (zgui.button("EDIT", .{ .h = 28 })) app.core.handleKey(.enter, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
-                zgui.sameLine(.{ .spacing = 6 });
-                if (zgui.button("FX", .{ .h = 28 })) app.core.handleKey(.{ .char = 's' }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
-            },
-            .group => |group_index| {
-                const group = app.core.session.groups[group_index].?;
-                zgui.textColored(patina.modulation, "SELECTED GROUP  {d:0>2}", .{group_index + 1});
-                zgui.separator();
-                zgui.text("{s}", .{group.name});
-                zgui.sameLine(.{ .spacing = 24 });
-                zgui.textDisabled("gain  {d:.1} dB", .{group.gain_db});
-                zgui.spacing();
-                zgui.textDisabled("f FX chain   h/l gain   enter fold", .{});
-            },
-        }
-    }
-    zgui.endChild();
 }
 
 fn trackRowInVisual(core: anytype, display_row: usize) bool {
