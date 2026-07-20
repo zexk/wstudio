@@ -7,9 +7,10 @@ const widgets = @import("../widgets.zig");
 
 const patina = &style.palette;
 
-/// Which region edge a waveform drag is currently moving. Lives on the GUI
-/// App so it survives across frames while the mouse button is held.
-pub const RegionHandle = enum { start, end };
+/// Which waveform-overlay handle a drag is currently moving - region
+/// start/end trim or a fade-in/out width. Lives on the GUI App so it
+/// survives across frames while the mouse button is held.
+pub const RegionHandle = enum { start, end, fade_in, fade_out };
 
 pub fn draw(app: anytype) void {
     switch (app.core.sampler_target) {
@@ -26,7 +27,7 @@ const PadTargetKind = enum { drum, slice };
 /// which engine param id a slider write maps to.
 const Target = union(enum) {
     standalone: struct { sampler: *ws.dsp.Sampler, track: u16 },
-    pad: struct { pad: *ws.dsp.Pad, track: u16, kind: PadTargetKind, index: u8 },
+    pad: struct { pad: *ws.dsp.Pad, track: u16, kind: PadTargetKind, index: u8, sample_rate: u32 },
 
     fn value(self: Target, id: u8) ?f32 {
         return switch (self) {
@@ -39,6 +40,13 @@ const Target = union(enum) {
         return switch (self) {
             .standalone => |t| t.track,
             .pad => |t| t.track,
+        };
+    }
+
+    fn sampleRate(self: Target) u32 {
+        return switch (self) {
+            .standalone => |t| t.sampler.sample_rate,
+            .pad => |t| t.sample_rate,
         };
     }
 
@@ -188,7 +196,7 @@ fn drawPadTarget(app: anytype, track: u16, kind: PadTargetKind) void {
     const index: u8 = if (kind == .drum) @intCast(app.core.drum_cursor[0]) else app.core.slicer_cursor[0];
     drawPadHeader(app, track, kind, index);
     zgui.spacing();
-    const pad: *ws.dsp.Pad = switch (kind) {
+    const pad: *ws.dsp.Pad, const sample_rate: u32 = switch (kind) {
         .drum => blk: {
             const drum = switch (app.core.session.racks.items[track].instrument) {
                 .drum_machine => |*d| d,
@@ -198,7 +206,7 @@ fn drawPadTarget(app: anytype, track: u16, kind: PadTargetKind) void {
                 drawPadEmptyState(app, "LOAD A PAD SAMPLE", "Choose a WAV file for this drum pad.");
                 return;
             }
-            break :blk &drum.pads[index].?.pad;
+            break :blk .{ &drum.pads[index].?.pad, drum.sample_rate };
         },
         .slice => blk: {
             const slicer = switch (app.core.session.racks.items[track].instrument) {
@@ -209,11 +217,11 @@ fn drawPadTarget(app: anytype, track: u16, kind: PadTargetKind) void {
                 drawPadEmptyState(app, "NO SLICE SELECTED", "Load and slice audio before editing a slice.");
                 return;
             }
-            break :blk &slicer.slices[index];
+            break :blk .{ &slicer.slices[index], slicer.sample_rate };
         },
     };
 
-    const target: Target = .{ .pad = .{ .pad = pad, .track = track, .kind = kind, .index = index } };
+    const target: Target = .{ .pad = .{ .pad = pad, .track = track, .kind = kind, .index = index, .sample_rate = sample_rate } };
     if (pad.samples.len == 0) {
         drawPadEmptyState(app, if (kind == .drum) "LOAD A PAD SAMPLE" else "LOAD AUDIO TO CREATE SLICES", if (kind == .drum) "Choose a WAV file for this drum pad." else "Choose a WAV file before editing slice playback.");
         return;
@@ -360,19 +368,64 @@ fn drawWaveformRegion(app: anytype, target: Target, samples: []const f32) void {
     if (start > 0) draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ start_x, origin[1] + height }, .col = style.color(.{ patina.bg0[0], patina.bg0[1], patina.bg0[2], 0.6 }) });
     if (end < 1) draw_list.addRectFilled(.{ .pmin = .{ end_x, origin[1] }, .pmax = .{ origin[0] + width, origin[1] + height }, .col = style.color(.{ patina.bg0[0], patina.bg0[1], patina.bg0[2], 0.6 }) });
 
+    // Fade wedges: shade the region between each region edge and the
+    // gain-ramp's full-level point, tapering to a point on the center line -
+    // the same silent-corner/full-tip shape DAWs draw for a clip fade.
+    // fade_in_s/fade_out_s are seconds so they're converted to a fraction
+    // of the whole clip via `sample_rate`, same units renderVoice uses.
+    const region_frac = @max(0.0, end - start);
+    const sample_rate = target.sampleRate();
+    const total_f: f32 = @floatFromInt(samples.len);
+    var fade_in_x = start_x;
+    var fade_out_x = end_x;
+    if (sample_rate > 0 and total_f > 0) {
+        const fade_in_s = target.value(10) orelse 0;
+        const fade_out_s = target.value(11) orelse 0;
+        const sr_f: f32 = @floatFromInt(sample_rate);
+        const fade_in_frac = std.math.clamp(fade_in_s * sr_f / total_f, 0, region_frac);
+        const fade_out_frac = std.math.clamp(fade_out_s * sr_f / total_f, 0, region_frac);
+        fade_in_x = origin[0] + (start + fade_in_frac) * width;
+        fade_out_x = origin[0] + (end - fade_out_frac) * width;
+        drawFadeWedge(draw_list, start_x, fade_in_x, origin[1], mid_y, height, patina.focus, app.waveform_drag == .fade_in);
+        drawFadeWedge(draw_list, end_x, fade_out_x, origin[1], mid_y, height, patina.focus, app.waveform_drag == .fade_out);
+    }
+
     drawRegionHandle(draw_list, start_x, origin[1], height, patina.focus, app.waveform_drag == .start);
     drawRegionHandle(draw_list, end_x, origin[1], height, patina.rhythm, app.waveform_drag == .end);
 
-    const near_handle = hovered and (@abs(mouse[0] - start_x) <= 8 or @abs(mouse[0] - end_x) <= 8);
+    const near_fade_in = hovered and sample_rate > 0 and @abs(mouse[0] - fade_in_x) <= 8 and @abs(mouse[1] - mid_y) <= 10;
+    const near_fade_out = hovered and sample_rate > 0 and @abs(mouse[0] - fade_out_x) <= 8 and @abs(mouse[1] - mid_y) <= 10;
+    const near_trim = hovered and (@abs(mouse[0] - start_x) <= 8 or @abs(mouse[0] - end_x) <= 8);
+    const near_handle = near_trim or near_fade_in or near_fade_out;
     if (hovered and zgui.isMouseClicked(.left) and near_handle) {
-        app.waveform_drag = if (@abs(mouse[0] - start_x) <= @abs(mouse[0] - end_x)) .start else .end;
+        app.waveform_drag = if (near_fade_in and (!near_fade_out or @abs(mouse[0] - fade_in_x) <= @abs(mouse[0] - fade_out_x)))
+            .fade_in
+        else if (near_fade_out)
+            .fade_out
+        else if (@abs(mouse[0] - start_x) <= @abs(mouse[0] - end_x))
+            .start
+        else
+            .end;
     }
     if (app.waveform_drag) |handle| {
         if (zgui.isMouseDown(.left)) {
             const norm = std.math.clamp((mouse[0] - origin[0]) / width, 0, 1);
-            const id: u8 = if (handle == .start) 0 else 1;
-            _ = app.core.session.engine.send(.{ .set_track_param_abs = .{ .track = target.track(), .id = target.engineId(id), .value = norm } });
-            app.core.sampler_param = id;
+            switch (handle) {
+                .start, .end => {
+                    const id: u8 = if (handle == .start) 0 else 1;
+                    _ = app.core.session.engine.send(.{ .set_track_param_abs = .{ .track = target.track(), .id = target.engineId(id), .value = norm } });
+                    app.core.sampler_param = id;
+                },
+                .fade_in, .fade_out => if (sample_rate > 0 and total_f > 0) {
+                    const sr_f: f32 = @floatFromInt(sample_rate);
+                    const pos = std.math.clamp(norm, start, end);
+                    const frac = if (handle == .fade_in) pos - start else end - pos;
+                    const id: u8 = if (handle == .fade_in) 10 else 11;
+                    const seconds = @max(0.0, frac) * total_f / sr_f;
+                    _ = app.core.session.engine.send(.{ .set_track_param_abs = .{ .track = target.track(), .id = target.engineId(id), .value = seconds } });
+                    app.core.sampler_param = id;
+                },
+            }
             app.core.dirty = true;
         } else {
             app.waveform_drag = null;
@@ -381,11 +434,25 @@ fn drawWaveformRegion(app: anytype, target: Target, samples: []const f32) void {
         zgui.setMouseCursor(.resize_ew);
     }
 
-    zgui.textDisabled("drag markers to trim   region {d:.1}-{d:.1}% of {d} samples", .{ start * 100, end * 100, samples.len });
+    zgui.textDisabled("drag markers to trim, fade dots to shape fades   region {d:.1}-{d:.1}% of {d} samples", .{ start * 100, end * 100, samples.len });
 }
 
 fn drawRegionHandle(draw_list: zgui.DrawList, x: f32, top: f32, height: f32, accent: [4]f32, active: bool) void {
     const line_color = if (active) accent else [4]f32{ accent[0], accent[1], accent[2], 0.7 };
     draw_list.addLine(.{ .p1 = .{ x, top }, .p2 = .{ x, top + height }, .col = style.color(line_color), .thickness = if (active) 2 else 1.5 });
     draw_list.addTriangleFilled(.{ .p1 = .{ x - 5, top }, .p2 = .{ x + 5, top }, .p3 = .{ x, top + 8 }, .col = style.color(line_color) });
+}
+
+/// Shade the attenuated wedge between a region edge (`corner_x`, full
+/// height) and the fade's full-level point (`tip_x`, on the center line),
+/// then mark the tip with a draggable dot. `corner_x == tip_x` (fade
+/// duration 0) degenerates to a thin sliver, which reads fine.
+fn drawFadeWedge(draw_list: zgui.DrawList, corner_x: f32, tip_x: f32, top: f32, mid_y: f32, height: f32, accent: [4]f32, active: bool) void {
+    const bottom = top + height;
+    const fill = [4]f32{ accent[0], accent[1], accent[2], if (active) 0.30 else 0.18 };
+    draw_list.addTriangleFilled(.{ .p1 = .{ corner_x, top }, .p2 = .{ tip_x, mid_y }, .p3 = .{ corner_x, bottom }, .col = style.color(fill) });
+    const line_color = if (active) accent else [4]f32{ accent[0], accent[1], accent[2], 0.85 };
+    draw_list.addLine(.{ .p1 = .{ corner_x, top }, .p2 = .{ tip_x, mid_y }, .col = style.color(line_color), .thickness = if (active) 2 else 1.5 });
+    draw_list.addLine(.{ .p1 = .{ corner_x, bottom }, .p2 = .{ tip_x, mid_y }, .col = style.color(line_color), .thickness = if (active) 2 else 1.5 });
+    draw_list.addCircleFilled(.{ .p = .{ tip_x, mid_y }, .r = if (active) 5 else 4, .col = style.color(line_color) });
 }
