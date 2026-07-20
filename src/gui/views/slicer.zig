@@ -61,12 +61,7 @@ fn drawEmptyState(app: anytype) void {
         .shortcut = ":load",
         .action = "LOAD AUDIO",
         .accent = patina.audio,
-    })) {
-        const now = std.Io.Timestamp.now(app.core.io, .awake).nanoseconds;
-        app.core.handleKey(.{ .char = ':' }, now);
-        for ("load") |char| app.core.handleKey(.{ .char = char }, now);
-        app.core.handleKey(.enter, now);
-    }
+    })) widgets.openLoadCommand(app);
 }
 
 fn drawHeader(app: anytype, slicer: *const ws.dsp.Slicer) void {

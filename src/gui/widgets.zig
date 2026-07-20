@@ -43,6 +43,18 @@ pub fn emptyState(args: EmptyState) bool {
     return clicked;
 }
 
+/// Synthesizes a `:load<Enter>` keystroke sequence - the click handler for
+/// an `emptyState`'s "LOAD ..." button on sampler/slicer/soundfont's empty
+/// states, which all route into the same context-aware `:load` command
+/// (see ui/app.zig's `BrowserPurpose`) rather than each view opening the
+/// browser directly.
+pub fn openLoadCommand(app: anytype) void {
+    const now = std.Io.Timestamp.now(app.core.io, .awake).nanoseconds;
+    app.core.handleKey(.{ .char = ':' }, now);
+    for ("load") |char| app.core.handleKey(.{ .char = char }, now);
+    app.core.handleKey(.enter, now);
+}
+
 /// A rotary control: drag vertically to change the value, double-click to
 /// type an exact one. Angle sweep and drag mapping follow the usual
 /// three-quarter-turn knob convention (135deg through the top to 405deg).
