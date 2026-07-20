@@ -34,6 +34,21 @@ fn writeFxBadges(w: *std.Io.Writer, fx: *const ws.Fx) !void {
     }
 }
 
+/// Gain readout: dim "0dB" at the default, else an accented "+/-Ndb" -
+/// shared by the track/group/master rows. `dim_at_default` is whether to
+/// actually dim (false when the row itself is selected, or - track rows
+/// only - faded from solo/mute; group/master rows have no faded state).
+fn writeGainCell(w: *std.Io.Writer, gdb: f32, dim_at_default: bool) !void {
+    if (gdb == 0.0) {
+        if (dim_at_default) try w.writeAll(dim);
+        try w.writeAll("  0dB");
+        if (dim_at_default) try w.writeAll(rst);
+    } else {
+        const sign: []const u8 = if (gdb >= 0.0) "+" else "";
+        try w.print("  {s}{d:.0}dB", .{ sign, gdb });
+    }
+}
+
 /// One real track's row. Members of a group render indented under their
 /// group's own row (see App.rebuildTrackRows for the folder ordering), which
 /// replaced the old per-track "‣group" suffix tag.
@@ -125,17 +140,9 @@ fn writeTrackRow(app: anytype, w: *std.Io.Writer, ti: u16, is_sel: bool, in_sel:
     }
     // Gain / pan - always shown; dim at defaults, accented when non-default.
     {
-        const gdb = track.gain_db;
         const pan = track.pan;
         // gain
-        if (gdb == 0.0) {
-            if (!is_sel and !faded) try lw.writeAll(dim);
-            try lw.writeAll("  0dB");
-            if (!is_sel and !faded) try lw.writeAll(rst);
-        } else {
-            const sign: []const u8 = if (gdb >= 0.0) "+" else "";
-            try lw.print("  {s}{d:.0}dB", .{ sign, gdb });
-        }
+        try writeGainCell(lw, track.gain_db, !is_sel and !faded);
         // pan
         if (pan == 0.0) {
             if (!is_sel and !faded) try lw.writeAll(dim);
@@ -181,14 +188,7 @@ fn writeGroupRow(app: anytype, w: *std.Io.Writer, gi: u8, is_sel: bool, in_sel: 
         if (!is_sel) try lw.writeAll(rst);
     }
     // Bus fader - same dim-at-default shape as track gain.
-    if (grp.gain_db == 0.0) {
-        if (!is_sel) try lw.writeAll(dim);
-        try lw.writeAll("  0dB");
-        if (!is_sel) try lw.writeAll(rst);
-    } else {
-        const sign: []const u8 = if (grp.gain_db >= 0.0) "+" else "";
-        try lw.print("  {s}{d:.0}dB", .{ sign, grp.gain_db });
-    }
+    try writeGainCell(lw, grp.gain_db, !is_sel);
     if (grp.folded) {
         var members: usize = 0;
         for (app.session.project.tracks.items) |t| {
@@ -273,17 +273,7 @@ pub fn drawTracks(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, sna
                 if (!is_sel) try lw.writeAll(rst);
             }
         }
-        {
-            const gdb = app.master_gain_db;
-            if (gdb == 0.0) {
-                if (!is_sel) try lw.writeAll(dim);
-                try lw.writeAll("  0dB");
-                if (!is_sel) try lw.writeAll(rst);
-            } else {
-                const sign: []const u8 = if (gdb >= 0.0) "+" else "";
-                try lw.print("  {s}{d:.0}dB", .{ sign, gdb });
-            }
-        }
+        try writeGainCell(lw, app.master_gain_db, !is_sel);
         const hint: []const u8 = if (is_sel) dim ++ "[enter:fx]" ++ rst else "";
         try style.writeSplitRow(w, row_w.buffered(), hint, cols -| 1);
         try endLine(w);
