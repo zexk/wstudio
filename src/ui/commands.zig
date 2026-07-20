@@ -18,6 +18,7 @@ const app_mod = @import("app.zig");
 const App = app_mod.App;
 const history = @import("history.zig");
 const piano_ed = @import("editors/piano.zig");
+const preset_ed = @import("editors/preset_picker.zig");
 const spectrum_ed = @import("editors/spectrum.zig");
 const theory = ws.theory;
 const pattern_mod = ws.dsp.pattern;
@@ -1070,10 +1071,7 @@ pub fn activeScope(app: *App) cmd_mod.Scope {
 fn writeGenres(w: *std.Io.Writer, tags: []const []const u8) std.Io.Writer.Error!void {
     if (tags.len <= 1) return;
     try w.writeAll(" (");
-    for (tags[1..], 0..) |t, i| {
-        if (i > 0) try w.writeAll("/");
-        try w.writeAll(t);
-    }
+    try preset_ed.writeGenreTags(w, tags);
     try w.writeAll(")");
 }
 
