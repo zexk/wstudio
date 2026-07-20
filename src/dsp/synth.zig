@@ -2730,16 +2730,22 @@ pub const PolySynth = struct {
         return @enumFromInt(@as(u8, @intCast(@mod(ord + dir, n))));
     }
 
-    /// `pw`/`warp_amount`/`wt_pos` are passed in (not read off `self`) so the
+    /// Warps `phase` then looks up a wavetable frame or classic waveform
+    /// shape - shared body of `oscSampleA`/`oscSampleB`, which differ only
+    /// in which of self's oscillator-A/B fields they read. `pw`/
+    /// `warp_amount`/`wt_pos` are passed in (not read off `self`) so the
     /// caller can substitute per-voice matrix-modulated values.
+    fn oscSample(waveform: Waveform, wt: Wavetable, warp_mode: WarpMode, phase: f32, pw: f32, warp_amount: f32, wt_pos: f32) Sample {
+        const p = warpPhase(warp_mode, phase, warp_amount);
+        return if (waveform == .wavetable) wavetable.lookup(wt, wt_pos, p) else oscWave(waveform, p, pw);
+    }
+
     fn oscSampleA(self: *const PolySynth, phase: f32, pw: f32, warp_amount: f32, wt_pos: f32) Sample {
-        const p = warpPhase(self.warp_mode, phase, warp_amount);
-        return if (self.waveform == .wavetable) wavetable.lookup(self.wt, wt_pos, p) else oscWave(self.waveform, p, pw);
+        return oscSample(self.waveform, self.wt, self.warp_mode, phase, pw, warp_amount, wt_pos);
     }
 
     fn oscSampleB(self: *const PolySynth, phase: f32, pw: f32, warp_amount: f32, wt_pos: f32) Sample {
-        const p = warpPhase(self.osc_b_warp_mode, phase, warp_amount);
-        return if (self.osc_b_waveform == .wavetable) wavetable.lookup(self.osc_b_wt, wt_pos, p) else oscWave(self.osc_b_waveform, p, pw);
+        return oscSample(self.osc_b_waveform, self.osc_b_wt, self.osc_b_warp_mode, phase, pw, warp_amount, wt_pos);
     }
 
     /// Remap a 0..1 read phase before waveform lookup. `amount` is 0..1 and
