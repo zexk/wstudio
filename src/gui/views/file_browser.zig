@@ -134,6 +134,7 @@ fn drawEntry(name: []const u8, is_dir: bool, selected: bool, index: usize) bool 
     var id_buf: [48]u8 = undefined;
     const id = std.fmt.bufPrintZ(&id_buf, "browser-entry-{d}", .{index}) catch return false;
     const clicked = zgui.invisibleButton(id, .{ .w = width, .h = height });
+    if (selected) zgui.setScrollHereY(.{});
     const hovered = zgui.isItemHovered(.{});
     const draw_list = zgui.getWindowDrawList();
     const accent = if (is_dir) patina.audio else patina.focus;
