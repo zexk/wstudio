@@ -106,10 +106,10 @@ pub fn drawSamplerEditor(
     }
 
     // ── Waveform panel ───────────────────────────
-    // The section headers + param rows need ~13 (pad/slice) / ~16 (sampler)
+    // The section headers + param rows need ~16 (pad/slice) / ~19 (sampler)
     // lines; give the waveform whatever vertical space remains, capped for
     // readability.
-    const param_lines: usize = if (pad_target) 13 else 17;
+    const param_lines: usize = if (pad_target) 16 else 20;
     const wave_rows: usize = @min(wave_max_rows, body -| (written + param_lines));
     if (wave_rows >= 2) {
         try drawWaveformPad(w, pad, cols, wave_rows);
@@ -167,18 +167,27 @@ pub fn drawSamplerEditor(
     }
     written += 3;
 
+    // ── FADE: edit fades multiplied on top of the amp envelope ───────────────
+    try synthSection(w, "FADE", acc);
+    written += 1;
+    try barRow(w, c == 10, false, acc, "fade in", pad.fade_in_s, 1.0,
+        try std.fmt.bufPrint(&buf, "{d:.3} s", .{pad.fade_in_s}));
+    try barRow(w, c == 11, false, acc, "fade out", pad.fade_out_s, 1.0,
+        try std.fmt.bufPrint(&buf, "{d:.3} s", .{pad.fade_out_s}));
+    written += 2;
+
     // ── KEY (standalone sampler only): the root note ─────────────────────────
     if (!pad_target) {
         try synthSection(w, "KEY", grn);
         written += 1;
         const root: u7 = if (app.editingSampler()) |s| s.root_note else 60;
         var nbuf: [5]u8 = undefined;
-        try barRow(w, c == 10, false, grn, "root", @floatFromInt(root), 127.0,
+        try barRow(w, c == 12, false, grn, "root", @floatFromInt(root), 127.0,
             try std.fmt.bufPrint(&buf, "{s} ({d})", .{ midi.noteName(root, &nbuf), root }));
         written += 1;
         const mono = if (app.editingSampler()) |s| s.mono else false;
         const voice_names = [_][]const u8{ "poly", "mono" };
-        try enumRow(w, c == 11, false, grn, "voice", &voice_names, if (mono) 1 else 0);
+        try enumRow(w, c == 13, false, grn, "voice", &voice_names, if (mono) 1 else 0);
         written += 1;
     }
     // zig fmt: on

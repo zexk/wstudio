@@ -200,7 +200,7 @@ pub const DrumMachine = struct {
         midi: [max_pads][]?MidiNote,
     };
     /// Number of editable params per pad (see `adjustParam`).
-    pub const pad_param_count: u8 = 10;
+    pub const pad_param_count: u8 = 12;
     /// Max simultaneous per-pad sidechain-detector capture requests one
     /// block can carry - matches `Engine.max_sidechain_sources`, the real
     /// upper bound (every request this machine could ever receive in one
@@ -690,8 +690,8 @@ pub const DrumMachine = struct {
     /// reader, mirroring PolySynth.adjustParam. The pad index is the high bits
     /// of `id`; the param index is the low nibble (see `paramId`). Delegates
     /// straight to the pad's own Sampler.adjustParam - pads only ever receive
-    /// param indices 0..9 (the drum grid never exposes Sampler's root-note
-    /// param 10). A no-op on an unloaded (null) pad - nothing to nudge.
+    /// param indices 0..11 (the drum grid never exposes Sampler's root-note
+    /// param 12). A no-op on an unloaded (null) pad - nothing to nudge.
     pub fn adjustParam(self: *DrumMachine, id: u16, steps: i32) void {
         const pad_idx: u8 = @intCast(id >> 4);
         const param: u8 = @intCast(id & 0x0F);
@@ -781,6 +781,8 @@ pub const DrumMachine = struct {
         decay_s: f32 = 0.0,
         sustain: f32 = 1.0,
         release_s: f32 = 0.005,
+        fade_in_s: f32 = 0.0,
+        fade_out_s: f32 = 0.0,
         choke_group: u8 = 0,
     };
 
@@ -799,6 +801,8 @@ pub const DrumMachine = struct {
                     .decay_s = s.pad.decay_s,
                     .sustain = s.pad.sustain,
                     .release_s = s.pad.release_s,
+                    .fade_in_s = s.pad.fade_in_s,
+                    .fade_out_s = s.pad.fade_out_s,
                     .choke_group = self.choke_group[i],
                 };
             } else {
@@ -822,6 +826,8 @@ pub const DrumMachine = struct {
             pad.pad.decay_s = t.decay_s;
             pad.pad.sustain = t.sustain;
             pad.pad.release_s = t.release_s;
+            pad.pad.fade_in_s = t.fade_in_s;
+            pad.pad.fade_out_s = t.fade_out_s;
             self.choke_group[i] = t.choke_group;
         }
     }

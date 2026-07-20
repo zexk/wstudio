@@ -22,7 +22,7 @@ pub fn draw(app: anytype) void {
 const PadTargetKind = enum { drum, slice };
 
 /// The two editable targets this view can point at. Both expose the shared
-/// dsp/pad.zig param ids 0-9; they differ in where a value is read from and
+/// dsp/pad.zig param ids 0-11; they differ in where a value is read from and
 /// which engine param id a slider write maps to.
 const Target = union(enum) {
     standalone: struct { sampler: *ws.dsp.Sampler, track: u16 },
@@ -71,13 +71,19 @@ const shared_sections = [_]Section{
         .{ .id = 7, .label = "Gain",    .fmt = "%.2f" },
         .{ .id = 8, .label = "Pan",     .fmt = widgets.pan_cfmt },
     } },
+    .{ .title = "FADE", .color = &patina.focus, .rows = &.{
+        .{ .id = 10, .label = "Fade in",  .fmt = "%.3f s" },
+        .{ .id = 11, .label = "Fade out", .fmt = "%.3f s" },
+    } },
 };
 // zig fmt: on
 
 fn drawSharedSections(app: anytype, target: Target) void {
     const available = zgui.getContentRegionAvail()[0];
     const gap: f32 = 10;
-    const columns: usize = if (available >= 820) shared_sections.len else 1;
+    // ~270px per section column, same per-column budget the old 3-at-820
+    // breakpoint gave before FADE became the fourth section.
+    const columns: usize = if (available >= 1080) shared_sections.len else 1;
     const column_width = (available - gap * @as(f32, @floatFromInt(columns - 1))) / @as(f32, @floatFromInt(columns));
     for (shared_sections, 0..) |section, index| {
         if (index > 0 and columns > 1) zgui.sameLine(.{ .spacing = gap });
@@ -173,8 +179,8 @@ fn drawStandalone(app: anytype) void {
 
     drawSharedSections(app, target);
     widgets.sectionTitle("KEY", patina.rhythm);
-    drawParam(app, target, 10, "Root note", "%.0f");
-    drawToggle(app, target, 11, "MONO", "POLY", patina.focus);
+    drawParam(app, target, 12, "Root note", "%.0f");
+    drawToggle(app, target, 13, "MONO", "POLY", patina.focus);
 }
 
 fn drawPadTarget(app: anytype, track: u16, kind: PadTargetKind) void {
@@ -276,12 +282,12 @@ fn drawHeader(app: anytype, sampler: *const ws.dsp.Sampler) void {
 }
 
 // Slider bounds come from the dsp-side spec table so they can never drift
-// from what setParamAbsolute actually clamps to. Pad ids 0-8 are the same
+// from what setParamAbsolute actually clamps to. Pad ids 0-11 are the same
 // params the standalone sampler routes to dsp/pad.zig, so one table covers
-// both targets; root note (10) is the only continuous id outside it.
+// both targets; root note (12) is the only continuous id outside it.
 fn paramRange(id: u8) [2]f32 {
     if (ws.dsp.Sampler.findAutomatableParam(id)) |param| return param.range;
-    if (id == 10) return .{ 0, 127 };
+    if (id == 12) return .{ 0, 127 };
     return .{ 0, 1 };
 }
 

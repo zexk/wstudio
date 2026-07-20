@@ -564,9 +564,9 @@ pub fn drawPianoRollStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Write
 }
 
 /// Names for the sampler param rows, indexed by `app.sampler_param`. Indices
-/// 10-11 (root, voice) apply only to the standalone Sampler, not drum pads.
+/// 12-13 (root, voice) apply only to the standalone Sampler, not drum pads.
 const sampler_param_labels = [_][]const u8{
-    "start", "end", "pitch", "attack", "decay", "sustain", "release", "gain", "pan", "reverse", "root", "voice",
+    "start", "end", "pitch", "attack", "decay", "sustain", "release", "gain", "pan", "reverse", "fade in", "fade out", "root", "voice",
 };
 
 pub fn drawSamplerStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !void {
@@ -605,12 +605,14 @@ pub fn drawSamplerStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer)
         7 => try w.print("{d:.2}", .{pad.gain}),
         8 => try w.writeAll(if (@abs(pad.pan) < 0.005) "C" else if (pad.pan < 0) "L" else "R"),
         9 => try w.writeAll(if (pad.reverse) "on" else "off"),
-        10 => {
+        10 => try w.print("{d:.3} s", .{pad.fade_in_s}),
+        11 => try w.print("{d:.3} s", .{pad.fade_out_s}),
+        12 => {
             const root: u7 = if (app.editingSampler()) |s| s.root_note else 60;
             var nbuf: [5]u8 = undefined;
             try w.writeAll(midi.noteName(root, &nbuf));
         },
-        11 => try w.writeAll(if (app.editingSampler()) |s| (if (s.mono) "mono" else "poly") else "poly"),
+        13 => try w.writeAll(if (app.editingSampler()) |s| (if (s.mono) "mono" else "poly") else "poly"),
         else => {},
     }
     try w.writeAll(rst);

@@ -23,7 +23,7 @@ const Sample = types.Sample;
 pub const Sampler = struct {
     pub const max_voices: u8 = 16;
     /// Number of editable params (see `adjustParam`).
-    pub const param_count: u8 = 12;
+    pub const param_count: u8 = 14;
 
     pub const NoteVoice = struct {
         active: bool = false,
@@ -100,16 +100,18 @@ pub const Sampler = struct {
 
     /// Nudge param `id` by `steps` (h/l = ±1, H/L = ±10). Runs on the audio
     /// thread via the `set_param` event so it never races the block reader.
-    /// Ids 0-9 (region/pitch/ADSR/gain/pan/reverse) delegate to `pad.zig`'s
-    /// shared clamp table; 10-11 (root_note/mono) are Sampler-only.
+    /// Ids 0-11 (region/pitch/ADSR/gain/pan/reverse/fades) delegate to
+    /// `pad.zig`'s shared clamp table; 12-13 (root_note/mono) are
+    /// Sampler-only. Session-scoped ids - nothing persisted stores them, so
+    /// root/mono moving up when the fades landed at 10/11 cost nothing.
     pub fn adjustParam(self: *Sampler, id: u8, steps: i32) void {
         switch (id) {
-            0...9 => pad_dsp.adjustParam(&self.pad, id, steps),
-            10 => {
+            0...11 => pad_dsp.adjustParam(&self.pad, id, steps),
+            12 => {
                 const r = @as(i32, self.root_note) + steps;
                 self.root_note = @intCast(std.math.clamp(r, 0, 127));
             },
-            11 => if (steps != 0) {
+            13 => if (steps != 0) {
                 self.mono = !self.mono;
             },
             else => {},
@@ -118,12 +120,12 @@ pub const Sampler = struct {
 
     /// Absolute-value counterpart to `adjustParam`, same id space and clamp
     /// ranges - for undo's capture/restore (`paramValue` is the read half),
-    /// mirroring PolySynth's own pair. Toggles (reverse 9, mono 11): >= 0.5
+    /// mirroring PolySynth's own pair. Toggles (reverse 9, mono 13): >= 0.5
     /// is on. Runs on the audio thread via the `set_param_abs` event.
     pub fn setParamAbsolute(self: *Sampler, id: u8, value: f32) void {
         switch (id) {
-            0...9 => pad_dsp.setParamAbsolute(&self.pad, id, value),
-            10 => {
+            0...11 => pad_dsp.setParamAbsolute(&self.pad, id, value),
+            12 => {
                 if (!(value > 0.0)) { // also catches NaN
                     self.root_note = 0;
                 } else if (value >= 127.0) {
@@ -132,7 +134,7 @@ pub const Sampler = struct {
                     self.root_note = @intFromFloat(@round(value));
                 }
             },
-            11 => self.mono = value >= 0.5,
+            13 => self.mono = value >= 0.5,
             else => {},
         }
     }
@@ -143,9 +145,9 @@ pub const Sampler = struct {
     /// convention the sampler editor's own row rendering already uses.
     pub fn paramValue(self: *const Sampler, id: u8) ?f32 {
         return switch (id) {
-            0...9 => pad_dsp.paramValue(&self.pad, id),
-            10 => @floatFromInt(self.root_note),
-            11 => if (self.mono) 1.0 else 0.0,
+            0...11 => pad_dsp.paramValue(&self.pad, id),
+            12 => @floatFromInt(self.root_note),
+            13 => if (self.mono) 1.0 else 0.0,
             else => null,
         };
     }
@@ -153,7 +155,7 @@ pub const Sampler = struct {
     /// One entry per continuous `setParamAbsolute`-handled id - same shape
     /// and purpose as PolySynth's own table (`dsp.AutomatableParam`), for the
     /// automation editor's param picker/curve labels/h-l nudge step. Toggles
-    /// (reverse=9, mono=11) and root_note=10 are deliberately excluded, same
+    /// (reverse=9, mono=13) and root_note=12 are deliberately excluded, same
     /// call PolySynth's own table already made for its enum/toggle ids
     /// (waveform, osc-B on/off, ...) - a breakpoint curve over an on/off
     /// flip or a coarse tuning offset isn't a meaningful automation target.
@@ -168,6 +170,8 @@ pub const Sampler = struct {
         .{ .id = 6, .label = "RELEASE", .section = "AMP ENV", .range = .{ 0.001, 5.0 }, .step = 0.005 },
         .{ .id = 7, .label = "GAIN",    .section = "OUT",     .range = .{ 0.0,   2.0 }, .step = 0.01 },
         .{ .id = 8, .label = "PAN",     .section = "OUT",     .range = .{ -1.0,  1.0 }, .step = 0.05 },
+        .{ .id = 10, .label = "FADE IN",  .section = "FADE",  .range = .{ 0.0,   5.0 }, .step = 0.005 },
+        .{ .id = 11, .label = "FADE OUT", .section = "FADE",  .range = .{ 0.0,   5.0 }, .step = 0.005 },
         // zig fmt: on
     };
 
@@ -454,11 +458,11 @@ test "adjustParam toggles mono" {
     var s = try Sampler.init(std.testing.allocator, 48_000);
     defer s.deinit();
     try std.testing.expect(!s.mono);
-    s.adjustParam(11, 1);
+    s.adjustParam(13, 1);
     try std.testing.expect(s.mono);
-    s.adjustParam(11, -1);
+    s.adjustParam(13, -1);
     try std.testing.expect(!s.mono);
-    s.adjustParam(11, 0); // steps=0 is a no-op, mirroring the reverse toggle
+    s.adjustParam(13, 0); // steps=0 is a no-op, mirroring the reverse toggle
     try std.testing.expect(!s.mono);
 }
 
@@ -467,10 +471,14 @@ test "adjustParam edits clip params and root note" {
     defer s.deinit();
     s.adjustParam(2, 5); // pitch +5 semis
     try std.testing.expectApproxEqAbs(@as(f32, 5.0), s.pad.pitch_semitones, 1e-4);
-    s.adjustParam(10, -12); // root down an octave
+    s.adjustParam(12, -12); // root down an octave
     try std.testing.expectEqual(@as(u7, 48), s.root_note);
     s.adjustParam(9, 1); // reverse toggle
     try std.testing.expect(s.pad.reverse);
+    s.adjustParam(10, 20); // fade-in +20 steps of 0.005
+    try std.testing.expectApproxEqAbs(@as(f32, 0.1), s.pad.fade_in_s, 1e-4);
+    s.adjustParam(11, 20);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.1), s.pad.fade_out_s, 1e-4);
 }
 
 test "a mid-block trigger renders from its block_start offset, not the block top" {
