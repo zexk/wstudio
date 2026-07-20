@@ -2,6 +2,7 @@ const std = @import("std");
 const ws = @import("wstudio");
 const zgui = @import("zgui");
 const icons = @import("../../ui/icons.zig");
+const waveform = @import("../../ui/waveform.zig");
 const style = @import("../style.zig");
 const widgets = @import("../widgets.zig");
 
@@ -346,13 +347,7 @@ fn drawWaveformRegion(app: anytype, target: Target, samples: []const f32) void {
 
     var overview: [512]f32 = undefined;
     const count = @min(samples.len, overview.len);
-    for (overview[0..count], 0..) |*out, i| {
-        const s = i * samples.len / count;
-        const e = @max(s + 1, (i + 1) * samples.len / count);
-        var peak: f32 = 0;
-        for (samples[s..@min(e, samples.len)]) |v| peak = @max(peak, @abs(v));
-        out.* = peak;
-    }
+    waveform.peakBuckets(samples, overview[0..count]);
     const mid_y = origin[1] + height / 2;
     const start_x = origin[0] + start * width;
     const end_x = origin[0] + end * width;
