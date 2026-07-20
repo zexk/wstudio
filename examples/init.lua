@@ -12,7 +12,7 @@
 -- ~/.config/wstudio/lua/mysetup.lua is loaded with require("mysetup").
 --
 -- Two values describe the running instance:
---   wstudio.version    -- e.g. "1.0.0-beta.1"
+--   wstudio.version    -- e.g. "1.0.0-beta.2"
 --   wstudio.frontend   -- "tui" or "gui", set before this file runs
 --
 -- Edited this file mid-session? `:reload-config` (alias `:so`) re-runs it
