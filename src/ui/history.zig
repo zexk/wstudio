@@ -96,17 +96,25 @@ pub fn captureSlicer(app: *App, track: u16) ?undo_mod.Entry {
     return .{ .slicer = st };
 }
 
-/// Snapshot one arrangement lane's clips (deep copies).
-pub fn captureLane(app: *App, track: u16) ?undo_mod.Entry {
-    const lane = app.session.arrangement.lane(track) orelse return null;
-    const clips = app.allocator.alloc(ws.Clip, lane.clips.items.len) catch return null;
-    for (lane.clips.items, 0..) |c, i| {
-        clips[i] = c.dupe(app.allocator) catch {
-            for (clips[0..i]) |*done| done.deinit(app.allocator);
-            app.allocator.free(clips);
+/// Deep-copies `src` into a freshly-allocated slice, or null on OOM (with
+/// every already-duped clip and the slice itself cleaned up first) - shared
+/// by captureLane and captureTrackFull's own clip-copy step.
+fn dupeClips(allocator: std.mem.Allocator, src: []const ws.Clip) ?[]ws.Clip {
+    const out = allocator.alloc(ws.Clip, src.len) catch return null;
+    for (src, 0..) |c, i| {
+        out[i] = c.dupe(allocator) catch {
+            for (out[0..i]) |*done| done.deinit(allocator);
+            allocator.free(out);
             return null;
         };
     }
+    return out;
+}
+
+/// Snapshot one arrangement lane's clips (deep copies).
+pub fn captureLane(app: *App, track: u16) ?undo_mod.Entry {
+    const lane = app.session.arrangement.lane(track) orelse return null;
+    const clips = dupeClips(app.allocator, lane.clips.items) orelse return null;
     return .{ .lane = .{ .track = @intCast(track), .clips = clips } };
 }
 
@@ -131,22 +139,12 @@ pub fn captureTrackFull(app: *App, track_idx: usize) ?undo_mod.TrackFullState {
 
     var clips: []ws.Clip = &.{};
     if (app.session.arrangement.lane(track_idx)) |lane| {
-        clips = app.allocator.alloc(ws.Clip, lane.clips.items.len) catch {
+        clips = dupeClips(app.allocator, lane.clips.items) orelse {
             app.allocator.free(name);
             rack.deinit(app.allocator);
             app.allocator.destroy(rack);
             return null;
         };
-        for (lane.clips.items, 0..) |c, i| {
-            clips[i] = c.dupe(app.allocator) catch {
-                for (clips[0..i]) |*done| done.deinit(app.allocator);
-                app.allocator.free(clips);
-                app.allocator.free(name);
-                rack.deinit(app.allocator);
-                app.allocator.destroy(rack);
-                return null;
-            };
-        }
     }
 
     return .{
