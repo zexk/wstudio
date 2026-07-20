@@ -191,12 +191,15 @@ pub const Session = struct {
         return idx;
     }
 
-    /// Common tail of `insertTrack`/`restoreTrack`: syncs the engine's own
-    /// track-array copy to the just-inserted rack/track, then remaps any
-    /// compressor sidechaining off a track shifted up by this insert. Split
-    /// out because the two callers build the rack/`Project.Track` entry
-    /// itself differently (blank vs. restored-from-undo state) but finish
-    /// identically.
+    /// Common tail of `insertTrack`/`restoreTrack`/`duplicateTrack`: syncs
+    /// the engine's own track-array copy to the just-inserted rack/track,
+    /// then remaps any compressor sidechaining off a track shifted up by
+    /// this insert (a no-op for `duplicateTrack`'s always-append case,
+    /// since nothing before an appended index shifts - but it keeps that
+    /// call correct if the insert position there ever changes). Split out
+    /// because the three callers build the rack/`Project.Track` entry
+    /// itself differently (blank / restored-from-undo / deep-copied
+    /// source) but finish identically.
     fn finishTrackInsert(self: *Session, idx: u16, total: u16, rack: *Rack, gain: f32, pan: f32, muted: bool) void {
         self.engine.applyInsertTrack(idx, total, gain, pan, muted);
         self.syncTrackChain(idx, rack);
@@ -458,10 +461,18 @@ pub const Session = struct {
         });
 
         self.finishTrackInsert(idx, total, rack, types.dbToGain(meta.gain_db), meta.pan, meta.muted);
-        if (meta.soloed) _ = self.engine.send(.{ .set_track_solo = .{ .track = idx, .soloed = true } });
-        if (meta.group) |g| _ = self.engine.send(.{ .set_track_group = .{ .track = idx, .group = g } });
+        self.pushSoloGroup(idx, meta.soloed, meta.group);
 
         if (self.song_mode) self.rebuildSongData();
+    }
+
+    /// Pushes a freshly-inserted track's solo/group state to the engine -
+    /// shared tail of `restoreTrack`/`duplicateTrack`, which both build a
+    /// blank/default-solo-group new rack (`applyInsertTrack` itself has no
+    /// solo/group params) and then need these pushed as a follow-up event.
+    fn pushSoloGroup(self: *Session, idx: u16, soloed: bool, group: ?u8) void {
+        if (soloed) _ = self.engine.send(.{ .set_track_solo = .{ .track = idx, .soloed = true } });
+        if (group) |g| _ = self.engine.send(.{ .set_track_group = .{ .track = idx, .group = g } });
     }
 
     /// Deep-copy `track_idx` - instrument, params, FX, pattern/pad audio, and
@@ -505,10 +516,8 @@ pub const Session = struct {
             // zig fmt: on
         });
 
-        self.engine.applyInsertTrack(idx, idx, types.dbToGain(src.gain_db), src.pan, src.muted);
-        self.syncTrackChain(idx, new_rack);
-        if (src.soloed) _ = self.engine.send(.{ .set_track_solo = .{ .track = idx, .soloed = true } });
-        if (src.group) |g| _ = self.engine.send(.{ .set_track_group = .{ .track = idx, .group = g } });
+        self.finishTrackInsert(idx, idx, new_rack, types.dbToGain(src.gain_db), src.pan, src.muted);
+        self.pushSoloGroup(idx, src.soloed, src.group);
 
         if (self.song_mode) self.rebuildSongData();
 
