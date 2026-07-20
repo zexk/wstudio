@@ -47,12 +47,7 @@ pub const WasapiBackend = struct {
     };
 
     pub fn start(self: *WasapiBackend) Error!void {
-        if (self.config.sample_rate == 0 or self.config.block_frames == 0 or
-            self.config.channels == 0 or self.config.channels > max_channels or
-            self.config.block_frames > types.max_block_frames)
-            return error.InvalidConfig;
-        std.debug.assert(self.config.channels <= max_channels);
-        std.debug.assert(self.config.block_frames <= types.max_block_frames);
+        try backend_mod.validateConfig(self.config, max_channels);
 
         if (!ok(c.CoInitializeEx(null, c.COINIT_MULTITHREADED))) return error.ComInitFailed;
         errdefer c.CoUninitialize();
