@@ -111,6 +111,11 @@ pub fn drawStatus(app: anytype) void {
     const display = zgui.io.getDisplaySize();
     zgui.setNextWindowPos(.{ .x = 0, .y = display[1] - 34, .cond = .always });
     zgui.setNextWindowSize(.{ .w = display[0], .h = 34, .cond = .always });
+    // The default 1px window border would show up as a stray hairline
+    // separating the bar from the workspace above it - the filled bg1
+    // rect below is the only divider this bar should have.
+    zgui.pushStyleVar1f(.{ .idx = .window_border_size, .v = 0 });
+    defer zgui.popStyleVar(.{});
     if (zgui.begin("Status", .{ .flags = .{ .no_title_bar = true, .no_resize = true, .no_move = true, .no_docking = true } })) {
         const draw = zgui.getWindowDrawList();
         const pos = zgui.getWindowPos();
