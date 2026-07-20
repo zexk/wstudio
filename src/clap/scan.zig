@@ -3,6 +3,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const abi = @import("abi.zig");
+const dynlib_compat = @import("dynlib_compat.zig");
 
 pub const PluginInfo = struct {
     path: []u8,
@@ -58,7 +59,7 @@ pub const Registry = struct {
     }
 
     fn scanFile(self: *Registry, path: []const u8) !void {
-        var library = std.DynLib.open(path) catch return;
+        var library = dynlib_compat.DynLib.open(path) catch return;
         defer library.close();
         const entry = library.lookup(*const abi.PluginEntry, "clap_entry") orelse return;
         if (!abi.versionIsCompatible(entry.clap_version)) return;
