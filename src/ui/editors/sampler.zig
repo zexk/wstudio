@@ -18,7 +18,7 @@ pub const wave_max_w: usize = 240;
 pub const wave_max_rows: usize = 14;
 
 /// Number of editable params for the sampler editor's current target.
-/// A slice carries the same 10 pad params a drum pad does (start..reverse),
+/// A slice carries the same 12 pad params a drum pad does (start..fades),
 /// minus nothing - root/mono stay sampler-only.
 fn paramCount(app: *App) u8 {
     return switch (app.sampler_target) {
@@ -202,9 +202,9 @@ pub fn adjustParam(app: *App, steps: i32) void {
 /// Rows the waveform panel actually occupies (0 if there isn't room for
 /// one - drawSamplerEditor skips it below 2 rows). `body` is the view's
 /// content-row budget (`rows -| 5`, matching drawSamplerEditor).
-/// `pad_target` = drum pad or slice: 10 params, no KEY section.
+/// `pad_target` = drum pad or slice: 12 params, no KEY section.
 fn waveRows(pad_target: bool, body: usize) usize {
-    const param_lines: usize = if (pad_target) 13 else 17;
+    const param_lines: usize = if (pad_target) 16 else 20;
     const wr = @min(wave_max_rows, body -| (1 + param_lines));
     return if (wr >= 2) wr else 0;
 }
@@ -213,13 +213,14 @@ fn waveRows(pad_target: bool, body: usize) usize {
 /// Row of param `idx` relative to right after the waveform panel (title +
 /// waveform rows already excluded) - one row per section header, matching
 /// drawSamplerEditor's emission order (SAMPLE's 3 params, AMP ENV's 4, OUT's
-/// 3, then KEY's 1 for a standalone sampler).
+/// 3, FADE's 2, then KEY's 2 for a standalone sampler).
 fn paramRelRow(idx: u8) usize {
     return switch (idx) {
         0 => 1, 1 => 2, 2 => 3, // SAMPLE (header at 0): start, end, pitch
         3 => 5, 4 => 6, 5 => 7, 6 => 8, // AMP ENV (header at 4): attack..release
         7 => 10, 8 => 11, 9 => 12, // OUT (header at 9): gain, pan, reverse
-        10 => 14, 11 => 15, // KEY (header at 13): root, voice - standalone sampler only
+        10 => 14, 11 => 15, // FADE (header at 13): fade in, fade out
+        12 => 17, 13 => 18, // KEY (header at 16): root, voice - standalone sampler only
         else => 0,
     };
 }
@@ -232,7 +233,7 @@ fn paramAtRow(app: *App, row: usize, view_rows: usize) ?u8 {
     const w_rows = waveRows(pad_target, view_rows -| 5);
     if (row < 1 + w_rows) return null;
     const rel = row - (1 + w_rows);
-    const count: u8 = if (pad_target) 10 else 12;
+    const count: u8 = paramCount(app);
     var i: u8 = 0;
     while (i < count) : (i += 1) {
         if (paramRelRow(i) == rel) return i;

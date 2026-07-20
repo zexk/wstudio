@@ -38,6 +38,13 @@ pub const Pad = struct {
     decay_s: f32 = 0.0,
     sustain: f32 = 1.0,
     release_s: f32 = 0.005,
+    /// Linear gain ramp over the first `fade_in_s` seconds of playback and
+    /// the last `fade_out_s` before the region end. 0 (the default) = off.
+    /// Unlike the ADSR - an instrument-shaping envelope - these are edit
+    /// fades: declick a rough sample trim or ease an audio clip in/out.
+    /// They multiply on top of the ADSR rather than replacing it.
+    fade_in_s: f32 = 0.0,
+    fade_out_s: f32 = 0.0,
 };
 
 pub fn fixedName(name: []const u8) [8]u8 {
@@ -62,12 +69,14 @@ pub fn emptyPad() *const Pad {
 
 /// Number of shared, continuous per-pad params `adjustParam`/`setParamAbsolute`/
 /// `paramValue` cover - start/end/pitch/attack/decay/sustain/release/gain/pan,
-/// plus the reverse toggle at id 9. Callers with extra ids of their own
-/// (Sampler's root_note/mono, ...) dispatch those separately and fall through
-/// to these for 0-9.
-pub const param_count: u8 = 10;
+/// the reverse toggle at id 9, and the fade in/out pair at 10/11. Callers
+/// with extra ids of their own (Sampler's root_note/mono, ...) dispatch
+/// those separately and fall through to these for 0-11. The whole space
+/// must stay within one nibble - DrumMachine/Slicer pack the param id into
+/// `paramId`'s low 4 bits.
+pub const param_count: u8 = 12;
 
-/// Nudge shared pad param `id` (0-9) by `steps` (h/l = ±1, H/L = ±10). Shared
+/// Nudge shared pad param `id` (0-11) by `steps` (h/l = ±1, H/L = ±10). Shared
 /// by Sampler and Slicer, whose per-slice params were previously hand-copied
 /// switches over the same fields/ranges.
 pub fn adjustParam(pad: *Pad, id: u8, steps: i32) void {
@@ -87,7 +96,7 @@ fn paramStep(id: u8) f32 {
         0, 1, 5, 7 => 0.01,
         2 => 1.0,
         3 => 0.001,
-        4, 6 => 0.005,
+        4, 6, 10, 11 => 0.005,
         8 => 0.05,
         else => 0.0,
     };
@@ -109,6 +118,8 @@ pub fn setParamAbsolute(pad: *Pad, id: u8, value: f32) void {
         7 => pad.gain       = std.math.clamp(value, 0.0, 2.0),
         8 => pad.pan        = std.math.clamp(value, -1.0, 1.0),
         9 => pad.reverse    = value >= 0.5,
+        10 => pad.fade_in_s  = std.math.clamp(value, 0.0, 5.0),
+        11 => pad.fade_out_s = std.math.clamp(value, 0.0, 5.0),
         // zig fmt: on
         else => {},
     }
@@ -141,6 +152,8 @@ pub fn paramValue(pad: *const Pad, id: u8) ?f32 {
         7 => pad.gain,
         8 => pad.pan,
         9 => if (pad.reverse) 1.0 else 0.0,
+        10 => pad.fade_in_s,
+        11 => pad.fade_out_s,
         // zig fmt: on
         else => null,
     };
@@ -202,12 +215,16 @@ pub fn renderVoice(
         const rp: f64 = if (pad.reverse) (hi - 1.0 - voice.played) else (lo + voice.played);
         const s = sampleAt(pad.samples, rp);
 
-        // Envelope (output time): attack/decay/sustain on the body, plus a
-        // release fade over the final `release_s` of the region.
+        // Envelope (output time): attack/decay/sustain on the body, a
+        // release fade over the final `release_s` of the region, and the
+        // edit fades - fade-in over elapsed time, fade-out over remaining
+        // time - multiplied on top (see the Pad field doc comment).
         const t_out = voice.played / rate / sr;
         const left_out = (region_len - voice.played) / rate / sr;
         const env = adsrLevel(t_out, pad.attack_s, pad.decay_s, pad.sustain) *
-            releaseFade(left_out, pad.release_s);
+            linearRamp(left_out, pad.release_s) *
+            linearRamp(t_out, pad.fade_in_s) *
+            linearRamp(left_out, pad.fade_out_s);
 
         const v = s * env;
         buf[i * channels] += v * gl;
@@ -246,12 +263,13 @@ fn adsrLevel(t: f64, attack_s: f32, decay_s: f32, sustain: f32) f32 {
     return @floatCast(sus);
 }
 
-/// Release fade in the final `release_s` seconds of the region. `left` is the
-/// remaining output time. Returns 1 outside the release window.
-fn releaseFade(left: f64, release_s: f32) f32 {
-    const r: f64 = @floatCast(release_s);
-    if (r <= 0.0 or left >= r) return 1.0;
-    return @floatCast(std.math.clamp(left / r, 0.0, 1.0));
+/// Linear 0→1 gain ramp over the first `dur` seconds of `t`; 1 past it (or
+/// when the ramp is off, dur = 0). One shape, three uses: the release fade
+/// and the fade-out get remaining output time, the fade-in gets elapsed.
+fn linearRamp(t: f64, dur: f32) f32 {
+    const d: f64 = @floatCast(dur);
+    if (d <= 0.0 or t >= d) return 1.0;
+    return @floatCast(std.math.clamp(t / d, 0.0, 1.0));
 }
 
 // -----------------------------------------------------------------------
@@ -326,6 +344,36 @@ test "resampleLinear validates rates and rounds output length up" {
     try std.testing.expectEqual(@as(usize, 5), out.len);
 }
 
+test "renderVoice applies fade-in and fade-out ramps on top of the ADSR" {
+    const testing = std.testing;
+    var samples = [_]f32{1.0} ** 1000; // 1s of DC at unity, 1kHz for readable math
+    const p = Pad{
+        .samples = &samples,
+        .fade_in_s = 0.1,
+        .fade_out_s = 0.2,
+        .attack_s = 0.0,
+        .release_s = 0.001,
+    };
+    var voice = Voice{ .active = true };
+    var buf = [_]Sample{0.0} ** 2000; // 1000 stereo frames
+    renderVoice(&voice, &p, &buf, 2, 1000, 1000.0);
+
+    // Halfway through the 100ms fade-in: half level.
+    try testing.expectApproxEqAbs(@as(f32, 0.5), buf[50 * 2], 0.02);
+    // Past both fades, body plays at unity.
+    try testing.expectApproxEqAbs(@as(f32, 1.0), buf[500 * 2], 0.02);
+    // 100ms before the region end - halfway through the 200ms fade-out.
+    try testing.expectApproxEqAbs(@as(f32, 0.5), buf[900 * 2], 0.02);
+
+    // Defaults (both 0) leave the body untouched: same frame, full level.
+    var flat_voice = Voice{ .active = true };
+    var flat_buf = [_]Sample{0.0} ** 2000;
+    const flat = Pad{ .samples = &samples, .attack_s = 0.0, .release_s = 0.001 };
+    renderVoice(&flat_voice, &flat, &flat_buf, 2, 1000, 1000.0);
+    try testing.expectApproxEqAbs(@as(f32, 1.0), flat_buf[50 * 2], 0.02);
+    try testing.expectApproxEqAbs(@as(f32, 1.0), flat_buf[900 * 2], 0.02);
+}
+
 test "adjustParam uses the same bounds as absolute parameter assignment" {
     const testing = std.testing;
     const initial = Pad{
@@ -339,9 +387,12 @@ test "adjustParam uses the same bounds as absolute parameter assignment" {
         .release_s = 0.4,
         .gain = 0.9,
         .pan = -0.2,
+        .fade_in_s = 0.1,
+        .fade_out_s = 0.2,
     };
 
-    for (0..9) |raw_id| {
+    for (0..param_count) |raw_id| {
+        if (raw_id == 9) continue; // reverse toggle, asserted below
         const id: u8 = @intCast(raw_id);
         var nudged = initial;
         var assigned = initial;
