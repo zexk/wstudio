@@ -83,18 +83,53 @@ fn knobTToValue(min: f32, max: f32, t: f32, logarithmic: bool) f32 {
 
 /// Splits a printf-style `"%.Nf<suffix>"` format (as used by the slider
 /// widgets this replaces) into a precision and trailing unit text.
+/// Strips the leading '-' when a negative value rounds to zero at `digits`
+/// decimal places, so e.g. -0.3 formatted with "%.0f" reads "0" not "-0".
+fn stripNegativeZero(s: []const u8, digits: u2) []const u8 {
+    if (s.len < 2 or s[0] != '-' or s[1] != '0') return s;
+    var idx: usize = 2;
+    if (digits > 0) {
+        if (idx >= s.len or s[idx] != '.') return s;
+        idx += 1;
+        if (idx + digits > s.len) return s;
+        for (s[idx .. idx + digits]) |c| {
+            if (c != '0') return s;
+        }
+    }
+    return s[1..];
+}
+
+/// Sentinel `cfmt` recognized by `knobFormatValue`: renders a -1..1 pan
+/// value as a mixer-style L<n>/C/R<n> readout instead of a raw float.
+pub const pan_cfmt: [:0]const u8 = "%pan";
+
 fn knobFormatValue(buf: []u8, cfmt: [:0]const u8, value: f32) []const u8 {
-    const at = std.mem.indexOf(u8, cfmt, "%.") orelse return std.fmt.bufPrint(buf, "{d:.2}", .{value}) catch "";
+    if (std.mem.eql(u8, cfmt, pan_cfmt)) {
+        if (value == 0.0) return std.fmt.bufPrint(buf, "C", .{}) catch "C";
+        const pct: u32 = @intFromFloat(@abs(value) * 100.0);
+        return std.fmt.bufPrint(buf, "{c}{d}%", .{ if (value < 0) @as(u8, 'L') else 'R', pct }) catch "";
+    }
+    const at = std.mem.indexOf(u8, cfmt, "%.") orelse {
+        const s = std.fmt.bufPrint(buf, "{d:.2}", .{value}) catch return "";
+        return stripNegativeZero(s, 2);
+    };
     const digit_pos = at + 2;
     if (digit_pos >= cfmt.len) return "";
     const f_pos = std.mem.indexOfScalarPos(u8, cfmt, digit_pos, 'f') orelse return "";
     const suffix = cfmt[f_pos + 1 ..];
-    return switch (cfmt[digit_pos]) {
-        '0' => std.fmt.bufPrint(buf, "{d:.0}{s}", .{ value, suffix }) catch "",
-        '1' => std.fmt.bufPrint(buf, "{d:.1}{s}", .{ value, suffix }) catch "",
-        '2' => std.fmt.bufPrint(buf, "{d:.2}{s}", .{ value, suffix }) catch "",
-        else => std.fmt.bufPrint(buf, "{d:.3}{s}", .{ value, suffix }) catch "",
+    const digits: u2 = switch (cfmt[digit_pos]) {
+        '0' => 0,
+        '1' => 1,
+        '2' => 2,
+        else => 3,
     };
+    const s = (switch (digits) {
+        0 => std.fmt.bufPrint(buf, "{d:.0}{s}", .{ value, suffix }),
+        1 => std.fmt.bufPrint(buf, "{d:.1}{s}", .{ value, suffix }),
+        2 => std.fmt.bufPrint(buf, "{d:.2}{s}", .{ value, suffix }),
+        else => std.fmt.bufPrint(buf, "{d:.3}{s}", .{ value, suffix }),
+    }) catch return "";
+    return stripNegativeZero(s, digits);
 }
 
 /// Draws the dial only (no label/value text). `label` doubles as the
@@ -130,7 +165,8 @@ pub fn knob(label: [:0]const u8, args: Knob) KnobResult {
         var edit = args.v.*;
         zgui.setNextItemWidth(90);
         zgui.setKeyboardFocusHere(0);
-        if (zgui.inputFloat("##value", .{ .v = &edit, .cfmt = args.cfmt, .flags = .{ .enter_returns_true = true } })) {
+        const edit_cfmt: [:0]const u8 = if (std.mem.eql(u8, args.cfmt, pan_cfmt)) "%.2f" else args.cfmt;
+        if (zgui.inputFloat("##value", .{ .v = &edit, .cfmt = edit_cfmt, .flags = .{ .enter_returns_true = true } })) {
             args.v.* = std.math.clamp(edit, args.min, args.max);
             changed = true;
             zgui.closeCurrentPopup();

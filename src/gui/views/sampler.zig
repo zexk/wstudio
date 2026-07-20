@@ -69,7 +69,7 @@ const shared_sections = [_]Section{
     } },
     .{ .title = "OUT", .color = &patina.audio, .rows = &.{
         .{ .id = 7, .label = "Gain",    .fmt = "%.2f" },
-        .{ .id = 8, .label = "Pan",     .fmt = "%.2f" },
+        .{ .id = 8, .label = "Pan",     .fmt = widgets.pan_cfmt },
     } },
 };
 // zig fmt: on
