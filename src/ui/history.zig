@@ -506,6 +506,31 @@ fn applyEntry(app: *App, entry: undo_mod.Entry) ?undo_mod.Entry {
     }
 }
 
+/// Shared body of doUndo/doRedo: pop an entry off the requested stack,
+/// apply it, and either park the displaced entry on the opposite stack or
+/// discard the entry with a "gone" status if its target no longer exists.
+/// `is_undo` is comptime so each direction still compiles to its own
+/// straight-line code (same pop/park calls and status wording as the two
+/// functions had separately, just written once).
+fn applyAndPark(app: *App, comptime is_undo: bool) void {
+    var entry = (if (is_undo) app.history.popUndo() else app.history.popRedo()) orelse {
+        app.setStatus(if (is_undo) "nothing to undo" else "nothing to redo", .{});
+        return;
+    };
+    const what = entry.label();
+    if (applyEntry(app, entry)) |displaced| {
+        if (is_undo) app.history.parkRedo(app.allocator, displaced) else app.history.parkUndo(app.allocator, displaced);
+        app.dirty = true;
+        if (is_undo)
+            app.setStatus("undid {s} edit ({d} left)", .{ what, app.history.undo_stack.items.len })
+        else
+            app.setStatus("redid {s} edit", .{what});
+    } else {
+        entry.deinit(app.allocator);
+        app.setStatus(if (is_undo) "undo target is gone - skipped" else "redo target is gone - skipped", .{});
+    }
+}
+
 pub fn doUndo(app: *App) void {
     // A still-open coalescing batch (param nudge / FX nudge) hasn't reached
     // the undo stack yet - flush it first so `u` right after nudging (with
@@ -515,33 +540,9 @@ pub fn doUndo(app: *App) void {
     // entry it's about to pop.
     flushParamNudge(app);
     flushFxNudge(app);
-    var entry = app.history.popUndo() orelse {
-        app.setStatus("nothing to undo", .{});
-        return;
-    };
-    const what = entry.label();
-    if (applyEntry(app, entry)) |displaced| {
-        app.history.parkRedo(app.allocator, displaced);
-        app.dirty = true;
-        app.setStatus("undid {s} edit ({d} left)", .{ what, app.history.undo_stack.items.len });
-    } else {
-        entry.deinit(app.allocator);
-        app.setStatus("undo target is gone - skipped", .{});
-    }
+    applyAndPark(app, true);
 }
 
 pub fn doRedo(app: *App) void {
-    var entry = app.history.popRedo() orelse {
-        app.setStatus("nothing to redo", .{});
-        return;
-    };
-    const what = entry.label();
-    if (applyEntry(app, entry)) |displaced| {
-        app.history.parkUndo(app.allocator, displaced);
-        app.dirty = true;
-        app.setStatus("redid {s} edit", .{what});
-    } else {
-        entry.deinit(app.allocator);
-        app.setStatus("redo target is gone - skipped", .{});
-    }
+    applyAndPark(app, false);
 }
