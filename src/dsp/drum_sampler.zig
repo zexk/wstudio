@@ -569,7 +569,15 @@ pub const DrumMachine = struct {
 
     /// Change the native grid without moving hits in musical time: every
     /// note's step (and duration) is rescaled from the old grid to the new
-    /// one. Returns false when refining would exceed `max_steps`.
+    /// one. Returns false - leaving the pattern untouched - when refining
+    /// would exceed `max_steps`, OR when coarsening would round two hits
+    /// onto the same new step or push one past the new grid's end. Losing a
+    /// hit silently on zoom was the actual bug here (two colliding notes
+    /// used to fold into one, keeping only the louder velocity and
+    /// discarding the other's pitch/duration outright); refusing the whole
+    /// resize is the only way to change resolution without ever discarding
+    /// a hit invisibly - the caller reports it so the user can move/delete
+    /// the conflicting note first.
     pub fn setStepsPerBeatPreservingTime(self: *DrumMachine, new_spb: u8) bool {
         if (new_spb == self.steps_per_beat) return true;
         if (new_spb < 1 or new_spb > 32) return false;
@@ -579,22 +587,23 @@ pub const DrumMachine = struct {
         const new_count: u16 = @intCast(new_count_u32);
 
         var next = allocMidi(self.allocator, new_count) catch return false;
-        errdefer freeMidi(self.allocator, &next);
+        var committed = false;
+        defer if (!committed) freeMidi(self.allocator, &next);
 
         for (0..max_pads) |pad| {
             for (self.midi[pad]) |maybe_note| {
                 const note = maybe_note orelse continue;
                 const mapped_u32: u32 = @intCast(@divTrunc(@as(u32, note.step) * new_spb + old_spb / 2, old_spb));
-                if (mapped_u32 >= new_count) continue;
+                if (mapped_u32 >= new_count) return false;
                 const mapped: u16 = @intCast(mapped_u32);
+                if (next[pad][mapped] != null) return false;
                 const dur_u32: u32 = @intCast(@divTrunc(@as(u32, note.duration_steps) * new_spb + old_spb / 2, old_spb));
                 const dur: u16 = @intCast(std.math.clamp(dur_u32, 1, max_steps));
-                const existing = next[pad][mapped];
                 next[pad][mapped] = .{
                     .pitch = note.pitch,
                     .step = mapped,
                     .duration_steps = dur,
-                    .velocity = if (existing) |e| @max(e.velocity, note.velocity) else note.velocity,
+                    .velocity = note.velocity,
                 };
             }
         }
@@ -605,6 +614,7 @@ pub const DrumMachine = struct {
         self.step_count = new_count;
         self.steps_per_beat = new_spb;
         self.pad_lock.unlock();
+        committed = true;
         return true;
     }
 

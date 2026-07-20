@@ -21,12 +21,7 @@ pub fn draw(app: anytype) void {
     };
     drawHeader(app, slicer);
     zgui.spacing();
-    var has_audio = true;
-    if (slicer.sample_lock.tryLock()) {
-        has_audio = slicer.samples.len > 0;
-        slicer.sample_lock.unlock();
-    }
-    if (!has_audio) {
+    if (!slicer.hasAudio()) {
         drawEmptyState(app);
         return;
     }

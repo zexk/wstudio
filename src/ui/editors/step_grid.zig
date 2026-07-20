@@ -58,7 +58,7 @@ pub fn moveClamped(cursor: anytype, delta: i32, count: usize) void {
 // header-row comments). A full musical bar turned out too coarse in
 // practice with a default 16-step pattern, so both grids settled on this
 // fixed "decorative bar" width instead.
-const bar_len: i32 = 4;
+pub const bar_len: i32 = 4;
 
 /// w/b: jump the step cursor `delta` 4-step groups forward/back - snaps to
 /// the nearest group boundary first, then moves whole groups from there.
