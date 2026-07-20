@@ -34,15 +34,25 @@ pub fn drawTransport(app: anytype, audio_label: []const u8) void {
         var rate_buf: [32]u8 = undefined;
         const rate = std.fmt.bufPrint(&rate_buf, "{d:.1} kHz", .{@as(f32, @floatFromInt(app.core.session.project.sample_rate)) / 1000.0}) catch "rate";
 
+        // Two concerns, two clusters: transport/musical-time readouts stay
+        // left, session/system readouts (what project, what audio backend,
+        // how loud) pin to the right edge instead of bunching up right next
+        // to the transport cluster on a wide window.
         drawTransportReadout(icons.tempo ++ "  TEMPO", tempo, true);
         drawTransportReadout("POSITION", position, false);
         drawTransportReadout("METER", meter, false);
         drawTransportReadout("RATE", rate, false);
+
         const project_title: []const u8 = if (app.core.projectPath()) |path|
             std.fs.path.basename(path)
         else
             app.core.session.project.name;
-        drawTransportReadout(icons.save ++ "  PROJECT", project_title, false);
+        const right_w = readoutWidth(icons.save ++ "  PROJECT", project_title) + 24 +
+            readoutWidth(icons.master ++ "  AUDIO", audio_label) + 24 + level_group_w;
+        zgui.sameLine(.{ .spacing = 0 });
+        zgui.setCursorPosX(@max(zgui.getCursorPosX(), zgui.getWindowSize()[0] - right_w - 20));
+
+        drawTransportReadout(icons.save ++ "  PROJECT", project_title, true);
         drawTransportReadout(icons.master ++ "  AUDIO", audio_label, false);
         drawLevelMeters(app, snap.peak);
     }
@@ -106,6 +116,17 @@ fn drawTransportReadout(label: []const u8, value: []const u8, first: bool) void 
     zgui.textColored(patina.fg0, "{s}", .{value});
     zgui.endGroup();
 }
+
+/// A `drawTransportReadout` group's on-screen width: the wider of its two
+/// stacked lines, same as ImGui's own group sizing. Used to right-align
+/// the session/system readout cluster ahead of actually drawing it.
+fn readoutWidth(label: []const u8, value: []const u8) f32 {
+    return @max(zgui.calcTextSize(label, .{})[0], zgui.calcTextSize(value, .{})[0]);
+}
+
+/// `drawLevelMeters`'s on-screen width: the fixed meter-bar width
+/// dominates its "LEVEL" label.
+const level_group_w: f32 = 110;
 
 pub fn drawStatus(app: anytype) void {
     const display = zgui.io.getDisplaySize();
