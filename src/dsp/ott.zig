@@ -65,8 +65,8 @@ pub const Ott = struct {
         // gain_in_db/gain_out_db directly, bypassing setDepth/setTime-style
         // setters) currently always happens to arrive already clamped, but
         // nothing here enforces that; this is the belt-and-braces layer.
-        const gain_in_db = if (std.math.isFinite(self.gain_in_db)) std.math.clamp(self.gain_in_db, -24.0, 24.0) else 0.0;
-        const gain_out_db = if (std.math.isFinite(self.gain_out_db)) std.math.clamp(self.gain_out_db, -24.0, 24.0) else 0.0;
+        const gain_in_db = dsp.sanitizeParam(self.gain_in_db, -24.0, 24.0, 0.0);
+        const gain_out_db = dsp.sanitizeParam(self.gain_out_db, -24.0, 24.0, 0.0);
         const gin = types.dbToGain(gain_in_db);
         const gout = types.dbToGain(gain_out_db);
         if (gain_in_db != 0.0) for (buf) |*s| {

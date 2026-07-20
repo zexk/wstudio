@@ -83,9 +83,9 @@ pub const Reverb = struct {
         // room >= 1 makes each comb's own feedback loop gain >= 1, so
         // energy grows every time a sample cycles back through its delay
         // line instead of decaying.
-        const room = if (std.math.isFinite(self.room)) std.math.clamp(self.room, 0.0, 0.98) else 0.84;
-        const damp = if (std.math.isFinite(self.damp)) std.math.clamp(self.damp, 0.0, 1.0) else 0.25;
-        const mix = if (std.math.isFinite(self.mix)) std.math.clamp(self.mix, 0.0, 1.0) else 0.3;
+        const room = dsp.sanitizeParam(self.room, 0.0, 0.98, 0.84);
+        const damp = dsp.sanitizeParam(self.damp, 0.0, 1.0, 0.25);
+        const mix = dsp.sanitizeParam(self.mix, 0.0, 1.0, 0.3);
         const frames = buf.len / 2;
         for (0..frames) |i| {
             inline for (0..2) |ch_i| {

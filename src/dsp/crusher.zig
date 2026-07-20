@@ -27,9 +27,9 @@ pub const Crusher = struct {
 
     /// Crush an interleaved stereo buffer in place.
     pub fn processBlock(self: *Crusher, buf: []Sample) void {
-        const bits = if (std.math.isFinite(self.bits)) std.math.clamp(self.bits, 1.0, 16.0) else 8.0;
-        const downsample = if (std.math.isFinite(self.downsample)) std.math.clamp(self.downsample, 1.0, 32.0) else 4.0;
-        const mix = if (std.math.isFinite(self.mix)) std.math.clamp(self.mix, 0.0, 1.0) else 1.0;
+        const bits = dsp.sanitizeParam(self.bits, 1.0, 16.0, 8.0);
+        const downsample = dsp.sanitizeParam(self.downsample, 1.0, 32.0, 4.0);
+        const mix = dsp.sanitizeParam(self.mix, 0.0, 1.0, 1.0);
         // zig fmt: off
         const q    = std.math.pow(f32, 2.0, @round(bits) - 1.0);
         const step: u32 = @intFromFloat(@round(downsample));

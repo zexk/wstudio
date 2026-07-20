@@ -58,9 +58,9 @@ pub const Chorus = struct {
     /// Chorus an interleaved stereo buffer in place.
     pub fn processBlock(self: *Chorus, buf: []Sample) void {
         const sr = @as(f32, @floatFromInt(self.sample_rate));
-        const rate = if (std.math.isFinite(self.rate_hz)) std.math.clamp(self.rate_hz, 0.05, 5.0) else 0.8;
-        const depth = if (std.math.isFinite(self.depth_ms)) std.math.clamp(self.depth_ms, 0.0, max_depth_ms) else 4.0;
-        const mix = if (std.math.isFinite(self.mix)) std.math.clamp(self.mix, 0.0, 1.0) else 0.5;
+        const rate = dsp.sanitizeParam(self.rate_hz, 0.05, 5.0, 0.8);
+        const depth = dsp.sanitizeParam(self.depth_ms, 0.0, max_depth_ms, 4.0);
+        const mix = dsp.sanitizeParam(self.mix, 0.0, 1.0, 0.5);
         if (!std.math.isFinite(self.phase)) self.phase = 0.0;
         const phase_inc = 2.0 * std.math.pi * rate / sr;
         const frames = buf.len / 2;
