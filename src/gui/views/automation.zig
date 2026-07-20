@@ -294,6 +294,7 @@ pub fn drawParamPicker(app: anytype) void {
             const id = std.fmt.bufPrintZ(&id_buf, "automation-param-{d}", .{i}) catch continue;
             const origin = zgui.getCursorScreenPos();
             const clicked = zgui.invisibleButton(id, .{ .w = width, .h = 36 });
+            if (selected) zgui.setScrollHereY(.{});
             const hovered = zgui.isItemHovered(.{});
             const draw_list = zgui.getWindowDrawList();
             draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + 34 }, .col = color(if (selected) patina.bg4 else if (hovered) patina.bg3 else patina.bg2), .rounding = 3 });
