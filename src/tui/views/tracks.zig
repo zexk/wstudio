@@ -5,6 +5,7 @@ const ws = @import("wstudio");
 const engine_mod = ws.engine;
 const style = @import("../style.zig");
 const icons = @import("../../ui/icons.zig");
+const spectrum_ed = @import("../../ui/editors/spectrum.zig");
 
 // Aliases so the moved render bodies reference the shared palette/primitives
 // by their original bare names.
@@ -18,7 +19,6 @@ const sel = style.sel;
 const mag = style.mag;
 const endLine = style.endLine;
 
-// zig fmt: off
 /// Row-badge chips for a rack's FX chain, in signal-flow order. Chains can
 /// hold up to nine units but a track row's width is shared with gain/pan and
 /// the keybind hint, so show the first four and fold the rest into "+n".
@@ -30,15 +30,9 @@ fn writeFxBadges(w: *std.Io.Writer, fx: *const ws.Fx) !void {
             break;
         }
         try w.writeByte(' ');
-        try w.writeAll(switch (u.kind()) {
-            .gate => "gate", .comp => "cmp", .mb_comp => "mbc", .ott => "ott",
-            .eq => "eq", .sat => "sat", .crush => "crs", .chorus => "cho",
-            .phaser => "pha", .flanger => "fln", .tape => "tap", .freq_shift => "frq", .delay => "dly", .reverb => "rev",
-            .clap => "clp",
-        });
+        try w.writeAll(spectrum_ed.badgeLabel3(u.kind()));
     }
 }
-// zig fmt: on
 
 /// One real track's row. Members of a group render indented under their
 /// group's own row (see App.rebuildTrackRows for the folder ordering), which

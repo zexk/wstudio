@@ -139,6 +139,29 @@ pub fn compactHz(buf: []u8, hz: f32) []const u8 {
     return std.fmt.bufPrint(buf, "{d:.0}", .{hz}) catch "?";
 }
 
+/// 3-char label for the TUI tracks view's row badges, where width is shared
+/// with gain/pan and the keybind hint - tighter than `stripLabel`'s 4-char
+/// strip boxes, so it's its own hand-picked table, not a truncation of it.
+pub fn badgeLabel3(k: FxKind) []const u8 {
+    return switch (k) {
+        .gate => "gate",
+        .comp => "cmp",
+        .mb_comp => "mbc",
+        .ott => "ott",
+        .eq => "eq",
+        .sat => "sat",
+        .crush => "crs",
+        .chorus => "cho",
+        .phaser => "pha",
+        .flanger => "fln",
+        .tape => "tap",
+        .freq_shift => "frq",
+        .delay => "dly",
+        .reverb => "rev",
+        .clap => "clp",
+    };
+}
+
 pub fn paramCount(k: FxKind) usize {
     return switch (k) {
         .eq => eq_mod.num_eq_bands * eq_fields_per_band,
