@@ -528,10 +528,36 @@ pub const Engine = struct {
         self.automation[b].copyFrom(&tmp);
     }
 
-    /// Fire the metronome click at every beat boundary inside this block
-    /// (same monotonic-counter, resync-on-discontinuity technique as
+    /// Fires `self.metronome.trigger` at every beat boundary inside
+    /// [pos_f, pos_f+frames), starting from `beat_k`, and returns the first
+    /// beat not yet fired - shared beat-boundary-crossing loop between
+    /// `fireMetronome` (real transport position, resyncs on discontinuity
+    /// before calling this) and `firePreRoll` (a virtual clock that's always
+    /// contiguous, so it skips the resync). Same technique as
     /// DrumMachine.processBlock's step firing, one level up: beats instead
-    /// of steps), then mix whatever's in flight into `out`.
+    /// of steps.
+    fn fireBeatBoundaries(self: *Engine, beat_k: u64, fpb: f64, bpb: u64, pos_f: f64, frames: u32) u64 {
+        var bk = beat_k;
+        while (true) {
+            const fire_pos = @as(f64, @floatFromInt(bk)) * fpb;
+            if (fire_pos >= pos_f + @as(f64, @floatFromInt(frames))) break;
+
+            const fire_frame: u32 = if (fire_pos <= pos_f)
+                0
+            else
+                @intCast(@min(
+                    @as(u64, @intFromFloat(fire_pos - pos_f)),
+                    @as(u64, frames - 1),
+                ));
+
+            self.metronome.trigger(bk % bpb == 0, fire_frame);
+            bk += 1;
+        }
+        return bk;
+    }
+
+    /// Fire the metronome click at every beat boundary inside this block,
+    /// then mix whatever's in flight into `out`.
     fn fireMetronome(self: *Engine, out: []Sample, frames: u32) void {
         if (self.transport.playing) {
             const pos_f = @as(f64, @floatFromInt(self.transport.position_frames));
@@ -543,23 +569,8 @@ pub const Engine = struct {
                 beat_k = @intFromFloat(@ceil(pos_f / fpb));
             }
 
-            while (true) {
-                const fire_pos = @as(f64, @floatFromInt(beat_k)) * fpb;
-                if (fire_pos >= pos_f + @as(f64, @floatFromInt(frames))) break;
-
-                const fire_frame: u32 = if (fire_pos <= pos_f)
-                    0
-                else
-                    @intCast(@min(
-                        @as(u64, @intFromFloat(fire_pos - pos_f)),
-                        @as(u64, frames - 1),
-                    ));
-
-                const bpb: u64 = self.transport.time_signature.beats_per_bar;
-                self.metronome.trigger(beat_k % bpb == 0, fire_frame);
-                beat_k += 1;
-            }
-            self.metronome_next_beat = beat_k;
+            const bpb: u64 = self.transport.time_signature.beats_per_bar;
+            self.metronome_next_beat = self.fireBeatBoundaries(beat_k, fpb, bpb, pos_f, frames);
         }
 
         self.metronome.render(out, channels, frames);
@@ -576,24 +587,8 @@ pub const Engine = struct {
         const fpb = self.transport.framesPerBeat();
         const bpb: u64 = self.transport.time_signature.beats_per_bar;
         const pos_f: f64 = @floatFromInt(self.pre_roll_elapsed);
-        var beat_k = self.pre_roll_next_beat;
 
-        while (true) {
-            const fire_pos = @as(f64, @floatFromInt(beat_k)) * fpb;
-            if (fire_pos >= pos_f + @as(f64, @floatFromInt(frames))) break;
-
-            const fire_frame: u32 = if (fire_pos <= pos_f)
-                0
-            else
-                @intCast(@min(
-                    @as(u64, @intFromFloat(fire_pos - pos_f)),
-                    @as(u64, frames - 1),
-                ));
-
-            self.metronome.trigger(beat_k % bpb == 0, fire_frame);
-            beat_k += 1;
-        }
-        self.pre_roll_next_beat = beat_k;
+        self.pre_roll_next_beat = self.fireBeatBoundaries(self.pre_roll_next_beat, fpb, bpb, pos_f, frames);
         self.metronome.render(out, channels, frames);
 
         if (frames >= self.pre_roll_frames_remaining) {
