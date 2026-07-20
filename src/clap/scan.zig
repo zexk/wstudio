@@ -3,7 +3,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const abi = @import("abi.zig");
-const dynlib_compat = @import("dynlib_compat.zig");
+const open_entry = @import("open_entry.zig");
 
 pub const PluginInfo = struct {
     path: []u8,
@@ -59,15 +59,15 @@ pub const Registry = struct {
     }
 
     fn scanFile(self: *Registry, path: []const u8) !void {
-        var library = dynlib_compat.DynLib.open(path) catch return;
-        defer library.close();
-        const entry = library.lookup(*const abi.PluginEntry, "clap_entry") orelse return;
-        if (!abi.versionIsCompatible(entry.clap_version)) return;
+        var opened = open_entry.openEntry(self.allocator, path) catch |err| switch (err) {
+            error.OutOfMemory => return err,
+            else => return,
+        };
+        defer opened.library.close();
+        defer self.allocator.free(opened.path_z);
+        defer opened.entry.deinit();
+        const entry = opened.entry;
 
-        const path_z = try self.allocator.dupeZ(u8, path);
-        defer self.allocator.free(path_z);
-        if (!entry.init(path_z.ptr)) return;
-        defer entry.deinit();
         const raw = entry.get_factory(abi.plugin_factory_id) orelse return;
         const factory: *const abi.PluginFactory = @ptrCast(@alignCast(raw));
         for (0..factory.get_plugin_count(factory)) |index| {
