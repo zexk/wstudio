@@ -133,6 +133,7 @@ in
           "patina"
           "patina_light"
           "graphite"
+          "graphite_light"
           "umbra"
         ]
       );
@@ -151,13 +152,53 @@ in
           "patina"
           "patina_light"
           "graphite"
+          "graphite_light"
           "umbra"
         ]
       );
       default = null;
       description = "GUI color theme.";
     };
+    gui_panel_border = mkOption {
+      type = types.nullOr (
+        types.enum [
+          "square"
+          "rounded"
+        ]
+      );
+      default = null;
+      description = "GUI panel/window corner style.";
+    };
     gui_window_width = rangedInt 960 7680 "Initial GUI window width in pixels.";
     gui_window_height = rangedInt 600 4320 "Initial GUI window height in pixels.";
+    clap_plugin_path = mkOption {
+      type = types.nullOr types.str;
+      default = null;
+      description = "Extra CLAP plugin search directory. Empty uses the platform default search paths.";
+    };
+    undo_history_entries = rangedInt 8 512 "Entries kept on the undo stack before the oldest start dropping off.";
+    default_metronome_enabled = mkOption {
+      type = types.nullOr types.bool;
+      default = null;
+      description = "Start every session with the click track on.";
+    };
+    metronome_click_gain = rangedNumber 0 1 "Click track loudness, a multiplier on its built-in accent/regular ratio.";
+    count_in_bars = rangedInt 0 4 "Count-in bars before recording starts. Zero skips the count-in.";
+    default_midi_velocity_curve = mkOption {
+      type = types.nullOr (
+        types.enum [
+          "linear"
+          "exponential"
+          "fixed"
+        ]
+      );
+      default = null;
+      description = "How raw MIDI/keyboard velocity maps to note gain.";
+    };
+    default_automation_gain_step_db = rangedNumber 0 12 "j/k nudge size for gain breakpoints in the automation editor, in dB.";
+    default_automation_pan_step = rangedNumber 0 1 "j/k nudge size for pan breakpoints in the automation editor.";
+    gui_knob_drag_pixels = rangedNumber 40 600 "Vertical drag distance for a knob's full range, in pixels. Lower = more sensitive.";
+    gui_envelope_drag_pixels = rangedNumber 40 600 "Vertical drag distance for an envelope node's full range, in pixels. Lower = more sensitive.";
+    gui_meter_decay_db_s = rangedNumber 1 200 "Master-meter peak-hold fall rate, in dB/s. Higher = the hold indicator drops faster.";
   };
 }
