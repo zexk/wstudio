@@ -60,40 +60,47 @@ pub fn moveClamped(cursor: anytype, delta: i32, count: usize) void {
 // fixed "decorative bar" width instead.
 pub const bar_len: i32 = 4;
 
-/// w/b: jump the step cursor `delta` 4-step groups forward/back - snaps to
-/// the nearest group boundary first, then moves whole groups from there.
-pub fn jumpBar(cursor: anytype, delta: i32, step_count: anytype) void {
-    if (step_count == 0) {
+/// w/b: jump the step cursor `delta` `bar_len`-step groups forward/back -
+/// snaps to the nearest group boundary first, then moves whole groups from
+/// there. `bar_len` is this file's own fixed `bar_len` for drum/slicer, or
+/// the piano roll's own beat length under the current grid resolution
+/// (piano.zig's `barLenSteps`, which varies - passed in rather than
+/// hardcoded here) - automation.zig follows the same pattern.
+pub fn jumpBar(cursor: anytype, delta: i32, step_count: anytype, bar_len_arg: anytype) void {
+    if (step_count == 0 or bar_len_arg == 0) {
         cursor.* = 0;
         return;
     }
-    const cur_bar = @divFloor(@as(i64, cursor.*), bar_len);
-    const target = (cur_bar + delta) * bar_len;
+    const bl: i64 = @intCast(bar_len_arg);
+    const cur_bar = @divFloor(@as(i64, cursor.*), bl);
+    const target = (cur_bar + delta) * bl;
     const top = @as(i64, step_count) - 1;
     cursor.* = @intCast(std.math.clamp(target, 0, top));
 }
 
 /// dw/yw's range end: the last step of the nth bar forward (inclusive),
 /// not w's own landing step (see piano.zig's identical vim dw nuance).
-pub fn operatorBarForward(cursor: anytype, n: i32, step_count: anytype) void {
-    if (step_count == 0) {
+pub fn operatorBarForward(cursor: anytype, n: i32, step_count: anytype, bar_len_arg: anytype) void {
+    if (step_count == 0 or bar_len_arg == 0) {
         cursor.* = 0;
         return;
     }
-    const cur_bar = @divFloor(@as(i64, cursor.*), bar_len);
-    const hi = (cur_bar + n) * bar_len - 1;
+    const bl: i64 = @intCast(bar_len_arg);
+    const cur_bar = @divFloor(@as(i64, cursor.*), bl);
+    const hi = (cur_bar + n) * bl - 1;
     const top = @as(i64, step_count) - 1;
     cursor.* = @intCast(std.math.clamp(hi, 0, top));
 }
 
 /// db/yb's range start: the first step of the nth bar back.
-pub fn operatorBarBackward(cursor: anytype, n: i32, step_count: anytype) void {
-    if (step_count == 0) {
+pub fn operatorBarBackward(cursor: anytype, n: i32, step_count: anytype, bar_len_arg: anytype) void {
+    if (step_count == 0 or bar_len_arg == 0) {
         cursor.* = 0;
         return;
     }
-    const cur_bar = @divFloor(@as(i64, cursor.*), bar_len);
-    const lo = (cur_bar - n + 1) * bar_len;
+    const bl: i64 = @intCast(bar_len_arg);
+    const cur_bar = @divFloor(@as(i64, cursor.*), bl);
+    const lo = (cur_bar - n + 1) * bl;
     const top = @as(i64, step_count) - 1;
     cursor.* = @intCast(std.math.clamp(lo, 0, top));
 }
@@ -244,28 +251,34 @@ test "cursor motions clamp maximum count prefixes without overflow" {
     moveClamped(&cursor, std.math.minInt(i32), 16);
     try std.testing.expectEqual(@as(u8, 0), cursor);
 
-    jumpBar(&cursor, std.math.maxInt(i32), 16);
+    jumpBar(&cursor, std.math.maxInt(i32), 16, bar_len);
     try std.testing.expectEqual(@as(u8, 15), cursor);
-    operatorBarForward(&cursor, std.math.maxInt(i32), 16);
+    operatorBarForward(&cursor, std.math.maxInt(i32), 16, bar_len);
     try std.testing.expectEqual(@as(u8, 15), cursor);
-    operatorBarBackward(&cursor, std.math.maxInt(i32), 16);
+    operatorBarBackward(&cursor, std.math.maxInt(i32), 16, bar_len);
     try std.testing.expectEqual(@as(u8, 0), cursor);
 }
 
 test "bar motions handle an empty grid" {
     var cursor: u8 = 12;
-    jumpBar(&cursor, 1, 0);
+    jumpBar(&cursor, 1, 0, bar_len);
     try std.testing.expectEqual(@as(u8, 0), cursor);
-    operatorBarForward(&cursor, 1, 0);
-    operatorBarBackward(&cursor, 1, 0);
+    operatorBarForward(&cursor, 1, 0, bar_len);
+    operatorBarBackward(&cursor, 1, 0, bar_len);
     try std.testing.expectEqual(@as(u8, 0), cursor);
+}
+
+test "bar motions handle a zero-length bar (dynamic piano bar_len edge case)" {
+    var cursor: u16 = 12;
+    jumpBar(&cursor, 1, 16, @as(u16, 0));
+    try std.testing.expectEqual(@as(u16, 0), cursor);
 }
 
 test "cursor motions work at u16 width past the old u8 ceiling" {
     var cursor: u16 = 200;
     moveClamped(&cursor, 100, 1000);
     try std.testing.expectEqual(@as(u16, 300), cursor);
-    jumpBar(&cursor, 1, 1000);
+    jumpBar(&cursor, 1, 1000, bar_len);
     try std.testing.expectEqual(@as(u16, 304), cursor);
     moveClamped(&cursor, std.math.maxInt(i32), 1000);
     try std.testing.expectEqual(@as(u16, 999), cursor);

@@ -17,6 +17,7 @@ const AutomationPoint = automation_mod.AutomationPoint;
 const App = @import("../app.zig").App;
 const history = @import("../history.zig");
 const fuzzy = @import("../fuzzy.zig");
+const step_grid = @import("step_grid.zig");
 
 /// Left indent before the step columns start - shared with the TUI view's
 /// draw path so a click/scroll's column maps to the same step the bar
@@ -303,11 +304,8 @@ fn exitVisual(app: *App) void {
     app.automation_visual_anchor = null;
 }
 
-const StepRange = struct { lo: u32, hi: u32 };
-
-fn selectionRange(app: *App) StepRange {
-    const anchor = app.automation_visual_anchor orelse app.automation_cursor_step;
-    return .{ .lo = @min(anchor, app.automation_cursor_step), .hi = @max(anchor, app.automation_cursor_step) };
+fn selectionRange(app: *App) step_grid.StepRange(u32) {
+    return step_grid.selectionRange(u32, app.automation_visual_anchor, app.automation_cursor_step);
 }
 
 /// Yank every breakpoint on the current curve whose beat falls within the
@@ -459,29 +457,17 @@ fn barLenSteps(app: *App) u32 {
 
 /// w/b: jump the cursor `delta` beats forward/back (vim's word motion, one
 /// tier up from h/l's step granularity) - snaps to the nearest beat boundary
-/// first, then moves whole beats from there.
+/// first, then moves whole beats from there. `maxStep(app, clip) + 1` turns
+/// the clip's inclusive last-step into the step_count step_grid expects.
 fn jumpBar(app: *App, clip: *const ws.Clip, delta: i32) void {
-    const bar_len = barLenSteps(app);
-    if (bar_len == 0) return;
-    const target_step = barTarget(app.automation_cursor_step, delta, bar_len, 0);
-    const top: i64 = maxStep(app, clip);
-    app.automation_cursor_step = @intCast(std.math.clamp(target_step, 0, top));
-}
-
-fn barTarget(step: u32, delta: i64, bar_len: u32, offset: i64) i64 {
-    const cur_bar = @divFloor(@as(i64, step), @as(i64, bar_len));
-    return (cur_bar + delta) * @as(i64, bar_len) + offset;
+    step_grid.jumpBar(&app.automation_cursor_step, delta, maxStep(app, clip) + 1, barLenSteps(app));
 }
 
 /// dw/yw's range end: the last step of the nth beat forward (inclusive), not
 /// w's own landing step (the *next* beat's first step) - see the
 /// operator-pending block's comment on 'w'.
 fn operatorBarForward(app: *App, clip: *const ws.Clip, n: i32) void {
-    const bar_len = barLenSteps(app);
-    if (bar_len == 0) return;
-    const hi = barTarget(app.automation_cursor_step, n, bar_len, -1);
-    const top: i64 = maxStep(app, clip);
-    app.automation_cursor_step = @intCast(std.math.clamp(hi, 0, top));
+    step_grid.operatorBarForward(&app.automation_cursor_step, n, maxStep(app, clip) + 1, barLenSteps(app));
 }
 
 /// db/yb's range start: the first step of the nth beat back - the anchor
@@ -489,11 +475,7 @@ fn operatorBarForward(app: *App, clip: *const ws.Clip, n: i32) void {
 /// (inclusive) end, so this covers "back to the start of this-or-an-earlier
 /// beat, through where you started."
 fn operatorBarBackward(app: *App, clip: *const ws.Clip, n: i32) void {
-    const bar_len = barLenSteps(app);
-    if (bar_len == 0) return;
-    const lo = barTarget(app.automation_cursor_step, -@as(i64, n) + 1, bar_len, 0);
-    const top: i64 = maxStep(app, clip);
-    app.automation_cursor_step = @intCast(std.math.clamp(lo, 0, top));
+    step_grid.operatorBarBackward(&app.automation_cursor_step, n, maxStep(app, clip) + 1, barLenSteps(app));
 }
 
 /// Arm `d`/`y` as a pending operator (see the operator-pending block in
@@ -708,9 +690,4 @@ pub fn lastParamCursor(app: *App) u8 {
         .header => {},
     };
     return @intCast(last);
-}
-
-test "bar motions accommodate maximum command counts" {
-    try std.testing.expect(barTarget(0, std.math.maxInt(i32), 4, 0) > std.math.maxInt(i32));
-    try std.testing.expect(barTarget(12, std.math.minInt(i32), 4, 0) < std.math.minInt(i32));
 }

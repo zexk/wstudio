@@ -401,17 +401,17 @@ fn zoom(app: *App, delta: i8) void {
 /// w/b: jump the step cursor `delta` 4-step groups forward/back - see
 /// step_grid.jumpBar for the bar-width rationale.
 fn jumpBar(app: *App, delta: i32) void {
-    step_grid.jumpBar(&app.drum_cursor[1], delta, app.drumMachine().step_count);
+    step_grid.jumpBar(&app.drum_cursor[1], delta, app.drumMachine().step_count, step_grid.bar_len);
 }
 
 /// dw/yw's range end - see step_grid.operatorBarForward.
 fn operatorBarForward(app: *App, n: i32) void {
-    step_grid.operatorBarForward(&app.drum_cursor[1], n, app.drumMachine().step_count);
+    step_grid.operatorBarForward(&app.drum_cursor[1], n, app.drumMachine().step_count, step_grid.bar_len);
 }
 
 /// db/yb's range start - see step_grid.operatorBarBackward.
 fn operatorBarBackward(app: *App, n: i32) void {
-    step_grid.operatorBarBackward(&app.drum_cursor[1], n, app.drumMachine().step_count);
+    step_grid.operatorBarBackward(&app.drum_cursor[1], n, app.drumMachine().step_count, step_grid.bar_len);
 }
 
 /// Arm `d`/`y` as a pending operator (see the operator-pending block in
