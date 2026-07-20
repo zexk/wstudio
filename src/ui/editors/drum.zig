@@ -419,12 +419,7 @@ fn operatorBarBackward(app: *App, n: i32) void {
 /// visual mode's `v` sets, so the eventual delete/yank reuses
 /// selectionRange as-is.
 fn armOperator(app: *App, op: u8) void {
-    app.drum_visual_anchor = app.drum_cursor[1];
-    app.drum_op_pending = op;
-    if (op == 'd')
-        app.setStatus("d: h/l/H/L/g/G/w/b act on the range, dd clears the cursor pad's row", .{})
-    else
-        app.setStatus("y: h/l/H/L/g/G/w/b act on the range, yy yanks the whole pattern", .{});
+    step_grid.armOperator(app, &app.drum_visual_anchor, &app.drum_cursor[1], &app.drum_op_pending, op, "pad");
 }
 
 /// Complete an operator+motion: run the range delete/yank between the
@@ -513,8 +508,7 @@ fn handleVisual(app: *App, key: modal_mod.Key) bool {
 
 /// Leave visual mode, clearing the anchor so the selection can't linger.
 fn exitVisual(app: *App) void {
-    _ = app.modal.setMode(.normal);
-    app.drum_visual_anchor = null;
+    step_grid.exitVisual(app, &app.drum_visual_anchor);
 }
 
 /// Yank every pad's steps within the selected range into the range

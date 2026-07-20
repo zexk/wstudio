@@ -410,12 +410,7 @@ fn operatorBarBackward(app: *App, n: i32) void {
 /// Arm `d`/`y` as a pending operator, remembering the cursor step as the
 /// range anchor - same field visual mode's `v` sets.
 fn armOperator(app: *App, op: u8) void {
-    app.slicer_visual_anchor = app.slicer_cursor[1];
-    app.slicer_op_pending = op;
-    if (op == 'd')
-        app.setStatus("d: h/l/H/L/g/G/w/b act on the range, dd clears the cursor slice's row", .{})
-    else
-        app.setStatus("y: h/l/H/L/g/G/w/b act on the range, yy yanks the whole pattern", .{});
+    step_grid.armOperator(app, &app.slicer_visual_anchor, &app.slicer_cursor[1], &app.slicer_op_pending, op, "slice");
 }
 
 /// Complete an operator+motion: run the range delete/yank between the
@@ -490,8 +485,7 @@ fn handleVisual(app: *App, key: modal_mod.Key) bool {
 }
 
 fn exitVisual(app: *App) void {
-    _ = app.modal.setMode(.normal);
-    app.slicer_visual_anchor = null;
+    step_grid.exitVisual(app, &app.slicer_visual_anchor);
 }
 
 /// Yank every slice's steps within the selected range into the range
