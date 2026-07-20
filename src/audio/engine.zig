@@ -610,6 +610,16 @@ pub const Engine = struct {
         self.trackAt(track).chain.set(devices);
     }
 
+    /// Replaces `dst` wholesale with `sources`, null-padding past its
+    /// length - shared body of `setTrackSidechainSources`/
+    /// `setMasterSidechainSources`/`setGroupSidechainSources`, which differ
+    /// only in which fixed-size slot array they hand it.
+    fn replaceSidechainSlots(dst: []?Compressor.SidechainSource, sources: []const ?Compressor.SidechainSource) void {
+        @memset(dst, null);
+        const n = @min(sources.len, dst.len);
+        @memcpy(dst[0..n], sources[0..n]);
+    }
+
     /// Replace a track's per-chain-slot sidechain-detector routing (see
     /// `Compressor.sidechain_source`). `sources[i]` is the track index
     /// chain slot `i`'s compressor (if any) should detect from instead of
@@ -618,10 +628,7 @@ pub const Engine = struct {
     /// whenever this track's Fx chain (re)syncs, since the audio thread
     /// never introspects chain contents to discover this itself.
     pub fn setTrackSidechainSources(self: *Engine, track: u16, sources: []const ?Compressor.SidechainSource) void {
-        const slots = &self.track_sidechain[@min(track, max_tracks - 1)];
-        @memset(slots, null);
-        const n = @min(sources.len, slots.len);
-        @memcpy(slots[0..n], sources[0..n]);
+        replaceSidechainSlots(&self.track_sidechain[@min(track, max_tracks - 1)], sources);
     }
 
     /// Replace a track's flattened gain or pan automation curve wholesale
@@ -685,9 +692,7 @@ pub const Engine = struct {
 
     /// Same shape as `setTrackSidechainSources` but for the master chain.
     pub fn setMasterSidechainSources(self: *Engine, sources: []const ?Compressor.SidechainSource) void {
-        @memset(&self.master_sidechain_sources, null);
-        const n = @min(sources.len, self.master_sidechain_sources.len);
-        @memcpy(self.master_sidechain_sources[0..n], sources[0..n]);
+        replaceSidechainSlots(&self.master_sidechain_sources, sources);
     }
 
     /// Same shape as `setMasterChain` but for group submix bus `idx` - FX
@@ -705,10 +710,7 @@ pub const Engine = struct {
     /// Same shape as `setTrackSidechainSources` but for group submix bus `idx`.
     pub fn setGroupSidechainSources(self: *Engine, idx: u8, sources: []const ?Compressor.SidechainSource) void {
         if (idx >= max_groups) return;
-        const slots = &self.groups[idx].sidechain_sources;
-        @memset(slots, null);
-        const n = @min(sources.len, slots.len);
-        @memcpy(slots[0..n], sources[0..n]);
+        replaceSidechainSlots(&self.groups[idx].sidechain_sources, sources);
     }
 
     pub fn send(self: *Engine, cmd: Command) bool {
