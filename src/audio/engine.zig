@@ -733,12 +733,7 @@ pub const Engine = struct {
             if (self.metronome_enabled) self.fireMetronome(out, frames);
         }
 
-        for (self.master_chain.slice(), 0..) |dev, slot| {
-            if (self.master_sidechain_sources[slot]) |src| {
-                if (self.sidechainCapture(src, frames)) |buf| dev.sendEvent(.{ .set_sidechain_buf = .{ .buf = buf } });
-            }
-            dev.process(out);
-        }
+        self.processChainWithSidechain(self.master_chain.slice(), &self.master_sidechain_sources, out, frames);
 
         for (out) |*s| s.* *= self.master_gain;
         self.limiter.processBlock(out);
@@ -915,6 +910,25 @@ pub const Engine = struct {
         return null;
     }
 
+    /// Runs `chain` over `buf`, injecting each slot's captured sidechain
+    /// detector signal (if any) before that slot processes - shared body of
+    /// the master/track/group render paths, which differ only in which
+    /// chain, sidechain-source slots, and scratch buffer they pass in.
+    fn processChainWithSidechain(
+        self: *Engine,
+        chain: []const dsp.Device,
+        sidechain_sources: []const ?Compressor.SidechainSource,
+        buf: []Sample,
+        frames: u32,
+    ) void {
+        for (chain, 0..) |dev, slot| {
+            if (sidechain_sources[slot]) |src| {
+                if (self.sidechainCapture(src, frames)) |sc_buf| dev.sendEvent(.{ .set_sidechain_buf = .{ .buf = sc_buf } });
+            }
+            dev.process(buf);
+        }
+    }
+
     /// Register `src` as a sidechain-detector source to capture this block,
     /// if it isn't already and there's a free slot - extras past
     /// `max_sidechain_sources` are silently dropped, same "bank of 8"
@@ -998,13 +1012,7 @@ pub const Engine = struct {
             c.captured = true;
         }
 
-        const sc_slots = &self.track_sidechain[ti];
-        for (chain, 0..) |dev, slot| {
-            if (sc_slots[slot]) |src| {
-                if (self.sidechainCapture(src, frames)) |buf| dev.sendEvent(.{ .set_sidechain_buf = .{ .buf = buf } });
-            }
-            dev.process(scratch);
-        }
+        self.processChainWithSidechain(chain, &self.track_sidechain[ti], scratch, frames);
 
         // If this track is itself a registered sidechain-detector source,
         // finalize its capture now - before `scratch` gets reused by the
@@ -1158,12 +1166,7 @@ pub const Engine = struct {
         for (&self.groups, 0..) |*g, gi| {
             if (!g.active) continue;
             const gscratch = self.group_scratch[gi][0 .. frames * channels];
-            for (g.chain.slice(), 0..) |dev, slot| {
-                if (g.sidechain_sources[slot]) |src| {
-                    if (self.sidechainCapture(src, frames)) |buf| dev.sendEvent(.{ .set_sidechain_buf = .{ .buf = buf } });
-                }
-                dev.process(gscratch);
-            }
+            self.processChainWithSidechain(g.chain.slice(), &g.sidechain_sources, gscratch, frames);
             for (out, gscratch) |*o, s| o.* += s * g.gain;
 
             if (self.active_spectrum_source == .group and @as(u8, @intCast(gi)) == self.active_spectrum_group) {
