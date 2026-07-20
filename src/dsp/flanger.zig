@@ -8,6 +8,7 @@
 const std = @import("std");
 const types = @import("../core/types.zig");
 const dsp = @import("device.zig");
+const Lfo = @import("lfo.zig").Lfo;
 
 const Sample = types.Sample;
 
@@ -21,7 +22,7 @@ pub const Flanger = struct {
     feedback: f32 = 0.5,
     /// 0 = dry only, 1 = wet only.
     mix: f32 = 0.5,
-    phase: f32 = 0.0,
+    lfo: Lfo = .{},
     ring: [2][len]f32 = [_][len]f32{[_]f32{0.0} ** len} ** 2,
     pos: usize = 0,
 
@@ -42,13 +43,12 @@ pub const Flanger = struct {
         const depth = dsp.sanitizeParam(self.depth, 0.0, 1.0, 0.7);
         const feedback = dsp.sanitizeParam(self.feedback, 0.0, 0.9, 0.5);
         const mix = dsp.sanitizeParam(self.mix, 0.0, 1.0, 0.5);
-        if (!std.math.isFinite(self.phase)) self.phase = 0.0;
+        self.lfo.sanitize();
         const inc = rate / self.sample_rate;
         var i: usize = 0;
         while (i + 1 < buf.len) : (i += 2) {
             inline for (0..2) |ch| {
-                const ph = self.phase + @as(f32, if (ch == 1) 0.25 else 0.0);
-                const lfo = 0.5 + 0.5 * @sin(ph * 2.0 * std.math.pi);
+                const lfo = 0.5 + 0.5 * self.lfo.sine(if (ch == 1) 0.25 else 0.0);
                 // >= 1 sample of delay so the fractional read below never
                 // touches the frame being written this iteration.
                 const delay = 1.0 + lfo * depth * (max_delay - 1.0);
@@ -63,8 +63,7 @@ pub const Flanger = struct {
                 buf[i + ch] = dry * (1.0 - mix) + tap * mix;
             }
             self.pos = (self.pos + 1) % len;
-            self.phase += inc;
-            self.phase -= @floor(self.phase);
+            self.lfo.tick(inc);
         }
     }
 
@@ -73,7 +72,7 @@ pub const Flanger = struct {
     pub fn reset(self: *Flanger) void {
         self.ring = [_][len]f32{[_]f32{0.0} ** len} ** 2;
         self.pos = 0;
-        self.phase = 0.0;
+        self.lfo.reset();
     }
 };
 
@@ -116,7 +115,7 @@ test "invalid parameters cannot trap or poison output" {
     flanger.depth = -std.math.inf(f32);
     flanger.feedback = std.math.inf(f32);
     flanger.mix = std.math.nan(f32);
-    flanger.phase = std.math.inf(f32);
+    flanger.lfo.phase = std.math.inf(f32);
     var buf = [_]Sample{ 0.3, -0.7, 0.05, 0.9 };
     flanger.processBlock(&buf);
     for (buf) |sample| try std.testing.expect(std.math.isFinite(sample));

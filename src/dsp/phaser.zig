@@ -6,6 +6,7 @@
 const std = @import("std");
 const types = @import("../core/types.zig");
 const dsp = @import("device.zig");
+const Lfo = @import("lfo.zig").Lfo;
 
 const Sample = types.Sample;
 
@@ -24,7 +25,7 @@ pub const Phaser = struct {
     feedback: f32 = 0.5,
     /// 0 = dry only, 1 = wet only. 0.5 gives the deepest notches.
     mix: f32 = 0.5,
-    phase: f32 = 0.0,
+    lfo: Lfo = .{},
     /// Per-channel allpass state: x[n-1] / y[n-1] for each stage, plus the
     /// previous cascade output feeding the feedback path.
     x1: [2][num_stages]f32 = .{ .{ 0.0, 0.0, 0.0, 0.0 }, .{ 0.0, 0.0, 0.0, 0.0 } },
@@ -45,13 +46,13 @@ pub const Phaser = struct {
         const depth = dsp.sanitizeParam(self.depth, 0.0, 1.0, 0.9);
         const feedback = dsp.sanitizeParam(self.feedback, 0.0, 0.9, 0.5);
         const mix = dsp.sanitizeParam(self.mix, 0.0, 1.0, 0.5);
-        if (!std.math.isFinite(self.phase)) self.phase = 0.0;
-        const phase_inc = 2.0 * std.math.pi * rate_hz / self.sample_rate;
+        self.lfo.sanitize();
+        const inc = rate_hz / self.sample_rate;
         const frames = buf.len / 2;
         for (0..frames) |i| {
             inline for (0..2) |ch| {
                 // LFO 0..1, mapped exponentially across the sweep range.
-                const lfo = (@sin(self.phase - @as(f32, @floatFromInt(ch)) * (std.math.pi / 2.0)) + 1.0) * 0.5;
+                const lfo = (self.lfo.sine(if (ch == 1) -0.25 else 0.0) + 1.0) * 0.5;
                 const fc = @min(
                     sweep_lo_hz * std.math.pow(f32, 2.0, lfo * depth * sweep_octaves),
                     self.sample_rate * 0.45,
@@ -70,8 +71,7 @@ pub const Phaser = struct {
                 self.fb[ch] = s;
                 buf[i * 2 + ch] = dry * (1.0 - mix) + s * mix;
             }
-            self.phase += phase_inc;
-            if (self.phase >= 2.0 * std.math.pi) self.phase -= 2.0 * std.math.pi;
+            self.lfo.tick(inc);
         }
     }
 
@@ -81,7 +81,7 @@ pub const Phaser = struct {
         self.x1 = .{ .{ 0.0, 0.0, 0.0, 0.0 }, .{ 0.0, 0.0, 0.0, 0.0 } };
         self.y1 = .{ .{ 0.0, 0.0, 0.0, 0.0 }, .{ 0.0, 0.0, 0.0, 0.0 } };
         self.fb = .{ 0.0, 0.0 };
-        self.phase = 0.0;
+        self.lfo.reset();
     }
 };
 
@@ -124,7 +124,7 @@ test "invalid parameters cannot trap or poison output" {
     phaser.depth = -std.math.inf(f32);
     phaser.feedback = std.math.inf(f32);
     phaser.mix = std.math.nan(f32);
-    phaser.phase = std.math.inf(f32);
+    phaser.lfo.phase = std.math.inf(f32);
     var buf = [_]Sample{ 0.3, -0.7, 0.05, 0.9 };
     phaser.processBlock(&buf);
     for (buf) |sample| try std.testing.expect(std.math.isFinite(sample));

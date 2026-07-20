@@ -9,6 +9,7 @@
 const std = @import("std");
 const types = @import("../core/types.zig");
 const dsp = @import("device.zig");
+const Lfo = @import("lfo.zig").Lfo;
 
 const Sample = types.Sample;
 
@@ -21,8 +22,8 @@ pub const Tape = struct {
     /// 0 = dry only, 1 = wet only. Defaults full-wet: this colors the whole
     /// signal (like tape hiss) rather than blending a doubled copy.
     mix: f32 = 1.0,
-    phase_wow: f32 = 0.0,
-    phase_flutter: f32 = 0.0,
+    lfo_wow: Lfo = .{},
+    lfo_flutter: Lfo = .{},
     ring: [2][len]f32 = [_][len]f32{[_]f32{0.0} ** len} ** 2,
     pos: usize = 0,
 
@@ -49,14 +50,14 @@ pub const Tape = struct {
         const flutter_rate = dsp.sanitizeParam(self.flutter_rate_hz, 3.0, 15.0, 8.0);
         const flutter_depth = dsp.sanitizeParam(self.flutter_depth, 0.0, 1.0, 0.25);
         const mix = dsp.sanitizeParam(self.mix, 0.0, 1.0, 1.0);
-        if (!std.math.isFinite(self.phase_wow)) self.phase_wow = 0.0;
-        if (!std.math.isFinite(self.phase_flutter)) self.phase_flutter = 0.0;
+        self.lfo_wow.sanitize();
+        self.lfo_flutter.sanitize();
         const wow_inc = wow_rate / self.sample_rate;
         const flutter_inc = flutter_rate / self.sample_rate;
         var i: usize = 0;
         while (i + 1 < buf.len) : (i += 2) {
-            const wow = @sin(self.phase_wow * 2.0 * std.math.pi);
-            const flutter = @sin(self.phase_flutter * 2.0 * std.math.pi);
+            const wow = self.lfo_wow.sine(0.0);
+            const flutter = self.lfo_flutter.sine(0.0);
             const delay = center +
                 wow * wow_depth * max_wow_samples +
                 flutter * flutter_depth * max_flutter_samples;
@@ -71,10 +72,8 @@ pub const Tape = struct {
                 buf[i + ch] = dry * (1.0 - mix) + tap * mix;
             }
             self.pos = (self.pos + 1) % len;
-            self.phase_wow += wow_inc;
-            self.phase_wow -= @floor(self.phase_wow);
-            self.phase_flutter += flutter_inc;
-            self.phase_flutter -= @floor(self.phase_flutter);
+            self.lfo_wow.tick(wow_inc);
+            self.lfo_flutter.tick(flutter_inc);
         }
     }
 
@@ -83,8 +82,8 @@ pub const Tape = struct {
     pub fn reset(self: *Tape) void {
         self.ring = [_][len]f32{[_]f32{0.0} ** len} ** 2;
         self.pos = 0;
-        self.phase_wow = 0.0;
-        self.phase_flutter = 0.0;
+        self.lfo_wow.reset();
+        self.lfo_flutter.reset();
     }
 };
 
@@ -122,8 +121,8 @@ test "silence in, silence out" {
 
 test "high sample rates wrap taps that span more than one ring" {
     var tape = Tape.init(384_000);
-    tape.phase_wow = 0.25;
-    tape.phase_flutter = 0.25;
+    tape.lfo_wow.phase = 0.25;
+    tape.lfo_flutter.phase = 0.25;
     tape.wow_depth = 1.0;
     tape.flutter_depth = 1.0;
     var buf = [_]Sample{ 0.25, -0.25 };
@@ -138,8 +137,8 @@ test "invalid parameters cannot trap or poison output" {
     tape.flutter_rate_hz = std.math.inf(f32);
     tape.flutter_depth = std.math.nan(f32);
     tape.mix = std.math.inf(f32);
-    tape.phase_wow = std.math.nan(f32);
-    tape.phase_flutter = std.math.inf(f32);
+    tape.lfo_wow.phase = std.math.nan(f32);
+    tape.lfo_flutter.phase = std.math.inf(f32);
     var buf = [_]Sample{ 0.3, -0.7, 0.05, 0.9 };
     tape.processBlock(&buf);
     for (buf) |sample| try std.testing.expect(std.math.isFinite(sample));
