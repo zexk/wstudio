@@ -20,8 +20,8 @@ pub fn draw(app: anytype) void {
 
     if (app.core.browser_entries.items.len == 0) {
         zgui.spacing();
-        zgui.textColored(patina.fg1, "This folder is empty.", .{});
-        zgui.textDisabled("Only folders and files compatible with this operation are shown.", .{});
+        zgui.textColored(patina.fg1, "This directory is empty.", .{});
+        zgui.textDisabled("Only directories and files compatible with this operation are shown.", .{});
         return;
     }
 
@@ -108,7 +108,7 @@ fn purposeLabel(purpose: anytype, buf: []u8) []const u8 {
 
 fn drawBookmarks(app: anytype) void {
     if (app.core.bookmarks.items.len == 0) {
-        zgui.textDisabled("No bookmarks. Press b on a file or folder to add one.", .{});
+        zgui.textDisabled("No bookmarks. Press b on a file or directory to add one.", .{});
         return;
     }
     if (zgui.beginChild("bookmarks", .{ .w = 0, .h = -1, .child_flags = .{ .border = true } })) {
