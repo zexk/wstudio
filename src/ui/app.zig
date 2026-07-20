@@ -104,11 +104,26 @@ pub const BrowserPurpose = union(enum) {
 
     /// The extension the browser filters non-directory entries to (case
     /// insensitive); directories are always shown regardless.
-    fn ext(self: BrowserPurpose) []const u8 {
+    pub fn ext(self: BrowserPurpose) []const u8 {
         return switch (self) {
             .open_project => ".wsj",
             .load_sample, .load_pad, .load_clip, .load_slice, .load_wavetable => ".wav",
             .load_soundfont => ".sf2",
+        };
+    }
+
+    /// Lowercase noun phrase describing what the browser is picking, without
+    /// the extension (see `ext`) - shared by the TUI and GUI browser headers,
+    /// which each wrap it in their own punctuation/case.
+    pub fn label(self: BrowserPurpose, buf: []u8) []const u8 {
+        return switch (self) {
+            .open_project => "open project",
+            .load_sample => "load sample",
+            .load_pad => |pad| std.fmt.bufPrint(buf, "load pad {d}", .{pad + 1}) catch "load pad",
+            .load_clip => "load clip",
+            .load_slice => "load slicer clip",
+            .load_wavetable => |slot| std.fmt.bufPrint(buf, "load wavetable, osc {s}", .{@tagName(slot)}) catch "load wavetable",
+            .load_soundfont => "load soundfont",
         };
     }
 };
