@@ -29,7 +29,7 @@ fn stepToBeat(app: *App, step: u16) f64 {
 pub fn switchTo(app: *App, track: u16) void {
     if (track >= app.session.racks.items.len) return;
     switch (app.session.racks.items[track].instrument) {
-        .poly_synth, .sampler => {},
+        .poly_synth, .sampler, .soundfont => {},
         else => {
             app.setStatus("piano roll: melodic tracks only", .{});
             return;
@@ -249,12 +249,17 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 return true;
             },
             'e' => {
-                // Jump to the instrument editor for this track (synth or sampler).
+                // Jump to the instrument editor for this track (synth, sampler, or soundfont).
                 switch (app.session.racks.items[app.piano_track].instrument) {
                     .sampler => {
                         app.sampler_target = .{ .sampler = app.piano_track };
                         app.sampler_param = 0;
                         app.view = .sampler_editor;
+                    },
+                    .soundfont => {
+                        app.soundfont_track = app.piano_track;
+                        app.soundfont_param = 0;
+                        app.view = .soundfont_editor;
                     },
                     else => {
                         app.synth_track = app.piano_track;

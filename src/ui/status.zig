@@ -120,7 +120,7 @@ pub fn drawTracksStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) 
             const track = app.session.project.tracks.items[ti];
             switch (std.meta.activeTag(app.session.racks.items[ti].instrument)) {
                 .empty => try w.writeAll("enter: instrument  a: add track  ?: help"),
-                .poly_synth, .sampler, .clap => try w.print("enter: edit  p: piano  s: fx  m: {s}", .{if (track.muted) "unmute" else "mute"}),
+                .poly_synth, .sampler, .clap, .soundfont => try w.print("enter: edit  p: piano  s: fx  m: {s}", .{if (track.muted) "unmute" else "mute"}),
                 .drum_machine, .slicer => try w.print("enter: grid  s: fx  m: {s}  R: rename", .{if (track.muted) "unmute" else "mute"}),
             }
         } else {
@@ -611,6 +611,35 @@ pub fn drawSamplerStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer)
             try w.writeAll(midi.noteName(root, &nbuf));
         },
         11 => try w.writeAll(if (app.editingSampler()) |s| (if (s.mono) "mono" else "poly") else "poly"),
+        else => {},
+    }
+    try w.writeAll(rst);
+    if (app.status_len > 0) {
+        try w.writeAll(dim ++ "  " ++ rst);
+        try w.writeAll(app.status_buf[0..app.status_len]);
+    }
+}
+
+/// Names for the soundfont param rows, indexed by `app.soundfont_param`.
+const soundfont_param_labels = [_][]const u8{ "gain", "pan", "transpose", "preset" };
+
+pub fn drawSoundfontStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !void {
+    try writeModeBadge(w, app.modal.mode);
+    try writeViewBadge(right, "SOUNDFONT", app.modal.mode);
+    const sf = app.editingSoundfont();
+    const cur = @min(@as(usize, app.soundfont_param), soundfont_param_labels.len - 1);
+
+    try w.writeAll(dim ++ "  " ++ rst);
+    try w.writeAll(soundfont_param_labels[cur]);
+    try w.writeAll(dim ++ ": " ++ rst);
+    try w.writeAll(acc);
+    switch (app.soundfont_param) {
+        0 => try w.print("{d:.2}", .{if (sf) |s| s.gain else 1.0}),
+        1 => if (sf) |s| try w.writeAll(if (@abs(s.pan) < 0.005) "C" else if (s.pan < 0) "L" else "R") else try w.writeAll("C"),
+        2 => try w.print("{s}{d:.0} st", .{ if (sf != null and sf.?.transpose_semitones >= 0) "+" else "", if (sf) |s| s.transpose_semitones else 0.0 }),
+        3 => if (sf) |s| {
+            if (s.presetCount() == 0) try w.writeAll("(no font loaded)") else try w.print("{s} ({d}/{d})", .{ s.presetName(), s.preset_index + 1, s.presetCount() });
+        } else try w.writeAll("(no font loaded)"),
         else => {},
     }
     try w.writeAll(rst);

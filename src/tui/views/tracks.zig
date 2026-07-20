@@ -93,6 +93,7 @@ fn writeTrackRow(app: anytype, w: *std.Io.Writer, ti: u16, is_sel: bool, in_sel:
         .drum_machine => icons.drum,
         .slicer => icons.slicer,
         .clap => icons.synth,
+        .soundfont => icons.soundfont,
     };
     try lw.writeAll(kind_icon);
     try lw.writeByte(' ');

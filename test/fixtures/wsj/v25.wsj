@@ -1,0 +1,17 @@
+{
+  "version": 25,
+  "tracks": [
+    { "name": "sf" }
+  ],
+  "racks": [
+    {
+      "label": "sf",
+      "kind": "soundfont",
+      "soundfont": {
+        "gain": 0.8,
+        "pan": -0.25,
+        "transpose_semitones": 3.0
+      }
+    }
+  ]
+}

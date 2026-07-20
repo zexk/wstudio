@@ -267,6 +267,7 @@ fn liveParamValue(app: *App, track: u16, id: u16) ?f32 {
     return switch (app.session.racks.items[track].instrument) {
         .poly_synth => |*s| if (id <= 0xFF) s.paramValue(@intCast(id)) else null,
         .sampler => |*s| if (id <= 0xFF) s.paramValue(@intCast(id)) else null,
+        .soundfont => |*sf| if (id <= 0xFF) sf.paramValue(@intCast(id)) else null,
         .drum_machine => |*dm| dm.paramValue(id),
         .slicer => |*sl| sl.paramValue(id),
         .clap => null,

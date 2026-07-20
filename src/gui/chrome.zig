@@ -171,6 +171,7 @@ fn tuiStatusText(app: anytype, left_out: []u8, right_out: []u8) StatusText {
         .drum_grid => status.drawDrumStatus(core, &left_writer, &right_writer),
         .synth_editor => status.drawSynthStatus(core, &left_writer, &right_writer),
         .sampler_editor => status.drawSamplerStatus(core, &left_writer, &right_writer),
+        .soundfont_editor => status.drawSoundfontStatus(core, &left_writer, &right_writer),
         .piano_roll => status.drawPianoRollStatus(core, &left_writer, &right_writer),
         .help => status.drawHelpStatus(core, &left_writer, &right_writer),
         .track_spectrum, .master_spectrum, .group_spectrum => status.drawFxStatus(core, &left_writer, &right_writer, spectrum_ed.currentTarget(core)),

@@ -21,6 +21,7 @@ pub const Section = enum {
     tracks,
     drum_grid,
     sampler_editor,
+    soundfont_editor,
     synth_editor,
     piano_roll,
     arrangement,
@@ -239,6 +240,16 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("a",            "audition current pad/slice");
     t.key("esc / e",      "back to the grid that opened this editor (tracks view for a sampler)");
     t.key(":load",        "[file.wav]  load a sample into the cursor pad or sampler track (omit the file to browse); sampler tracks auto-detect the clip's root note");
+
+    t.taggedSection(.soundfont_editor, "SOUNDFONT EDITOR");
+    t.key("j / k",        "select parameter (gain / pan / transpose / preset)");
+    t.key("g / G",        "jump to first / last parameter");
+    t.key("h / l",        "adjust value (fine); on PRESET, step to the prev/next preset in the font");
+    t.key("H / L",        "adjust value (coarse ×10)");
+    t.key("a",            "audition at the piano roll's last cursor pitch (or C4)");
+    t.key("esc / e",      "back to the tracks view");
+    t.key(":load-soundfont", "[file.sf2]  load a SoundFont into the cursor track (omit the file to browse)");
+    t.key(":sf-preset",   "<bank> <program>  jump straight to a preset by its MIDI bank/program number");
 
     t.taggedSection(.synth_editor, "SYNTH EDITOR");
     t.key("tab",          "cycle subview: main params / mod matrix / FX section");

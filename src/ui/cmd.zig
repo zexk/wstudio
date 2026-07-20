@@ -13,7 +13,7 @@ const style = @import("ansi.zig");
 /// (see `visible`/`writeSuggestionBox`); `dispatch` never checks this, so a
 /// fully-typed command out of scope still runs and gets that command's own
 /// (usually more specific) error, e.g. "select a drum-machine track first".
-pub const Scope = enum { any, drum, sampler, synth, slicer };
+pub const Scope = enum { any, drum, sampler, synth, slicer, soundfont };
 
 pub const Def = struct {
     name: []const u8,

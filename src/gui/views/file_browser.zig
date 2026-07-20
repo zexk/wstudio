@@ -102,6 +102,7 @@ fn purposeLabel(purpose: anytype, buf: []u8) []const u8 {
         .load_clip => "LOAD CLIP  .WAV",
         .load_slice => "LOAD SLICER CLIP  .WAV",
         .load_wavetable => |slot| std.fmt.bufPrint(buf, "LOAD WAVETABLE OSC {s}  .WAV", .{@tagName(slot)}) catch "LOAD WAVETABLE  .WAV",
+        .load_soundfont => "LOAD SOUNDFONT  .SF2",
     };
 }
 

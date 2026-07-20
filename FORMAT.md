@@ -19,7 +19,7 @@ a sidecar directory, not embedded in the JSON. See
 
 ## Versioning policy
 
-`persist.zig`'s `file_version` (currently 22) is the newest format version
+`persist.zig`'s `file_version` (currently 25) is the newest format version
 this build can write and read. Loading enforces one rule:
 
 - **A file whose `version` is newer than `file_version` is hard-rejected**
@@ -77,6 +77,7 @@ they showed up in the same week as one.
 | v22 | Arrangement clip placement changed from whole bars to exact musical ticks at 32 ticks per quarter note, allowing starts, cuts, moves, and edge resizes through 1/128 notes. Older `start_bar`/`length_bars` clips migrate using the saved time signature. |
 | v23 | The drum machine's own step storage changed from a fixed 64-step-max per-pad `u64` bitmask + dense per-step velocity array to a heap-owned, effectively unbounded (u16 step index, ~65k steps) per-pad note list - steps are now a zoom/display granularity over that data, not a storage limit. `DrumSnap`/`VariantSnap`/`ClipSnap` gain a sparse `notes`/`drum_notes` field (`{pad, step, duration_steps, velocity}` entries) that new saves write instead of the old `pattern`/`vel`/`vel_lo`/`vel_hi` fields, which are kept read-only so older files still migrate (walking the dense bitmask, one entry per active step). Slicer is unaffected - it keeps its own separate 64-step bitmask+velocity shape (`SlicerSnap`/`VariantSnap.pattern`/`.vel`), since only the drum machine's ceiling grew. |
 | v24 | CLAP instruments and effects persist the plugin binary path, stable plugin ID, and opaque CLAP state as Base64. Instrument snapshots also carry their piano-roll notes, loop length, and swing. |
+| v25 | A new instrument kind: the SoundFont (.sf2) player (`RackSnap.soundfont`: `SoundfontSnap` - the loaded font's sidecar path, selected preset index, gain/pan/transpose, and a piano-roll pattern like poly_synth/sampler get). Purely additive data-wise, but the bump makes pre-v25 builds hard-reject a file using the new `InstrumentKind` variant instead of failing on an unknown enum name, same rationale as every FX-kind-growth bump (v15/v16/v18/v19/v20/v21/v24). The loaded .sf2's raw bytes are exported to the sample sidecar (see below) since the parsed, already-resolved in-memory form can't losslessly reconstruct the original file. |
 
 Since v11, every field added has been the additive/no-bump kind described
 above (v12/v13/v14 above are the exceptions - genuine semantic changes, not
@@ -84,7 +85,7 @@ additive; v23 is a third). Check `persist.zig`'s per-field doc comments for
 specifics (e.g. `Sampler.mono`, `PatternPlayer.swing`, `:bounce`'s bit-depth
 option).
 
-`test/fixtures/wsj/v1.wsj` through `v23.wsj` are tiny, hand-written fixtures
+`test/fixtures/wsj/v1.wsj` through `v25.wsj` are tiny, hand-written fixtures
 of each historical shape (no `variants` for v2, no `master_fx_chain` for v9,
 etc.), one per row of the table above. `persist.zig`'s "golden-file corpus"
 test loads every file in that directory and fails loudly if one stops
@@ -106,7 +107,9 @@ sample). Each file is named by its position: `t<track>p<pad>.wav` for a
 drum pad, `t<track>clip.wav` for a standalone sampler clip, `t<track>oscA.wav`/
 `oscB.wav`/`oscC.wav` for a synth oscillator's imported wavetable (v20 - same
 sidecar directory, since it's the same "variable-size audio blob that
-shouldn't live inline in the JSON" problem). All are written through the
+shouldn't live inline in the JSON" problem), and `t<track>.sf2` for a loaded
+SoundFont (v25 - the one exception written verbatim rather than as a WAV,
+since it isn't PCM audio). All are written through the
 same `.tmp` + rename dance as the project file itself, so a crash never
 leaves a truncated sample behind.
 
