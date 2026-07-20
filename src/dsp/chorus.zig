@@ -7,6 +7,7 @@
 const std = @import("std");
 const types = @import("../core/types.zig");
 const dsp = @import("device.zig");
+const Lfo = @import("lfo.zig").Lfo;
 
 const Sample = types.Sample;
 
@@ -24,7 +25,7 @@ pub const Chorus = struct {
     depth_ms: f32 = 4.0,
     /// 0 = dry only, 1 = wet only.
     mix: f32 = 0.5,
-    phase: f32 = 0.0,
+    lfo: Lfo = .{},
 
     pub fn init(allocator: std.mem.Allocator, sample_rate: u32) !Chorus {
         const safe_rate = @max(sample_rate, 1);
@@ -50,7 +51,7 @@ pub const Chorus = struct {
         @memset(self.lines[0], 0.0);
         @memset(self.lines[1], 0.0);
         self.index = 0;
-        self.phase = 0.0;
+        self.lfo.reset();
     }
 
     pub const device = dsp.deviceOf(@This());
@@ -61,8 +62,8 @@ pub const Chorus = struct {
         const rate = dsp.sanitizeParam(self.rate_hz, 0.05, 5.0, 0.8);
         const depth = dsp.sanitizeParam(self.depth_ms, 0.0, max_depth_ms, 4.0);
         const mix = dsp.sanitizeParam(self.mix, 0.0, 1.0, 0.5);
-        if (!std.math.isFinite(self.phase)) self.phase = 0.0;
-        const phase_inc = 2.0 * std.math.pi * rate / sr;
+        self.lfo.sanitize();
+        const inc = rate / sr;
         const frames = buf.len / 2;
         for (0..frames) |i| {
             inline for (0..2) |ch| {
@@ -70,7 +71,7 @@ pub const Chorus = struct {
                 line[self.index] = buf[i * 2 + ch];
 
                 // Right channel trails the LFO by a quarter cycle for width.
-                const lfo = @sin(self.phase - @as(f32, @floatFromInt(ch)) * (std.math.pi / 2.0));
+                const lfo = self.lfo.sine(if (ch == 1) -0.25 else 0.0);
                 const delay_frames = (base_delay_ms + depth * lfo) * 0.001 * sr;
                 var pos = @as(f32, @floatFromInt(self.index)) - delay_frames;
                 if (pos < 0) pos += @floatFromInt(line.len);
@@ -82,8 +83,7 @@ pub const Chorus = struct {
                 buf[i * 2 + ch] = buf[i * 2 + ch] * (1.0 - mix) + wet * mix;
             }
             self.index = (self.index + 1) % self.lines[0].len;
-            self.phase += phase_inc;
-            if (self.phase >= 2.0 * std.math.pi) self.phase -= 2.0 * std.math.pi;
+            self.lfo.tick(inc);
         }
     }
 };
@@ -123,7 +123,7 @@ test "invalid parameters cannot poison output" {
     chorus.rate_hz = std.math.nan(f32);
     chorus.depth_ms = -std.math.inf(f32);
     chorus.mix = std.math.inf(f32);
-    chorus.phase = std.math.nan(f32);
+    chorus.lfo.phase = std.math.nan(f32);
     var buf = [_]Sample{ 0.3, -0.7, 0.05, 0.9 };
     chorus.processBlock(&buf);
     for (buf) |sample| try std.testing.expect(std.math.isFinite(sample));
