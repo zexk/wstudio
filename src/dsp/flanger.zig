@@ -38,10 +38,10 @@ pub const Flanger = struct {
     pub fn processBlock(self: *Flanger, buf: []Sample) void {
         const len_f: f32 = @floatFromInt(len);
         const max_delay: f32 = len_f - 4.0;
-        const rate = if (std.math.isFinite(self.rate_hz)) std.math.clamp(self.rate_hz, 0.05, 5.0) else 0.3;
-        const depth = if (std.math.isFinite(self.depth)) std.math.clamp(self.depth, 0.0, 1.0) else 0.7;
-        const feedback = if (std.math.isFinite(self.feedback)) std.math.clamp(self.feedback, 0.0, 0.9) else 0.5;
-        const mix = if (std.math.isFinite(self.mix)) std.math.clamp(self.mix, 0.0, 1.0) else 0.5;
+        const rate = dsp.sanitizeParam(self.rate_hz, 0.05, 5.0, 0.3);
+        const depth = dsp.sanitizeParam(self.depth, 0.0, 1.0, 0.7);
+        const feedback = dsp.sanitizeParam(self.feedback, 0.0, 0.9, 0.5);
+        const mix = dsp.sanitizeParam(self.mix, 0.0, 1.0, 0.5);
         if (!std.math.isFinite(self.phase)) self.phase = 0.0;
         const inc = rate / self.sample_rate;
         var i: usize = 0;

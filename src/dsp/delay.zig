@@ -71,8 +71,8 @@ pub const StereoDelay = struct {
     pub fn processBlock(self: *StereoDelay, buf: []Sample) void {
         // feedback >= 1 makes the line's own recurrence grow unbounded on
         // every repeat instead of decaying.
-        const feedback = if (std.math.isFinite(self.feedback)) std.math.clamp(self.feedback, 0.0, 0.95) else 0.35;
-        const mix = if (std.math.isFinite(self.mix)) std.math.clamp(self.mix, 0.0, 1.0) else 0.25;
+        const feedback = dsp.sanitizeParam(self.feedback, 0.0, 0.95, 0.35);
+        const mix = dsp.sanitizeParam(self.mix, 0.0, 1.0, 0.25);
         const frames = buf.len / 2;
         for (0..frames) |i| {
             inline for (0..2) |ch| {

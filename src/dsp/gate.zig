@@ -31,9 +31,9 @@ pub const Gate = struct {
         // A negative/zero attack_ms or release_ms flips the exponent
         // positive, giving a decay coefficient >= 1 - the envelope/gain
         // recurrences below then diverge geometrically within one block.
-        const threshold_db = if (std.math.isFinite(self.threshold_db)) std.math.clamp(self.threshold_db, -80.0, 0.0) else -50.0;
-        const attack_ms = if (std.math.isFinite(self.attack_ms)) std.math.clamp(self.attack_ms, 0.1, 50.0) else 1.0;
-        const release_ms = if (std.math.isFinite(self.release_ms)) std.math.clamp(self.release_ms, 5.0, 1000.0) else 100.0;
+        const threshold_db = dsp.sanitizeParam(self.threshold_db, -80.0, 0.0, -50.0);
+        const attack_ms = dsp.sanitizeParam(self.attack_ms, 0.1, 50.0, 1.0);
+        const release_ms = dsp.sanitizeParam(self.release_ms, 5.0, 1000.0, 100.0);
         // zig fmt: off
         const thresh    = std.math.pow(f32, 10.0, threshold_db / 20.0);
         const det_decay = @exp(-1.0 / (0.050 * self.sample_rate));

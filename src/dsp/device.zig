@@ -3,7 +3,15 @@
 //! on the audio thread, so implementations must not allocate or block
 //! inside `process` - buffers are allocated up front at init time.
 
+const std = @import("std");
 const types = @import("../core/types.zig");
+
+/// Clamp `val` to `[lo, hi]`, falling back to `default` if it's NaN/inf -
+/// every FX unit's parameter setter needs this same non-finite guard since
+/// params can arrive from untrusted persisted state or automation curves.
+pub fn sanitizeParam(val: f32, lo: f32, hi: f32, default: f32) f32 {
+    return if (std.math.isFinite(val)) std.math.clamp(val, lo, hi) else default;
+}
 
 pub const Event = union(enum) {
     note_on: struct { note: u7, velocity: f32 },

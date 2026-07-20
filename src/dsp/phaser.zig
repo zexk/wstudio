@@ -41,10 +41,10 @@ pub const Phaser = struct {
     pub fn processBlock(self: *Phaser, buf: []Sample) void {
         // feedback >= 1 makes the allpass cascade's own recurrence grow
         // unbounded on every repeat instead of decaying.
-        const rate_hz = if (std.math.isFinite(self.rate_hz)) std.math.clamp(self.rate_hz, 0.05, 5.0) else 0.4;
-        const depth = if (std.math.isFinite(self.depth)) std.math.clamp(self.depth, 0.0, 1.0) else 0.9;
-        const feedback = if (std.math.isFinite(self.feedback)) std.math.clamp(self.feedback, 0.0, 0.9) else 0.5;
-        const mix = if (std.math.isFinite(self.mix)) std.math.clamp(self.mix, 0.0, 1.0) else 0.5;
+        const rate_hz = dsp.sanitizeParam(self.rate_hz, 0.05, 5.0, 0.4);
+        const depth = dsp.sanitizeParam(self.depth, 0.0, 1.0, 0.9);
+        const feedback = dsp.sanitizeParam(self.feedback, 0.0, 0.9, 0.5);
+        const mix = dsp.sanitizeParam(self.mix, 0.0, 1.0, 0.5);
         if (!std.math.isFinite(self.phase)) self.phase = 0.0;
         const phase_inc = 2.0 * std.math.pi * rate_hz / self.sample_rate;
         const frames = buf.len / 2;

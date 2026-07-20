@@ -159,9 +159,9 @@ const BandComp = struct {
     fn gainFor(self: *BandComp, level: f32, attack: f32, release: f32, style: Style) f32 {
         // A ratio near/under 0 sends downwardReductionDb's `1/ratio` toward
         // +-inf, same instability as the plain `Compressor`.
-        const threshold_db = if (std.math.isFinite(self.threshold_db)) std.math.clamp(self.threshold_db, -60.0, 0.0) else -18.0;
-        const ratio = if (std.math.isFinite(self.ratio)) std.math.clamp(self.ratio, 1.0, 20.0) else 4.0;
-        const makeup_db = if (std.math.isFinite(self.makeup_db)) std.math.clamp(self.makeup_db, -24.0, 24.0) else 0.0;
+        const threshold_db = dsp.sanitizeParam(self.threshold_db, -60.0, 0.0, -18.0);
+        const ratio = dsp.sanitizeParam(self.ratio, 1.0, 20.0, 4.0);
+        const makeup_db = dsp.sanitizeParam(self.makeup_db, -24.0, 24.0, 0.0);
         const over_db = Compressor.envelopeOverDb(&self.env, level, attack, release, threshold_db);
         // Downward: pull the excess above threshold down by `ratio` - same
         // envelope/ratio math as the plain `Compressor`.
@@ -246,9 +246,9 @@ pub const MultibandComp = struct {
         // A non-positive attack_ms/release_ms flips smoothingCoef's exponent
         // positive (coef >= 1, diverges within a block) - same instability
         // as the plain `Compressor`.
-        const attack_ms = if (std.math.isFinite(self.attack_ms)) std.math.clamp(self.attack_ms, 0.1, 500.0) else 10.0;
-        const release_ms = if (std.math.isFinite(self.release_ms)) std.math.clamp(self.release_ms, 1.0, 2000.0) else 80.0;
-        const mix = if (std.math.isFinite(self.mix)) std.math.clamp(self.mix, 0.0, 1.0) else 1.0;
+        const attack_ms = dsp.sanitizeParam(self.attack_ms, 0.1, 500.0, 10.0);
+        const release_ms = dsp.sanitizeParam(self.release_ms, 1.0, 2000.0, 80.0);
+        const mix = dsp.sanitizeParam(self.mix, 0.0, 1.0, 1.0);
         const attack = self.smoothingCoef(attack_ms);
         const release = self.smoothingCoef(release_ms);
 

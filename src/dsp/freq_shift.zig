@@ -99,8 +99,8 @@ pub const FreqShifter = struct {
     pub const device = dsp.deviceOf(@This());
 
     pub fn processBlock(self: *FreqShifter, buf: []Sample) void {
-        const shift = if (std.math.isFinite(self.shift_hz)) std.math.clamp(self.shift_hz, -2000.0, 2000.0) else 0.0;
-        const mix = if (std.math.isFinite(self.mix)) std.math.clamp(self.mix, 0.0, 1.0) else 1.0;
+        const shift = dsp.sanitizeParam(self.shift_hz, -2000.0, 2000.0, 0.0);
+        const mix = dsp.sanitizeParam(self.mix, 0.0, 1.0, 1.0);
         if (!std.math.isFinite(self.phase)) self.phase = 0.0;
         const phase_inc = 2.0 * std.math.pi * shift / self.sample_rate;
         const frames = buf.len / 2;
