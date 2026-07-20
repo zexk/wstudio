@@ -181,7 +181,7 @@ fn drawStandalone(app: anytype) void {
             .shortcut = ":load",
             .action = "LOAD AUDIO",
             .accent = patina.audio,
-        })) openLoadCommand(app);
+        })) widgets.openLoadCommand(app);
         return;
     }
     zgui.spacing();
@@ -244,14 +244,7 @@ fn drawPadEmptyState(app: anytype, title: []const u8, explanation: []const u8) v
         .shortcut = ":load",
         .action = "LOAD SAMPLE",
         .accent = patina.audio,
-    })) openLoadCommand(app);
-}
-
-fn openLoadCommand(app: anytype) void {
-    const now = std.Io.Timestamp.now(app.core.io, .awake).nanoseconds;
-    app.core.handleKey(.{ .char = ':' }, now);
-    for ("load") |char| app.core.handleKey(.{ .char = char }, now);
-    app.core.handleKey(.enter, now);
+    })) widgets.openLoadCommand(app);
 }
 
 fn drawPadHeader(app: anytype, track: u16, kind: PadTargetKind, index: u8) void {

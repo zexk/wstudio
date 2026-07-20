@@ -31,7 +31,7 @@ pub fn draw(app: anytype) void {
             .shortcut = ":load",
             .action = "LOAD SOUNDFONT",
             .accent = patina.audio,
-        })) openLoadCommand(app);
+        })) widgets.openLoadCommand(app);
         return;
     }
 
@@ -73,13 +73,6 @@ fn drawPresetRow(app: anytype, track: u16, sf: *ws.dsp.SoundfontPlayer) void {
         const next: u16 = if (idx + 1 >= count) 0 else idx + 1;
         setParam(app, track, 3, @floatFromInt(next));
     }
-}
-
-fn openLoadCommand(app: anytype) void {
-    const now = std.Io.Timestamp.now(app.core.io, .awake).nanoseconds;
-    app.core.handleKey(.{ .char = ':' }, now);
-    for ("load") |char| app.core.handleKey(.{ .char = char }, now);
-    app.core.handleKey(.enter, now);
 }
 
 fn setParam(app: anytype, track: u16, id: u8, value: f32) void {
