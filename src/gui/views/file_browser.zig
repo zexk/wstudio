@@ -99,15 +99,14 @@ fn drawHeader(app: anytype) void {
 }
 
 fn purposeLabel(purpose: anytype, buf: []u8) []const u8 {
-    return switch (purpose) {
-        .open_project => "OPEN PROJECT  .WSJ",
-        .load_sample => "LOAD SAMPLE  .WAV",
-        .load_pad => |pad| std.fmt.bufPrint(buf, "LOAD PAD {d}  .WAV", .{pad + 1}) catch "LOAD PAD  .WAV",
-        .load_clip => "LOAD CLIP  .WAV",
-        .load_slice => "LOAD SLICER CLIP  .WAV",
-        .load_wavetable => |slot| std.fmt.bufPrint(buf, "LOAD WAVETABLE OSC {s}  .WAV", .{@tagName(slot)}) catch "LOAD WAVETABLE  .WAV",
-        .load_soundfont => "LOAD SOUNDFONT  .SF2",
-    };
+    var label_buf: [40]u8 = undefined;
+    const label = purpose.label(&label_buf);
+    var upper_label_buf: [40]u8 = undefined;
+    const upper_label = std.ascii.upperString(upper_label_buf[0..label.len], label);
+    var upper_ext_buf: [8]u8 = undefined;
+    const ext = purpose.ext();
+    const upper_ext = std.ascii.upperString(upper_ext_buf[0..ext.len], ext);
+    return std.fmt.bufPrint(buf, "{s}  {s}", .{ upper_label, upper_ext }) catch label;
 }
 
 fn drawBookmarks(app: anytype) void {
