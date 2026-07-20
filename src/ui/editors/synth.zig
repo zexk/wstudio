@@ -494,9 +494,7 @@ pub fn synthFxPickerKinds(app: *App, buf: *[14]FxUnitKind) []const FxUnitKind {
 /// live-while-typing rule `spectrum.activeFilter` uses for the track chain's
 /// own FX picker.
 pub fn activeFxFilter(app: *App) []const u8 {
-    if (app.modal.mode == .search and app.view == .synth_fx_picker)
-        return app.modal.cmd_buf[0..app.modal.cmd_len];
-    return app.synth_fx_picker_filter_buf[0..app.synth_fx_picker_filter_len];
+    return app.pickerFilterText(.synth_fx_picker, &app.synth_fx_picker_filter_buf, app.synth_fx_picker_filter_len);
 }
 
 /// `synthFxPickerKinds` narrowed by the active filter, matched against each

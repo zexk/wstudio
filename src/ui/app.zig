@@ -2582,6 +2582,19 @@ pub const App = struct {
         return self.search_pattern_buf[0..self.search_pattern_len];
     }
 
+    /// Shared body of each picker's own `active*Filter` (preset picker, FX
+    /// picker, synth FX picker, automation param picker): while that
+    /// picker's own search mode is live, the in-progress search buffer
+    /// narrows the list; otherwise the last text typed directly into the
+    /// picker's filter (`buf[0..len]`) does. Kept as thin per-picker
+    /// wrappers at each call site rather than calling this everywhere
+    /// directly, so each one's name documents which picker it's for.
+    pub fn pickerFilterText(self: *App, view: AppView, buf: []const u8, len: usize) []const u8 {
+        if (self.modal.mode == .search and self.view == view)
+            return self.modal.cmd_buf[0..self.modal.cmd_len];
+        return buf[0..len];
+    }
+
     fn setSearchPattern(self: *App, text: []const u8) void {
         const len = @min(text.len, self.search_pattern_buf.len);
         @memcpy(self.search_pattern_buf[0..len], text[0..len]);

@@ -42,9 +42,7 @@ pub const picker_kinds = [_]FxKind{
 /// The `/` filter narrowing the FX insert picker right now - same
 /// live-while-typing rule `preset_ed.activeFilter` uses.
 pub fn activeFilter(app: *App) []const u8 {
-    if (app.modal.mode == .search and app.view == .fx_picker)
-        return app.modal.cmd_buf[0..app.modal.cmd_len];
-    return app.fx_picker_filter_buf[0..app.fx_picker_filter_len];
+    return app.pickerFilterText(.fx_picker, &app.fx_picker_filter_buf, app.fx_picker_filter_len);
 }
 
 /// `picker_kinds` narrowed by the active filter, matched against each

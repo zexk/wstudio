@@ -56,9 +56,7 @@ pub const max_display_rows = 224;
 /// pattern. Mirrors how the tracks view treats the search register, minus
 /// the global n/N repeat, which makes no sense for a filter.
 pub fn activeFilter(app: *App) []const u8 {
-    if (app.modal.mode == .search and app.view == .preset_picker)
-        return app.modal.cmd_buf[0..app.modal.cmd_len];
-    return app.preset_filter_buf[0..app.preset_filter_len];
+    return app.pickerFilterText(.preset_picker, &app.preset_filter_buf, app.preset_filter_len);
 }
 
 /// Writes the genre tags in `tags` joined by "/" (everything past the
