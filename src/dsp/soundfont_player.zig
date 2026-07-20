@@ -367,7 +367,7 @@ pub const SoundfontPlayer = struct {
             .set_param     => |e| self.adjustParam(@truncate(e.id), e.steps),
             .set_param_abs => |e| self.setParamAbsolute(@truncate(e.id), e.value),
             .all_off       => self.resetAll(),
-            .cc, .pitch_bend, .set_sidechain_buf, .capture_pad => {},
+            .cc, .pitch_bend, .clap_param, .set_sidechain_buf, .capture_pad => {},
             // zig fmt: on
         }
     }
