@@ -17,6 +17,21 @@ pub const Config = struct {
 /// Fills `out` (interleaved, out.len = block_frames * channels).
 pub const RenderFn = *const fn (ctx: *anyopaque, out: []types.Sample) void;
 
+/// Rejects a config a device backend can't render (zero or over-max
+/// sample rate/block size/channel count) - shared by every backend's
+/// `start` (ALSA, WASAPI, and this file's own NullBackend). The asserts
+/// re-confirm the bound `max_channels`/`max_block_frames` a backend's
+/// `buffer` field was sized for, since the caller's `max_channels` is
+/// whatever it declared its own buffer against.
+pub fn validateConfig(config: Config, comptime max_channels: u16) error{InvalidConfig}!void {
+    if (config.sample_rate == 0 or config.block_frames == 0 or
+        config.channels == 0 or config.channels > max_channels or
+        config.block_frames > types.max_block_frames)
+        return error.InvalidConfig;
+    std.debug.assert(config.channels <= max_channels);
+    std.debug.assert(config.block_frames <= types.max_block_frames);
+}
+
 /// Loads every field of `Api` from `lib` by symbol name, prefixing each
 /// field name with `prefix` - shared by the dlopen'd backends (JACK,
 /// PipeWire) whose client libraries expose a flat `<prefix>_<call>` C ABI.
@@ -109,12 +124,7 @@ pub const NullBackend = struct {
     const max_channels = 2;
 
     pub fn start(self: *NullBackend, io: std.Io) !void {
-        if (self.config.sample_rate == 0 or self.config.block_frames == 0 or
-            self.config.channels == 0 or self.config.channels > max_channels or
-            self.config.block_frames > types.max_block_frames)
-            return error.InvalidConfig;
-        std.debug.assert(self.config.channels <= max_channels);
-        std.debug.assert(self.config.block_frames <= types.max_block_frames);
+        try validateConfig(self.config, max_channels);
         self.io = io;
         self.running.store(true, .release);
         self.thread = try std.Thread.spawn(.{}, run, .{self});
