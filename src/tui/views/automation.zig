@@ -40,22 +40,12 @@ fn valueLevel(val: ?f32, range: [2]f32, graph_rows: usize) usize {
 // handler and this draw path agree on the step columns.
 const gutter = automation_ed.gutter;
 
-fn instrumentAutomatableParams(app: anytype) []const ws.dsp.device.AutomatableParam {
-    if (app.automation_track >= app.session.racks.items.len) return &.{};
-    return app.session.racks.items[app.automation_track].instrument.automatableParams();
-}
-
-fn findAutomatableParam(app: anytype, id: u8) ?*const ws.dsp.device.AutomatableParam {
-    for (instrumentAutomatableParams(app)) |*param| if (param.id == id) return param;
-    return null;
-}
-
 fn curveRange(app: anytype, target: AutomationFocus) [2]f32 {
     return switch (target) {
         .gain => .{ -40.0, 12.0 }, // wider than the persisted -60 floor - a
         // fade all the way to -60dB would otherwise pin the whole graph flat
         .pan => .{ -1.0, 1.0 },
-        .synth_param => |id| if (findAutomatableParam(app, id)) |info| info.range else .{ 0.0, 1.0 },
+        .synth_param => |id| if (automation_ed.findAutomatableParam(app, id)) |info| info.range else .{ 0.0, 1.0 },
     };
 }
 
@@ -82,7 +72,7 @@ pub fn drawAutomation(
     const target_label: []const u8 = switch (target) {
         .gain => "GAIN",
         .pan => "PAN",
-        .synth_param => |id| if (findAutomatableParam(app, id)) |info| info.label else "?",
+        .synth_param => |id| if (automation_ed.findAutomatableParam(app, id)) |info| info.label else "?",
     };
 
     try w.writeAll(bold ++ " AUTOMATION" ++ rst);
@@ -196,7 +186,7 @@ pub fn drawAutomationParamPicker(app: anytype, w: *std.Io.Writer, rows: usize) !
     else
         "?";
     const clip = automation_ed.currentClip(app);
-    const params = instrumentAutomatableParams(app);
+    const params = automation_ed.instrumentAutomatableParams(app);
     const filter = automation_ed.activeParamFilter(app);
 
     var buf: [automation_ed.max_param_display_rows]automation_ed.ParamDisplayRow = undefined;
