@@ -1970,49 +1970,20 @@ pub const PolySynth = struct {
             const ring_mix_norm = 1.0 / @sqrt(1.0 + c_pow
                 + sub_level_v * sub_level_v
                 + noise_lvl_v * noise_lvl_v);
+            // zig fmt: on
 
             // Stereo pan gains per unison voice - constant-power, √2-compensated so
             // spread=0 gives the same per-channel amplitude as the original mono path.
             const uni_spread = eff(&mods, 5, self.unison_spread);
-            const pan_scale = std.math.sqrt2;
             var pan_l_a: [max_unison]f32 = undefined;
             var pan_r_a: [max_unison]f32 = undefined;
-            for (0..n_a) |ui| {
-                const raw: f32 = if (n_a > 1 and uni_spread > 0.0)
-                    ((@as(f32, @floatFromInt(ui)) / @as(f32, @floatFromInt(n_a - 1))) * 2.0 - 1.0)
-                    * uni_spread
-                else 0.0;
-                const angle = (raw + 1.0) * std.math.pi * 0.25;
-                pan_l_a[ui] = pan_scale * @cos(angle);
-                pan_r_a[ui] = pan_scale * @sin(angle);
-            }
+            computeUnisonPan(n_a, uni_spread, &pan_l_a, &pan_r_a);
             var pan_l_b: [max_unison]f32 = undefined;
             var pan_r_b: [max_unison]f32 = undefined;
-            if (self.osc_b_on) {
-                for (0..n_b) |ui| {
-                    const raw: f32 = if (n_b > 1 and uni_spread > 0.0)
-                        ((@as(f32, @floatFromInt(ui)) / @as(f32, @floatFromInt(n_b - 1))) * 2.0 - 1.0)
-                        * uni_spread
-                    else 0.0;
-                    // zig fmt: on
-                    const angle = (raw + 1.0) * std.math.pi * 0.25;
-                    pan_l_b[ui] = pan_scale * @cos(angle);
-                    pan_r_b[ui] = pan_scale * @sin(angle);
-                }
-            }
+            if (self.osc_b_on) computeUnisonPan(n_b, uni_spread, &pan_l_b, &pan_r_b);
             var pan_l_c: [max_unison]f32 = undefined;
             var pan_r_c: [max_unison]f32 = undefined;
-            if (self.osc_c_on) {
-                for (0..n_c) |ui| {
-                    const raw: f32 = if (n_c > 1 and uni_spread > 0.0)
-                        ((@as(f32, @floatFromInt(ui)) / @as(f32, @floatFromInt(n_c - 1))) * 2.0 - 1.0) * uni_spread
-                    else
-                        0.0;
-                    const angle = (raw + 1.0) * std.math.pi * 0.25;
-                    pan_l_c[ui] = pan_scale * @cos(angle);
-                    pan_r_c[ui] = pan_scale * @sin(angle);
-                }
-            }
+            if (self.osc_c_on) computeUnisonPan(n_c, uni_spread, &pan_l_c, &pan_r_c);
 
             for (0..frames) |i| {
                 var a_l: f32 = 0.0;
@@ -2592,6 +2563,24 @@ pub const PolySynth = struct {
 
     fn dbToLinear(db: f32) f32 {
         return std.math.pow(f32, 10.0, db / 20.0);
+    }
+
+    /// Constant-power, √2-compensated pan gains for `n` unison voices spread
+    /// across `spread` (see `unison_spread`) - shared setup for oscillators
+    /// A/B/C's per-voice pan arrays, which differ only in unison count and
+    /// which oscillator's arrays they write into. spread=0 (or n<=1) gives
+    /// the same per-channel amplitude as the original mono path.
+    fn computeUnisonPan(n: usize, spread: f32, pan_l: *[max_unison]f32, pan_r: *[max_unison]f32) void {
+        const pan_scale = std.math.sqrt2;
+        for (0..n) |ui| {
+            const raw: f32 = if (n > 1 and spread > 0.0)
+                ((@as(f32, @floatFromInt(ui)) / @as(f32, @floatFromInt(n - 1))) * 2.0 - 1.0) * spread
+            else
+                0.0;
+            const angle = (raw + 1.0) * std.math.pi * 0.25;
+            pan_l[ui] = pan_scale * @cos(angle);
+            pan_r[ui] = pan_scale * @sin(angle);
+        }
     }
 
     /// Advances one ADSR generator by one sample - shared body of the amp,
