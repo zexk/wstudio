@@ -2168,59 +2168,21 @@ pub const PolySynth = struct {
                 const sg = v.env * v.velocity * gain_v * amp_mod;
                 buf[i * 2]     += filt_l * sg;
                 buf[i * 2 + 1] += filt_r * sg;
+                // zig fmt: on
 
-                // Amplitude envelope
-                switch (v.stage) {
-                    .attack => {
-                        v.env += attack_inc;
-                        if (v.env >= 1.0) { v.env = 1.0; v.stage = .decay; }
-                    },
-                    .decay => {
-                        v.env -= decay_inc;
-                        if (v.env <= sustain_v) { v.env = sustain_v; v.stage = .sustain; }
-                    },
-                    .sustain => {},
-                    .release => {
-                        v.env -= release_inc;
-                        if (v.env <= 0.0) { v.* = .{}; break; }
-                    },
+                // Amplitude envelope - hitting zero on release kills the
+                // voice outright (unlike the filter/env3 envelopes below).
+                if (advanceEnv(&v.stage, &v.env, sustain_v, attack_inc, decay_inc, release_inc)) {
+                    v.* = .{};
+                    break;
                 }
 
                 // Filter envelope (voice death is governed by amp env above)
-                switch (v.stage2) {
-                    .attack => {
-                        v.env2 += fenv_attack_inc;
-                        if (v.env2 >= 1.0) { v.env2 = 1.0; v.stage2 = .decay; }
-                    },
-                    .decay => {
-                        v.env2 -= fenv_decay_inc;
-                        if (v.env2 <= fenv_sustain_v) { v.env2 = fenv_sustain_v; v.stage2 = .sustain; }
-                    },
-                    .sustain => {},
-                    .release => {
-                        v.env2 -= fenv_release_inc;
-                        if (v.env2 < 0.0) v.env2 = 0.0;
-                    },
-                }
+                _ = advanceEnv(&v.stage2, &v.env2, fenv_sustain_v, fenv_attack_inc, fenv_decay_inc, fenv_release_inc);
 
                 // ENV 3 (free-assign, no fixed destination - voice death is
                 // still governed by the amp env above)
-                switch (v.stage3) {
-                    .attack => {
-                        v.env3 += env3_attack_inc;
-                        if (v.env3 >= 1.0) { v.env3 = 1.0; v.stage3 = .decay; }
-                    },
-                    .decay => {
-                        v.env3 -= env3_decay_inc;
-                        if (v.env3 <= env3_sustain_v) { v.env3 = env3_sustain_v; v.stage3 = .sustain; }
-                    },
-                    .sustain => {},
-                    .release => {
-                        v.env3 -= env3_release_inc;
-                        if (v.env3 < 0.0) v.env3 = 0.0;
-                    },
-                }
-                // zig fmt: on
+                _ = advanceEnv(&v.stage3, &v.env3, env3_sustain_v, env3_attack_inc, env3_decay_inc, env3_release_inc);
             }
         }
 
@@ -2630,6 +2592,41 @@ pub const PolySynth = struct {
 
     fn dbToLinear(db: f32) f32 {
         return std.math.pow(f32, 10.0, db / 20.0);
+    }
+
+    /// Advances one ADSR generator by one sample - shared body of the amp,
+    /// filter, and env3 envelopes (`Voice.stage`/`env`, `stage2`/`env2`,
+    /// `stage3`/`env3`), which differ only in which stage/level pair and
+    /// per-stage increments they're driven by. Returns true once `level`
+    /// has decayed to zero during release; the amp-envelope caller uses
+    /// that to kill the whole voice, while filter/env3 just let `level`
+    /// stay parked at zero (this function's own floor already handles it).
+    fn advanceEnv(stage: *Stage, level: *f32, sustain_v: f32, attack_inc: f32, decay_inc: f32, release_inc: f32) bool {
+        switch (stage.*) {
+            .attack => {
+                level.* += attack_inc;
+                if (level.* >= 1.0) {
+                    level.* = 1.0;
+                    stage.* = .decay;
+                }
+            },
+            .decay => {
+                level.* -= decay_inc;
+                if (level.* <= sustain_v) {
+                    level.* = sustain_v;
+                    stage.* = .sustain;
+                }
+            },
+            .sustain => {},
+            .release => {
+                level.* -= release_inc;
+                if (level.* <= 0.0) {
+                    level.* = 0.0;
+                    return true;
+                }
+            },
+        }
+        return false;
     }
 
     /// One sample through one filter slot/channel, dispatching on the
