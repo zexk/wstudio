@@ -552,6 +552,14 @@ fn bandResponseDb(band: anytype, sample_rate: f32, freq: f32) f32 {
 }
 
 fn drawParam(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, index: usize) void {
+    if (spectrum_ed.paramToggleNames(unit.kind(), index)) |names| {
+        drawParamToggle(app, target, unit, index, names);
+        return;
+    }
+    if (spectrum_ed.isListParam(unit.kind(), index)) {
+        drawParamList(app, target, unit, index);
+        return;
+    }
     var value = spectrum_ed.getParam(&unit.payload, index);
     const range = spectrum_ed.paramRange(&app.core, &unit.payload, index);
     const format: [:0]const u8 = if (range[1] >= 100) "%.0f" else "%.2f";
@@ -559,6 +567,54 @@ fn drawParam(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, index
     const label = std.fmt.bufPrintZ(&label_buf, "{s}##gui-fx-{d}", .{ spectrum_ed.paramName(&unit.payload, index), index }) catch return;
     const focused = app.core.fx_param == index;
     const result = widgets.paramKnob(spectrum_ed.paramName(&unit.payload, index), label, .{ .v = &value, .min = range[0], .max = range[1], .cfmt = format, .accent = kindAccent(unit.kind()), .focused = focused });
+    if (result.changed) {
+        spectrum_ed.setParam(&app.core, &unit.payload, index, value);
+        spectrum_ed.clearStaleSidechainPad(&app.core, &unit.payload);
+        app.core.fx_param = index;
+        app.core.dirty = true;
+        syncChain(app, target);
+    }
+    if (result.activated) app.core.fx_param = index;
+}
+
+/// Two-option list param (`paramToggleNames`, e.g. multiband comp's
+/// classic/OTT style) as a highlighted button pair instead of a knob - the
+/// same bracket-pair idiom `synth.zig`/`sampler.zig` already use for their
+/// own booleans.
+fn drawParamToggle(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, index: usize, names: [2][]const u8) void {
+    const value = spectrum_ed.getParam(&unit.payload, index);
+    const focused = app.core.fx_param == index;
+    const accent = kindAccent(unit.kind());
+    zgui.textColored(if (focused) accent else patina.fg1, "{s}", .{spectrum_ed.paramName(&unit.payload, index)});
+    for (names, 0..) |name, i| {
+        if (i > 0) zgui.sameLine(.{ .spacing = 5 });
+        const active = (value >= 0.5) == (i == 1);
+        var btn_buf: [40]u8 = undefined;
+        const btn_id = std.fmt.bufPrintZ(&btn_buf, "{s}##gui-fx-{d}-{d}", .{ name, index, i }) catch continue;
+        zgui.pushStyleColor4f(.{ .idx = .button, .c = if (active) accent else patina.bg2 });
+        zgui.pushStyleColor4f(.{ .idx = .text, .c = if (active) patina.bg0 else patina.fg2 });
+        if (zgui.button(btn_id, .{ .h = 26 }) and !active) {
+            spectrum_ed.setParam(&app.core, &unit.payload, index, if (i == 1) 1.0 else 0.0);
+            app.core.fx_param = index;
+            app.core.dirty = true;
+            syncChain(app, target);
+        }
+        zgui.popStyleColor(.{ .count = 2 });
+    }
+}
+
+/// List-entry param (`isListParam`, e.g. the compressor's sidechain
+/// track/pad) as a prev/next stepper showing the resolved name instead of a
+/// knob - see `widgets.listStepper`.
+fn drawParamList(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, index: usize) void {
+    var value = spectrum_ed.getParam(&unit.payload, index);
+    const range = spectrum_ed.paramRange(&app.core, &unit.payload, index);
+    var label_buf: [80]u8 = undefined;
+    const label = std.fmt.bufPrintZ(&label_buf, "{s}##gui-fx-{d}", .{ spectrum_ed.paramName(&unit.payload, index), index }) catch return;
+    var value_buf: [32]u8 = undefined;
+    const display = spectrum_ed.formatValue(&app.core, &value_buf, &unit.payload, index);
+    const focused = app.core.fx_param == index;
+    const result = widgets.listStepper(spectrum_ed.paramName(&unit.payload, index), label, .{ .v = &value, .min = range[0], .max = range[1], .display = display, .accent = kindAccent(unit.kind()), .focused = focused });
     if (result.changed) {
         spectrum_ed.setParam(&app.core, &unit.payload, index, value);
         spectrum_ed.clearStaleSidechainPad(&app.core, &unit.payload);
