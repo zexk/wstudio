@@ -61,6 +61,19 @@ pub fn activeFilter(app: *App) []const u8 {
     return app.preset_filter_buf[0..app.preset_filter_len];
 }
 
+/// Writes the genre tags in `tags` joined by "/" (everything past the
+/// always-present "wstudio" author tag at index 0). Writes nothing if there
+/// are no genre tags (e.g. the "init" preset). Shared by the TUI preset
+/// picker (unwrapped) and the `:synth-preset`/`:kit-preset` status line
+/// (wrapped in its own " (...)").
+pub fn writeGenreTags(w: *std.Io.Writer, tags: []const []const u8) std.Io.Writer.Error!void {
+    if (tags.len <= 1) return;
+    for (tags[1..], 0..) |t, i| {
+        if (i > 0) try w.writeAll("/");
+        try w.writeAll(t);
+    }
+}
+
 fn entryMatches(e: Entry, filter: []const u8) bool {
     if (filter.len == 0) return true;
     if (fuzzy.matches(filter, e.name)) return true;

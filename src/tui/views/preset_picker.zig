@@ -13,16 +13,6 @@ const sel = style.sel;
 const yel = style.yel;
 const endLine = style.endLine;
 
-/// Genre tags joined "/" - same tags[1..] rule commands.zig's writeGenres
-/// uses (index 0 is always the "wstudio" author tag on factory content).
-fn writeGenres(w: *std.Io.Writer, tags: []const []const u8) !void {
-    if (tags.len <= 1) return;
-    for (tags[1..], 0..) |t, i| {
-        if (i > 0) try w.writeAll("/");
-        try w.writeAll(t);
-    }
-}
-
 pub fn drawPresetPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void {
     const track_name = if (app.preset_picker_track < app.session.project.tracks.items.len)
         app.session.project.tracks.items[app.preset_picker_track].name
@@ -105,7 +95,7 @@ pub fn drawPresetPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void {
                 // rides the row instead.
                 if (app.preset_picker_kind == .drum) try w.print(" {s: <11}", .{e.category});
                 try w.writeByte(' ');
-                try writeGenres(w, e.tags);
+                try preset_ed.writeGenreTags(w, e.tags);
                 try w.writeAll(rst);
                 try endLine(w);
             },
