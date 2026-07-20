@@ -18,7 +18,7 @@ fn purposeLabel(purpose: app_mod.BrowserPurpose, buf: []u8) []const u8 {
     return switch (purpose) {
         .open_project => "open project (.wsj)",
         .load_sample => "load sample (.wav)",
-        .load_pad => |pad| std.fmt.bufPrint(buf, "load pad {d} (.wav)", .{pad}) catch "load pad (.wav)",
+        .load_pad => |pad| std.fmt.bufPrint(buf, "load pad {d} (.wav)", .{pad + 1}) catch "load pad (.wav)",
         .load_clip => "load clip (.wav)",
         .load_slice => "load slicer clip (.wav)",
         .load_wavetable => |slot| std.fmt.bufPrint(buf, "load wavetable, osc {s} (.wav)", .{@tagName(slot)}) catch "load wavetable (.wav)",
