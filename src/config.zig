@@ -658,7 +658,7 @@ pub const Runtime = struct {
         c.lua_setfield(self.state, -2, "__index");
         _ = c.lua_setmetatable(self.state, -2); // metatable -> wstudio.o
         c.lua_setfield(self.state, -2, "o"); // wstudio.o -> wstudio
-        _ = c.lua_pushstring(self.state, "1.0.0-beta.1");
+        _ = c.lua_pushstring(self.state, "1.0.0-beta.2");
         c.lua_setfield(self.state, -2, "version"); // wstudio.version
         _ = c.lua_pushstring(self.state, @tagName(self.frontend));
         c.lua_setfield(self.state, -2, "frontend"); // wstudio.frontend
