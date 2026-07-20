@@ -240,7 +240,8 @@ pub fn renderVoice(
 
 /// Linearly interpolate `samples` at fractional position `p`. Returns 0 past
 /// the ends so a voice fades out cleanly rather than reading garbage.
-fn sampleAt(samples: []const f32, p: f64) f32 {
+/// Public so soundfont_player.zig's voice render can share it too.
+pub fn sampleAt(samples: []const f32, p: f64) f32 {
     if (p < 0.0) return 0.0;
     const idx: usize = @intFromFloat(p);
     if (idx + 1 < samples.len) {

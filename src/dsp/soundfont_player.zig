@@ -31,6 +31,7 @@ const dsp = @import("device.zig");
 const soundfont_mod = @import("soundfont.zig");
 const SoundFont = soundfont_mod.SoundFont;
 const Region = soundfont_mod.Region;
+const pad_dsp = @import("pad.zig");
 
 const Sample = types.Sample;
 
@@ -428,7 +429,7 @@ fn renderVoice(
             break;
         }
 
-        var s = sampleAt(samples, v.read_pos);
+        var s = pad_dsp.sampleAt(samples, v.read_pos);
         if (v.use_filter) s = v.filt.process(s, &v.filt_state);
 
         const env: f32 = blk: {
@@ -454,20 +455,6 @@ fn renderVoice(
         }
     }
     v.block_start = 0;
-}
-
-/// Linearly interpolate `samples` at fractional frame `p`. Returns 0 past
-/// the ends so a voice fades cleanly rather than reading garbage - same
-/// contract as dsp/pad.zig's private sampleAt.
-fn sampleAt(samples: []const f32, p: f64) f32 {
-    if (p < 0.0) return 0.0;
-    const idx: usize = @intFromFloat(p);
-    if (idx + 1 < samples.len) {
-        const frac: f32 = @floatCast(p - @as(f64, @floatFromInt(idx)));
-        return samples[idx] * (1.0 - frac) + samples[idx + 1] * frac;
-    }
-    if (idx < samples.len) return samples[idx];
-    return 0.0;
 }
 
 // ---------------------------------------------------------------------------
