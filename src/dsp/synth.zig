@@ -3372,6 +3372,16 @@ pub const PolySynth = struct {
     /// read half of undo's capture/restore pair. A control-thread read of
     /// live fields, same race-tolerant convention the synth editor's own
     /// row rendering already uses. Null for unknown ids.
+    /// True for boolean on/off params (`param_specs` rows with `.kind =
+    /// .toggle`) - lets editors draw these as a single toggle button instead
+    /// of a generic -/+ stepper, without hand-keeping a second id list.
+    pub fn isToggleParam(id: u8) bool {
+        inline for (param_specs) |spec| {
+            if (spec.id == id) return spec.kind == .toggle;
+        }
+        return false;
+    }
+
     pub fn paramValue(self: *const PolySynth, id: u8) ?f32 {
         switch (id) {
             59...82 => {

@@ -352,6 +352,10 @@ fn drawAnyParam(app: anytype, synth: *ws.dsp.PolySynth, id: u8, label_text: []co
         return;
     }
     const value = synth.paramValue(id) orelse return;
+    if (ws.dsp.PolySynth.isToggleParam(id)) {
+        drawParamToggle(app, id, label_text, value >= 0.5);
+        return;
+    }
     zgui.text("{s}", .{label_text});
     zgui.sameLine(.{ .spacing = 8 });
     var minus_buf: [32]u8 = undefined;
@@ -363,6 +367,21 @@ fn drawAnyParam(app: anytype, synth: *ws.dsp.PolySynth, id: u8, label_text: []co
     var plus_buf: [32]u8 = undefined;
     const plus = std.fmt.bufPrintZ(&plus_buf, "+##synth-plus-{d}", .{id}) catch return;
     if (zgui.smallButton(plus)) nudgeParam(app, id, 'l');
+}
+
+/// A boolean param rendered as a single on/off button - `nudgeParam`'s
+/// h-step flips a toggle just like it would any other stepped value, so
+/// clicking it reuses the same command path an `h`/`l` keypress would.
+fn drawParamToggle(app: anytype, id: u8, label_text: []const u8, active: bool) void {
+    const focused = app.core.synth_cursor == id;
+    zgui.text("{s}", .{label_text});
+    zgui.sameLine(.{ .spacing = 8 });
+    var btn_buf: [48]u8 = undefined;
+    const btn_id = std.fmt.bufPrintZ(&btn_buf, "{s}##synth-toggle-{d}", .{ if (active) "ON" else "OFF", id }) catch return;
+    zgui.pushStyleColor4f(.{ .idx = .button, .c = if (active) patina.focus else if (focused) patina.bg4 else patina.bg2 });
+    zgui.pushStyleColor4f(.{ .idx = .text, .c = if (active) patina.bg0 else if (focused) patina.focus else patina.fg2 });
+    if (zgui.smallButton(btn_id)) nudgeParam(app, id, 'h');
+    zgui.popStyleColor(.{ .count = 2 });
 }
 
 fn nudgeParam(app: anytype, id: u8, key: u8) void {
