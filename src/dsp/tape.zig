@@ -10,6 +10,7 @@ const std = @import("std");
 const types = @import("../core/types.zig");
 const dsp = @import("device.zig");
 const Lfo = @import("lfo.zig").Lfo;
+const delay_line = @import("delay_line.zig");
 
 const Sample = types.Sample;
 
@@ -62,11 +63,7 @@ pub const Tape = struct {
                 wow * wow_depth * max_wow_samples +
                 flutter * flutter_depth * max_flutter_samples;
             inline for (0..2) |ch| {
-                const rp = @mod(@as(f32, @floatFromInt(self.pos)) - delay, len_f);
-                const tap_i: usize = @intFromFloat(rp);
-                const frac = rp - @floor(rp);
-                const tap = self.ring[ch][tap_i % len] * (1.0 - frac) +
-                    self.ring[ch][(tap_i + 1) % len] * frac;
+                const tap = delay_line.readInterp(&self.ring[ch], self.pos, delay);
                 const dry = buf[i + ch];
                 self.ring[ch][self.pos] = dry;
                 buf[i + ch] = dry * (1.0 - mix) + tap * mix;

@@ -9,6 +9,7 @@ const std = @import("std");
 const types = @import("../core/types.zig");
 const dsp = @import("device.zig");
 const Lfo = @import("lfo.zig").Lfo;
+const delay_line = @import("delay_line.zig");
 
 const Sample = types.Sample;
 
@@ -52,12 +53,7 @@ pub const Flanger = struct {
                 // >= 1 sample of delay so the fractional read below never
                 // touches the frame being written this iteration.
                 const delay = 1.0 + lfo * depth * (max_delay - 1.0);
-                var rp = @as(f32, @floatFromInt(self.pos)) - delay;
-                if (rp < 0.0) rp += len_f;
-                const tap_i: usize = @intFromFloat(rp);
-                const frac = rp - @floor(rp);
-                const tap = self.ring[ch][tap_i % len] * (1.0 - frac) +
-                    self.ring[ch][(tap_i + 1) % len] * frac;
+                const tap = delay_line.readInterp(&self.ring[ch], self.pos, delay);
                 const dry = buf[i + ch];
                 self.ring[ch][self.pos] = dry + tap * feedback;
                 buf[i + ch] = dry * (1.0 - mix) + tap * mix;
