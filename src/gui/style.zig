@@ -137,8 +137,14 @@ pub fn fxKindAccent(kind: ws.FxKind) [4]f32 {
     };
 }
 
-pub fn setTheme() void {
+/// `wstudio.o.gui_panel_border`: square (0) or rounded corners for ImGui's
+/// own chrome. Only the style vars below read this - draw-list elements
+/// that are rounded by their own nature (piano-roll/step-grid note blocks,
+/// knobs, ...) pass their own explicit `.rounding` per call and never
+/// consult global style, so this can't touch them either way.
+pub fn setTheme(border: config_mod.PanelBorder) void {
     const style = zgui.getStyle();
+    const rounding: f32 = if (border == .rounded) 6 else 0;
     if (palette.light) zgui.styleColorsLight(style) else zgui.styleColorsDark(style);
     style.setColor(.text, palette.fg0);
     style.setColor(.text_disabled, mixColor(palette.fg3, palette.bg2, 0.22));
@@ -181,13 +187,13 @@ pub fn setTheme() void {
     style.setColor(.text_selected_bg, .{ palette.focus[0], palette.focus[1], palette.focus[2], 0.35 });
     style.setColor(.nav_cursor, palette.focus);
     style.setColor(.modal_window_dim_bg, .{ palette.bg0[0], palette.bg0[1], palette.bg0[2], 0.78 });
-    style.window_rounding = 0;
-    style.child_rounding = 0;
-    style.popup_rounding = 0;
-    style.tab_rounding = 0;
-    style.frame_rounding = 2;
-    style.grab_rounding = 2;
-    style.scrollbar_rounding = 0;
+    style.window_rounding = rounding;
+    style.child_rounding = rounding;
+    style.popup_rounding = rounding;
+    style.tab_rounding = rounding;
+    style.frame_rounding = if (border == .rounded) 4 else 2;
+    style.grab_rounding = if (border == .rounded) 4 else 2;
+    style.scrollbar_rounding = rounding;
     style.window_padding = .{ 12, 12 };
     style.frame_padding = .{ 8, 6 };
     style.item_spacing = .{ 8, 8 };

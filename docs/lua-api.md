@@ -160,7 +160,7 @@ Current option set (see examples/init.lua for defaults and ranges):
 | `count_in_bars`, `default_midi_velocity_curve` | core |
 | `default_automation_gain_step_db`, `default_automation_pan_step` | core |
 | `frame_poll_ms`, `tui_mouse`, `tui_theme` | tui |
-| `gui_font_size`, `gui_vsync`, `gui_theme` | gui |
+| `gui_font_size`, `gui_vsync`, `gui_theme`, `gui_panel_border` | gui |
 | `gui_window_width`, `gui_window_height` | gui |
 | `gui_knob_drag_pixels`, `gui_envelope_drag_pixels`, `gui_meter_decay_db_s` | gui |
 
