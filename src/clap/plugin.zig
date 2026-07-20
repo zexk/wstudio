@@ -6,6 +6,7 @@ const device_mod = @import("../dsp/device.zig");
 const types = @import("../core/types.zig");
 const Transport = @import("../transport.zig").Transport;
 const dynlib_compat = @import("dynlib_compat.zig");
+const open_entry = @import("open_entry.zig");
 
 const max_events = 256;
 
@@ -227,14 +228,12 @@ pub const ClapPlugin = struct {
         plugin_id: ?[]const u8,
         sample_rate: u32,
     ) !*ClapPlugin {
-        var library = try dynlib_compat.DynLib.open(path);
+        const opened = try open_entry.openEntry(allocator, path);
+        var library = opened.library;
         errdefer library.close();
-        const entry = library.lookup(*const abi.PluginEntry, "clap_entry") orelse return error.MissingClapEntry;
-        if (!abi.versionIsCompatible(entry.clap_version)) return error.IncompatibleClapVersion;
-
-        const path_z = try allocator.dupeZ(u8, path);
+        const entry = opened.entry;
+        const path_z = opened.path_z;
         errdefer allocator.free(path_z);
-        if (!entry.init(path_z.ptr)) return error.EntryInitFailed;
         errdefer entry.deinit();
 
         const factory_raw = entry.get_factory(abi.plugin_factory_id) orelse return error.MissingPluginFactory;
