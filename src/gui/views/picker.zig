@@ -9,8 +9,12 @@ const style = @import("../style.zig");
 const color = style.color;
 const patina = &style.palette;
 
-/// Paint a Telescope-style modal into the existing workspace window. This is
-/// deliberately draw-list geometry, not an ImGui popup or child window.
+/// Paint a Telescope-style modal into the existing workspace window: a
+/// draw-list backdrop and panel frame, then a real (borderless, transparent)
+/// ImGui child sized to the panel's inner area. The child is what makes
+/// `drawInstrument`/`drawFx`/`drawPreset`'s entries actual children of the
+/// panel - clipped and scrollable to it - instead of raw draw-list content
+/// that happily overruns the panel's edges. Pair with `endOverlay`.
 pub fn beginOverlay() void {
     const window_pos = zgui.getWindowPos();
     const window_size = zgui.getWindowSize();
@@ -41,6 +45,13 @@ pub fn beginOverlay() void {
         .thickness = 1,
     });
     zgui.setCursorScreenPos(.{ panel[0] + 18, panel[1] + 16 });
+    zgui.pushStyleColor4f(.{ .idx = .child_bg, .c = .{ 0, 0, 0, 0 } });
+    _ = zgui.beginChild("telescope-panel-content", .{ .w = panel_w - 36, .h = panel_h - 32 });
+}
+
+pub fn endOverlay() void {
+    zgui.endChild();
+    zgui.popStyleColor(.{});
 }
 
 fn overlayWidth() f32 {
@@ -59,13 +70,12 @@ pub fn drawInstrument(app: anytype) void {
         .{ .label = "SLICER", .desc = "AUDIO  SLICES  SEQUENCER", .kind = .slicer, .accent = patina.modulation },
         .{ .label = "SOUNDFONT", .desc = "SF2  MULTI-TIMBRAL  PRESETS", .kind = .soundfont, .accent = patina.audio },
     };
-    const available = overlayWidth();
-    const gap: f32 = 10;
-    const columns: usize = if (available >= 720) 2 else 1;
-    const width = (available - gap * @as(f32, @floatFromInt(columns - 1))) / @as(f32, @floatFromInt(columns));
+    // Single column: `j`/`k` move the shared picker cursor by a flat +/-1,
+    // same as the TUI's list - a multi-column card grid would make "down"
+    // jump sideways instead.
+    const width = overlayWidth();
     zgui.textColored(patina.fg2, "INTERNAL", .{});
     for (entries, 0..) |entry, i| {
-        if (i % columns != 0) zgui.sameLine(.{ .spacing = gap });
         var id_buf: [48]u8 = undefined;
         const id = std.fmt.bufPrintZ(&id_buf, "instrument-card-{d}", .{i}) catch continue;
         if (drawCard(id, entry.label, entry.desc, entry.accent, app.core.picker_cursor == i, width)) {
@@ -80,7 +90,6 @@ pub fn drawInstrument(app: anytype) void {
     const external_count = app.core.external_plugins.count(.instrument);
     for (0..external_count) |external_i| {
         const plugin = app.core.external_plugins.at(.instrument, external_i).?;
-        if (external_i % columns != 0) zgui.sameLine(.{ .spacing = gap });
         var id_buf: [48]u8 = undefined;
         const id = std.fmt.bufPrintZ(&id_buf, "instrument-plugin-card-{d}", .{external_i}) catch continue;
         var desc_buf: [128]u8 = undefined;
@@ -104,17 +113,11 @@ pub fn drawFx(app: anytype) void {
     const kinds = spectrum_ed.picker_kinds;
     const available = overlayWidth();
     const count = if (app.core.view == .synth_fx_picker) synth_kinds.len else kinds.len;
-    const gap: f32 = 10;
-    const columns: usize = if (app.core.view == .fx_picker and available >= 1120)
-        3
-    else if (available >= 700)
-        2
-    else
-        1;
-    const width = (available - gap * @as(f32, @floatFromInt(columns - 1))) / @as(f32, @floatFromInt(columns));
+    // Single column, matching the TUI list's flat j/k stepping - see
+    // drawInstrument's comment above.
+    const width = available;
     if (app.core.view == .fx_picker) zgui.textColored(patina.fg2, "INTERNAL", .{});
     for (0..count) |i| {
-        if (i % columns != 0) zgui.sameLine(.{ .spacing = gap });
         const kind = if (app.core.view == .synth_fx_picker) synth_ed.asFxKind(synth_kinds[i]) else kinds[i];
         var id_buf: [48]u8 = undefined;
         const id = std.fmt.bufPrintZ(&id_buf, "fx-picker-card-{d}", .{i}) catch continue;
@@ -140,7 +143,6 @@ pub fn drawFx(app: anytype) void {
         const external_count = spectrum_ed.externalPickerCount(&app.core);
         for (0..external_count) |external_i| {
             const plugin = spectrum_ed.externalPickerAt(&app.core, external_i).?;
-            if (external_i % columns != 0) zgui.sameLine(.{ .spacing = gap });
             var id_buf: [48]u8 = undefined;
             const id = std.fmt.bufPrintZ(&id_buf, "fx-plugin-card-{d}", .{external_i}) catch continue;
             var desc_buf: [128]u8 = undefined;
@@ -210,6 +212,7 @@ fn drawCard(id: [:0]const u8, label: []const u8, desc: []const u8, accent: [4]f3
     const height: f32 = 62;
     const origin = zgui.getCursorScreenPos();
     const clicked = zgui.invisibleButton(id, .{ .w = width, .h = height });
+    if (selected) zgui.setScrollHereY(.{});
     const hovered = zgui.isItemHovered(.{});
     const draw_list = zgui.getWindowDrawList();
     draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(if (hovered) patina.bg3 else patina.bg2), .rounding = 4 });

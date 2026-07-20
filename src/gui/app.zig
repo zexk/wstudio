@@ -108,6 +108,7 @@ fn drawWorkspace(app: *App) void {
         if (overlay) {
             picker_view.beginOverlay();
             drawPicker(app);
+            picker_view.endOverlay();
         }
     }
     zgui.end();
