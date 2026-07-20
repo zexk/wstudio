@@ -17,6 +17,18 @@ pub const Config = struct {
 /// Fills `out` (interleaved, out.len = block_frames * channels).
 pub const RenderFn = *const fn (ctx: *anyopaque, out: []types.Sample) void;
 
+/// Loads every field of `Api` from `lib` by symbol name, prefixing each
+/// field name with `prefix` - shared by the dlopen'd backends (JACK,
+/// PipeWire) whose client libraries expose a flat `<prefix>_<call>` C ABI.
+pub fn loadApi(comptime Api: type, lib: *std.DynLib, comptime prefix: []const u8) error{SymbolNotFound}!Api {
+    var api: Api = undefined;
+    inline for (@typeInfo(Api).@"struct".fields) |field| {
+        const sym = lib.lookup(field.type, prefix ++ field.name) orelse return error.SymbolNotFound;
+        @field(api, field.name) = sym;
+    }
+    return api;
+}
+
 pub const Backend = struct {
     ptr: *anyopaque,
     vtable: *const VTable,
