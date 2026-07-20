@@ -50,7 +50,7 @@ fn drawBookmarkSidebar(app: anytype, width: f32) void {
     if (zgui.beginChild("bookmark-sidebar", .{ .w = width, .h = -1, .child_flags = .{ .border = true } })) {
         zgui.textColored(patina.audio, "LOCATIONS", .{});
         zgui.separator();
-        if (zgui.button("CURRENT FOLDER", .{ .w = -1, .h = 32 })) app.core.browserJumpTo(app.core.browser_dir);
+        if (zgui.button("CURRENT DIRECTORY", .{ .w = -1, .h = 32 })) app.core.browserJumpTo(app.core.browser_dir);
         if (std.c.getenv("HOME")) |home_z| {
             if (zgui.button("HOME", .{ .w = -1, .h = 32 })) app.core.browserJumpTo(std.mem.sliceTo(home_z, 0));
         }
@@ -141,7 +141,7 @@ fn drawEntry(name: []const u8, is_dir: bool, selected: bool, index: usize) bool 
     if (selected) draw_list.addRect(.{ .pmin = .{ origin[0] + 1, origin[1] + 1 }, .pmax = .{ origin[0] + width - 1, origin[1] + height - 1 }, .col = color(patina.focus), .rounding = 3, .thickness = 2 });
     draw_list.addRectFilled(.{ .pmin = .{ origin[0], origin[1] + 8 }, .pmax = .{ origin[0] + 4, origin[1] + height - 8 }, .col = color(accent), .rounding = 2 });
     draw_list.addText(.{ origin[0] + 15, origin[1] + 8 }, color(if (selected) patina.fg0 else patina.fg1), "{s}", .{name});
-    const type_label = if (is_dir) "FOLDER" else std.fs.path.extension(name);
+    const type_label = if (is_dir) "DIRECTORY" else std.fs.path.extension(name);
     draw_list.addText(.{ origin[0] + width - 116, origin[1] + 16 }, color(patina.fg2), "{s}", .{type_label});
     draw_list.addText(.{ origin[0] + width - 28, origin[1] + 15 }, color(accent), "{s}", .{if (is_dir) ">" else "*"});
     return clicked;
