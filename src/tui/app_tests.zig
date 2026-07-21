@@ -4904,6 +4904,27 @@ test "command Tab-completion hides instrument-scoped commands under the wrong tr
     try std.testing.expectEqualStrings("euclid ", app.modal.cmd_buf[0..app.modal.cmd_len]);
 }
 
+test "Tab cycles named Euclidean rhythm presets" {
+    var app = try testApp();
+    defer app.deinit();
+    app.cursor = 2;
+
+    for (":euclid ") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.tab, 0);
+    try std.testing.expectEqualStrings("euclid tresillo", app.modal.cmd_buf[0..app.modal.cmd_len]);
+    app.handleKey(.tab, 0);
+    try std.testing.expectEqualStrings("euclid cinquillo", app.modal.cmd_buf[0..app.modal.cmd_len]);
+
+    app.handleKey(.escape, 0);
+    commands.run(&app, "euclid tresillo");
+    const dm = &app.session.racks.items[2].instrument.drum_machine;
+    var hits: usize = 0;
+    for (dm.midi[0]) |note| if (note != null) {
+        hits += 1;
+    };
+    try std.testing.expectEqual(@as(usize, 3), hits);
+}
+
 test "Tab cycles mnemonic command names and ignores compatibility aliases" {
     var app = try App.init(std.testing.allocator, std.Io.failing);
     defer app.deinit();

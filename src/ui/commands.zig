@@ -139,7 +139,7 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "drum-kit",    .desc = "[name]  apply a factory or saved kit to the cursor drum machine (no args: list names)", .run = wrap(cmdDrumKit), .scope = .drum },
     .{ .name = "drum-kit-save", .desc = "<name>  save the cursor drum machine's pad tuning (name/gain/pan/pitch/ADSR/choke, no audio) as a reusable kit", .run = wrap(cmdDrumKitSave), .scope = .drum },
     .{ .name = "split-drums", .desc = "replace the drum machine with one sampler + MIDI track per loaded pad", .run = wrap(cmdSplitDrums), .scope = .drum },
-    .{ .name = "euclid",      .desc = "<pulses> [rotation]  Euclidean rhythm across the cursor pad's lane (e.g. :euclid 3, :euclid 5 2)", .run = wrap(cmdEuclid), .scope = .drum },
+    .{ .name = "euclid",      .desc = "<pulses|preset> [rotation]  Euclidean rhythm across the cursor pad's lane (:euclid tresillo)", .run = wrap(cmdEuclid), .scope = .drum },
     .{ .name = "rotate",      .desc = "<steps>  rotate the cursor pad's lane in time, wrapping (negative = earlier)", .run = wrap(cmdRotate), .scope = .drum },
     .{ .name = "undo",         .desc = "undo the last edit (alias for the u key)",   .run = wrap(cmdUndo) },
     .{ .name = "redo",         .desc = "redo the last undone edit (alias for the U key)", .run = wrap(cmdRedo) },
@@ -1305,7 +1305,32 @@ fn cursorDrumMachine(app: *App) ?*DrumMachine {
     };
 }
 
-/// `:euclid <pulses> [rotation]` - replace the cursor pad's lane with a
+pub const EuclidPreset = struct {
+    name: []const u8,
+    pulses: u16,
+    rotation: i32,
+};
+
+/// Named pulse/rotation pairs. The current pattern remains the step count,
+/// matching numeric `:euclid`; names describe their familiar form at common
+/// 8- or 16-step lengths without resizing every pad in the drum machine.
+pub const euclid_presets = [_]EuclidPreset{
+    .{ .name = "tresillo", .pulses = 3, .rotation = 0 },
+    .{ .name = "cinquillo", .pulses = 5, .rotation = 0 },
+    .{ .name = "bossa", .pulses = 5, .rotation = 2 },
+    .{ .name = "clave", .pulses = 5, .rotation = 3 },
+    .{ .name = "rumba", .pulses = 5, .rotation = 5 },
+    .{ .name = "four-floor", .pulses = 4, .rotation = 0 },
+};
+
+fn findEuclidPreset(name: []const u8) ?EuclidPreset {
+    for (euclid_presets) |preset| {
+        if (std.ascii.eqlIgnoreCase(name, preset.name)) return preset;
+    }
+    return null;
+}
+
+/// `:euclid <pulses|preset> [rotation]` - replace the cursor pad's lane with a
 /// Euclidean rhythm: `pulses` hits spread as evenly as possible across the
 /// whole pattern, optionally rotated so the first hit lands `rotation` steps
 /// in. E(3,8) is the tresillo, E(5,16) a classic hat groove.
@@ -1316,18 +1341,19 @@ fn cmdEuclid(app: *App, args: []const u8) void {
     };
     const dm = cursorDrumMachine(app).?;
     var it = std.mem.tokenizeScalar(u8, args, ' ');
-    const pulses_str = it.next() orelse {
-        app.setStatus("usage: euclid <pulses> [rotation], e.g. :euclid 3 or :euclid 5 2", .{});
+    const rhythm = it.next() orelse {
+        app.setStatus("usage: euclid <pulses|preset> [rotation], e.g. :euclid tresillo", .{});
         return;
     };
-    const pulses = std.fmt.parseInt(u16, pulses_str, 10) catch {
-        app.setStatus("euclid: bad pulse count '{s}'", .{pulses_str});
+    const preset = findEuclidPreset(rhythm);
+    const pulses = if (preset) |p| p.pulses else std.fmt.parseInt(u16, rhythm, 10) catch {
+        app.setStatus("euclid: unknown preset or bad pulse count '{s}'", .{rhythm});
         return;
     };
     const rotation: i32 = if (it.next()) |rot_str| std.fmt.parseInt(i32, rot_str, 10) catch {
         app.setStatus("euclid: bad rotation '{s}'", .{rot_str});
         return;
-    } else 0;
+    } else if (preset) |p| p.rotation else 0;
     if (pulses > dm.step_count) {
         app.setStatus("euclid: at most {d} pulses fit this pattern", .{dm.step_count});
         return;
@@ -1335,7 +1361,17 @@ fn cmdEuclid(app: *App, args: []const u8) void {
     const pad: u8 = @intCast(app.drum_cursor[0]);
     history.recordDrum(app, track);
     dm.euclidPad(pad, pulses, rotation);
-    app.setStatus("euclid {d}/{d} on pad {d} ({s})", .{ pulses, dm.step_count, pad + 1, dm.padName(pad) });
+    if (preset) |p|
+        app.setStatus("euclid {s}: E({d},{d}) rot {d} on pad {d} ({s})", .{ p.name, pulses, dm.step_count, rotation, pad + 1, dm.padName(pad) })
+    else
+        app.setStatus("euclid E({d},{d}) rot {d} on pad {d} ({s})", .{ pulses, dm.step_count, rotation, pad + 1, dm.padName(pad) });
+}
+
+test "Euclidean rhythm presets resolve case-insensitively" {
+    const tresillo = findEuclidPreset("Tresillo").?;
+    try std.testing.expectEqual(@as(u16, 3), tresillo.pulses);
+    try std.testing.expectEqual(@as(i32, 0), tresillo.rotation);
+    try std.testing.expect(findEuclidPreset("unknown") == null);
 }
 
 /// `:rotate <steps>` - rotate the cursor pad's lane in time (positive =

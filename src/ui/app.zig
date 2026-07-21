@@ -3450,7 +3450,7 @@ pub const App = struct {
         index: usize,
         last_written: []const u8,
 
-        const Source = enum { command_name, drum_kit, synth_preset, metronome, scale, colorscheme };
+        const Source = enum { command_name, drum_kit, synth_preset, euclid, metronome, scale, colorscheme };
 
         fn stem(self: *const TabCycle) []const u8 {
             return self.stem_buf[0..self.stem_len];
@@ -3518,6 +3518,13 @@ pub const App = struct {
                 n += 1;
             }
             self.cycleCompletion(name_end + 1, arg, .synth_preset, name_buf[0..n]);
+        } else if (std.mem.eql(u8, name, "euclid")) {
+            var n: usize = 0;
+            for (commands.euclid_presets) |preset| {
+                name_buf[n] = preset.name;
+                n += 1;
+            }
+            self.cycleCompletion(name_end + 1, arg, .euclid, name_buf[0..n]);
         } else if (std.mem.eql(u8, name, "metronome")) {
             self.cycleCompletion(name_end + 1, arg, .metronome, &.{ "on", "off" });
         } else if (std.mem.eql(u8, name, "scale")) {
