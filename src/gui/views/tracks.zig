@@ -269,7 +269,11 @@ fn drawTrackBadgeToggle(draw_list: zgui.DrawList, id: [:0]const u8, x: f32, y: f
     const bg = if (active) active_bg else if (hovered) patina.bg4 else patina.bg2;
     const fg = if (active) legibleOn(active_bg) else if (hovered) patina.fg1 else patina.fg3;
     draw_list.addRectFilled(.{ .pmin = .{ x, y }, .pmax = .{ x + 15, y + 18 }, .col = color(bg), .rounding = 2 });
-    draw_list.addText(.{ x + 4, y + 2 }, color(fg), "{s}", .{label});
+    const label_size = zgui.calcTextSize(label, .{});
+    draw_list.addText(.{
+        x + (15 - label_size[0]) / 2,
+        y + (18 - label_size[1]) / 2,
+    }, color(fg), "{s}", .{label});
     return activated;
 }
 
