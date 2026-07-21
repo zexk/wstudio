@@ -1063,6 +1063,49 @@ pub const App = struct {
         }
     }
 
+    /// vim's 'showcmd': the in-flight command prefix as short status text -
+    /// a pending operator and/or accumulated count ("d3", "12") in normal
+    /// mode, the live selection width ("v8") in visual mode (plus any
+    /// count being typed onto it). Empty when nothing is in flight. Both
+    /// frontends render it as a status-bar chip next to the view badge, so
+    /// a half-typed `12l` or an armed `d` is never invisible state.
+    pub fn pendingCmdText(self: *const App, buf: []u8) []const u8 {
+        var w = std.Io.Writer.fixed(buf);
+        if (self.modal.mode == .visual) {
+            const width: ?u64 = switch (self.view) {
+                .piano_roll => spanOf(self.piano_visual_anchor, self.piano_cursor_step),
+                .drum_grid => spanOf(self.drum_visual_anchor, self.drum_cursor[1]),
+                .slicer_grid => spanOf(self.slicer_visual_anchor, self.slicer_cursor[1]),
+                .arrangement => spanOf(self.arr_visual_anchor, self.arr_cursor_bar),
+                .automation => spanOf(self.automation_visual_anchor, self.automation_cursor_step),
+                .tracks => spanOf(self.tracks_visual_anchor, self.track_row),
+                else => null,
+            };
+            if (width) |wd| w.print("v{d}", .{wd}) catch {};
+        } else if (self.modal.mode == .normal) {
+            const op: ?u8 = switch (self.view) {
+                .piano_roll => self.piano_op_pending,
+                .drum_grid => self.drum_op_pending,
+                .slicer_grid => self.slicer_op_pending,
+                .arrangement => self.arr_op_pending,
+                .automation => self.automation_op_pending,
+                else => null,
+            };
+            if (op) |o| w.print("{c}", .{o}) catch {};
+        } else return "";
+        if (self.modal.count > 0) w.print("{d}", .{self.modal.count}) catch {};
+        return w.buffered();
+    }
+
+    /// Inclusive width of a visual selection on one axis, or null when no
+    /// anchor is set (pendingCmdText's per-view helper).
+    fn spanOf(anchor: anytype, cursor: anytype) ?u64 {
+        const a = anchor orelse return null;
+        const lo = @min(@as(u64, a), @as(u64, cursor));
+        const hi = @max(@as(u64, a), @as(u64, cursor));
+        return hi - lo + 1;
+    }
+
     fn altSnapshot(self: *const App) AltContext {
         return .{
             // zig fmt: off
