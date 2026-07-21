@@ -6482,6 +6482,36 @@ test "wstudio.api transport and track surface" {
     try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.track_add({ kind = 'nope' })"));
 }
 
+test "wstudio.api transport snapshot and partial update" {
+    var app = try testApp();
+    defer app.deinit();
+    var rt = try @import("../config.zig").Runtime.init(.tui);
+    defer rt.deinit();
+    rt.app = &app;
+    app.lua_runtime = &rt;
+
+    try rt.loadString("t = wstudio.api.transport_get(); assert(t.playing == false and t.tempo == 120 and t.position_beats == 0 and t.position_seconds == 0 and t.position_frames == 0); assert(t.sample_rate == 48000 and t.beats_per_bar == 4); assert(t.song_mode == false and t.metronome == false); assert(t.loop.enabled == false and t.loop.start_bar == nil and t.loop.end_bar == nil)");
+    try rt.loadString("wstudio.api.transport_set({ tempo = 90, position_beats = 6, song_mode = true, metronome = true, loop = { enabled = true, start_bar = 2, end_bar = 4 }, playing = true })");
+
+    var block: [64]ws.types.Sample = undefined;
+    app.session.engine.process(&block);
+    try rt.loadString("t = wstudio.api.transport_get(); assert(t.playing and t.tempo == 90 and t.song_mode and t.metronome); assert(math.abs(t.position_beats - 6) < 0.01); assert(t.loop.enabled and t.loop.start_bar == 2 and t.loop.end_bar == 4)");
+    try std.testing.expectEqual(@as(u32, 1), app.session.project.loop_start_bar);
+    try std.testing.expectEqual(@as(u32, 4), app.session.project.loop_end_bar);
+    try std.testing.expect(app.dirty);
+
+    try rt.loadString("wstudio.api.transport_set({ playing = false, loop = { enabled = false } })");
+    app.session.engine.process(&block);
+    try rt.loadString("t = wstudio.api.transport_get(); assert(not t.playing and not t.loop.enabled); assert(t.loop.start_bar == 2 and t.loop.end_bar == 4)");
+
+    const tempo_before = app.session.project.tempo_bpm;
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.transport_set({ tempo = 140, bogus = true })"));
+    try std.testing.expectEqual(tempo_before, app.session.project.tempo_bpm);
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.transport_set({ loop = { enabled = true, start_bar = 5, end_bar = 4 } })"));
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.transport_set({ position_beats = -1 })"));
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.transport_set({ metronome = 'yes' })"));
+}
+
 test "wstudio.api exposes editor context and feature detection" {
     var app = try testApp();
     defer app.deinit();
