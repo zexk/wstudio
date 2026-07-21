@@ -230,7 +230,7 @@ fn drawMasterRow(app: anytype, height: f32) void {
     // draw (always runs first, see app.zig's App.draw) - reusing it here
     // keeps this meter in sync with the transport's LEVEL readout instead
     // of re-deriving its own peak-hold state from the raw peak.
-    widgets.meterBar(draw_list, .{ block_x0 + 3, origin[1] + height - 21 }, app.meter_hold_db, 170, 5, 3);
+    widgets.solidMeterBar(draw_list, .{ block_x0 + 3, origin[1] + height - 21 }, app.meter_hold_db, 170, 5, 3, block_fg);
 }
 
 /// `bar_color` is the block's own contrast text color, not the track's raw
