@@ -126,9 +126,9 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
         }
     }
 
-    // Note-grab mode: M holds the note under the cursor and h/l/j/k drag it
-    // (the cursor follows). esc or M drop it; any other key drops it first
-    // and is then handled normally below.
+    // Note-grab mode: M holds the note under the cursor and h/l/j/k drag it,
+    // J/K an octave at a time (the cursor follows). esc or M drop it; any
+    // other key drops it first and is then handled normally below.
     if (app.piano_grab) {
         switch (key) {
             .escape => { dropGrab(app); app.setStatus("note dropped", .{}); return true; },
@@ -137,6 +137,8 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 'l' => { dragNote(app, pp, max_step, 1, 0); return true; },
                 'j' => { dragNote(app, pp, max_step, 0, -1); return true; },
                 'k' => { dragNote(app, pp, max_step, 0, 1); return true; },
+                'J' => { dragNote(app, pp, max_step, 0, -12); return true; },
+                'K' => { dragNote(app, pp, max_step, 0, 12); return true; },
                 'M' => { dropGrab(app); app.setStatus("note dropped", .{}); return true; },
                 else => dropGrab(app),
             },
@@ -146,8 +148,8 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
 
     // Note-stamp mode: a HELD enter on an empty cell inserts a note and
     // live-shapes it for as long as the key stays down - j/k drag its pitch
-    // (cursor follows, via the same dragNote), h/l resize its length (via
-    // the same resizeOrLen `[`/`]` already use). Releasing enter drops it
+    // (J/K an octave, cursor follows, via the same dragNote), h/l resize its
+    // length (via the same resizeOrLen `[`/`]` already use). Releasing enter drops it
     // (`.enter_release`, from frontends that can see key-up: the GUI and
     // kitty-protocol terminals), so a quick tap is just a plain stamp with
     // no lingering mode. Legacy terminals never send the release, so
@@ -161,6 +163,8 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             .char => |c| switch (c) {
                 'j' => { dragNote(app, pp, max_step, 0, -1); return true; },
                 'k' => { dragNote(app, pp, max_step, 0, 1); return true; },
+                'J' => { dragNote(app, pp, max_step, 0, -12); return true; },
+                'K' => { dragNote(app, pp, max_step, 0, 12); return true; },
                 'h' => { resizeOrLen(app, -1.0 / stepsPerBeatF(app)); return true; },
                 'l' => { resizeOrLen(app, 1.0 / stepsPerBeatF(app)); return true; },
                 else => dropStamp(app),
@@ -221,7 +225,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 history.push(app, history.captureMelodic(app, app.piano_track));
                 app.piano_grab = true;
                 app.piano_grab_delta = .{};
-                app.setStatus("moving note - h/l/j/k drag, esc drops", .{});
+                app.setStatus("moving note - h/l/j/k drag, J/K octave, esc drops", .{});
                 return true;
             },
             // </> nudge the velocity of the note under the cursor (count-scaled).
