@@ -362,21 +362,33 @@ fn newOrForce(app: *App, force: bool) void {
     app.requestReload(null);
 }
 
+/// The track a pattern-transform command (`:clear`, `:humanize`, `:reverse`,
+/// `:vel-ramp`, `:quantize`, `:legato`, `:transpose`, `:strum`,
+/// `:import-midi`, `:export-midi`) should act on: the piano roll's pattern
+/// while it's open, otherwise the cursor track.
+fn resolveTrack(app: *App) usize {
+    return if (app.view == .piano_roll) app.piano_track else app.cursor;
+}
+
+/// The melodic pattern at `resolveTrack`, or null if that track isn't one -
+/// e.g. the cursor's on a drum machine, or off the end of the track list.
+/// Shared by every pattern-transform command above.
+fn resolveMelodic(app: *App) ?struct { track: usize, pp: *pattern_mod.PatternPlayer } {
+    const track = resolveTrack(app);
+    if (app.view == .drum_grid or track >= app.session.racks.items.len) return null;
+    if (app.session.racks.items[track].pattern_player == null) return null;
+    return .{ .track = track, .pp = &app.session.racks.items[track].pattern_player.? };
+}
+
 /// `:clear` - erase every note in a melodic pattern, or (same
 /// track-resolution rule as `:reverse`) wipe every pad in a drum machine
 /// when there's no melodic pattern to clear - the fast way back to a blank
 /// kit instead of clearing pads one by one.
 fn cmdClear(app: *App, _: []const u8) void {
-    // In the piano roll, clear the pattern being edited; elsewhere, the
-    // cursor track's pattern.
-    const track: usize = if (app.view == .piano_roll) app.piano_track else app.cursor;
-    const melodic = app.view != .drum_grid and track < app.session.racks.items.len and
-        app.session.racks.items[track].pattern_player != null;
-    if (melodic) {
-        const pp = &app.session.racks.items[track].pattern_player.?;
-        const n = pp.note_count;
-        history.recordMelodic(app, @intCast(track));
-        pp.clearNotes();
+    if (resolveMelodic(app)) |m| {
+        const n = m.pp.note_count;
+        history.recordMelodic(app, @intCast(m.track));
+        m.pp.clearNotes();
         app.setStatus("cleared {d} notes", .{n});
         piano_ed.syncLinkedClip(app);
         return;
@@ -406,16 +418,12 @@ fn cmdHumanize(app: *App, args: []const u8) void {
         app.setStatus("humanize: amount must be 0-100", .{});
         return;
     }
-    const track: usize = if (app.view == .piano_roll) app.piano_track else app.cursor;
-    const melodic = app.view != .drum_grid and track < app.session.racks.items.len and
-        app.session.racks.items[track].pattern_player != null;
     const seed: u64 = @truncate(@as(u96, @bitCast(app.now_ns)));
-    if (melodic) {
-        const pp = &app.session.racks.items[track].pattern_player.?;
-        history.recordMelodic(app, @intCast(track));
+    if (resolveMelodic(app)) |m| {
+        history.recordMelodic(app, @intCast(m.track));
         const step_beats = 1.0 / @as(f64, @floatFromInt(app.pianoStepsPerBeat()));
-        pp.humanize(amount, step_beats, seed);
-        app.setStatus("humanized {d} notes ({d:.0}%)", .{ pp.note_count, amount });
+        m.pp.humanize(amount, step_beats, seed);
+        app.setStatus("humanized {d} notes ({d:.0}%)", .{ m.pp.note_count, amount });
         piano_ed.syncLinkedClip(app);
         return;
     }
@@ -434,13 +442,10 @@ fn cmdHumanize(app: *App, args: []const u8) void {
 /// snap). The deliberate counterpart to `:humanize`'s jitter - same
 /// track-resolution rule.
 fn cmdQuantize(app: *App, args: []const u8) void {
-    const track: usize = if (app.view == .piano_roll) app.piano_track else app.cursor;
-    if (track >= app.session.racks.items.len or
-        app.session.racks.items[track].pattern_player == null)
-    {
+    const m = resolveMelodic(app) orelse {
         app.setStatus("quantize: no piano-roll pattern", .{});
         return;
-    }
+    };
     const trimmed = std.mem.trim(u8, args, " ");
     const strength: f64 = if (trimmed.len == 0) 100.0 else parseFiniteFloat(f64, trimmed) catch {
         app.setStatus("quantize: expected a percent, e.g. :quantize 100", .{});
@@ -450,10 +455,9 @@ fn cmdQuantize(app: *App, args: []const u8) void {
         app.setStatus("quantize: strength must be 0-100", .{});
         return;
     }
-    const pp = &app.session.racks.items[track].pattern_player.?;
-    history.recordMelodic(app, @intCast(track));
+    history.recordMelodic(app, @intCast(m.track));
     const step_beats = 1.0 / @as(f64, @floatFromInt(app.pianoStepsPerBeat()));
-    pp.quantize(step_beats, strength);
+    m.pp.quantize(step_beats, strength);
     app.setStatus("quantized to {s} ({d:.0}%)", .{ app.piano_division.label(), strength });
     piano_ed.syncLinkedClip(app);
 }
@@ -466,13 +470,9 @@ fn cmdQuantize(app: *App, args: []const u8) void {
 fn cmdReverse(app: *App, _: []const u8) void {
     // Same track-resolution rule as :clear, falling through to the drum
     // machine so the command also works from the tracks and drum views.
-    const track: usize = if (app.view == .piano_roll) app.piano_track else app.cursor;
-    const melodic = app.view != .drum_grid and track < app.session.racks.items.len and
-        app.session.racks.items[track].pattern_player != null;
-    if (melodic) {
-        const pp = &app.session.racks.items[track].pattern_player.?;
-        history.recordMelodic(app, @intCast(track));
-        const moved = pp.reverseNotesInRange(0.0, pp.length_beats);
+    if (resolveMelodic(app)) |m| {
+        history.recordMelodic(app, @intCast(m.track));
+        const moved = m.pp.reverseNotesInRange(0.0, m.pp.length_beats);
         app.setStatus("reversed {d} notes", .{moved});
         piano_ed.syncLinkedClip(app);
         return;
@@ -515,13 +515,9 @@ fn cmdVelRamp(app: *App, args: []const u8) void {
         app.setStatus("vel-ramp: values must be 0-100", .{});
         return;
     }
-    const track: usize = if (app.view == .piano_roll) app.piano_track else app.cursor;
-    const melodic = app.view != .drum_grid and track < app.session.racks.items.len and
-        app.session.racks.items[track].pattern_player != null;
-    if (melodic) {
-        const pp = &app.session.racks.items[track].pattern_player.?;
-        history.recordMelodic(app, @intCast(track));
-        const touched = pp.velocityRamp(0.0, pp.length_beats, from / 100.0, to / 100.0);
+    if (resolveMelodic(app)) |m| {
+        history.recordMelodic(app, @intCast(m.track));
+        const touched = m.pp.velocityRamp(0.0, m.pp.length_beats, from / 100.0, to / 100.0);
         app.setStatus("velocity ramp {d:.0}% -> {d:.0}% across {d} notes", .{ from, to, touched });
         piano_ed.syncLinkedClip(app);
         return;
@@ -546,16 +542,12 @@ fn cmdVelRamp(app: *App, args: []const u8) void {
 /// so this doesn't fall through to the drum machine like `:reverse`/
 /// `:vel-ramp` do. Same track-resolution rule as `:clear`.
 fn cmdLegato(app: *App, _: []const u8) void {
-    const track: usize = if (app.view == .piano_roll) app.piano_track else app.cursor;
-    if (track >= app.session.racks.items.len or
-        app.session.racks.items[track].pattern_player == null)
-    {
+    const m = resolveMelodic(app) orelse {
         app.setStatus("legato: no piano-roll pattern", .{});
         return;
-    }
-    const pp = &app.session.racks.items[track].pattern_player.?;
-    history.recordMelodic(app, @intCast(track));
-    const changed = pp.legato(0.0, pp.length_beats);
+    };
+    history.recordMelodic(app, @intCast(m.track));
+    const changed = m.pp.legato(0.0, m.pp.length_beats);
     app.setStatus("legato: extended {d} notes", .{changed});
     piano_ed.syncLinkedClip(app);
 }
@@ -566,13 +558,10 @@ fn cmdLegato(app: *App, _: []const u8) void {
 /// `shiftNotesInRange`. Melodic only, same reasoning as `:legato`: a drum
 /// hit is a fixed sample, not a pitched note to shift.
 fn cmdTranspose(app: *App, args: []const u8) void {
-    const track: usize = if (app.view == .piano_roll) app.piano_track else app.cursor;
-    if (track >= app.session.racks.items.len or
-        app.session.racks.items[track].pattern_player == null)
-    {
+    const m = resolveMelodic(app) orelse {
         app.setStatus("transpose: no piano-roll pattern", .{});
         return;
-    }
+    };
     const trimmed = std.mem.trim(u8, args, " ");
     if (trimmed.len == 0) {
         app.setStatus("usage: transpose <semitones>, e.g. :transpose -12", .{});
@@ -582,9 +571,8 @@ fn cmdTranspose(app: *App, args: []const u8) void {
         app.setStatus("transpose: bad semitone count '{s}'", .{trimmed});
         return;
     };
-    const pp = &app.session.racks.items[track].pattern_player.?;
-    var entry = history.captureMelodic(app, @intCast(track));
-    const moved = pp.shiftNotesInRange(0.0, pp.length_beats, dpitch, 0.0) orelse {
+    var entry = history.captureMelodic(app, @intCast(m.track));
+    const moved = m.pp.shiftNotesInRange(0.0, m.pp.length_beats, dpitch, 0.0) orelse {
         if (entry) |*e| e.deinit(app.allocator);
         app.setStatus("can't transpose - would leave the pitch range", .{});
         return;
@@ -606,13 +594,10 @@ fn cmdTranspose(app: *App, args: []const u8) void {
 /// a drum hit has no fractional timing to offset into, same reasoning as
 /// `:legato`/`:transpose`.
 fn cmdStrum(app: *App, args: []const u8) void {
-    const track: usize = if (app.view == .piano_roll) app.piano_track else app.cursor;
-    if (track >= app.session.racks.items.len or
-        app.session.racks.items[track].pattern_player == null)
-    {
+    const m = resolveMelodic(app) orelse {
         app.setStatus("strum: no piano-roll pattern", .{});
         return;
-    }
+    };
     const trimmed = std.mem.trim(u8, args, " ");
     if (trimmed.len == 0) {
         app.setStatus("usage: strum <ms> (negative = high-to-low), e.g. :strum 20", .{});
@@ -622,11 +607,10 @@ fn cmdStrum(app: *App, args: []const u8) void {
         app.setStatus("strum: expected milliseconds, e.g. :strum 20", .{});
         return;
     };
-    const pp = &app.session.racks.items[track].pattern_player.?;
     const bpm = @max(app.session.project.tempo_bpm, 1.0);
     const offset_beats = ms / 60_000.0 * bpm;
-    history.recordMelodic(app, @intCast(track));
-    const touched = pp.strum(0.0, pp.length_beats, offset_beats);
+    history.recordMelodic(app, @intCast(m.track));
+    const touched = m.pp.strum(0.0, m.pp.length_beats, offset_beats);
     if (touched == 0) {
         app.setStatus("strum: no chords in the pattern", .{});
         return;
@@ -642,25 +626,21 @@ fn cmdStrum(app: *App, args: []const u8) void {
 /// reports the current setting (matches `:scale`). Not undo-tracked - a
 /// mixer-style live param, same as the drum machine's own swing.
 fn cmdSwing(app: *App, args: []const u8) void {
-    const track: usize = if (app.view == .piano_roll) app.piano_track else app.cursor;
-    if (track >= app.session.racks.items.len or
-        app.session.racks.items[track].pattern_player == null)
-    {
+    const m = resolveMelodic(app) orelse {
         app.setStatus("swing: no piano-roll pattern", .{});
         return;
-    }
-    const pp = &app.session.racks.items[track].pattern_player.?;
+    };
     const trimmed = std.mem.trim(u8, args, " ");
     if (trimmed.len == 0) {
-        app.setStatus("swing: {d:.0}%", .{pp.swing.load(.monotonic)});
+        app.setStatus("swing: {d:.0}%", .{m.pp.swing.load(.monotonic)});
         return;
     }
     const pct = parseFiniteFloat(f32, trimmed) catch {
         app.setStatus("swing: expected a percent, e.g. :swing 62", .{});
         return;
     };
-    pp.setSwing(pct);
-    app.setStatus("swing: {d:.0}%", .{pp.swing.load(.monotonic)});
+    m.pp.setSwing(pct);
+    app.setStatus("swing: {d:.0}%", .{m.pp.swing.load(.monotonic)});
 }
 
 /// `:import-midi <file>` - replace the piano-roll pattern with a Standard
@@ -675,13 +655,10 @@ fn cmdImportMidi(app: *App, args: []const u8) void {
         app.setStatus("import-midi: usage :import-midi <file>", .{});
         return;
     }
-    const track: usize = if (app.view == .piano_roll) app.piano_track else app.cursor;
-    if (track >= app.session.racks.items.len or
-        app.session.racks.items[track].pattern_player == null)
-    {
+    const m = resolveMelodic(app) orelse {
         app.setStatus("import-midi: no piano-roll pattern", .{});
         return;
-    }
+    };
     var path_buf: [path_buf_len]u8 = undefined;
     const path = expandHome(&path_buf, trimmed);
     const data = readFileForLoad(app, path) orelse return;
@@ -692,9 +669,8 @@ fn cmdImportMidi(app: *App, args: []const u8) void {
     };
     defer app.allocator.free(result.notes);
 
-    const pp = &app.session.racks.items[track].pattern_player.?;
-    history.recordMelodic(app, @intCast(track));
-    pp.setNotes(result.notes, result.length_beats);
+    history.recordMelodic(app, @intCast(m.track));
+    m.pp.setNotes(result.notes, result.length_beats);
     piano_ed.syncLinkedClip(app);
     if (result.truncated)
         app.setStatus("imported {d} notes (capped at {d}) at {d:.0} BPM", .{ result.notes.len, pattern_mod.max_notes, result.tempo_bpm })
@@ -711,16 +687,12 @@ fn cmdExportMidi(app: *App, args: []const u8) void {
         app.setStatus("export-midi: usage :export-midi <file>", .{});
         return;
     }
-    const track: usize = if (app.view == .piano_roll) app.piano_track else app.cursor;
-    if (track >= app.session.racks.items.len or
-        app.session.racks.items[track].pattern_player == null)
-    {
+    const m = resolveMelodic(app) orelse {
         app.setStatus("export-midi: no piano-roll pattern", .{});
         return;
-    }
-    const pp = &app.session.racks.items[track].pattern_player.?;
+    };
     var note_buf: [pattern_mod.max_notes]pattern_mod.Note = undefined;
-    const count = pp.copyNotes(&note_buf);
+    const count = m.pp.copyNotes(&note_buf);
 
     const bytes = ws.midi_file.write(app.allocator, note_buf[0..count], app.session.project.tempo_bpm) catch {
         app.setStatus("export-midi: out of memory", .{});
