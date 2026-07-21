@@ -1083,6 +1083,8 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             return true;
         },
         .char => |c| switch (c) {
+            // Block insert mode - piano keys conflict with param navigation.
+            'i' => return true,
             '[' => {
                 if (len > 0) setFocus(app, target, (app.fx_focus + len - 1) % len);
                 return true;
