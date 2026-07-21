@@ -233,10 +233,13 @@ pub const PatternPlayer = struct {
         var moved: u16 = 0;
         for (self.notes[0..self.note_count]) |*n| {
             if (n.start_beat < lo_beat or n.start_beat >= hi_beat) continue;
-            if (dpitch != 0) {
-                self.queueNoteOff(n.pitch);
-                n.pitch = @intCast(@as(i32, n.pitch) + dpitch);
-            }
+            // Choke a sounding note before moving it (no-op for silent
+            // pitches): a time-slide moves the off boundary too, and if
+            // that lands behind the playhead (slide left) the note_off
+            // would not fire until the loop wraps - a stuck note for up
+            // to a whole loop.
+            self.queueNoteOff(n.pitch);
+            if (dpitch != 0) n.pitch = @intCast(@as(i32, n.pitch) + dpitch);
             n.start_beat = @max(0.0, n.start_beat + dbeat);
             moved += 1;
         }
@@ -679,4 +682,22 @@ test "deleting a sounding note releases it when other notes remain" {
     pp.processBlock(&buf);
     try std.testing.expect(!pp.sounding[60]);
     try std.testing.expectEqual(@as(u16, 1), pp.note_count);
+}
+
+test "time-sliding a sounding note chokes it instead of stranding its note_off" {
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    var pp = PatternPlayer.init(synth.device(), &transport);
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 1.0 });
+
+    transport.play();
+    var buf = [_]types.Sample{0.0} ** 512;
+    pp.processBlock(&buf);
+    try std.testing.expect(pp.sounding[60]);
+
+    try std.testing.expectEqual(@as(?u16, 1), pp.shiftNotesInRange(0.0, 0.25, 0, 0.5));
+    transport.advance(256);
+    pp.processBlock(&buf);
+    try std.testing.expect(!pp.sounding[60]);
 }
