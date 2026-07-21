@@ -732,6 +732,10 @@ pub const Runtime = struct {
             .{ .name = "track_duplicate", .func = apiTrackDuplicate },
             .{ .name = "track_move", .func = apiTrackMove },
             .{ .name = "set_current_track", .func = apiSetCurrentTrack },
+            .{ .name = "project_get", .func = apiProjectGet },
+            .{ .name = "project_save", .func = apiProjectSave },
+            .{ .name = "project_open", .func = apiProjectOpen },
+            .{ .name = "project_new", .func = apiProjectNew },
         };
         for (api_fns) |f| {
             c.lua_pushlightuserdata(self.state, self);
@@ -1756,6 +1760,82 @@ fn apiSetCurrentTrack(state: ?*c.lua_State) callconv(.c) c_int {
     const l = state.?;
     const app = requireApp(l);
     app.apiSelectTrack(checkTrackIndex(l, 1, app));
+    return 0;
+}
+
+fn apiProjectGet(state: ?*c.lua_State) callconv(.c) c_int {
+    const l = state.?;
+    const app = requireApp(l);
+    c.lua_createtable(l, 0, 7);
+    if (app.projectPath()) |path| {
+        _ = c.lua_pushlstring(l, path.ptr, path.len);
+        c.lua_setfield(l, -2, "path");
+    }
+    c.lua_pushboolean(l, @intFromBool(app.dirty));
+    c.lua_setfield(l, -2, "dirty");
+    c.lua_pushinteger(l, @intCast(app.session.project.tracks.items.len));
+    c.lua_setfield(l, -2, "track_count");
+    c.lua_pushinteger(l, app.session.project.sample_rate);
+    c.lua_setfield(l, -2, "sample_rate");
+    c.lua_pushinteger(l, app.session.project.beats_per_bar);
+    c.lua_setfield(l, -2, "beats_per_bar");
+    c.lua_pushnumber(l, app.session.project.tempo_bpm);
+    c.lua_setfield(l, -2, "tempo");
+    c.lua_pushboolean(l, @intFromBool(app.session.song_mode));
+    c.lua_setfield(l, -2, "song_mode");
+    return 1;
+}
+
+fn apiProjectSave(state: ?*c.lua_State) callconv(.c) c_int {
+    const l = state.?;
+    const app = requireApp(l);
+    var requested: []const u8 = "";
+    if (c.lua_gettop(l) >= 1 and c.lua_type(l, 1) != c.LUA_TNIL) {
+        var len: usize = 0;
+        const path = c.luaL_checklstring(l, 1, &len);
+        if (len == 0) return c.luaL_error(l, "project path cannot be empty");
+        requested = path[0..len];
+    }
+    const chosen = if (requested.len > 0) requested else app.projectPath() orelse app.defaultProjectPath();
+    app.apiProjectSave(requested) catch |err| return c.luaL_error(l, "project_save failed: %s", @errorName(err).ptr);
+    _ = c.lua_pushlstring(l, chosen.ptr, chosen.len);
+    return 1;
+}
+
+fn forceOption(l: *c.lua_State, arg: c_int) bool {
+    if (c.lua_gettop(l) < arg or c.lua_type(l, arg) == c.LUA_TNIL) return false;
+    c.luaL_checktype(l, arg, c.LUA_TTABLE);
+    c.lua_pushnil(l);
+    while (c.lua_next(l, arg) != 0) {
+        if (c.lua_type(l, -2) != c.LUA_TSTRING or !std.mem.eql(u8, std.mem.span(c.lua_tolstring(l, -2, null)), "force"))
+            _ = c.luaL_error(l, "project opts only supports force");
+        c.lua_settop(l, -2);
+    }
+    return switch (c.lua_getfield(l, arg, "force")) {
+        c.LUA_TNIL => false,
+        c.LUA_TBOOLEAN => c.lua_toboolean(l, -1) != 0,
+        else => {
+            _ = c.luaL_error(l, "force must be a boolean");
+            unreachable;
+        },
+    };
+}
+
+fn apiProjectOpen(state: ?*c.lua_State) callconv(.c) c_int {
+    const l = state.?;
+    const app = requireApp(l);
+    var len: usize = 0;
+    const raw = c.luaL_checklstring(l, 1, &len);
+    if (len == 0) return c.luaL_error(l, "project path cannot be empty");
+    if (len > 1024) return c.luaL_error(l, "project path is too long");
+    const force = forceOption(l, 2);
+    if (!app.apiProjectOpen(raw[0..len], force)) return c.luaL_error(l, "unsaved changes; pass { force = true } to discard them");
+    return 0;
+}
+
+fn apiProjectNew(state: ?*c.lua_State) callconv(.c) c_int {
+    const l = state.?;
+    if (!requireApp(l).apiProjectNew(forceOption(l, 1))) return c.luaL_error(l, "unsaved changes; pass { force = true } to discard them");
     return 0;
 }
 

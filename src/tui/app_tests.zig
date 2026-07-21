@@ -6557,6 +6557,43 @@ test "wstudio.api exposes editor context and feature detection" {
     try rt.loadString("assert(wstudio.api.get_current_track() == nil); assert(wstudio.api.get_context().track == nil)");
 }
 
+test "wstudio.api project lifecycle snapshot, save, open, and new" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var app = try App.init(std.testing.allocator, std.testing.io);
+    defer app.deinit();
+    var rt = try @import("../config.zig").Runtime.init(.tui);
+    defer rt.deinit();
+    rt.app = &app;
+    app.lua_runtime = &rt;
+    try rt.loadString("events = {}; wstudio.api.create_autocmd({'ProjectSavePre','ProjectSavePost'}, { callback = function(ev) events[#events + 1] = ev.event .. ':' .. ev.path end })");
+
+    try rt.loadString("p = wstudio.api.project_get(); assert(p.path == nil and not p.dirty and p.track_count == 1 and p.sample_rate == 48000 and p.beats_per_bar == 4 and p.tempo == 120 and not p.song_mode)");
+    app.dirty = true;
+    var path_buf: [96]u8 = undefined;
+    const path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/lua-save.wsj", .{&tmp.sub_path});
+    var lua_buf: [256]u8 = undefined;
+    try rt.loadString(try std.fmt.bufPrintZ(&lua_buf, "saved = wstudio.api.project_save('{s}'); assert(saved == '{s}')", .{ path, path }));
+    try std.testing.expect(!app.dirty);
+    try std.testing.expectEqualStrings(path, app.projectPath().?);
+    var loaded = try ws.persist.load(std.testing.allocator, std.testing.io, path);
+    loaded.deinit();
+    try rt.loadString(try std.fmt.bufPrintZ(&lua_buf, "assert(events[1] == 'ProjectSavePre:{s}' and events[2] == 'ProjectSavePost:{s}'); assert(wstudio.api.project_get().path == '{s}')", .{ path, path, path }));
+
+    app.dirty = true;
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.project_open('other.wsj')"));
+    try std.testing.expectEqual(@as(App.ReloadRequest, .none), app.pending_reload);
+    try rt.loadString("wstudio.api.project_open('other.wsj', { force = true })");
+    try std.testing.expectEqual(@as(App.ReloadRequest, .load), app.pending_reload);
+    try std.testing.expectEqualStrings("other.wsj", app.pendingReloadPath());
+    app.pending_reload = .none;
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.project_new()"));
+    try rt.loadString("wstudio.api.project_new({ force = true })");
+    try std.testing.expectEqual(@as(App.ReloadRequest, .blank), app.pending_reload);
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.project_new({ force = 'yes' })"));
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.project_new({ bogus = true })"));
+}
+
 test "applyUserConfig plumbs the round-2 options" {
     var app = try testApp();
     defer app.deinit();
