@@ -262,7 +262,10 @@ pub const Session = struct {
     pub fn setInstrument(self: *Session, track_idx: usize, kind: InstrumentKind) !void {
         if (track_idx >= self.racks.items.len) return;
         const rack = try self.newInstrumentRack(kind);
-        errdefer { rack.instrument.deinit(); self.allocator.destroy(rack); }
+        errdefer {
+            rack.instrument.deinit();
+            self.allocator.destroy(rack);
+        }
 
         try self.retired_racks.append(self.allocator, self.racks.items[track_idx]);
 
@@ -429,7 +432,10 @@ pub const Session = struct {
         if (old_kind == kind) return true;
 
         const rack = try self.newInstrumentRack(kind);
-        errdefer { rack.instrument.deinit(); self.allocator.destroy(rack); }
+        errdefer {
+            rack.instrument.deinit();
+            self.allocator.destroy(rack);
+        }
 
         const preserved = try self.migrateInstrumentData(track_idx, old_rack, rack, old_kind, kind);
 
