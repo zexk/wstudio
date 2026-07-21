@@ -102,7 +102,7 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "track-del",   .desc = "[n]  delete track n (default: cursor)", .run = wrap(cmdTrackDel) },
     .{ .name = "d",           .desc = "[n]  delete track n (alias for :track-del)", .run = wrap(cmdTrackDel) },
     .{ .name = "track-rename",.desc = "[<n>] <name>  rename track n (no n: cursor track)", .run = wrap(cmdTrackRename) },
-    .{ .name = "track-instrument", .desc = "<synth|sampler|drum|slicer|soundfont>  change the cursor track's instrument, keeping its notes where the old and new kinds are compatible", .run = wrap(cmdTrackInstrument) },
+    .{ .name = "track-instrument", .desc = "[<n>] <synth|sampler|drum|slicer|soundfont>  change track n's instrument, keeping its notes where the old and new kinds are compatible (no n: cursor track)", .run = wrap(cmdTrackInstrument) },
     .{ .name = "group-add",   .desc = "create an untitled track-grouping submix bus", .run = wrap(cmdGroupAdd) },
     .{ .name = "group-rename",.desc = "<n> <name>  rename group n", .run = wrap(cmdGroupRename) },
     .{ .name = "group-gain",  .desc = "<n> [<dB>]  group bus fader, post-FX (-60..12; no dB: report)", .run = wrap(cmdGroupGain) },
@@ -967,19 +967,39 @@ fn cmdTrackRename(app: *App, args: []const u8) void {
 fn cmdTrackInstrument(app: *App, args: []const u8) void {
     const trimmed = std.mem.trim(u8, args, " ");
     if (trimmed.len == 0) {
-        app.setStatus("usage: track-instrument <synth|sampler|drum|slicer|soundfont>", .{});
+        app.setStatus("usage: track-instrument [<n>] <synth|sampler|drum|slicer|soundfont>", .{});
         return;
     }
-    const kind = app_mod.apiKindFromName(trimmed) orelse {
-        app.setStatus("track-instrument: unknown kind '{s}' (synth/sampler/drum/slicer/soundfont)", .{trimmed});
-        return;
+    var it = std.mem.splitScalar(u8, trimmed, ' ');
+    const first = it.next().?;
+    const rest = std.mem.trim(u8, it.rest(), " ");
+
+    // No second token: a single arg is always the kind for the cursor
+    // track - unlike :track-rename, a kind name can never be confused with
+    // a bare track number, so there's no ambiguity to resolve.
+    const idx: usize, const kind_str: []const u8 = if (rest.len == 0) blk: {
+        const cursor_idx = cursorTrackIdx(app) orelse {
+            app.setStatus("track-instrument: cursor is on the master row - give a track number", .{});
+            return;
+        };
+        break :blk .{ cursor_idx, first };
+    } else blk: {
+        const n = std.fmt.parseInt(usize, first, 10) catch {
+            app.setStatus("track-instrument: expected a track number", .{});
+            return;
+        };
+        if (n == 0 or n > app.session.project.tracks.items.len) {
+            app.setStatus("track-instrument: track must be 1–{d}", .{app.session.project.tracks.items.len});
+            return;
+        }
+        break :blk .{ n - 1, rest };
     };
-    const idx = cursorTrackIdx(app) orelse {
-        app.setStatus("track-instrument: cursor is on the master row - select a track", .{});
+    const kind = app_mod.apiKindFromName(kind_str) orelse {
+        app.setStatus("track-instrument: unknown kind '{s}' (synth/sampler/drum/slicer/soundfont)", .{kind_str});
         return;
     };
     if (std.meta.activeTag(app.session.racks.items[idx].instrument) == kind) {
-        app.setStatus("track {d} is already {s}", .{ idx + 1, trimmed });
+        app.setStatus("track {d} is already {s}", .{ idx + 1, kind_str });
         return;
     }
     var backup = history.captureTrackKindSwap(app, idx);
@@ -991,9 +1011,9 @@ fn cmdTrackInstrument(app: *App, args: []const u8) void {
     history.push(app, backup);
     app.dirty = true;
     if (preserved) {
-        app.setStatus("track {d}: now {s} (notes kept)", .{ idx + 1, trimmed });
+        app.setStatus("track {d}: now {s} (notes kept)", .{ idx + 1, kind_str });
     } else {
-        app.setStatus("track {d}: now {s} (no compatible mapping - notes cleared)", .{ idx + 1, trimmed });
+        app.setStatus("track {d}: now {s} (no compatible mapping - notes cleared)", .{ idx + 1, kind_str });
     }
 }
 
