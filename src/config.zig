@@ -943,7 +943,7 @@ fn createUserCommand(state: ?*c.lua_State) callconv(.c) c_int {
             c.LUA_TSTRING => {
                 const s = std.mem.span(c.lua_tolstring(l, -1, null));
                 scope = std.meta.stringToEnum(cmd_mod.Scope, s) orelse
-                    return c.luaL_error(l, "invalid scope (any, drum, sampler, synth, slicer)");
+                    return c.luaL_error(l, "invalid scope (any, drum, sampler, synth, slicer, soundfont)");
             },
             else => return c.luaL_error(l, "scope must be a string"),
         }
