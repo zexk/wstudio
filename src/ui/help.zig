@@ -140,8 +140,8 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("J / K",        "move selected track down / up");
     t.group("ORGANIZE AND MIX");
     t.key("[ / ]",        "cycle selected track's color (7 colors + none)");
-    t.key("R",            "rename selected track (opens :track-rename <n>) - group row: :group-rename <n>");
-    t.key("v",            "visual mode: select a row range - g groups it (opens :group-rename)");
+    t.key("R",            "rename selected track (opens :rename <n>) - group row: renames the group instead");
+    t.key("v",            "visual mode: select a row range - g groups it, then R renames it (:rename)");
     t.key("z",            "fold / unfold the group under the cursor - its member rows hide behind the group's row");
     t.key(":group-fx <n>", "open group n's FX chain - same shared chain view as a track/master");
     t.key(":track-group",  "<track> <group|none>  assign or clear a track's group by number");
@@ -186,7 +186,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.group("SOUND AND PATTERNS");
     t.key("f",            "kit picker - factory + saved kits, / filters by name/tag/author, d deletes a save");
     t.key(":drum-kit-save", "<name>  save pads 0-7's tuning (name/gain/pan/pitch/ADSR/choke, no audio) as a reusable kit");
-    t.key("R",            "rename current pad (opens :pad-rename <n>, 8 chars max)");
+    t.key("R",            "rename current pad (opens :rename <n>, 8 chars max)");
     t.key("e",            "open sampler editor for current pad");
     t.key("s",            "FX chain for drum track");
     t.key("+ / -",        "lengthen / shorten loop (1–64 steps)");

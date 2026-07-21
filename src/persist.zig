@@ -1009,7 +1009,7 @@ fn rackToSnap(aa: std.mem.Allocator, rack: *Rack, sample_rate: u32) !RackSnap {
                         .fade_in_s = p.fade_in_s, .fade_out_s = p.fade_out_s,
                         .stretch_ratio = p.stretch_ratio,
                         // Always saved (like a track name), independent of
-                        // whether the pad has user-loaded audio - a `:pad-rename`
+                        // whether the pad has user-loaded audio - a `:rename`
                         // on a shipped-kit pad has no sample_file to carry the
                         // name through otherwise. exportSamples overwrites this
                         // with the same value for user-sample pads.
@@ -1552,7 +1552,7 @@ fn restoreSamples(
                 for (ds.pads, 0..) |ps, pi| {
                     if (pi >= DrumMachine.max_pads) break;
                     if (ps.sample_file.len == 0) {
-                        // No user sample to load, but a `:pad-rename` on a
+                        // No user sample to load, but a `:rename` on a
                         // shipped-kit pad still needs its name restored.
                         // Null (unmaterialized) pads have nothing to rename.
                         if (ps.name.len > 0) {
@@ -3944,7 +3944,7 @@ test "save/load round-trip persists a pad rename with no sample change" {
     try session.setInstrument(0, .drum_machine);
     const dm = &session.racks.items[0].instrument.drum_machine;
 
-    // A plain :pad-rename - no new sample, still the shipped kick sample.
+    // A plain :rename - no new sample, still the shipped kick sample.
     dm.pads[0].?.rename("808");
     try testing.expectEqualStrings("snare", dm.padName(1)); // untouched pad unaffected
 
