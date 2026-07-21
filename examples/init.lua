@@ -320,6 +320,16 @@
 --   wstudio.api.get_tempo()                      -> number
 --   wstudio.api.set_tempo(bpm)                   -- 20-400, like :bpm
 --
+-- Editor context (useful in conditional mappings and plugins):
+--   wstudio.api.has("get_context")               -> feature is available
+--   wstudio.api.get_context()                    -> { frontend, view, mode,
+--                                                     track? }
+--   wstudio.api.get_mode()                       -> "normal", "insert", ...
+--   wstudio.api.get_current_view()               -> "tracks", "piano_roll", ...
+--   wstudio.api.get_current_track()              -> 1-based index, or nil
+-- The active track follows the open per-track editor. It is nil when the
+-- tracks-view cursor is on the master row.
+--
 -- Tracks:
 --   wstudio.api.track_count()                    -> integer
 --   wstudio.api.track_get(i)                     -> { name, kind, gain_db,

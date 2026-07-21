@@ -698,6 +698,11 @@ pub const Runtime = struct {
         c.lua_pushcclosure(self.state, notify, 1);
         c.lua_setfield(self.state, -2, "notify"); // wstudio.notify's core twin
         const api_fns = [_]struct { name: [:0]const u8, func: c.lua_CFunction }{
+            .{ .name = "has", .func = apiHas },
+            .{ .name = "get_context", .func = apiGetContext },
+            .{ .name = "get_mode", .func = apiGetMode },
+            .{ .name = "get_current_view", .func = apiGetCurrentView },
+            .{ .name = "get_current_track", .func = apiGetCurrentTrack },
             .{ .name = "play", .func = apiPlay },
             .{ .name = "stop", .func = apiStop },
             .{ .name = "is_playing", .func = apiIsPlaying },
@@ -1267,6 +1272,59 @@ fn checkTrackIndex(l: *c.lua_State, arg: c_int, app: *tui_app.App) usize {
         unreachable;
     }
     return @intCast(n - 1);
+}
+
+/// Feature detection for plugins. Looking the name up on the live API table
+/// keeps this additive and prevents a second hand-maintained capability list.
+fn apiHas(state: ?*c.lua_State) callconv(.c) c_int {
+    const l = state.?;
+    const name = c.luaL_checklstring(l, 1, null);
+    _ = c.lua_getglobal(l, "wstudio");
+    _ = c.lua_getfield(l, -1, "api");
+    const found = c.lua_getfield(l, -1, name) == c.LUA_TFUNCTION;
+    c.lua_pushboolean(l, @intFromBool(found));
+    return 1;
+}
+
+fn pushCurrentTrack(l: *c.lua_State, app: *tui_app.App) void {
+    if (app.apiCurrentTrack()) |idx|
+        c.lua_pushinteger(l, @intCast(idx + 1))
+    else
+        c.lua_pushnil(l);
+}
+
+fn apiGetMode(state: ?*c.lua_State) callconv(.c) c_int {
+    const l = state.?;
+    _ = c.lua_pushstring(l, @tagName(requireApp(l).modal.mode));
+    return 1;
+}
+
+fn apiGetCurrentView(state: ?*c.lua_State) callconv(.c) c_int {
+    const l = state.?;
+    _ = c.lua_pushstring(l, @tagName(requireApp(l).view));
+    return 1;
+}
+
+fn apiGetCurrentTrack(state: ?*c.lua_State) callconv(.c) c_int {
+    const l = state.?;
+    pushCurrentTrack(l, requireApp(l));
+    return 1;
+}
+
+fn apiGetContext(state: ?*c.lua_State) callconv(.c) c_int {
+    const l = state.?;
+    const rt = runtime(l);
+    const app = requireApp(l);
+    c.lua_createtable(l, 0, 4);
+    _ = c.lua_pushstring(l, @tagName(rt.frontend));
+    c.lua_setfield(l, -2, "frontend");
+    _ = c.lua_pushstring(l, @tagName(app.view));
+    c.lua_setfield(l, -2, "view");
+    _ = c.lua_pushstring(l, @tagName(app.modal.mode));
+    c.lua_setfield(l, -2, "mode");
+    pushCurrentTrack(l, app);
+    c.lua_setfield(l, -2, "track");
+    return 1;
 }
 
 fn apiPlay(state: ?*c.lua_State) callconv(.c) c_int {
@@ -1946,6 +2004,7 @@ test "wstudio.notify reaches the attached host" {
 test "api project functions raise before a session attaches" {
     var rt = try Runtime.init(.tui);
     defer rt.deinit();
+    try rt.loadString("assert(wstudio.api.has('get_context')); assert(not wstudio.api.has('future_api'))");
     try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.play()"));
     try rt.loadString("local ok, err = pcall(wstudio.api.track_count); assert(ok == false and err:find('no session') ~= nil)");
 }

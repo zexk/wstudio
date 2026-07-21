@@ -1357,6 +1357,14 @@ pub const App = struct {
         return self.session.project.tempo_bpm;
     }
 
+    /// The editor context exposed to Lua. The active track follows the
+    /// open editor rather than the tracks-view cursor, matching the same
+    /// resolution used by mute, solo, and note preview.
+    pub fn apiCurrentTrack(self: *App) ?usize {
+        const idx = self.currentTrack();
+        return if (idx < self.session.project.tracks.items.len) idx else null;
+    }
+
     /// False when out of the :bpm command's 20-400 range (or not finite).
     pub fn apiSetTempo(self: *App, bpm: f64) bool {
         if (!std.math.isFinite(bpm) or bpm < 20.0 or bpm > 400.0) return false;
