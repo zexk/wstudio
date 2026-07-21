@@ -67,6 +67,12 @@ pub const App = struct {
             self.core.handleKey(.{ .char = '?' }, std.Io.Timestamp.now(self.core.io, .awake).nanoseconds);
             return;
         }
+        // Enter's key-up drives hold-gestures (the piano/drum stamp session
+        // shapes a note only while enter is physically held); everything
+        // without hold semantics ignores the variant.
+        if (zgui.isKeyReleased(.enter) or zgui.isKeyReleased(.keypad_enter)) {
+            self.core.handleKey(.enter_release, std.Io.Timestamp.now(self.core.io, .awake).nanoseconds);
+        }
         if (pressedModalKey(self.core.modal.mode)) |key| {
             self.core.handleKey(key, std.Io.Timestamp.now(self.core.io, .awake).nanoseconds);
         }

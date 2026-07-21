@@ -756,6 +756,28 @@ test "drum grid enter activating a step starts a stamp session - j/k velocity" {
     try std.testing.expectEqual(@as(u8, ws.dsp.DrumMachine.vel_full - 1), app.drumMachine().stepVel(0, 0));
 }
 
+test "drum grid enter release drops the stamp session (hold-to-shape)" {
+    var app = try testApp();
+    defer app.deinit();
+    app.drum_track = 2;
+    app.drum_cursor = .{ 0, 0 };
+
+    // A quick tap: press arms the session, key-up drops it immediately -
+    // no lingering mode, j afterwards is pad navigation again.
+    _ = drum_ed.handleKey(&app, .enter);
+    try std.testing.expect(app.drum_stamp);
+    _ = drum_ed.handleKey(&app, .enter_release);
+    try std.testing.expect(!app.drum_stamp);
+    try std.testing.expect(app.drumMachine().stepActive(0, 0));
+    _ = drum_ed.handleKey(&app, .{ .char = 'j' });
+    try std.testing.expectEqual(@as(u8, ws.dsp.DrumMachine.vel_full), app.drumMachine().stepVel(0, 0));
+    try std.testing.expectEqual(@as(u8, 1), app.drum_cursor[0]);
+
+    // A release with no session active is inert.
+    _ = drum_ed.handleKey(&app, .enter_release);
+    try std.testing.expect(app.drumMachine().stepActive(0, 0));
+}
+
 test "drum grid advancing entry and pattern double preserve velocity" {
     var app = try testApp();
     defer app.deinit();
@@ -3958,6 +3980,39 @@ test "piano roll enter on an empty cell starts a stamp session - j/k pitch, h/l 
     app.piano_cursor_pitch = 61;
     app.handleKey(.enter, 0);
     try std.testing.expect(pp.noteAt(61, 0.0) == null);
+}
+
+test "piano roll enter release drops the stamp session (hold-to-shape)" {
+    var app = try testApp();
+    defer app.deinit();
+    app.view = .piano_roll;
+    app.piano_track = 0;
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    app.piano_cursor_step = 0;
+    app.piano_cursor_pitch = 60;
+
+    // Hold: press arms, j/k shape while held, key-up drops.
+    app.handleKey(.enter, 0);
+    try std.testing.expect(app.piano_stamp);
+    app.handleKey(.{ .char = 'k' }, 0);
+    try std.testing.expect(pp.noteAt(61, 0.0) != null);
+    app.handleKey(.enter_release, 0);
+    try std.testing.expect(!app.piano_stamp);
+    try std.testing.expect(pp.noteAt(61, 0.0) != null);
+
+    // A quick tap leaves no lingering mode: j after the release is plain
+    // cursor navigation (cursor still sits on pitch 61 from the k above),
+    // not a pitch drag of the stamped note.
+    app.piano_cursor_step = 4;
+    app.handleKey(.enter, 0);
+    app.handleKey(.enter_release, 0);
+    app.handleKey(.{ .char = 'j' }, 0);
+    try std.testing.expect(pp.noteAt(61, 1.0) != null);
+    try std.testing.expectEqual(@as(u7, 60), app.piano_cursor_pitch);
+
+    // A release with no session active is inert.
+    app.handleKey(.enter_release, 0);
+    try std.testing.expect(pp.noteAt(61, 1.0) != null);
 }
 
 test "piano roll M grabs a note; h/l/j/k drag it as one undo step" {

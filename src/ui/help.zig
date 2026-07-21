@@ -164,6 +164,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("w / b",        "jump to the next / previous beat boundary");
     t.key("z / Z",        "finer / coarser timing grid (1/4 through 1/128)");
     t.key("enter / n",    "toggle in place / place a hit and advance (count sets spacing)");
+    t.key("",             "  hold enter to shape the fresh hit (j/k velocity) until released");
     t.key("x",            "clear the step at cursor");
     t.key("c",            "cycle step velocity presets (127/95/63/31)");
     t.key("{ / }",        "nudge step velocity down / up by 1 (count-scaled, full 1-127 range)");
@@ -278,7 +279,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("J / K",        "move cursor down / up (one octave)");
     t.key("g / G",        "jump cursor to loop start / end");
     t.key("w / b",        "jump to the next / previous beat boundary");
-    t.key("enter",        "toggle note at cursor without moving");
+    t.key("enter",        "toggle note at cursor; hold to shape it (j/k pitch, h/l length) until released");
     t.key("n / N",        "enter note / rest, then advance by the default note length");
     t.key("x",            "delete note at cursor");
     t.key("M",            "grab note at cursor - h/l/j/k drag it, esc drops");

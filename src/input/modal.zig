@@ -16,6 +16,13 @@ pub const Key = union(enum) {
     char: u8,
     escape,
     enter,
+    /// Enter's key-up, emitted only by frontends that can observe it (the
+    /// GUI, and terminals speaking the kitty keyboard protocol - see
+    /// input_decode.zig). It exists for hold-gestures like the piano/drum
+    /// stamp session ("shape while Enter is held, release drops"); every
+    /// handler with no hold semantics ignores it. Legacy terminals never
+    /// produce it, so nothing may *depend* on seeing a release.
+    enter_release,
     backspace,
     /// Arrow keys, decoded from terminal CSI sequences as their own variants
     /// (not aliased to hjkl chars) so command mode can tell a real arrow
@@ -377,7 +384,7 @@ pub const ModalInput = struct {
             // left to do here. `.escape`/`.enter` never actually reach this
             // switch (handleCommand/handleSearch intercept them first) but
             // still need an arm for exhaustiveness.
-            .escape, .enter, .arrow_up, .arrow_down, .tab, .ctrl_c, .ctrl_r, .mouse => return .none,
+            .escape, .enter, .enter_release, .arrow_up, .arrow_down, .tab, .ctrl_c, .ctrl_r, .mouse => return .none,
         }
     }
 };

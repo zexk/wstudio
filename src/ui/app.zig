@@ -857,10 +857,12 @@ pub const App = struct {
 
     pub fn handleKey(self: *App, key_in: modal_mod.Key, now_ns: i96) void {
         self.now_ns = now_ns;
-        // ctrl-c (the unbreakable quit path) and mouse events bypass user
-        // keymaps entirely; so do the `:`/`/` prompts (not mappable modes,
-        // enforced inside the intercept), keeping :help always reachable.
-        if (key_in != .ctrl_c and key_in != .mouse) {
+        // ctrl-c (the unbreakable quit path), mouse events, and enter's
+        // key-up (a hold-gesture signal, not a chord key - buffering it
+        // would break pending keymap chords) bypass user keymaps entirely;
+        // so do the `:`/`/` prompts (not mappable modes, enforced inside
+        // the intercept), keeping :help always reachable.
+        if (key_in != .ctrl_c and key_in != .mouse and key_in != .enter_release) {
             if (self.userKeymapIntercept(key_in, now_ns)) return;
         }
         self.handleKeyBuiltin(key_in, now_ns);
