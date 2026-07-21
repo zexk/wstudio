@@ -127,6 +127,7 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "reverse",     .desc = "retrograde: mirror the pattern in time (visual-mode r reverses just the selection)", .run = wrap(cmdReverse) },
     .{ .name = "vel-ramp",    .desc = "<from> <to>  velocity ramp 0-100% across the pattern's notes (drum view: the cursor pad's hits)", .run = wrap(cmdVelRamp) },
     .{ .name = "legato",      .desc = "extend every note to the next onset - gapless phrasing, no more staccato gaps", .run = wrap(cmdLegato) },
+    .{ .name = "transpose",   .desc = "<semitones>  shift every note in the pattern (visual-mode j/k/J/K transposes just the selection)", .run = wrap(cmdTranspose) },
     .{ .name = "import-midi", .desc = "<file>  replace the pattern with a Standard MIDI File's notes",     .run = wrap(cmdImportMidi) },
     .{ .name = "export-midi", .desc = "<file>  write the pattern as a Standard MIDI File",                 .run = wrap(cmdExportMidi) },
     .{ .name = "metronome",   .desc = "[on|off]  toggle the click track",                   .run = wrap(cmdMetronome) },
@@ -378,15 +379,10 @@ fn cmdClear(app: *App, _: []const u8) void {
 
 /// `:humanize [amount]` - jitters every note in the pattern's timing (±amount%
 /// of one grid step) and velocity (±amount%, relative), 0-100 (default 15).
-/// Same track-resolution rule as `:clear`.
+/// A drum machine has no fractional timing to jitter (a hit's only an
+/// integer step), so its fallback (same track-resolution rule as `:reverse`)
+/// jitters hit velocity only - dynamics without moving anything off-grid.
 fn cmdHumanize(app: *App, args: []const u8) void {
-    const track: usize = if (app.view == .piano_roll) app.piano_track else app.cursor;
-    if (track >= app.session.racks.items.len or
-        app.session.racks.items[track].pattern_player == null)
-    {
-        app.setStatus("humanize: no piano-roll pattern", .{});
-        return;
-    }
     const trimmed = std.mem.trim(u8, args, " ");
     const amount: f64 = if (trimmed.len == 0) 15.0 else parseFiniteFloat(f64, trimmed) catch {
         app.setStatus("humanize: expected a percent, e.g. :humanize 15", .{});
@@ -396,13 +392,27 @@ fn cmdHumanize(app: *App, args: []const u8) void {
         app.setStatus("humanize: amount must be 0-100", .{});
         return;
     }
-    const pp = &app.session.racks.items[track].pattern_player.?;
-    history.recordMelodic(app, @intCast(track));
-    const step_beats = 1.0 / @as(f64, @floatFromInt(app.pianoStepsPerBeat()));
+    const track: usize = if (app.view == .piano_roll) app.piano_track else app.cursor;
+    const melodic = app.view != .drum_grid and track < app.session.racks.items.len and
+        app.session.racks.items[track].pattern_player != null;
     const seed: u64 = @truncate(@as(u96, @bitCast(app.now_ns)));
-    pp.humanize(amount, step_beats, seed);
-    app.setStatus("humanized {d} notes ({d:.0}%)", .{ pp.note_count, amount });
-    piano_ed.syncLinkedClip(app);
+    if (melodic) {
+        const pp = &app.session.racks.items[track].pattern_player.?;
+        history.recordMelodic(app, @intCast(track));
+        const step_beats = 1.0 / @as(f64, @floatFromInt(app.pianoStepsPerBeat()));
+        pp.humanize(amount, step_beats, seed);
+        app.setStatus("humanized {d} notes ({d:.0}%)", .{ pp.note_count, amount });
+        piano_ed.syncLinkedClip(app);
+        return;
+    }
+    if (cursorDrumTrack(app)) |drum_track| {
+        const dm = cursorDrumMachine(app).?;
+        history.push(app, history.captureDrum(app, drum_track));
+        dm.humanizeVelocity(amount, seed);
+        app.setStatus("humanized drum velocities ({d:.0}%)", .{amount});
+        return;
+    }
+    app.setStatus("humanize: no pattern here", .{});
 }
 
 /// `:quantize [strength]` - snap every note's start toward the current view
@@ -533,6 +543,45 @@ fn cmdLegato(app: *App, _: []const u8) void {
     history.recordMelodic(app, @intCast(track));
     const changed = pp.legato(0.0, pp.length_beats);
     app.setStatus("legato: extended {d} notes", .{changed});
+    piano_ed.syncLinkedClip(app);
+}
+
+/// `:transpose <semitones>` - shift every note in the whole pattern, the
+/// `:` counterpart to visual-mode j/k/J/K (which only cover the selection).
+/// All-or-nothing at the MIDI range edges, same as the visual version - see
+/// `shiftNotesInRange`. Melodic only, same reasoning as `:legato`: a drum
+/// hit is a fixed sample, not a pitched note to shift.
+fn cmdTranspose(app: *App, args: []const u8) void {
+    const track: usize = if (app.view == .piano_roll) app.piano_track else app.cursor;
+    if (track >= app.session.racks.items.len or
+        app.session.racks.items[track].pattern_player == null)
+    {
+        app.setStatus("transpose: no piano-roll pattern", .{});
+        return;
+    }
+    const trimmed = std.mem.trim(u8, args, " ");
+    if (trimmed.len == 0) {
+        app.setStatus("usage: transpose <semitones>, e.g. :transpose -12", .{});
+        return;
+    }
+    const dpitch = std.fmt.parseInt(i32, trimmed, 10) catch {
+        app.setStatus("transpose: bad semitone count '{s}'", .{trimmed});
+        return;
+    };
+    const pp = &app.session.racks.items[track].pattern_player.?;
+    var entry = history.captureMelodic(app, @intCast(track));
+    const moved = pp.shiftNotesInRange(0.0, pp.length_beats, dpitch, 0.0) orelse {
+        if (entry) |*e| e.deinit(app.allocator);
+        app.setStatus("can't transpose - would leave the pitch range", .{});
+        return;
+    };
+    if (moved == 0) {
+        if (entry) |*e| e.deinit(app.allocator);
+        app.setStatus("transpose: no notes in the pattern", .{});
+        return;
+    }
+    history.push(app, entry);
+    app.setStatus("transposed {d} notes {s}{d} st", .{ moved, if (dpitch >= 0) "+" else "", dpitch });
     piano_ed.syncLinkedClip(app);
 }
 

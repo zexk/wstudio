@@ -669,6 +669,28 @@ pub const DrumMachine = struct {
         for (self.midi[pad], 0..) |*note, step| note.* = gridNote(pad, @intCast(step), vel_full);
     }
 
+    /// Jitter every active hit's velocity across the whole kit by
+    /// ±`amount_pct`% (relative, clamped to 1-127), 0-100 - the drum-machine
+    /// counterpart to `PatternPlayer.humanize`'s velocity half. Timing stays
+    /// exactly on-grid: a hit has only an integer `step`, no fractional
+    /// offset to jitter, so unlike the melodic version this only ever
+    /// touches feel via dynamics, not micro-timing.
+    pub fn humanizeVelocity(self: *DrumMachine, amount_pct: f64, seed: u64) void {
+        if (!std.math.isFinite(amount_pct)) return;
+        var prng = std.Random.DefaultPrng.init(seed);
+        const rand = prng.random();
+        const frac: f32 = @floatCast(std.math.clamp(amount_pct, 0.0, 100.0) / 100.0);
+        for (self.midi) |row| {
+            for (row) |*slot| {
+                if (slot.*) |*note| {
+                    const dv = (rand.float(f32) * 2.0 - 1.0) * frac * @as(f32, vel_full);
+                    const v: f32 = @as(f32, @floatFromInt(note.velocity)) + dv;
+                    note.velocity = @intFromFloat(std.math.clamp(@round(v), 1.0, vel_full));
+                }
+            }
+        }
+    }
+
     /// Replace one pad's row with a Euclidean rhythm: `pulses` full-velocity
     /// hits spread as evenly as possible across the pattern (the Bresenham
     /// formulation of Bjorklund's algorithm - onset wherever the running
@@ -1208,6 +1230,42 @@ test "pad grid stores canonical MIDI notes" {
     try std.testing.expectEqual(@as(u16, 1), dm.copyPadMidi(3, &notes));
     try std.testing.expectApproxEqAbs(@as(f64, 1.75), notes[0].start_beat, 1e-9);
     try std.testing.expectApproxEqAbs(@as(f32, 95.0 / 127.0), notes[0].velocity, 1e-6);
+}
+
+test "humanizeVelocity jitters active hits within bounds; 0% is a no-op" {
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    defer dm.deinit();
+
+    dm.setStepCount(8);
+    dm.toggleStep(0, 0);
+    dm.setStepVel(0, 0, 100);
+    dm.toggleStep(1, 4);
+    dm.setStepVel(1, 4, 60);
+
+    dm.humanizeVelocity(0.0, 1);
+    try std.testing.expectEqual(@as(u8, 100), dm.stepVel(0, 0));
+    try std.testing.expectEqual(@as(u8, 60), dm.stepVel(1, 4));
+
+    dm.humanizeVelocity(50.0, 42);
+    try std.testing.expect(dm.stepVel(0, 0) >= 1 and dm.stepVel(0, 0) <= 127);
+    try std.testing.expect(dm.stepVel(1, 4) >= 1 and dm.stepVel(1, 4) <= 127);
+    // Untouched (empty) steps stay silent - only active hits get jittered.
+    try std.testing.expect(!dm.stepActive(2, 0));
+
+    // At least one of the two hits actually moved.
+    try std.testing.expect(dm.stepVel(0, 0) != 100 or dm.stepVel(1, 4) != 60);
+}
+
+test "humanizeVelocity ignores non-finite amounts" {
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    defer dm.deinit();
+
+    dm.toggleStep(0, 0);
+    dm.setStepVel(0, 0, 77);
+    dm.humanizeVelocity(std.math.nan(f64), 1);
+    try std.testing.expectEqual(@as(u8, 77), dm.stepVel(0, 0));
 }
 
 test "euclidPad spreads pulses evenly, honors rotation, clears on zero" {
