@@ -62,6 +62,15 @@ pub const Key = union(enum) {
 pub const MouseButton = enum { left, middle, right, none };
 pub const MouseKind = enum { press, release, drag, scroll_up, scroll_down };
 
+pub fn clampDelta(value: anytype, delta: i32, top: i64) i64 {
+    return std.math.clamp(@as(i64, value) + @as(i64, delta), 0, top);
+}
+
+test "cursor deltas saturate for maximum command counts" {
+    try std.testing.expectEqual(@as(i64, 127), clampDelta(@as(u7, 60), std.math.maxInt(i32), 127));
+    try std.testing.expectEqual(@as(i64, 0), clampDelta(@as(u16, 12), std.math.minInt(i32), 63));
+}
+
 /// A decoded SGR mouse report. Coordinates are 0-based terminal cells
 /// (SGR's own Cx/Cy are 1-based; terminal.decode subtracts 1).
 pub const MouseEvent = struct {

@@ -735,13 +735,9 @@ fn moveCursor(app: *App, delta: i32) void {
     const ids = fxVisualIds(fxOnOrder(app, &kbuf), &buf);
     if (ids.len == 0) return;
     const cur: u8 = @intCast(std.mem.indexOfScalar(u8, ids, app.synth_cursor) orelse 0);
-    const pos = clampFxCursor(cur, delta, @intCast(ids.len - 1));
+    const pos = ws.input.clampDelta(cur, delta, @intCast(ids.len - 1));
     app.synth_cursor = ids[@intCast(pos)];
     updateScroll(app);
-}
-
-fn clampFxCursor(value: u8, delta: i32, top: u8) i64 {
-    return std.math.clamp(@as(i64, value) + @as(i64, delta), 0, @as(i64, top));
 }
 
 /// `w`/`b`: shift focus within the current entry's fields (a mod-matrix
@@ -910,9 +906,4 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16) v
         },
         else => {},
     }
-}
-
-test "FX cursor motions saturate for maximum counts" {
-    try std.testing.expectEqual(@as(i64, 95), clampFxCursor(4, std.math.maxInt(i32), 95));
-    try std.testing.expectEqual(@as(i64, 0), clampFxCursor(4, std.math.minInt(i32), 95));
 }

@@ -32,7 +32,8 @@ const wavetable_mod = @import("dsp/wavetable.zig");
 const pattern_mod = @import("dsp/pattern.zig");
 const PatternPlayer = pattern_mod.PatternPlayer;
 const DrumMachine = @import("dsp/drum_sampler.zig").DrumMachine;
-const Pad = @import("dsp/pad.zig").Pad;
+const pad_mod = @import("dsp/pad.zig");
+const Pad = pad_mod.Pad;
 const Sampler = @import("dsp/sampler.zig").Sampler;
 const Slicer = @import("dsp/slicer.zig").Slicer;
 const SoundfontPlayer = @import("dsp/soundfont_player.zig").SoundfontPlayer;
@@ -1419,13 +1420,6 @@ test "wsj-relative paths cannot escape the project directory" {
     try std.testing.expectError(error.UnsafeRelativePath, joinWsjRel(allocator, "songs/demo.wsj", "\\\\server\\kick.wav"));
     try std.testing.expectError(error.UnsafeRelativePath, joinWsjRel(allocator, "songs/demo.wsj", "C:\\kick.wav"));
     try std.testing.expectError(error.UnsafeRelativePath, joinWsjRel(allocator, "songs/demo.wsj", ""));
-}
-
-/// A pad's fixed 8-byte name buffer with the space padding trimmed.
-fn trimmedName(name: *const [8]u8) []const u8 {
-    var end: usize = name.len;
-    while (end > 0 and name[end - 1] == ' ') end -= 1;
-    return name[0..end];
 }
 
 /// Copy a pattern player's notes into freshly allocated NoteSnaps. Notes are
@@ -4000,7 +3994,7 @@ test "save/load round-trip persists a user-loaded sampler clip" {
     defer loaded.deinit();
     const ls = &loaded.racks.items[0].instrument.sampler;
     try testing.expect(ls.pad.user_sample);
-    try testing.expectEqualStrings("vox", trimmedName(&ls.pad.name));
+    try testing.expectEqualStrings("vox", pad_mod.trimmedName(&ls.pad.name));
     try testing.expectEqual(@as(usize, 2), ls.pad.samples.len);
     try testing.expectApproxEqAbs(@as(f32, 0.25), ls.pad.samples[0], wav_eps);
     try testing.expectApproxEqAbs(@as(f32, 0.8), ls.pad.gain, 1e-4);

@@ -116,10 +116,6 @@ test "runtime identity selection updates the generic palette" {
     selectIdentity(ws.theme_identity.patina);
 }
 
-pub fn selectPalette(theme: config_mod.GuiTheme) void {
-    selectIdentity(ws.theme_identity.get(theme).*);
-}
-
 pub fn selectIdentity(identity: ws.theme_identity.Identity) void {
     palette = fromIdentity(identity);
     // fg3 is explanatory text drawn directly by views. Keep it readable,
