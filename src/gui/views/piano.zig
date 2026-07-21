@@ -6,6 +6,7 @@ const ws = @import("wstudio");
 const icons = @import("../../ui/icons.zig");
 const piano_ed = @import("../../ui/editors/piano.zig");
 const gui_style = @import("../style.zig");
+const widgets = @import("../widgets.zig");
 const zgui = @import("zgui");
 
 const color = gui_style.color;
@@ -22,7 +23,7 @@ pub const MouseEdit = struct {
 
 fn drawToolbar(app: anytype) void {
     var scale_on = app.core.piano_scale != null;
-    if (zgui.checkbox("SCALE", .{ .v = &scale_on })) {
+    if (widgets.toggle("SCALE", &scale_on)) {
         app.core.piano_scale = if (scale_on) .{} else null;
     }
     if (app.core.piano_scale) |scale| {
@@ -41,11 +42,11 @@ fn drawToolbar(app: anytype) void {
     }
 
     zgui.sameLine(.{ .spacing = 14 });
-    _ = zgui.checkbox("GHOST NOTES", .{ .v = &app.core.piano_ghost });
+    _ = widgets.toggle("GHOST NOTES", &app.core.piano_ghost);
 
     zgui.sameLine(.{ .spacing = 14 });
     var triplet = app.core.piano_grid == .triplet;
-    if (zgui.checkbox("TRIPLET", .{ .v = &triplet })) {
+    if (widgets.toggle("TRIPLET", &triplet)) {
         app.core.handleKey(.{ .char = 'T' }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
     }
 

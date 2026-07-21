@@ -4,6 +4,7 @@ const std = @import("std");
 const ws = @import("wstudio");
 const spectrum_ed = @import("../../ui/editors/spectrum.zig");
 const gui_style = @import("../style.zig");
+const widgets = @import("../widgets.zig");
 const zgui = @import("zgui");
 
 const color = gui_style.color;
@@ -129,22 +130,17 @@ fn drawMasterRow(app: anytype, height: f32) void {
     draw_list.addText(.{ origin[0] + 41, origin[1] + 23 }, color(patina.fg3), "[bus]", .{});
     drawFxChips(draw_list, &app.core.session.master_fx, origin[0] + width - 430, origin[1] + 12, origin[0] + width - 215);
     draw_list.addText(.{ origin[0] + width - 190, origin[1] + 14 }, color(if (selected) patina.fg0 else patina.fg1), "{d:.1} dB", .{app.core.master_gain_db});
-    const meter = app.core.session.engine.uiSnapshot().peak;
-    drawStereoMeter(draw_list, origin[0] + width - 205, origin[1] + height - 21, 170, meter);
+    // meter_hold_db is refreshed once per frame by chrome.zig's transport
+    // draw (always runs first, see app.zig's App.draw) - reusing it here
+    // keeps this meter in sync with the transport's LEVEL readout instead
+    // of re-deriving its own peak-hold state from the raw peak.
+    widgets.meterBar(draw_list, .{ origin[0] + width - 205, origin[1] + height - 21 }, app.meter_hold_db, 170, 5, 3);
 }
 
 fn drawTrimMeter(draw_list: zgui.DrawList, x: f32, y: f32, width: f32, gain_db: f32, accent: [4]f32) void {
     const level = std.math.clamp((gain_db + 60) / 72, 0, 1);
     draw_list.addRectFilled(.{ .pmin = .{ x, y }, .pmax = .{ x + width, y + 5 }, .col = color(patina.bg0), .rounding = 2 });
     draw_list.addRectFilled(.{ .pmin = .{ x, y }, .pmax = .{ x + width * level, y + 5 }, .col = color(accent), .rounding = 2 });
-}
-
-fn drawStereoMeter(draw_list: zgui.DrawList, x: f32, y: f32, width: f32, peak: [2]f32) void {
-    for (peak, 0..) |level, channel| {
-        const cy = y + @as(f32, @floatFromInt(channel)) * 8;
-        draw_list.addRectFilled(.{ .pmin = .{ x, cy }, .pmax = .{ x + width, cy + 5 }, .col = color(patina.bg0), .rounding = 2 });
-        draw_list.addRectFilled(.{ .pmin = .{ x, cy }, .pmax = .{ x + width * std.math.clamp(level, 0, 1), cy + 5 }, .col = color(if (level > 0.9) patina.danger else patina.audio), .rounding = 2 });
-    }
 }
 
 fn trackRowInVisual(core: anytype, display_row: usize) bool {
