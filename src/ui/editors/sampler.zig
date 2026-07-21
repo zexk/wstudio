@@ -18,7 +18,7 @@ pub const wave_max_w: usize = 240;
 pub const wave_max_rows: usize = 14;
 
 /// Number of editable params for the sampler editor's current target.
-/// A slice carries the same 12 pad params a drum pad does (start..fades),
+/// A slice carries the same 13 pad params a drum pad does (start..stretch),
 /// minus nothing - root/mono stay sampler-only.
 fn paramCount(app: *App) u8 {
     return switch (app.sampler_target) {
@@ -202,9 +202,9 @@ pub fn adjustParam(app: *App, steps: i32) void {
 /// Rows the waveform panel actually occupies (0 if there isn't room for
 /// one - drawSamplerEditor skips it below 2 rows). `body` is the view's
 /// content-row budget (`rows -| 5`, matching drawSamplerEditor).
-/// `pad_target` = drum pad or slice: 12 params, no KEY section.
+/// `pad_target` = drum pad or slice: 13 params, no KEY section.
 fn waveRows(pad_target: bool, body: usize) usize {
-    const param_lines: usize = if (pad_target) 16 else 20;
+    const param_lines: usize = if (pad_target) 17 else 21;
     const wr = @min(wave_max_rows, body -| (1 + param_lines));
     return if (wr >= 2) wr else 0;
 }
@@ -212,15 +212,15 @@ fn waveRows(pad_target: bool, body: usize) usize {
 // zig fmt: off
 /// Row of param `idx` relative to right after the waveform panel (title +
 /// waveform rows already excluded) - one row per section header, matching
-/// drawSamplerEditor's emission order (SAMPLE's 3 params, AMP ENV's 4, OUT's
+/// drawSamplerEditor's emission order (SAMPLE's 4 params, AMP ENV's 4, OUT's
 /// 3, FADE's 2, then KEY's 2 for a standalone sampler).
 fn paramRelRow(idx: u8) usize {
     return switch (idx) {
-        0 => 1, 1 => 2, 2 => 3, // SAMPLE (header at 0): start, end, pitch
-        3 => 5, 4 => 6, 5 => 7, 6 => 8, // AMP ENV (header at 4): attack..release
-        7 => 10, 8 => 11, 9 => 12, // OUT (header at 9): gain, pan, reverse
-        10 => 14, 11 => 15, // FADE (header at 13): fade in, fade out
-        12 => 17, 13 => 18, // KEY (header at 16): root, voice - standalone sampler only
+        0 => 1, 1 => 2, 2 => 3, 12 => 4, // SAMPLE (header at 0): start, end, pitch, stretch
+        3 => 6, 4 => 7, 5 => 8, 6 => 9, // AMP ENV (header at 5): attack..release
+        7 => 11, 8 => 12, 9 => 13, // OUT (header at 10): gain, pan, reverse
+        10 => 15, 11 => 16, // FADE (header at 14): fade in, fade out
+        13 => 18, 14 => 19, // KEY (header at 17): root, voice - standalone sampler only
         else => 0,
     };
 }

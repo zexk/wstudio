@@ -153,7 +153,7 @@ fn drawSliceState(app: anytype, slicer: *const ws.dsp.Slicer) void {
     const slice = slicer.slices[index];
     zgui.textColored(patina.audio, "SLICE {d:0>2}", .{index + 1});
     zgui.sameLine(.{ .spacing = 18 });
-    zgui.text("region {d:.1}-{d:.1}%   pitch {d:.1} st   gain {d:.2}   pan {d:.2}", .{ slice.start_norm * 100, slice.end_norm * 100, slice.pitch_semitones, slice.gain, slice.pan });
+    zgui.text("region {d:.1}-{d:.1}%   pitch {d:.1} st   stretch {d:.2}x   gain {d:.2}   pan {d:.2}", .{ slice.start_norm * 100, slice.end_norm * 100, slice.pitch_semitones, slice.stretch_ratio, slice.gain, slice.pan });
     zgui.sameLine(.{ .spacing = 18 });
     zgui.textColored(if (slice.reverse) patina.modulation else patina.fg3, "{s}   choke {d}", .{ if (slice.reverse) "REVERSE" else "FORWARD", slicer.choke_group[index] });
 }

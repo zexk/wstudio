@@ -107,10 +107,10 @@ pub fn drawSamplerEditor(
     }
 
     // ── Waveform panel ───────────────────────────
-    // The section headers + param rows need ~16 (pad/slice) / ~19 (sampler)
+    // The section headers + param rows need ~17 (pad/slice) / ~21 (sampler)
     // lines; give the waveform whatever vertical space remains, capped for
     // readability.
-    const param_lines: usize = if (pad_target) 16 else 20;
+    const param_lines: usize = if (pad_target) 17 else 21;
     const wave_rows: usize = @min(wave_max_rows, body -| (written + param_lines));
     if (wave_rows >= 2) {
         try drawWaveformPad(w, pad, cols, wave_rows);
@@ -132,7 +132,9 @@ pub fn drawSamplerEditor(
         try barRow(w, c == 2, false, acc, "pitch", semi + 24.0, 48.0,
             try std.fmt.bufPrint(&buf, "{s}{d:.0} st", .{ if (semi >= 0) "+" else "", semi }));
     }
-    written += 3;
+    try barRow(w, c == 12, false, acc, "stretch", pad.stretch_ratio, 4.0,
+        try std.fmt.bufPrint(&buf, "{d:.2}x", .{pad.stretch_ratio}));
+    written += 4;
 
     // ── AMP ENV ──────────────────────────────────
     try synthSection(w, "AMP ENV", grn);
@@ -183,12 +185,12 @@ pub fn drawSamplerEditor(
         written += 1;
         const root: u7 = if (app.editingSampler()) |s| s.root_note else 60;
         var nbuf: [5]u8 = undefined;
-        try barRow(w, c == 12, false, grn, "root", @floatFromInt(root), 127.0,
+        try barRow(w, c == 13, false, grn, "root", @floatFromInt(root), 127.0,
             try std.fmt.bufPrint(&buf, "{s} ({d})", .{ midi.noteName(root, &nbuf), root }));
         written += 1;
         const mono = if (app.editingSampler()) |s| s.mono else false;
         const voice_names = [_][]const u8{ "poly", "mono" };
-        try enumRow(w, c == 13, false, grn, "voice", &voice_names, if (mono) 1 else 0);
+        try enumRow(w, c == 14, false, grn, "voice", &voice_names, if (mono) 1 else 0);
         written += 1;
     }
     // zig fmt: on

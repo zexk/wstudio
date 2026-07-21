@@ -23,7 +23,7 @@ const Sample = types.Sample;
 pub const Sampler = struct {
     pub const max_voices: u8 = 16;
     /// Number of editable params (see `adjustParam`).
-    pub const param_count: u8 = 14;
+    pub const param_count: u8 = 15;
 
     pub const NoteVoice = struct {
         active: bool = false,
@@ -100,18 +100,19 @@ pub const Sampler = struct {
 
     /// Nudge param `id` by `steps` (h/l = ±1, H/L = ±10). Runs on the audio
     /// thread via the `set_param` event so it never races the block reader.
-    /// Ids 0-11 (region/pitch/ADSR/gain/pan/reverse/fades) delegate to
-    /// `pad.zig`'s shared clamp table; 12-13 (root_note/mono) are
+    /// Ids 0-12 (region/pitch/ADSR/gain/pan/reverse/fades/stretch) delegate
+    /// to `pad.zig`'s shared clamp table; 13-14 (root_note/mono) are
     /// Sampler-only. Session-scoped ids - nothing persisted stores them, so
-    /// root/mono moving up when the fades landed at 10/11 cost nothing.
+    /// root/mono moving up when stretch landed at 12 cost nothing (same as
+    /// when fades landed at 10/11 before it).
     pub fn adjustParam(self: *Sampler, id: u8, steps: i32) void {
         switch (id) {
-            0...11 => pad_dsp.adjustParam(&self.pad, id, steps),
-            12 => {
+            0...12 => pad_dsp.adjustParam(&self.pad, id, steps),
+            13 => {
                 const r = @as(i32, self.root_note) + steps;
                 self.root_note = @intCast(std.math.clamp(r, 0, 127));
             },
-            13 => if (steps != 0) {
+            14 => if (steps != 0) {
                 self.mono = !self.mono;
             },
             else => {},
@@ -120,12 +121,12 @@ pub const Sampler = struct {
 
     /// Absolute-value counterpart to `adjustParam`, same id space and clamp
     /// ranges - for undo's capture/restore (`paramValue` is the read half),
-    /// mirroring PolySynth's own pair. Toggles (reverse 9, mono 13): >= 0.5
+    /// mirroring PolySynth's own pair. Toggles (reverse 9, mono 14): >= 0.5
     /// is on. Runs on the audio thread via the `set_param_abs` event.
     pub fn setParamAbsolute(self: *Sampler, id: u8, value: f32) void {
         switch (id) {
-            0...11 => pad_dsp.setParamAbsolute(&self.pad, id, value),
-            12 => {
+            0...12 => pad_dsp.setParamAbsolute(&self.pad, id, value),
+            13 => {
                 if (!(value > 0.0)) { // also catches NaN
                     self.root_note = 0;
                 } else if (value >= 127.0) {
@@ -134,7 +135,7 @@ pub const Sampler = struct {
                     self.root_note = @intFromFloat(@round(value));
                 }
             },
-            13 => self.mono = value >= 0.5,
+            14 => self.mono = value >= 0.5,
             else => {},
         }
     }
@@ -145,9 +146,9 @@ pub const Sampler = struct {
     /// convention the sampler editor's own row rendering already uses.
     pub fn paramValue(self: *const Sampler, id: u8) ?f32 {
         return switch (id) {
-            0...11 => pad_dsp.paramValue(&self.pad, id),
-            12 => @floatFromInt(self.root_note),
-            13 => if (self.mono) 1.0 else 0.0,
+            0...12 => pad_dsp.paramValue(&self.pad, id),
+            13 => @floatFromInt(self.root_note),
+            14 => if (self.mono) 1.0 else 0.0,
             else => null,
         };
     }
@@ -155,7 +156,7 @@ pub const Sampler = struct {
     /// One entry per continuous `setParamAbsolute`-handled id - same shape
     /// and purpose as PolySynth's own table (`dsp.AutomatableParam`), for the
     /// automation editor's param picker/curve labels/h-l nudge step. Toggles
-    /// (reverse=9, mono=13) and root_note=12 are deliberately excluded, same
+    /// (reverse=9, mono=14) and root_note=13 are deliberately excluded, same
     /// call PolySynth's own table already made for its enum/toggle ids
     /// (waveform, osc-B on/off, ...) - a breakpoint curve over an on/off
     /// flip or a coarse tuning offset isn't a meaningful automation target.
@@ -172,6 +173,7 @@ pub const Sampler = struct {
         .{ .id = 8, .label = "PAN",     .section = "OUT",     .range = .{ -1.0,  1.0 }, .step = 0.05 },
         .{ .id = 10, .label = "FADE IN",  .section = "FADE",  .range = .{ 0.0,   5.0 }, .step = 0.005 },
         .{ .id = 11, .label = "FADE OUT", .section = "FADE",  .range = .{ 0.0,   5.0 }, .step = 0.005 },
+        .{ .id = 12, .label = "STRETCH",  .section = "SAMPLE", .range = .{ 0.25,  4.0 }, .step = 0.05 },
         // zig fmt: on
     };
 
@@ -376,6 +378,79 @@ test "higher note plays back faster (chromatic transpose)" {
     try std.testing.expect(oct_blocks < root_blocks);
 }
 
+test "stretch_ratio scales playback duration" {
+    var s = try Sampler.init(std.testing.allocator, 48_000);
+    defer s.deinit();
+    s.setSamples(try generateTestClip(std.testing.allocator, 48_000), "tone");
+
+    const blocks_to_finish = struct {
+        fn run(smp: *Sampler, stretch: f32) usize {
+            smp.resetAll();
+            smp.pad.stretch_ratio = stretch;
+            smp.trigger(60, 1.0, 0);
+            var buf: [512]Sample = undefined;
+            var n: usize = 0;
+            while (smp.voices[0].active and n < 10_000) : (n += 1) {
+                @memset(&buf, 0.0);
+                smp.processBlock(&buf);
+            }
+            return n;
+        }
+    }.run;
+
+    const base_blocks = blocks_to_finish(&s, 1.0);
+    const stretched_blocks = blocks_to_finish(&s, 2.0);
+    const ratio = @as(f64, @floatFromInt(stretched_blocks)) / @as(f64, @floatFromInt(base_blocks));
+    try std.testing.expect(ratio > 1.7 and ratio < 2.3);
+}
+
+test "stretch_ratio composes with pitch to preserve duration while shifting pitch" {
+    var s = try Sampler.init(std.testing.allocator, 48_000);
+    defer s.deinit();
+    s.setSamples(try generateTestClip(std.testing.allocator, 48_000), "tone");
+
+    const Result = struct { blocks: usize, frames: usize };
+    const render = struct {
+        fn run(smp: *Sampler, semis: f32, stretch: f32, out: []f32) Result {
+            smp.resetAll();
+            smp.pad.pitch_semitones = semis;
+            smp.pad.stretch_ratio = stretch;
+            smp.trigger(60, 1.0, 0);
+            var buf: [512]Sample = undefined;
+            var n: usize = 0;
+            var written: usize = 0;
+            while (smp.voices[0].active and n < 10_000) : (n += 1) {
+                @memset(&buf, 0.0);
+                smp.processBlock(&buf);
+                var i: usize = 0;
+                while (i < 256 and written < out.len) : (i += 1) {
+                    out[written] = buf[i * 2]; // left channel
+                    written += 1;
+                }
+            }
+            return .{ .blocks = n, .frames = written };
+        }
+    }.run;
+
+    // Baseline: unshifted duration in blocks - only the count is needed here.
+    var dummy: [1]f32 = undefined;
+    const base = render(&s, 0.0, 1.0, &dummy);
+
+    // +1 octave (rate=2) with stretch_ratio matching that same rate cancels
+    // the tied speed change (duration ~ stretch_ratio/rate), so this should
+    // finish in roughly the baseline's block count while still sounding an
+    // octave higher.
+    var shifted_buf: [96_000]f32 = undefined;
+    const shifted = render(&s, 12.0, 2.0, &shifted_buf);
+
+    const ratio = @as(f64, @floatFromInt(shifted.blocks)) / @as(f64, @floatFromInt(base.blocks));
+    try std.testing.expect(ratio > 0.8 and ratio < 1.2);
+
+    const analyze_len = @min(shifted.frames, 20_000);
+    const r = pitch.detect(shifted_buf[0..analyze_len], 48_000) orelse return error.NoPitchDetected;
+    try std.testing.expectEqual(@as(u7, 72), r.note);
+}
+
 test "all_off clears voices" {
     var s = try Sampler.init(std.testing.allocator, 48_000);
     defer s.deinit();
@@ -458,11 +533,11 @@ test "adjustParam toggles mono" {
     var s = try Sampler.init(std.testing.allocator, 48_000);
     defer s.deinit();
     try std.testing.expect(!s.mono);
-    s.adjustParam(13, 1);
+    s.adjustParam(14, 1);
     try std.testing.expect(s.mono);
-    s.adjustParam(13, -1);
+    s.adjustParam(14, -1);
     try std.testing.expect(!s.mono);
-    s.adjustParam(13, 0); // steps=0 is a no-op, mirroring the reverse toggle
+    s.adjustParam(14, 0); // steps=0 is a no-op, mirroring the reverse toggle
     try std.testing.expect(!s.mono);
 }
 
@@ -471,7 +546,7 @@ test "adjustParam edits clip params and root note" {
     defer s.deinit();
     s.adjustParam(2, 5); // pitch +5 semis
     try std.testing.expectApproxEqAbs(@as(f32, 5.0), s.pad.pitch_semitones, 1e-4);
-    s.adjustParam(12, -12); // root down an octave
+    s.adjustParam(13, -12); // root down an octave
     try std.testing.expectEqual(@as(u7, 48), s.root_note);
     s.adjustParam(9, 1); // reverse toggle
     try std.testing.expect(s.pad.reverse);

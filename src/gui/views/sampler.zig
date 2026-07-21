@@ -24,7 +24,7 @@ pub fn draw(app: anytype) void {
 const PadTargetKind = enum { drum, slice };
 
 /// The two editable targets this view can point at. Both expose the shared
-/// dsp/pad.zig param ids 0-11; they differ in where a value is read from and
+/// dsp/pad.zig param ids 0-12; they differ in where a value is read from and
 /// which engine param id a slider write maps to.
 const Target = union(enum) {
     standalone: struct { sampler: *ws.dsp.Sampler, track: u16 },
@@ -69,6 +69,7 @@ const shared_sections = [_]Section{
         .{ .id = 0, .label = "Start",   .fmt = "%.3f" },
         .{ .id = 1, .label = "End",     .fmt = "%.3f" },
         .{ .id = 2, .label = "Pitch",   .fmt = "%.0f st" },
+        .{ .id = 12, .label = "Stretch", .fmt = "%.2fx" },
     } },
     .{ .title = "AMP ENV", .color = &patina.rhythm, .is_adsr = true, .rows = &.{
         .{ .id = 3, .label = "Attack",  .fmt = "%.3f s" },
@@ -188,8 +189,8 @@ fn drawStandalone(app: anytype) void {
 
     drawSharedSections(app, target);
     widgets.sectionTitle("KEY", patina.rhythm);
-    drawParam(app, target, 12, "Root note", "%.0f");
-    drawToggle(app, target, 13, "MONO", "POLY", patina.focus);
+    drawParam(app, target, 13, "Root note", "%.0f");
+    drawToggle(app, target, 14, "MONO", "POLY", patina.focus);
 }
 
 fn drawPadTarget(app: anytype, track: u16, kind: PadTargetKind) void {
@@ -284,12 +285,12 @@ fn drawHeader(app: anytype, sampler: *const ws.dsp.Sampler) void {
 }
 
 // Slider bounds come from the dsp-side spec table so they can never drift
-// from what setParamAbsolute actually clamps to. Pad ids 0-11 are the same
+// from what setParamAbsolute actually clamps to. Pad ids 0-12 are the same
 // params the standalone sampler routes to dsp/pad.zig, so one table covers
-// both targets; root note (12) is the only continuous id outside it.
+// both targets; root note (13) is the only continuous id outside it.
 fn paramRange(id: u8) [2]f32 {
     if (ws.dsp.Sampler.findAutomatableParam(id)) |param| return param.range;
-    if (id == 12) return .{ 0, 127 };
+    if (id == 13) return .{ 0, 127 };
     return .{ 0, 1 };
 }
 
