@@ -133,6 +133,8 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "drum-kit",    .desc = "[name]  apply a factory or saved kit to the cursor drum machine (no args: list names)", .run = wrap(cmdDrumKit), .scope = .drum },
     .{ .name = "drum-kit-save", .desc = "<name>  save the cursor drum machine's pad tuning (name/gain/pan/pitch/ADSR/choke, no audio) as a reusable kit", .run = wrap(cmdDrumKitSave), .scope = .drum },
     .{ .name = "split-drums", .desc = "replace the drum machine with one sampler + MIDI track per loaded pad", .run = wrap(cmdSplitDrums), .scope = .drum },
+    .{ .name = "euclid",      .desc = "<pulses> [rotation]  Euclidean rhythm across the cursor pad's lane (e.g. :euclid 3, :euclid 5 2)", .run = wrap(cmdEuclid), .scope = .drum },
+    .{ .name = "rotate",      .desc = "<steps>  rotate the cursor pad's lane in time, wrapping (negative = earlier)", .run = wrap(cmdRotate), .scope = .drum },
     .{ .name = "undo",         .desc = "undo the last edit (alias for the u key)",   .run = wrap(cmdUndo) },
     .{ .name = "redo",         .desc = "redo the last undone edit (alias for the U key)", .run = wrap(cmdRedo) },
     .{ .name = "reload-config", .desc = "re-run init.lua (options, keymaps, user commands, theme)", .run = wrap(cmdReloadConfig) },
@@ -1009,22 +1011,91 @@ pub fn loadPadFromPath(app: *App, pad_idx: u8, path: []const u8) void {
     app.setStatus("pad {d} loaded: {s}", .{ pad_idx + 1, stem });
 }
 
-/// The drum machine on the cursor's track, or - if the drum grid is open -
-/// the one being edited. Null when neither is a drum machine.
-fn cursorDrumMachine(app: *App) ?*DrumMachine {
+/// The track index of the drum machine on the cursor's track, or - if the
+/// drum grid is open - the one being edited. Null when neither is a drum
+/// machine. The index (not just the `*DrumMachine`) is what undo snapshots
+/// need, hence the split from `cursorDrumMachine`.
+fn cursorDrumTrack(app: *App) ?u16 {
     if (app.cursor < app.session.racks.items.len) {
         switch (app.session.racks.items[app.cursor].instrument) {
-            .drum_machine => |*dm| return dm,
+            .drum_machine => return @intCast(app.cursor),
             else => {},
         }
     }
     if (app.view == .drum_grid and app.drum_track < app.session.racks.items.len) {
         switch (app.session.racks.items[app.drum_track].instrument) {
-            .drum_machine => |*dm| return dm,
+            .drum_machine => return @intCast(app.drum_track),
             else => {},
         }
     }
     return null;
+}
+
+/// The drum machine on the cursor's track, or - if the drum grid is open -
+/// the one being edited. Null when neither is a drum machine.
+fn cursorDrumMachine(app: *App) ?*DrumMachine {
+    const track = cursorDrumTrack(app) orelse return null;
+    return switch (app.session.racks.items[track].instrument) {
+        .drum_machine => |*dm| dm,
+        else => unreachable, // cursorDrumTrack only returns drum-machine tracks
+    };
+}
+
+/// `:euclid <pulses> [rotation]` - replace the cursor pad's lane with a
+/// Euclidean rhythm: `pulses` hits spread as evenly as possible across the
+/// whole pattern, optionally rotated so the first hit lands `rotation` steps
+/// in. E(3,8) is the tresillo, E(5,16) a classic hat groove.
+fn cmdEuclid(app: *App, args: []const u8) void {
+    const track = cursorDrumTrack(app) orelse {
+        app.setStatus("euclid: select a drum-machine track first", .{});
+        return;
+    };
+    const dm = cursorDrumMachine(app).?;
+    var it = std.mem.tokenizeScalar(u8, args, ' ');
+    const pulses_str = it.next() orelse {
+        app.setStatus("usage: euclid <pulses> [rotation], e.g. :euclid 3 or :euclid 5 2", .{});
+        return;
+    };
+    const pulses = std.fmt.parseInt(u16, pulses_str, 10) catch {
+        app.setStatus("euclid: bad pulse count '{s}'", .{pulses_str});
+        return;
+    };
+    const rotation: i32 = if (it.next()) |rot_str| std.fmt.parseInt(i32, rot_str, 10) catch {
+        app.setStatus("euclid: bad rotation '{s}'", .{rot_str});
+        return;
+    } else 0;
+    if (pulses > dm.step_count) {
+        app.setStatus("euclid: at most {d} pulses fit this pattern", .{dm.step_count});
+        return;
+    }
+    const pad: u8 = @intCast(app.drum_cursor[0]);
+    history.push(app, history.captureDrum(app, track));
+    dm.euclidPad(pad, pulses, rotation);
+    app.setStatus("euclid {d}/{d} on pad {d} ({s})", .{ pulses, dm.step_count, pad + 1, dm.padName(pad) });
+}
+
+/// `:rotate <steps>` - rotate the cursor pad's lane in time (positive =
+/// later, negative = earlier), wrapping at the pattern boundary. Hits keep
+/// their velocity; only their grid position moves.
+fn cmdRotate(app: *App, args: []const u8) void {
+    const track = cursorDrumTrack(app) orelse {
+        app.setStatus("rotate: select a drum-machine track first", .{});
+        return;
+    };
+    const dm = cursorDrumMachine(app).?;
+    const trimmed = std.mem.trim(u8, args, " ");
+    if (trimmed.len == 0) {
+        app.setStatus("usage: rotate <steps> (negative = earlier), e.g. :rotate 2", .{});
+        return;
+    }
+    const delta = std.fmt.parseInt(i32, trimmed, 10) catch {
+        app.setStatus("rotate: bad step count '{s}'", .{trimmed});
+        return;
+    };
+    const pad: u8 = @intCast(app.drum_cursor[0]);
+    history.push(app, history.captureDrum(app, track));
+    dm.rotatePad(pad, delta);
+    app.setStatus("rotated pad {d} ({s}) {s}{d} steps", .{ pad + 1, dm.padName(pad), if (delta >= 0) "+" else "", delta });
 }
 
 /// The standalone Sampler on the cursor's track, or null.
