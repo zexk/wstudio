@@ -53,7 +53,7 @@ meaning "the track under the cursor" for convenience (mirroring Neovim's
 **What we skip, for now.** msgpack-RPC and external clients (nothing needs
 it yet, but the `wstudio.api` layer is shaped so a future RPC server can
 expose it mechanically, the way Neovim generates dispatch from its api/
-headers). API metadata introspection. `vim.ui`-style overridable prompts.
+headers). `vim.ui`-style overridable prompts.
 Per-scope option variants (`vim.bo`/`vim.wo`): wstudio options are global.
 
 ## Architecture
@@ -426,6 +426,7 @@ over it. Initial surface, grouped by topic:
 ```lua
 -- capability and editor context
 wstudio.api.has("get_context")             -> boolean
+wstudio.api.get_api_info()                 -> capability metadata
 wstudio.api.get_context()                  -> { frontend, view, mode, track? }
 wstudio.api.get_mode()                     -> "normal" | "insert" | ...
 wstudio.api.get_current_view()             -> "tracks" | "piano_roll" | ...
@@ -476,6 +477,15 @@ Design decisions:
   `wstudio.api` table, so a plugin can use a newer function when present and
   retain a fallback on older wstudio releases without parsing
   `wstudio.version`.
+- **Metadata comes from authoritative registries.** `get_api_info()` is
+  available before a session attaches and returns `version`, `api_level`,
+  `frontend`, function names, events, highlight groups, views, modes,
+  option descriptors, and hard limits. Function registration and the
+  reported function list share one table; events, highlights, views, modes,
+  and options are derived from their native enums/specs. Plugins can inspect
+  capabilities without scraping documentation, while `has()` remains the
+  simplest check for one function. `api_level` identifies the contract
+  generation; ordinary additive functions do not increment it.
 - **Context is a snapshot.** `get_context()` gives a mapping callback one
   consistent table containing the frontend, active view, modal mode, and
   1-based active track. `track` is absent when the tracks cursor is on the
@@ -570,7 +580,9 @@ Design decisions:
    table. ViewEnter and PlaybackStart/Stop are watched at the frame
    boundary (`tick`) rather than instrumented at every assignment site.
 6. **Project API (shipped).** Transport and track functions above.
-7. **Parked.** RPC server over `wstudio.api`, API metadata, clips/notes/FX
+7. **Metadata (shipped).** Registry-derived functions, events, highlights,
+   views, modes, options, and limits through `get_api_info()`.
+8. **Parked.** RPC server over `wstudio.api`, clips/notes/FX
    surface, stable track ids, timers/async.
 
 Each phase is independently shippable and testable headless through
