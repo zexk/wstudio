@@ -96,13 +96,10 @@ pub const Command = union(enum) {
 /// far more than any project uses - see `AutomationPair`'s own doc comment).
 pub const AutomationTarget = enum { gain, pan };
 
-/// Bank of simultaneously-automatable synth params per track - same "small
-/// fixed bank" convention as `max_groups`/drum banks/`Fx.max_units` elsewhere,
-/// not a per-possible-param field (see `AutomationPair`'s doc comment for why
-/// that would blow the memory budget). Plenty for any real arrangement: a
-/// track automating more than 8 distinct synth params at once is vanishingly
-/// rare.
-pub const max_synth_slots = 8;
+/// Every parameter id representable by the persisted automation model gets a
+/// slot. Curves allocate their point buffers only when used, so complete id
+/// coverage no longer implies a fixed point-buffer cost per track.
+pub const max_synth_slots = 256;
 
 /// One synth-param automation slot. `param_id` matches `PolySynth.
 /// setParamAbsolute`'s id space (filter cutoff is just param_id 21 here, no
@@ -236,33 +233,36 @@ const TrackSidechainSlots = [max_chain_devices]?Compressor.SidechainSource;
 ///
 /// Deliberately NOT a field on `TrackState`: that struct is embedded inline
 /// in a `[max_tracks]TrackState` array (max_tracks = 8192), so every byte
-/// added there is multiplied 8192x. `AutomationCurve`'s fixed point buffer
-/// is far too big for that - it once pushed `Engine` past 100MB and crashed
-/// on construction (the struct is built up on the stack before landing on
-/// the heap). Kept as its own heap-allocated slice instead, sized once at
-/// `Engine.init` and indexed the same as `tracks`.
+/// added there is multiplied 8192x. Curves are kept in this separately
+/// allocated slice, and each curve allocates point storage only when used.
 const AutomationPair = struct {
     gain: AutomationCurve = .{},
     pan: AutomationCurve = .{},
-    /// Sparse synth-param automation - see `SynthAutomationSlot`/
-    /// `max_synth_slots`. Kept as its own array rather than growing this
-    /// struct's field count 1:1 with PolySynth's ~30 continuous params.
+    /// Parameter-id automation. Empty curves allocate no point storage.
     synth_slots: [max_synth_slots]SynthAutomationSlot = [_]SynthAutomationSlot{.{}} ** max_synth_slots,
 
-    /// Copy another slot's rows wholesale (control thread) - for the track
-    /// insert/delete/swap shifts, which must move automation along with
-    /// `Engine.tracks` or the rows end up keyed to the wrong tracks. A
-    /// plain struct copy would also duplicate each curve's lock STATE: if
-    /// the audio thread happens to hold a source curve's lock mid-`valueAt`
-    /// at that instant, the copy would be born permanently locked and its
-    /// next `set()` would spin forever - so every copied lock is forced
-    /// back to unlocked. The torn read this can let through is the same
-    /// one-stale-block race `setTrackChain` already tolerates.
-    fn copyFrom(self: *AutomationPair, src: *const AutomationPair) void {
-        self.* = src.*;
-        self.gain.lock = .unlocked;
-        self.pan.lock = .unlocked;
-        for (&self.synth_slots) |*s| s.curve.lock = .unlocked;
+    fn deinit(self: *AutomationPair, allocator: std.mem.Allocator) void {
+        self.gain.deinit(allocator);
+        self.pan.deinit(allocator);
+        for (&self.synth_slots) |*slot| slot.curve.deinit(allocator);
+    }
+
+    fn clear(self: *AutomationPair, allocator: std.mem.Allocator) void {
+        self.gain.set(allocator, &.{}) catch unreachable;
+        self.pan.set(allocator, &.{}) catch unreachable;
+        for (&self.synth_slots) |*slot| {
+            slot.curve.set(allocator, &.{}) catch unreachable;
+            slot.param_id = null;
+        }
+    }
+
+    fn swapContent(self: *AutomationPair, other: *AutomationPair) void {
+        self.gain.swapPoints(&other.gain);
+        self.pan.swapPoints(&other.pan);
+        for (&self.synth_slots, &other.synth_slots) |*a, *b| {
+            a.curve.swapPoints(&b.curve);
+            std.mem.swap(?u8, &a.param_id, &b.param_id);
+        }
     }
 };
 
@@ -436,6 +436,7 @@ pub const Engine = struct {
         self.metronome.deinit();
         self.master_spectrum.deinit(self.allocator);
         self.track_spectrum.deinit(self.allocator);
+        for (self.automation) |*pair| pair.deinit(self.allocator);
         self.allocator.free(self.automation);
         self.allocator.free(self.track_sidechain);
         self.allocator.free(self.tracks);
@@ -506,7 +507,7 @@ pub const Engine = struct {
         while (i > idx) : (i -= 1) {
             self.tracks[i].store(self.tracks[i - 1].load(.monotonic), .release);
             self.track_sidechain[i] = self.track_sidechain[i - 1];
-            self.automation[i].copyFrom(&self.automation[i - 1]);
+            self.automation[i].swapContent(&self.automation[i - 1]);
         }
         fresh.* = .{
             .active = true,
@@ -516,7 +517,7 @@ pub const Engine = struct {
         };
         self.tracks[idx].store(fresh, .release);
         self.track_sidechain[idx] = [_]?Compressor.SidechainSource{null} ** max_chain_devices;
-        self.automation[idx] = .{};
+        self.automation[idx].clear(self.allocator);
     }
 
     /// Shift engine slots [idx+1, total) down by one, clearing the last slot.
@@ -530,12 +531,12 @@ pub const Engine = struct {
         for (idx..total - 1) |i| {
             self.tracks[i].store(self.tracks[i + 1].load(.monotonic), .release);
             self.track_sidechain[i] = self.track_sidechain[i + 1];
-            self.automation[i].copyFrom(&self.automation[i + 1]);
+            self.automation[i].swapContent(&self.automation[i + 1]);
         }
         evicted.* = .{};
         self.tracks[total - 1].store(evicted, .release);
         self.track_sidechain[total - 1] = [_]?Compressor.SidechainSource{null} ** max_chain_devices;
-        self.automation[total - 1] = .{};
+        self.automation[total - 1].clear(self.allocator);
     }
 
     /// Swap two tracks' engine slots (state + chain + the parallel
@@ -549,10 +550,7 @@ pub const Engine = struct {
         self.tracks[a].store(pb, .release);
         self.tracks[b].store(pa, .release);
         std.mem.swap(TrackSidechainSlots, &self.track_sidechain[a], &self.track_sidechain[b]);
-        var tmp: AutomationPair = undefined;
-        tmp.copyFrom(&self.automation[a]);
-        self.automation[a].copyFrom(&self.automation[b]);
-        self.automation[b].copyFrom(&tmp);
+        self.automation[a].swapContent(&self.automation[b]);
     }
 
     /// Fires `self.metronome.trigger` at every beat boundary inside
@@ -662,36 +660,19 @@ pub const Engine = struct {
     pub fn setTrackAutomation(self: *Engine, track: u16, target: AutomationTarget, points: []const AutomationPoint) void {
         const pair = &self.automation[@min(track, max_tracks - 1)];
         switch (target) {
-            .gain => pair.gain.set(points),
-            .pan => pair.pan.set(points),
+            .gain => pair.gain.set(self.allocator, points) catch @panic("out of memory setting gain automation"),
+            .pan => pair.pan.set(self.allocator, points) catch @panic("out of memory setting pan automation"),
         }
     }
 
-    /// Replace a track's synth-param automation curve for `param_id` (a
-    /// `PolySynth.setParamAbsolute` id). Finds the slot already holding this
-    /// param, or the first free slot; an empty `points` clears the slot back
-    /// to unused so it's free for a different param on a later rebuild,
-    /// rather than leaving a stale zero-point curve occupying it forever.
-    /// Silently drops the automation if all `max_synth_slots` are already
-    /// taken by OTHER params - same "silently truncate past capacity"
-    /// convention `AutomationCurve.set` itself already uses past `max_points`.
+    /// Replace a track's instrument-param automation curve for `param_id`.
+    /// The persisted id is also the array index, covering its entire u8
+    /// domain without a sparse-bank capacity limit.
     pub fn setTrackSynthParam(self: *Engine, track: u16, param_id: u8, points: []const AutomationPoint) void {
         const pair = &self.automation[@min(track, max_tracks - 1)];
-        for (&pair.synth_slots) |*slot| {
-            if (slot.param_id == param_id) {
-                slot.curve.set(points);
-                if (points.len == 0) slot.param_id = null;
-                return;
-            }
-        }
-        if (points.len == 0) return;
-        for (&pair.synth_slots) |*slot| {
-            if (slot.param_id == null) {
-                slot.param_id = param_id;
-                slot.curve.set(points);
-                return;
-            }
-        }
+        const slot = &pair.synth_slots[param_id];
+        slot.curve.set(self.allocator, points) catch @panic("out of memory setting parameter automation");
+        slot.param_id = if (points.len == 0) null else param_id;
     }
 
     /// Clear every synth-param automation slot for a track (control thread).
@@ -702,7 +683,7 @@ pub const Engine = struct {
         const pair = &self.automation[@min(track, max_tracks - 1)];
         for (&pair.synth_slots) |*slot| {
             slot.param_id = null;
-            slot.curve.set(&.{});
+            slot.curve.set(self.allocator, &.{}) catch unreachable;
         }
     }
 
@@ -1267,20 +1248,14 @@ test "renderTracks handles multiple simultaneous synth-param automation slots" {
     try std.testing.expectApproxEqAbs(@as(f32, 0.5), synth.sub_level, 1e-3);
 }
 
-test "setTrackSynthParam silently drops automation past max_synth_slots capacity" {
+test "setTrackSynthParam covers the complete persisted parameter id space" {
     var engine = try Engine.init(std.testing.allocator, 48_000);
     defer engine.deinit();
-    var i: u8 = 0;
-    while (i < max_synth_slots) : (i += 1) {
-        engine.setTrackSynthParam(0, i + 1, &.{.{ .beat = 0.0, .value = 1.0 }});
+    for (0..max_synth_slots) |i| {
+        engine.setTrackSynthParam(0, @intCast(i), &.{.{ .beat = 0.0, .value = 1.0 }});
     }
     const pair = &engine.automation[0];
     for (pair.synth_slots) |slot| try std.testing.expect(slot.param_id != null);
-
-    // One more distinct param than there are slots - dropped, not a panic,
-    // and doesn't disturb the 8 already assigned.
-    engine.setTrackSynthParam(0, 99, &.{.{ .beat = 0.0, .value = 1.0 }});
-    for (pair.synth_slots) |slot| try std.testing.expect(slot.param_id != 99);
 }
 
 test "notes sound even while transport is stopped (live preview)" {
@@ -1974,11 +1949,11 @@ test "applyDeleteTrack shifts the parallel automation and sidechain rows with th
 
     // Track 2's rows moved down to slot 1 alongside its TrackState...
     try std.testing.expectApproxEqAbs(@as(f32, 0.7), engine.automation[1].gain.valueAt(0.0).?, 1e-6);
-    try std.testing.expectEqual(@as(?u8, 21), engine.automation[1].synth_slots[0].param_id);
+    try std.testing.expectEqual(@as(?u8, 21), engine.automation[1].synth_slots[21].param_id);
     try std.testing.expectEqual(@as(u16, 7), engine.track_sidechain[1][1].?.track);
     // ...and the vacated last slot is fully cleared, not left stale.
     try std.testing.expect(engine.automation[2].gain.valueAt(0.0) == null);
-    try std.testing.expectEqual(@as(?u8, null), engine.automation[2].synth_slots[0].param_id);
+    try std.testing.expectEqual(@as(?u8, null), engine.automation[2].synth_slots[21].param_id);
     try std.testing.expectEqual(@as(?Compressor.SidechainSource, null), engine.track_sidechain[2][1]);
 }
 

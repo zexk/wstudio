@@ -83,14 +83,6 @@ pub fn removePoint(allocator: std.mem.Allocator, points: *[]AutomationPoint, bea
     return false;
 }
 
-/// Fixed-capacity flattened curve, live on the audio thread. One of these
-/// exists per track slot in the engine (see `audio/engine.zig`'s
-/// `AutomationPair`, heap-allocated separately so this doesn't get
-/// multiplied into every one of `max_tracks` (8192) in-struct track slots) -
-/// keep this modest. Still generous for a whole song's worth of gain/pan
-/// breakpoints across every clip on a lane.
-pub const max_points: u16 = 64;
-
 /// One (track, parameter) pair's whole-song curve. `Session.rebuildSongData`
 /// (control thread) rebuilds it wholesale via `set` whenever clips change;
 /// `Engine.renderTracks` (audio thread) reads it every block via `valueAt`.
@@ -99,17 +91,38 @@ pub const max_points: u16 = 64;
 /// the same as "no automation").
 pub const AutomationCurve = struct {
     lock: std.atomic.Mutex = .unlocked,
-    points: [max_points]AutomationPoint = undefined,
-    count: u16 = 0,
+    points: []const AutomationPoint = &.{},
+
+    fn acquire(self: *AutomationCurve) void {
+        while (!self.lock.tryLock()) std.atomic.spinLoopHint();
+    }
+
+    pub fn deinit(self: *AutomationCurve, allocator: std.mem.Allocator) void {
+        self.acquire();
+        defer self.lock.unlock();
+        if (self.points.len > 0) allocator.free(self.points);
+        self.points = &.{};
+    }
+
+    /// Exchange owned point buffers while leaving each lock at its stable
+    /// address. The audio thread either reads the old curve, the new curve,
+    /// or skips one block when its non-blocking lock attempt loses the race.
+    pub fn swapPoints(self: *AutomationCurve, other: *AutomationCurve) void {
+        self.acquire();
+        defer self.lock.unlock();
+        other.acquire();
+        defer other.lock.unlock();
+        std.mem.swap([]const AutomationPoint, &self.points, &other.points);
+    }
 
     /// Replace the curve wholesale (control thread). Empty `points` clears
     /// it - the track falls back to its manual gain/pan.
-    pub fn set(self: *AutomationCurve, points: []const AutomationPoint) void {
-        while (!self.lock.tryLock()) std.atomic.spinLoopHint();
+    pub fn set(self: *AutomationCurve, allocator: std.mem.Allocator, points: []const AutomationPoint) !void {
+        const replacement = if (points.len == 0) &.{} else try allocator.dupe(AutomationPoint, points);
+        self.acquire();
         defer self.lock.unlock();
-        const n = @min(points.len, @as(usize, max_points));
-        for (points[0..n], self.points[0..n]) |p, *dst| dst.* = p;
-        self.count = @intCast(n);
+        if (self.points.len > 0) allocator.free(self.points);
+        self.points = replacement;
     }
 
     /// Evaluate at `beat` (audio thread). Null means "no override this
@@ -117,7 +130,7 @@ pub const AutomationCurve = struct {
     pub fn valueAt(self: *AutomationCurve, beat: f64) ?f32 {
         if (!self.lock.tryLock()) return null;
         defer self.lock.unlock();
-        return interpolate(self.points[0..self.count], beat);
+        return interpolate(self.points, beat);
     }
 };
 
@@ -179,12 +192,28 @@ test "removePoint drops the matching point" {
 
 test "AutomationCurve.set/valueAt round-trip" {
     var curve: AutomationCurve = .{};
+    defer curve.deinit(testing.allocator);
     try testing.expect(curve.valueAt(0.0) == null);
-    curve.set(&.{
+    try curve.set(testing.allocator, &.{
         .{ .beat = 0.0, .value = 1.0 },
         .{ .beat = 4.0, .value = 0.0 },
     });
     try testing.expectApproxEqAbs(@as(f32, 0.5), curve.valueAt(2.0).?, 1e-6);
-    curve.set(&.{});
+    try curve.set(testing.allocator, &.{});
     try testing.expect(curve.valueAt(2.0) == null);
+}
+
+test "AutomationCurve preserves long song curves without truncation" {
+    var curve: AutomationCurve = .{};
+    defer curve.deinit(testing.allocator);
+    var points: [1_000]AutomationPoint = undefined;
+    for (&points, 0..) |*point, i| point.* = .{
+        .beat = @floatFromInt(i),
+        .value = @floatFromInt(i),
+    };
+
+    try curve.set(testing.allocator, &points);
+
+    try testing.expectEqual(@as(usize, points.len), curve.points.len);
+    try testing.expectApproxEqAbs(@as(f32, 999.0), curve.valueAt(999.0).?, 1e-6);
 }

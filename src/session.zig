@@ -1222,65 +1222,52 @@ pub const Session = struct {
     /// (`Lane.place`) and each clip's own points are beat-ascending
     /// (`automation.setPoint`), so appending in clip order needs no extra sort.
     fn flattenClipAutomation(self: *Session, track: u16, lane: *arr_mod.Lane) void {
-        var gain_pts: [automation_mod.max_points]AutomationPoint = undefined;
-        var gain_n: usize = 0;
-        var pan_pts: [automation_mod.max_points]AutomationPoint = undefined;
-        var pan_n: usize = 0;
-
-        // Distinct synth param ids used anywhere in this lane, first-seen
-        // order, capped at max_synth_slots - matches the engine's own
-        // per-track slot bank exactly (Engine.setTrackSynthParam silently
-        // drops any param past it, so collecting more here is wasted work).
-        var param_ids: [engine_mod.max_synth_slots]u8 = undefined;
-        var param_n: usize = 0;
-        var param_pts: [engine_mod.max_synth_slots][automation_mod.max_points]AutomationPoint = undefined;
-        var param_pt_n: [engine_mod.max_synth_slots]usize = [_]usize{0} ** engine_mod.max_synth_slots;
+        var gain_pts: std.ArrayList(AutomationPoint) = .empty;
+        defer gain_pts.deinit(self.allocator);
+        var pan_pts: std.ArrayList(AutomationPoint) = .empty;
+        defer pan_pts.deinit(self.allocator);
+        var param_pts: [engine_mod.max_synth_slots]std.ArrayList(AutomationPoint) =
+            @splat(.empty);
+        defer for (&param_pts) |*points| points.deinit(self.allocator);
+        var param_used = [_]bool{false} ** engine_mod.max_synth_slots;
 
         for (lane.clips.items) |c| {
             const clip_start_beat = time_grid.tickToBeat(c.start_tick);
             for (c.automation.gain) |p| {
-                if (gain_n >= gain_pts.len) break;
                 // Points are edited in dB; the engine curve stores linear
                 // gain, the same unit `TrackState.gain` already uses.
-                gain_pts[gain_n] = .{ .beat = clip_start_beat + p.beat, .value = types.dbToGain(p.value) };
-                gain_n += 1;
+                gain_pts.append(self.allocator, .{
+                    .beat = clip_start_beat + p.beat,
+                    .value = types.dbToGain(p.value),
+                }) catch @panic("out of memory flattening gain automation");
             }
             for (c.automation.pan) |p| {
-                if (pan_n >= pan_pts.len) break;
-                pan_pts[pan_n] = .{ .beat = clip_start_beat + p.beat, .value = p.value };
-                pan_n += 1;
+                pan_pts.append(self.allocator, .{
+                    .beat = clip_start_beat + p.beat,
+                    .value = p.value,
+                }) catch @panic("out of memory flattening pan automation");
             }
             for (c.automation.synth_params.items) |sp| {
-                var slot: ?usize = null;
-                for (param_ids[0..param_n], 0..) |pid, idx| {
-                    // zig fmt: off
-                    if (pid == sp.param_id) { slot = idx; break; }
-                    // zig fmt: on
-                }
-                if (slot == null) {
-                    if (param_n >= param_ids.len) continue; // slot cap reached - drop, matches engine's own cap
-                    param_ids[param_n] = sp.param_id;
-                    slot = param_n;
-                    param_n += 1;
-                }
-                const s = slot.?;
+                const s: usize = sp.param_id;
+                param_used[s] = true;
                 for (sp.points) |p| {
-                    if (param_pt_n[s] >= param_pts[s].len) break;
                     // Already the unit PolySynth.setParamAbsolute expects
                     // (Hz for cutoff, etc.) - no conversion needed, unlike
                     // gain's dB->linear.
-                    param_pts[s][param_pt_n[s]] = .{ .beat = clip_start_beat + p.beat, .value = p.value };
-                    param_pt_n[s] += 1;
+                    param_pts[s].append(self.allocator, .{
+                        .beat = clip_start_beat + p.beat,
+                        .value = p.value,
+                    }) catch @panic("out of memory flattening parameter automation");
                 }
             }
         }
-        self.engine.setTrackAutomation(track, .gain, gain_pts[0..gain_n]);
-        self.engine.setTrackAutomation(track, .pan, pan_pts[0..pan_n]);
+        self.engine.setTrackAutomation(track, .gain, gain_pts.items);
+        self.engine.setTrackAutomation(track, .pan, pan_pts.items);
         // Clear every slot first - a param removed from every clip since the
         // last rebuild must not linger in a stale slot forever.
         self.engine.clearTrackSynthParams(track);
-        for (param_ids[0..param_n], 0..) |pid, idx| {
-            self.engine.setTrackSynthParam(track, pid, param_pts[idx][0..param_pt_n[idx]]);
+        for (param_used, 0..) |used, pid| {
+            if (used) self.engine.setTrackSynthParam(track, @intCast(pid), param_pts[pid].items);
         }
     }
 
