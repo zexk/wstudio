@@ -2860,7 +2860,8 @@ pub const PolySynth = struct {
             .fenv_sustain      => self.fenv_sustain   = v01,
             .fenv_release      => self.fenv_release_s = v01 * 4.0,
             .all_sound_off     => self.resetAll(),
-            .all_notes_off     => { for (0..128) |n| self.noteOff(@intCast(n)); },
+            .all_notes_off, .omni_mode_off, .omni_mode_on, .mono_mode_on, .poly_mode_on => { for (0..128) |n| self.noteOff(@intCast(n)); },
+            .local_control     => {},
             // MIDI 1.0 Reset All Controllers resets performance controllers,
             // not program parameters such as volume, pan, or envelope times.
             .reset_all_ctrls   => {
