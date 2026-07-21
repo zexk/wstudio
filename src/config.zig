@@ -548,6 +548,12 @@ pub const Runtime = struct {
                 c.lua_pushinteger(l, @intCast(t.track));
                 c.lua_setfield(l, -2, "track");
             },
+            .TrackMove => |t| {
+                c.lua_pushinteger(l, @intCast(t.from));
+                c.lua_setfield(l, -2, "from");
+                c.lua_pushinteger(l, @intCast(t.to));
+                c.lua_setfield(l, -2, "to");
+            },
             .ViewEnter => |v| {
                 _ = c.lua_pushlstring(l, v.view.ptr, v.view.len);
                 c.lua_setfield(l, -2, "view");
@@ -723,6 +729,9 @@ pub const Runtime = struct {
             .{ .name = "track_set", .func = apiTrackSet },
             .{ .name = "track_add", .func = apiTrackAdd },
             .{ .name = "track_del", .func = apiTrackDel },
+            .{ .name = "track_duplicate", .func = apiTrackDuplicate },
+            .{ .name = "track_move", .func = apiTrackMove },
+            .{ .name = "set_current_track", .func = apiSetCurrentTrack },
         };
         for (api_fns) |f| {
             c.lua_pushlightuserdata(self.state, self);
@@ -1042,6 +1051,7 @@ pub const Event = enum {
     PlaybackStop,
     TrackAdd,
     TrackDel,
+    TrackMove,
     ViewEnter,
     ColorScheme,
     QuitPre,
@@ -1051,6 +1061,7 @@ pub const PathEvent = struct { path: []const u8 };
 pub const TempoEvent = struct { tempo: f64 };
 /// 1-based, matching the API's track indexing.
 pub const TrackEvent = struct { track: usize };
+pub const TrackMoveEvent = struct { from: usize, to: usize };
 pub const ViewEvent = struct { view: []const u8, prev: []const u8 };
 /// Neovim's `ColorScheme` autocmd payload, minus `pattern` (there's no glob
 /// matching here yet - see create_autocmd's docs/lua-api.md note).
@@ -1068,6 +1079,7 @@ pub const EventData = union(Event) {
     PlaybackStop: TempoEvent,
     TrackAdd: TrackEvent,
     TrackDel: TrackEvent,
+    TrackMove: TrackMoveEvent,
     ViewEnter: ViewEvent,
     ColorScheme: ColorSchemeEvent,
     QuitPre: void,
@@ -1628,32 +1640,55 @@ fn apiTrackSet(state: ?*c.lua_State) callconv(.c) c_int {
     const app = requireApp(l);
     const idx = checkTrackIndex(l, 1, app);
     c.luaL_checktype(l, 2, c.LUA_TTABLE);
+    const Update = struct {
+        gain_db: ?f32 = null,
+        pan: ?f32 = null,
+        muted: ?bool = null,
+        soloed: ?bool = null,
+        armed: ?bool = null,
+        name: ?[]const u8 = null,
+    };
+    var update: Update = .{};
     c.lua_pushnil(l);
     while (c.lua_next(l, 2) != 0) {
         if (c.lua_type(l, -2) != c.LUA_TSTRING) return c.luaL_error(l, "track_set keys must be strings");
         const key = std.mem.span(c.lua_tolstring(l, -2, null));
         if (std.mem.eql(u8, key, "gain_db")) {
             if (c.lua_isnumber(l, -1) == 0) return c.luaL_error(l, "gain_db must be a number");
-            app.apiSetTrackGainDb(idx, @floatCast(c.lua_tonumberx(l, -1, null)));
+            const value = c.lua_tonumberx(l, -1, null);
+            if (!std.math.isFinite(value)) return c.luaL_error(l, "gain_db must be finite");
+            update.gain_db = @floatCast(value);
         } else if (std.mem.eql(u8, key, "pan")) {
             if (c.lua_isnumber(l, -1) == 0) return c.luaL_error(l, "pan must be a number");
-            app.apiSetTrackPan(idx, @floatCast(c.lua_tonumberx(l, -1, null)));
+            const value = c.lua_tonumberx(l, -1, null);
+            if (!std.math.isFinite(value)) return c.luaL_error(l, "pan must be finite");
+            update.pan = @floatCast(value);
         } else if (std.mem.eql(u8, key, "muted")) {
             if (c.lua_type(l, -1) != c.LUA_TBOOLEAN) return c.luaL_error(l, "muted must be a boolean");
-            app.apiSetTrackMuted(idx, c.lua_toboolean(l, -1) != 0);
+            update.muted = c.lua_toboolean(l, -1) != 0;
         } else if (std.mem.eql(u8, key, "soloed")) {
             if (c.lua_type(l, -1) != c.LUA_TBOOLEAN) return c.luaL_error(l, "soloed must be a boolean");
-            app.apiSetTrackSoloed(idx, c.lua_toboolean(l, -1) != 0);
+            update.soloed = c.lua_toboolean(l, -1) != 0;
+        } else if (std.mem.eql(u8, key, "armed")) {
+            if (c.lua_type(l, -1) != c.LUA_TBOOLEAN) return c.luaL_error(l, "armed must be a boolean");
+            update.armed = c.lua_toboolean(l, -1) != 0;
         } else if (std.mem.eql(u8, key, "name")) {
             if (c.lua_type(l, -1) != c.LUA_TSTRING) return c.luaL_error(l, "name must be a string");
             var len: usize = 0;
             const s = c.lua_tolstring(l, -1, &len);
-            if (!app.apiRenameTrack(idx, s[0..len])) return c.luaL_error(l, "rename failed");
+            if (len == 0) return c.luaL_error(l, "name cannot be empty");
+            update.name = s[0..len];
         } else {
             return c.luaL_error(l, "unknown track field '%s'", c.lua_tolstring(l, -2, null));
         }
         c.lua_settop(l, -2); // pop the value, keep the key for lua_next
     }
+    if (update.name) |value| if (!app.apiRenameTrack(idx, value)) return c.luaL_error(l, "rename failed");
+    if (update.gain_db) |value| app.apiSetTrackGainDb(idx, value);
+    if (update.pan) |value| app.apiSetTrackPan(idx, value);
+    if (update.muted) |value| app.apiSetTrackMuted(idx, value);
+    if (update.soloed) |value| app.apiSetTrackSoloed(idx, value);
+    if (update.armed) |value| app.apiSetTrackArmed(idx, value);
     return 0;
 }
 
@@ -1696,6 +1731,31 @@ fn apiTrackDel(state: ?*c.lua_State) callconv(.c) c_int {
     const app = requireApp(l);
     const idx = checkTrackIndex(l, 1, app);
     if (!app.apiTrackDel(idx)) return c.luaL_error(l, "cannot delete the last track");
+    return 0;
+}
+
+fn apiTrackDuplicate(state: ?*c.lua_State) callconv(.c) c_int {
+    const l = state.?;
+    const app = requireApp(l);
+    const idx = checkTrackIndex(l, 1, app);
+    const duplicate = app.apiTrackDuplicate(idx) orelse return c.luaL_error(l, "track limit reached");
+    c.lua_pushinteger(l, @intCast(duplicate + 1));
+    return 1;
+}
+
+fn apiTrackMove(state: ?*c.lua_State) callconv(.c) c_int {
+    const l = state.?;
+    const app = requireApp(l);
+    const idx = checkTrackIndex(l, 1, app);
+    const target = checkTrackIndex(l, 2, app);
+    c.lua_pushinteger(l, @intCast(app.apiTrackMove(idx, target) + 1));
+    return 1;
+}
+
+fn apiSetCurrentTrack(state: ?*c.lua_State) callconv(.c) c_int {
+    const l = state.?;
+    const app = requireApp(l);
+    app.apiSelectTrack(checkTrackIndex(l, 1, app));
     return 0;
 }
 

@@ -6473,6 +6473,10 @@ test "wstudio.api transport and track surface" {
     try std.testing.expectEqualStrings("bass", t.name);
     try rt.loadString("assert(wstudio.api.track_get(1).gain_db == -6.0)");
     try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.track_set(1, { bogus = 1 })"));
+    try rt.loadString("wstudio.api.track_set(1, { armed = true }); assert(wstudio.api.track_get(1).armed)");
+    try std.testing.expect(app.session.isArmed(0));
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.track_set(1, { name = 'should-not-stick', bogus = true })"));
+    try std.testing.expectEqualStrings("bass", app.session.project.tracks.items[0].name);
 
     // track_add returns the new 1-based index with the instrument applied;
     // track_del removes it again.
@@ -6480,6 +6484,22 @@ test "wstudio.api transport and track surface" {
     try rt.loadString("t = wstudio.api.track_get(i); assert(t.kind == 'drum' and t.name == 'beats')");
     try rt.loadString("n = wstudio.api.track_count(); wstudio.api.track_del(i); assert(wstudio.api.track_count() == n - 1)");
     try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.track_add({ kind = 'nope' })"));
+}
+
+test "wstudio.api duplicates, reorders, and focuses tracks" {
+    var app = try testApp();
+    defer app.deinit();
+    var rt = try @import("../config.zig").Runtime.init(.tui);
+    defer rt.deinit();
+    rt.app = &app;
+    app.lua_runtime = &rt;
+    try rt.loadString("moves = {}; wstudio.api.create_autocmd('TrackMove', { callback = function(ev) moves[#moves + 1] = ev.from .. ':' .. ev.to end })");
+
+    try rt.loadString("copy = wstudio.api.track_duplicate(2); assert(copy == 4 and wstudio.api.track_count() == 4)");
+    try rt.loadString("assert(wstudio.api.track_get(copy).kind == wstudio.api.track_get(2).kind)");
+    try rt.loadString("at = wstudio.api.track_move(copy, 1); assert(at == 1); assert(#moves == 3 and moves[1] == '4:3' and moves[3] == '2:1')");
+    try rt.loadString("assert(wstudio.api.track_get(1).kind == 'sampler'); wstudio.api.set_current_track(3); assert(wstudio.api.get_current_track() == 3)");
+    try std.testing.expectEqual(@as(usize, 2), app.cursor);
 }
 
 test "wstudio.api transport snapshot and partial update" {
