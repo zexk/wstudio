@@ -1,9 +1,9 @@
-//! Icon glyphs for the TUI, drawn from a 16-glyph subset of "Symbols Nerd
+//! Icon glyphs for the TUI, drawn from an 18-glyph subset of "Symbols Nerd
 //! Font Mono" (MIT license; see assets/fonts/LICENSE and the Nerd Fonts
 //! project at https://github.com/ryanoasis/nerd-fonts). Codepoints were
 //! looked up in the project's authoritative glyphnames.json rather than
 //! guessed, then the font was subsetted with fonttools' pyftsubset down to
-//! just these sixteen glyphs (~3 KB vs. ~2.5 MB for the full symbols font).
+//! just these eighteen glyphs (~4 KB vs. ~2.5 MB for the full symbols font).
 //!
 //! These are Private Use Area codepoints: a terminal only renders them as
 //! icons if its font actually has glyphs there, otherwise they show as
@@ -31,15 +31,16 @@ pub const help = "\u{f02d7}"; // md-help_circle
 pub const master = "\u{f025}"; // fa-headphones
 pub const loop = "\u{f0547}"; // md-repeat_variant
 pub const logo = "\u{f1de}"; // fa-sliders
-/// Same codepoint as `logo` - the app logo IS a sliders glyph, which happens
-/// to be a fitting icon for the Slicer instrument too. No new glyph needed.
-pub const slicer = logo;
-/// Same codepoint as `eq` - the embedded subset has no dedicated soundfont
-/// glyph (adding one means re-subsetting the font, a separate build-tooling
-/// task); an equalizer reads reasonably as "many programs/bands" for a
-/// multi-preset instrument bank, same "close enough, no new glyph" call
-/// `slicer` already makes.
-pub const soundfont = eq;
+/// md-content_cut - scissors read unambiguously as "chop" even at one
+/// terminal cell, a better fit for the Slicer instrument's whole workflow
+/// (:chop, variants A-H) than the old placeholder (aliasing `logo`'s sliders
+/// glyph, since the app logo happens to also be a plausible-if-generic fit).
+pub const slicer = "\u{f0190}";
+/// md-music_box_multiple - stacked instrument cards each showing a note,
+/// reading as "a bank of programs" for a SoundFont's many instrument zones.
+/// Replaces the old placeholder (aliasing `eq`'s equalizer bars, picked only
+/// because re-subsetting the font was a separate task at the time).
+pub const soundfont = "\u{f0333}";
 
 const std = @import("std");
 const ws = @import("wstudio");
@@ -67,8 +68,9 @@ pub fn detectFontInstalled(io: std.Io) bool {
 
 test "every icon decodes to exactly one codepoint" {
     const all = [_][]const u8{
-        play,    stop, mute,        solo,  save, warn,   synth, drum,
-        sampler, eq,   arrangement, tempo, help, master, loop,  logo,
+        play,    stop,      mute,        solo,  save, warn,   synth, drum,
+        sampler, eq,        arrangement, tempo, help, master, loop,  logo,
+        slicer,  soundfont,
     };
     for (all) |icon| {
         var it = std.unicode.Utf8Iterator{ .bytes = icon, .i = 0 };

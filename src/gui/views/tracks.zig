@@ -5,6 +5,7 @@ const ws = @import("wstudio");
 const spectrum_ed = @import("../../ui/editors/spectrum.zig");
 const gui_style = @import("../style.zig");
 const widgets = @import("../widgets.zig");
+const icons = @import("../../ui/icons.zig");
 const zgui = @import("zgui");
 
 const color = gui_style.color;
@@ -93,11 +94,11 @@ fn drawMixerRow(app: anytype, track_index: u16, display_row: usize, height: f32)
     var badge_x = origin[0] + width - 9;
     if (track.soloed) {
         badge_x -= 18;
-        drawTrackBadge(draw_list, badge_x, origin[1] + 12, "S", patina.rhythm);
+        drawTrackBadge(draw_list, badge_x, origin[1] + 12, icons.solo, patina.rhythm);
     }
     if (track.muted) {
         badge_x -= 18;
-        drawTrackBadge(draw_list, badge_x, origin[1] + 12, "M", patina.danger);
+        drawTrackBadge(draw_list, badge_x, origin[1] + 12, icons.mute, patina.danger);
     }
     if (app.core.session.isArmed(track_index)) {
         badge_x -= 18;
