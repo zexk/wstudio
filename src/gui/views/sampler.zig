@@ -2,6 +2,7 @@ const std = @import("std");
 const ws = @import("wstudio");
 const zgui = @import("zgui");
 const icons = @import("../../ui/icons.zig");
+const sampler_ed = @import("../../ui/editors/sampler.zig");
 const waveform = @import("../../ui/waveform.zig");
 const style = @import("../style.zig");
 const widgets = @import("../widgets.zig");
@@ -59,55 +60,33 @@ const Target = union(enum) {
     }
 };
 
-// The param sections both targets share (dsp/pad.zig ids); the standalone
-// sampler appends its KEY section (root note, voice mode) after these.
-// zig fmt: off
-const ParamRow = struct { id: u8, label: []const u8, fmt: [:0]const u8 };
-const Section = struct { title: [:0]const u8, color: *const [4]f32, rows: []const ParamRow, is_adsr: bool = false };
-const shared_sections = [_]Section{
-    .{ .title = "SAMPLE", .color = &theme.focus, .rows = &.{
-        .{ .id = 0, .label = "Start",   .fmt = "%.3f" },
-        .{ .id = 1, .label = "End",     .fmt = "%.3f" },
-        .{ .id = 2, .label = "Pitch",   .fmt = "%.0f st" },
-        .{ .id = 12, .label = "Stretch", .fmt = "%.2fx" },
-    } },
-    .{ .title = "AMP ENV", .color = &theme.rhythm, .is_adsr = true, .rows = &.{
-        .{ .id = 3, .label = "Attack",  .fmt = "%.3f s" },
-        .{ .id = 4, .label = "Decay",   .fmt = "%.3f s" },
-        .{ .id = 5, .label = "Sustain", .fmt = "%.2f" },
-        .{ .id = 6, .label = "Release", .fmt = "%.3f s" },
-    } },
-    .{ .title = "OUT", .color = &theme.audio, .rows = &.{
-        .{ .id = 7, .label = "Gain",    .fmt = "%.2f" },
-        .{ .id = 8, .label = "Pan",     .fmt = widgets.pan_cfmt },
-    } },
-    .{ .title = "FADE", .color = &theme.focus, .rows = &.{
-        .{ .id = 10, .label = "Fade in",  .fmt = "%.3f s" },
-        .{ .id = 11, .label = "Fade out", .fmt = "%.3f s" },
-    } },
-};
-// zig fmt: on
-
 fn drawSharedSections(app: anytype, target: Target) void {
     const available = zgui.getContentRegionAvail()[0];
     const gap: f32 = 10;
     // ~270px per section column, same per-column budget the old 3-at-820
     // breakpoint gave before FADE became the fourth section.
-    const columns: usize = if (available >= 1080) shared_sections.len else 1;
+    const columns: usize = if (available >= 1080) sampler_ed.pad_sections.len else 1;
     const column_width = (available - gap * @as(f32, @floatFromInt(columns - 1))) / @as(f32, @floatFromInt(columns));
-    for (shared_sections, 0..) |section, index| {
+    for (sampler_ed.pad_sections, 0..) |section, index| {
         if (index > 0 and columns > 1) zgui.sameLine(.{ .spacing = gap });
         var child_buf: [32]u8 = undefined;
         const child_id = std.fmt.bufPrintZ(&child_buf, "sampler-module-{d}", .{index}) catch continue;
         if (zgui.beginChild(child_id, .{ .w = if (columns > 1 and index + 1 < columns) column_width else 0, .h = 205, .child_flags = .{ .border = true } })) {
-            widgets.sectionTitle(section.title, section.color.*);
-            if (section.is_adsr) {
+            const section_color = switch (section.kind) {
+                .envelope => theme.rhythm,
+                .output => theme.audio,
+                else => theme.focus,
+            };
+            widgets.sectionTitle(section.title, section_color);
+            if (section.kind == .envelope) {
                 drawAmpEnvelope(app, target);
             } else {
-                for (section.rows) |row| drawParam(app, target, row.id, row.label, row.fmt);
-            }
-            if (section.rows[section.rows.len - 1].id == 8) {
-                drawToggle(app, target, 9, "REVERSE", "FORWARD", if (target == .pad) theme.modulation else theme.focus);
+                for (section.rows) |row| {
+                    if (row.id == 9)
+                        drawToggle(app, target, row.id, "REVERSE", "FORWARD", if (target == .pad) theme.modulation else theme.focus)
+                    else
+                        drawParam(app, target, row.id, row.label, if (row.id == 8) widgets.pan_cfmt else row.gui_format);
+                }
             }
         }
         zgui.endChild();
@@ -188,9 +167,9 @@ fn drawStandalone(app: anytype) void {
     zgui.spacing();
 
     drawSharedSections(app, target);
-    widgets.sectionTitle("KEY", theme.rhythm);
-    drawParam(app, target, 13, "Root note", "%.0f");
-    drawToggle(app, target, 14, "MONO", "POLY", theme.focus);
+    widgets.sectionTitle(sampler_ed.key_section.title, theme.rhythm);
+    drawParam(app, target, sampler_ed.key_section.rows[0].id, sampler_ed.key_section.rows[0].label, sampler_ed.key_section.rows[0].gui_format);
+    drawToggle(app, target, sampler_ed.key_section.rows[1].id, "MONO", "POLY", theme.focus);
 }
 
 fn drawPadTarget(app: anytype, track: u16, kind: PadTargetKind) void {

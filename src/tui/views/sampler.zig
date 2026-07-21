@@ -112,7 +112,7 @@ pub fn drawSamplerEditor(
     // The section headers + param rows need ~17 (pad/slice) / ~21 (sampler)
     // lines; give the waveform whatever vertical space remains, capped for
     // readability.
-    const param_lines: usize = if (pad_target) 17 else 21;
+    const param_lines = sampler_ed.paramLineCount(pad_target);
     const wave_rows: usize = @min(wave_max_rows, body -| (written + param_lines));
     if (wave_rows >= 2) {
         try drawWaveformPad(w, pad, cols, wave_rows);
@@ -123,7 +123,7 @@ pub fn drawSamplerEditor(
 
     // zig fmt: off
     // ── SAMPLE ───────────────────────────────────
-    try synthSection(w, "SAMPLE", acc);
+    try synthSection(w, sampler_ed.pad_sections[0].title, acc);
     written += 1;
     try barRow(w, c == 0, false, acc, "start", pad.start_norm, 1.0,
         try std.fmt.bufPrint(&buf, "{d:.2}", .{pad.start_norm}));
@@ -139,7 +139,7 @@ pub fn drawSamplerEditor(
     written += 4;
 
     // ── AMP ENV ──────────────────────────────────
-    try synthSection(w, "AMP ENV", grn);
+    try synthSection(w, sampler_ed.pad_sections[1].title, grn);
     written += 1;
     try barRow(w, c == 3, false, grn, "attack", pad.attack_s, 1.0,
         try std.fmt.bufPrint(&buf, "{d:.3} s", .{pad.attack_s}));
@@ -152,7 +152,7 @@ pub fn drawSamplerEditor(
     written += 4;
 
     // ── OUT ──────────────────────────────────────
-    try synthSection(w, "OUT", bcyn);
+    try synthSection(w, sampler_ed.pad_sections[2].title, bcyn);
     written += 1;
     try barRow(w, c == 7, false, bcyn, "gain", pad.gain, 2.0,
         try std.fmt.bufPrint(&buf, "{d:.2}", .{pad.gain}));
@@ -173,7 +173,7 @@ pub fn drawSamplerEditor(
     written += 3;
 
     // ── FADE: edit fades multiplied on top of the amp envelope ───────────────
-    try synthSection(w, "FADE", acc);
+    try synthSection(w, sampler_ed.pad_sections[3].title, acc);
     written += 1;
     try barRow(w, c == 10, false, acc, "fade in", pad.fade_in_s, 1.0,
         try std.fmt.bufPrint(&buf, "{d:.3} s", .{pad.fade_in_s}));
@@ -183,7 +183,7 @@ pub fn drawSamplerEditor(
 
     // ── KEY (standalone sampler only): the root note ─────────────────────────
     if (!pad_target) {
-        try synthSection(w, "KEY", grn);
+        try synthSection(w, sampler_ed.key_section.title, grn);
         written += 1;
         const root: u7 = if (app.editingSampler()) |s| s.root_note else 60;
         var nbuf: [5]u8 = undefined;

@@ -17,6 +17,53 @@ const history = @import("../history.zig");
 pub const wave_max_w: usize = 240;
 pub const wave_max_rows: usize = 14;
 
+pub const ParamRow = struct {
+    id: u8,
+    label: []const u8,
+    gui_format: [:0]const u8,
+};
+
+pub const SectionKind = enum { sample, envelope, output, fade, key };
+pub const Section = struct { kind: SectionKind, title: [:0]const u8, rows: []const ParamRow };
+
+// zig fmt: off
+pub const pad_sections = [_]Section{
+    .{ .kind = .sample, .title = "SAMPLE", .rows = &.{
+        .{ .id = 0,  .label = "Start",   .gui_format = "%.3f" },
+        .{ .id = 1,  .label = "End",     .gui_format = "%.3f" },
+        .{ .id = 2,  .label = "Pitch",   .gui_format = "%.0f st" },
+        .{ .id = 12, .label = "Stretch", .gui_format = "%.2fx" },
+    } },
+    .{ .kind = .envelope, .title = "AMP ENV", .rows = &.{
+        .{ .id = 3, .label = "Attack",  .gui_format = "%.3f s" },
+        .{ .id = 4, .label = "Decay",   .gui_format = "%.3f s" },
+        .{ .id = 5, .label = "Sustain", .gui_format = "%.2f" },
+        .{ .id = 6, .label = "Release", .gui_format = "%.3f s" },
+    } },
+    .{ .kind = .output, .title = "OUT", .rows = &.{
+        .{ .id = 7, .label = "Gain",    .gui_format = "%.2f" },
+        .{ .id = 8, .label = "Pan",     .gui_format = "%.0f" },
+        .{ .id = 9, .label = "Reverse", .gui_format = "%.0f" },
+    } },
+    .{ .kind = .fade, .title = "FADE", .rows = &.{
+        .{ .id = 10, .label = "Fade in",  .gui_format = "%.3f s" },
+        .{ .id = 11, .label = "Fade out", .gui_format = "%.3f s" },
+    } },
+};
+pub const key_section: Section = .{ .kind = .key, .title = "KEY", .rows = &.{
+    .{ .id = 13, .label = "Root note", .gui_format = "%.0f" },
+    .{ .id = 14, .label = "Voice",     .gui_format = "%.0f" },
+} };
+// zig fmt: on
+
+pub fn paramLineCount(pad_target: bool) usize {
+    var count: usize = 0;
+    for (pad_sections) |section| count += 1 + section.rows.len;
+    // Keep one breathing row after the standalone-only KEY section.
+    if (!pad_target) count += 2 + key_section.rows.len;
+    return count;
+}
+
 /// Number of editable params for the sampler editor's current target.
 /// A slice carries the same 13 pad params a drum pad does (start..stretch),
 /// minus nothing - root/mono stay sampler-only.
@@ -200,27 +247,30 @@ pub fn adjustParam(app: *App, steps: i32) void {
 /// content-row budget (`rows -| 5`, matching drawSamplerEditor).
 /// `pad_target` = drum pad or slice: 13 params, no KEY section.
 fn waveRows(pad_target: bool, body: usize) usize {
-    const param_lines: usize = if (pad_target) 17 else 21;
-    const wr = @min(wave_max_rows, body -| (1 + param_lines));
+    const wr = @min(wave_max_rows, body -| (1 + paramLineCount(pad_target)));
     return if (wr >= 2) wr else 0;
 }
 
-// zig fmt: off
 /// Row of param `idx` relative to right after the waveform panel (title +
 /// waveform rows already excluded) - one row per section header, matching
 /// drawSamplerEditor's emission order (SAMPLE's 4 params, AMP ENV's 4, OUT's
 /// 3, FADE's 2, then KEY's 2 for a standalone sampler).
 fn paramRelRow(idx: u8) usize {
-    return switch (idx) {
-        0 => 1, 1 => 2, 2 => 3, 12 => 4, // SAMPLE (header at 0): start, end, pitch, stretch
-        3 => 6, 4 => 7, 5 => 8, 6 => 9, // AMP ENV (header at 5): attack..release
-        7 => 11, 8 => 12, 9 => 13, // OUT (header at 10): gain, pan, reverse
-        10 => 15, 11 => 16, // FADE (header at 14): fade in, fade out
-        13 => 18, 14 => 19, // KEY (header at 17): root, voice - standalone sampler only
-        else => 0,
-    };
+    var rel: usize = 0;
+    for (pad_sections) |section| {
+        rel += 1;
+        for (section.rows) |row| {
+            if (row.id == idx) return rel;
+            rel += 1;
+        }
+    }
+    rel += 1;
+    for (key_section.rows) |row| {
+        if (row.id == idx) return rel;
+        rel += 1;
+    }
+    return 0;
 }
-// zig fmt: on
 
 /// The param row (in view-content-relative rows) at `row`, or null for the
 /// title/waveform rows or a section-header line.

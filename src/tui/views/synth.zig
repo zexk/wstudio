@@ -34,18 +34,13 @@ fn drawSynthTitle(w: *std.Io.Writer, subview: synth_ed.Subview, name: []const u8
     try w.writeAll(bcyn ++ bold ++ " \u{2593} ");
     try w.writeAll(icons.iconOr(icons.synth ++ " ", ""));
     try w.writeAll("SYNTH " ++ rst);
-    inline for (.{ synth_ed.Subview.main, synth_ed.Subview.mod, synth_ed.Subview.fx }) |tab| {
-        const label = switch (tab) {
-            .main => "MAIN",
-            .mod => "MOD",
-            .fx => "FX",
-        };
-        if (tab == subview) {
+    inline for (synth_ed.subviews) |tab| {
+        if (tab.subview == subview) {
             try w.writeAll(bcyn ++ bold);
-            try w.print("[{s}]", .{label});
+            try w.print("[{s}]", .{tab.short_label});
         } else {
             try w.writeAll(dim);
-            try w.print(" {s} ", .{label});
+            try w.print(" {s} ", .{tab.short_label});
         }
         try w.writeAll(rst);
     }

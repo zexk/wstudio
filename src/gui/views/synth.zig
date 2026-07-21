@@ -35,12 +35,7 @@ pub fn draw(app: anytype) void {
 }
 
 fn drawTabs(app: anytype) void {
-    const tabs = [_]struct { label: [:0]const u8, subview: synth_ed.Subview }{
-        .{ .label = "MAIN", .subview = .main },
-        .{ .label = "MODULATION", .subview = .mod },
-        .{ .label = "INTERNAL FX", .subview = .fx },
-    };
-    for (tabs, 0..) |tab, i| {
+    for (synth_ed.subviews, 0..) |tab, i| {
         if (i > 0) zgui.sameLine(.{ .spacing = 5 });
         const active = app.core.synth_subview == tab.subview;
         zgui.pushStyleColor4f(.{ .idx = .button, .c = if (active) theme.focus else theme.bg2 });
