@@ -57,6 +57,12 @@ pub const Session = struct {
     retired_fx: std.ArrayListUnmanaged(*rack_mod.FxUnit),
     /// Song-mode clip timeline, one lane per track (parallel to `racks`).
     arrangement: Arrangement,
+    /// Record-arm state, one per track (parallel to `racks`/`project.tracks`).
+    /// A monitoring/recording aid, not song content, so it isn't persisted -
+    /// same rationale as `metronome_enabled`. `true` means "the next record
+    /// pass should capture into this track if it's audio-capable" (see
+    /// `isAudioArmed`); MIDI/note recording is unaffected by this either way.
+    armed: std.ArrayListUnmanaged(bool) = .empty,
     /// When true, playback follows the arrangement timeline; when false, each
     /// track loops its single live pattern (the original behavior). Honored by
     /// the engine in song-mode playback.
@@ -136,6 +142,10 @@ pub const Session = struct {
         errdefer arrangement.deinit(allocator);
         try arrangement.addLane(allocator); // one lane for the blank track
 
+        var armed: std.ArrayListUnmanaged(bool) = .empty;
+        errdefer armed.deinit(allocator);
+        try armed.append(allocator, false);
+
         var self: Session = .{
             .allocator = allocator,
             .project = project,
@@ -144,6 +154,7 @@ pub const Session = struct {
             .retired_racks = .empty,
             .retired_fx = .empty,
             .arrangement = arrangement,
+            .armed = armed,
         };
         for (self.racks.items, 0..) |rack, i| {
             self.syncTrackChain(@intCast(i), rack);
@@ -177,6 +188,9 @@ pub const Session = struct {
 
         try self.arrangement.insertLane(self.allocator, idx);
         errdefer self.arrangement.removeLane(self.allocator, idx);
+
+        try self.armed.insert(self.allocator, idx, false);
+        errdefer _ = self.armed.orderedRemove(idx);
 
         // Auto-assign a color so new tracks are visually distinct from the
         // moment they're created, instead of starting uncolored until the
@@ -635,6 +649,7 @@ pub const Session = struct {
 
         self.arrangement.removeLane(self.allocator, track_idx);
         self.project.removeTrack(track_idx);
+        _ = self.armed.orderedRemove(track_idx);
 
         // Compressors elsewhere may sidechain off a track index that just
         // shifted (or off the deleted track itself) - rewrite and resync.
@@ -671,6 +686,10 @@ pub const Session = struct {
 
         try self.arrangement.insertLane(self.allocator, idx);
         errdefer self.arrangement.removeLane(self.allocator, idx);
+
+        try self.armed.insert(self.allocator, idx, false);
+        errdefer _ = self.armed.orderedRemove(idx);
+
         const lane = self.arrangement.lane(idx).?;
         for (clips) |c| try lane.clips.append(self.allocator, c);
         self.allocator.free(clips);
@@ -726,6 +745,10 @@ pub const Session = struct {
 
         try self.arrangement.addLane(self.allocator);
         errdefer self.arrangement.removeLane(self.allocator, self.arrangement.lanes.items.len - 1);
+
+        try self.armed.append(self.allocator, false);
+        errdefer _ = self.armed.pop();
+
         if (self.arrangement.lane(track_idx)) |src_lane| {
             const dst_lane = self.arrangement.lane(idx).?;
             for (src_lane.clips.items) |c| try dst_lane.clips.append(self.allocator, try c.dupe(self.allocator));
@@ -761,11 +784,33 @@ pub const Session = struct {
         _ = self.engine.send(.all_notes_off);
         self.project.swapTracks(a, b);
         std.mem.swap(*Rack, &self.racks.items[a], &self.racks.items[b]);
+        std.mem.swap(bool, &self.armed.items[a], &self.armed.items[b]);
         self.arrangement.swapLanes(a, b);
         self.engine.swapTracks(@intCast(a), @intCast(b));
         // Same rule as deleteTrack: sidechain sources name tracks, so they
         // follow the swap.
         self.remapSidechainSources(.{ .swap = .{ .a = @intCast(a), .b = @intCast(b) } });
+    }
+
+    pub fn toggleArm(self: *Session, track_idx: usize) void {
+        if (track_idx >= self.armed.items.len) return;
+        self.armed.items[track_idx] = !self.armed.items[track_idx];
+    }
+
+    pub fn isArmed(self: *const Session, track_idx: usize) bool {
+        if (track_idx >= self.armed.items.len) return false;
+        return self.armed.items[track_idx];
+    }
+
+    /// Whether `track_idx` is both armed and capable of audio-input
+    /// recording (see `loadClipFromPath`'s doc comment - a Sampler track is
+    /// exactly what an "audio track" is in this codebase). Everything else
+    /// (drum/slicer/synth/empty) falls through to the unchanged MIDI/note
+    /// recording path regardless of its arm state.
+    pub fn isAudioArmed(self: *const Session, track_idx: usize) bool {
+        if (!self.isArmed(track_idx)) return false;
+        if (track_idx >= self.racks.items.len) return false;
+        return self.racks.items[track_idx].instrument == .sampler;
     }
 
     /// Backward-compatible whole-bar stamping entry point.
@@ -1260,6 +1305,7 @@ pub const Session = struct {
         // zig fmt: on
         self.retired_racks.deinit(self.allocator);
         self.retired_fx.deinit(self.allocator);
+        self.armed.deinit(self.allocator);
         self.engine.deinit();
         self.allocator.destroy(self.engine);
         self.project.deinit();
@@ -1982,4 +2028,52 @@ test "song-mode gain automation ramps a track's level down over the clip" {
         for (block) |v| back_loud = @max(back_loud, @abs(v));
     }
     try std.testing.expect(back_loud > loud * 0.5);
+}
+
+test "armed follows insert/remove/duplicate/swap, parallel to racks" {
+    var s = try Session.initDefault(std.testing.allocator);
+    defer s.deinit();
+    try std.testing.expectEqual(@as(usize, 1), s.armed.items.len);
+
+    _ = try s.addTrack("b"); // index 1
+    try std.testing.expectEqual(@as(usize, 2), s.armed.items.len);
+    s.toggleArm(1);
+    try std.testing.expect(s.isArmed(1));
+    try std.testing.expect(!s.isArmed(0));
+
+    // Inserting ahead of the armed track must not shift its arm state.
+    _ = try s.insertTrack(0, "c"); // c, untitled, b(armed)
+    try std.testing.expectEqual(@as(usize, 3), s.armed.items.len);
+    try std.testing.expect(!s.isArmed(0));
+    try std.testing.expect(!s.isArmed(1));
+    try std.testing.expect(s.isArmed(2));
+
+    // Swap carries the arm bit with the track it belongs to.
+    s.swapTracks(0, 2);
+    try std.testing.expect(s.isArmed(0));
+    try std.testing.expect(!s.isArmed(2));
+
+    // A duplicate starts unarmed regardless of its source.
+    const dup = try s.duplicateTrack(0);
+    try std.testing.expect(!s.isArmed(dup));
+
+    // Deleting a track removes exactly its own slot.
+    try s.deleteTrack(0);
+    try std.testing.expectEqual(@as(usize, 3), s.armed.items.len);
+    for (s.armed.items) |a| try std.testing.expect(!a);
+}
+
+test "isAudioArmed requires both armed and a Sampler instrument" {
+    var s = try Session.initDefault(std.testing.allocator);
+    defer s.deinit();
+    try std.testing.expect(!s.isAudioArmed(0)); // unarmed, empty instrument
+
+    s.toggleArm(0);
+    try std.testing.expect(!s.isAudioArmed(0)); // armed but not a Sampler
+
+    try s.setInstrument(0, .sampler);
+    try std.testing.expect(s.isAudioArmed(0));
+
+    s.toggleArm(0);
+    try std.testing.expect(!s.isAudioArmed(0)); // disarmed again
 }

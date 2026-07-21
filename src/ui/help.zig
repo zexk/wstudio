@@ -129,6 +129,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("s",            "FX chain for selected track - same on a group row / MASTER");
     t.key("m",            "mute / unmute selected track");
     t.key("S",            "solo / unsolo selected track");
+    t.key("r",            "arm / disarm track for recording - space records live audio input on an armed Sampler track");
     t.key("M",            "jump to the master row and open its FX chain");
     t.key("< / >",        "pan left / right  (5% per step)");
     t.key("- / +",        "track gain −1 dB / +1 dB  (= also works) - group row: bus fader; MASTER: master gain");

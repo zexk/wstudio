@@ -366,6 +366,66 @@ test "toggle_solo flips project state and reaches the engine" {
     try std.testing.expect(app.session.engine.trackAt(0).*.soloed);
 }
 
+test "r toggles record-arm on the cursor track in the tracks view" {
+    var app = try testApp(); // synth(0), sampler(1), drums(2)
+    defer app.deinit();
+
+    app.cursor = 1;
+    app.handleKey(.{ .char = 'r' }, 0);
+    try std.testing.expect(app.session.isArmed(1));
+    try std.testing.expectStringEndsWith(app.status_buf[0..app.status_len], "armed");
+    try std.testing.expect(!app.session.isArmed(0));
+
+    app.handleKey(.{ .char = 'r' }, 0);
+    try std.testing.expect(!app.session.isArmed(1));
+    try std.testing.expectStringEndsWith(app.status_buf[0..app.status_len], "disarmed");
+}
+
+test "finishRecording stamps a Sampler clip from a synthetic capture, mirroring loadClipFromPath" {
+    var app = try testApp(); // synth(0), sampler(1), drums(2)
+    defer app.deinit();
+
+    // Same contrived-tempo trick `:load`'s own test uses: 1 frame == 1 beat,
+    // so the beats-from-length math stays exact.
+    app.session.project.tempo_bpm = @as(f64, @floatFromInt(app.session.project.sample_rate)) * 60.0;
+
+    app.session.toggleArm(1);
+    app.recording_active_len = 1;
+    app.recording_active_buf[0] = 1;
+    try app.recording_accum.appendSlice(app.allocator, &[_]f32{ 0.1, 0.2, 0.3, 0.4, 0.5 });
+    app.arr_cursor_bar = 2;
+
+    app.finishRecording();
+
+    try std.testing.expectEqual(@as(usize, 0), app.recording_active_len);
+    try std.testing.expect(app.session.racks.items[1].instrument.sampler.pad.user_sample);
+    try std.testing.expectEqual(@as(usize, 5), app.session.racks.items[1].instrument.sampler.pad.samples.len);
+
+    const pp = &app.session.racks.items[1].pattern_player.?;
+    try std.testing.expectEqual(@as(u16, 1), pp.note_count);
+    try std.testing.expectEqual(@as(u7, 60), pp.notes[0].pitch); // default root_note
+    try std.testing.expectApproxEqAbs(@as(f64, 5.0), pp.length_beats, 1e-9);
+
+    const lane = app.session.arrangement.lane(1).?;
+    try std.testing.expectEqual(@as(usize, 1), lane.clips.items.len);
+    try std.testing.expectEqual(@as(u32, 64), lane.clips.items[0].start_tick);
+    try std.testing.expectEqual(@as(u32, 256), lane.clips.items[0].length_ticks); // ceil(5 beats / 4 per bar)
+    try std.testing.expectStringStartsWith(app.status_buf[0..app.status_len], "recorded 1 clip(s)");
+}
+
+test "finishRecording with no captured audio skips the stamp and reports it" {
+    var app = try testApp();
+    defer app.deinit();
+
+    app.recording_active_len = 1;
+    app.recording_active_buf[0] = 1;
+    app.finishRecording();
+
+    try std.testing.expectEqual(@as(usize, 0), app.recording_active_len);
+    try std.testing.expect(!app.session.racks.items[1].instrument.sampler.pad.user_sample);
+    try std.testing.expectEqualStrings("no audio captured", app.status_buf[0..app.status_len]);
+}
+
 test ":unmute clears every track's mute in one shot; :unsolo clears solo" {
     var app = try testApp(); // synth(0), sampler(1), drums(2)
     defer app.deinit();
@@ -6263,7 +6323,10 @@ test "wstudio.api transport and track surface" {
 
     // track_get reads the control-side mirror; 0 means the cursor track.
     try rt.loadString("assert(wstudio.api.track_count() == 3)");
-    try rt.loadString("t = wstudio.api.track_get(2); assert(t.name == 'samp' and t.kind == 'sampler' and t.muted == false and t.group == nil)");
+    try rt.loadString("t = wstudio.api.track_get(2); assert(t.name == 'samp' and t.kind == 'sampler' and t.muted == false and t.armed == false and t.group == nil)");
+    app.session.toggleArm(1); // "samp" is internal index 1 (Lua's 1-based arg 2)
+    try rt.loadString("assert(wstudio.api.track_get(2).armed == true)");
+    app.session.toggleArm(1);
     app.cursor = 2;
     try rt.loadString("t = wstudio.api.track_get(0); assert(t.name == 'drums' and t.kind == 'drum')");
     try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.track_get(99)"));

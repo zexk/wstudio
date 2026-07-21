@@ -99,6 +99,10 @@ fn drawMixerRow(app: anytype, track_index: u16, display_row: usize, height: f32)
         badge_x -= 18;
         drawTrackBadge(draw_list, badge_x, origin[1] + 12, "M", patina.danger);
     }
+    if (app.core.session.isArmed(track_index)) {
+        badge_x -= 18;
+        drawTrackBadge(draw_list, badge_x, origin[1] + 12, "R", patina.danger);
+    }
 }
 
 fn drawGroupRow(app: anytype, group_index: u8, display_row: usize, height: f32) void {

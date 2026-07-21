@@ -376,6 +376,28 @@ pub const App = struct {
     /// Bars clicked through before a record count-in starts playback, from
     /// `count_in_bars` - see `toggle_play`'s insert-mode recording arm.
     count_in_bars: u8 = 1,
+    /// Audio-input capture for record-armed Sampler tracks (see
+    /// `Session.isAudioArmed`). Opened only for the duration of a record
+    /// pass by `startPendingRecording`, closed by `finishRecording` -
+    /// never held open otherwise.
+    audio_input: ws.AudioInput = .{},
+    /// Audio-armed track indices resolved by `toggle_play` at the moment
+    /// `.record` is sent, before the pre-roll count-in even starts. Moved
+    /// into `recording_active` once the count-in actually completes (see
+    /// `tick`'s playing-edge check) - so a count-in's clicks never bleed
+    /// into the captured audio. Fixed buffer + length, same convention as
+    /// `note_offs`/`note_off_len` above.
+    recording_pending_buf: [32]u16 = undefined,
+    recording_pending_len: usize = 0,
+    /// Audio-armed track indices actively capturing this record pass -
+    /// non-empty only between the count-in finishing and the pass ending.
+    recording_active_buf: [32]u16 = undefined,
+    recording_active_len: usize = 0,
+    /// Mono samples captured so far this record pass, drained from
+    /// `audio_input` once per `tick`. Every active target gets an
+    /// independent copy of this same take (see `finishRecording`) - no
+    /// per-channel/per-track routing, see the capture module's doc comment.
+    recording_accum: std.ArrayListUnmanaged(f32) = .empty,
     /// j/k nudge sizes in the automation editor, from
     /// `default_automation_gain_step_db`/`default_automation_pan_step`.
     automation_gain_step_db: f32 = 1.0,
@@ -820,6 +842,8 @@ pub const App = struct {
     }
 
     pub fn deinit(self: *App) void {
+        if (self.audio_input.active != .none) self.audio_input.stop();
+        self.recording_accum.deinit(self.allocator);
         self.external_plugins.deinit();
         user_presets.deinit(self.allocator, &self.user_synth_presets);
         user_drum_kits.deinit(self.allocator, &self.user_drum_kits);
@@ -1351,6 +1375,7 @@ pub const App = struct {
         pan: f32,
         muted: bool,
         soloed: bool,
+        armed: bool,
         /// 1-based for Lua, like track indices.
         group: ?u8,
     };
@@ -1364,6 +1389,7 @@ pub const App = struct {
             .pan = t.pan,
             .muted = t.muted,
             .soloed = t.soloed,
+            .armed = self.session.isArmed(idx),
             .group = if (t.group) |g| g + 1 else null,
         };
     }
@@ -1644,7 +1670,7 @@ pub const App = struct {
                             'U' => { history.doRedo(self); return; },
                             't' => { self.tapTempo(now_ns); return; },
                             'l' => { self.session.resetLoudness(); self.setStatus("integrated LUFS reset", .{}); return; },
-                            'd', 'Y', 'J', 'K', 'R', 'p', 'I', '<', '>', '[', ']', 'v', 'z' => {
+                            'd', 'Y', 'J', 'K', 'R', 'p', 'I', 'r', '<', '>', '[', ']', 'v', 'z' => {
                                 self.setStatus("master bus: n/a", .{});
                                 return;
                             },
@@ -1670,7 +1696,7 @@ pub const App = struct {
                                 self.setStatus("visual: j/k extend, g groups the selection, esc cancels", .{});
                                 return;
                             },
-                            'Y', 'J', 'K', 'p', 'I', '<', '>', '[', ']' => {
+                            'Y', 'J', 'K', 'p', 'I', 'r', '<', '>', '[', ']' => {
                                 self.setStatus("group row: n/a", .{});
                                 return;
                             },
@@ -1687,6 +1713,7 @@ pub const App = struct {
                             },
                             'a' => { self.doTrackAdd(null); return; },
                             'I' => { self.openInstrumentPicker(self.cursor, true); return; },
+                            'r' => { self.doTrackArmToggle(self.cursor); return; },
                             'd' => { self.tracks_del_pending = true; return; },
                             'Y' => { self.doTrackDup(self.cursor); return; },
                             'J' => { self.doTrackMove(1); return; },
@@ -2115,6 +2142,131 @@ pub const App = struct {
         const on = !self.session.metronome_enabled;
         self.session.setMetronome(on);
         self.setStatus("metronome {s}", .{if (on) "on" else "off"});
+    }
+
+    /// r toggles record-arm on a track (tracks view). Not persisted, not
+    /// undo-tracked - same posture as metronome toggling (a monitoring/
+    /// recording aid, not song content). Arming a non-Sampler track is
+    /// accepted (so the indicator stays available on every row) but inert:
+    /// `Session.isAudioArmed` only turns true for a Sampler instrument, so
+    /// nothing else in this codepath changes for other track kinds.
+    fn doTrackArmToggle(self: *App, track_idx: usize) void {
+        if (track_idx >= self.session.project.tracks.items.len) return;
+        self.session.toggleArm(track_idx);
+        const armed = self.session.isArmed(track_idx);
+        const name = self.session.project.tracks.items[track_idx].name;
+        self.setStatus("\"{s}\" {s}", .{ name, if (armed) "armed" else "disarmed" });
+    }
+
+    /// The Sampler at `track_idx`, or null if that track isn't one -
+    /// same access pattern as `commands.zig`'s `cursorSampler`, just not
+    /// limited to the cursor track (recording targets are resolved once at
+    /// record-start and may not be wherever the cursor ends up by the time
+    /// the pass finishes).
+    fn samplerAt(self: *App, track_idx: usize) ?*Sampler {
+        if (track_idx >= self.session.racks.items.len) return null;
+        return switch (self.session.racks.items[track_idx].instrument) {
+            .sampler => |*s| s,
+            else => null,
+        };
+    }
+
+    fn hasArmedAudioTarget(self: *const App) bool {
+        for (0..self.session.racks.items.len) |i| if (self.session.isAudioArmed(i)) return true;
+        return false;
+    }
+
+    /// Snapshots every currently audio-armed track into `recording_pending`
+    /// - called from `toggle_play` right before `.record` is sent, so the
+    /// set of targets is locked in before the count-in (arming/disarming
+    /// mid-pass doesn't retarget an in-flight recording).
+    fn resolveArmedAudioTargets(self: *App) void {
+        self.recording_pending_len = 0;
+        for (0..self.session.racks.items.len) |i| {
+            if (self.recording_pending_len >= self.recording_pending_buf.len) break;
+            if (self.session.isAudioArmed(i)) {
+                self.recording_pending_buf[self.recording_pending_len] = @intCast(i);
+                self.recording_pending_len += 1;
+            }
+        }
+    }
+
+    /// Called by `tick` the instant a record pass's count-in finishes and
+    /// the transport actually starts (playing false->true) with pending
+    /// audio targets queued. Opens the input device for real; a missing
+    /// device (or a platform with no capture backend) reports status and
+    /// leaves the pass MIDI-only rather than failing the whole record.
+    fn startPendingRecording(self: *App) void {
+        if (self.recording_pending_len == 0) return;
+        if (self.audio_input.start(self.session.project.sample_rate)) |_| {
+            self.recording_active_len = self.recording_pending_len;
+            @memcpy(
+                self.recording_active_buf[0..self.recording_active_len],
+                self.recording_pending_buf[0..self.recording_pending_len],
+            );
+            self.recording_accum.clearRetainingCapacity();
+        } else |_| {
+            self.setStatus("record: no audio input device", .{});
+        }
+        self.recording_pending_len = 0;
+    }
+
+    /// Drains whatever `audio_input` has queued into `recording_accum` -
+    /// called every tick while a pass is active, and once more at the very
+    /// end of `finishRecording` to pick up the tail.
+    fn drainRecording(self: *App) void {
+        while (self.audio_input.pop()) |block| {
+            self.recording_accum.appendSlice(self.allocator, block.samples[0..block.frames]) catch break;
+        }
+    }
+
+    /// Called by `tick` the instant a record pass ends (playing true->false)
+    /// with active audio targets. Stops capture, then hands the take to
+    /// every active target the same way `commands.loadClipFromPath` hands a
+    /// loaded WAV to one: `Sampler.setSamples`, a whole-clip one-shot note,
+    /// and a stamp into the arrangement at `arr_cursor_bar` - "an audio clip
+    /// is just a Sampler track with one note spanning its own duration,
+    /// stamped into the arrangement" applies here exactly as it does there.
+    /// `pub` so tests can drive it directly with synthetic
+    /// `recording_accum`/`recording_active_*` state, without a real capture
+    /// device (mirrors `doTrackAdd`/`doTrackDup` etc. being `pub` for the
+    /// same reason).
+    pub fn finishRecording(self: *App) void {
+        if (self.recording_active_len == 0) return;
+        self.audio_input.stop();
+        self.drainRecording();
+
+        const targets = self.recording_active_buf[0..self.recording_active_len];
+        if (self.recording_accum.items.len == 0) {
+            self.setStatus("no audio captured", .{});
+            self.recording_active_len = 0;
+            return;
+        }
+
+        const bpm = @max(self.session.project.tempo_bpm, 1.0);
+        const sr_f: f64 = @floatFromInt(self.session.project.sample_rate);
+        const beats = @as(f64, @floatFromInt(self.recording_accum.items.len)) * bpm / (sr_f * 60.0);
+        const length_beats = @max(beats, 1.0);
+        var clip_count: usize = 0;
+        for (targets) |track_idx| {
+            const s = self.samplerAt(track_idx) orelse continue;
+            const copy = self.allocator.dupe(f32, self.recording_accum.items) catch continue;
+            s.setSamples(copy, "recorded");
+            s.pad.user_sample = true;
+
+            const notes = [_]pattern_mod.Note{.{ .pitch = s.root_note, .start_beat = 0.0, .duration_beat = length_beats }};
+            self.session.racks.items[track_idx].pattern_player.?.setNotes(&notes, length_beats);
+
+            history.recordLane(self, @intCast(track_idx));
+            self.session.stampClipAtTick(track_idx, self.arr_cursor_bar * self.arr_grid.ticks()) catch continue;
+            clip_count += 1;
+        }
+        if (self.session.song_mode) self.session.rebuildSongData();
+
+        const secs = @as(f64, @floatFromInt(self.recording_accum.items.len)) / sr_f;
+        self.setStatus("recorded {d} clip(s) ({d:.1}s)", .{ clip_count, secs });
+        if (clip_count > 0) self.dirty = true;
+        self.recording_active_len = 0;
     }
 
     /// t taps the tempo: each tap after the first sets the BPM from the
@@ -2802,11 +2954,16 @@ pub const App = struct {
                 const snap = self.session.engine.uiSnapshot();
                 if (snap.pre_rolling) {
                     // A second press while the count-in is clicking cancels
-                    // it instead of arming another one on top.
+                    // it instead of arming another one on top. The transport
+                    // never reaches `playing`, so `tick`'s edge-detector
+                    // would never consume `recording_pending` on its own -
+                    // clear it here so a later, unrelated plain `.play`
+                    // can't pick up this canceled attempt's stale targets.
                     _ = self.session.engine.send(.stop);
+                    self.recording_pending_len = 0;
                     self.setStatus("count-in cancelled", .{});
-                } else if (!snap.playing and self.modal.mode == .insert and
-                    (self.view == .piano_roll or self.view == .drum_grid))
+                } else if (!snap.playing and (self.hasArmedAudioTarget() or
+                    (self.modal.mode == .insert and (self.view == .piano_roll or self.view == .drum_grid))))
                 {
                     // Starting playback to record (insert mode, piano roll or
                     // drum grid, currently stopped) clicks a `count_in_bars`
@@ -2814,7 +2971,12 @@ pub const App = struct {
                     // it and starts immediately - see `wstudio.o.count_in_bars`).
                     // Already-rolling playback (jumping into insert mode
                     // mid-song) needs none of this - recordNote just
-                    // quantizes to the live playhead.
+                    // quantizes to the live playhead. Any audio-armed
+                    // Sampler track (`r` in the tracks view) also starts a
+                    // record pass this way, regardless of view/mode -
+                    // resolved now, before the count-in, so its clicks never
+                    // land in the captured audio (see `tick`).
+                    self.resolveArmedAudioTargets();
                     _ = self.session.engine.send(.{ .record = self.count_in_bars });
                     if (self.count_in_bars > 0) self.setStatus("count-in...", .{});
                 } else {
@@ -3427,11 +3589,20 @@ pub const App = struct {
             self.emitEvent(.{ .ViewEnter = .{ .view = @tagName(self.view), .prev = @tagName(prev) } });
         }
         const playing = self.session.engine.uiSnapshot().playing;
+        const was_playing = self.last_playing;
         if (playing != self.last_playing) {
             self.last_playing = playing;
             const tempo = self.session.project.tempo_bpm;
             self.emitEvent(if (playing) .{ .PlaybackStart = .{ .tempo = tempo } } else .{ .PlaybackStop = .{ .tempo = tempo } });
         }
+        // Audio-input recording: a count-in's pre-roll must never land in
+        // the captured take, so capture only starts on the exact frame
+        // playback goes live, not when `.record` was sent (see
+        // `resolveArmedAudioTargets`/`toggle_play`). Symmetric on the other
+        // edge: the pass ends the instant playback stops.
+        if (playing and !was_playing) self.startPendingRecording();
+        if (self.recording_active_len > 0) self.drainRecording();
+        if (!playing and was_playing) self.finishRecording();
     }
 
     /// Every `autosave_interval_ns`, if there are unsaved changes, silently
@@ -3910,6 +4081,13 @@ pub const App = struct {
     /// `app.session = loaded`. `last_view` deliberately stays: the next
     /// tick() then emits ViewEnter for the forced jump to `.tracks`.
     pub fn resetForNewSession(self: *App) void {
+        // A project swap mid-record-pass (rare, but `:e`/`:w new` etc. don't
+        // guard against it) would otherwise leave the capture device open
+        // and stamp onto tracks that no longer exist.
+        if (self.audio_input.active != .none) self.audio_input.stop();
+        self.recording_pending_len = 0;
+        self.recording_active_len = 0;
+        self.recording_accum.clearRetainingCapacity();
         self.history.clear(self.allocator);
         self.pending_param_nudge = null;
         if (self.pending_fx_nudge) |*p| p.deinit(self.allocator);

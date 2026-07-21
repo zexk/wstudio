@@ -17,6 +17,7 @@ const grn = style.grn;
 const yel = style.yel;
 const sel = style.sel;
 const mag = style.mag;
+const red = style.red;
 const endLine = style.endLine;
 
 /// Row-badge chips for a rack's FX chain, in signal-flow order. Chains can
@@ -119,6 +120,17 @@ fn writeTrackRow(app: anytype, w: *std.Io.Writer, ti: u16, is_sel: bool, in_sel:
     if (track.soloed) {
         if (!faded) try lw.writeAll(grn);
         try lw.writeByte('S');
+        if (!faded) try lw.writeAll(rst);
+        if (is_sel) try lw.writeAll(sel);
+    } else {
+        try lw.writeByte(' ');
+    }
+    // record-arm indicator: red, `r` toggles - inert unless the rack is a
+    // Sampler (see `Session.isAudioArmed`), but shown for any armed track
+    // so the state stays visible regardless of instrument kind.
+    if (ti < app.session.armed.items.len and app.session.armed.items[ti]) {
+        if (!faded) try lw.writeAll(red);
+        try lw.writeByte('R');
         if (!faded) try lw.writeAll(rst);
         if (is_sel) try lw.writeAll(sel);
     } else {
