@@ -19,7 +19,47 @@ pub const MouseEdit = struct {
     source_pitch: u7,
     source_step: u16,
     grab_step_offset: u16 = 0,
+    target_pitch: u7,
+    target_step: u16,
+    duration_steps: u16,
 };
+
+fn previewNote(source: ws.dsp.pattern.Note, edit: ?MouseEdit, steps_per_beat: usize) ws.dsp.pattern.Note {
+    const active = edit orelse return source;
+    const source_step: u16 = @intFromFloat(@round(source.start_beat * @as(f64, @floatFromInt(steps_per_beat))));
+    if (source.pitch != active.source_pitch or source_step != active.source_step) return source;
+    var note = source;
+    switch (active.kind) {
+        .move => {
+            note.pitch = active.target_pitch;
+            note.start_beat = @as(f64, @floatFromInt(active.target_step)) / @as(f64, @floatFromInt(steps_per_beat));
+        },
+        .resize => note.duration_beat = @as(f64, @floatFromInt(active.duration_steps)) / @as(f64, @floatFromInt(steps_per_beat)),
+    }
+    return note;
+}
+
+fn updateMouseEdit(edit: *MouseEdit, pointer_pitch: u7, pointer_step: usize) void {
+    switch (edit.kind) {
+        .move => {
+            edit.target_pitch = pointer_pitch;
+            edit.target_step = @intCast(pointer_step -| edit.grab_step_offset);
+        },
+        .resize => edit.duration_steps = @intCast(@max(1, pointer_step + 1 -| edit.source_step)),
+    }
+}
+
+test "mouse note edits preview before commit" {
+    const note: ws.dsp.pattern.Note = .{ .pitch = 60, .start_beat = 1, .duration_beat = 0.5 };
+    const base: MouseEdit = .{ .kind = .move, .source_pitch = 60, .source_step = 4, .target_pitch = 64, .target_step = 8, .duration_steps = 2 };
+    const moved = previewNote(note, base, 4);
+    try std.testing.expectEqual(@as(u7, 64), moved.pitch);
+    try std.testing.expectEqual(@as(f64, 2), moved.start_beat);
+    var resize = base;
+    resize.kind = .resize;
+    resize.duration_steps = 6;
+    try std.testing.expectEqual(@as(f64, 1.5), previewNote(note, resize, 4).duration_beat);
+}
 
 fn drawToolbar(app: anytype) void {
     var scale_on = app.core.piano_scale != null;
@@ -196,7 +236,8 @@ pub fn draw(app: anytype) void {
     }
 
     while (!pp.notes_lock.tryLock()) std.atomic.spinLoopHint();
-    for (pp.notes[0..pp.note_count]) |note| {
+    for (pp.notes[0..pp.note_count]) |source_note| {
+        const note = previewNote(source_note, app.piano_mouse_edit, steps_per_beat);
         if (note.pitch < bottom_pitch or note.pitch > top_pitch) continue;
         const x = grid_x + @as(f32, @floatCast(note.start_beat)) * beat_w;
         const width = @max(3, @as(f32, @floatCast(note.duration_beat)) * beat_w - 2);
@@ -261,6 +302,9 @@ pub fn draw(app: anytype) void {
                     .source_pitch = note.pitch,
                     .source_step = source_step,
                     .grab_step_offset = @intCast(pointer_step -| source_step),
+                    .target_pitch = note.pitch,
+                    .target_step = source_step,
+                    .duration_steps = @intCast(@max(1, @as(usize, @intFromFloat(@round(note.duration_beat * @as(f64, @floatFromInt(steps_per_beat))))))),
                 };
             } else {
                 app.core.piano_cursor_pitch = pointer_pitch;
@@ -276,17 +320,17 @@ pub fn draw(app: anytype) void {
         }
     }
 
+    if (zgui.isMouseDown(.left)) {
+        if (app.piano_mouse_edit) |*edit| updateMouseEdit(edit, pointer_pitch, pointer_step);
+    }
+
     if (zgui.isMouseReleased(.left)) {
-        if (app.piano_mouse_edit) |edit| {
+        if (app.piano_mouse_edit) |*active| {
+            updateMouseEdit(active, pointer_pitch, pointer_step);
+            const edit = active.*;
             switch (edit.kind) {
-                .move => {
-                    const target_step: u16 = @intCast(pointer_step -| edit.grab_step_offset);
-                    _ = piano_ed.moveNoteTo(&app.core, edit.source_pitch, edit.source_step, pointer_pitch, target_step);
-                },
-                .resize => {
-                    const duration: u16 = @intCast(@max(1, pointer_step + 1 -| edit.source_step));
-                    _ = piano_ed.resizeNoteSteps(&app.core, edit.source_pitch, edit.source_step, duration);
-                },
+                .move => _ = piano_ed.moveNoteTo(&app.core, edit.source_pitch, edit.source_step, edit.target_pitch, edit.target_step),
+                .resize => _ = piano_ed.resizeNoteSteps(&app.core, edit.source_pitch, edit.source_step, edit.duration_steps),
             }
             app.piano_mouse_edit = null;
         }
