@@ -66,13 +66,21 @@ pub fn draw(app: anytype) void {
     }
 
     const max_grid_lines = 4096;
-    const beat_stride: u64 = @max(1, (total_beats_u64 + max_grid_lines - 1) / max_grid_lines);
-    var beat_index: u64 = 0;
-    while (beat_index <= total_beats_u64) : (beat_index += beat_stride) {
-        const x = timeline_x + @as(f32, @floatFromInt(beat_index)) * beat_w;
-        const on_bar = beat_index % beats_per_bar == 0;
-        draw_list.addLine(.{ .p1 = .{ x, if (on_bar) origin[1] else origin[1] + ruler_h }, .p2 = .{ x, origin[1] + canvas_h }, .col = color(if (on_bar) patina.bg5 else patina.line), .thickness = if (on_bar) 1.5 else 1 });
-        if (on_bar and beat_index < total_beats_u64) draw_list.addText(.{ x + 7, origin[1] + 7 }, color(patina.fg2), "{d}", .{beat_index / beats_per_bar + 1});
+    const total_ticks_u64 = total_beats_u64 * ticks_per_beat;
+    const grid_ticks: u64 = app.core.arr_grid.ticks();
+    const tick_stride: u64 = @max(grid_ticks, grid_ticks * ((total_ticks_u64 / grid_ticks + max_grid_lines - 1) / max_grid_lines));
+    var tick_index: u64 = 0;
+    while (tick_index <= total_ticks_u64) : (tick_index += tick_stride) {
+        const x = timeline_x + @as(f32, @floatFromInt(tick_index)) / @as(f32, @floatFromInt(ticks_per_beat)) * beat_w;
+        const on_bar = tick_index % ticks_per_bar == 0;
+        const on_beat = tick_index % ticks_per_beat == 0;
+        draw_list.addLine(.{
+            .p1 = .{ x, if (on_bar) origin[1] else origin[1] + ruler_h },
+            .p2 = .{ x, origin[1] + canvas_h },
+            .col = color(if (on_bar) patina.bg5 else if (on_beat) patina.line else .{ patina.line[0], patina.line[1], patina.line[2], patina.line[3] * 0.5 }),
+            .thickness = if (on_bar) 1.5 else 1,
+        });
+        if (on_bar and tick_index < total_ticks_u64) draw_list.addText(.{ x + 7, origin[1] + 7 }, color(patina.fg2), "{d}", .{tick_index / ticks_per_bar + 1});
     }
 
     if (app.core.modal.mode == .visual and app.core.cursor < track_count) {
