@@ -11,7 +11,7 @@ const zgui = @import("zgui");
 
 const color = gui_style.color;
 const trackColor = gui_style.trackColor;
-const patina = &gui_style.palette;
+const theme = &gui_style.palette;
 
 /// In-flight mouse edit; lives on the GUI App so it survives across frames.
 pub const MouseEdit = struct {
@@ -55,7 +55,7 @@ fn drawToolbar(app: anytype) void {
         app.core.handleKey(.{ .char = 'Z' }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
     }
     zgui.sameLine(.{ .spacing = 4 });
-    zgui.textColored(patina.audio, "{s}", .{app.core.piano_division.label()});
+    zgui.textColored(theme.audio, "{s}", .{app.core.piano_division.label()});
     zgui.sameLine(.{ .spacing = 4 });
     if (zgui.button("+ GRID##piano-grid-up", .{ .h = 27 })) {
         app.core.handleKey(.{ .char = 'z' }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
@@ -84,21 +84,21 @@ pub fn draw(app: anytype) void {
     zgui.text("\"{s}\"", .{track_name});
     if (app.core.piano_clip_link) |link| {
         zgui.sameLine(.{});
-        zgui.textColored(patina.focus, "clip@bar {d}", .{link.start_bar + 1});
+        zgui.textColored(theme.focus, "clip@bar {d}", .{link.start_bar + 1});
     } else if (app.core.session.song_mode) {
         zgui.sameLine(.{});
-        zgui.textColored(patina.danger, "scratch: not in song until stamped from arrangement", .{});
+        zgui.textColored(theme.danger, "scratch: not in song until stamped from arrangement", .{});
     }
     if (app.core.piano_scale) |scale| {
         zgui.sameLine(.{});
-        zgui.textColored(patina.modulation, "scale {s} {s}", .{ ws.theory.pitchClassName(scale.root), scale.kind.label() });
+        zgui.textColored(theme.modulation, "scale {s} {s}", .{ ws.theory.pitchClassName(scale.root), scale.kind.label() });
     }
     if (app.core.piano_grid == .triplet) {
         zgui.sameLine(.{});
-        zgui.textColored(patina.rhythm, "triplet", .{});
+        zgui.textColored(theme.rhythm, "triplet", .{});
     }
     zgui.sameLine(.{});
-    zgui.textColored(patina.audio, "{s}", .{app.core.piano_division.label()});
+    zgui.textColored(theme.audio, "{s}", .{app.core.piano_division.label()});
     if (app.core.piano_ghost) {
         zgui.sameLine(.{});
         zgui.textDisabled("ghost", .{});
@@ -131,8 +131,8 @@ pub fn draw(app: anytype) void {
     const beats: f32 = @floatCast(@max(1.0, pp.length_beats));
     const beat_w = grid_w / beats;
 
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + canvas_w, origin[1] + canvas_h }, .col = color(patina.bg0) });
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + gutter_w, origin[1] + ruler_h }, .col = color(patina.bg2) });
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + canvas_w, origin[1] + canvas_h }, .col = color(theme.bg0) });
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + gutter_w, origin[1] + ruler_h }, .col = color(theme.bg2) });
 
     for (0..row_count) |row| {
         const pitch: u7 = top_pitch - @as(u7, @intCast(row));
@@ -140,20 +140,20 @@ pub fn draw(app: anytype) void {
         const black = isBlackKey(pitch);
         const tone = piano_ed.scaleTone(app.core.piano_scale, pitch);
         const row_color = switch (tone) {
-            .root => patina.bg3,
-            .out_scale => patina.line_soft,
-            .in_scale, .unscaled_white => patina.bg2,
-            .unscaled_black => patina.bg1,
+            .root => theme.bg3,
+            .out_scale => theme.line_soft,
+            .in_scale, .unscaled_white => theme.bg2,
+            .unscaled_black => theme.bg1,
         };
         draw_list.addRectFilled(.{ .pmin = .{ grid_x, y }, .pmax = .{ origin[0] + canvas_w, y + row_h }, .col = color(row_color) });
-        const key_color = if (black) patina.bg1 else patina.fg1;
+        const key_color = if (black) theme.bg1 else theme.fg1;
         draw_list.addRectFilled(.{ .pmin = .{ origin[0], y }, .pmax = .{ grid_x, y + row_h }, .col = color(key_color) });
-        if (black) draw_list.addRectFilled(.{ .pmin = .{ origin[0], y + 1 }, .pmax = .{ origin[0] + 37, y + row_h - 1 }, .col = color(patina.bg0) });
-        draw_list.addLine(.{ .p1 = .{ origin[0], y + row_h }, .p2 = .{ origin[0] + canvas_w, y + row_h }, .col = color(patina.line), .thickness = if (@mod(pitch, 12) == 0) 1.5 else 1 });
+        if (black) draw_list.addRectFilled(.{ .pmin = .{ origin[0], y + 1 }, .pmax = .{ origin[0] + 37, y + row_h - 1 }, .col = color(theme.bg0) });
+        draw_list.addLine(.{ .p1 = .{ origin[0], y + row_h }, .p2 = .{ origin[0] + canvas_w, y + row_h }, .col = color(theme.line), .thickness = if (@mod(pitch, 12) == 0) 1.5 else 1 });
         var note_buf: [5]u8 = undefined;
         const note_name = ws.midi.noteName(pitch, &note_buf);
         const label_x = grid_x - zgui.calcTextSize(note_name, .{})[0] - 4;
-        draw_list.addText(.{ label_x, y + 1 }, color(if (black) patina.fg0 else patina.bg0), "{s}", .{note_name});
+        draw_list.addText(.{ label_x, y + 1 }, color(if (black) theme.fg0 else theme.bg0), "{s}", .{note_name});
     }
 
     const steps_per_beat: usize = app.core.pianoStepsPerBeat();
@@ -165,15 +165,15 @@ pub fn draw(app: anytype) void {
         const hi = @max(anchor, cursor_step);
         const x1 = grid_x + @as(f32, @floatFromInt(lo)) * beat_w / @as(f32, @floatFromInt(steps_per_beat));
         const x2 = grid_x + @as(f32, @floatFromInt(hi + 1)) * beat_w / @as(f32, @floatFromInt(steps_per_beat));
-        draw_list.addRectFilled(.{ .pmin = .{ x1, grid_y }, .pmax = .{ x2, origin[1] + canvas_h }, .col = color(.{ patina.rhythm[0], patina.rhythm[1], patina.rhythm[2], 0.12 }) });
-        draw_list.addRect(.{ .pmin = .{ x1 + 1, grid_y + 1 }, .pmax = .{ x2 - 1, origin[1] + canvas_h - 1 }, .col = color(.{ patina.rhythm[0], patina.rhythm[1], patina.rhythm[2], 0.55 }), .thickness = 1 });
+        draw_list.addRectFilled(.{ .pmin = .{ x1, grid_y }, .pmax = .{ x2, origin[1] + canvas_h }, .col = color(.{ theme.rhythm[0], theme.rhythm[1], theme.rhythm[2], 0.12 }) });
+        draw_list.addRect(.{ .pmin = .{ x1 + 1, grid_y + 1 }, .pmax = .{ x2 - 1, origin[1] + canvas_h - 1 }, .col = color(.{ theme.rhythm[0], theme.rhythm[1], theme.rhythm[2], 0.55 }), .thickness = 1 });
     }
     for (0..steps + 1) |step| {
         const x = grid_x + @as(f32, @floatFromInt(step)) * beat_w / @as(f32, @floatFromInt(steps_per_beat));
         const on_beat = step % steps_per_beat == 0;
         const on_bar = step % (steps_per_beat * app.core.session.project.beats_per_bar) == 0;
-        draw_list.addLine(.{ .p1 = .{ x, if (on_beat) origin[1] else grid_y }, .p2 = .{ x, origin[1] + canvas_h }, .col = color(if (on_bar) patina.bg5 else if (on_beat) patina.bg4 else patina.line), .thickness = if (on_bar) 2 else 1 });
-        if (on_beat and step < steps) draw_list.addText(.{ x + 5, origin[1] + 4 }, color(patina.fg2), "{d}.{d}", .{ step / (steps_per_beat * app.core.session.project.beats_per_bar) + 1, step / steps_per_beat % app.core.session.project.beats_per_bar + 1 });
+        draw_list.addLine(.{ .p1 = .{ x, if (on_beat) origin[1] else grid_y }, .p2 = .{ x, origin[1] + canvas_h }, .col = color(if (on_bar) theme.bg5 else if (on_beat) theme.bg4 else theme.line), .thickness = if (on_bar) 2 else 1 });
+        if (on_beat and step < steps) draw_list.addText(.{ x + 5, origin[1] + 4 }, color(theme.fg2), "{d}.{d}", .{ step / (steps_per_beat * app.core.session.project.beats_per_bar) + 1, step / steps_per_beat % app.core.session.project.beats_per_bar + 1 });
     }
 
     if (app.core.piano_ghost) {
@@ -205,11 +205,11 @@ pub fn draw(app: anytype) void {
         const start_step: u16 = @intFromFloat(@round(note.start_beat * @as(f64, @floatFromInt(steps_per_beat))));
         const selected = app.core.piano_cursor_pitch == note.pitch and app.core.piano_cursor_step == start_step;
         const note_alpha = 0.62 + std.math.clamp(note.velocity, 0, 1) * 0.38;
-        draw_list.addRectFilled(.{ .pmin = .{ x + 1, y }, .pmax = .{ right, y + row_h - 4 }, .col = color(.{ patina.audio[0], patina.audio[1], patina.audio[2], note_alpha }), .rounding = 3 });
-        draw_list.addLine(.{ .p1 = .{ x + 3, y + 2 }, .p2 = .{ x + 3, y + row_h - 6 }, .col = color(.{ patina.fg0[0], patina.fg0[1], patina.fg0[2], 0.72 }), .thickness = 2 });
+        draw_list.addRectFilled(.{ .pmin = .{ x + 1, y }, .pmax = .{ right, y + row_h - 4 }, .col = color(.{ theme.audio[0], theme.audio[1], theme.audio[2], note_alpha }), .rounding = 3 });
+        draw_list.addLine(.{ .p1 = .{ x + 3, y + 2 }, .p2 = .{ x + 3, y + row_h - 6 }, .col = color(.{ theme.fg0[0], theme.fg0[1], theme.fg0[2], 0.72 }), .thickness = 2 });
         if (selected) {
-            draw_list.addRect(.{ .pmin = .{ x, y - 1 }, .pmax = .{ right + 1, y + row_h - 3 }, .col = color(patina.rhythm), .rounding = 3, .thickness = 2 });
-            draw_list.addRectFilled(.{ .pmin = .{ @max(x + 2, right - 5), y + 2 }, .pmax = .{ right, y + row_h - 6 }, .col = color(patina.rhythm), .rounding = 1 });
+            draw_list.addRect(.{ .pmin = .{ x, y - 1 }, .pmax = .{ right + 1, y + row_h - 3 }, .col = color(theme.rhythm), .rounding = 3, .thickness = 2 });
+            draw_list.addRectFilled(.{ .pmin = .{ @max(x + 2, right - 5), y + 2 }, .pmax = .{ right, y + row_h - 6 }, .col = color(theme.rhythm), .rounding = 1 });
         }
     }
     pp.notes_lock.unlock();
@@ -224,13 +224,13 @@ pub fn draw(app: anytype) void {
         draw_list.addRectFilled(.{
             .pmin = .{ cursor_x + 1, cursor_y + 1 },
             .pmax = .{ cursor_right, cursor_y + row_h - 1 },
-            .col = color(.{ patina.focus[0], patina.focus[1], patina.focus[2], 0.18 }),
+            .col = color(.{ theme.focus[0], theme.focus[1], theme.focus[2], 0.18 }),
             .rounding = 2,
         });
         draw_list.addRect(.{
             .pmin = .{ cursor_x + 1, cursor_y + 1 },
             .pmax = .{ cursor_right, cursor_y + row_h - 1 },
-            .col = color(patina.focus),
+            .col = color(theme.focus),
             .rounding = 2,
             .thickness = 2,
         });
@@ -240,7 +240,7 @@ pub fn draw(app: anytype) void {
     if (snap.playing) {
         const play_beat = @mod(ws.types.framesToSeconds(snap.position_frames, app.core.session.project.sample_rate) * app.core.session.project.tempo_bpm / 60.0, pp.length_beats);
         const x = grid_x + @as(f32, @floatCast(play_beat)) * beat_w;
-        draw_list.addLine(.{ .p1 = .{ x, origin[1] }, .p2 = .{ x, origin[1] + canvas_h }, .col = color(patina.danger), .thickness = 2 });
+        draw_list.addLine(.{ .p1 = .{ x, origin[1] }, .p2 = .{ x, origin[1] + canvas_h }, .col = color(theme.danger), .thickness = 2 });
     }
 
     const cell_w = beat_w / @as(f32, @floatFromInt(steps_per_beat));
@@ -302,15 +302,15 @@ fn drawVelocityLane(app: anytype, pp: *ws.dsp.PatternPlayer, width: f32, gutter_
     const grid_x = origin[0] + gutter_w;
     const grid_w = width - gutter_w;
     const beat_w = grid_w / beats;
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(patina.bg0) });
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ grid_x, origin[1] + height }, .col = color(patina.bg2) });
-    draw_list.addText(.{ origin[0] + 8, origin[1] + 8 }, color(patina.rhythm), "VELOCITY", .{});
-    draw_list.addText(.{ origin[0] + 8, origin[1] + 30 }, color(patina.fg3), "</> nudge", .{});
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(theme.bg0) });
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ grid_x, origin[1] + height }, .col = color(theme.bg2) });
+    draw_list.addText(.{ origin[0] + 8, origin[1] + 8 }, color(theme.rhythm), "VELOCITY", .{});
+    draw_list.addText(.{ origin[0] + 8, origin[1] + 30 }, color(theme.fg3), "</> nudge", .{});
 
     const steps_per_beat = app.core.pianoStepsPerBeat();
     for (0..@as(usize, @intFromFloat(@ceil(beats))) + 1) |beat| {
         const x = grid_x + @as(f32, @floatFromInt(beat)) * beat_w;
-        draw_list.addLine(.{ .p1 = .{ x, origin[1] }, .p2 = .{ x, origin[1] + height }, .col = color(patina.line), .thickness = 1 });
+        draw_list.addLine(.{ .p1 = .{ x, origin[1] }, .p2 = .{ x, origin[1] + height }, .col = color(theme.line), .thickness = 1 });
     }
     while (!pp.notes_lock.tryLock()) std.atomic.spinLoopHint();
     defer pp.notes_lock.unlock();
@@ -323,21 +323,21 @@ fn drawVelocityLane(app: anytype, pp: *ws.dsp.PatternPlayer, width: f32, gutter_
         draw_list.addRectFilled(.{
             .pmin = .{ x + 1, origin[1] + height - bar_height },
             .pmax = .{ x + bar_width, origin[1] + height - 2 },
-            .col = color(if (selected) patina.rhythm else .{ patina.audio[0], patina.audio[1], patina.audio[2], 0.72 }),
+            .col = color(if (selected) theme.rhythm else .{ theme.audio[0], theme.audio[1], theme.audio[2], 0.72 }),
             .rounding = 2,
         });
         if (selected) {
             draw_list.addRect(.{
                 .pmin = .{ x, origin[1] + height - bar_height - 1 },
                 .pmax = .{ x + bar_width + 1, origin[1] + height - 1 },
-                .col = color(patina.fg0),
+                .col = color(theme.fg0),
                 .rounding = 2,
                 .thickness = 2,
             });
             draw_list.addLine(.{
                 .p1 = .{ x + bar_width * 0.5, origin[1] },
                 .p2 = .{ x + bar_width * 0.5, origin[1] + height },
-                .col = color(.{ patina.rhythm[0], patina.rhythm[1], patina.rhythm[2], 0.42 }),
+                .col = color(.{ theme.rhythm[0], theme.rhythm[1], theme.rhythm[2], 0.42 }),
                 .thickness = 1,
             });
         }

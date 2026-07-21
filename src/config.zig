@@ -395,6 +395,7 @@ pub const Runtime = struct {
     autocmds: [max_autocmds]Autocmd = undefined,
     autocmds_len: usize = 0,
     next_autocmd_id: u32 = 1,
+    highlight_overrides: theme_identity.Overrides = .{},
 
     pub fn init(frontend: Frontend) !Runtime {
         const state = c.luaL_newstate() orelse return error.OutOfMemory;
@@ -446,6 +447,10 @@ pub const Runtime = struct {
 
     pub fn userCommands(self: *const Runtime) []const UserCmd {
         return self.user_cmds[0..self.user_cmds_len];
+    }
+
+    pub fn resolvedTheme(self: *const Runtime, name: theme_identity.Name) theme_identity.Identity {
+        return self.highlight_overrides.apply(theme_identity.get(name).*);
     }
 
     /// Call user command `index`'s Lua handler with the Neovim-shaped opts
@@ -636,6 +641,7 @@ pub const Runtime = struct {
         self.keymaps_len = 0;
         for (self.autocmds[0..self.autocmds_len]) |*ac| c.luaL_unref(self.state, c.LUA_REGISTRYINDEX, ac.ref);
         self.autocmds_len = 0;
+        self.highlight_overrides = .{};
         self.config = .{};
     }
 
@@ -703,6 +709,8 @@ pub const Runtime = struct {
             .{ .name = "get_mode", .func = apiGetMode },
             .{ .name = "get_current_view", .func = apiGetCurrentView },
             .{ .name = "get_current_track", .func = apiGetCurrentTrack },
+            .{ .name = "set_hl", .func = apiSetHl },
+            .{ .name = "get_hl", .func = apiGetHl },
             .{ .name = "play", .func = apiPlay },
             .{ .name = "stop", .func = apiStop },
             .{ .name = "is_playing", .func = apiIsPlaying },
@@ -1324,6 +1332,64 @@ fn apiGetContext(state: ?*c.lua_State) callconv(.c) c_int {
     c.lua_setfield(l, -2, "mode");
     pushCurrentTrack(l, app);
     c.lua_setfield(l, -2, "track");
+    return 1;
+}
+
+fn checkHighlight(l: *c.lua_State, arg: c_int) theme_identity.Highlight {
+    const name = std.mem.span(c.luaL_checklstring(l, arg, null));
+    return std.meta.stringToEnum(theme_identity.Highlight, name) orelse {
+        _ = c.luaL_error(l, "unknown highlight group");
+        unreachable;
+    };
+}
+
+fn parseHexColor(l: *c.lua_State, arg: c_int) u24 {
+    var len: usize = 0;
+    const raw = c.luaL_checklstring(l, arg, &len);
+    const text = raw[0..len];
+    if (text.len != 7 or text[0] != '#') {
+        _ = c.luaL_error(l, "highlight fg must be #rrggbb");
+        unreachable;
+    }
+    return std.fmt.parseInt(u24, text[1..], 16) catch {
+        _ = c.luaL_error(l, "highlight fg must be #rrggbb");
+        unreachable;
+    };
+}
+
+/// Sparse semantic color override, shaped after nvim_set_hl. An empty spec
+/// clears the override and reveals the selected built-in theme underneath.
+fn apiSetHl(state: ?*c.lua_State) callconv(.c) c_int {
+    const l = state.?;
+    const hl = checkHighlight(l, 1);
+    c.luaL_checktype(l, 2, c.LUA_TTABLE);
+    c.lua_pushnil(l);
+    while (c.lua_next(l, 2) != 0) {
+        if (c.lua_type(l, -2) != c.LUA_TSTRING or !std.mem.eql(u8, std.mem.span(c.lua_tolstring(l, -2, null)), "fg"))
+            return c.luaL_error(l, "highlight spec only supports fg");
+        c.lua_settop(l, -2);
+    }
+    const rt = runtime(l);
+    switch (c.lua_getfield(l, 2, "fg")) {
+        c.LUA_TNIL => rt.highlight_overrides.set(hl, null),
+        c.LUA_TSTRING => rt.highlight_overrides.set(hl, parseHexColor(l, -1)),
+        else => return c.luaL_error(l, "highlight fg must be #rrggbb"),
+    }
+    c.lua_settop(l, -2);
+    if (rt.app) |app| app.pending_colorscheme = true;
+    return 0;
+}
+
+fn apiGetHl(state: ?*c.lua_State) callconv(.c) c_int {
+    const l = state.?;
+    const color = runtime(l).highlight_overrides.get(checkHighlight(l, 1));
+    c.lua_createtable(l, 0, 1);
+    if (color) |hex| {
+        var buf: [8]u8 = undefined;
+        const text = std.fmt.bufPrint(&buf, "#{x:0>6}", .{hex}) catch unreachable;
+        _ = c.lua_pushlstring(l, text.ptr, text.len);
+        c.lua_setfield(l, -2, "fg");
+    }
     return 1;
 }
 
@@ -2009,6 +2075,25 @@ test "api project functions raise before a session attaches" {
     try rt.loadString("local ok, err = pcall(wstudio.api.track_count); assert(ok == false and err:find('no session') ~= nil)");
 }
 
+test "Lua highlight API layers sparse colors over built-in themes" {
+    var rt = try Runtime.init(.gui);
+    defer rt.deinit();
+
+    try rt.loadString("wstudio.api.set_hl('focus', { fg = '#123aBc' }); wstudio.api.set_hl('track3', { fg = '#010203' })");
+    try rt.loadString("assert(wstudio.api.get_hl('focus').fg == '#123abc'); assert(wstudio.api.get_hl('track3').fg == '#010203')");
+    const resolved = rt.resolvedTheme(.graphite);
+    try std.testing.expectEqual(@as(u24, 0x123abc), resolved.focus);
+    try std.testing.expectEqual(@as(u24, 0x010203), resolved.tracks[2]);
+    try std.testing.expectEqual(theme_identity.graphite.bg0, resolved.bg0);
+
+    try rt.loadString("wstudio.api.set_hl('focus', {})");
+    try rt.loadString("assert(wstudio.api.get_hl('focus').fg == nil)");
+    try std.testing.expectEqual(theme_identity.graphite.focus, rt.resolvedTheme(.graphite).focus);
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.set_hl('nope', { fg = '#ffffff' })"));
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.set_hl('focus', { fg = 'red' })"));
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.set_hl('focus', { bg = '#ffffff' })"));
+}
+
 test "resetForReload clears keymaps, user commands, autocmds, and options" {
     var rt = try Runtime.init(.tui);
     defer rt.deinit();
@@ -2017,11 +2102,13 @@ test "resetForReload clears keymaps, user commands, autocmds, and options" {
         \\wstudio.keymap.set("n", "gp", function() end)
         \\wstudio.api.create_user_command("swing", function() end)
         \\wstudio.api.create_autocmd("QuitPre", { callback = function() end })
+        \\wstudio.api.set_hl("focus", { fg = "#123456" })
     );
     try std.testing.expectEqual(@as(f64, 140.0), rt.config.default_tempo);
     try std.testing.expectEqual(@as(usize, 1), rt.userKeymaps().len);
     try std.testing.expectEqual(@as(usize, 1), rt.userCommands().len);
     try std.testing.expectEqual(@as(usize, 1), rt.autocmds_len);
+    try std.testing.expectEqual(@as(?u24, 0x123456), rt.highlight_overrides.get(.focus));
 
     rt.resetForReload();
 
@@ -2029,6 +2116,7 @@ test "resetForReload clears keymaps, user commands, autocmds, and options" {
     try std.testing.expectEqual(@as(usize, 0), rt.userKeymaps().len);
     try std.testing.expectEqual(@as(usize, 0), rt.userCommands().len);
     try std.testing.expectEqual(@as(usize, 0), rt.autocmds_len);
+    try std.testing.expectEqual(@as(?u24, null), rt.highlight_overrides.get(.focus));
 
     // The Lua state itself survives (unlike a fresh Runtime.init) - a
     // subsequent load still works and its global state persists.

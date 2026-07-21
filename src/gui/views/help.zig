@@ -13,7 +13,7 @@ const ansi = @import("../../ui/ansi.zig");
 const style = @import("../style.zig");
 
 const color = style.color;
-const patina = &style.palette;
+const theme = &style.palette;
 
 pub fn draw(app: anytype) void {
     drawHeader();
@@ -29,11 +29,11 @@ fn drawHeader() void {
     const origin = zgui.getCursorScreenPos();
     _ = zgui.invisibleButton("help-header", .{ .w = width, .h = height });
     const draw_list = zgui.getWindowDrawList();
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(patina.bg2), .rounding = 4 });
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + 5, origin[1] + height }, .col = color(patina.modulation), .rounding = 3 });
-    draw_list.addText(.{ origin[0] + 17, origin[1] + 10 }, color(patina.fg3), "WSTUDIO REFERENCE", .{});
-    draw_list.addText(.{ origin[0] + 17, origin[1] + 35 }, color(patina.fg0), "Keyboard first, mouse friendly", .{});
-    draw_list.addText(.{ origin[0] + width - 180, origin[1] + 27 }, color(patina.modulation), "VIM MODAL WORKFLOW", .{});
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(theme.bg2), .rounding = 4 });
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + 5, origin[1] + height }, .col = color(theme.modulation), .rounding = 3 });
+    draw_list.addText(.{ origin[0] + 17, origin[1] + 10 }, color(theme.fg3), "WSTUDIO REFERENCE", .{});
+    draw_list.addText(.{ origin[0] + 17, origin[1] + 35 }, color(theme.fg0), "Keyboard first, mouse friendly", .{});
+    draw_list.addText(.{ origin[0] + width - 180, origin[1] + 27 }, color(theme.modulation), "VIM MODAL WORKFLOW", .{});
 }
 
 /// Faster mouse-driven paths to views also reachable by keybind (enter on a
@@ -42,7 +42,7 @@ fn drawHeader() void {
 fn drawLaunchers(app: anytype) void {
     zgui.textDisabled("QUICK OPEN", .{});
     zgui.separator();
-    zgui.pushStyleColor4f(.{ .idx = .button, .c = patina.focus_soft });
+    zgui.pushStyleColor4f(.{ .idx = .button, .c = theme.focus_soft });
     if (zgui.button("INSTRUMENTS", .{ .h = 34 })) app.openPicker(.instrument_picker);
     zgui.popStyleColor(.{});
     zgui.sameLine(.{ .spacing = 6 });
@@ -65,7 +65,7 @@ fn drawReference(app: anytype) void {
     const off = app.core.help_scroll;
     const end = @min(off + visible, t.count);
 
-    zgui.textColored(patina.modulation, "REFERENCE", .{});
+    zgui.textColored(theme.modulation, "REFERENCE", .{});
     zgui.sameLine(.{ .spacing = 12 });
     zgui.textDisabled("esc: close   j/k/d/u: scroll   /: search   {d}-{d}/{d}", .{ off + 1, end, t.count });
     zgui.separator();
@@ -87,16 +87,16 @@ fn drawLine(app: anytype, raw: []const u8, index: usize) void {
         return;
     }
     const hit = if (app.core.help_search_hit) |h| h == index else false;
-    const text_color = if (hit) patina.focus else patina.fg1;
+    const text_color = if (hit) theme.focus else theme.fg1;
     var buf: [512]u8 = undefined;
 
     if (std.mem.startsWith(u8, raw, ansi.bold)) {
         zgui.spacing();
-        zgui.textColored(if (hit) patina.focus else patina.modulation, "{s}", .{ansi.stripAnsi(raw, &buf)});
+        zgui.textColored(if (hit) theme.focus else theme.modulation, "{s}", .{ansi.stripAnsi(raw, &buf)});
         return;
     }
     if (std.mem.startsWith(u8, raw, ansi.dim)) {
-        zgui.textColored(if (hit) patina.focus else patina.fg3, "{s}", .{ansi.stripAnsi(raw, &buf)});
+        zgui.textColored(if (hit) theme.focus else theme.fg3, "{s}", .{ansi.stripAnsi(raw, &buf)});
         return;
     }
     // A `key()` row: accent-colored key text, `rst`, then dim description.
@@ -106,7 +106,7 @@ fn drawLine(app: anytype, raw: []const u8, index: usize) void {
     const key_text = ansi.stripAnsi(raw[0..split], &key_buf);
     const desc_text = if (split < raw.len) ansi.stripAnsi(raw[split + ansi.rst.len ..], &desc_buf) else "";
     const padded_key = std.fmt.bufPrint(&buf, "{s: <18}", .{key_text}) catch key_text;
-    zgui.textColored(if (hit) patina.focus else patina.audio, "{s}", .{padded_key});
+    zgui.textColored(if (hit) theme.focus else theme.audio, "{s}", .{padded_key});
     zgui.sameLine(.{ .spacing = 4 });
     zgui.textColored(text_color, "{s}", .{desc_text});
 }

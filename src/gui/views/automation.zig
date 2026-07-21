@@ -7,7 +7,7 @@ const widgets = @import("../widgets.zig");
 
 const color = style.color;
 const trackColor = style.trackColor;
-const patina = &style.palette;
+const theme = &style.palette;
 
 pub fn draw(app: anytype) void {
     const clip = automation_ed.currentClip(&app.core);
@@ -28,7 +28,7 @@ pub fn draw(app: anytype) void {
 
     drawTargetStrip(app, live_clip);
     zgui.spacing();
-    widgets.sectionTitle("ENVELOPE", patina.modulation);
+    widgets.sectionTitle("ENVELOPE", theme.modulation);
     drawCurve(app, points, @max(0.25, length_beats), value_range);
     zgui.spacing();
     drawEditor(app, points, @max(0.25, length_beats), value_range);
@@ -43,14 +43,14 @@ fn drawHeader(app: anytype, clip: ?*const ws.Clip) void {
     const track_idx = @min(@as(usize, app.core.automation_track), app.core.session.project.tracks.items.len -| 1);
     const track = app.core.session.project.tracks.items[track_idx];
     const accent = trackColor(track.color);
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(patina.bg2), .rounding = 4 });
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(theme.bg2), .rounding = 4 });
     draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + 5, origin[1] + height }, .col = color(accent), .rounding = 3 });
-    draw_list.addText(.{ origin[0] + 17, origin[1] + 10 }, color(patina.fg3), "CLIP AUTOMATION", .{});
-    draw_list.addText(.{ origin[0] + 17, origin[1] + 35 }, color(patina.fg0), "{s}", .{track.name});
+    draw_list.addText(.{ origin[0] + 17, origin[1] + 10 }, color(theme.fg3), "CLIP AUTOMATION", .{});
+    draw_list.addText(.{ origin[0] + 17, origin[1] + 35 }, color(theme.fg0), "{s}", .{track.name});
     if (clip) |c| {
         const ticks_per_bar = ws.time_grid.barTicks(app.core.session.project.beats_per_bar);
         draw_list.addText(.{ origin[0] + width - 190, origin[1] + 13 }, color(accent), "CLIP @ BAR {d}", .{c.start_tick / ticks_per_bar + 1});
-        draw_list.addText(.{ origin[0] + width - 190, origin[1] + 39 }, color(patina.fg3), "{d:.2} BEATS", .{ws.time_grid.tickToBeat(c.length_ticks)});
+        draw_list.addText(.{ origin[0] + width - 190, origin[1] + 39 }, color(theme.fg3), "{d:.2} BEATS", .{ws.time_grid.tickToBeat(c.length_ticks)});
     }
 }
 
@@ -59,13 +59,13 @@ fn drawEmptyState() void {
     const origin = zgui.getCursorScreenPos();
     _ = zgui.invisibleButton("automation-empty", .{ .w = width, .h = 150 });
     const draw_list = zgui.getWindowDrawList();
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + 150 }, .col = color(patina.bg2), .rounding = 4 });
-    draw_list.addText(.{ origin[0] + 22, origin[1] + 29 }, color(patina.fg0), "No clip selected", .{});
-    draw_list.addText(.{ origin[0] + 22, origin[1] + 59 }, color(patina.fg3), "Place a clip, then press a on it in the arrangement.", .{});
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + 150 }, .col = color(theme.bg2), .rounding = 4 });
+    draw_list.addText(.{ origin[0] + 22, origin[1] + 29 }, color(theme.fg0), "No clip selected", .{});
+    draw_list.addText(.{ origin[0] + 22, origin[1] + 59 }, color(theme.fg3), "Place a clip, then press a on it in the arrangement.", .{});
 }
 
 fn drawTargetStrip(app: anytype, clip: *ws.Clip) void {
-    widgets.sectionTitle("CURVE", patina.focus);
+    widgets.sectionTitle("CURVE", theme.focus);
     drawTargetButton(app, "GAIN", .gain, 0);
     zgui.sameLine(.{ .spacing = 6 });
     drawTargetButton(app, "PAN", .pan, 1);
@@ -84,8 +84,8 @@ fn drawTargetButton(app: anytype, text: []const u8, target: automation_ed.Automa
     var buf: [80]u8 = undefined;
     const label = std.fmt.bufPrintZ(&buf, "{s}##automation-target-{d}", .{ text, index }) catch return;
     const active = std.meta.eql(app.core.automation_focus, target);
-    zgui.pushStyleColor4f(.{ .idx = .button, .c = if (active) patina.focus else patina.bg2 });
-    zgui.pushStyleColor4f(.{ .idx = .text, .c = if (active) patina.bg0 else patina.fg2 });
+    zgui.pushStyleColor4f(.{ .idx = .button, .c = if (active) theme.focus else theme.bg2 });
+    zgui.pushStyleColor4f(.{ .idx = .text, .c = if (active) theme.bg0 else theme.fg2 });
     if (zgui.button(label, .{ .h = 32 })) app.core.automation_focus = target;
     zgui.popStyleColor(.{ .count = 2 });
 }
@@ -104,7 +104,7 @@ fn drawCurve(app: anytype, points: *[]ws.dsp.automation.AutomationPoint, length_
     const height: f32 = std.math.clamp(zgui.getContentRegionAvail()[1] - 104, 280, 560);
     const origin = zgui.getCursorScreenPos();
     const draw_list = zgui.getWindowDrawList();
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(patina.bg0), .rounding = 4 });
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(theme.bg0), .rounding = 4 });
 
     const plot_origin = [2]f32{ origin[0] + 58, origin[1] + 14 };
     const plot_size = [2]f32{ @max(1, width - 72), height - 42 };
@@ -124,7 +124,7 @@ fn drawCurve(app: anytype, points: *[]ws.dsp.automation.AutomationPoint, length_
         .value_lo = value_range[0],
         .value_hi = value_range[1],
         .snap_beats = 0.25,
-        .accent = patina.modulation,
+        .accent = theme.modulation,
         .focused_index = focusedPointIndex(app, points.*),
         .width = plot_size[0],
         .height = plot_size[1],
@@ -163,29 +163,29 @@ fn drawCurve(app: anytype, points: *[]ws.dsp.automation.AutomationPoint, length_
         const beat: f32 = @floatFromInt(beat_index);
         const x = plot_origin[0] + beat / length_beats * plot_size[0];
         const bar_line = beat_index % beats_per_bar == 0;
-        draw_list.addLine(.{ .p1 = .{ x, plot_origin[1] }, .p2 = .{ x, plot_end[1] }, .col = color(if (bar_line) patina.bg5 else patina.line), .thickness = if (bar_line) 1.5 else 1 });
+        draw_list.addLine(.{ .p1 = .{ x, plot_origin[1] }, .p2 = .{ x, plot_end[1] }, .col = color(if (bar_line) theme.bg5 else theme.line), .thickness = if (bar_line) 1.5 else 1 });
         if (beat_index % label_stride == 0) {
-            draw_list.addText(.{ x + 4, plot_end[1] + 7 }, color(if (bar_line) patina.fg2 else patina.fg3), "{d}", .{beat_index + 1});
+            draw_list.addText(.{ x + 4, plot_end[1] + 7 }, color(if (bar_line) theme.fg2 else theme.fg3), "{d}", .{beat_index + 1});
         }
     }
     for (1..4) |i| {
         const fraction = @as(f32, @floatFromInt(i)) / 4;
         const y = plot_origin[1] + plot_size[1] * fraction;
-        draw_list.addLine(.{ .p1 = .{ plot_origin[0], y }, .p2 = .{ plot_end[0], y }, .col = color(patina.line), .thickness = 1 });
+        draw_list.addLine(.{ .p1 = .{ plot_origin[0], y }, .p2 = .{ plot_end[0], y }, .col = color(theme.line), .thickness = 1 });
     }
     for (0..5) |i| {
         const fraction = @as(f32, @floatFromInt(i)) / 4;
         const value = value_range[1] - fraction * (value_range[1] - value_range[0]);
         const y = plot_origin[1] + plot_size[1] * fraction;
         if (std.meta.activeTag(app.core.automation_focus) == .gain) {
-            draw_list.addText(.{ origin[0] + 8, y - 7 }, color(patina.fg3), "{d:.0}", .{value});
+            draw_list.addText(.{ origin[0] + 8, y - 7 }, color(theme.fg3), "{d:.0}", .{value});
         } else {
-            draw_list.addText(.{ origin[0] + 8, y - 7 }, color(patina.fg3), "{d:.2}", .{value});
+            draw_list.addText(.{ origin[0] + 8, y - 7 }, color(theme.fg3), "{d:.2}", .{value});
         }
     }
     if (value_range[0] < 0 and value_range[1] > 0) {
         const zero = curvePoint(plot_origin, plot_size, 0, 0, length_beats, value_range);
-        draw_list.addLine(.{ .p1 = .{ plot_origin[0], zero[1] }, .p2 = .{ plot_end[0], zero[1] }, .col = color(.{ patina.fg3[0], patina.fg3[1], patina.fg3[2], 0.45 }), .thickness = 1.5 });
+        draw_list.addLine(.{ .p1 = .{ plot_origin[0], zero[1] }, .p2 = .{ plot_end[0], zero[1] }, .col = color(.{ theme.fg3[0], theme.fg3[1], theme.fg3[2], 0.45 }), .thickness = 1.5 });
     }
 
     if (app.core.modal.mode == .visual) {
@@ -194,7 +194,7 @@ fn drawCurve(app: anytype, points: *[]ws.dsp.automation.AutomationPoint, length_
         const hi = @max(anchor, app.core.automation_cursor_step) + 1;
         const x1 = plot_origin[0] + @as(f32, @floatFromInt(lo)) * 0.25 / length_beats * plot_size[0];
         const x2 = plot_origin[0] + @as(f32, @floatFromInt(hi)) * 0.25 / length_beats * plot_size[0];
-        draw_list.addRectFilled(.{ .pmin = .{ x1, plot_origin[1] }, .pmax = .{ @min(x2, plot_end[0]), plot_end[1] }, .col = color(.{ patina.rhythm[0], patina.rhythm[1], patina.rhythm[2], 0.12 }) });
+        draw_list.addRectFilled(.{ .pmin = .{ x1, plot_origin[1] }, .pmax = .{ @min(x2, plot_end[0]), plot_end[1] }, .col = color(.{ theme.rhythm[0], theme.rhythm[1], theme.rhythm[2], 0.12 }) });
     }
 
     // The curve line/nodes themselves are drawn by widgets.curveEditor
@@ -204,24 +204,24 @@ fn drawCurve(app: anytype, points: *[]ws.dsp.automation.AutomationPoint, length_
     const cursor_value = ws.dsp.automation.interpolate(points.*, cursor_beat) orelse 0;
     const cursor = curvePoint(plot_origin, plot_size, cursor_beat, cursor_value, length_beats, value_range);
     const stored_point = focusedPointIndex(app, points.*) != null;
-    draw_list.addLine(.{ .p1 = .{ cursor[0], plot_origin[1] }, .p2 = .{ cursor[0], plot_end[1] }, .col = color(patina.focus), .thickness = 2 });
-    draw_list.addLine(.{ .p1 = .{ plot_origin[0], cursor[1] }, .p2 = .{ plot_end[0], cursor[1] }, .col = color(.{ patina.focus[0], patina.focus[1], patina.focus[2], 0.48 }), .thickness = 1 });
+    draw_list.addLine(.{ .p1 = .{ cursor[0], plot_origin[1] }, .p2 = .{ cursor[0], plot_end[1] }, .col = color(theme.focus), .thickness = 2 });
+    draw_list.addLine(.{ .p1 = .{ plot_origin[0], cursor[1] }, .p2 = .{ plot_end[0], cursor[1] }, .col = color(.{ theme.focus[0], theme.focus[1], theme.focus[2], 0.48 }), .thickness = 1 });
     if (stored_point) {
-        draw_list.addCircleFilled(.{ .p = cursor, .r = 5, .col = color(patina.focus) });
+        draw_list.addCircleFilled(.{ .p = cursor, .r = 5, .col = color(theme.focus) });
     } else {
-        draw_list.addLine(.{ .p1 = .{ cursor[0] - 5, cursor[1] }, .p2 = .{ cursor[0] + 5, cursor[1] }, .col = color(patina.focus), .thickness = 2 });
-        draw_list.addLine(.{ .p1 = .{ cursor[0], cursor[1] - 5 }, .p2 = .{ cursor[0], cursor[1] + 5 }, .col = color(patina.focus), .thickness = 2 });
+        draw_list.addLine(.{ .p1 = .{ cursor[0] - 5, cursor[1] }, .p2 = .{ cursor[0] + 5, cursor[1] }, .col = color(theme.focus), .thickness = 2 });
+        draw_list.addLine(.{ .p1 = .{ cursor[0], cursor[1] - 5 }, .p2 = .{ cursor[0], cursor[1] + 5 }, .col = color(theme.focus), .thickness = 2 });
     }
-    draw_list.addCircle(.{ .p = cursor, .r = 8, .col = color(patina.fg0), .thickness = 1 });
+    draw_list.addCircle(.{ .p = cursor, .r = 8, .col = color(theme.fg0), .thickness = 1 });
     const badge_width: f32 = if (stored_point) 88 else 134;
     const badge = [2]f32{ @min(cursor[0] + 9, plot_end[0] - badge_width - 6), @max(plot_origin[1] + 7, cursor[1] - 29) };
-    draw_list.addRectFilled(.{ .pmin = badge, .pmax = .{ badge[0] + badge_width, badge[1] + 22 }, .col = color(patina.bg4), .rounding = 3 });
+    draw_list.addRectFilled(.{ .pmin = badge, .pmax = .{ badge[0] + badge_width, badge[1] + 22 }, .col = color(theme.bg4), .rounding = 3 });
     if (stored_point) {
-        draw_list.addText(.{ badge[0] + 7, badge[1] + 2 }, color(patina.fg0), "{d:.2}  {d:.2}", .{ cursor_beat, cursor_value });
+        draw_list.addText(.{ badge[0] + 7, badge[1] + 2 }, color(theme.fg0), "{d:.2}  {d:.2}", .{ cursor_beat, cursor_value });
     } else {
-        draw_list.addText(.{ badge[0] + 7, badge[1] + 2 }, color(patina.fg1), "INSERT  {d:.2}  {d:.2}", .{ cursor_beat, cursor_value });
+        draw_list.addText(.{ badge[0] + 7, badge[1] + 2 }, color(theme.fg1), "INSERT  {d:.2}  {d:.2}", .{ cursor_beat, cursor_value });
     }
-    draw_list.addRect(.{ .pmin = plot_origin, .pmax = plot_end, .col = color(patina.bg5), .rounding = 2, .thickness = 1 });
+    draw_list.addRect(.{ .pmin = plot_origin, .pmax = plot_end, .col = color(theme.bg5), .rounding = 2, .thickness = 1 });
 }
 
 fn curvePoint(origin: [2]f32, size: [2]f32, beat: f32, value: f32, length_beats: f32, value_range: [2]f32) [2]f32 {
@@ -232,7 +232,7 @@ fn curvePoint(origin: [2]f32, size: [2]f32, beat: f32, value: f32, length_beats:
 
 fn drawEditor(app: anytype, points: *[]ws.dsp.automation.AutomationPoint, length_beats: f32, value_range: [2]f32) void {
     if (zgui.beginChild("automation-editor", .{ .w = 0, .h = 82, .child_flags = .{ .border = true } })) {
-        zgui.textColored(patina.focus, "POINT", .{});
+        zgui.textColored(theme.focus, "POINT", .{});
         zgui.sameLine(.{ .spacing = 6 });
         zgui.textDisabled("{d} stored", .{points.*.len});
         zgui.sameLine(.{ .spacing = 12 });
@@ -245,7 +245,7 @@ fn drawEditor(app: anytype, points: *[]ws.dsp.automation.AutomationPoint, length
         zgui.setNextItemWidth(180);
         if (zgui.sliderFloat("Value", .{ .v = &value, .min = value_range[0], .max = value_range[1], .cfmt = if (std.meta.activeTag(app.core.automation_focus) == .gain) "%.1f dB" else "%.2f" })) setPoint(app, points, value);
         zgui.sameLine(.{ .spacing = 16 });
-        zgui.pushStyleColor4f(.{ .idx = .button, .c = patina.focus_soft });
+        zgui.pushStyleColor4f(.{ .idx = .button, .c = theme.focus_soft });
         if (zgui.button("SET", .{ .h = 30 })) setPoint(app, points, value);
         zgui.popStyleColor(.{});
         zgui.sameLine(.{ .spacing = 6 });
@@ -273,7 +273,7 @@ fn setPointAt(app: anytype, points: *[]ws.dsp.automation.AutomationPoint, beat: 
 }
 
 pub fn drawParamPicker(app: anytype) void {
-    zgui.textColored(patina.focus, "AUTOMATION PARAMETER", .{});
+    zgui.textColored(theme.focus, "AUTOMATION PARAMETER", .{});
     zgui.sameLine(.{});
     zgui.textDisabled("ENTER ADD   / FILTER   ESC BACK", .{});
     zgui.separator();
@@ -284,7 +284,7 @@ pub fn drawParamPicker(app: anytype) void {
     for (rows) |row| switch (row) {
         .header => |name| {
             zgui.spacing();
-            zgui.textColored(patina.fg3, "{s}", .{name});
+            zgui.textColored(theme.fg3, "{s}", .{name});
             zgui.separator();
         },
         .param => |i| {
@@ -297,13 +297,13 @@ pub fn drawParamPicker(app: anytype) void {
             if (selected) zgui.setScrollHereY(.{});
             const hovered = zgui.isItemHovered(.{});
             const draw_list = zgui.getWindowDrawList();
-            draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + 34 }, .col = color(if (selected) patina.bg4 else if (hovered) patina.bg3 else patina.bg2), .rounding = 3 });
-            if (selected) draw_list.addRect(.{ .pmin = .{ origin[0] + 1, origin[1] + 1 }, .pmax = .{ origin[0] + width - 1, origin[1] + 33 }, .col = color(patina.focus), .rounding = 3, .thickness = 2 });
-            draw_list.addText(.{ origin[0] + 12, origin[1] + 8 }, color(if (selected) patina.fg0 else patina.fg1), "{s}", .{p.label});
+            draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + 34 }, .col = color(if (selected) theme.bg4 else if (hovered) theme.bg3 else theme.bg2), .rounding = 3 });
+            if (selected) draw_list.addRect(.{ .pmin = .{ origin[0] + 1, origin[1] + 1 }, .pmax = .{ origin[0] + width - 1, origin[1] + 33 }, .col = color(theme.focus), .rounding = 3, .thickness = 2 });
+            draw_list.addText(.{ origin[0] + 12, origin[1] + 8 }, color(if (selected) theme.fg0 else theme.fg1), "{s}", .{p.label});
             var range_buf: [48]u8 = undefined;
             const range = compactParamRange(&range_buf, p.label, p.range);
             const range_width = zgui.calcTextSize(range, .{})[0];
-            draw_list.addText(.{ origin[0] + width - range_width - 12, origin[1] + 8 }, color(patina.fg2), "{s}", .{range});
+            draw_list.addText(.{ origin[0] + width - range_width - 12, origin[1] + 8 }, color(theme.fg2), "{s}", .{range});
             if (clicked) {
                 app.core.automation_param_cursor = @intCast(i);
                 automation_ed.selectParam(&app.core, p.id);

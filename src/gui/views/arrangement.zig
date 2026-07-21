@@ -8,14 +8,14 @@ const gui_style = @import("../style.zig");
 const zgui = @import("zgui");
 
 const color = gui_style.color;
-const patina = &gui_style.palette;
+const theme = &gui_style.palette;
 
 pub fn draw(app: anytype) void {
     zgui.textDisabled(icons.arrangement ++ "  ARRANGEMENT", .{});
     zgui.sameLine(.{});
-    zgui.textColored(if (app.core.session.song_mode) patina.audio else patina.fg3, "{s}", .{if (app.core.session.song_mode) "SONG" else "PATTERN"});
+    zgui.textColored(if (app.core.session.song_mode) theme.audio else theme.fg3, "{s}", .{if (app.core.session.song_mode) "SONG" else "PATTERN"});
     zgui.sameLine(.{});
-    zgui.textColored(patina.audio, "{s}", .{app.core.arr_grid.label()});
+    zgui.textColored(theme.audio, "{s}", .{app.core.arr_grid.label()});
     const track_count = app.core.session.project.tracks.items.len;
     const ticks_per_beat = ws.time_grid.ticks_per_beat;
     const beats_per_bar: u32 = app.core.session.project.beats_per_bar;
@@ -46,23 +46,23 @@ pub fn draw(app: anytype) void {
     const total_beats: f32 = @floatFromInt(total_beats_u64);
     const beat_w = timeline_w / total_beats;
 
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + canvas_w, origin[1] + canvas_h }, .col = color(patina.bg0) });
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + canvas_w, origin[1] + ruler_h }, .col = color(patina.bg2) });
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + canvas_w, origin[1] + canvas_h }, .col = color(theme.bg0) });
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + canvas_w, origin[1] + ruler_h }, .col = color(theme.bg2) });
 
     for (0..track_count) |ti| {
         const y = origin[1] + ruler_h + @as(f32, @floatFromInt(ti)) * lane_h;
         const selected = ti == app.core.cursor;
-        draw_list.addRectFilled(.{ .pmin = .{ origin[0], y }, .pmax = .{ timeline_x, y + lane_h }, .col = color(if (selected) patina.bg4 else patina.bg2) });
-        draw_list.addRectFilled(.{ .pmin = .{ timeline_x, y }, .pmax = .{ origin[0] + canvas_w, y + lane_h }, .col = color(if (selected) patina.bg3 else if (ti % 2 == 0) patina.bg1 else patina.bg0) });
-        draw_list.addText(.{ origin[0] + 10, y + 11 }, color(if (selected) patina.fg0 else patina.fg1), "{d:0>2}  {s}", .{ ti + 1, app.core.session.project.tracks.items[ti].name });
+        draw_list.addRectFilled(.{ .pmin = .{ origin[0], y }, .pmax = .{ timeline_x, y + lane_h }, .col = color(if (selected) theme.bg4 else theme.bg2) });
+        draw_list.addRectFilled(.{ .pmin = .{ timeline_x, y }, .pmax = .{ origin[0] + canvas_w, y + lane_h }, .col = color(if (selected) theme.bg3 else if (ti % 2 == 0) theme.bg1 else theme.bg0) });
+        draw_list.addText(.{ origin[0] + 10, y + 11 }, color(if (selected) theme.fg0 else theme.fg1), "{d:0>2}  {s}", .{ ti + 1, app.core.session.project.tracks.items[ti].name });
         const rack = app.core.session.racks.items[ti];
         const rack_label: []const u8 = if (std.meta.activeTag(rack.instrument) == .empty) "-- empty --" else rack.label;
-        draw_list.addText(.{ origin[0] + 34, y + 32 }, color(patina.fg3), "[{s}]", .{rack_label});
+        draw_list.addText(.{ origin[0] + 34, y + 32 }, color(theme.fg3), "[{s}]", .{rack_label});
         const lane = app.core.session.arrangement.lane(@intCast(ti));
         if (lane == null or lane.?.clips.items.len == 0) {
-            draw_list.addText(.{ timeline_x + 12, y + lane_h * 0.5 - 8 }, color(if (selected) patina.fg2 else patina.fg3), "{s}", .{if (selected) "Press s to stamp a clip at the cursor" else "Empty lane"});
+            draw_list.addText(.{ timeline_x + 12, y + lane_h * 0.5 - 8 }, color(if (selected) theme.fg2 else theme.fg3), "{s}", .{if (selected) "Press s to stamp a clip at the cursor" else "Empty lane"});
         }
-        draw_list.addLine(.{ .p1 = .{ origin[0], y + lane_h }, .p2 = .{ origin[0] + canvas_w, y + lane_h }, .col = color(patina.line), .thickness = 1 });
+        draw_list.addLine(.{ .p1 = .{ origin[0], y + lane_h }, .p2 = .{ origin[0] + canvas_w, y + lane_h }, .col = color(theme.line), .thickness = 1 });
     }
 
     const max_grid_lines = 4096;
@@ -77,10 +77,10 @@ pub fn draw(app: anytype) void {
         draw_list.addLine(.{
             .p1 = .{ x, if (on_bar) origin[1] else origin[1] + ruler_h },
             .p2 = .{ x, origin[1] + canvas_h },
-            .col = color(if (on_bar) patina.bg5 else if (on_beat) patina.line else .{ patina.line[0], patina.line[1], patina.line[2], patina.line[3] * 0.5 }),
+            .col = color(if (on_bar) theme.bg5 else if (on_beat) theme.line else .{ theme.line[0], theme.line[1], theme.line[2], theme.line[3] * 0.5 }),
             .thickness = if (on_bar) 1.5 else 1,
         });
-        if (on_bar and tick_index < total_ticks_u64) draw_list.addText(.{ x + 7, origin[1] + 7 }, color(patina.fg2), "{d}", .{tick_index / ticks_per_bar + 1});
+        if (on_bar and tick_index < total_ticks_u64) draw_list.addText(.{ x + 7, origin[1] + 7 }, color(theme.fg2), "{d}", .{tick_index / ticks_per_bar + 1});
     }
 
     if (app.core.modal.mode == .visual and app.core.cursor < track_count) {
@@ -90,8 +90,8 @@ pub fn draw(app: anytype) void {
         const x1 = timeline_x + @as(f32, @floatFromInt(lo)) / @as(f32, @floatFromInt(ticks_per_beat)) * beat_w;
         const x2 = timeline_x + @as(f32, @floatFromInt(hi)) / @as(f32, @floatFromInt(ticks_per_beat)) * beat_w;
         const y = origin[1] + ruler_h + @as(f32, @floatFromInt(app.core.cursor)) * lane_h;
-        draw_list.addRectFilled(.{ .pmin = .{ x1, y }, .pmax = .{ x2, y + lane_h }, .col = color(.{ patina.rhythm[0], patina.rhythm[1], patina.rhythm[2], 0.14 }) });
-        draw_list.addRect(.{ .pmin = .{ x1 + 1, y + 1 }, .pmax = .{ x2 - 1, y + lane_h - 1 }, .col = color(.{ patina.rhythm[0], patina.rhythm[1], patina.rhythm[2], 0.6 }), .thickness = 1 });
+        draw_list.addRectFilled(.{ .pmin = .{ x1, y }, .pmax = .{ x2, y + lane_h }, .col = color(.{ theme.rhythm[0], theme.rhythm[1], theme.rhythm[2], 0.14 }) });
+        draw_list.addRect(.{ .pmin = .{ x1 + 1, y + 1 }, .pmax = .{ x2 - 1, y + lane_h - 1 }, .col = color(.{ theme.rhythm[0], theme.rhythm[1], theme.rhythm[2], 0.6 }), .thickness = 1 });
     }
 
     for (app.core.session.arrangement.lanes.items, 0..) |lane, ti| {
@@ -104,23 +104,23 @@ pub fn draw(app: anytype) void {
             const pmax = [2]f32{ @min(x + clip_w, origin[0] + canvas_w - 1), lane_y + lane_h - 5 };
             const selected = if (app.arrangement_clip) |selection| selection.track == ti and selection.clip == ci else false;
             const clip_color: [4]f32 = switch (clip.content) {
-                .melodic => .{ patina.audio[0], patina.audio[1], patina.audio[2], if (selected) 1 else 0.68 },
-                .drum => .{ patina.rhythm[0], patina.rhythm[1], patina.rhythm[2], if (selected) 1 else 0.68 },
+                .melodic => .{ theme.audio[0], theme.audio[1], theme.audio[2], if (selected) 1 else 0.68 },
+                .drum => .{ theme.rhythm[0], theme.rhythm[1], theme.rhythm[2], if (selected) 1 else 0.68 },
             };
             draw_list.addRectFilled(.{ .pmin = pmin, .pmax = pmax, .col = color(clip_color), .rounding = 4 });
             draw_list.addRectFilled(.{
                 .pmin = pmin,
                 .pmax = .{ pmax[0], @min(pmax[1], pmin[1] + 22) },
-                .col = color(.{ patina.bg0[0], patina.bg0[1], patina.bg0[2], if (selected) 0.58 else 0.38 }),
+                .col = color(.{ theme.bg0[0], theme.bg0[1], theme.bg0[2], if (selected) 0.58 else 0.38 }),
                 .rounding = 4,
             });
             if (selected) {
-                draw_list.addRect(.{ .pmin = .{ pmin[0] - 1, pmin[1] - 1 }, .pmax = .{ pmax[0] + 1, pmax[1] + 1 }, .col = color(patina.fg0), .rounding = 5, .thickness = 3 });
-                draw_list.addRectFilled(.{ .pmin = .{ pmin[0], pmin[1] }, .pmax = .{ pmin[0] + 5, pmax[1] }, .col = color(patina.focus), .rounding = 3 });
+                draw_list.addRect(.{ .pmin = .{ pmin[0] - 1, pmin[1] - 1 }, .pmax = .{ pmax[0] + 1, pmax[1] + 1 }, .col = color(theme.fg0), .rounding = 5, .thickness = 3 });
+                draw_list.addRectFilled(.{ .pmin = .{ pmin[0], pmin[1] }, .pmax = .{ pmin[0] + 5, pmax[1] }, .col = color(theme.focus), .rounding = 3 });
             }
             switch (clip.content) {
                 .melodic => |melodic| {
-                    draw_list.addText(.{ pmin[0] + 7, pmin[1] + 4 }, color(patina.fg0), "MIDI  {d}", .{melodic.notes.len});
+                    draw_list.addText(.{ pmin[0] + 7, pmin[1] + 4 }, color(theme.fg0), "MIDI  {d}", .{melodic.notes.len});
                     var min_pitch: u7 = 127;
                     var max_pitch: u7 = 0;
                     for (melodic.notes) |note| {
@@ -133,11 +133,11 @@ pub fn draw(app: anytype) void {
                         const preview_height = @max(8, pmax[1] - pmin[1] - 29);
                         const note_y = pmin[1] + 26 + @as(f32, @floatFromInt(max_pitch - note.pitch)) / pitch_span * preview_height;
                         const note_w = @max(2, @as(f32, @floatCast(note.duration_beat / melodic.length_beats)) * (pmax[0] - pmin[0]));
-                        draw_list.addLine(.{ .p1 = .{ note_x, note_y }, .p2 = .{ @min(note_x + note_w, pmax[0] - 2), note_y }, .col = color(.{ patina.fg0[0], patina.fg0[1], patina.fg0[2], 0.72 }), .thickness = 2 });
+                        draw_list.addLine(.{ .p1 = .{ note_x, note_y }, .p2 = .{ @min(note_x + note_w, pmax[0] - 2), note_y }, .col = color(.{ theme.fg0[0], theme.fg0[1], theme.fg0[2], 0.72 }), .thickness = 2 });
                     }
                 },
                 .drum => |drum| {
-                    draw_list.addText(.{ pmin[0] + 7, pmin[1] + 4 }, color(patina.bg0), "PATTERN {c}", .{'A' + drum.variant});
+                    draw_list.addText(.{ pmin[0] + 7, pmin[1] + 4 }, color(theme.bg0), "PATTERN {c}", .{'A' + drum.variant});
                     if (drum.step_count > 0) {
                         for (0..drum.step_count) |step| {
                             if (step % 4 != 0) continue;
@@ -145,7 +145,7 @@ pub fn draw(app: anytype) void {
                             draw_list.addLine(.{
                                 .p1 = .{ grid_x, pmin[1] + 27 },
                                 .p2 = .{ grid_x, pmax[1] - 5 },
-                                .col = color(.{ patina.bg0[0], patina.bg0[1], patina.bg0[2], 0.24 }),
+                                .col = color(.{ theme.bg0[0], theme.bg0[1], theme.bg0[2], 0.24 }),
                                 .thickness = 1,
                             });
                         }
@@ -156,11 +156,11 @@ pub fn draw(app: anytype) void {
                         if (hits == 0) continue;
                         const hit_x = pmin[0] + (@as(f32, @floatFromInt(step)) + 0.5) / @as(f32, @floatFromInt(drum.step_count)) * (pmax[0] - pmin[0]);
                         const hit_h = @min(15, @as(f32, @floatFromInt(hits)) * 2);
-                        draw_list.addLine(.{ .p1 = .{ hit_x, pmax[1] - 6 }, .p2 = .{ hit_x, pmax[1] - 6 - hit_h }, .col = color(.{ patina.bg0[0], patina.bg0[1], patina.bg0[2], 0.72 }), .thickness = 2 });
+                        draw_list.addLine(.{ .p1 = .{ hit_x, pmax[1] - 6 }, .p2 = .{ hit_x, pmax[1] - 6 - hit_h }, .col = color(.{ theme.bg0[0], theme.bg0[1], theme.bg0[2], 0.72 }), .thickness = 2 });
                     }
                 },
             }
-            if (clip.automation.gain.len + clip.automation.pan.len + clip.automation.synth_params.items.len > 0) draw_list.addText(.{ pmax[0] - 16, pmin[1] + 4 }, color(patina.modulation), "A", .{});
+            if (clip.automation.gain.len + clip.automation.pan.len + clip.automation.synth_params.items.len > 0) draw_list.addText(.{ pmax[0] - 16, pmin[1] + 4 }, color(theme.modulation), "A", .{});
         }
     }
 
@@ -180,12 +180,12 @@ pub fn draw(app: anytype) void {
         draw_list.addRectFilled(.{
             .pmin = .{ cursor_x + 1, cursor_y + 1 },
             .pmax = .{ @min(cursor_x + cursor_w, origin[0] + canvas_w - 1), cursor_y + lane_h - 1 },
-            .col = color(.{ patina.focus[0], patina.focus[1], patina.focus[2], 0.16 }),
+            .col = color(.{ theme.focus[0], theme.focus[1], theme.focus[2], 0.16 }),
         });
         draw_list.addRect(.{
             .pmin = .{ cursor_x + 1, cursor_y + 1 },
             .pmax = .{ @min(cursor_x + cursor_w, origin[0] + canvas_w - 1), cursor_y + lane_h - 1 },
-            .col = color(patina.focus),
+            .col = color(theme.focus),
             .thickness = 2,
         });
     }
@@ -194,7 +194,7 @@ pub fn draw(app: anytype) void {
     if (snap.playing) {
         const play_beat = ws.types.framesToSeconds(snap.position_frames, app.core.session.project.sample_rate) * app.core.session.project.tempo_bpm / 60.0;
         const x = timeline_x + @as(f32, @floatCast(play_beat)) * beat_w;
-        if (x <= origin[0] + canvas_w) draw_list.addLine(.{ .p1 = .{ x, origin[1] }, .p2 = .{ x, origin[1] + canvas_h }, .col = color(patina.danger), .thickness = 2 });
+        if (x <= origin[0] + canvas_w) draw_list.addLine(.{ .p1 = .{ x, origin[1] }, .p2 = .{ x, origin[1] + canvas_h }, .col = color(theme.danger), .thickness = 2 });
     }
 
     if (clicked and hovered and mouse[1] >= origin[1] + ruler_h) {
@@ -220,7 +220,7 @@ fn drawArrangementInspector(app: anytype) void {
     const selection = app.arrangement_clip orelse return;
     if (zgui.beginChild("arrangement-inspector", .{ .w = 0, .h = 108, .child_flags = .{ .border = true } })) {
         const clip = app.core.session.arrangement.lanes.items[selection.track].clips.items[selection.clip];
-        zgui.textColored(patina.focus, "SELECTED CLIP", .{});
+        zgui.textColored(theme.focus, "SELECTED CLIP", .{});
         zgui.separator();
         zgui.text("Track {d:0>2}", .{selection.track + 1});
         zgui.sameLine(.{ .spacing = 24 });

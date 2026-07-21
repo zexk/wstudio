@@ -172,6 +172,69 @@ pub const umbra: Identity = .{
 
 pub const Name = enum { patina, patina_light, graphite, graphite_light, umbra };
 
+/// Semantic color tokens consumed by both frontends. Lua colorschemes
+/// override these names through `wstudio.api.set_hl`; built-in identities
+/// provide the complete fallback beneath those sparse overrides.
+pub const Highlight = enum {
+    bg0,
+    bg1,
+    bg2,
+    bg3,
+    bg4,
+    bg5,
+    fg0,
+    fg1,
+    fg2,
+    fg3,
+    line,
+    line_soft,
+    focus,
+    focus_soft,
+    track_cursor,
+    modulation,
+    danger,
+    rhythm,
+    audio,
+    blue,
+    track1,
+    track2,
+    track3,
+    track4,
+    track5,
+    track6,
+    track7,
+};
+
+pub const highlight_count = @typeInfo(Highlight).@"enum".fields.len;
+
+pub const Overrides = struct {
+    colors: [highlight_count]?u24 = [_]?u24{null} ** highlight_count,
+
+    pub fn set(self: *Overrides, hl: Highlight, color: ?u24) void {
+        self.colors[@intFromEnum(hl)] = color;
+    }
+
+    pub fn get(self: *const Overrides, hl: Highlight) ?u24 {
+        return self.colors[@intFromEnum(hl)];
+    }
+
+    pub fn apply(self: *const Overrides, base: Identity) Identity {
+        var result = base;
+        inline for (@typeInfo(Highlight).@"enum".fields) |field| {
+            const hl: Highlight = @enumFromInt(field.value);
+            if (self.get(hl)) |color| {
+                if (comptime field.name.len == 6 and std.mem.startsWith(u8, field.name, "track")) {
+                    const index = comptime field.name[field.name.len - 1] - '1';
+                    result.tracks[index] = color;
+                } else {
+                    @field(result, field.name) = color;
+                }
+            }
+        }
+        return result;
+    }
+};
+
 pub fn get(name: Name) *const Identity {
     return switch (name) {
         .patina => &patina,
@@ -180,4 +243,16 @@ pub fn get(name: Name) *const Identity {
         .graphite_light => &graphite_light,
         .umbra => &umbra,
     };
+}
+
+const std = @import("std");
+
+test "highlight overrides are sparse and include track colors" {
+    var overrides: Overrides = .{};
+    overrides.set(.focus, 0x123456);
+    overrides.set(.track7, 0xabcdef);
+    const resolved = overrides.apply(patina);
+    try std.testing.expectEqual(@as(u24, 0x123456), resolved.focus);
+    try std.testing.expectEqual(@as(u24, 0xabcdef), resolved.tracks[6]);
+    try std.testing.expectEqual(patina.bg0, resolved.bg0);
 }

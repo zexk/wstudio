@@ -24,7 +24,7 @@ pub fn sectionTitle(label: []const u8, accent: [4]f32) void {
 /// doubles as both the widget id and the displayed text, same convention
 /// `zgui.checkbox` itself used at every call site this replaces.
 pub fn toggle(label: [:0]const u8, v: *bool) bool {
-    const patina = &gui_style.palette;
+    const theme = &gui_style.palette;
     const track_w: f32 = 30;
     const track_h: f32 = 16;
     const origin = zgui.getCursorScreenPos();
@@ -40,17 +40,17 @@ pub fn toggle(label: [:0]const u8, v: *bool) bool {
     }
     const on = v.*;
 
-    const track_col = if (on) patina.modulation else if (hovered) patina.bg5 else patina.bg4;
+    const track_col = if (on) theme.modulation else if (hovered) theme.bg5 else theme.bg4;
     draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + track_w, origin[1] + track_h }, .col = gui_style.color(track_col), .rounding = track_h * 0.5 });
     const knob_r = track_h * 0.5 - 2;
     const knob_center = [2]f32{
         origin[0] + (if (on) track_w - track_h * 0.5 else track_h * 0.5),
         origin[1] + track_h * 0.5,
     };
-    draw_list.addCircleFilled(.{ .p = knob_center, .r = knob_r, .col = gui_style.color(patina.fg0) });
+    draw_list.addCircleFilled(.{ .p = knob_center, .r = knob_r, .col = gui_style.color(theme.fg0) });
 
     zgui.sameLine(.{ .spacing = 8 });
-    zgui.textColored(if (on) patina.fg0 else patina.fg1, "{s}", .{label});
+    zgui.textColored(if (on) theme.fg0 else theme.fg1, "{s}", .{label});
     zgui.endGroup();
     return changed;
 }
@@ -76,10 +76,10 @@ pub fn updateMeterHold(hold_db: *[2]f32, peak: [2]f32, dt: f32) void {
 }
 
 pub fn meterBar(draw_list: zgui.DrawList, origin: [2]f32, hold_db: [2]f32, bar_w: f32, bar_h: f32, gap: f32) void {
-    const patina = &gui_style.palette;
+    const theme = &gui_style.palette;
     for (0..2) |ch| {
         const y = origin[1] + @as(f32, @floatFromInt(ch)) * (bar_h + gap);
-        draw_list.addRectFilled(.{ .pmin = .{ origin[0], y }, .pmax = .{ origin[0] + bar_w, y + bar_h }, .col = gui_style.color(patina.bg2), .rounding = 2 });
+        draw_list.addRectFilled(.{ .pmin = .{ origin[0], y }, .pmax = .{ origin[0] + bar_w, y + bar_h }, .col = gui_style.color(theme.bg2), .rounding = 2 });
         const norm = std.math.clamp((hold_db[ch] - meter_db_min) / -meter_db_min, 0, 1);
         meterFill(draw_list, origin[0], y, bar_w, bar_h, norm);
     }
@@ -109,17 +109,17 @@ pub fn solidMeterBar(draw_list: zgui.DrawList, origin: [2]f32, hold_db: [2]f32, 
 
 fn meterFill(draw_list: zgui.DrawList, x: f32, y: f32, w: f32, h: f32, norm: f32) void {
     if (norm <= 0) return;
-    const patina = &gui_style.palette;
+    const theme = &gui_style.palette;
     const yellow_norm = (meter_yellow_db - meter_db_min) / -meter_db_min;
     const red_norm = (meter_red_db - meter_db_min) / -meter_db_min;
     const fill_w = w * norm;
     const green_w = @min(fill_w, w * yellow_norm);
-    draw_list.addRectFilled(.{ .pmin = .{ x, y }, .pmax = .{ x + green_w, y + h }, .col = gui_style.color(patina.audio), .rounding = 2 });
+    draw_list.addRectFilled(.{ .pmin = .{ x, y }, .pmax = .{ x + green_w, y + h }, .col = gui_style.color(theme.audio), .rounding = 2 });
     if (fill_w > w * yellow_norm) {
-        draw_list.addRectFilled(.{ .pmin = .{ x + w * yellow_norm, y }, .pmax = .{ x + @min(fill_w, w * red_norm), y + h }, .col = gui_style.color(patina.rhythm) });
+        draw_list.addRectFilled(.{ .pmin = .{ x + w * yellow_norm, y }, .pmax = .{ x + @min(fill_w, w * red_norm), y + h }, .col = gui_style.color(theme.rhythm) });
     }
     if (fill_w > w * red_norm) {
-        draw_list.addRectFilled(.{ .pmin = .{ x + w * red_norm, y }, .pmax = .{ x + fill_w, y + h }, .col = gui_style.color(patina.danger) });
+        draw_list.addRectFilled(.{ .pmin = .{ x + w * red_norm, y }, .pmax = .{ x + fill_w, y + h }, .col = gui_style.color(theme.danger) });
     }
 }
 
@@ -129,13 +129,13 @@ fn meterFill(draw_list: zgui.DrawList, x: f32, y: f32, w: f32, h: f32, norm: f32
 /// transport's master PHASE readout, the same way `meterBar` is shared for
 /// LEVEL. `value` is -1..1, see `dsp/meter.zig`'s `StereoCorrelation`.
 pub fn correlationBar(draw_list: zgui.DrawList, origin: [2]f32, value: f32, w: f32, h: f32) void {
-    const patina = &gui_style.palette;
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + w, origin[1] + h }, .col = gui_style.color(patina.bg2), .rounding = 2 });
+    const theme = &gui_style.palette;
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + w, origin[1] + h }, .col = gui_style.color(theme.bg2), .rounding = 2 });
     const mid = origin[0] + w * 0.5;
-    draw_list.addLine(.{ .p1 = .{ mid, origin[1] }, .p2 = .{ mid, origin[1] + h }, .col = gui_style.color(patina.fg3), .thickness = 1 });
+    draw_list.addLine(.{ .p1 = .{ mid, origin[1] }, .p2 = .{ mid, origin[1] + h }, .col = gui_style.color(theme.fg3), .thickness = 1 });
 
     const v = std.math.clamp(value, -1.0, 1.0);
-    const fill_col = if (v >= 0.0) patina.audio else if (v >= -0.5) patina.rhythm else patina.danger;
+    const fill_col = if (v >= 0.0) theme.audio else if (v >= -0.5) theme.rhythm else theme.danger;
     const fill_x = mid + (w * 0.5) * @min(v, 0.0);
     const fill_w = (w * 0.5) * @abs(v);
     draw_list.addRectFilled(.{ .pmin = .{ fill_x, origin[1] }, .pmax = .{ fill_x + fill_w, origin[1] + h }, .col = gui_style.color(fill_col), .rounding = 2 });
@@ -154,18 +154,18 @@ pub const EmptyState = struct {
 /// Shared actionable empty state used by editors with missing source data.
 /// The caller owns the action so command routing stays in the view.
 pub fn emptyState(args: EmptyState) bool {
-    const patina = &gui_style.palette;
+    const theme = &gui_style.palette;
     const available = zgui.getContentRegionAvail()[0];
     const width = @min(available, args.width);
     if (available > width) zgui.setCursorPosX(zgui.getCursorPos()[0] + (available - width) * 0.5);
     var clicked = false;
-    zgui.pushStyleColor4f(.{ .idx = .child_bg, .c = patina.bg2 });
+    zgui.pushStyleColor4f(.{ .idx = .child_bg, .c = theme.bg2 });
     if (zgui.beginChild(args.id, .{ .w = width, .h = 122, .child_flags = .{ .border = true } })) {
         zgui.textColored(args.accent, "{s}", .{args.title});
         zgui.separator();
         zgui.textDisabled("{s}", .{args.explanation});
         zgui.spacing();
-        zgui.pushStyleColor4f(.{ .idx = .button, .c = patina.focus_soft });
+        zgui.pushStyleColor4f(.{ .idx = .button, .c = theme.focus_soft });
         clicked = zgui.button(args.action, .{ .h = 32 });
         zgui.popStyleColor(.{});
         zgui.sameLine(.{ .spacing = 12 });
@@ -283,7 +283,7 @@ fn knobFormatValue(buf: []u8, cfmt: [:0]const u8, value: f32) []const u8 {
 /// Draws the dial only (no label/value text). `label` doubles as the
 /// widget id, same convention as `zgui.sliderFloat`.
 pub fn knob(label: [:0]const u8, args: Knob) KnobResult {
-    const patina = &gui_style.palette;
+    const theme = &gui_style.palette;
     const radius = args.diameter * 0.5;
     const cursor = zgui.getCursorScreenPos();
     const center = [2]f32{ cursor[0] + radius, cursor[1] + radius };
@@ -333,19 +333,19 @@ pub fn knob(label: [:0]const u8, args: Knob) KnobResult {
     const angle = knob_angle_min + (knob_angle_max - knob_angle_min) * t;
 
     draw_list.pathArcTo(.{ .p = center, .r = radius, .amin = knob_angle_min, .amax = knob_angle_max });
-    draw_list.pathStroke(.{ .col = gui_style.color(patina.bg4), .thickness = 3 });
+    draw_list.pathStroke(.{ .col = gui_style.color(theme.bg4), .thickness = 3 });
     if (t > 0.001) {
         draw_list.pathArcTo(.{ .p = center, .r = radius, .amin = knob_angle_min, .amax = angle });
         draw_list.pathStroke(.{ .col = gui_style.color(args.accent), .thickness = 3 });
     }
-    draw_list.addCircleFilled(.{ .p = center, .r = radius - 5, .col = gui_style.color(if (active or hovered) patina.bg4 else patina.bg3) });
+    draw_list.addCircleFilled(.{ .p = center, .r = radius - 5, .col = gui_style.color(if (active or hovered) theme.bg4 else theme.bg3) });
     if (args.focused) draw_list.addCircle(.{ .p = center, .r = radius + 2, .col = gui_style.color(args.accent), .thickness = 1.5 });
 
     const dir = [2]f32{ @cos(angle), @sin(angle) };
     draw_list.addLine(.{
         .p1 = .{ center[0] + dir[0] * radius * 0.25, center[1] + dir[1] * radius * 0.25 },
         .p2 = .{ center[0] + dir[0] * (radius - 6), center[1] + dir[1] * (radius - 6) },
-        .col = gui_style.color(patina.fg0),
+        .col = gui_style.color(theme.fg0),
         .thickness = 2,
     });
 
@@ -362,11 +362,11 @@ pub fn knob(label: [:0]const u8, args: Knob) KnobResult {
 /// A knob plus its label and live value, laid out as a single row - the
 /// drop-in replacement for a labelled `zgui.sliderFloat` call.
 pub fn paramKnob(label_text: []const u8, id: [:0]const u8, args: Knob) KnobResult {
-    const patina = &gui_style.palette;
+    const theme = &gui_style.palette;
     const result = knob(id, args);
     zgui.sameLine(.{ .spacing = 8 });
     zgui.beginGroup();
-    zgui.textColored(if (args.focused) args.accent else patina.fg1, "{s}", .{label_text});
+    zgui.textColored(if (args.focused) args.accent else theme.fg1, "{s}", .{label_text});
     var value_buf: [32]u8 = undefined;
     zgui.textDisabled("{s}", .{knobFormatValue(&value_buf, args.cfmt, args.v.*)});
     zgui.endGroup();
@@ -391,11 +391,11 @@ pub const ListStepper = struct {
 };
 
 pub fn listStepper(label_text: []const u8, id: [:0]const u8, args: ListStepper) KnobResult {
-    const patina = &gui_style.palette;
+    const theme = &gui_style.palette;
     var changed = false;
     const row_origin = zgui.getCursorScreenPos();
     zgui.beginGroup();
-    zgui.textColored(if (args.focused) args.accent else patina.fg1, "{s}", .{label_text});
+    zgui.textColored(if (args.focused) args.accent else theme.fg1, "{s}", .{label_text});
     var prev_buf: [48]u8 = undefined;
     const prev_id = std.fmt.bufPrintZ(&prev_buf, "-##{s}-prev", .{id}) catch "-##prev";
     zgui.beginDisabled(.{ .disabled = args.v.* <= args.min });
@@ -408,7 +408,7 @@ pub fn listStepper(label_text: []const u8, id: [:0]const u8, args: ListStepper) 
     }
     zgui.endDisabled();
     zgui.sameLine(.{ .spacing = 6 });
-    zgui.textColored(if (args.focused) patina.fg0 else patina.fg2, "{s}", .{args.display});
+    zgui.textColored(if (args.focused) theme.fg0 else theme.fg2, "{s}", .{args.display});
     zgui.sameLine(.{ .spacing = 6 });
     var next_buf: [48]u8 = undefined;
     const next_id = std.fmt.bufPrintZ(&next_buf, "+##{s}-next", .{id}) catch "+##next";
@@ -447,7 +447,7 @@ pub fn listStepper(label_text: []const u8, id: [:0]const u8, args: ListStepper) 
 /// obvious picture, so showing all of them beats stepping through one at a
 /// time. Returns the clicked waveform, if any.
 pub fn waveformPicker(label: [:0]const u8, current: ws.dsp.synth.Waveform, accent: [4]f32, focused: bool) ?ws.dsp.synth.Waveform {
-    const patina = &gui_style.palette;
+    const theme = &gui_style.palette;
     const waveforms = [_]ws.dsp.synth.Waveform{ .sine, .saw, .triangle, .square, .wavetable };
     const tile_w: f32 = 32;
     const tile_h: f32 = 22;
@@ -466,9 +466,9 @@ pub fn waveformPicker(label: [:0]const u8, current: ws.dsp.synth.Waveform, accen
         const selected = wf == current;
         if (zgui.isItemActivated()) result = wf;
 
-        draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + tile_w, origin[1] + tile_h }, .col = gui_style.color(if (selected) patina.bg4 else if (hovered) patina.bg3 else patina.bg2), .rounding = 3 });
+        draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + tile_w, origin[1] + tile_h }, .col = gui_style.color(if (selected) theme.bg4 else if (hovered) theme.bg3 else theme.bg2), .rounding = 3 });
         if (selected) draw_list.addRect(.{ .pmin = origin, .pmax = .{ origin[0] + tile_w, origin[1] + tile_h }, .col = gui_style.color(accent), .rounding = 3, .thickness = if (focused) 2 else 1.5 });
-        waveformGlyph(draw_list, .{ origin[0] + 4, origin[1] + 4 }, .{ tile_w - 8, tile_h - 8 }, wf, if (selected) accent else patina.fg2);
+        waveformGlyph(draw_list, .{ origin[0] + 4, origin[1] + 4 }, .{ tile_w - 8, tile_h - 8 }, wf, if (selected) accent else theme.fg2);
 
         if (hovered) {
             _ = zgui.beginTooltip();
@@ -520,7 +520,7 @@ pub const XYPad = struct {
 };
 
 pub fn xyPad(label: [:0]const u8, args: XYPad) KnobResult {
-    const patina = &gui_style.palette;
+    const theme = &gui_style.palette;
     const origin = zgui.getCursorScreenPos();
     const draw_list = zgui.getWindowDrawList();
 
@@ -541,11 +541,11 @@ pub fn xyPad(label: [:0]const u8, args: XYPad) KnobResult {
         args.y.* = new_y;
     }
 
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + args.size, origin[1] + args.size }, .col = gui_style.color(patina.bg2), .rounding = 3 });
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + args.size, origin[1] + args.size }, .col = gui_style.color(theme.bg2), .rounding = 3 });
     const mid = args.size * 0.5;
-    draw_list.addLine(.{ .p1 = .{ origin[0] + mid, origin[1] }, .p2 = .{ origin[0] + mid, origin[1] + args.size }, .col = gui_style.color(patina.line), .thickness = 1 });
-    draw_list.addLine(.{ .p1 = .{ origin[0], origin[1] + mid }, .p2 = .{ origin[0] + args.size, origin[1] + mid }, .col = gui_style.color(patina.line), .thickness = 1 });
-    draw_list.addRect(.{ .pmin = origin, .pmax = .{ origin[0] + args.size, origin[1] + args.size }, .col = gui_style.color(if (args.focused) args.accent else patina.bg4), .rounding = 3, .thickness = if (args.focused) 2 else 1 });
+    draw_list.addLine(.{ .p1 = .{ origin[0] + mid, origin[1] }, .p2 = .{ origin[0] + mid, origin[1] + args.size }, .col = gui_style.color(theme.line), .thickness = 1 });
+    draw_list.addLine(.{ .p1 = .{ origin[0], origin[1] + mid }, .p2 = .{ origin[0] + args.size, origin[1] + mid }, .col = gui_style.color(theme.line), .thickness = 1 });
+    draw_list.addRect(.{ .pmin = origin, .pmax = .{ origin[0] + args.size, origin[1] + args.size }, .col = gui_style.color(if (args.focused) args.accent else theme.bg4), .rounding = 3, .thickness = if (args.focused) 2 else 1 });
 
     const tx = knobValueToT(args.x_range[0], args.x_range[1], args.x.*, args.x_logarithmic);
     const ty = 1.0 - knobValueToT(args.y_range[0], args.y_range[1], args.y.*, false);
@@ -553,7 +553,7 @@ pub fn xyPad(label: [:0]const u8, args: XYPad) KnobResult {
     const crosshair = [4]f32{ args.accent[0], args.accent[1], args.accent[2], 0.35 };
     draw_list.addLine(.{ .p1 = .{ origin[0], dot[1] }, .p2 = .{ origin[0] + args.size, dot[1] }, .col = gui_style.color(crosshair), .thickness = 1 });
     draw_list.addLine(.{ .p1 = .{ dot[0], origin[1] }, .p2 = .{ dot[0], origin[1] + args.size }, .col = gui_style.color(crosshair), .thickness = 1 });
-    draw_list.addCircleFilled(.{ .p = dot, .r = 6, .col = gui_style.color(if (active or hovered) args.accent else patina.fg1) });
+    draw_list.addCircleFilled(.{ .p = dot, .r = 6, .col = gui_style.color(if (active or hovered) args.accent else theme.fg1) });
     if (args.focused) draw_list.addCircle(.{ .p = dot, .r = 9, .col = gui_style.color(args.accent), .thickness = 1.5 });
 
     if (hovered or active) {
@@ -618,19 +618,19 @@ fn envelopeScrollStep() f32 {
     return if (zgui.isKeyDown(.mod_ctrl)) 0.2 else 0.05;
 }
 
-fn adsrHandle(draw_list: zgui.DrawList, patina: *const gui_style.Palette, p: [2]f32, lit: bool, focused: bool, accent: [4]f32) void {
-    draw_list.addCircleFilled(.{ .p = p, .r = adsr_handle_r, .col = gui_style.color(if (lit) accent else patina.fg1) });
+fn adsrHandle(draw_list: zgui.DrawList, theme: *const gui_style.Palette, p: [2]f32, lit: bool, focused: bool, accent: [4]f32) void {
+    draw_list.addCircleFilled(.{ .p = p, .r = adsr_handle_r, .col = gui_style.color(if (lit) accent else theme.fg1) });
     if (focused) draw_list.addCircle(.{ .p = p, .r = adsr_handle_r + 3, .col = gui_style.color(accent), .thickness = 1.5 });
 }
 
 pub fn adsrEditor(label: [:0]const u8, args: Adsr) AdsrResult {
-    const patina = &gui_style.palette;
+    const theme = &gui_style.palette;
     const width = zgui.getContentRegionAvail()[0];
     const height = args.height;
     const origin = zgui.getCursorScreenPos();
     const draw_list = zgui.getWindowDrawList();
     zgui.dummy(.{ .w = width, .h = height });
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = gui_style.color(patina.bg2), .rounding = 3 });
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = gui_style.color(theme.bg2), .rounding = 3 });
 
     const fracs = adsrSegFracs(args.attack.*, args.decay.*, args.release.*);
     const xs = [_]f32{
@@ -687,7 +687,7 @@ pub fn adsrEditor(label: [:0]const u8, args: Adsr) AdsrResult {
             args.attack.* = std.math.clamp(args.attack.* * @exp(gui_style.wheel_delta * envelopeScrollStep()), args.attack_range[0], args.attack_range[1]);
             result.changed[0] = true;
         }
-        adsrHandle(draw_list, patina, p, node_active or node_hovered, adsrStageIs(args.focused_stage, 0), args.accent);
+        adsrHandle(draw_list, theme, p, node_active or node_hovered, adsrStageIs(args.focused_stage, 0), args.accent);
     }
 
     // Decay/sustain corner: horizontal drag is decay time, vertical is
@@ -713,7 +713,7 @@ pub fn adsrEditor(label: [:0]const u8, args: Adsr) AdsrResult {
             }
             if (delta[0] != 0 or delta[1] != 0) zgui.resetMouseDragDelta(.left);
         }
-        adsrHandle(draw_list, patina, p, node_active or node_hovered, adsrStageIs(args.focused_stage, 1), args.accent);
+        adsrHandle(draw_list, theme, p, node_active or node_hovered, adsrStageIs(args.focused_stage, 1), args.accent);
     }
 
     // Release node: horizontal drag only (duration).
@@ -738,7 +738,7 @@ pub fn adsrEditor(label: [:0]const u8, args: Adsr) AdsrResult {
             args.release.* = std.math.clamp(args.release.* * @exp(gui_style.wheel_delta * envelopeScrollStep()), args.release_range[0], args.release_range[1]);
             result.changed[3] = true;
         }
-        adsrHandle(draw_list, patina, p, node_active or node_hovered, adsrStageIs(args.focused_stage, 2), args.accent);
+        adsrHandle(draw_list, theme, p, node_active or node_hovered, adsrStageIs(args.focused_stage, 2), args.accent);
     }
 
     zgui.setCursorScreenPos(.{ origin[0], origin[1] + height });
@@ -812,19 +812,19 @@ fn curveToScreen(origin: [2]f32, w: f32, h: f32, beat_hi: f64, vlo: f32, vhi: f3
 }
 
 pub fn curveEditor(label: [:0]const u8, args: Curve) CurveResult {
-    const patina = &gui_style.palette;
+    const theme = &gui_style.palette;
     const width = args.width orelse zgui.getContentRegionAvail()[0];
     const height = args.height;
     const origin = zgui.getCursorScreenPos();
     const draw_list = zgui.getWindowDrawList();
     var result = CurveResult{};
 
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = gui_style.color(patina.bg1), .rounding = 3 });
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = gui_style.color(theme.bg1), .rounding = 3 });
     if (args.snap_beats > 0 and args.beat_hi > 0) {
         var b: f64 = 0;
         while (b <= args.beat_hi) : (b += args.snap_beats) {
             const x = origin[0] + @as(f32, @floatCast(b / args.beat_hi)) * width;
-            draw_list.addLine(.{ .p1 = .{ x, origin[1] }, .p2 = .{ x, origin[1] + height }, .col = gui_style.color(patina.line), .thickness = 1 });
+            draw_list.addLine(.{ .p1 = .{ x, origin[1] }, .p2 = .{ x, origin[1] + height }, .col = gui_style.color(theme.line), .thickness = 1 });
         }
     }
 
@@ -888,7 +888,7 @@ pub fn curveEditor(label: [:0]const u8, args: Curve) CurveResult {
             zgui.text("{d:.2} {s}  /  {s}", .{ p.beat, args.x_unit_label, knobFormatValue(&buf, "%.2f", p.value) });
             zgui.endTooltip();
         }
-        draw_list.addCircleFilled(.{ .p = center, .r = handle_r - 1, .col = gui_style.color(if (node_active or node_hovered) args.accent else patina.fg1) });
+        draw_list.addCircleFilled(.{ .p = center, .r = handle_r - 1, .col = gui_style.color(if (node_active or node_hovered) args.accent else theme.fg1) });
         if (args.focused_index != null and args.focused_index.? == i) draw_list.addCircle(.{ .p = center, .r = handle_r + 3, .col = gui_style.color(args.accent), .thickness = 1.5 });
     }
 
@@ -901,7 +901,7 @@ pub fn curveEditor(label: [:0]const u8, args: Curve) CurveResult {
         result.inserted = .{ .beat = beat, .value = value };
     }
 
-    draw_list.addRect(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = gui_style.color(patina.bg4), .rounding = 3, .thickness = 1 });
+    draw_list.addRect(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = gui_style.color(theme.bg4), .rounding = 3, .thickness = 1 });
     zgui.setCursorScreenPos(.{ origin[0], origin[1] + height });
     return result;
 }

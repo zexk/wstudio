@@ -310,7 +310,7 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, environ: *const std.process
     // (LIFO) - the terminal's palette must be back to normal before
     // deinit's own leave-alt-screen sequence, not after.
     defer tui_theme.reset(&term, user_config.tui_theme);
-    tui_theme.apply(&term, user_config.tui_theme);
+    tui_theme.apply(&term, user_config.tui_theme, &runtime.highlight_overrides);
     // zig fmt: on
 
     var app = try App.initWithSampleRate(allocator, io, user_config.default_sample_rate);
@@ -500,10 +500,8 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, environ: *const std.process
             if (runtime.reload(io)) |_| {
                 user_config = runtime.config;
                 app.afterConfigReload(user_config);
-                if (user_config.tui_theme != prev.tui_theme) {
-                    tui_theme.reset(&term, prev.tui_theme);
-                    tui_theme.apply(&term, user_config.tui_theme);
-                }
+                tui_theme.reset(&term, prev.tui_theme);
+                tui_theme.apply(&term, user_config.tui_theme, &runtime.highlight_overrides);
                 if (user_config.tui_mouse != prev.tui_mouse) term.setMouse(user_config.tui_mouse);
                 if (user_config.has_nerdfonts != prev.has_nerdfonts) icons.font_installed = user_config.has_nerdfonts or nerdfont_detected;
                 if (has_alsa and using_midi) midi_in.velocity_curve.store(user_config.default_midi_velocity_curve, .monotonic);
@@ -524,10 +522,8 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, environ: *const std.process
             app.pending_colorscheme = false;
             const prev_theme = user_config.tui_theme;
             user_config.tui_theme = runtime.config.tui_theme;
-            if (user_config.tui_theme != prev_theme) {
-                tui_theme.reset(&term, prev_theme);
-                tui_theme.apply(&term, user_config.tui_theme);
-            }
+            tui_theme.reset(&term, prev_theme);
+            tui_theme.apply(&term, user_config.tui_theme, &runtime.highlight_overrides);
         }
 
         // MIDI input follows the TUI cursor so live playing always targets the

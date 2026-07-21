@@ -6,7 +6,7 @@ const gui_style = @import("../style.zig");
 const step_grid = @import("step_grid.zig");
 const zgui = @import("zgui");
 
-const patina = &gui_style.palette;
+const theme = &gui_style.palette;
 
 pub fn draw(app: anytype) void {
     const track = app.core.drum_track;
@@ -42,7 +42,7 @@ fn drawTitle(app: anytype, drum: *const ws.dsp.DrumMachine) void {
     zgui.sameLine(.{});
     zgui.text("\"{s}\"", .{app.core.session.project.tracks.items[app.core.drum_track].name});
     zgui.sameLine(.{});
-    zgui.textColored(patina.rhythm, "Pattern {c}", .{'A' + drum.variant});
+    zgui.textColored(theme.rhythm, "Pattern {c}", .{'A' + drum.variant});
     zgui.sameLine(.{});
     zgui.textDisabled("Variation {d}/{d}", .{ drum.variant + 1, drum.variant_count });
     zgui.sameLine(.{});

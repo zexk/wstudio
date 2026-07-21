@@ -3,7 +3,7 @@ const zgui = @import("zgui");
 const ws = @import("wstudio");
 const config_mod = @import("../config.zig");
 
-pub fn rgb(comptime value: u24) [4]f32 {
+pub fn rgb(value: u24) [4]f32 {
     return .{
         @as(f32, @floatFromInt(value >> 16)) / 255.0,
         @as(f32, @floatFromInt(value >> 8 & 0xff)) / 255.0,
@@ -44,7 +44,7 @@ pub const Palette = struct {
 /// TUI's OSC theming) into the float RGBA this panel skin draws with - the
 /// hex tables live in one place so the GUI and TUI can't drift into two
 /// different ideas of what "patina" or "umbra" look like.
-fn fromIdentity(comptime id: ws.theme_identity.Identity) Palette {
+fn fromIdentity(id: ws.theme_identity.Identity) Palette {
     return .{
         .light = id.light,
         .bg0 = rgb(id.bg0),
@@ -77,7 +77,7 @@ const graphite_light_colors: Palette = fromIdentity(ws.theme_identity.graphite_l
 const umbra_colors: Palette = fromIdentity(ws.theme_identity.umbra);
 
 /// The active palette. Every draw site reads through this (via each file's
-/// `const patina = &style.palette;` alias), so `selectPalette` at startup
+/// `const theme = &style.palette;` alias), so selection at startup
 /// re-skins the whole GUI. Mutated once, before the first frame.
 pub var palette: Palette = patina_colors;
 
@@ -108,14 +108,20 @@ test "track cursor stays outside every theme's track rotation" {
     }
 }
 
+test "runtime identity selection updates the generic palette" {
+    var identity = ws.theme_identity.patina;
+    identity.focus = 0x123456;
+    selectIdentity(identity);
+    try std.testing.expectEqual(rgb(0x123456), palette.focus);
+    selectIdentity(ws.theme_identity.patina);
+}
+
 pub fn selectPalette(theme: config_mod.GuiTheme) void {
-    palette = switch (theme) {
-        .patina => patina_colors,
-        .patina_light => patina_light_colors,
-        .graphite => graphite_colors,
-        .graphite_light => graphite_light_colors,
-        .umbra => umbra_colors,
-    };
+    selectIdentity(ws.theme_identity.get(theme).*);
+}
+
+pub fn selectIdentity(identity: ws.theme_identity.Identity) void {
+    palette = fromIdentity(identity);
     // fg3 is explanatory text drawn directly by views. Keep it readable,
     // while ImGui's disabled color below remains a separate, quieter tier.
     palette.fg3 = mixColor(palette.fg3, palette.fg2, 0.32);
