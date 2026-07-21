@@ -202,6 +202,27 @@
 -- wstudio.o.gui_meter_decay_db_s = 24
 
 -- ---------------------------------------------------------------------------
+-- COLORS: wstudio.api.set_hl
+-- ---------------------------------------------------------------------------
+-- Built-in themes provide a complete base palette. Theme modules can layer
+-- semantic colors over that base, in the same spirit as Neovim highlight
+-- plugins. Colors are #rrggbb; {} clears an override.
+--
+-- Groups: bg0..bg5, fg0..fg3, line, line_soft, focus, focus_soft,
+-- track_cursor, modulation, danger, rhythm, audio, blue, track1..track7.
+-- These calls work here during startup and repaint live when called later.
+-- TUI overrides are visible when wstudio.o.tui_theme is not "none".
+--
+-- wstudio.api.set_hl("bg0", { fg = "#101218" })
+-- wstudio.api.set_hl("focus", { fg = "#89b4fa" })
+-- wstudio.api.set_hl("track1", { fg = "#f38ba8" })
+-- local focus = wstudio.api.get_hl("focus") -- { fg = "#89b4fa" }
+-- wstudio.api.set_hl("focus", {})           -- restore built-in color
+--
+-- A theme plugin can live at lua/colors/mytheme.lua and be loaded with:
+-- require("colors.mytheme")
+
+-- ---------------------------------------------------------------------------
 -- KEYMAPS: wstudio.keymap
 -- ---------------------------------------------------------------------------
 -- wstudio.keymap.set(modes, lhs, rhs, opts?)

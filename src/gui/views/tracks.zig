@@ -11,7 +11,7 @@ const zgui = @import("zgui");
 const color = gui_style.color;
 const trackColor = gui_style.trackColor;
 const legibleOn = gui_style.legibleOn;
-const patina = &gui_style.palette;
+const theme = &gui_style.palette;
 
 /// Left number/glyph strip and right info block are fixed-width so they
 /// never drift with the panel's width - only the middle (name, FX chips)
@@ -30,7 +30,7 @@ pub fn draw(app: anytype) void {
     app.core.tracksRowSync();
     zgui.textDisabled("TRACKS", .{});
     zgui.sameLine(.{});
-    zgui.textColored(if (app.core.session.song_mode) patina.audio else patina.fg3, "{s}", .{if (app.core.session.song_mode) "SONG" else "PATTERN"});
+    zgui.textColored(if (app.core.session.song_mode) theme.audio else theme.fg3, "{s}", .{if (app.core.session.song_mode) "SONG" else "PATTERN"});
     zgui.separator();
     const row_count = app.core.trackRows().len + 1;
     const available_height = zgui.getContentRegionAvail()[1];
@@ -71,7 +71,7 @@ fn drawRowChrome(app: anytype, id: [:0]const u8, display_row: usize, in_visual: 
     const hovered = zgui.isItemHovered(.{});
     const selected = app.core.track_row == display_row;
     const draw_list = zgui.getWindowDrawList();
-    const row_bg = if (hovered and !selected) patina.bg4 else patina.bg3;
+    const row_bg = if (hovered and !selected) theme.bg4 else theme.bg3;
     draw_list.addRectFilled(.{
         .pmin = origin,
         .pmax = .{ origin[0] + width, origin[1] + height - 2 },
@@ -137,8 +137,8 @@ fn drawMixerRow(app: anytype, track_index: u16, display_row: usize, height: f32)
     const origin = chrome.origin;
     const width = chrome.width;
     const selected = chrome.selected;
-    const row_fg = if (selected) patina.fg0 else patina.fg1;
-    const row_muted = patina.fg3;
+    const row_fg = if (selected) theme.fg0 else theme.fg1;
+    const row_muted = theme.fg3;
 
     drawSideStrip(draw_list, origin, height, accent, "{d:0>2}", .{track_index + 1});
 
@@ -172,15 +172,15 @@ fn drawMixerRow(app: anytype, track_index: u16, display_row: usize, height: f32)
     // same way a keyboard toggle does.
     var badge_x = block_x0 + 181;
     var badge_id_buf: [40]u8 = undefined;
-    if (drawTrackBadgeToggle(draw_list, std.fmt.bufPrintZ(&badge_id_buf, "solo-{d}", .{track_index}) catch "solo", badge_x, origin[1] + 12, icons.solo, track.soloed, patina.rhythm)) {
+    if (drawTrackBadgeToggle(draw_list, std.fmt.bufPrintZ(&badge_id_buf, "solo-{d}", .{track_index}) catch "solo", badge_x, origin[1] + 12, icons.solo, track.soloed, theme.rhythm)) {
         app.core.apiSetTrackSoloed(track_index, !track.soloed);
     }
     badge_x -= 18;
-    if (drawTrackBadgeToggle(draw_list, std.fmt.bufPrintZ(&badge_id_buf, "mute-{d}", .{track_index}) catch "mute", badge_x, origin[1] + 12, icons.mute, track.muted, patina.danger)) {
+    if (drawTrackBadgeToggle(draw_list, std.fmt.bufPrintZ(&badge_id_buf, "mute-{d}", .{track_index}) catch "mute", badge_x, origin[1] + 12, icons.mute, track.muted, theme.danger)) {
         app.core.apiSetTrackMuted(track_index, !track.muted);
     }
     badge_x -= 18;
-    if (drawTrackBadgeToggle(draw_list, std.fmt.bufPrintZ(&badge_id_buf, "arm-{d}", .{track_index}) catch "arm", badge_x, origin[1] + 12, "R", app.core.session.isArmed(track_index), patina.danger)) {
+    if (drawTrackBadgeToggle(draw_list, std.fmt.bufPrintZ(&badge_id_buf, "arm-{d}", .{track_index}) catch "arm", badge_x, origin[1] + 12, "R", app.core.session.isArmed(track_index), theme.danger)) {
         app.core.session.toggleArm(track_index);
         app.core.dirty = true;
     }
@@ -204,7 +204,7 @@ fn drawGroupRow(app: anytype, group_index: u8, display_row: usize, height: f32) 
     const origin = chrome.origin;
     const width = chrome.width;
     const selected = chrome.selected;
-    const accent = patina.modulation;
+    const accent = theme.modulation;
 
     drawSideStrip(draw_list, origin, height, accent, "{s}", .{if (group.folded) ">" else "v"});
 
@@ -213,8 +213,8 @@ fn drawGroupRow(app: anytype, group_index: u8, display_row: usize, height: f32) 
         member_count += 1;
     };
     const text_x = origin[0] + strip_w + 13;
-    draw_list.addText(.{ text_x, origin[1] + 5 }, color(if (selected) patina.fg0 else patina.modulation), "{d:0>2}  {s}", .{ group_index + 1, group.name });
-    draw_list.addText(.{ text_x + 28, origin[1] + 23 }, color(patina.fg3), "[group]  {d} track{s}", .{ member_count, if (member_count == 1) "" else "s" });
+    draw_list.addText(.{ text_x, origin[1] + 5 }, color(if (selected) theme.fg0 else theme.modulation), "{d:0>2}  {s}", .{ group_index + 1, group.name });
+    draw_list.addText(.{ text_x + 28, origin[1] + 23 }, color(theme.fg3), "[group]  {d} track{s}", .{ member_count, if (member_count == 1) "" else "s" });
 
     const block_x0 = drawInfoBlockBg(draw_list, origin, width, height, accent);
     const block_fg = legibleOn(accent);
@@ -230,13 +230,13 @@ fn drawMasterRow(app: anytype, height: f32) void {
     const origin = chrome.origin;
     const width = chrome.width;
     const selected = chrome.selected;
-    const accent = patina.audio;
+    const accent = theme.audio;
 
     drawSideStrip(draw_list, origin, height, accent, "M", .{});
 
     const text_x = origin[0] + strip_w + 13;
-    draw_list.addText(.{ text_x, origin[1] + 5 }, color(if (selected) patina.fg0 else patina.modulation), "MASTER", .{});
-    draw_list.addText(.{ text_x + 28, origin[1] + 23 }, color(patina.fg3), "[bus]", .{});
+    draw_list.addText(.{ text_x, origin[1] + 5 }, color(if (selected) theme.fg0 else theme.modulation), "MASTER", .{});
+    draw_list.addText(.{ text_x + 28, origin[1] + 23 }, color(theme.fg3), "[bus]", .{});
 
     const block_x0 = drawInfoBlockBg(draw_list, origin, width, height, accent);
     const block_fg = legibleOn(accent);
@@ -270,7 +270,7 @@ fn drawTrackRowCursorUnderlay(draw_list: zgui.DrawList, origin: [2]f32, width: f
     draw_list.addRectFilled(.{
         .pmin = .{ origin[0] + 1, origin[1] + 1 },
         .pmax = .{ origin[0] + width - block_margin - 1, origin[1] + height - 3 },
-        .col = color(.{ patina.track_cursor[0], patina.track_cursor[1], patina.track_cursor[2], 0.18 }),
+        .col = color(.{ theme.track_cursor[0], theme.track_cursor[1], theme.track_cursor[2], 0.18 }),
         .rounding = 2,
     });
 }
@@ -286,7 +286,7 @@ fn drawTrackRowCursorOutline(chrome: RowChrome, height: f32) void {
             chrome.origin[0] + chrome.width - block_margin - inset,
             chrome.origin[1] + height - 2 - inset,
         },
-        .col = color(if (chrome.selected) patina.track_cursor else if (chrome.in_visual) patina.fg0 else patina.focus),
+        .col = color(if (chrome.selected) theme.track_cursor else if (chrome.in_visual) theme.fg0 else theme.focus),
         .rounding = 2,
         .thickness = if (chrome.selected or chrome.in_visual) 2 else 1,
     });
@@ -300,8 +300,8 @@ fn drawTrackBadgeToggle(draw_list: zgui.DrawList, id: [:0]const u8, x: f32, y: f
     _ = zgui.invisibleButton(id, .{ .w = 15, .h = 18 });
     const activated = zgui.isItemActivated();
     const hovered = zgui.isItemHovered(.{});
-    const bg = if (active) active_bg else if (hovered) patina.bg4 else patina.bg2;
-    const fg = if (active) legibleOn(active_bg) else if (hovered) patina.fg1 else patina.fg3;
+    const bg = if (active) active_bg else if (hovered) theme.bg4 else theme.bg2;
+    const fg = if (active) legibleOn(active_bg) else if (hovered) theme.fg1 else theme.fg3;
     draw_list.addRectFilled(.{ .pmin = .{ x, y }, .pmax = .{ x + 15, y + 18 }, .col = color(bg), .rounding = 2 });
     const label_size = zgui.calcTextSize(label, .{});
     draw_list.addText(.{
@@ -315,14 +315,14 @@ fn drawFxChips(draw_list: zgui.DrawList, fx: *const ws.Fx, start_x: f32, y: f32,
     var x = start_x;
     for (fx.units.items, 0..) |unit, index| {
         if (index == 4) {
-            draw_list.addText(.{ x, y + 2 }, color(patina.fg3), "+{d}", .{fx.units.items.len - index});
+            draw_list.addText(.{ x, y + 2 }, color(theme.fg3), "+{d}", .{fx.units.items.len - index});
             break;
         }
         const label = spectrum_ed.stripLabel(unit.kind());
         const chip_w = zgui.calcTextSize(label, .{})[0] + 12;
         if (x + chip_w > max_x) break;
-        draw_list.addRectFilled(.{ .pmin = .{ x, y }, .pmax = .{ x + chip_w, y + 20 }, .col = color(patina.bg2), .rounding = 2 });
-        draw_list.addText(.{ x + 6, y + 2 }, color(if (unit.bypassed) patina.fg3 else patina.audio), "{s}", .{label});
+        draw_list.addRectFilled(.{ .pmin = .{ x, y }, .pmax = .{ x + chip_w, y + 20 }, .col = color(theme.bg2), .rounding = 2 });
+        draw_list.addText(.{ x + 6, y + 2 }, color(if (unit.bypassed) theme.fg3 else theme.audio), "{s}", .{label});
         x += chip_w + 4;
     }
 }

@@ -5,7 +5,7 @@ const icons = @import("../../ui/icons.zig");
 const style = @import("../style.zig");
 const widgets = @import("../widgets.zig");
 
-const patina = &style.palette;
+const theme = &style.palette;
 
 pub fn draw(app: anytype) void {
     const track = app.core.soundfont_track;
@@ -22,7 +22,7 @@ pub fn draw(app: anytype) void {
     zgui.spacing();
 
     if (sf.presetCount() == 0) {
-        widgets.sectionTitle("FONT", patina.audio);
+        widgets.sectionTitle("FONT", theme.audio);
         zgui.spacing();
         if (widgets.emptyState(.{
             .id = "soundfont-empty-state",
@@ -30,16 +30,16 @@ pub fn draw(app: anytype) void {
             .explanation = "Choose a .sf2 file to play its presets on this track.",
             .shortcut = ":load",
             .action = "LOAD SOUNDFONT",
-            .accent = patina.audio,
+            .accent = theme.audio,
         })) widgets.openLoadCommand(app);
         return;
     }
 
-    widgets.sectionTitle("PROGRAM", patina.rhythm);
+    widgets.sectionTitle("PROGRAM", theme.rhythm);
     drawPresetRow(app, track, sf);
     zgui.spacing();
 
-    widgets.sectionTitle("OUT", patina.focus);
+    widgets.sectionTitle("OUT", theme.focus);
     drawParam(app, track, sf, 0, "Gain", "%.2f");
     drawParam(app, track, sf, 1, "Pan", widgets.pan_cfmt);
     drawParam(app, track, sf, 2, "Transpose", "%.0f st");
@@ -51,7 +51,7 @@ fn drawHeader(app: anytype, track: u16, sf: *const ws.dsp.SoundfontPlayer) void 
     zgui.text("\"{s}\"", .{app.core.session.project.tracks.items[track].name});
     if (sf.presetCount() > 0) {
         zgui.sameLine(.{});
-        zgui.textColored(patina.focus, "\"{s}\"", .{sf.presetName()});
+        zgui.textColored(theme.focus, "\"{s}\"", .{sf.presetName()});
     }
 }
 
@@ -59,7 +59,7 @@ fn drawPresetRow(app: anytype, track: u16, sf: *ws.dsp.SoundfontPlayer) void {
     const count = sf.presetCount();
     const idx = sf.preset_index;
     const focused = app.core.soundfont_param == 3;
-    zgui.pushStyleColor4f(.{ .idx = .text, .c = if (focused) patina.focus else patina.fg2 });
+    zgui.pushStyleColor4f(.{ .idx = .text, .c = if (focused) theme.focus else theme.fg2 });
     zgui.text("{s}  ({d}/{d})", .{ sf.presetName(), idx + 1, count });
     zgui.popStyleColor(.{ .count = 1 });
     if (sf.presetBankProgram()) |bp| {
@@ -105,7 +105,7 @@ fn drawParam(app: anytype, track: u16, sf: *ws.dsp.SoundfontPlayer, id: u8, labe
     var label_buf: [64]u8 = undefined;
     const label = std.fmt.bufPrintZ(&label_buf, "{s}##soundfont-{d}", .{ label_text, id }) catch return;
     const focused = app.core.soundfont_param == id;
-    const result = widgets.paramKnob(label_text, label, .{ .v = &value, .min = range[0], .max = range[1], .cfmt = format, .accent = patina.focus, .focused = focused });
+    const result = widgets.paramKnob(label_text, label, .{ .v = &value, .min = range[0], .max = range[1], .cfmt = format, .accent = theme.focus, .focused = focused });
     if (result.changed) setParam(app, track, id, value);
     if (result.activated) app.core.soundfont_param = id;
 }

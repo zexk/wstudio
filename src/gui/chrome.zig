@@ -14,7 +14,7 @@ const widgets = @import("widgets.zig");
 const zgui = @import("zgui");
 
 const color = gui_style.color;
-const patina = &gui_style.palette;
+const theme = &gui_style.palette;
 
 pub fn drawTransport(app: anytype, audio_label: []const u8) void {
     const snap = app.core.session.engine.uiSnapshot();
@@ -76,7 +76,7 @@ fn drawLevelMeters(app: anytype, peak: [2]f32) void {
 
     zgui.sameLine(.{ .spacing = 24 });
     zgui.beginGroup();
-    zgui.textColored(patina.fg3, "LEVEL", .{});
+    zgui.textColored(theme.fg3, "LEVEL", .{});
     const origin = zgui.getCursorScreenPos();
     const bar_w: f32 = 110;
     const bar_h: f32 = 8;
@@ -93,7 +93,7 @@ fn drawLevelMeters(app: anytype, peak: [2]f32) void {
 fn drawPhaseMeter(correlation: f32) void {
     zgui.sameLine(.{ .spacing = 24 });
     zgui.beginGroup();
-    zgui.textColored(patina.fg3, "PHASE", .{});
+    zgui.textColored(theme.fg3, "PHASE", .{});
     const origin = zgui.getCursorScreenPos();
     widgets.correlationBar(zgui.getWindowDrawList(), origin, correlation, phase_bar_w, 8);
     zgui.dummy(.{ .w = phase_bar_w, .h = 8 });
@@ -107,10 +107,10 @@ fn drawPhaseMeter(correlation: f32) void {
 fn drawLoudnessReadout(snap: anytype) void {
     zgui.sameLine(.{ .spacing = 24 });
     zgui.beginGroup();
-    zgui.textColored(patina.fg3, "LUFS  S / I", .{});
+    zgui.textColored(theme.fg3, "LUFS  S / I", .{});
     var short_buf: [16]u8 = undefined;
     var int_buf: [16]u8 = undefined;
-    zgui.textColored(patina.fg0, "{s} / {s}", .{ lufsText(snap.lufs_short_term, &short_buf), lufsText(snap.lufs_integrated, &int_buf) });
+    zgui.textColored(theme.fg0, "{s} / {s}", .{ lufsText(snap.lufs_short_term, &short_buf), lufsText(snap.lufs_integrated, &int_buf) });
     zgui.endGroup();
 }
 
@@ -122,8 +122,8 @@ fn lufsText(value: f32, scratch: *[16]u8) []const u8 {
 fn drawTransportReadout(label: []const u8, value: []const u8, first: bool) void {
     if (!first) zgui.sameLine(.{ .spacing = 24 });
     zgui.beginGroup();
-    zgui.textColored(patina.fg3, "{s}", .{label});
-    zgui.textColored(patina.fg0, "{s}", .{value});
+    zgui.textColored(theme.fg3, "{s}", .{label});
+    zgui.textColored(theme.fg0, "{s}", .{value});
     zgui.endGroup();
 }
 
@@ -158,38 +158,38 @@ pub fn drawStatus(app: anytype) void {
         const draw = zgui.getWindowDrawList();
         const pos = zgui.getWindowPos();
         const size = zgui.getWindowSize();
-        draw.addRectFilled(.{ .pmin = pos, .pmax = .{ pos[0] + size[0], pos[1] + size[1] }, .col = color(patina.bg3) });
+        draw.addRectFilled(.{ .pmin = pos, .pmax = .{ pos[0] + size[0], pos[1] + size[1] }, .col = color(theme.bg3) });
 
         var left_buf: [2048]u8 = undefined;
         var right_buf: [256]u8 = undefined;
         const text = tuiStatusText(app, &left_buf, &right_buf);
         const mode_label = statusModeLabel(app.core.modal.mode);
-        var x = drawStatusSegment(draw, pos[0], pos[1], size[1], statusModeColor(app.core.modal.mode), patina.bg0, mode_label);
+        var x = drawStatusSegment(draw, pos[0], pos[1], size[1], statusModeColor(app.core.modal.mode), theme.bg0, mode_label);
         // Persistent chip while a macro recording runs - mirrors the TUI's
         // own `rec @x` chip (state, not a status message that times out).
         if (app.core.macro_recording) |reg| {
             var rec_buf: [8]u8 = undefined;
             const rec_label = std.fmt.bufPrint(&rec_buf, "REC {c}", .{'a' + reg}) catch "REC";
-            x = drawStatusSegment(draw, x, pos[1], size[1], patina.danger, patina.bg0, rec_label);
+            x = drawStatusSegment(draw, x, pos[1], size[1], theme.danger, theme.bg0, rec_label);
         }
         // vim's 'showcmd': pending operator/count or visual-selection
         // width - same state-not-message treatment as the REC chip.
         var showcmd_buf: [24]u8 = undefined;
         const showcmd = app.core.pendingCmdText(&showcmd_buf);
         if (showcmd.len > 0) {
-            x = drawStatusSegment(draw, x, pos[1], size[1], patina.bg3, patina.fg0, showcmd);
+            x = drawStatusSegment(draw, x, pos[1], size[1], theme.bg3, theme.fg0, showcmd);
         }
         const context = compactStatusContext(std.mem.trim(u8, text.left, " "));
         if (context.len > 0) {
             const text_size = zgui.calcTextSize(context, .{});
-            draw.addText(.{ x + 12, pos[1] + (size[1] - text_size[1]) / 2 }, color(patina.fg1), "{s}", .{context});
+            draw.addText(.{ x + 12, pos[1] + (size[1] - text_size[1]) / 2 }, color(theme.fg1), "{s}", .{context});
         }
         if (text.right.len > 0) {
             const right_color = if (app.core.view == .arrangement)
-                if (app.core.session.song_mode) patina.audio else patina.rhythm
+                if (app.core.session.song_mode) theme.audio else theme.rhythm
             else
                 statusModeColor(app.core.modal.mode);
-            drawStatusSegmentRight(draw, pos[0] + size[0], pos[1], size[1], right_color, patina.bg0, text.right);
+            drawStatusSegmentRight(draw, pos[0] + size[0], pos[1], size[1], right_color, theme.bg0, text.right);
         }
     }
     zgui.end();
@@ -263,10 +263,10 @@ fn statusModeLabel(mode: ws.input.Mode) []const u8 {
 
 fn statusModeColor(mode: ws.input.Mode) [4]f32 {
     return switch (mode) {
-        .normal => patina.audio,
-        .insert => patina.rhythm,
-        .visual => patina.modulation,
-        .command, .search => patina.focus,
+        .normal => theme.audio,
+        .insert => theme.rhythm,
+        .visual => theme.modulation,
+        .command, .search => theme.focus,
     };
 }
 
@@ -306,10 +306,10 @@ fn drawCommandSuggestions(app: anytype, active: tui_cmd.Scope, filter: []const u
     const draw = zgui.getWindowDrawList();
     const origin = zgui.getWindowPos();
     const size = zgui.getWindowSize();
-    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + size[0], origin[1] + size[1] }, .col = color(patina.bg1), .rounding = 4 });
-    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + 4, origin[1] + size[1] }, .col = color(patina.focus), .rounding = 2 });
-    draw.addText(.{ origin[0] + 14, origin[1] + 8 }, color(patina.fg3), "COMMANDS", .{});
-    draw.addText(.{ origin[0] + size[0] - 96, origin[1] + 8 }, color(patina.fg3), "TAB TO CYCLE", .{});
+    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + size[0], origin[1] + size[1] }, .col = color(theme.bg1), .rounding = 4 });
+    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + 4, origin[1] + size[1] }, .col = color(theme.focus), .rounding = 2 });
+    draw.addText(.{ origin[0] + 14, origin[1] + 8 }, color(theme.fg3), "COMMANDS", .{});
+    draw.addText(.{ origin[0] + size[0] - 96, origin[1] + 8 }, color(theme.fg3), "TAB TO CYCLE", .{});
 
     const selected = app.core.suggestionSelected(active);
     var match_index: usize = 0;
@@ -321,11 +321,11 @@ fn drawCommandSuggestions(app: anytype, active: tui_cmd.Scope, filter: []const u
         const y = origin[1] + 30 + @as(f32, @floatFromInt(drawn)) * 39;
         const is_selected = match_index == selected;
         if (is_selected) {
-            draw.addRectFilled(.{ .pmin = .{ origin[0] + 7, y }, .pmax = .{ origin[0] + size[0] - 7, y + 35 }, .col = color(patina.bg4), .rounding = 3 });
-            draw.addRectFilled(.{ .pmin = .{ origin[0] + 7, y }, .pmax = .{ origin[0] + 10, y + 35 }, .col = color(patina.focus), .rounding = 2 });
+            draw.addRectFilled(.{ .pmin = .{ origin[0] + 7, y }, .pmax = .{ origin[0] + size[0] - 7, y + 35 }, .col = color(theme.bg4), .rounding = 3 });
+            draw.addRectFilled(.{ .pmin = .{ origin[0] + 7, y }, .pmax = .{ origin[0] + 10, y + 35 }, .col = color(theme.focus), .rounding = 2 });
         }
-        draw.addText(.{ origin[0] + 20, y + 4 }, color(if (is_selected) patina.fg0 else patina.fg1), ":{s}", .{command.name});
-        draw.addText(.{ origin[0] + 185, y + 4 }, color(if (is_selected) patina.fg2 else patina.fg3), "{s}", .{command.desc});
+        draw.addText(.{ origin[0] + 20, y + 4 }, color(if (is_selected) theme.fg0 else theme.fg1), ":{s}", .{command.name});
+        draw.addText(.{ origin[0] + 185, y + 4 }, color(if (is_selected) theme.fg2 else theme.fg3), "{s}", .{command.desc});
         match_index += 1;
         drawn += 1;
     }
@@ -341,10 +341,10 @@ fn drawCommandBar(app: anytype, draw: zgui.DrawList, pos: [2]f32, size: [2]f32) 
     draw.addRectFilled(.{
         .pmin = pos,
         .pmax = .{ pos[0] + size[0], pos[1] + size[1] },
-        .col = color(patina.bg3),
+        .col = color(theme.bg3),
     });
-    draw.addText(.{ prompt_x, text_y }, color(patina.focus), "{s}", .{prompt});
-    draw.addText(.{ input_x, text_y }, color(patina.fg0), "{s}", .{input});
+    draw.addText(.{ prompt_x, text_y }, color(theme.focus), "{s}", .{prompt});
+    draw.addText(.{ input_x, text_y }, color(theme.fg0), "{s}", .{input});
 
     if (app.core.modal.mode == .command) {
         if (std.mem.indexOfScalar(u8, input, ' ')) |space| {
@@ -352,13 +352,13 @@ fn drawCommandBar(app: anytype, draw: zgui.DrawList, pos: [2]f32, size: [2]f32) 
             for (app.core.allCmds()) |command| {
                 if (!std.mem.eql(u8, command.name, name)) continue;
                 const hint_x = input_x + zgui.calcTextSize(input, .{})[0] + 18;
-                draw.addText(.{ hint_x, text_y }, color(patina.fg3), "{s}", .{command.desc});
+                draw.addText(.{ hint_x, text_y }, color(theme.fg3), "{s}", .{command.desc});
                 break;
             }
         }
-        draw.addText(.{ pos[0] + size[0] - 150, text_y }, color(patina.fg3), "TAB complete   ESC close", .{});
+        draw.addText(.{ pos[0] + size[0] - 150, text_y }, color(theme.fg3), "TAB complete   ESC close", .{});
     } else {
-        draw.addText(.{ pos[0] + size[0] - 102, text_y }, color(patina.fg3), "ENTER search", .{});
+        draw.addText(.{ pos[0] + size[0] - 102, text_y }, color(theme.fg3), "ENTER search", .{});
     }
 
     const before_cursor = input[0..app.core.modal.cmd_cursor];
@@ -366,7 +366,7 @@ fn drawCommandBar(app: anytype, draw: zgui.DrawList, pos: [2]f32, size: [2]f32) 
     draw.addRectFilled(.{
         .pmin = .{ cursor_x, text_y },
         .pmax = .{ cursor_x + 1, text_y + zgui.getTextLineHeight() },
-        .col = color(patina.fg0),
+        .col = color(theme.fg0),
     });
 }
 

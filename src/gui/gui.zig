@@ -15,7 +15,7 @@ const zopengl = @import("zopengl");
 
 const App = app_mod.App;
 const gl = zopengl.bindings;
-const patina = &gui_style.palette;
+const theme = &gui_style.palette;
 
 const icon_glyph_ranges = [_]zgui.Wchar{
     0xec1a,  0xec1a,  0xee32,  0xee32,  0xef9d,  0xef9d,
@@ -84,7 +84,7 @@ fn drawFrame() void {
     const fb = ctx.window.getFramebufferSize();
     if (fb[0] <= 0 or fb[1] <= 0) return;
     gl.viewport(0, 0, fb[0], fb[1]);
-    gl.clearColor(patina.bg0[0], patina.bg0[1], patina.bg0[2], 1.0);
+    gl.clearColor(theme.bg0[0], theme.bg0[1], theme.bg0[2], 1.0);
     gl.clear(gl.COLOR_BUFFER_BIT);
     zgui.backend.newFrame(@intCast(fb[0]), @intCast(fb[1]));
     ctx.app.handleShortcuts();
@@ -120,7 +120,7 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
     // cursor movement (h/j/k/l and the arrows), so leaving it on made
     // buttons light up instead of moving the app cursor.
     zgui.io.setIniFilename(null);
-    gui_style.selectPalette(user_config.gui_theme);
+    gui_style.selectIdentity(runtime.resolvedTheme(user_config.gui_theme));
     gui_style.setTheme(user_config.gui_panel_border);
     gui_style.knob_drag_pixels = user_config.gui_knob_drag_pixels;
     gui_style.envelope_drag_pixels = user_config.gui_envelope_drag_pixels;
@@ -209,7 +209,7 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
             if (runtime.reload(init.io)) |_| {
                 user_config = runtime.config;
                 app.core.afterConfigReload(user_config);
-                gui_style.selectPalette(user_config.gui_theme);
+                gui_style.selectIdentity(runtime.resolvedTheme(user_config.gui_theme));
                 gui_style.setTheme(user_config.gui_panel_border);
                 gui_style.knob_drag_pixels = user_config.gui_knob_drag_pixels;
                 gui_style.envelope_drag_pixels = user_config.gui_envelope_drag_pixels;
@@ -228,7 +228,7 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
         if (app.core.pending_colorscheme) {
             app.core.pending_colorscheme = false;
             user_config.gui_theme = runtime.config.gui_theme;
-            gui_style.selectPalette(user_config.gui_theme);
+            gui_style.selectIdentity(runtime.resolvedTheme(user_config.gui_theme));
             gui_style.setTheme(user_config.gui_panel_border);
         }
         drawFrame();

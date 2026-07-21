@@ -6493,6 +6493,9 @@ test "wstudio.api exposes editor context and feature detection" {
     try rt.loadString("assert(wstudio.api.has('get_context')); assert(not wstudio.api.has('future_api'))");
     try rt.loadString("c = wstudio.api.get_context(); assert(c.frontend == 'gui' and c.view == 'tracks' and c.mode == 'normal' and c.track == 1)");
     try rt.loadString("assert(wstudio.api.get_mode() == 'normal'); assert(wstudio.api.get_current_view() == 'tracks'); assert(wstudio.api.get_current_track() == 1)");
+    try rt.loadString("wstudio.api.set_hl('focus', { fg = '#abcdef' })");
+    try std.testing.expect(app.pending_colorscheme);
+    app.pending_colorscheme = false;
 
     app.view = .piano_roll;
     app.piano_track = 2;

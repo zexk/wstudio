@@ -7,7 +7,7 @@ const synth_ed = @import("../../ui/editors/synth.zig");
 const style = @import("../style.zig");
 
 const color = style.color;
-const patina = &style.palette;
+const theme = &style.palette;
 
 /// Paint a Telescope-style modal into the existing workspace window: a
 /// draw-list backdrop and panel frame, then a real (borderless, transparent)
@@ -34,13 +34,13 @@ pub fn beginOverlay() void {
     draw_list.addRectFilled(.{
         .pmin = panel,
         .pmax = .{ panel[0] + panel_w, panel[1] + panel_h },
-        .col = color(patina.bg1),
+        .col = color(theme.bg1),
         .rounding = 6,
     });
     draw_list.addRect(.{
         .pmin = panel,
         .pmax = .{ panel[0] + panel_w, panel[1] + panel_h },
-        .col = color(patina.focus),
+        .col = color(theme.focus),
         .rounding = 6,
         .thickness = 1,
     });
@@ -60,27 +60,27 @@ fn overlayWidth() f32 {
 
 pub fn drawInstrument(app: anytype) void {
     if (app.core.picker_replace) {
-        zgui.textColored(patina.focus, "REPLACE INSTRUMENT", .{});
+        zgui.textColored(theme.focus, "REPLACE INSTRUMENT", .{});
         zgui.sameLine(.{});
         zgui.textDisabled("Swaps notes over when the old and new kinds are compatible", .{});
     } else {
-        zgui.textColored(patina.focus, "ADD INSTRUMENT", .{});
+        zgui.textColored(theme.focus, "ADD INSTRUMENT", .{});
         zgui.sameLine(.{});
         zgui.textDisabled("Choose the track's sound source", .{});
     }
     zgui.separator();
     const entries = [_]struct { label: []const u8, desc: []const u8, kind: ws.InstrumentKind, accent: [4]f32 }{
-        .{ .label = "POLY SYNTH", .desc = "SYNTHESIS  POLY  MODULATION", .kind = .poly_synth, .accent = patina.focus },
-        .{ .label = "SAMPLER", .desc = "AUDIO  KEYMAP  ENVELOPE", .kind = .sampler, .accent = patina.audio },
-        .{ .label = "DRUM MACHINE", .desc = "PADS  VELOCITY  SEQUENCER", .kind = .drum_machine, .accent = patina.rhythm },
-        .{ .label = "SLICER", .desc = "AUDIO  SLICES  SEQUENCER", .kind = .slicer, .accent = patina.modulation },
-        .{ .label = "SOUNDFONT", .desc = "SF2  MULTI-TIMBRAL  PRESETS", .kind = .soundfont, .accent = patina.audio },
+        .{ .label = "POLY SYNTH", .desc = "SYNTHESIS  POLY  MODULATION", .kind = .poly_synth, .accent = theme.focus },
+        .{ .label = "SAMPLER", .desc = "AUDIO  KEYMAP  ENVELOPE", .kind = .sampler, .accent = theme.audio },
+        .{ .label = "DRUM MACHINE", .desc = "PADS  VELOCITY  SEQUENCER", .kind = .drum_machine, .accent = theme.rhythm },
+        .{ .label = "SLICER", .desc = "AUDIO  SLICES  SEQUENCER", .kind = .slicer, .accent = theme.modulation },
+        .{ .label = "SOUNDFONT", .desc = "SF2  MULTI-TIMBRAL  PRESETS", .kind = .soundfont, .accent = theme.audio },
     };
     // Single column: `j`/`k` move the shared picker cursor by a flat +/-1,
     // same as the TUI's list - a multi-column card grid would make "down"
     // jump sideways instead.
     const width = overlayWidth();
-    zgui.textColored(patina.fg2, "INTERNAL", .{});
+    zgui.textColored(theme.fg2, "INTERNAL", .{});
     for (entries, 0..) |entry, i| {
         var id_buf: [48]u8 = undefined;
         const id = std.fmt.bufPrintZ(&id_buf, "instrument-card-{d}", .{i}) catch continue;
@@ -90,7 +90,7 @@ pub fn drawInstrument(app: anytype) void {
         }
     }
     zgui.spacing();
-    zgui.textColored(patina.fg2, "EXTERNAL", .{});
+    zgui.textColored(theme.fg2, "EXTERNAL", .{});
     zgui.sameLine(.{});
     zgui.textDisabled("CLAP", .{});
     const external_count = app.core.external_plugins.count(.instrument);
@@ -101,7 +101,7 @@ pub fn drawInstrument(app: anytype) void {
         var desc_buf: [128]u8 = undefined;
         const desc = std.fmt.bufPrint(&desc_buf, "CLAP  |  {s}", .{plugin.vendor}) catch "CLAP";
         const ordinal = entries.len + external_i;
-        if (drawCard(id, plugin.name, desc, patina.focus, app.core.picker_cursor == ordinal, width)) {
+        if (drawCard(id, plugin.name, desc, theme.focus, app.core.picker_cursor == ordinal, width)) {
             app.core.picker_cursor = @intCast(ordinal);
             app.core.handleKey(.enter, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
         }
@@ -110,7 +110,7 @@ pub fn drawInstrument(app: anytype) void {
 }
 
 pub fn drawFx(app: anytype) void {
-    zgui.textColored(patina.modulation, "ADD EFFECT", .{});
+    zgui.textColored(theme.modulation, "ADD EFFECT", .{});
     zgui.sameLine(.{});
     zgui.textDisabled("Inserted after the focused unit", .{});
     zgui.separator();
@@ -122,7 +122,7 @@ pub fn drawFx(app: anytype) void {
     // Single column, matching the TUI list's flat j/k stepping - see
     // drawInstrument's comment above.
     const width = available;
-    if (app.core.view == .fx_picker) zgui.textColored(patina.fg2, "INTERNAL", .{});
+    if (app.core.view == .fx_picker) zgui.textColored(theme.fg2, "INTERNAL", .{});
     for (0..count) |i| {
         const kind = if (app.core.view == .synth_fx_picker) synth_ed.asFxKind(synth_kinds[i]) else kinds[i];
         var id_buf: [48]u8 = undefined;
@@ -143,7 +143,7 @@ pub fn drawFx(app: anytype) void {
     }
     if (app.core.view == .fx_picker) {
         zgui.spacing();
-        zgui.textColored(patina.fg2, "EXTERNAL", .{});
+        zgui.textColored(theme.fg2, "EXTERNAL", .{});
         zgui.sameLine(.{});
         zgui.textDisabled("CLAP", .{});
         const external_count = spectrum_ed.externalPickerCount(&app.core);
@@ -154,7 +154,7 @@ pub fn drawFx(app: anytype) void {
             var desc_buf: [128]u8 = undefined;
             const desc = std.fmt.bufPrint(&desc_buf, "CLAP  |  {s}", .{plugin.vendor}) catch "CLAP";
             const ordinal = count + external_i;
-            if (drawCard(id, plugin.name, desc, patina.focus, app.core.fx_picker_cursor == ordinal, width)) {
+            if (drawCard(id, plugin.name, desc, theme.focus, app.core.fx_picker_cursor == ordinal, width)) {
                 app.core.fx_picker_cursor = @intCast(ordinal);
                 spectrum_ed.insertExternalFromPicker(&app.core, plugin);
             }
@@ -221,11 +221,11 @@ fn drawCard(id: [:0]const u8, label: []const u8, desc: []const u8, accent: [4]f3
     if (selected) zgui.setScrollHereY(.{});
     const hovered = zgui.isItemHovered(.{});
     const draw_list = zgui.getWindowDrawList();
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(if (hovered) patina.bg3 else patina.bg2), .rounding = 4 });
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(if (hovered) theme.bg3 else theme.bg2), .rounding = 4 });
     draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + 4, origin[1] + height }, .col = color(accent), .rounding = 2 });
-    if (selected) draw_list.addRect(.{ .pmin = .{ origin[0] + 1, origin[1] + 1 }, .pmax = .{ origin[0] + width - 1, origin[1] + height - 1 }, .col = color(patina.focus), .rounding = 4, .thickness = 2 });
-    draw_list.addText(.{ origin[0] + 14, origin[1] + 10 }, color(patina.fg0), "{s}", .{label});
-    draw_list.addText(.{ origin[0] + 14, origin[1] + 35 }, color(patina.fg3), "{s}", .{desc});
+    if (selected) draw_list.addRect(.{ .pmin = .{ origin[0] + 1, origin[1] + 1 }, .pmax = .{ origin[0] + width - 1, origin[1] + height - 1 }, .col = color(theme.focus), .rounding = 4, .thickness = 2 });
+    draw_list.addText(.{ origin[0] + 14, origin[1] + 10 }, color(theme.fg0), "{s}", .{label});
+    draw_list.addText(.{ origin[0] + 14, origin[1] + 35 }, color(theme.fg3), "{s}", .{desc});
     return clicked;
 }
 
@@ -239,9 +239,9 @@ pub fn drawPreset(app: anytype) void {
         .soundfont => "SOUNDFONT PRESETS",
     };
     const kind_accent = switch (app.core.preset_picker_kind) {
-        .synth => patina.focus,
-        .drum => patina.rhythm,
-        .soundfont => patina.audio,
+        .synth => theme.focus,
+        .drum => theme.rhythm,
+        .soundfont => theme.audio,
     };
     zgui.textColored(kind_accent, "{s}", .{kind_label});
     zgui.sameLine(.{});
@@ -249,7 +249,7 @@ pub fn drawPreset(app: anytype) void {
     const filter = preset_ed.activeFilter(&app.core);
     if (filter.len > 0) {
         zgui.sameLine(.{ .spacing = 14 });
-        zgui.textColored(patina.audio, "filter: {s}", .{filter});
+        zgui.textColored(theme.audio, "filter: {s}", .{filter});
     }
     zgui.separator();
     zgui.textDisabled("/ filter   j/k move   enter choose   esc close   [ ] category   a audition", .{});
@@ -257,7 +257,7 @@ pub fn drawPreset(app: anytype) void {
     var ordinal: usize = 0;
     for (rows, 0..) |row, row_index| switch (row) {
         .header => |header| {
-            zgui.textColored(patina.fg2, "{s}", .{header});
+            zgui.textColored(theme.fg2, "{s}", .{header});
             zgui.separator();
         },
         .entry => |entry| {

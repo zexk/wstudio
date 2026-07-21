@@ -6,7 +6,7 @@ const waveform = @import("../../ui/waveform.zig");
 const style = @import("../style.zig");
 const widgets = @import("../widgets.zig");
 
-const patina = &style.palette;
+const theme = &style.palette;
 
 /// Which waveform-overlay handle a drag is currently moving - region
 /// start/end trim or a fade-in/out width. Lives on the GUI App so it
@@ -65,23 +65,23 @@ const Target = union(enum) {
 const ParamRow = struct { id: u8, label: []const u8, fmt: [:0]const u8 };
 const Section = struct { title: [:0]const u8, color: *const [4]f32, rows: []const ParamRow, is_adsr: bool = false };
 const shared_sections = [_]Section{
-    .{ .title = "SAMPLE", .color = &patina.focus, .rows = &.{
+    .{ .title = "SAMPLE", .color = &theme.focus, .rows = &.{
         .{ .id = 0, .label = "Start",   .fmt = "%.3f" },
         .{ .id = 1, .label = "End",     .fmt = "%.3f" },
         .{ .id = 2, .label = "Pitch",   .fmt = "%.0f st" },
         .{ .id = 12, .label = "Stretch", .fmt = "%.2fx" },
     } },
-    .{ .title = "AMP ENV", .color = &patina.rhythm, .is_adsr = true, .rows = &.{
+    .{ .title = "AMP ENV", .color = &theme.rhythm, .is_adsr = true, .rows = &.{
         .{ .id = 3, .label = "Attack",  .fmt = "%.3f s" },
         .{ .id = 4, .label = "Decay",   .fmt = "%.3f s" },
         .{ .id = 5, .label = "Sustain", .fmt = "%.2f" },
         .{ .id = 6, .label = "Release", .fmt = "%.3f s" },
     } },
-    .{ .title = "OUT", .color = &patina.audio, .rows = &.{
+    .{ .title = "OUT", .color = &theme.audio, .rows = &.{
         .{ .id = 7, .label = "Gain",    .fmt = "%.2f" },
         .{ .id = 8, .label = "Pan",     .fmt = widgets.pan_cfmt },
     } },
-    .{ .title = "FADE", .color = &patina.focus, .rows = &.{
+    .{ .title = "FADE", .color = &theme.focus, .rows = &.{
         .{ .id = 10, .label = "Fade in",  .fmt = "%.3f s" },
         .{ .id = 11, .label = "Fade out", .fmt = "%.3f s" },
     } },
@@ -107,7 +107,7 @@ fn drawSharedSections(app: anytype, target: Target) void {
                 for (section.rows) |row| drawParam(app, target, row.id, row.label, row.fmt);
             }
             if (section.rows[section.rows.len - 1].id == 8) {
-                drawToggle(app, target, 9, "REVERSE", "FORWARD", if (target == .pad) patina.modulation else patina.focus);
+                drawToggle(app, target, 9, "REVERSE", "FORWARD", if (target == .pad) theme.modulation else theme.focus);
             }
         }
         zgui.endChild();
@@ -134,7 +134,7 @@ fn drawAmpEnvelope(app: anytype, target: Target) void {
         .attack_range = a_range,
         .decay_range = d_range,
         .release_range = r_range,
-        .accent = patina.rhythm,
+        .accent = theme.rhythm,
         .focused_stage = focused_stage,
     });
     if (result.changed[0]) setPadParam(app, target, 3, attack);
@@ -166,7 +166,7 @@ fn drawStandalone(app: anytype) void {
     drawHeader(app, sampler);
     zgui.spacing();
     const target: Target = .{ .standalone = .{ .sampler = sampler, .track = track } };
-    widgets.sectionTitle("SAMPLE WAVEFORM", patina.audio);
+    widgets.sectionTitle("SAMPLE WAVEFORM", theme.audio);
     var has_sample = false;
     if (sampler.pad_lock.tryLock()) {
         defer sampler.pad_lock.unlock();
@@ -181,16 +181,16 @@ fn drawStandalone(app: anytype) void {
             .explanation = "Choose a WAV file before editing trim, pitch, envelope, or output.",
             .shortcut = ":load",
             .action = "LOAD AUDIO",
-            .accent = patina.audio,
+            .accent = theme.audio,
         })) widgets.openLoadCommand(app);
         return;
     }
     zgui.spacing();
 
     drawSharedSections(app, target);
-    widgets.sectionTitle("KEY", patina.rhythm);
+    widgets.sectionTitle("KEY", theme.rhythm);
     drawParam(app, target, 13, "Root note", "%.0f");
-    drawToggle(app, target, 14, "MONO", "POLY", patina.focus);
+    drawToggle(app, target, 14, "MONO", "POLY", theme.focus);
 }
 
 fn drawPadTarget(app: anytype, track: u16, kind: PadTargetKind) void {
@@ -228,7 +228,7 @@ fn drawPadTarget(app: anytype, track: u16, kind: PadTargetKind) void {
         drawPadEmptyState(app, if (kind == .drum) "LOAD A PAD SAMPLE" else "LOAD AUDIO TO CREATE SLICES", if (kind == .drum) "Choose a WAV file for this drum pad." else "Choose a WAV file before editing slice playback.");
         return;
     }
-    widgets.sectionTitle("PLAY REGION", patina.audio);
+    widgets.sectionTitle("PLAY REGION", theme.audio);
     drawWaveformRegion(app, target, pad.samples);
     zgui.spacing();
 
@@ -236,7 +236,7 @@ fn drawPadTarget(app: anytype, track: u16, kind: PadTargetKind) void {
 }
 
 fn drawPadEmptyState(app: anytype, title: []const u8, explanation: []const u8) void {
-    widgets.sectionTitle("PLAY REGION", patina.audio);
+    widgets.sectionTitle("PLAY REGION", theme.audio);
     zgui.spacing();
     if (widgets.emptyState(.{
         .id = "sampler-pad-empty-state",
@@ -244,7 +244,7 @@ fn drawPadEmptyState(app: anytype, title: []const u8, explanation: []const u8) v
         .explanation = explanation,
         .shortcut = ":load",
         .action = "LOAD SAMPLE",
-        .accent = patina.audio,
+        .accent = theme.audio,
     })) widgets.openLoadCommand(app);
 }
 
@@ -261,13 +261,13 @@ fn drawPadHeader(app: anytype, track: u16, kind: PadTargetKind, index: u8) void 
             const drum = &app.core.session.racks.items[track].instrument.drum_machine;
             zgui.textDisabled("pad {d}/{d}", .{ index + 1, ws.dsp.DrumMachine.max_pads });
             zgui.sameLine(.{});
-            zgui.textColored(patina.rhythm, "\"{s}\"", .{drum.padName(index)});
+            zgui.textColored(theme.rhythm, "\"{s}\"", .{drum.padName(index)});
         },
         .slice => {
             const slicer = &app.core.session.racks.items[track].instrument.slicer;
             zgui.textDisabled("slice {d}/{d}", .{ index + 1, slicer.slice_count });
             zgui.sameLine(.{});
-            zgui.textColored(patina.audio, "\"{s}\"", .{slicer.clipName()});
+            zgui.textColored(theme.audio, "\"{s}\"", .{slicer.clipName()});
         },
     }
 }
@@ -281,7 +281,7 @@ fn drawHeader(app: anytype, sampler: *const ws.dsp.Sampler) void {
     zgui.sameLine(.{});
     zgui.text("\"{s}\"", .{app.core.session.project.tracks.items[track].name});
     zgui.sameLine(.{});
-    zgui.textColored(patina.focus, "\"{s}\"", .{sampler.clipName()});
+    zgui.textColored(theme.focus, "\"{s}\"", .{sampler.clipName()});
 }
 
 // Slider bounds come from the dsp-side spec table so they can never drift
@@ -300,7 +300,7 @@ fn drawParam(app: anytype, target: Target, id: u8, label_text: []const u8, forma
     var label_buf: [64]u8 = undefined;
     const label = std.fmt.bufPrintZ(&label_buf, "{s}##sampler-target-{d}", .{ label_text, id }) catch return;
     const focused = app.core.sampler_param == id;
-    const result = widgets.paramKnob(label_text, label, .{ .v = &value, .min = range[0], .max = range[1], .cfmt = format, .accent = patina.focus, .focused = focused });
+    const result = widgets.paramKnob(label_text, label, .{ .v = &value, .min = range[0], .max = range[1], .cfmt = format, .accent = theme.focus, .focused = focused });
     if (result.changed) setPadParam(app, target, id, value);
     if (result.activated) app.core.sampler_param = id;
 }
@@ -309,8 +309,8 @@ fn drawToggle(app: anytype, target: Target, id: u8, on_label: [:0]const u8, off_
     const value = target.value(id) orelse return;
     const active = value >= 0.5;
     const focused = app.core.sampler_param == id;
-    zgui.pushStyleColor4f(.{ .idx = .button, .c = if (active) active_color else if (focused) patina.bg4 else patina.bg2 });
-    zgui.pushStyleColor4f(.{ .idx = .text, .c = if (active) patina.bg0 else if (focused) patina.focus else patina.fg2 });
+    zgui.pushStyleColor4f(.{ .idx = .button, .c = if (active) active_color else if (focused) theme.bg4 else theme.bg2 });
+    zgui.pushStyleColor4f(.{ .idx = .text, .c = if (active) theme.bg0 else if (focused) theme.focus else theme.fg2 });
     if (zgui.button(if (active) on_label else off_label, .{ .w = 106, .h = 32 })) {
         app.core.sampler_param = id;
         setPadParam(app, target, id, if (active) 0 else 1);
@@ -337,7 +337,7 @@ fn drawWaveformRegion(app: anytype, target: Target, samples: []const f32) void {
     const hovered = zgui.isItemHovered(.{});
     const mouse = zgui.getMousePos();
     const draw_list = zgui.getWindowDrawList();
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = style.color(patina.bg0), .rounding = 3 });
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = style.color(theme.bg0), .rounding = 3 });
 
     var overview: [512]f32 = undefined;
     const count = @min(samples.len, overview.len);
@@ -349,13 +349,13 @@ fn drawWaveformRegion(app: anytype, target: Target, samples: []const f32) void {
         const x = origin[0] + width * @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(count));
         const h = @max(1, peak * height / 2 * 0.94);
         const in_region = x >= start_x - 0.5 and x <= end_x + 0.5;
-        const line_color = if (in_region) patina.audio else [4]f32{ patina.fg3[0], patina.fg3[1], patina.fg3[2], 0.55 };
+        const line_color = if (in_region) theme.audio else [4]f32{ theme.fg3[0], theme.fg3[1], theme.fg3[2], 0.55 };
         draw_list.addLine(.{ .p1 = .{ x, mid_y - h }, .p2 = .{ x, mid_y + h }, .col = style.color(line_color), .thickness = 1 });
     }
-    draw_list.addLine(.{ .p1 = .{ origin[0], mid_y }, .p2 = .{ origin[0] + width, mid_y }, .col = style.color(patina.line), .thickness = 1 });
+    draw_list.addLine(.{ .p1 = .{ origin[0], mid_y }, .p2 = .{ origin[0] + width, mid_y }, .col = style.color(theme.line), .thickness = 1 });
 
-    if (start > 0) draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ start_x, origin[1] + height }, .col = style.color(.{ patina.bg0[0], patina.bg0[1], patina.bg0[2], 0.6 }) });
-    if (end < 1) draw_list.addRectFilled(.{ .pmin = .{ end_x, origin[1] }, .pmax = .{ origin[0] + width, origin[1] + height }, .col = style.color(.{ patina.bg0[0], patina.bg0[1], patina.bg0[2], 0.6 }) });
+    if (start > 0) draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ start_x, origin[1] + height }, .col = style.color(.{ theme.bg0[0], theme.bg0[1], theme.bg0[2], 0.6 }) });
+    if (end < 1) draw_list.addRectFilled(.{ .pmin = .{ end_x, origin[1] }, .pmax = .{ origin[0] + width, origin[1] + height }, .col = style.color(.{ theme.bg0[0], theme.bg0[1], theme.bg0[2], 0.6 }) });
 
     // Fade wedges: shade the region between each region edge and the
     // gain-ramp's full-level point, tapering to a point on the center line -
@@ -375,12 +375,12 @@ fn drawWaveformRegion(app: anytype, target: Target, samples: []const f32) void {
         const fade_out_frac = std.math.clamp(fade_out_s * sr_f / total_f, 0, region_frac);
         fade_in_x = origin[0] + (start + fade_in_frac) * width;
         fade_out_x = origin[0] + (end - fade_out_frac) * width;
-        drawFadeWedge(draw_list, start_x, fade_in_x, origin[1], mid_y, height, patina.focus, app.waveform_drag == .fade_in);
-        drawFadeWedge(draw_list, end_x, fade_out_x, origin[1], mid_y, height, patina.focus, app.waveform_drag == .fade_out);
+        drawFadeWedge(draw_list, start_x, fade_in_x, origin[1], mid_y, height, theme.focus, app.waveform_drag == .fade_in);
+        drawFadeWedge(draw_list, end_x, fade_out_x, origin[1], mid_y, height, theme.focus, app.waveform_drag == .fade_out);
     }
 
-    drawRegionHandle(draw_list, start_x, origin[1], height, patina.focus, app.waveform_drag == .start);
-    drawRegionHandle(draw_list, end_x, origin[1], height, patina.rhythm, app.waveform_drag == .end);
+    drawRegionHandle(draw_list, start_x, origin[1], height, theme.focus, app.waveform_drag == .start);
+    drawRegionHandle(draw_list, end_x, origin[1], height, theme.rhythm, app.waveform_drag == .end);
 
     const near_fade_in = hovered and sample_rate > 0 and @abs(mouse[0] - fade_in_x) <= 8 and @abs(mouse[1] - mid_y) <= 10;
     const near_fade_out = hovered and sample_rate > 0 and @abs(mouse[0] - fade_out_x) <= 8 and @abs(mouse[1] - mid_y) <= 10;

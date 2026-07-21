@@ -168,14 +168,51 @@ Enum-typed options (`gui_theme`, `tui_theme`, `preferred_frontend`,
 `audio_backend`) read and write as strings; the spec table derives the
 valid-name list and its error message from the Zig enum.
 
-### Theming: `gui_theme` / `tui_theme`
+### Theming and highlights
 
-One named color identity per theme (`src/theme_identity.zig`: `patina`,
+One named color identity per built-in theme (`src/theme_identity.zig`: `patina`,
 `patina_light`, `graphite`, `graphite_light`, `umbra`), rendered through two different
 pipelines - Neovim's `:colorscheme` + highlight-group split, but with the
 "one highlight table, many things read it" idea stretched across frontends
 instead of across syntax groups. wstudio's own `:colorscheme` (below) picks
 one by name at runtime, same as Neovim's.
+
+Theme plugins can layer sparse semantic overrides over that identity, much
+like Neovim colorschemes call `nvim_set_hl`:
+
+```lua
+wstudio.api.set_hl("bg0", { fg = "#101218" })
+wstudio.api.set_hl("focus", { fg = "#89b4fa" })
+wstudio.api.set_hl("track1", { fg = "#f38ba8" })
+local focus = wstudio.api.get_hl("focus") -- { fg = "#89b4fa" }
+wstudio.api.set_hl("focus", {})           -- clear override, reveal base
+```
+
+The semantic groups are `bg0` through `bg5`, `fg0` through `fg3`, `line`,
+`line_soft`, `focus`, `focus_soft`, `track_cursor`, `modulation`, `danger`,
+`rhythm`, `audio`, `blue`, and `track1` through `track7`. Colors are
+`#rrggbb`. `set_hl` works while `init.lua` is loading and after startup;
+live changes repaint the GUI or reprogram an enabled TUI palette on the next
+frame. An empty spec clears that one override. Overrides are reset and then
+redeclared when `:reload-config` sources the config again, so a Lua module can
+be a complete, repeatable colorscheme:
+
+```lua
+-- ~/.config/wstudio/lua/colors/mocha.lua
+local api = wstudio.api
+api.set_hl("bg0", { fg = "#11111b" })
+api.set_hl("bg1", { fg = "#181825" })
+api.set_hl("fg0", { fg = "#cdd6f4" })
+api.set_hl("focus", { fg = "#89b4fa" })
+return true
+
+-- init.lua
+require("colors.mocha")
+```
+
+Patina remains the default built-in identity, but it is no longer named at
+draw sites. GUI code reads a generic active palette, and the same semantic
+override table is resolved for the TUI's ANSI slots.
 
 - **GUI** (`gui_theme`, default `"patina"`): the identity's hex values
   become the imgui panel skin's float RGBA (`gui/style.zig`). Applies at
@@ -392,6 +429,8 @@ wstudio.api.get_context()                  -> { frontend, view, mode, track? }
 wstudio.api.get_mode()                     -> "normal" | "insert" | ...
 wstudio.api.get_current_view()             -> "tracks" | "piano_roll" | ...
 wstudio.api.get_current_track()            -> integer | nil
+wstudio.api.set_hl(group, { fg = "#rrggbb" })
+wstudio.api.get_hl(group)                  -> { fg? }
 
 -- transport
 wstudio.api.play()

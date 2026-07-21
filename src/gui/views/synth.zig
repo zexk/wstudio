@@ -11,7 +11,7 @@ const widgets = @import("../widgets.zig");
 const zgui = @import("zgui");
 
 const color = gui_style.color;
-const patina = &gui_style.palette;
+const theme = &gui_style.palette;
 
 pub fn draw(app: anytype) void {
     const track = app.core.synth_track;
@@ -43,8 +43,8 @@ fn drawTabs(app: anytype) void {
     for (tabs, 0..) |tab, i| {
         if (i > 0) zgui.sameLine(.{ .spacing = 5 });
         const active = app.core.synth_subview == tab.subview;
-        zgui.pushStyleColor4f(.{ .idx = .button, .c = if (active) patina.focus else patina.bg2 });
-        zgui.pushStyleColor4f(.{ .idx = .text, .c = if (active) patina.bg0 else patina.fg2 });
+        zgui.pushStyleColor4f(.{ .idx = .button, .c = if (active) theme.focus else theme.bg2 });
+        zgui.pushStyleColor4f(.{ .idx = .text, .c = if (active) theme.bg0 else theme.fg2 });
         if (zgui.button(tab.label, .{ .w = 125, .h = 30 })) setSubview(app, tab.subview);
         zgui.popStyleColor(.{ .count = 2 });
     }
@@ -76,7 +76,7 @@ fn drawSections(app: anytype, synth: *ws.dsp.PolySynth, comptime sections: []con
         if (column > 0) zgui.sameLine(.{ .spacing = gap });
         var child_buf: [48]u8 = undefined;
         const child_id = std.fmt.bufPrintZ(&child_buf, "{s}-{d}", .{ child_prefix, column }) catch continue;
-        zgui.pushStyleColor4f(.{ .idx = .child_bg, .c = patina.bg2 });
+        zgui.pushStyleColor4f(.{ .idx = .child_bg, .c = theme.bg2 });
         if (zgui.beginChild(child_id, .{
             .w = if (column + 1 == columns) 0 else column_w,
             .h = 0,
@@ -158,7 +158,7 @@ fn drawEnvelope(app: anytype, synth: *ws.dsp.PolySynth, base_id: u8) void {
         .attack_range = a_range,
         .decay_range = d_range,
         .release_range = r_range,
-        .accent = patina.rhythm,
+        .accent = theme.rhythm,
         .focused_stage = focused_stage,
     });
     if (result.changed[0]) sendParam(app, base_id, attack);
@@ -193,7 +193,7 @@ fn drawFilterPad(app: anytype, synth: *ws.dsp.PolySynth, cutoff_id: u8) void {
         .x_cfmt = "%.0f Hz",
         .y_cfmt = "%.2f",
         .x_logarithmic = true,
-        .accent = patina.audio,
+        .accent = theme.audio,
         .focused = focused,
     });
     if (result.changed) {
@@ -253,7 +253,7 @@ fn drawLfoCustomCurve(app: anytype, synth: *ws.dsp.PolySynth, slot: usize) void 
         .value_lo = -1.0,
         .value_hi = 1.0,
         .snap_beats = 0,
-        .accent = patina.modulation,
+        .accent = theme.modulation,
         .focused_index = focused_index,
         .x_unit_label = "phase",
         .height = 130,
@@ -306,11 +306,11 @@ fn drawLfoCustomCurve(app: anytype, synth: *ws.dsp.PolySynth, slot: usize) void 
 
 fn sectionColor(index: usize) [4]f32 {
     return switch (index % 5) {
-        0 => patina.focus,
-        1 => patina.audio,
-        2 => patina.modulation,
-        3 => patina.rhythm,
-        else => patina.danger,
+        0 => theme.focus,
+        1 => theme.audio,
+        2 => theme.modulation,
+        3 => theme.rhythm,
+        else => theme.danger,
     };
 }
 
@@ -319,24 +319,24 @@ fn drawFx(app: anytype, synth: *ws.dsp.PolySynth) void {
     const order = synth_ed.fxOnOrder(&app.core, &order_buf);
     zgui.textDisabled("SIGNAL FLOW", .{});
     zgui.sameLine(.{ .spacing = 12 });
-    zgui.textColored(patina.audio, "IN", .{});
+    zgui.textColored(theme.audio, "IN", .{});
     for (order) |kind| {
         zgui.sameLine(.{ .spacing = 7 });
         zgui.textDisabled(">", .{});
         zgui.sameLine(.{ .spacing = 7 });
-        zgui.textColored(patina.fg1, "{s}", .{spectrum_ed.stripLabel(synth_ed.asFxKind(kind))});
+        zgui.textColored(theme.fg1, "{s}", .{spectrum_ed.stripLabel(synth_ed.asFxKind(kind))});
     }
     zgui.sameLine(.{ .spacing = 7 });
     zgui.textDisabled(">", .{});
     zgui.sameLine(.{ .spacing = 7 });
-    zgui.textColored(patina.audio, "OUT", .{});
+    zgui.textColored(theme.audio, "OUT", .{});
     if (order.len == 0) {
         zgui.spacing();
         zgui.textDisabled("No internal effects are enabled. Press a to insert one.", .{});
         return;
     }
     zgui.spacing();
-    zgui.pushStyleColor4f(.{ .idx = .child_bg, .c = patina.bg2 });
+    zgui.pushStyleColor4f(.{ .idx = .child_bg, .c = theme.bg2 });
     if (zgui.beginChild("synth-fx-params", .{
         .w = 0,
         .h = 0,
@@ -350,7 +350,7 @@ fn drawFx(app: anytype, synth: *ws.dsp.PolySynth) void {
             const kind = synth_ed.fxKindOfId(candidate.id) orelse continue;
             if (previous_kind == null or previous_kind.? != kind) {
                 if (previous_kind != null) zgui.spacing();
-                widgets.sectionTitle(spectrum_ed.unitLabel(synth_ed.asFxKind(kind)), patina.audio);
+                widgets.sectionTitle(spectrum_ed.unitLabel(synth_ed.asFxKind(kind)), theme.audio);
                 previous_kind = kind;
             }
             drawAnyParam(app, synth, candidate.id, synth_ed.fxParamLabel(candidate.id));
@@ -366,7 +366,7 @@ fn drawAnyParam(app: anytype, synth: *ws.dsp.PolySynth, id: u8, label_text: []co
         var label_buf: [96]u8 = undefined;
         const label = std.fmt.bufPrintZ(&label_buf, "{s}##gui-synth-{d}", .{ label_text, id }) catch return;
         const focused = app.core.synth_cursor == id;
-        const result = widgets.paramKnob(label_text, label, .{ .v = &value, .min = param.range[0], .max = param.range[1], .cfmt = "%.3f", .accent = patina.focus, .focused = focused, .diameter = 24 });
+        const result = widgets.paramKnob(label_text, label, .{ .v = &value, .min = param.range[0], .max = param.range[1], .cfmt = "%.3f", .accent = theme.focus, .focused = focused, .diameter = 24 });
         if (result.changed) sendParam(app, id, value);
         if (result.activated) app.core.synth_cursor = id;
         return;
@@ -388,7 +388,7 @@ fn drawAnyParam(app: anytype, synth: *ws.dsp.PolySynth, id: u8, label_text: []co
     const minus = std.fmt.bufPrintZ(&minus_buf, "-##synth-minus-{d}", .{id}) catch return;
     if (zgui.smallButton(minus)) nudgeParam(app, id, 'h');
     zgui.sameLine(.{ .spacing = 5 });
-    zgui.textColored(if (app.core.synth_cursor == id) patina.focus else patina.fg1, "{d:.2}", .{value});
+    zgui.textColored(if (app.core.synth_cursor == id) theme.focus else theme.fg1, "{d:.2}", .{value});
     zgui.sameLine(.{ .spacing = 5 });
     var plus_buf: [32]u8 = undefined;
     const plus = std.fmt.bufPrintZ(&plus_buf, "+##synth-plus-{d}", .{id}) catch return;
@@ -412,8 +412,8 @@ fn drawParamToggle(app: anytype, id: u8, label_text: []const u8, active: bool) v
     zgui.sameLine(.{ .spacing = 8 });
     var btn_buf: [48]u8 = undefined;
     const btn_id = std.fmt.bufPrintZ(&btn_buf, "{s}##synth-toggle-{d}", .{ if (active) "ON" else "OFF", id }) catch return;
-    zgui.pushStyleColor4f(.{ .idx = .button, .c = if (active) patina.focus else if (focused) patina.bg4 else patina.bg2 });
-    zgui.pushStyleColor4f(.{ .idx = .text, .c = if (active) patina.bg0 else if (focused) patina.focus else patina.fg2 });
+    zgui.pushStyleColor4f(.{ .idx = .button, .c = if (active) theme.focus else if (focused) theme.bg4 else theme.bg2 });
+    zgui.pushStyleColor4f(.{ .idx = .text, .c = if (active) theme.bg0 else if (focused) theme.focus else theme.fg2 });
     if (zgui.smallButton(btn_id)) nudgeParam(app, id, 'h');
     zgui.popStyleColor(.{ .count = 2 });
 }
@@ -432,7 +432,7 @@ fn drawWaveformParam(app: anytype, id: u8, label_text: []const u8, value: f32) v
     var label_buf: [32]u8 = undefined;
     const label = std.fmt.bufPrintZ(&label_buf, "##synth-wave-{d}", .{id}) catch return;
     const current = ws.dsp.synth.enumFromValue(ws.dsp.synth.Waveform, value);
-    if (widgets.waveformPicker(label, current, patina.focus, focused)) |picked| {
+    if (widgets.waveformPicker(label, current, theme.focus, focused)) |picked| {
         app.core.synth_cursor = id;
         sendParam(app, id, ws.dsp.synth.enumToValue(picked));
     }
@@ -449,27 +449,27 @@ fn drawHeader(app: anytype, synth: *ws.dsp.PolySynth) void {
     const origin = zgui.getCursorScreenPos();
     _ = zgui.invisibleButton("synth-overview", .{ .w = width, .h = height });
     const draw_list = zgui.getWindowDrawList();
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(patina.bg2), .rounding = 4 });
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + 5, origin[1] + height }, .col = color(patina.focus), .rounding = 3 });
-    draw_list.addText(.{ origin[0] + 17, origin[1] + 10 }, color(patina.fg3), "POLYPHONIC SYNTH", .{});
-    draw_list.addText(.{ origin[0] + 17, origin[1] + 31 }, color(patina.fg0), "{s}", .{app.core.session.project.tracks.items[app.core.synth_track].name});
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(theme.bg2), .rounding = 4 });
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + 5, origin[1] + height }, .col = color(theme.focus), .rounding = 3 });
+    draw_list.addText(.{ origin[0] + 17, origin[1] + 10 }, color(theme.fg3), "POLYPHONIC SYNTH", .{});
+    draw_list.addText(.{ origin[0] + 17, origin[1] + 31 }, color(theme.fg0), "{s}", .{app.core.session.project.tracks.items[app.core.synth_track].name});
 
     const panel_y = origin[1] + 59;
     const panel_h: f32 = 80;
     const panel_gap: f32 = 9;
     const panel_w = (width - 43 - panel_gap * 2) / 3;
-    drawOverviewPanel(draw_list, .{ origin[0] + 17, panel_y }, .{ panel_w, panel_h }, "OSCILLATOR", patina.focus);
-    drawOverviewPanel(draw_list, .{ origin[0] + 17 + panel_w + panel_gap, panel_y }, .{ panel_w, panel_h }, "ENVELOPE", patina.rhythm);
-    drawOverviewPanel(draw_list, .{ origin[0] + 17 + (panel_w + panel_gap) * 2, panel_y }, .{ panel_w, panel_h }, "FILTER", patina.audio);
+    drawOverviewPanel(draw_list, .{ origin[0] + 17, panel_y }, .{ panel_w, panel_h }, "OSCILLATOR", theme.focus);
+    drawOverviewPanel(draw_list, .{ origin[0] + 17 + panel_w + panel_gap, panel_y }, .{ panel_w, panel_h }, "ENVELOPE", theme.rhythm);
+    drawOverviewPanel(draw_list, .{ origin[0] + 17 + (panel_w + panel_gap) * 2, panel_y }, .{ panel_w, panel_h }, "FILTER", theme.audio);
     drawOscillatorShape(draw_list, .{ origin[0] + 29, panel_y + 31 }, .{ panel_w - 24, 35 }, synth.waveform);
     drawEnvelopeShape(draw_list, .{ origin[0] + 29 + panel_w + panel_gap, panel_y + 31 }, .{ panel_w - 24, 35 }, synth);
     drawFilterShape(draw_list, .{ origin[0] + 29 + (panel_w + panel_gap) * 2, panel_y + 31 }, .{ panel_w - 24, 35 }, synth);
 }
 
 fn drawOverviewPanel(draw_list: zgui.DrawList, pos: [2]f32, size: [2]f32, label: []const u8, accent: [4]f32) void {
-    draw_list.addRectFilled(.{ .pmin = pos, .pmax = .{ pos[0] + size[0], pos[1] + size[1] }, .col = color(patina.bg1), .rounding = 3 });
+    draw_list.addRectFilled(.{ .pmin = pos, .pmax = .{ pos[0] + size[0], pos[1] + size[1] }, .col = color(theme.bg1), .rounding = 3 });
     draw_list.addRectFilled(.{ .pmin = pos, .pmax = .{ pos[0] + 3, pos[1] + size[1] }, .col = color(accent), .rounding = 2 });
-    draw_list.addText(.{ pos[0] + 12, pos[1] + 8 }, color(patina.fg3), "{s}", .{label});
+    draw_list.addText(.{ pos[0] + 12, pos[1] + 8 }, color(theme.fg3), "{s}", .{label});
 }
 
 fn drawOscillatorShape(draw_list: zgui.DrawList, pos: [2]f32, size: [2]f32, waveform: ws.dsp.synth.Waveform) void {
@@ -483,7 +483,7 @@ fn drawOscillatorShape(draw_list: zgui.DrawList, pos: [2]f32, size: [2]f32, wave
             .square => if (@mod(phase, 1.0) < 0.5) 1.0 else -1.0,
         };
         const point = [2]f32{ pos[0] + size[0] * @as(f32, @floatFromInt(i)) / 48.0, pos[1] + size[1] * (0.5 - sample * 0.42) };
-        if (i > 1) draw_list.addLine(.{ .p1 = prev, .p2 = point, .col = color(patina.focus), .thickness = 2 });
+        if (i > 1) draw_list.addLine(.{ .p1 = prev, .p2 = point, .col = color(theme.focus), .thickness = 2 });
         prev = point;
     }
 }
@@ -495,7 +495,7 @@ fn drawEnvelopeShape(draw_list: zgui.DrawList, pos: [2]f32, size: [2]f32, synth:
     const release_x = pos[0] + size[0] * 0.78;
     const sustain_y = pos[1] + size[1] * (1.0 - synth.sustain);
     const points = [_][2]f32{ .{ pos[0], pos[1] + size[1] }, .{ attack_x, pos[1] }, .{ decay_x, sustain_y }, .{ release_x, sustain_y }, .{ pos[0] + size[0], pos[1] + size[1] } };
-    for (0..points.len - 1) |i| draw_list.addLine(.{ .p1 = points[i], .p2 = points[i + 1], .col = color(patina.rhythm), .thickness = 2 });
+    for (0..points.len - 1) |i| draw_list.addLine(.{ .p1 = points[i], .p2 = points[i + 1], .col = color(theme.rhythm), .thickness = 2 });
 }
 
 fn drawFilterShape(draw_list: zgui.DrawList, pos: [2]f32, size: [2]f32, synth: *const ws.dsp.PolySynth) void {
@@ -508,20 +508,20 @@ fn drawFilterShape(draw_list: zgui.DrawList, pos: [2]f32, size: [2]f32, synth: *
     const bottom_right = [2]f32{ pos[0] + size[0], pos[1] + size[1] };
     switch (synth.filter_type) {
         .lp, .ladder, .diode => {
-            draw_list.addLine(.{ .p1 = left, .p2 = .{ knee_x, peak_y }, .col = color(patina.audio), .thickness = 2 });
-            draw_list.addLine(.{ .p1 = .{ knee_x, peak_y }, .p2 = bottom_right, .col = color(patina.audio), .thickness = 2 });
+            draw_list.addLine(.{ .p1 = left, .p2 = .{ knee_x, peak_y }, .col = color(theme.audio), .thickness = 2 });
+            draw_list.addLine(.{ .p1 = .{ knee_x, peak_y }, .p2 = bottom_right, .col = color(theme.audio), .thickness = 2 });
         },
         .hp => {
-            draw_list.addLine(.{ .p1 = bottom_left, .p2 = .{ knee_x, peak_y }, .col = color(patina.audio), .thickness = 2 });
-            draw_list.addLine(.{ .p1 = .{ knee_x, peak_y }, .p2 = right, .col = color(patina.audio), .thickness = 2 });
+            draw_list.addLine(.{ .p1 = bottom_left, .p2 = .{ knee_x, peak_y }, .col = color(theme.audio), .thickness = 2 });
+            draw_list.addLine(.{ .p1 = .{ knee_x, peak_y }, .p2 = right, .col = color(theme.audio), .thickness = 2 });
         },
         .bp, .formant => {
-            draw_list.addLine(.{ .p1 = bottom_left, .p2 = .{ knee_x, peak_y }, .col = color(patina.audio), .thickness = 2 });
-            draw_list.addLine(.{ .p1 = .{ knee_x, peak_y }, .p2 = bottom_right, .col = color(patina.audio), .thickness = 2 });
+            draw_list.addLine(.{ .p1 = bottom_left, .p2 = .{ knee_x, peak_y }, .col = color(theme.audio), .thickness = 2 });
+            draw_list.addLine(.{ .p1 = .{ knee_x, peak_y }, .p2 = bottom_right, .col = color(theme.audio), .thickness = 2 });
         },
         .notch, .comb => {
-            draw_list.addLine(.{ .p1 = left, .p2 = .{ knee_x, pos[1] + size[1] * 0.85 }, .col = color(patina.audio), .thickness = 2 });
-            draw_list.addLine(.{ .p1 = .{ knee_x, pos[1] + size[1] * 0.85 }, .p2 = right, .col = color(patina.audio), .thickness = 2 });
+            draw_list.addLine(.{ .p1 = left, .p2 = .{ knee_x, pos[1] + size[1] * 0.85 }, .col = color(theme.audio), .thickness = 2 });
+            draw_list.addLine(.{ .p1 = .{ knee_x, pos[1] + size[1] * 0.85 }, .p2 = right, .col = color(theme.audio), .thickness = 2 });
         },
     }
 }

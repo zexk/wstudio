@@ -56,7 +56,7 @@ pub const reset_osc = "\x1b]104\x07" ++ "\x1b]110\x07" ++ "\x1b]111\x07";
 
 /// Renders the OSC blob for `theme` into `buf` - empty for `.none`, which
 /// leaves the terminal's own palette untouched entirely.
-pub fn oscFor(theme: config_mod.TuiTheme, buf: []u8) []const u8 {
+pub fn oscFor(theme: config_mod.TuiTheme, overrides: *const ws.theme_identity.Overrides, buf: []u8) []const u8 {
     const name: ws.theme_identity.Name = switch (theme) {
         .none => return "",
         .patina => .patina,
@@ -65,7 +65,8 @@ pub fn oscFor(theme: config_mod.TuiTheme, buf: []u8) []const u8 {
         .graphite_light => .graphite_light,
         .umbra => .umbra,
     };
-    const id = ws.theme_identity.get(name);
+    const resolved = overrides.apply(ws.theme_identity.get(name).*);
+    const id = &resolved;
     var w: std.Io.Writer = .fixed(buf);
     for (slots(id)) |s| {
         w.print("\x1b]4;{d};", .{s.index}) catch break;
@@ -87,9 +88,9 @@ pub const osc_buf_len = 256;
 /// Apply `theme` to `term` (any type exposing `write([]const u8)` - both
 /// terminal.zig's and terminal_windows.zig's `Terminal`, kept generic here
 /// so this module stays platform-agnostic). No-op for `.none`.
-pub fn apply(term: anytype, theme: config_mod.TuiTheme) void {
+pub fn apply(term: anytype, theme: config_mod.TuiTheme, overrides: *const ws.theme_identity.Overrides) void {
     var buf: [osc_buf_len]u8 = undefined;
-    const osc = oscFor(theme, &buf);
+    const osc = oscFor(theme, overrides, &buf);
     if (osc.len > 0) term.write(osc);
 }
 
@@ -101,8 +102,9 @@ pub fn reset(term: anytype, theme: config_mod.TuiTheme) void {
 
 test "oscFor is empty for .none, non-empty and index-bearing otherwise" {
     var buf: [osc_buf_len]u8 = undefined;
-    try std.testing.expectEqualStrings("", oscFor(.none, &buf));
-    const patina = oscFor(.patina, &buf);
+    const overrides: ws.theme_identity.Overrides = .{};
+    try std.testing.expectEqualStrings("", oscFor(.none, &overrides, &buf));
+    const patina = oscFor(.patina, &overrides, &buf);
     try std.testing.expect(patina.len > 0);
     try std.testing.expect(std.mem.indexOf(u8, patina, "\x1b]4;6;rgb:") != null);
     try std.testing.expect(std.mem.indexOf(u8, patina, "\x1b]10;rgb:") != null);
@@ -113,4 +115,12 @@ test "reset_osc covers palette, fg, and bg resets" {
     try std.testing.expect(std.mem.indexOf(u8, reset_osc, "\x1b]104") != null);
     try std.testing.expect(std.mem.indexOf(u8, reset_osc, "\x1b]110") != null);
     try std.testing.expect(std.mem.indexOf(u8, reset_osc, "\x1b]111") != null);
+}
+
+test "oscFor applies semantic highlight overrides" {
+    var overrides: ws.theme_identity.Overrides = .{};
+    overrides.set(.focus, 0x123abc);
+    var buf: [osc_buf_len]u8 = undefined;
+    const osc = oscFor(.patina, &overrides, &buf);
+    try std.testing.expect(std.mem.indexOf(u8, osc, "\x1b]4;6;rgb:12/3a/bc") != null);
 }
