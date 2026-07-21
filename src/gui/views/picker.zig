@@ -227,8 +227,17 @@ pub fn drawPreset(app: anytype) void {
     var rows_buf: [preset_ed.max_display_rows]preset_ed.DisplayRow = undefined;
     const rows = preset_ed.buildDisplayRows(&app.core, &rows_buf);
     const count = preset_ed.entryCountOf(rows);
-    const kind_label = if (app.core.preset_picker_kind == .synth) "SYNTH PRESETS" else "DRUM KITS";
-    zgui.textColored(if (app.core.preset_picker_kind == .synth) patina.focus else patina.rhythm, "{s}", .{kind_label});
+    const kind_label = switch (app.core.preset_picker_kind) {
+        .synth => "SYNTH PRESETS",
+        .drum => "DRUM KITS",
+        .soundfont => "SOUNDFONT PRESETS",
+    };
+    const kind_accent = switch (app.core.preset_picker_kind) {
+        .synth => patina.focus,
+        .drum => patina.rhythm,
+        .soundfont => patina.audio,
+    };
+    zgui.textColored(kind_accent, "{s}", .{kind_label});
     zgui.sameLine(.{});
     zgui.textDisabled("{d} matches for track {d:0>2}", .{ count, app.core.preset_picker_track + 1 });
     const filter = preset_ed.activeFilter(&app.core);
@@ -249,8 +258,16 @@ pub fn drawPreset(app: anytype) void {
             var id_buf: [48]u8 = undefined;
             const id = std.fmt.bufPrintZ(&id_buf, "preset-card-{d}", .{row_index}) catch continue;
             const selected = app.core.preset_picker_cursor == ordinal;
-            const accent = if (app.core.preset_picker_kind == .synth) patina.focus else patina.rhythm;
-            if (drawCard(id, entry.name, entry.author, accent, selected, overlayWidth())) {
+            // Soundfont entries carry no author text (no user/factory split
+            // for presets inside a loaded font) - show the program number
+            // in that slot instead, formatted here since it only needs to
+            // live for this one draw call.
+            var desc_buf: [16]u8 = undefined;
+            const desc = if (entry.program) |program|
+                std.fmt.bufPrint(&desc_buf, "prog {d}", .{program}) catch entry.author
+            else
+                entry.author;
+            if (drawCard(id, entry.name, desc, kind_accent, selected, overlayWidth())) {
                 app.core.preset_picker_cursor = ordinal;
                 app.core.handleKey(.enter, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
             }

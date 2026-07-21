@@ -252,6 +252,8 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("h / l",        "adjust value (fine); on PRESET, step to the prev/next preset in the font");
     t.key("H / L",        "adjust value (coarse ×10)");
     t.key("a",            "audition at the piano roll's last cursor pitch (or C4)");
+    t.key("f",            "preset picker - every preset in the loaded font, grouped by bank, / filters by name/bank/program");
+    t.key("a (in picker)", "audition the highlighted preset immediately (no C3-and-revert like the synth picker - soundfont preset switches always commit)");
     t.key("esc / e",      "back to the tracks view");
     t.key(":load-soundfont", "[file.sf2]  load a SoundFont into the cursor track (omit the file to browse)");
     t.key(":sf-preset",   "<bank> <program>  jump straight to a preset by its MIDI bank/program number");

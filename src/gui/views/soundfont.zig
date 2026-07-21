@@ -62,6 +62,20 @@ fn drawPresetRow(app: anytype, track: u16, sf: *ws.dsp.SoundfontPlayer) void {
     zgui.pushStyleColor4f(.{ .idx = .text, .c = if (focused) patina.focus else patina.fg2 });
     zgui.text("{s}  ({d}/{d})", .{ sf.presetName(), idx + 1, count });
     zgui.popStyleColor(.{ .count = 1 });
+    if (sf.presetBankProgram()) |bp| {
+        zgui.textDisabled("bank {d}  prog {d}", .{ bp.bank, bp.program });
+        if (sf.presetKeyRange()) |kr| {
+            var lo_buf: [5]u8 = undefined;
+            var hi_buf: [5]u8 = undefined;
+            zgui.sameLine(.{ .spacing = 14 });
+            zgui.textDisabled("keys {s}-{s}  ({d} region{s})", .{
+                ws.midi.noteName(@intCast(@min(kr.lo, 127)), &lo_buf),
+                ws.midi.noteName(@intCast(@min(kr.hi, 127)), &hi_buf),
+                kr.region_count,
+                if (kr.region_count == 1) "" else "s",
+            });
+        }
+    }
     if (zgui.button("< PREV", .{ .w = 90, .h = 28 })) {
         app.core.soundfont_param = 3;
         const prev: u16 = if (idx == 0) @intCast(count - 1) else idx - 1;

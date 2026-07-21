@@ -1,9 +1,11 @@
 //! SoundFont-editor input for both targets - j/k picks a param row (GAIN/
 //! PAN/TRANSPOSE/PRESET), h/l/H/L nudges it (routed to the audio thread,
-//! same as every other instrument editor). The render half lives in
-//! views/soundfont.zig. Loading a .sf2 and jumping straight to a preset by
-//! bank/program are `:load`/`:sf-preset` (commands.zig), not keys here -
-//! same convention the synth editor's wavetable import already follows.
+//! same as every other instrument editor), `f` opens the searchable preset
+//! picker (editors/preset_picker.zig's `.soundfont` Kind). The render half
+//! lives in views/soundfont.zig. Loading a .sf2 and jumping straight to a
+//! preset by bank/program are `:load`/`:sf-preset` (commands.zig), not keys
+//! here - same convention the synth editor's wavetable import already
+//! follows.
 
 const std = @import("std");
 const ws = @import("wstudio");
@@ -11,6 +13,7 @@ const modal_mod = ws.input;
 const app_mod = @import("../app.zig");
 const App = app_mod.App;
 const history = @import("../history.zig");
+const preset_picker = @import("preset_picker.zig");
 
 /// GAIN, PAN, TRANSPOSE, PRESET - see dsp/soundfont_player.zig's `param_count`.
 pub const param_count: u8 = ws.dsp.SoundfontPlayer.param_count;
@@ -77,6 +80,16 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             },
             'a' => {
                 preview(app);
+                return true;
+            },
+            'f' => {
+                history.flushParamNudge(app);
+                const sf = app.editingSoundfont() orelse return true;
+                if (sf.presetCount() == 0) {
+                    app.setStatus("no soundfont loaded - :load first", .{});
+                    return true;
+                }
+                preset_picker.open(app, .soundfont, app.soundfont_track);
                 return true;
             },
             else => return false,

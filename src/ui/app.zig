@@ -755,6 +755,13 @@ pub const App = struct {
     /// typed the live buffer wins; see `preset_ed.activeFilter`.
     preset_filter_buf: [modal_mod.ModalInput.max_cmd_len]u8 = undefined,
     preset_filter_len: usize = 0,
+    /// Formatted "Bank N" header text for the soundfont picker's `.soundfont`
+    /// Kind - owned here (not a `buildDisplayRows` stack local) because the
+    /// returned `DisplayRow.header` slices must stay valid after that call
+    /// returns, for as long as the caller keeps reading them. One slot per
+    /// distinct bank, same 16-bucket cap `buildDisplayRows` already uses for
+    /// synth categories.
+    soundfont_picker_bank_headers: [16][16]u8 = undefined,
 
     pub const ReloadRequest = enum { none, blank, load, restore_backup };
 
@@ -3674,6 +3681,7 @@ pub const App = struct {
                 const ok = switch (self.preset_picker_kind) {
                     .synth => kindIs(racks, self.preset_picker_track, .poly_synth),
                     .drum => kindIs(racks, self.preset_picker_track, .drum_machine),
+                    .soundfont => kindIs(racks, self.preset_picker_track, .soundfont),
                 };
                 if (!ok) self.view = .tracks;
             },
