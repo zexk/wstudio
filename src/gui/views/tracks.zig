@@ -14,6 +14,8 @@ const patina = &gui_style.palette;
 pub fn draw(app: anytype) void {
     app.core.tracksRowSync();
     zgui.textDisabled("TRACKS", .{});
+    zgui.sameLine(.{});
+    zgui.textColored(if (app.core.session.song_mode) patina.audio else patina.fg3, "{s}", .{if (app.core.session.song_mode) "SONG" else "PATTERN"});
     zgui.separator();
     const row_count = app.core.trackRows().len + 1;
     const available_height = zgui.getContentRegionAvail()[1];

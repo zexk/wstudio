@@ -146,8 +146,9 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key(":track-group",  "<track> <group|none>  assign or clear a track's group by number");
     t.key(":group-del <n>", "delete group n - members fall back to the master mix");
     t.key("tab",          "open the arrangement (song timeline) - tab there returns here; while");
-    t.key("",             "  stopped this also enables song mode (opening a pattern editor from");
-    t.key("",             "  here enables pattern mode; nothing changes while playing)");
+    t.key("",             "  stopped this enables song mode, tabbing back (or opening a pattern");
+    t.key("",             "  editor from here) reverts to pattern mode; nothing changes while playing");
+    t.key("T",            "toggle song / pattern mode (manual override, same as the arrangement's T)");
     t.key("t",            "tap tempo (tap a few times to set bpm)");
     t.key("c",            "toggle the click track (also :metronome [on|off])");
     t.key("u / U / ^R",   "undo / redo content edits (notes, drums, clips)");
@@ -335,8 +336,8 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("b",            "toggle A/B loop on/off");
     t.key("g",            "play from cursor bar");
     t.key("T",            "toggle song / pattern mode (manual override; view switches while the");
-    t.key("",             "  transport is stopped set it for you: arrangement = song, opening a");
-    t.key("",             "  pattern editor from tracks = pattern; playback is never interrupted)");
+    t.key("",             "  transport is stopped set it for you: arrangement = song, tracks (or a");
+    t.key("",             "  pattern editor from tracks) = pattern; playback is never interrupted)");
     t.key("z / Z",        "finer / coarser timing grid (1/4 through 1/128)");
     t.key("a",            "open gain/pan automation editor for the clip at cursor");
     t.key("/",            "fuzzy-search lane (track) names, n / N repeat forward / backward");
