@@ -1,6 +1,7 @@
 const std = @import("std");
 const zgui = @import("zgui");
 const style = @import("../style.zig");
+const shared_step_grid = @import("../../ui/editors/step_grid.zig");
 
 const color = style.color;
 const patina = &style.palette;
@@ -15,6 +16,11 @@ pub fn draw(
     play_step: ?usize,
     cursor: anytype,
     visual_anchor: anytype,
+    /// Which state a click-and-hold paints every newly-entered cell to
+    /// (mirrors the TUI's `app.drum_paint_state`/`slicer_paint_state`, and
+    /// is in fact the very same field - both frontends share `ui/app.zig`'s
+    /// `App`). Null between drags.
+    paint_state: *?bool,
 ) void {
     const step_count: usize = @max(1, step_count_raw);
     const row_count = @min(@as(usize, 12), total_rows);
@@ -32,7 +38,9 @@ pub fn draw(
     const canvas_h = ruler_h + row_h * @as(f32, @floatFromInt(row_count));
     const origin = zgui.getCursorScreenPos();
     const id = if (kind == .drum) "drum-grid-canvas" else "slicer-grid-canvas";
-    const clicked = zgui.invisibleButton(id, .{ .w = canvas_w, .h = canvas_h });
+    _ = zgui.invisibleButton(id, .{ .w = canvas_w, .h = canvas_h, .flags = .{ .mouse_button_left = true, .mouse_button_right = true } });
+    const activated = zgui.isItemActivated();
+    const active = zgui.isItemActive();
     const hovered = zgui.isItemHovered(.{});
     const mouse = zgui.getMousePos();
     const draw_list = zgui.getWindowDrawList();
@@ -43,6 +51,7 @@ pub fn draw(
     const steps_per_beat: usize = if (kind == .drum) instrument.steps_per_beat else 4;
     const cursor_step = @min(@as(usize, cursor[1]), step_count - 1);
     const accent = if (kind == .drum) patina.rhythm else patina.audio;
+    const vel_full = @TypeOf(instrument.*).vel_full;
 
     draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + canvas_w, origin[1] + canvas_h }, .col = color(patina.bg0) });
     draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + canvas_w, grid_y }, .col = color(patina.bg2) });
@@ -168,18 +177,51 @@ pub fn draw(
         });
     }
 
-    if (hovered and mouse[0] >= grid_x and mouse[1] >= grid_y and row_count > 0) {
-        const step = @min(step_count - 1, @as(usize, @intFromFloat((mouse[0] - grid_x) / cell_w)));
+    if (hovered and mouse[1] >= grid_y and row_count > 0) {
         // Clamp to the rows actually on this page - the last page can be
         // partial, and a click below it must not edit an invisible row.
         const display_row = @min(row_end - row_start - 1, @as(usize, @intFromFloat((mouse[1] - grid_y) / row_h)));
         const row = row_start + display_row;
-        const x = grid_x + @as(f32, @floatFromInt(step)) * cell_w;
-        const y = grid_y + @as(f32, @floatFromInt(display_row)) * row_h;
-        draw_list.addRect(.{ .pmin = .{ x + 1, y + 1 }, .pmax = .{ x + cell_w - 1, y + row_h - 1 }, .col = color(patina.modulation), .thickness = 1.5 });
-        if (clicked) {
-            cursor.* = .{ @intCast(row), @intCast(step) };
-            instrument.toggleStep(@intCast(row), @intCast(step));
+
+        if (mouse[0] < grid_x) {
+            // Gutter: select the row only, matching the TUI's gutter click
+            // (see editors/drum.zig's/slicer.zig's handleMouse).
+            if (activated) cursor.* = .{ @intCast(row), cursor[1] };
+        } else {
+            const step = @min(step_count - 1, @as(usize, @intFromFloat((mouse[0] - grid_x) / cell_w)));
+            const x = grid_x + @as(f32, @floatFromInt(step)) * cell_w;
+            const y = grid_y + @as(f32, @floatFromInt(display_row)) * row_h;
+            draw_list.addRect(.{ .pmin = .{ x + 1, y + 1 }, .pmax = .{ x + cell_w - 1, y + row_h - 1 }, .col = color(patina.modulation), .thickness = 1.5 });
+            // Pre-cast to the exact type DrumMachine/Slicer's step API wants
+            // (u16/u8 respectively) - shared_step_grid.setStep's `step`
+            // param is `anytype`, so it forwards whatever type it's given
+            // straight into `inst.stepActive`/`toggleStep` with no coercion
+            // of its own, unlike the `instrument.toggleStep(@intCast(step))`
+            // calls elsewhere in this file, which resolve their own target
+            // type directly from the concrete (non-generic) method.
+            const step_t = if (kind == .drum) @as(u16, @intCast(step)) else @as(u8, @intCast(step));
+
+            // Press starts a paint session: left toggles (remembering the
+            // resulting state so a drag repeats it), right always forces the
+            // cell off - see editors/drum.zig's handleMouse doc comment for
+            // why a right-drag beats a left-drag for erasing a run of steps.
+            // Continuing to hold - press or drag - keeps applying that same
+            // state to whatever cell the mouse enters next.
+            if (activated) {
+                cursor.* = .{ @intCast(row), @intCast(step) };
+                if (zgui.isMouseClicked(.right)) {
+                    shared_step_grid.setStep(instrument, @intCast(row), step_t, false, vel_full);
+                } else {
+                    instrument.toggleStep(@intCast(row), step_t);
+                }
+                paint_state.* = instrument.stepActive(@intCast(row), step_t);
+            } else if (active) {
+                if (paint_state.*) |state| {
+                    cursor.* = .{ @intCast(row), @intCast(step) };
+                    shared_step_grid.setStep(instrument, @intCast(row), step_t, state, vel_full);
+                }
+            }
         }
     }
+    if (!active) paint_state.* = null;
 }

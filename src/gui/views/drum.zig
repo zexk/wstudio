@@ -31,6 +31,7 @@ pub fn draw(app: anytype) void {
         play_step,
         &app.core.drum_cursor,
         if (app.core.modal.mode == .visual) app.core.drum_visual_anchor else null,
+        &app.core.drum_paint_state,
     );
 }
 
