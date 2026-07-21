@@ -107,7 +107,7 @@ pub fn drawStatus(app: anytype) void {
     zgui.setNextWindowPos(.{ .x = 0, .y = display[1] - 34, .cond = .always });
     zgui.setNextWindowSize(.{ .w = display[0], .h = 34, .cond = .always });
     // The default 1px window border would show up as a stray hairline
-    // separating the bar from the workspace above it - the filled bg1
+    // separating the bar from the workspace above it - the filled bg3
     // rect below is the only divider this bar should have.
     zgui.pushStyleVar1f(.{ .idx = .window_border_size, .v = 0 });
     defer zgui.popStyleVar(.{});
@@ -115,7 +115,7 @@ pub fn drawStatus(app: anytype) void {
         const draw = zgui.getWindowDrawList();
         const pos = zgui.getWindowPos();
         const size = zgui.getWindowSize();
-        draw.addRectFilled(.{ .pmin = pos, .pmax = .{ pos[0] + size[0], pos[1] + size[1] }, .col = color(patina.bg1) });
+        draw.addRectFilled(.{ .pmin = pos, .pmax = .{ pos[0] + size[0], pos[1] + size[1] }, .col = color(patina.bg3) });
 
         var left_buf: [2048]u8 = undefined;
         var right_buf: [256]u8 = undefined;
@@ -298,12 +298,7 @@ fn drawCommandBar(app: anytype, draw: zgui.DrawList, pos: [2]f32, size: [2]f32) 
     draw.addRectFilled(.{
         .pmin = pos,
         .pmax = .{ pos[0] + size[0], pos[1] + size[1] },
-        .col = color(patina.bg2),
-    });
-    draw.addRectFilled(.{
-        .pmin = pos,
-        .pmax = .{ pos[0] + 4, pos[1] + size[1] },
-        .col = color(patina.focus),
+        .col = color(patina.bg3),
     });
     draw.addText(.{ prompt_x, text_y }, color(patina.focus), "{s}", .{prompt});
     draw.addText(.{ input_x, text_y }, color(patina.fg0), "{s}", .{input});
