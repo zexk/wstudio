@@ -2044,14 +2044,14 @@ pub const App = struct {
         }
     }
 
-    /// R opens the command prompt pre-filled with `:track-rename <n> ` for
+    /// R opens the command prompt pre-filled with `:rename <n> ` for
     /// the cursor track - type the new name and hit enter (`esc` cancels,
     /// same as any other command-mode entry).
     fn startRenamePrompt(self: *App) void {
         if (self.cursor >= self.session.project.tracks.items.len) return;
         self.modal.mode = .command;
         self.cmd_history_pos = self.cmd_history.items.len;
-        const text = std.fmt.bufPrint(&self.modal.cmd_buf, "track-rename {d} ", .{self.cursor + 1}) catch return;
+        const text = std.fmt.bufPrint(&self.modal.cmd_buf, "rename {d} ", .{self.cursor + 1}) catch return;
         self.modal.cmd_len = text.len;
         self.modal.cmd_cursor = text.len;
     }
@@ -2132,7 +2132,7 @@ pub const App = struct {
     fn startGroupRenamePrompt(self: *App, idx: u8) void {
         self.modal.mode = .command;
         self.cmd_history_pos = self.cmd_history.items.len;
-        const text = std.fmt.bufPrint(&self.modal.cmd_buf, "group-rename {d} ", .{idx + 1}) catch return;
+        const text = std.fmt.bufPrint(&self.modal.cmd_buf, "rename {d} ", .{idx + 1}) catch return;
         self.modal.cmd_len = text.len;
         self.modal.cmd_cursor = text.len;
     }

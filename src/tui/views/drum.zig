@@ -130,7 +130,7 @@ pub fn drawDrumGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, s
         const name = dm.padName(@intCast(p));
         const group = dm.choke_group[p];
         try w.writeAll(if (group != 0) choke_colors[(group - 1) % choke_colors.len] else dim);
-        // 8 = the rename cap (:pad-rename), so no legal name truncates -
+        // 8 = the rename cap (:rename), so no legal name truncates -
         // at 4 the two stock toms both rendered as "tom-".
         try w.print(" {s: <8} ", .{name[0..@min(name.len, 8)]});
         try w.writeAll(rst);

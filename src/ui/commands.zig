@@ -81,7 +81,6 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "volume",      .desc = "[<dB>]  master volume (–40 to +6)",   .run = wrap(cmdVol) },
     .{ .name = "vol",         .desc = "[<dB>]  master volume (alias for :volume)", .run = wrap(cmdVol) },
     .{ .name = "seek",        .desc = "<bar>  move playhead to bar",         .run = wrap(cmdSeek) },
-    .{ .name = "pad-rename",  .desc = "<1-64> <name>  rename a loaded drum pad (up to 8 chars)", .run = wrap(cmdPadRename), .scope = .drum },
     .{ .name = "load",        .desc = "[file]  load the WAV/SF2 type for the current view and selected instrument; omit the file to browse", .run = wrap(cmdLoad) },
     .{ .name = "clap-instrument", .desc = "<plugin-id> <path>  load a CLAP instrument on the cursor track", .run = wrap(cmdClapInstrument) },
     .{ .name = "clap-fx",     .desc = "<plugin-id> <path>  append a CLAP effect to the cursor track", .run = wrap(cmdClapFx) },
@@ -101,10 +100,9 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "track-add",   .desc = "[name]  add a synth track",           .run = wrap(cmdTrackAdd) },
     .{ .name = "track-del",   .desc = "[n]  delete track n (default: cursor)", .run = wrap(cmdTrackDel) },
     .{ .name = "d",           .desc = "[n]  delete track n (alias for :track-del)", .run = wrap(cmdTrackDel) },
-    .{ .name = "track-rename",.desc = "[<n>] <name>  rename track n (no n: cursor track)", .run = wrap(cmdTrackRename) },
+    .{ .name = "rename",      .desc = "[<n>] <name>  rename the cursor's target - a pad (drum grid open), a group (cursor on a group row), else a track; n picks a different one of that same kind", .run = wrap(cmdRename) },
     .{ .name = "track-instrument", .desc = "[<n>] <synth|sampler|drum|slicer|soundfont>  change track n's instrument, keeping its notes where the old and new kinds are compatible (no n: cursor track)", .run = wrap(cmdTrackInstrument) },
     .{ .name = "group-add",   .desc = "create an untitled track-grouping submix bus", .run = wrap(cmdGroupAdd) },
-    .{ .name = "group-rename",.desc = "<n> <name>  rename group n", .run = wrap(cmdGroupRename) },
     .{ .name = "group-gain",  .desc = "<n> [<dB>]  group bus fader, post-FX (-60..12; no dB: report)", .run = wrap(cmdGroupGain) },
     .{ .name = "group-del",   .desc = "<n>  delete group n (members fall back to the master mix)", .run = wrap(cmdGroupDel) },
     .{ .name = "group-fx",    .desc = "<n>  open group n's FX chain", .run = wrap(cmdGroupFx) },
@@ -910,10 +908,20 @@ fn cmdTrackDel(app: *App, args: []const u8) void {
     app.doTrackDel(idx);
 }
 
-fn cmdTrackRename(app: *App, args: []const u8) void {
+/// Adaptive like `:load`: renames whichever thing the cursor is on - a
+/// pad while the drum grid is open, a group when the tracks-view cursor
+/// sits on a group row, otherwise the cursor track. `[<n>]` targets a
+/// different one of that same kind without moving the cursor there first.
+fn cmdRename(app: *App, args: []const u8) void {
+    if (app.view == .drum_grid) return cmdRenamePad(app, args);
+    if (app.cursorGroup()) |g| return cmdRenameGroup(app, g, args);
+    cmdRenameTrack(app, args);
+}
+
+fn cmdRenameTrack(app: *App, args: []const u8) void {
     const trimmed = std.mem.trim(u8, args, " ");
     if (trimmed.len == 0) {
-        app.setStatus("usage: track-rename <n> <name>", .{});
+        app.setStatus("usage: rename [<n>] <name>", .{});
         return;
     }
     var it = std.mem.splitScalar(u8, trimmed, ' ');
@@ -927,7 +935,7 @@ fn cmdTrackRename(app: *App, args: []const u8) void {
     const first_is_number = if (std.fmt.parseInt(usize, first, 10)) |_| true else |_| false;
     if (rest.len == 0 and !first_is_number) {
         const idx = cursorTrackIdx(app) orelse {
-            app.setStatus("track-rename: cursor is on the master row - give a track number", .{});
+            app.setStatus("rename: cursor is on the master row - give a track number", .{});
             return;
         };
         app.session.project.renameTrack(idx, first) catch {
@@ -940,15 +948,15 @@ fn cmdTrackRename(app: *App, args: []const u8) void {
     }
 
     if (rest.len == 0) {
-        app.setStatus("usage: track-rename <n> <name>", .{});
+        app.setStatus("usage: rename [<n>] <name>", .{});
         return;
     }
     const n = std.fmt.parseInt(usize, first, 10) catch {
-        app.setStatus("track-rename: expected a track number", .{});
+        app.setStatus("rename: expected a track number", .{});
         return;
     };
     if (n == 0 or n > app.session.project.tracks.items.len) {
-        app.setStatus("track-rename: track must be 1–{d}", .{app.session.project.tracks.items.len});
+        app.setStatus("rename: track must be 1–{d}", .{app.session.project.tracks.items.len});
         return;
     }
     app.session.project.renameTrack(n - 1, rest) catch {
@@ -975,7 +983,7 @@ fn cmdTrackInstrument(app: *App, args: []const u8) void {
     const rest = std.mem.trim(u8, it.rest(), " ");
 
     // No second token: a single arg is always the kind for the cursor
-    // track - unlike :track-rename, a kind name can never be confused with
+    // track - unlike :rename, a kind name can never be confused with
     // a bare track number, so there's no ambiguity to resolve.
     const idx: usize, const kind_str: []const u8 = if (rest.len == 0) blk: {
         const cursor_idx = cursorTrackIdx(app) orelse {
@@ -1049,17 +1057,34 @@ fn parseGroupArg(app: *App, name: []const u8, s: []const u8) ?u8 {
     return n - 1;
 }
 
-fn cmdGroupRename(app: *App, args: []const u8) void {
-    var it = std.mem.splitScalar(u8, std.mem.trim(u8, args, " "), ' ');
-    const idx_str = it.next() orelse "";
-    const name = std.mem.trim(u8, it.rest(), " ");
-    if (idx_str.len == 0 or name.len == 0) {
-        app.setStatus("usage: group-rename <n> <name>", .{});
+/// `cursor_group` is the group the tracks-view cursor already sits on
+/// (`cmdRename` only calls this once `app.cursorGroup()` confirms it) -
+/// same "no index: act on the selection" shape `cmdRenameTrack` uses, with
+/// the equivalent single-bare-number-token ambiguity resolved the same way.
+fn cmdRenameGroup(app: *App, cursor_group: u8, args: []const u8) void {
+    const trimmed = std.mem.trim(u8, args, " ");
+    if (trimmed.len == 0) {
+        app.setStatus("usage: rename [<n>] <name>", .{});
         return;
     }
-    const idx = parseGroupArg(app, "group-rename", idx_str) orelse return;
+    var it = std.mem.splitScalar(u8, trimmed, ' ');
+    const first = it.next().?;
+    const rest = std.mem.trim(u8, it.rest(), " ");
+
+    const first_is_number = if (std.fmt.parseInt(u8, first, 10)) |_| true else |_| false;
+    var idx: u8 = cursor_group;
+    var name: []const u8 = first;
+    if (!(rest.len == 0 and !first_is_number)) {
+        if (rest.len == 0) {
+            app.setStatus("usage: rename [<n>] <name>", .{});
+            return;
+        }
+        idx = parseGroupArg(app, "rename", first) orelse return;
+        name = rest;
+    }
+
     if (app.session.groups[idx] == null) {
-        app.setStatus("group-rename: group {d} doesn't exist", .{idx + 1});
+        app.setStatus("rename: group {d} doesn't exist", .{idx + 1});
         return;
     }
     app.session.renameGroup(idx, name) catch {
@@ -1164,37 +1189,50 @@ fn cmdTrackGroup(app: *App, args: []const u8) void {
     app.setStatus("track {d} → group {d}", .{ track_1, idx + 1 });
 }
 
-fn cmdPadRename(app: *App, args: []const u8) void {
-    var it = std.mem.splitScalar(u8, std.mem.trim(u8, args, " "), ' ');
-    const pad_str = it.next() orelse {
-        app.setStatus("usage: pad-rename <1-{d}> <name>", .{DrumMachine.max_pads});
-        return;
-    };
-    const name = std.mem.trim(u8, it.rest(), " ");
-    if (name.len == 0) {
-        app.setStatus("usage: pad-rename <1-{d}> <name>", .{DrumMachine.max_pads});
-        return;
-    }
-    const pad_num = std.fmt.parseInt(u8, pad_str, 10) catch {
-        app.setStatus("pad-rename: bad pad index '{s}'", .{pad_str});
-        return;
-    };
-    if (pad_num < 1 or pad_num > DrumMachine.max_pads) {
-        app.setStatus("pad-rename: pad index must be 1-{d}", .{DrumMachine.max_pads});
+/// `cmdRename` only reaches this while the drum grid is actually open, so
+/// `app.drum_cursor[0]` (the grid's own pad cursor) is always the sensible
+/// default - same "no index: act on the selection" shape `cmdRenameTrack`/
+/// `cmdRenameGroup` use, with the equivalent ambiguity resolved the same way.
+fn cmdRenamePad(app: *App, args: []const u8) void {
+    const trimmed = std.mem.trim(u8, args, " ");
+    if (trimmed.len == 0) {
+        app.setStatus("usage: rename [<n>] <name>", .{});
         return;
     }
-    const pad_idx = pad_num - 1;
+    var it = std.mem.splitScalar(u8, trimmed, ' ');
+    const first = it.next().?;
+    const rest = std.mem.trim(u8, it.rest(), " ");
+
+    const first_is_number = if (std.fmt.parseInt(u8, first, 10)) |_| true else |_| false;
+    var pad_idx: u8 = @intCast(app.drum_cursor[0]);
+    var name: []const u8 = first;
+    if (!(rest.len == 0 and !first_is_number)) {
+        if (rest.len == 0) {
+            app.setStatus("usage: rename [<n>] <name>", .{});
+            return;
+        }
+        const pad_num = std.fmt.parseInt(u8, first, 10) catch {
+            app.setStatus("rename: bad pad index '{s}'", .{first});
+            return;
+        };
+        if (pad_num < 1 or pad_num > DrumMachine.max_pads) {
+            app.setStatus("rename: pad index must be 1-{d}", .{DrumMachine.max_pads});
+            return;
+        }
+        pad_idx = pad_num - 1;
+        name = rest;
+    }
     const dm = cursorDrumMachine(app) orelse {
-        app.setStatus("pad-rename: select a drum-machine track first", .{});
+        app.setStatus("rename: select a drum-machine track first", .{});
         return;
     };
     if (dm.pads[pad_idx] == null) {
-        app.setStatus("pad-rename: pad {d} is empty - :load it first", .{pad_num});
+        app.setStatus("rename: pad {d} is empty - :load it first", .{pad_idx + 1});
         return;
     }
     dm.pads[pad_idx].?.rename(name);
     app.dirty = true;
-    app.setStatus("pad {d} renamed: {s}", .{ pad_num, dm.pads[pad_idx].?.clipName() });
+    app.setStatus("pad {d} renamed: {s}", .{ pad_idx + 1, dm.pads[pad_idx].?.clipName() });
 }
 
 /// Reads a `:load`-family source file, setting status and returning `null`

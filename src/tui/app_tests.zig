@@ -2803,7 +2803,7 @@ test ":track-instrument <n> <kind> targets track n, leaving the cursor track alo
     defer app.deinit();
 
     // Cursor sits on track 0 (synth); target track 2 (drum_machine) by
-    // number instead - mirrors :track-rename's "[<n>] <name>" shape.
+    // number instead - mirrors :rename's "[<n>] <name>" shape.
     app.cursor = 0;
     for (":track-instrument 2 sampler") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.enter, 0);
@@ -3197,7 +3197,7 @@ test "tracks visual mode: esc cancels; master row can't enter it" {
     try std.testing.expect(std.mem.indexOf(u8, app.status_buf[0..app.status_len], "n/a") != null);
 }
 
-test ":group-add/:group-rename/:group-del/:track-group/:group-fx" {
+test ":group-add/:rename/:group-del/:track-group/:group-fx" {
     var app = try testApp();
     defer app.deinit();
 
@@ -3205,13 +3205,21 @@ test ":group-add/:group-rename/:group-del/:track-group/:group-fx" {
     app.handleKey(.enter, 0);
     try std.testing.expectEqualStrings("untitled group", app.session.groups[0].?.name);
 
-    for (":group-rename 1 drum bus") |c| app.handleKey(.{ .char = c }, 0);
-    app.handleKey(.enter, 0);
-    try std.testing.expectEqualStrings("drum bus", app.session.groups[0].?.name);
-
     for (":track-group 3 1") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(@as(?u8, 0), app.session.project.tracks.items[2].group);
+
+    // :rename only reaches the group by number while the cursor sits on
+    // some row - a fresh, memberless group has none, so a member has to
+    // be assigned (just above) before it's addressable at all.
+    app.tracksRowSync();
+    const group_row = for (app.trackRows(), 0..) |r, i| {
+        if (std.meta.activeTag(r) == .group) break i;
+    } else unreachable;
+    app.setTrackRow(group_row);
+    for (":rename 1 drum bus") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqualStrings("drum bus", app.session.groups[0].?.name);
 
     for (":group-fx 1") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.enter, 0);
@@ -3304,29 +3312,29 @@ test ":track-del command deletes a track" {
     try std.testing.expectEqual(before - 1, app.session.project.tracks.items.len);
 }
 
-test ":track-rename renames a track" {
+test ":rename <n> <name> renames a track" {
     var app = try App.init(std.testing.allocator, std.Io.failing);
     defer app.deinit();
 
-    for (":track-rename 1 renamed") |c| app.handleKey(.{ .char = c }, 0);
+    for (":rename 1 renamed") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.enter, 0);
     try std.testing.expectEqualStrings("renamed", app.session.project.tracks.items[0].name);
 }
 
-test ":track-rename with no track number renames the cursor track" {
+test ":rename with no track number renames the cursor track" {
     var app = try App.init(std.testing.allocator, std.Io.failing);
     defer app.deinit();
     _ = try app.session.addTrack("second");
     app.cursor = 1;
 
-    for (":track-rename bass") |c| app.handleKey(.{ .char = c }, 0);
+    for (":rename bass") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.enter, 0);
     try std.testing.expectEqualStrings("untitled track", app.session.project.tracks.items[0].name);
     try std.testing.expectEqualStrings("bass", app.session.project.tracks.items[1].name);
 
     // A single bare number is still a missing-<name> error, not a rename
     // to that numeral - the same lone-index usage that already errored.
-    for (":track-rename 3") |c| app.handleKey(.{ .char = c }, 0);
+    for (":rename 3") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.enter, 0);
     try std.testing.expectEqualStrings("bass", app.session.project.tracks.items[1].name);
 }
@@ -4757,21 +4765,21 @@ test ":new refuses on unsaved changes; :new! forces a blank-session request" {
     try std.testing.expectEqual(App.ReloadRequest.blank, app.pending_reload);
 }
 
-test "R opens the command prompt pre-filled with :track-rename <n> " {
+test "R opens the command prompt pre-filled with :rename <n> for a track" {
     var app = try testApp();
     defer app.deinit();
     app.cursor = 1;
 
     app.handleKey(.{ .char = 'R' }, 0);
     try std.testing.expectEqual(ws.input.Mode.command, app.modal.mode);
-    try std.testing.expectEqualStrings("track-rename 2 ", app.modal.cmd_buf[0..app.modal.cmd_len]);
+    try std.testing.expectEqualStrings("rename 2 ", app.modal.cmd_buf[0..app.modal.cmd_len]);
 
     for ("keys") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.enter, 0);
     try std.testing.expectEqualStrings("keys", app.session.project.tracks.items[1].name);
 }
 
-test "R opens the command prompt pre-filled with :pad-rename <n> in the drum grid" {
+test "R opens the command prompt pre-filled with :rename <n> for a pad in the drum grid" {
     var app = try testApp();
     defer app.deinit();
     app.drum_track = 2;
@@ -4780,13 +4788,46 @@ test "R opens the command prompt pre-filled with :pad-rename <n> in the drum gri
 
     _ = drum_ed.handleKey(&app, .{ .char = 'R' });
     try std.testing.expectEqual(ws.input.Mode.command, app.modal.mode);
-    try std.testing.expectEqualStrings("pad-rename 4 ", app.modal.cmd_buf[0..app.modal.cmd_len]);
+    try std.testing.expectEqualStrings("rename 4 ", app.modal.cmd_buf[0..app.modal.cmd_len]);
 
     for ("808oh") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.enter, 0);
     try std.testing.expectEqualStrings("808oh", app.drumMachine().padName(3));
     // Renaming doesn't touch the actual sample.
     try std.testing.expect(!app.drumMachine().pads[3].?.pad.user_sample);
+}
+
+test ":rename is adaptive like :load - same command, different target by context" {
+    var app = try testApp(); // synth(0), sampler(1), drums(2)
+    defer app.deinit();
+
+    // No drum grid open, cursor on a track: targets the track.
+    app.cursor = 0;
+    for (":rename lead") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqualStrings("lead", app.session.project.tracks.items[0].name);
+
+    // Cursor on a group row: targets the group, not the cursor track.
+    app.session.assignTrackGroup(1, try app.session.addGroup("bus"));
+    app.tracksRowSync();
+    const group_row = for (app.trackRows(), 0..) |r, i| {
+        if (std.meta.activeTag(r) == .group) break i;
+    } else unreachable;
+    app.setTrackRow(group_row);
+    for (":rename drumbus") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqualStrings("drumbus", app.session.groups[0].?.name);
+    try std.testing.expectEqualStrings("lead", app.session.project.tracks.items[0].name); // untouched
+
+    // Drum grid open: targets the cursor pad, not the track or a group -
+    // and (new) a bare name with no index renames it, unlike the old
+    // :pad-rename which always required an explicit number.
+    app.drum_track = 2;
+    app.view = .drum_grid;
+    app.drum_cursor = .{ 3, 0 }; // pad 3 = "open"
+    for (":rename crash") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqualStrings("crash", app.drumMachine().padName(3));
 }
 
 test "t taps the tempo from the average interval; a long gap restarts it" {
@@ -4828,19 +4869,19 @@ test "command Tab-completion hides instrument-scoped commands under the wrong tr
     var app = try testApp(); // synth(0), sampler(1), drums(2)
     defer app.deinit();
 
-    // Cursor on the synth track: "pad-r" (drum-scoped) has no in-scope
+    // Cursor on the synth track: "eucl" (drum-scoped) has no in-scope
     // candidate, so Tab is a no-op - cmd_buf is untouched.
     app.cursor = 0;
-    for (":pad-r") |c| app.handleKey(.{ .char = c }, 0);
+    for (":eucl") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.tab, 0);
-    try std.testing.expectEqualStrings("pad-r", app.modal.cmd_buf[0..app.modal.cmd_len]);
+    try std.testing.expectEqualStrings("eucl", app.modal.cmd_buf[0..app.modal.cmd_len]);
 
     // Cursor on the drum track: the same prefix now completes in full.
     app.handleKey(.escape, 0);
     app.cursor = 2;
-    for (":pad-r") |c| app.handleKey(.{ .char = c }, 0);
+    for (":eucl") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.tab, 0);
-    try std.testing.expectEqualStrings("pad-rename ", app.modal.cmd_buf[0..app.modal.cmd_len]);
+    try std.testing.expectEqualStrings("euclid ", app.modal.cmd_buf[0..app.modal.cmd_len]);
 }
 
 test "Tab cycles mnemonic command names and ignores compatibility aliases" {
@@ -4870,7 +4911,7 @@ test "Tab cycles mnemonic command names and ignores compatibility aliases" {
     app.handleKey(.tab, 0);
     try std.testing.expectEqualStrings("write-quit", app.modal.cmd_buf[0..app.modal.cmd_len]);
 
-    // "track" matches only the track-* commands (table order: add/del/rename).
+    // "track" matches only the track-* commands (table order: add/del/instrument).
     app.modal.cmd_len = 0;
     app.modal.cmd_cursor = 0;
     for ("track") |c| app.handleKey(.{ .char = c }, 0);
@@ -4879,7 +4920,7 @@ test "Tab cycles mnemonic command names and ignores compatibility aliases" {
     app.handleKey(.tab, 0);
     try std.testing.expectEqualStrings("track-del", app.modal.cmd_buf[0..app.modal.cmd_len]);
     app.handleKey(.tab, 0);
-    try std.testing.expectEqualStrings("track-rename", app.modal.cmd_buf[0..app.modal.cmd_len]);
+    try std.testing.expectEqualStrings("track-instrument", app.modal.cmd_buf[0..app.modal.cmd_len]);
 }
 
 test "suggestion popup highlight tracks the completed candidate" {
