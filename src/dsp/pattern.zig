@@ -324,6 +324,56 @@ pub const PatternPlayer = struct {
         return changed;
     }
 
+    /// Stagger every chord (notes sharing the same start_beat, within
+    /// epsilon) into a strum: each note in a group is delayed by its rank
+    /// times `offset_beats`, one note always staying exactly on the beat -
+    /// a lone note is its own one-member group and never moves. A positive
+    /// offset ranks low-to-high (bass note on the beat, trailing upward - a
+    /// down-strum); negative ranks high-to-low (an up-strum). Delays are
+    /// always forward in time regardless of sign, clamped to stay inside
+    /// [lo_beat, hi_beat). Only start_beat moves - duration is untouched,
+    /// same "nudge, don't choke" contract as humanize/quantize (offsets
+    /// here are similarly small, a manual feel pass rather than a
+    /// structural edit). Returns the count of notes actually delayed.
+    pub fn strum(self: *PatternPlayer, lo_beat: f64, hi_beat: f64, offset_beats: f64) u16 {
+        if (!std.math.isFinite(lo_beat) or !std.math.isFinite(hi_beat) or hi_beat <= lo_beat) return 0;
+        if (!std.math.isFinite(offset_beats)) return 0;
+        while (!self.notes_lock.tryLock()) std.atomic.spinLoopHint();
+        defer self.notes_lock.unlock();
+
+        const eps = 1e-9;
+        const n = self.note_count;
+        // Two passes: first work out every note's rank within its chord
+        // (by pitch, ascending; index breaks ties) without touching
+        // anything, so a note being delayed can't shift another note's
+        // rank mid-scan.
+        var rank_asc: [max_notes]u16 = undefined;
+        var group_size: [max_notes]u16 = undefined;
+        for (self.notes[0..n], 0..) |a, i| {
+            if (a.start_beat < lo_beat or a.start_beat >= hi_beat) continue;
+            var asc: u16 = 0;
+            var size: u16 = 1;
+            for (self.notes[0..n], 0..) |b, j| {
+                if (j == i or @abs(b.start_beat - a.start_beat) >= eps) continue;
+                size += 1;
+                if (b.pitch < a.pitch or (b.pitch == a.pitch and j < i)) asc += 1;
+            }
+            rank_asc[i] = asc;
+            group_size[i] = size;
+        }
+
+        var touched: u16 = 0;
+        for (self.notes[0..n], 0..) |*note, i| {
+            if (note.start_beat < lo_beat or note.start_beat >= hi_beat) continue;
+            const rank: u16 = if (offset_beats >= 0.0) rank_asc[i] else group_size[i] - 1 - rank_asc[i];
+            if (rank == 0) continue;
+            const delay = @as(f64, @floatFromInt(rank)) * @abs(offset_beats);
+            note.start_beat = @min(note.start_beat + delay, hi_beat - eps);
+            touched += 1;
+        }
+        return touched;
+    }
+
     fn queueNoteOff(self: *PatternPlayer, pitch: u7) void {
         const word: usize = pitch / 64;
         const bit = @as(u64, 1) << @intCast(pitch % 64);
@@ -773,6 +823,66 @@ test "legato extends notes to the next onset, gapless" {
 
     // Degenerate range is a no-op.
     try std.testing.expectEqual(@as(u16, 0), pp.legato(2.0, 2.0));
+}
+
+test "strum staggers a chord low-to-high for a positive offset" {
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    var pp = PatternPlayer.init(synth.device(), &transport);
+    pp.length_beats = 8.0;
+    // A C major triad stacked at beat 1, added out of pitch order to
+    // exercise the index tie-break.
+    pp.addNote(.{ .pitch = 67, .start_beat = 1.0, .duration_beat = 1.0 }); // G
+    pp.addNote(.{ .pitch = 60, .start_beat = 1.0, .duration_beat = 1.0 }); // C (lowest)
+    pp.addNote(.{ .pitch = 64, .start_beat = 1.0, .duration_beat = 1.0 }); // E
+
+    try std.testing.expectEqual(@as(u16, 2), pp.strum(0.0, 8.0, 0.1));
+    // Lowest pitch (60) is the anchor and never moves.
+    try std.testing.expectApproxEqAbs(@as(f64, 1.0), pp.notes[1].start_beat, 1e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 1.1), pp.notes[2].start_beat, 1e-9); // E: rank 1
+    try std.testing.expectApproxEqAbs(@as(f64, 1.2), pp.notes[0].start_beat, 1e-9); // G: rank 2
+    // Duration is untouched.
+    try std.testing.expectApproxEqAbs(@as(f64, 1.0), pp.notes[0].duration_beat, 1e-9);
+}
+
+test "strum reverses rank order for a negative offset, still only moving forward" {
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    var pp = PatternPlayer.init(synth.device(), &transport);
+    pp.length_beats = 8.0;
+    pp.addNote(.{ .pitch = 60, .start_beat = 1.0, .duration_beat = 1.0 });
+    pp.addNote(.{ .pitch = 64, .start_beat = 1.0, .duration_beat = 1.0 });
+    pp.addNote(.{ .pitch = 67, .start_beat = 1.0, .duration_beat = 1.0 });
+
+    try std.testing.expectEqual(@as(u16, 2), pp.strum(0.0, 8.0, -0.1));
+    // Highest pitch (67) is now the anchor.
+    try std.testing.expectApproxEqAbs(@as(f64, 1.0), pp.notes[2].start_beat, 1e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 1.2), pp.notes[0].start_beat, 1e-9); // C: furthest, rank 2
+    try std.testing.expectApproxEqAbs(@as(f64, 1.1), pp.notes[1].start_beat, 1e-9); // E: rank 1
+}
+
+test "strum leaves a lone note untouched and clamps into the range" {
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    var pp = PatternPlayer.init(synth.device(), &transport);
+    pp.length_beats = 4.0;
+    pp.addNote(.{ .pitch = 60, .start_beat = 1.0, .duration_beat = 0.5 });
+
+    // A lone note has no chord partners to stagger against.
+    try std.testing.expectEqual(@as(u16, 0), pp.strum(0.0, 4.0, 0.25));
+    try std.testing.expectApproxEqAbs(@as(f64, 1.0), pp.notes[0].start_beat, 1e-9);
+
+    // A chord near the range's end clamps rather than spilling past it.
+    pp.addNote(.{ .pitch = 64, .start_beat = 1.0, .duration_beat = 0.5 });
+    try std.testing.expectEqual(@as(u16, 1), pp.strum(0.0, 1.05, 1.0));
+    try std.testing.expect(pp.notes[1].start_beat < 1.05);
+
+    // Degenerate/invalid parameters are no-ops.
+    try std.testing.expectEqual(@as(u16, 0), pp.strum(2.0, 2.0, 0.1));
+    try std.testing.expectEqual(@as(u16, 0), pp.strum(0.0, 4.0, std.math.nan(f64)));
 }
 
 test "humanize jitters timing/velocity within bounds; 0% is a no-op" {
