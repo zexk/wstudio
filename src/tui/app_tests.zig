@@ -366,6 +366,37 @@ test "toggle_solo flips project state and reaches the engine" {
     try std.testing.expect(app.session.engine.trackAt(0).*.soloed);
 }
 
+test ":unmute clears every track's mute in one shot; :unsolo clears solo" {
+    var app = try testApp(); // synth(0), sampler(1), drums(2)
+    defer app.deinit();
+
+    app.applyAction(.toggle_mute, 0);
+    app.cursor = 2;
+    app.applyAction(.toggle_mute, 0);
+    try std.testing.expect(app.session.project.tracks.items[0].muted);
+    try std.testing.expect(app.session.project.tracks.items[2].muted);
+
+    commands.run(&app, "unmute");
+    try std.testing.expect(!app.session.project.tracks.items[0].muted);
+    try std.testing.expect(!app.session.project.tracks.items[2].muted);
+
+    var block: [64]types.Sample = undefined;
+    app.session.engine.process(&block);
+    try std.testing.expect(!app.session.engine.trackAt(0).*.muted);
+    try std.testing.expect(!app.session.engine.trackAt(2).*.muted);
+
+    app.cursor = 1;
+    app.applyAction(.toggle_solo, 0);
+    try std.testing.expect(app.session.project.tracks.items[1].soloed);
+
+    commands.run(&app, "unsolo");
+    try std.testing.expect(!app.session.project.tracks.items[1].soloed);
+
+    // A no-op run reports rather than silently doing nothing.
+    commands.run(&app, "unmute");
+    try std.testing.expectEqualStrings("unmute: nothing was muted", app.status_buf[0..app.status_len]);
+}
+
 test "notes route to a synth track and queue their own release" {
     var app = try testApp();
     defer app.deinit();

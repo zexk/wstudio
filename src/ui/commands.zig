@@ -76,6 +76,8 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "sig",         .desc = "[<n>[/4]]  time signature (alias for :signature)", .run = wrap(cmdSig) },
     .{ .name = "gain",        .desc = "[<track>] [<dB>]  track gain (no track: cursor track)", .run = wrap(cmdGain) },
     .{ .name = "pan",         .desc = "[<track>] [<-1..1>]  track pan (no track: cursor track)", .run = wrap(cmdPan) },
+    .{ .name = "unmute",      .desc = "clear mute on every track (m toggles one track at a time)", .run = wrap(cmdUnmute) },
+    .{ .name = "unsolo",      .desc = "clear solo on every track (S toggles one track at a time)", .run = wrap(cmdUnsolo) },
     .{ .name = "volume",      .desc = "[<dB>]  master volume (–40 to +6)",   .run = wrap(cmdVol) },
     .{ .name = "vol",         .desc = "[<dB>]  master volume (alias for :volume)", .run = wrap(cmdVol) },
     .{ .name = "seek",        .desc = "<bar>  move playhead to bar",         .run = wrap(cmdSeek) },
@@ -2279,6 +2281,45 @@ fn cmdPan(app: *App, args: []const u8) void {
     else if (track.pan < 0) app.setStatus("track {d} pan: L{d}%", .{ track_1, pct })
     else app.setStatus("track {d} pan: R{d}%", .{ track_1, pct });
     // zig fmt: on
+}
+
+/// `:unmute` - clear mute on every track in one shot. `m` only toggles the
+/// cursor track, so this is the fast way back to "everything audible" after
+/// muting several while working. Not undo-tracked, matching `m` itself - a
+/// mixer-style live param.
+fn cmdUnmute(app: *App, _: []const u8) void {
+    var n: usize = 0;
+    for (app.session.project.tracks.items, 0..) |*track, i| {
+        if (!track.muted) continue;
+        track.muted = false;
+        _ = app.session.engine.send(.{ .set_track_mute = .{ .track = @intCast(i), .muted = false } });
+        n += 1;
+    }
+    if (n == 0) {
+        app.setStatus("unmute: nothing was muted", .{});
+        return;
+    }
+    app.dirty = true;
+    app.setStatus("unmuted {d} track{s}", .{ n, if (n == 1) "" else "s" });
+}
+
+/// `:unsolo` - clear solo on every track in one shot, the counterpart to
+/// `:unmute` - the fast way back to normal monitoring after soloing several
+/// tracks to audition them. Not undo-tracked, matching `S` itself.
+fn cmdUnsolo(app: *App, _: []const u8) void {
+    var n: usize = 0;
+    for (app.session.project.tracks.items, 0..) |*track, i| {
+        if (!track.soloed) continue;
+        track.soloed = false;
+        _ = app.session.engine.send(.{ .set_track_solo = .{ .track = @intCast(i), .soloed = false } });
+        n += 1;
+    }
+    if (n == 0) {
+        app.setStatus("unsolo: nothing was soloed", .{});
+        return;
+    }
+    app.dirty = true;
+    app.setStatus("unsoloed {d} track{s}", .{ n, if (n == 1) "" else "s" });
 }
 
 fn cmdSeek(app: *App, args: []const u8) void {
