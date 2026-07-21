@@ -120,6 +120,7 @@ pub const Config = struct {
     default_beats_per_bar: u8 = 4,
     default_octave: u8 = 4,
     default_velocity: f32 = 0.85,
+    default_master_gain_db: f32 = 0.0,
     autosave_interval_s: u16 = 30,
     frame_poll_ms: u16 = 30,
     audio_block_frames: u32 = 256,
@@ -136,6 +137,7 @@ pub const Config = struct {
     default_piano_grid: @import("wstudio").time_grid.Division = .sixteenth,
     default_piano_triplet_grid: bool = false,
     default_piano_note_length_steps: u8 = 1,
+    default_piano_pitch: u7 = 60,
     default_arrangement_grid: @import("wstudio").time_grid.Division = .quarter,
     piano_ghost_notes: bool = false,
     tui_mouse: bool = true,
@@ -149,6 +151,7 @@ pub const Config = struct {
     gui_window_height: u16 = 900,
     undo_history_entries: u16 = 64,
     default_metronome_enabled: bool = false,
+    default_song_mode: bool = false,
     metronome_click_gain: f32 = 1.0,
     count_in_bars: u8 = 1,
     default_midi_velocity_curve: @import("wstudio").midi_velocity.VelocityCurve = .linear,
@@ -187,6 +190,7 @@ const option_specs = [_]OptionSpec{
     .{ .name = "default_beats_per_bar", .min = 1, .max = 16 },
     .{ .name = "default_octave", .min = 0, .max = 8 },
     .{ .name = "default_velocity", .min = 0, .max = 1 },
+    .{ .name = "default_master_gain_db", .min = -40, .max = 6 },
     .{ .name = "autosave_interval_s", .min = 0, .max = 600 },
     .{ .name = "frame_poll_ms", .min = 5, .max = 1000, .scope = .tui },
     .{ .name = "audio_block_frames", .min = 16, .max = 4096 },
@@ -203,6 +207,7 @@ const option_specs = [_]OptionSpec{
     .{ .name = "default_piano_grid" },
     .{ .name = "default_piano_triplet_grid" },
     .{ .name = "default_piano_note_length_steps", .min = 1, .max = 16 },
+    .{ .name = "default_piano_pitch", .min = 0, .max = 127 },
     .{ .name = "default_arrangement_grid" },
     .{ .name = "piano_ghost_notes" },
     .{ .name = "tui_mouse", .scope = .tui },
@@ -216,6 +221,7 @@ const option_specs = [_]OptionSpec{
     .{ .name = "gui_window_height", .min = 600, .max = 4320, .scope = .gui },
     .{ .name = "undo_history_entries", .min = 8, .max = 512 },
     .{ .name = "default_metronome_enabled" },
+    .{ .name = "default_song_mode" },
     .{ .name = "metronome_click_gain", .min = 0, .max = 1 },
     .{ .name = "count_in_bars", .min = 0, .max = 4 },
     .{ .name = "default_midi_velocity_curve" },
@@ -2170,6 +2176,25 @@ test "Lua API round 5 workflow options set and read" {
     try std.testing.expectEqual(@as(u8, 3), rt.config.default_piano_note_length_steps);
     try std.testing.expectError(error.LuaError, rt.loadString("wstudio.o.default_project_path = ''"));
     try std.testing.expectError(error.LuaError, rt.loadString("wstudio.o.default_piano_note_length_steps = 0"));
+}
+
+test "Lua API session default options set and read" {
+    var rt = try Runtime.init(.tui);
+    defer rt.deinit();
+    try rt.loadString(
+        "wstudio.o.default_master_gain_db = -6.5;" ++
+            "wstudio.o.default_piano_pitch = 73;" ++
+            "wstudio.o.default_song_mode = true;" ++
+            "assert(wstudio.o.default_master_gain_db == -6.5);" ++
+            "assert(wstudio.o.default_piano_pitch == 73);" ++
+            "assert(wstudio.o.default_song_mode == true)",
+    );
+    try std.testing.expectEqual(@as(f32, -6.5), rt.config.default_master_gain_db);
+    try std.testing.expectEqual(@as(u7, 73), rt.config.default_piano_pitch);
+    try std.testing.expect(rt.config.default_song_mode);
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.o.default_master_gain_db = -41"));
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.o.default_piano_pitch = 128"));
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.o.default_song_mode = 1"));
 }
 
 test "path options read and write as strings, rejecting oversized paths" {

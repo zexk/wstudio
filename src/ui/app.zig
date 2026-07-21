@@ -1265,6 +1265,8 @@ pub const App = struct {
         self.status_message_ns = @as(i96, user_config.status_message_ms) * std.time.ns_per_ms;
         self.cmd_history_cap = user_config.cmd_history_lines;
         self.default_velocity = user_config.default_velocity;
+        self.master_gain_db = user_config.default_master_gain_db;
+        _ = self.session.engine.send(.{ .set_master_gain = types.dbToGain(self.master_gain_db) });
         self.count_in_bars = user_config.count_in_bars;
         self.automation_gain_step_db = user_config.default_automation_gain_step_db;
         self.automation_pan_step = user_config.default_automation_pan_step;
@@ -1274,6 +1276,7 @@ pub const App = struct {
         // persisted (see its doc comment), so every load - blank or from a
         // project file - starts silent unless this restores the click.
         self.session.setMetronome(user_config.default_metronome_enabled);
+        self.session.setSongMode(user_config.default_song_mode);
         self.default_browse_dir = user_config.default_browse_dir;
         self.clap_plugin_path = user_config.clap_plugin_path;
         var project_path_buf: [std.fs.max_path_bytes]u8 = undefined;
@@ -1287,6 +1290,8 @@ pub const App = struct {
         self.piano_grid = if (user_config.default_piano_triplet_grid) .triplet else .straight;
         self.piano_note_len = @as(f64, @floatFromInt(user_config.default_piano_note_length_steps)) /
             @as(f64, @floatFromInt(self.pianoStepsPerBeat()));
+        self.piano_cursor_pitch = user_config.default_piano_pitch;
+        self.piano_scroll_pitch = @min(user_config.default_piano_pitch +| 12, 127);
         self.arr_grid = user_config.default_arrangement_grid;
         self.piano_ghost = user_config.piano_ghost_notes;
         self.modal.octave = @intCast(user_config.default_octave);

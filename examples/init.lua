@@ -54,6 +54,9 @@
 -- Range 0-1.
 -- wstudio.o.default_velocity = 0.85
 
+-- Master output gain at session startup, in dB. Range -40 to 6.
+-- wstudio.o.default_master_gain_db = 0
+
 -- How often unsaved changes are backed up to <project>~, in seconds.
 -- 0 disables autosave entirely. Range 0-600.
 -- wstudio.o.autosave_interval_s = 30
@@ -112,6 +115,10 @@
 -- Range 1-16.
 -- wstudio.o.default_piano_note_length_steps = 1
 
+-- Initial piano-roll cursor pitch as a MIDI note number. 60 is middle C.
+-- Range 0-127.
+-- wstudio.o.default_piano_pitch = 60
+
 -- Draw notes from the other tracks behind the active piano roll.
 -- wstudio.o.piano_ghost_notes = false
 
@@ -121,6 +128,9 @@
 
 -- Start every session with the click track on.
 -- wstudio.o.default_metronome_enabled = false
+
+-- Start sessions in arrangement song mode instead of pattern mode.
+-- wstudio.o.default_song_mode = false
 
 -- Click track loudness, a multiplier on its built-in accent/regular ratio.
 -- Range 0-1.

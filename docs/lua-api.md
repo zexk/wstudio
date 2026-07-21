@@ -150,13 +150,14 @@ Current option set (see examples/init.lua for defaults and ranges):
 | --- | --- |
 | `preferred_frontend` | core |
 | `default_tempo`, `default_sample_rate`, `default_beats_per_bar` | core |
-| `default_octave`, `default_velocity`, `autosave_interval_s` | core |
+| `default_octave`, `default_velocity`, `default_master_gain_db`, `autosave_interval_s` | core |
 | `audio_block_frames`, `audio_backend`, `tap_timeout_ms` | core |
 | `note_preview_ms`, `cmd_history_lines`, `status_message_ms` | core |
 | `default_browse_dir`, `default_project_path`, `file_browser_show_hidden` | core |
 | `default_drum_grid`, `default_piano_grid`, `default_arrangement_grid` | core |
-| `default_piano_triplet_grid`, `default_piano_note_length_steps`, `piano_ghost_notes` | core |
-| `undo_history_entries`, `default_metronome_enabled`, `metronome_click_gain` | core |
+| `default_piano_triplet_grid`, `default_piano_note_length_steps`, `default_piano_pitch` | core |
+| `piano_ghost_notes`, `undo_history_entries`, `default_metronome_enabled` | core |
+| `default_song_mode`, `metronome_click_gain` | core |
 | `count_in_bars`, `default_midi_velocity_curve` | core |
 | `default_automation_gain_step_db`, `default_automation_pan_step` | core |
 | `frame_poll_ms`, `tui_mouse`, `tui_theme`, `has_nerdfonts` | tui |
