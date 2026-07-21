@@ -2269,11 +2269,14 @@ pub const App = struct {
                 self.view = .tracks;
                 return;
             }
+            var backup = history.captureTrackKindSwap(self, self.cursor);
             const preserved = self.session.changeInstrumentKind(self.cursor, kind) catch |err| {
+                if (backup) |*b| b.deinit(self.allocator);
                 self.setStatus("track-instrument: {s}", .{@errorName(err)});
                 self.view = .tracks;
                 return;
             };
+            history.push(self, backup);
             self.dirty = true;
             if (preserved) {
                 self.setStatus("track {d}: now {s} (notes kept)", .{ self.cursor + 1, picker_labels[self.picker_cursor] });

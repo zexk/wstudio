@@ -2642,6 +2642,57 @@ test "track delete remaps a still-open FX nudge batch, including the entry it fl
     try std.testing.expectEqual(@as(u16, 1), app.history.undo_stack.items[1].fx.target.track);
 }
 
+test ":track-instrument pushes an undo entry that restores the old instrument and notes" {
+    var app = try testApp();
+    defer app.deinit();
+
+    // Track 0 is poly_synth (see testApp). Give it a note so the swap's
+    // "notes kept" claim (melodic-to-melodic) is actually checkable.
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 1.0 });
+
+    app.cursor = 0;
+    for (":track-instrument sampler") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+
+    try std.testing.expectEqual(InstrumentKind.sampler, std.meta.activeTag(app.session.racks.items[0].instrument));
+    try std.testing.expectEqual(@as(u16, 1), app.session.racks.items[0].pattern_player.?.note_count);
+    try std.testing.expectEqual(@as(usize, 1), app.history.undo_stack.items.len);
+
+    app.handleKey(.{ .char = 'u' }, 0);
+    try std.testing.expectEqual(InstrumentKind.poly_synth, std.meta.activeTag(app.session.racks.items[0].instrument));
+    try std.testing.expectEqual(@as(u16, 1), app.session.racks.items[0].pattern_player.?.note_count);
+    try std.testing.expectEqual(@as(u7, 60), app.session.racks.items[0].pattern_player.?.notes[0].pitch);
+    try std.testing.expectEqual(@as(usize, 0), app.history.undo_stack.items.len);
+    try std.testing.expectEqual(@as(usize, 1), app.history.redo_stack.items.len);
+
+    app.handleKey(.{ .char = 'U' }, 0); // redo
+    try std.testing.expectEqual(InstrumentKind.sampler, std.meta.activeTag(app.session.racks.items[0].instrument));
+    try std.testing.expectEqual(@as(u16, 1), app.session.racks.items[0].pattern_player.?.note_count);
+}
+
+test ":track-instrument undo recovers a clip cleared by an incompatible-mapping swap" {
+    var app = try testApp();
+    defer app.deinit();
+
+    // Track 0 is poly_synth; stamp a clip so there's arrangement data at
+    // stake, not just the live pattern.
+    app.session.racks.items[0].pattern_player.?.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 1.0 });
+    try app.session.stampClip(0, 0);
+    try std.testing.expectEqual(@as(usize, 1), app.session.arrangement.lane(0).?.clips.items.len);
+
+    app.cursor = 0;
+    for (":track-instrument slicer") |c| app.handleKey(.{ .char = c }, 0); // no compatible mapping
+    app.handleKey(.enter, 0);
+
+    try std.testing.expectEqual(InstrumentKind.slicer, std.meta.activeTag(app.session.racks.items[0].instrument));
+    try std.testing.expectEqual(@as(usize, 0), app.session.arrangement.lane(0).?.clips.items.len);
+
+    app.handleKey(.{ .char = 'u' }, 0);
+    try std.testing.expectEqual(InstrumentKind.poly_synth, std.meta.activeTag(app.session.racks.items[0].instrument));
+    try std.testing.expectEqual(@as(usize, 1), app.session.arrangement.lane(0).?.clips.items.len);
+}
+
 test "track delete pushes its own undo entry that fully restores the track" {
     var app = try testApp();
     defer app.deinit();

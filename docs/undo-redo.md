@@ -12,9 +12,11 @@ through the same event path used by automation. Rapid repeated nudges of the
 same parameter and unit coalesce into one history entry.
 
 History deliberately covers content editing, not every mutable value. Track
-creation and deletion, instrument swaps, swing, and mixer gain and pan are out
-of scope. The history is bounded, and failure to allocate a snapshot does not
-block the edit.
+deletion (and its own restore) and an already-populated track's instrument
+swap (`:track-instrument`, the `I` keybind) are covered by their own whole-
+rack snapshot entries; plain track creation, swing, and mixer gain and pan are
+out of scope. The history is bounded, and failure to allocate a snapshot does
+not block the edit.
 
 The entry types and swap mechanics live in `src/ui/undo.zig`. Capture,
 restoration, coalescing, and the shared `u`/`U` entry points live in
