@@ -49,7 +49,14 @@ pub fn draw(app: anytype) void {
 /// state-colored background, cursor/visual outline, click-to-select. The
 /// body background is always the neutral row tone now - track/group/master
 /// color lives only in the side strip and info block drawn on top of it.
-const RowChrome = struct { draw: zgui.DrawList, origin: [2]f32, width: f32, selected: bool };
+const RowChrome = struct {
+    draw: zgui.DrawList,
+    origin: [2]f32,
+    width: f32,
+    selected: bool,
+    in_visual: bool,
+    hovered: bool,
+};
 
 fn drawRowChrome(app: anytype, id: [:0]const u8, display_row: usize, in_visual: bool, height: f32) RowChrome {
     const width = zgui.getContentRegionAvail()[0];
@@ -71,9 +78,16 @@ fn drawRowChrome(app: anytype, id: [:0]const u8, display_row: usize, in_visual: 
         .col = color(row_bg),
         .rounding = 3,
     });
-    drawTrackRowCursor(draw_list, origin, width, height, selected, in_visual, hovered);
+    if (selected) drawTrackRowCursorUnderlay(draw_list, origin, width, height);
     if (clicked) app.core.setTrackRow(display_row);
-    return .{ .draw = draw_list, .origin = origin, .width = width, .selected = selected };
+    return .{
+        .draw = draw_list,
+        .origin = origin,
+        .width = width,
+        .selected = selected,
+        .in_visual = in_visual,
+        .hovered = hovered,
+    };
 }
 
 /// The colored left cap: a `strip_w`-wide block flush to the row's left
@@ -170,6 +184,7 @@ fn drawMixerRow(app: anytype, track_index: u16, display_row: usize, height: f32)
         app.core.session.toggleArm(track_index);
         app.core.dirty = true;
     }
+    drawTrackRowCursorOutline(chrome, height);
     // The badges above each moved the auto-layout cursor to their own small
     // absolute position via setCursorScreenPos, so without this the next
     // row's chrome would start right after the last badge (~30px down)
@@ -206,6 +221,7 @@ fn drawGroupRow(app: anytype, group_index: u8, display_row: usize, height: f32) 
     drawFxChips(draw_list, &group.fx, text_x + 150, origin[1] + 12, block_x0 - 12);
     draw_list.addText(.{ block_x0 + 18, origin[1] + 14 }, color(block_fg), "{d:.1} dB", .{group.gain_db});
     drawTrimMeter(draw_list, block_x0 + 3, origin[1] + height - 15, 105, group.gain_db, block_fg);
+    drawTrackRowCursorOutline(chrome, height);
 }
 
 fn drawMasterRow(app: anytype, height: f32) void {
@@ -231,6 +247,7 @@ fn drawMasterRow(app: anytype, height: f32) void {
     // keeps this meter in sync with the transport's LEVEL readout instead
     // of re-deriving its own peak-hold state from the raw peak.
     widgets.solidMeterBar(draw_list, .{ block_x0 + 3, origin[1] + height - 21 }, app.meter_hold_db, 170, 5, 3, block_fg);
+    drawTrackRowCursorOutline(chrome, height);
 }
 
 /// `bar_color` is the block's own contrast text color, not the track's raw
@@ -249,13 +266,30 @@ fn trackRowInVisual(core: anytype, display_row: usize) bool {
     return display_row >= @min(anchor, core.track_row) and display_row <= @max(anchor, core.track_row);
 }
 
-fn drawTrackRowCursor(draw_list: zgui.DrawList, origin: [2]f32, width: f32, height: f32, selected: bool, in_visual: bool, hovered: bool) void {
-    if (selected) {
-        draw_list.addRectFilled(.{ .pmin = .{ origin[0] + 1, origin[1] + 1 }, .pmax = .{ origin[0] + width - 1, origin[1] + height - 3 }, .col = color(.{ patina.track_cursor[0], patina.track_cursor[1], patina.track_cursor[2], 0.18 }), .rounding = 2 });
-        draw_list.addRect(.{ .pmin = .{ origin[0] + 1, origin[1] + 1 }, .pmax = .{ origin[0] + width - 1, origin[1] + height - 3 }, .col = color(patina.track_cursor), .rounding = 2, .thickness = 2 });
-    } else if (in_visual or hovered) {
-        draw_list.addRect(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height - 2 }, .col = color(if (in_visual) patina.fg0 else patina.focus), .rounding = 2, .thickness = if (in_visual) 2 else 1 });
-    }
+fn drawTrackRowCursorUnderlay(draw_list: zgui.DrawList, origin: [2]f32, width: f32, height: f32) void {
+    draw_list.addRectFilled(.{
+        .pmin = .{ origin[0] + 1, origin[1] + 1 },
+        .pmax = .{ origin[0] + width - block_margin - 1, origin[1] + height - 3 },
+        .col = color(.{ patina.track_cursor[0], patina.track_cursor[1], patina.track_cursor[2], 0.18 }),
+        .rounding = 2,
+    });
+}
+
+/// Drawn after every row's content so the cursor remains visible across the
+/// colored side strip and info block instead of being painted over by them.
+fn drawTrackRowCursorOutline(chrome: RowChrome, height: f32) void {
+    if (!chrome.selected and !chrome.in_visual and !chrome.hovered) return;
+    const inset: f32 = if (chrome.selected) 1 else 0;
+    chrome.draw.addRect(.{
+        .pmin = .{ chrome.origin[0] + inset, chrome.origin[1] + inset },
+        .pmax = .{
+            chrome.origin[0] + chrome.width - block_margin - inset,
+            chrome.origin[1] + height - 2 - inset,
+        },
+        .col = color(if (chrome.selected) patina.track_cursor else if (chrome.in_visual) patina.fg0 else patina.focus),
+        .rounding = 2,
+        .thickness = if (chrome.selected or chrome.in_visual) 2 else 1,
+    });
 }
 
 /// A fixed-position 15x18 badge that's always present (unlike the old
