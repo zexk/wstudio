@@ -669,6 +669,36 @@ pub const DrumMachine = struct {
         for (self.midi[pad], 0..) |*note, step| note.* = gridNote(pad, @intCast(step), vel_full);
     }
 
+    /// Replace one pad's row with a Euclidean rhythm: `pulses` full-velocity
+    /// hits spread as evenly as possible across the pattern (the Bresenham
+    /// formulation of Bjorklund's algorithm - onset wherever the running
+    /// remainder `i*pulses mod steps` wraps), shifted `rotation` steps later
+    /// so the first hit lands on step `rotation`. 0 pulses clears the row;
+    /// pulses beyond the step count saturate to every-step.
+    pub fn euclidPad(self: *DrumMachine, pad: u8, pulses: u16, rotation: i32) void {
+        if (pad >= max_pads or self.step_count == 0) return;
+        const steps: u64 = self.step_count;
+        const k: u64 = @min(pulses, self.step_count);
+        for (self.midi[pad], 0..) |*note, i| {
+            const idx: u64 = @intCast(@mod(@as(i64, @intCast(i)) - rotation, @as(i64, @intCast(steps))));
+            const on = k > 0 and (idx * k) % steps < k;
+            note.* = if (on) gridNote(pad, @intCast(i), vel_full) else null;
+        }
+    }
+
+    /// Rotate one pad's row `delta` steps later in time (negative = earlier),
+    /// wrapping at the pattern boundary. Hits keep their velocity, pitch and
+    /// duration; only their grid position moves.
+    pub fn rotatePad(self: *DrumMachine, pad: u8, delta: i32) void {
+        if (pad >= max_pads or self.midi[pad].len == 0) return;
+        const len: i64 = @intCast(self.midi[pad].len);
+        // std.mem.rotate rotates left; right-by-delta == left-by-(-delta mod len)
+        std.mem.rotate(?MidiNote, self.midi[pad], @intCast(@mod(-@as(i64, delta), len)));
+        for (self.midi[pad], 0..) |*slot, i| {
+            if (slot.*) |*n| n.step = @intCast(i);
+        }
+    }
+
     pub fn padName(self: *const DrumMachine, pad: u8) []const u8 {
         if (pad >= max_pads) return "----";
         if (self.pads[pad]) |*s| return s.clipName();
@@ -1125,6 +1155,57 @@ test "pad grid stores canonical MIDI notes" {
     try std.testing.expectEqual(@as(u16, 1), dm.copyPadMidi(3, &notes));
     try std.testing.expectApproxEqAbs(@as(f64, 1.75), notes[0].start_beat, 1e-9);
     try std.testing.expectApproxEqAbs(@as(f32, 95.0 / 127.0), notes[0].velocity, 1e-6);
+}
+
+test "euclidPad spreads pulses evenly, honors rotation, clears on zero" {
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    defer dm.deinit();
+
+    // E(3,8): the tresillo - hits on steps 0, 3, 6.
+    dm.setStepCount(8);
+    dm.euclidPad(0, 3, 0);
+    for (0..8) |s| {
+        const expect_on = s == 0 or s == 3 or s == 6;
+        try std.testing.expectEqual(expect_on, dm.stepActive(0, @intCast(s)));
+    }
+
+    // Rotation shifts the whole figure: first hit lands on step 2.
+    dm.euclidPad(0, 3, 2);
+    for (0..8) |s| {
+        const expect_on = s == 2 or s == 5 or s == 0;
+        try std.testing.expectEqual(expect_on, dm.stepActive(0, @intCast(s)));
+    }
+
+    // 0 pulses clears; pulses > steps saturate to every step.
+    dm.euclidPad(0, 0, 0);
+    for (0..8) |s| try std.testing.expect(!dm.stepActive(0, @intCast(s)));
+    dm.euclidPad(0, 99, 0);
+    for (0..8) |s| try std.testing.expect(dm.stepActive(0, @intCast(s)));
+
+    // Stored notes carry the destination step (grid position is canonical).
+    try std.testing.expectEqual(@as(u16, 5), dm.midi[0][5].?.step);
+}
+
+test "rotatePad wraps hits and rewrites their canonical step" {
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    defer dm.deinit();
+
+    dm.setStepCount(8);
+    dm.toggleStep(2, 0);
+    dm.setStepVel(2, 0, 80);
+    dm.toggleStep(2, 6);
+
+    dm.rotatePad(2, 3); // 0 -> 3, 6 -> wraps to 1
+    try std.testing.expect(dm.stepActive(2, 3) and dm.stepActive(2, 1));
+    try std.testing.expect(!dm.stepActive(2, 0) and !dm.stepActive(2, 6));
+    try std.testing.expectEqual(@as(u8, 80), dm.stepVel(2, 3));
+    try std.testing.expectEqual(@as(u16, 3), dm.midi[2][3].?.step);
+    try std.testing.expectEqual(@as(u16, 1), dm.midi[2][1].?.step);
+
+    dm.rotatePad(2, -3); // and back
+    try std.testing.expect(dm.stepActive(2, 0) and dm.stepActive(2, 6));
 }
 
 test "song mode fires the clip covering the playhead" {
