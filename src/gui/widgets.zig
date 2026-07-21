@@ -1,4 +1,5 @@
 const std = @import("std");
+const ws = @import("wstudio");
 const zgui = @import("zgui");
 const gui_style = @import("style.zig");
 
@@ -6,6 +7,89 @@ pub fn sectionTitle(label: []const u8, accent: [4]f32) void {
     zgui.textColored(accent, "{s}", .{label});
     zgui.separator();
     zgui.dummy(.{ .w = 0, .h = 3 });
+}
+
+/// A pill switch plus its label, laid out as a single row - the drop-in
+/// replacement for a labelled `zgui.checkbox`, matching the hand-drawn
+/// knob/pad/ADSR look instead of ImGui's default square box. `label`
+/// doubles as both the widget id and the displayed text, same convention
+/// `zgui.checkbox` itself used at every call site this replaces.
+pub fn toggle(label: [:0]const u8, v: *bool) bool {
+    const patina = &gui_style.palette;
+    const track_w: f32 = 30;
+    const track_h: f32 = 16;
+    const origin = zgui.getCursorScreenPos();
+    const draw_list = zgui.getWindowDrawList();
+
+    zgui.beginGroup();
+    _ = zgui.invisibleButton(label, .{ .w = track_w, .h = track_h });
+    const hovered = zgui.isItemHovered(.{});
+    var changed = false;
+    if (zgui.isItemActivated()) {
+        v.* = !v.*;
+        changed = true;
+    }
+    const on = v.*;
+
+    const track_col = if (on) patina.modulation else if (hovered) patina.bg5 else patina.bg4;
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + track_w, origin[1] + track_h }, .col = gui_style.color(track_col), .rounding = track_h * 0.5 });
+    const knob_r = track_h * 0.5 - 2;
+    const knob_center = [2]f32{
+        origin[0] + (if (on) track_w - track_h * 0.5 else track_h * 0.5),
+        origin[1] + track_h * 0.5,
+    };
+    draw_list.addCircleFilled(.{ .p = knob_center, .r = knob_r, .col = gui_style.color(patina.fg0) });
+
+    zgui.sameLine(.{ .spacing = 8 });
+    zgui.textColored(if (on) patina.fg0 else patina.fg1, "{s}", .{label});
+    zgui.endGroup();
+    return changed;
+}
+
+/// A stereo peak meter: continuous gradient fill (green/yellow/red) plus a
+/// decaying peak-hold, shared by the transport's master LEVEL readout and
+/// the tracks view's master-row meter so both read the same bus peak the
+/// same way instead of drifting into two different meter qualities.
+const meter_db_min: f32 = -50.0;
+const meter_yellow_db: f32 = -6.0;
+const meter_red_db: f32 = -1.0;
+
+/// Advances `hold_db` toward `peak` (converted to dB) and lets it decay at
+/// `gui_style.meter_decay_db_per_s`. Called once per frame - `meterBar` itself
+/// is a pure draw and can be called any number of times off the same
+/// already-updated `hold_db` (e.g. once in the transport strip, once again
+/// in the tracks view's master row) without re-triggering the decay.
+pub fn updateMeterHold(hold_db: *[2]f32, peak: [2]f32, dt: f32) void {
+    for (0..2) |ch| {
+        const db = ws.types.gainToDb(peak[ch]);
+        hold_db[ch] = @max(db, hold_db[ch] - gui_style.meter_decay_db_per_s * dt);
+    }
+}
+
+pub fn meterBar(draw_list: zgui.DrawList, origin: [2]f32, hold_db: [2]f32, bar_w: f32, bar_h: f32, gap: f32) void {
+    const patina = &gui_style.palette;
+    for (0..2) |ch| {
+        const y = origin[1] + @as(f32, @floatFromInt(ch)) * (bar_h + gap);
+        draw_list.addRectFilled(.{ .pmin = .{ origin[0], y }, .pmax = .{ origin[0] + bar_w, y + bar_h }, .col = gui_style.color(patina.bg2), .rounding = 2 });
+        const norm = std.math.clamp((hold_db[ch] - meter_db_min) / -meter_db_min, 0, 1);
+        meterFill(draw_list, origin[0], y, bar_w, bar_h, norm);
+    }
+}
+
+fn meterFill(draw_list: zgui.DrawList, x: f32, y: f32, w: f32, h: f32, norm: f32) void {
+    if (norm <= 0) return;
+    const patina = &gui_style.palette;
+    const yellow_norm = (meter_yellow_db - meter_db_min) / -meter_db_min;
+    const red_norm = (meter_red_db - meter_db_min) / -meter_db_min;
+    const fill_w = w * norm;
+    const green_w = @min(fill_w, w * yellow_norm);
+    draw_list.addRectFilled(.{ .pmin = .{ x, y }, .pmax = .{ x + green_w, y + h }, .col = gui_style.color(patina.audio), .rounding = 2 });
+    if (fill_w > w * yellow_norm) {
+        draw_list.addRectFilled(.{ .pmin = .{ x + w * yellow_norm, y }, .pmax = .{ x + @min(fill_w, w * red_norm), y + h }, .col = gui_style.color(patina.rhythm) });
+    }
+    if (fill_w > w * red_norm) {
+        draw_list.addRectFilled(.{ .pmin = .{ x + w * red_norm, y }, .pmax = .{ x + fill_w, y + h }, .col = gui_style.color(patina.danger) });
+    }
 }
 
 pub const EmptyState = struct {
