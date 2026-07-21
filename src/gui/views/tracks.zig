@@ -39,6 +39,12 @@ const RowChrome = struct { draw: zgui.DrawList, origin: [2]f32, width: f32, sele
 fn drawRowChrome(app: anytype, id: [:0]const u8, display_row: usize, in_visual: bool, bg_override: ?[4]f32, height: f32) RowChrome {
     const width = zgui.getContentRegionAvail()[0];
     const origin = zgui.getCursorScreenPos();
+    // The mixer row's mute/solo/arm badges sit inside this button's bounds
+    // and are submitted after it - allowOverlap lets them still take hover
+    // themselves instead of this larger, earlier button eating it first
+    // (ImGui's default; see widgets.curveEditor's node buttons for the same
+    // fix applied to the same problem).
+    zgui.setNextItemAllowOverlap();
     const clicked = zgui.invisibleButton(id, .{ .w = width, .h = height });
     const hovered = zgui.isItemHovered(.{});
     const selected = app.core.track_row == display_row;
@@ -91,18 +97,25 @@ fn drawMixerRow(app: anytype, track_index: u16, display_row: usize, height: f32)
     draw_list.addText(.{ origin[0] + width - 112, origin[1] + 14 }, color(row_muted), "{s}", .{pan});
     drawTrimMeter(draw_list, origin[0] + width - 205, origin[1] + height - 15, 105, track.gain_db, accent);
 
-    var badge_x = origin[0] + width - 9;
-    if (track.soloed) {
-        badge_x -= 18;
-        drawTrackBadge(draw_list, badge_x, origin[1] + 12, icons.solo, patina.rhythm);
+    // Always three fixed slots (unlike the old read-only badges, which only
+    // occupied space when already on) so each has a stable, clickable hit
+    // zone regardless of state - solo/mute/arm toggle straight through the
+    // same index-parameterized setters the Lua API uses, so a click here
+    // stays in step with `:track-set`/wstudio.api.track_set and undoes the
+    // same way a keyboard toggle does.
+    var badge_x = origin[0] + width - 9 - 18;
+    var badge_id_buf: [40]u8 = undefined;
+    if (drawTrackBadgeToggle(draw_list, std.fmt.bufPrintZ(&badge_id_buf, "solo-{d}", .{track_index}) catch "solo", badge_x, origin[1] + 12, icons.solo, track.soloed, patina.rhythm)) {
+        app.core.apiSetTrackSoloed(track_index, !track.soloed);
     }
-    if (track.muted) {
-        badge_x -= 18;
-        drawTrackBadge(draw_list, badge_x, origin[1] + 12, icons.mute, patina.danger);
+    badge_x -= 18;
+    if (drawTrackBadgeToggle(draw_list, std.fmt.bufPrintZ(&badge_id_buf, "mute-{d}", .{track_index}) catch "mute", badge_x, origin[1] + 12, icons.mute, track.muted, patina.danger)) {
+        app.core.apiSetTrackMuted(track_index, !track.muted);
     }
-    if (app.core.session.isArmed(track_index)) {
-        badge_x -= 18;
-        drawTrackBadge(draw_list, badge_x, origin[1] + 12, "R", patina.danger);
+    badge_x -= 18;
+    if (drawTrackBadgeToggle(draw_list, std.fmt.bufPrintZ(&badge_id_buf, "arm-{d}", .{track_index}) catch "arm", badge_x, origin[1] + 12, "R", app.core.session.isArmed(track_index), patina.danger)) {
+        app.core.session.toggleArm(track_index);
+        app.core.dirty = true;
     }
 }
 
@@ -165,9 +178,19 @@ fn drawTrackRowCursor(draw_list: zgui.DrawList, origin: [2]f32, width: f32, heig
     }
 }
 
-fn drawTrackBadge(draw_list: zgui.DrawList, x: f32, y: f32, label: []const u8, bg: [4]f32) void {
+/// A fixed-position 15x18 badge that's always present (unlike the old
+/// state-gated one), dim when off and lit with `active_bg` when on -
+/// clicking it toggles, returning whether this frame's click did.
+fn drawTrackBadgeToggle(draw_list: zgui.DrawList, id: [:0]const u8, x: f32, y: f32, label: []const u8, active: bool, active_bg: [4]f32) bool {
+    zgui.setCursorScreenPos(.{ x, y });
+    _ = zgui.invisibleButton(id, .{ .w = 15, .h = 18 });
+    const activated = zgui.isItemActivated();
+    const hovered = zgui.isItemHovered(.{});
+    const bg = if (active) active_bg else if (hovered) patina.bg4 else patina.bg2;
+    const fg = if (active) patina.bg0 else if (hovered) patina.fg1 else patina.fg3;
     draw_list.addRectFilled(.{ .pmin = .{ x, y }, .pmax = .{ x + 15, y + 18 }, .col = color(bg), .rounding = 2 });
-    draw_list.addText(.{ x + 4, y + 2 }, color(patina.bg0), "{s}", .{label});
+    draw_list.addText(.{ x + 4, y + 2 }, color(fg), "{s}", .{label});
+    return activated;
 }
 
 fn drawFxChips(draw_list: zgui.DrawList, fx: *const ws.Fx, start_x: f32, y: f32, max_x: f32) void {
