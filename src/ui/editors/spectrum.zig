@@ -80,78 +80,67 @@ pub fn externalPickerAt(app: *App, ordinal: usize) ?*const ws.plugin_catalog.Plu
     return null;
 }
 
+pub const EffectSpec = struct {
+    label: []const u8,
+    editor_title: []const u8,
+    strip_label: []const u8,
+    badge_label: []const u8,
+    category: []const u8,
+    description: []const u8,
+    display_label: []const u8,
+};
+
+// Order follows FxPayload's tags, making every frontend-facing name for a
+// kind reviewable in one row.
+// zig fmt: off
+pub const effect_specs = [_]EffectSpec{
+    .{ .label = "GATE",       .editor_title = "GATE",           .strip_label = "GATE", .badge_label = "gate", .category = "DYNAMICS",   .description = "Tighten noise and transients",             .display_label = "TRANSFER" },
+    .{ .label = "COMP",       .editor_title = "COMPRESSOR",     .strip_label = "COMP", .badge_label = "cmp",  .category = "DYNAMICS",   .description = "Control dynamics and sidechain",            .display_label = "TRANSFER" },
+    .{ .label = "MB COMP",    .editor_title = "MULTIBAND COMP", .strip_label = "MBCP", .badge_label = "mbc",  .category = "DYNAMICS",   .description = "Shape dynamics across three bands",          .display_label = "TRANSFER" },
+    .{ .label = "OTT",        .editor_title = "OTT",            .strip_label = "OTT",  .badge_label = "ott",  .category = "DYNAMICS",   .description = "Fast upward and downward compression",       .display_label = "TRANSFER" },
+    .{ .label = "EQ",         .editor_title = "EQ + SPECTRUM",  .strip_label = "EQ",   .badge_label = "eq",   .category = "TONE",       .description = "Eight-band parametric tone shaping",         .display_label = "RESPONSE" },
+    .{ .label = "SAT",        .editor_title = "SATURATOR",      .strip_label = "SAT",  .badge_label = "sat",  .category = "CHARACTER",  .description = "Add harmonic drive and warmth",              .display_label = "SHAPER" },
+    .{ .label = "CRUSH",      .editor_title = "CRUSHER",        .strip_label = "CRSH", .badge_label = "crs",  .category = "CHARACTER",  .description = "Reduce bit depth and sample rate",           .display_label = "SHAPER" },
+    .{ .label = "CHORUS",     .editor_title = "CHORUS",         .strip_label = "CHOR", .badge_label = "cho",  .category = "MODULATION", .description = "Widen with modulated voices",                .display_label = "MODULATION" },
+    .{ .label = "PHASER",     .editor_title = "PHASER",         .strip_label = "PHAS", .badge_label = "pha",  .category = "MODULATION", .description = "Animated phase cancellation",               .display_label = "MODULATION" },
+    .{ .label = "FLANGER",    .editor_title = "FLANGER",        .strip_label = "FLNG", .badge_label = "fln",  .category = "MODULATION", .description = "Short swept comb modulation",               .display_label = "MODULATION" },
+    .{ .label = "TAPE",       .editor_title = "TAPE",           .strip_label = "TAPE", .badge_label = "tap",  .category = "CHARACTER",  .description = "Soft saturation and movement",              .display_label = "SHAPER" },
+    .{ .label = "FREQ SHIFT", .editor_title = "FREQ SHIFT",     .strip_label = "FRQS", .badge_label = "frq",  .category = "MODULATION", .description = "Shift the full frequency spectrum",          .display_label = "MODULATION" },
+    .{ .label = "DELAY",      .editor_title = "DELAY",          .strip_label = "DLY",  .badge_label = "dly",  .category = "TIME",       .description = "Stereo echoes with feedback",                .display_label = "ECHO DECAY" },
+    .{ .label = "REVERB",     .editor_title = "REVERB",         .strip_label = "VERB", .badge_label = "rev",  .category = "TIME",       .description = "Place the sound in a room",                   .display_label = "ROOM DECAY" },
+    .{ .label = "CLAP",       .editor_title = "CLAP PLUGIN",    .strip_label = "CLAP", .badge_label = "clp",  .category = "PLUGIN",     .description = "External CLAP audio plugin",                 .display_label = "PLUGIN" },
+};
+// zig fmt: on
+
+comptime {
+    if (effect_specs.len != std.meta.fields(FxKind).len) @compileError("effect_specs must cover every FxKind");
+}
+
+pub fn effectSpec(k: FxKind) EffectSpec {
+    return effect_specs[@intFromEnum(k)];
+}
+
 pub fn unitLabel(k: FxKind) []const u8 {
-    return switch (k) {
-        .gate => "GATE",
-        .comp => "COMP",
-        .mb_comp => "MB COMP",
-        .ott => "OTT",
-        .eq => "EQ",
-        .sat => "SAT",
-        .crush => "CRUSH",
-        .chorus => "CHORUS",
-        .flanger => "FLANGER",
-        .tape => "TAPE",
-        .phaser => "PHASER",
-        .freq_shift => "FREQ SHIFT",
-        .delay => "DELAY",
-        .reverb => "REVERB",
-        .clap => "CLAP",
-    };
+    return effectSpec(k).label;
+}
+
+pub fn editorTitle(k: FxKind) []const u8 {
+    return effectSpec(k).editor_title;
 }
 
 pub fn pickerCategory(k: FxKind) []const u8 {
-    return switch (k) {
-        .gate, .comp, .mb_comp, .ott => "DYNAMICS",
-        .eq => "TONE",
-        .sat, .crush, .tape => "CHARACTER",
-        .chorus, .flanger, .phaser, .freq_shift => "MODULATION",
-        .delay, .reverb => "TIME",
-        .clap => "PLUGIN",
-    };
+    return effectSpec(k).category;
 }
 
 pub fn pickerDescription(k: FxKind) []const u8 {
-    return switch (k) {
-        .gate => "Tighten noise and transients",
-        .comp => "Control dynamics and sidechain",
-        .mb_comp => "Shape dynamics across three bands",
-        .ott => "Fast upward and downward compression",
-        .eq => "Eight-band parametric tone shaping",
-        .sat => "Add harmonic drive and warmth",
-        .crush => "Reduce bit depth and sample rate",
-        .chorus => "Widen with modulated voices",
-        .flanger => "Short swept comb modulation",
-        .tape => "Soft saturation and movement",
-        .phaser => "Animated phase cancellation",
-        .freq_shift => "Shift the full frequency spectrum",
-        .delay => "Stereo echoes with feedback",
-        .reverb => "Place the sound in a room",
-        .clap => "External CLAP audio plugin",
-    };
+    return effectSpec(k).description;
 }
 
 /// <=4-char label for the chain strip's slot boxes; nine boxes have to
 /// share an 80-col row, so each gets a 7-wide box (see the strip geometry
 /// constants below).
 pub fn stripLabel(k: FxKind) []const u8 {
-    return switch (k) {
-        .gate => "GATE",
-        .comp => "COMP",
-        .mb_comp => "MBCP",
-        .ott => "OTT",
-        .eq => "EQ",
-        .sat => "SAT",
-        .crush => "CRSH",
-        .chorus => "CHOR",
-        .flanger => "FLNG",
-        .tape => "TAPE",
-        .phaser => "PHAS",
-        .freq_shift => "FRQS",
-        .delay => "DLY",
-        .reverb => "VERB",
-        .clap => "CLAP",
-    };
+    return effectSpec(k).strip_label;
 }
 
 /// Compact frequency label for an EQ band's freq row/readout: "823", "1.2k",
@@ -171,23 +160,7 @@ pub fn compactHz(buf: []u8, hz: f32) []const u8 {
 /// with gain/pan and the keybind hint - tighter than `stripLabel`'s 4-char
 /// strip boxes, so it's its own hand-picked table, not a truncation of it.
 pub fn badgeLabel3(k: FxKind) []const u8 {
-    return switch (k) {
-        .gate => "gate",
-        .comp => "cmp",
-        .mb_comp => "mbc",
-        .ott => "ott",
-        .eq => "eq",
-        .sat => "sat",
-        .crush => "crs",
-        .chorus => "cho",
-        .phaser => "pha",
-        .flanger => "fln",
-        .tape => "tap",
-        .freq_shift => "frq",
-        .delay => "dly",
-        .reverb => "rev",
-        .clap => "clp",
-    };
+    return effectSpec(k).badge_label;
 }
 
 pub fn paramCount(k: FxKind) usize {
@@ -278,11 +251,18 @@ pub fn eqBandField(idx: usize) struct { band: usize, field: usize } {
 
 /// Full-word label for a band's response type - `eq_field_kind`'s value.
 pub fn eqKindLabel(kind: eq_mod.BandKind) []const u8 {
-    return switch (kind) {
-        .peak => "peak",
-        .lowpass => "lowpass",
-        .highpass => "highpass",
-    };
+    return eq_kind_specs[@intFromEnum(kind)].label;
+}
+
+pub const EqKindSpec = struct { label: []const u8, short_label: []const u8, title: []const u8, action_label: [:0]const u8 };
+pub const eq_kind_specs = [_]EqKindSpec{
+    .{ .label = "peak", .short_label = "BELL", .title = "BELL FILTER", .action_label = "BELL" },
+    .{ .label = "lowpass", .short_label = "HC", .title = "HIGH CUT FILTER", .action_label = "HIGH CUT" },
+    .{ .label = "highpass", .short_label = "LC", .title = "LOW CUT FILTER", .action_label = "LOW CUT" },
+};
+
+comptime {
+    if (eq_kind_specs.len != std.meta.fields(eq_mod.BandKind).len) @compileError("eq_kind_specs must cover every BandKind");
 }
 
 /// [band][field] name table (thresh/ratio/makeup x low/mid/high) - a static
