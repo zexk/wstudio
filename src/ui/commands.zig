@@ -130,6 +130,7 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "vel-ramp",    .desc = "<from> <to>  velocity ramp 0-100% across the pattern's notes (drum view: the cursor pad's hits)", .run = wrap(cmdVelRamp) },
     .{ .name = "legato",      .desc = "extend every note to the next onset - gapless phrasing, no more staccato gaps", .run = wrap(cmdLegato) },
     .{ .name = "transpose",   .desc = "<semitones>  shift every note in the pattern (visual-mode j/k/J/K transposes just the selection)", .run = wrap(cmdTranspose) },
+    .{ .name = "strum",       .desc = "<ms>  stagger each chord's notes by ms per rank - positive low-to-high, negative high-to-low", .run = wrap(cmdStrum) },
     .{ .name = "import-midi", .desc = "<file>  replace the pattern with a Standard MIDI File's notes",     .run = wrap(cmdImportMidi) },
     .{ .name = "export-midi", .desc = "<file>  write the pattern as a Standard MIDI File",                 .run = wrap(cmdExportMidi) },
     .{ .name = "metronome",   .desc = "[on|off]  toggle the click track",                   .run = wrap(cmdMetronome) },
@@ -584,6 +585,42 @@ fn cmdTranspose(app: *App, args: []const u8) void {
     }
     history.push(app, entry);
     app.setStatus("transposed {d} notes {s}{d} st", .{ moved, if (dpitch >= 0) "+" else "", dpitch });
+    piano_ed.syncLinkedClip(app);
+}
+
+/// `:strum <ms>` - stagger every chord (notes sharing a start) by `ms` per
+/// rank: positive strums low-to-high (bass note on the beat, a down-strum),
+/// negative high-to-low (an up-strum). Tempo-aware - `ms` converts to beats
+/// via the project's current BPM, same source `:seek` reads. Melodic only:
+/// a drum hit has no fractional timing to offset into, same reasoning as
+/// `:legato`/`:transpose`.
+fn cmdStrum(app: *App, args: []const u8) void {
+    const track: usize = if (app.view == .piano_roll) app.piano_track else app.cursor;
+    if (track >= app.session.racks.items.len or
+        app.session.racks.items[track].pattern_player == null)
+    {
+        app.setStatus("strum: no piano-roll pattern", .{});
+        return;
+    }
+    const trimmed = std.mem.trim(u8, args, " ");
+    if (trimmed.len == 0) {
+        app.setStatus("usage: strum <ms> (negative = high-to-low), e.g. :strum 20", .{});
+        return;
+    }
+    const ms = parseFiniteFloat(f64, trimmed) catch {
+        app.setStatus("strum: expected milliseconds, e.g. :strum 20", .{});
+        return;
+    };
+    const pp = &app.session.racks.items[track].pattern_player.?;
+    const bpm = @max(app.session.project.tempo_bpm, 1.0);
+    const offset_beats = ms / 60_000.0 * bpm;
+    history.recordMelodic(app, @intCast(track));
+    const touched = pp.strum(0.0, pp.length_beats, offset_beats);
+    if (touched == 0) {
+        app.setStatus("strum: no chords in the pattern", .{});
+        return;
+    }
+    app.setStatus("strummed {d} notes ({s}{d:.0}ms)", .{ touched, if (ms >= 0) "+" else "", ms });
     piano_ed.syncLinkedClip(app);
 }
 
