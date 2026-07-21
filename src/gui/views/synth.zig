@@ -356,6 +356,10 @@ fn drawAnyParam(app: anytype, synth: *ws.dsp.PolySynth, id: u8, label_text: []co
         drawParamToggle(app, id, label_text, value >= 0.5);
         return;
     }
+    if (isWaveformParam(id)) {
+        drawWaveformParam(app, id, label_text, value);
+        return;
+    }
     zgui.text("{s}", .{label_text});
     zgui.sameLine(.{ .spacing = 8 });
     var minus_buf: [32]u8 = undefined;
@@ -382,6 +386,26 @@ fn drawParamToggle(app: anytype, id: u8, label_text: []const u8, active: bool) v
     zgui.pushStyleColor4f(.{ .idx = .text, .c = if (active) patina.bg0 else if (focused) patina.focus else patina.fg2 });
     if (zgui.smallButton(btn_id)) nudgeParam(app, id, 'h');
     zgui.popStyleColor(.{ .count = 2 });
+}
+
+/// OSC A/B/C's waveform param ids - the only `param_specs` cycle rows with
+/// an obvious icon per option, so `widgets.waveformPicker` covers just
+/// these three rather than every enum-valued param (filter type, LFO
+/// shape, ... still fall through to the generic -/+ stepper below).
+fn isWaveformParam(id: u8) bool {
+    return id == 0 or id == 7 or id == 51;
+}
+
+fn drawWaveformParam(app: anytype, id: u8, label_text: []const u8, value: f32) void {
+    const focused = app.core.synth_cursor == id;
+    zgui.text("{s}", .{label_text});
+    var label_buf: [32]u8 = undefined;
+    const label = std.fmt.bufPrintZ(&label_buf, "##synth-wave-{d}", .{id}) catch return;
+    const current = ws.dsp.synth.enumFromValue(ws.dsp.synth.Waveform, value);
+    if (widgets.waveformPicker(label, current, patina.focus, focused)) |picked| {
+        app.core.synth_cursor = id;
+        sendParam(app, id, ws.dsp.synth.enumToValue(picked));
+    }
 }
 
 fn nudgeParam(app: anytype, id: u8, key: u8) void {

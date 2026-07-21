@@ -362,6 +362,69 @@ pub fn listStepper(label_text: []const u8, id: [:0]const u8, args: ListStepper) 
     return .{ .changed = changed, .activated = changed };
 }
 
+/// A row of small tiles, one per oscillator waveform, each sketching that
+/// wave's actual silhouette instead of naming or numbering it - recognizing
+/// a shape is faster than reading "1.00", or even "saw", once you know
+/// what the five look like. `listStepper`'s glyph-based cousin: same "which
+/// one of these" semantics, but the option set is small, fixed, and has an
+/// obvious picture, so showing all of them beats stepping through one at a
+/// time. Returns the clicked waveform, if any.
+pub fn waveformPicker(label: [:0]const u8, current: ws.dsp.synth.Waveform, accent: [4]f32, focused: bool) ?ws.dsp.synth.Waveform {
+    const patina = &gui_style.palette;
+    const waveforms = [_]ws.dsp.synth.Waveform{ .sine, .saw, .triangle, .square, .wavetable };
+    const tile_w: f32 = 32;
+    const tile_h: f32 = 22;
+    const gap: f32 = 4;
+    const draw_list = zgui.getWindowDrawList();
+    var result: ?ws.dsp.synth.Waveform = null;
+
+    zgui.beginGroup();
+    for (waveforms, 0..) |wf, i| {
+        if (i > 0) zgui.sameLine(.{ .spacing = gap });
+        const origin = zgui.getCursorScreenPos();
+        var id_buf: [64]u8 = undefined;
+        const id = std.fmt.bufPrintZ(&id_buf, "{s}-{d}", .{ label, i }) catch label;
+        _ = zgui.invisibleButton(id, .{ .w = tile_w, .h = tile_h });
+        const hovered = zgui.isItemHovered(.{});
+        const selected = wf == current;
+        if (zgui.isItemActivated()) result = wf;
+
+        draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + tile_w, origin[1] + tile_h }, .col = gui_style.color(if (selected) patina.bg4 else if (hovered) patina.bg3 else patina.bg2), .rounding = 3 });
+        if (selected) draw_list.addRect(.{ .pmin = origin, .pmax = .{ origin[0] + tile_w, origin[1] + tile_h }, .col = gui_style.color(accent), .rounding = 3, .thickness = if (focused) 2 else 1.5 });
+        waveformGlyph(draw_list, .{ origin[0] + 4, origin[1] + 4 }, .{ tile_w - 8, tile_h - 8 }, wf, if (selected) accent else patina.fg2);
+
+        if (hovered) {
+            _ = zgui.beginTooltip();
+            zgui.textUnformatted(@tagName(wf));
+            zgui.endTooltip();
+        }
+    }
+    zgui.endGroup();
+    return result;
+}
+
+/// Same sampling `views/synth.zig`'s header preview (`drawOscillatorShape`)
+/// uses, at icon scale - kept separate rather than shared since the header
+/// preview draws one shape across a wide panel while this draws all five
+/// into a tile a few dozen pixels across, different enough segment counts
+/// and stroke weights that sharing one function would need parameters for
+/// almost everything anyway.
+fn waveformGlyph(draw_list: zgui.DrawList, pos: [2]f32, size: [2]f32, waveform: ws.dsp.synth.Waveform, col: [4]f32) void {
+    var prev = pos;
+    for (1..17) |i| {
+        const phase = @as(f32, @floatFromInt(i)) / 16.0 * 2.0;
+        const sample: f32 = switch (waveform) {
+            .sine => @sin(phase * std.math.pi * 2.0),
+            .saw, .wavetable => phase - @floor(phase) * 2.0 - 1.0,
+            .triangle => 1.0 - 4.0 * @abs(@round(phase) - phase),
+            .square => if (@mod(phase, 1.0) < 0.5) 1.0 else -1.0,
+        };
+        const point = [2]f32{ pos[0] + size[0] * @as(f32, @floatFromInt(i)) / 16.0, pos[1] + size[1] * (0.5 - sample * 0.42) };
+        if (i > 1) draw_list.addLine(.{ .p1 = prev, .p2 = point, .col = gui_style.color(col), .thickness = 1.3 });
+        prev = point;
+    }
+}
+
 /// A 2D pad for a correlated pair of params (e.g. filter cutoff+resonance):
 /// click/drag anywhere in the square to set both at once from the cursor's
 /// absolute position, unlike the knob's relative drag (a position in 2D has
