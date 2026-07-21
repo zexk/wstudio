@@ -290,6 +290,9 @@ pub const Engine = struct {
     allocator: std.mem.Allocator,
     transport: Transport,
     commands: Spsc(Command, 256) = .{},
+    /// Commands are realtime messages and cannot block their producer. Count
+    /// queue saturation so the UI can report it instead of failing silently.
+    dropped_commands: std.atomic.Value(u32) = .init(0),
     master_gain: f32 = 1.0,
     /// Always-on master-bus limiter: catches hot mixes before the WAV
     /// writer's ±1 clamp (and the DAC) turns them into hard-clip distortion.
@@ -717,7 +720,13 @@ pub const Engine = struct {
     }
 
     pub fn send(self: *Engine, cmd: Command) bool {
-        return self.commands.push(cmd);
+        if (self.commands.push(cmd)) return true;
+        _ = self.dropped_commands.fetchAdd(1, .monotonic);
+        return false;
+    }
+
+    pub fn takeDroppedCommands(self: *Engine) u32 {
+        return self.dropped_commands.swap(0, .acq_rel);
     }
 
     pub fn process(self: *Engine, out: []Sample) void {
