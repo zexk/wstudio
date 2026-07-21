@@ -67,7 +67,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
     }
 
     switch (key) {
-        .escape, .tab => { app.view = .tracks; return true; },
+        .escape, .tab => { app.autoSongMode(false); app.view = .tracks; return true; },
         .enter => { stampClip(app); return true; },
         .ctrl_r => { history.doRedo(app); return true; },
         .char => |c| switch (c) {

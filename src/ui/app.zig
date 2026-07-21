@@ -1625,6 +1625,12 @@ pub const App = struct {
                     switch (key.char) {
                         'n' => { self.searchTracks(1); return; },
                         'N' => { self.searchTracks(-1); return; },
+                        'T' => {
+                            self.session.setSongMode(!self.session.song_mode);
+                            self.dirty = true;
+                            self.setStatus("{s} mode", .{if (self.session.song_mode) "song" else "pattern"});
+                            return;
+                        },
                         else => {},
                     }
                     if (on_master) {
@@ -2142,11 +2148,11 @@ pub const App = struct {
 
     // zig fmt: off
     /// View->mode soft coupling: entering the arrangement nudges song mode
-    /// on, entering a live-pattern editor from the tracks view nudges it
-    /// off, but ONLY while the transport is stopped. Switching views must
-    /// never yank a playing source (mixing during song playback, clip-linked
-    /// editing, sound design against the song). `T` in the arrangement stays
-    /// the manual override either way.
+    /// on; leaving it back to tracks, or entering a live-pattern editor from
+    /// tracks, nudges it off. Only while the transport is stopped - switching
+    /// views must never yank a playing source (mixing during song playback,
+    /// clip-linked editing, sound design against the song). `T` (arrangement
+    /// and tracks both) stays the manual override either way.
     pub fn autoSongMode(self: *App, on: bool) void {
         if (self.session.song_mode == on) return;
         if (self.session.engine.uiSnapshot().playing) return;

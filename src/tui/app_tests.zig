@@ -1342,13 +1342,14 @@ test "view switches nudge song mode while stopped, never while playing" {
     try std.testing.expectEqual(AppView.arrangement, app.view);
     try std.testing.expect(app.session.song_mode);
 
-    // Returning to tracks is mode-neutral: it doubles as the mixer while
-    // the song plays, so it must never flip the mode itself.
+    // Stopped: tabbing back out of the arrangement reverts to pattern mode,
+    // symmetric with tabbing in.
     app.handleKey(.tab, 0);
     try std.testing.expectEqual(AppView.tracks, app.view);
-    try std.testing.expect(app.session.song_mode);
+    try std.testing.expect(!app.session.song_mode);
 
-    // Opening a pattern editor from tracks while stopped flips back.
+    // Opening a pattern editor from tracks while stopped stays in pattern
+    // mode (already off from the tab above).
     app.handleKey(.{ .char = 'p' }, 0);
     try std.testing.expectEqual(AppView.piano_roll, app.view);
     try std.testing.expect(!app.session.song_mode);
@@ -1362,6 +1363,19 @@ test "view switches nudge song mode while stopped, never while playing" {
     app.session.engine.process(&block); // publishes playing=true
     app.handleKey(.{ .char = 'p' }, 0);
     try std.testing.expectEqual(AppView.piano_roll, app.view);
+    try std.testing.expect(app.session.song_mode);
+
+    // Tab back to tracks mid-song, still playing: tracks doubles as the
+    // mixer during playback, so this must not yank the mode either.
+    app.view = .arrangement;
+    app.handleKey(.tab, 0);
+    try std.testing.expectEqual(AppView.tracks, app.view);
+    try std.testing.expect(app.session.song_mode);
+
+    // The manual override (`T`) works directly from tracks view too.
+    app.handleKey(.{ .char = 'T' }, 0);
+    try std.testing.expect(!app.session.song_mode);
+    app.handleKey(.{ .char = 'T' }, 0);
     try std.testing.expect(app.session.song_mode);
 }
 
