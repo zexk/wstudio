@@ -293,6 +293,37 @@ pub const PatternPlayer = struct {
         return touched;
     }
 
+    /// Extend every note in [lo_beat, hi_beat) to the next note onset (any
+    /// pitch), so a line plays gapless - the classic legato tool. Notes
+    /// sharing a start (a chord) all reach the same next onset; the last
+    /// onset in range extends to `hi_beat`. Shrinks overlapping tails too,
+    /// so the result is exactly-touching, never stacked. Returns the count
+    /// whose duration changed (UI thread).
+    pub fn legato(self: *PatternPlayer, lo_beat: f64, hi_beat: f64) u16 {
+        if (!std.math.isFinite(lo_beat) or !std.math.isFinite(hi_beat) or hi_beat <= lo_beat) return 0;
+        while (!self.notes_lock.tryLock()) std.atomic.spinLoopHint();
+        defer self.notes_lock.unlock();
+        var changed: u16 = 0;
+        for (self.notes[0..self.note_count]) |*n| {
+            if (n.start_beat < lo_beat or n.start_beat >= hi_beat) continue;
+            // Next distinct onset after this one, among notes in range.
+            var next = hi_beat;
+            for (self.notes[0..self.note_count]) |m| {
+                if (m.start_beat < lo_beat or m.start_beat >= hi_beat) continue;
+                if (m.start_beat > n.start_beat + 1e-9 and m.start_beat < next) next = m.start_beat;
+            }
+            const dur = next - n.start_beat;
+            if (@abs(dur - n.duration_beat) < 1e-9) continue;
+            // The off boundary moves; choke a sounding note so a shrunk
+            // tail can't strand its note_off (same hazard as
+            // shiftNotesInRange).
+            self.queueNoteOff(n.pitch);
+            n.duration_beat = dur;
+            changed += 1;
+        }
+        return changed;
+    }
+
     fn queueNoteOff(self: *PatternPlayer, pitch: u7) void {
         const word: usize = pitch / 64;
         const bit = @as(u64, 1) << @intCast(pitch % 64);
@@ -688,6 +719,41 @@ test "velocityRamp interpolates by note position, endpoints exact" {
 
     // Empty range touches nothing.
     try std.testing.expectEqual(@as(u16, 0), pp.velocityRamp(3.0, 4.0, 0.2, 1.0));
+}
+
+test "legato extends notes to the next onset, gapless" {
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    var pp = PatternPlayer.init(synth.device(), &transport);
+    pp.length_beats = 4.0;
+    // Three staccato quarter notes with gaps: [0,0.25) [1,1.25) [2,2.25).
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.25 });
+    pp.addNote(.{ .pitch = 62, .start_beat = 1.0, .duration_beat = 0.25 });
+    pp.addNote(.{ .pitch = 64, .start_beat = 2.0, .duration_beat = 0.25 });
+
+    try std.testing.expectEqual(@as(u16, 3), pp.legato(0.0, 4.0));
+    try std.testing.expectApproxEqAbs(@as(f64, 1.0), pp.notes[0].duration_beat, 1e-9); // 0 -> 1
+    try std.testing.expectApproxEqAbs(@as(f64, 1.0), pp.notes[1].duration_beat, 1e-9); // 1 -> 2
+    try std.testing.expectApproxEqAbs(@as(f64, 2.0), pp.notes[2].duration_beat, 1e-9); // 2 -> hi_beat (4)
+
+    // A chord (shared start) all reach the same next onset.
+    pp.clearNotes();
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.25 });
+    pp.addNote(.{ .pitch = 64, .start_beat = 0.0, .duration_beat = 0.1 });
+    pp.addNote(.{ .pitch = 67, .start_beat = 1.0, .duration_beat = 0.25 });
+    try std.testing.expectEqual(@as(u16, 3), pp.legato(0.0, 4.0));
+    try std.testing.expectApproxEqAbs(@as(f64, 1.0), pp.notes[0].duration_beat, 1e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 1.0), pp.notes[1].duration_beat, 1e-9);
+
+    // Already-touching notes are a no-op (nothing "changed").
+    pp.clearNotes();
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 1.0 });
+    pp.addNote(.{ .pitch = 62, .start_beat = 1.0, .duration_beat = 3.0 });
+    try std.testing.expectEqual(@as(u16, 0), pp.legato(0.0, 4.0));
+
+    // Degenerate range is a no-op.
+    try std.testing.expectEqual(@as(u16, 0), pp.legato(2.0, 2.0));
 }
 
 test "humanize jitters timing/velocity within bounds; 0% is a no-op" {
