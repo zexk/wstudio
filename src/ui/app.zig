@@ -3699,6 +3699,10 @@ pub const App = struct {
     }
 
     pub fn tick(self: *App, now_ns: i96) void {
+        const dropped_commands = self.session.engine.takeDroppedCommands();
+        if (dropped_commands != 0) {
+            self.setStatus("audio command queue full: {d} command{s} dropped", .{ dropped_commands, if (dropped_commands == 1) "" else "s" });
+        }
         // `setStatus` can't stamp an absolute deadline (see `status_pending`'s
         // doc comment); do it here, on the first tick after it fired.
         if (self.status_pending) {
