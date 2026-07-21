@@ -94,15 +94,20 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
         }
     }
 
-    // Step-stamp mode: enter freshly activating a step starts a live
-    // velocity-shaping session mirroring the piano roll's own note-stamp -
-    // j/k nudge the just-placed step's velocity (a one-shot hit has no
-    // length to shape, so there's no h/l equivalent here). enter/esc drop
-    // it; any other key drops it first and is then handled normally below.
+    // Step-stamp mode: a HELD enter freshly activating a step live-shapes
+    // it for as long as the key stays down, mirroring the piano roll's own
+    // note-stamp - j/k nudge the just-placed step's velocity (a one-shot
+    // hit has no length to shape, so there's no h/l equivalent here).
+    // Releasing enter drops it (`.enter_release`, from frontends that can
+    // see key-up), so a quick tap is just a plain stamp with no lingering
+    // mode; legacy terminals never send the release, so enter/esc still
+    // drop explicitly and any other key drops first and is then handled
+    // normally below.
     if (app.drum_stamp) {
         switch (key) {
             .escape => { app.drum_stamp = false; app.setStatus("step dropped", .{}); return true; },
             .enter => { app.drum_stamp = false; app.setStatus("step dropped", .{}); return true; },
+            .enter_release => { app.drum_stamp = false; app.setStatus("step dropped", .{}); return true; },
             .char => |c| switch (c) {
                 'j' => { stampNudgeVel(app, -1); return true; },
                 'k' => { stampNudgeVel(app, 1); return true; },
@@ -122,7 +127,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             dm.toggleStep(@intCast(pad.*), step.*);
             if (dm.stepActive(@intCast(pad.*), step.*)) {
                 app.drum_stamp = true;
-                app.setStatus("stamping - j/k velocity, enter/esc drops", .{});
+                app.setStatus("stamping - hold: j/k velocity; release/esc drops", .{});
             }
             return true;
         },

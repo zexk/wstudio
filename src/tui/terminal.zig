@@ -26,6 +26,18 @@ pub const end_sync = esc ++ "[?2026l";
 // the user hold Shift to bypass this for native text selection.
 const enable_mouse = esc ++ "[?1002h" ++ esc ++ "[?1006h";
 const disable_mouse = esc ++ "[?1002l" ++ esc ++ "[?1006l";
+// Kitty keyboard protocol push/pop (progressive enhancement flags 1
+// disambiguate + 2 report event types + 8 report all keys as escape codes
+// + 16 report associated text = 27; alternate keys (4) added as the
+// fallback when a terminal supports 8 but not 16). Buys key-release
+// events - hold-gestures like the piano/drum stamp session - and instant
+// Esc (no lone-ESC poll ambiguity). Terminals without support ignore both
+// sequences and keep speaking the legacy byte forms input_decode.zig still
+// understands. Pushed after entering the alternate screen so the flags
+// land on its stack; conforming terminals restore the main screen's own
+// flags on leave even if the pop never arrives (crash).
+const push_kitty_keys = esc ++ "[>31u";
+const pop_kitty_keys = esc ++ "[<u";
 
 pub const Terminal = struct {
     io: std.Io,
@@ -61,14 +73,14 @@ pub const Terminal = struct {
             .stdout_fd = stdout_fd,
             .original = original,
         };
-        self.write(enter_alt_screen ++ hide_cursor);
+        self.write(enter_alt_screen ++ hide_cursor ++ push_kitty_keys);
         if (mouse) self.write(enable_mouse);
         return self;
     }
 
     pub fn deinit(self: *Terminal) void {
         // disable_mouse when tracking was never enabled is a harmless no-op.
-        self.write(disable_mouse ++ show_cursor ++ leave_alt_screen);
+        self.write(pop_kitty_keys ++ disable_mouse ++ show_cursor ++ leave_alt_screen);
         std.posix.tcsetattr(self.stdin_fd, .FLUSH, self.original) catch {};
     }
 

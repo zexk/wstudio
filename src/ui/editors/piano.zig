@@ -144,15 +144,20 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
         }
     }
 
-    // Note-stamp mode: enter on an empty cell inserts a note and starts a
-    // live-shaping session mirroring grab mode above - j/k drag its pitch
+    // Note-stamp mode: a HELD enter on an empty cell inserts a note and
+    // live-shapes it for as long as the key stays down - j/k drag its pitch
     // (cursor follows, via the same dragNote), h/l resize its length (via
-    // the same resizeOrLen `[`/`]` already use). enter/esc drop it; any
-    // other key drops it first and is then handled normally below.
+    // the same resizeOrLen `[`/`]` already use). Releasing enter drops it
+    // (`.enter_release`, from frontends that can see key-up: the GUI and
+    // kitty-protocol terminals), so a quick tap is just a plain stamp with
+    // no lingering mode. Legacy terminals never send the release, so
+    // enter/esc still drop explicitly and any other key drops first and is
+    // then handled normally below - navigation is never held hostage.
     if (app.piano_stamp) {
         switch (key) {
             .escape => { dropStamp(app); app.setStatus("note dropped", .{}); return true; },
             .enter => { dropStamp(app); app.setStatus("note dropped", .{}); return true; },
+            .enter_release => { dropStamp(app); app.setStatus("note dropped", .{}); return true; },
             .char => |c| switch (c) {
                 'j' => { dragNote(app, pp, max_step, 0, -1); return true; },
                 'k' => { dragNote(app, pp, max_step, 0, 1); return true; },
@@ -472,7 +477,7 @@ fn toggleOrStamp(app: *App, pp: *pattern_mod.PatternPlayer) void {
     insertNote(app);
     app.piano_stamp = true;
     app.piano_grab_delta = .{};
-    app.setStatus("stamping - j/k pitch, h/l length, enter/esc drops", .{});
+    app.setStatus("stamping - hold: j/k pitch, h/l length; release/esc drops", .{});
 }
 
 /// Drop a live-shaping stamp session, recording its accumulated pitch drag

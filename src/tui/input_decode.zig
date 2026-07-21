@@ -110,6 +110,99 @@ fn leadingCsiNum(params: []const u8) ?u16 {
     return std.fmt.parseInt(u16, params[0..end], 10) catch null;
 }
 
+// Kitty keyboard protocol event types, threaded into the modifier field as a
+// `:` sub-parameter (`CSI 1;mods:event A`, `CSI key;mods:event u`). Absent
+// means press. Legacy terminals never send the sub-parameter at all.
+const event_press = 1;
+const event_repeat = 2;
+const event_release = 3;
+
+/// Event type of a CSI key sequence whose params are `num ; mods:event ...`
+/// (the legacy-final arrow/Home/End/`~` forms under the kitty protocol's
+/// report-event-types flag). Without it, held arrows would double-fire on
+/// release once the protocol is active.
+fn csiEventOf(params: []const u8) u16 {
+    var it = std.mem.splitScalar(u8, params, ';');
+    _ = it.next();
+    const mod_sec = it.next() orelse return event_press;
+    var mit = std.mem.splitScalar(u8, mod_sec, ':');
+    _ = mit.next();
+    const ev = mit.next() orelse return event_press;
+    return std.fmt.parseInt(u16, ev, 10) catch event_press;
+}
+
+/// Decodes a kitty-protocol `CSI ... u` key report:
+/// `keycode[:shifted[:base]] ; mods[:event] ; text-codepoints`. Emitted by
+/// terminals after terminal.zig pushes the protocol's progressive-
+/// enhancement flags; terminals without support never produce these and
+/// keep the legacy byte forms below alive. Mapping policy:
+///  - Enter (13, or keypad 57414) is the only key whose release is
+///    surfaced (`.enter_release`, for hold-gestures like the stamp
+///    session); its repeats are dropped so holding it is one press, not a
+///    toggle machine-gun. Every other release is dropped, repeats act as
+///    presses (held-key scrolling).
+///  - ctrl+c/w/r map to their dedicated variants (the only ctrl chords the
+///    app binds); other ctrl/alt/super chords are dropped, not misread as
+///    plain text.
+///  - Printable keys prefer the associated-text section (the terminal's own
+///    layout-correct translation, incl. shift); without one, fall back to
+///    the shifted-key alternate, then to uppercasing the base keycode.
+fn parseCsiU(params: []const u8) ?Key {
+    var secs = std.mem.splitScalar(u8, params, ';');
+    const key_sec = secs.next() orelse return null;
+    const mod_sec = secs.next() orelse "";
+    const text_sec = secs.next() orelse "";
+
+    var key_it = std.mem.splitScalar(u8, key_sec, ':');
+    const keycode = std.fmt.parseInt(u32, key_it.next() orelse return null, 10) catch return null;
+    const shifted: ?u32 = blk: {
+        const s = key_it.next() orelse break :blk null;
+        if (s.len == 0) break :blk null;
+        break :blk std.fmt.parseInt(u32, s, 10) catch null;
+    };
+
+    var mods: u16 = 0;
+    var event: u16 = event_press;
+    if (mod_sec.len > 0) {
+        var mod_it = std.mem.splitScalar(u8, mod_sec, ':');
+        const raw = std.fmt.parseInt(u16, mod_it.next().?, 10) catch return null;
+        mods = raw -| 1;
+        if (mod_it.next()) |ev| event = std.fmt.parseInt(u16, ev, 10) catch event_press;
+    }
+    const shift = mods & 1 != 0;
+    const ctrl = mods & 4 != 0;
+    // alt/super/hyper/meta chords have no bindings; caps/num-lock (bits 6/7)
+    // are state, not chords, and must not block plain typing.
+    const chorded = mods & (2 | 8 | 16 | 32) != 0;
+
+    const is_enter = keycode == 13 or keycode == 57414;
+    if (event == event_release) return if (is_enter) .enter_release else null;
+    if (is_enter) return if (event == event_repeat) null else .enter;
+    if (ctrl) return switch (keycode) {
+        'c' => .ctrl_c,
+        'w' => .ctrl_w,
+        'r' => .ctrl_r,
+        else => null,
+    };
+    if (chorded) return null;
+    switch (keycode) {
+        27 => return .escape,
+        9 => return .tab,
+        127, 8 => return .backspace,
+        else => {},
+    }
+    if (text_sec.len > 0) {
+        var text_it = std.mem.splitScalar(u8, text_sec, ':');
+        const cp = std.fmt.parseInt(u32, text_it.next().?, 10) catch return null;
+        return if (cp >= 0x20 and cp <= 0x7e) .{ .char = @intCast(cp) } else null;
+    }
+    const eff: u32 = if (shift and shifted != null) shifted.? else keycode;
+    if (eff < 0x20 or eff > 0x7e) return null;
+    var ch: u8 = @intCast(eff);
+    if (shift and shifted == null) ch = std.ascii.toUpper(ch);
+    return .{ .char = ch };
+}
+
 /// Decodes a batch of raw input bytes into keys. A lone 0x1b in the batch is
 /// the escape key; 0x1b followed by '[' is a CSI sequence - arrows, Home
 /// (xterm/alacritty's plain `ESC [ H` or the numbered `ESC [ 1 ~` / `7 ~`
@@ -117,6 +210,7 @@ fn leadingCsiNum(params: []const u8) ?u16 {
 /// (`ESC [ < Cb ; Cx ; Cy M`/`m`) decode to their own Key variants (arrows/
 /// Home/End not aliased to hjkl chars, so the modal layer can tell a real
 /// arrow press from someone typing those letters - see App.handleKey),
+/// kitty-protocol `CSI ... u` key reports go through parseCsiU above, and
 /// other CSI sequences are dropped. Returns the number of keys written to
 /// `out`.
 pub fn decode(bytes: []const u8, out: []Key) usize {
@@ -137,6 +231,13 @@ pub fn decode(bytes: []const u8, out: []Key) usize {
                         i += 1;
                         const mapped: ?Key = if (params.len > 0 and params[0] == '<' and (final == 'M' or final == 'm'))
                             parseSgrMouse(params[1..], final == 'M')
+                        else if (final == 'u')
+                            parseCsiU(params)
+                        else if (csiEventOf(params) == event_release)
+                            // kitty-protocol release of a legacy-final key
+                            // (arrows, Home/End) - only Enter's release is
+                            // meaningful, and Enter arrives as CSI u.
+                            null
                         else if (final == '~')
                             switch (leadingCsiNum(params) orelse 0) {
                                 1, 7 => .home,
@@ -323,6 +424,66 @@ test "decode SGR mouse wheel and modifiers" {
     try std.testing.expect(keys[0].mouse.ctrl);
     n = decode("\x1b[<4;1;1M", &keys);
     try std.testing.expect(keys[0].mouse.shift);
+}
+
+test "decode kitty CSI u: enter press/repeat/release" {
+    var keys: [4]Key = undefined;
+    // press (explicit and with mods:event), repeat dropped, release surfaced
+    try std.testing.expectEqual(@as(usize, 1), decode("\x1b[13u", &keys));
+    try std.testing.expectEqual(Key.enter, keys[0]);
+    try std.testing.expectEqual(@as(usize, 1), decode("\x1b[13;1:1u", &keys));
+    try std.testing.expectEqual(Key.enter, keys[0]);
+    try std.testing.expectEqual(@as(usize, 0), decode("\x1b[13;1:2u", &keys));
+    try std.testing.expectEqual(@as(usize, 1), decode("\x1b[13;1:3u", &keys));
+    try std.testing.expectEqual(Key.enter_release, keys[0]);
+    // keypad enter behaves identically
+    try std.testing.expectEqual(@as(usize, 1), decode("\x1b[57414;1:3u", &keys));
+    try std.testing.expectEqual(Key.enter_release, keys[0]);
+}
+
+test "decode kitty CSI u: text, shifted alternate, functional keys" {
+    var keys: [4]Key = undefined;
+    // associated text wins (layout-correct shift)
+    try std.testing.expectEqual(@as(usize, 1), decode("\x1b[97;1;97u", &keys));
+    try std.testing.expectEqual(Key{ .char = 'a' }, keys[0]);
+    try std.testing.expectEqual(@as(usize, 1), decode("\x1b[97:65;2;65u", &keys));
+    try std.testing.expectEqual(Key{ .char = 'A' }, keys[0]);
+    // no text section: shifted alternate, then uppercased base keycode
+    try std.testing.expectEqual(@as(usize, 1), decode("\x1b[44:60;2u", &keys));
+    try std.testing.expectEqual(Key{ .char = '<' }, keys[0]);
+    try std.testing.expectEqual(@as(usize, 1), decode("\x1b[106;2u", &keys));
+    try std.testing.expectEqual(Key{ .char = 'J' }, keys[0]);
+    // esc/tab/backspace arrive as CSI u once flag 8 is active
+    try std.testing.expectEqual(@as(usize, 1), decode("\x1b[27u", &keys));
+    try std.testing.expectEqual(Key.escape, keys[0]);
+    try std.testing.expectEqual(@as(usize, 1), decode("\x1b[9u", &keys));
+    try std.testing.expectEqual(Key.tab, keys[0]);
+    try std.testing.expectEqual(@as(usize, 1), decode("\x1b[127u", &keys));
+    try std.testing.expectEqual(Key.backspace, keys[0]);
+    // key release of a non-enter key is dropped, not typed
+    try std.testing.expectEqual(@as(usize, 0), decode("\x1b[97;1:3;97u", &keys));
+}
+
+test "decode kitty CSI u: ctrl chords and unbound modifiers" {
+    var keys: [4]Key = undefined;
+    try std.testing.expectEqual(@as(usize, 1), decode("\x1b[99;5u", &keys));
+    try std.testing.expectEqual(Key.ctrl_c, keys[0]);
+    try std.testing.expectEqual(@as(usize, 1), decode("\x1b[119;5u", &keys));
+    try std.testing.expectEqual(Key.ctrl_w, keys[0]);
+    try std.testing.expectEqual(@as(usize, 1), decode("\x1b[114;5u", &keys));
+    try std.testing.expectEqual(Key.ctrl_r, keys[0]);
+    // unbound ctrl chord dropped; alt+j dropped (not a literal 'j')
+    try std.testing.expectEqual(@as(usize, 0), decode("\x1b[120;5u", &keys));
+    try std.testing.expectEqual(@as(usize, 0), decode("\x1b[106;3u", &keys));
+}
+
+test "decode kitty event types on legacy-final keys" {
+    var keys: [4]Key = undefined;
+    // arrow release dropped (no double-move), repeat acts as a press
+    try std.testing.expectEqual(@as(usize, 0), decode("\x1b[1;1:3A", &keys));
+    try std.testing.expectEqual(@as(usize, 1), decode("\x1b[1;1:2A", &keys));
+    try std.testing.expectEqual(Key.arrow_up, keys[0]);
+    try std.testing.expectEqual(@as(usize, 0), decode("\x1b[1;1:3~", &keys));
 }
 
 test "decode rejects malformed and unsupported SGR mouse reports" {
