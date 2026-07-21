@@ -50,6 +50,9 @@ pub const SpectrumAnalyzer = @import("dsp/spectrum.zig").SpectrumAnalyzer;
 pub const spectrum = @import("dsp/spectrum.zig");
 pub const ParametricEq = @import("dsp/eq.zig").ParametricEq;
 pub const eq = @import("dsp/eq.zig");
+pub const meter = @import("dsp/meter.zig");
+pub const StereoCorrelation = meter.StereoCorrelation;
+pub const LoudnessMeter = meter.LoudnessMeter;
 
 test {
     _ = device;
@@ -85,4 +88,5 @@ test {
     _ = fft;
     _ = SpectrumAnalyzer;
     _ = ParametricEq;
+    _ = meter;
 }

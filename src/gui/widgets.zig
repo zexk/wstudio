@@ -101,6 +101,24 @@ fn meterFill(draw_list: zgui.DrawList, x: f32, y: f32, w: f32, h: f32, norm: f32
     }
 }
 
+/// Phase-correlation bar: a horizontal track with a zero-centered fill
+/// running toward the left edge for negative (out-of-phase) values and
+/// toward the right edge for positive (in-phase) ones - shared by the
+/// transport's master PHASE readout, the same way `meterBar` is shared for
+/// LEVEL. `value` is -1..1, see `dsp/meter.zig`'s `StereoCorrelation`.
+pub fn correlationBar(draw_list: zgui.DrawList, origin: [2]f32, value: f32, w: f32, h: f32) void {
+    const patina = &gui_style.palette;
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + w, origin[1] + h }, .col = gui_style.color(patina.bg2), .rounding = 2 });
+    const mid = origin[0] + w * 0.5;
+    draw_list.addLine(.{ .p1 = .{ mid, origin[1] }, .p2 = .{ mid, origin[1] + h }, .col = gui_style.color(patina.fg3), .thickness = 1 });
+
+    const v = std.math.clamp(value, -1.0, 1.0);
+    const fill_col = if (v >= 0.0) patina.audio else if (v >= -0.5) patina.rhythm else patina.danger;
+    const fill_x = mid + (w * 0.5) * @min(v, 0.0);
+    const fill_w = (w * 0.5) * @abs(v);
+    draw_list.addRectFilled(.{ .pmin = .{ fill_x, origin[1] }, .pmax = .{ fill_x + fill_w, origin[1] + h }, .col = gui_style.color(fill_col), .rounding = 2 });
+}
+
 pub const EmptyState = struct {
     id: [:0]const u8,
     title: []const u8,

@@ -212,6 +212,10 @@ test "playhead tick saturates for positions beyond the arrangement range" {
         .pre_rolling = false,
         .position_frames = std.math.maxInt(u64),
         .peak = .{ 0.0, 0.0 },
+        .correlation = 1.0,
+        .lufs_momentary = ws.dsp.LoudnessMeter.floor_lufs,
+        .lufs_short_term = ws.dsp.LoudnessMeter.floor_lufs,
+        .lufs_integrated = ws.dsp.LoudnessMeter.floor_lufs,
     };
     try std.testing.expectEqual(@as(?u32, std.math.maxInt(u32)), playheadBar(app, snap));
 }

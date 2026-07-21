@@ -147,12 +147,26 @@ pub fn draw(self: *App, w: *std.Io.Writer, size: terminal_mod.Size) !void {
         @as(u64, @intFromFloat(secs / 60.0)),
         @mod(secs, 60.0),
     });
-    var meter_scratch: [128]u8 = undefined;
+    var meter_scratch: [256]u8 = undefined;
     var mw = std.Io.Writer.fixed(&meter_scratch);
     try mw.writeAll("\x1b[2mL\x1b[0m");
     try tui.meter(&mw, snap.peak[0]);
     try mw.writeAll("\x1b[2m R\x1b[0m");
     try tui.meter(&mw, snap.peak[1]);
+    // Phase correlation (-1 out-of-phase .. +1 in-phase) and short-term
+    // LUFS, same always-visible master-bus readout as the L/R peak meters
+    // above - see dsp/meter.zig.
+    const corr_colour: []const u8 = if (snap.correlation >= 0.0) style.grn else if (snap.correlation >= -0.5) style.yel else style.red;
+    const corr_sign: []const u8 = if (snap.correlation >= 0.0) "+" else "";
+    try mw.writeAll("\x1b[2m  \u{03c6}\x1b[0m");
+    try mw.writeAll(corr_colour);
+    try mw.print("{s}{d:.2}", .{ corr_sign, snap.correlation });
+    try mw.writeAll(style.rst);
+    try mw.writeAll("\x1b[2m  LUFS \x1b[0m");
+    if (snap.lufs_short_term <= ws.dsp.LoudnessMeter.floor_lufs)
+        try mw.writeAll("-inf")
+    else
+        try mw.print("{d:.1}", .{snap.lufs_short_term});
     try style.writeSplitRow(w, tw.buffered(), mw.buffered(), size.cols);
     try style.endLine(w);
     // The `:`/`/` prompt's own row - blank outside command/search mode.

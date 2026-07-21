@@ -10,10 +10,13 @@ const Project = @import("../project.zig").Project;
 const automation_mod = @import("../dsp/automation.zig");
 const AutomationPoint = automation_mod.AutomationPoint;
 const AutomationCurve = automation_mod.AutomationCurve;
+const meter_mod = @import("../dsp/meter.zig");
 
 const Sample = types.Sample;
 const SpectrumAnalyzer = spectrum_mod.SpectrumAnalyzer;
 const SpectrumSnapshot = spectrum_mod.SpectrumSnapshot;
+const StereoCorrelation = meter_mod.StereoCorrelation;
+const LoudnessMeter = meter_mod.LoudnessMeter;
 
 pub const max_tracks = 8192;
 /// Must cover Rack.chain_cap (pattern player + instrument + a full 9-unit
@@ -78,6 +81,10 @@ pub const Command = union(enum) {
     /// playback immediately. See Engine.firePreRoll and
     /// `wstudio.o.count_in_bars`.
     record: u8,
+    /// Clears the master bus's integrated-LUFS accumulator so a fresh
+    /// loudness measurement starts from this point (momentary/short-term
+    /// keep reading through it). See `LoudnessMeter.resetIntegrated`.
+    reset_loudness,
 };
 
 /// Which absolute value an `AutomationCurve` overrides. `gain`/`pan` are
@@ -268,6 +275,15 @@ pub const UiSnapshot = struct {
     pre_rolling: bool,
     position_frames: u64,
     peak: [channels]f32,
+    /// Master-bus phase correlation, -1 (out of phase) .. +1 (in phase) -
+    /// see `dsp/meter.zig`'s `StereoCorrelation`.
+    correlation: f32,
+    /// Master-bus K-weighted loudness (LUFS), see `dsp/meter.zig`'s
+    /// `LoudnessMeter`. Floored at `LoudnessMeter.floor_lufs` (-120) at
+    /// silence/startup.
+    lufs_momentary: f32,
+    lufs_short_term: f32,
+    lufs_integrated: f32,
 };
 
 pub const Engine = struct {
@@ -324,6 +340,11 @@ pub const Engine = struct {
     /// Single analyzer reused for whichever track/group is being viewed.
     track_spectrum: SpectrumAnalyzer,
     master_spectrum: SpectrumAnalyzer,
+    /// Master-bus phase-correlation and LUFS meters - always on (unlike the
+    /// spectrum analyzers, there's only ever one master bus to measure, so
+    /// no active-source gating needed). See `UiSnapshot`/`uiSnapshot`.
+    master_correlation: StereoCorrelation,
+    master_loudness: LoudnessMeter,
     active_spectrum_source: SpectrumSource = .none,
     active_spectrum_track: u16 = 0,
     active_spectrum_group: u8 = 0,
@@ -353,6 +374,10 @@ pub const Engine = struct {
         pre_rolling: std.atomic.Value(bool) = .init(false),
         position_frames: std.atomic.Value(u64) = .init(0),
         peak_bits: [channels]std.atomic.Value(u32) = .{ .init(0), .init(0) },
+        correlation_bits: std.atomic.Value(u32) = .init(@bitCast(@as(f32, 1.0))),
+        lufs_momentary_bits: std.atomic.Value(u32) = .init(@bitCast(LoudnessMeter.floor_lufs)),
+        lufs_short_term_bits: std.atomic.Value(u32) = .init(@bitCast(LoudnessMeter.floor_lufs)),
+        lufs_integrated_bits: std.atomic.Value(u32) = .init(@bitCast(LoudnessMeter.floor_lufs)),
     };
 
     /// By-value init, for tests that keep an Engine on their own frame -
@@ -400,6 +425,8 @@ pub const Engine = struct {
             .track_pool = track_pool,
             .track_spectrum = track_spec,
             .master_spectrum = master_spec,
+            .master_correlation = StereoCorrelation.init(sample_rate),
+            .master_loudness = LoudnessMeter.init(sample_rate),
             .automation = automation,
             .track_sidechain = track_sidechain,
         };
@@ -747,6 +774,9 @@ pub const Engine = struct {
         self.master_spectrum.push(out);
         self.master_spectrum.analyze();
 
+        self.master_correlation.push(out);
+        self.master_loudness.push(out);
+
         self.transport.advance(frames);
 
         self.shared.playing.store(self.transport.playing, .monotonic);
@@ -755,6 +785,10 @@ pub const Engine = struct {
         inline for (0..channels) |ch| {
             self.shared.peak_bits[ch].store(@bitCast(self.peak[ch]), .monotonic);
         }
+        self.shared.correlation_bits.store(@bitCast(self.master_correlation.value()), .monotonic);
+        self.shared.lufs_momentary_bits.store(@bitCast(self.master_loudness.momentary()), .monotonic);
+        self.shared.lufs_short_term_bits.store(@bitCast(self.master_loudness.shortTerm()), .monotonic);
+        self.shared.lufs_integrated_bits.store(@bitCast(self.master_loudness.integrated()), .monotonic);
     }
 
     pub fn uiSnapshot(self: *const Engine) UiSnapshot {
@@ -763,6 +797,10 @@ pub const Engine = struct {
             .pre_rolling = self.shared.pre_rolling.load(.monotonic),
             .position_frames = self.shared.position_frames.load(.monotonic),
             .peak = undefined,
+            .correlation = @bitCast(self.shared.correlation_bits.load(.monotonic)),
+            .lufs_momentary = @bitCast(self.shared.lufs_momentary_bits.load(.monotonic)),
+            .lufs_short_term = @bitCast(self.shared.lufs_short_term_bits.load(.monotonic)),
+            .lufs_integrated = @bitCast(self.shared.lufs_integrated_bits.load(.monotonic)),
         };
         inline for (0..channels) |ch| {
             snap.peak[ch] = @bitCast(self.shared.peak_bits[ch].load(.monotonic));
@@ -872,6 +910,7 @@ pub const Engine = struct {
                 self.track_spectrum.active.store(c.source == .track or c.source == .group, .release);
                 self.master_spectrum.active.store(c.source == .master, .release);
             },
+            .reset_loudness => self.master_loudness.resetIntegrated(),
         };
     }
 
