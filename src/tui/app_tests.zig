@@ -4057,6 +4057,32 @@ test "macros: q keeps its close-the-overlay meaning in picker views" {
     try std.testing.expectEqual(app_mod.MacroPending.none, app.macro_pending);
 }
 
+test "backtick toggles between the last two workspace contexts" {
+    var app = try testApp();
+    defer app.deinit();
+    app.view = .tracks;
+
+    // No alternate yet: ` stays put.
+    app.handleKey(.{ .char = '`' }, 0);
+    try std.testing.expectEqual(AppView.tracks, app.view);
+
+    app.cursor = 0;
+    app.handleKey(.{ .char = 'p' }, 0); // open the piano roll for track 0
+    try std.testing.expectEqual(AppView.piano_roll, app.view);
+    app.handleKey(.{ .char = '`' }, 0);
+    try std.testing.expectEqual(AppView.tracks, app.view);
+    app.handleKey(.{ .char = '`' }, 0);
+    try std.testing.expectEqual(AppView.piano_roll, app.view);
+
+    // Overlays never become the alternate: a help excursion in between
+    // leaves the tracks<->piano pair intact.
+    app.handleKey(.{ .char = '?' }, 0);
+    try std.testing.expectEqual(AppView.help, app.view);
+    app.handleKey(.escape, 0);
+    app.handleKey(.{ .char = '`' }, 0);
+    try std.testing.expectEqual(AppView.tracks, app.view);
+}
+
 test "macros: a self-replaying register terminates via the depth cap" {
     var app = try testApp();
     defer app.deinit();
