@@ -33,8 +33,7 @@ pub const spectrum_rows: usize = 18;
 pub const spectrum_band_count: usize = 80;
 
 /// The insertable kinds in picker display order (signal-flow-ish: dynamics,
-/// tone, character, modulation, time). Parallel to `picker_menu` in
-/// views/picker.zig.
+/// tone, character, modulation, time).
 pub const picker_kinds = [_]FxKind{
     .gate, .comp, .mb_comp, .ott, .eq, .sat, .crush, .chorus, .flanger, .tape, .phaser, .freq_shift, .delay, .reverb,
 };
@@ -98,6 +97,37 @@ pub fn unitLabel(k: FxKind) []const u8 {
         .delay => "DELAY",
         .reverb => "REVERB",
         .clap => "CLAP",
+    };
+}
+
+pub fn pickerCategory(k: FxKind) []const u8 {
+    return switch (k) {
+        .gate, .comp, .mb_comp, .ott => "DYNAMICS",
+        .eq => "TONE",
+        .sat, .crush, .tape => "CHARACTER",
+        .chorus, .flanger, .phaser, .freq_shift => "MODULATION",
+        .delay, .reverb => "TIME",
+        .clap => "PLUGIN",
+    };
+}
+
+pub fn pickerDescription(k: FxKind) []const u8 {
+    return switch (k) {
+        .gate => "Tighten noise and transients",
+        .comp => "Control dynamics and sidechain",
+        .mb_comp => "Shape dynamics across three bands",
+        .ott => "Fast upward and downward compression",
+        .eq => "Eight-band parametric tone shaping",
+        .sat => "Add harmonic drive and warmth",
+        .crush => "Reduce bit depth and sample rate",
+        .chorus => "Widen with modulated voices",
+        .flanger => "Short swept comb modulation",
+        .tape => "Soft saturation and movement",
+        .phaser => "Animated phase cancellation",
+        .freq_shift => "Shift the full frequency spectrum",
+        .delay => "Stereo echoes with feedback",
+        .reverb => "Place the sound in a room",
+        .clap => "External CLAP audio plugin",
     };
 }
 

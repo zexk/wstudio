@@ -21,7 +21,19 @@ const fuzzy = @import("../fuzzy.zig");
 const user_presets = @import("../user_presets.zig");
 const user_drum_kits = @import("../user_drum_kits.zig");
 
-pub const Kind = enum { synth, drum, soundfont };
+pub const Kind = enum {
+    synth,
+    drum,
+    soundfont,
+
+    pub fn label(self: Kind) []const u8 {
+        return switch (self) {
+            .synth => "SYNTH PRESETS",
+            .drum => "DRUM KITS",
+            .soundfont => "SOUNDFONT PRESETS",
+        };
+    }
+};
 
 const factory_author = "wstudio";
 const user_author = "user";
