@@ -15,6 +15,8 @@ pub fn main(init: std.process.Init) !void {
     try std.testing.expectEqual(@as(u32, 1), plugin.parameterCount());
     const param = plugin.parameterInfo(0).?;
     try std.testing.expectEqual(@as(u32, 7), param.id);
+    var name_buffer: [32]u8 = undefined;
+    try std.testing.expectEqualStrings("Gain", plugin.parameterName(0, &name_buffer).?);
     try std.testing.expectEqual(@as(f64, 2), plugin.parameterValue(7).?);
     var text_buffer: [32]u8 = undefined;
     try std.testing.expectEqualStrings("2.00x", plugin.formatParameter(7, 2, &text_buffer).?);

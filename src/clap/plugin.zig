@@ -514,6 +514,15 @@ pub const ClapPlugin = struct {
         return info;
     }
 
+    pub fn parameterName(self: *const ClapPlugin, index: u32, buffer: []u8) ?[]const u8 {
+        const info = self.parameterInfo(index) orelse return null;
+        const param_name = std.mem.sliceTo(&info.name, 0);
+        if (param_name.len == 0 or buffer.len == 0) return null;
+        const len = @min(param_name.len, buffer.len);
+        @memcpy(buffer[0..len], param_name[0..len]);
+        return buffer[0..len];
+    }
+
     pub fn parameterValue(self: *const ClapPlugin, id_value: u32) ?f64 {
         const params = self.paramsExtension() orelse return null;
         var value: f64 = undefined;

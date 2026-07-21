@@ -246,11 +246,13 @@ pub fn drawFxStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer, targ
                 try w.print("band {d}/{d}", .{ bf.band + 1, eq_mod.num_eq_bands });
             } else {
                 var vbuf: [16]u8 = undefined;
-                try w.print("b{d} {s} {s}", .{ bf.band + 1, spectrum_ed.paramName(&unit.payload, app.fx_param), spectrum_ed.formatValue(app, &vbuf, &unit.payload, app.fx_param) });
+                var nbuf: [64]u8 = undefined;
+                try w.print("b{d} {s} {s}", .{ bf.band + 1, spectrum_ed.formatParamName(&nbuf, &unit.payload, app.fx_param), spectrum_ed.formatValue(app, &vbuf, &unit.payload, app.fx_param) });
             },
             else => {
                 var vbuf: [16]u8 = undefined;
-                try w.print("{s} {s}", .{ spectrum_ed.paramName(&unit.payload, app.fx_param), spectrum_ed.formatValue(app, &vbuf, &unit.payload, app.fx_param) });
+                var nbuf: [64]u8 = undefined;
+                try w.print("{s} {s}", .{ spectrum_ed.formatParamName(&nbuf, &unit.payload, app.fx_param), spectrum_ed.formatValue(app, &vbuf, &unit.payload, app.fx_param) });
             },
         }
         if (!eq_band_select) {

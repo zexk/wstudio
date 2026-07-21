@@ -195,7 +195,7 @@ fn drawEffectDisplay(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUni
 }
 
 fn normalizedParam(app: anytype, unit: *ws.FxUnit, index: usize) f32 {
-    if (index >= spectrum_ed.paramCount(unit.kind())) return 0.5;
+    if (index >= spectrum_ed.visibleParamCount(&app.core, unit.kind(), &unit.payload)) return 0.5;
     const range = spectrum_ed.paramRange(&app.core, &unit.payload, index);
     if (range[1] <= range[0]) return 0.5;
     return std.math.clamp((spectrum_ed.getParam(&unit.payload, index) - range[0]) / (range[1] - range[0]), 0, 1);
@@ -566,14 +566,17 @@ fn drawParam(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, index
     var value = spectrum_ed.getParam(&unit.payload, index);
     const range = spectrum_ed.paramRange(&app.core, &unit.payload, index);
     const format: [:0]const u8 = if (range[1] >= 100) "%.0f" else "%.2f";
+    var name_buf: [64]u8 = undefined;
+    const name = spectrum_ed.formatParamName(&name_buf, &unit.payload, index);
     var label_buf: [80]u8 = undefined;
-    const label = std.fmt.bufPrintZ(&label_buf, "{s}##gui-fx-{d}", .{ spectrum_ed.paramName(&unit.payload, index), index }) catch return;
+    const label = std.fmt.bufPrintZ(&label_buf, "{s}##gui-fx-{d}", .{ name, index }) catch return;
     const focused = app.core.fx_param == index;
     const control_width = knob_diameter + 120;
     const spare = zgui.getContentRegionAvail()[0] - control_width;
     if (spare > 0) zgui.setCursorPosX(zgui.getCursorPosX() + spare * 0.5);
-    const result = widgets.paramKnob(spectrum_ed.paramName(&unit.payload, index), label, .{ .v = &value, .min = range[0], .max = range[1], .cfmt = format, .accent = kindAccent(unit.kind()), .focused = focused, .diameter = knob_diameter });
+    const result = widgets.paramKnob(name, label, .{ .v = &value, .min = range[0], .max = range[1], .cfmt = format, .accent = kindAccent(unit.kind()), .focused = focused, .diameter = knob_diameter });
     if (result.changed) {
+        history.noteFxNudge(&app.core, target, app.core.fx_focus, index);
         spectrum_ed.setParam(&app.core, &unit.payload, index, value);
         spectrum_ed.clearStaleSidechainPad(&app.core, &unit.payload);
         app.core.fx_param = index;
@@ -593,7 +596,8 @@ fn drawParamToggle(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit,
     const accent = kindAccent(unit.kind());
     const spare = zgui.getContentRegionAvail()[0] - 180;
     if (spare > 0) zgui.setCursorPosX(zgui.getCursorPosX() + spare * 0.5);
-    zgui.textColored(if (focused) accent else theme.fg1, "{s}", .{spectrum_ed.paramName(&unit.payload, index)});
+    var name_buf: [64]u8 = undefined;
+    zgui.textColored(if (focused) accent else theme.fg1, "{s}", .{spectrum_ed.formatParamName(&name_buf, &unit.payload, index)});
     for (names, 0..) |name, i| {
         if (i > 0) zgui.sameLine(.{ .spacing = 5 });
         const active = (value >= 0.5) == (i == 1);
@@ -602,6 +606,7 @@ fn drawParamToggle(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit,
         zgui.pushStyleColor4f(.{ .idx = .button, .c = if (active) accent else theme.bg2 });
         zgui.pushStyleColor4f(.{ .idx = .text, .c = if (active) theme.bg0 else theme.fg2 });
         if (zgui.button(btn_id, .{ .h = 26 }) and !active) {
+            history.noteFxNudge(&app.core, target, app.core.fx_focus, index);
             spectrum_ed.setParam(&app.core, &unit.payload, index, if (i == 1) 1.0 else 0.0);
             app.core.fx_param = index;
             app.core.dirty = true;
@@ -617,15 +622,18 @@ fn drawParamToggle(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit,
 fn drawParamList(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, index: usize) void {
     var value = spectrum_ed.getParam(&unit.payload, index);
     const range = spectrum_ed.paramRange(&app.core, &unit.payload, index);
+    var name_buf: [64]u8 = undefined;
+    const name = spectrum_ed.formatParamName(&name_buf, &unit.payload, index);
     var label_buf: [80]u8 = undefined;
-    const label = std.fmt.bufPrintZ(&label_buf, "{s}##gui-fx-{d}", .{ spectrum_ed.paramName(&unit.payload, index), index }) catch return;
+    const label = std.fmt.bufPrintZ(&label_buf, "{s}##gui-fx-{d}", .{ name, index }) catch return;
     var value_buf: [32]u8 = undefined;
     const display = spectrum_ed.formatValue(&app.core, &value_buf, &unit.payload, index);
     const focused = app.core.fx_param == index;
     const spare = zgui.getContentRegionAvail()[0] - 190;
     if (spare > 0) zgui.setCursorPosX(zgui.getCursorPosX() + spare * 0.5);
-    const result = widgets.listStepper(spectrum_ed.paramName(&unit.payload, index), label, .{ .v = &value, .min = range[0], .max = range[1], .display = display, .accent = kindAccent(unit.kind()), .focused = focused });
+    const result = widgets.listStepper(name, label, .{ .v = &value, .min = range[0], .max = range[1], .display = display, .accent = kindAccent(unit.kind()), .focused = focused });
     if (result.changed) {
+        history.noteFxNudge(&app.core, target, app.core.fx_focus, index);
         spectrum_ed.setParam(&app.core, &unit.payload, index, value);
         spectrum_ed.clearStaleSidechainPad(&app.core, &unit.payload);
         app.core.fx_param = index;
