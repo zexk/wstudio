@@ -91,6 +91,17 @@ pub var envelope_drag_pixels: f32 = 140.0;
 /// Master-meter peak-hold fall rate in dB/s - `wstudio.o.gui_meter_decay_db_s`.
 pub var meter_decay_db_per_s: f32 = 24.0;
 
+/// This frame's accumulated vertical scroll-wheel delta, positive = away
+/// from the user (scroll up). zgui exposes no getter for ImGui's own
+/// `io.MouseWheel` (only the setter side, `zgui.io.addMouseWheelEvent`, for
+/// feeding events in) - so `gui.zig`'s GLFW scroll callback stashes its own
+/// copy here for widgets to read, the same reason `app.zig`'s `queued_char`
+/// exists instead of asking ImGui for the typed character back. Cleared once
+/// per frame in `gui.zig`'s `drawFrame`, after every widget has had a chance
+/// to read it - a widget should gate on `isItemHovered` first, same as
+/// ImGui's own convention that only the hovered item reacts to the wheel.
+pub var wheel_delta: f32 = 0;
+
 test "track cursor stays outside every theme's track rotation" {
     for ([_]Palette{ patina_colors, patina_light_colors, graphite_colors, graphite_light_colors, umbra_colors }) |theme| {
         for (theme.tracks) |track| try std.testing.expect(!std.meta.eql(theme.track_cursor, track));

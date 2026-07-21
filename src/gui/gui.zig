@@ -67,6 +67,18 @@ fn onChar(_: *glfw.Window, codepoint: u32) callconv(.c) void {
     zgui.io.addInputCharactersUTF8(buf[0..len :0]);
 }
 
+// Same takeover-and-reforward as onChar: zgui.backend.init installs ImGui's
+// own GLFW scroll callback (GLFW keeps one slot per window, so ours replaces
+// it), so we forward to zgui.io.addMouseWheelEvent ourselves - list/child
+// window scrolling still needs ImGui to see the event - while also stashing
+// the y delta in gui_style.wheel_delta for wstudio's own knob/stepper
+// widgets, which have no way to ask ImGui for it back (see wheel_delta's
+// doc comment).
+fn onScroll(_: *glfw.Window, xoffset: f64, yoffset: f64) callconv(.c) void {
+    zgui.io.addMouseWheelEvent(@floatCast(xoffset), @floatCast(yoffset));
+    gui_style.wheel_delta += @floatCast(yoffset);
+}
+
 fn drawFrame() void {
     const ctx = frame_ctx orelse return;
     const fb = ctx.window.getFramebufferSize();
@@ -77,6 +89,7 @@ fn drawFrame() void {
     zgui.backend.newFrame(@intCast(fb[0]), @intCast(fb[1]));
     ctx.app.handleShortcuts();
     ctx.app.draw(ctx.audio.label());
+    gui_style.wheel_delta = 0;
     zgui.backend.draw();
     ctx.window.swapBuffers();
 }
@@ -114,9 +127,11 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
     gui_style.meter_decay_db_per_s = user_config.gui_meter_decay_db_s;
     zgui.backend.init(window);
     defer zgui.backend.deinit();
-    // Takes over from the char callback zgui.backend.init just installed -
-    // see onChar's doc comment for why, and why it re-forwards to ImGui.
+    // Takes over from the char/scroll callbacks zgui.backend.init just
+    // installed - see onChar/onScroll's doc comments for why, and why they
+    // re-forward to ImGui.
     _ = window.setCharCallback(onChar);
+    _ = window.setScrollCallback(onScroll);
 
     var app = App.init(init.gpa, init.io, init_path, user_config) catch |err| {
         if (init_path) |path| std.debug.print("wstudio: cannot load '{s}': {s}\n", .{ path, @errorName(err) });

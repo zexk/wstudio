@@ -380,6 +380,8 @@ fn drawAnyParam(app: anytype, synth: *ws.dsp.PolySynth, id: u8, label_text: []co
         drawWaveformParam(app, id, label_text, value);
         return;
     }
+    const row_origin = zgui.getCursorScreenPos();
+    zgui.beginGroup();
     zgui.text("{s}", .{label_text});
     zgui.sameLine(.{ .spacing = 8 });
     var minus_buf: [32]u8 = undefined;
@@ -391,6 +393,14 @@ fn drawAnyParam(app: anytype, synth: *ws.dsp.PolySynth, id: u8, label_text: []co
     var plus_buf: [32]u8 = undefined;
     const plus = std.fmt.bufPrintZ(&plus_buf, "+##synth-plus-{d}", .{id}) catch return;
     if (zgui.smallButton(plus)) nudgeParam(app, id, 'l');
+    zgui.endGroup();
+    // Scroll while hovering the row steps it, one 'h'/'l' nudge per tick -
+    // same manual rect hit-test as widgets.listStepper, since isItemHovered
+    // doesn't chain through EndGroup.
+    const row_max = zgui.getItemRectMax();
+    const mouse = zgui.getMousePos();
+    const row_hovered = mouse[0] >= row_origin[0] and mouse[0] < row_max[0] and mouse[1] >= row_origin[1] and mouse[1] < row_max[1];
+    if (row_hovered and gui_style.wheel_delta != 0) nudgeParam(app, id, if (gui_style.wheel_delta > 0) 'l' else 'h');
 }
 
 /// A boolean param rendered as a single on/off button - `nudgeParam`'s

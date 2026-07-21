@@ -167,8 +167,11 @@ pub fn openLoadCommand(app: anytype) void {
 }
 
 /// A rotary control: drag vertically to change the value, double-click to
-/// type an exact one. Angle sweep and drag mapping follow the usual
-/// three-quarter-turn knob convention (135deg through the top to 405deg).
+/// type an exact one, or scroll while hovered to nudge it a fixed step
+/// (**ctrl**+scroll = a coarser step) - the same ctrl-for-coarse convention
+/// the TUI's param-row scroll handlers already use. Angle sweep and drag
+/// mapping follow the usual three-quarter-turn knob convention (135deg
+/// through the top to 405deg).
 pub const Knob = struct {
     v: *f32,
     min: f32,
@@ -280,6 +283,13 @@ pub fn knob(label: [:0]const u8, args: Knob) KnobResult {
             zgui.resetMouseDragDelta(.left);
         }
     }
+    if (hovered and gui_style.wheel_delta != 0) {
+        const step: f32 = if (zgui.isKeyDown(.mod_ctrl)) 0.05 else 0.005;
+        const t0 = knobValueToT(args.min, args.max, args.v.*, args.logarithmic);
+        const t1 = std.math.clamp(t0 + gui_style.wheel_delta * step, 0, 1);
+        args.v.* = knobTToValue(args.min, args.max, t1, args.logarithmic);
+        changed = true;
+    }
 
     var popup_buf: [80]u8 = undefined;
     const popup_id = std.fmt.bufPrintZ(&popup_buf, "{s}-entry", .{label}) catch label;
@@ -345,7 +355,10 @@ pub fn paramKnob(label_text: []const u8, id: [:0]const u8, args: Knob) KnobResul
 /// mode) rather than measuring a continuum - a knob's drag-to-scrub and
 /// filled-arc both imply "more/less of a quantity", which misreads for
 /// "which one of these". Prev/next buttons plus the resolved name (not the
-/// raw number a knob would show) read as picking an item instead.
+/// raw number a knob would show) read as picking an item instead. Scrolling
+/// while hovered also steps it, one entry per tick - unlike the knob, there's
+/// no ctrl-coarse variant, since "10 items at once" isn't a meaningful step
+/// for a short discrete list.
 pub const ListStepper = struct {
     v: *f32,
     min: f32,
@@ -358,6 +371,7 @@ pub const ListStepper = struct {
 pub fn listStepper(label_text: []const u8, id: [:0]const u8, args: ListStepper) KnobResult {
     const patina = &gui_style.palette;
     var changed = false;
+    const row_origin = zgui.getCursorScreenPos();
     zgui.beginGroup();
     zgui.textColored(if (args.focused) args.accent else patina.fg1, "{s}", .{label_text});
     var prev_buf: [48]u8 = undefined;
@@ -386,6 +400,20 @@ pub fn listStepper(label_text: []const u8, id: [:0]const u8, args: ListStepper) 
     }
     zgui.endDisabled();
     zgui.endGroup();
+    // isItemHovered doesn't chain through EndGroup (a well-known ImGui
+    // limitation - it only tests the last individual item inside), but
+    // EndGroup does compute a correct bounding box, so hit-test that
+    // manually instead of trusting isItemHovered here.
+    const row_max = zgui.getItemRectMax();
+    const mouse = zgui.getMousePos();
+    const row_hovered = mouse[0] >= row_origin[0] and mouse[0] < row_max[0] and mouse[1] >= row_origin[1] and mouse[1] < row_max[1];
+    if (row_hovered and gui_style.wheel_delta != 0) {
+        const next = std.math.clamp(args.v.* + (if (gui_style.wheel_delta > 0) @as(f32, 1) else -1), args.min, args.max);
+        if (next != args.v.*) {
+            args.v.* = next;
+            changed = true;
+        }
+    }
     return .{ .changed = changed, .activated = changed };
 }
 
@@ -559,6 +587,15 @@ fn adsrStageIs(stage: ?u2, n: u2) bool {
     return stage != null and stage.? == n;
 }
 
+/// Exponent-per-wheel-tick for a duration node's scroll nudge (**ctrl** =
+/// coarser), matched in spirit to the knob's own ctrl-coarse step. Only the
+/// attack/release nodes use this - the decay/sustain corner scrolls neither
+/// axis, same reasoning as `xyPad` having no scroll: a single wheel axis has
+/// no unambiguous mapping onto a two-param drag.
+fn envelopeScrollStep() f32 {
+    return if (zgui.isKeyDown(.mod_ctrl)) 0.2 else 0.05;
+}
+
 fn adsrHandle(draw_list: zgui.DrawList, patina: *const gui_style.Palette, p: [2]f32, lit: bool, focused: bool, accent: [4]f32) void {
     draw_list.addCircleFilled(.{ .p = p, .r = adsr_handle_r, .col = gui_style.color(if (lit) accent else patina.fg1) });
     if (focused) draw_list.addCircle(.{ .p = p, .r = adsr_handle_r + 3, .col = gui_style.color(accent), .thickness = 1.5 });
@@ -624,6 +661,10 @@ pub fn adsrEditor(label: [:0]const u8, args: Adsr) AdsrResult {
                 zgui.resetMouseDragDelta(.left);
             }
         }
+        if (node_hovered and gui_style.wheel_delta != 0) {
+            args.attack.* = std.math.clamp(args.attack.* * @exp(gui_style.wheel_delta * envelopeScrollStep()), args.attack_range[0], args.attack_range[1]);
+            result.changed[0] = true;
+        }
         adsrHandle(draw_list, patina, p, node_active or node_hovered, adsrStageIs(args.focused_stage, 0), args.accent);
     }
 
@@ -671,6 +712,10 @@ pub fn adsrEditor(label: [:0]const u8, args: Adsr) AdsrResult {
                 zgui.resetMouseDragDelta(.left);
             }
         }
+        if (node_hovered and gui_style.wheel_delta != 0) {
+            args.release.* = std.math.clamp(args.release.* * @exp(gui_style.wheel_delta * envelopeScrollStep()), args.release_range[0], args.release_range[1]);
+            result.changed[3] = true;
+        }
         adsrHandle(draw_list, patina, p, node_active or node_hovered, adsrStageIs(args.focused_stage, 2), args.accent);
     }
 
@@ -681,10 +726,13 @@ pub fn adsrEditor(label: [:0]const u8, args: Adsr) AdsrResult {
 /// A multi-point breakpoint curve, `adsrEditor`'s more elastic cousin: any
 /// number of points instead of 3 fixed-role ones, both axes draggable
 /// instead of duration-only, and points can be created and removed instead
-/// of just repositioned. Used by the automation view today; the point/range
-/// args carry nothing automation-specific, so an LFO shape editor can reuse
-/// it later the same way `xyPad` serves both filter cutoff and other
-/// correlated pairs.
+/// of just repositioned. Scrolling while hovering an existing point nudges
+/// just its value (**ctrl** = coarser) and leaves its beat position alone -
+/// unlike a drag, a wheel tick is unambiguous here since only one of the
+/// two axes is a natural "nudge a little" quantity. Used by the automation
+/// view today; the point/range args carry nothing automation-specific, so
+/// an LFO shape editor can reuse it later the same way `xyPad` serves both
+/// filter cutoff and other correlated pairs.
 ///
 /// Allocation-free like every other widget here: point count changes
 /// (insert/remove) go through the caller's own storage (e.g.
@@ -805,6 +853,12 @@ pub fn curveEditor(label: [:0]const u8, args: Curve) CurveResult {
             const norm = 1.0 - std.math.clamp((mouse[1] - origin[1]) / height, 0, 1);
             const new_value = args.value_lo + norm * (args.value_hi - args.value_lo);
             if (new_beat != p.beat or new_value != p.value) result.moved = .{ .index = i, .beat = new_beat, .value = new_value };
+        }
+        if (node_hovered and result.moved == null and gui_style.wheel_delta != 0) {
+            const step_frac: f32 = if (zgui.isKeyDown(.mod_ctrl)) 0.05 else 0.005;
+            const step: f32 = step_frac * (args.value_hi - args.value_lo);
+            const new_value = std.math.clamp(p.value + gui_style.wheel_delta * step, args.value_lo, args.value_hi);
+            if (new_value != p.value) result.moved = .{ .index = i, .beat = p.beat, .value = new_value };
         }
         if (node_active or node_hovered) {
             var buf: [32]u8 = undefined;
