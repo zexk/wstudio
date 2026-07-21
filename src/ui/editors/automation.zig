@@ -113,10 +113,10 @@ pub fn curvePointsConst(clip: *const ws.Clip, target: AutomationFocus) []const A
     };
 }
 
-/// The current automation track's own `automatable_params` table - PolySynth's
-/// ~30, Sampler's 9, or empty for any other instrument kind (drum machine/
-/// slicer/empty have no `setParamAbsolute` id space, matching the picker's
-/// own gate in `openParamPicker`). `pub` so app.zig's picker key/mouse
+/// The current automation track's own `automatable_params` table - PolySynth,
+/// Sampler, or SoundFont params, and empty for any other instrument kind (drum
+/// machine/slicer/CLAP/empty have no shared `setParamAbsolute` id space,
+/// matching the picker's own gate in `openParamPicker`). `pub` so app.zig's picker key/mouse
 /// handling can resolve the same table without duplicating the instrument
 /// dispatch.
 pub fn instrumentAutomatableParams(app: *App) []const ws.dsp.device.AutomatableParam {
@@ -553,16 +553,16 @@ fn deletePoint(app: *App, clip: *ws.Clip) void {
     app.setStatus("point removed", .{});
 }
 
-/// Open the synth-param picker (`p`) - poly_synth or sampler tracks only,
-/// since no other instrument kind has a `setParamAbsolute` id space to
-/// automate (drum machine/slicer params are per-pad/per-slice, not a single
-/// per-track curve target, and were never in scope for this picker).
+/// Open the instrument-param picker (`p`) for any track kind exposing a
+/// `setParamAbsolute` id space. Drum machine/slicer params remain per-pad or
+/// per-slice rather than a single track curve, and CLAP uses dynamic ids, so
+/// those kinds are outside this picker's static parameter model.
 /// Places the cursor on the currently-focused param if there is one, else 0,
 /// so re-opening the picker on an already-automated param starts there.
 fn openParamPicker(app: *App) void {
     const params = instrumentAutomatableParams(app);
     if (params.len == 0) {
-        app.setStatus("no automatable params on this track kind (poly_synth/sampler only)", .{});
+        app.setStatus("no automatable parameters on this track kind", .{});
         return;
     }
     if (std.meta.activeTag(app.automation_focus) == .synth_param) {

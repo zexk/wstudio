@@ -2861,7 +2861,12 @@ pub const PolySynth = struct {
             .fenv_release      => self.fenv_release_s = v01 * 4.0,
             .all_sound_off     => self.resetAll(),
             .all_notes_off     => { for (0..128) |n| self.noteOff(@intCast(n)); },
-            .reset_all_ctrls   => {},
+            // MIDI 1.0 Reset All Controllers resets performance controllers,
+            // not program parameters such as volume, pan, or envelope times.
+            .reset_all_ctrls   => {
+                self.mod_wheel = 0.0;
+                self.applyPitchBend(0, 2.0);
+            },
             _                  => {},
             // zig fmt: on
         }
@@ -4346,6 +4351,22 @@ test "applyCC: cutoff logarithmic scaling" {
     try std.testing.expectApproxEqAbs(@as(f32, 20.0), synth.filter_cutoff, 1.0);
     synth.applyCC(@intFromEnum(midi.CC.filter_cutoff), 127);
     try std.testing.expect(synth.filter_cutoff > 17_000.0);
+}
+
+test "applyCC: reset all controllers restores transient performance controls only" {
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    synth.mod_wheel = 0.75;
+    synth.applyPitchBend(4096, 2.0);
+    synth.gain = 0.42;
+    synth.filter_cutoff = 3_000.0;
+
+    synth.applyCC(@intFromEnum(midi.CC.reset_all_ctrls), 0);
+
+    try std.testing.expectEqual(@as(f32, 0.0), synth.mod_wheel);
+    try std.testing.expectEqual(@as(f32, 0.0), synth.pitch_bend_semitones);
+    try std.testing.expectEqual(@as(f32, 0.42), synth.gain);
+    try std.testing.expectEqual(@as(f32, 3_000.0), synth.filter_cutoff);
 }
 
 test "setParamAbsolute: sets filter cutoff directly and clamps out-of-range" {
