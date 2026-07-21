@@ -11,9 +11,10 @@ wstudio borrows vim's modal model instead of a mouse-first workflow:
 **normal** mode navigates the project and drives the transport, **insert**
 turns the keyboard into a piano, **visual** selects and yanks ranges, and
 **command** mode runs `:` commands. It ships with synths, samplers, a drum
-machine, a sample-chopping slicer, and a full effects rack (gate,
-compression, EQ, saturation, bitcrush, chorus, phaser, delay, reverb) built
-in, so there's no plugin hunting before the first note.
+machine, a sample-chopping slicer, and a full effects rack (gate, compressor,
+multiband compressor, OTT, EQ, saturation, bitcrush, chorus, phaser, flanger,
+tape, frequency shifter, delay, reverb) built in, so there's no plugin
+hunting before the first note.
 
 ## Quickstart
 

@@ -3,6 +3,7 @@ description: Report a reproducible problem in the wstudio beta
 title: "bug: "
 labels:
   - bug
+  - beta
 body:
   - type: markdown
     attributes:
@@ -13,7 +14,7 @@ body:
     attributes:
       label: Version
       description: Release version or commit hash.
-      placeholder: 1.0.0-beta.1
+      placeholder: 1.0.0-beta.2
     validations:
       required: true
   - type: input

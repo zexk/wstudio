@@ -3,6 +3,7 @@ description: Propose a focused workflow or capability improvement
 title: "feature: "
 labels:
   - enhancement
+  - beta
 body:
   - type: markdown
     attributes:
