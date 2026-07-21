@@ -85,6 +85,28 @@ pub fn meterBar(draw_list: zgui.DrawList, origin: [2]f32, hold_db: [2]f32, bar_w
     }
 }
 
+/// Stereo peak meter for an already-colored surface. The surface's
+/// contrast color replaces the transport meter's semantic gradient so the
+/// bars remain legible on both light and dark accents.
+pub fn solidMeterBar(draw_list: zgui.DrawList, origin: [2]f32, hold_db: [2]f32, bar_w: f32, bar_h: f32, gap: f32, bar_color: [4]f32) void {
+    for (0..2) |ch| {
+        const y = origin[1] + @as(f32, @floatFromInt(ch)) * (bar_h + gap);
+        draw_list.addRectFilled(.{
+            .pmin = .{ origin[0], y },
+            .pmax = .{ origin[0] + bar_w, y + bar_h },
+            .col = gui_style.color(.{ bar_color[0], bar_color[1], bar_color[2], 0.25 }),
+            .rounding = 2,
+        });
+        const norm = std.math.clamp((hold_db[ch] - meter_db_min) / -meter_db_min, 0, 1);
+        draw_list.addRectFilled(.{
+            .pmin = .{ origin[0], y },
+            .pmax = .{ origin[0] + bar_w * norm, y + bar_h },
+            .col = gui_style.color(bar_color),
+            .rounding = 2,
+        });
+    }
+}
+
 fn meterFill(draw_list: zgui.DrawList, x: f32, y: f32, w: f32, h: f32, norm: f32) void {
     if (norm <= 0) return;
     const patina = &gui_style.palette;
