@@ -2536,13 +2536,16 @@ pub const App = struct {
     fn pickerInsert(self: *App) void {
         if (self.picker_cursor >= instrument_picker_items.len) {
             const plugin = self.external_plugins.at(.instrument, self.picker_cursor - instrument_picker_items.len) orelse return;
+            var backup = history.captureTrackKindSwap(self, self.cursor);
             switch (plugin.format) {
                 .clap => self.session.setClapInstrument(self.cursor, plugin.path, plugin.id) catch |err| {
+                    if (backup) |*b| b.deinit(self.allocator);
                     self.setStatus("{s}: {s}", .{ plugin.name, @errorName(err) });
                     return;
                 },
                 .vst3, .vst2 => unreachable,
             }
+            history.push(self, backup);
             self.dirty = true;
             // CLAP instruments always go through `setClapInstrument`, which
             // (like `setInstrument`) has no note-preserving counterpart - see
