@@ -94,9 +94,12 @@ fn writeTrackRow(app: anytype, w: *std.Io.Writer, ti: u16, is_sel: bool, in_sel:
     try lw.print("{s: <8}", .{track.name});
     if (track_color != null) try lw.writeAll(rst);
     try lw.writeByte(' ');
-    // instrument-kind icon - a single Mono-font cell either way, so
-    // blank tracks' plain space keeps every row's columns aligned.
-    const kind_icon: []const u8 = switch (inst_tag) {
+    // instrument-kind icon - a single cell either way (Mono glyph or the
+    // ascii mnemonic below), so blank tracks' plain space keeps every row's
+    // columns aligned regardless of `has_nerdfonts`. No adjacent text names
+    // the kind here (unlike a view's title bar), so the no-icon fallback is
+    // a letter rather than "", or the column would just go blank.
+    const kind_icon: []const u8 = if (icons.font_installed) switch (inst_tag) {
         .empty => " ",
         .poly_synth => icons.synth,
         .sampler => icons.sampler,
@@ -104,6 +107,14 @@ fn writeTrackRow(app: anytype, w: *std.Io.Writer, ti: u16, is_sel: bool, in_sel:
         .slicer => icons.slicer,
         .clap => icons.synth,
         .soundfont => icons.soundfont,
+    } else switch (inst_tag) {
+        .empty => " ",
+        .poly_synth => "S",
+        .sampler => "P",
+        .drum_machine => "D",
+        .slicer => "C",
+        .clap => "S",
+        .soundfont => "F",
     };
     try lw.writeAll(kind_icon);
     try lw.writeByte(' ');
@@ -276,7 +287,7 @@ pub fn drawTracks(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, sna
         try lw.writeAll("   ");
         try lw.print("{s: <8}", .{"MASTER"});
         try lw.writeByte(' ');
-        try lw.writeAll(icons.master);
+        try lw.writeAll(icons.iconOr(icons.master, " "));
         try lw.writeAll("   ");
         if (!is_sel) try lw.writeAll(acc);
         try lw.writeAll(" [bus]");

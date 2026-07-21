@@ -53,7 +53,9 @@ pub fn drawHelp(w: *std.Io.Writer, rows: usize, cols: usize, cmds: []const cmd_m
     const end = @min(off + visible, t.count);
 
     // Sticky title with a position indicator.
-    try w.writeAll(bold ++ " " ++ icons.help ++ " HELP" ++ rst);
+    try w.writeAll(bold ++ " ");
+    try w.writeAll(icons.iconOr(icons.help ++ " ", ""));
+    try w.writeAll("HELP" ++ rst);
     try w.writeAll(dim ++ "   esc: close   j/k: scroll   /: search");
     if (t.count > visible) {
         try w.print("   {d}–{d}/{d}", .{ off + 1, end, t.count });

@@ -677,7 +677,9 @@ pub fn drawArrangementStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Wri
 
     const p = &app.session.project;
     if (p.loop_enabled and p.loop_end_bar > p.loop_start_bar) {
-        try w.writeAll(dim ++ "  " ++ rst ++ yel ++ icons.loop ++ " loop " ++ rst ++ yel);
+        try w.writeAll(dim ++ "  " ++ rst ++ yel);
+        try w.writeAll(icons.iconOr(icons.loop ++ " ", ""));
+        try w.writeAll("loop " ++ rst ++ yel);
         try w.print("{d}\u{2192}{d}", .{ p.loop_start_bar + 1, p.loop_end_bar });
         try w.writeAll(rst);
     }

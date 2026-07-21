@@ -183,7 +183,9 @@ pub fn drawSlicerGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize,
     const lay = layout(slice_count, rows);
     var written: usize = 0;
 
-    try w.writeAll(bold ++ " " ++ icons.slicer ++ " SLICER" ++ rst);
+    try w.writeAll(bold ++ " ");
+    try w.writeAll(icons.iconOr(icons.slicer ++ " ", ""));
+    try w.writeAll("SLICER" ++ rst);
     try w.print(" \"{s}\"", .{track_name});
     try w.writeAll(dim ++ "  " ++ rst);
     try w.print("\"{s}\"", .{sl.clipName()});

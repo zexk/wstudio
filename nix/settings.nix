@@ -140,6 +140,11 @@ in
       default = null;
       description = "TUI terminal-palette theme.";
     };
+    has_nerdfonts = mkOption {
+      type = types.nullOr types.bool;
+      default = null;
+      description = "Whether the terminal renders Nerd Font glyphs. False falls back to plain ascii.";
+    };
     gui_font_size = rangedNumber 8 40 "GUI font size in pixels.";
     gui_vsync = mkOption {
       type = types.nullOr types.bool;

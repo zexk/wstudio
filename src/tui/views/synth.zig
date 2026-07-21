@@ -31,7 +31,9 @@ const enumRow = style.enumRow;
 const synth_ed = @import("../../ui/editors/synth.zig");
 
 fn drawSynthTitle(w: *std.Io.Writer, subview: synth_ed.Subview, name: []const u8, focused: bool) !void {
-    try w.writeAll(bcyn ++ bold ++ " \u{2593} " ++ icons.synth ++ " SYNTH " ++ rst);
+    try w.writeAll(bcyn ++ bold ++ " \u{2593} ");
+    try w.writeAll(icons.iconOr(icons.synth ++ " ", ""));
+    try w.writeAll("SYNTH " ++ rst);
     inline for (.{ synth_ed.Subview.main, synth_ed.Subview.mod, synth_ed.Subview.fx }) |tab| {
         const label = switch (tab) {
             .main => "MAIN",
