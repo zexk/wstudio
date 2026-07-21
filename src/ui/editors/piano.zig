@@ -792,6 +792,7 @@ fn handleVisual(app: *App, key: modal_mod.Key, pp: *pattern_mod.PatternPlayer, m
             'K' => { transposeSelection(app, pp, 12 * app.takeCount()); return true; },
             '<' => { slideSelection(app, pp, max_step, -app.takeCount()); return true; },
             '>' => { slideSelection(app, pp, max_step, app.takeCount()); return true; },
+            'r' => { reverseSelection(app, pp); return true; },
             'o' => {
                 if (app.piano_visual_anchor) |a| {
                     app.piano_visual_anchor = app.piano_cursor_step;
@@ -872,6 +873,25 @@ fn slideSelection(app: *App, pp: *pattern_mod.PatternPlayer, max_step: u16, dste
     if (app.piano_visual_anchor) |*a| step_grid.moveClamped(a, dsteps, max_step);
     ensureVisible(app);
     app.setStatus("slid {d} notes {s}{d} steps", .{ moved, if (dsteps >= 0) "+" else "", dsteps });
+    syncLinkedClip(app);
+}
+
+/// Visual `r`: retrograde - time-mirror the selected notes so the figure
+/// plays backwards (each note ends where it used to begin). The selection
+/// stays live, so a second `r` flips it straight back by ear.
+fn reverseSelection(app: *App, pp: *pattern_mod.PatternPlayer) void {
+    const r = selectionRange(app);
+    const lo_beat = stepToBeat(app, r.lo);
+    const hi_beat = stepToBeat(app, r.hi) + 1.0 / stepsPerBeatF(app);
+    var entry = history.captureMelodic(app, app.piano_track);
+    const moved = pp.reverseNotesInRange(lo_beat, hi_beat);
+    if (moved == 0) {
+        if (entry) |*e| e.deinit(app.allocator);
+        app.setStatus("no notes selected", .{});
+        return;
+    }
+    history.push(app, entry);
+    app.setStatus("reversed {d} notes", .{moved});
     syncLinkedClip(app);
 }
 

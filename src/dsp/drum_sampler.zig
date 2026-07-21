@@ -686,6 +686,30 @@ pub const DrumMachine = struct {
         }
     }
 
+    /// Time-mirror (retrograde) the whole live pattern: every hit's span
+    /// [step, step+duration) maps to [N-step-duration, N-step), so 1-step
+    /// hits land on the mirrored slot and longer notes end where they used
+    /// to begin. Rows rebuild through one scratch row (two notes sharing an
+    /// end step would collide mirrored - the later source step wins); a
+    /// failed scratch allocation leaves the pattern untouched.
+    pub fn reversePattern(self: *DrumMachine) void {
+        const n: u32 = self.step_count;
+        if (n == 0) return;
+        const scratch = self.allocator.alloc(?MidiNote, n) catch return;
+        defer self.allocator.free(scratch);
+        for (0..max_pads) |pad| {
+            @memset(scratch, null);
+            for (self.midi[pad]) |slot| {
+                const note = slot orelse continue;
+                const end = @as(u32, note.step) + @max(1, note.duration_steps);
+                const dst: u16 = @intCast(n - @min(end, n));
+                scratch[dst] = note;
+                scratch[dst].?.step = dst;
+            }
+            @memcpy(self.midi[pad], scratch);
+        }
+    }
+
     /// Rotate one pad's row `delta` steps later in time (negative = earlier),
     /// wrapping at the pattern boundary. Hits keep their velocity, pitch and
     /// duration; only their grid position moves.
@@ -1185,6 +1209,32 @@ test "euclidPad spreads pulses evenly, honors rotation, clears on zero" {
 
     // Stored notes carry the destination step (grid position is canonical).
     try std.testing.expectEqual(@as(u16, 5), dm.midi[0][5].?.step);
+}
+
+test "reversePattern mirrors every pad's hits, duration-aware" {
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    defer dm.deinit();
+
+    dm.setStepCount(8);
+    dm.toggleStep(0, 0); // kick on the one
+    dm.setStepVel(0, 0, 100);
+    dm.toggleStep(1, 2); // snare
+    dm.midi[3][1] = .{ .pitch = 3, .step = 1, .duration_steps = 3 }; // spans [1,4)
+
+    dm.reversePattern();
+    // 1-step hits land on the mirrored slot (N-1-step).
+    try std.testing.expect(dm.stepActive(0, 7) and !dm.stepActive(0, 0));
+    try std.testing.expectEqual(@as(u8, 100), dm.stepVel(0, 7));
+    try std.testing.expect(dm.stepActive(1, 5) and !dm.stepActive(1, 2));
+    // The 3-step note ends where it used to begin: [1,4) -> [4,7), step 4.
+    try std.testing.expectEqual(@as(u16, 4), dm.midi[3][4].?.step);
+    try std.testing.expectEqual(@as(u16, 3), dm.midi[3][4].?.duration_steps);
+
+    // Reversing twice restores the original pattern.
+    dm.reversePattern();
+    try std.testing.expect(dm.stepActive(0, 0) and dm.stepActive(1, 2));
+    try std.testing.expectEqual(@as(u16, 1), dm.midi[3][1].?.step);
 }
 
 test "rotatePad wraps hits and rewrites their canonical step" {
