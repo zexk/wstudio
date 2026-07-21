@@ -14,9 +14,20 @@ pub const default_frequencies = [_]f32{
     60.0, 150.0, 400.0, 1000.0, 2500.0, 6000.0, 10000.0, 16000.0,
 };
 
-/// Per-band response type: the default peaking bell, or a low/high-pass
-/// filter (gain does not apply to those; `slope` sets their steepness).
-pub const BandKind = enum(u8) { peak, lowpass, highpass };
+/// Per-band response type: peaking and shelf filters use gain, while the
+/// low/high-pass filters use `slope` for cascade steepness.
+pub const BandKind = enum(u8) { peak, lowpass, highpass, lowshelf, highshelf };
+
+pub fn usesGain(kind: BandKind) bool {
+    return switch (kind) {
+        .peak, .lowshelf, .highshelf => true,
+        .lowpass, .highpass => false,
+    };
+}
+
+pub fn usesSlope(kind: BandKind) bool {
+    return !usesGain(kind);
+}
 
 /// Slope cap for the filter kinds, in cascaded second-order sections:
 /// each stage adds 12 dB/oct, so 1..4 covers 12/24/36/48 dB/oct.
@@ -93,6 +104,27 @@ const EqBand = struct {
                 a1_raw = -2.0 * cos_w0;
                 a2_raw = 1.0 - alpha;
             },
+            .lowshelf, .highshelf => {
+                const a = std.math.pow(f32, 10.0, band.gain_db / 40.0);
+                const sqrt_a = std.math.sqrt(a);
+                const shelf_alpha = sin_w0 / (2.0 * band.q);
+                const alpha_term = 2.0 * sqrt_a * shelf_alpha;
+                if (band.kind == .lowshelf) {
+                    b0_raw = a * ((a + 1.0) - (a - 1.0) * cos_w0 + alpha_term);
+                    b1_raw = 2.0 * a * ((a - 1.0) - (a + 1.0) * cos_w0);
+                    b2_raw = a * ((a + 1.0) - (a - 1.0) * cos_w0 - alpha_term);
+                    a0_raw = (a + 1.0) + (a - 1.0) * cos_w0 + alpha_term;
+                    a1_raw = -2.0 * ((a - 1.0) + (a + 1.0) * cos_w0);
+                    a2_raw = (a + 1.0) + (a - 1.0) * cos_w0 - alpha_term;
+                } else {
+                    b0_raw = a * ((a + 1.0) + (a - 1.0) * cos_w0 + alpha_term);
+                    b1_raw = -2.0 * a * ((a - 1.0) + (a + 1.0) * cos_w0);
+                    b2_raw = a * ((a + 1.0) + (a - 1.0) * cos_w0 - alpha_term);
+                    a0_raw = (a + 1.0) - (a - 1.0) * cos_w0 + alpha_term;
+                    a1_raw = 2.0 * ((a - 1.0) - (a + 1.0) * cos_w0);
+                    a2_raw = (a + 1.0) - (a - 1.0) * cos_w0 - alpha_term;
+                }
+            },
         }
 
         const inv_a0 = 1.0 / a0_raw;
@@ -105,7 +137,7 @@ const EqBand = struct {
 
     /// How many cascade stages this band runs per sample.
     fn stages(band: *const EqBand) usize {
-        return if (band.kind == .peak) 1 else band.slope;
+        return if (usesSlope(band.kind)) band.slope else 1;
     }
 
     fn processStage(band: *EqBand, stage: usize, ch: usize, x: f32) f32 {
@@ -202,6 +234,38 @@ test "parameter setters ignore non-finite values" {
     try std.testing.expectEqual(before.gain_db, eq.bands[0].gain_db);
     try std.testing.expectEqual(before.freq, eq.bands[0].freq);
     try std.testing.expectEqual(before.q, eq.bands[0].q);
+}
+
+test "shelf bands boost the intended side of the spectrum" {
+    var eq = ParametricEq.init(48_000);
+    const band = &eq.bands[0];
+    eq.setFreq(0, 1000.0);
+    eq.setGain(0, 12.0);
+
+    eq.setType(0, .lowshelf, 4);
+    const low_shelf_low = responseMagnitude(band, 100.0, eq.sr);
+    const low_shelf_high = responseMagnitude(band, 10_000.0, eq.sr);
+    try std.testing.expect(low_shelf_low > low_shelf_high * 2.5);
+    try std.testing.expectEqual(@as(usize, 1), band.stages());
+
+    eq.setType(0, .highshelf, 4);
+    const high_shelf_low = responseMagnitude(band, 100.0, eq.sr);
+    const high_shelf_high = responseMagnitude(band, 10_000.0, eq.sr);
+    try std.testing.expect(high_shelf_high > high_shelf_low * 2.5);
+    try std.testing.expectEqual(@as(usize, 1), band.stages());
+}
+
+fn responseMagnitude(band: *const EqBand, freq: f32, sample_rate: f32) f32 {
+    const omega = 2.0 * std.math.pi * freq / sample_rate;
+    const z1_re = std.math.cos(omega);
+    const z1_im = -std.math.sin(omega);
+    const z2_re = std.math.cos(2.0 * omega);
+    const z2_im = -std.math.sin(2.0 * omega);
+    const num_re = band.b0 + band.b1 * z1_re + band.b2 * z2_re;
+    const num_im = band.b1 * z1_im + band.b2 * z2_im;
+    const den_re = 1.0 + band.a1 * z1_re + band.a2 * z2_re;
+    const den_im = band.a1 * z1_im + band.a2 * z2_im;
+    return std.math.sqrt((num_re * num_re + num_im * num_im) / (den_re * den_re + den_im * den_im));
 }
 
 test "highpass band blocks DC, lowpass band passes it" {

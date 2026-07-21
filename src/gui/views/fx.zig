@@ -376,9 +376,15 @@ fn drawEqGraph(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, sel
             const freq = eqXFreq(origin[0], width, mouse[0]);
             const freq_idx = band_index * spectrum_ed.eq_fields_per_band + spectrum_ed.eq_field_freq;
             spectrum_ed.setParam(&app.core, &unit.payload, freq_idx, freq);
-            if (unit.payload.eq.bands[band_index].kind == .peak) {
+            if (ws.dsp.eq.usesGain(unit.payload.eq.bands[band_index].kind)) {
                 const gain_idx = band_index * spectrum_ed.eq_fields_per_band + spectrum_ed.eq_field_gain;
                 spectrum_ed.setParam(&app.core, &unit.payload, gain_idx, eqYDb(origin[1], height, mouse[1]));
+            }
+            if (style.wheel_delta != 0) {
+                const q_idx = band_index * spectrum_ed.eq_fields_per_band + spectrum_ed.eq_field_q;
+                const q = unit.payload.eq.bands[band_index].q * @exp(style.wheel_delta * 0.12);
+                spectrum_ed.setParam(&app.core, &unit.payload, q_idx, q);
+                app.core.fx_param = q_idx;
             }
             app.core.dirty = true;
             syncChain(app, target);
@@ -389,7 +395,7 @@ fn drawEqGraph(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, sel
 }
 
 fn drawEqBandStrip(app: anytype, unit: *ws.FxUnit, selected_band: usize) void {
-    zgui.textDisabled("BANDS   h/l select   enter edit   drag graph nodes for frequency/gain", .{});
+    zgui.textDisabled("BANDS   drag node: frequency/gain   hold left + wheel: Q", .{});
     const gap: f32 = 5;
     const available = zgui.getContentRegionAvail()[0];
     const columns: usize = if (available < 600) 4 else 8;
@@ -442,7 +448,32 @@ fn drawEqBandControls(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUn
     const gain_idx = band_index * spectrum_ed.eq_fields_per_band + spectrum_ed.eq_field_gain;
     drawEqSlider(app, target, unit, freq_idx, "Frequency", "%.0f Hz", true);
     drawEqSlider(app, target, unit, q_idx, "Q", "%.2f", true);
-    drawEqSlider(app, target, unit, gain_idx, if (band.kind == .peak) "Gain" else "Slope", if (band.kind == .peak) "%.1f dB" else "%.0f x12 dB/oct", false);
+    if (ws.dsp.eq.usesGain(band.kind))
+        drawEqSlider(app, target, unit, gain_idx, "Gain", "%.1f dB", false)
+    else
+        drawEqSlope(app, target, unit, gain_idx);
+}
+
+fn drawEqSlope(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, index: usize) void {
+    var value = spectrum_ed.getParam(&unit.payload, index);
+    const range = spectrum_ed.paramRange(&app.core, &unit.payload, index);
+    var label_buf: [48]u8 = undefined;
+    const label = std.fmt.bufPrintZ(&label_buf, "slope##eq-control-{d}", .{index}) catch return;
+    var display_buf: [24]u8 = undefined;
+    const display = std.fmt.bufPrint(&display_buf, "{d:.0} dB/oct", .{value * 12.0}) catch return;
+    const focused = !app.core.eq_band_select and app.core.fx_param == index;
+    const result = widgets.listStepper("Slope", label, .{ .v = &value, .min = range[0], .max = range[1], .display = display, .accent = eqBandColor(index / spectrum_ed.eq_fields_per_band), .focused = focused });
+    if (result.changed) {
+        history.noteFxNudge(&app.core, target, app.core.fx_focus, index);
+        spectrum_ed.setParam(&app.core, &unit.payload, index, value);
+        app.core.fx_param = index;
+        app.core.dirty = true;
+        syncChain(app, target);
+    }
+    if (result.activated) {
+        app.core.fx_param = index;
+        app.core.eq_band_select = false;
+    }
 }
 
 fn drawEqSlider(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, index: usize, label_text: []const u8, format: [:0]const u8, logarithmic: bool) void {
@@ -477,7 +508,7 @@ fn eqBandColor(index: usize) [4]f32 {
 fn eqBandPoint(origin: [2]f32, size: [2]f32, band: anytype) [2]f32 {
     return .{
         eqFreqX(origin[0], size[0], band.freq),
-        eqDbY(origin[1], size[1], if (band.kind == .peak) band.gain_db else 0),
+        eqDbY(origin[1], size[1], if (ws.dsp.eq.usesGain(band.kind)) band.gain_db else 0),
     };
 }
 
@@ -519,7 +550,7 @@ fn bandResponseDb(band: anytype, sample_rate: f32, freq: f32) f32 {
     const den_re = 1.0 + band.a1 * cos_1 + band.a2 * cos_2;
     const den_im = -(band.a1 * sin_1 + band.a2 * sin_2);
     const magnitude_sq = @max(1.0e-12, (num_re * num_re + num_im * num_im) / @max(1.0e-12, den_re * den_re + den_im * den_im));
-    const stages: f32 = @floatFromInt(if (band.kind == .peak) @as(u8, 1) else band.slope);
+    const stages: f32 = @floatFromInt(if (ws.dsp.eq.usesSlope(band.kind)) band.slope else @as(u8, 1));
     return 10.0 * std.math.log10(magnitude_sq) * stages;
 }
 

@@ -5849,7 +5849,7 @@ test "FX chain: param nudges coalesce into one undo step, u right after nudging 
     try std.testing.expectApproxEqAbs(nudged, spectrum_ed.getParam(&fx.units.items[0].payload, 0), 0.0001);
 }
 
-test "FX chain: EQ kind field cycles peak/lowpass/highpass, gain row becomes slope for a filter band" {
+test "FX chain: EQ kind field cycles all types and switches gain or slope control" {
     var app = try testApp();
     defer app.deinit();
     spectrum_ed.switchToTrack(&app, 0);
@@ -5871,9 +5871,20 @@ test "FX chain: EQ kind field cycles peak/lowpass/highpass, gain row becomes slo
     _ = spectrum_ed.handleKey(&app, .{ .char = 'l' });
     try std.testing.expectEqual(eq_mod.BandKind.highpass, eq.bands[0].kind);
 
-    // Clamped, not wrapped, past highpass.
     _ = spectrum_ed.handleKey(&app, .{ .char = 'l' });
-    try std.testing.expectEqual(eq_mod.BandKind.highpass, eq.bands[0].kind);
+    try std.testing.expectEqual(eq_mod.BandKind.lowshelf, eq.bands[0].kind);
+    try std.testing.expectEqualStrings("gain", spectrum_ed.paramName(&fx.units.items[0].payload, spectrum_ed.eq_field_gain));
+
+    _ = spectrum_ed.handleKey(&app, .{ .char = 'l' });
+    try std.testing.expectEqual(eq_mod.BandKind.highshelf, eq.bands[0].kind);
+
+    // Clamped, not wrapped, past high shelf.
+    _ = spectrum_ed.handleKey(&app, .{ .char = 'l' });
+    try std.testing.expectEqual(eq_mod.BandKind.highshelf, eq.bands[0].kind);
+
+    // Filter kinds use the shared fourth field for discrete slope stages.
+    for (0..3) |_| _ = spectrum_ed.handleKey(&app, .{ .char = 'h' });
+    try std.testing.expectEqual(eq_mod.BandKind.lowpass, eq.bands[0].kind);
 
     // The gain field's flat slot becomes "slope" once the band isn't peak:
     // fine steps walk one cascade stage (12dB/oct) at a time, clamped 1..4.
@@ -5887,7 +5898,7 @@ test "FX chain: EQ kind field cycles peak/lowpass/highpass, gain row becomes slo
 
     // Back to peak: the same flat slot reverts to a normal dB gain slider.
     app.fx_param = spectrum_ed.eq_field_kind;
-    for (0..3) |_| _ = spectrum_ed.handleKey(&app, .{ .char = 'h' });
+    _ = spectrum_ed.handleKey(&app, .{ .char = 'h' });
     try std.testing.expectEqual(eq_mod.BandKind.peak, eq.bands[0].kind);
     app.fx_param = spectrum_ed.eq_field_gain;
     _ = spectrum_ed.handleKey(&app, .{ .char = 'l' });

@@ -271,8 +271,8 @@ pub fn mbBandField(idx: usize) MbBandField {
 /// EQ params are a flat `band*eq_fields_per_band + field` list (kind, freq,
 /// q, gain per band), the same "one sequential param list" shape every
 /// other multi-param unit here uses - no separate band/field navigation
-/// axis needed. `eq_field_gain`'s row is "gain" for a peak band or "slope"
-/// for a lowpass/highpass one (see `paramName`/`getParam`/`setParam`) -
+/// axis needed. `eq_field_gain`'s row is "gain" for peak/shelf bands or
+/// "slope" for lowpass/highpass ones (see `paramName`/`getParam`/`setParam`) -
 /// the two response families never apply at once (a filter band's gain is
 /// stored but the DSP ignores it), so they share the one flat slot instead
 /// of needing a fifth per-band field.
@@ -296,6 +296,8 @@ pub const eq_kind_specs = [_]EqKindSpec{
     .{ .label = "peak", .short_label = "BELL", .title = "BELL FILTER", .action_label = "BELL" },
     .{ .label = "lowpass", .short_label = "HC", .title = "HIGH CUT FILTER", .action_label = "HIGH CUT" },
     .{ .label = "highpass", .short_label = "LC", .title = "LOW CUT FILTER", .action_label = "LOW CUT" },
+    .{ .label = "lowshelf", .short_label = "LS", .title = "LOW SHELF FILTER", .action_label = "LOW SHELF" },
+    .{ .label = "highshelf", .short_label = "HS", .title = "HIGH SHELF FILTER", .action_label = "HIGH SHELF" },
 };
 
 comptime {
@@ -473,7 +475,7 @@ pub fn paramName(p: *const FxPayload, idx: usize) []const u8 {
                 eq_field_kind => "kind",
                 eq_field_freq => "freq",
                 eq_field_q => "q",
-                else => if (e.bands[bf.band].kind == .peak) "gain" else "slope",
+                else => if (eq_mod.usesGain(e.bands[bf.band].kind)) "gain" else "slope",
             };
         },
         .mb_comp => switch (idx) {
@@ -515,7 +517,7 @@ pub fn getParam(p: *const FxPayload, idx: usize) f32 {
                 eq_field_kind => @floatFromInt(@intFromEnum(band.kind)),
                 eq_field_freq => band.freq,
                 eq_field_q => band.q,
-                else => if (band.kind == .peak) band.gain_db else @floatFromInt(band.slope),
+                else => if (eq_mod.usesGain(band.kind)) band.gain_db else @floatFromInt(band.slope),
             };
         },
         .mb_comp => |*m| switch (idx) {
@@ -571,10 +573,10 @@ pub fn getParam(p: *const FxPayload, idx: usize) f32 {
 pub fn paramRange(app: *App, p: *const FxPayload, idx: usize) [2]f32 {
     return switch (p.*) {
         .eq => |*e| switch (eqBandField(idx).field) {
-            eq_field_kind => .{ 0.0, 2.0 },
+            eq_field_kind => .{ 0.0, @floatFromInt(eq_kind_specs.len - 1) },
             eq_field_freq => .{ 20.0, 20000.0 },
             eq_field_q => .{ 0.1, 10.0 },
-            else => if (e.bands[eqBandField(idx).band].kind == .peak)
+            else => if (eq_mod.usesGain(e.bands[eqBandField(idx).band].kind))
                 [2]f32{ -18.0, 18.0 }
             else
                 [2]f32{ 1.0, @floatFromInt(eq_mod.max_slope) },
@@ -650,12 +652,12 @@ pub fn setParam(app: *App, p: *FxPayload, idx: usize, value: f32) void {
             const band = &e.bands[bf.band];
             switch (bf.field) {
                 eq_field_kind => {
-                    const rounded = std.math.clamp(@round(value), 0.0, 2.0);
+                    const rounded = std.math.clamp(@round(value), 0.0, @as(f32, @floatFromInt(eq_kind_specs.len - 1)));
                     e.setType(bf.band, @enumFromInt(@as(u8, @intFromFloat(rounded))), band.slope);
                 },
                 eq_field_freq => e.setFreq(bf.band, value),
                 eq_field_q => e.setQ(bf.band, value),
-                else => if (band.kind == .peak)
+                else => if (eq_mod.usesGain(band.kind))
                     e.setGain(bf.band, value)
                 else
                     e.setType(bf.band, band.kind, @intFromFloat(std.math.clamp(@round(value), 1.0, @as(f32, eq_mod.max_slope)))),
@@ -722,12 +724,12 @@ pub fn setParam(app: *App, p: *FxPayload, idx: usize, value: f32) void {
 fn paramStep(p: *const FxPayload, idx: usize, coarse: bool) f32 {
     return switch (p.*) {
         .eq => |*e| switch (eqBandField(idx).field) {
-            eq_field_kind => 1.0, // 3 discrete states - same nudge whether fine or coarse
+            eq_field_kind => 1.0,
             eq_field_freq => if (coarse) @as(f32, 100.0) else 10.0,
             eq_field_q => if (coarse) @as(f32, 0.5) else 0.1,
             // gain steps normally; slope steps whole cascade stages, coarse
             // jumping the full 1..max_slope range in one press.
-            else => if (e.bands[eqBandField(idx).band].kind == .peak)
+            else => if (eq_mod.usesGain(e.bands[eqBandField(idx).band].kind))
                 (if (coarse) @as(f32, 6.0) else 1.0)
             else
                 (if (coarse) @as(f32, eq_mod.max_slope) else 1.0),
@@ -1337,7 +1339,7 @@ pub fn formatValue(app: anytype, buf: []u8, p: *const ws.FxPayload, idx: usize) 
                 // stored as a stage count (1..max_slope) - show it in
                 // dB/oct (12 per cascade stage) since that's the unit a
                 // user actually thinks in.
-                else => if (e.bands[bf.band].kind == .peak)
+                else => if (eq_mod.usesGain(e.bands[bf.band].kind))
                     std.fmt.bufPrint(buf, "{d:.1}dB", .{v}) catch "?"
                 else
                     std.fmt.bufPrint(buf, "{d:.0}dB/oct", .{v * 12.0}) catch "?",

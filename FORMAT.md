@@ -19,7 +19,7 @@ a sidecar directory, not embedded in the JSON. See
 
 ## Versioning policy
 
-`persist.zig`'s `file_version` (currently 25) is the newest format version
+`persist.zig`'s `file_version` (currently 26) is the newest format version
 this build can write and read. Loading enforces one rule:
 
 - **A file whose `version` is newer than `file_version` is hard-rejected**
@@ -78,6 +78,7 @@ they showed up in the same week as one.
 | v23 | The drum machine's own step storage changed from a fixed 64-step-max per-pad `u64` bitmask + dense per-step velocity array to a heap-owned, effectively unbounded (u16 step index, ~65k steps) per-pad note list - steps are now a zoom/display granularity over that data, not a storage limit. `DrumSnap`/`VariantSnap`/`ClipSnap` gain a sparse `notes`/`drum_notes` field (`{pad, step, duration_steps, velocity}` entries) that new saves write instead of the old `pattern`/`vel`/`vel_lo`/`vel_hi` fields, which are kept read-only so older files still migrate (walking the dense bitmask, one entry per active step). Slicer is unaffected - it keeps its own separate 64-step bitmask+velocity shape (`SlicerSnap`/`VariantSnap.pattern`/`.vel`), since only the drum machine's ceiling grew. |
 | v24 | CLAP instruments and effects persist the plugin binary path, stable plugin ID, and opaque CLAP state as Base64. Instrument snapshots also carry their piano-roll notes, loop length, and swing. |
 | v25 | A new instrument kind: the SoundFont (.sf2) player (`RackSnap.soundfont`: `SoundfontSnap` - the loaded font's sidecar path, selected preset index, gain/pan/transpose, and a piano-roll pattern like poly_synth/sampler get). Purely additive data-wise, but the bump makes pre-v25 builds hard-reject a file using the new `InstrumentKind` variant instead of failing on an unknown enum name, same rationale as every FX-kind-growth bump (v15/v16/v18/v19/v20/v21/v24). The loaded .sf2's raw bytes are exported to the sample sidecar (see below) since the parsed, already-resolved in-memory form can't losslessly reconstruct the original file. |
+| v26 | Low-shelf and high-shelf parametric EQ band kinds. The bump makes older builds reject projects using the new saved enum names instead of failing while parsing them. |
 
 Since v11, every field added has been the additive/no-bump kind described
 above (v12/v13/v14 above are the exceptions - genuine semantic changes, not
