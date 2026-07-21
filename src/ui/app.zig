@@ -65,6 +65,24 @@ pub const AppView = enum { tracks, drum_grid, synth_editor, sampler_editor, help
 pub const MacroPending = enum { none, record, play };
 pub const macro_reg_cap = 200;
 const max_macro_depth = 8;
+
+/// One workspace context - which view plus every per-view track binding -
+/// as captured for the `` ` `` alternate jump (vim's alternate-file idiom:
+/// bounce between the last two places you edited). The bindings are
+/// snapshotted wholesale rather than per-view so a jump restores exactly
+/// what the user left, even if they changed the same view's binding in
+/// between (piano roll of track 2 vs. track 5 are different contexts).
+pub const AltContext = struct {
+    view: AppView,
+    cursor: usize,
+    piano_track: u16,
+    drum_track: u16,
+    slicer_track: u16,
+    synth_track: u16,
+    soundfont_track: u16,
+    automation_track: u16,
+    sampler_target: SamplerTarget,
+};
 pub const GridDivision = ws.time_grid.Division;
 
 /// One tracks-view display row: a real track, or a group's own row (its
@@ -495,6 +513,12 @@ pub const App = struct {
     /// re-recorded, and nesting is capped so a register that (indirectly)
     /// replays itself terminates instead of recursing forever.
     macro_replay_depth: u8 = 0,
+    /// The `` ` `` (backtick) alternate: the workspace context the last
+    /// view-switching key departed from. Captured by a single hook in
+    /// handleKey, so every switch path feeds it - editor keys, `:`
+    /// commands, Lua keymaps, replayed macros. Overlay views (pickers,
+    /// help, browser, spectrum submenus) never become an alternate.
+    alt_context: ?AltContext = null,
     /// Arrangement view: bar cursor and horizontal scroll (lane = `cursor`).
     arr_cursor_bar: u32 = 0,
     arr_scroll_bar: u32 = 0,
@@ -894,6 +918,13 @@ pub const App = struct {
         // keymaps identically - and so the register-naming key after q/@
         // can never leak into a view handler.
         if (self.macroIntercept(key_in, now_ns)) return;
+        // Any key that lands in a different workspace view leaves the
+        // departed context behind as the ` (backtick) alternate - one hook
+        // here covers every switch path (see `alt_context`).
+        const departing = self.altSnapshot();
+        defer if (self.view != departing.view and workspaceView(departing.view) and workspaceView(self.view)) {
+            self.alt_context = departing;
+        };
         // ctrl-c (the unbreakable quit path), mouse events, and enter's
         // key-up (a hold-gesture signal, not a chord key - buffering it
         // would break pending keymap chords) bypass user keymaps entirely;
@@ -905,13 +936,15 @@ pub const App = struct {
         self.handleKeyBuiltin(key_in, now_ns);
     }
 
-    /// Which views a bare `q`/`@` may start a recording/replay from: the
-    /// grammar views plus the param editors, where both keys are unbound.
-    /// Overlay views (pickers, help, browser, spectrum submenus) bind `q`
-    /// as "close" and keep it - but once a recording is running, `q` in
-    /// normal mode stops it from ANYWHERE, so stopping is always
-    /// predictable (close overlays with esc while recording).
-    fn macroViewAllows(view: AppView) bool {
+    /// The workspace views - the grammar views plus the param editors, as
+    /// opposed to transient overlays (pickers, help, browser, spectrum
+    /// submenus). Twofold role: only these may anchor the ` alternate
+    /// jump, and only here can a bare `q`/`@` start a macro
+    /// recording/replay (overlays bind `q` as "close" and keep it - but
+    /// once a recording is running, `q` in normal mode stops it from
+    /// ANYWHERE, so stopping is always predictable; close overlays with
+    /// esc while recording).
+    fn workspaceView(view: AppView) bool {
         return switch (view) {
             // zig fmt: off
             .tracks, .piano_roll, .drum_grid, .slicer_grid, .arrangement,
@@ -973,7 +1006,7 @@ pub const App = struct {
                 if (key != .ctrl_c and key != .mouse) self.macroAppend(key);
             }
         }
-        if (self.modal.mode == .normal and key == .char and macroViewAllows(self.view)) {
+        if (self.modal.mode == .normal and key == .char and workspaceView(self.view)) {
             if (key.char == 'q' and self.macro_recording == null and !replaying) {
                 self.macro_pending = .record;
                 self.setStatus("record macro: name it a-z", .{});
@@ -1028,6 +1061,44 @@ pub const App = struct {
                 self.handleKey(k, now_ns);
             }
         }
+    }
+
+    fn altSnapshot(self: *const App) AltContext {
+        return .{
+            // zig fmt: off
+            .view = self.view,
+            .cursor = self.cursor,
+            .piano_track = self.piano_track,
+            .drum_track = self.drum_track,
+            .slicer_track = self.slicer_track,
+            .synth_track = self.synth_track,
+            .soundfont_track = self.soundfont_track,
+            .automation_track = self.automation_track,
+            .sampler_target = self.sampler_target,
+            // zig fmt: on
+        };
+    }
+
+    /// `` ` `` - jump to the alternate workspace context. The handleKey
+    /// hook records the outgoing context as the new alternate, so pressing
+    /// ` again bounces straight back: the last two editing spots toggle.
+    fn jumpAlternate(self: *App) void {
+        const alt = self.alt_context orelse {
+            self.setStatus("no alternate view yet", .{});
+            return;
+        };
+        self.view = alt.view;
+        self.cursor = alt.cursor;
+        self.piano_track = alt.piano_track;
+        self.drum_track = alt.drum_track;
+        self.slicer_track = alt.slicer_track;
+        self.synth_track = alt.synth_track;
+        self.soundfont_track = alt.soundfont_track;
+        self.automation_track = alt.automation_track;
+        self.sampler_target = alt.sampler_target;
+        // A track deleted or re-kinded while away can't be jumped into -
+        // the same staleness bounce every structural edit already uses.
+        self.exitStaleEditors();
     }
 
     /// Consume `key` when it fires or extends a Lua keymap (docs/lua-api.md
@@ -1342,6 +1413,14 @@ pub const App = struct {
         // typing and piano-roll insert notes never trigger it.
         if (self.modal.mode == .normal and self.view != .help and key == .char and key.char == '?') {
             commands.cmdHelp(self, "");
+            return;
+        }
+
+        // `` ` `` jumps to the alternate workspace context from any
+        // workspace view's normal mode (same interception spot as `?`
+        // above: ahead of the view switch, since no view binds backtick).
+        if (self.modal.mode == .normal and key == .char and key.char == '`' and workspaceView(self.view)) {
+            self.jumpAlternate();
             return;
         }
 
