@@ -1308,7 +1308,7 @@ fn apiTrackGet(state: ?*c.lua_State) callconv(.c) c_int {
     const app = requireApp(l);
     const idx = checkTrackIndex(l, 1, app);
     const info = app.apiTrackInfo(idx);
-    c.lua_createtable(l, 0, 7);
+    c.lua_createtable(l, 0, 8);
     _ = c.lua_pushlstring(l, info.name.ptr, info.name.len);
     c.lua_setfield(l, -2, "name");
     _ = c.lua_pushlstring(l, info.kind.ptr, info.kind.len);
@@ -1321,6 +1321,8 @@ fn apiTrackGet(state: ?*c.lua_State) callconv(.c) c_int {
     c.lua_setfield(l, -2, "muted");
     c.lua_pushboolean(l, @intFromBool(info.soloed));
     c.lua_setfield(l, -2, "soloed");
+    c.lua_pushboolean(l, @intFromBool(info.armed));
+    c.lua_setfield(l, -2, "armed");
     if (info.group) |g| {
         c.lua_pushinteger(l, g);
         c.lua_setfield(l, -2, "group");
