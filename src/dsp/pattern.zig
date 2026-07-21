@@ -213,6 +213,36 @@ pub const PatternPlayer = struct {
         return removed;
     }
 
+    /// Move every note whose start_beat falls in [lo_beat, hi_beat) by
+    /// `dpitch` semitones and `dbeat` beats (UI thread) - the piano roll's
+    /// visual-mode transpose (j/k/J/K) and time-slide (`<`/`>`). All-or-
+    /// nothing: returns null without touching anything if any note in the
+    /// range would leave the MIDI pitch range or the pattern's [0, length)
+    /// window, so a chord shape can never be clamped into a cluster.
+    /// Otherwise returns the count moved.
+    pub fn shiftNotesInRange(self: *PatternPlayer, lo_beat: f64, hi_beat: f64, dpitch: i32, dbeat: f64) ?u16 {
+        while (!self.notes_lock.tryLock()) std.atomic.spinLoopHint();
+        defer self.notes_lock.unlock();
+        for (self.notes[0..self.note_count]) |n| {
+            if (n.start_beat < lo_beat or n.start_beat >= hi_beat) continue;
+            const p = @as(i32, n.pitch) + dpitch;
+            if (p < 0 or p > 127) return null;
+            const b = n.start_beat + dbeat;
+            if (b < -1e-9 or b >= self.length_beats - 1e-9) return null;
+        }
+        var moved: u16 = 0;
+        for (self.notes[0..self.note_count]) |*n| {
+            if (n.start_beat < lo_beat or n.start_beat >= hi_beat) continue;
+            if (dpitch != 0) {
+                self.queueNoteOff(n.pitch);
+                n.pitch = @intCast(@as(i32, n.pitch) + dpitch);
+            }
+            n.start_beat = @max(0.0, n.start_beat + dbeat);
+            moved += 1;
+        }
+        return moved;
+    }
+
     fn queueNoteOff(self: *PatternPlayer, pitch: u7) void {
         const word: usize = pitch / 64;
         const bit = @as(u64, 1) << @intCast(pitch % 64);

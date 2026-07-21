@@ -206,6 +206,15 @@ fn handleVisual(app: *App, key: modal_mod.Key, lane_count: usize) bool {
             'L' => { moveBar(app, 4 * app.takeCount()); return true; },
             'j' => { moveLane(app, lane_count, app.takeCount()); return true; },
             'k' => { moveLane(app, lane_count, -app.takeCount()); return true; },
+            // vim's `o`: bounce the cursor to the selection's other end
+            // (see the drum grid's identical arm).
+            'o' => {
+                if (app.arr_visual_anchor) |a| {
+                    app.arr_visual_anchor = app.arr_cursor_bar;
+                    app.arr_cursor_bar = a;
+                }
+                return true;
+            },
             'y' => { yankSelection(app); return true; },
             'd' => { deleteSelection(app); return true; },
             'p', 'P' => { pasteSelection(app); return true; },

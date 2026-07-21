@@ -287,6 +287,15 @@ fn handleVisual(app: *App, key: modal_mod.Key, clip: *ws.Clip) bool {
             'G' => { app.automation_cursor_step = maxStep(app, clip); return true; },
             'w' => { jumpBar(app, clip, app.takeCount()); return true; },
             'b' => { jumpBar(app, clip, -app.takeCount()); return true; },
+            // vim's `o`: bounce the cursor to the selection's other end
+            // (see the drum grid's identical arm).
+            'o' => {
+                if (app.automation_visual_anchor) |a| {
+                    app.automation_visual_anchor = app.automation_cursor_step;
+                    app.automation_cursor_step = a;
+                }
+                return true;
+            },
             'y' => { yankSelection(app, clip); return true; },
             'd' => { deleteSelection(app, clip); return true; },
             'p', 'P' => { pasteSelection(app, clip); return true; },

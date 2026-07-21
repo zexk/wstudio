@@ -473,6 +473,15 @@ fn handleVisual(app: *App, key: modal_mod.Key) bool {
                 if (sl.step_count > 0) app.slicer_cursor[1] = sl.step_count - 1;
                 return true;
             },
+            // vim's `o`: bounce the cursor to the selection's other end
+            // (see the drum grid's identical arm).
+            'o' => {
+                if (app.slicer_visual_anchor) |a| {
+                    app.slicer_visual_anchor = app.slicer_cursor[1];
+                    app.slicer_cursor[1] = a;
+                }
+                return true;
+            },
             'y' => { yankSelection(app); return true; },
             'd' => { deleteSelection(app); return true; },
             'p', 'P' => { pasteSelection(app); return true; },
