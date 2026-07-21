@@ -61,6 +61,16 @@ pub const StreamDecoder = struct {
         std.mem.copyForwards(u8, self.pending[0 .. self.pending_len - used], self.pending[used..self.pending_len]);
         self.pending_len -= used;
     }
+
+    /// How many more input bytes `feed` can hold. The read loop must cap
+    /// each read at this: `pending` drains only as fast as the caller's
+    /// key buffer allows, so a burst bigger than both (a long paste) would
+    /// otherwise overflow it and the overflow is dropped, not kept. Under
+    /// back-pressure the unread tail just waits in the kernel's own input
+    /// buffer.
+    pub fn free(self: *const StreamDecoder) usize {
+        return self.pending.len - self.pending_len;
+    }
 };
 
 /// Parses the parameter block of an SGR mouse report (everything between the
@@ -402,6 +412,29 @@ test "stream decoder keeps a burst's tail when the key buffer fills" {
     try std.testing.expectEqual(Key{ .char = 'x' }, keys[1]);
     try std.testing.expectEqual(@as(usize, 1), decoder.feed("", &keys));
     try std.testing.expectEqual(Key.enter, keys[0]);
+}
+
+test "a paste larger than the pending buffer survives free()-capped reads" {
+    var decoder: StreamDecoder = .{};
+    var source: [400]u8 = undefined;
+    @memset(source[0 .. source.len - 1], 'x');
+    source[source.len - 1] = '\r';
+
+    // Mirror main.zig's read loop: each poll reads at most min(128, free())
+    // bytes and takes at most 64 keys - the burst must come through whole.
+    var keys: [64]Key = undefined;
+    var fed: usize = 0;
+    var got: usize = 0;
+    var last: ?Key = null;
+    while (fed < source.len or decoder.pending_len > 0) {
+        const want = @min(@as(usize, 128), @min(decoder.free(), source.len - fed));
+        const n = decoder.feed(source[fed..][0..want], &keys);
+        fed += want;
+        if (n > 0) last = keys[n - 1];
+        got += n;
+    }
+    try std.testing.expectEqual(source.len, got);
+    try std.testing.expectEqual(Key.enter, last.?);
 }
 
 test "decode Home/End CSI sequences" {
