@@ -5600,6 +5600,63 @@ test "mouse drag moves an arrangement clip" {
     try std.testing.expect(app.arr_drag_bar == null);
 }
 
+test "right-click always erases a drum step, and a right-drag erases a run of them" {
+    var app = try testApp();
+    defer app.deinit();
+    app.drum_track = 2;
+    app.view = .drum_grid;
+
+    const dm = app.drumMachine();
+    dm.toggleStep(0, 1); // step 1 starts ON, so a plain toggle would turn it back on
+    try std.testing.expect(dm.stepActive(0, 1));
+    try std.testing.expect(!dm.stepActive(0, 2));
+
+    // Same cell geometry as the left-click paint test above.
+    const row = app_mod.content_top + 2;
+    app.handleMouse(.{ .x = 15, .y = row, .button = .right, .kind = .press }, 80, 24, 0);
+    try std.testing.expect(!dm.stepActive(0, 1));
+
+    app.handleMouse(.{ .x = 18, .y = row, .button = .right, .kind = .drag }, 80, 24, 0);
+    try std.testing.expect(!dm.stepActive(0, 2)); // was already off, stays off
+
+    app.handleMouse(.{ .x = 18, .y = row, .button = .right, .kind = .release }, 80, 24, 0);
+    try std.testing.expect(app.drum_paint_state == null);
+}
+
+test "right-click deletes a piano-roll note without needing a grab/release cycle" {
+    var app = try testApp();
+    defer app.deinit();
+    app.piano_track = 0;
+    app.view = .piano_roll;
+    app.piano_scroll_step = 0;
+    app.piano_scroll_pitch = 72;
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    pp.addNote(.{ .pitch = 72, .start_beat = 0.0, .duration_beat = 0.25 });
+
+    app.handleMouse(.{ .x = 7, .y = app_mod.content_top + 3, .button = .right, .kind = .press }, 80, 24, 0);
+    try std.testing.expectEqual(@as(u16, 0), pp.note_count);
+    try std.testing.expect(!app.piano_grab); // no grab session was ever opened
+}
+
+test "right-click cuts an arrangement clip without starting a drag" {
+    var app = try testApp();
+    defer app.deinit();
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.5 });
+    try app.session.stampClip(0, 0); // 1-bar clip at bar 0, lane 0
+
+    app.view = .arrangement;
+    app.cursor = 0;
+    app.arr_scroll_bar = 0;
+    const lane = app.session.arrangement.lane(0).?;
+    try std.testing.expect(lane.clipAt(0) != null);
+
+    const row = app_mod.content_top + 2;
+    app.handleMouse(.{ .x = 14, .y = row, .button = .right, .kind = .press }, 80, 24, 0);
+    try std.testing.expect(lane.clipAt(0) == null);
+    try std.testing.expect(app.arr_drag_bar == null);
+}
+
 test "mouse scroll over a synth param row selects and nudges it" {
     var app = try testApp();
     defer app.deinit();

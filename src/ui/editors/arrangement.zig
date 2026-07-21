@@ -669,9 +669,11 @@ fn barAt(scroll_bar: u32, x: usize, cw: usize) ?u32 {
 /// Click a cell to move the (lane, bar) cursor there - no auto-stamp;
 /// stamping a clip stays a deliberate `enter`. Press on a cell covered by a
 /// clip starts tracking a drag; each motion event feeds the incremental bar
-/// delta into the existing `moveClip`. Scroll moves the bar cursor, or -
-/// over the lane-name gutter - the lane cursor, regardless of which row the
-/// mouse sits on.
+/// delta into the existing `moveClip`. **Right**-click cuts whatever clip
+/// covers the clicked bar instead (reusing `deleteClip`, same as `x`) - no
+/// drag tracking starts for it. Scroll moves the bar cursor, or - over the
+/// lane-name gutter - the lane cursor, regardless of which row the mouse
+/// sits on.
 pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16) void {
     _ = cols; // column count is derived from scroll + cell width, not terminal-width-dependent
     const lane_count = app.session.project.tracks.items.len;
@@ -696,6 +698,10 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16) v
         .press => {
             app.cursor = lane;
             if (barAt(app.arr_scroll_bar, ev.x, cw)) |bar| app.arr_cursor_bar = bar;
+            if (ev.button == .right) {
+                deleteClip(app);
+                return;
+            }
             const has_clip = if (app.session.arrangement.lane(lane)) |l|
                 l.clipAt(cursorTick(app)) != null
             else
