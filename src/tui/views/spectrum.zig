@@ -80,27 +80,6 @@ fn brailleBar(rem: usize) u21 {
     return @as(u21, 0x2800) | @as(u21, bits);
 }
 
-/// Section-divider label for the focused unit's editor body.
-fn sectionLabel(k: ws.FxKind) []const u8 {
-    return switch (k) {
-        .gate => "GATE",
-        .comp => "COMPRESSOR",
-        .mb_comp => "MULTIBAND COMP",
-        .ott => "OTT",
-        .eq => "EQ + SPECTRUM",
-        .sat => "SATURATOR",
-        .crush => "CRUSHER",
-        .chorus => "CHORUS",
-        .flanger => "FLANGER",
-        .tape => "TAPE",
-        .phaser => "PHASER",
-        .freq_shift => "FREQ SHIFT",
-        .delay => "DELAY",
-        .reverb => "REVERB",
-        .clap => "CLAP PLUGIN",
-    };
-}
-
 /// Accent colour per unit kind - used by its section divider and param bars.
 fn sectionColor(k: ws.FxKind) []const u8 {
     return switch (k) {
@@ -259,7 +238,7 @@ pub fn drawFxView(
         body_lines = 3;
     } else if (focused.?.kind() == .eq) {
         const unit = focused.?;
-        try synthSection(w, sectionLabel(.eq), sectionColor(.eq));
+        try synthSection(w, spectrum_ed.editorTitle(.eq), sectionColor(.eq));
         // The EQ unit's editor: live spectrum graph up top, the 8 band
         // columns underneath. The analyzer only runs while an EQ has focus
         // (editors/spectrum.zig parks it on focus change).
@@ -444,7 +423,11 @@ pub fn drawFxView(
         try synthSection(w, hdr, sectionColor(.eq));
 
         const kind_idx = cur_band * spectrum_ed.eq_fields_per_band + spectrum_ed.eq_field_kind;
-        const kind_names = [_][]const u8{ "peak", "lowpass", "highpass" };
+        const kind_names = [_][]const u8{
+            spectrum_ed.eq_kind_specs[0].label,
+            spectrum_ed.eq_kind_specs[1].label,
+            spectrum_ed.eq_kind_specs[2].label,
+        };
         // zig fmt: off
         try enumRow(w, in_submenu and cur_field == spectrum_ed.eq_field_kind, false, sectionColor(.eq), "kind", &kind_names,
             @intFromFloat(@round(spectrum_ed.getParam(&unit.payload, kind_idx))));
@@ -464,7 +447,7 @@ pub fn drawFxView(
     } else {
         const unit = focused.?;
         const k = unit.kind();
-        try synthSection(w, sectionLabel(k), sectionColor(k));
+        try synthSection(w, spectrum_ed.editorTitle(k), sectionColor(k));
         // One synth-editor-style bar per param, filled against the
         // same [min, max] setParam clamps to.
         const visible_count = spectrum_ed.visibleParamCount(app, k, &unit.payload);

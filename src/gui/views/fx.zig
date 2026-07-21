@@ -121,7 +121,7 @@ const kindAccent = style.fxKindAccent;
 
 fn drawEditor(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit) void {
     const accent = kindAccent(unit.kind());
-    zgui.textColored(accent, "{s}", .{spectrum_ed.unitLabel(unit.kind())});
+    zgui.textColored(accent, "{s}", .{spectrum_ed.editorTitle(unit.kind())});
     zgui.sameLine(.{});
     zgui.textDisabled("unit {d}  {s}", .{ app.core.fx_focus + 1, if (unit.bypassed) "BYPASSED" else "ACTIVE" });
     zgui.sameLine(.{ .spacing = 18 });
@@ -189,7 +189,7 @@ fn drawEffectDisplay(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUni
         point.* = .{ origin[0] + t * size[0], origin[1] + (1.0 - y) * height };
     }
     draw_list.addPolyline(&points, .{ .col = color(accent), .thickness = 2.5 });
-    draw_list.addText(.{ origin[0] + 10, origin[1] + 8 }, color(theme.fg2), "{s}", .{effectDisplayLabel(unit.kind())});
+    draw_list.addText(.{ origin[0] + 10, origin[1] + 8 }, color(theme.fg2), "{s}", .{spectrum_ed.effectSpec(unit.kind()).display_label});
     draw_list.addText(.{ origin[0] + 10, origin[1] + height - 24 }, color(theme.fg3), "IN", .{});
     draw_list.addText(.{ origin[0] + size[0] - 34, origin[1] + 8 }, color(theme.fg3), "OUT", .{});
 }
@@ -212,18 +212,6 @@ fn effectDisplayValue(kind: ws.FxKind, t: f32, amount: f32, shape: f32) f32 {
         .reverb => std.math.clamp(@exp(-t * (0.8 + (1.0 - amount) * 4.0)) * (0.7 + 0.2 * @sin(t * std.math.pi * 26.0)), 0, 1),
         .eq => t,
         .clap => t,
-    };
-}
-
-fn effectDisplayLabel(kind: ws.FxKind) []const u8 {
-    return switch (kind) {
-        .gate, .comp, .mb_comp, .ott => "TRANSFER",
-        .sat, .tape, .crush => "SHAPER",
-        .chorus, .flanger, .phaser, .freq_shift => "MODULATION",
-        .delay => "ECHO DECAY",
-        .reverb => "ROOM DECAY",
-        .eq => "RESPONSE",
-        .clap => "PLUGIN",
     };
 }
 
@@ -401,7 +389,7 @@ fn drawEqBandStrip(app: anytype, unit: *ws.FxUnit, selected_band: usize) void {
         var freq_buf: [12]u8 = undefined;
         const freq = spectrum_ed.compactHz(&freq_buf, band.freq);
         var label_buf: [48]u8 = undefined;
-        const label = std.fmt.bufPrintZ(&label_buf, "{d} {s}\n{s}##eq-band-{d}", .{ i + 1, eqBandKindShort(band.kind), freq, i }) catch continue;
+        const label = std.fmt.bufPrintZ(&label_buf, "{d} {s}\n{s}##eq-band-{d}", .{ i + 1, spectrum_ed.eq_kind_specs[@intFromEnum(band.kind)].short_label, freq, i }) catch continue;
         if (zgui.button(label, .{ .w = width, .h = 44 })) {
             app.core.fx_param = i * spectrum_ed.eq_fields_per_band + spectrum_ed.eq_field_freq;
             app.core.eq_band_select = false;
@@ -415,23 +403,18 @@ fn drawEqBandControls(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUn
     const accent = eqBandColor(band_index);
     zgui.textColored(accent, "BAND {d}", .{band_index + 1});
     zgui.sameLine(.{});
-    zgui.textDisabled("{s}", .{eqBandKindLabel(band.kind)});
+    zgui.textDisabled("{s}", .{spectrum_ed.eq_kind_specs[@intFromEnum(band.kind)].title});
     zgui.separator();
 
-    const types = [_]struct { label: [:0]const u8, value: f32 }{
-        .{ .label = "BELL", .value = 0 },
-        .{ .label = "HIGH CUT", .value = 1 },
-        .{ .label = "LOW CUT", .value = 2 },
-    };
     const kind_idx = band_index * spectrum_ed.eq_fields_per_band + spectrum_ed.eq_field_kind;
-    for (types, 0..) |entry, i| {
+    for (spectrum_ed.eq_kind_specs, 0..) |entry, i| {
         if (i > 0) zgui.sameLine(.{ .spacing = 5 });
-        const active = @as(u8, @intFromEnum(band.kind)) == @as(u8, @intFromFloat(entry.value));
+        const active = @intFromEnum(band.kind) == i;
         zgui.pushStyleColor4f(.{ .idx = .button, .c = if (active) accent else theme.bg2 });
         zgui.pushStyleColor4f(.{ .idx = .text, .c = if (active) theme.bg0 else theme.fg2 });
-        if (zgui.button(entry.label, .{ .h = 32 }) and !active) {
+        if (zgui.button(entry.action_label, .{ .h = 32 }) and !active) {
             history.noteFxNudge(&app.core, target, app.core.fx_focus, kind_idx);
-            spectrum_ed.setParam(&app.core, &unit.payload, kind_idx, entry.value);
+            spectrum_ed.setParam(&app.core, &unit.payload, kind_idx, @floatFromInt(i));
             app.core.fx_param = kind_idx;
             app.core.dirty = true;
             syncChain(app, target);
@@ -475,22 +458,6 @@ fn eqBandColor(index: usize) [4]f32 {
         rgb(0x72aaa8), rgb(0x759bc2), rgb(0x967fc0), rgb(0xbb7fae),
     };
     return palette[index % palette.len];
-}
-
-fn eqBandKindShort(kind: ws.dsp.eq.BandKind) []const u8 {
-    return switch (kind) {
-        .peak => "BELL",
-        .lowpass => "HC",
-        .highpass => "LC",
-    };
-}
-
-fn eqBandKindLabel(kind: ws.dsp.eq.BandKind) []const u8 {
-    return switch (kind) {
-        .peak => "BELL FILTER",
-        .lowpass => "HIGH CUT FILTER",
-        .highpass => "LOW CUT FILTER",
-    };
 }
 
 fn eqBandPoint(origin: [2]f32, size: [2]f32, band: anytype) [2]f32 {
