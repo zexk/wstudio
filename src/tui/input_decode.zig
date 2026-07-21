@@ -43,15 +43,23 @@ pub const StreamDecoder = struct {
         if (bytes.len == 0 and self.pending_len > 0 and self.pending[0] == 0x1b and end == 0) {
             if (out.len == 0) return 0;
             out[0] = .escape;
-            const tail_count = decode(self.pending[1..self.pending_len], out[1..]);
-            self.pending_len = 0;
-            return tail_count + 1;
+            const res = decodeTracked(self.pending[1..self.pending_len], out[1..]);
+            self.drop(1 + res.used);
+            return res.keys + 1;
         }
 
-        const count = decode(self.pending[0..end], out);
-        std.mem.copyForwards(u8, self.pending[0 .. self.pending_len - end], self.pending[end..self.pending_len]);
-        self.pending_len -= end;
-        return count;
+        // Consume only what actually fit into `out`: a burst bigger than
+        // the caller's key buffer (a paste into the command prompt) keeps
+        // its tail pending for the next poll instead of silently dropping
+        // it - losing the paste's trailing enter was a real bug.
+        const res = decodeTracked(self.pending[0..end], out);
+        self.drop(res.used);
+        return res.keys;
+    }
+
+    fn drop(self: *StreamDecoder, used: usize) void {
+        std.mem.copyForwards(u8, self.pending[0 .. self.pending_len - used], self.pending[used..self.pending_len]);
+        self.pending_len -= used;
     }
 };
 
@@ -214,6 +222,15 @@ fn parseCsiU(params: []const u8) ?Key {
 /// other CSI sequences are dropped. Returns the number of keys written to
 /// `out`.
 pub fn decode(bytes: []const u8, out: []Key) usize {
+    return decodeTracked(bytes, out).keys;
+}
+
+const DecodeResult = struct { keys: usize, used: usize };
+
+/// decode plus how many input bytes were consumed - `used` < bytes.len
+/// exactly when `out` filled up first, so StreamDecoder.feed can keep the
+/// unconsumed tail pending instead of dropping it.
+fn decodeTracked(bytes: []const u8, out: []Key) DecodeResult {
     var count: usize = 0;
     var i: usize = 0;
     while (i < bytes.len and count < out.len) {
@@ -302,7 +319,7 @@ pub fn decode(bytes: []const u8, out: []Key) usize {
             else => i += 1, // drop other control bytes
         }
     }
-    return count;
+    return .{ .keys = count, .used = i };
 }
 
 test "decode printable, enter, backspace, ctrl-c, ctrl-w, ctrl-r, tab" {
@@ -370,6 +387,21 @@ test "stream decoder times out a truncated CSI without swallowing later keys" {
 
     try std.testing.expectEqual(@as(usize, 1), decoder.feed("a", &keys));
     try std.testing.expectEqual(Key{ .char = 'a' }, keys[0]);
+}
+
+test "stream decoder keeps a burst's tail when the key buffer fills" {
+    var decoder: StreamDecoder = .{};
+    var keys: [2]Key = undefined;
+    // 5 keys arrive at once but the caller only takes 2 per poll - nothing
+    // may be dropped (a paste's trailing enter used to vanish with it).
+    try std.testing.expectEqual(@as(usize, 2), decoder.feed(":w x\r", &keys));
+    try std.testing.expectEqual(Key{ .char = ':' }, keys[0]);
+    try std.testing.expectEqual(Key{ .char = 'w' }, keys[1]);
+    try std.testing.expectEqual(@as(usize, 2), decoder.feed("", &keys));
+    try std.testing.expectEqual(Key{ .char = ' ' }, keys[0]);
+    try std.testing.expectEqual(Key{ .char = 'x' }, keys[1]);
+    try std.testing.expectEqual(@as(usize, 1), decoder.feed("", &keys));
+    try std.testing.expectEqual(Key.enter, keys[0]);
 }
 
 test "decode Home/End CSI sequences" {
