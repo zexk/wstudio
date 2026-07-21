@@ -123,6 +123,7 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "%d",          .desc = "erase all notes in the pattern (alias for :clear)",  .run = wrap(cmdClear) },
     .{ .name = "humanize",    .desc = "[amount]  jitter the pattern's note timing/velocity 0-100% (default 15)", .run = wrap(cmdHumanize) },
     .{ .name = "swing",       .desc = "[percent]  piano-roll pattern swing 50-75% (default 50, straight) - matches the drum machine's", .run = wrap(cmdSwing) },
+    .{ .name = "reverse",     .desc = "retrograde: mirror the pattern in time (visual-mode r reverses just the selection)", .run = wrap(cmdReverse) },
     .{ .name = "import-midi", .desc = "<file>  replace the pattern with a Standard MIDI File's notes",     .run = wrap(cmdImportMidi) },
     .{ .name = "export-midi", .desc = "<file>  write the pattern as a Standard MIDI File",                 .run = wrap(cmdExportMidi) },
     .{ .name = "metronome",   .desc = "[on|off]  toggle the click track",                   .run = wrap(cmdMetronome) },
@@ -399,6 +400,35 @@ fn cmdHumanize(app: *App, args: []const u8) void {
     pp.humanize(amount, step_beats, seed);
     app.setStatus("humanized {d} notes ({d:.0}%)", .{ pp.note_count, amount });
     piano_ed.syncLinkedClip(app);
+}
+
+/// `:reverse` - retrograde. A melodic pattern (piano roll open, or the
+/// cursor on a melodic track) mirrors in time so the figure plays
+/// backwards; a drum machine mirrors its whole grid, all pads. Reversing a
+/// slice of the piano roll is visual-mode `r` (the `:` prompt isn't
+/// reachable from visual mode).
+fn cmdReverse(app: *App, _: []const u8) void {
+    // Same track-resolution rule as :clear, falling through to the drum
+    // machine so the command also works from the tracks and drum views.
+    const track: usize = if (app.view == .piano_roll) app.piano_track else app.cursor;
+    const melodic = app.view != .drum_grid and track < app.session.racks.items.len and
+        app.session.racks.items[track].pattern_player != null;
+    if (melodic) {
+        const pp = &app.session.racks.items[track].pattern_player.?;
+        history.recordMelodic(app, @intCast(track));
+        const moved = pp.reverseNotesInRange(0.0, pp.length_beats);
+        app.setStatus("reversed {d} notes", .{moved});
+        piano_ed.syncLinkedClip(app);
+        return;
+    }
+    if (cursorDrumTrack(app)) |drum_track| {
+        const dm = cursorDrumMachine(app).?;
+        history.push(app, history.captureDrum(app, drum_track));
+        dm.reversePattern();
+        app.setStatus("reversed the drum pattern", .{});
+        return;
+    }
+    app.setStatus("reverse: no pattern here", .{});
 }
 
 /// `:swing [percent]` - sets the piano-roll pattern's swing, 50 (straight,

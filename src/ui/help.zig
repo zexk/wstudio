@@ -306,6 +306,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("v",            "visual mode: select a step range (all pitches) - y/d/p");
     t.key("(visual) j/k/J/K", "transpose the selected notes a semitone / octave (stays selected - count works)");
     t.key("(visual) < / >", "slide the selected notes a step earlier / later (selection follows)");
+    t.key("(visual) r",   "reverse the selected notes in time (retrograde; r again flips it back)");
     t.key("(visual) o",   "jump to the selection's other end (also in drum/slicer/arrangement/automation)");
     t.key("[count]p",     "after a range yank: paste count copies back-to-back (3p tiles a bar three times)");
     t.key(".",            "repeat the last nudge, drag, or visual range delete/paste");

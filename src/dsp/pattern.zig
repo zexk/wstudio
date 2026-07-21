@@ -246,6 +246,27 @@ pub const PatternPlayer = struct {
         return moved;
     }
 
+    /// Time-mirror (retrograde) every note whose start falls in [lo_beat,
+    /// hi_beat): a note occupying [s, s+d) maps to [lo+hi-s-d, lo+hi-s),
+    /// so it ends where it used to begin and the figure plays backwards.
+    /// A note whose tail overhangs the range clamps to the range start
+    /// instead of escaping left of it. Returns the count moved (UI thread).
+    pub fn reverseNotesInRange(self: *PatternPlayer, lo_beat: f64, hi_beat: f64) u16 {
+        if (!std.math.isFinite(lo_beat) or !std.math.isFinite(hi_beat) or hi_beat <= lo_beat) return 0;
+        while (!self.notes_lock.tryLock()) std.atomic.spinLoopHint();
+        defer self.notes_lock.unlock();
+        var moved: u16 = 0;
+        for (self.notes[0..self.note_count]) |*n| {
+            if (n.start_beat < lo_beat or n.start_beat >= hi_beat) continue;
+            // Same stuck-note hazard as shiftNotesInRange: the off boundary
+            // moves too, so choke anything sounding before it goes.
+            self.queueNoteOff(n.pitch);
+            n.start_beat = @max(lo_beat, lo_beat + hi_beat - n.start_beat - n.duration_beat);
+            moved += 1;
+        }
+        return moved;
+    }
+
     fn queueNoteOff(self: *PatternPlayer, pitch: u7) void {
         const word: usize = pitch / 64;
         const bit = @as(u64, 1) << @intCast(pitch % 64);
@@ -579,6 +600,45 @@ test "note mutation APIs sanitize non-finite playback data" {
     pp.setSongNotes(&.{bad}, std.math.inf(f64));
     try std.testing.expectEqual(@as(f64, 0.0), pp.song_length_beats);
     try std.testing.expect(std.math.isFinite(pp.song_notes[0].start_beat));
+}
+
+test "reverseNotesInRange mirrors a figure so it plays backwards" {
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    var pp = PatternPlayer.init(synth.device(), &transport);
+    pp.length_beats = 4.0;
+    // Quarter notes at beats 0, 1, 2 - an ascending run.
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 1.0 });
+    pp.addNote(.{ .pitch = 64, .start_beat = 1.0, .duration_beat = 1.0 });
+    pp.addNote(.{ .pitch = 67, .start_beat = 2.0, .duration_beat = 1.0 });
+
+    // Whole-pattern retrograde: 60 ends at beat 1 -> now ends at 4 (starts 3).
+    try std.testing.expectEqual(@as(u16, 3), pp.reverseNotesInRange(0.0, 4.0));
+    try std.testing.expectApproxEqAbs(@as(f64, 3.0), pp.notes[0].start_beat, 1e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 2.0), pp.notes[1].start_beat, 1e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 1.0), pp.notes[2].start_beat, 1e-9);
+
+    // Reversing twice restores the original figure.
+    _ = pp.reverseNotesInRange(0.0, 4.0);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.0), pp.notes[0].start_beat, 1e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 2.0), pp.notes[2].start_beat, 1e-9);
+
+    // Partial range only touches notes starting inside it.
+    _ = pp.reverseNotesInRange(0.0, 2.0);
+    try std.testing.expectApproxEqAbs(@as(f64, 1.0), pp.notes[0].start_beat, 1e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.0), pp.notes[1].start_beat, 1e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 2.0), pp.notes[2].start_beat, 1e-9);
+
+    // A note overhanging the range clamps to the range start.
+    pp.clearNotes();
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 3.0 });
+    _ = pp.reverseNotesInRange(0.0, 2.0);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.0), pp.notes[0].start_beat, 1e-9);
+
+    // Degenerate/invalid ranges are no-ops.
+    try std.testing.expectEqual(@as(u16, 0), pp.reverseNotesInRange(2.0, 2.0));
+    try std.testing.expectEqual(@as(u16, 0), pp.reverseNotesInRange(0.0, std.math.nan(f64)));
 }
 
 test "humanize jitters timing/velocity within bounds; 0% is a no-op" {
