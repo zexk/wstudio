@@ -125,6 +125,7 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "swing",       .desc = "[percent]  piano-roll pattern swing 50-75% (default 50, straight) - matches the drum machine's", .run = wrap(cmdSwing) },
     .{ .name = "reverse",     .desc = "retrograde: mirror the pattern in time (visual-mode r reverses just the selection)", .run = wrap(cmdReverse) },
     .{ .name = "vel-ramp",    .desc = "<from> <to>  velocity ramp 0-100% across the pattern's notes (drum view: the cursor pad's hits)", .run = wrap(cmdVelRamp) },
+    .{ .name = "legato",      .desc = "extend every note to the next onset - gapless phrasing, no more staccato gaps", .run = wrap(cmdLegato) },
     .{ .name = "import-midi", .desc = "<file>  replace the pattern with a Standard MIDI File's notes",     .run = wrap(cmdImportMidi) },
     .{ .name = "export-midi", .desc = "<file>  write the pattern as a Standard MIDI File",                 .run = wrap(cmdExportMidi) },
     .{ .name = "metronome",   .desc = "[on|off]  toggle the click track",                   .run = wrap(cmdMetronome) },
@@ -482,6 +483,27 @@ fn cmdVelRamp(app: *App, args: []const u8) void {
         return;
     }
     app.setStatus("vel-ramp: no pattern here", .{});
+}
+
+/// `:legato` - extend every note in the pattern to the next note's onset (any
+/// pitch), closing staccato gaps so a line plays gapless. Chords sharing a
+/// start all reach the same next onset; the pattern's last onset extends to
+/// the loop end. Melodic only - a drum hit has no "next note" to reach for,
+/// so this doesn't fall through to the drum machine like `:reverse`/
+/// `:vel-ramp` do. Same track-resolution rule as `:clear`.
+fn cmdLegato(app: *App, _: []const u8) void {
+    const track: usize = if (app.view == .piano_roll) app.piano_track else app.cursor;
+    if (track >= app.session.racks.items.len or
+        app.session.racks.items[track].pattern_player == null)
+    {
+        app.setStatus("legato: no piano-roll pattern", .{});
+        return;
+    }
+    const pp = &app.session.racks.items[track].pattern_player.?;
+    history.recordMelodic(app, @intCast(track));
+    const changed = pp.legato(0.0, pp.length_beats);
+    app.setStatus("legato: extended {d} notes", .{changed});
+    piano_ed.syncLinkedClip(app);
 }
 
 /// `:swing [percent]` - sets the piano-roll pattern's swing, 50 (straight,
