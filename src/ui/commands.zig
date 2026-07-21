@@ -121,8 +121,8 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "bounce",       .desc = "[file] [16|24]  render session to WAV (default: bounce.wav, 16-bit)", .run = wrap(cmdBounce) },
     .{ .name = "export",       .desc = "[file] [16|24]  render session to WAV (alias for :bounce)",          .run = wrap(cmdBounce) },
     .{ .name = "bounce-stems", .desc = "[dir] [16|24]  render each non-empty track soloed to <dir>/<track>.wav (default: stems/)", .run = wrap(cmdBounceStems) },
-    .{ .name = "clear",       .desc = "erase all notes in the piano-roll pattern",          .run = wrap(cmdClear) },
-    .{ .name = "%d",          .desc = "erase all notes in the pattern (alias for :clear)",  .run = wrap(cmdClear) },
+    .{ .name = "clear",       .desc = "erase all notes in the piano-roll pattern, or every pad in a drum machine", .run = wrap(cmdClear) },
+    .{ .name = "%d",          .desc = "erase all notes/hits in the pattern (alias for :clear)",  .run = wrap(cmdClear) },
     .{ .name = "humanize",    .desc = "[amount]  jitter the pattern's note timing/velocity 0-100% (default 15)", .run = wrap(cmdHumanize) },
     .{ .name = "quantize",    .desc = "[strength]  snap the pattern's notes to the current grid 0-100% (default 100, hard snap)", .run = wrap(cmdQuantize) },
     .{ .name = "swing",       .desc = "[percent]  piano-roll pattern swing 50-75% (default 50, straight) - matches the drum machine's", .run = wrap(cmdSwing) },
@@ -362,22 +362,33 @@ fn newOrForce(app: *App, force: bool) void {
     app.requestReload(null);
 }
 
+/// `:clear` - erase every note in a melodic pattern, or (same
+/// track-resolution rule as `:reverse`) wipe every pad in a drum machine
+/// when there's no melodic pattern to clear - the fast way back to a blank
+/// kit instead of clearing pads one by one.
 fn cmdClear(app: *App, _: []const u8) void {
     // In the piano roll, clear the pattern being edited; elsewhere, the
     // cursor track's pattern.
     const track: usize = if (app.view == .piano_roll) app.piano_track else app.cursor;
-    if (track >= app.session.racks.items.len or
-        app.session.racks.items[track].pattern_player == null)
-    {
-        app.setStatus("clear: no piano-roll pattern", .{});
+    const melodic = app.view != .drum_grid and track < app.session.racks.items.len and
+        app.session.racks.items[track].pattern_player != null;
+    if (melodic) {
+        const pp = &app.session.racks.items[track].pattern_player.?;
+        const n = pp.note_count;
+        history.recordMelodic(app, @intCast(track));
+        pp.clearNotes();
+        app.setStatus("cleared {d} notes", .{n});
+        piano_ed.syncLinkedClip(app);
         return;
     }
-    const pp = &app.session.racks.items[track].pattern_player.?;
-    const n = pp.note_count;
-    history.recordMelodic(app, @intCast(track));
-    pp.clearNotes();
-    app.setStatus("cleared {d} notes", .{n});
-    piano_ed.syncLinkedClip(app);
+    if (cursorDrumTrack(app)) |drum_track| {
+        const dm = cursorDrumMachine(app).?;
+        history.push(app, history.captureDrum(app, drum_track));
+        const n = dm.clearKit();
+        app.setStatus("cleared {d} hits", .{n});
+        return;
+    }
+    app.setStatus("clear: no pattern here", .{});
 }
 
 /// `:humanize [amount]` - jitters every note in the pattern's timing (±amount%

@@ -669,6 +669,19 @@ pub const DrumMachine = struct {
         for (self.midi[pad], 0..) |*note, step| note.* = gridNote(pad, @intCast(step), vel_full);
     }
 
+    /// Wipe every pad's row - `:clear`'s whole-kit counterpart to
+    /// `clearPad`. Returns the total hit count removed, for the status line.
+    pub fn clearKit(self: *DrumMachine) u32 {
+        var n: u32 = 0;
+        for (self.midi) |row| {
+            for (row) |slot| {
+                if (slot != null) n += 1;
+            }
+        }
+        for (0..max_pads) |pad| self.clearPad(@intCast(pad));
+        return n;
+    }
+
     /// Jitter every active hit's velocity across the whole kit by
     /// ±`amount_pct`% (relative, clamped to 1-127), 0-100 - the drum-machine
     /// counterpart to `PatternPlayer.humanize`'s velocity half. Timing stays
@@ -1230,6 +1243,25 @@ test "pad grid stores canonical MIDI notes" {
     try std.testing.expectEqual(@as(u16, 1), dm.copyPadMidi(3, &notes));
     try std.testing.expectApproxEqAbs(@as(f64, 1.75), notes[0].start_beat, 1e-9);
     try std.testing.expectApproxEqAbs(@as(f32, 95.0 / 127.0), notes[0].velocity, 1e-6);
+}
+
+test "clearKit wipes every pad and reports the hit count removed" {
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    defer dm.deinit();
+
+    dm.setStepCount(8);
+    dm.toggleStep(0, 0);
+    dm.toggleStep(0, 4);
+    dm.toggleStep(3, 2);
+
+    try std.testing.expectEqual(@as(u32, 3), dm.clearKit());
+    for (0..DrumMachine.max_pads) |pad| {
+        for (0..8) |step| try std.testing.expect(!dm.stepActive(@intCast(pad), @intCast(step)));
+    }
+
+    // An already-empty kit reports 0, not an error.
+    try std.testing.expectEqual(@as(u32, 0), dm.clearKit());
 }
 
 test "humanizeVelocity jitters active hits within bounds; 0% is a no-op" {
