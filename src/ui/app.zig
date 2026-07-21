@@ -59,6 +59,12 @@ const reload_path_buf_len: usize = 1024;
 /// Minimum gap between silent `<path>~` backups; see `maybeAutosave`.
 const default_autosave_interval_ns: i96 = 30 * std.time.ns_per_s;
 pub const AppView = enum { tracks, drum_grid, synth_editor, sampler_editor, help, track_spectrum, master_spectrum, group_spectrum, piano_roll, instrument_picker, fx_picker, synth_fx_picker, arrangement, file_browser, automation, automation_param_picker, slicer_grid, preset_picker, soundfont_editor };
+
+/// Macro machinery bounds (see `App.macroIntercept`): the two-key pending
+/// states, per-register key capacity, and the nested-`@` replay cap.
+pub const MacroPending = enum { none, record, play };
+pub const macro_reg_cap = 200;
+const max_macro_depth = 8;
 pub const GridDivision = ws.time_grid.Division;
 
 /// One tracks-view display row: a real track, or a group's own row (its
@@ -451,18 +457,44 @@ pub const App = struct {
     /// then drag the note instead of the cursor; esc/M (or any other key)
     /// drop it. See editors/piano.zig.
     piano_grab: bool = false,
-    /// True right after enter freshly inserts a note (not when it deletes
-    /// one) - a live-shaping session mirroring `piano_grab` starts
-    /// automatically: j/k drag the new note's pitch (reusing dragNote),
-    /// h/l resize its length (reusing resizeOrLen). enter/esc (or any other
-    /// key) drop it. Terminals have no key-up event, so "hold enter" becomes
-    /// "press enter to start, press enter/esc to drop" - see editors/piano.zig.
+    /// True while enter is held on a freshly inserted note (not when it
+    /// deletes one) - a live-shaping session mirroring `piano_grab`: j/k
+    /// drag the new note's pitch (reusing dragNote), h/l resize its length
+    /// (reusing resizeOrLen). Releasing enter drops it (`.enter_release`,
+    /// from the GUI and kitty-protocol terminals); legacy terminals have
+    /// no key-up event, so there enter/esc (or any other key) drop it
+    /// explicitly - see editors/piano.zig.
     piano_stamp: bool = false,
     /// Same idea as `piano_stamp` for the drum grid: enter freshly
     /// activating a step starts a session where j/k live-nudge its
     /// velocity (length has no meaning for a one-shot hit, so there's no
     /// h/l equivalent). See editors/drum.zig.
     drum_stamp: bool = false,
+    /// Vim-style macro registers: `q{a-z}` records, `q` stops, `@{a-z}`
+    /// replays, `@@` repeats the last replay, a count multiplies (`8@a`).
+    /// Registers hold the raw `Key` stream and replay feeds it back
+    /// through handleKey, so a macro captures anything typed - motions,
+    /// operators, `:` commands, even insert-mode note takes. See
+    /// macroIntercept for the state machine.
+    macro_regs: [26][macro_reg_cap]modal_mod.Key = undefined,
+    macro_reg_lens: [26]u16 = @splat(0),
+    /// Register index currently recording into, if any. Shown as a
+    /// persistent `rec @x` chip next to the mode badge (state, not a
+    /// setStatus message, so it can't time out mid-take).
+    macro_recording: ?u8 = null,
+    /// Set by a bare `q`/`@` in normal mode: the NEXT key names the
+    /// register (vim's two-key forms) and is consumed before any view
+    /// handler can see it.
+    macro_pending: MacroPending = .none,
+    /// Count prefix captured when `@` armed `.play` - the digits were
+    /// already consumed by the modal count machinery before `@` arrived.
+    macro_pending_count: u32 = 1,
+    /// Last register replayed - `@@`'s target.
+    macro_last_played: ?u8 = null,
+    /// Re-entrancy depth of replayMacro: replayed keys are never
+    /// re-recorded, and nesting is capped so a register that (indirectly)
+    /// replays itself terminates instead of recursing forever.
+    macro_replay_depth: u8 = 0,
     /// Arrangement view: bar cursor and horizontal scroll (lane = `cursor`).
     arr_cursor_bar: u32 = 0,
     arr_scroll_bar: u32 = 0,
@@ -857,6 +889,11 @@ pub const App = struct {
 
     pub fn handleKey(self: *App, key_in: modal_mod.Key, now_ns: i96) void {
         self.now_ns = now_ns;
+        // Macros hook in ahead of user keymaps (like ctrl-c below: q/@ are
+        // not remappable), both to record raw keys - replay then re-expands
+        // keymaps identically - and so the register-naming key after q/@
+        // can never leak into a view handler.
+        if (self.macroIntercept(key_in, now_ns)) return;
         // ctrl-c (the unbreakable quit path), mouse events, and enter's
         // key-up (a hold-gesture signal, not a chord key - buffering it
         // would break pending keymap chords) bypass user keymaps entirely;
@@ -866,6 +903,131 @@ pub const App = struct {
             if (self.userKeymapIntercept(key_in, now_ns)) return;
         }
         self.handleKeyBuiltin(key_in, now_ns);
+    }
+
+    /// Which views a bare `q`/`@` may start a recording/replay from: the
+    /// grammar views plus the param editors, where both keys are unbound.
+    /// Overlay views (pickers, help, browser, spectrum submenus) bind `q`
+    /// as "close" and keep it - but once a recording is running, `q` in
+    /// normal mode stops it from ANYWHERE, so stopping is always
+    /// predictable (close overlays with esc while recording).
+    fn macroViewAllows(view: AppView) bool {
+        return switch (view) {
+            // zig fmt: off
+            .tracks, .piano_roll, .drum_grid, .slicer_grid, .arrangement,
+            .automation, .synth_editor, .sampler_editor, .soundfont_editor => true,
+            // zig fmt: on
+            else => false,
+        };
+    }
+
+    /// The vim-macro state machine, run on every key before anything else.
+    /// Returns true when the key was consumed (register-naming keys, the
+    /// stop-`q`, and the `q`/`@` arming keys); a recorded key returns
+    /// false so it still executes normally while the take grows.
+    fn macroIntercept(self: *App, key: modal_mod.Key, now_ns: i96) bool {
+        const replaying = self.macro_replay_depth > 0;
+        switch (self.macro_pending) {
+            .record => {
+                self.macro_pending = .none;
+                if (key == .char and key.char >= 'a' and key.char <= 'z') {
+                    const reg: u8 = key.char - 'a';
+                    self.macro_recording = reg;
+                    self.macro_reg_lens[reg] = 0;
+                    self.setStatus("recording @{c} - q stops", .{key.char});
+                } else {
+                    self.setStatus("macro cancelled - register must be a-z", .{});
+                }
+                return true;
+            },
+            .play => {
+                self.macro_pending = .none;
+                const reg: ?u8 = if (key == .char and key.char >= 'a' and key.char <= 'z')
+                    key.char - 'a'
+                else if (key == .char and key.char == '@')
+                    self.macro_last_played
+                else
+                    null;
+                // While recording, the `@x` call itself joins the take (its
+                // `@` was appended when it armed .play below); the keys it
+                // replays don't - appends are gated on depth 0.
+                if (self.macro_recording != null and !replaying) self.macroAppend(key);
+                if (reg) |r| {
+                    self.replayMacro(r, self.macro_pending_count, now_ns);
+                } else {
+                    self.setStatus("nothing to replay", .{});
+                }
+                return true;
+            },
+            .none => {},
+        }
+        if (self.macro_recording) |reg| {
+            if (!replaying) {
+                if (key == .char and key.char == 'q' and self.modal.mode == .normal) {
+                    self.macro_recording = null;
+                    self.setStatus("recorded @{c} ({d} keys)", .{ 'a' + reg, self.macro_reg_lens[reg] });
+                    return true;
+                }
+                // ctrl-c (quit) and mouse events (coordinates are not a
+                // repeatable edit) execute but stay out of the register.
+                if (key != .ctrl_c and key != .mouse) self.macroAppend(key);
+            }
+        }
+        if (self.modal.mode == .normal and key == .char and macroViewAllows(self.view)) {
+            if (key.char == 'q' and self.macro_recording == null and !replaying) {
+                self.macro_pending = .record;
+                self.setStatus("record macro: name it a-z", .{});
+                return true;
+            }
+            if (key.char == '@' and self.macro_replay_depth < max_macro_depth) {
+                self.macro_pending = .play;
+                self.macro_pending_count = @intCast(@max(1, self.takeCount()));
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// Append one key to the recording register; a full register stops the
+    /// take (with everything up to the overflow kept) rather than silently
+    /// truncating the tail of a macro the user thinks they recorded.
+    fn macroAppend(self: *App, key: modal_mod.Key) void {
+        const reg = self.macro_recording orelse return;
+        if (self.macro_reg_lens[reg] >= macro_reg_cap) {
+            self.macro_recording = null;
+            self.setStatus("macro register full - recording stopped at {d} keys", .{@as(u32, macro_reg_cap)});
+            return;
+        }
+        self.macro_regs[reg][self.macro_reg_lens[reg]] = key;
+        self.macro_reg_lens[reg] += 1;
+    }
+
+    /// Feed a register's key stream back through handleKey `count` times.
+    /// Registers are stable during replay (macroAppend is gated on depth
+    /// 0), so the stream is read in place; nested `@` in a replayed take
+    /// works up to max_macro_depth and then goes inert.
+    fn replayMacro(self: *App, reg: u8, count: u32, now_ns: i96) void {
+        const len = self.macro_reg_lens[reg];
+        if (len == 0) {
+            self.setStatus("register @{c} is empty", .{'a' + reg});
+            return;
+        }
+        if (self.macro_recording != null and self.macro_recording.? == reg) {
+            // Vim's own E223 guard: replaying the register being recorded
+            // would read a half-written take.
+            self.setStatus("can't replay the register being recorded", .{});
+            return;
+        }
+        self.macro_last_played = reg;
+        self.macro_replay_depth += 1;
+        defer self.macro_replay_depth -= 1;
+        var n: u32 = 0;
+        while (n < count) : (n += 1) {
+            for (self.macro_regs[reg][0..len]) |k| {
+                if (self.should_quit or self.pending_reload != .none) return;
+                self.handleKey(k, now_ns);
+            }
+        }
     }
 
     /// Consume `key` when it fires or extends a Lua keymap (docs/lua-api.md

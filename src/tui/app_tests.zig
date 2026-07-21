@@ -4015,6 +4015,62 @@ test "piano roll enter release drops the stamp session (hold-to-shape)" {
     try std.testing.expect(pp.noteAt(61, 1.0) != null);
 }
 
+test "macros: q records, @ replays with a count, @@ repeats the last register" {
+    var app = try testApp();
+    defer app.deinit();
+    app.view = .piano_roll;
+    app.piano_track = 0;
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    app.piano_cursor_step = 0;
+    app.piano_cursor_pitch = 60;
+
+    app.handleKey(.{ .char = 'q' }, 0);
+    app.handleKey(.{ .char = 'a' }, 0);
+    try std.testing.expect(app.macro_recording != null);
+    app.handleKey(.{ .char = 'n' }, 0); // step-enter a note, advance one step
+    app.handleKey(.{ .char = 'q' }, 0); // stop recording
+    try std.testing.expect(app.macro_recording == null);
+    try std.testing.expectEqual(@as(u16, 1), app.macro_reg_lens[0]);
+    try std.testing.expect(pp.noteAt(60, 0.0) != null);
+
+    // 3@a stamps three more notes, each advancing the cursor a step.
+    app.handleKey(.{ .char = '3' }, 0);
+    app.handleKey(.{ .char = '@' }, 0);
+    app.handleKey(.{ .char = 'a' }, 0);
+    try std.testing.expect(pp.noteAt(60, 0.25) != null);
+    try std.testing.expect(pp.noteAt(60, 0.5) != null);
+    try std.testing.expect(pp.noteAt(60, 0.75) != null);
+    try std.testing.expect(pp.noteAt(60, 1.0) == null);
+
+    // @@ replays the same register once more.
+    app.handleKey(.{ .char = '@' }, 0);
+    app.handleKey(.{ .char = '@' }, 0);
+    try std.testing.expect(pp.noteAt(60, 1.0) != null);
+}
+
+test "macros: q keeps its close-the-overlay meaning in picker views" {
+    var app = try testApp();
+    defer app.deinit();
+    app.view = .instrument_picker;
+    app.handleKey(.{ .char = 'q' }, 0);
+    try std.testing.expectEqual(AppView.tracks, app.view);
+    try std.testing.expectEqual(app_mod.MacroPending.none, app.macro_pending);
+}
+
+test "macros: a self-replaying register terminates via the depth cap" {
+    var app = try testApp();
+    defer app.deinit();
+    app.view = .piano_roll;
+    app.piano_track = 0;
+    app.macro_regs[0][0] = .{ .char = '@' };
+    app.macro_regs[0][1] = .{ .char = 'a' };
+    app.macro_reg_lens[0] = 2;
+    app.macro_last_played = 0;
+    // Would recurse forever without the cap; reaching this line is the test.
+    app.handleKey(.{ .char = '@' }, 0);
+    app.handleKey(.{ .char = 'a' }, 0);
+}
+
 test "piano roll M grabs a note; h/l/j/k drag it as one undo step" {
     var app = try testApp();
     defer app.deinit();

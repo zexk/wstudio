@@ -147,7 +147,14 @@ pub fn drawStatus(app: anytype) void {
         var right_buf: [256]u8 = undefined;
         const text = tuiStatusText(app, &left_buf, &right_buf);
         const mode_label = statusModeLabel(app.core.modal.mode);
-        const x = drawStatusSegment(draw, pos[0], pos[1], size[1], statusModeColor(app.core.modal.mode), patina.bg0, mode_label);
+        var x = drawStatusSegment(draw, pos[0], pos[1], size[1], statusModeColor(app.core.modal.mode), patina.bg0, mode_label);
+        // Persistent chip while a macro recording runs - mirrors the TUI's
+        // own `rec @x` chip (state, not a status message that times out).
+        if (app.core.macro_recording) |reg| {
+            var rec_buf: [8]u8 = undefined;
+            const rec_label = std.fmt.bufPrint(&rec_buf, "REC {c}", .{'a' + reg}) catch "REC";
+            x = drawStatusSegment(draw, x, pos[1], size[1], patina.danger, patina.bg0, rec_label);
+        }
         const context = compactStatusContext(std.mem.trim(u8, text.left, " "));
         if (context.len > 0) {
             const text_size = zgui.calcTextSize(context, .{});
