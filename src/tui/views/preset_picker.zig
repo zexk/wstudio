@@ -23,13 +23,9 @@ pub fn drawPresetPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void {
     const rows_list = preset_ed.buildDisplayRows(app, &buf);
     const count = preset_ed.entryCountOf(rows_list);
 
-    const title: []const u8 = switch (app.preset_picker_kind) {
-        .synth => " SYNTH PRESETS",
-        .drum => " DRUM KITS",
-        .soundfont => " SOUNDFONT PRESETS",
-    };
     try w.writeAll(bold);
-    try w.writeAll(title);
+    try w.writeByte(' ');
+    try w.writeAll(app.preset_picker_kind.label());
     try w.writeAll(rst ++ acc);
     try w.print("  \"{s}\"", .{track_name});
     try w.writeAll(rst ++ dim);

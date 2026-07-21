@@ -6,6 +6,7 @@ const style = @import("../style.zig");
 const icons = @import("../../ui/icons.zig");
 const synth_ed = @import("../../ui/editors/synth.zig");
 const spectrum_ed = @import("../../ui/editors/spectrum.zig");
+const app_mod = @import("../../ui/app.zig");
 
 // Aliases so the moved render bodies reference the shared palette/primitives
 // by their original bare names.
@@ -16,18 +17,6 @@ const acc = style.acc;
 const yel = style.yel;
 const sel = style.sel;
 const endLine = style.endLine;
-
-// zig fmt: off
-/// Names + one-line descriptions for the instrument picker. Order must match
-/// `app.picker_kinds`.
-const picker_menu = [_]struct { name: []const u8, desc: []const u8, icon: []const u8 }{
-    .{ .name = "Synth",        .desc = "subtractive/FM polysynth - piano-roll sequenceable",   .icon = icons.synth },
-    .{ .name = "Sampler",      .desc = "one clip played chromatically - :load to swap", .icon = icons.sampler },
-    .{ .name = "Drum Machine", .desc = "64-pad step sequencer with per-pad sampler",            .icon = icons.drum },
-    .{ .name = "Slicer",       .desc = "chop one sample into slices, step-sequence the chops",  .icon = icons.slicer },
-    .{ .name = "SoundFont",    .desc = "multi-timbral .sf2 player - pick a preset by bank/program", .icon = icons.soundfont },
-};
-// zig fmt: on
 
 pub fn drawInstrumentPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void {
     const track_name = if (app.cursor < app.session.project.tracks.items.len)
@@ -52,15 +41,23 @@ pub fn drawInstrumentPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void 
 
     try w.writeAll(bold ++ " INTERNAL" ++ rst);
     try endLine(w);
-    for (picker_menu, 0..) |item, i| {
+    for (app_mod.instrument_picker_items, 0..) |item, i| {
         const is_sel = (i == app.picker_cursor);
+        const icon = switch (item.kind) {
+            .poly_synth => icons.synth,
+            .sampler => icons.sampler,
+            .drum_machine => icons.drum,
+            .slicer => icons.slicer,
+            .soundfont => icons.soundfont,
+            else => "",
+        };
         if (is_sel) try w.writeAll(sel);
         try w.writeAll(if (is_sel) "  > " else "    ");
-        try w.writeAll(icons.iconOr(item.icon, ""));
+        try w.writeAll(icons.iconOr(icon, ""));
         try w.writeByte(' ');
-        try w.print("{s: <14}", .{item.name});
+        try w.print("{s: <14}", .{item.label});
         if (!is_sel) try w.writeAll(dim);
-        try w.print(" {s}", .{item.desc});
+        try w.print(" {s}", .{item.description});
         try w.writeAll(rst);
         try endLine(w);
     }
@@ -69,7 +66,7 @@ pub fn drawInstrumentPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void 
     const external_count = app.external_plugins.count(.instrument);
     for (0..external_count) |external_i| {
         const plugin = app.external_plugins.at(.instrument, external_i).?;
-        const i = picker_menu.len + external_i;
+        const i = app_mod.instrument_picker_items.len + external_i;
         const is_sel = (i == app.picker_cursor);
         if (is_sel) try w.writeAll(sel);
         try w.writeAll(if (is_sel) "  > " else "    ");
@@ -84,30 +81,9 @@ pub fn drawInstrumentPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void 
         try endLine(w);
     }
 
-    const used = 4 + picker_menu.len + @max(external_count, 1);
+    const used = 4 + app_mod.instrument_picker_items.len + @max(external_count, 1);
     for (used..@max(used, rows -| 4)) |_| try endLine(w);
 }
-
-// zig fmt: off
-/// Names + one-line descriptions for the FX picker. Order must match
-/// `editors/spectrum.zig`'s `picker_kinds`.
-const fx_picker_menu = [_]struct { name: []const u8, desc: []const u8 }{
-    .{ .name = "Gate",       .desc = "cuts signal below a threshold: cleans up noise and bleed" },
-    .{ .name = "Compressor", .desc = "evens out dynamics: thresh/ratio/attack/release/makeup" },
-    .{ .name = "Multiband",  .desc = "3-band compressor w/ crossover; OTT style adds upward squash too" },
-    .{ .name = "OTT",        .desc = "the famous squash, pre-tuned: just depth/time/in/out gain" },
-    .{ .name = "EQ",         .desc = "8-band parametric EQ: peak or lowpass/highpass w/ slope per band" },
-    .{ .name = "Saturator",  .desc = "soft-clip drive: analog-style warmth through grit" },
-    .{ .name = "Crusher",    .desc = "bitcrusher: lo-fi bit depth + sample-rate reduction" },
-    .{ .name = "Chorus",     .desc = "modulated doubling: width and shimmer" },
-    .{ .name = "Flanger",    .desc = "modulated delay w/ feedback: whoosh to metallic comb" },
-    .{ .name = "Tape",       .desc = "wow+flutter: dual-LFO delay wobble for pitch-unstable tape character" },
-    .{ .name = "Phaser",     .desc = "sweeping notches: slow swirl to fast wobble" },
-    .{ .name = "Freq Shift", .desc = "Bode-style shifter: moves every partial by a fixed Hz, inharmonic" },
-    .{ .name = "Delay",      .desc = "stereo echo with feedback and mix" },
-    .{ .name = "Reverb",     .desc = "room to hall tails: room/damp/mix" },
-};
-// zig fmt: on
 
 pub fn drawFxPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void {
     const target: []const u8 = switch (app.fx_picker_return) {
@@ -146,13 +122,11 @@ pub fn drawFxPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void {
     try endLine(w);
     for (kinds, 0..) |k, i| {
         const is_sel = (i == app.fx_picker_cursor);
-        const menu_i = std.mem.indexOfScalar(ws.FxKind, &spectrum_ed.picker_kinds, k) orelse 0;
-        const item = fx_picker_menu[menu_i];
         if (is_sel) try w.writeAll(sel);
         try w.writeAll(if (is_sel) "  > " else "    ");
-        try w.print("{s: <12}", .{item.name});
+        try w.print("{s: <12}", .{spectrum_ed.unitLabel(k)});
         if (!is_sel) try w.writeAll(dim);
-        try w.print(" {s}", .{item.desc});
+        try w.print(" {s}", .{spectrum_ed.pickerDescription(k)});
         try w.writeAll(rst);
         try endLine(w);
     }

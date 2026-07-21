@@ -110,9 +110,17 @@ pub const SamplerTarget = union(enum) {
 };
 // zig fmt: on
 
-/// The instruments the picker offers, in display order.
-pub const picker_kinds = [_]InstrumentKind{ .poly_synth, .sampler, .drum_machine, .slicer, .soundfont };
-pub const picker_labels = [_][]const u8{ "Synth", "Sampler", "Drum Machine", "Slicer", "SoundFont" };
+pub const InstrumentPickerItem = struct { kind: InstrumentKind, label: []const u8, description: []const u8 };
+
+/// The instruments the picker offers, in display order. Renderers add their
+/// own casing, icon, and color treatment to this shared content.
+pub const instrument_picker_items = [_]InstrumentPickerItem{
+    .{ .kind = .poly_synth, .label = "Synth", .description = "Synthesis, polyphony, and modulation" },
+    .{ .kind = .sampler, .label = "Sampler", .description = "Chromatic sample playback and envelopes" },
+    .{ .kind = .drum_machine, .label = "Drum Machine", .description = "Pads, velocity, and step sequencing" },
+    .{ .kind = .slicer, .label = "Slicer", .description = "Sample slicing and chop sequencing" },
+    .{ .kind = .soundfont, .label = "SoundFont", .description = "SF2 banks, programs, and presets" },
+};
 
 /// What a file picked in the netrw-style file browser (`file_browser` view)
 /// resolves to once selected. Set by `App.openBrowser`; read by
@@ -2121,13 +2129,13 @@ pub const App = struct {
     /// Instrument picker: click a row to select + insert it (same as
     /// enter/space); scroll moves the highlight.
     fn pickerMouse(self: *App, ev: modal_mod.MouseEvent, row: usize) void {
-        const count = picker_kinds.len + self.external_plugins.count(.instrument);
+        const count = instrument_picker_items.len + self.external_plugins.count(.instrument);
         switch (ev.kind) {
             .press => {
-                const item: ?usize = if (row >= 3 and row < 3 + picker_kinds.len)
+                const item: ?usize = if (row >= 3 and row < 3 + instrument_picker_items.len)
                     row - 3
-                else if (row >= 4 + picker_kinds.len)
-                    picker_kinds.len + row - (4 + picker_kinds.len)
+                else if (row >= 4 + instrument_picker_items.len)
+                    instrument_picker_items.len + row - (4 + instrument_picker_items.len)
                 else
                     null;
                 if (item == null or item.? >= count) return;
@@ -2448,8 +2456,8 @@ pub const App = struct {
         self.picker_cursor = 0;
         if (cursor < self.session.racks.items.len) {
             const kind = std.meta.activeTag(self.session.racks.items[cursor].instrument);
-            for (picker_kinds, 0..) |k, i| {
-                if (k == kind) { self.picker_cursor = @intCast(i); break; }
+            for (instrument_picker_items, 0..) |item, i| {
+                if (item.kind == kind) { self.picker_cursor = @intCast(i); break; }
             }
         }
         self.view = .instrument_picker;
@@ -2507,7 +2515,7 @@ pub const App = struct {
     /// highlighted kind on the cursor track and jump to its editor, esc
     /// cancels back to tracks.
     fn handlePickerKey(self: *App, key: modal_mod.Key) void {
-        const count = picker_kinds.len + self.external_plugins.count(.instrument);
+        const count = instrument_picker_items.len + self.external_plugins.count(.instrument);
         switch (key) {
             .escape => self.view = .tracks,
             .enter => self.pickerInsert(),
@@ -2526,8 +2534,8 @@ pub const App = struct {
     // zig fmt: on
 
     fn pickerInsert(self: *App) void {
-        if (self.picker_cursor >= picker_kinds.len) {
-            const plugin = self.external_plugins.at(.instrument, self.picker_cursor - picker_kinds.len) orelse return;
+        if (self.picker_cursor >= instrument_picker_items.len) {
+            const plugin = self.external_plugins.at(.instrument, self.picker_cursor - instrument_picker_items.len) orelse return;
             switch (plugin.format) {
                 .clap => self.session.setClapInstrument(self.cursor, plugin.path, plugin.id) catch |err| {
                     self.setStatus("{s}: {s}", .{ plugin.name, @errorName(err) });
@@ -2545,10 +2553,11 @@ pub const App = struct {
             self.openTrack(self.cursor);
             return;
         }
-        const kind = picker_kinds[self.picker_cursor];
+        const item = instrument_picker_items[self.picker_cursor];
+        const kind = item.kind;
         if (self.picker_replace) {
             if (std.meta.activeTag(self.session.racks.items[self.cursor].instrument) == kind) {
-                self.setStatus("track {d} is already {s}", .{ self.cursor + 1, picker_labels[self.picker_cursor] });
+                self.setStatus("track {d} is already {s}", .{ self.cursor + 1, item.label });
                 self.view = .tracks;
                 return;
             }
@@ -2562,9 +2571,9 @@ pub const App = struct {
             history.push(self, backup);
             self.dirty = true;
             if (preserved) {
-                self.setStatus("track {d}: now {s} (notes kept)", .{ self.cursor + 1, picker_labels[self.picker_cursor] });
+                self.setStatus("track {d}: now {s} (notes kept)", .{ self.cursor + 1, item.label });
             } else {
-                self.setStatus("track {d}: now {s} (no compatible mapping - notes cleared)", .{ self.cursor + 1, picker_labels[self.picker_cursor] });
+                self.setStatus("track {d}: now {s} (no compatible mapping - notes cleared)", .{ self.cursor + 1, item.label });
             }
             self.view = .tracks;
             self.openTrack(self.cursor);
@@ -2585,7 +2594,7 @@ pub const App = struct {
             .clap => "enter: piano roll  i: play  ?: help",
             .soundfont => "h/l: adjust  :load-soundfont  i: play  ?: help",
         };
-        self.setStatus("{s} inserted  {s}", .{ picker_labels[self.picker_cursor], hint });
+        self.setStatus("{s} inserted  {s}", .{ item.label, hint });
         self.view = .tracks;
         self.openTrack(self.cursor);
     }
