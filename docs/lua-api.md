@@ -403,7 +403,7 @@ Design decisions:
   named field is applied atomically on the audio thread; unknown fields are
   a loud error.
 - **`kind` strings** match the `cmd.Scope` names already user-visible in
-  `:help`: `"synth"`, `"drum"`, `"sampler"`, `"slicer"`.
+  `:help`: `"synth"`, `"drum"`, `"sampler"`, `"slicer"`, `"soundfont"`.
 - **These functions need a live session.** During init.lua they raise;
   startup scripting belongs in a `ConfigDone` autocmd (or queued
   `wstudio.cmd` lines), after which the full surface is available.

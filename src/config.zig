@@ -1377,7 +1377,7 @@ fn apiTrackAdd(state: ?*c.lua_State) callconv(.c) c_int {
             c.LUA_TSTRING => {
                 const s = std.mem.span(c.lua_tolstring(l, -1, null));
                 kind = tui_app.apiKindFromName(s) orelse
-                    return c.luaL_error(l, "unknown kind (synth, drum, sampler, slicer)");
+                    return c.luaL_error(l, "unknown kind (synth, drum, sampler, slicer, soundfont)");
             },
             else => return c.luaL_error(l, "kind must be a string"),
         }
