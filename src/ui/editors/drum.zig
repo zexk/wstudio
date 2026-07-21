@@ -638,8 +638,12 @@ fn cycleVariant(app: *App, delta: i32) void {
 /// gutter to just select that pad row. Dragging with the button held paints
 /// (rather than toggles) every newly-entered cell to the state the initial
 /// click produced - `setStep` is idempotent, so repeated motion events over
-/// the same cell are harmless. Scroll moves the step cursor, or - over the
-/// gutter - the pad cursor, regardless of which row the mouse sits on.
+/// the same cell are harmless. **Right**-click always forces the cell off
+/// instead of toggling, so a right-drag reliably erases a run of steps
+/// regardless of each cell's starting state - unlike a left-drag, whose
+/// paint state depends on whatever the first cell under the cursor happened
+/// to be. Scroll moves the step cursor, or - over the gutter - the pad
+/// cursor, regardless of which row the mouse sits on.
 pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, view_rows: usize) void {
     switch (ev.kind) {
         .scroll_up, .scroll_down => {
@@ -681,7 +685,11 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, view_rows: u
             };
             app.drum_cursor[1] = step;
             history.recordDrum(app, app.drum_track);
-            dm.toggleStep(@intCast(pad), step);
+            if (ev.button == .right) {
+                step_grid.setStep(dm, @intCast(pad), step, false, DrumMachine.vel_full);
+            } else {
+                dm.toggleStep(@intCast(pad), step);
+            }
             app.drum_paint_state = dm.stepActive(@intCast(pad), step);
         },
         .drag => {

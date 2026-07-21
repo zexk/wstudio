@@ -1003,8 +1003,11 @@ fn stepAt(scroll_step: u16, x: usize, cw: usize) ?u16 {
 /// Click an empty cell to insert a note there (same as enter); click an
 /// existing note to grab it, same as pressing `M` - dragging then moves it
 /// (reusing `dragNote`), releasing without ever dragging is a plain click
-/// and toggles the note off instead (matching enter's toggle). Scroll moves
-/// the pitch cursor; **shift**+scroll moves the step cursor instead.
+/// and toggles the note off instead (matching enter's toggle). **Right**-click
+/// deletes whatever note starts at the clicked cell immediately, no grab/drag
+/// needed - the direct-delete convention the GUI piano roll already uses via
+/// its own right-click handler. Scroll moves the pitch cursor; **shift**+scroll
+/// moves the step cursor instead.
 pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16) void {
     _ = cols; // column count is derived from scroll + cell width, not terminal-width-dependent
     const pp = currentPatternPlayer(app) orelse return;
@@ -1037,6 +1040,10 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16) v
             if (app.piano_grab) dropGrab(app);
             app.piano_cursor_step = step;
             app.piano_cursor_pitch = pitch;
+            if (ev.button == .right) {
+                deleteNote(app);
+                return;
+            }
             const start_beat = stepToBeat(app, step);
             if (pp.noteAt(pitch, start_beat) != null) {
                 app.piano_grab = true;

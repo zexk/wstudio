@@ -550,11 +550,13 @@ fn repeatLastEdit(app: *App) void {
     }
 }
 
-/// Click a step cell to toggle it; drag to paint. Click inside the
-/// waveform pane to jump the cursor to the slice under the mouse (and keep
-/// the click quiet otherwise - boundary editing by mouse lives in the
-/// slice editor on 'e'). Scroll moves the step cursor, or - over the
-/// gutter - the slice cursor.
+/// Click a step cell to toggle it; drag to paint. **Right**-click always
+/// forces the cell off instead of toggling - see drum.zig's `handleMouse`
+/// doc comment for why a right-drag beats a left-drag for erasing a run of
+/// steps. Click inside the waveform pane to jump the cursor to the slice
+/// under the mouse (and keep the click quiet otherwise - boundary editing
+/// by mouse lives in the slice editor on 'e'). Scroll moves the step
+/// cursor, or - over the gutter - the slice cursor.
 pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16, view_rows: usize) void {
     const sl = app.slicerInst();
     switch (ev.kind) {
@@ -597,7 +599,11 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16, v
             };
             app.slicer_cursor[1] = step;
             history.recordSlicer(app, app.slicer_track);
-            sl.toggleStep(@intCast(slice), step);
+            if (ev.button == .right) {
+                step_grid.setStep(sl, @intCast(slice), step, false, Slicer.vel_full);
+            } else {
+                sl.toggleStep(@intCast(slice), step);
+            }
             app.slicer_paint_state = sl.stepActive(@intCast(slice), step);
         },
         .drag => {
