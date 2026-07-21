@@ -1658,6 +1658,7 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
     // (engine slots, editor indices), so a mismatch is a malformed file.
     if (snap.version > file_version) return error.UnsupportedVersion;
     if (snap.tracks.len != snap.racks.len) return error.MalformedProject;
+    if (snap.tracks.len > engine_mod.max_tracks) return error.MalformedProject;
     if (snap.sample_rate < 8_000 or snap.sample_rate > 384_000) return error.InvalidSampleRate;
     const beats_per_bar = std.math.clamp(snap.beats_per_bar, 1, 16);
     const steps_per_bar = @as(u32, beats_per_bar) * 4;
@@ -3580,6 +3581,21 @@ test "buildSession: rejects malformed and future files" {
     try testing.expectError(error.MalformedProject, buildSession(testing.allocator, &.{
         .tracks = &.{ .{ .name = "a" }, .{ .name = "b" } },
         .racks = &.{.{ .label = "e", .kind = .empty }},
+    }));
+
+    // The engine has a fixed track bank. Reject an oversized matched pair
+    // before dereferencing its elements or allocating an engine.
+    const too_many_tracks: []const TrackSnap = @as(
+        [*]const TrackSnap,
+        @ptrFromInt(@alignOf(TrackSnap)),
+    )[0 .. engine_mod.max_tracks + 1];
+    const too_many_racks: []const RackSnap = @as(
+        [*]const RackSnap,
+        @ptrFromInt(@alignOf(RackSnap)),
+    )[0 .. engine_mod.max_tracks + 1];
+    try testing.expectError(error.MalformedProject, buildSession(testing.allocator, &.{
+        .tracks = too_many_tracks,
+        .racks = too_many_racks,
     }));
 
     // Nonsense sample rate.
