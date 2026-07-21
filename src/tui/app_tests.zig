@@ -4097,6 +4097,126 @@ test "macros: a self-replaying register terminates via the depth cap" {
     app.handleKey(.{ .char = 'a' }, 0);
 }
 
+test "piano roll visual j/k transpose and </> slide the selection" {
+    var app = try testApp();
+    defer app.deinit();
+    app.view = .piano_roll;
+    app.piano_track = 0;
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.25 });
+    pp.addNote(.{ .pitch = 64, .start_beat = 0.25, .duration_beat = 0.25 });
+    app.piano_cursor_step = 0;
+    app.piano_cursor_pitch = 60;
+
+    app.handleKey(.{ .char = 'v' }, 0);
+    app.handleKey(.{ .char = 'l' }, 0); // select steps 0-1
+    app.handleKey(.{ .char = 'k' }, 0); // up a semitone, chord shape intact
+    try std.testing.expect(pp.noteAt(61, 0.0) != null);
+    try std.testing.expect(pp.noteAt(65, 0.25) != null);
+    try std.testing.expect(pp.noteAt(60, 0.0) == null);
+    app.handleKey(.{ .char = 'K' }, 0); // up an octave
+    try std.testing.expect(pp.noteAt(73, 0.0) != null);
+    try std.testing.expect(pp.noteAt(77, 0.25) != null);
+    // Still in visual mode - the shift can keep walking.
+    try std.testing.expect(app.modal.mode == .visual);
+
+    app.handleKey(.{ .char = '>' }, 0); // slide one step later
+    try std.testing.expect(pp.noteAt(73, 0.25) != null);
+    try std.testing.expect(pp.noteAt(77, 0.5) != null);
+    try std.testing.expect(pp.noteAt(73, 0.0) == null);
+    // Selection followed the notes (was anchor 0 / cursor 1).
+    try std.testing.expectEqual(@as(u16, 2), app.piano_cursor_step);
+    try std.testing.expectEqual(@as(u16, 1), app.piano_visual_anchor.?);
+
+    // All-or-nothing at the pattern edges: sliding the selection back two
+    // steps would push the first note before beat 0, so nothing moves.
+    app.handleKey(.{ .char = '2' }, 0);
+    app.handleKey(.{ .char = '<' }, 0);
+    try std.testing.expect(pp.noteAt(73, 0.25) != null);
+    try std.testing.expect(pp.noteAt(77, 0.5) != null);
+    app.handleKey(.escape, 0);
+}
+
+test "piano roll visual transpose refuses to clamp at the MIDI range edge" {
+    var app = try testApp();
+    defer app.deinit();
+    app.view = .piano_roll;
+    app.piano_track = 0;
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    pp.addNote(.{ .pitch = 127, .start_beat = 0.0, .duration_beat = 0.25 });
+    pp.addNote(.{ .pitch = 120, .start_beat = 0.0, .duration_beat = 0.25 });
+    app.piano_cursor_step = 0;
+    app.piano_cursor_pitch = 120;
+
+    app.handleKey(.{ .char = 'v' }, 0);
+    app.handleKey(.{ .char = 'k' }, 0); // would push 127 past the top
+    try std.testing.expect(pp.noteAt(127, 0.0) != null);
+    try std.testing.expect(pp.noteAt(120, 0.0) != null);
+    try std.testing.expect(pp.noteAt(121, 0.0) == null);
+    app.handleKey(.escape, 0);
+}
+
+test "piano roll visual o bounces between the selection's ends" {
+    var app = try testApp();
+    defer app.deinit();
+    app.view = .piano_roll;
+    app.piano_track = 0;
+    app.piano_cursor_step = 0;
+
+    app.handleKey(.{ .char = 'v' }, 0);
+    app.handleKey(.{ .char = 'l' }, 0);
+    app.handleKey(.{ .char = 'l' }, 0);
+    try std.testing.expectEqual(@as(u16, 2), app.piano_cursor_step);
+    app.handleKey(.{ .char = 'o' }, 0);
+    try std.testing.expectEqual(@as(u16, 0), app.piano_cursor_step);
+    try std.testing.expectEqual(@as(u16, 2), app.piano_visual_anchor.?);
+    app.handleKey(.{ .char = 'o' }, 0);
+    try std.testing.expectEqual(@as(u16, 2), app.piano_cursor_step);
+    app.handleKey(.escape, 0);
+}
+
+test "piano roll count paste tiles the range yank back-to-back" {
+    var app = try testApp();
+    defer app.deinit();
+    app.view = .piano_roll;
+    app.piano_track = 0;
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.25 });
+    app.piano_cursor_step = 0;
+
+    app.handleKey(.{ .char = 'v' }, 0);
+    app.handleKey(.{ .char = 'l' }, 0); // steps 0-1 = half a beat
+    app.handleKey(.{ .char = 'y' }, 0);
+
+    app.piano_cursor_step = 4; // beat 1.0
+    app.handleKey(.{ .char = '3' }, 0);
+    app.handleKey(.{ .char = 'p' }, 0);
+    try std.testing.expect(pp.noteAt(60, 1.0) != null);
+    try std.testing.expect(pp.noteAt(60, 1.5) != null);
+    try std.testing.expect(pp.noteAt(60, 2.0) != null);
+    try std.testing.expect(pp.noteAt(60, 2.5) == null);
+}
+
+test "pendingCmdText renders operator, count, and visual width" {
+    var app = try testApp();
+    defer app.deinit();
+    var buf: [24]u8 = undefined;
+    app.view = .piano_roll;
+
+    try std.testing.expectEqualStrings("", app.pendingCmdText(&buf));
+    app.modal.count = 12;
+    try std.testing.expectEqualStrings("12", app.pendingCmdText(&buf));
+    app.piano_op_pending = 'd';
+    try std.testing.expectEqualStrings("d12", app.pendingCmdText(&buf));
+    app.piano_op_pending = null;
+    app.modal.count = 0;
+
+    app.modal.mode = .visual;
+    app.piano_visual_anchor = 2;
+    app.piano_cursor_step = 6;
+    try std.testing.expectEqualStrings("v5", app.pendingCmdText(&buf));
+}
+
 test "piano roll M grabs a note; h/l/j/k drag it as one undo step" {
     var app = try testApp();
     defer app.deinit();

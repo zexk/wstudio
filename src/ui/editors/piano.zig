@@ -234,14 +234,17 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             // p/P both paste the most recent yank (no linewise before/after
             // distinction): after yy a whole-pattern replace, after a
             // visual/operator range yank the range lands at the cursor step.
+            // A count tiles a range paste back-to-back (3p = three copies
+            // in a row); the whole-pattern paste is a wholesale replace,
+            // so a count adds nothing there and is ignored.
             'p', 'P' => {
-                if (app.piano_last_yank == .range) pasteSelection(app, pp) else paste(app);
+                if (app.piano_last_yank == .range) pasteSelection(app, pp, @intCast(app.takeCount())) else paste(app);
                 return true;
             },
             'v' => {
                 app.piano_visual_anchor = app.piano_cursor_step;
                 app.modal.mode = .visual;
-                app.setStatus("visual: hjkl extend, y/d/p act on the range, esc cancels", .{});
+                app.setStatus("visual: h/l extend, j/k/J/K transpose, </> slide, o other end, y/d/p, esc", .{});
                 return true;
             },
             's' => { spectrum.switchToTrack(app, app.piano_track); return true; },
@@ -392,7 +395,7 @@ fn repeatLastEdit(app: *App, pp: *pattern_mod.PatternPlayer, max_step: u16) void
             app.piano_visual_anchor = hi;
             deleteSelection(app, pp);
         },
-        .piano_range_paste => pasteSelection(app, pp),
+        .piano_range_paste => pasteSelection(app, pp, 1),
         else => app.setStatus("nothing to repeat", .{}),
     }
 }
@@ -776,17 +779,34 @@ fn handleVisual(app: *App, key: modal_mod.Key, pp: *pattern_mod.PatternPlayer, m
             'l' => { moveStep(app, max_step, app.takeCount()); return true; },
             'H' => { moveStep(app, max_step, -4 * app.takeCount()); return true; },
             'L' => { moveStep(app, max_step, 4 * app.takeCount()); return true; },
-            'j' => { movePitch(app, -app.takeCount()); return true; },
-            'k' => { movePitch(app, app.takeCount()); return true; },
-            'J' => { movePitch(app, -12 * app.takeCount()); return true; },
-            'K' => { movePitch(app, 12 * app.takeCount()); return true; },
+            // Selections span all pitches, so a pitch-cursor move never
+            // extended anything here - j/k/J/K act on the selected notes
+            // instead: transpose by semitone (j/k) or octave (J/K). The
+            // selection stays live, so k k k walks a phrase up in thirds
+            // by ear. `<`/`>` slide the notes a step in time (the indent
+            // metaphor), `o` bounces the cursor between the range's two
+            // ends (vim), all count-scaled.
+            'j' => { transposeSelection(app, pp, -app.takeCount()); return true; },
+            'k' => { transposeSelection(app, pp, app.takeCount()); return true; },
+            'J' => { transposeSelection(app, pp, -12 * app.takeCount()); return true; },
+            'K' => { transposeSelection(app, pp, 12 * app.takeCount()); return true; },
+            '<' => { slideSelection(app, pp, max_step, -app.takeCount()); return true; },
+            '>' => { slideSelection(app, pp, max_step, app.takeCount()); return true; },
+            'o' => {
+                if (app.piano_visual_anchor) |a| {
+                    app.piano_visual_anchor = app.piano_cursor_step;
+                    app.piano_cursor_step = a;
+                    ensureVisible(app);
+                }
+                return true;
+            },
             'w' => { jumpBar(app, max_step, app.takeCount()); return true; },
             'b' => { jumpBar(app, max_step, -app.takeCount()); return true; },
             'g' => { app.piano_cursor_step = 0; ensureVisible(app); return true; },
             'G' => { if (max_step > 0) app.piano_cursor_step = max_step - 1; ensureVisible(app); return true; },
             'y' => { yankSelection(app, pp); return true; },
             'd' => { deleteSelection(app, pp); return true; },
-            'p', 'P' => { pasteSelection(app, pp); return true; },
+            'p', 'P' => { pasteSelection(app, pp, 1); return true; },
             '0'...'9' => return false,
             else => return true,
         },
@@ -799,6 +819,60 @@ fn handleVisual(app: *App, key: modal_mod.Key, pp: *pattern_mod.PatternPlayer, m
 fn exitVisual(app: *App) void {
     _ = app.modal.setMode(.normal);
     app.piano_visual_anchor = null;
+}
+
+/// Visual j/k/J/K: transpose the selected notes by `dpitch` semitones,
+/// staying in visual mode so the shift can be walked by ear. The pitch
+/// cursor rides along as feedback. All-or-nothing at the MIDI range edges
+/// (see shiftNotesInRange), so a chord can't collapse against them.
+fn transposeSelection(app: *App, pp: *pattern_mod.PatternPlayer, dpitch: i32) void {
+    const r = selectionRange(app);
+    const lo_beat = stepToBeat(app, r.lo);
+    const hi_beat = stepToBeat(app, r.hi) + 1.0 / stepsPerBeatF(app);
+    var entry = history.captureMelodic(app, app.piano_track);
+    const moved = pp.shiftNotesInRange(lo_beat, hi_beat, dpitch, 0.0) orelse {
+        if (entry) |*e| e.deinit(app.allocator);
+        app.setStatus("can't transpose - selection would leave the pitch range", .{});
+        return;
+    };
+    if (moved == 0) {
+        if (entry) |*e| e.deinit(app.allocator);
+        app.setStatus("no notes selected", .{});
+        return;
+    }
+    history.push(app, entry);
+    const cur = @as(i32, app.piano_cursor_pitch) + dpitch;
+    app.piano_cursor_pitch = @intCast(std.math.clamp(cur, 0, 127));
+    ensureVisible(app);
+    app.setStatus("transposed {d} notes {s}{d} st", .{ moved, if (dpitch >= 0) "+" else "", dpitch });
+    syncLinkedClip(app);
+}
+
+/// Visual `<`/`>`: slide the selected notes `dsteps` steps in time, the
+/// anchor and cursor riding along so the selection keeps covering them.
+/// All-or-nothing at the pattern edges (see shiftNotesInRange).
+fn slideSelection(app: *App, pp: *pattern_mod.PatternPlayer, max_step: u16, dsteps: i32) void {
+    const r = selectionRange(app);
+    const lo_beat = stepToBeat(app, r.lo);
+    const hi_beat = stepToBeat(app, r.hi) + 1.0 / stepsPerBeatF(app);
+    const dbeat = @as(f64, @floatFromInt(dsteps)) / stepsPerBeatF(app);
+    var entry = history.captureMelodic(app, app.piano_track);
+    const moved = pp.shiftNotesInRange(lo_beat, hi_beat, 0, dbeat) orelse {
+        if (entry) |*e| e.deinit(app.allocator);
+        app.setStatus("can't slide - selection would leave the pattern", .{});
+        return;
+    };
+    if (moved == 0) {
+        if (entry) |*e| e.deinit(app.allocator);
+        app.setStatus("no notes selected", .{});
+        return;
+    }
+    history.push(app, entry);
+    step_grid.moveClamped(&app.piano_cursor_step, dsteps, max_step);
+    if (app.piano_visual_anchor) |*a| step_grid.moveClamped(a, dsteps, max_step);
+    ensureVisible(app);
+    app.setStatus("slid {d} notes {s}{d} steps", .{ moved, if (dsteps >= 0) "+" else "", dsteps });
+    syncLinkedClip(app);
 }
 
 fn selectionRange(app: *App) step_grid.StepRange(u16) {
@@ -833,23 +907,33 @@ fn deleteSelection(app: *App, pp: *pattern_mod.PatternPlayer) void {
 }
 
 /// Paste the range clipboard starting at the cursor step, overwriting
-/// whatever already sits at each destination pitch/step.
-fn pasteSelection(app: *App, pp: *pattern_mod.PatternPlayer) void {
+/// whatever already sits at each destination pitch/step. A count tiles
+/// the yank back-to-back (`3p` = three copies, each one yank-length
+/// later) - the loop-building gesture; copies clamp against the pattern
+/// end like a single paste always has.
+fn pasteSelection(app: *App, pp: *pattern_mod.PatternPlayer, reps: u32) void {
     const clip = app.piano_range_clip orelse {
         app.setStatus("nothing yanked - select a range and y first", .{});
         exitVisual(app);
         return;
     };
     history.push(app, history.captureMelodic(app, app.piano_track));
-    const base_beat = stepToBeat(app, app.piano_cursor_step);
-    for (clip.notes[0..clip.count]) |n| {
-        var note = n;
-        note.start_beat = std.math.clamp(base_beat + n.start_beat, 0, @max(0, pp.length_beats - 1.0 / stepsPerBeatF(app)));
-        pp.removeNote(note.pitch, note.start_beat);
-        pp.addNote(note);
+    const cursor_beat = stepToBeat(app, app.piano_cursor_step);
+    var pasted: u32 = 0;
+    var rep: u32 = 0;
+    while (rep < @max(1, reps)) : (rep += 1) {
+        const base_beat = cursor_beat + @as(f64, @floatFromInt(rep)) * clip.length_beats;
+        if (base_beat >= pp.length_beats) break;
+        for (clip.notes[0..clip.count]) |n| {
+            var note = n;
+            note.start_beat = std.math.clamp(base_beat + n.start_beat, 0, @max(0, pp.length_beats - 1.0 / stepsPerBeatF(app)));
+            pp.removeNote(note.pitch, note.start_beat);
+            pp.addNote(note);
+        }
+        pasted += clip.count;
     }
     app.last_edit = .piano_range_paste;
-    app.setStatus("pasted {d} notes", .{clip.count});
+    app.setStatus("pasted {d} notes", .{pasted});
     syncLinkedClip(app);
     exitVisual(app);
 }

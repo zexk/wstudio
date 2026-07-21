@@ -500,6 +500,16 @@ fn handleVisual(app: *App, key: modal_mod.Key) bool {
                 if (dm.step_count > 0) app.drum_cursor[1] = dm.step_count - 1;
                 return true;
             },
+            // vim's `o`: bounce the cursor to the selection's other end so
+            // it can extend in the opposite direction (same in every
+            // grid editor's visual mode).
+            'o' => {
+                if (app.drum_visual_anchor) |a| {
+                    app.drum_visual_anchor = app.drum_cursor[1];
+                    app.drum_cursor[1] = a;
+                }
+                return true;
+            },
             'y' => { yankSelection(app); return true; },
             'd' => { deleteSelection(app); return true; },
             'p', 'P' => { pasteSelection(app); return true; },
