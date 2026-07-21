@@ -222,6 +222,8 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             return true;
         },
         .char => |c| switch (c) {
+            // Block insert mode - piano keys conflict with cursor/nudge navigation.
+            'i' => return true,
             'h' => { moveCursor(app, clip, -app.takeCount()); return true; },
             'l' => { moveCursor(app, clip, app.takeCount()); return true; },
             'H' => { moveCursor(app, clip, -4 * app.takeCount()); return true; },
