@@ -351,6 +351,25 @@ pub const PatternPlayer = struct {
         }
     }
 
+    /// Pull every live note's start toward the nearest multiple of
+    /// `step_beats` by `strength_pct`% (100 = hard-snap to the grid, 0 =
+    /// no-op, partial values ease toward it without fully losing the
+    /// original feel) - the `:quantize` command, the deliberate counterpart
+    /// to `humanize`'s jitter. Same lock/clamp shape as `humanize` since it
+    /// moves `start_beat` too.
+    pub fn quantize(self: *PatternPlayer, step_beats: f64, strength_pct: f64) void {
+        if (!std.math.isFinite(step_beats) or step_beats <= 0.0) return;
+        if (!std.math.isFinite(strength_pct)) return;
+        while (!self.notes_lock.tryLock()) std.atomic.spinLoopHint();
+        defer self.notes_lock.unlock();
+        const frac = std.math.clamp(strength_pct, 0.0, 100.0) / 100.0;
+        const max_start = @max(0.0, self.length_beats - step_beats);
+        for (self.notes[0..self.note_count]) |*n| {
+            const nearest = std.math.clamp(@round(n.start_beat / step_beats) * step_beats, 0.0, max_start);
+            n.start_beat = n.start_beat + (nearest - n.start_beat) * frac;
+        }
+    }
+
     /// Set swing to `pct`, clamped to [swing_min, swing_max] - the
     /// `:swing` command. Audio-thread-safe (atomic store), not undo-tracked:
     /// a mixer-style live param, same as DrumMachine's own swing.
@@ -794,6 +813,45 @@ test "humanize ignores invalid parameters" {
     pp.humanize(std.math.nan(f64), 0.25, 1);
     pp.humanize(50.0, std.math.inf(f64), 1);
     pp.humanize(50.0, 0.0, 1);
+    try std.testing.expectEqualDeep(original, pp.notes[0]);
+}
+
+test "quantize snaps to grid at 100%, eases proportionally below, no-op at 0%" {
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    var pp = PatternPlayer.init(synth.device(), &transport);
+    pp.length_beats = 4.0;
+    // 0.05 beats off the nearest 16th-note line (step_beats = 0.25).
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.30, .duration_beat = 0.25 });
+
+    pp.quantize(0.25, 0.0);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.30), pp.notes[0].start_beat, 1e-9);
+
+    pp.quantize(0.25, 50.0);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.275), pp.notes[0].start_beat, 1e-9);
+
+    pp.quantize(0.25, 100.0);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.25), pp.notes[0].start_beat, 1e-9);
+
+    // A note past the last full grid line clamps into the loop rather than
+    // snapping past its end.
+    pp.notes[0].start_beat = 3.95;
+    pp.quantize(0.25, 100.0);
+    try std.testing.expectApproxEqAbs(@as(f64, 3.75), pp.notes[0].start_beat, 1e-9);
+}
+
+test "quantize ignores invalid parameters" {
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    var pp = PatternPlayer.init(synth.device(), &transport);
+    pp.addNote(.{ .pitch = 60, .start_beat = 1.1, .duration_beat = 0.5, .velocity = 0.8 });
+    const original = pp.notes[0];
+
+    pp.quantize(std.math.nan(f64), 100.0);
+    pp.quantize(0.0, 100.0);
+    pp.quantize(0.25, std.math.nan(f64));
     try std.testing.expectEqualDeep(original, pp.notes[0]);
 }
 
