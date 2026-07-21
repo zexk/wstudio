@@ -49,13 +49,16 @@ pub fn drawTransport(app: anytype, audio_label: []const u8) void {
         else
             app.core.session.project.name;
         const right_w = readoutWidth(icons.save ++ "  PROJECT", project_title) + 24 +
-            readoutWidth(icons.master ++ "  AUDIO", audio_label) + 24 + level_group_w;
+            readoutWidth(icons.master ++ "  AUDIO", audio_label) + 24 + level_group_w +
+            24 + phase_group_w + 24 + loudness_group_w;
         zgui.sameLine(.{ .spacing = 0 });
         zgui.setCursorPosX(@max(zgui.getCursorPosX(), zgui.getWindowSize()[0] - right_w - 20));
 
         drawTransportReadout(icons.save ++ "  PROJECT", project_title, true);
         drawTransportReadout(icons.master ++ "  AUDIO", audio_label, false);
         drawLevelMeters(app, snap.peak);
+        drawPhaseMeter(snap.correlation);
+        drawLoudnessReadout(snap);
     }
     zgui.end();
 }
@@ -83,6 +86,39 @@ fn drawLevelMeters(app: anytype, peak: [2]f32) void {
     zgui.endGroup();
 }
 
+/// Master-bus phase correlation, -1 (out-of-phase, cancels in mono) .. +1
+/// (in phase) - see dsp/meter.zig's `StereoCorrelation`. Shares the same
+/// always-on-screen slot next to LEVEL, the way a hardware phase-scope sits
+/// beside the meter bridge.
+fn drawPhaseMeter(correlation: f32) void {
+    zgui.sameLine(.{ .spacing = 24 });
+    zgui.beginGroup();
+    zgui.textColored(patina.fg3, "PHASE", .{});
+    const origin = zgui.getCursorScreenPos();
+    widgets.correlationBar(zgui.getWindowDrawList(), origin, correlation, phase_bar_w, 8);
+    zgui.dummy(.{ .w = phase_bar_w, .h = 8 });
+    zgui.endGroup();
+}
+
+/// Master-bus K-weighted loudness (LUFS): short-term (3s window, the one
+/// worth watching live while mixing) and integrated (gated running average
+/// since the last `l`-key reset on the MASTER row) - see dsp/meter.zig's
+/// `LoudnessMeter`.
+fn drawLoudnessReadout(snap: anytype) void {
+    zgui.sameLine(.{ .spacing = 24 });
+    zgui.beginGroup();
+    zgui.textColored(patina.fg3, "LUFS  S / I", .{});
+    var short_buf: [16]u8 = undefined;
+    var int_buf: [16]u8 = undefined;
+    zgui.textColored(patina.fg0, "{s} / {s}", .{ lufsText(snap.lufs_short_term, &short_buf), lufsText(snap.lufs_integrated, &int_buf) });
+    zgui.endGroup();
+}
+
+fn lufsText(value: f32, scratch: *[16]u8) []const u8 {
+    if (value <= ws.dsp.LoudnessMeter.floor_lufs) return "-inf";
+    return std.fmt.bufPrint(scratch, "{d:.1}", .{value}) catch "-inf";
+}
+
 fn drawTransportReadout(label: []const u8, value: []const u8, first: bool) void {
     if (!first) zgui.sameLine(.{ .spacing = 24 });
     zgui.beginGroup();
@@ -101,6 +137,13 @@ fn readoutWidth(label: []const u8, value: []const u8) f32 {
 /// `drawLevelMeters`'s on-screen width: the fixed meter-bar width
 /// dominates its "LEVEL" label.
 const level_group_w: f32 = 110;
+/// `drawPhaseMeter`'s bar width, and its on-screen group width (the bar
+/// dominates the "PHASE" label, same as `level_group_w` above).
+const phase_bar_w: f32 = 70;
+const phase_group_w: f32 = phase_bar_w;
+/// `drawLoudnessReadout`'s on-screen width: the "LUFS  S / I" label is
+/// wider than the numbers under it.
+const loudness_group_w: f32 = 100;
 
 pub fn drawStatus(app: anytype) void {
     const display = zgui.io.getDisplaySize();

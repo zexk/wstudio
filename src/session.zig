@@ -886,6 +886,12 @@ pub const Session = struct {
         _ = self.engine.send(.{ .set_metronome = on });
     }
 
+    /// Starts a fresh integrated-LUFS measurement on the master bus (see
+    /// `Command.reset_loudness`). Runtime-only - nothing here is persisted.
+    pub fn resetLoudness(self: *Session) void {
+        _ = self.engine.send(.reset_loudness);
+    }
+
     /// Push `rack`'s chain (instrument/pattern-player + active FX units) to
     /// the audio thread, AND the sidechain-detector routing for any
     /// compressor in that chain (see `Rack.sidechainSources`) - the two

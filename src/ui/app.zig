@@ -1643,6 +1643,7 @@ pub const App = struct {
                             'u' => { history.doUndo(self); return; },
                             'U' => { history.doRedo(self); return; },
                             't' => { self.tapTempo(now_ns); return; },
+                            'l' => { self.session.resetLoudness(); self.setStatus("integrated LUFS reset", .{}); return; },
                             'd', 'Y', 'J', 'K', 'R', 'p', 'I', '<', '>', '[', ']', 'v', 'z' => {
                                 self.setStatus("master bus: n/a", .{});
                                 return;

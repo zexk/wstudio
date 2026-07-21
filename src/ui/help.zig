@@ -151,6 +151,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("T",            "toggle song / pattern mode (manual override, same as the arrangement's T)");
     t.key("t",            "tap tempo (tap a few times to set bpm)");
     t.key("c",            "toggle the click track (also :metronome [on|off])");
+    t.key("l",            "MASTER row only: reset the integrated LUFS measurement");
     t.key("u / U / ^R",   "undo / redo content edits (notes, drums, clips)");
     t.key("/",            "fuzzy-search track names, n / N repeat forward / backward");
     t.key("? / :help",    "this help");
