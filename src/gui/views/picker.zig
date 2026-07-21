@@ -4,6 +4,7 @@ const zgui = @import("zgui");
 const spectrum_ed = @import("../../ui/editors/spectrum.zig");
 const preset_ed = @import("../../ui/editors/preset_picker.zig");
 const synth_ed = @import("../../ui/editors/synth.zig");
+const fuzzy = @import("../../ui/fuzzy.zig");
 const style = @import("../style.zig");
 const app_mod = @import("../../ui/app.zig");
 
@@ -85,7 +86,7 @@ pub fn drawInstrument(app: anytype) void {
             .slicer => theme.modulation,
             else => theme.focus,
         };
-        if (drawCard(id, entry.label, entry.description, accent, app.core.picker_cursor == i, width)) {
+        if (drawCard(id, entry.label, entry.description, accent, app.core.picker_cursor == i, width, "")) {
             app.core.picker_cursor = @intCast(i);
             app.core.handleKey(.enter, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
         }
@@ -102,7 +103,7 @@ pub fn drawInstrument(app: anytype) void {
         var desc_buf: [128]u8 = undefined;
         const desc = std.fmt.bufPrint(&desc_buf, "CLAP  |  {s}", .{plugin.vendor}) catch "CLAP";
         const ordinal = app_mod.instrument_picker_items.len + external_i;
-        if (drawCard(id, plugin.name, desc, theme.focus, app.core.picker_cursor == ordinal, width)) {
+        if (drawCard(id, plugin.name, desc, theme.focus, app.core.picker_cursor == ordinal, width, "")) {
             app.core.picker_cursor = @intCast(ordinal);
             app.core.handleKey(.enter, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
         }
@@ -117,9 +118,18 @@ pub fn drawFx(app: anytype) void {
     zgui.separator();
     var synth_buf: [14]ws.dsp.synth.FxUnitKind = undefined;
     const synth_kinds = if (app.core.view == .synth_fx_picker) synth_ed.filteredSynthFxPickerKinds(&app.core, &synth_buf) else &.{};
-    const kinds = spectrum_ed.picker_kinds;
+    var kinds_buf: [spectrum_ed.picker_kinds.len]ws.FxKind = undefined;
+    const kinds = if (app.core.view == .fx_picker) spectrum_ed.filteredPickerKinds(&app.core, &kinds_buf) else &.{};
+    const filter = if (app.core.view == .synth_fx_picker) synth_ed.activeFxFilter(&app.core) else spectrum_ed.activeFilter(&app.core);
     const available = overlayWidth();
     const count = if (app.core.view == .synth_fx_picker) synth_kinds.len else kinds.len;
+    const total_count = count + if (app.core.view == .fx_picker) spectrum_ed.externalPickerCount(&app.core) else 0;
+    if (total_count > 0) {
+        if (app.core.view == .synth_fx_picker)
+            app.core.synth_fx_picker_cursor = @intCast(@min(app.core.synth_fx_picker_cursor, total_count - 1))
+        else
+            app.core.fx_picker_cursor = @intCast(@min(app.core.fx_picker_cursor, total_count - 1));
+    }
     // Single column, matching the TUI list's flat j/k stepping - see
     // drawInstrument's comment above.
     const width = available;
@@ -131,7 +141,7 @@ pub fn drawFx(app: anytype) void {
         const selected = if (app.core.view == .synth_fx_picker) app.core.synth_fx_picker_cursor == i else app.core.fx_picker_cursor == i;
         var desc_buf: [96]u8 = undefined;
         const desc = std.fmt.bufPrint(&desc_buf, "{s}  |  {s}", .{ spectrum_ed.pickerCategory(kind), spectrum_ed.pickerDescription(kind) }) catch spectrum_ed.pickerDescription(kind);
-        if (drawCard(id, spectrum_ed.unitLabel(kind), desc, fxAccent(kind), selected, width)) {
+        if (drawCard(id, spectrum_ed.unitLabel(kind), desc, fxAccent(kind), selected, width, filter)) {
             if (app.core.view == .synth_fx_picker) {
                 app.core.synth_fx_picker_cursor = @intCast(i);
                 synth_ed.insertFromSynthFxPicker(&app.core, synth_kinds[i]);
@@ -147,7 +157,7 @@ pub fn drawFx(app: anytype) void {
         zgui.textColored(theme.fg2, "EXTERNAL", .{});
         zgui.sameLine(.{});
         zgui.textDisabled("CLAP", .{});
-        const external_count = spectrum_ed.externalPickerCount(&app.core);
+        const external_count = total_count - count;
         for (0..external_count) |external_i| {
             const plugin = spectrum_ed.externalPickerAt(&app.core, external_i).?;
             var id_buf: [48]u8 = undefined;
@@ -155,7 +165,7 @@ pub fn drawFx(app: anytype) void {
             var desc_buf: [128]u8 = undefined;
             const desc = std.fmt.bufPrint(&desc_buf, "CLAP  |  {s}", .{plugin.vendor}) catch "CLAP";
             const ordinal = count + external_i;
-            if (drawCard(id, plugin.name, desc, theme.focus, app.core.fx_picker_cursor == ordinal, width)) {
+            if (drawCard(id, plugin.name, desc, theme.focus, app.core.fx_picker_cursor == ordinal, width, filter)) {
                 app.core.fx_picker_cursor = @intCast(ordinal);
                 spectrum_ed.insertExternalFromPicker(&app.core, plugin);
             }
@@ -184,7 +194,7 @@ fn activateFx(app: anytype, kind: ws.FxKind) void {
 
 const fxAccent = style.fxKindAccent;
 
-fn drawCard(id: [:0]const u8, label: []const u8, desc: []const u8, accent: [4]f32, selected: bool, width: f32) bool {
+fn drawCard(id: [:0]const u8, label: []const u8, desc: []const u8, accent: [4]f32, selected: bool, width: f32, filter: []const u8) bool {
     const height: f32 = 62;
     const origin = zgui.getCursorScreenPos();
     const clicked = zgui.invisibleButton(id, .{ .w = width, .h = height });
@@ -194,9 +204,29 @@ fn drawCard(id: [:0]const u8, label: []const u8, desc: []const u8, accent: [4]f3
     draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(if (hovered) theme.bg3 else theme.bg2), .rounding = 4 });
     draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + 4, origin[1] + height }, .col = color(accent), .rounding = 2 });
     if (selected) draw_list.addRect(.{ .pmin = .{ origin[0] + 1, origin[1] + 1 }, .pmax = .{ origin[0] + width - 1, origin[1] + height - 1 }, .col = color(theme.focus), .rounding = 4, .thickness = 2 });
-    draw_list.addText(.{ origin[0] + 14, origin[1] + 10 }, color(theme.fg0), "{s}", .{label});
+    drawFuzzyLabel(draw_list, .{ origin[0] + 14, origin[1] + 10 }, label, filter, accent);
     draw_list.addText(.{ origin[0] + 14, origin[1] + 35 }, color(theme.fg3), "{s}", .{desc});
     return clicked;
+}
+
+fn drawFuzzyLabel(draw_list: anytype, origin: [2]f32, label: []const u8, filter: []const u8, accent: [4]f32) void {
+    if (filter.len == 0 or label.len > 256) {
+        draw_list.addText(origin, color(theme.fg0), "{s}", .{label});
+        return;
+    }
+    var positions: [256]bool = undefined;
+    fuzzy.matchPositions(filter, label, &positions);
+    var x = origin[0];
+    var start: usize = 0;
+    while (start < label.len) {
+        const matched = positions[start];
+        var end = start + 1;
+        while (end < label.len and positions[end] == matched) : (end += 1) {}
+        const run = label[start..end];
+        draw_list.addText(.{ x, origin[1] }, color(if (matched) accent else theme.fg0), "{s}", .{run});
+        x += zgui.calcTextSize(run, .{})[0];
+        start = end;
+    }
 }
 
 pub fn drawPreset(app: anytype) void {
@@ -238,7 +268,7 @@ pub fn drawPreset(app: anytype) void {
                 std.fmt.bufPrint(&desc_buf, "prog {d}", .{program}) catch entry.author
             else
                 entry.author;
-            if (drawCard(id, entry.name, desc, kind_accent, selected, overlayWidth())) {
+            if (drawCard(id, entry.name, desc, kind_accent, selected, overlayWidth(), filter)) {
                 app.core.preset_picker_cursor = ordinal;
                 app.core.handleKey(.enter, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
             }
