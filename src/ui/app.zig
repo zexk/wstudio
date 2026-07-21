@@ -1493,6 +1493,14 @@ pub const App = struct {
         _ = self.session.engine.send(.{ .set_track_solo = .{ .track = @intCast(idx), .soloed = soloed } });
     }
 
+    pub fn apiSetTrackArmed(self: *App, idx: usize, armed: bool) void {
+        if (self.session.isArmed(idx) != armed) self.session.toggleArm(idx);
+    }
+
+    pub fn apiSelectTrack(self: *App, idx: usize) void {
+        self.cursor = idx;
+    }
+
     pub fn apiRenameTrack(self: *App, idx: usize, name: []const u8) bool {
         self.session.project.renameTrack(idx, name) catch return false;
         self.dirty = true;
@@ -1518,6 +1526,19 @@ pub const App = struct {
         const before = self.session.project.tracks.items.len;
         self.doTrackDel(idx);
         return self.session.project.tracks.items.len < before;
+    }
+
+    pub fn apiTrackDuplicate(self: *App, idx: usize) ?usize {
+        const before = self.session.project.tracks.items.len;
+        self.doTrackDup(idx);
+        return if (self.session.project.tracks.items.len > before) self.cursor else null;
+    }
+
+    pub fn apiTrackMove(self: *App, idx: usize, target: usize) usize {
+        self.cursor = idx;
+        while (self.cursor < target) self.doTrackMove(1);
+        while (self.cursor > target) self.doTrackMove(-1);
+        return self.cursor;
     }
 
     fn handleKeyBuiltin(self: *App, key_in: modal_mod.Key, now_ns: i96) void {
@@ -4063,6 +4084,7 @@ pub const App = struct {
 
         self.cursor = other;
         self.dirty = true;
+        self.emitEvent(.{ .TrackMove = .{ .from = cur + 1, .to = other + 1 } });
         self.setStatus("moved track {d} {s}", .{ cur + 1, if (dir < 0) "up" else "down" });
     }
 

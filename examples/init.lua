@@ -315,6 +315,7 @@
 --   PlaybackStop      tempo       transport stopped
 --   TrackAdd          track       a track was added (1-based index)
 --   TrackDel          track       a track was deleted (its former index)
+--   TrackMove         from, to    a track swapped with its neighbor
 --   ViewEnter         view, prev  the active view changed
 --   ColorScheme       name        :colorscheme switched the running theme
 --   QuitPre                       right before shutdown, project still open
@@ -375,12 +376,17 @@
 --                                                     group }
 --   wstudio.api.track_set(i, { ... })            -- any of: name, gain_db
 --                                                --   (-60..12), pan (-1..1),
---                                                --   muted, soloed
+--                                                --   muted, soloed, armed
 --   wstudio.api.track_add({ kind?, name? })      -> new index; kind is
 --                                                --   "synth" (default),
 --                                                --   "drum", "sampler",
 --                                                --   or "slicer"
 --   wstudio.api.track_del(i)
+--   wstudio.api.track_duplicate(i)               -> appended copy's index
+--   wstudio.api.track_move(i, target)             -> final index; emits one
+--                                                --   TrackMove per swap
+--   wstudio.api.set_current_track(i)              -- select without opening
+--                                                --   or retargeting an editor
 --
 -- Other:
 --   wstudio.cmd("bpm 140")   -- run any `:` command line. Called from this

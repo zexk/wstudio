@@ -352,6 +352,7 @@ them identically:
 | `ProjectSavePre` / `ProjectSavePost` | `path` | around `:w` |
 | `PlaybackStart` / `PlaybackStop` | `tempo` | transport start/stop |
 | `TrackAdd` / `TrackDel` | `track` | track list changes |
+| `TrackMove` | `from`, `to` | a track swaps with its neighbor |
 | `ViewEnter` | `view`, `prev` | `AppView` switches |
 | `ColorScheme` | `name` | after `:colorscheme` switches the running frontend's theme |
 | `QuitPre` | | before shutdown, project still alive |
@@ -454,6 +455,9 @@ wstudio.api.track_get(i)                  -> { name, kind, gain_db, pan, muted, 
 wstudio.api.track_set(i, { gain_db = -3.0, muted = true })
 wstudio.api.track_add({ kind = "synth", name = "lead" }) -> integer
 wstudio.api.track_del(i)
+wstudio.api.track_duplicate(i)             -> new integer index
+wstudio.api.track_move(i, target)          -> final integer index
+wstudio.api.set_current_track(i)
 
 -- status / prompt
 wstudio.api.notify(msg)
@@ -501,6 +505,15 @@ Design decisions:
   map onto existing `engine.send` commands (`set_track_gain`, ...), so each
   named field is applied atomically on the audio thread; unknown fields are
   a loud error.
+- **Track management preserves internal references.** `track_duplicate()`
+  uses the same deep-copy path as the UI. `track_move()` performs adjacent
+  swaps until the requested 1-based target is reached, so arrangement lanes,
+  editor targets, automation links, pending note-offs, sidechains, arm state,
+  and undo entries are remapped by the existing central path. It emits one
+  `TrackMove` event per adjacent swap. `set_current_track()` changes the
+  shared selected track without pretending to retarget an already-open
+  instrument editor. `track_set()` also accepts `armed`, and validates the
+  complete partial table before applying any field.
 - **`kind` strings** match the `cmd.Scope` names already user-visible in
   `:help`: `"synth"`, `"drum"`, `"sampler"`, `"slicer"`, `"soundfont"`.
 - **These functions need a live session.** During init.lua they raise;
