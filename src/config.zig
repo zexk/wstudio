@@ -20,6 +20,57 @@ const c = @cImport({
 });
 
 const system_config_path = "/etc/xdg/wstudio/init.lua";
+pub const api_level = 1;
+pub const version = "1.0.0-beta.2";
+
+const ApiFunction = struct { name: [:0]const u8, func: c.lua_CFunction };
+
+/// The registration table is also the source for `get_api_info().functions`.
+/// A callable API entry cannot ship without appearing in plugin metadata.
+const api_functions = [_]ApiFunction{
+    .{ .name = "exec", .func = exec },
+    .{ .name = "create_user_command", .func = createUserCommand },
+    .{ .name = "del_user_command", .func = delUserCommand },
+    .{ .name = "create_autocmd", .func = createAutocmd },
+    .{ .name = "del_autocmd", .func = delAutocmd },
+    .{ .name = "notify", .func = notify },
+    .{ .name = "has", .func = apiHas },
+    .{ .name = "get_api_info", .func = apiGetInfo },
+    .{ .name = "get_context", .func = apiGetContext },
+    .{ .name = "get_mode", .func = apiGetMode },
+    .{ .name = "get_current_view", .func = apiGetCurrentView },
+    .{ .name = "get_current_track", .func = apiGetCurrentTrack },
+    .{ .name = "set_hl", .func = apiSetHl },
+    .{ .name = "get_hl", .func = apiGetHl },
+    .{ .name = "transport_get", .func = apiTransportGet },
+    .{ .name = "transport_set", .func = apiTransportSet },
+    .{ .name = "play", .func = apiPlay },
+    .{ .name = "stop", .func = apiStop },
+    .{ .name = "is_playing", .func = apiIsPlaying },
+    .{ .name = "get_tempo", .func = apiGetTempo },
+    .{ .name = "set_tempo", .func = apiSetTempo },
+    .{ .name = "track_count", .func = apiTrackCount },
+    .{ .name = "track_get", .func = apiTrackGet },
+    .{ .name = "track_set", .func = apiTrackSet },
+    .{ .name = "track_add", .func = apiTrackAdd },
+    .{ .name = "track_del", .func = apiTrackDel },
+    .{ .name = "track_duplicate", .func = apiTrackDuplicate },
+    .{ .name = "track_move", .func = apiTrackMove },
+    .{ .name = "set_current_track", .func = apiSetCurrentTrack },
+    .{ .name = "project_get", .func = apiProjectGet },
+    .{ .name = "project_save", .func = apiProjectSave },
+    .{ .name = "project_open", .func = apiProjectOpen },
+    .{ .name = "project_new", .func = apiProjectNew },
+};
+
+comptime {
+    @setEvalBranchQuota(10_000);
+    for (api_functions, 0..) |a, i| {
+        for (api_functions[i + 1 ..]) |b| {
+            if (std.mem.eql(u8, a.name, b.name)) @compileError("duplicate Lua API function: " ++ a.name);
+        }
+    }
+}
 
 /// One name, one hex table (src/theme_identity.zig) - the GUI's panel skin
 /// and the TUI's OSC palette theming (tui/theme.zig) both read it.
@@ -672,7 +723,7 @@ pub const Runtime = struct {
         c.lua_setfield(self.state, -2, "__index");
         _ = c.lua_setmetatable(self.state, -2); // metatable -> wstudio.o
         c.lua_setfield(self.state, -2, "o"); // wstudio.o -> wstudio
-        _ = c.lua_pushstring(self.state, "1.0.0-beta.2");
+        _ = c.lua_pushstring(self.state, version);
         c.lua_setfield(self.state, -2, "version"); // wstudio.version
         _ = c.lua_pushstring(self.state, @tagName(self.frontend));
         c.lua_setfield(self.state, -2, "frontend"); // wstudio.frontend
@@ -690,54 +741,8 @@ pub const Runtime = struct {
         c.lua_pushcclosure(self.state, keymapDel, 1);
         c.lua_setfield(self.state, -2, "del"); // wstudio.keymap.del
         c.lua_setfield(self.state, -2, "keymap");
-        c.lua_createtable(self.state, 0, 3); // wstudio.api
-        c.lua_pushlightuserdata(self.state, self);
-        c.lua_pushcclosure(self.state, exec, 1);
-        c.lua_setfield(self.state, -2, "exec"); // wstudio.api.exec
-        c.lua_pushlightuserdata(self.state, self);
-        c.lua_pushcclosure(self.state, createUserCommand, 1);
-        c.lua_setfield(self.state, -2, "create_user_command");
-        c.lua_pushlightuserdata(self.state, self);
-        c.lua_pushcclosure(self.state, delUserCommand, 1);
-        c.lua_setfield(self.state, -2, "del_user_command");
-        c.lua_pushlightuserdata(self.state, self);
-        c.lua_pushcclosure(self.state, createAutocmd, 1);
-        c.lua_setfield(self.state, -2, "create_autocmd");
-        c.lua_pushlightuserdata(self.state, self);
-        c.lua_pushcclosure(self.state, delAutocmd, 1);
-        c.lua_setfield(self.state, -2, "del_autocmd");
-        c.lua_pushlightuserdata(self.state, self);
-        c.lua_pushcclosure(self.state, notify, 1);
-        c.lua_setfield(self.state, -2, "notify"); // wstudio.notify's core twin
-        const api_fns = [_]struct { name: [:0]const u8, func: c.lua_CFunction }{
-            .{ .name = "has", .func = apiHas },
-            .{ .name = "get_context", .func = apiGetContext },
-            .{ .name = "get_mode", .func = apiGetMode },
-            .{ .name = "get_current_view", .func = apiGetCurrentView },
-            .{ .name = "get_current_track", .func = apiGetCurrentTrack },
-            .{ .name = "set_hl", .func = apiSetHl },
-            .{ .name = "get_hl", .func = apiGetHl },
-            .{ .name = "transport_get", .func = apiTransportGet },
-            .{ .name = "transport_set", .func = apiTransportSet },
-            .{ .name = "play", .func = apiPlay },
-            .{ .name = "stop", .func = apiStop },
-            .{ .name = "is_playing", .func = apiIsPlaying },
-            .{ .name = "get_tempo", .func = apiGetTempo },
-            .{ .name = "set_tempo", .func = apiSetTempo },
-            .{ .name = "track_count", .func = apiTrackCount },
-            .{ .name = "track_get", .func = apiTrackGet },
-            .{ .name = "track_set", .func = apiTrackSet },
-            .{ .name = "track_add", .func = apiTrackAdd },
-            .{ .name = "track_del", .func = apiTrackDel },
-            .{ .name = "track_duplicate", .func = apiTrackDuplicate },
-            .{ .name = "track_move", .func = apiTrackMove },
-            .{ .name = "set_current_track", .func = apiSetCurrentTrack },
-            .{ .name = "project_get", .func = apiProjectGet },
-            .{ .name = "project_save", .func = apiProjectSave },
-            .{ .name = "project_open", .func = apiProjectOpen },
-            .{ .name = "project_new", .func = apiProjectNew },
-        };
-        for (api_fns) |f| {
+        c.lua_createtable(self.state, 0, api_functions.len); // wstudio.api
+        for (api_functions) |f| {
             c.lua_pushlightuserdata(self.state, self);
             c.lua_pushcclosure(self.state, f.func, 1);
             c.lua_setfield(self.state, -2, f.name);
@@ -1309,6 +1314,83 @@ fn apiHas(state: ?*c.lua_State) callconv(.c) c_int {
     _ = c.lua_getfield(l, -1, "api");
     const found = c.lua_getfield(l, -1, name) == c.LUA_TFUNCTION;
     c.lua_pushboolean(l, @intFromBool(found));
+    return 1;
+}
+
+fn pushEnumNames(l: *c.lua_State, comptime E: type) void {
+    const fields = @typeInfo(E).@"enum".fields;
+    c.lua_createtable(l, fields.len, 0);
+    inline for (fields, 1..) |field, i| {
+        _ = c.lua_pushstring(l, field.name);
+        c.lua_rawseti(l, -2, i);
+    }
+}
+
+fn apiGetInfo(state: ?*c.lua_State) callconv(.c) c_int {
+    const l = state.?;
+    const rt = runtime(l);
+    c.lua_createtable(l, 0, 10);
+    _ = c.lua_pushstring(l, version);
+    c.lua_setfield(l, -2, "version");
+    c.lua_pushinteger(l, api_level);
+    c.lua_setfield(l, -2, "api_level");
+    _ = c.lua_pushstring(l, @tagName(rt.frontend));
+    c.lua_setfield(l, -2, "frontend");
+
+    c.lua_createtable(l, api_functions.len, 0);
+    for (api_functions, 1..) |f, i| {
+        _ = c.lua_pushstring(l, f.name);
+        c.lua_rawseti(l, -2, @intCast(i));
+    }
+    c.lua_setfield(l, -2, "functions");
+    pushEnumNames(l, Event);
+    c.lua_setfield(l, -2, "events");
+    pushEnumNames(l, theme_identity.Highlight);
+    c.lua_setfield(l, -2, "highlight_groups");
+    pushEnumNames(l, tui_app.AppView);
+    c.lua_setfield(l, -2, "views");
+    pushEnumNames(l, ws_input.Mode);
+    c.lua_setfield(l, -2, "modes");
+
+    c.lua_createtable(l, option_specs.len, 0);
+    inline for (option_specs, 1..) |spec, i| {
+        c.lua_createtable(l, 0, 5);
+        _ = c.lua_pushstring(l, spec.name);
+        c.lua_setfield(l, -2, "name");
+        _ = c.lua_pushstring(l, @tagName(spec.scope));
+        c.lua_setfield(l, -2, "scope");
+        const kind = switch (@typeInfo(@FieldType(Config, spec.name))) {
+            .bool => "boolean",
+            .float, .int => "number",
+            .@"enum", .@"struct" => "string",
+            else => comptime unreachable,
+        };
+        _ = c.lua_pushstring(l, kind);
+        c.lua_setfield(l, -2, "type");
+        if (spec.min != 0 or spec.max != 0) {
+            c.lua_pushnumber(l, spec.min);
+            c.lua_setfield(l, -2, "min");
+            c.lua_pushnumber(l, spec.max);
+            c.lua_setfield(l, -2, "max");
+        }
+        c.lua_rawseti(l, -2, i);
+    }
+    c.lua_setfield(l, -2, "options");
+
+    c.lua_createtable(l, 0, 6);
+    c.lua_pushinteger(l, @import("wstudio").engine.max_tracks);
+    c.lua_setfield(l, -2, "tracks");
+    c.lua_pushinteger(l, @import("wstudio").engine.max_groups);
+    c.lua_setfield(l, -2, "groups");
+    c.lua_pushinteger(l, max_keymaps);
+    c.lua_setfield(l, -2, "keymaps");
+    c.lua_pushinteger(l, max_keymap_lhs);
+    c.lua_setfield(l, -2, "keymap_lhs_keys");
+    c.lua_pushinteger(l, max_user_cmds);
+    c.lua_setfield(l, -2, "user_commands");
+    c.lua_pushinteger(l, max_autocmds);
+    c.lua_setfield(l, -2, "autocmds");
+    c.lua_setfield(l, -2, "limits");
     return 1;
 }
 
@@ -2377,6 +2459,27 @@ test "api project functions raise before a session attaches" {
     try rt.loadString("assert(wstudio.api.has('get_context')); assert(not wstudio.api.has('future_api'))");
     try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.play()"));
     try rt.loadString("local ok, err = pcall(wstudio.api.track_count); assert(ok == false and err:find('no session') ~= nil)");
+}
+
+test "API metadata is derived from live registries" {
+    var rt = try Runtime.init(.gui);
+    defer rt.deinit();
+    try rt.loadString(
+        \\info = wstudio.api.get_api_info()
+        \\assert(info.version == wstudio.version and info.api_level == 1 and info.frontend == "gui")
+        \\assert(#info.functions > 20 and #info.events > 10 and #info.highlight_groups == 27)
+        \\for _, name in ipairs(info.functions) do assert(type(wstudio.api[name]) == "function", name) end
+        \\local function contains(xs, value) for _, x in ipairs(xs) do if x == value then return true end end return false end
+        \\assert(contains(info.functions, "get_api_info") and contains(info.functions, "transport_set"))
+        \\assert(contains(info.events, "TrackMove") and contains(info.highlight_groups, "focus"))
+        \\assert(contains(info.views, "piano_roll") and contains(info.modes, "command"))
+        \\assert(info.limits.tracks == 8192 and info.limits.groups == 8 and info.limits.keymap_lhs_keys == 4)
+        \\local found = false
+        \\for _, o in ipairs(info.options) do if o.name == "gui_font_size" then found = o.scope == "gui" and o.type == "number" and o.min == 8 and o.max == 40 end end
+        \\assert(found)
+    );
+    rt.setFrontend(.tui);
+    try rt.loadString("assert(wstudio.api.get_api_info().frontend == 'tui')");
 }
 
 test "Lua highlight API layers sparse colors over built-in themes" {

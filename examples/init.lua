@@ -402,6 +402,10 @@
 -- restarted safely. force=true explicitly discards unsaved changes.
 --
 -- Other:
+--   wstudio.api.get_api_info() -- registry-derived plugin metadata:
+--                              --   version, api_level, frontend, functions,
+--                              --   events, highlight_groups, views, modes,
+--                              --   options, limits
 --   wstudio.cmd("bpm 140")   -- run any `:` command line. Called from this
 --                            -- file it queues and runs once the app is up.
 --   wstudio.notify("hi")     -- status-line message (stderr before startup
