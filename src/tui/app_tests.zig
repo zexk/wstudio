@@ -2798,6 +2798,21 @@ test ":track-instrument undo recovers a clip cleared by an incompatible-mapping 
     try std.testing.expectEqual(@as(usize, 1), app.session.arrangement.lane(0).?.clips.items.len);
 }
 
+test ":track-instrument <n> <kind> targets track n, leaving the cursor track alone" {
+    var app = try testApp();
+    defer app.deinit();
+
+    // Cursor sits on track 0 (synth); target track 2 (drum_machine) by
+    // number instead - mirrors :track-rename's "[<n>] <name>" shape.
+    app.cursor = 0;
+    for (":track-instrument 2 sampler") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+
+    try std.testing.expectEqual(InstrumentKind.poly_synth, std.meta.activeTag(app.session.racks.items[0].instrument));
+    try std.testing.expectEqual(InstrumentKind.sampler, std.meta.activeTag(app.session.racks.items[1].instrument));
+    try std.testing.expectEqual(@as(usize, 0), app.cursor);
+}
+
 test "track delete pushes its own undo entry that fully restores the track" {
     var app = try testApp();
     defer app.deinit();
