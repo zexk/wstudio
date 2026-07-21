@@ -93,11 +93,19 @@ pub const PatternPlayer = struct {
     }
 
     pub fn addNote(self: *PatternPlayer, note: Note) void {
+        _ = self.tryAddNote(note);
+    }
+
+    /// Add one note and report whether it fit. Interactive callers use the
+    /// result to surface the fixed real-time pattern capacity instead of
+    /// pretending an edit landed.
+    pub fn tryAddNote(self: *PatternPlayer, note: Note) bool {
         while (!self.notes_lock.tryLock()) std.atomic.spinLoopHint();
         defer self.notes_lock.unlock();
-        if (self.note_count >= max_notes) return;
+        if (self.note_count >= max_notes) return false;
         self.notes[self.note_count] = sanitizeNote(note);
         self.note_count += 1;
+        return true;
     }
 
     /// Remove the first note whose pitch and start_beat match (UI thread).
@@ -610,6 +618,25 @@ pub const PatternPlayer = struct {
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+test "tryAddNote reports the real-time pattern capacity" {
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    var pp = PatternPlayer.init(synth.device(), &transport);
+
+    for (0..max_notes) |i| try std.testing.expect(pp.tryAddNote(.{
+        .pitch = @intCast(i % 128),
+        .start_beat = @floatFromInt(i),
+        .duration_beat = 0.25,
+    }));
+    try std.testing.expect(!pp.tryAddNote(.{
+        .pitch = 60,
+        .start_beat = max_notes,
+        .duration_beat = 0.25,
+    }));
+    try std.testing.expectEqual(max_notes, pp.note_count);
+}
 
 test "swing delays a note on an off-beat 16th, mirroring DrumMachine's math" {
     var synth = try PolySynth.init(std.testing.allocator, 48_000);

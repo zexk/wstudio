@@ -502,11 +502,19 @@ fn stampChord(app: *App, seventh: bool) void {
     const scale = app.piano_scale orelse
         theory.Scale{ .root = @intCast(app.piano_cursor_pitch % 12), .kind = .major };
     const chord = scale.chordAt(app.piano_cursor_pitch, seventh);
-    history.push(app, history.captureMelodic(app, app.piano_track));
     const start_beat = stepToBeat(app, app.piano_cursor_step);
+    var replacing: u16 = 0;
+    for (chord.pitches[0..chord.count]) |pitch| {
+        if (pp.noteStartsAt(pitch, start_beat)) replacing += 1;
+    }
+    if (pp.note_count - replacing + chord.count > pattern_mod.max_notes) {
+        app.setStatus("pattern full ({d} notes max)", .{pattern_mod.max_notes});
+        return;
+    }
+    history.push(app, history.captureMelodic(app, app.piano_track));
     for (chord.pitches[0..chord.count]) |pitch| {
         pp.removeNote(pitch, start_beat);
-        pp.addNote(.{ .pitch = pitch, .start_beat = start_beat, .duration_beat = app.piano_note_len });
+        _ = pp.tryAddNote(.{ .pitch = pitch, .start_beat = start_beat, .duration_beat = app.piano_note_len });
     }
     app.setStatus("chord: {d} notes", .{chord.count});
     syncLinkedClip(app);
@@ -531,8 +539,13 @@ pub fn recordNote(app: *App, pitch: u7, velocity: f32) void {
     const step: u16 = @intFromFloat(@mod(raw_beats, pp.length_beats) * stepsPerBeatF(app));
     const start_beat = stepToBeat(app, step);
     if (pp.noteStartsAt(pitch, start_beat)) return;
-    history.push(app, history.captureMelodic(app, app.piano_track));
-    pp.addNote(.{ .pitch = pitch, .start_beat = start_beat, .duration_beat = app.piano_note_len, .velocity = velocity });
+    var before = history.captureMelodic(app, app.piano_track);
+    if (!pp.tryAddNote(.{ .pitch = pitch, .start_beat = start_beat, .duration_beat = app.piano_note_len, .velocity = velocity })) {
+        if (before) |*entry| entry.deinit(app.allocator);
+        app.setStatus("pattern full ({d} notes max)", .{pattern_mod.max_notes});
+        return;
+    }
+    history.push(app, before);
     app.piano_cursor_step = step;
     app.piano_cursor_pitch = pitch;
     ensureVisible(app);
@@ -544,12 +557,17 @@ fn insertNote(app: *App) void {
     const start_beat = stepToBeat(app, app.piano_cursor_step);
     // Don't insert if a note already starts here on this pitch
     if (pp.noteStartsAt(app.piano_cursor_pitch, start_beat)) return;
-    history.push(app, history.captureMelodic(app, app.piano_track));
-    pp.addNote(.{
+    var before = history.captureMelodic(app, app.piano_track);
+    if (!pp.tryAddNote(.{
         .pitch        = app.piano_cursor_pitch,
         .start_beat   = start_beat,
         .duration_beat = app.piano_note_len,
-    });
+    })) {
+        if (before) |*entry| entry.deinit(app.allocator);
+        app.setStatus("pattern full ({d} notes max)", .{pattern_mod.max_notes});
+        return;
+    }
+    history.push(app, before);
     var nbuf: [5]u8 = undefined;
     app.setStatus("added {s}", .{midi.noteName(app.piano_cursor_pitch, &nbuf)});
     syncLinkedClip(app);
@@ -937,7 +955,7 @@ fn pasteSelection(app: *App, pp: *pattern_mod.PatternPlayer, reps: u32) void {
         exitVisual(app);
         return;
     };
-    history.push(app, history.captureMelodic(app, app.piano_track));
+    var before = history.captureMelodic(app, app.piano_track);
     const cursor_beat = stepToBeat(app, app.piano_cursor_step);
     var pasted: u32 = 0;
     var rep: u32 = 0;
@@ -948,10 +966,21 @@ fn pasteSelection(app: *App, pp: *pattern_mod.PatternPlayer, reps: u32) void {
             var note = n;
             note.start_beat = std.math.clamp(base_beat + n.start_beat, 0, @max(0, pp.length_beats - 1.0 / stepsPerBeatF(app)));
             pp.removeNote(note.pitch, note.start_beat);
-            pp.addNote(note);
+            if (!pp.tryAddNote(note)) {
+                if (pasted > 0) {
+                    history.push(app, before);
+                } else if (before) |*entry| {
+                    entry.deinit(app.allocator);
+                }
+                app.setStatus("pattern full after {d} pasted notes", .{pasted});
+                syncLinkedClip(app);
+                exitVisual(app);
+                return;
+            }
+            pasted += 1;
         }
-        pasted += clip.count;
     }
+    history.push(app, before);
     app.last_edit = .piano_range_paste;
     app.setStatus("pasted {d} notes", .{pasted});
     syncLinkedClip(app);
