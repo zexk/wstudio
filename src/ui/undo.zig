@@ -181,6 +181,27 @@ pub const TrackFullState = struct {
     }
 };
 
+/// A live track's rack + arrangement clips before a `Session.changeInstrumentKind`
+/// swap (`:track-instrument`, the `I` keybind) - undo/redo's counterpart, applied
+/// via `Session.restoreRackAt`. Unlike `TrackFullState` this carries no mixer
+/// metadata (a kind swap never touches gain/pan/mute/solo/color/group) and never
+/// shifts another track's index, so one variant covers both directions: applying
+/// it always re-captures the track's CURRENT rack/clips first (to park on the
+/// opposite stack) before swapping the stored ones in - see `history.applyEntry`'s
+/// `.track_kind_swap` case.
+pub const TrackKindSwapState = struct {
+    track: u16,
+    rack: *Rack, // owned deep copy
+    clips: []Clip, // owned deep copy, including per-clip note data
+
+    pub fn deinit(self: *TrackKindSwapState, allocator: std.mem.Allocator) void {
+        self.rack.deinit(allocator);
+        allocator.destroy(self.rack);
+        for (self.clips) |*c| c.deinit(allocator);
+        allocator.free(self.clips);
+    }
+};
+
 /// How a structural track change (delete/swap/insert) reshapes a track index
 /// baked into an undo entry. Applied by `History.retarget` to every entry
 /// on both stacks right after the change, so old entries keep pointing at
@@ -203,6 +224,10 @@ pub const Entry = union(enum) {
     /// deletes it (redo of a delete, or undo of a restore) - lightweight
     /// since `Session.deleteTrack` needs no prior snapshot to run.
     track_delete: u16,
+    /// A live track's rack/clips before an instrument-kind swap; applying
+    /// swaps the stored state back in via `Session.restoreRackAt` (undo or
+    /// redo of `:track-instrument`/`I` - see `TrackKindSwapState`).
+    track_kind_swap: TrackKindSwapState,
 
     pub fn deinit(self: *Entry, allocator: std.mem.Allocator) void {
         switch (self.*) {
@@ -214,6 +239,7 @@ pub const Entry = union(enum) {
             .param_nudge => {},
             .track_insert => |*t| t.deinit(allocator),
             .track_delete => {},
+            .track_kind_swap => |*t| t.deinit(allocator),
         }
     }
 
@@ -226,6 +252,7 @@ pub const Entry = union(enum) {
             .fx => "fx",
             .param_nudge => "param",
             .track_insert, .track_delete => "track",
+            .track_kind_swap => "instrument",
         };
     }
 };
@@ -346,6 +373,7 @@ fn retargetStack(stack: *std.ArrayListUnmanaged(Entry), allocator: std.mem.Alloc
             .slicer => |*d| if (remap.apply(d.track)) |nt| { d.track = nt; } else { keep = false; },
             .lane => |*l| if (remap.apply(l.track)) |nt| { l.track = nt; } else { keep = false; },
             .param_nudge => |*p| if (remap.apply(p.track)) |nt| { p.track = nt; } else { keep = false; },
+            .track_kind_swap => |*t| if (remap.apply(t.track)) |nt| { t.track = nt; } else { keep = false; },
             .fx => |*f| switch (f.target) {
                 .track => |t| if (remap.apply(t)) |nt| { f.target = .{ .track = nt }; } else { keep = false; },
                 else => {},

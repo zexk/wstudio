@@ -774,10 +774,13 @@ fn cmdTrackInstrument(app: *App, args: []const u8) void {
         app.setStatus("track {d} is already {s}", .{ idx + 1, trimmed });
         return;
     }
+    var backup = history.captureTrackKindSwap(app, idx);
     const preserved = app.session.changeInstrumentKind(idx, kind) catch |err| {
+        if (backup) |*b| b.deinit(app.allocator);
         app.setStatus("track-instrument: {s}", .{@errorName(err)});
         return;
     };
+    history.push(app, backup);
     app.dirty = true;
     if (preserved) {
         app.setStatus("track {d}: now {s} (notes kept)", .{ idx + 1, trimmed });

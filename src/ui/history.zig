@@ -161,6 +161,28 @@ pub fn captureTrackFull(app: *App, track_idx: usize) ?undo_mod.TrackFullState {
     };
 }
 
+/// Snapshot `track_idx`'s current rack + arrangement clips (deep copies) -
+/// the same `Rack.dupe`/`dupeClips` machinery `captureTrackFull` uses, minus
+/// the mixer metadata a `changeInstrumentKind` swap never touches. Feeds
+/// `Session.restoreRackAt` to undo/redo `:track-instrument`/`I`.
+pub fn captureTrackKindSwap(app: *App, track_idx: usize) ?undo_mod.Entry {
+    if (track_idx >= app.session.racks.items.len) return null;
+    const rack = app.session.racks.items[track_idx].dupe(
+        // zig fmt: off
+        app.allocator, app.session.project.sample_rate, &app.session.engine.transport,
+        // zig fmt: on
+    ) catch return null;
+    var clips: []ws.Clip = &.{};
+    if (app.session.arrangement.lane(track_idx)) |lane| {
+        clips = dupeClips(app.allocator, lane.clips.items) orelse {
+            rack.deinit(app.allocator);
+            app.allocator.destroy(rack);
+            return null;
+        };
+    }
+    return .{ .track_kind_swap = .{ .track = @intCast(track_idx), .rack = rack, .clips = clips } };
+}
+
 /// The live `Fx` chain a stored `FxTarget` points at, or null if the track/
 /// group it named is gone. Unlike `spectrum.fxPtr`, this resolves the
 /// index baked into the entry rather than `app`'s current eq_track/
@@ -502,6 +524,21 @@ fn applyEntry(app: *App, entry: undo_mod.Entry) ?undo_mod.Entry {
             app.invalidateTrackRow();
             app.exitStaleEditors();
             return .{ .track_insert = state };
+        },
+        .track_kind_swap => |state| {
+            const displaced = captureTrackKindSwap(app, state.track) orelse return null;
+            app.session.restoreRackAt(state.track, state.rack, state.clips) catch {
+                // OOM mid-restore: `state.rack`/`state.clips` ownership is
+                // unclear past this point (same call as track_insert's
+                // restoreTrack - see that arm's own comment), so only
+                // `displaced` (never touched, ours outright) is safe to
+                // free here; the rest is a rare leak, not a double-free.
+                var d = displaced;
+                d.deinit(app.allocator);
+                return null;
+            };
+            app.exitStaleEditors();
+            return displaced;
         },
     }
 }

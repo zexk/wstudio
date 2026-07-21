@@ -458,6 +458,45 @@ pub const Session = struct {
         return preserved;
     }
 
+    /// Swap `track_idx`'s rack and arrangement clips for `rack`/`clips` in
+    /// place - no index shift, unlike `restoreTrack` (which reinserts a
+    /// deleted track). The undo/redo counterpart to `changeInstrumentKind`:
+    /// the caller already holds a deep copy made specifically for this
+    /// restore (see `history.captureTrackKindSwap`), so ownership of both
+    /// moves in with no further copy, same terms `restoreTrack` takes its
+    /// own `rack`/`clips` on. The old rack retires like every other
+    /// instrument replacement (the audio thread may still be mid-block in
+    /// it). On an OOM failure ownership past the retire step is unclear -
+    /// same accepted risk `restoreTrack`'s own per-clip `try` loop already
+    /// carries - so the caller must not free `rack`/`clips` itself after a
+    /// failed call, only before one is attempted.
+    pub fn restoreRackAt(self: *Session, track_idx: usize, rack: *Rack, clips: []Clip) !void {
+        if (track_idx >= self.racks.items.len) return error.InvalidTrack;
+
+        try self.retired_racks.append(self.allocator, self.racks.items[track_idx]);
+        self.racks.items[track_idx] = rack;
+
+        _ = self.engine.send(.all_notes_off);
+
+        if (self.arrangement.lane(track_idx)) |lane| {
+            lane.clear(self.allocator);
+            for (clips) |c| try lane.clips.append(self.allocator, c);
+        }
+        self.allocator.free(clips);
+
+        self.syncTrackChain(@intCast(track_idx), rack);
+
+        if (self.song_mode) {
+            self.rebuildSongData();
+            if (rack.pattern_player) |*pp| pp.song_mode = true;
+            switch (rack.instrument) {
+                .drum_machine => |*dm| dm.song_mode = true,
+                .slicer => |*sl| sl.song_mode = true,
+                else => {},
+            }
+        }
+    }
+
     pub fn setClapInstrument(
         self: *Session,
         track_idx: usize,
