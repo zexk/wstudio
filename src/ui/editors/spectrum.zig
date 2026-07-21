@@ -205,6 +205,43 @@ pub fn visibleParamCount(app: *App, k: FxKind, p: *const FxPayload) usize {
     return paramCount(k);
 }
 
+pub const ParamGrid = struct {
+    count: usize,
+    columns: usize,
+    rows: usize,
+
+    pub fn index(self: ParamGrid, row: usize, column: usize) ?usize {
+        const i = row * self.columns + column;
+        return if (row < self.rows and column < self.columns and i < self.count) i else null;
+    }
+
+    pub fn columnsInRow(self: ParamGrid, row: usize) usize {
+        if (row >= self.rows) return 0;
+        return @min(self.columns, self.count - row * self.columns);
+    }
+};
+
+/// Row-major parameter layout. Frontends choose their own column ceiling
+/// from available space, while sequential navigation and visual reading
+/// order remain identical.
+pub fn paramGrid(count: usize, max_columns: usize) ParamGrid {
+    const columns = @min(count, @max(max_columns, 1));
+    return .{
+        .count = count,
+        .columns = columns,
+        .rows = if (columns == 0) 0 else (count + columns - 1) / columns,
+    };
+}
+
+test "parameter grid follows sequential navigation order" {
+    const grid = paramGrid(7, 3);
+    try std.testing.expectEqual(@as(usize, 3), grid.columns);
+    try std.testing.expectEqual(@as(usize, 3), grid.rows);
+    try std.testing.expectEqual(@as(usize, 1), grid.columnsInRow(2));
+    for (0..7) |i| try std.testing.expectEqual(i, grid.index(i / grid.columns, i % grid.columns).?);
+    try std.testing.expectEqual(@as(?usize, null), grid.index(2, 1));
+}
+
 /// Flat param list for a multiband compressor: 6 shared controls (crossover
 /// x2, attack, release, style, mix) followed by 3 fields (thresh/ratio/
 /// makeup) per band, low->mid->high - same "one sequential list" shape the

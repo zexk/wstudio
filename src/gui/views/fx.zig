@@ -145,7 +145,7 @@ fn drawEditor(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit) void
         drawEffectDisplay(app, target, unit);
         zgui.spacing();
         const param_count = spectrum_ed.visibleParamCount(&app.core, unit.kind(), &unit.payload);
-        drawParamColumns(app, target, unit, param_count);
+        drawParamGrid(app, target, unit, param_count);
         if (unit.bypassed) zgui.textColored(theme.danger, "BYPASSED  (b to re-enable)", .{});
     }
 }
@@ -215,23 +215,33 @@ fn effectDisplayValue(kind: ws.FxKind, t: f32, amount: f32, shape: f32) f32 {
     };
 }
 
-fn drawParamColumns(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, param_count: usize) void {
+fn drawParamGrid(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, param_count: usize) void {
     const available = zgui.getContentRegionAvail()[0];
-    const columns: usize = if (available >= 720 and param_count >= 4) 3 else if (available >= 440 and param_count >= 3) 2 else 1;
+    const max_columns: usize = @intFromFloat(@max(1, @floor((available + 8) / 210)));
+    const grid = spectrum_ed.paramGrid(param_count, @min(max_columns, 4));
     const gap: f32 = 8;
-    const width = (available - gap * @as(f32, @floatFromInt(columns - 1))) / @as(f32, @floatFromInt(columns));
-    for (0..columns) |column| {
-        if (column > 0) zgui.sameLine(.{ .spacing = gap });
-        var id_buf: [32]u8 = undefined;
-        const id = std.fmt.bufPrintZ(&id_buf, "fx-param-column-{d}", .{column}) catch continue;
-        if (zgui.beginChild(id, .{ .w = if (column + 1 == columns) 0 else width, .h = 0, .child_flags = .{ .border = true } })) {
-            var index = column;
-            while (index < param_count) : (index += columns) {
-                drawParam(app, target, unit, index);
-                if (index + columns < param_count) zgui.spacing();
+    const available_height = zgui.getContentRegionAvail()[1];
+    const row_height = std.math.clamp(
+        (available_height - gap * @as(f32, @floatFromInt(grid.rows -| 1))) / @as(f32, @floatFromInt(@max(grid.rows, 1))),
+        82,
+        150,
+    );
+    const knob_diameter = std.math.clamp(row_height - 44, 38, 64);
+
+    for (0..grid.rows) |row| {
+        const row_columns = grid.columnsInRow(row);
+        const width = (available - gap * @as(f32, @floatFromInt(row_columns -| 1))) / @as(f32, @floatFromInt(row_columns));
+        for (0..row_columns) |column| {
+            const index = grid.index(row, column) orelse continue;
+            if (column > 0) zgui.sameLine(.{ .spacing = gap });
+            var id_buf: [40]u8 = undefined;
+            const id = std.fmt.bufPrintZ(&id_buf, "fx-param-card-{d}", .{index}) catch continue;
+            if (zgui.beginChild(id, .{ .w = if (column + 1 == row_columns) 0 else width, .h = row_height, .child_flags = .{ .border = true } })) {
+                drawParam(app, target, unit, index, knob_diameter);
             }
+            zgui.endChild();
         }
-        zgui.endChild();
+        if (row + 1 < grid.rows) zgui.dummy(.{ .w = 0, .h = gap });
     }
 }
 
@@ -509,7 +519,7 @@ fn bandResponseDb(band: anytype, sample_rate: f32, freq: f32) f32 {
     return 10.0 * std.math.log10(magnitude_sq) * stages;
 }
 
-fn drawParam(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, index: usize) void {
+fn drawParam(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, index: usize, knob_diameter: f32) void {
     if (spectrum_ed.paramToggleNames(unit.kind(), index)) |names| {
         drawParamToggle(app, target, unit, index, names);
         return;
@@ -524,7 +534,10 @@ fn drawParam(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, index
     var label_buf: [80]u8 = undefined;
     const label = std.fmt.bufPrintZ(&label_buf, "{s}##gui-fx-{d}", .{ spectrum_ed.paramName(&unit.payload, index), index }) catch return;
     const focused = app.core.fx_param == index;
-    const result = widgets.paramKnob(spectrum_ed.paramName(&unit.payload, index), label, .{ .v = &value, .min = range[0], .max = range[1], .cfmt = format, .accent = kindAccent(unit.kind()), .focused = focused });
+    const control_width = knob_diameter + 120;
+    const spare = zgui.getContentRegionAvail()[0] - control_width;
+    if (spare > 0) zgui.setCursorPosX(zgui.getCursorPosX() + spare * 0.5);
+    const result = widgets.paramKnob(spectrum_ed.paramName(&unit.payload, index), label, .{ .v = &value, .min = range[0], .max = range[1], .cfmt = format, .accent = kindAccent(unit.kind()), .focused = focused, .diameter = knob_diameter });
     if (result.changed) {
         spectrum_ed.setParam(&app.core, &unit.payload, index, value);
         spectrum_ed.clearStaleSidechainPad(&app.core, &unit.payload);
@@ -543,6 +556,8 @@ fn drawParamToggle(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit,
     const value = spectrum_ed.getParam(&unit.payload, index);
     const focused = app.core.fx_param == index;
     const accent = kindAccent(unit.kind());
+    const spare = zgui.getContentRegionAvail()[0] - 180;
+    if (spare > 0) zgui.setCursorPosX(zgui.getCursorPosX() + spare * 0.5);
     zgui.textColored(if (focused) accent else theme.fg1, "{s}", .{spectrum_ed.paramName(&unit.payload, index)});
     for (names, 0..) |name, i| {
         if (i > 0) zgui.sameLine(.{ .spacing = 5 });
@@ -572,6 +587,8 @@ fn drawParamList(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, i
     var value_buf: [32]u8 = undefined;
     const display = spectrum_ed.formatValue(&app.core, &value_buf, &unit.payload, index);
     const focused = app.core.fx_param == index;
+    const spare = zgui.getContentRegionAvail()[0] - 190;
+    if (spare > 0) zgui.setCursorPosX(zgui.getCursorPosX() + spare * 0.5);
     const result = widgets.listStepper(spectrum_ed.paramName(&unit.payload, index), label, .{ .v = &value, .min = range[0], .max = range[1], .display = display, .accent = kindAccent(unit.kind()), .focused = focused });
     if (result.changed) {
         spectrum_ed.setParam(&app.core, &unit.payload, index, value);
