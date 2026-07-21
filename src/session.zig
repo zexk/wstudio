@@ -206,15 +206,13 @@ pub const Session = struct {
         self.remapSidechainSources(.{ .insert = idx });
     }
 
-    /// Replace the instrument on `track_idx` with a fresh instance of `kind`.
-    /// The replacement is built in a brand-new heap rack; the old rack is moved
-    /// to `retired_racks` rather than torn down in place - the audio thread may
-    /// still be mid-block inside its devices (same policy as deleteTrack).
-    /// Melodic kinds (synth, sampler) get a PatternPlayer so they are
-    /// piano-roll sequenceable. Rebuilds the engine chain. Any allocation
-    /// failure leaves the session untouched.
-    pub fn setInstrument(self: *Session, track_idx: usize, kind: InstrumentKind) !void {
-        if (track_idx >= self.racks.items.len) return;
+    /// Build a fresh, unattached `*Rack` housing a brand-new instance of
+    /// `kind` - the shared construction step `setInstrument` and
+    /// `changeInstrumentKind` both need before they touch any live session
+    /// state. Set AFTER the instrument lands in the heap rack - the
+    /// PatternPlayer holds a pointer into it. Slicer/drum_machine get their
+    /// own step grid, not a PatternPlayer.
+    fn newInstrumentRack(self: *Session, kind: InstrumentKind) !*Rack {
         const sr = self.project.sample_rate;
 
         const rack = try self.allocator.create(Rack);
@@ -246,13 +244,25 @@ pub const Session = struct {
                 rack.label = "soundfont";
             },
         }
-        // Set AFTER the instrument lands in the heap rack - the player holds a
-        // pointer into it. Slicer/drum_machine get their own step grid, not a
-        // PatternPlayer.
         switch (kind) {
             .poly_synth, .sampler, .clap, .soundfont => rack.pattern_player = PatternPlayer.init(rack.instrument.device().?, &self.engine.transport),
             else => {},
         }
+        return rack;
+    }
+
+    /// Replace the instrument on `track_idx` with a fresh instance of `kind`,
+    /// unconditionally dropping any notes/pads the old instrument held (see
+    /// `changeInstrumentKind` for a variant that preserves them where
+    /// possible). The replacement is built in a brand-new heap rack; the old
+    /// rack is moved to `retired_racks` rather than torn down in place - the
+    /// audio thread may still be mid-block inside its devices (same policy as
+    /// deleteTrack). Rebuilds the engine chain. Any allocation failure leaves
+    /// the session untouched.
+    pub fn setInstrument(self: *Session, track_idx: usize, kind: InstrumentKind) !void {
+        if (track_idx >= self.racks.items.len) return;
+        const rack = try self.newInstrumentRack(kind);
+        errdefer { rack.instrument.deinit(); self.allocator.destroy(rack); }
 
         try self.retired_racks.append(self.allocator, self.racks.items[track_idx]);
 
@@ -278,6 +288,174 @@ pub const Session = struct {
                 else => {},
             }
         }
+    }
+
+    /// True for kinds whose live pattern is a `PatternPlayer` of pitched
+    /// `Note`s (see `newInstrumentRack`) - poly_synth/sampler/soundfont share
+    /// one identical note representation, and clap does too (once loaded)
+    /// even though this command can't build a fresh one from a bare kind.
+    fn isMelodicKind(kind: InstrumentKind) bool {
+        return switch (kind) {
+            .poly_synth, .sampler, .clap, .soundfont => true,
+            .empty, .drum_machine, .slicer => false,
+        };
+    }
+
+    /// Flatten every pad's MIDI notes into one pitched pattern, each note
+    /// keeping its own recorded pitch (which is the pad index for
+    /// grid-programmed hits, but can differ for an imported drum MIDI file) -
+    /// same conversion `splitDrumTrack` uses per-pad, merged across all pads
+    /// here since the destination is a single chromatic voice, not one track
+    /// per pad.
+    fn flattenDrumMidi(dm: *const DrumMachine, out: []Note) usize {
+        var n: usize = 0;
+        for (0..DrumMachine.max_pads) |pad| {
+            if (n >= out.len) break;
+            n += dm.copyPadMidi(@intCast(pad), out[n..]);
+        }
+        return n;
+    }
+
+    /// Drop every clip's per-instrument-param automation lane on `track_idx` -
+    /// a `param_id` is only meaningful within the instrument kind that
+    /// recorded it (see `Clip.Automation.SynthParamCurve`'s doc comment), so
+    /// any instrument-kind change invalidates every lane regardless of
+    /// whether the notes themselves carried over.
+    fn clearClipParamAutomation(self: *Session, track_idx: usize) void {
+        const lane = self.arrangement.lane(track_idx) orelse return;
+        for (lane.clips.items) |*c| {
+            for (c.automation.synth_params.items) |*sp| self.allocator.free(sp.points);
+            c.automation.synth_params.clearRetainingCapacity();
+        }
+    }
+
+    /// Rewrite `track_idx`'s arrangement clips from drum content to melodic
+    /// content in place (same per-clip conversion `splitDrumTrack` does,
+    /// pads merged instead of split). Builds every converted clip before
+    /// mutating anything so a mid-loop allocation failure can't leave the
+    /// lane half-converted.
+    fn convertLaneDrumToMelodic(self: *Session, track_idx: usize) !void {
+        const lane = self.arrangement.lane(track_idx) orelse return;
+        var converted = try self.allocator.alloc(?Clip.Melodic, lane.clips.items.len);
+        defer self.allocator.free(converted);
+        @memset(converted, null);
+        errdefer for (converted) |m| if (m) |melodic| self.allocator.free(melodic.notes);
+
+        var notes: [pattern_mod.max_notes]Note = undefined;
+        for (lane.clips.items, 0..) |c, i| {
+            const drum = switch (c.content) {
+                .drum => |d| d,
+                .melodic => continue, // not expected on a drum track, but leave it be
+            };
+            var n: usize = 0;
+            for (drum.midi) |pad_notes| {
+                for (pad_notes) |maybe_note| {
+                    const note = maybe_note orelse continue;
+                    if (n >= notes.len) break;
+                    notes[n] = note.toPattern(drum.steps_per_beat);
+                    n += 1;
+                }
+            }
+            const length_beats = @as(f64, @floatFromInt(drum.step_count)) / @as(f64, @floatFromInt(drum.steps_per_beat));
+            converted[i] = .{ .notes = try self.allocator.dupe(Note, notes[0..n]), .length_beats = @max(1.0, length_beats) };
+        }
+
+        for (lane.clips.items, converted) |*c, maybe_melodic| {
+            const melodic = maybe_melodic orelse continue;
+            DrumMachine.freeMidi(self.allocator, &c.content.drum.midi);
+            c.content = .{ .melodic = melodic };
+        }
+    }
+
+    /// Migrate `track_idx`'s live pattern (and, for the drum case, its
+    /// arrangement clips) from `old_rack`/`old_kind` into `new_rack`, whose
+    /// instrument is already built as `new_kind`. Returns whether anything
+    /// was actually preserved - `changeInstrumentKind` falls back to
+    /// clearing the lane when this is false, same as `setInstrument` always
+    /// does. Melodic-to-melodic kinds share one Note representation, so
+    /// clips need no rewrite there - only the live pattern is copied. A
+    /// melodic destination coming FROM a drum machine flattens its per-pad
+    /// MIDI (see `flattenDrumMidi`); every other pairing (slicer on either
+    /// side, a drum-machine destination, empty on either side) has no
+    /// unambiguous note mapping, so this returns false and lets the notes go
+    /// - inventing a lossy pitch-to-pad bucketing there would be a product
+    /// decision, not a preservation.
+    fn migrateInstrumentData(
+        self: *Session,
+        track_idx: usize,
+        old_rack: *Rack,
+        new_rack: *Rack,
+        old_kind: InstrumentKind,
+        new_kind: InstrumentKind,
+    ) !bool {
+        if (isMelodicKind(old_kind) and isMelodicKind(new_kind)) {
+            if (old_rack.pattern_player) |*old_pp| {
+                var notes: [pattern_mod.max_notes]Note = undefined;
+                const n = old_pp.copyNotes(&notes);
+                new_rack.pattern_player.?.setNotes(notes[0..n], old_pp.length_beats);
+                new_rack.pattern_player.?.swing.store(old_pp.swing.load(.monotonic), .monotonic);
+            }
+            self.clearClipParamAutomation(track_idx);
+            return true;
+        }
+
+        if (old_kind == .drum_machine and isMelodicKind(new_kind)) {
+            const dm = &old_rack.instrument.drum_machine;
+            var notes: [pattern_mod.max_notes]Note = undefined;
+            const n = flattenDrumMidi(dm, &notes);
+            const live_length = @as(f64, @floatFromInt(dm.step_count)) / @as(f64, @floatFromInt(dm.steps_per_beat));
+            new_rack.pattern_player.?.setNotes(notes[0..n], live_length);
+
+            try self.convertLaneDrumToMelodic(track_idx);
+            self.clearClipParamAutomation(track_idx);
+            return true;
+        }
+
+        return false;
+    }
+
+    /// Replace the instrument on `track_idx` with a fresh instance of `kind`,
+    /// preserving the track's note data where the old and new kinds share (or
+    /// can be losslessly derived into) the same note representation - see
+    /// `migrateInstrumentData` for exactly which pairings qualify. Everything
+    /// else about the swap (retiring the old rack, resyncing the chain, song-
+    /// mode coherence) matches `setInstrument`. Returns whether notes were
+    /// preserved; the caller decides how to report that. A no-op (returns
+    /// `true`) when `kind` matches the track's current instrument already.
+    pub fn changeInstrumentKind(self: *Session, track_idx: usize, kind: InstrumentKind) !bool {
+        if (track_idx >= self.racks.items.len) return error.InvalidTrack;
+        const old_rack = self.racks.items[track_idx];
+        const old_kind = std.meta.activeTag(old_rack.instrument);
+        if (old_kind == kind) return true;
+
+        const rack = try self.newInstrumentRack(kind);
+        errdefer { rack.instrument.deinit(); self.allocator.destroy(rack); }
+
+        const preserved = try self.migrateInstrumentData(track_idx, old_rack, rack, old_kind, kind);
+
+        try self.retired_racks.append(self.allocator, self.racks.items[track_idx]);
+
+        _ = self.engine.send(.all_notes_off);
+
+        if (!preserved) {
+            if (self.arrangement.lane(track_idx)) |lane| lane.clear(self.allocator);
+        }
+
+        self.racks.items[track_idx] = rack;
+
+        self.syncTrackChain(@intCast(track_idx), rack);
+
+        if (self.song_mode) {
+            self.rebuildSongData();
+            if (rack.pattern_player) |*pp| pp.song_mode = true;
+            switch (rack.instrument) {
+                .drum_machine => |*dm| dm.song_mode = true,
+                .slicer => |*sl| sl.song_mode = true,
+                else => {},
+            }
+        }
+
+        return preserved;
     }
 
     pub fn setClapInstrument(
@@ -1143,6 +1321,81 @@ test "setInstrument keeps the new device in the current song mode" {
 
     try s.setInstrument(0, .sampler);
     try std.testing.expect(s.racks.items[0].pattern_player.?.song_mode);
+}
+
+test "changeInstrumentKind copies the live pattern between melodic kinds" {
+    var s = try Session.initDefault(std.testing.allocator);
+    defer s.deinit();
+    try s.setInstrument(0, .poly_synth);
+    const pp = &s.racks.items[0].pattern_player.?;
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 1.0 });
+    pp.addNote(.{ .pitch = 64, .start_beat = 1.5, .duration_beat = 0.5, .velocity = 0.4 });
+    pp.length_beats = 8.0;
+
+    const preserved = try s.changeInstrumentKind(0, .sampler);
+    try std.testing.expect(preserved);
+    try std.testing.expectEqual(rack_mod.InstrumentKind.sampler, std.meta.activeTag(s.racks.items[0].instrument));
+
+    var out: [4]Note = undefined;
+    const n = s.racks.items[0].pattern_player.?.copyNotes(&out);
+    try std.testing.expectEqual(@as(u16, 2), n);
+    try std.testing.expectEqual(@as(u7, 60), out[0].pitch);
+    try std.testing.expectEqual(@as(u7, 64), out[1].pitch);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.4), out[1].velocity, 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f64, 8.0), s.racks.items[0].pattern_player.?.length_beats, 1e-9);
+}
+
+test "changeInstrumentKind flattens a drum machine's pads into one melodic pattern, live and per-clip" {
+    var s = try Session.initDefault(std.testing.allocator);
+    defer s.deinit();
+    try s.setInstrument(0, .drum_machine);
+    const dm = &s.racks.items[0].instrument.drum_machine;
+    dm.toggleStep(3, 0); // pad 3, step 0 - pitch defaults to the pad index
+    dm.toggleStep(9, 4);
+    try s.stampClip(0, 0); // capture the live pattern as a clip at bar 0
+
+    const preserved = try s.changeInstrumentKind(0, .poly_synth);
+    try std.testing.expect(preserved);
+
+    var out: [4]Note = undefined;
+    const n = s.racks.items[0].pattern_player.?.copyNotes(&out);
+    try std.testing.expectEqual(@as(u16, 2), n);
+    try std.testing.expectEqual(@as(u7, 3), out[0].pitch);
+    try std.testing.expectEqual(@as(u7, 9), out[1].pitch);
+
+    const lane = s.arrangement.lane(0).?;
+    try std.testing.expectEqual(@as(usize, 1), lane.clips.items.len);
+    const melodic = switch (lane.clips.items[0].content) {
+        .melodic => |m| m,
+        .drum => return error.ExpectedMelodicClip,
+    };
+    try std.testing.expectEqual(@as(usize, 2), melodic.notes.len);
+}
+
+test "changeInstrumentKind clears notes when there's no compatible mapping" {
+    var s = try Session.initDefault(std.testing.allocator);
+    defer s.deinit();
+    try s.setInstrument(0, .poly_synth);
+    s.racks.items[0].pattern_player.?.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 1.0 });
+    try s.stampClip(0, 0);
+    try std.testing.expectEqual(@as(usize, 1), s.arrangement.lane(0).?.clips.items.len);
+
+    const preserved = try s.changeInstrumentKind(0, .slicer);
+    try std.testing.expect(!preserved);
+    try std.testing.expectEqual(@as(usize, 0), s.arrangement.lane(0).?.clips.items.len);
+}
+
+test "changeInstrumentKind is a no-op when the kind already matches" {
+    var s = try Session.initDefault(std.testing.allocator);
+    defer s.deinit();
+    try s.setInstrument(0, .poly_synth);
+    const rack_before = s.racks.items[0];
+    const retired_before = s.retired_racks.items.len;
+
+    const preserved = try s.changeInstrumentKind(0, .poly_synth);
+    try std.testing.expect(preserved);
+    try std.testing.expectEqual(rack_before, s.racks.items[0]);
+    try std.testing.expectEqual(retired_before, s.retired_racks.items.len);
 }
 
 test "deleteTrack removes project+rack and retires it" {
