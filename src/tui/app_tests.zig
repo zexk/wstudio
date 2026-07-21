@@ -4728,12 +4728,15 @@ test "Tab cycles mnemonic command names and ignores compatibility aliases" {
     defer app.deinit();
 
     // The short q/qa spellings remain dispatchable but completion only
-    // offers the mnemonic quit names.
+    // offers the mnemonic quit names, plus any other mnemonic "q" command
+    // in table order (quantize, after the pattern-editing commands).
     for (":q") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.tab, 0);
     try std.testing.expectEqualStrings("quit", app.modal.cmd_buf[0..app.modal.cmd_len]);
     app.handleKey(.tab, 0);
     try std.testing.expectEqualStrings("quit!", app.modal.cmd_buf[0..app.modal.cmd_len]);
+    app.handleKey(.tab, 0);
+    try std.testing.expectEqualStrings("quantize", app.modal.cmd_buf[0..app.modal.cmd_len]);
     app.handleKey(.tab, 0);
     try std.testing.expectEqualStrings("quit", app.modal.cmd_buf[0..app.modal.cmd_len]);
 

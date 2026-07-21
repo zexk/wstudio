@@ -122,6 +122,7 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "clear",       .desc = "erase all notes in the piano-roll pattern",          .run = wrap(cmdClear) },
     .{ .name = "%d",          .desc = "erase all notes in the pattern (alias for :clear)",  .run = wrap(cmdClear) },
     .{ .name = "humanize",    .desc = "[amount]  jitter the pattern's note timing/velocity 0-100% (default 15)", .run = wrap(cmdHumanize) },
+    .{ .name = "quantize",    .desc = "[strength]  snap the pattern's notes to the current grid 0-100% (default 100, hard snap)", .run = wrap(cmdQuantize) },
     .{ .name = "swing",       .desc = "[percent]  piano-roll pattern swing 50-75% (default 50, straight) - matches the drum machine's", .run = wrap(cmdSwing) },
     .{ .name = "reverse",     .desc = "retrograde: mirror the pattern in time (visual-mode r reverses just the selection)", .run = wrap(cmdReverse) },
     .{ .name = "vel-ramp",    .desc = "<from> <to>  velocity ramp 0-100% across the pattern's notes (drum view: the cursor pad's hits)", .run = wrap(cmdVelRamp) },
@@ -401,6 +402,35 @@ fn cmdHumanize(app: *App, args: []const u8) void {
     const seed: u64 = @truncate(@as(u96, @bitCast(app.now_ns)));
     pp.humanize(amount, step_beats, seed);
     app.setStatus("humanized {d} notes ({d:.0}%)", .{ pp.note_count, amount });
+    piano_ed.syncLinkedClip(app);
+}
+
+/// `:quantize [strength]` - snap every note's start toward the current view
+/// grid (`piano_division`, `T`/`z`/`Z` set it), 0-100% (default 100, hard
+/// snap). The deliberate counterpart to `:humanize`'s jitter - same
+/// track-resolution rule.
+fn cmdQuantize(app: *App, args: []const u8) void {
+    const track: usize = if (app.view == .piano_roll) app.piano_track else app.cursor;
+    if (track >= app.session.racks.items.len or
+        app.session.racks.items[track].pattern_player == null)
+    {
+        app.setStatus("quantize: no piano-roll pattern", .{});
+        return;
+    }
+    const trimmed = std.mem.trim(u8, args, " ");
+    const strength: f64 = if (trimmed.len == 0) 100.0 else parseFiniteFloat(f64, trimmed) catch {
+        app.setStatus("quantize: expected a percent, e.g. :quantize 100", .{});
+        return;
+    };
+    if (strength < 0.0 or strength > 100.0) {
+        app.setStatus("quantize: strength must be 0-100", .{});
+        return;
+    }
+    const pp = &app.session.racks.items[track].pattern_player.?;
+    history.recordMelodic(app, @intCast(track));
+    const step_beats = 1.0 / @as(f64, @floatFromInt(app.pianoStepsPerBeat()));
+    pp.quantize(step_beats, strength);
+    app.setStatus("quantized to {s} ({d:.0}%)", .{ app.piano_division.label(), strength });
     piano_ed.syncLinkedClip(app);
 }
 
