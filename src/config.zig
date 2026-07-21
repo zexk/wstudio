@@ -711,6 +711,8 @@ pub const Runtime = struct {
             .{ .name = "get_current_track", .func = apiGetCurrentTrack },
             .{ .name = "set_hl", .func = apiSetHl },
             .{ .name = "get_hl", .func = apiGetHl },
+            .{ .name = "transport_get", .func = apiTransportGet },
+            .{ .name = "transport_set", .func = apiTransportSet },
             .{ .name = "play", .func = apiPlay },
             .{ .name = "stop", .func = apiStop },
             .{ .name = "is_playing", .func = apiIsPlaying },
@@ -1395,6 +1397,168 @@ fn apiGetHl(state: ?*c.lua_State) callconv(.c) c_int {
 
 fn apiPlay(state: ?*c.lua_State) callconv(.c) c_int {
     requireApp(state.?).apiPlay();
+    return 0;
+}
+
+fn apiTransportGet(state: ?*c.lua_State) callconv(.c) c_int {
+    const l = state.?;
+    const info = requireApp(l).apiTransportInfo();
+    c.lua_createtable(l, 0, 10);
+    c.lua_pushboolean(l, @intFromBool(info.playing));
+    c.lua_setfield(l, -2, "playing");
+    c.lua_pushnumber(l, info.tempo);
+    c.lua_setfield(l, -2, "tempo");
+    c.lua_pushnumber(l, info.position_beats);
+    c.lua_setfield(l, -2, "position_beats");
+    c.lua_pushnumber(l, info.position_seconds);
+    c.lua_setfield(l, -2, "position_seconds");
+    c.lua_pushnumber(l, @floatFromInt(info.position_frames));
+    c.lua_setfield(l, -2, "position_frames");
+    c.lua_pushinteger(l, info.sample_rate);
+    c.lua_setfield(l, -2, "sample_rate");
+    c.lua_pushinteger(l, info.beats_per_bar);
+    c.lua_setfield(l, -2, "beats_per_bar");
+    c.lua_pushboolean(l, @intFromBool(info.song_mode));
+    c.lua_setfield(l, -2, "song_mode");
+    c.lua_pushboolean(l, @intFromBool(info.metronome));
+    c.lua_setfield(l, -2, "metronome");
+    c.lua_createtable(l, 0, 3);
+    c.lua_pushboolean(l, @intFromBool(info.loop_enabled));
+    c.lua_setfield(l, -2, "enabled");
+    if (info.loop_end_bar > info.loop_start_bar) {
+        c.lua_pushinteger(l, @intCast(info.loop_start_bar + 1));
+        c.lua_setfield(l, -2, "start_bar");
+        c.lua_pushinteger(l, @intCast(info.loop_end_bar));
+        c.lua_setfield(l, -2, "end_bar");
+    }
+    c.lua_setfield(l, -2, "loop");
+    return 1;
+}
+
+const LoopUpdate = struct { enabled: bool, start_bar: u32, end_bar: u32 };
+
+const TransportUpdate = struct {
+    playing: ?bool = null,
+    tempo: ?f64 = null,
+    position_beats: ?f64 = null,
+    song_mode: ?bool = null,
+    metronome: ?bool = null,
+    loop: ?LoopUpdate = null,
+};
+
+fn optionalBoolField(l: *c.lua_State, table: c_int, name: [*:0]const u8) ?bool {
+    return switch (c.lua_getfield(l, table, name)) {
+        c.LUA_TNIL => null,
+        c.LUA_TBOOLEAN => c.lua_toboolean(l, -1) != 0,
+        else => {
+            _ = c.luaL_error(l, "%s must be a boolean", name);
+            unreachable;
+        },
+    };
+}
+
+fn apiTransportSet(state: ?*c.lua_State) callconv(.c) c_int {
+    const l = state.?;
+    const app = requireApp(l);
+    c.luaL_checktype(l, 1, c.LUA_TTABLE);
+    c.lua_pushnil(l);
+    while (c.lua_next(l, 1) != 0) {
+        if (c.lua_type(l, -2) != c.LUA_TSTRING) return c.luaL_error(l, "transport_set keys must be strings");
+        const key = std.mem.span(c.lua_tolstring(l, -2, null));
+        if (!std.mem.eql(u8, key, "playing") and !std.mem.eql(u8, key, "tempo") and
+            !std.mem.eql(u8, key, "position_beats") and !std.mem.eql(u8, key, "song_mode") and
+            !std.mem.eql(u8, key, "metronome") and !std.mem.eql(u8, key, "loop"))
+            return c.luaL_error(l, "unknown transport field");
+        c.lua_settop(l, -2);
+    }
+
+    var update: TransportUpdate = .{};
+    update.playing = optionalBoolField(l, 1, "playing");
+    c.lua_settop(l, -2);
+    update.song_mode = optionalBoolField(l, 1, "song_mode");
+    c.lua_settop(l, -2);
+    update.metronome = optionalBoolField(l, 1, "metronome");
+    c.lua_settop(l, -2);
+    switch (c.lua_getfield(l, 1, "tempo")) {
+        c.LUA_TNIL => {},
+        c.LUA_TNUMBER => {
+            const value = c.lua_tonumberx(l, -1, null);
+            if (!std.math.isFinite(value) or value < 20 or value > 400) return c.luaL_error(l, "tempo must be between 20 and 400");
+            update.tempo = value;
+        },
+        else => return c.luaL_error(l, "tempo must be a number"),
+    }
+    c.lua_settop(l, -2);
+    switch (c.lua_getfield(l, 1, "position_beats")) {
+        c.LUA_TNIL => {},
+        c.LUA_TNUMBER => {
+            const value = c.lua_tonumberx(l, -1, null);
+            if (!std.math.isFinite(value) or value < 0) return c.luaL_error(l, "position_beats must be a non-negative number");
+            update.position_beats = value;
+        },
+        else => return c.luaL_error(l, "position_beats must be a number"),
+    }
+    c.lua_settop(l, -2);
+    switch (c.lua_getfield(l, 1, "loop")) {
+        c.LUA_TNIL => {},
+        c.LUA_TTABLE => {
+            const loop_idx = c.lua_gettop(l);
+            c.lua_pushnil(l);
+            while (c.lua_next(l, loop_idx) != 0) {
+                if (c.lua_type(l, -2) != c.LUA_TSTRING) return c.luaL_error(l, "loop keys must be strings");
+                const key = std.mem.span(c.lua_tolstring(l, -2, null));
+                if (!std.mem.eql(u8, key, "enabled") and !std.mem.eql(u8, key, "start_bar") and !std.mem.eql(u8, key, "end_bar"))
+                    return c.luaL_error(l, "unknown loop field");
+                c.lua_settop(l, -2);
+            }
+            var loop: LoopUpdate = .{
+                .enabled = app.session.project.loop_enabled,
+                .start_bar = app.session.project.loop_start_bar,
+                .end_bar = app.session.project.loop_end_bar,
+            };
+            var region_changed = false;
+            if (optionalBoolField(l, loop_idx, "enabled")) |value| loop.enabled = value;
+            c.lua_settop(l, -2);
+            switch (c.lua_getfield(l, loop_idx, "start_bar")) {
+                c.LUA_TNIL => {},
+                c.LUA_TNUMBER => {
+                    const value = c.luaL_checkinteger(l, -1);
+                    if (value < 1 or value > std.math.maxInt(u32)) return c.luaL_error(l, "loop start_bar is out of range");
+                    loop.start_bar = @intCast(value - 1);
+                    region_changed = true;
+                },
+                else => return c.luaL_error(l, "loop start_bar must be an integer"),
+            }
+            c.lua_settop(l, -2);
+            switch (c.lua_getfield(l, loop_idx, "end_bar")) {
+                c.LUA_TNIL => {},
+                c.LUA_TNUMBER => {
+                    const value = c.luaL_checkinteger(l, -1);
+                    if (value < 1 or value > std.math.maxInt(u32)) return c.luaL_error(l, "loop end_bar is out of range");
+                    loop.end_bar = @intCast(value);
+                    region_changed = true;
+                },
+                else => return c.luaL_error(l, "loop end_bar must be an integer"),
+            }
+            c.lua_settop(l, -2);
+            if ((loop.enabled or region_changed) and loop.end_bar <= loop.start_bar) return c.luaL_error(l, "loop end_bar must not precede start_bar");
+            update.loop = loop;
+        },
+        else => return c.luaL_error(l, "loop must be a table"),
+    }
+    c.lua_settop(l, -2);
+
+    if (update.position_beats) |beats| {
+        const tempo = update.tempo orelse app.session.project.tempo_bpm;
+        const frames = beats * @as(f64, @floatFromInt(app.session.project.sample_rate)) * 60.0 / tempo;
+        if (frames > @as(f64, @floatFromInt(std.math.maxInt(u64)))) return c.luaL_error(l, "position_beats is too large");
+    }
+    if (update.tempo) |value| _ = app.apiSetTempo(value);
+    if (update.position_beats) |value| if (!app.apiSeekBeats(value)) return c.luaL_error(l, "position_beats is too large");
+    if (update.song_mode) |value| app.apiSetSongMode(value);
+    if (update.metronome) |value| app.apiSetMetronome(value);
+    if (update.loop) |value| app.apiSetLoop(value.enabled, value.start_bar, value.end_bar);
+    if (update.playing) |value| if (value) app.apiPlay() else app.apiStop();
     return 0;
 }
 

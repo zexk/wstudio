@@ -335,6 +335,23 @@
 -- TrackAdd/TrackDel if you hold on to one.
 --
 -- Transport:
+--   wstudio.api.transport_get()                  -> { playing, tempo,
+--                                                     position_beats,
+--                                                     position_seconds,
+--                                                     position_frames,
+--                                                     sample_rate,
+--                                                     beats_per_bar,
+--                                                     song_mode, metronome,
+--                                                     loop = { enabled,
+--                                                       start_bar?, end_bar? } }
+--   wstudio.api.transport_set({ ... })           -- validated partial update:
+--                                                --   playing, tempo,
+--                                                --   position_beats (0-based),
+--                                                --   song_mode, metronome,
+--                                                --   loop = { enabled?,
+--                                                --     start_bar?, end_bar? }
+-- Loop bars are 1-based like the UI. start_bar=5, end_bar=8 loops bars
+-- 5 through 8. Disabling a loop keeps its region for later re-enabling.
 --   wstudio.api.play()
 --   wstudio.api.stop()
 --   wstudio.api.is_playing()                     -> boolean

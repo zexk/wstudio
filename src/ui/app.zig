@@ -1353,6 +1353,69 @@ pub const App = struct {
         _ = self.session.engine.send(.stop);
     }
 
+    pub const ApiTransportInfo = struct {
+        playing: bool,
+        tempo: f64,
+        position_beats: f64,
+        position_seconds: f64,
+        position_frames: u64,
+        sample_rate: u32,
+        beats_per_bar: u8,
+        song_mode: bool,
+        metronome: bool,
+        loop_enabled: bool,
+        loop_start_bar: u32,
+        loop_end_bar: u32,
+    };
+
+    pub fn apiTransportInfo(self: *const App) ApiTransportInfo {
+        const snap = self.session.engine.uiSnapshot();
+        const sr: f64 = @floatFromInt(self.session.project.sample_rate);
+        const seconds = @as(f64, @floatFromInt(snap.position_frames)) / sr;
+        return .{
+            .playing = snap.playing,
+            .tempo = self.session.project.tempo_bpm,
+            .position_beats = seconds * self.session.project.tempo_bpm / 60.0,
+            .position_seconds = seconds,
+            .position_frames = snap.position_frames,
+            .sample_rate = self.session.project.sample_rate,
+            .beats_per_bar = self.session.project.beats_per_bar,
+            .song_mode = self.session.song_mode,
+            .metronome = self.session.metronome_enabled,
+            .loop_enabled = self.session.project.loop_enabled,
+            .loop_start_bar = self.session.project.loop_start_bar,
+            .loop_end_bar = self.session.project.loop_end_bar,
+        };
+    }
+
+    pub fn apiSeekBeats(self: *App, beats: f64) bool {
+        if (!std.math.isFinite(beats) or beats < 0) return false;
+        const frames_per_beat = @as(f64, @floatFromInt(self.session.project.sample_rate)) * 60.0 / self.session.project.tempo_bpm;
+        const frames_f = beats * frames_per_beat;
+        if (frames_f > @as(f64, @floatFromInt(std.math.maxInt(u64)))) return false;
+        _ = self.session.engine.send(.{ .seek_frames = @intFromFloat(frames_f) });
+        return true;
+    }
+
+    pub fn apiSetSongMode(self: *App, on: bool) void {
+        self.session.setSongMode(on);
+    }
+
+    pub fn apiSetMetronome(self: *App, on: bool) void {
+        self.session.setMetronome(on);
+    }
+
+    /// Bars are internal: zero-based start and exclusive end. The Lua
+    /// boundary presents them as the 1-based labels shown in the UI.
+    pub fn apiSetLoop(self: *App, enabled: bool, start_bar: u32, end_bar: u32) void {
+        const p = &self.session.project;
+        p.loop_enabled = enabled;
+        p.loop_start_bar = start_bar;
+        p.loop_end_bar = end_bar;
+        self.session.syncLoop();
+        self.dirty = true;
+    }
+
     pub fn apiGetTempo(self: *const App) f64 {
         return self.session.project.tempo_bpm;
     }

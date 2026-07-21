@@ -433,6 +433,15 @@ wstudio.api.set_hl(group, { fg = "#rrggbb" })
 wstudio.api.get_hl(group)                  -> { fg? }
 
 -- transport
+wstudio.api.transport_get()               -> transport snapshot
+wstudio.api.transport_set({               -- validated partial update
+  tempo = 128,
+  position_beats = 16,
+  song_mode = true,
+  metronome = true,
+  loop = { enabled = true, start_bar = 5, end_bar = 8 },
+  playing = true,
+})
 wstudio.api.play()
 wstudio.api.stop()
 wstudio.api.is_playing()                  -> boolean
@@ -463,6 +472,18 @@ Design decisions:
   master row. In a per-track editor it names that editor's track, even if
   the tracks-view cursor points elsewhere. The focused getters expose the
   same values for callers that only need one field.
+- **Transport is one coherent state object.** `transport_get()` returns
+  `playing`, `tempo`, `position_beats`, `position_seconds`,
+  `position_frames`, `sample_rate`, `beats_per_bar`, `song_mode`,
+  `metronome`, and `loop = { enabled, start_bar?, end_bar? }`.
+  `transport_set()` accepts any subset of the writable fields and validates
+  the complete update before applying it. Positions are zero-based beats
+  from the project start. Loop bars are 1-based labels matching the UI;
+  `end_bar` is inclusive to the user, so `{ start_bar = 5, end_bar = 8 }`
+  loops those four bars. Enabling a loop requires a valid region. Disabling
+  it retains the region for later re-enabling. The older focused transport
+  calls remain stable conveniences rather than aliases plugins must migrate
+  away from.
 
 - **1-based track indices.** Neovim chose 0-based API indexing to match its
   internals and it is a permanent footgun for Lua users. Our API is
