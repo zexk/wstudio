@@ -62,15 +62,27 @@ fn setSubview(app: anytype, subview: synth_ed.Subview) void {
 }
 
 fn drawSections(app: anytype, synth: *ws.dsp.PolySynth, comptime sections: []const synth_layout.SectionDef, comptime child_prefix: []const u8) void {
-    const gap: f32 = 10;
+    const gap: f32 = 12;
     const available_width = zgui.getContentRegionAvail()[0];
     const columns: usize = if (available_width >= 1080) 3 else if (available_width >= 650) 2 else 1;
+    // Keeps j/k/{/}/g/G in sync with the column grid actually on screen -
+    // synth_layout.numCols buckets the same way from a terminal-width
+    // number, so this just maps GUI's own column count onto that bucketing
+    // (see App.last_cols's doc comment: it's read back by handleKey, not
+    // fed a parameter, so it has to be kept current here every frame).
+    app.core.last_cols = if (columns >= 3) 160 else if (columns == 2) 108 else 80;
     const column_w = @max(280, (available_width - gap * @as(f32, @floatFromInt(columns - 1))) / @as(f32, @floatFromInt(columns)));
     for (0..columns) |column| {
         if (column > 0) zgui.sameLine(.{ .spacing = gap });
         var child_buf: [48]u8 = undefined;
         const child_id = std.fmt.bufPrintZ(&child_buf, "{s}-{d}", .{ child_prefix, column }) catch continue;
-        if (zgui.beginChild(child_id, .{ .w = if (column + 1 == columns) 0 else column_w, .h = 0, .child_flags = .{ .border = true } })) {
+        zgui.pushStyleColor4f(.{ .idx = .child_bg, .c = patina.bg2 });
+        if (zgui.beginChild(child_id, .{
+            .w = if (column + 1 == columns) 0 else column_w,
+            .h = 0,
+            .child_flags = .{ .border = true, .auto_resize_y = true },
+            .window_flags = .{ .no_scrollbar = true, .no_scroll_with_mouse = true },
+        })) {
             for (sections, 0..) |section, section_index| {
                 if (section_index % columns != column) continue;
                 widgets.sectionTitle(section.title, sectionColor(section_index));
@@ -92,6 +104,7 @@ fn drawSections(app: anytype, synth: *ws.dsp.PolySynth, comptime sections: []con
             }
         }
         zgui.endChild();
+        zgui.popStyleColor(.{});
     }
 }
 
@@ -323,7 +336,13 @@ fn drawFx(app: anytype, synth: *ws.dsp.PolySynth) void {
         return;
     }
     zgui.spacing();
-    if (zgui.beginChild("synth-fx-params", .{ .w = 0, .h = 0, .child_flags = .{ .border = true } })) {
+    zgui.pushStyleColor4f(.{ .idx = .child_bg, .c = patina.bg2 });
+    if (zgui.beginChild("synth-fx-params", .{
+        .w = 0,
+        .h = 0,
+        .child_flags = .{ .border = true, .auto_resize_y = true },
+        .window_flags = .{ .no_scrollbar = true, .no_scroll_with_mouse = true },
+    })) {
         var candidates_buf: [synth_ed.max_search_candidates]synth_ed.SearchCandidate = undefined;
         var previous_kind: ?ws.dsp.synth.FxUnitKind = null;
         for (synth_ed.searchCandidates(&app.core, &candidates_buf)) |candidate| {
@@ -338,6 +357,7 @@ fn drawFx(app: anytype, synth: *ws.dsp.PolySynth) void {
         }
     }
     zgui.endChild();
+    zgui.popStyleColor(.{});
 }
 
 fn drawAnyParam(app: anytype, synth: *ws.dsp.PolySynth, id: u8, label_text: []const u8) void {

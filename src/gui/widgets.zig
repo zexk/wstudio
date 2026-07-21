@@ -3,10 +3,19 @@ const ws = @import("wstudio");
 const zgui = @import("zgui");
 const gui_style = @import("style.zig");
 
+/// A section header used inside a bordered/tinted card column: a small
+/// accent chip (matching the header overview panels' accent bars) plus the
+/// label, then a separator and a bit of breathing room before the params.
 pub fn sectionTitle(label: []const u8, accent: [4]f32) void {
+    const draw_list = zgui.getWindowDrawList();
+    const pos = zgui.getCursorScreenPos();
+    draw_list.addRectFilled(.{ .pmin = .{ pos[0], pos[1] + 1 }, .pmax = .{ pos[0] + 3, pos[1] + 15 }, .col = gui_style.color(accent), .rounding = 1.5 });
+    zgui.indent(.{ .indent_w = 10 });
     zgui.textColored(accent, "{s}", .{label});
+    zgui.unindent(.{ .indent_w = 10 });
+    zgui.dummy(.{ .w = 0, .h = 1 });
     zgui.separator();
-    zgui.dummy(.{ .w = 0, .h = 3 });
+    zgui.dummy(.{ .w = 0, .h = 5 });
 }
 
 /// A pill switch plus its label, laid out as a single row - the drop-in
