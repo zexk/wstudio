@@ -326,6 +326,9 @@ pub const PadSnap = struct {
     /// `SynthSnap.swing`).
     fade_in_s: f32 = 0.0,
     fade_out_s: f32 = 0.0,
+    /// Playback duration multiplier, independent of pitch (see `dsp.Pad`).
+    /// Additive optional-with-default field, no version bump needed.
+    stretch_ratio: f32 = 1.0,
     /// v5: user-loaded audio, exported to the project's sample sidecar on
     /// save. Path relative to the .wsj; empty = shipped/generated audio.
     sample_file: []const u8 = "",
@@ -951,6 +954,7 @@ fn rackToSnap(aa: std.mem.Allocator, rack: *Rack, sample_rate: u32) !RackSnap {
                     .attack_s = s.pad.attack_s, .decay_s = s.pad.decay_s,
                     .sustain = s.pad.sustain, .release_s = s.pad.release_s,
                     .fade_in_s = s.pad.fade_in_s, .fade_out_s = s.pad.fade_out_s,
+                    .stretch_ratio = s.pad.stretch_ratio,
                     // Always saved - see the drum pad loop's comment above.
                     .name = try aa.dupe(u8, s.clipName()),
                 },
@@ -1003,6 +1007,7 @@ fn rackToSnap(aa: std.mem.Allocator, rack: *Rack, sample_rate: u32) !RackSnap {
                         .attack_s = p.attack_s, .decay_s = p.decay_s,
                         .sustain = p.sustain, .release_s = p.release_s,
                         .fade_in_s = p.fade_in_s, .fade_out_s = p.fade_out_s,
+                        .stretch_ratio = p.stretch_ratio,
                         // Always saved (like a track name), independent of
                         // whether the pad has user-loaded audio - a `:pad-rename`
                         // on a shipped-kit pad has no sample_file to carry the
@@ -1036,6 +1041,7 @@ fn rackToSnap(aa: std.mem.Allocator, rack: *Rack, sample_rate: u32) !RackSnap {
                     .attack_s = p.attack_s, .decay_s = p.decay_s,
                     .sustain = p.sustain, .release_s = p.release_s,
                     .fade_in_s = p.fade_in_s, .fade_out_s = p.fade_out_s,
+                    .stretch_ratio = p.stretch_ratio,
                 };
             }
             sls.slices = slices;
@@ -2242,6 +2248,7 @@ fn applyPadSnap(p: *Pad, ps: PadSnap) void {
     p.release_s       = finiteClamp(f32, ps.release_s, 0.001, 5.0, 0.005);
     p.fade_in_s       = finiteClamp(f32, ps.fade_in_s, 0.0, 5.0, 0.0);
     p.fade_out_s      = finiteClamp(f32, ps.fade_out_s, 0.0, 5.0, 0.0);
+    p.stretch_ratio   = finiteClamp(f32, ps.stretch_ratio, 0.25, 4.0, 1.0);
 }
 // zig fmt: on
 

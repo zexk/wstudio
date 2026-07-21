@@ -200,7 +200,7 @@ pub const DrumMachine = struct {
         midi: [max_pads][]?MidiNote,
     };
     /// Number of editable params per pad (see `adjustParam`).
-    pub const pad_param_count: u8 = 12;
+    pub const pad_param_count: u8 = 13;
     /// Max simultaneous per-pad sidechain-detector capture requests one
     /// block can carry - matches `Engine.max_sidechain_sources`, the real
     /// upper bound (every request this machine could ever receive in one
@@ -901,6 +901,7 @@ pub const DrumMachine = struct {
         release_s: f32 = 0.005,
         fade_in_s: f32 = 0.0,
         fade_out_s: f32 = 0.0,
+        stretch_ratio: f32 = 1.0,
         choke_group: u8 = 0,
     };
 
@@ -921,6 +922,7 @@ pub const DrumMachine = struct {
                     .release_s = s.pad.release_s,
                     .fade_in_s = s.pad.fade_in_s,
                     .fade_out_s = s.pad.fade_out_s,
+                    .stretch_ratio = s.pad.stretch_ratio,
                     .choke_group = self.choke_group[i],
                 };
             } else {
@@ -946,6 +948,7 @@ pub const DrumMachine = struct {
             pad.pad.release_s = t.release_s;
             pad.pad.fade_in_s = t.fade_in_s;
             pad.pad.fade_out_s = t.fade_out_s;
+            pad.pad.stretch_ratio = t.stretch_ratio;
             self.choke_group[i] = t.choke_group;
         }
     }

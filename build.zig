@@ -153,6 +153,24 @@ pub fn build(b: *std.Build) void {
     const gendemo_step = b.step("gendemo", "Write the demo project to demo.wsj");
     gendemo_step.dependOn(&run_gendemo.step);
 
+    // `zig build stretch-demo` renders fixed test clips through
+    // Pad.stretch_ratio at a handful of settings to zig-out/stretch-demo/ for
+    // a manual listening pass - see tools/gen_stretch_demo.zig.
+    const stretch_demo = b.addExecutable(.{
+        .name = "gen-stretch-demo",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/gen_stretch_demo.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "wstudio", .module = wstudio_mod },
+            },
+        }),
+    });
+    const run_stretch_demo = b.addRunArtifact(stretch_demo);
+    const stretch_demo_step = b.step("stretch-demo", "Render stretch_ratio test clips to zig-out/stretch-demo/*.wav");
+    stretch_demo_step.dependOn(&run_stretch_demo.step);
+
     // `zig build install-font` writes the TUI's bundled icon font to the
     // user's font directory (see tools/install_font.zig for why it's needed).
     const install_font = b.addExecutable(.{
