@@ -161,6 +161,14 @@
 -- umbra` switches it live, no restart (`:colorscheme` alone reports it).
 -- wstudio.o.tui_theme = "none"
 
+-- [tui] Whether your terminal renders Nerd Font glyphs, in the
+-- yazi/kickstart.nvim mold: false (the default) falls back to plain ascii
+-- everywhere the TUI would otherwise draw an icon, so a font-less terminal
+-- never shows tofu/placeholder boxes. Set true once you've installed a
+-- Nerd Font yourself; `zig build install-font` (wstudio's own embedded
+-- icon font) is detected automatically and turns icons on either way.
+-- wstudio.o.has_nerdfonts = false
+
 -- [gui] Font size, in pixels. Range 8-40.
 -- wstudio.o.gui_font_size = 15
 

@@ -159,7 +159,7 @@ Current option set (see examples/init.lua for defaults and ranges):
 | `undo_history_entries`, `default_metronome_enabled`, `metronome_click_gain` | core |
 | `count_in_bars`, `default_midi_velocity_curve` | core |
 | `default_automation_gain_step_db`, `default_automation_pan_step` | core |
-| `frame_poll_ms`, `tui_mouse`, `tui_theme` | tui |
+| `frame_poll_ms`, `tui_mouse`, `tui_theme`, `has_nerdfonts` | tui |
 | `gui_font_size`, `gui_vsync`, `gui_theme`, `gui_panel_border` | gui |
 | `gui_window_width`, `gui_window_height` | gui |
 | `gui_knob_drag_pixels`, `gui_envelope_drag_pixels`, `gui_meter_decay_db_s` | gui |
@@ -196,6 +196,26 @@ one by name at runtime, same as Neovim's.
   reset via OSC 104/110/111 on quit or when the option changes back to
   `"none"`). That's a call worth making on purpose, not a default to spring
   on someone who already picked their terminal's colors.
+
+### Icons: `has_nerdfonts`
+
+Same idea as yazi's/kickstart.nvim's option of the same shape: a terminal
+capability the TUI cannot reliably probe for itself, so it asks. `false`
+(the default) makes every icon call site in `src/ui/icons.zig` fall back to
+plain ascii - a mnemonic letter or symbol where no adjacent text already
+says the same thing (`M`/`S` for mute/solo, `*` for the dirty-flag warning),
+otherwise nothing at all (a view's own title text, an instrument's full
+name in a picker row, already carries the meaning the icon would have
+repeated). `true` renders the real glyphs from wstudio's embedded Nerd Font
+subset instead.
+
+This is independent of `zig build install-font`, which writes that same
+embedded font to your font directory and is detected automatically
+(`icons.detectFontInstalled`) - the two are OR'd together at startup and on
+`:reload-config`, so running the installer is still enough on its own.
+`has_nerdfonts` exists for everyone else: a system-wide Nerd Font already in
+your terminal, a remote/SSH session, or any other setup the filesystem
+probe can't see.
 
 `audio_backend` picks the playback backend: `"auto"` (the default) tries
 PipeWire, then JACK, then ALSA, falling through to the silent wall-clock
@@ -324,7 +344,8 @@ place, with no restart:
    it off `ConfigDone`, same as at startup.
 
 Applies live: every `core`-scope option, `tui_mouse`, `tui_theme`,
-`gui_theme`, `gui_vsync`, and of course keymaps/commands/autocmds. Does
+`has_nerdfonts`, `gui_theme`, `gui_vsync`, and of course
+keymaps/commands/autocmds. Does
 **not** apply live (a message says so; change these and restart instead):
 `audio_backend`, `audio_block_frames` (would mean tearing down the running
 audio backend from inside the frame loop - the same hazard `:e`'s session

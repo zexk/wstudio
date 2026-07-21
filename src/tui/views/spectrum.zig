@@ -206,10 +206,12 @@ pub fn drawFxView(
         } else "?",
     };
 
-    const title_icon = if (target == .master) icons.master else icons.eq;
+    const title_icon: []const u8 = if (target == .master) icons.master else icons.eq;
     try w.writeAll(bold ++ " " ++ rst);
-    try w.writeAll(title_icon);
-    try w.writeAll(bold ++ " FX CHAIN" ++ rst);
+    try w.writeAll(icons.iconOr(title_icon, ""));
+    try w.writeAll(bold);
+    try w.writeAll(if (icons.font_installed) " FX CHAIN" else "FX CHAIN");
+    try w.writeAll(rst);
     try w.print(" \"{s}\"", .{title});
     // A group chain has its own bus fader (-/+); keep the level in sight.
     if (target == .group and app.eq_group < engine_mod.max_groups) {

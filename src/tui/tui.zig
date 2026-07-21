@@ -38,18 +38,28 @@ pub fn drawHeader(
     dirty: bool,
 ) !void {
     const vol_sign: []const u8 = if (master_gain_db >= 0) "+" else "";
-    try w.writeAll(bold ++ " " ++ icons.logo ++ " wstudio" ++ rst);
+    try w.writeAll(bold ++ " ");
+    try w.writeAll(icons.iconOr(icons.logo ++ " ", ""));
+    try w.writeAll("wstudio" ++ rst);
     try w.writeAll(dim ++ "  " ++ rst);
     try w.writeAll(title);
-    if (dirty) try w.writeAll(" " ++ yel ++ icons.warn ++ rst);
-    try w.writeAll(dim ++ "   " ++ icons.tempo ++ " " ++ rst);
+    if (dirty) {
+        try w.writeAll(" " ++ yel);
+        try w.writeAll(icons.iconOr(icons.warn, "*"));
+        try w.writeAll(rst);
+    }
+    try w.writeAll(dim ++ "   ");
+    try w.writeAll(icons.iconOr(icons.tempo, "bpm"));
+    try w.writeAll(" " ++ rst);
     try w.print("{d:.0}", .{transport.tempo_bpm});
     try w.writeAll(dim ++ "  " ++ rst);
     try w.print("{d}/{d}", .{
         transport.time_signature.beats_per_bar,
         transport.time_signature.beat_unit,
     });
-    try w.writeAll(dim ++ "   " ++ icons.master ++ " " ++ rst);
+    try w.writeAll(dim ++ "   ");
+    try w.writeAll(icons.iconOr(icons.master, "mst"));
+    try w.writeAll(" " ++ rst);
     try w.print("{s}{d:.0}dB", .{ vol_sign, master_gain_db });
     try w.writeAll(dim ++ "   " ++ rst);
     try w.writeAll(acc);

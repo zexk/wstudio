@@ -41,8 +41,8 @@ pub fn drawSoundfontEditor(
 
     // ── Title ────────────────────────────────────
     try w.writeAll(bcyn ++ bold ++ " \u{2593} " ++ rst);
-    try w.writeAll(icons.soundfont);
-    try w.writeAll(bcyn ++ bold ++ " SOUNDFONT " ++ rst ++ acc);
+    try w.writeAll(icons.iconOr(icons.soundfont ++ " ", ""));
+    try w.writeAll(bcyn ++ bold ++ "SOUNDFONT " ++ rst ++ acc);
     try w.print("\"{s}\"", .{track_name});
     try w.writeAll(rst);
     try endLine(w);

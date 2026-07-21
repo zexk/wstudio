@@ -139,7 +139,9 @@ pub fn draw(self: *App, w: *std.Io.Writer, size: terminal_mod.Size) !void {
         }
     }
     if (self.session.metronome_enabled) {
-        try tw.writeAll(" \x1b[33m" ++ icons.tempo ++ " click\x1b[0m");
+        try tw.writeAll(" \x1b[33m");
+        try tw.writeAll(icons.iconOr(icons.tempo ++ " ", ""));
+        try tw.writeAll("click\x1b[0m");
     }
     try tw.print(" {d:0>3}.{d}  {d:0>2}:{d:0>4.1}", .{
         pos.bar + 1,
@@ -315,7 +317,8 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, environ: *const std.process
     defer app.deinit();
     app.applyUserConfig(user_config, init_path == null);
     app.scanExternalPlugins(environ);
-    icons.font_installed = icons.detectFontInstalled(io);
+    const nerdfont_detected = icons.detectFontInstalled(io);
+    icons.font_installed = user_config.has_nerdfonts or nerdfont_detected;
 
     // Surface a raw-mode setup failure once there's a status line to put it
     // on - see Terminal.raw_mode_ok's doc comment (Windows only; POSIX raw
@@ -502,6 +505,7 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, environ: *const std.process
                     tui_theme.apply(&term, user_config.tui_theme);
                 }
                 if (user_config.tui_mouse != prev.tui_mouse) term.setMouse(user_config.tui_mouse);
+                if (user_config.has_nerdfonts != prev.has_nerdfonts) icons.font_installed = user_config.has_nerdfonts or nerdfont_detected;
                 if (has_alsa and using_midi) midi_in.velocity_curve.store(user_config.default_midi_velocity_curve, .monotonic);
                 app.setStatus("config reloaded", .{});
             } else |e| {

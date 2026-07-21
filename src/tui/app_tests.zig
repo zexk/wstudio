@@ -2416,15 +2416,27 @@ test "standalone sampler param edit routes to the sampler" {
 test "draw renders tracks view without overflowing" {
     var app = try testApp();
     defer app.deinit();
+    defer icons.font_installed = false;
 
     var buf: [32 * 1024]u8 = undefined;
+
+    // Nerd Font unavailable (the default): ascii mnemonics stand in for the
+    // per-track instrument-kind icons, never the PUA glyphs themselves.
+    icons.font_installed = false;
     var w = std.Io.Writer.fixed(&buf);
     try main_mod.draw(&app, &w, .{ .cols = 80, .rows = 24 });
-    const frame = w.buffered();
+    var frame = w.buffered();
     try std.testing.expect(std.mem.indexOf(u8, frame, "TRACKS") != null);
     try std.testing.expect(std.mem.indexOf(u8, frame, "synth") != null);
     try std.testing.expect(std.mem.indexOf(u8, frame, "drums") != null);
-    // Per-track instrument-kind icons (synth, sampler, drum) are present.
+    try std.testing.expect(std.mem.indexOf(u8, frame, icons.synth) == null);
+    try std.testing.expect(std.mem.indexOf(u8, frame, icons.sampler) == null);
+    try std.testing.expect(std.mem.indexOf(u8, frame, icons.drum) == null);
+
+    icons.font_installed = true;
+    w = std.Io.Writer.fixed(&buf);
+    try main_mod.draw(&app, &w, .{ .cols = 80, .rows = 24 });
+    frame = w.buffered();
     try std.testing.expect(std.mem.indexOf(u8, frame, icons.synth) != null);
     try std.testing.expect(std.mem.indexOf(u8, frame, icons.sampler) != null);
     try std.testing.expect(std.mem.indexOf(u8, frame, icons.drum) != null);
@@ -2433,6 +2445,8 @@ test "draw renders tracks view without overflowing" {
 test "draw shows a dirty-flag warning icon in the header once edited" {
     var app = try testApp();
     defer app.deinit();
+    defer icons.font_installed = false;
+    icons.font_installed = true;
 
     var buf: [32 * 1024]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
@@ -2444,6 +2458,12 @@ test "draw shows a dirty-flag warning icon in the header once edited" {
     w = std.Io.Writer.fixed(&buf);
     try main_mod.draw(&app, &w, .{ .cols = 80, .rows = 24 });
     try std.testing.expect(std.mem.indexOf(u8, w.buffered(), icons.warn) != null);
+
+    icons.font_installed = false;
+    w = std.Io.Writer.fixed(&buf);
+    try main_mod.draw(&app, &w, .{ .cols = 80, .rows = 24 });
+    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), icons.warn) == null);
+    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "*") != null);
 }
 
 test "transport indicator shows the unicode glyph without the font, the icon with it, never both" {

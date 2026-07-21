@@ -69,9 +69,11 @@ pub fn drawSamplerEditor(
 
     // ── Title ────────────────────────────────────
     try w.writeAll(bcyn ++ bold ++ " \u{2593} " ++ rst);
-    try w.writeAll(if (is_drum) icons.drum else if (is_slice) icons.slicer else icons.sampler);
+    const kind_icon: []const u8 = if (is_drum) icons.drum else if (is_slice) icons.slicer else icons.sampler;
+    try w.writeAll(icons.iconOr(kind_icon, ""));
+    if (icons.font_installed) try w.writeAll(" ");
     try w.writeAll(bcyn ++ bold);
-    try w.writeAll(if (is_slice) " SLICE " else " SAMPLER ");
+    try w.writeAll(if (is_slice) "SLICE " else "SAMPLER ");
     try w.writeAll(rst ++ acc);
     try w.print("\"{s}\"", .{track_name});
     try w.writeAll(rst ++ dim);

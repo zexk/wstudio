@@ -89,6 +89,7 @@ pub const Config = struct {
     piano_ghost_notes: bool = false,
     tui_mouse: bool = true,
     tui_theme: TuiTheme = .none,
+    has_nerdfonts: bool = false,
     gui_font_size: f32 = 15.0,
     gui_vsync: bool = true,
     gui_theme: GuiTheme = .patina,
@@ -155,6 +156,7 @@ const option_specs = [_]OptionSpec{
     .{ .name = "piano_ghost_notes" },
     .{ .name = "tui_mouse", .scope = .tui },
     .{ .name = "tui_theme", .scope = .tui },
+    .{ .name = "has_nerdfonts", .scope = .tui },
     .{ .name = "gui_font_size", .min = 8, .max = 40, .scope = .gui },
     .{ .name = "gui_vsync", .scope = .gui },
     .{ .name = "gui_theme", .scope = .gui },
@@ -1606,6 +1608,14 @@ test "Lua API round 2 options set and read" {
     try std.testing.expectEqual(@as(u16, 1080), rt.config.gui_window_height);
     try std.testing.expectError(error.LuaError, rt.loadString("wstudio.o.default_octave = 9"));
     try std.testing.expectError(error.LuaError, rt.loadString("wstudio.o.gui_window_width = 100"));
+}
+
+test "Lua API has_nerdfonts defaults false and is settable" {
+    var rt = try Runtime.init(.tui);
+    defer rt.deinit();
+    try std.testing.expectEqual(false, rt.config.has_nerdfonts);
+    try rt.loadString("wstudio.o.has_nerdfonts = true");
+    try std.testing.expectEqual(true, rt.config.has_nerdfonts);
 }
 
 test "Lua API round 3 options set and read" {

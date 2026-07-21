@@ -87,7 +87,9 @@ pub fn drawDrumGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, s
     const bank = cur_pad / pads_per_bank;
     const bank_start = bankWindowStart(cur_pad, rows);
     const bank_end = @min(bank_start + banksShown(rows) * pads_per_bank, DrumMachine.max_pads);
-    try w.writeAll(bold ++ " " ++ icons.drum ++ " DRUMS" ++ rst);
+    try w.writeAll(bold ++ " ");
+    try w.writeAll(icons.iconOr(icons.drum ++ " ", ""));
+    try w.writeAll("DRUMS" ++ rst);
     try w.print(" \"{s}\"", .{track_name});
     try w.writeAll("  " ++ acc);
     try w.print("pat {c}", .{DrumMachine.variantLetter(dm.variant)});

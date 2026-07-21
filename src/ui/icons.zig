@@ -14,6 +14,15 @@
 //! as a stray tofu box next to text that already says the same thing. The
 //! Mono variant guarantees each glyph is exactly one terminal cell wide, so
 //! it never throws off the hand-aligned columns elsewhere in the TUI.
+//!
+//! `font_installed` also folds in `wstudio.o.has_nerdfonts` (see
+//! `config.zig`): a terminal-capability toggle in the yazi/kickstart.nvim
+//! mold, for anyone rendering with a Nerd Font wstudio didn't install
+//! itself (a system-wide patched font, a remote session, etc.) where the
+//! `zig build install-font` filesystem probe can't see it. `tui/main.zig`
+//! ORs the two together at startup and on `:reload-config`, so either one
+//! turning on is enough - there's no Lua-side way to force icons off once
+//! the embedded font really is installed.
 
 pub const play = "\u{f04b}"; // fa-play
 pub const stop = "\u{f04d}"; // fa-stop
@@ -64,6 +73,16 @@ pub fn detectFontInstalled(io: std.Io) bool {
     const full_path = std.fmt.bufPrint(&full_buf, "{s}/wstudio-icons.ttf", .{dir}) catch return false;
     std.Io.Dir.cwd().access(io, full_path, .{}) catch return false;
     return true;
+}
+
+/// `icon` if `font_installed`, else `ascii` - the one-line form of the
+/// branch already spelled out longhand at the play/stop and mute/solo call
+/// sites. `ascii` is often `""`: wherever an icon sits next to a text label
+/// that already says the same thing (a view's " SYNTH" title, an
+/// instrument's full name in a picker row), dropping the icon loses
+/// nothing, so there's no separate glyph to invent.
+pub fn iconOr(icon: []const u8, ascii: []const u8) []const u8 {
+    return if (font_installed) icon else ascii;
 }
 
 test "every icon decodes to exactly one codepoint" {

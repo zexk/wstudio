@@ -56,7 +56,7 @@ pub fn drawInstrumentPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void 
         const is_sel = (i == app.picker_cursor);
         if (is_sel) try w.writeAll(sel);
         try w.writeAll(if (is_sel) "  > " else "    ");
-        try w.writeAll(item.icon);
+        try w.writeAll(icons.iconOr(item.icon, ""));
         try w.writeByte(' ');
         try w.print("{s: <14}", .{item.name});
         if (!is_sel) try w.writeAll(dim);

@@ -83,7 +83,9 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
     else "?";
     // zig fmt: on
 
-    try w.writeAll(bold ++ " " ++ icons.synth ++ " PIANO ROLL" ++ rst);
+    try w.writeAll(bold ++ " ");
+    try w.writeAll(icons.iconOr(icons.synth ++ " ", ""));
+    try w.writeAll("PIANO ROLL" ++ rst);
     try w.print(" \"{s}\"", .{name});
     // Clip-editing mode: show which arrangement clip the edits land in.
     if (app.piano_clip_link) |link| {

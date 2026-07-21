@@ -70,7 +70,9 @@ pub fn drawArrangement(
     const playhead = playheadBar(app, snap);
 
     const mode_tag: []const u8 = if (app.session.song_mode) grn ++ "SONG" ++ rst else dim ++ "PATTERN" ++ rst;
-    try w.writeAll(bold ++ " " ++ icons.arrangement ++ " ARRANGEMENT" ++ rst ++ "  ");
+    try w.writeAll(bold ++ " ");
+    try w.writeAll(icons.iconOr(icons.arrangement ++ " ", ""));
+    try w.writeAll("ARRANGEMENT" ++ rst ++ "  ");
     try w.writeAll(mode_tag);
     try w.print("  " ++ bcyn ++ "{s}" ++ rst, .{app.arr_grid.label()});
     try endLine(w);
