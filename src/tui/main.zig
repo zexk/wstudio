@@ -196,6 +196,12 @@ pub fn draw(self: *App, w: *std.Io.Writer, size: terminal_mod.Size) !void {
     // convention - mirrors the transport row's L/R meters above.
     var status_right_scratch: [128]u8 = undefined;
     var status_right_w = std.Io.Writer.fixed(&status_right_scratch);
+    // A running macro recording is state, not a message - a chip pinned
+    // ahead of the right-edge view badge survives every status rewrite
+    // until q stops the take (setStatus text would time out mid-take).
+    if (self.macro_recording) |reg| {
+        try status_right_w.print(style.red ++ style.bold ++ "rec @{c}" ++ style.rst ++ "  ", .{'a' + reg});
+    }
     switch (self.view) {
         .tracks          => try tui.drawTracksStatus(self, &status_w, &status_right_w),
         .drum_grid       => try tui.drawDrumStatus(self, &status_w, &status_right_w),

@@ -108,6 +108,9 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("(in :) tab",   "complete the command name");
     t.key("/",            "search prompt - fuzzy over track names / browser filenames, plain-text in this help");
     t.key("n / N",        "repeat last search forward / backward (tracks, file browser, help)");
+    t.key("q{a-z} .. q",  "record a macro into register a-z; q (normal mode) stops it");
+    t.key("[count]@{a-z}","replay a macro count times; @@ repeats the last replay");
+    t.key("",             "  macros capture everything - motions, edits, : commands, insert-mode notes");
     t.key("ctrl-c",       "quit");
 
     t.section("MOUSE  (additive - every gesture below has a keyboard equivalent)");
