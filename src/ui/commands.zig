@@ -124,6 +124,7 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "humanize",    .desc = "[amount]  jitter the pattern's note timing/velocity 0-100% (default 15)", .run = wrap(cmdHumanize) },
     .{ .name = "swing",       .desc = "[percent]  piano-roll pattern swing 50-75% (default 50, straight) - matches the drum machine's", .run = wrap(cmdSwing) },
     .{ .name = "reverse",     .desc = "retrograde: mirror the pattern in time (visual-mode r reverses just the selection)", .run = wrap(cmdReverse) },
+    .{ .name = "vel-ramp",    .desc = "<from> <to>  velocity ramp 0-100% across the pattern's notes (drum view: the cursor pad's hits)", .run = wrap(cmdVelRamp) },
     .{ .name = "import-midi", .desc = "<file>  replace the pattern with a Standard MIDI File's notes",     .run = wrap(cmdImportMidi) },
     .{ .name = "export-midi", .desc = "<file>  write the pattern as a Standard MIDI File",                 .run = wrap(cmdExportMidi) },
     .{ .name = "metronome",   .desc = "[on|off]  toggle the click track",                   .run = wrap(cmdMetronome) },
@@ -429,6 +430,58 @@ fn cmdReverse(app: *App, _: []const u8) void {
         return;
     }
     app.setStatus("reverse: no pattern here", .{});
+}
+
+/// `:vel-ramp <from> <to>` - linear velocity ramp, both ends 0-100%. A
+/// melodic pattern interpolates every note from `from` at its first note to
+/// `to` at its last; a drum machine ramps the cursor pad's hits instead -
+/// the classic hi-hat build (or fade) in one command. Same track-resolution
+/// rule as `:reverse`.
+fn cmdVelRamp(app: *App, args: []const u8) void {
+    const usage = "usage: vel-ramp <from> <to> (0-100%), e.g. :vel-ramp 30 100";
+    var it = std.mem.tokenizeScalar(u8, args, ' ');
+    const from_str = it.next() orelse {
+        app.setStatus("{s}", .{usage});
+        return;
+    };
+    const to_str = it.next() orelse {
+        app.setStatus("{s}", .{usage});
+        return;
+    };
+    const from = parseFiniteFloat(f32, from_str) catch {
+        app.setStatus("{s}", .{usage});
+        return;
+    };
+    const to = parseFiniteFloat(f32, to_str) catch {
+        app.setStatus("{s}", .{usage});
+        return;
+    };
+    if (from < 0.0 or from > 100.0 or to < 0.0 or to > 100.0) {
+        app.setStatus("vel-ramp: values must be 0-100", .{});
+        return;
+    }
+    const track: usize = if (app.view == .piano_roll) app.piano_track else app.cursor;
+    const melodic = app.view != .drum_grid and track < app.session.racks.items.len and
+        app.session.racks.items[track].pattern_player != null;
+    if (melodic) {
+        const pp = &app.session.racks.items[track].pattern_player.?;
+        history.recordMelodic(app, @intCast(track));
+        const touched = pp.velocityRamp(0.0, pp.length_beats, from / 100.0, to / 100.0);
+        app.setStatus("velocity ramp {d:.0}% -> {d:.0}% across {d} notes", .{ from, to, touched });
+        piano_ed.syncLinkedClip(app);
+        return;
+    }
+    if (cursorDrumTrack(app)) |drum_track| {
+        const dm = cursorDrumMachine(app).?;
+        const pad: u8 = @intCast(app.drum_cursor[0]);
+        history.push(app, history.captureDrum(app, drum_track));
+        const v0: u8 = @intFromFloat(@round(from / 100.0 * 127.0));
+        const v1: u8 = @intFromFloat(@round(to / 100.0 * 127.0));
+        const touched = dm.velocityRampPad(pad, v0, v1);
+        app.setStatus("velocity ramp {d:.0}% -> {d:.0}% across {d} hits on pad {d} ({s})", .{ from, to, touched, pad + 1, dm.padName(pad) });
+        return;
+    }
+    app.setStatus("vel-ramp: no pattern here", .{});
 }
 
 /// `:swing [percent]` - sets the piano-roll pattern's swing, 50 (straight,

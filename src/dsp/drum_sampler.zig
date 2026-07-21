@@ -686,6 +686,35 @@ pub const DrumMachine = struct {
         }
     }
 
+    /// Linearly ramp one pad's hit velocities: the row's first hit gets
+    /// `v0`, the last `v1`, hits between interpolate by step position - a
+    /// hi-hat build in one call. A lone hit gets `v1` (the ramp's target).
+    /// Values clamp to 1..127; a silent hit is x/X's job, not velocity 0.
+    /// Returns the count touched.
+    pub fn velocityRampPad(self: *DrumMachine, pad: u8, v0: u8, v1: u8) u16 {
+        if (pad >= max_pads) return 0;
+        var first: ?u16 = null;
+        var last: u16 = 0;
+        for (self.midi[pad], 0..) |slot, i| {
+            if (slot == null) continue;
+            if (first == null) first = @intCast(i);
+            last = @intCast(i);
+        }
+        const lo = first orelse return 0;
+        var touched: u16 = 0;
+        for (self.midi[pad], 0..) |*slot, i| {
+            if (slot.* == null) continue;
+            const t: f32 = if (last > lo)
+                @as(f32, @floatFromInt(i - lo)) / @as(f32, @floatFromInt(last - lo))
+            else
+                1.0;
+            const v = @as(f32, @floatFromInt(v0)) + (@as(f32, @floatFromInt(v1)) - @as(f32, @floatFromInt(v0))) * t;
+            slot.*.?.velocity = @intFromFloat(std.math.clamp(@round(v), 1.0, 127.0));
+            touched += 1;
+        }
+        return touched;
+    }
+
     /// Time-mirror (retrograde) the whole live pattern: every hit's span
     /// [step, step+duration) maps to [N-step-duration, N-step), so 1-step
     /// hits land on the mirrored slot and longer notes end where they used
@@ -1209,6 +1238,31 @@ test "euclidPad spreads pulses evenly, honors rotation, clears on zero" {
 
     // Stored notes carry the destination step (grid position is canonical).
     try std.testing.expectEqual(@as(u16, 5), dm.midi[0][5].?.step);
+}
+
+test "velocityRampPad interpolates hits by step position" {
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    defer dm.deinit();
+
+    dm.setStepCount(16);
+    dm.toggleStep(2, 0);
+    dm.toggleStep(2, 4);
+    dm.toggleStep(2, 8);
+
+    try std.testing.expectEqual(@as(u16, 3), dm.velocityRampPad(2, 20, 120));
+    try std.testing.expectEqual(@as(u8, 20), dm.stepVel(2, 0));
+    try std.testing.expectEqual(@as(u8, 70), dm.stepVel(2, 4));
+    try std.testing.expectEqual(@as(u8, 120), dm.stepVel(2, 8));
+
+    // Lone hit gets the target; 0 clamps to 1 (silence is x/X's job).
+    dm.clearPad(2);
+    dm.toggleStep(2, 3);
+    try std.testing.expectEqual(@as(u16, 1), dm.velocityRampPad(2, 50, 0));
+    try std.testing.expectEqual(@as(u8, 1), dm.stepVel(2, 3));
+
+    // Empty row touches nothing.
+    try std.testing.expectEqual(@as(u16, 0), dm.velocityRampPad(5, 20, 120));
 }
 
 test "reversePattern mirrors every pad's hits, duration-aware" {

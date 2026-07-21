@@ -267,6 +267,32 @@ pub const PatternPlayer = struct {
         return moved;
     }
 
+    /// Linearly ramp note velocities across [lo_beat, hi_beat): the
+    /// earliest note start gets `v0`, the latest `v1`, everything between
+    /// interpolates by its start position - a crescendo in one call. Chords
+    /// sharing a start share a value; a lone distinct start gets `v1` (the
+    /// ramp's target). Velocity-only in-place writes, so no lock is needed
+    /// (same contract as `noteAt`). Returns the count touched (UI thread).
+    pub fn velocityRamp(self: *PatternPlayer, lo_beat: f64, hi_beat: f64, v0: f32, v1: f32) u16 {
+        if (!std.math.isFinite(v0) or !std.math.isFinite(v1)) return 0;
+        var first = std.math.inf(f64);
+        var last = -std.math.inf(f64);
+        for (self.notes[0..self.note_count]) |n| {
+            if (n.start_beat < lo_beat or n.start_beat >= hi_beat) continue;
+            first = @min(first, n.start_beat);
+            last = @max(last, n.start_beat);
+        }
+        if (first > last) return 0;
+        var touched: u16 = 0;
+        for (self.notes[0..self.note_count]) |*n| {
+            if (n.start_beat < lo_beat or n.start_beat >= hi_beat) continue;
+            const t: f32 = if (last > first) @floatCast((n.start_beat - first) / (last - first)) else 1.0;
+            n.velocity = std.math.clamp(v0 + (v1 - v0) * t, 0.05, 1.0);
+            touched += 1;
+        }
+        return touched;
+    }
+
     fn queueNoteOff(self: *PatternPlayer, pitch: u7) void {
         const word: usize = pitch / 64;
         const bit = @as(u64, 1) << @intCast(pitch % 64);
@@ -639,6 +665,29 @@ test "reverseNotesInRange mirrors a figure so it plays backwards" {
     // Degenerate/invalid ranges are no-ops.
     try std.testing.expectEqual(@as(u16, 0), pp.reverseNotesInRange(2.0, 2.0));
     try std.testing.expectEqual(@as(u16, 0), pp.reverseNotesInRange(0.0, std.math.nan(f64)));
+}
+
+test "velocityRamp interpolates by note position, endpoints exact" {
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    var pp = PatternPlayer.init(synth.device(), &transport);
+    pp.length_beats = 4.0;
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.5 });
+    pp.addNote(.{ .pitch = 62, .start_beat = 1.0, .duration_beat = 0.5 });
+    pp.addNote(.{ .pitch = 64, .start_beat = 2.0, .duration_beat = 0.5 });
+
+    try std.testing.expectEqual(@as(u16, 3), pp.velocityRamp(0.0, 4.0, 0.2, 1.0));
+    try std.testing.expectApproxEqAbs(@as(f32, 0.2), pp.notes[0].velocity, 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.6), pp.notes[1].velocity, 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), pp.notes[2].velocity, 1e-6);
+
+    // A lone note in range gets the ramp's target; 0 floors to audible.
+    try std.testing.expectEqual(@as(u16, 1), pp.velocityRamp(1.0, 2.0, 0.0, 0.0));
+    try std.testing.expectApproxEqAbs(@as(f32, 0.05), pp.notes[1].velocity, 1e-6);
+
+    // Empty range touches nothing.
+    try std.testing.expectEqual(@as(u16, 0), pp.velocityRamp(3.0, 4.0, 0.2, 1.0));
 }
 
 test "humanize jitters timing/velocity within bounds; 0% is a no-op" {
