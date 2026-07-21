@@ -155,6 +155,13 @@ pub fn drawStatus(app: anytype) void {
             const rec_label = std.fmt.bufPrint(&rec_buf, "REC {c}", .{'a' + reg}) catch "REC";
             x = drawStatusSegment(draw, x, pos[1], size[1], patina.danger, patina.bg0, rec_label);
         }
+        // vim's 'showcmd': pending operator/count or visual-selection
+        // width - same state-not-message treatment as the REC chip.
+        var showcmd_buf: [24]u8 = undefined;
+        const showcmd = app.core.pendingCmdText(&showcmd_buf);
+        if (showcmd.len > 0) {
+            x = drawStatusSegment(draw, x, pos[1], size[1], patina.bg3, patina.fg0, showcmd);
+        }
         const context = compactStatusContext(std.mem.trim(u8, text.left, " "));
         if (context.len > 0) {
             const text_size = zgui.calcTextSize(context, .{});

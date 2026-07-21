@@ -196,6 +196,14 @@ pub fn draw(self: *App, w: *std.Io.Writer, size: terminal_mod.Size) !void {
     // convention - mirrors the transport row's L/R meters above.
     var status_right_scratch: [128]u8 = undefined;
     var status_right_w = std.Io.Writer.fixed(&status_right_scratch);
+    // vim's 'showcmd': the pending operator/count or visual-selection
+    // width, pinned ahead of the view badge (state, like the rec chip
+    // below - not a message).
+    var showcmd_buf: [24]u8 = undefined;
+    const showcmd = self.pendingCmdText(&showcmd_buf);
+    if (showcmd.len > 0) {
+        try status_right_w.print(style.acc ++ style.bold ++ "{s}" ++ style.rst ++ "  ", .{showcmd});
+    }
     // A running macro recording is state, not a message - a chip pinned
     // ahead of the right-edge view badge survives every status rewrite
     // until q stops the take (setStatus text would time out mid-take).
