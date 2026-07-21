@@ -221,7 +221,7 @@ pub const CC = enum(u7) {
     fenv_sustain      = 80,  // → fenv_sustain (0–1)
     fenv_release      = 81,  // → fenv_release_s (0–4 s)
     all_sound_off     = 120, // GM mandatory - immediate silence
-    reset_all_ctrls   = 121, // GM mandatory - no-op for now
+    reset_all_ctrls   = 121, // reset transient performance controllers
     all_notes_off     = 123, // GM mandatory - release all voices
     // zig fmt: on
     _,
