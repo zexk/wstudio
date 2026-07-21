@@ -107,10 +107,12 @@ fn writeTrackRow(app: anytype, w: *std.Io.Writer, ti: u16, is_sel: bool, in_sel:
     };
     try lw.writeAll(kind_icon);
     try lw.writeByte(' ');
-    // muted indicator: yellow only when row isn't already faded
+    // muted indicator: yellow only when row isn't already faded - icon when
+    // the Nerd Font is installed, else the 'm'-keybind mnemonic letter, never
+    // both (see icons.zig's font_installed contract).
     if (track.muted) {
         if (!faded) try lw.writeAll(yel);
-        try lw.writeByte('M');
+        if (icons.font_installed) try lw.writeAll(icons.mute) else try lw.writeByte('M');
         if (!faded) try lw.writeAll(rst);
         if (is_sel) try lw.writeAll(sel);
     } else {
@@ -119,7 +121,7 @@ fn writeTrackRow(app: anytype, w: *std.Io.Writer, ti: u16, is_sel: bool, in_sel:
     // solo indicator: green
     if (track.soloed) {
         if (!faded) try lw.writeAll(grn);
-        try lw.writeByte('S');
+        if (icons.font_installed) try lw.writeAll(icons.solo) else try lw.writeByte('S');
         if (!faded) try lw.writeAll(rst);
         if (is_sel) try lw.writeAll(sel);
     } else {
