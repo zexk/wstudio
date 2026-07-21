@@ -75,6 +75,11 @@ pub fn captureDrum(app: *App, track: u16) ?undo_mod.Entry {
     return .{ .drum = st };
 }
 
+/// Pre-edit wrapper for command-layer callers (`:euclid`, `:rotate`, ...).
+pub fn recordDrum(app: *App, track: u16) void {
+    push(app, captureDrum(app, track));
+}
+
 /// Snapshot one slicer's chop layout + whole variant bank (see
 /// SlicerState). The active bank slot is stale; read it live via
 /// variantData - same rule captureDrum applies.
@@ -94,6 +99,11 @@ pub fn captureSlicer(app: *App, track: u16) ?undo_mod.Entry {
     };
     st.variants[sl.variant] = sl.variantData(sl.variant);
     return .{ .slicer = st };
+}
+
+/// Pre-edit wrapper for command-layer callers.
+pub fn recordSlicer(app: *App, track: u16) void {
+    push(app, captureSlicer(app, track));
 }
 
 /// Deep-copies `src` into a freshly-allocated slice, or null on OOM (with
@@ -116,6 +126,11 @@ pub fn captureLane(app: *App, track: u16) ?undo_mod.Entry {
     const lane = app.session.arrangement.lane(track) orelse return null;
     const clips = dupeClips(app.allocator, lane.clips.items) orelse return null;
     return .{ .lane = .{ .track = @intCast(track), .clips = clips } };
+}
+
+/// Pre-edit wrapper for command-layer callers.
+pub fn recordLane(app: *App, track: u16) void {
+    push(app, captureLane(app, track));
 }
 
 /// Snapshot `track_idx`'s full state (mixer metadata, deep-copied rack,

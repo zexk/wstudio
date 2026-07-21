@@ -395,7 +395,7 @@ fn cmdClear(app: *App, _: []const u8) void {
     }
     if (cursorDrumTrack(app)) |drum_track| {
         const dm = cursorDrumMachine(app).?;
-        history.push(app, history.captureDrum(app, drum_track));
+        history.recordDrum(app, drum_track);
         const n = dm.clearKit();
         app.setStatus("cleared {d} hits", .{n});
         return;
@@ -429,7 +429,7 @@ fn cmdHumanize(app: *App, args: []const u8) void {
     }
     if (cursorDrumTrack(app)) |drum_track| {
         const dm = cursorDrumMachine(app).?;
-        history.push(app, history.captureDrum(app, drum_track));
+        history.recordDrum(app, drum_track);
         dm.humanizeVelocity(amount, seed);
         app.setStatus("humanized drum velocities ({d:.0}%)", .{amount});
         return;
@@ -479,7 +479,7 @@ fn cmdReverse(app: *App, _: []const u8) void {
     }
     if (cursorDrumTrack(app)) |drum_track| {
         const dm = cursorDrumMachine(app).?;
-        history.push(app, history.captureDrum(app, drum_track));
+        history.recordDrum(app, drum_track);
         dm.reversePattern();
         app.setStatus("reversed the drum pattern", .{});
         return;
@@ -525,7 +525,7 @@ fn cmdVelRamp(app: *App, args: []const u8) void {
     if (cursorDrumTrack(app)) |drum_track| {
         const dm = cursorDrumMachine(app).?;
         const pad: u8 = @intCast(app.drum_cursor[0]);
-        history.push(app, history.captureDrum(app, drum_track));
+        history.recordDrum(app, drum_track);
         const v0: u8 = @intFromFloat(@round(from / 100.0 * 127.0));
         const v1: u8 = @intFromFloat(@round(to / 100.0 * 127.0));
         const touched = dm.velocityRampPad(pad, v0, v1);
@@ -1275,7 +1275,7 @@ fn cmdEuclid(app: *App, args: []const u8) void {
         return;
     }
     const pad: u8 = @intCast(app.drum_cursor[0]);
-    history.push(app, history.captureDrum(app, track));
+    history.recordDrum(app, track);
     dm.euclidPad(pad, pulses, rotation);
     app.setStatus("euclid {d}/{d} on pad {d} ({s})", .{ pulses, dm.step_count, pad + 1, dm.padName(pad) });
 }
@@ -1299,7 +1299,7 @@ fn cmdRotate(app: *App, args: []const u8) void {
         return;
     };
     const pad: u8 = @intCast(app.drum_cursor[0]);
-    history.push(app, history.captureDrum(app, track));
+    history.recordDrum(app, track);
     dm.rotatePad(pad, delta);
     app.setStatus("rotated pad {d} ({s}) {s}{d} steps", .{ pad + 1, dm.padName(pad), if (delta >= 0) "+" else "", delta });
 }
@@ -1758,7 +1758,7 @@ pub fn loadClipFromPath(app: *App, path: []const u8) void {
     const notes = [_]pattern_mod.Note{.{ .pitch = s.root_note, .start_beat = 0.0, .duration_beat = length_beats }};
     app.session.racks.items[track].pattern_player.?.setNotes(&notes, length_beats);
 
-    history.push(app, history.captureLane(app, @intCast(track)));
+    history.recordLane(app, @intCast(track));
     app.session.stampClipAtTick(track, app.arr_cursor_bar * app.arr_grid.ticks()) catch {
         app.setStatus("load: stamp failed (out of memory)", .{});
         return;
@@ -1820,7 +1820,7 @@ fn cmdSlice(app: *App, args: []const u8) void {
         app.setStatus("slice: usage :slice <1-{d}>", .{Slicer.max_slices});
         return;
     }
-    history.push(app, history.captureSlicer(app, track));
+    history.recordSlicer(app, track);
     sl.sliceInto(@intCast(@min(n, Slicer.max_slices)));
     app.dirty = true;
     app.setStatus("sliced into {d}", .{sl.slice_count});
@@ -1840,7 +1840,7 @@ fn cmdChop(app: *App, args: []const u8) void {
         app.setStatus("chop: usage :chop [1-9] (sensitivity, default 5)", .{});
         return;
     }
-    history.push(app, history.captureSlicer(app, track));
+    history.recordSlicer(app, track);
     const n = sl.chopTransients(sensitivity);
     app.dirty = true;
     if (n <= 1)

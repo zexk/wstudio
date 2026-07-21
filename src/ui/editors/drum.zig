@@ -122,7 +122,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
         // enter toggles the step; a fresh activation starts a stamp session
         // (see above); space falls through to transport play/pause.
         .enter => {
-            history.push(app, history.captureDrum(app, app.drum_track));
+            history.recordDrum(app, app.drum_track);
             const dm = app.drumMachine();
             dm.toggleStep(@intCast(pad.*), step.*);
             if (dm.stepActive(@intCast(pad.*), step.*)) {
@@ -183,21 +183,21 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 '-' => {
                     const dm = app.drumMachine();
                     const delta: u16 = @intCast(step_grid.bar_len * app.takeCount());
-                    history.push(app, history.captureDrum(app, app.drum_track));
+                    history.recordDrum(app, app.drum_track);
                     dm.setStepCount(dm.step_count -| delta);
                     if (step.* >= dm.step_count) step.* = dm.step_count - 1;
                 },
                 '+' => {
                     const dm = app.drumMachine();
                     const delta: u16 = @intCast(step_grid.bar_len * app.takeCount());
-                    history.push(app, history.captureDrum(app, app.drum_track));
+                    history.recordDrum(app, app.drum_track);
                     dm.setStepCount(dm.step_count +| delta);
                 },
                 'E' => doublePattern(app),
                 'c' => {
                     const dm = app.drumMachine();
                     if (dm.stepActive(@intCast(pad.*), step.*)) {
-                        history.push(app, history.captureDrum(app, app.drum_track));
+                        history.recordDrum(app, app.drum_track);
                         dm.cycleStepVel(@intCast(pad.*), step.*);
                         app.setStatus("vel {d}", .{dm.stepVel(@intCast(pad.*), step.*)});
                     } else app.setStatus("no step here - enter places one", .{});
@@ -207,7 +207,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 '{' => {
                     const dm = app.drumMachine();
                     if (dm.stepActive(@intCast(pad.*), step.*)) {
-                        history.push(app, history.captureDrum(app, app.drum_track));
+                        history.recordDrum(app, app.drum_track);
                         dm.nudgeStepVel(@intCast(pad.*), step.*, -app.takeCount());
                         app.setStatus("vel {d}", .{dm.stepVel(@intCast(pad.*), step.*)});
                     } else app.setStatus("no step here - enter places one", .{});
@@ -215,7 +215,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 '}' => {
                     const dm = app.drumMachine();
                     if (dm.stepActive(@intCast(pad.*), step.*)) {
-                        history.push(app, history.captureDrum(app, app.drum_track));
+                        history.recordDrum(app, app.drum_track);
                         dm.nudgeStepVel(@intCast(pad.*), step.*, app.takeCount());
                         app.setStatus("vel {d}", .{dm.stepVel(@intCast(pad.*), step.*)});
                     } else app.setStatus("no step here - enter places one", .{});
@@ -236,11 +236,11 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 '>' => adjustSwing(app, 1.0),
                 'C' => cycleChokeGroup(app, @intCast(pad.*)),
                 'X' => {
-                    history.push(app, history.captureDrum(app, app.drum_track));
+                    history.recordDrum(app, app.drum_track);
                     app.drumMachine().clearPad(@intCast(pad.*));
                 },
                 'F' => {
-                    history.push(app, history.captureDrum(app, app.drum_track));
+                    history.recordDrum(app, app.drum_track);
                     app.drumMachine().fillPad(@intCast(pad.*));
                 },
                 'u' => history.doUndo(app),
@@ -255,7 +255,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                         pasteSelection(app);
                     } else if (app.drum_clip) |clip| {
                         const dm = app.drumMachine();
-                        history.push(app, history.captureDrum(app, app.drum_track));
+                        history.recordDrum(app, app.drum_track);
                         dm.applyVariant(clip);
                         if (step.* >= dm.step_count) step.* = dm.step_count - 1;
                         app.setStatus("pasted into pattern {c}", .{DrumMachine.variantLetter(dm.variant)});
@@ -270,7 +270,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                     const dm = app.drumMachine();
                     const src = dm.variant;
                     if (dm.variant_count < DrumMachine.max_variants)
-                        history.push(app, history.captureDrum(app, app.drum_track));
+                        history.recordDrum(app, app.drum_track);
                     if (dm.addVariant())
                         app.setStatus("new pattern {c} (copy of {c})", .{
                             DrumMachine.variantLetter(dm.variant),
@@ -282,7 +282,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 'D' => {
                     const dm = app.drumMachine();
                     if (dm.variant_count > 1)
-                        history.push(app, history.captureDrum(app, app.drum_track));
+                        history.recordDrum(app, app.drum_track);
                     if (dm.removeVariant()) {
                         if (step.* >= dm.step_count) step.* = dm.step_count - 1;
                         app.setStatus("deleted pattern - now on {c}", .{DrumMachine.variantLetter(dm.variant)});
@@ -324,7 +324,7 @@ pub fn recordNote(app: *App, pitch: u7, vel: u8) void {
     const pad: u8 = @intCast(pitch % DrumMachine.max_pads);
     const step = dm.currentStep();
     if (dm.stepActive(pad, step)) return;
-    history.push(app, history.captureDrum(app, app.drum_track));
+    history.recordDrum(app, app.drum_track);
     step_grid.setStep(dm, pad, step, true, vel);
     app.drum_cursor = .{ pad, step };
     app.setStatus("rec: pad {d} step {d}", .{ pad + 1, step + 1 });
@@ -341,7 +341,7 @@ fn stampNudgeVel(app: *App, delta: i32) void {
         app.drum_stamp = false;
         return;
     }
-    history.push(app, history.captureDrum(app, app.drum_track));
+    history.recordDrum(app, app.drum_track);
     dm.nudgeStepVel(pad, step, delta);
     app.setStatus("vel {d}", .{dm.stepVel(pad, step)});
 }
@@ -361,7 +361,7 @@ fn stepEnter(app: *App) void {
     const pad: u8 = @intCast(app.drum_cursor[0]);
     const step = app.drum_cursor[1];
     if (!dm.stepActive(pad, step)) {
-        history.push(app, history.captureDrum(app, app.drum_track));
+        history.recordDrum(app, app.drum_track);
         step_grid.setStep(dm, pad, step, true, DrumMachine.vel_full);
     }
     moveStep(app, app.takeCount());
@@ -373,7 +373,7 @@ fn doublePattern(app: *App) void {
         app.setStatus("can't double {d} steps ({d} max)", .{ dm.step_count, DrumMachine.max_steps });
         return;
     }
-    history.push(app, history.captureDrum(app, app.drum_track));
+    history.recordDrum(app, app.drum_track);
     _ = step_grid.doublePattern(dm, DrumMachine.max_pads, DrumMachine.max_steps);
     app.setStatus("doubled loop to {d} steps", .{dm.step_count});
 }
@@ -442,7 +442,7 @@ fn clearCursorStep(app: *App) void {
     // zig fmt: off
     if (!dm.stepActive(pad, step)) { app.setStatus("no step here", .{}); return; }
     // zig fmt: on
-    history.push(app, history.captureDrum(app, app.drum_track));
+    history.recordDrum(app, app.drum_track);
     step_grid.setStep(dm, pad, step, false, 0);
     app.setStatus("cleared step", .{});
 }
@@ -454,7 +454,7 @@ fn clearCursorStep(app: *App) void {
 fn clearPadRow(app: *App) void {
     const dm = app.drumMachine();
     const pad: u8 = @intCast(app.drum_cursor[0]);
-    history.push(app, history.captureDrum(app, app.drum_track));
+    history.recordDrum(app, app.drum_track);
     dm.clearPad(pad);
     app.setStatus("cleared pad {d}'s row", .{@as(u32, pad) + 1});
 }
@@ -548,7 +548,7 @@ fn yankSelection(app: *App) void {
 fn deleteSelection(app: *App) void {
     const dm = app.drumMachine();
     const r = step_grid.selectionRange(u16, app.drum_visual_anchor, app.drum_cursor[1]);
-    history.push(app, history.captureDrum(app, app.drum_track));
+    history.recordDrum(app, app.drum_track);
     step_grid.clearRange(dm, DrumMachine.max_pads, r);
     const width: u16 = r.hi - r.lo + 1;
     app.last_edit = .{ .drum_range_delete = .{ .width = width } };
@@ -565,7 +565,7 @@ fn pasteSelection(app: *App) void {
         return;
     };
     const dm = app.drumMachine();
-    history.push(app, history.captureDrum(app, app.drum_track));
+    history.recordDrum(app, app.drum_track);
     const n = step_grid.pasteRangeDyn(dm, DrumMachine.max_pads, clip, app.drum_cursor[1]);
     app.last_edit = .drum_range_paste;
     app.setStatus("pasted {d} steps", .{n});
@@ -680,7 +680,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, view_rows: u
                 return;
             };
             app.drum_cursor[1] = step;
-            history.push(app, history.captureDrum(app, app.drum_track));
+            history.recordDrum(app, app.drum_track);
             dm.toggleStep(@intCast(pad), step);
             app.drum_paint_state = dm.stepActive(@intCast(pad), step);
         },

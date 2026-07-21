@@ -113,7 +113,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
         .escape => { app.view = .tracks; return true; },
         // enter toggles the step; space falls through to transport play/pause.
         .enter => {
-            history.push(app, history.captureSlicer(app, app.slicer_track));
+            history.recordSlicer(app, app.slicer_track);
             sl.toggleStep(slice.*, step.*);
             return true;
         },
@@ -149,12 +149,12 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                     app.setStatus("preview: slice {d}", .{slice.* + 1});
                 },
                 '-' => {
-                    history.push(app, history.captureSlicer(app, app.slicer_track));
+                    history.recordSlicer(app, app.slicer_track);
                     sl.setStepCount(sl.step_count -| 1);
                     if (step.* >= sl.step_count) step.* = sl.step_count - 1;
                 },
                 '+' => {
-                    history.push(app, history.captureSlicer(app, app.slicer_track));
+                    history.recordSlicer(app, app.slicer_track);
                     sl.setStepCount(sl.step_count + 1);
                 },
                 'E' => doublePattern(app),
@@ -171,7 +171,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                     } else if (sl.slice_count >= Slicer.max_slices) {
                         app.setStatus("slice limit reached ({d})", .{Slicer.max_slices});
                     } else {
-                        history.push(app, history.captureSlicer(app, app.slicer_track));
+                        history.recordSlicer(app, app.slicer_track);
                         _ = sl.splitSlice(slice.*);
                         app.setStatus("split slice {d} - now {d} slices", .{ slice.* + 1, sl.slice_count });
                     }
@@ -180,7 +180,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                     if (slice.* + 1 >= sl.slice_count) {
                         app.setStatus("no slice to the right to merge", .{});
                     } else {
-                        history.push(app, history.captureSlicer(app, app.slicer_track));
+                        history.recordSlicer(app, app.slicer_track);
                         _ = sl.mergeSliceRight(slice.*);
                         app.setStatus("merged into slice {d} - now {d} slices", .{ slice.* + 1, sl.slice_count });
                     }
@@ -201,7 +201,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 // zig fmt: on
                 'c' => {
                     if (sl.stepActive(slice.*, step.*)) {
-                        history.push(app, history.captureSlicer(app, app.slicer_track));
+                        history.recordSlicer(app, app.slicer_track);
                         sl.cycleStepVel(slice.*, step.*);
                         app.setStatus("vel {d}", .{sl.stepVel(slice.*, step.*)});
                     } else app.setStatus("no step here - enter places one", .{});
@@ -217,11 +217,11 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 'd' => armOperator(app, 'd'),
                 'y' => armOperator(app, 'y'),
                 'X' => {
-                    history.push(app, history.captureSlicer(app, app.slicer_track));
+                    history.recordSlicer(app, app.slicer_track);
                     sl.clearSlice(slice.*);
                 },
                 'F' => {
-                    history.push(app, history.captureSlicer(app, app.slicer_track));
+                    history.recordSlicer(app, app.slicer_track);
                     sl.fillSlice(slice.*);
                 },
                 'u' => history.doUndo(app),
@@ -234,7 +234,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 ')' => cycleVariant(app, 1),
                 'N' => {
                     if (sl.variant_count < Slicer.max_variants)
-                        history.push(app, history.captureSlicer(app, app.slicer_track));
+                        history.recordSlicer(app, app.slicer_track);
                     if (sl.addVariant())
                         app.setStatus("new pattern {c} (copy of previous)", .{Slicer.variantLetter(sl.variant)})
                     else
@@ -242,7 +242,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 },
                 'D' => {
                     if (sl.variant_count > 1)
-                        history.push(app, history.captureSlicer(app, app.slicer_track));
+                        history.recordSlicer(app, app.slicer_track);
                     if (sl.removeVariant()) {
                         if (step.* >= sl.step_count) step.* = sl.step_count - 1;
                         app.setStatus("deleted pattern - now on {c}", .{Slicer.variantLetter(sl.variant)});
@@ -293,7 +293,7 @@ fn nudgeVel(app: *App, delta: i32) void {
     // zig fmt: off
     if (!sl.stepActive(slice, step)) { app.setStatus("no step here - enter places one", .{}); return; }
     // zig fmt: on
-    history.push(app, history.captureSlicer(app, app.slicer_track));
+    history.recordSlicer(app, app.slicer_track);
     sl.nudgeStepVel(slice, step, delta);
     app.setStatus("vel {d}", .{sl.stepVel(slice, step)});
 }
@@ -334,7 +334,7 @@ pub fn recordNote(app: *App, pitch: u7, vel: u8) void {
     const slice: u8 = @intCast(pitch % sl.slice_count);
     const step = sl.currentStep();
     if (sl.stepActive(slice, step)) return;
-    history.push(app, history.captureSlicer(app, app.slicer_track));
+    history.recordSlicer(app, app.slicer_track);
     sl.toggleStep(slice, step);
     sl.setStepVel(slice, step, vel);
     app.slicer_cursor = .{ slice, step };
@@ -356,7 +356,7 @@ fn stepEnter(app: *App) void {
     const slice = app.slicer_cursor[0];
     const step = app.slicer_cursor[1];
     if (!sl.stepActive(slice, step)) {
-        history.push(app, history.captureSlicer(app, app.slicer_track));
+        history.recordSlicer(app, app.slicer_track);
         step_grid.setStep(sl, slice, step, true, Slicer.vel_full);
     }
     moveStep(app, app.takeCount());
@@ -368,7 +368,7 @@ fn doublePattern(app: *App) void {
         app.setStatus("can't double {d} steps (64 max)", .{sl.step_count});
         return;
     }
-    history.push(app, history.captureSlicer(app, app.slicer_track));
+    history.recordSlicer(app, app.slicer_track);
     _ = step_grid.doublePattern(sl, Slicer.max_slices, Slicer.max_steps);
     app.setStatus("doubled loop to {d} steps", .{sl.step_count});
 }
@@ -381,7 +381,7 @@ fn sequenceSourceOrder(app: *App) void {
         app.setStatus("no slices to sequence", .{});
         return;
     }
-    history.push(app, history.captureSlicer(app, app.slicer_track));
+    history.recordSlicer(app, app.slicer_track);
     sl.setStepCount(@max(sl.step_count, sl.slice_count));
     for (0..Slicer.max_slices) |row| sl.clearSlice(@intCast(row));
     for (0..sl.slice_count) |idx| {
@@ -427,14 +427,14 @@ fn clearCursorStep(app: *App) void {
     // zig fmt: off
     if (!sl.stepActive(slice, step)) { app.setStatus("no step here", .{}); return; }
     // zig fmt: on
-    history.push(app, history.captureSlicer(app, app.slicer_track));
+    history.recordSlicer(app, app.slicer_track);
     step_grid.setStep(sl, slice, step, false, 0);
     app.setStatus("cleared step", .{});
 }
 
 /// `dd`: clear every step on the cursor slice's row (same clear as X).
 fn clearSliceRow(app: *App) void {
-    history.push(app, history.captureSlicer(app, app.slicer_track));
+    history.recordSlicer(app, app.slicer_track);
     app.slicerInst().clearSlice(app.slicer_cursor[0]);
     app.setStatus("cleared slice {d}'s row", .{@as(u32, app.slicer_cursor[0]) + 1});
 }
@@ -512,7 +512,7 @@ fn yankSelection(app: *App) void {
 fn deleteSelection(app: *App) void {
     const sl = app.slicerInst();
     const r = step_grid.selectionRange(u8, app.slicer_visual_anchor, app.slicer_cursor[1]);
-    history.push(app, history.captureSlicer(app, app.slicer_track));
+    history.recordSlicer(app, app.slicer_track);
     step_grid.clearRange(sl, Slicer.max_slices, r);
     app.last_edit = .{ .slicer_range_delete = .{ .width = r.hi - r.lo + 1 } };
     app.setStatus("cleared {d} steps", .{r.hi - r.lo + 1});
@@ -528,7 +528,7 @@ fn pasteSelection(app: *App) void {
         return;
     };
     const sl = app.slicerInst();
-    history.push(app, history.captureSlicer(app, app.slicer_track));
+    history.recordSlicer(app, app.slicer_track);
     const n = step_grid.pasteRange(sl, Slicer.max_slices, clip, app.slicer_cursor[1]);
     app.last_edit = .slicer_range_paste;
     app.setStatus("pasted {d} steps", .{n});
@@ -596,7 +596,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16, v
                 return;
             };
             app.slicer_cursor[1] = step;
-            history.push(app, history.captureSlicer(app, app.slicer_track));
+            history.recordSlicer(app, app.slicer_track);
             sl.toggleStep(@intCast(slice), step);
             app.slicer_paint_state = sl.stepActive(@intCast(slice), step);
         },
