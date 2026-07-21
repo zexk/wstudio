@@ -582,15 +582,6 @@ pub const ClapPlugin = struct {
         return tail.get(self.plugin);
     }
 
-    pub fn runMainThreadCallback(self: *ClapPlugin) void {
-        if (self.host_context.callback_requested.swap(false, .acquire))
-            self.plugin.on_main_thread(self.plugin);
-    }
-
-    pub fn stateIsDirty(self: *const ClapPlugin) bool {
-        return self.host_context.state_dirty.load(.acquire);
-    }
-
     pub fn reset(self: *ClapPlugin) void {
         self.events.len = 0;
         if (self.started) self.plugin.reset(self.plugin);

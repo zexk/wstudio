@@ -407,17 +407,13 @@ fn repeatLastEdit(app: *App, pp: *pattern_mod.PatternPlayer, max_step: u16) void
 /// Move the step cursor by `delta` steps, clamped to the loop.
 fn moveStep(app: *App, max_step: u16, delta: i32) void {
     const top = @max(@as(i64, max_step) - 1, 0);
-    app.piano_cursor_step = @intCast(clampDelta(app.piano_cursor_step, delta, top));
+    app.piano_cursor_step = @intCast(ws.input.clampDelta(app.piano_cursor_step, delta, top));
     ensureVisible(app);
-}
-
-fn clampDelta(value: anytype, delta: i32, top: i64) i64 {
-    return std.math.clamp(@as(i64, value) + @as(i64, delta), 0, top);
 }
 
 /// Move the pitch cursor by `delta` semitones, clamped to the MIDI range.
 fn movePitch(app: *App, delta: i32) void {
-    app.piano_cursor_pitch = @intCast(clampDelta(app.piano_cursor_pitch, delta, 127));
+    app.piano_cursor_pitch = @intCast(ws.input.clampDelta(app.piano_cursor_pitch, delta, 127));
     ensureVisible(app);
 }
 
@@ -1077,11 +1073,6 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16) v
         },
         else => {},
     }
-}
-
-test "cursor deltas saturate for maximum command counts" {
-    try std.testing.expectEqual(@as(i64, 127), clampDelta(@as(u7, 60), std.math.maxInt(i32), 127));
-    try std.testing.expectEqual(@as(i64, 0), clampDelta(@as(u16, 12), std.math.minInt(i32), 63));
 }
 
 /// How a piano-roll row should read against the active scale (or, with no

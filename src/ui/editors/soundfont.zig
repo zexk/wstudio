@@ -98,12 +98,8 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
     }
 }
 
-fn clampCursor(value: u8, delta: i32, top: i64) i64 {
-    return std.math.clamp(@as(i64, value) + @as(i64, delta), 0, top);
-}
-
 fn moveCursor(app: *App, delta: i32) void {
-    app.soundfont_param = @intCast(clampCursor(app.soundfont_param, delta, @as(i64, param_count) - 1));
+    app.soundfont_param = @intCast(ws.input.clampDelta(app.soundfont_param, delta, @as(i64, param_count) - 1));
 }
 
 /// Audition at the piano roll's last cursor pitch (whatever the user was
@@ -146,9 +142,4 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize) void {
         },
         else => {},
     }
-}
-
-test "soundfont cursor motion saturates for maximum counts" {
-    try std.testing.expectEqual(@as(i64, 3), clampCursor(1, std.math.maxInt(i32), 3));
-    try std.testing.expectEqual(@as(i64, 0), clampCursor(1, std.math.minInt(i32), 3));
 }
