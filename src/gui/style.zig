@@ -135,6 +135,21 @@ pub fn trackColor(index: u8) [4]f32 {
     return palette.tracks[index - 1];
 }
 
+fn luma(c: [4]f32) f32 {
+    return 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2];
+}
+
+/// Text color for a label drawn directly on `bg` (a track swatch or other
+/// arbitrary accent fill, not the normal page background) - picks whichever
+/// of this theme's two extremes actually contrasts. `bg0`/`fg0` aren't fixed
+/// dark/light; `palette.light` flips which one is the literal-dark tone, so
+/// that flip has to be undone here before picking by `bg`'s own luma.
+pub fn legibleOn(bg: [4]f32) [4]f32 {
+    const dark_tone = if (palette.light) palette.fg0 else palette.bg0;
+    const light_tone = if (palette.light) palette.bg0 else palette.fg0;
+    return if (luma(bg) > 0.55) dark_tone else light_tone;
+}
+
 /// One accent per FX family, shared by the rack slots and the picker cards
 /// so a unit keeps its color from browse to edit.
 pub fn fxKindAccent(kind: ws.FxKind) [4]f32 {
