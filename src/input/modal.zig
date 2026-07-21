@@ -149,7 +149,11 @@ pub const ModalInput = struct {
     /// backspace deletes at this position rather than only at the end.
     cmd_cursor: usize = 0,
 
-    pub const max_cmd_len = 64;
+    /// Sized for command lines carrying a real filesystem path (`:w
+    /// ~/music/projects/... .wsj`) - the old 64 silently truncated long
+    /// paths mid-type. The prompt row already renders longer lines
+    /// clamped to the terminal width, so only the buffer was the limit.
+    pub const max_cmd_len = 256;
 
     pub fn handle(self: *ModalInput, key: Key) Action {
         return switch (self.mode) {
