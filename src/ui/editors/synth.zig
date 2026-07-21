@@ -24,6 +24,12 @@ const synth_layout = @import("../synth_layout.zig");
 /// runtime-dynamic (its section set depends on `fx_order` + each unit's
 /// on/off flag) and keeps its own machinery below.
 pub const Subview = enum { main, mod, fx };
+pub const SubviewSpec = struct { subview: Subview, short_label: []const u8, label: [:0]const u8 };
+pub const subviews = [_]SubviewSpec{
+    .{ .subview = .main, .short_label = "MAIN", .label = "MAIN" },
+    .{ .subview = .mod, .short_label = "MOD", .label = "MODULATION" },
+    .{ .subview = .fx, .short_label = "FX", .label = "INTERNAL FX" },
+};
 
 const FxUnitKind = ws.dsp.synth.FxUnitKind;
 
