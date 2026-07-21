@@ -386,6 +386,13 @@ The core API. Frontend-neutral, contract-bound, everything above is sugar
 over it. Initial surface, grouped by topic:
 
 ```lua
+-- capability and editor context
+wstudio.api.has("get_context")             -> boolean
+wstudio.api.get_context()                  -> { frontend, view, mode, track? }
+wstudio.api.get_mode()                     -> "normal" | "insert" | ...
+wstudio.api.get_current_view()             -> "tracks" | "piano_roll" | ...
+wstudio.api.get_current_track()            -> integer | nil
+
 -- transport
 wstudio.api.play()
 wstudio.api.stop()
@@ -406,6 +413,17 @@ wstudio.api.exec(cmdline)                 -- what wstudio.cmd wraps
 ```
 
 Design decisions:
+
+- **Plugins feature-detect API functions.** `has(name)` checks the live
+  `wstudio.api` table, so a plugin can use a newer function when present and
+  retain a fallback on older wstudio releases without parsing
+  `wstudio.version`.
+- **Context is a snapshot.** `get_context()` gives a mapping callback one
+  consistent table containing the frontend, active view, modal mode, and
+  1-based active track. `track` is absent when the tracks cursor is on the
+  master row. In a per-track editor it names that editor's track, even if
+  the tracks-view cursor points elsewhere. The focused getters expose the
+  same values for callers that only need one field.
 
 - **1-based track indices.** Neovim chose 0-based API indexing to match its
   internals and it is a permanent footgun for Lua users. Our API is

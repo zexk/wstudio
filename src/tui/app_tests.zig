@@ -6482,6 +6482,28 @@ test "wstudio.api transport and track surface" {
     try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.track_add({ kind = 'nope' })"));
 }
 
+test "wstudio.api exposes editor context and feature detection" {
+    var app = try testApp();
+    defer app.deinit();
+    var rt = try @import("../config.zig").Runtime.init(.gui);
+    defer rt.deinit();
+    rt.app = &app;
+    app.lua_runtime = &rt;
+
+    try rt.loadString("assert(wstudio.api.has('get_context')); assert(not wstudio.api.has('future_api'))");
+    try rt.loadString("c = wstudio.api.get_context(); assert(c.frontend == 'gui' and c.view == 'tracks' and c.mode == 'normal' and c.track == 1)");
+    try rt.loadString("assert(wstudio.api.get_mode() == 'normal'); assert(wstudio.api.get_current_view() == 'tracks'); assert(wstudio.api.get_current_track() == 1)");
+
+    app.view = .piano_roll;
+    app.piano_track = 2;
+    app.cursor = app.session.project.tracks.items.len; // master row is not a track
+    app.modal.mode = .insert;
+    try rt.loadString("c = wstudio.api.get_context(); assert(c.view == 'piano_roll' and c.mode == 'insert' and c.track == 3)");
+
+    app.view = .tracks;
+    try rt.loadString("assert(wstudio.api.get_current_track() == nil); assert(wstudio.api.get_context().track == nil)");
+}
+
 test "applyUserConfig plumbs the round-2 options" {
     var app = try testApp();
     defer app.deinit();
