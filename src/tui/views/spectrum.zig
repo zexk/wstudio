@@ -379,7 +379,7 @@ pub fn drawFxView(
             const band = &e.bands[b];
             const is_cur = b == cur_band;
             if (is_cur) try w.writeAll(bold ++ acc ++ " [" ++ rst) else try w.writeAll("  ");
-            if (band.kind == .peak) {
+            if (eq_mod.usesGain(band.kind)) {
                 const gain = band.gain_db;
                 try w.writeAll(if (is_cur) bwht else eqColor(gain));
                 if (is_cur) try w.writeAll(bold);
@@ -427,6 +427,8 @@ pub fn drawFxView(
             spectrum_ed.eq_kind_specs[0].label,
             spectrum_ed.eq_kind_specs[1].label,
             spectrum_ed.eq_kind_specs[2].label,
+            spectrum_ed.eq_kind_specs[3].label,
+            spectrum_ed.eq_kind_specs[4].label,
         };
         // zig fmt: off
         try enumRow(w, in_submenu and cur_field == spectrum_ed.eq_field_kind, false, sectionColor(.eq), "kind", &kind_names,

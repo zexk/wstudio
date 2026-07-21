@@ -55,7 +55,7 @@ const AutomationPoint = automation_mod.AutomationPoint;
 /// added and what older files load as) and the bump-vs-additive policy
 /// live in FORMAT.md; per-field migration specifics stay as doc comments
 /// on the snapshot fields they concern.
-pub const file_version: u32 = 25;
+pub const file_version: u32 = 26;
 
 /// Slicer.s own step-grid ceiling (mirrors arrangement.zig.s
 /// `slicer_max_steps`) - `velToSnap`/`applyVelSnap` only ever see Slicer.s
@@ -491,7 +491,7 @@ const legacy_iso_frequencies = [legacy_eq_band_count]f32{
 /// Mirrors `eq_mod.BandKind` as a plain string enum for JSON stability
 /// (numeric enum tags would silently shift meaning if the DSP-side enum's
 /// member order ever changes).
-pub const EqBandKindSnap = enum { peak, lowpass, highpass };
+pub const EqBandKindSnap = enum { peak, lowpass, highpass, lowshelf, highshelf };
 
 pub const EqBandSnap = struct {
     freq: f32,
@@ -503,7 +503,7 @@ pub const EqBandSnap = struct {
     kind: EqBandKindSnap = .peak,
     /// Additive, paired with `kind`: cascade stages for `.lowpass`/
     /// `.highpass` (12 dB/oct each), 1..eq_mod.max_slope. Unused (but
-    /// present) for `.peak`.
+    /// present) for peak and shelf bands.
     slope: u8 = 1,
 };
 
@@ -1186,6 +1186,7 @@ fn chainToSnap(aa: std.mem.Allocator, fx: *const Fx, sample_rate: u32) ![]FxUnit
                     .freq = b.freq, .q = b.q, .gain_db = b.gain_db,
                     .kind = switch (b.kind) {
                         .peak => .peak, .lowpass => .lowpass, .highpass => .highpass,
+                        .lowshelf => .lowshelf, .highshelf => .highshelf,
                     },
                     .slope = b.slope,
                 };
@@ -2428,6 +2429,7 @@ fn applyFxChain(
                     e.setGain(i, b.gain_db);
                     e.setType(i, switch (b.kind) {
                         .peak => .peak, .lowpass => .lowpass, .highpass => .highpass,
+                        .lowshelf => .lowshelf, .highshelf => .highshelf,
                     }, b.slope);
                 }
                 // Legacy EQ-only bypass maps onto the slot's generic one.
