@@ -386,7 +386,10 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, environ: *const std.process
     var input_decoder: terminal_mod.StreamDecoder = .{};
 
     while (!app.should_quit) {
-        const bytes = try term.readInput(&input_buf, user_config.frame_poll_ms);
+        // Capped at the decoder's free space (see StreamDecoder.free), or a
+        // paste bigger than its pending buffer loses bytes.
+        const want: usize = @min(input_buf.len, input_decoder.free());
+        const bytes = try term.readInput(input_buf[0..want], user_config.frame_poll_ms);
         const now = std.Io.Timestamp.now(io, .awake).nanoseconds;
         const n = input_decoder.feed(bytes, &keys);
         for (keys[0..n]) |key| switch (key) {
