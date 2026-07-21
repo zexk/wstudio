@@ -388,6 +388,19 @@
 --   wstudio.api.set_current_track(i)              -- select without opening
 --                                                --   or retargeting an editor
 --
+-- Project lifecycle:
+--   wstudio.api.project_get()                    -> { path?, dirty,
+--                                                     track_count,
+--                                                     sample_rate,
+--                                                     beats_per_bar, tempo,
+--                                                     song_mode }
+--   wstudio.api.project_save(path?)              -> path actually written
+--   wstudio.api.project_open(path, { force? })   -- queued session swap;
+--                                                --   rejects dirty by default
+--   wstudio.api.project_new({ force? })          -- same dirty guard
+-- Open/new run on the next frontend frame so the audio backend can be
+-- restarted safely. force=true explicitly discards unsaved changes.
+--
 -- Other:
 --   wstudio.cmd("bpm 140")   -- run any `:` command line. Called from this
 --                            -- file it queues and runs once the app is up.

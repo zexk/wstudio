@@ -459,6 +459,12 @@ wstudio.api.track_duplicate(i)             -> new integer index
 wstudio.api.track_move(i, target)          -> final integer index
 wstudio.api.set_current_track(i)
 
+-- project lifecycle
+wstudio.api.project_get()                 -> project snapshot
+wstudio.api.project_save(path?)           -> saved path
+wstudio.api.project_open(path, { force? })
+wstudio.api.project_new({ force? })
+
 -- status / prompt
 wstudio.api.notify(msg)
 wstudio.api.exec(cmdline)                 -- what wstudio.cmd wraps
@@ -514,6 +520,17 @@ Design decisions:
   shared selected track without pretending to retarget an already-open
   instrument editor. `track_set()` also accepts `armed`, and validates the
   complete partial table before applying any field.
+- **Project lifecycle is native and guarded.** `project_get()` returns
+  `path?`, `dirty`, `track_count`, `sample_rate`, `beats_per_bar`, `tempo`,
+  and `song_mode`. `project_save()` synchronously uses the normal `.wsj`
+  persistence path, fires `ProjectSavePre`/`ProjectSavePost`, updates the
+  remembered path, clears dirty state, and returns the path it wrote.
+  `project_open()` and `project_new()` request the same deferred session swap
+  as `:edit` and `:new`, because only the frontend loop can safely restart
+  the audio backend around a new Engine. They reject dirty sessions unless
+  `{ force = true }` is explicit. A successful request means the swap was
+  queued; load failures are reported through the normal status path and the
+  current session remains intact.
 - **`kind` strings** match the `cmd.Scope` names already user-visible in
   `:help`: `"synth"`, `"drum"`, `"sampler"`, `"slicer"`, `"soundfont"`.
 - **These functions need a live session.** During init.lua they raise;

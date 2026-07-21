@@ -1541,6 +1541,33 @@ pub const App = struct {
         return self.cursor;
     }
 
+    pub fn apiProjectSave(self: *App, requested_path: []const u8) !void {
+        var path_buf: [reload_path_buf_len]u8 = undefined;
+        const source = if (requested_path.len > 0) requested_path else self.projectPath() orelse self.defaultProjectPath();
+        if (source.len > path_buf.len) return error.NameTooLong;
+        @memcpy(path_buf[0..source.len], source);
+        const path = path_buf[0..source.len];
+        self.emitEvent(.{ .ProjectSavePre = .{ .path = path } });
+        try ws.persist.save(self.allocator, &self.session, self.io, path);
+        self.deleteBackupIfPresent();
+        self.setProjectPath(path);
+        self.dirty = false;
+        self.setStatus("saved: {s}", .{path});
+        self.emitEvent(.{ .ProjectSavePost = .{ .path = path } });
+    }
+
+    pub fn apiProjectOpen(self: *App, path: []const u8, force: bool) bool {
+        if (self.dirty and !force) return false;
+        self.requestReload(path);
+        return true;
+    }
+
+    pub fn apiProjectNew(self: *App, force: bool) bool {
+        if (self.dirty and !force) return false;
+        self.requestReload(null);
+        return true;
+    }
+
     fn handleKeyBuiltin(self: *App, key_in: modal_mod.Key, now_ns: i96) void {
         self.now_ns = now_ns;
         if (key_in == .ctrl_c) {
