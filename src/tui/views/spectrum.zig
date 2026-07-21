@@ -440,8 +440,9 @@ pub fn drawFxView(
             const range = spectrum_ed.paramRange(app, &unit.payload, idx);
             const norm = std.math.clamp((v - range[0]) / (range[1] - range[0]), 0.0, 1.0);
             var vbuf: [16]u8 = undefined;
+            var nbuf: [64]u8 = undefined;
             try barRow(w, in_submenu and cur_field == field, false, sectionColor(.eq),
-                spectrum_ed.paramName(&unit.payload, idx), norm, 1.0, spectrum_ed.formatValue(app, &vbuf, &unit.payload, idx));
+                spectrum_ed.formatParamName(&nbuf, &unit.payload, idx), norm, 1.0, spectrum_ed.formatValue(app, &vbuf, &unit.payload, idx));
                 // zig fmt: on
         }
 
@@ -456,14 +457,15 @@ pub fn drawFxView(
         for (0..visible_count) |i| {
             const is_sel = (i == app.fx_param);
             const v = spectrum_ed.getParam(&unit.payload, i);
+            var nbuf: [64]u8 = undefined;
             if (spectrum_ed.paramToggleNames(k, i)) |names| {
-                try enumRow(w, is_sel, false, sectionColor(k), spectrum_ed.paramName(&unit.payload, i), &names, if (v < 0.5) 0 else 1);
+                try enumRow(w, is_sel, false, sectionColor(k), spectrum_ed.formatParamName(&nbuf, &unit.payload, i), &names, if (v < 0.5) 0 else 1);
                 continue;
             }
             const range = spectrum_ed.paramRange(app, &unit.payload, i);
             const norm = std.math.clamp((v - range[0]) / (range[1] - range[0]), 0.0, 1.0);
             var vbuf: [16]u8 = undefined;
-            try barRow(w, is_sel, false, sectionColor(k), spectrum_ed.paramName(&unit.payload, i), norm, 1.0, spectrum_ed.formatValue(app, &vbuf, &unit.payload, i));
+            try barRow(w, is_sel, false, sectionColor(k), spectrum_ed.formatParamName(&nbuf, &unit.payload, i), norm, 1.0, spectrum_ed.formatValue(app, &vbuf, &unit.payload, i));
         }
         body_lines = visible_count;
         if (unit.bypassed) {

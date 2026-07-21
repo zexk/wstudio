@@ -198,6 +198,7 @@ fn trackIsDrumMachine(app: *App, track: u16) bool {
 /// concept. Every other kind (and `comp` itself, absent that condition)
 /// falls through to the static `paramCount`.
 pub fn visibleParamCount(app: *App, k: FxKind, p: *const FxPayload) usize {
+    if (k == .clap) return @intCast(p.clap.parameterCount());
     if (k == .comp) {
         const show_scpad = if (p.comp.sidechain_source) |sc| trackIsDrumMachine(app, sc.track) else false;
         if (!show_scpad) return paramCount(k) - 1;
@@ -507,6 +508,17 @@ pub fn paramName(p: *const FxPayload, idx: usize) []const u8 {
     };
 }
 
+/// Parameter label copied into `buf` for CLAP's runtime metadata, or the
+/// static built-in label. The returned slice remains valid for the caller's
+/// rendering operation.
+pub fn formatParamName(buf: []u8, p: *const FxPayload, idx: usize) []const u8 {
+    return switch (p.*) {
+        .clap => |plugin| plugin.parameterName(@intCast(idx), buf) orelse
+            std.fmt.bufPrint(buf, "param {d}", .{idx + 1}) catch "param",
+        else => paramName(p, idx),
+    };
+}
+
 /// Current value of param `idx` in `p` - bounds match `paramCount`.
 pub fn getParam(p: *const FxPayload, idx: usize) f32 {
     return switch (p.*) {
@@ -559,7 +571,11 @@ pub fn getParam(p: *const FxPayload, idx: usize) f32 {
         .reverb => |*r| tableGet(r, &reverb_specs, idx),
         .delay => |*d| tableGet(d, &delay_specs, idx),
         .ott => |*o| tableGet(o, &ott_specs, idx),
-        .clap => 0,
+        .clap => |plugin| blk: {
+            const info = plugin.parameterInfo(@intCast(idx)) orelse break :blk 0;
+            const value: f64 = plugin.parameterValue(info.id) orelse info.default_value;
+            break :blk @floatCast(value);
+        },
     };
 }
 
@@ -609,7 +625,10 @@ pub fn paramRange(app: *App, p: *const FxPayload, idx: usize) [2]f32 {
         .reverb => tableRange(&reverb_specs, idx),
         .delay => tableRange(&delay_specs, idx),
         .ott => tableRange(&ott_specs, idx),
-        .clap => .{ 0, 1 },
+        .clap => |plugin| blk: {
+            const info = plugin.parameterInfo(@intCast(idx)) orelse break :blk .{ 0, 1 };
+            break :blk .{ @floatCast(info.min_value), @floatCast(info.max_value) };
+        },
     };
 }
 
@@ -713,7 +732,14 @@ pub fn setParam(app: *App, p: *FxPayload, idx: usize, value: f32) void {
         .reverb => |*r| tableSet(r, &reverb_specs, idx, value),
         .delay => |*d| tableSet(d, &delay_specs, idx, value),
         .ott => |*o| tableSet(o, &ott_specs, idx, value),
-        .clap => {},
+        .clap => |plugin| if (plugin.parameterInfo(@intCast(idx))) |info| {
+            const finite = if (std.math.isFinite(value)) value else @as(f32, @floatCast(info.default_value));
+            plugin.setParameter(info.id, info.cookie, std.math.clamp(
+                @as(f64, finite),
+                info.min_value,
+                info.max_value,
+            ));
+        },
     }
 }
 // zig fmt: on
@@ -762,7 +788,11 @@ fn paramStep(p: *const FxPayload, idx: usize, coarse: bool) f32 {
         .reverb => tableStep(&reverb_specs, idx, coarse),
         .delay => tableStep(&delay_specs, idx, coarse),
         .ott => tableStep(&ott_specs, idx, coarse),
-        .clap => 0,
+        .clap => |plugin| blk: {
+            const info = plugin.parameterInfo(@intCast(idx)) orelse break :blk 0;
+            const span: f32 = @floatCast(info.max_value - info.min_value);
+            break :blk @max(if (coarse) span / 10.0 else span / 100.0, std.math.floatEps(f32));
+        },
     };
 }
 
@@ -1073,6 +1103,7 @@ fn cycleParam(app: *App, target: EqTarget, dir: i2) void {
     const n = visibleParamCount(app, u.kind(), &u.payload);
     const cnt: usize = @intCast(app.takeCount());
     history.flushFxNudge(app);
+    if (n == 0) return;
     app.fx_param = if (dir < 0) (app.fx_param + n - (cnt % n)) % n else (app.fx_param + cnt) % n;
 }
 
@@ -1430,6 +1461,11 @@ pub fn formatValue(app: anytype, buf: []u8, p: *const ws.FxPayload, idx: usize) 
             0 => std.fmt.bufPrint(buf, "{s}{d:.0}Hz", .{ if (v >= 0.0) "+" else "", v }) catch "?",
             else => std.fmt.bufPrint(buf, "{d:.0}%", .{v * 100.0}) catch "?",
         },
-        .clap => "?",
+        .clap => |plugin| blk: {
+            const info = plugin.parameterInfo(@intCast(idx)) orelse break :blk "?";
+            const value = plugin.parameterValue(info.id) orelse info.default_value;
+            break :blk plugin.formatParameter(info.id, value, buf) orelse
+                std.fmt.bufPrint(buf, "{d:.3}", .{value}) catch "?";
+        },
     };
 }
