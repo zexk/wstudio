@@ -25,11 +25,11 @@ const Sample = types.Sample;
 /// back in. The `> 0.0` guard doubles as the NaN check (a hand-edited
 /// automation value could be anything), so a bad value degrades to the
 /// first variant instead of tripping @intFromFloat safety.
-fn enumToValue(e: anytype) f32 {
+pub fn enumToValue(e: anytype) f32 {
     return @floatFromInt(@intFromEnum(e));
 }
 
-fn enumFromValue(comptime E: type, value: f32) E {
+pub fn enumFromValue(comptime E: type, value: f32) E {
     const n = @typeInfo(E).@"enum".fields.len;
     if (!(value > 0.0)) return @enumFromInt(0);
     const max: f32 = @floatFromInt(n - 1);
