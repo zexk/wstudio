@@ -60,6 +60,12 @@ logging, and host callbacks are supported. Plugin identity and state are saved i
 the `.wsj` project. Native plugin GUI windows, surround buses, polyphonic
 modulation, and plugin-requested thread pools are not supported yet.
 
+External controller input currently consumes MIDI 1.0 Channel Voice events
+through ALSA sequencer. MIDI 2.0 Universal MIDI Packets, per-note controllers,
+profiles, and property exchange are not implemented, and are not advertised as
+supported. The raw MIDI 1.0 parser covers Channel Voice and System Realtime;
+System Common and SysEx input are intentionally ignored.
+
 ## Status: beta
 
 The first public beta is live and audible. Expect rough edges, and keep

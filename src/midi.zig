@@ -222,7 +222,12 @@ pub const CC = enum(u7) {
     fenv_release      = 81,  // → fenv_release_s (0–4 s)
     all_sound_off     = 120, // GM mandatory - immediate silence
     reset_all_ctrls   = 121, // reset transient performance controllers
+    local_control     = 122, // accepted; no separate local keyboard path
     all_notes_off     = 123, // GM mandatory - release all voices
+    omni_mode_off     = 124, // mode change also releases all voices
+    omni_mode_on      = 125,
+    mono_mode_on      = 126,
+    poly_mode_on      = 127,
     // zig fmt: on
     _,
 };
