@@ -71,7 +71,7 @@ fn drawRowChrome(app: anytype, id: [:0]const u8, display_row: usize, in_visual: 
     const hovered = zgui.isItemHovered(.{});
     const selected = app.core.track_row == display_row;
     const draw_list = zgui.getWindowDrawList();
-    const row_bg = if (selected) patina.bg3 else if (hovered) patina.bg2 else patina.bg1;
+    const row_bg = if (hovered and !selected) patina.bg4 else patina.bg3;
     draw_list.addRectFilled(.{
         .pmin = origin,
         .pmax = .{ origin[0] + width, origin[1] + height - 2 },
