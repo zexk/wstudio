@@ -353,7 +353,7 @@ fn deleteSelection(app: *App, clip: *ws.Clip) void {
     const r = selectionRange(app);
     const lo_beat = @as(f64, @floatFromInt(r.lo)) * 0.25;
     const hi_beat = @as(f64, @floatFromInt(r.hi)) * 0.25 + 0.25;
-    history.push(app, history.captureLane(app, app.automation_track));
+    history.recordLane(app, app.automation_track);
     const points = curvePoints(app, clip, app.automation_focus) catch {
         app.setStatus("delete failed (out of memory)", .{});
         return;
@@ -381,7 +381,7 @@ fn pasteSelection(app: *App, clip: *ws.Clip) void {
         exitVisual(app);
         return;
     };
-    history.push(app, history.captureLane(app, app.automation_track));
+    history.recordLane(app, app.automation_track);
     const points = curvePoints(app, clip, app.automation_focus) catch {
         app.setStatus("paste failed (out of memory)", .{});
         return;
@@ -525,7 +525,7 @@ fn nudgeValue(app: *App, clip: *ws.Clip, steps: i32) void {
     );
     // Captured before the mutation - the whole lane, same granularity the
     // arrangement's own clip edits (move/delete) undo at.
-    history.push(app, history.captureLane(app, app.automation_track));
+    history.recordLane(app, app.automation_track);
     automation_mod.setPoint(app.allocator, points, beat, new_val) catch {
         app.setStatus("automation edit failed (out of memory)", .{});
         return;
@@ -545,7 +545,7 @@ fn deletePoint(app: *App, clip: *ws.Clip) void {
         app.setStatus("no point exactly here", .{});
         return;
     }
-    history.push(app, history.captureLane(app, app.automation_track));
+    history.recordLane(app, app.automation_track);
     _ = automation_mod.removePoint(app.allocator, points, beat);
     if (app.session.song_mode) app.session.rebuildSongData();
     app.setStatus("point removed", .{});

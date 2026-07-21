@@ -293,7 +293,7 @@ fn yankSelection(app: *App) void {
 /// `Lane.cutRange`) - `x`'s single-bar cousin, this editor's `d`/visual-`d`.
 fn deleteSelection(app: *App) void {
     const lane = app.session.arrangement.lane(app.cursor) orelse return;
-    history.push(app, history.captureLane(app, @intCast(app.cursor)));
+    history.recordLane(app, @intCast(app.cursor));
     const r = selectionRange(app);
     const width = (r.hi - r.lo) / app.arr_grid.ticks() + 1;
     lane.cutRange(app.allocator, r.lo, r.hi +| app.arr_grid.ticks()) catch {
@@ -344,7 +344,7 @@ fn pasteSelection(app: *App) void {
         exitVisual(app);
         return;
     }
-    history.push(app, history.captureLane(app, @intCast(app.cursor)));
+    history.recordLane(app, @intCast(app.cursor));
     var pasted: u32 = 0;
     const cursor_tick = cursorTick(app);
     var end_bar = cursor_tick;
@@ -464,7 +464,7 @@ fn stampClip(app: *App) void {
         else => {},
     }
     // Stamping may evict overlapped clips; the lane snapshot covers both.
-    history.push(app, history.captureLane(app, @intCast(app.cursor)));
+    history.recordLane(app, @intCast(app.cursor));
     const cursor_tick = cursorTick(app);
     app.session.stampClipAtTick(app.cursor, cursor_tick) catch {
         app.setStatus("stamp failed (out of memory)", .{});
@@ -587,7 +587,7 @@ fn moveClip(app: *App, delta: i32) void {
         latest_start,
     ));
     if (new_start == clip.start_tick) return;
-    history.push(app, history.captureLane(app, @intCast(app.cursor)));
+    history.recordLane(app, @intCast(app.cursor));
     app.last_edit = .{ .arr_move_clip = .{ .delta = delta } };
     // Detach the clip (keeping ownership of its content), retarget, re-place.
     var moved: ws.Clip = for (lane.clips.items, 0..) |c, i| {
@@ -624,7 +624,7 @@ fn resizeClip(app: *App, delta: i32) void {
         max_timeline_tick - clip.start_tick,
     ));
     if (new_len == clip.length_ticks) return;
-    history.push(app, history.captureLane(app, @intCast(app.cursor)));
+    history.recordLane(app, @intCast(app.cursor));
     app.last_edit = .{ .arr_resize_clip = .{ .delta = delta } };
     var resized: ws.Clip = for (lane.clips.items, 0..) |c, i| {
         if (c.covers(cursor_tick)) break lane.clips.orderedRemove(i);
@@ -648,7 +648,7 @@ fn deleteClip(app: *App) void {
         app.setStatus("no clip here", .{});
         return;
     }
-    history.push(app, history.captureLane(app, @intCast(app.cursor)));
+    history.recordLane(app, @intCast(app.cursor));
     lane.cutRange(app.allocator, cursor_tick, cursor_tick +| app.arr_grid.ticks()) catch {
         app.setStatus("cut failed (out of memory)", .{});
         return;
