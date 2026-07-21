@@ -160,7 +160,11 @@ fn pickerBaseView(app: *const App) tui_app.AppView {
         .instrument_picker => .tracks,
         .fx_picker => app.core.fx_picker_return,
         .synth_fx_picker => .synth_editor,
-        .preset_picker => if (app.core.preset_picker_kind == .synth) .synth_editor else .drum_grid,
+        .preset_picker => switch (app.core.preset_picker_kind) {
+            .synth => .synth_editor,
+            .drum => .drum_grid,
+            .soundfont => .soundfont_editor,
+        },
         .automation_param_picker => .automation,
         else => app.core.view,
     };

@@ -21,7 +21,7 @@ const fuzzy = @import("../fuzzy.zig");
 const user_presets = @import("../user_presets.zig");
 const user_drum_kits = @import("../user_drum_kits.zig");
 
-pub const Kind = enum { synth, drum };
+pub const Kind = enum { synth, drum, soundfont };
 
 const factory_author = "wstudio";
 const user_author = "user";
@@ -37,7 +37,14 @@ pub const Entry = struct {
     /// presets have none.
     tags: []const []const u8,
     author: []const u8,
-    source: union(enum) { user: usize, factory: usize, kit: usize },
+    /// MIDI program number, `.soundfont` kind only - a plain number rather
+    /// than pre-formatted text so the render layers can format it at draw
+    /// time from a loop-local buffer, matching every other per-row scratch
+    /// buffer in this codebase instead of needing storage that outlives
+    /// `buildDisplayRows` (unlike the bank *headers*, which are read by the
+    /// caller after that call returns - see `App.soundfont_picker_bank_headers`).
+    program: ?u16 = null,
+    source: union(enum) { user: usize, factory: usize, kit: usize, soundfont: usize },
 };
 
 pub const DisplayRow = union(enum) {
@@ -79,6 +86,11 @@ fn entryMatches(e: Entry, filter: []const u8) bool {
     if (fuzzy.matches(filter, e.author)) return true;
     for (e.tags) |t| {
         if (fuzzy.matches(filter, t)) return true;
+    }
+    if (e.program) |program| {
+        var pbuf: [8]u8 = undefined;
+        const s = std.fmt.bufPrint(&pbuf, "{d}", .{program}) catch return false;
+        if (fuzzy.matches(filter, s)) return true;
     }
     return false;
 }
@@ -179,6 +191,48 @@ pub fn buildDisplayRows(app: *App, buf: *[max_display_rows]DisplayRow) []Display
                 if (n >= buf.len) return buf[0..n];
                 buf[n] = .{ .entry = e };
                 n += 1;
+            }
+        },
+        .soundfont => {
+            const sf = targetSoundfont(app) orelse return buf[0..0];
+            const font = sf.font orelse return buf[0..0];
+
+            // Distinct banks in first-appearance order, same 16-bucket cap
+            // (and same reason - a real font's presets aren't pre-grouped,
+            // see dsp/soundfont.zig's SoundFont.presets doc comment) the
+            // synth branch above uses for its own category list.
+            var banks: [16]u16 = undefined;
+            var bank_count: usize = 0;
+            outer: for (font.presets) |p| {
+                for (banks[0..bank_count]) |b| {
+                    if (b == p.bank) continue :outer;
+                }
+                if (bank_count >= banks.len) break;
+                banks[bank_count] = p.bank;
+                bank_count += 1;
+            }
+            for (banks[0..bank_count], 0..) |bank, bi| {
+                const header = std.fmt.bufPrint(&app.soundfont_picker_bank_headers[bi], "Bank {d}", .{bank}) catch "Bank";
+                var wrote_header = false;
+                for (font.presets, 0..) |p, i| {
+                    if (p.bank != bank) continue;
+                    const e: Entry = .{
+                        // zig fmt: off
+                        .name = p.trimmedName(), .category = header, .tags = &.{},
+                        .author = "", .program = p.program, .source = .{ .soundfont = i },
+                        // zig fmt: on
+                    };
+                    if (!entryMatches(e, filter)) continue;
+                    if (!wrote_header) {
+                        if (n >= buf.len) return buf[0..n];
+                        buf[n] = .{ .header = header };
+                        n += 1;
+                        wrote_header = true;
+                    }
+                    if (n >= buf.len) return buf[0..n];
+                    buf[n] = .{ .entry = e };
+                    n += 1;
+                }
             }
         },
     }
@@ -293,14 +347,29 @@ pub fn handleKey(app: *App, key: modal_mod.Key) void {
 }
 
 fn auditionSelected(app: *App) void {
-    if (app.preset_picker_kind != .synth) return;
     var buf: [max_display_rows]DisplayRow = undefined;
     const chosen = selectedEntry(buildDisplayRows(app, &buf), app.preset_picker_cursor) orelse return;
+    // Soundfont preset switches are already immediate-commit everywhere
+    // else in the editor (PREV/NEXT, h/l) - unlike a synth patch there's no
+    // "temporary preview, revert on cancel" state worth adding here, so
+    // audition is just select + play, same as pressing enter minus closing
+    // the picker.
+    if (chosen.source == .soundfont) {
+        const sf = targetSoundfont(app) orelse return;
+        sf.selectPresetIndex(chosen.source.soundfont);
+        // The switch is committed (no revert on close), so it must dirty
+        // the session even if the picker is escaped instead of entered.
+        app.dirty = true;
+        app.playNote(app.preset_picker_track, app.piano_cursor_pitch, app.now_ns);
+        app.setStatus("audition: {s}", .{chosen.name});
+        return;
+    }
+    if (app.preset_picker_kind != .synth) return;
     const s = targetSynth(app) orelse return;
     switch (chosen.source) {
         .user => |i| s.applyPatch(app.user_synth_presets.items[i].patch),
         .factory => |i| s.applyPatch(ws.dsp.synth_presets.presets[i].patch),
-        .kit => return,
+        .kit, .soundfont => return,
     }
     app.preset_audition_active = true;
     app.playNote(app.preset_picker_track, 48, app.now_ns);
@@ -354,6 +423,14 @@ fn targetDrum(app: *App) ?*ws.dsp.DrumMachine {
     };
 }
 
+fn targetSoundfont(app: *App) ?*ws.dsp.SoundfontPlayer {
+    if (app.preset_picker_track >= app.session.racks.items.len) return null;
+    return switch (app.session.racks.items[app.preset_picker_track].instrument) {
+        .soundfont => |*s| s,
+        else => null,
+    };
+}
+
 /// The entry the cursor sits on within the filtered rows, if any.
 fn selectedEntry(rows_list: []const DisplayRow, cursor: usize) ?Entry {
     var n: usize = 0;
@@ -392,6 +469,10 @@ fn deleteSelected(app: *App) void {
             app.setStatus("delete: {s}", .{@errorName(e)});
             return;
         },
+        // Soundfont entries are never `.user` (no save/favorite concept for
+        // presets inside a loaded font), so the refusal above already
+        // returned before this switch is reached.
+        .soundfont => unreachable,
     }
     app.preset_picker_cursor = @min(app.preset_picker_cursor, entryCount(app) -| 1);
     app.setStatus("deleted preset: {s}", .{name_buf[0..shown_len]});
@@ -419,6 +500,9 @@ pub fn applySelected(app: *App) void {
                 dm.applyPadTune(&app.user_drum_kits.items[i].pads);
                 app.setStatus("drum kit: {s} (saved)", .{chosen.name});
             },
+            // Soundfont entries are never `.user` (see deleteSelected's own
+            // note) - this arm can't run.
+            .soundfont => unreachable,
         },
         .factory => |i| {
             const s = targetSynth(app) orelse return;
@@ -432,6 +516,15 @@ pub fn applySelected(app: *App) void {
                 return;
             };
             app.setStatus("drum kit: {s}", .{chosen.name});
+        },
+        .soundfont => |i| {
+            const sf = targetSoundfont(app) orelse return;
+            sf.selectPresetIndex(i);
+            if (sf.presetBankProgram()) |bp| {
+                app.setStatus("soundfont preset: {s}  bank {d} prog {d}", .{ chosen.name, bp.bank, bp.program });
+            } else {
+                app.setStatus("soundfont preset: {s}", .{chosen.name});
+            }
         },
     }
     app.dirty = true;

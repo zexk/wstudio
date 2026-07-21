@@ -26,6 +26,7 @@ pub fn drawPresetPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void {
     const title: []const u8 = switch (app.preset_picker_kind) {
         .synth => " SYNTH PRESETS",
         .drum => " DRUM KITS",
+        .soundfont => " SOUNDFONT PRESETS",
     };
     try w.writeAll(bold);
     try w.writeAll(title);
@@ -95,7 +96,13 @@ pub fn drawPresetPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void {
                 // rides the row instead.
                 if (app.preset_picker_kind == .drum) try w.print(" {s: <11}", .{e.category});
                 try w.writeByte(' ');
-                try preset_ed.writeGenreTags(w, e.tags);
+                // Soundfont entries carry no genre tags - print the program
+                // number instead, same slot writeGenreTags would use.
+                if (app.preset_picker_kind == .soundfont) {
+                    if (e.program) |program| try w.print("prog {d}", .{program});
+                } else {
+                    try preset_ed.writeGenreTags(w, e.tags);
+                }
                 try w.writeAll(rst);
                 try endLine(w);
             },

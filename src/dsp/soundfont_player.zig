@@ -172,6 +172,26 @@ pub const SoundfontPlayer = struct {
         return .{ .bank = p.bank, .program = p.program };
     }
 
+    pub const KeyRange = struct { lo: u8, hi: u8, region_count: usize };
+
+    /// Lowest/highest MIDI key covered by any region of the selected preset,
+    /// plus how many regions it has - lets the UI show "does this patch
+    /// cover the whole keyboard or just a keysplit" without playing a note.
+    /// Null while nothing is loaded or the preset has no regions.
+    pub fn presetKeyRange(self: *const SoundfontPlayer) ?KeyRange {
+        const font = self.font orelse return null;
+        if (self.preset_index >= font.presets.len) return null;
+        const regions = font.presets[self.preset_index].regions;
+        if (regions.len == 0) return null;
+        var lo: u8 = 127;
+        var hi: u8 = 0;
+        for (regions) |r| {
+            lo = @min(lo, r.key_lo);
+            hi = @max(hi, r.key_hi);
+        }
+        return .{ .lo = lo, .hi = hi, .region_count = regions.len };
+    }
+
     /// Select a preset by its index into `font.presets` directly - the
     /// picker UI's counterpart to `adjustParam`'s id-3 nudge. Clamped, no-op
     /// while nothing is loaded.
@@ -628,6 +648,19 @@ test "exclusive class chokes a still-ringing voice sharing it" {
     p.device().sendEvent(.{ .note_on = .{ .note = 64, .velocity = 1.0 } });
     try std.testing.expect(p.voices[0].active);
     try std.testing.expect(p.voices[1].active);
+}
+
+test "presetKeyRange: null with nothing loaded, spans the fixture's single region once loaded" {
+    var p = SoundfontPlayer.init(std.testing.allocator, 44_100);
+    defer p.deinit();
+    try std.testing.expectEqual(@as(?SoundfontPlayer.KeyRange, null), p.presetKeyRange());
+
+    const bytes = try soundfont_test.buildTestSf2(std.testing.allocator, false, 44_100);
+    defer std.testing.allocator.free(bytes);
+    try p.loadSf2(bytes);
+    const range = p.presetKeyRange() orelse return error.TestExpectedRange;
+    try std.testing.expectEqual(@as(usize, 1), range.region_count);
+    try std.testing.expect(range.lo <= range.hi);
 }
 
 test "dupe: independent font/source bytes, fresh voice state" {

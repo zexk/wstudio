@@ -89,5 +89,23 @@ pub fn drawSoundfontEditor(
     try endLine(w);
     written += 1;
 
+    if (s.presetBankProgram()) |bp| {
+        try w.writeAll(dim ++ "    bank " ++ rst);
+        try w.print("{d}", .{bp.bank});
+        try w.writeAll(dim ++ "  prog " ++ rst);
+        try w.print("{d}", .{bp.program});
+        if (s.presetKeyRange()) |kr| {
+            var lo_buf: [5]u8 = undefined;
+            var hi_buf: [5]u8 = undefined;
+            try w.writeAll(dim ++ "  keys " ++ rst);
+            try w.print("{s}-{s}", .{ ws.midi.noteName(@intCast(@min(kr.lo, 127)), &lo_buf), ws.midi.noteName(@intCast(@min(kr.hi, 127)), &hi_buf) });
+            try w.writeAll(dim);
+            try w.print("  ({d} region{s})", .{ kr.region_count, if (kr.region_count == 1) "" else "s" });
+            try w.writeAll(rst);
+        }
+        try endLine(w);
+        written += 1;
+    }
+
     while (written < body) : (written += 1) try endLine(w);
 }
