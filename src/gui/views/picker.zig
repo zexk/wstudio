@@ -59,9 +59,15 @@ fn overlayWidth() f32 {
 }
 
 pub fn drawInstrument(app: anytype) void {
-    zgui.textColored(patina.focus, "ADD INSTRUMENT", .{});
-    zgui.sameLine(.{});
-    zgui.textDisabled("Choose the track's sound source", .{});
+    if (app.core.picker_replace) {
+        zgui.textColored(patina.focus, "REPLACE INSTRUMENT", .{});
+        zgui.sameLine(.{});
+        zgui.textDisabled("Swaps notes over when the old and new kinds are compatible", .{});
+    } else {
+        zgui.textColored(patina.focus, "ADD INSTRUMENT", .{});
+        zgui.sameLine(.{});
+        zgui.textDisabled("Choose the track's sound source", .{});
+    }
     zgui.separator();
     const entries = [_]struct { label: []const u8, desc: []const u8, kind: ws.InstrumentKind, accent: [4]f32 }{
         .{ .label = "POLY SYNTH", .desc = "SYNTHESIS  POLY  MODULATION", .kind = .poly_synth, .accent = patina.focus },

@@ -336,6 +336,12 @@ pub const App = struct {
     sampler_param: u8 = 0,
     /// Highlighted row in the instrument picker.
     picker_cursor: u8 = 0,
+    /// True when the instrument picker was opened on an already-populated
+    /// track (`I` in the tracks view) rather than a blank one (`enter`) -
+    /// `pickerInsert` branches on this to call `changeInstrumentKind`
+    /// (preserving notes where the old/new kinds allow it) instead of
+    /// `setInstrument` (which always builds fresh and clears the lane).
+    picker_replace: bool = false,
     audio_label: []const u8 = "off",
     master_gain_db: f32 = 0.0,
     should_quit: bool = false,
@@ -1631,7 +1637,7 @@ pub const App = struct {
                             'u' => { history.doUndo(self); return; },
                             'U' => { history.doRedo(self); return; },
                             't' => { self.tapTempo(now_ns); return; },
-                            'd', 'Y', 'J', 'K', 'R', 'p', '<', '>', '[', ']', 'v', 'z' => {
+                            'd', 'Y', 'J', 'K', 'R', 'p', 'I', '<', '>', '[', ']', 'v', 'z' => {
                                 self.setStatus("master bus: n/a", .{});
                                 return;
                             },
@@ -1657,7 +1663,7 @@ pub const App = struct {
                                 self.setStatus("visual: j/k extend, g groups the selection, esc cancels", .{});
                                 return;
                             },
-                            'Y', 'J', 'K', 'p', '<', '>', '[', ']' => {
+                            'Y', 'J', 'K', 'p', 'I', '<', '>', '[', ']' => {
                                 self.setStatus("group row: n/a", .{});
                                 return;
                             },
@@ -1673,6 +1679,7 @@ pub const App = struct {
                                 return;
                             },
                             'a' => { self.doTrackAdd(null); return; },
+                            'I' => { self.openInstrumentPicker(self.cursor, true); return; },
                             'd' => { self.tracks_del_pending = true; return; },
                             'Y' => { self.doTrackDup(self.cursor); return; },
                             'J' => { self.doTrackMove(1); return; },
@@ -2147,12 +2154,30 @@ pub const App = struct {
         self.setStatus("{s} mode", .{if (on) "song" else "pattern"});
     }
 
+    /// Open the instrument picker on `cursor`'s track. `replace` selects
+    /// which of the two flows in `pickerInsert` accepting a kind runs:
+    /// building a fresh instrument (blank track, `enter`) or swapping the
+    /// live one via `Session.changeInstrumentKind` (already-populated
+    /// track, `I`). Preselects the cursor at the track's current kind when
+    /// replacing, so opening the picker shows what's already there.
+    fn openInstrumentPicker(self: *App, cursor: usize, replace: bool) void {
+        self.picker_replace = replace;
+        self.picker_cursor = 0;
+        if (cursor < self.session.racks.items.len) {
+            const kind = std.meta.activeTag(self.session.racks.items[cursor].instrument);
+            for (picker_kinds, 0..) |k, i| {
+                if (k == kind) { self.picker_cursor = @intCast(i); break; }
+            }
+        }
+        self.view = .instrument_picker;
+    }
+
     /// Open the editor matching the track's instrument, or the instrument
     /// picker if the track is blank.
     fn openTrack(self: *App, cursor: usize) void {
         if (cursor >= self.session.racks.items.len) return;
         switch (self.session.racks.items[cursor].instrument) {
-            .empty => { self.picker_cursor = 0; self.view = .instrument_picker; },
+            .empty => self.openInstrumentPicker(cursor, false),
             .poly_synth => {
                 self.synth_track = @intCast(cursor);
                 self.synth_cursor = 0;
@@ -2228,12 +2253,37 @@ pub const App = struct {
                 .vst3, .vst2 => unreachable,
             }
             self.dirty = true;
-            self.setStatus("{s} inserted  CLAP", .{plugin.name});
+            // CLAP instruments always go through `setClapInstrument`, which
+            // (like `setInstrument`) has no note-preserving counterpart - see
+            // `Session.changeInstrumentKind`'s doc comment on why a bare
+            // kind-to-CLAP swap can't be built without a path/id.
+            self.setStatus("{s}  CLAP  {s}", .{ plugin.name, if (self.picker_replace) "(notes cleared)" else "inserted" });
             self.view = .tracks;
             self.openTrack(self.cursor);
             return;
         }
         const kind = picker_kinds[self.picker_cursor];
+        if (self.picker_replace) {
+            if (std.meta.activeTag(self.session.racks.items[self.cursor].instrument) == kind) {
+                self.setStatus("track {d} is already {s}", .{ self.cursor + 1, picker_labels[self.picker_cursor] });
+                self.view = .tracks;
+                return;
+            }
+            const preserved = self.session.changeInstrumentKind(self.cursor, kind) catch |err| {
+                self.setStatus("track-instrument: {s}", .{@errorName(err)});
+                self.view = .tracks;
+                return;
+            };
+            self.dirty = true;
+            if (preserved) {
+                self.setStatus("track {d}: now {s} (notes kept)", .{ self.cursor + 1, picker_labels[self.picker_cursor] });
+            } else {
+                self.setStatus("track {d}: now {s} (no compatible mapping - notes cleared)", .{ self.cursor + 1, picker_labels[self.picker_cursor] });
+            }
+            self.view = .tracks;
+            self.openTrack(self.cursor);
+            return;
+        }
         self.session.setInstrument(self.cursor, kind) catch {
             self.setStatus("insert failed (out of memory)", .{});
             self.view = .tracks;

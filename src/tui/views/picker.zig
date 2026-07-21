@@ -25,6 +25,7 @@ const picker_menu = [_]struct { name: []const u8, desc: []const u8, icon: []cons
     .{ .name = "Sampler",      .desc = "one clip played chromatically - :load to swap", .icon = icons.sampler },
     .{ .name = "Drum Machine", .desc = "64-pad step sequencer with per-pad sampler",            .icon = icons.drum },
     .{ .name = "Slicer",       .desc = "chop one sample into slices, step-sequence the chops",  .icon = icons.slicer },
+    .{ .name = "SoundFont",    .desc = "multi-timbral .sf2 player - pick a preset by bank/program", .icon = icons.soundfont },
 };
 // zig fmt: on
 
@@ -34,12 +35,19 @@ pub fn drawInstrumentPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void 
     else
         "?";
 
-    try w.writeAll(bold ++ " INSERT INSTRUMENT" ++ rst);
+    const title: []const u8 = if (app.picker_replace) " REPLACE INSTRUMENT" else " INSERT INSTRUMENT";
+    try w.writeAll(bold);
+    try w.writeAll(title);
+    try w.writeAll(rst);
     try w.writeAll(acc);
     try w.print("  \"{s}\"", .{track_name});
     try w.writeAll(rst);
     try endLine(w);
-    try w.writeAll(dim ++ " > select  " ++ rst ++ "j/k move  enter choose  esc close");
+    if (app.picker_replace) {
+        try w.writeAll(dim ++ " > select  " ++ rst ++ "j/k move  enter swap (keeps notes when possible)  esc close");
+    } else {
+        try w.writeAll(dim ++ " > select  " ++ rst ++ "j/k move  enter choose  esc close");
+    }
     try endLine(w);
 
     try w.writeAll(bold ++ " INTERNAL" ++ rst);
