@@ -6673,6 +6673,27 @@ test "applyUserConfig plumbs the round-5 workflow options" {
     try std.testing.expectEqual(@as(f64, 0.5), app.piano_note_len);
 }
 
+test "applyUserConfig plumbs session defaults" {
+    var app = try testApp();
+    defer app.deinit();
+    var cfg: @import("../config.zig").Config = .{};
+    cfg.default_master_gain_db = -9;
+    cfg.default_piano_pitch = 120;
+    cfg.default_song_mode = true;
+    app.applyUserConfig(cfg, false);
+    try std.testing.expectEqual(@as(f32, -9), app.master_gain_db);
+    try std.testing.expectEqual(@as(u7, 120), app.piano_cursor_pitch);
+    try std.testing.expectEqual(@as(u7, 127), app.piano_scroll_pitch);
+    try std.testing.expect(app.session.song_mode);
+
+    cfg.default_piano_pitch = 36;
+    cfg.default_song_mode = false;
+    app.applyUserConfig(cfg, false);
+    try std.testing.expectEqual(@as(u7, 36), app.piano_cursor_pitch);
+    try std.testing.expectEqual(@as(u7, 48), app.piano_scroll_pitch);
+    try std.testing.expect(!app.session.song_mode);
+}
+
 test "openBrowser falls back to default_browse_dir when no project path is known" {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();

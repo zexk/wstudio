@@ -33,6 +33,7 @@ in
     default_beats_per_bar = rangedInt 1 16 "Beats per bar of new projects.";
     default_octave = rangedInt 0 8 "Starting octave for the QWERTY piano layout.";
     default_velocity = rangedNumber 0 1 "Velocity for keyboard and step-recorded notes.";
+    default_master_gain_db = rangedNumber (-40) 6 "Master output gain at session startup, in dB.";
     autosave_interval_s = rangedInt 0 600 "Autosave interval in seconds. Zero disables autosave.";
     frame_poll_ms = rangedInt 5 1000 "TUI input poll interval in milliseconds.";
     audio_block_frames = rangedInt 16 4096 "Audio buffer size in frames.";
@@ -102,6 +103,7 @@ in
       description = "Whether the piano roll starts on its triplet grid.";
     };
     default_piano_note_length_steps = rangedInt 1 16 "Initial piano-roll note length in grid steps.";
+    default_piano_pitch = rangedInt 0 127 "Initial piano-roll cursor pitch as a MIDI note number.";
     default_arrangement_grid = mkOption {
       type = types.nullOr (
         types.enum [
@@ -181,13 +183,22 @@ in
       default = null;
       description = "Extra CLAP plugin search directory. Empty uses the platform default search paths.";
     };
-    undo_history_entries = rangedInt 8 512 "Entries kept on the undo stack before the oldest start dropping off.";
+    undo_history_entries =
+      rangedInt 8 512
+        "Entries kept on the undo stack before the oldest start dropping off.";
     default_metronome_enabled = mkOption {
       type = types.nullOr types.bool;
       default = null;
       description = "Start every session with the click track on.";
     };
-    metronome_click_gain = rangedNumber 0 1 "Click track loudness, a multiplier on its built-in accent/regular ratio.";
+    default_song_mode = mkOption {
+      type = types.nullOr types.bool;
+      default = null;
+      description = "Start sessions in arrangement song mode instead of pattern mode.";
+    };
+    metronome_click_gain =
+      rangedNumber 0 1
+        "Click track loudness, a multiplier on its built-in accent/regular ratio.";
     count_in_bars = rangedInt 0 4 "Count-in bars before recording starts. Zero skips the count-in.";
     default_midi_velocity_curve = mkOption {
       type = types.nullOr (
@@ -200,10 +211,20 @@ in
       default = null;
       description = "How raw MIDI/keyboard velocity maps to note gain.";
     };
-    default_automation_gain_step_db = rangedNumber 0 12 "j/k nudge size for gain breakpoints in the automation editor, in dB.";
-    default_automation_pan_step = rangedNumber 0 1 "j/k nudge size for pan breakpoints in the automation editor.";
-    gui_knob_drag_pixels = rangedNumber 40 600 "Vertical drag distance for a knob's full range, in pixels. Lower = more sensitive.";
-    gui_envelope_drag_pixels = rangedNumber 40 600 "Vertical drag distance for an envelope node's full range, in pixels. Lower = more sensitive.";
-    gui_meter_decay_db_s = rangedNumber 1 200 "Master-meter peak-hold fall rate, in dB/s. Higher = the hold indicator drops faster.";
+    default_automation_gain_step_db =
+      rangedNumber 0 12
+        "j/k nudge size for gain breakpoints in the automation editor, in dB.";
+    default_automation_pan_step =
+      rangedNumber 0 1
+        "j/k nudge size for pan breakpoints in the automation editor.";
+    gui_knob_drag_pixels =
+      rangedNumber 40 600
+        "Vertical drag distance for a knob's full range, in pixels. Lower = more sensitive.";
+    gui_envelope_drag_pixels =
+      rangedNumber 40 600
+        "Vertical drag distance for an envelope node's full range, in pixels. Lower = more sensitive.";
+    gui_meter_decay_db_s =
+      rangedNumber 1 200
+        "Master-meter peak-hold fall rate, in dB/s. Higher = the hold indicator drops faster.";
   };
 }
