@@ -925,6 +925,18 @@ pub const App = struct {
         return max_beats;
     }
 
+    /// Frame position shown by frontend transport meters. Pattern playback
+    /// loops locally inside each sequencer while the engine clock stays
+    /// monotonic, so wrap the readout at the longest live pattern. Song mode
+    /// uses the arrangement timeline and keeps the absolute position.
+    pub fn displayPositionFrames(self: *App, position_frames: u64) u64 {
+        if (self.session.song_mode) return position_frames;
+        const len_beats = self.contentBeats();
+        if (len_beats <= 0) return position_frames;
+        const loop_frames: u64 = @intFromFloat(len_beats * self.session.engine.transport.framesPerBeat());
+        return if (loop_frames > 0) position_frames % loop_frames else position_frames;
+    }
+
     // -----------------------------------------------------------------------
     // Input handling
     // -----------------------------------------------------------------------

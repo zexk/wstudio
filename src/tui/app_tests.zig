@@ -263,6 +263,18 @@ test "renderBounce honors a nonzero start_frame and restores transport position"
     try std.testing.expectEqual(@as(u64, 12345), app.session.engine.transport.position_frames);
 }
 
+test "pattern-mode transport position readout wraps at the content length" {
+    var app = try testApp();
+    defer app.deinit();
+
+    const fpb: u64 = @intFromFloat(app.session.engine.transport.framesPerBeat());
+    const loop_frames: u64 = @intFromFloat(app.contentBeats() * @as(f64, @floatFromInt(fpb)));
+
+    try std.testing.expectEqual(@as(u64, fpb), app.displayPositionFrames(loop_frames + fpb));
+    app.session.song_mode = true;
+    try std.testing.expectEqual(loop_frames + fpb, app.displayPositionFrames(loop_frames + fpb));
+}
+
 test ":humanize jitters the cursor track's pattern and is undoable" {
     var app = try testApp();
     defer app.deinit();
