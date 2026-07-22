@@ -121,6 +121,27 @@ fn dupeClips(allocator: std.mem.Allocator, src: []const ws.Clip) ?[]ws.Clip {
     return out;
 }
 
+const RackAndClips = struct {
+    rack: *ws.Rack,
+    clips: []ws.Clip,
+};
+
+fn dupeRackAndClips(app: *App, track_idx: usize) ?RackAndClips {
+    if (track_idx >= app.session.racks.items.len) return null;
+    const rack = app.session.racks.items[track_idx].dupe(
+        app.allocator,
+        app.session.project.sample_rate,
+        &app.session.engine.transport,
+    ) catch return null;
+    const lane = app.session.arrangement.lane(track_idx) orelse return .{ .rack = rack, .clips = &.{} };
+    const clips = dupeClips(app.allocator, lane.clips.items) orelse {
+        rack.deinit(app.allocator);
+        app.allocator.destroy(rack);
+        return null;
+    };
+    return .{ .rack = rack, .clips = clips };
+}
+
 /// Snapshot one arrangement lane's clips (deep copies).
 pub fn captureLane(app: *App, track: u16) ?undo_mod.Entry {
     const lane = app.session.arrangement.lane(track) orelse return null;
@@ -142,25 +163,10 @@ pub fn captureTrackFull(app: *App, track_idx: usize) ?undo_mod.TrackFullState {
     const src = app.session.project.tracks.items[track_idx];
 
     const name = app.allocator.dupe(u8, src.name) catch return null;
-
-    const rack = app.session.racks.items[track_idx].dupe(
-        // zig fmt: off
-        app.allocator, app.session.project.sample_rate, &app.session.engine.transport,
-        // zig fmt: on
-    ) catch {
+    const content = dupeRackAndClips(app, track_idx) orelse {
         app.allocator.free(name);
         return null;
     };
-
-    var clips: []ws.Clip = &.{};
-    if (app.session.arrangement.lane(track_idx)) |lane| {
-        clips = dupeClips(app.allocator, lane.clips.items) orelse {
-            app.allocator.free(name);
-            rack.deinit(app.allocator);
-            app.allocator.destroy(rack);
-            return null;
-        };
-    }
 
     return .{
         .track = @intCast(track_idx),
@@ -171,8 +177,8 @@ pub fn captureTrackFull(app: *App, track_idx: usize) ?undo_mod.TrackFullState {
         .soloed = src.soloed,
         .color = src.color,
         .group = src.group,
-        .rack = rack,
-        .clips = clips,
+        .rack = content.rack,
+        .clips = content.clips,
     };
 }
 
@@ -181,21 +187,8 @@ pub fn captureTrackFull(app: *App, track_idx: usize) ?undo_mod.TrackFullState {
 /// the mixer metadata a `changeInstrumentKind` swap never touches. Feeds
 /// `Session.restoreRackAt` to undo/redo `:track-instrument`/`I`.
 pub fn captureTrackKindSwap(app: *App, track_idx: usize) ?undo_mod.Entry {
-    if (track_idx >= app.session.racks.items.len) return null;
-    const rack = app.session.racks.items[track_idx].dupe(
-        // zig fmt: off
-        app.allocator, app.session.project.sample_rate, &app.session.engine.transport,
-        // zig fmt: on
-    ) catch return null;
-    var clips: []ws.Clip = &.{};
-    if (app.session.arrangement.lane(track_idx)) |lane| {
-        clips = dupeClips(app.allocator, lane.clips.items) orelse {
-            rack.deinit(app.allocator);
-            app.allocator.destroy(rack);
-            return null;
-        };
-    }
-    return .{ .track_kind_swap = .{ .track = @intCast(track_idx), .rack = rack, .clips = clips } };
+    const content = dupeRackAndClips(app, track_idx) orelse return null;
+    return .{ .track_kind_swap = .{ .track = @intCast(track_idx), .rack = content.rack, .clips = content.clips } };
 }
 
 /// The live `Fx` chain a stored `FxTarget` points at, or null if the track/
