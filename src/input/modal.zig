@@ -42,6 +42,14 @@ pub const Key = union(enum) {
     end,
     /// (command mode only) delete the word behind the cursor.
     ctrl_w,
+    /// Readline-style prompt editing: start/end of line, delete before/after
+    /// the cursor, and previous/next command history.
+    ctrl_a,
+    ctrl_e,
+    ctrl_u,
+    ctrl_k,
+    ctrl_p,
+    ctrl_n,
     /// Vim's canonical redo key, alongside `U` - handled by whichever view
     /// (App.handleKey/editors/*.zig) tracks undo history; no meaning in
     /// command mode (see handleCommand).
@@ -332,7 +340,7 @@ pub const ModalInput = struct {
     }
 
     /// Shared readline-style editing for the `:` and `/` prompts: insert/
-    /// delete chars at the cursor, move it, ctrl-w word-delete. `.escape`/
+    /// delete chars at the cursor, move it, and readline-style deletion.
     /// `.enter` are mode-specific (submit vs. cancel differently) and always
     /// intercepted by the caller before this is reached.
     fn editLine(self: *ModalInput, key: Key) Action {
@@ -376,6 +384,24 @@ pub const ModalInput = struct {
                 self.cmd_cursor = self.cmd_len;
                 return .none;
             },
+            .ctrl_a => {
+                self.cmd_cursor = 0;
+                return .none;
+            },
+            .ctrl_e => {
+                self.cmd_cursor = self.cmd_len;
+                return .none;
+            },
+            .ctrl_u => {
+                std.mem.copyForwards(u8, self.cmd_buf[0 .. self.cmd_len - self.cmd_cursor], self.cmd_buf[self.cmd_cursor..self.cmd_len]);
+                self.cmd_len -= self.cmd_cursor;
+                self.cmd_cursor = 0;
+                return .none;
+            },
+            .ctrl_k => {
+                self.cmd_len = self.cmd_cursor;
+                return .none;
+            },
             // bash/readline ctrl-w: eat trailing spaces, then the word
             // behind the cursor.
             .ctrl_w => {
@@ -397,7 +423,7 @@ pub const ModalInput = struct {
             // left to do here. `.escape`/`.enter` never actually reach this
             // switch (handleCommand/handleSearch intercept them first) but
             // still need an arm for exhaustiveness.
-            .escape, .enter, .enter_release, .arrow_up, .arrow_down, .tab, .ctrl_c, .ctrl_r, .mouse => return .none,
+            .escape, .enter, .enter_release, .arrow_up, .arrow_down, .ctrl_p, .ctrl_n, .tab, .ctrl_c, .ctrl_r, .mouse => return .none,
         }
     }
 };
@@ -488,6 +514,24 @@ test "command mode: home/end jump the cursor, ctrl-w deletes the word behind it"
     try std.testing.expectEqualStrings("gain 1 ", input.cmd_buf[0..input.cmd_len]);
     _ = input.handle(.ctrl_w); // eats the trailing space, then "1" -> "gain "
     try std.testing.expectEqualStrings("gain ", input.cmd_buf[0..input.cmd_len]);
+}
+
+test "command mode: readline controls navigate and delete around the cursor" {
+    var input: ModalInput = .{};
+    _ = press(&input, ":");
+    _ = press(&input, "transpose 12");
+    _ = input.handle(.ctrl_a);
+    try std.testing.expectEqual(@as(usize, 0), input.cmd_cursor);
+    _ = input.handle(.ctrl_e);
+    try std.testing.expectEqual(input.cmd_len, input.cmd_cursor);
+
+    for (0..2) |_| _ = input.handle(.arrow_left);
+    _ = input.handle(.ctrl_k);
+    try std.testing.expectEqualStrings("transpose ", input.cmd_buf[0..input.cmd_len]);
+    _ = press(&input, "-5");
+    _ = input.handle(.ctrl_u);
+    try std.testing.expectEqualStrings("", input.cmd_buf[0..input.cmd_len]);
+    try std.testing.expectEqual(@as(usize, 0), input.cmd_cursor);
 }
 
 test "space toggles transport, escape cancels count" {

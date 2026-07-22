@@ -220,8 +220,14 @@ pub fn pushChar(codepoint: u21) void {
 
 fn pressedModalKey(_: ws.input.Mode) ?ws.input.Key {
     const ctrl = zgui.isKeyDown(.mod_ctrl);
+    if (ctrl and zgui.isKeyPressed(.a, false)) return .ctrl_a;
     if (ctrl and zgui.isKeyPressed(.c, false)) return .ctrl_c;
+    if (ctrl and zgui.isKeyPressed(.e, false)) return .ctrl_e;
+    if (ctrl and zgui.isKeyPressed(.k, false)) return .ctrl_k;
+    if (ctrl and zgui.isKeyPressed(.n, false)) return .ctrl_n;
+    if (ctrl and zgui.isKeyPressed(.p, false)) return .ctrl_p;
     if (ctrl and zgui.isKeyPressed(.r, false)) return .ctrl_r;
+    if (ctrl and zgui.isKeyPressed(.u, false)) return .ctrl_u;
     if (ctrl and zgui.isKeyPressed(.w, false)) return .ctrl_w;
     const special = [_]struct { gui: zgui.Key, modal: ws.input.Key }{
         .{ .gui = .escape, .modal = .escape },
