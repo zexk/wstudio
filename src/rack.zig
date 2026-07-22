@@ -367,13 +367,15 @@ pub const Rack = struct {
             .slicer => |*sl| rack.instrument = .{ .slicer = try sl.dupe() },
             .clap => |plugin| {
                 const copy = try ClapPlugin.load(allocator, plugin.pluginPath(), plugin.id(), sr);
-                errdefer copy.deinit();
+                var copy_owned = true;
+                errdefer if (copy_owned) copy.deinit();
                 copy.attachTransport(transport);
                 if (try plugin.saveState(allocator)) |state| {
                     defer allocator.free(state);
                     _ = try copy.loadState(state);
                 }
                 rack.instrument = .{ .clap = copy };
+                copy_owned = false;
             },
             .soundfont => |*sf| rack.instrument = .{ .soundfont = try sf.dupe() },
         }
