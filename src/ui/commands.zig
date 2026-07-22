@@ -159,14 +159,9 @@ pub fn run(app: *App, text: []const u8) void {
 }
 
 /// Vim-style quit guard: refuse while the session holds edits the project
-/// file doesn't (`App.dirty`). :q! / :qa! force, ctrl-c always exits.
+/// file doesn't (`App.dirty`). :q! / :qa! force.
 fn cmdQuit(app: *App, _: []const u8) void {
-    if (app.dirty) {
-        app.setStatus("unsaved changes - :write to save, :quit! to discard", .{});
-        return;
-    }
-    app.deleteBackupIfPresent();
-    app.should_quit = true;
+    _ = app.requestQuit();
 }
 // zig fmt: off
 

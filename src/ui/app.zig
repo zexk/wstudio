@@ -1599,15 +1599,21 @@ pub const App = struct {
         return true;
     }
 
+    /// Guard frontend-level quit gestures the same way as `:quit`.
+    pub fn requestQuit(self: *App) bool {
+        if (self.dirty) {
+            self.setStatus("unsaved changes - :write to save, :quit! to discard", .{});
+            return false;
+        }
+        self.deleteBackupIfPresent();
+        self.should_quit = true;
+        return true;
+    }
+
     fn handleKeyBuiltin(self: *App, key_in: modal_mod.Key, now_ns: i96) void {
         self.now_ns = now_ns;
         if (key_in == .ctrl_c) {
-            // ctrl-c always exits, even with unsaved changes - but the least
-            // deliberate quit path shouldn't have the weakest safety net, so
-            // flush a backup first instead of letting up to 30s of edits
-            // (the autosave cadence) die with the process.
-            if (self.dirty) self.writeBackup();
-            self.should_quit = true;
+            _ = self.requestQuit();
             return;
         }
 
@@ -3783,16 +3789,14 @@ pub const App = struct {
         self.writeBackup();
     }
 
-    /// Write the `<path>~` backup right now - maybeAutosave's write, also
-    /// called directly on a dirty ctrl-c so an instant exit can't outrun
-    /// the 30s cadence.
+    /// Write the `<path>~` backup right now for maybeAutosave.
     fn writeBackup(self: *App) void {
         var buf: [reload_path_buf_len]u8 = undefined;
         const backup = self.backupPath(&buf) orelse return;
         ws.persist.save(self.allocator, &self.session, self.io, backup) catch {};
     }
 
-    /// Startup recovery: maybeAutosave/ctrl-c leave `<path>~` behind on a
+    /// Startup recovery: maybeAutosave leaves `<path>~` behind on a
     /// crash or kill - offer it back rather than letting it sit invisible
     /// (the file browser filters to `.wsj`) until someone types the path by
     /// hand. Only when it's newer than the project file itself (or that

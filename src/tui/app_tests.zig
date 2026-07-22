@@ -3920,6 +3920,20 @@ test ":q refuses to quit while dirty; :q! discards" {
     try std.testing.expect(app.should_quit);
 }
 
+test "ctrl-c refuses to quit while dirty" {
+    var app = try testApp();
+    defer app.deinit();
+
+    app.handleKey(.ctrl_c, 0);
+    try std.testing.expect(app.should_quit);
+
+    app.should_quit = false;
+    app.applyAction(.toggle_mute, 0);
+    app.handleKey(.ctrl_c, 0);
+    try std.testing.expect(!app.should_quit);
+    try std.testing.expectStringStartsWith(app.status_buf[0..app.status_len], "unsaved changes");
+}
+
 test "saving clears the dirty flag" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
