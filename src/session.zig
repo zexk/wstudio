@@ -168,6 +168,23 @@ pub const Session = struct {
         return self.insertTrack(@intCast(self.project.tracks.items.len), name);
     }
 
+    /// Keep the rack, arrangement lane, and record-arm arrays structurally
+    /// identical while constructing a track. The project entry is inserted
+    /// separately because each caller builds different metadata.
+    fn insertTrackSlots(self: *Session, idx: u16, rack: *Rack) !void {
+        try self.racks.insert(self.allocator, idx, rack);
+        errdefer _ = self.racks.orderedRemove(idx);
+        try self.arrangement.insertLane(self.allocator, idx);
+        errdefer self.arrangement.removeLane(self.allocator, idx);
+        try self.armed.insert(self.allocator, idx, false);
+    }
+
+    fn removeTrackSlots(self: *Session, idx: u16) void {
+        _ = self.armed.orderedRemove(idx);
+        self.arrangement.removeLane(self.allocator, idx);
+        _ = self.racks.orderedRemove(idx);
+    }
+
     /// Insert a new blank track at `at` (clamped to the current track
     /// count, so `at == len` is the same as `addTrack`), shifting every
     /// track from `at` on up by one. The user picks an instrument for it
@@ -183,14 +200,8 @@ pub const Session = struct {
         errdefer self.allocator.destroy(rack);
         rack.* = .{ .instrument = .empty, .label = "empty" };
 
-        try self.racks.insert(self.allocator, idx, rack);
-        errdefer _ = self.racks.orderedRemove(idx);
-
-        try self.arrangement.insertLane(self.allocator, idx);
-        errdefer self.arrangement.removeLane(self.allocator, idx);
-
-        try self.armed.insert(self.allocator, idx, false);
-        errdefer _ = self.armed.orderedRemove(idx);
+        try self.insertTrackSlots(idx, rack);
+        errdefer self.removeTrackSlots(idx);
 
         // Auto-assign a color so new tracks are visually distinct from the
         // moment they're created, instead of starting uncolored until the
@@ -681,14 +692,8 @@ pub const Session = struct {
         const total: u16 = @intCast(self.project.tracks.items.len);
         const idx = @min(at, total);
 
-        try self.racks.insert(self.allocator, idx, rack);
-        errdefer _ = self.racks.orderedRemove(idx);
-
-        try self.arrangement.insertLane(self.allocator, idx);
-        errdefer self.arrangement.removeLane(self.allocator, idx);
-
-        try self.armed.insert(self.allocator, idx, false);
-        errdefer _ = self.armed.orderedRemove(idx);
+        try self.insertTrackSlots(idx, rack);
+        errdefer self.removeTrackSlots(idx);
 
         const lane = self.arrangement.lane(idx).?;
         for (clips) |c| try lane.clips.append(self.allocator, c);
@@ -740,14 +745,8 @@ pub const Session = struct {
 
         const idx: u16 = @intCast(self.project.tracks.items.len);
 
-        try self.racks.append(self.allocator, new_rack);
-        errdefer _ = self.racks.pop();
-
-        try self.arrangement.addLane(self.allocator);
-        errdefer self.arrangement.removeLane(self.allocator, self.arrangement.lanes.items.len - 1);
-
-        try self.armed.append(self.allocator, false);
-        errdefer _ = self.armed.pop();
+        try self.insertTrackSlots(idx, new_rack);
+        errdefer self.removeTrackSlots(idx);
 
         if (self.arrangement.lane(track_idx)) |src_lane| {
             const dst_lane = self.arrangement.lane(idx).?;
