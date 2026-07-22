@@ -1894,10 +1894,12 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
                 const cs = rs.clap orelse return error.MalformedProject;
                 if (cs.path.len == 0 or cs.plugin_id.len == 0) return error.MalformedProject;
                 const plugin = try rack_mod.ClapPlugin.load(allocator, cs.path, cs.plugin_id, sr);
-                errdefer plugin.deinit();
+                var plugin_owned = true;
+                errdefer if (plugin_owned) plugin.deinit();
                 plugin.attachTransport(&engine.transport);
                 try loadClapState(allocator, plugin, cs.state_base64);
                 rack.instrument = .{ .clap = plugin };
+                plugin_owned = false;
                 rack.pattern_player = PatternPlayer.init(rack.instrument.device().?, &engine.transport);
                 rack.pattern_player.?.length_beats = finiteClamp(f64, cs.length_beats, 1.0, std.math.floatMax(f64), 4.0);
                 loadNotes(&rack.pattern_player.?, cs.notes);
