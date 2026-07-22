@@ -695,10 +695,6 @@ pub const Session = struct {
         try self.insertTrackSlots(idx, rack);
         errdefer self.removeTrackSlots(idx);
 
-        const lane = self.arrangement.lane(idx).?;
-        for (clips) |c| try lane.clips.append(self.allocator, c);
-        self.allocator.free(clips);
-
         try self.project.insertTrack(idx, .{
             // zig fmt: off
             .name = name, .gain_db = meta.gain_db, .pan = meta.pan,
@@ -706,6 +702,15 @@ pub const Session = struct {
             // zig fmt: on
             .group = meta.group,
         });
+        errdefer self.project.removeTrack(idx);
+
+        // Reserve before moving any clip payload. If allocation fails, the
+        // caller still owns the untouched rack and clips and can safely
+        // destroy its complete undo snapshot.
+        const lane = self.arrangement.lane(idx).?;
+        try lane.clips.ensureUnusedCapacity(self.allocator, clips.len);
+        for (clips) |c| lane.clips.appendAssumeCapacity(c);
+        self.allocator.free(clips);
 
         self.finishTrackInsert(idx, total, rack, types.dbToGain(meta.gain_db), meta.pan, meta.muted);
         self.pushSoloGroup(idx, meta.soloed, meta.group);

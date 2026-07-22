@@ -489,22 +489,14 @@ fn applyEntry(app: *App, entry: undo_mod.Entry) ?undo_mod.Entry {
             return .{ .param_nudge = .{ .track = p.track, .id = p.id, .value = displaced } };
         },
         .track_insert => |state| {
-            const s = state;
+            var s = state;
             app.session.restoreTrack(s.track, s.name, .{
                 // zig fmt: off
                 .gain_db = s.gain_db, .pan = s.pan, .muted = s.muted,
                 .soloed = s.soloed, .color = s.color, .group = s.group,
                 // zig fmt: on
             }, s.rack, s.clips) catch {
-                // OOM mid-restore. `rack`/`clips` ownership is unclear past
-                // this point (may be partially consumed - see
-                // `Session.restoreTrack`'s own doc comment), so, matching
-                // this codebase's existing OOM-only risk tolerance
-                // elsewhere (e.g. `duplicateTrack`'s own errdefer gaps),
-                // only `name` (never touched until restoreTrack's very
-                // last step) is safe to free here; the rest is a rare leak
-                // rather than a double-free.
-                app.allocator.free(s.name);
+                s.deinit(app.allocator);
                 return null;
             };
             app.allocator.free(s.name);
