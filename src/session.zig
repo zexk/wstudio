@@ -584,6 +584,12 @@ pub const Session = struct {
         const final_count = self.project.tracks.items.len - 1 + pad_count;
         if (final_count > engine_mod.max_tracks) return error.TrackLimitReached;
 
+        // Each successful replacement retires its new track's initial empty
+        // rack. A later failure then retires those replacement racks again
+        // while rolling the inserted tracks back. Reserve the worst case up
+        // front so rollback cannot itself fail and leave a partial split.
+        try self.retired_racks.ensureUnusedCapacity(self.allocator, 2 * @as(usize, pad_count));
+
         var inserted: u8 = 0;
         errdefer while (inserted > 0) {
             inserted -= 1;
