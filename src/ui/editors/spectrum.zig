@@ -519,6 +519,28 @@ pub fn formatParamName(buf: []u8, p: *const FxPayload, idx: usize) []const u8 {
     };
 }
 
+fn clapRange(min_value: f64, max_value: f64) ?[2]f32 {
+    if (!std.math.isFinite(min_value) or !std.math.isFinite(max_value) or min_value >= max_value) return null;
+    const limit = std.math.floatMax(f32);
+    if (min_value < -limit or max_value > limit or max_value - min_value > limit) return null;
+    return .{ @floatCast(min_value), @floatCast(max_value) };
+}
+
+fn clapValue(value: f64, default_value: f64, range: [2]f32) f32 {
+    const chosen = if (std.math.isFinite(value)) value else default_value;
+    if (!std.math.isFinite(chosen) or chosen < -std.math.floatMax(f32) or chosen > std.math.floatMax(f32)) return range[0];
+    return std.math.clamp(@as(f32, @floatCast(chosen)), range[0], range[1]);
+}
+
+test "invalid CLAP parameter metadata has safe UI fallbacks" {
+    try std.testing.expectEqual(@as(?[2]f32, null), clapRange(std.math.nan(f64), 1));
+    try std.testing.expectEqual(@as(?[2]f32, null), clapRange(2, 1));
+    try std.testing.expectEqual(@as(?[2]f32, null), clapRange(-std.math.floatMax(f32), std.math.floatMax(f32)));
+    try std.testing.expectEqual([2]f32{ -2, 4 }, clapRange(-2, 4).?);
+    try std.testing.expectEqual(@as(f32, -2), clapValue(std.math.nan(f64), std.math.inf(f64), .{ -2, 4 }));
+    try std.testing.expectEqual(@as(f32, 4), clapValue(9, 0, .{ -2, 4 }));
+}
+
 /// Current value of param `idx` in `p` - bounds match `paramCount`.
 pub fn getParam(p: *const FxPayload, idx: usize) f32 {
     return switch (p.*) {
@@ -573,8 +595,9 @@ pub fn getParam(p: *const FxPayload, idx: usize) f32 {
         .ott => |*o| tableGet(o, &ott_specs, idx),
         .clap => |plugin| blk: {
             const info = plugin.parameterInfo(@intCast(idx)) orelse break :blk 0;
+            const range = clapRange(info.min_value, info.max_value) orelse break :blk 0;
             const value: f64 = plugin.parameterValue(info.id) orelse info.default_value;
-            break :blk @floatCast(value);
+            break :blk clapValue(value, info.default_value, range);
         },
     };
 }
@@ -627,7 +650,7 @@ pub fn paramRange(app: *App, p: *const FxPayload, idx: usize) [2]f32 {
         .ott => tableRange(&ott_specs, idx),
         .clap => |plugin| blk: {
             const info = plugin.parameterInfo(@intCast(idx)) orelse break :blk .{ 0, 1 };
-            break :blk .{ @floatCast(info.min_value), @floatCast(info.max_value) };
+            break :blk clapRange(info.min_value, info.max_value) orelse .{ 0, 1 };
         },
     };
 }
@@ -733,12 +756,8 @@ pub fn setParam(app: *App, p: *FxPayload, idx: usize, value: f32) void {
         .delay => |*d| tableSet(d, &delay_specs, idx, value),
         .ott => |*o| tableSet(o, &ott_specs, idx, value),
         .clap => |plugin| if (plugin.parameterInfo(@intCast(idx))) |info| {
-            const finite = if (std.math.isFinite(value)) value else @as(f32, @floatCast(info.default_value));
-            plugin.setParameter(info.id, info.cookie, std.math.clamp(
-                @as(f64, finite),
-                info.min_value,
-                info.max_value,
-            ));
+            const range = clapRange(info.min_value, info.max_value) orelse return;
+            plugin.setParameter(info.id, info.cookie, clapValue(value, info.default_value, range));
         },
     }
 }
@@ -790,7 +809,8 @@ fn paramStep(p: *const FxPayload, idx: usize, coarse: bool) f32 {
         .ott => tableStep(&ott_specs, idx, coarse),
         .clap => |plugin| blk: {
             const info = plugin.parameterInfo(@intCast(idx)) orelse break :blk 0;
-            const span: f32 = @floatCast(info.max_value - info.min_value);
+            const range = clapRange(info.min_value, info.max_value) orelse break :blk 0;
+            const span = range[1] - range[0];
             break :blk @max(if (coarse) span / 10.0 else span / 100.0, std.math.floatEps(f32));
         },
     };
@@ -1463,7 +1483,8 @@ pub fn formatValue(app: anytype, buf: []u8, p: *const ws.FxPayload, idx: usize) 
         },
         .clap => |plugin| blk: {
             const info = plugin.parameterInfo(@intCast(idx)) orelse break :blk "?";
-            const value = plugin.parameterValue(info.id) orelse info.default_value;
+            const range = clapRange(info.min_value, info.max_value) orelse break :blk "?";
+            const value = clapValue(plugin.parameterValue(info.id) orelse info.default_value, info.default_value, range);
             break :blk plugin.formatParameter(info.id, value, buf) orelse
                 std.fmt.bufPrint(buf, "{d:.3}", .{value}) catch "?";
         },
