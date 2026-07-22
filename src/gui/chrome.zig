@@ -21,7 +21,8 @@ pub fn drawTransport(app: anytype, audio_label: []const u8) void {
     zgui.setNextWindowPos(.{ .x = 0, .y = 0, .cond = .always });
     zgui.setNextWindowSize(.{ .w = zgui.io.getDisplaySize()[0], .h = 64, .cond = .always });
     if (zgui.begin("Transport", .{ .flags = .{ .no_title_bar = true, .no_resize = true, .no_move = true, .no_docking = true, .no_scrollbar = true, .no_scroll_with_mouse = true } })) {
-        const beat = ws.types.framesToSeconds(snap.position_frames, app.core.session.project.sample_rate) * app.core.session.project.tempo_bpm / 60.0;
+        const display_frames = app.core.displayPositionFrames(snap.position_frames);
+        const beat = ws.types.framesToSeconds(display_frames, app.core.session.project.sample_rate) * app.core.session.project.tempo_bpm / 60.0;
         const beat_index: u32 = @intFromFloat(beat);
         var tempo_buf: [32]u8 = undefined;
         const tempo = std.fmt.bufPrint(&tempo_buf, "{d:.1} BPM", .{app.core.session.project.tempo_bpm}) catch "tempo";

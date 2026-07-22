@@ -98,20 +98,8 @@ pub fn draw(self: *App, w: *std.Io.Writer, size: terminal_mod.Size) !void {
     var transport: Transport = .{
         .sample_rate = self.session.project.sample_rate,
         .tempo_bpm = self.session.project.tempo_bpm,
-        .position_frames = snap.position_frames,
+        .position_frames = self.displayPositionFrames(snap.position_frames),
     };
-    // Off the arrangement timeline, the transport plays a raw straight
-    // line while the audio itself loops locally (PatternPlayer/
-    // DrumMachine wrap at their own length) - mirror that in the
-    // bar:beat readout so it cycles instead of climbing forever.
-    if (!self.session.song_mode) {
-        const len_beats = self.contentBeats();
-        if (len_beats > 0) {
-            const fpb = transport.framesPerBeat();
-            const loop_frames: u64 = @intFromFloat(len_beats * fpb);
-            if (loop_frames > 0) transport.position_frames %= loop_frames;
-        }
-    }
     const pos = transport.positionBarBeat();
     const secs = transport.positionSeconds();
     // Left = transport state (play/stop, metronome, bar.beat, clock);
