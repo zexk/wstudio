@@ -3135,12 +3135,7 @@ pub const App = struct {
                     return;
                 }
                 const track = &self.session.project.tracks.items[track_idx];
-                track.muted = !track.muted;
-                self.dirty = true;
-                _ = self.session.engine.send(.{ .set_track_mute = .{
-                    .track = track_idx,
-                    .muted = track.muted,
-                } });
+                self.apiSetTrackMuted(track_idx, !track.muted);
                 self.setStatus("\"{s}\" {s}", .{ track.name, if (track.muted) "muted" else "unmuted" });
             },
             .toggle_solo => {
@@ -3150,12 +3145,7 @@ pub const App = struct {
                     return;
                 }
                 const track = &self.session.project.tracks.items[track_idx];
-                track.soloed = !track.soloed;
-                self.dirty = true;
-                _ = self.session.engine.send(.{ .set_track_solo = .{
-                    .track = track_idx,
-                    .soloed = track.soloed,
-                } });
+                self.apiSetTrackSoloed(track_idx, !track.soloed);
                 self.setStatus("\"{s}\" {s}", .{ track.name, if (track.soloed) "soloed" else "unsoloed" });
             },
             .note => |n| {
@@ -4161,9 +4151,7 @@ pub const App = struct {
     fn doTrackPan(self: *App, track: u16, delta: f32) void {
         if (track >= self.session.project.tracks.items.len) return;
         const t = &self.session.project.tracks.items[track];
-        t.pan = std.math.clamp(t.pan + delta, -1.0, 1.0);
-        self.dirty = true;
-        _ = self.session.engine.send(.{ .set_track_pan = .{ .track = track, .pan = t.pan } });
+        self.apiSetTrackPan(track, t.pan + delta);
         const pct: i32 = @intFromFloat(@abs(t.pan) * 100.0);
         if (pct == 0) self.setStatus("track {d} pan: center", .{track + 1})
         else if (t.pan < 0) self.setStatus("track {d} pan: L{d}%", .{ track + 1, pct })
@@ -4174,9 +4162,7 @@ pub const App = struct {
     fn doTrackGainStep(self: *App, track: u16, delta_db: f32) void {
         if (track >= self.session.project.tracks.items.len) return;
         const t = &self.session.project.tracks.items[track];
-        t.gain_db = std.math.clamp(t.gain_db + delta_db, -60.0, 12.0);
-        self.dirty = true;
-        _ = self.session.engine.send(.{ .set_track_gain = .{ .track = track, .gain = types.dbToGain(t.gain_db) } });
+        self.apiSetTrackGainDb(track, t.gain_db + delta_db);
         const sign: []const u8 = if (t.gain_db >= 0) "+" else "";
         self.setStatus("track {d} gain: {s}{d:.1}dB", .{ track + 1, sign, t.gain_db });
     }

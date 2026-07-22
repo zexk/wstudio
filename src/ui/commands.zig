@@ -2343,14 +2343,8 @@ fn cmdGain(app: *App, args: []const u8) void {
         app.setStatus("gain: expected a dB value, e.g. :gain 2 -6", .{});
         return;
     };
-    const clamped = std.math.clamp(db, -60.0, 12.0);
-    track.gain_db = clamped;
-    _ = app.session.engine.send(.{ .set_track_gain = .{
-        .track = @intCast(track_idx),
-        .gain = types.dbToGain(clamped),
-    } });
-    app.dirty = true;
-    app.setStatus("track {d} gain: {d:.1}dB", .{ track_1, clamped });
+    app.apiSetTrackGainDb(track_idx, db);
+    app.setStatus("track {d} gain: {d:.1}dB", .{ track_1, track.gain_db });
 }
 
 fn cmdPan(app: *App, args: []const u8) void {
@@ -2387,9 +2381,7 @@ fn cmdPan(app: *App, args: []const u8) void {
         app.setStatus("pan: expected a value between -1.0 and 1.0", .{});
         return;
     };
-    track.pan = std.math.clamp(val, -1.0, 1.0);
-    _ = app.session.engine.send(.{ .set_track_pan = .{ .track = @intCast(track_idx), .pan = track.pan } });
-    app.dirty = true;
+    app.apiSetTrackPan(track_idx, val);
     const pct: i32 = @intFromFloat(@abs(track.pan) * 100.0);
     if (pct == 0) app.setStatus("track {d} pan: center", .{track_1})
     else if (track.pan < 0) app.setStatus("track {d} pan: L{d}%", .{ track_1, pct })
@@ -2403,17 +2395,15 @@ fn cmdPan(app: *App, args: []const u8) void {
 /// mixer-style live param.
 fn cmdUnmute(app: *App, _: []const u8) void {
     var n: usize = 0;
-    for (app.session.project.tracks.items, 0..) |*track, i| {
+    for (app.session.project.tracks.items, 0..) |track, i| {
         if (!track.muted) continue;
-        track.muted = false;
-        _ = app.session.engine.send(.{ .set_track_mute = .{ .track = @intCast(i), .muted = false } });
+        app.apiSetTrackMuted(i, false);
         n += 1;
     }
     if (n == 0) {
         app.setStatus("unmute: nothing was muted", .{});
         return;
     }
-    app.dirty = true;
     app.setStatus("unmuted {d} track{s}", .{ n, if (n == 1) "" else "s" });
 }
 
@@ -2422,17 +2412,15 @@ fn cmdUnmute(app: *App, _: []const u8) void {
 /// tracks to audition them. Not undo-tracked, matching `S` itself.
 fn cmdUnsolo(app: *App, _: []const u8) void {
     var n: usize = 0;
-    for (app.session.project.tracks.items, 0..) |*track, i| {
+    for (app.session.project.tracks.items, 0..) |track, i| {
         if (!track.soloed) continue;
-        track.soloed = false;
-        _ = app.session.engine.send(.{ .set_track_solo = .{ .track = @intCast(i), .soloed = false } });
+        app.apiSetTrackSoloed(i, false);
         n += 1;
     }
     if (n == 0) {
         app.setStatus("unsolo: nothing was soloed", .{});
         return;
     }
-    app.dirty = true;
     app.setStatus("unsoloed {d} track{s}", .{ n, if (n == 1) "" else "s" });
 }
 
