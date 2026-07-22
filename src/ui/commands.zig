@@ -1057,6 +1057,15 @@ fn parseGroupArg(app: *App, name: []const u8, s: []const u8) ?u8 {
     return n - 1;
 }
 
+fn existingGroupArg(app: *App, name: []const u8, s: []const u8) ?u8 {
+    const idx = parseGroupArg(app, name, s) orelse return null;
+    if (app.session.groups[idx] == null) {
+        app.setStatus("{s}: group {d} doesn't exist", .{ name, idx + 1 });
+        return null;
+    }
+    return idx;
+}
+
 /// `cursor_group` is the group the tracks-view cursor already sits on
 /// (`cmdRename` only calls this once `app.cursorGroup()` confirms it) -
 /// same "no index: act on the selection" shape `cmdRenameTrack` uses, with
@@ -1102,11 +1111,7 @@ fn cmdGroupGain(app: *App, args: []const u8) void {
         app.setStatus("usage: group-gain <n> [<dB>]", .{});
         return;
     }
-    const idx = parseGroupArg(app, "group-gain", idx_str) orelse return;
-    if (app.session.groups[idx] == null) {
-        app.setStatus("group-gain: group {d} doesn't exist", .{idx + 1});
-        return;
-    }
+    const idx = existingGroupArg(app, "group-gain", idx_str) orelse return;
     const db_str = std.mem.trim(u8, it.rest(), " ");
     if (db_str.len == 0) {
         app.setStatus("group {d} gain: {d:.1}dB", .{ idx + 1, app.session.groups[idx].?.gain_db });
@@ -1127,11 +1132,7 @@ fn cmdGroupDel(app: *App, args: []const u8) void {
         app.setStatus("usage: group-del <n>", .{});
         return;
     }
-    const idx = parseGroupArg(app, "group-del", idx_str) orelse return;
-    if (app.session.groups[idx] == null) {
-        app.setStatus("group-del: group {d} doesn't exist", .{idx + 1});
-        return;
-    }
+    const idx = existingGroupArg(app, "group-del", idx_str) orelse return;
     if (app.view == .group_spectrum and app.eq_group == idx) app.view = .tracks;
     // Must run BEFORE deleteGroup frees the slot: the very next addGroup
     // can reuse `idx`, and any undo entry still naming it would otherwise
@@ -1148,11 +1149,7 @@ fn cmdGroupFx(app: *App, args: []const u8) void {
         app.setStatus("usage: group-fx <n>", .{});
         return;
     }
-    const idx = parseGroupArg(app, "group-fx", idx_str) orelse return;
-    if (app.session.groups[idx] == null) {
-        app.setStatus("group-fx: group {d} doesn't exist", .{idx + 1});
-        return;
-    }
+    const idx = existingGroupArg(app, "group-fx", idx_str) orelse return;
     spectrum_ed.switchToGroup(app, idx);
 }
 
@@ -1179,11 +1176,7 @@ fn cmdTrackGroup(app: *App, args: []const u8) void {
         app.setStatus("track {d}: ungrouped", .{track_1});
         return;
     }
-    const idx = parseGroupArg(app, "track-group", group_str) orelse return;
-    if (app.session.groups[idx] == null) {
-        app.setStatus("track-group: group {d} doesn't exist", .{idx + 1});
-        return;
-    }
+    const idx = existingGroupArg(app, "track-group", group_str) orelse return;
     app.session.assignTrackGroup(track_idx, idx);
     app.dirty = true;
     app.setStatus("track {d} → group {d}", .{ track_1, idx + 1 });
