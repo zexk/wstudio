@@ -263,8 +263,8 @@ pub const History = struct {
     cap: usize = max_entries,
 
     pub fn deinit(self: *History, allocator: std.mem.Allocator) void {
-        for (self.undo_stack.items) |*e| e.deinit(allocator);
-        for (self.redo_stack.items) |*e| e.deinit(allocator);
+        deinitStackEntries(&self.undo_stack, allocator);
+        deinitStackEntries(&self.redo_stack, allocator);
         self.undo_stack.deinit(allocator);
         self.redo_stack.deinit(allocator);
     }
@@ -272,25 +272,19 @@ pub const History = struct {
     /// Drop both stacks: entries snapshot content of a specific session, so
     /// they must not survive a session swap (`:e`/`:new`) into another one.
     pub fn clear(self: *History, allocator: std.mem.Allocator) void {
-        for (self.undo_stack.items) |*e| e.deinit(allocator);
-        self.undo_stack.clearRetainingCapacity();
-        for (self.redo_stack.items) |*e| e.deinit(allocator);
-        self.redo_stack.clearRetainingCapacity();
+        clearStack(&self.undo_stack, allocator);
+        clearStack(&self.redo_stack, allocator);
     }
 
     /// Record a pre-edit state. A fresh edit invalidates the redo branch.
     /// Takes ownership of `entry` (freed on overflow or append failure).
     pub fn push(self: *History, allocator: std.mem.Allocator, entry: Entry) void {
-        for (self.redo_stack.items) |*e| e.deinit(allocator);
-        self.redo_stack.clearRetainingCapacity();
+        clearStack(&self.redo_stack, allocator);
         if (self.undo_stack.items.len >= self.cap) {
             var oldest = self.undo_stack.orderedRemove(0);
             oldest.deinit(allocator);
         }
-        self.undo_stack.append(allocator, entry) catch {
-            var owned = entry;
-            owned.deinit(allocator);
-        };
+        appendOwned(&self.undo_stack, allocator, entry);
     }
 
     pub fn popUndo(self: *History) ?Entry {
@@ -303,19 +297,13 @@ pub const History = struct {
 
     /// Park the state an undo displaced, so redo can bring it back.
     pub fn parkRedo(self: *History, allocator: std.mem.Allocator, entry: Entry) void {
-        self.redo_stack.append(allocator, entry) catch {
-            var owned = entry;
-            owned.deinit(allocator);
-        };
+        appendOwned(&self.redo_stack, allocator, entry);
     }
 
     /// Park the state a redo displaced, back onto the undo side. Unlike
     /// `push`, this must not clear the redo branch being walked.
     pub fn parkUndo(self: *History, allocator: std.mem.Allocator, entry: Entry) void {
-        self.undo_stack.append(allocator, entry) catch {
-            var owned = entry;
-            owned.deinit(allocator);
-        };
+        appendOwned(&self.undo_stack, allocator, entry);
     }
 
     /// Remap every undo/redo entry's track index after a structural track
@@ -338,6 +326,22 @@ pub const History = struct {
             dropGroupStack(&self.redo_stack, allocator, idx);
     }
 };
+
+fn deinitStackEntries(stack: *std.ArrayListUnmanaged(Entry), allocator: std.mem.Allocator) void {
+    for (stack.items) |*entry| entry.deinit(allocator);
+}
+
+fn clearStack(stack: *std.ArrayListUnmanaged(Entry), allocator: std.mem.Allocator) void {
+    deinitStackEntries(stack, allocator);
+    stack.clearRetainingCapacity();
+}
+
+fn appendOwned(stack: *std.ArrayListUnmanaged(Entry), allocator: std.mem.Allocator, entry: Entry) void {
+    stack.append(allocator, entry) catch {
+        var owned = entry;
+        owned.deinit(allocator);
+    };
+}
 
 fn dropGroupStack(stack: *std.ArrayListUnmanaged(Entry), allocator: std.mem.Allocator, idx: u8) usize {
     var dropped: usize = 0;
