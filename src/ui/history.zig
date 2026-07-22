@@ -528,13 +528,10 @@ fn applyEntry(app: *App, entry: undo_mod.Entry) ?undo_mod.Entry {
         .track_kind_swap => |state| {
             const displaced = captureTrackKindSwap(app, state.track) orelse return null;
             app.session.restoreRackAt(state.track, state.rack, state.clips) catch {
-                // OOM mid-restore: `state.rack`/`state.clips` ownership is
-                // unclear past this point (same call as track_insert's
-                // restoreTrack - see that arm's own comment), so only
-                // `displaced` (never touched, ours outright) is safe to
-                // free here; the rest is a rare leak, not a double-free.
                 var d = displaced;
                 d.deinit(app.allocator);
+                var owned = state;
+                owned.deinit(app.allocator);
                 return null;
             };
             app.exitStaleEditors();

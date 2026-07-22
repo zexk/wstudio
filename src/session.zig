@@ -497,21 +497,23 @@ pub const Session = struct {
     /// moves in with no further copy, same terms `restoreTrack` takes its
     /// own `rack`/`clips` on. The old rack retires like every other
     /// instrument replacement (the audio thread may still be mid-block in
-    /// it). On an OOM failure ownership past the retire step is unclear -
-    /// same accepted risk `restoreTrack`'s own per-clip `try` loop already
-    /// carries - so the caller must not free `rack`/`clips` itself after a
-    /// failed call, only before one is attempted.
+    /// it). All fallible capacity reservations happen before ownership
+    /// transfers, so the caller retains both values if this returns an error.
     pub fn restoreRackAt(self: *Session, track_idx: usize, rack: *Rack, clips: []Clip) !void {
         if (track_idx >= self.racks.items.len) return error.InvalidTrack;
 
-        try self.retired_racks.append(self.allocator, self.racks.items[track_idx]);
+        try self.retired_racks.ensureUnusedCapacity(self.allocator, 1);
+        const lane = self.arrangement.lane(track_idx);
+        if (lane) |l| try l.clips.ensureTotalCapacity(self.allocator, clips.len);
+
+        self.retired_racks.appendAssumeCapacity(self.racks.items[track_idx]);
         self.racks.items[track_idx] = rack;
 
         _ = self.engine.send(.all_notes_off);
 
-        if (self.arrangement.lane(track_idx)) |lane| {
-            lane.clear(self.allocator);
-            for (clips) |c| try lane.clips.append(self.allocator, c);
+        if (lane) |l| {
+            l.clear(self.allocator);
+            l.clips.appendSliceAssumeCapacity(clips);
         }
         self.allocator.free(clips);
 
