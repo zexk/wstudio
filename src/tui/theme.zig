@@ -57,14 +57,8 @@ pub const reset_osc = "\x1b]104\x07" ++ "\x1b]110\x07" ++ "\x1b]111\x07";
 /// Renders the OSC blob for `theme` into `buf` - empty for `.none`, which
 /// leaves the terminal's own palette untouched entirely.
 pub fn oscFor(theme: config_mod.TuiTheme, overrides: *const ws.theme_identity.Overrides, buf: []u8) []const u8 {
-    const name: ws.theme_identity.Name = switch (theme) {
-        .none => return "",
-        .patina => .patina,
-        .patina_light => .patina_light,
-        .graphite => .graphite,
-        .graphite_light => .graphite_light,
-        .umbra => .umbra,
-    };
+    if (theme == .none) return "";
+    const name = std.meta.stringToEnum(ws.theme_identity.Name, @tagName(theme)).?;
     const resolved = overrides.apply(ws.theme_identity.get(name).*);
     const id = &resolved;
     var w: std.Io.Writer = .fixed(buf);
@@ -109,6 +103,10 @@ test "oscFor is empty for .none, non-empty and index-bearing otherwise" {
     try std.testing.expect(std.mem.indexOf(u8, patina, "\x1b]4;6;rgb:") != null);
     try std.testing.expect(std.mem.indexOf(u8, patina, "\x1b]10;rgb:") != null);
     try std.testing.expect(std.mem.indexOf(u8, patina, "\x1b]11;rgb:") != null);
+
+    const solarized = oscFor(.solarized_light, &overrides, &buf);
+    try std.testing.expect(std.mem.indexOf(u8, solarized, "\x1b]10;rgb:00/2b/36") != null);
+    try std.testing.expect(std.mem.indexOf(u8, solarized, "\x1b]11;rgb:fd/f6/e3") != null);
 }
 
 test "reset_osc covers palette, fg, and bg resets" {

@@ -82,7 +82,23 @@ pub const GuiTheme = theme_identity.Name;
 /// panes sharing that terminal too. Opting into a name is a deliberate
 /// choice, not something a first run should spring on someone who picked
 /// their terminal colors on purpose - see tui/theme.zig.
-pub const TuiTheme = enum { none, patina, patina_light, graphite, graphite_light, umbra };
+pub const TuiTheme = enum {
+    none,
+    patina,
+    patina_light,
+    graphite,
+    graphite_light,
+    umbra,
+    catppuccin_mocha,
+    catppuccin_latte,
+    dracula,
+    gruvbox_dark,
+    gruvbox_light,
+    nord,
+    solarized_dark,
+    solarized_light,
+    tokyonight,
+};
 
 /// GUI panel/window corner style. Scoped to ImGui's own chrome (windows,
 /// child panels, popups, buttons) via the global style vars this drives -

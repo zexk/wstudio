@@ -71,11 +71,6 @@ fn fromIdentity(id: ws.theme_identity.Identity) Palette {
 }
 
 const patina_colors: Palette = fromIdentity(ws.theme_identity.patina);
-const patina_light_colors: Palette = fromIdentity(ws.theme_identity.patina_light);
-const graphite_colors: Palette = fromIdentity(ws.theme_identity.graphite);
-const graphite_light_colors: Palette = fromIdentity(ws.theme_identity.graphite_light);
-const umbra_colors: Palette = fromIdentity(ws.theme_identity.umbra);
-
 /// The active palette. Every draw site reads through this (via each file's
 /// `const theme = &style.palette;` alias), so selection at startup
 /// re-skins the whole GUI. Mutated once, before the first frame.
@@ -103,7 +98,8 @@ pub var meter_decay_db_per_s: f32 = 24.0;
 pub var wheel_delta: f32 = 0;
 
 test "track cursor stays outside every theme's track rotation" {
-    for ([_]Palette{ patina_colors, patina_light_colors, graphite_colors, graphite_light_colors, umbra_colors }) |theme| {
+    for (std.meta.tags(ws.theme_identity.Name)) |name| {
+        const theme = fromIdentity(ws.theme_identity.get(name).*);
         for (theme.tracks) |track| try std.testing.expect(!std.meta.eql(theme.track_cursor, track));
     }
 }
