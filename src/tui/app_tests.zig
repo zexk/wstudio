@@ -2671,6 +2671,13 @@ test "track add inserts a blank track right after the cursor's track" {
     try std.testing.expectEqualStrings("strings", app.session.project.tracks.items[1].name);
     try std.testing.expectEqual(InstrumentKind.empty, std.meta.activeTag(app.session.racks.items[1].instrument));
     try std.testing.expectEqual(@as(usize, 1), app.cursor);
+
+    app.handleKey(.{ .char = 'u' }, 0);
+    try std.testing.expectEqual(initial_tracks, app.session.project.tracks.items.len);
+
+    app.handleKey(.{ .char = 'U' }, 0);
+    try std.testing.expectEqual(initial_tracks + 1, app.session.project.tracks.items.len);
+    try std.testing.expectEqualStrings("strings", app.session.project.tracks.items[1].name);
 }
 
 test "track delete removes the rack and shifts later tracks down" {
