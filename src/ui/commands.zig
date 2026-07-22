@@ -753,14 +753,14 @@ fn cmdColorscheme(app: *App, args: []const u8) void {
     switch (rt.frontend) {
         .gui => {
             const name = std.meta.stringToEnum(config_mod.GuiTheme, trimmed) orelse {
-                app.setStatus("colorscheme: must be one of patina, patina_light, graphite, graphite_light, umbra", .{});
+                app.setStatus("colorscheme: unknown name (press Tab to list built-ins)", .{});
                 return;
             };
             rt.config.gui_theme = name;
         },
         .tui => {
             const name = std.meta.stringToEnum(config_mod.TuiTheme, trimmed) orelse {
-                app.setStatus("colorscheme: must be one of none, patina, patina_light, graphite, graphite_light, umbra", .{});
+                app.setStatus("colorscheme: unknown name (press Tab to list built-ins)", .{});
                 return;
             };
             rt.config.tui_theme = name;

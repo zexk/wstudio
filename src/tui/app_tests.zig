@@ -6794,11 +6794,16 @@ test ":colorscheme reports, switches (scoped per frontend), and rejects bad name
     try std.testing.expect(std.mem.indexOf(u8, app.status_buf[0..app.status_len], "none") != null);
     try std.testing.expect(!app.pending_colorscheme);
 
-    // A TUI runtime accepts "none" (turns theming back off) and the 4 names.
+    // A TUI runtime accepts "none" (turns theming back off) and built-in names.
     commands.run(&app, "colorscheme patina");
     try std.testing.expectEqual(@import("../config.zig").TuiTheme.patina, rt.config.tui_theme);
     try std.testing.expect(app.pending_colorscheme);
     try std.testing.expect(std.mem.indexOf(u8, app.status_buf[0..app.status_len], "patina") != null);
+
+    app.pending_colorscheme = false;
+    commands.run(&app, "colorscheme catppuccin_mocha");
+    try std.testing.expectEqual(@import("../config.zig").TuiTheme.catppuccin_mocha, rt.config.tui_theme);
+    try std.testing.expect(app.pending_colorscheme);
 
     // The alias dispatches the same handler.
     app.pending_colorscheme = false;
@@ -6811,7 +6816,7 @@ test ":colorscheme reports, switches (scoped per frontend), and rejects bad name
     commands.run(&app, "colorscheme neon");
     try std.testing.expectEqual(@import("../config.zig").TuiTheme.umbra, rt.config.tui_theme);
     try std.testing.expect(!app.pending_colorscheme);
-    try std.testing.expect(std.mem.indexOf(u8, app.status_buf[0..app.status_len], "must be one of") != null);
+    try std.testing.expect(std.mem.indexOf(u8, app.status_buf[0..app.status_len], "unknown name") != null);
 
     // A GUI runtime doesn't offer (or accept) "none" - there's no such
     // state for the panel skin - and writes gui_theme instead.

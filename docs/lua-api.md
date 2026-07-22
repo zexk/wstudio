@@ -416,8 +416,9 @@ wstudio.api.create_autocmd("ColorScheme", {
 ```
 
 The TUI accepts `"none"` here too (turns terminal-palette theming back off);
-the GUI panel skin has no such state, so `gui_theme` only ever takes one of
-the four names.
+the GUI panel skin has no such state. Built-in names are documented in
+[Built-in themes](built-in-themes.md), and Tab completion lists them in the
+command line.
 
 ## Scripting the project: `wstudio.api`
 
