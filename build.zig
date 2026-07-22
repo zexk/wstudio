@@ -93,10 +93,19 @@ pub fn build(b: *std.Build) void {
         });
         zgui.artifact("imgui").root_module.addCMacro("GLFW_INCLUDE_NONE", "1");
         const zopengl = b.dependency("zopengl", .{});
+        const glfw = zglfw.artifact("glfw");
+        if (target.result.os.tag == .linux) {
+            // zglfw adds X11 as a link input to its static archive. Zig 0.16
+            // then stores the resolved libX11.so path as an archive member,
+            // which LLD correctly rejects as neither an object nor bitcode.
+            // GLFW resolves X11 through dlopen, so discard that unnecessary
+            // static-library link input until zglfw stops attaching it.
+            removeSystemLibrary(glfw.root_module, "X11");
+        }
         exe.root_module.addImport("zglfw", zglfw.module("root"));
         exe.root_module.addImport("zgui", zgui.module("root"));
         exe.root_module.addImport("zopengl", zopengl.module("root"));
-        exe.root_module.linkLibrary(zglfw.artifact("glfw"));
+        exe.root_module.linkLibrary(glfw);
         exe.root_module.linkLibrary(zgui.artifact("imgui"));
     }
 
@@ -224,6 +233,18 @@ pub fn build(b: *std.Build) void {
     const check_step = b.step("check", "Build wstudio and run all tests");
     check_step.dependOn(&exe.step);
     check_step.dependOn(test_step);
+}
+
+fn removeSystemLibrary(module: *std.Build.Module, name: []const u8) void {
+    var i: usize = module.link_objects.items.len;
+    while (i > 0) {
+        i -= 1;
+        const remove = switch (module.link_objects.items[i]) {
+            .system_lib => |lib| std.mem.eql(u8, lib.name, name),
+            else => false,
+        };
+        if (remove) _ = module.link_objects.orderedRemove(i);
+    }
 }
 
 fn buildLua(b: *std.Build, dep: *std.Build.Dependency, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) *std.Build.Step.Compile {
