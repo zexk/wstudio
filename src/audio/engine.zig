@@ -725,6 +725,10 @@ pub const Engine = struct {
         return false;
     }
 
+    pub fn setTrackParam(self: *Engine, track: u16, id: u16, value: f32) bool {
+        return self.send(.{ .set_track_param_abs = .{ .track = track, .id = id, .value = value } });
+    }
+
     pub fn takeDroppedCommands(self: *Engine) u32 {
         return self.dropped_commands.swap(0, .acq_rel);
     }

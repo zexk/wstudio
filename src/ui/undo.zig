@@ -113,7 +113,7 @@ pub const FxState = struct {
 /// A coalesced run of h/l/H/L nudges on one synth/sampler param. `value`
 /// is the ABSOLUTE param value `applyEntry` should restore (captured on
 /// the control thread when the batch opened - see `PolySynth.paramValue`
-/// and friends), sent through `engine.set_track_param_abs`; applying it
+/// and friends), sent through `Engine.setTrackParam`; applying it
 /// hands back the value it displaced as the entry parked on the opposite
 /// stack, which works symmetrically for undo and redo. Absolute, not a
 /// replayed delta: a delta lands wrong whenever any nudge in the batch
