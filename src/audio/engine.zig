@@ -836,10 +836,18 @@ pub const Engine = struct {
             .set_tempo => |bpm| self.transport.tempo_bpm = bpm,
             .set_time_signature => |bpb| self.transport.time_signature.beats_per_bar = bpb,
             .set_master_gain => |g| self.master_gain = g,
-            .set_track_gain => |c| self.trackAt(c.track).gain = c.gain,
-            .set_track_pan => |c| self.trackAt(c.track).pan = c.pan,
-            .set_track_mute => |c| self.trackAt(c.track).muted = c.muted,
-            .set_track_solo => |c| self.trackAt(c.track).soloed = c.soloed,
+            .set_track_gain => |c| if (self.trackAtIfValid(c.track)) |track| {
+                track.gain = c.gain;
+            },
+            .set_track_pan => |c| if (self.trackAtIfValid(c.track)) |track| {
+                track.pan = c.pan;
+            },
+            .set_track_mute => |c| if (self.trackAtIfValid(c.track)) |track| {
+                track.muted = c.muted;
+            },
+            .set_track_solo => |c| if (self.trackAtIfValid(c.track)) |track| {
+                track.soloed = c.soloed;
+            },
             .note_on => |c| self.sendTrackEvent(c.track, .{
                 .note_on = .{ .note = c.note, .velocity = c.velocity },
             }),
@@ -862,7 +870,9 @@ pub const Engine = struct {
                 .cookie = c.cookie,
                 .value = c.value,
             } }),
-            .set_track_group => |c| self.trackAt(c.track).group = c.group,
+            .set_track_group => |c| if (self.trackAtIfValid(c.track)) |track| {
+                track.group = c.group;
+            },
             .set_group_gain => |c| if (c.group < max_groups) {
                 self.groups[c.group].gain = c.gain;
             },
@@ -914,8 +924,13 @@ pub const Engine = struct {
         return self.tracks[@min(index, max_tracks - 1)].load(.acquire);
     }
 
+    fn trackAtIfValid(self: *Engine, index: u16) ?*TrackState {
+        if (index >= max_tracks) return null;
+        return self.tracks[index].load(.acquire);
+    }
+
     fn sendTrackEvent(self: *Engine, track: u16, ev: dsp.Event) void {
-        const state = self.trackAt(track);
+        const state = self.trackAtIfValid(track) orelse return;
         for (state.chain.slice()) |dev| dev.sendEvent(ev);
     }
 
@@ -1985,4 +2000,15 @@ test "swapTracks exchanges the parallel automation and sidechain rows too" {
     try std.testing.expect(engine.automation[0].pan.valueAt(0.0) == null);
     try std.testing.expectEqual(@as(u16, 3), engine.track_sidechain[0][0].?.track);
     try std.testing.expectEqual(@as(?Compressor.SidechainSource, null), engine.track_sidechain[1][0]);
+}
+
+test "out-of-range track commands do not target the last slot" {
+    var engine = try Engine.init(std.testing.allocator, 48_000);
+    defer engine.deinit();
+    const last: u16 = max_tracks - 1;
+    try std.testing.expectEqual(@as(f32, 1.0), engine.trackAt(last).gain);
+    _ = engine.send(.{ .set_track_gain = .{ .track = max_tracks, .gain = 0.25 } });
+    var block: [64]Sample = undefined;
+    engine.process(&block);
+    try std.testing.expectEqual(@as(f32, 1.0), engine.trackAt(last).gain);
 }
