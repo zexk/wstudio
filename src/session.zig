@@ -755,7 +755,12 @@ pub const Session = struct {
 
         if (self.arrangement.lane(track_idx)) |src_lane| {
             const dst_lane = self.arrangement.lane(idx).?;
-            for (src_lane.clips.items) |c| try dst_lane.clips.append(self.allocator, try c.dupe(self.allocator));
+            // Reserve first so an append allocation cannot fail after a
+            // freshly duplicated clip has already left its only owner.
+            try dst_lane.clips.ensureUnusedCapacity(self.allocator, src_lane.clips.items.len);
+            for (src_lane.clips.items) |c| {
+                dst_lane.clips.appendAssumeCapacity(try c.dupe(self.allocator));
+            }
         }
 
         _ = try self.project.addTrack(.{
