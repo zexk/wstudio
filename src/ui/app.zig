@@ -3698,6 +3698,7 @@ pub const App = struct {
     }
 
     pub fn tick(self: *App, now_ns: i96) void {
+        self.serviceClapHosts();
         const dropped_commands = self.session.engine.takeDroppedCommands();
         if (dropped_commands != 0) {
             self.setStatus("audio command queue full: {d} command{s} dropped", .{ dropped_commands, if (dropped_commands == 1) "" else "s" });
@@ -3746,6 +3747,25 @@ pub const App = struct {
         if (playing and !was_playing) self.startPendingRecording();
         if (self.recording_active_len > 0) self.drainRecording();
         if (!playing and was_playing) self.finishRecording();
+    }
+
+    /// CLAP main-thread callbacks and dirty-state notifications share the
+    /// frontend-neutral frame tick so TUI and GUI hosts behave identically.
+    fn serviceClapHosts(self: *App) void {
+        for (self.session.racks.items) |rack| {
+            switch (rack.instrument) {
+                .clap => |plugin| if (plugin.serviceMainThread()) {
+                    self.dirty = true;
+                },
+                else => {},
+            }
+            for (rack.fx.units.items) |unit| switch (unit.payload) {
+                .clap => |plugin| if (plugin.serviceMainThread()) {
+                    self.dirty = true;
+                },
+                else => {},
+            };
+        }
     }
 
     /// Every `autosave_interval_ns`, if there are unsaved changes, silently
