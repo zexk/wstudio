@@ -45,6 +45,12 @@ const Sampler = ws.dsp.Sampler;
 const InstrumentKind = ws.InstrumentKind;
 const pattern_mod = ws.dsp.pattern;
 
+fn copyTruncated(dst: []u8, src: []const u8) usize {
+    const len = @min(dst.len, src.len);
+    @memcpy(dst[0..len], src[0..len]);
+    return len;
+}
+
 /// Default note-preview release time (`note_preview_ms` option); the field
 /// default below and `tui/app_tests.zig`'s note-off timing test both key off
 /// this constant.
@@ -3197,27 +3203,19 @@ pub const App = struct {
                     // submitting commits the pattern (empty clears it) and
                     // rests the cursor on the narrowed list's first entry.
                     .preset_picker => {
-                        const len = @min(text.len, self.preset_filter_buf.len);
-                        @memcpy(self.preset_filter_buf[0..len], text[0..len]);
-                        self.preset_filter_len = len;
+                        self.preset_filter_len = copyTruncated(&self.preset_filter_buf, text);
                         self.preset_picker_cursor = 0;
                     },
                     .fx_picker => {
-                        const len = @min(text.len, self.fx_picker_filter_buf.len);
-                        @memcpy(self.fx_picker_filter_buf[0..len], text[0..len]);
-                        self.fx_picker_filter_len = len;
+                        self.fx_picker_filter_len = copyTruncated(&self.fx_picker_filter_buf, text);
                         self.fx_picker_cursor = 0;
                     },
                     .synth_fx_picker => {
-                        const len = @min(text.len, self.synth_fx_picker_filter_buf.len);
-                        @memcpy(self.synth_fx_picker_filter_buf[0..len], text[0..len]);
-                        self.synth_fx_picker_filter_len = len;
+                        self.synth_fx_picker_filter_len = copyTruncated(&self.synth_fx_picker_filter_buf, text);
                         self.synth_fx_picker_cursor = 0;
                     },
                     .automation_param_picker => {
-                        const len = @min(text.len, self.automation_param_filter_buf.len);
-                        @memcpy(self.automation_param_filter_buf[0..len], text[0..len]);
-                        self.automation_param_filter_len = len;
+                        self.automation_param_filter_len = copyTruncated(&self.automation_param_filter_buf, text);
                         self.automation_param_cursor = automation_ed.firstParamCursor(self);
                     },
                     else => self.setStatus("search not available in this view", .{}),
@@ -3247,9 +3245,7 @@ pub const App = struct {
     }
 
     fn setSearchPattern(self: *App, text: []const u8) void {
-        const len = @min(text.len, self.search_pattern_buf.len);
-        @memcpy(self.search_pattern_buf[0..len], text[0..len]);
-        self.search_pattern_len = len;
+        self.search_pattern_len = copyTruncated(&self.search_pattern_buf, text);
     }
 
     // zig fmt: off
@@ -3427,8 +3423,7 @@ pub const App = struct {
 
     fn loadCommandHistory(self: *App) void {
         const text = self.cmd_history.items[self.cmd_history_pos];
-        const len = @min(text.len, self.modal.cmd_buf.len);
-        @memcpy(self.modal.cmd_buf[0..len], text[0..len]);
+        const len = copyTruncated(&self.modal.cmd_buf, text);
         self.modal.cmd_len = len;
         self.modal.cmd_cursor = len;
     }
@@ -3587,8 +3582,7 @@ pub const App = struct {
         if (prev_index == null) {
             // Fresh stem - snapshot `current_text` before cmd_buf gets
             // overwritten below (it may alias cmd_buf directly).
-            const len = @min(current_text.len, stem_buf.len);
-            @memcpy(stem_buf[0..len], current_text[0..len]);
+            const len = copyTruncated(&stem_buf, current_text);
             stem = stem_buf[0..len];
         }
 
@@ -4211,9 +4205,7 @@ pub const App = struct {
     }
 
     pub fn setProjectPath(self: *App, path: []const u8) void {
-        const len = @min(path.len, self.project_path_buf.len);
-        @memcpy(self.project_path_buf[0..len], path[0..len]);
-        self.project_path_len = len;
+        self.project_path_len = copyTruncated(&self.project_path_buf, path);
     }
 
     pub fn clearProjectPath(self: *App) void {
@@ -4263,9 +4255,7 @@ pub const App = struct {
     /// its next loop iteration - see the field doc on `pending_reload`.
     pub fn requestReload(self: *App, path: ?[]const u8) void {
         if (path) |p| {
-            const len = @min(p.len, self.pending_reload_buf.len);
-            @memcpy(self.pending_reload_buf[0..len], p[0..len]);
-            self.pending_reload_len = len;
+            self.pending_reload_len = copyTruncated(&self.pending_reload_buf, p);
             self.pending_reload = .load;
         } else {
             self.pending_reload = .blank;
@@ -4282,9 +4272,7 @@ pub const App = struct {
     /// than what's on disk, not a different project, so it lands `dirty`
     /// rather than re-pointing `:w`'s default target.
     pub fn requestRestoreBackup(self: *App, backup_path: []const u8) void {
-        const len = @min(backup_path.len, self.pending_reload_buf.len);
-        @memcpy(self.pending_reload_buf[0..len], backup_path[0..len]);
-        self.pending_reload_len = len;
+        self.pending_reload_len = copyTruncated(&self.pending_reload_buf, backup_path);
         self.pending_reload = .restore_backup;
     }
 
