@@ -3949,6 +3949,7 @@ pub const App = struct {
         const remap: undo_mod.TrackRemap = .{ .insert = idx };
         history.retargetPending(self, remap);
         _ = self.history.retarget(self.allocator, remap);
+        history.push(self, .{ .track_delete = idx });
 
         self.cursor = idx;
         self.invalidateTrackRow();
