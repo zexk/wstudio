@@ -226,7 +226,9 @@ pub fn buildDisplayRows(app: *App, buf: *[max_display_rows]DisplayRow) []Display
             for (banks[0..bank_count], 0..) |bank, bi| {
                 const header = std.fmt.bufPrint(&app.soundfont_picker_bank_headers[bi], "Bank {d}", .{bank}) catch "Bank";
                 var wrote_header = false;
-                for (font.presets, 0..) |p, i| {
+                // Entry names must borrow the preset's inline name storage,
+                // not a by-value loop capture that dies when this returns.
+                for (font.presets, 0..) |*p, i| {
                     if (p.bank != bank) continue;
                     const e: Entry = .{
                         // zig fmt: off
