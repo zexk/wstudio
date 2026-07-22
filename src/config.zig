@@ -335,6 +335,12 @@ fn writeKeyText(w: *std.Io.Writer, key: ws_input.Key) !void {
         .end => try w.writeAll("<end>"),
         .ctrl_r => try w.writeAll("<c-r>"),
         .ctrl_w => try w.writeAll("<c-w>"),
+        .ctrl_a => try w.writeAll("<c-a>"),
+        .ctrl_e => try w.writeAll("<c-e>"),
+        .ctrl_u => try w.writeAll("<c-u>"),
+        .ctrl_k => try w.writeAll("<c-k>"),
+        .ctrl_p => try w.writeAll("<c-p>"),
+        .ctrl_n => try w.writeAll("<c-n>"),
         else => try w.writeAll("?"),
     }
 }
@@ -349,7 +355,7 @@ const LhsError = error{ Empty, TooLong, Invalid };
 
 /// Neovim key notation -> modal keys: plain printable ASCII chars, plus
 /// `<...>` specials (see `parseKeyName`). No modifier combinators beyond
-/// the two ctrl keys the terminal layer actually decodes.
+/// the ctrl keys the terminal layer actually decodes.
 fn parseLhs(text: []const u8, out: *[max_keymap_lhs]ws_input.Key) LhsError!u8 {
     var n: u8 = 0;
     var i: usize = 0;
@@ -386,6 +392,12 @@ fn parseKeyName(name: []const u8) LhsError!ws_input.Key {
     if (eq(name, "end")) return .end;
     if (eq(name, "c-r")) return .ctrl_r;
     if (eq(name, "c-w")) return .ctrl_w;
+    if (eq(name, "c-a")) return .ctrl_a;
+    if (eq(name, "c-e")) return .ctrl_e;
+    if (eq(name, "c-u")) return .ctrl_u;
+    if (eq(name, "c-k")) return .ctrl_k;
+    if (eq(name, "c-p")) return .ctrl_p;
+    if (eq(name, "c-n")) return .ctrl_n;
     return error.Invalid;
 }
 

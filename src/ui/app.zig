@@ -1600,7 +1600,7 @@ pub const App = struct {
         }
 
         // zig fmt: off
-        // Command/search mode: up/down recall history (command only - search
+        // Command/search mode: up/down or ctrl-p/n recall history (command only - search
         // has no history), tab completes the command name (command only).
         // Left/right/home/end/ctrl-w edit the cmd_buf cursor in place
         // (modal.handle owns that state, shared by both prompts) - passed
@@ -1609,9 +1609,9 @@ pub const App = struct {
         // instead of moving through it.
         if (self.modal.mode == .command or self.modal.mode == .search) {
             switch (key_in) {
-                .arrow_up => { if (self.modal.mode == .command) self.commandHistoryPrev(); return; },
-                .arrow_down => { if (self.modal.mode == .command) self.commandHistoryNext(); return; },
-                .arrow_left, .arrow_right, .home, .end, .ctrl_w => { _ = self.modal.handle(key_in); return; },
+                .arrow_up, .ctrl_p => { if (self.modal.mode == .command) self.commandHistoryPrev(); return; },
+                .arrow_down, .ctrl_n => { if (self.modal.mode == .command) self.commandHistoryNext(); return; },
+                .arrow_left, .arrow_right, .home, .end, .ctrl_a, .ctrl_e, .ctrl_u, .ctrl_k, .ctrl_w => { _ = self.modal.handle(key_in); return; },
                 .tab => { if (self.modal.mode == .command) self.completeCommand(); return; },
                 else => {},
             }

@@ -4703,6 +4703,12 @@ test "command prompt: up/down recall history without corrupting the buffer" {
     app.handleKey(.arrow_down, 0);
     try std.testing.expectEqual(@as(usize, 0), app.modal.cmd_len);
 
+    // Readline history keys mirror the arrow keys.
+    app.handleKey(.ctrl_p, 0);
+    try std.testing.expectEqualStrings("bpm 140", app.modal.cmd_buf[0..app.modal.cmd_len]);
+    app.handleKey(.ctrl_n, 0);
+    try std.testing.expectEqual(@as(usize, 0), app.modal.cmd_len);
+
     // Arrow left/right don't leak 'h'/'l' into the buffer.
     app.handleKey(.arrow_up, 0); // recall "bpm 140"
     app.handleKey(.arrow_left, 0);

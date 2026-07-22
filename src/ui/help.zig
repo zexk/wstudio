@@ -105,7 +105,9 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("esc",          "back / return to NORMAL mode");
     t.key(":",            "open command prompt");
     t.key("(in :) up/down","recall previous / next command");
+    t.key("(in :) ^P/^N", "recall previous / next command (readline style)");
     t.key("(in :) tab",   "complete the command name");
+    t.key("(in :/) ^A/^E", "move to start / end; ^U/^K deletes before / after the cursor");
     t.key("/",            "search prompt - fuzzy over track names / browser filenames, plain-text in this help");
     t.key("n / N",        "repeat last search forward / backward (tracks, file browser, help)");
     t.key("`",            "jump to the alternate view - the last place you edited (press again to bounce back)");
