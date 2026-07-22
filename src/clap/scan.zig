@@ -104,8 +104,11 @@ pub const Registry = struct {
         }
         if (desc.features) |features| {
             var index: usize = 0;
-            while (features[index]) |feature| : (index += 1)
-                try info.features.append(self.allocator, try self.allocator.dupe(u8, std.mem.span(feature)));
+            while (features[index]) |feature| : (index += 1) {
+                const owned = try self.allocator.dupe(u8, std.mem.span(feature));
+                errdefer self.allocator.free(owned);
+                try info.features.append(self.allocator, owned);
+            }
         }
         try self.plugins.append(self.allocator, info);
     }
@@ -179,7 +182,9 @@ fn appendUnique(
     for (paths.items) |existing| {
         if (std.mem.eql(u8, existing, path)) return;
     }
-    try paths.append(allocator, try allocator.dupe(u8, path));
+    const owned = try allocator.dupe(u8, path);
+    errdefer allocator.free(owned);
+    try paths.append(allocator, owned);
 }
 
 test "explicit scan paths tolerate missing directories" {
