@@ -169,6 +169,7 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
 
     while (!window.shouldClose() and !app.core.should_quit) {
         glfw.pollEvents();
+        if (window.shouldClose() and !app.core.requestQuit()) window.setShouldClose(false);
         app.core.tick(std.Io.Timestamp.now(init.io, .awake).nanoseconds);
         if (app.core.pending_reload != .none) {
             const kind = app.core.pending_reload;
