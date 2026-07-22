@@ -462,9 +462,12 @@ pub const Session = struct {
             self.allocator.destroy(rack);
         }
 
+        // Migration may rewrite arrangement clips and clear their parameter
+        // automation, so reserve the retirement slot before touching them.
+        try self.retired_racks.ensureUnusedCapacity(self.allocator, 1);
         const preserved = try self.migrateInstrumentData(track_idx, old_rack, rack, old_kind, kind);
 
-        try self.retired_racks.append(self.allocator, self.racks.items[track_idx]);
+        self.retired_racks.appendAssumeCapacity(self.racks.items[track_idx]);
 
         _ = self.engine.send(.all_notes_off);
 
