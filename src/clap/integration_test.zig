@@ -9,17 +9,19 @@ pub fn main(init: std.process.Init) !void {
 
     const plugin = try ws.dsp.ClapPlugin.load(init.gpa, plugin_path, null, 48_000);
     defer plugin.deinit();
+    try std.testing.expect(plugin.serviceMainThread());
+    try std.testing.expectEqual(@as(f64, 2.25), plugin.parameterValue(7).?);
     var samples = [_]f32{ 0.25, -0.5, 1.0, -1.0 };
     plugin.device().process(&samples);
-    try std.testing.expectEqualSlices(f32, &.{ 0.5, -1.0, 2.0, -2.0 }, &samples);
+    try std.testing.expectEqualSlices(f32, &.{ 0.625, -1.25, 2.5, -2.5 }, &samples);
     try std.testing.expectEqual(@as(u32, 1), plugin.parameterCount());
     const param = plugin.parameterInfo(0).?;
     try std.testing.expectEqual(@as(u32, 7), param.id);
     var name_buffer: [32]u8 = undefined;
     try std.testing.expectEqualStrings("Gain", plugin.parameterName(0, &name_buffer).?);
-    try std.testing.expectEqual(@as(f64, 2), plugin.parameterValue(7).?);
+    try std.testing.expectEqual(@as(f64, 2.5), plugin.parameterValue(7).?);
     var text_buffer: [32]u8 = undefined;
-    try std.testing.expectEqualStrings("2.00x", plugin.formatParameter(7, 2, &text_buffer).?);
+    try std.testing.expectEqualStrings("2.50x", plugin.formatParameter(7, 2.5, &text_buffer).?);
     try std.testing.expectEqual(@as(u32, 16), plugin.latencyFrames());
     try std.testing.expectEqual(@as(?u32, 48_000), plugin.tailFrames());
 

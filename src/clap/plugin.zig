@@ -75,6 +75,20 @@ const EventList = struct {
     }
 };
 
+const empty_input_events: abi.InputEvents = .{
+    .ctx = null,
+    .size = emptyEventCount,
+    .get = emptyEventAt,
+};
+
+fn emptyEventCount(_: ?*const abi.InputEvents) callconv(.c) u32 {
+    return 0;
+}
+
+fn emptyEventAt(_: ?*const abi.InputEvents, _: u32) callconv(.c) ?*const abi.EventHeader {
+    return null;
+}
+
 const HostContext = struct {
     host: abi.Host,
     restart_requested: std.atomic.Value(bool) = .init(false),
@@ -409,6 +423,10 @@ pub const ClapPlugin = struct {
         };
         on_audio_thread = true;
         defer on_audio_thread = false;
+        if (self.host_context.param_flush_requested.swap(false, .acquire)) {
+            if (self.paramsExtension()) |params|
+                params.flush(self.plugin, &empty_input_events, &self.output_events);
+        }
         const status = self.plugin.process(self.plugin, &process);
         self.events.len = 0;
         self.steady_time += @intCast(frames);
@@ -594,6 +612,19 @@ pub const ClapPlugin = struct {
     pub fn reset(self: *ClapPlugin) void {
         self.events.len = 0;
         if (self.started) self.plugin.reset(self.plugin);
+    }
+
+    /// Service callbacks whose CLAP contract requires the host's main
+    /// thread. Parameter, latency, and tail queries are uncached, so their
+    /// change notifications only need acknowledging. Returns whether the
+    /// plugin marked its opaque state dirty since the previous service.
+    pub fn serviceMainThread(self: *ClapPlugin) bool {
+        if (self.host_context.callback_requested.swap(false, .acquire))
+            self.plugin.on_main_thread(self.plugin);
+        _ = self.host_context.param_rescan_flags.swap(0, .acquire);
+        _ = self.host_context.latency_changed.swap(false, .acquire);
+        _ = self.host_context.tail_changed.swap(false, .acquire);
+        return self.host_context.state_dirty.swap(false, .acq_rel);
     }
 };
 

@@ -6,6 +6,7 @@ const State = struct {
     active: bool = false,
     processing: bool = false,
     gain: f64 = 2,
+    host: ?*const abi.Host = null,
 };
 
 var state: State = .{};
@@ -48,6 +49,16 @@ const instrument_descriptor: abi.PluginDescriptor = .{
 };
 
 fn pluginInit(_: *const abi.Plugin) callconv(.c) bool {
+    const host = state.host orelse return false;
+    host.request_callback(host);
+    const host_state: *const abi.HostState = @ptrCast(@alignCast(host.get_extension(host, abi.ext_state) orelse return false));
+    host_state.mark_dirty(host);
+    const host_params: *const abi.HostParams = @ptrCast(@alignCast(host.get_extension(host, abi.ext_params) orelse return false));
+    host_params.request_flush(host);
+    const host_latency: *const abi.HostLatency = @ptrCast(@alignCast(host.get_extension(host, abi.ext_latency) orelse return false));
+    host_latency.changed(host);
+    const host_tail: *const abi.HostTail = @ptrCast(@alignCast(host.get_extension(host, abi.ext_tail) orelse return false));
+    host_tail.changed(host);
     return true;
 }
 
@@ -201,7 +212,9 @@ fn flushParams(
     _: *const abi.Plugin,
     _: *const abi.InputEvents,
     _: *const abi.OutputEvents,
-) callconv(.c) void {}
+) callconv(.c) void {
+    state.gain += 0.25;
+}
 
 const params: abi.PluginParams = .{
     .count = paramCount,
@@ -251,7 +264,9 @@ fn getExtension(_: *const abi.Plugin, id: [*:0]const u8) callconv(.c) ?*const an
     return null;
 }
 
-fn onMainThread(_: *const abi.Plugin) callconv(.c) void {}
+fn onMainThread(_: *const abi.Plugin) callconv(.c) void {
+    state.gain += 0.25;
+}
 
 const plugin: abi.Plugin = .{
     .desc = &descriptor,
@@ -297,10 +312,11 @@ fn pluginDescriptor(_: *const abi.PluginFactory, index: u32) callconv(.c) ?*cons
 
 fn createPlugin(
     _: *const abi.PluginFactory,
-    _: *const abi.Host,
+    host: *const abi.Host,
     id: [*:0]const u8,
 ) callconv(.c) ?*const abi.Plugin {
     const requested = @import("std").mem.span(id);
+    state.host = host;
     if (@import("std").mem.eql(u8, requested, @import("std").mem.span(descriptor.id))) return &plugin;
     if (@import("std").mem.eql(u8, requested, @import("std").mem.span(instrument_descriptor.id))) return &instrument_plugin;
     return null;
