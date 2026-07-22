@@ -485,7 +485,7 @@ fn applyEntry(app: *App, entry: undo_mod.Entry) ?undo_mod.Entry {
             // ParamNudgeState). liveParamValue doubles as the target check:
             // null (track gone, instrument swapped) skips the entry.
             const displaced = liveParamValue(app, p.track, p.id) orelse return null;
-            _ = app.session.engine.send(.{ .set_track_param_abs = .{ .track = p.track, .id = p.id, .value = p.value } });
+            _ = app.session.engine.setTrackParam(p.track, p.id, p.value);
             return .{ .param_nudge = .{ .track = p.track, .id = p.id, .value = displaced } };
         },
         .track_insert => |state| {
