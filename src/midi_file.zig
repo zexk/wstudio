@@ -27,7 +27,8 @@ pub fn write(allocator: std.mem.Allocator, notes: []const Note, tempo_bpm: f64) 
     var track: std.ArrayListUnmanaged(u8) = .empty;
     defer track.deinit(allocator);
 
-    const mpqn: u32 = @intFromFloat(std.math.clamp(60_000_000.0 / @max(tempo_bpm, 1.0), 1.0, 16_777_215.0));
+    const safe_tempo = if (std.math.isFinite(tempo_bpm) and tempo_bpm > 0) tempo_bpm else default_tempo_bpm;
+    const mpqn: u32 = @intFromFloat(std.math.clamp(60_000_000.0 / safe_tempo, 1.0, 16_777_215.0));
     try writeVarLen(allocator, &track, 0);
     try track.appendSlice(allocator, &.{ 0xFF, 0x51, 0x03, @intCast(mpqn >> 16), @intCast((mpqn >> 8) & 0xFF), @intCast(mpqn & 0xFF) });
 
@@ -35,11 +36,12 @@ pub fn write(allocator: std.mem.Allocator, notes: []const Note, tempo_bpm: f64) 
     var events: std.ArrayListUnmanaged(Ev) = .empty;
     defer events.deinit(allocator);
     for (notes) |n| {
-        const start_tick: u64 = @intFromFloat(@max(0.0, n.start_beat) * @as(f64, @floatFromInt(ticks_per_quarter)));
-        const dur_ticks: u64 = @max(1, @as(u64, @intFromFloat(@max(0.0, n.duration_beat) * @as(f64, @floatFromInt(ticks_per_quarter)))));
-        const vel7: u7 = @intFromFloat(std.math.clamp(n.velocity, 0.0, 1.0) * 127.0);
+        const start_tick = beatToTick(n.start_beat);
+        const dur_ticks = @max(1, beatToTick(n.duration_beat));
+        const velocity = if (std.math.isFinite(n.velocity)) n.velocity else 1.0;
+        const vel7: u7 = @intFromFloat(std.math.clamp(velocity, 0.0, 1.0) * 127.0);
         try events.append(allocator, .{ .tick = start_tick, .is_off = false, .pitch = n.pitch, .vel7 = @max(vel7, 1) });
-        try events.append(allocator, .{ .tick = start_tick + dur_ticks, .is_off = true, .pitch = n.pitch, .vel7 = 0 });
+        try events.append(allocator, .{ .tick = start_tick +| dur_ticks, .is_off = true, .pitch = n.pitch, .vel7 = 0 });
     }
     std.mem.sort(Ev, events.items, {}, struct {
         fn lessThan(_: void, a: Ev, b: Ev) bool {
@@ -69,6 +71,13 @@ pub fn write(allocator: std.mem.Allocator, notes: []const Note, tempo_bpm: f64) 
     try appendU32Be(allocator, &out, @intCast(track.items.len));
     try out.appendSlice(allocator, track.items);
     return out.toOwnedSlice(allocator);
+}
+
+fn beatToTick(beat: f64) u64 {
+    if (!std.math.isFinite(beat) or beat <= 0) return if (std.math.isPositiveInf(beat)) std.math.maxInt(u64) else 0;
+    const scaled = beat * @as(f64, @floatFromInt(ticks_per_quarter));
+    if (!std.math.isFinite(scaled) or scaled >= @as(f64, @floatFromInt(std.math.maxInt(u64)))) return std.math.maxInt(u64);
+    return @intFromFloat(scaled);
 }
 
 fn appendU32Be(allocator: std.mem.Allocator, list: *std.ArrayListUnmanaged(u8), v: u32) !void {
@@ -188,7 +197,7 @@ fn parseTrack(
     var last_tick: u64 = 0;
     while (pos < track.len) {
         const delta = try readVarLen(track, &pos);
-        tick += delta;
+        tick = std.math.add(u64, tick, delta) catch return error.InvalidHeader;
         last_tick = tick;
         if (pos >= track.len) break;
         const first = track[pos];
@@ -199,19 +208,20 @@ fn parseTrack(
             const meta_type = track[pos];
             pos += 1;
             const len = try readVarLen(track, &pos);
-            if (pos + len > track.len) return error.Truncated;
+            if (len > track.len - pos) return error.Truncated;
+            const event_len: usize = @intCast(len);
             if (meta_type == 0x51 and len == 3) {
                 const mpqn = (@as(u32, track[pos]) << 16) | (@as(u32, track[pos + 1]) << 8) | track[pos + 2];
                 if (tempo_bpm.* == null and mpqn > 0) tempo_bpm.* = 60_000_000.0 / @as(f64, @floatFromInt(mpqn));
             }
-            pos += len;
+            pos += event_len;
             continue;
         }
         if (first == 0xF0 or first == 0xF7) { // sysex
             pos += 1;
             const len = try readVarLen(track, &pos);
-            if (pos + len > track.len) return error.Truncated;
-            pos += len;
+            if (len > track.len - pos) return error.Truncated;
+            pos += @intCast(len);
             continue;
         }
 
@@ -291,7 +301,9 @@ fn readVarLen(data: []const u8, pos: *usize) ParseError!u64 {
         const b = data[pos.*];
         pos.* += 1;
         i += 1;
-        value = (value << 7) | (b & 0x7F);
+        const payload: u64 = b & 0x7F;
+        if (value > (std.math.maxInt(u64) - payload) >> 7) return error.InvalidHeader;
+        value = (value << 7) | payload;
         if (b & 0x80 == 0) break;
     }
     return value;
@@ -343,6 +355,26 @@ test "write then parse round-trips a note far enough out to need a delta-time pa
     defer allocator.free(result.notes);
     try std.testing.expectEqual(@as(usize, 1), result.notes.len);
     try std.testing.expectApproxEqAbs(@as(f64, 1_000_000.0), result.notes[0].start_beat, 0.01);
+}
+
+test "write sanitizes non-finite tempo and note fields" {
+    const allocator = std.testing.allocator;
+    const notes = [_]Note{.{
+        .pitch = 60,
+        .start_beat = std.math.nan(f64),
+        .duration_beat = std.math.nan(f64),
+        .velocity = std.math.nan(f32),
+    }};
+    const bytes = try write(allocator, &notes, std.math.nan(f64));
+    defer allocator.free(bytes);
+
+    const result = try parse(allocator, bytes);
+    defer allocator.free(result.notes);
+    try std.testing.expectApproxEqAbs(default_tempo_bpm, result.tempo_bpm, 0.01);
+    try std.testing.expectEqual(@as(usize, 1), result.notes.len);
+    try std.testing.expectEqual(@as(f64, 0), result.notes[0].start_beat);
+    try std.testing.expectApproxEqAbs(1.0 / @as(f64, @floatFromInt(ticks_per_quarter)), result.notes[0].duration_beat, 0.0001);
+    try std.testing.expectEqual(@as(f32, 1), result.notes[0].velocity);
 }
 
 test "parse rejects a file without an MThd header" {
@@ -415,4 +447,27 @@ test "parse rejects a zero division field" {
     try appendU16Be(allocator, &buf, 1); // ntrks
     try appendU16Be(allocator, &buf, 0); // division 0 - would zero every tick-to-beat divide
     try std.testing.expectError(error.UnsupportedDivision, parse(allocator, buf.items));
+}
+
+test "parse rejects cumulative delta-time overflow" {
+    const allocator = std.testing.allocator;
+    var track: std.ArrayListUnmanaged(u8) = .empty;
+    defer track.deinit(allocator);
+    try writeVarLen(allocator, &track, std.math.maxInt(u64));
+    try track.appendSlice(allocator, &.{ 0xC0, 0x00 });
+    try writeVarLen(allocator, &track, 1);
+    try track.appendSlice(allocator, &.{ 0xC0, 0x00 });
+
+    var buf: std.ArrayListUnmanaged(u8) = .empty;
+    defer buf.deinit(allocator);
+    try buf.appendSlice(allocator, "MThd");
+    try appendU32Be(allocator, &buf, 6);
+    try appendU16Be(allocator, &buf, 0);
+    try appendU16Be(allocator, &buf, 1);
+    try appendU16Be(allocator, &buf, ticks_per_quarter);
+    try buf.appendSlice(allocator, "MTrk");
+    try appendU32Be(allocator, &buf, @intCast(track.items.len));
+    try buf.appendSlice(allocator, track.items);
+
+    try std.testing.expectError(error.InvalidHeader, parse(allocator, buf.items));
 }
