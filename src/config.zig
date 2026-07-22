@@ -21,7 +21,7 @@ const c = @cImport({
 
 const system_config_path = "/etc/xdg/wstudio/init.lua";
 pub const api_level = 1;
-pub const version = "1.0.0-beta.2";
+pub const version = "1.0.0-beta.3";
 
 const ApiFunction = struct { name: [:0]const u8, func: c.lua_CFunction };
 

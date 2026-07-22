@@ -128,7 +128,7 @@ fn dupeInitPath(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
     return allocator.dupe(u8, path);
 }
 
-const version = "1.0.0-beta.2";
+const version = "1.0.0-beta.3";
 
 fn printVersion(io: std.Io) !void {
     var stdout_buffer: [64]u8 = undefined;
