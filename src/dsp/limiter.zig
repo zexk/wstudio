@@ -33,6 +33,11 @@ pub const Limiter = struct {
         const release = @exp(-1.0 / (self.release_ms * 0.001 * self.sample_rate));
         var i: usize = 0;
         while (i + 1 < buf.len) : (i += 2) {
+            // External plugins are allowed upstream. Contain malformed
+            // output here so one NaN/inf cannot poison limiter state and
+            // every later audio block.
+            if (!std.math.isFinite(buf[i])) buf[i] = 0.0;
+            if (!std.math.isFinite(buf[i + 1])) buf[i + 1] = 0.0;
             // Recover toward unity, then drop the gain so this frame's
             // stereo peak cannot pass the ceiling (instant attack).
             self.gain = 1.0 - release * (1.0 - self.gain);
@@ -64,6 +69,18 @@ test "loud input never exceeds the ceiling" {
     for (&buf, 0..) |*s, i| s.* = if (i % 4 < 2) 4.0 else -4.0;
     lim.processBlock(&buf);
     for (buf) |s| try std.testing.expect(@abs(s) <= lim.ceiling + 1e-5);
+}
+
+test "non-finite input cannot poison limiter output or state" {
+    var lim = Limiter.init(48_000);
+    var malformed = [_]Sample{ std.math.nan(f32), std.math.inf(f32), -std.math.inf(f32), 2.0 };
+    lim.processBlock(&malformed);
+    for (malformed) |sample| try std.testing.expect(std.math.isFinite(sample));
+    try std.testing.expect(std.math.isFinite(lim.gain));
+
+    var next = [_]Sample{ 0.25, -0.25 };
+    lim.processBlock(&next);
+    for (next) |sample| try std.testing.expect(std.math.isFinite(sample));
 }
 
 test "quiet input passes through untouched" {
