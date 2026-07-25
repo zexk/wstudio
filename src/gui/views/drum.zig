@@ -25,6 +25,7 @@ pub fn draw(app: anytype) void {
     zgui.spacing();
     step_grid.draw(
         .drum,
+        app,
         drum,
         drum.pads.len,
         drum.step_count,

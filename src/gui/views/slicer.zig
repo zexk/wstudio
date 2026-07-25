@@ -39,6 +39,7 @@ pub fn draw(app: anytype) void {
     const play_step: ?usize = if (snap.playing) slicer.currentStep() else null;
     step_grid.draw(
         .slicer,
+        app,
         slicer,
         slicer.slice_count,
         slicer.step_count,

@@ -2,6 +2,7 @@ const std = @import("std");
 const zgui = @import("zgui");
 const style = @import("../style.zig");
 const shared_step_grid = @import("../../ui/editors/step_grid.zig");
+const history = @import("../../ui/history.zig");
 
 const color = style.color;
 const theme = &style.palette;
@@ -10,6 +11,7 @@ pub const Kind = enum { drum, slicer };
 
 pub fn draw(
     comptime kind: Kind,
+    app: anytype,
     instrument: anytype,
     total_rows: usize,
     step_count_raw: anytype,
@@ -209,6 +211,10 @@ pub fn draw(
             // state to whatever cell the mouse enters next.
             if (activated) {
                 cursor.* = .{ @intCast(row), @intCast(step) };
+                if (kind == .drum)
+                    history.recordDrum(&app.core, app.core.drum_track)
+                else
+                    history.recordSlicer(&app.core, app.core.slicer_track);
                 if (zgui.isMouseClicked(.right)) {
                     shared_step_grid.setStep(instrument, @intCast(row), step_t, false, vel_full);
                 } else {
