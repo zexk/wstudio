@@ -17,3 +17,4 @@ dist/
 # Local launch planning, not project documentation.
 /docs/community-launch.md
 /docs/reddit-posts.md
+gui_screenshots/
