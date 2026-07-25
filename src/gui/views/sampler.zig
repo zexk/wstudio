@@ -130,6 +130,7 @@ fn drawAmpEnvelope(app: anytype, target: Target) void {
 
 fn setPadParam(app: anytype, target: Target, id: u8, value: f32) void {
     _ = app.core.session.engine.setTrackParam(target.track(), target.engineId(id), value);
+    app.core.dirty = true;
 }
 
 fn drawStandalone(app: anytype) void {

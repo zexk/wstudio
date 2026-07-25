@@ -129,6 +129,7 @@ fn isFilterResonance(id: u8) bool {
 
 fn sendParam(app: anytype, id: u8, value: f32) void {
     _ = app.core.session.engine.setTrackParam(app.core.synth_track, id, value);
+    app.core.dirty = true;
 }
 
 fn drawEnvelope(app: anytype, synth: *ws.dsp.PolySynth, base_id: u8) void {
