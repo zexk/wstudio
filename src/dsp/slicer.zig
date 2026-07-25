@@ -647,15 +647,6 @@ pub const Slicer = struct {
         self.next_age +%= 1;
     }
 
-    fn framesPerStep(self: *const Slicer) f64 {
-        // Live patterns use sixteenth notes; song mode uses the arrangement's
-        // finer timeline so clip boundaries remain exact.
-        const bpm = @max(self.transport.tempo_bpm, 1.0);
-        const fpb = @as(f64, @floatFromInt(self.sample_rate)) * 60.0 / bpm;
-        const spb = if (self.song_mode) self.song_steps_per_beat else 4;
-        return @max(1.0, fpb / @as(f64, @floatFromInt(spb)));
-    }
-
     pub fn processBlock(self: *Slicer, buf: []Sample) void {
         const channels = 2;
         const frames: u32 = @intCast(buf.len / channels);
@@ -666,7 +657,7 @@ pub const Slicer = struct {
 
         if (self.transport.playing and self.slice_count > 0) {
             const pos_f = @as(f64, @floatFromInt(self.transport.position_frames));
-            const fps = self.framesPerStep();
+            const fps = self.transport.framesPerStep(if (self.song_mode) self.song_steps_per_beat else 4);
             const swing_pct = self.swing.load(.monotonic);
             var step_k = self.next_step_k;
 

@@ -33,6 +33,10 @@ pub const Transport = struct {
         return @as(f64, @floatFromInt(sample_rate)) * 60.0 / tempo;
     }
 
+    pub fn framesPerStep(self: *const Transport, steps_per_beat: u8) f64 {
+        return @max(1.0, self.framesPerBeat() / @as(f64, @floatFromInt(steps_per_beat)));
+    }
+
     pub fn positionBeats(self: *const Transport) f64 {
         return @as(f64, @floatFromInt(self.position_frames)) / self.framesPerBeat();
     }

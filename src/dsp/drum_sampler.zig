@@ -966,13 +966,6 @@ pub const DrumMachine = struct {
     // -----------------------------------------------------------------------
     // Audio thread processing
 
-    fn framesPerStep(self: *const DrumMachine) f64 {
-        const bpm = @max(self.transport.tempo_bpm, 1.0);
-        const fpb = @as(f64, @floatFromInt(self.sample_rate)) * 60.0 / bpm;
-        const spb = if (self.song_mode) self.song_steps_per_beat else self.steps_per_beat;
-        return @max(1.0, fpb / @as(f64, @floatFromInt(spb)));
-    }
-
     pub fn processBlock(self: *DrumMachine, buf: []Sample) void {
         const channels = 2;
         const frames: u32 = @intCast(buf.len / channels);
@@ -982,7 +975,7 @@ pub const DrumMachine = struct {
 
         if (self.transport.playing) {
             const pos_f = @as(f64, @floatFromInt(self.transport.position_frames));
-            const fps = self.framesPerStep();
+            const fps = self.transport.framesPerStep(if (self.song_mode) self.song_steps_per_beat else self.steps_per_beat);
             // Swing: off-beat 16ths (odd step_k) fire late by up to half a
             // step (75% = hardest shuffle). Even steps stay on the grid, so
             // the boundary positions remain strictly increasing.
