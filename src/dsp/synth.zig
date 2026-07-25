@@ -2398,6 +2398,17 @@ pub const PolySynth = struct {
         return last.value;
     }
 
+    fn setLfoCustomPhase(self: *PolySynth, slot: usize, index: usize, phase: f32) void {
+        var lo: f32 = 0.0;
+        var hi: f32 = 1.0;
+        const count = self.lfo_custom_count[slot];
+        if (index < count) {
+            if (index > 0) lo = self.lfo_custom[slot][index - 1].phase;
+            if (index + 1 < count) hi = self.lfo_custom[slot][index + 1].phase;
+        }
+        if (lo <= hi) self.lfo_custom[slot][index].phase = std.math.clamp(phase, lo, hi);
+    }
+
     /// Advance one LFO's phase by a block; a wrap redraws the slot's sample
     /// & hold level, and the slot's chaos attractor always integrates
     /// (cheap enough to do regardless of the active shape, same as sh).
@@ -3279,7 +3290,7 @@ pub const PolySynth = struct {
                         if (p.is_value) {
                             pt.value = std.math.clamp(pt.value + step_amt, -1.0, 1.0);
                         } else {
-                            pt.phase = std.math.clamp(pt.phase + step_amt, 0.0, 1.0);
+                            self.setLfoCustomPhase(p.slot, p.index, pt.phase + step_amt);
                         }
                     },
                 }
@@ -3337,7 +3348,7 @@ pub const PolySynth = struct {
                         if (p.is_value) {
                             pt.value = std.math.clamp(value, -1.0, 1.0);
                         } else {
-                            pt.phase = std.math.clamp(value, 0.0, 1.0);
+                            self.setLfoCustomPhase(p.slot, p.index, value);
                         }
                     },
                 }
@@ -4374,6 +4385,21 @@ test "adjustParam nudges a custom LFO point's phase/value and count" {
     try std.testing.expectEqual(max_lfo_shape_points, synth.lfo_custom_count[0]);
     synth.adjustParam(count_id, -100);
     try std.testing.expectEqual(@as(u8, 0), synth.lfo_custom_count[0]);
+}
+
+test "custom LFO phase edits cannot reorder points" {
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    synth.lfo_custom_count[0] = 3;
+    synth.lfo_custom[0][0].phase = 0.0;
+    synth.lfo_custom[0][1].phase = 0.4;
+    synth.lfo_custom[0][2].phase = 0.8;
+    const middle_phase_id = lfo_custom_id_base + 2;
+
+    synth.setParamAbsolute(middle_phase_id, 1.0);
+    try std.testing.expectEqual(@as(f32, 0.8), synth.lfo_custom[0][1].phase);
+    synth.adjustParam(middle_phase_id, -100);
+    try std.testing.expectEqual(@as(f32, 0.0), synth.lfo_custom[0][1].phase);
 }
 
 test "applyCC: cutoff logarithmic scaling" {
