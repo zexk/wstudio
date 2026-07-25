@@ -2,6 +2,7 @@ const std = @import("std");
 const ws = @import("wstudio");
 const zgui = @import("zgui");
 const automation_ed = @import("../../ui/editors/automation.zig");
+const history = @import("../../ui/history.zig");
 const style = @import("../style.zig");
 const widgets = @import("../widgets.zig");
 
@@ -130,6 +131,7 @@ fn drawCurve(app: anytype, points: *[]ws.dsp.automation.AutomationPoint, length_
         .height = plot_size[1],
     });
     if (curve_result.moved) |m| {
+        recordAutomationGesture(app);
         points.*[m.index] = .{ .beat = m.beat, .value = m.value };
         app.core.automation_cursor_step = @intFromFloat(@round(m.beat * 4));
         app.core.dirty = true;
@@ -140,6 +142,7 @@ fn drawCurve(app: anytype, points: *[]ws.dsp.automation.AutomationPoint, length_
         setPointAt(app, points, ins.beat, ins.value);
     }
     if (curve_result.removed) |beat| {
+        recordAutomationGesture(app);
         if (ws.dsp.automation.removePoint(app.core.allocator, points, beat)) {
             app.core.dirty = true;
             app.core.session.rebuildSongData();
@@ -250,13 +253,15 @@ fn drawEditor(app: anytype, points: *[]ws.dsp.automation.AutomationPoint, length
         zgui.popStyleColor(.{});
         zgui.sameLine(.{ .spacing = 6 });
         if (zgui.button("DELETE", .{ .h = 30 })) {
-            if (ws.dsp.automation.removePoint(app.core.allocator, points, cursor_beat)) {
+            if (ws.dsp.automation.hasPointAt(points.*, cursor_beat)) {
+                recordAutomationGesture(app);
+                _ = ws.dsp.automation.removePoint(app.core.allocator, points, cursor_beat);
                 app.core.dirty = true;
                 app.core.session.rebuildSongData();
             }
         }
         zgui.sameLine(.{ .spacing = 12 });
-        zgui.textDisabled("click add   right-click delete", .{});
+        zgui.textDisabled("click add   double-click delete", .{});
     }
     zgui.endChild();
 }
@@ -267,9 +272,16 @@ fn setPoint(app: anytype, points: *[]ws.dsp.automation.AutomationPoint, value: f
 }
 
 fn setPointAt(app: anytype, points: *[]ws.dsp.automation.AutomationPoint, beat: f64, value: f32) void {
+    recordAutomationGesture(app);
     ws.dsp.automation.setPoint(app.core.allocator, points, beat, value) catch return;
     app.core.dirty = true;
     app.core.session.rebuildSongData();
+}
+
+fn recordAutomationGesture(app: anytype) void {
+    if (app.automation_edit_active) return;
+    history.recordLane(&app.core, app.core.automation_track);
+    app.automation_edit_active = true;
 }
 
 pub fn drawParamPicker(app: anytype) void {
