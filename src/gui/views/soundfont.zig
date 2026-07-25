@@ -90,6 +90,7 @@ fn drawPresetRow(app: anytype, track: u16, sf: *ws.dsp.SoundfontPlayer) void {
 }
 
 fn setParam(app: anytype, track: u16, id: u8, value: f32) void {
+    app.recordInstrumentEdit(track, id);
     _ = app.core.session.engine.setTrackParam(track, id, value);
     app.core.dirty = true;
 }

@@ -129,7 +129,9 @@ fn drawAmpEnvelope(app: anytype, target: Target) void {
 }
 
 fn setPadParam(app: anytype, target: Target, id: u8, value: f32) void {
-    _ = app.core.session.engine.setTrackParam(target.track(), target.engineId(id), value);
+    const engine_id = target.engineId(id);
+    app.recordInstrumentEdit(target.track(), engine_id);
+    _ = app.core.session.engine.setTrackParam(target.track(), engine_id, value);
     app.core.dirty = true;
 }
 
@@ -382,7 +384,7 @@ fn drawWaveformRegion(app: anytype, target: Target, samples: []const f32) void {
             switch (handle) {
                 .start, .end => {
                     const id: u8 = if (handle == .start) 0 else 1;
-                    _ = app.core.session.engine.setTrackParam(target.track(), target.engineId(id), norm);
+                    setPadParam(app, target, id, norm);
                     app.core.sampler_param = id;
                 },
                 .fade_in, .fade_out => if (sample_rate > 0 and total_f > 0) {
@@ -391,7 +393,7 @@ fn drawWaveformRegion(app: anytype, target: Target, samples: []const f32) void {
                     const frac = if (handle == .fade_in) pos - start else end - pos;
                     const id: u8 = if (handle == .fade_in) 10 else 11;
                     const seconds = @max(0.0, frac) * total_f / sr_f;
-                    _ = app.core.session.engine.setTrackParam(target.track(), target.engineId(id), seconds);
+                    setPadParam(app, target, id, seconds);
                     app.core.sampler_param = id;
                 },
             }
