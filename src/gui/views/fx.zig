@@ -381,6 +381,7 @@ fn drawEqGraph(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, sel
                 spectrum_ed.setParam(&app.core, &unit.payload, gain_idx, eqYDb(origin[1], height, mouse[1]));
             }
             if (style.wheel_delta != 0) {
+                style.wheel_consumed = true;
                 const q_idx = band_index * spectrum_ed.eq_fields_per_band + spectrum_ed.eq_field_q;
                 const q = unit.payload.eq.bands[band_index].q * @exp(style.wheel_delta * 0.12);
                 spectrum_ed.setParam(&app.core, &unit.payload, q_idx, q);
