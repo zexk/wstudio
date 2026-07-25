@@ -115,12 +115,9 @@ fn drawCurve(app: anytype, points: *[]ws.dsp.automation.AutomationPoint, length_
     // grid, connecting lines, and one node per point, all in one widget
     // (widgets.zig's curveEditor). The view-specific chrome below (bar
     // ruler, axis labels, zero line, cursor readout) draws on top of it.
-    var curve_buf: [128]widgets.CurvePoint = undefined;
-    const curve_n = @min(points.*.len, curve_buf.len);
-    for (points.*[0..curve_n], curve_buf[0..curve_n]) |src, *dst| dst.* = .{ .beat = src.beat, .value = src.value };
     zgui.setCursorScreenPos(plot_origin);
     const curve_result = widgets.curveEditor("automation-curve", .{
-        .points = curve_buf[0..curve_n],
+        .points = points.*,
         .beat_hi = length_beats,
         .value_lo = value_range[0],
         .value_hi = value_range[1],

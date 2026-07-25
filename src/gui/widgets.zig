@@ -768,7 +768,7 @@ pub fn adsrEditor(label: [:0]const u8, args: Adsr) AdsrResult {
 /// `args.points` stays stable for the whole drag - `moved` addresses the
 /// point by that index, not by beat, so the caller can mutate it in place
 /// with no search.
-pub const CurvePoint = struct { beat: f64, value: f32 };
+pub const CurvePoint = ws.dsp.automation.AutomationPoint;
 
 pub const Curve = struct {
     points: []const CurvePoint,
