@@ -67,18 +67,21 @@ fn drawEmptyState() void {
 
 fn drawTargetStrip(app: anytype, clip: *ws.Clip) void {
     widgets.sectionTitle("CURVE", theme.focus);
-    drawTargetButton(app, "GAIN", .gain, 0);
-    zgui.sameLine(.{ .spacing = 6 });
-    drawTargetButton(app, "PAN", .pan, 1);
-    for (clip.automation.synth_params.items, 0..) |lane, i| {
+    if (zgui.beginChild("automation-targets", .{ .w = 0, .h = 52, .window_flags = .{ .horizontal_scrollbar = true } })) {
+        drawTargetButton(app, "GAIN", .gain, 0);
         zgui.sameLine(.{ .spacing = 6 });
-        const label = if (automation_ed.findAutomatableParam(&app.core, lane.param_id)) |p| p.label else "PARAM";
-        drawTargetButton(app, label, .{ .synth_param = lane.param_id }, i + 2);
+        drawTargetButton(app, "PAN", .pan, 1);
+        for (clip.automation.synth_params.items, 0..) |lane, i| {
+            zgui.sameLine(.{ .spacing = 6 });
+            const label = if (automation_ed.findAutomatableParam(&app.core, lane.param_id)) |p| p.label else "PARAM";
+            drawTargetButton(app, label, .{ .synth_param = lane.param_id }, i + 2);
+        }
+        zgui.sameLine(.{ .spacing = 8 });
+        if (zgui.button("+ PARAM##automation-param", .{ .h = 32 })) {
+            app.core.handleKey(.{ .char = 'p' }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
+        }
     }
-    zgui.sameLine(.{ .spacing = 8 });
-    if (zgui.button("+ PARAM##automation-param", .{ .h = 32 })) {
-        app.core.handleKey(.{ .char = 'p' }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
-    }
+    zgui.endChild();
 }
 
 fn drawTargetButton(app: anytype, text: []const u8, target: automation_ed.AutomationFocus, index: usize) void {
