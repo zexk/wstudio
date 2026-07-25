@@ -34,7 +34,7 @@ pub const Transport = struct {
     }
 
     pub fn framesPerStep(self: *const Transport, steps_per_beat: u8) f64 {
-        return @max(1.0, self.framesPerBeat() / @as(f64, @floatFromInt(steps_per_beat)));
+        return @max(1.0, self.framesPerBeat() / @as(f64, @floatFromInt(@max(steps_per_beat, 1))));
     }
 
     pub fn positionBeats(self: *const Transport) f64 {
@@ -128,6 +128,7 @@ test "invalid timing fields retain finite position calculations" {
     t.time_signature.beats_per_bar = 0;
     t.position_frames = 48_000;
     try std.testing.expect(std.math.isFinite(t.framesPerBeat()));
+    try std.testing.expect(std.math.isFinite(t.framesPerStep(0)));
     try std.testing.expect(std.math.isFinite(t.positionBeats()));
     try std.testing.expect(std.math.isFinite(t.positionSeconds()));
     const pos = t.positionBarBeat();
