@@ -181,8 +181,7 @@ fn drawMixerRow(app: anytype, track_index: u16, display_row: usize, height: f32)
     }
     badge_x -= 18;
     if (drawTrackBadgeToggle(draw_list, std.fmt.bufPrintZ(&badge_id_buf, "arm-{d}", .{track_index}) catch "arm", badge_x, origin[1] + 12, "R", app.core.session.isArmed(track_index), theme.danger)) {
-        app.core.session.toggleArm(track_index);
-        app.core.dirty = true;
+        app.core.apiSetTrackArmed(track_index, !app.core.session.isArmed(track_index));
     }
     drawTrackRowCursorOutline(chrome, height);
     // The badges above each moved the auto-layout cursor to their own small
