@@ -2531,13 +2531,13 @@ pub const PolySynth = struct {
         // zig fmt: off
         fc.f1    = self.svfCoeff(std.math.lerp(v0.f[0], v1.f[0], t));
         fc.damp1 = svfDamp(std.math.lerp(v0.f[0], v1.f[0], t), std.math.lerp(v0.bw[0], v1.bw[0], t) * bw_scale);
-        fc.gain1 = dbToLinear(std.math.lerp(v0.amp_db[0], v1.amp_db[0], t));
+        fc.gain1 = types.dbToGain(std.math.lerp(v0.amp_db[0], v1.amp_db[0], t));
         fc.f2    = self.svfCoeff(std.math.lerp(v0.f[1], v1.f[1], t));
         fc.damp2 = svfDamp(std.math.lerp(v0.f[1], v1.f[1], t), std.math.lerp(v0.bw[1], v1.bw[1], t) * bw_scale);
-        fc.gain2 = dbToLinear(std.math.lerp(v0.amp_db[1], v1.amp_db[1], t));
+        fc.gain2 = types.dbToGain(std.math.lerp(v0.amp_db[1], v1.amp_db[1], t));
         fc.f3    = self.svfCoeff(std.math.lerp(v0.f[2], v1.f[2], t));
         fc.damp3 = svfDamp(std.math.lerp(v0.f[2], v1.f[2], t), std.math.lerp(v0.bw[2], v1.bw[2], t) * bw_scale);
-        fc.gain3 = dbToLinear(std.math.lerp(v0.amp_db[2], v1.amp_db[2], t));
+        fc.gain3 = types.dbToGain(std.math.lerp(v0.amp_db[2], v1.amp_db[2], t));
         // zig fmt: on
         return fc;
     }
@@ -2553,10 +2553,6 @@ pub const PolySynth = struct {
     fn svfDamp(freq: f32, bw: f32) f32 {
         const q = std.math.clamp(freq / @max(bw, 1.0), 0.5, 40.0);
         return 1.0 / q;
-    }
-
-    fn dbToLinear(db: f32) f32 {
-        return std.math.pow(f32, 10.0, db / 20.0);
     }
 
     /// Constant-power, √2-compensated pan gains for `n` unison voices spread

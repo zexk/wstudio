@@ -29,9 +29,9 @@ pub const Saturator = struct {
         const out_db = dsp.sanitizeParam(self.out_db, -24.0, 24.0, 0.0);
         const mix = dsp.sanitizeParam(self.mix, 0.0, 1.0, 1.0);
         // zig fmt: off
-        const pre  = std.math.pow(f32, 10.0, drive_db / 20.0);
+        const pre  = types.dbToGain(drive_db);
         // zig fmt: on
-        const post = std.math.pow(f32, 10.0, out_db / 20.0);
+        const post = types.dbToGain(out_db);
         const norm = 1.0 / std.math.tanh(pre); // full-scale in → full-scale out
         for (buf) |*s| {
             const wet = std.math.tanh(s.* * pre) * norm * post;

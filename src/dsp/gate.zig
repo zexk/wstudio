@@ -35,7 +35,7 @@ pub const Gate = struct {
         const attack_ms = dsp.sanitizeParam(self.attack_ms, 0.1, 50.0, 1.0);
         const release_ms = dsp.sanitizeParam(self.release_ms, 5.0, 1000.0, 100.0);
         // zig fmt: off
-        const thresh    = std.math.pow(f32, 10.0, threshold_db / 20.0);
+        const thresh    = types.dbToGain(threshold_db);
         const det_decay = @exp(-1.0 / (0.050 * self.sample_rate));
         const attack    = @exp(-1.0 / (attack_ms * 0.001 * self.sample_rate));
         const release   = @exp(-1.0 / (release_ms * 0.001 * self.sample_rate));
