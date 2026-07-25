@@ -35,6 +35,7 @@ pub const App = struct {
     waveform_drag: ?sampler_view.RegionHandle = null,
     automation_edit_active: bool = false,
     instrument_edit_active: bool = false,
+    synth_edit_active: bool = false,
     meter_hold_db: [2]f32 = .{ -100, -100 },
     meter_last_ns: i128 = 0,
 
@@ -58,6 +59,7 @@ pub const App = struct {
     pub fn draw(self: *App, audio_label: []const u8) void {
         if (self.core.view != .piano_roll) self.piano_mouse_edit = null;
         if (self.core.view != .automation or !zgui.isMouseDown(.left)) self.automation_edit_active = false;
+        if (self.core.view != .synth_editor or !zgui.isMouseDown(.left)) self.synth_edit_active = false;
         if (self.instrument_edit_active and (!zgui.isMouseDown(.left) and !zgui.isAnyItemActive() or switch (self.core.view) {
             .sampler_editor, .soundfont_editor => false,
             else => true,
@@ -74,6 +76,12 @@ pub const App = struct {
     pub fn recordInstrumentEdit(self: *App, track: u16, id: u16) void {
         history.noteParamNudge(&self.core, track, id, 1);
         self.instrument_edit_active = true;
+    }
+
+    pub fn recordSynthEdit(self: *App) void {
+        if (self.synth_edit_active) return;
+        history.push(&self.core, history.captureTrackKindSwap(&self.core, self.core.synth_track));
+        self.synth_edit_active = true;
     }
 
     pub fn handleShortcuts(self: *App) void {
