@@ -815,6 +815,13 @@ fn curveToScreen(origin: [2]f32, w: f32, h: f32, beat_hi: f64, vlo: f32, vhi: f3
     return .{ origin[0] + tx * w, origin[1] + (1.0 - ty) * h };
 }
 
+fn snappedCurveBeat(raw: f64, fallback: f64, lo: f64, hi: f64, snap: f64) f64 {
+    if (lo > hi) return fallback;
+    var beat = std.math.clamp(raw, lo, hi);
+    if (snap > 0) beat = @round(beat / snap) * snap;
+    return std.math.clamp(beat, lo, hi);
+}
+
 pub fn curveEditor(label: [:0]const u8, args: Curve) CurveResult {
     const theme = &gui_style.palette;
     const width = args.width orelse zgui.getContentRegionAvail()[0];
@@ -874,8 +881,7 @@ pub fn curveEditor(label: [:0]const u8, args: Curve) CurveResult {
             const lo_beat: f64 = if (i == 0) 0 else args.points[i - 1].beat + args.snap_beats;
             const hi_beat: f64 = if (i + 1 == args.points.len) args.beat_hi else args.points[i + 1].beat - args.snap_beats;
             const raw_beat: f64 = if (args.beat_hi > 0) @as(f64, (mouse[0] - origin[0]) / width) * args.beat_hi else p.beat;
-            var new_beat = std.math.clamp(raw_beat, @min(lo_beat, hi_beat), @max(lo_beat, hi_beat));
-            if (args.snap_beats > 0) new_beat = @round(new_beat / args.snap_beats) * args.snap_beats;
+            const new_beat = snappedCurveBeat(raw_beat, p.beat, lo_beat, hi_beat, args.snap_beats);
             const norm = 1.0 - std.math.clamp((mouse[1] - origin[1]) / height, 0, 1);
             const new_value = args.value_lo + norm * (args.value_hi - args.value_lo);
             if (new_beat != p.beat or new_value != p.value) result.moved = .{ .index = i, .beat = new_beat, .value = new_value };
@@ -899,8 +905,7 @@ pub fn curveEditor(label: [:0]const u8, args: Curve) CurveResult {
 
     if (bg_activated and result.moved == null and result.removed == null and result.activated_index == null) {
         const raw_beat: f64 = if (args.beat_hi > 0) @as(f64, (bg_mouse[0] - origin[0]) / width) * args.beat_hi else 0;
-        var beat = std.math.clamp(raw_beat, 0, args.beat_hi);
-        if (args.snap_beats > 0) beat = @round(beat / args.snap_beats) * args.snap_beats;
+        const beat = snappedCurveBeat(raw_beat, 0, 0, args.beat_hi, args.snap_beats);
         const norm = 1.0 - std.math.clamp((bg_mouse[1] - origin[1]) / height, 0, 1);
         const value = args.value_lo + norm * (args.value_hi - args.value_lo);
         result.inserted = .{ .beat = beat, .value = value };
@@ -909,4 +914,10 @@ pub fn curveEditor(label: [:0]const u8, args: Curve) CurveResult {
     draw_list.addRect(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = gui_style.color(theme.bg4), .rounding = 3, .thickness = 1 });
     zgui.setCursorScreenPos(.{ origin[0], origin[1] + height });
     return result;
+}
+
+test "curve beat snapping preserves ordering and bounds" {
+    try std.testing.expectEqual(@as(f64, 0.5), snappedCurveBeat(0.9, 0.5, 0.65, 0.25, 0.25));
+    try std.testing.expectEqual(@as(f64, 1.2), snappedCurveBeat(1.2, 0.0, 0.0, 1.2, 0.7));
+    try std.testing.expectEqual(@as(f64, 0.3), snappedCurveBeat(0.26, 0.0, 0.3, 0.8, 0.25));
 }
