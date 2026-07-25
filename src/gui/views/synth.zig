@@ -474,7 +474,7 @@ fn drawOscillatorShape(draw_list: zgui.DrawList, pos: [2]f32, size: [2]f32, wave
         const phase = @as(f32, @floatFromInt(i)) / 48.0 * 2.0;
         const sample: f32 = switch (waveform) {
             .sine => @sin(phase * std.math.pi * 2.0),
-            .saw, .wavetable => phase - @floor(phase) * 2.0 - 1.0,
+            .saw, .wavetable => (phase - @floor(phase)) * 2.0 - 1.0,
             .triangle => 1.0 - 4.0 * @abs(@round(phase) - phase),
             .square => if (@mod(phase, 1.0) < 0.5) 1.0 else -1.0,
         };
