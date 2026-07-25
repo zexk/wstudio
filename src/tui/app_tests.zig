@@ -397,6 +397,12 @@ test "finishRecording stamps a Sampler clip from a synthetic capture, mirroring 
     var app = try testApp(); // synth(0), sampler(1), drums(2)
     defer app.deinit();
 
+    const old_sample_count = app.session.racks.items[1].instrument.sampler.pad.samples.len;
+    const old_user_sample = app.session.racks.items[1].instrument.sampler.pad.user_sample;
+    const old_note_count = app.session.racks.items[1].pattern_player.?.note_count;
+    const old_length_beats = app.session.racks.items[1].pattern_player.?.length_beats;
+    const old_clip_count = app.session.arrangement.lane(1).?.clips.items.len;
+
     // Same contrived-tempo trick `:load`'s own test uses: 1 frame == 1 beat,
     // so the beats-from-length math stays exact.
     app.session.project.tempo_bpm = @as(f64, @floatFromInt(app.session.project.sample_rate)) * 60.0;
@@ -423,6 +429,13 @@ test "finishRecording stamps a Sampler clip from a synthetic capture, mirroring 
     try std.testing.expectEqual(@as(u32, 64), lane.clips.items[0].start_tick);
     try std.testing.expectEqual(@as(u32, 256), lane.clips.items[0].length_ticks); // ceil(5 beats / 4 per bar)
     try std.testing.expectStringStartsWith(app.status_buf[0..app.status_len], "recorded 1 clip(s)");
+
+    history.doUndo(&app);
+    try std.testing.expectEqual(old_sample_count, app.session.racks.items[1].instrument.sampler.pad.samples.len);
+    try std.testing.expectEqual(old_user_sample, app.session.racks.items[1].instrument.sampler.pad.user_sample);
+    try std.testing.expectEqual(old_note_count, app.session.racks.items[1].pattern_player.?.note_count);
+    try std.testing.expectEqual(old_length_beats, app.session.racks.items[1].pattern_player.?.length_beats);
+    try std.testing.expectEqual(old_clip_count, app.session.arrangement.lane(1).?.clips.items.len);
 }
 
 test "finishRecording with no captured audio skips the stamp and reports it" {

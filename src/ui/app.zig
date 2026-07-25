@@ -2404,15 +2404,22 @@ pub const App = struct {
         var clip_count: usize = 0;
         for (targets) |track_idx| {
             const s = self.samplerAt(track_idx) orelse continue;
-            const copy = self.allocator.dupe(f32, self.recording_accum.items) catch continue;
+            var backup = history.captureTrackKindSwap(self, track_idx);
+            const copy = self.allocator.dupe(f32, self.recording_accum.items) catch {
+                if (backup) |*b| b.deinit(self.allocator);
+                continue;
+            };
             s.setSamples(copy, "recorded");
             s.pad.user_sample = true;
 
             const notes = [_]pattern_mod.Note{.{ .pitch = s.root_note, .start_beat = 0.0, .duration_beat = length_beats }};
             self.session.racks.items[track_idx].pattern_player.?.setNotes(&notes, length_beats);
 
-            history.recordLane(self, @intCast(track_idx));
-            self.session.stampClipAtTick(track_idx, self.arr_cursor_bar * self.arr_grid.ticks()) catch continue;
+            self.session.stampClipAtTick(track_idx, self.arr_cursor_bar * self.arr_grid.ticks()) catch {
+                if (backup) |*b| b.deinit(self.allocator);
+                continue;
+            };
+            history.push(self, backup);
             clip_count += 1;
         }
         if (self.session.song_mode) self.session.rebuildSongData();
