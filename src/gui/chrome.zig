@@ -22,14 +22,13 @@ pub fn drawTransport(app: anytype, audio_label: []const u8) void {
     zgui.setNextWindowSize(.{ .w = zgui.io.getDisplaySize()[0], .h = 64, .cond = .always });
     if (zgui.begin("Transport", .{ .flags = .{ .no_title_bar = true, .no_resize = true, .no_move = true, .no_docking = true, .no_scrollbar = true, .no_scroll_with_mouse = true } })) {
         const display_frames = app.core.displayPositionFrames(snap.position_frames);
-        const beat = ws.types.framesToSeconds(display_frames, app.core.session.project.sample_rate) * app.core.session.project.tempo_bpm / 60.0;
-        const beat_index: u32 = @intFromFloat(beat);
+        const bar_beat = app.core.session.engine.transport.barBeatAtFrames(display_frames);
         var tempo_buf: [32]u8 = undefined;
         const tempo = std.fmt.bufPrint(&tempo_buf, "{d:.1} BPM", .{app.core.session.project.tempo_bpm}) catch "tempo";
         var position_buf: [32]u8 = undefined;
         const position = std.fmt.bufPrint(&position_buf, "{d:0>3}.{d}", .{
-            beat_index / app.core.session.project.beats_per_bar + 1,
-            beat_index % app.core.session.project.beats_per_bar + 1,
+            bar_beat.bar +| 1,
+            bar_beat.beat + 1,
         }) catch "position";
         var meter_buf: [32]u8 = undefined;
         const meter = std.fmt.bufPrint(&meter_buf, "{d}/4", .{app.core.session.project.beats_per_bar}) catch "meter";

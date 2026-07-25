@@ -10,6 +10,8 @@ pub const TimeSignature = struct {
     beat_unit: u8 = 4,
 };
 
+pub const BarBeat = struct { bar: u64, beat: u64 };
+
 pub const Transport = struct {
     sample_rate: u32,
     tempo_bpm: f64 = 120.0,
@@ -46,8 +48,12 @@ pub const Transport = struct {
     }
 
     /// Bar/beat as shown in a position display (zero-based).
-    pub fn positionBarBeat(self: *const Transport) struct { bar: u64, beat: u64 } {
-        const beats = self.positionBeats();
+    pub fn positionBarBeat(self: *const Transport) BarBeat {
+        return self.barBeatAtFrames(self.position_frames);
+    }
+
+    pub fn barBeatAtFrames(self: *const Transport, position_frames: u64) BarBeat {
+        const beats = @as(f64, @floatFromInt(position_frames)) / self.framesPerBeat();
         const total_beats: u64 = if (!std.math.isFinite(beats) or
             beats >= @as(f64, @floatFromInt(std.math.maxInt(u64))))
             std.math.maxInt(u64)
@@ -145,6 +151,9 @@ test "position display saturates when beat count exceeds u64" {
     const pos = t.positionBarBeat();
     try std.testing.expectEqual(std.math.maxInt(u64) / 4, pos.bar);
     try std.testing.expectEqual(std.math.maxInt(u64) % 4, pos.beat);
+
+    const external = t.barBeatAtFrames(std.math.maxInt(u64));
+    try std.testing.expectEqual(pos, external);
 }
 
 test "advance saturates at the frame counter limit" {
