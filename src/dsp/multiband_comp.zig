@@ -237,10 +237,6 @@ pub const MultibandComp = struct {
         self.recomputeCrossover();
     }
 
-    fn smoothingCoef(self: *const MultibandComp, ms: f32) f32 {
-        return @exp(-1.0 / (ms * 0.001 * self.sample_rate));
-    }
-
     pub fn processBlock(self: *MultibandComp, buf: []Sample) void {
         const frames = buf.len / 2;
         // A non-positive attack_ms/release_ms flips smoothingCoef's exponent
@@ -249,8 +245,8 @@ pub const MultibandComp = struct {
         const attack_ms = dsp.sanitizeParam(self.attack_ms, 0.1, 500.0, 10.0);
         const release_ms = dsp.sanitizeParam(self.release_ms, 1.0, 2000.0, 80.0);
         const mix = dsp.sanitizeParam(self.mix, 0.0, 1.0, 1.0);
-        const attack = self.smoothingCoef(attack_ms);
-        const release = self.smoothingCoef(release_ms);
+        const attack = dsp.smoothingCoefMs(attack_ms, self.sample_rate);
+        const release = dsp.smoothingCoefMs(release_ms, self.sample_rate);
 
         for (0..frames) |i| {
             const dry_l = buf[i * 2];

@@ -13,6 +13,10 @@ pub fn sanitizeParam(val: f32, lo: f32, hi: f32, default: f32) f32 {
     return if (std.math.isFinite(val)) std.math.clamp(val, lo, hi) else default;
 }
 
+pub fn smoothingCoefMs(ms: f32, sample_rate: f32) f32 {
+    return @exp(-1.0 / (ms * 0.001 * sample_rate));
+}
+
 pub const Event = union(enum) {
     note_on: struct { note: u7, velocity: f32 },
     note_off: struct { note: u7 },

@@ -37,8 +37,8 @@ pub const Gate = struct {
         // zig fmt: off
         const thresh    = types.dbToGain(threshold_db);
         const det_decay = @exp(-1.0 / (0.050 * self.sample_rate));
-        const attack    = @exp(-1.0 / (attack_ms * 0.001 * self.sample_rate));
-        const release   = @exp(-1.0 / (release_ms * 0.001 * self.sample_rate));
+        const attack    = dsp.smoothingCoefMs(attack_ms, self.sample_rate);
+        const release   = dsp.smoothingCoefMs(release_ms, self.sample_rate);
         var i: usize = 0;
         while (i + 1 < buf.len) : (i += 2) {
             const peak = @max(@abs(buf[i]), @abs(buf[i + 1]));

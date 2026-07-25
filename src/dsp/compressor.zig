@@ -55,10 +55,6 @@ pub const Compressor = struct {
 
     pub const device = dsp.deviceOf(@This());
 
-    fn smoothingCoef(self: *const Compressor, ms: f32) f32 {
-        return @exp(-1.0 / (ms * 0.001 * self.sample_rate));
-    }
-
     /// Feed-forward envelope-follower update (attack/release smoothing).
     /// Shared with `MultibandComp`'s per-band stage (`dsp/multiband_comp.zig`
     /// `BandComp.gainFor`) - returns the updated envelope's dB-over-threshold
@@ -87,8 +83,8 @@ pub const Compressor = struct {
         const ratio = dsp.sanitizeParam(self.ratio, 1.0, 20.0, 4.0);
         const threshold_db = dsp.sanitizeParam(self.threshold_db, -60.0, 0.0, -18.0);
         const makeup_db = dsp.sanitizeParam(self.makeup_db, -24.0, 24.0, 0.0);
-        const attack = self.smoothingCoef(attack_ms);
-        const release = self.smoothingCoef(release_ms);
+        const attack = dsp.smoothingCoefMs(attack_ms, self.sample_rate);
+        const release = dsp.smoothingCoefMs(release_ms, self.sample_rate);
         const makeup = types.dbToGain(makeup_db);
         // Detector buffer must match this block's frame count to be safe to
         // index alongside `buf` - a mismatched length (chain resync landed
