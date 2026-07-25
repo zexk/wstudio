@@ -306,6 +306,7 @@ pub fn knob(label: [:0]const u8, args: Knob) KnobResult {
         }
     }
     if (hovered and gui_style.wheel_delta != 0) {
+        gui_style.wheel_consumed = true;
         const step: f32 = if (zgui.isKeyDown(.mod_ctrl)) 0.05 else 0.005;
         const t0 = knobValueToT(args.min, args.max, args.v.*, args.logarithmic);
         const t1 = std.math.clamp(t0 + gui_style.wheel_delta * step, 0, 1);
@@ -430,6 +431,7 @@ pub fn listStepper(label_text: []const u8, id: [:0]const u8, args: ListStepper) 
     const mouse = zgui.getMousePos();
     const row_hovered = mouse[0] >= row_origin[0] and mouse[0] < row_max[0] and mouse[1] >= row_origin[1] and mouse[1] < row_max[1];
     if (row_hovered and gui_style.wheel_delta != 0) {
+        gui_style.wheel_consumed = true;
         const next = std.math.clamp(args.v.* + (if (gui_style.wheel_delta > 0) @as(f32, 1) else -1), args.min, args.max);
         if (next != args.v.*) {
             args.v.* = next;
@@ -684,6 +686,7 @@ pub fn adsrEditor(label: [:0]const u8, args: Adsr) AdsrResult {
             }
         }
         if (node_hovered and gui_style.wheel_delta != 0) {
+            gui_style.wheel_consumed = true;
             args.attack.* = std.math.clamp(args.attack.* * @exp(gui_style.wheel_delta * envelopeScrollStep()), args.attack_range[0], args.attack_range[1]);
             result.changed[0] = true;
         }
@@ -735,6 +738,7 @@ pub fn adsrEditor(label: [:0]const u8, args: Adsr) AdsrResult {
             }
         }
         if (node_hovered and gui_style.wheel_delta != 0) {
+            gui_style.wheel_consumed = true;
             args.release.* = std.math.clamp(args.release.* * @exp(gui_style.wheel_delta * envelopeScrollStep()), args.release_range[0], args.release_range[1]);
             result.changed[3] = true;
         }
@@ -877,6 +881,7 @@ pub fn curveEditor(label: [:0]const u8, args: Curve) CurveResult {
             if (new_beat != p.beat or new_value != p.value) result.moved = .{ .index = i, .beat = new_beat, .value = new_value };
         }
         if (node_hovered and result.moved == null and gui_style.wheel_delta != 0) {
+            gui_style.wheel_consumed = true;
             const step_frac: f32 = if (zgui.isKeyDown(.mod_ctrl)) 0.05 else 0.005;
             const step: f32 = step_frac * (args.value_hi - args.value_lo);
             const new_value = std.math.clamp(p.value + gui_style.wheel_delta * step, args.value_lo, args.value_hi);

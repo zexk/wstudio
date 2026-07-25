@@ -69,13 +69,10 @@ fn onChar(_: *glfw.Window, codepoint: u32) callconv(.c) void {
 
 // Same takeover-and-reforward as onChar: zgui.backend.init installs ImGui's
 // own GLFW scroll callback (GLFW keeps one slot per window, so ours replaces
-// it), so we forward to zgui.io.addMouseWheelEvent ourselves - list/child
-// window scrolling still needs ImGui to see the event - while also stashing
-// the y delta in gui_style.wheel_delta for wstudio's own knob/stepper
-// widgets, which have no way to ask ImGui for it back (see wheel_delta's
-// doc comment).
+// it). Stash the delta until custom controls can claim it; drawFrame forwards
+// unclaimed input to ImGui one frame later for list/child scrolling.
 fn onScroll(_: *glfw.Window, xoffset: f64, yoffset: f64) callconv(.c) void {
-    zgui.io.addMouseWheelEvent(@floatCast(xoffset), @floatCast(yoffset));
+    gui_style.wheel_x_delta += @floatCast(xoffset);
     gui_style.wheel_delta += @floatCast(yoffset);
 }
 
@@ -89,7 +86,12 @@ fn drawFrame() void {
     zgui.backend.newFrame(@intCast(fb[0]), @intCast(fb[1]));
     ctx.app.handleShortcuts();
     ctx.app.draw(ctx.audio.label());
+    const imgu_wheel_y: f32 = if (gui_style.wheel_consumed) 0 else gui_style.wheel_delta;
+    if (gui_style.wheel_x_delta != 0 or imgu_wheel_y != 0)
+        zgui.io.addMouseWheelEvent(gui_style.wheel_x_delta, imgu_wheel_y);
+    gui_style.wheel_x_delta = 0;
     gui_style.wheel_delta = 0;
+    gui_style.wheel_consumed = false;
     zgui.backend.draw();
     ctx.window.swapBuffers();
 }

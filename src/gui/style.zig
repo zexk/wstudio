@@ -90,12 +90,12 @@ pub var meter_decay_db_per_s: f32 = 24.0;
 /// from the user (scroll up). zgui exposes no getter for ImGui's own
 /// `io.MouseWheel` (only the setter side, `zgui.io.addMouseWheelEvent`, for
 /// feeding events in) - so `gui.zig`'s GLFW scroll callback stashes its own
-/// copy here for widgets to read, the same reason `app.zig`'s `queued_char`
-/// exists instead of asking ImGui for the typed character back. Cleared once
-/// per frame in `gui.zig`'s `drawFrame`, after every widget has had a chance
-/// to read it - a widget should gate on `isItemHovered` first, same as
-/// ImGui's own convention that only the hovered item reacts to the wheel.
+/// copy here for widgets to read. Unclaimed input is forwarded to ImGui after
+/// drawing, preventing one wheel event from changing a control and scrolling
+/// its parent onto a different control at the same screen position.
 pub var wheel_delta: f32 = 0;
+pub var wheel_x_delta: f32 = 0;
+pub var wheel_consumed: bool = false;
 
 test "track cursor stays outside every theme's track rotation" {
     for (std.meta.tags(ws.theme_identity.Name)) |name| {

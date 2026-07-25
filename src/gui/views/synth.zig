@@ -397,7 +397,10 @@ fn drawAnyParam(app: anytype, synth: *ws.dsp.PolySynth, id: u8, label_text: []co
     const row_max = zgui.getItemRectMax();
     const mouse = zgui.getMousePos();
     const row_hovered = mouse[0] >= row_origin[0] and mouse[0] < row_max[0] and mouse[1] >= row_origin[1] and mouse[1] < row_max[1];
-    if (row_hovered and gui_style.wheel_delta != 0) nudgeParam(app, id, if (gui_style.wheel_delta > 0) 'l' else 'h');
+    if (row_hovered and gui_style.wheel_delta != 0) {
+        gui_style.wheel_consumed = true;
+        nudgeParam(app, id, if (gui_style.wheel_delta > 0) 'l' else 'h');
+    }
 }
 
 /// A boolean param rendered as a single on/off button - `nudgeParam`'s
