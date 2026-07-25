@@ -4,7 +4,6 @@
 //! (`capture.zig`'s `AudioInput`) all agree on one canonical block type
 //! without an import cycle between them.
 
-const std = @import("std");
 const types = @import("../core/types.zig");
 const Spsc = @import("../core/ring_buffer.zig").Spsc;
 

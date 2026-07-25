@@ -7,7 +7,6 @@
 //! here - same convention the synth editor's wavetable import already
 //! follows.
 
-const std = @import("std");
 const ws = @import("wstudio");
 const modal_mod = ws.input;
 const app_mod = @import("../app.zig");

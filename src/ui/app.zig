@@ -7,7 +7,6 @@
 //! tui/app_tests.zig.
 
 const std = @import("std");
-const builtin = @import("builtin");
 const ws = @import("wstudio");
 const types = ws.types;
 const engine_mod = ws.engine;
