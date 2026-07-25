@@ -408,7 +408,7 @@ fn searchBestAlign(
 ) f64 {
     const hop_i: usize = @intFromFloat(@max(1.0, @round(hop)));
     const steps: i64 = @intFromFloat(@round(search_r));
-    if (steps <= 0) return nominal_src;
+    if (steps <= 0) return std.math.clamp(nominal_src, lo, hi - 1.0);
 
     // Normalized cross-correlation, not raw SSD: a decaying/enveloped source
     // (any one-shot with a release) has systematically lower energy further
@@ -462,7 +462,7 @@ fn searchBestAlign(
             best_k = d;
         }
     }
-    return nominal_src + @as(f64, @floatFromInt(best_k));
+    return std.math.clamp(nominal_src + @as(f64, @floatFromInt(best_k)), lo, hi - 1.0);
 }
 
 // -----------------------------------------------------------------------
@@ -632,6 +632,12 @@ test "renderVoice keeps its cursor when stretch changes during playback" {
     p.stretch_ratio = 1.0;
     renderVoice(&voice, &p, &buf, 2, 5, 1000.0);
     try std.testing.expectApproxEqAbs(@as(f32, 10.0), buf[0], 1e-6);
+}
+
+test "WSOLA alignment stays inside the trimmed sample region" {
+    const samples = [_]f32{0.0} ** 100;
+    try std.testing.expectEqual(@as(f64, 20.0), searchBestAlign(&samples, 30.0, -10.0, 2.0, 10.0, 1.0, 20.0, 80.0));
+    try std.testing.expectEqual(@as(f64, 79.0), searchBestAlign(&samples, 30.0, 100.0, 2.0, 10.0, 1.0, 20.0, 80.0));
 }
 
 test "adjustParam uses the same bounds as absolute parameter assignment" {
