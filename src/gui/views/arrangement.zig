@@ -10,7 +10,18 @@ const zgui = @import("zgui");
 const color = gui_style.color;
 const theme = &gui_style.palette;
 
+pub const ClipSelection = struct { track: usize, clip: usize, start_tick: u32 };
+
+fn clipSelectionValid(arrangement: *const ws.Arrangement, selection: ClipSelection) bool {
+    if (selection.track >= arrangement.lanes.items.len) return false;
+    const clips = arrangement.lanes.items[selection.track].clips.items;
+    return selection.clip < clips.len and clips[selection.clip].start_tick == selection.start_tick;
+}
+
 pub fn draw(app: anytype) void {
+    if (app.arrangement_clip) |selection| {
+        if (!clipSelectionValid(&app.core.session.arrangement, selection)) app.arrangement_clip = null;
+    }
     zgui.textDisabled(icons.arrangement ++ "  ARRANGEMENT", .{});
     zgui.sameLine(.{});
     zgui.textColored(if (app.core.session.song_mode) theme.audio else theme.fg3, "{s}", .{if (app.core.session.song_mode) "SONG" else "PATTERN"});
@@ -206,7 +217,7 @@ pub fn draw(app: anytype) void {
             app.core.arr_cursor_bar = tick / app.core.arr_grid.ticks();
             for (app.core.session.arrangement.lanes.items[ti].clips.items, 0..) |clip, ci| {
                 if (clip.covers(tick)) {
-                    app.arrangement_clip = .{ .track = ti, .clip = ci };
+                    app.arrangement_clip = .{ .track = ti, .clip = ci, .start_tick = clip.start_tick };
                     break;
                 }
             }
@@ -214,6 +225,21 @@ pub fn draw(app: anytype) void {
     }
     zgui.spacing();
     drawArrangementInspector(app);
+}
+
+test "clip selection rejects deleted or displaced clips" {
+    var arrangement: ws.Arrangement = .{};
+    defer arrangement.deinit(std.testing.allocator);
+    try arrangement.addLane(std.testing.allocator);
+    try arrangement.lanes.items[0].place(std.testing.allocator, try ws.Clip.initMelodic(std.testing.allocator, 16, 16, &.{}, 1.0));
+
+    const selection: ClipSelection = .{ .track = 0, .clip = 0, .start_tick = 16 };
+    try std.testing.expect(clipSelectionValid(&arrangement, selection));
+    try std.testing.expect(arrangement.lanes.items[0].removeAt(std.testing.allocator, 16));
+    try std.testing.expect(!clipSelectionValid(&arrangement, selection));
+
+    try arrangement.lanes.items[0].place(std.testing.allocator, try ws.Clip.initMelodic(std.testing.allocator, 32, 16, &.{}, 1.0));
+    try std.testing.expect(!clipSelectionValid(&arrangement, selection));
 }
 
 fn drawArrangementInspector(app: anytype) void {

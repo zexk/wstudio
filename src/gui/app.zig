@@ -27,7 +27,7 @@ const zgui = @import("zgui");
 pub const App = struct {
     core: tui_app.App,
     picker_return_view: tui_app.AppView = .tracks,
-    arrangement_clip: ?struct { track: usize, clip: usize } = null,
+    arrangement_clip: ?arrangement_view.ClipSelection = null,
     piano_top_pitch: u7 = 84,
     piano_mouse_edit: ?piano_view.MouseEdit = null,
     eq_drag_band: ?u8 = null,
