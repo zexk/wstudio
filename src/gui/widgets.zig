@@ -300,8 +300,11 @@ pub fn knob(label: [:0]const u8, args: Knob) KnobResult {
         if (delta[1] != 0) {
             const t0 = knobValueToT(args.min, args.max, args.v.*, args.logarithmic);
             const t1 = std.math.clamp(t0 - delta[1] / gui_style.knob_drag_pixels, 0, 1);
-            args.v.* = knobTToValue(args.min, args.max, t1, args.logarithmic);
-            changed = true;
+            const next = knobTToValue(args.min, args.max, t1, args.logarithmic);
+            if (next != args.v.*) {
+                args.v.* = next;
+                changed = true;
+            }
             zgui.resetMouseDragDelta(.left);
         }
     }
@@ -310,8 +313,11 @@ pub fn knob(label: [:0]const u8, args: Knob) KnobResult {
         const step: f32 = if (zgui.isKeyDown(.mod_ctrl)) 0.05 else 0.005;
         const t0 = knobValueToT(args.min, args.max, args.v.*, args.logarithmic);
         const t1 = std.math.clamp(t0 + gui_style.wheel_delta * step, 0, 1);
-        args.v.* = knobTToValue(args.min, args.max, t1, args.logarithmic);
-        changed = true;
+        const next = knobTToValue(args.min, args.max, t1, args.logarithmic);
+        if (next != args.v.*) {
+            args.v.* = next;
+            changed = true;
+        }
     }
 
     var popup_buf: [80]u8 = undefined;
@@ -323,8 +329,11 @@ pub fn knob(label: [:0]const u8, args: Knob) KnobResult {
         zgui.setKeyboardFocusHere(0);
         const edit_cfmt: [:0]const u8 = if (std.mem.eql(u8, args.cfmt, pan_cfmt)) "%.2f" else args.cfmt;
         if (zgui.inputFloat("##value", .{ .v = &edit, .cfmt = edit_cfmt, .flags = .{ .enter_returns_true = true } })) {
-            args.v.* = std.math.clamp(edit, args.min, args.max);
-            changed = true;
+            const next = std.math.clamp(edit, args.min, args.max);
+            if (next != args.v.*) {
+                args.v.* = next;
+                changed = true;
+            }
             zgui.closeCurrentPopup();
         }
         zgui.endPopup();
