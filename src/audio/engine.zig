@@ -101,11 +101,11 @@ pub const AutomationTarget = enum { gain, pan };
 /// coverage no longer implies a fixed point-buffer cost per track.
 pub const max_synth_slots = 256;
 
-/// One synth-param automation slot. `param_id` matches `PolySynth.
-/// setParamAbsolute`'s id space (filter cutoff is just param_id 21 here, no
-/// longer a dedicated field) or `null` for an unused slot.
+/// One instrument-param automation slot. Array index is parameter id;
+/// `active` lets audio thread skip empty curves without racing control-side
+/// rebuilds.
 const SynthAutomationSlot = struct {
-    param_id: ?u8 = null,
+    active: std.atomic.Value(bool) = .init(false),
     curve: AutomationCurve = .{},
 };
 
@@ -252,7 +252,7 @@ const AutomationPair = struct {
         self.pan.set(allocator, &.{}) catch unreachable;
         for (&self.synth_slots) |*slot| {
             slot.curve.set(allocator, &.{}) catch unreachable;
-            slot.param_id = null;
+            slot.active.store(false, .release);
         }
     }
 
@@ -261,7 +261,9 @@ const AutomationPair = struct {
         self.pan.swapPoints(&other.pan);
         for (&self.synth_slots, &other.synth_slots) |*a, *b| {
             a.curve.swapPoints(&b.curve);
-            std.mem.swap(?u8, &a.param_id, &b.param_id);
+            const active = a.active.load(.acquire);
+            a.active.store(b.active.load(.acquire), .release);
+            b.active.store(active, .release);
         }
     }
 };
@@ -675,7 +677,7 @@ pub const Engine = struct {
         const pair = &self.automation[@min(track, max_tracks - 1)];
         const slot = &pair.synth_slots[param_id];
         slot.curve.set(self.allocator, points) catch @panic("out of memory setting parameter automation");
-        slot.param_id = if (points.len == 0) null else param_id;
+        slot.active.store(points.len != 0, .release);
     }
 
     /// Clear every synth-param automation slot for a track (control thread).
@@ -685,8 +687,8 @@ pub const Engine = struct {
     pub fn clearTrackSynthParams(self: *Engine, track: u16) void {
         const pair = &self.automation[@min(track, max_tracks - 1)];
         for (&pair.synth_slots) |*slot| {
-            slot.param_id = null;
             slot.curve.set(self.allocator, &.{}) catch unreachable;
+            slot.active.store(false, .release);
         }
     }
 
@@ -1015,10 +1017,10 @@ pub const Engine = struct {
         // adjustParam/CC already use. Only fires for slots actually
         // holding a param this track (valueAt is null otherwise), so
         // tracks with no synth-param automation pay nothing extra.
-        for (&auto.synth_slots) |*slot| {
-            const pid = slot.param_id orelse continue;
+        for (&auto.synth_slots, 0..) |*slot, pid| {
+            if (!slot.active.load(.acquire)) continue;
             if (slot.curve.valueAt(beat_pos)) |val| {
-                self.sendTrackEvent(ti, .{ .set_param_abs = .{ .id = pid, .value = val } });
+                self.sendTrackEvent(ti, .{ .set_param_abs = .{ .id = @intCast(pid), .value = val } });
             }
         }
 
@@ -1283,7 +1285,7 @@ test "setTrackSynthParam covers the complete persisted parameter id space" {
         engine.setTrackSynthParam(0, @intCast(i), &.{.{ .beat = 0.0, .value = 1.0 }});
     }
     const pair = &engine.automation[0];
-    for (pair.synth_slots) |slot| try std.testing.expect(slot.param_id != null);
+    for (&pair.synth_slots) |*slot| try std.testing.expect(slot.active.load(.acquire));
 }
 
 test "notes sound even while transport is stopped (live preview)" {
@@ -1977,11 +1979,11 @@ test "applyDeleteTrack shifts the parallel automation and sidechain rows with th
 
     // Track 2's rows moved down to slot 1 alongside its TrackState...
     try std.testing.expectApproxEqAbs(@as(f32, 0.7), engine.automation[1].gain.valueAt(0.0).?, 1e-6);
-    try std.testing.expectEqual(@as(?u8, 21), engine.automation[1].synth_slots[21].param_id);
+    try std.testing.expect(engine.automation[1].synth_slots[21].active.load(.acquire));
     try std.testing.expectEqual(@as(u16, 7), engine.track_sidechain[1][1].?.track);
     // ...and the vacated last slot is fully cleared, not left stale.
     try std.testing.expect(engine.automation[2].gain.valueAt(0.0) == null);
-    try std.testing.expectEqual(@as(?u8, null), engine.automation[2].synth_slots[21].param_id);
+    try std.testing.expect(!engine.automation[2].synth_slots[21].active.load(.acquire));
     try std.testing.expectEqual(@as(?Compressor.SidechainSource, null), engine.track_sidechain[2][1]);
 }
 
