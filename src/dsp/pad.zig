@@ -191,6 +191,7 @@ pub const Voice = struct {
 };
 
 const StretchState = struct {
+    active: bool = false,
     /// Current grain's source-frame anchor.
     cur_src: f64 = 0,
     /// Outgoing grain's natural (no-jump) continuation anchor.
@@ -238,9 +239,17 @@ pub fn renderVoice(
     // two grains' worth of material - otherwise fall through to the plain
     // path below unchanged (byte-for-byte identical at stretch_ratio == 1.0).
     if (pad.stretch_ratio != 1.0 and region_len >= 2.0 * grainFrames(sample_rate)) {
+        if (!voice.stretch.active) {
+            voice.stretch = .{
+                .active = true,
+                .cur_src = if (pad.reverse) hi - 1.0 - voice.played else lo + voice.played,
+                .out_played = voice.played / rate,
+            };
+        }
         renderVoiceStretched(voice, pad, buf, channels, frames, sample_rate, lo, hi, rate, gl, gr);
         return;
     }
+    voice.stretch.active = false;
 
     const start = voice.block_start;
     var i: usize = start;
@@ -375,6 +384,8 @@ fn renderVoiceStretched(
 
         st.out_in_grain += 1;
         st.out_played += 1.0;
+        const next_read = st.cur_src + dir * @as(f64, @floatFromInt(st.out_in_grain)) * rate;
+        voice.played = if (pad.reverse) hi - 1.0 - next_read else next_read - lo;
     }
     voice.block_start = 0;
 }
@@ -603,6 +614,24 @@ test "renderVoice keeps zero-rate plain and stretched output finite" {
         renderVoice(&voice, &p, &buf, 2, 16, 0.0);
         for (buf) |sample| try std.testing.expect(std.math.isFinite(sample));
     }
+}
+
+test "renderVoice keeps its cursor when stretch changes during playback" {
+    var samples: [100]f32 = undefined;
+    for (&samples, 0..) |*sample, i| sample.* = @floatFromInt(i);
+    var p = Pad{ .samples = &samples, .attack_s = 0.0, .release_s = 0.001 };
+    var voice = Voice{ .active = true };
+    var buf = [_]Sample{0.0} ** 20;
+
+    renderVoice(&voice, &p, &buf, 2, 5, 1000.0);
+    p.stretch_ratio = 2.0;
+    renderVoice(&voice, &p, &buf, 2, 5, 1000.0);
+    try std.testing.expectApproxEqAbs(@as(f32, 5.0), buf[0], 1e-6);
+
+    @memset(&buf, 0.0);
+    p.stretch_ratio = 1.0;
+    renderVoice(&voice, &p, &buf, 2, 5, 1000.0);
+    try std.testing.expectApproxEqAbs(@as(f32, 10.0), buf[0], 1e-6);
 }
 
 test "adjustParam uses the same bounds as absolute parameter assignment" {
