@@ -2331,8 +2331,8 @@ fn applyToSynth(s: *PolySynth, ss: *const SynthSnap) void {
 
 /// One `.custom` LFO slot's points from a snap onto the live fixed array +
 /// count, clamped to the same phase/value ranges `setParamAbsolute` enforces
-/// per-point. `null`/empty/over-capacity all collapse to "however many
-/// points fit, in file order" - a hand-edited file overrunning
+/// per-point and sorted into the order playback requires. `null`/empty/
+/// over-capacity all collapse to "however many points fit". A hand-edited file overrunning
 /// `max_lfo_shape_points` just gets truncated rather than rejected, same
 /// spirit as `mod_matrix`'s row cap above.
 fn applyLfoCustomSnap(dst_points: *[synth_mod.max_lfo_shape_points]synth_mod.LfoShapePoint, dst_count: *u8, src: ?[]const synth_mod.LfoShapePoint) void {
@@ -2340,10 +2340,15 @@ fn applyLfoCustomSnap(dst_points: *[synth_mod.max_lfo_shape_points]synth_mod.Lfo
     const n = @min(pts.len, synth_mod.max_lfo_shape_points);
     for (pts[0..n], dst_points[0..n]) |p, *d| {
         d.* = .{
-            .phase = std.math.clamp(p.phase, 0.0, 1.0),
-            .value = std.math.clamp(p.value, -1.0, 1.0),
+            .phase = finiteClamp(f32, p.phase, 0.0, 1.0, 0.0),
+            .value = finiteClamp(f32, p.value, -1.0, 1.0, 0.0),
         };
     }
+    std.mem.sort(synth_mod.LfoShapePoint, dst_points[0..n], {}, struct {
+        fn lessThan(_: void, a: synth_mod.LfoShapePoint, b: synth_mod.LfoShapePoint) bool {
+            return a.phase < b.phase;
+        }
+    }.lessThan);
     dst_count.* = @intCast(n);
 }
 
@@ -3203,6 +3208,19 @@ test "load sanitizes non-finite project, automation, pad, and note fields" {
     try testing.expectEqual(@as(f64, 0.0), note.start_beat);
     try testing.expectEqual(@as(f64, 0.0), note.duration_beat);
     try testing.expectEqual(pattern_mod.default_velocity, note.velocity);
+
+    var lfo_points: [synth_mod.max_lfo_shape_points]synth_mod.LfoShapePoint = undefined;
+    var lfo_count: u8 = 0;
+    applyLfoCustomSnap(&lfo_points, &lfo_count, &.{
+        .{ .phase = 0.8, .value = nan32 },
+        .{ .phase = nan32, .value = 2.0 },
+        .{ .phase = 0.2, .value = -2.0 },
+    });
+    try testing.expectEqual(@as(u8, 3), lfo_count);
+    try testing.expectEqual(@as(f32, 0.0), lfo_points[0].phase);
+    try testing.expectEqual(@as(f32, 0.2), lfo_points[1].phase);
+    try testing.expectEqual(@as(f32, 0.8), lfo_points[2].phase);
+    try testing.expectEqual(@as(f32, 0.0), lfo_points[2].value);
 }
 
 test "clip load clamps invalid loop, step, and velocity values" {
