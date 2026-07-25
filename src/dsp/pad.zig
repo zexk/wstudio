@@ -213,6 +213,7 @@ pub fn renderVoice(
     frames: u32,
     sr: f64,
 ) void {
+    const sample_rate = @max(sr, 1.0);
     const len = pad.samples.len;
     // zig fmt: off
     if (len == 0) { voice.active = false; return; }
@@ -236,8 +237,8 @@ pub fn renderVoice(
     // WSOLA time-stretch: only when requested and the region holds at least
     // two grains' worth of material - otherwise fall through to the plain
     // path below unchanged (byte-for-byte identical at stretch_ratio == 1.0).
-    if (pad.stretch_ratio != 1.0 and region_len >= 2.0 * grainFrames(sr)) {
-        renderVoiceStretched(voice, pad, buf, channels, frames, sr, lo, hi, rate, gl, gr);
+    if (pad.stretch_ratio != 1.0 and region_len >= 2.0 * grainFrames(sample_rate)) {
+        renderVoiceStretched(voice, pad, buf, channels, frames, sample_rate, lo, hi, rate, gl, gr);
         return;
     }
 
@@ -256,8 +257,8 @@ pub fn renderVoice(
         // release fade over the final `release_s` of the region, and the
         // edit fades - fade-in over elapsed time, fade-out over remaining
         // time - multiplied on top (see the Pad field doc comment).
-        const t_out = voice.played / rate / sr;
-        const left_out = (region_len - voice.played) / rate / sr;
+        const t_out = voice.played / rate / sample_rate;
+        const left_out = (region_len - voice.played) / rate / sample_rate;
         const env = adsrLevel(t_out, pad.attack_s, pad.decay_s, pad.sustain) *
             linearRamp(left_out, pad.release_s) *
             linearRamp(t_out, pad.fade_in_s) *
@@ -591,6 +592,17 @@ test "renderVoice applies fade-in and fade-out ramps on top of the ADSR" {
     renderVoice(&flat_voice, &flat, &flat_buf, 2, 1000, 1000.0);
     try testing.expectApproxEqAbs(@as(f32, 1.0), flat_buf[50 * 2], 0.02);
     try testing.expectApproxEqAbs(@as(f32, 1.0), flat_buf[900 * 2], 0.02);
+}
+
+test "renderVoice keeps zero-rate plain and stretched output finite" {
+    var samples = [_]f32{1.0} ** 64;
+    for ([_]f32{ 1.0, 2.0 }) |stretch_ratio| {
+        const p = Pad{ .samples = &samples, .stretch_ratio = stretch_ratio };
+        var voice = Voice{ .active = true };
+        var buf = [_]Sample{0.0} ** 32;
+        renderVoice(&voice, &p, &buf, 2, 16, 0.0);
+        for (buf) |sample| try std.testing.expect(std.math.isFinite(sample));
+    }
 }
 
 test "adjustParam uses the same bounds as absolute parameter assignment" {
