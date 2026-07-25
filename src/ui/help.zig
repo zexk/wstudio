@@ -4,7 +4,6 @@
 //! stays with each frontend (tui/views/help.zig, gui/views/help.zig).
 
 const std = @import("std");
-const ws = @import("wstudio");
 const cmd_mod = @import("cmd.zig");
 const config_mod = @import("../config.zig");
 const ansi = @import("ansi.zig");

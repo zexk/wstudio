@@ -3,7 +3,6 @@
 //! this file only renders a scroll window of it.
 
 const std = @import("std");
-const ws = @import("wstudio");
 const cmd_mod = @import("../../ui/cmd.zig");
 const config_mod = @import("../../config.zig");
 const help_model = @import("../../ui/help.zig");

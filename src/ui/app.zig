@@ -11,7 +11,6 @@ const builtin = @import("builtin");
 const ws = @import("wstudio");
 const types = ws.types;
 const engine_mod = ws.engine;
-const backend_mod = ws.backend;
 const modal_mod = ws.input;
 const Transport = ws.Transport;
 const DrumMachine = ws.dsp.DrumMachine;
