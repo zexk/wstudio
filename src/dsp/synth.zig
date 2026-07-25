@@ -2748,36 +2748,39 @@ pub const PolySynth = struct {
         return oscSample(self.osc_b_waveform, self.osc_b_wt, self.osc_b_warp_mode, phase, pw, warp_amount, wt_pos);
     }
 
-    /// Remap a 0..1 read phase before waveform lookup. `amount` is 0..1 and
-    /// every mode is (near-)identity at 0, so toggling `warp_mode` alone
-    /// (before touching amount) never changes the sound.
+    /// Remap a read phase before waveform lookup. Keep normalization here as
+    /// a last audio-thread boundary: extreme pitch/FM can advance by more
+    /// than one cycle, while malformed runtime state must not produce NaNs.
     fn warpPhase(mode: WarpMode, phase: f32, amount: f32) f32 {
+        const p = if (std.math.isFinite(phase)) phase - @floor(phase) else 0.0;
+        const a = if (std.math.isFinite(amount)) std.math.clamp(amount, 0.0, 1.0) else 0.0;
         return switch (mode) {
-            .none => phase,
+            .none => p,
             // Pivot the ramp: one side of the cycle covers more phase than
             // the other, same trick classic phase-distortion synths use.
             .bend => blk: {
-                const pivot = 0.5 + amount * 0.49;
-                break :blk if (phase < pivot)
-                    phase / pivot * 0.5
+                const pivot = 0.5 + a * 0.49;
+                break :blk if (p < pivot)
+                    p / pivot * 0.5
                 else
-                    0.5 + (phase - pivot) / (1.0 - pivot) * 0.5;
+                    0.5 + (p - pivot) / (1.0 - pivot) * 0.5;
             },
             // Fold the tail of the cycle back on itself instead of letting
             // it run forward past the pivot.
             .mirror => blk: {
-                const pivot = 1.0 - amount * 0.5;
-                break :blk if (phase < pivot)
-                    phase
+                if (a == 0.0) break :blk p;
+                const pivot = 1.0 - a * 0.5;
+                break :blk if (p < pivot)
+                    p
                 else
-                    pivot - (phase - pivot) / (1.0 - pivot) * pivot;
+                    pivot - (p - pivot) / (1.0 - pivot) * pivot;
             },
             // Multiply-and-wrap: each sub-cycle restarts at 0 in lockstep
             // with the fundamental, giving a hard-sync-like buzz with no
             // second phase accumulator needed.
             .sync => blk: {
-                const p = phase * (1.0 + amount * 7.0);
-                break :blk p - @floor(p);
+                const warped = p * (1.0 + a * 7.0);
+                break :blk warped - @floor(warped);
             },
         };
     }
@@ -4011,6 +4014,38 @@ test "mod_dest_ids covers every non-excluded automatable param" {
     for (PolySynth.automatable_params) |p| {
         if (PolySynth.isModDestExcluded(p.id)) continue;
         try std.testing.expect(PolySynth.modDestIndex(p.id) != null);
+    }
+}
+
+test "warpPhase is identity at zero and always returns a normalized finite phase" {
+    const modes = [_]WarpMode{ .none, .bend, .mirror, .sync };
+    const phases = [_]f32{ -3.25, 0.0, 0.125, 0.5, 0.999_999, 1.0, 9.75 };
+    for (modes) |mode| {
+        for (phases) |phase| {
+            const normalized = phase - @floor(phase);
+            try std.testing.expectApproxEqAbs(normalized, PolySynth.warpPhase(mode, phase, 0.0), 1e-6);
+        }
+        for (phases) |phase| {
+            for ([_]f32{ -1.0, 0.0, 0.5, 1.0, 2.0 }) |amount| {
+                const warped = PolySynth.warpPhase(mode, phase, amount);
+                try std.testing.expect(std.math.isFinite(warped));
+                try std.testing.expect(warped >= 0.0 and warped < 1.0);
+            }
+        }
+    }
+}
+
+test "warpPhase contains non-finite runtime inputs" {
+    const bad = [_]f32{ std.math.nan(f32), std.math.inf(f32), -std.math.inf(f32) };
+    for ([_]WarpMode{ .none, .bend, .mirror, .sync }) |mode| {
+        for (bad) |value| {
+            const bad_phase = PolySynth.warpPhase(mode, value, 0.75);
+            const bad_amount = PolySynth.warpPhase(mode, 0.75, value);
+            try std.testing.expect(std.math.isFinite(bad_phase));
+            try std.testing.expect(std.math.isFinite(bad_amount));
+            try std.testing.expect(bad_phase >= 0.0 and bad_phase < 1.0);
+            try std.testing.expect(bad_amount >= 0.0 and bad_amount < 1.0);
+        }
     }
 }
 

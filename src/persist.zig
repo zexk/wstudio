@@ -2498,6 +2498,10 @@ test "snapshot types: JSON round-trip preserves synth params, notes, drum patter
                     .gain = 0.77,
                     .filter_cutoff = 3_000.0,
                     .voice_mode = .mono,
+                    .warp_mode = .mirror,
+                    .warp_amount = 0.65,
+                    .osc_b_warp_mode = .sync,
+                    .osc_b_warp_amount = 0.35,
                     .notes = &.{
                         .{ .pitch = 69, .start_beat = 0.0, .duration_beat = 1.0, .velocity = 0.9 },
                     },
@@ -2528,6 +2532,10 @@ test "snapshot types: JSON round-trip preserves synth params, notes, drum patter
     try testing.expectApproxEqAbs(@as(f32, 0.77), sr.gain, 1e-4);
     try testing.expectApproxEqAbs(@as(f32, 3_000.0), sr.filter_cutoff, 1.0);
     try testing.expectEqual(synth_mod.VoiceMode.mono, sr.voice_mode);
+    try testing.expectEqual(synth_mod.WarpMode.mirror, sr.warp_mode);
+    try testing.expectApproxEqAbs(@as(f32, 0.65), sr.warp_amount, 1e-4);
+    try testing.expectEqual(synth_mod.WarpMode.sync, sr.osc_b_warp_mode);
+    try testing.expectApproxEqAbs(@as(f32, 0.35), sr.osc_b_warp_amount, 1e-4);
     try testing.expectEqual(@as(usize, 1), sr.notes.len);
     try testing.expectEqual(@as(u8, 69), sr.notes[0].pitch);
     try testing.expectApproxEqAbs(@as(f64, 8.0), sr.length_beats, 1e-9);
@@ -3845,6 +3853,8 @@ test "buildSession clamps malformed synth params from a hand-edited file" {
                     .attack_s = -1.0,
                     .sustain = 5.0,
                     .pulse_width = 0.0,
+                    .warp_amount = -50.0,
+                    .osc_b_warp_amount = 50.0,
                     .lfo_rate_hz = 0.0,
                     .swing = 999.0,
                     .fx_tape_wow_rate_hz = 999.0,
@@ -3864,6 +3874,8 @@ test "buildSession clamps malformed synth params from a hand-edited file" {
     try testing.expect(s.attack_s >= 0.001);
     try testing.expect(s.sustain <= 1.0);
     try testing.expect(s.pulse_width >= 0.01);
+    try testing.expectEqual(@as(f32, 0.0), s.warp_amount);
+    try testing.expectEqual(@as(f32, 1.0), s.osc_b_warp_amount);
     try testing.expect(s.lfo_rate_hz >= 0.01);
     try testing.expect(s.fx_tape_wow_rate_hz <= 3.0);
 
