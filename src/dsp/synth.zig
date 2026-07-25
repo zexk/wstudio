@@ -2409,6 +2409,19 @@ pub const PolySynth = struct {
         if (lo <= hi) self.lfo_custom[slot][index].phase = std.math.clamp(phase, lo, hi);
     }
 
+    fn setLfoCustomCount(self: *PolySynth, slot: usize, new_count: u8) void {
+        const old_count = self.lfo_custom_count[slot];
+        if (new_count > old_count) {
+            for (old_count..new_count) |index| {
+                if (index > 0) {
+                    const previous = self.lfo_custom[slot][index - 1].phase;
+                    self.lfo_custom[slot][index].phase = @max(previous, self.lfo_custom[slot][index].phase);
+                }
+            }
+        }
+        self.lfo_custom_count[slot] = new_count;
+    }
+
     /// Advance one LFO's phase by a block; a wrap redraws the slot's sample
     /// & hold level, and the slot's chaos attractor always integrates
     /// (cheap enough to do regardless of the active shape, same as sh).
@@ -3282,7 +3295,7 @@ pub const PolySynth = struct {
                 switch (decodeLfoCustomId(id)) {
                     .count => |c| {
                         const cur: i32 = self.lfo_custom_count[c.slot];
-                        self.lfo_custom_count[c.slot] = @intCast(std.math.clamp(cur + steps, 0, @as(i32, max_lfo_shape_points)));
+                        self.setLfoCustomCount(c.slot, @intCast(std.math.clamp(cur + steps, 0, @as(i32, max_lfo_shape_points))));
                     },
                     .point => |p| {
                         const step_amt: f32 = @as(f32, @floatFromInt(steps)) * 0.01;
@@ -3342,7 +3355,7 @@ pub const PolySynth = struct {
             // nudge above only matters for keyboard-only editing).
             lfo_custom_id_base...lfo_custom_id_base + 3 * lfo_custom_ids_per_slot - 1 => {
                 switch (decodeLfoCustomId(id)) {
-                    .count => |c| self.lfo_custom_count[c.slot] = @intCast(std.math.clamp(@as(i32, @intFromFloat(@round(value))), 0, @as(i32, max_lfo_shape_points))),
+                    .count => |c| self.setLfoCustomCount(c.slot, @intCast(std.math.clamp(@as(i32, @intFromFloat(@round(value))), 0, @as(i32, max_lfo_shape_points)))),
                     .point => |p| {
                         const pt = &self.lfo_custom[p.slot][p.index];
                         if (p.is_value) {
@@ -4381,6 +4394,7 @@ test "adjustParam nudges a custom LFO point's phase/value and count" {
     try std.testing.expectEqual(@as(u8, 2), synth.lfo_custom_count[0]);
     synth.adjustParam(count_id, 1);
     try std.testing.expectEqual(@as(u8, 3), synth.lfo_custom_count[0]);
+    try std.testing.expect(synth.lfo_custom[0][2].phase >= synth.lfo_custom[0][1].phase);
     synth.adjustParam(count_id, 100);
     try std.testing.expectEqual(max_lfo_shape_points, synth.lfo_custom_count[0]);
     synth.adjustParam(count_id, -100);
