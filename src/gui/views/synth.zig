@@ -218,6 +218,9 @@ fn drawSectionCard(app: anytype, synth: *ws.dsp.PolySynth, section: synth_layout
             drawMatrixRow(app, synth, entry.id, accent);
             continue;
         }
+        // Polarity toggles are drawn as the last cell of their own matrix
+        // row above, not as a standalone param.
+        if (isMatrixPolarity(entry.id)) continue;
         if (isEnvelopeTail(entry.id) or isFilterResonance(entry.id)) continue;
         if (isEnvelopeBase(entry.id)) {
             flow.brk();
@@ -257,6 +260,11 @@ fn isEnvelopeTail(id: u16) bool {
 
 fn isFilterCutoff(id: u16) bool {
     return id == 21 or id == 47;
+}
+
+fn isMatrixPolarity(id: u16) bool {
+    const base = ws.dsp.PolySynth.mod_unipolar_id_base;
+    return id >= base and id < base + ws.dsp.PolySynth.max_mod_rows;
 }
 
 fn isFilterResonance(id: u16) bool {
@@ -499,6 +507,11 @@ fn drawMatrixRow(app: anytype, synth: *ws.dsp.PolySynth, base_id: u16, accent: [
     zgui.sameLine(.{ .spacing = 6 });
     const sign: []const u8 = if (row.depth >= 0.0) "+" else "";
     zgui.textColored(if (on) theme.fg2 else theme.fg3, "{s}{d:.2}", .{ sign, row.depth });
+
+    // Polarity: a stepper, not a knob - it's a two-state list param.
+    zgui.sameLine(.{ .spacing = 8 });
+    const pol_id: u16 = @intCast(ws.dsp.PolySynth.mod_unipolar_id_base + slot);
+    drawSlotStepper(app, pol_id, if (row.unipolar) "uni" else "bi", unit * 3.4, if (on and row.source.isBipolar()) accent else theme.fg3);
 }
 
 /// A matrix slot's source or destination: the same boxed stepper the param

@@ -387,6 +387,10 @@ pub fn writeParamValue(synth: *const ws.dsp.PolySynth, id: u16, w: *std.Io.Write
                 else => {},
             }
         },
+        ws.dsp.PolySynth.mod_unipolar_id_base...ws.dsp.PolySynth.mod_unipolar_id_base + ws.dsp.PolySynth.max_mod_rows - 1 => {
+            const row = synth.mod_matrix[id - ws.dsp.PolySynth.mod_unipolar_id_base];
+            try w.writeAll(if (row.unipolar) "unipolar" else "bipolar");
+        },
         // zig fmt: off
         83 => try w.writeAll(if (synth.fx_dist_on) "on" else "off"),
         84 => try w.print("{d:.1} dB",    .{synth.fx_dist_drive_db}),

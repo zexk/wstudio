@@ -146,11 +146,20 @@ pub const mod_sections = [_]SectionDef{
     // the top of their own columns. The sources come first, what routes
     // them comes after - and being third in its band puts it in the column
     // the other two leave empty.
+    // Each row is two entries: the packed source/dest/depth triplet, then
+    // its polarity toggle. The toggle can't be a fourth field of the
+    // triplet - entry fields must be contiguous ids, and 59-82 is packed
+    // 3-per-row - so it gets its own entry, placed right after so j/k
+    // still walks a row's controls together.
     .{ .title = "MATRIX", .tone = .mod, .band = 1, .params = &.{
-        .{ .id = 59, .label = "1", .fields = 3 }, .{ .id = 62, .label = "2", .fields = 3 },
-        .{ .id = 65, .label = "3", .fields = 3 }, .{ .id = 68, .label = "4", .fields = 3 },
-        .{ .id = 71, .label = "5", .fields = 3 }, .{ .id = 74, .label = "6", .fields = 3 },
-        .{ .id = 77, .label = "7", .fields = 3 }, .{ .id = 80, .label = "8", .fields = 3 },
+        .{ .id = 59, .label = "1", .fields = 3 }, .{ .id = 269, .label = "1 pol" },
+        .{ .id = 62, .label = "2", .fields = 3 }, .{ .id = 270, .label = "2 pol" },
+        .{ .id = 65, .label = "3", .fields = 3 }, .{ .id = 271, .label = "3 pol" },
+        .{ .id = 68, .label = "4", .fields = 3 }, .{ .id = 272, .label = "4 pol" },
+        .{ .id = 71, .label = "5", .fields = 3 }, .{ .id = 273, .label = "5 pol" },
+        .{ .id = 74, .label = "6", .fields = 3 }, .{ .id = 274, .label = "6 pol" },
+        .{ .id = 77, .label = "7", .fields = 3 }, .{ .id = 275, .label = "7 pol" },
+        .{ .id = 80, .label = "8", .fields = 3 }, .{ .id = 276, .label = "8 pol" },
     } },
 };
 // zig fmt: on
@@ -426,7 +435,7 @@ comptime {
             if (sec.band < sections[i - 1].band) @compileError("synth_layout: bands must be declared in ascending order");
         }
     }
-    var seen = [_]bool{false} ** 269;
+    var seen = [_]bool{false} ** 277;
     for (main_sections) |sec| {
         for (sec.params) |p| {
             var f: u8 = 0;

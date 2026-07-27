@@ -788,15 +788,30 @@ fn secMatrix(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
         const sel_src = c == base;
         const sel_dst = c == base + 1;
         const sel_dep = c == base + 2;
-        const focused = sel_src or sel_dst or sel_dep;
+        const pol_id: u16 = @intCast(ws.dsp.PolySynth.mod_unipolar_id_base + k);
+        const sel_pol = c == pol_id;
+        const focused = sel_src or sel_dst or sel_dep or sel_pol;
 
         if (focused) {
             try w.writeAll(bcyn ++ bold);
-            try w.print("\u{25B8} {d}  ", .{k + 1});
+            try w.print("\u{25B8} {d} ", .{k + 1});
         } else {
-            try w.print("  {d}  ", .{k + 1});
+            try w.print("  {d} ", .{k + 1});
         }
         try w.writeAll(rst);
+
+        // Polarity leads the row rather than trailing it: at three columns
+        // the depth readout is already flush with the right edge, and a
+        // leading cell also lets the whole matrix's polarity be read down
+        // one column. Dimmed on sources that are already unipolar - the
+        // toggle still stores, it just has nothing to fold.
+        if (sel_pol) {
+            try w.writeAll(bwht ++ bold);
+        } else if (off or !row.source.isBipolar()) {
+            try w.writeAll(dim);
+        }
+        try w.writeAll(if (row.unipolar) "un" else "bi");
+        try w.writeAll(rst ++ " ");
 
         if (sel_src) {
             try w.writeAll(bwht ++ bold);
@@ -804,7 +819,7 @@ fn secMatrix(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
             try w.writeAll(dim);
         }
         try w.print("{s: <5}", .{synth_layout.modSourceName(row.source)});
-        try w.writeAll(rst ++ "  ");
+        try w.writeAll(rst ++ " ");
 
         if (sel_dst) {
             try w.writeAll(bwht ++ bold);
@@ -812,7 +827,7 @@ fn secMatrix(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
             try w.writeAll(dim);
         }
         try w.print("{s: <14}", .{ws.dsp.PolySynth.modDestLabel(row.dest)});
-        try w.writeAll(rst ++ "  ");
+        try w.writeAll(rst ++ " ");
 
         const bc = if (sel_dep) bcyn else if (off) dim else mag;
         try synthBar(w, row.depth + 1.0, 2.0, sel_dep, bc);

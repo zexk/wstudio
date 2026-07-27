@@ -153,7 +153,19 @@ pub const LfoTarget  = enum { none, filter, pitch, amp };
 /// macro knobs are synth-global; fenv/aenv/velocity/keytrack are per-voice.
 /// Macros are plain 0..1 values fanned out through matrix rows - one knob
 /// (or one automation lane, ids 99-102) moving many destinations at once.
-pub const ModSource  = enum { none, lfo, fenv, aenv, velocity, keytrack, wheel, lfo2, lfo3, mac1, mac2, mac3, mac4, env3 };
+pub const ModSource  = enum { none, lfo, fenv, aenv, velocity, keytrack, wheel, lfo2, lfo3, mac1, mac2, mac3, mac4, env3,
+
+    /// True for the sources that swing through negative values. The
+    /// envelopes, velocity, the wheel, and the macros are all already
+    /// 0..1, so `ModRow.unipolar` has nothing to fold for them and is
+    /// deliberately a no-op rather than squashing their range into 0.5..1.
+    pub fn isBipolar(self: ModSource) bool {
+        return switch (self) {
+            .lfo, .lfo2, .lfo3, .keytrack => true,
+            else => false,
+        };
+    }
+};
 pub const VoiceMode  = enum { poly, mono, legato };
 pub const SubShape   = enum { sine, square };
 pub const ModMode    = enum { none, ring, am_a_to_b, am_b_to_a, fm_a_to_b, fm_b_to_a };
@@ -1037,11 +1049,26 @@ pub const PolySynth = struct {
     /// One mod-matrix row. `dest` is a `mod_dest_ids` entry; `depth` is
     /// bipolar, scaled by the dest param's full range (linear params), or
     /// ±4 octaves (cutoffs), ±1 octave (pitch), ±1x gain (amp) at |1|.
+    ///
+    /// `unipolar` folds a bipolar source's -1..1 swing into 0..1, so the row
+    /// only ever pushes the destination one way from where its knob sits
+    /// instead of straddling it - the difference between a cutoff wobble
+    /// that sweeps up from 400 Hz and one centred on it. A no-op on sources
+    /// that are already unipolar (see `ModSource.isBipolar`), so it's safe
+    /// to leave set while auditioning different sources on a row.
     pub const ModRow = struct {
         source: ModSource = .none,
         dest: u16 = 21,
         depth: f32 = 0.0,
+        unipolar: bool = false,
     };
+
+    /// Flat id space for the per-row `unipolar` toggles: row `k` at
+    /// `mod_unipolar_id_base + k`. A separate block rather than a fourth
+    /// field inside the 59-82 band, because that band is packed 3-per-row
+    /// and widening it in place would renumber every depth id that saved
+    /// automation lanes already point at.
+    pub const mod_unipolar_id_base: u16 = 269;
 
     /// Automatable params that aren't legal matrix destinations: the global
     /// LFO rate/phase/slew controls (an LFO's own motion is set on its row,
@@ -1882,7 +1909,8 @@ pub const PolySynth = struct {
                 .env3     => if (v) |vv| vv.env3 else 0.0,
                 // zig fmt: on
             };
-            const a = row.depth * src;
+            const polar = if (row.unipolar and row.source.isBipolar()) src * 0.5 + 0.5 else src;
+            const a = row.depth * polar;
             for (acc.dests[0..acc.count], 0..) |d, i| {
                 if (d == row.dest) {
                     acc.amts[i] += a;
@@ -3513,6 +3541,13 @@ pub const PolySynth = struct {
                 }
                 return;
             },
+            mod_unipolar_id_base...mod_unipolar_id_base + max_mod_rows - 1 => {
+                if (steps != 0) {
+                    const row = &self.mod_matrix[id - mod_unipolar_id_base];
+                    row.unipolar = !row.unipolar;
+                }
+                return;
+            },
             // `.custom` LFO shape points - see decodeLfoCustomId's doc
             // comment. `count` steps one point per press (H/L jumps 10,
             // clamped to the fixed capacity); phase/value nudge like any
@@ -3564,7 +3599,7 @@ pub const PolySynth = struct {
                 switch ((id - 59) % 3) {
                     0 => row.source = enumFromValue(ModSource, value),
                     1 => {
-                        const d: u8 = if (value > 0.0 and value <= 255.0)
+                        const d: u16 = if (value > 0.0 and value <= 65535.0)
                             @intFromFloat(@round(value))
                         else
                             21;
@@ -3573,6 +3608,10 @@ pub const PolySynth = struct {
                     2 => row.depth = std.math.clamp(value, -1.0, 1.0),
                     else => unreachable,
                 }
+                return;
+            },
+            mod_unipolar_id_base...mod_unipolar_id_base + max_mod_rows - 1 => {
+                self.mod_matrix[id - mod_unipolar_id_base].unipolar = value >= 0.5;
                 return;
             },
             // `.custom` LFO shape points - see decodeLfoCustomId's doc
@@ -3617,6 +3656,7 @@ pub const PolySynth = struct {
     /// .toggle`) - lets editors draw these as a single toggle button instead
     /// of a generic -/+ stepper, without hand-keeping a second id list.
     pub fn isToggleParam(id: u16) bool {
+        if (id >= mod_unipolar_id_base and id < mod_unipolar_id_base + max_mod_rows) return true;
         inline for (param_specs) |spec| {
             if (spec.id == id) return spec.kind == .toggle;
         }
@@ -3633,6 +3673,9 @@ pub const PolySynth = struct {
                     2 => row.depth,
                     else => unreachable,
                 };
+            },
+            mod_unipolar_id_base...mod_unipolar_id_base + max_mod_rows - 1 => {
+                return if (self.mod_matrix[id - mod_unipolar_id_base].unipolar) 1.0 else 0.0;
             },
             lfo_custom_id_base...lfo_custom_id_base + 3 * lfo_custom_ids_per_slot - 1 => {
                 return switch (decodeLfoCustomId(id)) {
@@ -4315,6 +4358,52 @@ test "LFO 2 tremolo via matrix: square trough at depth=1 silences the voice" {
     try std.testing.expectApproxEqAbs(@as(f32, 0.0), rms, 1e-6);
     // A frozen (rate 0) phase survives the per-block advance untouched.
     try std.testing.expectApproxEqAbs(@as(f32, 0.75), s.lfo2_phase, 1e-6);
+}
+
+test "unipolar mod row: folds a bipolar source to 0..1, leaves unipolar ones alone" {
+    var s = try PolySynth.init(std.testing.allocator, 48_000);
+    defer s.deinit();
+    s.lfo_shape = .square;
+    s.lfo_rate_hz = 0.0; // frozen
+    s.lfo_phase = 0.75; // square trough → -1
+    s.mod_matrix[0] = .{ .source = .lfo, .dest = PolySynth.dest_amp, .depth = 1.0 };
+
+    // Bipolar: the trough reads -1, so a depth-1 row subtracts a full unit.
+    var acc = s.evalMatrix(null, .{ -1.0, 0.0, 0.0 });
+    try std.testing.expectApproxEqAbs(@as(f32, -1.0), acc.amt(PolySynth.dest_amp), 1e-6);
+
+    // Unipolar: the same trough becomes 0, so the row contributes nothing
+    // below the knob - it only ever pushes upward.
+    s.mod_matrix[0].unipolar = true;
+    acc = s.evalMatrix(null, .{ -1.0, 0.0, 0.0 });
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), acc.amt(PolySynth.dest_amp), 1e-6);
+    // ...and the peak still reaches full depth.
+    acc = s.evalMatrix(null, .{ 1.0, 0.0, 0.0 });
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), acc.amt(PolySynth.dest_amp), 1e-6);
+
+    // An already-unipolar source is untouched: velocity 0.5 stays 0.5, not
+    // squashed into 0.75 by a second bipolar-to-unipolar fold.
+    var uni = try PolySynth.init(std.testing.allocator, 48_000);
+    defer uni.deinit();
+    uni.mod_matrix[0] = .{ .source = .velocity, .dest = PolySynth.dest_amp, .depth = 1.0, .unipolar = true };
+    uni.noteOn(60, 0.5);
+    const voice_acc = uni.evalMatrix(&uni.voices[uni.newest_voice], .{ 0.0, 0.0, 0.0 });
+    try std.testing.expectApproxEqAbs(@as(f32, 0.5), voice_acc.amt(PolySynth.dest_amp), 1e-6);
+}
+
+test "unipolar mod row: reachable through the flat param id space" {
+    var s = try PolySynth.init(std.testing.allocator, 48_000);
+    defer s.deinit();
+    const id = PolySynth.mod_unipolar_id_base + 3;
+    try std.testing.expect(PolySynth.isToggleParam(id));
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), s.paramValue(id).?, 1e-6);
+    s.adjustParam(id, 1);
+    try std.testing.expect(s.mod_matrix[3].unipolar);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), s.paramValue(id).?, 1e-6);
+    s.setParamAbsolute(id, 0.0);
+    try std.testing.expect(!s.mod_matrix[3].unipolar);
+    // Rows keep their own polarity - id 272 must not touch row 0.
+    try std.testing.expect(!s.mod_matrix[0].unipolar);
 }
 
 test "LFO tempo sync: rate follows the transport, not the Hz knob" {
