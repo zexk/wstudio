@@ -1654,6 +1654,12 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
     if (snap.version > file_version) return error.UnsupportedVersion;
     if (snap.tracks.len != snap.racks.len) return error.MalformedProject;
     if (snap.tracks.len > engine_mod.max_tracks) return error.MalformedProject;
+    // Every other path holds "a session always has at least one track"
+    // (`deleteTrack` refuses to remove the last one), so views index
+    // `tracks.items[0]` after a saturating clamp rather than re-checking
+    // emptiness. A hand-edited/truncated file with an empty pair would
+    // hand them a zero-length list to index.
+    if (snap.tracks.len == 0) return error.MalformedProject;
     if (snap.sample_rate < 8_000 or snap.sample_rate > 384_000) return error.InvalidSampleRate;
     const beats_per_bar = std.math.clamp(snap.beats_per_bar, 1, 16);
     const steps_per_bar = @as(u32, beats_per_bar) * 4;
@@ -3605,6 +3611,13 @@ test "buildSession: rejects malformed and future files" {
     try testing.expectError(error.MalformedProject, buildSession(testing.allocator, &.{
         .tracks = &.{ .{ .name = "a" }, .{ .name = "b" } },
         .racks = &.{.{ .label = "e", .kind = .empty }},
+    }));
+
+    // Matched but empty: breaks the at-least-one-track invariant every
+    // view relies on.
+    try testing.expectError(error.MalformedProject, buildSession(testing.allocator, &.{
+        .tracks = &.{},
+        .racks = &.{},
     }));
 
     // The engine has a fixed track bank. Reject an oversized matched pair
