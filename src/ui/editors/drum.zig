@@ -228,14 +228,19 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 // against the others - polymeter. :pad-len sets it exactly.
                 'm' => nudgePadLen(app, -app.takeCount()),
                 'M' => nudgePadLen(app, app.takeCount()),
-                // %/?: the two halves of a trig condition on the step under
+                // %/T: the two halves of a trig condition on the step under
                 // the cursor - fire chance and the conditional rule. ! flips
                 // the machine-wide fill switch the FILL rules read.
                 // r: pack the step into a roll (off/2/3/4/6/8 hits), spaced
                 // across the step's own duration - Elektron's Retrig.
                 'r' => cycleStepRetrig(app),
+                // ;/': drag this one hit early or late, in percent of a step.
+                // Swing shifts every off-beat by the same amount; this is the
+                // per-hit version.
+                ';' => nudgeMicro(app, -app.takeCount()),
+                '\'' => nudgeMicro(app, app.takeCount()),
                 '%' => cycleStepProb(app),
-                '?' => cycleStepCond(app, app.takeCount()),
+                'T' => cycleStepCond(app, app.takeCount()),
                 '!' => {
                     const dm = app.drumMachine();
                     const on = dm.toggleFill();
@@ -470,6 +475,22 @@ fn nudgeTune(app: *App, delta: i32) void {
     app.setStatus("tune {s}{d} st", .{ if (semis > 0) "+" else "", semis });
 }
 
+/// `;`/`'`: shift the hit under the cursor early or late, in percent of a
+/// step (±50, half a step either way).
+fn nudgeMicro(app: *App, delta: i32) void {
+    const dm = app.drumMachine();
+    const pad: u8 = @intCast(app.drum_cursor[0]);
+    const step = app.drum_cursor[1];
+    // zig fmt: off
+    if (!dm.stepActive(pad, step)) { app.setStatus("no step here - enter places one", .{}); return; }
+    // zig fmt: on
+    history.recordDrum(app, app.drum_track);
+    dm.nudgeStepMicro(pad, step, delta);
+    app.dirty = true;
+    const pct = dm.stepMicro(pad, step);
+    app.setStatus("micro {s}{d}%", .{ if (pct > 0) "+" else "", pct });
+}
+
 /// `r`: step the hit under the cursor through the roll sizes.
 fn cycleStepRetrig(app: *App) void {
     const dm = app.drumMachine();
@@ -499,7 +520,7 @@ fn cycleStepProb(app: *App) void {
     app.setStatus("chance {d}%", .{dm.stepProb(pad, step)});
 }
 
-/// `?`: walk the hit's trig condition (1ST, FILL, the A:B ratios).
+/// `T`: walk the hit's trig condition (1ST, FILL, the A:B ratios).
 fn cycleStepCond(app: *App, delta: i32) void {
     const dm = app.drumMachine();
     const pad: u8 = @intCast(app.drum_cursor[0]);

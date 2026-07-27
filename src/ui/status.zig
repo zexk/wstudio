@@ -121,6 +121,11 @@ pub fn drawDrumStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !v
             try w.writeAll(dim ++ "  roll " ++ rst);
             try w.print("x{d}", .{roll});
         }
+        const micro = dm.stepMicro(@intCast(p), s);
+        if (micro != 0) {
+            try w.writeAll(dim ++ "  micro " ++ rst);
+            try w.print("{s}{d}%", .{ if (micro > 0) "+" else "", micro });
+        }
     }
     // The fill switch is machine-wide and changes what plays, so it stays
     // visible while engaged rather than only on the step that reads it.

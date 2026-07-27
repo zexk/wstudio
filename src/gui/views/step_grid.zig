@@ -171,8 +171,15 @@ pub fn draw(
                 theme.modulation
             else
                 theme.audio;
-            const pmin = [2]f32{ x + inset, y + row_h - height - 3 };
-            const pmax = [2]f32{ x + cell_w - inset, y + row_h - 3 };
+            // A timing shift slides the whole hit within its cell, so the
+            // grid shows the feel rather than just flagging it. Capped at
+            // half a cell either way, matching setStepMicro's own clamp.
+            const micro_px: f32 = if (kind == .drum)
+                cell_w * @as(f32, @floatFromInt(instrument.stepMicro(@intCast(row), @intCast(step)))) / 100.0
+            else
+                0;
+            const pmin = [2]f32{ x + inset + micro_px, y + row_h - height - 3 };
+            const pmax = [2]f32{ x + cell_w - inset + micro_px, y + row_h - 3 };
             draw_list.addRectFilled(.{ .pmin = pmin, .pmax = pmax, .col = color(.{ hit_color[0], hit_color[1], hit_color[2], 0.62 + velocity * 0.38 }), .rounding = @min(3, cell_w * 0.12) });
             draw_list.addLine(.{ .p1 = .{ pmin[0] + 1, pmin[1] + 1 }, .p2 = .{ pmax[0] - 1, pmin[1] + 1 }, .col = color(.{ theme.fg0[0], theme.fg0[1], theme.fg0[2], 0.38 }), .thickness = 1 });
             if (accented) {

@@ -201,6 +201,12 @@ pub const DrumMachine = struct {
         prob: u8 = 100,
         /// Conditional trig, ANDed with `prob` - both have to pass.
         cond: Cond = .always,
+        /// Timing offset as a percent of one step, -50 (half a step early) to
+        /// +50 (half a step late). Swing shifts every off-beat by the same
+        /// amount; this is the per-hit version - a snare dragged late, a hat
+        /// pushed early - and it's what `humanizeVelocity` deliberately
+        /// couldn't reach.
+        micro: i8 = 0,
         /// Hits packed into this step's own duration: 0 or 1 is the plain
         /// single hit, 2+ is a roll (Elektron's Retrig). The hits are evenly
         /// spaced across the step, so the rate follows the pattern's grid
@@ -381,12 +387,16 @@ pub const DrumMachine = struct {
     /// and every step conditioned on it swaps in or out, no editing. UI
     /// writes, audio thread reads.
     fill_on: std.atomic.Value(bool) = .init(false),
-    /// A roll's remaining hits, one slot per pad (audio thread only). A roll
-    /// outlives the block it started in - at 1/16 and 8 hits the tail lands
-    /// several blocks later - so the leftover hits are carried here and
-    /// drained by `drainRolls` rather than being emitted up front. One slot
-    /// per pad, because a fresh trigger on that pad chokes the previous hit
-    /// anyway, so a second overlapping roll could never be heard.
+    /// Hits the sequencer has decided on but not yet emitted, one slot per
+    /// pad (audio thread only). Everything the sequencer fires goes through
+    /// here rather than being triggered at the step boundary, because a hit's
+    /// real time is no longer its step's: a roll's tail lands blocks later,
+    /// and a `micro`-shifted hit can land before its own step boundary, which
+    /// a boundary-ordered scan could never emit at the right frame.
+    ///
+    /// One slot per pad: a fresh trigger on that pad chokes whatever was
+    /// ringing anyway, so a second overlapping schedule could never be heard.
+    /// Live pad hits (`triggerPad`) skip this and fire immediately.
     rolls: [max_pads]?Roll = [_]?Roll{null} ** max_pads,
 
     // ── Pattern variants (control thread only) ──────────────────────────────
@@ -864,6 +874,24 @@ pub const DrumMachine = struct {
         note.prob = prob_presets[0];
     }
 
+    /// Timing offset of the step as a percent of one step; 0 on an empty one.
+    pub fn stepMicro(self: *const DrumMachine, pad: u8, step: u16) i8 {
+        if (pad >= max_pads or step >= self.step_count) return 0;
+        const note = self.midi[pad][step] orelse return 0;
+        return note.micro;
+    }
+
+    /// Half a step either way. Past that a hit would cross its neighbour's
+    /// boundary, which is a different step, not a feel.
+    pub fn setStepMicro(self: *DrumMachine, pad: u8, step: u16, pct: i32) void {
+        if (pad >= max_pads or step >= self.step_count) return;
+        if (self.midi[pad][step]) |*note| note.micro = @intCast(std.math.clamp(pct, -50, 50));
+    }
+
+    pub fn nudgeStepMicro(self: *DrumMachine, pad: u8, step: u16, delta: i32) void {
+        self.setStepMicro(pad, step, @as(i32, self.stepMicro(pad, step)) + delta);
+    }
+
     /// Roll sizes `cycleStepRetrig` walks: off, then the divisions that stay
     /// musical inside one step. 0 renders as a plain single hit.
     const retrig_presets = [_]u8{ 0, 2, 3, 4, 6, 8 };
@@ -1282,7 +1310,13 @@ pub const DrumMachine = struct {
                 step_k = @intFromFloat(@ceil(pos_f / fps));
             }
 
-            // Fire every step whose boundary falls inside [pos_f, pos_f+frames)
+            // Schedule every step that could still place a hit inside this
+            // block. "Could" rather than "does": a step's own `micro` can
+            // pull a hit up to half a step ahead of its boundary, so a step
+            // whose boundary is still in the future has to be considered
+            // early. The hits themselves are emitted by `drainRolls` once
+            // their real positions land in a block.
+            const max_early = fps * 0.5;
             while (true) {
                 var fire_pos = @as(f64, @floatFromInt(step_k)) * fps;
                 if (self.song_mode) {
@@ -1296,18 +1330,10 @@ pub const DrumMachine = struct {
                 } else if (step_k & 1 == 1) {
                     fire_pos += fps * @as(f64, swing_pct - 50.0) / 50.0;
                 }
-                if (fire_pos >= pos_f + @as(f64, @floatFromInt(frames))) break;
-
-                const fire_frame: u32 = if (fire_pos <= pos_f)
-                    0
-                else
-                    @intCast(@min(
-                        @as(u64, @intFromFloat(fire_pos - pos_f)),
-                        @as(u64, frames - 1),
-                    ));
+                if (fire_pos - max_early >= pos_f + @as(f64, @floatFromInt(frames))) break;
 
                 if (self.song_mode) {
-                    self.fireSongStep(step_k, fire_frame, fire_pos, fps);
+                    self.fireSongStep(step_k, fire_pos, fps);
                 } else {
                     // Each pad wraps at its own length (`pad_len`), so rows
                     // can run out of phase with each other; the UI playhead
@@ -1318,7 +1344,7 @@ pub const DrumMachine = struct {
                         const idx: u16 = @intCast(step_k % len);
                         const note = self.midi[p][idx] orelse continue;
                         if (!trigFires(note, @intCast(p), step_k, step_k / len, fill_on)) continue;
-                        self.fireNote(@intCast(p), note, fire_frame, fire_pos, fps);
+                        self.scheduleNote(@intCast(p), note, fire_pos, fps);
                     }
                     self.current_step.store(@intCast(step_k % self.step_count), .monotonic);
                 }
@@ -1364,7 +1390,7 @@ pub const DrumMachine = struct {
     /// Fire pads for absolute step `step_k` from the song timeline. Past
     /// `song_length_steps` this goes silent instead of wrapping - the
     /// arrangement plays once through, not on a loop.
-    fn fireSongStep(self: *DrumMachine, step_k: u64, fire_frame: u32, fire_pos: f64, tick_frames: f64) void {
+    fn fireSongStep(self: *DrumMachine, step_k: u64, fire_pos: f64, tick_frames: f64) void {
         if (self.song_length_steps == 0 or step_k >= self.song_length_steps) return;
         const lk: u32 = @intCast(step_k);
         for (self.song_clips[0..self.song_clip_count]) |*clip| {
@@ -1385,7 +1411,7 @@ pub const DrumMachine = struct {
                 const idx: u16 = @intCast(local % len);
                 const note = clip.midi[p][idx] orelse continue;
                 if (!trigFires(note, @intCast(p), step_k, local / len, fill_on)) continue;
-                self.fireNote(@intCast(p), note, fire_frame, fire_pos, step_frames);
+                self.scheduleNote(@intCast(p), note, fire_pos, step_frames);
             }
             self.current_step.store(@intCast(local % clip.step_count), .monotonic);
             return; // clips never overlap
@@ -1402,45 +1428,54 @@ pub const DrumMachine = struct {
     /// `choke_group`), every other pad sharing that group is silenced too
     /// (e.g. a closed-hat hit cutting an open hat's ring-out). A no-op on an
     /// unloaded (null) pad - nothing to trigger.
-    /// Fire `note` on pad `p`: the hit itself, plus - when the step carries a
-    /// roll - the schedule for its remaining hits, evenly spaced across the
-    /// step's own `step_frames` duration. `fire_pos` is the step's absolute
-    /// transport position, which is what keeps the tail on the grid when it
-    /// spills into a later block.
-    fn fireNote(self: *DrumMachine, p: u8, note: MidiNote, fire_frame: u32, fire_pos: f64, step_frames: f64) void {
-        const vel = velGain(note.velocity);
-        self.chokeTrigger(p, vel, fire_frame, note.tune);
-        if (note.retrig < 2 or step_frames <= 0.0) {
-            self.rolls[p] = null;
-            return;
-        }
-        const interval = step_frames / @as(f64, @floatFromInt(note.retrig));
+    /// Schedule `note` on pad `p`. `step_pos` is its step's absolute transport
+    /// position; `micro` shifts the hit off that, and a roll spreads further
+    /// hits across the step's own `step_frames` duration. Nothing is emitted
+    /// here - `drainRolls` does that once the hits' real positions land
+    /// inside a block, which is what lets a hit sit before its own step
+    /// boundary or after the block that scheduled it.
+    fn scheduleNote(self: *DrumMachine, p: u8, note: MidiNote, step_pos: f64, step_frames: f64) void {
+        const offset = step_frames * @as(f64, @floatFromInt(note.micro)) / 100.0;
+        const hits: u8 = @max(note.retrig, 1);
+        const interval = if (hits > 1 and step_frames > 0.0)
+            step_frames / @as(f64, @floatFromInt(hits))
+        else
+            0.0;
         self.rolls[p] = .{
-            .remaining = note.retrig - 1,
-            .next_pos = fire_pos + interval,
+            .remaining = hits,
+            .next_pos = step_pos + offset,
             .interval = interval,
-            .vel = vel,
+            .vel = velGain(note.velocity),
             .tune = note.tune,
         };
     }
 
-    /// Emit any scheduled roll hits landing in `[pos_f, pos_f + frames)`.
-    /// Hits whose position has already passed (a seek jumped over them) are
-    /// dropped rather than bunched onto the block start.
+    /// Emit every scheduled hit landing in `[pos_f, pos_f + frames)`. A hit
+    /// that the block already passed by a hair (a resync, or a `micro` shift
+    /// that put it just behind the playhead) is clamped to the block start
+    /// rather than lost; one further back than a whole block is a seek having
+    /// jumped over it, and is dropped instead of dumped on the boundary.
     fn drainRolls(self: *DrumMachine, pos_f: f64, frames: u32) void {
-        const block_end = pos_f + @as(f64, @floatFromInt(frames));
+        const frames_f: f64 = @floatFromInt(frames);
+        const block_end = pos_f + frames_f;
         for (&self.rolls, 0..) |*slot, p| {
             const roll = if (slot.*) |*r| r else continue;
             while (roll.remaining > 0 and roll.next_pos < block_end) {
-                if (roll.next_pos >= pos_f) {
-                    const off: u32 = @intCast(@min(
+                if (roll.next_pos >= pos_f - frames_f) {
+                    const off: u32 = if (roll.next_pos <= pos_f) 0 else @intCast(@min(
                         @as(u64, @intFromFloat(roll.next_pos - pos_f)),
                         @as(u64, frames - 1),
                     ));
                     self.chokeTrigger(@intCast(p), roll.vel, off, roll.tune);
                 }
-                roll.next_pos += roll.interval;
                 roll.remaining -= 1;
+                // A single hit has no interval to advance by; bail rather
+                // than spinning on next_pos += 0.
+                if (roll.remaining == 0 or roll.interval <= 0.0) {
+                    roll.remaining = 0;
+                    break;
+                }
+                roll.next_pos += roll.interval;
             }
             if (roll.remaining == 0) slot.* = null;
         }
@@ -2241,8 +2276,8 @@ test "a roll spreads its hits across the step and survives block boundaries" {
     // Fire the step, then walk blocks and count the tail hits the roll
     // schedules. Counting through drainRolls directly keeps this about the
     // scheduling rather than about voice rendering.
-    dm.fireNote(0, dm.midi[0][0].?, 0, 0.0, fps);
-    try std.testing.expectEqual(@as(u8, 3), dm.rolls[0].?.remaining);
+    dm.scheduleNote(0, dm.midi[0][0].?, 0.0, fps);
+    try std.testing.expectEqual(@as(u8, 4), dm.rolls[0].?.remaining);
     try std.testing.expectApproxEqAbs(@as(f64, 1500), dm.rolls[0].?.interval, 1.0);
 
     var pos: f64 = 0;
@@ -2256,18 +2291,75 @@ test "a roll spreads its hits across the step and survives block boundaries" {
     try std.testing.expect(blocks > 15);
     try std.testing.expectEqual(@as(?DrumMachine.Roll, null), dm.rolls[0]);
 
-    // A plain step clears any roll still parked on that pad.
-    dm.fireNote(0, dm.midi[0][0].?, 0, 0.0, fps);
-    try std.testing.expect(dm.rolls[0] != null);
+    // A plain step schedules exactly one hit, which the first drain clears.
     dm.midi[0][0].?.retrig = 0;
-    dm.fireNote(0, dm.midi[0][0].?, 0, 0.0, fps);
+    dm.scheduleNote(0, dm.midi[0][0].?, 0.0, fps);
+    try std.testing.expectEqual(@as(u8, 1), dm.rolls[0].?.remaining);
+    dm.drainRolls(0, 256);
     try std.testing.expectEqual(@as(?DrumMachine.Roll, null), dm.rolls[0]);
 
     // A stop drops the tail instead of dumping it on the next block.
     dm.midi[0][0].?.retrig = 8;
-    dm.fireNote(0, dm.midi[0][0].?, 0, 0.0, fps);
+    dm.scheduleNote(0, dm.midi[0][0].?, 0.0, fps);
     try std.testing.expect(dm.rolls[0] != null);
     dm.resetAll();
+    try std.testing.expectEqual(@as(?DrumMachine.Roll, null), dm.rolls[0]);
+}
+
+test "micro-timing shifts a hit off its own step boundary, both directions" {
+    var transport: Transport = .{ .sample_rate = 48_000, .tempo_bpm = 120.0 };
+    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    defer dm.deinit();
+    dm.setStepCount(16);
+    dm.toggleStep(0, 4);
+
+    const fps = transport.framesPerStep(4); // 6000 frames at 120 BPM
+    const step_pos = 4.0 * fps;
+
+    // Straight: the hit sits exactly on the boundary.
+    dm.scheduleNote(0, dm.midi[0][4].?, step_pos, fps);
+    try std.testing.expectApproxEqAbs(step_pos, dm.rolls[0].?.next_pos, 1.0);
+
+    // Late by a quarter step.
+    dm.setStepMicro(0, 4, 25);
+    dm.scheduleNote(0, dm.midi[0][4].?, step_pos, fps);
+    try std.testing.expectApproxEqAbs(step_pos + fps * 0.25, dm.rolls[0].?.next_pos, 1.0);
+
+    // Early: the hit lands BEFORE its own boundary, which is the case a
+    // boundary-ordered scan could never emit at the right frame.
+    dm.setStepMicro(0, 4, -50);
+    dm.scheduleNote(0, dm.midi[0][4].?, step_pos, fps);
+    try std.testing.expectApproxEqAbs(step_pos - fps * 0.5, dm.rolls[0].?.next_pos, 1.0);
+    try std.testing.expect(dm.rolls[0].?.next_pos < step_pos);
+
+    // Clamped at half a step - past that it would cross into the neighbour.
+    dm.setStepMicro(0, 4, 300);
+    try std.testing.expectEqual(@as(i8, 50), dm.stepMicro(0, 4));
+    dm.setStepMicro(0, 4, -300);
+    try std.testing.expectEqual(@as(i8, -50), dm.stepMicro(0, 4));
+
+    // An empty step has no timing to shift.
+    try std.testing.expectEqual(@as(i8, 0), dm.stepMicro(0, 5));
+    dm.nudgeStepMicro(0, 5, 10);
+    try std.testing.expectEqual(@as(i8, 0), dm.stepMicro(0, 5));
+}
+
+test "a hit just behind the playhead is clamped, one a whole block back is dropped" {
+    var transport: Transport = .{ .sample_rate = 48_000, .tempo_bpm = 120.0 };
+    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    defer dm.deinit();
+    dm.toggleStep(0, 0);
+
+    // Scheduled 10 frames before the block start: still emitted (clamped to
+    // frame 0), not silently lost.
+    dm.scheduleNote(0, dm.midi[0][0].?, 990.0, 6000.0);
+    dm.drainRolls(1000, 256);
+    try std.testing.expectEqual(@as(?DrumMachine.Roll, null), dm.rolls[0]);
+
+    // Scheduled far enough back that a seek must have jumped it: consumed
+    // without firing, rather than dumped on the boundary.
+    dm.scheduleNote(0, dm.midi[0][0].?, 0.0, 6000.0);
+    dm.drainRolls(100_000, 256);
     try std.testing.expectEqual(@as(?DrumMachine.Roll, null), dm.rolls[0]);
 }
 

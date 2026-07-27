@@ -181,8 +181,9 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("( / )",        "tune the step under the cursor down / up a semitone (±24, count-scaled)");
     t.key("r",            "cycle the step into a roll (off/2/3/4/6/8 hits packed into the step)");
     t.key("%",            "cycle the step's fire chance (100/75/50/25/10%)");
-    t.key("?",            "cycle the step's trig condition (1ST, FILL, 1:2, 2:4 … - ANDed with the chance)");
+    t.key("T",            "cycle the step's trig condition (1ST, FILL, 1:2, 2:4 … - ANDed with the chance)");
     t.key("!",            "flip the FILL switch every FILL/!FILL step reads - instant variation, no editing");
+    t.key("; / '",        "drag the step early / late (±50% of a step) - per-hit feel, where < > swings every off-beat");
     t.key("",             "  cells: [x] plain, (x) tuned, <x> chance/condition/roll, {x} both");
     t.key("v / V",        "visual: a (pad, step) block, j/k grow it / visual line: every pad - y/d/P");
     t.key("< / >",        "less / more swing (50–75%)");
