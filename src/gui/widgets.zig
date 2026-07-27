@@ -240,6 +240,10 @@ pub const Knob = struct {
     focused: bool = false,
     logarithmic: bool = false,
     diameter: f32 = 30,
+    /// Hover readout. Off for `knobCell`, whose own label line already
+    /// swaps to the value on hover - two readouts for one dial is one too
+    /// many.
+    tooltip: bool = true,
 };
 
 pub const KnobResult = struct {
@@ -249,6 +253,10 @@ pub const KnobResult = struct {
     /// `paramKnob` draws label/value text after the dial and would shift
     /// "last item" queries onto the wrong widget.
     activated: bool = false,
+    /// Pointer is on the dial or dragging it. Same reasoning as
+    /// `activated`: the caller cannot ask `isItemHovered` after the fact,
+    /// because the dial is not the last item by then.
+    hot: bool = false,
 };
 
 const knob_angle_min: f32 = std.math.pi * 0.75;
@@ -388,14 +396,14 @@ pub fn knob(label: [:0]const u8, args: Knob) KnobResult {
         .thickness = 2,
     });
 
-    if (hovered or active) {
+    if (args.tooltip and (hovered or active)) {
         var value_buf: [32]u8 = undefined;
         _ = zgui.beginTooltip();
         zgui.textUnformatted(knobFormatValue(&value_buf, args.cfmt, args.v.*));
         zgui.endTooltip();
     }
 
-    return .{ .changed = changed, .activated = activated };
+    return .{ .changed = changed, .activated = activated, .hot = hovered or active };
 }
 
 /// A knob plus its label and live value, laid out as a single row - the
@@ -434,29 +442,107 @@ fn cellText(text: []const u8, col: [4]f32, cell_w: f32) void {
     zgui.textColored(col, "{s}", .{fitted});
 }
 
-/// A knob as a fixed-width grid cell: name on top, dial, live value under
-/// it. `paramKnob`'s row form (dial left, name+value stacked right) costs a
+/// A knob as a fixed-width grid cell: dial, one line of text under it.
+/// `paramKnob`'s row form (dial left, name+value stacked right) costs a
 /// full text line of height per param and can only ever be one param wide,
 /// which turned a 12-param oscillator into a 12-row column; every hardware
 /// panel and soft-synth instead flows these cells left to right and wraps,
-/// so a section reads as a block of controls rather than a list. `value_text`
-/// is passed in (not derived from `cfmt`) so callers can show the same
-/// unit-aware string the status line uses.
+/// so a section reads as a block of controls rather than a list.
+///
+/// That one line is the param's *name*, and swaps to its value while the
+/// dial is hovered, dragged, or under the keyboard cursor - the convention
+/// Serum, Vital and the rest use. A permanent second line of numbers reads
+/// as noise on a panel of 12 knobs, and the value is never actually lost:
+/// the status bar prints the focused param's value with units at all times.
+/// `value_text` is passed in (not derived from `cfmt`) so it is that exact
+/// same string.
 pub fn knobCell(label_text: []const u8, id: [:0]const u8, value_text: []const u8, args: Knob) KnobResult {
     const theme = &gui_style.palette;
     const cell_w = knobCellW();
     zgui.beginGroup();
-    cellText(label_text, if (args.focused) args.accent else theme.fg1, cell_w);
     const x = zgui.getCursorPos()[0];
     zgui.setCursorPosX(x + @max(0, (cell_w - args.diameter) * 0.5));
-    const result = knob(id, args);
-    cellText(value_text, theme.fg2, cell_w);
+    var dial = args;
+    dial.tooltip = false;
+    const result = knob(id, dial);
+    const show_value = result.hot or args.focused;
+    cellText(
+        if (show_value) value_text else label_text,
+        if (show_value) args.accent else theme.fg1,
+        cell_w,
+    );
     // Pins the group's width to the cell grid: without it the group is only
     // as wide as its widest line, and a row of cells would creep left of
     // where the caller's flow math expects the next one.
     zgui.dummy(.{ .w = cell_w, .h = 0 });
     zgui.endGroup();
     return result;
+}
+
+/// A list-valued param as a grid cell, so enums sit in the same knob grid
+/// instead of forcing a full-width `name  -  value  +` row that breaks it
+/// (Serum packs its OCT/SEM/FIN/CRS boxes right into the knob block for the
+/// same reason). The value box steps on a click - left half down, right
+/// half up - or on a scroll while hovered. Returns -1/0/+1 rather than
+/// writing a value, since a stepped param's steps belong to the owner (for
+/// the synth editor they route through the same `h`/`l` command path a
+/// keypress uses, undo included).
+pub fn stepperCell(label_text: []const u8, id: [:0]const u8, display: []const u8, accent: [4]f32, focused: bool, width: f32) i8 {
+    const theme = &gui_style.palette;
+    const cell_w = if (width > 0) width else knobCellW();
+    const box_h = zgui.getFontSize() + 8;
+    const draw_list = zgui.getWindowDrawList();
+
+    zgui.beginGroup();
+    const origin = zgui.getCursorScreenPos();
+    _ = zgui.invisibleButton(id, .{ .w = cell_w, .h = box_h });
+    const hovered = zgui.isItemHovered(.{});
+    var delta: i8 = 0;
+    if (zgui.isItemActivated()) {
+        delta = if (zgui.getMousePos()[0] < origin[0] + cell_w * 0.5) -1 else 1;
+    }
+    if (hovered and gui_style.wheel_delta != 0) {
+        gui_style.wheel_consumed = true;
+        delta = if (gui_style.wheel_delta > 0) 1 else -1;
+    }
+
+    const box_col = if (hovered) theme.bg4 else theme.bg3;
+    draw_list.addRectFilled(.{
+        .pmin = origin,
+        .pmax = .{ origin[0] + cell_w, origin[1] + box_h },
+        .col = gui_style.color(box_col),
+        .rounding = 3,
+    });
+    if (focused) draw_list.addRect(.{
+        .pmin = origin,
+        .pmax = .{ origin[0] + cell_w, origin[1] + box_h },
+        .col = gui_style.color(accent),
+        .rounding = 3,
+        .thickness = 1.5,
+    });
+    const fitted = fitText(display, cell_w - 16);
+    const text_w = zgui.calcTextSize(fitted, .{})[0];
+    draw_list.addText(
+        .{ origin[0] + (cell_w - text_w) * 0.5, origin[1] + 4 },
+        gui_style.color(if (focused) accent else theme.fg0),
+        "{s}",
+        .{fitted},
+    );
+    if (hovered) {
+        const arrow_col = gui_style.color(theme.fg2);
+        draw_list.addText(.{ origin[0] + 4, origin[1] + 4 }, arrow_col, "\u{2039}", .{});
+        draw_list.addText(.{ origin[0] + cell_w - 11, origin[1] + 4 }, arrow_col, "\u{203A}", .{});
+    }
+    // An empty label is a cell with no caption (a matrix row, where the
+    // column position already says which field this is), not a blank line
+    // under the box - and with no caption the box itself already pins the
+    // group width, so the spacer that does that job is skipped too.
+    if (label_text.len > 0) {
+        cellText(label_text, if (focused) accent else theme.fg1, cell_w);
+        zgui.dummy(.{ .w = cell_w, .h = 0 });
+    }
+    zgui.endGroup();
+    return delta;
 }
 
 /// A param whose values name discrete list entries (a track, a pad, a
@@ -604,14 +690,20 @@ pub const XYPad = struct {
     accent: [4]f32,
     focused: bool = false,
     size: f32 = 96,
+    /// Pad width, when it should not be square. 0 keeps it square at
+    /// `size`; a card-wide filter pad reads as that module's display the
+    /// way a synth's filter strip does, where a 96px square in a 440px card
+    /// reads as a stray widget.
+    width: f32 = 0,
 };
 
 pub fn xyPad(label: [:0]const u8, args: XYPad) KnobResult {
     const theme = &gui_style.palette;
     const origin = zgui.getCursorScreenPos();
     const draw_list = zgui.getWindowDrawList();
+    const pad_w = if (args.width > 0) args.width else args.size;
 
-    _ = zgui.invisibleButton(label, .{ .w = args.size, .h = args.size });
+    _ = zgui.invisibleButton(label, .{ .w = pad_w, .h = args.size });
     const active = zgui.isItemActive();
     const hovered = zgui.isItemHovered(.{});
     const activated = zgui.isItemActivated();
@@ -619,7 +711,7 @@ pub fn xyPad(label: [:0]const u8, args: XYPad) KnobResult {
 
     if (active) {
         const mouse = zgui.getMousePos();
-        const tx = std.math.clamp((mouse[0] - origin[0]) / args.size, 0, 1);
+        const tx = std.math.clamp((mouse[0] - origin[0]) / pad_w, 0, 1);
         const ty = std.math.clamp((mouse[1] - origin[1]) / args.size, 0, 1);
         const new_x = knobTToValue(args.x_range[0], args.x_range[1], tx, args.x_logarithmic);
         const new_y = knobTToValue(args.y_range[0], args.y_range[1], 1.0 - ty, false);
@@ -628,17 +720,16 @@ pub fn xyPad(label: [:0]const u8, args: XYPad) KnobResult {
         args.y.* = new_y;
     }
 
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + args.size, origin[1] + args.size }, .col = gui_style.color(theme.bg2), .rounding = 3 });
-    const mid = args.size * 0.5;
-    draw_list.addLine(.{ .p1 = .{ origin[0] + mid, origin[1] }, .p2 = .{ origin[0] + mid, origin[1] + args.size }, .col = gui_style.color(theme.line), .thickness = 1 });
-    draw_list.addLine(.{ .p1 = .{ origin[0], origin[1] + mid }, .p2 = .{ origin[0] + args.size, origin[1] + mid }, .col = gui_style.color(theme.line), .thickness = 1 });
-    draw_list.addRect(.{ .pmin = origin, .pmax = .{ origin[0] + args.size, origin[1] + args.size }, .col = gui_style.color(if (args.focused) args.accent else theme.bg4), .rounding = 3, .thickness = if (args.focused) 2 else 1 });
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + pad_w, origin[1] + args.size }, .col = gui_style.color(theme.bg2), .rounding = 3 });
+    draw_list.addLine(.{ .p1 = .{ origin[0] + pad_w * 0.5, origin[1] }, .p2 = .{ origin[0] + pad_w * 0.5, origin[1] + args.size }, .col = gui_style.color(theme.line), .thickness = 1 });
+    draw_list.addLine(.{ .p1 = .{ origin[0], origin[1] + args.size * 0.5 }, .p2 = .{ origin[0] + pad_w, origin[1] + args.size * 0.5 }, .col = gui_style.color(theme.line), .thickness = 1 });
+    draw_list.addRect(.{ .pmin = origin, .pmax = .{ origin[0] + pad_w, origin[1] + args.size }, .col = gui_style.color(if (args.focused) args.accent else theme.bg4), .rounding = 3, .thickness = if (args.focused) 2 else 1 });
 
     const tx = knobValueToT(args.x_range[0], args.x_range[1], args.x.*, args.x_logarithmic);
     const ty = 1.0 - knobValueToT(args.y_range[0], args.y_range[1], args.y.*, false);
-    const dot = [2]f32{ origin[0] + tx * args.size, origin[1] + ty * args.size };
+    const dot = [2]f32{ origin[0] + tx * pad_w, origin[1] + ty * args.size };
     const crosshair = [4]f32{ args.accent[0], args.accent[1], args.accent[2], 0.35 };
-    draw_list.addLine(.{ .p1 = .{ origin[0], dot[1] }, .p2 = .{ origin[0] + args.size, dot[1] }, .col = gui_style.color(crosshair), .thickness = 1 });
+    draw_list.addLine(.{ .p1 = .{ origin[0], dot[1] }, .p2 = .{ origin[0] + pad_w, dot[1] }, .col = gui_style.color(crosshair), .thickness = 1 });
     draw_list.addLine(.{ .p1 = .{ dot[0], origin[1] }, .p2 = .{ dot[0], origin[1] + args.size }, .col = gui_style.color(crosshair), .thickness = 1 });
     draw_list.addCircleFilled(.{ .p = dot, .r = 6, .col = gui_style.color(if (active or hovered) args.accent else theme.fg1) });
     if (args.focused) draw_list.addCircle(.{ .p = dot, .r = 9, .col = gui_style.color(args.accent), .thickness = 1.5 });

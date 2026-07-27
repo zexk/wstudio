@@ -1,5 +1,8 @@
-//! Synth editor: overview header with oscillator/envelope/filter sketches,
-//! MAIN/MOD/FX tab strip, and the comptime-table-driven parameter sections.
+//! Synth editor: title strip, MAIN/MOD/FX tab strip, and the
+//! comptime-table-driven parameter sections drawn as a grid of module
+//! cards - each card a display (waveform, LFO shape, envelope, filter pad)
+//! over a wrapped grid of knob and stepper cells, laid out band by band
+//! from synth_layout's placements.
 
 const std = @import("std");
 const ws = @import("wstudio");
@@ -102,27 +105,26 @@ fn drawSections(
     // (see App.last_cols's doc comment: it's read back by handleKey, not
     // fed a parameter, so it has to be kept current here every frame).
     app.core.last_cols = if (columns >= 3) 160 else if (columns == 2) 108 else 80;
-    // The same placements the cursor walks. This used to be a private
-    // `section_index % columns` round-robin, which put sections on screen in
-    // a different order than `j`/`k` moved through them - the cursor jumped
-    // between columns for no reason the eye could follow.
+    // The same placements the cursor walks, drawn in the same order it
+    // walks them: one card per section, laid out band by band, each band a
+    // row of cards. ImGui's line layout does the row alignment for free -
+    // cards in a band share a line, so the next band starts below the
+    // tallest of them, and every module in a row starts at the same y the
+    // way a synth's module strips do.
     const placements = placementsFor(columns);
     const column_w = @max(280, (available_width - gap * @as(f32, @floatFromInt(columns - 1))) / @as(f32, @floatFromInt(columns)));
-    for (0..columns) |column| {
-        if (column > 0) zgui.sameLine(.{ .spacing = gap });
+    for (sections, placements, 0..) |section, placement, index| {
+        if (placement.col > 0) zgui.sameLine(.{ .spacing = gap });
         var child_buf: [48]u8 = undefined;
-        const child_id = std.fmt.bufPrintZ(&child_buf, "{s}-{d}", .{ child_prefix, column }) catch continue;
+        const child_id = std.fmt.bufPrintZ(&child_buf, "{s}-{d}", .{ child_prefix, index }) catch continue;
         zgui.pushStyleColor4f(.{ .idx = .child_bg, .c = theme.bg2 });
         if (zgui.beginChild(child_id, .{
-            .w = if (column + 1 == columns) 0 else column_w,
+            .w = if (placement.col + 1 == columns) 0 else column_w,
             .h = 0,
             .child_flags = .{ .border = true, .auto_resize_y = true },
             .window_flags = .{ .no_scrollbar = true, .no_scroll_with_mouse = true },
         })) {
-            for (sections, placements) |section, placement| {
-                if (placement.col != column) continue;
-                drawSectionCard(app, synth, section);
-            }
+            drawSectionCard(app, synth, section);
         }
         zgui.endChild();
         zgui.popStyleColor(.{});
@@ -156,6 +158,11 @@ fn drawSectionCard(app: anytype, synth: *ws.dsp.PolySynth, section: synth_layout
     const gated_off = if (gate) |id| (synth.paramValue(id) orelse 1) < 0.5 else false;
     if (gated_off) zgui.pushStyleVar1f(.{ .idx = .alpha, .v = 0.45 });
     defer if (gated_off) zgui.popStyleVar(.{});
+
+    for (section.params) |entry| {
+        if (isWaveformParam(entry.id)) drawOscDisplay(synth, entry.id, accent);
+        if (lfoShapeSlot(entry.id)) |slot| drawLfoDisplay(synth, slot, accent);
+    }
 
     var flow = Flow.init();
     for (section.params) |entry| {
@@ -267,6 +274,8 @@ fn drawFilterPad(app: anytype, synth: *ws.dsp.PolySynth, cutoff_id: u8) void {
 
     zgui.textDisabled("cutoff / res", .{});
     const result = widgets.xyPad(label, .{
+        .width = zgui.getContentRegionAvail()[0],
+        .size = 104,
         .x = &cutoff,
         .y = &res,
         .x_range = c_range,
@@ -419,10 +428,10 @@ fn drawMatrixRow(app: anytype, synth: *ws.dsp.PolySynth, base_id: u8, accent: [4
     zgui.textColored(if (on) theme.fg2 else theme.fg3, "{d}", .{slot + 1});
     zgui.sameLine(.{ .spacing = 0 });
     zgui.setCursorPosX(src_x);
-    drawStepperCell(app, base_id, synth_layout.modSourceName(row.source), unit * 7.2, accent);
+    drawSlotStepper(app, base_id, synth_layout.modSourceName(row.source), unit * 7.6, accent);
     zgui.sameLine(.{ .spacing = 0 });
     zgui.setCursorPosX(dest_x);
-    drawStepperCell(app, base_id + 1, ws.dsp.PolySynth.modDestLabel(row.dest), unit * 10.6, accent);
+    drawSlotStepper(app, base_id + 1, ws.dsp.PolySynth.modDestLabel(row.dest), unit * 11.4, accent);
     zgui.sameLine(.{ .spacing = 0 });
     zgui.setCursorPosX(depth_x);
 
@@ -447,36 +456,17 @@ fn drawMatrixRow(app: anytype, synth: *ws.dsp.PolySynth, base_id: u8, accent: [4
     zgui.textColored(if (on) theme.fg2 else theme.fg3, "{s}{d:.2}", .{ sign, row.depth });
 }
 
-/// A `- value +` nudge cell. `width` (0 for natural width) pins the minus
-/// and plus buttons to the cell's edges so a column of these lines up
-/// however wide the values in between happen to render.
-fn drawStepperCell(app: anytype, id: u8, display: []const u8, width: f32, accent: [4]f32) void {
-    const focused = app.core.synth_cursor == id;
-    const row_origin = zgui.getCursorScreenPos();
-    const start_x = zgui.getCursorPos()[0];
-    zgui.beginGroup();
-    var minus_buf: [40]u8 = undefined;
-    const minus = std.fmt.bufPrintZ(&minus_buf, "-##synth-minus-{d}", .{id}) catch return;
-    if (zgui.smallButton(minus)) nudgeParam(app, id, 'h');
-    const button_w = zgui.getItemRectMax()[0] - zgui.getItemRectMin()[0];
-    zgui.sameLine(.{ .spacing = 6 });
-    if (width > 0) zgui.setCursorPosX(start_x + button_w + 6);
-    zgui.textColored(if (focused) accent else theme.fg1, "{s}", .{display});
-    zgui.sameLine(.{ .spacing = 6 });
-    if (width > 0) zgui.setCursorPosX(start_x + @max(button_w + 6, width - button_w));
-    var plus_buf: [40]u8 = undefined;
-    const plus = std.fmt.bufPrintZ(&plus_buf, "+##synth-plus-{d}", .{id}) catch return;
-    if (zgui.smallButton(plus)) nudgeParam(app, id, 'l');
-    zgui.endGroup();
-    // Scroll while hovering the row steps it, one 'h'/'l' nudge per tick -
-    // same manual rect hit-test as widgets.listStepper, since isItemHovered
-    // doesn't chain through EndGroup.
-    const row_max = zgui.getItemRectMax();
-    const mouse = zgui.getMousePos();
-    const row_hovered = mouse[0] >= row_origin[0] and mouse[0] < row_max[0] and mouse[1] >= row_origin[1] and mouse[1] < row_max[1];
-    if (row_hovered and gui_style.wheel_delta != 0) {
-        gui_style.wheel_consumed = true;
-        nudgeParam(app, id, if (gui_style.wheel_delta > 0) 'l' else 'h');
+/// A matrix slot's source or destination: the same boxed stepper the param
+/// grid uses, at an explicit width so the column lines up however wide the
+/// names in it happen to render, and with no caption (the slot number and
+/// the column position already say which field this is).
+fn drawSlotStepper(app: anytype, id: u8, display: []const u8, width: f32, accent: [4]f32) void {
+    var id_buf: [40]u8 = undefined;
+    const widget_id = std.fmt.bufPrintZ(&id_buf, "##synth-slot-{d}", .{id}) catch return;
+    switch (widgets.stepperCell("", widget_id, display, accent, app.core.synth_cursor == id, width)) {
+        -1 => nudgeParam(app, id, 'h'),
+        1 => nudgeParam(app, id, 'l'),
+        else => {},
     }
 }
 
@@ -583,18 +573,26 @@ fn drawParam(app: anytype, synth: *ws.dsp.PolySynth, id: u8, label_text: []const
         return;
     }
 
-    flow.brk();
     if (ws.dsp.PolySynth.isToggleParam(id)) {
+        flow.brk();
         drawParamToggle(app, id, label_text, value >= 0.5, accent);
         return;
     }
     if (isWaveformParam(id)) {
+        flow.brk();
         drawWaveformParam(app, id, label_text, value, accent);
         return;
     }
-    zgui.textColored(if (focused) accent else theme.fg1, "{s}", .{label_text});
-    zgui.sameLine(.{ .spacing = 8 });
-    drawStepperCell(app, id, value_text, 0, accent);
+    // Everything else is a list-valued param, and it flows in the same grid
+    // as the knobs rather than breaking the row for a full-width stepper.
+    flow.cell();
+    var id_buf: [40]u8 = undefined;
+    const widget_id = std.fmt.bufPrintZ(&id_buf, "##gui-synth-step-{d}", .{id}) catch return;
+    switch (widgets.stepperCell(label_text, widget_id, value_text, accent, focused, 0)) {
+        -1 => nudgeParam(app, id, 'h'),
+        1 => nudgeParam(app, id, 'l'),
+        else => {},
+    }
 }
 
 /// A boolean param rendered as a single on/off button - `nudgeParam`'s
@@ -621,8 +619,8 @@ fn isWaveformParam(id: u8) bool {
 }
 
 fn drawWaveformParam(app: anytype, id: u8, label_text: []const u8, value: f32, accent: [4]f32) void {
+    _ = label_text;
     const focused = app.core.synth_cursor == id;
-    zgui.textColored(if (focused) accent else theme.fg1, "{s}", .{label_text});
     var label_buf: [32]u8 = undefined;
     const label = std.fmt.bufPrintZ(&label_buf, "##synth-wave-{d}", .{id}) catch return;
     const current = ws.dsp.synth.enumFromValue(ws.dsp.synth.Waveform, value);
@@ -637,85 +635,119 @@ fn nudgeParam(app: anytype, id: u8, key: u8) void {
     app.core.handleKey(.{ .char = key }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
 }
 
+/// A single title strip. This was a 156px block with OSCILLATOR/ENVELOPE/
+/// FILTER sketch panels, all three of which duplicated a control that is
+/// already on the page and larger: AMP ENV draws a live ADSR editor, FILTER
+/// draws a cutoff/res pad, and the oscillator sketch only ever showed OSC A.
+/// Per-module displays belong inside their module (see `drawOscDisplay`),
+/// which is where every synth puts them, so the header is just a header.
 fn drawHeader(app: anytype, synth: *ws.dsp.PolySynth) void {
+    _ = synth;
     const width = zgui.getContentRegionAvail()[0];
-    const height: f32 = 156;
+    const height: f32 = 44;
     const origin = zgui.getCursorScreenPos();
     _ = zgui.invisibleButton("synth-overview", .{ .w = width, .h = height });
     const draw_list = zgui.getWindowDrawList();
     draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(theme.bg2), .rounding = 4 });
     draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + 5, origin[1] + height }, .col = color(theme.focus), .rounding = 3 });
-    draw_list.addText(.{ origin[0] + 17, origin[1] + 10 }, color(theme.fg3), "POLYPHONIC SYNTH", .{});
-    draw_list.addText(.{ origin[0] + 17, origin[1] + 31 }, color(theme.fg0), "{s}", .{app.core.session.project.tracks.items[app.core.synth_track].name});
-
-    const panel_y = origin[1] + 59;
-    const panel_h: f32 = 80;
-    const panel_gap: f32 = 9;
-    const panel_w = (width - 43 - panel_gap * 2) / 3;
-    drawOverviewPanel(draw_list, .{ origin[0] + 17, panel_y }, .{ panel_w, panel_h }, "OSCILLATOR", theme.focus);
-    drawOverviewPanel(draw_list, .{ origin[0] + 17 + panel_w + panel_gap, panel_y }, .{ panel_w, panel_h }, "ENVELOPE", theme.rhythm);
-    drawOverviewPanel(draw_list, .{ origin[0] + 17 + (panel_w + panel_gap) * 2, panel_y }, .{ panel_w, panel_h }, "FILTER", theme.audio);
-    drawOscillatorShape(draw_list, .{ origin[0] + 29, panel_y + 31 }, .{ panel_w - 24, 35 }, synth.waveform);
-    drawEnvelopeShape(draw_list, .{ origin[0] + 29 + panel_w + panel_gap, panel_y + 31 }, .{ panel_w - 24, 35 }, synth);
-    drawFilterShape(draw_list, .{ origin[0] + 29 + (panel_w + panel_gap) * 2, panel_y + 31 }, .{ panel_w - 24, 35 }, synth);
+    draw_list.addText(.{ origin[0] + 17, origin[1] + 8 }, color(theme.fg3), "POLYPHONIC SYNTH", .{});
+    draw_list.addText(.{ origin[0] + 17, origin[1] + 24 }, color(theme.fg0), "{s}", .{app.core.session.project.tracks.items[app.core.synth_track].name});
 }
 
-fn drawOverviewPanel(draw_list: zgui.DrawList, pos: [2]f32, size: [2]f32, label: []const u8, accent: [4]f32) void {
-    draw_list.addRectFilled(.{ .pmin = pos, .pmax = .{ pos[0] + size[0], pos[1] + size[1] }, .col = color(theme.bg1), .rounding = 3 });
-    draw_list.addRectFilled(.{ .pmin = pos, .pmax = .{ pos[0] + 3, pos[1] + size[1] }, .col = color(accent), .rounding = 2 });
-    draw_list.addText(.{ pos[0] + 12, pos[1] + 8 }, color(theme.fg3), "{s}", .{label});
+/// The oscillator's own waveform display, at the top of its own card, drawn
+/// from that oscillator's waveform and pulse width. Three cards, three
+/// displays, each showing what that oscillator is actually doing - the
+/// arrangement Serum, Vital and Massive all use, and what a single sketch
+/// in a global header cannot express.
+fn drawOscDisplay(synth: *const ws.dsp.PolySynth, waveform_id: u8, accent: [4]f32) void {
+    const shape: struct { wave: ws.dsp.synth.Waveform, pw: f32 } = switch (waveform_id) {
+        0 => .{ .wave = synth.waveform, .pw = synth.pulse_width },
+        7 => .{ .wave = synth.osc_b_waveform, .pw = synth.osc_b_pulse_width },
+        else => .{ .wave = synth.osc_c_waveform, .pw = synth.osc_c_pulse_width },
+    };
+    const width = zgui.getContentRegionAvail()[0];
+    const height: f32 = 42;
+    const origin = zgui.getCursorScreenPos();
+    _ = zgui.invisibleButton("##osc-display", .{ .w = width, .h = height });
+    const draw_list = zgui.getWindowDrawList();
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(theme.bg1), .rounding = 3 });
+    const mid = origin[1] + height * 0.5;
+    draw_list.addLine(.{ .p1 = .{ origin[0], mid }, .p2 = .{ origin[0] + width, mid }, .col = color(theme.bg4), .thickness = 1 });
+    drawOscillatorShape(draw_list, .{ origin[0] + 8, origin[1] + 5 }, .{ width - 16, height - 10 }, shape.wave, shape.pw, accent);
+    zgui.dummy(.{ .w = 0, .h = 4 });
 }
 
-fn drawOscillatorShape(draw_list: zgui.DrawList, pos: [2]f32, size: [2]f32, waveform: ws.dsp.synth.Waveform) void {
-    var prev = pos;
-    for (1..49) |i| {
-        const phase = @as(f32, @floatFromInt(i)) / 48.0 * 2.0;
-        const sample: f32 = switch (waveform) {
+/// One cycle of the LFO's shape, at the top of its own card - the LFO
+/// counterpart to `drawOscDisplay`, and the same reason Serum gives each
+/// LFO a curve panel: "sine" versus "s&h" is a picture, not a word. Skipped
+/// for `.custom`, which already draws its real breakpoint editor below
+/// (see `drawLfoCustomCurve`).
+fn drawLfoDisplay(synth: *const ws.dsp.PolySynth, slot: usize, accent: [4]f32) void {
+    const shape = switch (slot) {
+        0 => synth.lfo_shape,
+        1 => synth.lfo2_shape,
+        else => synth.lfo3_shape,
+    };
+    if (shape == .custom) return;
+
+    const width = zgui.getContentRegionAvail()[0];
+    const height: f32 = 56;
+    const origin = zgui.getCursorScreenPos();
+    _ = zgui.invisibleButton("##lfo-display", .{ .w = width, .h = height });
+    const draw_list = zgui.getWindowDrawList();
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(theme.bg1), .rounding = 3 });
+    const mid = origin[1] + height * 0.5;
+    draw_list.addLine(.{ .p1 = .{ origin[0], mid }, .p2 = .{ origin[0] + width, mid }, .col = color(theme.bg4), .thickness = 1 });
+
+    const steps = 96;
+    const plot_x = origin[0] + 8;
+    const plot_w = width - 16;
+    var prev: [2]f32 = .{ plot_x, mid };
+    for (0..steps + 1) |i| {
+        const phase = @as(f32, @floatFromInt(i)) / @as(f32, steps);
+        const sample: f32 = switch (shape) {
             .sine => @sin(phase * std.math.pi * 2.0),
-            .saw, .wavetable => (phase - @floor(phase)) * 2.0 - 1.0,
-            .triangle => 1.0 - 4.0 * @abs(@round(phase) - phase),
-            .square => if (@mod(phase, 1.0) < 0.5) 1.0 else -1.0,
+            .triangle => 1.0 - 4.0 * @abs(phase - 0.5) + 1.0 - 1.0,
+            .saw => 1.0 - phase * 2.0,
+            .square => if (phase < 0.5) 1.0 else -1.0,
+            // Deterministic stand-ins: a real sample-and-hold or chaos run
+            // would flicker every frame and read as noise, not as shape.
+            .sh => switch (@as(usize, @intFromFloat(phase * 8.0)) % 8) {
+                0 => 0.6,
+                1 => -0.3,
+                2 => 0.9,
+                3 => 0.1,
+                4 => -0.8,
+                5 => 0.4,
+                6 => -0.5,
+                else => 0.2,
+            },
+            .chaos => @sin(phase * 11.0) * 0.6 + @sin(phase * 27.0) * 0.35,
+            .custom => 0,
         };
-        const point = [2]f32{ pos[0] + size[0] * @as(f32, @floatFromInt(i)) / 48.0, pos[1] + size[1] * (0.5 - sample * 0.42) };
-        if (i > 1) draw_list.addLine(.{ .p1 = prev, .p2 = point, .col = color(theme.focus), .thickness = 2 });
+        const point = [2]f32{ plot_x + plot_w * phase, mid - (height * 0.5 - 5) * sample };
+        if (i > 0) draw_list.addLine(.{ .p1 = prev, .p2 = point, .col = color(accent), .thickness = 1.5 });
         prev = point;
     }
+    zgui.dummy(.{ .w = 0, .h = 4 });
 }
 
-fn drawEnvelopeShape(draw_list: zgui.DrawList, pos: [2]f32, size: [2]f32, synth: *const ws.dsp.PolySynth) void {
-    const ad_total = @max(0.01, synth.attack_s + synth.decay_s);
-    const attack_x = pos[0] + size[0] * 0.55 * synth.attack_s / ad_total;
-    const decay_x = pos[0] + size[0] * 0.55;
-    const release_x = pos[0] + size[0] * 0.78;
-    const sustain_y = pos[1] + size[1] * (1.0 - synth.sustain);
-    const points = [_][2]f32{ .{ pos[0], pos[1] + size[1] }, .{ attack_x, pos[1] }, .{ decay_x, sustain_y }, .{ release_x, sustain_y }, .{ pos[0] + size[0], pos[1] + size[1] } };
-    for (0..points.len - 1) |i| draw_list.addLine(.{ .p1 = points[i], .p2 = points[i + 1], .col = color(theme.rhythm), .thickness = 2 });
-}
-
-fn drawFilterShape(draw_list: zgui.DrawList, pos: [2]f32, size: [2]f32, synth: *const ws.dsp.PolySynth) void {
-    const cutoff = std.math.clamp(@log10(synth.filter_cutoff / 20.0) / 3.0, 0, 1);
-    const knee_x = pos[0] + size[0] * cutoff;
-    const peak_y = pos[1] + size[1] * (0.45 - synth.filter_res * 0.35);
-    const left = [2]f32{ pos[0], pos[1] + size[1] * 0.45 };
-    const right = [2]f32{ pos[0] + size[0], pos[1] + size[1] * 0.45 };
-    const bottom_left = [2]f32{ pos[0], pos[1] + size[1] };
-    const bottom_right = [2]f32{ pos[0] + size[0], pos[1] + size[1] };
-    switch (synth.filter_type) {
-        .lp, .ladder, .diode => {
-            draw_list.addLine(.{ .p1 = left, .p2 = .{ knee_x, peak_y }, .col = color(theme.audio), .thickness = 2 });
-            draw_list.addLine(.{ .p1 = .{ knee_x, peak_y }, .p2 = bottom_right, .col = color(theme.audio), .thickness = 2 });
-        },
-        .hp => {
-            draw_list.addLine(.{ .p1 = bottom_left, .p2 = .{ knee_x, peak_y }, .col = color(theme.audio), .thickness = 2 });
-            draw_list.addLine(.{ .p1 = .{ knee_x, peak_y }, .p2 = right, .col = color(theme.audio), .thickness = 2 });
-        },
-        .bp, .formant => {
-            draw_list.addLine(.{ .p1 = bottom_left, .p2 = .{ knee_x, peak_y }, .col = color(theme.audio), .thickness = 2 });
-            draw_list.addLine(.{ .p1 = .{ knee_x, peak_y }, .p2 = bottom_right, .col = color(theme.audio), .thickness = 2 });
-        },
-        .notch, .comb => {
-            draw_list.addLine(.{ .p1 = left, .p2 = .{ knee_x, pos[1] + size[1] * 0.85 }, .col = color(theme.audio), .thickness = 2 });
-            draw_list.addLine(.{ .p1 = .{ knee_x, pos[1] + size[1] * 0.85 }, .p2 = right, .col = color(theme.audio), .thickness = 2 });
-        },
+/// Two cycles of `waveform`, so a duty-cycle change reads as a change in
+/// shape rather than only in a number.
+fn drawOscillatorShape(draw_list: zgui.DrawList, pos: [2]f32, size: [2]f32, waveform: ws.dsp.synth.Waveform, pulse_width: f32, accent: [4]f32) void {
+    const steps = 96;
+    var prev = pos;
+    for (1..steps + 1) |i| {
+        const phase = @as(f32, @floatFromInt(i)) / @as(f32, steps) * 2.0;
+        const frac = phase - @floor(phase);
+        const sample: f32 = switch (waveform) {
+            .sine => @sin(phase * std.math.pi * 2.0),
+            .saw, .wavetable => frac * 2.0 - 1.0,
+            .triangle => 1.0 - 4.0 * @abs(@round(phase) - phase),
+            .square => if (frac < pulse_width) 1.0 else -1.0,
+        };
+        const point = [2]f32{ pos[0] + size[0] * @as(f32, @floatFromInt(i)) / @as(f32, steps), pos[1] + size[1] * (0.5 - sample * 0.45) };
+        if (i > 1) draw_list.addLine(.{ .p1 = prev, .p2 = point, .col = color(accent), .thickness = 1.5 });
+        prev = point;
     }
 }

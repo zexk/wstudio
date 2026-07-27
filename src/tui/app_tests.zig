@@ -3757,8 +3757,11 @@ test "synth section focus isolates navigation and rendering" {
     try std.testing.expect(std.mem.indexOf(u8, frame, "OSC B") == null);
 
     app.handleKey(.{ .char = '}' }, 0);
-    // At 120 columns, the next card in column-major visual order is OSC C.
-    try std.testing.expectEqual(@as(u8, 50), app.synth_cursor);
+    // The next card is OSC B (id 6, its on/off), at every column count:
+    // sections are walked in table order, which is the band-by-band reading
+    // order of the grid. This used to be OSC C at 120 columns, back when
+    // the walk was column-major and OSC B lived in the other column.
+    try std.testing.expectEqual(@as(u8, 6), app.synth_cursor);
     app.handleKey(.{ .char = 'z' }, 0);
     try std.testing.expect(!app.synth_section_focus);
 }

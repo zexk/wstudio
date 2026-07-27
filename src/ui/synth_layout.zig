@@ -154,30 +154,42 @@ pub const mod_sections = [_]SectionDef{
 
 pub const Placement = struct { col: usize, row0: usize };
 
-/// Band-driven column assignment, evaluated at comptime (both `sections`
-/// and `num_cols` are always compile-time known - see `main_order_*`/
+/// Band-driven grid placement, evaluated at comptime (both `sections` and
+/// `num_cols` are always compile-time known - see `main_order_*`/
 /// `mod_order_*` below): the `i`th section of a band lands in column
-/// `i % num_cols`, so a band is one row of cards across the grid and the
-/// 1-column bucket degenerates to plain declaration order. `row0` is the
-/// row within its column (0-based) where the section's own header lands;
-/// each section occupies a header, its params, and one blank row that
-/// separates adjacent cards. Columns are *not* row-aligned across bands -
-/// each one stacks its own cards tight - so a short card never leaves a
-/// hole under it.
+/// `i % num_cols`, and every section of a band starts on the *same* row,
+/// the band's row. A band is therefore a true row of cards across the grid,
+/// not three columns that happen to contain related cards at unrelated
+/// heights, and the 1-column bucket degenerates to plain declaration order.
+/// Each section occupies a header, its params, and one blank row that
+/// separates it from the band below.
 ///
 /// This replaced a greedy shortest-column-first bin-packer. Even columns
-/// are worth less than adjacency here: that packer put FILTER 1 and
-/// FILTER 2 in different columns with AMP ENV between them, which is not
-/// how any synth lays out a front panel.
+/// are worth less than a grid: that packer put FILTER 1 and FILTER 2 in
+/// different columns with AMP ENV between them, and no synth front panel
+/// lays out that way - every one of them is a strict grid of fixed module
+/// strips (Serum's OSC A / OSC B / OSC C / SUB / NOISE / FILTER row being
+/// the canonical example). Row-aligning bands costs nothing in total
+/// height here either: the tallest column already set the body height.
 fn packColumns(comptime sections: []const SectionDef, comptime num_cols: usize) [sections.len]Placement {
-    var col_h = [_]usize{0} ** num_cols;
     var out: [sections.len]Placement = undefined;
+    var band_row: usize = 0;
+    // Rows used so far *within the current band*, per column. A band wider
+    // than the grid wraps (4 sections into 3 columns puts the 4th under the
+    // 1st), so this is per-column rather than a single counter.
+    var col_h = [_]usize{0} ** num_cols;
     var band_index: usize = 0;
     for (sections, 0..) |sec, i| {
-        if (i > 0 and sections[i - 1].band != sec.band) band_index = 0;
+        if (i > 0 and sections[i - 1].band != sec.band) {
+            var tallest: usize = 0;
+            for (col_h) |h| tallest = @max(tallest, h);
+            band_row += tallest;
+            col_h = [_]usize{0} ** num_cols;
+            band_index = 0;
+        }
         const col = band_index % num_cols;
         band_index += 1;
-        out[i] = .{ .col = col, .row0 = col_h[col] };
+        out[i] = .{ .col = col, .row0 = band_row + col_h[col] };
         col_h[col] += sec.params.len + 2;
     }
     return out;
@@ -212,30 +224,30 @@ pub const PositionedEntry = struct {
     section: usize,
 };
 
-/// Column-major traversal order: every column's sections in placement order
-/// (which is already row0-increasing within a column, since `packColumns`
-/// only ever appends to the currently-shortest column), then every entry
-/// within a section in declared order. This is the array `j`/`k`/`g`/`G`/
-/// `{`/`}` and the renderer all walk - there is no separate "wide" vs
-/// "narrow" order, the 1-column bucket's order *is* today's narrow-mode
-/// order.
+/// Traversal order: the table's own order. Since a band is a row of cards,
+/// declaration order *is* reading order - `j` runs down OSC A, then into
+/// OSC B beside it, then OSC C, then down into the next band - and it is
+/// identical in all three column buckets, so the cursor lands on the same
+/// param whether the window is one column wide or three.
+///
+/// This used to walk column-major (all of column 0, then all of column 1),
+/// which only made sense while columns were independent bin-packed stacks
+/// with no row relationship between them.
 fn computeOrder(comptime sections: []const SectionDef, comptime placements: [sections.len]Placement, comptime num_cols: usize) [totalEntries(sections)]PositionedEntry {
+    _ = num_cols;
     var out: [totalEntries(sections)]PositionedEntry = undefined;
     var n: usize = 0;
-    for (0..num_cols) |col| {
-        for (sections, 0..) |sec, si| {
-            if (placements[si].col != col) continue;
-            for (sec.params, 0..) |p, j| {
-                out[n] = .{
-                    .id = p.id,
-                    .label = p.label,
-                    .fields = p.fields,
-                    .col = col,
-                    .row = placements[si].row0 + 1 + j,
-                    .section = si,
-                };
-                n += 1;
-            }
+    for (sections, 0..) |sec, si| {
+        for (sec.params, 0..) |p, j| {
+            out[n] = .{
+                .id = p.id,
+                .label = p.label,
+                .fields = p.fields,
+                .col = placements[si].col,
+                .row = placements[si].row0 + 1 + j,
+                .section = si,
+            };
+            n += 1;
         }
     }
     return out;

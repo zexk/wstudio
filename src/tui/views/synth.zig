@@ -187,17 +187,6 @@ comptime {
         @compileError("views/synth.zig: main_render_fns must mirror synth_layout.main_sections 1:1");
 }
 
-/// Which column (in the current `n`-column bucket) section `si` was packed
-/// into - a small linear scan over the (already comptime-computed) visual
-/// order rather than a second table, since `order` already carries this per
-/// entry and sections are few (13).
-fn sectionCol(order: []const synth_layout.PositionedEntry, si: usize) usize {
-    for (order) |pe| {
-        if (pe.section == si) return pe.col;
-    }
-    return 0;
-}
-
 /// The "main"/"mod" subviews: every section card packed into 1-3 columns
 /// by `cols` (see synth_layout.numCols), each column rendered into its own
 /// temp buffer and then zipped row-by-row - the same technique the old
@@ -287,11 +276,20 @@ fn drawSynthGrid(app: anytype, w: *std.Io.Writer, max_rows: usize, cols: usize, 
 
     var bufs: [3][16 * 1024]u8 = undefined;
     var writers: [3]std.Io.Writer = undefined;
+    var col_rows = [_]usize{0} ** 3;
     for (0..n) |i| writers[i] = std.Io.Writer.fixed(&bufs[i]);
-    for (sections, 0..) |_, si| {
-        const col = sectionCol(order, si);
+    const placements = if (subview == .main) synth_layout.mainPlacements(n) else synth_layout.modPlacements(n);
+    for (sections, 0..) |sec, si| {
+        const col = placements[si].col;
+        // Sections of a band share a row (see synth_layout's packColumns),
+        // so a column whose card in the previous band was shorter than its
+        // neighbours' has to be padded down to the next band's row before
+        // its next card starts. Without this the buffers still zip, but
+        // every column drifts off the row the cursor math expects.
+        while (col_rows[col] < placements[si].row0) : (col_rows[col] += 1) try endLine(&writers[col]);
         try render_fns[si](&writers[col], synth, c);
         try endLine(&writers[col]);
+        col_rows[col] += sec.params.len + 2;
     }
 
     var iters: [3]std.mem.SplitIterator(u8, .sequence) = undefined;
