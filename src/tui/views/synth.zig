@@ -506,36 +506,73 @@ fn secFenv(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
 }
 
 const lfo_shape_names = [_][]const u8{ "sine", "tri", "saw", "sqr", "s&h", "cha", "cus" };
+const lfo_retrig_names = [_][]const u8{ "free", "key", "1shot" };
 
-/// Shape + rate only: the LFO is a pure mod source, its routing lives on
-/// MATRIX rows (the matrix absorbed the old depth/target params).
-fn secLfo(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
+/// The six ids each LFO slot owns, in the order its rows draw:
+/// shape, rate, sync, retrig, phase offset, slew.
+const lfo_slot_ids = [3][6]u16{
+    .{ 28, 29, 256, 259, 262, 265 },
+    .{ 95, 96, 257, 260, 263, 266 },
+    .{ 97, 98, 258, 261, 264, 267 },
+};
+
+/// A slot's live values, so `secLfoSlot` can draw all three from one body
+/// instead of the three near-identical copies this used to be.
+fn lfoSlotState(synth: *const PolySynth, slot: u8) struct {
+    shape: ws.dsp.synth.LfoShape,
+    rate: f32,
+    sync: ws.dsp.synth.LfoSync,
+    retrig: ws.dsp.synth.LfoRetrig,
+    phase_offset: f32,
+    slew_ms: f32,
+} {
+    return switch (slot) {
+        0 => .{ .shape = synth.lfo_shape, .rate = synth.lfo_rate_hz, .sync = synth.lfo_sync, .retrig = synth.lfo_retrig, .phase_offset = synth.lfo_phase_offset, .slew_ms = synth.lfo_slew_ms },
+        1 => .{ .shape = synth.lfo2_shape, .rate = synth.lfo2_rate_hz, .sync = synth.lfo2_sync, .retrig = synth.lfo2_retrig, .phase_offset = synth.lfo2_phase_offset, .slew_ms = synth.lfo2_slew_ms },
+        else => .{ .shape = synth.lfo3_shape, .rate = synth.lfo3_rate_hz, .sync = synth.lfo3_sync, .retrig = synth.lfo3_retrig, .phase_offset = synth.lfo3_phase_offset, .slew_ms = synth.lfo3_slew_ms },
+    };
+}
+
+/// The LFO is a pure mod source - its routing lives on MATRIX rows (the
+/// matrix absorbed the old depth/target params). What's left here is how it
+/// moves: shape, how fast, whether the tempo or the Hz knob decides that,
+/// and how it behaves across note-ons.
+///
+/// `sync` draws as a bar rather than an enum strip: 17 note divisions won't
+/// fit a column, and they're ordered slow-to-fast, so bar position reads as
+/// "how fast" at a glance with the exact division in the value slot.
+fn secLfoSlot(w: *std.Io.Writer, synth: *const PolySynth, c: u16, slot: u8, title: []const u8) !void {
     var buf: [40]u8 = undefined;
-    try synthSection(w, "LFO 1", mag);
+    const ids = lfo_slot_ids[slot];
+    const s = lfoSlotState(synth, slot);
+    const synced = s.sync != .off;
+    try synthSection(w, title, mag);
 
-    try enumRow(w, c == 28, false, mag, "shape", &lfo_shape_names, @intFromEnum(synth.lfo_shape));
+    try enumRow(w, c == ids[0], false, mag, "shape", &lfo_shape_names, @intFromEnum(s.shape));
+    // The Hz knob is inert while a division is set, so dim it and say so.
+    try barRow(w, c == ids[1], synced, mag, "rate", s.rate, 20.0, if (synced)
+        try std.fmt.bufPrint(&buf, "{s} sync", .{s.sync.label()})
+    else
+        try std.fmt.bufPrint(&buf, "{d:.2} Hz", .{s.rate}));
+    try barRow(w, c == ids[2], false, mag, "sync", @floatFromInt(@intFromEnum(s.sync)), @floatFromInt(@typeInfo(ws.dsp.synth.LfoSync).@"enum".fields.len - 1), s.sync.label());
+    try enumRow(w, c == ids[3], false, mag, "retrig", &lfo_retrig_names, @intFromEnum(s.retrig));
+    try barRow(w, c == ids[4], false, mag, "phase", s.phase_offset, 1.0,
+        try std.fmt.bufPrint(&buf, "{d:.2}", .{s.phase_offset}));
+    try barRow(w, c == ids[5], false, mag, "slew", s.slew_ms, 500.0,
+        try std.fmt.bufPrint(&buf, "{d:.0} ms", .{s.slew_ms}));
+    if (s.shape == .custom) try secLfoCustom(w, synth, c, slot);
+}
 
-    try barRow(w, c == 29, false, mag, "rate", synth.lfo_rate_hz, 20.0,
-        try std.fmt.bufPrint(&buf, "{d:.2} Hz", .{synth.lfo_rate_hz}));
-    if (synth.lfo_shape == .custom) try secLfoCustom(w, synth, c, 0);
+fn secLfo(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
+    try secLfoSlot(w, synth, c, 0, "LFO 1");
 }
 
 fn secLfo2(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
-    var buf: [40]u8 = undefined;
-    try synthSection(w, "LFO 2", mag);
-    try enumRow(w, c == 95, false, mag, "shape", &lfo_shape_names, @intFromEnum(synth.lfo2_shape));
-    try barRow(w, c == 96, false, mag, "rate", synth.lfo2_rate_hz, 20.0,
-        try std.fmt.bufPrint(&buf, "{d:.2} Hz", .{synth.lfo2_rate_hz}));
-    if (synth.lfo2_shape == .custom) try secLfoCustom(w, synth, c, 1);
+    try secLfoSlot(w, synth, c, 1, "LFO 2");
 }
 
 fn secLfo3(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
-    var buf: [40]u8 = undefined;
-    try synthSection(w, "LFO 3", mag);
-    try enumRow(w, c == 97, false, mag, "shape", &lfo_shape_names, @intFromEnum(synth.lfo3_shape));
-    try barRow(w, c == 98, false, mag, "rate", synth.lfo3_rate_hz, 20.0,
-        try std.fmt.bufPrint(&buf, "{d:.2} Hz", .{synth.lfo3_rate_hz}));
-    if (synth.lfo3_shape == .custom) try secLfoCustom(w, synth, c, 2);
+    try secLfoSlot(w, synth, c, 2, "LFO 3");
 }
 
 /// `.custom` shape's breakpoints, shown only while that LFO's shape is
@@ -596,8 +633,12 @@ fn secArp(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     try enumRow(w, c == 117, !on, bcyn, "mode", &arp_mode_names, @intFromEnum(synth.arp_mode));
     try barRow(w, c == 118, !on or synth.arp_mode == .chord, bcyn, "octaves", @floatFromInt(synth.arp_octaves), 4.0,
         try std.fmt.bufPrint(&buf, "{d}", .{synth.arp_octaves}));
-    try barRow(w, c == 119, !on, bcyn, "rate", synth.arp_rate_hz, 20.0,
+    const synced = synth.arp_sync != .off;
+    try barRow(w, c == 119, !on or synced, bcyn, "rate", synth.arp_rate_hz, 20.0, if (synced)
+        try std.fmt.bufPrint(&buf, "{s} sync", .{synth.arp_sync.label()})
+    else
         try std.fmt.bufPrint(&buf, "{d:.1} Hz", .{synth.arp_rate_hz}));
+    try barRow(w, c == 268, !on, bcyn, "sync", @floatFromInt(@intFromEnum(synth.arp_sync)), @floatFromInt(@typeInfo(ws.dsp.synth.LfoSync).@"enum".fields.len - 1), synth.arp_sync.label());
     try barRow(w, c == 120, !on, bcyn, "gate", synth.arp_gate, 1.0,
         try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.arp_gate}));
     try enumRow(w, c == 121, !on, bcyn, "hold", &on_off_names, if (synth.arp_hold) 0 else 1);
