@@ -45,6 +45,37 @@ pub fn bankWindow(cur_row: usize, banks: usize) usize {
     return (cur_row / rows_per_bank / shown) * shown * rows_per_bank;
 }
 
+/// The five velocity bands a step's stored 0-127 velocity reads as. Both
+/// frontends classify hits through this: the TUI prints the band's glyph,
+/// the GUI picks a fill color and flags `.accent` with a corner marker.
+pub const VelocityBand = enum {
+    ghost,
+    soft,
+    mid,
+    hard,
+    accent,
+
+    pub fn glyph(self: VelocityBand) u8 {
+        return switch (self) {
+            .ghost => '.',
+            .soft => '-',
+            .mid => 'o',
+            .hard => 'x',
+            .accent => 'X',
+        };
+    }
+};
+
+pub fn velocityBand(vel: u8) VelocityBand {
+    return switch (vel) {
+        102...127 => .accent,
+        76...101 => .hard,
+        51...75 => .mid,
+        26...50 => .soft,
+        else => .ghost,
+    };
+}
+
 pub fn StepRange(comptime T: type) type {
     return struct { lo: T, hi: T };
 }

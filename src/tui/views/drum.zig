@@ -7,6 +7,7 @@ const engine_mod = ws.engine;
 const style = @import("../style.zig");
 const icons = @import("../../ui/icons.zig");
 const drum_ed = @import("../../ui/editors/drum.zig");
+const step_grid = @import("../../ui/editors/step_grid.zig");
 
 // Aliases so the moved render bodies reference the shared palette/primitives
 // by their original bare names.
@@ -149,14 +150,9 @@ pub fn drawDrumGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, s
             try w.writeAll(style.stepCellSgr(active, is_cursor, is_play, in_sel));
 
             // Glyph tracks the step's velocity (0-127): full → quietest,
-            // five bands now that velocity isn't a 2-bit level anymore.
-            const glyph: u8 = if (!active) ' ' else switch (dm.stepVel(@intCast(p), @intCast(s))) {
-                102...127 => 'X',
-                76...101 => 'x',
-                51...75 => 'o',
-                26...50 => '-',
-                else => '.',
-            };
+            // five bands shared with the slicer grid and the GUI's fill
+            // shading (editors/step_grid.zig).
+            const glyph: u8 = if (!active) ' ' else step_grid.velocityBand(dm.stepVel(@intCast(p), @intCast(s))).glyph();
             if (cell_width == 1) {
                 try w.writeByte(glyph);
             } else {

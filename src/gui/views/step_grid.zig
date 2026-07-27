@@ -144,12 +144,15 @@ pub fn draw(
     for (row_start..row_end, 0..) |row, display_row| {
         for (0..step_count) |step| {
             if (!instrument.stepActive(@intCast(row), @intCast(step))) continue;
-            const velocity = @as(f32, @floatFromInt(instrument.stepVel(@intCast(row), @intCast(step)))) / 127.0;
+            const vel = instrument.stepVel(@intCast(row), @intCast(step));
+            const velocity = @as(f32, @floatFromInt(vel)) / 127.0;
             const x = grid_x + @as(f32, @floatFromInt(step)) * cell_w;
             const y = grid_y + @as(f32, @floatFromInt(display_row)) * row_h;
             const inset = @min(3, cell_w * 0.15);
             const height = 8 + velocity * (row_h - 13);
-            const accented = velocity >= 0.82;
+            // Top of the same five bands the TUI grids print a glyph for,
+            // so an "accented" hit means the same velocity in both.
+            const accented = shared_step_grid.velocityBand(vel) == .accent;
             const hit_color = if (kind == .drum)
                 if (accented) theme.rhythm else theme.focus
             else if (accented)

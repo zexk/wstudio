@@ -27,6 +27,7 @@ const endLine = style.endLine;
 // since its mouse hit-testing shares the exact same layout math.
 const waveform = @import("../../ui/waveform.zig");
 const slicer_ed = @import("../../ui/editors/slicer.zig");
+const step_grid = @import("../../ui/editors/step_grid.zig");
 const gutter = slicer_ed.gutter;
 const cell_width: usize = 3;
 const wave_indent = slicer_ed.wave_indent;
@@ -167,7 +168,7 @@ pub fn drawSlicerGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize,
     const scroll = app.slicer_step_scroll;
 
     // MPC-style slice banking, same shape the drum grid uses for its pads.
-    const slices_per_bank = 8;
+    const slices_per_bank = step_grid.rows_per_bank;
     const slice_count = sl.slice_count;
     const bank_count = if (slice_count == 0) 1 else (slice_count + slices_per_bank - 1) / slices_per_bank;
     const bank = cur_slice / slices_per_bank;
@@ -255,14 +256,9 @@ pub fn drawSlicerGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize,
             const in_sel = visual_active and s >= sel_lo and s <= sel_hi;
             try w.writeAll(style.stepCellSgr(active, is_cursor, is_play, in_sel));
             // Glyph tracks the step's velocity - same five bands as the
-            // drum grid.
-            try w.writeAll(if (!active) "[ ]" else switch (sl.stepVel(@intCast(sIdx), @intCast(s))) {
-                102...127 => "[X]",
-                76...101 => "[x]",
-                51...75 => "[o]",
-                26...50 => "[-]",
-                else => "[.]",
-            });
+            // drum grid (editors/step_grid.zig).
+            const glyph: u8 = if (!active) ' ' else step_grid.velocityBand(sl.stepVel(@intCast(sIdx), @intCast(s))).glyph();
+            try w.print("[{c}]", .{glyph});
             try w.writeAll(rst);
         }
         try endLine(w);
