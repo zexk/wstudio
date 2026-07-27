@@ -834,9 +834,12 @@ pub const EqTarget = enum { track, master, group };
 
 /// Derive the current target from `app.view` - `.track_spectrum` ->
 /// `.track`, `.group_spectrum` -> `.group`, everything else (including
-/// `.master_spectrum`) -> `.master`.
+/// `.master_spectrum`) -> `.master`. While the FX picker is up the chain
+/// view is only suspended, not left, so read through its return view: the
+/// GUI keeps drawing that chain underneath the picker overlay.
 pub fn currentTarget(app: *App) EqTarget {
-    return switch (app.view) {
+    const view = if (app.view == .fx_picker) app.fx_picker_return else app.view;
+    return switch (view) {
         .track_spectrum => .track,
         .group_spectrum => .group,
         else => .master,
