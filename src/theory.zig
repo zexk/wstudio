@@ -110,6 +110,22 @@ pub const Scale = struct {
     pub const Chord = struct {
         pitches: [4]u7 = undefined,
         count: u3 = 0,
+
+        /// Raise the lowest `n` chord tones by an octave: `n = 1` is first
+        /// inversion (root on top), `n = 2` second, and so on. `n` is
+        /// clamped to `count - 1`, since rotating every voice is just the
+        /// same chord an octave up. All-or-nothing at the top of the MIDI
+        /// range - a shift that would run past 127 leaves the chord as it
+        /// was rather than stacking voices onto the same pitch.
+        pub fn inverted(self: Chord, n: u3) Chord {
+            if (self.count == 0) return self;
+            var out = self;
+            for (0..@min(n, self.count - 1)) |i| {
+                if (@as(i32, out.pitches[i]) + 12 > 127) return self;
+                out.pitches[i] += 12;
+            }
+            return out;
+        }
     };
 
     /// The diatonic triad (`seventh = false`) or seventh chord stacked from
@@ -224,6 +240,21 @@ test "chordAt: minor pentatonic uses the fixed minor shape" {
     const c = s.chordAt(60, true);
     try std.testing.expectEqual(@as(u3, 4), c.count);
     try std.testing.expectEqualSlices(u7, &.{ 60, 63, 67, 70 }, &c.pitches);
+}
+
+test "Chord.inverted: raises the lowest voices, clamps a full rotation, bails at 127" {
+    const s = Scale{ .root = 0, .kind = .major };
+    const triad = s.chordAt(60, false); // C-E-G
+    try std.testing.expectEqualSlices(u7, &.{ 72, 64, 67 }, triad.inverted(1).pitches[0..3]);
+    try std.testing.expectEqualSlices(u7, &.{ 72, 76, 67 }, triad.inverted(2).pitches[0..3]);
+    // A triad has only two inversions; more is the same chord an octave up,
+    // so it stops at the second rather than transposing the whole shape.
+    try std.testing.expectEqualSlices(u7, &.{ 72, 76, 67 }, triad.inverted(5).pitches[0..3]);
+
+    // No room to raise the root: the chord comes back untouched, never with
+    // two voices stacked on the same clamped pitch.
+    const high = s.chordAt(120, false); // 120-124-127
+    try std.testing.expectEqualSlices(u7, high.pitches[0..3], high.inverted(1).pitches[0..3]);
 }
 
 test "parsePitchClass: letters, sharps, flats" {

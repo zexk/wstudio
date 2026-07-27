@@ -513,14 +513,19 @@ fn dropStamp(app: *App) void {
 /// `c`/`C`: stamp a diatonic triad (`c`) or seventh chord (`C`) rooted at the
 /// cursor pitch, using the active `:scale` to harmonize it correctly (e.g.
 /// `c` on the 2nd degree of C major stacks D-F-A). With no scale set,
-/// defaults to a plain major shape rooted at the cursor note. A single-key
-/// edit - like insert/toggle/delete - so it's not part of `.` repeat; press
-/// it again at a new cursor.
+/// defaults to a plain major shape rooted at the cursor note. A count prefix
+/// inverts: `1c` first inversion, `2c` second (clamped to the chord's voice
+/// count, see `Chord.inverted`); a bare `c` is root position, which is why
+/// this reads `modal.count` raw instead of `takeCount`'s default-to-1. A
+/// single-key edit - like insert/toggle/delete - so it's not part of `.`
+/// repeat; press it again at a new cursor.
 fn stampChord(app: *App, seventh: bool) void {
     const pp = currentPatternPlayer(app) orelse return;
+    const inversion: u3 = @intCast(@min(app.modal.count, 7));
+    _ = app.takeCount();
     const scale = app.piano_scale orelse
         theory.Scale{ .root = @intCast(app.piano_cursor_pitch % 12), .kind = .major };
-    const chord = scale.chordAt(app.piano_cursor_pitch, seventh);
+    const chord = scale.chordAt(app.piano_cursor_pitch, seventh).inverted(inversion);
     const start_beat = stepToBeat(app, app.piano_cursor_step);
     var replacing: u16 = 0;
     for (chord.pitches[0..chord.count]) |pitch| {
@@ -535,7 +540,11 @@ fn stampChord(app: *App, seventh: bool) void {
         pp.removeNote(pitch, start_beat);
         _ = pp.tryAddNote(.{ .pitch = pitch, .start_beat = start_beat, .duration_beat = app.piano_note_len });
     }
-    app.setStatus("chord: {d} notes", .{chord.count});
+    if (inversion == 0) {
+        app.setStatus("chord: {d} notes", .{chord.count});
+    } else {
+        app.setStatus("chord: {d} notes, inversion {d}", .{ chord.count, @min(inversion, chord.count - 1) });
+    }
     syncLinkedClip(app);
 }
 

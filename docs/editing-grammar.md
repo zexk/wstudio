@@ -44,6 +44,12 @@ the count binds to the command it precedes and dies with it; a key the
 editor handles discards any unused prefix. Digits typed while an
 operator is pending extend the count without cancelling the operator.
 
+A few commands read the count as a quantity rather than a repeat: `p`
+pastes that many copies, `+`/`-` transpose by that many semitones, and the
+piano roll's `c`/`C` chord stamp takes it as an inversion (`2c` = second
+inversion). Those read the raw count, so a bare press means zero
+inversions rather than one.
+
 ## Motions
 
 - `h`/`l`: one step (piano, drum, slicer, automation) or one bar

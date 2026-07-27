@@ -1147,6 +1147,37 @@ test "piano roll visual mode selects a step range for y/d/P" {
     try std.testing.expect(pp.noteAt(72, 2.0) != null);
 }
 
+test "piano roll chord stamp: bare c is root position, a count prefix inverts" {
+    var app = try testApp();
+    defer app.deinit();
+    app.view = .piano_roll;
+    app.piano_track = 0;
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    pp.length_beats = 4.0;
+    app.piano_cursor_pitch = 60;
+    app.piano_cursor_step = 0;
+
+    app.handleKey(.{ .char = 'c' }, 0);
+    try std.testing.expect(pp.noteAt(60, 0.0) != null);
+    try std.testing.expect(pp.noteAt(64, 0.0) != null);
+    try std.testing.expect(pp.noteAt(67, 0.0) != null);
+
+    // 2c: root and third an octave up, fifth left where it is.
+    app.piano_cursor_step = 4;
+    app.handleKey(.{ .char = '2' }, 0);
+    app.handleKey(.{ .char = 'c' }, 0);
+    try std.testing.expect(pp.noteAt(72, 1.0) != null);
+    try std.testing.expect(pp.noteAt(76, 1.0) != null);
+    try std.testing.expect(pp.noteAt(67, 1.0) != null);
+    try std.testing.expect(pp.noteAt(60, 1.0) == null);
+
+    // The count is consumed, so the next bare c is root position again.
+    app.piano_cursor_step = 8;
+    app.handleKey(.{ .char = 'c' }, 0);
+    try std.testing.expect(pp.noteAt(60, 2.0) != null);
+    try std.testing.expect(pp.noteAt(72, 2.0) == null);
+}
+
 test "piano roll setVelocity (GUI lane drag) writes without its own undo entry" {
     var app = try testApp();
     defer app.deinit();

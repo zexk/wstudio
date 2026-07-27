@@ -314,7 +314,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("(visual) o",   "jump to the selection's other end (also in drum/slicer/arrangement/automation)");
     t.key("[count]p",     "after a range yank: paste count copies back-to-back (3p tiles a bar three times)");
     t.key(".",            "repeat the last nudge, drag, or visual range delete/paste");
-    t.key("c / C",        "stamp a triad / 7th chord at cursor (:scale-aware)");
+    t.key("c / C",        "stamp a triad / 7th chord at cursor (:scale-aware; count inverts, 2c = 2nd inversion)");
     t.key("T",            "toggle grid: straight 1/16 <-> 1/16 triplet");
     t.key("z / Z",        "finer / coarser timing grid (1/4 through 1/128)");
     t.key(":clear",       "erase all notes in the pattern");
