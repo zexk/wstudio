@@ -27,6 +27,7 @@ const endLine = style.endLine;
 // its mouse column math must agree with this draw path.
 const arrangement_ed = @import("../../ui/editors/arrangement.zig");
 const gutter = arrangement_ed.gutter;
+const step_grid = @import("../../ui/editors/step_grid.zig");
 
 /// Bars that fit in the timeline area for a terminal `cols` wide, at cell
 /// width `cw` from `App.arrCellWidth()`.
@@ -104,11 +105,14 @@ pub fn drawArrangement(
     }
     try endLine(w);
 
-    // Visual-mode selection: a bar range on the current lane only.
+    // Visual-mode selection: a bar range, spanning either the anchored
+    // lane band (`v`, blockwise) or every lane (`V`, linewise - a null lane
+    // anchor). See editors/step_grid.zig's rowRange.
     const visual_active = app.modal.mode == .visual;
     const sel_anchor = (app.arr_visual_anchor orelse app.arr_cursor_bar) *| grid_ticks;
     const sel_lo: u32 = @min(sel_anchor, cur_bar);
     const sel_hi: u32 = @max(sel_anchor, cur_bar);
+    const sel_lanes = step_grid.rowRange(usize, app.arr_visual_lane_anchor, app.cursor, app.session.project.tracks.items.len);
 
     // Lanes: vertical scroll over tracks, same window-clamp technique the
     // horizontal bar scroll above uses (exact `rows` is known here, unlike
@@ -126,7 +130,7 @@ pub fn drawArrangement(
 
     for (app.session.project.tracks.items[lane_scroll..last_lane], lane_scroll..) |track, li| {
         const lane = app.session.arrangement.lane(li);
-        const is_sel_lane = li == app.cursor;
+        const is_sel_lane = li >= sel_lanes.lo and li <= sel_lanes.hi;
         // Per-track color (see tui/style.zig's track_palette, cycled with
         // `[`/`]` in the tracks view) - falls back to the generic accent
         // for clip cells below (unchanged look for uncolored tracks), and

@@ -6,6 +6,7 @@ const ws = @import("wstudio");
 const icons = @import("../../ui/icons.zig");
 const gui_style = @import("../style.zig");
 const zgui = @import("zgui");
+const shared_step_grid = @import("../../ui/editors/step_grid.zig");
 
 const color = gui_style.color;
 const theme = &gui_style.palette;
@@ -100,9 +101,14 @@ pub fn draw(app: anytype) void {
         const hi = @max(anchor, cursor_tick) + app.core.arr_grid.ticks();
         const x1 = timeline_x + @as(f32, @floatFromInt(lo)) / @as(f32, @floatFromInt(ticks_per_beat)) * beat_w;
         const x2 = timeline_x + @as(f32, @floatFromInt(hi)) / @as(f32, @floatFromInt(ticks_per_beat)) * beat_w;
-        const y = origin[1] + ruler_h + @as(f32, @floatFromInt(app.core.cursor)) * lane_h;
-        draw_list.addRectFilled(.{ .pmin = .{ x1, y }, .pmax = .{ x2, y + lane_h }, .col = color(.{ theme.rhythm[0], theme.rhythm[1], theme.rhythm[2], 0.14 }) });
-        draw_list.addRect(.{ .pmin = .{ x1 + 1, y + 1 }, .pmax = .{ x2 - 1, y + lane_h - 1 }, .col = color(.{ theme.rhythm[0], theme.rhythm[1], theme.rhythm[2], 0.6 }), .thickness = 1 });
+        // The lane axis: `v` (blockwise) bounds it to the anchored band,
+        // `V` (linewise) leaves the anchor null and the rectangle spans
+        // every lane. See editors/step_grid.zig's rowRange.
+        const lanes = shared_step_grid.rowRange(usize, app.core.arr_visual_lane_anchor, app.core.cursor, track_count);
+        const y = origin[1] + ruler_h + @as(f32, @floatFromInt(lanes.lo)) * lane_h;
+        const y2 = origin[1] + ruler_h + @as(f32, @floatFromInt(lanes.hi + 1)) * lane_h;
+        draw_list.addRectFilled(.{ .pmin = .{ x1, y }, .pmax = .{ x2, y2 }, .col = color(.{ theme.rhythm[0], theme.rhythm[1], theme.rhythm[2], 0.14 }) });
+        draw_list.addRect(.{ .pmin = .{ x1 + 1, y + 1 }, .pmax = .{ x2 - 1, y2 - 1 }, .col = color(.{ theme.rhythm[0], theme.rhythm[1], theme.rhythm[2], 0.6 }), .thickness = 1 });
     }
 
     for (app.core.session.arrangement.lanes.items, 0..) |lane, ti| {

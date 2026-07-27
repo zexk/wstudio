@@ -255,7 +255,10 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             // here instead. Calls the same pasteSelection visual mode's p/P
             // use; it doesn't require actually being in visual mode.
             'P' => { pasteSelection(app, clip); return true; },
-            'v' => {
+            // One curve at a time: there is no second axis to bound, so
+            // `v` and `V` are the same selection here. `V` is accepted
+            // anyway so the grammar reads the same in every editor.
+            'v', 'V' => {
                 app.automation_visual_anchor = app.automation_cursor_step;
                 app.modal.mode = .visual;
                 app.setStatus("visual: hjkl extend, y/d/p act on the range, esc cancels", .{});

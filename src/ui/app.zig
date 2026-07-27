@@ -219,11 +219,26 @@ pub const SlicerRangeClip = struct {
     vel: [Slicer.max_slices][Slicer.max_steps]u8 = [_][Slicer.max_steps]u8{[_]u8{Slicer.vel_full} ** Slicer.max_steps} ** Slicer.max_slices,
 };
 
-/// A visual-mode range yank from the arrangement: deep-copied clips from one
-/// lane, with start_bar rebased relative to the selection's first bar. Paste
-/// re-targets the cursor bar on the same lane it was copied from.
+/// A visual-mode range yank from the arrangement: deep-copied clips with
+/// start_bar rebased relative to the selection's first bar. `lane_offsets`
+/// runs parallel to `clips`, holding each one's lane relative to the
+/// selection's topmost lane, so a `V` (linewise) yank of a 4-bar block
+/// across every track pastes back with its lanes intact. A `v` (blockwise)
+/// yank pastes with its top lane on the cursor lane; a linewise one keeps
+/// its own absolute lanes, the same rule the step grids use (see
+/// `step_grid.pasteBaseRow`).
 pub const ArrRangeClip = struct {
     clips: []ws.Clip,
+    lane_offsets: []u16,
+    /// Topmost lane the yank came from, and how many lanes it spanned.
+    lane_lo: u16 = 0,
+    lane_span: u16 = 1,
+
+    pub fn deinit(self: *const ArrRangeClip, allocator: std.mem.Allocator) void {
+        for (self.clips) |*c| c.deinit(allocator);
+        allocator.free(self.clips);
+        allocator.free(self.lane_offsets);
+    }
 };
 
 /// A visual-mode range yank from the automation editor: breakpoints from
@@ -881,10 +896,7 @@ pub const App = struct {
         self.external_plugins.deinit();
         user_presets.deinit(self.allocator, &self.user_synth_presets);
         user_drum_kits.deinit(self.allocator, &self.user_drum_kits);
-        if (self.arr_range_clip) |r| {
-            for (r.clips) |*c| c.deinit(self.allocator);
-            self.allocator.free(r.clips);
-        }
+        if (self.arr_range_clip) |r| r.deinit(self.allocator);
         if (self.automation_range_clip) |r| self.allocator.free(r.points);
         if (self.drum_range_clip) |*c| c.deinit(self.allocator);
         if (self.drum_clip) |*c| DrumMachine.freeMidi(self.allocator, &c.midi);
@@ -1846,7 +1858,7 @@ pub const App = struct {
                             'U' => { history.doRedo(self); return; },
                             't' => { self.tapTempo(now_ns); return; },
                             'l' => { self.session.resetLoudness(); self.setStatus("integrated LUFS reset", .{}); return; },
-                            'd', 'Y', 'J', 'K', 'R', 'p', 'I', 'r', '<', '>', '[', ']', 'v', 'z' => {
+                            'd', 'Y', 'J', 'K', 'R', 'p', 'I', 'r', '<', '>', '[', ']', 'v', 'V', 'z' => {
                                 self.setStatus("master bus: n/a", .{});
                                 return;
                             },
@@ -1866,7 +1878,10 @@ pub const App = struct {
                             'u' => { history.doUndo(self); return; },
                             'U' => { history.doRedo(self); return; },
                             't' => { self.tapTempo(now_ns); return; },
-                            'v' => {
+                            // Track rows ARE the only axis, so the selection is linewise by
+                            // nature and `V` is just a synonym - accepted so the
+                            // grammar reads the same in every view.
+                            'v', 'V' => {
                                 self.tracks_visual_anchor = self.track_row;
                                 self.modal.mode = .visual;
                                 self.setStatus("visual: j/k extend, g groups the selection, esc cancels", .{});
@@ -1904,7 +1919,7 @@ pub const App = struct {
                                 }
                                 return;
                             },
-                            'v' => {
+                            'v', 'V' => {
                                 self.tracks_visual_anchor = self.track_row;
                                 self.modal.mode = .visual;
                                 self.setStatus("visual: j/k extend, g groups the selection, esc cancels", .{});

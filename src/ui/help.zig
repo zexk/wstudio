@@ -331,7 +331,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("[ / ]",        "cycle drum/slicer pattern variant to stamp");
     t.key("x",            "delete clip at cursor");
     t.key("y / p",        "yank / paste clip (matching track kind)");
-    t.key("v",            "visual mode: select a bar range on this lane - y/d/p");
+    t.key("v / V",        "visual: a (lane, bar) block, j/k grow it / visual line: every lane - y/d/p");
     t.key("< / >",        "move clip left / right by a bar");
     t.key("- / +",        "edge-resize clip length by a bar (content loops to fill it)");
     t.key(".",            "repeat the last clip move / resize or visual range delete/paste");

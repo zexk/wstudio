@@ -28,8 +28,9 @@ where that editor deviates.
     so the old gesture is one shifted keystroke away.
   - The automation editor and the tracks list have no second axis, so
     `v` is the only form there.
-  - The arrangement is still one lane at a time under both (undo
-    snapshots one lane).
+  - In the arrangement a "row" is a lane, so `V` cuts or copies a bar
+    range across every track at once. That lands as a single multi-lane
+    undo entry (see docs/undo-redo.md), not one per lane.
 
   `y`/`d` act on the selection, escape cancels. While visual mode is
   active every unrelated key is swallowed so a stray press cannot

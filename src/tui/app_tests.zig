@@ -4146,6 +4146,68 @@ test "arrangement visual mode selects a bar range on the current lane for y/d/P"
     try std.testing.expect(lane.clipAt(640) != null);
 }
 
+test "arrangement V cuts a bar range across every lane and undoes in one step" {
+    var app = try testApp();
+    defer app.deinit();
+    // Tracks 0 (synth) and 1 (sampler) are both melodic, so both can hold
+    // a stamped clip; track 2 is the drum machine and stays empty.
+    for ([_]usize{ 0, 1 }) |t| {
+        const pp = &app.session.racks.items[t].pattern_player.?;
+        pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.5 });
+        try app.session.stampClip(@intCast(t), 0);
+        try app.session.stampClip(@intCast(t), 5); // outside the cut below
+    }
+    const lane0 = app.session.arrangement.lane(0).?;
+    const lane1 = app.session.arrangement.lane(1).?;
+
+    app.view = .arrangement;
+    app.cursor = 0;
+    app.arr_cursor_bar = 0;
+    app.handleKey(.{ .char = 'V' }, 0);
+    try std.testing.expectEqual(ws.input.Mode.visual, app.modal.mode);
+    try std.testing.expectEqual(@as(?usize, null), app.arr_visual_lane_anchor);
+    for ("4l") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.{ .char = 'd' }, 0);
+    // Both lanes cut, even though the cursor never left lane 0.
+    try std.testing.expect(lane0.clipAt(0) == null);
+    try std.testing.expect(lane1.clipAt(0) == null);
+    try std.testing.expect(lane0.clipAt(640) != null);
+    try std.testing.expect(lane1.clipAt(640) != null);
+
+    // One `u` puts every lane back - a multi-lane edit is one undo step.
+    app.handleKey(.{ .char = 'u' }, 0);
+    try std.testing.expect(app.session.arrangement.lane(0).?.clipAt(0) != null);
+    try std.testing.expect(app.session.arrangement.lane(1).?.clipAt(0) != null);
+
+    // And redo takes both away again.
+    app.handleKey(.{ .char = 'U' }, 0);
+    try std.testing.expect(app.session.arrangement.lane(0).?.clipAt(0) == null);
+    try std.testing.expect(app.session.arrangement.lane(1).?.clipAt(0) == null);
+}
+
+test "arrangement blockwise visual bounds the cut to the lane band j/k grows" {
+    var app = try testApp();
+    defer app.deinit();
+    for ([_]usize{ 0, 1 }) |t| {
+        const pp = &app.session.racks.items[t].pattern_player.?;
+        pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.5 });
+        try app.session.stampClip(@intCast(t), 0);
+    }
+    app.view = .arrangement;
+    app.cursor = 0;
+    app.arr_cursor_bar = 0;
+
+    // `v` anchors the lane, so the cut stops at lane 0 - the behaviour
+    // visual mode always had here, now explicitly the blockwise case.
+    app.handleKey(.{ .char = 'v' }, 0);
+    try std.testing.expectEqual(@as(?usize, 0), app.arr_visual_lane_anchor);
+    for ("4l") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.{ .char = 'd' }, 0);
+    try std.testing.expect(app.session.arrangement.lane(0).?.clipAt(0) == null);
+    try std.testing.expect(app.session.arrangement.lane(1).?.clipAt(0) != null);
+    try std.testing.expectEqual(@as(?usize, null), app.arr_visual_lane_anchor);
+}
+
 test "arrangement operator+motion: d3l / y3l act on a bar range without entering visual mode" {
     var app = try testApp();
     defer app.deinit();

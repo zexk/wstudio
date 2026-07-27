@@ -6,6 +6,12 @@ one melodic pattern, one drum or slicer pattern bank, one arrangement lane, or
 one FX chain. Undo swaps that snapshot with the live state. The displaced live
 state becomes the redo entry, so both directions use the same operation.
 
+An arrangement edit that spans several lanes at once - a linewise (`V`)
+visual range across every track - captures all of them into a single
+multi-lane entry instead, so one `u` puts the whole section back rather than
+needing one per lane. If a track is later deleted, such an entry drops just
+that track's lane and keeps the rest, since the others are still restorable.
+
 Parameter nudges are the exception. Synth, sampler, and FX parameters live on
 the audio thread, so a nudge records one absolute before-value and restores it
 through the same event path used by automation. Rapid repeated nudges of the

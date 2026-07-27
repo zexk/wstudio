@@ -78,6 +78,18 @@ pub const LaneState = struct {
     }
 };
 
+/// Several lanes snapshotted together, so one arrangement-wide edit - a
+/// linewise (`V`) visual range spanning every lane - undoes in a single
+/// step instead of one `u` per lane.
+pub const MultiLaneState = struct {
+    lanes: []LaneState, // owned, as is each lane's clips
+
+    pub fn deinit(self: *MultiLaneState, allocator: std.mem.Allocator) void {
+        for (self.lanes) |*l| l.deinit(allocator);
+        allocator.free(self.lanes);
+    }
+};
+
 /// Which FX chain an `.fx` entry targets - track/master/group index baked
 /// in at capture time, so undo/redo apply to the right chain even if the
 /// user has since navigated away from the FX view that made the edit.
@@ -215,6 +227,7 @@ pub const Entry = union(enum) {
     drum: DrumState,
     slicer: SlicerState,
     lane: LaneState,
+    lanes: MultiLaneState,
     fx: FxState,
     param_nudge: ParamNudgeState,
     /// A deleted track's full backup; applying re-inserts it (undo of a
@@ -235,6 +248,7 @@ pub const Entry = union(enum) {
             .drum => |*d| d.deinit(allocator),
             .slicer => {},
             .lane => |*l| l.deinit(allocator),
+            .lanes => |*l| l.deinit(allocator),
             .fx => |*f| f.deinit(allocator),
             .param_nudge => {},
             .track_insert => |*t| t.deinit(allocator),
@@ -248,7 +262,7 @@ pub const Entry = union(enum) {
             .melodic => "pattern",
             .drum => "drum",
             .slicer => "slicer",
-            .lane => "clip",
+            .lane, .lanes => "clip",
             .fx => "fx",
             .param_nudge => "param",
             .track_insert, .track_delete => "track",
@@ -376,6 +390,23 @@ fn retargetStack(stack: *std.ArrayListUnmanaged(Entry), allocator: std.mem.Alloc
             .drum => |*d| if (remap.apply(d.track)) |nt| { d.track = nt; } else { keep = false; },
             .slicer => |*d| if (remap.apply(d.track)) |nt| { d.track = nt; } else { keep = false; },
             .lane => |*l| if (remap.apply(l.track)) |nt| { l.track = nt; } else { keep = false; },
+            // A multi-lane entry survives a track delete by dropping just
+            // the lanes that went with it and remapping the rest; only an
+            // entry left with no lanes at all is discarded. Dropping the
+            // whole entry on any single hit would throw away the other
+            // lanes' snapshots, which are still perfectly restorable.
+            .lanes => |*ml| {
+                var kept: usize = 0;
+                for (ml.lanes) |*l| {
+                    if (remap.apply(l.track)) |nt| {
+                        l.track = nt;
+                        ml.lanes[kept] = l.*;
+                        kept += 1;
+                    } else l.deinit(allocator);
+                }
+                ml.lanes = ml.lanes[0..kept];
+                if (kept == 0) keep = false;
+            },
             .param_nudge => |*p| if (remap.apply(p.track)) |nt| { p.track = nt; } else { keep = false; },
             .track_kind_swap => |*t| if (remap.apply(t.track)) |nt| { t.track = nt; } else { keep = false; },
             .fx => |*f| switch (f.target) {

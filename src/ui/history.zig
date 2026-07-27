@@ -154,6 +154,75 @@ pub fn recordLane(app: *App, track: u16) void {
     push(app, captureLane(app, track));
 }
 
+/// Snapshot the named lanes as one entry, so an arrangement-wide edit
+/// undoes in a single step (see `undo.MultiLaneState`). Lanes that don't
+/// resolve are skipped; null if none did, which keeps the caller's `push` a
+/// no-op rather than recording an empty step. Takes an explicit track list
+/// rather than a range because an entry's lanes stop being contiguous once
+/// `History.retarget` has dropped a deleted track out of the middle.
+pub fn captureLanesOf(app: *App, tracks: []const u16) ?undo_mod.Entry {
+    var list: std.ArrayListUnmanaged(undo_mod.LaneState) = .empty;
+    for (tracks) |track| {
+        const lane = app.session.arrangement.lane(track) orelse continue;
+        const clips = dupeClips(app.allocator, lane.clips.items) orelse continue;
+        list.append(app.allocator, .{ .track = @intCast(track), .clips = clips }) catch {
+            var orphan: undo_mod.LaneState = .{ .track = @intCast(track), .clips = clips };
+            orphan.deinit(app.allocator);
+            continue;
+        };
+    }
+    if (list.items.len == 0) {
+        list.deinit(app.allocator);
+        return null;
+    }
+    const owned = list.toOwnedSlice(app.allocator) catch {
+        for (list.items) |*l| l.deinit(app.allocator);
+        list.deinit(app.allocator);
+        return null;
+    };
+    return .{ .lanes = .{ .lanes = owned } };
+}
+
+/// `captureLanesOf` over a contiguous lane band - what a visual-mode range
+/// selection produces.
+pub fn captureLanes(app: *App, lo: usize, hi: usize) ?undo_mod.Entry {
+    if (hi < lo) return null;
+    const tracks = app.allocator.alloc(u16, hi - lo + 1) catch return null;
+    defer app.allocator.free(tracks);
+    for (tracks, lo..) |*t, track| t.* = @intCast(track);
+    return captureLanesOf(app, tracks);
+}
+
+/// Pre-edit wrapper for a multi-lane edit.
+pub fn recordLanes(app: *App, lo: usize, hi: usize) void {
+    push(app, captureLanes(app, lo, hi));
+}
+
+/// Install one captured lane's clips over whatever is live there, taking
+/// ownership of `l.clips`. Shared by the `.lane` and `.lanes` apply arms;
+/// the caller owns the song-data rebuild (a multi-lane restore only wants
+/// one at the end).
+fn restoreLane(app: *App, l: undo_mod.LaneState) void {
+    const lane = app.session.arrangement.lane(l.track) orelse {
+        for (l.clips) |*c| c.deinit(app.allocator);
+        app.allocator.free(l.clips);
+        return;
+    };
+    lane.clear(app.allocator);
+    for (l.clips, 0..) |c, i| {
+        // Ownership moves into the lane (captured order is sorted).
+        lane.clips.append(app.allocator, c) catch {
+            for (l.clips[i..]) |*rest| rest.deinit(app.allocator);
+            break;
+        };
+    }
+    app.allocator.free(l.clips);
+    // A linked clip may have been replaced or removed.
+    if (app.piano_clip_link) |link| {
+        if (link.track == l.track) app.piano_clip_link = null;
+    }
+}
+
 /// Snapshot `track_idx`'s full state (mixer metadata, deep-copied rack,
 /// deep-copied arrangement clips) for whole-track undo. Same deep-copy
 /// machinery `Session.duplicateTrack` uses (`Rack.dupe`), just captured
@@ -445,20 +514,22 @@ fn applyEntry(app: *App, entry: undo_mod.Entry) ?undo_mod.Entry {
         },
         .lane => |l| {
             const displaced = captureLane(app, l.track) orelse return null;
-            const lane = app.session.arrangement.lane(l.track).?;
-            lane.clear(app.allocator);
-            for (l.clips, 0..) |c, i| {
-                // Ownership moves into the lane (captured order is sorted).
-                lane.clips.append(app.allocator, c) catch {
-                    for (l.clips[i..]) |*rest| rest.deinit(app.allocator);
-                    break;
-                };
-            }
-            app.allocator.free(l.clips);
-            // A linked clip may have been replaced or removed.
-            if (app.piano_clip_link) |link| {
-                if (link.track == l.track) app.piano_clip_link = null;
-            }
+            restoreLane(app, l);
+            if (app.session.song_mode) app.session.rebuildSongData();
+            return displaced;
+        },
+        .lanes => |ml| {
+            // Capture every lane the entry names BEFORE restoring any of
+            // them, or the displaced entry (what redo replays) would
+            // describe lanes this apply has already overwritten. Bailing on
+            // OOM leaves the entry untouched on its stack, same as every
+            // other `orelse return null` here.
+            const tracks = app.allocator.alloc(u16, ml.lanes.len) catch return null;
+            defer app.allocator.free(tracks);
+            for (ml.lanes, tracks) |l, *t| t.* = l.track;
+            const displaced = captureLanesOf(app, tracks) orelse return null;
+            for (ml.lanes) |l| restoreLane(app, l);
+            app.allocator.free(ml.lanes);
             if (app.session.song_mode) app.session.rebuildSongData();
             return displaced;
         },

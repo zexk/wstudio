@@ -1,7 +1,8 @@
 //! Arrangement (song timeline) input: bar/lane cursor, clip stamping and
 //! deletion, play-from-cursor, drum-variant cycling, clip editing via the
 //! piano roll, the song/pattern mode toggle, visual-mode range select
-//! (v, then y/d/p - a bar-range on the current lane only), and operator+
+//! (v/V, then y/d/p - a bar range over the anchored lane band or, linewise,
+//! every lane; a multi-lane edit is one undo entry), and operator+
 //! motion grammar (x/d/y - a bar is already this editor's atomic unit, so
 //! dd/yy are the tier above it: the whole lane; see the operator-pending
 //! block below). The render half lives in views/arrangement.zig.
@@ -14,6 +15,7 @@ const App = @import("../app.zig").App;
 const history = @import("../history.zig");
 const piano = @import("piano.zig");
 const automation = @import("automation.zig");
+const step_grid = @import("step_grid.zig");
 
 const max_timeline_tick = std.math.maxInt(u32);
 
@@ -34,10 +36,10 @@ pub const gutter: usize = 13;
 pub fn handleKey(app: *App, key: modal_mod.Key) bool {
     const lane_count = app.session.project.tracks.items.len;
 
-    // Visual mode: a bar-range selection on the current lane only (lanes are
-    // tracks, and undo snapshots one lane at a time - see captureLane).
-    // Motions and range y/d/p live in handleVisual; everything else is
-    // swallowed so a stray keypress can't jump views mid-selection.
+    // Visual mode: a bar-range selection over a lane band (`v`, anchored to
+    // the cursor lane and grown with j/k) or every lane (`V`). Motions and
+    // range y/d/p live in handleVisual; everything else is swallowed so a
+    // stray keypress can't jump views mid-selection.
     if (app.modal.mode == .visual) return handleVisual(app, key, lane_count);
 
     // Operator-pending: d/y + bar motion on the current lane only, shared
@@ -103,12 +105,13 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             // clipboard yy/y+motion fill, since a single clip is just a
             // 1-bar range (see pasteSelection).
             'p', 'P' => { pasteSelection(app); return true; },
-            'v' => {
-                app.arr_visual_anchor = app.arr_cursor_bar;
-                app.modal.mode = .visual;
-                app.setStatus("visual: hjkl extend, y/d/p act on the range, esc cancels", .{});
-                return true;
-            },
+            // v: blockwise - a (lane, bar) rectangle, one lane tall until
+            // j/k grow it (which is what visual mode always did here, just
+            // without the growing). V: linewise - the bar range across every
+            // lane, for cutting or copying a whole section of the song.
+            // See step_grid.rowRange; the grid editors split the same way.
+            'v' => { enterVisual(app, true); return true; },
+            'V' => { enterVisual(app, false); return true; },
             '<' => { moveClip(app, -app.takeCount()); return true; },
             '>' => { moveClip(app, app.takeCount()); return true; },
             '-' => { resizeClip(app, -app.takeCount()); return true; },
@@ -147,6 +150,9 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
 /// selectionRange as-is.
 fn armOperator(app: *App, op: u8) void {
     app.arr_visual_anchor = app.arr_cursor_bar;
+    // The operator form is single-lane (undo snapshots one lane), so it
+    // anchors the lane axis rather than leaving it open the way `V` does.
+    app.arr_visual_lane_anchor = app.cursor;
     app.arr_op_pending = op;
     app.setStatus("{c}: h/l/H/L act on the range, {c}{c} acts on the whole lane", .{ op, op, op });
 }
@@ -206,12 +212,16 @@ fn handleVisual(app: *App, key: modal_mod.Key, lane_count: usize) bool {
             'L' => { moveBar(app, 4 * app.takeCount()); return true; },
             'j' => { moveLane(app, lane_count, app.takeCount()); return true; },
             'k' => { moveLane(app, lane_count, -app.takeCount()); return true; },
-            // vim's `o`: bounce the cursor to the selection's other end
+            // vim's `o`: bounce the cursor to the selection's other corner
             // (see the drum grid's identical arm).
             'o' => {
                 if (app.arr_visual_anchor) |a| {
                     app.arr_visual_anchor = app.arr_cursor_bar;
                     app.arr_cursor_bar = a;
+                }
+                if (app.arr_visual_lane_anchor) |a| {
+                    app.arr_visual_lane_anchor = app.cursor;
+                    app.cursor = a;
                 }
                 return true;
             },
@@ -226,10 +236,34 @@ fn handleVisual(app: *App, key: modal_mod.Key, lane_count: usize) bool {
     }
 }
 
-/// Leave visual mode, clearing the anchor so the selection can't linger.
+/// `v`/`V`: arm a visual selection on the bar axis, with the lane axis
+/// either anchored to the cursor lane (`v`, blockwise - one lane, which is
+/// all this editor could ever select before) or left open (`V`, linewise -
+/// every lane).
+fn enterVisual(app: *App, blockwise: bool) void {
+    app.arr_visual_anchor = app.arr_cursor_bar;
+    app.arr_visual_lane_anchor = if (blockwise) app.cursor else null;
+    app.modal.mode = .visual;
+    if (blockwise)
+        app.setStatus("visual: h/l extend, j/k grow the lane block, o corner, y/d/p, esc", .{})
+    else
+        app.setStatus("visual line: h/l extend (every lane), o other end, y/d/p, esc", .{});
+}
+
+/// Leave visual mode, clearing both anchors so the selection can't linger.
 fn exitVisual(app: *App) void {
     _ = app.modal.setMode(.normal);
     app.arr_visual_anchor = null;
+    app.arr_visual_lane_anchor = null;
+}
+
+/// The lane band the selection covers: the anchor-to-cursor block, or every
+/// lane when the anchor is null (`V`). Unlike the grid editors, the
+/// operator forms here anchor the lane too - `d3l` has always been a
+/// single-lane cut, and undo still snapshots lanes one at a time unless the
+/// edit really is arrangement-wide.
+fn laneRange(app: *App) step_grid.RowRange {
+    return step_grid.rowRange(usize, app.arr_visual_lane_anchor, app.cursor, app.session.project.tracks.items.len);
 }
 
 const BarRange = struct { lo: u32, hi: u32 };
@@ -252,38 +286,59 @@ fn cursorTick(app: *const App) u32 {
 /// Yank every clip on the current lane whose start_bar falls within the
 /// selected range, rebased so the range's first bar becomes bar 0.
 fn yankSelection(app: *App) void {
-    const lane = app.session.arrangement.lane(app.cursor) orelse return;
     const r = selectionRange(app);
+    const lanes = laneRange(app);
     var list: std.ArrayListUnmanaged(ws.Clip) = .empty;
-    for (lane.clips.items) |c| {
-        if (c.start_tick < r.lo or c.start_tick > r.hi) continue;
-        var copy = c.dupe(app.allocator) catch {
-            for (list.items) |*done| done.deinit(app.allocator);
-            list.deinit(app.allocator);
-            app.setStatus("yank failed (out of memory)", .{});
-            return;
-        };
-        copy.start_tick -= r.lo;
-        list.append(app.allocator, copy) catch {
-            copy.deinit(app.allocator);
-            for (list.items) |*done| done.deinit(app.allocator);
-            list.deinit(app.allocator);
-            app.setStatus("yank failed (out of memory)", .{});
-            return;
-        };
+    var offsets: std.ArrayListUnmanaged(u16) = .empty;
+    // One bail-out for every allocation failure below, so a half-built yank
+    // never reaches the clipboard.
+    const fail = struct {
+        fn run(a: *App, l: *std.ArrayListUnmanaged(ws.Clip), o: *std.ArrayListUnmanaged(u16)) void {
+            for (l.items) |*done| done.deinit(a.allocator);
+            l.deinit(a.allocator);
+            o.deinit(a.allocator);
+            a.setStatus("yank failed (out of memory)", .{});
+        }
+    }.run;
+    for (lanes.lo..lanes.hi + 1) |track| {
+        const lane = app.session.arrangement.lane(track) orelse continue;
+        for (lane.clips.items) |c| {
+            if (c.start_tick < r.lo or c.start_tick > r.hi) continue;
+            var copy = c.dupe(app.allocator) catch {
+                fail(app, &list, &offsets);
+                return;
+            };
+            copy.start_tick -= r.lo;
+            list.append(app.allocator, copy) catch {
+                copy.deinit(app.allocator);
+                fail(app, &list, &offsets);
+                return;
+            };
+            offsets.append(app.allocator, @intCast(track - lanes.lo)) catch {
+                fail(app, &list, &offsets);
+                return;
+            };
+        }
     }
     const owned = list.toOwnedSlice(app.allocator) catch {
-        for (list.items) |*c| c.deinit(app.allocator);
-        list.deinit(app.allocator);
+        fail(app, &list, &offsets);
+        return;
+    };
+    const owned_offsets = offsets.toOwnedSlice(app.allocator) catch {
+        for (owned) |*c| c.deinit(app.allocator);
+        app.allocator.free(owned);
+        offsets.deinit(app.allocator);
         app.setStatus("yank failed (out of memory)", .{});
         return;
     };
-    if (app.arr_range_clip) |old| {
-        for (old.clips) |*c| c.deinit(app.allocator);
-        app.allocator.free(old.clips);
-    }
-    app.arr_range_clip = .{ .clips = owned };
-    app.setStatus("yanked {d} clip(s) over {d} bars", .{ owned.len, r.hi - r.lo + 1 });
+    if (app.arr_range_clip) |old| old.deinit(app.allocator);
+    app.arr_range_clip = .{
+        .clips = owned,
+        .lane_offsets = owned_offsets,
+        .lane_lo = @intCast(lanes.lo),
+        .lane_span = @intCast(lanes.height()),
+    };
+    app.setStatus("yanked {d} clip(s) over {d} bars x {d} lane(s)", .{ owned.len, r.hi - r.lo + 1, lanes.height() });
     exitVisual(app);
 }
 
@@ -292,16 +347,25 @@ fn yankSelection(app: *App) void {
 /// trimmed or split so the untouched rest of it survives (see
 /// `Lane.cutRange`) - `x`'s single-bar cousin, this editor's `d`/visual-`d`.
 fn deleteSelection(app: *App) void {
-    const lane = app.session.arrangement.lane(app.cursor) orelse return;
-    history.recordLane(app, @intCast(app.cursor));
+    const lanes = laneRange(app);
+    // One entry for the whole band, so a linewise cut across every lane is
+    // still a single `u` (see history.captureLanes / undo.MultiLaneState).
+    if (lanes.height() > 1) {
+        history.recordLanes(app, lanes.lo, lanes.hi);
+    } else history.recordLane(app, @intCast(lanes.lo));
     const r = selectionRange(app);
     const width = (r.hi - r.lo) / app.arr_grid.ticks() + 1;
-    lane.cutRange(app.allocator, r.lo, r.hi +| app.arr_grid.ticks()) catch {
-        app.setStatus("cut failed (out of memory)", .{});
-        return;
-    };
+    var cut: usize = 0;
+    for (lanes.lo..lanes.hi + 1) |track| {
+        const lane = app.session.arrangement.lane(track) orelse continue;
+        lane.cutRange(app.allocator, r.lo, r.hi +| app.arr_grid.ticks()) catch {
+            app.setStatus("cut failed (out of memory)", .{});
+            return;
+        };
+        cut += 1;
+    }
     app.last_edit = .{ .arr_range_delete = .{ .width = width } };
-    app.setStatus("cut {d} bar(s)", .{width});
+    app.setStatus("cut {d} bar(s) on {d} lane(s)", .{ width, cut });
     if (app.session.song_mode) app.session.rebuildSongData();
     exitVisual(app);
 }
@@ -319,37 +383,62 @@ fn pasteSelection(app: *App) void {
         exitVisual(app);
         return;
     };
-    // zig fmt: off
-    if (app.cursor >= app.session.racks.items.len) { exitVisual(app); return; }
-    const rack = app.session.racks.items[app.cursor];
-    const lane = app.session.arrangement.lane(app.cursor) orelse { exitVisual(app); return; };
-    // zig fmt: on
+    const lane_count = app.session.project.tracks.items.len;
+    if (lane_count == 0) {
+        exitVisual(app);
+        return;
+    }
+    // Where the clipboard's top lane lands: a linewise yank (every lane)
+    // keeps its own absolute lanes, so pasting a whole section back can't
+    // slide the song down a track; a narrower one lands on the cursor lane,
+    // clamped to keep the block on-screen. Same rule the step grids use.
+    const base_lane: usize = if (clip.lane_span >= lane_count)
+        clip.lane_lo
+    else
+        @min(app.cursor, lane_count - clip.lane_span);
     const kind_ok = struct {
-        fn check(r: @TypeOf(rack), c: ws.Clip) bool {
+        fn check(r: ws.Rack, c: ws.Clip) bool {
             return switch (c.content) {
                 .melodic => r.pattern_player != null,
                 .drum => std.meta.activeTag(r.instrument) == .drum_machine,
             };
         }
     }.check;
-    // Skip pushing history (and touching the lane) entirely if nothing in
-    // the clipboard actually matches this lane's instrument - matching the
-    // old single-clip paste's behavior of leaving undo history untouched
-    // on a kind mismatch, rather than recording a no-op entry.
-    // zig fmt: off
-    const any_kind_ok = for (clip.clips) |c| { if (kind_ok(rack, c)) break true; } else false;
-    // zig fmt: on
+    const destOf = struct {
+        fn run(a: *App, base: usize, offset: u16) ?usize {
+            const dest = base + offset;
+            if (dest >= a.session.racks.items.len) return null;
+            return dest;
+        }
+    }.run;
+    // Skip pushing history (and touching any lane) entirely if nothing in
+    // the clipboard matches the instrument of the lane it would land on -
+    // matching the old single-clip paste's behavior of leaving undo history
+    // untouched on a kind mismatch, rather than recording a no-op entry.
+    var any_kind_ok = false;
+    for (clip.clips, clip.lane_offsets) |c, off| {
+        const dest = destOf(app, base_lane, off) orelse continue;
+        if (kind_ok(app.session.racks.items[dest].*, c)) {
+            any_kind_ok = true;
+            break;
+        }
+    }
     if (!any_kind_ok) {
         app.setStatus("clip kind doesn't match this track", .{});
         exitVisual(app);
         return;
     }
-    history.recordLane(app, @intCast(app.cursor));
+    const hi_lane = @min(lane_count - 1, base_lane + clip.lane_span - 1);
+    if (hi_lane > base_lane) {
+        history.recordLanes(app, base_lane, hi_lane);
+    } else history.recordLane(app, @intCast(base_lane));
     var pasted: u32 = 0;
     const cursor_tick = cursorTick(app);
     var end_bar = cursor_tick;
-    for (clip.clips) |c| {
-        if (!kind_ok(rack, c)) continue;
+    for (clip.clips, clip.lane_offsets) |c, off| {
+        const dest = destOf(app, base_lane, off) orelse continue;
+        if (!kind_ok(app.session.racks.items[dest].*, c)) continue;
+        const lane = app.session.arrangement.lane(dest) orelse continue;
         var copy = c.dupe(app.allocator) catch continue;
         if (copy.start_tick > max_timeline_tick - cursor_tick or
             copy.length_ticks > max_timeline_tick - (copy.start_tick + cursor_tick))
