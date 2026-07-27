@@ -315,8 +315,7 @@ fn drawCommandSuggestions(app: anytype, active: tui_cmd.Scope, filter: []const u
     var match_index: usize = 0;
     var drawn: usize = 0;
     for (app.core.allCmds()) |command| {
-        if (tui_cmd.hiddenFromCompletion(command) or !tui_cmd.visible(command, active)) continue;
-        if (!std.mem.startsWith(u8, command.name, filter)) continue;
+        if (!tui_cmd.suggestionMatch(command, filter, active)) continue;
         if (drawn >= max_rows) break;
         const y = origin[1] + 30 + @as(f32, @floatFromInt(drawn)) * 39;
         const is_selected = match_index == selected;

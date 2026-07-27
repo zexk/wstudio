@@ -108,6 +108,14 @@ pub fn hiddenFromCompletion(c: Def) bool {
     return isAlias(c);
 }
 
+/// Whether `c` belongs in the completion popup for the typed prefix `buf`:
+/// a real candidate (see `hiddenFromCompletion`), in scope (see `visible`),
+/// and name-prefixed by what's typed. Both frontends' popups walk `cmds`
+/// with this so they can never show different sets.
+pub fn suggestionMatch(c: Def, buf: []const u8, active: Scope) bool {
+    return !hiddenFromCompletion(c) and visible(c, active) and std.mem.startsWith(u8, c.name, buf);
+}
+
 /// Number of command names starting with `buf` under `active` scope - 0
 /// once a space has been typed (there's no fixed name list for arguments
 /// here). Below 2, Tab already spells the single match out in full, so no
@@ -118,8 +126,7 @@ pub fn suggestionCount(cmds: []const Def, buf: []const u8, active: Scope) usize 
     if (std.mem.indexOfScalar(u8, buf, ' ') != null) return 0;
     var n: usize = 0;
     for (cmds) |c| {
-        if (hiddenFromCompletion(c) or !visible(c, active)) continue;
-        if (std.mem.startsWith(u8, c.name, buf)) n += 1;
+        if (suggestionMatch(c, buf, active)) n += 1;
     }
     return n;
 }
@@ -145,8 +152,7 @@ pub fn suggestionRows(cmds: []const Def, buf: []const u8, active: Scope, max_row
 pub fn writeSuggestionBox(w: *std.Io.Writer, cmds: []const Def, buf: []const u8, active: Scope, selected: usize, max_rows: usize) !void {
     var idx: usize = 0;
     for (cmds) |c| {
-        if (hiddenFromCompletion(c) or !visible(c, active)) continue;
-        if (!std.mem.startsWith(u8, c.name, buf)) continue;
+        if (!suggestionMatch(c, buf, active)) continue;
         if (idx >= max_rows) break;
         const is_sel = idx == selected;
         if (is_sel) try w.writeAll(style.sel);
