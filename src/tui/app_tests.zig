@@ -1147,6 +1147,31 @@ test "piano roll visual mode selects a step range for y/d/P" {
     try std.testing.expect(pp.noteAt(72, 2.0) != null);
 }
 
+test "piano roll setVelocity (GUI lane drag) writes without its own undo entry" {
+    var app = try testApp();
+    defer app.deinit();
+    app.view = .piano_roll;
+    app.piano_track = 0;
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    pp.length_beats = 4.0;
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.25, .duration_beat = 0.25, .velocity = 0.5 });
+
+    // The drag's caller owns the undo entry, so the write pushes none of its
+    // own - otherwise every frame of a drag would be one more `u`.
+    try std.testing.expect(piano_ed.setVelocity(&app, 60, 1, 0.9));
+    try std.testing.expectApproxEqAbs(@as(f32, 0.9), pp.noteAt(60, 0.25).?.velocity, 1e-4);
+    try std.testing.expectEqual(@as(usize, 0), app.history.undo_stack.items.len);
+    // Cursor follows the dragged bar, as the note-canvas drags do.
+    try std.testing.expectEqual(@as(u7, 60), app.piano_cursor_pitch);
+    try std.testing.expectEqual(@as(u16, 1), app.piano_cursor_step);
+
+    // Clamped to the same 0.05-1 range as `<`/`>`; no note, no write.
+    try std.testing.expect(piano_ed.setVelocity(&app, 60, 1, -3));
+    try std.testing.expectApproxEqAbs(@as(f32, 0.05), pp.noteAt(60, 0.25).?.velocity, 1e-4);
+    try std.testing.expect(!piano_ed.setVelocity(&app, 60, 1, 0.05)); // already there
+    try std.testing.expect(!piano_ed.setVelocity(&app, 72, 1, 0.5)); // no note
+}
+
 test "piano roll :audition previews the pitch under the cursor on every j/k move" {
     var app = try testApp();
     defer app.deinit();

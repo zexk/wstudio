@@ -655,6 +655,24 @@ pub fn resizeNoteSteps(app: *App, pitch: u7, start_step: u16, duration_steps: u1
     return true;
 }
 
+/// GUI velocity-lane drag adapter: set one note's velocity outright, with the
+/// cursor, status, and linked-clip writeback `<`/`>` use. Deliberately does
+/// NOT push undo - a drag calls this every frame, so the caller records one
+/// entry for the whole gesture (see the GUI's `recordVelocityGesture`, the
+/// same split the automation lane's drag drawing uses).
+pub fn setVelocity(app: *App, pitch: u7, start_step: u16, velocity: f32) bool {
+    const pp = currentPatternPlayer(app) orelse return false;
+    app.piano_cursor_pitch = pitch;
+    app.piano_cursor_step = start_step;
+    const note = pp.noteAt(pitch, stepToBeat(app, start_step)) orelse return false;
+    const wanted = std.math.clamp(velocity, 0.05, 1.0);
+    if (@abs(wanted - note.velocity) < 1e-4) return false;
+    note.velocity = wanted;
+    app.setStatus("velocity: {d:.0}%", .{wanted * 100.0});
+    syncLinkedClip(app);
+    return true;
+}
+
 /// Nudge the velocity of the note under the cursor by `delta` (clamped 0.05–1).
 fn nudgeVelocity(app: *App, delta: f32) void {
     const pp = currentPatternPlayer(app) orelse return;

@@ -6,6 +6,7 @@ const ws = @import("wstudio");
 const icons = @import("../../ui/icons.zig");
 const piano_ed = @import("../../ui/editors/piano.zig");
 const gui_style = @import("../style.zig");
+const history = @import("../../ui/history.zig");
 const widgets = @import("../widgets.zig");
 const zgui = @import("zgui");
 const shared_step_grid = @import("../../ui/editors/step_grid.zig");
@@ -352,14 +353,17 @@ pub fn draw(app: anytype) void {
 fn drawVelocityLane(app: anytype, pp: *ws.dsp.PatternPlayer, width: f32, gutter_w: f32, beats: f32, height: f32) void {
     const origin = zgui.getCursorScreenPos();
     _ = zgui.invisibleButton("piano-velocity-lane", .{ .w = width, .h = height });
+    const dragging = zgui.isItemActive();
     const draw_list = zgui.getWindowDrawList();
     const grid_x = origin[0] + gutter_w;
     const grid_w = width - gutter_w;
     const beat_w = grid_w / beats;
+    // Before the notes_lock block below: the edit path locks for itself.
+    if (dragging) dragVelocity(app, pp, origin, grid_x, beat_w, height);
     draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(theme.bg0) });
     draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ grid_x, origin[1] + height }, .col = color(theme.bg2) });
     draw_list.addText(.{ origin[0] + 8, origin[1] + 8 }, color(theme.rhythm), "VELOCITY", .{});
-    draw_list.addText(.{ origin[0] + 8, origin[1] + 30 }, color(theme.fg3), "</> nudge", .{});
+    draw_list.addText(.{ origin[0] + 8, origin[1] + 30 }, color(theme.fg3), "</> or drag", .{});
 
     const steps_per_beat = app.core.pianoStepsPerBeat();
     for (0..@as(usize, @intFromFloat(@ceil(beats))) + 1) |beat| {
@@ -396,6 +400,45 @@ fn drawVelocityLane(app: anytype, pp: *ws.dsp.PatternPlayer, width: f32, gutter_
             });
         }
     }
+}
+
+/// Drag a velocity bar to its new height, one note per frame under the
+/// pointer, so sweeping sideways shapes a whole phrase. The bar's top edge
+/// tracks the mouse exactly (see `bar_height` above), and the drag is one
+/// undo entry: the gesture flag clears in `App.draw` when the button comes
+/// up, the same split the automation lane's drag drawing uses.
+fn dragVelocity(app: anytype, pp: *ws.dsp.PatternPlayer, origin: [2]f32, grid_x: f32, beat_w: f32, height: f32) void {
+    const mouse = zgui.getMousePos();
+    if (mouse[0] < grid_x) return;
+    const steps_per_beat = app.core.pianoStepsPerBeat();
+    const cell_w = beat_w / @as(f32, @floatFromInt(steps_per_beat));
+    const step_f = @floor((mouse[0] - grid_x) / cell_w);
+    if (step_f >= @as(f32, @floatCast(pp.length_beats)) * @as(f32, @floatFromInt(steps_per_beat))) return;
+    const step: u16 = @intFromFloat(step_f);
+    const note = velocityBarAt(pp, app.core.piano_cursor_pitch, step, steps_per_beat) orelse return;
+    const wanted = std.math.clamp((origin[1] + height - mouse[1]) / (height - 16), 0.05, 1.0);
+    if (@abs(wanted - note.velocity) < 1e-4) return;
+    if (!app.piano_velocity_edit_active) {
+        history.recordMelodic(&app.core, app.core.piano_track);
+        app.piano_velocity_edit_active = true;
+    }
+    _ = piano_ed.setVelocity(&app.core, note.pitch, step, wanted);
+}
+
+/// The bar under the velocity lane's pointer: the note starting on `step`
+/// whose pitch is nearest the cursor's, since a chord stacks every voice's
+/// bar into one column.
+fn velocityBarAt(pp: *ws.dsp.PatternPlayer, cursor_pitch: u7, step: u16, steps_per_beat: usize) ?ws.dsp.pattern.Note {
+    while (!pp.notes_lock.tryLock()) std.atomic.spinLoopHint();
+    defer pp.notes_lock.unlock();
+    var best: ?ws.dsp.pattern.Note = null;
+    for (pp.notes[0..pp.note_count]) |note| {
+        const start: u16 = @intFromFloat(@round(note.start_beat * @as(f64, @floatFromInt(steps_per_beat))));
+        if (start != step) continue;
+        const dist = @abs(@as(i32, note.pitch) - @as(i32, cursor_pitch));
+        if (best == null or dist < @abs(@as(i32, best.?.pitch) - @as(i32, cursor_pitch))) best = note;
+    }
+    return best;
 }
 
 fn noteCovering(pp: *ws.dsp.PatternPlayer, pitch: u7, beat: f64) ?ws.dsp.pattern.Note {
