@@ -938,7 +938,7 @@ pub fn switchToGroup(app: *App, idx: u8) void {
 /// Open the FX picker for the chain in view. Inserting lands after the
 /// focused slot (at the front while the chain is empty). Parks the analyzer
 /// - the picker replaces the whole view, so nobody is watching it.
-fn openPicker(app: *App, target: EqTarget) void {
+pub fn openPicker(app: *App, target: EqTarget) void {
     const fx = fxPtr(app, target) orelse return;
     if (fx.units.items.len >= Fx.max_units) {
         app.setStatus("chain full ({d} units)", .{Fx.max_units});

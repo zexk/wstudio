@@ -9,6 +9,7 @@
 const std = @import("std");
 const zgui = @import("zgui");
 const help_model = @import("../../ui/help.zig");
+const preset_ed = @import("../../ui/editors/preset_picker.zig");
 const ansi = @import("../../ui/ansi.zig");
 const style = @import("../style.zig");
 
@@ -43,12 +44,29 @@ fn drawLaunchers(app: anytype) void {
     zgui.textDisabled("QUICK OPEN", .{});
     zgui.separator();
     zgui.pushStyleColor4f(.{ .idx = .button, .c = theme.focus_soft });
-    if (zgui.button("INSTRUMENTS", .{ .h = 34 })) app.openPicker(.instrument_picker);
+    if (zgui.button("INSTRUMENTS", .{ .h = 34 })) app.core.openInstrumentPicker(app.core.cursor, false);
     zgui.popStyleColor(.{});
     zgui.sameLine(.{ .spacing = 6 });
-    if (zgui.button("PRESETS", .{ .h = 34 })) app.openPicker(.preset_picker);
+    if (zgui.button("PRESETS", .{ .h = 34 })) openPresets(app);
     zgui.sameLine(.{ .spacing = 6 });
     if (zgui.button("PROJECTS", .{ .h = 34 })) app.core.view = .file_browser;
+}
+
+/// Which preset system the cursor track has, if any - the launcher opens the
+/// picker through `preset_picker.open` so it starts in the same state `f`
+/// leaves it in (kind, track, cleared filter, audition snapshot).
+fn openPresets(app: anytype) void {
+    if (app.core.cursor >= app.core.session.racks.items.len) return;
+    const kind: preset_ed.Kind = switch (app.core.session.racks.items[app.core.cursor].instrument) {
+        .poly_synth => .synth,
+        .drum_machine => .drum,
+        .soundfont => .soundfont,
+        else => {
+            app.core.setStatus("track {d} has no presets", .{app.core.cursor + 1});
+            return;
+        },
+    };
+    preset_ed.open(&app.core, kind, @intCast(app.core.cursor));
 }
 
 fn drawReference(app: anytype) void {

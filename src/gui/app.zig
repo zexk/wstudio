@@ -26,7 +26,6 @@ const zgui = @import("zgui");
 
 pub const App = struct {
     core: tui_app.App,
-    picker_return_view: tui_app.AppView = .tracks,
     arrangement_clip: ?arrangement_view.ClipSelection = null,
     piano_top_pitch: u7 = 84,
     piano_mouse_edit: ?piano_view.MouseEdit = null,
@@ -102,21 +101,7 @@ pub const App = struct {
         }
     }
 
-    pub fn openPicker(self: *App, picker: tui_app.AppView) void {
-        if (!isPicker(picker)) return;
-        if (!isPicker(self.core.view)) self.picker_return_view = self.core.view;
-        if (picker == .fx_picker) self.core.fx_picker_return = self.picker_return_view;
-        self.core.view = picker;
-    }
-
-    pub fn closePicker(self: *App, destination: ?tui_app.AppView) void {
-        self.core.view = destination orelse self.picker_return_view;
-    }
 };
-
-fn isPicker(view: tui_app.AppView) bool {
-    return view == .instrument_picker or view == .fx_picker or view == .preset_picker;
-}
 
 fn bodyHeight(prompt_open: bool) f32 {
     return zgui.io.getDisplaySize()[1] - 98 - @as(f32, if (prompt_open) 38 else 0);

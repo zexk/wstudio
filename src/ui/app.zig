@@ -2480,7 +2480,7 @@ pub const App = struct {
     /// live one via `Session.changeInstrumentKind` (already-populated
     /// track, `I`). Preselects the cursor at the track's current kind when
     /// replacing, so opening the picker shows what's already there.
-    fn openInstrumentPicker(self: *App, cursor: usize, replace: bool) void {
+    pub fn openInstrumentPicker(self: *App, cursor: usize, replace: bool) void {
         self.picker_replace = replace;
         self.picker_cursor = 0;
         if (cursor < self.session.racks.items.len) {

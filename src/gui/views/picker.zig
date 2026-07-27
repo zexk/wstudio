@@ -145,10 +145,9 @@ pub fn drawFx(app: anytype) void {
             if (app.core.view == .synth_fx_picker) {
                 app.core.synth_fx_picker_cursor = @intCast(i);
                 synth_ed.insertFromSynthFxPicker(&app.core, synth_kinds[i]);
-                app.closePicker(.synth_editor);
             } else {
                 app.core.fx_picker_cursor = @intCast(i);
-                activateFx(app, kind);
+                spectrum_ed.insertFromPicker(&app.core, kind);
             }
         }
     }
@@ -171,24 +170,6 @@ pub fn drawFx(app: anytype) void {
             }
         }
         if (external_count == 0) zgui.textDisabled("No external effects found", .{});
-    }
-}
-
-fn activateFx(app: anytype, kind: ws.FxKind) void {
-    switch (app.core.fx_picker_return) {
-        .track_spectrum, .master_spectrum, .group_spectrum => {
-            spectrum_ed.insertFromPicker(&app.core, kind);
-            app.closePicker(app.core.view);
-        },
-        else => {
-            // The cursor can sit on the master row (== tracks.len), which
-            // has no rack of its own.
-            if (app.core.cursor >= app.core.session.racks.items.len) return;
-            const rack = app.core.session.racks.items[app.core.cursor];
-            _ = rack.fx.insert(app.core.session.allocator, rack.fx.units.items.len, kind, app.core.session.project.sample_rate) catch return;
-            app.core.session.syncTrackChain(@intCast(app.core.cursor), rack);
-            app.closePicker(.track_spectrum);
-        },
     }
 }
 
