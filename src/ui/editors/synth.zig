@@ -221,6 +221,22 @@ fn lfoShapeName(shape: anytype) []const u8 {
     };
 }
 
+fn lfoRetrigName(mode: anytype) []const u8 {
+    return switch (mode) {
+        .free => "free",
+        .key => "key",
+        .one_shot => "1-shot",
+    };
+}
+
+/// A rate row's display: the plain Hz knob, or the division that's
+/// overriding it. Printing the division on the rate row too is what keeps a
+/// synced slot from showing a stale, inert Hz value.
+fn writeRate(w: *std.Io.Writer, sync: ws.dsp.synth.LfoSync, hz: f32, comptime fmt: []const u8) !void {
+    if (sync == .off) return w.print(fmt, .{hz});
+    try w.print("{s} sync", .{sync.label()});
+}
+
 fn uniModeName(mode: anytype) []const u8 {
     return switch (mode) {
         .spread => "spread",
@@ -299,7 +315,11 @@ pub fn writeParamValue(synth: *const ws.dsp.PolySynth, id: u16, w: *std.Io.Write
         26 => try w.print("{d:.3}", .{synth.fenv_sustain}),
         27 => try w.print("{d:.3} s", .{synth.fenv_release_s}),
         28 => try w.writeAll(lfoShapeName(synth.lfo_shape)),
-        29 => try w.print("{d:.2} Hz", .{synth.lfo_rate_hz}),
+        29 => try writeRate(w, synth.lfo_sync, synth.lfo_rate_hz, "{d:.2} Hz"),
+        256 => try w.writeAll(synth.lfo_sync.label()),
+        259 => try w.writeAll(lfoRetrigName(synth.lfo_retrig)),
+        262 => try w.print("{d:.2}", .{synth.lfo_phase_offset}),
+        265 => try w.print("{d:.0} ms", .{synth.lfo_slew_ms}),
         32 => try w.writeAll(switch (synth.voice_mode) {
             .poly => "poly",
             .mono => "mono",
@@ -381,9 +401,17 @@ pub fn writeParamValue(synth: *const ws.dsp.PolySynth, id: u16, w: *std.Io.Write
         93 => try w.print("{d:.2}",       .{synth.fx_flanger_feedback}),
         94 => try w.print("{d:.2}",       .{synth.fx_flanger_mix}),
         95 => try w.writeAll(lfoShapeName(synth.lfo2_shape)),
-        96 => try w.print("{d:.2} Hz",    .{synth.lfo2_rate_hz}),
+        96 => try writeRate(w, synth.lfo2_sync, synth.lfo2_rate_hz, "{d:.2} Hz"),
+        257 => try w.writeAll(synth.lfo2_sync.label()),
+        260 => try w.writeAll(lfoRetrigName(synth.lfo2_retrig)),
+        263 => try w.print("{d:.2}",      .{synth.lfo2_phase_offset}),
+        266 => try w.print("{d:.0} ms",   .{synth.lfo2_slew_ms}),
         97 => try w.writeAll(lfoShapeName(synth.lfo3_shape)),
-        98 => try w.print("{d:.2} Hz",    .{synth.lfo3_rate_hz}),
+        98 => try writeRate(w, synth.lfo3_sync, synth.lfo3_rate_hz, "{d:.2} Hz"),
+        258 => try w.writeAll(synth.lfo3_sync.label()),
+        261 => try w.writeAll(lfoRetrigName(synth.lfo3_retrig)),
+        264 => try w.print("{d:.2}",      .{synth.lfo3_phase_offset}),
+        267 => try w.print("{d:.0} ms",   .{synth.lfo3_slew_ms}),
         99  => try w.print("{d:.2}",      .{synth.macro1}),
         100 => try w.print("{d:.2}",      .{synth.macro2}),
         101 => try w.print("{d:.2}",      .{synth.macro3}),
@@ -404,7 +432,8 @@ pub fn writeParamValue(synth: *const ws.dsp.PolySynth, id: u16, w: *std.Io.Write
         116 => try w.writeAll(if (synth.arp_on) "on" else "off"),
         117 => try w.writeAll(arpModeName(synth.arp_mode)),
         118 => try w.print("{d}",          .{synth.arp_octaves}),
-        119 => try w.print("{d:.1} Hz",    .{synth.arp_rate_hz}),
+        119 => try writeRate(w, synth.arp_sync, synth.arp_rate_hz, "{d:.1} Hz"),
+        268 => try w.writeAll(synth.arp_sync.label()),
         120 => try w.print("{d:.2}",       .{synth.arp_gate}),
         121 => try w.writeAll(if (synth.arp_hold) "on" else "off"),
         122 => try w.print("{d:.3} s",     .{synth.env3_attack_s}),

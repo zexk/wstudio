@@ -249,6 +249,9 @@ pub const Session = struct {
             .empty => {},
             .poly_synth => {
                 rack.instrument = .{ .poly_synth = try PolySynth.init(self.allocator, sr) };
+                // Attached after the synth lands in the heap rack, same
+                // rule the pattern player below follows.
+                rack.instrument.poly_synth.attachTransport(&self.engine.transport);
                 rack.label = "synth";
             },
             .sampler => {

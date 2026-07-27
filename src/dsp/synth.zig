@@ -17,6 +17,7 @@ const FreqShifter = @import("freq_shift.zig").FreqShifter;
 const Tape = @import("tape.zig").Tape;
 const wavetable = @import("wavetable.zig");
 const Wavetable = wavetable.Wavetable;
+const Transport = @import("../transport.zig").Transport;
 
 const Sample = types.Sample;
 
@@ -95,6 +96,55 @@ const default_lfo_custom_points: [max_lfo_shape_points]LfoShapePoint = blk: {
     for (pts[2..]) |*p| p.* = .{};
     break :blk pts;
 };
+/// An LFO's (or the arp's) rate source. `off` keeps the slot's plain Hz
+/// rate knob; every other variant overrides it with a note division of the
+/// project tempo, read off the attached `Transport`. Names are `n<num>_<den>`
+/// with a trailing `d`/`t` for dotted/triplet, since Zig identifiers can't
+/// start with a digit - `label` maps them back to the "1/8T" form the editor
+/// shows. A slot with a sync division but no attached transport (a bare
+/// PolySynth in a test, a synth built before the rack heap-allocates) falls
+/// back to its Hz rate rather than freezing.
+pub const LfoSync = enum {
+    off, n4_1, n2_1, n1_1, n1_2d, n1_2, n1_2t, n1_4d, n1_4, n1_4t,
+    n1_8d, n1_8, n1_8t, n1_16d, n1_16, n1_16t, n1_32,
+
+    /// Beats (quarter notes) per full LFO cycle / per arp step, or null for
+    /// `off`. A dotted division is 1.5x its straight length, a triplet 2/3.
+    pub fn beatsPerCycle(self: LfoSync) ?f64 {
+        return switch (self) {
+            .off => null,
+            .n4_1 => 16.0,   .n2_1 => 8.0,     .n1_1 => 4.0,
+            .n1_2d => 3.0,   .n1_2 => 2.0,     .n1_2t => 4.0 / 3.0,
+            .n1_4d => 1.5,   .n1_4 => 1.0,     .n1_4t => 2.0 / 3.0,
+            .n1_8d => 0.75,  .n1_8 => 0.5,     .n1_8t => 1.0 / 3.0,
+            .n1_16d => 0.375, .n1_16 => 0.25,  .n1_16t => 1.0 / 6.0,
+            .n1_32 => 0.125,
+        };
+    }
+
+    pub fn label(self: LfoSync) []const u8 {
+        return switch (self) {
+            .off => "off",
+            .n4_1 => "4/1",   .n2_1 => "2/1",   .n1_1 => "1/1",
+            .n1_2d => "1/2.", .n1_2 => "1/2",   .n1_2t => "1/2T",
+            .n1_4d => "1/4.", .n1_4 => "1/4",   .n1_4t => "1/4T",
+            .n1_8d => "1/8.", .n1_8 => "1/8",   .n1_8t => "1/8T",
+            .n1_16d => "1/16.", .n1_16 => "1/16", .n1_16t => "1/16T",
+            .n1_32 => "1/32",
+        };
+    }
+};
+
+/// How an LFO's phase relates to note-ons. `free` runs continuously - and,
+/// while the slot is tempo-synced and the transport is rolling, derives its
+/// phase straight from the playhead so the same wobble lands on the same
+/// beat every pass. `key` restarts the phase at 0 on each note-on that
+/// starts a voice, so every growl begins at the same point in the shape.
+/// `one_shot` restarts like `key` but stops at the end of one cycle instead
+/// of wrapping, holding whatever the shape reads at phase 1.0 - an LFO used
+/// as a drawable extra envelope.
+pub const LfoRetrig = enum { free, key, one_shot };
+
 /// Legacy fixed LFO routing, retired when the mod matrix absorbed it.
 /// Kept only so pre-matrix patches/projects still parse; `legacyModRows`
 /// folds it into matrix rows on load.
@@ -647,8 +697,21 @@ pub const PolySynth = struct {
     // here, destination/depth live on matrix rows.
     lfo_shape:  LfoShape  = .sine,
     // zig fmt: on
-    /// Rate in Hz (0.01–20 Hz).
+    /// Rate in Hz (0.01–20 Hz). Ignored while `lfo_sync` names a division.
     lfo_rate_hz: f32 = 1.0,
+    /// Tempo division overriding `lfo_rate_hz` - see `LfoSync`.
+    lfo_sync: LfoSync = .off,
+    /// Phase behaviour across note-ons - see `LfoRetrig`.
+    lfo_retrig: LfoRetrig = .free,
+    /// Cycles (0..1) added to the phase at read time, so two LFOs on the
+    /// same division can sit against each other. Not folded into `lfo_phase`
+    /// itself: that would make a live offset edit jump the waveform instead
+    /// of sliding it.
+    lfo_phase_offset: f32 = 0.0,
+    /// One-pole smoothing on the LFO's output, in ms (0 = off). Rounds the
+    /// edges off square/S&H/stepped-custom shapes so a hard wobble glides
+    /// instead of clicking. Applied at block rate, like the LFOs themselves.
+    lfo_slew_ms: f32 = 0.0,
     /// Synth-global LFO phase (0..1). Advanced once per block.
     lfo_phase: f32 = 0.0,
 
@@ -657,12 +720,27 @@ pub const PolySynth = struct {
     // lives on matrix rows). Independent phases so different rates stay
     // free-running against each other.
     // zig fmt: off
-    lfo2_shape:   LfoShape = .sine,
-    lfo2_rate_hz: f32      = 1.0,
-    lfo2_phase:   f32      = 0.0,
-    lfo3_shape:   LfoShape = .sine,
-    lfo3_rate_hz: f32      = 1.0,
-    lfo3_phase:   f32      = 0.0,
+    lfo2_shape:   LfoShape  = .sine,
+    lfo2_rate_hz: f32       = 1.0,
+    lfo2_sync:    LfoSync   = .off,
+    lfo2_retrig:  LfoRetrig = .free,
+    lfo2_phase_offset: f32  = 0.0,
+    lfo2_slew_ms: f32       = 0.0,
+    lfo2_phase:   f32       = 0.0,
+    lfo3_shape:   LfoShape  = .sine,
+    lfo3_rate_hz: f32       = 1.0,
+    lfo3_sync:    LfoSync   = .off,
+    lfo3_retrig:  LfoRetrig = .free,
+    lfo3_phase_offset: f32  = 0.0,
+    lfo3_slew_ms: f32       = 0.0,
+    lfo3_phase:   f32       = 0.0,
+    /// Smoothed LFO output per slot, the state behind `lfo*_slew_ms`.
+    /// Runtime state like the phases, not part of a Patch.
+    lfo_slew_state: [3]f32 = .{ 0.0, 0.0, 0.0 },
+    /// Set once a `.one_shot` slot has run its single cycle; cleared by the
+    /// next note-on retrigger. Keeps the phase parked at 1.0 instead of
+    /// wrapping. Runtime state, not part of a Patch.
+    lfo_oneshot_done: [3]bool = .{ false, false, false },
     /// Held sample & hold level per LFO slot (0=LFO 1), redrawn on phase
     /// wrap. Runtime state like the phases, not part of a Patch.
     lfo_sh:       [3]f32   = .{ 0.0, 0.0, 0.0 },
@@ -876,14 +954,26 @@ pub const PolySynth = struct {
     fx_delay_state: Delay = .{},
     fx_reverb_state: Reverb = .{},
 
+    /// Project transport, for the tempo-synced LFO/arp divisions. Null on a
+    /// bare synth (tests, `main.zig`'s standalone instance) - every sync
+    /// path falls back to plain Hz then. Set through `attachTransport` after
+    /// the synth lands in its heap-allocated Rack, same lifetime rule
+    /// DrumMachine and Slicer already rely on. Runtime wiring, not a Patch
+    /// field: `dupe` copies the pointer because the Transport outlives every
+    /// rack that points at it.
+    transport: ?*const Transport = null,
+
     // ── ARP ─────────────────────────────────────────────────────────────────
-    // A step sequencer sitting in front of note triggering, pure Hz-rate
-    // like the LFOs (PolySynth has no Transport access to sync to tempo).
+    // A step sequencer sitting in front of note triggering, one step per
+    // `arp_rate_hz` or per `arp_sync` division of the project tempo.
     // While on, noteOn/noteOff fully bypass voice_mode dispatch - see their
     // own arp branches - and the step engine drives voices itself.
     // zig fmt: off
     arp_on:      bool    = false,
     arp_mode:    ArpMode = .up,
+    /// Tempo division for one arp step, overriding `arp_rate_hz` - see
+    /// `LfoSync`.
+    arp_sync:    LfoSync = .off,
     /// Octave range above the played note(s), 1..max_arp_octaves. Ignored
     /// by `.chord` mode (it always retriggers the held notes as played).
     arp_octaves: u8      = 1,
@@ -954,13 +1044,17 @@ pub const PolySynth = struct {
     };
 
     /// Automatable params that aren't legal matrix destinations: the global
-    /// LFO rates (rate lives on the LFO row itself, not a modulation
-    /// target), the matrix's own row depths (no self-modulation), the macro
-    /// knobs (already fan out to every dest their own rows target -
-    /// automating one would double-apply through rows that read it), and
-    /// arp rate/gate (toggle-adjacent controls, not motion-worthy targets).
+    /// LFO rate/phase/slew controls (an LFO's own motion is set on its row,
+    /// not modulated - and they're read before `evalMatrix` runs, so a row
+    /// targeting one would apply a block late anyway), the matrix's own row
+    /// depths (no self-modulation), the macro knobs (already fan out to
+    /// every dest their own rows target - automating one would double-apply
+    /// through rows that read it), and arp rate/gate (toggle-adjacent
+    /// controls, not motion-worthy targets). Automation lanes still reach
+    /// all of these; only matrix rows are barred.
     const mod_dest_excluded_ids = [_]u16{
-        29, 61, 64, 67, 70, 73, 76, 79, 82, 96, 98, 99, 100, 101, 102, 119, 120,
+        29,  61,  64,  67,  70,  73,  76,  79,  82,  96,  98,  99, 100, 101, 102, 119, 120,
+        262, 263, 264, 265, 266, 267,
     };
 
     fn isModDestExcluded(id: u16) bool {
@@ -1144,6 +1238,15 @@ pub const PolySynth = struct {
         noise_lp: f32 = 0.0,
     };
 
+    /// Point the tempo-synced LFO/arp divisions at the project transport.
+    /// Call once the synth sits in its heap-allocated Rack, like
+    /// `ClapPlugin.attachTransport` - before that the synth is still being
+    /// moved by value and the pointer would outlive nothing useful. Leaving
+    /// it unattached is safe: every sync path falls back to plain Hz.
+    pub fn attachTransport(self: *PolySynth, transport: *const Transport) void {
+        self.transport = transport;
+    }
+
     pub fn init(allocator: std.mem.Allocator, sample_rate: u32) !PolySynth {
         var wt = try wavetable.loadDefault(allocator);
         errdefer wavetable.deinit(&wt, allocator);
@@ -1283,11 +1386,23 @@ pub const PolySynth = struct {
 
         lfo_shape: LfoShape = .sine,
         lfo_rate_hz: f32 = 1.0,
+        lfo_sync: LfoSync = .off,
+        lfo_retrig: LfoRetrig = .free,
+        lfo_phase_offset: f32 = 0.0,
+        lfo_slew_ms: f32 = 0.0,
 
         lfo2_shape: LfoShape = .sine,
         lfo2_rate_hz: f32 = 1.0,
+        lfo2_sync: LfoSync = .off,
+        lfo2_retrig: LfoRetrig = .free,
+        lfo2_phase_offset: f32 = 0.0,
+        lfo2_slew_ms: f32 = 0.0,
         lfo3_shape: LfoShape = .sine,
         lfo3_rate_hz: f32 = 1.0,
+        lfo3_sync: LfoSync = .off,
+        lfo3_retrig: LfoRetrig = .free,
+        lfo3_phase_offset: f32 = 0.0,
+        lfo3_slew_ms: f32 = 0.0,
         lfo_custom: [3][max_lfo_shape_points]LfoShapePoint = .{ default_lfo_custom_points, default_lfo_custom_points, default_lfo_custom_points },
         lfo_custom_count: [3]u8 = .{ 2, 2, 2 },
 
@@ -1403,6 +1518,7 @@ pub const PolySynth = struct {
         arp_mode: ArpMode = .up,
         arp_octaves: u8 = 1,
         arp_rate_hz: f32 = 8.0,
+        arp_sync: LfoSync = .off,
         arp_gate: f32 = 0.5,
         arp_hold: bool = false,
 
@@ -1527,7 +1643,12 @@ pub const PolySynth = struct {
     /// `noteOnPoly` (always takes this path) and `noteOnMono`'s
     /// retrigger/first-note path (its legato path bypasses this entirely,
     /// updating pitch on the still-running voice instead).
+    ///
+    /// Also where `.key`/`.one_shot` LFOs restart: this is exactly the set
+    /// of note-ons that reset the amplitude envelope, so a legato slide
+    /// leaves a running growl alone while every real new note re-arms it.
     fn triggerVoice(self: *PolySynth, note: u7, velocity: f32, was_active: bool, prev_log: f32) Voice {
+        self.retriggerLfos();
         const target_log = std.math.log2(noteToFreq(note));
         const start_log = if (was_active and self.glide_s > 0.0) prev_log else target_log;
         return .{
@@ -1798,11 +1919,12 @@ pub const PolySynth = struct {
 
         // Block-rate LFOs: sample once before the voice loop so all voices
         // receive the same values, avoiding inter-voice phase desync.
-        const lfo_vals = [3]f32{
-            self.lfoVal(0, self.lfo_shape, self.lfo_phase),
-            self.lfoVal(1, self.lfo2_shape, self.lfo2_phase),
-            self.lfoVal(2, self.lfo3_shape, self.lfo3_phase),
+        var lfo_vals = [3]f32{
+            self.lfoVal(0, self.lfo_shape, offsetPhase(self.lfo_phase, self.lfo_phase_offset)),
+            self.lfoVal(1, self.lfo2_shape, offsetPhase(self.lfo2_phase, self.lfo2_phase_offset)),
+            self.lfoVal(2, self.lfo3_shape, offsetPhase(self.lfo3_phase, self.lfo3_phase_offset)),
         };
+        self.slewLfoVals(&lfo_vals, frames);
 
         // zig fmt: off
         // osc_budget: split evenly between active oscillators so total ≤ 32.
@@ -2320,16 +2442,15 @@ pub const PolySynth = struct {
 
         // Advance the LFOs once per block after all voices are done.
         const frames_f: f32 = @floatFromInt(frames);
-        self.advanceLfo(0, &self.lfo_phase, self.lfo_rate_hz, frames_f);
-        self.advanceLfo(1, &self.lfo2_phase, self.lfo2_rate_hz, frames_f);
-        self.advanceLfo(2, &self.lfo3_phase, self.lfo3_rate_hz, frames_f);
+        self.advanceLfo(0, &self.lfo_phase, self.lfo_sync, self.lfo_rate_hz, self.lfo_retrig, frames_f);
+        self.advanceLfo(1, &self.lfo2_phase, self.lfo2_sync, self.lfo2_rate_hz, self.lfo2_retrig, frames_f);
+        self.advanceLfo(2, &self.lfo3_phase, self.lfo3_sync, self.lfo3_rate_hz, self.lfo3_retrig, frames_f);
 
-        // Arp step timer: block-rate like the LFOs above (PolySynth has no
-        // Transport access to sync to tempo, so rate is plain Hz). The gate
-        // check runs before the wrap loop so a step fired earlier this same
-        // block can still close before a later block's wrap retriggers it.
+        // Arp step timer: block-rate like the LFOs above. The gate check
+        // runs before the wrap loop so a step fired earlier this same block
+        // can still close before a later block's wrap retriggers it.
         if (self.arp_on) {
-            self.arp_phase += self.arp_rate_hz * frames_f / self.sample_rate;
+            self.arp_phase += self.syncedRate(self.arp_sync, self.arp_rate_hz) * frames_f / self.sample_rate;
             if (self.arp_gate_open and self.arp_phase >= self.arp_gate) {
                 self.arpReleaseActive();
                 self.arp_gate_open = false;
@@ -2360,6 +2481,33 @@ pub const PolySynth = struct {
     const lorenz_sigma: f32 = 10.0;
     const lorenz_rho: f32 = 28.0;
     const lorenz_beta: f32 = 8.0 / 3.0;
+
+    /// `phase` shifted by an `lfo*_phase_offset` and wrapped back into
+    /// [0, 1). A non-finite offset (hand-edited file, stray automation)
+    /// leaves the phase alone rather than poisoning it.
+    fn offsetPhase(phase: f32, offset: f32) f32 {
+        if (!std.math.isFinite(offset) or offset == 0.0) return phase;
+        const shifted = phase + offset;
+        return shifted - @floor(shifted);
+    }
+
+    /// One-pole smoothing per slot, per `lfo*_slew_ms`. Runs at block rate
+    /// (the rate the LFOs themselves run at), so the coefficient is built
+    /// against blocks-per-second rather than the sample rate.
+    fn slewLfoVals(self: *PolySynth, vals: *[3]f32, frames: usize) void {
+        const ms = [3]f32{ self.lfo_slew_ms, self.lfo2_slew_ms, self.lfo3_slew_ms };
+        const blocks_per_s = if (frames > 0) self.sample_rate / @as(f32, @floatFromInt(frames)) else 0.0;
+        for (ms, 0..) |slew_ms, slot| {
+            if (!(slew_ms > 0.0) or blocks_per_s <= 0.0) {
+                self.lfo_slew_state[slot] = vals[slot];
+                continue;
+            }
+            const coef = dsp.smoothingCoefMs(slew_ms, blocks_per_s);
+            const prev = if (std.math.isFinite(self.lfo_slew_state[slot])) self.lfo_slew_state[slot] else vals[slot];
+            self.lfo_slew_state[slot] = vals[slot] + (prev - vals[slot]) * coef;
+            vals[slot] = self.lfo_slew_state[slot];
+        }
+    }
 
     /// Block-rate value of the LFO in `slot`: the held random level for
     /// sample & hold, the normalized Lorenz x-axis for chaos, a pure
@@ -2425,12 +2573,77 @@ pub const PolySynth = struct {
     /// Advance one LFO's phase by a block; a wrap redraws the slot's sample
     /// & hold level, and the slot's chaos attractor always integrates
     /// (cheap enough to do regardless of the active shape, same as sh).
-    fn advanceLfo(self: *PolySynth, slot: usize, phase: *f32, rate_hz: f32, frames: f32) void {
-        const phase_inc = rate_hz * frames / self.sample_rate;
-        phase.* += phase_inc;
-        if (phase.* >= 1.0) self.lfo_sh[slot] = nextNoise(&self.lfo_sh_rand);
-        phase.* -= @floor(phase.*);
+    /// A slot's effective rate in Hz: `rate_hz` unless `sync` names a
+    /// division and a Transport is attached, in which case the project
+    /// tempo decides. Shared by the LFOs and the arp step clock.
+    fn syncedRate(self: *const PolySynth, sync: LfoSync, rate_hz: f32) f32 {
+        const beats = sync.beatsPerCycle() orelse return rate_hz;
+        const t = self.transport orelse return rate_hz;
+        const bpm = if (std.math.isFinite(t.tempo_bpm) and t.tempo_bpm > 0.0) t.tempo_bpm else 120.0;
+        return @floatCast(bpm / 60.0 / beats);
+    }
+
+    /// Phase the transport itself dictates for a `.free` tempo-synced slot,
+    /// or null when the slot has to free-run instead (no division, no
+    /// transport, stopped, or a retrigger mode that owns the phase). Locking
+    /// to the playhead is what makes a synced wobble land on the same beat
+    /// every pass through a loop, rather than wherever the phase drifted to.
+    fn gridPhase(self: *const PolySynth, sync: LfoSync, retrig: LfoRetrig) ?f32 {
+        if (retrig != .free) return null;
+        const beats = sync.beatsPerCycle() orelse return null;
+        const t = self.transport orelse return null;
+        if (!t.playing) return null;
+        const cycles = t.positionBeats() / beats;
+        if (!std.math.isFinite(cycles)) return null;
+        return @floatCast(cycles - @floor(cycles));
+    }
+
+    fn advanceLfo(
+        self: *PolySynth,
+        slot: usize,
+        phase: *f32,
+        sync: LfoSync,
+        rate_hz: f32,
+        retrig: LfoRetrig,
+        frames: f32,
+    ) void {
+        const phase_inc = self.syncedRate(sync, rate_hz) * frames / self.sample_rate;
+        if (self.gridPhase(sync, retrig)) |locked| {
+            // A jump backwards is a wrap (or a seek) - either way the S&H
+            // level is due a fresh draw, same as the free-running branch.
+            if (locked < phase.*) self.lfo_sh[slot] = nextNoise(&self.lfo_sh_rand);
+            phase.* = locked;
+        } else if (retrig == .one_shot and self.lfo_oneshot_done[slot]) {
+            phase.* = 1.0;
+        } else {
+            phase.* += phase_inc;
+            if (phase.* >= 1.0) {
+                self.lfo_sh[slot] = nextNoise(&self.lfo_sh_rand);
+                // One-shot parks at the end of its single cycle instead of
+                // wrapping; the next note-on retrigger clears the flag.
+                if (retrig == .one_shot) {
+                    self.lfo_oneshot_done[slot] = true;
+                    phase.* = 1.0;
+                    advanceChaos(&self.lfo_chaos[slot], phase_inc);
+                    return;
+                }
+            }
+            phase.* -= @floor(phase.*);
+        }
         advanceChaos(&self.lfo_chaos[slot], phase_inc);
+    }
+
+    /// Restart every `.key`/`.one_shot` LFO from the top. Called from the
+    /// note-on paths that actually start a voice, so a legato slide doesn't
+    /// re-arm a growl mid-note.
+    fn retriggerLfos(self: *PolySynth) void {
+        const retrigs = [3]LfoRetrig{ self.lfo_retrig, self.lfo2_retrig, self.lfo3_retrig };
+        const phases = [3]*f32{ &self.lfo_phase, &self.lfo2_phase, &self.lfo3_phase };
+        for (retrigs, phases, 0..) |retrig, phase, slot| {
+            if (retrig == .free) continue;
+            phase.* = 0.0;
+            self.lfo_oneshot_done[slot] = false;
+        }
     }
 
     /// Euler-integrates the Lorenz system by `dt_total`, split into
@@ -3081,6 +3294,10 @@ pub const PolySynth = struct {
         .{ .id = 27, .field = "fenv_release_s", .min = 0.001, .max = 10.0, .step = 0.005 },
         .{ .id = 28, .field = "lfo_shape", .kind = .cycle, .enum_type = LfoShape },
         .{ .id = 29, .field = "lfo_rate_hz", .min = 0.01, .max = 20.0, .step = 0.1 },
+        .{ .id = 256, .field = "lfo_sync", .kind = .cycle, .enum_type = LfoSync },
+        .{ .id = 259, .field = "lfo_retrig", .kind = .cycle, .enum_type = LfoRetrig },
+        .{ .id = 262, .field = "lfo_phase_offset", .min = 0.0, .max = 1.0, .step = 0.01 },
+        .{ .id = 265, .field = "lfo_slew_ms", .min = 0.0, .max = 500.0, .step = 5.0 },
         // 30/31 (LFO depth+target) retired into the mod matrix.
         .{ .id = 32, .field = "voice_mode", .kind = .cycle, .enum_type = VoiceMode },
         .{ .id = 33, .field = "glide_s", .min = 0.0, .max = 10.0, .step = 0.01 },
@@ -3124,8 +3341,16 @@ pub const PolySynth = struct {
         .{ .id = 94, .field = "fx_flanger_mix", .min = 0.0, .max = 1.0, .step = 0.01 },
         .{ .id = 95, .field = "lfo2_shape", .kind = .cycle, .enum_type = LfoShape },
         .{ .id = 96, .field = "lfo2_rate_hz", .min = 0.01, .max = 20.0, .step = 0.1 },
+        .{ .id = 257, .field = "lfo2_sync", .kind = .cycle, .enum_type = LfoSync },
+        .{ .id = 260, .field = "lfo2_retrig", .kind = .cycle, .enum_type = LfoRetrig },
+        .{ .id = 263, .field = "lfo2_phase_offset", .min = 0.0, .max = 1.0, .step = 0.01 },
+        .{ .id = 266, .field = "lfo2_slew_ms", .min = 0.0, .max = 500.0, .step = 5.0 },
         .{ .id = 97, .field = "lfo3_shape", .kind = .cycle, .enum_type = LfoShape },
         .{ .id = 98, .field = "lfo3_rate_hz", .min = 0.01, .max = 20.0, .step = 0.1 },
+        .{ .id = 258, .field = "lfo3_sync", .kind = .cycle, .enum_type = LfoSync },
+        .{ .id = 261, .field = "lfo3_retrig", .kind = .cycle, .enum_type = LfoRetrig },
+        .{ .id = 264, .field = "lfo3_phase_offset", .min = 0.0, .max = 1.0, .step = 0.01 },
+        .{ .id = 267, .field = "lfo3_slew_ms", .min = 0.0, .max = 500.0, .step = 5.0 },
         .{ .id = 99, .field = "macro1", .min = 0.0, .max = 1.0, .step = 0.01 },
         .{ .id = 100, .field = "macro2", .min = 0.0, .max = 1.0, .step = 0.01 },
         .{ .id = 101, .field = "macro3", .min = 0.0, .max = 1.0, .step = 0.01 },
@@ -3147,6 +3372,7 @@ pub const PolySynth = struct {
         .{ .id = 117, .field = "arp_mode", .kind = .cycle, .enum_type = ArpMode },
         .{ .id = 118, .field = "arp_octaves", .kind = .int_cont, .min = 1, .max = max_arp_octaves },
         .{ .id = 119, .field = "arp_rate_hz", .min = 0.1, .max = 20.0, .step = 0.1 },
+        .{ .id = 268, .field = "arp_sync", .kind = .cycle, .enum_type = LfoSync },
         .{ .id = 120, .field = "arp_gate", .min = 0.02, .max = 1.0, .step = 0.01 },
         .{ .id = 121, .field = "arp_hold", .kind = .toggle },
         .{ .id = 122, .field = "env3_attack_s", .min = 0.001, .max = 5.0, .step = 0.001 },
@@ -3458,6 +3684,8 @@ pub const PolySynth = struct {
         .{ .id = 26, .label = "FENV SUS",   .section = "FENV",    .range = .{ 0.0,    1.0 },     .step = 0.01 },
         .{ .id = 27, .label = "FENV REL",   .section = "FENV",    .range = .{ 0.001,  10.0 },    .step = 0.01 },
         .{ .id = 29, .label = "LFO RATE",   .section = "LFO",     .range = .{ 0.01,   20.0 },    .step = 0.1 },
+        .{ .id = 262,.label = "LFO PHASE",  .section = "LFO",     .range = .{ 0.0,    1.0 },     .step = 0.01 },
+        .{ .id = 265,.label = "LFO SLEW",   .section = "LFO",     .range = .{ 0.0,    500.0 },   .step = 5.0 },
         .{ .id = 33, .label = "GLIDE",      .section = "VOICE",   .range = .{ 0.0,    10.0 },    .step = 0.01 },
         .{ .id = 34, .label = "SUB LEVEL",  .section = "SUB",     .range = .{ 0.0,    1.0 },     .step = 0.01 },
         .{ .id = 36, .label = "NOISE LVL",  .section = "NOISE",   .range = .{ 0.0,    1.0 },     .step = 0.01 },
@@ -3503,7 +3731,11 @@ pub const PolySynth = struct {
         .{ .id = 114,.label = "VRB DAMP",   .section = "FX VERB", .range = .{ 0.0,    1.0 },     .step = 0.01 },
         .{ .id = 115,.label = "VRB MIX",    .section = "FX VERB", .range = .{ 0.0,    1.0 },     .step = 0.01 },
         .{ .id = 96, .label = "LFO2 RATE",  .section = "LFO 2",   .range = .{ 0.01,   20.0 },    .step = 0.1 },
+        .{ .id = 263,.label = "LFO2 PHASE", .section = "LFO 2",   .range = .{ 0.0,    1.0 },     .step = 0.01 },
+        .{ .id = 266,.label = "LFO2 SLEW",  .section = "LFO 2",   .range = .{ 0.0,    500.0 },   .step = 5.0 },
         .{ .id = 98, .label = "LFO3 RATE",  .section = "LFO 3",   .range = .{ 0.01,   20.0 },    .step = 0.1 },
+        .{ .id = 264,.label = "LFO3 PHASE", .section = "LFO 3",   .range = .{ 0.0,    1.0 },     .step = 0.01 },
+        .{ .id = 267,.label = "LFO3 SLEW",  .section = "LFO 3",   .range = .{ 0.0,    500.0 },   .step = 5.0 },
         // Macros: an automation lane on one macro rides every destination
         // its matrix rows fan out to. Not matrix dests themselves (a row
         // reading a matrix-shifted macro would need eval ordering).
@@ -4083,6 +4315,153 @@ test "LFO 2 tremolo via matrix: square trough at depth=1 silences the voice" {
     try std.testing.expectApproxEqAbs(@as(f32, 0.0), rms, 1e-6);
     // A frozen (rate 0) phase survives the per-block advance untouched.
     try std.testing.expectApproxEqAbs(@as(f32, 0.75), s.lfo2_phase, 1e-6);
+}
+
+test "LFO tempo sync: rate follows the transport, not the Hz knob" {
+    var s = try PolySynth.init(std.testing.allocator, 48_000);
+    defer s.deinit();
+    s.lfo_rate_hz = 1.0;
+
+    // Unattached: the division is inert, the Hz knob still rules.
+    s.lfo_sync = .n1_4;
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), s.syncedRate(s.lfo_sync, s.lfo_rate_hz), 1e-6);
+
+    var transport: Transport = .{ .sample_rate = 48_000, .tempo_bpm = 140.0 };
+    s.attachTransport(&transport);
+    // 140 bpm = 2.333 quarter notes/s; one cycle per 1/4 note matches that,
+    // per 1/8 is twice as fast, and a 1/8 triplet three times per beat.
+    try std.testing.expectApproxEqAbs(@as(f32, 140.0 / 60.0), s.syncedRate(.n1_4, 1.0), 1e-4);
+    try std.testing.expectApproxEqAbs(@as(f32, 140.0 / 30.0), s.syncedRate(.n1_8, 1.0), 1e-4);
+    try std.testing.expectApproxEqAbs(@as(f32, 140.0 / 20.0), s.syncedRate(.n1_8t, 1.0), 1e-4);
+    // `.off` always falls back, transport or no transport.
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), s.syncedRate(.off, 1.0), 1e-6);
+    // A nonsense tempo degrades to 120 rather than producing inf/NaN.
+    transport.tempo_bpm = 0.0;
+    try std.testing.expect(std.math.isFinite(s.syncedRate(.n1_4, 1.0)));
+}
+
+test "LFO tempo sync: a free-running synced slot locks phase to the playhead" {
+    var s = try PolySynth.init(std.testing.allocator, 48_000);
+    defer s.deinit();
+    var transport: Transport = .{ .sample_rate = 48_000, .tempo_bpm = 120.0 };
+    s.attachTransport(&transport);
+    s.lfo_sync = .n1_1; // one cycle per bar (4 beats)
+    s.lfo_phase = 0.9; // stale phase from before the transport rolled
+
+    var buf: [256]Sample = undefined;
+    // Stopped: no lock, the phase free-runs off the derived rate.
+    @memset(&buf, 0.0);
+    s.processBlock(&buf);
+    try std.testing.expect(s.lfo_phase != 0.0);
+
+    // Rolling, playhead parked one beat in: 1 of 4 beats through the cycle.
+    transport.playing = true;
+    transport.position_frames = @intFromFloat(transport.framesPerBeat());
+    @memset(&buf, 0.0);
+    s.processBlock(&buf);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.25), s.lfo_phase, 1e-4);
+
+    // Jumping the playhead jumps the LFO with it - that's the point: the
+    // same wobble lands on the same beat every pass through a loop.
+    transport.position_frames = @intFromFloat(transport.framesPerBeat() * 3.0);
+    @memset(&buf, 0.0);
+    s.processBlock(&buf);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.75), s.lfo_phase, 1e-4);
+}
+
+test "LFO retrigger: key restarts the phase, free does not, legato never does" {
+    var s = try PolySynth.init(std.testing.allocator, 48_000);
+    defer s.deinit();
+    s.lfo_rate_hz = 5.0;
+    s.lfo_retrig = .key;
+    s.lfo2_retrig = .free;
+
+    var buf: [256]Sample = undefined;
+    s.noteOn(60, 1.0);
+    for (0..8) |_| {
+        @memset(&buf, 0.0);
+        s.processBlock(&buf);
+    }
+    try std.testing.expect(s.lfo_phase > 0.0);
+    const free_before = s.lfo2_phase;
+
+    s.noteOn(64, 1.0);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), s.lfo_phase, 1e-6);
+    try std.testing.expectApproxEqAbs(free_before, s.lfo2_phase, 1e-6);
+
+    // Legato slides update pitch on the running voice without re-triggering
+    // the envelope, so they must leave the growl alone too.
+    s.voice_mode = .legato;
+    s.noteOn(67, 1.0);
+    @memset(&buf, 0.0);
+    s.processBlock(&buf);
+    const legato_phase = s.lfo_phase;
+    s.noteOn(69, 1.0);
+    try std.testing.expectApproxEqAbs(legato_phase, s.lfo_phase, 1e-6);
+}
+
+test "LFO one-shot: runs a single cycle, parks, re-arms on the next note" {
+    var s = try PolySynth.init(std.testing.allocator, 48_000);
+    defer s.deinit();
+    s.lfo_retrig = .one_shot;
+    s.lfo_rate_hz = 20.0; // ~1 cycle per 2400 frames
+
+    var buf: [256]Sample = undefined;
+    s.noteOn(60, 1.0);
+    for (0..40) |_| {
+        @memset(&buf, 0.0);
+        s.processBlock(&buf);
+    }
+    // Well past one cycle: parked at the end, not wrapped back around.
+    try std.testing.expect(s.lfo_oneshot_done[0]);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), s.lfo_phase, 1e-6);
+
+    s.noteOff(60);
+    s.noteOn(62, 1.0);
+    try std.testing.expect(!s.lfo_oneshot_done[0]);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), s.lfo_phase, 1e-6);
+}
+
+test "LFO slew: smoothing lags a square's jump instead of following it" {
+    var sharp = try PolySynth.init(std.testing.allocator, 48_000);
+    defer sharp.deinit();
+    var smoothed = try PolySynth.init(std.testing.allocator, 48_000);
+    defer smoothed.deinit();
+    for ([_]*PolySynth{ &sharp, &smoothed }) |s| {
+        s.lfo_shape = .square;
+        s.lfo_rate_hz = 5.0;
+        s.mod_matrix[0] = .{ .source = .lfo, .dest = PolySynth.dest_amp, .depth = 0.5 };
+        s.noteOn(60, 1.0);
+    }
+    smoothed.lfo_slew_ms = 200.0;
+
+    var buf: [256]Sample = undefined;
+    for (0..20) |_| {
+        @memset(&buf, 0.0);
+        sharp.processBlock(&buf);
+        @memset(&buf, 0.0);
+        smoothed.processBlock(&buf);
+    }
+    // The square is pinned at ±1 with no slew; smoothing keeps the tracked
+    // value strictly inside that, and never leaves it.
+    try std.testing.expect(@abs(sharp.lfo_slew_state[0]) > 0.99);
+    try std.testing.expect(@abs(smoothed.lfo_slew_state[0]) < 0.99);
+    try std.testing.expect(std.math.isFinite(smoothed.lfo_slew_state[0]));
+}
+
+test "arp tempo sync: steps follow the transport division" {
+    var s = try PolySynth.init(std.testing.allocator, 48_000);
+    defer s.deinit();
+    var transport: Transport = .{ .sample_rate = 48_000, .tempo_bpm = 120.0 };
+    s.attachTransport(&transport);
+    s.arp_on = true;
+    s.arp_rate_hz = 8.0;
+    s.arp_sync = .n1_16;
+    // 120 bpm: a 16th is 0.125 s, so 8 steps/s - the division decides, and
+    // here it happens to match the knob, so drive them apart to be sure.
+    try std.testing.expectApproxEqAbs(@as(f32, 8.0), s.syncedRate(s.arp_sync, s.arp_rate_hz), 1e-4);
+    transport.tempo_bpm = 60.0;
+    try std.testing.expectApproxEqAbs(@as(f32, 4.0), s.syncedRate(s.arp_sync, s.arp_rate_hz), 1e-4);
 }
 
 test "macro source: mac1 at depth 1 to AMP doubles the voice gain" {

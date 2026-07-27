@@ -361,7 +361,10 @@ pub const Rack = struct {
 
         switch (self.instrument) {
             .empty => {},
-            .poly_synth => |*s| rack.instrument = .{ .poly_synth = try s.dupe() },
+            .poly_synth => |*s| {
+                rack.instrument = .{ .poly_synth = try s.dupe() };
+                rack.instrument.poly_synth.attachTransport(transport);
+            },
             .sampler => |*s| rack.instrument = .{ .sampler = try s.dupe() },
             .drum_machine => |*dm| rack.instrument = .{ .drum_machine = try dm.dupe() },
             .slicer => |*sl| rack.instrument = .{ .slicer = try sl.dupe() },

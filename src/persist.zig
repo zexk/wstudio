@@ -145,12 +145,28 @@ pub const SynthSnap = struct {
     // LFO
     lfo_shape: synth_mod.LfoShape = .sine,
     lfo_rate_hz: f32 = 1.0,
+    /// Tempo sync / retrigger / phase offset / slew, per LFO slot (additive
+    /// optional-with-default fields, no version bump - absent in every file
+    /// predating them reads as the free-running Hz behaviour those files
+    /// were saved with).
+    lfo_sync: synth_mod.LfoSync = .off,
+    lfo_retrig: synth_mod.LfoRetrig = .free,
+    lfo_phase_offset: f32 = 0.0,
+    lfo_slew_ms: f32 = 0.0,
     // LFO 2 / LFO 3 + macros (additive optional-with-default fields, no
     // version bump)
     lfo2_shape: synth_mod.LfoShape = .sine,
     lfo2_rate_hz: f32 = 1.0,
+    lfo2_sync: synth_mod.LfoSync = .off,
+    lfo2_retrig: synth_mod.LfoRetrig = .free,
+    lfo2_phase_offset: f32 = 0.0,
+    lfo2_slew_ms: f32 = 0.0,
     lfo3_shape: synth_mod.LfoShape = .sine,
     lfo3_rate_hz: f32 = 1.0,
+    lfo3_sync: synth_mod.LfoSync = .off,
+    lfo3_retrig: synth_mod.LfoRetrig = .free,
+    lfo3_phase_offset: f32 = 0.0,
+    lfo3_slew_ms: f32 = 0.0,
     /// `.custom` shape points (additive optional-with-default field, no
     /// version bump - a sane backward-compatible default exists and there's
     /// no legacy representation to migrate from, unlike mod_matrix's null-
@@ -281,6 +297,7 @@ pub const SynthSnap = struct {
     arp_mode: synth_mod.ArpMode = .up,
     arp_octaves: u8 = 1,
     arp_rate_hz: f32 = 8.0,
+    arp_sync: synth_mod.LfoSync = .off,
     arp_gate: f32 = 0.5,
     arp_hold: bool = false,
     // ENV 3: free-assignable envelope, matrix source only (additive, no
@@ -1773,7 +1790,9 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
             .poly_synth => {
                 rack.instrument = .{ .poly_synth = try PolySynth.init(allocator, sr) };
                 // PatternPlayer holds a pointer into the heap-allocated Rack -
-                // must be set AFTER the instrument lands in the rack.
+                // must be set AFTER the instrument lands in the rack. Same
+                // for the synth's own transport (tempo-synced LFOs/arp).
+                rack.instrument.poly_synth.attachTransport(&engine.transport);
                 rack.pattern_player = PatternPlayer.init(rack.instrument.device().?, &engine.transport);
                 if (rs.synth) |ss| {
                     applyToSynth(&rack.instrument.poly_synth, &ss);

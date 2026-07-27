@@ -109,6 +109,7 @@ pub const main_sections = [_]SectionDef{
     .{ .title = "ARP", .tone = .util, .band = 4, .params = &.{
         .{ .id = 116, .label = "on/off" }, .{ .id = 117, .label = "mode" },
         .{ .id = 118, .label = "octaves" }, .{ .id = 119, .label = "rate" },
+        .{ .id = 268, .label = "sync" },
         .{ .id = 120, .label = "gate" }, .{ .id = 121, .label = "hold" },
     } },
     .{ .title = "OUT", .tone = .util, .band = 4, .params = &.{
@@ -119,12 +120,18 @@ pub const main_sections = [_]SectionDef{
 pub const mod_sections = [_]SectionDef{
     .{ .title = "LFO 1", .tone = .mod, .band = 0, .params = &.{
         .{ .id = 28, .label = "shape" }, .{ .id = 29, .label = "rate" },
+        .{ .id = 256, .label = "sync" }, .{ .id = 259, .label = "retrig" },
+        .{ .id = 262, .label = "phase" }, .{ .id = 265, .label = "slew" },
     } },
     .{ .title = "LFO 2", .tone = .mod, .band = 0, .params = &.{
         .{ .id = 95, .label = "shape" }, .{ .id = 96, .label = "rate" },
+        .{ .id = 257, .label = "sync" }, .{ .id = 260, .label = "retrig" },
+        .{ .id = 263, .label = "phase" }, .{ .id = 266, .label = "slew" },
     } },
     .{ .title = "LFO 3", .tone = .mod, .band = 0, .params = &.{
         .{ .id = 97, .label = "shape" }, .{ .id = 98, .label = "rate" },
+        .{ .id = 258, .label = "sync" }, .{ .id = 261, .label = "retrig" },
+        .{ .id = 264, .label = "phase" }, .{ .id = 267, .label = "slew" },
     } },
     .{ .title = "ENV 3", .tone = .env, .band = 1, .params = &.{
         .{ .id = 122, .label = "attack" }, .{ .id = 123, .label = "decay" },
@@ -419,7 +426,7 @@ comptime {
             if (sec.band < sections[i - 1].band) @compileError("synth_layout: bands must be declared in ascending order");
         }
     }
-    var seen = [_]bool{false} ** 195;
+    var seen = [_]bool{false} ** 269;
     for (main_sections) |sec| {
         for (sec.params) |p| {
             var f: u8 = 0;
@@ -440,11 +447,15 @@ comptime {
     }
     // Ids owned elsewhere: dead/retired (23, 30-31), FX unit params +
     // their reorder handles (mirrors editors/synth.zig's deadParam/
-    // inSubview(.fx)/reorderIdFor - verified against that file's ranges).
+    // inSubview(.fx)/reorderIdFor - verified against that file's ranges),
+    // and 195-255, the custom-LFO breakpoint block (drawn by its own
+    // curve editor under the shape row, never a cursor-walkable param row)
+    // plus the gap above it left free when param ids widened to u16.
     const excluded = [_][2]u16{
         .{ 23, 23 },   .{ 30, 31 },   .{ 83, 94 },   .{ 103, 115 },
         .{ 126, 136 }, .{ 137, 143 }, .{ 144, 160 }, .{ 161, 166 },
         .{ 167, 175 }, .{ 176, 180 }, .{ 181, 184 }, .{ 188, 194 },
+        .{ 195, 255 },
     };
     for (excluded) |range| {
         var id = range[0];
