@@ -2541,8 +2541,10 @@ test "sampler editor j/k honor a vim count prefix; g/G jump to first/last param"
     try std.testing.expectEqual(AppView.sampler_editor, app.view);
     try std.testing.expectEqual(@as(u8, 0), app.sampler_param);
 
+    // Rows, not raw ids: the 4th row down from start is stretch (id 12),
+    // which draws in the SAMPLE section despite its late id.
     for ("3j") |c| app.handleKey(.{ .char = c }, 0);
-    try std.testing.expectEqual(@as(u8, 3), app.sampler_param);
+    try std.testing.expectEqual(@as(u8, 12), app.sampler_param);
     for ("2k") |c| app.handleKey(.{ .char = c }, 0);
     try std.testing.expectEqual(@as(u8, 1), app.sampler_param);
 

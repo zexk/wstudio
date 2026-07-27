@@ -136,8 +136,8 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             'l' => { adjustParam(app, app.takeCount()); return true; },
             'H' => { adjustParam(app, -10 * app.takeCount()); return true; },
             'L' => { adjustParam(app, 10 * app.takeCount()); return true; },
-            'g' => { history.flushParamNudge(app); app.sampler_param = 0; return true; },
-            'G' => { history.flushParamNudge(app); app.sampler_param = paramCount(app) - 1; return true; },
+            'g' => { history.flushParamNudge(app); app.sampler_param = edgeParam(app, false); return true; },
+            'G' => { history.flushParamNudge(app); app.sampler_param = edgeParam(app, true); return true; },
             // J/K jump a whole bank of 8 pads/slices - same MPC-style
             // paging as the drum grid's own J/K (editors/drum.zig).
             'K' => {
@@ -205,10 +205,62 @@ fn movePadBank(app: *App, delta: i32) void {
     app.drum_cursor[0] = @intCast(modal_mod.clampDelta(app.drum_cursor[0], delta, DrumMachine.max_pads - 1));
 }
 
+/// Param ids in the order the editor draws them. `sampler_param` holds a
+/// param *id*, and the ids past 11 were appended to dsp/pad.zig's space
+/// after the rows they draw between (stretch sits in SAMPLE, root/voice in
+/// KEY), so row moves have to walk this list - counting ids straight up
+/// skips the stretch row and lands on the next section instead.
+fn paramOrder(pad_target: bool, count: u8, out: *[16]u8) []const u8 {
+    var n: usize = 0;
+    for (pad_sections) |section| {
+        for (section.rows) |row| {
+            if (row.id < count) {
+                out[n] = row.id;
+                n += 1;
+            }
+        }
+    }
+    if (!pad_target) {
+        for (key_section.rows) |row| {
+            if (row.id < count) {
+                out[n] = row.id;
+                n += 1;
+            }
+        }
+    }
+    return out[0..n];
+}
+
 /// Move the param cursor by `delta` rows, clamped to the param list -
 /// mirrors the synth editor's equivalent.
 fn moveCursor(app: *App, delta: i32) void {
-    app.sampler_param = @intCast(modal_mod.clampDelta(app.sampler_param, delta, @as(i64, paramCount(app)) - 1));
+    var buf: [16]u8 = undefined;
+    const order = paramOrder(app.sampler_target != .sampler, paramCount(app), &buf);
+    var idx: u8 = 0;
+    for (order, 0..) |id, i| {
+        if (id == app.sampler_param) idx = @intCast(i);
+    }
+    app.sampler_param = order[@intCast(modal_mod.clampDelta(idx, delta, @as(i64, @intCast(order.len)) - 1))];
+}
+
+/// First/last param row the editor draws, for g/G.
+fn edgeParam(app: *App, last: bool) u8 {
+    var buf: [16]u8 = undefined;
+    const order = paramOrder(app.sampler_target != .sampler, paramCount(app), &buf);
+    return if (last) order[order.len - 1] else order[0];
+}
+
+test "param row order follows the drawn rows, not the raw id space" {
+    var buf: [16]u8 = undefined;
+    // A drum pad / slice: stretch (id 12) draws inside SAMPLE, so j from
+    // pitch has to land on it rather than skipping to the AMP ENV section.
+    const pad = paramOrder(true, DrumMachine.pad_param_count, &buf);
+    try std.testing.expectEqualSlices(u8, &.{ 0, 1, 2, 12, 3, 4, 5, 6, 7, 8, 9, 10, 11 }, pad);
+
+    var buf2: [16]u8 = undefined;
+    // A standalone Sampler adds the KEY section at the bottom.
+    const sampler = paramOrder(false, Sampler.param_count, &buf2);
+    try std.testing.expectEqualSlices(u8, &.{ 0, 1, 2, 12, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14 }, sampler);
 }
 
 /// Audition the sampler editor's current target.
