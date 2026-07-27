@@ -2174,20 +2174,14 @@ pub const App = struct {
     /// off the state when the whole group already has it, so pressing it
     /// twice always returns the group to unmuted/unsoloed even if the members
     /// started out mixed.
-    fn doGroupToggle(self: *App, g: u8, comptime solo: bool) void {
+    pub fn doGroupToggle(self: *App, g: u8, solo: bool) void {
         const grp = &(self.session.groups[g] orelse return);
-        var members: u16 = 0;
-        var all_on = true;
-        for (self.session.project.tracks.items) |t| {
-            if (t.group != g) continue;
-            members += 1;
-            if (!(if (solo) t.soloed else t.muted)) all_on = false;
-        }
-        if (members == 0) {
+        const state = self.groupFlagState(g, solo);
+        if (state.members == 0) {
             self.setStatus("\"{s}\" has no tracks", .{grp.name});
             return;
         }
-        const want = !all_on;
+        const want = !state.all;
         for (self.session.project.tracks.items, 0..) |t, i| {
             if (t.group != g) continue;
             if (solo) self.apiSetTrackSoloed(i, want) else self.apiSetTrackMuted(i, want);
@@ -2196,7 +2190,22 @@ pub const App = struct {
             (if (want) "soloed" else "unsoloed")
         else
             (if (want) "muted" else "unmuted");
-        self.setStatus("\"{s}\" {s} ({d} tracks)", .{ grp.name, verb, members });
+        self.setStatus("\"{s}\" {s} ({d} tracks)", .{ grp.name, verb, state.members });
+    }
+
+    /// Member rollup for group `g`: how many tracks it holds and whether all
+    /// of them are muted (`solo = false`) or soloed (`solo = true`). Drives
+    /// the toggle above and lights the GUI group row's badges - `all` is
+    /// false for an empty group, so a memberless group never reads as "on".
+    pub fn groupFlagState(self: *const App, g: u8, solo: bool) struct { members: u16, all: bool } {
+        var members: u16 = 0;
+        var all = true;
+        for (self.session.project.tracks.items) |t| {
+            if (t.group != g) continue;
+            members += 1;
+            if (!(if (solo) t.soloed else t.muted)) all = false;
+        }
+        return .{ .members = members, .all = members > 0 and all };
     }
 
     fn doGroupMute(self: *App, g: u8) void {

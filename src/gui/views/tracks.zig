@@ -218,7 +218,27 @@ fn drawGroupRow(app: anytype, group_index: u8, display_row: usize, height: f32) 
     drawFxChips(draw_list, &group.fx, text_x + 150, origin[1] + 12, block_x0 - 12);
     draw_list.addText(.{ block_x0 + 18, origin[1] + 14 }, color(block_fg), "{d:.1} dB", .{group.gain_db});
     drawTrimMeter(draw_list, block_x0 + 3, origin[1] + height - 15, 105, group.gain_db, block_fg);
+
+    // Same badge slots a track row gets, in the same two positions, acting
+    // on every member at once (App.doGroupToggle - the group row's own m/S).
+    // A group has no arm state, so the third slot stays empty rather than
+    // shifting these two left out of line with the track rows above.
+    var badge_x = block_x0 + 181;
+    var badge_id_buf: [40]u8 = undefined;
+    const soloed = app.core.groupFlagState(group_index, true).all;
+    if (drawTrackBadgeToggle(draw_list, std.fmt.bufPrintZ(&badge_id_buf, "group-solo-{d}", .{group_index}) catch "gsolo", badge_x, origin[1] + 12, icons.solo, soloed, theme.rhythm)) {
+        app.core.doGroupToggle(group_index, true);
+    }
+    badge_x -= 18;
+    const muted = app.core.groupFlagState(group_index, false).all;
+    if (drawTrackBadgeToggle(draw_list, std.fmt.bufPrintZ(&badge_id_buf, "group-mute-{d}", .{group_index}) catch "gmute", badge_x, origin[1] + 12, icons.mute, muted, theme.danger)) {
+        app.core.doGroupToggle(group_index, false);
+    }
     drawTrackRowCursorOutline(chrome, height);
+    // Matches drawMixerRow: the badges left the auto-layout cursor parked at
+    // their own absolute position, so the next row has to be re-anchored or
+    // it starts ~30px in and paints over the tail of this one.
+    zgui.setCursorScreenPos(.{ origin[0], origin[1] + height });
 }
 
 fn drawMasterRow(app: anytype, height: f32) void {
