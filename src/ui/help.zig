@@ -325,6 +325,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("z / Z",        "finer / coarser timing grid (1/4 through 1/128)");
     t.key(":clear",       "erase all notes in the pattern");
     t.key(":scale",       "[<root> [<type>]|off]  scale highlight + chord-stamp key");
+    t.key(":snap-scale",  "[<root> [<type>]]  pull every off-scale note onto the nearest tone of that scale");
 
     t.taggedSection(.arrangement, "ARRANGEMENT");
     t.key("h / l",        "move cursor left / right (one bar)");

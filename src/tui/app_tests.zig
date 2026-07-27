@@ -5454,6 +5454,34 @@ test ":metronome Tab cycles on/off" {
     try std.testing.expectEqualStrings("metronome off", app.modal.cmd_buf[0..app.modal.cmd_len]);
 }
 
+test ":snap-scale pulls off-scale notes onto the nearest tone, and sets the scale inline" {
+    var app = try testApp();
+    defer app.deinit();
+    app.piano_track = 0;
+    app.view = .piano_roll;
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    pp.addNote(.{ .pitch = 61, .start_beat = 0.0, .duration_beat = 0.25 }); // C#
+    pp.addNote(.{ .pitch = 62, .start_beat = 1.0, .duration_beat = 0.25 }); // D, already in D minor
+    pp.addNote(.{ .pitch = 68, .start_beat = 2.0, .duration_beat = 0.25 }); // G#
+
+    // With no scale set there's nothing to snap to - and nothing is touched.
+    commands.run(&app, "snap-scale");
+    try std.testing.expectEqual(@as(u7, 61), pp.notes[0].pitch);
+
+    // Args set the scale first, exactly as :scale parses them.
+    commands.run(&app, "snap-scale d minor");
+    try std.testing.expectEqual(@as(?u4, 2), if (app.piano_scale) |s| s.root else null);
+    try std.testing.expectEqual(@as(u7, 60), pp.notes[0].pitch); // C# -> C
+    try std.testing.expectEqual(@as(u7, 62), pp.notes[1].pitch); // untouched
+    try std.testing.expectEqual(@as(u7, 67), pp.notes[2].pitch); // G# -> G
+
+    // Idempotent, and undoable as one step.
+    commands.run(&app, "snap-scale");
+    try std.testing.expectEqual(@as(u7, 60), pp.notes[0].pitch);
+    history.doUndo(&app);
+    try std.testing.expectEqual(@as(u7, 61), pp.notes[0].pitch);
+}
+
 test ":scale Tab cycles off, root pitch classes, then scale-type names" {
     var app = try App.init(std.testing.allocator, std.Io.failing);
     defer app.deinit();

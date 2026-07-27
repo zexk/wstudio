@@ -139,6 +139,7 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "export-midi", .desc = "<file>  write the pattern as a Standard MIDI File",                 .run = wrap(cmdExportMidi) },
     .{ .name = "metronome",   .desc = "[on|off]  toggle the click track",                   .run = wrap(cmdMetronome) },
     .{ .name = "scale",       .desc = "[<root> [<type>]|off]  piano-roll scale highlight + chord-stamp key", .run = wrap(cmdScale) },
+    .{ .name = "snap-scale",  .desc = "[<root> [<type>]]  pull every off-scale note onto the nearest tone of the active :scale", .run = wrap(cmdSnapScale) },
     .{ .name = "ghost",       .desc = "[on|off]  dim every other melodic track's notes into the piano-roll background", .run = wrap(cmdGhost) },
     .{ .name = "audition",    .desc = "[on|off]  preview the pitch under the piano-roll cursor on every j/k move", .run = wrap(cmdAudition) },
     .{ .name = "synth-preset", .desc = "[name]  apply a factory or saved synth patch to the cursor track (no args: list names)", .run = wrap(cmdSynthPreset), .scope = .synth },
@@ -792,6 +793,44 @@ fn cmdDiscardLengths(app: *App, _: []const u8) void {
     }
     history.push(app, entry);
     app.setStatus("reset {d} notes to {d:.2} beats", .{ changed, app.piano_note_len });
+    piano_ed.syncLinkedClip(app);
+}
+
+/// `:snap-scale [<root> [<type>]]` - pull every off-scale note onto the
+/// nearest tone of the active `:scale` (FL's "snap to key"). The other half
+/// of the scale workflow: `:scale` already highlights the key and steers the
+/// `c`/`C` chord stamp, but nothing could fix a line that drifted out of it -
+/// a recorded take, a `:transpose`, a paste from another key. Args set the
+/// scale first, exactly as `:scale` parses them, so `:snap-scale d minor` is
+/// the one-shot form; with no args and no scale set there's nothing to snap
+/// to and it says so.
+fn cmdSnapScale(app: *App, args: []const u8) void {
+    const trimmed = std.mem.trim(u8, args, " ");
+    if (trimmed.len > 0) {
+        cmdScale(app, trimmed);
+        // A bad root/type already reported itself; don't then snap to a
+        // stale scale the user didn't ask for.
+        if (app.piano_scale == null) return;
+    }
+    const scale = app.piano_scale orelse {
+        app.setStatus("snap-scale: no scale set - :scale <root> <type> first", .{});
+        return;
+    };
+    const m = resolveMelodic(app) orelse {
+        app.setStatus("snap-scale: no piano-roll pattern", .{});
+        return;
+    };
+    var table: [128]u7 = undefined;
+    for (&table, 0..) |*to, pitch| to.* = scale.nearest(@intCast(pitch));
+    var entry = history.captureMelodic(app, @intCast(m.track));
+    const moved = m.pp.remapPitch(.{ .lo_beat = 0.0, .hi_beat = m.pp.length_beats }, &table);
+    if (moved == 0) {
+        if (entry) |*e| e.deinit(app.allocator);
+        app.setStatus("snap-scale: every note is already in {s} {s}", .{ theory.pitchClassName(scale.root), scale.kind.label() });
+        return;
+    }
+    history.push(app, entry);
+    app.setStatus("snapped {d} notes to {s} {s}", .{ moved, theory.pitchClassName(scale.root), scale.kind.label() });
     piano_ed.syncLinkedClip(app);
 }
 

@@ -3629,12 +3629,16 @@ pub const App = struct {
             self.cycleCompletion(name_end + 1, arg, .euclid, name_buf[0..n]);
         } else if (std.mem.eql(u8, name, "metronome")) {
             self.cycleCompletion(name_end + 1, arg, .metronome, &.{ "on", "off" });
-        } else if (std.mem.eql(u8, name, "scale")) {
+        } else if (std.mem.eql(u8, name, "scale") or std.mem.eql(u8, name, "snap-scale")) {
             // First token can be "off", a root pitch class, or a scale-type
             // name (cmdScale accepts either order) - offer all three sets.
+            // `:snap-scale` parses its args through cmdScale, so it completes
+            // the same way, minus "off" (there's nothing to snap to).
             var n: usize = 0;
-            name_buf[n] = "off";
-            n += 1;
+            if (std.mem.eql(u8, name, "scale")) {
+                name_buf[n] = "off";
+                n += 1;
+            }
             for (0..12) |pc| {
                 name_buf[n] = ws.theory.pitchClassName(@intCast(pc));
                 n += 1;

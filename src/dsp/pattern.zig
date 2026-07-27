@@ -600,6 +600,28 @@ pub const PatternPlayer = struct {
         return moved;
     }
 
+    /// Remap every note `sel` covers through `table` (pitch -> pitch) - the
+    /// transport for `:snap-scale`, which builds the table from the active
+    /// `theory.Scale`. Takes a table rather than the scale itself so this
+    /// layer stays free of music theory, the same way `limitPitch` takes
+    /// plain bounds. Returns the count whose pitch actually moved (UI thread).
+    pub fn remapPitch(self: *PatternPlayer, sel: Sel, table: *const [128]u7) u16 {
+        while (!self.notes_lock.tryLock()) std.atomic.spinLoopHint();
+        defer self.notes_lock.unlock();
+        var moved: u16 = 0;
+        for (self.notes[0..self.note_count]) |*n| {
+            if (!sel.contains(n.*)) continue;
+            const to = table[n.pitch];
+            if (to == n.pitch) continue;
+            // The pitch itself changes, so the sounding voice has to go
+            // (same reasoning as shiftNotesInRange).
+            self.queueNoteOff(n.pitch);
+            n.pitch = to;
+            moved += 1;
+        }
+        return moved;
+    }
+
     /// Set every note `sel` covers to `duration_beat` - FL's "discard note
     /// lengths", for throwing away hand-drawn lengths and getting a uniform
     /// stab back. Returns the count whose length actually changed (UI
@@ -1197,6 +1219,28 @@ test "limitPitch folds notes into range by octaves, clamps a sub-octave range" {
 
     // Inverted range is a no-op.
     try std.testing.expectEqual(@as(u16, 0), pp.limitPitch(.{ .lo_beat = 0.0, .hi_beat = 4.0 }, 72, 48));
+}
+
+test "remapPitch moves only the notes the table changes, and only inside the selection" {
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    var pp = PatternPlayer.init(synth.device(), &transport);
+    pp.length_beats = 4.0;
+    pp.addNote(.{ .pitch = 61, .start_beat = 0.0, .duration_beat = 0.25 });
+    pp.addNote(.{ .pitch = 60, .start_beat = 1.0, .duration_beat = 0.25 });
+    pp.addNote(.{ .pitch = 61, .start_beat = 3.0, .duration_beat = 0.25 }); // outside the selection
+
+    // C major's snap table: every C# lands on C, everything else stays.
+    var table: [128]u7 = undefined;
+    for (&table, 0..) |*to, p| to.* = if (p % 12 == 1) @intCast(p - 1) else @intCast(p);
+
+    try std.testing.expectEqual(@as(u16, 1), pp.remapPitch(.{ .lo_beat = 0.0, .hi_beat = 2.0 }, &table));
+    try std.testing.expectEqual(@as(u7, 60), pp.notes[0].pitch);
+    try std.testing.expectEqual(@as(u7, 60), pp.notes[1].pitch); // already on target, not counted
+    try std.testing.expectEqual(@as(u7, 61), pp.notes[2].pitch); // out of range, untouched
+    // Idempotent: a second pass has nothing left to move.
+    try std.testing.expectEqual(@as(u16, 0), pp.remapPitch(.{ .lo_beat = 0.0, .hi_beat = 2.0 }, &table));
 }
 
 test "setLengths resets note lengths, reporting only what changed" {

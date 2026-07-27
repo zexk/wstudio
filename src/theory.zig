@@ -107,6 +107,23 @@ pub const Scale = struct {
         return false;
     }
 
+    /// Nearest pitch in this scale, for `:snap-scale`. Ties (an out-of-scale
+    /// tone exactly between two scale members, e.g. D# in C major) round
+    /// down, so a chromatic run collapses predictably instead of alternating
+    /// direction. Always terminates: every scale has a member within 6
+    /// semitones of any pitch, and the walk is clamped to 0-127.
+    pub fn nearest(self: Scale, pitch: u7) u7 {
+        if (self.contains(pitch)) return pitch;
+        var d: i32 = 1;
+        while (d <= 6) : (d += 1) {
+            const down = @as(i32, pitch) - d;
+            if (down >= 0 and self.contains(@intCast(down))) return @intCast(down);
+            const up = @as(i32, pitch) + d;
+            if (up <= 127 and self.contains(@intCast(up))) return @intCast(up);
+        }
+        return pitch;
+    }
+
     pub const Chord = struct {
         pitches: [4]u7 = undefined,
         count: u3 = 0,
@@ -269,4 +286,18 @@ test "ScaleType.parse: names and aliases" {
     try std.testing.expectEqual(@as(?ScaleType, .minor), ScaleType.parse("aeolian"));
     try std.testing.expectEqual(@as(?ScaleType, .major_pentatonic), ScaleType.parse("major-pentatonic"));
     try std.testing.expectEqual(@as(?ScaleType, null), ScaleType.parse("bogus"));
+}
+
+test "Scale.nearest: in-scale stays put, ties round down, edges stay in range" {
+    const c_major = Scale{ .root = 0, .kind = .major };
+    try std.testing.expectEqual(@as(u7, 60), c_major.nearest(60)); // C
+    try std.testing.expectEqual(@as(u7, 60), c_major.nearest(61)); // C# -> C
+    try std.testing.expectEqual(@as(u7, 62), c_major.nearest(63)); // D# tie -> D
+    try std.testing.expectEqual(@as(u7, 65), c_major.nearest(66)); // F# -> F
+    // Pentatonic has 3-semitone gaps, so the walk runs further than 1.
+    const c_pent = Scale{ .root = 0, .kind = .minor_pentatonic };
+    try std.testing.expectEqual(@as(u7, 63), c_pent.nearest(64)); // E -> Eb
+    // Near the MIDI edges the walk still only lands on real pitches.
+    try std.testing.expectEqual(@as(u7, 0), c_major.nearest(1));
+    try std.testing.expectEqual(@as(u7, 125), c_major.nearest(126));
 }
