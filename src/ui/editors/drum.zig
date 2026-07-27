@@ -218,11 +218,12 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                         app.setStatus("vel {d}", .{dm.stepVel(@intCast(pad.*), step.*)});
                     } else app.setStatus("no step here - enter places one", .{});
                 },
-                'v' => {
-                    app.drum_visual_anchor = step.*;
-                    app.modal.mode = .visual;
-                    app.setStatus("visual: hjkl extend, y/d/p act on the range, esc cancels", .{});
-                },
+                // v: blockwise - a (pad, step) rectangle, one pad tall until
+                // j/k grow it. V: linewise - the step range across every pad,
+                // which is what visual mode did unconditionally before the
+                // pad axis existed. See step_grid.rowRange.
+                'v' => step_grid.enterVisual(app, &app.drum_visual_anchor, &app.drum_visual_pad_anchor, step.*, @as(u8, @intCast(pad.*)), true, "pad"),
+                'V' => step_grid.enterVisual(app, &app.drum_visual_anchor, &app.drum_visual_pad_anchor, step.*, @as(u8, @intCast(pad.*)), false, "pad"),
                 // x: vim's char-delete - clears just the (pad, step) under
                 // the cursor, instantly, no operator needed.
                 'x' => clearCursorStep(app),
@@ -422,7 +423,7 @@ fn operatorBarBackward(app: *App, n: i32) void {
 /// visual mode's `v` sets, so the eventual delete/yank reuses
 /// selectionRange as-is.
 fn armOperator(app: *App, op: u8) void {
-    step_grid.armOperator(app, &app.drum_visual_anchor, &app.drum_cursor[1], &app.drum_op_pending, op, "pad");
+    step_grid.armOperator(app, &app.drum_visual_anchor, &app.drum_visual_pad_anchor, &app.drum_cursor[1], &app.drum_op_pending, op, "pad");
 }
 
 /// Complete an operator+motion: run the range delete/yank between the
@@ -498,13 +499,18 @@ fn handleVisual(app: *App, key: modal_mod.Key) bool {
                 if (dm.step_count > 0) app.drum_cursor[1] = dm.step_count - 1;
                 return true;
             },
-            // vim's `o`: bounce the cursor to the selection's other end so
-            // it can extend in the opposite direction (same in every
-            // grid editor's visual mode).
+            // vim's `o`: bounce the cursor to the selection's other corner so
+            // it can extend in the opposite direction (same in every grid
+            // editor's visual mode). Blockwise selections bounce both axes,
+            // so the opposite corner of the rectangle is what you land on.
             'o' => {
                 if (app.drum_visual_anchor) |a| {
                     app.drum_visual_anchor = app.drum_cursor[1];
                     app.drum_cursor[1] = a;
+                }
+                if (app.drum_visual_pad_anchor) |a| {
+                    app.drum_visual_pad_anchor = @intCast(app.drum_cursor[0]);
+                    app.drum_cursor[0] = a;
                 }
                 return true;
             },
@@ -519,18 +525,26 @@ fn handleVisual(app: *App, key: modal_mod.Key) bool {
     }
 }
 
-/// Leave visual mode, clearing the anchor so the selection can't linger.
+/// Leave visual mode, clearing the anchors so the selection can't linger.
 fn exitVisual(app: *App) void {
-    step_grid.exitVisual(app, &app.drum_visual_anchor);
+    step_grid.exitVisual(app, &app.drum_visual_anchor, &app.drum_visual_pad_anchor);
 }
 
-/// Yank every pad's steps within the selected range into the range
-/// clipboard, rebased so the range's first step is bit 0. No width cap -
-/// the clipboard is heap-allocated to fit the range (see `DrumRangeClip`).
+/// The pad band the selection covers: the anchor-to-cursor block under `v`,
+/// every pad under `V` (a null anchor) - and every pad for the operator
+/// forms too, which never set one.
+fn padRange(app: *App) step_grid.RowRange {
+    return step_grid.rowRange(u8, app.drum_visual_pad_anchor, @intCast(app.drum_cursor[0]), DrumMachine.max_pads);
+}
+
+/// Yank the selected pad band's steps within the selected range into the
+/// range clipboard, rebased so the range's first step is bit 0. No width cap
+/// - the clipboard is heap-allocated to fit the range (see `DrumRangeClip`).
 fn yankSelection(app: *App) void {
     const dm = app.drumMachine();
     const r = step_grid.selectionRange(u16, app.drum_visual_anchor, app.drum_cursor[1]);
-    const clip = step_grid.yankRangeDyn(DrumRangeClip, app.allocator, dm, DrumMachine.max_pads, r) catch {
+    const rows = padRange(app);
+    const clip = step_grid.yankRangeDyn(DrumRangeClip, app.allocator, dm, rows, r) catch {
         app.setStatus("yank failed - out of memory", .{});
         exitVisual(app);
         return;
@@ -538,16 +552,16 @@ fn yankSelection(app: *App) void {
     if (app.drum_range_clip) |*old| old.deinit(app.allocator);
     app.drum_range_clip = clip;
     app.drum_last_yank = .range;
-    app.setStatus("yanked {d} steps", .{clip.width});
+    app.setStatus("yanked {d} steps x {d} pad(s)", .{ clip.width, rows.height() });
     exitVisual(app);
 }
 
-/// Clear every pad's steps within the selected range.
+/// Clear the selected pad band's steps within the selected range.
 fn deleteSelection(app: *App) void {
     const dm = app.drumMachine();
     const r = step_grid.selectionRange(u16, app.drum_visual_anchor, app.drum_cursor[1]);
     history.recordDrum(app, app.drum_track);
-    step_grid.clearRange(dm, DrumMachine.max_pads, r);
+    step_grid.clearRange(dm, padRange(app), r);
     const width: u16 = r.hi - r.lo + 1;
     app.last_edit = .{ .drum_range_delete = .{ .width = width } };
     app.setStatus("cleared {d} steps", .{width});
@@ -555,7 +569,9 @@ fn deleteSelection(app: *App) void {
 }
 
 /// Paste the range clipboard starting at the cursor step, overwriting
-/// whatever already sits at each destination step (all pads).
+/// whatever already sits at each destination cell. A linewise (`V`) yank
+/// keeps its own pad rows; a blockwise (`v`) one lands with its top row on
+/// the cursor pad - see `step_grid.pasteBaseRow`.
 fn pasteSelection(app: *App) void {
     const clip = app.drum_range_clip orelse {
         app.setStatus("nothing yanked - select a range and y first", .{});
@@ -564,7 +580,8 @@ fn pasteSelection(app: *App) void {
     };
     const dm = app.drumMachine();
     history.recordDrum(app, app.drum_track);
-    const n = step_grid.pasteRangeDyn(dm, DrumMachine.max_pads, clip, app.drum_cursor[1]);
+    const base_row = step_grid.pasteBaseRow(clip, app.drum_cursor[0], DrumMachine.max_pads);
+    const n = step_grid.pasteRangeDyn(dm, DrumMachine.max_pads, clip, app.drum_cursor[1], base_row);
     app.last_edit = .drum_range_paste;
     app.setStatus("pasted {d} steps", .{n});
     exitVisual(app);

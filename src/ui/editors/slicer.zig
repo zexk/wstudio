@@ -208,11 +208,12 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 },
                 '_' => nudgeVel(app, -app.takeCount()),
                 '=' => nudgeVel(app, app.takeCount()),
-                'v' => {
-                    app.slicer_visual_anchor = step.*;
-                    app.modal.mode = .visual;
-                    app.setStatus("visual: hjkl extend, y/d/p act on the range, esc cancels", .{});
-                },
+                // v: blockwise - a (slice, step) rectangle, one slice tall
+                // until j/k grow it. V: linewise - the step range across
+                // every slice (visual mode's old unconditional behaviour).
+                // See step_grid.rowRange.
+                'v' => step_grid.enterVisual(app, &app.slicer_visual_anchor, &app.slicer_visual_slice_anchor, step.*, slice.*, true, "slice"),
+                'V' => step_grid.enterVisual(app, &app.slicer_visual_anchor, &app.slicer_visual_slice_anchor, step.*, slice.*, false, "slice"),
                 'x' => clearCursorStep(app),
                 'd' => armOperator(app, 'd'),
                 'y' => armOperator(app, 'y'),
@@ -410,7 +411,7 @@ fn operatorBarBackward(app: *App, n: i32) void {
 /// Arm `d`/`y` as a pending operator, remembering the cursor step as the
 /// range anchor - same field visual mode's `v` sets.
 fn armOperator(app: *App, op: u8) void {
-    step_grid.armOperator(app, &app.slicer_visual_anchor, &app.slicer_cursor[1], &app.slicer_op_pending, op, "slice");
+    step_grid.armOperator(app, &app.slicer_visual_anchor, &app.slicer_visual_slice_anchor, &app.slicer_cursor[1], &app.slicer_op_pending, op, "slice");
 }
 
 /// Complete an operator+motion: run the range delete/yank between the
@@ -473,12 +474,16 @@ fn handleVisual(app: *App, key: modal_mod.Key) bool {
                 if (sl.step_count > 0) app.slicer_cursor[1] = sl.step_count - 1;
                 return true;
             },
-            // vim's `o`: bounce the cursor to the selection's other end
+            // vim's `o`: bounce the cursor to the selection's other corner
             // (see the drum grid's identical arm).
             'o' => {
                 if (app.slicer_visual_anchor) |a| {
                     app.slicer_visual_anchor = app.slicer_cursor[1];
                     app.slicer_cursor[1] = a;
+                }
+                if (app.slicer_visual_slice_anchor) |a| {
+                    app.slicer_visual_slice_anchor = app.slicer_cursor[0];
+                    app.slicer_cursor[0] = a;
                 }
                 return true;
             },
@@ -494,33 +499,43 @@ fn handleVisual(app: *App, key: modal_mod.Key) bool {
 }
 
 fn exitVisual(app: *App) void {
-    step_grid.exitVisual(app, &app.slicer_visual_anchor);
+    step_grid.exitVisual(app, &app.slicer_visual_anchor, &app.slicer_visual_slice_anchor);
 }
 
-/// Yank every slice's steps within the selected range into the range
-/// clipboard, rebased so the range's first step is bit 0.
+/// The slice band the selection covers: the anchor-to-cursor block under
+/// `v`, every slice under `V` (a null anchor) - and every slice for the
+/// operator forms too, which never set one.
+fn sliceRange(app: *App) step_grid.RowRange {
+    return step_grid.rowRange(u8, app.slicer_visual_slice_anchor, app.slicer_cursor[0], Slicer.max_slices);
+}
+
+/// Yank the selected slice band's steps within the selected range into the
+/// range clipboard, rebased so the range's first step is bit 0.
 fn yankSelection(app: *App) void {
     const sl = app.slicerInst();
     const r = step_grid.selectionRange(u8, app.slicer_visual_anchor, app.slicer_cursor[1]);
-    const clip = step_grid.yankRange(SlicerRangeClip, sl, Slicer.max_slices, r);
+    const rows = sliceRange(app);
+    const clip = step_grid.yankRange(SlicerRangeClip, sl, rows, r);
     app.slicer_range_clip = clip;
-    app.setStatus("yanked {d} steps", .{clip.width});
+    app.setStatus("yanked {d} steps x {d} slice(s)", .{ clip.width, rows.height() });
     exitVisual(app);
 }
 
-/// Clear every slice's steps within the selected range.
+/// Clear the selected slice band's steps within the selected range.
 fn deleteSelection(app: *App) void {
     const sl = app.slicerInst();
     const r = step_grid.selectionRange(u8, app.slicer_visual_anchor, app.slicer_cursor[1]);
     history.recordSlicer(app, app.slicer_track);
-    step_grid.clearRange(sl, Slicer.max_slices, r);
+    step_grid.clearRange(sl, sliceRange(app), r);
     app.last_edit = .{ .slicer_range_delete = .{ .width = r.hi - r.lo + 1 } };
     app.setStatus("cleared {d} steps", .{r.hi - r.lo + 1});
     exitVisual(app);
 }
 
 /// Paste the range clipboard starting at the cursor step, overwriting
-/// whatever already sits at each destination step (all slices).
+/// whatever already sits at each destination cell. A linewise (`V`) yank
+/// keeps its own slice rows; a blockwise (`v`) one lands with its top row
+/// on the cursor slice - see `step_grid.pasteBaseRow`.
 fn pasteSelection(app: *App) void {
     const clip = app.slicer_range_clip orelse {
         app.setStatus("nothing yanked - select a range and y first", .{});
@@ -529,7 +544,8 @@ fn pasteSelection(app: *App) void {
     };
     const sl = app.slicerInst();
     history.recordSlicer(app, app.slicer_track);
-    const n = step_grid.pasteRange(sl, Slicer.max_slices, clip, app.slicer_cursor[1]);
+    const base_row = step_grid.pasteBaseRow(clip, app.slicer_cursor[0], Slicer.max_slices);
+    const n = step_grid.pasteRange(sl, Slicer.max_slices, clip, app.slicer_cursor[1], base_row);
     app.last_edit = .slicer_range_paste;
     app.setStatus("pasted {d} steps", .{n});
     exitVisual(app);

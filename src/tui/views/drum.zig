@@ -73,11 +73,14 @@ pub fn drawDrumGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, s
     if (cur_step_u32 >= app.drum_step_scroll + visible) app.drum_step_scroll = cur_step_u32 - visible + 1;
     const scroll = app.drum_step_scroll;
 
-    // Visual-mode selection: a step range spanning every pad row.
+    // Visual-mode selection: a step range, spanning either the anchored pad
+    // band (`v`, blockwise) or every pad row (`V`, linewise - a null pad
+    // anchor). See editors/step_grid.zig's rowRange.
     const visual_active = app.modal.mode == .visual;
     const sel_anchor = app.drum_visual_anchor orelse cur_step;
     const sel_lo: u32 = @min(sel_anchor, cur_step);
     const sel_hi: u32 = @max(sel_anchor, cur_step);
+    const sel_rows = step_grid.rowRange(u8, app.drum_visual_pad_anchor, @as(u8, @intCast(cur_pad)), DrumMachine.max_pads);
     const playing_step_u32: u32 = playing_step;
     // MPC-style pad banking: the grid windows to whole banks - the bank
     // group containing the cursor, not a smooth scroll - so 64 pads never
@@ -146,7 +149,7 @@ pub fn drawDrumGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, s
             const active = dm.stepActive(@intCast(p), @intCast(s));
             const is_cursor = (p == cur_pad and s == cur_step_u32);
             const is_play = is_playing and (s == playing_step_u32);
-            const in_sel = visual_active and s >= sel_lo and s <= sel_hi;
+            const in_sel = visual_active and s >= sel_lo and s <= sel_hi and p >= sel_rows.lo and p <= sel_rows.hi;
             try w.writeAll(style.stepCellSgr(active, is_cursor, is_play, in_sel));
 
             // Glyph tracks the step's velocity (0-127): full → quietest,

@@ -87,6 +87,41 @@ pub fn selectionRange(comptime T: type, anchor: ?T, cursor: T) StepRange(T) {
     return .{ .lo = @min(a, cursor), .hi = @max(a, cursor) };
 }
 
+/// The row half of a 2D grid selection - the other axis to `StepRange`.
+pub const RowRange = struct {
+    lo: usize,
+    hi: usize,
+
+    pub fn height(self: RowRange) usize {
+        return self.hi - self.lo + 1;
+    }
+};
+
+/// Vim's visual/visual-line split applied to a (row, step) grid: `V`
+/// (linewise) leaves the row anchor null and selects every row, `v`
+/// (blockwise) anchors it so the selection is the band between the anchor
+/// and the cursor row. A "line" here is one full column of the grid at a
+/// step, so linewise means every pad/slice/pitch - which is exactly what
+/// visual mode used to do unconditionally, hence null being the wide case.
+pub fn rowRange(comptime T: type, anchor: ?T, cursor: T, max_rows: usize) RowRange {
+    const top = max_rows -| 1;
+    const a = anchor orelse return .{ .lo = 0, .hi = top };
+    const lo: usize = @min(@as(usize, a), @as(usize, cursor));
+    const hi: usize = @max(@as(usize, a), @as(usize, cursor));
+    return .{ .lo = @min(lo, top), .hi = @min(hi, top) };
+}
+
+/// Which row a range clipboard's first row pastes onto. A linewise yank
+/// (every row) keeps its absolute rows - pasting a whole-grid copy must not
+/// slide the pattern down just because the cursor sits on pad 3. A blockwise
+/// yank pastes at the cursor row instead, vim's own blockwise-paste rule,
+/// clamped so the block stays inside the grid.
+pub fn pasteBaseRow(clip: anytype, cursor_row: usize, max_rows: usize) usize {
+    const h = @as(usize, clip.row_hi) - @as(usize, clip.row_lo) + 1;
+    if (h >= max_rows) return clip.row_lo;
+    return @min(cursor_row, max_rows - h);
+}
+
 /// Move a cursor by `delta`, clamped to `[0, count-1]` (or 0 if `count`
 /// is 0). Covers moveStep/movePad/moveSlice alike - they differ only in
 /// which count they clamp against. `cursor` is `*u8` (Slicer) or `*u16`
@@ -175,8 +210,12 @@ pub fn stepAt(comptime T: type, gutter: usize, cell_width: usize, scroll: u32, s
 /// reuses `selectionRange` as-is - and sets the status line. Shared body of
 /// drum.zig's/slicer.zig's `armOperator`, which differ only in field names
 /// and the row noun ("pad"/"slice") in the `d` status message.
-pub fn armOperator(app: anytype, anchor: anytype, cursor: anytype, op_pending: anytype, op: u8, row_noun: []const u8) void {
+/// `row_anchor` is cleared: the operator form (`d`/`y` + a motion) is
+/// linewise, acting on every row across the range it covers - `v` first is
+/// the route to a blockwise operator, exactly as in vim.
+pub fn armOperator(app: anytype, anchor: anytype, row_anchor: anytype, cursor: anytype, op_pending: anytype, op: u8, row_noun: []const u8) void {
     anchor.* = cursor.*;
+    row_anchor.* = null;
     op_pending.* = op;
     if (op == 'd')
         app.setStatus("d: h/l/H/L/g/G/w/b act on the range, dd clears the cursor {s}'s row", .{row_noun})
@@ -184,11 +223,25 @@ pub fn armOperator(app: anytype, anchor: anytype, cursor: anytype, op_pending: a
         app.setStatus("y: h/l/H/L/g/G/w/b act on the range, yy yanks the whole pattern", .{});
 }
 
-/// Leave visual mode, clearing the anchor so the selection can't linger.
+/// Leave visual mode, clearing both anchors so the selection can't linger.
 /// Shared body of drum.zig's/slicer.zig's `exitVisual`.
-pub fn exitVisual(app: anytype, anchor: anytype) void {
+pub fn exitVisual(app: anytype, anchor: anytype, row_anchor: anytype) void {
     _ = app.modal.setMode(.normal);
     anchor.* = null;
+    row_anchor.* = null;
+}
+
+/// `v`/`V`'s shared entry: arm a visual selection on the step axis, with the
+/// row axis either anchored to the cursor row (`v`, blockwise) or left open
+/// (`V`, linewise - every row). Shared body of the two editors' `v`/`V` arms.
+pub fn enterVisual(app: anytype, anchor: anytype, row_anchor: anytype, cursor_step: anytype, cursor_row: anytype, blockwise: bool, row_noun: []const u8) void {
+    anchor.* = cursor_step;
+    row_anchor.* = if (blockwise) cursor_row else null;
+    app.modal.mode = .visual;
+    if (blockwise)
+        app.setStatus("visual: h/l extend, j/k grow the {s} block, o corner, y/d/p, esc", .{row_noun})
+    else
+        app.setStatus("visual line: h/l extend (every {s}), o other end, y/d/p, esc", .{row_noun});
 }
 
 /// Force one step to a given active/velocity state via the public toggle +
@@ -219,13 +272,20 @@ pub fn doublePattern(inst: anytype, max_rows: usize, max_steps: anytype) bool {
     return true;
 }
 
-/// Yank every row's steps within `r` into a `Clip` (SlicerRangeClip -
+/// Yank the `rows` band's steps within `r` into a `Clip` (SlicerRangeClip -
 /// duck-types `width`/`active`/`vel` as fixed arrays), rebased so the
-/// range's first step is bit 0. `r` can never be more than 64 steps wide
-/// here since Slicer's own step indices already top out at `max_steps = 64`.
-pub fn yankRange(comptime Clip: type, inst: anytype, max_rows: usize, r: anytype) Clip {
-    var clip: Clip = .{ .width = @intCast(@as(u32, r.hi) - @as(u32, r.lo) + 1) };
-    for (0..max_rows) |row| {
+/// range's first step is bit 0. Rows are stored at their absolute index;
+/// the band is recorded as `row_lo`/`row_hi` so paste knows how tall the
+/// block is and whether it was linewise (see `pasteBaseRow`). `r` can never
+/// be more than 64 steps wide here since Slicer's own step indices already
+/// top out at `max_steps = 64`.
+pub fn yankRange(comptime Clip: type, inst: anytype, rows: RowRange, r: anytype) Clip {
+    var clip: Clip = .{
+        .width = @intCast(@as(u32, r.hi) - @as(u32, r.lo) + 1),
+        .row_lo = @intCast(rows.lo),
+        .row_hi = @intCast(rows.hi),
+    };
+    for (rows.lo..rows.hi + 1) |row| {
         var s = r.lo;
         while (s <= r.hi) : (s += 1) {
             if (!inst.stepActive(@intCast(row), s)) continue;
@@ -238,27 +298,30 @@ pub fn yankRange(comptime Clip: type, inst: anytype, max_rows: usize, r: anytype
     return clip;
 }
 
-/// Clear every row's steps within `r`.
-pub fn clearRange(inst: anytype, max_rows: usize, r: anytype) void {
-    for (0..max_rows) |row| {
+/// Clear the `rows` band's steps within `r`.
+pub fn clearRange(inst: anytype, rows: RowRange, r: anytype) void {
+    for (rows.lo..rows.hi + 1) |row| {
         var s = r.lo;
         while (s <= r.hi) : (s += 1) setStep(inst, @intCast(row), s, false, 0);
     }
 }
 
-/// Paste `clip` starting at step `base` (all rows), overwriting whatever
-/// already sits at each destination step. Returns how many steps landed
-/// before running off the end of the pattern.
-pub fn pasteRange(inst: anytype, max_rows: usize, clip: anytype, base: anytype) @TypeOf(base) {
+/// Paste `clip` starting at step `base`, its first row landing on
+/// `base_row` (see `pasteBaseRow`), overwriting whatever already sits at
+/// each destination cell. Returns how many steps landed before running off
+/// the end of the pattern.
+pub fn pasteRange(inst: anytype, max_rows: usize, clip: anytype, base: anytype, base_row: usize) @TypeOf(base) {
     const T = @TypeOf(base);
     var i: T = 0;
     while (i < clip.width) : (i += 1) {
         const target = base +| i;
         if (target >= inst.step_count) break;
-        for (0..max_rows) |row| {
+        for (clip.row_lo..@as(usize, clip.row_hi) + 1) |row| {
+            const dest = base_row + (row - clip.row_lo);
+            if (dest >= max_rows) break;
             const bit = @as(u64, 1) << @intCast(i);
             const active = clip.active[row] & bit != 0;
-            setStep(inst, @intCast(row), target, active, clip.vel[row][i]);
+            setStep(inst, @intCast(dest), target, active, clip.vel[row][i]);
         }
     }
     return i;
@@ -269,16 +332,25 @@ pub fn pasteRange(inst: anytype, max_rows: usize, clip: anytype, base: anytype) 
 /// `i / 64`, bit `i % 64` of `active[row]` is step `r.lo + i`) rather than a
 /// fixed 64-bit shape - see `DrumRangeClip`. `r` may be any width; the
 /// caller owns the result and must free it with `Clip.deinit`.
-pub fn yankRangeDyn(comptime Clip: type, allocator: std.mem.Allocator, inst: anytype, max_rows: usize, r: anytype) !Clip {
+pub fn yankRangeDyn(comptime Clip: type, allocator: std.mem.Allocator, inst: anytype, rows: RowRange, r: anytype) !Clip {
     const width: u32 = @as(u32, r.hi) - @as(u32, r.lo) + 1;
     const words = (width + 63) / 64;
-    var clip: Clip = .{ .width = @intCast(width), .active = undefined, .vel = undefined };
-    var row: usize = 0;
-    errdefer for (0..row) |i| {
+    var clip: Clip = .{
+        .width = @intCast(width),
+        .row_lo = @intCast(rows.lo),
+        .row_hi = @intCast(rows.hi),
+        .active = undefined,
+        .vel = undefined,
+    };
+    // Only the selected band is allocated, so deinit must free exactly that
+    // band - hence `row_lo`/`row_hi` living on the clip rather than being
+    // recomputed. `row` walks absolute row indices, same as the caller's.
+    var row: usize = rows.lo;
+    errdefer for (rows.lo..row) |i| {
         allocator.free(clip.active[i]);
         allocator.free(clip.vel[i]);
     };
-    while (row < max_rows) : (row += 1) {
+    while (row <= rows.hi) : (row += 1) {
         clip.active[row] = try allocator.alloc(u64, words);
         @memset(clip.active[row], 0);
         clip.vel[row] = allocator.alloc(u8, width) catch |err| {
@@ -298,17 +370,19 @@ pub fn yankRangeDyn(comptime Clip: type, allocator: std.mem.Allocator, inst: any
 
 /// `pasteRange`'s counterpart for a dynamically-sized `clip` (see
 /// `yankRangeDyn`/`DrumRangeClip`).
-pub fn pasteRangeDyn(inst: anytype, max_rows: usize, clip: anytype, base: anytype) @TypeOf(base) {
+pub fn pasteRangeDyn(inst: anytype, max_rows: usize, clip: anytype, base: anytype, base_row: usize) @TypeOf(base) {
     const T = @TypeOf(base);
     var i: T = 0;
     while (i < clip.width) : (i += 1) {
         const target = base +| i;
         if (target >= inst.step_count) break;
         const idx: usize = i;
-        for (0..max_rows) |row| {
+        for (clip.row_lo..@as(usize, clip.row_hi) + 1) |row| {
+            const dest = base_row + (row - clip.row_lo);
+            if (dest >= max_rows) break;
             const bit = @as(u64, 1) << @intCast(idx % 64);
             const active = clip.active[row][idx / 64] & bit != 0;
-            setStep(inst, @intCast(row), target, active, clip.vel[row][idx]);
+            setStep(inst, @intCast(dest), target, active, clip.vel[row][idx]);
         }
     }
     return i;

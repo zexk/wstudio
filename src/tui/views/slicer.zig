@@ -175,11 +175,14 @@ pub fn drawSlicerGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize,
     const bank_start = @as(usize, bank) * slices_per_bank;
     const bank_end = @min(bank_start + slices_per_bank, slice_count);
 
-    // Visual-mode selection: a step range spanning every slice row.
+    // Visual-mode selection: a step range, spanning either the anchored
+    // slice band (`v`, blockwise) or every slice row (`V`, linewise - a null
+    // slice anchor). See editors/step_grid.zig's rowRange.
     const visual_active = app.modal.mode == .visual;
     const sel_anchor = app.slicer_visual_anchor orelse cur_step;
     const sel_lo: u32 = @min(sel_anchor, cur_step);
     const sel_hi: u32 = @max(sel_anchor, cur_step);
+    const sel_rows = step_grid.rowRange(u8, app.slicer_visual_slice_anchor, cur_slice, Slicer.max_slices);
 
     const lay = layout(slice_count, rows);
     var written: usize = 0;
@@ -253,7 +256,7 @@ pub fn drawSlicerGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize,
             const active = sl.stepActive(@intCast(sIdx), @intCast(s));
             const is_cursor = (sIdx == cur_slice and s == cur_step_u32);
             const is_play = is_playing and (s == playing_step);
-            const in_sel = visual_active and s >= sel_lo and s <= sel_hi;
+            const in_sel = visual_active and s >= sel_lo and s <= sel_hi and sIdx >= sel_rows.lo and sIdx <= sel_rows.hi;
             try w.writeAll(style.stepCellSgr(active, is_cursor, is_play, in_sel));
             // Glyph tracks the step's velocity - same five bands as the
             // drum grid (editors/step_grid.zig).

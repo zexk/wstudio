@@ -22,6 +22,9 @@ pub fn draw(
     play_step: ?usize,
     cursor: anytype,
     visual_anchor: anytype,
+    /// The selection's row anchor - null means linewise (`V`, every row).
+    /// See editors/step_grid.zig's rowRange.
+    visual_row_anchor: ?u8,
     /// Which state a click-and-hold paints every newly-entered cell to
     /// (mirrors the TUI's `app.drum_paint_state`/`slicer_paint_state`, and
     /// is in fact the very same field - both frontends share `ui/app.zig`'s
@@ -113,17 +116,26 @@ pub fn draw(
         const hi = @max(anchor, cursor_step);
         const x1 = grid_x + @as(f32, @floatFromInt(lo)) * cell_w;
         const x2 = grid_x + @as(f32, @floatFromInt(hi + 1)) * cell_w;
-        draw_list.addRectFilled(.{
-            .pmin = .{ x1, grid_y },
-            .pmax = .{ x2, origin[1] + canvas_h },
-            .col = color(.{ theme.rhythm[0], theme.rhythm[1], theme.rhythm[2], 0.12 }),
-        });
-        draw_list.addRect(.{
-            .pmin = .{ x1 + 1, grid_y + 1 },
-            .pmax = .{ x2 - 1, origin[1] + canvas_h - 1 },
-            .col = color(.{ theme.rhythm[0], theme.rhythm[1], theme.rhythm[2], 0.55 }),
-            .thickness = 1,
-        });
+        // The row axis: `v` (blockwise) bounds it to the anchored band, `V`
+        // (linewise) leaves the anchor null and the rectangle spans the whole
+        // visible page. Clamped to the paged window so a band scrolled out of
+        // view doesn't paint over rows that aren't in it.
+        const rows = shared_step_grid.rowRange(u8, visual_row_anchor, @as(u8, @intCast(cursor_row)), total_rows);
+        const y1 = grid_y + @as(f32, @floatFromInt(@max(rows.lo, row_start) -| row_start)) * row_h;
+        const y2 = grid_y + @as(f32, @floatFromInt(@min(rows.hi + 1, row_end) -| row_start)) * row_h;
+        if (y2 > y1) {
+            draw_list.addRectFilled(.{
+                .pmin = .{ x1, y1 },
+                .pmax = .{ x2, y2 },
+                .col = color(.{ theme.rhythm[0], theme.rhythm[1], theme.rhythm[2], 0.12 }),
+            });
+            draw_list.addRect(.{
+                .pmin = .{ x1 + 1, y1 + 1 },
+                .pmax = .{ x2 - 1, y2 - 1 },
+                .col = color(.{ theme.rhythm[0], theme.rhythm[1], theme.rhythm[2], 0.55 }),
+                .thickness = 1,
+            });
+        }
     }
 
     for (0..step_count + 1) |step| {

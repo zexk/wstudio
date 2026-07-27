@@ -191,14 +191,21 @@ pub const PianoClip = struct {
 /// `Slicer.max_steps = 64`.
 pub const DrumRangeClip = struct {
     width: u16,
+    /// The pad band the yank covered, inclusive. `v` (blockwise) narrows it
+    /// to the rows between the pad anchor and the cursor; `V` (linewise)
+    /// spans every pad. Only this band is allocated, and only it is freed.
+    row_lo: u8 = 0,
+    row_hi: u8 = DrumMachine.max_pads - 1,
     active: [DrumMachine.max_pads][]u64,
     /// Per-step velocity within the yanked range (index = step - range
     /// start), one heap-owned `width`-long slice per pad.
     vel: [DrumMachine.max_pads][]u8,
 
     pub fn deinit(self: *const DrumRangeClip, allocator: std.mem.Allocator) void {
-        for (self.active) |a| allocator.free(a);
-        for (self.vel) |v| allocator.free(v);
+        for (self.row_lo..@as(usize, self.row_hi) + 1) |row| {
+            allocator.free(self.active[row]);
+            allocator.free(self.vel[row]);
+        }
     }
 };
 
@@ -206,6 +213,8 @@ pub const DrumRangeClip = struct {
 /// `DrumRangeClip`, one row per slice instead of per pad.
 pub const SlicerRangeClip = struct {
     width: u8,
+    row_lo: u8 = 0,
+    row_hi: u8 = Slicer.max_slices - 1,
     active: [Slicer.max_slices]u64 = [_]u64{0} ** Slicer.max_slices,
     vel: [Slicer.max_slices][Slicer.max_steps]u8 = [_][Slicer.max_steps]u8{[_]u8{Slicer.vel_full} ** Slicer.max_steps} ** Slicer.max_slices,
 };
@@ -575,14 +584,27 @@ pub const App = struct {
     /// between tracks. Whole-pattern granularity; one slot per editor kind.
     piano_clip: ?PianoClip = null,
     drum_clip: ?DrumMachine.Variant = null,
-    /// Visual-mode anchors: set to the cursor position when `v` is pressed,
-    /// null outside visual mode. The selection is [min(anchor,cursor),
-    /// max(anchor,cursor)] on the view's time axis (step / step / bar); see
-    /// editors/{piano,drum,arrangement}.zig's handleVisual.
+    /// Visual-mode anchors: set to the cursor position when `v` or `V` is
+    /// pressed, null outside visual mode. The selection is
+    /// [min(anchor,cursor), max(anchor,cursor)] on the view's time axis
+    /// (step / step / bar); see editors/{piano,drum,arrangement}.zig's
+    /// handleVisual.
     piano_visual_anchor: ?u16 = null,
     drum_visual_anchor: ?u16 = null,
     slicer_visual_anchor: ?u8 = null,
     arr_visual_anchor: ?u32 = null,
+    /// The row half of the same selection - vim's visual vs visual-line,
+    /// applied to a 2D grid. `v` sets these to the cursor row so the
+    /// selection is a block (one pitch/pad/slice/lane tall until `j`/`k`
+    /// grow it); `V` leaves them null, meaning "every row", which is what
+    /// visual mode always used to do. A "line" here is one full column of
+    /// the grid at a step, so linewise = every pitch, pad, slice, or lane.
+    /// Null is the wide case precisely so the old behaviour is the default
+    /// any code path that never sets them keeps getting.
+    piano_visual_pitch_anchor: ?u7 = null,
+    drum_visual_pad_anchor: ?u8 = null,
+    slicer_visual_slice_anchor: ?u8 = null,
+    arr_visual_lane_anchor: ?usize = null,
     /// Operator-pending state (normal mode, not `.visual`): set when `d`/`y`
     /// is pressed without entering visual mode first, holding which operator
     /// is armed until the next key. A step/bar motion (h/l/H/L/[g/G]) acts on

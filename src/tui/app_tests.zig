@@ -679,7 +679,7 @@ test "slicer grid: split shifts programming down, merge folds it back" {
     try std.testing.expectEqual(@as(u8, 3), app.slicerInst().slice_count);
 }
 
-test "slicer grid: visual range yank/paste and dot-repeat" {
+test "slicer grid: visual-line range yank/paste and dot-repeat" {
     var app = try testApp();
     defer app.deinit();
     try app.session.setInstrument(0, .slicer);
@@ -689,9 +689,10 @@ test "slicer grid: visual range yank/paste and dot-repeat" {
     app.slicerInst().toggleStep(0, 0);
     app.slicerInst().toggleStep(1, 1);
 
-    // v + l + y: yank steps 0-1 across all slices.
+    // V + l + y: yank steps 0-1 across all slices (linewise - `v` would
+    // bound the selection to the cursor slice).
     app.slicer_cursor = .{ 0, 0 };
-    _ = slicer_ed.handleKey(&app, .{ .char = 'v' });
+    _ = slicer_ed.handleKey(&app, .{ .char = 'V' });
     try std.testing.expectEqual(modal_mod.Mode.visual, app.modal.mode);
     _ = slicer_ed.handleKey(&app, .{ .char = 'l' });
     _ = slicer_ed.handleKey(&app, .{ .char = 'y' });
@@ -1838,7 +1839,7 @@ test "drum grid yank/paste carries pattern, velocity, and length" {
     try std.testing.expectEqual(@as(u8, 32), dm.step_count);
 }
 
-test "drum grid visual mode selects a step range across pads for y/d/P" {
+test "drum grid visual-line mode selects a step range across pads for y/d/P" {
     var app = try testApp();
     defer app.deinit();
     app.view = .drum_grid;
@@ -1852,7 +1853,7 @@ test "drum grid visual mode selects a step range across pads for y/d/P" {
     dm.toggleStep(3, 14); // outside both the selection and the paste target below
 
     app.drum_cursor = .{ 0, 0 };
-    app.handleKey(.{ .char = 'v' }, 0);
+    app.handleKey(.{ .char = 'V' }, 0);
     try std.testing.expectEqual(ws.input.Mode.visual, app.modal.mode);
     for ("3l") |c| app.handleKey(.{ .char = c }, 0); // extend to step 3
     app.handleKey(.{ .char = 'y' }, 0);
@@ -1860,9 +1861,9 @@ test "drum grid visual mode selects a step range across pads for y/d/P" {
     try std.testing.expectEqual(@as(u16, 4), app.drum_range_clip.?.width);
 
     // Paste at step 8 (all pads): P is a visual-mode action, so re-enter
-    // visual first (v establishes the cursor as the paste point).
+    // visual first (V establishes the cursor as the paste point).
     app.drum_cursor[1] = 8;
-    app.handleKey(.{ .char = 'v' }, 0);
+    app.handleKey(.{ .char = 'V' }, 0);
     app.handleKey(.{ .char = 'P' }, 0);
     try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
     try std.testing.expect(dm.stepActive(0, 8));
@@ -1874,11 +1875,78 @@ test "drum grid visual mode selects a step range across pads for y/d/P" {
 
     // Select again and clear it.
     app.drum_cursor = .{ 0, 0 };
-    app.handleKey(.{ .char = 'v' }, 0);
+    app.handleKey(.{ .char = 'V' }, 0);
     for ("3l") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.{ .char = 'd' }, 0);
     try std.testing.expect(!dm.stepActive(0, 0));
     try std.testing.expect(!dm.stepActive(1, 2));
+}
+
+test "drum grid blockwise visual bounds the selection to the pad band j/k grows" {
+    var app = try testApp();
+    defer app.deinit();
+    app.view = .drum_grid;
+    app.drum_track = 2;
+    const dm = app.drumMachine();
+    for (0..ws.dsp.DrumMachine.max_pads) |p| dm.clearPad(@intCast(p));
+    dm.setStepCount(16);
+    dm.toggleStep(0, 0);
+    dm.toggleStep(1, 1);
+    dm.toggleStep(2, 2); // one pad below the block selected below
+
+    // v on pad 0 + j: a 2-pad x 4-step block. Pad 2 is outside it.
+    app.drum_cursor = .{ 0, 0 };
+    app.handleKey(.{ .char = 'v' }, 0);
+    try std.testing.expectEqual(@as(?u8, 0), app.drum_visual_pad_anchor);
+    app.handleKey(.{ .char = 'j' }, 0);
+    for ("3l") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.{ .char = 'd' }, 0);
+    try std.testing.expect(!dm.stepActive(0, 0));
+    try std.testing.expect(!dm.stepActive(1, 1));
+    try std.testing.expect(dm.stepActive(2, 2)); // untouched: outside the block
+    try std.testing.expectEqual(@as(?u8, null), app.drum_visual_pad_anchor);
+
+    // A blockwise yank pastes with its top row on the cursor pad, so the
+    // same 2-pad shape lands on pads 4-5 rather than back on 0-1.
+    dm.toggleStep(0, 0);
+    dm.toggleStep(1, 1);
+    app.drum_cursor = .{ 0, 0 };
+    app.handleKey(.{ .char = 'v' }, 0);
+    app.handleKey(.{ .char = 'j' }, 0);
+    for ("3l") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.{ .char = 'y' }, 0);
+    app.drum_cursor = .{ 4, 8 };
+    app.handleKey(.{ .char = 'p' }, 0);
+    try std.testing.expect(dm.stepActive(4, 8));
+    try std.testing.expect(dm.stepActive(5, 9));
+    try std.testing.expect(!dm.stepActive(6, 10));
+}
+
+test "linewise pastes keep their own rows, blockwise pastes follow the cursor row" {
+    // A full-height yank must not slide down just because the cursor sits
+    // on row 3 - that would turn a whole-grid copy into a transposition.
+    const linewise = .{ .row_lo = @as(u8, 0), .row_hi = @as(u8, 15) };
+    try std.testing.expectEqual(@as(usize, 0), step_grid.pasteBaseRow(linewise, 3, 16));
+    // A 2-row block lands on the cursor row, clamped so it stays in-grid.
+    const block = .{ .row_lo = @as(u8, 4), .row_hi = @as(u8, 5) };
+    try std.testing.expectEqual(@as(usize, 3), step_grid.pasteBaseRow(block, 3, 16));
+    try std.testing.expectEqual(@as(usize, 14), step_grid.pasteBaseRow(block, 15, 16));
+}
+
+test "rowRange: a null anchor is every row, an anchored one is the band" {
+    const all = step_grid.rowRange(u8, null, 3, 16);
+    try std.testing.expectEqual(@as(usize, 0), all.lo);
+    try std.testing.expectEqual(@as(usize, 15), all.hi);
+    try std.testing.expectEqual(@as(usize, 16), all.height());
+    // Order-independent, and clamped to the grid even if the anchor is stale.
+    const band = step_grid.rowRange(u8, 7, 2, 16);
+    try std.testing.expectEqual(@as(usize, 2), band.lo);
+    try std.testing.expectEqual(@as(usize, 7), band.hi);
+    const stale = step_grid.rowRange(u8, 99, 2, 16);
+    try std.testing.expectEqual(@as(usize, 15), stale.hi);
+    // An empty grid can't underflow into a huge range.
+    const empty = step_grid.rowRange(u8, null, 0, 0);
+    try std.testing.expectEqual(@as(usize, 0), empty.hi);
 }
 
 test "drum grid visual mode yank/paste carries a range wider than the old 64-step clipboard cap" {
@@ -1971,7 +2039,7 @@ test "drum grid normal-mode p pastes the most recent yank: range after visual y,
     // Visual range yank, then a plain normal-mode p at the new cursor -
     // no re-entering visual mode required.
     app.drum_cursor = .{ 0, 0 };
-    for ("v3ly") |c| app.handleKey(.{ .char = c }, 0);
+    for ("V3ly") |c| app.handleKey(.{ .char = c }, 0);
     app.drum_cursor[1] = 8;
     app.handleKey(.{ .char = 'p' }, 0);
     try std.testing.expect(dm.stepActive(0, 8));
