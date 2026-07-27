@@ -2593,6 +2593,46 @@ test "draw renders standalone sampler editor with root row" {
     try std.testing.expect(std.mem.indexOf(u8, frame, "root") != null);
 }
 
+test "sampler/soundfont editors reach the FX chain and piano roll the way the synth editor does" {
+    var app = try testApp();
+    defer app.deinit();
+
+    // Standalone sampler: s opens this track's chain, p its roll.
+    app.sampler_target = .{ .sampler = 1 };
+    app.view = .sampler_editor;
+    app.handleKey(.{ .char = 's' }, 0);
+    try std.testing.expectEqual(AppView.track_spectrum, app.view);
+    try std.testing.expectEqual(@as(u16, 1), app.eq_track);
+
+    app.view = .sampler_editor;
+    app.handleKey(.{ .char = 'p' }, 0);
+    try std.testing.expectEqual(AppView.piano_roll, app.view);
+    try std.testing.expectEqual(@as(u16, 1), app.piano_track);
+
+    // A drum pad's sampler has no roll of its own - s still reaches the
+    // owning track's chain, p reports instead of jumping somewhere wrong.
+    app.sampler_target = .{ .drum = 2 };
+    app.view = .sampler_editor;
+    app.handleKey(.{ .char = 'p' }, 0);
+    try std.testing.expectEqual(AppView.sampler_editor, app.view);
+    app.handleKey(.{ .char = 's' }, 0);
+    try std.testing.expectEqual(AppView.track_spectrum, app.view);
+    try std.testing.expectEqual(@as(u16, 2), app.eq_track);
+
+    // Soundfont editor: the same two keys.
+    try app.session.setInstrument(0, .soundfont);
+    app.soundfont_track = 0;
+    app.view = .soundfont_editor;
+    app.handleKey(.{ .char = 's' }, 0);
+    try std.testing.expectEqual(AppView.track_spectrum, app.view);
+    try std.testing.expectEqual(@as(u16, 0), app.eq_track);
+
+    app.view = .soundfont_editor;
+    app.handleKey(.{ .char = 'p' }, 0);
+    try std.testing.expectEqual(AppView.piano_roll, app.view);
+    try std.testing.expectEqual(@as(u16, 0), app.piano_track);
+}
+
 test "drum-pad sampler param edit routes to the drum machine" {
     var app = try testApp();
     defer app.deinit();

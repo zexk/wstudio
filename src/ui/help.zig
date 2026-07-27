@@ -249,6 +249,8 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("1–8",          "switch to pad/slice 1–8 within the current bank of 8");
     t.key("J / K",        "jump a whole bank of 8 pads/slices (same slot, next/prev bank)");
     t.key("a",            "audition current pad/slice");
+    t.key("s",            "FX chain for this track");
+    t.key("p",            "piano roll for this track (a standalone Sampler only - a pad/slice has none)");
     t.key("esc / e",      "back to the grid that opened this editor (tracks view for a sampler)");
     t.key(":load",        "[file.wav]  load a sample into the cursor pad or sampler track (omit the file to browse); sampler tracks auto-detect the clip's root note");
 
@@ -258,6 +260,8 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("h / l",        "adjust value (fine); on PRESET, step to the prev/next preset in the font");
     t.key("H / L",        "adjust value (coarse ×10)");
     t.key("a",            "audition at the piano roll's last cursor pitch (or C4)");
+    t.key("s",            "FX chain for this track");
+    t.key("p",            "piano roll for this track");
     t.key("f",            "preset picker - every preset in the loaded font, grouped by bank, / filters by name/bank/program");
     t.key("a (in picker)", "audition the highlighted preset immediately (no C3-and-revert like the synth picker - soundfont preset switches always commit)");
     t.key("esc / e",      "back to the tracks view");

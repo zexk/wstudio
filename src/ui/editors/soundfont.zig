@@ -13,6 +13,8 @@ const app_mod = @import("../app.zig");
 const App = app_mod.App;
 const history = @import("../history.zig");
 const preset_picker = @import("preset_picker.zig");
+const spectrum = @import("spectrum.zig");
+const piano = @import("piano.zig");
 
 /// GAIN, PAN, TRANSPOSE, PRESET - see dsp/soundfont_player.zig's `param_count`.
 pub const param_count: u8 = ws.dsp.SoundfontPlayer.param_count;
@@ -79,6 +81,18 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             },
             'a' => {
                 preview(app);
+                return true;
+            },
+            // s/p: the same sideways navigation the synth and sampler editors
+            // bind - this track's FX chain and its piano roll.
+            's' => {
+                history.flushParamNudge(app);
+                spectrum.switchToTrack(app, app.soundfont_track);
+                return true;
+            },
+            'p' => {
+                history.flushParamNudge(app);
+                piano.switchTo(app, app.soundfont_track);
                 return true;
             },
             'f' => {

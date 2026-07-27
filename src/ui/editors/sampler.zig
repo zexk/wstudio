@@ -12,6 +12,8 @@ const App = app_mod.App;
 const SamplerMarker = app_mod.SamplerMarker;
 const history = @import("../history.zig");
 const format = @import("../format.zig");
+const spectrum = @import("spectrum.zig");
+const piano = @import("piano.zig");
 
 /// Waveform panel caps, shared with the TUI render half (views/sampler.zig):
 /// width in columns and height in rows (min'd against the leftover row
@@ -106,6 +108,26 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             },
             'u' => { history.doUndo(app); return true; },
             'U' => { history.doRedo(app); return true; },
+            // s/p reach this track's FX chain and piano roll without a detour
+            // through the tracks view - the same two keys the synth editor
+            // binds, so every instrument editor sideways-navigates alike.
+            // A pad's/slice's sampler still routes s to its owning track's
+            // chain (there is only one), but has no piano roll of its own -
+            // esc/e goes back to the grid that sequences it instead.
+            's' => {
+                history.flushParamNudge(app);
+                spectrum.switchToTrack(app, app.sampler_target.track());
+                return true;
+            },
+            'p' => {
+                if (is_drum or is_slice) {
+                    app.setStatus("no piano roll here - esc/e returns to the grid", .{});
+                    return true;
+                }
+                history.flushParamNudge(app);
+                piano.switchTo(app, app.sampler_target.track());
+                return true;
+            },
             // j/k rows and h/l nudges take a vim count prefix (3j, 5l, …),
             // matching the synth editor's equivalent.
             'j' => { moveCursor(app, app.takeCount()); return true; },
