@@ -1147,6 +1147,33 @@ test "piano roll visual mode selects a step range for y/d/P" {
     try std.testing.expect(pp.noteAt(72, 2.0) != null);
 }
 
+test "piano roll :audition previews the pitch under the cursor on every j/k move" {
+    var app = try testApp();
+    defer app.deinit();
+    app.view = .piano_roll;
+    app.piano_track = 0;
+    app.piano_cursor_pitch = 60;
+
+    // Off by default: pitch motion is silent.
+    app.handleKey(.{ .char = 'k' }, 0);
+    try std.testing.expectEqual(@as(usize, 0), app.note_off_len);
+
+    commands.run(&app, "audition");
+    try std.testing.expect(app.piano_audition);
+    app.handleKey(.{ .char = 'k' }, 0);
+    try std.testing.expectEqual(@as(usize, 1), app.note_off_len);
+    try std.testing.expectEqual(app.piano_cursor_pitch, app.note_offs[0].note);
+
+    // Clamped at the MIDI ceiling the cursor doesn't move, so nothing fires.
+    app.piano_cursor_pitch = 127;
+    app.handleKey(.{ .char = 'k' }, 0);
+    try std.testing.expectEqual(@as(usize, 1), app.note_off_len);
+
+    commands.run(&app, "audition off");
+    app.handleKey(.{ .char = 'j' }, 0);
+    try std.testing.expectEqual(@as(usize, 1), app.note_off_len);
+}
+
 test "piano roll visual mode: w/b extend the selection by beat, matching normal-mode jumpBar" {
     var app = try testApp();
     defer app.deinit();

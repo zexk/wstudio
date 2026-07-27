@@ -415,9 +415,16 @@ fn moveStep(app: *App, max_step: u16, delta: i32) void {
 }
 
 /// Move the pitch cursor by `delta` semitones, clamped to the MIDI range.
+/// Under `:audition` the new pitch is previewed, exactly as the `a` key
+/// does it - every pitch motion in the roll (normal, visual, scroll wheel)
+/// routes through here, so one call covers them all.
 fn movePitch(app: *App, delta: i32) void {
+    const before = app.piano_cursor_pitch;
     app.piano_cursor_pitch = @intCast(ws.input.clampDelta(app.piano_cursor_pitch, delta, 127));
     ensureVisible(app);
+    if (app.piano_audition and app.piano_cursor_pitch != before) {
+        app.playNote(app.piano_track, app.piano_cursor_pitch, app.now_ns);
+    }
 }
 
 /// `T`: toggle the piano-roll grid between straight sixteenths (4 steps/

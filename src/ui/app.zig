@@ -726,6 +726,12 @@ pub const App = struct {
     /// piano roll's empty cells (e.g. tracing a bassline from a chord
     /// track). Same monitoring-aid status as `piano_scale`: not persisted.
     piano_ghost: bool = false,
+    /// `:audition [on|off]` - preview the pitch under the piano-roll cursor
+    /// on every j/k/J/K move, the way FL's piano roll sounds a note as you
+    /// drag it. Worth more here than in a GUI: the TUI roll can't show which
+    /// key a row is without counting. Same not-persisted monitoring-aid
+    /// status as `piano_ghost`.
+    piano_audition: bool = false,
     /// Undo/redo history for content edits (u / U in the editing views).
     history: undo_mod.History = .{},
     /// User-saved synth presets (`:synth-preset-save <name>`), loaded once
@@ -1352,6 +1358,7 @@ pub const App = struct {
         self.piano_scroll_pitch = @min(user_config.default_piano_pitch +| 12, 127);
         self.arr_grid = user_config.default_arrangement_grid;
         self.piano_ghost = user_config.piano_ghost_notes;
+        self.piano_audition = user_config.piano_audition;
         self.modal.octave = @intCast(user_config.default_octave);
         if (blank) {
             self.session.project.tempo_bpm = user_config.default_tempo;

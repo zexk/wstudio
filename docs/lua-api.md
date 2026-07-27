@@ -156,7 +156,8 @@ Current option set (see examples/init.lua for defaults and ranges):
 | `default_browse_dir`, `default_project_path`, `file_browser_show_hidden` | core |
 | `default_drum_grid`, `default_piano_grid`, `default_arrangement_grid` | core |
 | `default_piano_triplet_grid`, `default_piano_note_length_steps`, `default_piano_pitch` | core |
-| `piano_ghost_notes`, `undo_history_entries`, `default_metronome_enabled` | core |
+| `piano_ghost_notes`, `piano_audition`, `undo_history_entries` | core |
+| `default_metronome_enabled` | core |
 | `default_song_mode`, `metronome_click_gain` | core |
 | `count_in_bars`, `default_midi_velocity_curve` | core |
 | `default_automation_gain_step_db`, `default_automation_pan_step` | core |

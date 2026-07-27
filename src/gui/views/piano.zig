@@ -144,6 +144,10 @@ pub fn draw(app: anytype) void {
         zgui.sameLine(.{});
         zgui.textDisabled("ghost", .{});
     }
+    if (app.core.piano_audition) {
+        zgui.sameLine(.{});
+        zgui.textDisabled("audition", .{});
+    }
     drawToolbar(app);
 
     const gutter_w: f32 = 58;

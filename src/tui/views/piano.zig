@@ -114,6 +114,9 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
     if (app.piano_ghost) {
         try w.writeAll("  " ++ dim ++ "ghost" ++ rst);
     }
+    if (app.piano_audition) {
+        try w.writeAll("  " ++ dim ++ "audition" ++ rst);
+    }
     try endLine(w);
 
     // 3 internal header rows (title + col labels + loop marker) + vis_rows note

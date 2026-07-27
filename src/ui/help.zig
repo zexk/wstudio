@@ -294,7 +294,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("n / N",        "enter note / rest, then advance by the default note length");
     t.key("x",            "delete note at cursor");
     t.key("M",            "grab note at cursor - h/l/j/k drag it, J/K an octave, esc drops");
-    t.key("a",            "preview note at cursor");
+    t.key("a",            "preview note at cursor (:audition sounds every j/k move too)");
     t.key("i",            "insert mode: play the qwerty piano (a-row/q-row, z/x octave)");
     t.key("(insert) space","start recording - clicks a one-bar count-in first if stopped");
     t.key("(insert) esc", "back to normal - while playing, notes recorded at the playhead");

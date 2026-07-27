@@ -134,6 +134,7 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "metronome",   .desc = "[on|off]  toggle the click track",                   .run = wrap(cmdMetronome) },
     .{ .name = "scale",       .desc = "[<root> [<type>]|off]  piano-roll scale highlight + chord-stamp key", .run = wrap(cmdScale) },
     .{ .name = "ghost",       .desc = "[on|off]  dim every other melodic track's notes into the piano-roll background", .run = wrap(cmdGhost) },
+    .{ .name = "audition",    .desc = "[on|off]  preview the pitch under the piano-roll cursor on every j/k move", .run = wrap(cmdAudition) },
     .{ .name = "synth-preset", .desc = "[name]  apply a factory or saved synth patch to the cursor track (no args: list names)", .run = wrap(cmdSynthPreset), .scope = .synth },
     .{ .name = "synth-preset-save", .desc = "<name>  save the cursor track's current synth params as a reusable preset", .run = wrap(cmdSynthPresetSave), .scope = .synth },
     .{ .name = "drum-kit",    .desc = "[name]  apply a factory or saved kit to the cursor drum machine (no args: list names)", .run = wrap(cmdDrumKit), .scope = .drum },
@@ -792,28 +793,33 @@ pub fn cmdHelp(app: *App, _: []const u8) void {
 
 fn cmdMetronome(app: *App, args: []const u8) void {
     const trimmed = std.mem.trim(u8, args, " ");
-    const on = if (std.mem.eql(u8, trimmed, "on"))
-        true
-    else if (std.mem.eql(u8, trimmed, "off"))
-        false
-    else
-        !app.session.metronome_enabled;
+    const on = onOffArg(trimmed, app.session.metronome_enabled);
     app.session.setMetronome(on);
     app.setStatus("metronome {s}", .{if (on) "on" else "off"});
+}
+
+/// Shared `[on|off]` argument form: the literal words set the flag, anything
+/// else (typically no argument at all) toggles `current`.
+fn onOffArg(trimmed: []const u8, current: bool) bool {
+    if (std.mem.eql(u8, trimmed, "on")) return true;
+    if (std.mem.eql(u8, trimmed, "off")) return false;
+    return !current;
 }
 
 /// `:ghost [on|off]` - toggles dimmed "ghost notes" from every other melodic
 /// track into the piano roll's background (see `App.piano_ghost`).
 fn cmdGhost(app: *App, args: []const u8) void {
-    const trimmed = std.mem.trim(u8, args, " ");
-    const on = if (std.mem.eql(u8, trimmed, "on"))
-        true
-    else if (std.mem.eql(u8, trimmed, "off"))
-        false
-    else
-        !app.piano_ghost;
+    const on = onOffArg(std.mem.trim(u8, args, " "), app.piano_ghost);
     app.piano_ghost = on;
     app.setStatus("ghost notes {s}", .{if (on) "on" else "off"});
+}
+
+/// `:audition [on|off]` - toggles previewing the pitch under the piano-roll
+/// cursor on every j/k move (see `App.piano_audition`).
+fn cmdAudition(app: *App, args: []const u8) void {
+    const on = onOffArg(std.mem.trim(u8, args, " "), app.piano_audition);
+    app.piano_audition = on;
+    app.setStatus("cursor audition {s}", .{if (on) "on" else "off"});
 }
 
 /// `:scale [<root> [<type>]|off]` - sets or clears the piano roll's active
