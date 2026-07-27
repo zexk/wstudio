@@ -32,6 +32,7 @@ const wavetable_mod = @import("dsp/wavetable.zig");
 const pattern_mod = @import("dsp/pattern.zig");
 const PatternPlayer = pattern_mod.PatternPlayer;
 const DrumMachine = @import("dsp/drum_sampler.zig").DrumMachine;
+const drum_kit = @import("dsp/drum_kit.zig");
 const pad_mod = @import("dsp/pad.zig");
 const Pad = pad_mod.Pad;
 const Sampler = @import("dsp/sampler.zig").Sampler;
@@ -4010,6 +4011,8 @@ test "save/load round-trip persists user-loaded drum pad samples" {
     try session.setInstrument(0, .drum_machine);
     const dm = &session.racks.items[0].instrument.drum_machine;
 
+    try dm.loadKitVariant(drum_kit.byName("default").?); // fresh machines are blank
+
     // Emulate :load-sample - user audio on pad 3, with a tweaked param.
     const clip = try testing.allocator.dupe(f32, &[_]f32{ 0.5, -0.5, 0.25, -0.125 });
     dm.setPadSamples(3, clip, "usr");
@@ -4081,8 +4084,9 @@ test "save/load round-trip persists a pad rename with no sample change" {
     defer session.deinit();
     try session.setInstrument(0, .drum_machine);
     const dm = &session.racks.items[0].instrument.drum_machine;
+    try dm.loadKitVariant(drum_kit.byName("default").?); // fresh machines are blank
 
-    // A plain :rename - no new sample, still the shipped kick sample.
+    // A plain :rename - no new sample, still the generated kick sample.
     dm.pads[0].?.rename("808");
     try testing.expectEqualStrings("snare", dm.padName(1)); // untouched pad unaffected
 
@@ -4592,9 +4596,9 @@ test "golden-file corpus: v11's ninth pad (past the pre-v11 8-pad cap) loads use
     try testing.expectApproxEqAbs(@as(f32, 0.8), dm.pads[8].?.pad.gain, 1e-4);
     try testing.expectApproxEqAbs(@as(f32, -3.0), dm.pads[8].?.pad.pitch_semitones, 1e-4);
     try testing.expect(dm.stepActive(8, 2)); // pattern[8] = 4 = bit 2
-    // Pads 0-7 stay whatever init()'s default kit already gave them - a
-    // v11 file's `used: false` doesn't retroactively unmaterialize a pad
-    // the shipped kit always loads; it only means "the file itself didn't
-    // touch this one".
-    for (0..8) |i| try testing.expect(dm.pads[i] != null);
+    // Pads 0-7 stay whatever init() gave them - now the blank "init" kit,
+    // so a v11 file's `used: false` leaves them unmaterialized. (Pre-v11
+    // files predate `used` and materialize all 8 regardless; see
+    // buildSession.)
+    for (0..8) |i| try testing.expect(dm.pads[i] == null);
 }

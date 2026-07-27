@@ -109,23 +109,6 @@ pub fn build(b: *std.Build) void {
         exe.root_module.linkLibrary(zgui.artifact("imgui"));
     }
 
-    // `zig build genkit` renders the drum kit to assets/kit/*.wav. Run once
-    // after editing src/dsp/drum_kit.zig, then commit the refreshed WAVs.
-    const genkit = b.addExecutable(.{
-        .name = "genkit",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("tools/genkit.zig"),
-            .target = target,
-            .optimize = optimize,
-            .imports = &.{
-                .{ .name = "wstudio", .module = wstudio_mod },
-            },
-        }),
-    });
-    const run_genkit = b.addRunArtifact(genkit);
-    const genkit_step = b.step("genkit", "Render the drum kit to assets/kit/*.wav");
-    genkit_step.dependOn(&run_genkit.step);
-
     // `zig build genwavetable` renders the default wavetable to
     // assets/wavetable/basic_shapes.wav. Run once after editing the shape
     // math in tools/genwavetable.zig, then commit the refreshed WAV.

@@ -43,6 +43,9 @@ fn testApp() !App {
     try app.session.setInstrument(1, .sampler);
     _ = try app.session.addTrack("drums");
     try app.session.setInstrument(2, .drum_machine);
+    // A fresh drum machine is the blank "init" kit; most tests here poke at
+    // real pads (names, params, waveforms), so stock it like a user would.
+    try app.session.racks.items[2].instrument.drum_machine.loadKitVariant(ws.dsp.drum_kit.byName("default").?);
     return app;
 }
 
@@ -6827,7 +6830,8 @@ test "f in the drum grid opens the kit picker and enter regenerates the pads" {
     try std.testing.expectEqual(AppView.preset_picker, app.view);
     try std.testing.expectEqual(preset_ed.Kind.drum, app.preset_picker_kind);
 
-    // j to the second variant ("analog"), enter applies it.
+    // Variants list as init, default, analog - j twice, enter applies it.
+    app.handleKey(.{ .char = 'j' }, 0);
     app.handleKey(.{ .char = 'j' }, 0);
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(AppView.drum_grid, app.view);

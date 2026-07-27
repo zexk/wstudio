@@ -13,7 +13,6 @@ commands with `nix develop --command`.
 zig build run              # launch the TUI
 zig build run -- demo.wsj  # curated four-track demo project
 zig build test             # all tests
-zig build genkit            # re-render the embedded drum kit after editing drum_kit.zig
 zig build gendemo           # re-write demo.wsj after editing tools/gendemo.zig
 nix run .#neutral-terminal  # launch Kitty with a clean Nerd Font configuration
 ```

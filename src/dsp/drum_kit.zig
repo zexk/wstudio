@@ -1,32 +1,12 @@
-//! Drum-kit synthesis - the factory that generates the shipped sample kit.
+//! Drum-kit synthesis - the generators behind every factory kit flavour.
 //!
 //! These generators are richer than the first-iteration one-shots: layered
 //! transients, inharmonic metal clusters, multi-burst claps, tuned bodies and
-//! soft saturation. They are run once by the `genkit` build tool to render the
-//! WAVs under `assets/kit/`, which the engine then ships via @embedFile. Keep
-//! them allocation-light and deterministic so the committed kit is reproducible.
+//! soft saturation. They run straight into pad buffers when the user picks a
+//! kit (see `variants` and `DrumMachine.loadKitVariant`) - nothing is embedded
+//! or read from disk. Keep them allocation-light and deterministic.
 
 const std = @import("std");
-
-/// A kit slot: display name, output filename (under assets/kit/), the generator
-/// that renders it, and a sensible default mixer gain for the pad.
-pub const PadDef = struct {
-    name: []const u8,
-    file: []const u8,
-    gen: *const fn (std.mem.Allocator, u32) std.mem.Allocator.Error![]f32,
-    gain: f32,
-};
-
-pub const kit = [_]PadDef{
-    .{ .name = "kick", .file = "kick.wav", .gen = kick, .gain = 1.00 },
-    .{ .name = "snare", .file = "snare.wav", .gen = snare, .gain = 0.85 },
-    .{ .name = "hihat", .file = "hihat.wav", .gen = hihatClosed, .gain = 0.50 },
-    .{ .name = "open", .file = "open.wav", .gen = hihatOpen, .gain = 0.50 },
-    .{ .name = "clap", .file = "clap.wav", .gen = clap, .gain = 0.70 },
-    .{ .name = "tom-1", .file = "tom1.wav", .gen = tom1, .gain = 0.80 },
-    .{ .name = "tom-2", .file = "tom2.wav", .gen = tom2, .gain = 0.80 },
-    .{ .name = "rim", .file = "rim.wav", .gen = rim, .gain = 0.65 },
-};
 
 // ---------------------------------------------------------------------------
 // Small DSP toolkit (allocation-free, sample-at-a-time)
@@ -72,7 +52,7 @@ fn frames(sr: u32, seconds: f32) usize {
 
 /// Scale the buffer so its peak sits at `target` (no-op for silence). Keeps the
 /// rendered kit at a consistent, near-full-scale level; per-pad balance is then
-/// the pad's mixer gain (see `PadDef.gain`).
+/// the pad's mixer gain (see `VariantSlot.gain`).
 fn normalize(buf: []f32, target: f32) void {
     var peak: f32 = 0;
     for (buf) |s| peak = @max(peak, @abs(s));
@@ -834,11 +814,13 @@ fn rimHardcore(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]
 
 /// One pad slot in a runtime kit variant: display name, generator, and
 /// default mixer gain - the same shape as `PadDef` minus the WAV filename
-/// (these are never written to disk).
+/// (these are never written to disk). A null `gen` is an empty slot: the
+/// "init" kit's blank slate, loaded as a silent pad rather than generated
+/// audio.
 pub const VariantSlot = struct {
-    name: []const u8,
-    gen: *const fn (std.mem.Allocator, u32) std.mem.Allocator.Error![]f32,
-    gain: f32,
+    name: []const u8 = "",
+    gen: ?*const fn (std.mem.Allocator, u32) std.mem.Allocator.Error![]f32 = null,
+    gain: f32 = 1.0,
 };
 
 pub const KitVariant = struct {
@@ -851,6 +833,10 @@ pub const KitVariant = struct {
 };
 
 pub const variants = [_]KitVariant{
+    // Blank slate - every pad empty, nothing to unlearn before loading your
+    // own samples. What a fresh drum machine starts on, mirroring the synth's
+    // own "init" preset (see dsp/synth_presets.zig).
+    .{ .name = "init", .category = "utility", .tags = &.{"wstudio"}, .pads = [_]VariantSlot{.{}} ** 8 },
     .{ .name = "default", .category = "digital", .tags = &.{ "wstudio", "house" }, .pads = .{
         .{ .name = "kick", .gen = kick, .gain = 1.00 },
         .{ .name = "snare", .gen = snare, .gain = 0.85 },
@@ -973,28 +959,22 @@ pub const variants = [_]KitVariant{
     } },
 };
 
+/// Look a factory kit up by name, or null if there is no such flavour.
+pub fn byName(name: []const u8) ?*const KitVariant {
+    for (&variants) |*v| {
+        if (std.mem.eql(u8, v.name, name)) return v;
+    }
+    return null;
+}
+
 // ---------------------------------------------------------------------------
 // Tests
-
-test "every kit generator produces audible, finite, normalised output" {
-    for (kit) |def| {
-        const buf = try def.gen(std.testing.allocator, 48_000);
-        defer std.testing.allocator.free(buf);
-        try std.testing.expect(buf.len > 0);
-        var peak: f32 = 0;
-        for (buf) |s| {
-            try std.testing.expect(std.math.isFinite(s));
-            peak = @max(peak, @abs(s));
-        }
-        try std.testing.expect(peak > 0.1); // clearly audible
-        try std.testing.expect(peak <= 1.0); // never clips the 16-bit WAV
-    }
-}
 
 test "every kit variant's pads produce audible, finite output" {
     for (variants) |variant| {
         for (variant.pads) |slot| {
-            const buf = try slot.gen(std.testing.allocator, 48_000);
+            const gen = slot.gen orelse continue; // empty slot (the "init" kit)
+            const buf = try gen(std.testing.allocator, 48_000);
             defer std.testing.allocator.free(buf);
             try std.testing.expect(buf.len > 0);
             var peak: f32 = 0;
@@ -1003,6 +983,7 @@ test "every kit variant's pads produce audible, finite output" {
                 peak = @max(peak, @abs(s));
             }
             try std.testing.expect(peak > 0.05);
+            try std.testing.expect(peak <= 1.0); // never clips the pad buffer
         }
     }
 }

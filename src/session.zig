@@ -20,6 +20,7 @@ const pattern_mod = @import("dsp/pattern.zig");
 const PatternPlayer = pattern_mod.PatternPlayer;
 const Note = pattern_mod.Note;
 const DrumMachine = @import("dsp/drum_sampler.zig").DrumMachine;
+const drum_kit = @import("dsp/drum_kit.zig");
 const Slicer = @import("dsp/slicer.zig").Slicer;
 const SoundfontPlayer = @import("dsp/soundfont_player.zig").SoundfontPlayer;
 const Compressor = @import("dsp/compressor.zig").Compressor;
@@ -1574,6 +1575,8 @@ test "duplicateTrack deep-copies sampler audio and drum kit pads" {
     try std.testing.expectEqualSlices(f32, orig_samples, dup_samples);
 
     try s.setInstrument(0, .drum_machine);
+    // A fresh machine is the blank "init" kit - load audio to copy.
+    try s.racks.items[0].instrument.drum_machine.loadKitVariant(drum_kit.byName("default").?);
     const drum_idx = try s.duplicateTrack(0);
     const orig_pad = s.racks.items[0].instrument.drum_machine.pads[0].?.pad;
     const dup_pad = s.racks.items[drum_idx].instrument.drum_machine.pads[0].?.pad;
@@ -1785,6 +1788,7 @@ test "split drum track creates sampler MIDI tracks and arrangement clips" {
     defer s.deinit();
     try s.setInstrument(0, .drum_machine);
     const dm = &s.racks.items[0].instrument.drum_machine;
+    try dm.loadKitVariant(drum_kit.byName("default").?); // 8 pads to split
     dm.toggleStep(0, 1);
     dm.setStepVel(0, 1, 95);
     try s.stampClip(0, 1);

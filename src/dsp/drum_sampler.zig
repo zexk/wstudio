@@ -59,23 +59,6 @@ const Note = @import("pattern.zig").Note;
 
 const Sample = types.Sample;
 
-/// The shipped 8-pad kit: WAVs embedded from src/assets/kit/ (rendered by the
-/// `genkit` build tool from dsp/drum_kit.zig). `data` is raw WAV bytes decoded
-/// at init; `gain` is the pad's default mixer level.
-const KitSlot = struct { data: []const u8, name: []const u8, gain: f32 };
-const default_kit = [_]KitSlot{
-    // zig fmt: off
-    .{ .data = @embedFile("../assets/kit/kick.wav"),  .name = "kick",  .gain = 1.00 },
-    .{ .data = @embedFile("../assets/kit/snare.wav"), .name = "snare", .gain = 0.85 },
-    .{ .data = @embedFile("../assets/kit/hihat.wav"), .name = "hihat", .gain = 0.50 },
-    .{ .data = @embedFile("../assets/kit/open.wav"),  .name = "open",  .gain = 0.50 },
-    .{ .data = @embedFile("../assets/kit/clap.wav"),  .name = "clap",  .gain = 0.70 },
-    .{ .data = @embedFile("../assets/kit/tom1.wav"),  .name = "tom-1", .gain = 0.80 },
-    .{ .data = @embedFile("../assets/kit/tom2.wav"),  .name = "tom-2", .gain = 0.80 },
-    .{ .data = @embedFile("../assets/kit/rim.wav"),   .name = "rim",   .gain = 0.65 },
-    // zig fmt: on
-};
-
 pub const DrumMachine = struct {
     pub const max_pads: u8 = 64;
     /// Step-grid capacity: the natural ceiling of the u16 step index/count
@@ -463,23 +446,11 @@ pub const DrumMachine = struct {
             .next_step_k = 0,
             .current_step = .init(0),
         };
+        // Every pad starts null - the "init" kit's blank slate (see
+        // dsp/drum_kit.zig's `variants`). A fresh machine loads no audio at
+        // all; `:drum-kit default` (or any other flavour) fills the 8 kit
+        // pads on demand, generating them procedurally.
         for (&self.pads) |*p| p.* = null; // lazily materialized - see the field's doc comment
-
-        // Load the shipped kit: WAVs rendered from dsp/drum_kit.zig by the
-        // `genkit` build tool and embedded in the binary. Per-pad default gains
-        // give a balanced out-of-the-box mix (the user can retune each in the
-        // sampler editor). loadPadWav materializes pads 0..default_kit.len;
-        // every pad past that stays null until the user loads something.
-        for (default_kit, 0..) |slot, i| {
-            try self.loadPadWav(@intCast(i), slot.data, slot.name);
-            self.pads[i].?.pad.gain = slot.gain;
-        }
-
-        // Default kit pads 2/3 (hihat/open) share choke group 1 - the
-        // classic pairing where an open hat ringing out gets cut by the
-        // next closed-hat hit.
-        self.choke_group[2] = 1;
-        self.choke_group[3] = 1;
 
         return self;
     }
@@ -492,8 +463,8 @@ pub const DrumMachine = struct {
         for (self.variants[0..self.variant_count]) |*v| freeMidi(self.allocator, &v.midi);
     }
 
-    /// Deep copy for track duplication: starts from a fresh `init` (which
-    /// loads the embedded kit) so every buffer is uniquely allocated, then
+    /// Deep copy for track duplication: starts from a fresh `init` (a blank
+    /// machine) so every buffer is uniquely allocated, then
     /// overwrites each pad with a dupe of this machine's actual clip audio
     /// (or leaves it null if the source pad was never loaded) and copies the
     /// pattern bank, step count, and swing. Song-mode state isn't carried -
@@ -1220,7 +1191,20 @@ pub const DrumMachine = struct {
     /// every pad as non-user so it isn't exported to the sample sidecar.
     pub fn loadKitVariant(self: *DrumMachine, variant: *const drum_kit.KitVariant) !void {
         for (variant.pads, 0..) |slot, i| {
-            const samples = try slot.gen(self.allocator, self.sample_rate);
+            const gen = slot.gen orelse {
+                // Empty slot (the "init" kit): blank the pad rather than
+                // unmaterialize it - a live machine's audio thread may be
+                // inside this pad right now, and swapping in an empty buffer
+                // goes through the same pad lock every other kit load uses.
+                // A pad that was never materialized just stays null.
+                if (self.pads[i] != null) {
+                    const empty = try self.allocator.alloc(f32, 0);
+                    self.setPadSamples(@intCast(i), empty, "");
+                }
+                self.choke_group[i] = 0;
+                continue;
+            };
+            const samples = try gen(self.allocator, self.sample_rate);
             self.setPadSamples(@intCast(i), samples, slot.name);
             self.pads[i].?.pad.gain = slot.gain;
         }
@@ -1572,12 +1556,26 @@ pub const DrumMachine = struct {
 // -----------------------------------------------------------------------
 // Tests
 
-test "embedded kit loads non-silent pads with default gains" {
+/// A machine with the "default" kit flavour on pads 0-7. A fresh `init` is
+/// the blank "init" kit (no audio anywhere), so any test that renders or
+/// tweaks a pad loads a kit first, exactly as the user would.
+fn testMachine(transport: *const Transport) !DrumMachine {
+    var dm = try DrumMachine.init(std.testing.allocator, 48_000, transport);
+    errdefer dm.deinit();
+    try dm.loadKitVariant(drum_kit.byName("default").?);
+    return dm;
+}
+
+test "a fresh machine is blank; a kit flavour fills pads 0-7, init empties them" {
     var transport: Transport = .{ .sample_rate = 48_000 };
     var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
     defer dm.deinit();
 
-    // All 8 kit pads should decode and have samples + their default gain.
+    // Blank slate: nothing materialized at all.
+    for (0..DrumMachine.max_pads) |p| try std.testing.expect(dm.pads[p] == null);
+
+    try dm.loadKitVariant(drum_kit.byName("default").?);
+    // All 8 kit pads should generate and have samples + their default gain.
     for (0..8) |p| {
         try std.testing.expect(dm.pads[p].?.pad.samples.len > 0);
         try std.testing.expect(dm.pads[p].?.pad.gain > 0.0);
@@ -1592,11 +1590,20 @@ test "embedded kit loads non-silent pads with default gains" {
     try std.testing.expect(peak > 0.01);
     // Hihat ships quieter than the kick by default.
     try std.testing.expect(dm.pads[2].?.pad.gain < dm.pads[0].?.pad.gain);
+
+    // Back to init: the kit pads stay materialized (the audio thread may be
+    // inside one) but go silent, and their choke pairing is dropped.
+    dm.choke_group[2] = 1;
+    try dm.loadKitVariant(drum_kit.byName("init").?);
+    for (0..8) |p| {
+        try std.testing.expectEqual(@as(usize, 0), dm.pads[p].?.pad.samples.len);
+        try std.testing.expectEqual(@as(u8, 0), dm.choke_group[p]);
+    }
 }
 
 test "step sequencer fires pads at correct boundaries" {
     var transport: Transport = .{ .sample_rate = 48_000, .tempo_bpm = 120.0 };
-    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    var dm = try testMachine(&transport);
     defer dm.deinit();
 
     // Clear all defaults; enable only pad 0 on step 0
@@ -1822,7 +1829,7 @@ test "rotatePad wraps hits and rewrites their canonical step" {
 
 test "song mode fires the clip covering the playhead" {
     var transport: Transport = .{ .sample_rate = 48_000, .tempo_bpm = 120.0 };
-    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    var dm = try testMachine(&transport);
     defer dm.deinit();
 
     // Clear the default groove; song mode reads only song_clips.
@@ -1862,7 +1869,7 @@ test "song mode fires the clip covering the playhead" {
 
 test "song mode swing follows the clip's sixteenth-note grid" {
     var transport: Transport = .{ .sample_rate = 48_000, .tempo_bpm = 120.0 };
-    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    var dm = try testMachine(&transport);
     defer dm.deinit();
 
     var clip_midi = try DrumMachine.allocMidi(std.testing.allocator, 16);
@@ -1898,7 +1905,7 @@ test "song mode swing follows the clip's sixteenth-note grid" {
 
 test "note_on triggers pad directly" {
     var transport: Transport = .{ .sample_rate = 48_000 };
-    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    var dm = try testMachine(&transport);
     defer dm.deinit();
 
     dm.resetAll();
@@ -1960,7 +1967,7 @@ test "step velocity: cycles presets, nudges, toggling resets, shrink masks" {
 
 test "voice velocity scales the rendered level" {
     var transport: Transport = .{ .sample_rate = 48_000 };
-    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    var dm = try testMachine(&transport);
     defer dm.deinit();
 
     var buf: [512]Sample = undefined;
@@ -1983,7 +1990,7 @@ test "voice velocity scales the rendered level" {
 
 test "choke group silences other pads sharing it" {
     var transport: Transport = .{ .sample_rate = 48_000 };
-    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    var dm = try testMachine(&transport);
     defer dm.deinit();
     dm.resetAll();
 
@@ -2021,7 +2028,7 @@ test "cycleChokeGroup wraps through none..max" {
 
 test "swing delays the off-beat step" {
     var transport: Transport = .{ .sample_rate = 48_000, .tempo_bpm = 120.0 };
-    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    var dm = try testMachine(&transport);
     defer dm.deinit();
 
     // Only pad 0 on step 1 (an off-beat 16th). At 120bpm a step is 6000
@@ -2183,7 +2190,7 @@ test "setStepCount discards steps beyond the new count" {
 
 test "step count grows well past the old 64-step ceiling and the sequencer fires the last step" {
     var transport: Transport = .{ .sample_rate = 48_000, .tempo_bpm = 120.0 };
-    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    var dm = try testMachine(&transport);
     defer dm.deinit();
 
     // 200 steps: > 3x the old 64-step ceiling, well within u16 headroom.
@@ -2452,7 +2459,7 @@ test "step probability rolls repeatably and lands near the requested rate" {
 
 test "adjustParam decodes pad/param and clamps" {
     var transport: Transport = .{ .sample_rate = 48_000 };
-    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    var dm = try testMachine(&transport);
     defer dm.deinit();
 
     // pad 2, param 2 = pitch; +3 semitones
@@ -2471,7 +2478,7 @@ test "adjustParam decodes pad/param and clamps" {
 
 test "region trim shortens the voice" {
     var transport: Transport = .{ .sample_rate = 48_000 };
-    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    var dm = try testMachine(&transport);
     defer dm.deinit();
 
     // Trim pad 0 to the first 10% of the clip, then trigger it.
@@ -2495,7 +2502,7 @@ test "region trim shortens the voice" {
 
 test "pitch up plays the region faster" {
     var transport: Transport = .{ .sample_rate = 48_000 };
-    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    var dm = try testMachine(&transport);
     defer dm.deinit();
 
     var buf: [256]Sample = undefined;

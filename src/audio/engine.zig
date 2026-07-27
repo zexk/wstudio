@@ -1245,7 +1245,17 @@ pub const Engine = struct {
 
 const PolySynth = @import("../dsp/synth.zig").PolySynth;
 const DrumMachine = @import("../dsp/drum_sampler.zig").DrumMachine;
+const drum_kit = @import("../dsp/drum_kit.zig");
 const Compressor = @import("../dsp/compressor.zig").Compressor;
+
+/// A drum machine with audible pads: a fresh one is the blank "init" kit
+/// (see DrumMachine.init), so tests that need sound load a flavour first.
+fn testDrumMachine(transport: *const Transport) !DrumMachine {
+    var dm = try DrumMachine.init(std.testing.allocator, 48_000, transport);
+    errdefer dm.deinit();
+    try dm.loadKitVariant(drum_kit.byName("default").?);
+    return dm;
+}
 
 test "engine rejects a zero sample rate" {
     try std.testing.expectError(error.InvalidSampleRate, Engine.init(std.testing.allocator, 0));
@@ -1633,7 +1643,7 @@ test "renderTracks routes a compressor's sidechain detector from a single drum p
 
     var engine = try Engine.init(std.testing.allocator, 48_000);
     defer engine.deinit();
-    var drum = try DrumMachine.init(std.testing.allocator, 48_000, &engine.transport);
+    var drum = try testDrumMachine(&engine.transport);
     defer drum.deinit();
     engine.trackAt(0).* = .{ .active = true }; // drum kit (sidechain source)
     engine.trackAt(1).* = .{ .active = true }; // bass (has the compressor)
@@ -1687,7 +1697,7 @@ test "renderTracks routes a compressor's sidechain detector from a single drum p
     var comp3 = Compressor.init(48_000);
     var engine3 = try Engine.init(std.testing.allocator, 48_000);
     defer engine3.deinit();
-    var drum3 = try DrumMachine.init(std.testing.allocator, 48_000, &engine3.transport);
+    var drum3 = try testDrumMachine(&engine3.transport);
     defer drum3.deinit();
     engine3.trackAt(0).* = .{ .active = true };
     engine3.trackAt(1).* = .{ .active = true };
@@ -1729,7 +1739,7 @@ test "a compressor keyed to a pad on its OWN track reads the pad, not self-detec
     comp.release_ms = 0.1;
     var engine = try Engine.init(std.testing.allocator, 48_000);
     defer engine.deinit();
-    var drum = try DrumMachine.init(std.testing.allocator, 48_000, &engine.transport);
+    var drum = try testDrumMachine(&engine.transport);
     defer drum.deinit();
     engine.trackAt(0).* = .{ .active = true };
     engine.setTrackChain(0, &.{ drum.device(), comp.device() });
@@ -1750,7 +1760,7 @@ test "a compressor keyed to a pad on its OWN track reads the pad, not self-detec
     comp2.release_ms = 0.1;
     var engine2 = try Engine.init(std.testing.allocator, 48_000);
     defer engine2.deinit();
-    var drum2 = try DrumMachine.init(std.testing.allocator, 48_000, &engine2.transport);
+    var drum2 = try testDrumMachine(&engine2.transport);
     defer drum2.deinit();
     engine2.trackAt(0).* = .{ .active = true };
     engine2.setTrackChain(0, &.{ drum2.device(), comp2.device() });
