@@ -231,6 +231,9 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 // %/?: the two halves of a trig condition on the step under
                 // the cursor - fire chance and the conditional rule. ! flips
                 // the machine-wide fill switch the FILL rules read.
+                // r: pack the step into a roll (off/2/3/4/6/8 hits), spaced
+                // across the step's own duration - Elektron's Retrig.
+                'r' => cycleStepRetrig(app),
                 '%' => cycleStepProb(app),
                 '?' => cycleStepCond(app, app.takeCount()),
                 '!' => {
@@ -465,6 +468,21 @@ fn nudgeTune(app: *App, delta: i32) void {
     dm.nudgeStepTune(pad, step, delta);
     const semis = dm.stepTune(pad, step);
     app.setStatus("tune {s}{d} st", .{ if (semis > 0) "+" else "", semis });
+}
+
+/// `r`: step the hit under the cursor through the roll sizes.
+fn cycleStepRetrig(app: *App) void {
+    const dm = app.drumMachine();
+    const pad: u8 = @intCast(app.drum_cursor[0]);
+    const step = app.drum_cursor[1];
+    // zig fmt: off
+    if (!dm.stepActive(pad, step)) { app.setStatus("no step here - enter places one", .{}); return; }
+    // zig fmt: on
+    history.recordDrum(app, app.drum_track);
+    dm.cycleStepRetrig(pad, step);
+    app.dirty = true;
+    const n = dm.stepRetrig(pad, step);
+    if (n < 2) app.setStatus("roll off", .{}) else app.setStatus("roll x{d}", .{n});
 }
 
 /// `%`: step the hit under the cursor through the fire-chance presets.

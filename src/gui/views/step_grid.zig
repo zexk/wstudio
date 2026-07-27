@@ -195,6 +195,23 @@ pub fn draw(
                     .col = color(theme.danger),
                 });
             }
+            // A roll draws its hits as ticks along the top edge, so the
+            // count reads without selecting the step.
+            if (kind == .drum) {
+                const hits = instrument.stepRetrig(@intCast(row), @intCast(step));
+                if (hits >= 2) {
+                    const span = pmax[0] - pmin[0];
+                    for (0..@min(hits, 8)) |h| {
+                        const tx = pmin[0] + span * (@as(f32, @floatFromInt(h)) + 0.5) / @as(f32, @floatFromInt(@min(hits, 8)));
+                        draw_list.addLine(.{
+                            .p1 = .{ tx, pmin[1] + 2 },
+                            .p2 = .{ tx, pmin[1] + 6 },
+                            .col = color(theme.fg0),
+                            .thickness = 1,
+                        });
+                    }
+                }
+            }
             // A tuned step gets a bar along its bottom edge, above or below
             // the hit's own baseline depending on the direction - the TUI's
             // paren brackets can only say "tuned", this says which way.

@@ -162,13 +162,15 @@ pub fn drawDrumGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, s
             // shading (editors/step_grid.zig).
             const glyph: u8 = if (!active) ' ' else step_grid.velocityBand(dm.stepVel(@intCast(p), @intCast(s))).glyph();
             // The brackets carry two bits the velocity glyph has no room for:
-            // [ ] plain, ( ) tuned (matching the (/) keys), < > conditional
-            // (chance or a trig condition), { } both. The exact amounts are
-            // on the status line - a 3-column cell can't hold "1:2, 70%".
+            // [ ] plain, ( ) tuned (matching the (/) keys), < > modified
+            // (chance, a trig condition, or a roll), { } both. The exact
+            // values are on the status line - a 3-column cell can't hold
+            // "1:2, 70%, x4".
             const live = active and !out_of_loop;
             const tuned = live and dm.stepTune(@intCast(p), @intCast(s)) != 0;
             const cond = live and (dm.stepProb(@intCast(p), @intCast(s)) != 100 or
-                dm.stepCond(@intCast(p), @intCast(s)) != .always);
+                dm.stepCond(@intCast(p), @intCast(s)) != .always or
+                dm.stepRetrig(@intCast(p), @intCast(s)) >= 2);
             const brackets: [2]u8 = if (tuned and cond)
                 .{ '{', '}' }
             else if (tuned)

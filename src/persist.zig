@@ -371,6 +371,9 @@ pub const DrumNoteSnap = struct {
     /// from a hand-edited file falls back to `always` rather than erroring.
     prob: u8 = 100,
     cond: u8 = 0,
+    /// Hits packed into the step, 0/1 = a plain single hit (see
+    /// `DrumMachine.MidiNote.retrig`). Additive, same rule as the rest.
+    retrig: u8 = 0,
 };
 
 pub const VariantSnap = struct {
@@ -2114,6 +2117,7 @@ fn midiToNoteSnaps(aa: std.mem.Allocator, midi: *const [DrumMachine.max_pads][]?
                 .tune = note.tune,
                 .prob = note.prob,
                 .cond = @intFromEnum(note.cond),
+                .retrig = note.retrig,
             };
             i += 1;
         }
@@ -2138,6 +2142,9 @@ fn applyNoteSnap(midi: *[DrumMachine.max_pads][]?DrumMachine.MidiNote, step_coun
                 @enumFromInt(n.cond)
             else
                 .always,
+            // Capped rather than rejected: a roll longer than this would
+            // just be a buzz, and the file still loads.
+            .retrig = @min(n.retrig, 16),
         };
     }
 }

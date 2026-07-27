@@ -178,6 +178,17 @@ pub const DrumMachine = struct {
         }
     };
 
+    /// The tail of an in-flight roll: the hits that didn't fit in the block
+    /// that started it. Positions are absolute transport frames, so a roll
+    /// stays aligned to the grid across block boundaries.
+    pub const Roll = struct {
+        remaining: u8,
+        next_pos: f64,
+        interval: f64,
+        vel: f32,
+        tune: i8,
+    };
+
     pub const MidiNote = struct {
         pitch: u7,
         step: u16,
@@ -190,6 +201,11 @@ pub const DrumMachine = struct {
         prob: u8 = 100,
         /// Conditional trig, ANDed with `prob` - both have to pass.
         cond: Cond = .always,
+        /// Hits packed into this step's own duration: 0 or 1 is the plain
+        /// single hit, 2+ is a roll (Elektron's Retrig). The hits are evenly
+        /// spaced across the step, so the rate follows the pattern's grid
+        /// rather than needing a separate division setting.
+        retrig: u8 = 0,
         /// Per-step playback transpose in semitones, on top of the pad's own
         /// `pitch_semitones` - Elektron's pitch parameter-lock, the cheap
         /// slice of p-locks that turns one tom into a fill. `pitch` above is
@@ -365,6 +381,13 @@ pub const DrumMachine = struct {
     /// and every step conditioned on it swaps in or out, no editing. UI
     /// writes, audio thread reads.
     fill_on: std.atomic.Value(bool) = .init(false),
+    /// A roll's remaining hits, one slot per pad (audio thread only). A roll
+    /// outlives the block it started in - at 1/16 and 8 hits the tail lands
+    /// several blocks later - so the leftover hits are carried here and
+    /// drained by `drainRolls` rather than being emitted up front. One slot
+    /// per pad, because a fresh trigger on that pad chokes the previous hit
+    /// anyway, so a second overlapping roll could never be heard.
+    rolls: [max_pads]?Roll = [_]?Roll{null} ** max_pads,
 
     // ── Pattern variants (control thread only) ──────────────────────────────
     /// Bank slots. Slot `variant` is stale while active - read it through
@@ -841,6 +864,29 @@ pub const DrumMachine = struct {
         note.prob = prob_presets[0];
     }
 
+    /// Roll sizes `cycleStepRetrig` walks: off, then the divisions that stay
+    /// musical inside one step. 0 renders as a plain single hit.
+    const retrig_presets = [_]u8{ 0, 2, 3, 4, 6, 8 };
+
+    /// Hits packed into the step; 0 (a plain single hit) on an empty step.
+    pub fn stepRetrig(self: *const DrumMachine, pad: u8, step: u16) u8 {
+        if (pad >= max_pads or step >= self.step_count) return 0;
+        const note = self.midi[pad][step] orelse return 0;
+        return note.retrig;
+    }
+
+    pub fn cycleStepRetrig(self: *DrumMachine, pad: u8, step: u16) void {
+        if (pad >= max_pads or step >= self.step_count) return;
+        const note = if (self.midi[pad][step]) |*n| n else return;
+        for (retrig_presets, 0..) |r, i| {
+            if (note.retrig == r) {
+                note.retrig = retrig_presets[(i + 1) % retrig_presets.len];
+                return;
+            }
+        }
+        note.retrig = retrig_presets[0];
+    }
+
     /// Trig condition on the step; `always` on an empty step.
     pub fn stepCond(self: *const DrumMachine, pad: u8, step: u16) Cond {
         if (pad >= max_pads or step >= self.step_count) return .always;
@@ -1261,7 +1307,7 @@ pub const DrumMachine = struct {
                     ));
 
                 if (self.song_mode) {
-                    self.fireSongStep(step_k, fire_frame);
+                    self.fireSongStep(step_k, fire_frame, fire_pos, fps);
                 } else {
                     // Each pad wraps at its own length (`pad_len`), so rows
                     // can run out of phase with each other; the UI playhead
@@ -1272,7 +1318,7 @@ pub const DrumMachine = struct {
                         const idx: u16 = @intCast(step_k % len);
                         const note = self.midi[p][idx] orelse continue;
                         if (!trigFires(note, @intCast(p), step_k, step_k / len, fill_on)) continue;
-                        self.chokeTrigger(@intCast(p), velGain(note.velocity), fire_frame, note.tune);
+                        self.fireNote(@intCast(p), note, fire_frame, fire_pos, fps);
                     }
                     self.current_step.store(@intCast(step_k % self.step_count), .monotonic);
                 }
@@ -1280,6 +1326,9 @@ pub const DrumMachine = struct {
             }
 
             self.next_step_k = step_k;
+            // After the step scan, so a roll started by a step in this very
+            // block still gets its tail hits considered here.
+            self.drainRolls(pos_f, frames);
         }
 
         // A pad with a pending capture request renders into its own scratch
@@ -1315,7 +1364,7 @@ pub const DrumMachine = struct {
     /// Fire pads for absolute step `step_k` from the song timeline. Past
     /// `song_length_steps` this goes silent instead of wrapping - the
     /// arrangement plays once through, not on a loop.
-    fn fireSongStep(self: *DrumMachine, step_k: u64, fire_frame: u32) void {
+    fn fireSongStep(self: *DrumMachine, step_k: u64, fire_frame: u32, fire_pos: f64, tick_frames: f64) void {
         if (self.song_length_steps == 0 or step_k >= self.song_length_steps) return;
         const lk: u32 = @intCast(step_k);
         for (self.song_clips[0..self.song_clip_count]) |*clip| {
@@ -1326,12 +1375,17 @@ pub const DrumMachine = struct {
             if (scaled % self.song_steps_per_beat != 0) continue;
             const local: u32 = scaled / self.song_steps_per_beat;
             const fill_on = self.fill_on.load(.monotonic);
+            // The song timeline ticks finer than the clip's own grid, so a
+            // roll has to be spaced across a *clip* step, not a song tick.
+            const step_frames = tick_frames *
+                @as(f64, @floatFromInt(self.song_steps_per_beat)) /
+                @as(f64, @floatFromInt(@max(clip.steps_per_beat, 1)));
             for (0..max_pads) |p| {
                 const len = self.padSteps(@intCast(p), clip.step_count);
                 const idx: u16 = @intCast(local % len);
                 const note = clip.midi[p][idx] orelse continue;
                 if (!trigFires(note, @intCast(p), step_k, local / len, fill_on)) continue;
-                self.chokeTrigger(@intCast(p), velGain(note.velocity), fire_frame, note.tune);
+                self.fireNote(@intCast(p), note, fire_frame, fire_pos, step_frames);
             }
             self.current_step.store(@intCast(local % clip.step_count), .monotonic);
             return; // clips never overlap
@@ -1348,6 +1402,50 @@ pub const DrumMachine = struct {
     /// `choke_group`), every other pad sharing that group is silenced too
     /// (e.g. a closed-hat hit cutting an open hat's ring-out). A no-op on an
     /// unloaded (null) pad - nothing to trigger.
+    /// Fire `note` on pad `p`: the hit itself, plus - when the step carries a
+    /// roll - the schedule for its remaining hits, evenly spaced across the
+    /// step's own `step_frames` duration. `fire_pos` is the step's absolute
+    /// transport position, which is what keeps the tail on the grid when it
+    /// spills into a later block.
+    fn fireNote(self: *DrumMachine, p: u8, note: MidiNote, fire_frame: u32, fire_pos: f64, step_frames: f64) void {
+        const vel = velGain(note.velocity);
+        self.chokeTrigger(p, vel, fire_frame, note.tune);
+        if (note.retrig < 2 or step_frames <= 0.0) {
+            self.rolls[p] = null;
+            return;
+        }
+        const interval = step_frames / @as(f64, @floatFromInt(note.retrig));
+        self.rolls[p] = .{
+            .remaining = note.retrig - 1,
+            .next_pos = fire_pos + interval,
+            .interval = interval,
+            .vel = vel,
+            .tune = note.tune,
+        };
+    }
+
+    /// Emit any scheduled roll hits landing in `[pos_f, pos_f + frames)`.
+    /// Hits whose position has already passed (a seek jumped over them) are
+    /// dropped rather than bunched onto the block start.
+    fn drainRolls(self: *DrumMachine, pos_f: f64, frames: u32) void {
+        const block_end = pos_f + @as(f64, @floatFromInt(frames));
+        for (&self.rolls, 0..) |*slot, p| {
+            const roll = if (slot.*) |*r| r else continue;
+            while (roll.remaining > 0 and roll.next_pos < block_end) {
+                if (roll.next_pos >= pos_f) {
+                    const off: u32 = @intCast(@min(
+                        @as(u64, @intFromFloat(roll.next_pos - pos_f)),
+                        @as(u64, frames - 1),
+                    ));
+                    self.chokeTrigger(@intCast(p), roll.vel, off, roll.tune);
+                }
+                roll.next_pos += roll.interval;
+                roll.remaining -= 1;
+            }
+            if (roll.remaining == 0) slot.* = null;
+        }
+    }
+
     /// `tune` shifts this one hit by that many semitones, riding on top of
     /// the pad's own transpose - the Sampler already pitches a voice by
     /// `note - root_note`, so a tuned hit is just a different trigger note.
@@ -1373,6 +1471,9 @@ pub const DrumMachine = struct {
 
     pub fn resetAll(self: *DrumMachine) void {
         for (&self.pads) |*p| if (p.*) |*s| s.resetAll();
+        // Drop any roll tail with the voices it would have fed - a stop or a
+        // seek shouldn't spit the rest of a roll out on the next block.
+        for (&self.rolls) |*r| r.* = null;
         self.next_step_k = 0;
     }
 
@@ -2122,6 +2223,52 @@ test "a pad's own loop length wraps that row early and drifts against the rest" 
     try std.testing.expectEqual(@as(u16, 15), dm.padSteps(0, 16));
     dm.nudgePadLen(0, 99);
     try std.testing.expectEqual(@as(u16, 0), dm.pad_len[0]);
+}
+
+test "a roll spreads its hits across the step and survives block boundaries" {
+    var transport: Transport = .{ .sample_rate = 48_000, .tempo_bpm = 120.0 };
+    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    defer dm.deinit();
+    dm.setStepCount(16);
+    dm.toggleStep(0, 0);
+    dm.midi[0][0].?.retrig = 4;
+
+    // At 120 BPM a 1/16 step is 6000 frames, so a 4-hit roll spaces hits
+    // 1500 frames apart - well past one 256-frame block.
+    const fps = transport.framesPerStep(4);
+    try std.testing.expectApproxEqAbs(@as(f64, 6000), fps, 1.0);
+
+    // Fire the step, then walk blocks and count the tail hits the roll
+    // schedules. Counting through drainRolls directly keeps this about the
+    // scheduling rather than about voice rendering.
+    dm.fireNote(0, dm.midi[0][0].?, 0, 0.0, fps);
+    try std.testing.expectEqual(@as(u8, 3), dm.rolls[0].?.remaining);
+    try std.testing.expectApproxEqAbs(@as(f64, 1500), dm.rolls[0].?.interval, 1.0);
+
+    var pos: f64 = 0;
+    var blocks: usize = 0;
+    while (dm.rolls[0] != null and blocks < 64) : (blocks += 1) {
+        dm.drainRolls(pos, 256);
+        pos += 256;
+    }
+    // The last hit sits at 4500 frames, ~18 blocks in - the roll outlives
+    // the block that started it, which is the whole reason it's scheduled.
+    try std.testing.expect(blocks > 15);
+    try std.testing.expectEqual(@as(?DrumMachine.Roll, null), dm.rolls[0]);
+
+    // A plain step clears any roll still parked on that pad.
+    dm.fireNote(0, dm.midi[0][0].?, 0, 0.0, fps);
+    try std.testing.expect(dm.rolls[0] != null);
+    dm.midi[0][0].?.retrig = 0;
+    dm.fireNote(0, dm.midi[0][0].?, 0, 0.0, fps);
+    try std.testing.expectEqual(@as(?DrumMachine.Roll, null), dm.rolls[0]);
+
+    // A stop drops the tail instead of dumping it on the next block.
+    dm.midi[0][0].?.retrig = 8;
+    dm.fireNote(0, dm.midi[0][0].?, 0, 0.0, fps);
+    try std.testing.expect(dm.rolls[0] != null);
+    dm.resetAll();
+    try std.testing.expectEqual(@as(?DrumMachine.Roll, null), dm.rolls[0]);
 }
 
 test "trig conditions gate a step by pass count and the fill switch" {
