@@ -484,6 +484,96 @@ pub const PatternPlayer = struct {
         return @intCast(extra);
     }
 
+    /// Echo every note `sel` covers `repeats` times at `offset_beats` apart -
+    /// FL's flam, a drum-roll ornament that also works on pitched material.
+    /// A positive offset trails the copies after the original, a negative
+    /// one places them before it (grace notes), and each copy fades by a
+    /// quarter of the original velocity so the ornament leans on the note
+    /// it decorates. Copies are clipped to the piece length so they can't
+    /// swallow the beat, and any that would fall outside [0, length) are
+    /// dropped rather than piled onto beat 0. All-or-nothing on capacity
+    /// like `chop`: returns null if the full set of copies wouldn't fit.
+    pub fn flam(self: *PatternPlayer, sel: Sel, offset_beats: f64, repeats: u8) ?u16 {
+        if (!std.math.isFinite(offset_beats) or offset_beats == 0.0 or repeats == 0) return 0;
+        while (!self.notes_lock.tryLock()) std.atomic.spinLoopHint();
+        defer self.notes_lock.unlock();
+        var in_range: usize = 0;
+        for (self.notes[0..self.note_count]) |n| {
+            if (sel.contains(n)) in_range += 1;
+        }
+        if (in_range == 0) return 0;
+        if (self.note_count + in_range * repeats > max_notes) return null;
+
+        const step = @abs(offset_beats);
+        const original = self.note_count;
+        var added: u16 = 0;
+        for (self.notes[0..original]) |n| {
+            if (!sel.contains(n)) continue;
+            for (1..@as(usize, repeats) + 1) |r| {
+                const delta = @as(f64, @floatFromInt(r)) * step;
+                const start = if (offset_beats > 0.0) n.start_beat + delta else n.start_beat - delta;
+                if (start < 0.0 or start >= self.length_beats) continue;
+                const fade = 1.0 - 0.25 * @as(f32, @floatFromInt(r));
+                self.notes[self.note_count] = sanitizeNote(.{
+                    .pitch = n.pitch,
+                    .start_beat = start,
+                    .duration_beat = @min(n.duration_beat, step),
+                    .velocity = @max(0.05, n.velocity * fade),
+                });
+                self.note_count += 1;
+                added += 1;
+            }
+        }
+        return added;
+    }
+
+    /// Spread every chord `sel` covers into an arpeggio: the notes sharing a
+    /// start (within epsilon) are ranked by pitch and re-dealt one
+    /// `step_beats` apart from where the chord sat, each shortened to one
+    /// step so the line reads as separate notes. `down` ranks high-to-low.
+    /// A lone note is its own one-member chord and never moves, and a chord
+    /// whose tail would run past the pattern stops dealing at the end
+    /// rather than wrapping. Returns the count moved (UI thread).
+    pub fn arpeggiate(self: *PatternPlayer, sel: Sel, step_beats: f64, down: bool) u16 {
+        if (!std.math.isFinite(step_beats) or step_beats <= 0.0) return 0;
+        while (!self.notes_lock.tryLock()) std.atomic.spinLoopHint();
+        defer self.notes_lock.unlock();
+        const eps = 1e-9;
+        const n = self.note_count;
+        // Rank first, move second: a note that has already been dealt must
+        // not look like a member of the chord it was dealt away from.
+        var rank: [max_notes]u16 = undefined;
+        var size: [max_notes]u16 = undefined;
+        for (self.notes[0..n], 0..) |a, i| {
+            if (!sel.contains(a)) continue;
+            var asc: u16 = 0;
+            var group: u16 = 1;
+            for (self.notes[0..n], 0..) |b, j| {
+                if (j == i or !sel.contains(b) or @abs(b.start_beat - a.start_beat) >= eps) continue;
+                group += 1;
+                if (b.pitch < a.pitch or (b.pitch == a.pitch and j < i)) asc += 1;
+            }
+            rank[i] = asc;
+            size[i] = group;
+        }
+
+        var moved: u16 = 0;
+        for (self.notes[0..n], 0..) |*note, i| {
+            if (!sel.contains(note.*)) continue;
+            if (size[i] < 2) continue;
+            const r: u16 = if (down) size[i] - 1 - rank[i] else rank[i];
+            const start = note.start_beat + @as(f64, @floatFromInt(r)) * step_beats;
+            if (start >= @min(sel.hi_beat, self.length_beats)) continue;
+            // The off boundary moves, so choke anything sounding first
+            // (same hazard as shiftNotesInRange).
+            self.queueNoteOff(note.pitch);
+            note.start_beat = start;
+            note.duration_beat = @min(note.duration_beat, step_beats);
+            moved += 1;
+        }
+        return moved;
+    }
+
     /// How many `step_beats` pieces `duration_beat` chops into: always at
     /// least one, and capped at the pattern's own capacity so an absurdly
     /// small step can't produce a piece count no pattern could hold anyway.
@@ -1032,6 +1122,76 @@ test "chop splits notes into grid pieces, refuses when it would overflow" {
     for (0..300) |i| pp.addNote(.{ .pitch = 60, .start_beat = @as(f64, @floatFromInt(i)) * 0.01, .duration_beat = 1.0 });
     try std.testing.expectEqual(@as(?u16, null), pp.chop(.{ .lo_beat = 0.0, .hi_beat = 4.0 }, 0.25));
     try std.testing.expectEqual(@as(u16, 300), pp.note_count);
+}
+
+test "flam echoes notes at fading velocity, either side of the beat" {
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    var pp = PatternPlayer.init(synth.device(), &transport);
+    pp.length_beats = 4.0;
+    pp.addNote(.{ .pitch = 60, .start_beat = 1.0, .duration_beat = 1.0, .velocity = 0.8 });
+
+    try std.testing.expectEqual(@as(?u16, 2), pp.flam(.{ .lo_beat = 0.0, .hi_beat = 4.0 }, 0.25, 2));
+    try std.testing.expectEqual(@as(u16, 3), pp.note_count);
+    const first = pp.noteAt(60, 1.25).?;
+    const second = pp.noteAt(60, 1.5).?;
+    try std.testing.expectApproxEqAbs(@as(f32, 0.6), first.velocity, 1e-6); // 0.8 * 0.75
+    try std.testing.expectApproxEqAbs(@as(f32, 0.4), second.velocity, 1e-6); // 0.8 * 0.5
+    // Copies are clipped to the offset so they don't swallow the beat.
+    try std.testing.expectApproxEqAbs(@as(f64, 0.25), first.duration_beat, 1e-9);
+
+    // Negative offset = grace notes before the beat; one that would land
+    // before the pattern start is dropped, not stacked onto beat 0.
+    pp.clearNotes();
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.25, .duration_beat = 1.0 });
+    try std.testing.expectEqual(@as(?u16, 1), pp.flam(.{ .lo_beat = 0.0, .hi_beat = 4.0 }, -0.25, 2));
+    try std.testing.expectEqual(@as(u16, 2), pp.note_count);
+    try std.testing.expect(pp.noteAt(60, 0.0) != null);
+
+    // Degenerate arguments and a capacity overflow are quiet/refused.
+    try std.testing.expectEqual(@as(?u16, 0), pp.flam(.{ .lo_beat = 0.0, .hi_beat = 4.0 }, 0.0, 1));
+    try std.testing.expectEqual(@as(?u16, 0), pp.flam(.{ .lo_beat = 0.0, .hi_beat = 4.0 }, 0.25, 0));
+    pp.clearNotes();
+    for (0..300) |i| pp.addNote(.{ .pitch = 60, .start_beat = @as(f64, @floatFromInt(i)) * 0.01, .duration_beat = 0.1 });
+    try std.testing.expectEqual(@as(?u16, null), pp.flam(.{ .lo_beat = 0.0, .hi_beat = 4.0 }, 0.25, 1));
+    try std.testing.expectEqual(@as(u16, 300), pp.note_count);
+}
+
+test "arpeggiate deals chords out one step per note, up and down" {
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    var pp = PatternPlayer.init(synth.device(), &transport);
+    pp.length_beats = 4.0;
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 2.0 });
+    pp.addNote(.{ .pitch = 67, .start_beat = 0.0, .duration_beat = 2.0 });
+    pp.addNote(.{ .pitch = 64, .start_beat = 0.0, .duration_beat = 2.0 });
+    pp.addNote(.{ .pitch = 72, .start_beat = 3.0, .duration_beat = 0.5 }); // lone note
+
+    try std.testing.expectEqual(@as(u16, 3), pp.arpeggiate(.{ .lo_beat = 0.0, .hi_beat = 4.0 }, 0.25, false));
+    try std.testing.expect(pp.noteAt(60, 0.0) != null);
+    try std.testing.expect(pp.noteAt(64, 0.25) != null);
+    try std.testing.expect(pp.noteAt(67, 0.5) != null);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.25), pp.noteAt(67, 0.5).?.duration_beat, 1e-9);
+    try std.testing.expect(pp.noteAt(72, 3.0) != null); // lone note never moves
+
+    // Down ranks high-to-low from the same starting beat.
+    pp.clearNotes();
+    pp.addNote(.{ .pitch = 60, .start_beat = 1.0, .duration_beat = 1.0 });
+    pp.addNote(.{ .pitch = 64, .start_beat = 1.0, .duration_beat = 1.0 });
+    pp.addNote(.{ .pitch = 67, .start_beat = 1.0, .duration_beat = 1.0 });
+    try std.testing.expectEqual(@as(u16, 3), pp.arpeggiate(.{ .lo_beat = 0.0, .hi_beat = 4.0 }, 0.5, true));
+    try std.testing.expect(pp.noteAt(67, 1.0) != null);
+    try std.testing.expect(pp.noteAt(64, 1.5) != null);
+    try std.testing.expect(pp.noteAt(60, 2.0) != null);
+
+    // A chord too close to the end stops dealing rather than wrapping.
+    pp.clearNotes();
+    pp.addNote(.{ .pitch = 60, .start_beat = 3.75, .duration_beat = 0.25 });
+    pp.addNote(.{ .pitch = 64, .start_beat = 3.75, .duration_beat = 0.25 });
+    try std.testing.expectEqual(@as(u16, 1), pp.arpeggiate(.{ .lo_beat = 0.0, .hi_beat = 4.0 }, 0.5, false));
+    try std.testing.expect(pp.noteAt(64, 3.75) != null);
 }
 
 test "strum staggers a chord low-to-high for a positive offset" {

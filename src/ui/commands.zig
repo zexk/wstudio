@@ -131,6 +131,8 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "chop-notes",  .desc = "split every note into pieces one grid step long (the inverse of :glue)", .run = wrap(cmdChopNotes) },
     .{ .name = "transpose",   .desc = "<semitones>  shift every note in the pattern (visual-mode j/k/J/K transposes just the selection)", .run = wrap(cmdTranspose) },
     .{ .name = "strum",       .desc = "<ms>  stagger each chord's notes by ms per rank - positive low-to-high, negative high-to-low", .run = wrap(cmdStrum) },
+    .{ .name = "flam",        .desc = "<ms> [repeats]  echo every note ms apart at fading velocity (negative ms = grace notes before)", .run = wrap(cmdFlam) },
+    .{ .name = "arpeggiate",  .desc = "[down]  spread every chord into an arpeggio, one grid step per note", .run = wrap(cmdArpeggiate) },
     .{ .name = "import-midi", .desc = "<file>  replace the pattern with a Standard MIDI File's notes",     .run = wrap(cmdImportMidi) },
     .{ .name = "export-midi", .desc = "<file>  write the pattern as a Standard MIDI File",                 .run = wrap(cmdExportMidi) },
     .{ .name = "metronome",   .desc = "[on|off]  toggle the click track",                   .run = wrap(cmdMetronome) },
@@ -661,6 +663,77 @@ fn cmdStrum(app: *App, args: []const u8) void {
         return;
     }
     app.setStatus("strummed {d} notes ({s}{d:.0}ms)", .{ touched, if (ms >= 0) "+" else "", ms });
+    piano_ed.syncLinkedClip(app);
+}
+
+/// `:flam <ms> [repeats]` - echo every note `ms` apart at fading velocity,
+/// the drum-roll ornament (FL's flam). Negative `ms` puts the copies before
+/// the note instead, the usual grace-note reading. `repeats` defaults to 1.
+/// Melodic only, same track-resolution rule as `:strum`.
+fn cmdFlam(app: *App, args: []const u8) void {
+    const m = resolveMelodic(app) orelse {
+        app.setStatus("flam: no piano-roll pattern", .{});
+        return;
+    };
+    var it = std.mem.tokenizeScalar(u8, args, ' ');
+    const ms_text = it.next() orelse {
+        app.setStatus("usage: flam <ms> [repeats], e.g. :flam -15", .{});
+        return;
+    };
+    const ms = parseFiniteFloat(f64, ms_text) catch {
+        app.setStatus("flam: expected milliseconds, e.g. :flam -15", .{});
+        return;
+    };
+    const repeats: u8 = if (it.next()) |text| std.fmt.parseInt(u8, text, 10) catch {
+        app.setStatus("flam: bad repeat count '{s}'", .{text});
+        return;
+    } else 1;
+    if (repeats == 0 or repeats > 8) {
+        app.setStatus("flam: repeats must be 1-8", .{});
+        return;
+    }
+    const offset_beats = ms / 60_000.0 * @max(app.session.project.tempo_bpm, 1.0);
+    var entry = history.captureMelodic(app, @intCast(m.track));
+    const added = m.pp.flam(.{ .lo_beat = 0.0, .hi_beat = m.pp.length_beats }, offset_beats, repeats) orelse {
+        if (entry) |*e| e.deinit(app.allocator);
+        app.setStatus("flam: would exceed {d} notes", .{pattern_mod.max_notes});
+        return;
+    };
+    if (added == 0) {
+        if (entry) |*e| e.deinit(app.allocator);
+        app.setStatus("flam: nothing to echo", .{});
+        return;
+    }
+    history.push(app, entry);
+    app.setStatus("flam: added {d} notes ({s}{d:.0}ms x{d})", .{ added, if (ms >= 0) "+" else "", ms, repeats });
+    piano_ed.syncLinkedClip(app);
+}
+
+/// `:arpeggiate [down]` - deal every chord out into an arpeggio one view-
+/// grid step per note (`z`/`Z`/`T` pick the step, as with `:quantize`),
+/// low-to-high unless `down` is given. Chords only: a lone note has no
+/// voices to spread, so it stays where it is.
+fn cmdArpeggiate(app: *App, args: []const u8) void {
+    const m = resolveMelodic(app) orelse {
+        app.setStatus("arpeggiate: no piano-roll pattern", .{});
+        return;
+    };
+    const trimmed = std.mem.trim(u8, args, " ");
+    const down = std.mem.eql(u8, trimmed, "down");
+    if (trimmed.len != 0 and !down and !std.mem.eql(u8, trimmed, "up")) {
+        app.setStatus("usage: arpeggiate [up|down]", .{});
+        return;
+    }
+    const step_beats = 1.0 / @as(f64, @floatFromInt(app.pianoStepsPerBeat()));
+    var entry = history.captureMelodic(app, @intCast(m.track));
+    const moved = m.pp.arpeggiate(.{ .lo_beat = 0.0, .hi_beat = m.pp.length_beats }, step_beats, down);
+    if (moved == 0) {
+        if (entry) |*e| e.deinit(app.allocator);
+        app.setStatus("arpeggiate: no chords in the pattern", .{});
+        return;
+    }
+    history.push(app, entry);
+    app.setStatus("arpeggiated {d} notes ({s}, {s})", .{ moved, if (down) "down" else "up", app.piano_division.label() });
     piano_ed.syncLinkedClip(app);
 }
 
