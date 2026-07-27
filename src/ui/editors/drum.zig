@@ -223,6 +223,11 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 // other hit on that row shares.
                 '(' => nudgeTune(app, -app.takeCount()),
                 ')' => nudgeTune(app, app.takeCount()),
+                // m/M: this pad's own loop length, independent of the
+                // pattern's (-/+). A shorter row wraps early and drifts
+                // against the others - polymeter. :pad-len sets it exactly.
+                'm' => nudgePadLen(app, -app.takeCount()),
+                'M' => nudgePadLen(app, app.takeCount()),
                 // v: blockwise - a (pad, step) rectangle, one pad tall until
                 // j/k grow it. V: linewise - the step range across every pad,
                 // which is what visual mode did unconditionally before the
@@ -450,6 +455,20 @@ fn nudgeTune(app: *App, delta: i32) void {
     dm.nudgeStepTune(pad, step, delta);
     const semis = dm.stepTune(pad, step);
     app.setStatus("tune {s}{d} st", .{ if (semis > 0) "+" else "", semis });
+}
+
+/// `m`/`M`: shrink/grow the cursor pad's own loop length. Reaching the
+/// pattern length puts the row back on "follows the pattern".
+fn nudgePadLen(app: *App, delta: i32) void {
+    const dm = app.drumMachine();
+    const pad: u8 = @intCast(app.drum_cursor[0]);
+    history.recordDrum(app, app.drum_track);
+    dm.nudgePadLen(pad, delta);
+    app.dirty = true;
+    if (dm.pad_len[pad] == 0)
+        app.setStatus("pad loop: follows pattern ({d})", .{dm.step_count})
+    else
+        app.setStatus("pad loop: {d}/{d} steps", .{ dm.pad_len[pad], dm.step_count });
 }
 
 /// `x`: vim's char-delete - clears just the (pad, step) under the cursor,

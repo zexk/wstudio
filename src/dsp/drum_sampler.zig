@@ -267,6 +267,18 @@ pub const DrumMachine = struct {
     swing: std.atomic.Value(f32) = .init(50.0),
     /// Per-pad choke group (0 = none). See `chokeTrigger`.
     choke_group: [max_pads]u8 = [_]u8{0} ** max_pads,
+    /// Per-pad loop length in steps, 0 = follow the pattern (the default and
+    /// the only behaviour before this existed). A shorter length makes that
+    /// row wrap on its own, so a 7-step hat drifts against a 16-step kick for
+    /// 112 steps before the two line up again - Elektron's per-track lengths,
+    /// the reason a Digitakt pattern doesn't sound like 16 steps on repeat.
+    ///
+    /// Machine-level, not per-variant, and clamped at use time rather than
+    /// on write: the row's storage is only ever `step_count` long, so a
+    /// length past the pattern silently follows the pattern instead. Same
+    /// convention `choke_group` and `swing` already use, which is also why
+    /// song mode picks it up for free (see `fireSongStep`).
+    pad_len: [max_pads]u16 = [_]u16{0} ** max_pads,
 
     // ── Pattern variants (control thread only) ──────────────────────────────
     /// Bank slots. Slot `variant` is stale while active - read it through
@@ -381,6 +393,7 @@ pub const DrumMachine = struct {
         out.steps_per_beat = self.steps_per_beat;
         out.swing.store(self.swing.load(.monotonic), .monotonic);
         out.choke_group = self.choke_group;
+        out.pad_len = self.pad_len;
 
         // Set the target count first (not after the loop) so a mid-loop
         // allocation failure leaves `out.deinit()` freeing exactly the
@@ -662,6 +675,33 @@ pub const DrumMachine = struct {
         const cur: i32 = self.stepVel(pad, step);
         const next = std.math.clamp(cur + delta, 1, 127);
         self.setStepVel(pad, step, @intCast(next));
+    }
+
+    /// Steps pad `p` actually loops over inside a `pattern_len`-long pattern:
+    /// its own `pad_len` when that's set and fits, else the whole pattern.
+    /// Audio thread reads this every step boundary, so it stays branch-cheap
+    /// and never touches storage it doesn't have.
+    pub fn padSteps(self: *const DrumMachine, p: u8, pattern_len: u16) u16 {
+        if (p >= max_pads or pattern_len == 0) return @max(pattern_len, 1);
+        const own = self.pad_len[p];
+        if (own == 0 or own > pattern_len) return pattern_len;
+        return @max(own, 1);
+    }
+
+    /// Set pad `p`'s own loop length; 0 (or anything past the pattern) goes
+    /// back to following the pattern.
+    pub fn setPadLen(self: *DrumMachine, p: u8, len: u16) void {
+        if (p >= max_pads) return;
+        self.pad_len[p] = if (len >= self.step_count) 0 else len;
+    }
+
+    /// Nudge pad `p`'s loop length, treating "follows the pattern" as the
+    /// full length so stepping down from it lands one below rather than
+    /// jumping to 1.
+    pub fn nudgePadLen(self: *DrumMachine, p: u8, delta: i32) void {
+        if (p >= max_pads) return;
+        const cur: i32 = self.padSteps(p, self.step_count);
+        self.setPadLen(p, @intCast(std.math.clamp(cur + delta, 1, self.step_count)));
     }
 
     /// Per-step transpose in semitones, 0 on an empty step (nothing to tune).
@@ -1061,12 +1101,16 @@ pub const DrumMachine = struct {
                 if (self.song_mode) {
                     self.fireSongStep(step_k, fire_frame);
                 } else {
-                    const step_idx: u16 = @intCast(step_k % self.step_count);
+                    // Each pad wraps at its own length (`pad_len`), so rows
+                    // can run out of phase with each other; the UI playhead
+                    // still follows the pattern's own length.
                     for (0..max_pads) |p| {
-                        const note = self.midi[p][step_idx] orelse continue;
+                        const len = self.padSteps(@intCast(p), self.step_count);
+                        const idx: u16 = @intCast(step_k % len);
+                        const note = self.midi[p][idx] orelse continue;
                         self.chokeTrigger(@intCast(p), velGain(note.velocity), fire_frame, note.tune);
                     }
-                    self.current_step.store(step_idx, .monotonic);
+                    self.current_step.store(@intCast(step_k % self.step_count), .monotonic);
                 }
                 step_k += 1;
             }
@@ -1116,13 +1160,14 @@ pub const DrumMachine = struct {
             const elapsed = lk - clip.start_step;
             const scaled = elapsed * clip.steps_per_beat;
             if (scaled % self.song_steps_per_beat != 0) continue;
-            const local: u32 = scaled / self.song_steps_per_beat % clip.step_count;
-            const local_idx: u16 = @intCast(local);
+            const local: u32 = scaled / self.song_steps_per_beat;
             for (0..max_pads) |p| {
-                const note = clip.midi[p][local_idx] orelse continue;
+                const len = self.padSteps(@intCast(p), clip.step_count);
+                const idx: u16 = @intCast(local % len);
+                const note = clip.midi[p][idx] orelse continue;
                 self.chokeTrigger(@intCast(p), velGain(note.velocity), fire_frame, note.tune);
             }
-            self.current_step.store(local_idx, .monotonic);
+            self.current_step.store(@intCast(local % clip.step_count), .monotonic);
             return; // clips never overlap
         }
         // No clip under the playhead: keep the UI step indicator moving
@@ -1880,6 +1925,37 @@ test "per-step tune clamps to the pad pitch range and only touches live steps" {
     // untouched.
     dm.toggleStep(0, 4);
     try std.testing.expectEqual(@as(i8, 0), dm.stepTune(0, 4));
+}
+
+test "a pad's own loop length wraps that row early and drifts against the rest" {
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    defer dm.deinit();
+    dm.setStepCount(16);
+
+    // Default: every row follows the pattern.
+    try std.testing.expectEqual(@as(u16, 16), dm.padSteps(0, 16));
+
+    dm.setPadLen(0, 7);
+    try std.testing.expectEqual(@as(u16, 7), dm.padSteps(0, 16));
+    // Untouched rows are unaffected - that's the whole point.
+    try std.testing.expectEqual(@as(u16, 16), dm.padSteps(1, 16));
+
+    // A length at or past the pattern means "follow the pattern" again,
+    // and a length past a *shorter* pattern is clamped at use time rather
+    // than being lost on write.
+    dm.setPadLen(0, 16);
+    try std.testing.expectEqual(@as(u16, 0), dm.pad_len[0]);
+    dm.setPadLen(0, 12);
+    try std.testing.expectEqual(@as(u16, 8), dm.padSteps(0, 8));
+    try std.testing.expectEqual(@as(u16, 12), dm.padSteps(0, 16));
+
+    // Nudging down from "follows the pattern" lands one below it, not at 1.
+    dm.setPadLen(0, 0);
+    dm.nudgePadLen(0, -1);
+    try std.testing.expectEqual(@as(u16, 15), dm.padSteps(0, 16));
+    dm.nudgePadLen(0, 99);
+    try std.testing.expectEqual(@as(u16, 0), dm.pad_len[0]);
 }
 
 test "adjustParam decodes pad/param and clamps" {

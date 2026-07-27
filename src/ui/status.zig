@@ -111,6 +111,12 @@ pub fn drawDrumStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !v
         try w.writeAll(dim ++ "  choke " ++ rst);
         try w.print("{d}", .{dm.choke_group[p]});
     }
+    // Same "only when it differs" rule as tune above: almost every row
+    // follows the pattern, and saying so on every frame is noise.
+    if (dm.pad_len[p] != 0) {
+        try w.writeAll(dim ++ "  loop " ++ rst);
+        try w.print("{d}", .{dm.padSteps(@intCast(p), dm.step_count)});
+    }
     try w.writeAll("  ");
     try w.writeAll(bold);
     try w.writeAll(dm.padName(@intCast(p)));

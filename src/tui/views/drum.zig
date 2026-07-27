@@ -135,6 +135,7 @@ pub fn drawDrumGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, s
         }
         const name = dm.padName(@intCast(p));
         const group = dm.choke_group[p];
+        const pad_len = dm.padSteps(@intCast(p), dm.step_count);
         try w.writeAll(if (group != 0) choke_colors[(group - 1) % choke_colors.len] else dim);
         // 8 = the rename cap (:rename), so no legal name truncates -
         // at 4 the two stock toms both rendered as "tom-".
@@ -150,7 +151,11 @@ pub fn drawDrumGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, s
             const is_cursor = (p == cur_pad and s == cur_step_u32);
             const is_play = is_playing and (s == playing_step_u32);
             const in_sel = visual_active and s >= sel_lo and s <= sel_hi and p >= sel_rows.lo and p <= sel_rows.hi;
-            try w.writeAll(style.stepCellSgr(active, is_cursor, is_play, in_sel));
+            // Past this row's own loop length the cells are still editable
+            // but never fire, so they read as empty regardless of content -
+            // the only in-grid signal that the row wraps early.
+            const out_of_loop = s >= pad_len;
+            try w.writeAll(style.stepCellSgr(active and !out_of_loop, is_cursor, is_play and !out_of_loop, in_sel));
 
             // Glyph tracks the step's velocity (0-127): full → quietest,
             // five bands shared with the slicer grid and the GUI's fill
@@ -161,7 +166,7 @@ pub fn drawDrumGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, s
             // 3-column cell has no room for a signed number, and the brackets
             // are the only per-cell real estate the velocity glyph isn't
             // already using.
-            const tuned = active and dm.stepTune(@intCast(p), @intCast(s)) != 0;
+            const tuned = active and !out_of_loop and dm.stepTune(@intCast(p), @intCast(s)) != 0;
             if (cell_width == 1) {
                 try w.writeByte(glyph);
             } else {

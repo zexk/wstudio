@@ -194,6 +194,8 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("e",            "open sampler editor for current pad");
     t.key("s",            "FX chain for drum track");
     t.key("+ / -",        "lengthen / shorten loop (1–64 steps)");
+    t.key("m / M",        "shorten / lengthen THIS pad's own loop - a 7-step hat drifts against a 16-step kick");
+    t.key(":pad-len",     "<n|off>  set the cursor pad's own loop length exactly (off = follow the pattern)");
     t.key("E",            "double loop length and copy its content (up to 64 steps)");
     t.key("X",            "clear all steps on current pad");
     t.key("F",            "fill all steps on current pad");

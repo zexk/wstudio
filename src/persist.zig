@@ -418,6 +418,11 @@ pub const DrumSnap = struct {
     swing: f32 = 50.0,
     /// v8: per-pad choke group (0 = none - see DrumMachine.chokeTrigger).
     choke_group: []const u8 = &.{},
+    /// Per-pad loop length in steps, 0 = follows the pattern (see
+    /// `DrumMachine.pad_len`). Additive optional-with-default field, no
+    /// version bump needed - an omitted/legacy entry means every pad follows
+    /// the pattern, which is how the file played when it was saved.
+    pad_len: []const u16 = &.{},
 };
 
 pub const CompSnap = struct {
@@ -995,6 +1000,9 @@ fn rackToSnap(aa: std.mem.Allocator, rack: *Rack, sample_rate: u32) !RackSnap {
             const choke = try aa.alloc(u8, DrumMachine.max_pads);
             @memcpy(choke, &dm.choke_group);
             ds.choke_group = choke;
+            const pad_len = try aa.alloc(u16, DrumMachine.max_pads);
+            @memcpy(pad_len, &dm.pad_len);
+            ds.pad_len = pad_len;
             // zig fmt: on
 
             ds.notes = try midiToNoteSnaps(aa, &dm.midi);
@@ -1834,6 +1842,13 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
                     for (ds.choke_group, 0..) |g, pi| {
                         if (pi >= DrumMachine.max_pads) break;
                         dmp.choke_group[pi] = @min(g, DrumMachine.max_choke_groups);
+                    }
+                    // Same "the file is the source of truth even when silent"
+                    // rule as the choke groups above.
+                    for (&dmp.pad_len) |*l| l.* = 0;
+                    for (ds.pad_len, 0..) |l, pi| {
+                        if (pi >= DrumMachine.max_pads) break;
+                        dmp.setPadLen(@intCast(pi), l);
                     }
                     // Only materialize a pad the file actually marked `used`
                     // (see PadSnap's doc comment) - an omitted/legacy entry

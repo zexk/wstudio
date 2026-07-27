@@ -200,6 +200,29 @@ pub fn draw(
         }
     }
 
+    // Drawn after the hits, not before: a row that loops on its own shorter
+    // length keeps its parked steps editable, but they never fire, so the
+    // shade has to sit over them (dsp/drum_sampler.zig's `pad_len`).
+    if (kind == .drum) {
+        for (row_start..row_end, 0..) |row, display_row| {
+            const len = instrument.padSteps(@intCast(row), @intCast(step_count));
+            if (len >= step_count) continue;
+            const x = grid_x + @as(f32, @floatFromInt(len)) * cell_w;
+            const y = grid_y + @as(f32, @floatFromInt(display_row)) * row_h;
+            draw_list.addRectFilled(.{
+                .pmin = .{ x, y },
+                .pmax = .{ grid_x + @as(f32, @floatFromInt(step_count)) * cell_w, y + row_h },
+                .col = color(.{ theme.bg0[0], theme.bg0[1], theme.bg0[2], 0.74 }),
+            });
+            draw_list.addLine(.{
+                .p1 = .{ x, y },
+                .p2 = .{ x, y + row_h },
+                .col = color(theme.modulation),
+                .thickness = 2,
+            });
+        }
+    }
+
     if (row_count > 0) {
         const display_row = cursor_row - row_start;
         const x = grid_x + @as(f32, @floatFromInt(cursor_step)) * cell_w;
