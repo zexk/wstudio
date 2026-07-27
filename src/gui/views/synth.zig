@@ -26,8 +26,6 @@ pub fn draw(app: anytype) void {
             return;
         },
     };
-    drawHeader(app, synth);
-    zgui.spacing();
     drawTabs(app);
     zgui.spacing();
     switch (app.core.synth_subview) {
@@ -37,6 +35,12 @@ pub fn draw(app: anytype) void {
     }
 }
 
+/// The editor's one title row: subview tabs, then the track name, then the
+/// section-focus badge - the same line, in the same order, that the TUI's
+/// `drawSynthTitle` emits. There was a 44px card above this printing
+/// "POLYPHONIC SYNTH" over the track name, which said nothing the chrome
+/// breadcrumb and this row did not already say, and had no TUI counterpart
+/// at all.
 fn drawTabs(app: anytype) void {
     for (synth_ed.subviews, 0..) |tab, i| {
         if (i > 0) zgui.sameLine(.{ .spacing = 5 });
@@ -45,6 +49,15 @@ fn drawTabs(app: anytype) void {
         zgui.pushStyleColor4f(.{ .idx = .text, .c = if (active) theme.bg0 else theme.fg2 });
         if (zgui.button(tab.label, .{ .w = 125, .h = 30 })) setSubview(app, tab.subview);
         zgui.popStyleColor(.{ .count = 2 });
+    }
+    const track = app.core.synth_track;
+    if (track < app.core.session.project.tracks.items.len) {
+        zgui.sameLine(.{ .spacing = 14 });
+        zgui.textColored(theme.focus, "\"{s}\"", .{app.core.session.project.tracks.items[track].name});
+    }
+    if (app.core.synth_section_focus) {
+        zgui.sameLine(.{ .spacing = 12 });
+        zgui.textColored(theme.audio, "FOCUS", .{});
     }
 }
 
@@ -113,22 +126,54 @@ fn drawSections(
     // way a synth's module strips do.
     const placements = placementsFor(columns);
     const column_w = @max(280, (available_width - gap * @as(f32, @floatFromInt(columns - 1))) / @as(f32, @floatFromInt(columns)));
+
+    // `z` isolates the cursor's section. The TUI has drawn only that card
+    // since the key shipped; the GUI ignored the flag entirely, so `z` there
+    // toggled a state with no visible effect whatsoever.
+    if (app.core.synth_section_focus) {
+        if (cursorSection(sections, app.core.synth_cursor)) |index| {
+            drawCard(app, synth, sections[index], child_prefix, index, 0);
+            return;
+        }
+    }
+
     for (sections, placements, 0..) |section, placement, index| {
         if (placement.col > 0) zgui.sameLine(.{ .spacing = gap });
-        var child_buf: [48]u8 = undefined;
-        const child_id = std.fmt.bufPrintZ(&child_buf, "{s}-{d}", .{ child_prefix, index }) catch continue;
-        zgui.pushStyleColor4f(.{ .idx = .child_bg, .c = theme.bg2 });
-        if (zgui.beginChild(child_id, .{
-            .w = if (placement.col + 1 == columns) 0 else column_w,
-            .h = 0,
-            .child_flags = .{ .border = true, .auto_resize_y = true },
-            .window_flags = .{ .no_scrollbar = true, .no_scroll_with_mouse = true },
-        })) {
-            drawSectionCard(app, synth, section);
-        }
-        zgui.endChild();
-        zgui.popStyleColor(.{});
+        drawCard(app, synth, section, child_prefix, index, if (placement.col + 1 == columns) 0 else column_w);
     }
+}
+
+/// Which section owns `cursor`, for `z`'s isolate-one-card mode.
+fn cursorSection(sections: []const synth_layout.SectionDef, cursor: u8) ?usize {
+    for (sections, 0..) |section, index| {
+        for (section.params) |entry| {
+            if (cursor >= entry.id and cursor < entry.id + entry.fields) return index;
+        }
+    }
+    return null;
+}
+
+fn drawCard(
+    app: anytype,
+    synth: *ws.dsp.PolySynth,
+    section: synth_layout.SectionDef,
+    comptime child_prefix: []const u8,
+    index: usize,
+    width: f32,
+) void {
+    var child_buf: [48]u8 = undefined;
+    const child_id = std.fmt.bufPrintZ(&child_buf, "{s}-{d}", .{ child_prefix, index }) catch return;
+    zgui.pushStyleColor4f(.{ .idx = .child_bg, .c = theme.bg2 });
+    if (zgui.beginChild(child_id, .{
+        .w = width,
+        .h = 0,
+        .child_flags = .{ .border = true, .auto_resize_y = true },
+        .window_flags = .{ .no_scrollbar = true, .no_scroll_with_mouse = true },
+    })) {
+        drawSectionCard(app, synth, section);
+    }
+    zgui.endChild();
+    zgui.popStyleColor(.{});
 }
 
 /// A section's gate: the leading on/off param every switchable card starts
@@ -633,25 +678,6 @@ fn drawWaveformParam(app: anytype, id: u8, label_text: []const u8, value: f32, a
 fn nudgeParam(app: anytype, id: u8, key: u8) void {
     app.core.synth_cursor = id;
     app.core.handleKey(.{ .char = key }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
-}
-
-/// A single title strip. This was a 156px block with OSCILLATOR/ENVELOPE/
-/// FILTER sketch panels, all three of which duplicated a control that is
-/// already on the page and larger: AMP ENV draws a live ADSR editor, FILTER
-/// draws a cutoff/res pad, and the oscillator sketch only ever showed OSC A.
-/// Per-module displays belong inside their module (see `drawOscDisplay`),
-/// which is where every synth puts them, so the header is just a header.
-fn drawHeader(app: anytype, synth: *ws.dsp.PolySynth) void {
-    _ = synth;
-    const width = zgui.getContentRegionAvail()[0];
-    const height: f32 = 44;
-    const origin = zgui.getCursorScreenPos();
-    _ = zgui.invisibleButton("synth-overview", .{ .w = width, .h = height });
-    const draw_list = zgui.getWindowDrawList();
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(theme.bg2), .rounding = 4 });
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + 5, origin[1] + height }, .col = color(theme.focus), .rounding = 3 });
-    draw_list.addText(.{ origin[0] + 17, origin[1] + 8 }, color(theme.fg3), "POLYPHONIC SYNTH", .{});
-    draw_list.addText(.{ origin[0] + 17, origin[1] + 24 }, color(theme.fg0), "{s}", .{app.core.session.project.tracks.items[app.core.synth_track].name});
 }
 
 /// The oscillator's own waveform display, at the top of its own card, drawn
