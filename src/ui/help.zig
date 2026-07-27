@@ -107,8 +107,8 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("(in :) ^P/^N", "recall previous / next command (readline style)");
     t.key("(in :) tab",   "complete the command name");
     t.key("(in :/) ^A/^E", "move to start / end; ^U/^K deletes before / after the cursor");
-    t.key("/",            "search prompt - fuzzy over track names / browser filenames, plain-text in this help");
-    t.key("n / N",        "repeat last search forward / backward (tracks, file browser, help)");
+    t.key("/",            "search prompt - fuzzy over track names / arrangement lanes / browser filenames / synth params, plain-text in this help");
+    t.key("n / N",        "repeat last search forward / backward (tracks, arrangement, file browser, synth editor, help)");
     t.key("`",            "jump to the alternate view - the last place you edited (press again to bounce back)");
     t.key("q{a-z} .. q",  "record a macro into register a-z; q (normal mode) stops it");
     t.key("[count]@{a-z}","replay a macro count times; @@ repeats the last replay");
@@ -276,6 +276,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("s",            "FX chain for this track");
     t.key("f",            "preset picker - factory + saved patches, / filters by name/tag/author, d deletes a save");
     t.key("a (in picker)", "audition the highlighted synth preset with C3; esc restores the original sound");
+    t.key("/",            "fuzzy-search param names across all three subviews, n / N repeat forward / backward");
     t.key(":synth-preset-save", "<name>  save the current params as a reusable preset");
     t.push(dim ++ "  ARP and ENV 3 sections sit after MACRO in the main subview (j/k reaches them).", .{});
     t.push(dim ++ "  the FX subview reuses the FX-chain a/x/</> keys documented under FX CHAIN below.", .{});
