@@ -135,7 +135,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("M",            "jump to the master row and open its FX chain");
     t.key("< / >",        "pan left / right  (5% per step)");
     t.key("- / +",        "track gain −1 dB / +1 dB  (= also works) - group row: bus fader; MASTER: master gain");
-    t.key("a",            "add synth track");
+    t.key("a",            "add synth track - joins the group under the cursor (or the cursor track's own group)");
     t.key("I",            "change selected track's instrument - opens the picker, keeps notes when the old/new kinds are compatible");
     t.key("dd",           "delete selected track, no confirm - on a group row: delete the group (members ungroup)");
     t.key("Y",            "duplicate selected track (instrument, FX, clips) at the end");

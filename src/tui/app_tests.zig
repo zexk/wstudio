@@ -3212,6 +3212,30 @@ test "dd on a group row lands the row cursor on the row that takes its place" {
     try std.testing.expectEqual(@as(usize, 1), app.cursor);
 }
 
+test "a on a group row (or a member) adds the new track into that group" {
+    var app = try testApp();
+    defer app.deinit();
+
+    // Rows are [t0, G, t1, t2].
+    const g = try app.session.addGroup("bus");
+    app.session.assignTrackGroup(1, g);
+    app.tracksRowSync();
+
+    app.setTrackRow(1); // the group's own row
+    app.handleKey(.{ .char = 'a' }, 0);
+    try std.testing.expectEqual(@as(?u8, g), app.session.project.tracks.items[app.cursor].group);
+
+    // From a member row too - otherwise the only way in is :track-group.
+    app.tracksRowSync();
+    app.handleKey(.{ .char = 'a' }, 0);
+    try std.testing.expectEqual(@as(?u8, g), app.session.project.tracks.items[app.cursor].group);
+
+    // An ungrouped row still adds an ungrouped track.
+    app.setTrackRow(0);
+    app.handleKey(.{ .char = 'a' }, 0);
+    try std.testing.expectEqual(@as(?u8, null), app.session.project.tracks.items[app.cursor].group);
+}
+
 test "J/K moves a track across a group folder and keeps its row cursor in sync" {
     var app = try testApp();
     defer app.deinit();

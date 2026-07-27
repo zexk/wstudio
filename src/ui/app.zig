@@ -3933,32 +3933,39 @@ pub const App = struct {
     // Track add / delete internals
     // -----------------------------------------------------------------------
 
-    /// Where a new track lands: right after the currently selected track,
-    /// or - on a folded group row - right after that group's last member,
-    /// so the new track shows up next to the group instead of jumping to
-    /// the very bottom. The master row and any view outside `.tracks` (e.g.
-    /// `:track-add` run from the synth editor) fall back to `self.cursor`,
-    /// which every view keeps pointed at "the" current track; past the
-    /// last real track (the master sentinel) that means append at the end.
+    /// Where a new track lands and which group it joins: right after the
+    /// currently selected track (inheriting that track's group), or - on a
+    /// group row - right after that group's last member, as a member of it.
+    /// Landing next to a group without joining it was the only way to get a
+    /// track "into" a group by hand, which isn't one at all - the row just
+    /// rendered below the whole group block, ungrouped. The master row and
+    /// any view outside `.tracks` (e.g. `:track-add` run from the synth
+    /// editor) fall back to `self.cursor`, which every view keeps pointed at
+    /// "the" current track; past the last real track (the master sentinel)
+    /// that means append at the end, ungrouped.
     /// Re-syncs the row cursor itself rather than trusting the caller to
     /// have done it - same "call before any row-cursor read" rule
     /// `tracksRowSync`'s own doc comment gives.
-    fn trackAddInsertIndex(self: *App) u16 {
-        const total: u16 = @intCast(self.session.project.tracks.items.len);
+    fn trackAddInsertIndex(self: *App) struct { at: u16, group: ?u8 } {
+        const tracks = self.session.project.tracks.items;
+        const total: u16 = @intCast(tracks.len);
         if (self.view == .tracks) {
             self.tracksRowSync();
             if (self.cursorGroup()) |g| {
                 var last: ?u16 = null;
-                for (self.session.project.tracks.items, 0..) |t, i| {
+                for (tracks, 0..) |t, i| {
                     if (t.group == g) last = @intCast(i);
                 }
-                return if (last) |l| l + 1 else total;
+                return .{ .at = if (last) |l| l + 1 else total, .group = g };
             }
-            if (self.cursorTrack()) |t| return t + 1;
-            return total;
+            if (self.cursorTrack()) |t| return .{ .at = t + 1, .group = tracks[t].group };
+            return .{ .at = total, .group = null };
         }
-        if (self.cursor < total) return @as(u16, @intCast(self.cursor)) + 1;
-        return total;
+        if (self.cursor < total) return .{
+            .at = @as(u16, @intCast(self.cursor)) + 1,
+            .group = tracks[self.cursor].group,
+        };
+        return .{ .at = total, .group = null };
     }
 
     // zig fmt: off
@@ -4068,10 +4075,10 @@ pub const App = struct {
     // zig fmt: on
 
     pub fn doTrackAdd(self: *App, name_arg: ?[]const u8) void {
-        const at = self.trackAddInsertIndex();
+        const pos = self.trackAddInsertIndex();
         const name: []const u8 = name_arg orelse "untitled track";
 
-        const idx = self.session.insertTrack(at, name) catch |err| {
+        const idx = self.session.insertTrack(pos.at, name) catch |err| {
             if (err == error.TrackLimitReached)
                 self.setStatus("track limit reached", .{})
             else
@@ -4080,6 +4087,7 @@ pub const App = struct {
         };
 
         self.shiftFieldsForInsert(idx);
+        if (pos.group) |g| self.session.assignTrackGroup(idx, g);
 
         const remap: undo_mod.TrackRemap = .{ .insert = idx };
         history.retargetPending(self, remap);
@@ -4089,7 +4097,14 @@ pub const App = struct {
         self.cursor = idx;
         self.invalidateTrackRow();
         self.dirty = true;
-        self.setStatus("added \"{s}\" (track {d})", .{ name, idx + 1 });
+        // Read the group back off the track: `assignTrackGroup` drops a
+        // stale index (a hand-edited file's, the one rebuildTrackRows
+        // already renders as ungrouped) rather than trusting `pos`.
+        if (self.session.project.tracks.items[idx].group) |g| {
+            self.setStatus("added \"{s}\" (track {d}) to \"{s}\"", .{ name, idx + 1, self.session.groups[g].?.name });
+        } else {
+            self.setStatus("added \"{s}\" (track {d})", .{ name, idx + 1 });
+        }
         self.emitEvent(.{ .TrackAdd = .{ .track = idx + 1 } });
     }
 
