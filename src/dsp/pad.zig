@@ -104,6 +104,9 @@ pub const param_count: u8 = 15;
 /// enum rows) name them rather than hardcoding bare numbers.
 pub const reverse_id: u8 = 9;
 pub const gate_id: u8 = 14;
+/// Playback transpose, named for the same reason: callers that spread a
+/// chop's pitch across pads/slices shouldn't hardcode the index.
+pub const pitch_id: u8 = 2;
 
 /// Nudge shared pad param `id` (0-14) by `steps` (h/l = ±1, H/L = ±10). Shared
 /// by Sampler and Slicer, whose per-slice params were previously hand-copied

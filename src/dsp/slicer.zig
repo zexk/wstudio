@@ -288,6 +288,53 @@ pub const Slicer = struct {
         return self.slice_count;
     }
 
+    /// Serato's "Set Random": chop into `n` slices at random boundaries
+    /// rather than at transients or on an even grid - the dice roll that
+    /// turns a loop you know too well into chops you would never have drawn
+    /// by hand. Cuts are drawn from a grid four times finer than the slice
+    /// count: uneven enough to be worth rolling, coarse enough that no slice
+    /// comes out too short to hear. Partial Fisher-Yates over that grid
+    /// rather than rejection sampling, so a repeated draw can't spin.
+    /// Returns the new slice count.
+    pub fn chopRandom(self: *Slicer, n: u8, rand: std.Random) u8 {
+        const count = std.math.clamp(n, 1, max_slices);
+        if (count == 1) {
+            self.sliceInto(1);
+            return self.slice_count;
+        }
+        const res: usize = @as(usize, count) * 4;
+        var grid: [@as(usize, max_slices) * 4 - 1]u8 = undefined;
+        const pool = grid[0 .. res - 1];
+        for (pool, 0..) |*g, i| g.* = @intCast(i + 1);
+        for (0..count - 1) |i| {
+            const j = i + rand.uintLessThan(usize, pool.len - i);
+            std.mem.swap(u8, &pool[i], &pool[j]);
+        }
+        const cuts = pool[0 .. count - 1];
+        std.mem.sort(u8, cuts, {}, std.sort.asc(u8));
+
+        var positions: [max_slices]f32 = undefined;
+        positions[0] = 0.0;
+        const res_f: f32 = @floatFromInt(res);
+        for (cuts, 1..) |c, k| positions[k] = @as(f32, @floatFromInt(c)) / res_f;
+        self.chopAt(positions[0..count]);
+        return self.slice_count;
+    }
+
+    /// Spread `step` semitones per slice across the whole chop (slice 0
+    /// unchanged, slice 1 at `step`, ...) - Serato's "pitch a chop across
+    /// the pads" trick, which turns one hit into a playable scale down the
+    /// grid. Clamped to the pad pitch range, so a big step flattens out at
+    /// the top rather than wrapping.
+    pub fn spreadPitch(self: *Slicer, step: f32) void {
+        while (!self.sample_lock.tryLock()) std.atomic.spinLoopHint();
+        defer self.sample_lock.unlock();
+        for (0..self.slice_count) |i| {
+            const semis = step * @as(f32, @floatFromInt(i));
+            pad_mod.setParamAbsolute(&self.slices[i], pad_mod.pitch_id, semis);
+        }
+    }
+
     /// Chop into contiguous regions whose starts are `positions` (ascending
     /// fractions of the clip, first entry treated as 0); each region ends
     /// where the next begins, the last at 1.0.
@@ -1050,6 +1097,52 @@ test "chopTransients on silence falls back to one whole-clip slice" {
     try std.testing.expectEqual(@as(u8, 1), s.chopTransients(9));
     try std.testing.expectApproxEqAbs(@as(f32, 0.0), s.slices[0].start_norm, 1e-6);
     try std.testing.expectApproxEqAbs(@as(f32, 1.0), s.slices[0].end_norm, 1e-6);
+}
+
+test "chopRandom lays down n contiguous, uneven, non-empty slices" {
+    var transport = Transport{ .sample_rate = 48_000 };
+    var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
+    defer s.deinit();
+
+    var prng = std.Random.DefaultPrng.init(0xC0FFEE);
+    try std.testing.expectEqual(@as(u8, 12), s.chopRandom(12, prng.random()));
+
+    var even = true;
+    const nominal: f32 = 1.0 / 12.0;
+    for (0..12) |i| {
+        const p = &s.slices[i];
+        // Non-empty, contiguous, and inside the clip.
+        try std.testing.expect(p.end_norm > p.start_norm);
+        if (i == 0) try std.testing.expectApproxEqAbs(@as(f32, 0.0), p.start_norm, 1e-6);
+        if (i == 11) try std.testing.expectApproxEqAbs(@as(f32, 1.0), p.end_norm, 1e-6);
+        if (i + 1 < 12) try std.testing.expectApproxEqAbs(p.end_norm, s.slices[i + 1].start_norm, 1e-6);
+        if (@abs((p.end_norm - p.start_norm) - nominal) > 1e-4) even = false;
+    }
+    // The whole point of the dice roll: not an even divide.
+    try std.testing.expect(!even);
+
+    // Degenerate counts still leave a usable chop.
+    try std.testing.expectEqual(@as(u8, 1), s.chopRandom(1, prng.random()));
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), s.slices[0].end_norm, 1e-6);
+}
+
+test "spreadPitch ramps a semitone step across the live slices only" {
+    var transport = Transport{ .sample_rate = 48_000 };
+    var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
+    defer s.deinit();
+    s.sliceInto(4);
+
+    s.spreadPitch(3.0);
+    for (0..4) |i| {
+        const want: f32 = 3.0 * @as(f32, @floatFromInt(i));
+        try std.testing.expectApproxEqAbs(want, s.slices[i].pitch_semitones, 1e-6);
+    }
+    // Past the live count nothing was touched.
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), s.slices[4].pitch_semitones, 1e-6);
+
+    // A big step clamps at the pad pitch range rather than wrapping.
+    s.spreadPitch(20.0);
+    try std.testing.expectApproxEqAbs(@as(f32, 24.0), s.slices[3].pitch_semitones, 1e-6);
 }
 
 test "splitSlice halves the region and shifts later pattern rows down" {

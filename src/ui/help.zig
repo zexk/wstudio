@@ -188,6 +188,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.group("SOUND AND PATTERNS");
     t.key("f",            "kit picker - factory + saved kits, / filters by name/tag/author, d deletes a save");
     t.key(":drum-kit-save", "<name>  save pads 0-7's tuning (name/gain/pan/pitch/ADSR/choke, no audio) as a reusable kit");
+    t.key(":spread",      "[semitones]  ramp pitch across the loaded pads, one step each (default 1)");
     t.key("R",            "rename current pad (opens :rename <n>, 8 chars max)");
     t.key("e",            "open sampler editor for current pad");
     t.key("s",            "FX chain for drum track");
@@ -209,7 +210,9 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("",             "  waveform shows every boundary - the cursor slice is highlighted");
     t.key(":load",        "[file.wav]  load a WAV as the shared clip (opens the file browser with no path)");
     t.key(":chop",        "[1-9]  chop at detected transients (sensitivity, default 5 - higher finds more)");
+    t.key(":chop-random", "[n]  roll the dice: n uneven slices, boundaries picked at random (default 8)");
     t.key(":slice",       "<n>  equal-divide the loaded clip into n slices (1-64)");
+    t.key(":spread",      "[semitones]  ramp pitch across the slices, one step each (default 1)");
     t.key("s / m",        "split cursor slice in half / merge it into the next (patterns follow)");
     t.key("h / l",        "move cursor left / right (one step)");
     t.key("H / L",        "move cursor left / right (one beat, coarse)");

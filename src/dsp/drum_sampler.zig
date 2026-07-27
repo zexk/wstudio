@@ -800,6 +800,19 @@ pub const DrumMachine = struct {
         return self.current_step.load(.monotonic);
     }
 
+    /// Spread `step` semitones per pad across the whole kit (pad 0 unchanged,
+    /// pad 1 at `step`, ...) - the counterpart to `Slicer.spreadPitch`, for
+    /// playing one chopped-up kit chromatically down the grid. Skips
+    /// never-loaded pads: there is nothing to transpose there, and
+    /// materializing 64 samplers to write a param would be a lot of memory
+    /// for a no-op.
+    pub fn spreadPitch(self: *DrumMachine, step: f32) void {
+        for (&self.pads, 0..) |*slot, i| {
+            const s = if (slot.*) |*live| live else continue;
+            s.setParamAbsolute(pad_mod.pitch_id, step * @as(f32, @floatFromInt(i)));
+        }
+    }
+
     /// Encode a (pad, param) pair into the `set_param` id space.
     pub fn paramId(pad: u8, param: u8) u16 {
         return (@as(u16, pad) << 4) | (param & 0x0F);

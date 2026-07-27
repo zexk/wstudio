@@ -88,6 +88,8 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "sf-preset",   .desc = "<bank> <program>  jump to a SoundFont preset by its MIDI bank/program number", .run = wrap(cmdSfPreset), .scope = .soundfont },
     .{ .name = "slice",       .desc = "<n>  equal-divide the slicer's loaded clip into n slices (1-64)", .run = wrap(cmdSlice), .scope = .slicer },
     .{ .name = "chop",        .desc = "[1-9]  chop the slicer's clip at detected transients (sensitivity, default 5)", .run = wrap(cmdChop), .scope = .slicer },
+    .{ .name = "chop-random", .desc = "[n]  roll the dice: chop the slicer's clip into n uneven slices (default 8)", .run = wrap(cmdChopRandom), .scope = .slicer },
+    .{ .name = "spread",      .desc = "[semitones]  ramp pitch across the slices/pads, one step each (default 1)", .run = wrap(cmdSpread) },
     .{ .name = "edit",        .desc = "[file]  open a project (refuses if unsaved changes; omit the file to browse)", .run = wrap(cmdEdit) },
     .{ .name = "edit!",       .desc = "[file]  open a project, discarding changes; no file reverts the current one", .run = wrap(cmdEditForce) },
     .{ .name = "e",           .desc = "[file]  open a project (alias for :edit)", .run = wrap(cmdEdit) },
@@ -2171,6 +2173,56 @@ fn cmdChop(app: *App, args: []const u8) void {
         app.setStatus("chop: no transients found - try a higher sensitivity (:chop 1-9)", .{})
     else
         app.setStatus("chopped into {d} slices (sensitivity {d})", .{ n, sensitivity });
+}
+
+/// `:chop-random [n]` - Serato's "Set Random": chop into n slices at random
+/// boundaries instead of transients or an even grid. Seeded off the frame
+/// clock, so rolling it twice in a row gives two different chops.
+fn cmdChopRandom(app: *App, args: []const u8) void {
+    const track = cursorSlicerTrack(app) orelse {
+        app.setStatus("chop-random: select a slicer track first", .{});
+        return;
+    };
+    const sl = &app.session.racks.items[track].instrument.slicer;
+    const trimmed = std.mem.trim(u8, args, " ");
+    const n: u16 = if (trimmed.len == 0) 8 else std.fmt.parseInt(u16, trimmed, 10) catch 0;
+    if (n < 1 or n > Slicer.max_slices) {
+        app.setStatus("chop-random: usage :chop-random [1-{d}] (default 8)", .{Slicer.max_slices});
+        return;
+    }
+    history.recordSlicer(app, track);
+    var prng = std.Random.DefaultPrng.init(@bitCast(@as(i64, @truncate(app.now_ns))));
+    const made = sl.chopRandom(@intCast(n), prng.random());
+    app.dirty = true;
+    app.setStatus("rolled {d} random slices", .{made});
+}
+
+/// `:spread [semitones]` - ramp playback pitch across a slicer's slices or a
+/// drum machine's pads, one step per slot, so a single chop becomes playable
+/// chromatically down the grid. Negative steps ramp down.
+fn cmdSpread(app: *App, args: []const u8) void {
+    const trimmed = std.mem.trim(u8, args, " ");
+    const step: f32 = if (trimmed.len == 0) 1.0 else parseFiniteFloat(f32, trimmed) catch {
+        app.setStatus("spread: usage :spread [semitones] (default 1)", .{});
+        return;
+    };
+    if (cursorSlicerTrack(app)) |track| {
+        const sl = &app.session.racks.items[track].instrument.slicer;
+        history.recordSlicer(app, track);
+        sl.spreadPitch(step);
+        app.dirty = true;
+        app.setStatus("spread {d:.2} st across {d} slices", .{ step, sl.slice_count });
+        return;
+    }
+    if (cursorDrumTrack(app)) |track| {
+        const dm = &app.session.racks.items[track].instrument.drum_machine;
+        history.recordDrum(app, track);
+        dm.spreadPitch(step);
+        app.dirty = true;
+        app.setStatus("spread {d:.2} st across the kit", .{step});
+        return;
+    }
+    app.setStatus("spread: select a slicer or drum track first", .{});
 }
 
 /// Explicit :save argument (with `~` expanded), else the file the session
