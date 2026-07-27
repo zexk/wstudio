@@ -664,6 +664,36 @@ pub fn resizeNoteSteps(app: *App, pitch: u7, start_step: u16, duration_steps: u1
     return true;
 }
 
+/// GUI left-edge drag adapter: move a note's start while its end stays put,
+/// FL's resize-from-left. Goes through remove + re-add rather than writing
+/// `start_beat` in place, since moving a note's onset needs the pattern's
+/// full lock and the note_off its old position had queued (`removeNote`
+/// does both). Capacity can't bite: the slot freed by the remove is the one
+/// the re-add takes.
+pub fn resizeNoteFromLeft(app: *App, pitch: u7, start_step: u16, new_start_step: u16) bool {
+    const pp = currentPatternPlayer(app) orelse return false;
+    if (new_start_step == start_step) return false;
+    const old_start = stepToBeat(app, start_step);
+    const note = pp.noteAt(pitch, old_start) orelse return false;
+    const end = note.start_beat + note.duration_beat;
+    const new_start = stepToBeat(app, new_start_step);
+    if (new_start >= end - 1e-9) return false;
+    const velocity = note.velocity;
+    history.recordMelodic(app, app.piano_track);
+    pp.removeNote(pitch, old_start);
+    _ = pp.tryAddNote(.{
+        .pitch = pitch,
+        .start_beat = new_start,
+        .duration_beat = end - new_start,
+        .velocity = velocity,
+    });
+    app.piano_cursor_pitch = pitch;
+    app.piano_cursor_step = new_start_step;
+    app.setStatus("note start: {d:.2}b, len {d:.2}b", .{ new_start, end - new_start });
+    syncLinkedClip(app);
+    return true;
+}
+
 /// GUI velocity-lane drag adapter: set one note's velocity outright, with the
 /// cursor, status, and linked-clip writeback `<`/`>` use. Deliberately does
 /// NOT push undo - a drag calls this every frame, so the caller records one

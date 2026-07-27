@@ -119,6 +119,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("click",        "select / activate - same as enter (tracks, drum steps, piano notes, list rows)");
     t.key("scroll",       "move the cursor - pitch in the piano roll, value in synth/sampler/FX (ctrl: coarse)");
     t.key("drag",         "paint drum steps, move a piano note or arrangement clip, drag a sampler marker");
+    t.key("drag (GUI)",   "piano note edges resize it - right edge sets the length, left edge moves the start");
     t.key("shift+scroll", "piano roll only: move the step cursor instead of pitch");
     t.key("shift+drag",   "bypass wstudio - your terminal's native text selection (for copy/paste)");
 

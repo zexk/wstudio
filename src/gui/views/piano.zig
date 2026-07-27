@@ -17,7 +17,12 @@ const theme = &gui_style.palette;
 
 /// In-flight mouse edit; lives on the GUI App so it survives across frames.
 pub const MouseEdit = struct {
-    kind: enum { move, resize },
+    /// `resize` drags the note's right edge (its length), `resize_left` the
+    /// left one - the start moves while the end stays put, FL's resize-from-
+    /// left. `duration_steps` is the live length under a `resize` drag but
+    /// stays at the grabbed length under `resize_left`, where `target_step`
+    /// carries the new start instead.
+    kind: enum { move, resize, resize_left },
     source_pitch: u7,
     source_step: u16,
     grab_step_offset: u16 = 0,
@@ -37,6 +42,11 @@ fn previewNote(source: ws.dsp.pattern.Note, edit: ?MouseEdit, steps_per_beat: us
             note.start_beat = @as(f64, @floatFromInt(active.target_step)) / @as(f64, @floatFromInt(steps_per_beat));
         },
         .resize => note.duration_beat = @as(f64, @floatFromInt(active.duration_steps)) / @as(f64, @floatFromInt(steps_per_beat)),
+        .resize_left => {
+            const end = active.source_step + active.duration_steps;
+            note.start_beat = @as(f64, @floatFromInt(active.target_step)) / @as(f64, @floatFromInt(steps_per_beat));
+            note.duration_beat = @as(f64, @floatFromInt(end - active.target_step)) / @as(f64, @floatFromInt(steps_per_beat));
+        },
     }
     return note;
 }
@@ -48,6 +58,8 @@ fn updateMouseEdit(edit: *MouseEdit, pointer_pitch: u7, pointer_step: usize) voi
             edit.target_step = @intCast(pointer_step -| edit.grab_step_offset);
         },
         .resize => edit.duration_steps = @intCast(@max(1, pointer_step + 1 -| edit.source_step)),
+        // The end is fixed, so the start can never reach or pass it.
+        .resize_left => edit.target_step = @intCast(@min(pointer_step, @as(usize, edit.source_step + edit.duration_steps) - 1)),
     }
 }
 
@@ -61,6 +73,20 @@ test "mouse note edits preview before commit" {
     resize.kind = .resize;
     resize.duration_steps = 6;
     try std.testing.expectEqual(@as(f64, 1.5), previewNote(note, resize, 4).duration_beat);
+
+    // A left-edge drag moves the start and keeps the end: [4,6) grabbed at
+    // 2 steps long, dragged to step 2, previews as [2,6) - 1 beat long.
+    var left = base;
+    left.kind = .resize_left;
+    left.target_step = 2;
+    const shrunk = previewNote(note, left, 4);
+    try std.testing.expectEqual(@as(f64, 0.5), shrunk.start_beat);
+    try std.testing.expectEqual(@as(f64, 1.0), shrunk.duration_beat);
+
+    // The pointer can never push the start onto or past the fixed end.
+    var edit = left;
+    updateMouseEdit(&edit, 60, 99);
+    try std.testing.expectEqual(@as(u16, 5), edit.target_step);
 }
 
 fn drawToolbar(app: anytype) void {
@@ -305,11 +331,15 @@ pub fn draw(app: anytype) void {
         if (zgui.isMouseClicked(.left)) {
             if (noteCovering(pp, pointer_pitch, pointer_beat)) |note| {
                 const source_step: u16 = @intFromFloat(@round(note.start_beat * @as(f64, @floatFromInt(steps_per_beat))));
+                const start_x = grid_x + @as(f32, @floatCast(note.start_beat)) * beat_w;
                 const end_x = grid_x + @as(f32, @floatCast(note.start_beat + note.duration_beat)) * beat_w;
                 app.core.piano_cursor_pitch = note.pitch;
                 app.core.piano_cursor_step = source_step;
                 app.piano_mouse_edit = .{
-                    .kind = if (mouse[0] >= end_x - 7) .resize else .move,
+                    // Either edge resizes, the body moves. The right edge
+                    // wins a note too short for both grab zones, since
+                    // lengthening it is the way back out of that state.
+                    .kind = if (mouse[0] >= end_x - 7) .resize else if (mouse[0] <= start_x + 7) .resize_left else .move,
                     .source_pitch = note.pitch,
                     .source_step = source_step,
                     .grab_step_offset = @intCast(pointer_step -| source_step),
@@ -342,6 +372,7 @@ pub fn draw(app: anytype) void {
             switch (edit.kind) {
                 .move => _ = piano_ed.moveNoteTo(&app.core, edit.source_pitch, edit.source_step, edit.target_pitch, edit.target_step),
                 .resize => _ = piano_ed.resizeNoteSteps(&app.core, edit.source_pitch, edit.source_step, edit.duration_steps),
+                .resize_left => _ = piano_ed.resizeNoteFromLeft(&app.core, edit.source_pitch, edit.source_step, edit.target_step),
             }
             app.piano_mouse_edit = null;
         }

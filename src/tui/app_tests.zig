@@ -1178,6 +1178,36 @@ test "piano roll chord stamp: bare c is root position, a count prefix inverts" {
     try std.testing.expect(pp.noteAt(72, 2.0) == null);
 }
 
+test "piano roll resizeNoteFromLeft moves the start and keeps the end" {
+    var app = try testApp();
+    defer app.deinit();
+    app.view = .piano_roll;
+    app.piano_track = 0;
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    pp.length_beats = 4.0;
+    pp.addNote(.{ .pitch = 60, .start_beat = 1.0, .duration_beat = 1.0, .velocity = 0.6 });
+
+    // Step 2 (0.5b) with the end pinned at 2.0b: a 1.5-beat note.
+    try std.testing.expect(piano_ed.resizeNoteFromLeft(&app, 60, 4, 2));
+    try std.testing.expectEqual(@as(u16, 1), pp.note_count);
+    const note = pp.noteAt(60, 0.5) orelse return error.NoteMissing;
+    try std.testing.expectApproxEqAbs(@as(f64, 1.5), note.duration_beat, 1e-9);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.6), note.velocity, 1e-6);
+    try std.testing.expectEqual(@as(u16, 2), app.piano_cursor_step);
+    try std.testing.expectEqual(@as(usize, 1), app.history.undo_stack.items.len);
+
+    // A start at or past the end is refused, as is a no-op or a missing note.
+    try std.testing.expect(!piano_ed.resizeNoteFromLeft(&app, 60, 2, 8));
+    try std.testing.expect(!piano_ed.resizeNoteFromLeft(&app, 60, 2, 2));
+    try std.testing.expect(!piano_ed.resizeNoteFromLeft(&app, 72, 2, 0));
+    try std.testing.expectEqual(@as(usize, 1), app.history.undo_stack.items.len);
+
+    // Undo puts it back where it was, in one step.
+    history.doUndo(&app);
+    try std.testing.expect(pp.noteAt(60, 1.0) != null);
+    try std.testing.expectApproxEqAbs(@as(f64, 1.0), pp.noteAt(60, 1.0).?.duration_beat, 1e-9);
+}
+
 test "piano roll setVelocity (GUI lane drag) writes without its own undo entry" {
     var app = try testApp();
     defer app.deinit();
