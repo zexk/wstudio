@@ -218,6 +218,11 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                         app.setStatus("vel {d}", .{dm.stepVel(@intCast(pad.*), step.*)});
                     } else app.setStatus("no step here - enter places one", .{});
                 },
+                // (/): per-step tune, the same fine-nudge shape {/} has for
+                // velocity - one hit detuned without touching the pad every
+                // other hit on that row shares.
+                '(' => nudgeTune(app, -app.takeCount()),
+                ')' => nudgeTune(app, app.takeCount()),
                 // v: blockwise - a (pad, step) rectangle, one pad tall until
                 // j/k grow it. V: linewise - the step range across every pad,
                 // which is what visual mode did unconditionally before the
@@ -430,6 +435,21 @@ fn armOperator(app: *App, op: u8) void {
 /// anchor `armOperator` set and the cursor's new position.
 fn finishOperator(app: *App, op: u8) void {
     if (op == 'd') deleteSelection(app) else yankSelection(app);
+}
+
+/// `(`/`)`: transpose the hit under the cursor by `delta` semitones, the
+/// per-step counterpart to the pad's own pitch param.
+fn nudgeTune(app: *App, delta: i32) void {
+    const dm = app.drumMachine();
+    const pad: u8 = @intCast(app.drum_cursor[0]);
+    const step = app.drum_cursor[1];
+    // zig fmt: off
+    if (!dm.stepActive(pad, step)) { app.setStatus("no step here - enter places one", .{}); return; }
+    // zig fmt: on
+    history.recordDrum(app, app.drum_track);
+    dm.nudgeStepTune(pad, step, delta);
+    const semis = dm.stepTune(pad, step);
+    app.setStatus("tune {s}{d} st", .{ if (semis > 0) "+" else "", semis });
 }
 
 /// `x`: vim's char-delete - clears just the (pad, step) under the cursor,

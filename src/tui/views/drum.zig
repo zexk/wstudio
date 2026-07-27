@@ -156,14 +156,20 @@ pub fn drawDrumGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, s
             // five bands shared with the slicer grid and the GUI's fill
             // shading (editors/step_grid.zig).
             const glyph: u8 = if (!active) ' ' else step_grid.velocityBand(dm.stepVel(@intCast(p), @intCast(s))).glyph();
+            // A tuned step swaps its brackets for parens, matching the (/)
+            // keys that set the tune. The amount is on the status line - a
+            // 3-column cell has no room for a signed number, and the brackets
+            // are the only per-cell real estate the velocity glyph isn't
+            // already using.
+            const tuned = active and dm.stepTune(@intCast(p), @intCast(s)) != 0;
             if (cell_width == 1) {
                 try w.writeByte(glyph);
             } else {
-                try w.writeByte('[');
+                try w.writeByte(if (tuned) '(' else '[');
                 try w.splatByteAll(' ', (cell_width - 3) / 2);
                 try w.writeByte(glyph);
                 try w.splatByteAll(' ', cell_width - 3 - (cell_width - 3) / 2);
-                try w.writeByte(']');
+                try w.writeByte(if (tuned) ')' else ']');
             }
             try w.writeAll(rst);
         }

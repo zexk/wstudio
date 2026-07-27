@@ -361,6 +361,10 @@ pub const DrumNoteSnap = struct {
     step: u16,
     duration_steps: u16 = 1,
     velocity: u7 = 127,
+    /// Per-step transpose in semitones (see `DrumMachine.MidiNote.tune`).
+    /// Additive optional-with-default field, no version bump needed - an
+    /// older file omits it and loads untuned, exactly as it sounded.
+    tune: i8 = 0,
 };
 
 pub const VariantSnap = struct {
@@ -2081,7 +2085,7 @@ fn midiToNoteSnaps(aa: std.mem.Allocator, midi: *const [DrumMachine.max_pads][]?
     for (midi, 0..) |row, pad| {
         for (row) |maybe_note| {
             const note = maybe_note orelse continue;
-            out[i] = .{ .pad = @intCast(pad), .step = note.step, .duration_steps = note.duration_steps, .velocity = note.velocity };
+            out[i] = .{ .pad = @intCast(pad), .step = note.step, .duration_steps = note.duration_steps, .velocity = note.velocity, .tune = note.tune };
             i += 1;
         }
     }
@@ -2099,6 +2103,7 @@ fn applyNoteSnap(midi: *[DrumMachine.max_pads][]?DrumMachine.MidiNote, step_coun
             .step = n.step,
             .duration_steps = @max(1, n.duration_steps),
             .velocity = @min(n.velocity, DrumMachine.vel_full),
+            .tune = @intCast(std.math.clamp(@as(i16, n.tune), -24, 24)),
         };
     }
 }

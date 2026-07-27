@@ -108,6 +108,11 @@ pub const DrumMachine = struct {
         step: u16,
         duration_steps: u16 = 1,
         velocity: u7 = vel_full,
+        /// Per-step playback transpose in semitones, on top of the pad's own
+        /// `pitch_semitones` - Elektron's pitch parameter-lock, the cheap
+        /// slice of p-locks that turns one tom into a fill. `pitch` above is
+        /// only the pad tag (see `gridNote`), so tuning needs its own field.
+        tune: i8 = 0,
 
         pub fn toPattern(self: MidiNote, steps_per_beat: u8) Note {
             return .{
@@ -659,6 +664,24 @@ pub const DrumMachine = struct {
         self.setStepVel(pad, step, @intCast(next));
     }
 
+    /// Per-step transpose in semitones, 0 on an empty step (nothing to tune).
+    pub fn stepTune(self: *const DrumMachine, pad: u8, step: u16) i8 {
+        if (pad >= max_pads or step >= self.step_count) return 0;
+        const note = self.midi[pad][step] orelse return 0;
+        return note.tune;
+    }
+
+    /// Same ±24 semitone range a pad's own pitch param clamps to, so a hit
+    /// can't be tuned somewhere the pad itself could never reach.
+    pub fn setStepTune(self: *DrumMachine, pad: u8, step: u16, semis: i32) void {
+        if (pad >= max_pads or step >= self.step_count) return;
+        if (self.midi[pad][step]) |*note| note.tune = @intCast(std.math.clamp(semis, -24, 24));
+    }
+
+    pub fn nudgeStepTune(self: *DrumMachine, pad: u8, step: u16, delta: i32) void {
+        self.setStepTune(pad, step, @as(i32, self.stepTune(pad, step)) + delta);
+    }
+
     /// Wipe one pad's row: no steps.
     pub fn clearPad(self: *DrumMachine, pad: u8) void {
         if (pad >= max_pads) return;
@@ -1041,7 +1064,7 @@ pub const DrumMachine = struct {
                     const step_idx: u16 = @intCast(step_k % self.step_count);
                     for (0..max_pads) |p| {
                         const note = self.midi[p][step_idx] orelse continue;
-                        self.chokeTrigger(@intCast(p), velGain(note.velocity), fire_frame);
+                        self.chokeTrigger(@intCast(p), velGain(note.velocity), fire_frame, note.tune);
                     }
                     self.current_step.store(step_idx, .monotonic);
                 }
@@ -1097,7 +1120,7 @@ pub const DrumMachine = struct {
             const local_idx: u16 = @intCast(local);
             for (0..max_pads) |p| {
                 const note = clip.midi[p][local_idx] orelse continue;
-                self.chokeTrigger(@intCast(p), velGain(note.velocity), fire_frame);
+                self.chokeTrigger(@intCast(p), velGain(note.velocity), fire_frame, note.tune);
             }
             self.current_step.store(local_idx, .monotonic);
             return; // clips never overlap
@@ -1114,7 +1137,10 @@ pub const DrumMachine = struct {
     /// `choke_group`), every other pad sharing that group is silenced too
     /// (e.g. a closed-hat hit cutting an open hat's ring-out). A no-op on an
     /// unloaded (null) pad - nothing to trigger.
-    fn chokeTrigger(self: *DrumMachine, p: u8, vel: f32, block_start: u32) void {
+    /// `tune` shifts this one hit by that many semitones, riding on top of
+    /// the pad's own transpose - the Sampler already pitches a voice by
+    /// `note - root_note`, so a tuned hit is just a different trigger note.
+    fn chokeTrigger(self: *DrumMachine, p: u8, vel: f32, block_start: u32, tune: i8) void {
         const pad = if (self.pads[p]) |*s| s else return;
         const group = self.choke_group[p];
         if (group != 0) {
@@ -1125,12 +1151,13 @@ pub const DrumMachine = struct {
             }
         }
         pad.resetAll();
-        pad.trigger(pad.root_note, vel, block_start);
+        const note: u7 = @intCast(std.math.clamp(@as(i16, pad.root_note) + tune, 0, 127));
+        pad.trigger(note, vel, block_start);
     }
 
     fn triggerPad(self: *DrumMachine, pad_idx: u8, vel: f32) void {
         if (pad_idx >= max_pads) return;
-        self.chokeTrigger(pad_idx, vel, 0);
+        self.chokeTrigger(pad_idx, vel, 0, 0);
     }
 
     pub fn resetAll(self: *DrumMachine) void {
@@ -1825,6 +1852,34 @@ test "grid resolution preserves hit times through 1/128" {
     try std.testing.expect(dm.setStepsPerBeatPreservingTime(4));
     try std.testing.expectEqual(@as(u16, 8), dm.step_count);
     try std.testing.expect(dm.stepActive(0, 1));
+}
+
+test "per-step tune clamps to the pad pitch range and only touches live steps" {
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    defer dm.deinit();
+
+    // An empty step has nothing to tune and reports 0.
+    try std.testing.expectEqual(@as(i8, 0), dm.stepTune(0, 3));
+    dm.nudgeStepTune(0, 3, 5);
+    try std.testing.expectEqual(@as(i8, 0), dm.stepTune(0, 3));
+
+    dm.toggleStep(0, 3);
+    dm.nudgeStepTune(0, 3, 5);
+    try std.testing.expectEqual(@as(i8, 5), dm.stepTune(0, 3));
+    dm.nudgeStepTune(0, 3, -12);
+    try std.testing.expectEqual(@as(i8, -7), dm.stepTune(0, 3));
+
+    // Same ±24 ceiling the pad's own pitch param clamps to.
+    dm.nudgeStepTune(0, 3, 500);
+    try std.testing.expectEqual(@as(i8, 24), dm.stepTune(0, 3));
+    dm.nudgeStepTune(0, 3, -500);
+    try std.testing.expectEqual(@as(i8, -24), dm.stepTune(0, 3));
+
+    // Tune is per step, not per pad: its neighbour on the same row is
+    // untouched.
+    dm.toggleStep(0, 4);
+    try std.testing.expectEqual(@as(i8, 0), dm.stepTune(0, 4));
 }
 
 test "adjustParam decodes pad/param and clamps" {

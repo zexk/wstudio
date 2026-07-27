@@ -99,6 +99,13 @@ pub fn drawDrumStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !v
     if (dm.stepActive(@intCast(p), s)) {
         try w.writeAll(dim ++ "  vel " ++ rst);
         try w.print("{d}", .{dm.stepVel(@intCast(p), s)});
+        // Only shown once tuned - an untuned step is the overwhelming case
+        // and a permanent "tune 0" would just be noise on the status line.
+        const semis = dm.stepTune(@intCast(p), s);
+        if (semis != 0) {
+            try w.writeAll(dim ++ "  tune " ++ rst);
+            try w.print("{s}{d}", .{ if (semis > 0) "+" else "", semis });
+        }
     }
     if (dm.choke_group[p] != 0) {
         try w.writeAll(dim ++ "  choke " ++ rst);

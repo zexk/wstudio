@@ -183,6 +183,20 @@ pub fn draw(
                     .col = color(theme.fg0),
                 });
             }
+            // A tuned step gets a bar along its bottom edge, above or below
+            // the hit's own baseline depending on the direction - the TUI's
+            // paren brackets can only say "tuned", this says which way.
+            if (kind == .drum) {
+                const semis = instrument.stepTune(@intCast(row), @intCast(step));
+                if (semis != 0) {
+                    const mark_y = if (semis > 0) pmin[1] - 3 else pmax[1] + 1;
+                    draw_list.addRectFilled(.{
+                        .pmin = .{ pmin[0], mark_y },
+                        .pmax = .{ pmax[0], mark_y + 2 },
+                        .col = color(theme.modulation),
+                    });
+                }
+            }
         }
     }
 
