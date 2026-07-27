@@ -294,6 +294,12 @@ test {
         _ = @import("tui/terminal.zig");
     }
     _ = @import("ui/icons.zig");
+    // The GUI is only imported inside `startFrontend`'s switch arm, which a
+    // test build never analyses - so every test under src/gui/ was silently
+    // collected by nothing and `zig build test` reported them as passing by
+    // never running them. Naming the module here is what puts them in the
+    // test binary; the guard matches `startFrontend`'s own.
+    if (build_options.gui) _ = @import("gui/gui.zig");
 }
 
 test "frontend links against the engine library" {

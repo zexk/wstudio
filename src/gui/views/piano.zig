@@ -31,6 +31,34 @@ pub const MouseEdit = struct {
     duration_steps: u16,
 };
 
+/// Pitch drawn on `row` of a roll whose top row is `top_pitch`, or null once
+/// the rows run off the bottom of the keyboard.
+///
+/// The view can be taller than the keyboard is deep below `top_pitch`: the
+/// scroll position is shared with the TUI and `followPitch` only ever clamps
+/// it upward (at 127), so opening a tall GUI window on a roll last scrolled
+/// in a short terminal leaves `piano_scroll_pitch` well under the row count.
+/// Subtracting straight into a u7 there panicked on integer overflow;
+/// views/piano.zig's TUI half has always computed this in a wider type and
+/// skipped the rows that don't exist.
+fn rowPitch(top_pitch: u7, row: usize) ?u7 {
+    const pitch: i32 = @as(i32, top_pitch) - @as(i32, @intCast(@min(row, 1024)));
+    if (pitch < 0) return null;
+    return @intCast(pitch);
+}
+
+test "rowPitch stops at the bottom of the keyboard instead of wrapping" {
+    try std.testing.expectEqual(@as(?u7, 60), rowPitch(60, 0));
+    try std.testing.expectEqual(@as(?u7, 40), rowPitch(60, 20));
+    try std.testing.expectEqual(@as(?u7, 0), rowPitch(60, 60));
+    // The crash: a tall view over a low scroll position. Every row past the
+    // bottom reports "no pitch" rather than wrapping a u7 round to 127.
+    try std.testing.expectEqual(@as(?u7, null), rowPitch(60, 61));
+    try std.testing.expectEqual(@as(?u7, null), rowPitch(0, 1));
+    try std.testing.expectEqual(@as(?u7, null), rowPitch(19, 36));
+    try std.testing.expectEqual(@as(?u7, 0), rowPitch(0, 0));
+}
+
 fn previewNote(source: ws.dsp.pattern.Note, edit: ?MouseEdit, steps_per_beat: usize) ws.dsp.pattern.Note {
     const active = edit orelse return source;
     const source_step: u16 = @intFromFloat(@round(source.start_beat * @as(f64, @floatFromInt(steps_per_beat))));
@@ -203,7 +231,10 @@ pub fn draw(app: anytype) void {
     draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + gutter_w, origin[1] + ruler_h }, .col = color(theme.bg2) });
 
     for (0..row_count) |row| {
-        const pitch: u7 = top_pitch - @as(u7, @intCast(row));
+        // Rows past the bottom of the keyboard stay as background - see
+        // `rowPitch`, which is where the overflow this used to panic on is
+        // documented.
+        const pitch = rowPitch(top_pitch, row) orelse break;
         const y = grid_y + @as(f32, @floatFromInt(row)) * row_h;
         const black = isBlackKey(pitch);
         const tone = piano_ed.scaleTone(app.core.piano_scale, pitch);
@@ -324,7 +355,10 @@ pub fn draw(app: anytype) void {
     const cell_w = beat_w / @as(f32, @floatFromInt(steps_per_beat));
     const pointer_step: usize = @intFromFloat(std.math.clamp(@floor((mouse[0] - grid_x) / cell_w), 0, @as(f32, @floatFromInt(steps - 1))));
     const pointer_row: usize = @intFromFloat(std.math.clamp(@floor((mouse[1] - grid_y) / row_h), 0, @as(f32, @floatFromInt(row_count - 1))));
-    const pointer_pitch: u7 = top_pitch - @as(u7, @intCast(pointer_row));
+    // Same guard as the row loop: the pointer can sit on a row below MIDI 0
+    // when the roll is scrolled to the bottom of the keyboard. Clamped to 0
+    // rather than skipped, since a hover still has to name some pitch.
+    const pointer_pitch: u7 = rowPitch(top_pitch, pointer_row) orelse 0;
 
     if (hovered and mouse[0] >= grid_x and mouse[1] >= grid_y) {
         const pointer_beat = @as(f64, @floatCast((mouse[0] - grid_x) / beat_w));
