@@ -6551,6 +6551,39 @@ test "tracks view: group row rides its bus fader, opens its chain, dd deletes th
     try std.testing.expectEqual(@as(usize, 3), app.track_rows_len); // plain track list again
 }
 
+test "tracks view: m/S on a group row mute/solo every member, and toggle back off" {
+    var app = try testApp();
+    defer app.deinit();
+    const g = try app.session.addGroup("bus");
+    app.session.assignTrackGroup(0, g);
+    app.session.assignTrackGroup(1, g);
+    app.view = .tracks;
+    app.tracksRowSync();
+    app.setTrackRow(0); // the group row
+    try std.testing.expectEqual(@as(?u8, g), app.cursorGroup());
+
+    app.handleKey(.{ .char = 'm' }, 0);
+    try std.testing.expect(app.session.project.tracks.items[0].muted);
+    try std.testing.expect(app.session.project.tracks.items[1].muted);
+    try std.testing.expect(!app.session.project.tracks.items[2].muted); // ungrouped, untouched
+
+    // A second press clears it - the group is fully muted, so the toggle flips.
+    app.handleKey(.{ .char = 'm' }, 0);
+    try std.testing.expect(!app.session.project.tracks.items[0].muted);
+    try std.testing.expect(!app.session.project.tracks.items[1].muted);
+
+    // A partly-muted group mutes the rest rather than unmuting what's set.
+    app.apiSetTrackMuted(0, true);
+    app.handleKey(.{ .char = 'm' }, 0);
+    try std.testing.expect(app.session.project.tracks.items[0].muted);
+    try std.testing.expect(app.session.project.tracks.items[1].muted);
+
+    app.handleKey(.{ .char = 'S' }, 0);
+    try std.testing.expect(app.session.project.tracks.items[0].soloed);
+    try std.testing.expect(app.session.project.tracks.items[1].soloed);
+    try std.testing.expect(!app.session.project.tracks.items[2].soloed);
+}
+
 test "tracks view: visual g groups the selected rows and lands on the new group's row" {
     var app = try testApp();
     defer app.deinit();

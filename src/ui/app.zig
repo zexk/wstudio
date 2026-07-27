@@ -1874,6 +1874,13 @@ pub const App = struct {
                     } else if (cur_group) |g| {
                         switch (key.char) {
                             's' => { spectrum_ed.switchToGroup(self, g); return; },
+                            // m/S on a group row act on every member track.
+                            // Falling through to the modal layer instead
+                            // reported "master bus has no mute" (a group row
+                            // parks `cursor` on the master sentinel), leaving
+                            // the group's whole submix unmutable from here.
+                            'm' => { self.doGroupMute(g); return; },
+                            'S' => { self.doGroupSolo(g); return; },
                             'z' => { self.doGroupFoldToggle(g); return; },
                             'R' => { self.startGroupRenamePrompt(g); return; },
                             'd' => { self.tracks_del_pending = true; return; },
@@ -2158,6 +2165,46 @@ pub const App = struct {
             self.setTrackRow(self.rowOfGroup(g) orelse self.track_row);
             self.setStatus("\"{s}\" {s}", .{ grp.name, if (grp.folded) "folded" else "unfolded" });
         }
+    }
+
+    /// `m`/`S` on a group row: mute/solo every member track at once. There is
+    /// no per-bus mute flag in the engine (`GroupState` carries gain and FX
+    /// only), and there doesn't need to be - a submix with every member muted
+    /// is silent, and a group solo is exactly "solo these tracks". Toggles
+    /// off the state when the whole group already has it, so pressing it
+    /// twice always returns the group to unmuted/unsoloed even if the members
+    /// started out mixed.
+    fn doGroupToggle(self: *App, g: u8, comptime solo: bool) void {
+        const grp = &(self.session.groups[g] orelse return);
+        var members: u16 = 0;
+        var all_on = true;
+        for (self.session.project.tracks.items) |t| {
+            if (t.group != g) continue;
+            members += 1;
+            if (!(if (solo) t.soloed else t.muted)) all_on = false;
+        }
+        if (members == 0) {
+            self.setStatus("\"{s}\" has no tracks", .{grp.name});
+            return;
+        }
+        const want = !all_on;
+        for (self.session.project.tracks.items, 0..) |t, i| {
+            if (t.group != g) continue;
+            if (solo) self.apiSetTrackSoloed(i, want) else self.apiSetTrackMuted(i, want);
+        }
+        const verb = if (solo)
+            (if (want) "soloed" else "unsoloed")
+        else
+            (if (want) "muted" else "unmuted");
+        self.setStatus("\"{s}\" {s} ({d} tracks)", .{ grp.name, verb, members });
+    }
+
+    fn doGroupMute(self: *App, g: u8) void {
+        self.doGroupToggle(g, false);
+    }
+
+    fn doGroupSolo(self: *App, g: u8) void {
+        self.doGroupToggle(g, true);
     }
 
     /// `-`/`+` on a group row: ride the bus fader (session.setGroupGain
