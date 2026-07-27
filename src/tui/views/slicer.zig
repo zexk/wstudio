@@ -9,6 +9,7 @@ const Slicer = ws.dsp.Slicer;
 const engine_mod = ws.engine;
 const style = @import("../style.zig");
 const icons = @import("../../ui/icons.zig");
+const sampler_view = @import("sampler.zig");
 
 const rst = style.rst;
 const bold = style.bold;
@@ -85,11 +86,15 @@ fn drawWavePane(
     // the cursor slice - the one whose region is highlighted - is drawn on
     // its warped playback timeline; the rest of the clip stays source-time.
     var amp: [wave_max_w]f32 = undefined;
+    var bands: [wave_max_w]waveform.Band = undefined;
     if (cur < sl.slice_count) {
         const p = &sl.slices[cur];
-        waveform.peakBucketsWarped(samples, amp[0..width], p.start_norm, p.end_norm, waveform.timeScale(p.pitch_semitones, p.stretch_ratio));
+        const scale = waveform.timeScale(p.pitch_semitones, p.stretch_ratio);
+        waveform.peakBucketsWarped(samples, amp[0..width], p.start_norm, p.end_norm, scale);
+        waveform.bandBuckets(samples, bands[0..width], sl.sample_rate, p.start_norm, p.end_norm, scale);
     } else {
         waveform.peakBuckets(samples, amp[0..width]);
+        waveform.bandBuckets(samples, bands[0..width], sl.sample_rate, 0.0, 1.0, 1.0);
     }
     var peak: f32 = 1e-6;
     for (amp[0..width]) |a| peak = @max(peak, a);
@@ -131,7 +136,7 @@ fn drawWavePane(
                 try w.writeAll(if (marker_cur[x]) yel ++ bold else bcyn);
                 try w.writeAll("\u{2503}" ++ rst); // ┃
             } else if (filled) {
-                try w.writeAll(if (count == 0 or in_cur[x]) acc else dim);
+                try w.writeAll(if (count == 0 or in_cur[x]) sampler_view.bandColor(bands[x]) else dim);
                 try w.writeAll("\u{2588}" ++ rst); // █
             } else if (row == @as(usize, @intFromFloat(center))) {
                 try w.writeAll(dim ++ "\u{2500}" ++ rst); // ─ zero axis

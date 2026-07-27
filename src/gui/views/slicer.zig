@@ -5,6 +5,7 @@ const icons = @import("../../ui/icons.zig");
 const waveform = @import("../../ui/waveform.zig");
 const style = @import("../style.zig");
 const widgets = @import("../widgets.zig");
+const sampler_view = @import("sampler.zig");
 const step_grid = @import("step_grid.zig");
 
 const theme = &style.palette;
@@ -99,6 +100,7 @@ fn drawSourceWaveform(app: anytype, slicer: *const ws.dsp.Slicer) void {
     draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = style.color(theme.bg0), .rounding = 3 });
 
     var overview: [512]f32 = undefined;
+    var bands: [512]waveform.Band = undefined;
     const count = @min(slicer.samples.len, overview.len);
     const mid_y = origin[1] + height / 2;
     const selected: ?u8 = if (slicer.slice_count == 0) null else @min(app.core.slicer_cursor[0], slicer.slice_count - 1);
@@ -109,6 +111,7 @@ fn drawSourceWaveform(app: anytype, slicer: *const ws.dsp.Slicer) void {
         const slice = slicer.slices[index];
         const scale = waveform.timeScale(slice.pitch_semitones, slice.stretch_ratio);
         waveform.peakBucketsWarped(slicer.samples, overview[0..count], slice.start_norm, slice.end_norm, scale);
+        waveform.bandBuckets(slicer.samples, bands[0..count], slicer.sample_rate, slice.start_norm, slice.end_norm, scale);
         draw_list.addRectFilled(.{
             .pmin = .{ origin[0] + slice.start_norm * width, origin[1] },
             .pmax = .{ origin[0] + waveform.playedEndNorm(slice.start_norm, slice.end_norm, scale) * width, origin[1] + height },
@@ -116,12 +119,13 @@ fn drawSourceWaveform(app: anytype, slicer: *const ws.dsp.Slicer) void {
         });
     } else {
         waveform.peakBuckets(slicer.samples, overview[0..count]);
+        waveform.bandBuckets(slicer.samples, bands[0..count], slicer.sample_rate, 0.0, 1.0, 1.0);
     }
 
     for (overview[0..count], 0..) |peak, i| {
         const x = origin[0] + width * @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(count));
         const h = @max(1, peak * height / 2 * 0.94);
-        draw_list.addLine(.{ .p1 = .{ x, mid_y - h }, .p2 = .{ x, mid_y + h }, .col = style.color(theme.audio), .thickness = 1 });
+        draw_list.addLine(.{ .p1 = .{ x, mid_y - h }, .p2 = .{ x, mid_y + h }, .col = style.color(sampler_view.bandColor(bands[i])), .thickness = 1 });
     }
     draw_list.addLine(.{ .p1 = .{ origin[0], mid_y }, .p2 = .{ origin[0] + width, mid_y }, .col = style.color(theme.line), .thickness = 1 });
 

@@ -5,17 +5,96 @@
 
 const std = @import("std");
 
+/// Source-sample range display column `x` reads. `scale` warps the play
+/// region the way `peakBucketsWarped` documents; null means the column is
+/// past the played end and should render as silence. The one place the
+/// column-to-sample mapping lives, so the peak pass and the band pass can
+/// never disagree about which samples a column covers.
+fn bucketRange(
+    x: usize,
+    width: usize,
+    samples_len: usize,
+    start_norm: f32,
+    end_norm: f32,
+    scale: f32,
+) ?struct { lo: usize, hi: usize } {
+    if (width == 0 or samples_len == 0) return null;
+    if (scale == 1.0) {
+        const lo = x * samples_len / width;
+        const hi = @max(lo + 1, (x + 1) * samples_len / width);
+        return .{ .lo = lo, .hi = @min(hi, samples_len) };
+    }
+    const width_f: f32 = @floatFromInt(width);
+    const len_f: f32 = @floatFromInt(samples_len);
+    const inv = 1.0 / @max(scale, 1e-6);
+    var lo_n = @as(f32, @floatFromInt(x)) / width_f;
+    var hi_n = @as(f32, @floatFromInt(x + 1)) / width_f;
+    if (hi_n > start_norm) {
+        lo_n = start_norm + (@max(lo_n, start_norm) - start_norm) * inv;
+        hi_n = start_norm + (hi_n - start_norm) * inv;
+        if (lo_n >= end_norm) return null;
+        hi_n = @min(hi_n, end_norm);
+    }
+    var lo: usize = @intFromFloat(std.math.clamp(lo_n, 0.0, 1.0) * len_f);
+    lo = @min(lo, samples_len - 1);
+    var hi: usize = @intFromFloat(std.math.clamp(hi_n, 0.0, 1.0) * len_f);
+    hi = @min(@max(hi, lo + 1), samples_len);
+    return .{ .lo = lo, .hi = hi };
+}
+
 /// Fill `out` with one peak (max |sample|) per bucket, splitting `samples`
 /// into `out.len` equal-ish buckets.
 pub fn peakBuckets(samples: []const f32, out: []f32) void {
-    const width = out.len;
-    if (width == 0) return;
+    peakBucketsWarped(samples, out, 0.0, 1.0, 1.0);
+}
+
+/// Rough frequency content of a column, for Serato-style waveform tinting.
+pub const Band = enum { low, mid, high };
+
+/// Band split points in Hz. Bass/body/air, the same three-way read a DJ
+/// waveform gives at a glance. Set against the shipped kit rather than by
+/// textbook octave boundaries: this centroid is an energy-weighted RMS
+/// frequency, so any noise in a sound pulls it well above where a listener
+/// would put it (kick.wav measures ~60 Hz, snare.wav ~8 kHz, hihat.wav
+/// ~11 kHz). A 2 kHz top split would have painted nearly everything as air.
+const low_hz: f32 = 200.0;
+const high_hz: f32 = 4000.0;
+
+/// Fill `out` with each column's dominant frequency band, over exactly the
+/// buckets `peakBucketsWarped` draws. The centroid comes from the mean
+/// squared first difference over the mean square rather than an FFT: for a
+/// sine at `f` that ratio is `(2 sin(pi f / sr))^2`, which inverts straight
+/// back to `f` for one extra accumulator over samples the peak pass already
+/// walks. Rough by construction (broadband content lands on its centre of
+/// mass, which is the point), and a column with no energy reads `.mid` so a
+/// silent stretch doesn't flash a colour.
+pub fn bandBuckets(
+    samples: []const f32,
+    out: []Band,
+    sample_rate: u32,
+    start_norm: f32,
+    end_norm: f32,
+    scale: f32,
+) void {
+    const sr: f32 = @floatFromInt(@max(sample_rate, 1));
     for (out, 0..) |*bucket, x| {
-        const lo = x * samples.len / width;
-        const hi = @max(lo + 1, (x + 1) * samples.len / width);
-        var peak: f32 = 0;
-        for (samples[lo..@min(hi, samples.len)]) |v| peak = @max(peak, @abs(v));
-        bucket.* = peak;
+        bucket.* = .mid;
+        const r = bucketRange(x, out.len, samples.len, start_norm, end_norm, scale) orelse continue;
+        var energy: f32 = 0;
+        var diff: f32 = 0;
+        var prev: f32 = samples[r.lo];
+        for (samples[r.lo..r.hi]) |v| {
+            energy += v * v;
+            const d = v - prev;
+            diff += d * d;
+            prev = v;
+        }
+        if (energy <= 1e-12) continue;
+        // asin's domain: heavy aliasing/noise can push the ratio past the
+        // Nyquist-limit value of 4, which just means "as high as it gets".
+        const ratio = @min(@sqrt(diff / energy) * 0.5, 1.0);
+        const hz = sr / std.math.pi * std.math.asin(ratio);
+        bucket.* = if (hz < low_hz) .low else if (hz < high_hz) .mid else .high;
     }
 }
 
@@ -49,28 +128,11 @@ pub fn peakBucketsWarped(
     end_norm: f32,
     scale: f32,
 ) void {
-    if (scale == 1.0 or out.len == 0 or samples.len == 0) return peakBuckets(samples, out);
-    const width: f32 = @floatFromInt(out.len);
-    const len_f: f32 = @floatFromInt(samples.len);
-    const inv = 1.0 / @max(scale, 1e-6);
     for (out, 0..) |*bucket, x| {
-        var lo_n = @as(f32, @floatFromInt(x)) / width;
-        var hi_n = @as(f32, @floatFromInt(x + 1)) / width;
-        if (hi_n > start_norm) {
-            lo_n = start_norm + (@max(lo_n, start_norm) - start_norm) * inv;
-            hi_n = start_norm + (hi_n - start_norm) * inv;
-            if (lo_n >= end_norm) {
-                bucket.* = 0;
-                continue;
-            }
-            hi_n = @min(hi_n, end_norm);
-        }
-        var lo: usize = @intFromFloat(std.math.clamp(lo_n, 0.0, 1.0) * len_f);
-        lo = @min(lo, samples.len - 1);
-        var hi: usize = @intFromFloat(std.math.clamp(hi_n, 0.0, 1.0) * len_f);
-        hi = @min(@max(hi, lo + 1), samples.len);
+        bucket.* = 0;
+        const r = bucketRange(x, out.len, samples.len, start_norm, end_norm, scale) orelse continue;
         var peak: f32 = 0;
-        for (samples[lo..hi]) |v| peak = @max(peak, @abs(v));
+        for (samples[r.lo..r.hi]) |v| peak = @max(peak, @abs(v));
         bucket.* = peak;
     }
 }
@@ -93,6 +155,35 @@ test "peakBuckets handles no samples" {
     var out: [3]f32 = undefined;
     peakBuckets(&.{}, &out);
     for (out) |bucket| try std.testing.expectEqual(@as(f32, 0), bucket);
+}
+
+test "bandBuckets separates a sub-bass rumble from a hissy top end" {
+    const sr: u32 = 48_000;
+    const len = sr / 2;
+    const samples = try std.testing.allocator.alloc(f32, len);
+    defer std.testing.allocator.free(samples);
+    // First half 60 Hz, second half 8 kHz.
+    for (samples, 0..) |*s, i| {
+        const t: f32 = @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(sr));
+        const hz: f32 = if (i < len / 2) 60.0 else 8000.0;
+        s.* = 0.5 * @sin(2.0 * std.math.pi * hz * t);
+    }
+
+    var bands: [8]Band = undefined;
+    bandBuckets(samples, &bands, sr, 0, 1, 1.0);
+    try std.testing.expectEqual(Band.low, bands[1]);
+    try std.testing.expectEqual(Band.high, bands[6]);
+}
+
+test "bandBuckets reads silence as neutral rather than a colour" {
+    const samples = [_]f32{0} ** 4096;
+    var bands: [4]Band = undefined;
+    bandBuckets(&samples, &bands, 48_000, 0, 1, 1.0);
+    for (bands) |b| try std.testing.expectEqual(Band.mid, b);
+
+    // Past a compressed region's played end, same neutral read.
+    bandBuckets(&samples, &bands, 48_000, 0, 1, 0.25);
+    for (bands) |b| try std.testing.expectEqual(Band.mid, b);
 }
 
 test "timeScale ties pitch and stretch into one duration factor" {

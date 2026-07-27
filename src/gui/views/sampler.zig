@@ -303,6 +303,18 @@ fn drawToggle(app: anytype, target: Target, id: u8, on_label: [:0]const u8, off_
     zgui.popStyleColor(.{ .count = 2 });
 }
 
+/// Waveform tint per frequency band, the GUI half of views/slicer.zig's and
+/// the TUI's own mapping: modulation (warm) for lows, the audio accent for
+/// the body, rhythm for air. Reusing named theme roles rather than raw RGB
+/// keeps the pane readable under every shipped theme.
+pub fn bandColor(band: waveform.Band) [4]f32 {
+    return switch (band) {
+        .low => theme.modulation,
+        .mid => theme.audio,
+        .high => theme.rhythm,
+    };
+}
+
 // A terminal can only show region bounds as numbers; dragging the trim
 // points against the actual waveform shape is GUI-only. Start/end share
 // param ids 0/1 across every target the `Target` union covers, so one
@@ -331,8 +343,10 @@ fn drawWaveformRegion(app: anytype, target: Target, samples: []const f32) void {
     const played_end = waveform.playedEndNorm(start, end, scale);
 
     var overview: [512]f32 = undefined;
+    var bands: [512]waveform.Band = undefined;
     const count = @min(samples.len, overview.len);
     waveform.peakBucketsWarped(samples, overview[0..count], start, end, scale);
+    waveform.bandBuckets(samples, bands[0..count], target.sampleRate(), start, end, scale);
     const mid_y = origin[1] + height / 2;
     const start_x = origin[0] + start * width;
     const end_x = origin[0] + end * width;
@@ -341,7 +355,7 @@ fn drawWaveformRegion(app: anytype, target: Target, samples: []const f32) void {
         const x = origin[0] + width * @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(count));
         const h = @max(1, peak * height / 2 * 0.94);
         const in_region = x >= start_x - 0.5 and x <= played_end_x + 0.5;
-        const line_color = if (in_region) theme.audio else [4]f32{ theme.fg3[0], theme.fg3[1], theme.fg3[2], 0.55 };
+        const line_color = if (in_region) bandColor(bands[i]) else [4]f32{ theme.fg3[0], theme.fg3[1], theme.fg3[2], 0.55 };
         draw_list.addLine(.{ .p1 = .{ x, mid_y - h }, .p2 = .{ x, mid_y + h }, .col = style.color(line_color), .thickness = 1 });
     }
     draw_list.addLine(.{ .p1 = .{ origin[0], mid_y }, .p2 = .{ origin[0] + width, mid_y }, .col = style.color(theme.line), .thickness = 1 });

@@ -18,6 +18,8 @@ const dim = style.dim;
 const acc = style.acc;
 const grn = style.grn;
 const bcyn = style.bcyn;
+const mag = style.mag;
+const yel = style.yel;
 const endLine = style.endLine;
 const hr = style.hr;
 const synthSection = style.synthSection;
@@ -117,7 +119,7 @@ pub fn drawSamplerEditor(
     const param_lines = sampler_ed.paramLineCount(pad_target);
     const wave_rows: usize = @min(wave_max_rows, body -| (written + param_lines));
     if (wave_rows >= 2) {
-        try drawWaveformPad(w, pad, cols, wave_rows);
+        try drawWaveformPad(w, pad, app.session.project.sample_rate, cols, wave_rows);
         written += wave_rows;
     }
 
@@ -225,9 +227,22 @@ fn sliceOf(app: anytype) *const ws.dsp.Pad {
 /// Render a centered, filled waveform of `pad` over `wave_rows` rows. Samples
 /// inside the play region are drawn in accent; outside is dim. The start/end
 /// markers are drawn as bright vertical bars.
+/// Waveform tint per frequency band. Warm for lows, the usual accent for the
+/// body, cool-bright for air - the low/high pair has to stay legible against
+/// `dim` (out of region) and `bcyn` (the trim markers), which rules out
+/// reusing either.
+pub fn bandColor(band: waveform.Band) []const u8 {
+    return switch (band) {
+        .low => mag,
+        .mid => acc,
+        .high => yel,
+    };
+}
+
 fn drawWaveformPad(
     w: *std.Io.Writer,
     pad: *const ws.dsp.Pad,
+    sample_rate: u32,
     cols: usize,
     wave_rows: usize,
 ) !void {
@@ -248,6 +263,11 @@ fn drawWaveformPad(
     const scale = waveform.timeScale(pad.pitch_semitones, pad.stretch_ratio);
     var amp: [wave_max_w]f32 = undefined;
     waveform.peakBucketsWarped(pad.samples, amp[0..width], pad.start_norm, pad.end_norm, scale);
+    // Tint each in-region column by its frequency content, the way a DJ
+    // waveform does: bass reads at a glance, so a kick and a hat are
+    // distinguishable without zooming in on their shapes.
+    var bands: [wave_max_w]waveform.Band = undefined;
+    waveform.bandBuckets(pad.samples, bands[0..width], sample_rate, pad.start_norm, pad.end_norm, scale);
     var peak: f32 = 1e-6;
     for (amp[0..width]) |a| peak = @max(peak, a);
     // Normalise to the loudest column so quiet samples are still visible.
@@ -272,7 +292,7 @@ fn drawWaveformPad(
             if (is_marker) {
                 try w.writeAll(bcyn ++ bold ++ "\u{2503}" ++ rst); // ┃
             } else if (filled) {
-                try w.writeAll(if (in_region) acc else dim);
+                try w.writeAll(if (in_region) bandColor(bands[x]) else dim);
                 try w.writeAll("\u{2588}"); // █
                 try w.writeAll(rst);
             } else if (row == @as(usize, @intFromFloat(center))) {
