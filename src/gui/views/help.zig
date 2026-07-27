@@ -1,7 +1,7 @@
-//! Help view: a short header/launcher strip over the live keyboard/command
-//! reference. The reference itself is rendered from `ui/help.zig`'s shared
-//! `HelpText` model - the same command table + user keymaps the TUI's
-//! drawHelp reads - instead of a hand-kept, easily stale row list. `j/k/d/u`
+//! Help view: the live keyboard/command reference, rendered from
+//! `ui/help.zig`'s shared `HelpText` model - the same command table + user
+//! keymaps the TUI's drawHelp reads - instead of a hand-kept, easily stale
+//! row list. `j/k/d/u`
 //! and `/` search are already wired generically in `ui/app.zig` (they just
 //! move `help_scroll`/`help_search_hit`); this file only has to render the
 //! window those fields point at.
@@ -9,64 +9,13 @@
 const std = @import("std");
 const zgui = @import("zgui");
 const help_model = @import("../../ui/help.zig");
-const preset_ed = @import("../../ui/editors/preset_picker.zig");
 const ansi = @import("../../ui/ansi.zig");
 const style = @import("../style.zig");
 
-const color = style.color;
 const theme = &style.palette;
 
 pub fn draw(app: anytype) void {
-    drawHeader();
-    zgui.spacing();
-    drawLaunchers(app);
-    zgui.spacing();
     drawReference(app);
-}
-
-fn drawHeader() void {
-    const width = zgui.getContentRegionAvail()[0];
-    const height: f32 = 72;
-    const origin = zgui.getCursorScreenPos();
-    _ = zgui.invisibleButton("help-header", .{ .w = width, .h = height });
-    const draw_list = zgui.getWindowDrawList();
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(theme.bg2), .rounding = 4 });
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + 5, origin[1] + height }, .col = color(theme.modulation), .rounding = 3 });
-    draw_list.addText(.{ origin[0] + 17, origin[1] + 10 }, color(theme.fg3), "WSTUDIO REFERENCE", .{});
-    draw_list.addText(.{ origin[0] + 17, origin[1] + 35 }, color(theme.fg0), "Keyboard first, mouse friendly", .{});
-    draw_list.addText(.{ origin[0] + width - 180, origin[1] + 27 }, color(theme.modulation), "VIM MODAL WORKFLOW", .{});
-}
-
-/// Faster mouse-driven paths to views also reachable by keybind (enter on a
-/// blank track, `:preset`, tab to the file browser) - additive, not a
-/// second source of truth for what those views contain.
-fn drawLaunchers(app: anytype) void {
-    zgui.textDisabled("QUICK OPEN", .{});
-    zgui.separator();
-    zgui.pushStyleColor4f(.{ .idx = .button, .c = theme.focus_soft });
-    if (zgui.button("INSTRUMENTS", .{ .h = 34 })) app.core.openInstrumentPicker(app.core.cursor, false);
-    zgui.popStyleColor(.{});
-    zgui.sameLine(.{ .spacing = 6 });
-    if (zgui.button("PRESETS", .{ .h = 34 })) openPresets(app);
-    zgui.sameLine(.{ .spacing = 6 });
-    if (zgui.button("PROJECTS", .{ .h = 34 })) app.core.view = .file_browser;
-}
-
-/// Which preset system the cursor track has, if any - the launcher opens the
-/// picker through `preset_picker.open` so it starts in the same state `f`
-/// leaves it in (kind, track, cleared filter, audition snapshot).
-fn openPresets(app: anytype) void {
-    if (app.core.cursor >= app.core.session.racks.items.len) return;
-    const kind: preset_ed.Kind = switch (app.core.session.racks.items[app.core.cursor].instrument) {
-        .poly_synth => .synth,
-        .drum_machine => .drum,
-        .soundfont => .soundfont,
-        else => {
-            app.core.setStatus("track {d} has no presets", .{app.core.cursor + 1});
-            return;
-        },
-    };
-    preset_ed.open(&app.core, kind, @intCast(app.core.cursor));
 }
 
 fn drawReference(app: anytype) void {

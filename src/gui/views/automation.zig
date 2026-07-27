@@ -31,8 +31,7 @@ pub fn draw(app: anytype) void {
     zgui.spacing();
     widgets.sectionTitle("ENVELOPE", theme.modulation);
     drawCurve(app, points, @max(0.25, length_beats), value_range);
-    zgui.spacing();
-    drawEditor(app, points, @max(0.25, length_beats), value_range);
+    drawEditor(points.*);
 }
 
 fn drawHeader(app: anytype, clip: ?*const ws.Clip) void {
@@ -233,42 +232,12 @@ fn curvePoint(origin: [2]f32, size: [2]f32, beat: f32, value: f32, length_beats:
     return .{ origin[0] + x_norm * size[0], origin[1] + (1.0 - y_norm) * size[1] };
 }
 
-fn drawEditor(app: anytype, points: *[]ws.dsp.automation.AutomationPoint, length_beats: f32, value_range: [2]f32) void {
-    if (zgui.beginChild("automation-editor", .{ .w = 0, .h = 82, .child_flags = .{ .border = true } })) {
-        zgui.textColored(theme.focus, "POINT", .{});
-        zgui.sameLine(.{ .spacing = 6 });
-        zgui.textDisabled("{d} stored", .{points.*.len});
-        zgui.sameLine(.{ .spacing = 12 });
-        var beat = @as(f32, @floatFromInt(app.core.automation_cursor_step)) * 0.25;
-        zgui.setNextItemWidth(180);
-        if (zgui.sliderFloat("Beat", .{ .v = &beat, .min = 0, .max = length_beats, .cfmt = "%.2f" })) app.core.automation_cursor_step = @intFromFloat(@round(beat * 4));
-        const cursor_beat = @as(f64, @floatFromInt(app.core.automation_cursor_step)) * 0.25;
-        var value = ws.dsp.automation.interpolate(points.*, cursor_beat) orelse 0;
-        zgui.sameLine(.{ .spacing = 16 });
-        zgui.setNextItemWidth(180);
-        if (zgui.sliderFloat("Value", .{ .v = &value, .min = value_range[0], .max = value_range[1], .cfmt = if (std.meta.activeTag(app.core.automation_focus) == .gain) "%.1f dB" else "%.2f" })) setPoint(app, points, value);
-        zgui.sameLine(.{ .spacing = 16 });
-        zgui.pushStyleColor4f(.{ .idx = .button, .c = theme.focus_soft });
-        if (zgui.button("SET", .{ .h = 30 })) setPoint(app, points, value);
-        zgui.popStyleColor(.{});
-        zgui.sameLine(.{ .spacing = 6 });
-        if (zgui.button("DELETE", .{ .h = 30 })) {
-            if (ws.dsp.automation.hasPointAt(points.*, cursor_beat)) {
-                recordAutomationGesture(app);
-                _ = ws.dsp.automation.removePoint(app.core.allocator, points, cursor_beat);
-                app.core.dirty = true;
-                app.core.session.rebuildSongData();
-            }
-        }
-        zgui.sameLine(.{ .spacing = 12 });
-        zgui.textDisabled("click add   double-click delete", .{});
-    }
-    zgui.endChild();
-}
-
-fn setPoint(app: anytype, points: *[]ws.dsp.automation.AutomationPoint, value: f32) void {
-    const beat = @as(f64, @floatFromInt(app.core.automation_cursor_step)) * 0.25;
-    setPointAt(app, points, beat, value);
+/// The curve's own footer: point count plus the two mouse gestures the
+/// curve widget answers to. Beat/value for the cursor are already on the
+/// curve's readout badge, and setting/deleting a point is the click and
+/// double-click right there, so there is no second editor panel.
+fn drawEditor(points: []const ws.dsp.automation.AutomationPoint) void {
+    zgui.textDisabled("{d} points   click add   double-click delete", .{points.len});
 }
 
 fn setPointAt(app: anytype, points: *[]ws.dsp.automation.AutomationPoint, beat: f64, value: f32) void {
