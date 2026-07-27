@@ -28,6 +28,7 @@ pub const Pad = @import("dsp/pad.zig").Pad;
 pub const pad = @import("dsp/pad.zig");
 pub const Sampler = @import("dsp/sampler.zig").Sampler;
 pub const pitch = @import("dsp/pitch.zig");
+pub const tempo = @import("dsp/tempo.zig");
 pub const drum_kit = @import("dsp/drum_kit.zig");
 pub const Slicer = @import("dsp/slicer.zig").Slicer;
 pub const clap = @import("clap/plugin.zig");
@@ -77,6 +78,7 @@ test {
     _ = pad;
     _ = Sampler;
     _ = pitch;
+    _ = tempo;
     _ = drum_kit;
     _ = Slicer;
     _ = clap;

@@ -89,6 +89,7 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "slice",       .desc = "<n>  equal-divide the slicer's loaded clip into n slices (1-64)", .run = wrap(cmdSlice), .scope = .slicer },
     .{ .name = "chop",        .desc = "[1-9]  chop the slicer's clip at detected transients (sensitivity, default 5)", .run = wrap(cmdChop), .scope = .slicer },
     .{ .name = "chop-random", .desc = "[n]  roll the dice: chop the slicer's clip into n uneven slices (default 8)", .run = wrap(cmdChopRandom), .scope = .slicer },
+    .{ .name = "bpm-sync",    .desc = "[clip-bpm]  stretch the slicer/sampler clip to the project tempo (detects if omitted)", .run = wrap(cmdBpmSync) },
     .{ .name = "spread",      .desc = "[semitones]  ramp pitch across the slices/pads, one step each (default 1)", .run = wrap(cmdSpread) },
     .{ .name = "edit",        .desc = "[file]  open a project (refuses if unsaved changes; omit the file to browse)", .run = wrap(cmdEdit) },
     .{ .name = "edit!",       .desc = "[file]  open a project, discarding changes; no file reverts the current one", .run = wrap(cmdEditForce) },
@@ -2173,6 +2174,70 @@ fn cmdChop(app: *App, args: []const u8) void {
         app.setStatus("chop: no transients found - try a higher sensitivity (:chop 1-9)", .{})
     else
         app.setStatus("chopped into {d} slices (sensitivity {d})", .{ n, sensitivity });
+}
+
+/// `:bpm-sync [clip-bpm]` - Serato's BPM sync: stretch the cursor track's
+/// clip so it runs at the project tempo, instead of nudging it into place by
+/// ear. With no argument the clip's own tempo is detected (dsp/tempo.zig);
+/// pass a number when the detector misses or the clip's real tempo is known.
+/// Works on a slicer (every slice gets the same ratio, they share one clip)
+/// and on a standalone sampler; a drum machine's pads are one-shots, not
+/// loops, so there is nothing to fit there.
+fn cmdBpmSync(app: *App, args: []const u8) void {
+    const trimmed = std.mem.trim(u8, args, " ");
+    const forced: ?f32 = if (trimmed.len == 0) null else parseFiniteFloat(f32, trimmed) catch {
+        app.setStatus("bpm-sync: usage :bpm-sync [clip-bpm]", .{});
+        return;
+    };
+    if (forced) |b| if (!(b > 0.0)) {
+        app.setStatus("bpm-sync: clip BPM must be positive", .{});
+        return;
+    };
+
+    const project_bpm: f32 = @floatCast(@max(app.session.project.tempo_bpm, 1.0));
+
+    if (cursorSlicerTrack(app)) |track| {
+        const sl = &app.session.racks.items[track].instrument.slicer;
+        const clip_bpm = forced orelse blk: {
+            const r = ws.dsp.tempo.detect(sl.samples, sl.sample_rate) orelse {
+                app.setStatus("bpm-sync: no clear pulse - pass the clip's BPM (:bpm-sync 174)", .{});
+                return;
+            };
+            break :blk r.bpm;
+        };
+        const ratio = ws.dsp.tempo.stretchToTempo(clip_bpm, project_bpm);
+        history.recordSlicer(app, track);
+        sl.stretchAll(ratio);
+        app.dirty = true;
+        app.setStatus("bpm-sync: {d:.1} -> {d:.1} BPM (stretch {d:.2}x)", .{ clip_bpm, project_bpm, ratio });
+        return;
+    }
+
+    const track = resolveTrack(app);
+    if (track < app.session.racks.items.len and
+        app.session.racks.items[track].instrument == .sampler)
+    {
+        const smp = &app.session.racks.items[track].instrument.sampler;
+        const clip_bpm = forced orelse blk: {
+            const r = ws.dsp.tempo.detect(smp.pad.samples, smp.sample_rate) orelse {
+                app.setStatus("bpm-sync: no clear pulse - pass the clip's BPM (:bpm-sync 174)", .{});
+                return;
+            };
+            break :blk r.bpm;
+        };
+        const ratio = ws.dsp.tempo.stretchToTempo(clip_bpm, project_bpm);
+        history.recordParamSet(app, @intCast(track), ws.dsp.pad.stretch_id);
+        _ = app.session.engine.send(.{ .set_track_param_abs = .{
+            .track = @intCast(track),
+            .id = ws.dsp.pad.stretch_id,
+            .value = ratio,
+        } });
+        app.dirty = true;
+        app.setStatus("bpm-sync: {d:.1} -> {d:.1} BPM (stretch {d:.2}x)", .{ clip_bpm, project_bpm, ratio });
+        return;
+    }
+
+    app.setStatus("bpm-sync: select a slicer or sampler track first", .{});
 }
 
 /// `:chop-random [n]` - Serato's "Set Random": chop into n slices at random

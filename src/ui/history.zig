@@ -389,6 +389,17 @@ pub fn noteParamNudge(app: *App, track: u16, id: u16, steps: i32) void {
     app.pending_param_nudge = .{ .track = track, .id = id, .before = before, .steps = steps };
 }
 
+/// Record a one-shot absolute param write - a command that sets a value
+/// outright (`:bpm-sync`) rather than nudging it - so undo puts the old
+/// value back. Flushes any open nudge batch first, same ordering the
+/// editors use before any other history push.
+pub fn recordParamSet(app: *App, track: u16, id: u16) void {
+    flushParamNudge(app);
+    const before = liveParamValue(app, track, id) orelse return;
+    app.dirty = true;
+    app.history.push(app.allocator, .{ .param_nudge = .{ .track = track, .id = id, .value = before } });
+}
+
 /// Commit the in-flight param-nudge batch (if any) to the undo stack,
 /// storing the absolute before-value - see `ParamNudgeState`'s doc
 /// comment. A batch that netted zero steps is dropped rather than pushed
