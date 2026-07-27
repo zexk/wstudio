@@ -21,7 +21,7 @@ const step_grid = @import("step_grid.zig");
 /// view's column math) and the 8-pad bank geometry shared between mouse
 /// hit-testing here and the bank window the view renders.
 pub const gutter: usize = 10;
-pub const pads_per_bank: usize = 8;
+pub const pads_per_bank = step_grid.rows_per_bank;
 
 /// How many 8-pad banks the grid stacks at once: tall terminals show 2/4/8
 /// banks instead of leaving the rows blank. Snapped to divisors of the bank
@@ -42,9 +42,7 @@ pub fn banksShown(rows: usize) usize {
 /// (always a multiple of pads_per_bank). Shared with views/drum.zig's
 /// rendering - keep both on this helper.
 pub fn bankWindowStart(cur_pad: u8, rows: usize) usize {
-    const shown = banksShown(rows);
-    const bank = @as(usize, cur_pad) / pads_per_bank;
-    return (bank / shown) * shown * pads_per_bank;
+    return step_grid.bankWindow(cur_pad, banksShown(rows));
 }
 
 pub fn handleKey(app: *App, key: modal_mod.Key) bool {

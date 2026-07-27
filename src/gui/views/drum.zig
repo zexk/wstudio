@@ -37,8 +37,6 @@ pub fn draw(app: anytype) void {
 }
 
 fn drawTitle(app: anytype, drum: *const ws.dsp.DrumMachine) void {
-    const pads_per_bank = 8;
-    const bank_count = (ws.dsp.DrumMachine.max_pads + pads_per_bank - 1) / pads_per_bank;
     zgui.textDisabled(icons.drum ++ "  DRUMS", .{});
     zgui.sameLine(.{});
     zgui.text("\"{s}\"", .{app.core.session.project.tracks.items[app.core.drum_track].name});
@@ -46,6 +44,4 @@ fn drawTitle(app: anytype, drum: *const ws.dsp.DrumMachine) void {
     zgui.textColored(theme.rhythm, "Pattern {c}", .{'A' + drum.variant});
     zgui.sameLine(.{});
     zgui.textDisabled("Variation {d}/{d}", .{ drum.variant + 1, drum.variant_count });
-    zgui.sameLine(.{});
-    zgui.textDisabled("Bank {d}/{d}", .{ app.core.drum_cursor[0] / pads_per_bank + 1, bank_count });
 }

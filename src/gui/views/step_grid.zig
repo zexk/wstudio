@@ -9,6 +9,10 @@ const theme = &style.palette;
 
 pub const Kind = enum { drum, slicer };
 
+/// Shortest a grid row is allowed to get; also what decides how many banks
+/// a panel can show at once (see `draw`'s `banks_fit`).
+const min_row_h: f32 = 32;
+
 pub fn draw(
     comptime kind: Kind,
     app: anytype,
@@ -25,17 +29,22 @@ pub fn draw(
     paint_state: *?bool,
 ) void {
     const step_count: usize = @max(1, step_count_raw);
-    const row_count = @min(@as(usize, 12), total_rows);
     const cursor_row = @min(@as(usize, cursor[0]), total_rows -| 1);
-    const row_start = if (row_count == 0) 0 else cursor_row / row_count * row_count;
-    const row_end = @min(total_rows, row_start + row_count);
     const gutter_w: f32 = 132;
     const ruler_h: f32 = 27;
     const available = zgui.getContentRegionAvail();
+    // Page in whole banks, like the TUI grids (see editors/step_grid.zig's
+    // `bankWindow`): how many fit is a pixel budget here rather than a row
+    // budget, but the window still starts on a bank boundary so the pads a
+    // page shows line up with the banks the rest of the UI names.
+    const banks_fit: usize = @intFromFloat(@max(1, @floor((available[1] - ruler_h) / min_row_h)) / @as(f32, @floatFromInt(shared_step_grid.rows_per_bank)));
+    const row_start = shared_step_grid.bankWindow(cursor_row, banks_fit);
+    const row_end = @min(total_rows, row_start + @max(1, banks_fit) * shared_step_grid.rows_per_bank);
+    const row_count = row_end - row_start;
     const row_h: f32 = if (row_count == 0)
-        32
+        min_row_h
     else
-        std.math.clamp((available[1] - ruler_h) / @as(f32, @floatFromInt(row_count)), 32, if (kind == .drum) 54 else 44);
+        std.math.clamp((available[1] - ruler_h) / @as(f32, @floatFromInt(row_count)), min_row_h, if (kind == .drum) 54 else 44);
     const canvas_w = @max(360, available[0]);
     const canvas_h = ruler_h + row_h * @as(f32, @floatFromInt(row_count));
     const origin = zgui.getCursorScreenPos();

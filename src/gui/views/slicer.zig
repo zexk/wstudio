@@ -67,8 +67,6 @@ fn drawEmptyState(app: anytype) void {
 }
 
 fn drawHeader(app: anytype, slicer: *const ws.dsp.Slicer) void {
-    const slices_per_bank = 8;
-    const bank_count = if (slicer.slice_count == 0) 1 else (slicer.slice_count + slices_per_bank - 1) / slices_per_bank;
     zgui.textDisabled(icons.slicer ++ "  SLICER", .{});
     zgui.sameLine(.{});
     zgui.text("\"{s}\"", .{app.core.session.project.tracks.items[app.core.slicer_track].name});
@@ -79,10 +77,6 @@ fn drawHeader(app: anytype, slicer: *const ws.dsp.Slicer) void {
     if (slicer.variant_count > 1) {
         zgui.sameLine(.{});
         zgui.textDisabled("{d}/{d}", .{ slicer.variant + 1, slicer.variant_count });
-    }
-    if (bank_count > 1) {
-        zgui.sameLine(.{});
-        zgui.textDisabled("bank {d}/{d}", .{ app.core.slicer_cursor[0] / slices_per_bank + 1, bank_count });
     }
 }
 

@@ -31,6 +31,20 @@
 
 const std = @import("std");
 
+/// Pads/slices per bank - the row-window unit every step grid pages by, in
+/// both frontends (the drum editor re-exports it as `pads_per_bank`, the
+/// slicer's fixed 8-row pane is the same bank).
+pub const rows_per_bank: usize = 8;
+
+/// First row of a window `banks` banks tall containing `cur_row`. The window
+/// always starts on a bank boundary so paging groups stay aligned; how many
+/// banks fit is the caller's business (terminal row budget in the TUI, panel
+/// height in the GUI).
+pub fn bankWindow(cur_row: usize, banks: usize) usize {
+    const shown = @max(1, banks);
+    return (cur_row / rows_per_bank / shown) * shown * rows_per_bank;
+}
+
 pub fn StepRange(comptime T: type) type {
     return struct { lo: T, hi: T };
 }

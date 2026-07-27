@@ -49,7 +49,7 @@ pub const Layout = struct {
 
 pub fn layout(slice_count: u8, rows: usize) Layout {
     const budget = rows -| 4;
-    const bank_rows: usize = if (slice_count == 0) 0 else 8;
+    const bank_rows: usize = if (slice_count == 0) 0 else step_grid.rows_per_bank;
     const fixed = 1 + 1 + bank_rows; // title + header + bank window
     const spare = budget -| (fixed + 1); // +1: the ruler rides with the pane
     const wave: usize = @min(wave_max_rows, spare);
